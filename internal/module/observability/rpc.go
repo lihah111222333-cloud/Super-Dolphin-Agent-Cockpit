@@ -89,23 +89,23 @@ type recentRowSelection struct {
 }
 
 type frontendTraceEvent struct {
-	Timestamp    time.Time          `json:"ts,omitzero"`
-	TraceID      string             `json:"trace_id,omitempty"`
-	SpanID       string             `json:"span_id,omitempty"`
-	ParentSpanID string             `json:"parent_span_id,omitempty"`
-	Kind         string             `json:"kind,omitempty"`
-	Phase        string             `json:"phase,omitempty"`
-	Method       string             `json:"method,omitempty"`
-	ThreadID     string             `json:"thread_id,omitempty"`
-	AgentID      string             `json:"agent_id,omitempty"`
-	TurnID       string             `json:"turn_id,omitempty"`
-	CallID       string             `json:"call_id,omitempty"`
-	ClientKind   string             `json:"client_kind,omitempty"`
-	ClientRoute  string             `json:"client_route,omitempty"`
-	DurationMS   int64              `json:"duration_ms,omitempty"`
-	Status       platformobs.Status `json:"status"`
-	Error        string             `json:"error,omitempty"`
-	Metadata     map[string]any     `json:"metadata,omitempty"`
+	Timestamp    time.Time            `json:"ts,omitzero"`
+	TraceID      string               `json:"trace_id,omitempty"`
+	SpanID       string               `json:"span_id,omitempty"`
+	ParentSpanID string               `json:"parent_span_id,omitempty"`
+	Kind         string               `json:"kind,omitempty"`
+	Phase        string               `json:"phase,omitempty"`
+	Method       string               `json:"method,omitempty"`
+	ThreadID     string               `json:"thread_id,omitempty"`
+	AgentID      string               `json:"agent_id,omitempty"`
+	TurnID       string               `json:"turn_id,omitempty"`
+	CallID       string               `json:"call_id,omitempty"`
+	ClientKind   string               `json:"client_kind,omitempty"`
+	ClientRoute  string               `json:"client_route,omitempty"`
+	DurationMS   int64                `json:"duration_ms,omitempty"`
+	Status       platformobs.Status   `json:"status"`
+	Error        string               `json:"error,omitempty"`
+	Metadata     platformobs.Metadata `json:"metadata,omitempty"`
 }
 
 func NewHandlers(svc *platformobs.Service) platformrpc.HandlerMapResult {

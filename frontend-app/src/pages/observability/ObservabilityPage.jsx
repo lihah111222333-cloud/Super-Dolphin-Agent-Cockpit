@@ -1,9 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useReducer, useRef, useState } from 'react';
 import { Copy } from 'lucide-react';
 import { getObservabilityTrace, listObservabilityRecent as getObservabilityRecent, copyTextToClipboard } from '../../shared/api/backendApi.js';
 import { errorMessage, textValue } from '../shared/pageShared.js';
-
-const recentLogRefreshIntervalMS = 2000;
 
 const OBSERVABILITY_PAGE_INITIAL_STATE = Object.freeze({
   copiedTraceId: '',
@@ -172,45 +170,12 @@ function expandedTraceErrorState(current, traceId, message, queryLimit) {
 function ObservabilityPage() {
   const { buildRecentParams, filters, queryLimit, setFilter } = useObservabilityFilters();
   const [pageState, dispatchPageState] = useReducer(observabilityPageReducer, OBSERVABILITY_PAGE_INITIAL_STATE);
-  const activeRecentParamsRef = useRef(null);
   const recentRequestSequenceRef = useRef(0);
   const { copiedTraceId, loading, notice, recentResult } = pageState;
   const setNotice = useCallback((message) => {
     dispatchPageState({ type: 'notice/set', message });
   }, []);
   const { expandedTraces, setExpandedTraces, toggleTraceExpansion } = useObservabilityTraceExpansion({ queryLimit, setFilter, setNotice });
-
-  useEffect(() => {
-    let disposed = false;
-    let refreshInFlight = false;
-    const refresh = async () => {
-      const activeRecentParams = activeRecentParamsRef.current;
-      if (!activeRecentParams) return;
-      if (refreshInFlight) return;
-      refreshInFlight = true;
-      const requestSequence = recentRequestSequenceRef.current + 1;
-      recentRequestSequenceRef.current = requestSequence;
-      try {
-        const result = await getObservabilityRecent({ ...activeRecentParams, includeTail: false });
-        if (!disposed && recentRequestSequenceRef.current === requestSequence) {
-          dispatchPageState({ type: 'recent/set', result, clearNotice: true });
-        }
-      }
-      catch (error) {
-        if (!disposed && recentRequestSequenceRef.current === requestSequence) {
-          dispatchPageState({ type: 'notice/set', message: errorMessage(error) });
-        }
-      }
-      finally {
-        refreshInFlight = false;
-      }
-    };
-    const intervalID = window.setInterval(refresh, recentLogRefreshIntervalMS);
-    return () => {
-      disposed = true;
-      window.clearInterval(intervalID);
-    };
-  }, []);
 
   const copyTraceId = useCallback(async (value) => {
     const nextTraceId = textValue(value);
@@ -229,14 +194,12 @@ function ObservabilityPage() {
     dispatchPageState({ type: 'query/start' });
     const requestSequence = recentRequestSequenceRef.current + 1;
     recentRequestSequenceRef.current = requestSequence;
-    activeRecentParamsRef.current = null;
     setExpandedTraces({});
     const params = { ...buildRecentParams(), includeTail: true };
     try {
       const result = await getObservabilityRecent(params);
       if (recentRequestSequenceRef.current === requestSequence) {
         dispatchPageState({ type: 'recent/set', result, clearNotice: false });
-        activeRecentParamsRef.current = { ...params, includeTail: false };
       }
     }
     catch (error) {

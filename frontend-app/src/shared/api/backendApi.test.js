@@ -81,7 +81,7 @@ import { createBackendApi, emitFrontendTraceEvent, RPC_METHODS } from './backend
     });
   });
 
-  it('sends turn/start with explicit cwd and file mentions', async () => {
+  it('sends turn/start input-only text and expanded arrays with explicit cwd', async () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
 
@@ -89,19 +89,104 @@ import { createBackendApi, emitFrontendTraceEvent, RPC_METHODS } from './backend
       cwd: '/repo/app',
       threadId: 'thread-123',
       input: 'build it',
+      manualSkillSelection: false,
+    });
+    await api.startTurn({
+      cwd: '/repo/app',
+      threadId: 'thread-456',
+      input: [
+        { type: 'text', text: 'inspect this' },
+        { type: 'mention', name: 'a.txt', path: '/tmp/a.txt' },
+      ],
+    });
+
+    expect(callAPI).toHaveBeenNthCalledWith(1, RPC_METHODS.TURN_START, {
+      cwd: '/repo/app',
+      threadId: 'thread-123',
+      prompt: 'build it',
+      manualSkillSelection: false,
+    });
+    expect(callAPI).toHaveBeenNthCalledWith(2, RPC_METHODS.TURN_START, {
+      cwd: '/repo/app',
+      threadId: 'thread-456',
+      input: [
+        { type: 'text', text: 'inspect this' },
+        { type: 'mention', name: 'a.txt', path: '/tmp/a.txt' },
+      ],
+    });
+  });
+
+  it('sends turn/start legacy attachments when input is absent or empty', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    await api.startTurn({
+      cwd: '/repo/app',
+      threadId: 'thread-123',
       attachments: ['/tmp/a.txt'],
       manualSkillSelection: false,
     });
+    await api.startTurn({
+      cwd: '/repo/app',
+      threadId: 'thread-456',
+      input: '  ',
+      attachments: [{ path: '/tmp/b.png', kind: 'image', previewUrl: 'data:image/png;base64,abc' }],
+    });
 
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.TURN_START, {
+    expect(callAPI).toHaveBeenNthCalledWith(1, RPC_METHODS.TURN_START, {
       cwd: '/repo/app',
       threadId: 'thread-123',
       input: [
-        { type: 'text', text: 'build it' },
         { type: 'mention', name: 'a.txt', path: '/tmp/a.txt' },
       ],
       manualSkillSelection: false,
     });
+    expect(callAPI).toHaveBeenNthCalledWith(2, RPC_METHODS.TURN_START, {
+      cwd: '/repo/app',
+      threadId: 'thread-456',
+      input: [
+        { type: 'localImage', path: '/tmp/b.png', url: 'data:image/png;base64,abc' },
+      ],
+    });
+  });
+
+  it('rejects turn/start legacy prompt with legacy attachments before calling the backend', () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    expect(() => api.startTurn({
+      cwd: '/repo/app',
+      threadId: 'thread-123',
+      prompt: 'build it',
+      attachments: ['/tmp/a.txt'],
+    })).toThrow('turn/start: prompt and attachments cannot both contain content');
+    expect(callAPI).not.toHaveBeenCalled();
+  });
+
+  it('rejects turn/start array input with legacy attachments before calling the backend', () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    expect(() => api.startTurn({
+      cwd: '/repo/app',
+      threadId: 'thread-123',
+      input: [{ type: 'text', text: 'build it' }],
+      attachments: ['/tmp/a.txt'],
+    })).toThrow('turn/start: input and attachments cannot both contain content');
+    expect(callAPI).not.toHaveBeenCalled();
+  });
+
+  it('rejects turn/start string input with legacy attachments before calling the backend', () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    expect(() => api.startTurn({
+      cwd: '/repo/app',
+      threadId: 'thread-123',
+      input: 'build it',
+      attachments: ['/tmp/a.txt'],
+    })).toThrow('turn/start: input and attachments cannot both contain content');
+    expect(callAPI).not.toHaveBeenCalled();
   });
 
   it('maps archive, unarchive, and delete thread actions to legacy thread RPCs', async () => {

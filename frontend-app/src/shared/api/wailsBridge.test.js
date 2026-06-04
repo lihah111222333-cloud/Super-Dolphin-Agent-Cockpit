@@ -552,6 +552,45 @@ describe('wails bridge non-RPC binding logs', () => {
   });
 });
 
+describe('wails bridge event callbacks', () => {
+  beforeEach(resetWailsRuntimeMocks);
+
+  it('rethrows bridge callback errors when escalation is requested', async () => {
+    let eventCallback = null;
+    const on = vi.fn((_eventName, callback) => {
+      eventCallback = callback;
+      return () => {};
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: vi.fn() },
+      Events: { On: on },
+    }));
+    const { onBridgeEvent, registerBridgeLogStore } = await import('./wailsBridge.js');
+    const logs = captureBridgeLogs(registerBridgeLogStore);
+
+    onBridgeEvent(() => {
+      throw new Error('dag status event run identity is required');
+    }, { escalateCallbackError: true });
+
+    await waitFor(() => expect(on).toHaveBeenCalledWith('bridge-event', expect.any(Function)));
+    expect(() => eventCallback({
+      name: 'bridge-event',
+      data: {
+        method: 'task/node/statuschanged',
+        payload: { dag_key: 'flow-a', node_key: 'step', new_status: 'running' },
+      },
+    })).toThrow('dag status event run identity is required');
+    expect(logs.find((entry) => entry.event === 'bridge.callback.failed')).toEqual(
+      expect.objectContaining({
+        level: 'error',
+        fields: expect.objectContaining({
+          error: expect.objectContaining({ message: 'dag status event run identity is required' }),
+        }),
+      }),
+    );
+  });
+});
+
 describe('wails bridge frontend trace emitter', () => {
   beforeEach(resetFrontendTraceEmitter);
 

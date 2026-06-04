@@ -41,10 +41,10 @@ func assertPrePushGoOnlyScope(t *testing.T) {
 	head := commitPrePushGoOnlyChange(t, fixture.root)
 	out := fixture.run(t, head)
 	assertOutputContainsAll(t, out, "[pre-push] go package tests: ./internal/app", "fake go package test ./internal/app -count=1", "pre-push OK")
-	assertOutputOmitsAll(t, out, "frontend package tests")
+	assertOutputOmitsAll(t, out, "legacy frontend package tests", "frontend-app tests")
 	log := fixture.log(t)
 	assertOutputContainsAll(t, log, "go-test ./internal/app -count=1")
-	assertOutputOmitsAll(t, log, "node ", "npx ")
+	assertOutputOmitsAll(t, log, "node ", "npx ", "npm ")
 }
 
 func commitPrePushGoOnlyChange(t *testing.T, root string) string {
@@ -56,19 +56,19 @@ func commitPrePushGoOnlyChange(t *testing.T, root string) string {
 	return strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 }
 
-func assertPrePushFrontendOnlyScope(t *testing.T) {
+func assertPrePushLegacyFrontendOnlyScope(t *testing.T) {
 	t.Helper()
 	fixture := newPrePushScopeFixture(t)
-	head := commitPrePushFrontendOnlyChange(t, fixture.root)
+	head := commitPrePushLegacyFrontendOnlyChange(t, fixture.root)
 	out := fixture.run(t, head)
-	assertOutputContainsAll(t, out, "[pre-push] frontend codebase guard", "[pre-push] frontend package tests", "pre-push OK")
-	assertOutputOmitsAll(t, out, "go package tests")
+	assertOutputContainsAll(t, out, "[pre-push] legacy frontend codebase guard", "[pre-push] legacy frontend package tests", "pre-push OK")
+	assertOutputOmitsAll(t, out, "go package tests", "frontend-app tests")
 	log := fixture.log(t)
 	assertOutputContainsAll(t, log, "node scripts/size-guard.cjs", "npx vitest run")
-	assertOutputOmitsAll(t, log, "go-test ")
+	assertOutputOmitsAll(t, log, "go-test ", "npm ")
 }
 
-func commitPrePushFrontendOnlyChange(t *testing.T, root string) string {
+func commitPrePushLegacyFrontendOnlyChange(t *testing.T, root string) string {
 	t.Helper()
 	writeFixTestGuardFile(t, root, "cmd/agent-terminal/frontend/scripts/size-guard.cjs", "console.log('ok')\n")
 	writeFixTestGuardFile(t, root, "cmd/agent-terminal/frontend/vue-app/app.js", "export const app = true\n")
@@ -77,12 +77,33 @@ func commitPrePushFrontendOnlyChange(t *testing.T, root string) string {
 	return strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 }
 
+func assertPrePushFrontendAppOnlyScope(t *testing.T) {
+	t.Helper()
+	fixture := newPrePushScopeFixture(t)
+	head := commitPrePushFrontendAppOnlyChange(t, fixture.root)
+	out := fixture.run(t, head)
+	assertOutputContainsAll(t, out, "[pre-push] frontend-app lint", "[pre-push] frontend-app tests", "[pre-push] frontend-app build", "pre-push OK")
+	assertOutputOmitsAll(t, out, "go package tests", "legacy frontend package tests")
+	log := fixture.log(t)
+	assertOutputContainsAll(t, log, "npm run lint", "npm test", "npm run build")
+	assertOutputOmitsAll(t, log, "go-test ", "node ", "npx ")
+}
+
+func commitPrePushFrontendAppOnlyChange(t *testing.T, root string) string {
+	t.Helper()
+	writeFixTestGuardFile(t, root, "frontend-app/package.json", "{}\n")
+	writeFixTestGuardFile(t, root, "frontend-app/src/App.jsx", "export const App = () => null\n")
+	runFixTestGuardGit(t, root, "add", "frontend-app")
+	runFixTestGuardGit(t, root, "commit", "-m", "chore: 更新 frontend app")
+	return strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+}
+
 func assertPrePushDocsOnlyScope(t *testing.T) {
 	t.Helper()
 	fixture := newPrePushScopeFixture(t)
 	head := commitPrePushDocsOnlyChange(t, fixture.root)
 	out := fixture.run(t, head)
-	assertOutputOmitsAll(t, out, "go package tests", "frontend package tests")
+	assertOutputOmitsAll(t, out, "go package tests", "legacy frontend package tests", "frontend-app tests")
 	assertOutputContainsAll(t, out, "pre-push OK")
 	if log := fixture.log(t); log != "" {
 		t.Fatalf("package command log should be empty for docs-only push\n%s", log)
@@ -167,6 +188,7 @@ func writePrePushScopeFakeBins(t *testing.T, logPath string) string {
 		"go":   "#!/usr/bin/env bash\nprintf 'go %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\nif [ \"${1:-}\" = \"list\" ]; then shift; printf '%s\\n' \"$@\"; fi\n",
 		"node": "#!/usr/bin/env bash\nprintf 'node %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\n",
 		"npx":  "#!/usr/bin/env bash\nprintf 'npx %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\n",
+		"npm":  "#!/usr/bin/env bash\nprintf 'npm %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\n",
 	} {
 		path := filepath.Join(binDir, name)
 		if err := os.WriteFile(path, []byte(content), 0o755); err != nil {

@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 
 let bridgeCallback;
+let bridgeOptions;
 
 const backend = vi.hoisted(() => ({
   readConfig: vi.fn(),
@@ -36,10 +37,12 @@ const backend = vi.hoisted(() => ({
   emitFrontendTraceEvent: vi.fn(),
   listSharedFiles: vi.fn(),
   readSharedFile: vi.fn(),
-  onBridgeEvent: vi.fn((callback) => {
+  onBridgeEvent: vi.fn((callback, options = {}) => {
     bridgeCallback = callback;
+    bridgeOptions = options;
     return () => {
       bridgeCallback = null;
+      bridgeOptions = null;
     };
   }),
   onRuntimeReconnect: vi.fn(() => () => {}),
@@ -70,6 +73,7 @@ function registerBridgeEventHandlersForTest() {
   beforeEach(() => {
     vi.clearAllMocks();
     bridgeCallback = null;
+    bridgeOptions = null;
     resetClientStoreForTests();
     backend.readConfig.mockResolvedValue({ cwd: '/repo/app' });
     backend.getWindowBootstrap.mockResolvedValue({ snapshot: null });
@@ -1109,6 +1113,8 @@ function registerBridgeEventHandlersForTest() {
       ],
       manualSkillSelection: false,
     });
+    const turnPayload = backend.startTurn.mock.calls[0][0];
+    expect(turnPayload).not.toHaveProperty('attachments');
 
     const timeline = useClientStore.getState().timelinesByThread['thread-new'];
     expect(timeline).toEqual([
@@ -2006,6 +2012,23 @@ function registerBridgeEventHandlersForTest() {
     })).toThrow('dag status event run identity is required');
 
     expect(useClientStore.getState().workflowRevision).toBe(0);
+  });
+
+  it('subscribes bridge events with callback error escalation for malformed DAG payloads', () => {
+    registerBridgeEventHandlersForTest();
+
+    expect(backend.onBridgeEvent).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({
+      escalateCallbackError: expect.any(Function),
+    }));
+    expect(bridgeOptions).toEqual(expect.objectContaining({
+      escalateCallbackError: expect.any(Function),
+    }));
+    expect(bridgeOptions.escalateCallbackError(new Error('bad payload'), {
+      type: 'task/node/statusChanged',
+    })).toBe(true);
+    expect(bridgeOptions.escalateCallbackError(new Error('non-critical'), {
+      type: 'ui/sidebar/changed',
+    })).toBe(false);
   });
 
   it('refreshes the chat list when the backend sidebar projection changes', async () => {

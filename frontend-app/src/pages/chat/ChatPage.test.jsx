@@ -3,7 +3,7 @@ import { act, createEvent, fireEvent, render, screen, waitFor, within } from '@t
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import mermaid from 'mermaid';
 import { ChatPage } from './ChatPage.jsx';
-import { locateCodeFile, openCodeFile } from '../../shared/api/backendApi.js';
+import { locateCodeFile, onFilesDropped, openCodeFile } from '../../shared/api/backendApi.js';
 
 vi.mock('../../shared/api/backendApi.js', () => ({
   copyTextToClipboard: vi.fn(),
@@ -331,6 +331,147 @@ describe('ChatPage module', () => {
     expect(dropEvent.defaultPrevented).toBe(true);
   });
 
+  it('falls back to transfer file paths when a dropped DOM File has no path', async () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '拖文件进来即可。', time: '2026-06-02T08:00:00Z' },
+    ], {
+      attachDroppedFilesForComposer: vi.fn(() => 0),
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    const dropped = new File(['notes'], 'browser-only-notes.txt', { type: 'text/plain' });
+    const conversation = screen.getByTestId('conversation-drop-zone');
+    const dataTransfer = {
+      files: [dropped],
+      items: [],
+      types: ['Files', 'text/uri-list'],
+      getData: (type) => (type === 'text/uri-list' ? 'file:///tmp/browser-only-notes.txt' : ''),
+    };
+
+    fireEvent.drop(conversation, { dataTransfer });
+
+    await waitFor(() => {
+      expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([dropped]);
+    });
+    expect(store.attachPathsForComposer).toHaveBeenCalledWith(['/tmp/browser-only-notes.txt']);
+  });
+
+  it('uses transfer file paths when DOM files attach partially', async () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '拖文件进来即可。', time: '2026-06-02T08:00:00Z' },
+    ], {
+      attachDroppedFilesForComposer: vi.fn(() => 1),
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    const dropped = new File(['notes'], 'partial-fallback.txt', { type: 'text/plain' });
+    const conversation = screen.getByTestId('conversation-drop-zone');
+    const dataTransfer = {
+      files: [dropped],
+      items: [],
+      types: ['Files', 'text/uri-list'],
+      getData: (type) => (type === 'text/uri-list' ? 'file:///tmp/partial-fallback.txt' : ''),
+    };
+
+    fireEvent.drop(conversation, { dataTransfer });
+
+    await waitFor(() => {
+      expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([dropped]);
+    });
+    expect(store.attachPathsForComposer).toHaveBeenCalledWith(['/tmp/partial-fallback.txt']);
+  });
+
+
+  it('accepts native Wails file drops when target details only contain chat-area classes', () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '拖文件进来即可。', time: '2026-06-02T08:00:00Z' },
+    ]);
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+    const nativeDropHandler = onFilesDropped.mock.calls.at(-1)?.[0];
+
+    act(() => {
+      nativeDropHandler?.({
+        files: ['/tmp/native-composer-class.txt'],
+        details: { classList: ['composer-card'] },
+      });
+    });
+
+    expect(store.attachPathsForComposer).toHaveBeenCalledWith(['/tmp/native-composer-class.txt']);
+
+    act(() => {
+      nativeDropHandler?.({
+        files: ['/tmp/native-timeline-class.txt'],
+        details: { classList: ['timeline'] },
+      });
+    });
+
+    expect(store.attachPathsForComposer).toHaveBeenCalledWith(['/tmp/native-timeline-class.txt']);
+
+    act(() => {
+      nativeDropHandler?.({
+        files: ['/tmp/native-attribute-class.txt'],
+        details: { attributes: { class: 'timeline-shell' } },
+      });
+    });
+
+    expect(store.attachPathsForComposer).toHaveBeenCalledWith(['/tmp/native-attribute-class.txt']);
+  });
+
+  it('accepts native Wails file drops without target details only after entering a chat drop target', () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '拖文件进来即可。', time: '2026-06-02T08:00:00Z' },
+    ]);
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+    const nativeDropHandler = onFilesDropped.mock.calls.at(-1)?.[0];
+    const conversation = screen.getByTestId('conversation-drop-zone');
+
+    fireEvent.dragEnter(conversation, {
+      dataTransfer: {
+        files: [new File(['notes'], 'native-missing-details.txt', { type: 'text/plain' })],
+        items: [],
+        types: ['Files'],
+      },
+    });
+
+    act(() => {
+      nativeDropHandler?.({
+        files: ['/tmp/native-missing-details.txt'],
+      });
+    });
+
+    expect(store.attachPathsForComposer).toHaveBeenCalledWith(['/tmp/native-missing-details.txt']);
+    expect(conversation).not.toHaveClass('drop-active');
+  });
+
+  it('rejects native Wails file drops from clearly non-chat or unknown targets', () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '拖文件进来即可。', time: '2026-06-02T08:00:00Z' },
+    ]);
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+    const nativeDropHandler = onFilesDropped.mock.calls.at(-1)?.[0];
+
+    act(() => {
+      nativeDropHandler?.({
+        files: ['/tmp/native-sidebar-drop.txt'],
+        details: { id: 'sidebar-thread-item', classList: ['thread-card'] },
+      });
+      nativeDropHandler?.({
+        files: ['/tmp/native-app-nav-drop.txt'],
+        details: { classList: ['app-nav'] },
+      });
+      nativeDropHandler?.({
+        files: ['/tmp/native-unknown-drop.txt'],
+      });
+    });
+
+    expect(store.attachPathsForComposer).not.toHaveBeenCalled();
+  });
+
   it('accepts external uri-list drops on the conversation window', () => {
     const store = createActiveThreadStore([
       { id: 'msg-1', role: 'assistant', text: '拖文件进来即可。', time: '2026-06-02T08:00:00Z' },
@@ -403,6 +544,105 @@ describe('ChatPage module', () => {
 
     expect(store.attachPathsForComposer).toHaveBeenCalledWith(['/tmp/copied quoted.txt']);
     expect(store.setDraft).not.toHaveBeenCalled();
+  });
+
+  it('attaches ordinary clipboard.files File objects with a path instead of pasting text', async () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '可以直接粘贴文件。', time: '2026-06-02T08:00:00Z' },
+    ]);
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    const file = new File(['notes'], 'copied-notes.txt', { type: 'text/plain' });
+    Object.defineProperty(file, 'path', { value: '/tmp/copied-notes.txt' });
+
+    fireEvent.paste(screen.getByTestId('composer-input'), {
+      clipboardData: {
+        files: [file],
+        items: [],
+        types: ['Files'],
+        getData: () => '',
+      },
+    });
+
+    await waitFor(() => {
+      expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([file]);
+    });
+    expect(store.setDraft).not.toHaveBeenCalled();
+  });
+
+  it('attaches ordinary clipboard.items getAsFile File objects with a path', async () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '可以直接粘贴文件。', time: '2026-06-02T08:00:00Z' },
+    ]);
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    const file = new File(['notes'], 'item-notes.txt', { type: 'text/plain' });
+    Object.defineProperty(file, 'path', { value: '/tmp/item-notes.txt' });
+
+    fireEvent.paste(screen.getByTestId('composer-input'), {
+      clipboardData: {
+        files: [],
+        items: [
+          { kind: 'file', type: 'text/plain', getAsFile: vi.fn(() => file) },
+        ],
+        types: ['Files'],
+        getData: () => '',
+      },
+    });
+
+    await waitFor(() => {
+      expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([file]);
+    });
+  });
+
+  it('routes PNG clipboard File objects with a path through dropped-file attachment handling', async () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '可以直接粘贴图片文件。', time: '2026-06-02T08:00:00Z' },
+    ]);
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    const file = new File(['png'], 'copied-image.png', { type: 'image/png' });
+    Object.defineProperty(file, 'path', { value: '/tmp/copied-image.png' });
+
+    fireEvent.paste(screen.getByTestId('composer-input'), {
+      clipboardData: {
+        files: [file],
+        items: [],
+        types: ['Files'],
+        getData: () => '',
+      },
+    });
+
+    await waitFor(() => {
+      expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([file]);
+    });
+    expect(store.attachPastedImagesForComposer).not.toHaveBeenCalled();
+  });
+
+  it('keeps no-path image paste in attachment handling', async () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '可以直接粘贴截图。', time: '2026-06-02T08:00:00Z' },
+    ]);
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    const file = new File(['png'], 'screenshot.png', { type: 'image/png' });
+
+    fireEvent.paste(screen.getByTestId('composer-input'), {
+      clipboardData: {
+        files: [file],
+        items: [],
+        types: ['Files'],
+        getData: () => '',
+      },
+    });
+
+    await waitFor(() => {
+      expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([file]);
+    });
   });
 
   it('renders compact assistant markdown block markers as formatted content', () => {

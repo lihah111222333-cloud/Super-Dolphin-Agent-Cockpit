@@ -12,7 +12,6 @@ import (
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -28,10 +27,11 @@ type Server struct {
 	logger        *pkglogger.Logger
 	addr          string
 	methods       handler.Map
-	observability *observability.Service
+	traceRecorder TraceRecorder
 
 	mu         sync.RWMutex
 	active     map[*jrpc2.Server]string
+	activeUIWS int
 	onConnects []func(*jrpc2.Server)
 }
 
@@ -251,7 +251,7 @@ func NewServer(p Params) *Server {
 		logger:        logger,
 		addr:          p.Config.RPCAddr,
 		methods:       handler.Map{},
-		observability: p.Observability,
+		traceRecorder: p.TraceRecorder,
 		active:        make(map[*jrpc2.Server]string),
 	}
 }
@@ -273,9 +273,8 @@ func (s *Server) Dispatch(ctx context.Context, method string, params json.RawMes
 	if err != nil {
 		return nil, err
 	}
-	ctx = contextWithObservabilityTraceFromLogger(ctx)
 	startedAt := time.Now()
-	if err := s.recordDispatchTrace(ctx, method, params, startedAt, "backend.rpc.dispatch.start", "start", 0, observability.StatusOK, nil); err != nil {
+	if err := s.recordDispatchTrace(ctx, method, params, startedAt, "backend.rpc.dispatch.start", "start", 0, TraceStatusOK, nil); err != nil {
 		s.logTraceRecordError(ctx, method, "start", err)
 	}
 
@@ -296,7 +295,7 @@ func (s *Server) Dispatch(ctx context.Context, method string, params json.RawMes
 
 	var result json.RawMessage
 	if err := local.Client.CallResult(ctx, method, callParams, &result); err != nil {
-		if recordErr := s.recordDispatchTrace(ctx, method, params, startedAt, "backend.rpc.dispatch.failed", "failed", time.Since(startedAt), observability.StatusError, err); recordErr != nil {
+		if recordErr := s.recordDispatchTrace(ctx, method, params, startedAt, "backend.rpc.dispatch.failed", "failed", time.Since(startedAt), TraceStatusError, err); recordErr != nil {
 			s.logTraceRecordError(ctx, method, "failed", recordErr)
 		}
 		return nil, err
@@ -308,15 +307,6 @@ func (s *Server) Dispatch(ctx context.Context, method string, params json.RawMes
 	return append(json.RawMessage(nil), result...), nil
 }
 
-func contextWithObservabilityTraceFromLogger(ctx context.Context) context.Context {
-	traceID := pkglogger.TraceIDFromContext(ctx)
-	spanID := pkglogger.SpanIDFromContext(ctx)
-	if traceID == "" || spanID == "" {
-		return ctx
-	}
-	return observability.ContextWithSpan(ctx, traceID, spanID, pkglogger.ParentSpanIDFromContext(ctx))
-}
-
 func (s *Server) logTraceRecordError(ctx context.Context, method string, phase string, err error) {
 	logger := s.logger
 	if logger == nil {
@@ -325,8 +315,8 @@ func (s *Server) logTraceRecordError(ctx context.Context, method string, phase s
 	logger.Warn("rpc dispatch trace record failed", "phase", phase, "method", method, "error", err)
 }
 
-func (s *Server) recordDispatchTrace(ctx context.Context, method string, params json.RawMessage, startedAt time.Time, kind string, phase string, duration time.Duration, status observability.Status, dispatchErr error) error {
-	if s == nil || s.observability == nil || !s.observability.Enabled() {
+func (s *Server) recordDispatchTrace(ctx context.Context, method string, params json.RawMessage, startedAt time.Time, kind string, phase string, duration time.Duration, status TraceStatus, dispatchErr error) error {
+	if s == nil || s.traceRecorder == nil || !s.traceRecorder.Enabled() {
 		return nil
 	}
 	metadata := map[string]any{
@@ -335,7 +325,7 @@ func (s *Server) recordDispatchTrace(ctx context.Context, method string, params 
 	if keys := rpcParamKeys(params); len(keys) > 0 {
 		metadata["param_keys"] = keys
 	}
-	event := observability.TraceEvent{
+	record := TraceRecord{
 		Timestamp:    startedAt,
 		TraceID:      pkglogger.TraceIDFromContext(ctx),
 		SpanID:       pkglogger.SpanIDFromContext(ctx),
@@ -345,13 +335,13 @@ func (s *Server) recordDispatchTrace(ctx context.Context, method string, params 
 		Method:       strings.TrimSpace(method),
 		DurationMS:   duration.Milliseconds(),
 		Status:       status,
-		Code:         observability.NewCodeAnchor("internal/platform/rpc/server.go", "(*Server).Dispatch", 270),
+		Code:         TraceCodeAnchor{File: "internal/platform/rpc/server.go", Function: "(*Server).Dispatch", Line: 270},
 		Metadata:     metadata,
 	}
 	if dispatchErr != nil {
-		event.Error = strings.TrimSpace(dispatchErr.Error())
+		record.Error = strings.TrimSpace(dispatchErr.Error())
 	}
-	return s.observability.Record(ctx, event)
+	return s.traceRecorder.RecordTrace(ctx, record)
 }
 
 func rpcParamKeys(raw json.RawMessage) []string {
@@ -367,11 +357,11 @@ func rpcParamKeys(raw json.RawMessage) []string {
 	return keys
 }
 
-func rpcTraceStatus(method string, duration time.Duration) observability.Status {
+func rpcTraceStatus(method string, duration time.Duration) TraceStatus {
 	if duration > rpcSlowThreshold(method) {
-		return observability.StatusSlow
+		return TraceStatusSlow
 	}
-	return observability.StatusOK
+	return TraceStatusOK
 }
 
 func rpcSlowThreshold(method string) time.Duration {
@@ -478,6 +468,31 @@ func (s *Server) removeActive(srv *jrpc2.Server) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.active, srv)
+}
+
+func (s *Server) reserveUIWebSocketSlot() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.activeUIWS >= wailsWSMaxActiveConnections {
+		return jrpc2.Errorf(
+			jrpc2.Code(CodeInvalidState),
+			"wails websocket connection limit reached: max %d active UI websocket connections",
+			wailsWSMaxActiveConnections,
+		)
+	}
+	s.activeUIWS++
+	return nil
+}
+
+func (s *Server) releaseUIWebSocketSlot() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.activeUIWS <= 0 {
+		panic("rpc UI websocket slot released without a reservation")
+	}
+	s.activeUIWS--
 }
 
 func (s *Server) OnConnect(fn func(*jrpc2.Server)) {

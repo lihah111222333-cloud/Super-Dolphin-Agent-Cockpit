@@ -569,7 +569,7 @@ func publicConsolidateAllError(err error) error {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return publicValidationErr("智能整合耗时过长，请稍后重试")
 	}
-	if strings.Contains(err.Error(), "LLM consolidate:") {
+	if errors.Is(err, similarity.ErrLLMConsolidate) {
 		return publicValidationErr("智能整合调用模型失败，请检查当前模型配置后重试")
 	}
 	return nil

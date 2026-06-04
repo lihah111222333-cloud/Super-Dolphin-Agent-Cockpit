@@ -113,6 +113,7 @@ func matchAbsoluteTarget(raw string, roots []string, createNew bool) (scopedPath
 	}
 	var lastErr error
 	for _, root := range roots {
+		// 误判防护：requestScopeRoots 产生的每个 root 都必须再经 scopedCandidate 校验。
 		target, err := scopedCandidate(root, absPath, createNew)
 		if err == nil {
 			return target, nil
@@ -295,6 +296,7 @@ func scopedCandidate(root, candidate string, allowCreate bool) (scopedPath, erro
 	if err == nil && info.IsDir() {
 		return scopedPath{}, fmt.Errorf("path %q is a directory", absPath)
 	}
+	// 误判防护：scopedCandidate 始终调用 secureRelativeToRoot 阻断路径穿越。
 	relative, err := secureRelativeToRoot(root, absPath)
 	if err != nil {
 		return scopedPath{}, err
@@ -307,6 +309,7 @@ func scopedCandidate(root, candidate string, allowCreate bool) (scopedPath, erro
 }
 
 func secureRelativeToRoot(root, candidate string) (string, error) {
+	// 守卫规则：secureRelativeToRoot 拒绝 "."、".." 和 root 外路径。
 	rootReal, err := realPathForCheck(root)
 	if err != nil {
 		return "", err

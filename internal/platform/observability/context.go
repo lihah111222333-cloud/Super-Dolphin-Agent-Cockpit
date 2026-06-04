@@ -1,6 +1,10 @@
 package observability
 
-import "context"
+import (
+	"context"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+)
 
 type traceContextKey struct{}
 
@@ -11,12 +15,23 @@ type TraceContext struct {
 }
 
 func ContextWithTrace(ctx context.Context, trace TraceContext) context.Context {
+	ctx = pkglogger.WithTraceContext(ctx, trace.TraceID, trace.SpanID, trace.ParentSpanID)
 	return context.WithValue(ctx, traceContextKey{}, trace)
 }
 
 func TraceFromContext(ctx context.Context) (TraceContext, bool) {
-	trace, ok := ctx.Value(traceContextKey{}).(TraceContext)
-	return trace, ok
+	if trace, ok := ctx.Value(traceContextKey{}).(TraceContext); ok {
+		return trace, true
+	}
+	trace := TraceContext{
+		TraceID:      pkglogger.TraceIDFromContext(ctx),
+		SpanID:       pkglogger.SpanIDFromContext(ctx),
+		ParentSpanID: pkglogger.ParentSpanIDFromContext(ctx),
+	}
+	if trace.TraceID == "" && trace.SpanID == "" && trace.ParentSpanID == "" {
+		return TraceContext{}, false
+	}
+	return trace, true
 }
 
 func ContextWithSpan(ctx context.Context, traceID string, spanID string, parentSpanID string) context.Context {

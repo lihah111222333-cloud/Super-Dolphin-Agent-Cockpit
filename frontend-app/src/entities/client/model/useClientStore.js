@@ -194,6 +194,10 @@ function bridgeRevisionKey(eventName, payload = {}) {
   return match?.key || '';
 }
 
+function isDagNodeStatusBridgeEvent(evt) {
+  return normalizeString(evt?.method || evt?.type).toLowerCase() === 'task/node/statuschanged';
+}
+
 function normalizeProviderConfigValue(value) {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     for (const key of ['value', 'id', 'key', 'name', 'model', 'provider']) {
@@ -3629,7 +3633,9 @@ function createLifecycleActions(runtime) {
   return {
     initializeEvents: () => {
       if (runtime.bridgeUnsubscribe) return;
-      runtime.bridgeUnsubscribe = onBridgeEvent(runtime.handleBridgeEvent);
+      runtime.bridgeUnsubscribe = onBridgeEvent(runtime.handleBridgeEvent, {
+        escalateCallbackError: (_error, evt) => isDagNodeStatusBridgeEvent(evt),
+      });
       runtime.reconnectUnsubscribe = onRuntimeReconnect(() => {
         const { activeThreadId } = runtime.get();
         if (activeThreadId) void runtime.get().syncThreadState(activeThreadId, { includeDiff: true, preserveActiveThreadId: true });
