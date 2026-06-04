@@ -130,7 +130,7 @@ package_one() {
     SUPER_DOLPHIN_POSTGRES_DIST="$postgres_dist" \
     SUPER_DOLPHIN_CODEX_ARTIFACT="$codex_artifact" \
     SUPER_DOLPHIN_CODEX_SHA256="$(shasum -a 256 "$codex_artifact" | awk '{print $1}')" \
-    SUPER_DOLPHIN_CODEX_VERSION="$($codex_artifact --version | head -n1)" \
+    SUPER_DOLPHIN_CODEX_VERSION="${SUPER_DOLPHIN_CODEX_VERSION:-$($codex_artifact --version 2>/dev/null | head -n1)}" \
     SUPER_DOLPHIN_LSP_BUNDLE_DIR="$lsp_dir" \
     SUPER_DOLPHIN_CODEX_RELAY_BASE_URL="$relay_url" \
     SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN="$bootstrap_token" \

@@ -2,7 +2,9 @@ package uistate
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -22,6 +24,10 @@ type scopeParams struct {
 type preferenceGetParams struct {
 	Key string `json:"key,omitempty"`
 	Cwd string `json:"cwd,omitempty"`
+}
+
+type videoAPIKeyParams struct {
+	APIKey string `json:"apiKey"`
 }
 
 type preferenceSetParams struct {
@@ -78,6 +84,33 @@ func NewUIStateHandlers(svc Service) platformrpc.HandlerMapResult {
 		}),
 		"ui/projects/remove": platformrpc.StrictHandler(func(ctx context.Context, p projectPathParams) (any, error) {
 			return svc.RemoveProject(withPreferenceScope(ctx, p.Cwd), p.Path)
+		}),
+		"ui/video/setApiKey": platformrpc.StrictHandler(func(_ context.Context, p videoAPIKeyParams) (any, error) {
+			key := strings.TrimSpace(p.APIKey)
+			if key == "" {
+				return nil, errors.New("apiKey is required")
+			}
+			if err := os.Setenv("SILICONFLOW_API_KEY", key); err != nil {
+				return nil, err
+			}
+			home := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_HOME"))
+			if home != "" {
+				content := "SILICONFLOW_API_KEY=" + key + "\n"
+				if err := os.WriteFile(home+"/video.env", []byte(content), 0o600); err != nil {
+					return nil, err
+				}
+			}
+			return map[string]any{"ok": true}, nil
+		}),
+		"ui/video/getApiKey": platformrpc.StrictHandler(func(_ context.Context, _ struct{}) (any, error) {
+			key := strings.TrimSpace(os.Getenv("SILICONFLOW_API_KEY"))
+			masked := ""
+			if len(key) > 8 {
+				masked = key[:4] + strings.Repeat("*", len(key)-8) + key[len(key)-4:]
+			} else if key != "" {
+				masked = strings.Repeat("*", len(key))
+			}
+			return map[string]any{"configured": key != "", "masked": masked}, nil
 		}),
 	}}
 }

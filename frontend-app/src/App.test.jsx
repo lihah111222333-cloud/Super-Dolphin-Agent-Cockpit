@@ -30,8 +30,9 @@ function deferred() {
 
 const backend = vi.hoisted(() => {
   const mockNames = `
-    readConfig getWindowBootstrap openNewWindow getProjects setActiveProject addProject removeProject
-    getSidebarState getThreadState getThreadMessages getBuildInfo getDashboardPage getObservabilityStatus
+	    readConfig getWindowBootstrap openNewWindow getProjects setActiveProject addProject removeProject
+	    callBackend
+	    getSidebarState getThreadState getThreadMessages getBuildInfo getDashboardPage getObservabilityStatus
     getObservabilityTrace getObservabilityThreadRecent listObservabilityRecent listObservabilitySlow
     listObservabilityErrors listSharedFiles listPromptAssets getDashboardPrompts getPrompt writePrompt
     readLspPromptHint writeLspPromptHint readBuiltinTools writeBuiltinTool listDashboardLogs
@@ -165,7 +166,8 @@ function mockBootstrapBackendDefaults() {
       'thread-1': 'diff --git a/file b/file',
     },
   });
-  backend.getThreadMessages.mockResolvedValue({ messages: [] });
+	backend.getThreadMessages.mockResolvedValue({ messages: [] });
+	backend.callBackend.mockResolvedValue({});
 }
 
 function mockDashboardPageDefaults() {

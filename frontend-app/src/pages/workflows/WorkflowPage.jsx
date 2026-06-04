@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Workflow } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
-import { applyDagOps, deleteDag, getDashboardPage, getDagDetail, getDagRun, getDagRuns, readSharedFile, startDag, startThread, terminateDagRun } from '../../shared/api/backendApi.js';
+import { applyDagOps, deleteDag, getDashboardPage, getDagDetail, getDagRun, getDagRuns, readSharedFile, startDag, startThread, startTurn, terminateDagRun } from '../../shared/api/backendApi.js';
 import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, textValue, useDashboardFocusInvalidation, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.jsx';
 
@@ -30,6 +30,18 @@ const DAG_CATEGORIES = Object.freeze([
   { key: 'scheduled', label: '定时任务' },
   { key: 'history', label: '历史记录' },
 ]);
+
+const DOUYIN_DAILY_VIDEO_TEMPLATE_PROMPT = `请把自动化模块更新为“每天早上 5 点生成 1 条抖音爆款候选视频”的 DAG。
+
+目标：
+- dag_key 使用 daily_workplace_mentor_douyin_video。
+- 如运行时已有旧 DAG daily_workplace_mentor_douyin_videos，请优先读取并更新为新需求；如果 key 不能改，再创建新 DAG 并提示用户清理旧 DAG。
+- 每天 05:00 Asia/Shanghai 运行；当前调度按 UTC，因此 cron_expr = \`0 21 * * *\`。
+- 每次只生成 1 条“职场导师型”抖音爆款候选视频方案，不自动发布。
+- 输出完整 Markdown 到 sharedfile：dag/douyin/workplace/YYYY-MM-DD-video.md，最终 DAG run 只返回小 JSON 引用。
+- 不写“必爆”，只写“爆款候选/爆款潜力”；没有可验证来源时 blocked=true，不要编造热点。
+
+请按 prompt_template-first DAG 流程执行：先用 prompt_list 核对 source_monitor 和 topic_curator，再用 task_create_dag / task_get_dag / task_dag_apply_ops 创建或更新 DAG，并展示最终节点列表、依赖和 cron。`;
 
 const STARTABLE_DAG_STATUSES = new Set(['draft', 'ready']);
 
@@ -607,6 +619,12 @@ function useWorkflowPageController({ projectPath, refreshKey, store }) {
   const isProjectPending = !workflowCwd;
   useDashboardFocusInvalidation(workflowCwd, 'dags');
   const list = useWorkflowListQuery(workflowCwd);
+  const activePage = store?.activePage;
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    if (!mountedRef.current) { mountedRef.current = true; return; }
+    if (activePage === 'workflows' && workflowCwd) void list.refreshDags();
+  }, [activePage, workflowCwd]); // eslint-disable-line react-hooks/exhaustive-deps
   const selection = useWorkflowSelection(list.items);
   const detail = useWorkflowDetailQuery({ items: list.items, selectedDag: selection.selectedDag, selectedDagKey: selection.selectedDagKey, workflowCwd });
   const run = useWorkflowRunDetail({ activeRun: detail.activeRun, runs: detail.runs, workflowCwd });
@@ -1022,7 +1040,7 @@ function useSaveAgentNodeAction({ actionState, derived, notices, refresh }) {
 }
 
 function useStartDesignFlowAction({ actionState, notices, store, workflowCwd }) {
-  return useCallback(async () => {
+  return useCallback(async (seedPrompt = '') => {
     if (!workflowCwd) return;
     actionState.setActioning('design');
     actionState.setError('');
@@ -1031,8 +1049,12 @@ function useStartDesignFlowAction({ actionState, notices, store, workflowCwd }) 
       if (typeof store?.resolveLaunchPreferences !== 'function') throw new Error('自动化启动配置不可用');
       const launchPreferences = await store.resolveLaunchPreferences(workflowCwd);
       const { config: launchConfig = {}, ...launchPayload } = launchPreferences || {};
-      const response = await startThread(workflowDesignThreadPayload(workflowCwd, launchConfig, launchPayload));
+      const response = await startThread(workflowDesignThreadPayload(workflowCwd, launchConfig, launchPayload, seedPrompt));
       const threadId = threadIdFromStartResponse(response);
+      if (seedPrompt) {
+        if (!threadId) throw new Error('自动化设计线程缺少 threadId');
+        await startTurn({ cwd: workflowCwd, threadId, input: seedPrompt });
+      }
       if (threadId && typeof store?.setActiveThread === 'function') await store.setActiveThread(threadId);
       if (typeof store?.setActivePage === 'function') store.setActivePage('chat');
     } catch (err) {
@@ -1043,12 +1065,12 @@ function useStartDesignFlowAction({ actionState, notices, store, workflowCwd }) 
   }, [actionState, notices, store, workflowCwd]);
 }
 
-function workflowDesignThreadPayload(cwd, launchConfig, launchPayload) {
+function workflowDesignThreadPayload(cwd, launchConfig, launchPayload, seedPrompt = '') {
   return {
     cwd,
     ...launchPayload,
     provider: textValue(launchPayload.provider || launchPayload.modelProvider),
-    name: 'AI 设计流程',
+    name: seedPrompt ? '抖音 5 点视频自动化' : 'AI 设计流程',
     agentKey: 'dag_designer',
     promptKey: 'main/dag_designer_zh',
     deferSpawn: true,
@@ -1075,9 +1097,14 @@ function WorkflowHeader({ model }) {
       title="自动化"
       subtitle={workflowCwd ? '当前项目：' + workflowCwd : '正在连接本地项目...'}
       actions={(
-        <button type="button" onClick={() => { void actions.startDesignFlow(); }} disabled={isProjectPending || actionState.actioning === 'design'}>
-          {actionState.actioning === 'design' ? '启动中...' : 'AI 设计流程'}
-        </button>
+        <>
+          <button type="button" onClick={() => { void actions.startDesignFlow(DOUYIN_DAILY_VIDEO_TEMPLATE_PROMPT); }} disabled={isProjectPending || actionState.actioning === 'design'}>
+            抖音 5 点模板
+          </button>
+          <button type="button" onClick={() => { void actions.startDesignFlow(); }} disabled={isProjectPending || actionState.actioning === 'design'}>
+            {actionState.actioning === 'design' ? '启动中...' : 'AI 设计流程'}
+          </button>
+        </>
       )}
     />
   );
