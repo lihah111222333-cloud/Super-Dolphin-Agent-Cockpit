@@ -151,6 +151,45 @@ func TestSearchTextInvalidGlobReturnsError(t *testing.T) {
 	}
 }
 
+func TestSearchTextSearchesWhitespaceSeparatedPaths(t *testing.T) {
+	root, err := NormalizeRoot(t.TempDir())
+	if err != nil {
+		t.Fatalf("NormalizeRoot() error = %v", err)
+	}
+	writeSearchTestFile(t, filepath.Join(root, "first", "one.go"), "package first\nconst needleOne = true\n")
+	writeSearchTestFile(t, filepath.Join(root, "second", "two.go"), "package second\nconst needleTwo = true\n")
+	writeSearchTestFile(t, filepath.Join(root, "third", "skip.go"), "package third\nconst needleThree = true\n")
+
+	matches, err := SearchText(context.Background(), TextSearchOptions{
+		Root:         root,
+		Path:         "first second",
+		Query:        "needle",
+		MaxFileBytes: 1024,
+	})
+	if err != nil {
+		t.Fatalf("SearchText() error = %v", err)
+	}
+	if len(matches) != 2 {
+		t.Fatalf("SearchText() matches = %#v, want two matches from first and second", matches)
+	}
+	got := map[string]bool{}
+	for _, match := range matches {
+		rel, err := filepath.Rel(root, match.AbsPath)
+		if err != nil {
+			t.Fatalf("relative match path: %v", err)
+		}
+		got[filepath.ToSlash(rel)] = true
+	}
+	for _, want := range []string{"first/one.go", "second/two.go"} {
+		if !got[want] {
+			t.Fatalf("SearchText() paths = %#v, missing %s", got, want)
+		}
+	}
+	if got["third/skip.go"] {
+		t.Fatalf("SearchText() paths = %#v, searched path outside requested scopes", got)
+	}
+}
+
 func TestSearchTextSkipsWorkspaceNoiseDirectories(t *testing.T) {
 	root, err := NormalizeRoot(t.TempDir())
 	if err != nil {
@@ -230,7 +269,7 @@ func TestDecodeSGScanMatchesRejectsInvalidJSON(t *testing.T) {
 
 func TestSearchASTExitOneWithStderrReturnsError(t *testing.T) {
 	sg := writeFakeSG(t, 1, "", "parse error")
-	t.Setenv("PATH", filepath.Dir(sg)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	setFakeSGPath(t, sg)
 
 	_, err := SearchAST(context.Background(), ASTSearchOptions{Root: t.TempDir(), Query: "bad", Language: "go"})
 	if err == nil || !strings.Contains(err.Error(), "parse error") {
@@ -240,7 +279,7 @@ func TestSearchASTExitOneWithStderrReturnsError(t *testing.T) {
 
 func TestSearchASTExitOneWithoutStderrReturnsNoMatches(t *testing.T) {
 	sg := writeFakeSG(t, 1, "", "")
-	t.Setenv("PATH", filepath.Dir(sg)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	setFakeSGPath(t, sg)
 
 	matches, err := SearchAST(context.Background(), ASTSearchOptions{Root: t.TempDir(), Query: "bad", Language: "go"})
 	if err != nil {
@@ -253,7 +292,7 @@ func TestSearchASTExitOneWithoutStderrReturnsNoMatches(t *testing.T) {
 
 func TestSearchASTScanExitOneWithStderrReturnsError(t *testing.T) {
 	sg := writeFakeSG(t, 1, "", "scan parse error")
-	t.Setenv("PATH", filepath.Dir(sg)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	setFakeSGPath(t, sg)
 	root := t.TempDir()
 	target := filepath.Join(root, "main.go")
 	if err := os.WriteFile(target, []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
@@ -268,7 +307,7 @@ func TestSearchASTScanExitOneWithStderrReturnsError(t *testing.T) {
 
 func TestSearchASTScanExitOneWithoutStderrReturnsNoMatches(t *testing.T) {
 	sg := writeFakeSG(t, 1, "", "")
-	t.Setenv("PATH", filepath.Dir(sg)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	setFakeSGPath(t, sg)
 	root := t.TempDir()
 	target := filepath.Join(root, "main.go")
 	if err := os.WriteFile(target, []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
@@ -292,7 +331,7 @@ func TestSearchASTPassesReactLanguageAliasToSGPattern(t *testing.T) {
 	}
 	argsPath := filepath.Join(t.TempDir(), "sg-args.txt")
 	sg := writeFakeSGArgs(t, argsPath)
-	t.Setenv("PATH", filepath.Dir(sg)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	setFakeSGPath(t, sg)
 
 	_, err := SearchAST(context.Background(), ASTSearchOptions{Root: root, Path: "component.tsx", Query: "console.log($A)"})
 	if err != nil {
@@ -402,6 +441,15 @@ func writeFakeSGArgs(t *testing.T, argsPath string) string {
 		t.Fatalf("write fake sg args: %v", err)
 	}
 	return path
+}
+
+func setFakeSGPath(t *testing.T, sg string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Setenv("PATH", filepath.Dir(sg)+string(os.PathListSeparator)+os.Getenv("PATH"))
+		return
+	}
+	t.Setenv("PATH", filepath.Dir(sg))
 }
 
 func readFakeSGArgs(t *testing.T, argsPath string) []string {

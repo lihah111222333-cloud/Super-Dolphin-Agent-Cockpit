@@ -69,6 +69,48 @@ func TestLSPBinaryGrepTruncatedTextSearchIncludesHint(t *testing.T) {
 	}
 }
 
+func TestLSPBinaryGrepSearchesWhitespaceSeparatedPaths(t *testing.T) {
+	skipLSPBinaryResidualE2EInShortMode(t)
+	root := canonicalToolTestRoot(t, t.TempDir())
+	writeLSPBinaryFixture(t, filepath.Join(root, "first", "one.txt"), "needle from first\n")
+	writeLSPBinaryFixture(t, filepath.Join(root, "second", "two.txt"), "needle from second\n")
+	writeLSPBinaryFixture(t, filepath.Join(root, "third", "skip.txt"), "needle outside requested scopes\n")
+	client := startLSPBinaryClient(t, root)
+
+	result := client.callTool(t, "grep", map[string]any{
+		"action":      "text_search",
+		"query":       "needle",
+		"path":        "first second",
+		"glob":        "*.txt",
+		"max_results": 10,
+	})
+	if result.IsError {
+		t.Fatalf("grep returned tool error for whitespace-separated paths: %s; stderr=%s", result.ContentText(), client.stderr.String())
+	}
+	var payload lspBinaryGrepResponse
+	decodeLSPBinaryStructuredContent(t, result, &payload)
+	if payload.Total != 2 || payload.Showing != 2 {
+		t.Fatalf("grep whitespace-separated path payload = total:%d showing:%d, want 2/2; content=%s",
+			payload.Total, payload.Showing, result.ContentText())
+	}
+	got := map[string]bool{}
+	for path := range payload.Data {
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			t.Fatalf("relative grep path %q: %v", path, err)
+		}
+		got[filepath.ToSlash(rel)] = true
+	}
+	for _, want := range []string{"first/one.txt", "second/two.txt"} {
+		if !got[want] {
+			t.Fatalf("grep paths = %#v, missing %s; structuredContent=%s", got, want, string(result.StructuredContent))
+		}
+	}
+	if got["third/skip.txt"] {
+		t.Fatalf("grep paths = %#v, searched path outside requested scopes; structuredContent=%s", got, string(result.StructuredContent))
+	}
+}
+
 func TestLSPBinaryGrepFindsExternalPatchInCurrentWorkspaceWithoutExplicitScope(t *testing.T) {
 	skipLSPBinaryResidualE2EInShortMode(t)
 	parent := t.TempDir()
@@ -272,10 +314,11 @@ func (r lspBinaryToolResult) ContentText() string {
 }
 
 type lspBinaryGrepResponse struct {
-	Total     int    `json:"total"`
-	Showing   int    `json:"showing"`
-	Truncated bool   `json:"truncated"`
-	Hint      string `json:"hint"`
+	Data      map[string]json.RawMessage `json:"data"`
+	Total     int                        `json:"total"`
+	Showing   int                        `json:"showing"`
+	Truncated bool                       `json:"truncated"`
+	Hint      string                     `json:"hint"`
 }
 
 type lspBinaryToolErrorEnvelope struct {
