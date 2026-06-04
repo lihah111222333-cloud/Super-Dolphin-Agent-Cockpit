@@ -105,8 +105,8 @@ describe('ObservabilityPage module', () => {
       threadId: '',
       agentId: '',
       keyword: 'thread/start',
+      includeTail: true,
     });
-    expect(payload).not.toHaveProperty('includeTail');
     expect(table).toHaveTextContent('trace-frontend-1');
     expect(table).toHaveTextContent('thread start failed');
   });
@@ -194,6 +194,17 @@ describe('ObservabilityPage module', () => {
     refreshCall[0]();
 
     await waitFor(() => expect(listObservabilityRecent).toHaveBeenCalledTimes(2));
+    expect(listObservabilityRecent.mock.calls[1][0]).toEqual({
+      limit: 50,
+      status: 'error',
+      component: '',
+      method: '',
+      traceId: '',
+      threadId: '',
+      agentId: '',
+      keyword: 'thread/start',
+      includeTail: false,
+    });
     const entries = table.querySelectorAll('.observability-log-table-entry');
     expect(entries[0]).toHaveTextContent('trace-newer');
     expect(entries[1]).toHaveTextContent('trace-older');
@@ -235,5 +246,56 @@ describe('ObservabilityPage module', () => {
       await refresh.promise;
     });
     await waitFor(() => expect(table.querySelector('.observability-log-table-entry')).toHaveTextContent('trace-newer'));
+  });
+
+  it('keeps newer manual query results when an older automatic refresh resolves late', async () => {
+    const intervalSpy = vi.spyOn(window, 'setInterval');
+    const initialEvent = {
+      ...recentResult.events[0],
+      trace_id: 'trace-initial',
+      span_id: 'span-initial',
+      method: 'thread/start',
+    };
+    const staleRefreshEvent = {
+      ...recentResult.events[0],
+      trace_id: 'trace-stale-refresh',
+      span_id: 'span-stale-refresh',
+      method: 'thread/start',
+    };
+    const newerManualEvent = {
+      ...recentResult.events[0],
+      trace_id: 'trace-new-manual',
+      span_id: 'span-new-manual',
+      method: 'turn/start',
+    };
+    const staleRefresh = deferredValue();
+    listObservabilityRecent
+      .mockResolvedValueOnce({ source: 'memory', truncated: false, events: [initialEvent] })
+      .mockReturnValueOnce(staleRefresh.promise)
+      .mockResolvedValueOnce({ source: 'memory', truncated: false, events: [newerManualEvent] });
+    renderObservabilityPage();
+    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: 'thread/start' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+    const table = await screen.findByTestId('observability-recent-logs');
+    expect(table).toHaveTextContent('trace-initial');
+    let refreshCall;
+    await waitFor(() => {
+      refreshCall = intervalSpy.mock.calls.find(([, delay]) => delay === 2000);
+      expect(refreshCall).toBeTruthy();
+    });
+    refreshCall[0]();
+    await waitFor(() => expect(listObservabilityRecent).toHaveBeenCalledTimes(2));
+
+    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: 'turn/start' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+
+    await waitFor(() => expect(table).toHaveTextContent('trace-new-manual'));
+    await act(async () => {
+      staleRefresh.resolve({ source: 'memory', truncated: false, events: [staleRefreshEvent] });
+      await staleRefresh.promise;
+    });
+
+    expect(table).toHaveTextContent('trace-new-manual');
+    expect(table).not.toHaveTextContent('trace-stale-refresh');
   });
 });

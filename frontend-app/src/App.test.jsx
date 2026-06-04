@@ -516,6 +516,7 @@ function expectTraceDashboardRpcCalls() {
     threadId: '',
     agentId: '',
     keyword: '',
+    includeTail: true,
   });
   expect(backend.getObservabilityTrace).toHaveBeenCalledWith({ traceId: 'trace-1', limit: 50 });
 }
@@ -712,6 +713,7 @@ function expectRecentSystemLogsRpcCall() {
     threadId: '',
     agentId: '',
     keyword: 'thread/start',
+    includeTail: true,
   });
 }
 
