@@ -1,7 +1,9 @@
 package app
 
 import (
+	"bytes"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -175,12 +177,12 @@ func TestNewUIDesktopScriptEnablesFrontendPollingWatchByDefault(t *testing.T) {
 	text := readRootScript(t, "../../run-new-ui-desktop.sh")
 
 	required := []string{
-		`frontend_watch_polling_enabled()`,
+		`parse_frontend_watch_bool()`,
+		`resolve_frontend_watch_polling()`,
 		`configure_frontend_watch_mode()`,
-		`SUPER_DOLPHIN_VITE_USE_POLLING="${SUPER_DOLPHIN_VITE_USE_POLLING:-1}"`,
 		`export SUPER_DOLPHIN_VITE_USE_POLLING`,
-		`export CHOKIDAR_USEPOLLING="${CHOKIDAR_USEPOLLING:-1}"`,
-		`FRONTEND_WATCH_MODE="polling (CHOKIDAR_USEPOLLING=$CHOKIDAR_USEPOLLING)"`,
+		`export CHOKIDAR_USEPOLLING`,
+		`FRONTEND_WATCH_MODE="polling (SUPER_DOLPHIN_VITE_USE_POLLING=$SUPER_DOLPHIN_VITE_USE_POLLING, CHOKIDAR_USEPOLLING=$CHOKIDAR_USEPOLLING)"`,
 		`configure_frontend_watch_mode`,
 		`frontend watch: $FRONTEND_WATCH_MODE`,
 	}
@@ -189,7 +191,69 @@ func TestNewUIDesktopScriptEnablesFrontendPollingWatchByDefault(t *testing.T) {
 			t.Fatalf("run-new-ui-desktop.sh missing %q", want)
 		}
 	}
-	assertTextOrder(t, text, "ensure_peer_binaries\nconfigure_frontend_watch_mode", `(cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &`)
+	assertTextOrder(t, text, "\nconfigure_frontend_watch_mode\nmkdir -p", `ensure_node_deps "$FRONTEND_APP_DIR"`)
+	assertTextOrder(t, text, "\nconfigure_frontend_watch_mode\n", `(cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &`)
+}
+
+func TestNewUIDesktopScriptFrontendWatchModeBooleanParsing(t *testing.T) {
+	tests := []struct {
+		name       string
+		env        map[string]string
+		wantStatus int
+		wantStdout string
+		wantStderr string
+	}{
+		{
+			name:       "default polling",
+			wantStatus: 0,
+			wantStdout: "1|1|polling (SUPER_DOLPHIN_VITE_USE_POLLING=1, CHOKIDAR_USEPOLLING=1)",
+		},
+		{
+			name:       "explicit super dolphin disables polling",
+			env:        map[string]string{"SUPER_DOLPHIN_VITE_USE_POLLING": "0"},
+			wantStatus: 0,
+			wantStdout: "0|0|native fs events (SUPER_DOLPHIN_VITE_USE_POLLING=0, CHOKIDAR_USEPOLLING=0)",
+		},
+		{
+			name:       "explicit chokidar disables polling",
+			env:        map[string]string{"CHOKIDAR_USEPOLLING": "false"},
+			wantStatus: 0,
+			wantStdout: "0|0|native fs events (SUPER_DOLPHIN_VITE_USE_POLLING=0, CHOKIDAR_USEPOLLING=0)",
+		},
+		{
+			name:       "invalid super dolphin boolean fails fast",
+			env:        map[string]string{"SUPER_DOLPHIN_VITE_USE_POLLING": "sometimes"},
+			wantStatus: 1,
+			wantStderr: "SUPER_DOLPHIN_VITE_USE_POLLING must be a boolean",
+		},
+		{
+			name:       "invalid chokidar boolean fails fast",
+			env:        map[string]string{"CHOKIDAR_USEPOLLING": "sometimes"},
+			wantStatus: 1,
+			wantStderr: "CHOKIDAR_USEPOLLING must be a boolean",
+		},
+		{
+			name:       "conflicting booleans fail fast",
+			env:        map[string]string{"SUPER_DOLPHIN_VITE_USE_POLLING": "0", "CHOKIDAR_USEPOLLING": "1"},
+			wantStatus: 1,
+			wantStderr: "conflicting frontend watch config",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout, stderr, status := runFrontendWatchModeSnippet(t, tt.env)
+			if status != tt.wantStatus {
+				t.Fatalf("status = %d, want %d\nstdout:\n%s\nstderr:\n%s", status, tt.wantStatus, stdout, stderr)
+			}
+			if tt.wantStdout != "" && stdout != tt.wantStdout {
+				t.Fatalf("stdout = %q, want %q", stdout, tt.wantStdout)
+			}
+			if tt.wantStderr != "" && !strings.Contains(stderr, tt.wantStderr) {
+				t.Fatalf("stderr missing %q:\n%s", tt.wantStderr, stderr)
+			}
+		})
+	}
 }
 
 func TestNewUIDesktopScriptCleansChildProcessesAndStaleVite(t *testing.T) {
@@ -350,6 +414,54 @@ func readRootScript(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(raw)
+}
+
+func runFrontendWatchModeSnippet(t *testing.T, env map[string]string) (string, string, int) {
+	t.Helper()
+	text := readRootScript(t, "../../run-new-ui-desktop.sh")
+	snippet := extractScriptSection(t, text, "parse_frontend_watch_bool() {", "\nstart_desktop_backend() {")
+	script := `set -euo pipefail
+` + snippet + `
+configure_frontend_watch_mode
+printf '%s|%s|%s\n' "$SUPER_DOLPHIN_VITE_USE_POLLING" "$CHOKIDAR_USEPOLLING" "$FRONTEND_WATCH_MODE"
+`
+	path := t.TempDir() + "/watch-mode.sh"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write watch-mode snippet: %v", err)
+	}
+
+	cmd := exec.Command("bash", path)
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
+	for key, value := range env {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	status := 0
+	if err != nil {
+		exitErr, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Fatalf("run watch-mode snippet: %v", err)
+		}
+		status = exitErr.ExitCode()
+	}
+	return strings.TrimSpace(stdout.String()), stderr.String(), status
+}
+
+func extractScriptSection(t *testing.T, text, startMarker, endMarker string) string {
+	t.Helper()
+	start := strings.Index(text, startMarker)
+	if start < 0 {
+		t.Fatalf("missing script section start %q", startMarker)
+	}
+	end := strings.Index(text[start:], endMarker)
+	if end < 0 {
+		t.Fatalf("missing script section end %q after %q", endMarker, startMarker)
+	}
+	return text[start : start+end]
 }
 
 func assertTextOrder(t *testing.T, text, first, second string) {

@@ -12,6 +12,12 @@ npm install
 npm run dev
 ```
 
+Direct `npm run dev` and the root desktop script use polling file watches by
+default to avoid Linux `ENOSPC` watcher limits. To use native file events
+instead, set either `SUPER_DOLPHIN_VITE_USE_POLLING=0` or
+`CHOKIDAR_USEPOLLING=0`. If both variables are set, they must resolve to the
+same strict boolean value (`1/0`, `true/false`, `yes/no`, or `on/off`).
+
 For the full local desktop setup, run this from the repository root:
 
 ```bash
