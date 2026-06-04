@@ -579,7 +579,7 @@ describe('ChatPage module', () => {
     expect(screen.queryByText('滚动历史消息 1')).not.toBeInTheDocument();
 
     const timeline = screen.getByTestId('chat-timeline');
-    Object.defineProperty(timeline, 'scrollTop', { configurable: true, value: 0 });
+    Object.defineProperty(timeline, 'scrollTop', { configurable: true, value: 0, writable: true });
     fireEvent.scroll(timeline);
 
     expect(screen.getByText('滚动历史消息 1')).toBeInTheDocument();
@@ -698,7 +698,7 @@ describe('ChatPage module', () => {
     expect(screen.getByRole('button', { name: '正在加载更早的消息' })).toBeDisabled();
 
     const timeline = screen.getByTestId('chat-timeline');
-    Object.defineProperty(timeline, 'scrollTop', { configurable: true, value: 0 });
+    Object.defineProperty(timeline, 'scrollTop', { configurable: true, value: 0, writable: true });
     fireEvent.scroll(timeline);
     expect(loadOlderThreadMessages).toHaveBeenCalledTimes(1);
 

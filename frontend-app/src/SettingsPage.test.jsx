@@ -5,6 +5,7 @@ import App from './App.jsx';
 import { resetClientStoreForTests, useClientStore } from './entities/client/model/useClientStore.js';
 
 const backend = vi.hoisted(() => ({
+  callBackend: vi.fn(),
   readConfig: vi.fn(),
   getBuildInfo: vi.fn(),
   getWindowBootstrap: vi.fn(),
@@ -73,6 +74,7 @@ function mockSettingsBootstrap() {
   });
   backend.readConfig.mockResolvedValue({ cwd: '/repo/app' });
   backend.getWindowBootstrap.mockResolvedValue({ ok: true });
+  backend.callBackend.mockResolvedValue({});
   backend.getProjects.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
   backend.getSidebarState.mockResolvedValue({ threads: [], activeThreadId: '' });
   backend.getMemorySnapshot.mockResolvedValue({
@@ -308,11 +310,13 @@ describe('SettingsPage provider settings', () => {
 
     await renderSettingsPage();
 
-    expect(screen.getByRole('combobox', { name: 'Provider Model' })).toHaveValue('gpt-5.5');
-    expect(screen.getByRole('combobox', { name: 'Provider Effort' })).toHaveValue('xhigh');
-    expect(screen.getByRole('combobox', { name: 'Personality' })).toHaveValue('pragmatic');
-    expect(screen.getByRole('combobox', { name: 'Read Only Mode' })).toHaveValue('restricted');
-    expect(screen.getByLabelText('Readable Roots')).toHaveValue('/repo/app\n/Users/ai/shared');
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: 'Provider Model' })).toHaveValue('gpt-5.5');
+      expect(screen.getByRole('combobox', { name: 'Provider Effort' })).toHaveValue('xhigh');
+      expect(screen.getByRole('combobox', { name: 'Personality' })).toHaveValue('pragmatic');
+      expect(screen.getByRole('combobox', { name: 'Read Only Mode' })).toHaveValue('restricted');
+      expect(screen.getByLabelText('Readable Roots')).toHaveValue('/repo/app\n/Users/ai/shared');
+    });
 
     fireEvent.change(screen.getByLabelText('Readable Roots'), { target: { value: '/repo/app\n/Users/ai/docs' } });
     fireEvent.click(screen.getByRole('button', { name: '保存 Provider 设置' }));
@@ -378,6 +382,10 @@ describe('SettingsPage provider settings', () => {
     backend.getPreference.mockImplementation(({ key }) => Promise.resolve(preferences[key] ?? null));
 
     await renderSettingsPage();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Writable Roots')).toHaveValue('/repo/app');
+    });
 
     fireEvent.click(screen.getByRole('button', { name: '保存 Provider 设置' }));
 

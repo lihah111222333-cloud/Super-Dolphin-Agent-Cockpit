@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsPage } from './SettingsPage.jsx';
 
 const backend = vi.hoisted(() => ({
+  callBackend: vi.fn(),
   copyTextToClipboard: vi.fn(),
   getBuildInfo: vi.fn(),
   getPreference: vi.fn(),
@@ -81,6 +82,7 @@ beforeEach(() => {
     commit: 'abc123',
   });
   backend.getPreference.mockImplementation(({ key }) => Promise.resolve(preferences[key] ?? null));
+  backend.callBackend.mockResolvedValue({});
   backend.setPreference.mockResolvedValue({ ok: true });
   backend.readConfig.mockResolvedValue({ cwd: '/repo/app' });
   backend.readLspPromptHint.mockResolvedValue({
@@ -302,7 +304,9 @@ describe('SettingsPage builtin tools migration', () => {
 
     renderSettingsPage();
 
-    expect(await screen.findByTestId('settings-builtin-tools-summary')).toHaveTextContent('已管控 1 / 2');
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-builtin-tools-summary')).toHaveTextContent('已管控 1 / 2');
+    });
     fireEvent.click(screen.getByTestId('settings-builtin-tool-group-head-native-hard'));
     const readToggle = screen.getByTestId('settings-builtin-tool-input-Read');
     expect(readToggle).toBeChecked();
@@ -311,6 +315,20 @@ describe('SettingsPage builtin tools migration', () => {
 
     await waitFor(() => {
       expect(backend.writeBuiltinTool).toHaveBeenCalledWith({ cwd: '/repo/app', id: 'Read', enabled: true });
+    });
+  });
+});
+
+describe('SettingsPage video settings', () => {
+  it('reports API key load failures instead of silently ignoring them', async () => {
+    backend.callBackend.mockRejectedValueOnce(new Error('credential store unavailable'));
+
+    renderSettingsPage();
+
+    expect(await screen.findByTestId('settings-video-card')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-video-notice')).toHaveTextContent('读取视频 API Key 失败：credential store unavailable');
+      expect(screen.getByTestId('settings-video-notice')).toHaveAttribute('role', 'alert');
     });
   });
 });
