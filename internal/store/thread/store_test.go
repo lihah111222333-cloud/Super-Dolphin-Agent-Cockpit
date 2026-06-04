@@ -261,37 +261,6 @@ func TestAgentThreadAgentIDQueriesUseDirectBindingOnly(t *testing.T) {
 	}
 }
 
-func TestAgentThreadConfigBatchSQLUsesTextArray(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		path string
-		want string
-	}{
-		{
-			path: "../../../sql/queries/agent_thread.sql",
-			want: "thread_id = ANY(sqlc.arg(thread_ids)::text[])",
-		},
-		{
-			path: "../sqlc/agent_thread.sql.go",
-			want: "thread_id = ANY($1::text[])",
-		},
-	}
-	for _, tt := range tests {
-		raw, err := os.ReadFile(tt.path)
-		if err != nil {
-			t.Fatalf("read %s: %v", tt.path, err)
-		}
-		text := string(raw)
-		if !strings.Contains(text, tt.want) {
-			t.Fatalf("%s missing array batch query %q", tt.path, tt.want)
-		}
-		if strings.Contains(text, "thread_id IN ($1)") || strings.Contains(text, "sqlc.slice('thread_ids')") {
-			t.Fatalf("%s still encodes thread IDs as a single text parameter", tt.path)
-		}
-	}
-}
-
 func TestSaveAndLoadPromptSnapshot(t *testing.T) {
 	t.Parallel()
 

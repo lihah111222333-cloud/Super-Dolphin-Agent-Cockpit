@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"reflect"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -15,60 +14,29 @@ import (
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
+	"go.uber.org/fx"
 )
 
 // LogSink subscribes to known bus events and mirrors them to structured logs.
 type LogSink struct {
 	subs        *Subscription
-	trace       TraceRecorder
+	trace       *observability.Service
 	traceMu     sync.Mutex
 	traceCounts map[string]int64
 }
 
-type TraceStatus string
+type logSinkParams struct {
+	fx.In
 
-const (
-	TraceStatusOK             TraceStatus = "ok"
-	TraceStatusDroppedSummary TraceStatus = "dropped_summary"
-)
-
-type TraceCodeAnchor struct {
-	File     string
-	Function string
-	Line     int
-}
-
-type TraceRecord struct {
-	SchemaVersion int
-	Timestamp     time.Time
-	TraceID       string
-	SpanID        string
-	ParentSpanID  string
-	Kind          string
-	Method        string
-	ThreadID      string
-	AgentID       string
-	TurnID        string
-	CallID        string
-	ToolName      string
-	Status        TraceStatus
-	Code          TraceCodeAnchor
-	Metadata      map[string]any
-}
-
-type TraceRecorder interface {
-	RecordTrace(context.Context, TraceRecord) error
-}
-
-type LogSinkDeps struct {
 	Dispatcher *event.Dispatcher
 	Logger     *pkglogger.Logger
-	Trace      TraceRecorder
+	Trace      *observability.Service `optional:"true"`
 }
 
-func NewLogSink(p LogSinkDeps) *LogSink {
+func NewLogSink(p logSinkParams) *LogSink {
 	sink := &LogSink{subs: NewSubscription(), trace: p.Trace, traceCounts: map[string]int64{}}
 	if p.Dispatcher == nil || p.Logger == nil {
 		slog.Warn("bus: NewLogSink called with nil dispatcher or logger, event logging disabled")
@@ -182,7 +150,7 @@ func eventTypeName(ev any) string {
 const busHighFrequencyTraceEvery = 100
 
 func (s *LogSink) traceLifecycleEvent(ev any) {
-	s.recordTraceEvent(ev, TraceStatusOK, nil)
+	s.recordTraceEvent(ev, observability.StatusOK, nil)
 }
 
 func (s *LogSink) traceHighFrequencyLifecycleEvent(ev any) {
@@ -199,13 +167,13 @@ func (s *LogSink) traceHighFrequencyLifecycleEvent(ev any) {
 	}
 	s.traceCounts[eventType] = 0
 	s.traceMu.Unlock()
-	s.recordTraceEvent(ev, TraceStatusDroppedSummary, map[string]any{
+	s.recordTraceEvent(ev, observability.StatusDroppedSummary, map[string]any{
 		"event_type":    eventType,
 		"dropped_count": count,
 	})
 }
 
-func (s *LogSink) recordTraceEvent(ev any, status TraceStatus, metadata map[string]any) {
+func (s *LogSink) recordTraceEvent(ev any, status observability.Status, metadata map[string]any) {
 	if s == nil || s.trace == nil {
 		return
 	}
@@ -214,8 +182,8 @@ func (s *LogSink) recordTraceEvent(ev any, status TraceStatus, metadata map[stri
 		metadata = map[string]any{}
 	}
 	metadata["event_type"] = eventTypeName(ev)
-	_ = s.trace.RecordTrace(context.Background(), TraceRecord{
-		SchemaVersion: 1,
+	_ = s.trace.Record(context.Background(), observability.TraceEvent{
+		SchemaVersion: observability.SchemaVersion,
 		Timestamp:     time.Now(),
 		Kind:          "bus_event",
 		Method:        "bus.event.lifecycle",
@@ -228,21 +196,9 @@ func (s *LogSink) recordTraceEvent(ev any, status TraceStatus, metadata map[stri
 		CallID:        ids.callID,
 		ToolName:      ids.toolName,
 		Status:        status,
-		Code:          traceCodeAnchorFromCaller(0),
+		Code:          observability.CodeAnchorFromCaller(0),
 		Metadata:      metadata,
 	})
-}
-
-func traceCodeAnchorFromCaller(skip int) TraceCodeAnchor {
-	pc, file, line, ok := runtime.Caller(skip + 1)
-	if !ok {
-		return TraceCodeAnchor{}
-	}
-	function := ""
-	if fn := runtime.FuncForPC(pc); fn != nil {
-		function = fn.Name()
-	}
-	return TraceCodeAnchor{File: file, Function: function, Line: line}
 }
 
 type busTraceIDs struct{ traceID, spanID, parentSpanID, threadID, agentID, turnID, callID, toolName string }

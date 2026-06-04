@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 )
 
@@ -267,7 +266,7 @@ func (s *Service) readTail(ctx context.Context, query Query) (QueryResult, error
 	case <-ctx.Done():
 		return QueryResult{Source: QuerySourceJSONLTail, TailDurationMS: durationMillis(time.Since(startedAt)), TailTimedOut: errors.Is(ctx.Err(), context.DeadlineExceeded)}, ctx.Err()
 	}
-	ctx, cancel := platformconfig.WithTimeout(ctx, time.Duration(s.tailTimeoutMS)*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(s.tailTimeoutMS)*time.Millisecond)
 	defer cancel()
 	result, err := s.tail.QueryTraceEvents(ctx, query)
 	result.TailDurationMS = durationMillis(time.Since(startedAt))
