@@ -1910,7 +1910,6 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
           selectFiles={store.selectFilesForComposer}
           attachPaths={store.attachPathsForComposer}
           attachDroppedFiles={store.attachDroppedFilesForComposer}
-          attachPastedImages={store.attachPastedImagesForComposer}
           removeAttachment={store.removeAttachment}
           sending={store.sending}
           store={store}
@@ -2867,28 +2866,22 @@ function extractClipboardFilePaths(event) {
   return extractFilePathsFromTransferData(event?.clipboardData);
 }
 
-function extractClipboardImageFiles(event) {
+function extractClipboardFiles(event) {
   const clipboard = event?.clipboardData;
   if (!clipboard) return [];
-  const images = [];
+  const files = [];
   const seen = new Set();
   const add = (file) => {
     if (!file || seen.has(file)) return;
-    const type = textValue(file.type).toLowerCase();
-    const name = textValue(file.name).toLowerCase();
-    if (!type.startsWith('image/') && !/\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name)) return;
     seen.add(file);
-    images.push(file);
+    files.push(file);
   };
   Array.from(clipboard.files || []).forEach(add);
   Array.from(clipboard.items || []).forEach((item) => {
-    if (!item) return;
-    const type = textValue(item.type).toLowerCase();
-    if (type.startsWith('image/') || item.kind === 'file') {
-      add(item.getAsFile?.());
-    }
+    if (item?.kind !== 'file') return;
+    add(item.getAsFile?.());
   });
-  return images;
+  return files;
 }
 
 function nativeDropFiles(event) {
@@ -4592,7 +4585,6 @@ function useComposerInteractions({
   attachments,
   attachPaths,
   attachDroppedFiles,
-  attachPastedImages,
   removeAttachment,
   projectActionBlocked,
   canUseProjectActions,
@@ -4617,7 +4609,6 @@ function useComposerInteractions({
   const handlers = useComposerTransferHandlers({
     attachDroppedFiles,
     attachPaths,
-    attachPastedImages,
     canUseProjectActions,
     dropDepthRef,
     projectActionBlocked,
@@ -4637,7 +4628,7 @@ function useComposerInteractions({
   };
 }
 
-function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, attachPastedImages, canUseProjectActions, dropDepthRef, projectActionBlocked, setDropActive }) {
+function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, canUseProjectActions, dropDepthRef, projectActionBlocked, setDropActive }) {
   const resetDropState = useCallback(() => {
     dropDepthRef.current = 0;
     setDropActive(false);
@@ -4661,11 +4652,11 @@ function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, attachPa
       if (typeof attachPaths === 'function') attachPaths(paths);
       return;
     }
-    const images = extractClipboardImageFiles(event);
-    if (images.length === 0) return;
+    const files = extractClipboardFiles(event);
+    if (files.length === 0) return;
     event.preventDefault();
     if (projectActionBlocked) return;
-    await attachPastedImages(images);
+    await attachDroppedFiles(files);
   };
   const handleDragEnter = (event) => {
     if (!hasFilesTransfer(event)) return;
@@ -4986,7 +4977,6 @@ function Conversation(props) {
     attachments = [],
     attachPaths,
     attachDroppedFiles,
-    attachPastedImages,
     removeAttachment,
     canUseProjectActions = true,
     sendMessage,
@@ -5000,7 +4990,6 @@ function Conversation(props) {
     attachments,
     attachPaths,
     attachDroppedFiles,
-    attachPastedImages,
     removeAttachment,
     projectActionBlocked: !canUseProjectActions,
     canUseProjectActions,
