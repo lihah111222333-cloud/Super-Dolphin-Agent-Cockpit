@@ -172,15 +172,12 @@ function ObservabilityPage() {
   const { buildRecentParams, filters, queryLimit, setFilter } = useObservabilityFilters();
   const [pageState, dispatchPageState] = useReducer(observabilityPageReducer, OBSERVABILITY_PAGE_INITIAL_STATE);
   const activeRecentParamsRef = useRef(null);
+  const recentRequestSequenceRef = useRef(0);
   const { copiedTraceId, loading, notice, recentResult } = pageState;
   const setNotice = useCallback((message) => {
     dispatchPageState({ type: 'notice/set', message });
   }, []);
   const { expandedTraces, setExpandedTraces, toggleTraceExpansion } = useObservabilityTraceExpansion({ queryLimit, setFilter, setNotice });
-
-  const refreshRecent = useCallback(async (params) => {
-    dispatchPageState({ type: 'recent/set', result: await getObservabilityRecent(params), clearNotice: false });
-  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -190,14 +187,18 @@ function ObservabilityPage() {
       if (!activeRecentParams) return;
       if (refreshInFlight) return;
       refreshInFlight = true;
+      const requestSequence = recentRequestSequenceRef.current + 1;
+      recentRequestSequenceRef.current = requestSequence;
       try {
-        const result = await getObservabilityRecent(activeRecentParams);
-        if (!disposed) {
+        const result = await getObservabilityRecent({ ...activeRecentParams, includeTail: false });
+        if (!disposed && recentRequestSequenceRef.current === requestSequence) {
           dispatchPageState({ type: 'recent/set', result, clearNotice: true });
         }
       }
       catch (error) {
-        if (!disposed) dispatchPageState({ type: 'notice/set', message: errorMessage(error) });
+        if (!disposed && recentRequestSequenceRef.current === requestSequence) {
+          dispatchPageState({ type: 'notice/set', message: errorMessage(error) });
+        }
       }
       finally {
         refreshInFlight = false;
@@ -225,20 +226,27 @@ function ObservabilityPage() {
 
   const runQuery = useCallback(async () => {
     dispatchPageState({ type: 'query/start' });
+    const requestSequence = recentRequestSequenceRef.current + 1;
+    recentRequestSequenceRef.current = requestSequence;
     activeRecentParamsRef.current = null;
     setExpandedTraces({});
-    const params = buildRecentParams();
+    const params = { ...buildRecentParams(), includeTail: true };
     try {
-      await refreshRecent(params);
-      activeRecentParamsRef.current = params;
+      const result = await getObservabilityRecent(params);
+      if (recentRequestSequenceRef.current === requestSequence) {
+        dispatchPageState({ type: 'recent/set', result, clearNotice: false });
+        activeRecentParamsRef.current = { ...params, includeTail: false };
+      }
     }
     catch (error) {
-      setNotice(errorMessage(error));
+      if (recentRequestSequenceRef.current === requestSequence) setNotice(errorMessage(error));
     }
     finally {
-      dispatchPageState({ type: 'query/finish' });
+      if (recentRequestSequenceRef.current === requestSequence) {
+        dispatchPageState({ type: 'query/finish' });
+      }
     }
-  }, [buildRecentParams, refreshRecent, setExpandedTraces, setNotice]);
+  }, [buildRecentParams, setExpandedTraces, setNotice]);
 
   return (
     <section className="settings-page observability-page" data-testid="observability-page">

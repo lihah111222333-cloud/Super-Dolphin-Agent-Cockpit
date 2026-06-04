@@ -263,6 +263,7 @@ function observabilityRecentPayload(method, params = {}) {
     threadId: normalizeString(payload.threadId || payload.thread_id),
     agentId: normalizeString(payload.agentId || payload.agent_id),
     keyword: normalizeString(payload.keyword),
+    includeTail: payload.includeTail,
   });
 }
 
