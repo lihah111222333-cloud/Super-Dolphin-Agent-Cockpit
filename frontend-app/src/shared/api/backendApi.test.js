@@ -150,6 +150,19 @@ import { createBackendApi, emitFrontendTraceEvent, RPC_METHODS } from './backend
     });
   });
 
+  it('rejects turn/start legacy prompt with legacy attachments before calling the backend', () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    expect(() => api.startTurn({
+      cwd: '/repo/app',
+      threadId: 'thread-123',
+      prompt: 'build it',
+      attachments: ['/tmp/a.txt'],
+    })).toThrow('turn/start: prompt and attachments cannot both contain content');
+    expect(callAPI).not.toHaveBeenCalled();
+  });
+
   it('rejects turn/start array input with legacy attachments before calling the backend', () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
