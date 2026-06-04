@@ -99,6 +99,54 @@ func CheckAll(opts CheckOptions) []Violation {
 	}
 	violations = append(violations, packageViolations(stats)...)
 	violations = append(violations, postScanViolations(repoRoot, scanRoots, stats)...)
+	sortViolations(violations)
+	return violations
+}
+
+func CheckFiles(opts CheckOptions, paths []string) []Violation {
+	repoRoot := opts.RepoRoot
+	if repoRoot == "" {
+		repoRoot = "."
+	}
+	stats := map[string]*packageStat{}
+	var violations []Violation
+	for _, path := range paths {
+		absPath := path
+		if !filepath.IsAbs(absPath) {
+			absPath = filepath.Join(repoRoot, path)
+		}
+		relPath := displayGuardPath(repoRoot, absPath)
+		if filepath.Ext(absPath) != ".go" {
+			violations = append(violations, Violation{
+				Kind:    ViolationFile,
+				File:    relPath,
+				Message: fmt.Sprintf("%s: expected .go file", relPath),
+			})
+			continue
+		}
+		violations = append(violations, checkSingleFile(absPath, relPath, stats)...)
+	}
+	sortViolations(violations)
+	return violations
+}
+
+func displayGuardPath(repoRoot, absPath string) string {
+	absRoot, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return filepath.ToSlash(absPath)
+	}
+	absFile, err := filepath.Abs(absPath)
+	if err != nil {
+		return filepath.ToSlash(absPath)
+	}
+	relPath, err := filepath.Rel(absRoot, absFile)
+	if err == nil && relPath != ".." && !strings.HasPrefix(relPath, ".."+string(filepath.Separator)) {
+		return filepath.ToSlash(relPath)
+	}
+	return filepath.ToSlash(absFile)
+}
+
+func sortViolations(violations []Violation) {
 	slices.SortFunc(violations, func(a, b Violation) int {
 		if c := strings.Compare(a.File, b.File); c != 0 {
 			return c
@@ -114,7 +162,6 @@ func CheckAll(opts CheckOptions) []Violation {
 		}
 		return strings.Compare(a.Message, b.Message)
 	})
-	return violations
 }
 
 func SplitLines(data []byte) []string {

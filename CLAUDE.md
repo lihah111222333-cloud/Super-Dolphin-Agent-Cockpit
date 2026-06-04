@@ -96,6 +96,14 @@
 make guard
 ```
 
+每改完一个 Go 文件，先跑单文件守卫再继续：
+
+```bash
+./scripts/test_with_guard.sh <file.go>
+```
+
+只传入 Go 文件路径时，该守卫保持安静：exit 0 表示无违规且不输出内容；exit 1 表示有违规，stderr 只输出具体违规项。
+
 大范围改动或发布前：
 
 ```bash

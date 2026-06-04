@@ -27,6 +27,8 @@ import (
 // Public types (子包独立的最小数据模型)
 // ---------------------------------------------------------------------------
 
+var ErrLLMConsolidate = errors.New("LLM consolidate")
+
 // SimilarPair 是 UI 看到的一对相似条目，来自后端 buildUIMemorySnapshot。
 type SimilarPair struct {
 	NameA, NameB     string
@@ -328,7 +330,7 @@ func ConsolidateAll(ctx context.Context, deps Deps, cwd string) (ConsolidateResu
 	}
 	raw, err := deps.DreamExecute(ctx, prompt)
 	if err != nil {
-		return ConsolidateResult{}, fmt.Errorf("LLM consolidate: %w", err)
+		return ConsolidateResult{}, fmt.Errorf("%w: %w", ErrLLMConsolidate, err)
 	}
 	decisions, err := ParseDecisions(raw)
 	if err != nil {

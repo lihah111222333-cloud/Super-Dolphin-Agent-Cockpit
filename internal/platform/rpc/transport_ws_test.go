@@ -3,6 +3,8 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -43,6 +45,114 @@ func TestWSHandlerNotifiesUIConnectHooks(t *testing.T) {
 	}
 }
 
+func TestWSHandlerRejectsMessagesOverReadLimit(t *testing.T) {
+	server := newTestServer()
+	conn := dialWSTestServer(t, WSHandler(server, nil))
+	defer conn.Close()
+
+	oversized := strings.Repeat("x", int(wailsWSMaxMessageBytes)+1)
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(oversized)); err != nil {
+		t.Fatalf("WriteMessage() error = %v", err)
+	}
+
+	_, _, err := readWSMessageWithDeadline(conn)
+	if err == nil {
+		t.Fatal("server accepted oversized websocket message; want close")
+	}
+	var closeErr *websocket.CloseError
+	if !errors.As(err, &closeErr) {
+		t.Fatalf("ReadMessage() error = %v, want websocket close error", err)
+	}
+	if closeErr.Code != websocket.CloseMessageTooBig {
+		t.Fatalf("close code = %d (%q), want %d", closeErr.Code, closeErr.Text, websocket.CloseMessageTooBig)
+	}
+}
+
+func TestWSChannelReadLimitErrorIsExplicit(t *testing.T) {
+	err := recvWSError(websocket.ErrReadLimit, wailsWSMaxMessageBytes)
+	if err == nil {
+		t.Fatal("recvWSError() = nil, want explicit read limit error")
+	}
+	if !strings.Contains(err.Error(), "wails websocket message size limit exceeded") {
+		t.Fatalf("recvWSError() = %q, want explicit wails websocket limit message", err.Error())
+	}
+}
+
+func TestWSHandlerRejectsConnectionsOverLimit(t *testing.T) {
+	server := newTestServer()
+	connected := make(chan struct{}, wailsWSMaxActiveConnections)
+	server.OnConnectUI(func(*jrpc2.Server) {
+		connected <- struct{}{}
+	})
+
+	httpServer := httptest.NewServer(WSHandler(server, nil))
+	defer httpServer.Close()
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+
+	conns := dialActiveWSTestConnections(t, wsURL, wailsWSMaxActiveConnections)
+	defer closeWSTestConnections(conns)
+	waitForWSTestConnections(t, connected, wailsWSMaxActiveConnections)
+
+	extraConn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err == nil {
+		extraConn.Close()
+		t.Fatal("Dial() over limit succeeded; want fail-fast rejection")
+	}
+	assertWSConnectionLimitResponse(t, resp, err)
+}
+
+func dialActiveWSTestConnections(t *testing.T, wsURL string, count int) []*websocket.Conn {
+	t.Helper()
+
+	conns := make([]*websocket.Conn, 0, count)
+	for range count {
+		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+		if err != nil {
+			closeWSTestConnections(conns)
+			t.Fatalf("Dial() within limit error = %v", err)
+		}
+		conns = append(conns, conn)
+	}
+	return conns
+}
+
+func closeWSTestConnections(conns []*websocket.Conn) {
+	for _, conn := range conns {
+		_ = conn.Close()
+	}
+}
+
+func waitForWSTestConnections(t *testing.T, connected <-chan struct{}, count int) {
+	t.Helper()
+
+	for range count {
+		select {
+		case <-connected:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for UI websocket connections to become active")
+		}
+	}
+}
+
+func assertWSConnectionLimitResponse(t *testing.T, resp *http.Response, dialErr error) {
+	t.Helper()
+
+	if resp == nil {
+		t.Fatalf("Dial() over limit response is nil, error = %v", dialErr)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("Dial() over limit status = %d, want %d", resp.StatusCode, http.StatusServiceUnavailable)
+	}
+	body, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		t.Fatalf("ReadAll(over limit response) error = %v", readErr)
+	}
+	if !strings.Contains(string(body), "wails websocket connection limit reached") {
+		t.Fatalf("Dial() over limit body = %q, want clear connection limit error", string(body))
+	}
+}
+
 func TestWSHandlerCorrelatesFrontendTraceThroughDispatch(t *testing.T) {
 	svc := newWSTraceService(t)
 	var sawTrace observability.TraceContext
@@ -67,7 +177,7 @@ func newWSTraceService(t *testing.T) *observability.Service {
 
 func newWSTraceServer(t *testing.T, svc *observability.Service, sawTrace *observability.TraceContext) *Server {
 	t.Helper()
-	server := NewServer(Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}, Observability: svc})
+	server := NewServer(Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}, TraceRecorder: testRPCTraceRecorder{svc}})
 	server.Register(handler.Map{"thread/echo": StrictHandler(func(ctx context.Context, req struct {
 		ThreadID string `json:"threadId"`
 	}) (map[string]string, error) {
@@ -93,6 +203,13 @@ func dialWSTestServer(t *testing.T, h http.Handler) *websocket.Conn {
 		t.Fatalf("Dial() error = %v", err)
 	}
 	return conn
+}
+
+func readWSMessageWithDeadline(conn *websocket.Conn) (int, []byte, error) {
+	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		return 0, nil, err
+	}
+	return conn.ReadMessage()
 }
 
 func writeTraceWSRequest(t *testing.T, conn *websocket.Conn) wsRPCResponse {

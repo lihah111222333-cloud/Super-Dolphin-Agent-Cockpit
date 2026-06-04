@@ -57,6 +57,7 @@ var Module = fx.Options(
 	platformrunner.Module,
 	statemachine.Module,
 	platformobservability.Module,
+	fx.Provide(provideBusTraceRecorder, provideRPCTraceRecorder),
 	store.Module,
 	dashboard.Module,
 	feedback.Module,

@@ -8,6 +8,19 @@ import { appendCurrentModelOption, canonicalizeModelValue, modelOptionFor, norma
 const CONVERSATION_DROP_TARGET_ID = 'conversation-drop-zone';
 const CLIPBOARD_FILE_PATH_TYPES = Object.freeze(['x-special/gnome-copied-files', 'text/uri-list', 'text/plain']);
 const DROP_FILE_PATH_TYPES = new Set(['x-special/gnome-copied-files', 'text/uri-list']);
+const NATIVE_FILE_DROP_TARGET_IDS = new Set(['composer-input', 'chat-input-bar', CONVERSATION_DROP_TARGET_ID]);
+const NATIVE_FILE_DROP_TARGET_ATTRIBUTE = 'data-file-drop-target';
+const NATIVE_FILE_DROP_TARGET_CLASSES = new Set([
+  'composer',
+  'composer--docked',
+  'composer--floating',
+  'composer-card',
+  'composer-drop-hint',
+  'conversation',
+  'conversation--intro',
+  'timeline',
+  'timeline-shell',
+]);
 
 const THREAD_RAIL_MIN_WIDTH = 240;
 
@@ -1908,7 +1921,6 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
           selectFiles={store.selectFilesForComposer}
           attachPaths={store.attachPathsForComposer}
           attachDroppedFiles={store.attachDroppedFilesForComposer}
-          attachPastedImages={store.attachPastedImagesForComposer}
           removeAttachment={store.removeAttachment}
           sending={store.sending}
           store={store}
@@ -2865,35 +2877,65 @@ function extractClipboardFilePaths(event) {
   return extractFilePathsFromTransferData(event?.clipboardData);
 }
 
-function extractClipboardImageFiles(event) {
+function extractClipboardFiles(event) {
   const clipboard = event?.clipboardData;
   if (!clipboard) return [];
-  const images = [];
+  const files = [];
   const seen = new Set();
   const add = (file) => {
     if (!file || seen.has(file)) return;
-    const type = textValue(file.type).toLowerCase();
-    const name = textValue(file.name).toLowerCase();
-    if (!type.startsWith('image/') && !/\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name)) return;
     seen.add(file);
-    images.push(file);
+    files.push(file);
   };
   Array.from(clipboard.files || []).forEach(add);
   Array.from(clipboard.items || []).forEach((item) => {
-    if (!item) return;
-    const type = textValue(item.type).toLowerCase();
-    if (type.startsWith('image/') || item.kind === 'file') {
-      add(item.getAsFile?.());
-    }
+    if (item?.kind !== 'file') return;
+    add(item.getAsFile?.());
   });
-  return images;
+  return files;
 }
 
-function nativeDropFiles(event) {
+function nativeDropFiles(event, options) {
   if (!event || typeof event !== 'object') return [];
   const candidates = [event, event.data, event.payload, event.data?.payload];
   const payload = candidates.find((item) => item && typeof item === 'object' && Array.isArray(item.files));
+  if (!nativeDropTargetAcceptsFiles(payload?.details, options)) return [];
   return payload?.files || [];
+}
+
+function nativeDropClassTokens(value) {
+  if (!value) return [];
+  const raw = Array.isArray(value)
+    ? value
+    : (typeof value === 'string' ? value.split(/\s+/) : []);
+  return raw.map((item) => textValue(item)).filter(Boolean);
+}
+
+function nativeDropHasAcceptedClass(value) {
+  return nativeDropClassTokens(value).some((className) => NATIVE_FILE_DROP_TARGET_CLASSES.has(className));
+}
+
+function nativeDropHasTargetEvidence(details, attributes) {
+  if (textValue(details?.id) || nativeDropClassTokens(details?.classList).length > 0) return true;
+  if (!attributes) return false;
+  return Boolean(textValue(attributes.id)
+    || nativeDropClassTokens(attributes.class).length > 0
+    || Object.keys(attributes).length > 0);
+}
+
+function nativeDropTargetAcceptsFiles(details, options = {}) {
+  if (!details || typeof details !== 'object') return Boolean(options.acceptEmptyDetails);
+  const id = textValue(details.id);
+  if (NATIVE_FILE_DROP_TARGET_IDS.has(id)) return true;
+  if (nativeDropHasAcceptedClass(details.classList)) return true;
+
+  const attributes = details.attributes && typeof details.attributes === 'object' ? details.attributes : null;
+  if (!attributes) return Boolean(options.acceptEmptyDetails && !nativeDropHasTargetEvidence(details, attributes));
+  const attributeId = textValue(attributes.id);
+  return NATIVE_FILE_DROP_TARGET_IDS.has(attributeId)
+    || Object.prototype.hasOwnProperty.call(attributes, NATIVE_FILE_DROP_TARGET_ATTRIBUTE)
+    || nativeDropHasAcceptedClass(attributes.class)
+    || Boolean(options.acceptEmptyDetails && !nativeDropHasTargetEvidence(details, attributes));
 }
 
 function AttachmentPreviewModal({ attachment, onClose, onRemove }) {
@@ -4577,7 +4619,6 @@ function useComposerInteractions({
   attachments,
   attachPaths,
   attachDroppedFiles,
-  attachPastedImages,
   removeAttachment,
   projectActionBlocked,
   canUseProjectActions,
@@ -4602,7 +4643,6 @@ function useComposerInteractions({
   const handlers = useComposerTransferHandlers({
     attachDroppedFiles,
     attachPaths,
-    attachPastedImages,
     canUseProjectActions,
     dropDepthRef,
     projectActionBlocked,
@@ -4622,7 +4662,7 @@ function useComposerInteractions({
   };
 }
 
-function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, attachPastedImages, canUseProjectActions, dropDepthRef, projectActionBlocked, setDropActive }) {
+function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, canUseProjectActions, dropDepthRef, projectActionBlocked, setDropActive }) {
   const resetDropState = useCallback(() => {
     dropDepthRef.current = 0;
     setDropActive(false);
@@ -4631,13 +4671,13 @@ function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, attachPa
   useEffect(() => {
     if (typeof attachPaths !== 'function') return undefined;
     return onFilesDropped((event) => {
-      if (!canUseProjectActions) return;
-      const files = nativeDropFiles(event);
+      const files = nativeDropFiles(event, { acceptEmptyDetails: dropDepthRef.current > 0 });
       if (files.length === 0) return;
+      if (!canUseProjectActions) return;
       attachPaths(files);
       resetDropState();
     });
-  }, [attachPaths, canUseProjectActions, resetDropState]);
+  }, [attachPaths, canUseProjectActions, dropDepthRef, resetDropState]);
   const handlePaste = async (event) => {
     const paths = extractClipboardFilePaths(event);
     if (paths.length > 0) {
@@ -4646,11 +4686,11 @@ function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, attachPa
       if (typeof attachPaths === 'function') attachPaths(paths);
       return;
     }
-    const images = extractClipboardImageFiles(event);
-    if (images.length === 0) return;
+    const files = extractClipboardFiles(event);
+    if (files.length === 0) return;
     event.preventDefault();
     if (projectActionBlocked) return;
-    await attachPastedImages(images);
+    await attachDroppedFiles(files);
   };
   const handleDragEnter = (event) => {
     if (!hasFilesTransfer(event)) return;
@@ -4682,11 +4722,11 @@ function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, attachPa
     resetDropState();
     if (projectActionBlocked) return;
     const files = collectTransferFiles(event);
-    if (files.length > 0) {
-      await attachDroppedFiles(files);
-      return;
-    }
     const paths = extractTransferFilePaths(event);
+    if (files.length > 0) {
+      const attachedCount = await attachDroppedFiles(files);
+      if (attachedCount > 0 && paths.length === 0) return;
+    }
     if (paths.length > 0 && typeof attachPaths === 'function') attachPaths(paths);
   };
   return { handleDragEnter, handleDragLeave, handleDragOver, handleDrop, handlePaste };
@@ -4971,7 +5011,6 @@ function Conversation(props) {
     attachments = [],
     attachPaths,
     attachDroppedFiles,
-    attachPastedImages,
     removeAttachment,
     canUseProjectActions = true,
     sendMessage,
@@ -4985,7 +5024,6 @@ function Conversation(props) {
     attachments,
     attachPaths,
     attachDroppedFiles,
-    attachPastedImages,
     removeAttachment,
     projectActionBlocked: !canUseProjectActions,
     canUseProjectActions,

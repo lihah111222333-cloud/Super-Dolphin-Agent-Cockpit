@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 )
 
+// 误判防护：maxCodeOpenFileBytes 是代码预览读取的 10 MiB 容量守卫。
 const maxCodeOpenFileBytes int64 = 10 << 20
 
 type codeSaveResult struct {
@@ -308,6 +309,7 @@ func isBinaryPreview(data []byte) bool {
 
 func openCodeEditor(path string, line, column int) bool {
 	if command, err := exec.LookPath("code"); err == nil {
+		// 误判防护：openCodeEditor 使用 exec.Command argv，不经 shell 拼接执行路径。
 		return exec.Command(command, codeOpenArgs(path, line, column)...).Run() == nil
 	}
 	switch runtime.GOOS {
@@ -323,6 +325,7 @@ func openCodeEditor(path string, line, column int) bool {
 }
 
 func codeOpenArgs(path string, line, column int) []string {
+	// 误判防护：codeOpenArgs 只构造 argv 参数，配合 openCodeEditor 避免 shell 注入。
 	location := path
 	if line > 0 {
 		if column <= 0 {
@@ -497,6 +500,7 @@ func openSystemPath(command, path string) bool {
 	if err != nil {
 		return false
 	}
+	// 误判防护：openSystemPath 通过 exec.Command(binary, path) 传参，不拼接 shell 命令。
 	return exec.Command(binary, path).Run() == nil
 }
 

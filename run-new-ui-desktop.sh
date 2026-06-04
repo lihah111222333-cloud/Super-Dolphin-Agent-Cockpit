@@ -60,6 +60,30 @@ ensure_peer_binaries() {
   rebuild_peer_binaries
 }
 
+require_positive_integer() {
+  local name="$1"
+  local value="$2"
+  case "$value" in
+    ''|*[!0-9]*)
+      echo "❌ $name must be a positive integer, got: $value" >&2
+      exit 1
+      ;;
+  esac
+  if [ "$value" -le 0 ]; then
+    echo "❌ $name must be a positive integer, got: $value" >&2
+    exit 1
+  fi
+}
+
+require_positive_number() {
+  local name="$1"
+  local value="$2"
+  if ! awk -v value="$value" 'BEGIN { if (value ~ /^[0-9]+([.][0-9]+)?$/ && value + 0 > 0) exit 0; exit 1 }'; then
+    echo "❌ $name must be a positive number, got: $value" >&2
+    exit 1
+  fi
+}
+
 rebuild_peer_binaries() {
   local peer_dir="${GO_AGENT_PEER_BIN_DIR:-$PROJECT_DIR}"
   mkdir -p "$peer_dir"
@@ -70,26 +94,28 @@ rebuild_peer_binaries() {
 wait_for_http() {
   local url="$1"
   local label="$2"
-  for _ in $(seq 1 50); do
+  local attempts="$3"
+  for _ in $(seq 1 "$attempts"); do
     if curl -fsS "$url" >/dev/null 2>&1; then
       echo "  → $label ready: $url"
       return 0
     fi
+    # 误判防护：wait_for_http/process_exited/print_*_log_tail 防止前端 readiness 失败静默超时。
     if [ "$label" = "frontend-app vite" ]; then
       if [ -n "${VITE_PID:-}" ] && process_exited "$VITE_PID"; then
         echo "❌ $label exited before readiness: $url" >&2
-        wait "$VITE_PID" || true
+        capture_wait_status "$VITE_PID"
         print_frontend_log_tail
         exit 1
       fi
       if [ -n "${DESKTOP_PID:-}" ] && process_exited "$DESKTOP_PID"; then
         echo "❌ desktop backend exited before $label readiness: $url" >&2
-        wait "$DESKTOP_PID" || true
+        capture_wait_status "$DESKTOP_PID"
         print_backend_log_tail
         exit 1
       fi
     fi
-    sleep 0.2
+    sleep "$SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS"
   done
   echo "❌ timed out waiting for $label: $url" >&2
   if [ "$label" = "frontend-app vite" ]; then
@@ -101,6 +127,7 @@ wait_for_http() {
 fail_if_port_busy() {
   local addr="$1"
   local port="${addr##*:}"
+  # 误判防护：fail_if_port_busy 让非 stale 端口占用 fail-fast，避免连到旧进程。
   if lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
     echo "❌ port $port is already in use:"
     lsof -nP -iTCP:"$port" -sTCP:LISTEN || true
@@ -112,6 +139,7 @@ wait_for_port_free() {
   local addr="$1"
   local label="$2"
   local port="${addr##*:}"
+  # 误判防护：wait_for_port_free 是后端重启前的端口释放守卫。
   for _ in $(seq 1 50); do
     if ! lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
       return 0
@@ -126,6 +154,7 @@ wait_for_port_free() {
 process_exited() {
   local pid="$1"
   local stat
+  # 误判防护：process_exited 同时识别普通退出和 zombie 进程。
   if ! kill -0 "$pid" 2>/dev/null; then
     return 0
   fi
@@ -134,6 +163,15 @@ process_exited() {
     *Z*) return 0 ;;
   esac
   return 1
+}
+
+capture_wait_status() {
+  local pid="$1"
+  WAIT_STATUS=0
+  set +e
+  wait "$pid"
+  WAIT_STATUS="$?"
+  set -e
 }
 
 child_pids_of() {
@@ -157,6 +195,7 @@ stop_process_tree() {
   local label="$1"
   local pid="$2"
   local child
+  # 误判防护：stop_process_tree 递归停止子进程，cleanup trap 依赖该守卫防泄漏。
   if [ -z "$pid" ]; then
     return 0
   fi
@@ -185,6 +224,7 @@ stop_stale_vite_for_port() {
     command_line="$(ps -p "$pid" -o command= 2>/dev/null || true)"
     case "$command_line" in
       *frontend-app/node_modules/.bin/vite*)
+        # 误判防护：stop_stale_vite_for_port 只清理 cwd 为 frontend-app 的同端口 Vite。
         if [ "$cwd" = "$FRONTEND_APP_DIR" ]; then
           stop_process_tree "stale frontend-app vite on port $port" "$pid"
         fi
@@ -212,18 +252,19 @@ print_frontend_log_tail() {
 
 wait_for_backend() {
   local url="http://${SUPER_DOLPHIN_HTTP_ADDR}/metrics"
-  for _ in $(seq 1 100); do
+  for _ in $(seq 1 "$SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS"); do
     if curl -fsS "$url" >/dev/null 2>&1; then
       echo "  → desktop backend ready: $url"
       return 0
     fi
+    # 误判防护：wait_for_backend/process_exited/print_backend_log_tail 防止后端失败静默等待。
     if [ -n "${DESKTOP_PID:-}" ] && process_exited "$DESKTOP_PID"; then
       echo "❌ desktop backend exited before readiness: $url" >&2
+      capture_wait_status "$DESKTOP_PID"
       print_backend_log_tail
-      wait "$DESKTOP_PID" || true
       exit 1
     fi
-    sleep 0.2
+    sleep "$SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS"
   done
   echo "❌ timed out waiting for desktop backend: $url" >&2
   print_backend_log_tail
@@ -231,18 +272,19 @@ wait_for_backend() {
 }
 
 wait_for_any_process_exit() {
+  local status
   while true; do
     if [ -n "${DESKTOP_PID:-}" ] && process_exited "$DESKTOP_PID"; then
-      wait "$DESKTOP_PID"
-      local status="$?"
+      capture_wait_status "$DESKTOP_PID"
+      status="$WAIT_STATUS"
       if [ "$status" -ne 0 ]; then
         print_backend_log_tail
       fi
       return "$status"
     fi
     if [ -n "${VITE_PID:-}" ] && process_exited "$VITE_PID"; then
-      wait "$VITE_PID"
-      local status="$?"
+      capture_wait_status "$VITE_PID"
+      status="$WAIT_STATUS"
       if [ "$status" -ne 0 ]; then
         print_frontend_log_tail
       fi
@@ -259,23 +301,141 @@ backend_hot_reload_enabled() {
   esac
 }
 
-frontend_watch_polling_enabled() {
-  case "${SUPER_DOLPHIN_VITE_USE_POLLING:-1}" in
-    1|true|TRUE|yes|YES|on|ON) return 0 ;;
-    *) return 1 ;;
+backend_hot_reload_config_error() {
+  echo "❌ $1" >&2
+  exit 1
+}
+
+validate_backend_hot_positive_integer() {
+  local name="$1"
+  local value="$2"
+  local max="$3"
+  if [ -z "$value" ]; then
+    backend_hot_reload_config_error "$name must be a positive integer"
+  fi
+  if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+    backend_hot_reload_config_error "$name must be a positive integer, got: $value"
+  fi
+  if ! awk -v value="$value" -v max="$max" 'BEGIN { exit (value >= 1 && value <= max ? 0 : 1) }'; then
+    backend_hot_reload_config_error "$name must be between 1 and $max, got: $value"
+  fi
+}
+
+validate_backend_hot_poll_interval() {
+  local value="$1"
+  local min="${SUPER_DOLPHIN_HOT_MIN_POLL_INTERVAL:-1}"
+  if [ -z "$value" ]; then
+    backend_hot_reload_config_error "SUPER_DOLPHIN_HOT_POLL_INTERVAL must be a numeric value at least ${min}s"
+  fi
+  if ! [[ "$value" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    backend_hot_reload_config_error "SUPER_DOLPHIN_HOT_POLL_INTERVAL must be a numeric value at least ${min}s, got: $value"
+  fi
+  if ! awk -v value="$value" -v min="$min" 'BEGIN { exit (value >= min ? 0 : 1) }'; then
+    backend_hot_reload_config_error "SUPER_DOLPHIN_HOT_POLL_INTERVAL must be at least ${min}s, got: $value"
+  fi
+}
+
+validate_backend_hot_watch_paths() {
+  local paths="$1"
+  local count=0
+  local rel path
+  if [ -z "$paths" ]; then
+    backend_hot_reload_config_error "SUPER_DOLPHIN_HOT_WATCH_PATHS must not be empty"
+  fi
+  for rel in $paths; do
+    count=$((count + 1))
+    if [ "$count" -gt "$SUPER_DOLPHIN_HOT_MAX_WATCH_PATHS" ]; then
+      backend_hot_reload_config_error "backend hot reload watch path limit exceeded ($count > $SUPER_DOLPHIN_HOT_MAX_WATCH_PATHS)"
+    fi
+    case "$rel" in
+      /*)
+        backend_hot_reload_config_error "SUPER_DOLPHIN_HOT_WATCH_PATHS entries must be repository-relative paths, got: $rel"
+        ;;
+      *//*)
+        backend_hot_reload_config_error "SUPER_DOLPHIN_HOT_WATCH_PATHS entries must be repository-relative paths without empty segments, got: $rel"
+        ;;
+    esac
+    case "/$rel/" in
+      */../*|*/./*)
+        backend_hot_reload_config_error "SUPER_DOLPHIN_HOT_WATCH_PATHS entries must be repository-relative paths without . or .. segments, got: $rel"
+        ;;
+    esac
+    path="$PROJECT_DIR/$rel"
+    if [ ! -e "$path" ]; then
+      backend_hot_reload_config_error "backend hot reload watch path does not exist: $rel"
+    fi
+  done
+  if [ "$count" -eq 0 ]; then
+    backend_hot_reload_config_error "SUPER_DOLPHIN_HOT_WATCH_PATHS must include at least one path"
+  fi
+}
+
+validate_backend_hot_reload_config() {
+  local max_paths_limit="${SUPER_DOLPHIN_HOT_MAX_WATCH_PATHS_LIMIT:-64}"
+  local max_files_limit="${SUPER_DOLPHIN_HOT_MAX_WATCH_FILES_LIMIT:-20000}"
+  validate_backend_hot_positive_integer "SUPER_DOLPHIN_HOT_MAX_WATCH_PATHS" "$SUPER_DOLPHIN_HOT_MAX_WATCH_PATHS" "$max_paths_limit"
+  validate_backend_hot_positive_integer "SUPER_DOLPHIN_HOT_MAX_WATCH_FILES" "$SUPER_DOLPHIN_HOT_MAX_WATCH_FILES" "$max_files_limit"
+  validate_backend_hot_poll_interval "$SUPER_DOLPHIN_HOT_POLL_INTERVAL"
+  validate_backend_hot_watch_paths "$SUPER_DOLPHIN_HOT_WATCH_PATHS"
+}
+
+parse_frontend_watch_bool() {
+  local name="$1"
+  local value="$2"
+  case "$value" in
+    1|true|TRUE|yes|YES|on|ON) printf '1\n' ;;
+    0|false|FALSE|no|NO|off|OFF) printf '0\n' ;;
+    "")
+      echo "❌ $name must be a boolean (1/0, true/false, yes/no, on/off); got empty value" >&2
+      return 1
+      ;;
+    *)
+      echo "❌ $name must be a boolean (1/0, true/false, yes/no, on/off); got: $value" >&2
+      return 1
+      ;;
   esac
 }
 
-configure_frontend_watch_mode() {
-  if frontend_watch_polling_enabled; then
-    export CHOKIDAR_USEPOLLING="${CHOKIDAR_USEPOLLING:-1}"
-    FRONTEND_WATCH_MODE="polling (CHOKIDAR_USEPOLLING=$CHOKIDAR_USEPOLLING)"
+resolve_frontend_watch_polling() {
+  local vite_set="0"
+  local chokidar_set="0"
+  local vite_polling=""
+  local chokidar_polling=""
+  if [ -n "${SUPER_DOLPHIN_VITE_USE_POLLING+x}" ]; then
+    vite_set="1"
+    vite_polling="$(parse_frontend_watch_bool "SUPER_DOLPHIN_VITE_USE_POLLING" "$SUPER_DOLPHIN_VITE_USE_POLLING")" || return 1
+  fi
+  if [ -n "${CHOKIDAR_USEPOLLING+x}" ]; then
+    chokidar_set="1"
+    chokidar_polling="$(parse_frontend_watch_bool "CHOKIDAR_USEPOLLING" "$CHOKIDAR_USEPOLLING")" || return 1
+  fi
+  if [ "$vite_set" = "1" ] && [ "$chokidar_set" = "1" ] && [ "$vite_polling" != "$chokidar_polling" ]; then
+    echo "❌ conflicting frontend watch config: SUPER_DOLPHIN_VITE_USE_POLLING resolves to $vite_polling but CHOKIDAR_USEPOLLING resolves to $chokidar_polling" >&2
+    return 1
+  fi
+  if [ "$vite_set" = "1" ]; then
+    printf '%s\n' "$vite_polling"
     return 0
   fi
-  FRONTEND_WATCH_MODE="native fs events"
-  if [ -n "${CHOKIDAR_USEPOLLING:-}" ]; then
-    FRONTEND_WATCH_MODE="native fs events requested; CHOKIDAR_USEPOLLING=$CHOKIDAR_USEPOLLING already set"
+  if [ "$chokidar_set" = "1" ]; then
+    printf '%s\n' "$chokidar_polling"
+    return 0
   fi
+  printf '1\n'
+}
+
+configure_frontend_watch_mode() {
+  local polling
+  polling="$(resolve_frontend_watch_polling)" || return 1
+  SUPER_DOLPHIN_VITE_USE_POLLING="$polling"
+  CHOKIDAR_USEPOLLING="$polling"
+  export SUPER_DOLPHIN_VITE_USE_POLLING
+  export CHOKIDAR_USEPOLLING
+  if [ "$polling" = "1" ]; then
+    FRONTEND_WATCH_MODE="polling (SUPER_DOLPHIN_VITE_USE_POLLING=$SUPER_DOLPHIN_VITE_USE_POLLING, CHOKIDAR_USEPOLLING=$CHOKIDAR_USEPOLLING)"
+    return 0
+  fi
+  FRONTEND_WATCH_MODE="native fs events (SUPER_DOLPHIN_VITE_USE_POLLING=$SUPER_DOLPHIN_VITE_USE_POLLING, CHOKIDAR_USEPOLLING=$CHOKIDAR_USEPOLLING)"
 }
 
 start_desktop_backend() {
@@ -307,12 +467,12 @@ stat_backend_watch_file() {
   stat -f '%m %z %N' "$file" 2>/dev/null || stat -c '%Y %s %n' "$file" 2>/dev/null || true
 }
 
-snapshot_backend_watch_state() {
+list_backend_watch_files() {
   local rel path
   for rel in $SUPER_DOLPHIN_HOT_WATCH_PATHS; do
     path="$PROJECT_DIR/$rel"
     if [ ! -e "$path" ]; then
-      continue
+      backend_hot_reload_config_error "backend hot reload watch path does not exist: $rel"
     fi
     if [ -f "$path" ]; then
       printf '%s\n' "$path"
@@ -321,7 +481,30 @@ snapshot_backend_watch_state() {
     find "$path" \
       \( -path '*/.git' -o -path '*/.tmp' -o -path '*/.build-cache' -o -path '*/bin' -o -path '*/dist' -o -path '*/node_modules' -o -path '*/frontend-app/dist' -o -path '*/cmd/agent-terminal/frontend/dist' \) -prune -o \
       -type f \( -name '*.go' -o -name '*.sql' -o -name '*.yaml' -o -name '*.yml' -o -name '*.json' -o -name 'go.mod' -o -name 'go.sum' \) -print
-  done | LC_ALL=C sort -u | while IFS= read -r file; do
+  done
+}
+
+enforce_backend_watch_file_limit() {
+  local phase="$1"
+  awk -v max="$SUPER_DOLPHIN_HOT_MAX_WATCH_FILES" -v phase="$phase" '
+    {
+      count += 1
+      if (count > max) {
+        printf "❌ backend hot reload %s file limit exceeded (%d > %d)\n", phase, count, max > "/dev/stderr"
+        exit 1
+      }
+      print
+    }
+  '
+}
+
+snapshot_backend_watch_state() {
+  local files
+  files="$(list_backend_watch_files | enforce_backend_watch_file_limit "scan" | LC_ALL=C sort -u | enforce_backend_watch_file_limit "unique")"
+  if [ -z "$files" ]; then
+    return 0
+  fi
+  printf '%s\n' "$files" | while IFS= read -r file; do
     stat_backend_watch_file "$file"
   done
 }
@@ -335,16 +518,16 @@ run_backend_hot_supervisor_loop() {
   echo "  backend poll interval: ${interval}s"
   while true; do
     if [ -n "${VITE_PID:-}" ] && process_exited "$VITE_PID"; then
-      wait "$VITE_PID"
-      status="$?"
+      capture_wait_status "$VITE_PID"
+      status="$WAIT_STATUS"
       if [ "$status" -ne 0 ]; then
         print_frontend_log_tail
       fi
       return "$status"
     fi
     if [ -n "${DESKTOP_PID:-}" ] && process_exited "$DESKTOP_PID"; then
-      wait "$DESKTOP_PID"
-      status="$?"
+      capture_wait_status "$DESKTOP_PID"
+      status="$WAIT_STATUS"
       if [ "$status" -ne 0 ]; then
         print_backend_log_tail
       fi
@@ -526,8 +709,37 @@ resolve_postgres_share_dir() {
   return 1
 }
 
+validate_postgres_port() {
+  local label="$1"
+  local port="$2"
+  local normalized value
+  case "$port" in
+    ''|*[!0-9]*)
+      echo "❌ invalid PostgreSQL port in $label: expected decimal 1-65535, got '${port:-<empty>}'" >&2
+      exit 1
+      ;;
+  esac
+  normalized="$port"
+  while [ "${normalized#0}" != "$normalized" ]; do
+    normalized="${normalized#0}"
+  done
+  if [ -z "$normalized" ]; then
+    normalized="0"
+  fi
+  if [ "${#normalized}" -gt 5 ]; then
+    echo "❌ invalid PostgreSQL port in $label: expected decimal 1-65535, got '$port'" >&2
+    exit 1
+  fi
+  value=$((10#$normalized))
+  if [ "$value" -lt 1 ] || [ "$value" -gt 65535 ]; then
+    echo "❌ invalid PostgreSQL port in $label: expected decimal 1-65535, got '$port'" >&2
+    exit 1
+  fi
+}
+
 postgres_is_local_database_url() {
   local url="$1"
+  local label="${2:-DATABASE_URL}"
   local rest authority host port normalized_host
   POSTGRES_URL_HOST=""
   POSTGRES_URL_PORT=""
@@ -539,13 +751,15 @@ postgres_is_local_database_url() {
   rest="${rest#*@}"
   authority="${rest%%/*}"
   host="${authority%%:*}"
-  port="${authority#*:}"
-  if [ "$port" = "$authority" ] || [ -z "$port" ]; then
+  if [ "$host" = "$authority" ]; then
     port="5432"
+  else
+    port="${authority#*:}"
   fi
   normalized_host="$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')"
   case "$normalized_host" in
     localhost|127.0.0.1)
+      validate_postgres_port "$label" "$port"
       POSTGRES_URL_HOST="$host"
       POSTGRES_URL_PORT="$port"
       return 0
@@ -559,8 +773,16 @@ postgres_is_local_database_url() {
 configure_dev_postgres_runtime() {
   export SUPER_DOLPHIN_PROCESS_ROLE="${SUPER_DOLPHIN_PROCESS_ROLE:-desktop}"
 
-  local database_url="${DATABASE_URL:-${POSTGRES_CONNECTION_STRING:-}}"
-  if [ -n "$database_url" ] && ! postgres_is_local_database_url "$database_url"; then
+  local database_url=""
+  local database_url_label=""
+  if [ -n "${DATABASE_URL:-}" ]; then
+    database_url="$DATABASE_URL"
+    database_url_label="DATABASE_URL"
+  elif [ -n "${POSTGRES_CONNECTION_STRING:-}" ]; then
+    database_url="$POSTGRES_CONNECTION_STRING"
+    database_url_label="POSTGRES_CONNECTION_STRING"
+  fi
+  if [ -n "$database_url" ] && ! postgres_is_local_database_url "$database_url" "$database_url_label"; then
     return 0
   fi
 
@@ -572,6 +794,7 @@ configure_dev_postgres_runtime() {
   export SUPER_DOLPHIN_POSTGRES_SHARE_DIR="${SUPER_DOLPHIN_POSTGRES_SHARE_DIR:-$share_dir}"
 
   if [ -z "$database_url" ]; then
+    validate_postgres_port "SUPER_DOLPHIN_LOCAL_POSTGRES_PORT" "$SUPER_DOLPHIN_LOCAL_POSTGRES_PORT"
     DATABASE_URL="${DATABASE_URL:-postgres://super_dolphin@127.0.0.1:${SUPER_DOLPHIN_LOCAL_POSTGRES_PORT}/super_dolphin?sslmode=disable}"
     export DATABASE_URL
     DEV_LOCAL_POSTGRES_MANAGED="1"
@@ -591,11 +814,19 @@ initialize_local_postgres_data_dir() {
 }
 
 ensure_local_postgres() {
-  local database_url="${DATABASE_URL:-${POSTGRES_CONNECTION_STRING:-}}"
+  local database_url=""
+  local database_url_label=""
+  if [ -n "${DATABASE_URL:-}" ]; then
+    database_url="$DATABASE_URL"
+    database_url_label="DATABASE_URL"
+  elif [ -n "${POSTGRES_CONNECTION_STRING:-}" ]; then
+    database_url="$POSTGRES_CONNECTION_STRING"
+    database_url_label="POSTGRES_CONNECTION_STRING"
+  fi
   if [ -z "$database_url" ]; then
     return 0
   fi
-  if ! postgres_is_local_database_url "$database_url"; then
+  if ! postgres_is_local_database_url "$database_url" "$database_url_label"; then
     return 0
   fi
 
@@ -629,6 +860,7 @@ cleanup() {
   if [ "${CLEANUP_DONE:-}" = "1" ]; then
     return 0
   fi
+  # 误判防护：cleanup 使用 CLEANUP_DONE 守卫，EXIT/INT/TERM/HUP trap 可重复触发也只清理一次。
   CLEANUP_DONE="1"
   if [ -n "${VITE_PID:-}" ]; then
     stop_process_tree "frontend-app vite" "$VITE_PID"
@@ -648,25 +880,49 @@ SUPER_DOLPHIN_HTTP_ADDR="${SUPER_DOLPHIN_HTTP_ADDR:-127.0.0.1:4512}"
 GO_AGENT_CTL_RPC_ADDR="${GO_AGENT_CTL_RPC_ADDR:-127.0.0.1:8092}"
 VITE_DEV_URL="${VITE_DEV_URL:-http://127.0.0.1:5175}"
 FRONTEND_DEVSERVER_URL="${FRONTEND_DEVSERVER_URL:-$VITE_DEV_URL}"
+if [ "$FRONTEND_DEVSERVER_URL" != "$VITE_DEV_URL" ]; then
+  echo "❌ FRONTEND_DEVSERVER_URL must match VITE_DEV_URL for Wails readiness, got FRONTEND_DEVSERVER_URL=$FRONTEND_DEVSERVER_URL VITE_DEV_URL=$VITE_DEV_URL" >&2
+  exit 1
+fi
 VITE_DEV_HOST="${VITE_DEV_URL#http://}"
 VITE_DEV_HOST="${VITE_DEV_HOST#https://}"
 VITE_DEV_HOST="${VITE_DEV_HOST%%/*}"
 VITE_DEV_PORT="${VITE_DEV_HOST##*:}"
 VITE_DEV_HOST="${VITE_DEV_HOST%:*}"
+# 守卫规则：VITE_DEV_URL 必须包含 host/port；该规则不覆盖 Vite 外部 bind 旁路风险。
 if [ -z "$VITE_DEV_HOST" ] || [ -z "$VITE_DEV_PORT" ] || [ "$VITE_DEV_HOST" = "$VITE_DEV_PORT" ]; then
   echo "❌ VITE_DEV_URL must include host and port, got: $VITE_DEV_URL" >&2
   exit 1
 fi
 SUPER_DOLPHIN_BACKEND_HOT_RELOAD="${SUPER_DOLPHIN_BACKEND_HOT_RELOAD:-0}"
-SUPER_DOLPHIN_VITE_USE_POLLING="${SUPER_DOLPHIN_VITE_USE_POLLING:-1}"
+SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS="${SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS:-300}"
+SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS="${SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS:-300}"
+SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS="${SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS:-0.2}"
+require_positive_integer "SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS" "$SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS"
+require_positive_integer "SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS" "$SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS"
+require_positive_number "SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS" "$SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS"
 SUPER_DOLPHIN_HOT_PEER_BIN_DIR="${SUPER_DOLPHIN_HOT_PEER_BIN_DIR:-$PROJECT_DIR/.tmp/run-new-ui-desktop-hot/peers}"
 if backend_hot_reload_enabled; then
   GO_AGENT_PEER_BIN_DIR="${GO_AGENT_PEER_BIN_DIR:-$SUPER_DOLPHIN_HOT_PEER_BIN_DIR}"
 else
   GO_AGENT_PEER_BIN_DIR="${GO_AGENT_PEER_BIN_DIR:-$PROJECT_DIR}"
 fi
-SUPER_DOLPHIN_HOT_WATCH_PATHS="${SUPER_DOLPHIN_HOT_WATCH_PATHS:-cmd internal pkg migrations sql go.mod go.sum sqlc.yaml}"
-SUPER_DOLPHIN_HOT_POLL_INTERVAL="${SUPER_DOLPHIN_HOT_POLL_INTERVAL:-1}"
+if [ -z "${SUPER_DOLPHIN_HOT_WATCH_PATHS+x}" ]; then
+  SUPER_DOLPHIN_HOT_WATCH_PATHS="cmd internal pkg migrations sql go.mod go.sum sqlc.yaml"
+fi
+if [ -z "${SUPER_DOLPHIN_HOT_POLL_INTERVAL+x}" ]; then
+  SUPER_DOLPHIN_HOT_POLL_INTERVAL="1"
+fi
+if [ -z "${SUPER_DOLPHIN_HOT_MAX_WATCH_PATHS+x}" ]; then
+  SUPER_DOLPHIN_HOT_MAX_WATCH_PATHS="16"
+fi
+if [ -z "${SUPER_DOLPHIN_HOT_MAX_WATCH_FILES+x}" ]; then
+  SUPER_DOLPHIN_HOT_MAX_WATCH_FILES="5000"
+fi
+SUPER_DOLPHIN_HOT_MIN_POLL_INTERVAL="1"
+SUPER_DOLPHIN_HOT_MAX_WATCH_PATHS_LIMIT="64"
+SUPER_DOLPHIN_HOT_MAX_WATCH_FILES_LIMIT="20000"
+validate_backend_hot_reload_config
 SUPER_DOLPHIN_RUNTIME_MODE="${SUPER_DOLPHIN_RUNTIME_MODE:-dev}"
 SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR="${SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR:-$PROJECT_DIR}"
 SUPER_DOLPHIN_DEV_ENTRYPOINT="${SUPER_DOLPHIN_DEV_ENTRYPOINT:-run-new-ui-desktop.sh}"
@@ -680,6 +936,7 @@ SUPER_DOLPHIN_DEV_CODEX_HOME="${SUPER_DOLPHIN_DEV_CODEX_HOME:-$HOME/.codex}"
 SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY="${SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY:-default}"
 SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER="${SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER:-openai}"
 SUPER_DOLPHIN_LOCAL_POSTGRES_PORT="${SUPER_DOLPHIN_LOCAL_POSTGRES_PORT:-55433}"
+validate_postgres_port "SUPER_DOLPHIN_LOCAL_POSTGRES_PORT" "$SUPER_DOLPHIN_LOCAL_POSTGRES_PORT"
 SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR="${SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR:-$PROJECT_DIR/.tmp/pgdata}"
 SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR="${SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR:-$PROJECT_DIR/.tmp/pgsocket}"
 SUPER_DOLPHIN_LOCAL_POSTGRES_LOG="${SUPER_DOLPHIN_LOCAL_POSTGRES_LOG:-$PROJECT_DIR/.tmp/postgres.log}"
@@ -687,13 +944,13 @@ export SUPER_DOLPHIN_HTTP_ADDR GO_AGENT_CTL_RPC_ADDR VITE_DEV_URL FRONTEND_DEVSE
 export SUPER_DOLPHIN_RUNTIME_MODE SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR SUPER_DOLPHIN_DEV_ENTRYPOINT
 export SUPER_DOLPHIN_HOME SUPER_DOLPHIN_BACKEND_HOT_RELOAD SUPER_DOLPHIN_HOT_WATCH_PATHS SUPER_DOLPHIN_HOT_POLL_INTERVAL
 export SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR SUPER_DOLPHIN_LOCAL_POSTGRES_LOG
-export SUPER_DOLPHIN_VITE_USE_POLLING
 export LOG_LEVEL="${LOG_LEVEL:-debug}"
 export ENABLE_MEMORY_SYSTEM="${ENABLE_MEMORY_SYSTEM:-1}"
 export ENABLE_MEMORY_TOOLS="${ENABLE_MEMORY_TOOLS:-1}"
 export MULTI_AGENT_MEMORY_FEATURE_TEAMMEM="${MULTI_AGENT_MEMORY_FEATURE_TEAMMEM:-1}"
 export CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME="${CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME:-1}"
 
+configure_frontend_watch_mode
 mkdir -p "$(dirname "$SUPER_DOLPHIN_BACKEND_LOG")" "$(dirname "$SUPER_DOLPHIN_FRONTEND_LOG")" "$SUPER_DOLPHIN_HOME"
 ensure_dev_control_session_token
 configure_dev_postgres_runtime
@@ -704,12 +961,11 @@ fail_if_port_busy "$GO_AGENT_CTL_RPC_ADDR"
 ensure_local_postgres
 ensure_node_deps "$FRONTEND_APP_DIR"
 ensure_peer_binaries
-configure_frontend_watch_mode
 
 echo "┌─────────────────────────────────────────┐"
 echo "│  Super Agent new UI desktop             │"
 echo "└─────────────────────────────────────────┘"
-echo "  frontend-app: $VITE_DEV_URL"
+echo "  frontend-app: $FRONTEND_DEVSERVER_URL"
 echo "  bridge:       $SUPER_DOLPHIN_HTTP_ADDR"
 echo "  control rpc:  $GO_AGENT_CTL_RPC_ADDR"
 echo "  peer bin dir: $GO_AGENT_PEER_BIN_DIR"
@@ -722,13 +978,15 @@ if backend_hot_reload_enabled; then
 fi
 
 : >"$SUPER_DOLPHIN_BACKEND_LOG"
-start_desktop_backend
-wait_for_backend
-seed_dev_preferences
+: >"$SUPER_DOLPHIN_FRONTEND_LOG"
 
 (cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &
 VITE_PID=$!
-wait_for_http "$VITE_DEV_URL" "frontend-app vite"
+wait_for_http "$FRONTEND_DEVSERVER_URL" "frontend-app vite" "$SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS"
+
+start_desktop_backend
+wait_for_backend
+seed_dev_preferences
 
 if backend_hot_reload_enabled; then
   run_backend_hot_supervisor_loop

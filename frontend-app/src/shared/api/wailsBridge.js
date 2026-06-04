@@ -45,6 +45,7 @@ const FRONTEND_RUNTIME_TRACE_DEFAULT_PHASES = new Set([
   'runtime.rpc.settled',
 ]);
 const FRONTEND_RUNTIME_TRACE_SKIP_METHODS = new Set([FRONTEND_TRACE_INGEST_METHOD, 'ui/log']);
+// 误判防护：FRONTEND_TRACE_FORBIDDEN_KEYS 阻断 prompt/content/tool result 进入前端 trace。
 const FRONTEND_TRACE_FORBIDDEN_KEYS = new Set([
   'result_preview',
   'prompt',
@@ -284,6 +285,13 @@ function subscribeRuntimeEvent(eventName, callback, options = {}) {
     return false;
   };
 
+  const shouldEscalateCallbackError = (error, normalized) => {
+    if (typeof options.escalateCallbackError === 'function') {
+      return options.escalateCallbackError(error, normalized) === true;
+    }
+    return options.escalateCallbackError === true;
+  };
+
   const wrapped = (evt) => {
     const normalized = normalizeRuntimeEventEnvelope(evt);
     if (typeof options.beforeCallback === 'function') {
@@ -294,6 +302,12 @@ function subscribeRuntimeEvent(eventName, callback, options = {}) {
     }
     catch (error) {
       writeBridgeLog('error', options.callbackFailedLog || 'runtime.callback.failed', { error });
+      if (typeof options.onCallbackError === 'function') {
+        options.onCallbackError(error, normalized);
+      }
+      if (shouldEscalateCallbackError(error, normalized)) {
+        throw error;
+      }
     }
   };
 
@@ -395,6 +409,7 @@ function safeTraceErrorValue(value) {
 }
 
 function containsForbiddenTraceText(text) {
+  // 误判防护：containsForbiddenTraceText 过滤 error/message 中的敏感 trace 文本。
   const normalized = safeTraceString(text, 512).toLowerCase();
   if (!normalized) return false;
   for (const key of FRONTEND_TRACE_FORBIDDEN_KEYS) {
@@ -407,6 +422,7 @@ function containsForbiddenTraceText(text) {
 }
 
 function safeTraceMetadata(metadata) {
+  // 误判防护：safeTraceMetadata 只允许白名单 metadata key 进入 trace。
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
   const out = {};
   for (const [key, value] of Object.entries(metadata)) {
@@ -421,6 +437,7 @@ function safeTraceMetadata(metadata) {
 }
 
 function sanitizeFrontendTraceEvent(event) {
+  // 误判防护：sanitizeFrontendTraceEvent 是前端 trace 入队前的统一去敏守卫。
   if (!event || typeof event !== 'object' || Array.isArray(event)) return null;
   const phase = safeTraceString(event.phase);
   if (!FRONTEND_TRACE_ALLOWED_PHASES.has(phase)) return null;
@@ -500,6 +517,7 @@ function scheduleFrontendTraceFlush() {
 }
 
 function enqueueFrontendTraceEvent(event) {
+  // 误判防护：enqueueFrontendTraceEvent 使用 FRONTEND_TRACE_QUEUE_LIMIT 限制 trace 队列。
   if (frontendTraceQueue.length >= FRONTEND_TRACE_QUEUE_LIMIT) {
     const overflow = frontendTraceQueue.length - FRONTEND_TRACE_QUEUE_LIMIT + 1;
     frontendTraceQueue.splice(0, overflow);
@@ -592,6 +610,7 @@ async function invokeRuntimeByID(methodID, args = [], options = {}) {
 
   const runtime = await waitRuntime();
   if (!runtime?.Call?.ByID) {
+    // 误判防护：invokeRuntimeByID 在 Wails runtime 不可用时抛错，不静默成功。
     if (options.logRuntimeUnavailable !== false) {
       writeBridgeLog('warn', 'bridge.call.runtime.unavailable', {
         req_id: reqId,
@@ -796,6 +815,7 @@ export async function callAPI(method, params = {}) {
     });
   }
   catch (error) {
+    // 误判防护：callAPI 附加 trace 后继续抛出错误，不吞掉 backend/runtime 失败。
     const tracedError = attachAPITraceToError(error, reqId, rpcMethod, clientKind, clientRoute, trace);
     logAPIFailed(reqId, rpcMethod, start, tracedError, clientKind, clientRoute, trace);
     throw tracedError;
@@ -1115,12 +1135,13 @@ export function onAgentEvent(callback) {
   });
 }
 
-export function onBridgeEvent(callback) {
+export function onBridgeEvent(callback, options = {}) {
   return subscribeRuntimeEvent('bridge-event', callback, {
     callbackFailedLog: 'bridge.callback.failed',
     subscribeUnavailableLog: 'bridge.subscribe.unavailable',
     subscribeReadyLog: 'bridge.subscribe.ready',
     unsubscribeDoneLog: 'bridge.unsubscribe.done',
+    ...options,
   });
 }
 

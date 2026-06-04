@@ -12,7 +12,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -95,7 +94,7 @@ type Params struct {
 
 	Logger        *pkglogger.Logger
 	Config        *config.Config
-	Observability *observability.Service `optional:"true"`
+	TraceRecorder TraceRecorder `optional:"true"`
 }
 
 // HandlerMapResult is the fx-compatible output wrapper for handler.Map.

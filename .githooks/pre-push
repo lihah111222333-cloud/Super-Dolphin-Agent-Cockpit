@@ -39,7 +39,8 @@ PUSH_RANGES=$(mktemp -t pre-push-ranges.XXXXXX)
 GO_LIST_ERR=$(mktemp -t pre-push-golist.XXXXXX)
 LOG=
 GO_PKG_CANDIDATES=()
-HAS_FRONTEND_CODE_CHANGES=0
+HAS_LEGACY_FRONTEND_CODE_CHANGES=0
+HAS_FRONTEND_APP_CODE_CHANGES=0
 cleanup() {
   rm -f "$PUSH_RANGES" "$GO_LIST_ERR"
   if [ -n "${LOG:-}" ]; then
@@ -116,7 +117,7 @@ add_go_pkg_for_path() {
   fi
 }
 
-is_frontend_code_path() {
+is_legacy_frontend_code_path() {
   case "$1" in
     cmd/agent-terminal/frontend/node_modules/*|\
     cmd/agent-terminal/frontend/.vite-cache/*|\
@@ -138,9 +139,43 @@ is_frontend_code_path() {
   esac
 }
 
+is_frontend_app_code_path() {
+  case "$1" in
+    frontend-app/node_modules/*|\
+    frontend-app/.vite-cache/*|\
+    frontend-app/.build-cache/*|\
+    frontend-app/.vitest/*|\
+    frontend-app/.eslintcache|\
+    frontend-app/dist/*|\
+    frontend-app/coverage/*|\
+    frontend-app/playwright-report/*|\
+    frontend-app/test-results/*|\
+    frontend-app/test-report/*|\
+    frontend-app/html-report/*|\
+    frontend-app/reports/*|\
+    frontend-app/vitest-report/*|\
+    frontend-app/npm-debug.log|\
+    frontend-app/yarn-error.log|\
+    frontend-app/pnpm-debug.log|\
+    frontend-app/full_test_output.txt|\
+    frontend-app/.DS_Store)
+      return 1
+      ;;
+    frontend-app/*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 add_frontend_path() {
-  if is_frontend_code_path "$1"; then
-    HAS_FRONTEND_CODE_CHANGES=1
+  if is_legacy_frontend_code_path "$1"; then
+    HAS_LEGACY_FRONTEND_CODE_CHANGES=1
+  fi
+  if is_frontend_app_code_path "$1"; then
+    HAS_FRONTEND_APP_CODE_CHANGES=1
   fi
 }
 
@@ -236,12 +271,12 @@ run_go_package_tests() {
   fi
 }
 
-run_frontend_package_tests() {
-  if [ "$HAS_FRONTEND_CODE_CHANGES" -ne 1 ]; then
+run_legacy_frontend_package_tests() {
+  if [ "$HAS_LEGACY_FRONTEND_CODE_CHANGES" -ne 1 ]; then
     return 0
   fi
 
-  echo "[pre-push] frontend codebase guard..."
+  echo "[pre-push] legacy frontend codebase guard..."
   (
     cd cmd/agent-terminal/frontend
     if ! node scripts/size-guard.cjs; then
@@ -251,11 +286,47 @@ run_frontend_package_tests() {
     fi
   )
 
-  echo "[pre-push] frontend package tests..."
+  echo "[pre-push] legacy frontend package tests..."
   (
     cd cmd/agent-terminal/frontend
     if ! npx vitest run; then
       echo "❌ 前端包测试失败，push 已拒绝" >&2
+      echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git push --no-verify" >&2
+      exit 1
+    fi
+  )
+}
+
+run_frontend_app_package_tests() {
+  if [ "$HAS_FRONTEND_APP_CODE_CHANGES" -ne 1 ]; then
+    return 0
+  fi
+
+  echo "[pre-push] frontend-app lint..."
+  (
+    cd frontend-app
+    if ! npm run lint; then
+      echo "❌ frontend-app lint 失败，push 已拒绝" >&2
+      echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git push --no-verify" >&2
+      exit 1
+    fi
+  )
+
+  echo "[pre-push] frontend-app tests..."
+  (
+    cd frontend-app
+    if ! npm test; then
+      echo "❌ frontend-app 测试失败，push 已拒绝" >&2
+      echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git push --no-verify" >&2
+      exit 1
+    fi
+  )
+
+  echo "[pre-push] frontend-app build..."
+  (
+    cd frontend-app
+    if ! npm run build; then
+      echo "❌ frontend-app 构建失败，push 已拒绝" >&2
       echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git push --no-verify" >&2
       exit 1
     fi
@@ -310,6 +381,7 @@ fi
 
 collect_changed_test_scopes
 run_go_package_tests
-run_frontend_package_tests
+run_legacy_frontend_package_tests
+run_frontend_app_package_tests
 
 echo "✅ pre-push OK"
