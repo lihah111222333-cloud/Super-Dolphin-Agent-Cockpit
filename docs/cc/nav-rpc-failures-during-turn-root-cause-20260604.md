@@ -186,7 +186,7 @@ msg="uistate: ReadRuntimeConfig failed" threadID=... err="session not found ..."
 
 已有文档 `docs/cc/workflow-sync-root-cause-20260604.md` 仅作为历史背景索引：本文不继承其中任何结论作为当前证据，也不把旧报告的专项归因纳入本轮 finding。
 
-当前全局 nav RPC 主结论仍以本文 trace/source 证据链为准：运行中 UI 事件放大出大量 `ui/sidebar/changed`，前端进一步触发全量 `ui/sidebar/get` 风暴，叠加 sidebar 后端读路径过重和桥接层 timeout，导致其他 nav 页 RPC 排队/超时/红框。自动化页自身问题若需要纳入，必须另用当前 trace/source 重新列证据。
+当前全局 nav RPC 主结论仍以本文 trace/source 证据链为准：即使切到提示词、技能、记忆、共享文件等页面，只要运行中的 thread/run 触发大量 UI 事件，运行中 UI 事件会放大出大量 `ui/sidebar/changed`，前端进一步触发全量 `ui/sidebar/get` 风暴，叠加 sidebar 后端读路径过重和桥接层 timeout，挤压其他 nav RPC 在 `frontend callAPI/runtime shim -> /wails/ws -> backend dispatch` 之间的等待窗口，导致这些 nav 页面的请求排队/超时/红框；具体等待点仍需额外 in-flight/concurrency telemetry 证明。自动化页自身问题若需要纳入，必须另用当前 trace/source 重新列证据。
 
 ## 后续最小修复方向（未实施）
 
@@ -208,7 +208,7 @@ msg="uistate: ReadRuntimeConfig failed" threadID=... err="session not found ..."
 
 ### Implementation acceptance / 验收清单（F8，未实施）
 
-本节只补跨层实现验收口径；本文仍是 docs-only root-cause 文档，未实施任何代码修复，也不处理 F1/F3/F9。
+本节只补跨层实现验收口径；本文仍是 docs-only root-cause 文档，未实施任何代码修复。F1/F3/F9 的调查性结论以各自章节为准，F8 仅定义实现验收口径。
 
 实际修复进入合入前，至少应满足：
 
