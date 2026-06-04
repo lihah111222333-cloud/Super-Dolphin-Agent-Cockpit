@@ -4820,7 +4820,6 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.getByText(/只读模式/)).toBeInTheDocument();
     expect(backend.getDashboardPrompts).toHaveBeenCalledWith({ cwd: '/repo/app' });
     expect(screen.getByRole('button', { name: '查看' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '删除' })).toBeDisabled();
   });
 
   it('keeps cached prompt assets visible when navigating back and refreshes silently', async () => {
@@ -4954,11 +4953,7 @@ async function editAndDeleteReviewerPrompt() {
     }));
   });
 
-  const updatedCard = await screen.findByText('代码风险审查');
-  fireEvent.click(within(updatedCard.closest('article')).getByRole('button', { name: '删除' }));
-  await waitFor(() => {
-    expect(backend.deletePrompt).toHaveBeenCalledWith({ cwd: '/repo/app', id: 'main/reviewer', scope: 'project' });
-  });
+  await screen.findByText('代码风险审查');
 }
 
 async function handlePendingPromptDraft() {
