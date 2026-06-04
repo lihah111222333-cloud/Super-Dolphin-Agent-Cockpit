@@ -163,7 +163,15 @@ func recentListHandler(svc *platformobs.Service) func(context.Context, recentLis
 			return queryResponse{}, fmt.Errorf("observability service is not wired")
 		}
 		limit := normalizeLimit(p.Limit, defaultListLimit)
-		query := platformobs.Query{Limit: recentRawQueryLimit(limit), IncludeTail: includeTail(p.IncludeTail, p.IncludeTailSnake)}
+		query := platformobs.Query{
+			Component:   p.Component,
+			Status:      platformobs.Status(p.Status),
+			Method:      p.Method,
+			AgentID:     firstTrimmed(p.AgentID, p.AgentIDSnake),
+			Keyword:     p.Keyword,
+			Limit:       recentRawQueryLimit(limit),
+			IncludeTail: includeTail(p.IncludeTail, p.IncludeTailSnake),
+		}
 		if traceID := firstTrimmed(p.TraceID, p.TraceIDSnake); traceID != "" {
 			query.TraceID = traceID
 		} else if threadID := firstTrimmed(p.ThreadID, p.ThreadIDSnake); threadID != "" {

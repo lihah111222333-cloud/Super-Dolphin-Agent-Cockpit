@@ -65,6 +65,20 @@ func TestIndexQueryAppliesCombinedPredicates(t *testing.T) {
 	}
 }
 
+func TestIndexQueryAppliesUIPredicatesBeforeLimit(t *testing.T) {
+	idx := NewIndex(Config{IndexMaxEvents: 8, IndexMaxTraceEvents: 8, IndexMaxThreadEvents: 8, IndexMaxSlowEvents: 8, IndexMaxErrorEvents: 8})
+	idx.Add(TraceEvent{TraceID: "trace-sparse", Kind: "frontend", Method: "rare/method", AgentID: "agent-rare", Status: StatusError, Metadata: map[string]any{"note": "needle"}})
+	for n := 0; n < 5; n++ {
+		idx.Add(TraceEvent{TraceID: "trace-common", Kind: "backend", Method: "common/method", AgentID: "agent-common", Status: StatusOK})
+	}
+
+	got := idx.Query(Query{Component: "frontend", Status: StatusError, Method: "rare", AgentID: "agent-rare", Keyword: "needle", Limit: 1})
+
+	if methods(got.Events) != "rare/method" {
+		t.Fatalf("methods = %q, want sparse match before limit", methods(got.Events))
+	}
+}
+
 func TestIndexMissingTraceReturnsEmptyMemorySource(t *testing.T) {
 	idx := NewIndex(Config{IndexMaxEvents: 2, IndexMaxTraceEvents: 2, IndexMaxThreadEvents: 2, IndexMaxSlowEvents: 2, IndexMaxErrorEvents: 2})
 	got := idx.Query(Query{TraceID: "missing"})
