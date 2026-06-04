@@ -301,23 +301,63 @@ backend_hot_reload_enabled() {
   esac
 }
 
-frontend_watch_polling_enabled() {
-  case "${SUPER_DOLPHIN_VITE_USE_POLLING:-1}" in
-    1|true|TRUE|yes|YES|on|ON) return 0 ;;
-    *) return 1 ;;
+parse_frontend_watch_bool() {
+  local name="$1"
+  local value="$2"
+  case "$value" in
+    1|true|TRUE|yes|YES|on|ON) printf '1\n' ;;
+    0|false|FALSE|no|NO|off|OFF) printf '0\n' ;;
+    "")
+      echo "❌ $name must be a boolean (1/0, true/false, yes/no, on/off); got empty value" >&2
+      return 1
+      ;;
+    *)
+      echo "❌ $name must be a boolean (1/0, true/false, yes/no, on/off); got: $value" >&2
+      return 1
+      ;;
   esac
 }
 
-configure_frontend_watch_mode() {
-  if frontend_watch_polling_enabled; then
-    export CHOKIDAR_USEPOLLING="${CHOKIDAR_USEPOLLING:-1}"
-    FRONTEND_WATCH_MODE="polling (CHOKIDAR_USEPOLLING=$CHOKIDAR_USEPOLLING)"
+resolve_frontend_watch_polling() {
+  local vite_set="0"
+  local chokidar_set="0"
+  local vite_polling=""
+  local chokidar_polling=""
+  if [ -n "${SUPER_DOLPHIN_VITE_USE_POLLING+x}" ]; then
+    vite_set="1"
+    vite_polling="$(parse_frontend_watch_bool "SUPER_DOLPHIN_VITE_USE_POLLING" "$SUPER_DOLPHIN_VITE_USE_POLLING")" || return 1
+  fi
+  if [ -n "${CHOKIDAR_USEPOLLING+x}" ]; then
+    chokidar_set="1"
+    chokidar_polling="$(parse_frontend_watch_bool "CHOKIDAR_USEPOLLING" "$CHOKIDAR_USEPOLLING")" || return 1
+  fi
+  if [ "$vite_set" = "1" ] && [ "$chokidar_set" = "1" ] && [ "$vite_polling" != "$chokidar_polling" ]; then
+    echo "❌ conflicting frontend watch config: SUPER_DOLPHIN_VITE_USE_POLLING resolves to $vite_polling but CHOKIDAR_USEPOLLING resolves to $chokidar_polling" >&2
+    return 1
+  fi
+  if [ "$vite_set" = "1" ]; then
+    printf '%s\n' "$vite_polling"
     return 0
   fi
-  FRONTEND_WATCH_MODE="native fs events"
-  if [ -n "${CHOKIDAR_USEPOLLING:-}" ]; then
-    FRONTEND_WATCH_MODE="native fs events requested; CHOKIDAR_USEPOLLING=$CHOKIDAR_USEPOLLING already set"
+  if [ "$chokidar_set" = "1" ]; then
+    printf '%s\n' "$chokidar_polling"
+    return 0
   fi
+  printf '1\n'
+}
+
+configure_frontend_watch_mode() {
+  local polling
+  polling="$(resolve_frontend_watch_polling)" || return 1
+  SUPER_DOLPHIN_VITE_USE_POLLING="$polling"
+  CHOKIDAR_USEPOLLING="$polling"
+  export SUPER_DOLPHIN_VITE_USE_POLLING
+  export CHOKIDAR_USEPOLLING
+  if [ "$polling" = "1" ]; then
+    FRONTEND_WATCH_MODE="polling (SUPER_DOLPHIN_VITE_USE_POLLING=$SUPER_DOLPHIN_VITE_USE_POLLING, CHOKIDAR_USEPOLLING=$CHOKIDAR_USEPOLLING)"
+    return 0
+  fi
+  FRONTEND_WATCH_MODE="native fs events (SUPER_DOLPHIN_VITE_USE_POLLING=$SUPER_DOLPHIN_VITE_USE_POLLING, CHOKIDAR_USEPOLLING=$CHOKIDAR_USEPOLLING)"
 }
 
 start_desktop_backend() {
@@ -706,7 +746,6 @@ if [ -z "$VITE_DEV_HOST" ] || [ -z "$VITE_DEV_PORT" ] || [ "$VITE_DEV_HOST" = "$
   exit 1
 fi
 SUPER_DOLPHIN_BACKEND_HOT_RELOAD="${SUPER_DOLPHIN_BACKEND_HOT_RELOAD:-0}"
-SUPER_DOLPHIN_VITE_USE_POLLING="${SUPER_DOLPHIN_VITE_USE_POLLING:-1}"
 SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS="${SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS:-300}"
 SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS="${SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS:-300}"
 SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS="${SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS:-0.2}"
@@ -741,13 +780,13 @@ export SUPER_DOLPHIN_HTTP_ADDR GO_AGENT_CTL_RPC_ADDR VITE_DEV_URL FRONTEND_DEVSE
 export SUPER_DOLPHIN_RUNTIME_MODE SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR SUPER_DOLPHIN_DEV_ENTRYPOINT
 export SUPER_DOLPHIN_HOME SUPER_DOLPHIN_BACKEND_HOT_RELOAD SUPER_DOLPHIN_HOT_WATCH_PATHS SUPER_DOLPHIN_HOT_POLL_INTERVAL
 export SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR SUPER_DOLPHIN_LOCAL_POSTGRES_LOG
-export SUPER_DOLPHIN_VITE_USE_POLLING
 export LOG_LEVEL="${LOG_LEVEL:-debug}"
 export ENABLE_MEMORY_SYSTEM="${ENABLE_MEMORY_SYSTEM:-1}"
 export ENABLE_MEMORY_TOOLS="${ENABLE_MEMORY_TOOLS:-1}"
 export MULTI_AGENT_MEMORY_FEATURE_TEAMMEM="${MULTI_AGENT_MEMORY_FEATURE_TEAMMEM:-1}"
 export CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME="${CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME:-1}"
 
+configure_frontend_watch_mode
 mkdir -p "$(dirname "$SUPER_DOLPHIN_BACKEND_LOG")" "$(dirname "$SUPER_DOLPHIN_FRONTEND_LOG")" "$SUPER_DOLPHIN_HOME"
 ensure_dev_control_session_token
 configure_dev_postgres_runtime
@@ -758,7 +797,6 @@ fail_if_port_busy "$GO_AGENT_CTL_RPC_ADDR"
 ensure_local_postgres
 ensure_node_deps "$FRONTEND_APP_DIR"
 ensure_peer_binaries
-configure_frontend_watch_mode
 
 echo "┌─────────────────────────────────────────┐"
 echo "│  Super Agent new UI desktop             │"
