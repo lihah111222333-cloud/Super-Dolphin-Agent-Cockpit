@@ -53,7 +53,9 @@ func TestNewUIDesktopScriptWaitsForBackendBeforeVite(t *testing.T) {
 		`wait_for_backend`,
 		`http://${SUPER_DOLPHIN_HTTP_ADDR}/metrics`,
 		`process_exited "$DESKTOP_PID"`,
+		`process_exited "$VITE_PID"`,
 		`print_backend_log_tail`,
+		`print_frontend_log_tail`,
 		`wait_for_any_process_exit`,
 		`CLEANUP_DONE`,
 		`go run ./cmd/agent-terminal >>"$SUPER_DOLPHIN_BACKEND_LOG" 2>&1`,
@@ -67,6 +69,50 @@ func TestNewUIDesktopScriptWaitsForBackendBeforeVite(t *testing.T) {
 	assertTextOrder(t, text, "\nstart_desktop_backend\nwait_for_backend\n", `(cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &`)
 	assertTextOrder(t, text, "\nwait_for_backend\nseed_dev_preferences\n\n", `(cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &`)
 	assertTextOrder(t, text, `wait_for_http "$VITE_DEV_URL" "frontend-app vite"`, "\n  wait_for_any_process_exit\n")
+}
+
+func TestNewUIDesktopScriptReportsFrontendReadinessFailures(t *testing.T) {
+	text := readRootScript(t, "../../run-new-ui-desktop.sh")
+
+	required := []string{
+		`if [ "$label" = "frontend-app vite" ]; then`,
+		`echo "❌ $label exited before readiness: $url" >&2`,
+		`wait "$VITE_PID" || true`,
+		`print_frontend_log_tail`,
+		`echo "❌ desktop backend exited before $label readiness: $url" >&2`,
+		`wait "$DESKTOP_PID" || true`,
+		`print_backend_log_tail`,
+		`ENOSPC: System limit for number of file watchers reached`,
+		`frontend watcher limit hit`,
+	}
+	for _, want := range required {
+		if !strings.Contains(text, want) {
+			t.Fatalf("run-new-ui-desktop.sh missing %q", want)
+		}
+	}
+	assertTextOrder(t, text, `process_exited "$VITE_PID"`, `sleep 0.2`)
+	assertTextOrderAfter(t, text, `echo "❌ timed out waiting for $label: $url" >&2`, `if [ "$label" = "frontend-app vite" ]; then`, `print_frontend_log_tail`)
+}
+
+func TestNewUIDesktopScriptEnablesFrontendPollingWatchByDefault(t *testing.T) {
+	text := readRootScript(t, "../../run-new-ui-desktop.sh")
+
+	required := []string{
+		`frontend_watch_polling_enabled()`,
+		`configure_frontend_watch_mode()`,
+		`SUPER_DOLPHIN_VITE_USE_POLLING="${SUPER_DOLPHIN_VITE_USE_POLLING:-1}"`,
+		`export SUPER_DOLPHIN_VITE_USE_POLLING`,
+		`export CHOKIDAR_USEPOLLING="${CHOKIDAR_USEPOLLING:-1}"`,
+		`FRONTEND_WATCH_MODE="polling (CHOKIDAR_USEPOLLING=$CHOKIDAR_USEPOLLING)"`,
+		`configure_frontend_watch_mode`,
+		`frontend watch: $FRONTEND_WATCH_MODE`,
+	}
+	for _, want := range required {
+		if !strings.Contains(text, want) {
+			t.Fatalf("run-new-ui-desktop.sh missing %q", want)
+		}
+	}
+	assertTextOrder(t, text, "ensure_peer_binaries\nconfigure_frontend_watch_mode", `(cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &`)
 }
 
 func TestNewUIDesktopScriptCleansChildProcessesAndStaleVite(t *testing.T) {

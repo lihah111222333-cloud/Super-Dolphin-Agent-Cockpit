@@ -75,9 +75,26 @@ wait_for_http() {
       echo "  → $label ready: $url"
       return 0
     fi
+    if [ "$label" = "frontend-app vite" ]; then
+      if [ -n "${VITE_PID:-}" ] && process_exited "$VITE_PID"; then
+        echo "❌ $label exited before readiness: $url" >&2
+        wait "$VITE_PID" || true
+        print_frontend_log_tail
+        exit 1
+      fi
+      if [ -n "${DESKTOP_PID:-}" ] && process_exited "$DESKTOP_PID"; then
+        echo "❌ desktop backend exited before $label readiness: $url" >&2
+        wait "$DESKTOP_PID" || true
+        print_backend_log_tail
+        exit 1
+      fi
+    fi
     sleep 0.2
   done
-  echo "❌ timed out waiting for $label: $url"
+  echo "❌ timed out waiting for $label: $url" >&2
+  if [ "$label" = "frontend-app vite" ]; then
+    print_frontend_log_tail
+  fi
   exit 1
 }
 
@@ -187,6 +204,9 @@ print_frontend_log_tail() {
   if [ -f "$SUPER_DOLPHIN_FRONTEND_LOG" ]; then
     echo "  → frontend log tail: $SUPER_DOLPHIN_FRONTEND_LOG" >&2
     tail -80 "$SUPER_DOLPHIN_FRONTEND_LOG" >&2 || true
+    if grep -q "ENOSPC: System limit for number of file watchers reached" "$SUPER_DOLPHIN_FRONTEND_LOG"; then
+      echo "  → frontend watcher limit hit; default polling should avoid this, or increase fs.inotify.max_user_watches for native watching" >&2
+    fi
   fi
 }
 
@@ -237,6 +257,25 @@ backend_hot_reload_enabled() {
     1|true|TRUE|yes|YES|on|ON) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+frontend_watch_polling_enabled() {
+  case "${SUPER_DOLPHIN_VITE_USE_POLLING:-1}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+configure_frontend_watch_mode() {
+  if frontend_watch_polling_enabled; then
+    export CHOKIDAR_USEPOLLING="${CHOKIDAR_USEPOLLING:-1}"
+    FRONTEND_WATCH_MODE="polling (CHOKIDAR_USEPOLLING=$CHOKIDAR_USEPOLLING)"
+    return 0
+  fi
+  FRONTEND_WATCH_MODE="native fs events"
+  if [ -n "${CHOKIDAR_USEPOLLING:-}" ]; then
+    FRONTEND_WATCH_MODE="native fs events requested; CHOKIDAR_USEPOLLING=$CHOKIDAR_USEPOLLING already set"
+  fi
 }
 
 start_desktop_backend() {
@@ -619,6 +658,7 @@ if [ -z "$VITE_DEV_HOST" ] || [ -z "$VITE_DEV_PORT" ] || [ "$VITE_DEV_HOST" = "$
   exit 1
 fi
 SUPER_DOLPHIN_BACKEND_HOT_RELOAD="${SUPER_DOLPHIN_BACKEND_HOT_RELOAD:-0}"
+SUPER_DOLPHIN_VITE_USE_POLLING="${SUPER_DOLPHIN_VITE_USE_POLLING:-1}"
 SUPER_DOLPHIN_HOT_PEER_BIN_DIR="${SUPER_DOLPHIN_HOT_PEER_BIN_DIR:-$PROJECT_DIR/.tmp/run-new-ui-desktop-hot/peers}"
 if backend_hot_reload_enabled; then
   GO_AGENT_PEER_BIN_DIR="${GO_AGENT_PEER_BIN_DIR:-$SUPER_DOLPHIN_HOT_PEER_BIN_DIR}"
@@ -647,6 +687,7 @@ export SUPER_DOLPHIN_HTTP_ADDR GO_AGENT_CTL_RPC_ADDR VITE_DEV_URL FRONTEND_DEVSE
 export SUPER_DOLPHIN_RUNTIME_MODE SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR SUPER_DOLPHIN_DEV_ENTRYPOINT
 export SUPER_DOLPHIN_HOME SUPER_DOLPHIN_BACKEND_HOT_RELOAD SUPER_DOLPHIN_HOT_WATCH_PATHS SUPER_DOLPHIN_HOT_POLL_INTERVAL
 export SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR SUPER_DOLPHIN_LOCAL_POSTGRES_LOG
+export SUPER_DOLPHIN_VITE_USE_POLLING
 export LOG_LEVEL="${LOG_LEVEL:-debug}"
 export ENABLE_MEMORY_SYSTEM="${ENABLE_MEMORY_SYSTEM:-1}"
 export ENABLE_MEMORY_TOOLS="${ENABLE_MEMORY_TOOLS:-1}"
@@ -663,6 +704,7 @@ fail_if_port_busy "$GO_AGENT_CTL_RPC_ADDR"
 ensure_local_postgres
 ensure_node_deps "$FRONTEND_APP_DIR"
 ensure_peer_binaries
+configure_frontend_watch_mode
 
 echo "┌─────────────────────────────────────────┐"
 echo "│  Super Agent new UI desktop             │"
@@ -673,6 +715,7 @@ echo "  control rpc:  $GO_AGENT_CTL_RPC_ADDR"
 echo "  peer bin dir: $GO_AGENT_PEER_BIN_DIR"
 echo "  runtime:      $SUPER_DOLPHIN_RUNTIME_MODE ($SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR)"
 echo "  home:         $SUPER_DOLPHIN_HOME"
+echo "  frontend watch: $FRONTEND_WATCH_MODE"
 echo "  logs:         $SUPER_DOLPHIN_BACKEND_LOG"
 if backend_hot_reload_enabled; then
   echo "  backend hot:  enabled"
