@@ -68,6 +68,12 @@ function formatObservabilityDuration(value) {
   return `${duration}ms`;
 }
 
+function formatMatchedEventDuration(value) {
+  const durationText = formatObservabilityDuration(value);
+  if (durationText === '耗时未记录') return '匹配 event 耗时未记录';
+  return `匹配 event 耗时合计 ${durationText}`;
+}
+
 function useObservabilityFilters() {
   const [filters, setFilters] = useState({
     agentId: '',
@@ -327,19 +333,19 @@ function ObservabilityRecentLogs({ result, onOpenTrace, onCopyTrace, copiedTrace
     <div className="settings-card observability-result observability-system-log" data-testid="observability-recent-logs">
       <div className="observability-result-header">
         <div>
-          <h2>最新日志</h2>
-          <p>{traceRows.length} 条 trace · {eventCount} 个匹配 event · source={result.source || 'memory'} · truncated={String(Boolean(result.truncated))}</p>
+          <h2>最新匹配 event 分组</h2>
+          <p>{traceRows.length} 条匹配 event 分组 · {eventCount} 个匹配 event · source={result.source || 'memory'} · truncated={String(Boolean(result.truncated))}</p>
         </div>
       </div>
       {traceRows.length === 0 ? (
         <div className="empty-state">没有匹配的最近请求</div>
       ) : (
-        <div className="observability-log-table" role="table" aria-label="最新日志">
+        <div className="observability-log-table" role="table" aria-label="最新匹配 event 分组">
           <div className="observability-log-table-head" role="rowgroup">
             <div className="observability-log-table-head-row" role="row">
               <div role="columnheader">时间</div>
-              <div role="columnheader">状态</div>
-              <div role="columnheader">请求摘要</div>
+              <div role="columnheader">匹配 event 状态</div>
+              <div role="columnheader">匹配 event 摘要</div>
               <div role="columnheader">操作</div>
             </div>
           </div>
@@ -520,7 +526,7 @@ function observabilityTraceDetailId(traceID) {
 
 function observabilityTraceSummary(row) {
   const event = row.representative || {};
-  const durationText = formatObservabilityDuration(row.durationMS);
+  const durationText = formatMatchedEventDuration(row.durationMS);
   const parts = [
     event.kind,
     event.phase,
