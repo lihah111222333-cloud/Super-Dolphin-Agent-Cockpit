@@ -8,6 +8,8 @@ import { appendCurrentModelOption, canonicalizeModelValue, modelOptionFor, norma
 const CONVERSATION_DROP_TARGET_ID = 'conversation-drop-zone';
 const CLIPBOARD_FILE_PATH_TYPES = Object.freeze(['x-special/gnome-copied-files', 'text/uri-list', 'text/plain']);
 const DROP_FILE_PATH_TYPES = new Set(['x-special/gnome-copied-files', 'text/uri-list']);
+const NATIVE_FILE_DROP_TARGET_IDS = new Set(['composer-input', 'chat-input-bar', CONVERSATION_DROP_TARGET_ID]);
+const NATIVE_FILE_DROP_TARGET_ATTRIBUTE = 'data-file-drop-target';
 
 const THREAD_RAIL_MIN_WIDTH = 240;
 
@@ -2893,7 +2895,20 @@ function nativeDropFiles(event) {
   if (!event || typeof event !== 'object') return [];
   const candidates = [event, event.data, event.payload, event.data?.payload];
   const payload = candidates.find((item) => item && typeof item === 'object' && Array.isArray(item.files));
+  if (!nativeDropTargetAcceptsFiles(payload?.details)) return [];
   return payload?.files || [];
+}
+
+function nativeDropTargetAcceptsFiles(details) {
+  if (!details || typeof details !== 'object') return false;
+  const id = textValue(details.id);
+  if (NATIVE_FILE_DROP_TARGET_IDS.has(id)) return true;
+
+  const attributes = details.attributes && typeof details.attributes === 'object' ? details.attributes : null;
+  if (!attributes) return false;
+  const attributeId = textValue(attributes.id);
+  return NATIVE_FILE_DROP_TARGET_IDS.has(attributeId)
+    || Object.prototype.hasOwnProperty.call(attributes, NATIVE_FILE_DROP_TARGET_ATTRIBUTE);
 }
 
 function AttachmentPreviewModal({ attachment, onClose, onRemove }) {
