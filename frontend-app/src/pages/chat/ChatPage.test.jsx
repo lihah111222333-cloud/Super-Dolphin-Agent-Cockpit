@@ -357,6 +357,33 @@ describe('ChatPage module', () => {
     expect(store.attachPathsForComposer).toHaveBeenCalledWith(['/tmp/browser-only-notes.txt']);
   });
 
+  it('uses transfer file paths when DOM files attach partially', async () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '拖文件进来即可。', time: '2026-06-02T08:00:00Z' },
+    ], {
+      attachDroppedFilesForComposer: vi.fn(() => 1),
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    const dropped = new File(['notes'], 'partial-fallback.txt', { type: 'text/plain' });
+    const conversation = screen.getByTestId('conversation-drop-zone');
+    const dataTransfer = {
+      files: [dropped],
+      items: [],
+      types: ['Files', 'text/uri-list'],
+      getData: (type) => (type === 'text/uri-list' ? 'file:///tmp/partial-fallback.txt' : ''),
+    };
+
+    fireEvent.drop(conversation, { dataTransfer });
+
+    await waitFor(() => {
+      expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([dropped]);
+    });
+    expect(store.attachPathsForComposer).toHaveBeenCalledWith(['/tmp/partial-fallback.txt']);
+  });
+
+
   it('accepts native Wails file drops when target details only contain chat-area classes', () => {
     const store = createActiveThreadStore([
       { id: 'msg-1', role: 'assistant', text: '拖文件进来即可。', time: '2026-06-02T08:00:00Z' },
