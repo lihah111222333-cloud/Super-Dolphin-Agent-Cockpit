@@ -3549,7 +3549,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
     act(() => {
       nativeDropHandler({
         files: ['/tmp/native-editor-drop.txt'],
-        details: { id: 'composer-input' },
+        details: {
+          id: 'composer-input',
+          classList: [],
+          attributes: { 'data-file-drop-target': '' },
+        },
       });
     });
 
@@ -3560,7 +3564,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
         name: 'files-dropped',
         data: {
           files: ['/tmp/native-wails-event-drop.txt'],
-          details: { id: 'composer-input' },
+          details: {
+            id: 'composer-input',
+            classList: [],
+            attributes: { 'data-file-drop-target': '' },
+          },
         },
       });
     });
@@ -3571,7 +3579,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
       nativeDropHandler({
         payload: {
           files: ['/tmp/native-payload-drop.txt'],
-          details: { id: 'composer-input' },
+          details: {
+            id: 'composer-input',
+            classList: [],
+            attributes: { 'data-file-drop-target': '' },
+          },
         },
       });
     });
@@ -3580,8 +3592,25 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     act(() => {
       nativeDropHandler({
+        files: ['/tmp/native-composer-bar-drop.txt'],
+        details: {
+          id: 'chat-input-bar',
+          classList: ['composer'],
+          attributes: { 'data-file-drop-target': '' },
+        },
+      });
+    });
+
+    expect(await screen.findByRole('button', { name: /预览附件 native-composer-bar-drop\.txt/ })).toBeInTheDocument();
+
+    act(() => {
+      nativeDropHandler({
         files: ['/tmp/native-conversation-drop.txt'],
-        details: { id: 'conversation-drop-zone' },
+        details: {
+          id: 'conversation-drop-zone',
+          classList: ['conversation'],
+          attributes: { 'data-file-drop-target': '' },
+        },
       });
     });
 
@@ -3590,11 +3619,17 @@ async function toggleInlineTraceFromRecentLogs(table) {
     act(() => {
       nativeDropHandler({
         files: ['/tmp/native-unknown-target-drop.txt'],
-        details: { id: 'timeline-inner-node' },
+        details: {
+          id: 'timeline-inner-node',
+          classList: ['timeline-inner-node'],
+          attributes: { 'data-testid': 'timeline-inner-node' },
+        },
       });
     });
 
-    expect(await screen.findByRole('button', { name: /预览附件 native-unknown-target-drop\.txt/ })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /预览附件 native-unknown-target-drop\.txt/ })).not.toBeInTheDocument();
+    });
   });
 
   it('shows visible feedback for chat toolbar actions', async () => {
