@@ -179,11 +179,11 @@ msg="uistate: ReadRuntimeConfig failed" threadID=... err="session not found ..."
 
 所以点击“重试同步”会再加一个请求，不会清掉旧的 sidebar 请求或旧的 nav 请求。若 sidebar 风暴还在，重试仍排队/超时。
 
-## 与自动化页专项文档的关系
+## 历史自动化页专项文档（非证据背景索引）
 
-已有文档 `docs/cc/workflow-sync-root-cause-20260604.md` 聚焦自动化页自身的刷新重入、DAG detail/run 扇出与 cached error 文案。那份结论仍解释“自动化页为什么会显示上次缓存数据”。
+已有文档 `docs/cc/workflow-sync-root-cause-20260604.md` 仅作为历史背景索引：本文不继承其中任何结论作为当前证据，也不把旧报告的专项归因纳入本轮 finding。
 
-本文件补的是更全局的一层：即使切到提示词、技能、记忆、共享文件等页面，只要运行中的 thread/run 触发了大量 UI 事件，前端 sidebar refresh 会挤占同一 RPC 通道；于是这些 nav 页面自己的请求也会表现为超时/红框。
+当前全局 nav RPC 主结论仍以本文 trace/source 证据链为准：运行中 UI 事件放大出大量 `ui/sidebar/changed`，前端进一步触发全量 `ui/sidebar/get` 风暴，叠加 sidebar 后端读路径过重和桥接层 timeout，导致其他 nav 页 RPC 排队/超时/红框。自动化页自身问题若需要纳入，必须另用当前 trace/source 重新列证据。
 
 ## 后续最小修复方向（未实施）
 
