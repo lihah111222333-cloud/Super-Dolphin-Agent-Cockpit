@@ -67,6 +67,17 @@ function queryRecentLogs() {
   return screen.findByTestId('observability-recent-logs');
 }
 
+function formatParsedTimestamp(value) {
+  const parsed = new Date(value);
+  const year = String(parsed.getFullYear()).padStart(4, '0');
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  const hour = String(parsed.getHours()).padStart(2, '0');
+  const minute = String(parsed.getMinutes()).padStart(2, '0');
+  const second = String(parsed.getSeconds()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+}
+
 describe('ObservabilityPage module', () => {
   beforeEach(() => {
     listObservabilityRecent.mockResolvedValue(recentResult);
@@ -197,6 +208,76 @@ describe('ObservabilityPage module', () => {
     const entries = table.querySelectorAll('.observability-log-table-entry');
     expect(entries[0]).toHaveTextContent('trace-newer');
     expect(entries[1]).toHaveTextContent('trace-older');
+  });
+
+  it('normalizes mixed timezone timestamps to match parsed Date sorting', async () => {
+    const olderLocalTimestamp = '2026-06-04T15:34:52.792147+08:00';
+    const middleUTCTimestamp = '2026-06-04T07:34:53.575Z';
+    const newerUTCTimestamp = '2026-06-04T07:34:55.054Z';
+    const baseEvent = recentResult.events[0];
+    listObservabilityRecent.mockResolvedValueOnce({
+      source: 'memory',
+      truncated: false,
+      events: [
+        {
+          ...baseEvent,
+          ts: olderLocalTimestamp,
+          trace_id: 'trace-local-offset',
+          span_id: 'span-local-offset',
+        },
+        {
+          ...baseEvent,
+          ts: newerUTCTimestamp,
+          trace_id: 'trace-newest-utc',
+          span_id: 'span-newest-utc',
+        },
+        {
+          ...baseEvent,
+          ts: middleUTCTimestamp,
+          trace_id: 'trace-middle-utc',
+          span_id: 'span-middle-utc',
+        },
+      ],
+    });
+
+    renderObservabilityPage();
+    fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'error' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+    const table = await screen.findByTestId('observability-recent-logs');
+    const entries = Array.from(table.querySelectorAll('.observability-log-table-entry'));
+
+    expect(entries).toHaveLength(3);
+    expect(entries[0]).toHaveTextContent('trace-newest-utc');
+    expect(entries[1]).toHaveTextContent('trace-middle-utc');
+    expect(entries[2]).toHaveTextContent('trace-local-offset');
+    expect(entries.map((entry) => entry.querySelector('time')?.textContent)).toEqual([
+      formatParsedTimestamp(newerUTCTimestamp),
+      formatParsedTimestamp(middleUTCTimestamp),
+      formatParsedTimestamp(olderLocalTimestamp),
+    ]);
+  });
+
+  it('keeps invalid recent timestamps visible as backend text', async () => {
+    listObservabilityRecent.mockResolvedValueOnce({
+      source: 'memory',
+      truncated: false,
+      events: [
+        {
+          ...recentResult.events[0],
+          ts: 'not-a-date',
+          trace_id: 'trace-invalid-time',
+          span_id: 'span-invalid-time',
+        },
+      ],
+    });
+
+    renderObservabilityPage();
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+    const table = await screen.findByTestId('observability-recent-logs');
+    const timestamp = table.querySelector('.observability-log-table-entry time');
+
+    expect(timestamp).toHaveAttribute('dateTime', 'not-a-date');
+    expect(timestamp).toHaveTextContent('not-a-date');
   });
 
   it('skips overlapping automatic recent refresh requests', async () => {
