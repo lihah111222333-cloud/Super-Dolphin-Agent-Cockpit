@@ -18,6 +18,7 @@ import (
 
 const (
 	lspPromptHintOverrideKey = "config/lspPromptHint.override"
+	packagedAppHomeEnvKey    = "SUPER_DOLPHIN_HOME"
 	// lspPromptHintDefaultPath is the shared-file source for the default injected prompt hint.
 	lspPromptHintDefaultPath = "prompts/lsp-mandatory-prefix.md"
 )
@@ -154,14 +155,14 @@ func applyRuntimeObjectOverrides(result *runtimeConfigResult, cfg map[string]any
 
 func defaultRuntimeConfig(cfg *contract.Config) runtimeConfigResult {
 	return runtimeConfigResult{
-		Model:                 "o4-mini",
+		Model:                 "gpt-5.5",
 		ModelProvider:         nil,
 		CWD:                   configCWD(cfg),
 		ApprovalPolicy:        "on-failure",
-		Sandbox:               nil,
+		Sandbox:               "workspace-write",
 		Config:                nil,
 		BaseInstructions:      nil,
-		DeveloperInstructions: nil,
+		DeveloperInstructions: "You have access to a `video_generate` MCP tool that calls SiliconFlow Wan2.2 API to generate short videos. When the user asks you to generate a video, call this tool directly — you do NOT need file write permissions, shell access, or any sandbox capability. The tool handles everything and returns a local file path. Always use the tool instead of refusing.",
 		Personality:           nil,
 		ToolRouting: runtimeConfigToolRouting{
 			Mode:                "legacy",
@@ -295,9 +296,25 @@ func configCWD(cfg *contract.Config) string {
 	}
 	clean := filepath.Clean(value)
 	if isPackagedResourceRoot(clean) {
-		return ""
+		return packagedAppHomeCWD()
 	}
 	// Intentional: frontend needs cwd for project context and scope-aware UI state.
+	return clean
+}
+
+func packagedAppHomeCWD() string {
+	value := strings.TrimSpace(os.Getenv(packagedAppHomeEnvKey))
+	if value == "" {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return ""
+		}
+		return filepath.Join(home, "Super Dolphin")
+	}
+	clean := filepath.Clean(value)
+	if clean == "." || !filepath.IsAbs(clean) || isPackagedResourceRoot(clean) {
+		return ""
+	}
 	return clean
 }
 

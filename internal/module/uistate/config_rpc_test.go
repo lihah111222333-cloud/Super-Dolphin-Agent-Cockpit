@@ -175,7 +175,7 @@ func TestConfigReadFallsBackToDefaultsWhenThreadConfigUnavailable(t *testing.T) 
 	)
 
 	cfg := dispatchConfig[runtimeConfigResult](t, server, "config/read", `{}`)
-	if cfg.CWD != projectRoot || cfg.Model != "o4-mini" || cfg.ApprovalPolicy != "on-failure" {
+	if cfg.CWD != projectRoot || cfg.Model != "gpt-5.5" || cfg.ApprovalPolicy != "on-failure" {
 		t.Fatalf("config/read fallback = %#v", cfg)
 	}
 	if cfg.ToolRouting != (runtimeConfigToolRouting{
@@ -197,14 +197,56 @@ func TestConfigReadFallsBackToDefaultsWhenThreadConfigUnavailable(t *testing.T) 
 	}
 }
 
-func TestConfigReadDoesNotUsePackagedResourcesAsCWD(t *testing.T) {
-	t.Parallel()
-
+func TestConfigReadUsesPackagedHomeCWDInsteadOfResources(t *testing.T) {
 	resourcesRoot := t.TempDir()
 	manifestPath := filepath.Join(resourcesRoot, "runtime-manifest.json")
 	if err := os.WriteFile(manifestPath, []byte(`{"app":"Super Dolphin"}`), 0o644); err != nil {
 		t.Fatalf("write runtime manifest: %v", err)
 	}
+	packagedHome := filepath.Clean(filepath.Join(t.TempDir(), "Library", "Application Support", "Super Dolphin"))
+	if err := os.MkdirAll(packagedHome, 0o755); err != nil {
+		t.Fatalf("mkdir packaged home: %v", err)
+	}
+	t.Setenv("SUPER_DOLPHIN_HOME", packagedHome)
+
+	threads := &configThreadServiceStub{getConfigResult: dto.ThreadConfig{
+		ThreadID: "thread-packaged",
+		Effective: dto.ThreadConfigValues{
+			Model: "gpt-5.5",
+		},
+	}}
+	server := newConfigTestServer(
+		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: resourcesRoot},
+		&uiPreferenceStoreStub{values: map[string]json.RawMessage{
+			preferenceStubKey(packagedHome, normalizePreferenceKey(preferenceActiveThreadID)): mustJSONRaw(t, "thread-packaged"),
+		}},
+		&sharedFileStoreStub{},
+		threads,
+	)
+
+	cfg := dispatchConfig[runtimeConfigResult](t, server, "config/read", `{}`)
+	if cfg.CWD != packagedHome {
+		t.Fatalf("config/read cwd = %q, want packaged home cwd %q", cfg.CWD, packagedHome)
+	}
+	if cfg.Model != "gpt-5.5" {
+		t.Fatalf("config/read model = %q, want packaged thread override", cfg.Model)
+	}
+	if len(threads.getConfigIDs) != 1 || threads.getConfigIDs[0] != "thread-packaged" {
+		t.Fatalf("GetConfig thread ids = %#v, want [thread-packaged]", threads.getConfigIDs)
+	}
+	if len(threads.runtimeConfigIDs) != 1 || threads.runtimeConfigIDs[0] != "thread-packaged" {
+		t.Fatalf("ReadRuntimeConfig thread ids = %#v, want [thread-packaged]", threads.runtimeConfigIDs)
+	}
+}
+
+func TestConfigReadFallsBackToUserHomeCWDWhenPackagedHomeUnset(t *testing.T) {
+	resourcesRoot := t.TempDir()
+	manifestPath := filepath.Join(resourcesRoot, "runtime-manifest.json")
+	if err := os.WriteFile(manifestPath, []byte(`{"app":"Super Dolphin"}`), 0o644); err != nil {
+		t.Fatalf("write runtime manifest: %v", err)
+	}
+	t.Setenv("SUPER_DOLPHIN_HOME", "")
+
 	threads := &configThreadServiceStub{}
 	server := newConfigTestServer(
 		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: resourcesRoot},
@@ -213,12 +255,15 @@ func TestConfigReadDoesNotUsePackagedResourcesAsCWD(t *testing.T) {
 		threads,
 	)
 
-	cfg := dispatchConfig[runtimeConfigResult](t, server, "config/read", `{}`)
-	if cfg.CWD != "" {
-		t.Fatalf("config/read cwd = %q, want empty packaged resources cwd", cfg.CWD)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("cannot determine user home dir: %v", err)
 	}
-	if len(threads.getConfigIDs) != 0 || len(threads.runtimeConfigIDs) != 0 {
-		t.Fatalf("thread config lookups = get %#v runtime %#v, want none", threads.getConfigIDs, threads.runtimeConfigIDs)
+	wantCWD := filepath.Join(home, "Super Dolphin")
+
+	cfg := dispatchConfig[runtimeConfigResult](t, server, "config/read", `{}`)
+	if cfg.CWD != wantCWD {
+		t.Fatalf("config/read cwd = %q, want fallback cwd %q", cfg.CWD, wantCWD)
 	}
 }
 

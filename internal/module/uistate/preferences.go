@@ -98,11 +98,8 @@ func buildPreferences(scope string, values map[string]any) Preferences {
 	return prefs
 }
 
-func applyPreferenceDefaults(scope string, values map[string]any) {
+func applyPreferenceDefaults(_ string, values map[string]any) {
 	if values == nil {
-		return
-	}
-	if strings.TrimSpace(scope) != "" {
 		return
 	}
 	value, ok := values[preferenceProviderActive]
