@@ -2889,6 +2889,13 @@ function extractClipboardImageFiles(event) {
   return images;
 }
 
+function nativeDropFiles(event) {
+  if (!event || typeof event !== 'object') return [];
+  const candidates = [event, event.data, event.payload, event.data?.payload];
+  const payload = candidates.find((item) => item && typeof item === 'object' && Array.isArray(item.files));
+  return payload?.files || [];
+}
+
 function AttachmentPreviewModal({ attachment, onClose, onRemove }) {
   const isImage = attachment.kind === 'image' && attachment.previewUrl;
   return (
@@ -4616,8 +4623,7 @@ function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, attachPa
     if (typeof attachPaths !== 'function') return undefined;
     return onFilesDropped((event) => {
       if (!canUseProjectActions) return;
-      const payload = event && typeof event === 'object' ? event : {};
-      const files = Array.isArray(payload.files) ? payload.files : [];
+      const files = nativeDropFiles(event);
       if (files.length === 0) return;
       attachPaths(files);
       resetDropState();

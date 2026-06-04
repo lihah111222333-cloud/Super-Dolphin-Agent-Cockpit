@@ -3542,6 +3542,29 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     act(() => {
       nativeDropHandler({
+        name: 'files-dropped',
+        data: {
+          files: ['/tmp/native-wails-event-drop.txt'],
+          details: { id: 'composer-input' },
+        },
+      });
+    });
+
+    expect(await screen.findByRole('button', { name: /预览附件 native-wails-event-drop\.txt/ })).toBeInTheDocument();
+
+    act(() => {
+      nativeDropHandler({
+        payload: {
+          files: ['/tmp/native-payload-drop.txt'],
+          details: { id: 'composer-input' },
+        },
+      });
+    });
+
+    expect(await screen.findByRole('button', { name: /预览附件 native-payload-drop\.txt/ })).toBeInTheDocument();
+
+    act(() => {
+      nativeDropHandler({
         files: ['/tmp/native-conversation-drop.txt'],
         details: { id: 'conversation-drop-zone' },
       });
