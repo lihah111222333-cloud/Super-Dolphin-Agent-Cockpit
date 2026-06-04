@@ -2773,6 +2773,7 @@ function createClientStoreRuntime(set, get) {
     threadMessageGenerations: new Map(),
     threadSyncGenerations: new Map(),
     sidebarRefreshSeq: 0,
+    bootstrapRetryAfterReconnect: false,
   };
   attachComposerDraftRuntime(runtime);
   attachWarningRuntime(runtime);
@@ -3630,6 +3631,12 @@ function attachActiveThreadRpcRuntime(runtime) {
 }
 
 function createLifecycleActions(runtime) {
+  const retryBootstrapAfterReconnect = () => {
+    void runtime.get().bootstrap().catch((error) => {
+      runtime.addWarning('error', 'app.bootstrap.reconnect_failed', { error: error?.message || String(error) });
+    });
+  };
+
   return {
     initializeEvents: () => {
       if (runtime.bridgeUnsubscribe) return;
@@ -3637,7 +3644,15 @@ function createLifecycleActions(runtime) {
         escalateCallbackError: (_error, evt) => isDagNodeStatusBridgeEvent(evt),
       });
       runtime.reconnectUnsubscribe = onRuntimeReconnect(() => {
-        const { activeThreadId } = runtime.get();
+        const { activeThreadId, bootstrapStatus } = runtime.get();
+        if (bootstrapStatus !== 'ready') {
+          if (bootstrapStatus === 'loading') {
+            runtime.bootstrapRetryAfterReconnect = true;
+            return;
+          }
+          retryBootstrapAfterReconnect();
+          return;
+        }
         if (activeThreadId) void runtime.get().syncThreadState(activeThreadId, { includeDiff: true, preserveActiveThreadId: true });
       });
     },
@@ -3698,11 +3713,18 @@ function createBootstrapActions(runtime) {
         runtime.applyProjects(projects, scopedCwd);
         runtime.cacheSidebarSnapshot(scopedCwd, sidebar);
         runtime.applySnapshot(sidebar);
+        runtime.bootstrapRetryAfterReconnect = false;
         runtime.set({ bootstrapStatus: 'ready' });
       }
       catch (error) {
         runtime.set({ bootstrapStatus: 'failed', error: error.message });
         runtime.addWarning('error', 'app.bootstrap.failed', { error: error.message });
+        if (runtime.bootstrapRetryAfterReconnect) {
+          runtime.bootstrapRetryAfterReconnect = false;
+          void runtime.get().bootstrap().catch((retryError) => {
+            runtime.addWarning('error', 'app.bootstrap.reconnect_failed', { error: retryError?.message || String(retryError) });
+          });
+        }
         throw error;
       }
     },
