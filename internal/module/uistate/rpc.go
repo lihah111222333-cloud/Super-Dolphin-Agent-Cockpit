@@ -11,6 +11,7 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimeenv"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -93,12 +94,8 @@ func NewUIStateHandlers(svc Service) platformrpc.HandlerMapResult {
 			if err := os.Setenv("SILICONFLOW_API_KEY", key); err != nil {
 				return nil, err
 			}
-			home := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_HOME"))
-			if home != "" {
-				content := "SILICONFLOW_API_KEY=" + key + "\n"
-				if err := os.WriteFile(home+"/video.env", []byte(content), 0o600); err != nil {
-					return nil, err
-				}
+			if err := runtimeenv.WriteVideoEnv(key); err != nil {
+				return nil, err
 			}
 			return map[string]any{"ok": true}, nil
 		}),
