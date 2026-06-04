@@ -569,6 +569,62 @@ function registerBridgeEventHandlersForTest() {
     await expect(switchPromise).resolves.toBe(true);
   });
 
+  it('starts a clear-surface sidebar refresh without waiting for a background refresh', async () => {
+    const backgroundRefresh = deferred();
+    const clearSurfaceRefresh = deferred();
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/other',
+      projects: ['/repo/app', '/repo/other'],
+      activeThreadId: 'thread-other',
+      threads: [{ id: 'thread-other', name: 'Other project thread', provider: 'codex', status: 'running' }],
+    });
+    backend.getSidebarState
+      .mockReturnValueOnce(backgroundRefresh.promise)
+      .mockReturnValueOnce(clearSurfaceRefresh.promise);
+    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({ type: 'ui/sidebar/changed', payload: { revision: 2 } });
+    expect(backend.getSidebarState).toHaveBeenCalledTimes(1);
+
+    const switchPromise = useClientStore.getState().setActiveProjectPath('/repo/other');
+    await Promise.resolve();
+
+    expect(backend.getSidebarState).toHaveBeenCalledTimes(2);
+    expect(useClientStore.getState()).toEqual(expect.objectContaining({
+      activeProject: '/repo/other',
+      activeThreadId: '',
+      chatSurfaceLoadingCwd: '/repo/other',
+    }));
+    expect(useClientStore.getState().threads).toEqual([]);
+
+    clearSurfaceRefresh.resolve({
+      activeThreadId: 'thread-clear',
+      threads: [{ id: 'thread-clear', name: 'Clear refresh thread', provider: 'claude', status: 'idle' }],
+    });
+
+    await vi.waitFor(() => {
+      expect(useClientStore.getState().threads).toEqual([
+        expect.objectContaining({ id: 'thread-clear', name: 'Clear refresh thread' }),
+      ]);
+    });
+    expect(useClientStore.getState().chatSurfaceLoadingCwd).toBe('');
+
+    backgroundRefresh.resolve({
+      activeThreadId: 'thread-stale',
+      threads: [{ id: 'thread-stale', name: 'Stale background thread', provider: 'codex', status: 'running' }],
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(useClientStore.getState().threads).toEqual([
+      expect.objectContaining({ id: 'thread-clear', name: 'Clear refresh thread' }),
+    ]);
+    await expect(switchPromise).resolves.toBe(true);
+  });
+
   it('filters mixed sidebar snapshots to the selected project cwd', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -2005,6 +2061,100 @@ function registerBridgeEventHandlersForTest() {
       ]));
     });
     expect(useClientStore.getState().activeThreadId).toBe('thread-main');
+  });
+
+  it('coalesces burst sidebar projection events and runs one trailing refresh', async () => {
+    const firstRefresh = deferred();
+    const trailingRefresh = deferred();
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-main',
+      threads: [{ id: 'thread-main', name: 'Main agent', provider: 'codex', status: 'running' }],
+    });
+    backend.getSidebarState
+      .mockReturnValueOnce(firstRefresh.promise)
+      .mockReturnValueOnce(trailingRefresh.promise);
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({ type: 'ui/sidebar/changed', payload: { revision: 2 } });
+    bridgeCallback({ type: 'ui/sidebar/changed', payload: { revision: 3 } });
+    bridgeCallback({ type: 'ui/sidebar/changed', payload: { revision: 4 } });
+
+    expect(backend.getSidebarState).toHaveBeenCalledTimes(1);
+    firstRefresh.resolve({
+      activeThreadId: 'thread-main',
+      threads: [
+        { id: 'thread-main', name: 'Main agent', provider: 'codex', status: 'running' },
+        { id: 'thread-stale', name: 'Stale snapshot', provider: 'codex', status: 'running' },
+      ],
+    });
+
+    await vi.waitFor(() => {
+      expect(backend.getSidebarState).toHaveBeenCalledTimes(2);
+    });
+    expect(backend.getSidebarState).toHaveBeenNthCalledWith(2, { cwd: '/repo/app' });
+
+    trailingRefresh.resolve({
+      activeThreadId: 'thread-main',
+      threads: [
+        { id: 'thread-main', name: 'Main agent', provider: 'codex', status: 'running' },
+        { id: 'thread-fresh', name: 'Fresh snapshot', provider: 'codex', status: 'running' },
+      ],
+    });
+
+    await vi.waitFor(() => {
+      expect(useClientStore.getState().threads).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'thread-fresh', name: 'Fresh snapshot' }),
+      ]));
+    });
+    expect(useClientStore.getState().threads).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'thread-stale' }),
+    ]));
+    expect(backend.getSidebarState).toHaveBeenCalledTimes(2);
+  });
+
+  it('runs a pending sidebar refresh after an in-flight refresh rejects', async () => {
+    const failedRefresh = deferred();
+    const retryRefresh = deferred();
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-main',
+      threads: [{ id: 'thread-main', name: 'Main agent', provider: 'codex', status: 'running' }],
+    });
+    backend.getSidebarState
+      .mockReturnValueOnce(failedRefresh.promise)
+      .mockReturnValueOnce(retryRefresh.promise);
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({ type: 'ui/sidebar/changed', payload: { revision: 2 } });
+    bridgeCallback({ type: 'ui/sidebar/changed', payload: { revision: 3 } });
+
+    expect(backend.getSidebarState).toHaveBeenCalledTimes(1);
+    failedRefresh.reject(new Error('sidebar refresh failed'));
+
+    await vi.waitFor(() => {
+      expect(backend.getSidebarState).toHaveBeenCalledTimes(2);
+    });
+    retryRefresh.resolve({
+      activeThreadId: 'thread-main',
+      threads: [
+        { id: 'thread-main', name: 'Main agent', provider: 'codex', status: 'running' },
+        { id: 'thread-recovered', name: 'Recovered snapshot', provider: 'codex', status: 'running' },
+      ],
+    });
+
+    await vi.waitFor(() => {
+      expect(useClientStore.getState().threads).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'thread-recovered', name: 'Recovered snapshot' }),
+      ]));
+    });
+    expect(useClientStore.getState().warningEntries[0]).toEqual(expect.objectContaining({
+      level: 'error',
+      event: 'thread.sidebar.refresh.failed',
+    }));
+    expect(backend.getSidebarState).toHaveBeenCalledTimes(2);
   });
 
   it('increments prompt revision from prompt and active-prompt preference bridge events', () => {

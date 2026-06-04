@@ -2769,6 +2769,7 @@ function createClientStoreRuntime(set, get) {
     sequencesByThread: new Map(),
     composerDrafts: new Map(),
     sidebarSnapshotsByCwd: new Map(),
+    sidebarRefreshesByCwd: new Map(),
     threadMessageGenerations: new Map(),
     threadSyncGenerations: new Map(),
     sidebarRefreshSeq: 0,
@@ -3074,13 +3075,9 @@ function attachProviderRuntime(runtime) {
 
 function attachSidebarRuntime(runtime) {
   const { set, addWarning, currentChatCwd, clearChatSurfaceForCwdSwitch, applySnapshot, cacheSidebarSnapshot } = runtime;
-  const { sidebarSnapshotsByCwd } = runtime;
+  const { sidebarSnapshotsByCwd, sidebarRefreshesByCwd } = runtime;
 
-  const refreshSidebarSnapshotForCwdInBackground = (cwdValue, options = {}) => {
-    const cwd = normalizePath(cwdValue);
-    if (!cwd || cwd === '.') {
-      throw new Error('frontend-app: cwd is required for project chat refresh');
-    }
+  const performSidebarRefreshForCwd = (cwd, options, refreshEntry) => {
     const seq = ++runtime.sidebarRefreshSeq;
     if (options.clearSurface) {
       const cachedSidebar = sidebarSnapshotsByCwd.get(cwd);
@@ -3089,8 +3086,9 @@ function attachSidebarRuntime(runtime) {
         applySnapshot(cachedSidebar, { autoSelectThread: false, scopeCwd: cwd });
       }
     }
-    getSidebarState({ cwd })
+    return getSidebarState({ cwd })
       .then((sidebar) => {
+        if (refreshEntry.cancelled || sidebarRefreshesByCwd.get(cwd) !== refreshEntry) return;
         cacheSidebarSnapshot(cwd, sidebar);
         if (seq !== runtime.sidebarRefreshSeq || normalizePath(currentChatCwd()) !== cwd) return;
         applySnapshot(sidebar, {
@@ -3105,6 +3103,7 @@ function attachSidebarRuntime(runtime) {
         }
       })
       .catch((error) => {
+        if (refreshEntry.cancelled || sidebarRefreshesByCwd.get(cwd) !== refreshEntry) return;
         if (seq !== runtime.sidebarRefreshSeq || normalizePath(currentChatCwd()) !== cwd) return;
         if (options.clearSurface) {
           set((state) => ({
@@ -3114,6 +3113,43 @@ function attachSidebarRuntime(runtime) {
         }
         addWarning('error', 'thread.sidebar.refresh.failed', { cwd, error: error.message });
       });
+  };
+
+  const runSidebarRefreshEntry = (cwd, refreshEntry, options) => {
+    refreshEntry.pending = false;
+    refreshEntry.clearSurface = options.clearSurface === true;
+    void performSidebarRefreshForCwd(cwd, options, refreshEntry)
+      .finally(() => {
+        if (refreshEntry.cancelled || sidebarRefreshesByCwd.get(cwd) !== refreshEntry) return;
+        if (refreshEntry.pending) {
+          runSidebarRefreshEntry(cwd, refreshEntry, { preserveActiveThreadId: true });
+          return;
+        }
+        sidebarRefreshesByCwd.delete(cwd);
+      });
+  };
+
+  const refreshSidebarSnapshotForCwdInBackground = (cwdValue, options = {}) => {
+    const cwd = normalizePath(cwdValue);
+    if (!cwd || cwd === '.') {
+      throw new Error('frontend-app: cwd is required for project chat refresh');
+    }
+    const needsClearSurface = options.clearSurface === true;
+    const existingRefresh = sidebarRefreshesByCwd.get(cwd);
+    if (existingRefresh) {
+      if (needsClearSurface && !existingRefresh.clearSurface) {
+        existingRefresh.cancelled = true;
+        const refreshEntry = { pending: false, cancelled: false, clearSurface: true };
+        sidebarRefreshesByCwd.set(cwd, refreshEntry);
+        runSidebarRefreshEntry(cwd, refreshEntry, options);
+        return;
+      }
+      existingRefresh.pending = true;
+      return;
+    }
+    const refreshEntry = { pending: false, cancelled: false, clearSurface: needsClearSurface };
+    sidebarRefreshesByCwd.set(cwd, refreshEntry);
+    runSidebarRefreshEntry(cwd, refreshEntry, options);
   };
 
   const refreshChatSurfaceForCwdInBackground = (cwdValue) => {
@@ -3618,6 +3654,7 @@ function createLifecycleActions(runtime) {
       runtime.sequencesByThread.clear();
       runtime.composerDrafts.clear();
       runtime.sidebarSnapshotsByCwd.clear();
+      runtime.sidebarRefreshesByCwd.clear();
       runtime.threadMessageGenerations.clear();
       runtime.threadSyncGenerations.clear();
       runtime.sidebarRefreshSeq += 1;
