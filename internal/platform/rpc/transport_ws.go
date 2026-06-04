@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -171,7 +170,7 @@ func wsFrontendTraceContext(ctx context.Context, raw json.RawMessage) (context.C
 	}
 	traceID, spanID, err := wsParseFrontendTraceparent(traceparent)
 	if err != nil {
-		return nil, fmt.Errorf("invalid _aoTraceparent: %w", err)
+		return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "invalid _aoTraceparent: %v", err)
 	}
 	if err := wsValidateFrontendTraceMetadata(obj, traceID, spanID); err != nil {
 		return nil, err
@@ -186,7 +185,7 @@ func wsIsJSONObject(raw json.RawMessage) bool {
 func wsDecodeFrontendMetaObject(raw json.RawMessage) (map[string]json.RawMessage, error) {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &obj); err != nil {
-		return nil, fmt.Errorf("decode frontend metadata: %w", err)
+		return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "decode frontend metadata: %v", err)
 	}
 	return obj, nil
 }
@@ -195,12 +194,12 @@ func wsValidateFrontendTraceMetadata(obj map[string]json.RawMessage, traceID, sp
 	if metadataTraceID, ok, err := wsFrontendStringField(obj, "_aoTraceId"); err != nil {
 		return err
 	} else if ok && metadataTraceID != traceID {
-		return fmt.Errorf("mismatched _aoTraceId")
+		return jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "mismatched _aoTraceId")
 	}
 	if metadataSpanID, ok, err := wsFrontendStringField(obj, "_aoSpanId"); err != nil {
 		return err
 	} else if ok && metadataSpanID != spanID {
-		return fmt.Errorf("mismatched _aoSpanId")
+		return jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "mismatched _aoSpanId")
 	}
 	return nil
 }
@@ -212,7 +211,7 @@ func wsFrontendStringField(obj map[string]json.RawMessage, key string) (string, 
 	}
 	var value string
 	if err := json.Unmarshal(raw, &value); err != nil {
-		return "", true, fmt.Errorf("%s must be a string", key)
+		return "", true, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "%s must be a string", key)
 	}
 	return value, true, nil
 }
@@ -220,10 +219,10 @@ func wsFrontendStringField(obj map[string]json.RawMessage, key string) (string, 
 func wsParseFrontendTraceparent(value string) (string, string, error) {
 	parts := strings.Split(value, "-")
 	if len(parts) != 4 {
-		return "", "", fmt.Errorf("expected 4 dash-separated fields")
+		return "", "", jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "expected 4 dash-separated fields")
 	}
 	if parts[0] != "00" {
-		return "", "", fmt.Errorf("unsupported version %q", parts[0])
+		return "", "", jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "unsupported version %q", parts[0])
 	}
 	traceID, spanID, flags := parts[1], parts[2], parts[3]
 	if err := wsValidateTraceID(traceID); err != nil {
@@ -240,21 +239,21 @@ func wsParseFrontendTraceparent(value string) (string, string, error) {
 
 func wsValidateTraceID(value string) error {
 	if len(value) != 32 || !wsIsLowerHex(value) || wsAllZeroHex(value) {
-		return fmt.Errorf("invalid trace id")
+		return jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "invalid trace id")
 	}
 	return nil
 }
 
 func wsValidateSpanID(value string) error {
 	if len(value) != 16 || !wsIsLowerHex(value) || wsAllZeroHex(value) {
-		return fmt.Errorf("invalid span id")
+		return jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "invalid span id")
 	}
 	return nil
 }
 
 func wsValidateTraceFlags(value string) error {
 	if len(value) != 2 || !wsIsLowerHex(value) {
-		return fmt.Errorf("invalid flags")
+		return jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "invalid flags")
 	}
 	return nil
 }
@@ -327,7 +326,7 @@ func (c *wsChannel) Close() error {
 
 func recvWSError(err error, readLimitBytes int64) error {
 	if errors.Is(err, websocket.ErrReadLimit) {
-		return fmt.Errorf("wails websocket message size limit exceeded: max %d bytes: %w", readLimitBytes, err)
+		return jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "wails websocket message size limit exceeded: max %d bytes: %v", readLimitBytes, err)
 	}
 	if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) || isExpectedCloseErr(err) {
 		return io.EOF

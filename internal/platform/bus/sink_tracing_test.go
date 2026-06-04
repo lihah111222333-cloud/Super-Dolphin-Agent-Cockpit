@@ -18,7 +18,7 @@ func TestLogSinkRecordsLifecycleTraceIdentifiers(t *testing.T) {
 	dispatcher := NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })
 	trace := observability.NewService(observability.Config{IndexMaxEvents: 20, IndexMaxTraceEvents: 20, IndexMaxThreadEvents: 20})
-	sink := NewLogSink(logSinkParams{Dispatcher: dispatcher, Logger: slog.New(slog.DiscardHandler), Trace: trace})
+	sink := NewLogSink(LogSinkDeps{Dispatcher: dispatcher, Logger: slog.New(slog.DiscardHandler), Trace: testBusTraceRecorder{trace}})
 	t.Cleanup(sink.Close)
 
 	event.Publish(dispatcher, turndto.TurnStarted{TurnHeader: sharedto.TurnHeader{AgentHeader: sharedto.AgentHeader{ThreadHeader: sharedto.ThreadHeader{ThreadID: "thread-1"}, AgentID: "agent-1"}, TurnIDHeader: sharedto.TurnIDHeader{TurnID: "turn-1"}}})
@@ -39,7 +39,7 @@ func TestLogSinkCorrelatesLifecycleTraceByThread(t *testing.T) {
 	dispatcher := NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })
 	trace := observability.NewService(observability.Config{IndexMaxEvents: 20, IndexMaxTraceEvents: 20, IndexMaxThreadEvents: 20})
-	sink := NewLogSink(logSinkParams{Dispatcher: dispatcher, Logger: slog.New(slog.DiscardHandler), Trace: trace})
+	sink := NewLogSink(LogSinkDeps{Dispatcher: dispatcher, Logger: slog.New(slog.DiscardHandler), Trace: testBusTraceRecorder{trace}})
 	t.Cleanup(sink.Close)
 
 	if err := trace.Record(context.Background(), observability.TraceEvent{TraceID: "trace-thread-1", SpanID: "thread-span-1", Kind: "thread.start", Method: "thread.start", ThreadID: "thread-1", Status: observability.StatusOK}); err != nil {
@@ -66,7 +66,7 @@ func TestLogSinkSummarizesHighFrequencyLifecycleTrace(t *testing.T) {
 	dispatcher := NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })
 	trace := observability.NewService(observability.Config{IndexMaxEvents: 20, IndexMaxTraceEvents: 20, IndexMaxThreadEvents: 20})
-	sink := NewLogSink(logSinkParams{Dispatcher: dispatcher, Logger: slog.New(slog.DiscardHandler), Trace: trace})
+	sink := NewLogSink(LogSinkDeps{Dispatcher: dispatcher, Logger: slog.New(slog.DiscardHandler), Trace: testBusTraceRecorder{trace}})
 	t.Cleanup(sink.Close)
 
 	for range 105 {
@@ -113,4 +113,30 @@ func filterTraceEvents(events []observability.TraceEvent, method string) []obser
 		}
 	}
 	return out
+}
+
+type testBusTraceRecorder struct{ svc *observability.Service }
+
+func (r testBusTraceRecorder) RecordTrace(ctx context.Context, record TraceRecord) error {
+	return r.svc.Record(ctx, observability.TraceEvent{
+		SchemaVersion: record.SchemaVersion,
+		Timestamp:     record.Timestamp,
+		TraceID:       record.TraceID,
+		SpanID:        record.SpanID,
+		ParentSpanID:  record.ParentSpanID,
+		Kind:          record.Kind,
+		Method:        record.Method,
+		ThreadID:      record.ThreadID,
+		AgentID:       record.AgentID,
+		TurnID:        record.TurnID,
+		CallID:        record.CallID,
+		ToolName:      record.ToolName,
+		Status:        observability.Status(record.Status),
+		Code: observability.CodeAnchor{
+			File:     record.Code.File,
+			Function: record.Code.Function,
+			Line:     record.Code.Line,
+		},
+		Metadata: observability.Metadata(record.Metadata),
+	})
 }
