@@ -4698,8 +4698,8 @@ function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, attachPa
     if (projectActionBlocked) return;
     const files = collectTransferFiles(event);
     if (files.length > 0) {
-      await attachDroppedFiles(files);
-      return;
+      const attachedCount = await attachDroppedFiles(files);
+      if (attachedCount > 0) return;
     }
     const paths = extractTransferFilePaths(event);
     if (paths.length > 0 && typeof attachPaths === 'function') attachPaths(paths);
