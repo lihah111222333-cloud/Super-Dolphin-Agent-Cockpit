@@ -154,8 +154,8 @@ func ownerPackageResources(input RuntimeResolveInput, env map[string]string, goo
 	if root := strings.TrimSpace(env[packageRootEnv]); root != "" {
 		return root, true
 	}
-	if goos == "darwin" {
-		resources := packagedResourcesDir(input.ExecutablePath)
+	resources := packagedResourcesDir(input.ExecutablePath)
+	if goos == "darwin" || resources != "" {
 		return resources, resources != ""
 	}
 	return "", false
