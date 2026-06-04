@@ -685,7 +685,7 @@ async function openRecentSystemLogs() {
 }
 
 function expectRecentSystemLogsTable(table) {
-  expect(table).toHaveTextContent('3 条 trace · 4 个匹配 event');
+  expect(table).toHaveTextContent('3 条匹配 event 分组 · 4 个匹配 event');
   expect(table).toHaveTextContent('2026-06-02 09:01:22');
   expect(table).toHaveTextContent('2026-06-02 09:02:03');
   expect(table).toHaveTextContent('2026-06-02 09:03:04');
