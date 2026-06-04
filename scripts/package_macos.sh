@@ -1250,7 +1250,7 @@ bundle_lsp_dylibs "$resources"
 phase_end
 
 phase_start "copy postgres"
-rsync -aL --delete "$pg_src"/ "$resources/postgres/$platform"/
+rsync -aL --delete "$pg_src"/ "$resources/postgres/$platform"/ || { rc=$?; [ $rc -eq 23 ] || [ $rc -eq 24 ] || exit $rc; }
 phase_end
 
 phase_start "bundle postgres dylibs"

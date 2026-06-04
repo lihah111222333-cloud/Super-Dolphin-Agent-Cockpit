@@ -18,6 +18,10 @@ func main() {
 		pkglogger.Get().Error("agent-terminal packaged runtime env failed", "error", err)
 		os.Exit(1)
 	}
+	if err := runtimeenv.LoadVideoEnv(); err != nil {
+		pkglogger.Get().Error("agent-terminal video env failed", "error", err)
+		os.Exit(1)
+	}
 	if err := app.RunDesktop(frontendDistFS()); err != nil {
 		pkglogger.Get().Error("agent-terminal failed", "error", err)
 		os.Exit(1)

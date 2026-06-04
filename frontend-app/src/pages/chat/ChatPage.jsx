@@ -2464,7 +2464,16 @@ function renderMarkdownImageToken(token, key) {
 function renderMarkdownLinkToken(token, key) {
   const parsed = token.match(/^\[([^\]]+)]\(([^)]+)\)$/);
   const href = safeMarkdownUrl(parsed?.[2]);
-  return href ? <a key={key} href={href} target="_blank" rel="noreferrer">{parsed?.[1]}</a> : parsed?.[1] || token;
+  if (!href) return parsed?.[1] || token;
+  const handleClick = (e) => {
+    e.preventDefault();
+    if (window.wails?.Browser?.OpenURL) {
+      window.wails.Browser.OpenURL(href);
+    } else {
+      window.open(href, '_blank', 'noreferrer');
+    }
+  };
+  return <a key={key} href={href} onClick={handleClick} rel="noreferrer">{parsed?.[1]}</a>;
 }
 
 function renderInlineCodeToken(token, key) {

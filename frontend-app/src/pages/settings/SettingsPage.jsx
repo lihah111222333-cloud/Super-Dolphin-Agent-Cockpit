@@ -564,6 +564,7 @@ function SettingsPageView({ builtins, cwd, prompt, provider, runtime, store }) {
         <ProviderPropertiesCard provider={provider} />
         <PromptSettingsCard prompt={prompt} />
         <BuiltinToolsCard builtins={builtins} />
+        <VideoSettingsCard />
         <UILogCard store={store} />
       </div>
     </section>
@@ -861,6 +862,53 @@ function formatLogTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '--:--:--';
   return date.toLocaleTimeString('zh-CN', { hour12: false });
+}
+
+function VideoSettingsCard() {
+  const [apiKey, setApiKey] = useState('');
+  const [status, setStatus] = useState('');
+  const [configured, setConfigured] = useState(false);
+  const [masked, setMasked] = useState('');
+
+  useEffect(() => {
+    callBackend('ui/video/getApiKey', {}).then((res) => {
+      if (res?.configured) { setConfigured(true); setMasked(res.masked); }
+    }).catch(() => {});
+  }, []);
+
+  const save = useCallback(async () => {
+    const key = apiKey.trim();
+    if (!key) { setStatus('请输入 API Key'); return; }
+    try {
+      await callBackend('ui/video/setApiKey', { apiKey: key });
+      setConfigured(true);
+      setMasked(key.length > 8 ? key.slice(0, 4) + '*'.repeat(key.length - 8) + key.slice(-4) : '*'.repeat(key.length));
+      setApiKey('');
+      setStatus('已保存');
+    } catch (err) {
+      setStatus(err.message || '保存失败');
+    }
+  }, [apiKey]);
+
+  return (
+    <>
+      <div className="section-header">视频生成（硅基流动 Wan2.2）</div>
+      <div className="data-card-vue" data-testid="settings-video-card">
+        <div className="data-row-vue">
+          <strong>SiliconFlow API Key</strong>
+          <span>{configured ? masked : '未配置'}</span>
+        </div>
+        <div className="settings-stall-row">
+          <label className="settings-stall-label" htmlFor="settings-sf-key">API Key</label>
+          <input id="settings-sf-key" className="settings-stall-input" type="password" placeholder="sk-..." value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
+        </div>
+        <div className="settings-action-row">
+          <button className="btn btn-primary" type="button" onClick={save}>保存</button>
+          {status ? <span className="settings-page-notice">{status}</span> : null}
+        </div>
+      </div>
+    </>
+  );
 }
 
 export { SettingsPage };

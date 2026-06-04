@@ -85,7 +85,7 @@ const BRIDGE_REVISION_EVENTS = Object.freeze([
 ]);
 
 const CHAT_ONLY_INTENT_RE = /(不要|别|无需|不用|不使用|禁止).{0,12}(工具|tool|浏览器|命令|终端|文件|代码)|\b(no|without)\s+tools?\b/i;
-const AGENT_TOOL_INTENT_RE = /(读|读取|看|查看|打开|修改|编辑|修复|实现|重构|跑|运行|执行|测试|构建|编译|扫描|搜索|查找|提交|推送|拉取|合并|调试|浏览|打开网页|操作浏览器|截图|分析).{0,18}(文件|目录|代码|仓库|项目|测试|命令|终端|日志|接口|页面|前端|后端|浏览器|chrome|playwright|git|pr|bug|报错)|\b(read|open|inspect|edit|modify|fix|implement|refactor|run|test|build|compile|scan|grep|search|commit|push|pull|merge|debug|browse).{0,24}(file|dir|code|repo|project|test|command|terminal|log|api|page|frontend|backend|browser|chrome|playwright|git|pr|bug|error)\b|\b(chrome|playwright|git)\b/i;
+const AGENT_TOOL_INTENT_RE = /(读|读取|看|查看|打开|修改|编辑|修复|实现|重构|跑|运行|执行|测试|构建|编译|扫描|搜索|查找|提交|推送|拉取|合并|调试|浏览|打开网页|操作浏览器|截图|分析).{0,18}(文件|目录|代码|仓库|项目|测试|命令|终端|日志|接口|页面|前端|后端|浏览器|chrome|playwright|git|pr|bug|报错)|\b(read|open|inspect|edit|modify|fix|implement|refactor|run|test|build|compile|scan|grep|search|commit|push|pull|merge|debug|browse).{0,24}(file|dir|code|repo|project|test|command|terminal|log|api|page|frontend|backend|browser|chrome|playwright|git|pr|bug|error)\b|\b(chrome|playwright|git)\b|生成.{0,10}视频|制作.{0,10}视频|视频.{0,10}生成|generate.{0,10}video|video.{0,10}generate/i;
 
 function normalizeToolSurfaceMode(value) {
   const mode = normalizeString(value).toLowerCase();
@@ -305,21 +305,16 @@ async function resolveLaunchPreferences(cwd) {
     providerScope === 'codex' ? getPreference({ cwd, key: providerPreferenceKey('codex', 'codexInstanceKey') }) : Promise.resolve(null),
     providerScope === 'codex' ? getPreference({ cwd, key: providerPreferenceKey('codex', 'codexModelProvider') }) : Promise.resolve(null),
   ]);
-  const modelKey = providerPreferenceKey(providerScope, 'model');
-  const effortKey = providerPreferenceKey(providerScope, 'effort');
-
   const launch = cleanObject({
     modelProvider: provider,
-    model: requireProviderPreferenceValue(model, modelKey, 'startThread'),
-    effort: requireProviderPreferenceValue(effort, effortKey, 'startThread'),
+    model: normalizeProviderConfigValue(model),
+    effort: normalizeProviderConfigValue(effort),
     prompt_key: normalizeProviderConfigValue(activePromptKey),
   });
   if (providerScope === 'codex') {
-    const codexHomeKey = providerPreferenceKey('codex', 'codexHome');
-    const codexInstanceKeyKey = providerPreferenceKey('codex', 'codexInstanceKey');
     launch.config = cleanObject({
-      codexHome: requireProviderPreferenceValue(codexHome, codexHomeKey, 'startThread'),
-      codexInstanceKey: requireProviderPreferenceValue(codexInstanceKey, codexInstanceKeyKey, 'startThread'),
+      codexHome: normalizeProviderConfigValue(codexHome),
+      codexInstanceKey: normalizeProviderConfigValue(codexInstanceKey),
       codexModelProvider: normalizeCodexIdentityValue(codexModelProvider),
     });
   }
@@ -2488,8 +2483,8 @@ function attachProviderRuntime(runtime) {
         : Promise.resolve(''),
     ]);
     const providerConfig = normalizeProviderRuntimeConfig({
-      model: requireProviderPreferenceValue(model, modelKey, 'provider.config'),
-      effort: requireProviderPreferenceValue(effort, effortKey, 'provider.config'),
+      model: normalizeProviderConfigValue(model),
+      effort: normalizeProviderConfigValue(effort),
       codexModelProvider: providerScope === 'codex'
         ? normalizeCodexIdentityValue(codexModelProvider)
         : '',

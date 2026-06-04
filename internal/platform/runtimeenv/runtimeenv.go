@@ -382,6 +382,41 @@ func applyPackagedRuntimeEnv(runtime PackagedRuntime) error {
 	)
 }
 
+// LoadVideoEnv reads $SUPER_DOLPHIN_HOME/video.env and sets any KEY=VALUE
+// pairs it finds as environment variables. Missing file is silently ignored.
+func LoadVideoEnv() error {
+	home := strings.TrimSpace(os.Getenv(superDolphinHomeEnv))
+	if home == "" {
+		var err error
+		home, err = os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("resolve user home for video env: %w", err)
+		}
+		home = packagedAppDataDir(home)
+	}
+	data, err := os.ReadFile(filepath.Join(home, "video.env"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		if err := os.Setenv(strings.TrimSpace(k), strings.TrimSpace(v)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func applySidecarRuntimeContract(contract SidecarRuntimeContract) error {
 	setters := []func() error{
 		func() error { return setEnvIfEmpty(projectRootEnv, contract.ResourcesDir) },

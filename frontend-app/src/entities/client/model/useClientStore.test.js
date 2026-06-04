@@ -145,18 +145,21 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().bootstrapStatus).toBe('failed');
   });
 
-  it('fails bootstrap when the selected provider model preference is missing', async () => {
+  it('bootstraps when the selected provider model preference is missing', async () => {
     backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
       'settings.provider.active': 'codex',
       'settings.provider.codex.effort': 'xhigh',
       'settings.provider.codex.codexModelProvider': 'openai',
     }[key] ?? null));
 
-    await expect(useClientStore.getState().bootstrap()).rejects.toThrow(
-      'provider.config: settings.provider.codex.model preference is required',
-    );
+    await useClientStore.getState().bootstrap();
 
-    expect(useClientStore.getState().bootstrapStatus).toBe('failed');
+    expect(useClientStore.getState().bootstrapStatus).toBe('ready');
+    expect(useClientStore.getState().providerConfig).toEqual(expect.objectContaining({
+      provider: 'codex',
+      model: '',
+      effort: 'xhigh',
+    }));
   });
 
   it('bootstraps when optional Codex model provider preference is absent', async () => {
@@ -1385,7 +1388,7 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
-  it('fails thread/start launch when provider runtime preferences are missing', async () => {
+  it('starts thread without model preference when it is missing', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -1401,12 +1404,14 @@ function registerBridgeEventHandlersForTest() {
       'settings.provider.codex.codexModelProvider': 'openrouter',
     }[key] ?? null));
 
-    await expect(useClientStore.getState().sendDraft()).rejects.toThrow(
-      'startThread: settings.provider.codex.model preference is required',
-    );
+    await useClientStore.getState().sendDraft();
 
-    expect(backend.startThread).not.toHaveBeenCalled();
-    expect(backend.startTurn).not.toHaveBeenCalled();
+    expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      effort: 'xhigh',
+    }));
+    expect(backend.startThread).toHaveBeenCalledWith(
+      expect.not.objectContaining({ model: expect.any(String) }),
+    );
   });
 
   it('exposes the same launch preferences for non-chat thread launches', async () => {
