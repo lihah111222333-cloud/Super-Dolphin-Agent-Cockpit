@@ -99,13 +99,13 @@ func (a *bindingAdapter) ListAgentThreadBindings(ctx context.Context) ([]binding
 	return out, nil
 }
 
-func (s *service) loadBatchConfigs(ctx context.Context, threads []ThreadSummary) map[string]map[string]any {
+func (s *service) loadBatchConfigs(ctx context.Context, threads []ThreadSummary) (map[string]map[string]any, bool) {
 	if s.runtimeConfig == nil {
-		return nil
+		return nil, false
 	}
 	bulkReader, ok := s.runtimeConfig.(contract.ThreadRuntimeConfigReader)
 	if !ok {
-		return nil
+		return nil, false
 	}
 	var threadIDs []string
 	for _, thread := range threads {
@@ -114,13 +114,14 @@ func (s *service) loadBatchConfigs(ctx context.Context, threads []ThreadSummary)
 		}
 	}
 	if len(threadIDs) == 0 {
-		return nil
+		return nil, true
 	}
 	batchConfigs, err := bulkReader.ReadRuntimeConfigs(ctx, threadIDs)
 	if err != nil {
-		s.logger.WarnContext(ctx, "uistate: ReadRuntimeConfigs failed", "err", err)
+		s.logger.WarnContext(ctx, "uistate: ReadRuntimeConfigs failed; skipping per-thread fallback", "err", err)
+		return nil, true
 	}
-	return batchConfigs
+	return batchConfigs, true
 }
 
 func (s *service) enrichFromDB(ctx context.Context, agents []AgentSummary, threads []ThreadSummary, runtimeMap map[string]map[string]any) {
@@ -129,7 +130,7 @@ func (s *service) enrichFromDB(ctx context.Context, agents []AgentSummary, threa
 		byAgent = s.loadBindingIndex(ctx)
 	}
 
-	batchConfigs := s.loadBatchConfigs(ctx, threads)
+	batchConfigs, batchRuntimeRead := s.loadBatchConfigs(ctx, threads)
 
 	for _, thread := range threads {
 		if len(byAgent) > 0 {
@@ -142,7 +143,7 @@ func (s *service) enrichFromDB(ctx context.Context, agents []AgentSummary, threa
 		}
 
 		var cfg map[string]any
-		if batchConfigs != nil {
+		if batchRuntimeRead {
 			cfg = batchConfigs[threadID]
 		} else if s.runtimeConfig != nil {
 			var rcErr error
