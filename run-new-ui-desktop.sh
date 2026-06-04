@@ -608,8 +608,37 @@ resolve_postgres_share_dir() {
   return 1
 }
 
+validate_postgres_port() {
+  local label="$1"
+  local port="$2"
+  local normalized value
+  case "$port" in
+    ''|*[!0-9]*)
+      echo "❌ invalid PostgreSQL port in $label: expected decimal 1-65535, got '${port:-<empty>}'" >&2
+      exit 1
+      ;;
+  esac
+  normalized="$port"
+  while [ "${normalized#0}" != "$normalized" ]; do
+    normalized="${normalized#0}"
+  done
+  if [ -z "$normalized" ]; then
+    normalized="0"
+  fi
+  if [ "${#normalized}" -gt 5 ]; then
+    echo "❌ invalid PostgreSQL port in $label: expected decimal 1-65535, got '$port'" >&2
+    exit 1
+  fi
+  value=$((10#$normalized))
+  if [ "$value" -lt 1 ] || [ "$value" -gt 65535 ]; then
+    echo "❌ invalid PostgreSQL port in $label: expected decimal 1-65535, got '$port'" >&2
+    exit 1
+  fi
+}
+
 postgres_is_local_database_url() {
   local url="$1"
+  local label="${2:-DATABASE_URL}"
   local rest authority host port normalized_host
   POSTGRES_URL_HOST=""
   POSTGRES_URL_PORT=""
@@ -621,13 +650,15 @@ postgres_is_local_database_url() {
   rest="${rest#*@}"
   authority="${rest%%/*}"
   host="${authority%%:*}"
-  port="${authority#*:}"
-  if [ "$port" = "$authority" ] || [ -z "$port" ]; then
+  if [ "$host" = "$authority" ]; then
     port="5432"
+  else
+    port="${authority#*:}"
   fi
   normalized_host="$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')"
   case "$normalized_host" in
     localhost|127.0.0.1)
+      validate_postgres_port "$label" "$port"
       POSTGRES_URL_HOST="$host"
       POSTGRES_URL_PORT="$port"
       return 0
@@ -641,8 +672,16 @@ postgres_is_local_database_url() {
 configure_dev_postgres_runtime() {
   export SUPER_DOLPHIN_PROCESS_ROLE="${SUPER_DOLPHIN_PROCESS_ROLE:-desktop}"
 
-  local database_url="${DATABASE_URL:-${POSTGRES_CONNECTION_STRING:-}}"
-  if [ -n "$database_url" ] && ! postgres_is_local_database_url "$database_url"; then
+  local database_url=""
+  local database_url_label=""
+  if [ -n "${DATABASE_URL:-}" ]; then
+    database_url="$DATABASE_URL"
+    database_url_label="DATABASE_URL"
+  elif [ -n "${POSTGRES_CONNECTION_STRING:-}" ]; then
+    database_url="$POSTGRES_CONNECTION_STRING"
+    database_url_label="POSTGRES_CONNECTION_STRING"
+  fi
+  if [ -n "$database_url" ] && ! postgres_is_local_database_url "$database_url" "$database_url_label"; then
     return 0
   fi
 
@@ -654,6 +693,7 @@ configure_dev_postgres_runtime() {
   export SUPER_DOLPHIN_POSTGRES_SHARE_DIR="${SUPER_DOLPHIN_POSTGRES_SHARE_DIR:-$share_dir}"
 
   if [ -z "$database_url" ]; then
+    validate_postgres_port "SUPER_DOLPHIN_LOCAL_POSTGRES_PORT" "$SUPER_DOLPHIN_LOCAL_POSTGRES_PORT"
     DATABASE_URL="${DATABASE_URL:-postgres://super_dolphin@127.0.0.1:${SUPER_DOLPHIN_LOCAL_POSTGRES_PORT}/super_dolphin?sslmode=disable}"
     export DATABASE_URL
     DEV_LOCAL_POSTGRES_MANAGED="1"
@@ -673,11 +713,19 @@ initialize_local_postgres_data_dir() {
 }
 
 ensure_local_postgres() {
-  local database_url="${DATABASE_URL:-${POSTGRES_CONNECTION_STRING:-}}"
+  local database_url=""
+  local database_url_label=""
+  if [ -n "${DATABASE_URL:-}" ]; then
+    database_url="$DATABASE_URL"
+    database_url_label="DATABASE_URL"
+  elif [ -n "${POSTGRES_CONNECTION_STRING:-}" ]; then
+    database_url="$POSTGRES_CONNECTION_STRING"
+    database_url_label="POSTGRES_CONNECTION_STRING"
+  fi
   if [ -z "$database_url" ]; then
     return 0
   fi
-  if ! postgres_is_local_database_url "$database_url"; then
+  if ! postgres_is_local_database_url "$database_url" "$database_url_label"; then
     return 0
   fi
 
@@ -773,6 +821,7 @@ SUPER_DOLPHIN_DEV_CODEX_HOME="${SUPER_DOLPHIN_DEV_CODEX_HOME:-$HOME/.codex}"
 SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY="${SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY:-default}"
 SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER="${SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER:-openai}"
 SUPER_DOLPHIN_LOCAL_POSTGRES_PORT="${SUPER_DOLPHIN_LOCAL_POSTGRES_PORT:-55433}"
+validate_postgres_port "SUPER_DOLPHIN_LOCAL_POSTGRES_PORT" "$SUPER_DOLPHIN_LOCAL_POSTGRES_PORT"
 SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR="${SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR:-$PROJECT_DIR/.tmp/pgdata}"
 SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR="${SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR:-$PROJECT_DIR/.tmp/pgsocket}"
 SUPER_DOLPHIN_LOCAL_POSTGRES_LOG="${SUPER_DOLPHIN_LOCAL_POSTGRES_LOG:-$PROJECT_DIR/.tmp/postgres.log}"
