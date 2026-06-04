@@ -135,11 +135,11 @@ func TestGetPreferencesDoesNotSynthesizeScopedProviderDefault(t *testing.T) {
 	if prefs.CWD != projectCWD {
 		t.Fatalf("prefs.CWD = %q, want %q", prefs.CWD, projectCWD)
 	}
-	if got := prefs.Values[providerPreferenceKey]; got != nil {
-		t.Fatalf("prefs.Values[%q] = %#v, want nil so frontend can fall back to global provider", providerPreferenceKey, got)
+	if got := prefs.Values[providerPreferenceKey]; got != "codex" {
+		t.Fatalf("prefs.Values[%q] = %#v, want \"codex\" default for first-time packaged install", providerPreferenceKey, got)
 	}
-	if got := preferenceValue(*prefs, providerPreferenceKey); got != nil {
-		t.Fatalf("preferenceValue(%q) = %#v, want nil so frontend can fall back to global provider", providerPreferenceKey, got)
+	if got := preferenceValue(*prefs, providerPreferenceKey); got != "codex" {
+		t.Fatalf("preferenceValue(%q) = %#v, want \"codex\" default for first-time packaged install", providerPreferenceKey, got)
 	}
 }
 

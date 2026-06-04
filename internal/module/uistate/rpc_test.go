@@ -3,6 +3,8 @@ package uistate
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -64,7 +66,41 @@ func TestUIPreferencesGetDoesNotSynthesizeScopedActiveProvider(t *testing.T) {
 		t.Fatalf("Dispatch(ui/preferences/get) error = %v", err)
 	}
 
-	if string(result) != "null" {
-		t.Fatalf("ui/preferences/get scoped settings.provider.active = %s, want null for frontend global fallback", result)
+	if string(result) != `"codex"` {
+		t.Fatalf("ui/preferences/get scoped settings.provider.active = %s, want \"codex\" default for first-time install", result)
+	}
+}
+
+func TestUIVideoSetAPIKeyPersistsWithoutExplicitSuperDolphinHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("SUPER_DOLPHIN_HOME", "")
+	t.Setenv("SILICONFLOW_API_KEY", "")
+
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	server := rpc.NewServer(rpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
+	server.Register(NewUIStateHandlers(svc).Handlers)
+	if _, err := server.Dispatch(context.Background(), "ui/video/setApiKey", json.RawMessage(`{"apiKey":"sk-test-persist"}`)); err != nil {
+		t.Fatalf("Dispatch(ui/video/setApiKey) error = %v", err)
+	}
+
+	path := filepath.Join(home, "Library", "Application Support", "Super Dolphin", "video.env")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", path, err)
+	}
+	if string(data) != "SILICONFLOW_API_KEY=sk-test-persist\n" {
+		t.Fatalf("video.env = %q, want persisted SiliconFlow key", data)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat(%q) error = %v", path, err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		t.Fatalf("video.env mode = %o, want 600", mode)
 	}
 }
