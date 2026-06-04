@@ -80,6 +80,7 @@ echo "==> installing Node-based LSP packages with host npm: $npm_bin"
   typescript \
   vscode-langservers-extracted \
   pyright \
+  bash-language-server \
   @ast-grep/cli
 
 write_no_system_python_stub() {
@@ -123,6 +124,7 @@ exec "\$here/../$target" "\$@"
 WRAP
   chmod +x "$lsp_dir/bin/$name"
 }
+write_path_wrapper bash-language-server node_modules/bash-language-server/out/cli.js
 write_path_wrapper sg node_modules/.bin/sg
 
 echo "==> copying native LSP servers"
@@ -249,6 +251,7 @@ lsp_specs=(
   'vscode-langservers-extracted|bin/vscode-css-language-server|["css"]'
   'pyright|bin/pyright-langserver|["python"]'
   'rust-analyzer|bin/rust-analyzer|["rust"]'
+  'bash-language-server|bin/bash-language-server|["shellscript"]'
   'sg|bin/sg|["ast-grep"]'
   'go|bin/go|["go-toolchain"]'
 )

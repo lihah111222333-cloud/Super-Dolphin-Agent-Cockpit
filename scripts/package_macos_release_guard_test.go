@@ -90,6 +90,15 @@ func TestVerifyPackagedAppMacOSChecksBundledAstGrep(t *testing.T) {
 	assertScriptContains(t, script, "printf '%s\\n' \"--help\"")
 }
 
+func TestVerifyPackagedAppMacOSChecksBundledBashLanguageServer(t *testing.T) {
+	script := readScript(t, "verify_packaged_app_macos.sh")
+
+	assertScriptContains(t, script, "\"bash-language-server|bin/bash-language-server\"")
+	assertScriptContains(t, script, "\"$resources/bin/bash-language-server\"")
+	assertScriptContains(t, script, "bash-language-server)")
+	assertScriptContains(t, script, "printf '%s\\n' \"--version\"")
+}
+
 func TestVerifyPackagedAppMacOSRunsRealLSPSmokeEntries(t *testing.T) {
 	script := readScript(t, "verify_packaged_app_macos.sh")
 

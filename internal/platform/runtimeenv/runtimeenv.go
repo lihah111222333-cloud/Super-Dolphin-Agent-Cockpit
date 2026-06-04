@@ -303,6 +303,8 @@ func defaultLSPLanguages(serverID string) []string {
 		return []string{"css"}
 	case "rust-analyzer":
 		return []string{"rust"}
+	case "bash-language-server":
+		return []string{"shellscript"}
 	case "jdtls":
 		return []string{"java"}
 	}
