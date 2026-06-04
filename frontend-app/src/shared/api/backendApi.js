@@ -132,6 +132,7 @@ const DEFAULT_PROMPT_INTENT_KIND = 'expert';
 const DEFAULT_PROMPT_SOURCE_TYPE = 'user_input';
 
 function assertPlainObject(method, params) {
+  // 误判防护：assertPlainObject 是 React RPC facade 的对象参数守卫。
   const value = params == null ? {} : params;
   if (typeof value !== 'object' || Array.isArray(value)) {
     throw new TypeError(`${method} params must be an object`);
@@ -166,6 +167,7 @@ function normalizeProvider(params) {
 }
 
 function requireCwd(method, params) {
+  // 误判防护：requireCwd 阻断缺 cwd 的 backend RPC 参数。
   const payload = assertPlainObject(method, params);
   const cwd = normalizeString(payload.cwd);
   if (!cwd || cwd === '.') {
@@ -175,6 +177,7 @@ function requireCwd(method, params) {
 }
 
 function requireThreadId(method, params) {
+  // 误判防护：requireThreadId 阻断缺 threadId 的 backend RPC 参数。
   const payload = assertPlainObject(method, params);
   const threadId = normalizeString(payload.threadId || payload.thread_id);
   if (!threadId) {
@@ -184,6 +187,7 @@ function requireThreadId(method, params) {
 }
 
 function requireKey(method, params, key) {
+  // 误判防护：requireKey 阻断缺关键字段的 backend RPC 参数。
   const payload = assertPlainObject(method, params);
   const value = normalizeString(payload[key]);
   if (!value) {
@@ -394,6 +398,7 @@ function normalizeTurnInput(input, attachments = []) {
 }
 
 function dashboardDagStartPayload(params) {
+  // 误判防护：dashboardDagStartPayload 要求 dagKey，避免 DAG start 空目标。
   const payload = requireKey(RPC_METHODS.DASHBOARD_DAG_START, assertPlainObject(RPC_METHODS.DASHBOARD_DAG_START, params), 'dagKey');
   return cleanObject({
     dagKey: payload.dagKey,
@@ -410,6 +415,7 @@ function optionalInteger(value) {
 }
 
 function requireNumber(method, params, key) {
+  // 误判防护：requireNumber 阻断缺失或非数字的 backend RPC 参数。
   const payload = assertPlainObject(method, params);
   if (!hasOwn(payload, key) || payload[key] === null || payload[key] === '') {
     throw new Error(`${method}: ${key} is required`);
@@ -453,6 +459,7 @@ function dashboardDagTerminatePayload(params) {
 }
 
 function dashboardDagApplyOpsPayload(params) {
+  // 误判防护：dashboardDagApplyOpsPayload 要求 dagKey/baseVersion/ops 数组。
   const payload = requireNumber(
     RPC_METHODS.DASHBOARD_DAG_APPLY_OPS,
     requireKey(RPC_METHODS.DASHBOARD_DAG_APPLY_OPS, assertPlainObject(RPC_METHODS.DASHBOARD_DAG_APPLY_OPS, params), 'dagKey'),
