@@ -28,6 +28,17 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+function formatParsedTimestampForTest(value) {
+  const parsed = new Date(value);
+  const year = String(parsed.getFullYear()).padStart(4, '0');
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  const hour = String(parsed.getHours()).padStart(2, '0');
+  const minute = String(parsed.getMinutes()).padStart(2, '0');
+  const second = String(parsed.getSeconds()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+}
+
 const backend = vi.hoisted(() => {
   const mockNames = `
 	    readConfig getWindowBootstrap openNewWindow getProjects setActiveProject addProject removeProject
@@ -516,6 +527,7 @@ function expectTraceDashboardRpcCalls() {
     threadId: '',
     agentId: '',
     keyword: '',
+    includeTail: true,
   });
   expect(backend.getObservabilityTrace).toHaveBeenCalledWith({ traceId: 'trace-1', limit: 50 });
 }
@@ -536,7 +548,7 @@ async function expectTraceDashboardRows(table) {
   expect(traceRows[0]).toHaveTextContent('失败原因');
   const zeroDurationRow = traceRows.find((row) => row.textContent.includes('ui/sidebar/get'));
   expect(zeroDurationRow).toBeTruthy();
-  expect(zeroDurationRow).toHaveTextContent('2026-06-02 09:01:23');
+  expect(zeroDurationRow).toHaveTextContent(formatParsedTimestampForTest('2026-06-02T09:01:23.000Z'));
   expect(zeroDurationRow).toHaveTextContent('耗时未记录');
   expect(zeroDurationRow).not.toHaveTextContent('0ms');
   expect(zeroDurationRow).not.toHaveTextContent('code=-');
@@ -685,10 +697,10 @@ async function openRecentSystemLogs() {
 }
 
 function expectRecentSystemLogsTable(table) {
-  expect(table).toHaveTextContent('3 条 trace · 4 个匹配 event');
-  expect(table).toHaveTextContent('2026-06-02 09:01:22');
-  expect(table).toHaveTextContent('2026-06-02 09:02:03');
-  expect(table).toHaveTextContent('2026-06-02 09:03:04');
+  expect(table).toHaveTextContent('3 条匹配 event 分组 · 4 个匹配 event');
+  expect(table).toHaveTextContent(formatParsedTimestampForTest('2026-06-02T09:01:22.459Z'));
+  expect(table).toHaveTextContent(formatParsedTimestampForTest('2026-06-02T09:02:03.000Z'));
+  expect(table).toHaveTextContent(formatParsedTimestampForTest('2026-06-02T09:03:04.000Z'));
   expect(table).not.toHaveTextContent('2026-06-02T09:01:22.459Z');
   expect(table).toHaveTextContent('thread/start');
   expect(table).toHaveTextContent('trace-frontend-1');
@@ -712,6 +724,7 @@ function expectRecentSystemLogsRpcCall() {
     threadId: '',
     agentId: '',
     keyword: 'thread/start',
+    includeTail: true,
   });
 }
 
@@ -6496,6 +6509,139 @@ async function continueChatFromFinalSharedFile() {
 
     expect((await screen.findAllByText('流程 B')).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('clears a stale workflow sync alert after focus refresh succeeds', async () => {
+    let dags = [{
+      dag_key: 'flow-a',
+      title: '流程 A',
+      status: 'running',
+      trigger: 'manual',
+      version: 1,
+      latest_run: { run_key: 'run-a', status: 'running' },
+    }];
+    backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
+      page === 'dags' ? { dags } : { skills: [] },
+    ));
+    backend.getDagDetail.mockImplementation(({ dagKey }) => {
+      const dag = dags.find((item) => item.dag_key === dagKey) || dags[0];
+      const suffix = (dag?.title || '').split(' ').pop() || '';
+      return Promise.resolve({
+        dag,
+        nodes: [{ node_key: 'step', title: `步骤 ${suffix}`, node_type: 'agent', status: 'running', depends_on: [], config: {} }],
+      });
+    });
+    backend.getDagRuns.mockImplementation(({ dagKey, status }) => {
+      const dag = dags.find((item) => item.dag_key === dagKey) || dags[0];
+      if (status === 'running') return Promise.resolve({ runs: dag?.latest_run ? [dag.latest_run] : [] });
+      return Promise.resolve({ runs: dag?.latest_run ? [dag.latest_run] : [] });
+    });
+    backend.getDagRun.mockImplementation(({ runKey }) => Promise.resolve({
+      run: { run_key: runKey, status: 'running' },
+      nodes: [],
+    }));
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('自动化'));
+    expect((await screen.findAllByText('流程 A')).length).toBeGreaterThanOrEqual(1);
+
+    backend.getDashboardPage.mockRejectedValueOnce(new Error('workflow backend offline'));
+    await act(async () => {
+      bridgeCallback?.({ type: 'task/node/statusChanged', payload: { dag_key: 'flow-a', run_key: 'run-a', node_key: 'step', new_status: 'running' } });
+      await Promise.resolve();
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：workflow backend offline');
+
+    dags = [{
+      dag_key: 'flow-b',
+      title: '流程 B',
+      status: 'running',
+      trigger: 'manual',
+      version: 2,
+      latest_run: { run_key: 'run-b', status: 'running' },
+    }];
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+    });
+
+    expect((await screen.findAllByText('流程 B')).length).toBeGreaterThanOrEqual(1);
+    await waitFor(() => {
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+  });
+
+  it('coalesces selected workflow detail and run refreshes when events and retry overlap', async () => {
+    const runningDag = {
+      dag_key: 'flow-a',
+      title: '流程 A',
+      status: 'running',
+      trigger: 'manual',
+      version: 1,
+      latest_run: { run_key: 'run-a', status: 'running' },
+    };
+    const node = { node_key: 'step', title: '步骤 A', node_type: 'agent', status: 'running', depends_on: [], config: {} };
+    backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
+      page === 'dags' ? { dags: [runningDag] } : { skills: [] },
+    ));
+    backend.getDagDetail.mockResolvedValue({ dag: runningDag, nodes: [node] });
+    backend.getDagRuns.mockImplementation(({ status }) => Promise.resolve({
+      runs: status === 'running' ? [runningDag.latest_run] : [runningDag.latest_run],
+    }));
+    backend.getDagRun.mockResolvedValue({ run: runningDag.latest_run, nodes: [node] });
+
+    render(<App />);
+    await screen.findByText('后端线程');
+    fireEvent.click(screen.getByLabelText('自动化'));
+    expect((await screen.findAllByText('流程 A')).length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByText('步骤 A')).length).toBeGreaterThanOrEqual(1);
+
+    vi.clearAllMocks();
+    const detailRefresh = deferred();
+    const recentRunsRefresh = deferred();
+    const activeRunsRefresh = deferred();
+    const runRefresh = deferred();
+    backend.getDashboardPage
+      .mockImplementationOnce(({ page }) => (
+        page === 'dags' ? Promise.reject(new Error('workflow backend offline')) : Promise.resolve({ skills: [] })
+      ))
+      .mockImplementation(({ page }) => Promise.resolve(
+        page === 'dags' ? { dags: [runningDag] } : { skills: [] },
+      ));
+    backend.getDagDetail.mockImplementation(() => detailRefresh.promise);
+    backend.getDagRuns.mockImplementation(({ status }) => (
+      status === 'running' ? activeRunsRefresh.promise : recentRunsRefresh.promise
+    ));
+    backend.getDagRun.mockImplementation(() => runRefresh.promise);
+
+    await act(async () => {
+      bridgeCallback?.({ type: 'task/node/statusChanged', payload: { dag_key: 'flow-a', run_key: 'run-a', node_key: 'step', new_status: 'running' } });
+      await Promise.resolve();
+    });
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('workflow backend offline');
+    await waitFor(() => expect(backend.getDagDetail).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(within(alert).getByRole('button', { name: '重试同步' }));
+    await act(async () => {
+      bridgeCallback?.({ type: 'task/node/statusChanged', payload: { dag_key: 'flow-a', run_key: 'run-a', node_key: 'step', new_status: 'running' } });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(backend.getDashboardPage.mock.calls.length).toBeGreaterThanOrEqual(2));
+
+    expect(backend.getDagDetail).toHaveBeenCalledTimes(1);
+    expect(backend.getDagRuns).toHaveBeenCalledTimes(2);
+    expect(backend.getDagRun).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      detailRefresh.reject(new Error('detail backend offline'));
+      recentRunsRefresh.resolve({ runs: [runningDag.latest_run] });
+      activeRunsRefresh.resolve({ runs: [runningDag.latest_run] });
+      runRefresh.resolve({ run: runningDag.latest_run, nodes: [node] });
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('detail backend offline');
   });
 
   it('shows a retryable blocking error instead of an empty workflow state on initial load failure', async () => {

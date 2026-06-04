@@ -137,12 +137,39 @@ func (s *service) populateDashboardDAGs(ctx context.Context, out *DashboardPage)
 	if items == nil {
 		items = []contract.DAGSummary{}
 	}
-	dags, err := s.buildDashboardDAGs(ctx, items)
+	var dags []DashboardDAG
+	if s.hasDAGSnapshotQueries() {
+		dags, err = s.buildDashboardDAGsFromSnapshot(ctx, items)
+	} else {
+		dags, err = s.buildDashboardDAGs(ctx, items)
+	}
 	if err != nil {
 		return err
 	}
 	out.DAGs = dags
 	return nil
+}
+
+func (s *service) buildDashboardDAGsFromSnapshot(ctx context.Context, items []contract.DAGSummary) ([]DashboardDAG, error) {
+	out := make([]DashboardDAG, len(items))
+	dagKeys := make([]string, 0, len(items))
+	for index, item := range items {
+		out[index] = DashboardDAG{DAGSummary: item}
+		dagKeys = append(dagKeys, item.DagKey)
+	}
+	latestRuns, err := s.listLatestDAGRunsByDAGFromSnapshot(ctx, dagKeys)
+	if err != nil {
+		return nil, err
+	}
+	for index, item := range items {
+		run, ok := latestRuns[item.DagKey]
+		if !ok {
+			continue
+		}
+		out[index].LatestRun = &run
+		out[index].HasFinalOutput = runMetadataHasFinalOutput(run.Metadata)
+	}
+	return out, nil
 }
 
 func (s *service) buildDashboardDAGs(ctx context.Context, items []contract.DAGSummary) ([]DashboardDAG, error) {

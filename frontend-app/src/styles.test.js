@@ -557,13 +557,19 @@ describe('timeline content styles', () => {
   it('keeps observability system log cards from being flex-shrunk and clipped', () => {
     const systemLog = declarationsFor('.observability-system-log');
     const logTable = declarationsFor('.observability-log-table');
-    const logHeadRow = declarationsFor('.observability-log-table-head tr');
+    const logHeadRow = declarationsFor('.observability-log-table-head-row');
+    const detailRow = declarationsFor('.observability-log-table-detail-row');
+    const detailCell = declarationsFor('.observability-log-table-detail-cell');
 
     expect(systemLog['flex-shrink']).toBe('0');
     expect(systemLog.overflow).toBe('visible');
     expect(logTable['max-height']).toBe('min(560px, calc(100vh - 320px))');
     expect(logTable.overflow).toBe('auto');
     expect(logHeadRow['grid-template-columns']).toContain('minmax(168px');
+    expect(detailRow.display).toBe('block');
+    expect(detailRow.width).toBe('100%');
+    expect(detailCell.display).toBe('block');
+    expect(detailCell['min-width']).toBe('0');
   });
 });
 

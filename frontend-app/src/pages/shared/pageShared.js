@@ -1,8 +1,9 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getMemorySnapshot } from '../../shared/api/backendApi.js';
 
 const SKILLS_REQUEST_TIMEOUT_MS = 8000;
+const DASHBOARD_FOCUS_INVALIDATION_COALESCE_MS = 50;
 
 const MEMORY_TYPE_INFO = Object.freeze({
   user: { category: 'preference', label: '偏好' },
@@ -113,17 +114,35 @@ function dashboardQueryErrorState(query, hasSnapshot = queryHasSnapshot(query)) 
 
 function useDashboardQueryFocusInvalidation(queryKey) {
   const queryClient = useQueryClient();
+  const pendingInvalidateRef = useRef(null);
+
   useEffect(() => {
     if (!Array.isArray(queryKey) || queryKey.length === 0) return undefined;
-    const invalidate = () => {
+
+    const flushInvalidate = () => {
+      pendingInvalidateRef.current = null;
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       void queryClient.invalidateQueries({ queryKey });
     };
+
+    const invalidate = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      if (pendingInvalidateRef.current !== null) return;
+      pendingInvalidateRef.current = globalThis.setTimeout(
+        flushInvalidate,
+        DASHBOARD_FOCUS_INVALIDATION_COALESCE_MS,
+      );
+    };
+
     window.addEventListener('focus', invalidate);
     document.addEventListener('visibilitychange', invalidate);
     return () => {
       window.removeEventListener('focus', invalidate);
       document.removeEventListener('visibilitychange', invalidate);
+      if (pendingInvalidateRef.current !== null) {
+        globalThis.clearTimeout(pendingInvalidateRef.current);
+        pendingInvalidateRef.current = null;
+      }
     };
   }, [queryClient, queryKey]);
 }
