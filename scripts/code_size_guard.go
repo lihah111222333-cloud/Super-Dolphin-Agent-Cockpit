@@ -11,8 +11,17 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/archtest"
 )
 
+type cliConfig struct {
+	mode    string
+	goFiles []string
+}
+
 func main() {
-	mode := parseMode()
+	cfg, err := parseArgs(os.Args[1:])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌  代码守卫: %v\n", err)
+		os.Exit(1)
+	}
 	repoRoot, err := findRepoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "❌  代码守卫: %v\n", err)
@@ -26,7 +35,12 @@ func main() {
 	baselinePath := filepath.Join(repoRoot, "internal/archtest/baseline.json")
 	testBaselinePath := filepath.Join(repoRoot, "internal/archtest/baseline_test.json")
 
-	switch mode {
+	if len(cfg.goFiles) > 0 {
+		runSingleFileCheck(opts, cfg.goFiles)
+		return
+	}
+
+	switch cfg.mode {
 	case "freeze":
 		runFreeze(opts, baselinePath, testBaselinePath)
 	case "strict":
@@ -36,16 +50,42 @@ func main() {
 	}
 }
 
-func parseMode() string {
-	for _, arg := range os.Args[1:] {
+func parseArgs(args []string) (cliConfig, error) {
+	cfg := cliConfig{mode: "check"}
+	for _, arg := range args {
+		if arg == "--" {
+			continue
+		}
 		switch arg {
 		case "--freeze":
-			return "freeze"
+			cfg.mode = "freeze"
 		case "--strict":
-			return "strict"
+			cfg.mode = "strict"
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return cliConfig{}, fmt.Errorf("unknown flag %s", arg)
+			}
+			if filepath.Ext(arg) != ".go" {
+				return cliConfig{}, fmt.Errorf("expected Go file path, got %s", arg)
+			}
+			cfg.goFiles = append(cfg.goFiles, arg)
 		}
 	}
-	return "check"
+	if cfg.mode != "check" && len(cfg.goFiles) > 0 {
+		return cliConfig{}, fmt.Errorf("%s cannot be combined with Go file paths", modeFlag(cfg.mode))
+	}
+	return cfg, nil
+}
+
+func modeFlag(mode string) string {
+	switch mode {
+	case "freeze":
+		return "--freeze"
+	case "strict":
+		return "--strict"
+	default:
+		return mode
+	}
 }
 
 // runFreeze 全仓扫描建立/重建 baseline（生产 + 测试分文件）。
@@ -76,6 +116,17 @@ func runStrict(opts archtest.CheckOptions) {
 		reportAndExit("strict", violations)
 	}
 	fmt.Println("✅  strict 模式全量通过")
+}
+
+func runSingleFileCheck(opts archtest.CheckOptions, goFiles []string) {
+	violations := archtest.CheckFiles(opts, goFiles)
+	if len(violations) == 0 {
+		return
+	}
+	for _, v := range violations {
+		fmt.Fprintln(os.Stderr, v.String())
+	}
+	os.Exit(1)
 }
 
 // runCheck 默认棘轮模式。
