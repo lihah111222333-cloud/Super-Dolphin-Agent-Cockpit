@@ -223,6 +223,7 @@ func (s *service) threadPatchLocked(threadID, source string) uidto.UIThreadPatch
 		patch.OverlayPriority = summary.OverlayPriority
 		patch.Interruptible = patchInterruptible(status, id, s.state.ActiveTurn)
 	}
+	patch.ActiveTurn = s.threadPatchActiveTurnLocked(id)
 	if runtimeEntry, ok := s.threadAgentRuntimeLocked(id); ok {
 		patch.AgentRuntime = runtimeEntry
 	}
@@ -233,6 +234,25 @@ func (s *service) threadPatchLocked(threadID, source string) uidto.UIThreadPatch
 	s.applyThreadActivityStatsLocked(&patch, id)
 	s.applyThreadDiffLocked(&patch, id, source)
 	return patch
+}
+
+func (s *service) threadPatchActiveTurnLocked(threadID string) *uidto.ThreadPatchActiveTurn {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" || s.state.ActiveTurn == nil {
+		return nil
+	}
+	turn := s.state.ActiveTurn
+	if strings.TrimSpace(turn.ID) == "" || strings.TrimSpace(turn.ThreadID) != threadID {
+		return nil
+	}
+	return &uidto.ThreadPatchActiveTurn{
+		ID:          strings.TrimSpace(turn.ID),
+		ThreadID:    threadID,
+		AgentID:     strings.TrimSpace(turn.AgentID),
+		Status:      strings.TrimSpace(turn.Status),
+		StartedAt:   clone.Time(turn.StartedAt),
+		CompletedAt: clone.Time(turn.CompletedAt),
+	}
 }
 
 func (s *service) threadPatchAgentMetaLocked(threadID string) map[string]any {
@@ -321,6 +341,7 @@ func (s *service) guardThreadPatchPayload(patch uidto.UIThreadPatch) uidto.UIThr
 		StatusHeader:    patch.StatusHeader,
 		StatusDetails:   patch.StatusDetails,
 		Interruptible:   patch.Interruptible,
+		ActiveTurn:      patch.ActiveTurn,
 		Recover:         true,
 		RefreshRequired: true,
 		FallbackReason:  "payload_too_large",

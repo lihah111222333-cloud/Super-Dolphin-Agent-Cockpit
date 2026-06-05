@@ -90,6 +90,15 @@ type ThreadPatchTokenUsage struct {
 	UsedPercent         float64 `json:"usedPercent,omitempty"`
 }
 
+type ThreadPatchActiveTurn struct {
+	ID          string     `json:"id"`
+	ThreadID    string     `json:"threadId"`
+	AgentID     string     `json:"agentId,omitempty"`
+	Status      string     `json:"status,omitempty"`
+	StartedAt   *time.Time `json:"startedAt,omitempty"`
+	CompletedAt *time.Time `json:"completedAt,omitempty"`
+}
+
 // UIThreadPatch reports a targeted incremental runtime patch for a thread.
 type UIThreadPatch struct {
 	ThreadID          string                 `json:"threadId"`
@@ -106,6 +115,7 @@ type UIThreadPatch struct {
 	DiffText          string                 `json:"diffText,omitempty"`
 	DiffRevision      int64                  `json:"diffRevision,omitempty"`
 	Interruptible     *bool                  `json:"interruptible,omitempty"`
+	ActiveTurn        *ThreadPatchActiveTurn `json:"activeTurn,omitempty"`
 	AgentMeta         map[string]any         `json:"agentMeta,omitempty"`
 	AgentRuntime      map[string]any         `json:"agentRuntime,omitempty"`
 	ActivityStats     *PatchActivityStats    `json:"activityStats,omitempty"`
