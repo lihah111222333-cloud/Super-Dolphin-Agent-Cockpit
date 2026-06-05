@@ -66,6 +66,14 @@ const RUNTIME_STAT_TOOLTIP_MIN_HEIGHT = 96;
 
 const WARNING_POPOVER_MIN_WIDTH = 280;
 
+const STREAMING_REVEAL_SHORT_TEXT_CHARS = 16;
+
+const STREAMING_REVEAL_CATCHUP_FRAMES = 10;
+
+const STREAMING_REVEAL_MAX_CHARS_PER_FRAME = 64;
+
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
+
 const LSP_TOOL_NAMES = Object.freeze([
   'grep',
   'file',
@@ -125,6 +133,100 @@ function requestTimelineBottomScroll(scrollToBottom) {
     return;
   }
   window.requestAnimationFrame(scrollToBottom);
+}
+
+function prefersReducedMotion() {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  return Boolean(window.matchMedia(REDUCED_MOTION_QUERY).matches);
+}
+
+function streamingRevealStepSize(remaining) {
+  if (remaining <= STREAMING_REVEAL_SHORT_TEXT_CHARS) return 1;
+  return Math.max(
+    2,
+    Math.min(STREAMING_REVEAL_MAX_CHARS_PER_FRAME, Math.ceil(remaining / STREAMING_REVEAL_CATCHUP_FRAMES)),
+  );
+}
+
+function cancelAnimationFrameRef(frameRef) {
+  if (!frameRef.current) return;
+  if (typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+    window.cancelAnimationFrame(frameRef.current);
+  }
+  frameRef.current = 0;
+}
+
+function useReducedMotionPreference(enabled) {
+  const [reduced, setReduced] = useState(() => (enabled ? prefersReducedMotion() : false));
+  useEffect(() => {
+    if (!enabled) {
+      if (reduced) setReduced(false);
+      return undefined;
+    }
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      if (reduced) setReduced(false);
+      return undefined;
+    }
+    const query = window.matchMedia(REDUCED_MOTION_QUERY);
+    const update = () => setReduced(Boolean(query.matches));
+    update();
+    query.addEventListener?.('change', update);
+    return () => query.removeEventListener?.('change', update);
+  }, [enabled, reduced]);
+  return enabled && reduced;
+}
+
+function useSmoothStreamingText(text, { enabled = false, streamKey = '' } = {}) {
+  const targetText = (text || '').toString();
+  const [state, setState] = useState(() => ({ streamKey, visibleText: targetText }));
+  const frameRef = useRef(0);
+  const reducedMotion = useReducedMotionPreference(enabled);
+  const streamKeyChanged = state.streamKey !== streamKey;
+  const passthrough = !enabled || reducedMotion || streamKeyChanged;
+  const visibleText = passthrough ? targetText : state.visibleText;
+
+  useEffect(() => () => cancelAnimationFrameRef(frameRef), []);
+
+  useEffect(() => {
+    cancelAnimationFrameRef(frameRef);
+    if (streamKeyChanged) {
+      setState({ streamKey, visibleText: targetText });
+      return undefined;
+    }
+    if (!enabled || reducedMotion) {
+      if (state.visibleText !== targetText) setState({ streamKey, visibleText: targetText });
+      return undefined;
+    }
+    if (!targetText.startsWith(visibleText) || visibleText.length > targetText.length) {
+      if (visibleText !== targetText) setState({ streamKey, visibleText: targetText });
+      return undefined;
+    }
+    if (visibleText === targetText) return undefined;
+    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+      setState({ streamKey, visibleText: targetText });
+      return undefined;
+    }
+
+    frameRef.current = window.requestAnimationFrame(() => {
+      frameRef.current = 0;
+      setState((current) => {
+        if (current.streamKey !== streamKey) return current;
+        const currentText = current.visibleText;
+        if (!targetText.startsWith(currentText) || currentText.length > targetText.length) {
+          return { streamKey, visibleText: targetText };
+        }
+        const remaining = targetText.length - currentText.length;
+        if (remaining <= 0) return current;
+        return {
+          streamKey,
+          visibleText: targetText.slice(0, currentText.length + streamingRevealStepSize(remaining)),
+        };
+      });
+    });
+    return () => cancelAnimationFrameRef(frameRef);
+  }, [enabled, reducedMotion, streamKey, streamKeyChanged, targetText, visibleText, state.visibleText]);
+
+  return visibleText;
 }
 
 function chatLayoutWidthBudget(viewportWidth = currentViewportWidth()) {
@@ -5313,7 +5415,9 @@ function ConversationTimeline({
         {!introMode && !timelineContentBlocked && (hiddenOlderCount > 0 || hasBackendOlderPage) ? (
           <TimelineOlderMessagesMarker hiddenCount={hiddenOlderCount} loading={olderPageLoading} onReveal={requestOlderMessages} />
         ) : null}
-        {!introMode && !timelineContentBlocked ? visibleMessages.map((message) => <TimelineMessage key={message.id} message={message} actions={messageActions} />) : null}
+        {!introMode && !timelineContentBlocked ? visibleMessages.map((message) => (
+          <TimelineMessage key={message.id} message={message} actions={messageActions} activeThreadId={activeThreadId} />
+        )) : null}
         {!introMode && timelineContentBlocked ? <TimelineLoadingPlaceholder /> : null}
         {pendingReasoning ? <ReasoningTrace key={pendingReasoning.id} message={pendingReasoning} active /> : null}
         <div ref={bottomRef} style={{ height: 0 }} aria-hidden="true" />
@@ -5358,7 +5462,13 @@ function IntroChatStage({ composer, projectPath }) {
   );
 }
 
-function TimelineMessage({ message, actions }) {
+const TimelineMessage = React.memo(function TimelineMessage({ message, actions, activeThreadId }) {
+  const streamKey = `${activeThreadId || ''}:${message.id || ''}`;
+  const streamingAssistant = message.role === 'assistant' && message.done === false;
+  const displayText = useSmoothStreamingText(message.text, {
+    enabled: streamingAssistant,
+    streamKey,
+  });
   if (isApprovalMessage(message)) return <ApprovalTimelineMessage message={message} actions={actions} />;
   if (isReasoningMessage(message)) return <ReasoningTrace message={message} active={message.done === false} />;
   return (
@@ -5366,12 +5476,12 @@ function TimelineMessage({ message, actions }) {
       <MessageAvatar messageRole={message.role} />
       <div className="bubble">
         <header><span>{message.role === 'user' ? '你' : 'AI'}</span><time>{formatTime(message.time)}</time></header>
-        <MessageContent text={message.text} actions={actions} />
+        <MessageContent text={displayText} actions={actions} />
         {message.role === 'assistant' ? <AssistantMessageActions text={message.text} /> : null}
       </div>
     </article>
   );
-}
+});
 
 function ApprovalTimelineMessage({ message, actions }) {
   const [busy, setBusy] = useState(false);

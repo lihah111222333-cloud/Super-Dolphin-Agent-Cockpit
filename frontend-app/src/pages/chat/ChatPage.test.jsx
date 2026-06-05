@@ -3,7 +3,7 @@ import { act, createEvent, fireEvent, render, screen, waitFor, within } from '@t
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import mermaid from 'mermaid';
 import { ChatPage } from './ChatPage.jsx';
-import { locateCodeFile, onFilesDropped, openCodeFile } from '../../shared/api/backendApi.js';
+import { copyTextToClipboard, locateCodeFile, onFilesDropped, openCodeFile } from '../../shared/api/backendApi.js';
 
 vi.mock('../../shared/api/backendApi.js', () => ({
   copyTextToClipboard: vi.fn(),
@@ -136,6 +136,7 @@ function TestChatPageWrapper({ store, projectPath, rightPanelOpen: initialOpen =
 
 beforeEach(() => {
   vi.clearAllMocks();
+  delete window.matchMedia;
   locateCodeFile.mockResolvedValue({
     ok: true,
     paths: ['/repo/app/src/main.go'],
@@ -887,6 +888,102 @@ describe('ChatPage module', () => {
     });
     expect(scrollTop).toBe(1260);
     requestAnimationFrameSpy.mockRestore();
+  });
+
+  it('reveals an active assistant reply incrementally when a batched update grows the text', async () => {
+    const initialMessages = [
+      { id: 'reply-user-1', role: 'user', text: '请继续分析', time: '2026-06-02T08:00:00Z' },
+      { id: 'reply-assistant-1', role: 'assistant', text: '我', time: '2026-06-02T08:01:00Z', done: false },
+    ];
+    const animationFrameCallbacks = [];
+    const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      animationFrameCallbacks.push(callback);
+      return animationFrameCallbacks.length;
+    });
+    const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+
+    const { rerender } = render(<ChatPage store={createActiveThreadStore(initialMessages)} projectPath="/repo/app" />);
+    expect(screen.getByText('我')).toBeInTheDocument();
+
+    const fullReply = '我先检查输出节奏，再继续。';
+    rerender(<ChatPage store={createActiveThreadStore([
+      initialMessages[0],
+      { ...initialMessages[1], text: fullReply },
+    ])} projectPath="/repo/app" />);
+
+    expect(screen.queryByText(fullReply)).not.toBeInTheDocument();
+
+    for (let index = 0; index < 16 && !screen.queryByText(fullReply); index += 1) {
+      const callback = animationFrameCallbacks.shift();
+      expect(callback).toBeTypeOf('function');
+      await act(async () => {
+        callback(16);
+      });
+    }
+
+    expect(screen.getByText(fullReply)).toBeInTheDocument();
+    requestAnimationFrameSpy.mockRestore();
+    cancelAnimationFrameSpy.mockRestore();
+  });
+
+  it('shows completed assistant replies immediately without streaming reveal', () => {
+    const fullReply = '完成后的回复一次显示完整。';
+    const initialMessages = [
+      { id: 'reply-user-1', role: 'user', text: '请继续分析', time: '2026-06-02T08:00:00Z' },
+      { id: 'reply-assistant-1', role: 'assistant', text: '完', time: '2026-06-02T08:01:00Z', done: false },
+    ];
+    const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1);
+    const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+    const { rerender } = render(<ChatPage store={createActiveThreadStore(initialMessages)} projectPath="/repo/app" />);
+
+    rerender(<ChatPage store={createActiveThreadStore([
+      initialMessages[0],
+      { ...initialMessages[1], text: fullReply, done: true },
+    ])} projectPath="/repo/app" />);
+
+    expect(screen.getByText(fullReply)).toBeInTheDocument();
+    requestAnimationFrameSpy.mockRestore();
+    cancelAnimationFrameSpy.mockRestore();
+  });
+
+  it('shows active assistant replies immediately when reduced motion is requested', () => {
+    window.matchMedia = vi.fn((query) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    const fullReply = '减少动画时直接显示完整回复。';
+
+    render(<ChatPage store={createActiveThreadStore([
+      { id: 'reply-user-1', role: 'user', text: '请继续分析', time: '2026-06-02T08:00:00Z' },
+      { id: 'reply-assistant-1', role: 'assistant', text: fullReply, time: '2026-06-02T08:01:00Z', done: false },
+    ])} projectPath="/repo/app" />);
+
+    expect(screen.getByText(fullReply)).toBeInTheDocument();
+  });
+
+  it('copies the full assistant reply while the visible streaming text is still catching up', async () => {
+    const initialMessages = [
+      { id: 'reply-user-1', role: 'user', text: '请继续分析', time: '2026-06-02T08:00:00Z' },
+      { id: 'reply-assistant-1', role: 'assistant', text: '我', time: '2026-06-02T08:01:00Z', done: false },
+    ];
+    const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1);
+    const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+    const { rerender } = render(<ChatPage store={createActiveThreadStore(initialMessages)} projectPath="/repo/app" />);
+    const fullReply = '我先检查输出节奏，再继续。';
+
+    rerender(<ChatPage store={createActiveThreadStore([
+      initialMessages[0],
+      { ...initialMessages[1], text: fullReply },
+    ])} projectPath="/repo/app" />);
+
+    expect(screen.queryByText(fullReply)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '复制 AI 输出' }));
+
+    await waitFor(() => expect(copyTextToClipboard).toHaveBeenCalledWith(fullReply));
+    requestAnimationFrameSpy.mockRestore();
+    cancelAnimationFrameSpy.mockRestore();
   });
 
   it('does not auto-scroll a second time when a user message is appended', () => {
