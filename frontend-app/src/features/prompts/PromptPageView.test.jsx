@@ -309,4 +309,131 @@ describe('PromptPageView backend wiring', () => {
     expect(await screen.findByText(/这条内容会参与专家能力匹配/)).toBeInTheDocument();
     expect(screen.queryByText(/question provided/)).not.toBeInTheDocument();
   });
+
+  it('does not render a duplicate top-right close button in the prompt intent wizard', async () => {
+    renderPromptPage();
+    fireEvent.click(await screen.findByRole('button', { name: '添加给 AI 的内容' }));
+
+    const wizard = await screen.findByRole('dialog', { name: '添加给 AI 的内容' });
+    expect(within(wizard).getAllByRole('button', { name: '关闭' })).toHaveLength(1);
+  });
+
+  it('shows a waiting reminder and allows closing while prompt intent generation is still running', async () => {
+    backend.draftPromptIntent.mockImplementationOnce(() => new Promise(() => {}));
+
+    renderPromptPage();
+    fireEvent.click(await screen.findByRole('button', { name: '添加给 AI 的内容' }));
+    fireEvent.change(screen.getByLabelText('写下希望 AI 记住或使用的内容'), {
+      target: { value: '请帮我整理一个需要较长时间生成的专家能力。' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '帮我生成' }));
+
+    const wizard = await screen.findByRole('dialog', { name: '添加给 AI 的内容' });
+    expect(within(wizard).getByText('正在整理内容，可能需要一点时间。')).toBeInTheDocument();
+    const closeButton = within(wizard).getByRole('button', { name: '关闭' });
+    expect(closeButton).toBeEnabled();
+
+    fireEvent.click(closeButton);
+    expect(screen.queryByRole('dialog', { name: '添加给 AI 的内容' })).not.toBeInTheDocument();
+  });
+
+  it('saves a ready prompt intent draft and refreshes the prompt list', async () => {
+    backend.draftPromptIntent.mockResolvedValueOnce({
+      draft_key: 'intent/expert/ready',
+      kind: 'expert',
+      scope: 'project',
+      status: 'ready_to_save',
+      card: { title: '代码审查专家', output: '先检查阻塞问题' },
+      issues: [],
+    });
+    backend.commitPromptIntent.mockResolvedValueOnce({ ok: true });
+
+    renderPromptPage();
+    fireEvent.click(await screen.findByRole('button', { name: '添加给 AI 的内容' }));
+    fireEvent.change(screen.getByLabelText('写下希望 AI 记住或使用的内容'), {
+      target: { value: '当用户要求代码审查时使用。' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '帮我生成' }));
+    await screen.findByText('代码审查专家');
+
+    fireEvent.click(screen.getByRole('button', { name: '确认保存' }));
+
+    await waitFor(() => {
+      expect(backend.commitPromptIntent).toHaveBeenCalledWith({
+        cwd: '/repo/app',
+        draftKey: 'intent/expert/ready',
+        scope: 'project',
+      });
+    });
+    expect(screen.queryByRole('dialog', { name: '添加给 AI 的内容' })).not.toBeInTheDocument();
+    expect(await screen.findByText('已保存，可在新对话中被 AI 发现和使用')).toBeInTheDocument();
+  });
+
+  it('requires explicit review confirmation before saving risky prompt intent drafts', async () => {
+    backend.draftPromptIntent.mockResolvedValueOnce({
+      draft_key: 'intent/expert/risky',
+      kind: 'expert',
+      scope: 'project',
+      status: 'ready_to_save',
+      card: { title: '风险审查专家', output: '先检查风险' },
+      issues: [{ code: 'default_rule_conflict', severity: 'review', message: '可能和已有规则冲突' }],
+    });
+    backend.commitPromptIntent.mockResolvedValueOnce({ ok: true });
+
+    renderPromptPage();
+    fireEvent.click(await screen.findByRole('button', { name: '添加给 AI 的内容' }));
+    fireEvent.change(screen.getByLabelText('写下希望 AI 记住或使用的内容'), {
+      target: { value: 'review risk: 帮我保存一个需要确认风险的专家能力。' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '帮我生成' }));
+    await screen.findByText('风险审查专家');
+
+    const saveButton = screen.getByRole('button', { name: '确认保存' });
+    expect(saveButton).toBeDisabled();
+    fireEvent.click(screen.getByLabelText('我已确认这些风险，仍要保存'));
+    expect(saveButton).toBeEnabled();
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(backend.commitPromptIntent).toHaveBeenCalledWith({
+        cwd: '/repo/app',
+        draftKey: 'intent/expert/risky',
+        scope: 'project',
+        confirmRisk: true,
+      });
+    });
+  });
+
+  it('confirms global scope when saving a global prompt intent draft', async () => {
+    backend.draftPromptIntent.mockResolvedValueOnce({
+      draft_key: 'intent/expert/global',
+      kind: 'expert',
+      scope: 'global',
+      status: 'ready_to_save',
+      card: { title: '全局审查专家', output: '跨项目检查问题' },
+      issues: [],
+    });
+    backend.commitPromptIntent.mockResolvedValueOnce({ ok: true });
+
+    renderPromptPage();
+    fireEvent.click(await screen.findByRole('button', { name: '添加给 AI 的内容' }));
+    const wizard = await screen.findByRole('dialog', { name: '添加给 AI 的内容' });
+    fireEvent.click(within(wizard).getByRole('button', { name: '全局可用' }));
+    fireEvent.change(screen.getByLabelText('写下希望 AI 记住或使用的内容'), {
+      target: { value: '创建一个所有项目可用的专家能力。' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '帮我生成' }));
+    await screen.findByText('全局审查专家');
+
+    fireEvent.click(screen.getByRole('button', { name: '确认保存' }));
+
+    await waitFor(() => {
+      expect(backend.commitPromptIntent).toHaveBeenCalledWith({
+        cwd: '/repo/app',
+        draftKey: 'intent/expert/global',
+        scope: 'global',
+        confirmGlobal: true,
+      });
+    });
+  });
 });
