@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
@@ -194,7 +195,7 @@ func statSearchPaths(root string, roots []string, rawPath string) ([]searchPathS
 	if err == nil {
 		return []searchPathStat{{Path: pathInfo, Info: info}}, nil
 	}
-	fields := strings.Fields(rawPath)
+	fields := splitSearchPathList(rawPath)
 	if len(fields) <= 1 {
 		return nil, err
 	}
@@ -207,6 +208,12 @@ func statSearchPaths(root string, roots []string, rawPath string) ([]searchPathS
 		searchPaths = append(searchPaths, searchPathStat{Path: pathInfo, Info: info})
 	}
 	return searchPaths, nil
+}
+
+func splitSearchPathList(rawPath string) []string {
+	return strings.FieldsFunc(rawPath, func(r rune) bool {
+		return r == ',' || unicode.IsSpace(r)
+	})
 }
 
 func walkSearchEntry(
