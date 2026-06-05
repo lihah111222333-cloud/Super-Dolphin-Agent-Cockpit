@@ -264,6 +264,11 @@ func TestDashboardDAGHandlersReturnData(t *testing.T) {
 			ExecutionState:   "waiting_for_assignee",
 			Warning:          "dispatch required",
 		},
+		dispatchNodeResult: contract.DispatchNodeResponse{
+			Node:     contract.DAGNode{DagKey: "dag-1", NodeKey: "draft", AssignedTo: "codex-runner"},
+			WakeupID: 99,
+			Enqueued: true,
+		},
 	}
 	server := newDashboardTestServer(t, &service{orchestration: orchestration})
 
@@ -272,6 +277,7 @@ func TestDashboardDAGHandlersReturnData(t *testing.T) {
 	assertDashboardDAGRuns(t, server, orchestration)
 	assertDashboardDAGRun(t, server, orchestration)
 	assertDashboardDAGStart(t, server, orchestration)
+	assertDashboardDAGDispatchNode(t, server, orchestration)
 	assertDashboardDAGTerminate(t, server, orchestration)
 	assertDashboardDAGDelete(t, server, orchestration)
 	assertDashboardDAGApplyOps(t, server, orchestration)
@@ -414,6 +420,33 @@ func assertDashboardDAGTerminate(t *testing.T, server *platformrpc.Server, orche
 	}
 	if orchestration.terminateDAGRequest != (contract.TerminateDAGRequest{DagKey: "dag-1", RunKey: "run-1", Reason: "user_requested"}) {
 		t.Fatalf("TerminateDAG() request = %#v", orchestration.terminateDAGRequest)
+	}
+}
+
+func assertDashboardDAGDispatchNode(t *testing.T, server *platformrpc.Server, orchestration *stubDashboardOrchestration) {
+	t.Helper()
+
+	var resp contract.DispatchNodeResponse
+	if err := dispatchDashboardInto(server, "dashboard/dagDispatchNode", `{"dagKey":"dag-1","runId":88,"nodeKey":"draft","assignedTo":"codex-runner"}`, &resp); err != nil {
+		t.Fatalf("dispatch dag node error = %v", err)
+	}
+	if orchestration.dispatchNodeRequest != (contract.DispatchNodeRequest{DagKey: "dag-1", RunID: 88, NodeKey: "draft", AssignedTo: "codex-runner"}) {
+		t.Fatalf("DispatchNode() request = %#v", orchestration.dispatchNodeRequest)
+	}
+	if !resp.Enqueued || resp.WakeupID != 99 || resp.Node.AssignedTo != "codex-runner" {
+		t.Fatalf("dag dispatch node response = %#v", resp)
+	}
+}
+
+func TestDashboardDAGDispatchNodeRequiresRuntimeRunID(t *testing.T) {
+	t.Parallel()
+
+	server := newDashboardTestServer(t, &service{orchestration: &stubDashboardOrchestration{}})
+
+	var resp contract.DispatchNodeResponse
+	err := dispatchDashboardInto(server, "dashboard/dagDispatchNode", `{"dagKey":"dag-1","nodeKey":"draft","assignedTo":"codex-runner"}`, &resp)
+	if err == nil || !strings.Contains(err.Error(), "runId is required") {
+		t.Fatalf("dispatch dag node error = %v, want runId required", err)
 	}
 }
 
