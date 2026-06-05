@@ -33,37 +33,45 @@ func (s *store) FailNodeAndCancelDownstream(ctx context.Context, input FailNodeI
 	var result FailNodeResult
 	err := sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
 		txStore := &store{db: txdb, q: txq}
-		oldStatus, oldErr := lockedNodeStatusBeforeFailTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID)
-		if oldErr != nil {
-			return oldErr
-		}
-		node, failErr := failNodeTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID, failNodeReason{
-			Kind:   failNodeKindExhaustedRetries,
-			Reason: input.Reason,
-		})
+		res, failErr := failNodeAndCancelDownstreamTx(ctx, txStore, input)
 		if failErr != nil {
 			return failErr
 		}
-		result.Node = node
-		result.OldStatus = oldStatus
-		if input.FailFast {
-			canceled, cascadeErr := cancelDownstreamTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID, input.Reason)
-			if cascadeErr != nil {
-				return cascadeErr
-			}
-			result.CanceledDownstream = canceled
-		}
-		finalized, finalizeErr := maybeFinalizeRunTx(ctx, txStore, input.DagKey, input.RunID)
-		if finalizeErr != nil {
-			return finalizeErr
-		}
-		result.FinalizedRun = finalized
+		result = *res
 		return nil
 	})
 	if err != nil {
 		return nil, wrapTaskDAGError(err, "fail_and_cancel_downstream", "task_dag_node")
 	}
 	return &result, nil
+}
+
+func failNodeAndCancelDownstreamTx(ctx context.Context, txStore *store, input FailNodeInput) (*FailNodeResult, error) {
+	oldStatus, oldErr := lockedNodeStatusBeforeFailTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID)
+	if oldErr != nil {
+		return nil, oldErr
+	}
+	node, failErr := failNodeTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID, failNodeReason{
+		Kind:   failNodeKindExhaustedRetries,
+		Reason: input.Reason,
+	})
+	if failErr != nil {
+		return nil, failErr
+	}
+	result := &FailNodeResult{Node: node, OldStatus: oldStatus}
+	if input.FailFast {
+		canceled, cascadeErr := cancelDownstreamTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID, input.Reason)
+		if cascadeErr != nil {
+			return nil, cascadeErr
+		}
+		result.CanceledDownstream = canceled
+	}
+	finalized, finalizeErr := maybeFinalizeRunTx(ctx, txStore, input.DagKey, input.RunID)
+	if finalizeErr != nil {
+		return nil, finalizeErr
+	}
+	result.FinalizedRun = finalized
+	return result, nil
 }
 
 func lockedNodeStatusBeforeFailTx(ctx context.Context, txStore *store, dagKey, nodeKey string, runID int64) (string, error) {

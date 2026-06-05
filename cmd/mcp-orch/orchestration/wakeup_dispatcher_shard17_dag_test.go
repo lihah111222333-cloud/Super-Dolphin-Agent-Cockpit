@@ -190,6 +190,33 @@ func TestDispatcherDAGPermanentFailureSkipsCascadeWhenFailWakeupFenceMisses(t *t
 	}
 }
 
+func TestDispatcherDAGPermanentFailureIsAtomicWhenCascadeFails(t *testing.T) {
+	now := time.Date(2026, 5, 13, 10, 5, 0, 0, time.UTC)
+	store := newAgentFailureClassStore(t, "permanent-cascade-fails", 1, now)
+	store.failNodeErr = errors.New("cascade write failed")
+	d := newAgentFailureClassDispatcher(t, store, errors.New("launcher should not be called"))
+	w := store.claimReply[0]
+
+	handled := d.handleFailedRouterOutcome(context.Background(), &w, extractFence(&w), nodeexec.NodeOutcome{
+		Status:       nodeexec.NodeStatusFailed,
+		FailureClass: nodeexec.FailureClassHard,
+		ErrorSummary: "hard failure",
+	})
+
+	if handled {
+		t.Fatal("handleFailedRouterOutcome handled = true, want false when atomic wakeup+node failure rolls back")
+	}
+	if len(store.atomicFailCalls) != 1 {
+		t.Fatalf("atomicFailCalls = %d, want 1", len(store.atomicFailCalls))
+	}
+	if len(store.failCalls) != 0 {
+		t.Fatalf("committed FailWakeup calls = %d, want 0 after cascade error rollback", len(store.failCalls))
+	}
+	if len(store.failNodeCalls) != 1 {
+		t.Fatalf("failNodeCalls = %d, want 1 attempted cascade", len(store.failNodeCalls))
+	}
+}
+
 func TestDispatcherDAGRetryExhaustionSkipsCascadeWhenFailWakeupFenceMisses(t *testing.T) {
 	now := time.Date(2026, 5, 13, 10, 15, 0, 0, time.UTC)
 	store := newAgentFailureClassStore(t, "exhausted-fence-miss", 2, now)

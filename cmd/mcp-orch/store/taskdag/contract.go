@@ -90,6 +90,13 @@ type SmartRetryConfigStore interface {
 	RetryWakeupWithNodeConfigPatch(ctx context.Context, input RetryWakeupWithNodeConfigPatchInput) (int64, error)
 }
 
+// WakeupNodeFailureStore is the dispatcher port for committing a permanent
+// wakeup failure and its DAG node fail/cascade in one transaction. Keeping it
+// outside WakeupStore / NodeFlowStore preserves their interface budgets.
+type WakeupNodeFailureStore interface {
+	FailWakeupAndFailNodeAndCancelDownstream(ctx context.Context, wakeup FailWakeupInput, node FailNodeInput) (int64, *FailNodeResult, error)
+}
+
 // DAGOpsStore 是 task_dag_apply_ops 业务（F4.1+）的窄接口。包含：
 //   - GetDAGVersionForUpdate: SELECT version FROM task_dags WHERE dag_key = ?
 //     FOR UPDATE — 拿当前 OCC 版本，并在事务内锁定行避免双写。

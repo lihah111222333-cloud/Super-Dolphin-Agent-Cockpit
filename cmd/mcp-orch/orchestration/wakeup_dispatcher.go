@@ -519,13 +519,13 @@ func (d *WakeupDispatcher) tryDAGFailWithCascade(ctx context.Context, w *taskdag
 	if int(w.AttemptCount) < policy.MaxAttempts {
 		return false, false
 	}
-	if !d.markPermanentFail(ctx, w, fence, "max attempts reached: "+failure.lastErr, failure.launchErr) {
+	lastErr := "max attempts reached: " + failure.lastErr
+	if !d.markPermanentDAGFailure(ctx, w, fence, lastErr, failure.launchErr, policy.FailFast, failure.outcome) {
 		return false, true
 	}
 	if alert, shouldAlert := recordDispatchRetryMetric(w, failure.lastErr); shouldAlert {
 		d.emitDispatchRetryAlert(ctx, alert)
 	}
-	d.failDAGNodeAndCancelDownstream(ctx, w, "max attempts reached: "+failure.lastErr, policy.FailFast, failure.outcome)
 	return true, true
 }
 
