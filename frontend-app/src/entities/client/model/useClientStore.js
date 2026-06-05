@@ -2458,8 +2458,9 @@ function promotedDraftThreadState(state, request, started) {
     delete activityThreadAtById[request.provisionalThreadId];
   }
   const provider = started.launchPreferences.modelProvider || started.launchPreferences.provider || DEFAULT_PROVIDER;
+  const activeThreadId = state.activeThreadId === request.provisionalThreadId ? started.threadId : state.activeThreadId;
   return {
-    activeThreadId: started.threadId,
+    activeThreadId,
     provider,
     activityThreadAtById,
     timelinesByThread,
@@ -2483,11 +2484,12 @@ function rollbackSendDraftState(state, request, error) {
   const activeTimeline = timelinesByThread[state.activeThreadId] || [];
   timelinesByThread[state.activeThreadId] = activeTimeline.filter((item) => item.id !== request.optimisticItem.id);
   if (!request.previousThreadId) delete timelinesByThread[request.provisionalThreadId];
+  const activeThreadId = state.activeThreadId === request.provisionalThreadId ? request.previousActiveThreadId : state.activeThreadId;
   return {
     sending: false,
     draft: request.previousDraft,
     attachments: request.previousAttachments,
-    activeThreadId: request.previousActiveThreadId,
+    activeThreadId,
     timelinesByThread,
     error: error.message,
     actionNotice: actionNotice(`发送失败：${error.message}`, 'error'),
@@ -3280,16 +3282,14 @@ function messagePageParams(id, before) {
 function markThreadMessagesReady(set, id) {
   set((state) => {
     const timelineWasReady = Boolean(state.threadTimelineReadyByThread?.[id]);
+    const currentItems = state.timelinesByThread[id] || [];
+    const hasActiveItems = currentItems.some((item) => item.done === false || item.optimistic);
+    const preserve = timelineWasReady || hasActiveItems;
     return {
-      timelinesByThread: timelineWasReady
-        ? {
-          ...state.timelinesByThread,
-          [id]: mergeTimelineItems(state.timelinesByThread[id] || [], [], { preserveExistingVisible: true }),
-        }
-        : {
-          ...state.timelinesByThread,
-          [id]: mergeTimelineItems(state.timelinesByThread[id] || [], []),
-        },
+      timelinesByThread: {
+        ...state.timelinesByThread,
+        [id]: mergeTimelineItems(state.timelinesByThread[id] || [], [], { preserveExistingVisible: preserve }),
+      },
       threadTimelineReadyByThread: {
         ...state.threadTimelineReadyByThread,
         [id]: true,

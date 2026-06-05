@@ -185,6 +185,13 @@ select {
   justify-content: center;
 }
 
+.titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+}
+
 .titlebar-right {
   flex: 0 0 auto;
   justify-content: flex-end;
@@ -377,6 +384,11 @@ select {
 }
 
 .titlebar .action-feedback {
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 12px;
   min-width: 0;
   max-width: 240px;
   height: 28px;

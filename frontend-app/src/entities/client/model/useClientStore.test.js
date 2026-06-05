@@ -1361,6 +1361,147 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().activeThreadId).toBe('');
   });
 
+  it('supports creating consecutive new threads, sending messages, and switching between them', async () => {
+    // 1. Initialize empty store
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'hi 1',
+      attachments: [],
+      threads: [],
+    });
+
+    // Mock first send
+    backend.startThread.mockResolvedValueOnce({ threadId: 'thread-1' });
+    backend.startTurn.mockResolvedValueOnce({ ok: true });
+
+    // Send first draft
+    await useClientStore.getState().sendDraft();
+    expect(useClientStore.getState().activeThreadId).toBe('thread-1');
+
+    // 2. Click New Chat again
+    useClientStore.getState().newThread();
+    expect(useClientStore.getState().activeThreadId).toBe('');
+    useClientStore.setState({ draft: 'hi 2' }); // type "hi 2"
+
+    // Mock second send
+    backend.startThread.mockResolvedValueOnce({ threadId: 'thread-2' });
+    backend.startTurn.mockResolvedValueOnce({ ok: true });
+
+    // Send second draft
+    await useClientStore.getState().sendDraft();
+    expect(useClientStore.getState().activeThreadId).toBe('thread-2');
+
+    // 3. Switch back to thread-1
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [
+        { id: 'thread-1', name: 'hi 1', provider: 'codex', status: 'idle' },
+        { id: 'thread-2', name: 'hi 2', provider: 'codex', status: 'idle' },
+      ],
+      timelinesByThread: {
+        'thread-1': [],
+      },
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({
+      messages: [
+        { id: 'msg-1', role: 'user', content: 'hi 1', createdAt: '2026-06-01T12:00:00Z' },
+        { id: 'msg-2', role: 'assistant', content: 'reply 1', createdAt: '2026-06-01T12:01:00Z' },
+      ],
+    });
+
+    await useClientStore.getState().setActiveThread('thread-1');
+
+    expect(useClientStore.getState().activeThreadId).toBe('thread-1');
+    const texts = useClientStore.getState().timelinesByThread['thread-1'].map((message) => message.text);
+    expect(texts).toEqual(['hi 1', 'reply 1']);
+  });
+
+  it('supports concurrent thread creation and preserves streaming response when switching back and loading empty backend messages', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'hi 1',
+      attachments: [],
+      threads: [],
+    });
+
+    // We will control startThread resolutions manually using deferred promises
+    let resolveStartThread1;
+    const startThreadPromise1 = new Promise((resolve) => {
+      resolveStartThread1 = resolve;
+    });
+    backend.startThread.mockReturnValueOnce(startThreadPromise1);
+    backend.startTurn.mockResolvedValueOnce({ ok: true });
+
+    // Send first draft (async, does not await finish yet)
+    const sendPromise1 = useClientStore.getState().sendDraft();
+    const provisionalId1 = useClientStore.getState().activeThreadId;
+    expect(provisionalId1).toMatch(/^launch_/);
+
+    // Simulate assistant streaming replies on provisionalId1
+    useClientStore.setState((state) => ({
+      timelinesByThread: {
+        ...state.timelinesByThread,
+        [provisionalId1]: [
+          { id: 'user-msg', role: 'user', text: 'hi 1' },
+          { id: 'assistant-msg', role: 'assistant', text: 'streaming reply...', optimistic: false, done: false },
+        ]
+      }
+    }));
+
+    // User clicks New Chat while sendDraft1 is in-flight
+    useClientStore.getState().newThread();
+    expect(useClientStore.getState().activeThreadId).toBe('');
+    useClientStore.setState({ draft: 'hi 2' });
+
+    // Mock second send
+    backend.startThread.mockResolvedValueOnce({ threadId: 'thread-2' });
+    backend.startTurn.mockResolvedValueOnce({ ok: true });
+
+    // Send second draft
+    await useClientStore.getState().sendDraft();
+    expect(useClientStore.getState().activeThreadId).toBe('thread-2');
+
+    // Now, resolve the first thread creation
+    resolveStartThread1({ threadId: 'thread-1' });
+    await sendPromise1;
+
+    // Verify activeThreadId is NOT hijacked (it must remain thread-2)
+    expect(useClientStore.getState().activeThreadId).toBe('thread-2');
+
+    // Check that timeline of provisionalId1 was promoted to thread-1
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toBeDefined();
+    expect(useClientStore.getState().timelinesByThread['thread-1'].map(m => m.text)).toEqual(['hi 1', 'streaming reply...']);
+
+    // Now switch back to thread-1
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [
+        { id: 'thread-1', name: 'hi 1', provider: 'codex', status: 'idle' },
+        { id: 'thread-2', name: 'hi 2', provider: 'codex', status: 'idle' },
+      ],
+      timelinesByThread: {
+        'thread-1': [],
+      },
+    });
+
+    // Mock backend returning empty message list for the new thread (common case)
+    backend.getThreadMessages.mockResolvedValueOnce({
+      messages: [],
+    });
+
+    await useClientStore.getState().setActiveThread('thread-1');
+
+    expect(useClientStore.getState().activeThreadId).toBe('thread-1');
+
+    // Confirm that the streaming assistant message is preserved and not cleared
+    const finalTexts = useClientStore.getState().timelinesByThread['thread-1'].map((message) => message.text);
+    expect(finalTexts).toEqual(['hi 1', 'streaming reply...']);
+  });
+
   it('filters injected AGENTS instructions from restored thread history', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
