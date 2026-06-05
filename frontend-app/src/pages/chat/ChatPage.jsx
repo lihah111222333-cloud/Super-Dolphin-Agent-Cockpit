@@ -5400,10 +5400,10 @@ function ConversationTimeline({
   const bottomAutoScrollEligible = shouldAutoScrollForTimelineMessage(bottomAutoScrollTarget);
   useEffect(() => {
     if (!bottomAutoScrollEligible) return;
-    if (!userScrolledRef.current && bottomRef.current?.scrollIntoView) {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (!userScrolledRef.current) {
+      onScrollToBottom?.();
     }
-  }, [bottomAutoScrollEligible, visibleLen, pendingLen]);
+  }, [bottomAutoScrollEligible, visibleLen, pendingLen, onScrollToBottom]);
   useEffect(() => {
     userScrolledRef.current = false;
   }, [activeThreadId]);
