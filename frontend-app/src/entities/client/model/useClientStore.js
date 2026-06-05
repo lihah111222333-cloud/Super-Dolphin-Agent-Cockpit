@@ -877,11 +877,11 @@ function activeTurnIdForThread(state, threadId) {
   const id = normalizeBackendThreadId(threadId);
   if (!id) return '';
   const direct = normalizeTurnSummary(state.activeTurnByThread?.[id]);
-  if (direct?.id) return direct.id;
+  if (isInterruptibleTurnSummary(direct)) return direct.id;
   const activeId = normalizeThreadId(state.activeThreadId);
   if (activeId && activeId !== id) {
     const active = normalizeTurnSummary(state.activeTurnByThread?.[activeId]);
-    if (active?.id && threadMatchesIdentifier({ id, thread_id: id }, active.threadId || activeId)) return active.id;
+    if (isInterruptibleTurnSummary(active) && threadMatchesIdentifier({ id, thread_id: id }, active.threadId || activeId)) return active.id;
   }
   return '';
 }
@@ -926,11 +926,43 @@ function normalizeTurnSummary(value) {
   };
 }
 
+const TERMINAL_ACTIVE_TURN_STATUSES = new Set([
+  'idle',
+  'completed',
+  'complete',
+  'done',
+  'ok',
+  'success',
+  'succeeded',
+  'failed',
+  'fail',
+  'error',
+  'interrupted',
+  'canceled',
+  'cancelled',
+  'aborted',
+  'stopped',
+  'ended',
+  'closed',
+  'ready',
+  'stalled',
+  'archived',
+]);
+
+function isTerminalActiveTurnStatus(status) {
+  const normalized = normalizeString(status).toLowerCase();
+  return Boolean(normalized && TERMINAL_ACTIVE_TURN_STATUSES.has(normalized));
+}
+
+function isInterruptibleTurnSummary(turn) {
+  return Boolean(turn?.id && !isTerminalActiveTurnStatus(turn.status));
+}
+
 function canonicalizeActiveTurnByThread(activeTurnByThread = {}, threads = []) {
   const next = {};
   for (const [threadId, turn] of Object.entries(activeTurnByThread || {})) {
     const normalized = normalizeTurnSummary(turn);
-    if (!normalized) continue;
+    if (!isInterruptibleTurnSummary(normalized)) continue;
     const canonicalThreadId = canonicalizeThreadKey(normalized.threadId || threadId, threads);
     if (canonicalThreadId) next[canonicalThreadId] = { ...normalized, threadId: canonicalThreadId };
   }
@@ -1776,7 +1808,7 @@ function snapshotActiveTurnByThread(state, payload, nextThreads) {
   const activeTurn = activeTurnPayload(payload);
   if (activeTurn === undefined) return canonicalizeActiveTurnByThread(state.activeTurnByThread, nextThreads);
   const normalizedActiveTurn = normalizeTurnSummary(activeTurn);
-  if (!normalizedActiveTurn?.threadId) return {};
+  if (!isInterruptibleTurnSummary(normalizedActiveTurn) || !normalizedActiveTurn.threadId) return {};
   const canonicalThreadId = canonicalizeThreadKey(normalizedActiveTurn.threadId, nextThreads);
   return { [canonicalThreadId]: { ...normalizedActiveTurn, threadId: canonicalThreadId } };
 }
@@ -2562,7 +2594,7 @@ function bridgePatchActiveTurn(state, patch) {
   if (patchActiveTurn !== undefined) {
     delete activeTurnByThread[patch.threadId];
     const normalizedActiveTurn = normalizeTurnSummary(patchActiveTurn);
-    if (normalizedActiveTurn?.id) activeTurnByThread[patch.threadId] = { ...normalizedActiveTurn, threadId: patch.threadId };
+    if (isInterruptibleTurnSummary(normalizedActiveTurn)) activeTurnByThread[patch.threadId] = { ...normalizedActiveTurn, threadId: patch.threadId };
     return activeTurnByThread;
   }
   if (patch.payload.interruptible === false || patch.statusText === 'idle' || patch.statusText === 'interrupted' || patch.statusText === 'completed') {

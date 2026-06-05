@@ -3994,6 +3994,56 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
+  it.each(['completed', 'failed', 'interrupted', 'stalled', 'done', 'ended', 'closed'])(
+    'does not treat a terminal active turn status as interruptible: %s',
+    async (status) => {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'agent_123',
+        threads: [{ id: 'agent_123', name: 'Runtime Agent', provider: 'codex', status: 'idle' }],
+        activeTurnByThread: {
+          agent_123: { id: 'turn-123', threadId: 'agent_123', status },
+        },
+        statuses: {
+          agent_123: { status: 'idle', interruptible: false },
+        },
+      });
+
+      expect(useClientStore.getState().hasInterruptibleThreadAction()).toBe(false);
+
+      await expect(useClientStore.getState().interruptActiveThread()).resolves.toBe(false);
+
+      expect(backend.interruptTurn).not.toHaveBeenCalled();
+    },
+  );
+
+  it('clears active turn state when a bridge patch reports a completed active turn', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'agent_123',
+      threads: [{ id: 'agent_123', name: 'Runtime Agent', provider: 'codex', status: 'running' }],
+      activeTurnByThread: {
+        agent_123: { id: 'turn-123', threadId: 'agent_123', status: 'running' },
+      },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'agent_123',
+        status: 'idle',
+        activeTurn: { id: 'turn-123', threadId: 'agent_123', status: 'completed' },
+        thread: { id: 'agent_123', name: 'Runtime Agent', status: 'idle' },
+      },
+    });
+
+    expect(useClientStore.getState().activeTurnByThread.agent_123).toBeUndefined();
+    expect(useClientStore.getState().hasInterruptibleThreadAction()).toBe(false);
+  });
+
   it('interrupts a runtime agent when an active turn id is present', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
