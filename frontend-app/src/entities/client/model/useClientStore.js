@@ -703,6 +703,11 @@ function normalizeThread(raw, options = {}) {
   const pinnedAt = normalizeThreadPinnedAt(raw, identity.threadId, options);
   const archivedAt = normalizeThreadArchivedAt(raw, identity.threadId, options);
   const lifecycleStatus = normalizeThreadLifecycleStatus(raw);
+  let archived = isThreadArchived(raw, status, lifecycleStatus, archivedAt);
+  const recentOverride = options.lastArchivedStatesByThread?.[identity.threadId];
+  if (recentOverride && Date.now() - recentOverride.timestamp < 1500) {
+    archived = recentOverride.archived;
+  }
   return {
     id: identity.threadId,
     agentId: identity.agentId,
@@ -716,7 +721,7 @@ function normalizeThread(raw, options = {}) {
     updatedAt: normalizeString(raw?.updatedAt || raw?.updated_at || raw?.createdAt || raw?.created_at),
     pinned: Boolean(raw?.pinned || raw?.isPinned || pinnedAt > 0),
     pinnedAt,
-    archived: isThreadArchived(raw, status, lifecycleStatus, archivedAt),
+    archived,
     archivedAt,
   };
 }
@@ -1715,6 +1720,7 @@ function normalizeSnapshotThreadList(payload, state, options, maps) {
       pinnedAtById: maps.pinnedAtById,
       fallbackProvider: snapshotThreadFallbackProvider(thread, state, maps.runtimeById),
       fallbackCwd: snapshotThreadCwd(thread, maps.runtimeById),
+      lastArchivedStatesByThread: state.lastArchivedStatesByThread,
     }))
     .filter((thread) => thread.id);
   return threads;
@@ -2685,13 +2691,18 @@ function shouldPromoteBridgePatchThread(existingThread, patch) {
 function bridgePatchThreads(state, patch) {
   const existingThread = state.threads.find((thread) => threadMatchesIdentifier(thread, patch.threadId));
   if (!patch.patchedThread.id) return state.threads;
+  let archived = Boolean(existingThread?.archived || patch.patchedThread.archived);
+  const recentOverride = state.lastArchivedStatesByThread?.[patch.threadId];
+  if (recentOverride && Date.now() - recentOverride.timestamp < 1500) {
+    archived = recentOverride.archived;
+  }
   const mergedThread = {
     ...(existingThread || {}),
     ...patch.patchedThread,
     name: bridgePatchThreadName(existingThread, patch.patchedThread),
     provider: patch.patchProvider || existingThread?.provider || patch.patchedThread.provider,
     status: patch.statusText || patch.patchedThread.status || existingThread?.status || '等待指示',
-    archived: Boolean(existingThread?.archived || patch.patchedThread.archived),
+    archived,
   };
   if (shouldPromoteBridgePatchThread(existingThread, patch)) {
     return [
@@ -2796,6 +2807,7 @@ const baseState = {
   threadStateLoadingByThread: {},
   threadArchiveLoadingByThread: {},
   lastListMutationTime: 0,
+  lastArchivedStatesByThread: {},
   threadConfigSaving: false,
   timelinesByThread: {},
   threadTimelineReadyByThread: {},
@@ -5093,6 +5105,10 @@ function createThreadArchiveActions(runtime) {
           [id]: true,
         },
         lastListMutationTime: Date.now(),
+        lastArchivedStatesByThread: {
+          ...state.lastArchivedStatesByThread,
+          [id]: { archived: Boolean(archived), timestamp: Date.now() },
+        },
       }));
 
       // 2. Perform the main backend archive operation
@@ -5108,15 +5124,20 @@ function createThreadArchiveActions(runtime) {
         const message = error?.message || String(error);
         const action = archived ? '归档' : '恢复';
         
-        runtime.set((state) => ({
-          activeThreadId: originalActiveThreadId,
-          threads: originalThreads,
-          threadArchiveLoadingByThread: {
-            ...state.threadArchiveLoadingByThread,
-            [id]: false,
-          },
-          actionNotice: actionNotice(`${action}会话失败：${message}`, 'error'),
-        }));
+        runtime.set((state) => {
+          const nextMutated = { ...state.lastArchivedStatesByThread };
+          delete nextMutated[id];
+          return {
+            activeThreadId: originalActiveThreadId,
+            threads: originalThreads,
+            threadArchiveLoadingByThread: {
+              ...state.threadArchiveLoadingByThread,
+              [id]: false,
+            },
+            lastArchivedStatesByThread: nextMutated,
+            actionNotice: actionNotice(`${action}会话失败：${message}`, 'error'),
+          };
+        });
         
         runtime.addWarning('error', `thread.${archived ? 'archive' : 'unarchive'}.failed`, { threadId: id, error: message });
         return false;

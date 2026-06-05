@@ -5749,19 +5749,35 @@ function useRuntimePanelLayout() {
   }, []);
   const beginActivityPanelResize = (event, inputType = 'pointer') => {
     event.preventDefault();
+    if (inputType === 'pointer') {
+      event.currentTarget?.setPointerCapture?.(event.pointerId);
+    }
     const startY = event.clientY;
     const startHeight = activityPanelHeight;
     const moveEventName = inputType === 'mouse' ? 'mousemove' : 'pointermove';
     const stopEventName = inputType === 'mouse' ? 'mouseup' : 'pointerup';
+    const panelEl = (event.currentTarget || event.target)?.closest?.('.runtime-panel') || document.querySelector('.runtime-panel');
+    let latestHeight = startHeight;
     const move = (moveEvent) => {
-      setActivityPanelHeight(clampActivityPanelHeight(startHeight + (startY - moveEvent.clientY), viewportHeight));
+      const nextHeight = clampActivityPanelHeight(startHeight + (startY - moveEvent.clientY), viewportHeight);
+      latestHeight = nextHeight;
+      if (panelEl) {
+        panelEl.style.setProperty('--activity-panel-height', `${nextHeight}px`);
+      }
     };
     const stop = () => {
       window.removeEventListener(moveEventName, move);
       window.removeEventListener(stopEventName, stop);
+      if (inputType === 'pointer') {
+        window.removeEventListener('pointercancel', stop);
+      }
+      setActivityPanelHeight(latestHeight);
     };
     window.addEventListener(moveEventName, move);
     window.addEventListener(stopEventName, stop);
+    if (inputType === 'pointer') {
+      window.addEventListener('pointercancel', stop);
+    }
   };
   const handleActivityPanelResizeKeyDown = (event) => {
     if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
