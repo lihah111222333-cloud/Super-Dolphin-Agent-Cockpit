@@ -260,6 +260,14 @@ func TestApplyPackagedEnvFailsWhenBundledLSPServerMissing(t *testing.T) {
 	}
 }
 
+func TestDefaultLSPLanguagesMapsBashLanguageServerToShellscript(t *testing.T) {
+	got := defaultLSPLanguages("bash-language-server")
+	want := []string{"shellscript"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("defaultLSPLanguages(bash-language-server) = %v, want %v", got, want)
+	}
+}
+
 func writeBundledSidecars(t *testing.T, binDir string) {
 	t.Helper()
 	writeOnlyBundledSidecars(t, binDir)

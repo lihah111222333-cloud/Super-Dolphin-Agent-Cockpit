@@ -19,6 +19,7 @@ func NewLanguageAdapterRegistryFromConfig(cfg contract.LSPConfig) *LanguageAdapt
 		projectAdapterFromConfig(rustAdapterDefaults(), cfg, contract.LSPServiceRust),
 		projectAdapterFromConfig(javaAdapterDefaults(), cfg, contract.LSPServiceJava),
 		projectAdapterFromConfig(cssAdapterDefaults(), cfg, contract.LSPServiceCSS),
+		projectAdapterFromConfig(shellAdapterDefaults(), cfg, contract.LSPServiceShell),
 		documentFallbackAdapter{languageIDs: slices.Clone(cfg.DocumentFallbackLanguageIDs)},
 	)
 }
@@ -106,6 +107,14 @@ func cssAdapterDefaults() projectLanguageAdapter {
 		languageIDs: []string{"css"},
 		command:     ServerCommand{Executable: "vscode-css-language-server", Args: []string{"--stdio"}},
 		rootKind:    "css_project",
+	}
+}
+
+func shellAdapterDefaults() projectLanguageAdapter {
+	return projectLanguageAdapter{
+		languageIDs: []string{"shellscript"},
+		command:     ServerCommand{Executable: "bash-language-server", Args: []string{"start"}},
+		rootKind:    "shell_project",
 	}
 }
 

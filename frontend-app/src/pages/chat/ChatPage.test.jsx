@@ -1009,6 +1009,67 @@ describe('ChatPage module', () => {
     cancelAnimationFrameSpy.mockRestore();
   });
 
+  it('uses the timeline bottom scroll path when live assistant completion replaces pending reasoning', () => {
+    const userMessage = { id: 'live-user-1', role: 'user', text: '请继续分析', time: '2026-06-02T08:00:00Z' };
+    const runningStore = createActiveThreadStore([userMessage], {
+      activeTurnByThread: {
+        'thread-1': { id: 'turn-1', startedAt: '2026-06-02T08:00:05Z' },
+      },
+      sending: true,
+      statuses: { 'thread-1': { state: 'running' } },
+    });
+    const { rerender } = render(<ChatPage store={runningStore} projectPath="/repo/app" />);
+
+    expect(screen.getByLabelText('AI 思考记录')).toBeInTheDocument();
+
+    const timeline = screen.getByTestId('chat-timeline');
+    let scrollHeight = 980;
+    let scrollTop = 580;
+    Object.defineProperty(timeline, 'clientHeight', { configurable: true, value: 400 });
+    Object.defineProperty(timeline, 'scrollHeight', { configurable: true, get: () => scrollHeight });
+    Object.defineProperty(timeline, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value) => {
+        scrollTop = Number(value);
+      },
+    });
+    const originalScrollIntoView = window.HTMLElement.prototype.scrollIntoView;
+    const scrollIntoViewSpy = vi.fn();
+    window.HTMLElement.prototype.scrollIntoView = scrollIntoViewSpy;
+    const animationFrameCallbacks = [];
+    const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      animationFrameCallbacks.push(callback);
+      return animationFrameCallbacks.length;
+    });
+
+    try {
+      scrollHeight = 1240;
+      rerender(<ChatPage store={createActiveThreadStore([
+        userMessage,
+        { id: 'live-assistant-1', role: 'assistant', text: '已经定位到 live completion 后的滚动问题。', time: '2026-06-02T08:01:00Z' },
+      ], {
+        statuses: { 'thread-1': { state: 'completed' } },
+      })} projectPath="/repo/app" />);
+
+      expect(scrollIntoViewSpy).not.toHaveBeenCalled();
+      expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
+      act(() => {
+        for (const callback of animationFrameCallbacks) callback(16);
+      });
+      expect(scrollTop).toBe(1240);
+    }
+    finally {
+      requestAnimationFrameSpy.mockRestore();
+      if (originalScrollIntoView) {
+        window.HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+      }
+      else {
+        delete window.HTMLElement.prototype.scrollIntoView;
+      }
+    }
+  });
+
   it('does not auto-scroll a second time when a user message is appended', () => {
     const initialMessages = [
       { id: 'existing-assistant-1', role: 'assistant', text: '上一轮回复。', time: '2026-06-02T08:00:00Z' },

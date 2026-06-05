@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
@@ -274,6 +275,76 @@ func TestRuntimeAdapterInitOptionsPackagedPythonDisablesSystemInterpreterProbe(t
 	}
 	if got := python["pythonPath"]; got != "/__super_dolphin_no_system_python__/python" {
 		t.Fatalf("python.pythonPath = %#v, want packaged no-system interpreter sentinel", got)
+	}
+}
+
+func TestRuntimePrimaryLanguageIDsIncludeShellscript(t *testing.T) {
+	if !slices.Contains(runtimePrimaryLanguageIDs(), "shellscript") {
+		t.Fatalf("runtimePrimaryLanguageIDs() = %#v, missing shellscript", runtimePrimaryLanguageIDs())
+	}
+}
+
+func TestSetupInstallerRegistersShellLanguageServer(t *testing.T) {
+	binDir := t.TempDir()
+	fakeServer := filepath.Join(binDir, "bash-language-server")
+	if err := os.WriteFile(fakeServer, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake bash-language-server: %v", err)
+	}
+	fakeShellcheck := filepath.Join(binDir, "shellcheck")
+	if err := os.WriteFile(fakeShellcheck, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake shellcheck: %v", err)
+	}
+	t.Setenv("PATH", binDir)
+
+	result, err := setupInstaller().EnsureInstalledDetailed(context.Background(), "shellscript")
+	if err != nil {
+		t.Fatalf("EnsureInstalledDetailed(shellscript) error = %v", err)
+	}
+	if result.Binary != "bash-language-server" {
+		t.Fatalf("shell installer binary = %q, want bash-language-server", result.Binary)
+	}
+	if result.Path != fakeServer {
+		t.Fatalf("shell installer path = %q, want %q", result.Path, fakeServer)
+	}
+}
+
+func TestSetupInstallerInstallsShellcheckWhenShellServerAlreadyExists(t *testing.T) {
+	binDir := t.TempDir()
+	fakeServer := filepath.Join(binDir, "bash-language-server")
+	if err := os.WriteFile(fakeServer, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake bash-language-server: %v", err)
+	}
+	fakeNPM := filepath.Join(binDir, "npm")
+	marker := filepath.Join(binDir, "npm-called")
+	script := `#!/bin/sh
+set -eu
+case " $* " in
+  *" shellcheck "*) ;;
+  *) echo "missing shellcheck install arg: $*" >&2; exit 1 ;;
+esac
+printf '%s\n' "$*" > "$FAKE_NPM_MARKER"
+printf '#!/bin/sh\nexit 0\n' > "$FAKE_INSTALL_BIN/shellcheck"
+/bin/chmod +x "$FAKE_INSTALL_BIN/shellcheck"
+`
+	if err := os.WriteFile(fakeNPM, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake npm: %v", err)
+	}
+	t.Setenv("PATH", binDir)
+	t.Setenv("FAKE_INSTALL_BIN", binDir)
+	t.Setenv("FAKE_NPM_MARKER", marker)
+
+	result, err := setupInstaller().EnsureInstalledDetailed(context.Background(), "shellscript")
+	if err != nil {
+		t.Fatalf("EnsureInstalledDetailed(shellscript) error = %v", err)
+	}
+	if result.Path != fakeServer {
+		t.Fatalf("shell installer path = %q, want %q", result.Path, fakeServer)
+	}
+	if _, err := os.Stat(filepath.Join(binDir, "shellcheck")); err != nil {
+		t.Fatalf("shellcheck dependency was not installed: %v", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("shell installer did not invoke npm when shellcheck was missing: %v", err)
 	}
 }
 
