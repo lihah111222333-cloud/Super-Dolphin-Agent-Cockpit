@@ -257,8 +257,17 @@ func resolveSidebarAgent(thread *ThreadSummary, agents sidebarAgentLookup) *Agen
 }
 
 func deriveInterruptible(sidebar *Sidebar) {
+	// Sidebar snapshot gate only: patch payload interruptibility and frontend
+	// controls are separate chains and must not infer coverage from this map.
+	activeTurnID := ""
+	activeThreadID := ""
+	if sidebar.ActiveTurn != nil {
+		activeTurnID = strings.TrimSpace(sidebar.ActiveTurn.ID)
+		activeThreadID = strings.TrimSpace(sidebar.ActiveTurn.ThreadID)
+	}
 	for threadID, status := range sidebar.Statuses {
-		sidebar.InterruptibleByThread[threadID] = sidebarInterruptible(status)
+		threadIDMatch := activeThreadID != "" && activeThreadID == strings.TrimSpace(threadID)
+		sidebar.InterruptibleByThread[threadID] = activeTurnID != "" && threadIDMatch && sidebarInterruptible(status)
 	}
 }
 
