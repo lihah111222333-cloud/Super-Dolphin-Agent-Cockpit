@@ -70,6 +70,11 @@ async function flushPromises(count = 8) {
   }
 }
 
+async function flushAssistantDeltaBatch() {
+  vi.advanceTimersByTime(50);
+  await flushPromises();
+}
+
 vi.mock('../../../shared/api/backendApi.js', () => ({
   ...backend,
   registerBridgeLogStore: vi.fn(),
@@ -2814,6 +2819,134 @@ function registerBridgeEventHandlersForTest() {
     expect(state.threadStateLoadingByThread['thread-1']).toBe(false);
   });
 
+  it('batches burst runtime assistant deltas before applying them to the timeline', async () => {
+    vi.useFakeTimers();
+    try {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+        timelinesByThread: {
+          'thread-1': [{ id: 'user-1', role: 'user', text: 'count', time: '2026-05-30T00:00:00Z' }],
+        },
+      });
+      registerBridgeEventHandlersForTest();
+
+      const chunks = Array.from({ length: 100 }, (_, index) => `${index},`);
+      for (const delta of chunks) {
+        bridgeCallback({
+          method: 'item/agentMessage/delta',
+          payload: {
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            delta,
+            stream: 'message',
+          },
+        });
+      }
+
+      expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+        expect.objectContaining({ id: 'user-1', role: 'user', text: 'count' }),
+      ]);
+
+      await flushAssistantDeltaBatch();
+
+      expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+        expect.objectContaining({ id: 'user-1', role: 'user', text: 'count' }),
+        expect.objectContaining({
+          id: 'assistant-stream-turn-1',
+          role: 'assistant',
+          text: chunks.join(''),
+          done: false,
+        }),
+      ]);
+    }
+    finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('flushes pending assistant deltas before applying completion events', async () => {
+    vi.useFakeTimers();
+    try {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+        timelinesByThread: {
+          'thread-1': [{ id: 'user-1', role: 'user', text: 'say ok', time: '2026-05-30T00:00:00Z' }],
+        },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback({
+        method: 'item/agentMessage/delta',
+        payload: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          delta: 'o',
+          stream: 'message',
+        },
+      });
+      bridgeCallback({
+        method: 'item/completed',
+        payload: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          item: { id: 'msg-final', type: 'agentMessage', text: 'ok' },
+        },
+      });
+
+      expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+        expect.objectContaining({ role: 'user', text: 'say ok' }),
+        expect.objectContaining({ id: 'msg-final', role: 'assistant', text: 'ok', done: true }),
+      ]);
+      await flushAssistantDeltaBatch();
+      expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+        expect.objectContaining({ role: 'user', text: 'say ok' }),
+        expect.objectContaining({ id: 'msg-final', role: 'assistant', text: 'ok', done: true }),
+      ]);
+    }
+    finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears pending assistant delta timers and buffers on store reset', async () => {
+    vi.useFakeTimers();
+    try {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+        timelinesByThread: {
+          'thread-1': [{ id: 'user-1', role: 'user', text: 'say ok', time: '2026-05-30T00:00:00Z' }],
+        },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback({
+        method: 'item/agentMessage/delta',
+        payload: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          delta: 'ok',
+          stream: 'message',
+        },
+      });
+      resetClientStoreForTests();
+      await flushAssistantDeltaBatch();
+
+      expect(useClientStore.getState().timelinesByThread).toEqual({});
+    }
+    finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('applies runtime agent message delta and completion events to the timeline', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -3085,50 +3218,58 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
-  it('applies fallback turn output deltas with empty stream as assistant message text', () => {
-    resetClientStoreForTests({
-      cwd: '/repo/app',
-      activeProject: '/repo/app',
-      activeThreadId: 'thread-1',
-      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'claude', status: 'running' }],
-      timelinesByThread: {
-        'thread-1': [{ id: 'user-1', role: 'user', text: 'say ok', time: '2026-05-30T00:00:00Z' }],
-      },
-    });
-    registerBridgeEventHandlersForTest();
+  it('applies fallback turn output deltas with empty stream as assistant message text', async () => {
+    vi.useFakeTimers();
+    try {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'claude', status: 'running' }],
+        timelinesByThread: {
+          'thread-1': [{ id: 'user-1', role: 'user', text: 'say ok', time: '2026-05-30T00:00:00Z' }],
+        },
+      });
+      registerBridgeEventHandlersForTest();
 
-    bridgeCallback({
-      method: 'turn/output/delta',
-      payload: {
-        threadId: 'thread-1',
-        turnId: 'turn-1',
-        delta: 'o',
-        stream: '',
-      },
-    });
-    bridgeCallback({
-      method: 'turn/output/delta',
-      payload: {
-        threadId: 'thread-1',
-        turnId: 'turn-1',
-        delta: 'k',
-        stream: '',
-      },
-    });
-    bridgeCallback({
-      method: 'turn/output/delta',
-      payload: {
-        threadId: 'thread-1',
-        turnId: 'turn-1',
-        delta: ' hidden reasoning',
-        stream: 'reasoning',
-      },
-    });
+      bridgeCallback({
+        method: 'turn/output/delta',
+        payload: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          delta: 'o',
+          stream: '',
+        },
+      });
+      bridgeCallback({
+        method: 'turn/output/delta',
+        payload: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          delta: 'k',
+          stream: '',
+        },
+      });
+      bridgeCallback({
+        method: 'turn/output/delta',
+        payload: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          delta: ' hidden reasoning',
+          stream: 'reasoning',
+        },
+      });
 
-    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
-      expect.objectContaining({ role: 'user', text: 'say ok' }),
-      expect.objectContaining({ id: 'assistant-stream-turn-1', role: 'assistant', text: 'ok', done: false }),
-    ]);
+      await flushAssistantDeltaBatch();
+
+      expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+        expect.objectContaining({ role: 'user', text: 'say ok' }),
+        expect.objectContaining({ id: 'assistant-stream-turn-1', role: 'assistant', text: 'ok', done: false }),
+      ]);
+    }
+    finally {
+      vi.useRealTimers();
+    }
   });
 
   it('deduplicates overlapping assistant deltas before merging the formatted patch reply', () => {
