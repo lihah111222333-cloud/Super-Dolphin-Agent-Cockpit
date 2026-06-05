@@ -74,6 +74,18 @@ func TestReadProviderMessagesIfExistsTreatsMissingPathAsOptional(t *testing.T) {
 	}
 }
 
+func TestReadProviderMessagesPageOrErrorTreatsMissingPathAsMissingHistory(t *testing.T) {
+	missingErr := errors.New("live session unavailable")
+	_, err := ReadProviderMessagesPageOrError(
+		ReadRequest{Provider: "codex", RolloutPath: filepath.Join(t.TempDir(), "missing.jsonl")},
+		dto.MessagePageRequest{Limit: 10},
+		missingErr,
+	)
+	if !errors.Is(err, missingErr) {
+		t.Fatalf("ReadProviderMessagesPageOrError() error = %v, want %v", err, missingErr)
+	}
+}
+
 func TestReadProviderMessagesPageReturnsRecentMessagesAndCursor(t *testing.T) {
 	t.Parallel()
 
