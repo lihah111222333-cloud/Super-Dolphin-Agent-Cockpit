@@ -3423,12 +3423,13 @@ function attachBridgeIdentityRuntime(runtime) {
     const state = get();
     const matchedThread = state.threads.find((thread) => threadMatchesIdentifier(thread, id));
     if (matchedThread) return matchedThread.archived ? '' : normalizeBackendThreadId(matchedThread.id);
-    if (isAgentRuntimeId(id)) return '';
 
     const fallback = normalizeBackendThreadId(id);
     if (!fallback) return '';
     if (fallback === normalizeBackendThreadId(state.activeThreadId)) return fallback;
     if (payloadCwd && (!activeCwd || payloadCwd === activeCwd)) return fallback;
+
+    if (isAgentRuntimeId(id)) return '';
 
     addWarning('warn', 'thread.patch.unknown_thread', { threadId: fallback, activeCwd });
     return '';

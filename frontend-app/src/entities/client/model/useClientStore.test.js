@@ -952,6 +952,7 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().warningEntries).toEqual([]);
   });
 
+
   it('does not query thread config for agent-only runtime threads', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -3707,6 +3708,31 @@ function registerBridgeEventHandlersForTest() {
     const state = useClientStore.getState();
     expect(state.diffTextByThread['thread-1']).toContain('diff --git');
     expect(state.diffTextByThread['agent-1']).toBeUndefined();
+    expect(state.warningEntries).not.toEqual([
+      expect.objectContaining({ event: 'thread.patch.unknown_thread' }),
+    ]);
+  });
+
+  it('allows matching activeThreadId even when the payload threadId has agent runtime id format', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'agent_1780669491412230000',
+      threads: [],
+      timelinesByThread: {},
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'agent_1780669491412230000',
+        diffText: 'some diff text',
+      },
+    });
+
+    const state = useClientStore.getState();
+    expect(state.diffTextByThread['agent_1780669491412230000']).toBe('some diff text');
     expect(state.warningEntries).not.toEqual([
       expect.objectContaining({ event: 'thread.patch.unknown_thread' }),
     ]);
