@@ -6,11 +6,11 @@ import (
 	"errors"
 	"strings"
 	"testing"
-
-	orchmetrics "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/metrics"
 	"time"
 
+	orchmetrics "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/metrics"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/wakeuptext"
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 )
 
@@ -336,7 +336,7 @@ func TestBuildLaunchRequestPhase39_LegacyPayloadStillWorks(t *testing.T) {
 // TestRenderUpstreamPromptHint_SkipsEmptyPathRefs 验证渲染�?path 为空�?ref
 // 安静跳过（不留下 "- :" 这种空行垃圾）�?
 func TestRenderUpstreamPromptHint_SkipsEmptyPathRefs(t *testing.T) {
-	prompt := renderUpstreamPromptHint([]taskdag.DownstreamUpstreamRef{
+	prompt := wakeuptext.RenderUpstreamPromptHint([]taskdag.DownstreamUpstreamRef{
 		{NodeKey: "A", Path: "dag/d/A/output.json"},
 		{NodeKey: "B", Path: ""},
 		{NodeKey: "", Path: "dag/d/anon/output.json"},
