@@ -12,9 +12,8 @@ import (
 )
 
 const (
-	defaultEditVersion              = 2
-	didChangeLargeFileLineThreshold = 200
-	replaceRangeFuncBodyMax         = 8 * 1024
+	defaultEditVersion      = 2
+	replaceRangeFuncBodyMax = 8 * 1024
 )
 
 var errEditManagerNil = errors.New("edit requires LSP manager; ensure language server is running for this file type")
