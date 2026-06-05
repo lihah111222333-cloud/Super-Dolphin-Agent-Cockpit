@@ -110,12 +110,13 @@ function currentViewportHeight() {
   return Number.isFinite(height) ? height : 0;
 }
 
-function scrollTimelineElementToBottom(timeline) {
+function scrollTimelineElementToBottom(timeline, smooth = false) {
   if (!timeline) return;
-  if (typeof timeline.scrollTo === 'function') {
+  if (smooth && typeof timeline.scrollTo === 'function') {
     timeline.scrollTo({ top: timeline.scrollHeight, behavior: 'smooth' });
+  } else {
+    timeline.scrollTop = timeline.scrollHeight;
   }
-  timeline.scrollTop = timeline.scrollHeight;
 }
 
 function isTimelineNearBottom(timeline) {
@@ -5181,16 +5182,20 @@ function Conversation(props) {
   const updateTimelineStickiness = useCallback((timeline) => {
     shouldStickToBottomRef.current = isTimelineNearBottom(timeline);
   }, []);
-  const scrollTimelineToBottom = useCallback(() => {
+  const scrollTimelineToBottomInstant = useCallback(() => {
     shouldStickToBottomRef.current = true;
-    scrollTimelineElementToBottom(timelineRef.current);
+    scrollTimelineElementToBottom(timelineRef.current, false);
+  }, []);
+  const scrollTimelineToBottomSmooth = useCallback(() => {
+    shouldStickToBottomRef.current = true;
+    scrollTimelineElementToBottom(timelineRef.current, true);
   }, []);
   const sendMessageAndScrollToBottom = useCallback(() => {
     const result = sendMessage();
     shouldStickToBottomRef.current = true;
-    requestTimelineBottomScroll(scrollTimelineToBottom);
+    requestTimelineBottomScroll(scrollTimelineToBottomSmooth);
     return result;
-  }, [scrollTimelineToBottom, sendMessage]);
+  }, [scrollTimelineToBottomSmooth, sendMessage]);
   const autoScrollKey = timelineAutoScrollKey({
     activeThreadId,
     introMode,
@@ -5210,8 +5215,8 @@ function Conversation(props) {
     if (lastTimelineAutoScrollKeyRef.current === autoScrollKey) return;
     lastTimelineAutoScrollKeyRef.current = autoScrollKey;
     if (!shouldStickToBottomRef.current) return;
-    requestTimelineBottomScroll(scrollTimelineToBottom);
-  }, [autoScrollKey, scrollTimelineToBottom]);
+    requestTimelineBottomScroll(scrollTimelineToBottomInstant);
+  }, [autoScrollKey, scrollTimelineToBottomInstant]);
   const composer = (
     <ConversationComposer
       {...props}
@@ -5246,7 +5251,7 @@ function Conversation(props) {
         timelineContentBlocked={timelineContentBlocked}
         messageActions={messageActions}
         onTimelineScroll={updateTimelineStickiness}
-        onScrollToBottom={scrollTimelineToBottom}
+        onScrollToBottom={scrollTimelineToBottomSmooth}
         timelineRef={timelineRef}
       />
       {!introMode ? (
