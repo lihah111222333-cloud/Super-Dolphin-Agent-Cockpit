@@ -183,8 +183,8 @@ func (t *transport) awaitInitialize(ctx context.Context, ws *websocket.Conn, pc 
 			return err
 		}
 		if err := t.readInitializeMessage(ctx, ws); err != nil {
-			if isTimeoutNetError(err) {
-				continue
+			if ctxErr := shared.CheckCtx(ctx); ctxErr != nil {
+				return ctxErr
 			}
 			return err
 		}
@@ -240,16 +240,10 @@ func (t *transport) captureInitializeCodexHome(data []byte) {
 }
 
 func initializeReadDeadline(ctx context.Context) time.Time {
-	deadline := time.Now().Add(200 * time.Millisecond)
-	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
-		deadline = d
+	if deadline, ok := ctx.Deadline(); ok {
+		return deadline
 	}
-	return deadline
-}
-
-func isTimeoutNetError(err error) bool {
-	netErr, ok := err.(net.Error)
-	return ok && netErr.Timeout()
+	return time.Now().Add(transportReadyTimeout)
 }
 
 func (t *transport) writeJSON(v any) error {
