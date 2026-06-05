@@ -1287,6 +1287,80 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('deduplicates intermediate turns that are concatenated in final assistant message', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {
+        'thread-1': [
+          { id: 'assistant-stream-turn1', role: 'assistant', text: '我会先加载 使用超能力 技能，确认本轮技能选择规则。', done: true },
+          { id: 'assistant-stream-turn2', role: 'assistant', text: 'Hi，我在。需要我帮你看代码、排查问题，还是继续当前仓库里的改动？', done: true },
+        ],
+      },
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'assistant-final-msg',
+          role: 'assistant',
+          content: '我会先加载 使用超能力 技能，确认本轮技能选择规则。Hi，我在。需要我帮你看代码、排查问题，还是继续当前仓库里的改动？',
+          createdAt: '2026-06-01T14:26:00Z',
+        },
+      ],
+    });
+
+    await useClientStore.getState().syncThreadState('thread-1');
+
+    const texts = useClientStore.getState().timelinesByThread['thread-1'].map((message) => message.text);
+    expect(texts).toEqual([
+      '我会先加载 使用超能力 技能，确认本轮技能选择规则。Hi，我在。需要我帮你看代码、排查问题，还是继续当前仓库里的改动？'
+    ]);
+  });
+
+  it('does not override activeThreadId back to the previous thread when an in-flight sync resolves after clicking newThread', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+    });
+
+    let resolveSync;
+    const syncPromise = new Promise((resolve) => {
+      resolveSync = resolve;
+    });
+
+    backend.getThreadState.mockImplementationOnce(() => syncPromise);
+    backend.getThreadMessages.mockResolvedValueOnce({ messages: [] });
+
+    // Start syncThreadState (simulates in-flight sync)
+    const syncCall = useClientStore.getState().syncThreadState('thread-1');
+
+    // User clicks newThread in the meantime
+    useClientStore.getState().newThread();
+    expect(useClientStore.getState().activeThreadId).toBe('');
+
+    // Resolve the in-flight sync
+    resolveSync({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+      timelinesByThread: {
+        'thread-1': [],
+      },
+    });
+
+    await syncCall;
+
+    // Verify that activeThreadId remains empty and was not overridden back to thread-1
+    expect(useClientStore.getState().activeThreadId).toBe('');
+  });
+
   it('filters injected AGENTS instructions from restored thread history', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',

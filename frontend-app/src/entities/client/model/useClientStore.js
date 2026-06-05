@@ -1536,8 +1536,18 @@ function sameTimelineContentPrefix(left, right) {
   return leftText.startsWith(rightText) || rightText.startsWith(leftText);
 }
 
+function sameTimelineSubstring(left, right) {
+  if (left?.role !== right?.role || normalizeTimelineKind(left) !== normalizeTimelineKind(right)) return false;
+  const leftText = compactTimelineText(left?.text);
+  const rightText = compactTimelineText(right?.text);
+  if (!leftText || !rightText) return false;
+  const shorterLength = Math.min(leftText.length, rightText.length);
+  if (shorterLength < 15) return false;
+  return leftText.includes(rightText) || rightText.includes(leftText);
+}
+
 function sameTimelineDuplicateContent(left, right) {
-  return sameTimelineContent(left, right) || sameTimelineContentCompact(left, right) || sameRuntimeAssistantContentLoose(left, right);
+  return sameTimelineContent(left, right) || sameTimelineContentCompact(left, right) || sameRuntimeAssistantContentLoose(left, right) || sameTimelineSubstring(left, right);
 }
 
 function normalizeTimelineKind(item) {
@@ -1614,19 +1624,36 @@ function dedupeAssistantTimelineItems(items = []) {
     // fast-path: skip exact id duplicates (cross-turn reconnect dedup)
     if (item.id && seenIds.has(item.id)) continue;
 
-    let duplicateIndex = -1;
+    const duplicateIndices = [];
     for (let index = output.length - 1; index > lastUserIndex; index -= 1) {
       const candidate = output[index];
       if (candidate?.role === 'assistant' && candidate.done !== false && sameTimelineDuplicateContent(candidate, item)) {
-        duplicateIndex = index;
-        break;
+        duplicateIndices.push(index);
       }
     }
 
-    if (duplicateIndex >= 0) {
-      output[duplicateIndex] = preferredAssistantTimelineItem(output[duplicateIndex], item);
+    if (duplicateIndices.length > 0) {
+      let mergedItem = item;
+      for (const index of duplicateIndices) {
+        mergedItem = preferredAssistantTimelineItem(output[index], mergedItem);
+      }
+      const primaryIndex = duplicateIndices[duplicateIndices.length - 1]; // earliest duplicate index
+      output[primaryIndex] = mergedItem;
+
+      const indicesToRemove = new Set(duplicateIndices.slice(0, -1));
+      if (indicesToRemove.size > 0) {
+        let writeIdx = lastUserIndex + 1;
+        for (let readIdx = lastUserIndex + 1; readIdx < output.length; readIdx++) {
+          if (!indicesToRemove.has(readIdx)) {
+            output[writeIdx] = output[readIdx];
+            writeIdx++;
+          }
+        }
+        output.length = writeIdx;
+      }
       continue;
     }
+
     output.push(item);
     if (item.id) seenIds.add(item.id);
   }
@@ -1751,24 +1778,21 @@ function snapshotThreadList(payload, state, options, maps) {
   return nextThreads;
 }
 
-function preservedSnapshotActiveThreadId(state, nextThreads, options) {
-  if (!options.preserveActiveThreadId) return '';
-  return (
-    backendThreadIdFromThreads(state.activeThreadId, nextThreads, { includeArchived: true }) ||
-    (!nextThreads.some((thread) => threadMatchesIdentifier(thread, state.activeThreadId))
-      ? normalizeBackendThreadId(state.activeThreadId)
-      : '')
-  );
-}
-
 function snapshotActiveThreadId(state, payload, nextThreads, options) {
   const preferredActiveThreadId = normalizeThreadId(options.preferredActiveThreadId);
   const autoSelectThread = options.autoSelectThread !== false;
   const activeLookupOptions = options.includeArchivedActiveThread ? { includeArchived: true } : {};
-  const explicitActiveThreadId = (
-    preservedSnapshotActiveThreadId(state, nextThreads, options) ||
-    backendThreadIdFromThreads(preferredActiveThreadId, nextThreads, activeLookupOptions)
-  );
+
+  if (options.preserveActiveThreadId) {
+    return (
+      backendThreadIdFromThreads(state.activeThreadId, nextThreads, { includeArchived: true }) ||
+      (!nextThreads.some((thread) => threadMatchesIdentifier(thread, state.activeThreadId))
+        ? normalizeBackendThreadId(state.activeThreadId)
+        : '')
+    );
+  }
+
+  const explicitActiveThreadId = backendThreadIdFromThreads(preferredActiveThreadId, nextThreads, activeLookupOptions);
   if (!autoSelectThread) return explicitActiveThreadId;
   const snapshotActive = normalizeThreadId(payload.activeThreadId || payload.active_thread_id);
   const selectableThreadId = nextThreads.find((thread) => !thread.archived)?.id || '';
