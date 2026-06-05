@@ -4424,17 +4424,74 @@ function consumeMarkdownBlock(context, index) {
   throw new Error('markdown block consumer pipeline is incomplete');
 }
 
-function renderMarkdownBlocks(lines, actions = {}) {
+function renderMarkdownBlocks(lines, actions = {}, cache = null) {
   const context = markdownBlockContext(lines, actions);
   let index = 0;
-  while (index < lines.length) index = consumeMarkdownBlock(context, index);
+  const checkpoints = [];
+
+  if (cache && cache.lines && cache.nodes && cache.checkpoints) {
+    let matchingCount = 0;
+    const maxMatch = Math.min(lines.length, cache.lines.length);
+    while (matchingCount < maxMatch && lines[matchingCount] === cache.lines[matchingCount]) {
+      matchingCount++;
+    }
+
+    let splitIndex = -1;
+    for (let i = matchingCount; i >= 0; i--) {
+      if (cache.checkpoints[i] !== undefined) {
+        splitIndex = i;
+        break;
+      }
+    }
+
+    if (splitIndex >= 0) {
+      index = splitIndex;
+      const reuseCount = cache.checkpoints[splitIndex];
+      for (let i = 0; i < reuseCount; i++) {
+        context.nodes.push(cache.nodes[i]);
+      }
+      for (let i = 0; i <= splitIndex; i++) {
+        if (cache.checkpoints[i] !== undefined) {
+          checkpoints[i] = cache.checkpoints[i];
+        }
+      }
+    }
+  }
+
+  while (index < lines.length) {
+    checkpoints[index] = context.nodes.length;
+    index = consumeMarkdownBlock(context, index);
+  }
+
+  if (cache) {
+    cache.lines = lines;
+    cache.nodes = context.nodes;
+    cache.checkpoints = checkpoints;
+  }
+
   return context.nodes;
 }
 
-function MarkdownBlocks({ lines, actions = EMPTY_MARKDOWN_ACTIONS, fallback = null }) {
-  const nodes = renderMarkdownBlocks(lines, actions);
-  return <>{nodes.length > 0 ? nodes : fallback}</>;
-}
+const MarkdownBlocks = React.memo(
+  function MarkdownBlocks({ lines, actions = EMPTY_MARKDOWN_ACTIONS, fallback = null }) {
+    const cache = useMemo(() => ({ lines: [], nodes: [], checkpoints: [], actions }), [actions]);
+    const nodes = renderMarkdownBlocks(lines, actions, cache);
+    return <>{nodes.length > 0 ? nodes : fallback}</>;
+  },
+  (prevProps, nextProps) => {
+    if (prevProps.fallback !== nextProps.fallback) return false;
+    if (prevProps.actions !== nextProps.actions) return false;
+    const prevLines = prevProps.lines;
+    const nextLines = nextProps.lines;
+    if (prevLines === nextLines) return true;
+    if (!prevLines || !nextLines) return false;
+    if (prevLines.length !== nextLines.length) return false;
+    for (let i = 0; i < prevLines.length; i++) {
+      if (prevLines[i] !== nextLines[i]) return false;
+    }
+    return true;
+  }
+);
 
 function MarkdownMessage({ text, actions }) {
   return (
