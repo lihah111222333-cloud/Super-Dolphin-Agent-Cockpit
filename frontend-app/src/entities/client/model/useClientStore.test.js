@@ -3798,12 +3798,37 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
-  it('interrupts a runtime agent when backend status marks it interruptible without an active turn id', async () => {
+  it('does not interrupt a runtime agent when backend status marks it interruptible without an active turn id', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
       activeThreadId: 'agent_123',
       threads: [{ id: 'agent_123', name: 'Runtime Agent', provider: 'codex', status: 'running' }],
+      statuses: {
+        agent_123: { status: 'running', interruptible: true },
+      },
+    });
+
+    expect(useClientStore.getState().hasInterruptibleThreadAction()).toBe(false);
+
+    await expect(useClientStore.getState().interruptActiveThread()).resolves.toBe(false);
+
+    expect(backend.interruptTurn).not.toHaveBeenCalled();
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '当前没有可中断任务',
+      tone: 'warning',
+    }));
+  });
+
+  it('interrupts a runtime agent when an active turn id is present', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'agent_123',
+      threads: [{ id: 'agent_123', name: 'Runtime Agent', provider: 'codex', status: 'running' }],
+      activeTurnByThread: {
+        agent_123: { id: 'turn-123', threadId: 'agent_123', status: 'running' },
+      },
       statuses: {
         agent_123: { status: 'running', interruptible: true },
       },

@@ -885,46 +885,15 @@ function activeTurnIdForThread(state, threadId) {
   return '';
 }
 
-function threadIdentifierCandidates(state, value) {
-  const ids = new Set();
-  const add = (candidate) => {
-    const id = normalizeThreadId(candidate);
-    if (id) ids.add(id);
-  };
-  add(value);
-  const matchedThread = (state?.threads || []).find((thread) => threadMatchesIdentifier(thread, value));
-  if (matchedThread) {
-    add(matchedThread.id);
-    add(matchedThread.threadId);
-    add(matchedThread.thread_id);
-    add(matchedThread.agentId);
-    add(matchedThread.agent_id);
-    add(matchedThread.providerThreadId);
-    add(matchedThread.provider_thread_id);
-    add(matchedThread.sessionId);
-    add(matchedThread.session_id);
-  }
-  return [...ids];
-}
-
-function threadStatusEntryForState(state, value) {
-  for (const id of threadIdentifierCandidates(state, value)) {
-    const status = state?.statuses?.[id];
-    if (status && typeof status === 'object' && !Array.isArray(status)) return status;
-  }
-  return null;
-}
-
 function activeThreadInterruptTarget(state) {
   const activeID = normalizeThreadId(state?.activeThreadId);
   const threadID = backendThreadIdForState(state, activeID) || normalizeBackendThreadId(activeID);
   if (!threadID) return { threadId: '', turnId: '', interruptible: false };
   const turnID = activeTurnIdForThread(state, threadID);
-  const status = threadStatusEntryForState(state, threadID) || threadStatusEntryForState(state, activeID);
   return {
     threadId: threadID,
     turnId: turnID,
-    interruptible: Boolean(turnID || status?.interruptible === true),
+    interruptible: Boolean(turnID),
   };
 }
 
