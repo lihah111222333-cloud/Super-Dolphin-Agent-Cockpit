@@ -1178,6 +1178,7 @@ function registerBridgeEventHandlersForTest() {
       expect.objectContaining({ role: 'user', text: 'Hello backend' }),
     ]);
     expect(useClientStore.getState().draft).toBe('');
+    expect(useClientStore.getState().threadTimelineReadyByThread['thread-new']).toBe(true);
   });
 
   it('does not classify engineering intents into a frontend tool mode', async () => {
@@ -4640,4 +4641,169 @@ function registerBridgeEventHandlersForTest() {
     expect(result).toBe(true); // 必须是 true，即便 preference 报错
     expect(useClientStore.getState().threads[0].archived).toBe(true);
   });
+
+  it('preserves the optimistic archive state when a snapshot or patch is applied while loading or recently mutated', async () => {
+    backend.getThreadState
+      .mockResolvedValueOnce({
+        threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'idle', archived: false }],
+      })
+      .mockResolvedValueOnce({
+        threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'idle', archived: false }],
+      });
+    backend.getThreadMessages
+      .mockResolvedValueOnce({ messages: [] })
+      .mockResolvedValueOnce({ messages: [] });
+
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'idle', archived: false }],
+    });
+    registerBridgeEventHandlersForTest();
+
+    // Start archiving (simulates in-flight archive)
+    const archivePromise = useClientStore.getState().archiveThread('thread-1', true);
+    expect(useClientStore.getState().threads[0].archived).toBe(true);
+    expect(useClientStore.getState().threadArchiveLoadingByThread['thread-1']).toBe(true);
+
+    // 1. Simulate a bridge patch containing stale state
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        patchedThread: {
+          id: 'thread-1',
+          archived: false,
+        },
+      },
+    });
+    expect(useClientStore.getState().threads[0].archived).toBe(true);
+
+    // 2. Simulate a syncThreadState database reload containing stale state
+    await useClientStore.getState().syncThreadState('thread-1');
+    expect(useClientStore.getState().threads[0].archived).toBe(true);
+
+    // Resolve the archive RPC
+    await archivePromise;
+    expect(useClientStore.getState().threads[0].archived).toBe(true);
+    expect(useClientStore.getState().threadArchiveLoadingByThread['thread-1']).toBe(false);
+
+    // 3. Simulate another syncThreadState database reload containing stale state within the 8s window
+    await useClientStore.getState().syncThreadState('thread-1');
+    expect(useClientStore.getState().threads[0].archived).toBe(true);
+  });
+
+  it('matches optimistic archive overrides by both agent runtime ID and database UUID', async () => {
+    backend.getThreadState.mockResolvedValueOnce({
+      threads: [{ id: '019e98df-2cd9-76b0-ad5b-9f1f252fa764', agent_id: 'agent_123', name: 'Draft', provider: 'codex', status: 'idle', archived: false }],
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({ messages: [] });
+
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'agent_123',
+      threads: [{ id: 'agent_123', agentId: 'agent_123', name: 'Draft', provider: 'codex', status: 'idle', archived: false }],
+    });
+
+    // Start archiving. Because store.threads has id = 'agent_123', the id in archiveThread resolves to 'agent_123'
+    const archivePromise = useClientStore.getState().archiveThread('agent_123', true);
+    expect(useClientStore.getState().threads[0].archived).toBe(true);
+    expect(useClientStore.getState().threadArchiveLoadingByThread['agent_123']).toBe(true);
+
+    // Now, run syncThreadState. The server responds with database UUID '019e98df-2cd9-76b0-ad5b-9f1f252fa764'
+    // B's override (saved under agent_123) should be matched via identity.agentId and preserve its archived status!
+    await useClientStore.getState().syncThreadState('agent_123');
+    expect(useClientStore.getState().threads[0].archived).toBe(true);
+
+    await archivePromise;
+  });
+
+  it('preserves other threads optimistic archive states when a concurrent archive action fails and rolls back', async () => {
+    // A fails, B succeeds.
+    backend.archiveThread
+      .mockRejectedValueOnce(new Error('Archiving A failed')) // A fails
+      .mockResolvedValueOnce({ ok: true }); // B succeeds
+
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-A',
+      threads: [
+        { id: 'thread-A', name: 'Thread A', provider: 'codex', status: 'idle', archived: false },
+        { id: 'thread-B', name: 'Thread B', provider: 'codex', status: 'idle', archived: false },
+      ],
+    });
+
+    const promiseA = useClientStore.getState().archiveThread('thread-A', true);
+    const promiseB = useClientStore.getState().archiveThread('thread-B', true);
+
+    expect(useClientStore.getState().threads.find(t => t.id === 'thread-A').archived).toBe(true);
+    expect(useClientStore.getState().threads.find(t => t.id === 'thread-B').archived).toBe(true);
+
+    // Resolve A (which fails)
+    await promiseA;
+
+    // A should be rolled back to active (archived = false)
+    expect(useClientStore.getState().threads.find(t => t.id === 'thread-A').archived).toBe(false);
+    // B's optimistic archive state should NOT be affected (remains true)!
+    expect(useClientStore.getState().threads.find(t => t.id === 'thread-B').archived).toBe(true);
+
+    // Resolve B (succeeds)
+    await promiseB;
+    expect(useClientStore.getState().threads.find(t => t.id === 'thread-B').archived).toBe(true);
+  });
+
+  it('resolves archivedAt and pinnedAt states using both agent runtime ID and database UUID from configuration maps', async () => {
+    backend.getThreadState.mockReset();
+    backend.getThreadMessages.mockReset();
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+
+    // Case A: Map has agent_123, Thread has DB UUID
+    backend.getThreadState.mockResolvedValueOnce({
+      threads: [{ id: '019e98df-2cd9-76b0-ad5b-9f1f252fa764', agent_id: 'agent_123', name: 'Draft', provider: 'codex', status: 'idle' }],
+      archivedThreadAtById: { 'agent_123': 1500000000000 },
+      pinnedThreadAtById: { 'agent_123': 1600000000000 },
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({ messages: [] });
+
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'agent_123',
+      threads: [{ id: 'agent_123', agentId: 'agent_123', name: 'Draft', provider: 'codex', status: 'idle', archived: false }],
+    });
+
+    await useClientStore.getState().syncThreadState('agent_123');
+    let syncedThread = useClientStore.getState().threads[0];
+    expect(syncedThread.archived).toBe(true);
+    expect(syncedThread.archivedAt).toBe(1500000000000);
+    expect(syncedThread.pinned).toBe(true);
+    expect(syncedThread.pinnedAt).toBe(1600000000000);
+
+    // Case B: Map has DB UUID, Thread has agent_123
+    backend.getThreadState.mockResolvedValueOnce({
+      threads: [{ id: 'agent_123', agent_id: 'agent_123', name: 'Draft', provider: 'codex', status: 'idle' }],
+      archivedThreadAtById: { '019e98df-2cd9-76b0-ad5b-9f1f252fa764': 1500000000000 },
+      pinnedThreadAtById: { '019e98df-2cd9-76b0-ad5b-9f1f252fa764': 1600000000000 },
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({ messages: [] });
+
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '019e98df-2cd9-76b0-ad5b-9f1f252fa764',
+      threads: [{ id: '019e98df-2cd9-76b0-ad5b-9f1f252fa764', agentId: 'agent_123', name: 'Draft', provider: 'codex', status: 'idle', archived: false }],
+    });
+
+    await useClientStore.getState().syncThreadState('019e98df-2cd9-76b0-ad5b-9f1f252fa764');
+    syncedThread = useClientStore.getState().threads[0];
+    expect(syncedThread.archived).toBe(true);
+    expect(syncedThread.archivedAt).toBe(1500000000000);
+    expect(syncedThread.pinned).toBe(true);
+    expect(syncedThread.pinnedAt).toBe(1600000000000);
+  });
+
+
 
