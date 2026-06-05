@@ -153,7 +153,48 @@ func TestReplaceRangeSyncRereadsFileAfterPatchWrite(t *testing.T) {
 	assertRereadSyncContent(t, manager, patched, diskAfterBootstrap)
 }
 
-func requireSyncedReplaceRangeResult(t *testing.T, got any) {
+func TestReplaceRangeDoesNotWarnForLargeFullDocumentSync(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sample.go")
+	original := strings.Join(append([]string{
+		"package main",
+		"",
+		"func f() {",
+		"\told()",
+		"}",
+	}, repeatString("// filler", 210)...), "\n") + "\n"
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	manager := &editRereadSyncManager{}
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
+	input, err := json.Marshal(EditRequest{
+		FilePath: path,
+		Patch: strings.Join([]string{
+			"@@",
+			"-\told()",
+			"+\tnew()",
+			"",
+		}, "\n"),
+	})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+
+	got, err := handler(testToolContext(root), input)
+	if err != nil {
+		t.Fatalf("edit returned error: %v", err)
+	}
+	result := requireSyncedReplaceRangeResult(t, got)
+	if result.Warning != "" {
+		t.Fatalf("warning = %q, want empty for successful full-document sync", result.Warning)
+	}
+	if !strings.Contains(manager.didChangeText, "\tnew()\n") {
+		t.Fatalf("DidChange text does not contain replacement: %q", manager.didChangeText)
+	}
+}
+
+func requireSyncedReplaceRangeResult(t *testing.T, got any) replaceRangeResult {
 	t.Helper()
 	result, ok := got.(replaceRangeResult)
 	if !ok {
@@ -162,6 +203,15 @@ func requireSyncedReplaceRangeResult(t *testing.T, got any) {
 	if result.Status != "applied" || !result.Persisted || !result.LSPSync {
 		t.Fatalf("unexpected result: %#v", result)
 	}
+	return result
+}
+
+func repeatString(value string, count int) []string {
+	out := make([]string, count)
+	for idx := range out {
+		out[idx] = value
+	}
+	return out
 }
 
 func assertRereadSyncContent(t *testing.T, manager *editRereadSyncManager, patched string, diskAfterBootstrap string) {
