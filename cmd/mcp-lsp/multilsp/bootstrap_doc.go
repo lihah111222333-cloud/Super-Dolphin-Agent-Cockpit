@@ -35,6 +35,56 @@ type documentSnapshot struct {
 	modTimeNano int64
 }
 
+func (m *manager) hasStaleDiagnosticsForSnapshot(scope ResolvedLSPToolScope, doc documentSnapshot) bool {
+	return m.matchingStaleDiagnosticsForSnapshot(scope, doc, nil)
+}
+
+func (m *manager) deleteStaleDiagnosticsForSnapshot(scope ResolvedLSPToolScope, doc documentSnapshot) {
+	m.matchingStaleDiagnosticsForSnapshot(scope, doc, func(key string) {
+		delete(m.diagnostics, key)
+	})
+}
+
+func (m *manager) matchingStaleDiagnosticsForSnapshot(scope ResolvedLSPToolScope, doc documentSnapshot, visit func(string)) bool {
+	if m == nil || strings.TrimSpace(doc.ref.uri) == "" {
+		return false
+	}
+	return withWriteLock(&m.diagMu, func() bool {
+		current := m.CurrentDiagnosticGeneration()
+		found := false
+		for key, snapshot := range m.diagnostics {
+			if snapshot.generation != current || snapshot.uri != doc.ref.uri {
+				continue
+			}
+			if !diagnosticSnapshotMatchesRefreshScope(snapshot, scope) || !diagnosticSnapshotStaleForDocument(snapshot, doc) {
+				continue
+			}
+			found = true
+			if visit != nil {
+				visit(key)
+			}
+		}
+		return found
+	})
+}
+
+func diagnosticSnapshotMatchesRefreshScope(snapshot diagnosticSnapshot, scope ResolvedLSPToolScope) bool {
+	if snapshot.scopeKey == "" && snapshot.workspaceKey == "" {
+		return true
+	}
+	return snapshot.scopeKey == scope.ScopeKey && snapshot.workspaceKey == scope.WorkspaceKey
+}
+
+func diagnosticSnapshotStaleForDocument(snapshot diagnosticSnapshot, doc documentSnapshot) bool {
+	if snapshot.fingerprint != "" && doc.fingerprint != "" {
+		return snapshot.fingerprint != doc.fingerprint
+	}
+	if snapshot.size > 0 && doc.size > 0 && snapshot.size != doc.size {
+		return true
+	}
+	return snapshot.mtimeNS > 0 && doc.modTimeNano > 0 && snapshot.mtimeNS != doc.modTimeNano
+}
+
 func (m *manager) bootstrapDocument(ctx context.Context, uri string) error {
 	ref, cfg, err := m.bootstrapTarget(ctx, uri)
 	if err != nil {
@@ -172,11 +222,12 @@ func (c *bootstrapCoordinator) syncSnapshot(ctx context.Context, m *manager, cfg
 		version = record.Version + 1
 	}
 	if err := c.syncSnapshotToClient(ctx, m, cfg, snapshot, snapshotSyncRequest{
-		key:      key,
-		version:  version,
-		cached:   cached,
-		previous: decision.previous,
-		scope:    scope,
+		key:                     key,
+		version:                 version,
+		cached:                  cached,
+		previous:                decision.previous,
+		refreshStaleDiagnostics: m.hasStaleDiagnosticsForSnapshot(scope, snapshot),
+		scope:                   scope,
 	}); err != nil {
 		c.states.fail(stateKey, snapshot.ref.uri, err)
 		return err
@@ -225,13 +276,13 @@ func (c *bootstrapCoordinator) openSnapshotVersion(key lspCacheKey, snapshot doc
 	return version, nil
 }
 
-func applyBootstrapUpdate(ctx context.Context, client Client, snapshot documentSnapshot, previous bootstrapStatus, cached bool, version int) error {
-	if cached && (previous == bootstrapReady || previous == bootstrapStale) {
-		return client.DidChange(ctx, snapshot.ref.uri, version, []protocol.TextDocumentContentChangeEvent{{
+func applyBootstrapUpdate(ctx context.Context, client Client, snapshot documentSnapshot, req snapshotSyncRequest) error {
+	if req.refreshStaleDiagnostics || req.cached && (req.previous == bootstrapReady || req.previous == bootstrapStale) {
+		return client.DidChange(ctx, snapshot.ref.uri, req.version, []protocol.TextDocumentContentChangeEvent{{
 			Text: snapshot.text,
 		}})
 	}
-	return client.DidOpen(ctx, snapshot.ref.uri, snapshot.ref.languageID, version, snapshot.text)
+	return client.DidOpen(ctx, snapshot.ref.uri, snapshot.ref.languageID, req.version, snapshot.text)
 }
 
 func (c *bootstrapCoordinator) refreshWorkspace(ctx context.Context, m *manager, cfg workspaceConfig, excludeURI string) {

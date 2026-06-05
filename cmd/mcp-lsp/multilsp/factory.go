@@ -33,12 +33,13 @@ type hierarchyDirectionStep[I any, R any] struct {
 }
 
 type snapshotSyncRequest struct {
-	key      lspCacheKey
-	version  int
-	cached   bool
-	previous bootstrapStatus
-	openOnly bool
-	scope    ResolvedLSPToolScope
+	key                     lspCacheKey
+	version                 int
+	cached                  bool
+	previous                bootstrapStatus
+	openOnly                bool
+	refreshStaleDiagnostics bool
+	scope                   ResolvedLSPToolScope
 }
 
 func requestDocument[T any](
@@ -302,6 +303,9 @@ func (c *bootstrapCoordinator) syncSnapshotToClient(
 			return err
 		}
 	}
+	if req.refreshStaleDiagnostics {
+		m.deleteStaleDiagnosticsForSnapshot(scope, snapshot)
+	}
 	client, err := m.ensureClient(ctx, cfg)
 	if err != nil {
 		return err
@@ -333,7 +337,7 @@ func (c *bootstrapCoordinator) applySnapshotUpdate(
 	if req.openOnly {
 		err = client.DidOpen(ctx, snapshot.ref.uri, snapshot.ref.languageID, req.version, snapshot.text)
 	} else {
-		err = applyBootstrapUpdate(ctx, client, snapshot, req.previous, req.cached, req.version)
+		err = applyBootstrapUpdate(ctx, client, snapshot, req)
 	}
 	if err == nil {
 		return nil

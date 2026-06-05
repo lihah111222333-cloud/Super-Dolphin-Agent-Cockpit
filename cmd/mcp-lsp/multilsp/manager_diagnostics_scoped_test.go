@@ -187,6 +187,61 @@ func TestDiagnosticsRefreshesStaleFileBeforeReturn(t *testing.T) {
 	requireEmptyDiagnosticSnapshot(t, "after stale file refresh", items)
 }
 
+func TestJSTSDiagnosticsDoesNotReturnStaleSnapshotWithoutBootstrapCache(t *testing.T) {
+	for _, tc := range []struct {
+		languageID string
+		fileName   string
+		initial    string
+		fresh      string
+	}{
+		{languageID: "javascript", fileName: "CreateBacktestModal.js", initial: "export const payload = { name: 'demo' };\n", fresh: "export const payload = { name: 'demo', schema_version: 1 };\n"},
+		{languageID: "typescript", fileName: "CreateBacktestModal.ts", initial: "type CreateBacktestParams = { name: string };\nconst payload: CreateBacktestParams = { name: 'demo', schema_version: 1 };\n", fresh: "type CreateBacktestParams = { name: string; schema_version: number };\nconst payload: CreateBacktestParams = { name: 'demo', schema_version: 1 };\n"},
+		{languageID: "javascriptreact", fileName: "CreateBacktestModal.jsx", initial: "import React from 'react';\nexport function CreateBacktestModal() { return <form data-schema=\"old\" />; }\n", fresh: "import React from 'react';\nexport function CreateBacktestModal() { return <form data-schema=\"1\" />; }\n"},
+		{languageID: "typescriptreact", fileName: "CreateBacktestModal.tsx", initial: strings.Join([]string{
+			"import React, { FormEvent } from 'react';",
+			"type CreateBacktestParams = { name: string };",
+			"const payload: CreateBacktestParams = { name: 'demo', schema_version: 1 };",
+			"export function CreateBacktestModal() { return <form />; }",
+			"",
+		}, "\n"), fresh: strings.Join([]string{
+			"import type { FormEvent } from 'react';",
+			"type CreateBacktestParams = { name: string; schema_version: number };",
+			"const payload: CreateBacktestParams = { name: 'demo', schema_version: 1 };",
+			"export function CreateBacktestModal() { return <form />; }",
+			"",
+		}, "\n")},
+	} {
+		t.Run(tc.languageID, func(t *testing.T) {
+			runJSTSStaleDiagnosticsRepro(t, tc.languageID, tc.fileName, tc.initial, tc.fresh)
+		})
+	}
+}
+
+func runJSTSStaleDiagnosticsRepro(t *testing.T, languageID, fileName, initial, fresh string) {
+	t.Helper()
+	root := t.TempDir()
+	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"jsts-diagnostics-stale"}`)
+	target := writeDiagnosticsTestFile(t, root, fileName, initial)
+	factory := &diagnosticsRefreshClientFactory{}
+	mgr := newDiagnosticsTestManager(t, Config{WorkspaceRoot: root, ClientFactory: factory, DiagnosticsMaxWait: 1})
+	ctx := scopedDiagnosticsTestContext(root, "agent-"+languageID+"-stale", "thread-1")
+	uri := fileURIFromPath(target)
+	publishDiagnosticMessage(t, mgr, uri, "schema_version does not exist in type CreateBacktestParams")
+
+	if err := os.WriteFile(target, []byte(fresh), 0o600); err != nil {
+		t.Fatalf("write fresh %s file: %v", languageID, err)
+	}
+	items := diagnosticsItemsForURI(t, mgr, ctx, uri, "after "+languageID+" file edit")
+	client := factory.currentClient()
+	if client == nil {
+		t.Fatalf("expected diagnostics refresh to create a %s client", languageID)
+	}
+	if got := client.changeCount(); got == 0 {
+		t.Fatalf("Diagnostics refreshed %s via open-only path; stale diagnostics returned %#v", languageID, items)
+	}
+	requireEmptyDiagnosticSnapshot(t, "after "+languageID+" stale refresh", items)
+}
+
 func TestDeletedDiagnosticsCleanupRemovesOldAndCurrentScopedCache(t *testing.T) {
 	root := t.TempDir()
 	writeDiagnosticsTestFile(t, root, "go.mod", "module cleanup\n")
