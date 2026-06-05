@@ -56,12 +56,22 @@ func TestInterruptTurnReturnsEnvelope(t *testing.T) {
 func TestInterruptTurnNoActiveReturnsEnvelope(t *testing.T) {
 	t.Parallel()
 
-	session := &stubSession{threadID: "thread-2"}
+	interruptCalls := 0
+	session := &stubSession{
+		threadID: "thread-2",
+		interrupt: func(context.Context, dto.InterruptRequest) error {
+			interruptCalls++
+			return nil
+		},
+	}
 	svc := NewService(silentLogger())
 
 	status, err := svc.InterruptTurn(context.Background(), session, "user")
 	if err != nil {
 		t.Fatalf("InterruptTurn() error = %v", err)
+	}
+	if interruptCalls != 0 {
+		t.Fatalf("Interrupt() calls = %d, want 0 for no active turn", interruptCalls)
 	}
 	envelope := status.interruptEnvelope()
 	if envelope.confirmed || envelope.mode != "no_active_turn" || envelope.interruptSent {
