@@ -221,6 +221,45 @@ func TestBuildPoolSpawnCmdOverridesNativeLSPConfigForWorkDir(t *testing.T) {
 	}
 }
 
+func TestBuildPoolSpawnCmdOverridesModelProvider(t *testing.T) {
+	t.Parallel()
+	cmd, err := BuildPoolSpawnCmd(context.Background(), PoolSpawnArgs{
+		Home:      "/realpath/home",
+		ExtraArgs: poolSpawnNativeLSPConfigOverrideArgs([]string{"model_provider=" + tomlString("openai")}),
+		ParentEnv: []string{},
+	})
+	if err != nil {
+		t.Fatalf("BuildPoolSpawnCmd error = %v", err)
+	}
+	commandLine := strings.Join(cmd.Args, " ")
+	for _, want := range []string{
+		"-c",
+		`model_provider="openai"`,
+	} {
+		if !commandLineContains(commandLine, want) {
+			t.Fatalf("spawn argv missing %q:\n%s", want, commandLine)
+		}
+	}
+}
+
+func TestBuildPoolSpawnCmdPlacesConfigOverridesBeforeAppServer(t *testing.T) {
+	t.Parallel()
+	cmd, err := BuildPoolSpawnCmd(context.Background(), PoolSpawnArgs{
+		Home:      "/realpath/home",
+		ExtraArgs: poolSpawnNativeLSPConfigOverrideArgs([]string{"model_provider=" + tomlString("openai")}),
+		ParentEnv: []string{},
+	})
+	if err != nil {
+		t.Fatalf("BuildPoolSpawnCmd error = %v", err)
+	}
+	commandLine := strings.Join(cmd.Args, " ")
+	providerAt := strings.Index(commandLine, "model_provider=")
+	appServerAt := strings.Index(commandLine, codexAppServerCommand)
+	if providerAt < 0 || appServerAt < 0 || providerAt > appServerAt {
+		t.Fatalf("config override must appear before app-server; providerAt=%d appServerAt=%d:\n%s", providerAt, appServerAt, commandLine)
+	}
+}
+
 func TestBuildPoolSpawnCmdOverridesNativeLSPConfigForAdditionalRootsAndBinaryDir(t *testing.T) {
 	t.Parallel()
 	parent := t.TempDir()

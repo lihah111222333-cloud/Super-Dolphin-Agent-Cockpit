@@ -14,7 +14,7 @@ import (
 func TestResolveSessionOptionsFailsFastOnMalformedPoolRoutingFlag(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "garbage")
 	spawnCalls := atomic.Int32{}
-	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://unused"), nil
 	}, PoolConfig{})
@@ -54,7 +54,7 @@ func TestResumeSessionPoolSpawnUsesRuntimeWorkspaceRoots(t *testing.T) {
 	primary := t.TempDir()
 	extra := t.TempDir()
 	var gotRoots []string
-	pool := NewServerPool(slog.Default(), func(ctx context.Context, _ string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(ctx context.Context, _, _ string) (SpawnedServer, error) {
 		gotRoots = poolSpawnWorkspaceRoots(ctx)
 		return newFakeServer("ws://127.0.0.1:4321"), nil
 	}, PoolConfig{})

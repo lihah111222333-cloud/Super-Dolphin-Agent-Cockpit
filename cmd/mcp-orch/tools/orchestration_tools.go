@@ -33,6 +33,8 @@ type LaunchAgentInput struct {
 	CWD                string `json:"cwd,omitempty"`
 	Provider           string `json:"provider,omitempty"`
 	Model              string `json:"model,omitempty"`
+	CodexHome          string `json:"codex_home,omitempty"`
+	CodexInstanceKey   string `json:"codex_instance_key,omitempty"`
 	CodexModelProvider string `json:"codex_model_provider,omitempty"`
 	Effort             string `json:"effort,omitempty"`
 	Language           string `json:"language,omitempty"`
@@ -467,7 +469,7 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 		MemoryScope: memoryScope,
 		Cwd:         in.CWD,
 		Command:     []string{strings.TrimSpace(exe)},
-		Env:         launchEnv(provider, strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort), strings.TrimSpace(in.CodexModelProvider)),
+		Env:         launchEnv(provider, strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort), strings.TrimSpace(in.CodexHome), strings.TrimSpace(in.CodexInstanceKey), strings.TrimSpace(in.CodexModelProvider)),
 		Language:    strings.TrimSpace(in.Language),
 	}
 	if dt := strings.TrimSpace(in.DisabledTools); dt != "" {
@@ -500,7 +502,7 @@ func validateMemoryScope(raw string) (string, error) {
 	}
 }
 
-func launchEnv(provider, model, effort, codexModelProvider string) []string {
+func launchEnv(provider, model, effort, codexHome, codexInstanceKey, codexModelProvider string) []string {
 	var env []string
 	if provider = strings.TrimSpace(provider); provider != "" {
 		env = append(env, "AGENT_PROVIDER="+provider)
@@ -512,6 +514,12 @@ func launchEnv(provider, model, effort, codexModelProvider string) []string {
 	}
 	if effort = strings.TrimSpace(effort); effort != "" {
 		env = append(env, "AGENT_EFFORT="+effort)
+	}
+	if codexHome = strings.TrimSpace(codexHome); codexHome != "" {
+		env = append(env, "AGENT_CODEX_HOME="+codexHome)
+	}
+	if codexInstanceKey = strings.TrimSpace(codexInstanceKey); codexInstanceKey != "" {
+		env = append(env, "AGENT_CODEX_INSTANCE_KEY="+codexInstanceKey)
 	}
 	if codexModelProvider = strings.TrimSpace(codexModelProvider); codexModelProvider != "" {
 		env = append(env, "AGENT_CODEX_MODEL_PROVIDER="+codexModelProvider)

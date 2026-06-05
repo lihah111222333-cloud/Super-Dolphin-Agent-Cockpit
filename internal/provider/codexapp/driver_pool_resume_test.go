@@ -15,7 +15,7 @@ import (
 
 func TestPoolRoutingExplicitlyDisabledFailsClosedWithCodexIdentity(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "0")
-	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		return newFakeServer("ws://should-not-be-called"), nil
 	}, PoolConfig{})
 	defer pool.Close(context.Background())
@@ -36,7 +36,7 @@ func TestPoolRoutingExplicitlyDisabledFailsClosedWithCodexIdentity(t *testing.T)
 func TestPoolRoutingAgentIDBlankFailsClosed(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	spawnCalls := atomic.Int32{}
-	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://127.0.0.1:1234"), nil
 	}, PoolConfig{})
@@ -63,7 +63,7 @@ func TestPoolRoutingAgentIDBlankFailsClosed(t *testing.T) {
 func TestResumeRoutingExplicitlyDisabledFailsClosedWithCodexIdentity(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "0")
 	spawnCalls := atomic.Int32{}
-	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://should-not-be-called"), nil
 	}, PoolConfig{})
@@ -94,7 +94,7 @@ func TestResumeSessionFailsClosedBeforePreparingDefaultIdentity(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	workDir := t.TempDir()
 	spawnCalls := atomic.Int32{}
-	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://should-not-be-called"), nil
 	}, PoolConfig{})
@@ -125,7 +125,7 @@ func TestResumeSessionFailsClosedBeforePreparingDefaultIdentity(t *testing.T) {
 func TestResumeSessionUsesPoolWhenBindingHasIdentity(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	spawnCalls := atomic.Int32{}
-	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://127.0.0.1:4321"), nil
 	}, PoolConfig{})
@@ -158,7 +158,7 @@ func TestResumeSessionUsesPoolWhenBindingHasIdentity(t *testing.T) {
 func TestResumeSessionFailsClosedWhenPoolEnabledAndIdentityMissing(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "")
 	spawnCalls := atomic.Int32{}
-	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://unused"), nil
 	}, PoolConfig{})

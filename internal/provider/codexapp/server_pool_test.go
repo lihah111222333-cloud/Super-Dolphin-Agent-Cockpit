@@ -31,7 +31,7 @@ func newFakeServer(url string) *fakeServer {
 }
 
 func newCountingFakeSpawner(calls *atomic.Int32) Spawner {
-	return func(_ context.Context, home string) (SpawnedServer, error) {
+	return func(_ context.Context, home, _ string) (SpawnedServer, error) {
 		calls.Add(1)
 		return newFakeServer("ws://" + filepath.Base(home)), nil
 	}
@@ -243,7 +243,7 @@ func TestServerPoolAcquireDeadCacheRespawnsServer(t *testing.T) {
 	t.Parallel()
 	spawnCalls := atomic.Int32{}
 	var current *fakeServer
-	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
+	spawner := func(_ context.Context, home, _ string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		current = newFakeServer("ws://" + filepath.Base(home))
 		return current, nil
@@ -274,7 +274,7 @@ func TestServerPoolAcquireDeadCacheRespawnsServer(t *testing.T) {
 
 func TestServerPoolAcquireClosedPoolReturnsNoopRelease(t *testing.T) {
 	t.Parallel()
-	p, _ := newPoolForTest(t, func(_ context.Context, home string) (SpawnedServer, error) {
+	p, _ := newPoolForTest(t, func(_ context.Context, home, _ string) (SpawnedServer, error) {
 		return newFakeServer("ws://" + filepath.Base(home)), nil
 	}, PoolConfig{})
 
@@ -312,7 +312,7 @@ func TestServerPoolAcquireNilSpawnerReturnsInvalidIdentity(t *testing.T) {
 func TestServerPoolAcquireNormalizeIdentityError(t *testing.T) {
 	t.Parallel()
 	spawnCalls := atomic.Int32{}
-	spawner := func(_ context.Context, _ string) (SpawnedServer, error) {
+	spawner := func(_ context.Context, _, _ string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://unexpected"), nil
 	}
@@ -377,7 +377,7 @@ func TestServerPoolAcquireDoesNotApplyCapacityLimit(t *testing.T) {
 
 func TestServerPoolAcquireAllowsMultipleBusyEntries(t *testing.T) {
 	t.Parallel()
-	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
+	spawner := func(_ context.Context, home, _ string) (SpawnedServer, error) {
 		return newFakeServer("ws://" + filepath.Base(home)), nil
 	}
 	p, _ := newPoolForTest(t, spawner, PoolConfig{})
@@ -404,7 +404,7 @@ func TestServerPoolAcquireAllowsMultipleBusyEntries(t *testing.T) {
 func TestServerPoolAcquireSpawnErrorCreatesBackoffSlot(t *testing.T) {
 	t.Parallel()
 	spawnErr := errors.New("port taken")
-	p, nowRef := newPoolForTest(t, func(_ context.Context, _ string) (SpawnedServer, error) {
+	p, nowRef := newPoolForTest(t, func(_ context.Context, _, _ string) (SpawnedServer, error) {
 		return nil, spawnErr
 	}, PoolConfig{SpawnBackoff: time.Minute})
 	defer p.Close(context.Background())
@@ -438,7 +438,7 @@ func TestServerPoolAcquireSpawnErrorPreservesExistingSlot(t *testing.T) {
 	t.Parallel()
 	spawnCalls := atomic.Int32{}
 	spawnErr := errors.New("port taken")
-	p, nowRef := newPoolForTest(t, func(_ context.Context, _ string) (SpawnedServer, error) {
+	p, nowRef := newPoolForTest(t, func(_ context.Context, _, _ string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		return nil, spawnErr
 	}, PoolConfig{SpawnBackoff: time.Minute})
@@ -469,7 +469,7 @@ func TestServerPoolAcquireBackoffActiveReturnsWrappedError(t *testing.T) {
 	t.Parallel()
 	spawnCalls := atomic.Int32{}
 	spawnErr := errors.New("port taken")
-	p, _ := newPoolForTest(t, func(_ context.Context, _ string) (SpawnedServer, error) {
+	p, _ := newPoolForTest(t, func(_ context.Context, _, _ string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		return nil, spawnErr
 	}, PoolConfig{SpawnBackoff: time.Minute})
@@ -501,7 +501,7 @@ func TestServerPoolAcquireBackoffExpiredRetriesSpawn(t *testing.T) {
 	spawnCalls := atomic.Int32{}
 	spawnErr := errors.New("port taken")
 	var recovered SpawnedServer
-	p, nowRef := newPoolForTest(t, func(_ context.Context, home string) (SpawnedServer, error) {
+	p, nowRef := newPoolForTest(t, func(_ context.Context, home, _ string) (SpawnedServer, error) {
 		if spawnCalls.Add(1) == 1 {
 			return nil, spawnErr
 		}
@@ -540,7 +540,7 @@ func TestServerPoolAcquireBackoffExpiredRetriesSpawn(t *testing.T) {
 func TestServerPoolEvictIdleRemovesStaleEntries(t *testing.T) {
 	t.Parallel()
 	spawnErr := errors.New("port taken")
-	p, nowRef := newPoolForTest(t, func(context.Context, string) (SpawnedServer, error) {
+	p, nowRef := newPoolForTest(t, func(context.Context, string, string) (SpawnedServer, error) {
 		return nil, spawnErr
 	}, PoolConfig{IdleTimeout: 10 * time.Minute, SpawnBackoff: time.Hour})
 	defer p.Close(context.Background())
@@ -564,7 +564,7 @@ func TestServerPoolEvictIdleRemovesStaleEntries(t *testing.T) {
 func TestServerPoolCloseTearsEverythingDown(t *testing.T) {
 	t.Parallel()
 	var created []*fakeServer
-	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
+	spawner := func(_ context.Context, home, _ string) (SpawnedServer, error) {
 		server := newFakeServer("ws://" + filepath.Base(home))
 		created = append(created, server)
 		return server, nil
@@ -619,7 +619,7 @@ func TestServerPoolSpawnerRunsOutsideMutex(t *testing.T) {
 	t.Parallel()
 	var p *ServerPool
 	spawnerEntered := make(chan struct{})
-	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
+	spawner := func(_ context.Context, home, _ string) (SpawnedServer, error) {
 		close(spawnerEntered)
 		_ = p.Size()
 		return newFakeServer("ws://" + filepath.Base(home)), nil

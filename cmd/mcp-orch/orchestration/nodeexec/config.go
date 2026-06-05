@@ -80,7 +80,9 @@ type OnFailureConfig struct {
 type AgentExecConfig struct {
 	Provider string `json:"provider,omitempty"` // claude | codex
 	Model    string `json:"model,omitempty"`    // opus | sonnet | ...
-	// CodexModelProvider maps to Codex CLI model_provider via thread/start config.codexModelProvider.
+	// Codex identity maps to thread/start config.codexHome/codexInstanceKey/codexModelProvider.
+	CodexHome          string           `json:"codex_home,omitempty"`
+	CodexInstanceKey   string           `json:"codex_instance_key,omitempty"`
 	CodexModelProvider string           `json:"codex_model_provider,omitempty"`
 	AgentKey           string           `json:"agent_key,omitempty"`     // 查 prompt_templates 表
 	PromptKey          string           `json:"prompt_key,omitempty"`    // 精确 prompt_templates.prompt_key

@@ -71,7 +71,7 @@ func TestBuildPoolSpawnCmdAppendsExtraArgs(t *testing.T) {
 	}
 	idxApp := strings.Index(shellCmd, "app-server")
 	idxExtra := strings.Index(shellCmd, "--log-level")
-	if idxApp < 0 || idxExtra < 0 || idxApp > idxExtra {
+	if idxApp < 0 || idxExtra < 0 || idxExtra > idxApp {
 		t.Fatalf("argv ordering wrong:\n%s", shellCmd)
 	}
 }

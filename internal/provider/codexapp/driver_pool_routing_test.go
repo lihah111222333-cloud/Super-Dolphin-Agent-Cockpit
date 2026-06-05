@@ -25,7 +25,7 @@ func newRoutingDriver(t *testing.T, pool *ServerPool) *driver {
 
 func newSingleURLPoolForTest(t *testing.T, url string) *ServerPool {
 	t.Helper()
-	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		return newFakeServer(url), nil
 	}, PoolConfig{})
 	t.Cleanup(func() { _ = pool.Close(context.Background()) })
@@ -67,7 +67,7 @@ func (r *recordingSkillMirrorReconciler) ReconcileProviderMirrors(ctx context.Co
 func TestPoolRoutingExplicitlyDisabledAllowsMissingIdentity(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "0")
 	spawnCalls := atomic.Int32{}
-	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://should-not-be-called"), nil
 	}, PoolConfig{})
@@ -92,7 +92,7 @@ func TestPoolRoutingExplicitlyDisabledAllowsMissingIdentity(t *testing.T) {
 func TestResolveSessionOptionsFailsClosedOnIdentityError(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "")
 	spawnCalls := atomic.Int32{}
-	spawner := func(context.Context, string) (SpawnedServer, error) {
+	spawner := func(context.Context, string, string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://unused"), nil
 	}
@@ -127,7 +127,7 @@ func TestStartSessionReconcilesMirrorsBeforePoolAcquireAndDefaultsIdentity(t *te
 	workDir := t.TempDir()
 	events := []string{}
 	var gotHome string
-	pool := NewServerPool(slog.Default(), func(_ context.Context, home string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(_ context.Context, home, _ string) (SpawnedServer, error) {
 		events = append(events, "acquire")
 		gotHome = home
 		return nil, errors.New("stop after acquire")
@@ -178,7 +178,7 @@ func TestStartSessionReconcilesProjectMirrorsFromGitRootBeforePoolAcquire(t *tes
 		t.Fatalf("MkdirAll subdir: %v", err)
 	}
 	events := []string{}
-	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		events = append(events, "acquire")
 		return nil, errors.New("stop after acquire")
 	}, PoolConfig{SpawnBackoff: 1})
@@ -242,7 +242,7 @@ func TestStartSessionMirrorContentConflictAllowsPoolAcquire(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	workDir := t.TempDir()
 	acquires := atomic.Int32{}
-	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		acquires.Add(1)
 		return nil, errors.New("stop after acquire")
 	}, PoolConfig{SpawnBackoff: 1})
@@ -273,7 +273,7 @@ func TestStartSessionMirrorSafetyConflictBlocksPoolAcquire(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	workDir := t.TempDir()
 	acquires := atomic.Int32{}
-	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		acquires.Add(1)
 		return nil, errors.New("stop after acquire")
 	}, PoolConfig{SpawnBackoff: 1})
@@ -301,7 +301,7 @@ func TestStartSessionRequiresSkillMirrorReconciler(t *testing.T) {
 	t.Setenv(providershared.SuperDolphinHomeEnv, filepath.Join(t.TempDir(), "sd-home"))
 	workDir := t.TempDir()
 	acquires := atomic.Int32{}
-	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		acquires.Add(1)
 		return newFakeServer("ws://unused"), nil
 	}, PoolConfig{})
@@ -324,7 +324,7 @@ func TestStartSessionMirrorReconcileFailureBlocksPoolAcquire(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	workDir := t.TempDir()
 	acquires := atomic.Int32{}
-	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		acquires.Add(1)
 		return nil, errors.New("stop after acquire")
 	}, PoolConfig{SpawnBackoff: 1})
@@ -352,7 +352,7 @@ func TestStartSessionReconcilesMirrorsToExplicitCodexHome(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	workDir := t.TempDir()
 	var gotHome string
-	pool := NewServerPool(slog.Default(), func(_ context.Context, home string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(_ context.Context, home, _ string) (SpawnedServer, error) {
 		gotHome = home
 		return nil, errors.New("stop after acquire")
 	}, PoolConfig{SpawnBackoff: 1})
@@ -385,7 +385,7 @@ func TestStartSessionReconcilesMirrorsToExplicitCodexHome(t *testing.T) {
 func TestStartSessionRejectsRelativeExplicitCodexHome(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	workDir := t.TempDir()
-	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		t.Fatal("pool acquire called with relative codex home")
 		return nil, nil
 	}, PoolConfig{})
@@ -412,7 +412,7 @@ func TestStartSessionRejectsMalformedCodexIdentityBeforeHomeOrMirror(t *testing.
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	workDir := t.TempDir()
-	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		t.Fatal("pool acquire called for malformed codex identity")
 		return nil, nil
 	}, PoolConfig{})
@@ -460,7 +460,7 @@ func TestStartSessionNormalizesExplicitCodexHomeBeforeMirrorAndPool(t *testing.T
 		t.Fatalf("EvalSymlinks real codex home: %v", err)
 	}
 	var gotHome string
-	pool := NewServerPool(slog.Default(), func(_ context.Context, home string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(_ context.Context, home, _ string) (SpawnedServer, error) {
 		gotHome = home
 		return nil, errors.New("stop after acquire")
 	}, PoolConfig{SpawnBackoff: 1})
@@ -529,7 +529,7 @@ func assertExplicitCodexMirrorTargets(t *testing.T, targets []contract.SkillProv
 
 func TestStartSessionRejectsEmptyCWDBeforeMirrorReconcile(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
-	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		t.Fatal("pool acquire called with empty cwd")
 		return nil, nil
 	}, PoolConfig{})
@@ -546,7 +546,7 @@ func TestPoolRoutingPassesStartCWDToSpawnerWorkDir(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	workDir := t.TempDir()
 	var got string
-	pool := NewServerPool(slog.Default(), func(ctx context.Context, home string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(ctx context.Context, home, _ string) (SpawnedServer, error) {
 		got = poolSpawnWorkDir(ctx)
 		return newFakeServer("ws://127.0.0.1:7788"), nil
 	}, PoolConfig{})
@@ -573,7 +573,7 @@ func TestPoolRoutingPassesStartCWDToSpawnerWorkDir(t *testing.T) {
 // not swallowed: retry / observability must see them.
 func TestPoolRoutingSurfacesPoolError(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
-	spawner := func(context.Context, string) (SpawnedServer, error) {
+	spawner := func(context.Context, string, string) (SpawnedServer, error) {
 		return nil, errors.New("spawn blew up")
 	}
 	pool := NewServerPool(slog.Default(), spawner, PoolConfig{SpawnBackoff: 1})
@@ -592,7 +592,7 @@ func TestPoolRoutingSurfacesPoolError(t *testing.T) {
 // type. With pool routing enabled, ResolveCodexIdentity errors must surface.
 func TestPoolRoutingInvalidConfigTypeFailsClosed(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
-	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		return newFakeServer("ws://unused"), nil
 	}, PoolConfig{})
 	defer pool.Close(context.Background())
@@ -610,7 +610,7 @@ func TestPoolRoutingInvalidConfigTypeFailsClosed(t *testing.T) {
 
 func TestPoolRoutingDisabledStillRejectsInvalidIdentityConfig(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "0")
-	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		return newFakeServer("ws://unused"), nil
 	}, PoolConfig{})
 	defer pool.Close(context.Background())

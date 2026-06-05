@@ -13,7 +13,7 @@ import (
 func TestPoolRoutingEnabledByDefault(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "")
 	spawnCalls := atomic.Int32{}
-	spawner := func(context.Context, string) (SpawnedServer, error) {
+	spawner := func(context.Context, string, string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://127.0.0.1:9999"), nil
 	}
@@ -42,7 +42,7 @@ func TestPoolRoutingEnabledByDefault(t *testing.T) {
 func TestResolveSessionOptionsDefaultRoutingFailsClosedOnMissingIdentity(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "")
 	spawnCalls := atomic.Int32{}
-	spawner := func(context.Context, string) (SpawnedServer, error) {
+	spawner := func(context.Context, string, string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://unused"), nil
 	}
@@ -64,7 +64,7 @@ func TestResolveSessionOptionsDefaultRoutingFailsClosedOnMissingIdentity(t *test
 
 func TestPoolRoutingSuccessPath(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
-	spawner := func(context.Context, string) (SpawnedServer, error) {
+	spawner := func(context.Context, string, string) (SpawnedServer, error) {
 		return newFakeServer("ws://127.0.0.1:7777"), nil
 	}
 	pool := NewServerPool(slog.Default(), spawner, PoolConfig{})
