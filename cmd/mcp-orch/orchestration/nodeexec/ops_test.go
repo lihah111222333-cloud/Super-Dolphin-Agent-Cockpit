@@ -2,6 +2,8 @@ package nodeexec
 
 import (
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -194,6 +196,44 @@ func TestOps_UnmarshalRejectsMissingDiscriminator(t *testing.T) {
 	var ops Ops
 	if err := json.Unmarshal(data, &ops); err == nil {
 		t.Fatalf("expected error for missing op discriminator, got nil")
+	}
+}
+
+func TestOps_UnmarshalAddNodeCarriesAssignedTo(t *testing.T) {
+	t.Parallel()
+	data := []byte(`[{"op":"add_node","node":{"node_key":"n1","title":"N1","node_type":"agent","assigned_to":"agent-1"}}]`)
+	var ops Ops
+	if err := json.Unmarshal(data, &ops); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	add, ok := ops[0].(OpAddNode)
+	if !ok {
+		t.Fatalf("ops[0] = %T, want OpAddNode", ops[0])
+	}
+	field := reflect.ValueOf(add.Node).FieldByName("AssignedTo")
+	if !field.IsValid() {
+		t.Fatalf("NodeSpec missing AssignedTo field; add_node assigned_to cannot persist atomically")
+	}
+	if got := field.String(); got != "agent-1" {
+		t.Fatalf("AssignedTo = %q, want agent-1", got)
+	}
+}
+
+func TestOps_UnmarshalAddNodeRejectsUnknownFields(t *testing.T) {
+	t.Parallel()
+	cases := []string{
+		`[{"op":"add_node","assigned_to":"agent-1","node":{"node_key":"n1","title":"N1","node_type":"agent"}}]`,
+		`[{"op":"add_node","node":{"node_key":"n1","title":"N1","node_type":"agent","assignedTo":"agent-1"}}]`,
+	}
+	for _, raw := range cases {
+		var ops Ops
+		err := json.Unmarshal([]byte(raw), &ops)
+		if err == nil {
+			t.Fatalf("unmarshal %s: error = nil, want unknown-field rejection", raw)
+		}
+		if !strings.Contains(err.Error(), "unknown field") {
+			t.Fatalf("unmarshal %s: err = %v, want unknown field", raw, err)
+		}
 	}
 }
 
