@@ -93,6 +93,7 @@ func TestPackageMacOSScriptRequiresVerifiedLSPBundle(t *testing.T) {
 		"pyright-langserver",
 		"rust-analyzer",
 		"bash-language-server",
+		"shellcheck",
 		"sg",
 		"bin/sg",
 		"jdtls",
@@ -121,6 +122,18 @@ func TestPackageMacOSScriptRequiresAndCopiesBashLanguageServer(t *testing.T) {
 	assertScriptContains(t, script, "copy_packaged_lsp_bundle \"$resources\"")
 	assertScriptContains(t, script, "ln -s \"../lsp/$rel_path\" \"$link_path\"")
 	assertScriptOrder(t, script, "\"bash-language-server|bin/bash-language-server\"", "resolve_packaged_lsp_bundle")
+}
+
+func TestPackageMacOSScriptRequiresAndCopiesShellcheck(t *testing.T) {
+	script := readScript(t, "package_macos.sh")
+
+	assertScriptContains(t, script, "\"shellcheck|bin/shellcheck\"")
+	assertScriptContains(t, script, "packaged LSP bundle is required; set $lsp_bundle_dir_env")
+	assertScriptContains(t, script, "shellcheck")
+	assertScriptContains(t, script, "packaged LSP bundle missing executable $server_id")
+	assertScriptContains(t, script, "copy_packaged_lsp_bundle \"$resources\"")
+	assertScriptContains(t, script, "ln -s \"../lsp/$rel_path\" \"$link_path\"")
+	assertScriptOrder(t, script, "\"shellcheck|bin/shellcheck\"", "resolve_packaged_lsp_bundle")
 }
 
 func TestPackageMacOSScriptsDoNotInvokeHostPython3(t *testing.T) {

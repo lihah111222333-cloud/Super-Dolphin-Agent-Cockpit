@@ -82,6 +82,7 @@ echo "==> installing Node-based LSP packages with host npm: $npm_bin"
   vscode-langservers-extracted \
   pyright \
   bash-language-server \
+  shellcheck \
   @ast-grep/cli
 
 write_no_system_python_stub() {
@@ -126,7 +127,9 @@ WRAP
   chmod +x "$lsp_dir/bin/$name"
 }
 write_path_wrapper bash-language-server node_modules/bash-language-server/out/cli.js
+"$lsp_dir/node_modules/.bin/shellcheck" --version >/dev/null
 write_path_wrapper sg node_modules/.bin/sg
+write_path_wrapper shellcheck node_modules/shellcheck/bin/shellcheck
 
 echo "==> copying native LSP servers"
 test -x "$gopls_bin" || { echo "missing gopls; set SUPER_DOLPHIN_GOPLS_BIN" >&2; exit 1; }
@@ -273,6 +276,7 @@ lsp_specs=(
   'pyright|bin/pyright-langserver|["python"]'
   'rust-analyzer|bin/rust-analyzer|["rust"]'
   'bash-language-server|bin/bash-language-server|["shellscript"]'
+  'shellcheck|bin/shellcheck|["shellcheck"]'
   'sg|bin/sg|["ast-grep"]'
   'go|bin/go|["go-toolchain"]'
 )

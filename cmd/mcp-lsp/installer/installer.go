@@ -2,6 +2,7 @@ package installer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -16,10 +17,16 @@ import (
 )
 
 type InstallerConfig struct {
-	BinaryName  string
-	InstallCmd  string
-	InstallArgs []string
-	Language    string
+	BinaryName       string
+	InstallCmd       string
+	InstallArgs      []string
+	Language         string
+	RequiredBinaries []RequiredBinary
+}
+
+type RequiredBinary struct {
+	Name      string
+	CheckArgs []string
 }
 
 type InstallStatus string
@@ -79,14 +86,16 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 
 	result := InstallResult{Lang: lang, Binary: cfg.BinaryName}
 
-	// 1. Check if binary is in PATH
+	// 1. Check if binary is in PATH and its companion tools are usable.
 	if path, err := exec.LookPath(cfg.BinaryName); err == nil {
-		result.Path = path
-		result.Status = InstallStatusPathFound
-		return result, nil
+		if err := validateRequiredBinaries(ctx, cfg); err == nil {
+			result.Path = path
+			result.Status = InstallStatusPathFound
+			return result, nil
+		}
 	}
 
-	p.logger.Info("LSP binary not found, attempting auto-install...",
+	p.logger.Info("LSP binary or required companion not ready, attempting auto-install...",
 		slog.String("lang", lang),
 		slog.String("binary", cfg.BinaryName),
 		slog.String("cmd", cfg.InstallCmd),
@@ -107,14 +116,20 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 		slog.String("duration", time.Since(start).String()),
 	)
 
-	// 3. Verify it is now in PATH
+	// 3. Verify it is now in PATH and companion tools are usable.
 	if path, err := exec.LookPath(cfg.BinaryName); err == nil {
+		if err := validateRequiredBinaries(ctx, cfg); err != nil {
+			return InstallResult{}, fmt.Errorf("auto-install succeeded but required LSP companion for %s is not usable: %w", cfg.BinaryName, err)
+		}
 		result.Path = path
 		result.Status = InstallStatusInstalledPath
 		p.logResolvedBinary(result)
 		return result, nil
 	}
 	if path, ok := postInstallBinaryPath(ctx, cfg); ok {
+		if err := validateRequiredBinaries(ctx, cfg); err != nil {
+			return InstallResult{}, fmt.Errorf("auto-install succeeded but required LSP companion for %s is not usable: %w", cfg.BinaryName, err)
+		}
 		result.Path = path
 		result.Status = InstallStatusInstalledFallback
 		p.logResolvedBinary(result)
@@ -122,6 +137,28 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 	}
 
 	return InstallResult{}, fmt.Errorf("auto-install succeeded but binary %s is still not found in PATH", cfg.BinaryName)
+}
+
+func validateRequiredBinaries(ctx context.Context, cfg InstallerConfig) error {
+	for _, required := range cfg.RequiredBinaries {
+		name := strings.TrimSpace(required.Name)
+		if name == "" {
+			return errors.New("required LSP companion binary name is empty")
+		}
+		path, err := exec.LookPath(name)
+		if err != nil {
+			return fmt.Errorf("required LSP companion binary %s is not found in PATH", name)
+		}
+		if len(required.CheckArgs) == 0 {
+			continue
+		}
+		cmd := exec.CommandContext(ctx, path, required.CheckArgs...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("required LSP companion binary %s failed health check (%s %v): %w\nOutput: %s",
+				name, path, required.CheckArgs, err, string(out))
+		}
+	}
+	return nil
 }
 
 func (p *Provider) logResolvedBinary(result InstallResult) {

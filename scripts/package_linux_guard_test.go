@@ -48,6 +48,7 @@ func TestPackageLinuxScriptBundlesVerifiedLSPBundle(t *testing.T) {
 		"pyright-langserver",
 		"rust-analyzer",
 		"bash-language-server",
+		"shellcheck",
 		"sg",
 		"bin/sg",
 	} {
@@ -58,7 +59,7 @@ func TestPackageLinuxScriptBundlesVerifiedLSPBundle(t *testing.T) {
 	assertScriptContains(t, script, "resolve_packaged_lsp_bundle")
 	assertScriptContains(t, script, "copy_packaged_lsp_bundle \"$stage\"")
 	assertScriptContains(t, script, "write_lsp_manifest \"$stage\"")
-	assertScriptContains(t, script, "rust-analyzer, bash-language-server, sg, and jdtls only for full profile")
+	assertScriptContains(t, script, "rust-analyzer, bash-language-server, shellcheck, sg, and jdtls only for full profile")
 	assertScriptContains(t, body, "\"lsp_bundle_path\": \"lsp\"")
 	assertScriptContains(t, body, "\"lsp_manifest_path\": \"lsp/lsp-manifest.json\"")
 	assertScriptOrder(t, script, "resolve_packaged_lsp_bundle", "mkdir -p \"$stage/bin\"")
@@ -90,12 +91,12 @@ func TestPackageLinuxRunScriptPrefersBundledCodexBin(t *testing.T) {
 	assertScriptContains(t, script, "export GO_AGENT_PEER_BIN_DIR=\"$here/bin\"")
 	assertScriptDoesNotContain(t, script, "GO_AGENT_PEER_BIN_DIR:+")
 	assertScriptContains(t, script, "export SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX=1")
-	assertScriptContains(t, script, "bundled_execs=(mcp-orch mcp-lsp mcp-ida gopls go typescript-language-server vscode-css-language-server pyright-langserver rust-analyzer bash-language-server sg)")
+	assertScriptContains(t, script, "bundled_execs=(mcp-orch mcp-lsp mcp-ida gopls go typescript-language-server vscode-css-language-server pyright-langserver rust-analyzer bash-language-server shellcheck sg)")
 	assertScriptContains(t, script, "if grep -q '\"jdtls\"' \"$SUPER_DOLPHIN_LSP_MANIFEST\"; then")
 	assertScriptContains(t, script, "bundled_execs+=(jdtls)")
 	assertScriptContains(t, script, "missing bundled executable: $here/bin/$bundled_exec")
 	assertScriptDoesNotContain(t, script, "gopls check")
-	assertScriptOrder(t, script, "bundled_execs=(mcp-orch mcp-lsp mcp-ida gopls go typescript-language-server vscode-css-language-server pyright-langserver rust-analyzer bash-language-server sg)", "exec \"$here/bin/agent-terminal\"")
+	assertScriptOrder(t, script, "bundled_execs=(mcp-orch mcp-lsp mcp-ida gopls go typescript-language-server vscode-css-language-server pyright-langserver rust-analyzer bash-language-server shellcheck sg)", "exec \"$here/bin/agent-terminal\"")
 }
 
 func TestPackageLinuxScriptRequiresAndCopiesBashLanguageServer(t *testing.T) {
@@ -108,6 +109,18 @@ func TestPackageLinuxScriptRequiresAndCopiesBashLanguageServer(t *testing.T) {
 	assertScriptContains(t, script, "copy_packaged_lsp_bundle \"$stage\"")
 	assertScriptContains(t, script, "ln -s \"../lsp/$rel_path\" \"$link_path\"")
 	assertScriptOrder(t, script, "\"bash-language-server|bin/bash-language-server\"", "resolve_packaged_lsp_bundle")
+}
+
+func TestPackageLinuxScriptRequiresAndCopiesShellcheck(t *testing.T) {
+	script := readScript(t, "package_linux.sh")
+
+	assertScriptContains(t, script, "\"shellcheck|bin/shellcheck\"")
+	assertScriptContains(t, script, "packaged LSP bundle is required; set $lsp_bundle_dir_env")
+	assertScriptContains(t, script, "shellcheck")
+	assertScriptContains(t, script, "packaged LSP bundle missing executable $server_id")
+	assertScriptContains(t, script, "copy_packaged_lsp_bundle \"$stage\"")
+	assertScriptContains(t, script, "ln -s \"../lsp/$rel_path\" \"$link_path\"")
+	assertScriptOrder(t, script, "\"shellcheck|bin/shellcheck\"", "resolve_packaged_lsp_bundle")
 }
 
 func TestPackageLinuxRunScriptExportsLSPManifest(t *testing.T) {
@@ -272,6 +285,15 @@ func TestVerifyPackagedAppLinuxChecksBundledBashLanguageServer(t *testing.T) {
 	assertScriptContains(t, script, "\"bash-language-server|bin/bash-language-server\"")
 	assertScriptContains(t, script, "\"$package_root/bin/bash-language-server\"")
 	assertScriptContains(t, script, "bash-language-server)")
+	assertScriptContains(t, script, "printf '%s\\n' \"--version\"")
+}
+
+func TestVerifyPackagedAppLinuxChecksBundledShellcheck(t *testing.T) {
+	script := readScript(t, "verify_packaged_app_linux.sh")
+
+	assertScriptContains(t, script, "\"shellcheck|bin/shellcheck\"")
+	assertScriptContains(t, script, "\"$package_root/bin/shellcheck\"")
+	assertScriptContains(t, script, "shellcheck)")
 	assertScriptContains(t, script, "printf '%s\\n' \"--version\"")
 }
 
