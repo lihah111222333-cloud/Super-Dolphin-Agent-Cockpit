@@ -221,7 +221,7 @@ func (s *service) threadPatchLocked(threadID, source string) uidto.UIThreadPatch
 		patch.OverlayText = strings.TrimSpace(summary.OverlayText)
 		patch.OverlayType = strings.TrimSpace(summary.OverlayType)
 		patch.OverlayPriority = summary.OverlayPriority
-		patch.Interruptible = patchInterruptible(status)
+		patch.Interruptible = patchInterruptible(status, id, s.state.ActiveTurn)
 	}
 	if runtimeEntry, ok := s.threadAgentRuntimeLocked(id); ok {
 		patch.AgentRuntime = runtimeEntry
@@ -296,12 +296,15 @@ func (s *service) applyThreadDiffLocked(patch *uidto.UIThreadPatch, threadID, so
 	}
 }
 
-func patchInterruptible(status string) *bool {
+func patchInterruptible(status, threadID string, activeTurn *TurnSummary) *bool {
 	status = strings.TrimSpace(status)
 	if status == "" {
 		return nil
 	}
-	interruptible := sidebarInterruptible(status)
+	interruptible := activeTurn != nil &&
+		strings.TrimSpace(activeTurn.ID) != "" &&
+		strings.TrimSpace(activeTurn.ThreadID) == strings.TrimSpace(threadID) &&
+		sidebarInterruptible(status)
 	return &interruptible
 }
 
