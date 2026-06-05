@@ -95,6 +95,9 @@ func createDAGRequestFromInput(in CreateDAGInput) (contract.CreateDAGRequest, er
 	if err != nil {
 		return contract.CreateDAGRequest{}, err
 	}
+	if err := validateRootAgentAssignees(nodes); err != nil {
+		return contract.CreateDAGRequest{}, err
+	}
 	finalNodeKey, err := normalizeFinalNodeKey(in.FinalNodeKey, nodes)
 	if err != nil {
 		return contract.CreateDAGRequest{}, err
@@ -115,6 +118,36 @@ func createDAGRequestFromInput(in CreateDAGInput) (contract.CreateDAGRequest, er
 		Metadata:    metadata,
 		Nodes:       nodes,
 	}, nil
+}
+
+func validateRootAgentAssignees(nodes []contract.CreateDAGNodeRequest) error {
+	for i, node := range nodes {
+		if !isRunnableRootAgentNode(node) {
+			continue
+		}
+		if strings.TrimSpace(node.AssignedTo) != "" {
+			continue
+		}
+		return fmt.Errorf("nodes[%d].assigned_to required for root agent node %q with config.exec; task_start_dag cannot automatically dispatch unassigned roots", i, node.NodeKey)
+	}
+	return nil
+}
+
+func isRunnableRootAgentNode(node contract.CreateDAGNodeRequest) bool {
+	nodeType := strings.TrimSpace(node.NodeType)
+	return (nodeType == "" || nodeType == "agent") && len(node.DependsOn) == 0 && hasNodeExecConfig(node.Config)
+}
+
+func hasNodeExecConfig(raw json.RawMessage) bool {
+	if !hasExplicitRawJSON(raw) {
+		return false
+	}
+	var config map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return false
+	}
+	exec, ok := config["exec"]
+	return ok && hasExplicitRawJSON(exec)
 }
 
 func createDAGNodesFromInput(nodes []CreateDAGNodeInput) ([]contract.CreateDAGNodeRequest, error) {
