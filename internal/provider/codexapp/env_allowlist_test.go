@@ -14,10 +14,9 @@ func TestBuildAllowlistedSpawnEnvKeepsOnlyListed(t *testing.T) {
 		"USER=a",
 		"SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN=bootstrap-token",
 		"SUPER_DOLPHIN_CODEX_RELAY_API_KEY=privileged-key",
-		"CODEX_HOME=/stale/home",       // rogue — must be dropped
-		"OPENAI_API_KEY=secret",        // rogue — must be dropped
-		"AWS_SESSION_TOKEN=secret",     // rogue — must be dropped
-		"HTTP_PROXY=http://proxy:8080", // not on allowlist
+		"CODEX_HOME=/stale/home",   // rogue — must be dropped
+		"OPENAI_API_KEY=secret",    // rogue — must be dropped
+		"AWS_SESSION_TOKEN=secret", // rogue — must be dropped
 	}
 	got := buildAllowlistedSpawnEnv(parent, nil)
 	text := strings.Join(got, "\n")
@@ -28,9 +27,33 @@ func TestBuildAllowlistedSpawnEnvKeepsOnlyListed(t *testing.T) {
 		}
 	}
 	// Must drop.
-	for _, rogue := range []string{"CODEX_HOME=", "SUPER_DOLPHIN_CODEX_RELAY_API_KEY=", "OPENAI_API_KEY=", "AWS_SESSION_TOKEN=", "HTTP_PROXY="} {
+	for _, rogue := range []string{"CODEX_HOME=", "SUPER_DOLPHIN_CODEX_RELAY_API_KEY=", "OPENAI_API_KEY=", "AWS_SESSION_TOKEN="} {
 		if strings.Contains(text, rogue) {
 			t.Errorf("expected %q dropped, got %v", rogue, got)
+		}
+	}
+}
+
+func TestBuildAllowlistedSpawnEnvKeepsProxyEnvAndLoopbackNoProxy(t *testing.T) {
+	t.Parallel()
+	parent := []string{
+		"PATH=/usr/bin",
+		"HTTP_PROXY=http://127.0.0.1:7897",
+		"https_proxy=http://127.0.0.1:7897",
+		"ALL_PROXY=socks5://127.0.0.1:7890",
+		"NO_PROXY=example.com,127.0.0.1",
+	}
+	got := buildAllowlistedSpawnEnv(parent, nil)
+	text := strings.Join(got, "\n")
+	for _, want := range []string{
+		"HTTP_PROXY=http://127.0.0.1:7897",
+		"https_proxy=http://127.0.0.1:7897",
+		"ALL_PROXY=socks5://127.0.0.1:7890",
+		"NO_PROXY=example.com,127.0.0.1,localhost,::1",
+		"no_proxy=example.com,127.0.0.1,localhost,::1",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("expected %q retained, got %v", want, got)
 		}
 	}
 }

@@ -10,6 +10,7 @@ func injectManagedLaunchArgs(args map[string]any, binding toolCallBinding, provi
 		{key: "provider", value: provider},
 		{key: "model", value: model},
 		{key: "effort", value: effort},
+		{key: "codex_model_provider", value: binding.CodexModelProvider},
 	} {
 		if setArgStringIfMissing(args, item.key, item.value) {
 			changed = true

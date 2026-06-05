@@ -192,8 +192,15 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 		LauncherParamEffort:           effort,
 		LauncherParamLanguage:         strings.TrimSpace(req.Language),
 	}
+	config := map[string]any{}
 	if disabledTools := envValue(req.Env, "AGENT_DISABLED_TOOLS"); disabledTools != "" {
-		params[LauncherParamConfig] = map[string]any{"disallowed_tools": disabledTools}
+		config["disallowed_tools"] = disabledTools
+	}
+	if codexModelProvider := envValue(req.Env, "AGENT_CODEX_MODEL_PROVIDER"); codexModelProvider != "" {
+		config["codexModelProvider"] = codexModelProvider
+	}
+	if len(config) > 0 {
+		params[LauncherParamConfig] = config
 	}
 	resp, err := rpcCall[map[string]any](ctx, r, LauncherMethodThreadStart, params)
 	elapsed := time.Since(start)

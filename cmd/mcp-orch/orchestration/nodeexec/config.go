@@ -78,18 +78,20 @@ type OnFailureConfig struct {
 // AgentExecConfig 是 node_type=agent 节点的 exec 块。
 // 字段对齐 orchestration_launch_agent 入参（F1.1 解码后映射）。
 type AgentExecConfig struct {
-	Provider      string           `json:"provider,omitempty"`      // claude | codex
-	Model         string           `json:"model,omitempty"`         // opus | sonnet | ...
-	AgentKey      string           `json:"agent_key,omitempty"`     // 查 prompt_templates 表
-	PromptKey     string           `json:"prompt_key,omitempty"`    // 精确 prompt_templates.prompt_key
-	CWD           string           `json:"cwd,omitempty"`           // explicit absolute launch cwd
-	Effort        string           `json:"effort,omitempty"`        // xhigh | high | medium | low
-	Language      string           `json:"language,omitempty"`      // zh | en
-	Isolation     string           `json:"isolation,omitempty"`     // shared (默认) | worktree
-	AllowedTools  []string         `json:"allowed_tools,omitempty"` // 白名单
-	DisabledTools []string         `json:"disabled_tools,omitempty"`
-	BudgetTokens  int64            `json:"budget_tokens,omitempty"` // 字段位，骨架不 enforce
-	OnFailure     *OnFailureConfig `json:"on_failure,omitempty"`
+	Provider string `json:"provider,omitempty"` // claude | codex
+	Model    string `json:"model,omitempty"`    // opus | sonnet | ...
+	// CodexModelProvider maps to Codex CLI model_provider via thread/start config.codexModelProvider.
+	CodexModelProvider string           `json:"codex_model_provider,omitempty"`
+	AgentKey           string           `json:"agent_key,omitempty"`     // 查 prompt_templates 表
+	PromptKey          string           `json:"prompt_key,omitempty"`    // 精确 prompt_templates.prompt_key
+	CWD                string           `json:"cwd,omitempty"`           // explicit absolute launch cwd
+	Effort             string           `json:"effort,omitempty"`        // xhigh | high | medium | low
+	Language           string           `json:"language,omitempty"`      // zh | en
+	Isolation          string           `json:"isolation,omitempty"`     // shared (默认) | worktree
+	AllowedTools       []string         `json:"allowed_tools,omitempty"` // 白名单
+	DisabledTools      []string         `json:"disabled_tools,omitempty"`
+	BudgetTokens       int64            `json:"budget_tokens,omitempty"` // 字段位，骨架不 enforce
+	OnFailure          *OnFailureConfig `json:"on_failure,omitempty"`
 }
 
 // AutomationExecConfig 是 node_type=automation 节点的 exec 块。

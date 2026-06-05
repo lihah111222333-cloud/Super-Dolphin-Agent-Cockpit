@@ -22,20 +22,21 @@ var (
 )
 
 type LaunchAgentInput struct {
-	AgentID       string `json:"agent_id,omitempty"`
-	Name          string `json:"name"`
-	Prompt        string `json:"prompt,omitempty"`
-	ParentID      string `json:"parent_id,omitempty"`
-	AgentType     string `json:"agent_type,omitempty"`
-	AgentKey      string `json:"agent_key,omitempty"`
-	PromptKey     string `json:"prompt_key,omitempty"`
-	MemoryScope   string `json:"memory_scope,omitempty"`
-	CWD           string `json:"cwd,omitempty"`
-	Provider      string `json:"provider,omitempty"`
-	Model         string `json:"model,omitempty"`
-	Effort        string `json:"effort,omitempty"`
-	Language      string `json:"language,omitempty"`
-	DisabledTools string `json:"disabled_tools,omitempty"`
+	AgentID            string `json:"agent_id,omitempty"`
+	Name               string `json:"name"`
+	Prompt             string `json:"prompt,omitempty"`
+	ParentID           string `json:"parent_id,omitempty"`
+	AgentType          string `json:"agent_type,omitempty"`
+	AgentKey           string `json:"agent_key,omitempty"`
+	PromptKey          string `json:"prompt_key,omitempty"`
+	MemoryScope        string `json:"memory_scope,omitempty"`
+	CWD                string `json:"cwd,omitempty"`
+	Provider           string `json:"provider,omitempty"`
+	Model              string `json:"model,omitempty"`
+	CodexModelProvider string `json:"codex_model_provider,omitempty"`
+	Effort             string `json:"effort,omitempty"`
+	Language           string `json:"language,omitempty"`
+	DisabledTools      string `json:"disabled_tools,omitempty"`
 }
 
 type SendMessageInput struct {
@@ -466,7 +467,7 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 		MemoryScope: memoryScope,
 		Cwd:         in.CWD,
 		Command:     []string{strings.TrimSpace(exe)},
-		Env:         launchEnv(provider, strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort)),
+		Env:         launchEnv(provider, strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort), strings.TrimSpace(in.CodexModelProvider)),
 		Language:    strings.TrimSpace(in.Language),
 	}
 	if dt := strings.TrimSpace(in.DisabledTools); dt != "" {
@@ -499,7 +500,7 @@ func validateMemoryScope(raw string) (string, error) {
 	}
 }
 
-func launchEnv(provider, model, effort string) []string {
+func launchEnv(provider, model, effort, codexModelProvider string) []string {
 	var env []string
 	if provider = strings.TrimSpace(provider); provider != "" {
 		env = append(env, "AGENT_PROVIDER="+provider)
@@ -511,6 +512,9 @@ func launchEnv(provider, model, effort string) []string {
 	}
 	if effort = strings.TrimSpace(effort); effort != "" {
 		env = append(env, "AGENT_EFFORT="+effort)
+	}
+	if codexModelProvider = strings.TrimSpace(codexModelProvider); codexModelProvider != "" {
+		env = append(env, "AGENT_CODEX_MODEL_PROVIDER="+codexModelProvider)
 	}
 	return env
 }

@@ -339,9 +339,10 @@ func TestToolBridge_OrchestrationLaunchInheritsParentContextFromProviderThread(t
 		"provider": "codex",
 	})
 	wantArgs := mustRawJSON(t, map[string]any{
-		"name":      "idle-agent",
-		"parent_id": "agent-parent",
-		"provider":  "codex",
+		"codex_model_provider": "openai",
+		"name":                 "idle-agent",
+		"parent_id":            "agent-parent",
+		"provider":             "codex",
 	})
 	h, registry := newHandlerForTest(newToolCallPeer(t, "orchestration_launch_agent", wantArgs, "launching", nil))
 	h.bindingStore = &toolCallBindingStoreStub{bindingsByProvider: map[string]toolCallBinding{
