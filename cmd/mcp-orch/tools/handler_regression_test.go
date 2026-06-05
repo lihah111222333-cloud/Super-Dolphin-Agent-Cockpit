@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -38,6 +39,40 @@ func TestCreateDAGNodesFromInputRejectsBlankRequiredFields(t *testing.T) {
 				t.Fatalf("createDAGNodesFromInput() error = %v, want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestHandleCreateDAGRejectsRunnableRootAgentWithoutAssignee(t *testing.T) {
+	called := false
+	handler := HandleCreateDAG(&golden.OrchestrationStub{
+		CreateDAGFunc: func(_ context.Context, _ contract.CreateDAGRequest) (contract.DAGDetail, error) {
+			called = true
+			return contract.DAGDetail{}, nil
+		},
+	})
+
+	_, err := handler(context.Background(), json.RawMessage(`{
+		"agent_id":"designer-1",
+		"dag_key":"dag-unassigned-root",
+		"title":"Unassigned root",
+		"schedule":{"trigger":"manual"},
+		"nodes":[{
+			"node_key":"writer",
+			"title":"Writer",
+			"node_type":"agent",
+			"config":{"exec":{"provider":"codex","prompt_key":"main/code-task"}}
+		}]
+	}`))
+	if err == nil {
+		t.Fatalf("HandleCreateDAG() error = nil, want assigned_to validation")
+	}
+	for _, want := range []string{"nodes[0].assigned_to", "writer", "root agent node", "task_start_dag"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("HandleCreateDAG() error = %q, want substring %q", err.Error(), want)
+		}
+	}
+	if called {
+		t.Fatal("HandleCreateDAG() called service despite invalid root agent assignee")
 	}
 }
 
