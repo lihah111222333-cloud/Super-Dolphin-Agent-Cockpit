@@ -19,13 +19,13 @@ func (s *service) InterruptTurn(ctx context.Context, session contract.Session, s
 	ctx = span.ctx
 	defer func() { s.finishTurnTraceSpan(span, err) }()
 	before := s.interruptBaseStatus(active, tracked)
+	if !tracked {
+		return attachInterruptEnvelope(before, buildTurnInterruptEnvelope(before.State, before.State, false, false, 0, false)), nil
+	}
 	start := time.Now()
 	waited, err := interruptAndWait(ctx, session, s.tracker, active, threadID, source, nil)
 	if err != nil {
 		return TurnStatus{}, err
-	}
-	if !tracked {
-		return attachInterruptEnvelope(before, buildTurnInterruptEnvelope(before.State, before.State, false, false, 0, false)), nil
 	}
 	return s.finishInterrupt(ctx, active, before, start, waited)
 }
