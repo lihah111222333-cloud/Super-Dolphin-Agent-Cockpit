@@ -84,6 +84,7 @@ export const RPC_METHODS = Object.freeze({
   DASHBOARD_DAG_RUNS: 'dashboard/dagRuns',
   DASHBOARD_DAG_RUN: 'dashboard/dagRun',
   DASHBOARD_DAG_START: 'dashboard/dagStart',
+  DASHBOARD_DAG_DISPATCH_NODE: 'dashboard/dagDispatchNode',
   DASHBOARD_DAG_TERMINATE: 'dashboard/dagTerminate',
   DASHBOARD_DAG_DELETE: 'dashboard/dagDelete',
   DASHBOARD_DAG_APPLY_OPS: 'dashboard/dagApplyOps',
@@ -416,6 +417,26 @@ function dashboardDagStartPayload(params) {
     triggerSource: normalizeString(payload.triggerSource),
     idempotencyKey: normalizeString(payload.idempotencyKey),
   });
+}
+
+function dashboardDagDispatchNodePayload(params) {
+  const payload = requireNumber(
+    RPC_METHODS.DASHBOARD_DAG_DISPATCH_NODE,
+    requireKey(
+      RPC_METHODS.DASHBOARD_DAG_DISPATCH_NODE,
+      requireKey(RPC_METHODS.DASHBOARD_DAG_DISPATCH_NODE, assertPlainObject(RPC_METHODS.DASHBOARD_DAG_DISPATCH_NODE, params), 'dagKey'),
+      'nodeKey',
+    ),
+    'runId',
+  );
+  const assignedTo = normalizeString(payload.assignedTo || payload.assigned_to);
+  if (!assignedTo) throw new Error(`${RPC_METHODS.DASHBOARD_DAG_DISPATCH_NODE}: assignedTo is required`);
+  return {
+    dagKey: payload.dagKey,
+    runId: payload.runId,
+    nodeKey: payload.nodeKey,
+    assignedTo,
+  };
 }
 
 function optionalInteger(value) {
@@ -874,6 +895,7 @@ function createPromptDagApi(callBackend) {
       requireKey(RPC_METHODS.DASHBOARD_DAG_RUN, assertPlainObject(RPC_METHODS.DASHBOARD_DAG_RUN, params), 'runKey'),
     ),
     startDag: (params) => callBackend(RPC_METHODS.DASHBOARD_DAG_START, dashboardDagStartPayload(params)),
+    dispatchDagNode: (params) => callBackend(RPC_METHODS.DASHBOARD_DAG_DISPATCH_NODE, dashboardDagDispatchNodePayload(params)),
     terminateDagRun: (params) => callBackend(RPC_METHODS.DASHBOARD_DAG_TERMINATE, dashboardDagTerminatePayload(params)),
     terminateDag: (params) => callBackend(RPC_METHODS.DASHBOARD_DAG_TERMINATE, dashboardDagTerminatePayload(params)),
     deleteDag: (params) => callBackend(
@@ -1204,6 +1226,7 @@ export const getDagDetail = backendApi.getDagDetail;
 export const getDagRuns = backendApi.getDagRuns;
 export const getDagRun = backendApi.getDagRun;
 export const startDag = backendApi.startDag;
+export const dispatchDagNode = backendApi.dispatchDagNode;
 export const terminateDagRun = backendApi.terminateDagRun;
 export const terminateDag = backendApi.terminateDag;
 export const deleteDag = backendApi.deleteDag;

@@ -106,6 +106,13 @@ type dagStartParams struct {
 	IdempotencyKey string `json:"idempotencyKey,omitempty"`
 }
 
+type dagDispatchNodeParams struct {
+	DAGKey     string `json:"dagKey,omitempty"`
+	NodeKey    string `json:"nodeKey,omitempty"`
+	RunID      int64  `json:"runId,omitempty"`
+	AssignedTo string `json:"assignedTo,omitempty"`
+}
+
 type dagTerminateParams struct {
 	DAGKey string `json:"dagKey,omitempty"`
 	RunKey string `json:"runKey,omitempty"`
@@ -365,6 +372,14 @@ func registerDashboardDAGHandlers(m handler.Map, svc Service) {
 			ExecutionState:   resp.ExecutionState,
 			Warning:          resp.Warning,
 		}, nil
+	})
+	m["dashboard/dagDispatchNode"] = platformrpc.StrictHandler(func(ctx context.Context, p dagDispatchNodeParams) (any, error) {
+		return svc.DispatchDAGNode(ctx, contract.DispatchNodeRequest{
+			DagKey:     p.DAGKey,
+			NodeKey:    p.NodeKey,
+			RunID:      p.RunID,
+			AssignedTo: p.AssignedTo,
+		})
 	})
 	m["dashboard/dagTerminate"] = platformrpc.StrictHandler(func(ctx context.Context, p dagTerminateParams) (any, error) {
 		if err := svc.TerminateDAG(ctx, p.DAGKey, p.RunKey, p.Reason); err != nil {

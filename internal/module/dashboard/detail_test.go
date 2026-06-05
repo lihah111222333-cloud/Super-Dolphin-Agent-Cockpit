@@ -315,6 +315,33 @@ func TestStartDAGRequiresDAGKey(t *testing.T) {
 	}
 }
 
+func TestDispatchDAGNodeUsesOrchestration(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{
+		orchestration: &stubDashboardOrchestration{
+			dispatchNodeResult: contract.DispatchNodeResponse{WakeupID: 99, Enqueued: true},
+		},
+	}
+
+	got, err := svc.DispatchDAGNode(context.Background(), contract.DispatchNodeRequest{
+		DagKey:     " dag-1 ",
+		RunID:      88,
+		NodeKey:    " draft ",
+		AssignedTo: " codex-runner ",
+	})
+	if err != nil {
+		t.Fatalf("DispatchDAGNode() error = %v", err)
+	}
+	if !got.Enqueued || got.WakeupID != 99 {
+		t.Fatalf("DispatchDAGNode() = %#v", got)
+	}
+	stub := svc.orchestration.(*stubDashboardOrchestration)
+	if stub.dispatchNodeRequest != (contract.DispatchNodeRequest{DagKey: "dag-1", RunID: 88, NodeKey: "draft", AssignedTo: "codex-runner"}) {
+		t.Fatalf("DispatchNode request = %#v", stub.dispatchNodeRequest)
+	}
+}
+
 func TestApplyDAGOpsRejectsMissingOps(t *testing.T) {
 	t.Parallel()
 
@@ -372,6 +399,9 @@ type stubDashboardOrchestration struct {
 	terminateDAGErr     error
 	deleteDAGRequest    contract.DeleteDAGRequest
 	deleteDAGErr        error
+	dispatchNodeRequest contract.DispatchNodeRequest
+	dispatchNodeResult  contract.DispatchNodeResponse
+	dispatchNodeErr     error
 	applyOpsRequest     contract.ApplyOpsRequest
 	applyOpsResult      contract.ApplyOpsResponse
 	applyOpsErr         error
@@ -503,6 +533,10 @@ func (s *stubDashboardOrchestration) ListRuns(_ context.Context, req contract.Li
 
 var errDashboardStub = errors.New("dashboard stub error")
 
-func (s *stubDashboardOrchestration) DispatchNode(context.Context, contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {
-	return contract.DispatchNodeResponse{}, nil
+func (s *stubDashboardOrchestration) DispatchNode(_ context.Context, req contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {
+	s.dispatchNodeRequest = req
+	if s.dispatchNodeErr != nil {
+		return contract.DispatchNodeResponse{}, s.dispatchNodeErr
+	}
+	return s.dispatchNodeResult, nil
 }
