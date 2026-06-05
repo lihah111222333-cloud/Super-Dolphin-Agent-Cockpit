@@ -385,6 +385,8 @@ function preferredObservabilityRepresentative(current, next) {
 }
 
 function observabilityEventPriority(event) {
+  const statusPriority = observabilityStatusPriority(event);
+  if (statusPriority > 0) return statusPriority;
   const kind = textValue(event.kind).toLowerCase();
   const phase = textValue(event.phase).toLowerCase();
   const method = textValue(event.method);
@@ -392,6 +394,14 @@ function observabilityEventPriority(event) {
   if (method.startsWith('thread/') || method.startsWith('ui/') || method.startsWith('api/')) return 3;
   if (textValue(event.error)) return 2;
   return 1;
+}
+
+function observabilityStatusPriority(event) {
+  const status = textValue(event.status).toLowerCase();
+  if (status === 'panic') return 7;
+  if (status === 'error') return 6;
+  if (status === 'slow') return 5;
+  return 0;
 }
 
 function worstObservabilityStatus(events) {

@@ -276,7 +276,7 @@ function useMemoryAutoDream({ dashboard, showNotice }) {
     setAutoToggling(true);
     try {
       await setMemoryAutoDreamIntent({ enabled: next });
-      showNotice('warning', `自动沉淀已切换为${next ? '开启' : '关闭'}，重启 agent-terminal 后生效`);
+      showNotice('warning', `自动沉淀已切换为${next ? '开启' : '关闭'}，重启 Super Dolphin 后生效`);
       await dashboard.refreshMemory();
     } catch (err) {
       showNotice('error', `切换自动沉淀失败：${errorMessage(err)}`);
@@ -658,7 +658,7 @@ function MemoryAutoDreamPanel({ autoDream, disabled }) {
       <button type="button" onClick={() => { void autoDream.toggleAutoDream(); }} disabled={autoDream.toggling || disabled}>
         {autoDream.enabled ? '关闭' : '开启'}
       </button>
-      {autoDream.pendingRestart ? <small className="memory-pending">已保存切换，重启 agent-terminal 后生效</small> : null}
+      {autoDream.pendingRestart ? <small className="memory-pending">已保存切换，重启 Super Dolphin 后生效</small> : null}
     </Panel>
   );
 }

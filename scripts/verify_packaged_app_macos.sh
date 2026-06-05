@@ -48,6 +48,8 @@ lsp_server_specs=(
   "vscode-langservers-extracted|bin/vscode-css-language-server"
   "pyright|bin/pyright-langserver"
   "rust-analyzer|bin/rust-analyzer"
+  "bash-language-server|bin/bash-language-server"
+  "shellcheck|bin/shellcheck"
   "sg|bin/sg"
   "go|bin/go"
 )
@@ -401,6 +403,12 @@ lsp_server_version_args() {
     jdtls)
       printf '%s\n' "-version"
       ;;
+    bash-language-server)
+      printf '%s\n' "--version"
+      ;;
+    shellcheck)
+      printf '%s\n' "--version"
+      ;;
     sg)
       printf '%s\n' "--help"
       ;;
@@ -669,6 +677,8 @@ required_execs=(
   "$resources/bin/vscode-css-language-server"
   "$resources/bin/pyright-langserver"
   "$resources/bin/rust-analyzer"
+  "$resources/bin/bash-language-server"
+  "$resources/bin/shellcheck"
   "$resources/lsp/bin/sg"
   "$resources/lsp/bin/python"
   "$resources/lsp/bin/python3"

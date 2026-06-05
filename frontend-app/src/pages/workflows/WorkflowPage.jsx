@@ -1279,7 +1279,12 @@ function WorkflowDetailContent({ model }) {
       {detail.detailLoading ? <p className="console-message">正在加载详情...</p> : null}
       {notices.notice?.message && notices.notice.dagKey === selection.selectedDagKey ? <p className="settings-status">{notices.notice.message}</p> : null}
       {derived.startDisabledReason ? <p className="console-message">{derived.startDisabledReason}</p> : null}
-      <WorkflowFinalOutputPanel key={finalOutputPath(derived.finalOutput) || 'inline-output'} finalOutput={derived.finalOutput} previewText={derived.finalText} />
+      <WorkflowFinalOutputPanel
+        key={finalOutputPath(derived.finalOutput) || 'inline-output'}
+        finalOutput={derived.finalOutput}
+        previewText={derived.finalText}
+        workflowCwd={model.workflowCwd}
+      />
       <WorkflowStatGrid derived={derived} selection={selection} />
       <WorkflowDiagnostics nodes={detail.nodes} />
       <WorkflowRunHistory model={model} />
@@ -1321,13 +1326,53 @@ function WorkflowStopButton({ model }) {
   );
 }
 
-function WorkflowFinalOutputPanel({ finalOutput, previewText }) {
+function formatWorkflowFileContent(content) {
+  if (!content) return '';
+  let trimmed = content.trim();
+
+  // Remove markdown code fences if present (e.g. ```json ... ```)
+  const fenceMatch = trimmed.match(/^`{3,}([a-zA-Z0-9_-]*)\n([\s\S]*?)\n`{3,}$/);
+  let isJson = false;
+  if (fenceMatch) {
+    trimmed = fenceMatch[2].trim();
+    if (fenceMatch[1] && fenceMatch[1].toLowerCase() === 'json') {
+      isJson = true;
+    }
+  }
+
+  // Check if it is a JSON object or array
+  if (isJson || trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return JSON.stringify(parsed, null, 2);
+    } catch {
+      // Ignore parsing errors, fall back
+    }
+  }
+
+  return fenceMatch ? fenceMatch[2] : content;
+}
+
+function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd }) {
   const [fileContent, setFileContent] = useState('');
   const [fileError, setFileError] = useState('');
   const [reading, setReading] = useState(false);
   const outputPath = finalOutputPath(finalOutput);
+
+  const isImage = useMemo(() => /\.(png|jpe?g|webp|gif|svg)$/i.test(outputPath || ''), [outputPath]);
+  const isVideo = useMemo(() => /\.(mp4|webm|ogg|mov)$/i.test(outputPath || ''), [outputPath]);
+  const isMedia = isImage || isVideo;
+
   const readFinalOutput = async () => {
     if (!outputPath) return;
+    if (fileContent) {
+      setFileContent('');
+      return;
+    }
+    if (isMedia) {
+      setFileContent('__MEDIA_PREVIEW__');
+      return;
+    }
     setReading(true);
     setFileError('');
     try {
@@ -1341,6 +1386,42 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText }) {
       setReading(false);
     }
   };
+  const formattedContent = useMemo(() => {
+    return formatWorkflowFileContent(fileContent);
+  }, [fileContent]);
+
+  const fileUrl = useMemo(() => {
+    if (!outputPath || !workflowCwd) return '';
+    const cleanCwd = workflowCwd.replace(/\\/g, '/');
+    const cleanPath = outputPath.replace(/\\/g, '/');
+    const fullPath = `${cleanCwd}/.agnet/shared/${cleanPath}`;
+    if (/^[A-Za-z]:\//.test(fullPath)) {
+      return `file:///${fullPath}`;
+    }
+    return fullPath.startsWith('/') ? `file://${fullPath}` : `file:///${fullPath}`;
+  }, [outputPath, workflowCwd]);
+
+  const previewBlock = (() => {
+    if (!fileContent) return null;
+    if (fileContent === '__MEDIA_PREVIEW__') {
+      if (isImage) {
+        return (
+          <div className="workflow-media-preview">
+            <img src={fileUrl} alt="最终结果图片" />
+          </div>
+        );
+      }
+      if (isVideo) {
+        return (
+          <div className="workflow-media-preview">
+            <video src={fileUrl} controls />
+          </div>
+        );
+      }
+    }
+    return <pre className="workflow-final-preview">{formattedContent}</pre>;
+  })();
+
   return (
     <Panel title="最终结果">
       {outputPath ? (
@@ -1348,12 +1429,25 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText }) {
           <div className="workflow-file-row">
             <span>{finalOutputKind(finalOutput) || '文件'}</span>
             <code>{outputPath}</code>
-            <button type="button" className="ghost" disabled={reading} onClick={() => { void readFinalOutput(); }}>
-              {reading ? '读取中...' : '读取最终结果'}
+            <button type="button" className="btn-primary" disabled={reading} onClick={() => { void readFinalOutput(); }}>
+              {reading ? '读取中...' : (() => {
+                if (fileContent) {
+                  if (isImage) return '收起图片';
+                  if (isVideo) return '收起视频';
+                  return '收起最终结果';
+                } else {
+                  if (isImage) return '预览图片';
+                  if (isVideo) return '播放视频';
+                  return '读取最终结果';
+                }
+              })()}
             </button>
           </div>
           {fileError ? <p className="danger-text">{fileError}</p> : null}
-          {fileContent ? <pre className="workflow-final-preview">{fileContent}</pre> : null}
+          {previewBlock}
+          {fileContent === '__MEDIA_PREVIEW__' ? (
+            <p className="workflow-media-tip">提示：如果浏览器环境限制无法直接播放/预览本地媒体文件，请在「文件产物」页导出查看。</p>
+          ) : null}
         </div>
       ) : (
         previewText || '当前运行尚未标记最终结果。'
