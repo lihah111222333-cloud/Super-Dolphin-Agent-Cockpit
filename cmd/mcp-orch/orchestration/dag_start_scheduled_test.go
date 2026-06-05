@@ -67,6 +67,23 @@ func TestStartScheduledDAGRejectsMissingScheduledTriggerSource(t *testing.T) {
 	}
 }
 
+func TestStartScheduledDAGRejectsReadyRootsWithoutWakeups(t *testing.T) {
+	dueAt := time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC)
+	nextRunAt := dueAt.Add(time.Hour)
+	runStore := scheduledStartRunStore(dueAt)
+	runStore.promoteRows = 1
+	runStore.scheduleRootWakeupsRows = 0
+	svc := makeStartDAGService(&stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}, runStore)
+
+	err := svc.StartScheduledDAG(context.Background(), scheduledStartRequest(dueAt, nextRunAt))
+	if err == nil || !strings.Contains(err.Error(), "scheduled wakeups=0") {
+		t.Fatalf("StartScheduledDAG() error = %v, want scheduled wakeups=0 fail-fast", err)
+	}
+	if len(runStore.updateNextRunCalls) != 0 {
+		t.Fatalf("UpdateScheduledDAGNextRun calls = %d, want none after blocked scheduled start", len(runStore.updateNextRunCalls))
+	}
+}
+
 func scheduledStartRunStore(nextRunAt time.Time) *stubRunStore {
 	return &stubRunStore{
 		lockedDAG: &taskdag.DAG{

@@ -295,6 +295,7 @@ func TestCompleteNodeAndScheduleDownstream_SkipsWakeupForUnassignedNode(t *testi
 	if len(res.PromotedDownstream) != 1 || res.PromotedDownstream[0].NodeKey != "B" {
 		t.Fatalf("PromotedDownstream = %+v, want [{dag-1 B}]", res.PromotedDownstream)
 	}
+	assertRunHasDispatchBlockedEvent(t, db, "run-complete", "B", "assigned_to")
 }
 
 // TestCompleteNodeAndScheduleDownstream_SkipsWakeupForWhitespaceAssignedTo
@@ -648,7 +649,7 @@ func seedDAGRows(t *testing.T, db *fakeTaskDAGDB, now time.Time, nodes []seedNod
 			Status:     n.status,
 			AssignedTo: n.agent,
 			DependsOn:  depsJSON,
-			Config:     []byte(`{}`),
+			Config:     validAgentConfigForTest(n.agent),
 			Result:     []byte(`{}`),
 			CreatedAt:  timestamptzValue(now.Add(time.Duration(i) * time.Millisecond)),
 			UpdatedAt:  timestamptzValue(now),
