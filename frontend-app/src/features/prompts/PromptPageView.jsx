@@ -1374,11 +1374,11 @@ async function runPromptDraftGeneration(params) {
   }
 }
 
-async function runPromptDraftCommit({ cwd, draft, onSaved, setNotice, setWorking }) {
+async function runPromptDraftCommit({ confirmGlobal, confirmRisk, cwd, draft, onSaved, setNotice, setWorking }) {
   setWorking('commit');
   setNotice('');
   try {
-    await commitPromptIntent({ cwd, draftKey: draft.draftKey, scope: draft.scope });
+    await commitPromptIntent({ cwd, draftKey: draft.draftKey, scope: draft.scope, confirmGlobal, confirmRisk });
     await onSaved();
   }
   catch (err) {
@@ -1397,6 +1397,7 @@ function promptWizardInitialState(initialDraft) {
     kind: initialDraft?.kind || 'expert',
     notice: '',
     rawInput: '',
+    reviewConfirmed: false,
     scope: initialDraft?.scope || 'project',
     working: '',
   };
@@ -1405,13 +1406,15 @@ function promptWizardInitialState(initialDraft) {
 function promptWizardReducer(state, action) {
   switch (action.type) {
     case 'draft/generated':
-      return { ...state, draft: action.draft, dryRunQuestion: '', dryRunResult: null };
+      return { ...state, draft: action.draft, dryRunQuestion: '', dryRunResult: null, reviewConfirmed: false };
     case 'dry-run/result':
       return { ...state, dryRunResult: action.result };
     case 'field/set':
       return { ...state, [action.key]: action.value };
     case 'notice/set':
       return { ...state, notice: action.notice };
+    case 'review/confirmed':
+      return { ...state, reviewConfirmed: action.confirmed };
     case 'working/set':
       return { ...state, working: action.working };
     default:
@@ -1421,7 +1424,7 @@ function promptWizardReducer(state, action) {
 
 function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, onClose, onSaved }) {
   const [state, dispatch] = useReducer(promptWizardReducer, initialDraft, promptWizardInitialState);
-  const { draft, dryRunQuestion, dryRunResult, kind, notice, rawInput, scope, working } = state;
+  const { draft, dryRunQuestion, dryRunResult, kind, notice, rawInput, reviewConfirmed, scope, working } = state;
   const setDraft = useCallback((nextDraft) => {
     dispatch({ type: 'draft/generated', draft: nextDraft });
   }, []);
@@ -1433,6 +1436,9 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
   }, []);
   const setWorking = useCallback((nextWorking) => {
     dispatch({ type: 'working/set', working: nextWorking });
+  }, []);
+  const setReviewConfirmed = useCallback((confirmed) => {
+    dispatch({ type: 'review/confirmed', confirmed });
   }, []);
   const setWizardField = useCallback((key, value) => {
     dispatch({ type: 'field/set', key, value });
@@ -1453,10 +1459,24 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
       setNotice(PROMPT_DRAFT_NOT_READY_MESSAGE);
       return;
     }
-    await runPromptDraftCommit({ cwd, draft, onSaved, setNotice, setWorking });
+    if (draftHasReviewIssues && !reviewConfirmed) {
+      setNotice(PROMPT_DRAFT_REVIEW_MESSAGE);
+      return;
+    }
+    await runPromptDraftCommit({
+      confirmGlobal: draft.scope === 'global' ? true : undefined,
+      confirmRisk: draftHasReviewIssues && reviewConfirmed ? true : undefined,
+      cwd,
+      draft,
+      onSaved,
+      setNotice,
+      setWorking,
+    });
   };
 
   const draftNeedsRevision = promptDraftNeedsRevision(draft);
+  const draftHasReviewIssues = promptDraftHasReviewIssues(draft);
+  const canCommitDraft = Boolean(draft?.draftKey) && !draftNeedsRevision && (!draftHasReviewIssues || reviewConfirmed);
   const runDryRun = async () => {
     await runPromptDraftDryRun({ cwd, draft, question: dryRunQuestion, setDryRunResult, setNotice, setWorking });
   };
@@ -1466,7 +1486,7 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
       ariaLabel="添加给 AI 的内容"
       className="modal-box prompt-wizard-modal"
       overlayClassName="modal-overlay prompt-modal-overlay"
-      closeDisabled={Boolean(working)}
+      closeDisabled={working === 'commit'}
       closeOnOverlayClick
       onClose={onClose}
     >
@@ -1475,7 +1495,6 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
             <h2>添加给 AI 的内容</h2>
             <p>{cwd || '未知'}</p>
           </div>
-          <button type="button" onClick={onClose} disabled={Boolean(working)}>关闭</button>
         </header>
         <PromptKindTabs kind={kind} onChange={(value) => setWizardField('kind', value)} />
         <PromptScopeChoice scope={scope} onChange={(value) => setWizardField('scope', value)} />
@@ -1484,6 +1503,7 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
           <textarea value={rawInput} onChange={(event) => setWizardField('rawInput', event.target.value)} aria-label="写下希望 AI 记住或使用的内容" />
         </label>
         <button type="button" onClick={runDraft} disabled={working === 'draft'}>{working === 'draft' ? '生成中...' : '帮我生成'}</button>
+        {working === 'draft' ? <output className="prompt-notice" aria-live="polite">正在整理内容，可能需要一点时间。</output> : null}
         <PromptDraftReview draft={draft} />
         {draft ? (
           <details className="prompt-dry-run-panel">
@@ -1498,12 +1518,38 @@ function PromptIntentWizardModal({ cwd, initialDraft, resolveLaunchPreferences, 
           </details>
         ) : null}
         <PromptWizardNotice draftNeedsRevision={draftNeedsRevision} notice={notice} />
+        <PromptDraftRiskConfirmation
+          checked={reviewConfirmed}
+          disabled={Boolean(working)}
+          show={draftHasReviewIssues && !draftNeedsRevision}
+          onChange={setReviewConfirmed}
+        />
         <footer>
-          <button type="button" className="ghost" onClick={onClose} disabled={Boolean(working)}>关闭</button>
-          <button type="button" onClick={commitDraft} disabled={!draft?.draftKey || draftNeedsRevision || working === 'commit'}>
+          <button type="button" className="ghost" onClick={onClose} disabled={working === 'commit'}>关闭</button>
+          <button type="button" onClick={commitDraft} disabled={!canCommitDraft || working === 'commit'}>
             {working === 'commit' ? '保存中...' : '确认保存'}
           </button>
         </footer>
     </FocusTrapDialog>
+  );
+}
+
+function promptDraftHasReviewIssues(draft) {
+  return Array.isArray(draft?.issues) && draft.issues.some((issue) => textValue(issue?.severity).toLowerCase() === 'review');
+}
+
+function PromptDraftRiskConfirmation({ checked, disabled, show, onChange }) {
+  if (!show) return null;
+  return (
+    <label className="prompt-check">
+      <input
+        type="checkbox"
+        aria-label="我已确认这些风险，仍要保存"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      我已确认这些风险，仍要保存
+    </label>
   );
 }

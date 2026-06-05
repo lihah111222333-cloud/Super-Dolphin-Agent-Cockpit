@@ -4316,13 +4316,22 @@ details {
   padding: 28px;
 }
 
-.modal-overlay-backdrop {
+.modal-overlay > button.modal-overlay-backdrop,
+.modal-overlay > button.modal-overlay-backdrop:hover,
+.modal-overlay > button.modal-overlay-backdrop:focus,
+.modal-overlay > button.modal-overlay-backdrop:focus-visible {
   position: absolute;
   inset: 0;
+  min-width: 0;
+  min-height: 0;
   border: 0;
   border-radius: 0;
+  appearance: none;
   background: transparent;
+  color: transparent;
   padding: 0;
+  box-shadow: none;
+  transform: none;
 }
 
 .modal-box {
