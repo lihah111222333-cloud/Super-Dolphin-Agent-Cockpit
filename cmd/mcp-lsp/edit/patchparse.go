@@ -60,7 +60,8 @@ func Parse(patch string) (Hunk, error) {
 	return parseHunkBody(lines)
 }
 
-// ParseMulti accepts a single implicit hunk or multiple explicit "@@ " hunks.
+// ParseMulti accepts a single implicit hunk, a leading implicit hunk followed
+// by explicit hunks, or multiple explicit "@@ " hunks.
 func ParseMulti(patch string) ([]Hunk, error) {
 	lines, err := normalizePatchLines(patch)
 	if err != nil {
@@ -92,17 +93,41 @@ func ParseMulti(patch string) ([]Hunk, error) {
 	return hunks, nil
 }
 
-// parseImplicitHunk handles a patch with no leading "@@ " header, treating all
-// lines as a single implicit hunk.
+// parseImplicitHunk handles a patch with no leading "@@ " header. Lines before
+// the first header form an implicit first hunk; any later header starts an
+// explicit hunk.
 func parseImplicitHunk(lines []string) ([]Hunk, error) {
-	if containsPatchHeader(lines[1:]) {
-		return nil, fmt.Errorf("%w: leading implicit hunk is not allowed when multiple @@ blocks exist", ErrInvalidPatch)
+	headerIndex := slices.IndexFunc(lines[1:], isPatchHeader)
+	if headerIndex < 0 {
+		hunk, err := parseHunkBody(lines)
+		if err != nil {
+			return nil, err
+		}
+		return []Hunk{hunk}, nil
 	}
-	hunk, err := parseHunkBody(lines)
+
+	firstHeader := headerIndex + 1
+	first, err := parseHunkBody(lines[:firstHeader])
 	if err != nil {
 		return nil, err
 	}
-	return []Hunk{hunk}, nil
+	blocks, err := splitPatchHeaders(lines[firstHeader:])
+	if err != nil {
+		return nil, err
+	}
+	if len(blocks)+1 > maxPatchHunks {
+		return nil, fmt.Errorf("%w: patch exceeds %d hunks", ErrInvalidPatch, maxPatchHunks)
+	}
+	hunks := make([]Hunk, 0, len(blocks)+1)
+	hunks = append(hunks, first)
+	for _, block := range blocks {
+		hunk, err := parseHunkBody(block)
+		if err != nil {
+			return nil, err
+		}
+		hunks = append(hunks, hunk)
+	}
+	return hunks, nil
 }
 
 func normalizeLLMPatchEnvelope(lines []string) []string {

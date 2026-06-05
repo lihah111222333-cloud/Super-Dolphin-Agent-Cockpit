@@ -185,16 +185,38 @@ func TestParseMultiAcceptsApplyPatchUpdateFileWrapper(t *testing.T) {
 	}
 }
 
-func TestParseMultiRejectsLeadingImplicitHunk(t *testing.T) {
-	_, err := ParseMulti("-old\n+new\n@@ second\n-old2\n+new2\n")
-	if !errors.Is(err, ErrInvalidPatch) {
-		t.Fatalf("ParseMulti error = %v, want ErrInvalidPatch", err)
+func TestParseMultiAcceptsLeadingImplicitHunk(t *testing.T) {
+	patch := " import (\n+\t\"slices\"\n )\n@@ second\n-old2\n+new2\n"
+	hunks, err := ParseMulti(patch)
+	if err != nil {
+		t.Fatalf("ParseMulti returned error: %v", err)
+	}
+	if len(hunks) != 2 {
+		t.Fatalf("len(hunks) = %d, want 2", len(hunks))
+	}
+	if hunks[0].OldText != "" || hunks[0].NewText != "\t\"slices\"\n" {
+		t.Fatalf("first hunk = %#v", hunks[0])
+	}
+	if !reflect.DeepEqual(hunks[0].BeforeContext, []string{"import ("}) {
+		t.Fatalf("first BeforeContext = %#v, want import context", hunks[0].BeforeContext)
+	}
+	if !reflect.DeepEqual(hunks[0].AfterContext, []string{")"}) {
+		t.Fatalf("first AfterContext = %#v, want closing import context", hunks[0].AfterContext)
+	}
+	if hunks[1].OldText != "old2\n" || hunks[1].NewText != "new2\n" {
+		t.Fatalf("second hunk = %#v", hunks[1])
 	}
 }
 
-func TestParseMultiRejectsLenientHeaderAfterImplicitHunk(t *testing.T) {
-	_, err := ParseMulti("-old\n+new\n@@second\n-old2\n+new2\n")
-	if !errors.Is(err, ErrInvalidPatch) {
-		t.Fatalf("ParseMulti error = %v, want ErrInvalidPatch", err)
+func TestParseMultiAcceptsLenientHeaderAfterImplicitHunk(t *testing.T) {
+	hunks, err := ParseMulti("-old\n+new\n@@second\n-old2\n+new2\n")
+	if err != nil {
+		t.Fatalf("ParseMulti returned error: %v", err)
+	}
+	if len(hunks) != 2 {
+		t.Fatalf("len(hunks) = %d, want 2", len(hunks))
+	}
+	if hunks[0].OldText != "old\n" || hunks[1].OldText != "old2\n" {
+		t.Fatalf("hunks = %#v", hunks)
 	}
 }
