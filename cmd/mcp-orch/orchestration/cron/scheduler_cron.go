@@ -266,6 +266,10 @@ const (
 	advisoryUnlockTimeout  = 5 * time.Second
 )
 
+var dagCronParser = robcron.NewParser(
+	robcron.Minute | robcron.Hour | robcron.Dom | robcron.Month | robcron.Dow | robcron.Descriptor,
+)
+
 // TickError 给 Tick 调用方暴露可匹配的错误分类。
 // TickError exposes a matchable error class to Tick callers.
 type TickError struct {
@@ -328,7 +332,6 @@ type ScheduledDAGTicker struct {
 	store   DAGScheduleStore
 	starter DAGStarter
 	locker  AdvisoryLocker
-	parser  robcron.Parser
 }
 
 type ScheduledDAGTickerConfig struct {
@@ -358,7 +361,6 @@ func NewScheduledDAGTicker(cfg ScheduledDAGTickerConfig) (*ScheduledDAGTicker, e
 		store:   cfg.Store,
 		starter: cfg.Starter,
 		locker:  cfg.Locker,
-		parser:  robcron.NewParser(robcron.Minute | robcron.Hour | robcron.Dom | robcron.Month | robcron.Dow | robcron.Descriptor),
 	}, nil
 }
 
@@ -383,13 +385,15 @@ func (t *ScheduledDAGTicker) Tick(ctx context.Context, now time.Time) (triggered
 	if err != nil {
 		return 0, classifyTickError(TickErrorClassInfrastructure, "scan", err)
 	}
+	var dagErrs []error
 	for _, dag := range dags {
 		if err := t.triggerDueDAG(ctx, dag, now); err != nil {
-			return triggered, err
+			dagErrs = append(dagErrs, err)
+			continue
 		}
 		triggered++
 	}
-	return triggered, nil
+	return triggered, joinDAGErrors(dagErrs)
 }
 
 func (t *ScheduledDAGTicker) tryAdvisoryLock(ctx context.Context) (AdvisoryLockHandle, bool, error) {
@@ -420,18 +424,76 @@ func (t *ScheduledDAGTicker) triggerDueDAG(ctx context.Context, dag DueDAG, now 
 		DueAt:          dag.DueAt,
 		NextRunAt:      nextRunAt,
 	}
-	return t.starter.StartDAG(ctx, req)
+	if err := t.starter.StartDAG(ctx, req); err != nil {
+		return fmt.Errorf("dag_key=%s start_dag: %w", req.DagKey, err)
+	}
+	return nil
 }
 
 func (t *ScheduledDAGTicker) nextRunAt(dag DueDAG, now time.Time) (time.Time, error) {
-	schedule, err := t.parser.Parse(dag.CronExpr)
+	next, err := NextDAGRunAt(dag.CronExpr, now)
 	if err != nil {
 		return time.Time{}, classifyTickError(TickErrorClassValidation, "parse_cron_expr", fmt.Errorf("dag_key=%s cron_expr=%q: %w", dag.DagKey, dag.CronExpr, err))
 	}
-	return schedule.Next(now), nil
+	return next, nil
 }
 
 func scheduledIdempotencyKey(dag DueDAG) string {
 	dueAt := dag.DueAt.UTC().Format(time.RFC3339Nano)
 	return "scheduled:" + strings.TrimSpace(dag.DagKey) + ":" + dueAt
+}
+
+func joinDAGErrors(errs []error) error {
+	switch len(errs) {
+	case 0:
+		return nil
+	case 1:
+		return errs[0]
+	default:
+		return errors.Join(errs...)
+	}
+}
+
+// ParseDAGCronExpr parses the DAG cron contract. Bare cron expressions are
+// interpreted in UTC; callers that need wall-clock local time must prefix the
+// expression with CRON_TZ=<IANA>, for example:
+// CRON_TZ=Asia/Shanghai 0 8 * * *.
+func ParseDAGCronExpr(cronExpr string) (robcron.Schedule, error) {
+	spec, err := normalizedDAGCronSpec(cronExpr)
+	if err != nil {
+		return nil, err
+	}
+	schedule, err := dagCronParser.Parse(spec)
+	if err != nil {
+		return nil, fmt.Errorf("DAG cron_expr %q invalid; bare cron defaults to UTC, use CRON_TZ=<IANA> for local wall time: %w", strings.TrimSpace(cronExpr), err)
+	}
+	return schedule, nil
+}
+
+func NextDAGRunAt(cronExpr string, after time.Time) (time.Time, error) {
+	schedule, err := ParseDAGCronExpr(cronExpr)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return schedule.Next(after.UTC()), nil
+}
+
+func normalizedDAGCronSpec(cronExpr string) (string, error) {
+	spec := strings.TrimSpace(cronExpr)
+	if spec == "" {
+		return "", errors.New("DAG cron_expr is empty; bare cron defaults to UTC, use CRON_TZ=<IANA> for local wall time")
+	}
+	fields := strings.Fields(spec)
+	normalized := strings.Join(fields, " ")
+	if hasDAGCronTZPrefix(fields[0]) {
+		if len(fields) == 1 {
+			return "", fmt.Errorf("DAG cron_expr %q missing schedule after timezone prefix", spec)
+		}
+		return normalized, nil
+	}
+	return "CRON_TZ=UTC " + normalized, nil
+}
+
+func hasDAGCronTZPrefix(field string) bool {
+	return strings.HasPrefix(field, "TZ=") || strings.HasPrefix(field, "CRON_TZ=")
 }
