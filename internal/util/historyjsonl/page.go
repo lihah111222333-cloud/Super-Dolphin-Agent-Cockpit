@@ -56,6 +56,9 @@ func ReadProviderMessagesPageOrError(req ReadRequest, pageReq dto.MessagePageReq
 		return parseLine(raw, provider)
 	})
 	if err != nil {
+		if IsMissingProviderHistory(err) {
+			return dto.MessagePageResult{}, missingErr
+		}
 		return dto.MessagePageResult{}, err
 	}
 	return dto.MessagePageResult{
