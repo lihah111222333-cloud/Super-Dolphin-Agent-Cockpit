@@ -1266,6 +1266,25 @@ describe('blue-purple form and notice contract', () => {
   });
 });
 
+describe('modal overlay styles', () => {
+  it('keeps the full-screen backdrop invisible inside button-themed pages', () => {
+    const base = declarationsFor('.modal-overlay > button.modal-overlay-backdrop');
+    const hover = declarationsFor('.modal-overlay > button.modal-overlay-backdrop:hover');
+    const focus = declarationsFor('.modal-overlay > button.modal-overlay-backdrop:focus');
+    const focusVisible = declarationsFor('.modal-overlay > button.modal-overlay-backdrop:focus-visible');
+
+    for (const declarations of [base, hover, focus, focusVisible]) {
+      expect(declarations.position).toBe('absolute');
+      expect(declarations.inset).toBe('0');
+      expect(declarations.border).toBe('0');
+      expect(declarations.background).toBe('transparent');
+      expect(declarations.color).toBe('transparent');
+      expect(declarations.padding).toBe('0');
+      expect(declarations['box-shadow']).toBe('none');
+    }
+  });
+});
+
 describe('theme token color coverage', () => {
   it('keeps themeable component colors on tokens instead of raw color literals', () => {
     for (const [selector, properties] of TOKEN_COLOR_RULES) {
