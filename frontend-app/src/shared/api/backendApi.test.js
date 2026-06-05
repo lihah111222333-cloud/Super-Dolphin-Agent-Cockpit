@@ -508,6 +508,7 @@ function expectSkillEditorCalls(callAPI) {
     expectDagDashboardCalls(callAPI);
     expect(() => api.applyDagOps({ dagKey: 'dag-1', ops: [] })).toThrow('baseVersion is required');
     expect(() => api.getDagRun({ runKey: '' })).toThrow('runKey is required');
+    expect(() => api.dispatchDagNode({ dagKey: 'dag-1', runId: 88, nodeKey: 'draft', assignedTo: '' })).toThrow('assignedTo is required');
     expect(() => api.terminateDagRun({ dagKey: 'dag-1', runKey: '' })).toThrow('runKey is required');
   });
 
@@ -565,6 +566,7 @@ async function callDagDashboardApis(api) {
   await api.getDagRuns({ dagKey: 'dag-1', status: 'running', limit: 5 });
   await api.getDagRun({ runKey: 'run-1' });
   await api.startDag({ dagKey: 'dag-1', triggerSource: 'manual', idempotencyKey: 'ui-123' });
+  await api.dispatchDagNode({ dagKey: 'dag-1', runId: 88, nodeKey: 'draft', assignedTo: 'codex-runner' });
   await api.terminateDagRun({ dagKey: 'dag-1', runKey: 'run-1', reason: 'user_requested' });
   await api.deleteDag({ dagKey: 'dag-1' });
   await api.applyDagOps({
@@ -591,6 +593,12 @@ function expectDagDashboardCalls(callAPI) {
     dagKey: 'dag-1',
     triggerSource: 'manual',
     idempotencyKey: 'ui-123',
+  });
+  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DASHBOARD_DAG_DISPATCH_NODE, {
+    dagKey: 'dag-1',
+    runId: 88,
+    nodeKey: 'draft',
+    assignedTo: 'codex-runner',
   });
   expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DASHBOARD_DAG_TERMINATE, {
     dagKey: 'dag-1',

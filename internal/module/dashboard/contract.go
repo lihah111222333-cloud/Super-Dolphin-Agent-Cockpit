@@ -25,6 +25,7 @@ type Service interface {
 	ListDAGRuns(ctx context.Context, dagKey, status string, limit int32) ([]contract.Run, error)
 	GetDAGRun(ctx context.Context, runKey string) (contract.GetRunResponse, error)
 	StartDAG(ctx context.Context, dagKey, triggerSource, idempotencyKey string) (contract.StartDAGResponse, error)
+	DispatchDAGNode(ctx context.Context, req contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error)
 	TerminateDAG(ctx context.Context, dagKey, runKey, reason string) error
 	DeleteDAG(ctx context.Context, dagKey string) error
 	ApplyDAGOps(ctx context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error)
