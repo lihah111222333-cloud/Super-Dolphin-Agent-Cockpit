@@ -320,9 +320,6 @@ func validateCodexIdentityOverride(exec AgentExecConfig) *NodeOutcome {
 	home := strings.TrimSpace(exec.CodexHome)
 	instanceKey := strings.TrimSpace(exec.CodexInstanceKey)
 	modelProvider := strings.TrimSpace(exec.CodexModelProvider)
-	if home == "" && instanceKey == "" && modelProvider == "" {
-		return nil
-	}
 	missing := make([]string, 0, 3)
 	if home == "" {
 		missing = append(missing, "codex_home")
@@ -493,8 +490,10 @@ func buildLaunchRequestFromAgentConfig(cfg *AgentNodeConfig, node Node, _ RunCon
 func validateAgentLaunchProvider(raw string) (string, error) {
 	provider := strings.ToLower(strings.TrimSpace(raw))
 	switch provider {
-	case "", "codex", "claude":
+	case "codex", "claude":
 		return provider, nil
+	case "":
+		return "", errors.New("provider required in node.config.exec: set provider to claude or codex")
 	default:
 		return "", fmt.Errorf("invalid provider %q: must be codex or claude", strings.TrimSpace(raw))
 	}
