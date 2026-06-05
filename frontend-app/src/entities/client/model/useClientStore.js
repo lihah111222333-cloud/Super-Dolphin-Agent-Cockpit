@@ -1098,6 +1098,14 @@ function normalizeTokenUsage(value) {
   return { usedTokens, contextWindowTokens, usedPercent };
 }
 
+function shouldUpdateTokenUsage(existing, incoming) {
+  if (!incoming) return false;
+  if (!existing) return true;
+  if (incoming.contextWindowTokens === 0 && existing.contextWindowTokens > 0) return false;
+  if (incoming.usedTokens === 0 && existing.usedTokens > 0) return false;
+  return true;
+}
+
 function normalizeActivityStats(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const rawToolCalls = value.toolCalls || value.tool_calls || {};
@@ -1795,7 +1803,16 @@ function snapshotNormalizedThreadMap(stateMap, payloadMap, nextThreads, normaliz
   const output = canonicalizeThreadValues(stateMap, nextThreads);
   for (const [threadId, value] of Object.entries(objectRecord(payloadMap))) {
     const normalized = normalizer(value);
-    if (normalized) output[canonicalizeThreadKey(threadId, nextThreads)] = normalized;
+    if (normalized) {
+      const canonicalId = canonicalizeThreadKey(threadId, nextThreads);
+      if (normalizer === normalizeTokenUsage) {
+        const existing = stateMap[canonicalId];
+        if (!shouldUpdateTokenUsage(existing, normalized)) {
+          continue;
+        }
+      }
+      output[canonicalId] = normalized;
+    }
   }
   return output;
 }
@@ -1823,7 +1840,12 @@ function snapshotThreadMetrics(state, payload, nextThreads, activeThreadId) {
   );
   const activeTokenUsage = tokenUsagePayloadMap === undefined ? normalizeTokenUsage(payload.tokenUsage || payload.token_usage) : null;
   const activeActivityStats = activityStatsPayloadMap === undefined ? normalizeActivityStats(payload.activityStats || payload.activity_stats) : null;
-  if (activeTokenUsage && activeThreadId) tokenUsageByThread[activeThreadId] = activeTokenUsage;
+  if (activeTokenUsage && activeThreadId) {
+    const existing = state.tokenUsageByThread[activeThreadId];
+    if (shouldUpdateTokenUsage(existing, activeTokenUsage)) {
+      tokenUsageByThread[activeThreadId] = activeTokenUsage;
+    }
+  }
   if (activeActivityStats && activeThreadId) activityStatsByThread[activeThreadId] = activeActivityStats;
   return { tokenUsageByThread, activityStatsByThread };
 }
@@ -2704,7 +2726,12 @@ function bridgePatchActivityEntries(state, patch) {
 
 function bridgePatchState(state, patch) {
   const tokenUsageByThread = { ...state.tokenUsageByThread };
-  if (patch.tokenUsage) tokenUsageByThread[patch.threadId] = patch.tokenUsage;
+  if (patch.tokenUsage) {
+    const existing = state.tokenUsageByThread[patch.threadId];
+    if (shouldUpdateTokenUsage(existing, patch.tokenUsage)) {
+      tokenUsageByThread[patch.threadId] = patch.tokenUsage;
+    }
+  }
   const activityStatsByThread = { ...state.activityStatsByThread };
   if (patch.activityStats) activityStatsByThread[patch.threadId] = patch.activityStats;
   const diffTextByThread = { ...state.diffTextByThread };
@@ -3646,12 +3673,18 @@ function attachBridgeEventRuntime(runtime) {
       const threadId = bridgeThreadIdForPayload(payload);
       const usage = normalizeTokenUsage(payload);
       if (threadId && usage) {
-        set((state) => ({
-          tokenUsageByThread: {
-            ...state.tokenUsageByThread,
-            [threadId]: usage,
-          },
-        }));
+        set((state) => {
+          const existing = state.tokenUsageByThread[threadId];
+          if (!shouldUpdateTokenUsage(existing, usage)) {
+            return {};
+          }
+          return {
+            tokenUsageByThread: {
+              ...state.tokenUsageByThread,
+              [threadId]: usage,
+            },
+          };
+        });
       }
       return;
     }

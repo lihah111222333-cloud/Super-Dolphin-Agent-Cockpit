@@ -191,6 +191,55 @@ function registerBridgeEventHandlersForTest() {
     });
   });
 
+  it('guards tokenUsageByThread against uninitialized zero/empty updates', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Active', provider: 'codex', status: 'running' }],
+      tokenUsageByThread: {
+        'thread-1': { usedTokens: 42, contextWindowTokens: 100, usedPercent: 42 },
+      },
+    });
+
+    const { initializeEvents } = useClientStore.getState();
+    initializeEvents();
+
+    // 1. Simulate a patch event that has empty/zero token usage
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        tokenUsage: { usedTokens: 0, contextWindowTokens: 0, usedPercent: 0 },
+      },
+    });
+
+    // It should NOT overwrite the existing 42/100/42 token usage with zeroes
+    let state = useClientStore.getState();
+    expect(state.tokenUsageByThread['thread-1']).toEqual({
+      usedTokens: 42,
+      contextWindowTokens: 100,
+      usedPercent: 42,
+    });
+
+    // 2. Simulate a patch event with actual higher token usage
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        tokenUsage: { usedTokens: 60, contextWindowTokens: 100, usedPercent: 60 },
+      },
+    });
+
+    // It SHOULD update the token usage since the incoming one is valid
+    state = useClientStore.getState();
+    expect(state.tokenUsageByThread['thread-1']).toEqual({
+      usedTokens: 60,
+      contextWindowTokens: 100,
+      usedPercent: 60,
+    });
+  });
+
   it('fails bootstrap when the active provider preference is missing', async () => {
     backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
       'settings.provider.codex.codexHome': '~/.codex',
