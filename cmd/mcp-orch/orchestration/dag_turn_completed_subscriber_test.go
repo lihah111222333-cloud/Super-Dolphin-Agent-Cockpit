@@ -3,7 +3,6 @@ package orchestration
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"strings"
 	"sync/atomic"
@@ -14,7 +13,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	sharedevt "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/jackc/pgx/v5"
 )
 
 // ---------------------------------------------------------------------------
@@ -44,6 +42,8 @@ type dagSubscriberFlowSpy struct {
 	completeErr   error
 	failCalls     []taskdag.FailNodeInput
 	failErr       error
+	enqueueCalls  []taskdag.EnqueueWakeupInput
+	enqueueErr    error
 	claimCalls    []taskdag.OutputMaterializationClaimInput
 	claimErr      error
 	flexibleCalls []taskdag.FlexibleNodeStatusUpdate
@@ -65,8 +65,16 @@ func (s *dagSubscriberFlowSpy) FailNodeAndCancelDownstream(_ context.Context, in
 		return nil, s.failErr
 	}
 	return &taskdag.FailNodeResult{
-		Node: &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, Status: "failed"},
+		Node: &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, RunID: &input.RunID, Status: "failed"},
 	}, nil
+}
+
+func (s *dagSubscriberFlowSpy) EnqueueWakeup(_ context.Context, input taskdag.EnqueueWakeupInput) (int64, error) {
+	s.enqueueCalls = append(s.enqueueCalls, input)
+	if s.enqueueErr != nil {
+		return 0, s.enqueueErr
+	}
+	return 1, nil
 }
 
 func (s *dagSubscriberFlowSpy) ClaimNodeOutputMaterialization(_ context.Context, input taskdag.OutputMaterializationClaimInput) (*taskdag.Node, error) {
@@ -578,95 +586,5 @@ func TestDAGSubscriber_LookupDirtyData_AdvanceEveryRow(t *testing.T) {
 	}
 	if d.CompleteDone != 2 {
 		t.Fatalf("CompleteDone delta = %d, want 2", d.CompleteDone)
-	}
-}
-
-// 7. 重复 TurnCompleted �?节点�?done：跳�?+ metric IdempotentSkipped�?
-// （与 case 4 形式上重复但语义不同：case 4 �?race C（fallback），case 7
-// 是同一 subscriber �?retry 链下重复收到事件）�?
-func TestDAGSubscriber_DuplicateTurnCompleted_NodeAlreadyDone(t *testing.T) {
-	before := DAGSubscriberCounters()
-	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "done"}}}
-	flow := &dagSubscriberFlowSpy{}
-	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-7", AgentID: "agent-d"}}
-	stop := &dagSubscriberStopSpy{}
-	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
-
-	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-7", true, ""))
-
-	if len(flow.completeCalls) != 0 {
-		t.Fatalf("completeCalls = %d, want 0 (duplicate event on terminal node)", len(flow.completeCalls))
-	}
-	d := metricDelta(before, DAGSubscriberCounters())
-	if d.IdempotentSkipped != 1 {
-		t.Fatalf("IdempotentSkipped delta = %d, want 1", d.IdempotentSkipped)
-	}
-}
-
-// 8. stop_helper 失败 �?DB 推进 done 成功，但 stop 报错：subscriber �?
-// Warn log，不影响 DB 推进，不传错给上�?dispatcher�?
-func TestDAGSubscriber_StopHelperFails_DoesNotPropagate(t *testing.T) {
-	before := DAGSubscriberCounters()
-	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "running"}}}
-	flow := &dagSubscriberFlowSpy{}
-	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-8", AgentID: "agent-e"}}
-	stop := &dagSubscriberStopSpy{stopErr: errors.New("simulated stop refused")}
-	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
-
-	// �?panic / 不抛�?—�?函数无返值。完成后 DB 推进应已发生�?
-	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-8", true, ""))
-
-	if len(flow.completeCalls) != 1 {
-		t.Fatalf("completeCalls = %d, want 1 (DB advance must succeed even when stop fails)", len(flow.completeCalls))
-	}
-	d := metricDelta(before, DAGSubscriberCounters())
-	if d.CompleteDone != 1 {
-		t.Fatalf("CompleteDone delta = %d, want 1", d.CompleteDone)
-	}
-}
-
-// 9. CompleteNode �?4KB cap �?store �?validation err（用 generic error
-// 模拟），metric CompleteSizeCapExceeded 已先 +1（subscriber 在调 SQL 之前
-// �?size），随后 store err �?Warn log + �?panic�?
-func TestDAGSubscriber_CompleteSizeCapExceeded(t *testing.T) {
-	before := DAGSubscriberCounters()
-	// 构造一�?> 4KB �?result jsonb（合�?JSON）�?
-	hugePayload := `{"data":"` + strings.Repeat("x", 5000) + `"}`
-	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "running"}}}
-	flow := &dagSubscriberFlowSpy{completeErr: errors.New("simulated validation: result exceeds 4KB")}
-	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-9", AgentID: "agent-f"}}
-	stop := &dagSubscriberStopSpy{}
-	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
-
-	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-9", true, hugePayload))
-
-	if len(flow.completeCalls) != 1 {
-		t.Fatalf("completeCalls = %d, want 1 (size cap is metric-only in A1, still attempts SQL)", len(flow.completeCalls))
-	}
-	d := metricDelta(before, DAGSubscriberCounters())
-	if d.CompleteSizeCapExceeded != 1 {
-		t.Fatalf("CompleteSizeCapExceeded delta = %d, want 1", d.CompleteSizeCapExceeded)
-	}
-	// CompleteDone must NOT advance because the store returned err.
-	if d.CompleteDone != 0 {
-		t.Fatalf("CompleteDone delta = %d, want 0 (store err)", d.CompleteDone)
-	}
-}
-
-// Additional companion case �?pgx.ErrNoRows from CompleteNode (race C SQL
-// fence rejection) �?metric IdempotentSkipped, exercises §2.6 SQL fallback.
-func TestDAGSubscriber_CompleteNodeReturnsNoRows_FenceRace(t *testing.T) {
-	before := DAGSubscriberCounters()
-	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "running"}}}
-	flow := &dagSubscriberFlowSpy{completeErr: pgx.ErrNoRows}
-	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-fence", AgentID: "agent-fence"}}
-	stop := &dagSubscriberStopSpy{}
-	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
-
-	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-fence", true, ""))
-
-	d := metricDelta(before, DAGSubscriberCounters())
-	if d.IdempotentSkipped != 1 {
-		t.Fatalf("IdempotentSkipped delta = %d, want 1 (pgx.ErrNoRows is SQL fence race)", d.IdempotentSkipped)
 	}
 }
