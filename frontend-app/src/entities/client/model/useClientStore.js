@@ -51,8 +51,6 @@ const RUNTIME_RESULT_DETAIL_LIMIT = 1600;
 const RUNTIME_ASSISTANT_PREFIX_DUPLICATE_MIN_CHARS = 24;
 const BRIDGE_PATCH_SLOW_MS = 50;
 const THREAD_MESSAGES_PAGE_SIZE = 300;
-const TOOL_SURFACE_MODE_AUTO = 'auto';
-const TOOL_SURFACE_MODES = new Set(['chat', TOOL_SURFACE_MODE_AUTO, 'agent']);
 const PROVIDER_ACTIVE_PREF_KEY = 'settings.provider.active';
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
 const THREAD_PINS_CHAT_PREF_KEY = 'threadPins.chat';
@@ -100,10 +98,6 @@ const BRIDGE_REVISION_EVENTS = Object.freeze([
   Object.freeze({ key: 'workflowRevision', events: new Set(['task/node/statuschanged', 'cron/job/runstatechanged', 'task/dag/changed', 'dags/changed']) }),
 ]);
 
-const CHAT_ONLY_INTENT_RE = /(不要|别|无需|不用|不使用|禁止).{0,12}(工具|tool|浏览器|命令|终端|文件|代码)|\b(no|without)\s+tools?\b/i;
-const AGENT_TOOL_INTENT_RE = /(读|读取|看|查看|打开|修改|编辑|修复|实现|重构|跑|运行|执行|测试|构建|编译|扫描|搜索|查找|提交|推送|拉取|合并|调试|浏览|打开网页|操作浏览器|截图|分析).{0,18}(文件|目录|代码|仓库|项目|测试|命令|终端|日志|接口|页面|前端|后端|浏览器|chrome|playwright|git|pr|bug|报错)|\b(read|open|inspect|edit|modify|fix|implement|refactor|run|test|build|compile|scan|grep|search|commit|push|pull|merge|debug|browse).{0,24}(file|dir|code|repo|project|test|command|terminal|log|api|page|frontend|backend|browser|chrome|playwright|git|pr|bug|error)\b|\b(chrome|playwright|git)\b|生成.{0,10}视频|制作.{0,10}视频|视频.{0,10}生成|generate.{0,10}video|video.{0,10}generate/i;
-const TRACE_DIAGNOSTIC_INTENT_RE = /\b(observability_trace_get|trace[_\s-]?id|traceparent|span[_\s-]?id)\b|慢请求|链路追踪|调用链|观测日志|落盘日志/i;
-
 function emptyForkDraft() {
   return {
     open: false,
@@ -117,22 +111,6 @@ function emptyForkDraft() {
     error: '',
     kickoffError: '',
   };
-}
-
-function normalizeToolSurfaceMode(value) {
-  const mode = normalizeString(value).toLowerCase();
-  if (!mode) return TOOL_SURFACE_MODE_AUTO;
-  if (!TOOL_SURFACE_MODES.has(mode)) throw new Error(`frontend-app: invalid tool surface mode ${value}`);
-  return mode;
-}
-
-function effectiveToolSurfaceMode(mode, text) {
-  const normalized = normalizeToolSurfaceMode(mode);
-  if (normalized !== TOOL_SURFACE_MODE_AUTO) return normalized;
-  const content = normalizeString(text);
-  if (CHAT_ONLY_INTENT_RE.test(content)) return 'chat';
-  if (AGENT_TOOL_INTENT_RE.test(content) || TRACE_DIAGNOSTIC_INTENT_RE.test(content)) return 'agent';
-  return 'chat';
 }
 
 function normalizeString(value) {
@@ -2142,13 +2120,11 @@ function createSendDraftRequest(state, cwd) {
   const previousThreadId = reusableThreadIdForSend(state, previousActiveThreadId);
   const launchIntentId = createLaunchIntentId();
   const provisionalThreadId = previousThreadId || launchIntentId;
-  const toolSurfaceMode = effectiveToolSurfaceMode(state.toolSurfaceMode, text);
   return {
     cwd,
     text,
     attachments,
     input,
-    toolSurfaceMode,
     previousDraft: state.draft,
     previousAttachments: state.attachments,
     previousActiveThreadId,
@@ -2182,7 +2158,6 @@ function createDashboardCommandRequest(state, cwd, card) {
     ...state,
     draft: dashboardCommandPrompt(card),
     attachments: [],
-    toolSurfaceMode: 'agent',
   }, cwd);
 }
 
@@ -2197,11 +2172,6 @@ function forkSourceThread(state, threadId) {
   const id = normalizeThreadId(threadId);
   if (!id) return null;
   return state.threads.find((thread) => threadMatchesIdentifier(thread, id)) || null;
-}
-
-function forkToolSurfaceMode(value) {
-  const mode = normalizeToolSurfaceMode(value);
-  return mode === TOOL_SURFACE_MODE_AUTO ? 'chat' : mode;
 }
 
 function normalizeForkSharedFiles(response) {
@@ -2345,7 +2315,6 @@ async function startNewDraftThread(request, resolveLaunchPreferences) {
     cwd: request.cwd,
     name: sendDraftThreadName(request.text),
     ...launchPreferences,
-    toolSurfaceMode: request.toolSurfaceMode,
     deferSpawn: true,
     launchIntentId: request.launchIntentId,
   });
@@ -2746,7 +2715,6 @@ const baseState = {
   draft: '',
   attachments: [],
   forkDraft: emptyForkDraft(),
-  toolSurfaceMode: TOOL_SURFACE_MODE_AUTO,
   sending: false,
   rightPanelWidth: 380,
   logLevel: resolveInitialLevel(),
@@ -3910,7 +3878,6 @@ function createResourcePageCacheActions(runtime) {
       }));
     },
     setDraft: (draft) => runtime.set({ draft }),
-    setToolSurfaceMode: (toolSurfaceMode) => runtime.set({ toolSurfaceMode: normalizeToolSurfaceMode(toolSurfaceMode) }),
     setRightPanelWidth: (rightPanelWidth) => runtime.set({ rightPanelWidth }),
 
 
@@ -4402,7 +4369,6 @@ function createForkThreadActions(runtime) {
           cwd,
           name: sourceTitle,
           ...launchPreferences,
-          toolSurfaceMode: forkToolSurfaceMode(latest.toolSurfaceMode),
           deferSpawn: true,
           launchIntentId: createLaunchIntentId(),
           baseInstructions,
