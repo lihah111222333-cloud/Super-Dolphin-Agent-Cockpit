@@ -2367,6 +2367,50 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(fileTraces[0]).not.toHaveTextContent('正在调用工具并等待返回结果。');
   });
 
+  it('does not append a pending thinking placeholder after completed processing activity', async () => {
+    resetClientStoreForTests({
+      bootstrapStatus: 'ready',
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'running' }],
+      activeTurnByThread: {
+        'thread-1': { id: 'turn-running', threadId: 'thread-1', status: 'running', startedAt: '2026-05-30T00:00:00Z' },
+      },
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'user-waiting',
+          role: 'user',
+          kind: 'user',
+          text: '请生成架构图',
+          time: '2026-05-30T00:00:00Z',
+        }, {
+          id: 'tool-file-completed',
+          role: 'assistant',
+          kind: 'tool',
+          title: 'file',
+          status: 'completed',
+          text: '读取文件完成。',
+          done: true,
+          time: '2026-05-30T00:00:01Z',
+          completedAt: '2026-05-30T00:00:02Z',
+        }],
+      },
+      threadTimelineReadyByThread: { 'thread-1': true },
+      threadStateLoadingByThread: {},
+    });
+
+    render(<App skipBootstrap />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const traces = screen.getAllByLabelText('AI 思考记录');
+    expect(traces).toHaveLength(1);
+    expect(traces[0]).toHaveTextContent('读取文件完成。');
+    expect(traces[0]).not.toHaveTextContent('正在处理请求');
+  });
+
   it('renders AI execution plans as checklist details in the processing frame', async () => {
     backend.getThreadState.mockResolvedValue({
       activeThreadId: 'thread-1',
