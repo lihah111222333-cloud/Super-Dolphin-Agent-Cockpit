@@ -44,7 +44,9 @@ func TestDAGDesignerPromptSeed_ZHCoversCoreSurface(t *testing.T) {
 		"task_create_dag",
 		"task_dag_apply_ops",
 		"task_get_dag",
-		"task_update_node",
+		"task_get_run",
+		"task_list_runs",
+		"task_dispatch_node",
 	}, "migration 0084 must reference MCP tool %q in prompt body")
 
 	// 关键字段三：node_type typed schema 三种都要点名 (S5.1 契约入门门票)。
@@ -58,13 +60,32 @@ func TestDAGDesignerPromptSeed_ZHCoversCoreSurface(t *testing.T) {
 	assertDAGDesignerPromptContainsAll(t, content, []string{
 		"base_version", // OCC 乐观锁
 		"running",      // 动态可重写约束触发态
+		"runtime append",
 		"FailureClass", // 失败分类智能重试
 		"4KB",          // size_cap / sharedfile 决策
 		"scheduled",    // trigger 三态之一 (cron)
 		"cron",         // cron 表达式语境
+		"CRON_TZ=Asia/Shanghai",
+		"裸 cron 默认 UTC",
 		"final_node_key",
 		"final_output",
 	}, "migration 0084 must keep blueprint rule keyword %q")
+
+	assertDAGDesignerPromptContainsAll(t, content, []string{
+		"node.config.exec",
+		"outputs.to_sharedfile",
+		"outputs.to_node_result",
+		"first_turn",
+		"assigned_to",
+		"waiting_for_assignee",
+		`{"op":"add_node","node":{"node_key":"...","title":"...","node_type":"agent|automation|hybrid","assigned_to"`,
+	}, "migration 0084 must keep executable schema keyword or add_node assigned_to example %q")
+
+	assertDAGDesignerPromptNotContains(t, content, []string{
+		`"output_file"`,
+		`"config": {"provider"`,
+		"task_update_node",
+	}, "migration 0084 must not teach unavailable DAG designer field or tool %q")
 
 	// 关键字段五：tags 含中文路由命中词 (router 选这条模板就靠它)。
 	assertDAGDesignerPromptContainsAll(t, content, []string{
@@ -88,6 +109,15 @@ func assertDAGDesignerPromptContainsAll(t *testing.T, content string, values []s
 	t.Helper()
 	for _, value := range values {
 		if !strings.Contains(content, value) {
+			t.Errorf(format, value)
+		}
+	}
+}
+
+func assertDAGDesignerPromptNotContains(t *testing.T, content string, values []string, format string) {
+	t.Helper()
+	for _, value := range values {
+		if strings.Contains(content, value) {
 			t.Errorf(format, value)
 		}
 	}

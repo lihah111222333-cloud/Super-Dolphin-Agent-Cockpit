@@ -21,7 +21,10 @@ const DAG_DESIGNER_ENABLED_TOOLS = Object.freeze([
   'shared_file_list',
   'task_create_dag',
   'task_get_dag',
+  'task_get_run',
+  'task_list_runs',
   'task_dag_apply_ops',
+  'task_dispatch_node',
   'task_start_dag',
 ]);
 
@@ -36,7 +39,7 @@ const DOUYIN_DAILY_VIDEO_TEMPLATE_PROMPT = `请把自动化模块更新为“每
 目标：
 - dag_key 使用 daily_workplace_mentor_douyin_video。
 - 如运行时已有旧 DAG daily_workplace_mentor_douyin_videos，请优先读取并更新为新需求；如果 key 不能改，再创建新 DAG 并提示用户清理旧 DAG。
-- 每天 05:00 Asia/Shanghai 运行；当前调度按 UTC，因此 cron_expr = \`0 21 * * *\`。
+- 每天 05:00 Asia/Shanghai 运行；cron_expr = \`CRON_TZ=Asia/Shanghai 0 5 * * *\`，不要换算成 UTC 裸 cron。
 - 每次只生成 1 条“职场导师型”抖音爆款候选视频方案，不自动发布。
 - 输出完整 Markdown 到 sharedfile：dag/douyin/workplace/YYYY-MM-DD-video.md，最终 DAG run 只返回小 JSON 引用。
 - 不写“必爆”，只写“爆款候选/爆款潜力”；没有可验证来源时 blocked=true，不要编造热点。
