@@ -1131,6 +1131,28 @@ describe('light theme control surfaces', () => {
   });
 });
 
+describe('memory page styles', () => {
+  it('keeps memory card category badges horizontal beside long titles', () => {
+    const title = declarationsFor('.memory-card h3');
+    const badge = declarationsFor('.memory-card header span');
+    const timestamp = declarationsFor('.memory-card footer time');
+    const action = declarationsFor('.memory-card button');
+
+    expect(title.flex).toBe('1 1 auto');
+    expect(title['min-width']).toBe('0');
+    expect(title['overflow-wrap']).toBe('anywhere');
+    expect(badge.display).toBe('inline-flex');
+    expect(badge.flex).toBe('0 0 auto');
+    expect(badge['align-items']).toBe('center');
+    expect(badge['white-space']).toBe('nowrap');
+    expect(timestamp.flex).toBe('1 1 auto');
+    expect(timestamp['min-width']).toBe('0');
+    expect(action.flex).toBe('0 0 auto');
+    expect(action['min-width']).toBe('64px');
+    expect(action['white-space']).toBe('nowrap');
+  });
+});
+
 describe('blue-purple theme contract', () => {
   it('keeps the retired late visual layers out of the stylesheet', () => {
     const retiredFragments = [
