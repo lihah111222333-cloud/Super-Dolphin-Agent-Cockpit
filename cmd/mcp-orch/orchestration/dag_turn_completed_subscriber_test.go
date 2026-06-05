@@ -42,6 +42,8 @@ type dagSubscriberFlowSpy struct {
 	completeErr   error
 	failCalls     []taskdag.FailNodeInput
 	failErr       error
+	enqueueCalls  []taskdag.EnqueueWakeupInput
+	enqueueErr    error
 	claimCalls    []taskdag.OutputMaterializationClaimInput
 	claimErr      error
 	flexibleCalls []taskdag.FlexibleNodeStatusUpdate
@@ -63,8 +65,16 @@ func (s *dagSubscriberFlowSpy) FailNodeAndCancelDownstream(_ context.Context, in
 		return nil, s.failErr
 	}
 	return &taskdag.FailNodeResult{
-		Node: &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, Status: "failed"},
+		Node: &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, RunID: &input.RunID, Status: "failed"},
 	}, nil
+}
+
+func (s *dagSubscriberFlowSpy) EnqueueWakeup(_ context.Context, input taskdag.EnqueueWakeupInput) (int64, error) {
+	s.enqueueCalls = append(s.enqueueCalls, input)
+	if s.enqueueErr != nil {
+		return 0, s.enqueueErr
+	}
+	return 1, nil
 }
 
 func (s *dagSubscriberFlowSpy) ClaimNodeOutputMaterialization(_ context.Context, input taskdag.OutputMaterializationClaimInput) (*taskdag.Node, error) {
@@ -588,6 +598,95 @@ func TestDAGSubscriber_CompleteSizeCapExceeded(t *testing.T) {
 	// CompleteDone must NOT advance because the store returned err.
 	if d.CompleteDone != 0 {
 		t.Fatalf("CompleteDone delta = %d, want 0 (store err)", d.CompleteDone)
+	}
+}
+
+func TestDAGSubscriber_CompleteErrorEnqueuesDurableRetry(t *testing.T) {
+	runID := int64(42)
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:  "dag-repair",
+		NodeKey: "agent-done",
+		RunID:   &runID,
+		Status:  "running",
+	}}}
+	flow := &dagSubscriberFlowSpy{completeErr: errors.New("temporary store outage")}
+	deps := setupDAGSubscriberDeps(
+		lookup,
+		flow,
+		&dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-repair", AgentID: "agent-repair"}},
+		&dagSubscriberStopSpy{},
+	)
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-repair", true, `{"summary":"done"}`))
+
+	if len(flow.completeCalls) != 1 {
+		t.Fatalf("completeCalls = %d, want 1", len(flow.completeCalls))
+	}
+	assertDAGSubscriberCompletionRetryEnqueued(t, flow, runID)
+	if len(flow.failCalls) != 0 {
+		t.Fatalf("failCalls = %d, want 0 when durable retry enqueue succeeds", len(flow.failCalls))
+	}
+}
+
+func assertDAGSubscriberCompletionRetryEnqueued(t *testing.T, flow *dagSubscriberFlowSpy, runID int64) {
+	t.Helper()
+	if len(flow.enqueueCalls) != 1 {
+		t.Fatalf("enqueueCalls = %d, want 1 durable retry wakeup", len(flow.enqueueCalls))
+	}
+	enqueued := flow.enqueueCalls[0]
+	assertDAGSubscriberRetryIdentity(t, enqueued, runID)
+	if got := string(enqueued.PromptPayload); got != `{"summary":"done"}` {
+		t.Fatalf("retry payload = %s, want raw completion result", got)
+	}
+}
+
+func assertDAGSubscriberRetryIdentity(t *testing.T, enqueued taskdag.EnqueueWakeupInput, runID int64) {
+	t.Helper()
+	if enqueued.WakeupKind != "turn_complete_retry" {
+		t.Fatalf("wakeup kind = %q, want turn_complete_retry", enqueued.WakeupKind)
+	}
+	if enqueued.DagKey != "dag-repair" || enqueued.NodeKey != "agent-done" || enqueued.RunID != runID {
+		t.Fatalf("enqueue identity = %+v, want dag-repair/agent-done run_id=%d", enqueued, runID)
+	}
+	if !strings.Contains(enqueued.IdempotencyKey, "turn-complete-retry") {
+		t.Fatalf("idempotency key = %q, want turn-complete-retry marker", enqueued.IdempotencyKey)
+	}
+}
+
+func TestDAGSubscriber_CompleteErrorRetryEnqueueFailureFailsNode(t *testing.T) {
+	runID := int64(43)
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:  "dag-repair",
+		NodeKey: "agent-done",
+		RunID:   &runID,
+		Status:  "running",
+	}}}
+	flow := &dagSubscriberFlowSpy{
+		completeErr: errors.New("temporary store outage"),
+		enqueueErr:  errors.New("insert retry wakeup failed"),
+	}
+	deps := setupDAGSubscriberDeps(
+		lookup,
+		flow,
+		&dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-repair-fail", AgentID: "agent-repair"}},
+		&dagSubscriberStopSpy{},
+	)
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-repair-fail", true, `{"summary":"done"}`))
+
+	if len(flow.enqueueCalls) != 1 {
+		t.Fatalf("enqueueCalls = %d, want one retry enqueue attempt", len(flow.enqueueCalls))
+	}
+	if len(flow.failCalls) != 1 {
+		t.Fatalf("failCalls = %d, want diagnostic terminal failure when retry enqueue fails", len(flow.failCalls))
+	}
+	if got := flow.failCalls[0].Reason; !strings.Contains(got, "turn.completed completion retry enqueue failed") ||
+		!strings.Contains(got, "insert retry wakeup failed") ||
+		!strings.Contains(got, "temporary store outage") {
+		t.Fatalf("fail reason = %q, want retry enqueue and original complete error", got)
+	}
+	if !flow.failCalls[0].FailFast {
+		t.Fatal("FailFast = false, want true for diagnostic terminal failure")
 	}
 }
 

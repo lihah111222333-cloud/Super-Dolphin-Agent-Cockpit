@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeevents"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/turncompletionretry"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
@@ -196,6 +197,10 @@ func advanceNodeDone(
 		logger.Debug("dag subscriber: complete fence rejected, node already terminal", "dag_key", node.DagKey, "node_key", node.NodeKey)
 	default:
 		logger.Warn("dag subscriber: complete node failed", "dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
+		if retryErr := turncompletionretry.Enqueue(ctx, flow, node, result); retryErr != nil {
+			reason := truncateWakeupError("infrastructure: turn.completed completion retry enqueue failed: " + retryErr.Error() + "; original completion error: " + err.Error())
+			advanceNodeFailedWithReason(ctx, flow, eventBus, logger, node, reason, true)
+		}
 	}
 	return false
 }
