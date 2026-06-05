@@ -404,7 +404,10 @@ func setupInstaller() *installer.Provider {
 	inst.Register("shellscript", installer.InstallerConfig{
 		BinaryName:  "bash-language-server",
 		InstallCmd:  "npm",
-		InstallArgs: []string{"install", "-g", "bash-language-server"},
+		InstallArgs: []string{"install", "-g", "bash-language-server", "shellcheck"},
+		RequiredBinaries: []installer.RequiredBinary{
+			{Name: "shellcheck", CheckArgs: []string{"--version"}},
+		},
 	})
 	for _, alias := range []string{"gomod", "gosum", "gowork"} {
 		inst.Register(alias, installer.InstallerConfig{

@@ -99,6 +99,15 @@ func TestVerifyPackagedAppMacOSChecksBundledBashLanguageServer(t *testing.T) {
 	assertScriptContains(t, script, "printf '%s\\n' \"--version\"")
 }
 
+func TestVerifyPackagedAppMacOSChecksBundledShellcheck(t *testing.T) {
+	script := readScript(t, "verify_packaged_app_macos.sh")
+
+	assertScriptContains(t, script, "\"shellcheck|bin/shellcheck\"")
+	assertScriptContains(t, script, "\"$resources/bin/shellcheck\"")
+	assertScriptContains(t, script, "shellcheck)")
+	assertScriptContains(t, script, "printf '%s\\n' \"--version\"")
+}
+
 func TestVerifyPackagedAppMacOSRunsRealLSPSmokeEntries(t *testing.T) {
 	script := readScript(t, "verify_packaged_app_macos.sh")
 
