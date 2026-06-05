@@ -37,6 +37,7 @@ func TestGetSidebarBuildsCompatibilitySnapshot(t *testing.T) {
 		LastReport:  "final answer",
 		LastMessage: "final answer",
 	}}
+	svc.state.ActiveTurn = &TurnSummary{ID: "turn-1", ThreadID: "thread-1", Status: "running"}
 
 	sidebar, err := svc.GetSidebar(context.Background())
 	if err != nil {
@@ -141,11 +142,14 @@ func assertCompatibilitySidebarStatus(t *testing.T, sidebar *Sidebar) {
 	if got := sidebar.Statuses["thread-1"]; got != "running" {
 		t.Fatalf("sidebar.Statuses[thread-1] = %q, want running", got)
 	}
+	if sidebar.ActiveTurn == nil || sidebar.ActiveTurn.ID != "turn-1" || sidebar.ActiveTurn.ThreadID != "thread-1" {
+		t.Fatalf("sidebar.ActiveTurn = %#v, want active turn identity for sidebar snapshot interrupt gate", sidebar.ActiveTurn)
+	}
 	if got := sidebar.StatusHeadersByThread["thread-1"]; got != "工作中" {
 		t.Fatalf("sidebar.StatusHeadersByThread[thread-1] = %q, want 工作中", got)
 	}
 	if !sidebar.InterruptibleByThread["thread-1"] {
-		t.Fatal("sidebar.InterruptibleByThread[thread-1] = false, want true")
+		t.Fatal("sidebar snapshot InterruptibleByThread[thread-1] = false, want true for matching active turn")
 	}
 }
 

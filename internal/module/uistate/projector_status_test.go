@@ -55,6 +55,62 @@ func TestDerivedThreadStatusTransitions(t *testing.T) {
 	assertThreadStatus(t, svc, "thinking")
 }
 
+func TestDeriveInterruptibleRequiresActiveTurnIdentityForSidebarSnapshot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		activeTurn *TurnSummary
+		statuses   map[string]string
+		want       map[string]bool
+	}{
+		{
+			name:     "sidebar snapshot rejects status-only running thread without active turn",
+			statuses: map[string]string{"thread-1": "running"},
+			want:     map[string]bool{"thread-1": false},
+		},
+		{
+			name:       "sidebar snapshot allows only the matching active turn thread",
+			activeTurn: &TurnSummary{ID: "turn-1", ThreadID: "thread-1", Status: "running"},
+			statuses:   map[string]string{"thread-1": "running", "thread-2": "running"},
+			want:       map[string]bool{"thread-1": true, "thread-2": false},
+		},
+		{
+			name:       "sidebar snapshot rejects active turn on another thread",
+			activeTurn: &TurnSummary{ID: "turn-1", ThreadID: "thread-other", Status: "running"},
+			statuses:   map[string]string{"thread-1": "running"},
+			want:       map[string]bool{"thread-1": false},
+		},
+		{
+			name:       "sidebar snapshot rejects empty active turn id",
+			activeTurn: &TurnSummary{ThreadID: "thread-1", Status: "running"},
+			statuses:   map[string]string{"thread-1": "running"},
+			want:       map[string]bool{"thread-1": false},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// This is only the sidebar snapshot gate. Thread patch payloads and
+			// frontend click controls have independent interruptibility chains.
+			sidebar := &Sidebar{
+				ActiveTurn:            tt.activeTurn,
+				Statuses:              tt.statuses,
+				InterruptibleByThread: map[string]bool{},
+			}
+
+			deriveInterruptible(sidebar)
+
+			for threadID, want := range tt.want {
+				if got := sidebar.InterruptibleByThread[threadID]; got != want {
+					t.Fatalf("sidebar snapshot InterruptibleByThread[%s] = %v, want %v", threadID, got, want)
+				}
+			}
+		})
+	}
+}
+
 func TestDerivedThreadStatusTreatsToolAndCollabAsRunning(t *testing.T) {
 	t.Parallel()
 

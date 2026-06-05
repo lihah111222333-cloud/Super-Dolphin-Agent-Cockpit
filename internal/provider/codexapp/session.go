@@ -406,11 +406,11 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 	if err != nil {
 		return err
 	}
-	turnID := strings.TrimSpace(req.TurnID)
+	s.mu.Lock()
+	turnID := shared.FirstNonEmpty(req.TurnID, s.activeTurnID)
+	s.mu.Unlock()
 	if turnID == "" {
-		s.mu.Lock()
-		turnID = strings.TrimSpace(s.activeTurnID)
-		s.mu.Unlock()
+		return errors.New("codexapp: active turn id is required for interrupt")
 	}
 	params := buildTurnInterruptParams(threadID, turnID, req.Source)
 	_, err = callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "turn/interrupt", params)

@@ -1585,6 +1585,39 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('does not render turn_aborted control blocks from thread/messages history', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {},
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({
+      messages: [
+        { id: 'message-user', role: 'user', content: 'visible prompt', createdAt: '2026-06-01T14:26:00Z' },
+        {
+          id: 'message-aborted-control',
+          role: 'user',
+          content: '<turn_aborted>\nThe user interrupted the previous turn on purpose. Any running unified exec processes may still be running in the background. If any tools/commands were aborted, they may have partially executed.\n</turn_aborted>',
+          createdAt: '2026-06-01T14:27:00Z',
+        },
+        { id: 'assistant-text', role: 'assistant', content: 'visible reply', createdAt: '2026-06-01T14:28:00Z' },
+      ],
+    });
+
+    await useClientStore.getState().syncThreadState('thread-1');
+
+    expect(useClientStore.getState().timelinesByThread['thread-1'].map((message) => message.text)).toEqual([
+      'visible prompt',
+      'visible reply',
+    ]);
+  });
+
   it('builds thread/start launch payload from provider preferences', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -1970,6 +2003,41 @@ function registerBridgeEventHandlersForTest() {
     }));
     expect(JSON.stringify(backend.emitFrontendTraceEvent.mock.calls[0][0])).not.toContain('prompt');
     nowSpy.mockRestore();
+  });
+
+  it('maps explicit activeTurn patch payload without inventing one when omitted', () => {
+    resetClientStoreForTests({
+      threads: [
+        { id: 'thread-active', name: 'Active', provider: 'codex', status: 'running' },
+        { id: 'thread-empty', name: 'Empty', provider: 'codex', status: 'running' },
+      ],
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-active',
+        sequence: '1',
+        activeTurn: { id: 'turn-active', threadId: 'thread-active', status: 'thinking' },
+      },
+    });
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-empty',
+        sequence: '1',
+        interruptible: true,
+      },
+    });
+
+    expect(useClientStore.getState().activeTurnByThread).toEqual({
+      'thread-active': expect.objectContaining({
+        id: 'turn-active',
+        threadId: 'thread-active',
+        status: 'thinking',
+      }),
+    });
   });
 
   it('preserves the selected Claude provider when runtime patches omit provider metadata', () => {
@@ -3763,12 +3831,37 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
-  it('interrupts a runtime agent when backend status marks it interruptible without an active turn id', async () => {
+  it('does not interrupt a runtime agent when backend status marks it interruptible without an active turn id', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
       activeThreadId: 'agent_123',
       threads: [{ id: 'agent_123', name: 'Runtime Agent', provider: 'codex', status: 'running' }],
+      statuses: {
+        agent_123: { status: 'running', interruptible: true },
+      },
+    });
+
+    expect(useClientStore.getState().hasInterruptibleThreadAction()).toBe(false);
+
+    await expect(useClientStore.getState().interruptActiveThread()).resolves.toBe(false);
+
+    expect(backend.interruptTurn).not.toHaveBeenCalled();
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '当前没有可中断任务',
+      tone: 'warning',
+    }));
+  });
+
+  it('interrupts a runtime agent when an active turn id is present', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'agent_123',
+      threads: [{ id: 'agent_123', name: 'Runtime Agent', provider: 'codex', status: 'running' }],
+      activeTurnByThread: {
+        agent_123: { id: 'turn-123', threadId: 'agent_123', status: 'running' },
+      },
       statuses: {
         agent_123: { status: 'running', interruptible: true },
       },
