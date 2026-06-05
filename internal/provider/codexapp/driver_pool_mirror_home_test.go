@@ -24,7 +24,7 @@ func TestStartSessionDefaultCodexHomeDoesNotRedirectPersonalMirror(t *testing.T)
 	t.Setenv("USERPROFILE", userHome)
 	workDir := t.TempDir()
 	var gotHome string
-	pool := NewServerPool(slog.Default(), func(_ context.Context, home string) (SpawnedServer, error) {
+	pool := NewServerPool(slog.Default(), func(_ context.Context, home, _ string) (SpawnedServer, error) {
 		gotHome = home
 		return nil, errors.New("stop after acquire")
 	}, PoolConfig{SpawnBackoff: 1})

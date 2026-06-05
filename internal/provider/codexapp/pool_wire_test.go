@@ -67,7 +67,7 @@ func TestNewTransportSpawnerSurfacesBuildError(t *testing.T) {
 	t.Parallel()
 
 	spawner := NewTransportSpawner(nil, slog.Default())
-	srv, err := spawner(context.Background(), "  ")
+	srv, err := spawner(context.Background(), "  ", "openai")
 	if err == nil {
 		t.Fatalf("expected error for empty home, got server %v", srv)
 	}
@@ -82,7 +82,7 @@ func TestPoolEvictRunnerTicks(t *testing.T) {
 	t.Parallel()
 
 	spawnErr := errors.New("port taken")
-	spawner := func(context.Context, string) (SpawnedServer, error) {
+	spawner := func(context.Context, string, string) (SpawnedServer, error) {
 		return nil, spawnErr
 	}
 	pool, clock := newPoolForTest(t, spawner, PoolConfig{

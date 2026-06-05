@@ -108,7 +108,7 @@ func TestRemoteLauncher_DisabledToolsUseStartConfig(t *testing.T) {
 	}
 }
 
-func TestRemoteLauncher_CodexModelProviderUsesStartConfig(t *testing.T) {
+func TestRemoteLauncher_CodexIdentityUsesStartConfig(t *testing.T) {
 	var started map[string]any
 	launcher := remoteLocalLauncher(t, handler.Map{
 		"thread/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
@@ -118,7 +118,11 @@ func TestRemoteLauncher_CodexModelProviderUsesStartConfig(t *testing.T) {
 	})
 
 	_, err := launcher.Launch(context.Background(), &agentRuntime{id: "agent-1"}, LaunchRequest{
-		Env: []string{"AGENT_CODEX_MODEL_PROVIDER=openai"},
+		Env: []string{
+			"AGENT_CODEX_HOME=/Users/mac/.codex",
+			"AGENT_CODEX_INSTANCE_KEY=default",
+			"AGENT_CODEX_MODEL_PROVIDER=openai",
+		},
 	})
 	if err != nil {
 		t.Fatalf("Launch() error = %v", err)
@@ -126,6 +130,12 @@ func TestRemoteLauncher_CodexModelProviderUsesStartConfig(t *testing.T) {
 	cfg, ok := started["config"].(map[string]any)
 	if !ok {
 		t.Fatalf("thread/start config = %#v, want object", started["config"])
+	}
+	if got := cfg["codexHome"]; got != "/Users/mac/.codex" {
+		t.Fatalf("config.codexHome = %#v, want /Users/mac/.codex", got)
+	}
+	if got := cfg["codexInstanceKey"]; got != "default" {
+		t.Fatalf("config.codexInstanceKey = %#v, want default", got)
 	}
 	if got := cfg["codexModelProvider"]; got != "openai" {
 		t.Fatalf("config.codexModelProvider = %#v, want openai", got)

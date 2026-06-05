@@ -17,6 +17,8 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 			"cwd":                  StringSchema("Optional only when parent_id resolves to an existing parent agent with cwd; otherwise required. Use an explicit absolute project or workspace path."),
 			"provider":             EnumStringSchema("Provider for the launched agent. Defaults to codex when omitted.", launchAgentProviderEnum...),
 			"model":                StringSchema("Optional model identifier for the launched agent (e.g. 'sonnet', 'opus', 'claude-opus-4-7[1m]'). When omitted, the provider falls back to its own default (for claude: ~/.claude/settings.json `model`)."),
+			"codex_home":           StringSchema("Optional explicit Codex home for codex launches. When any Codex identity override is supplied, codex_home, codex_instance_key, and codex_model_provider must all be supplied."),
+			"codex_instance_key":   StringSchema("Optional Codex instance key for codex launches. Use with codex_home and codex_model_provider."),
 			"codex_model_provider": StringSchema("Optional Codex CLI model_provider for codex launches (for example, openai). Forwarded as config.codexModelProvider, not as the top-level provider."),
 			"effort":               StringSchema("Optional reasoning effort for the launched agent (e.g. xhigh/high/medium/low for codex, max/high/medium/low for claude)."),
 			"language":             StringSchema("Optional language tag for the launched agent (e.g. 'zh', 'en'). Propagated to BuildCtx.Language for prompt match_when / section enable_when evaluation."),

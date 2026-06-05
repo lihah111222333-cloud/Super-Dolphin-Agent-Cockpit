@@ -39,17 +39,12 @@ const (
 	codexAppServerListen  = "--listen"
 )
 
-// codexAppServerArgs is the base command invoked by the pool spawner. The
-// local transport and orphan sweeper use the same command definition helpers
-// so spawn and discovery cannot drift.
-var codexAppServerArgs = buildCodexAppServerArgs(localSpawnListenURL())
-
-func buildCodexAppServerArgs(listenURL string) []string {
-	return []string{codexBinaryName, codexAppServerCommand, codexAppServerListen, listenURL}
+func buildCodexAppServerArgs(listenURL string, configArgs []string) []string {
+	return append(append([]string{codexBinaryName}, configArgs...), codexAppServerCommand, codexAppServerListen, listenURL)
 }
 
 func localSpawnAppServerArgs() []string {
-	return append(buildCodexAppServerArgs(localSpawnListenURL()), localSpawnNativeLSPFailClosedArgs()...)
+	return buildCodexAppServerArgs(localSpawnListenURL(), localSpawnNativeLSPFailClosedArgs())
 }
 
 func localSpawnNativeLSPFailClosedArgs() []string {
@@ -118,17 +113,11 @@ func BuildPoolSpawnCmd(ctx context.Context, args PoolSpawnArgs) (*exec.Cmd, erro
 	if err != nil {
 		return nil, err
 	}
-	// NOTE: ctx is intentionally NOT threaded into exec.CommandContext.
-	// exec.CommandContext kills the child process when ctx is done;
-	// callers typically pass a short "startup timeout" ctx that cancels
-	// right after waitForListenURL returns, which would kill the freshly
-	// spawned codex the moment runPoolSpawn unwinds. Process lifetime is
-	// owned by transport.shutdownTransport; the startup ctx is only used
-	// for the I/O-level waits further up the stack. Keeping the param
-	// preserves the signature for callers that want to reject a
-	// pre-cancelled ctx early.
+	// Do not use exec.CommandContext: startup-timeout ctx cancels after listen
+	// URL discovery, while process lifetime belongs to transport.shutdownTransport.
+	// The ctx here only supports pre-cancel checks and I/O-level waits.
 	extraArgs := append(poolSpawnNativeLSPConfigArgs(ctx, workDir), args.ExtraArgs...)
-	argv := append(append([]string(nil), codexAppServerArgs...), extraArgs...)
+	argv := buildCodexAppServerArgs(localSpawnListenURL(), extraArgs)
 	cmd := wrapWithFDLimit(argv)
 	if workDir != "" {
 		cmd.Dir = workDir

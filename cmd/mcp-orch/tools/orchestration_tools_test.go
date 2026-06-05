@@ -139,11 +139,13 @@ func TestLaunchRequestFromExecutableForwardsModel(t *testing.T) {
 	}
 }
 
-func TestLaunchRequestFromExecutableForwardsCodexModelProvider(t *testing.T) {
+func TestLaunchRequestFromExecutableForwardsCodexIdentity(t *testing.T) {
 	var in LaunchAgentInput
 	err := json.Unmarshal([]byte(`{
 		"name": "agent-codex-provider",
 		"provider": "codex",
+		"codex_home": " /Users/mac/.codex ",
+		"codex_instance_key": " default ",
 		"codex_model_provider": " openai "
 	}`), &in)
 	if err != nil {
@@ -152,6 +154,12 @@ func TestLaunchRequestFromExecutableForwardsCodexModelProvider(t *testing.T) {
 	req, err := launchRequestFromExecutable(in, "/tmp/agent-terminal")
 	if err != nil {
 		t.Fatalf("launchRequestFromExecutable() error = %v", err)
+	}
+	if got := launchEnvValue(req.Env, "AGENT_CODEX_HOME"); got != "/Users/mac/.codex" {
+		t.Fatalf("AGENT_CODEX_HOME = %q, want /Users/mac/.codex; env=%#v", got, req.Env)
+	}
+	if got := launchEnvValue(req.Env, "AGENT_CODEX_INSTANCE_KEY"); got != "default" {
+		t.Fatalf("AGENT_CODEX_INSTANCE_KEY = %q, want default; env=%#v", got, req.Env)
 	}
 	if got := launchEnvValue(req.Env, "AGENT_CODEX_MODEL_PROVIDER"); got != "openai" {
 		t.Fatalf("AGENT_CODEX_MODEL_PROVIDER = %q, want openai; env=%#v", got, req.Env)

@@ -10,6 +10,138 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+func TestBuildLaunchRequestFromAgentConfigFillsAgentIDAndName(t *testing.T) {
+	t.Parallel()
+	cfg := AgentNodeConfig{
+		Exec: AgentExecConfig{
+			AgentKey:  "implementer",
+			PromptKey: "user/implementer",
+			CWD:       "/repo/agent",
+			Language:  "zh",
+		},
+		FirstTurn: "do the thing",
+	}
+	node := Node{
+		NodeType: "agent",
+		Title:    "Validate DAG node",
+	}
+
+	req := buildLaunchRequestFromAgentConfig(&cfg, node, RunContext{})
+	again := buildLaunchRequestFromAgentConfig(&cfg, node, RunContext{})
+
+	if !strings.HasPrefix(req.AgentID, "agent_") {
+		t.Fatalf("AgentID = %q, want agent_*", req.AgentID)
+	}
+	if req.AgentID == again.AgentID {
+		t.Fatalf("AgentID repeated across calls: %q", req.AgentID)
+	}
+	if req.Name != node.Title {
+		t.Fatalf("Name = %q, want node title %q", req.Name, node.Title)
+	}
+	if req.AgentKey != cfg.Exec.AgentKey {
+		t.Fatalf("AgentKey = %q, want %q", req.AgentKey, cfg.Exec.AgentKey)
+	}
+	if req.PromptKey != cfg.Exec.PromptKey {
+		t.Fatalf("PromptKey = %q, want %q", req.PromptKey, cfg.Exec.PromptKey)
+	}
+	if req.Cwd != cfg.Exec.CWD {
+		t.Fatalf("Cwd = %q, want %q", req.Cwd, cfg.Exec.CWD)
+	}
+	if req.Prompt != cfg.FirstTurn {
+		t.Fatalf("Prompt = %q, want first turn %q", req.Prompt, cfg.FirstTurn)
+	}
+}
+
+func TestBuildLaunchRequestFromAgentConfigForwardsRuntimeHints(t *testing.T) {
+	t.Parallel()
+	cfg := AgentNodeConfig{
+		Exec: AgentExecConfig{
+			Provider:      " CLAUDE ",
+			Model:         " opus ",
+			Effort:        " high ",
+			AgentKey:      "implementer",
+			CWD:           "/repo/agent",
+			DisabledTools: []string{"shell", " browser "},
+		},
+	}
+
+	req := buildLaunchRequestFromAgentConfig(&cfg, Node{NodeType: "agent", Title: "node"}, RunContext{})
+
+	if got := launchEnvValue(req.Env, "AGENT_PROVIDER"); got != "claude" {
+		t.Fatalf("AGENT_PROVIDER = %q, want claude", got)
+	}
+	if got := launchEnvValue(req.Env, "AGENT_MODEL"); got != "opus" {
+		t.Fatalf("AGENT_MODEL = %q, want opus", got)
+	}
+	if got := launchEnvValue(req.Env, "AGENT_EFFORT"); got != "high" {
+		t.Fatalf("AGENT_EFFORT = %q, want high", got)
+	}
+	if got := launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"); got != "shell,browser" {
+		t.Fatalf("AGENT_DISABLED_TOOLS = %q, want shell,browser", got)
+	}
+	if req.Cwd != cfg.Exec.CWD {
+		t.Fatalf("Cwd = %q, want %q", req.Cwd, cfg.Exec.CWD)
+	}
+}
+
+func TestBuildLaunchRequestFromAgentConfigForwardsCodexModelProvider(t *testing.T) {
+	t.Parallel()
+	var cfg AgentNodeConfig
+	err := json.Unmarshal([]byte(`{
+		"exec": {
+			"provider": "codex",
+			"codex_home": " /Users/mac/.codex ",
+			"codex_instance_key": " default ",
+			"codex_model_provider": " openai "
+		}
+	}`), &cfg)
+	if err != nil {
+		t.Fatalf("unmarshal agent config: %v", err)
+	}
+
+	req := buildLaunchRequestFromAgentConfig(&cfg, Node{NodeType: "agent", Title: "node"}, RunContext{})
+
+	if got := launchEnvValue(req.Env, "AGENT_CODEX_HOME"); got != "/Users/mac/.codex" {
+		t.Fatalf("AGENT_CODEX_HOME = %q, want /Users/mac/.codex; env=%#v", got, req.Env)
+	}
+	if got := launchEnvValue(req.Env, "AGENT_CODEX_INSTANCE_KEY"); got != "default" {
+		t.Fatalf("AGENT_CODEX_INSTANCE_KEY = %q, want default; env=%#v", got, req.Env)
+	}
+	if got := launchEnvValue(req.Env, "AGENT_CODEX_MODEL_PROVIDER"); got != "openai" {
+		t.Fatalf("AGENT_CODEX_MODEL_PROVIDER = %q, want openai; env=%#v", got, req.Env)
+	}
+}
+
+func TestAgentExecutorExecuteCodexProviderRequiresCompleteIdentityWhenOverridePresent(t *testing.T) {
+	t.Parallel()
+	exec := NewAgentExecutor(&stubAgentLauncher{})
+	node := makeAgentNode(t, AgentNodeConfig{Exec: AgentExecConfig{
+		Provider:           "codex",
+		AgentKey:           "implementer",
+		CodexModelProvider: "openai",
+	}})
+
+	out, err := exec.Execute(context.Background(), node, RunContext{})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v, want nil", err)
+	}
+	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
+		t.Fatalf("outcome = (%q, %q), want failed validation", out.Status, out.FailureClass)
+	}
+	if !strings.Contains(out.ErrorSummary, "codex_home") || !strings.Contains(out.ErrorSummary, "codex_instance_key") {
+		t.Fatalf("ErrorSummary = %q, want complete codex identity guidance", out.ErrorSummary)
+	}
+}
+
+func TestBuildLaunchRequestFromAgentConfigDoesNotInventCWD(t *testing.T) {
+	t.Parallel()
+	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
+	req := buildLaunchRequestFromAgentConfig(&cfg, Node{NodeType: "agent", Title: "node"}, RunContext{})
+	if req.Cwd != "" {
+		t.Fatalf("Cwd = %q, want empty until exec.cwd is explicit", req.Cwd)
+	}
+}
+
 func TestAgentExecutor_Execute_MissingCWDDoesNotCallLauncher(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{err: contract.ErrLaunchCWDRequired}

@@ -119,109 +119,6 @@ func makeAgentNode(t *testing.T, cfg AgentNodeConfig) Node {
 	}
 }
 
-func TestBuildLaunchRequestFromAgentConfigFillsAgentIDAndName(t *testing.T) {
-	t.Parallel()
-	cfg := AgentNodeConfig{
-		Exec: AgentExecConfig{
-			AgentKey:  "implementer",
-			PromptKey: "user/implementer",
-			CWD:       "/repo/agent",
-			Language:  "zh",
-		},
-		FirstTurn: "do the thing",
-	}
-	node := Node{
-		NodeType: "agent",
-		Title:    "Validate DAG node",
-	}
-
-	req := buildLaunchRequestFromAgentConfig(&cfg, node, RunContext{})
-	again := buildLaunchRequestFromAgentConfig(&cfg, node, RunContext{})
-
-	if !strings.HasPrefix(req.AgentID, "agent_") {
-		t.Fatalf("AgentID = %q, want agent_*", req.AgentID)
-	}
-	if req.AgentID == again.AgentID {
-		t.Fatalf("AgentID repeated across calls: %q", req.AgentID)
-	}
-	if req.Name != node.Title {
-		t.Fatalf("Name = %q, want node title %q", req.Name, node.Title)
-	}
-	if req.AgentKey != cfg.Exec.AgentKey {
-		t.Fatalf("AgentKey = %q, want %q", req.AgentKey, cfg.Exec.AgentKey)
-	}
-	if req.PromptKey != cfg.Exec.PromptKey {
-		t.Fatalf("PromptKey = %q, want %q", req.PromptKey, cfg.Exec.PromptKey)
-	}
-	if req.Cwd != cfg.Exec.CWD {
-		t.Fatalf("Cwd = %q, want %q", req.Cwd, cfg.Exec.CWD)
-	}
-	if req.Prompt != cfg.FirstTurn {
-		t.Fatalf("Prompt = %q, want first turn %q", req.Prompt, cfg.FirstTurn)
-	}
-}
-
-func TestBuildLaunchRequestFromAgentConfigForwardsRuntimeHints(t *testing.T) {
-	t.Parallel()
-	cfg := AgentNodeConfig{
-		Exec: AgentExecConfig{
-			Provider:      " CLAUDE ",
-			Model:         " opus ",
-			Effort:        " high ",
-			AgentKey:      "implementer",
-			CWD:           "/repo/agent",
-			DisabledTools: []string{"shell", " browser "},
-		},
-	}
-
-	req := buildLaunchRequestFromAgentConfig(&cfg, Node{NodeType: "agent", Title: "node"}, RunContext{})
-
-	if got := launchEnvValue(req.Env, "AGENT_PROVIDER"); got != "claude" {
-		t.Fatalf("AGENT_PROVIDER = %q, want claude", got)
-	}
-	if got := launchEnvValue(req.Env, "AGENT_MODEL"); got != "opus" {
-		t.Fatalf("AGENT_MODEL = %q, want opus", got)
-	}
-	if got := launchEnvValue(req.Env, "AGENT_EFFORT"); got != "high" {
-		t.Fatalf("AGENT_EFFORT = %q, want high", got)
-	}
-	if got := launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"); got != "shell,browser" {
-		t.Fatalf("AGENT_DISABLED_TOOLS = %q, want shell,browser", got)
-	}
-	if req.Cwd != cfg.Exec.CWD {
-		t.Fatalf("Cwd = %q, want %q", req.Cwd, cfg.Exec.CWD)
-	}
-}
-
-func TestBuildLaunchRequestFromAgentConfigForwardsCodexModelProvider(t *testing.T) {
-	t.Parallel()
-	var cfg AgentNodeConfig
-	err := json.Unmarshal([]byte(`{
-		"exec": {
-			"provider": "codex",
-			"codex_model_provider": " openai "
-		}
-	}`), &cfg)
-	if err != nil {
-		t.Fatalf("unmarshal agent config: %v", err)
-	}
-
-	req := buildLaunchRequestFromAgentConfig(&cfg, Node{NodeType: "agent", Title: "node"}, RunContext{})
-
-	if got := launchEnvValue(req.Env, "AGENT_CODEX_MODEL_PROVIDER"); got != "openai" {
-		t.Fatalf("AGENT_CODEX_MODEL_PROVIDER = %q, want openai; env=%#v", got, req.Env)
-	}
-}
-
-func TestBuildLaunchRequestFromAgentConfigDoesNotInventCWD(t *testing.T) {
-	t.Parallel()
-	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
-	req := buildLaunchRequestFromAgentConfig(&cfg, Node{NodeType: "agent", Title: "node"}, RunContext{})
-	if req.Cwd != "" {
-		t.Fatalf("Cwd = %q, want empty until exec.cwd is explicit", req.Cwd)
-	}
-}
-
 func TestAgentExecutor_Execute_HappyPath(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{}
@@ -405,6 +302,9 @@ func TestClassifyAgentLaunchError(t *testing.T) {
 		{"unauthorized_validation", errors.New("401 unauthorized"), FailureClassValidation},
 		{"forbidden_validation", errors.New("403 forbidden"), FailureClassValidation},
 		{"claude_model_unavailable_validation", errors.New("There's an issue with the selected model (gpt-5.5). It may not exist or you may not have access to it. Run --model to pick a different model."), FailureClassValidation},
+		{"config_load_failure_validation", errors.New("failed to load configuration: Model provider 'codex' not found"), FailureClassValidation},
+		{"model_provider_not_found_validation", errors.New("Model provider 'codex' not found"), FailureClassValidation},
+		{"codex_home_required_validation", errors.New("[-32098] codexHome is required"), FailureClassValidation},
 		{"unknown_default_transient", errors.New("strange new failure"), FailureClassTransient},
 	}
 	for _, tc := range cases {

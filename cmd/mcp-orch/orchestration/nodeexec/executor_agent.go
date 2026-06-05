@@ -287,6 +287,11 @@ func normalizeAgentLaunchConfig(cfg *AgentNodeConfig) *NodeOutcome {
 		}
 	}
 	cfg.Exec.Provider = provider
+	if provider == "codex" {
+		if failure := validateCodexIdentityOverride(cfg.Exec); failure != nil {
+			return failure
+		}
+	}
 	return agentLaunchCWDValidationFailure(contract.ValidateLaunchCWD(cfg.Exec.CWD, ""))
 }
 
@@ -308,6 +313,33 @@ func validateAgentLaunchIdentity(cfg *AgentNodeConfig) *NodeOutcome {
 		Status:       NodeStatusFailed,
 		FailureClass: FailureClassValidation,
 		ErrorSummary: "agent_key or prompt_key required in node.config.exec",
+	}
+}
+
+func validateCodexIdentityOverride(exec AgentExecConfig) *NodeOutcome {
+	home := strings.TrimSpace(exec.CodexHome)
+	instanceKey := strings.TrimSpace(exec.CodexInstanceKey)
+	modelProvider := strings.TrimSpace(exec.CodexModelProvider)
+	if home == "" && instanceKey == "" && modelProvider == "" {
+		return nil
+	}
+	missing := make([]string, 0, 3)
+	if home == "" {
+		missing = append(missing, "codex_home")
+	}
+	if instanceKey == "" {
+		missing = append(missing, "codex_instance_key")
+	}
+	if modelProvider == "" {
+		missing = append(missing, "codex_model_provider")
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return &NodeOutcome{
+		Status:       NodeStatusFailed,
+		FailureClass: FailureClassValidation,
+		ErrorSummary: "codex identity requires " + strings.Join(missing, ", "),
 	}
 }
 
@@ -469,7 +501,7 @@ func validateAgentLaunchProvider(raw string) (string, error) {
 }
 
 func agentLaunchEnv(exec AgentExecConfig) []string {
-	env := make([]string, 0, 5)
+	env := make([]string, 0, 7)
 	if provider := strings.ToLower(strings.TrimSpace(exec.Provider)); provider != "" {
 		env = append(env, "AGENT_PROVIDER="+provider)
 	}
@@ -478,6 +510,12 @@ func agentLaunchEnv(exec AgentExecConfig) []string {
 	}
 	if effort := strings.TrimSpace(exec.Effort); effort != "" {
 		env = append(env, "AGENT_EFFORT="+effort)
+	}
+	if codexHome := strings.TrimSpace(exec.CodexHome); codexHome != "" {
+		env = append(env, "AGENT_CODEX_HOME="+codexHome)
+	}
+	if codexInstanceKey := strings.TrimSpace(exec.CodexInstanceKey); codexInstanceKey != "" {
+		env = append(env, "AGENT_CODEX_INSTANCE_KEY="+codexInstanceKey)
 	}
 	if codexModelProvider := strings.TrimSpace(exec.CodexModelProvider); codexModelProvider != "" {
 		env = append(env, "AGENT_CODEX_MODEL_PROVIDER="+codexModelProvider)
@@ -586,6 +624,9 @@ func launchCapabilityKeywords() []string {
 
 func launchValidationKeywords() []string {
 	return []string{
+		"failed to load configuration", "model provider '", "model provider \"",
+		"codexhome is required", "codexinstancekey is required", "codexmodelprovider is required",
+		"codexhome directory does not exist", "codex identity field has invalid type or value",
 		"401", "unauthoriz", "invalid api key", "invalid_api_key",
 		"403", "forbidden", "permission denied",
 		"402", "payment_required", "subscription expired",

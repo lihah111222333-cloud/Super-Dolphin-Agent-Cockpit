@@ -344,7 +344,7 @@ func newCodexE2EDriverFactory(t *testing.T, serverURL string) *codexapp.DriverFa
 func newCodexE2EDriverFactoryWithMirror(t *testing.T, serverURL string, mirror contract.SkillMirrorReconciler, onPoolAcquire func()) *codexapp.DriverFactory {
 	t.Helper()
 	t.Setenv(providershared.SuperDolphinHomeEnv, t.TempDir())
-	pool := codexapp.NewServerPool(nil, func(context.Context, string) (codexapp.SpawnedServer, error) {
+	pool := codexapp.NewServerPool(nil, func(context.Context, string, string) (codexapp.SpawnedServer, error) {
 		if onPoolAcquire != nil {
 			onPoolAcquire()
 		}

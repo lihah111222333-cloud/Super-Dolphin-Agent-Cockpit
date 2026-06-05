@@ -30,7 +30,7 @@ type SpawnedServer interface {
 // codexHome has no existing server. It returns a SpawnedServer and
 // an error; transient errors are recorded against the home so future
 // Get calls back off according to SpawnBackoff.
-type Spawner func(ctx context.Context, home string) (SpawnedServer, error)
+type Spawner func(ctx context.Context, home, modelProvider string) (SpawnedServer, error)
 
 // PoolConfig sets the ServerPool's runtime knobs. Zero fields fall
 // back to defaults.
@@ -172,7 +172,7 @@ func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexI
 	spawnAt := fastPath.now
 	p.mu.Unlock()
 
-	server, err := p.spawner(ctx, home)
+	server, err := p.spawner(ctx, home, provider)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	entry := p.entries[entryKey]

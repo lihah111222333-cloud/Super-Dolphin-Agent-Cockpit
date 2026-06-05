@@ -31,7 +31,7 @@ import (
 //
 // On failure the caller gets an error already enriched with the stderr
 // tail, which the pool caches in the identity+owner backoff slot.
-func runPoolSpawn(ctx context.Context, home string, registry *pidregistry.Registry, logger *slog.Logger) (*transport, error) {
+func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pidregistry.Registry, logger *slog.Logger) (*transport, error) {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -42,7 +42,7 @@ func runPoolSpawn(ctx context.Context, home string, registry *pidregistry.Regist
 	defer cancel()
 	cmd, err := BuildPoolSpawnCmd(startupCtx, PoolSpawnArgs{
 		Home:      home,
-		ExtraArgs: poolSpawnAppServerArgs(startupCtx),
+		ExtraArgs: append(poolSpawnNativeLSPConfigOverrideArgs([]string{"model_provider=" + tomlString(modelProvider)}), poolSpawnAppServerArgs(startupCtx)...),
 	})
 	if err != nil {
 		return nil, err
@@ -362,8 +362,8 @@ func NewTransportSpawner(registry *pidregistry.Registry, logger *slog.Logger) Sp
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	return func(ctx context.Context, home string) (SpawnedServer, error) {
-		t, err := runPoolSpawn(ctx, home, registry, logger)
+	return func(ctx context.Context, home, modelProvider string) (SpawnedServer, error) {
+		t, err := runPoolSpawn(ctx, home, modelProvider, registry, logger)
 		if err != nil {
 			return nil, err
 		}

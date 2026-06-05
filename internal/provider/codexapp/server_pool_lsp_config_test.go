@@ -39,6 +39,29 @@ func TestServerPoolAcquireSameOwnerDifferentLSPConfigSpawnsDistinctServers(t *te
 	}
 }
 
+func TestServerPoolAcquirePassesModelProviderToSpawner(t *testing.T) {
+	t.Parallel()
+	var gotModelProvider atomic.Value
+	spawner := func(_ context.Context, home, modelProvider string) (SpawnedServer, error) {
+		gotModelProvider.Store(modelProvider)
+		return newFakeServer("ws://" + filepath.Base(home)), nil
+	}
+	p, _ := newPoolForTest(t, spawner, PoolConfig{})
+	defer p.Close(context.Background())
+
+	id := identityFor(t, "glm")
+	id.ModelProvider = "openai"
+	_, release, err := p.Acquire(context.Background(), id, "agent-1")
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	defer release()
+
+	if got := gotModelProvider.Load(); got != "openai" {
+		t.Fatalf("spawner model provider = %q, want openai", got)
+	}
+}
+
 func TestPoolSpawnPolicySignatureIncludesLSPConfig(t *testing.T) {
 	t.Parallel()
 	parent := t.TempDir()
