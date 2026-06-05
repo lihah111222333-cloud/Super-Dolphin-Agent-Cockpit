@@ -79,7 +79,8 @@ func (OpAddNode) Kind() OpKind { return OpKindAddNode }
 // 关键不变量：禁改 status —— status 由生命周期路径管，ApplyOps 不许碰；禁改
 // node_key / node_type —— wire 上无字段位、即便用户硬塞也由 strict unmarshal
 // 拦下；agent_key 顶层不许出现，config 内只允许直接路径 config.exec.agent_key
-// 随完整 exec 配置一起保存；改 agent 路由应通过 assigned_to 改 wakeup 派发。
+// 或 hybrid 的 config.exec.verifier.agent_key 随完整 exec 配置一起保存；改 agent
+// 路由应通过 assigned_to 改 wakeup 派发。
 type NodePatch struct {
 	Title      *string         `json:"title,omitempty"`
 	AssignedTo *string         `json:"assigned_to,omitempty"`
@@ -94,8 +95,8 @@ type NodePatch struct {
 // 拒的场景：
 //   - patch 顶层出现非白名单 key（含禁改 4 件套 + 拼写错误随机 key）。
 //   - patch.config 任意嵌套层出现 banned key：status / node_key /
-//     node_type；agent_key 只允许作为直接 config.exec.agent_key 出现，
-//     其余位置一律拒绝。
+//     node_type；agent_key 只允许作为直接 config.exec.agent_key 或
+//     config.exec.verifier.agent_key 出现，其余位置一律拒绝。
 var ErrNodePatchBannedField = errors.New("node patch: banned field")
 
 // nodePatchBannedDeepKeys 是 patch.config 内要拒绝的 key 集合。status 由
@@ -172,7 +173,7 @@ func walkConfigForBannedKeys(v any, path []string) error {
 	case map[string]any:
 		for key, child := range node {
 			if _, banned := nodePatchBannedDeepKeys[key]; banned && !isAllowedConfigAgentKey(key, path) {
-				return fmt.Errorf("%w: config contains banned key %q (status/node_key/node_type are not patchable; agent_key is only allowed at config.exec.agent_key)", ErrNodePatchBannedField, key)
+				return fmt.Errorf("%w: config contains banned key %q (status/node_key/node_type are not patchable; agent_key is only allowed at config.exec.agent_key or config.exec.verifier.agent_key)", ErrNodePatchBannedField, key)
 			}
 			if err := walkConfigForBannedKeys(child, append(path, key)); err != nil {
 				return err
@@ -192,7 +193,10 @@ func isAllowedConfigAgentKey(key string, path []string) bool {
 	if key != "agent_key" || len(path) == 0 {
 		return false
 	}
-	return len(path) == 1 && path[0] == "exec"
+	if len(path) == 1 && path[0] == "exec" {
+		return true
+	}
+	return len(path) == 2 && path[0] == "exec" && path[1] == "verifier"
 }
 
 // OpUpdateNode 修改单个节点（draft/ready 状态）。

@@ -7,6 +7,7 @@ import { WorkflowPage } from './WorkflowPage.jsx';
 const backend = vi.hoisted(() => ({
   applyDagOps: vi.fn(),
   deleteDag: vi.fn(),
+  dispatchDagNode: vi.fn(),
   getDashboardPage: vi.fn(),
   getDagDetail: vi.fn(),
   getDagRun: vi.fn(),
@@ -80,6 +81,7 @@ function mockWorkflowDag() {
   backend.getDagRuns.mockResolvedValue({ runs: [] });
   backend.getDagRun.mockResolvedValue({ run: null, nodes: [] });
   backend.startDag.mockResolvedValue({ run_key: 'run-live' });
+  backend.dispatchDagNode.mockResolvedValue({ enqueued: true });
 }
 
 describe('WorkflowPage module', () => {
@@ -205,6 +207,46 @@ describe('WorkflowPage module', () => {
     expect(payload.idempotencyKey).toMatch(/^ui-/);
   });
 
+  it('shows blocked ready-node diagnostics and dispatches the runtime node with an assignee', async () => {
+    mockWorkflowDag();
+    backend.getDagRuns.mockImplementation((params = {}) => Promise.resolve({
+      runs: params.status === 'running'
+        ? [{ id: 88, run_key: 'run-waiting', status: 'waiting_for_assignee' }]
+        : [{ id: 88, run_key: 'run-waiting', status: 'waiting_for_assignee' }],
+    }));
+    backend.getDagRun.mockResolvedValue({
+      run: { id: 88, run_key: 'run-waiting', status: 'waiting_for_assignee' },
+      nodes: [{
+        node_key: 'draft',
+        title: 'Draft',
+        node_type: 'agent',
+        status: 'ready',
+        assigned_to: '',
+        active_wakeup_id: null,
+        depends_on: [],
+        config: { exec: { agent_key: 'writer', cwd: '/repo/app' } },
+      }],
+    });
+
+    renderWorkflowPage();
+
+    expect(await screen.findByText(/缺少 assigned_to/)).toHaveTextContent('Draft');
+    expect(screen.getByText(/ready 但没有 active_wakeup_id/)).toBeInTheDocument();
+
+    const assigneeInput = screen.getByRole('textbox', { name: /恢复执行者/ });
+    fireEvent.change(assigneeInput, { target: { value: 'codex-runner' } });
+    fireEvent.click(screen.getByRole('button', { name: '指派并派发' }));
+
+    await waitFor(() => {
+      expect(backend.dispatchDagNode).toHaveBeenCalledWith({
+        dagKey: 'daily-brief',
+        runId: 88,
+        nodeKey: 'draft',
+        assignedTo: 'codex-runner',
+      });
+    });
+  });
+
   it('restores the run action and shows an error when startDag times out', async () => {
     mockWorkflowDag();
     backend.startDag.mockReturnValue(new Promise(() => {}));
@@ -302,6 +344,291 @@ describe('WorkflowPage module', () => {
     expect(screen.getByRole('button', { name: /第 2 次运行/ })).toBeInTheDocument();
     const collapse = screen.getByRole('button', { name: '收起较早运行记录' });
     expect(collapse).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('reads and saves agent node settings through config.exec and outputs schema', async () => {
+    const dag = {
+      dag_key: 'daily-brief',
+      title: 'Daily Brief',
+      status: 'ready',
+      trigger: 'manual',
+      version: 7,
+    };
+    backend.getDashboardPage.mockResolvedValue({ dags: [dag] });
+    backend.getDagDetail.mockResolvedValue({
+      dag,
+      nodes: [{
+        node_key: 'draft',
+        title: 'Draft',
+        node_type: 'agent',
+        assigned_to: 'codex-runner',
+        depends_on: [],
+        config: {
+          exec: {
+            provider: 'codex',
+            model: 'gpt-5.5',
+            agent_key: 'writer',
+            prompt_key: 'main/writer',
+            cwd: '/repo/app',
+          },
+          first_turn: 'Write a daily brief',
+          outputs: {
+            to_sharedfile: { path: 'reports/brief.md', lock_mode: 'exclusive' },
+            to_node_result: true,
+          },
+        },
+      }],
+    });
+    backend.getDagRuns.mockResolvedValue({ runs: [] });
+    backend.getDagRun.mockResolvedValue({ run: null, nodes: [] });
+    backend.applyDagOps.mockResolvedValue({ newVersion: 8 });
+
+    renderWorkflowPage();
+
+    expect(await screen.findByDisplayValue('/repo/app')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('writer')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('reports/brief.md')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('执行 cwd'), { target: { value: '/repo/review' } });
+    fireEvent.change(screen.getByLabelText('Agent Key'), { target: { value: 'reviewer' } });
+    fireEvent.change(screen.getByLabelText('Prompt Key'), { target: { value: 'main/reviewer' } });
+    fireEvent.change(screen.getByLabelText('输出 sharedfile'), { target: { value: 'reports/review.md' } });
+    fireEvent.change(screen.getByLabelText('写入模式'), { target: { value: 'append' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存步骤' }));
+
+    await waitFor(() => expect(backend.applyDagOps).toHaveBeenCalled());
+    const patch = backend.applyDagOps.mock.calls[0][0].ops[0].patch;
+    expect(patch.config).toMatchObject({
+      exec: {
+        provider: 'codex',
+        model: 'gpt-5.5',
+        agent_key: 'reviewer',
+        prompt_key: 'main/reviewer',
+        cwd: '/repo/review',
+      },
+      first_turn: 'Write a daily brief',
+      outputs: {
+        to_sharedfile: { path: 'reports/review.md', lock_mode: 'append' },
+        to_node_result: true,
+      },
+    });
+    expect(patch.config).not.toHaveProperty('provider');
+    expect(patch.config).not.toHaveProperty('output_file');
+  });
+
+  it('renders automation and hybrid nodes with their real exec schema fields', async () => {
+    const dag = {
+      dag_key: 'daily-brief',
+      title: 'Daily Brief',
+      status: 'ready',
+      trigger: 'manual',
+      version: 7,
+    };
+    backend.getDashboardPage.mockResolvedValue({ dags: [dag] });
+    backend.getDagDetail.mockResolvedValue({
+      dag,
+      nodes: [
+        {
+          node_key: 'build',
+          title: 'Build',
+          node_type: 'automation',
+          assigned_to: 'worker',
+          depends_on: [],
+          config: { exec: { kind: 'command_card', command_ref: 'build_app' }, outputs: { to_node_result: true } },
+        },
+        {
+          node_key: 'verify',
+          title: 'Verify',
+          node_type: 'hybrid',
+          assigned_to: 'worker',
+          depends_on: ['build'],
+          config: {
+            exec: {
+              automation: { kind: 'command_card', command_ref: 'test_app' },
+              verifier: { provider: 'claude', model: 'opus', agent_key: 'reviewer', prompt_key: 'main/reviewer', cwd: '/repo/app' },
+            },
+            outputs: { to_sharedfile: { path: 'reports/verify.md' } },
+          },
+        },
+      ],
+    });
+    backend.getDagRuns.mockResolvedValue({ runs: [] });
+    backend.getDagRun.mockResolvedValue({ run: null, nodes: [] });
+
+    renderWorkflowPage();
+
+    expect(await screen.findByDisplayValue('build_app')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('步骤'), { target: { value: 'verify' } });
+
+    expect(screen.getByDisplayValue('test_app')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('reviewer')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('reports/verify.md')).toBeInTheDocument();
+  });
+
+  it('saves automation node settings through config.exec and outputs schema', async () => {
+    const dag = {
+      dag_key: 'daily-brief',
+      title: 'Daily Brief',
+      status: 'ready',
+      trigger: 'manual',
+      version: 7,
+    };
+    backend.getDashboardPage.mockResolvedValue({ dags: [dag] });
+    backend.getDagDetail.mockResolvedValue({
+      dag,
+      nodes: [{
+        node_key: 'build',
+        title: 'Build',
+        node_type: 'automation',
+        assigned_to: 'worker',
+        depends_on: [],
+        config: { exec: { kind: 'command_card', command_ref: 'build_app' }, outputs: { to_node_result: false } },
+      }],
+    });
+    backend.getDagRuns.mockResolvedValue({ runs: [] });
+    backend.getDagRun.mockResolvedValue({ run: null, nodes: [] });
+    backend.applyDagOps.mockResolvedValue({ newVersion: 8 });
+
+    renderWorkflowPage();
+
+    expect(await screen.findByDisplayValue('build_app')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('命令卡片'), { target: { value: 'build_app_v2' } });
+    fireEvent.change(screen.getByLabelText('输出 sharedfile'), { target: { value: 'reports/build.log' } });
+    fireEvent.click(screen.getByLabelText('结果写入节点摘要'));
+    fireEvent.click(screen.getByRole('button', { name: '保存步骤' }));
+
+    await waitFor(() => expect(backend.applyDagOps).toHaveBeenCalled());
+    const patch = backend.applyDagOps.mock.calls[0][0].ops[0].patch;
+    expect(patch.config).toMatchObject({
+      exec: {
+        kind: 'command_card',
+        command_ref: 'build_app_v2',
+      },
+      outputs: {
+        to_sharedfile: { path: 'reports/build.log', lock_mode: 'exclusive' },
+        to_node_result: true,
+      },
+    });
+    expect(JSON.stringify(patch.config)).not.toContain('agent_key');
+  });
+
+  it('saves hybrid node verifier settings with the backend-accepted nested schema', async () => {
+    const dag = {
+      dag_key: 'daily-brief',
+      title: 'Daily Brief',
+      status: 'ready',
+      trigger: 'manual',
+      version: 7,
+    };
+    backend.getDashboardPage.mockResolvedValue({ dags: [dag] });
+    backend.getDagDetail.mockResolvedValue({
+      dag,
+      nodes: [{
+        node_key: 'verify',
+        title: 'Verify',
+        node_type: 'hybrid',
+        assigned_to: 'worker',
+        depends_on: [],
+        config: {
+          exec: {
+            automation: { kind: 'command_card', command_ref: 'test_app' },
+            verifier: { provider: 'claude', model: 'opus', agent_key: 'reviewer', prompt_key: 'main/reviewer', cwd: '/repo/app' },
+          },
+          outputs: { to_sharedfile: { path: 'reports/verify.md', lock_mode: 'exclusive' } },
+        },
+      }],
+    });
+    backend.getDagRuns.mockResolvedValue({ runs: [] });
+    backend.getDagRun.mockResolvedValue({ run: null, nodes: [] });
+    backend.applyDagOps.mockResolvedValue({ newVersion: 8 });
+
+    renderWorkflowPage();
+
+    expect(await screen.findByDisplayValue('test_app')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('命令卡片'), { target: { value: 'test_app_v2' } });
+    fireEvent.change(screen.getByLabelText('Agent Key'), { target: { value: 'verifier_v2' } });
+    fireEvent.change(screen.getByLabelText('Prompt Key'), { target: { value: 'main/verifier_v2' } });
+    fireEvent.change(screen.getByLabelText('执行 cwd'), { target: { value: '/repo/review' } });
+    fireEvent.change(screen.getByLabelText('输出 sharedfile'), { target: { value: 'reports/review.md' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存步骤' }));
+
+    await waitFor(() => expect(backend.applyDagOps).toHaveBeenCalled());
+    const patch = backend.applyDagOps.mock.calls[0][0].ops[0].patch;
+    expect(patch.config).toMatchObject({
+      exec: {
+        automation: {
+          kind: 'command_card',
+          command_ref: 'test_app_v2',
+        },
+        verifier: {
+          provider: 'claude',
+          model: 'opus',
+          agent_key: 'verifier_v2',
+          prompt_key: 'main/verifier_v2',
+          cwd: '/repo/review',
+        },
+      },
+      outputs: {
+        to_sharedfile: { path: 'reports/review.md', lock_mode: 'exclusive' },
+      },
+    });
+    expect(patch.config.exec).not.toHaveProperty('agent_key');
+  });
+
+  it('fails fast before saving invalid node schema settings', async () => {
+    const dag = {
+      dag_key: 'daily-brief',
+      title: 'Daily Brief',
+      status: 'ready',
+      trigger: 'manual',
+      version: 7,
+    };
+    backend.getDashboardPage.mockResolvedValue({ dags: [dag] });
+    backend.getDagDetail.mockResolvedValue({
+      dag,
+      nodes: [{
+        node_key: 'verify',
+        title: 'Verify',
+        node_type: 'hybrid',
+        assigned_to: 'worker',
+        depends_on: [],
+        config: {
+          exec: {
+            automation: { kind: 'command_card', command_ref: 'test_app' },
+            verifier: { agent_key: 'reviewer', cwd: '/repo/app' },
+          },
+        },
+      }],
+    });
+    backend.getDagRuns.mockResolvedValue({ runs: [] });
+    backend.getDagRun.mockResolvedValue({ run: null, nodes: [] });
+    backend.applyDagOps.mockResolvedValue({ newVersion: 8 });
+
+    renderWorkflowPage();
+
+    expect(await screen.findByDisplayValue('test_app')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('命令卡片'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存步骤' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('config.exec.command_ref 不能为空');
+    expect(backend.applyDagOps).not.toHaveBeenCalled();
+  });
+
+  it('saves schedule cron expressions with the backend timezone prefix', async () => {
+    mockWorkflowDag();
+    backend.applyDagOps.mockResolvedValue({ newVersion: 8 });
+
+    renderWorkflowPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '创建定时任务' }));
+    fireEvent.change(screen.getByLabelText('运行时间'), { target: { value: '05:00' } });
+    fireEvent.click(screen.getAllByRole('button', { name: '创建定时任务' }).at(-1));
+
+    await waitFor(() => expect(backend.applyDagOps).toHaveBeenCalled());
+    expect(backend.applyDagOps.mock.calls[0][0].ops[0].patch).toMatchObject({
+      trigger: 'scheduled',
+      cron_expr: 'CRON_TZ=Asia/Shanghai 0 5 * * *',
+    });
   });
 
   it('starts the Douyin 05:00 video automation template with a seeded designer turn', async () => {

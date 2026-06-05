@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import { isCancelledError, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Workflow } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
-import { applyDagOps, deleteDag, getDashboardPage, getDagDetail, getDagRun, getDagRuns, readSharedFile, startDag, startThread, startTurn, terminateDagRun } from '../../shared/api/backendApi.js';
+import { applyDagOps, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, readSharedFile, startDag, startThread, startTurn, terminateDagRun } from '../../shared/api/backendApi.js';
 import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.jsx';
 
@@ -13,6 +13,8 @@ const MAX_SCHEDULE_MINUTE = 59;
 const DAYS_IN_MONTH = 31;
 const IDEMPOTENCY_RANDOM_RADIX = 16;
 const EMPTY_STATE_ICON_SIZE = 34;
+const DAG_SCHEDULE_TIMEZONE = 'Asia/Shanghai';
+const DAG_SCHEDULE_CRON_TZ_PREFIX = `CRON_TZ=${DAG_SCHEDULE_TIMEZONE}`;
 
 const DAG_DESIGNER_ENABLED_TOOLS = Object.freeze([
   'list_models',
@@ -121,6 +123,7 @@ function normalizeDagRun(raw = {}, index = 0) {
   const runKey = runKeyOf(raw);
   return {
     id: runKey || `run:${index}`,
+    runId: numberOrNull(raw.id ?? raw.run_id ?? raw.runId),
     runKey,
     status: firstText(raw.status, raw.state),
     triggerSource: firstText(raw.trigger_source, raw.triggerSource),
@@ -150,7 +153,9 @@ function normalizeDagNode(raw = {}, index = 0) {
     dependsOn,
     status: firstText(raw.status, raw.state),
     threadId: firstText(raw.spawning_thread_id, raw.spawningThreadId, raw.threadId, raw.thread_id),
+    activeWakeupId: numberOrNull(raw.active_wakeup_id ?? raw.activeWakeupId),
     config,
+    result: parsedDagConfig(raw.result),
     raw,
   };
 }
@@ -193,6 +198,8 @@ function dagStatusLabel(value) {
     draft: '草稿',
     ready: '可运行',
     running: '运行中',
+    waiting_for_assignee: '等待执行者',
+    blocked: '已阻塞',
     succeeded: '成功',
     done: '成功',
     success: '成功',
@@ -332,8 +339,22 @@ function isMonthDayText(value) {
   return Number.isInteger(day) && day >= 1 && day <= DAYS_IN_MONTH;
 }
 
-function parseCronScheduleParts(cronExpr) {
+function cronSchedulePartsWithTimezone(cronExpr) {
   const text = textValue(cronExpr);
+  if (!text) return { cronText: '', timezone: DAG_SCHEDULE_TIMEZONE };
+  const parts = text.split(/\s+/);
+  const first = parts[0] || '';
+  if (first.startsWith('CRON_TZ=')) {
+    return {
+      cronText: parts.slice(1).join(' '),
+      timezone: first.slice('CRON_TZ='.length) || DAG_SCHEDULE_TIMEZONE,
+    };
+  }
+  return { cronText: text, timezone: DAG_SCHEDULE_TIMEZONE };
+}
+
+function parseCronScheduleParts(cronExpr) {
+  const { cronText: text, timezone } = cronSchedulePartsWithTimezone(cronExpr);
   if (!text) return { empty: true };
   const parts = text.split(/\s+/);
   if (parts.length !== 5) return { error: DAG_SCHEDULE_FORMAT_WARNING };
@@ -343,7 +364,7 @@ function parseCronScheduleParts(cronExpr) {
   if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > MAX_SCHEDULE_HOUR || minute < 0 || minute > MAX_SCHEDULE_MINUTE) {
     return { error: DAG_SCHEDULE_FORMAT_WARNING };
   }
-  return { minute, hour, dayOfMonth, month, dayOfWeek, time: `${twoDigits(hour)}:${twoDigits(minute)}` };
+  return { minute, hour, dayOfMonth, month, dayOfWeek, time: `${twoDigits(hour)}:${twoDigits(minute)}`, timezone };
 }
 
 function cronFieldMatches(expected, actual) {
@@ -403,16 +424,16 @@ function cronExprFromSchedule(preset, time, weekday, monthDay) {
   if (!parsed) return { cronExpr: '', error: '请选择运行时间' };
   const minute = parsed.minute.toString();
   const hour = parsed.hour.toString();
-  if (preset === 'daily') return { cronExpr: `${minute} ${hour} * * *`, error: '' };
-  if (preset === 'weekdays') return { cronExpr: `${minute} ${hour} * * 1-5`, error: '' };
+  if (preset === 'daily') return { cronExpr: `${DAG_SCHEDULE_CRON_TZ_PREFIX} ${minute} ${hour} * * *`, error: '' };
+  if (preset === 'weekdays') return { cronExpr: `${DAG_SCHEDULE_CRON_TZ_PREFIX} ${minute} ${hour} * * 1-5`, error: '' };
   if (preset === 'weekly') {
     if (!Object.prototype.hasOwnProperty.call(DAG_WEEKDAY_LABELS, weekday)) return { cronExpr: '', error: '请选择星期几' };
-    return { cronExpr: `${minute} ${hour} * * ${weekday}`, error: '' };
+    return { cronExpr: `${DAG_SCHEDULE_CRON_TZ_PREFIX} ${minute} ${hour} * * ${weekday}`, error: '' };
   }
   if (preset === 'monthly') {
     const day = Number(monthDay);
     if (!Number.isInteger(day) || day < 1 || day > DAYS_IN_MONTH) return { cronExpr: '', error: '请选择每月几号' };
-    return { cronExpr: `${minute} ${hour} ${day} * *`, error: '' };
+    return { cronExpr: `${DAG_SCHEDULE_CRON_TZ_PREFIX} ${minute} ${hour} ${day} * *`, error: '' };
   }
   return { cronExpr: '', error: '请选择运行频率' };
 }
@@ -597,35 +618,213 @@ function threadIdFromStartResponse(value) {
 }
 
 function dagNodeFormFromNode(node) {
-  const config = objectValue(node?.config);
+  const nodeType = textValue(node?.nodeType).toLowerCase();
+  const config = parsedDagConfig(node?.config);
+  const exec = objectValue(config.exec);
+  const agentExec = nodeType === 'hybrid' ? objectValue(exec.verifier) : exec;
+  const automationExec = nodeType === 'hybrid' ? objectValue(exec.automation) : exec;
+  const outputs = objectValue(config.outputs);
+  const toSharedfile = objectValue(outputs.to_sharedfile);
   return {
     nodeKey: textValue(node?.nodeKey),
+    nodeType,
     title: textValue(node?.title),
     assignedTo: textValue(node?.assignedTo),
-    provider: firstText(config.provider, config.agentKey, config.agent_key),
-    model: textValue(config.model),
-    promptKey: firstText(config.prompt_key, config.promptKey),
+    execProvider: firstText(agentExec.provider, config.provider),
+    execModel: firstText(agentExec.model, config.model),
+    execAgentKey: firstText(agentExec.agent_key, agentExec.agentKey, config.agent_key, config.agentKey),
+    execPromptKey: firstText(agentExec.prompt_key, agentExec.promptKey, config.prompt_key, config.promptKey),
+    execCwd: firstText(agentExec.cwd, agentExec.CWD, config.cwd),
+    automationKind: firstText(automationExec.kind, 'command_card'),
+    commandRef: firstText(automationExec.command_ref, automationExec.commandRef, node?.commandRef),
     dependsOn: listToText(node?.dependsOn || []),
     firstTurn: firstText(config.first_turn, config.firstTurn, config.prompt),
-    outputFile: firstText(config.output_file, config.outputFile),
+    outputSharedfilePath: firstText(toSharedfile.path, config.output_file, config.outputFile),
+    outputSharedfileLockMode: firstText(toSharedfile.lock_mode, toSharedfile.lockMode, 'exclusive'),
+    outputToNodeResult: outputs.to_node_result === true || outputs.toNodeResult === true,
   };
 }
 
 function dagNodePatchFromForm(form, node) {
+  const nodeType = textValue(form.nodeType || node?.nodeType).toLowerCase();
+  const baseConfig = stripLegacyDagNodeConfig(parsedDagConfig(node?.config));
   const config = {
-    ...objectValue(node?.config),
-    provider: textValue(form.provider),
-    model: textValue(form.model),
-    prompt_key: textValue(form.promptKey),
-    first_turn: textValue(form.firstTurn),
-    output_file: textValue(form.outputFile),
+    ...baseConfig,
+    exec: dagNodeExecPatchFromForm(form, baseConfig, nodeType),
+    outputs: dagNodeOutputsPatchFromForm(form, baseConfig),
   };
+  if (nodeType === 'agent') {
+    config.first_turn = textValue(form.firstTurn);
+  }
+  validateDagNodePatchForm(form, nodeType);
   return {
     title: textValue(form.title),
     assigned_to: textValue(form.assignedTo),
     depends_on: wordListFromText(form.dependsOn),
     config: cleanObject(config),
   };
+}
+
+function stripLegacyDagNodeConfig(config) {
+  const {
+    provider: _provider,
+    model: _model,
+    agent_key: _agentKeySnake,
+    agentKey: _agentKey,
+    prompt_key: _promptKeySnake,
+    promptKey: _promptKey,
+    output_file: _outputFileSnake,
+    outputFile: _outputFile,
+    prompt: _prompt,
+    cwd: _cwd,
+    ...rest
+  } = objectValue(config);
+  return rest;
+}
+
+function dagNodeExecPatchFromForm(form, config, nodeType) {
+  const exec = objectValue(config.exec);
+  if (nodeType === 'automation') {
+    return cleanObject({
+      ...exec,
+      kind: textValue(form.automationKind) || 'command_card',
+      command_ref: textValue(form.commandRef),
+    });
+  }
+  if (nodeType === 'hybrid') {
+    return cleanObject({
+      ...exec,
+      automation: cleanObject({
+        ...objectValue(exec.automation),
+        kind: textValue(form.automationKind) || 'command_card',
+        command_ref: textValue(form.commandRef),
+      }),
+      verifier: dagNodeAgentExecPatchFromForm(form, objectValue(exec.verifier)),
+    });
+  }
+  return dagNodeAgentExecPatchFromForm(form, exec);
+}
+
+function dagNodeAgentExecPatchFromForm(form, exec) {
+  return cleanObject({
+    ...objectValue(exec),
+    provider: textValue(form.execProvider),
+    model: textValue(form.execModel),
+    agent_key: textValue(form.execAgentKey),
+    prompt_key: textValue(form.execPromptKey),
+    cwd: textValue(form.execCwd),
+  });
+}
+
+function dagNodeOutputsPatchFromForm(form, config) {
+  const outputs = { ...objectValue(config.outputs) };
+  const path = textValue(form.outputSharedfilePath);
+  if (path) {
+    outputs.to_sharedfile = cleanObject({
+      ...objectValue(outputs.to_sharedfile),
+      path,
+      lock_mode: textValue(form.outputSharedfileLockMode),
+    });
+  } else {
+    delete outputs.to_sharedfile;
+  }
+  outputs.to_node_result = Boolean(form.outputToNodeResult);
+  return cleanObject(outputs);
+}
+
+function validateDagNodePatchForm(form, nodeType) {
+  const provider = textValue(form.execProvider);
+  if (provider && provider !== 'claude' && provider !== 'codex') throw new Error('config.exec.provider 只能是 claude 或 codex');
+  const lockMode = textValue(form.outputSharedfileLockMode);
+  if (lockMode && !['exclusive', 'append', 'shared'].includes(lockMode)) throw new Error('outputs.to_sharedfile.lock_mode 只能是 exclusive、append 或 shared');
+  if (!textValue(form.outputSharedfilePath) && lockMode && lockMode !== 'exclusive') throw new Error('outputs.to_sharedfile.path 为空时不能设置写入模式');
+  if (nodeType === 'automation' || nodeType === 'hybrid') validateAutomationExecForm(form);
+  if (nodeType === 'agent' || nodeType === 'hybrid') validateAgentExecForm(form);
+}
+
+function validateAutomationExecForm(form) {
+  if ((textValue(form.automationKind) || 'command_card') !== 'command_card') throw new Error('config.exec.kind 当前只能是 command_card');
+  if (!textValue(form.commandRef)) throw new Error('config.exec.command_ref 不能为空');
+}
+
+function validateAgentExecForm(form) {
+  if (!dagNodeAgentExecFormHasValues(form)) return;
+  if (!textValue(form.execAgentKey) && !textValue(form.execPromptKey)) throw new Error('config.exec.agent_key 或 config.exec.prompt_key 至少填写一个');
+  const cwd = textValue(form.execCwd);
+  if (cwd && !cwd.startsWith('/')) throw new Error('config.exec.cwd 必须是绝对路径');
+}
+
+function dagNodeAgentExecFormHasValues(form) {
+  return Boolean(
+    textValue(form.execProvider)
+    || textValue(form.execModel)
+    || textValue(form.execAgentKey)
+    || textValue(form.execPromptKey)
+    || textValue(form.execCwd),
+  );
+}
+
+function workflowDiagnosticNodes(detail, run) {
+  const runtimeNodes = Array.isArray(run?.selectedRun?.nodes) ? run.selectedRun.nodes : [];
+  return runtimeNodes.length > 0 ? runtimeNodes : detail.nodes;
+}
+
+function workflowNodeDiagnostics(nodes = []) {
+  return nodes.flatMap((node) => {
+    const status = textValue(node?.status).toLowerCase();
+    const diagnostics = [];
+    if ((status === 'ready' || status === 'pending') && !textValue(node?.assignedTo)) {
+      diagnostics.push({
+        key: `${node.nodeKey}:waiting_for_assignee`,
+        node,
+        severity: 'blocked',
+        title: '等待执行者',
+        message: `${node.title || node.nodeKey} 缺少 assigned_to，后端不会自动 enqueue wakeup。`,
+        recovery: 'dispatch',
+      });
+    }
+    if (status === 'ready' && !node?.activeWakeupId) {
+      diagnostics.push({
+        key: `${node.nodeKey}:ready_no_wakeup`,
+        node,
+        severity: 'blocked',
+        title: 'ready-no-wakeup',
+        message: `${node.title || node.nodeKey} 已 ready 但没有 active_wakeup_id，请指派执行者后手动派发。`,
+        recovery: textValue(node?.assignedTo) ? 'dispatch' : '',
+      });
+    }
+    if (status === 'blocked') {
+      diagnostics.push({
+        key: `${node.nodeKey}:blocked`,
+        node,
+        severity: 'blocked',
+        title: 'blocked',
+        message: workflowNodeFailureText(node) || `${node.title || node.nodeKey} 被后端标记为 blocked。`,
+      });
+    }
+    if (status === 'failed') {
+      diagnostics.push({
+        key: `${node.nodeKey}:failed`,
+        node,
+        severity: 'failed',
+        title: 'failed',
+        message: workflowNodeFailureText(node) || `${node.title || node.nodeKey} 执行失败，请查看节点结果或对话。`,
+      });
+    }
+    return diagnostics;
+  });
+}
+
+function workflowNodeFailureText(node) {
+  const result = parsedDagConfig(node?.result || node?.raw?.result);
+  return firstText(
+    result.error_summary,
+    result.errorSummary,
+    result.reason,
+    result.message,
+    result.failure_class,
+    result.failureClass,
+  );
 }
 
 function rootNodesMissingAssignee(nodes = []) {
@@ -899,6 +1098,7 @@ function useWorkflowRefresh({ refreshDags, refreshKey, selectedDagKeyRef, select
 function useWorkflowActionState(activeDetailDag) {
   const [actioning, setActioning] = useState('');
   const [savingNodeKey, setSavingNodeKey] = useState('');
+  const [dispatchingNodeKey, setDispatchingNodeKey] = useState('');
   const [error, setError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -907,7 +1107,7 @@ function useWorkflowActionState(activeDetailDag) {
     setScheduleCron(activeDetailDag?.cronExpr || '0 8 * * *');
     setScheduleOpen(true);
   }, [activeDetailDag]);
-  return { actioning, deleteTarget, error, openScheduleModal, savingNodeKey, scheduleCron, scheduleOpen, setActioning, setDeleteTarget, setError, setSavingNodeKey, setScheduleCron, setScheduleOpen };
+  return { actioning, deleteTarget, dispatchingNodeKey, error, openScheduleModal, savingNodeKey, scheduleCron, scheduleOpen, setActioning, setDeleteTarget, setDispatchingNodeKey, setError, setSavingNodeKey, setScheduleCron, setScheduleOpen };
 }
 
 function useWorkflowDerivedState({ detail, list, run, selection }) {
@@ -934,18 +1134,24 @@ function workflowDerivedSnapshot({ activeDetailDag, activeRunKey, dagKey, detail
   const finalOutput = finalOutputDescriptor(run.selectedRun?.run) || finalOutputDescriptor(detail.activeRun) || finalOutputDescriptor(selection.selectedDag?.latestRun);
   const finalText = finalOutputPreviewText(finalOutput);
   const recentRunPanelLabel = dagStatusLabel(detail.activeRun?.status || detail.runs[0]?.status || activeDetailDag?.latestRun?.status);
+  const diagnosticNodes = workflowDiagnosticNodes(detail, run);
+  const diagnostics = workflowNodeDiagnostics(diagnosticNodes);
+  const runId = numberOrNull(run.selectedRun?.run?.runId ?? run.selectedRun?.run?.raw?.id ?? detail.activeRun?.runId ?? detail.activeRun?.raw?.id);
   return {
     activeDetailDag,
     activeRunKey,
-    agentNodes: detail.nodes.filter((node) => textValue(node.nodeType).toLowerCase() === 'agent'),
     baseVersion,
     blockingLoadError: messages.blockingLoadError,
     dagKey,
+    configurableNodes: detail.nodes.filter((node) => ['agent', 'automation', 'hybrid'].includes(textValue(node.nodeType).toLowerCase())),
     deleteDisabledReason: activeRunKey ? '已有运行正在进行，请先停止运行后再删除。' : '',
     finalOutput,
     finalText,
+    diagnostics,
+    diagnosticNodes,
     missingRootAssigneeWarning,
     recentRunPanelLabel,
+    runId,
     scheduleActionLabel: isScheduledTrigger(activeDetailDag?.trigger) || activeDetailDag?.cronExpr ? '修改计划' : '创建定时任务',
     scheduleToggleVisible: isScheduledTrigger(activeDetailDag?.trigger) && Boolean(activeDetailDag?.cronExpr),
     startDisabledReason,
@@ -970,8 +1176,9 @@ function useWorkflowActions({ actionState, derived, list, notices, refresh, sele
   const saveSchedule = useSaveScheduleAction({ actionState, derived, list, notices, refresh });
   const toggleScheduleEnabled = useToggleScheduleAction({ actionState, derived, list, notices, refresh });
   const saveAgentNode = useSaveAgentNodeAction({ actionState, derived, notices, refresh });
+  const dispatchNode = useDispatchDagNodeAction({ actionState, derived, list, notices, refresh });
   const startDesignFlow = useStartDesignFlowAction({ actionState, notices, store, workflowCwd });
-  return { confirmDeleteDAG, runSelectedDag, saveAgentNode, saveSchedule, startDesignFlow, stopSelectedDag, toggleScheduleEnabled };
+  return { confirmDeleteDAG, dispatchNode, runSelectedDag, saveAgentNode, saveSchedule, startDesignFlow, stopSelectedDag, toggleScheduleEnabled };
 }
 
 function useRunSelectedDagAction({ actionState, derived, list, notices, refresh }) {
@@ -1116,6 +1323,36 @@ function useSaveAgentNodeAction({ actionState, derived, notices, refresh }) {
       actionState.setSavingNodeKey('');
     }
   }, [actionState, derived, notices, refresh]);
+}
+
+function useDispatchDagNodeAction({ actionState, derived, list, notices, refresh }) {
+  return useCallback(async (node, assignedTo) => {
+    const assignee = textValue(assignedTo);
+    if (!derived.dagKey || !node?.nodeKey) return;
+    if (!derived.runId) { actionState.setError('派发节点失败：当前运行缺少 runId，无法定位 runtime node'); return; }
+    if (!assignee) { actionState.setError('派发节点失败：请填写执行者 assigned_to'); return; }
+    const targetDagKey = derived.dagKey;
+    actionState.setDispatchingNodeKey(node.nodeKey);
+    actionState.setError('');
+    notices.clearNotice();
+    try {
+      await withWorkflowActionTimeout(dispatchDagNode({
+        dagKey: targetDagKey,
+        runId: derived.runId,
+        nodeKey: node.nodeKey,
+        assignedTo: assignee,
+      }));
+      await Promise.all([
+        list.refreshDags().catch(() => []),
+        refresh.refreshDetail(targetDagKey).catch(() => {}),
+      ]);
+      notices.showTaskNotice(`已派发步骤 ${node.title || node.nodeKey}`, targetDagKey);
+    } catch (err) {
+      actionState.setError('派发节点失败：' + errorMessage(err));
+    } finally {
+      actionState.setDispatchingNodeKey('');
+    }
+  }, [actionState, derived, list, notices, refresh]);
 }
 
 function useStartDesignFlowAction({ actionState, notices, store, workflowCwd }) {
@@ -1281,7 +1518,7 @@ function WorkflowDetailContent({ model }) {
       {derived.startDisabledReason ? <p className="console-message">{derived.startDisabledReason}</p> : null}
       <WorkflowFinalOutputPanel key={finalOutputPath(derived.finalOutput) || 'inline-output'} finalOutput={derived.finalOutput} previewText={derived.finalText} />
       <WorkflowStatGrid derived={derived} selection={selection} />
-      <WorkflowDiagnostics nodes={detail.nodes} />
+      <WorkflowDiagnostics model={model} />
       <WorkflowRunHistory model={model} />
       <WorkflowNodeList model={model} />
       <WorkflowAdvanced model={model} />
@@ -1362,12 +1599,51 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText }) {
   );
 }
 
-function WorkflowDiagnostics({ nodes }) {
+function WorkflowDiagnostics({ model }) {
+  const { derived } = model;
   return (
     <div className="workflow-diagnostics">
-      <WorkflowTopologyPanel nodes={nodes} />
-      <WorkflowSharedFilesPanel nodes={nodes} />
+      <WorkflowDiagnosticPanel model={model} />
+      <WorkflowTopologyPanel nodes={derived.diagnosticNodes} />
+      <WorkflowSharedFilesPanel nodes={derived.diagnosticNodes} />
     </div>
+  );
+}
+
+function WorkflowDiagnosticPanel({ model }) {
+  const { derived } = model;
+  return (
+    <Panel title="运行诊断">
+      {derived.diagnostics.length === 0 ? <p>暂无 blocked/ready-no-wakeup/failed 诊断</p> : (
+        <div className="workflow-diagnostic-list">
+          {derived.diagnostics.map((diagnostic) => <WorkflowDiagnosticRow diagnostic={diagnostic} key={diagnostic.key} model={model} />)}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function WorkflowDiagnosticRow({ diagnostic, model }) {
+  const { actionState, actions, derived } = model;
+  const [assignee, setAssignee] = useState(textValue(diagnostic.node?.assignedTo));
+  const canDispatch = diagnostic.recovery === 'dispatch' && Boolean(derived.runId);
+  const dispatching = actionState.dispatchingNodeKey === diagnostic.node?.nodeKey;
+  return (
+    <article className={`workflow-diagnostic-row ${diagnostic.severity || ''}`}>
+      <strong>{diagnostic.title}</strong>
+      <span>{diagnostic.message}</span>
+      {diagnostic.recovery === 'dispatch' ? (
+        <div className="workflow-diagnostic-actions">
+          <label>
+            恢复执行者
+            <input value={assignee} onChange={(event) => setAssignee(event.target.value)} aria-label="恢复执行者" />
+          </label>
+          <button type="button" onClick={() => { void actions.dispatchNode(diagnostic.node, assignee); }} disabled={!canDispatch || dispatching} title={canDispatch ? '' : '当前运行缺少 runId'}>
+            {dispatching ? '派发中...' : '指派并派发'}
+          </button>
+        </div>
+      ) : null}
+    </article>
   );
 }
 
@@ -1454,12 +1730,12 @@ function WorkflowRunRow({ index, run, runState }) {
 }
 
 function WorkflowNodeList({ model }) {
-  const { detail, store } = model;
+  const { derived, store } = model;
   return (
     <Panel title="执行步骤">
       <div className="dag-node-list">
-        {detail.nodes.length === 0 ? <p>暂无步骤</p> : null}
-        {detail.nodes.map((node) => <WorkflowNodeRow key={node.id} node={node} store={store} />)}
+        {derived.diagnosticNodes.length === 0 ? <p>暂无步骤</p> : null}
+        {derived.diagnosticNodes.map((node) => <WorkflowNodeRow key={node.id} node={node} store={store} />)}
       </div>
     </Panel>
   );
@@ -1485,7 +1761,7 @@ function WorkflowAdvanced({ model }) {
   return (
     <details className="workflow-advanced">
       <summary>高级设置</summary>
-      {derived.agentNodes.length > 0 ? <DagNodeEditor nodes={derived.agentNodes} savingNodeKey={actionState.savingNodeKey} onSave={actions.saveAgentNode} /> : <p className="console-message">暂无可配置步骤</p>}
+      {derived.configurableNodes.length > 0 ? <DagNodeEditor nodes={derived.configurableNodes} savingNodeKey={actionState.savingNodeKey} onSave={actions.saveAgentNode} /> : <p className="console-message">暂无可配置步骤</p>}
     </details>
   );
 }
@@ -1535,13 +1811,16 @@ function useDagNodeEditorState(nodes) {
     setForm(dagNodeFormFromNode(activeNode));
   }
 
-  const update = useCallback((key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value })), []);
+  const update = useCallback((key) => (event) => {
+    const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+    setForm((current) => ({ ...current, [key]: value }));
+  }, []);
   const setActiveNodeKey = useCallback((nodeKey) => {
     const nextNode = nodes.find((node) => node.nodeKey === nodeKey) || nodes[0] || null;
     setActiveNodeKeyState(nextNode?.nodeKey || '');
     setForm(dagNodeFormFromNode(nextNode));
   }, [nodes]);
-  const modelOptions = form.provider ? appendCurrentModelOption(form.provider, form.model) : [];
+  const modelOptions = form.execProvider ? appendCurrentModelOption(form.execProvider, form.execModel) : [];
   return { activeNode, form, modelOptions, setActiveNodeKey, update };
 }
 
@@ -1557,13 +1836,25 @@ function DagNodeSelector({ nodes, activeNode, setActiveNodeKey }) {
 }
 
 function DagNodeConfigFields({ form, update, modelOptions }) {
+  const nodeType = textValue(form.nodeType);
   return (
     <>
       <label>名称<input value={form.title} onChange={update('title')} aria-label="名称" /></label>
       <label>执行者<input value={form.assignedTo} onChange={update('assignedTo')} aria-label="执行者" /></label>
+      {(nodeType === 'agent' || nodeType === 'hybrid') ? <DagAgentExecFields form={form} modelOptions={modelOptions} update={update} /> : null}
+      {(nodeType === 'automation' || nodeType === 'hybrid') ? <DagAutomationExecFields form={form} update={update} /> : null}
+      <label>依赖步骤<input value={form.dependsOn} onChange={update('dependsOn')} aria-label="依赖步骤" /></label>
+      <DagNodeOutputFields form={form} update={update} />
+    </>
+  );
+}
+
+function DagAgentExecFields({ form, update, modelOptions }) {
+  return (
+    <>
       <label>
         执行引擎
-        <select value={form.provider} onChange={update('provider')} aria-label="执行引擎">
+        <select value={form.execProvider} onChange={update('execProvider')} aria-label="执行引擎">
           <option value="">默认</option>
           <option value="claude">claude</option>
           <option value="codex">codex</option>
@@ -1571,22 +1862,57 @@ function DagNodeConfigFields({ form, update, modelOptions }) {
       </label>
       <label>
         模型
-        <select value={form.model} onChange={update('model')} aria-label="模型">
+        <select value={form.execModel} onChange={update('execModel')} aria-label="模型">
           <option value="">默认</option>
           {modelOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
       </label>
-      <label>提示词<input value={form.promptKey} onChange={update('promptKey')} aria-label="提示词" /></label>
-      <label>依赖步骤<input value={form.dependsOn} onChange={update('dependsOn')} aria-label="依赖步骤" /></label>
+      <label>Agent Key<input value={form.execAgentKey} onChange={update('execAgentKey')} aria-label="Agent Key" /></label>
+      <label>Prompt Key<input value={form.execPromptKey} onChange={update('execPromptKey')} aria-label="Prompt Key" /></label>
+      <label>执行 cwd<input value={form.execCwd} onChange={update('execCwd')} aria-label="执行 cwd" /></label>
+    </>
+  );
+}
+
+function DagAutomationExecFields({ form, update }) {
+  return (
+    <>
+      <label>
+        自动化类型
+        <select value={form.automationKind} onChange={update('automationKind')} aria-label="自动化类型">
+          <option value="command_card">command_card</option>
+        </select>
+      </label>
+      <label>命令卡片<input value={form.commandRef} onChange={update('commandRef')} aria-label="命令卡片" /></label>
+    </>
+  );
+}
+
+function DagNodeOutputFields({ form, update }) {
+  return (
+    <>
+      <label>输出 sharedfile<input value={form.outputSharedfilePath} onChange={update('outputSharedfilePath')} aria-label="输出 sharedfile" /></label>
+      <label>
+        写入模式
+        <select value={form.outputSharedfileLockMode} onChange={update('outputSharedfileLockMode')} aria-label="写入模式">
+          <option value="exclusive">exclusive</option>
+          <option value="append">append</option>
+          <option value="shared">shared</option>
+        </select>
+      </label>
+      <label className="inline-field">
+        <input type="checkbox" checked={form.outputToNodeResult} onChange={update('outputToNodeResult')} aria-label="结果写入节点摘要" />
+        结果写入节点摘要
+      </label>
     </>
   );
 }
 
 function DagNodeInstructionFields({ form, update }) {
+  if (textValue(form.nodeType) !== 'agent') return null;
   return (
     <>
       <label className="wide">指令<textarea value={form.firstTurn} onChange={update('firstTurn')} aria-label="指令" /></label>
-      <label>输出文件<input value={form.outputFile} onChange={update('outputFile')} aria-label="输出文件" /></label>
     </>
   );
 }
