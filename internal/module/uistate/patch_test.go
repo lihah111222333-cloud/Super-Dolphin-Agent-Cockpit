@@ -75,6 +75,55 @@ func TestThreadPatchIncludesRuntimeAndSortTimestamps(t *testing.T) {
 	}
 }
 
+func TestThreadPatchInterruptibleRequiresMatchingActiveTurn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		activeTurn *TurnSummary
+		want       bool
+	}{
+		{
+			name: "nil active turn",
+			want: false,
+		},
+		{
+			name:       "matching active turn",
+			activeTurn: &TurnSummary{ID: "turn-1", ThreadID: "thread-1"},
+			want:       true,
+		},
+		{
+			name:       "different active turn thread",
+			activeTurn: &TurnSummary{ID: "turn-1", ThreadID: "thread-2"},
+			want:       false,
+		},
+		{
+			name:       "empty active turn id",
+			activeTurn: &TurnSummary{ThreadID: "thread-1"},
+			want:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, _ := newPatchTestService(t)
+			svc.state.Threads = []ThreadSummary{{ID: "thread-1", Name: "Demo", State: "running"}}
+			svc.state.ActiveTurn = tt.activeTurn
+
+			svc.mu.Lock()
+			patch := svc.threadPatchLocked("thread-1", "test")
+			svc.mu.Unlock()
+
+			if patch.Interruptible == nil {
+				t.Fatalf("patch.Interruptible = nil, want %v", tt.want)
+			}
+			if *patch.Interruptible != tt.want {
+				t.Fatalf("patch.Interruptible = %v, want %v; patch=%#v", *patch.Interruptible, tt.want, patch)
+			}
+		})
+	}
+}
+
 func TestTurnCompletedPatchIncludesLastActiveAt(t *testing.T) {
 	t.Parallel()
 
