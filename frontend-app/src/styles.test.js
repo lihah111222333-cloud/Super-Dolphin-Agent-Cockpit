@@ -1131,25 +1131,41 @@ describe('light theme control surfaces', () => {
   });
 });
 
-describe('memory page styles', () => {
-  it('keeps memory card category badges horizontal beside long titles', () => {
-    const title = declarationsFor('.memory-card h3');
-    const badge = declarationsFor('.memory-card header span');
+describe('card layout styles', () => {
+  it('keeps card badges and actions horizontal beside long content', () => {
+    const memoryTitle = declarationsFor('.memory-card h3');
+    const skillTitle = declarationsFor('.skill-card h3');
+    const promptTitle = declarationsFor('.prompt-card h3');
+    const memoryBadge = declarationsFor('.memory-card header span');
+    const skillBadge = declarationsFor('.skill-card header span');
+    const promptBadge = declarationsFor('.prompt-badges span');
     const timestamp = declarationsFor('.memory-card footer time');
-    const action = declarationsFor('.memory-card button');
+    const memoryAction = declarationsFor('.memory-card button');
+    const skillAction = declarationsFor('.skill-card button');
+    const promptAction = declarationsFor('.prompt-card-actions button');
 
-    expect(title.flex).toBe('1 1 auto');
-    expect(title['min-width']).toBe('0');
-    expect(title['overflow-wrap']).toBe('anywhere');
-    expect(badge.display).toBe('inline-flex');
-    expect(badge.flex).toBe('0 0 auto');
-    expect(badge['align-items']).toBe('center');
-    expect(badge['white-space']).toBe('nowrap');
+    for (const title of [memoryTitle, skillTitle]) {
+      expect(title.flex).toBe('1 1 auto');
+      expect(title['min-width']).toBe('0');
+      expect(title['overflow-wrap']).toBe('anywhere');
+    }
+    expect(promptTitle['min-width']).toBe('0');
+    expect(promptTitle['overflow-wrap']).toBe('anywhere');
+
+    for (const badge of [memoryBadge, skillBadge, promptBadge]) {
+      expect(badge.display).toBe('inline-flex');
+      expect(badge.flex).toBe('0 0 auto');
+      expect(badge['align-items']).toBe('center');
+      expect(badge['white-space']).toBe('nowrap');
+    }
+
     expect(timestamp.flex).toBe('1 1 auto');
     expect(timestamp['min-width']).toBe('0');
-    expect(action.flex).toBe('0 0 auto');
-    expect(action['min-width']).toBe('64px');
-    expect(action['white-space']).toBe('nowrap');
+    for (const action of [memoryAction, skillAction, promptAction]) {
+      expect(action.flex).toBe('0 0 auto');
+      expect(action['min-width']).toBe('64px');
+      expect(action['white-space']).toBe('nowrap');
+    }
   });
 });
 
