@@ -4080,6 +4080,12 @@ details {
   font-size: 18px;
 }
 
+.memory-card h3 {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .skill-card header span,
 .memory-card header span {
   margin-left: auto;
@@ -4087,6 +4093,13 @@ details {
   border-radius: 999px;
   color: var(--info);
   padding: 2px 10px;
+}
+
+.memory-card header span {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  white-space: nowrap;
 }
 
 .skill-card p,
@@ -4142,6 +4155,12 @@ details {
   background: var(--surface-2);
   color: var(--text-pri);
   padding: 0 12px;
+}
+
+.memory-card button {
+  flex: 0 0 auto;
+  min-width: 64px;
+  white-space: nowrap;
 }
 
 .skills-resolution-panel {
@@ -4882,6 +4901,8 @@ meter {
 }
 
 .memory-card footer time {
+  flex: 1 1 auto;
+  min-width: 0;
   margin-right: auto;
   color: var(--muted);
 }
