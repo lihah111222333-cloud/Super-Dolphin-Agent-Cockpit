@@ -1128,4 +1128,21 @@ describe('ChatPage module', () => {
     expect(screen.getByText('旧图表不应首屏渲染：')).toBeInTheDocument();
     await waitFor(() => expect(mermaid.render).toHaveBeenCalledTimes(1));
   });
+
+  it('does not render compact non-standard markdown prefix as a heading', () => {
+    const messages = [
+      {
+        id: 'msg-1',
+        role: 'assistant',
+        text: '随便贴一篇：##回家之路无论走了多远',
+        time: '2026-06-02T08:00:00Z',
+        done: true,
+      },
+    ];
+    const store = createActiveThreadStore(messages);
+    render(<ChatPage store={store} projectPath="/repo/app" />);
+    // 应该以普通段落渲染，所以不应该有 heading 元素
+    expect(screen.queryByRole('heading', { name: /回家之路无论走了多远/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/随便贴一篇：##回家之路无论走了多远/)).toBeInTheDocument();
+  });
 });

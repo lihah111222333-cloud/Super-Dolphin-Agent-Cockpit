@@ -3919,9 +3919,9 @@ function markdownHeadingMatch(line) {
   const trimmed = line.trim();
   const standard = trimmed.match(/^(#{1,6})\s+(.+)$/);
   if (standard) return standard;
-  const compact = trimmed.match(/^(#{2,6})(\S.+)$/);
-  if (!compact) return null;
-  return [compact[0], compact[1], compact[2]];
+  const compact = trimmed.match(/^(#{2,6})([A-Za-z0-9_].*)$/);
+  if (compact) return [compact[0], compact[1], compact[2]];
+  return null;
 }
 
 function unorderedMarkdownListItemText(line) {
@@ -3937,7 +3937,12 @@ function startsSoftMarkdownHeading(source, index) {
   let cursor = index;
   while (source[cursor] === '#') cursor += 1;
   const level = cursor - index;
-  if (level < 2 || level > 6 || !source[cursor] || /\s/.test(source[cursor])) return false;
+  if (level < 2 || level > 6 || !source[cursor]) return false;
+  const hasSpace = /\s/.test(source[cursor]);
+  if (hasSpace) {
+    return /[\s。！？!?；;：:，,.)）\]}]/.test(source[index - 1]);
+  }
+  if (!/^[A-Za-z0-9_]/.test(source[cursor])) return false;
   return /[\s。！？!?；;：:，,.)）\]}]/.test(source[index - 1]);
 }
 
