@@ -196,7 +196,7 @@ func (e *AutomationExecutor) Execute(ctx context.Context, node Node, runCtx RunC
 	if err != nil {
 		return failedAutomationOutcome(classifyAutomationError(err), "run command card: "+err.Error()), nil
 	}
-	return finalizeAutomationOutcome(ctx, cfg, runCtx, result)
+	return finalizeAutomationOutcome(ctx, cfg, node, runCtx, result)
 }
 
 // finalizeAutomationOutcome 把 runner 返回结果按 cfg.Outputs 写入 sharedfile / node.result，
@@ -205,20 +205,26 @@ func (e *AutomationExecutor) Execute(ctx context.Context, node Node, runCtx RunC
 // finalizeAutomationOutcome materialises the AutomationCommandResult into the configured outputs
 // (sharedfile + node.result) and produces the terminal NodeOutcome. Pulled out so Execute stays
 // under the cyclomatic-complexity guard.
-func finalizeAutomationOutcome(ctx context.Context, cfg *AutomationNodeConfig, runCtx RunContext, result AutomationCommandResult) (NodeOutcome, error) {
+func finalizeAutomationOutcome(ctx context.Context, cfg *AutomationNodeConfig, node Node, runCtx RunContext, result AutomationCommandResult) (NodeOutcome, error) {
 	payload, err := json.Marshal(result)
 	if err != nil {
 		return failedAutomationOutcome(FailureClassValidation, "marshal automation result: "+err.Error()), nil
 	}
-	if failure := writeAutomationSharedfile(ctx, cfg, runCtx, result); failure != nil {
-		return *failure, nil
-	}
 	outcome := NodeOutcome{Status: NodeStatusDone}
-	if shouldEmitNodeResult(cfg.Outputs) {
+	if shouldEmitFullNodeResult(cfg.Outputs) {
 		if failure := enforceNodeResultSizeCap(payload); failure != nil {
 			return *failure, nil
 		}
 		outcome.Result = payload
+	} else if shouldEmitSharedfileEnvelope(cfg.Outputs) {
+		envelope, failure := buildAutomationSharedfileEnvelope(cfg.Outputs, node, runCtx)
+		if failure != nil {
+			return *failure, nil
+		}
+		outcome.Result = envelope
+	}
+	if failure := writeAutomationSharedfile(ctx, cfg, runCtx, result); failure != nil {
+		return *failure, nil
 	}
 	return outcome, nil
 }
@@ -259,19 +265,79 @@ func enforceNodeResultSizeCap(payload []byte) *NodeOutcome {
 	return &outcome
 }
 
-// shouldEmitNodeResult 判定是否在 NodeOutcome.Result 写入 marshal 后的命令结果。
+// shouldEmitFullNodeResult 判定是否在 NodeOutcome.Result 写入 marshal 后的完整命令结果。
 // F2.1 原行为：总是写入 payload。F2.2 保持向下兼容：
 //   - Outputs.ToNodeResult 显式 true → 写入；
-//   - Outputs.ToSharedfile 显式配置且 ToNodeResult 未勾选 → 仅写 sharedfile，不在 node.result 重复；
+//   - Outputs.ToSharedfile 显式配置且 ToNodeResult 未勾选 → 不写完整 payload；由轻量 envelope 指向 sharedfile；
 //   - 两者都默认零值（旧 DAG / F2.1 测例）→ 保留写入，避免静默丢失输出。
-func shouldEmitNodeResult(out OutputsConfig) bool {
+func shouldEmitFullNodeResult(out OutputsConfig) bool {
 	if out.ToNodeResult {
 		return true
 	}
-	if out.ToSharedfile != nil && strings.TrimSpace(out.ToSharedfile.Path) != "" {
+	return automationSharedfilePath(out) == ""
+}
+
+func shouldEmitSharedfileEnvelope(out OutputsConfig) bool {
+	if automationSharedfilePath(out) == "" {
 		return false
 	}
-	return true
+	return out.NodeResultEnvelope == nil || *out.NodeResultEnvelope
+}
+
+func automationSharedfilePath(out OutputsConfig) string {
+	if out.ToSharedfile == nil {
+		return ""
+	}
+	return strings.TrimSpace(out.ToSharedfile.Path)
+}
+
+func buildAutomationSharedfileEnvelope(out OutputsConfig, node Node, runCtx RunContext) (json.RawMessage, *NodeOutcome) {
+	path := automationSharedfilePath(out)
+	if path == "" {
+		return nil, nil
+	}
+	dagKey, nodeKey := resolveAutomationEnvelopeKeys(node, runCtx)
+	if dagKey == "" || nodeKey == "" || runCtx.RunID <= 0 {
+		outcome := failedAutomationOutcome(FailureClassValidation,
+			"outputs.to_sharedfile requires dag_key/run_id/node_key for node result envelope")
+		return nil, &outcome
+	}
+	payload, err := json.Marshal(struct {
+		Kind       string `json:"kind"`
+		Path       string `json:"path"`
+		Dag        string `json:"dag"`
+		Run        int64  `json:"run"`
+		Node       string `json:"node"`
+		Sharedfile struct {
+			Path string `json:"path"`
+		} `json:"sharedfile"`
+	}{
+		Kind: "sharedfile",
+		Path: path,
+		Dag:  dagKey,
+		Run:  runCtx.RunID,
+		Node: nodeKey,
+		Sharedfile: struct {
+			Path string `json:"path"`
+		}{Path: path},
+	})
+	if err != nil {
+		outcome := failedAutomationOutcome(FailureClassValidation, "marshal automation sharedfile envelope: "+err.Error())
+		return nil, &outcome
+	}
+	return payload, nil
+}
+
+func resolveAutomationEnvelopeKeys(node Node, runCtx RunContext) (string, string) {
+	dagKey := strings.TrimSpace(runCtx.DagKey)
+	if dagKey == "" {
+		dagKey = strings.TrimSpace(node.DagKey)
+	}
+	nodeKey := strings.TrimSpace(runCtx.NodeKey)
+	if nodeKey == "" {
+		nodeKey = strings.TrimSpace(node.NodeKey)
+	}
+	return dagKey, nodeKey
 }
 
 func parseExecutableAutomationConfig(raw json.RawMessage) (*AutomationNodeConfig, *NodeOutcome) {

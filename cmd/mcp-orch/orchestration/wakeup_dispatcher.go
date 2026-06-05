@@ -387,13 +387,11 @@ func (d *WakeupDispatcher) emitDispatchRetryAlert(ctx context.Context, alert Dis
 	})
 }
 
-// buildLaunchRequestFromWakeup 把 wakeup 行映射到 LaunchRequest。
-// Phase 3.9 接通后优先解 DownstreamWakeupPayload（DAG enqueue 形状）：
-// UpstreamOutputs 非空时把上游产出路径列表渲染进 prompt 让 agent 用 Read 读，
-// 不需 MCP shared_file_read。fallback 解 LaunchRequest 形状兼容手工 enqueue
-// 的非 DAG wakeup（面向测试 / 尚未接线场景）。两种 payload 不同型：DAG 形状
-// 只带 agent_id + upstream_outputs，LaunchRequest 形状不认识 upstream_outputs
-// 字段则静默丢弃，不互相污染。
+// buildLaunchRequestFromWakeup 把 legacy / non-router wakeup 行映射到 LaunchRequest。
+// Router-driven DAG wakeups no longer depend on UpstreamOutputs prompt hints;
+// main-path upstream context uses explicit inputs.from_nodes plus node.result
+// envelopes. The DownstreamWakeupPayload.UpstreamOutputs branch remains only
+// for old/manual wakeups that still carry the legacy payload.
 func buildLaunchRequestFromWakeup(w taskdag.Wakeup) LaunchRequest {
 	req := LaunchRequest{AgentID: strings.TrimSpace(w.TargetAgentID)}
 	payload := append(json.RawMessage(nil), w.PromptPayload...)
