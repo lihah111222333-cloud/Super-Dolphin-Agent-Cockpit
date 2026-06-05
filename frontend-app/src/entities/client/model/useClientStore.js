@@ -886,10 +886,43 @@ function activeTurnIdForThread(state, threadId) {
   return '';
 }
 
+function statusEntryForInterruptTarget(state, threadId, activeId = '') {
+  const candidates = [];
+  const pushCandidate = (value) => {
+    const id = normalizeThreadId(value);
+    if (id && !candidates.includes(id)) candidates.push(id);
+  };
+  const matchedThread = (state?.threads || []).find((thread) => (
+    threadMatchesIdentifier(thread, threadId) || threadMatchesIdentifier(thread, activeId)
+  ));
+  pushCandidate(threadId);
+  pushCandidate(activeId);
+  pushCandidate(matchedThread?.id);
+  pushCandidate(matchedThread?.agentId);
+  pushCandidate(matchedThread?.providerThreadId);
+  pushCandidate(matchedThread?.sessionId);
+  for (const candidate of candidates) {
+    const entry = state?.statuses?.[candidate];
+    if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+      return { entry, thread: matchedThread };
+    }
+  }
+  return { entry: null, thread: matchedThread };
+}
+
+function threadStatusBlocksInterrupt(state, threadId, activeId = '') {
+  const { entry, thread } = statusEntryForInterruptTarget(state, threadId, activeId);
+  if (entry?.interruptible === false) return true;
+  return isTerminalActiveTurnStatus(entry?.status || thread?.status);
+}
+
 function activeThreadInterruptTarget(state) {
   const activeID = normalizeThreadId(state?.activeThreadId);
   const threadID = backendThreadIdForState(state, activeID) || normalizeBackendThreadId(activeID);
   if (!threadID) return { threadId: '', turnId: '', interruptible: false };
+  if (threadStatusBlocksInterrupt(state, threadID, activeID)) {
+    return { threadId: threadID, turnId: '', interruptible: false };
+  }
   const turnID = activeTurnIdForThread(state, threadID);
   return {
     threadId: threadID,
@@ -947,6 +980,12 @@ const TERMINAL_ACTIVE_TURN_STATUSES = new Set([
   'ready',
   'stalled',
   'archived',
+  '空闲',
+  '已完成',
+  '失败',
+  '错误',
+  '已中断',
+  '已停止',
 ]);
 
 function isTerminalActiveTurnStatus(status) {

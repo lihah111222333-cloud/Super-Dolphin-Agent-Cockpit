@@ -3994,6 +3994,31 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
+  it('does not treat a stale active turn as interruptible after the thread becomes idle', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'agent_123',
+      threads: [{ id: 'agent_123', name: 'Runtime Agent', provider: 'codex', status: 'idle' }],
+      activeTurnByThread: {
+        agent_123: { id: 'turn-123', threadId: 'agent_123', status: 'running' },
+      },
+      statuses: {
+        agent_123: { status: 'idle', interruptible: false },
+      },
+    });
+
+    expect(useClientStore.getState().hasInterruptibleThreadAction()).toBe(false);
+
+    await expect(useClientStore.getState().interruptActiveThread()).resolves.toBe(false);
+
+    expect(backend.interruptTurn).not.toHaveBeenCalled();
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '当前没有可中断任务',
+      tone: 'warning',
+    }));
+  });
+
   it.each(['completed', 'failed', 'interrupted', 'stalled', 'done', 'ended', 'closed'])(
     'does not treat a terminal active turn status as interruptible: %s',
     async (status) => {
