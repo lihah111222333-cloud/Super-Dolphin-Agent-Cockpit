@@ -47,6 +47,9 @@ type OutputsConfig struct {
 	// ToNodeResult 是否把输出写入 task_dag_nodes.result JSONB。
 	// **仅适合 < 4KB 摘要**（蓝图 v2 §5 决策）；大输出走 ToSharedfile。
 	ToNodeResult bool `json:"to_node_result,omitempty"`
+	// NodeResultEnvelope 显式控制 sharedfile-only 输出是否写入轻量 node.result envelope。
+	// nil/true = 写入 path/kind/dag/run/node；false = 用户明确禁用。
+	NodeResultEnvelope *bool `json:"node_result_envelope,omitempty"`
 	// Schema 是可选 JSON Schema：节点输出不符则归类为 validation failure。
 	Schema json.RawMessage `json:"schema,omitempty"`
 }
