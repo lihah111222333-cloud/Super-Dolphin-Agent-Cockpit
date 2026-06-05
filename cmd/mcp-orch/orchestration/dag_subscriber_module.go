@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/sharedfileowner"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 )
 
@@ -275,43 +276,19 @@ func recordLegacyResultCapMetric(logger *slog.Logger, node *taskdag.Node, result
 	logger.Warn("dag subscriber: complete result exceeds ADR-006 4KB cap", "dag_key", node.DagKey, "node_key", node.NodeKey, "size", len(result))
 }
 
-func configuredSharedfileAlreadyExists(ctx context.Context, reader nodeexec.SharedFileReader, path string) (bool, *turnOutputMaterializationFailure) {
-	if path == "" {
-		return false, nil
+func sharedfileOwnerFailure(reason string, err error) *turnOutputMaterializationFailure {
+	if sharedfileowner.IsValidation(err) {
+		return validationMaterializationFailure(reason)
 	}
-	if failure := validateAgentSharedfileReader(reader); failure != nil {
-		return false, failure
-	}
-	_, exists, err := reader.ReadSharedFile(ctx, path)
-	if err != nil {
-		return false, infrastructureMaterializationFailure("outputs.to_sharedfile[" + path + "] preflight read: " + err.Error())
-	}
-	return exists, nil
+	return infrastructureMaterializationFailure(reason)
 }
 
-func validateAgentSharedfileReader(reader nodeexec.SharedFileReader) *turnOutputMaterializationFailure {
-	if reader != nil {
-		return nil
-	}
-	return infrastructureMaterializationFailure("outputs.to_sharedfile configured but SharedFileReader not wired in DAG subscriber")
-}
-
-func validateAgentSharedfileWriter(writer nodeexec.SharedFileWriter) *turnOutputMaterializationFailure {
-	if writer != nil {
-		return nil
-	}
-	return infrastructureMaterializationFailure("outputs.to_sharedfile configured but SharedFileWriter not wired in DAG subscriber")
-}
-
-func writeAgentTurnSharedfile(ctx context.Context, writer nodeexec.SharedFileWriter, path, rawResult string) *turnOutputMaterializationFailure {
+func writeAgentTurnSharedfile(ctx context.Context, writer nodeexec.SharedFileWriter, path, rawResult string, owner sharedfileowner.Owner) *turnOutputMaterializationFailure {
 	if path == "" {
 		return nil
 	}
-	if failure := validateAgentSharedfileWriter(writer); failure != nil {
-		return failure
-	}
-	if err := writer.WriteSharedFile(ctx, path, rawResult); err != nil {
-		return infrastructureMaterializationFailure("outputs.to_sharedfile[" + path + "]: " + err.Error())
+	if err := sharedfileowner.Write(ctx, writer, path, rawResult, owner); err != nil {
+		return sharedfileOwnerFailure("outputs.to_sharedfile["+path+"]: "+err.Error(), err)
 	}
 	return nil
 }
