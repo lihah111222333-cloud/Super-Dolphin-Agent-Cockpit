@@ -384,6 +384,11 @@ func TestTaskDAGApplyOpsSchemaExposesOpDiscriminator(t *testing.T) {
 	if !ok {
 		t.Fatalf("task_dag_apply_ops ops.items.properties = %#v, want op discriminator schema", itemProps)
 	}
+	nodeSchema := itemProps["node"].(map[string]any)
+	nodeProps := nodeSchema["properties"].(map[string]any)
+	if _, ok := nodeProps["assigned_to"]; !ok {
+		t.Fatalf("task_dag_apply_ops add_node schema properties = %#v, want assigned_to", nodeProps)
+	}
 	for _, want := range []string{"update_dag", "add_node", "update_node", "remove_node"} {
 		if !slices.Contains(EnumValues(Schema(opSchema)), want) {
 			t.Fatalf("op enum = %#v, want %s", opSchema["enum"], want)
@@ -430,6 +435,7 @@ func TestHandleApplyOpsBuildsFlatAddNode(t *testing.T) {
 		"node_key":"score",
 		"title":"Score",
 		"node_type":"automation",
+		"assigned_to":"agent-score",
 		"depends_on":["plan"],
 		"config":{"exec":{"kind":"command_card","command_ref":"score"}}
 	}`))
@@ -439,7 +445,7 @@ func TestHandleApplyOpsBuildsFlatAddNode(t *testing.T) {
 	if got.DagKey != "dag-flat" || got.BaseVersion != 5 {
 		t.Fatalf("ApplyOps request = %#v", got)
 	}
-	assertJSONEqual(t, got.Ops, `[{"op":"add_node","node":{"node_key":"score","title":"Score","node_type":"automation","depends_on":["plan"],"config":{"exec":{"kind":"command_card","command_ref":"score"}}}}]`)
+	assertJSONEqual(t, got.Ops, `[{"op":"add_node","node":{"node_key":"score","title":"Score","node_type":"automation","assigned_to":"agent-score","depends_on":["plan"],"config":{"exec":{"kind":"command_card","command_ref":"score"}}}}]`)
 }
 
 func TestHandleApplyOpsBuildsFlatUpdateNode(t *testing.T) {

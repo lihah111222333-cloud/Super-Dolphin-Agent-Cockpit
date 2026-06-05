@@ -206,6 +206,29 @@ func TestApplyOps_AddSingleNode_Happy(t *testing.T) {
 	}
 }
 
+func TestApplyOps_AddNode_PersistsAssignedTo(t *testing.T) {
+	t.Parallel()
+	stub := &stubDAGOpsStore{currentVersion: 1}
+	s := makeApplyOpsService(stub)
+	req := contract.ApplyOpsRequest{
+		DagKey:      "dag-a",
+		BaseVersion: 1,
+		Ops: json.RawMessage(`[
+			{"op":"add_node","node":{"node_key":"n1","title":"hello","node_type":"agent","assigned_to":"agent-root"}}
+		]`),
+	}
+
+	if _, err := s.ApplyOps(context.Background(), req); err != nil {
+		t.Fatalf("ApplyOps err = %v, want nil", err)
+	}
+	if len(stub.upsertCalls) != 1 {
+		t.Fatalf("upsertCalls = %d, want 1", len(stub.upsertCalls))
+	}
+	if got := stub.upsertCalls[0].AssignedTo; got != "agent-root" {
+		t.Fatalf("upsert AssignedTo = %q, want agent-root", got)
+	}
+}
+
 func TestApplyOps_AddNodeWithDeps_Happy(t *testing.T) {
 	t.Parallel()
 	// 现有节点 n0，新增 n1 depends on n0。

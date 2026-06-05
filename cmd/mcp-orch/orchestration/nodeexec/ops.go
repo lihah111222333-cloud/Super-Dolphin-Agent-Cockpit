@@ -50,11 +50,12 @@ func (OpUpdateDAG) Kind() OpKind { return OpKindUpdateDAG }
 // NodeSpec 是创建节点时的完整字段集（与 nodeexec.Node 解耦：
 // Node 是执行视图，NodeSpec 是编辑视图含 DependsOn）。
 type NodeSpec struct {
-	NodeKey   string          `json:"node_key"`
-	Title     string          `json:"title"`
-	NodeType  string          `json:"node_type"` // agent | automation | hybrid
-	DependsOn []string        `json:"depends_on,omitempty"`
-	Config    json.RawMessage `json:"config,omitempty"` // 由 ParseNodeConfig 解码（S5.2）
+	NodeKey    string          `json:"node_key"`
+	Title      string          `json:"title"`
+	NodeType   string          `json:"node_type"` // agent | automation | hybrid
+	AssignedTo string          `json:"assigned_to,omitempty"`
+	DependsOn  []string        `json:"depends_on,omitempty"`
+	Config     json.RawMessage `json:"config,omitempty"` // 由 ParseNodeConfig 解码（S5.2）
 }
 
 // OpAddNode 加节点。draft/ready 下由 service 层持久化到模板；running/active run
@@ -64,6 +65,44 @@ type OpAddNode struct {
 }
 
 func (OpAddNode) Kind() OpKind { return OpKindAddNode }
+
+func (op *OpAddNode) UnmarshalJSON(data []byte) error {
+	type addNodeWire struct {
+		Op   OpKind   `json:"op"`
+		Node NodeSpec `json:"node"`
+	}
+	var wire addNodeWire
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&wire); err != nil {
+		return addNodeStrictDecodeError(err, "op/node")
+	}
+	op.Node = wire.Node
+	return nil
+}
+
+func (n *NodeSpec) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*n = NodeSpec{}
+		return nil
+	}
+	type nodeSpecPlain NodeSpec
+	var plain nodeSpecPlain
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&plain); err != nil {
+		return addNodeStrictDecodeError(err, "node_key/title/node_type/assigned_to/depends_on/config")
+	}
+	*n = NodeSpec(plain)
+	return nil
+}
+
+func addNodeStrictDecodeError(err error, allowed string) error {
+	if strings.Contains(err.Error(), "unknown field") {
+		return fmt.Errorf("add_node: %v (allowed: %s)", err, allowed)
+	}
+	return err
+}
 
 // NodePatch 是 update_node 允许修改的节点字段白名单。F4.2 落地后唯一接收的
 // patch 顶层 key 是 4 个：title / assigned_to / depends_on / config。任何其他

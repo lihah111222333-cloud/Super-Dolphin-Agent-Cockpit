@@ -52,8 +52,14 @@ func (s *store) scheduleRootWakeup(ctx context.Context, node *Node, runID int64)
 		return 0, fmt.Errorf("schedule root wakeup: decode depends_on for %s/%s: %w", node.DagKey, node.NodeKey, err)
 	}
 	agentID := strings.TrimSpace(node.AssignedTo)
-	if len(deps) != 0 || agentID == "" {
+	if len(deps) != 0 {
 		return 0, nil
+	}
+	if agentID == "" {
+		return 0, appendDispatchBlockedEvent(ctx, s, node, runID, "root", fmt.Errorf("assigned_to required for automatic root dispatch"))
+	}
+	if err := validateAutomaticDispatchConfig(node); err != nil {
+		return 0, appendDispatchBlockedEvent(ctx, s, node, runID, "root", err)
 	}
 	payload, err := json.Marshal(DownstreamWakeupPayload{AgentID: agentID})
 	if err != nil {
