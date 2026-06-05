@@ -584,6 +584,19 @@ func (a *serviceAgentLauncher) LaunchAgentWithSpawnRecord(ctx context.Context, r
 	return launchedThreadID, nil
 }
 
+func (a *serviceAgentLauncher) ValidateDAGAgentLaunch(_ context.Context, _ contract.LaunchRequest, dagKey, nodeKey string) error {
+	if a == nil || a.svc == nil {
+		return errors.New("service agent launcher: nil receiver")
+	}
+	if a.svc.launcher != nil {
+		if _, ok := a.svc.launcher.(*localLauncher); !ok {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: dag_key=%s node_key=%s; local/standalone launcher does not provide the DAG agent command/thread_id/spawning_thread_id write-back contract; fix: start mcp-orch with the desktop remote launcher RPC address before running DAG agent nodes",
+		nodeexec.ErrDAGAgentRequiresRemoteLauncher, strings.TrimSpace(dagKey), strings.TrimSpace(nodeKey))
+}
+
 func (a *serviceAgentLauncher) StopLaunchedThread(ctx context.Context, threadID string) error {
 	if a == nil || a.svc == nil {
 		return errors.New("service agent launcher: nil receiver")
