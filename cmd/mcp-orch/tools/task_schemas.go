@@ -7,6 +7,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 var applyOpsOpEnum = []string{
@@ -38,14 +39,14 @@ func createDAGSchema() Schema {
 		"dag_key":             StringSchema("Unique DAG key."),
 		"title":               StringSchema("DAG title."),
 		"description":         StringSchema("Optional DAG description."),
-		"trigger":             StringSchema("Flat schedule shortcut; same as schedule.trigger."),
+		"trigger":             StringSchema("Flat schedule shortcut; same as schedule.trigger. scheduled is rejected here; use task_dag_apply_ops with base_version and cron_expr."),
 		"default_retry":       IntegerSchema("Flat schedule shortcut; same as schedule.default_retry."),
 		"default_timeout_sec": IntegerSchema("Flat schedule shortcut; same as schedule.default_timeout_sec."),
 		"fail_fast":           BooleanSchema("Flat schedule shortcut; same as schedule.fail_fast."),
 		"max_concurrency":     IntegerSchema("Flat schedule shortcut; same as schedule.max_concurrency."),
 		"queue_policy":        StringSchema("Flat schedule shortcut; same as schedule.queue_policy."),
 		"schedule": ObjectSchema(map[string]Schema{
-			"trigger":             StringSchema("Start trigger."),
+			"trigger":             StringSchema("Create-time trigger metadata. scheduled is rejected here; use task_dag_apply_ops with base_version and cron_expr."),
 			"default_retry":       IntegerSchema("Default retry count for nodes."),
 			"default_timeout_sec": IntegerSchema("Default node timeout in seconds."),
 			"fail_fast":           BooleanSchema("Stop scheduling new nodes on first failure."),
@@ -74,13 +75,11 @@ func createDAGSchema() Schema {
 				"timeout_sec": IntegerSchema("Timeout override in seconds."),
 			}),
 		}, "node_key", "title"), "Optional DAG nodes."),
-	}, "agent_id", "dag_key", "title")
+	}, "dag_key", "title")
 }
 
-func createDAGRequestFromInput(in CreateDAGInput) (contract.CreateDAGRequest, error) {
-	// Preserve schedule in DAG metadata until the service contract grows a
-	// first-class schedule field.
-	agentID, err := requireTrimmed(in.AgentID, "agent_id")
+func createDAGRequestFromInput(in CreateDAGInput, trustedAgentID string) (contract.CreateDAGRequest, error) {
+	agentID, err := resolveCreateDAGAgentID(in.AgentID, trustedAgentID)
 	if err != nil {
 		return contract.CreateDAGRequest{}, err
 	}
@@ -98,11 +97,23 @@ func createDAGRequestFromInput(in CreateDAGInput) (contract.CreateDAGRequest, er
 	}
 	finalNodeKey, err := normalizeFinalNodeKey(in.FinalNodeKey, nodes)
 	if err != nil {
-		return contract.CreateDAGRequest{}, err
+		return contract.CreateDAGRequest{}, createDAGInvalidInputError(
+			err,
+			"Set final_node_key to one of the nodes[].node_key values or omit it.",
+		)
 	}
 	schedule, err := createDAGEffectiveSchedule(in)
 	if err != nil {
-		return contract.CreateDAGRequest{}, err
+		return contract.CreateDAGRequest{}, createDAGInvalidInputError(
+			err,
+			"Do not pass conflicting flat schedule shortcuts and nested schedule fields.",
+		)
+	}
+	if strings.TrimSpace(schedule.Trigger) == "scheduled" {
+		return contract.CreateDAGRequest{}, createDAGInvalidInputError(
+			fmt.Errorf("schedule.trigger=scheduled requires task_dag_apply_ops with trigger and cron_expr; task_create_dag is create-only"),
+			"Use task_dag_apply_ops with base_version plus trigger=scheduled and cron_expr after creating the DAG.",
+		)
 	}
 	metadata, err := encodeJSONRaw(createDAGMetadata(schedule, finalNodeKey))
 	if err != nil {
@@ -118,6 +129,25 @@ func createDAGRequestFromInput(in CreateDAGInput) (contract.CreateDAGRequest, er
 	}, nil
 }
 
+func resolveCreateDAGAgentID(publicAgentID, trustedAgentID string) (string, error) {
+	publicAgentID = strings.TrimSpace(publicAgentID)
+	trustedAgentID = strings.TrimSpace(trustedAgentID)
+	if trustedAgentID != "" {
+		if publicAgentID != "" && publicAgentID != trustedAgentID {
+			return "", createDAGInvalidInputError(
+				fmt.Errorf("agent_id %q conflicts with trusted _agentId %q", publicAgentID, trustedAgentID),
+				"Omit agent_id or pass the same value as the trusted tool scope _agentId.",
+			)
+		}
+		return trustedAgentID, nil
+	}
+	return requireTrimmed(publicAgentID, "agent_id")
+}
+
+func createDAGInvalidInputError(err error, hint string) error {
+	return mcpcommon.NewCodedToolError("invalid_input", err, false, hint)
+}
+
 func createDAGNodesFromInput(nodes []CreateDAGNodeInput) ([]contract.CreateDAGNodeRequest, error) {
 	mapped := make([]contract.CreateDAGNodeRequest, 0, len(nodes))
 	for i, node := range nodes {
@@ -129,6 +159,8 @@ func createDAGNodesFromInput(nodes []CreateDAGNodeInput) ([]contract.CreateDAGNo
 		if err != nil {
 			return nil, err
 		}
+		nodeType := createDAGNodeType(node)
+		node.NodeType = nodeType
 		config, err := createDAGNodeConfig(node)
 		if err != nil {
 			return nil, err
@@ -136,14 +168,45 @@ func createDAGNodesFromInput(nodes []CreateDAGNodeInput) ([]contract.CreateDAGNo
 		mapped = append(mapped, contract.CreateDAGNodeRequest{
 			NodeKey:    nodeKey,
 			Title:      title,
-			NodeType:   strings.TrimSpace(node.NodeType),
+			NodeType:   nodeType,
 			AssignedTo: strings.TrimSpace(node.AssignedTo),
 			DependsOn:  append([]string(nil), node.DependsOn...),
 			CommandRef: strings.TrimSpace(node.CommandRef),
 			Config:     config,
 		})
 	}
+	if err := validateCreateDAGNodeTopology(mapped); err != nil {
+		return nil, err
+	}
 	return mapped, nil
+}
+
+func createDAGNodeType(node CreateDAGNodeInput) string {
+	nodeType := strings.TrimSpace(node.NodeType)
+	if nodeType == "" && strings.TrimSpace(node.CommandRef) != "" {
+		return "automation"
+	}
+	return nodeType
+}
+
+func validateCreateDAGNodeTopology(nodes []contract.CreateDAGNodeRequest) error {
+	specs := make([]nodeexec.NodeSpec, 0, len(nodes))
+	for _, node := range nodes {
+		specs = append(specs, nodeexec.NodeSpec{
+			NodeKey:   node.NodeKey,
+			Title:     node.Title,
+			NodeType:  node.NodeType,
+			DependsOn: append([]string(nil), node.DependsOn...),
+			Config:    node.Config,
+		})
+	}
+	if err := nodeexec.ValidateAddNodeTopology(specs); err != nil {
+		return createDAGInvalidInputError(
+			fmt.Errorf("nodes topology invalid: %w", err),
+			"Fix duplicate node_key, unknown depends_on, or cycles before calling task_create_dag.",
+		)
+	}
+	return nil
 }
 
 // createDAGMetadata 把 schedule 字段编码为 DAG metadata JSON 子树。

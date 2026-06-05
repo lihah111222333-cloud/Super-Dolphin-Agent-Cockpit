@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // ApplyOps add_node 计划阶段 —— 把 typed ops 与 DAG 现有节点融合成
@@ -59,6 +61,26 @@ func PlanAddNodes(ops Ops, existing []ExistingNode) (map[string][]string, []Node
 		return nil, nil, err
 	}
 	return adjacency, accepted, nil
+}
+
+func ValidateCreateDAGNodes(nodes []contract.CreateDAGNodeRequest) error {
+	specs := make([]NodeSpec, len(nodes))
+	for i, n := range nodes {
+		specs[i] = NodeSpec{NodeKey: n.NodeKey, Title: n.Title, NodeType: n.NodeType, DependsOn: n.DependsOn, Config: n.Config}
+	}
+	return ValidateAddNodeTopology(specs)
+}
+
+func ValidateAddNodeTopology(specs []NodeSpec) error {
+	ops := make(Ops, 0, len(specs))
+	for _, spec := range specs {
+		ops = append(ops, OpAddNode{Node: spec})
+	}
+	adjacency, _, err := PlanAddNodes(ops, nil)
+	if err == nil {
+		err = DetectCycle(adjacency)
+	}
+	return err
 }
 
 // seedAdjacency 把 existing 列表灌进 adjacency 与 known 集合，作为 PlanAddNodes

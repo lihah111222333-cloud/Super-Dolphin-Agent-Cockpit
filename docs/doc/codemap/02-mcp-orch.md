@@ -310,10 +310,11 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 
 | Tool | 功能 | 备注 |
 |---|---|---|
-| `task_create_dag` | 创建或 upsert DAG 与节点。 | writes。`agent_id` 必填；`schedule` 与 node `execution` 先编码进 JSON。 |
-| `task_dag_apply_ops` | 提交 typed ops batch（`add_node` / `update_node` / `remove_node` / `update_dag`）以 `base_version` OCC 原子应用。 | writes（T1.1 落地）。ops shape 参见 `nodeexec.Ops`；base_version 不匹配返回 conflict。 |
-| `task_update_node` | 更新节点运行状态。 | writes。MCP schema 把状态枚举收敛为 `pending/running/done/failed`。 |
+| `task_create_dag` | create-only 创建新 DAG 模板与节点；已有 `dag_key` 不替换。 | writes。creator 来自可信 ToolScope `_agentId`（不要教模型编 `agent_id`）；`schedule.trigger=scheduled` fail-fast，定时用 `task_get_dag` 取 `base_version` 后走 `task_dag_apply_ops(update_dag, trigger, cron_expr)`，本地定时保留 `CRON_TZ=Asia/Shanghai`。 |
+| `task_dag_apply_ops` | 提交 typed ops batch（`add_node` / `update_node` / `remove_node` / `update_dag`）以 `base_version` OCC 原子应用。 | writes（T1.1 落地）。ops shape 参见 `nodeexec.Ops`；base_version 不匹配返回 conflict；修改已有 DAG、启用 scheduled cron、补 `assigned_to` 都走这里；running / active run 下节点结构变更（add/update/remove node）fail-fast，`update_dag` 仅改未来调度/展示元数据。 |
+| `task_update_node` | 更新节点运行状态。 | writes。MCP schema 把状态枚举收敛为 `pending/running/done/failed`；DAG 设计/落库流程不手动调用，留给 executor 或用户显式运行时操作。 |
 | `task_start_dag` | 触发一次 DAG 执行：创建 run、snapshot `dag.version`。 | lifecycle（T1.2 落地）。支持 `idempotency_key` 防重；`ErrDAGNotFound` / `ErrDAGAlreadyRunning` 双语转译。 |
+| `task_dispatch_node` | 给 pending/ready runtime 节点补派 `assigned_to` 并入队 wakeup。 | writes。用于 `task_start_dag` 返回 `waiting_for_assignee` / `scheduled_wakeups=0` 时显式推进。 |
 | `task_get_dag` | 获取 DAG 详情和节点列表。 | reads。返回 `dag + nodes`。 |
 | `task_get_run` | 按 `run_key` 获取单个 DAG run。 | reads（T3.1 落地）。仅返 run 行，不 inline 节点；node-level 数据走 `task_get_dag`。 |
 | `task_list_runs` | 按 DAG / status 过滤近期 run。 | reads（T3.2 落地）。`{runs: [...]}` 包对象返回；`status` 枚举对齐 migration 0080 CHECK；limit 默认 50，service 端 cap 到 200。 |
@@ -418,7 +419,7 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 | `func (s *service) GetReport(ctx context.Context, agentID string) (AgentReportResult, error)` | 返回最后 report 和 metadata。 |
 | `func (s *service) RememberReportRequest(ctx context.Context, req RememberReportRequest) (RememberReportRequestResult, error)` | 记录谁在等待某 agent 的最终报告。 |
 | `func (s *service) HandleReportEvent(ctx context.Context, event ReportEvent) (ReportEventResult, error)` | 吸收 report 事件并在终态时 drain requester。 |
-| `func (s *service) CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error)` | 事务性 upsert DAG 与 node。 |
+| `func (s *service) CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error)` | 事务性创建 DAG 与 node；tool/service 入口先校验拓扑，已有 `dag_key` 按 create-only 合约拒绝。 |
 | `func (s *service) GetDAG(ctx context.Context, dagKey string) (DAGDetail, error)` | 读取 DAG 详情。 |
 | `func (s *service) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSummary, error)` | 按 status/keyword/limit 列出 DAG。 |
 | `func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequest) (DAGNode, error)` | 更新 DAG node 状态。 |
@@ -472,7 +473,7 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 | `func promptToolDefinitions(store promptstore.Store) []ToolDefinition` | 通过 `resourceToolDefinitions()` 暴露 `prompt_list` / `prompt_get` 两个出口。 |
 | `memory_tools.go` | 当前不定义 memory tool；`tools.NewRegistry()` 不挂入 `memory_read` / `memory_write`。 |
 | `func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler` | `orchestration_launch_agent` 实现；异步 launch。 |
-| `func createDAGRequestFromInput(in CreateDAGInput) (contract.CreateDAGRequest, error)` | 把 tool 输入转成 service contract。 |
+| `func createDAGRequestFromInput(in CreateDAGInput, trustedAgentID string) (contract.CreateDAGRequest, error)` | 把 tool 输入转成 service contract；可信 ToolScope `_agentId` 优先供 creator，公开 `agent_id` 只能匹配可信值。 |
 | `func createWorkspaceRun(ctx context.Context, svc workspace.Service, input WorkspaceCreateRunRequest) (*workspaceRunDTO, error)` | `workspace_create_run` 工具实现。 |
 | `func workspaceRunDTOFromRun(ctx context.Context, svc workspace.Service, run *workspace.Run) (*workspaceRunDTO, error)` | 把 workspace service 输出补齐兼容字段与文件列表。 |
 | `func (s *service) CreateRun(ctx context.Context, req CreateRunRequest) (*Run, error)` | 创建 workspace run，并 bootstrap 文件。 |
@@ -489,7 +490,7 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 | `func (s *store) WithTx(ctx context.Context, fn func(txStore DAGMutationStore) error) error` | taskdag 事务封装，只向 DAG 创建流程暴露 tx 内 `DAGMutationStore`；workspace / prompt 仍各自使用自己的 `Store` callback。 |
 | `func sqlc.WithTx(ctx context.Context, q *Queries, fn func(txq *Queries) error) error` | sqlc 查询集的 pool-backed 事务封装。 |
 | `func sqlc.WithTxOrReuse(ctx context.Context, q *Queries, fn func(txq *Queries) error) error` | 已在事务中则复用，否则新开事务。 |
-| `func (s *store) UpsertDAG(ctx context.Context, dag DAG) (*DAG, error)` | DAG 主记录 upsert。 |
+| `func (s *store) UpsertDAG(ctx context.Context, dag DAG) (*DAG, error)` | DAG 主记录低层写入 helper；public `task_create_dag` / service create-only 合约已在调用前拒绝既有 `dag_key`，修改已有 DAG 走 `ApplyOps`。 |
 | `func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error)` | DAG node upsert。 |
 | `func (s *store) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTurnInput) (*Node, error)` | 把 running node 和 wakeup 绑定到 turn。 |
 | `func (s *store) TouchRunningNodeEvent(ctx context.Context, input TouchRunningNodeEventInput) (*Node, error)` | 更新运行中节点的 `last_event_at`。 |
