@@ -244,7 +244,11 @@ func tryEnqueueDownstream(
 	// failed. The caller has already promoted the node to ready, so an
 	// external/manual flow can later move it to running.
 	if agentID == "" {
-		return nil, nil
+		err := fmt.Errorf("assigned_to required for automatic downstream dispatch")
+		return nil, appendDispatchBlockedEvent(ctx, txStore, cand, runIDValue(cand.RunID), "downstream", err)
+	}
+	if err := validateAutomaticDispatchConfig(cand); err != nil {
+		return nil, appendDispatchBlockedEvent(ctx, txStore, cand, runIDValue(cand.RunID), "downstream", err)
 	}
 	candRunID := runIDValue(cand.RunID)
 	idempotencyKey := downstreamIdempotencyKey(cand.DagKey, cand.NodeKey, candRunID)

@@ -604,7 +604,7 @@ func cloneStringPtr(value *string) *string {
 // persistAddNodeSpecs 顺序调 UpsertNode 把 NodeSpec 转为 taskdag.Node 写入表。
 func persistAddNodeSpecs(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, specs []nodeexec.NodeSpec) error {
 	for _, spec := range specs {
-		node := taskdag.Node{DagKey: dagKey, NodeKey: strings.TrimSpace(spec.NodeKey), Title: strings.TrimSpace(spec.Title), NodeType: strings.TrimSpace(spec.NodeType), DependsOn: dependsOnJSON(spec.DependsOn), Config: append(json.RawMessage(nil), spec.Config...)}
+		node := taskdag.Node{DagKey: dagKey, NodeKey: strings.TrimSpace(spec.NodeKey), Title: strings.TrimSpace(spec.Title), NodeType: strings.TrimSpace(spec.NodeType), AssignedTo: strings.TrimSpace(spec.AssignedTo), DependsOn: dependsOnJSON(spec.DependsOn), Config: append(json.RawMessage(nil), spec.Config...)}
 		if _, err := tx.UpsertNode(ctx, node); err != nil {
 			return fmt.Errorf("upsert node %s: %w", node.NodeKey, err)
 		}
