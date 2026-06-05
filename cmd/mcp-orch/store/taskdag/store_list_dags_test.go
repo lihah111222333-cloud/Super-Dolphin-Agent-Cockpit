@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,6 +88,9 @@ func TestUpsertDAGReturnsScheduleColumns(t *testing.T) {
 		t.Fatalf("UpsertDAG() error = %v", err)
 	}
 	assertSQLContainsAll(t, db.queryRow, []string{"RETURNING", "version", "trigger", "cron_expr", "next_run_at"})
+	if strings.Contains(db.queryRow, "DO UPDATE") {
+		t.Fatalf("UpsertDAG SQL must stay create-only, got upsert update:\n%s", db.queryRow)
+	}
 	requireDAGSchedule(t, *got)
 	requireNextRunAt(t, *got)
 	assertInt64Field(t, *got, "Version", 42)

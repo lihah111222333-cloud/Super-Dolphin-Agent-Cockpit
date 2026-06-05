@@ -18,7 +18,7 @@
       "ordinal": 0,
       "trigger_type": "always",
       "enable_when": {
-        "enabled_tools_all": ["list_models", "prompt_list", "command_list", "shared_file_list", "task_create_dag", "task_get_dag", "task_dag_apply_ops", "task_start_dag"]
+        "enabled_tools_all": ["list_models", "prompt_list", "command_list", "shared_file_list", "task_create_dag", "task_get_dag", "task_dag_apply_ops", "task_start_dag", "task_dispatch_node"]
       },
       "body_file": "sections/main-dag-designer-en/00-runtime-tools.md"
     }

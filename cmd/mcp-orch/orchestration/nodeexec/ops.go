@@ -98,7 +98,8 @@ func (n *NodeSpec) UnmarshalJSON(data []byte) error {
 }
 
 func addNodeStrictDecodeError(err error, allowed string) error {
-	if strings.Contains(err.Error(), "unknown field") {
+	errMsg := err.Error()
+	if strings.Contains(errMsg, "unknown field") {
 		return fmt.Errorf("add_node: %v (allowed: %s)", err, allowed)
 	}
 	return err
