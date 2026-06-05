@@ -332,9 +332,6 @@ func (h EditHandler) syncDocument(ctx context.Context, manager lspmanager.Manage
 	if err := manager.DidChange(ctx, path, version, []protocol.TextDocumentContentChangeEvent{change}); err != nil {
 		return false, "", err
 	}
-	if countLines(content) > didChangeLargeFileLineThreshold {
-		return true, "full document sync exceeded large-file line threshold", nil
-	}
 	return true, "", nil
 }
 
