@@ -1,13 +1,6 @@
 -- name: UpsertTaskDag :one
 INSERT INTO task_dags (dag_key, title, description, status, created_by, metadata)
 VALUES ($1, $2, $3, $4, $5, $6::jsonb)
-ON CONFLICT (dag_key) DO UPDATE
-SET title = EXCLUDED.title,
-    description = EXCLUDED.description,
-    status = EXCLUDED.status,
-    created_by = EXCLUDED.created_by,
-    metadata = EXCLUDED.metadata,
-    updated_at = NOW()
 RETURNING id, dag_key, title, description, status, created_by, metadata,
           started_at, finished_at, created_at, updated_at,
           trigger, owner_id, cron_expr, next_run_at, version;

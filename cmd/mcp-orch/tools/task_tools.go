@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 // 下列包级 enum 切片是 schema 与 handler requireEnum 的单一真源。
@@ -127,12 +128,19 @@ type DispatchNodeInput struct {
 
 func HandleCreateDAG(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in CreateDAGInput) (any, error) {
-		req, err := createDAGRequestFromInput(in)
+		req, err := createDAGRequestFromInput(in, trustedAgentID(ctx))
 		if err != nil {
 			return nil, err
 		}
 		return svc.CreateDAG(ctx, req)
 	})
+}
+
+func trustedAgentID(ctx context.Context) string {
+	if scope, ok := mcpcommon.ToolScopeFromContext(ctx); ok {
+		return strings.TrimSpace(scope.AgentID)
+	}
+	return ""
 }
 
 func HandleGetDAG(svc contract.OrchestrationService) ToolHandler {

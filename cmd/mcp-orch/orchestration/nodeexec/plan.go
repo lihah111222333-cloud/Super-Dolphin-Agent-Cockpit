@@ -61,6 +61,18 @@ func PlanAddNodes(ops Ops, existing []ExistingNode) (map[string][]string, []Node
 	return adjacency, accepted, nil
 }
 
+func ValidateAddNodeTopology(specs []NodeSpec) error {
+	ops := make(Ops, 0, len(specs))
+	for _, spec := range specs {
+		ops = append(ops, OpAddNode{Node: spec})
+	}
+	adjacency, _, err := PlanAddNodes(ops, nil)
+	if err == nil {
+		err = DetectCycle(adjacency)
+	}
+	return err
+}
+
 // seedAdjacency 把 existing 列表灌进 adjacency 与 known 集合，作为 PlanAddNodes
 // 的初始状态。
 func seedAdjacency(existing []ExistingNode) (map[string][]string, map[string]struct{}) {

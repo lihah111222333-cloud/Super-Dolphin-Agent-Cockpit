@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/testutil/golden"
 )
 
@@ -104,7 +105,7 @@ func TestCreateDAGRequestFromInputRequiresAgentID(t *testing.T) {
 		DagKey:   "dag-1",
 		Title:    "Build",
 		Schedule: DAGScheduleInput{Trigger: "manual"},
-	})
+	}, "")
 	if err == nil || err.Error() != "agent_id is required" {
 		t.Fatalf("createDAGRequestFromInput() error = %v", err)
 	}
@@ -116,12 +117,82 @@ func TestCreateDAGRequestFromInputMapsCreatedBy(t *testing.T) {
 		DagKey:   "dag-1",
 		Title:    "Build",
 		Schedule: DAGScheduleInput{Trigger: "manual"},
-	})
+	}, "")
 	if err != nil {
 		t.Fatalf("createDAGRequestFromInput() error = %v", err)
 	}
 	if req.CreatedBy != "agent-42" {
 		t.Fatalf("CreatedBy = %q, want agent-42", req.CreatedBy)
+	}
+}
+
+func TestHandleCreateDAGUsesTrustedScopeAgentID(t *testing.T) {
+	var got contract.CreateDAGRequest
+	handler := HandleCreateDAG(&golden.OrchestrationStub{
+		CreateDAGFunc: func(_ context.Context, req contract.CreateDAGRequest) (contract.DAGDetail, error) {
+			got = req
+			return contract.DAGDetail{}, nil
+		},
+	})
+	ctx := mcpcommon.WithToolScope(context.Background(), mcpcommon.ToolScope{AgentID: " trusted-agent "})
+
+	_, err := handler(ctx, json.RawMessage(`{
+		"dag_key":"dag-scope",
+		"title":"Scoped DAG",
+		"schedule":{"trigger":"manual"}
+	}`))
+	if err != nil {
+		t.Fatalf("HandleCreateDAG() error = %v", err)
+	}
+	if got.CreatedBy != "trusted-agent" {
+		t.Fatalf("CreatedBy = %q, want trusted-agent", got.CreatedBy)
+	}
+}
+
+func TestHandleCreateDAGRejectsAgentIDScopeMismatch(t *testing.T) {
+	handler := HandleCreateDAG(&golden.OrchestrationStub{
+		CreateDAGFunc: func(context.Context, contract.CreateDAGRequest) (contract.DAGDetail, error) {
+			t.Fatal("CreateDAG should not be called when public agent_id conflicts with trusted scope")
+			return contract.DAGDetail{}, nil
+		},
+	})
+	ctx := mcpcommon.WithToolScope(context.Background(), mcpcommon.ToolScope{AgentID: "trusted-agent"})
+
+	_, err := handler(ctx, json.RawMessage(`{
+		"agent_id":"model-guessed-agent",
+		"dag_key":"dag-scope",
+		"title":"Scoped DAG",
+		"schedule":{"trigger":"manual"}
+	}`))
+	if err == nil {
+		t.Fatal("HandleCreateDAG() error = nil, want scope mismatch error")
+	}
+	env := mcpcommon.NewToolErrorEnvelope("task_create_dag", err)
+	if env.Code != "invalid_input" {
+		t.Fatalf("tool error code = %q, want invalid_input", env.Code)
+	}
+}
+
+func TestHandleCreateDAGRejectsScheduledTriggerAtCreate(t *testing.T) {
+	handler := HandleCreateDAG(&golden.OrchestrationStub{
+		CreateDAGFunc: func(context.Context, contract.CreateDAGRequest) (contract.DAGDetail, error) {
+			t.Fatal("CreateDAG should not be called for scheduled trigger on create")
+			return contract.DAGDetail{}, nil
+		},
+	})
+
+	_, err := handler(context.Background(), json.RawMessage(`{
+		"agent_id":"designer-1",
+		"dag_key":"dag-scheduled",
+		"title":"Scheduled DAG",
+		"schedule":{"trigger":"scheduled"}
+	}`))
+	if err == nil {
+		t.Fatal("HandleCreateDAG() error = nil, want scheduled create rejection")
+	}
+	env := mcpcommon.NewToolErrorEnvelope("task_create_dag", err)
+	if env.Code != "invalid_input" {
+		t.Fatalf("tool error code = %q, want invalid_input", env.Code)
 	}
 }
 
@@ -191,7 +262,7 @@ func TestHandleCreateDAGPreservesNodeConfig(t *testing.T) {
 		"agent_id":"designer-1",
 		"dag_key":"dag-config",
 		"title":"Runnable DAG",
-		"schedule":{"trigger":"scheduled"},
+		"schedule":{"trigger":"manual"},
 		"nodes":[{
 			"node_key":"smoke",
 			"title":"Smoke",
@@ -221,7 +292,7 @@ func TestHandleCreateDAGSynthesizesAutomationConfigFromCommandRef(t *testing.T) 
 		"agent_id":"designer-1",
 		"dag_key":"dag-command-ref",
 		"title":"Runnable DAG",
-		"schedule":{"trigger":"scheduled"},
+		"schedule":{"trigger":"manual"},
 		"nodes":[{
 			"node_key":"smoke",
 			"title":"Smoke",
@@ -234,6 +305,38 @@ func TestHandleCreateDAGSynthesizesAutomationConfigFromCommandRef(t *testing.T) 
 	}
 	if len(got.Nodes) != 1 {
 		t.Fatalf("nodes = %d, want 1", len(got.Nodes))
+	}
+	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build"}}`)
+}
+
+func TestHandleCreateDAGInfersAutomationNodeTypeFromCommandRef(t *testing.T) {
+	var got contract.CreateDAGRequest
+	handler := HandleCreateDAG(&golden.OrchestrationStub{
+		CreateDAGFunc: func(_ context.Context, req contract.CreateDAGRequest) (contract.DAGDetail, error) {
+			got = req
+			return contract.DAGDetail{}, nil
+		},
+	})
+
+	_, err := handler(context.Background(), json.RawMessage(`{
+		"agent_id":"designer-1",
+		"dag_key":"dag-command-ref",
+		"title":"Runnable DAG",
+		"schedule":{"trigger":"manual"},
+		"nodes":[{
+			"node_key":"smoke",
+			"title":"Smoke",
+			"command_ref":" build "
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("HandleCreateDAG() error = %v", err)
+	}
+	if len(got.Nodes) != 1 {
+		t.Fatalf("nodes = %d, want 1", len(got.Nodes))
+	}
+	if got.Nodes[0].NodeType != "automation" {
+		t.Fatalf("NodeType = %q, want automation", got.Nodes[0].NodeType)
 	}
 	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build"}}`)
 }
@@ -251,7 +354,7 @@ func TestHandleCreateDAGMergesCommandRefIntoAutomationConfig(t *testing.T) {
 		"agent_id":"designer-1",
 		"dag_key":"dag-config-output",
 		"title":"Runnable DAG",
-		"schedule":{"trigger":"scheduled"},
+		"schedule":{"trigger":"manual"},
 		"nodes":[{
 			"node_key":"smoke",
 			"title":"Smoke",
@@ -361,6 +464,9 @@ func TestTaskCreateDAGSchemaExposesFlatShortcuts(t *testing.T) {
 	required := createDAG.InputSchema["required"].([]string)
 	if slices.Contains(required, "schedule") {
 		t.Fatalf("task_create_dag required = %#v, want flat schedule path to make schedule optional", required)
+	}
+	if slices.Contains(required, "agent_id") {
+		t.Fatalf("task_create_dag required = %#v, want trusted _agentId to supply creator identity", required)
 	}
 }
 
