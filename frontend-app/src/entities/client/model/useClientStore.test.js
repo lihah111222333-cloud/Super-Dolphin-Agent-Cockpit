@@ -1585,6 +1585,39 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('does not render turn_aborted control blocks from thread/messages history', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {},
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({
+      messages: [
+        { id: 'message-user', role: 'user', content: 'visible prompt', createdAt: '2026-06-01T14:26:00Z' },
+        {
+          id: 'message-aborted-control',
+          role: 'user',
+          content: '<turn_aborted>\nThe user interrupted the previous turn on purpose. Any running unified exec processes may still be running in the background. If any tools/commands were aborted, they may have partially executed.\n</turn_aborted>',
+          createdAt: '2026-06-01T14:27:00Z',
+        },
+        { id: 'assistant-text', role: 'assistant', content: 'visible reply', createdAt: '2026-06-01T14:28:00Z' },
+      ],
+    });
+
+    await useClientStore.getState().syncThreadState('thread-1');
+
+    expect(useClientStore.getState().timelinesByThread['thread-1'].map((message) => message.text)).toEqual([
+      'visible prompt',
+      'visible reply',
+    ]);
+  });
+
   it('builds thread/start launch payload from provider preferences', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',

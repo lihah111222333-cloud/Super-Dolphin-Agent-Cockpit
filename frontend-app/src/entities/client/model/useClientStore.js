@@ -1085,18 +1085,35 @@ function normalizeTimelineDone(item, status) {
   return false;
 }
 
+function normalizeUserTimelineText(text) {
+  const trimmed = normalizeString(text).trim();
+  const closeTag = '</turn_aborted>';
+  const lower = trimmed.toLowerCase();
+  if (!lower.startsWith('<turn_aborted>')) {
+    return { text, controlOnly: false };
+  }
+  const closeIndex = lower.indexOf(closeTag);
+  const remaining = closeIndex >= 0 ? trimmed.slice(closeIndex + closeTag.length).trimStart() : '';
+  return {
+    text: remaining,
+    controlOnly: !remaining,
+  };
+}
+
 function normalizeTimelineItem(item) {
   const rawKind = normalizeString(firstFieldValue(item, TIMELINE_KIND_KEYS)).toLowerCase();
   const rawRole = normalizeString(firstFieldValue(item, TIMELINE_ROLE_KEYS)).toLowerCase();
   const normalizedRole = rawRole.includes('user') ? 'user' : 'assistant';
   const normalizedKind = normalizeTimelineKindFromRaw(rawRole, rawKind);
-  const text = extractText(firstFieldValue(item, TIMELINE_TEXT_KEYS));
+  const rawText = extractText(firstFieldValue(item, TIMELINE_TEXT_KEYS));
+  const userText = normalizedRole === 'user' ? normalizeUserTimelineText(rawText) : { text: rawText, controlOnly: false };
   const status = normalizeString(item?.status);
   return {
     id: normalizeString(firstFieldValue(item, TIMELINE_ID_KEYS)) || `${normalizedRole}-${Date.now()}`,
     role: normalizedRole,
     kind: normalizedKind,
-    text,
+    text: userText.text,
+    controlOnly: userText.controlOnly,
     title: normalizeString(firstFieldValue(item, TIMELINE_TITLE_KEYS)),
     callId: normalizeString(firstFieldValue(item, TIMELINE_CALL_ID_KEYS)),
     requestId: positiveNumberFromFields(item, ['requestId', 'request_id']),
@@ -1479,6 +1496,7 @@ function isMeaningfulCommandTimelineItem(item) {
 }
 
 function isVisibleTimelineItem(item) {
+  if (item?.controlOnly) return false;
   if (isInjectedPromptTimelineItem(item)) return false;
   if (isMessageLifecycleTimelineItem(item)) return false;
   if (item?.role === 'user') return true;
