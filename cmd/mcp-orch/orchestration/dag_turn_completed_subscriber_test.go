@@ -2,11 +2,13 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
@@ -134,6 +136,65 @@ func (s *dagSubscriberSharedFileReaderSpy) ReadSharedFile(_ context.Context, pat
 	}
 	content, ok := s.contents[path]
 	return content, ok, nil
+}
+
+func dagSubscriberTestRunID(id int64) *int64 { return &id }
+
+func expectedDAGSubscriberMarkerPath(path string) string {
+	return "_internal/dag-output-ownership/" + path + ".metadata.json"
+}
+
+func findSharedFileWrite(t *testing.T, writer *dagSubscriberSharedFileWriterSpy, path string) string {
+	t.Helper()
+	for _, write := range writer.writes {
+		if write.Path == path {
+			return write.Content
+		}
+	}
+	t.Fatalf("sharedfile write %q not found in %+v", path, writer.writes)
+	return ""
+}
+
+func assertSharedFileOwnerMarker(t *testing.T, content, dagKey, nodeKey, threadID, turnID string, runID int64) {
+	t.Helper()
+	var marker map[string]any
+	if err := json.Unmarshal([]byte(content), &marker); err != nil {
+		t.Fatalf("owner marker is not JSON: %v; content=%q", err, content)
+	}
+	wantStrings := map[string]string{
+		"dag_key":   dagKey,
+		"node_key":  nodeKey,
+		"thread_id": threadID,
+		"turn_id":   turnID,
+	}
+	for key, want := range wantStrings {
+		if got, _ := marker[key].(string); got != want {
+			t.Fatalf("owner marker %s = %q, want %q; marker=%v", key, got, want, marker)
+		}
+	}
+	if got, _ := marker["run_id"].(float64); int64(got) != runID {
+		t.Fatalf("owner marker run_id = %v, want %d; marker=%v", marker["run_id"], runID, marker)
+	}
+	updatedAt, _ := marker["updated_at"].(string)
+	if _, err := time.Parse(time.RFC3339Nano, updatedAt); err != nil {
+		t.Fatalf("owner marker updated_at = %q, want RFC3339Nano timestamp: %v", updatedAt, err)
+	}
+}
+
+func dagSubscriberOwnerMarkerJSON(t *testing.T, dagKey, nodeKey, threadID, turnID string, runID int64) string {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{
+		"dag_key":    dagKey,
+		"node_key":   nodeKey,
+		"run_id":     runID,
+		"thread_id":  threadID,
+		"turn_id":    turnID,
+		"updated_at": time.Now().UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		t.Fatalf("marshal owner marker: %v", err)
+	}
+	return string(raw)
 }
 
 // helper：构�?deps + reset metric singletons 让每 case 独立计数�?
@@ -400,6 +461,7 @@ func TestDAGSubscriber_MaterializationFailureLifecycleHooksKeepFailureClass(t *t
 		NodeKey:  "agent-sharedfile",
 		NodeType: "agent",
 		Status:   "running",
+		RunID:    dagSubscriberTestRunID(1613),
 		Config: testRawConfig(t, `{
 			"exec":{"agent_key":"implementer","cwd":"/tmp/node-cwd"},
 			"outputs":{"to_sharedfile":{"path":"reports/agent.json","lock_mode":"exclusive"}}
