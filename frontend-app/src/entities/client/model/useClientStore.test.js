@@ -2561,6 +2561,42 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('keeps a newer active archived thread when an older sync response returns late', async () => {
+    let resolveSnapshot;
+    backend.getThreadState.mockReturnValue(new Promise((resolve) => {
+      resolveSnapshot = resolve;
+    }));
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-old',
+      threads: [
+        { id: 'thread-old', name: 'Old', provider: 'codex', status: 'running' },
+        { id: 'thread-new-archived', name: 'New Archived', provider: 'codex', status: 'archived' },
+      ],
+      timelinesByThread: {
+        'thread-new-archived': [{ id: 'user-new', role: 'user', text: 'new message', time: '2026-05-30T00:00:00Z' }],
+      },
+    });
+
+    const sync = useClientStore.getState().syncThreadState('thread-old');
+    await vi.waitFor(() => expect(backend.getThreadState).toHaveBeenCalled());
+    useClientStore.setState({ activeThreadId: 'thread-new-archived' });
+    resolveSnapshot({
+      activeThreadId: 'thread-old',
+      threads: [{ id: 'thread-old', name: 'Old', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {
+        'thread-old': [{ id: 'old-assistant', kind: 'assistant', text: 'old reply' }],
+      },
+    });
+
+    await sync;
+
+    const state = useClientStore.getState();
+    expect(state.activeThreadId).toBe('thread-new-archived');
+  });
+
   it('applies thread snapshot before a concurrent message history load finishes', async () => {
     const snapshot = deferred();
     const messages = deferred();
@@ -4198,7 +4234,7 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'idle', archived: false }],
     });
 
-    await expect(useClientStore.getState().archiveThread('thread-1', true)).resolves.toBe(false);
+    await expect(useClientStore.getState().archiveThread('thread-1', true)).resolves.toBe(true);
 
     expect(backend.archiveThread).toHaveBeenCalledWith({ threadId: 'thread-1' });
     expect(backend.setPreference).toHaveBeenCalledWith({
@@ -4291,3 +4327,67 @@ function registerBridgeEventHandlersForTest() {
       tone: 'success',
     }));
   });
+
+  it('preserves the reference of equivalent timeline items during bridge patch merges', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'msg-1',
+          role: 'assistant',
+          kind: 'assistant',
+          text: 'hello world',
+          done: true,
+          time: '2026-06-05T00:00:00Z',
+        }],
+      },
+    });
+    registerBridgeEventHandlersForTest();
+
+    const existingMessage = useClientStore.getState().timelinesByThread['thread-1'][0];
+    // 模拟推送一个具有相同 ID 并且内容完全一致的 replacement timelineItem，但引用不同
+    const patchItem = { ...existingMessage };
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        timelineItems: [patchItem],
+      },
+    });
+
+    const timeline = useClientStore.getState().timelinesByThread['thread-1'];
+    expect(timeline).toHaveLength(1);
+    // 判定其引用必须保持为原来的 existingMessage，而不是被 patchItem 替换
+    expect(timeline[0]).toBe(existingMessage);
+
+    // 另外测试如果内容不一致（比如 done 变为了 false），则必须被 replacement 覆盖，且引用改变
+    const changedPatchItem = { ...existingMessage, done: false };
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        timelineItems: [changedPatchItem],
+      },
+    });
+    const updatedTimeline = useClientStore.getState().timelinesByThread['thread-1'];
+    expect(updatedTimeline[0]).not.toBe(existingMessage);
+    expect(updatedTimeline[0].done).toBe(false);
+  });
+
+  it('returns true when archiveThread succeeds but setPreference fails', async () => {
+    backend.setPreference.mockRejectedValueOnce(new Error('preference write error'));
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'idle', archived: false }],
+    });
+
+    const result = await useClientStore.getState().archiveThread('thread-1', true);
+    expect(result).toBe(true); // 必须是 true，即便 preference 报错
+    expect(useClientStore.getState().threads[0].archived).toBe(true);
+  });
+
