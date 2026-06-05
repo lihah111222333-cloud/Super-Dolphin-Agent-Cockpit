@@ -64,6 +64,7 @@ function createFakeStore(overrides = {}) {
     selectThread: vi.fn(),
     sendDraft: vi.fn(),
     sending: false,
+    smoothStreaming: true,
     setDraft: vi.fn((value) => {
       store.draft = value;
     }),
@@ -924,6 +925,28 @@ describe('ChatPage module', () => {
     expect(screen.getByText(fullReply)).toBeInTheDocument();
     requestAnimationFrameSpy.mockRestore();
     cancelAnimationFrameSpy.mockRestore();
+  });
+
+  it('reveals an active assistant reply immediately when smoothStreaming is disabled', () => {
+    const initialMessages = [
+      { id: 'reply-user-1', role: 'user', text: '请继续分析', time: '2026-06-02T08:00:00Z' },
+      { id: 'reply-assistant-1', role: 'assistant', text: '我', time: '2026-06-02T08:01:00Z', done: false },
+    ];
+    const store = createActiveThreadStore(initialMessages, {
+      smoothStreaming: false,
+    });
+    const { rerender } = render(<ChatPage store={store} projectPath="/repo/app" />);
+    expect(screen.getByText('我')).toBeInTheDocument();
+
+    const fullReply = '我先检查输出节奏，再继续。';
+    rerender(<ChatPage store={createActiveThreadStore([
+      initialMessages[0],
+      { ...initialMessages[1], text: fullReply },
+    ], {
+      smoothStreaming: false,
+    })} projectPath="/repo/app" />);
+
+    expect(screen.getByText(fullReply)).toBeInTheDocument();
   });
 
   it('shows completed assistant replies immediately without streaming reveal', () => {
