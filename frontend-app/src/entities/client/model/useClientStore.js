@@ -589,10 +589,13 @@ function archiveMapFromThreads(threads = []) {
     const id = normalizeThreadId(thread?.id);
     if (!id) continue;
     const archivedAt = normalizeTimestamp(thread?.archivedAt);
-    if (archivedAt > 0) {
-      entries.push([id, archivedAt]);
-    } else if (thread?.archived) {
-      entries.push([id, 1]);
+    const value = archivedAt > 0 ? archivedAt : (thread?.archived ? 1 : 0);
+    if (value > 0) {
+      entries.push([id, value]);
+      const agentId = normalizeThreadId(thread?.agentId);
+      if (agentId && agentId !== id) {
+        entries.push([agentId, value]);
+      }
     }
   }
   return Object.fromEntries(entries);
@@ -664,25 +667,53 @@ function normalizeThreadProviderValue(raw, options = {}) {
   );
 }
 
-function normalizeThreadPinnedAt(raw, threadId, options = {}) {
+function normalizeThreadPinnedAt(raw, identity, options = {}) {
+  const threadId = identity && typeof identity === 'object' ? identity.threadId : normalizeThreadId(identity);
+  const agentId = identity && typeof identity === 'object' ? identity.agentId : '';
+  let resolvedDbId = '';
+  if (options.state?.threads) {
+    const existing = options.state.threads.find((t) =>
+      (threadId && threadMatchesIdentifier(t, threadId)) ||
+      (agentId && threadMatchesIdentifier(t, agentId))
+    );
+    if (existing) {
+      resolvedDbId = normalizeBackendThreadId(existing.id);
+    }
+  }
   return normalizeTimestamp(firstThreadCopyText(
     raw?.pinnedAt,
     raw?.pinned_at,
     raw?.pinnedAtMs,
     raw?.pinned_at_ms,
     typeof raw?.pinned === 'boolean' ? 0 : raw?.pinned,
-    options.pinnedAtById?.[threadId],
+    (threadId && options.pinnedAtById?.[threadId]) ||
+    (agentId && options.pinnedAtById?.[agentId]) ||
+    (resolvedDbId && options.pinnedAtById?.[resolvedDbId]),
   ));
 }
 
-function normalizeThreadArchivedAt(raw, threadId, options = {}) {
+function normalizeThreadArchivedAt(raw, identity, options = {}) {
+  const threadId = identity && typeof identity === 'object' ? identity.threadId : normalizeThreadId(identity);
+  const agentId = identity && typeof identity === 'object' ? identity.agentId : '';
+  let resolvedDbId = '';
+  if (options.state?.threads) {
+    const existing = options.state.threads.find((t) =>
+      (threadId && threadMatchesIdentifier(t, threadId)) ||
+      (agentId && threadMatchesIdentifier(t, agentId))
+    );
+    if (existing) {
+      resolvedDbId = normalizeBackendThreadId(existing.id);
+    }
+  }
   return normalizeTimestamp(firstThreadCopyText(
     raw?.archivedAt,
     raw?.archived_at,
     raw?.archivedAtMs,
     raw?.archived_at_ms,
     typeof raw?.archived === 'boolean' ? 0 : raw?.archived,
-    options.archivedAtById?.[threadId],
+    (threadId && options.archivedAtById?.[threadId]) ||
+    (agentId && options.archivedAtById?.[agentId]) ||
+    (resolvedDbId && options.archivedAtById?.[resolvedDbId]),
   ));
 }
 
@@ -700,12 +731,20 @@ function normalizeThread(raw, options = {}) {
   const status = normalizeThreadStatusText(raw);
   const cwd = normalizeThreadCwdValue(raw, sourceThread, options);
   const provider = normalizeThreadProviderValue(raw, options);
-  const pinnedAt = normalizeThreadPinnedAt(raw, identity.threadId, options);
-  const archivedAt = normalizeThreadArchivedAt(raw, identity.threadId, options);
+  const pinnedAt = normalizeThreadPinnedAt(raw, identity, options);
+  const archivedAt = normalizeThreadArchivedAt(raw, identity, options);
   const lifecycleStatus = normalizeThreadLifecycleStatus(raw);
   let archived = isThreadArchived(raw, status, lifecycleStatus, archivedAt);
-  const recentOverride = options.lastArchivedStatesByThread?.[identity.threadId];
-  if (recentOverride && Date.now() - recentOverride.timestamp < 1500) {
+  const recentOverride =
+    (identity.threadId && options.lastArchivedStatesByThread?.[identity.threadId]) ||
+    (identity.agentId && options.lastArchivedStatesByThread?.[identity.agentId]);
+  const isLoading = Boolean(
+    (identity.threadId && options.threadArchiveLoadingByThread?.[identity.threadId]) ||
+    (identity.agentId && options.threadArchiveLoadingByThread?.[identity.agentId])
+  );
+  if (isLoading && recentOverride) {
+    archived = recentOverride.archived;
+  } else if (recentOverride && Date.now() - recentOverride.timestamp < 8000) {
     archived = recentOverride.archived;
   }
   return {
@@ -1748,11 +1787,13 @@ function normalizeSnapshotThreadList(payload, state, options, maps) {
   const threads = payload.threads
     .filter((thread) => threadMatchesCwdScope(thread, maps.scopeCwd, maps.runtimeById))
     .map((thread) => normalizeThread(thread, {
+      state,
       archivedAtById: maps.archivedAtById,
       pinnedAtById: maps.pinnedAtById,
       fallbackProvider: snapshotThreadFallbackProvider(thread, state, maps.runtimeById),
       fallbackCwd: snapshotThreadCwd(thread, maps.runtimeById),
       lastArchivedStatesByThread: state.lastArchivedStatesByThread,
+      threadArchiveLoadingByThread: state.threadArchiveLoadingByThread,
     }))
     .filter((thread) => thread.id);
   return threads;
@@ -2469,6 +2510,10 @@ function promotedDraftThreadState(state, request, started) {
     provider,
     activityThreadAtById,
     timelinesByThread,
+    threadTimelineReadyByThread: {
+      ...state.threadTimelineReadyByThread,
+      [started.threadId]: true,
+    },
     threads: [
       {
         id: started.threadId,
@@ -2723,8 +2768,18 @@ function bridgePatchThreads(state, patch) {
   const existingThread = state.threads.find((thread) => threadMatchesIdentifier(thread, patch.threadId));
   if (!patch.patchedThread.id) return state.threads;
   let archived = Boolean(existingThread?.archived || patch.patchedThread.archived);
-  const recentOverride = state.lastArchivedStatesByThread?.[patch.threadId];
-  if (recentOverride && Date.now() - recentOverride.timestamp < 1500) {
+  const recentOverride =
+    state.lastArchivedStatesByThread?.[patch.threadId] ||
+    (existingThread?.id && state.lastArchivedStatesByThread?.[existingThread.id]) ||
+    (existingThread?.agentId && state.lastArchivedStatesByThread?.[existingThread.agentId]);
+  const isLoading = Boolean(
+    state.threadArchiveLoadingByThread?.[patch.threadId] ||
+    (existingThread?.id && state.threadArchiveLoadingByThread?.[existingThread.id]) ||
+    (existingThread?.agentId && state.threadArchiveLoadingByThread?.[existingThread.agentId])
+  );
+  if (isLoading && recentOverride) {
+    archived = recentOverride.archived;
+  } else if (recentOverride && Date.now() - recentOverride.timestamp < 8000) {
     archived = recentOverride.archived;
   }
   const mergedThread = {
@@ -2733,6 +2788,8 @@ function bridgePatchThreads(state, patch) {
     name: bridgePatchThreadName(existingThread, patch.patchedThread),
     provider: patch.patchProvider || existingThread?.provider || patch.patchedThread.provider,
     status: patch.statusText || patch.patchedThread.status || existingThread?.status || '等待指示',
+    pinned: Boolean(existingThread?.pinned || patch.patchedThread.pinned),
+    pinnedAt: existingThread?.pinnedAt || patch.patchedThread.pinnedAt || 0,
     archived,
   };
   if (shouldPromoteBridgePatchThread(existingThread, patch)) {
@@ -5156,9 +5213,15 @@ function createThreadArchiveActions(runtime) {
         runtime.set((state) => {
           const nextMutated = { ...state.lastArchivedStatesByThread };
           delete nextMutated[id];
+          const originalThread = originalThreads.find((t) => threadMatchesIdentifier(t, id));
           return {
-            activeThreadId: originalActiveThreadId,
-            threads: originalThreads,
+            activeThreadId: state.activeThreadId === '' ? originalActiveThreadId : state.activeThreadId,
+            threads: state.threads.map((thread) => (threadMatchesIdentifier(thread, id) && originalThread ? {
+              ...thread,
+              archived: Boolean(originalThread.archived),
+              archivedAt: originalThread.archivedAt || 0,
+              status: originalThread.status,
+            } : thread)),
             threadArchiveLoadingByThread: {
               ...state.threadArchiveLoadingByThread,
               [id]: false,
