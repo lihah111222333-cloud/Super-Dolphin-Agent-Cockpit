@@ -128,6 +128,9 @@ func (p *updateNodeParams) UnmarshalJSON(data []byte) error {
 }
 
 func (s *service) CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error) {
+	if err := validateCreateDAGNodes(req.Nodes); err != nil {
+		return DAGDetail{}, err
+	}
 	var detail DAGDetail
 	err := s.withDAGStore(func(store taskdag.OrchestrationStore) error {
 		return store.WithTx(ctx, func(txStore taskdag.DAGMutationStore) error {
@@ -296,6 +299,17 @@ func upsertDAGNodes(ctx context.Context, store taskdag.DAGMutationStore, dagKey 
 		if _, err := store.UpsertNode(ctx, dagNodeFromRequest(dagKey, node)); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func validateCreateDAGNodes(nodes []CreateDAGNodeRequest) error {
+	specs := make([]nodeexec.NodeSpec, len(nodes))
+	for i, n := range nodes {
+		specs[i] = nodeexec.NodeSpec{NodeKey: n.NodeKey, Title: n.Title, NodeType: n.NodeType, DependsOn: n.DependsOn, Config: n.Config}
+	}
+	if err := nodeexec.ValidateAddNodeTopology(specs); err != nil {
+		return fmt.Errorf("orchestration: create_dag invalid request: nodes topology invalid: %w", err)
 	}
 	return nil
 }
@@ -561,7 +575,6 @@ func (s *service) DeleteDAG(ctx context.Context, req contract.DeleteDAGRequest) 
 	})
 }
 
-// ApplyOps stays in dag.go because this package is already at the codeguard
 // file-count budget; typed op helpers live in dag_query.go.
 
 // ErrApplyOpsInvalid 是 ApplyOps 顶层校验失败的 sentinel（InvalidArgument
@@ -626,10 +639,7 @@ func (s *service) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (c
 
 // applyTypedOps 是 4 个 op_kind 业务实现的容器（F4.1-F4.4）。F4.1 接 add_node、
 // F4.2 接 update_node，F4.3 接 remove_node，F4.4 接 update_dag。空 ops 返 noop。
-//
-// applyTypedOps dispatches typed ops. F4.1 wires add_node, F4.2 wires
-// update_node, F4.3 wires remove_node, and F4.4 wires update_dag. Empty ops is
-// a valid noop.
+
 func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion int64, ops nodeexec.Ops) (contract.ApplyOpsResponse, error) {
 	if s == nil || s.dagStore == nil {
 		return contract.ApplyOpsResponse{}, ErrApplyOpsStoreNotConfigured

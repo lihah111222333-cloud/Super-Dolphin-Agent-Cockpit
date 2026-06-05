@@ -7,7 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
 // F4.0 顶层校验测试：ApplyOps 在解码 ops + 形状校验阶段必须能区分四类失败
@@ -124,4 +126,114 @@ func TestApplyOps_StoreNotConfigured(t *testing.T) {
 	if !errors.Is(err, ErrApplyOpsStoreNotConfigured) {
 		t.Fatalf("ApplyOps without dag store err = %v, want ErrApplyOpsStoreNotConfigured", err)
 	}
+}
+
+func TestCreateDAGRejectsInvalidTopologyBeforeStore(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		nodes []contract.CreateDAGNodeRequest
+		want  string
+	}{
+		{
+			name: "duplicate node key",
+			nodes: []contract.CreateDAGNodeRequest{
+				{NodeKey: "a", Title: "A"},
+				{NodeKey: " a ", Title: "A2"},
+			},
+			want: "already exists",
+		},
+		{
+			name:  "unknown dependency",
+			nodes: []contract.CreateDAGNodeRequest{{NodeKey: "a", Title: "A", DependsOn: []string{"missing"}}},
+			want:  "unknown node",
+		},
+		{
+			name: "cycle",
+			nodes: []contract.CreateDAGNodeRequest{
+				{NodeKey: "a", Title: "A", DependsOn: []string{"b"}},
+				{NodeKey: "b", Title: "B", DependsOn: []string{"a"}},
+			},
+			want: "cycle",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &service{}
+			_, err := s.CreateDAG(context.Background(), contract.CreateDAGRequest{
+				DagKey:    "dag-a",
+				Title:     "DAG A",
+				CreatedBy: "agent-a",
+				Nodes:     tc.nodes,
+			})
+			if err == nil {
+				t.Fatal("CreateDAG() error = nil, want invalid topology error")
+			}
+			if strings.Contains(err.Error(), "dag store is not configured") {
+				t.Fatalf("CreateDAG() validated after store lookup, got %v", err)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("CreateDAG() error = %v, want containing %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestCreateDAGPropagatesDuplicateDagKeyConflict(t *testing.T) {
+	t.Parallel()
+	stub := &stubCreateDAGStore{upsertErr: platformdb.ErrConflict}
+	s := &service{dagStore: stub}
+
+	_, err := s.CreateDAG(context.Background(), contract.CreateDAGRequest{
+		DagKey:    "dag-a",
+		Title:     "DAG A",
+		CreatedBy: "agent-a",
+	})
+	if err == nil {
+		t.Fatal("CreateDAG() error = nil, want duplicate dag_key conflict")
+	}
+	if !errors.Is(err, platformdb.ErrConflict) {
+		t.Fatalf("CreateDAG() error = %v, want platformdb.ErrConflict", err)
+	}
+	if stub.upsertCalls != 1 {
+		t.Fatalf("UpsertDAG calls = %d, want 1 conflict from create-only insert", stub.upsertCalls)
+	}
+}
+
+type stubCreateDAGStore struct {
+	taskdag.OrchestrationStore
+	existing    *taskdag.DAG
+	upsertErr   error
+	upsertCalls int
+}
+
+func (s *stubCreateDAGStore) WithTx(ctx context.Context, fn func(taskdag.DAGMutationStore) error) error {
+	return fn(s)
+}
+
+func (s *stubCreateDAGStore) GetDAG(context.Context, string) (*taskdag.DAG, error) {
+	if s.existing != nil {
+		return s.existing, nil
+	}
+	return nil, platformdb.ErrNotFound
+}
+
+func (s *stubCreateDAGStore) ListNodes(context.Context, string) ([]taskdag.Node, error) {
+	return nil, nil
+}
+
+func (s *stubCreateDAGStore) UpsertDAG(_ context.Context, dag taskdag.DAG) (*taskdag.DAG, error) {
+	s.upsertCalls++
+	if s.upsertErr != nil {
+		return nil, s.upsertErr
+	}
+	return &dag, nil
+}
+
+func (s *stubCreateDAGStore) UpsertNode(_ context.Context, node taskdag.Node) (*taskdag.Node, error) {
+	return &node, nil
+}
+
+func (s *stubCreateDAGStore) UpdateNodeStatus(context.Context, taskdag.NodeStatusUpdate) (*taskdag.Node, error) {
+	return nil, errors.New("unexpected UpdateNodeStatus")
 }

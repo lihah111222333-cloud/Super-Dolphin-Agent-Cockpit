@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -362,6 +363,13 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	},
 	{
 		code: "invalid_input",
+		hint: staticToolHint("next: choose a new dag_key or update the existing DAG with task_dag_apply_ops"),
+		match: func(err error, _ string, toolName string) bool {
+			return isTaskCreateDAGTool(toolName) && platformdb.IsConflict(err)
+		},
+	},
+	{
+		code: "invalid_input",
 		hint: staticToolHint("next: fix the task DAG request, node status, or transition inputs"),
 		match: func(_ error, message string, toolName string) bool {
 			return isTaskTool(toolName) && (strings.Contains(message, "apply_ops invalid request") ||
@@ -505,6 +513,10 @@ func isEditTool(toolName string) bool {
 
 func isTaskUpdateNodeTool(toolName string) bool {
 	return strings.ToLower(strings.TrimSpace(toolName)) == "task_update_node"
+}
+
+func isTaskCreateDAGTool(toolName string) bool {
+	return strings.ToLower(strings.TrimSpace(toolName)) == "task_create_dag"
 }
 
 func firstNonEmptyString(values ...string) string {
