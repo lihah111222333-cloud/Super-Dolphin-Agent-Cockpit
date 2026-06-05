@@ -1629,6 +1629,33 @@ function dedupeAssistantTimelineItems(items = []) {
   return output;
 }
 
+function areTimelineItemsEquivalent(left, right) {
+  if (!left || !right) return left === right;
+  if (left.id !== right.id) return false;
+  if (left.role !== right.role) return false;
+  if (left.kind !== right.kind) return false;
+
+  const normText = (val) => (val || '').toString().trim();
+  if (normText(left.text) !== normText(right.text)) return false;
+  if (normText(left.status) !== normText(right.status)) return false;
+  if (normText(left.completedAt) !== normText(right.completedAt)) return false;
+  if (normText(left.title) !== normText(right.title)) return false;
+  if (normText(left.command) !== normText(right.command)) return false;
+  if (normText(left.toolName) !== normText(right.toolName)) return false;
+  if (normText(left.callId) !== normText(right.callId)) return false;
+  if (normText(left.time) !== normText(right.time)) return false;
+
+  if (Boolean(left.done) !== Boolean(right.done)) return false;
+  if (Boolean(left.optimistic) !== Boolean(right.optimistic)) return false;
+  if (Boolean(left.runtime) !== Boolean(right.runtime)) return false;
+  if (Boolean(left.controlOnly) !== Boolean(right.controlOnly)) return false;
+
+  if ((left.elapsedMs ?? 0) !== (right.elapsedMs ?? 0)) return false;
+  if ((left.requestId ?? 0) !== (right.requestId ?? 0)) return false;
+
+  return true;
+}
+
 function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}) {
   const preserveExistingVisible = options?.preserveExistingVisible === true;
   const visibleIncomingItems = incomingItems.filter(isVisibleTimelineItem);
@@ -1641,7 +1668,11 @@ function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}
   for (const existingItem of existingItems) {
     const replacement = incomingById.get(existingItem.id);
     if (replacement) {
-      merged.push(replacement);
+      if (areTimelineItemsEquivalent(existingItem, replacement)) {
+        merged.push(existingItem);
+      } else {
+        merged.push(replacement);
+      }
       consumedIncomingIds.add(replacement.id);
       continue;
     }
@@ -1717,7 +1748,7 @@ function snapshotThreadList(payload, state, options, maps) {
 function preservedSnapshotActiveThreadId(state, nextThreads, options) {
   if (!options.preserveActiveThreadId) return '';
   return (
-    backendThreadIdFromThreads(state.activeThreadId, nextThreads) ||
+    backendThreadIdFromThreads(state.activeThreadId, nextThreads, { includeArchived: true }) ||
     (!nextThreads.some((thread) => threadMatchesIdentifier(thread, state.activeThreadId))
       ? normalizeBackendThreadId(state.activeThreadId)
       : '')
@@ -5108,7 +5139,7 @@ function createThreadArchiveActions(runtime) {
         }));
         
         runtime.addWarning('error', `thread.${archived ? 'archive' : 'unarchive'}.preference.failed`, { threadId: id, error: message });
-        return false;
+        return true;
       }
 
       // 5. Success: Show success notice
