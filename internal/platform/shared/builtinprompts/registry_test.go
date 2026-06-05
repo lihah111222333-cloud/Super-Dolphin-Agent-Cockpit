@@ -242,7 +242,7 @@ func TestRegistryLoadsDAGDesignerPrompts(t *testing.T) {
 	} {
 		require.Contains(t, body, want)
 	}
-	require.JSONEq(t, `{"enabled_tools_all":["list_models","prompt_list","command_list","shared_file_list","task_create_dag","task_get_dag","task_dag_apply_ops","task_start_dag"]}`, string(requireSection(t, sections, "dag_designer_runtime_tools").EnableWhen))
+	require.JSONEq(t, `{"enabled_tools_all":["list_models","prompt_list","command_list","shared_file_list","task_create_dag","task_get_dag","task_get_run","task_list_runs","task_dag_apply_ops","task_dispatch_node","task_start_dag"]}`, string(requireSection(t, sections, "dag_designer_runtime_tools").EnableWhen))
 
 	enSections := reg.SectionsByTemplateID(en.ID)
 	enBody := sectionBodyByKey(enSections, "dag_designer_runtime_tools")

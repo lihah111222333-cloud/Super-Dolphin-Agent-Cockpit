@@ -7090,6 +7090,10 @@ async function designWorkflowWithAi() {
       providerNativeSkills: false,
     }));
     expect(designPayload.config.enabledTools).toContain('task_start_dag');
+    expect(designPayload.config.enabledTools).toContain('task_get_run');
+    expect(designPayload.config.enabledTools).toContain('task_list_runs');
+    expect(designPayload.config.enabledTools).toContain('task_dispatch_node');
+    expect(designPayload.config.enabledTools).not.toContain('task_update_node');
   });
   expect(await screen.findByText('AI 设计流程')).toBeInTheDocument();
   expect(screen.getByText('AI 设计流程').closest('.thread-card')).toHaveTextContent('codex');

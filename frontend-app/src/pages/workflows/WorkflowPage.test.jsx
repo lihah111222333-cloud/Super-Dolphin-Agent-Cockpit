@@ -665,7 +665,7 @@ describe('WorkflowPage module', () => {
     const turnInput = backend.startTurn.mock.calls[0][0].input;
     expect(turnInput).toContain('daily_workplace_mentor_douyin_video');
     expect(turnInput).toContain('每天 05:00 Asia/Shanghai');
-    expect(turnInput).toContain('cron_expr = `0 21 * * *`');
+    expect(turnInput).toContain('cron_expr = `CRON_TZ=Asia/Shanghai 0 5 * * *`');
     expect(turnInput).toContain('生成 1 条');
     expect(turnInput).toContain('不自动发布');
     expect(store.setActiveThread).toHaveBeenCalledWith('thread-douyin');
