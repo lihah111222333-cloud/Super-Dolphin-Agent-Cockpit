@@ -201,6 +201,13 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 				return s.completeNodeWithDownstream(ctx, flow, input, oldStatus, &result)
 			}
 		}
+		if input.Status == "failed" {
+			flow, ok := store.(taskdag.NodeFlowStore)
+			if !ok {
+				return fmt.Errorf("orchestration: task_update_node failed requires NodeFlowStore for dag_key=%s node_key=%s run_id=%d", input.DagKey, input.NodeKey, input.RunID)
+			}
+			return s.failNodeWithDownstream(ctx, flow, input, oldStatus, &result)
+		}
 		node, updateErr := store.UpdateNodeStatus(ctx, input)
 		if updateErr != nil {
 			return updateErr
@@ -259,6 +266,22 @@ func (s *service) completeNodeWithDownstream(ctx context.Context, flow taskdag.N
 			"dag_key", input.DagKey,
 			"completed_node", input.NodeKey,
 			"count", len(res.ScheduledDownstream))
+	}
+	return nil
+}
+
+func (s *service) failNodeWithDownstream(ctx context.Context, flow taskdag.NodeFlowStore, input taskdag.NodeStatusUpdate, oldStatus string, result *DAGNode) error {
+	reason := string(input.Result)
+	if reason == "" {
+		reason = "task_update_node status=failed"
+	}
+	res, err := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{DagKey: input.DagKey, NodeKey: input.NodeKey, RunID: input.RunID, Reason: reason, FailFast: true})
+	if err != nil {
+		return err
+	}
+	nodeevents.PublishFail(s.eventBus, oldStatus, res)
+	if res.Node != nil {
+		*result = dagNodeDTO(*res.Node)
 	}
 	return nil
 }

@@ -127,6 +127,42 @@ func (s *store) FailWakeup(ctx context.Context, input FailWakeupInput) (int64, e
 	})
 }
 
+func (s *store) FailWakeupAndFailNodeAndCancelDownstream(ctx context.Context, wakeup FailWakeupInput, node FailNodeInput) (int64, *FailNodeResult, error) {
+	if err := requireRuntimeRunID("fail_wakeup_and_fail_node", node.RunID); err != nil {
+		return 0, nil, err
+	}
+	fence := wakeupFenceFromFail(wakeup)
+	var failRows int64
+	var result *FailNodeResult
+	err := sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
+		txStore := &store{db: txdb, q: txq}
+		rows, failWakeupErr := txq.FailTaskDagWakeup(ctx, sqlc.FailTaskDagWakeupParams{
+			LastError:      wakeup.LastError,
+			ID:             fence.ID,
+			ClaimedAt:      timestampValue(fence.ClaimedAt),
+			ClaimedBy:      fence.ClaimedBy,
+			LeaseExpiresAt: timestampValue(fence.LeaseExpiresAt),
+		})
+		if failWakeupErr != nil {
+			return failWakeupErr
+		}
+		failRows = rows
+		if rows == 0 {
+			return nil
+		}
+		nodeResult, failNodeErr := failNodeAndCancelDownstreamTx(ctx, txStore, node)
+		if failNodeErr != nil {
+			return failNodeErr
+		}
+		result = nodeResult
+		return nil
+	})
+	if err != nil {
+		return 0, nil, wrapTaskDAGError(err, "fail_wakeup_and_fail_node", "task_dag_wakeup")
+	}
+	return failRows, result, nil
+}
+
 func (s *store) ReclaimStaleDispatchingWakeups(ctx context.Context) (int64, error) {
 	return queryValue(func() (int64, error) {
 		return s.q.ReclaimStaleDispatchingTaskDagWakeups(ctx)
