@@ -193,6 +193,26 @@ func TestBuildLaunchRequestFromAgentConfigForwardsRuntimeHints(t *testing.T) {
 	}
 }
 
+func TestBuildLaunchRequestFromAgentConfigForwardsCodexModelProvider(t *testing.T) {
+	t.Parallel()
+	var cfg AgentNodeConfig
+	err := json.Unmarshal([]byte(`{
+		"exec": {
+			"provider": "codex",
+			"codex_model_provider": " openai "
+		}
+	}`), &cfg)
+	if err != nil {
+		t.Fatalf("unmarshal agent config: %v", err)
+	}
+
+	req := buildLaunchRequestFromAgentConfig(&cfg, Node{NodeType: "agent", Title: "node"}, RunContext{})
+
+	if got := launchEnvValue(req.Env, "AGENT_CODEX_MODEL_PROVIDER"); got != "openai" {
+		t.Fatalf("AGENT_CODEX_MODEL_PROVIDER = %q, want openai; env=%#v", got, req.Env)
+	}
+}
+
 func TestBuildLaunchRequestFromAgentConfigDoesNotInventCWD(t *testing.T) {
 	t.Parallel()
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}

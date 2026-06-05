@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -306,10 +307,9 @@ var codexSpawnEnvAllowlist = []string{
 	"TEMP",
 	"TMP",
 	"SHELL",
-	"SSL_CERT_FILE",
-	"SSL_CERT_DIR",
-	sidecarRuntimeModeEnv,
-	sidecarRuntimeResourcesEnv,
+	"SSL_CERT_FILE", "SSL_CERT_DIR",
+	"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+	sidecarRuntimeModeEnv, sidecarRuntimeResourcesEnv,
 	codexRelayBootstrapTokenEnv,
 }
 
@@ -341,7 +341,7 @@ func buildAllowlistedSpawnEnv(parent []string, overrides map[string]string) []st
 		out = append(out, key+"="+val)
 	}
 	sort.Strings(out)
-	return out
+	return providershared.EnsureLoopbackNoProxy(out)
 }
 
 func splitEnv(kv string) (string, string, bool) {

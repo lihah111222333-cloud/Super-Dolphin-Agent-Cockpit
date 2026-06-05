@@ -139,6 +139,25 @@ func TestLaunchRequestFromExecutableForwardsModel(t *testing.T) {
 	}
 }
 
+func TestLaunchRequestFromExecutableForwardsCodexModelProvider(t *testing.T) {
+	var in LaunchAgentInput
+	err := json.Unmarshal([]byte(`{
+		"name": "agent-codex-provider",
+		"provider": "codex",
+		"codex_model_provider": " openai "
+	}`), &in)
+	if err != nil {
+		t.Fatalf("unmarshal launch input: %v", err)
+	}
+	req, err := launchRequestFromExecutable(in, "/tmp/agent-terminal")
+	if err != nil {
+		t.Fatalf("launchRequestFromExecutable() error = %v", err)
+	}
+	if got := launchEnvValue(req.Env, "AGENT_CODEX_MODEL_PROVIDER"); got != "openai" {
+		t.Fatalf("AGENT_CODEX_MODEL_PROVIDER = %q, want openai; env=%#v", got, req.Env)
+	}
+}
+
 func TestLaunchRequestFromExecutableOmitsEmptyModel(t *testing.T) {
 	req, err := launchRequestFromExecutable(LaunchAgentInput{
 		Name:     "agent-n",
@@ -151,6 +170,16 @@ func TestLaunchRequestFromExecutableOmitsEmptyModel(t *testing.T) {
 	if len(req.Env) != 1 || req.Env[0] != "AGENT_PROVIDER=claude" {
 		t.Fatalf("launch request env = %#v, want only [AGENT_PROVIDER=claude]", req.Env)
 	}
+}
+
+func launchEnvValue(env []string, key string) string {
+	prefix := key + "="
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(item, prefix))
+		}
+	}
+	return ""
 }
 
 func TestListAgentsHandlerDefaultsToActiveCompactSnapshots(t *testing.T) {

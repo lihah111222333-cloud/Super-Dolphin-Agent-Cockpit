@@ -469,7 +469,7 @@ func validateAgentLaunchProvider(raw string) (string, error) {
 }
 
 func agentLaunchEnv(exec AgentExecConfig) []string {
-	env := make([]string, 0, 4)
+	env := make([]string, 0, 5)
 	if provider := strings.ToLower(strings.TrimSpace(exec.Provider)); provider != "" {
 		env = append(env, "AGENT_PROVIDER="+provider)
 	}
@@ -478,6 +478,9 @@ func agentLaunchEnv(exec AgentExecConfig) []string {
 	}
 	if effort := strings.TrimSpace(exec.Effort); effort != "" {
 		env = append(env, "AGENT_EFFORT="+effort)
+	}
+	if codexModelProvider := strings.TrimSpace(exec.CodexModelProvider); codexModelProvider != "" {
+		env = append(env, "AGENT_CODEX_MODEL_PROVIDER="+codexModelProvider)
 	}
 	if disabledTools := joinTrimmed(exec.DisabledTools); disabledTools != "" {
 		env = append(env, "AGENT_DISABLED_TOOLS="+disabledTools)

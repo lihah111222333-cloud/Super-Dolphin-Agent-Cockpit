@@ -108,6 +108,33 @@ func TestRemoteLauncher_DisabledToolsUseStartConfig(t *testing.T) {
 	}
 }
 
+func TestRemoteLauncher_CodexModelProviderUsesStartConfig(t *testing.T) {
+	var started map[string]any
+	launcher := remoteLocalLauncher(t, handler.Map{
+		"thread/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+			started = req
+			return map[string]any{"thread": map[string]any{"id": "thread-1"}, "agentId": "remote-1"}, nil
+		}),
+	})
+
+	_, err := launcher.Launch(context.Background(), &agentRuntime{id: "agent-1"}, LaunchRequest{
+		Env: []string{"AGENT_CODEX_MODEL_PROVIDER=openai"},
+	})
+	if err != nil {
+		t.Fatalf("Launch() error = %v", err)
+	}
+	cfg, ok := started["config"].(map[string]any)
+	if !ok {
+		t.Fatalf("thread/start config = %#v, want object", started["config"])
+	}
+	if got := cfg["codexModelProvider"]; got != "openai" {
+		t.Fatalf("config.codexModelProvider = %#v, want openai", got)
+	}
+	if _, ok := started["model_provider"]; ok {
+		t.Fatalf("thread/start got top-level model_provider=%#v; want config.codexModelProvider", started["model_provider"])
+	}
+}
+
 func TestRemoteLauncher_Archive(t *testing.T) {
 	var archived map[string]any
 	launcher := remoteLocalLauncher(t, handler.Map{
