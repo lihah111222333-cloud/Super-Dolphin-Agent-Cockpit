@@ -1972,6 +1972,41 @@ function registerBridgeEventHandlersForTest() {
     nowSpy.mockRestore();
   });
 
+  it('maps explicit activeTurn patch payload without inventing one when omitted', () => {
+    resetClientStoreForTests({
+      threads: [
+        { id: 'thread-active', name: 'Active', provider: 'codex', status: 'running' },
+        { id: 'thread-empty', name: 'Empty', provider: 'codex', status: 'running' },
+      ],
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-active',
+        sequence: '1',
+        activeTurn: { id: 'turn-active', threadId: 'thread-active', status: 'thinking' },
+      },
+    });
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-empty',
+        sequence: '1',
+        interruptible: true,
+      },
+    });
+
+    expect(useClientStore.getState().activeTurnByThread).toEqual({
+      'thread-active': expect.objectContaining({
+        id: 'turn-active',
+        threadId: 'thread-active',
+        status: 'thinking',
+      }),
+    });
+  });
+
   it('preserves the selected Claude provider when runtime patches omit provider metadata', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
