@@ -1145,4 +1145,37 @@ describe('ChatPage module', () => {
     expect(screen.queryByRole('heading', { name: /回家之路无论走了多远/ })).not.toBeInTheDocument();
     expect(screen.getByText(/随便贴一篇：##回家之路无论走了多远/)).toBeInTheDocument();
   });
+
+  it('supports deleting an individual archived thread with confirmation', () => {
+    const store = createFakeStore({
+      activeThreadId: 'thread-active',
+      threads: [
+        { id: 'thread-active', name: 'Active Thread', provider: 'codex', status: 'idle' },
+        { id: 'thread-archived-1', name: 'Archived Thread 1', provider: 'codex', status: 'archived', archived: true },
+      ],
+    });
+
+    render(<ChatPage store={store} projectPath="/repo/app" />);
+
+    fireEvent.click(screen.getByLabelText('打开归档列表'));
+    expect(screen.getByText('Archived Thread 1')).toBeInTheDocument();
+
+    const deleteBtn = screen.getByLabelText('删除会话');
+    expect(deleteBtn).toBeInTheDocument();
+    fireEvent.click(deleteBtn);
+
+    expect(screen.getByText('确定删除该会话？')).toBeInTheDocument();
+    const confirmBtn = screen.getByRole('button', { name: '确认' });
+    const cancelBtn = screen.getByRole('button', { name: '取消' });
+    expect(confirmBtn).toBeInTheDocument();
+    expect(cancelBtn).toBeInTheDocument();
+
+    fireEvent.click(cancelBtn);
+    expect(screen.queryByText('确定删除该会话？')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('删除会话'));
+    fireEvent.click(screen.getByRole('button', { name: '确认' }));
+
+    expect(store.deleteStaleThreads).toHaveBeenCalledWith(['thread-archived-1']);
+  });
 });

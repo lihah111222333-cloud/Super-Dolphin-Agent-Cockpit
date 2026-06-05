@@ -2270,6 +2270,7 @@ function ProviderToggle({ store, canUseProjectActions = true }) {
 function ThreadRail({ store }) {
   const [showArchivedThreads, setShowArchivedThreads] = useState(false);
   const [confirmCleanMode, setConfirmCleanMode] = useState(false);
+  const [deletingThreadId, setDeletingThreadId] = useState('');
   const [hoveredArchiveThreadId, setHoveredArchiveThreadId] = useState('');
   const [hoveredPinThreadId, setHoveredPinThreadId] = useState('');
   const rename = useThreadRenameController(store);
@@ -2294,7 +2295,10 @@ function ThreadRail({ store }) {
   const toggleArchiveList = () => {
     setShowArchivedThreads((value) => {
       const next = !value;
-      if (!next) setConfirmCleanMode(false);
+      if (!next) {
+        setConfirmCleanMode(false);
+        setDeletingThreadId('');
+      }
       return next;
     });
   };
@@ -2339,6 +2343,13 @@ function ThreadRail({ store }) {
             onSetHoveredArchiveThreadId={setHoveredArchiveThreadId}
             onSetHoveredPinThreadId={setHoveredPinThreadId}
             onSubmitRename={rename.submitRename}
+            deleting={deletingThreadId === thread.id}
+            onBeginDelete={() => setDeletingThreadId(thread.id)}
+            onCancelDelete={() => setDeletingThreadId('')}
+            onConfirmDelete={() => {
+              setDeletingThreadId('');
+              runUIAction(() => store.deleteStaleThreads([thread.id]));
+            }}
           />
         ))}
       </div>
@@ -2471,8 +2482,23 @@ function ThreadCard({
   onSetHoveredArchiveThreadId,
   onSetHoveredPinThreadId,
   onSubmitRename,
+  deleting,
+  onBeginDelete,
+  onCancelDelete,
+  onConfirmDelete,
 }) {
   const archiveLabel = thread.archived ? '恢复会话' : '归档会话';
+  if (deleting) {
+    return (
+      <div className={`thread-card ${active ? 'active' : ''} thread-card--deleting`}>
+        <div className="thread-delete-confirm-label">确定删除该会话？</div>
+        <div className="thread-delete-confirm-actions">
+          <button type="button" className="thread-delete-confirm-btn confirm" onClick={onConfirmDelete}>确认</button>
+          <button type="button" className="thread-delete-confirm-btn cancel" onClick={onCancelDelete}>取消</button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className={`thread-card ${active ? 'active' : ''}`}>
       {editing ? (
@@ -2503,6 +2529,7 @@ function ThreadCard({
         onSetHoveredArchiveThreadId={onSetHoveredArchiveThreadId}
         onSetHoveredPinThreadId={onSetHoveredPinThreadId}
         onToggle={() => store.archiveThread(thread.id, !thread.archived)}
+        onBeginDelete={onBeginDelete}
       />
     </div>
   );
@@ -2520,6 +2547,7 @@ function ThreadCardActions({
   onSetHoveredArchiveThreadId,
   onSetHoveredPinThreadId,
   onToggle,
+  onBeginDelete,
 }) {
   const threadLabel = displayThreadName(thread);
   return (
@@ -2535,12 +2563,24 @@ function ThreadCardActions({
           >
             <Pencil size={13} aria-hidden="true" />
           </button>
-          <ThreadPinButton
-            thread={thread}
-            hoveredPinThreadId={hoveredPinThreadId}
-            onSetHoveredPinThreadId={onSetHoveredPinThreadId}
-            onToggle={() => store.toggleThreadPin(thread.id)}
-          />
+          {thread.archived ? (
+            <button
+              type="button"
+              className="thread-delete-trigger"
+              aria-label="删除会话"
+              title={`删除 ${threadLabel}`}
+              onClick={onBeginDelete}
+            >
+              <Trash2 size={13} aria-hidden="true" />
+            </button>
+          ) : (
+            <ThreadPinButton
+              thread={thread}
+              hoveredPinThreadId={hoveredPinThreadId}
+              onSetHoveredPinThreadId={onSetHoveredPinThreadId}
+              onToggle={() => store.toggleThreadPin(thread.id)}
+            />
+          )}
         </>
       ) : null}
       <ThreadArchiveButton
