@@ -4729,15 +4729,16 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(addButton);
 
     const wizard = await screen.findByRole('dialog', { name: '添加给 AI 的内容' });
-    const closeButtons = within(wizard).getAllByRole('button', { name: '关闭' });
+    const firstKindTab = within(wizard).getByRole('tab', { name: '专家能力' });
+    const closeButton = within(wizard).getByRole('button', { name: '关闭' });
     await waitFor(() => {
-      expect(document.activeElement).toBe(closeButtons[0]);
+      expect(document.activeElement).toBe(firstKindTab);
     });
 
     fireEvent.keyDown(wizard, { key: 'Tab', code: 'Tab', shiftKey: true });
-    expect(document.activeElement).toBe(closeButtons.at(-1));
+    expect(document.activeElement).toBe(closeButton);
     fireEvent.keyDown(wizard, { key: 'Tab', code: 'Tab' });
-    expect(document.activeElement).toBe(closeButtons[0]);
+    expect(document.activeElement).toBe(firstKindTab);
     fireEvent.keyDown(wizard, { key: 'Escape', code: 'Escape' });
     await waitFor(() => {
       expect(screen.queryByRole('dialog', { name: '添加给 AI 的内容' })).not.toBeInTheDocument();
