@@ -244,10 +244,40 @@ func buildMessage(role, content, rawTime string) (dto.Message, bool) {
 		return dto.Message{}, false
 	}
 	content = strings.TrimSpace(content)
+	if role == "user" {
+		var ok bool
+		content, ok = normalizeHistoryUserContent(content)
+		if !ok {
+			return dto.Message{}, false
+		}
+	}
 	if content == "" {
 		return dto.Message{}, false
 	}
 	return dto.Message{Role: role, Content: content, Timestamp: parseTime(rawTime)}, true
+}
+
+func normalizeHistoryUserContent(content string) (string, bool) {
+	content = strings.TrimSpace(content)
+	content = stripLeadingHistoryTurnAbortedBlock(content)
+	if content == "" {
+		return "", false
+	}
+	return content, true
+}
+
+func stripLeadingHistoryTurnAbortedBlock(content string) string {
+	const closeTag = "</turn_aborted>"
+	trimmed := strings.TrimLeft(content, "\ufeff \t\r\n")
+	lower := strings.ToLower(trimmed)
+	if !strings.HasPrefix(lower, "<turn_aborted>") {
+		return content
+	}
+	idx := strings.Index(lower, closeTag)
+	if idx < 0 {
+		return ""
+	}
+	return strings.TrimLeft(trimmed[idx+len(closeTag):], "\ufeff \t\r\n")
 }
 
 func collectText(items []textItem) string {

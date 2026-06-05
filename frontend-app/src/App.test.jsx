@@ -992,7 +992,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(backend.selectFiles).not.toHaveBeenCalled();
   });
 
-  it('shows an enabled composer interrupt button for a running runtime agent without a draft', async () => {
+  it('does not show composer interrupt controls for a running runtime agent without an active turn', async () => {
     resetClientStoreForTests({
       bootstrapStatus: 'ready',
       cwd: '/repo/app',
@@ -1001,6 +1001,38 @@ async function toggleInlineTraceFromRecentLogs(table) {
       draft: '',
       attachments: [],
       threads: [{ id: 'agent_123', name: 'Runtime Agent', provider: 'codex', status: 'running' }],
+      statuses: {
+        agent_123: { status: 'running', interruptible: true },
+      },
+      threadTimelineReadyByThread: { agent_123: true },
+      timelinesByThread: {
+        agent_123: [{ id: 'assistant-1', role: 'assistant', text: '正在执行。' }],
+      },
+    });
+
+    render(<App skipBootstrap />);
+
+    expect(screen.queryByRole('button', { name: '中断当前执行' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('停止')).not.toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' });
+
+    await waitFor(() => expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('当前没有可中断任务'));
+    expect(backend.interruptTurn).not.toHaveBeenCalled();
+  });
+
+  it('shows an enabled composer interrupt button for a running runtime agent with an active turn and without a draft', async () => {
+    resetClientStoreForTests({
+      bootstrapStatus: 'ready',
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'agent_123',
+      draft: '',
+      attachments: [],
+      threads: [{ id: 'agent_123', name: 'Runtime Agent', provider: 'codex', status: 'running' }],
+      activeTurnByThread: {
+        agent_123: { id: 'turn-123', threadId: 'agent_123', status: 'running' },
+      },
       statuses: {
         agent_123: { status: 'running', interruptible: true },
       },

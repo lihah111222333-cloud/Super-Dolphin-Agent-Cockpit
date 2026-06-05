@@ -2,6 +2,7 @@ package uistate
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -75,6 +76,94 @@ func TestThreadPatchIncludesRuntimeAndSortTimestamps(t *testing.T) {
 	}
 }
 
+func TestThreadPatchInterruptibleRequiresMatchingActiveTurn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		activeTurn *TurnSummary
+		want       bool
+	}{
+		{
+			name: "nil active turn",
+			want: false,
+		},
+		{
+			name:       "matching active turn",
+			activeTurn: &TurnSummary{ID: "turn-1", ThreadID: "thread-1"},
+			want:       true,
+		},
+		{
+			name:       "different active turn thread",
+			activeTurn: &TurnSummary{ID: "turn-1", ThreadID: "thread-2"},
+			want:       false,
+		},
+		{
+			name:       "empty active turn id",
+			activeTurn: &TurnSummary{ThreadID: "thread-1"},
+			want:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, _ := newPatchTestService(t)
+			svc.state.Threads = []ThreadSummary{{ID: "thread-1", Name: "Demo", State: "running"}}
+			svc.state.ActiveTurn = tt.activeTurn
+
+			svc.mu.Lock()
+			patch := svc.threadPatchLocked("thread-1", "test")
+			svc.mu.Unlock()
+
+			if patch.Interruptible == nil {
+				t.Fatalf("patch.Interruptible = nil, want %v", tt.want)
+			}
+			if *patch.Interruptible != tt.want {
+				t.Fatalf("patch.Interruptible = %v, want %v; patch=%#v", *patch.Interruptible, tt.want, patch)
+			}
+		})
+	}
+}
+
+func TestThreadPatchActiveTurnContract(t *testing.T) {
+	t.Parallel()
+
+	svc, _ := newPatchTestService(t)
+	startedAt := time.Unix(1710000100, 0).UTC()
+	svc.state.Threads = []ThreadSummary{
+		{ID: "thread-active", Name: "Active", State: "running"},
+		{ID: "thread-other", Name: "Other", State: "running"},
+	}
+	svc.state.ActiveTurn = &TurnSummary{
+		ID:        "turn-active",
+		ThreadID:  "thread-active",
+		AgentID:   "agent-active",
+		Status:    "thinking",
+		StartedAt: &startedAt,
+	}
+
+	svc.mu.Lock()
+	matching := svc.threadPatchLocked("thread-active", "turn/started")
+	mismatched := svc.threadPatchLocked("thread-other", "turn/started")
+	svc.state.ActiveTurn = nil
+	missing := svc.threadPatchLocked("thread-active", "turn/completed")
+	svc.mu.Unlock()
+
+	activeTurn := patchActiveTurnPayload(t, matching)
+	if got, _ := activeTurn["id"].(string); got != "turn-active" {
+		t.Fatalf("activeTurn.id = %q, want turn-active; payload=%#v", got, activeTurn)
+	}
+	if got, _ := activeTurn["threadId"].(string); got != "thread-active" {
+		t.Fatalf("activeTurn.threadId = %q, want thread-active; payload=%#v", got, activeTurn)
+	}
+	if patchHasActiveTurn(t, mismatched) {
+		t.Fatalf("mismatched thread patch leaked activeTurn: %#v", mismatched)
+	}
+	if patchHasActiveTurn(t, missing) {
+		t.Fatalf("missing active turn patch leaked activeTurn: %#v", missing)
+	}
+}
+
 func TestTurnCompletedPatchIncludesLastActiveAt(t *testing.T) {
 	t.Parallel()
 
@@ -98,6 +187,44 @@ func TestTurnCompletedPatchIncludesLastActiveAt(t *testing.T) {
 	if got, _ := patch.AgentMeta["lastActiveAt"].(string); got != completedAt.Format(time.RFC3339Nano) {
 		t.Fatalf("patch.AgentMeta[lastActiveAt] = %q, want %s; meta=%#v", got, completedAt.Format(time.RFC3339Nano), patch.AgentMeta)
 	}
+}
+
+func patchActiveTurnPayload(t *testing.T, patch uidto.UIThreadPatch) map[string]any {
+	t.Helper()
+	var payload map[string]any
+	data, err := json.Marshal(patch)
+	if err != nil {
+		t.Fatalf("marshal patch: %v", err)
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal patch: %v", err)
+	}
+	raw, ok := payload["activeTurn"]
+	if !ok {
+		t.Fatalf("patch JSON missing activeTurn: %s", string(data))
+	}
+	if _, legacy := payload["active_turn"]; legacy {
+		t.Fatalf("patch JSON used legacy active_turn key: %s", string(data))
+	}
+	activeTurn, ok := raw.(map[string]any)
+	if !ok {
+		t.Fatalf("activeTurn payload = %#v, want object; json=%s", raw, string(data))
+	}
+	return activeTurn
+}
+
+func patchHasActiveTurn(t *testing.T, patch uidto.UIThreadPatch) bool {
+	t.Helper()
+	var payload map[string]any
+	data, err := json.Marshal(patch)
+	if err != nil {
+		t.Fatalf("marshal patch: %v", err)
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal patch: %v", err)
+	}
+	_, ok := payload["activeTurn"]
+	return ok
 }
 
 func newPatchTestService(t *testing.T) (*service, *event.Dispatcher) {

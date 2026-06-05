@@ -885,46 +885,15 @@ function activeTurnIdForThread(state, threadId) {
   return '';
 }
 
-function threadIdentifierCandidates(state, value) {
-  const ids = new Set();
-  const add = (candidate) => {
-    const id = normalizeThreadId(candidate);
-    if (id) ids.add(id);
-  };
-  add(value);
-  const matchedThread = (state?.threads || []).find((thread) => threadMatchesIdentifier(thread, value));
-  if (matchedThread) {
-    add(matchedThread.id);
-    add(matchedThread.threadId);
-    add(matchedThread.thread_id);
-    add(matchedThread.agentId);
-    add(matchedThread.agent_id);
-    add(matchedThread.providerThreadId);
-    add(matchedThread.provider_thread_id);
-    add(matchedThread.sessionId);
-    add(matchedThread.session_id);
-  }
-  return [...ids];
-}
-
-function threadStatusEntryForState(state, value) {
-  for (const id of threadIdentifierCandidates(state, value)) {
-    const status = state?.statuses?.[id];
-    if (status && typeof status === 'object' && !Array.isArray(status)) return status;
-  }
-  return null;
-}
-
 function activeThreadInterruptTarget(state) {
   const activeID = normalizeThreadId(state?.activeThreadId);
   const threadID = backendThreadIdForState(state, activeID) || normalizeBackendThreadId(activeID);
   if (!threadID) return { threadId: '', turnId: '', interruptible: false };
   const turnID = activeTurnIdForThread(state, threadID);
-  const status = threadStatusEntryForState(state, threadID) || threadStatusEntryForState(state, activeID);
   return {
     threadId: threadID,
     turnId: turnID,
-    interruptible: Boolean(turnID || status?.interruptible === true),
+    interruptible: Boolean(turnID),
   };
 }
 
@@ -1116,18 +1085,35 @@ function normalizeTimelineDone(item, status) {
   return false;
 }
 
+function normalizeUserTimelineText(text) {
+  const trimmed = normalizeString(text).trim();
+  const closeTag = '</turn_aborted>';
+  const lower = trimmed.toLowerCase();
+  if (!lower.startsWith('<turn_aborted>')) {
+    return { text, controlOnly: false };
+  }
+  const closeIndex = lower.indexOf(closeTag);
+  const remaining = closeIndex >= 0 ? trimmed.slice(closeIndex + closeTag.length).trimStart() : '';
+  return {
+    text: remaining,
+    controlOnly: !remaining,
+  };
+}
+
 function normalizeTimelineItem(item) {
   const rawKind = normalizeString(firstFieldValue(item, TIMELINE_KIND_KEYS)).toLowerCase();
   const rawRole = normalizeString(firstFieldValue(item, TIMELINE_ROLE_KEYS)).toLowerCase();
   const normalizedRole = rawRole.includes('user') ? 'user' : 'assistant';
   const normalizedKind = normalizeTimelineKindFromRaw(rawRole, rawKind);
-  const text = extractText(firstFieldValue(item, TIMELINE_TEXT_KEYS));
+  const rawText = extractText(firstFieldValue(item, TIMELINE_TEXT_KEYS));
+  const userText = normalizedRole === 'user' ? normalizeUserTimelineText(rawText) : { text: rawText, controlOnly: false };
   const status = normalizeString(item?.status);
   return {
     id: normalizeString(firstFieldValue(item, TIMELINE_ID_KEYS)) || `${normalizedRole}-${Date.now()}`,
     role: normalizedRole,
     kind: normalizedKind,
-    text,
+    text: userText.text,
+    controlOnly: userText.controlOnly,
     title: normalizeString(firstFieldValue(item, TIMELINE_TITLE_KEYS)),
     callId: normalizeString(firstFieldValue(item, TIMELINE_CALL_ID_KEYS)),
     requestId: positiveNumberFromFields(item, ['requestId', 'request_id']),
@@ -1510,6 +1496,7 @@ function isMeaningfulCommandTimelineItem(item) {
 }
 
 function isVisibleTimelineItem(item) {
+  if (item?.controlOnly) return false;
   if (isInjectedPromptTimelineItem(item)) return false;
   if (isMessageLifecycleTimelineItem(item)) return false;
   if (item?.role === 'user') return true;

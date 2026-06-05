@@ -96,6 +96,7 @@ func TestGetStateIncludesRuntimeSnapshotContractFields(t *testing.T) {
 	startedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	svc.state.Threads = []ThreadSummary{{ID: "thread-1", Name: "主线程", AgentID: "agent-main", State: "running", ThreadStatus: "running", AgentState: "running", LastMessage: "正在处理"}}
 	svc.state.Agents = []AgentSummary{{ID: "agent-main", ThreadID: "thread-1", Provider: "claude", ProviderThreadID: "provider-1", CWD: "/repo", State: "running", AgentState: "running"}}
+	svc.state.ActiveTurn = &TurnSummary{ID: "turn-1", AgentID: "agent-main", ThreadID: "thread-1", Status: "running", StartedAt: &startedAt}
 	svc.state.RecentTurns = []TurnSummary{{ID: "turn-1", AgentID: "agent-main", ThreadID: "thread-1", Status: "running", StartedAt: &startedAt}}
 	svc.state.TokenUsages = map[string]TokenUsage{"thread-1": {TotalTokens: 53, ContextWindowTokens: 200}}
 	svc.state.MainAgentID = "agent-main"
