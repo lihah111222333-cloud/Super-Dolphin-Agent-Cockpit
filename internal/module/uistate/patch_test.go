@@ -189,6 +189,37 @@ func TestTurnCompletedPatchIncludesLastActiveAt(t *testing.T) {
 	}
 }
 
+func TestTurnOutputDeltaUpdatesLastMessageWithoutPublishingThreadPatch(t *testing.T) {
+	t.Parallel()
+
+	svc, dispatcher := newPatchTestService(t)
+	got := subscribeThreadPatch(t, dispatcher)
+	turnHeader := testTurnHeader(testAgentSessionHeader("thread-stream", "agent-stream"), "turn-stream")
+	svc.state.Threads = []ThreadSummary{{ID: "thread-stream", AgentID: "agent-stream"}}
+	svc.state.Agents = []AgentSummary{{ID: "agent-stream", ThreadID: "thread-stream"}}
+
+	svc.applyTurnOutputDelta(turndto.TurnOutputDelta{
+		TurnHeader: turnHeader,
+		Stream:     "message",
+		Delta:      "hello world",
+	})
+
+	svc.mu.RLock()
+	threadLastMessage := svc.state.Threads[0].LastMessage
+	agentLastMessage := svc.state.Agents[0].LastMessage
+	svc.mu.RUnlock()
+	if threadLastMessage != "hello world" || agentLastMessage != "hello world" {
+		t.Fatalf("last message thread=%q agent=%q, want hello world", threadLastMessage, agentLastMessage)
+	}
+	assertNoThreadPatch(t, got, "turn/outputDelta")
+
+	svc.applyTurnCompleted(turndto.TurnCompleted{TurnHeader: turnHeader, Success: true})
+	patch := mustReceiveThreadPatch(t, got)
+	if patch.Source != "turn/completed" || patch.ThreadID != "thread-stream" {
+		t.Fatalf("completion patch = %#v", patch)
+	}
+}
+
 func patchActiveTurnPayload(t *testing.T, patch uidto.UIThreadPatch) map[string]any {
 	t.Helper()
 	var payload map[string]any
@@ -225,6 +256,15 @@ func patchHasActiveTurn(t *testing.T, patch uidto.UIThreadPatch) bool {
 	}
 	_, ok := payload["activeTurn"]
 	return ok
+}
+
+func assertNoThreadPatch(t *testing.T, got <-chan uidto.UIThreadPatch, source string) {
+	t.Helper()
+	select {
+	case patch := <-got:
+		t.Fatalf("unexpected thread patch for %s: %#v", source, patch)
+	default:
+	}
 }
 
 func newPatchTestService(t *testing.T) (*service, *event.Dispatcher) {

@@ -464,8 +464,11 @@ func (s *service) applyTurnOutputDelta(ev turndto.TurnOutputDelta) {
 		return
 	}
 	threadID, agentID := strings.TrimSpace(ev.ThreadID), strings.TrimSpace(ev.AgentID)
-	applyMutation(s, threadID, func() {
-		appendLastMessageLocked(&s.state.Threads, threadID, agentID, delta)
-		appendAgentMessageLocked(&s.state.Agents, agentID, threadID, delta)
-	}, func() uidto.UIThreadPatch { return s.refreshThreadPatchLocked(threadID, agentID, "turn/outputDelta") })
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	appendLastMessageLocked(&s.state.Threads, threadID, agentID, delta)
+	appendAgentMessageLocked(&s.state.Agents, agentID, threadID, delta)
+	s.mu.Unlock()
 }

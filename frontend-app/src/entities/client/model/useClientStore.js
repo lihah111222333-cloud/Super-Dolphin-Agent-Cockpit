@@ -49,6 +49,7 @@ const MAX_WARNING_ENTRIES = 300;
 const MAX_RUNTIME_RESULT_ENTRIES = 120;
 const RUNTIME_RESULT_DETAIL_LIMIT = 1600;
 const RUNTIME_ASSISTANT_PREFIX_DUPLICATE_MIN_CHARS = 24;
+const ASSISTANT_DELTA_FLUSH_MS = 50;
 const BRIDGE_PATCH_SLOW_MS = 50;
 const THREAD_MESSAGES_PAGE_SIZE = 300;
 const PROVIDER_ACTIVE_PREF_KEY = 'settings.provider.active';
@@ -1917,6 +1918,10 @@ function appendAssistantDeltaText(existingText, deltaText) {
   return base + incoming;
 }
 
+function assistantDeltaBufferKey(threadId, itemId) {
+  return `${threadId}\u0000${itemId}`;
+}
+
 function mergeRuntimeAssistantCompletion(existingItems = [], completion) {
   if (!completion?.item) return existingItems;
   const finalItem = completion.item;
@@ -2727,6 +2732,8 @@ function createClientStoreRuntime(set, get) {
     sidebarRefreshesByCwd: new Map(),
     threadMessageGenerations: new Map(),
     threadSyncGenerations: new Map(),
+    assistantDeltaBuffers: new Map(),
+    assistantDeltaFlushTimer: null,
     sidebarRefreshSeq: 0,
     bootstrapRetryAfterReconnect: false,
   };
@@ -3362,51 +3369,93 @@ function attachBridgeIdentityRuntime(runtime) {
 
 function attachAssistantEventRuntime(runtime) {
   const { set, bridgeThreadIdForPayload } = runtime;
+  const { assistantDeltaBuffers } = runtime;
 
-  const applyAssistantDelta = (method, payload) => {
+  const clearAssistantDeltaFlushTimer = () => {
+    if (!runtime.assistantDeltaFlushTimer) return;
+    clearTimeout(runtime.assistantDeltaFlushTimer);
+    runtime.assistantDeltaFlushTimer = null;
+  };
+
+  const flushAssistantDeltasNow = () => {
+    clearAssistantDeltaFlushTimer();
+    if (assistantDeltaBuffers.size === 0) return false;
+
+    const entries = Array.from(assistantDeltaBuffers.values());
+    assistantDeltaBuffers.clear();
+    const flushTime = new Date().toISOString();
+    const flushId = Date.now();
+
+    set((state) => {
+      const timelinesByThread = { ...state.timelinesByThread };
+      for (const entry of entries) {
+        const timeline = timelinesByThread[entry.threadId] || [];
+        let found = false;
+        const nextTimeline = timeline.map((item) => {
+          if (item.id !== entry.itemId) return item;
+          found = true;
+          return {
+            ...item,
+            role: 'assistant',
+            text: appendAssistantDeltaText(item.text, entry.delta),
+            done: false,
+          };
+        });
+        if (!found) {
+          nextTimeline.push({
+            id: entry.itemId,
+            role: 'assistant',
+            kind: 'assistant',
+            text: entry.delta,
+            time: entry.timestamp || flushTime,
+            done: false,
+            optimistic: false,
+            runtime: true,
+          });
+        }
+        timelinesByThread[entry.threadId] = nextTimeline;
+      }
+
+      return {
+        timelinesByThread,
+        activityEntries: [
+          ...entries.map((entry, index) => ({
+            id: `${entry.method}-${flushId}-${index}`,
+            method: entry.method,
+            threadId: entry.threadId,
+            timestamp: flushTime,
+          })),
+          ...state.activityEntries,
+        ].slice(0, 120),
+      };
+    });
+    return true;
+  };
+
+  const scheduleAssistantDeltaFlush = () => {
+    if (runtime.assistantDeltaFlushTimer) return;
+    runtime.assistantDeltaFlushTimer = setTimeout(() => {
+      runtime.assistantDeltaFlushTimer = null;
+      flushAssistantDeltasNow();
+    }, ASSISTANT_DELTA_FLUSH_MS);
+  };
+
+  const enqueueAssistantDelta = (method, payload) => {
     const threadId = bridgeThreadIdForPayload(payload);
     const delta = extractText(payload.delta || payload.text || payload.content);
     if (!threadId || !delta) return false;
     const itemId = normalizeString(payload.itemId || payload.item_id || payload.messageId || payload.message_id) ||
       runtimeAssistantFallbackId(payload);
-    set((state) => {
-      const timeline = state.timelinesByThread[threadId] || [];
-      let found = false;
-      const nextTimeline = timeline.map((item) => {
-        if (item.id !== itemId) return item;
-        found = true;
-        return {
-          ...item,
-          role: 'assistant',
-          text: appendAssistantDeltaText(item.text, delta),
-          done: false,
-        };
-      });
-      if (!found) {
-        nextTimeline.push({
-          id: itemId,
-          role: 'assistant',
-          kind: 'assistant',
-          text: delta,
-          time: normalizeString(payload.timestamp) || new Date().toISOString(),
-          done: false,
-          optimistic: false,
-          runtime: true,
-        });
-      }
-      return {
-        timelinesByThread: {
-          ...state.timelinesByThread,
-          [threadId]: nextTimeline,
-        },
-        activityEntries: [{
-          id: `${method}-${Date.now()}`,
-          method,
-          threadId,
-          timestamp: new Date().toISOString(),
-        }, ...state.activityEntries].slice(0, 120),
-      };
+    const key = assistantDeltaBufferKey(threadId, itemId);
+    const existing = assistantDeltaBuffers.get(key);
+    assistantDeltaBuffers.set(key, {
+      threadId,
+      itemId,
+      method: existing?.method || method,
+      delta: appendAssistantDeltaText(existing?.delta, delta),
+      timestamp: existing?.timestamp || normalizeString(payload.timestamp) || new Date().toISOString(),
     });
+    scheduleAssistantDeltaFlush();
     return true;
   };
 
@@ -3431,7 +3480,12 @@ function attachAssistantEventRuntime(runtime) {
   };
 
 
-  Object.assign(runtime, { applyAssistantDelta, applyAssistantCompletion });
+  Object.assign(runtime, {
+    enqueueAssistantDelta,
+    flushAssistantDeltasNow,
+    clearAssistantDeltaFlushTimer,
+    applyAssistantCompletion,
+  });
 }
 
 function attachBridgePatchRuntime(runtime) {
@@ -3480,7 +3534,7 @@ function attachBridgePatchRuntime(runtime) {
 }
 
 function attachBridgeEventRuntime(runtime) {
-  const { set, addWarning, refreshActiveChatSidebarInBackground, applyBridgePatch, applyAssistantDelta, applyAssistantCompletion, bridgeThreadIdForPayload } = runtime;
+  const { set, addWarning, refreshActiveChatSidebarInBackground, applyBridgePatch, enqueueAssistantDelta, flushAssistantDeltasNow, applyAssistantCompletion, bridgeThreadIdForPayload } = runtime;
 
   const handleBridgeEvent = (evt) => {
     const method = normalizeString(evt?.method || evt?.type);
@@ -3498,18 +3552,21 @@ function attachBridgeEventRuntime(runtime) {
       return;
     }
     if (method === 'ui/thread/patch') {
+      flushAssistantDeltasNow();
       applyBridgePatch(method, payload);
       return;
     }
     if (isAssistantMessageDeltaEvent(eventName, payload)) {
-      applyAssistantDelta(method, payload);
+      enqueueAssistantDelta(method, payload);
       return;
     }
     if (eventName === 'item/completed') {
+      flushAssistantDeltasNow();
       applyAssistantCompletion(method, payload);
       return;
     }
     if (eventName === 'turn/completed') {
+      flushAssistantDeltasNow();
       if (payload._threadPatch) applyBridgePatch('ui/thread/patch', payload._threadPatch);
       applyAssistantCompletion(method, payload);
       return;
@@ -3627,6 +3684,8 @@ function createLifecycleActions(runtime) {
       runtime.sidebarRefreshesByCwd.clear();
       runtime.threadMessageGenerations.clear();
       runtime.threadSyncGenerations.clear();
+      runtime.clearAssistantDeltaFlushTimer?.();
+      runtime.assistantDeltaBuffers.clear();
       runtime.sidebarRefreshSeq += 1;
     },
 
