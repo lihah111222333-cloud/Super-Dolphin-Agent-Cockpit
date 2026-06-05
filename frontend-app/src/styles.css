@@ -4080,6 +4080,7 @@ details {
   font-size: 18px;
 }
 
+.skill-card h3,
 .memory-card h3 {
   flex: 1 1 auto;
   min-width: 0;
@@ -4095,6 +4096,7 @@ details {
   padding: 2px 10px;
 }
 
+.skill-card header span,
 .memory-card header span {
   display: inline-flex;
   flex: 0 0 auto;
@@ -4157,6 +4159,7 @@ details {
   padding: 0 12px;
 }
 
+.skill-card button,
 .memory-card button {
   flex: 0 0 auto;
   min-width: 64px;
@@ -5993,7 +5996,9 @@ dd {
 
 .prompt-card h3 {
   margin: 0;
+  min-width: 0;
   font-size: 16px;
+  overflow-wrap: anywhere;
 }
 
 .prompt-badges,
@@ -6006,12 +6011,16 @@ dd {
 
 .prompt-badges span,
 .prompt-tag-row span {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--text-sec);
   background: var(--panel-2);
   padding: 2px 8px;
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .prompt-badges span.active {
@@ -6027,6 +6036,12 @@ dd {
 .prompt-card-preview {
   min-height: 54px;
   white-space: pre-wrap;
+}
+
+.prompt-card-actions button {
+  flex: 0 0 auto;
+  min-width: 64px;
+  white-space: nowrap;
 }
 
 .prompt-notice,
