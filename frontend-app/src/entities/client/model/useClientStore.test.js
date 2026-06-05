@@ -1147,10 +1147,10 @@ function registerBridgeEventHandlersForTest() {
       cwd: '/repo/app',
       name: 'Hello backend',
       modelProvider: 'codex',
-      toolSurfaceMode: 'chat',
       deferSpawn: true,
     }));
     const startPayload = backend.startThread.mock.calls[0][0];
+    expect(startPayload).not.toHaveProperty('toolSurfaceMode');
     expect(startPayload).not.toHaveProperty('prompt');
     expect(startPayload).not.toHaveProperty('optimisticUserMessage');
     expect(startPayload).not.toHaveProperty('skipInitialRuntimeSync');
@@ -1174,14 +1174,13 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().draft).toBe('');
   });
 
-  it('upgrades auto tool mode to agent for engineering intents', async () => {
+  it('does not classify engineering intents into a frontend tool mode', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
       activeThreadId: '',
       draft: '请帮我看这个文件并跑一下测试',
       attachments: [],
-      toolSurfaceMode: 'auto',
     });
     backend.startThread.mockResolvedValue({ threadId: 'thread-agent' });
     backend.startTurn.mockResolvedValue({ ok: true });
@@ -1191,12 +1190,12 @@ function registerBridgeEventHandlersForTest() {
     expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
       cwd: '/repo/app',
       name: '请帮我看这个文件并跑一下测试',
-      toolSurfaceMode: 'agent',
       deferSpawn: true,
     }));
+    expect(backend.startThread.mock.calls[0][0]).not.toHaveProperty('toolSurfaceMode');
   });
 
-  it('upgrades auto tool mode to agent for trace diagnosis intents', async () => {
+  it('does not classify trace diagnosis intents into a frontend tool mode', async () => {
     const drafts = [
       '这个慢请求 trace_id=abc123 帮我定位一下',
       'traceparent 是 00-abc123-def456-01，查链路追踪',
@@ -1211,7 +1210,6 @@ function registerBridgeEventHandlersForTest() {
         activeThreadId: '',
         draft,
         attachments: [],
-        toolSurfaceMode: 'auto',
       });
       backend.startThread.mockClear();
       backend.startTurn.mockClear();
@@ -1223,9 +1221,9 @@ function registerBridgeEventHandlersForTest() {
       expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
         cwd: '/repo/app',
         name: draft,
-        toolSurfaceMode: 'agent',
         deferSpawn: true,
       }));
+      expect(backend.startThread.mock.calls[0][0]).not.toHaveProperty('toolSurfaceMode');
     }
   });
 
@@ -2392,11 +2390,11 @@ function registerBridgeEventHandlersForTest() {
       cwd: '/repo/app',
       name: '继承自会话：Existing thread',
       modelProvider: 'codex',
-      toolSurfaceMode: 'chat',
       deferSpawn: true,
       baseInstructions: expect.stringContaining('来源：继承自会话：Existing thread'),
     }));
     const startPayload = backend.startThread.mock.calls[0][0];
+    expect(startPayload).not.toHaveProperty('toolSurfaceMode');
     expect(startPayload.baseInstructions).toContain('摘要：');
     expect(startPayload.baseInstructions).toContain('first message');
     expect(startPayload.baseInstructions).toContain('reply with next steps');
