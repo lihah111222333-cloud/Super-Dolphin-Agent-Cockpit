@@ -98,6 +98,27 @@ func TestNewUIDesktopScriptRejectsDivergentFrontendDevURLs(t *testing.T) {
 	assertTextOrder(t, text, `if [ "$FRONTEND_DEVSERVER_URL" != "$VITE_DEV_URL" ]; then`, `stop_stale_vite_for_port "$VITE_DEV_PORT"`)
 }
 
+func TestNewUIDesktopScriptRebuildsStalePeerBinaries(t *testing.T) {
+	text := readRootScript(t, "../../run-new-ui-desktop.sh")
+
+	required := []string{
+		`peer_binary_stale()`,
+		`find "$path" -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' -o -name '*.yaml' -o -name '*.yml' \) -newer "$bin" -print -quit`,
+		`peer_binary_stale "$peer_dir/mcp-orch" cmd/mcp-orch internal pkg go.mod go.sum`,
+		`peer_binary_stale "$peer_dir/mcp-lsp" cmd/mcp-lsp internal pkg go.mod go.sum`,
+		`rebuild_peer_binaries`,
+	}
+	for _, want := range required {
+		if !strings.Contains(text, want) {
+			t.Fatalf("run-new-ui-desktop.sh missing %q", want)
+		}
+	}
+	assertTextOrder(t, text, `peer_binary_stale()`, `ensure_peer_binaries()`)
+	assertTextOrder(t, text, `if [ ! -x "$peer_dir/$bin" ]; then`, `peer_binary_stale "$peer_dir/mcp-orch"`)
+	assertTextOrder(t, text, `peer_binary_stale "$peer_dir/mcp-orch"`, `peer_binary_stale "$peer_dir/mcp-lsp"`)
+	assertTextOrder(t, text, `peer_binary_stale "$peer_dir/mcp-lsp"`, `rebuild_peer_binaries`)
+}
+
 func TestNewUIDesktopScriptUsesValidatedConfigurableReadinessWindows(t *testing.T) {
 	text := readRootScript(t, "../../run-new-ui-desktop.sh")
 
