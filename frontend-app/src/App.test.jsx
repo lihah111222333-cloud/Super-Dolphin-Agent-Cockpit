@@ -2153,7 +2153,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    expect(await screen.findByLabelText('AI 思考记录')).toHaveTextContent('已处理 6m 5s');
+    expect(await screen.findByLabelText('AI 思考记录')).toHaveTextContent('已处理 AI 思考 6m 5s');
     expect(screen.getByLabelText('AI 思考记录')).toHaveTextContent('已探索 4 个文件并运行 2 条命令。');
     expect(screen.getByText('这是整理后的回答。')).toBeInTheDocument();
   });
@@ -2225,7 +2225,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     const traces = await screen.findAllByLabelText('AI 思考记录');
     const trace = traces.find((node) => node.textContent.includes('使用后端数值时间。'));
     expect(trace).toBeTruthy();
-    expect(trace).toHaveTextContent('已处理 3s');
+    expect(trace).toHaveTextContent('已处理 AI 思考 3s');
   });
 
   it('uses backend-provided thinking duration when timestamps are incomplete', async () => {
@@ -2248,7 +2248,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     const traces = await screen.findAllByLabelText('AI 思考记录');
     const trace = traces.find((node) => node.textContent.includes('使用后端耗时。'));
     expect(trace).toBeTruthy();
-    expect(trace).toHaveTextContent('已处理 2s');
+    expect(trace).toHaveTextContent('已处理 AI 思考 2s');
   });
 
   it('shows tool execution details inside the AI processing frame', async () => {
@@ -2279,7 +2279,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(trace).toHaveClass('reasoning-message');
     expect(trace).not.toHaveClass('message');
     expect(trace).not.toHaveClass('assistant');
-    expect(trace).toHaveTextContent('已处理 3s');
+    expect(trace).toHaveTextContent('已处理 file.open 3s');
     const step = within(trace).getByLabelText('工具步骤');
     expect(step).toHaveTextContent('读取 frontend-app/src/App.jsx');
     expect(screen.getByText('工具结果已整理。')).toBeInTheDocument();
@@ -2389,7 +2389,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     const traces = await screen.findAllByLabelText('AI 思考记录');
     const fileTraces = traces.filter((node) => node.textContent.includes('success'));
     expect(fileTraces).toHaveLength(1);
-    expect(fileTraces[0]).toHaveTextContent('已处理 1s');
+    expect(fileTraces[0]).toHaveTextContent('已处理 file 1s');
     expect(fileTraces[0]).toHaveTextContent('"success": true');
     expect(within(fileTraces[0]).getByLabelText('工具步骤')).toHaveTextContent('"success": true');
     expect(fileTraces[0]).not.toHaveTextContent('正在调用工具并等待返回结果。');

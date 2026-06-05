@@ -2783,6 +2783,7 @@ const baseState = {
   logLevel: resolveInitialLevel(),
   logEntries: [],
   actionNotice: null,
+  smoothStreaming: false,
 };
 
 function stateWithPatch(patch = {}) {
@@ -5034,12 +5035,27 @@ function createThreadArchiveActions(runtime) {
       if (!id) return false;
       const cwd = runtime.requireCwd('thread.archive');
       if (runtime.get().threadArchiveLoadingByThread?.[id]) return false;
+
+      const originalThreads = runtime.get().threads;
+      const originalActiveThreadId = runtime.get().activeThreadId;
+      const archivedAt = archived ? Date.now() : 0;
+
+      // 1. Optimistic Update: Immediately apply the archived state to the UI
       runtime.set((state) => ({
+        activeThreadId: archived && normalizeThreadId(state.activeThreadId) === id ? '' : state.activeThreadId,
+        threads: state.threads.map((thread) => (thread.id === id ? {
+          ...thread,
+          archived: Boolean(archived),
+          archivedAt,
+          status: threadArchiveStatus(thread, archived),
+        } : thread)),
         threadArchiveLoadingByThread: {
           ...state.threadArchiveLoadingByThread,
           [id]: true,
         },
       }));
+
+      // 2. Perform the main backend archive operation
       try {
         if (archived) {
           await archiveThreadRPC({ threadId: id });
@@ -5048,31 +5064,33 @@ function createThreadArchiveActions(runtime) {
         }
       }
       catch (error) {
+        // Rollback on main RPC failure
         const message = error?.message || String(error);
         const action = archived ? '归档' : '恢复';
-        runtime.notifyAction(`${action}会话失败：${message}`, 'error', { threadId: id });
-        runtime.addWarning('error', `thread.${archived ? 'archive' : 'unarchive'}.failed`, { threadId: id, error: message });
-        return false;
-      }
-      finally {
+        
         runtime.set((state) => ({
+          activeThreadId: originalActiveThreadId,
+          threads: originalThreads,
           threadArchiveLoadingByThread: {
             ...state.threadArchiveLoadingByThread,
             [id]: false,
           },
+          actionNotice: actionNotice(`${action}会话失败：${message}`, 'error'),
         }));
+        
+        runtime.addWarning('error', `thread.${archived ? 'archive' : 'unarchive'}.failed`, { threadId: id, error: message });
+        return false;
       }
-      const archivedAt = archived ? Date.now() : 0;
-      const applyArchiveState = (notice) => runtime.set((state) => ({
-        activeThreadId: archived && normalizeThreadId(state.activeThreadId) === id ? '' : state.activeThreadId,
-        threads: state.threads.map((thread) => (thread.id === id ? {
-          ...thread,
-          archived: Boolean(archived),
-          archivedAt,
-          status: threadArchiveStatus(thread, archived),
-        } : thread)),
-        actionNotice: notice,
+
+      // 3. Clear loading state since the database update succeeded
+      runtime.set((state) => ({
+        threadArchiveLoadingByThread: {
+          ...state.threadArchiveLoadingByThread,
+          [id]: false,
+        },
       }));
+
+      // 4. Perform the secondary preference storage
       try {
         await setPreference({
           cwd,
@@ -5081,13 +5099,22 @@ function createThreadArchiveActions(runtime) {
         });
       }
       catch (error) {
+        // Keep the archived state (no rollback), but notify about preference failure
         const message = error?.message || String(error);
         const action = archived ? '归档' : '恢复';
-        applyArchiveState(actionNotice(`${action}偏好保存失败：${message}`, 'error'));
+        
+        runtime.set(() => ({
+          actionNotice: actionNotice(`${action}偏好保存失败：${message}`, 'error'),
+        }));
+        
         runtime.addWarning('error', `thread.${archived ? 'archive' : 'unarchive'}.preference.failed`, { threadId: id, error: message });
         return false;
       }
-      applyArchiveState(actionNotice(archived ? '线程已归档' : '线程已恢复到列表', 'success'));
+
+      // 5. Success: Show success notice
+      runtime.set(() => ({
+        actionNotice: actionNotice(archived ? '线程已归档' : '线程已恢复到列表', 'success'),
+      }));
       return true;
     },
 
@@ -5174,6 +5201,9 @@ function createClientStore(set, get) {
     addWarning: runtime.addWarning,
     addLog: runtime.addLog,
     setLogLevel: runtime.setLogLevel,
+    toggleSmoothStreaming: () => {
+      runtime.set((state) => ({ smoothStreaming: !state.smoothStreaming }));
+    },
   };
 }
 

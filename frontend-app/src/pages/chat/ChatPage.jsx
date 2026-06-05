@@ -195,7 +195,6 @@ function useSmoothStreamingText(text, { enabled = false, streamKey = '' } = {}) 
       return undefined;
     }
     if (!enabled || reducedMotion) {
-      if (state.visibleText !== targetText) setState({ streamKey, visibleText: targetText });
       return undefined;
     }
     if (!targetText.startsWith(visibleText) || visibleText.length > targetText.length) {
@@ -4727,7 +4726,13 @@ function ReasoningTrace({ message, active = false }) {
   const elapsed = (done && typeof message?.elapsedMs === 'number' && message.elapsedMs > 0)
     ? durationLabelFromMs(message.elapsedMs)
     : hookElapsed;
-  const statusLabel = done ? `已处理${elapsed ? ` ${elapsed}` : ''}` : `正在思考${elapsed ? ` ${elapsed}` : ''}`;
+  const title = reasoningTitle(message);
+  const elapsedSuffix = elapsed ? ` ${elapsed}` : '';
+  const statusLabel = done 
+    ? `已处理 ${title}${elapsedSuffix}` 
+    : ((message?.kind || '').toString().trim().toLowerCase() === 'thinking' 
+        ? `正在思考${elapsedSuffix}` 
+        : `正在运行 ${title}${elapsedSuffix}`);
   const meta = reasoningKindMeta(message);
   return (
     <article className={`reasoning-message${done ? '' : ' is-active'} no-avatar`} aria-label="AI 思考记录">
@@ -4736,7 +4741,6 @@ function ReasoningTrace({ message, active = false }) {
           <span className="reasoning-trace-status">
             {statusLabel}
           </span>
-          <span className="reasoning-trace-chevron">⌵</span>
         </summary>
         <div className="reasoning-step-list">
           <section className={`reasoning-step reasoning-step--${meta.tone}`} aria-label={`${meta.label}步骤`}>
@@ -5241,6 +5245,7 @@ function Conversation(props) {
       <ContextUsageBanner activeThreadId={activeThreadId} store={store} tokenUsage={tokenUsage} />
       <ConversationTimeline
         composer={composer}
+        smoothStreaming={store?.smoothStreaming ?? false}
         introMode={introMode}
         messages={messages}
         pendingReasoning={pendingReasoning}
@@ -5377,6 +5382,7 @@ function ConversationTimeline({
   onTimelineScroll,
   onScrollToBottom,
   timelineRef,
+  smoothStreaming,
 }) {
   const {
     hiddenOlderCount,
@@ -5453,7 +5459,7 @@ function ConversationTimeline({
           <TimelineOlderMessagesMarker hiddenCount={hiddenOlderCount} loading={olderPageLoading} onReveal={requestOlderMessages} />
         ) : null}
         {!introMode && !timelineContentBlocked ? visibleMessages.map((message) => (
-          <TimelineMessage key={message.id} message={message} actions={messageActions} activeThreadId={activeThreadId} />
+          <TimelineMessage key={message.id} message={message} actions={messageActions} activeThreadId={activeThreadId} smoothStreaming={smoothStreaming} />
         )) : null}
         {!introMode && timelineContentBlocked ? <TimelineLoadingPlaceholder /> : null}
         {pendingReasoning ? <ReasoningTrace key={pendingReasoning.id} message={pendingReasoning} active /> : null}
@@ -5499,11 +5505,11 @@ function IntroChatStage({ composer, projectPath }) {
   );
 }
 
-const TimelineMessage = React.memo(function TimelineMessage({ message, actions, activeThreadId }) {
+const TimelineMessage = React.memo(function TimelineMessage({ message, actions, activeThreadId, smoothStreaming }) {
   const streamKey = `${activeThreadId || ''}:${message.id || ''}`;
   const streamingAssistant = message.role === 'assistant' && message.done === false;
   const displayText = useSmoothStreamingText(message.text, {
-    enabled: streamingAssistant,
+    enabled: streamingAssistant && smoothStreaming,
     streamKey,
   });
   if (isApprovalMessage(message)) return <ApprovalTimelineMessage message={message} actions={actions} />;
