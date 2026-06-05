@@ -3439,7 +3439,7 @@ function attachBridgeIdentityRuntime(runtime) {
 }
 
 function attachAssistantEventRuntime(runtime) {
-  const { set, bridgeThreadIdForPayload } = runtime;
+  const { set, get, bridgeThreadIdForPayload } = runtime;
   const { assistantDeltaBuffers } = runtime;
 
   const clearAssistantDeltaFlushTimer = () => {
@@ -3473,16 +3473,28 @@ function attachAssistantEventRuntime(runtime) {
           };
         });
         if (!found) {
-          nextTimeline.push({
-            id: entry.itemId,
-            role: 'assistant',
-            kind: 'assistant',
-            text: entry.delta,
-            time: entry.timestamp || flushTime,
-            done: false,
-            optimistic: false,
-            runtime: true,
-          });
+          if (entry.kind === 'thinking') {
+            nextTimeline.push({
+              id: entry.itemId,
+              role: 'assistant',
+              kind: 'thinking',
+              text: entry.delta,
+              time: entry.timestamp || flushTime,
+              done: false,
+              turnId: entry.turnId,
+            });
+          } else {
+            nextTimeline.push({
+              id: entry.itemId,
+              role: 'assistant',
+              kind: 'assistant',
+              text: entry.delta,
+              time: entry.timestamp || flushTime,
+              done: false,
+              optimistic: false,
+              runtime: true,
+            });
+          }
         }
         timelinesByThread[entry.threadId] = nextTimeline;
       }
@@ -3530,6 +3542,89 @@ function attachAssistantEventRuntime(runtime) {
     return true;
   };
 
+  const enqueueReasoningDelta = (method, payload) => {
+    const threadId = bridgeThreadIdForPayload(payload);
+    const delta = extractText(payload.delta || payload.text || payload.content);
+    if (!threadId || !delta) return false;
+    const turnId = normalizeString(payload.turnId || payload.turn_id);
+    if (!turnId) return false;
+
+    const itemId = `thinking:${turnId}`;
+    const key = assistantDeltaBufferKey(threadId, itemId);
+    const existing = assistantDeltaBuffers.get(key);
+    assistantDeltaBuffers.set(key, {
+      threadId,
+      itemId,
+      method: existing?.method || method,
+      delta: appendAssistantDeltaText(existing?.delta, delta),
+      timestamp: existing?.timestamp || normalizeString(payload.timestamp) || new Date().toISOString(),
+      kind: 'thinking',
+      turnId,
+    });
+    scheduleAssistantDeltaFlush();
+    return true;
+  };
+
+  const enqueueCommandOutputDelta = (method, payload) => {
+    const threadId = bridgeThreadIdForPayload(payload);
+    const delta = extractText(payload.delta || payload.text || payload.content);
+    if (!threadId || !delta) return false;
+
+    const timeline = get().timelinesByThread[threadId] || [];
+    let itemId = '';
+    for (let i = timeline.length - 1; i >= 0; i--) {
+      if (timeline[i].kind === 'command' && timeline[i].done !== true) {
+        itemId = timeline[i].id;
+        break;
+      }
+    }
+    if (!itemId) {
+      for (let i = timeline.length - 1; i >= 0; i--) {
+        if (timeline[i].kind === 'command') {
+          itemId = timeline[i].id;
+          break;
+        }
+      }
+    }
+    if (!itemId) return false;
+
+    const key = assistantDeltaBufferKey(threadId, itemId);
+    const existing = assistantDeltaBuffers.get(key);
+    assistantDeltaBuffers.set(key, {
+      threadId,
+      itemId,
+      method: existing?.method || method,
+      delta: appendAssistantDeltaText(existing?.delta, delta),
+      timestamp: existing?.timestamp || normalizeString(payload.timestamp) || new Date().toISOString(),
+      kind: 'command',
+    });
+    scheduleAssistantDeltaFlush();
+    return true;
+  };
+
+  const finalizeActiveAssistantMessages = (threadId) => {
+    if (!threadId) return false;
+    set((state) => {
+      const timeline = state.timelinesByThread[threadId] || [];
+      let mutated = false;
+      const nextTimeline = timeline.map((item) => {
+        if ((item.role === 'assistant' || item.kind === 'assistant' || item.kind === 'thinking' || item.kind === 'command') && item.done === false) {
+          mutated = true;
+          return { ...item, done: true };
+        }
+        return item;
+      });
+      if (!mutated) return {};
+      return {
+        timelinesByThread: {
+          ...state.timelinesByThread,
+          [threadId]: nextTimeline,
+        },
+      };
+    });
+    return true;
+  };
+
   const applyAssistantCompletion = (method, payload) => {
     const threadId = bridgeThreadIdForPayload(payload);
     const completion = runtimeAssistantCompletion(payload);
@@ -3553,6 +3648,9 @@ function attachAssistantEventRuntime(runtime) {
 
   Object.assign(runtime, {
     enqueueAssistantDelta,
+    enqueueReasoningDelta,
+    enqueueCommandOutputDelta,
+    finalizeActiveAssistantMessages,
     flushAssistantDeltasNow,
     clearAssistantDeltaFlushTimer,
     applyAssistantCompletion,
@@ -3605,7 +3703,19 @@ function attachBridgePatchRuntime(runtime) {
 }
 
 function attachBridgeEventRuntime(runtime) {
-  const { set, addWarning, refreshActiveChatSidebarInBackground, applyBridgePatch, enqueueAssistantDelta, flushAssistantDeltasNow, applyAssistantCompletion, bridgeThreadIdForPayload } = runtime;
+  const {
+    set,
+    addWarning,
+    refreshActiveChatSidebarInBackground,
+    applyBridgePatch,
+    enqueueAssistantDelta,
+    enqueueReasoningDelta,
+    enqueueCommandOutputDelta,
+    finalizeActiveAssistantMessages,
+    flushAssistantDeltasNow,
+    applyAssistantCompletion,
+    bridgeThreadIdForPayload,
+  } = runtime;
 
   const handleBridgeEvent = (evt) => {
     const method = normalizeString(evt?.method || evt?.type);
@@ -3631,15 +3741,35 @@ function attachBridgeEventRuntime(runtime) {
       enqueueAssistantDelta(method, payload);
       return;
     }
+    if (eventName === 'item/reasoning/textdelta' || eventName === 'item/reasoning/text_delta') {
+      enqueueReasoningDelta(method, payload);
+      return;
+    }
+    if (eventName === 'item/commandexecution/outputdelta' || eventName === 'item/command_execution/output_delta') {
+      enqueueCommandOutputDelta(method, payload);
+      return;
+    }
     if (eventName === 'item/completed') {
       flushAssistantDeltasNow();
       applyAssistantCompletion(method, payload);
       return;
     }
-    if (eventName === 'turn/completed') {
+    if (
+      eventName === 'turn/completed' ||
+      eventName === 'turn/interrupted' ||
+      eventName === 'agent/stopped' ||
+      eventName === 'thread/stopped' ||
+      eventName === 'agent/failed'
+    ) {
       flushAssistantDeltasNow();
-      if (payload._threadPatch) applyBridgePatch('ui/thread/patch', payload._threadPatch);
-      applyAssistantCompletion(method, payload);
+      const threadId = bridgeThreadIdForPayload(payload);
+      if (threadId) {
+        finalizeActiveAssistantMessages(threadId);
+      }
+      if (eventName === 'turn/completed') {
+        if (payload._threadPatch) applyBridgePatch('ui/thread/patch', payload._threadPatch);
+        applyAssistantCompletion(method, payload);
+      }
       return;
     }
     if (eventName === 'thread/tokenusage/updated') {
@@ -3659,7 +3789,6 @@ function attachBridgeEventRuntime(runtime) {
       addWarning('error', method, payload);
     }
   };
-
 
   Object.assign(runtime, { handleBridgeEvent });
 }
