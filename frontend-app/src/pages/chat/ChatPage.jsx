@@ -1783,18 +1783,29 @@ function useChatThreadData(store, activeThreadId) {
 function useViewportWidth() {
   const [viewportWidth, setViewportWidth] = useState(currentViewportWidth);
   useEffect(() => {
-    const onResize = () => setViewportWidth(currentViewportWidth());
+    let frameId = null;
+    const onResize = () => {
+      if (frameId) return;
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        setViewportWidth(currentViewportWidth());
+      });
+    };
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      if (frameId) window.cancelAnimationFrame(frameId);
+    };
   }, []);
   return viewportWidth;
 }
 
-function useThreadRailLayout(viewportWidth) {
+function useThreadRailLayout({ viewportWidth, rightPanelOpen, store, layoutRef }) {
   const [threadRailWidth, setThreadRailWidth] = useState(() => threadRailTargetWidth());
   const resizedRef = useRef(false);
   const maxWidth = threadRailTargetWidth(viewportWidth);
   const width = clampWidth(threadRailWidth, THREAD_RAIL_MIN_WIDTH, maxWidth);
+
   useEffect(() => {
     setThreadRailWidth((currentWidth) => {
       const targetWidth = threadRailTargetWidth(viewportWidth);
@@ -1802,21 +1813,51 @@ function useThreadRailLayout(viewportWidth) {
       return clampWidth(currentWidth, THREAD_RAIL_MIN_WIDTH, targetWidth);
     });
   }, [viewportWidth]);
+
   const beginResize = (event) => {
     event.preventDefault();
     resizedRef.current = true;
+    event.currentTarget?.setPointerCapture?.(event.pointerId);
+
     const startX = event.clientX;
     const startWidth = width;
-    const move = (moveEvent) => {
-      setThreadRailWidth(clampWidth(startWidth + (moveEvent.clientX - startX), THREAD_RAIL_MIN_WIDTH, maxWidth));
+    let latestWidth = startWidth;
+
+    const layoutColumnsForWidth = (nextWidth) => {
+      const rightWidth = clampWidth(store.rightPanelWidth, 0, rightPanelMaxWidth(viewportWidth, nextWidth));
+      return rightPanelOpen
+        ? `${nextWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr) ${SPLITTER_WIDTH}px ${rightWidth}px`
+        : `${nextWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr)`;
     };
+
+    const move = (moveEvent) => {
+      if (Number(moveEvent.buttons) === 0) {
+        stop();
+        return;
+      }
+      const rawNext = startWidth + (moveEvent.clientX - startX);
+      latestWidth = clampWidth(rawNext, THREAD_RAIL_MIN_WIDTH, maxWidth);
+      if (layoutRef.current) {
+        layoutRef.current.style.gridTemplateColumns = layoutColumnsForWidth(latestWidth);
+      }
+    };
+
     const stop = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      window.removeEventListener('blur', stop);
+      event.currentTarget?.releasePointerCapture?.(event.pointerId);
+
+      setThreadRailWidth(latestWidth);
     };
+
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+    window.addEventListener('blur', stop);
   };
+
   const handleKeyDown = (event) => {
     const nextWidth = resizerNextWidth(event, width, maxWidth, THREAD_RAIL_MIN_WIDTH, 'rail');
     if (nextWidth === null) return;
@@ -1824,6 +1865,7 @@ function useThreadRailLayout(viewportWidth) {
     resizedRef.current = true;
     setThreadRailWidth(nextWidth);
   };
+
   return { beginResize, handleKeyDown, maxWidth, width };
 }
 
@@ -1854,9 +1896,8 @@ function useChatInterruptShortcut(store, activeThreadId) {
   }, [store, activeThreadId]);
 }
 
-function useRuntimeSidePanelLayout({ activeThreadId, railWidth, store, viewportWidth, open, setOpen }) {
+function useRuntimeSidePanelLayout({ activeThreadId, railWidth, store, viewportWidth, open, setOpen, layoutRef }) {
   const resizedRef = useRef(false);
-  const layoutRef = useRef(null);
   const maxWidth = rightPanelMaxWidth(viewportWidth, railWidth);
   const width = clampWidth(store.rightPanelWidth, 0, maxWidth);
   useRuntimePanelWidthSync({ maxWidth, open, resizedRef, setOpen, store, viewportWidth });
@@ -1878,7 +1919,7 @@ function useRuntimeSidePanelLayout({ activeThreadId, railWidth, store, viewportW
     store.setRightPanelWidth?.(nextWidth);
   };
   const toggle = () => toggleRuntimePanel({ maxWidth, open, resizedRef, setOpen, store, viewportWidth });
-  return { beginResize, handleKeyDown, layoutRef, maxWidth, open, toggle, width };
+  return { beginResize, handleKeyDown, maxWidth, open, toggle, width };
 }
 
 function useRuntimePanelWidthSync({ maxWidth, open, resizedRef, setOpen, store, viewportWidth }) {
@@ -2001,11 +2042,16 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
     onApproval: (message, approved) => store.respondApproval?.(message, approved),
   }), [codePreview.openFileRef, store]);
   const viewportWidth = useViewportWidth();
-  const rail = useThreadRailLayout(viewportWidth);
+  const chatLayoutRef = useRef(null);
+  const rail = useThreadRailLayout({
+    viewportWidth,
+    rightPanelOpen,
+    store,
+    layoutRef: chatLayoutRef,
+  });
   const {
     beginResize: beginRuntimeResize,
     handleKeyDown: handleRuntimeResizeKeyDown,
-    layoutRef: chatLayoutRef,
     maxWidth: runtimeMaxWidth,
     width: rightPanelWidth,
   } = useRuntimeSidePanelLayout({
@@ -2015,6 +2061,7 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
     viewportWidth,
     open: rightPanelOpen,
     setOpen: setRightPanelOpen,
+    layoutRef: chatLayoutRef,
   });
   useActiveChatThreadSync(store, activeThreadId);
   useChatInterruptShortcut(store, activeThreadId);
@@ -5489,7 +5536,7 @@ function ConversationTimeline({
   useEffect(() => {
     if (!bottomAutoScrollEligible) return;
     if (!userScrolledRef.current && bottomRef.current?.scrollIntoView) {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+      bottomRef.current.scrollIntoView({ behavior: 'auto' });
     }
   }, [bottomAutoScrollEligible, visibleLen, pendingLen]);
   useEffect(() => {
@@ -5684,13 +5731,21 @@ function useRuntimePanelLayout() {
   const [activityPanelHeight, setActivityPanelHeight] = useState(() => clampActivityPanelHeight(ACTIVITY_PANEL_DEFAULT_HEIGHT));
   const activityPanelMax = activityPanelMaxHeight(viewportHeight);
   useEffect(() => {
+    let frameId = null;
     const onResize = () => {
-      const nextHeight = currentViewportHeight();
-      setViewportHeight(nextHeight);
-      setActivityPanelHeight((height) => clampActivityPanelHeight(height, nextHeight));
+      if (frameId) return;
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        const nextHeight = currentViewportHeight();
+        setViewportHeight(nextHeight);
+        setActivityPanelHeight((height) => clampActivityPanelHeight(height, nextHeight));
+      });
     };
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      if (frameId) window.cancelAnimationFrame(frameId);
+    };
   }, []);
   const beginActivityPanelResize = (event, inputType = 'pointer') => {
     event.preventDefault();

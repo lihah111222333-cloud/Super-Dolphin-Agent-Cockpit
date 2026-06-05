@@ -140,6 +140,8 @@ select {
 .sa-window {
   width: 100vw;
   height: 100vh;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   background: var(--app-bg);
   color: var(--ink);
@@ -411,6 +413,8 @@ select {
 
 .sa-body {
   height: calc(100vh - 48px);
+  flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: 76px minmax(0, 1fr);
   background: transparent;
@@ -1479,6 +1483,7 @@ select {
   overflow: auto;
   max-width: 100%;
   padding: 0 0 32px;
+  scrollbar-gutter: stable;
 }
 
 .chat-scroll-bottom-btn {
@@ -6920,6 +6925,8 @@ textarea:disabled {
 
 .sa-body {
   height: calc(100vh - 48px);
+  flex: 1;
+  min-height: 0;
   background: var(--bg);
 }
 
