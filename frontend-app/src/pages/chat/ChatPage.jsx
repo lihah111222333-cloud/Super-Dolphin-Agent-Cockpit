@@ -1475,6 +1475,19 @@ function hasAssistantReplyAfterLastUser(messages = []) {
   ));
 }
 
+function hasReasoningMessageAfterLastUser(messages = []) {
+  let lastUserIndex = -1;
+  for (let index = 0; index < messages.length; index += 1) {
+    if ((messages[index]?.role || '').toString().trim().toLowerCase() === 'user') {
+      lastUserIndex = index;
+    }
+  }
+  return messages.some((message, index) => (
+    index > lastUserIndex &&
+    isReasoningMessage(message)
+  ));
+}
+
 function timelineMessageAutoScrollKey(message) {
   if (!message) return '';
   const done = Object.prototype.hasOwnProperty.call(message, 'done') ? String(message.done) : '';
@@ -5016,8 +5029,8 @@ function Conversation(props) {
     sendMessage,
   } = props;
   const introMode = !activeThreadId && !timelineBlocked && messages.length === 0;
-  const hasActiveReasoning = messages.some((message) => isReasoningMessage(message) && message.done === false);
-  const pendingReasoning = !introMode && !timelineBlocked && !hasActiveReasoning && !hasAssistantReplyAfterLastUser(messages)
+  const hasProcessingAfterLastUser = hasReasoningMessageAfterLastUser(messages);
+  const pendingReasoning = !introMode && !timelineBlocked && !hasProcessingAfterLastUser && !hasAssistantReplyAfterLastUser(messages)
     ? syntheticReasoningMessage({ activeTurn, sending })
     : null;
   const composerController = useComposerInteractions({
