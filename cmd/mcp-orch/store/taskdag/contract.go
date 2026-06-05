@@ -425,18 +425,16 @@ type ScheduledDownstreamWakeup struct {
 	IdempotencyKey string
 }
 
-// DownstreamWakeupPayload is the JSON shape written into
-// task_dag_wakeups.prompt_payload by CompleteNodeAndScheduleDownstream. Phase
-// 3.4 only populates AgentID + UpstreamOutputs; Phase 3.9 will fill in the
-// dispatcher-side prompt-rewriting that consumes UpstreamOutputs.
+// DownstreamWakeupPayload is the JSON shape written into task_dag_wakeups.prompt_payload.
+// Router-driven DAG dispatch now uses explicit inputs.from_nodes plus node.result
+// envelopes for upstream context; CompleteNodeAndScheduleDownstream only populates
+// AgentID. UpstreamOutputs remains for legacy/manual wakeup compatibility.
 type DownstreamWakeupPayload struct {
 	AgentID         string                  `json:"agent_id,omitempty"`
 	UpstreamOutputs []DownstreamUpstreamRef `json:"upstream_outputs,omitempty"`
 }
 
-// DownstreamUpstreamRef points the downstream node at the producing upstream
-// node's output artifact path. Path follows plan §3.4 convention
-// `dag/<dagKey>/<prevKey>/output.json`.
+// DownstreamUpstreamRef points legacy wakeup payload consumers at an upstream artifact path.
 type DownstreamUpstreamRef struct {
 	NodeKey string `json:"node_key"`
 	Path    string `json:"path"`

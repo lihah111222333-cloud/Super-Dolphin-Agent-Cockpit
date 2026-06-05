@@ -6,6 +6,8 @@ import (
 	"sort"
 	"testing"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 )
 
 func TestFailNodeAndCancelDownstream_FailFastFalse_OnlyMarksCurrent(t *testing.T) {
@@ -295,4 +297,145 @@ func canceledKeys(items []CanceledDownstreamNode) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// --- helpers --------------------------------------------------------------
+
+func promotedKeys(items []PromotedDownstreamNode) []string {
+	keys := make([]string, 0, len(items))
+	for _, it := range items {
+		keys = append(keys, it.NodeKey)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+type seedNode struct {
+	key    string
+	deps   []string
+	status string
+	agent  string
+	thread string
+}
+
+const completeDownstreamRunID int64 = 501
+
+func completeDownstreamRunIDValue() sqlc.Int8 {
+	id := completeDownstreamRunID
+	return sqlc.Int8ValuePtr(&id)
+}
+
+func seedDAG(t *testing.T, db *fakeTaskDAGDB, now time.Time, nodes []seedNode) {
+	t.Helper()
+	seedDAGRows(t, db, now, nodes, 0)
+}
+
+func seedRuntimeDAG(t *testing.T, db *fakeTaskDAGDB, now time.Time, nodes []seedNode) {
+	t.Helper()
+	seedRunningRunForTerminate(db, "dag-1", "run-complete", completeDownstreamRunID)
+	seedDAGRows(t, db, now, nodes, completeDownstreamRunID)
+}
+
+func seedDAGRows(t *testing.T, db *fakeTaskDAGDB, now time.Time, nodes []seedNode, runID int64) {
+	t.Helper()
+	for i, n := range nodes {
+		depsJSON := []byte(`[]`)
+		if len(n.deps) > 0 {
+			b, err := json.Marshal(n.deps)
+			if err != nil {
+				t.Fatalf("marshal deps for %s: %v", n.key, err)
+			}
+			depsJSON = b
+		}
+		row := sqlc.TaskDagNode{
+			ID:         int64(i + 1),
+			DagKey:     "dag-1",
+			NodeKey:    n.key,
+			Title:      n.key,
+			Status:     n.status,
+			AssignedTo: n.agent,
+			DependsOn:  depsJSON,
+			Config:     []byte(`{}`),
+			Result:     []byte(`{}`),
+			CreatedAt:  timestamptzValue(now.Add(time.Duration(i) * time.Millisecond)),
+			UpdatedAt:  timestamptzValue(now),
+		}
+		key := dagNodeKey("dag-1", n.key)
+		if runID > 0 {
+			id := runID
+			row.RunID = sqlc.Int8ValuePtr(&id)
+			key = dagRunNodeKey("dag-1", n.key, runID)
+		}
+		if n.thread != "" {
+			row.SpawningThreadID = sqlc.Text{String: n.thread, Valid: true}
+		}
+		db.nodes[key] = row
+	}
+}
+
+func transitionToRunning(t *testing.T, db *fakeTaskDAGDB, nodeKey string) {
+	t.Helper()
+	key := dagRunNodeKey("dag-1", nodeKey, completeDownstreamRunID)
+	row, ok := db.nodes[key]
+	if !ok {
+		t.Fatalf("node %s not found", nodeKey)
+	}
+	row.Status = "running"
+	db.nodes[key] = row
+}
+
+func scheduledKeys(items []ScheduledDownstreamWakeup) []string {
+	keys := make([]string, 0, len(items))
+	for _, it := range items {
+		keys = append(keys, it.NodeKey)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func pendingForNode(db *fakeTaskDAGDB, nodeKey string) int {
+	count := 0
+	for _, w := range db.wakeups {
+		if w.NodeKey == nodeKey && w.Status == "pending" {
+			count++
+		}
+	}
+	return count
+}
+
+func lookupPendingWakeup(t *testing.T, db *fakeTaskDAGDB, nodeKey string) sqlc.TaskDagWakeup {
+	t.Helper()
+	for _, w := range db.wakeups {
+		if w.NodeKey == nodeKey && w.Status == "pending" {
+			return w
+		}
+	}
+	t.Fatalf("no pending wakeup for node %s", nodeKey)
+	return sqlc.TaskDagWakeup{}
+}
+
+func assertNoImplicitUpstreamPayload(t *testing.T, w sqlc.TaskDagWakeup, wantAgent string) {
+	t.Helper()
+	var payload DownstreamWakeupPayload
+	if err := json.Unmarshal(w.PromptPayload, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v (raw=%s)", err, string(w.PromptPayload))
+	}
+	if payload.AgentID != wantAgent {
+		t.Fatalf("payload.AgentID = %q, want %q", payload.AgentID, wantAgent)
+	}
+	if len(payload.UpstreamOutputs) != 0 {
+		t.Fatalf("payload.UpstreamOutputs = %v, want empty", payload.UpstreamOutputs)
+	}
 }
