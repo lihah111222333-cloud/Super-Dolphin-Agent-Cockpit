@@ -2280,10 +2280,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(trace).not.toHaveClass('message');
     expect(trace).not.toHaveClass('assistant');
     expect(trace).toHaveTextContent('已处理 3s');
-    expect(trace).toHaveTextContent('file.open');
     const step = within(trace).getByLabelText('工具步骤');
-    expect(step).toHaveTextContent('工具');
-    expect(step).toHaveTextContent('完成');
     expect(step).toHaveTextContent('读取 frontend-app/src/App.jsx');
     expect(screen.getByText('工具结果已整理。')).toBeInTheDocument();
   });
@@ -2323,7 +2320,6 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     const trace = await screen.findByLabelText('AI 思考记录');
-    expect(trace).toHaveTextContent('file');
     expect(trace).toHaveTextContent('agent keyed tool result');
   });
 
@@ -2391,11 +2387,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
     render(<App />);
 
     const traces = await screen.findAllByLabelText('AI 思考记录');
-    const fileTraces = traces.filter((node) => node.textContent.includes('file'));
+    const fileTraces = traces.filter((node) => node.textContent.includes('success'));
     expect(fileTraces).toHaveLength(1);
     expect(fileTraces[0]).toHaveTextContent('已处理 1s');
     expect(fileTraces[0]).toHaveTextContent('"success": true');
-    expect(within(fileTraces[0]).getByLabelText('工具步骤')).toHaveTextContent('完成');
+    expect(within(fileTraces[0]).getByLabelText('工具步骤')).toHaveTextContent('"success": true');
     expect(fileTraces[0]).not.toHaveTextContent('正在调用工具并等待返回结果。');
   });
 

@@ -8215,3 +8215,67 @@ textarea:disabled {
   color: var(--muted);
   font-size: 11px;
 }
+
+/* ==========================================================================
+   Codex Style Flat Chat UI Modifications (No Avatar & Flat Document Flow)
+   ========================================================================== */
+
+/* 1. 扁平化消息外框，移除 gap 并调整贴左 */
+.message.no-avatar {
+  gap: 0;
+}
+
+/* 2. 扁平化 AI 消息气泡，移除背景、边框、阴影和左右 padding，让内容完全贴左 */
+.message.assistant.no-avatar .bubble {
+  padding: 0 0 16px 0;
+  max-width: min(760px, 100%);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* 3. 用户气泡由于移除了头像，需要微调最大宽度 */
+.message.user.no-avatar .bubble {
+  max-width: min(720px, 86%);
+  margin-left: auto;
+}
+
+/* 4. AI 消息底部的扁平 footer 样式（包括时间与操作动作） */
+.assistant-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* 5. 扁平化 AI 思考条，移除左侧 padding，使整体贴左 */
+.reasoning-message.no-avatar {
+  padding-left: 0;
+  width: min(760px, var(--conversation-content-width));
+  max-width: min(760px, var(--conversation-content-width));
+  margin: 4px var(--conversation-content-right-gutter) 4px var(--conversation-content-left-gutter);
+}
+
+/* 6. 移除思考条中 summary 的 em 下划线与修饰，因为我们只渲染简洁的 statusLabel */
+.reasoning-message.no-avatar .reasoning-trace summary {
+  gap: 4px;
+}
+
+/* 7. 扁平化思考区展开后的列表，移除带底色边框的面板 */
+.reasoning-message.no-avatar .reasoning-trace[open] .reasoning-step-list {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 8px 0;
+  max-height: none;
+  overflow: visible;
+  box-shadow: none;
+}
+
+/* 8. 移除展开后子步骤中的 grid icon 占位 */
+.reasoning-message.no-avatar .reasoning-step {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}

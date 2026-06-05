@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, ArrowLeft, Bot, Boxes, Brain, CheckCircle2, ChevronDown, CircleStop, Clock3, Code2, Copy, File, FileText, Folder, GitBranch, Link2, Pencil, Pin, Plus, Search, Send, Settings, Sparkles, Terminal, Trash2, UserRound, Workflow, Wrench, X } from 'lucide-react';
+import { Archive, ArrowLeft, Bot, Boxes, Brain, CheckCircle2, ChevronDown, CircleStop, Code2, Copy, File, FileText, Folder, GitBranch, Link2, Pencil, Pin, Plus, Search, Send, Settings, Sparkles, Terminal, Trash2, Workflow, Wrench, X } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { onFilesDropped, copyTextToClipboard, locateCodeFile, openCodeFile, saveCodeFile } from '../../shared/api/backendApi.js';
 import { appendCurrentModelOption, canonicalizeModelValue, modelOptionFor, normalizeConfigText, normalizeProviderKey, textValue } from '../shared/pageShared.js';
@@ -4553,13 +4553,7 @@ function reasoningKindMeta(message = {}) {
   return { label: '思考', tone: 'thinking', Icon: Brain };
 }
 
-function reasoningStatusText(message = {}, done = true) {
-  const status = (message?.status || '').toString().trim().toLowerCase();
-  if (!done) return '执行中';
-  if (status === 'failed' || status === 'error') return '失败';
-  if (status === 'skipped' || status === 'cancelled' || status === 'canceled') return '已跳过';
-  return '完成';
-}
+
 
 function reasoningStepDescription(message = {}) {
   const body = (message?.text || '').toString().trim();
@@ -4626,15 +4620,7 @@ function ExecutionPlan({ message }) {
   );
 }
 
-function MessageAvatar({ messageRole = 'assistant' }) {
-  const isUser = messageRole === 'user';
-  const Icon = isUser ? UserRound : Bot;
-  return (
-    <div className={`avatar avatar--${isUser ? 'user' : 'assistant'}`} aria-hidden="true">
-      <Icon size={18} strokeWidth={2.2} />
-    </div>
-  );
-}
+
 
 function AssistantMessageActions({ text }) {
   const [copyState, setCopyState] = useState('idle');
@@ -4742,29 +4728,18 @@ function ReasoningTrace({ message, active = false }) {
     : hookElapsed;
   const statusLabel = done ? `已处理${elapsed ? ` ${elapsed}` : ''}` : `正在思考${elapsed ? ` ${elapsed}` : ''}`;
   const meta = reasoningKindMeta(message);
-  const StatusIcon = done ? CheckCircle2 : Clock3;
-  const StepIcon = meta.Icon;
   return (
-    <article className={`reasoning-message${done ? '' : ' is-active'}`} aria-label="AI 思考记录">
+    <article className={`reasoning-message${done ? '' : ' is-active'} no-avatar`} aria-label="AI 思考记录">
       <details className="reasoning-trace">
         <summary>
           <span className="reasoning-trace-status">
-            <StatusIcon size={15} aria-hidden="true" />
             {statusLabel}
           </span>
-          <em>{reasoningTitle(message)}</em>
+          <span className="reasoning-trace-chevron">⌵</span>
         </summary>
         <div className="reasoning-step-list">
           <section className={`reasoning-step reasoning-step--${meta.tone}`} aria-label={`${meta.label}步骤`}>
-            <div className="reasoning-step-icon">
-              <StepIcon size={15} aria-hidden="true" />
-            </div>
             <div className="reasoning-step-body">
-              <header>
-                <span>{meta.label}</span>
-                <strong>{reasoningTitle(message)}</strong>
-                <b aria-label={`执行状态：${reasoningStatusText(message, done)}`}>{reasoningStatusText(message, done)}</b>
-              </header>
               {meta.tone === 'plan' ? <ExecutionPlan message={message} /> : <MessageContent text={reasoningStepDescription(message)} />}
             </div>
           </section>
@@ -5528,13 +5503,23 @@ const TimelineMessage = React.memo(function TimelineMessage({ message, actions, 
   });
   if (isApprovalMessage(message)) return <ApprovalTimelineMessage message={message} actions={actions} />;
   if (isReasoningMessage(message)) return <ReasoningTrace message={message} active={message.done === false} />;
+  
+  const isUser = message.role === 'user';
   return (
-    <article className={`message ${message.role}`}>
-      <MessageAvatar messageRole={message.role} />
+    <article className={`message ${message.role} no-avatar`}>
       <div className="bubble">
-        <header><span>{message.role === 'user' ? '你' : 'AI'}</span><time>{formatTime(message.time)}</time></header>
+        {isUser ? (
+          <header>
+            <time>{formatTime(message.time)}</time>
+          </header>
+        ) : null}
         <MessageContent text={displayText} actions={actions} />
-        {message.role === 'assistant' ? <AssistantMessageActions text={message.text} /> : null}
+        {!isUser && message.role === 'assistant' ? (
+          <div className="assistant-footer">
+            <time>{formatTime(message.time)}</time>
+            <AssistantMessageActions text={message.text} />
+          </div>
+        ) : null}
       </div>
     </article>
   );
@@ -5565,8 +5550,7 @@ function ApprovalTimelineMessage({ message, actions }) {
   };
 
   return (
-    <article className="message assistant approval-message" data-testid={`approval-request-${requestId || 'invalid'}`}>
-      <MessageAvatar messageRole="assistant" />
+    <article className="message assistant approval-message no-avatar" data-testid={`approval-request-${requestId || 'invalid'}`}>
       <div className="bubble approval-card">
         <header>
           <span>{title}</span>
