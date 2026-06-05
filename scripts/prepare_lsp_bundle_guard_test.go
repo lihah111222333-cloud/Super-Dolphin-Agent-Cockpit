@@ -15,12 +15,63 @@ func TestPrepareLSPBundleScriptsInstallAstGrepCLI(t *testing.T) {
 	}
 }
 
+func TestPrepareLSPBundleScriptsInstallBashLanguageServer(t *testing.T) {
+	for _, scriptPath := range []string{"prepare_lsp_bundle_macos.sh", "prepare_lsp_bundle_linux.sh"} {
+		t.Run(scriptPath, func(t *testing.T) {
+			script := readScript(t, scriptPath)
+
+			assertScriptContains(t, script, "bash-language-server")
+			assertScriptDoesNotContain(t, script, "node_modules/.bin/bash-language-server")
+			assertScriptContains(t, script, "write_path_wrapper bash-language-server node_modules/bash-language-server/out/cli.js")
+			assertScriptOrder(t, script, "bash-language-server", "write_path_wrapper bash-language-server node_modules/bash-language-server/out/cli.js")
+		})
+	}
+}
+
+func TestPrepareLSPBundleScriptsInstallShellcheckForShellDiagnostics(t *testing.T) {
+	for _, scriptPath := range []string{"prepare_lsp_bundle_macos.sh", "prepare_lsp_bundle_linux.sh"} {
+		t.Run(scriptPath, func(t *testing.T) {
+			script := readScript(t, scriptPath)
+
+			assertScriptContains(t, script, "shellcheck")
+			assertScriptContains(t, script, "\"$lsp_dir/node_modules/.bin/shellcheck\" --version")
+			assertScriptContains(t, script, "write_path_wrapper shellcheck node_modules/shellcheck/bin/shellcheck")
+			assertScriptOrder(t, script, "shellcheck", "write_path_wrapper shellcheck node_modules/shellcheck/bin/shellcheck")
+			assertScriptOrder(t, script, "\"$lsp_dir/node_modules/.bin/shellcheck\" --version", "write_path_wrapper shellcheck node_modules/shellcheck/bin/shellcheck")
+		})
+	}
+}
+
 func TestPrepareLSPBundleScriptsIncludeAstGrepInManifestAndChecksums(t *testing.T) {
 	for _, scriptPath := range []string{"prepare_lsp_bundle_macos.sh", "prepare_lsp_bundle_linux.sh"} {
 		t.Run(scriptPath, func(t *testing.T) {
 			script := readScript(t, scriptPath)
 
 			assertScriptContains(t, script, "'sg|bin/sg|[\"ast-grep\"]'")
+			assertScriptContains(t, script, "> \"$lsp_dir/lsp-manifest.json\"")
+			assertScriptContains(t, script, "> \"$lsp_dir/lsp-checksums.sha256\"")
+		})
+	}
+}
+
+func TestPrepareLSPBundleScriptsIncludeBashLanguageServerInManifestAndChecksums(t *testing.T) {
+	for _, scriptPath := range []string{"prepare_lsp_bundle_macos.sh", "prepare_lsp_bundle_linux.sh"} {
+		t.Run(scriptPath, func(t *testing.T) {
+			script := readScript(t, scriptPath)
+
+			assertScriptContains(t, script, "'bash-language-server|bin/bash-language-server|[\"shellscript\"]'")
+			assertScriptContains(t, script, "> \"$lsp_dir/lsp-manifest.json\"")
+			assertScriptContains(t, script, "> \"$lsp_dir/lsp-checksums.sha256\"")
+		})
+	}
+}
+
+func TestPrepareLSPBundleScriptsIncludeShellcheckInManifestAndChecksums(t *testing.T) {
+	for _, scriptPath := range []string{"prepare_lsp_bundle_macos.sh", "prepare_lsp_bundle_linux.sh"} {
+		t.Run(scriptPath, func(t *testing.T) {
+			script := readScript(t, scriptPath)
+
+			assertScriptContains(t, script, "'shellcheck|bin/shellcheck|[\"shellcheck\"]'")
 			assertScriptContains(t, script, "> \"$lsp_dir/lsp-manifest.json\"")
 			assertScriptContains(t, script, "> \"$lsp_dir/lsp-checksums.sha256\"")
 		})
