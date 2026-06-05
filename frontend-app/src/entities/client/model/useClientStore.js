@@ -1616,7 +1616,7 @@ function dedupeAssistantTimelineItems(items = []) {
       continue;
     }
 
-    if (item?.role !== 'assistant' || item.done === false || !compactTimelineText(item.text)) {
+    if (item?.role !== 'assistant' || !compactTimelineText(item.text)) {
       output.push(item);
       continue;
     }
@@ -1627,15 +1627,20 @@ function dedupeAssistantTimelineItems(items = []) {
     const duplicateIndices = [];
     for (let index = output.length - 1; index > lastUserIndex; index -= 1) {
       const candidate = output[index];
-      if (candidate?.role === 'assistant' && candidate.done !== false && sameTimelineDuplicateContent(candidate, item)) {
+      if (candidate?.role === 'assistant' && sameTimelineDuplicateContent(candidate, item)) {
         duplicateIndices.push(index);
       }
     }
 
     if (duplicateIndices.length > 0) {
       let mergedItem = item;
+      let anyDone = Boolean(item.done);
       for (const index of duplicateIndices) {
+        if (output[index].done) anyDone = true;
         mergedItem = preferredAssistantTimelineItem(output[index], mergedItem);
+      }
+      if (anyDone) {
+        mergedItem = { ...mergedItem, done: true };
       }
       const primaryIndex = duplicateIndices[duplicateIndices.length - 1]; // earliest duplicate index
       output[primaryIndex] = mergedItem;

@@ -1323,6 +1323,41 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('deduplicates and merges in-progress assistant messages with completed backend messages', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {
+        'thread-1': [
+          { id: 'assistant-stream', role: 'assistant', text: '你好！我是 Super Dolphin。', done: false },
+        ],
+      },
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'assistant-final-msg',
+          role: 'assistant',
+          content: '你好！我是 Super Dolphin。',
+          createdAt: '2026-06-01T14:26:00Z',
+        },
+      ],
+    });
+
+    await useClientStore.getState().syncThreadState('thread-1');
+
+    const timeline = useClientStore.getState().timelinesByThread['thread-1'];
+    expect(timeline.length).toBe(1);
+    expect(timeline[0].text).toBe('你好！我是 Super Dolphin。');
+    expect(timeline[0].done).toBe(true);
+  });
+
   it('does not override activeThreadId back to the previous thread when an in-flight sync resolves after clicking newThread', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
