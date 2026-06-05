@@ -191,7 +191,7 @@ func TestSearchTextDoublestarGlobMatchesCurrentAndNestedFiles(t *testing.T) {
 	}
 }
 
-func TestSearchTextSearchesWhitespaceSeparatedPaths(t *testing.T) {
+func TestSearchTextSearchesDelimitedPaths(t *testing.T) {
 	root, err := NormalizeRoot(t.TempDir())
 	if err != nil {
 		t.Fatalf("NormalizeRoot() error = %v", err)
@@ -200,15 +200,30 @@ func TestSearchTextSearchesWhitespaceSeparatedPaths(t *testing.T) {
 	writeSearchTestFile(t, filepath.Join(root, "second", "two.go"), "package second\nconst needleTwo = true\n")
 	writeSearchTestFile(t, filepath.Join(root, "third", "skip.go"), "package third\nconst needleThree = true\n")
 
-	matches, err := SearchText(context.Background(), TextSearchOptions{
-		Root:         root,
-		Path:         "first second",
-		Query:        "needle",
-		MaxFileBytes: 1024,
-	})
-	if err != nil {
-		t.Fatalf("SearchText() error = %v", err)
+	cases := map[string]string{
+		"comma":       "first,second",
+		"comma_space": "first, second",
+		"newline":     "first\nsecond",
+		"space":       "first second",
 	}
+	for name, path := range cases {
+		t.Run(name, func(t *testing.T) {
+			matches, err := SearchText(context.Background(), TextSearchOptions{
+				Root:         root,
+				Path:         path,
+				Query:        "needle",
+				MaxFileBytes: 1024,
+			})
+			if err != nil {
+				t.Fatalf("SearchText() error = %v", err)
+			}
+			assertSearchTextDelimitedPathMatches(t, root, matches)
+		})
+	}
+}
+
+func assertSearchTextDelimitedPathMatches(t *testing.T, root string, matches []SearchMatch) {
+	t.Helper()
 	if len(matches) != 2 {
 		t.Fatalf("SearchText() matches = %#v, want two matches from first and second", matches)
 	}
