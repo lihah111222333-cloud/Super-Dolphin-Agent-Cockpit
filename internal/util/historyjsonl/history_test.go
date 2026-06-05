@@ -96,6 +96,23 @@ func TestReadProviderMessagesPageReturnsRecentMessagesAndCursor(t *testing.T) {
 	requireHistoryPageEnd(t, second)
 }
 
+func TestReadProviderMessagesPageDropsTurnAbortedControlBlock(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := writeCodexRolloutRawLines(t, root, "thread-aborted-control", []string{
+		codexRolloutMessageLine(30, "user", "input_text", "visible prompt"),
+		codexRolloutMessageLine(31, "user", "input_text", "<turn_aborted>\nThe user interrupted the previous turn on purpose. Any running unified exec processes may still be running in the background. If any tools/commands were aborted, they may have partially executed.\n</turn_aborted>"),
+		codexRolloutMessageLine(32, "assistant", "output_text", "visible reply"),
+	})
+
+	page, err := ReadProviderMessagesPage(ReadRequest{Provider: "codex", RolloutPath: path}, dto.MessagePageRequest{Limit: 10})
+	if err != nil {
+		t.Fatalf("ReadProviderMessagesPage() error = %v", err)
+	}
+	requireHistoryPageContents(t, page.Messages, []string{"visible prompt", "visible reply"})
+}
+
 func requireHistoryPageContents(t *testing.T, messages []dto.Message, want []string) {
 	t.Helper()
 	got := make([]string, 0, len(messages))
@@ -153,6 +170,32 @@ func writeCodexRollout(t *testing.T, root, id, content string) string {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 	raw := `{"timestamp":"2026-05-15T22:55:30Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"` + content + `"}]}}` + "\n"
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	return path
+}
+
+func codexRolloutMessageLine(second int, role, itemType, content string) string {
+	return fmt.Sprintf(
+		`{"timestamp":"2026-05-15T22:55:%02dZ","type":"response_item","payload":{"type":"message","role":%q,"content":[{"type":%q,"text":%q}]}}`+"\n",
+		second,
+		role,
+		itemType,
+		content,
+	)
+}
+
+func writeCodexRolloutRawLines(t *testing.T, root, id string, lines []string) string {
+	t.Helper()
+	path := filepath.Join(root, "sessions", "2026", "05", "15", "rollout-2026-05-15T22-55-30-"+id+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	var raw string
+	for _, line := range lines {
+		raw += line
+	}
 	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
