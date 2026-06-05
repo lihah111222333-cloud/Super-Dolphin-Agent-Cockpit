@@ -2795,6 +2795,7 @@ const baseState = {
   threadConfigFailedByThread: {},
   threadStateLoadingByThread: {},
   threadArchiveLoadingByThread: {},
+  lastListMutationTime: 0,
   threadConfigSaving: false,
   timelinesByThread: {},
   threadTimelineReadyByThread: {},
@@ -4444,6 +4445,13 @@ function createThreadSelectionActions(runtime) {
     setActiveThread: async (threadId) => {
       const id = backendThreadIdForState(runtime.get(), threadId, { includeArchived: true });
       const current = runtime.get();
+      const lastListMutationTime = current.lastListMutationTime || 0;
+      if (Date.now() - lastListMutationTime < 350) {
+        const currentActiveId = backendThreadIdForState(current, current.activeThreadId);
+        if (id !== currentActiveId) {
+          return false;
+        }
+      }
       void runtime.saveActiveComposerDraft(current);
       const restored = runtime.restoreComposerDraft(current, id);
       if (!id) {
@@ -5084,6 +5092,7 @@ function createThreadArchiveActions(runtime) {
           ...state.threadArchiveLoadingByThread,
           [id]: true,
         },
+        lastListMutationTime: Date.now(),
       }));
 
       // 2. Perform the main backend archive operation
@@ -5189,6 +5198,7 @@ function createThreadDeleteActions(runtime) {
               : `已删除 ${deletedIds.length} 个无用会话`,
             failedIds.length > 0 ? 'warning' : 'success',
           ),
+          lastListMutationTime: Date.now(),
         }));
       } else {
         runtime.set({
