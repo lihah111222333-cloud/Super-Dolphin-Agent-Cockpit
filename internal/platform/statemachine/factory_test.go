@@ -170,13 +170,19 @@ func TestAllowedTriggers(t *testing.T) {
 		},
 	}, nil, nil)
 
-	triggers := AllowedTriggers(sm, context.Background())
+	triggers, err := AllowedTriggers(sm, context.Background())
+	if err != nil {
+		t.Fatalf("AllowedTriggers() unexpected error = %v", err)
+	}
 	if len(triggers) != 2 {
 		t.Fatalf("AllowedTriggers() = %v, want 2 triggers", triggers)
 	}
 
 	sm.Fire("start")
-	triggers = AllowedTriggers(sm, context.Background())
+	triggers, err = AllowedTriggers(sm, context.Background())
+	if err != nil {
+		t.Fatalf("AllowedTriggers() unexpected error = %v", err)
+	}
 	if len(triggers) != 0 {
 		t.Fatalf("AllowedTriggers() from running = %v, want 0", triggers)
 	}
