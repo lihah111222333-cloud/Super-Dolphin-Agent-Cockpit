@@ -144,7 +144,7 @@ func TestShouldQuitStartsShutdownWhenActiveAgentCountFails(t *testing.T) {
 	}
 }
 
-func TestShouldQuitAllowsImmediateQuitWithoutActiveAgents(t *testing.T) {
+func TestShouldQuitWaitsForBackendStopWithoutActiveAgents(t *testing.T) {
 	t.Parallel()
 
 	lifecycle := NewWailsLifecycle(ActiveAgentCounterFunc(func(context.Context) (int, error) {
@@ -156,14 +156,37 @@ func TestShouldQuitAllowsImmediateQuitWithoutActiveAgents(t *testing.T) {
 	lifecycle.SetShutdownerFunc(func() {
 		shutdownCalled <- struct{}{}
 	})
+	quitCalled := make(chan struct{}, 1)
+	lifecycle.SetQuitFunc(func() {
+		quitCalled <- struct{}{}
+	})
 
-	if !lifecycle.ShouldQuit() {
-		t.Fatal("ShouldQuit() = false without active agents, want true so macOS does not leave a headless app process")
+	if lifecycle.ShouldQuit() {
+		t.Fatal("ShouldQuit() = true without active agents, want false until backend shutdown completes")
 	}
 	select {
 	case <-shutdownCalled:
 	case <-time.After(time.Second):
 		t.Fatal("shutdown was not requested before allowing quit")
+	}
+	select {
+	case <-quitCalled:
+		t.Fatal("quit was invoked before backend shutdown completed")
+	default:
+	}
+	if lifecycle.ShouldQuit() {
+		t.Fatal("second ShouldQuit() = true before backend stop, want false")
+	}
+
+	lifecycle.NotifyBackendStopped()
+
+	select {
+	case <-quitCalled:
+	case <-time.After(time.Second):
+		t.Fatal("quit was not invoked after backend shutdown completed")
+	}
+	if !lifecycle.ShouldQuit() {
+		t.Fatal("ShouldQuit() = false after backend stop, want true")
 	}
 }
 
