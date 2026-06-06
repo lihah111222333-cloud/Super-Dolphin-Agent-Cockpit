@@ -577,18 +577,53 @@ function workflowLockModeLabel(value) {
   return mode || '-';
 }
 
+function workflowOrderedNodes(nodes = []) {
+  const source = Array.isArray(nodes) ? nodes : [];
+  const byKey = new Map(source.filter((node) => textValue(node?.nodeKey)).map((node) => [node.nodeKey, node]));
+  const ordered = [];
+  const visited = new Set();
+  const visiting = new Set();
+
+  const visit = (node) => {
+    const key = textValue(node?.nodeKey);
+    if (!key) {
+      ordered.push(node);
+      return;
+    }
+    if (visited.has(key)) return;
+    if (visiting.has(key)) return;
+
+    visiting.add(key);
+    if (Array.isArray(node.dependsOn)) {
+      node.dependsOn.forEach((depKey) => {
+        const dependency = byKey.get(depKey);
+        if (dependency) visit(dependency);
+      });
+    }
+    visiting.delete(key);
+    visited.add(key);
+    ordered.push(node);
+  };
+
+  source.forEach((node) => visit(node));
+  return ordered;
+}
+
 function workflowTopologyRows(nodes = []) {
-  const known = new Map(nodes.map((node, index) => [node.nodeKey, node.title || `步骤 ${index + 1}`]));
+  const orderedNodes = workflowOrderedNodes(nodes);
+  const known = new Map(orderedNodes.map((node, index) => [node.nodeKey, node.title || `步骤 ${index + 1}`]));
   const missingLabels = new Map();
   const labelForMissing = (key) => {
     if (!missingLabels.has(key)) missingLabels.set(key, `外部依赖 ${missingLabels.size + 1}`);
     return missingLabels.get(key);
   };
-  return nodes.flatMap((node) => {
+  const edgeRows = orderedNodes.flatMap((node) => {
     const title = node.title || node.nodeKey;
-    if (!Array.isArray(node.dependsOn) || node.dependsOn.length === 0) return [`${title}`];
+    if (!Array.isArray(node.dependsOn) || node.dependsOn.length === 0) return [];
     return node.dependsOn.map((depKey) => `${known.get(depKey) || labelForMissing(depKey)} --> ${title}`);
   });
+  if (edgeRows.length > 0) return edgeRows;
+  return orderedNodes.map((node, index) => node.title || node.nodeKey || `步骤 ${index + 1}`);
 }
 
 function validThreadIdText(value) {
@@ -769,7 +804,7 @@ function dagNodeAgentExecFormHasValues(form) {
 
 function workflowDiagnosticNodes(detail, run) {
   const runtimeNodes = Array.isArray(run?.selectedRun?.nodes) ? run.selectedRun.nodes : [];
-  return runtimeNodes.length > 0 ? runtimeNodes : detail.nodes;
+  return workflowOrderedNodes(runtimeNodes.length > 0 ? runtimeNodes : detail.nodes);
 }
 
 function workflowNodeDiagnostics(nodes = []) {
