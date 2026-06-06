@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -69,17 +70,41 @@ func resolveFilePath(ctx context.Context, path string) (string, error) {
 	return pathInfo.AbsPath, nil
 }
 
-func resolveWorkspacePathInRoots(root string, roots []string, uri string) (string, error) {
-	filePath, err := requireFilePath(uri)
+func normalizeFilePathTarget(raw string) (string, error) {
+	filePath, err := requireFilePath(raw)
 	if err != nil {
 		return "", err
 	}
-	if strings.HasPrefix(strings.TrimSpace(filePath), "file://") {
-		resolved, err := format.AbsolutePathFromURI(filePath)
+	trimmed := strings.TrimSpace(filePath)
+	if hasFileURIScheme(trimmed) {
+		resolved, err := format.AbsolutePathFromURI(trimmed)
 		if err != nil {
 			return "", err
 		}
-		filePath = resolved
+		return resolved, nil
+	}
+	if filepath.IsAbs(trimmed) && strings.Contains(trimmed, "%") {
+		unescaped, err := url.PathUnescape(trimmed)
+		if err != nil {
+			return "", fmt.Errorf("decode file_path %q: %w", trimmed, err)
+		}
+		if strings.TrimSpace(unescaped) == "" {
+			return "", fmt.Errorf("decode file_path %q: empty path", trimmed)
+		}
+		return unescaped, nil
+	}
+	return filePath, nil
+}
+
+func hasFileURIScheme(path string) bool {
+	scheme, _, ok := strings.Cut(path, ":")
+	return ok && strings.EqualFold(scheme, "file")
+}
+
+func resolveWorkspacePathInRoots(root string, roots []string, uri string) (string, error) {
+	filePath, err := normalizeFilePathTarget(uri)
+	if err != nil {
+		return "", err
 	}
 	pathInfo, err := search.ResolvePathInRoots(root, roots, filePath)
 	if err != nil {
