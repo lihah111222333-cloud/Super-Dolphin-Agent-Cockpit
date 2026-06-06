@@ -115,6 +115,9 @@ type manager struct {
 	diagInitial    time.Duration
 	diagPoll       time.Duration
 	diagMaxWait    time.Duration
+
+	explicitOpenMu sync.RWMutex
+	explicitlyOpen map[string]struct{}
 }
 
 type workspaceClient struct {
@@ -183,6 +186,7 @@ func NewManager(cfg Config) Manager {
 		logger:                           cfg.Logger,
 		workspaces:                       make(map[string]*workspaceClient),
 		diagnostics:                      make(map[string]diagnosticSnapshot),
+		explicitlyOpen:                   make(map[string]struct{}),
 		diagInitial:                      chooseDuration(cfg.DiagnosticsInitialDelay, defaultDiagnosticsInitialDelay),
 		diagPoll:                         chooseDuration(cfg.DiagnosticsPollInterval, defaultDiagnosticsPollInterval),
 		diagMaxWait:                      chooseDuration(cfg.DiagnosticsMaxWait, defaultDiagnosticsMaxWait),
@@ -205,9 +209,10 @@ func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
 		root = normalized
 	}
 	clone := &manager{
-		workspaceRoot: root,
-		workspaces:    make(map[string]*workspaceClient),
-		diagnostics:   make(map[string]diagnosticSnapshot),
+		workspaceRoot:  root,
+		workspaces:     make(map[string]*workspaceClient),
+		diagnostics:    make(map[string]diagnosticSnapshot),
+		explicitlyOpen: make(map[string]struct{}),
 	}
 	if m != nil {
 		clone.factory = m.factory

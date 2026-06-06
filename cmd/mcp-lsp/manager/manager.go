@@ -45,6 +45,10 @@ type StructureManager interface {
 	SemanticTokens(ctx context.Context, uri string) (*protocol.SemanticTokensResult, error)
 }
 
+type BestEffortDocumentSymbolManager interface {
+	DocumentSymbolBestEffort(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error)
+}
+
 type CompletionManager interface {
 	Completion(ctx context.Context, uri string, position protocol.Position) (*protocol.CompletionList, error)
 }

@@ -143,6 +143,13 @@ func (m *resolvedScopeManager) DocumentSymbol(ctx context.Context, uri string) (
 	return m.manager.DocumentSymbol(m.scoped(ctx), uri)
 }
 
+func (m *resolvedScopeManager) DocumentSymbolBestEffort(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error) {
+	if bestEffort, ok := m.manager.(BestEffortDocumentSymbolManager); ok {
+		return bestEffort.DocumentSymbolBestEffort(m.scoped(ctx), uri)
+	}
+	return m.manager.DocumentSymbol(m.scoped(ctx), uri)
+}
+
 func (m *resolvedScopeManager) WorkspaceSymbol(ctx context.Context, query string, languageID string) ([]protocol.WorkspaceSymbolResult, error) {
 	return m.manager.WorkspaceSymbol(m.scoped(ctx), query, languageID)
 }

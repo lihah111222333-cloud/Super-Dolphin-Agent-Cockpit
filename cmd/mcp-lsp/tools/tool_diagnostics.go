@@ -100,6 +100,9 @@ func (h handlerBase) bootstrapDiagnostics(ctx context.Context, existingURIs []st
 }
 
 func (h handlerBase) waitDiagnosticsWithStartupRecovery(ctx context.Context, uris, existingURIs []string) (diagnosticsWaitResult, error) {
+	if diagnosticsStartupWaitUnsupported(existingURIs) {
+		return diagnosticsWaitResult{}, nil
+	}
 	if _, err := h.waitDiagnosticsStable(ctx, uris); err != nil {
 		return h.recoverDiagnosticsStartupWait(ctx, uris, existingURIs, err)
 	}
@@ -276,6 +279,18 @@ func existingDiagnosticURIs(uris []string) []string {
 		}
 	}
 	return existing
+}
+
+func diagnosticsStartupWaitUnsupported(uris []string) bool {
+	if len(uris) == 0 {
+		return false
+	}
+	for _, uri := range uris {
+		if !isDetachedRustFile(format.URIToPath(uri)) {
+			return false
+		}
+	}
+	return true
 }
 
 func ensureDiagnosticFile(absPath, displayPath string) error {

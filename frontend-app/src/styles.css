@@ -3912,6 +3912,63 @@ select {
   white-space: nowrap;
 }
 
+.workflow-output-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-2) 78%, var(--bg));
+  flex-wrap: wrap;
+}
+
+.workflow-page .workflow-output-action {
+  min-height: 32px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-pri);
+  box-shadow: none;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.workflow-page .workflow-output-action-preview {
+  border-color: var(--primary-action-border);
+  background: var(--primary-action-bg);
+  color: var(--primary-action-text);
+  box-shadow: var(--primary-action-shadow);
+}
+
+.workflow-page .workflow-output-action-preview:hover {
+  border-color: var(--border-strong);
+  background: var(--primary-action-bg-hover);
+  color: var(--primary-action-text);
+}
+
+.workflow-page .workflow-output-action-system {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-pri);
+}
+
+.workflow-page .workflow-output-action-system:hover {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--surface-3) 72%, transparent);
+  color: var(--text-pri);
+}
+
+.workflow-page .workflow-output-action:disabled {
+  border-color: var(--border);
+  background: var(--surface-3);
+  color: var(--text-muted);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
 .workflow-final-preview {
   max-height: 500px;
   overflow: auto;
