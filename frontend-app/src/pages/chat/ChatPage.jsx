@@ -5376,6 +5376,23 @@ function Conversation(props) {
     if (!shouldStickToBottomRef.current) return;
     requestTimelineBottomScroll(scrollTimelineToBottomInstant);
   }, [autoScrollKey, scrollTimelineToBottomInstant]);
+  useEffect(() => {
+    const el = timelineRef.current;
+    if (!el) return;
+    const observer = new MutationObserver(() => {
+      if (shouldStickToBottomRef.current) {
+        scrollTimelineElementToBottom(el, false);
+      }
+    });
+    observer.observe(el, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
   const composer = (
     <ConversationComposer
       {...props}
