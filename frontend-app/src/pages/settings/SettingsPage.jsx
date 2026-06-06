@@ -538,6 +538,7 @@ async function saveRuntimePreferences({ cwd, form, setError, setStatus }) {
     const { stallThresholdSec, contextThresholds } = validateRuntimeThresholds(form);
     await setPreference({ cwd: projectCwd, key: SETTINGS_KEYS.stallThreshold, value: stallThresholdSec });
     await setPreference({ cwd: projectCwd, key: SETTINGS_KEYS.contextThresholds, value: contextThresholds });
+    useClientStore.getState().setContextUsageThresholds(contextThresholds);
     setStatus('已保存超时与上下文使用率设置');
   } catch (err) {
     setError(err.message || String(err));

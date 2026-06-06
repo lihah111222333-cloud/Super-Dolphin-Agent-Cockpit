@@ -387,7 +387,7 @@ describe('composer layout styles', () => {
     const chip = declarationsFor('.work-status code');
 
     expect(status.display).toBe('grid');
-    expect(status['grid-template-columns']).toBe('auto auto minmax(0, 1fr) minmax(0, max-content)');
+    expect(status['grid-template-columns']).toBe('auto auto minmax(0, 1fr) auto minmax(0, max-content)');
     expect(chip['min-width']).toBe('0');
     expect(chip['max-width']).toBe('100%');
     expect(chip.overflow).toBe('hidden');
@@ -736,7 +736,7 @@ describe('conversation grid styles', () => {
     const detail = declarationsFor('.work-status em');
     const token = declarationsFor('.work-status code');
 
-    expect(status['grid-template-columns']).toBe('auto auto minmax(0, 1fr) minmax(0, max-content)');
+    expect(status['grid-template-columns']).toBe('auto auto minmax(0, 1fr) auto minmax(0, max-content)');
     expect(detail['min-width']).toBe('0');
     expect(detail.overflow).toBe('hidden');
     expect(token['justify-self']).toBe('end');

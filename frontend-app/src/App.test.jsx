@@ -2701,6 +2701,62 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(card).toHaveTextContent('继承自会话：后端线程');
   });
 
+  it('uses settings context thresholds for warn, danger and critical usage banner levels', async () => {
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'contextUsageAlerts.thresholds': [70, 85, 95],
+    }[key] ?? promptPreferenceValue(key)));
+    backend.getSidebarState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中' }],
+      active_turn: { id: 'turn-1', thread_id: 'thread-1', status: 'running' },
+      tokenUsageByThread: {
+        'thread-1': { usedTokens: 720, contextWindowTokens: 1000, usedPercent: 72 },
+      },
+    });
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [
+          { id: 'assistant-1', kind: 'assistant', text: '按设置阈值显示上下文提醒' },
+        ],
+      },
+    });
+
+    render(<App />);
+
+    await screen.findByText('按设置阈值显示上下文提醒');
+    const banner = await screen.findByTestId('context-usage-banner');
+    expect(banner).toHaveTextContent('72%');
+    expect(banner).toHaveClass('context-usage-inline--warn');
+    expect(banner).not.toHaveClass('context-usage-inline--danger');
+    expect(banner).not.toHaveClass('context-usage-inline--critical');
+    expect(within(banner).queryByTestId('context-usage-critical-icon')).not.toBeInTheDocument();
+
+    act(() => {
+      bridgeCallback({
+        type: 'thread/tokenusage/updated',
+        payload: { threadId: 'thread-1', usedTokens: 880, contextWindowTokens: 1000, usedPercent: 88 },
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('context-usage-banner')).toHaveTextContent('88%');
+      expect(screen.getByTestId('context-usage-banner')).toHaveClass('context-usage-inline--danger');
+    });
+
+    act(() => {
+      bridgeCallback({
+        type: 'thread/tokenusage/updated',
+        payload: { threadId: 'thread-1', usedTokens: 970, contextWindowTokens: 1000, usedPercent: 97 },
+      });
+    });
+    await waitFor(() => {
+      const criticalBanner = screen.getByTestId('context-usage-banner');
+      expect(criticalBanner).toHaveTextContent('97%');
+      expect(criticalBanner).toHaveClass('context-usage-inline--critical');
+      expect(within(criticalBanner).getByTestId('context-usage-critical-icon')).toBeInTheDocument();
+    });
+  });
+
   it('sends the composer draft when plain Enter is pressed inside the textarea', async () => {
     backend.getSidebarState.mockResolvedValue({
       activeThreadId: 'thread-1',
@@ -8061,6 +8117,7 @@ async function designWorkflowWithAi() {
     await waitFor(() => {
       expect(backend.setPreference).toHaveBeenCalledWith({ cwd: '/repo/app', key: 'stallThresholdSec', value: 120 });
       expect(backend.setPreference).toHaveBeenCalledWith({ cwd: '/repo/app', key: 'contextUsageAlerts.thresholds', value: [70, 85, 96] });
+      expect(useClientStore.getState().contextUsageThresholds).toEqual([70, 85, 96]);
     });
 
     expect(screen.queryByLabelText('Model Provider')).not.toBeInTheDocument();
