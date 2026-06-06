@@ -5360,6 +5360,10 @@ function Conversation(props) {
   useEffect(() => {
     if (!timelineContentBlocked && activeThreadId) {
       scrollTimelineToBottomInstant();
+      const timer = setTimeout(() => {
+        scrollTimelineToBottomInstant();
+      }, 50);
+      return () => clearTimeout(timer);
     }
   }, [activeThreadId, timelineContentBlocked, scrollTimelineToBottomInstant]);
   useEffect(() => {
