@@ -17,6 +17,7 @@ import (
 
 const maxReactiveBootstrap = 30
 const maxDiagnosticSummaryRunes = 300
+const typeScriptDeprecatedDiagnosticCode = "6385"
 
 type diagnosticsTable struct {
 	File string   `json:"file"`
@@ -400,7 +401,7 @@ func buildDiagnosticsTables(items []protocol.PublishDiagnosticsParams, displayPa
 			rows = append(rows, []any{
 				format.FromLSP(diag.Range.Start.Line),
 				format.FromLSP(diag.Range.Start.Character),
-				diag.Severity.String(),
+				diagnosticSeverity(diag),
 				diagnosticMessageSummary(diag.Message),
 				diag.Source,
 				diagnosticCode(diag.Code),
@@ -466,6 +467,13 @@ func diagnosticCode(code any) string {
 	default:
 		return fmt.Sprint(value)
 	}
+}
+
+func diagnosticSeverity(diag protocol.Diagnostic) string {
+	if diagnosticCode(diag.Code) == typeScriptDeprecatedDiagnosticCode {
+		return protocol.SeverityHint.String()
+	}
+	return diag.Severity.String()
 }
 
 func (r diagnosticsResponse) ToPlainText() string {

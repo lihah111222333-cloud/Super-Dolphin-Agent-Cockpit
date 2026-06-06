@@ -45,16 +45,41 @@ ensure_node_deps() {
   fi
 }
 
+peer_binary_stale() {
+  local bin="$1"
+  shift
+  local rel path
+  if [ ! -x "$bin" ]; then
+    return 0
+  fi
+  for rel in "$@"; do
+    path="$PROJECT_DIR/$rel"
+    if [ ! -e "$path" ]; then
+      continue
+    fi
+    if find "$path" -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' -o -name '*.yaml' -o -name '*.yml' \) -newer "$bin" -print -quit | grep -q .; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 ensure_peer_binaries() {
   local peer_dir="${GO_AGENT_PEER_BIN_DIR:-$PROJECT_DIR}"
-  local missing=0
+  local needs_rebuild=0
   for bin in mcp-orch mcp-lsp; do
     if [ ! -x "$peer_dir/$bin" ]; then
-      missing=1
+      needs_rebuild=1
       break
     fi
   done
-  if [ "$missing" = "0" ]; then
+  if [ "$needs_rebuild" = "0" ] && peer_binary_stale "$peer_dir/mcp-orch" cmd/mcp-orch internal pkg go.mod go.sum; then
+    needs_rebuild=1
+  fi
+  if [ "$needs_rebuild" = "0" ] && peer_binary_stale "$peer_dir/mcp-lsp" cmd/mcp-lsp internal pkg go.mod go.sum; then
+    needs_rebuild=1
+  fi
+  if [ "$needs_rebuild" = "0" ]; then
     return 0
   fi
   rebuild_peer_binaries

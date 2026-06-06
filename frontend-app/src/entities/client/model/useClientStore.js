@@ -589,10 +589,13 @@ function archiveMapFromThreads(threads = []) {
     const id = normalizeThreadId(thread?.id);
     if (!id) continue;
     const archivedAt = normalizeTimestamp(thread?.archivedAt);
-    if (archivedAt > 0) {
-      entries.push([id, archivedAt]);
-    } else if (thread?.archived) {
-      entries.push([id, 1]);
+    const value = archivedAt > 0 ? archivedAt : (thread?.archived ? 1 : 0);
+    if (value > 0) {
+      entries.push([id, value]);
+      const agentId = normalizeThreadId(thread?.agentId);
+      if (agentId && agentId !== id) {
+        entries.push([agentId, value]);
+      }
     }
   }
   return Object.fromEntries(entries);
@@ -664,25 +667,53 @@ function normalizeThreadProviderValue(raw, options = {}) {
   );
 }
 
-function normalizeThreadPinnedAt(raw, threadId, options = {}) {
+function normalizeThreadPinnedAt(raw, identity, options = {}) {
+  const threadId = identity && typeof identity === 'object' ? identity.threadId : normalizeThreadId(identity);
+  const agentId = identity && typeof identity === 'object' ? identity.agentId : '';
+  let resolvedDbId = '';
+  if (options.state?.threads) {
+    const existing = options.state.threads.find((t) =>
+      (threadId && threadMatchesIdentifier(t, threadId)) ||
+      (agentId && threadMatchesIdentifier(t, agentId))
+    );
+    if (existing) {
+      resolvedDbId = normalizeBackendThreadId(existing.id);
+    }
+  }
   return normalizeTimestamp(firstThreadCopyText(
     raw?.pinnedAt,
     raw?.pinned_at,
     raw?.pinnedAtMs,
     raw?.pinned_at_ms,
     typeof raw?.pinned === 'boolean' ? 0 : raw?.pinned,
-    options.pinnedAtById?.[threadId],
+    (threadId && options.pinnedAtById?.[threadId]) ||
+    (agentId && options.pinnedAtById?.[agentId]) ||
+    (resolvedDbId && options.pinnedAtById?.[resolvedDbId]),
   ));
 }
 
-function normalizeThreadArchivedAt(raw, threadId, options = {}) {
+function normalizeThreadArchivedAt(raw, identity, options = {}) {
+  const threadId = identity && typeof identity === 'object' ? identity.threadId : normalizeThreadId(identity);
+  const agentId = identity && typeof identity === 'object' ? identity.agentId : '';
+  let resolvedDbId = '';
+  if (options.state?.threads) {
+    const existing = options.state.threads.find((t) =>
+      (threadId && threadMatchesIdentifier(t, threadId)) ||
+      (agentId && threadMatchesIdentifier(t, agentId))
+    );
+    if (existing) {
+      resolvedDbId = normalizeBackendThreadId(existing.id);
+    }
+  }
   return normalizeTimestamp(firstThreadCopyText(
     raw?.archivedAt,
     raw?.archived_at,
     raw?.archivedAtMs,
     raw?.archived_at_ms,
     typeof raw?.archived === 'boolean' ? 0 : raw?.archived,
-    options.archivedAtById?.[threadId],
+    (threadId && options.archivedAtById?.[threadId]) ||
+    (agentId && options.archivedAtById?.[agentId]) ||
+    (resolvedDbId && options.archivedAtById?.[resolvedDbId]),
   ));
 }
 
@@ -700,9 +731,22 @@ function normalizeThread(raw, options = {}) {
   const status = normalizeThreadStatusText(raw);
   const cwd = normalizeThreadCwdValue(raw, sourceThread, options);
   const provider = normalizeThreadProviderValue(raw, options);
-  const pinnedAt = normalizeThreadPinnedAt(raw, identity.threadId, options);
-  const archivedAt = normalizeThreadArchivedAt(raw, identity.threadId, options);
+  const pinnedAt = normalizeThreadPinnedAt(raw, identity, options);
+  const archivedAt = normalizeThreadArchivedAt(raw, identity, options);
   const lifecycleStatus = normalizeThreadLifecycleStatus(raw);
+  let archived = isThreadArchived(raw, status, lifecycleStatus, archivedAt);
+  const recentOverride =
+    (identity.threadId && options.lastArchivedStatesByThread?.[identity.threadId]) ||
+    (identity.agentId && options.lastArchivedStatesByThread?.[identity.agentId]);
+  const isLoading = Boolean(
+    (identity.threadId && options.threadArchiveLoadingByThread?.[identity.threadId]) ||
+    (identity.agentId && options.threadArchiveLoadingByThread?.[identity.agentId])
+  );
+  if (isLoading && recentOverride) {
+    archived = recentOverride.archived;
+  } else if (recentOverride && Date.now() - recentOverride.timestamp < 8000) {
+    archived = recentOverride.archived;
+  }
   return {
     id: identity.threadId,
     agentId: identity.agentId,
@@ -716,7 +760,7 @@ function normalizeThread(raw, options = {}) {
     updatedAt: normalizeString(raw?.updatedAt || raw?.updated_at || raw?.createdAt || raw?.created_at),
     pinned: Boolean(raw?.pinned || raw?.isPinned || pinnedAt > 0),
     pinnedAt,
-    archived: isThreadArchived(raw, status, lifecycleStatus, archivedAt),
+    archived,
     archivedAt,
   };
 }
@@ -1531,8 +1575,18 @@ function sameTimelineContentPrefix(left, right) {
   return leftText.startsWith(rightText) || rightText.startsWith(leftText);
 }
 
+function sameTimelineSubstring(left, right) {
+  if (left?.role !== right?.role || normalizeTimelineKind(left) !== normalizeTimelineKind(right)) return false;
+  const leftText = compactTimelineText(left?.text);
+  const rightText = compactTimelineText(right?.text);
+  if (!leftText || !rightText) return false;
+  const shorterLength = Math.min(leftText.length, rightText.length);
+  if (shorterLength < 15) return false;
+  return leftText.includes(rightText) || rightText.includes(leftText);
+}
+
 function sameTimelineDuplicateContent(left, right) {
-  return sameTimelineContent(left, right) || sameTimelineContentCompact(left, right) || sameRuntimeAssistantContentLoose(left, right);
+  return sameTimelineContent(left, right) || sameTimelineContentCompact(left, right) || sameRuntimeAssistantContentLoose(left, right) || sameTimelineSubstring(left, right);
 }
 
 function normalizeTimelineKind(item) {
@@ -1601,7 +1655,7 @@ function dedupeAssistantTimelineItems(items = []) {
       continue;
     }
 
-    if (item?.role !== 'assistant' || item.done === false || !compactTimelineText(item.text)) {
+    if (item?.role !== 'assistant' || !compactTimelineText(item.text)) {
       output.push(item);
       continue;
     }
@@ -1609,24 +1663,73 @@ function dedupeAssistantTimelineItems(items = []) {
     // fast-path: skip exact id duplicates (cross-turn reconnect dedup)
     if (item.id && seenIds.has(item.id)) continue;
 
-    let duplicateIndex = -1;
+    const duplicateIndices = [];
     for (let index = output.length - 1; index > lastUserIndex; index -= 1) {
       const candidate = output[index];
-      if (candidate?.role === 'assistant' && candidate.done !== false && sameTimelineDuplicateContent(candidate, item)) {
-        duplicateIndex = index;
-        break;
+      if (candidate?.role === 'assistant' && sameTimelineDuplicateContent(candidate, item)) {
+        duplicateIndices.push(index);
       }
     }
 
-    if (duplicateIndex >= 0) {
-      output[duplicateIndex] = preferredAssistantTimelineItem(output[duplicateIndex], item);
+    if (duplicateIndices.length > 0) {
+      let mergedItem = item;
+      let anyDone = Boolean(item.done);
+      for (const index of duplicateIndices) {
+        if (output[index].done) anyDone = true;
+        mergedItem = preferredAssistantTimelineItem(output[index], mergedItem);
+      }
+      if (anyDone) {
+        mergedItem = { ...mergedItem, done: true };
+      }
+      const primaryIndex = duplicateIndices[duplicateIndices.length - 1]; // earliest duplicate index
+      output[primaryIndex] = mergedItem;
+
+      const indicesToRemove = new Set(duplicateIndices.slice(0, -1));
+      if (indicesToRemove.size > 0) {
+        let writeIdx = lastUserIndex + 1;
+        for (let readIdx = lastUserIndex + 1; readIdx < output.length; readIdx++) {
+          if (!indicesToRemove.has(readIdx)) {
+            output[writeIdx] = output[readIdx];
+            writeIdx++;
+          }
+        }
+        output.length = writeIdx;
+      }
       continue;
     }
+
     output.push(item);
     if (item.id) seenIds.add(item.id);
   }
 
   return output;
+}
+
+function areTimelineItemsEquivalent(left, right) {
+  if (!left || !right) return left === right;
+  if (left.id !== right.id) return false;
+  if (left.role !== right.role) return false;
+  if (left.kind !== right.kind) return false;
+
+  const normText = (val) => (val || '').toString().trim();
+  if (normText(left.text) !== normText(right.text)) return false;
+  if (normText(left.status) !== normText(right.status)) return false;
+  if (normText(left.completedAt) !== normText(right.completedAt)) return false;
+  if (normText(left.title) !== normText(right.title)) return false;
+  if (normText(left.command) !== normText(right.command)) return false;
+  if (normText(left.toolName) !== normText(right.toolName)) return false;
+  if (normText(left.callId) !== normText(right.callId)) return false;
+  if (normText(left.time) !== normText(right.time)) return false;
+
+  if (Boolean(left.done) !== Boolean(right.done)) return false;
+  if (Boolean(left.optimistic) !== Boolean(right.optimistic)) return false;
+  if (Boolean(left.runtime) !== Boolean(right.runtime)) return false;
+  if (Boolean(left.controlOnly) !== Boolean(right.controlOnly)) return false;
+
+  if ((left.elapsedMs ?? 0) !== (right.elapsedMs ?? 0)) return false;
+  if ((left.requestId ?? 0) !== (right.requestId ?? 0)) return false;
+
+  return true;
 }
 
 function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}) {
@@ -1641,7 +1744,11 @@ function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}
   for (const existingItem of existingItems) {
     const replacement = incomingById.get(existingItem.id);
     if (replacement) {
-      merged.push(replacement);
+      if (areTimelineItemsEquivalent(existingItem, replacement)) {
+        merged.push(existingItem);
+      } else {
+        merged.push(replacement);
+      }
       consumedIncomingIds.add(replacement.id);
       continue;
     }
@@ -1680,10 +1787,13 @@ function normalizeSnapshotThreadList(payload, state, options, maps) {
   const threads = payload.threads
     .filter((thread) => threadMatchesCwdScope(thread, maps.scopeCwd, maps.runtimeById))
     .map((thread) => normalizeThread(thread, {
+      state,
       archivedAtById: maps.archivedAtById,
       pinnedAtById: maps.pinnedAtById,
       fallbackProvider: snapshotThreadFallbackProvider(thread, state, maps.runtimeById),
       fallbackCwd: snapshotThreadCwd(thread, maps.runtimeById),
+      lastArchivedStatesByThread: state.lastArchivedStatesByThread,
+      threadArchiveLoadingByThread: state.threadArchiveLoadingByThread,
     }))
     .filter((thread) => thread.id);
   return threads;
@@ -1714,24 +1824,21 @@ function snapshotThreadList(payload, state, options, maps) {
   return nextThreads;
 }
 
-function preservedSnapshotActiveThreadId(state, nextThreads, options) {
-  if (!options.preserveActiveThreadId) return '';
-  return (
-    backendThreadIdFromThreads(state.activeThreadId, nextThreads) ||
-    (!nextThreads.some((thread) => threadMatchesIdentifier(thread, state.activeThreadId))
-      ? normalizeBackendThreadId(state.activeThreadId)
-      : '')
-  );
-}
-
 function snapshotActiveThreadId(state, payload, nextThreads, options) {
   const preferredActiveThreadId = normalizeThreadId(options.preferredActiveThreadId);
   const autoSelectThread = options.autoSelectThread !== false;
   const activeLookupOptions = options.includeArchivedActiveThread ? { includeArchived: true } : {};
-  const explicitActiveThreadId = (
-    preservedSnapshotActiveThreadId(state, nextThreads, options) ||
-    backendThreadIdFromThreads(preferredActiveThreadId, nextThreads, activeLookupOptions)
-  );
+
+  if (options.preserveActiveThreadId) {
+    return (
+      backendThreadIdFromThreads(state.activeThreadId, nextThreads, { includeArchived: true }) ||
+      (!nextThreads.some((thread) => threadMatchesIdentifier(thread, state.activeThreadId))
+        ? normalizeBackendThreadId(state.activeThreadId)
+        : '')
+    );
+  }
+
+  const explicitActiveThreadId = backendThreadIdFromThreads(preferredActiveThreadId, nextThreads, activeLookupOptions);
   if (!autoSelectThread) return explicitActiveThreadId;
   const snapshotActive = normalizeThreadId(payload.activeThreadId || payload.active_thread_id);
   const selectableThreadId = nextThreads.find((thread) => !thread.archived)?.id || '';
@@ -2397,11 +2504,16 @@ function promotedDraftThreadState(state, request, started) {
     delete activityThreadAtById[request.provisionalThreadId];
   }
   const provider = started.launchPreferences.modelProvider || started.launchPreferences.provider || DEFAULT_PROVIDER;
+  const activeThreadId = state.activeThreadId === request.provisionalThreadId ? started.threadId : state.activeThreadId;
   return {
-    activeThreadId: started.threadId,
+    activeThreadId,
     provider,
     activityThreadAtById,
     timelinesByThread,
+    threadTimelineReadyByThread: {
+      ...state.threadTimelineReadyByThread,
+      [started.threadId]: true,
+    },
     threads: [
       {
         id: started.threadId,
@@ -2422,11 +2534,12 @@ function rollbackSendDraftState(state, request, error) {
   const activeTimeline = timelinesByThread[state.activeThreadId] || [];
   timelinesByThread[state.activeThreadId] = activeTimeline.filter((item) => item.id !== request.optimisticItem.id);
   if (!request.previousThreadId) delete timelinesByThread[request.provisionalThreadId];
+  const activeThreadId = state.activeThreadId === request.provisionalThreadId ? request.previousActiveThreadId : state.activeThreadId;
   return {
     sending: false,
     draft: request.previousDraft,
     attachments: request.previousAttachments,
-    activeThreadId: request.previousActiveThreadId,
+    activeThreadId,
     timelinesByThread,
     error: error.message,
     actionNotice: actionNotice(`发送失败：${error.message}`, 'error'),
@@ -2654,13 +2767,30 @@ function shouldPromoteBridgePatchThread(existingThread, patch) {
 function bridgePatchThreads(state, patch) {
   const existingThread = state.threads.find((thread) => threadMatchesIdentifier(thread, patch.threadId));
   if (!patch.patchedThread.id) return state.threads;
+  let archived = Boolean(existingThread?.archived || patch.patchedThread.archived);
+  const recentOverride =
+    state.lastArchivedStatesByThread?.[patch.threadId] ||
+    (existingThread?.id && state.lastArchivedStatesByThread?.[existingThread.id]) ||
+    (existingThread?.agentId && state.lastArchivedStatesByThread?.[existingThread.agentId]);
+  const isLoading = Boolean(
+    state.threadArchiveLoadingByThread?.[patch.threadId] ||
+    (existingThread?.id && state.threadArchiveLoadingByThread?.[existingThread.id]) ||
+    (existingThread?.agentId && state.threadArchiveLoadingByThread?.[existingThread.agentId])
+  );
+  if (isLoading && recentOverride) {
+    archived = recentOverride.archived;
+  } else if (recentOverride && Date.now() - recentOverride.timestamp < 8000) {
+    archived = recentOverride.archived;
+  }
   const mergedThread = {
     ...(existingThread || {}),
     ...patch.patchedThread,
     name: bridgePatchThreadName(existingThread, patch.patchedThread),
     provider: patch.patchProvider || existingThread?.provider || patch.patchedThread.provider,
     status: patch.statusText || patch.patchedThread.status || existingThread?.status || '等待指示',
-    archived: Boolean(existingThread?.archived || patch.patchedThread.archived),
+    pinned: Boolean(existingThread?.pinned || patch.patchedThread.pinned),
+    pinnedAt: existingThread?.pinnedAt || patch.patchedThread.pinnedAt || 0,
+    archived,
   };
   if (shouldPromoteBridgePatchThread(existingThread, patch)) {
     return [
@@ -2764,6 +2894,8 @@ const baseState = {
   threadConfigFailedByThread: {},
   threadStateLoadingByThread: {},
   threadArchiveLoadingByThread: {},
+  lastListMutationTime: 0,
+  lastArchivedStatesByThread: {},
   threadConfigSaving: false,
   timelinesByThread: {},
   threadTimelineReadyByThread: {},
@@ -2783,6 +2915,7 @@ const baseState = {
   logLevel: resolveInitialLevel(),
   logEntries: [],
   actionNotice: null,
+  smoothStreaming: false,
 };
 
 function stateWithPatch(patch = {}) {
@@ -3211,16 +3344,14 @@ function messagePageParams(id, before) {
 function markThreadMessagesReady(set, id) {
   set((state) => {
     const timelineWasReady = Boolean(state.threadTimelineReadyByThread?.[id]);
+    const currentItems = state.timelinesByThread[id] || [];
+    const hasActiveItems = currentItems.some((item) => item.done === false || item.optimistic);
+    const preserve = timelineWasReady || hasActiveItems;
     return {
-      timelinesByThread: timelineWasReady
-        ? {
-          ...state.timelinesByThread,
-          [id]: mergeTimelineItems(state.timelinesByThread[id] || [], [], { preserveExistingVisible: true }),
-        }
-        : {
-          ...state.timelinesByThread,
-          [id]: mergeTimelineItems(state.timelinesByThread[id] || [], []),
-        },
+      timelinesByThread: {
+        ...state.timelinesByThread,
+        [id]: mergeTimelineItems(state.timelinesByThread[id] || [], [], { preserveExistingVisible: preserve }),
+      },
       threadTimelineReadyByThread: {
         ...state.threadTimelineReadyByThread,
         [id]: true,
@@ -3423,12 +3554,13 @@ function attachBridgeIdentityRuntime(runtime) {
     const state = get();
     const matchedThread = state.threads.find((thread) => threadMatchesIdentifier(thread, id));
     if (matchedThread) return matchedThread.archived ? '' : normalizeBackendThreadId(matchedThread.id);
-    if (isAgentRuntimeId(id)) return '';
 
     const fallback = normalizeBackendThreadId(id);
     if (!fallback) return '';
     if (fallback === normalizeBackendThreadId(state.activeThreadId)) return fallback;
     if (payloadCwd && (!activeCwd || payloadCwd === activeCwd)) return fallback;
+
+    if (isAgentRuntimeId(id)) return '';
 
     addWarning('warn', 'thread.patch.unknown_thread', { threadId: fallback, activeCwd });
     return '';
@@ -3439,7 +3571,7 @@ function attachBridgeIdentityRuntime(runtime) {
 }
 
 function attachAssistantEventRuntime(runtime) {
-  const { set, bridgeThreadIdForPayload } = runtime;
+  const { set, get, bridgeThreadIdForPayload } = runtime;
   const { assistantDeltaBuffers } = runtime;
 
   const clearAssistantDeltaFlushTimer = () => {
@@ -3473,16 +3605,28 @@ function attachAssistantEventRuntime(runtime) {
           };
         });
         if (!found) {
-          nextTimeline.push({
-            id: entry.itemId,
-            role: 'assistant',
-            kind: 'assistant',
-            text: entry.delta,
-            time: entry.timestamp || flushTime,
-            done: false,
-            optimistic: false,
-            runtime: true,
-          });
+          if (entry.kind === 'thinking') {
+            nextTimeline.push({
+              id: entry.itemId,
+              role: 'assistant',
+              kind: 'thinking',
+              text: entry.delta,
+              time: entry.timestamp || flushTime,
+              done: false,
+              turnId: entry.turnId,
+            });
+          } else {
+            nextTimeline.push({
+              id: entry.itemId,
+              role: 'assistant',
+              kind: 'assistant',
+              text: entry.delta,
+              time: entry.timestamp || flushTime,
+              done: false,
+              optimistic: false,
+              runtime: true,
+            });
+          }
         }
         timelinesByThread[entry.threadId] = nextTimeline;
       }
@@ -3530,6 +3674,89 @@ function attachAssistantEventRuntime(runtime) {
     return true;
   };
 
+  const enqueueReasoningDelta = (method, payload) => {
+    const threadId = bridgeThreadIdForPayload(payload);
+    const delta = extractText(payload.delta || payload.text || payload.content);
+    if (!threadId || !delta) return false;
+    const turnId = normalizeString(payload.turnId || payload.turn_id);
+    if (!turnId) return false;
+
+    const itemId = `thinking:${turnId}`;
+    const key = assistantDeltaBufferKey(threadId, itemId);
+    const existing = assistantDeltaBuffers.get(key);
+    assistantDeltaBuffers.set(key, {
+      threadId,
+      itemId,
+      method: existing?.method || method,
+      delta: appendAssistantDeltaText(existing?.delta, delta),
+      timestamp: existing?.timestamp || normalizeString(payload.timestamp) || new Date().toISOString(),
+      kind: 'thinking',
+      turnId,
+    });
+    scheduleAssistantDeltaFlush();
+    return true;
+  };
+
+  const enqueueCommandOutputDelta = (method, payload) => {
+    const threadId = bridgeThreadIdForPayload(payload);
+    const delta = extractText(payload.delta || payload.text || payload.content);
+    if (!threadId || !delta) return false;
+
+    const timeline = get().timelinesByThread[threadId] || [];
+    let itemId = '';
+    for (let i = timeline.length - 1; i >= 0; i--) {
+      if (timeline[i].kind === 'command' && timeline[i].done !== true) {
+        itemId = timeline[i].id;
+        break;
+      }
+    }
+    if (!itemId) {
+      for (let i = timeline.length - 1; i >= 0; i--) {
+        if (timeline[i].kind === 'command') {
+          itemId = timeline[i].id;
+          break;
+        }
+      }
+    }
+    if (!itemId) return false;
+
+    const key = assistantDeltaBufferKey(threadId, itemId);
+    const existing = assistantDeltaBuffers.get(key);
+    assistantDeltaBuffers.set(key, {
+      threadId,
+      itemId,
+      method: existing?.method || method,
+      delta: appendAssistantDeltaText(existing?.delta, delta),
+      timestamp: existing?.timestamp || normalizeString(payload.timestamp) || new Date().toISOString(),
+      kind: 'command',
+    });
+    scheduleAssistantDeltaFlush();
+    return true;
+  };
+
+  const finalizeActiveAssistantMessages = (threadId) => {
+    if (!threadId) return false;
+    set((state) => {
+      const timeline = state.timelinesByThread[threadId] || [];
+      let mutated = false;
+      const nextTimeline = timeline.map((item) => {
+        if ((item.role === 'assistant' || item.kind === 'assistant' || item.kind === 'thinking' || item.kind === 'command') && item.done === false) {
+          mutated = true;
+          return { ...item, done: true };
+        }
+        return item;
+      });
+      if (!mutated) return {};
+      return {
+        timelinesByThread: {
+          ...state.timelinesByThread,
+          [threadId]: nextTimeline,
+        },
+      };
+    });
+    return true;
+  };
+
   const applyAssistantCompletion = (method, payload) => {
     const threadId = bridgeThreadIdForPayload(payload);
     const completion = runtimeAssistantCompletion(payload);
@@ -3553,6 +3780,9 @@ function attachAssistantEventRuntime(runtime) {
 
   Object.assign(runtime, {
     enqueueAssistantDelta,
+    enqueueReasoningDelta,
+    enqueueCommandOutputDelta,
+    finalizeActiveAssistantMessages,
     flushAssistantDeltasNow,
     clearAssistantDeltaFlushTimer,
     applyAssistantCompletion,
@@ -3605,7 +3835,19 @@ function attachBridgePatchRuntime(runtime) {
 }
 
 function attachBridgeEventRuntime(runtime) {
-  const { set, addWarning, refreshActiveChatSidebarInBackground, applyBridgePatch, enqueueAssistantDelta, flushAssistantDeltasNow, applyAssistantCompletion, bridgeThreadIdForPayload } = runtime;
+  const {
+    set,
+    addWarning,
+    refreshActiveChatSidebarInBackground,
+    applyBridgePatch,
+    enqueueAssistantDelta,
+    enqueueReasoningDelta,
+    enqueueCommandOutputDelta,
+    finalizeActiveAssistantMessages,
+    flushAssistantDeltasNow,
+    applyAssistantCompletion,
+    bridgeThreadIdForPayload,
+  } = runtime;
 
   const handleBridgeEvent = (evt) => {
     const method = normalizeString(evt?.method || evt?.type);
@@ -3631,15 +3873,35 @@ function attachBridgeEventRuntime(runtime) {
       enqueueAssistantDelta(method, payload);
       return;
     }
+    if (eventName === 'item/reasoning/textdelta' || eventName === 'item/reasoning/text_delta') {
+      enqueueReasoningDelta(method, payload);
+      return;
+    }
+    if (eventName === 'item/commandexecution/outputdelta' || eventName === 'item/command_execution/output_delta') {
+      enqueueCommandOutputDelta(method, payload);
+      return;
+    }
     if (eventName === 'item/completed') {
       flushAssistantDeltasNow();
       applyAssistantCompletion(method, payload);
       return;
     }
-    if (eventName === 'turn/completed') {
+    if (
+      eventName === 'turn/completed' ||
+      eventName === 'turn/interrupted' ||
+      eventName === 'agent/stopped' ||
+      eventName === 'thread/stopped' ||
+      eventName === 'agent/failed'
+    ) {
       flushAssistantDeltasNow();
-      if (payload._threadPatch) applyBridgePatch('ui/thread/patch', payload._threadPatch);
-      applyAssistantCompletion(method, payload);
+      const threadId = bridgeThreadIdForPayload(payload);
+      if (threadId) {
+        finalizeActiveAssistantMessages(threadId);
+      }
+      if (eventName === 'turn/completed') {
+        if (payload._threadPatch) applyBridgePatch('ui/thread/patch', payload._threadPatch);
+        applyAssistantCompletion(method, payload);
+      }
       return;
     }
     if (eventName === 'thread/tokenusage/updated') {
@@ -3659,7 +3921,6 @@ function attachBridgeEventRuntime(runtime) {
       addWarning('error', method, payload);
     }
   };
-
 
   Object.assign(runtime, { handleBridgeEvent });
 }
@@ -4282,6 +4543,13 @@ function createThreadSelectionActions(runtime) {
     setActiveThread: async (threadId) => {
       const id = backendThreadIdForState(runtime.get(), threadId, { includeArchived: true });
       const current = runtime.get();
+      const lastListMutationTime = current.lastListMutationTime || 0;
+      if (Date.now() - lastListMutationTime < 350) {
+        const currentActiveId = backendThreadIdForState(current, current.activeThreadId);
+        if (id !== currentActiveId) {
+          return false;
+        }
+      }
       void runtime.saveActiveComposerDraft(current);
       const restored = runtime.restoreComposerDraft(current, id);
       if (!id) {
@@ -4904,12 +5172,32 @@ function createThreadArchiveActions(runtime) {
       if (!id) return false;
       const cwd = runtime.requireCwd('thread.archive');
       if (runtime.get().threadArchiveLoadingByThread?.[id]) return false;
+
+      const originalThreads = runtime.get().threads;
+      const originalActiveThreadId = runtime.get().activeThreadId;
+      const archivedAt = archived ? Date.now() : 0;
+
+      // 1. Optimistic Update: Immediately apply the archived state to the UI
       runtime.set((state) => ({
+        activeThreadId: archived && normalizeThreadId(state.activeThreadId) === id ? '' : state.activeThreadId,
+        threads: state.threads.map((thread) => (thread.id === id ? {
+          ...thread,
+          archived: Boolean(archived),
+          archivedAt,
+          status: threadArchiveStatus(thread, archived),
+        } : thread)),
         threadArchiveLoadingByThread: {
           ...state.threadArchiveLoadingByThread,
           [id]: true,
         },
+        lastListMutationTime: Date.now(),
+        lastArchivedStatesByThread: {
+          ...state.lastArchivedStatesByThread,
+          [id]: { archived: Boolean(archived), timestamp: Date.now() },
+        },
       }));
+
+      // 2. Perform the main backend archive operation
       try {
         if (archived) {
           await archiveThreadRPC({ threadId: id });
@@ -4918,31 +5206,44 @@ function createThreadArchiveActions(runtime) {
         }
       }
       catch (error) {
+        // Rollback on main RPC failure
         const message = error?.message || String(error);
         const action = archived ? '归档' : '恢复';
-        runtime.notifyAction(`${action}会话失败：${message}`, 'error', { threadId: id });
+        
+        runtime.set((state) => {
+          const nextMutated = { ...state.lastArchivedStatesByThread };
+          delete nextMutated[id];
+          const originalThread = originalThreads.find((t) => threadMatchesIdentifier(t, id));
+          return {
+            activeThreadId: state.activeThreadId === '' ? originalActiveThreadId : state.activeThreadId,
+            threads: state.threads.map((thread) => (threadMatchesIdentifier(thread, id) && originalThread ? {
+              ...thread,
+              archived: Boolean(originalThread.archived),
+              archivedAt: originalThread.archivedAt || 0,
+              status: originalThread.status,
+            } : thread)),
+            threadArchiveLoadingByThread: {
+              ...state.threadArchiveLoadingByThread,
+              [id]: false,
+            },
+            lastArchivedStatesByThread: nextMutated,
+            actionNotice: actionNotice(`${action}会话失败：${message}`, 'error'),
+          };
+        });
+        
         runtime.addWarning('error', `thread.${archived ? 'archive' : 'unarchive'}.failed`, { threadId: id, error: message });
         return false;
       }
-      finally {
-        runtime.set((state) => ({
-          threadArchiveLoadingByThread: {
-            ...state.threadArchiveLoadingByThread,
-            [id]: false,
-          },
-        }));
-      }
-      const archivedAt = archived ? Date.now() : 0;
-      const applyArchiveState = (notice) => runtime.set((state) => ({
-        activeThreadId: archived && normalizeThreadId(state.activeThreadId) === id ? '' : state.activeThreadId,
-        threads: state.threads.map((thread) => (thread.id === id ? {
-          ...thread,
-          archived: Boolean(archived),
-          archivedAt,
-          status: threadArchiveStatus(thread, archived),
-        } : thread)),
-        actionNotice: notice,
+
+      // 3. Clear loading state since the database update succeeded
+      runtime.set((state) => ({
+        threadArchiveLoadingByThread: {
+          ...state.threadArchiveLoadingByThread,
+          [id]: false,
+        },
       }));
+
+      // 4. Perform the secondary preference storage
       try {
         await setPreference({
           cwd,
@@ -4951,13 +5252,22 @@ function createThreadArchiveActions(runtime) {
         });
       }
       catch (error) {
+        // Keep the archived state (no rollback), but notify about preference failure
         const message = error?.message || String(error);
         const action = archived ? '归档' : '恢复';
-        applyArchiveState(actionNotice(`${action}偏好保存失败：${message}`, 'error'));
+        
+        runtime.set(() => ({
+          actionNotice: actionNotice(`${action}偏好保存失败：${message}`, 'error'),
+        }));
+        
         runtime.addWarning('error', `thread.${archived ? 'archive' : 'unarchive'}.preference.failed`, { threadId: id, error: message });
-        return false;
+        return true;
       }
-      applyArchiveState(actionNotice(archived ? '线程已归档' : '线程已恢复到列表', 'success'));
+
+      // 5. Success: Show success notice
+      runtime.set(() => ({
+        actionNotice: actionNotice(archived ? '线程已归档' : '线程已恢复到列表', 'success'),
+      }));
       return true;
     },
 
@@ -5001,6 +5311,7 @@ function createThreadDeleteActions(runtime) {
               : `已删除 ${deletedIds.length} 个无用会话`,
             failedIds.length > 0 ? 'warning' : 'success',
           ),
+          lastListMutationTime: Date.now(),
         }));
       } else {
         runtime.set({
@@ -5044,6 +5355,9 @@ function createClientStore(set, get) {
     addWarning: runtime.addWarning,
     addLog: runtime.addLog,
     setLogLevel: runtime.setLogLevel,
+    toggleSmoothStreaming: () => {
+      runtime.set((state) => ({ smoothStreaming: !state.smoothStreaming }));
+    },
   };
 }
 

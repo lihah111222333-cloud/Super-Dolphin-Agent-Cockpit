@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools/modelregistry"
@@ -84,6 +87,7 @@ func HandleListModels(opts ...ListModelsOption) ToolHandler {
 }
 
 func newListModelsResult(providers []ProviderModels) ListModelsResult {
+	providers = markModelProviderAvailability(providers)
 	env := newListEnvelope(providers, 0, "next: use provider/model values in launch_agent or DAG node config")
 	return ListModelsResult{
 		Providers: providers,
@@ -93,6 +97,61 @@ func newListModelsResult(providers []ProviderModels) ListModelsResult {
 		Truncated: env.Truncated,
 		Hint:      env.Hint,
 	}
+}
+
+func markModelProviderAvailability(providers []ProviderModels) []ProviderModels {
+	out := make([]ProviderModels, len(providers))
+	for i, provider := range providers {
+		out[i] = provider
+		available, reason := modelProviderAvailability(provider.Provider)
+		out[i].Available = boolPtr(available)
+		out[i].UnavailableReason = reason
+	}
+	return out
+}
+
+func modelProviderAvailability(provider string) (bool, string) {
+	if strings.TrimSpace(provider) != "codex" {
+		return true, ""
+	}
+	configPath, ok := localCodexConfigPath()
+	if !ok {
+		return false, "local Codex config path is unavailable; DAG node needs explicit codex_home/codex_instance_key/codex_model_provider or provider=claude"
+	}
+	if localCodexModelProviderExists(configPath, "codex") {
+		return true, ""
+	}
+	return false, fmt.Sprintf("local codex model provider codex is not configured in %s; DAG node needs explicit codex_home/codex_instance_key/codex_model_provider or provider=claude", configPath)
+}
+
+func localCodexConfigPath() (string, bool) {
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return "", false
+	}
+	return filepath.Join(home, ".codex", "config.toml"), true
+}
+
+func localCodexModelProviderExists(configPath, provider string) bool {
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		return false
+	}
+	return containsCodexModelProviderTable(string(raw), provider)
+}
+
+func containsCodexModelProviderTable(config, provider string) bool {
+	for _, line := range strings.Split(config, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "[model_providers."+provider+"]" || line == "[model_providers.\""+provider+"\"]" {
+			return true
+		}
+	}
+	return false
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }
 
 func listModelsRegistry(opts []ListModelsOption) modelregistry.Registry {

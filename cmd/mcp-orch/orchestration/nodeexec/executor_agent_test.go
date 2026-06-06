@@ -103,6 +103,9 @@ func launchEnvValue(env []string, key string) string {
 // makeAgentNode 构造一个 agent 类型节点 + json 编码的 AgentNodeConfig。
 func makeAgentNode(t *testing.T, cfg AgentNodeConfig) Node {
 	t.Helper()
+	if strings.TrimSpace(cfg.Exec.Provider) == "" {
+		cfg.Exec.Provider = "claude"
+	}
 	if strings.TrimSpace(cfg.Exec.CWD) == "" {
 		cfg.Exec.CWD = testCWD(t, "node-cwd")
 	}

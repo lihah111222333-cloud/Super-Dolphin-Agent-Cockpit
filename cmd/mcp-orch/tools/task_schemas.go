@@ -66,7 +66,7 @@ func createDAGSchema() Schema {
 			"priority":    IntegerSchema("Flat execution shortcut; same as execution.priority."),
 			"retry":       IntegerSchema("Flat execution shortcut; same as execution.retry."),
 			"timeout_sec": IntegerSchema("Flat execution shortcut; same as execution.timeout_sec."),
-			"config":      RawObjectSchema("Optional full node config; for automation nodes use config.exec.command_ref to make the node executable."),
+			"config":      RawObjectSchema("Optional full node config; executable agent nodes require config.exec.provider=claude or provider=codex with codex_home/codex_instance_key/codex_model_provider. For automation nodes use config.exec.command_ref."),
 			"execution": ObjectSchema(map[string]Schema{
 				"on_failure":  StringSchema("Failure policy override."),
 				"pool":        StringSchema("Execution pool name."),
@@ -95,6 +95,9 @@ func createDAGRequestFromInput(in CreateDAGInput, trustedAgentID string) (contra
 	if err != nil {
 		return contract.CreateDAGRequest{}, err
 	}
+	if err := validateCreateDAGNodesForCreate(nodes); err != nil {
+		return contract.CreateDAGRequest{}, err
+	}
 	finalNodeKey, err := normalizeFinalNodeKey(in.FinalNodeKey, nodes)
 	if err != nil {
 		return contract.CreateDAGRequest{}, createDAGInvalidInputError(
@@ -109,11 +112,8 @@ func createDAGRequestFromInput(in CreateDAGInput, trustedAgentID string) (contra
 			"Do not pass conflicting flat schedule shortcuts and nested schedule fields.",
 		)
 	}
-	if strings.TrimSpace(schedule.Trigger) == "scheduled" {
-		return contract.CreateDAGRequest{}, createDAGInvalidInputError(
-			fmt.Errorf("schedule.trigger=scheduled requires task_dag_apply_ops with trigger and cron_expr; task_create_dag is create-only"),
-			"Use task_dag_apply_ops with base_version plus trigger=scheduled and cron_expr after creating the DAG.",
-		)
+	if err := rejectScheduledCreateDAGSchedule(schedule); err != nil {
+		return contract.CreateDAGRequest{}, err
 	}
 	metadata, err := encodeJSONRaw(createDAGMetadata(schedule, finalNodeKey))
 	if err != nil {
@@ -146,6 +146,98 @@ func resolveCreateDAGAgentID(publicAgentID, trustedAgentID string) (string, erro
 
 func createDAGInvalidInputError(err error, hint string) error {
 	return mcpcommon.NewCodedToolError("invalid_input", err, false, hint)
+}
+
+func rejectScheduledCreateDAGSchedule(schedule DAGScheduleInput) error {
+	if strings.TrimSpace(schedule.Trigger) != "scheduled" {
+		return nil
+	}
+	return createDAGInvalidInputError(
+		fmt.Errorf("schedule.trigger=scheduled requires task_dag_apply_ops with trigger and cron_expr; task_create_dag is create-only"),
+		"Use task_dag_apply_ops with base_version plus trigger=scheduled and cron_expr after creating the DAG.",
+	)
+}
+
+func validateCreateDAGNodesForCreate(nodes []contract.CreateDAGNodeRequest) error {
+	if err := validateRootAgentAssignees(nodes); err != nil {
+		return err
+	}
+	return validateAgentNodeLaunchConfigs(nodes)
+}
+
+func validateRootAgentAssignees(nodes []contract.CreateDAGNodeRequest) error {
+	for i, node := range nodes {
+		if !isRunnableRootAgentNode(node) {
+			continue
+		}
+		if strings.TrimSpace(node.AssignedTo) != "" {
+			continue
+		}
+		return fmt.Errorf("nodes[%d].assigned_to required for root agent node %q with config.exec; task_start_dag cannot automatically dispatch unassigned roots", i, node.NodeKey)
+	}
+	return nil
+}
+
+func validateAgentNodeLaunchConfigs(nodes []contract.CreateDAGNodeRequest) error {
+	for i, node := range nodes {
+		if !isAgentNodeType(node.NodeType) || !hasNodeExecConfig(node.Config) {
+			continue
+		}
+		cfg, err := nodeexec.ParseAgentConfig(node.Config)
+		if err != nil {
+			return fmt.Errorf("nodes[%d].config: %w", i, err)
+		}
+		provider := strings.ToLower(strings.TrimSpace(cfg.Exec.Provider))
+		switch provider {
+		case "":
+			return fmt.Errorf("nodes[%d].config.exec.provider required for agent node %q; set provider to claude or codex", i, node.NodeKey)
+		case "claude":
+			continue
+		case "codex":
+			if missing := missingCodexIdentityFields(cfg.Exec); len(missing) != 0 {
+				return fmt.Errorf("nodes[%d].config.exec provider=codex for agent node %q requires %s", i, node.NodeKey, strings.Join(missing, ", "))
+			}
+		default:
+			return fmt.Errorf("nodes[%d].config.exec.provider invalid for agent node %q: must be claude or codex", i, node.NodeKey)
+		}
+	}
+	return nil
+}
+
+func isAgentNodeType(nodeType string) bool {
+	nodeType = strings.TrimSpace(nodeType)
+	return nodeType == "" || nodeType == "agent"
+}
+
+func missingCodexIdentityFields(exec nodeexec.AgentExecConfig) []string {
+	var missing []string
+	if strings.TrimSpace(exec.CodexHome) == "" {
+		missing = append(missing, "codex_home")
+	}
+	if strings.TrimSpace(exec.CodexInstanceKey) == "" {
+		missing = append(missing, "codex_instance_key")
+	}
+	if strings.TrimSpace(exec.CodexModelProvider) == "" {
+		missing = append(missing, "codex_model_provider")
+	}
+	return missing
+}
+
+func isRunnableRootAgentNode(node contract.CreateDAGNodeRequest) bool {
+	nodeType := strings.TrimSpace(node.NodeType)
+	return (nodeType == "" || nodeType == "agent") && len(node.DependsOn) == 0 && hasNodeExecConfig(node.Config)
+}
+
+func hasNodeExecConfig(raw json.RawMessage) bool {
+	if !hasExplicitRawJSON(raw) {
+		return false
+	}
+	var config map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return false
+	}
+	exec, ok := config["exec"]
+	return ok && hasExplicitRawJSON(exec)
 }
 
 func createDAGNodesFromInput(nodes []CreateDAGNodeInput) ([]contract.CreateDAGNodeRequest, error) {

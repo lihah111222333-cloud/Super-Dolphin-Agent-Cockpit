@@ -64,6 +64,7 @@ function createFakeStore(overrides = {}) {
     selectThread: vi.fn(),
     sendDraft: vi.fn(),
     sending: false,
+    smoothStreaming: true,
     setDraft: vi.fn((value) => {
       store.draft = value;
     }),
@@ -926,6 +927,28 @@ describe('ChatPage module', () => {
     cancelAnimationFrameSpy.mockRestore();
   });
 
+  it('reveals an active assistant reply immediately when smoothStreaming is disabled', () => {
+    const initialMessages = [
+      { id: 'reply-user-1', role: 'user', text: '请继续分析', time: '2026-06-02T08:00:00Z' },
+      { id: 'reply-assistant-1', role: 'assistant', text: '我', time: '2026-06-02T08:01:00Z', done: false },
+    ];
+    const store = createActiveThreadStore(initialMessages, {
+      smoothStreaming: false,
+    });
+    const { rerender } = render(<ChatPage store={store} projectPath="/repo/app" />);
+    expect(screen.getByText('我')).toBeInTheDocument();
+
+    const fullReply = '我先检查输出节奏，再继续。';
+    rerender(<ChatPage store={createActiveThreadStore([
+      initialMessages[0],
+      { ...initialMessages[1], text: fullReply },
+    ], {
+      smoothStreaming: false,
+    })} projectPath="/repo/app" />);
+
+    expect(screen.getByText(fullReply)).toBeInTheDocument();
+  });
+
   it('shows completed assistant replies immediately without streaming reveal', () => {
     const fullReply = '完成后的回复一次显示完整。';
     const initialMessages = [
@@ -1165,5 +1188,55 @@ describe('ChatPage module', () => {
 
     expect(screen.getByText('旧图表不应首屏渲染：')).toBeInTheDocument();
     await waitFor(() => expect(mermaid.render).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not render compact non-standard markdown prefix as a heading', () => {
+    const messages = [
+      {
+        id: 'msg-1',
+        role: 'assistant',
+        text: '随便贴一篇：##回家之路无论走了多远',
+        time: '2026-06-02T08:00:00Z',
+        done: true,
+      },
+    ];
+    const store = createActiveThreadStore(messages);
+    render(<ChatPage store={store} projectPath="/repo/app" />);
+    // 应该以普通段落渲染，所以不应该有 heading 元素
+    expect(screen.queryByRole('heading', { name: /回家之路无论走了多远/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/随便贴一篇：##回家之路无论走了多远/)).toBeInTheDocument();
+  });
+
+  it('supports deleting an individual archived thread with confirmation', () => {
+    const store = createFakeStore({
+      activeThreadId: 'thread-active',
+      threads: [
+        { id: 'thread-active', name: 'Active Thread', provider: 'codex', status: 'idle' },
+        { id: 'thread-archived-1', name: 'Archived Thread 1', provider: 'codex', status: 'archived', archived: true },
+      ],
+    });
+
+    render(<ChatPage store={store} projectPath="/repo/app" />);
+
+    fireEvent.click(screen.getByLabelText('打开归档列表'));
+    expect(screen.getByText('Archived Thread 1')).toBeInTheDocument();
+
+    const deleteBtn = screen.getByLabelText('删除会话');
+    expect(deleteBtn).toBeInTheDocument();
+    fireEvent.click(deleteBtn);
+
+    expect(screen.getByText('确定删除该会话？')).toBeInTheDocument();
+    const confirmBtn = screen.getByRole('button', { name: '确认' });
+    const cancelBtn = screen.getByRole('button', { name: '取消' });
+    expect(confirmBtn).toBeInTheDocument();
+    expect(cancelBtn).toBeInTheDocument();
+
+    fireEvent.click(cancelBtn);
+    expect(screen.queryByText('确定删除该会话？')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('删除会话'));
+    fireEvent.click(screen.getByRole('button', { name: '确认' }));
+
+    expect(store.deleteStaleThreads).toHaveBeenCalledWith(['thread-archived-1']);
   });
 });
