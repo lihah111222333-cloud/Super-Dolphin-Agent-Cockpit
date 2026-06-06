@@ -206,7 +206,11 @@ func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolIn
 	displayPaths := make(map[string]string, len(targets))
 	seen := make(map[string]struct{}, len(targets))
 	for _, target := range targets {
-		pathInfo, err := search.ResolvePathInRoots(root, roots, target)
+		normalizedTarget, err := normalizeFilePathTarget(target)
+		if err != nil {
+			return nil, nil, err
+		}
+		pathInfo, err := search.ResolvePathInRoots(root, roots, normalizedTarget)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -218,7 +222,7 @@ func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolIn
 			continue
 		}
 		seen[uri] = struct{}{}
-		displayPaths[uri] = diagnosticDisplayPath(target, pathInfo.DisplayPath)
+		displayPaths[uri] = diagnosticDisplayPath(normalizedTarget, pathInfo.DisplayPath)
 		uris = append(uris, uri)
 	}
 	return uris, displayPaths, nil
