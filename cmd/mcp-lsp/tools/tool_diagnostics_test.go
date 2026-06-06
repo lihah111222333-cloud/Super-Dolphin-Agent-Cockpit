@@ -140,6 +140,42 @@ func TestDiagnosticsBatchUsesMetaCWD(t *testing.T) {
 	assertDiagnosticURIs(t, registry.lastURIs, []string{canonicalFileURI(t, first), canonicalFileURI(t, second)})
 }
 
+func TestDiagnosticsAllowsEncodedAppManagedPathOutsideWorkspace(t *testing.T) {
+	fakeHome := filepath.Join(t.TempDir(), "home")
+	appHome := filepath.Join(fakeHome, "Library", "Application Support", "Super Dolphin")
+	appFile := filepath.Join(appHome, "providers", "codex", "mcp-lsp.go")
+	if err := os.MkdirAll(filepath.Dir(appFile), 0o700); err != nil {
+		t.Fatalf("mkdir app managed parent: %v", err)
+	}
+	if err := os.WriteFile(appFile, []byte("package fixture\n"), 0o600); err != nil {
+		t.Fatalf("write app managed file: %v", err)
+	}
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("SUPER_DOLPHIN_HOME", appHome)
+
+	workspace := t.TempDir()
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}})
+	tests := []struct {
+		name   string
+		target string
+	}{
+		{name: "file URI", target: fileURI(appFile)},
+		{name: "encoded absolute path", target: strings.ReplaceAll(appFile, "Application Support", "Application%20Support")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			registry := &diagnosticsTestRegistry{}
+			handler := NewFileHandler(Config{WorkspaceRoot: workspace, Registry: registry})
+			req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: tt.target})
+
+			if _, err := handler(ctx, req); err != nil {
+				t.Fatalf("diagnostics returned error: %v", err)
+			}
+			assertDiagnosticURIs(t, registry.lastURIs, []string{canonicalFileURI(t, appFile)})
+		})
+	}
+}
+
 func TestDiagnosticsResponseUsesTopLevelMetaFields(t *testing.T) {
 	root := t.TempDir()
 	target := writeDiagnosticsFixture(t, root, "broken.go")
