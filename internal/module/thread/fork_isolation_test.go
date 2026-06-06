@@ -223,6 +223,28 @@ func TestServiceRecoverReturnsResumeEnvelopeWhenSessionMissing(t *testing.T) {
 	assertResumeRecoverResult(t, result, fixture)
 }
 
+func TestServiceRecoverFallbackLaunchPreservesStoredProviderAndModel(t *testing.T) {
+	t.Parallel()
+
+	fixture := newResumeRecoverFixture(t)
+	fixture.orch.recoverErr = contract.ErrAgentNotFound
+
+	result, err := fixture.svc.Recover(context.Background(), "thread-parent")
+	if err != nil {
+		t.Fatalf("Recover() error = %v", err)
+	}
+	assertResumeRecoverResult(t, result, fixture)
+	if fixture.orch.launch.AgentID != "agent-parent" || fixture.orch.launch.Cwd != "/repo" {
+		t.Fatalf("fallback launch = %#v, want agent-parent in /repo", fixture.orch.launch)
+	}
+	if gotProvider := launchEnvValue(fixture.orch.launch.Env, "AGENT_PROVIDER"); gotProvider != "codex" {
+		t.Fatalf("fallback launch AGENT_PROVIDER = %q, want codex; env=%v", gotProvider, fixture.orch.launch.Env)
+	}
+	if gotModel := launchEnvValue(fixture.orch.launch.Env, "AGENT_MODEL"); gotModel != "gpt-5.5" {
+		t.Fatalf("fallback launch AGENT_MODEL = %q, want gpt-5.5; env=%v", gotModel, fixture.orch.launch.Env)
+	}
+}
+
 func TestServiceRecoverRejectsMissingCWDBeforeOrchestrationSideEffects(t *testing.T) {
 	t.Parallel()
 
@@ -343,6 +365,16 @@ func assertResumeRecoverResult(t *testing.T, result RecoverResult, fixture *reco
 	if fixture.threads.upsert.Prompt != "Recovered Thread" {
 		t.Fatalf("persisted prompt = %q, want Recovered Thread", fixture.threads.upsert.Prompt)
 	}
+}
+
+func launchEnvValue(env []string, key string) string {
+	prefix := key + "="
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(item, prefix))
+		}
+	}
+	return ""
 }
 
 func TestServiceRecoverRehydratesClaudeOverrideConfigWhenSessionMissing(t *testing.T) {
@@ -545,6 +577,7 @@ type forkOrchestrationStub struct {
 	launch       LaunchAgentRequest
 	recovered    []string
 	bindAgentIDs []string
+	recoverErr   error
 }
 
 func (s *forkOrchestrationStub) LaunchAgent(_ context.Context, req LaunchAgentRequest) error {
@@ -556,7 +589,7 @@ func (s *forkOrchestrationStub) StopAgent(context.Context, string) error { retur
 
 func (s *forkOrchestrationStub) Recover(_ context.Context, agentID string) error {
 	s.recovered = append(s.recovered, agentID)
-	return nil
+	return s.recoverErr
 }
 
 func (s *forkOrchestrationStub) BindSessionGeneration(_ context.Context, agentID string, _ uint64) error {
