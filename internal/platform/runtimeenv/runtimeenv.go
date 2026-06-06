@@ -451,13 +451,15 @@ func applySidecarRuntimeContract(contract SidecarRuntimeContract) error {
 		func() error { return setEnvIfEmpty(projectRootEnv, contract.ResourcesDir) },
 	}
 	if contract.Mode == "packaged" {
+		runtime := packagedRuntimeFromResources(contract.ResourcesDir, "")
 		setters = append(setters,
-			func() error { return setEnv(peerBinDirEnv, filepath.Join(contract.ResourcesDir, "bin")) },
+			func() error { return setControlledEnvPath("PATH", packagedSidecarPathEntries(runtime)...) },
+			func() error { return setEnv(peerBinDirEnv, runtime.BinDir) },
 			func() error {
-				return setEnvIfEmpty(lspBundleDirEnv, filepath.Join(contract.ResourcesDir, lspBundleName))
+				return setEnvIfEmpty(lspBundleDirEnv, filepath.Join(runtime.ResourcesDir, lspBundleName))
 			},
 			func() error {
-				return setEnvIfEmpty(lspManifestEnv, filepath.Join(contract.ResourcesDir, lspBundleName, lspManifestName))
+				return setEnvIfEmpty(lspManifestEnv, filepath.Join(runtime.ResourcesDir, lspBundleName, lspManifestName))
 			},
 		)
 	}
@@ -509,6 +511,20 @@ func packagedPathEntries(runtime PackagedRuntime) []string {
 		filepath.Join(lspDir, "bin"),
 		filepath.Join(lspDir, "node", "bin"),
 		filepath.Join(lspDir, "node_modules", ".bin"),
+		"/usr/bin",
+		"/bin",
+		"/usr/sbin",
+		"/sbin",
+	}
+}
+
+func packagedSidecarPathEntries(runtime PackagedRuntime) []string {
+	lspDir := filepath.Join(runtime.ResourcesDir, lspBundleName)
+	return []string{
+		filepath.Join(lspDir, "bin"),
+		filepath.Join(lspDir, "node", "bin"),
+		filepath.Join(lspDir, "node_modules", ".bin"),
+		runtime.BinDir,
 		"/usr/bin",
 		"/bin",
 		"/usr/sbin",
