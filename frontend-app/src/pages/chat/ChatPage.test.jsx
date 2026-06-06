@@ -1329,4 +1329,48 @@ describe('ChatPage module', () => {
     expect(listItems[1]).toHaveTextContent('item 2');
     expect(listItems[2]).toHaveTextContent('item 3');
   });
+
+  it('[regression] scrolls to bottom after delay when timelineContentBlocked becomes false', async () => {
+    vi.useFakeTimers();
+    try {
+      const messages = [
+        { id: 'msg-1', role: 'user', text: 'hello', time: '2026-06-02T08:00:00Z' },
+      ];
+      const storeLoading = createActiveThreadStore([], {
+        threadStateLoadingByThread: { 'thread-1': true },
+        threadTimelineReadyByThread: { 'thread-1': false },
+      });
+      const { rerender } = render(<TestChatPageWrapper store={storeLoading} projectPath="/repo/app" />);
+      
+      const timeline = screen.getByTestId('chat-timeline');
+      let scrollTop = 0;
+      Object.defineProperty(timeline, 'clientHeight', { configurable: true, get: () => 400 });
+      Object.defineProperty(timeline, 'scrollHeight', { configurable: true, get: () => 1000 });
+      Object.defineProperty(timeline, 'scrollTop', {
+        configurable: true,
+        get: () => scrollTop,
+        set: (value) => {
+          scrollTop = Number(value);
+        },
+      });
+
+      const storeLoaded = createActiveThreadStore(messages, {
+        threadStateLoadingByThread: { 'thread-1': false },
+        threadTimelineReadyByThread: { 'thread-1': true },
+      });
+      rerender(<TestChatPageWrapper store={storeLoaded} projectPath="/repo/app" />);
+
+      expect(scrollTop).toBe(1000);
+
+      scrollTop = 0;
+      
+      act(() => {
+        vi.advanceTimersByTime(50);
+      });
+
+      expect(scrollTop).toBe(1000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
