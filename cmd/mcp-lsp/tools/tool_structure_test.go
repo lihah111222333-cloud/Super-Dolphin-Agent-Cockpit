@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
@@ -432,7 +433,7 @@ func TestStructureWorkspaceSymbolWrapsUnsupportedPathError(t *testing.T) {
 
 	input, err := json.Marshal(structureParams{
 		Action:   "workspace_symbol",
-		FilePath: "README.md",
+		FilePath: "notes.txt",
 		Query:    "intro",
 	})
 	if err != nil {
@@ -446,4 +447,55 @@ func TestStructureWorkspaceSymbolWrapsUnsupportedPathError(t *testing.T) {
 	if !strings.Contains(err.Error(), "path must point to a source file with a configured language server") {
 		t.Fatalf("handler error = %v", err)
 	}
+}
+
+func TestStructureMarkdownDocumentSymbolUsesFallback(t *testing.T) {
+	root := t.TempDir()
+	writeStructureTestFile(t, root, "README.md", "# Intro\n\n## Details\n")
+	handler := NewStructureHandler(newMarkdownFallbackRegistry(t, root))
+
+	got, err := handler(testToolContext(root), marshalStructureParams(t, structureParams{
+		Action:   "document_symbol",
+		FilePath: "README.md",
+	}))
+	if err != nil {
+		t.Fatalf("markdown document_symbol returned error: %v", err)
+	}
+	payload := mustMarshalObject(t, got)
+	requireNumberField(t, payload, "total", 2)
+	requireNumberField(t, payload, "showing", 2)
+}
+
+func TestStructureMarkdownWorkspaceSymbolReportsLimitedSupport(t *testing.T) {
+	root := t.TempDir()
+	writeStructureTestFile(t, root, "README.md", "# Intro\n")
+	handler := NewStructureHandler(newMarkdownFallbackRegistry(t, root))
+
+	got, err := handler(testToolContext(root), marshalStructureParams(t, structureParams{
+		Action:   "workspace_symbol",
+		FilePath: "README.md",
+		Query:    "Intro",
+	}))
+	if err != nil {
+		t.Fatalf("markdown workspace_symbol returned error: %v", err)
+	}
+	envelope := requireEmptyListEnvelope(t, got)
+	requireLimitedMarkdownSupportMessage(t, envelope.Meta.Message, "workspace symbol")
+}
+
+func newMarkdownFallbackRegistry(t *testing.T, root string) lspmanager.Registry {
+	t.Helper()
+	registry := lspmanager.NewRegistryWithInstaller(nil)
+	manager := multilsp.NewManager(multilsp.Config{
+		WorkspaceRoot:                    root,
+		LanguageAdapters:                 multilsp.NewDefaultLanguageAdapterRegistry(),
+		DisableInitialWorkspaceBootstrap: true,
+	})
+	registry.RegisterNoInstall("markdown", manager)
+	t.Cleanup(func() {
+		if err := registry.Close(); err != nil {
+			t.Fatalf("close markdown fallback registry: %v", err)
+		}
+	})
+	return registry
 }

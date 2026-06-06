@@ -87,9 +87,13 @@ func runCallHierarchy(
 	if err != nil {
 		return nil, err
 	}
+	languageID := firstNonEmpty(req.LanguageID, lspmanager.DetectLanguageID(filePath))
+	if limitedDocumentFallbackLanguage(languageID) != "" {
+		return unsupportedCapabilityEmptyResult("call hierarchy", languageID), nil
+	}
 	results, err := manager.CallHierarchy(ctx, filePath, position, direction)
 	if isUnsupportedCapability(err) {
-		return unsupportedCapabilityEmptyResult("call hierarchy"), nil
+		return unsupportedCapabilityEmptyResult("call hierarchy", languageID), nil
 	}
 	if err != nil {
 		return nil, err
