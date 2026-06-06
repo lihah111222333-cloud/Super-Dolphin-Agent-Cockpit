@@ -4534,7 +4534,7 @@ function renderMarkdownBlocks(lines, actions = {}, cache = null) {
     }
 
     let splitIndex = -1;
-    for (let i = matchingCount; i >= 0; i--) {
+    for (let i = matchingCount - 1; i >= 0; i--) {
       if (cache.checkpoints[i] !== undefined) {
         splitIndex = i;
         break;
@@ -5358,6 +5358,11 @@ function Conversation(props) {
     lastTimelineAutoScrollKeyRef.current = '';
   }, [activeThreadId]);
   useEffect(() => {
+    if (!timelineContentBlocked && activeThreadId) {
+      scrollTimelineToBottomInstant();
+    }
+  }, [activeThreadId, timelineContentBlocked, scrollTimelineToBottomInstant]);
+  useEffect(() => {
     if (!autoScrollKey) {
       lastTimelineAutoScrollKeyRef.current = autoScrollKey;
       return;
@@ -5727,7 +5732,7 @@ const TimelineMessage = React.memo(function TimelineMessage({ message, actions, 
   });
 
   React.useLayoutEffect(() => {
-    if (onScrollIfSticky) {
+    if (streamingAssistant && onScrollIfSticky) {
       onScrollIfSticky(false);
     }
   }, [displayText, streamingAssistant, smoothStreaming, onScrollIfSticky]);
