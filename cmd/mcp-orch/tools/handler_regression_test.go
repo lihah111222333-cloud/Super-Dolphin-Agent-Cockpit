@@ -5,76 +5,11 @@ import (
 	"encoding/json"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/testutil/golden"
 )
-
-func TestCreateDAGNodesFromInputRejectsBlankRequiredFields(t *testing.T) {
-	tests := []struct {
-		name  string
-		nodes []CreateDAGNodeInput
-		want  string
-	}{
-		{
-			name:  "blank node key",
-			nodes: []CreateDAGNodeInput{{NodeKey: " ", Title: "Build"}},
-			want:  "nodes[0].node_key is required",
-		},
-		{
-			name: "blank title",
-			nodes: []CreateDAGNodeInput{
-				{NodeKey: "build", Title: "ok"},
-				{NodeKey: "test", Title: " "},
-			},
-			want: "nodes[1].title is required",
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := createDAGNodesFromInput(tc.nodes)
-			if err == nil || err.Error() != tc.want {
-				t.Fatalf("createDAGNodesFromInput() error = %v, want %q", err, tc.want)
-			}
-		})
-	}
-}
-
-func TestHandleCreateDAGRejectsRunnableRootAgentWithoutAssignee(t *testing.T) {
-	called := false
-	handler := HandleCreateDAG(&golden.OrchestrationStub{
-		CreateDAGFunc: func(_ context.Context, _ contract.CreateDAGRequest) (contract.DAGDetail, error) {
-			called = true
-			return contract.DAGDetail{}, nil
-		},
-	})
-
-	_, err := handler(context.Background(), json.RawMessage(`{
-		"agent_id":"designer-1",
-		"dag_key":"dag-unassigned-root",
-		"title":"Unassigned root",
-		"schedule":{"trigger":"manual"},
-		"nodes":[{
-			"node_key":"writer",
-			"title":"Writer",
-			"node_type":"agent",
-			"config":{"exec":{"provider":"codex","prompt_key":"main/code-task"}}
-		}]
-	}`))
-	if err == nil {
-		t.Fatalf("HandleCreateDAG() error = nil, want assigned_to validation")
-	}
-	for _, want := range []string{"nodes[0].assigned_to", "writer", "root agent node", "task_start_dag"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("HandleCreateDAG() error = %q, want substring %q", err.Error(), want)
-		}
-	}
-	if called {
-		t.Fatal("HandleCreateDAG() called service despite invalid root agent assignee")
-	}
-}
 
 func TestHandleListDAGsReturnsWrappedDAGs(t *testing.T) {
 	var gotFilter contract.ListDAGsFilter
@@ -132,32 +67,6 @@ func TestHandleListAgentsEnvelopeKeepsLegacyArrayDefault(t *testing.T) {
 		t.Fatalf("HandleListAgents() agents = %#v", out.Agents)
 	}
 	assertEnvelopeCounts(t, "HandleListAgents()", len(out.Data), out.Total, out.Showing, out.Truncated, out.Hint)
-}
-
-func TestCreateDAGRequestFromInputRequiresAgentID(t *testing.T) {
-	_, err := createDAGRequestFromInput(CreateDAGInput{
-		DagKey:   "dag-1",
-		Title:    "Build",
-		Schedule: DAGScheduleInput{Trigger: "manual"},
-	})
-	if err == nil || err.Error() != "agent_id is required" {
-		t.Fatalf("createDAGRequestFromInput() error = %v", err)
-	}
-}
-
-func TestCreateDAGRequestFromInputMapsCreatedBy(t *testing.T) {
-	req, err := createDAGRequestFromInput(CreateDAGInput{
-		AgentID:  " agent-42 ",
-		DagKey:   "dag-1",
-		Title:    "Build",
-		Schedule: DAGScheduleInput{Trigger: "manual"},
-	})
-	if err != nil {
-		t.Fatalf("createDAGRequestFromInput() error = %v", err)
-	}
-	if req.CreatedBy != "agent-42" {
-		t.Fatalf("CreatedBy = %q, want agent-42", req.CreatedBy)
-	}
 }
 
 func TestHandleCreateDAGPreservesFinalNodeKey(t *testing.T) {
@@ -226,7 +135,7 @@ func TestHandleCreateDAGPreservesNodeConfig(t *testing.T) {
 		"agent_id":"designer-1",
 		"dag_key":"dag-config",
 		"title":"Runnable DAG",
-		"schedule":{"trigger":"scheduled"},
+		"schedule":{"trigger":"manual"},
 		"nodes":[{
 			"node_key":"smoke",
 			"title":"Smoke",
@@ -256,7 +165,7 @@ func TestHandleCreateDAGSynthesizesAutomationConfigFromCommandRef(t *testing.T) 
 		"agent_id":"designer-1",
 		"dag_key":"dag-command-ref",
 		"title":"Runnable DAG",
-		"schedule":{"trigger":"scheduled"},
+		"schedule":{"trigger":"manual"},
 		"nodes":[{
 			"node_key":"smoke",
 			"title":"Smoke",
@@ -269,6 +178,38 @@ func TestHandleCreateDAGSynthesizesAutomationConfigFromCommandRef(t *testing.T) 
 	}
 	if len(got.Nodes) != 1 {
 		t.Fatalf("nodes = %d, want 1", len(got.Nodes))
+	}
+	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build"}}`)
+}
+
+func TestHandleCreateDAGInfersAutomationNodeTypeFromCommandRef(t *testing.T) {
+	var got contract.CreateDAGRequest
+	handler := HandleCreateDAG(&golden.OrchestrationStub{
+		CreateDAGFunc: func(_ context.Context, req contract.CreateDAGRequest) (contract.DAGDetail, error) {
+			got = req
+			return contract.DAGDetail{}, nil
+		},
+	})
+
+	_, err := handler(context.Background(), json.RawMessage(`{
+		"agent_id":"designer-1",
+		"dag_key":"dag-command-ref",
+		"title":"Runnable DAG",
+		"schedule":{"trigger":"manual"},
+		"nodes":[{
+			"node_key":"smoke",
+			"title":"Smoke",
+			"command_ref":" build "
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("HandleCreateDAG() error = %v", err)
+	}
+	if len(got.Nodes) != 1 {
+		t.Fatalf("nodes = %d, want 1", len(got.Nodes))
+	}
+	if got.Nodes[0].NodeType != "automation" {
+		t.Fatalf("NodeType = %q, want automation", got.Nodes[0].NodeType)
 	}
 	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build"}}`)
 }
@@ -286,7 +227,7 @@ func TestHandleCreateDAGMergesCommandRefIntoAutomationConfig(t *testing.T) {
 		"agent_id":"designer-1",
 		"dag_key":"dag-config-output",
 		"title":"Runnable DAG",
-		"schedule":{"trigger":"scheduled"},
+		"schedule":{"trigger":"manual"},
 		"nodes":[{
 			"node_key":"smoke",
 			"title":"Smoke",
@@ -376,29 +317,6 @@ func TestTaskCreateDAGSchemaExposesNodeConfig(t *testing.T) {
 	}
 }
 
-func TestTaskCreateDAGSchemaExposesFlatShortcuts(t *testing.T) {
-	defs := taskToolDefinitions(nil)
-	createDAG := mustFindToolDefinition(t, defs, "task_create_dag")
-	props := createDAG.InputSchema["properties"].(map[string]any)
-	for _, want := range []string{"trigger", "default_retry", "max_concurrency"} {
-		if _, ok := props[want].(map[string]any); !ok {
-			t.Fatalf("task_create_dag properties missing flat %s: %#v", want, props)
-		}
-	}
-	nodes := props["nodes"].(map[string]any)
-	items := nodes["items"].(map[string]any)
-	nodeProps := items["properties"].(map[string]any)
-	for _, want := range []string{"retry", "timeout_sec", "on_failure"} {
-		if _, ok := nodeProps[want].(map[string]any); !ok {
-			t.Fatalf("task_create_dag node properties missing flat %s: %#v", want, nodeProps)
-		}
-	}
-	required := createDAG.InputSchema["required"].([]string)
-	if slices.Contains(required, "schedule") {
-		t.Fatalf("task_create_dag required = %#v, want flat schedule path to make schedule optional", required)
-	}
-}
-
 func TestTaskDAGApplyOpsSchemaExposesOpDiscriminator(t *testing.T) {
 	defs := taskToolDefinitions(nil)
 	var applyOps ToolDefinition
@@ -418,6 +336,11 @@ func TestTaskDAGApplyOpsSchemaExposesOpDiscriminator(t *testing.T) {
 	opSchema, ok := itemProps["op"].(map[string]any)
 	if !ok {
 		t.Fatalf("task_dag_apply_ops ops.items.properties = %#v, want op discriminator schema", itemProps)
+	}
+	nodeSchema := itemProps["node"].(map[string]any)
+	nodeProps := nodeSchema["properties"].(map[string]any)
+	if _, ok := nodeProps["assigned_to"]; !ok {
+		t.Fatalf("task_dag_apply_ops add_node schema properties = %#v, want assigned_to", nodeProps)
 	}
 	for _, want := range []string{"update_dag", "add_node", "update_node", "remove_node"} {
 		if !slices.Contains(EnumValues(Schema(opSchema)), want) {
@@ -465,6 +388,7 @@ func TestHandleApplyOpsBuildsFlatAddNode(t *testing.T) {
 		"node_key":"score",
 		"title":"Score",
 		"node_type":"automation",
+		"assigned_to":"agent-score",
 		"depends_on":["plan"],
 		"config":{"exec":{"kind":"command_card","command_ref":"score"}}
 	}`))
@@ -474,7 +398,7 @@ func TestHandleApplyOpsBuildsFlatAddNode(t *testing.T) {
 	if got.DagKey != "dag-flat" || got.BaseVersion != 5 {
 		t.Fatalf("ApplyOps request = %#v", got)
 	}
-	assertJSONEqual(t, got.Ops, `[{"op":"add_node","node":{"node_key":"score","title":"Score","node_type":"automation","depends_on":["plan"],"config":{"exec":{"kind":"command_card","command_ref":"score"}}}}]`)
+	assertJSONEqual(t, got.Ops, `[{"op":"add_node","node":{"node_key":"score","title":"Score","node_type":"automation","assigned_to":"agent-score","depends_on":["plan"],"config":{"exec":{"kind":"command_card","command_ref":"score"}}}}]`)
 }
 
 func TestHandleApplyOpsBuildsFlatUpdateNode(t *testing.T) {

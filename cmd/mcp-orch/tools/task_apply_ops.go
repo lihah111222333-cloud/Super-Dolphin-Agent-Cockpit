@@ -117,6 +117,9 @@ func flatAddNodeFromInput(in ApplyOpsInput) (map[string]any, error) {
 		"title":     title,
 		"node_type": nodeType,
 	}
+	if value := strings.TrimSpace(in.AssignedTo); value != "" {
+		node["assigned_to"] = value
+	}
 	if in.DependsOn != nil {
 		node["depends_on"] = trimStringSlicePreserveEmpty(in.DependsOn)
 	}

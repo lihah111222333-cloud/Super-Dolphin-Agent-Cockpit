@@ -107,7 +107,8 @@ func TestNodePatch_UnmarshalStrict_EmptyOk(t *testing.T) {
 
 // TestNodePatch_UnmarshalStrict_NestedBannedKeysInConfig 关键 case：
 // banned 4 件套藏在 patch.config 内层也要拒（R2 P1）。
-// agent_key 是例外：完整 config 覆盖必须能保留合法 exec.agent_key。
+// agent_key 是例外：完整 config 覆盖必须能保留合法 exec.agent_key /
+// exec.verifier.agent_key。
 //
 // 覆盖 4 个 banned key × 2 个嵌套深度（直接嵌 + 多层嵌套 + 数组里）。
 func TestNodePatch_UnmarshalStrict_NestedBannedKeysInConfig(t *testing.T) {
@@ -123,7 +124,7 @@ func TestNodePatch_UnmarshalStrict_NestedBannedKeysInConfig(t *testing.T) {
 		{"direct_node_type", `{"config":{"node_type":"agent"}}`, "node_type"},
 		{"nested_object_agent_key", `{"config":{"inner":{"deep":{"agent_key":"evil"}}}}`, "agent_key"},
 		{"array_element_agent_key", `{"config":{"items":[{"foo":1},{"agent_key":"evil"}]}}`, "agent_key"},
-		{"exec_nested_agent_key", `{"config":{"exec":{"verifier":{"agent_key":"evil"}}}}`, "agent_key"},
+		{"exec_automation_agent_key", `{"config":{"exec":{"automation":{"agent_key":"evil"}}}}`, "agent_key"},
 		{"exec_array_agent_key", `{"config":{"exec":{"items":[{"agent_key":"evil"}]}}}`, "agent_key"},
 		{"exec_array_direct_agent_key", `{"config":{"exec":[{"agent_key":"evil"}]}}`, "agent_key"},
 	}
@@ -149,13 +150,34 @@ func TestNodePatch_UnmarshalStrict_NestedBannedKeysInConfig(t *testing.T) {
 func TestNodePatch_UnmarshalStrict_AllowsExecAgentKeyInFullConfig(t *testing.T) {
 	t.Parallel()
 
-	raw := `{"config":{"exec":{"provider":"claude","model":"opus","agent_key":"writer"},"first_turn":"new prompt"}}`
-	var p NodePatch
-	if err := json.Unmarshal([]byte(raw), &p); err != nil {
-		t.Fatalf("exec agent_key should be allowed for full config replace: %v", err)
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "agent_exec",
+			raw:  `{"config":{"exec":{"provider":"claude","model":"opus","agent_key":"writer"},"first_turn":"new prompt"}}`,
+			want: `"agent_key":"writer"`,
+		},
+		{
+			name: "hybrid_verifier_exec",
+			raw:  `{"config":{"exec":{"automation":{"kind":"command_card","command_ref":"build"},"verifier":{"provider":"claude","model":"opus","agent_key":"reviewer","prompt_key":"main/reviewer","cwd":"/repo/app"}},"outputs":{"to_node_result":true}}}`,
+			want: `"agent_key":"reviewer"`,
+		},
 	}
-	if !strings.Contains(string(p.Config), `"agent_key":"writer"`) {
-		t.Fatalf("Config = %s, want preserved exec.agent_key", p.Config)
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			var p NodePatch
+			if err := json.Unmarshal([]byte(c.raw), &p); err != nil {
+				t.Fatalf("exec agent_key should be allowed for full config replace: %v", err)
+			}
+			if !strings.Contains(string(p.Config), c.want) {
+				t.Fatalf("Config = %s, want preserved %s", p.Config, c.want)
+			}
+		})
 	}
 }
 

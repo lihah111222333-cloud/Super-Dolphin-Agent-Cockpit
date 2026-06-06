@@ -3,8 +3,10 @@ package cron
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -51,15 +53,19 @@ func (s *fakeScheduleStore) DueDAGs(ctx context.Context, now time.Time) ([]DueDA
 }
 
 type fakeStarter struct {
-	starts []ScheduledDAGStartRequest
-	err    error
+	starts   []ScheduledDAGStartRequest
+	err      error
+	errByDag map[string]error
 }
 
 func (s *fakeStarter) StartDAG(ctx context.Context, req ScheduledDAGStartRequest) error {
+	s.starts = append(s.starts, req)
+	if err := s.errByDag[req.DagKey]; err != nil {
+		return err
+	}
 	if s.err != nil {
 		return s.err
 	}
-	s.starts = append(s.starts, req)
 	return nil
 }
 
@@ -259,6 +265,122 @@ func TestScheduledDAGTicker_NextRunAtDelegatedToStarter(t *testing.T) {
 	}
 	if !starter.starts[0].NextRunAt.Equal(want) {
 		t.Fatalf("delegated next_run_at = %s, want %s", starter.starts[0].NextRunAt, want)
+	}
+}
+
+func TestScheduledDAGTicker_BareCronDefaultsUTCWhenTickNowIsBeijing(t *testing.T) {
+	beijing, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load Asia/Shanghai: %v", err)
+	}
+	store := &fakeScheduleStore{due: []DueDAG{{
+		DagKey:   "utc-default",
+		CronExpr: "0 8 * * *",
+		DueAt:    time.Date(2026, 6, 1, 1, 0, 0, 0, time.UTC),
+	}}}
+	starter := &fakeStarter{}
+	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter, Locker: &fakeLocker{}})
+	if err != nil {
+		t.Fatalf("NewScheduledDAGTicker: %v", err)
+	}
+
+	n, err := ticker.Tick(context.Background(), time.Date(2026, 6, 1, 9, 0, 0, 0, beijing))
+	if err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if n != 1 || len(starter.starts) != 1 {
+		t.Fatalf("triggered=%d starts=%d, want one start", n, len(starter.starts))
+	}
+	want := time.Date(2026, 6, 1, 8, 0, 0, 0, time.UTC)
+	if !starter.starts[0].NextRunAt.Equal(want) {
+		t.Fatalf("bare cron next_run_at = %s, want UTC default %s", starter.starts[0].NextRunAt, want)
+	}
+}
+
+func TestScheduledDAGTicker_CRONTZAsiaShanghaiComputesBeijingWallTime(t *testing.T) {
+	beijing, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load Asia/Shanghai: %v", err)
+	}
+	store := &fakeScheduleStore{due: []DueDAG{{
+		DagKey:   "beijing-wall-time",
+		CronExpr: "CRON_TZ=Asia/Shanghai 0 8 * * *",
+		DueAt:    time.Date(2026, 6, 1, 1, 0, 0, 0, time.UTC),
+	}}}
+	starter := &fakeStarter{}
+	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter, Locker: &fakeLocker{}})
+	if err != nil {
+		t.Fatalf("NewScheduledDAGTicker: %v", err)
+	}
+
+	n, err := ticker.Tick(context.Background(), time.Date(2026, 6, 1, 9, 0, 0, 0, beijing))
+	if err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if n != 1 || len(starter.starts) != 1 {
+		t.Fatalf("triggered=%d starts=%d, want one start", n, len(starter.starts))
+	}
+	want := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
+	if !starter.starts[0].NextRunAt.Equal(want) {
+		t.Fatalf("CRON_TZ next_run_at = %s, want Beijing 08:00 as %s", starter.starts[0].NextRunAt, want)
+	}
+}
+
+func TestParseDAGCronExpr_InvalidMentionsUTCDefaultAndCRONTZ(t *testing.T) {
+	_, err := ParseDAGCronExpr("not-a-cron")
+	if err == nil {
+		t.Fatal("ParseDAGCronExpr err = nil, want invalid cron error")
+	}
+	for _, want := range []string{"bare cron defaults to UTC", "CRON_TZ=<IANA>"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("ParseDAGCronExpr err = %v, want mention %s", err, want)
+		}
+	}
+}
+
+func TestScheduledDAGTicker_TickIsolatesPerDAGErrorsInSameTick(t *testing.T) {
+	stateChangedErr := fmt.Errorf("%w: stale due slot", ErrScheduleStateChanged)
+	store := &fakeScheduleStore{due: []DueDAG{
+		{DagKey: "dirty-cron", CronExpr: "not-a-cron", DueAt: time.Date(2026, 6, 1, 1, 0, 0, 0, time.UTC)},
+		{DagKey: "stale-state", CronExpr: "@hourly", DueAt: time.Date(2026, 6, 1, 1, 0, 0, 0, time.UTC)},
+		{DagKey: "still-runs", CronExpr: "CRON_TZ=Asia/Shanghai 0 8 * * *", DueAt: time.Date(2026, 6, 1, 1, 0, 0, 0, time.UTC)},
+	}}
+	starter := &fakeStarter{errByDag: map[string]error{"stale-state": stateChangedErr}}
+	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter, Locker: &fakeLocker{}})
+	if err != nil {
+		t.Fatalf("NewScheduledDAGTicker: %v", err)
+	}
+
+	n, err := ticker.Tick(context.Background(), time.Date(2026, 6, 1, 1, 0, 0, 0, time.UTC))
+	if err == nil {
+		t.Fatal("Tick err = nil, want aggregated per-DAG errors")
+	}
+	if n != 1 {
+		t.Fatalf("triggered = %d, want only still-runs to trigger", n)
+	}
+	if len(starter.starts) != 2 {
+		t.Fatalf("starts = %+v, want stale-state attempt plus still-runs", starter.starts)
+	}
+	if starter.starts[1].DagKey != "still-runs" {
+		t.Fatalf("second start = %s, want still-runs", starter.starts[1].DagKey)
+	}
+	assertIsolatedTickErrors(t, err)
+}
+
+func assertIsolatedTickErrors(t *testing.T, err error) {
+	t.Helper()
+
+	var tickErr *TickError
+	if !errors.As(err, &tickErr) || tickErr.Class != TickErrorClassValidation {
+		t.Fatalf("Tick err = %v, want validation TickError included", err)
+	}
+	if !errors.Is(err, ErrScheduleStateChanged) {
+		t.Fatalf("Tick err = %v, want ErrScheduleStateChanged included", err)
+	}
+	for _, want := range []string{"dirty-cron", "stale-state"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Tick err = %v, want mention %s", err, want)
+		}
 	}
 }
 

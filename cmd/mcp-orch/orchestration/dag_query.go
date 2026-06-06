@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
+	orchcron "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/cron"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	robcron "github.com/robfig/cron/v3"
 )
 
 var ErrRunNotFound = errors.New("orchestration: run_key not found")
@@ -429,7 +429,7 @@ func validateDAGPatch(patch nodeexec.DAGPatch, current taskdag.DAGSchedule) (tas
 		return taskdag.DAGSchedule{}, fmt.Errorf("%w: update_dag trigger %q must be one of manual/auto/scheduled/external", ErrApplyOpsInvalid, *patch.Trigger)
 	}
 	if patch.CronExpr != nil && *patch.CronExpr != "" {
-		if _, err := dagPatchCronParser.Parse(*patch.CronExpr); err != nil {
+		if _, err := orchcron.ParseDAGCronExpr(*patch.CronExpr); err != nil {
 			return taskdag.DAGSchedule{}, fmt.Errorf("%w: update_dag cron_expr %q invalid: %v", ErrApplyOpsInvalid, *patch.CronExpr, err)
 		}
 	}
@@ -462,7 +462,7 @@ func validateDAGPatchFinalSchedule(patch nodeexec.DAGPatch, final taskdag.DAGSch
 		if final.CronExpr == "" {
 			return fmt.Errorf("%w: update_dag final trigger=scheduled requires non-empty cron_expr", ErrApplyOpsInvalid)
 		}
-		if _, err := dagPatchCronParser.Parse(final.CronExpr); err != nil {
+		if _, err := orchcron.ParseDAGCronExpr(final.CronExpr); err != nil {
 			return fmt.Errorf("%w: update_dag final cron_expr %q invalid: %v", ErrApplyOpsInvalid, final.CronExpr, err)
 		}
 		return nil
@@ -480,10 +480,6 @@ func isEmptyDAGPatch(patch nodeexec.DAGPatch) bool {
 func isValidDAGTrigger(trigger string) bool {
 	return trigger == "manual" || trigger == "auto" || trigger == "scheduled" || trigger == "external"
 }
-
-var dagPatchCronParser = robcron.NewParser(
-	robcron.Minute | robcron.Hour | robcron.Dom | robcron.Month | robcron.Dow | robcron.Descriptor,
-)
 
 func trimStringPtr(value *string) *string {
 	if value == nil {
@@ -585,11 +581,10 @@ func nextRunAtForFinalSchedule(patch nodeexec.DAGPatch, schedule taskdag.DAGSche
 	if schedule.Trigger != "scheduled" || schedule.CronExpr == "" {
 		return nil
 	}
-	parsed, err := dagPatchCronParser.Parse(schedule.CronExpr)
+	next, err := orchcron.NextDAGRunAt(schedule.CronExpr, time.Now().UTC())
 	if err != nil {
 		return nil
 	}
-	next := parsed.Next(time.Now().UTC())
 	return &next
 }
 
@@ -604,7 +599,7 @@ func cloneStringPtr(value *string) *string {
 // persistAddNodeSpecs 顺序调 UpsertNode 把 NodeSpec 转为 taskdag.Node 写入表。
 func persistAddNodeSpecs(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, specs []nodeexec.NodeSpec) error {
 	for _, spec := range specs {
-		node := taskdag.Node{DagKey: dagKey, NodeKey: strings.TrimSpace(spec.NodeKey), Title: strings.TrimSpace(spec.Title), NodeType: strings.TrimSpace(spec.NodeType), DependsOn: dependsOnJSON(spec.DependsOn), Config: append(json.RawMessage(nil), spec.Config...)}
+		node := taskdag.Node{DagKey: dagKey, NodeKey: strings.TrimSpace(spec.NodeKey), Title: strings.TrimSpace(spec.Title), NodeType: strings.TrimSpace(spec.NodeType), AssignedTo: strings.TrimSpace(spec.AssignedTo), DependsOn: dependsOnJSON(spec.DependsOn), Config: append(json.RawMessage(nil), spec.Config...)}
 		if _, err := tx.UpsertNode(ctx, node); err != nil {
 			return fmt.Errorf("upsert node %s: %w", node.NodeKey, err)
 		}

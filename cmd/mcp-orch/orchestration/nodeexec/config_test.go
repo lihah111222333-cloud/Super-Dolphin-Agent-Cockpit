@@ -3,6 +3,7 @@ package nodeexec
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -354,4 +355,205 @@ func contains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// Automation result materialization regression tests live here to keep
+// executor_automation_test.go below the per-file guard while reusing package stubs.
+func TestAutomationExecutor_EmptyInputsOutputs_KeepsF21Behaviour(t *testing.T) {
+	t.Parallel()
+	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
+	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: "out"}}
+	exec := NewAutomationExecutor(getter, runner)
+	node := makeAutomationNode(t, AutomationNodeConfig{
+		Exec: AutomationExecConfig{CommandRef: "k", Args: json.RawMessage(`{"x":1}`)},
+	})
+
+	out := executeAutomationNode(t, exec, node, RunContext{})
+	if out.Status != NodeStatusDone {
+		t.Fatalf("Status = %q, want done", out.Status)
+	}
+	if out.Result == nil {
+		t.Fatalf("Result must be set on F2.1 fallback path")
+	}
+	// runner 拿到的 args 应与原 cfg.Exec.Args 一致（未被 merge 路径动过）。
+	var got map[string]any
+	if err := json.Unmarshal(runner.lastArgs, &got); err != nil {
+		t.Fatalf("unmarshal lastArgs: %v", err)
+	}
+	if _, hasInputs := got["__inputs"]; hasInputs {
+		t.Fatalf("lastArgs should not contain injected __inputs key on empty Inputs config: %#v", got)
+	}
+}
+
+func TestClassifyAutomationError(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		err  error
+		want FailureClass
+	}{
+		{"not_found_hard", errors.New("command missing not found"), FailureClassHard},
+		{"timeout_transient", errors.New("i/o timeout"), FailureClassTransient},
+		{"network_transient", errors.New("connection refused"), FailureClassTransient},
+		{"infra", errors.New("postgres service unavailable"), FailureClassInfrastructure},
+		{"parse_validation", errors.New("parse command args: invalid json"), FailureClassValidation},
+		{"nonzero_hard", CommandExitError{ExitCode: 2, Err: errors.New("exit status 2")}, FailureClassHard},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := classifyAutomationError(tc.err); got != tc.want {
+				t.Fatalf("classifyAutomationError(%v) = %q, want %q", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestEnforceNodeResultSizeCap_Boundary 边界测试：4096 byte 通过、4097 byte 拒绝。
+// ADR-006 决策点：等于 cap 算 OK，超过即 validation 失败。
+func TestEnforceNodeResultSizeCap_Boundary(t *testing.T) {
+	if NodeResultSizeCapBytes != 4096 {
+		t.Fatalf("ADR-006 cap drift; NodeResultSizeCapBytes = %d, want 4096", NodeResultSizeCapBytes)
+	}
+	// exactly 4096 bytes → OK
+	if out := enforceNodeResultSizeCap(make([]byte, 4096)); out != nil {
+		t.Fatalf("4096-byte payload must pass; got outcome=%+v", out)
+	}
+	// 4097 bytes → reject
+	out := enforceNodeResultSizeCap(make([]byte, 4097))
+	if out == nil {
+		t.Fatalf("4097-byte payload must be rejected; got nil")
+	}
+	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
+		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
+	}
+	if !strings.Contains(out.ErrorSummary, "outputs.to_sharedfile") {
+		t.Fatalf("ErrorSummary must hint outputs.to_sharedfile fix; got %q", out.ErrorSummary)
+	}
+}
+
+// TestEnforceNodeResultSizeCap_FivekBytes 5000 byte 拒绝（典型超阈案例）。
+func TestEnforceNodeResultSizeCap_FivekBytes(t *testing.T) {
+	out := enforceNodeResultSizeCap(make([]byte, 5000))
+	if out == nil {
+		t.Fatalf("5000-byte payload must be rejected; got nil")
+	}
+	if out.FailureClass != FailureClassValidation {
+		t.Fatalf("FailureClass = %q, want validation", out.FailureClass)
+	}
+	if !strings.Contains(out.ErrorSummary, "5000") || !strings.Contains(out.ErrorSummary, "4096") {
+		t.Fatalf("ErrorSummary should report both actual and cap; got %q", out.ErrorSummary)
+	}
+}
+
+// TestAutomationExecutor_Outputs_OversizeResultRejected 端到端：runner 返回的 stdout
+// marshal 后超 4KB → finalizeAutomationOutcome 拒绝，不写 NodeOutcome.Result。
+func TestAutomationExecutor_Outputs_OversizeResultRejected(t *testing.T) {
+	// Stdout 撑爆 4KB；marshal 后整个 AutomationCommandResult JSON 也大于 4KB。
+	bigStdout := strings.Repeat("x", 5000)
+	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
+	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: bigStdout}}
+	exec := NewAutomationExecutor(getter, runner)
+	node := makeAutomationNode(t, AutomationNodeConfig{
+		Exec:    AutomationExecConfig{CommandRef: "k"},
+		Outputs: OutputsConfig{ToNodeResult: true},
+	})
+
+	out := executeAutomationNode(t, exec, node, RunContext{})
+	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
+		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
+	}
+	if !strings.Contains(out.ErrorSummary, "ADR-006") {
+		t.Fatalf("ErrorSummary should cite ADR-006; got %q", out.ErrorSummary)
+	}
+	if out.Result != nil {
+		t.Fatalf("Result must NOT be set when size cap rejection fires; got %d bytes", len(out.Result))
+	}
+}
+
+// TestAutomationExecutor_Outputs_OversizeViaSharedfile_OK 验证 sharedfile 旁路：
+// stdout > 4KB 但 to_node_result=false + to_sharedfile=path → node.result 只写小 envelope
+// → 不触发 size cap rejection。这是 ADR-006 给运营者的「修复路径」。
+func TestAutomationExecutor_Outputs_OversizeViaSharedfile_OK(t *testing.T) {
+	bigStdout := strings.Repeat("y", 5000)
+	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
+	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: bigStdout}}
+	writer := &stubAutomationSharedFileWriter{}
+	exec := NewAutomationExecutor(getter, runner)
+	node := makeAutomationNode(t, AutomationNodeConfig{
+		Exec:    AutomationExecConfig{CommandRef: "k"},
+		Outputs: OutputsConfig{ToSharedfile: &SharedfileTarget{Path: "reports/big.log"}},
+	})
+
+	out := executeAutomationNode(t, exec, node, RunContext{
+		DagKey:           "dag-x",
+		NodeKey:          "node-auto",
+		RunID:            7,
+		SharedFileWriter: writer,
+	})
+	if out.Status != NodeStatusDone {
+		t.Fatalf("Status = %q, want done; ErrorSummary=%q", out.Status, out.ErrorSummary)
+	}
+	if len(writer.writes) != 1 || writer.writes[0].Content != bigStdout {
+		t.Fatalf("writer should hold the big stdout; writes=%#v", writer.writes)
+	}
+	if len(out.Result) == 0 || strings.Contains(string(out.Result), bigStdout[:128]) {
+		t.Fatalf("Result = %s, want small sharedfile envelope without large stdout", out.Result)
+	}
+	if !strings.Contains(string(out.Result), "reports/big.log") {
+		t.Fatalf("Result = %s, want sharedfile path", out.Result)
+	}
+}
+
+func TestAutomationExecutor_SharedfileEnvelopeFeedsDownstreamAutomation(t *testing.T) {
+	t.Parallel()
+	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
+	upstreamRunner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: "artifact payload"}}
+	writer := &stubAutomationSharedFileWriter{}
+	upstreamExec := NewAutomationExecutor(getter, upstreamRunner)
+	upstreamNode := makeAutomationNode(t, AutomationNodeConfig{
+		Exec:    AutomationExecConfig{CommandRef: "produce"},
+		Outputs: OutputsConfig{ToSharedfile: &SharedfileTarget{Path: "reports/artifact.log"}},
+	})
+
+	upstream := executeAutomationNode(t, upstreamExec, upstreamNode, RunContext{
+		DagKey:           "dag-x",
+		NodeKey:          "producer",
+		RunID:            42,
+		SharedFileWriter: writer,
+	})
+	if upstream.Status != NodeStatusDone {
+		t.Fatalf("upstream status = %q, want done; summary=%q", upstream.Status, upstream.ErrorSummary)
+	}
+
+	downstreamRunner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: "consumed"}}
+	downstreamExec := NewAutomationExecutor(getter, downstreamRunner)
+	downstreamNode := makeAutomationNode(t, AutomationNodeConfig{
+		Exec:   AutomationExecConfig{CommandRef: "consume", Args: json.RawMessage(`{"mode":"consume"}`)},
+		Inputs: InputsConfig{FromNodes: []string{"producer"}},
+	})
+	downstream := executeAutomationNode(t, downstreamExec, downstreamNode, RunContext{
+		PrevResults: map[string]json.RawMessage{"producer": upstream.Result},
+	})
+	if downstream.Status != NodeStatusDone {
+		t.Fatalf("downstream status = %q, want done; summary=%q", downstream.Status, downstream.ErrorSummary)
+	}
+	var args map[string]any
+	if err := json.Unmarshal(downstreamRunner.lastArgs, &args); err != nil {
+		t.Fatalf("unmarshal downstream args: %v; raw=%s", err, downstreamRunner.lastArgs)
+	}
+	inputs, ok := args["__inputs"].(map[string]any)
+	if !ok {
+		t.Fatalf("__inputs missing in downstream args: %#v", args)
+	}
+	fromNodes, ok := inputs["from_nodes"].(map[string]any)
+	if !ok {
+		t.Fatalf("__inputs.from_nodes missing: %#v", inputs)
+	}
+	producer, ok := fromNodes["producer"].(map[string]any)
+	if !ok {
+		t.Fatalf("producer envelope missing: %#v", fromNodes)
+	}
+	if producer["kind"] != "sharedfile" || producer["path"] != "reports/artifact.log" {
+		t.Fatalf("producer envelope = %#v, want sharedfile reports/artifact.log", producer)
+	}
 }

@@ -196,7 +196,10 @@ func TestResolveRoutedPrompt_BuiltinDAGDesignerPromptKeyLaunchesWithToolGuidance
 		"shared_file_list",
 		"task_create_dag",
 		"task_get_dag",
+		"task_get_run",
+		"task_list_runs",
 		"task_dag_apply_ops",
+		"task_dispatch_node",
 		"task_start_dag",
 	})
 	if req.PromptKeyStale {
@@ -209,7 +212,7 @@ func TestResolveRoutedPrompt_BuiltinDAGDesignerPromptKeyLaunchesWithToolGuidance
 		t.Fatalf("BaseInstructionBlocks missing DAG designer section: %#v", req.BaseInstructionBlocks)
 	}
 	body := contract.TextFromBaseInstructionBlocks(req.BaseInstructionBlocks)
-	for _, want := range []string{"node.config.exec", "assigned_to", "waiting_for_assignee", "final_output"} {
+	for _, want := range []string{"node.config.exec", "assigned_to", "waiting_for_assignee", "final_output", "task_dispatch_node", "CRON_TZ=Asia/Shanghai", "runtime append"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("DAG designer body missing %q:\n%s", want, body)
 		}
@@ -226,6 +229,9 @@ func TestResolveRoutedPrompt_BuiltinDAGDesignerRequiresCompleteDAGToolset(t *tes
 		"shared_file_list",
 		"task_create_dag",
 		"task_get_dag",
+		"task_get_run",
+		"task_list_runs",
+		"task_dag_apply_ops",
 		"task_start_dag",
 	})
 	if req.PromptKeyStale {
@@ -235,7 +241,7 @@ func TestResolveRoutedPrompt_BuiltinDAGDesignerRequiresCompleteDAGToolset(t *tes
 		t.Fatalf("AgentKey = %q, want dag_designer", req.AgentKey)
 	}
 	if baseInstructionBlockKeys(req.BaseInstructionBlocks)["dag_designer_runtime_tools"] {
-		t.Fatalf("DAG designer section injected without task_dag_apply_ops: %#v", req.BaseInstructionBlocks)
+		t.Fatalf("DAG designer section injected without task_dispatch_node: %#v", req.BaseInstructionBlocks)
 	}
 }
 

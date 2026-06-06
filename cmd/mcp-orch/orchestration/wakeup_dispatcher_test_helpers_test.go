@@ -30,6 +30,8 @@ type dispatcherStubStore struct {
 	failRowsSet bool
 	failErr     error
 
+	atomicFailCalls []atomicWakeupNodeFailCall
+
 	dagReply         *taskdag.DAG
 	dagErr           error
 	nodesReply       []taskdag.Node
@@ -45,6 +47,11 @@ type dispatcherStubStore struct {
 	patchConfigErr   error
 	runningCalls     []taskdag.RunningNodeStatusUpdate
 	runningErr       error
+}
+
+type atomicWakeupNodeFailCall struct {
+	Wakeup taskdag.FailWakeupInput
+	Node   taskdag.FailNodeInput
 }
 
 func (s *dispatcherStubStore) GetDAG(_ context.Context, _ string) (*taskdag.DAG, error) {
@@ -79,6 +86,20 @@ func (s *dispatcherStubStore) FailNodeAndCancelDownstream(_ context.Context, inp
 		return s.failNodeReply, nil
 	}
 	return &taskdag.FailNodeResult{}, nil
+}
+
+func (s *dispatcherStubStore) FailWakeupAndFailNodeAndCancelDownstream(ctx context.Context, wakeup taskdag.FailWakeupInput, node taskdag.FailNodeInput) (int64, *taskdag.FailNodeResult, error) {
+	s.atomicFailCalls = append(s.atomicFailCalls, atomicWakeupNodeFailCall{Wakeup: wakeup, Node: node})
+	rows, err := s.FailWakeup(ctx, wakeup)
+	if err != nil || rows == 0 {
+		return rows, nil, err
+	}
+	res, err := s.FailNodeAndCancelDownstream(ctx, node)
+	if err != nil {
+		s.failCalls = s.failCalls[:len(s.failCalls)-1]
+		return 0, nil, err
+	}
+	return rows, res, nil
 }
 
 func (s *dispatcherStubStore) CompleteNodeAndScheduleDownstream(_ context.Context, input taskdag.CompleteNodeInput) (*taskdag.CompleteNodeWithDownstreamResult, error) {

@@ -174,6 +174,38 @@ func TestMCPOrchDAGRuntimeApplyOpsCallsPeerTool(t *testing.T) {
 	}
 }
 
+func TestMCPOrchDAGRuntimeDispatchNodeCallsPeerTool(t *testing.T) {
+	t.Parallel()
+
+	caller := &recordingDAGToolCaller{result: `{"wakeup_id":99,"enqueued":true,"node":{"dag_key":"dag-1","node_key":"draft","assigned_to":"codex-runner"}}`}
+	runtime := &mcpOrchDAGRuntime{tools: caller}
+	dispatcher, ok := any(runtime).(interface {
+		DispatchNode(context.Context, contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error)
+	})
+	if !ok {
+		t.Fatal("mcpOrchDAGRuntime does not expose DispatchNode")
+	}
+
+	resp, err := dispatcher.DispatchNode(context.Background(), contract.DispatchNodeRequest{
+		DagKey:     " dag-1 ",
+		RunID:      88,
+		NodeKey:    " draft ",
+		AssignedTo: " codex-runner ",
+	})
+	if err != nil {
+		t.Fatalf("DispatchNode() error = %v", err)
+	}
+	if !resp.Enqueued || resp.WakeupID != 99 || resp.Node.AssignedTo != "codex-runner" {
+		t.Fatalf("DispatchNode() = %#v", resp)
+	}
+	assertDAGToolCall(t, caller, "task_dispatch_node", map[string]any{
+		"dag_key":     "dag-1",
+		"run_id":      float64(88),
+		"node_key":    "draft",
+		"assigned_to": "codex-runner",
+	})
+}
+
 func TestMCPOrchDAGRuntimeGetRunCallsPeerTool(t *testing.T) {
 	t.Parallel()
 

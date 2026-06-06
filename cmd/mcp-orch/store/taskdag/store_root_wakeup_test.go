@@ -3,6 +3,7 @@ package taskdag
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
@@ -23,6 +24,7 @@ func TestScheduleRootWakeups_EnqueuesOnlyAssignedReadyRoots(t *testing.T) {
 	assertScheduleRootRows(t, rows, 1, "ScheduleRootWakeups")
 	assertPendingWakeupCount(t, db, "root-assigned", 1)
 	assertNoPendingWakeups(t, db, []string{"root-unassigned", "root-pending", "child"})
+	assertRunHasDispatchBlockedEvent(t, db, "run-a", "root-unassigned", "assigned_to")
 
 	wakeup := lookupPendingWakeup(t, db, "root-assigned")
 	assertRootWakeupRoute(t, wakeup, runID)
@@ -31,6 +33,36 @@ func TestScheduleRootWakeups_EnqueuesOnlyAssignedReadyRoots(t *testing.T) {
 	rows, err = any(store).(RunStore).ScheduleRootWakeups(context.Background(), "dag-1", runID)
 	requireNoScheduleRootError(t, err, "ScheduleRootWakeups replay")
 	assertScheduleRootReplay(t, db, rows)
+}
+
+func TestScheduleRootWakeups_BlocksAssignedRootMissingCWD(t *testing.T) {
+	t.Parallel()
+
+	store, db, now := newTaskDAGTestStore()
+	runID := seedRunID(db, "dag-1", "run-missing-cwd")
+	seedRuntimeNode(t, db, now, runID, "root", nil, "ready", "agent-root")
+	setRuntimeNodeConfig(t, db, runID, "root", json.RawMessage(`{"exec":{"agent_key":"alpha"}}`))
+
+	rows, err := any(store).(RunStore).ScheduleRootWakeups(context.Background(), "dag-1", runID)
+	requireNoScheduleRootError(t, err, "ScheduleRootWakeups")
+	assertScheduleRootRows(t, rows, 0, "ScheduleRootWakeups missing cwd")
+	assertPendingWakeupCount(t, db, "root", 0)
+	assertRunHasDispatchBlockedEvent(t, db, "run-missing-cwd", "root", "exec.cwd")
+}
+
+func TestScheduleRootWakeups_BlocksAssignedRootMissingAgentIdentity(t *testing.T) {
+	t.Parallel()
+
+	store, db, now := newTaskDAGTestStore()
+	runID := seedRunID(db, "dag-1", "run-missing-identity")
+	seedRuntimeNode(t, db, now, runID, "root", nil, "ready", "agent-root")
+	setRuntimeNodeConfig(t, db, runID, "root", json.RawMessage(`{"exec":{"cwd":"/tmp/node-cwd"}}`))
+
+	rows, err := any(store).(RunStore).ScheduleRootWakeups(context.Background(), "dag-1", runID)
+	requireNoScheduleRootError(t, err, "ScheduleRootWakeups")
+	assertScheduleRootRows(t, rows, 0, "ScheduleRootWakeups missing identity")
+	assertPendingWakeupCount(t, db, "root", 0)
+	assertRunHasDispatchBlockedEvent(t, db, "run-missing-identity", "root", "agent_key")
 }
 
 func requireNoScheduleRootError(t *testing.T, err error, label string) {
@@ -86,4 +118,39 @@ func assertScheduleRootReplay(t *testing.T, db *fakeTaskDAGDB, rows int64) {
 	t.Helper()
 	assertScheduleRootRows(t, rows, 0, "ScheduleRootWakeups replay")
 	assertPendingWakeupCount(t, db, "root-assigned", 1)
+}
+
+func setRuntimeNodeConfig(t *testing.T, db *fakeTaskDAGDB, runID int64, nodeKey string, config json.RawMessage) {
+	t.Helper()
+	key := dagRunNodeKey("dag-1", nodeKey, runID)
+	row, ok := db.nodes[key]
+	if !ok {
+		t.Fatalf("node %s not found for run %d", nodeKey, runID)
+	}
+	row.Config = append(json.RawMessage(nil), config...)
+	db.nodes[key] = row
+}
+
+func assertRunHasDispatchBlockedEvent(t *testing.T, db *fakeTaskDAGDB, runKey, nodeKey, reasonFragment string) {
+	t.Helper()
+	run, ok := db.runs[runKey]
+	if !ok {
+		t.Fatalf("run %s not found", runKey)
+	}
+	var events []struct {
+		Kind    string `json:"kind"`
+		NodeKey string `json:"node_key"`
+		Reason  string `json:"reason"`
+	}
+	if err := json.Unmarshal(run.Events, &events); err != nil {
+		t.Fatalf("decode run events %q: %v", string(run.Events), err)
+	}
+	for _, ev := range events {
+		if ev.Kind == "node_dispatch_blocked" &&
+			ev.NodeKey == nodeKey &&
+			strings.Contains(ev.Reason, reasonFragment) {
+			return
+		}
+	}
+	t.Fatalf("run %s events = %+v, want node_dispatch_blocked for %s containing %q", runKey, events, nodeKey, reasonFragment)
 }

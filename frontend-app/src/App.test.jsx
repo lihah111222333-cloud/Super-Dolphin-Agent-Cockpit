@@ -7018,7 +7018,7 @@ async function createWorkflowSchedule() {
     expect(backend.applyDagOps).toHaveBeenCalledWith({
       dagKey: 'daily-brief',
       baseVersion: 7,
-      ops: [{ op: 'update_dag', patch: { trigger: 'scheduled', cron_expr: '0 9 * * 1-5' } }],
+      ops: [{ op: 'update_dag', patch: { trigger: 'scheduled', cron_expr: 'CRON_TZ=Asia/Shanghai 0 9 * * 1-5' } }],
     });
   });
   expect(await screen.findByText('已保存定时任务')).toBeInTheDocument();
@@ -7032,7 +7032,8 @@ async function editWorkflowStep() {
   fireEvent.input(screen.getByLabelText('执行者'), { target: { value: 'agent-b' } });
   fireEvent.change(screen.getByLabelText('依赖步骤'), { target: { value: 'outline' } });
   expect(screen.queryByLabelText('Provider')).not.toBeInTheDocument();
-  expect(screen.queryByLabelText('Prompt Key')).not.toBeInTheDocument();
+  expect(screen.getByLabelText('执行引擎')).toHaveValue('codex');
+  expect(screen.getByLabelText('Prompt Key')).toHaveValue('main/writer');
   fireEvent.click(screen.getByRole('button', { name: '保存步骤' }));
   await waitFor(() => {
     expect(backend.applyDagOps).toHaveBeenCalledWith({
@@ -7045,7 +7046,9 @@ async function editWorkflowStep() {
           title: '起草 v2',
           assigned_to: 'agent-b',
           depends_on: ['outline'],
-          config: expect.objectContaining({ provider: 'codex', model: 'gpt-5', prompt_key: 'main/writer' }),
+          config: expect.objectContaining({
+            exec: expect.objectContaining({ provider: 'codex', model: 'gpt-5', prompt_key: 'main/writer' }),
+          }),
         }),
       })],
     });
@@ -7083,6 +7086,10 @@ async function designWorkflowWithAi() {
       providerNativeSkills: false,
     }));
     expect(designPayload.config.enabledTools).toContain('task_start_dag');
+    expect(designPayload.config.enabledTools).toContain('task_get_run');
+    expect(designPayload.config.enabledTools).toContain('task_list_runs');
+    expect(designPayload.config.enabledTools).toContain('task_dispatch_node');
+    expect(designPayload.config.enabledTools).not.toContain('task_update_node');
   });
   expect(await screen.findByText('AI 设计流程')).toBeInTheDocument();
   expect(screen.getByText('AI 设计流程').closest('.thread-card')).toHaveTextContent('codex');

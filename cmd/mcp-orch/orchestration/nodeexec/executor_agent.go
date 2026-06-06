@@ -65,6 +65,12 @@ type AgentLauncher interface {
 	LaunchAgent(ctx context.Context, req contract.LaunchRequest) (threadID string, err error)
 }
 
+var ErrDAGAgentRequiresRemoteLauncher = errors.New("DAG agent launch requires remote launcher")
+
+type DAGAgentLaunchContractValidator interface {
+	ValidateDAGAgentLaunch(ctx context.Context, req contract.LaunchRequest, dagKey, nodeKey string) error
+}
+
 var ErrSpawnWritebackFailed = errors.New("agent spawn write-back failed")
 
 type AgentLauncherWithSpawnRecord interface {
@@ -229,7 +235,7 @@ func (e *AgentExecutor) agentLaunchOutcome(
 	if launchErr == nil {
 		return e.successfulAgentLaunchOutcome(ctx, node, runCtx, threadID)
 	}
-	if errors.Is(launchErr, ErrSpawnWritebackFailed) {
+	if errors.Is(launchErr, ErrSpawnWritebackFailed) || errors.Is(launchErr, ErrDAGAgentRequiresRemoteLauncher) {
 		return NodeOutcome{
 			Status:       NodeStatusFailed,
 			FailureClass: FailureClassHard,
@@ -368,6 +374,9 @@ func (e *AgentExecutor) launchAgent(
 	node Node,
 	runCtx RunContext,
 ) (string, error) {
+	if err := e.validateDAGAgentLauncherContract(ctx, req, node, runCtx); err != nil {
+		return "", err
+	}
 	if e.usesPrePromptSpawnRecord() {
 		launcher := e.launcher.(AgentLauncherWithSpawnRecord)
 		return launcher.LaunchAgentWithSpawnRecord(ctx, req, func(threadID string) error {
@@ -379,6 +388,20 @@ func (e *AgentExecutor) launchAgent(
 		})
 	}
 	return e.launcher.LaunchAgent(ctx, req)
+}
+
+func (e *AgentExecutor) validateDAGAgentLauncherContract(
+	ctx context.Context,
+	req contract.LaunchRequest,
+	node Node,
+	runCtx RunContext,
+) error {
+	validator, ok := e.launcher.(DAGAgentLaunchContractValidator)
+	if !ok {
+		return nil
+	}
+	dagKey, nodeKey := resolveSpawnKeys(node, runCtx)
+	return validator.ValidateDAGAgentLaunch(ctx, req, dagKey, nodeKey)
 }
 
 func (e *AgentExecutor) usesPrePromptSpawnRecord() bool {

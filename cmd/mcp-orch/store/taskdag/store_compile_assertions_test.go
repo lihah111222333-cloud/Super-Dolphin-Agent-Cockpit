@@ -27,6 +27,7 @@ var (
 	_ NodeStatusStore          = (*store)(nil)
 	_ NodeConfigPatchStore     = (*store)(nil)
 	_ SmartRetryConfigStore    = (*store)(nil)
+	_ WakeupNodeFailureStore   = (*store)(nil)
 	_ DAGLockStore             = (*store)(nil)
 	_ RunStore                 = (*store)(nil)
 	_ ScheduledStartTxStore    = (*store)(nil)

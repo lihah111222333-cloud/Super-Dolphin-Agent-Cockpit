@@ -303,6 +303,68 @@ func TestNodeExecutorRouter_SharedFileWriter_Injected(t *testing.T) {
 	}
 }
 
+func TestNodeExecutorRouter_AutomationSharedfileOnlyEnvelopeFeedsDownstreamAgent(t *testing.T) {
+	t.Parallel()
+	autoExec := nodeexec.NewAutomationExecutor(
+		stubAutomationCmdGetter{},
+		stubAutomationCmdRunner{stdout: "build ok"},
+	)
+	writer := &stubRouterPrevWriter{}
+	launcher := &recordingAgentLauncher{threadID: "thr-downstream"}
+	agentExec := newTestAgentExecutor(launcher, nil)
+	store := &stubRouterAutoStore{
+		stubRouterStore: stubRouterStore{
+			nodes: []taskdag.Node{
+				{
+					DagKey: "dag-1", NodeKey: "auto1", RunID: routerTestRunID(7), NodeType: "automation",
+					Status: string(nodeexec.NodeStatusReady),
+					Config: testRawConfig(t, `{"exec":{"command_ref":"build"},"outputs":{"to_sharedfile":{"path":"reports/out.log","lock_mode":"exclusive"}}}`),
+				},
+				{
+					DagKey: "dag-1", NodeKey: "agent1", RunID: routerTestRunID(7), NodeType: "agent",
+					Status: string(nodeexec.NodeStatusReady),
+					Config: testRawConfig(t, `{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"inputs":{"from_nodes":["auto1"]},"first_turn":"continue"}`),
+				},
+			},
+		},
+	}
+	router := NewNodeExecutorRouter(store, agentExec, autoExec, nil, writer, nil)
+
+	upstream, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
+		DagKey: "dag-1", NodeKey: "auto1", RunID: routerTestRunID(7),
+	})
+	if err != nil {
+		t.Fatalf("upstream RouteByWakeup err = %v", err)
+	}
+	if upstream.Status != nodeexec.NodeStatusDone {
+		t.Fatalf("upstream status = %v, want done", upstream.Status)
+	}
+	if len(store.completeCalls) != 1 {
+		t.Fatalf("completeCalls = %d, want 1", len(store.completeCalls))
+	}
+	if got := string(store.completeCalls[0].Result); !strings.Contains(got, "reports/out.log") {
+		t.Fatalf("automation complete result = %s, want sharedfile path envelope", got)
+	}
+
+	store.nodes[0].Status = string(nodeexec.NodeStatusDone)
+	store.nodes[0].Result = append([]byte(nil), store.completeCalls[0].Result...)
+	downstream, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
+		DagKey: "dag-1", NodeKey: "agent1", RunID: routerTestRunID(7),
+	})
+	if err != nil {
+		t.Fatalf("downstream RouteByWakeup err = %v", err)
+	}
+	if downstream.Status != nodeexec.NodeStatusDone {
+		t.Fatalf("downstream status = %v, want done", downstream.Status)
+	}
+	if len(launcher.calls) != 1 {
+		t.Fatalf("launcher calls = %d, want 1", len(launcher.calls))
+	}
+	if !strings.Contains(launcher.calls[0].Prompt, "reports/out.log") {
+		t.Fatalf("downstream prompt = %q, want upstream sharedfile path", launcher.calls[0].Prompt)
+	}
+}
+
 func TestNodeExecutorRouter_AutomationLifecycleHooks(t *testing.T) {
 	events := []string{}
 	autoExec := nodeexec.NewAutomationExecutor(
@@ -413,13 +475,15 @@ func router_helper_New(store taskdag.Store, agentExec *nodeexec.AgentExecutor) *
 // AutomationExecutor done 路径下的 CompleteNodeAndScheduleDownstream 走过去�?
 type stubRouterAutoStore struct {
 	stubRouterStore
-	completeErr error
+	completeErr   error
+	completeCalls []taskdag.CompleteNodeInput
 }
 
-func (s *stubRouterAutoStore) CompleteNodeAndScheduleDownstream(_ context.Context, _ taskdag.CompleteNodeInput) (*taskdag.CompleteNodeWithDownstreamResult, error) {
+func (s *stubRouterAutoStore) CompleteNodeAndScheduleDownstream(_ context.Context, input taskdag.CompleteNodeInput) (*taskdag.CompleteNodeWithDownstreamResult, error) {
 	if s.completeErr != nil {
 		return nil, s.completeErr
 	}
+	s.completeCalls = append(s.completeCalls, input)
 	return &taskdag.CompleteNodeWithDownstreamResult{}, nil
 }
 

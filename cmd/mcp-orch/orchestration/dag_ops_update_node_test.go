@@ -117,6 +117,40 @@ func TestApplyOps_UpdateNode_ConfigHappy(t *testing.T) {
 	}
 }
 
+func TestApplyOps_UpdateNode_HybridVerifierConfigAccepted(t *testing.T) {
+	t.Parallel()
+	stub := &stubDAGOpsStore{
+		currentVersion: 0,
+		nodes: []taskdag.Node{
+			{DagKey: "dag-a", NodeKey: "verify", Title: "Verify", NodeType: "hybrid", Status: "pending",
+				DependsOn: json.RawMessage(`[]`), Config: json.RawMessage(`{"exec":{"automation":{"command_ref":"old"},"verifier":{"agent_key":"old"}}}`)},
+		},
+	}
+	s := makeApplyOpsService(stub)
+	req := contract.ApplyOpsRequest{
+		DagKey:      "dag-a",
+		BaseVersion: 0,
+		Ops: json.RawMessage(`[
+			{"op":"update_node","node_key":"verify","patch":{"config":{
+				"exec":{
+					"automation":{"kind":"command_card","command_ref":"test_app"},
+					"verifier":{"provider":"claude","model":"opus","agent_key":"reviewer","prompt_key":"main/reviewer","cwd":"/repo/app"}
+				},
+				"outputs":{"to_sharedfile":{"path":"reports/verify.md","lock_mode":"exclusive"},"to_node_result":true}
+			}}}
+		]`),
+	}
+	if _, err := s.ApplyOps(context.Background(), req); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	gotCfg := string(stub.upsertCalls[0].Config)
+	for _, want := range []string{`"command_ref":"test_app"`, `"agent_key":"reviewer"`, `"prompt_key":"main/reviewer"`, `"to_node_result":true`} {
+		if !strings.Contains(gotCfg, want) {
+			t.Errorf("Config = %s, want contains %s", gotCfg, want)
+		}
+	}
+}
+
 func TestApplyOps_UpdateNode_DependsOnHappy(t *testing.T) {
 	t.Parallel()
 	// 现有：n1（无 dep）, n2（depends [n1]）, n3（无 dep）。

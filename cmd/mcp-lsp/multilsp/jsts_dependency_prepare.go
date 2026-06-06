@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -131,11 +132,7 @@ func runJSTSPnpmInstall(ctx context.Context, installRoot string) error {
 	if err != nil {
 		return fmt.Errorf("pnpm install --frozen-lockfile in %s cannot start: %w", installRoot, err)
 	}
-	installCtx := ctx
-	cancel := func() {}
-	if _, ok := ctx.Deadline(); !ok {
-		installCtx, cancel = context.WithTimeout(ctx, jstsPnpmInstallTimeout)
-	}
+	installCtx, cancel := platformconfig.WithTimeoutIfNone(ctx, jstsPnpmInstallTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(installCtx, pnpmPath, "install", "--frozen-lockfile")
 	cmd.Dir = installRoot

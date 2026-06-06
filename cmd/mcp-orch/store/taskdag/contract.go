@@ -90,6 +90,13 @@ type SmartRetryConfigStore interface {
 	RetryWakeupWithNodeConfigPatch(ctx context.Context, input RetryWakeupWithNodeConfigPatchInput) (int64, error)
 }
 
+// WakeupNodeFailureStore is the dispatcher port for committing a permanent
+// wakeup failure and its DAG node fail/cascade in one transaction. Keeping it
+// outside WakeupStore / NodeFlowStore preserves their interface budgets.
+type WakeupNodeFailureStore interface {
+	FailWakeupAndFailNodeAndCancelDownstream(ctx context.Context, wakeup FailWakeupInput, node FailNodeInput) (int64, *FailNodeResult, error)
+}
+
 // DAGOpsStore 是 task_dag_apply_ops 业务（F4.1+）的窄接口。包含：
 //   - GetDAGVersionForUpdate: SELECT version FROM task_dags WHERE dag_key = ?
 //     FOR UPDATE — 拿当前 OCC 版本，并在事务内锁定行避免双写。
@@ -425,18 +432,16 @@ type ScheduledDownstreamWakeup struct {
 	IdempotencyKey string
 }
 
-// DownstreamWakeupPayload is the JSON shape written into
-// task_dag_wakeups.prompt_payload by CompleteNodeAndScheduleDownstream. Phase
-// 3.4 only populates AgentID + UpstreamOutputs; Phase 3.9 will fill in the
-// dispatcher-side prompt-rewriting that consumes UpstreamOutputs.
+// DownstreamWakeupPayload is the JSON shape written into task_dag_wakeups.prompt_payload.
+// Router-driven DAG dispatch now uses explicit inputs.from_nodes plus node.result
+// envelopes for upstream context; CompleteNodeAndScheduleDownstream only populates
+// AgentID. UpstreamOutputs remains for legacy/manual wakeup compatibility.
 type DownstreamWakeupPayload struct {
 	AgentID         string                  `json:"agent_id,omitempty"`
 	UpstreamOutputs []DownstreamUpstreamRef `json:"upstream_outputs,omitempty"`
 }
 
-// DownstreamUpstreamRef points the downstream node at the producing upstream
-// node's output artifact path. Path follows plan §3.4 convention
-// `dag/<dagKey>/<prevKey>/output.json`.
+// DownstreamUpstreamRef points legacy wakeup payload consumers at an upstream artifact path.
 type DownstreamUpstreamRef struct {
 	NodeKey string `json:"node_key"`
 	Path    string `json:"path"`
