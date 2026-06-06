@@ -155,6 +155,8 @@ type workspaceConfig struct {
 	rootPath         string
 	rootURI          string
 	languageID       string
+	projectRoot      string
+	languageSpecific map[string]string
 	env              []string
 	workspaceFolders []protocol.WorkspaceFolder
 }
@@ -404,6 +406,8 @@ func workspaceConfigForLanguageScope(scope ResolvedLanguageScope, adapter Langua
 		rootPath:         scope.WorkspaceRoot,
 		rootURI:          rootURI,
 		languageID:       scope.LanguageID,
+		projectRoot:      scope.ProjectRoot,
+		languageSpecific: copyLanguageSpecific(scope.LanguageSpecific),
 		env:              adapter.EnvPolicy(scope),
 		workspaceFolders: cloneWorkspaceFolders(folders),
 	}, nil

@@ -234,13 +234,39 @@ func (a projectLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScop
 	if !hasProjectMarker(normalized, a.rootMarkers) {
 		rootKind = "dir_fallback"
 	}
+	languageSpecific, err := a.languageSpecificForResolvedRoot(scope, normalized)
+	if err != nil {
+		return ResolvedLanguageScope{}, err
+	}
 	return ResolvedLanguageScope{
 		LanguageID:            languageID,
 		WorkspaceRoot:         normalized,
 		LanguageWorkspaceRoot: normalized,
 		ProjectRoot:           normalized,
 		RootKind:              rootKind,
+		LanguageSpecific:      languageSpecific,
 	}, nil
+}
+
+func (a projectLanguageAdapter) languageSpecificForResolvedRoot(scope LSPToolScope, projectRoot string) (map[string]string, error) {
+	if !a.usesJSTSWorkspace() {
+		return nil, nil
+	}
+	installRoot, err := findJSTSPnpmInstallRoot(projectRoot, scope.CWD)
+	if err != nil {
+		return nil, err
+	}
+	if installRoot == "" {
+		return nil, nil
+	}
+	return map[string]string{
+		jstsPackageManagerKey:  jstsPackageManagerPnpm,
+		jstsPnpmInstallRootKey: installRoot,
+	}, nil
+}
+
+func (a projectLanguageAdapter) usesJSTSWorkspace() bool {
+	return slices.ContainsFunc(a.languageIDs, shouldUseJSTSWorkspace)
 }
 
 func (a projectLanguageAdapter) shouldSearchNestedProjectRoot(root, target string) bool {
