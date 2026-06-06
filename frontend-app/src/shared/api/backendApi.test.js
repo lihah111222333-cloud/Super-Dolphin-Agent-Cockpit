@@ -831,13 +831,15 @@ function expectMemoryCenterValidation(api) {
     expect(() => api.openNewWindow({ cwd: '' })).toThrow('cwd is required');
   });
 
-  it('wraps shared file list, read and delete RPCs with the global payload shapes', async () => {
+  it('wraps shared file list, read, delete and native open helpers with the expected payload shapes', async () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
-    const api = createBackendApi({ callAPI });
+    const openSharedFile = vi.fn().mockResolvedValue({ opened: true });
+    const api = createBackendApi({ callAPI, openSharedFile });
 
     await api.listSharedFiles();
     await api.readSharedFile({ path: 'reports/final.md' });
     await api.deleteSharedFile({ path: 'scratch/work.json' });
+    await api.openSharedFile({ path: 'dag/video/final.mp4' });
 
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DASHBOARD_SHARED_FILES, {});
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_SHARED_FILE_GET, {
@@ -846,6 +848,7 @@ function expectMemoryCenterValidation(api) {
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_SHARED_FILE_DELETE, {
       path: 'scratch/work.json',
     });
+    expect(openSharedFile).toHaveBeenCalledWith({ path: 'dag/video/final.mp4' });
     expect(() => api.listSharedFiles([])).toThrow('params must be an object');
     expect(() => api.readSharedFile({ path: '' })).toThrow('path is required');
     expect(() => api.deleteSharedFile({ path: '' })).toThrow('path is required');

@@ -122,6 +122,9 @@ func NewRPCHandlers(app *App, cfg *config.Config, uiState contract.UIProjectStat
 			}
 			return map[string]string{"path": path}, nil
 		}),
+		"ui/sharedFile/open": rpc.StrictHandler(func(ctx context.Context, p openSharedFileParams) (any, error) {
+			return handleOpenSharedFile(ctx, app, cfg, p)
+		}),
 		"ui/log": rpc.StrictHandler(func(ctx context.Context, p map[string]any) (any, error) {
 			return handleUILog(ctx, app, p)
 		}),

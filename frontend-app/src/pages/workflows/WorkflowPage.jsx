@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import { isCancelledError, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Workflow } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
-import { applyDagOps, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, readSharedFile, startDag, startThread, terminateDagRun } from '../../shared/api/backendApi.js';
+import { applyDagOps, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, openSharedFile, readSharedFile, startDag, startThread, terminateDagRun } from '../../shared/api/backendApi.js';
 import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.jsx';
 
@@ -1610,15 +1610,19 @@ function formatWorkflowFileContent(content) {
 function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd }) {
   const [fileContent, setFileContent] = useState('');
   const [fileError, setFileError] = useState('');
+  const [openError, setOpenError] = useState('');
+  const [opening, setOpening] = useState(false);
   const [reading, setReading] = useState(false);
   const outputPath = finalOutputPath(finalOutput);
 
   const isImage = useMemo(() => /\.(png|jpe?g|webp|gif|svg)$/i.test(outputPath || ''), [outputPath]);
   const isVideo = useMemo(() => /\.(mp4|webm|ogg|mov)$/i.test(outputPath || ''), [outputPath]);
   const isMedia = isImage || isVideo;
+  const mediaKindLabel = isVideo ? '视频' : '图片';
 
   const readFinalOutput = async () => {
     if (!outputPath) return;
+    setOpenError('');
     if (fileContent) {
       setFileContent('');
       return;
@@ -1640,6 +1644,21 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd }) {
       setReading(false);
     }
   };
+  const openFinalOutput = async () => {
+    if (!outputPath) return;
+    setOpening(true);
+    setOpenError('');
+    try {
+      await openSharedFile({ path: outputPath });
+    }
+    catch (err) {
+      setOpenError(`打开最终结果文件失败：${err?.message || String(err)}`);
+    }
+    finally {
+      setOpening(false);
+    }
+  };
+
   const formattedContent = useMemo(() => {
     return formatWorkflowFileContent(fileContent);
   }, [fileContent]);
@@ -1683,21 +1702,39 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd }) {
           <div className="workflow-file-row">
             <span>{finalOutputKind(finalOutput) || '文件'}</span>
             <code>{outputPath}</code>
-            <button type="button" className="btn-primary" disabled={reading} onClick={() => { void readFinalOutput(); }}>
-              {reading ? '读取中...' : (() => {
-                if (fileContent) {
-                  if (isImage) return '收起图片';
-                  if (isVideo) return '收起视频';
-                  return '收起最终结果';
-                } else {
-                  if (isImage) return '预览图片';
-                  if (isVideo) return '播放视频';
+            <div className="workflow-output-actions" aria-label="最终结果操作">
+              <button
+                type="button"
+                className="workflow-output-action workflow-output-action-preview"
+                disabled={reading}
+                onClick={() => { void readFinalOutput(); }}
+                title={isMedia ? `在当前页面内预览${mediaKindLabel}` : '读取最终结果内容'}
+              >
+                {reading ? '读取中...' : (() => {
+                  if (fileContent) {
+                    if (isMedia) return '收起预览';
+                    return '收起最终结果';
+                  }
+                  if (isVideo) return '页内播放';
+                  if (isImage) return '页内预览';
                   return '读取最终结果';
-                }
-              })()}
-            </button>
+                })()}
+              </button>
+              {isMedia ? (
+                <button
+                  type="button"
+                  className="workflow-output-action workflow-output-action-system"
+                  disabled={opening}
+                  onClick={() => { void openFinalOutput(); }}
+                  title={`用系统默认应用打开${mediaKindLabel}`}
+                >
+                  {opening ? '打开中...' : '系统打开'}
+                </button>
+              ) : null}
+            </div>
           </div>
           {fileError ? <p className="danger-text">{fileError}</p> : null}
+          {openError ? <p className="danger-text">{openError}</p> : null}
           {previewBlock}
           {fileContent === '__MEDIA_PREVIEW__' ? (
             <p className="workflow-media-tip">提示：如果浏览器环境限制无法直接播放/预览本地媒体文件，请在「文件产物」页导出查看。</p>
