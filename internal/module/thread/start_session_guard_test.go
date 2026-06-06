@@ -16,15 +16,15 @@ func TestResolveStartConfigAppliesDefaultsAndDangerPolicy(t *testing.T) {
 
 	cwd := wantStartCWD(t)
 	req, err := resolveStartConfig(StartRequest{
-		Provider: " Claude ",
+		Provider: " Codex ",
 		CWD:      cwd,
 		Sandbox:  json.RawMessage(`{"type":"danger-full-access"}`),
 	})
 	if err != nil {
 		t.Fatalf("resolveStartConfig() error = %v", err)
 	}
-	if req.Provider != "claude" {
-		t.Fatalf("provider = %q, want claude", req.Provider)
+	if req.Provider != "codex" {
+		t.Fatalf("provider = %q, want codex", req.Provider)
 	}
 	if req.CWD != cwd {
 		t.Fatalf("cwd = %q, want %q", req.CWD, cwd)
@@ -136,7 +136,7 @@ func TestServiceStartUsesResolvedStartConfig(t *testing.T) {
 
 	result, err := svc.Start(context.Background(), StartRequest{
 		AgentID:          "agent-start",
-		Provider:         " Claude ",
+		Provider:         " Codex ",
 		CWD:              wantStartCWD(t),
 		BaseInstructions: "  launch me  ",
 		Sandbox:          json.RawMessage(`{"type":"danger-full-access"}`),
@@ -163,8 +163,8 @@ func startConfigAssertingStarter(t *testing.T, sessions *stubSessionProvider, ro
 
 func assertResolvedStartRequest(t *testing.T, req dto.StartSessionRequest) {
 	t.Helper()
-	if req.Provider != "claude" {
-		t.Fatalf("provider = %q, want claude", req.Provider)
+	if req.Provider != "codex" {
+		t.Fatalf("provider = %q, want codex", req.Provider)
 	}
 	if req.CWD != wantStartCWD(t) {
 		t.Fatalf("cwd = %q, want %q", req.CWD, wantStartCWD(t))
@@ -186,7 +186,7 @@ func assertResolvedStartResult(t *testing.T, result StartResult) {
 	if result.ThreadID != "agent-start" || result.SessionID != "019d5f6b-fb3c-7760-9d6f-54005553f5b3" || result.AgentID != "agent-start" {
 		t.Fatalf("result = %#v", result)
 	}
-	if result.Provider != "claude" || result.CWD != wantStartCWD(t) || result.ApprovalPolicy != "never" {
+	if result.Provider != "codex" || result.CWD != wantStartCWD(t) || result.ApprovalPolicy != "never" {
 		t.Fatalf("effective start result = %#v", result)
 	}
 }
@@ -209,8 +209,8 @@ func assertResolvedStartPersistence(t *testing.T, threads *stubThreadStore, bind
 	if threads.upsert.Cwd != wantStartCWD(t) || bindings.upsert.Cwd != wantStartCWD(t) {
 		t.Fatalf("persisted cwd = %q/%q, want %q", threads.upsert.Cwd, bindings.upsert.Cwd, wantStartCWD(t))
 	}
-	if bindings.upsert.Provider != "claude" {
-		t.Fatalf("binding provider = %q, want claude", bindings.upsert.Provider)
+	if bindings.upsert.Provider != "codex" {
+		t.Fatalf("binding provider = %q, want codex", bindings.upsert.Provider)
 	}
 	if bindings.upsert.ProviderThreadID != "019d5f6b-fb3c-7760-9d6f-54005553f5b3" || bindings.upsert.CodexThreadID != "agent-start" {
 		t.Fatalf("binding upsert = %#v", bindings.upsert)
@@ -250,6 +250,7 @@ func TestServiceStartRequiresProviderUUID(t *testing.T) {
 }
 
 func TestServiceStartAllowsDeferredClaudeProviderUUID(t *testing.T) {
+	t.Skip("Claude is disabled")
 	t.Parallel()
 
 	threads := &stubThreadStore{}

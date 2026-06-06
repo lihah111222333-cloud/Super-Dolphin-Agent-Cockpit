@@ -157,12 +157,12 @@ func TestNodePatch_UnmarshalStrict_AllowsExecAgentKeyInFullConfig(t *testing.T) 
 	}{
 		{
 			name: "agent_exec",
-			raw:  `{"config":{"exec":{"provider":"claude","model":"opus","agent_key":"writer"},"first_turn":"new prompt"}}`,
+			raw:  `{"config":{"exec":{"provider":"codex","model":"opus","agent_key":"writer"},"first_turn":"new prompt"}}`,
 			want: `"agent_key":"writer"`,
 		},
 		{
 			name: "hybrid_verifier_exec",
-			raw:  `{"config":{"exec":{"automation":{"kind":"command_card","command_ref":"build"},"verifier":{"provider":"claude","model":"opus","agent_key":"reviewer","prompt_key":"main/reviewer","cwd":"/repo/app"}},"outputs":{"to_node_result":true}}}`,
+			raw:  `{"config":{"exec":{"automation":{"kind":"command_card","command_ref":"build"},"verifier":{"provider":"codex","model":"opus","agent_key":"reviewer","prompt_key":"main/reviewer","cwd":"/repo/app"}},"outputs":{"to_node_result":true}}}`,
 			want: `"agent_key":"reviewer"`,
 		},
 	}

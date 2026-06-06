@@ -144,7 +144,7 @@ func TestNonForcedStartCarriesAvailableExpertsToProviderAssembly(t *testing.T) {
 
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:  "agent-non-forced",
-		Provider: "claude",
+		Provider: "codex",
 		CWD:      cwd,
 		Prompt:   "请分析这个 Go 项目的测试失败，并规划需要改哪些后端和前端文件。",
 	}); err != nil {

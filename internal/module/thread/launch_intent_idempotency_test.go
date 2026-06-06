@@ -19,7 +19,7 @@ func TestStartLaunchIntentReusesPendingThreadResult(t *testing.T) {
 	svc := &service{threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
-		Provider:       "claude",
+		Provider:       "codex",
 		CWD:            cwd,
 		DeferSpawn:     true,
 	}
@@ -53,7 +53,7 @@ func TestStartLaunchIntentConcurrentCallsCreateOnePendingThread(t *testing.T) {
 	svc := &service{threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
-		Provider:       "claude",
+		Provider:       "codex",
 		CWD:            cwd,
 		DeferSpawn:     true,
 	}
@@ -103,7 +103,7 @@ func TestStartLaunchIntentRejectsMalformedID(t *testing.T) {
 
 	_, err := svc.Start(context.Background(), StartRequest{
 		LaunchIntentID: "../agent_unsafe",
-		Provider:       "claude",
+		Provider:       "codex",
 		CWD:            wantStartCWD(t),
 		DeferSpawn:     true,
 	})
@@ -122,7 +122,7 @@ func TestStartLaunchIntentRejectsParameterMismatch(t *testing.T) {
 	svc := &service{threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
-		Provider:       "claude",
+		Provider:       "codex",
 		CWD:            cwd,
 		DeferSpawn:     true,
 	}
@@ -150,7 +150,7 @@ func TestStartLaunchIntentPendingFailureKeepsRowAndRetainsKey(t *testing.T) {
 	svc := &service{threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
-		Provider:       "claude",
+		Provider:       "codex",
 		CWD:            cwd,
 		DeferSpawn:     true,
 	}
@@ -179,7 +179,7 @@ func TestStartLaunchIntentRetainsKeyAfterPendingCleanupRetainedError(t *testing.
 	svc := &service{threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
-		Provider:       "claude",
+		Provider:       "codex",
 		CWD:            cwd,
 		DeferSpawn:     true,
 	}
@@ -208,7 +208,7 @@ func TestStartLaunchIntentRetainsKeyWhenPendingFailureStatusUpdateFails(t *testi
 	svc := &service{threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
-		Provider:       "claude",
+		Provider:       "codex",
 		CWD:            wantStartCWD(t),
 		DeferSpawn:     true,
 	}
@@ -233,7 +233,7 @@ func TestStartLaunchIntentRetainedPendingStatusFailureBlocksDirectSpawnRetry(t *
 	threads, _, orch, svc := eagerSnapshotFailureFixture(t)
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
-		Provider:       "claude",
+		Provider:       "codex",
 		CWD:            wantStartCWD(t),
 		DeferSpawn:     true,
 	}
@@ -274,7 +274,7 @@ func TestStartLaunchIntentCompleteAllowsKeyReuse(t *testing.T) {
 	svc := &service{threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
-		Provider:       "claude",
+		Provider:       "codex",
 		CWD:            cwd,
 		DeferSpawn:     true,
 	}
@@ -321,7 +321,7 @@ func assertPendingTerminalAllowsKeyReuse(t *testing.T, terminate func(context.Co
 	svc := &service{threadStore: threads}
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
-		Provider:       "claude",
+		Provider:       "codex",
 		CWD:            cwd,
 		DeferSpawn:     true,
 	}
@@ -349,7 +349,7 @@ func assertPendingTerminalAllowsKeyReuse(t *testing.T, terminate func(context.Co
 func TestStartLaunchIntentCleansEagerStateAfterSnapshotFailure(t *testing.T) {
 	threads, bindings, orch, svc := eagerSnapshotFailureFixture(t)
 	threads.promptSnapshotError = errors.New("snapshot failed")
-	req := StartRequest{LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111", Provider: "claude", CWD: wantStartCWD(t), Prompt: "hello"}
+	req := StartRequest{LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111", Provider: "codex", CWD: wantStartCWD(t), Prompt: "hello"}
 
 	_, err := svc.Start(context.Background(), req)
 	if err == nil || !strings.Contains(err.Error(), "snapshot failed") {
@@ -380,7 +380,7 @@ func TestStartLaunchIntentRetainsKeyWhenEagerCleanupFails(t *testing.T) {
 	threads.deleteErr = cleanupErr
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
-		Provider:       "claude",
+		Provider:       "codex",
 		CWD:            wantStartCWD(t),
 		Prompt:         "hello",
 	}
@@ -407,7 +407,7 @@ func TestStartLaunchIntentRetainsKeyWhenEagerLaunchAgentFails(t *testing.T) {
 	orch.launchErr = launchErr
 	req := StartRequest{
 		LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111",
-		Provider:       "claude",
+		Provider:       "codex",
 		CWD:            wantStartCWD(t),
 		Prompt:         "hello",
 	}
@@ -426,7 +426,7 @@ func TestStartLaunchIntentRetainsKeyWhenEagerLaunchAgentFails(t *testing.T) {
 
 func TestStartLaunchIntentRetainsKeyWhenPendingLaunchAgentFails(t *testing.T) {
 	threads, _, orch, svc := eagerSnapshotFailureFixture(t)
-	req := StartRequest{LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111", Provider: "claude", CWD: wantStartCWD(t), DeferSpawn: true}
+	req := StartRequest{LaunchIntentID: "launch_018f00e0-39fc-72ac-a47a-2a858c75d111", Provider: "codex", CWD: wantStartCWD(t), DeferSpawn: true}
 	started, err := svc.Start(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -478,7 +478,7 @@ func (snapshotPromptAssembly) AssembleStart(context.Context, contract.StartInput
 		DisplayName: "hello",
 		Snapshot: contract.PromptAssemblySnapshot{
 			DisplayName: "hello",
-			Provider:    "claude",
+			Provider:    "codex",
 			Version:     contract.PromptAssemblySnapshotVersion,
 			Hash:        "hash",
 		},

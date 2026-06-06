@@ -1598,6 +1598,7 @@ function timelineAutoScrollKey({ activeThreadId, introMode, messages, pendingRea
   ].join('\u0002');
 }
 
+/*
 function providerToggleState(store) {
   const activeThreadId = normalizedThreadIdentity(store?.activeThreadId);
   const activeThread = activeThreadForStore(store);
@@ -1608,6 +1609,7 @@ function providerToggleState(store) {
     provider,
   };
 }
+*/
 
 function composerConfigThreadId(store, activeThreadId) {
   if (!activeThreadId) return '';
@@ -2260,6 +2262,7 @@ function ProjectDropdown({ options, selectedValue, onSelect, onRemove, onAdd }) 
   );
 }
 
+/*
 function ProviderToggle({ store, canUseProjectActions = true }) {
   const { locked, provider } = providerToggleState(store);
   const isClaude = provider === 'claude';
@@ -2291,6 +2294,7 @@ function ProviderToggle({ store, canUseProjectActions = true }) {
     </button>
   );
 }
+*/
 
 
 function ThreadRail({ store }) {
@@ -5202,7 +5206,7 @@ function ComposerMeta({
   projectActionBlockedTitle,
   selectFiles,
   sendMessage,
-  showProviderToggle,
+  showProviderToggle: _,
   store,
 }) {
   const canForkThread = canUseProjectActions && Boolean(store.hasActiveThreadActions?.());
@@ -5245,7 +5249,7 @@ function ComposerMeta({
         <GitBranch size={16} />
       </button>
       <div className="composer-actions">
-        {showProviderToggle ? <ProviderToggle store={store} canUseProjectActions={canUseProjectActions} /> : null}
+
         <ModelSelector store={store} activeThreadId={modelThreadId} disabled={projectActionBlocked} />
         <button type="button" className={primaryActionClass} aria-label={primaryActionLabel} title={primaryActionTitle} disabled={primaryActionDisabled} onClick={onPrimaryAction}>
           {canInterrupt ? <CircleStop size={18} /> : <Send size={18} />}
