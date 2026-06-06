@@ -190,6 +190,28 @@ func TestShouldQuitWaitsForBackendStopWithoutActiveAgents(t *testing.T) {
 	}
 }
 
+func TestRequestQuitAllowsImmediateQuit(t *testing.T) {
+	t.Parallel()
+
+	lifecycle := NewWailsLifecycle(nil, nil)
+	lifecycle.MarkFrontendReady()
+	quitCalled := make(chan struct{}, 1)
+	lifecycle.SetQuitFunc(func() {
+		quitCalled <- struct{}{}
+	})
+
+	lifecycle.RequestQuit()
+
+	select {
+	case <-quitCalled:
+	case <-time.After(time.Second):
+		t.Fatal("RequestQuit() did not invoke quit function")
+	}
+	if !lifecycle.ShouldQuit() {
+		t.Fatal("ShouldQuit() = false after RequestQuit, want true")
+	}
+}
+
 type stubThreadLister struct {
 	refs []contract.ThreadRef
 	err  error
