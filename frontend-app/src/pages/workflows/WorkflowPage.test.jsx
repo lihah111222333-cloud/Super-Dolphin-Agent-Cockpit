@@ -693,10 +693,9 @@ describe('WorkflowPage module', () => {
     });
   });
 
-  it('starts the Douyin 05:00 video automation template with a seeded designer turn', async () => {
+  it('starts the generic AI designer flow without the Douyin template action', async () => {
     mockWorkflowDag();
-    backend.startThread.mockResolvedValue({ thread_id: 'thread-douyin' });
-    backend.startTurn.mockResolvedValue({ turn_id: 'turn-douyin' });
+    backend.startThread.mockResolvedValue({ thread_id: 'thread-design' });
     const store = {
       resolveLaunchPreferences: vi.fn().mockResolvedValue({
         modelProvider: 'codex',
@@ -709,28 +708,21 @@ describe('WorkflowPage module', () => {
 
     renderWorkflowPage(store);
 
-    fireEvent.click(await screen.findByRole('button', { name: '抖音 5 点模板' }));
+    expect(await screen.findByRole('button', { name: 'AI 设计流程' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '抖音 5 点模板' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'AI 设计流程' }));
 
     await waitFor(() => {
       expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
         cwd: '/repo/app',
-        name: '抖音 5 点视频自动化',
+        name: 'AI 设计流程',
         agentKey: 'dag_designer',
         promptKey: 'main/dag_designer_zh',
         deferSpawn: true,
       }));
-      expect(backend.startTurn).toHaveBeenCalledWith(expect.objectContaining({
-        cwd: '/repo/app',
-        threadId: 'thread-douyin',
-      }));
     });
-    const turnInput = backend.startTurn.mock.calls[0][0].input;
-    expect(turnInput).toContain('daily_workplace_mentor_douyin_video');
-    expect(turnInput).toContain('每天 05:00 Asia/Shanghai');
-    expect(turnInput).toContain('cron_expr = `CRON_TZ=Asia/Shanghai 0 5 * * *`');
-    expect(turnInput).toContain('生成 1 条');
-    expect(turnInput).toContain('不自动发布');
-    expect(store.setActiveThread).toHaveBeenCalledWith('thread-douyin');
+    expect(backend.startTurn).not.toHaveBeenCalled();
+    expect(store.setActiveThread).toHaveBeenCalledWith('thread-design');
     expect(store.setActivePage).toHaveBeenCalledWith('chat');
   });
 
