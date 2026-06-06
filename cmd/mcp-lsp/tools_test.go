@@ -78,12 +78,54 @@ func TestToolsListHidesSemanticLSPToolsWhenLanguageServersUnavailable(t *testing
 	}
 }
 
-func TestToolsListPackagedAvailabilityIgnoresSystemOnlyLanguageServers(t *testing.T) {
+func TestToolsListPackagedAvailabilityFailsFastInsteadOfUsingSystemOnlyLanguageServers(t *testing.T) {
 	systemBin := t.TempDir()
 	writeMcpLSPExecutable(t, systemBin, "gopls")
+	manifest := filepath.Join(t.TempDir(), "manifest.json")
 	t.Setenv("PATH", systemBin)
 	t.Setenv("SUPER_DOLPHIN_LSP_BUNDLE_DIR", t.TempDir())
-	t.Setenv("SUPER_DOLPHIN_LSP_MANIFEST", filepath.Join(t.TempDir(), "manifest.json"))
+	t.Setenv("SUPER_DOLPHIN_LSP_MANIFEST", manifest)
+	provider := registryToolProvider{defs: toolDefinitions(ToolHandlers{})}
+
+	_, err := provider.ListTools(context.Background())
+	if err == nil {
+		t.Fatal("ListTools() error = nil, want packaged manifest failure before system PATH lookup")
+	}
+	if !strings.Contains(err.Error(), manifest) {
+		t.Fatalf("ListTools() error = %v, want manifest path %q", err, manifest)
+	}
+}
+
+func TestToolsListPackagedStandardBundleExposesSemanticToolsWithoutJDTLS(t *testing.T) {
+	bundle := t.TempDir()
+	writeMcpLSPBundleManifest(t, bundle, `{
+  "servers": {
+    "gopls": {"path": "bin/gopls", "languages": ["go", "gomod", "gosum", "gowork"]},
+    "typescript-language-server": {"path": "bin/typescript-language-server", "languages": ["javascript", "javascriptreact", "typescript", "typescriptreact"]},
+    "vscode-langservers-extracted": {"path": "bin/vscode-css-language-server", "languages": ["css"]},
+    "pyright": {"path": "bin/pyright-langserver", "languages": ["python"]},
+    "rust-analyzer": {"path": "bin/rust-analyzer", "languages": ["rust"]},
+    "bash-language-server": {"path": "bin/bash-language-server", "languages": ["shellscript"]}
+  }
+}
+`)
+	for _, name := range []string{
+		"gopls",
+		"typescript-language-server",
+		"vscode-css-language-server",
+		"pyright-langserver",
+		"rust-analyzer",
+		"bash-language-server",
+	} {
+		writeMcpLSPExecutable(t, filepath.Join(bundle, "bin"), name)
+	}
+	if _, err := os.Stat(filepath.Join(bundle, "bin", "jdtls")); !os.IsNotExist(err) {
+		t.Fatalf("standard packaged fixture unexpectedly contains jdtls: %v", err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("SUPER_DOLPHIN_LSP_BUNDLE_DIR", bundle)
+	t.Setenv("SUPER_DOLPHIN_LSP_MANIFEST", filepath.Join(bundle, "manifest.json"))
+
 	provider := registryToolProvider{defs: toolDefinitions(ToolHandlers{})}
 	list, err := provider.ListTools(context.Background())
 	if err != nil {
@@ -94,9 +136,30 @@ func TestToolsListPackagedAvailabilityIgnoresSystemOnlyLanguageServers(t *testin
 	for _, tool := range list {
 		got[tool.Name] = true
 	}
-	for _, hidden := range []string{"inspect", "xref", "structure", "edit", "completion"} {
-		if got[hidden] {
-			t.Fatalf("tools/list exposed semantic LSP tool %q from system PATH in packaged mode; got %#v", hidden, got)
+	for _, want := range []string{"file", "inspect", "xref", "grep", "structure", "edit", "completion"} {
+		if !got[want] {
+			t.Fatalf("tools/list missing %q for standard packaged bundle; got %#v", want, got)
+		}
+	}
+}
+
+func TestToolsListPackagedInvalidManifestFailsFast(t *testing.T) {
+	systemBin := t.TempDir()
+	writeMcpLSPExecutable(t, systemBin, "gopls")
+	bundle := t.TempDir()
+	manifest := filepath.Join(bundle, "missing-manifest.json")
+	t.Setenv("PATH", systemBin)
+	t.Setenv("SUPER_DOLPHIN_LSP_BUNDLE_DIR", bundle)
+	t.Setenv("SUPER_DOLPHIN_LSP_MANIFEST", manifest)
+	provider := registryToolProvider{defs: toolDefinitions(ToolHandlers{})}
+
+	_, err := provider.ListTools(context.Background())
+	if err == nil {
+		t.Fatal("ListTools() error = nil, want invalid packaged manifest failure")
+	}
+	for _, want := range []string{"missing bundled LSP manifest", manifest} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("ListTools() error = %v, want substring %q", err, want)
 		}
 	}
 }
