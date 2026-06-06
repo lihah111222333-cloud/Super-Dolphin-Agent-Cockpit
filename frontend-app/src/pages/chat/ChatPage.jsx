@@ -1509,29 +1509,6 @@ function firstStatusText(...values) {
   return '';
 }
 
-function cleanWorkStatusDetails(value) {
-  return (
-    normalizedThreadIdentity(value)
-    .replace(/\uFFFD+/g, '')
-    .replace(/\|+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-  );
-}
-
-function isInternalThreadDisplayText(value, activeThreadId, activeThread) {
-  const text = normalizedThreadIdentity(value);
-  if (!text) return false;
-  const unprefixed = text.replace(/^线程\s+/u, '').trim();
-  const ids = activeThreadIdentifiers(activeThreadId, activeThread);
-  return (
-    ids.has(text)
-    || ids.has(unprefixed)
-    || isInternalThreadIdentifier(text)
-    || isInternalThreadIdentifier(unprefixed)
-  );
-}
-
 function displayThreadName(thread, fallback = '新对话') {
   const ids = activeThreadIdentifiers(thread?.id, thread);
   for (const value of [thread?.name, thread?.title, thread?.displayName, thread?.display_name]) {
@@ -1543,18 +1520,12 @@ function displayThreadName(thread, fallback = '新对话') {
   return fallback;
 }
 
-function workStatusDetailsForThread({ activeThreadId, activeThread, statusEntry }) {
-  const details = cleanWorkStatusDetails(firstStatusText(statusEntry?.statusDetails, activeThread?.lastMessage));
-  if (details && !isInternalThreadDisplayText(details, activeThreadId, activeThread)) return details;
-  return '当前会话已连接';
-}
-
 function workStatusForThread({ sending, loading, activeThreadId, activeThread, statusEntry }) {
   if (!activeThreadId) {
-    return { label: '待启动', details: '发送首条消息后创建线程', tone: 'idle', busy: false };
+    return { busy: false };
   }
   if (loading) {
-    return { label: '加载中', details: '正在同步当前会话', tone: 'active', busy: true };
+    return { busy: true };
   }
   const rawState = firstStatusText(
     statusEntry?.state,
@@ -1565,11 +1536,7 @@ function workStatusForThread({ sending, loading, activeThreadId, activeThread, s
   );
   const normalizedState = normalizeTurnState(rawState);
   const mapped = TURN_STATE_INFO[normalizedState];
-  const label = mapped?.label || firstStatusText(statusEntry?.statusHeader, rawState) || '已连接';
   return {
-    label,
-    details: workStatusDetailsForThread({ activeThreadId, activeThread, statusEntry }),
-    tone: mapped?.tone || 'connected',
     busy: mapped?.busy ?? Boolean(sending),
   };
 }
@@ -5435,16 +5402,6 @@ function Conversation(props) {
         onScrollIfSticky={scrollTimelineToBottomIfSticky}
         timelineRef={timelineRef}
       />
-      {!introMode ? (
-        <WorkStatus
-          sending={sending}
-          loading={timelineContentBlocked}
-          activeThreadId={activeThreadId}
-          activeThread={activeThread}
-          statusEntry={statusEntry}
-          tokenUsage={tokenUsage}
-        />
-      ) : null}
       {!introMode ? composer : null}
     </section>
   );
@@ -5863,20 +5820,6 @@ function TimelineLoadingPlaceholder() {
       <span className="timeline-placeholder-line" />
       <span className="timeline-placeholder-line timeline-placeholder-line--short" />
       <p>正在同步会话历史</p>
-    </div>
-  );
-}
-
-function WorkStatus({ sending, loading, activeThreadId, activeThread, statusEntry, tokenUsage }) {
-  const status = workStatusForThread({ sending, loading, activeThreadId, activeThread, statusEntry });
-  const className = `work-status work-status--${status.tone}${status.busy ? ' is-busy' : ''}`;
-  const tokenText = tokenUsage ? `${tokenUsage.usedTokens} / ${tokenUsage.contextWindowTokens} tokens` : 'token usage 等待后端同步';
-  return (
-    <div className={className}>
-      <span className="spinner" aria-hidden="true" />
-      <span className="work-status-label">{status.label}</span>
-      <em>{status.details}</em>
-      <code title={tokenText}>{tokenText}</code>
     </div>
   );
 }
