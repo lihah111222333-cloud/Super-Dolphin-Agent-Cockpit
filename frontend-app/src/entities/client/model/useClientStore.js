@@ -871,6 +871,26 @@ function backendThreadIdForState(state, value, options = {}) {
   return normalizeBackendThreadId(id);
 }
 
+function explicitThreadReplacementIds(thread, requestedId) {
+  return [
+    requestedId,
+    thread?.id,
+    thread?.agentId,
+    thread?.providerThreadId,
+    thread?.sessionId,
+  ].map(normalizeThreadId).filter(Boolean);
+}
+
+function upsertExplicitThread(threads, thread, requestedId) {
+  const ids = explicitThreadReplacementIds(thread, requestedId);
+  const existing = threads.find((candidate) => ids.some((id) => threadMatchesIdentifier(candidate, id)));
+  const merged = existing ? { ...existing, ...thread } : thread;
+  return [
+    merged,
+    ...threads.filter((candidate) => !ids.some((id) => threadMatchesIdentifier(candidate, id))),
+  ];
+}
+
 function providerForStateThread(state, value) {
   const id = normalizeThreadId(value);
   const matchedThread = id ? state.threads.find((thread) => threadMatchesIdentifier(thread, id)) : null;
@@ -4540,6 +4560,56 @@ function createProviderActions(runtime) {
 
 function createThreadSelectionActions(runtime) {
   return {
+    openThreadById: async (threadId, options = {}) => {
+      const requestedId = normalizeBackendThreadId(threadId);
+      if (!requestedId) return false;
+      const source = normalizeString(options?.source);
+      const cwd = runtime.requireCwd('thread.open');
+      let resolved;
+      try {
+        resolved = await resolveThreadIdentity({ cwd, threadId: requestedId });
+      }
+      catch (error) {
+        return runtime.notifyRPCFailure('打开会话', 'thread.open.resolve.failed', error, { threadId: requestedId, source });
+      }
+      const resolvedThread = normalizeThread(resolved || {}, {
+        state: runtime.get(),
+        fallbackProvider: runtime.get().provider,
+      });
+      if (!resolvedThread.id || !threadMatchesIdentifier(resolvedThread, requestedId)) {
+        return runtime.notifyRPCFailure('打开会话', 'thread.open.resolve.invalid', new Error('thread/resolve returned a different or empty thread id'), { threadId: requestedId, source });
+      }
+      const id = normalizeBackendThreadId(resolvedThread.id);
+      const current = runtime.get();
+      void runtime.saveActiveComposerDraft(current);
+      const restored = runtime.restoreComposerDraft(current, id);
+      runtime.set((state) => ({
+        activeThreadId: id,
+        pendingActiveThreadId: '',
+        threads: upsertExplicitThread(state.threads, resolvedThread, requestedId),
+        draft: restored.draft,
+        attachments: restored.attachments,
+        threadStateLoadingByThread: {
+          ...state.threadStateLoadingByThread,
+          [id]: true,
+        },
+      }));
+      try {
+        const synced = await runtime.get().syncThreadState(id, { includeArchived: true, includeDiff: false, preserveActiveThreadId: true });
+        if (!synced) return false;
+      }
+      catch (error) {
+        runtime.set((state) => ({
+          threadStateLoadingByThread: {
+            ...state.threadStateLoadingByThread,
+            [id]: false,
+          },
+        }));
+        return runtime.notifyRPCFailure('打开会话', 'thread.open.failed', error, { threadId: id, source });
+      }
+      return true;
+    },
+
     setActiveThread: async (threadId) => {
       const id = backendThreadIdForState(runtime.get(), threadId, { includeArchived: true });
       const current = runtime.get();
