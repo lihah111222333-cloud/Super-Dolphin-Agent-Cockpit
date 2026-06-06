@@ -733,4 +733,84 @@ describe('WorkflowPage module', () => {
     expect(store.setActiveThread).toHaveBeenCalledWith('thread-douyin');
     expect(store.setActivePage).toHaveBeenCalledWith('chat');
   });
+
+  it('opens a DAG node child conversation through the explicit thread opener', async () => {
+    const dag = {
+      dag_key: 'daily-brief',
+      title: 'Daily Brief',
+      status: 'ready',
+      trigger: 'manual',
+      version: 7,
+    };
+    backend.getDashboardPage.mockResolvedValue({ dags: [dag] });
+    backend.getDagDetail.mockResolvedValue({
+      dag,
+      nodes: [{
+        node_key: 'review',
+        title: 'Review',
+        node_type: 'agent',
+        status: 'done',
+        assigned_to: 'codex',
+        spawning_thread_id: 'agent_child_1',
+      }],
+    });
+    backend.getDagRuns.mockResolvedValue({ runs: [] });
+    backend.getDagRun.mockResolvedValue({ run: null, nodes: [] });
+    const store = {
+      openThreadById: vi.fn().mockResolvedValue(true),
+      setActiveThread: vi.fn(),
+      setActivePage: vi.fn(),
+    };
+
+    renderWorkflowPage(store);
+
+    fireEvent.click(await screen.findByRole('button', { name: '查看对话' }));
+
+    await waitFor(() => {
+      expect(store.openThreadById).toHaveBeenCalledWith('agent_child_1', { source: 'dag-node' });
+    });
+    expect(store.setActiveThread).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(store.setActivePage).toHaveBeenCalledWith('chat');
+    });
+  });
+
+  it('keeps the workflow page active when a DAG node child conversation cannot be opened', async () => {
+    const dag = {
+      dag_key: 'daily-brief',
+      title: 'Daily Brief',
+      status: 'ready',
+      trigger: 'manual',
+      version: 7,
+    };
+    backend.getDashboardPage.mockResolvedValue({ dags: [dag] });
+    backend.getDagDetail.mockResolvedValue({
+      dag,
+      nodes: [{
+        node_key: 'review',
+        title: 'Review',
+        node_type: 'agent',
+        status: 'failed',
+        assigned_to: 'codex',
+        spawning_thread_id: 'agent_child_1',
+      }],
+    });
+    backend.getDagRuns.mockResolvedValue({ runs: [] });
+    backend.getDagRun.mockResolvedValue({ run: null, nodes: [] });
+    const store = {
+      openThreadById: vi.fn().mockResolvedValue(false),
+      setActiveThread: vi.fn(),
+      setActivePage: vi.fn(),
+    };
+
+    renderWorkflowPage(store);
+
+    fireEvent.click(await screen.findByRole('button', { name: '查看对话' }));
+
+    await waitFor(() => {
+      expect(store.openThreadById).toHaveBeenCalledWith('agent_child_1', { source: 'dag-node' });
+    });
+    expect(store.setActiveThread).not.toHaveBeenCalled();
+    expect(store.setActivePage).not.toHaveBeenCalled();
+  });
 });
