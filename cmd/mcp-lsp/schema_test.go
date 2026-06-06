@@ -52,3 +52,26 @@ func TestGrepSchemaDocumentsSmartCaseOverride(t *testing.T) {
 		t.Fatalf("grep case_sensitive description = %q", got)
 	}
 }
+
+func TestGrepSchemaDocumentsMultiPathCompatibility(t *testing.T) {
+	props, ok := lspGrepSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("grep schema properties type = %T", lspGrepSchema["properties"])
+	}
+	path, ok := props["path"].(map[string]any)
+	if !ok {
+		t.Fatalf("grep path schema type = %T", props["path"])
+	}
+	if _, ok := path["oneOf"].([]any); !ok {
+		t.Fatalf("grep path schema missing string-or-array oneOf: %#v", path)
+	}
+	for _, field := range []string{"paths", "file_paths"} {
+		prop, ok := props[field].(map[string]any)
+		if !ok {
+			t.Fatalf("grep %s schema type = %T", field, props[field])
+		}
+		if prop["type"] != "array" {
+			t.Fatalf("grep %s schema type = %q, want array", field, prop["type"])
+		}
+	}
+}

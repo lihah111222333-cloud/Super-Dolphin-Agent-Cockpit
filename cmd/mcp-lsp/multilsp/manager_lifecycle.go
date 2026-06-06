@@ -342,9 +342,15 @@ func configureClientWorkspace(client Client, cfg workspaceConfig) {
 }
 
 func (m *manager) DidOpen(ctx context.Context, uri, languageID string, version int, text string) error {
-	return m.notifyDocument(ctx, uri, languageID, func(ctx context.Context, client Client, ref documentRef) error {
+	openedURI := ""
+	err := m.notifyDocument(ctx, uri, languageID, func(ctx context.Context, client Client, ref documentRef) error {
+		openedURI = ref.uri
 		return client.DidOpen(ctx, ref.uri, ref.languageID, version, text)
 	})
+	if err == nil && openedURI != "" {
+		m.markExplicitDocumentOpen(openedURI)
+	}
+	return err
 }
 
 func (m *manager) DidChange(ctx context.Context, uri string, version int, changes []protocol.TextDocumentContentChangeEvent) error {
@@ -394,6 +400,7 @@ func (m *manager) DidClose(ctx context.Context, uri string) error {
 	}
 	ref, _, scope, err := m.resolvedScopeForURI(ctx, uri, "")
 	if err == nil {
+		m.unmarkExplicitDocumentOpen(ref.uri)
 		if coordinator, coordinatorErr := bootstrapCoordinatorFor(m); coordinatorErr == nil {
 			coordinator.states.delete(scope.bootstrapKey(), ref.uri)
 		}
@@ -490,7 +497,19 @@ func (m *manager) LogMessage(params protocol.LogMessageParams) error {
 	return nil
 }
 
+type documentClientOptions struct {
+	waitDiagnostics bool
+}
+
 func (m *manager) documentClient(ctx context.Context, uri string) (Client, documentRef, error) {
+	return m.documentClientWithOptions(ctx, uri, documentClientOptions{waitDiagnostics: true})
+}
+
+func (m *manager) documentClientWithoutDiagnosticsWait(ctx context.Context, uri string) (Client, documentRef, error) {
+	return m.documentClientWithOptions(ctx, uri, documentClientOptions{})
+}
+
+func (m *manager) documentClientWithOptions(ctx context.Context, uri string, opts documentClientOptions) (Client, documentRef, error) {
 	ref, err := m.resolveDocumentRef(ctx, uri, "")
 	if err != nil {
 		return nil, documentRef{}, err
@@ -501,11 +520,60 @@ func (m *manager) documentClient(ctx context.Context, uri string) (Client, docum
 	if err := m.bootstrapDocument(ctx, ref.uri); err != nil {
 		return nil, documentRef{}, err
 	}
+	if opts.waitDiagnostics {
+		if err := m.waitDocumentDiagnosticsReady(ctx, ref); err != nil {
+			return nil, documentRef{}, err
+		}
+	}
 	client, err := m.ensureClientForFile(ctx, ref.absPath, ref.languageID)
 	if err != nil {
 		return nil, documentRef{}, err
 	}
 	return client, ref, nil
+}
+
+func (m *manager) waitDocumentDiagnosticsReady(ctx context.Context, ref documentRef) error {
+	if _, ok := ctx.Deadline(); !ok {
+		return nil
+	}
+	if ref.uri == "" || !m.shouldUseClientForLanguage(ref.languageID) || !fileExists(ref.absPath) {
+		return nil
+	}
+	if m.isExplicitDocumentOpen(ref.uri) {
+		return nil
+	}
+	return m.WaitDiagnosticsStable(ctx, []string{ref.uri})
+}
+
+func (m *manager) markExplicitDocumentOpen(uri string) {
+	if m == nil || strings.TrimSpace(uri) == "" {
+		return
+	}
+	m.explicitOpenMu.Lock()
+	defer m.explicitOpenMu.Unlock()
+	if m.explicitlyOpen == nil {
+		m.explicitlyOpen = make(map[string]struct{})
+	}
+	m.explicitlyOpen[uri] = struct{}{}
+}
+
+func (m *manager) unmarkExplicitDocumentOpen(uri string) {
+	if m == nil || strings.TrimSpace(uri) == "" {
+		return
+	}
+	m.explicitOpenMu.Lock()
+	defer m.explicitOpenMu.Unlock()
+	delete(m.explicitlyOpen, uri)
+}
+
+func (m *manager) isExplicitDocumentOpen(uri string) bool {
+	if m == nil || strings.TrimSpace(uri) == "" {
+		return false
+	}
+	m.explicitOpenMu.RLock()
+	defer m.explicitOpenMu.RUnlock()
+	_, ok := m.explicitlyOpen[uri]
+	return ok
 }
 
 func clientHealthy(client Client) bool {

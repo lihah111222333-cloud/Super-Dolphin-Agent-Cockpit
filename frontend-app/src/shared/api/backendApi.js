@@ -9,6 +9,7 @@ import {
   saveClipboardImage as saveClipboardImageViaBridge,
   registerBridgeLogStore,
   saveTextFile as saveTextFileViaBridge,
+  openSharedFile as openSharedFileViaBridge,
   beginTextClipboardWrite as beginTextClipboardWriteViaBridge,
   copyTextToClipboard as copyTextToClipboardViaBridge,
   selectFiles as selectFilesViaBridge,
@@ -750,6 +751,7 @@ const NATIVE_DEP_FALLBACKS = Object.freeze([
   ['readDroppedTextFiles', readDroppedTextFilesViaBridge],
   ['saveClipboardImage', saveClipboardImageViaBridge],
   ['saveTextFile', saveTextFileViaBridge],
+  ['openSharedFile', openSharedFileViaBridge],
   ['beginTextClipboardWrite', beginTextClipboardWriteViaBridge],
   ['copyTextToClipboard', copyTextToClipboardViaBridge],
   ['selectFiles', selectFilesViaBridge],
@@ -1146,6 +1148,7 @@ function createNativeApi(native) {
     readDroppedTextFiles: native.readDroppedTextFiles,
     saveClipboardImage: native.saveClipboardImage,
     saveTextFile: native.saveTextFile,
+    openSharedFile: native.openSharedFile,
     beginTextClipboardWrite: native.beginTextClipboardWrite,
     copyTextToClipboard: native.copyTextToClipboard,
     selectFiles: native.selectFiles,
@@ -1275,6 +1278,7 @@ export const onRuntimeReconnect = backendApi.onRuntimeReconnect;
 export const readDroppedTextFiles = backendApi.readDroppedTextFiles;
 export const saveClipboardImage = backendApi.saveClipboardImage;
 export const saveTextFile = backendApi.saveTextFile;
+export const openSharedFile = backendApi.openSharedFile;
 export const beginTextClipboardWrite = backendApi.beginTextClipboardWrite;
 export const copyTextToClipboard = backendApi.copyTextToClipboard;
 export const selectFiles = backendApi.selectFiles;
