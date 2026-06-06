@@ -2567,96 +2567,6 @@ select {
   background: color-mix(in srgb, var(--error) 12%, var(--surface));
 }
 
-.work-status {
-  min-width: 0;
-  width: var(--conversation-content-width);
-  max-width: var(--conversation-content-width);
-  justify-self: start;
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) minmax(0, max-content);
-  align-items: center;
-  gap: 12px;
-  margin-left: var(--conversation-content-left-gutter);
-  min-height: 54px;
-  margin-bottom: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  padding: 0 22px;
-  color: var(--text-sec);
-}
-
-.work-status em {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted);
-  font-style: normal;
-}
-
-.work-status-label {
-  white-space: nowrap;
-}
-
-.work-status--done {
-  border-color: color-mix(in srgb, var(--success) 42%, var(--border));
-}
-
-.work-status--warning {
-  border-color: color-mix(in srgb, var(--warning) 48%, var(--border));
-}
-
-.work-status--error {
-  border-color: color-mix(in srgb, var(--error) 48%, var(--border));
-}
-
-.work-status code {
-  min-width: 0;
-  max-width: 100%;
-  justify-self: end;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  border: 1px solid color-mix(in srgb, var(--info) 34%, var(--border));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--info) 10%, var(--surface));
-  color: var(--info);
-  padding: 4px 12px;
-}
-
-.spinner {
-  width: 15px;
-  height: 15px;
-  border-radius: 999px;
-  border: 2px solid var(--muted);
-  border-top-color: transparent;
-}
-
-.work-status.is-busy .spinner {
-  animation: status-spin 0.9s linear infinite;
-}
-
-.work-status--done .spinner {
-  border-color: var(--success);
-}
-
-.work-status--warning .spinner {
-  border-color: var(--warning);
-  border-top-color: transparent;
-}
-
-.work-status--error .spinner {
-  border-color: var(--error);
-  border-top-color: transparent;
-}
-
-@keyframes status-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 @keyframes placeholder-sheen {
   0% {
     background-position: 100% 0;
@@ -2683,6 +2593,10 @@ select {
   flex: 0 0 auto;
 }
 
+.composer.composer--docked {
+  padding: 0;
+}
+
 .composer--floating {
   z-index: 6;
   width: min(1180px, calc(100% - 48px));
@@ -2700,6 +2614,15 @@ select {
   box-shadow: var(--shadow);
   overflow-x: hidden;
   overflow-y: visible;
+}
+
+.composer--docked .composer-card {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .composer--floating .composer-card {
@@ -7205,7 +7128,6 @@ textarea:disabled {
 .composer-model,
 .runtime-toolbar button,
 .score,
-.work-status code,
 .thread-card b,
 .thread-stale-badge,
 .skill-card header span,
@@ -7361,24 +7283,6 @@ textarea:disabled {
 .sa-window[data-theme="light"] .message-markdown pre code,
 .sa-window[data-theme="light"] .message-output code {
   color: var(--text-pri);
-}
-
-.work-status {
-  min-height: 42px;
-  margin-bottom: 10px;
-  border-color: var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  color: var(--text-sec);
-  padding: 0 14px;
-  flex-wrap: nowrap;
-  white-space: nowrap;
-}
-
-.work-status em {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .composer {
@@ -8390,16 +8294,6 @@ textarea:disabled {
 
   .message.user {
     max-width: 92%;
-  }
-
-  .work-status {
-    width: var(--conversation-content-width);
-    max-width: var(--conversation-content-width);
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 4px;
-    padding: 10px 12px;
-    white-space: normal;
   }
 
   .composer-meta,

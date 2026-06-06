@@ -199,12 +199,12 @@ describe('ChatPage module', () => {
       diffTextByThread: { 'thread-1': 'diff --git a/ChatPage.test.jsx b/ChatPage.test.jsx\n+expect(screen.getByTestId("runtime-panel"))' },
     });
 
-    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+    const { container } = render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
 
     expect(screen.getByText('修复会话')).toBeInTheDocument();
     expect(screen.getByText('哪里失败了？')).toBeInTheDocument();
     expect(screen.getByText('测试在聊天页缺少覆盖。')).toBeInTheDocument();
-    expect(screen.getByText('12 / 1000 tokens')).toBeInTheDocument();
+    expect(container.querySelector('.work-status')).toBeNull();
 
     const timeline = screen.getByTestId('chat-timeline');
     Object.defineProperty(timeline, 'scrollHeight', { configurable: true, value: 960 });
