@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
@@ -31,6 +32,10 @@ type hierarchyDirectionStep[I any, R any] struct {
 	label   string
 	assign  func(*R, json.RawMessage) error
 }
+
+const emptyHierarchyPrepareMaxRetries = 2
+
+var emptyHierarchyPrepareRetryDelay = 120 * time.Millisecond
 
 type snapshotSyncRequest struct {
 	key                     lspCacheKey
@@ -178,6 +183,12 @@ func queryHierarchy[I any, R any](
 	if err != nil {
 		return nil, unsupportedCapabilityError(err)
 	}
+	if len(items) == 0 && m.shouldRetryEmptyHierarchyPrepare(ref.languageID, prepareMethod) {
+		items, err = retryEmptyHierarchyPrepare[I](ctx, m, ref, client, prepareMethod, position)
+		if err != nil {
+			return nil, unsupportedCapabilityError(err)
+		}
+	}
 	results := make([]R, 0, len(items))
 	for _, item := range items {
 		result, err := resolve(ctx, client, item, direction)
@@ -187,6 +198,59 @@ func queryHierarchy[I any, R any](
 		results = append(results, result)
 	}
 	return results, nil
+}
+
+func (m *manager) shouldRetryEmptyHierarchyPrepare(languageID, method string) bool {
+	if method != protocol.MethodPrepareCallHierarchy {
+		return false
+	}
+	return m.capabilityPolicy(languageID).RetryEmptyCallHierarchyPrepare
+}
+
+func retryEmptyHierarchyPrepare[T any](
+	ctx context.Context,
+	m *manager,
+	ref documentRef,
+	client Client,
+	method string,
+	position protocol.Position,
+) ([]T, error) {
+	var items []T
+	for attempt := range emptyHierarchyPrepareMaxRetries {
+		if err := waitBeforeEmptyHierarchyPrepareRetry(ctx, attempt); err != nil {
+			return nil, err
+		}
+		if err := m.bootstrapDocumentOpenOnly(ctx, ref.uri); err != nil {
+			return nil, err
+		}
+		retryItems, err := prepareHierarchy[T](ctx, m, client, method, ref.uri, position)
+		if err != nil {
+			return nil, err
+		}
+		items = retryItems
+		if len(items) > 0 {
+			return items, nil
+		}
+	}
+	return items, nil
+}
+
+func waitBeforeEmptyHierarchyPrepareRetry(ctx context.Context, attempt int) error {
+	delay := emptyHierarchyPrepareRetryDelay
+	for range attempt {
+		delay *= 2
+	}
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func unsupportedHierarchy[R any](operation string) hierarchyMissingFunc[R] {
