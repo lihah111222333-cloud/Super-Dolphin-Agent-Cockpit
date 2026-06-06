@@ -3983,11 +3983,26 @@ select {
   color: var(--text-pri);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  word-break: break-word;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 13px;
   line-height: 1.5;
   margin-top: 12px;
 }
+
+.workflow-inline-preview-text {
+  margin: 0;
+  color: var(--text-sec);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: pre-wrap;
+  line-height: 1.55;
+}
+
+.workflow-inline-preview-empty {
+  color: var(--text-muted);
+}
+
 
 .workflow-media-preview {
   margin-top: 12px;
