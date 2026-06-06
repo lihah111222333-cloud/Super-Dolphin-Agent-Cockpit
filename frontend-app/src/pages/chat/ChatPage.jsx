@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, ArrowLeft, Bot, Boxes, Brain, CheckCircle2, ChevronDown, CircleStop, Clock3, Code2, Copy, File, FileText, Folder, GitBranch, Link2, Pencil, Pin, Plus, Search, Send, Settings, Sparkles, Terminal, Trash2, UserRound, Workflow, Wrench, X } from 'lucide-react';
+import { Archive, ArrowLeft, Bot, Boxes, Brain, CheckCircle2, ChevronDown, CircleStop, Code2, Copy, File, FileText, Folder, GitBranch, Link2, Pencil, Pin, Plus, Search, Send, Settings, Sparkles, Terminal, Trash2, Workflow, Wrench, X } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { onFilesDropped, copyTextToClipboard, locateCodeFile, openCodeFile, saveCodeFile } from '../../shared/api/backendApi.js';
 import { appendCurrentModelOption, canonicalizeModelValue, modelOptionFor, normalizeConfigText, normalizeProviderKey, textValue } from '../shared/pageShared.js';
@@ -110,12 +110,13 @@ function currentViewportHeight() {
   return Number.isFinite(height) ? height : 0;
 }
 
-function scrollTimelineElementToBottom(timeline) {
+function scrollTimelineElementToBottom(timeline, smooth = false) {
   if (!timeline) return;
-  if (typeof timeline.scrollTo === 'function') {
+  if (smooth && typeof timeline.scrollTo === 'function') {
     timeline.scrollTo({ top: timeline.scrollHeight, behavior: 'smooth' });
+  } else {
+    timeline.scrollTop = timeline.scrollHeight;
   }
-  timeline.scrollTop = timeline.scrollHeight;
 }
 
 function isTimelineNearBottom(timeline) {
@@ -194,7 +195,6 @@ function useSmoothStreamingText(text, { enabled = false, streamKey = '' } = {}) 
       return undefined;
     }
     if (!enabled || reducedMotion) {
-      if (state.visibleText !== targetText) setState({ streamKey, visibleText: targetText });
       return undefined;
     }
     if (!targetText.startsWith(visibleText) || visibleText.length > targetText.length) {
@@ -1783,18 +1783,29 @@ function useChatThreadData(store, activeThreadId) {
 function useViewportWidth() {
   const [viewportWidth, setViewportWidth] = useState(currentViewportWidth);
   useEffect(() => {
-    const onResize = () => setViewportWidth(currentViewportWidth());
+    let frameId = null;
+    const onResize = () => {
+      if (frameId) return;
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        setViewportWidth(currentViewportWidth());
+      });
+    };
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      if (frameId) window.cancelAnimationFrame(frameId);
+    };
   }, []);
   return viewportWidth;
 }
 
-function useThreadRailLayout(viewportWidth) {
+function useThreadRailLayout({ viewportWidth, rightPanelOpen, store, layoutRef }) {
   const [threadRailWidth, setThreadRailWidth] = useState(() => threadRailTargetWidth());
   const resizedRef = useRef(false);
   const maxWidth = threadRailTargetWidth(viewportWidth);
   const width = clampWidth(threadRailWidth, THREAD_RAIL_MIN_WIDTH, maxWidth);
+
   useEffect(() => {
     setThreadRailWidth((currentWidth) => {
       const targetWidth = threadRailTargetWidth(viewportWidth);
@@ -1802,21 +1813,51 @@ function useThreadRailLayout(viewportWidth) {
       return clampWidth(currentWidth, THREAD_RAIL_MIN_WIDTH, targetWidth);
     });
   }, [viewportWidth]);
+
   const beginResize = (event) => {
     event.preventDefault();
     resizedRef.current = true;
+    event.currentTarget?.setPointerCapture?.(event.pointerId);
+
     const startX = event.clientX;
     const startWidth = width;
-    const move = (moveEvent) => {
-      setThreadRailWidth(clampWidth(startWidth + (moveEvent.clientX - startX), THREAD_RAIL_MIN_WIDTH, maxWidth));
+    let latestWidth = startWidth;
+
+    const layoutColumnsForWidth = (nextWidth) => {
+      const rightWidth = clampWidth(store.rightPanelWidth, 0, rightPanelMaxWidth(viewportWidth, nextWidth));
+      return rightPanelOpen
+        ? `${nextWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr) ${SPLITTER_WIDTH}px ${rightWidth}px`
+        : `${nextWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr)`;
     };
+
+    const move = (moveEvent) => {
+      if (Number(moveEvent.buttons) === 0) {
+        stop();
+        return;
+      }
+      const rawNext = startWidth + (moveEvent.clientX - startX);
+      latestWidth = clampWidth(rawNext, THREAD_RAIL_MIN_WIDTH, maxWidth);
+      if (layoutRef.current) {
+        layoutRef.current.style.gridTemplateColumns = layoutColumnsForWidth(latestWidth);
+      }
+    };
+
     const stop = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      window.removeEventListener('blur', stop);
+      event.currentTarget?.releasePointerCapture?.(event.pointerId);
+
+      setThreadRailWidth(latestWidth);
     };
+
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+    window.addEventListener('blur', stop);
   };
+
   const handleKeyDown = (event) => {
     const nextWidth = resizerNextWidth(event, width, maxWidth, THREAD_RAIL_MIN_WIDTH, 'rail');
     if (nextWidth === null) return;
@@ -1824,6 +1865,7 @@ function useThreadRailLayout(viewportWidth) {
     resizedRef.current = true;
     setThreadRailWidth(nextWidth);
   };
+
   return { beginResize, handleKeyDown, maxWidth, width };
 }
 
@@ -1854,9 +1896,8 @@ function useChatInterruptShortcut(store, activeThreadId) {
   }, [store, activeThreadId]);
 }
 
-function useRuntimeSidePanelLayout({ activeThreadId, railWidth, store, viewportWidth, open, setOpen }) {
+function useRuntimeSidePanelLayout({ activeThreadId, railWidth, store, viewportWidth, open, setOpen, layoutRef }) {
   const resizedRef = useRef(false);
-  const layoutRef = useRef(null);
   const maxWidth = rightPanelMaxWidth(viewportWidth, railWidth);
   const width = clampWidth(store.rightPanelWidth, 0, maxWidth);
   useRuntimePanelWidthSync({ maxWidth, open, resizedRef, setOpen, store, viewportWidth });
@@ -1878,7 +1919,7 @@ function useRuntimeSidePanelLayout({ activeThreadId, railWidth, store, viewportW
     store.setRightPanelWidth?.(nextWidth);
   };
   const toggle = () => toggleRuntimePanel({ maxWidth, open, resizedRef, setOpen, store, viewportWidth });
-  return { beginResize, handleKeyDown, layoutRef, maxWidth, open, toggle, width };
+  return { beginResize, handleKeyDown, maxWidth, open, toggle, width };
 }
 
 function useRuntimePanelWidthSync({ maxWidth, open, resizedRef, setOpen, store, viewportWidth }) {
@@ -2001,11 +2042,16 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
     onApproval: (message, approved) => store.respondApproval?.(message, approved),
   }), [codePreview.openFileRef, store]);
   const viewportWidth = useViewportWidth();
-  const rail = useThreadRailLayout(viewportWidth);
+  const chatLayoutRef = useRef(null);
+  const rail = useThreadRailLayout({
+    viewportWidth,
+    rightPanelOpen,
+    store,
+    layoutRef: chatLayoutRef,
+  });
   const {
     beginResize: beginRuntimeResize,
     handleKeyDown: handleRuntimeResizeKeyDown,
-    layoutRef: chatLayoutRef,
     maxWidth: runtimeMaxWidth,
     width: rightPanelWidth,
   } = useRuntimeSidePanelLayout({
@@ -2015,6 +2061,7 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
     viewportWidth,
     open: rightPanelOpen,
     setOpen: setRightPanelOpen,
+    layoutRef: chatLayoutRef,
   });
   useActiveChatThreadSync(store, activeThreadId);
   useChatInterruptShortcut(store, activeThreadId);
@@ -2270,6 +2317,7 @@ function ProviderToggle({ store, canUseProjectActions = true }) {
 function ThreadRail({ store }) {
   const [showArchivedThreads, setShowArchivedThreads] = useState(false);
   const [confirmCleanMode, setConfirmCleanMode] = useState(false);
+  const [deletingThreadId, setDeletingThreadId] = useState('');
   const [hoveredArchiveThreadId, setHoveredArchiveThreadId] = useState('');
   const [hoveredPinThreadId, setHoveredPinThreadId] = useState('');
   const rename = useThreadRenameController(store);
@@ -2294,7 +2342,10 @@ function ThreadRail({ store }) {
   const toggleArchiveList = () => {
     setShowArchivedThreads((value) => {
       const next = !value;
-      if (!next) setConfirmCleanMode(false);
+      if (!next) {
+        setConfirmCleanMode(false);
+        setDeletingThreadId('');
+      }
       return next;
     });
   };
@@ -2339,6 +2390,13 @@ function ThreadRail({ store }) {
             onSetHoveredArchiveThreadId={setHoveredArchiveThreadId}
             onSetHoveredPinThreadId={setHoveredPinThreadId}
             onSubmitRename={rename.submitRename}
+            deleting={deletingThreadId === thread.id}
+            onBeginDelete={() => setDeletingThreadId(thread.id)}
+            onCancelDelete={() => setDeletingThreadId('')}
+            onConfirmDelete={() => {
+              setDeletingThreadId('');
+              runUIAction(() => store.deleteStaleThreads([thread.id]));
+            }}
           />
         ))}
       </div>
@@ -2471,8 +2529,23 @@ function ThreadCard({
   onSetHoveredArchiveThreadId,
   onSetHoveredPinThreadId,
   onSubmitRename,
+  deleting,
+  onBeginDelete,
+  onCancelDelete,
+  onConfirmDelete,
 }) {
   const archiveLabel = thread.archived ? '恢复会话' : '归档会话';
+  if (deleting) {
+    return (
+      <div className={`thread-card ${active ? 'active' : ''} thread-card--deleting`}>
+        <div className="thread-delete-confirm-label">确定删除该会话？</div>
+        <div className="thread-delete-confirm-actions">
+          <button type="button" className="thread-delete-confirm-btn confirm" onClick={onConfirmDelete}>确认</button>
+          <button type="button" className="thread-delete-confirm-btn cancel" onClick={onCancelDelete}>取消</button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className={`thread-card ${active ? 'active' : ''}`}>
       {editing ? (
@@ -2503,6 +2576,7 @@ function ThreadCard({
         onSetHoveredArchiveThreadId={onSetHoveredArchiveThreadId}
         onSetHoveredPinThreadId={onSetHoveredPinThreadId}
         onToggle={() => store.archiveThread(thread.id, !thread.archived)}
+        onBeginDelete={onBeginDelete}
       />
     </div>
   );
@@ -2520,6 +2594,7 @@ function ThreadCardActions({
   onSetHoveredArchiveThreadId,
   onSetHoveredPinThreadId,
   onToggle,
+  onBeginDelete,
 }) {
   const threadLabel = displayThreadName(thread);
   return (
@@ -2535,12 +2610,24 @@ function ThreadCardActions({
           >
             <Pencil size={13} aria-hidden="true" />
           </button>
-          <ThreadPinButton
-            thread={thread}
-            hoveredPinThreadId={hoveredPinThreadId}
-            onSetHoveredPinThreadId={onSetHoveredPinThreadId}
-            onToggle={() => store.toggleThreadPin(thread.id)}
-          />
+          {thread.archived ? (
+            <button
+              type="button"
+              className="thread-delete-trigger"
+              aria-label="删除会话"
+              title={`删除 ${threadLabel}`}
+              onClick={onBeginDelete}
+            >
+              <Trash2 size={13} aria-hidden="true" />
+            </button>
+          ) : (
+            <ThreadPinButton
+              thread={thread}
+              hoveredPinThreadId={hoveredPinThreadId}
+              onSetHoveredPinThreadId={onSetHoveredPinThreadId}
+              onToggle={() => store.toggleThreadPin(thread.id)}
+            />
+          )}
         </>
       ) : null}
       <ThreadArchiveButton
@@ -3919,9 +4006,9 @@ function markdownHeadingMatch(line) {
   const trimmed = line.trim();
   const standard = trimmed.match(/^(#{1,6})\s+(.+)$/);
   if (standard) return standard;
-  const compact = trimmed.match(/^(#{2,6})(\S.+)$/);
-  if (!compact) return null;
-  return [compact[0], compact[1], compact[2]];
+  const compact = trimmed.match(/^(#{2,6})([A-Za-z0-9_].*)$/);
+  if (compact) return [compact[0], compact[1], compact[2]];
+  return null;
 }
 
 function unorderedMarkdownListItemText(line) {
@@ -3937,7 +4024,12 @@ function startsSoftMarkdownHeading(source, index) {
   let cursor = index;
   while (source[cursor] === '#') cursor += 1;
   const level = cursor - index;
-  if (level < 2 || level > 6 || !source[cursor] || /\s/.test(source[cursor])) return false;
+  if (level < 2 || level > 6 || !source[cursor]) return false;
+  const hasSpace = /\s/.test(source[cursor]);
+  if (hasSpace) {
+    return /[\s。！？!?；;：:，,.)）\]}]/.test(source[index - 1]);
+  }
+  if (!/^[A-Za-z0-9_]/.test(source[cursor])) return false;
   return /[\s。！？!?；;：:，,.)）\]}]/.test(source[index - 1]);
 }
 
@@ -4424,17 +4516,74 @@ function consumeMarkdownBlock(context, index) {
   throw new Error('markdown block consumer pipeline is incomplete');
 }
 
-function renderMarkdownBlocks(lines, actions = {}) {
+function renderMarkdownBlocks(lines, actions = {}, cache = null) {
   const context = markdownBlockContext(lines, actions);
   let index = 0;
-  while (index < lines.length) index = consumeMarkdownBlock(context, index);
+  const checkpoints = [];
+
+  if (cache && cache.lines && cache.nodes && cache.checkpoints) {
+    let matchingCount = 0;
+    const maxMatch = Math.min(lines.length, cache.lines.length);
+    while (matchingCount < maxMatch && lines[matchingCount] === cache.lines[matchingCount]) {
+      matchingCount++;
+    }
+
+    let splitIndex = -1;
+    for (let i = matchingCount; i >= 0; i--) {
+      if (cache.checkpoints[i] !== undefined) {
+        splitIndex = i;
+        break;
+      }
+    }
+
+    if (splitIndex >= 0) {
+      index = splitIndex;
+      const reuseCount = cache.checkpoints[splitIndex];
+      for (let i = 0; i < reuseCount; i++) {
+        context.nodes.push(cache.nodes[i]);
+      }
+      for (let i = 0; i <= splitIndex; i++) {
+        if (cache.checkpoints[i] !== undefined) {
+          checkpoints[i] = cache.checkpoints[i];
+        }
+      }
+    }
+  }
+
+  while (index < lines.length) {
+    checkpoints[index] = context.nodes.length;
+    index = consumeMarkdownBlock(context, index);
+  }
+
+  if (cache) {
+    cache.lines = lines;
+    cache.nodes = context.nodes;
+    cache.checkpoints = checkpoints;
+  }
+
   return context.nodes;
 }
 
-function MarkdownBlocks({ lines, actions = EMPTY_MARKDOWN_ACTIONS, fallback = null }) {
-  const nodes = renderMarkdownBlocks(lines, actions);
-  return <>{nodes.length > 0 ? nodes : fallback}</>;
-}
+const MarkdownBlocks = React.memo(
+  function MarkdownBlocks({ lines, actions = EMPTY_MARKDOWN_ACTIONS, fallback = null }) {
+    const cache = useMemo(() => ({ lines: [], nodes: [], checkpoints: [], actions }), [actions]);
+    const nodes = renderMarkdownBlocks(lines, actions, cache);
+    return <>{nodes.length > 0 ? nodes : fallback}</>;
+  },
+  (prevProps, nextProps) => {
+    if (prevProps.fallback !== nextProps.fallback) return false;
+    if (prevProps.actions !== nextProps.actions) return false;
+    const prevLines = prevProps.lines;
+    const nextLines = nextProps.lines;
+    if (prevLines === nextLines) return true;
+    if (!prevLines || !nextLines) return false;
+    if (prevLines.length !== nextLines.length) return false;
+    for (let i = 0; i < prevLines.length; i++) {
+      if (prevLines[i] !== nextLines[i]) return false;
+    }
+    return true;
+  }
+);
 
 function MarkdownMessage({ text, actions }) {
   return (
@@ -4496,13 +4645,7 @@ function reasoningKindMeta(message = {}) {
   return { label: '思考', tone: 'thinking', Icon: Brain };
 }
 
-function reasoningStatusText(message = {}, done = true) {
-  const status = (message?.status || '').toString().trim().toLowerCase();
-  if (!done) return '执行中';
-  if (status === 'failed' || status === 'error') return '失败';
-  if (status === 'skipped' || status === 'cancelled' || status === 'canceled') return '已跳过';
-  return '完成';
-}
+
 
 function reasoningStepDescription(message = {}) {
   const body = (message?.text || '').toString().trim();
@@ -4569,15 +4712,7 @@ function ExecutionPlan({ message }) {
   );
 }
 
-function MessageAvatar({ messageRole = 'assistant' }) {
-  const isUser = messageRole === 'user';
-  const Icon = isUser ? UserRound : Bot;
-  return (
-    <div className={`avatar avatar--${isUser ? 'user' : 'assistant'}`} aria-hidden="true">
-      <Icon size={18} strokeWidth={2.2} />
-    </div>
-  );
-}
+
 
 function AssistantMessageActions({ text }) {
   const [copyState, setCopyState] = useState('idle');
@@ -4683,31 +4818,25 @@ function ReasoningTrace({ message, active = false }) {
   const elapsed = (done && typeof message?.elapsedMs === 'number' && message.elapsedMs > 0)
     ? durationLabelFromMs(message.elapsedMs)
     : hookElapsed;
-  const statusLabel = done ? `已处理${elapsed ? ` ${elapsed}` : ''}` : `正在思考${elapsed ? ` ${elapsed}` : ''}`;
+  const title = reasoningTitle(message);
+  const elapsedSuffix = elapsed ? ` ${elapsed}` : '';
+  const statusLabel = done 
+    ? `已处理 ${title}${elapsedSuffix}` 
+    : ((message?.kind || '').toString().trim().toLowerCase() === 'thinking' 
+        ? `正在思考${elapsedSuffix}` 
+        : `正在运行 ${title}${elapsedSuffix}`);
   const meta = reasoningKindMeta(message);
-  const StatusIcon = done ? CheckCircle2 : Clock3;
-  const StepIcon = meta.Icon;
   return (
-    <article className={`reasoning-message${done ? '' : ' is-active'}`} aria-label="AI 思考记录">
+    <article className={`reasoning-message${done ? '' : ' is-active'} no-avatar`} aria-label="AI 思考记录">
       <details className="reasoning-trace">
         <summary>
           <span className="reasoning-trace-status">
-            <StatusIcon size={15} aria-hidden="true" />
             {statusLabel}
           </span>
-          <em>{reasoningTitle(message)}</em>
         </summary>
         <div className="reasoning-step-list">
           <section className={`reasoning-step reasoning-step--${meta.tone}`} aria-label={`${meta.label}步骤`}>
-            <div className="reasoning-step-icon">
-              <StepIcon size={15} aria-hidden="true" />
-            </div>
             <div className="reasoning-step-body">
-              <header>
-                <span>{meta.label}</span>
-                <strong>{reasoningTitle(message)}</strong>
-                <b aria-label={`执行状态：${reasoningStatusText(message, done)}`}>{reasoningStatusText(message, done)}</b>
-              </header>
               {meta.tone === 'plan' ? <ExecutionPlan message={message} /> : <MessageContent text={reasoningStepDescription(message)} />}
             </div>
           </section>
@@ -5149,16 +5278,20 @@ function Conversation(props) {
   const updateTimelineStickiness = useCallback((timeline) => {
     shouldStickToBottomRef.current = isTimelineNearBottom(timeline);
   }, []);
-  const scrollTimelineToBottom = useCallback(() => {
+  const scrollTimelineToBottomInstant = useCallback(() => {
     shouldStickToBottomRef.current = true;
-    scrollTimelineElementToBottom(timelineRef.current);
+    scrollTimelineElementToBottom(timelineRef.current, false);
+  }, []);
+  const scrollTimelineToBottomSmooth = useCallback(() => {
+    shouldStickToBottomRef.current = true;
+    scrollTimelineElementToBottom(timelineRef.current, true);
   }, []);
   const sendMessageAndScrollToBottom = useCallback(() => {
     const result = sendMessage();
     shouldStickToBottomRef.current = true;
-    requestTimelineBottomScroll(scrollTimelineToBottom);
+    requestTimelineBottomScroll(scrollTimelineToBottomSmooth);
     return result;
-  }, [scrollTimelineToBottom, sendMessage]);
+  }, [scrollTimelineToBottomSmooth, sendMessage]);
   const autoScrollKey = timelineAutoScrollKey({
     activeThreadId,
     introMode,
@@ -5178,8 +5311,8 @@ function Conversation(props) {
     if (lastTimelineAutoScrollKeyRef.current === autoScrollKey) return;
     lastTimelineAutoScrollKeyRef.current = autoScrollKey;
     if (!shouldStickToBottomRef.current) return;
-    requestTimelineBottomScroll(scrollTimelineToBottom);
-  }, [autoScrollKey, scrollTimelineToBottom]);
+    requestTimelineBottomScroll(scrollTimelineToBottomInstant);
+  }, [autoScrollKey, scrollTimelineToBottomInstant]);
   const composer = (
     <ConversationComposer
       {...props}
@@ -5204,6 +5337,7 @@ function Conversation(props) {
       <ContextUsageBanner activeThreadId={activeThreadId} store={store} tokenUsage={tokenUsage} />
       <ConversationTimeline
         composer={composer}
+        smoothStreaming={store?.smoothStreaming ?? false}
         introMode={introMode}
         messages={messages}
         pendingReasoning={pendingReasoning}
@@ -5214,7 +5348,7 @@ function Conversation(props) {
         timelineContentBlocked={timelineContentBlocked}
         messageActions={messageActions}
         onTimelineScroll={updateTimelineStickiness}
-        onScrollToBottom={scrollTimelineToBottom}
+        onScrollToBottom={scrollTimelineToBottomSmooth}
         timelineRef={timelineRef}
       />
       {!introMode ? (
@@ -5340,6 +5474,7 @@ function ConversationTimeline({
   onTimelineScroll,
   onScrollToBottom,
   timelineRef,
+  smoothStreaming,
 }) {
   const {
     hiddenOlderCount,
@@ -5416,7 +5551,7 @@ function ConversationTimeline({
           <TimelineOlderMessagesMarker hiddenCount={hiddenOlderCount} loading={olderPageLoading} onReveal={requestOlderMessages} />
         ) : null}
         {!introMode && !timelineContentBlocked ? visibleMessages.map((message) => (
-          <TimelineMessage key={message.id} message={message} actions={messageActions} activeThreadId={activeThreadId} />
+          <TimelineMessage key={message.id} message={message} actions={messageActions} activeThreadId={activeThreadId} smoothStreaming={smoothStreaming} />
         )) : null}
         {!introMode && timelineContentBlocked ? <TimelineLoadingPlaceholder /> : null}
         {pendingReasoning ? <ReasoningTrace key={pendingReasoning.id} message={pendingReasoning} active /> : null}
@@ -5462,22 +5597,32 @@ function IntroChatStage({ composer, projectPath }) {
   );
 }
 
-const TimelineMessage = React.memo(function TimelineMessage({ message, actions, activeThreadId }) {
+const TimelineMessage = React.memo(function TimelineMessage({ message, actions, activeThreadId, smoothStreaming }) {
   const streamKey = `${activeThreadId || ''}:${message.id || ''}`;
   const streamingAssistant = message.role === 'assistant' && message.done === false;
   const displayText = useSmoothStreamingText(message.text, {
-    enabled: streamingAssistant,
+    enabled: streamingAssistant && smoothStreaming,
     streamKey,
   });
   if (isApprovalMessage(message)) return <ApprovalTimelineMessage message={message} actions={actions} />;
   if (isReasoningMessage(message)) return <ReasoningTrace message={message} active={message.done === false} />;
+  
+  const isUser = message.role === 'user';
   return (
-    <article className={`message ${message.role}`}>
-      <MessageAvatar messageRole={message.role} />
+    <article className={`message ${message.role} no-avatar`}>
       <div className="bubble">
-        <header><span>{message.role === 'user' ? '你' : 'AI'}</span><time>{formatTime(message.time)}</time></header>
+        {isUser ? (
+          <header>
+            <time>{formatTime(message.time)}</time>
+          </header>
+        ) : null}
         <MessageContent text={displayText} actions={actions} />
-        {message.role === 'assistant' ? <AssistantMessageActions text={message.text} /> : null}
+        {!isUser && message.role === 'assistant' ? (
+          <div className="assistant-footer">
+            <time>{formatTime(message.time)}</time>
+            <AssistantMessageActions text={message.text} />
+          </div>
+        ) : null}
       </div>
     </article>
   );
@@ -5508,8 +5653,7 @@ function ApprovalTimelineMessage({ message, actions }) {
   };
 
   return (
-    <article className="message assistant approval-message" data-testid={`approval-request-${requestId || 'invalid'}`}>
-      <MessageAvatar messageRole="assistant" />
+    <article className="message assistant approval-message no-avatar" data-testid={`approval-request-${requestId || 'invalid'}`}>
       <div className="bubble approval-card">
         <header>
           <span>{title}</span>
@@ -5587,29 +5731,53 @@ function useRuntimePanelLayout() {
   const [activityPanelHeight, setActivityPanelHeight] = useState(() => clampActivityPanelHeight(ACTIVITY_PANEL_DEFAULT_HEIGHT));
   const activityPanelMax = activityPanelMaxHeight(viewportHeight);
   useEffect(() => {
+    let frameId = null;
     const onResize = () => {
-      const nextHeight = currentViewportHeight();
-      setViewportHeight(nextHeight);
-      setActivityPanelHeight((height) => clampActivityPanelHeight(height, nextHeight));
+      if (frameId) return;
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        const nextHeight = currentViewportHeight();
+        setViewportHeight(nextHeight);
+        setActivityPanelHeight((height) => clampActivityPanelHeight(height, nextHeight));
+      });
     };
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      if (frameId) window.cancelAnimationFrame(frameId);
+    };
   }, []);
   const beginActivityPanelResize = (event, inputType = 'pointer') => {
     event.preventDefault();
+    if (inputType === 'pointer') {
+      event.currentTarget?.setPointerCapture?.(event.pointerId);
+    }
     const startY = event.clientY;
     const startHeight = activityPanelHeight;
     const moveEventName = inputType === 'mouse' ? 'mousemove' : 'pointermove';
     const stopEventName = inputType === 'mouse' ? 'mouseup' : 'pointerup';
+    const panelEl = (event.currentTarget || event.target)?.closest?.('.runtime-panel') || document.querySelector('.runtime-panel');
+    let latestHeight = startHeight;
     const move = (moveEvent) => {
-      setActivityPanelHeight(clampActivityPanelHeight(startHeight + (startY - moveEvent.clientY), viewportHeight));
+      const nextHeight = clampActivityPanelHeight(startHeight + (startY - moveEvent.clientY), viewportHeight);
+      latestHeight = nextHeight;
+      if (panelEl) {
+        panelEl.style.setProperty('--activity-panel-height', `${nextHeight}px`);
+      }
     };
     const stop = () => {
       window.removeEventListener(moveEventName, move);
       window.removeEventListener(stopEventName, stop);
+      if (inputType === 'pointer') {
+        window.removeEventListener('pointercancel', stop);
+      }
+      setActivityPanelHeight(latestHeight);
     };
     window.addEventListener(moveEventName, move);
     window.addEventListener(stopEventName, stop);
+    if (inputType === 'pointer') {
+      window.addEventListener('pointercancel', stop);
+    }
   };
   const handleActivityPanelResizeKeyDown = (event) => {
     if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;

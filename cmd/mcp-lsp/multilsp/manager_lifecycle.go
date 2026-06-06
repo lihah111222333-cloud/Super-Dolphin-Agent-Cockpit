@@ -284,6 +284,9 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 		},
 		logMessage: m.LogMessage,
 	}
+	if err := prepareWorkspaceDependencies(ctx, cfg); err != nil {
+		return nil, err
+	}
 	client, err := newClientFromFactory(m.factory, cfg, handler)
 	if err != nil {
 		return nil, fmt.Errorf("create LSP client: %w", err)

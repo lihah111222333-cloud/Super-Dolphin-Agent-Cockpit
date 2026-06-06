@@ -133,6 +133,60 @@ func TestAgentExecutorExecuteCodexProviderRequiresCompleteIdentityWhenOverridePr
 	}
 }
 
+func TestAgentExecutorExecuteRequiresExplicitProvider(t *testing.T) {
+	t.Parallel()
+	launcher := &stubAgentLauncher{}
+	exec := NewAgentExecutor(launcher)
+	raw, err := json.Marshal(AgentNodeConfig{Exec: AgentExecConfig{
+		AgentKey: "implementer",
+		CWD:      testCWD(t, "node-cwd"),
+	}})
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	node := Node{NodeType: "agent", Title: "test node", Config: raw}
+
+	out, err := exec.Execute(context.Background(), node, RunContext{})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v, want nil", err)
+	}
+	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
+		t.Fatalf("outcome = (%q, %q), want failed validation", out.Status, out.FailureClass)
+	}
+	if !strings.Contains(out.ErrorSummary, "provider") {
+		t.Fatalf("ErrorSummary = %q, want provider guidance", out.ErrorSummary)
+	}
+	if launcher.called != 0 {
+		t.Fatalf("launcher called %d times, want 0 for missing provider", launcher.called)
+	}
+}
+
+func TestAgentExecutorExecuteCodexProviderRequiresIdentity(t *testing.T) {
+	t.Parallel()
+	launcher := &stubAgentLauncher{}
+	exec := NewAgentExecutor(launcher)
+	node := makeAgentNode(t, AgentNodeConfig{Exec: AgentExecConfig{
+		Provider: "codex",
+		AgentKey: "implementer",
+	}})
+
+	out, err := exec.Execute(context.Background(), node, RunContext{})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v, want nil", err)
+	}
+	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
+		t.Fatalf("outcome = (%q, %q), want failed validation", out.Status, out.FailureClass)
+	}
+	for _, want := range []string{"codex_home", "codex_instance_key", "codex_model_provider"} {
+		if !strings.Contains(out.ErrorSummary, want) {
+			t.Fatalf("ErrorSummary = %q, want %q", out.ErrorSummary, want)
+		}
+	}
+	if launcher.called != 0 {
+		t.Fatalf("launcher called %d times, want 0 for missing codex identity", launcher.called)
+	}
+}
+
 func TestBuildLaunchRequestFromAgentConfigDoesNotInventCWD(t *testing.T) {
 	t.Parallel()
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
@@ -146,7 +200,7 @@ func TestAgentExecutor_Execute_MissingCWDDoesNotCallLauncher(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{err: contract.ErrLaunchCWDRequired}
 	exec := NewAgentExecutor(launcher)
-	raw, err := json.Marshal(AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}})
+	raw, err := json.Marshal(AgentNodeConfig{Exec: AgentExecConfig{Provider: "claude", AgentKey: "implementer"}})
 	if err != nil {
 		t.Fatalf("marshal config: %v", err)
 	}
@@ -169,7 +223,7 @@ func TestAgentExecutor_ExecuteClassifiesLaunchCWDContractError(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{err: contract.ErrLaunchCWDRequired}
 	exec := NewAgentExecutor(launcher)
-	raw, err := json.Marshal(AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer", CWD: testCWD(t, "node-cwd")}})
+	raw, err := json.Marshal(AgentNodeConfig{Exec: AgentExecConfig{Provider: "claude", AgentKey: "implementer", CWD: testCWD(t, "node-cwd")}})
 	if err != nil {
 		t.Fatalf("marshal config: %v", err)
 	}

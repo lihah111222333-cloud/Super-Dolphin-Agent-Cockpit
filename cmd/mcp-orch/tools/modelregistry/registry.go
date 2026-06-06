@@ -16,8 +16,10 @@ const DefaultPath = "cmd/mcp-orch/tools/modelregistry/models.yaml"
 const EnvRegistryPath = "SUPER_DOLPHIN_MODEL_REGISTRY"
 
 type ProviderModels struct {
-	Provider string   `json:"provider" yaml:"provider"`
-	Models   []string `json:"models" yaml:"models"`
+	Provider          string   `json:"provider" yaml:"provider"`
+	Models            []string `json:"models" yaml:"models"`
+	Available         *bool    `json:"available,omitempty" yaml:"-"`
+	UnavailableReason string   `json:"unavailable_reason,omitempty" yaml:"-"`
 }
 
 type Registry interface {
@@ -204,9 +206,19 @@ func cloneProviders(providers []ProviderModels) []ProviderModels {
 
 func cloneProvider(provider ProviderModels) ProviderModels {
 	return ProviderModels{
-		Provider: provider.Provider,
-		Models:   append([]string(nil), provider.Models...),
+		Provider:          provider.Provider,
+		Models:            append([]string(nil), provider.Models...),
+		Available:         cloneBoolPointer(provider.Available),
+		UnavailableReason: provider.UnavailableReason,
 	}
+}
+
+func cloneBoolPointer(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }
 
 func findDefaultPathFromWorkingDir() string {

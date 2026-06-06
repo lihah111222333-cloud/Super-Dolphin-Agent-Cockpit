@@ -391,7 +391,7 @@ function Titlebar({ theme, onToggleTheme, store, projectPath, rightPanelOpen, se
       </div>
       <div className="titlebar-center">
         {isChatPage && store && (
-          <>
+          <div className="titlebar-actions">
             <ProjectSelector store={store} projectPath={projectPath} />
             <button
               type="button"
@@ -402,59 +402,56 @@ function Titlebar({ theme, onToggleTheme, store, projectPath, rightPanelOpen, se
             >
               <PanelTopOpen size={14} />
             </button>
-            {canUseThreadActions ? (
-              <button
-                type="button"
-                className="icon-btn"
-                aria-label="复制当前线程"
-                title="复制当前线程"
-                onClick={() => runUIAction(() => store.copyActiveThreadInfo())}
-              >
-                <Copy size={14} />
-              </button>
-            ) : null}
-            {canInterruptThread ? (
-              <button
-                type="button"
-                className="icon-btn"
-                aria-label="停止"
-                title="中断当前执行"
-                onClick={() => runUIAction(() => store.interruptActiveThread())}
-              >
-                <CircleStop size={14} />
-              </button>
-            ) : null}
-            {canUseThreadActions ? (
-              <button
-                type="button"
-                className="icon-btn"
-                aria-label="强制完成"
-                title="强制完成当前执行"
-                onClick={() => runUIAction(() => store.forceCompleteActiveThread())}
-              >
-                <CheckCircle2 size={14} />
-              </button>
-            ) : null}
             <button
               type="button"
               className="icon-btn"
-              aria-label={canUseThreadActions ? '进程恢复' : '请先选择会话'}
-              title={canUseThreadActions ? '手动杀进程并恢复连接' : '请先选择会话'}
+              aria-label={canUseThreadActions ? "复制当前线程" : "复制当前线程（不可用）"}
+              title={canUseThreadActions ? "复制当前线程" : "请先选择会话"}
+              disabled={!canUseThreadActions}
+              onClick={() => runUIAction(() => store.copyActiveThreadInfo())}
+            >
+              <Copy size={14} />
+            </button>
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label={canInterruptThread ? "停止" : "停止（不可用）"}
+              title={canInterruptThread ? "中断当前执行" : "无运行中任务"}
+              disabled={!canInterruptThread}
+              onClick={() => runUIAction(() => store.interruptActiveThread())}
+            >
+              <CircleStop size={14} />
+            </button>
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label={canUseThreadActions ? "强制完成" : "强制完成（不可用）"}
+              title={canUseThreadActions ? "强制完成当前执行" : "请先选择会话"}
+              disabled={!canUseThreadActions}
+              onClick={() => runUIAction(() => store.forceCompleteActiveThread())}
+            >
+              <CheckCircle2 size={14} />
+            </button>
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label={canUseThreadActions ? "进程恢复" : "请先选择会话"}
+              title={canUseThreadActions ? "手动杀进程并恢复连接" : "请先选择会话"}
               disabled={!canUseThreadActions}
               onClick={() => runUIAction(() => store.recoverActiveThread())}
             >
               <RefreshCw size={14} />
             </button>
-          </>
+            {feedback?.message ? (
+              <output
+                className={`action-feedback ${feedback.tone || "info"}`}
+                data-testid="chat-action-feedback"
+              >
+                {feedback.message}
+              </output>
+            ) : null}
+          </div>
         )}
-        {feedback?.message ? (
-          <output
-            className={`action-feedback ${feedback.tone || 'info'}`}
-            data-testid="chat-action-feedback"
-          >
-            {feedback.message}
-          </output>
-        ) : null}
       </div>
 
       <div className="titlebar-right">

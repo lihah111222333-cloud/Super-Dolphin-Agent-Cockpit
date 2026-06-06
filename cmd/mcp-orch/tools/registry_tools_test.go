@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -86,6 +88,33 @@ func TestHandleListModels_UsesInjectedRegistry(t *testing.T) {
 	}
 }
 
+func TestHandleListModels_MarksCodexUnavailableWhenLocalModelProviderMissing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "")
+	t.Setenv("SUPER_DOLPHIN_HOME", "")
+
+	codexConfigPath := writeCodexConfigWithoutModelProvider(t, home)
+
+	h := HandleListModels(WithModelRegistry(testModelRegistry()))
+	out, err := h(context.Background(), json.RawMessage(`{"provider":"codex"}`))
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	provider, raw := decodeFirstProviderModelsJSON(t, out)
+	if provider.Provider != "codex" {
+		t.Fatalf("provider = %q, want codex", provider.Provider)
+	}
+	if len(provider.Models) == 0 {
+		t.Fatalf("codex models missing: %+v", provider)
+	}
+	if provider.Available != false {
+		t.Fatalf("codex available = %#v, want false when %s lacks model_providers.codex; json=%s", provider.Available, codexConfigPath, raw)
+	}
+	requireStringContains(t, provider.UnavailableReason, "model provider codex")
+	requireStringContains(t, provider.UnavailableReason, codexConfigPath)
+}
+
 func TestHandleSharedFileList_NilStoreError(t *testing.T) {
 	h := HandleSharedFileList(nil)
 	_, err := h(context.Background(), json.RawMessage(`{}`))
@@ -125,6 +154,51 @@ func TestHandleSharedFileList_ReturnsEnvelopeWithLegacyFiles(t *testing.T) {
 	}
 	if res.AllowedPrefixHint == "" {
 		t.Fatalf("shared file allowed prefix hint missing = %+v", res)
+	}
+}
+
+type providerModelsJSON struct {
+	Provider          string   `json:"provider"`
+	Models            []string `json:"models"`
+	Available         any      `json:"available"`
+	UnavailableReason string   `json:"unavailable_reason"`
+}
+
+func writeCodexConfigWithoutModelProvider(t *testing.T, home string) string {
+	t.Helper()
+	codexConfigDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexConfigDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll(.codex) error = %v", err)
+	}
+	codexConfigPath := filepath.Join(codexConfigDir, "config.toml")
+	if err := os.WriteFile(codexConfigPath, []byte("model = \"gpt-5.5\"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(config.toml) error = %v", err)
+	}
+	return codexConfigPath
+}
+
+func decodeFirstProviderModelsJSON(t *testing.T, out any) (providerModelsJSON, []byte) {
+	t.Helper()
+	raw, err := json.Marshal(out)
+	if err != nil {
+		t.Fatalf("Marshal(ListModelsResult) error = %v", err)
+	}
+	var decoded struct {
+		Providers []providerModelsJSON `json:"providers"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("Unmarshal(ListModelsResult JSON) error = %v; json=%s", err, raw)
+	}
+	if len(decoded.Providers) != 1 {
+		t.Fatalf("providers = %+v, want exactly one provider", decoded.Providers)
+	}
+	return decoded.Providers[0], raw
+}
+
+func requireStringContains(t *testing.T, got, wantSubstring string) {
+	t.Helper()
+	if !strings.Contains(got, wantSubstring) {
+		t.Fatalf("string = %q, want substring %q", got, wantSubstring)
 	}
 }
 

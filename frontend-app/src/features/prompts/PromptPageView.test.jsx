@@ -365,7 +365,9 @@ describe('PromptPageView backend wiring', () => {
         scope: 'project',
       });
     });
-    expect(screen.queryByRole('dialog', { name: '添加给 AI 的内容' })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '添加给 AI 的内容' })).not.toBeInTheDocument();
+    });
     expect(await screen.findByText('已保存，可在新对话中被 AI 发现和使用')).toBeInTheDocument();
   });
 

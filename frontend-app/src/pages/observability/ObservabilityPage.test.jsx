@@ -156,6 +156,78 @@ describe('ObservabilityPage module', () => {
     expect(table.querySelector('.observability-log-table-entry')).toHaveTextContent('2 个匹配 event');
   });
 
+  it('uses slow and error events as representative group summaries', async () => {
+    listObservabilityRecent.mockResolvedValueOnce({
+      source: 'memory',
+      truncated: false,
+      events: [
+        {
+          ts: '2026-06-02T09:01:25.000Z',
+          trace_id: 'trace-slow-representative',
+          span_id: 'span-frontend-ok',
+          kind: 'frontend',
+          phase: 'frontend.rpc.done',
+          method: 'turn/start',
+          status: 'ok',
+          duration_ms: 5,
+        },
+        {
+          ts: '2026-06-02T09:01:24.000Z',
+          trace_id: 'trace-slow-representative',
+          span_id: 'span-tool-slow',
+          method: 'tool.call.end',
+          status: 'slow',
+          tool_name: 'grep',
+          duration_ms: 1200,
+        },
+        {
+          ts: '2026-06-02T09:01:23.000Z',
+          trace_id: 'trace-error-representative',
+          span_id: 'span-frontend-ok',
+          kind: 'frontend',
+          phase: 'frontend.rpc.done',
+          method: 'turn/start',
+          status: 'ok',
+          duration_ms: 6,
+        },
+        {
+          ts: '2026-06-02T09:01:22.000Z',
+          trace_id: 'trace-error-representative',
+          span_id: 'span-tool-slow',
+          method: 'tool.call.end',
+          status: 'slow',
+          tool_name: 'grep',
+          duration_ms: 900,
+        },
+        {
+          ts: '2026-06-02T09:01:21.000Z',
+          trace_id: 'trace-error-representative',
+          span_id: 'span-tool-error',
+          method: 'tool.call.end',
+          status: 'error',
+          tool_name: 'file',
+          duration_ms: 10,
+          error: 'tool failed',
+        },
+      ],
+    });
+
+    renderObservabilityPage();
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+    const table = await screen.findByTestId('observability-recent-logs');
+    const entries = Array.from(table.querySelectorAll('.observability-log-table-entry'));
+    const slowEntry = entries.find((entry) => entry.textContent.includes('trace-slow-representative'));
+    const errorEntry = entries.find((entry) => entry.textContent.includes('trace-error-representative'));
+
+    expect(slowEntry).toHaveTextContent('slow');
+    expect(slowEntry).toHaveTextContent('tool.call.end');
+    expect(slowEntry).toHaveTextContent('tool=grep');
+    expect(errorEntry).toHaveTextContent('error');
+    expect(errorEntry).toHaveTextContent('tool.call.end');
+    expect(errorEntry).toHaveTextContent('tool=file');
+    expect(errorEntry).toHaveTextContent('tool failed');
+  });
+
   it('shows recent events that do not have a trace id', async () => {
     listObservabilityRecent.mockResolvedValueOnce({
       source: 'jsonl_tail',

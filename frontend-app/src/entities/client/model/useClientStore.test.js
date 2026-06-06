@@ -952,6 +952,7 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().warningEntries).toEqual([]);
   });
 
+
   it('does not query thread config for agent-only runtime threads', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -1177,6 +1178,7 @@ function registerBridgeEventHandlersForTest() {
       expect.objectContaining({ role: 'user', text: 'Hello backend' }),
     ]);
     expect(useClientStore.getState().draft).toBe('');
+    expect(useClientStore.getState().threadTimelineReadyByThread['thread-new']).toBe(true);
   });
 
   it('does not classify engineering intents into a frontend tool mode', async () => {
@@ -1284,6 +1286,256 @@ function registerBridgeEventHandlersForTest() {
       'first reply',
       'latest reply',
     ]);
+  });
+
+  it('deduplicates intermediate turns that are concatenated in final assistant message', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {
+        'thread-1': [
+          { id: 'assistant-stream-turn1', role: 'assistant', text: '我会先加载 使用超能力 技能，确认本轮技能选择规则。', done: true },
+          { id: 'assistant-stream-turn2', role: 'assistant', text: 'Hi，我在。需要我帮你看代码、排查问题，还是继续当前仓库里的改动？', done: true },
+        ],
+      },
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'assistant-final-msg',
+          role: 'assistant',
+          content: '我会先加载 使用超能力 技能，确认本轮技能选择规则。Hi，我在。需要我帮你看代码、排查问题，还是继续当前仓库里的改动？',
+          createdAt: '2026-06-01T14:26:00Z',
+        },
+      ],
+    });
+
+    await useClientStore.getState().syncThreadState('thread-1');
+
+    const texts = useClientStore.getState().timelinesByThread['thread-1'].map((message) => message.text);
+    expect(texts).toEqual([
+      '我会先加载 使用超能力 技能，确认本轮技能选择规则。Hi，我在。需要我帮你看代码、排查问题，还是继续当前仓库里的改动？'
+    ]);
+  });
+
+  it('deduplicates and merges in-progress assistant messages with completed backend messages', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {
+        'thread-1': [
+          { id: 'assistant-stream', role: 'assistant', text: '你好！我是 Super Dolphin。', done: false },
+        ],
+      },
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'assistant-final-msg',
+          role: 'assistant',
+          content: '你好！我是 Super Dolphin。',
+          createdAt: '2026-06-01T14:26:00Z',
+        },
+      ],
+    });
+
+    await useClientStore.getState().syncThreadState('thread-1');
+
+    const timeline = useClientStore.getState().timelinesByThread['thread-1'];
+    expect(timeline.length).toBe(1);
+    expect(timeline[0].text).toBe('你好！我是 Super Dolphin。');
+    expect(timeline[0].done).toBe(true);
+  });
+
+  it('does not override activeThreadId back to the previous thread when an in-flight sync resolves after clicking newThread', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+    });
+
+    let resolveSync;
+    const syncPromise = new Promise((resolve) => {
+      resolveSync = resolve;
+    });
+
+    backend.getThreadState.mockImplementationOnce(() => syncPromise);
+    backend.getThreadMessages.mockResolvedValueOnce({ messages: [] });
+
+    // Start syncThreadState (simulates in-flight sync)
+    const syncCall = useClientStore.getState().syncThreadState('thread-1');
+
+    // User clicks newThread in the meantime
+    useClientStore.getState().newThread();
+    expect(useClientStore.getState().activeThreadId).toBe('');
+
+    // Resolve the in-flight sync
+    resolveSync({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+      timelinesByThread: {
+        'thread-1': [],
+      },
+    });
+
+    await syncCall;
+
+    // Verify that activeThreadId remains empty and was not overridden back to thread-1
+    expect(useClientStore.getState().activeThreadId).toBe('');
+  });
+
+  it('supports creating consecutive new threads, sending messages, and switching between them', async () => {
+    // 1. Initialize empty store
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'hi 1',
+      attachments: [],
+      threads: [],
+    });
+
+    // Mock first send
+    backend.startThread.mockResolvedValueOnce({ threadId: 'thread-1' });
+    backend.startTurn.mockResolvedValueOnce({ ok: true });
+
+    // Send first draft
+    await useClientStore.getState().sendDraft();
+    expect(useClientStore.getState().activeThreadId).toBe('thread-1');
+
+    // 2. Click New Chat again
+    useClientStore.getState().newThread();
+    expect(useClientStore.getState().activeThreadId).toBe('');
+    useClientStore.setState({ draft: 'hi 2' }); // type "hi 2"
+
+    // Mock second send
+    backend.startThread.mockResolvedValueOnce({ threadId: 'thread-2' });
+    backend.startTurn.mockResolvedValueOnce({ ok: true });
+
+    // Send second draft
+    await useClientStore.getState().sendDraft();
+    expect(useClientStore.getState().activeThreadId).toBe('thread-2');
+
+    // 3. Switch back to thread-1
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [
+        { id: 'thread-1', name: 'hi 1', provider: 'codex', status: 'idle' },
+        { id: 'thread-2', name: 'hi 2', provider: 'codex', status: 'idle' },
+      ],
+      timelinesByThread: {
+        'thread-1': [],
+      },
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({
+      messages: [
+        { id: 'msg-1', role: 'user', content: 'hi 1', createdAt: '2026-06-01T12:00:00Z' },
+        { id: 'msg-2', role: 'assistant', content: 'reply 1', createdAt: '2026-06-01T12:01:00Z' },
+      ],
+    });
+
+    await useClientStore.getState().setActiveThread('thread-1');
+
+    expect(useClientStore.getState().activeThreadId).toBe('thread-1');
+    const texts = useClientStore.getState().timelinesByThread['thread-1'].map((message) => message.text);
+    expect(texts).toEqual(['hi 1', 'reply 1']);
+  });
+
+  it('supports concurrent thread creation and preserves streaming response when switching back and loading empty backend messages', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'hi 1',
+      attachments: [],
+      threads: [],
+    });
+
+    // We will control startThread resolutions manually using deferred promises
+    let resolveStartThread1;
+    const startThreadPromise1 = new Promise((resolve) => {
+      resolveStartThread1 = resolve;
+    });
+    backend.startThread.mockReturnValueOnce(startThreadPromise1);
+    backend.startTurn.mockResolvedValueOnce({ ok: true });
+
+    // Send first draft (async, does not await finish yet)
+    const sendPromise1 = useClientStore.getState().sendDraft();
+    const provisionalId1 = useClientStore.getState().activeThreadId;
+    expect(provisionalId1).toMatch(/^launch_/);
+
+    // Simulate assistant streaming replies on provisionalId1
+    useClientStore.setState((state) => ({
+      timelinesByThread: {
+        ...state.timelinesByThread,
+        [provisionalId1]: [
+          { id: 'user-msg', role: 'user', text: 'hi 1' },
+          { id: 'assistant-msg', role: 'assistant', text: 'streaming reply...', optimistic: false, done: false },
+        ]
+      }
+    }));
+
+    // User clicks New Chat while sendDraft1 is in-flight
+    useClientStore.getState().newThread();
+    expect(useClientStore.getState().activeThreadId).toBe('');
+    useClientStore.setState({ draft: 'hi 2' });
+
+    // Mock second send
+    backend.startThread.mockResolvedValueOnce({ threadId: 'thread-2' });
+    backend.startTurn.mockResolvedValueOnce({ ok: true });
+
+    // Send second draft
+    await useClientStore.getState().sendDraft();
+    expect(useClientStore.getState().activeThreadId).toBe('thread-2');
+
+    // Now, resolve the first thread creation
+    resolveStartThread1({ threadId: 'thread-1' });
+    await sendPromise1;
+
+    // Verify activeThreadId is NOT hijacked (it must remain thread-2)
+    expect(useClientStore.getState().activeThreadId).toBe('thread-2');
+
+    // Check that timeline of provisionalId1 was promoted to thread-1
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toBeDefined();
+    expect(useClientStore.getState().timelinesByThread['thread-1'].map(m => m.text)).toEqual(['hi 1', 'streaming reply...']);
+
+    // Now switch back to thread-1
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [
+        { id: 'thread-1', name: 'hi 1', provider: 'codex', status: 'idle' },
+        { id: 'thread-2', name: 'hi 2', provider: 'codex', status: 'idle' },
+      ],
+      timelinesByThread: {
+        'thread-1': [],
+      },
+    });
+
+    // Mock backend returning empty message list for the new thread (common case)
+    backend.getThreadMessages.mockResolvedValueOnce({
+      messages: [],
+    });
+
+    await useClientStore.getState().setActiveThread('thread-1');
+
+    expect(useClientStore.getState().activeThreadId).toBe('thread-1');
+
+    // Confirm that the streaming assistant message is preserved and not cleared
+    const finalTexts = useClientStore.getState().timelinesByThread['thread-1'].map((message) => message.text);
+    expect(finalTexts).toEqual(['hi 1', 'streaming reply...']);
   });
 
   it('filters injected AGENTS instructions from restored thread history', async () => {
@@ -2560,6 +2812,42 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('keeps a newer active archived thread when an older sync response returns late', async () => {
+    let resolveSnapshot;
+    backend.getThreadState.mockReturnValue(new Promise((resolve) => {
+      resolveSnapshot = resolve;
+    }));
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-old',
+      threads: [
+        { id: 'thread-old', name: 'Old', provider: 'codex', status: 'running' },
+        { id: 'thread-new-archived', name: 'New Archived', provider: 'codex', status: 'archived' },
+      ],
+      timelinesByThread: {
+        'thread-new-archived': [{ id: 'user-new', role: 'user', text: 'new message', time: '2026-05-30T00:00:00Z' }],
+      },
+    });
+
+    const sync = useClientStore.getState().syncThreadState('thread-old');
+    await vi.waitFor(() => expect(backend.getThreadState).toHaveBeenCalled());
+    useClientStore.setState({ activeThreadId: 'thread-new-archived' });
+    resolveSnapshot({
+      activeThreadId: 'thread-old',
+      threads: [{ id: 'thread-old', name: 'Old', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {
+        'thread-old': [{ id: 'old-assistant', kind: 'assistant', text: 'old reply' }],
+      },
+    });
+
+    await sync;
+
+    const state = useClientStore.getState();
+    expect(state.activeThreadId).toBe('thread-new-archived');
+  });
+
   it('applies thread snapshot before a concurrent message history load finishes', async () => {
     const snapshot = deferred();
     const messages = deferred();
@@ -3712,6 +4000,31 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('allows matching activeThreadId even when the payload threadId has agent runtime id format', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'agent_1780669491412230000',
+      threads: [],
+      timelinesByThread: {},
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'agent_1780669491412230000',
+        diffText: 'some diff text',
+      },
+    });
+
+    const state = useClientStore.getState();
+    expect(state.diffTextByThread['agent_1780669491412230000']).toBe('some diff text');
+    expect(state.warningEntries).not.toEqual([
+      expect.objectContaining({ event: 'thread.patch.unknown_thread' }),
+    ]);
+  });
+
   it('records tool result timeline items for the runtime log while preserving warnings', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -4172,7 +4485,7 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'idle', archived: false }],
     });
 
-    await expect(useClientStore.getState().archiveThread('thread-1', true)).resolves.toBe(false);
+    await expect(useClientStore.getState().archiveThread('thread-1', true)).resolves.toBe(true);
 
     expect(backend.archiveThread).toHaveBeenCalledWith({ threadId: 'thread-1' });
     expect(backend.setPreference).toHaveBeenCalledWith({
@@ -4265,3 +4578,232 @@ function registerBridgeEventHandlersForTest() {
       tone: 'success',
     }));
   });
+
+  it('preserves the reference of equivalent timeline items during bridge patch merges', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {
+        'thread-1': [{
+          id: 'msg-1',
+          role: 'assistant',
+          kind: 'assistant',
+          text: 'hello world',
+          done: true,
+          time: '2026-06-05T00:00:00Z',
+        }],
+      },
+    });
+    registerBridgeEventHandlersForTest();
+
+    const existingMessage = useClientStore.getState().timelinesByThread['thread-1'][0];
+    // 模拟推送一个具有相同 ID 并且内容完全一致的 replacement timelineItem，但引用不同
+    const patchItem = { ...existingMessage };
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        timelineItems: [patchItem],
+      },
+    });
+
+    const timeline = useClientStore.getState().timelinesByThread['thread-1'];
+    expect(timeline).toHaveLength(1);
+    // 判定其引用必须保持为原来的 existingMessage，而不是被 patchItem 替换
+    expect(timeline[0]).toBe(existingMessage);
+
+    // 另外测试如果内容不一致（比如 done 变为了 false），则必须被 replacement 覆盖，且引用改变
+    const changedPatchItem = { ...existingMessage, done: false };
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        timelineItems: [changedPatchItem],
+      },
+    });
+    const updatedTimeline = useClientStore.getState().timelinesByThread['thread-1'];
+    expect(updatedTimeline[0]).not.toBe(existingMessage);
+    expect(updatedTimeline[0].done).toBe(false);
+  });
+
+  it('returns true when archiveThread succeeds but setPreference fails', async () => {
+    backend.setPreference.mockRejectedValueOnce(new Error('preference write error'));
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'idle', archived: false }],
+    });
+
+    const result = await useClientStore.getState().archiveThread('thread-1', true);
+    expect(result).toBe(true); // 必须是 true，即便 preference 报错
+    expect(useClientStore.getState().threads[0].archived).toBe(true);
+  });
+
+  it('preserves the optimistic archive state when a snapshot or patch is applied while loading or recently mutated', async () => {
+    backend.getThreadState
+      .mockResolvedValueOnce({
+        threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'idle', archived: false }],
+      })
+      .mockResolvedValueOnce({
+        threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'idle', archived: false }],
+      });
+    backend.getThreadMessages
+      .mockResolvedValueOnce({ messages: [] })
+      .mockResolvedValueOnce({ messages: [] });
+
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'idle', archived: false }],
+    });
+    registerBridgeEventHandlersForTest();
+
+    // Start archiving (simulates in-flight archive)
+    const archivePromise = useClientStore.getState().archiveThread('thread-1', true);
+    expect(useClientStore.getState().threads[0].archived).toBe(true);
+    expect(useClientStore.getState().threadArchiveLoadingByThread['thread-1']).toBe(true);
+
+    // 1. Simulate a bridge patch containing stale state
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        patchedThread: {
+          id: 'thread-1',
+          archived: false,
+        },
+      },
+    });
+    expect(useClientStore.getState().threads[0].archived).toBe(true);
+
+    // 2. Simulate a syncThreadState database reload containing stale state
+    await useClientStore.getState().syncThreadState('thread-1');
+    expect(useClientStore.getState().threads[0].archived).toBe(true);
+
+    // Resolve the archive RPC
+    await archivePromise;
+    expect(useClientStore.getState().threads[0].archived).toBe(true);
+    expect(useClientStore.getState().threadArchiveLoadingByThread['thread-1']).toBe(false);
+
+    // 3. Simulate another syncThreadState database reload containing stale state within the 8s window
+    await useClientStore.getState().syncThreadState('thread-1');
+    expect(useClientStore.getState().threads[0].archived).toBe(true);
+  });
+
+  it('matches optimistic archive overrides by both agent runtime ID and database UUID', async () => {
+    backend.getThreadState.mockResolvedValueOnce({
+      threads: [{ id: '019e98df-2cd9-76b0-ad5b-9f1f252fa764', agent_id: 'agent_123', name: 'Draft', provider: 'codex', status: 'idle', archived: false }],
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({ messages: [] });
+
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'agent_123',
+      threads: [{ id: 'agent_123', agentId: 'agent_123', name: 'Draft', provider: 'codex', status: 'idle', archived: false }],
+    });
+
+    // Start archiving. Because store.threads has id = 'agent_123', the id in archiveThread resolves to 'agent_123'
+    const archivePromise = useClientStore.getState().archiveThread('agent_123', true);
+    expect(useClientStore.getState().threads[0].archived).toBe(true);
+    expect(useClientStore.getState().threadArchiveLoadingByThread['agent_123']).toBe(true);
+
+    // Now, run syncThreadState. The server responds with database UUID '019e98df-2cd9-76b0-ad5b-9f1f252fa764'
+    // B's override (saved under agent_123) should be matched via identity.agentId and preserve its archived status!
+    await useClientStore.getState().syncThreadState('agent_123');
+    expect(useClientStore.getState().threads[0].archived).toBe(true);
+
+    await archivePromise;
+  });
+
+  it('preserves other threads optimistic archive states when a concurrent archive action fails and rolls back', async () => {
+    // A fails, B succeeds.
+    backend.archiveThread
+      .mockRejectedValueOnce(new Error('Archiving A failed')) // A fails
+      .mockResolvedValueOnce({ ok: true }); // B succeeds
+
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-A',
+      threads: [
+        { id: 'thread-A', name: 'Thread A', provider: 'codex', status: 'idle', archived: false },
+        { id: 'thread-B', name: 'Thread B', provider: 'codex', status: 'idle', archived: false },
+      ],
+    });
+
+    const promiseA = useClientStore.getState().archiveThread('thread-A', true);
+    const promiseB = useClientStore.getState().archiveThread('thread-B', true);
+
+    expect(useClientStore.getState().threads.find(t => t.id === 'thread-A').archived).toBe(true);
+    expect(useClientStore.getState().threads.find(t => t.id === 'thread-B').archived).toBe(true);
+
+    // Resolve A (which fails)
+    await promiseA;
+
+    // A should be rolled back to active (archived = false)
+    expect(useClientStore.getState().threads.find(t => t.id === 'thread-A').archived).toBe(false);
+    // B's optimistic archive state should NOT be affected (remains true)!
+    expect(useClientStore.getState().threads.find(t => t.id === 'thread-B').archived).toBe(true);
+
+    // Resolve B (succeeds)
+    await promiseB;
+    expect(useClientStore.getState().threads.find(t => t.id === 'thread-B').archived).toBe(true);
+  });
+
+  it('resolves archivedAt and pinnedAt states using both agent runtime ID and database UUID from configuration maps', async () => {
+    backend.getThreadState.mockReset();
+    backend.getThreadMessages.mockReset();
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+
+    // Case A: Map has agent_123, Thread has DB UUID
+    backend.getThreadState.mockResolvedValueOnce({
+      threads: [{ id: '019e98df-2cd9-76b0-ad5b-9f1f252fa764', agent_id: 'agent_123', name: 'Draft', provider: 'codex', status: 'idle' }],
+      archivedThreadAtById: { 'agent_123': 1500000000000 },
+      pinnedThreadAtById: { 'agent_123': 1600000000000 },
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({ messages: [] });
+
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'agent_123',
+      threads: [{ id: 'agent_123', agentId: 'agent_123', name: 'Draft', provider: 'codex', status: 'idle', archived: false }],
+    });
+
+    await useClientStore.getState().syncThreadState('agent_123');
+    let syncedThread = useClientStore.getState().threads[0];
+    expect(syncedThread.archived).toBe(true);
+    expect(syncedThread.archivedAt).toBe(1500000000000);
+    expect(syncedThread.pinned).toBe(true);
+    expect(syncedThread.pinnedAt).toBe(1600000000000);
+
+    // Case B: Map has DB UUID, Thread has agent_123
+    backend.getThreadState.mockResolvedValueOnce({
+      threads: [{ id: 'agent_123', agent_id: 'agent_123', name: 'Draft', provider: 'codex', status: 'idle' }],
+      archivedThreadAtById: { '019e98df-2cd9-76b0-ad5b-9f1f252fa764': 1500000000000 },
+      pinnedThreadAtById: { '019e98df-2cd9-76b0-ad5b-9f1f252fa764': 1600000000000 },
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({ messages: [] });
+
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '019e98df-2cd9-76b0-ad5b-9f1f252fa764',
+      threads: [{ id: '019e98df-2cd9-76b0-ad5b-9f1f252fa764', agentId: 'agent_123', name: 'Draft', provider: 'codex', status: 'idle', archived: false }],
+    });
+
+    await useClientStore.getState().syncThreadState('019e98df-2cd9-76b0-ad5b-9f1f252fa764');
+    syncedThread = useClientStore.getState().threads[0];
+    expect(syncedThread.archived).toBe(true);
+    expect(syncedThread.archivedAt).toBe(1500000000000);
+    expect(syncedThread.pinned).toBe(true);
+    expect(syncedThread.pinnedAt).toBe(1600000000000);
+  });
+
+
+

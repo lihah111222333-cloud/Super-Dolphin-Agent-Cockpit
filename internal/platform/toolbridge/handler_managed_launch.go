@@ -11,9 +11,17 @@ import (
 // calls, including preference resolution and compatibility checks.
 
 func (h *Handler) injectManagedLaunchContext(ctx context.Context, req ToolCallRequest) ToolCallRequest {
-	if !isManagedLaunchToolName(req.Name) {
+	switch {
+	case isManagedLaunchToolName(req.Name):
+		return h.injectManagedLaunchToolContext(ctx, req)
+	case isManagedDAGLaunchToolName(req.Name):
+		return h.injectManagedDAGLaunchContext(ctx, req)
+	default:
 		return req
 	}
+}
+
+func (h *Handler) injectManagedLaunchToolContext(ctx context.Context, req ToolCallRequest) ToolCallRequest {
 	binding, ok := h.resolveCurrentToolCallBinding(ctx, req)
 	if !ok || strings.TrimSpace(binding.AgentID) == "" {
 		return req

@@ -193,6 +193,29 @@ func TestDiagnosticsResponseUsesTopLevelMetaFields(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsRendersTypeScriptDeprecatedSuggestionsAsHint(t *testing.T) {
+	tables := buildDiagnosticsTables([]protocol.PublishDiagnosticsParams{{
+		URI: "file:///workspace/form.tsx",
+		Diagnostics: []protocol.Diagnostic{{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 9, Character: 17},
+				End:   protocol.Position{Line: 9, Character: 26},
+			},
+			Severity: protocol.SeverityWarning,
+			Source:   "typescript",
+			Code:     float64(6385),
+			Message:  "'FormEvent' is deprecated.",
+		}},
+	}}, nil)
+
+	if len(tables) != 1 || len(tables[0].Rows) != 1 {
+		t.Fatalf("diagnostics tables = %#v, want one row", tables)
+	}
+	if got := tables[0].Rows[0][2]; got != "hint" {
+		t.Fatalf("deprecated TypeScript diagnostic severity = %#v, want hint", got)
+	}
+}
+
 func TestDiagnosticsWithoutMetaCWDRejectsExternalAbsolutePath(t *testing.T) {
 	mainRoot := t.TempDir()
 	externalRoot := t.TempDir()
