@@ -4873,17 +4873,18 @@ function ReasoningTrace({ message, active = false }) {
   );
 }
 
-function syntheticReasoningMessage({ activeTurn, sending }) {
-  if (!activeTurn && !sending) return null;
+function syntheticReasoningMessage({ activeTurn, sending, isBusy, fallbackStartTime }) {
+  if (!activeTurn && !sending && !isBusy) return null;
   const turnId = activeTurn?.id;
   const id = turnId ? `thinking:${turnId}` : 'thinking-sending';
+  const defaultStartTime = fallbackStartTime || new Date().toISOString();
   return {
     id,
     role: 'assistant',
     kind: 'thinking',
     title: '正在处理请求',
     text: '',
-    time: activeTurn?.startedAt || new Date().toISOString(),
+    time: activeTurn?.startedAt || defaultStartTime,
     done: false,
   };
 }
@@ -5288,10 +5289,36 @@ function Conversation(props) {
     canUseProjectActions = true,
     sendMessage,
   } = props;
+  const [justSent, setJustSent] = useState(false);
+  useEffect(() => {
+    if (sending) {
+      setJustSent(true);
+    } else if (justSent) {
+      if (activeTurn) {
+        setJustSent(false);
+      } else {
+        const timer = setTimeout(() => {
+          setJustSent(false);
+        }, 5000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [sending, activeTurn, justSent]);
+
+  const threadStatus = workStatusForThread({
+    sending,
+    loading: timelineContentBlocked,
+    activeThreadId,
+    activeThread,
+    statusEntry,
+  });
+  const isBusy = threadStatus.busy;
   const introMode = !activeThreadId && !timelineBlocked && messages.length === 0;
   const hasProcessingAfterLastUser = hasReasoningMessageAfterLastUser(messages);
+  const lastUserMessage = [...messages].reverse().find((msg) => (msg.role || '').toLowerCase() === 'user');
+  const fallbackStartTime = lastUserMessage?.time;
   const pendingReasoning = !introMode && !timelineBlocked && !hasProcessingAfterLastUser && !hasAssistantReplyAfterLastUser(messages)
-    ? syntheticReasoningMessage({ activeTurn, sending })
+    ? syntheticReasoningMessage({ activeTurn, sending: sending || justSent, isBusy, fallbackStartTime })
     : null;
   const composerController = useComposerInteractions({
     attachments,
