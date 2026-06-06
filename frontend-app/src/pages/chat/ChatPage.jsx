@@ -5619,8 +5619,7 @@ function ConversationTimeline({
           <TimelineOlderMessagesMarker hiddenCount={hiddenOlderCount} loading={olderPageLoading} onReveal={requestOlderMessages} />
         ) : null}
         {!introMode && !timelineContentBlocked ? timelineMessages.map((message) => {
-          const isPendingOrActiveReasoning = isReasoningMessage(message) && message.done === false;
-          const key = isPendingOrActiveReasoning ? 'active-reasoning' : message.id;
+          const key = message.callId ? `tool-${message.callId}` : message.id;
           return (
             <TimelineMessage key={key} message={message} actions={messageActions} activeThreadId={activeThreadId} smoothStreaming={smoothStreaming} onScrollIfSticky={onScrollIfSticky} />
           );
