@@ -128,6 +128,9 @@ func (p *updateNodeParams) UnmarshalJSON(data []byte) error {
 }
 
 func (s *service) CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error) {
+	if err := nodeexec.ValidateCreateDAGNodes(req.Nodes); err != nil {
+		return DAGDetail{}, fmt.Errorf("orchestration: create_dag invalid request: nodes topology invalid: %w", err)
+	}
 	var detail DAGDetail
 	err := s.withDAGStore(func(store taskdag.OrchestrationStore) error {
 		return store.WithTx(ctx, func(txStore taskdag.DAGMutationStore) error {
@@ -201,6 +204,13 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 				return s.completeNodeWithDownstream(ctx, flow, input, oldStatus, &result)
 			}
 		}
+		if input.Status == "failed" {
+			flow, ok := store.(taskdag.NodeFlowStore)
+			if !ok {
+				return fmt.Errorf("orchestration: task_update_node failed requires NodeFlowStore for dag_key=%s node_key=%s run_id=%d", input.DagKey, input.NodeKey, input.RunID)
+			}
+			return s.failNodeWithDownstream(ctx, flow, input, oldStatus, &result)
+		}
 		node, updateErr := store.UpdateNodeStatus(ctx, input)
 		if updateErr != nil {
 			return updateErr
@@ -259,6 +269,22 @@ func (s *service) completeNodeWithDownstream(ctx context.Context, flow taskdag.N
 			"dag_key", input.DagKey,
 			"completed_node", input.NodeKey,
 			"count", len(res.ScheduledDownstream))
+	}
+	return nil
+}
+
+func (s *service) failNodeWithDownstream(ctx context.Context, flow taskdag.NodeFlowStore, input taskdag.NodeStatusUpdate, oldStatus string, result *DAGNode) error {
+	reason := string(input.Result)
+	if reason == "" {
+		reason = "task_update_node status=failed"
+	}
+	res, err := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{DagKey: input.DagKey, NodeKey: input.NodeKey, RunID: input.RunID, Reason: reason, FailFast: true})
+	if err != nil {
+		return err
+	}
+	nodeevents.PublishFail(s.eventBus, oldStatus, res)
+	if res.Node != nil {
+		*result = dagNodeDTO(*res.Node)
 	}
 	return nil
 }
@@ -488,28 +514,16 @@ var ErrDAGNotFound = errors.New("orchestration: dag_key not found")
 //
 // 处理建议（与 ErrIdempotencyKeyExhausted 对照，"前者等/取消，后者换 idem"）：
 // 调用方应轮询当前 run 直至完成 / 主动 Terminate 后用同 idem 重试，不需要换 idem。
-//
-// Handling guidance (contrast with ErrIdempotencyKeyExhausted, "wait/cancel here
-// vs new idem there"): caller should poll the active run until completion or
-// Terminate it, then retry with the same idem; no new idem required.
 var ErrDAGAlreadyRunning = errors.New("orchestration: dag has an active run (legacy single-run constraint)")
 
 // ErrIdempotencyKeyExhausted 当 StartDAG 用同 idempotency key 调用，
 // 但对应的 run 已是终态 (failed/cancelled) 时返回。
 // 调用方应换新 idempotency key 重试。
-//
-// ErrIdempotencyKeyExhausted is returned when StartDAG is called with the
-// same idempotency key whose previous run is already in a terminal state
-// (failed/cancelled). The caller must use a new idempotency key to retry.
 var ErrIdempotencyKeyExhausted = errors.New("idempotency key exhausted: previous run is in terminal state, use a new key to retry")
 
 // IdempotencyKeyExhaustedError 是 ErrIdempotencyKeyExhausted 的富错误包装：
 // 携带旧 RunKey + 终态 Status，方便 MCP / 调用方做决策（也可 errors.Is
 // 命中 ErrIdempotencyKeyExhausted sentinel）。
-//
-// IdempotencyKeyExhaustedError wraps ErrIdempotencyKeyExhausted with the
-// previous RunKey and terminal Status so MCP callers can surface them. It
-// still satisfies errors.Is(err, ErrIdempotencyKeyExhausted).
 type IdempotencyKeyExhaustedError struct {
 	RunKey string
 	Status string
@@ -523,11 +537,6 @@ func (e *IdempotencyKeyExhaustedError) Unwrap() error { return ErrIdempotencyKey
 
 // ErrRunStoreUnset 表示 service 未注入 RunStore（测试裸构造路径）不能调
 // StartDAG。生产路径 ProvideService 会 setter 注入 RunStore。
-//
-// ErrRunStoreUnset is returned when the service has no RunStore wired
-// (bare-construction test path) and a method that requires it (StartDAG /
-// GetRun / ListRuns) is invoked. Production wiring via ProvideService
-// always injects a RunStore.
 var ErrRunStoreUnset = errors.New("orchestration: run store not configured")
 
 // StartDAGRequest / StartDAGResponse 现为 contract 包类型别名，让 service
@@ -561,7 +570,6 @@ func (s *service) DeleteDAG(ctx context.Context, req contract.DeleteDAGRequest) 
 	})
 }
 
-// ApplyOps stays in dag.go because this package is already at the codeguard
 // file-count budget; typed op helpers live in dag_query.go.
 
 // ErrApplyOpsInvalid 是 ApplyOps 顶层校验失败的 sentinel（InvalidArgument
@@ -626,10 +634,7 @@ func (s *service) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (c
 
 // applyTypedOps 是 4 个 op_kind 业务实现的容器（F4.1-F4.4）。F4.1 接 add_node、
 // F4.2 接 update_node，F4.3 接 remove_node，F4.4 接 update_dag。空 ops 返 noop。
-//
-// applyTypedOps dispatches typed ops. F4.1 wires add_node, F4.2 wires
-// update_node, F4.3 wires remove_node, and F4.4 wires update_dag. Empty ops is
-// a valid noop.
+
 func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion int64, ops nodeexec.Ops) (contract.ApplyOpsResponse, error) {
 	if s == nil || s.dagStore == nil {
 		return contract.ApplyOpsResponse{}, ErrApplyOpsStoreNotConfigured

@@ -9,6 +9,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeevents"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/sharedfileowner"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/turncompletionretry"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
@@ -140,7 +142,7 @@ func advanceNodeForTurnCompleted(
 		dagSubscriberMetrics.IncCompleteResultEmpty()
 	}
 	if ev.Success {
-		advanceNodeDoneForSuccess(ctx, deps, logger, node, result)
+		advanceNodeDoneForSuccess(ctx, deps, logger, node, result, ev)
 		return
 	}
 	advanceNodeFailed(ctx, deps.FlowStore, deps.EventBus, deps.NodeRouter, logger, node, ev)
@@ -152,13 +154,20 @@ func advanceNodeDoneForSuccess(
 	logger *slog.Logger,
 	node *taskdag.Node,
 	rawResult string,
+	ev turndto.TurnCompleted,
 ) {
 	materialized, failure := prepareTurnCompletedResult(node.Config, node.NodeType, rawResult)
 	if failure != nil {
 		handleMaterializationFailure(ctx, deps, logger, node, failure)
 		return
 	}
-	result, ok := materializeSharedfileAfterClaim(ctx, deps, logger, node, materialized)
+	result, ok := materializeSharedfileAfterClaim(ctx, deps, logger, node, materialized, sharedfileowner.Owner{
+		DagKey:   strings.TrimSpace(node.DagKey),
+		NodeKey:  strings.TrimSpace(node.NodeKey),
+		RunID:    taskNodeRunID(node),
+		ThreadID: strings.TrimSpace(ev.ThreadID),
+		TurnID:   strings.TrimSpace(ev.TurnID),
+	})
 	if !ok {
 		return
 	}
@@ -196,6 +205,10 @@ func advanceNodeDone(
 		logger.Debug("dag subscriber: complete fence rejected, node already terminal", "dag_key", node.DagKey, "node_key", node.NodeKey)
 	default:
 		logger.Warn("dag subscriber: complete node failed", "dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
+		if retryErr := turncompletionretry.Enqueue(ctx, flow, node, result); retryErr != nil {
+			reason := truncateWakeupError("infrastructure: turn.completed completion retry enqueue failed: " + retryErr.Error() + "; original completion error: " + err.Error())
+			advanceNodeFailedWithReason(ctx, flow, eventBus, logger, node, reason, true)
+		}
 	}
 	return false
 }
@@ -259,35 +272,32 @@ func materializeSharedfileAfterClaim(
 	logger *slog.Logger,
 	node *taskdag.Node,
 	materialized turnOutputMaterialization,
+	owner sharedfileowner.Owner,
 ) (json.RawMessage, bool) {
 	result := materialized.Result
 	if materialized.SharedfilePath == "" {
 		return result, true
 	}
-	exists, failure := configuredSharedfileAlreadyExists(ctx, deps.SharedFileReader, materialized.SharedfilePath)
-	if failure != nil {
-		handleMaterializationFailure(ctx, deps, logger, node, failure)
-		return nil, false
-	}
-	if exists {
+	if strings.TrimSpace(materialized.RawResult) == "" {
+		current, err := sharedfileowner.HasCurrent(ctx, deps.SharedFileReader, materialized.SharedfilePath, owner)
+		if err != nil {
+			handleMaterializationFailure(ctx, deps, logger, node, sharedfileOwnerFailure("outputs.to_sharedfile["+materialized.SharedfilePath+"]: "+err.Error(), err))
+			return nil, false
+		}
+		if !current {
+			handleMaterializationFailure(ctx, deps, logger, node, validationMaterializationFailure("empty agent output and configured sharedfile lacks current-run ownership marker"))
+			return nil, false
+		}
 		if !claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, logger, node, result) {
 			return nil, false
 		}
-		logger.Debug("dag subscriber: configured sharedfile already exists, preserve existing content", "dag_key", node.DagKey, "node_key", node.NodeKey, "path", materialized.SharedfilePath)
+		logger.Debug("dag subscriber: configured sharedfile has current-run marker, preserve existing content", "dag_key", node.DagKey, "node_key", node.NodeKey, "path", materialized.SharedfilePath)
 		return result, true
-	}
-	if strings.TrimSpace(materialized.RawResult) == "" {
-		handleMaterializationFailure(ctx, deps, logger, node, validationMaterializationFailure("empty agent output and configured sharedfile is missing"))
-		return nil, false
-	}
-	if failure := validateAgentSharedfileWriter(deps.SharedFileWriter); failure != nil {
-		handleMaterializationFailure(ctx, deps, logger, node, failure)
-		return nil, false
 	}
 	if !claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, logger, node, result) {
 		return nil, false
 	}
-	if failure := writeAgentTurnSharedfile(ctx, deps.SharedFileWriter, materialized.SharedfilePath, materialized.RawResult); failure != nil {
+	if failure := writeAgentTurnSharedfile(ctx, deps.SharedFileWriter, materialized.SharedfilePath, materialized.RawResult, owner); failure != nil {
 		handleMaterializationFailure(ctx, deps, logger, node, failure)
 		return nil, false
 	}

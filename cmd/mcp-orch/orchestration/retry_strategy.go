@@ -45,41 +45,40 @@ func nonRetryableValidationFailure(outcome nodeexec.NodeOutcome) bool {
 	return outcome.FailureClass == nodeexec.FailureClassValidation && !strings.HasPrefix(outcome.ErrorSummary, "launch agent:")
 }
 
-func (d *WakeupDispatcher) failDAGNodeAndCancelDownstream(ctx context.Context, w *taskdag.Wakeup, lastErr string, failFast bool, outcome nodeexec.NodeOutcome) {
-	if w == nil || strings.TrimSpace(w.DagKey) == "" || strings.TrimSpace(w.NodeKey) == "" {
-		return
-	}
+func (d *WakeupDispatcher) markPermanentDAGFailure(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, lastErr string, launchErr error, failFast bool, outcome nodeexec.NodeOutcome) bool {
 	runID := routeRunID(w)
 	if runID <= 0 {
-		d.logger.Warn("wakeup dispatcher: skip DAG node failure without run_id",
-			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey)
-		return
+		d.logger.Warn("wakeup dispatcher: skip DAG node failure without run_id", "wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey)
+		return false
 	}
-	flow, ok := d.store.(taskdag.NodeFlowStore)
+	atomicStore, ok := d.store.(taskdag.WakeupNodeFailureStore)
 	if !ok {
-		d.logger.Warn("wakeup dispatcher: store missing NodeFlowStore, skip cascade",
-			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey)
-		return
+		d.logger.Warn("wakeup dispatcher: store missing atomic DAG wakeup failure path", "wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey)
+		return false
 	}
-	res, err := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
-		DagKey:   w.DagKey,
-		NodeKey:  w.NodeKey,
-		RunID:    runID,
-		Reason:   lastErr,
-		FailFast: failFast,
-	})
+	rows, res, err := atomicStore.FailWakeupAndFailNodeAndCancelDownstream(ctx, taskdag.FailWakeupInput{
+		ID:             w.ID,
+		LastError:      lastErr,
+		ClaimedAt:      fence.claimedAt,
+		ClaimedBy:      w.ClaimedBy,
+		LeaseExpiresAt: fence.leaseAt,
+	}, taskdag.FailNodeInput{DagKey: w.DagKey, NodeKey: w.NodeKey, RunID: runID, Reason: lastErr, FailFast: failFast})
 	if err != nil {
-		d.logger.Warn("wakeup dispatcher: fail-node cascade write failed",
-			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey, "error", err)
-		return
+		d.logger.Warn("wakeup dispatcher: permanent DAG failure transaction failed", "wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey, "error", err)
+		return false
 	}
-	d.logger.Warn("wakeup dispatcher: DAG node failed",
-		"wakeup_id", w.ID,
-		"dag_key", w.DagKey,
-		"node_key", w.NodeKey,
-		"attempt_count", w.AttemptCount,
-		"fail_fast", failFast,
-		"canceled_downstream", len(res.CanceledDownstream))
+	if rows == 0 {
+		d.logger.Warn("wakeup dispatcher: fail-wakeup fence missed", "wakeup_id", w.ID, "target_agent_id", w.TargetAgentID)
+		return false
+	}
+	recordDispatchFailedMetric()
+	d.logger.Warn("wakeup dispatcher: DAG wakeup and node failed", "wakeup_id", w.ID, "target_agent_id", w.TargetAgentID, "error", launchErr)
+	d.publishDAGNodeFailure(ctx, w, lastErr, failFast, outcome, res)
+	return true
+}
+
+func (d *WakeupDispatcher) publishDAGNodeFailure(ctx context.Context, w *taskdag.Wakeup, lastErr string, failFast bool, outcome nodeexec.NodeOutcome, res *taskdag.FailNodeResult) {
+	d.logger.Warn("wakeup dispatcher: DAG node failed", "wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey, "attempt_count", w.AttemptCount, "fail_fast", failFast, "canceled_downstream", len(res.CanceledDownstream))
 	if d.nodeRouter != nil {
 		nodeevents.PublishFail(d.nodeRouter.statusEventBus(), "", res)
 		if outcome.Status == "" {
@@ -94,12 +93,17 @@ func (d *WakeupDispatcher) failDAGNodeAndCancelDownstream(ctx context.Context, w
 
 func (d *WakeupDispatcher) handleRetryHardCap(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) bool {
 	exhaustedErr := "retry attempts exhausted: " + failure.lastErr
-	handled := d.markPermanentFail(ctx, w, fence, exhaustedErr, failure.launchErr)
+	handled := false
+	if isDAGWakeup(w) {
+		failFast, resolvedErr := d.retryPolicyFailFast(ctx, w, exhaustedErr, "hard-cap failure")
+		handled = d.markPermanentDAGFailure(ctx, w, fence, resolvedErr, failure.launchErr, failFast, failure.outcome)
+	} else {
+		handled = d.markPermanentFail(ctx, w, fence, exhaustedErr, failure.launchErr)
+	}
 	if handled {
 		if alert, shouldAlert := recordDispatchRetryMetric(w, failure.lastErr); shouldAlert {
 			d.emitDispatchRetryAlert(ctx, alert)
 		}
-		d.failDAGNodeForRetryHardCap(ctx, w, exhaustedErr, failure)
 	}
 	d.logger.Warn("wakeup dispatcher: retry attempts exhausted → failed",
 		"wakeup_id", w.ID,
@@ -107,21 +111,12 @@ func (d *WakeupDispatcher) handleRetryHardCap(ctx context.Context, w *taskdag.Wa
 	return handled
 }
 
-func (d *WakeupDispatcher) failDAGNodeForRetryHardCap(ctx context.Context, w *taskdag.Wakeup, lastErr string, failure dispatchFailure) {
-	failFast, lastErr := d.retryPolicyFailFast(ctx, w, lastErr, "hard-cap failure")
-	d.failDAGNodeAndCancelDownstream(ctx, w, lastErr, failFast, failure.outcome)
-}
-
 func (d *WakeupDispatcher) handleFailedRouterOutcome(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, outcome nodeexec.NodeOutcome) bool {
 	synthErr := fmt.Errorf("%s: %s", outcome.FailureClass, outcome.ErrorSummary)
 	lastErr := truncateWakeupError(synthErr.Error())
 	failure := dispatchFailure{lastErr: lastErr, launchErr: synthErr, outcome: outcome}
 	if nonRetryableValidationFailure(outcome) {
-		if !d.markPermanentFail(ctx, w, fence, lastErr, synthErr) {
-			return false
-		}
-		d.recordPermanentRouterFailure(ctx, w, lastErr, outcome)
-		return true
+		return d.recordPermanentRouterFailure(ctx, w, fence, lastErr, synthErr, outcome)
 	}
 	if tried, ok := d.trySmartDAGRetry(ctx, w, fence, failure); tried {
 		return ok
@@ -129,21 +124,17 @@ func (d *WakeupDispatcher) handleFailedRouterOutcome(ctx context.Context, w *tas
 	if !failureOutcomePermanent(outcome) {
 		return d.markTransientRetry(ctx, w, fence, failure)
 	}
-	if !d.markPermanentFail(ctx, w, fence, lastErr, synthErr) {
-		return false
-	}
-	d.recordPermanentRouterFailure(ctx, w, lastErr, outcome)
-	return true
+	return d.recordPermanentRouterFailure(ctx, w, fence, lastErr, synthErr, outcome)
 }
 
-func (d *WakeupDispatcher) recordPermanentRouterFailure(ctx context.Context, w *taskdag.Wakeup, lastErr string, outcome nodeexec.NodeOutcome) {
+func (d *WakeupDispatcher) recordPermanentRouterFailure(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, lastErr string, launchErr error, outcome nodeexec.NodeOutcome) bool {
 	if w.AttemptCount >= 3 {
 		if alert, shouldAlert := recordDispatchRetryMetric(w, lastErr); shouldAlert {
 			d.emitDispatchRetryAlert(ctx, alert)
 		}
 	}
 	failFast, lastErr := d.retryPolicyFailFast(ctx, w, lastErr, "permanent router failure")
-	d.failDAGNodeAndCancelDownstream(ctx, w, lastErr, failFast, outcome)
+	return d.markPermanentDAGFailure(ctx, w, fence, lastErr, launchErr, failFast, outcome)
 }
 
 const replanPlannerAgentKey = "dag_designer"
@@ -482,13 +473,12 @@ func (d *WakeupDispatcher) failUnsupportedSmartRetryStrategy(
 }
 
 func (d *WakeupDispatcher) failSmartRetry(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure, reason string, failFast bool) bool {
-	if !d.markPermanentFail(ctx, w, fence, reason, failure.launchErr) {
+	if !d.markPermanentDAGFailure(ctx, w, fence, reason, failure.launchErr, failFast, failure.outcome) {
 		return false
 	}
 	if alert, shouldAlert := recordDispatchRetryMetric(w, failure.lastErr); shouldAlert {
 		d.emitDispatchRetryAlert(ctx, alert)
 	}
-	d.failDAGNodeAndCancelDownstream(ctx, w, reason, failFast, failure.outcome)
 	return true
 }
 

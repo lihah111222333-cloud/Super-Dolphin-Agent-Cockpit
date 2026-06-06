@@ -37,7 +37,11 @@ func Start(ctx context.Context, runStore taskdag.ScheduledStartStore, req orchcr
 		if _, err := tx.CloneNodesForRun(ctx, dagKey, run.ID); err != nil {
 			return fmt.Errorf("CloneNodesForRun: %w", err)
 		}
-		if _, _, err := taskdag.PromoteAndScheduleRunRoots(ctx, tx, dagKey, run.ID); err != nil {
+		readyRootNodes, scheduledWakeups, err := taskdag.PromoteAndScheduleRunRoots(ctx, tx, dagKey, run.ID)
+		if err != nil {
+			return err
+		}
+		if err := rejectBlockedScheduledStart(dagKey, readyRootNodes, scheduledWakeups); err != nil {
 			return err
 		}
 		return advanceNextRunTx(ctx, tx, dagKey, dueAt, nextRunAt)
@@ -49,6 +53,13 @@ func Start(ctx context.Context, runStore taskdag.ScheduledStartStore, req orchcr
 		return fmt.Errorf("scheduled start %q: %w", dagKey, txErr)
 	}
 	return advanceConsumedRun(ctx, runStore, dagKey, runKey, dueAt, nextRunAt, txErr)
+}
+
+func rejectBlockedScheduledStart(dagKey string, readyRootNodes, scheduledWakeups int64) error {
+	if readyRootNodes > 0 && scheduledWakeups == 0 {
+		return fmt.Errorf("scheduled start %q: ready root nodes=%d but scheduled wakeups=0; root dispatch is blocked by missing assigned_to or node.config.exec", dagKey, readyRootNodes)
+	}
+	return nil
 }
 
 func normalizeRequest(req orchcron.ScheduledDAGStartRequest) (string, time.Time, time.Time, string, error) {

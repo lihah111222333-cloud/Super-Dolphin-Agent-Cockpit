@@ -143,15 +143,11 @@ func scheduleDownstreamWakeupsTx(ctx context.Context, txStore *store, completed 
 	for i := range nodes {
 		statusByKey[nodes[i].NodeKey] = nodes[i].Status
 	}
-	upstreamRef := DownstreamUpstreamRef{
-		NodeKey: completed.NodeKey,
-		Path:    fmt.Sprintf("dag/%s/%s/output.json", completed.DagKey, completed.NodeKey),
-	}
 	scheduled := make([]ScheduledDownstreamWakeup, 0)
 	promoted := make([]PromotedDownstreamNode, 0)
 	for i := range nodes {
 		cand := &nodes[i]
-		inserted, promotedNode, err := scheduleDownstreamCandidateTx(ctx, txStore, cand, completed, statusByKey, upstreamRef)
+		inserted, promotedNode, err := scheduleDownstreamCandidateTx(ctx, txStore, cand, completed, statusByKey)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -171,7 +167,6 @@ func scheduleDownstreamCandidateTx(
 	cand *Node,
 	completed *Node,
 	statusByKey map[string]string,
-	upstreamRef DownstreamUpstreamRef,
 ) (*ScheduledDownstreamWakeup, *PromotedDownstreamNode, error) {
 	satisfied, err := dependsSatisfiedForUpstream(cand, completed.NodeKey, statusByKey)
 	if err != nil || !satisfied {
@@ -181,7 +176,7 @@ func scheduleDownstreamCandidateTx(
 	if err != nil || promoted == nil {
 		return nil, promoted, err
 	}
-	inserted, err := tryEnqueueDownstream(ctx, txStore, cand, upstreamRef)
+	inserted, err := tryEnqueueDownstream(ctx, txStore, cand)
 	return inserted, promoted, err
 }
 
@@ -229,7 +224,6 @@ func tryEnqueueDownstream(
 	ctx context.Context,
 	txStore *store,
 	cand *Node,
-	upstreamRef DownstreamUpstreamRef,
 ) (*ScheduledDownstreamWakeup, error) {
 	agentID := strings.TrimSpace(cand.AssignedTo)
 	// F6.4：assigned_to 为空 → 跳过 wakeup enqueue。否则 dispatcher 走
@@ -244,13 +238,16 @@ func tryEnqueueDownstream(
 	// failed. The caller has already promoted the node to ready, so an
 	// external/manual flow can later move it to running.
 	if agentID == "" {
-		return nil, nil
+		err := fmt.Errorf("assigned_to required for automatic downstream dispatch")
+		return nil, appendDispatchBlockedEvent(ctx, txStore, cand, runIDValue(cand.RunID), "downstream", err)
+	}
+	if err := validateAutomaticDispatchConfig(cand); err != nil {
+		return nil, appendDispatchBlockedEvent(ctx, txStore, cand, runIDValue(cand.RunID), "downstream", err)
 	}
 	candRunID := runIDValue(cand.RunID)
 	idempotencyKey := downstreamIdempotencyKey(cand.DagKey, cand.NodeKey, candRunID)
 	payload, payloadErr := json.Marshal(DownstreamWakeupPayload{
-		AgentID:         agentID,
-		UpstreamOutputs: []DownstreamUpstreamRef{upstreamRef},
+		AgentID: agentID,
 	})
 	if payloadErr != nil {
 		return nil, fmt.Errorf("marshal payload for %s/%s: %w", cand.DagKey, cand.NodeKey, payloadErr)

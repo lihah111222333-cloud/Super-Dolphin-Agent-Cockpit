@@ -152,6 +152,38 @@ func (s *service) StartDAG(ctx context.Context, dagKey, triggerSource, idempoten
 	})
 }
 
+func (s *service) DispatchDAGNode(ctx context.Context, req contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {
+	runtime := s.effectiveDAGRuntime()
+	if runtime == nil {
+		return contract.DispatchNodeResponse{}, errOrchestrationServiceNotAvailable
+	}
+	dispatcher, ok := any(runtime).(interface {
+		DispatchNode(context.Context, contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error)
+	})
+	if !ok {
+		return contract.DispatchNodeResponse{}, errOrchestrationServiceNotAvailable
+	}
+	request := contract.DispatchNodeRequest{
+		DagKey:     strings.TrimSpace(req.DagKey),
+		NodeKey:    strings.TrimSpace(req.NodeKey),
+		RunID:      req.RunID,
+		AssignedTo: strings.TrimSpace(req.AssignedTo),
+	}
+	if request.DagKey == "" {
+		return contract.DispatchNodeResponse{}, errors.New("dashboard: dag key is required")
+	}
+	if request.NodeKey == "" {
+		return contract.DispatchNodeResponse{}, errors.New("dashboard: node key is required")
+	}
+	if request.RunID <= 0 {
+		return contract.DispatchNodeResponse{}, errors.New("dashboard: runId is required")
+	}
+	if request.AssignedTo == "" {
+		return contract.DispatchNodeResponse{}, errors.New("dashboard: assignedTo is required")
+	}
+	return dispatcher.DispatchNode(ctx, request)
+}
+
 func (s *service) TerminateDAG(ctx context.Context, dagKey, runKey, reason string) error {
 	runtime := s.effectiveDAGRuntime()
 	if runtime == nil {

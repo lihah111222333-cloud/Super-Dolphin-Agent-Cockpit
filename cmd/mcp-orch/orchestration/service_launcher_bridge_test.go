@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/creachadair/jrpc2/handler"
+
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
@@ -134,6 +137,73 @@ func TestClassifyLaunchError(t *testing.T) {
 				t.Fatalf("classifyLaunchError(%v) = %q, want %q", tc.err, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestDAGAgentExecutorLocalLauncherFailsFastWithRemoteLauncherDiagnostic(t *testing.T) {
+	svc := NewService(silentLogger(), nil, NewLocalLauncher(nil, silentLogger()), nil, nil, nil)
+	agentExec := nodeexec.NewAgentExecutor(NewServiceAgentLauncher(svc), nodeexec.WithRecorder(noopNodeSpawnRecorder{}))
+
+	out, err := agentExec.Execute(context.Background(), serviceLauncherBridgeAgentNode(t), nodeexec.RunContext{
+		DagKey:  "dag-local",
+		NodeKey: "agent-node",
+		RunID:   42,
+	})
+
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v", err)
+	}
+	if out.Status != nodeexec.NodeStatusFailed || out.FailureClass != nodeexec.FailureClassHard {
+		t.Fatalf("outcome = (%q,%q), want failed hard; summary=%q", out.Status, out.FailureClass, out.ErrorSummary)
+	}
+	for _, want := range []string{
+		"DAG agent launch requires remote launcher",
+		"dag_key=dag-local",
+		"node_key=agent-node",
+		"thread_id",
+		"spawning_thread_id",
+		"fix:",
+	} {
+		if !strings.Contains(out.ErrorSummary, want) {
+			t.Fatalf("ErrorSummary = %q, want substring %q", out.ErrorSummary, want)
+		}
+	}
+	if strings.Contains(out.ErrorSummary, "command is required") {
+		t.Fatalf("ErrorSummary = %q, must not expose generic command validation", out.ErrorSummary)
+	}
+	if got := len(svc.agents); got != 0 {
+		t.Fatalf("service created %d agents before local DAG-agent fail-fast, want 0", got)
+	}
+}
+
+func TestDAGAgentExecutorRemoteLauncherKeepsCommandlessSpawnWritebackPath(t *testing.T) {
+	events := []string{}
+	recorder := &recordingServiceBridgeSpawnRecorder{events: &events}
+	var turnStart map[string]any
+	launcher := serviceBridgeRemoteLauncher(t, &events, &turnStart)
+	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	agentExec := nodeexec.NewAgentExecutor(NewServiceAgentLauncher(svc), nodeexec.WithRecorder(recorder))
+
+	out, err := agentExec.Execute(context.Background(), serviceLauncherBridgeAgentNode(t), nodeexec.RunContext{
+		DagKey:  "dag-remote",
+		NodeKey: "agent-node",
+		RunID:   84,
+	})
+
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v", err)
+	}
+	if out.Status != nodeexec.NodeStatusDone || out.ErrorSummary != "" {
+		t.Fatalf("outcome = %+v, want done without summary", out)
+	}
+	if got, want := strings.Join(events, ","), "thread/start,record,turn/start"; got != want {
+		t.Fatalf("events = %s, want %s", got, want)
+	}
+	if recorder.threadID != "thread-remote" || recorder.dagKey != "dag-remote" || recorder.nodeKey != "agent-node" || recorder.runID != 84 {
+		t.Fatalf("recorded spawn = %#v, want dag/thread writeback for remote launch", recorder)
+	}
+	if got := turnStart[LauncherParamThreadID]; got != "thread-remote" {
+		t.Fatalf("turn/start thread_id = %#v, want thread-remote", got)
 	}
 }
 
@@ -284,4 +354,57 @@ type recordingSettledStopLauncher struct {
 
 func (*recordingSettledStopLauncher) StopSettlesAgent() bool {
 	return true
+}
+
+func serviceBridgeRemoteLauncher(t *testing.T, events *[]string, turnStart *map[string]any) *remoteLauncher {
+	t.Helper()
+	return remoteLocalLauncher(t, handler.Map{
+		LauncherMethodThreadStart: handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+			*events = append(*events, "thread/start")
+			rejectServiceBridgeCommandParam(t, req)
+			return map[string]any{"thread": map[string]any{"id": "thread-remote"}, "agent_id": "remote-agent"}, nil
+		}),
+		LauncherMethodTurnStart: handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+			*events = append(*events, "turn/start")
+			*turnStart = req
+			return map[string]any{LauncherRespTurnID: "turn-remote"}, nil
+		}),
+	})
+}
+
+func rejectServiceBridgeCommandParam(t *testing.T, req map[string]any) {
+	t.Helper()
+	if _, ok := req["command"]; ok {
+		t.Fatalf("thread/start req unexpectedly carried command: %#v", req["command"])
+	}
+}
+
+type recordingServiceBridgeSpawnRecorder struct {
+	events   *[]string
+	dagKey   string
+	nodeKey  string
+	threadID string
+	runID    int64
+}
+
+func (r *recordingServiceBridgeSpawnRecorder) RecordNodeSpawn(_ context.Context, dagKey, nodeKey string, runID int64, threadID string) error {
+	if r.events != nil {
+		*r.events = append(*r.events, "record")
+	}
+	r.dagKey = dagKey
+	r.nodeKey = nodeKey
+	r.runID = runID
+	r.threadID = threadID
+	return nil
+}
+
+func serviceLauncherBridgeAgentNode(t *testing.T) nodeexec.Node {
+	t.Helper()
+	return nodeexec.Node{
+		DagKey:   "dag-from-node",
+		NodeKey:  "node-from-node",
+		NodeType: "agent",
+		Title:    "Agent node",
+		Config:   testRawConfig(t, `{"exec":{"agent_key":"implementer","cwd":"/tmp/agent-launch"},"first_turn":"start work"}`),
+	}
 }
