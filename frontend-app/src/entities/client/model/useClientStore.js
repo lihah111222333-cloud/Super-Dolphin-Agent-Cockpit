@@ -1658,8 +1658,10 @@ function isVisibleTimelineItem(item) {
 }
 
 function preferredAssistantTimelineItem(existingItem, incomingItem) {
+  const isRuntime = Boolean(existingItem?.runtime || incomingItem?.runtime);
   if (existingItem?.runtime !== incomingItem?.runtime) {
-    return incomingItem?.runtime ? existingItem : incomingItem;
+    const base = incomingItem?.runtime ? existingItem : incomingItem;
+    return isRuntime ? { ...base, runtime: true } : base;
   }
   return (
     normalizeString(incomingItem?.text).length > normalizeString(existingItem?.text).length
