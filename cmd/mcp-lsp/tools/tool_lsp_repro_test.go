@@ -56,6 +56,23 @@ func TestXRefTypeHierarchyUnsupportedCapabilityReturnsExplainableEmptyResult(t *
 	}
 }
 
+func TestXRefMarkdownCallHierarchyReportsLimitedSupport(t *testing.T) {
+	root := t.TempDir()
+	writeReproFile(t, root, "README.md", "# Intro\n\nBody\n")
+	handler := NewXRefHandler(newMarkdownFallbackRegistry(t, root))
+	input := marshalReproParams(t, xrefParams{
+		Action: "call_hierarchy",
+		Pos:    "README.md:1:3",
+	})
+
+	got, err := handler(testToolContext(root), input)
+	if err != nil {
+		t.Fatalf("markdown call_hierarchy returned error = %v, want explainable empty result", err)
+	}
+	envelope := requireEmptyListEnvelope(t, got)
+	requireLimitedMarkdownSupportMessage(t, envelope.Meta.Message, "call hierarchy")
+}
+
 func TestEditFormatAppliesLSPTextEditsAndSyncsDocument(t *testing.T) {
 	root := t.TempDir()
 	target := writeReproFile(t, root, "main.go", "package main\n\nfunc main(){\nprintln(\"hi\")\n}\n")
