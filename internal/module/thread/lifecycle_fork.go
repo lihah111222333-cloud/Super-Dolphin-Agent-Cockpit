@@ -131,6 +131,8 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 		meta.ParentAgentID,
 		meta.AgentType,
 		meta.AgentMemoryScope,
+		provider,
+		meta.Model,
 	); err != nil {
 		return RecoverResult{}, err
 	}
