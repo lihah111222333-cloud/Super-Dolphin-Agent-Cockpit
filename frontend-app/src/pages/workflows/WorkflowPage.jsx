@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import { isCancelledError, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Workflow } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
-import { applyDagOps, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, readSharedFile, startDag, startThread, startTurn, terminateDagRun } from '../../shared/api/backendApi.js';
+import { applyDagOps, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, openSharedFile, readSharedFile, startDag, startThread, startTurn, terminateDagRun } from '../../shared/api/backendApi.js';
 import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.jsx';
 
@@ -1631,6 +1631,8 @@ function formatWorkflowFileContent(content) {
 function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd }) {
   const [fileContent, setFileContent] = useState('');
   const [fileError, setFileError] = useState('');
+  const [openError, setOpenError] = useState('');
+  const [opening, setOpening] = useState(false);
   const [reading, setReading] = useState(false);
   const outputPath = finalOutputPath(finalOutput);
 
@@ -1640,6 +1642,7 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd }) {
 
   const readFinalOutput = async () => {
     if (!outputPath) return;
+    setOpenError('');
     if (fileContent) {
       setFileContent('');
       return;
@@ -1661,6 +1664,21 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd }) {
       setReading(false);
     }
   };
+  const openFinalOutput = async () => {
+    if (!outputPath) return;
+    setOpening(true);
+    setOpenError('');
+    try {
+      await openSharedFile({ path: outputPath });
+    }
+    catch (err) {
+      setOpenError(`打开最终结果文件失败：${err?.message || String(err)}`);
+    }
+    finally {
+      setOpening(false);
+    }
+  };
+
   const formattedContent = useMemo(() => {
     return formatWorkflowFileContent(fileContent);
   }, [fileContent]);
@@ -1717,8 +1735,14 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd }) {
                 }
               })()}
             </button>
+            {isMedia ? (
+              <button type="button" className="btn-secondary" disabled={opening} onClick={() => { void openFinalOutput(); }}>
+                {opening ? '打开中...' : (isVideo ? '打开视频' : '打开图片')}
+              </button>
+            ) : null}
           </div>
           {fileError ? <p className="danger-text">{fileError}</p> : null}
+          {openError ? <p className="danger-text">{openError}</p> : null}
           {previewBlock}
           {fileContent === '__MEDIA_PREVIEW__' ? (
             <p className="workflow-media-tip">提示：如果浏览器环境限制无法直接播放/预览本地媒体文件，请在「文件产物」页导出查看。</p>
