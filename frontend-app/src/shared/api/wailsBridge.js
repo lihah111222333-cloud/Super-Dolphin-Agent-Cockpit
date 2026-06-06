@@ -966,6 +966,15 @@ export async function saveTextFile({ defaultPath = '', defaultFilename = '', con
   return path;
 }
 
+export async function openSharedFile({ path } = {}) {
+  const filePath = (path || '').toString().trim();
+  if (!filePath) throw new Error('openSharedFile path is required');
+  writeBridgeLog('info', 'ui.openSharedFile.start', { path: filePath });
+  const raw = await callAPI('ui/sharedFile/open', { path: filePath });
+  writeBridgeLog('info', 'ui.openSharedFile.done', { path: filePath });
+  return raw && typeof raw === 'object' ? raw : {};
+}
+
 export async function copyTextToClipboard(text) {
   const value = (text || '').toString().trim();
   if (!value) throw new Error('clipboard text is empty');

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, Download, Eye, File, FolderOpen, MessageCircle, Search, Trash2, X } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
-import { deleteSharedFile, listSharedFiles, readSharedFile, saveTextFile } from '../../shared/api/backendApi.js';
+import { deleteSharedFile, listSharedFiles, openSharedFile, readSharedFile, saveTextFile } from '../../shared/api/backendApi.js';
 import { dashboardQueryErrorState, firstText, optionalSettingsCwd, queryHasSnapshot, sharedFileTimestamp, SKILLS_REQUEST_TIMEOUT_MS, textValue, useDashboardQueryFocusInvalidation, withTimeout } from '../shared/pageShared.js';
 import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx';
 
@@ -96,6 +96,10 @@ function sharedFileExtension(path) {
   const dot = base.lastIndexOf('.');
   if (dot <= 0 || dot === base.length - 1) return '';
   return base.slice(dot + 1);
+}
+
+function isBinaryMediaPath(path) {
+  return /\.(mp4|mov|webm|ogg)$/i.test(textValue(path));
 }
 
 function sharedFileFormatLabel(file, language = '') {
@@ -447,14 +451,27 @@ function useSharedFileActions({ exportDefaultPath, refreshFiles, store, protecti
   const [copied, setCopied] = useState(false);
   const loadFileDetail = useSharedFileDetailLoader(setBusyPath);
   const openFile = useCallback(async (file) => {
+    const path = textValue(file?.path);
+    const binaryMedia = isBinaryMediaPath(path);
     setNotice(null);
     setCopied(false);
     try {
+      if (binaryMedia) {
+        setBusyPath(path);
+        try {
+          await openSharedFile({ path });
+        } finally {
+          setBusyPath('');
+        }
+        setNotice({ level: 'success', message: '已打开媒体文件。' });
+        return;
+      }
       setSelectedFile(await loadFileDetail(file));
     } catch (err) {
-      setNotice({ level: 'error', message: `读取文件失败：${err.message || String(err)}` });
+      const action = binaryMedia ? '打开文件失败' : '读取文件失败';
+      setNotice({ level: 'error', message: `${action}：${err.message || String(err)}` });
     }
-  }, [loadFileDetail]);
+  }, [loadFileDetail, setBusyPath]);
   const exportFile = useSharedFileExport({ exportDefaultPath, exportingPath, loadFileDetail, setExportingPath, setNotice });
   const askDelete = useCallback((file) => {
     if (protectionFor(file)) setNotice({ level: 'error', message: `最终产物不能直接删除：${file.path}` });

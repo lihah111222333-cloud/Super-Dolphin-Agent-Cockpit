@@ -12,6 +12,7 @@ const backend = vi.hoisted(() => ({
   getDagDetail: vi.fn(),
   getDagRun: vi.fn(),
   getDagRuns: vi.fn(),
+  openSharedFile: vi.fn(),
   readSharedFile: vi.fn(),
   startDag: vi.fn(),
   startTurn: vi.fn(),
@@ -314,6 +315,62 @@ describe('WorkflowPage module', () => {
     expect(rows[0]).toHaveTextContent('2026-06-02 17:22:56');
     expect(rows[1]).toHaveTextContent('第 2 次运行');
     expect(rows[1]).toHaveTextContent('2026-06-02 20:12:43');
+  });
+
+  it('shows a stable open action for mp4 final output without reading it as text', async () => {
+    const dag = {
+      dag_key: 'douyin-video',
+      title: 'Douyin Video',
+      status: 'ready',
+      trigger: 'manual',
+      version: 1,
+    };
+    const finalPath = 'dag/douyin/daily-video/run-video-21/final.mp4';
+    backend.getDashboardPage.mockResolvedValue({ dags: [dag] });
+    backend.getDagDetail.mockResolvedValue({ dag, nodes: [] });
+    backend.getDagRuns.mockImplementation((params = {}) => Promise.resolve({
+      runs: params.status === 'running'
+        ? []
+        : [{
+            id: 21,
+            run_key: 'run-video-21',
+            status: 'succeeded',
+            started_at: '2026-06-06T13:25:55+08:00',
+            metadata: {
+              final_output: {
+                kind: 'file',
+                role: 'final_output',
+                path: finalPath,
+                source_node_key: 'generate_video_mp4',
+              },
+            },
+          }],
+    }));
+    backend.getDagRun.mockResolvedValue({
+      run: {
+        id: 21,
+        run_key: 'run-video-21',
+        status: 'succeeded',
+        metadata: {
+          final_output: {
+            kind: 'file',
+            role: 'final_output',
+            path: finalPath,
+            source_node_key: 'generate_video_mp4',
+          },
+        },
+      },
+      nodes: [],
+    });
+    backend.openSharedFile.mockResolvedValue({ opened: true });
+
+    renderWorkflowPage();
+
+    expect(await screen.findByText(finalPath)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '打开视频' }));
+
+    await waitFor(() => expect(backend.openSharedFile).toHaveBeenCalledWith({ path: finalPath }));
+    expect(backend.readSharedFile).not.toHaveBeenCalled();
   });
 
   it('orders runtime workflow steps and topology by dependencies instead of backend row order', async () => {
