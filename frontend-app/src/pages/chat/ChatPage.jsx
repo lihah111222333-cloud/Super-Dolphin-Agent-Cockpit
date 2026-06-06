@@ -68,9 +68,9 @@ const WARNING_POPOVER_MIN_WIDTH = 280;
 
 const STREAMING_REVEAL_SHORT_TEXT_CHARS = 16;
 
-const STREAMING_REVEAL_CATCHUP_FRAMES = 10;
+const STREAMING_REVEAL_CATCHUP_FRAMES = 80;
 
-const STREAMING_REVEAL_MAX_CHARS_PER_FRAME = 64;
+const STREAMING_REVEAL_MAX_CHARS_PER_FRAME = 8;
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
@@ -181,6 +181,12 @@ function useSmoothStreamingText(text, { enabled = false, streamKey = '' } = {}) 
   const targetText = (text || '').toString();
   const [state, setState] = useState(() => ({ streamKey, visibleText: targetText }));
   const frameRef = useRef(0);
+  const targetTextRef = useRef(targetText);
+
+  useEffect(() => {
+    targetTextRef.current = targetText;
+  }, [targetText]);
+
   const reducedMotion = useReducedMotionPreference(enabled);
   const streamKeyChanged = state.streamKey !== streamKey;
   const passthrough = !enabled || reducedMotion || streamKeyChanged;
@@ -189,42 +195,48 @@ function useSmoothStreamingText(text, { enabled = false, streamKey = '' } = {}) 
   useEffect(() => () => cancelAnimationFrameRef(frameRef), []);
 
   useEffect(() => {
-    cancelAnimationFrameRef(frameRef);
-    if (streamKeyChanged) {
-      setState({ streamKey, visibleText: targetText });
-      return undefined;
-    }
+    setState({ streamKey, visibleText: targetText });
+  }, [streamKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
     if (!enabled || reducedMotion) {
-      return undefined;
-    }
-    if (!targetText.startsWith(visibleText) || visibleText.length > targetText.length) {
-      if (visibleText !== targetText) setState({ streamKey, visibleText: targetText });
-      return undefined;
-    }
-    if (visibleText === targetText) return undefined;
-    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-      setState({ streamKey, visibleText: targetText });
+      cancelAnimationFrameRef(frameRef);
       return undefined;
     }
 
-    frameRef.current = window.requestAnimationFrame(() => {
-      frameRef.current = 0;
+    let active = true;
+
+    const tick = () => {
+      if (!active) return;
+
       setState((current) => {
         if (current.streamKey !== streamKey) return current;
+        const latestTarget = targetTextRef.current;
         const currentText = current.visibleText;
-        if (!targetText.startsWith(currentText) || currentText.length > targetText.length) {
-          return { streamKey, visibleText: targetText };
+
+        if (!latestTarget.startsWith(currentText) || currentText.length > latestTarget.length) {
+          return { streamKey, visibleText: latestTarget };
         }
-        const remaining = targetText.length - currentText.length;
+
+        const remaining = latestTarget.length - currentText.length;
         if (remaining <= 0) return current;
+
         return {
           streamKey,
-          visibleText: targetText.slice(0, currentText.length + streamingRevealStepSize(remaining)),
+          visibleText: latestTarget.slice(0, currentText.length + streamingRevealStepSize(remaining)),
         };
       });
-    });
-    return () => cancelAnimationFrameRef(frameRef);
-  }, [enabled, reducedMotion, streamKey, streamKeyChanged, targetText, visibleText, state.visibleText]);
+
+      frameRef.current = window.requestAnimationFrame(tick);
+    };
+
+    frameRef.current = window.requestAnimationFrame(tick);
+
+    return () => {
+      active = false;
+      cancelAnimationFrameRef(frameRef);
+    };
+  }, [enabled, reducedMotion, streamKey]);
 
   return visibleText;
 }
@@ -4798,12 +4810,27 @@ function durationLabelFromMs(ms, options = {}) {
 
 function useElapsedLabel(startValue, endValue, active) {
   const [now, setNow] = useState(() => Date.now());
+  const [firstStart, setFirstStart] = useState(null);
+
+  useEffect(() => {
+    if (active) {
+      if (!firstStart && startValue) {
+        setFirstStart(timestampMs(startValue));
+      }
+    } else {
+      if (firstStart !== null) {
+        setFirstStart(null);
+      }
+    }
+  }, [active, startValue, firstStart]);
+
   useEffect(() => {
     if (!active) return undefined;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [active]);
-  const start = timestampMs(startValue);
+
+  const start = active ? (firstStart || timestampMs(startValue)) : timestampMs(startValue);
   if (!start) return '';
   const completed = timestampMs(endValue);
   if (!active && !completed) return '';
@@ -4848,8 +4875,10 @@ function ReasoningTrace({ message, active = false }) {
 
 function syntheticReasoningMessage({ activeTurn, sending }) {
   if (!activeTurn && !sending) return null;
+  const turnId = activeTurn?.id;
+  const id = turnId ? `thinking:${turnId}` : 'thinking-sending';
   return {
-    id: `thinking-${activeTurn?.id || 'sending'}`,
+    id,
     role: 'assistant',
     kind: 'thinking',
     title: '正在处理请求',
@@ -5286,6 +5315,11 @@ function Conversation(props) {
     shouldStickToBottomRef.current = true;
     scrollTimelineElementToBottom(timelineRef.current, true);
   }, []);
+  const scrollTimelineToBottomIfSticky = useCallback((smooth = false) => {
+    if (timelineRef.current && shouldStickToBottomRef.current) {
+      scrollTimelineElementToBottom(timelineRef.current, smooth);
+    }
+  }, []);
   const sendMessageAndScrollToBottom = useCallback(() => {
     const result = sendMessage();
     shouldStickToBottomRef.current = true;
@@ -5349,6 +5383,7 @@ function Conversation(props) {
         messageActions={messageActions}
         onTimelineScroll={updateTimelineStickiness}
         onScrollToBottom={scrollTimelineToBottomSmooth}
+        onScrollIfSticky={scrollTimelineToBottomIfSticky}
         timelineRef={timelineRef}
       />
       {!introMode ? (
@@ -5473,6 +5508,7 @@ function ConversationTimeline({
   messageActions,
   onTimelineScroll,
   onScrollToBottom,
+  onScrollIfSticky,
   timelineRef,
   smoothStreaming,
 }) {
@@ -5543,6 +5579,11 @@ function ConversationTimeline({
     userScrolledRef.current = false;
   }, [activeThreadId]);
 
+  const timelineMessages = [...visibleMessages];
+  if (pendingReasoning) {
+    timelineMessages.push(pendingReasoning);
+  }
+
   return (
     <div className="timeline-shell">
       <div className="timeline" data-testid="chat-timeline" ref={timelineRef} onScroll={handleScroll}>
@@ -5550,11 +5591,14 @@ function ConversationTimeline({
         {!introMode && !timelineContentBlocked && (hiddenOlderCount > 0 || hasBackendOlderPage) ? (
           <TimelineOlderMessagesMarker hiddenCount={hiddenOlderCount} loading={olderPageLoading} onReveal={requestOlderMessages} />
         ) : null}
-        {!introMode && !timelineContentBlocked ? visibleMessages.map((message) => (
-          <TimelineMessage key={message.id} message={message} actions={messageActions} activeThreadId={activeThreadId} smoothStreaming={smoothStreaming} />
-        )) : null}
+        {!introMode && !timelineContentBlocked ? timelineMessages.map((message) => {
+          const isPendingOrActiveReasoning = isReasoningMessage(message) && message.done === false;
+          const key = isPendingOrActiveReasoning ? 'active-reasoning' : message.id;
+          return (
+            <TimelineMessage key={key} message={message} actions={messageActions} activeThreadId={activeThreadId} smoothStreaming={smoothStreaming} onScrollIfSticky={onScrollIfSticky} />
+          );
+        }) : null}
         {!introMode && timelineContentBlocked ? <TimelineLoadingPlaceholder /> : null}
-        {pendingReasoning ? <ReasoningTrace key={pendingReasoning.id} message={pendingReasoning} active /> : null}
         <div ref={bottomRef} style={{ height: 0 }} aria-hidden="true" />
       </div>
       {activeThreadId && !introMode && !timelineContentBlocked ? (
@@ -5597,13 +5641,19 @@ function IntroChatStage({ composer, projectPath }) {
   );
 }
 
-const TimelineMessage = React.memo(function TimelineMessage({ message, actions, activeThreadId, smoothStreaming }) {
+const TimelineMessage = React.memo(function TimelineMessage({ message, actions, activeThreadId, smoothStreaming, onScrollIfSticky }) {
   const streamKey = `${activeThreadId || ''}:${message.id || ''}`;
   const streamingAssistant = message.role === 'assistant' && message.done === false;
   const displayText = useSmoothStreamingText(message.text, {
     enabled: streamingAssistant && smoothStreaming,
     streamKey,
   });
+
+  React.useLayoutEffect(() => {
+    if (onScrollIfSticky) {
+      onScrollIfSticky(false);
+    }
+  }, [displayText, streamingAssistant, smoothStreaming, onScrollIfSticky]);
   if (isApprovalMessage(message)) return <ApprovalTimelineMessage message={message} actions={actions} />;
   if (isReasoningMessage(message)) return <ReasoningTrace message={message} active={message.done === false} />;
   
