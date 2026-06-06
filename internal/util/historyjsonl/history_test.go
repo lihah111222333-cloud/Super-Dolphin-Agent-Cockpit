@@ -125,6 +125,22 @@ func TestReadProviderMessagesPageDropsTurnAbortedControlBlock(t *testing.T) {
 	requireHistoryPageContents(t, page.Messages, []string{"visible prompt", "visible reply"})
 }
 
+func TestReadProviderMessagesPageDropsEnvironmentContext(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := writeCodexRolloutRawLines(t, root, "thread-env-context", []string{
+		codexRolloutMessageLine(30, "user", "input_text", "<environment_context>\n<cwd>/Users/mac/Desktop/Super-Dolphin</cwd>\n</environment_context>\nvisible prompt"),
+		codexRolloutMessageLine(32, "assistant", "output_text", "visible reply"),
+	})
+
+	page, err := ReadProviderMessagesPage(ReadRequest{Provider: "codex", RolloutPath: path}, dto.MessagePageRequest{Limit: 10})
+	if err != nil {
+		t.Fatalf("ReadProviderMessagesPage() error = %v", err)
+	}
+	requireHistoryPageContents(t, page.Messages, []string{"visible prompt", "visible reply"})
+}
+
 func requireHistoryPageContents(t *testing.T, messages []dto.Message, want []string) {
 	t.Helper()
 	got := make([]string, 0, len(messages))
