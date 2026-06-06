@@ -10,8 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/sync/semaphore"
-
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/contextlock"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
@@ -78,7 +77,7 @@ type service struct {
 	machineCfg               platformstatemachine.Config
 	processExitWaitTimeout   time.Duration
 	exitMonitor              *processExitMonitor
-	mu                       contextRWMutex
+	mu                       contextlock.RWMutex
 	agents                   map[string]*agentRuntime
 	suppressedStoppedThreads sync.Map
 	nextTurnSeq              int64
@@ -447,45 +446,4 @@ func (s *service) CompleteTurn(ctx context.Context, agentID, turnID string, succ
 		}
 		return s.finalizeActiveTurnLocked(ctx, agent, turnID, kind)
 	})
-}
-
-// contextRWMutex is a context-aware Read-Write Mutex implemented using standard semaphore.
-// It avoids busy-waiting/spinning for lock acquisition by using semaphore Acquire,
-// which natively supports context cancellation.
-type contextRWMutex struct {
-	once sync.Once
-	sem  *semaphore.Weighted
-}
-
-const maxReaders = 1000000
-
-func (m *contextRWMutex) init() {
-	m.once.Do(func() {
-		m.sem = semaphore.NewWeighted(maxReaders)
-	})
-}
-
-func (m *contextRWMutex) Lock() {
-	m.init()
-	_ = m.sem.Acquire(context.Background(), maxReaders)
-}
-
-func (m *contextRWMutex) Unlock() {
-	m.init()
-	m.sem.Release(maxReaders)
-}
-
-func (m *contextRWMutex) RLock() {
-	m.init()
-	_ = m.sem.Acquire(context.Background(), 1)
-}
-
-func (m *contextRWMutex) RUnlock() {
-	m.init()
-	m.sem.Release(1)
-}
-
-func (m *contextRWMutex) RLockCtx(ctx context.Context) error {
-	m.init()
-	return m.sem.Acquire(ctx, 1)
 }
