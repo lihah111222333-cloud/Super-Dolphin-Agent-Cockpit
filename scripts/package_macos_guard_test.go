@@ -112,6 +112,23 @@ func TestPackageMacOSScriptRequiresVerifiedLSPBundle(t *testing.T) {
 	assertScriptOrder(t, script, "write_lsp_manifest \"$resources\"", "write_runtime_manifest \"$resources\" \"$platform\"")
 }
 
+func TestPackageMacOSScriptStandardProfileDoesNotRequireJDTLS(t *testing.T) {
+	script := readScript(t, "package_macos.sh")
+	standardStart := strings.Index(script, "lsp_server_specs=(")
+	if standardStart < 0 {
+		t.Fatal("package_macos.sh missing lsp_server_specs")
+	}
+	fullStart := strings.Index(script, "if [[ \"$lsp_profile\" == \"full\" ]]; then\n  lsp_server_specs+=")
+	if fullStart < 0 {
+		t.Fatal("package_macos.sh missing full profile lsp_server_specs append")
+	}
+	standardSpecs := script[standardStart:fullStart]
+
+	assertScriptContains(t, script, "lsp_profile=\"${SUPER_DOLPHIN_LSP_PROFILE:-standard}\"")
+	assertScriptContains(t, script, "lsp_server_specs+=(\"jdtls|bin/jdtls\")")
+	assertScriptDoesNotContain(t, standardSpecs, "jdtls")
+}
+
 func TestPackageMacOSScriptRequiresAndCopiesBashLanguageServer(t *testing.T) {
 	script := readScript(t, "package_macos.sh")
 
