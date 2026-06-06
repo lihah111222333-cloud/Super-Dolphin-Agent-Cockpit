@@ -1452,7 +1452,26 @@ select {
   --conversation-intro-width: min(880px, calc(100% - 96px));
   --conversation-content-width: var(--conversation-intro-width);
   --conversation-content-left-nudge: 0px;
-  grid-template-rows: minmax(0, 1fr);
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(28px, 5vh, 48px);
+  padding: 0 48px clamp(38px, 6vh, 74px);
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.conversation--intro .timeline-shell,
+.conversation--intro .timeline,
+.conversation--intro .intro-chat-stage {
+  display: contents;
+}
+
+.conversation--intro .empty-chat,
+.conversation--intro .composer--floating {
+  width: var(--conversation-intro-width);
+  max-width: var(--conversation-intro-width);
 }
 
 .splitter {
