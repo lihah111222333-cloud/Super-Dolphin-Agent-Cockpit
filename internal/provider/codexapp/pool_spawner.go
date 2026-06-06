@@ -309,7 +309,7 @@ var codexSpawnEnvAllowlist = []string{
 	"SHELL",
 	"SSL_CERT_FILE", "SSL_CERT_DIR",
 	"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
-	sidecarRuntimeModeEnv, sidecarRuntimeResourcesEnv,
+	sidecarRuntimeModeEnv, sidecarRuntimeResourcesEnv, providershared.SuperDolphinHomeEnv,
 	codexRelayBootstrapTokenEnv,
 }
 
