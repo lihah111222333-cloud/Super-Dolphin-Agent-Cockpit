@@ -229,7 +229,7 @@ function normalizeTimestampMap(value) {
 function normalizeProviderName(value) {
   const provider = normalizeProviderConfigValue(value).toLowerCase();
   if (!provider) return '';
-  if (provider === 'codex' || provider === 'claude') return provider;
+  if (provider === 'codex' || provider === 'claude') return 'codex';
   throw new Error(`invalid provider preference: ${normalizeProviderConfigValue(value)}`);
 }
 
@@ -1658,8 +1658,10 @@ function isVisibleTimelineItem(item) {
 }
 
 function preferredAssistantTimelineItem(existingItem, incomingItem) {
+  const isRuntime = Boolean(existingItem?.runtime || incomingItem?.runtime);
   if (existingItem?.runtime !== incomingItem?.runtime) {
-    return incomingItem?.runtime ? existingItem : incomingItem;
+    const base = incomingItem?.runtime ? existingItem : incomingItem;
+    return isRuntime ? { ...base, runtime: true } : base;
   }
   return (
     normalizeString(incomingItem?.text).length > normalizeString(existingItem?.text).length
@@ -3700,6 +3702,18 @@ function attachBridgeIdentityRuntime(runtime) {
     const fallback = normalizeBackendThreadId(id);
     if (!fallback) return '';
     if (fallback === normalizeBackendThreadId(state.activeThreadId)) return fallback;
+
+    const eventAgentId = normalizeThreadId(
+      payload.agentId ||
+      payload.agent_id ||
+      payload.agentRuntime?.agentId ||
+      payload.agent_runtime?.agentId ||
+      payload.agent_runtime?.agent_id
+    );
+    if (eventAgentId && eventAgentId === normalizeThreadId(state.activeThreadId)) {
+      return fallback;
+    }
+
     if (payloadCwd && (!activeCwd || payloadCwd === activeCwd)) return fallback;
 
     if (isAgentRuntimeId(id)) return '';

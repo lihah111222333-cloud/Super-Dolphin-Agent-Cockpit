@@ -12,7 +12,7 @@ import (
 func agentConfigFixture() AgentNodeConfig {
 	return AgentNodeConfig{
 		Exec: AgentExecConfig{
-			Provider:      "claude",
+			Provider:      "codex",
 			Model:         "opus",
 			AgentKey:      "architect",
 			PromptKey:     "main/architect",
@@ -74,7 +74,7 @@ func TestParseAgentConfig_RoundTrip(t *testing.T) {
 
 func assertAgentExecRoundTrip(t *testing.T, exec AgentExecConfig) {
 	t.Helper()
-	if exec.Provider != "claude" || exec.Model != "opus" {
+	if exec.Provider != "codex" || exec.Model != "opus" {
 		t.Errorf("Exec lost fields: %+v", exec)
 	}
 	if exec.PromptKey != "main/architect" {
@@ -189,7 +189,7 @@ func TestParseHybridConfig_RoundTrip(t *testing.T) {
 		Exec: HybridExecConfig{
 			Automation: &AutomationExecConfig{CommandRef: "run_tests"},
 			Verifier: &AgentExecConfig{
-				Provider: "claude",
+				Provider: "codex",
 				Model:    "sonnet",
 				AgentKey: "verifier",
 			},
@@ -217,7 +217,7 @@ func TestParseNodeConfig_DispatchByNodeType(t *testing.T) {
 	}{
 		{
 			"agent",
-			`{"exec":{"provider":"claude","model":"opus"}}`,
+			`{"exec":{"provider":"codex","model":"opus"}}`,
 			assertAgentDispatchConfig,
 		},
 		{

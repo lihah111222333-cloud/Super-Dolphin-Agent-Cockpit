@@ -25,8 +25,12 @@ var Module = fx.Module("store.sharedfile",
 	),
 )
 
-func provideConcreteStore(q *sqlc.Queries, cfg *platformconfig.Config) *store {
-	return newStoreWithConfig(q, sharedfileFSConfigFrom(cfg))
+func provideConcreteStore(q *sqlc.Queries, cfg *platformconfig.Config) (*store, error) {
+	fsCfg, err := sharedfileFSConfigFrom(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return newStoreWithConfig(q, fsCfg), nil
 }
 
 func ProvideStore(store *store) Store { return store }
@@ -37,12 +41,13 @@ func ProvideReader(store Store) Reader { return store }
 
 func ProvideImporter(store *store) Importer { return store }
 
-func sharedfileFSConfigFrom(cfg *platformconfig.Config) sharedfilefs.Config {
-	if cfg == nil {
-		return sharedfilefs.Config{}
+func sharedfileFSConfigFrom(cfg *platformconfig.Config) (sharedfilefs.Config, error) {
+	root, err := platformconfig.SharedFileRoot(cfg)
+	if err != nil {
+		return sharedfilefs.Config{}, err
 	}
 	return sharedfilefs.Config{
-		CWD:                  cfg.ProjectRoot,
+		CWD:                  root,
 		InlineThresholdBytes: sharedfilefs.DefaultInlineThresholdBytes,
-	}
+	}, nil
 }

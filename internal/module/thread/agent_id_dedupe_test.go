@@ -18,7 +18,7 @@ func TestPrepareStartRequestReassignsExistingExplicitAgentID(t *testing.T) {
 	req, agentID, release, err := svc.prepareStartRequest(context.Background(), StartRequest{
 		AgentID:  "agent-dup",
 		Name:     "worker",
-		Provider: "claude",
+		Provider: "codex",
 		CWD:      cwd,
 	})
 	if err != nil {
@@ -39,7 +39,7 @@ func TestPrepareStartRequestPreservesAvailableExplicitAgentID(t *testing.T) {
 	req, agentID, release, err := svc.prepareStartRequest(context.Background(), StartRequest{
 		AgentID:  "agent-keep",
 		Name:     "worker",
-		Provider: "claude",
+		Provider: "codex",
 		CWD:      cwd,
 	})
 	if err != nil {
@@ -57,7 +57,7 @@ func TestPrepareStartRequestRejectsAgentIDWhenCollisionCheckFails(t *testing.T) 
 	_, _, release, err := svc.prepareStartRequest(context.Background(), StartRequest{
 		AgentID:  "agent-db-error",
 		Name:     "worker",
-		Provider: "claude",
+		Provider: "codex",
 		CWD:      cwd,
 	})
 	if release != nil {
@@ -88,7 +88,7 @@ func TestPrepareStartRequestConcurrentChildReservationsAreUnique(t *testing.T) {
 			_, agentID, release, err := svc.prepareStartRequest(context.Background(), StartRequest{
 				ParentAgentID: "agent-parent",
 				Name:          "worker",
-				Provider:      "claude",
+				Provider:      "codex",
 				CWD:           cwd,
 			})
 			if err != nil {

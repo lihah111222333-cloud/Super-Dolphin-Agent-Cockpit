@@ -220,7 +220,7 @@ func resolveStartProvider(provider string) (string, error) {
 		return "", errors.New("provider is required")
 	}
 	switch normalized {
-	case "codex", "claude":
+	case "codex":
 		return normalized, nil
 	default:
 		return "", fmt.Errorf("invalid provider %q", strings.TrimSpace(provider))

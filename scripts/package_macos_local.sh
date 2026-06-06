@@ -19,6 +19,8 @@ relay_api_key_env="SUPER_DOLPHIN_CODEX_RELAY_API_KEY"
 relay_api_key="${SUPER_DOLPHIN_CODEX_RELAY_API_KEY:-}"
 postgres_dist="${SUPER_DOLPHIN_POSTGRES_DIST:-$root/.build-cache/postgres/16.14/$(go env GOOS)-$(go env GOARCH)}"
 codex_bin="${SUPER_DOLPHIN_CODEX_ARTIFACT:-$(command -v codex || true)}"
+ffmpeg_bin_env="SUPER_DOLPHIN_FFMPEG_BIN"
+ffmpeg_bin=""
 
 real_file_path() {
   local path="$1"
@@ -90,6 +92,74 @@ phase_end() {
   echo "==> [$phase_label] done in ${elapsed}s $(date '+%H:%M:%S')" >&2
 }
 
+verify_host_ffmpeg() {
+  local candidate="$1"
+  if [[ ! -x "$candidate" ]]; then
+    return 1
+  fi
+  "$candidate" -version >/dev/null 2>&1
+}
+
+resolve_host_ffmpeg_candidate() {
+  local candidate
+  if [[ -n "${SUPER_DOLPHIN_FFMPEG_BIN:-}" ]]; then
+    printf '%s\n' "$SUPER_DOLPHIN_FFMPEG_BIN"
+    return
+  fi
+  if candidate="$(command -v ffmpeg 2>/dev/null)" && [[ -n "$candidate" ]]; then
+    printf '%s\n' "$candidate"
+    return
+  fi
+  if command -v brew >/dev/null 2>&1; then
+    local brew_prefix
+    if brew_prefix="$(brew --prefix ffmpeg 2>/dev/null)" && [[ -x "$brew_prefix/bin/ffmpeg" ]]; then
+      printf '%s\n' "$brew_prefix/bin/ffmpeg"
+    fi
+  fi
+}
+
+resolve_or_install_host_ffmpeg() {
+  local candidate
+  candidate="$(resolve_host_ffmpeg_candidate || true)"
+  if [[ -n "$candidate" ]] && verify_host_ffmpeg "$candidate"; then
+    ffmpeg_bin="$(real_file_path "$candidate")"
+    echo "ffmpeg verified: $ffmpeg_bin" >&2
+    return
+  fi
+  if [[ -n "${SUPER_DOLPHIN_FFMPEG_BIN:-}" ]]; then
+    echo "$ffmpeg_bin_env does not point to a working ffmpeg executable: $SUPER_DOLPHIN_FFMPEG_BIN" >&2
+    echo "Install ffmpeg with Homebrew: brew install ffmpeg" >&2
+    exit 1
+  fi
+  if [[ "${SUPER_DOLPHIN_AUTO_INSTALL_FFMPEG:-1}" == "0" ]]; then
+    echo "missing ffmpeg on the packaging machine; install it with: brew install ffmpeg" >&2
+    echo "Alternatively set $ffmpeg_bin_env to a working ffmpeg binary." >&2
+    exit 1
+  fi
+  if ! command -v brew >/dev/null 2>&1; then
+    echo "missing ffmpeg and Homebrew is not installed." >&2
+    echo "Install Homebrew from https://brew.sh, then run: brew install ffmpeg" >&2
+    echo "Alternatively set $ffmpeg_bin_env to a working ffmpeg binary." >&2
+    exit 1
+  fi
+  echo "ffmpeg not found; attempting to install with Homebrew: brew install ffmpeg" >&2
+  if ! brew install ffmpeg; then
+    echo "Homebrew failed to install ffmpeg." >&2
+    echo "Run manually: brew install ffmpeg" >&2
+    echo "Alternatively set $ffmpeg_bin_env to a working ffmpeg binary." >&2
+    exit 1
+  fi
+  candidate="$(resolve_host_ffmpeg_candidate || true)"
+  if [[ -z "$candidate" ]] || ! verify_host_ffmpeg "$candidate"; then
+    echo "ffmpeg installation finished but ffmpeg is still not executable." >&2
+    echo "Check Homebrew output, then run: brew install ffmpeg" >&2
+    echo "Alternatively set $ffmpeg_bin_env to a working ffmpeg binary." >&2
+    exit 1
+  fi
+  ffmpeg_bin="$(real_file_path "$candidate")"
+  echo "ffmpeg verified: $ffmpeg_bin" >&2
+}
+
 bootstrap_token="${SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN:-$relay_api_key}"
 if [[ -z "${bootstrap_token:-}" ]]; then
   echo "SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN or SUPER_DOLPHIN_CODEX_RELAY_API_KEY is required" >&2
@@ -106,6 +176,7 @@ fi
 test -x "$codex_bin" || { echo "missing Codex artifact: $codex_bin" >&2; exit 1; }
 codex_artifact="$(resolve_local_codex_binary "$codex_bin")"
 test -d "$postgres_dist" || { echo "missing PostgreSQL dist: $postgres_dist" >&2; exit 1; }
+resolve_or_install_host_ffmpeg
 
 package_one() {
   local profile="$1"
@@ -132,6 +203,7 @@ package_one() {
     SUPER_DOLPHIN_CODEX_SHA256="$(shasum -a 256 "$codex_artifact" | awk '{print $1}')" \
     SUPER_DOLPHIN_CODEX_VERSION="${SUPER_DOLPHIN_CODEX_VERSION:-$($codex_artifact --version 2>/dev/null | head -n1)}" \
     SUPER_DOLPHIN_LSP_BUNDLE_DIR="$lsp_dir" \
+    SUPER_DOLPHIN_FFMPEG_BIN="$ffmpeg_bin" \
     SUPER_DOLPHIN_CODEX_RELAY_BASE_URL="$relay_url" \
     SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN="$bootstrap_token" \
     SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_PROOF="local-private-package" \

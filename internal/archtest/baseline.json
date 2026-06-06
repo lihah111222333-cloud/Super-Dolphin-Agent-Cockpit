@@ -1274,21 +1274,6 @@
     "todo_count": 0,
     "max_struct_fields": 4
   },
-  "internal/provider/codexapp/peer_supervisor.go": {
-    "lines": 460,
-    "max_func_len": 43,
-    "max_nesting": 3,
-    "max_complexity": 9,
-    "max_params": 4,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 1,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0,
-    "max_struct_fields": 14
-  },
   "internal/provider/codexapp/process_unix.go": {
     "lines": 159,
     "max_func_len": 29,

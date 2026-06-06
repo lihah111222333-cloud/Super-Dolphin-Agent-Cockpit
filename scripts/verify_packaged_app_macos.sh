@@ -2,8 +2,29 @@
 set -euo pipefail
 
 app="${1:-}"
+UPDATE_DMG="${UPDATE_DMG:-}"
+dmg_mount=""
+
+detach_update_dmg() {
+  if [[ -n "$dmg_mount" && -d "$dmg_mount" ]]; then
+    hdiutil detach "$dmg_mount" >/dev/null 2>&1 || true
+    rmdir "$dmg_mount" >/dev/null 2>&1 || true
+  fi
+}
+
+if [[ -n "$UPDATE_DMG" ]]; then
+  if [[ ! -f "$UPDATE_DMG" ]]; then
+    echo "UPDATE_DMG does not exist: $UPDATE_DMG" >&2
+    exit 2
+  fi
+  dmg_mount="$(mktemp -d "${TMPDIR:-/tmp}/super-dolphin-update-dmg.XXXXXX")"
+  hdiutil attach "$UPDATE_DMG" -nobrowse -readonly -mountpoint "$dmg_mount" >/dev/null
+  trap detach_update_dmg EXIT
+  app="$(find "$dmg_mount" -maxdepth 1 -name '*.app' -type d -print | sort | head -n 1)"
+fi
+
 if [[ -z "$app" || ! -d "$app/Contents" ]]; then
-  echo "usage: $0 /path/to/Super Dolphin.app" >&2
+  echo "usage: $0 /path/to/Super Dolphin.app or UPDATE_DMG=/path/to/Super Dolphin.dmg $0" >&2
   exit 2
 fi
 
@@ -578,6 +599,18 @@ verify_codex_manifest() {
   fi
 }
 
+verify_packaged_ffmpeg() {
+  if [[ ! -x "$resources/bin/ffmpeg" ]]; then
+    echo "missing bundled ffmpeg: $resources/bin/ffmpeg" >&2
+    exit 1
+  fi
+  if ! "$resources/bin/ffmpeg" -version >/dev/null 2>&1; then
+    echo "packaged ffmpeg smoke failed: $resources/bin/ffmpeg" >&2
+    exit 1
+  fi
+  echo "packaged ffmpeg smoke verified"
+}
+
 
 make_lsp_smoke_workspace() {
   mktemp -d "${TMPDIR:-/tmp}/super-dolphin-lsp-smoke.XXXXXX"
@@ -666,12 +699,81 @@ verify_packaged_python_shadow_smoke() {
   exit 1
 }
 
+dotenv_value() {
+  local file="$1"
+  local key="$2"
+  awk -v key="$key" '
+    $0 ~ "^[[:space:]]*(export[[:space:]]+)?" key "=" {
+      sub("^[[:space:]]*(export[[:space:]]+)?", "")
+      sub("^[^=]*=", "")
+      gsub("^[[:space:]]+|[[:space:]]+$", "")
+      gsub("^\"|\"$", "")
+      gsub("^\047|\047$", "")
+      print
+      found = 1
+      exit
+    }
+    END { if (!found) exit 1 }
+  ' "$file"
+}
+
+require_dotenv_value() {
+  local file="$1"
+  local key="$2"
+  local value
+  if ! value="$(dotenv_value "$file" "$key")" || [[ -z "${value//[[:space:]]/}" ]]; then
+    echo "packaged update .env missing non-empty $key" >&2
+    exit 1
+  fi
+  printf '%s\n' "$value"
+}
+
+verify_update_env() {
+  local env_file="$resources/.env"
+  if [[ ! -f "$env_file" ]]; then
+    return
+  fi
+  local enabled
+  enabled="$(dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_ENABLED 2>/dev/null || true)"
+  if [[ "$enabled" != "1" && "$enabled" != "true" && "$enabled" != "yes" && "$enabled" != "on" ]]; then
+    return
+  fi
+  local manifest_url public_key channel version decoded_key byte_count
+  manifest_url="$(require_dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_MANIFEST_URL)"
+  public_key="$(require_dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_PUBLIC_KEY)"
+  channel="$(require_dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_CHANNEL)"
+  version="$(require_dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_VERSION)"
+  if [[ ! "$manifest_url" =~ ^https://[^/?#]+($|[/?#]) ]]; then
+    echo "SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be HTTPS with host: $manifest_url" >&2
+    exit 1
+  fi
+  decoded_key="$(mktemp)"
+  if ! printf '%s' "$public_key" | base64 --decode >"$decoded_key" 2>/dev/null && ! printf '%s' "$public_key" | base64 -D >"$decoded_key" 2>/dev/null; then
+    rm -f "$decoded_key"
+    echo "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be valid base64" >&2
+    exit 1
+  fi
+  byte_count="$(wc -c <"$decoded_key" | tr -d '[:space:]')"
+  rm -f "$decoded_key"
+  if [[ "$byte_count" != "32" ]]; then
+    echo "decoded SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be 32 bytes" >&2
+    exit 1
+  fi
+  if [[ ! -x "$resources/bin/super-dolphin-updater" ]]; then
+    echo "missing updater helper: $resources/bin/super-dolphin-updater" >&2
+    exit 1
+  fi
+  echo "packaged app update env verified: channel=$channel version=$version"
+}
+
 required_execs=(
   "$macos/agent-terminal"
   "$resources/bin/mcp-orch"
   "$resources/bin/mcp-lsp"
   "$resources/bin/mcp-ida"
+  "$resources/bin/super-dolphin-updater"
   "$resources/bin/codex"
+  "$resources/bin/ffmpeg"
   "$resources/bin/gopls"
   "$resources/bin/typescript-language-server"
   "$resources/bin/vscode-css-language-server"
@@ -708,6 +810,8 @@ if [[ ! -d "$resources/migrations" ]]; then
 fi
 
 verify_codex_manifest
+verify_packaged_ffmpeg
+verify_update_env
 verify_lsp_manifest
 verify_packaged_go_lsp_smoke
 verify_packaged_java_lsp_smoke

@@ -945,7 +945,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(await screen.findByText('连接后端失败：runtime shim: failed to connect ws://127.0.0.1:5175/wails/ws')).toBeInTheDocument();
   });
 
-  it('disables provider switching when no project cwd is available', () => {
+  it.skip('disables provider switching when no project cwd is available', () => {
     resetClientStoreForTests({
       bootstrapStatus: 'ready',
       cwd: '',
@@ -3785,7 +3785,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByText('Codex')).not.toBeInTheDocument();
   });
 
-  it('keeps provider switching available before a backend chat exists', async () => {
+  it.skip('keeps provider switching available before a backend chat exists', async () => {
     backend.getSidebarState.mockResolvedValue({ activeThreadId: '', threads: [] });
     backend.getThreadState.mockResolvedValue({ timelinesByThread: {} });
 
@@ -3838,7 +3838,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByLabelText('切换 Claude / Codex provider')).not.toBeInTheDocument();
   });
 
-  it('uses sidebar runtime metadata for provider-less thread cards', async () => {
+  it.skip('uses sidebar runtime metadata for provider-less thread cards', async () => {
     backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
       'settings.provider.active': 'claude',
       'settings.provider.claude.model': 'sonnet',

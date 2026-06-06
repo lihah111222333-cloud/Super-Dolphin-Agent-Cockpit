@@ -31,7 +31,7 @@ func TestStartAssemblyMergesBuiltinBaseAndUserRuntimeAssets(t *testing.T) {
 	svc := newRuntimeChainService(store, catalog, promptAssembly, sessions, runtimeChainStarter(t, sessions))
 	if _, err := svc.Start(context.Background(), StartRequest{
 		AgentID:  "agent-runtime-chain",
-		Provider: "claude",
+		Provider: "codex",
 		CWD:      resolvePromptCWD("/repo/a"),
 		Prompt:   "帮我实现 SQLC 改动，并规划相关测试。",
 	}); err != nil {
