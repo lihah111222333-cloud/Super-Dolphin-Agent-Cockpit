@@ -316,6 +316,68 @@ describe('WorkflowPage module', () => {
     expect(rows[1]).toHaveTextContent('2026-06-02 20:12:43');
   });
 
+  it('orders runtime workflow steps and topology by dependencies instead of backend row order', async () => {
+    const dag = {
+      dag_key: 'douyin-video',
+      title: 'Douyin Video',
+      status: 'ready',
+      trigger: 'manual',
+      version: 1,
+    };
+    const unorderedNodes = [
+      {
+        node_key: 'collect_signals',
+        title: '收集视频方向信号',
+        node_type: 'agent',
+        assigned_to: 'collector',
+        depends_on: [],
+        status: 'done',
+      },
+      {
+        node_key: 'generate_video_mp4',
+        title: '调用 video_with_audio 生成 MP4',
+        node_type: 'agent',
+        assigned_to: 'video-runner',
+        depends_on: ['write_script'],
+        status: 'done',
+      },
+      {
+        node_key: 'write_script',
+        title: '生成成片脚本',
+        node_type: 'agent',
+        assigned_to: 'writer',
+        depends_on: ['collect_signals'],
+        status: 'done',
+      },
+    ];
+    backend.getDashboardPage.mockResolvedValue({ dags: [dag] });
+    backend.getDagDetail.mockResolvedValue({ dag, nodes: unorderedNodes });
+    backend.getDagRuns.mockImplementation((params = {}) => Promise.resolve({
+      runs: params.status === 'running'
+        ? []
+        : [{ id: 21, run_key: 'run-video', status: 'succeeded', started_at: '2026-06-06T13:25:55+08:00' }],
+    }));
+    backend.getDagRun.mockResolvedValue({
+      run: { id: 21, run_key: 'run-video', status: 'succeeded' },
+      nodes: unorderedNodes,
+    });
+
+    const { container } = renderWorkflowPage();
+
+    await waitFor(() => {
+      const stepTitles = Array.from(container.querySelectorAll('.dag-node-list strong')).map((node) => node.textContent);
+      expect(stepTitles).toEqual([
+        '收集视频方向信号',
+        '生成成片脚本',
+        '调用 video_with_audio 生成 MP4',
+      ]);
+    });
+    expect(container.querySelector('.workflow-topology-source')?.textContent).toBe(
+      '收集视频方向信号 --> 生成成片脚本\n'
+      + '生成成片脚本 --> 调用 video_with_audio 生成 MP4',
+    );
+  });
+
   it('keeps the newest ten runs visible and collapses earlier runs behind a themed expand button', async () => {
     mockWorkflowDag();
     const runs = Array.from({ length: 12 }, (_, index) => ({
