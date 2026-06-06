@@ -153,6 +153,30 @@ describe('wails bridge clipboard helpers', () => {
   });
 });
 
+describe('wails bridge shared file helpers', () => {
+  beforeEach(resetWailsRuntimeMocks);
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('opens shared files through the native sharedFile open RPC with a trimmed path', async () => {
+    const byID = vi.fn().mockResolvedValue({ opened: true });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { openSharedFile } = await import('./wailsBridge.js');
+
+    await expect(openSharedFile({ path: ' dag/video/final.mp4 ' })).resolves.toEqual({ opened: true });
+
+    expect(byID).toHaveBeenCalledWith(expect.any(Number), 'ui/sharedFile/open', expect.objectContaining({
+      path: 'dag/video/final.mp4',
+    }));
+    await expect(openSharedFile({ path: ' ' })).rejects.toThrow('openSharedFile path is required');
+  });
+});
+
 describe('wails bridge warning logs', () => {
   beforeEach(resetWailsRuntimeMocks);
 

@@ -72,6 +72,36 @@ func TestCallHierarchyUnsupportedDirectionReturnsCapabilityErrorForJavaScript(t 
 	}
 }
 
+func TestCallHierarchyRetriesEmptyPrepareForTypeScriptAfterBootstrap(t *testing.T) {
+	root := canonicalScopePath(t.TempDir(), "")
+	writeGenericTestFile(t, filepath.Join(root, "tsconfig.json"), `{"compilerOptions":{}}`)
+	target := filepath.Join(root, "app.ts")
+	writeGenericTestFile(t, target, "export function greet(name: string) { return name }\n")
+	factory := &delayedHierarchyPrepareFactory{}
+	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
+	defer func() { _ = mgr.Close() }()
+
+	results, err := mgr.CallHierarchy(
+		common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}, Family: "lsp"}),
+		target,
+		protocol.Position{Line: 0, Character: 16},
+		"outgoing",
+	)
+	if err != nil {
+		t.Fatalf("CallHierarchy: %v", err)
+	}
+	if len(results) != 1 || results[0].Item.Name != "greet" || len(results[0].Outgoing) != 1 {
+		t.Fatalf("CallHierarchy results = %#v, want retried greet hierarchy with outgoing call", results)
+	}
+	client := factory.clientAt(t)
+	if got := client.prepareCalls; got != 2 {
+		t.Fatalf("prepareCallHierarchy calls = %d, want first empty result plus retry", got)
+	}
+	if !client.opened(fileURIFromPath(target), "typescript") {
+		t.Fatalf("opened documents = %#v, want target opened before hierarchy retry", client.openEvents())
+	}
+}
+
 func TestCodeActionSendsEmptyDiagnosticsArray(t *testing.T) {
 	root := canonicalScopePath(t.TempDir(), "")
 	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"web"}`)
@@ -397,6 +427,65 @@ func (c *unsupportedHierarchyClient) Request(_ context.Context, method string, _
 		return nil, fmt.Errorf("unexpected hierarchy request method %q, want %q", method, c.unsupportedMethod)
 	}
 	return nil, &responseError{Code: jsonRPCMethodNotFound, Message: "Unhandled method " + method}
+}
+
+type delayedHierarchyPrepareFactory struct {
+	client *delayedHierarchyPrepareClient
+}
+
+func (f *delayedHierarchyPrepareFactory) NewClient(string, protocol.NotificationHandler) (Client, error) {
+	f.client = &delayedHierarchyPrepareClient{
+		genericMatrixClient: &genericMatrixClient{documents: map[string]string{}},
+	}
+	return f.client, nil
+}
+
+func (f *delayedHierarchyPrepareFactory) clientAt(t *testing.T) *delayedHierarchyPrepareClient {
+	t.Helper()
+	if f.client == nil {
+		t.Fatal("client was not created")
+	}
+	return f.client
+}
+
+type delayedHierarchyPrepareClient struct {
+	*genericMatrixClient
+	prepareCalls int
+}
+
+func (c *delayedHierarchyPrepareClient) Request(_ context.Context, method string, params any) (json.RawMessage, error) {
+	uri := e2eRequestURI(params)
+	rng := protocol.Range{Start: protocol.Position{Line: 0, Character: 7}, End: protocol.Position{Line: 0, Character: 12}}
+	switch method {
+	case protocol.MethodPrepareCallHierarchy:
+		c.prepareCalls++
+		if !c.opened(uri, "typescript") {
+			return nil, fmt.Errorf("prepareCallHierarchy ran before target bootstrap; opens=%#v", c.openEvents())
+		}
+		if c.prepareCalls == 1 {
+			return json.RawMessage("[]"), nil
+		}
+		return json.Marshal([]protocol.CallHierarchyItem{{
+			Name:           "greet",
+			Kind:           int(protocol.SymbolKindFunction),
+			URI:            uri,
+			Range:          rng,
+			SelectionRange: rng,
+		}})
+	case protocol.MethodCallHierarchyOutgoing:
+		return json.Marshal([]protocol.CallHierarchyOutgoingCall{{
+			To: protocol.CallHierarchyItem{
+				Name:           "printName",
+				Kind:           int(protocol.SymbolKindFunction),
+				URI:            uri,
+				Range:          rng,
+				SelectionRange: rng,
+			},
+			FromRanges: []protocol.Range{rng},
+		}})
+	default:
+		return nil, fmt.Errorf("unexpected hierarchy request method %q", method)
+	}
 }
 
 type unsupportedHierarchyDirectionFactory struct {

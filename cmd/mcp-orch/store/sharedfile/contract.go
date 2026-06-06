@@ -34,3 +34,18 @@ type UpsertParams struct {
 	Content   string
 	UpdatedBy string
 }
+
+type Importer interface {
+	ImportLocalFile(ctx context.Context, params ImportLocalFileParams) (*SharedFile, error)
+}
+
+type ImportLocalFileParams struct {
+	SourcePath         string
+	TargetPath         string
+	ContentType        string
+	AllowedExtensions  []string
+	AllowedSourceRoots []string
+	MaxBytes           int64
+	Overwrite          string
+	UpdatedBy          string
+}

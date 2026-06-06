@@ -91,6 +91,9 @@ func resolveWorkspaceSymbolManager(ctx context.Context, registry lspmanager.Regi
 		return nil, "", errors.New("exactly one of file_path or language is required")
 	}
 	if language != "" {
+		if limitedDocumentFallbackLanguage(language) != "" {
+			return nil, language, nil
+		}
 		manager, err := registry.GetManagerForLanguage(ctx, language)
 		if err != nil {
 			return nil, "", err
@@ -100,6 +103,10 @@ func resolveWorkspaceSymbolManager(ctx context.Context, registry lspmanager.Regi
 	if err := validateWorkspaceSymbolFilePath(filePath); err != nil {
 		return nil, "", err
 	}
+	language = lspmanager.DetectLanguageID(workspaceSymbolPathForValidation(filePath))
+	if limitedDocumentFallbackLanguage(language) != "" {
+		return nil, language, nil
+	}
 	manager, err := managerForFile(ctx, registry, filePath, "")
 	if err != nil {
 		if errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
@@ -107,7 +114,7 @@ func resolveWorkspaceSymbolManager(ctx context.Context, registry lspmanager.Regi
 		}
 		return nil, "", err
 	}
-	return manager, lspmanager.DetectLanguageID(workspaceSymbolPathForValidation(filePath)), nil
+	return manager, language, nil
 }
 
 func runDocumentSymbols(
@@ -156,11 +163,20 @@ func runWorkspaceSymbols(
 	if query == "" {
 		return nil, errors.New("query is required")
 	}
+	if limitedDocumentFallbackLanguage(languageID) != "" {
+		return unsupportedCapabilityEmptyResult("workspace symbol", languageID), nil
+	}
+	if manager == nil {
+		return nil, errManagerUnavailable
+	}
 	limit := format.WorkspaceSymbolLimit(req.MaxResults, format.VerbosityCompact)
 	if err := bootstrapWorkspaceSymbolTarget(ctx, manager, req.FilePath); err != nil {
 		return nil, err
 	}
 	results, err := manager.WorkspaceSymbol(ctx, query, languageID)
+	if isUnsupportedCapability(err) {
+		return unsupportedCapabilityEmptyResult("workspace symbol", languageID), nil
+	}
 	if err != nil {
 		return nil, err
 	}

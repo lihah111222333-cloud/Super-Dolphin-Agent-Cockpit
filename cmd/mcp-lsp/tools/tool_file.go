@@ -14,6 +14,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -272,7 +273,7 @@ func (h handlerBase) tryFunctionWindow(ctx context.Context, path search.PathInfo
 	if err != nil {
 		return lineWindowReasonNoLSP, false
 	}
-	symbols, err := manager.DocumentSymbol(ctx, path.AbsPath)
+	symbols, err := readFileDocumentSymbols(ctx, manager, path.AbsPath)
 	if err != nil || len(symbols) == 0 {
 		return lineWindowReasonNoSymbols, false
 	}
@@ -282,6 +283,13 @@ func (h handlerBase) tryFunctionWindow(ctx context.Context, path search.PathInfo
 	}
 	name := enclosingFunctionName(symbols, req.line-1)
 	return renderFunctionWindow(content, name, start, end, req.limit), true
+}
+
+func readFileDocumentSymbols(ctx context.Context, manager lspmanager.Manager, uri string) ([]protocol.DocumentSymbol, error) {
+	if bestEffort, ok := manager.(lspmanager.BestEffortDocumentSymbolManager); ok {
+		return bestEffort.DocumentSymbolBestEffort(ctx, uri)
+	}
+	return manager.DocumentSymbol(ctx, uri)
 }
 
 func (h handlerBase) readBatch(ctx context.Context, req readFileRequest) (batchReadResponse, error) {

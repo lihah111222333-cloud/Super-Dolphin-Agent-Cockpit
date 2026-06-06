@@ -12,6 +12,7 @@ const backend = vi.hoisted(() => ({
   getDagDetail: vi.fn(),
   getDagRun: vi.fn(),
   getDagRuns: vi.fn(),
+  openSharedFile: vi.fn(),
   readSharedFile: vi.fn(),
   startDag: vi.fn(),
   startTurn: vi.fn(),
@@ -314,6 +315,63 @@ describe('WorkflowPage module', () => {
     expect(rows[0]).toHaveTextContent('2026-06-02 17:22:56');
     expect(rows[1]).toHaveTextContent('第 2 次运行');
     expect(rows[1]).toHaveTextContent('2026-06-02 20:12:43');
+  });
+
+  it('shows a stable open action for mp4 final output without reading it as text', async () => {
+    const dag = {
+      dag_key: 'douyin-video',
+      title: 'Douyin Video',
+      status: 'ready',
+      trigger: 'manual',
+      version: 1,
+    };
+    const finalPath = 'dag/douyin/daily-video/run-video-21/final.mp4';
+    backend.getDashboardPage.mockResolvedValue({ dags: [dag] });
+    backend.getDagDetail.mockResolvedValue({ dag, nodes: [] });
+    backend.getDagRuns.mockImplementation((params = {}) => Promise.resolve({
+      runs: params.status === 'running'
+        ? []
+        : [{
+            id: 21,
+            run_key: 'run-video-21',
+            status: 'succeeded',
+            started_at: '2026-06-06T13:25:55+08:00',
+            metadata: {
+              final_output: {
+                kind: 'file',
+                role: 'final_output',
+                path: finalPath,
+                source_node_key: 'generate_video_mp4',
+              },
+            },
+          }],
+    }));
+    backend.getDagRun.mockResolvedValue({
+      run: {
+        id: 21,
+        run_key: 'run-video-21',
+        status: 'succeeded',
+        metadata: {
+          final_output: {
+            kind: 'file',
+            role: 'final_output',
+            path: finalPath,
+            source_node_key: 'generate_video_mp4',
+          },
+        },
+      },
+      nodes: [],
+    });
+    backend.openSharedFile.mockResolvedValue({ opened: true });
+
+    renderWorkflowPage();
+
+    expect(await screen.findByText(finalPath)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '页内播放' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '系统打开' }));
+
+    await waitFor(() => expect(backend.openSharedFile).toHaveBeenCalledWith({ path: finalPath }));
+    expect(backend.readSharedFile).not.toHaveBeenCalled();
   });
 
   it('orders runtime workflow steps and topology by dependencies instead of backend row order', async () => {
@@ -693,10 +751,9 @@ describe('WorkflowPage module', () => {
     });
   });
 
-  it('starts the Douyin 05:00 video automation template with a seeded designer turn', async () => {
+  it('starts the generic AI designer flow without the Douyin template action', async () => {
     mockWorkflowDag();
-    backend.startThread.mockResolvedValue({ thread_id: 'thread-douyin' });
-    backend.startTurn.mockResolvedValue({ turn_id: 'turn-douyin' });
+    backend.startThread.mockResolvedValue({ thread_id: 'thread-design' });
     const store = {
       resolveLaunchPreferences: vi.fn().mockResolvedValue({
         modelProvider: 'codex',
@@ -709,28 +766,21 @@ describe('WorkflowPage module', () => {
 
     renderWorkflowPage(store);
 
-    fireEvent.click(await screen.findByRole('button', { name: '抖音 5 点模板' }));
+    expect(await screen.findByRole('button', { name: 'AI 设计流程' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '抖音 5 点模板' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'AI 设计流程' }));
 
     await waitFor(() => {
       expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
         cwd: '/repo/app',
-        name: '抖音 5 点视频自动化',
+        name: 'AI 设计流程',
         agentKey: 'dag_designer',
         promptKey: 'main/dag_designer_zh',
         deferSpawn: true,
       }));
-      expect(backend.startTurn).toHaveBeenCalledWith(expect.objectContaining({
-        cwd: '/repo/app',
-        threadId: 'thread-douyin',
-      }));
     });
-    const turnInput = backend.startTurn.mock.calls[0][0].input;
-    expect(turnInput).toContain('daily_workplace_mentor_douyin_video');
-    expect(turnInput).toContain('每天 05:00 Asia/Shanghai');
-    expect(turnInput).toContain('cron_expr = `CRON_TZ=Asia/Shanghai 0 5 * * *`');
-    expect(turnInput).toContain('生成 1 条');
-    expect(turnInput).toContain('不自动发布');
-    expect(store.setActiveThread).toHaveBeenCalledWith('thread-douyin');
+    expect(backend.startTurn).not.toHaveBeenCalled();
+    expect(store.setActiveThread).toHaveBeenCalledWith('thread-design');
     expect(store.setActivePage).toHaveBeenCalledWith('chat');
   });
 

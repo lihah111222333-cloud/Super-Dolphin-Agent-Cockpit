@@ -41,7 +41,7 @@ func testConfigWithDefaultAgentProvider(raw string) string {
 	if testConfigString(exec, "agent_key") == "" && testConfigString(exec, "prompt_key") == "" {
 		return raw
 	}
-	exec["provider"] = "claude"
+	exec["provider"] = "codex"
 	out, err := json.Marshal(config)
 	if err != nil {
 		return raw

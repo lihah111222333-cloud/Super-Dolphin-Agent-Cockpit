@@ -171,6 +171,30 @@ func (m *manager) DocumentSymbol(ctx context.Context, uri string) ([]protocol.Do
 	)
 }
 
+func (m *manager) DocumentSymbolBestEffort(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error) {
+	ref, err := m.resolveDocumentRef(ctx, uri, "")
+	if err != nil {
+		return nil, err
+	}
+	if symbols, ok, err := m.fallbackDocumentSymbols(ref); ok || err != nil {
+		return symbols, err
+	}
+	client, ref, err := m.documentClientWithoutDiagnosticsWait(ctx, ref.uri)
+	if err != nil {
+		return nil, err
+	}
+	if client == nil {
+		return nil, nil
+	}
+	raw, err := m.request(ctx, client, protocol.MethodDocumentSymbol, protocol.DocumentSymbolParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: ref.uri},
+	})
+	if err != nil {
+		return nil, unsupportedCapabilityError(err)
+	}
+	return decodeDocumentSymbols(raw)
+}
+
 func (m *manager) WorkspaceSymbol(ctx context.Context, query string, languageID string) ([]protocol.WorkspaceSymbolResult, error) {
 	languageID = normalizeLanguageID(languageID)
 	if languageID == "" {
