@@ -3367,6 +3367,92 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
+  it('does not duplicate assistant messages split by tool calls during turn completion', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+      timelinesByThread: {
+        'thread-1': [{ id: 'user-1', role: 'user', text: 'say hi', time: '2026-05-30T00:00:00Z' }],
+      },
+    });
+    registerBridgeEventHandlersForTest();
+
+    // 1. Assistant outputs part 1
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        sequence: '1',
+        timelineItems: [{
+          id: 'assistant-part-1',
+          kind: 'assistant',
+          text: 'hello',
+          createdAt: '2026-05-30T00:01:00Z',
+        }],
+      },
+    });
+
+    // 2. A tool call is made
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        sequence: '2',
+        timelineItems: [{
+          id: 'tool-call-1',
+          kind: 'toolCall',
+          toolName: 'my_tool',
+          createdAt: '2026-05-30T00:01:01Z',
+        }],
+      },
+    });
+
+    // 3. Assistant outputs part 2
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        sequence: '3',
+        timelineItems: [{
+          id: 'assistant-part-2',
+          kind: 'assistant',
+          text: 'world',
+          createdAt: '2026-05-30T00:01:02Z',
+        }],
+      },
+    });
+
+    // 4. item/completed is called with the concatenated turn result
+    bridgeCallback({
+      method: 'item/completed',
+      payload: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: {
+          id: 'assistant-concatenated',
+          type: 'agentMessage',
+          text: 'helloworld',
+        },
+      },
+    });
+
+    const timeline = useClientStore.getState().timelinesByThread['thread-1'];
+    const assistantMessages = timeline.filter((message) => message.role === 'assistant' && (message.kind === 'assistant' || !message.kind));
+    expect(assistantMessages).toHaveLength(2);
+    expect(assistantMessages[0]).toEqual(expect.objectContaining({
+      id: 'assistant-part-1',
+      text: 'hello',
+      done: true,
+    }));
+    expect(assistantMessages[1]).toEqual(expect.objectContaining({
+      id: 'assistant-part-2',
+      text: 'world',
+      done: true,
+    }));
+  });
+
   it('removes a compact runtime duplicate when a later patch carries the formatted assistant reply', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
