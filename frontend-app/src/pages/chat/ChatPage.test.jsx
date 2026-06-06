@@ -1483,32 +1483,40 @@ describe('ChatPage module', () => {
     const store1 = createActiveThreadStore([
       { id: 'msg-1', role: 'user', text: 'Thread 1 message', time: '2026-06-02T08:00:00Z' }
     ], { activeThreadId: 'thread-1' });
-    const { rerender } = render(<ChatPage store={store1} projectPath="/repo/app" />);
+
+    let setScrollTopValue = null;
+    const originalScrollTopDesc = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, 'scrollTop');
     
-    const timeline = screen.getByTestId('chat-timeline');
-    let scrollTop = 500;
-    Object.defineProperty(timeline, 'clientHeight', { configurable: true, value: 400 });
-    Object.defineProperty(timeline, 'scrollHeight', { configurable: true, value: 1500 });
-    Object.defineProperty(timeline, 'scrollTop', {
+    Object.defineProperty(HTMLDivElement.prototype, 'scrollTop', {
       configurable: true,
-      get: () => scrollTop,
-      set: (val) => {
-        scrollTop = val;
+      get() {
+        return 500;
+      },
+      set(val) {
+        setScrollTopValue = val;
       },
     });
 
-    expect(scrollTop).toBe(500);
+    try {
+      const { rerender } = render(<ChatPage store={store1} projectPath="/repo/app" />);
+      
+      const store2 = createActiveThreadStore([], {
+        activeThreadId: 'thread-2',
+        threadStateLoadingByThread: { 'thread-2': true },
+        threadTimelineReadyByThread: { 'thread-2': false },
+      });
 
-    const store2 = createActiveThreadStore([], {
-      activeThreadId: 'thread-2',
-      threadStateLoadingByThread: { 'thread-2': true },
-      threadTimelineReadyByThread: { 'thread-2': false },
-    });
+      act(() => {
+        rerender(<ChatPage store={store2} projectPath="/repo/app" />);
+      });
 
-    act(() => {
-      rerender(<ChatPage store={store2} projectPath="/repo/app" />);
-    });
-
-    expect(scrollTop).toBe(0);
+      expect(setScrollTopValue).toBe(0);
+    } finally {
+      if (originalScrollTopDesc) {
+        Object.defineProperty(HTMLDivElement.prototype, 'scrollTop', originalScrollTopDesc);
+      } else {
+        delete HTMLDivElement.prototype.scrollTop;
+      }
+    }
   });
 });
