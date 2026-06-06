@@ -58,7 +58,7 @@ const TIMELINE_SCROLL_LOAD_THRESHOLD = 32;
 
 const TIMELINE_BOTTOM_STICKY_THRESHOLD = 48;
 
-const CONTEXT_USAGE_FORK_THRESHOLD = 90;
+const DEFAULT_CONTEXT_USAGE_THRESHOLDS = Object.freeze([70, 85, 95]);
 
 const RUNTIME_STAT_TOOLTIP_WIDTH = 360;
 
@@ -1854,6 +1854,29 @@ function useChatInterruptShortcut(store, activeThreadId) {
   }, [store, activeThreadId]);
 }
 
+function useDebugContextUsageShortcut() {
+  const [debugOverride, setDebugOverride] = useState(() => Boolean(window.__debugContextUsage));
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      const isK = e.key?.toLowerCase() === 'k' || e.code === 'KeyK';
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && isK) {
+        e.preventDefault();
+        setDebugOverride((prev) => {
+          const next = !prev;
+          window.__debugContextUsage = next;
+          console.log(`[ContextUsageBanner] debug override ${next ? 'ON - simulating 95% usage' : 'OFF'}`);
+          return next;
+        });
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  return debugOverride;
+}
+
 function useRuntimeSidePanelLayout({ activeThreadId, railWidth, store, viewportWidth, open, setOpen }) {
   const resizedRef = useRef(false);
   const layoutRef = useRef(null);
@@ -2018,6 +2041,7 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
   });
   useActiveChatThreadSync(store, activeThreadId);
   useChatInterruptShortcut(store, activeThreadId);
+  const debugOverride = useDebugContextUsageShortcut();
   const layoutColumns = rightPanelOpen
     ? `${rail.width}px ${SPLITTER_WIDTH}px minmax(0, 1fr) ${SPLITTER_WIDTH}px ${rightPanelWidth}px`
     : `${rail.width}px ${SPLITTER_WIDTH}px minmax(0, 1fr)`;
@@ -2052,6 +2076,7 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
           timelineContentBlocked={threadData.timelineContentBlocked}
           canUseProjectActions={canUseProjectActions}
           messageActions={messageActions}
+          debugOverride={debugOverride}
         />
         <RuntimePanelSlot
           beginResize={beginRuntimeResize}
@@ -5129,6 +5154,7 @@ function Conversation(props) {
     removeAttachment,
     canUseProjectActions = true,
     sendMessage,
+    debugOverride,
   } = props;
   const introMode = !activeThreadId && !timelineBlocked && messages.length === 0;
   const hasProcessingAfterLastUser = hasReasoningMessageAfterLastUser(messages);
@@ -5201,7 +5227,6 @@ function Conversation(props) {
       onDragLeave={composerController.handleDragLeave}
       onDrop={(event) => runUIAction(() => composerController.handleDrop(event))}
     >
-      <ContextUsageBanner activeThreadId={activeThreadId} store={store} tokenUsage={tokenUsage} />
       <ConversationTimeline
         composer={composer}
         introMode={introMode}
@@ -5225,6 +5250,8 @@ function Conversation(props) {
           activeThread={activeThread}
           statusEntry={statusEntry}
           tokenUsage={tokenUsage}
+          store={store}
+          debugOverride={debugOverride}
         />
       ) : null}
       {!introMode ? composer : null}
@@ -5232,18 +5259,74 @@ function Conversation(props) {
   );
 }
 
-function ContextUsageBanner({ activeThreadId, store, tokenUsage }) {
-  if (!activeThreadId || !tokenUsage || tokenUsage.usedPercent < CONTEXT_USAGE_FORK_THRESHOLD) return null;
-  const canFork = Boolean(store?.hasActiveThreadActions?.());
+const DEBUG_CONTEXT_USAGE_SIMULATED = { usedTokens: 190000, contextWindowTokens: 200000, usedPercent: 95 };
+
+function normalizeContextUsageThresholdsForBanner(value) {
+  if (!Array.isArray(value) || value.length < 3) return DEFAULT_CONTEXT_USAGE_THRESHOLDS;
+  const thresholds = value.slice(0, 3).map((item) => Number(item));
+  const valid = thresholds.every((item) => Number.isFinite(item)) &&
+    thresholds[0] > 0 &&
+    thresholds[0] < thresholds[1] &&
+    thresholds[1] < thresholds[2] &&
+    thresholds[2] <= 100;
+  return valid ? thresholds : DEFAULT_CONTEXT_USAGE_THRESHOLDS;
+}
+
+function contextUsageLevel(usedPercent, thresholds) {
+  const pct = Number(usedPercent);
+  if (!Number.isFinite(pct)) return '';
+  const [warn, danger, critical] = normalizeContextUsageThresholdsForBanner(thresholds);
+  if (pct >= critical) return 'critical';
+  if (pct >= danger) return 'danger';
+  if (pct >= warn) return 'warn';
+  return '';
+}
+
+function CriticalContextUsageIcon() {
   return (
-    <output className="context-usage-banner" data-testid="context-usage-banner">
+    <svg className="banner-icon" data-testid="context-usage-critical-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  );
+}
+
+function ContextUsageBanner({ activeThreadId, store, tokenUsage, inline = false, debugOverride }) {
+  const effectiveUsage = debugOverride ? DEBUG_CONTEXT_USAGE_SIMULATED : tokenUsage;
+
+  const level = contextUsageLevel(effectiveUsage?.usedPercent, store?.contextUsageThresholds);
+  if (!activeThreadId || !effectiveUsage || !level) return null;
+  const canFork = Boolean(store?.hasActiveThreadActions?.());
+  const pct = Math.round(effectiveUsage.usedPercent);
+  const levelLabel = { warn: 'Warn', danger: 'Danger', critical: 'Critical' }[level];
+
+  if (inline) {
+    return (
+      <output className={`context-usage-inline context-usage-inline--${level}`} data-testid="context-usage-banner" role="alert" aria-label={`上下文使用率 ${pct}%，${levelLabel}`}>
+        {debugOverride ? <span className="banner-debug-badge">DEBUG</span> : null}
+        {level === 'critical' ? <CriticalContextUsageIcon /> : null}
+        <span>上下文使用率 {pct}%</span>
+        <button
+          type="button"
+          className="context-usage-inline-fork"
+          disabled={!canFork}
+          onClick={() => {
+            if (canFork) runUIAction(() => store.openForkDraft?.({ origin: 'context-usage' }));
+          }}
+        >
+          新建继承会话
+        </button>
+      </output>
+    );
+  }
+
+  return (
+    <output className={`context-usage-banner context-usage-banner--${level}`} data-testid="context-usage-banner" aria-label={`上下文使用率 ${pct}%，${levelLabel}`}>
+      {debugOverride ? <span className="banner-debug-badge">DEBUG</span> : null}
       <div className="banner-message">
-        <svg className="banner-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-          <line x1="12" y1="9" x2="12" y2="13" />
-          <line x1="12" y1="17" x2="12.01" y2="17" />
-        </svg>
-        <span>上下文使用率 {Math.round(tokenUsage.usedPercent)}%</span>
+        {level === 'critical' ? <CriticalContextUsageIcon /> : null}
+        <span>上下文使用率 {pct}%</span>
       </div>
       <button
         type="button"
@@ -5563,7 +5646,7 @@ function TimelineLoadingPlaceholder() {
   );
 }
 
-function WorkStatus({ sending, loading, activeThreadId, activeThread, statusEntry, tokenUsage }) {
+function WorkStatus({ sending, loading, activeThreadId, activeThread, statusEntry, tokenUsage, store, debugOverride }) {
   const status = workStatusForThread({ sending, loading, activeThreadId, activeThread, statusEntry });
   const className = `work-status work-status--${status.tone}${status.busy ? ' is-busy' : ''}`;
   const tokenText = tokenUsage ? `${tokenUsage.usedTokens} / ${tokenUsage.contextWindowTokens} tokens` : 'token usage 等待后端同步';
@@ -5572,6 +5655,7 @@ function WorkStatus({ sending, loading, activeThreadId, activeThread, statusEntr
       <span className="spinner" aria-hidden="true" />
       <span className="work-status-label">{status.label}</span>
       <em>{status.details}</em>
+      <ContextUsageBanner activeThreadId={activeThreadId} store={store} tokenUsage={tokenUsage} inline debugOverride={debugOverride} />
       <code title={tokenText}>{tokenText}</code>
     </div>
   );

@@ -2454,7 +2454,7 @@ select {
   max-width: var(--conversation-content-width);
   justify-self: start;
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) minmax(0, max-content);
+  grid-template-columns: auto auto minmax(0, 1fr) auto minmax(0, max-content);
   align-items: center;
   gap: 12px;
   margin-left: var(--conversation-content-left-gutter);
@@ -3511,25 +3511,112 @@ select {
 }
 
 .context-usage-banner {
+  --context-usage-accent: var(--warning);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   margin: 12px 18px 0;
   padding: 10px 16px;
-  border: 1px solid color-mix(in srgb, var(--warning) 30%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--context-usage-accent) 30%, var(--border));
   border-radius: 8px;
   background: linear-gradient(
     135deg,
-    color-mix(in srgb, var(--warning) 8%, var(--surface-2, var(--surface))),
-    color-mix(in srgb, var(--warning) 4%, var(--surface-3, var(--surface)))
+    color-mix(in srgb, var(--context-usage-accent) 8%, var(--surface-2, var(--surface))),
+    color-mix(in srgb, var(--context-usage-accent) 4%, var(--surface-3, var(--surface)))
   );
   backdrop-filter: blur(8px);
-  color: var(--warning);
+  color: var(--context-usage-accent);
   font-size: 13px;
   font-weight: 500;
   box-shadow: var(--shadow);
   animation: banner-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.context-usage-banner--danger,
+.context-usage-banner--critical {
+  --context-usage-accent: var(--error);
+}
+
+.context-usage-banner--critical {
+  border-color: color-mix(in srgb, var(--error) 54%, var(--border));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--error) 15%, var(--surface-2, var(--surface))),
+    color-mix(in srgb, var(--error) 9%, var(--surface-3, var(--surface)))
+  );
+  box-shadow: var(--shadow), 0 0 0 1px color-mix(in srgb, var(--error) 22%, transparent);
+}
+
+.context-usage-banner .banner-debug-badge,
+.context-usage-inline .banner-debug-badge {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--error);
+  color: var(--primary-ink);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+/* Inline variant: lives inside the WorkStatus bar */
+.context-usage-inline {
+  --context-usage-accent: var(--warning);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--context-usage-accent) 40%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--context-usage-accent) 10%, var(--surface));
+  color: var(--context-usage-accent);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  animation: banner-slide-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.context-usage-inline--danger,
+.context-usage-inline--critical {
+  --context-usage-accent: var(--error);
+}
+
+.context-usage-inline--critical {
+  border-color: color-mix(in srgb, var(--error) 58%, var(--border));
+  background: color-mix(in srgb, var(--error) 16%, var(--surface));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--error) 20%, transparent);
+}
+
+.context-usage-inline .banner-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.context-usage-inline-fork {
+  margin-left: 4px;
+  padding: 2px 10px;
+  border: 1px solid color-mix(in srgb, var(--context-usage-accent) 50%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--context-usage-accent) 18%, var(--surface));
+  color: var(--context-usage-accent);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.context-usage-inline-fork:hover:not(:disabled) {
+  background: var(--context-usage-accent);
+  color: var(--surface);
+  box-shadow: 0 1px 6px color-mix(in srgb, var(--context-usage-accent) 40%, transparent);
+}
+
+.context-usage-inline-fork:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 @keyframes banner-slide-in {
@@ -3558,10 +3645,10 @@ select {
 .context-usage-banner button {
   min-height: 28px;
   padding: 0 12px;
-  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  border: 1px solid color-mix(in srgb, var(--context-usage-accent) 40%, transparent);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--warning) 15%, var(--surface));
-  color: var(--warning);
+  background: color-mix(in srgb, var(--context-usage-accent) 15%, var(--surface));
+  color: var(--context-usage-accent);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -3569,10 +3656,10 @@ select {
 }
 
 .context-usage-banner button:hover:not(:disabled) {
-  background: var(--warning);
+  background: var(--context-usage-accent);
   color: var(--surface);
-  border-color: var(--warning);
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--warning) 40%, transparent);
+  border-color: var(--context-usage-accent);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--context-usage-accent) 40%, transparent);
   transform: translateY(-1px);
 }
 

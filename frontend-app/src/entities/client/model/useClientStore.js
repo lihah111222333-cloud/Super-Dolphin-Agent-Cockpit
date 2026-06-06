@@ -54,6 +54,8 @@ const BRIDGE_PATCH_SLOW_MS = 50;
 const THREAD_MESSAGES_PAGE_SIZE = 300;
 const PROVIDER_ACTIVE_PREF_KEY = 'settings.provider.active';
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
+const CONTEXT_USAGE_ALERT_THRESHOLDS_PREF_KEY = 'contextUsageAlerts.thresholds';
+const DEFAULT_CONTEXT_USAGE_ALERT_THRESHOLDS = Object.freeze([70, 85, 95]);
 const THREAD_PINS_CHAT_PREF_KEY = 'threadPins.chat';
 const objectPrototype = Object.prototype;
 const PROVIDER_DISPLAY_DEFAULT_CONFIGS = Object.freeze({
@@ -142,6 +144,17 @@ function firstValueFromSources(sources = []) {
 function positiveNumberFromFields(source, keys = []) {
   const numeric = Number(firstFieldValue(source, keys));
   return Math.max(0, Number.isFinite(numeric) ? numeric : 0);
+}
+
+function normalizeContextUsageThresholds(value) {
+  if (!Array.isArray(value) || value.length < 3) return [...DEFAULT_CONTEXT_USAGE_ALERT_THRESHOLDS];
+  const thresholds = value.slice(0, 3).map((item) => Number(item));
+  const valid = thresholds.every((item) => Number.isFinite(item)) &&
+    thresholds[0] > 0 &&
+    thresholds[0] < thresholds[1] &&
+    thresholds[1] < thresholds[2] &&
+    thresholds[2] <= 100;
+  return valid ? thresholds : [...DEFAULT_CONTEXT_USAGE_ALERT_THRESHOLDS];
 }
 
 function requiredDagStatusPayloadString(payload, field, message) {
@@ -2767,6 +2780,7 @@ const baseState = {
   projects: [],
   provider: DEFAULT_PROVIDER,
   providerConfig: normalizeProviderRuntimeConfig({}, DEFAULT_PROVIDER),
+  contextUsageThresholds: [...DEFAULT_CONTEXT_USAGE_ALERT_THRESHOLDS],
   activePage: 'chat',
   promptRevision: 0,
   promptPageCacheByCwd: {},
@@ -3649,6 +3663,13 @@ function attachBridgeEventRuntime(runtime) {
       refreshActiveChatSidebarInBackground();
       return;
     }
+    if (eventName === 'ui/preferences/changed' && normalizeString(payload.key) === CONTEXT_USAGE_ALERT_THRESHOLDS_PREF_KEY) {
+      const cwd = normalizePath(payload.cwd) || normalizePath(payload.projectCwd || payload.project_cwd) || runtime.get().projectScopeCwd || runtime.get().cwd;
+      void runtime.get().loadContextUsageThresholds(cwd).catch((error) => {
+        addWarning('error', 'context_usage.thresholds.load.failed', { error: error?.message || String(error) });
+      });
+      return;
+    }
     if (method === 'ui/thread/patch') {
       flushAssistantDeltasNow();
       applyBridgePatch(method, payload);
@@ -3827,6 +3848,7 @@ function createBootstrapActions(runtime) {
           getProjects({ cwd: scopedCwd }),
           getSidebarState({ cwd: scopedCwd }),
           runtime.loadProviderConfig(scopedCwd, activeProvider),
+          runtime.get().loadContextUsageThresholds(scopedCwd),
         ]);
         runtime.applyProjects(projects, scopedCwd);
         runtime.cacheSidebarSnapshot(scopedCwd, sidebar);
@@ -3932,6 +3954,22 @@ function createNavigationActions(runtime) {
     resolveLaunchPreferences: (cwdArg) => {
       const cwd = normalizePath(cwdArg) || runtime.requireCwd('thread.launchPreferences');
       return resolveLaunchPreferences(cwd);
+    },
+
+  };
+}
+
+function createContextUsageThresholdActions(runtime) {
+  return {
+    setContextUsageThresholds: (thresholds) => {
+      runtime.set({ contextUsageThresholds: normalizeContextUsageThresholds(thresholds) });
+    },
+
+    loadContextUsageThresholds: async (cwdArg) => {
+      const cwd = normalizePath(cwdArg) || runtime.requireCwd('contextUsageThresholds.load');
+      const value = await getPreference({ cwd, key: CONTEXT_USAGE_ALERT_THRESHOLDS_PREF_KEY });
+      runtime.set({ contextUsageThresholds: normalizeContextUsageThresholds(value) });
+      return runtime.get().contextUsageThresholds;
     },
 
   };
@@ -5055,6 +5093,7 @@ function createClientStore(set, get) {
     ...createBootstrapActions(runtime),
     ...createThreadSyncActions(runtime),
     ...createNavigationActions(runtime),
+    ...createContextUsageThresholdActions(runtime),
     ...createPromptWorkflowCacheActions(runtime),
     ...createResourcePageCacheActions(runtime),
     ...createProviderConfigActions(runtime),
