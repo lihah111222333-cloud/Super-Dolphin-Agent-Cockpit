@@ -5393,6 +5393,20 @@ function Conversation(props) {
       observer.disconnect();
     };
   }, []);
+
+  useEffect(() => {
+    const el = timelineRef.current;
+    if (!el) return;
+    const handleLoad = () => {
+      if (shouldStickToBottomRef.current) {
+        scrollTimelineElementToBottom(el, false);
+      }
+    };
+    el.addEventListener('load', handleLoad, true);
+    return () => {
+      el.removeEventListener('load', handleLoad, true);
+    };
+  }, [timelineRef]);
   const composer = (
     <ConversationComposer
       {...props}
