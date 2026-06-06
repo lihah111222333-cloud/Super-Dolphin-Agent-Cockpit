@@ -24,16 +24,21 @@ type storeParams struct {
 	EmitSharedFilesChanged contract.UISharedFilesChangedEmitter `optional:"true"`
 }
 
-func provideStore(p storeParams) Store {
-	return NewStoreWithConfigAndEmitter(p.Queries, sharedfileFSConfigFrom(p.Config), p.EmitSharedFilesChanged)
+func provideStore(p storeParams) (Store, error) {
+	cfg, err := sharedfileFSConfigFrom(p.Config)
+	if err != nil {
+		return nil, err
+	}
+	return NewStoreWithConfigAndEmitter(p.Queries, cfg, p.EmitSharedFilesChanged), nil
 }
 
-func sharedfileFSConfigFrom(cfg *platformconfig.Config) sharedfilefs.Config {
-	if cfg == nil {
-		return sharedfilefs.Config{}
+func sharedfileFSConfigFrom(cfg *platformconfig.Config) (sharedfilefs.Config, error) {
+	root, err := platformconfig.SharedFileRoot(cfg)
+	if err != nil {
+		return sharedfilefs.Config{}, err
 	}
 	return sharedfilefs.Config{
-		CWD:                  cfg.ProjectRoot,
+		CWD:                  root,
 		InlineThresholdBytes: sharedfilefs.DefaultInlineThresholdBytes,
-	}
+	}, nil
 }
