@@ -392,6 +392,74 @@ func TestNewManagerPackagedRegistersOnlyBundledLanguageServers(t *testing.T) {
 	}
 }
 
+func TestNewManagerPackagedStandardBundleRegistersNonJDTLSLanguages(t *testing.T) {
+	root := t.TempDir()
+	bundle := t.TempDir()
+	writeMcpLSPBundleManifest(t, bundle, `{
+  "servers": {
+    "gopls": {"path": "bin/gopls", "languages": ["go", "gomod", "gosum", "gowork"]},
+    "typescript-language-server": {"path": "bin/typescript-language-server", "languages": ["javascript", "javascriptreact", "typescript", "typescriptreact"]},
+    "vscode-langservers-extracted": {"path": "bin/vscode-css-language-server", "languages": ["css"]},
+    "pyright": {"path": "bin/pyright-langserver", "languages": ["python"]},
+    "rust-analyzer": {"path": "bin/rust-analyzer", "languages": ["rust"]},
+    "bash-language-server": {"path": "bin/bash-language-server", "languages": ["shellscript"]}
+  }
+}
+`)
+	for _, name := range []string{
+		"gopls",
+		"typescript-language-server",
+		"vscode-css-language-server",
+		"pyright-langserver",
+		"rust-analyzer",
+		"bash-language-server",
+	} {
+		writeMcpLSPExecutable(t, filepath.Join(bundle, "bin"), name)
+	}
+	t.Setenv("GO_AGENT_LSP_ROOT", root)
+	t.Setenv("SUPER_DOLPHIN_LSP_BUNDLE_DIR", bundle)
+	t.Setenv("SUPER_DOLPHIN_LSP_MANIFEST", filepath.Join(bundle, "manifest.json"))
+	t.Setenv("PATH", t.TempDir())
+
+	cfg, err := platformconfig.New()
+	if err != nil {
+		t.Fatalf("platform config: %v", err)
+	}
+	mgr, err := newManager(cfg)
+	if err != nil {
+		t.Fatalf("newManager() error = %v", err)
+	}
+	defer func() {
+		if err := mgr.Close(); err != nil {
+			t.Fatalf("close manager: %v", err)
+		}
+	}()
+
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root, Family: "lsp"})
+	for _, languageID := range []string{
+		"go",
+		"gomod",
+		"gosum",
+		"gowork",
+		"javascript",
+		"javascriptreact",
+		"typescript",
+		"typescriptreact",
+		"css",
+		"python",
+		"rust",
+		"shellscript",
+	} {
+		if _, err := mgr.registry.GetManagerForLanguage(ctx, languageID); err != nil {
+			t.Fatalf("bundled %s manager error = %v", languageID, err)
+		}
+	}
+	_, err = mgr.registry.GetManagerForLanguage(ctx, "java")
+	if !errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
+		t.Fatalf("java manager error = %v, want unsupported because jdtls is not in standard bundle", err)
+	}
+}
+
 func assertDocumentFallbackSymbol(
 	t *testing.T,
 	ctx context.Context,
