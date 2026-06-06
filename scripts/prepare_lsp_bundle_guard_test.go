@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestPrepareLSPBundleScriptsInstallAstGrepCLI(t *testing.T) {
 	for _, scriptPath := range []string{"prepare_lsp_bundle_macos.sh", "prepare_lsp_bundle_linux.sh"} {
@@ -76,6 +79,23 @@ func TestPrepareLSPBundleScriptsIncludeShellcheckInManifestAndChecksums(t *testi
 			assertScriptContains(t, script, "> \"$lsp_dir/lsp-checksums.sha256\"")
 		})
 	}
+}
+
+func TestPrepareLSPBundleMacOSStandardProfileExcludesJDTLSManifestEntry(t *testing.T) {
+	script := readScript(t, "prepare_lsp_bundle_macos.sh")
+	standardStart := strings.Index(script, "lsp_specs=(")
+	if standardStart < 0 {
+		t.Fatal("prepare_lsp_bundle_macos.sh missing lsp_specs")
+	}
+	fullStart := strings.Index(script, "if [[ \"$lsp_profile\" == \"full\" ]]; then\n  lsp_specs+=")
+	if fullStart < 0 {
+		t.Fatal("prepare_lsp_bundle_macos.sh missing full profile lsp_specs append")
+	}
+	standardSpecs := script[standardStart:fullStart]
+
+	assertScriptContains(t, script, "lsp_profile=\"${SUPER_DOLPHIN_LSP_PROFILE:-standard}\"")
+	assertScriptContains(t, script, "lsp_specs+=('jdtls|bin/jdtls|[\"java\"]')")
+	assertScriptDoesNotContain(t, standardSpecs, "jdtls")
 }
 
 func TestPrepareLSPBundleScriptsDoNotInvokeHostPython3(t *testing.T) {
