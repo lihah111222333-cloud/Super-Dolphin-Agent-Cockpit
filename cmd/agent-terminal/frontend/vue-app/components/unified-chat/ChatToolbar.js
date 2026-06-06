@@ -124,6 +124,7 @@ export const ChatToolbar = {
         </svg>
       </button>
       <label
+        v-if="false"
         class="provider-toggle"
         :class="{ active: useClaudeProvider }"
         data-testid="provider-toggle"

@@ -104,7 +104,7 @@ func launchEnvValue(env []string, key string) string {
 func makeAgentNode(t *testing.T, cfg AgentNodeConfig) Node {
 	t.Helper()
 	if strings.TrimSpace(cfg.Exec.Provider) == "" {
-		cfg.Exec.Provider = "claude"
+		cfg.Exec.Provider = "codex"
 	}
 	if strings.TrimSpace(cfg.Exec.CWD) == "" {
 		cfg.Exec.CWD = testCWD(t, "node-cwd")
@@ -129,7 +129,7 @@ func TestAgentExecutor_Execute_HappyPath(t *testing.T) {
 
 	cfg := AgentNodeConfig{
 		Exec: AgentExecConfig{
-			Provider: "claude",
+			Provider: "codex",
 			Model:    "sonnet",
 			AgentKey: "implementer",
 			Language: "zh",
@@ -177,7 +177,7 @@ func TestAgentExecutor_Execute_PromptKeyOnlyLaunches(t *testing.T) {
 
 	cfg := AgentNodeConfig{
 		Exec: AgentExecConfig{
-			Provider:  "claude",
+			Provider:  "codex",
 			PromptKey: "user/custom-sql",
 			Language:  "zh",
 		},

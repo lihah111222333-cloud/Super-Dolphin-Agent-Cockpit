@@ -229,7 +229,7 @@ function normalizeTimestampMap(value) {
 function normalizeProviderName(value) {
   const provider = normalizeProviderConfigValue(value).toLowerCase();
   if (!provider) return '';
-  if (provider === 'codex' || provider === 'claude') return provider;
+  if (provider === 'codex' || provider === 'claude') return 'codex';
   throw new Error(`invalid provider preference: ${normalizeProviderConfigValue(value)}`);
 }
 

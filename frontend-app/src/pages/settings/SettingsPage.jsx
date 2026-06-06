@@ -133,9 +133,8 @@ function numberSetting(value, fallback) {
   return Number.isFinite(number) ? number : fallback;
 }
 
-function normalizeProviderName(value) {
-  const provider = stringSetting(value, SETTINGS_DEFAULTS.activeProvider).toLowerCase();
-  return provider === 'claude' ? 'claude' : 'codex';
+function normalizeProviderName(_value) {
+  return 'codex';
 }
 
 function providerNameFromPreference(value) {
@@ -979,7 +978,7 @@ function ProviderSettingsForm({ changeActiveProvider, form, updateForm }) {
   const effortOptions = appendCurrentOption(filteredEffortOptions, normalizeProviderEffortSetting(form.activeProvider, form.providerModel, form.providerEffort));
   return (
     <div className="form-grid">
-      <label>Active Provider<select value={form.activeProvider} onChange={changeActiveProvider}><option value="codex">Codex</option><option value="claude">Claude</option></select></label>
+      <label>Active Provider<select value={form.activeProvider} onChange={changeActiveProvider}><option value="codex">Codex</option></select></label>
       <label>Provider Model<select aria-label="Provider Model" value={form.providerModel} onChange={updateForm('providerModel')}>{modelOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
       <label>Provider Effort<select aria-label="Provider Effort" value={form.providerEffort} onChange={updateForm('providerEffort')}>{effortOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
       <label>Personality<select aria-label="Personality" value={form.personality} onChange={updateForm('personality')}>{appendCurrentOption(PERSONALITY_OPTIONS, form.personality).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
