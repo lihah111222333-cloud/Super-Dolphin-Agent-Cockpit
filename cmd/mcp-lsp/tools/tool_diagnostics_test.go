@@ -164,15 +164,63 @@ func TestDiagnosticsAllowsEncodedAppManagedPathOutsideWorkspace(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			registry := &diagnosticsTestRegistry{}
-			handler := NewFileHandler(Config{WorkspaceRoot: workspace, Registry: registry})
-			req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: tt.target})
-
-			if _, err := handler(ctx, req); err != nil {
+			handler := handlerBase{}
+			uris, _, err := handler.collectDiagnosticURIs(ctx, fileToolInput{Action: "diagnostics", FilePath: tt.target})
+			if err != nil {
 				t.Fatalf("diagnostics returned error: %v", err)
 			}
-			assertDiagnosticURIs(t, registry.lastURIs, []string{canonicalFileURI(t, appFile)})
+			assertDiagnosticURIs(t, uris, []string{canonicalFileURI(t, appFile)})
 		})
+	}
+}
+
+func TestDiagnosticsAppManagedOutsideWorkspaceSkipsStartupOpenRecovery(t *testing.T) {
+	fakeHome := filepath.Join(t.TempDir(), "home")
+	appHome := filepath.Join(fakeHome, "Library", "Application Support", "Super Dolphin")
+	appFile := filepath.Join(appHome, "providers", "codex", "mcp-lsp.go")
+	if err := os.MkdirAll(filepath.Dir(appFile), 0o700); err != nil {
+		t.Fatalf("mkdir app managed parent: %v", err)
+	}
+	if err := os.WriteFile(appFile, []byte("package fixture\n"), 0o600); err != nil {
+		t.Fatalf("write app managed file: %v", err)
+	}
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("SUPER_DOLPHIN_HOME", appHome)
+
+	workspace := t.TempDir()
+	registry := &diagnosticsTestRegistry{waitErrs: []error{lspmanager.ErrDiagnosticsNotReady}}
+	handler := NewFileHandler(Config{WorkspaceRoot: workspace, Registry: registry})
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}})
+	target := strings.ReplaceAll(appFile, "Application Support", "Application%20Support")
+	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: target})
+
+	result, err := handler(ctx, req)
+	if err != nil {
+		t.Fatalf("diagnostics returned error: %v", err)
+	}
+	assertAppManagedDiagnosticsSkippedRegistry(t, result, registry)
+}
+
+func assertAppManagedDiagnosticsSkippedRegistry(t *testing.T, result any, registry *diagnosticsTestRegistry) {
+	t.Helper()
+	envelope, ok := result.(diagnosticsResponse)
+	if !ok {
+		t.Fatalf("diagnostics result = %T, want diagnosticsResponse", result)
+	}
+	if !strings.Contains(envelope.Meta.Message, "app-managed") {
+		t.Fatalf("diagnostics message = %q, want app-managed bootstrap explanation", envelope.Meta.Message)
+	}
+	if envelope.Total != 0 || envelope.Showing != 0 {
+		t.Fatalf("diagnostics totals = %d/%d, want empty app-managed cache", envelope.Total, envelope.Showing)
+	}
+	if len(registry.lastURIs) != 0 {
+		t.Fatalf("registry diagnostics URIs = %#v, want app-managed target handled before registry diagnostics", registry.lastURIs)
+	}
+	if len(registry.bootstrapURIs) != 0 {
+		t.Fatalf("bootstrap URIs = %#v, want app-managed target skipped", registry.bootstrapURIs)
+	}
+	if registry.waitCalls != 0 {
+		t.Fatalf("WaitDiagnosticsStable calls = %d, want app-managed target handled before wait", registry.waitCalls)
 	}
 }
 
