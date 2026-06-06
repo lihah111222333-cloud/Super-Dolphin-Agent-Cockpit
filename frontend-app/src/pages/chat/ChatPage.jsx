@@ -4530,7 +4530,7 @@ function renderMarkdownBlocks(lines, actions = {}, cache = null) {
     }
 
     let splitIndex = -1;
-    for (let i = matchingCount; i >= 0; i--) {
+    for (let i = matchingCount - 1; i >= 0; i--) {
       if (cache.checkpoints[i] !== undefined) {
         splitIndex = i;
         break;
