@@ -5354,6 +5354,11 @@ function Conversation(props) {
     lastTimelineAutoScrollKeyRef.current = '';
   }, [activeThreadId]);
   useEffect(() => {
+    if (!timelineContentBlocked && activeThreadId) {
+      scrollTimelineToBottomInstant();
+    }
+  }, [activeThreadId, timelineContentBlocked, scrollTimelineToBottomInstant]);
+  useEffect(() => {
     if (!autoScrollKey) {
       lastTimelineAutoScrollKeyRef.current = autoScrollKey;
       return;
@@ -5723,7 +5728,7 @@ const TimelineMessage = React.memo(function TimelineMessage({ message, actions, 
   });
 
   React.useLayoutEffect(() => {
-    if (onScrollIfSticky) {
+    if (streamingAssistant && onScrollIfSticky) {
       onScrollIfSticky(false);
     }
   }, [displayText, streamingAssistant, smoothStreaming, onScrollIfSticky]);
