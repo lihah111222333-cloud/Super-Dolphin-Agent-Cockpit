@@ -115,8 +115,9 @@ func (l *WailsLifecycle) ShouldQuit() bool {
 		return false
 	}
 
+	l.quitAllowed.Store(true)
 	l.requestBackendShutdown()
-	return false
+	return true
 }
 
 func (l *WailsLifecycle) OnShutdown() {

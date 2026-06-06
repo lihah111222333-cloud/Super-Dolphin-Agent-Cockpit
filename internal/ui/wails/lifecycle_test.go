@@ -144,6 +144,29 @@ func TestShouldQuitStartsShutdownWhenActiveAgentCountFails(t *testing.T) {
 	}
 }
 
+func TestShouldQuitAllowsImmediateQuitWithoutActiveAgents(t *testing.T) {
+	t.Parallel()
+
+	lifecycle := NewWailsLifecycle(ActiveAgentCounterFunc(func(context.Context) (int, error) {
+		return 0, nil
+	}), nil)
+	lifecycle.MarkFrontendReady()
+
+	shutdownCalled := make(chan struct{}, 1)
+	lifecycle.SetShutdownerFunc(func() {
+		shutdownCalled <- struct{}{}
+	})
+
+	if !lifecycle.ShouldQuit() {
+		t.Fatal("ShouldQuit() = false without active agents, want true so macOS does not leave a headless app process")
+	}
+	select {
+	case <-shutdownCalled:
+	case <-time.After(time.Second):
+		t.Fatal("shutdown was not requested before allowing quit")
+	}
+}
+
 type stubThreadLister struct {
 	refs []contract.ThreadRef
 	err  error
