@@ -71,9 +71,10 @@ func projectAdapterFromConfig(defaults projectLanguageAdapter, cfg contract.LSPC
 
 func jstsAdapterDefaults() projectLanguageAdapter {
 	return projectLanguageAdapter{
-		languageIDs: []string{"javascript", "typescript", "javascriptreact", "typescriptreact"},
-		command:     ServerCommand{Executable: "typescript-language-server", Args: []string{"--stdio"}},
-		rootKind:    "jsts_project",
+		languageIDs:                    []string{"javascript", "typescript", "javascriptreact", "typescriptreact"},
+		command:                        ServerCommand{Executable: "typescript-language-server", Args: []string{"--stdio"}},
+		rootKind:                       "jsts_project",
+		retryEmptyCallHierarchyPrepare: true,
 	}
 }
 
