@@ -22,9 +22,13 @@ type store struct {
 	cfg sharedfilefs.Config
 }
 
-func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
+func NewStore(q *sqlc.Queries) Store { return newStoreWithConfig(q, sharedfilefs.Config{}) }
 
 func NewStoreWithConfig(q *sqlc.Queries, cfg sharedfilefs.Config) Store {
+	return newStoreWithConfig(q, cfg)
+}
+
+func newStoreWithConfig(q *sqlc.Queries, cfg sharedfilefs.Config) *store {
 	return &store{q: q, cfg: cfg}
 }
 

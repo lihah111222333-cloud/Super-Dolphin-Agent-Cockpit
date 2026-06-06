@@ -8,8 +8,11 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/kelindar/event"
+	"go.uber.org/fx"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -325,6 +328,85 @@ func TestHookConsumerAfter_TurnCompletedAdvancesDAGNodeFromHook(t *testing.T) {
 	}
 	if want := []string{"on_state_change:node-1:done"}; strings.Join(events, "|") != strings.Join(want, "|") {
 		t.Fatalf("lifecycle events = %v, want %v", events, want)
+	}
+}
+
+func TestHookConsumerAfter_ArtifactTargetUsesFxInjectedImporter(t *testing.T) {
+	sourcePath := "/tmp/video-with-audio/final.mp4"
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	agent := addHookTestAgent(t, svc, "agent-1")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-artifact"
+	agent.remoteThreadID = "thread-artifact"
+	agent.activeTurnID = "turn-1"
+
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-video",
+		NodeKey:  "generate_video_mp4",
+		NodeType: "agent",
+		Status:   "running",
+		RunID:    dagSubscriberTestRunID(42),
+		Config: testRawConfig(t, `{
+			"exec":{"agent_key":"video","cwd":"/tmp/node-cwd"},
+			"outputs":{
+				"to_node_result":false,
+				"to_artifact":{
+					"source_tool":"video_with_audio",
+					"source_path_field":"output_path",
+					"path_template":"dag/douyin/daily-video/{{run_id}}/final.mp4",
+					"content_type":"video/mp4",
+					"allowed_extensions":[".mp4"],
+					"allowed_source_roots":["/tmp/video-with-audio"],
+					"max_bytes":524288000,
+					"overwrite":"fail"
+				}
+			}
+		}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	importer := &dagSubscriberArtifactImporterSpy{}
+	var handler contract.BootstrapHookAfterHandler
+	app := fx.New(
+		fx.NopLogger,
+		fx.Provide(
+			func() *service { return svc },
+			func() taskdag.NodeSpawningThreadLookup { return lookup },
+			func() taskdag.NodeFlowStore { return flow },
+			func() sharedfile.Importer { return importer },
+			ProvideHookAfterHandler,
+		),
+		fx.Populate(&handler),
+	)
+	if err := app.Err(); err != nil {
+		t.Fatalf("fx.New() error = %v", err)
+	}
+	if handler == nil {
+		t.Fatal("BootstrapHookAfterHandler was not populated")
+	}
+
+	completed := turndto.TurnCompleted{
+		TurnHeader: sharedto.TurnHeader{
+			AgentHeader: sharedto.AgentHeader{
+				ThreadHeader: sharedto.ThreadHeader{
+					EventHeader: sharedto.EventHeader{Timestamp: time.Unix(21, 0).UTC()},
+					ThreadID:    "thread-artifact",
+				},
+				AgentID: "agent-1",
+			},
+			TurnIDHeader: sharedto.TurnIDHeader{TurnID: "turn-1"},
+		},
+		Success: true,
+		Result:  `{"success":true,"output_path":"` + sourcePath + `"}`,
+	}
+	if _, err := handler(context.Background(), hookPayload(t, hookTopicTurnAfter, hookRelayKindTurnCompleted, completed)); err != nil {
+		t.Fatalf("After(turn completed) error = %v", err)
+	}
+
+	wantTarget := "dag/douyin/daily-video/42/final.mp4"
+	assertArtifactImportCall(t, importer, sourcePath, wantTarget)
+	assertArtifactCompletion(t, flow, &dagSubscriberSharedFileWriterSpy{}, wantTarget)
+	if len(flow.failCalls) != 0 {
+		t.Fatalf("failCalls = %d, want 0; first reason=%q", len(flow.failCalls), flow.failCalls[0].Reason)
 	}
 }
 
