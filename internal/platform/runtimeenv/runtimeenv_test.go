@@ -97,6 +97,30 @@ func TestApplyPackagedEnvPrependsBundledTools(t *testing.T) {
 	assertEnvEquals(t, "GIT_TEMPLATE_DIR", templates)
 }
 
+func TestApplySidecarRuntimeContractPackagedRebuildsBundledToolPath(t *testing.T) {
+	resources := t.TempDir()
+	binDir := filepath.Join(resources, "bin")
+	lspBinDir := filepath.Join(resources, "lsp", "bin")
+	lspNodeBinDir := filepath.Join(resources, "lsp", "node", "bin")
+	lspNodeModulesBinDir := filepath.Join(resources, "lsp", "node_modules", ".bin")
+	makeDirs(t, binDir, lspBinDir, lspNodeBinDir, lspNodeModulesBinDir)
+	t.Setenv("PATH", strings.Join([]string{"/bin", "/opt/homebrew/bin"}, string(os.PathListSeparator)))
+	t.Setenv(peerBinDirEnv, "")
+	t.Setenv(lspBundleDirEnv, "")
+	t.Setenv(lspManifestEnv, "")
+
+	if err := applySidecarRuntimeContract(SidecarRuntimeContract{Mode: "packaged", ResourcesDir: resources}); err != nil {
+		t.Fatalf("applySidecarRuntimeContract() error = %v", err)
+	}
+
+	path := os.Getenv("PATH")
+	assertPathHasPrefix(t, path, lspBinDir, lspNodeBinDir, lspNodeModulesBinDir, binDir)
+	assertPathListExcludes(t, path, "/opt/homebrew/bin")
+	assertEnvEquals(t, peerBinDirEnv, binDir)
+	assertEnvEquals(t, lspBundleDirEnv, filepath.Join(resources, "lsp"))
+	assertEnvEquals(t, lspManifestEnv, filepath.Join(resources, "lsp", "lsp-manifest.json"))
+}
+
 func TestApplyPackagedEnvSetsControlPlaneDefaults(t *testing.T) {
 	resources := t.TempDir()
 	writeBundledSidecars(t, filepath.Join(resources, "bin"))
