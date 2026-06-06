@@ -692,16 +692,7 @@ func (s *service) lockRead(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	for !s.mu.TryRLock() {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		time.Sleep(time.Millisecond)
-	}
-	return nil
+	return s.mu.RLockCtx(ctx)
 }
 
 func (s *service) runtimeAgentSnapshots(ctx context.Context) ([]AgentSnapshot, error) {

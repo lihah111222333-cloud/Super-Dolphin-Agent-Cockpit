@@ -199,12 +199,12 @@ describe('ChatPage module', () => {
       diffTextByThread: { 'thread-1': 'diff --git a/ChatPage.test.jsx b/ChatPage.test.jsx\n+expect(screen.getByTestId("runtime-panel"))' },
     });
 
-    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+    const { container } = render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
 
     expect(screen.getByText('修复会话')).toBeInTheDocument();
     expect(screen.getByText('哪里失败了？')).toBeInTheDocument();
     expect(screen.getByText('测试在聊天页缺少覆盖。')).toBeInTheDocument();
-    expect(screen.getByText('12 / 1000 tokens')).toBeInTheDocument();
+    expect(container.querySelector('.work-status')).toBeNull();
 
     const timeline = screen.getByTestId('chat-timeline');
     Object.defineProperty(timeline, 'scrollHeight', { configurable: true, value: 960 });
@@ -1238,5 +1238,60 @@ describe('ChatPage module', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认' }));
 
     expect(store.deleteStaleThreads).toHaveBeenCalledWith(['thread-archived-1']);
+  });
+  it('[regression] renders user message image attachments inline (data: URL and clipboard route)', () => {
+    const store = createActiveThreadStore([
+      {
+        id: 'user-with-image',
+        role: 'user',
+        text: '能先识别这张截图内容。',
+        time: '2026-06-02T08:00:00Z',
+        attachments: [
+          {
+            kind: 'image',
+            name: 'screenshot.png',
+            path: '/var/folders/abc/T/clipboard-123456.png',
+            previewUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          },
+        ],
+      },
+    ]);
+
+    const { container } = render(<ChatPage store={store} projectPath="/repo/app" />);
+
+    expect(screen.getByText('能先识别这张截图内容。')).toBeInTheDocument();
+    // 图片附件应作为 img 元素渲染，而不是消失或变成文件 pill
+    const img = container.querySelector('.user-attachment-gallery img');
+    expect(img).not.toBeNull();
+    expect(img.getAttribute('src')).toMatch(/^data:image\//);
+    // 不应该显示为文件 pill
+    expect(container.querySelector('.user-attachment-file-pill')).toBeNull();
+  });
+
+  it('[regression] renders user message clipboard-route image attachment from history', () => {
+    const store = createActiveThreadStore([
+      {
+        id: 'user-clipboard-image',
+        role: 'user',
+        text: '看这张图。',
+        time: '2026-06-02T08:00:00Z',
+        attachments: [
+          {
+            kind: 'image',
+            name: 'clipboard-987654321.png',
+            path: '/var/folders/abc/T/clipboard-987654321.png',
+            previewUrl: '/clipboard/clipboard-987654321.png',
+          },
+        ],
+      },
+    ]);
+
+    const { container } = render(<ChatPage store={store} projectPath="/repo/app" />);
+
+    expect(screen.getByText('看这张图。')).toBeInTheDocument();
+    const img = container.querySelector('.user-attachment-gallery img');
+    expect(img).not.toBeNull();
+    expect(img.getAttribute('src')).toBe('/clipboard/clipboard-987654321.png');
+    expect(container.querySelector('.user-attachment-file-pill')).toBeNull();
   });
 });
