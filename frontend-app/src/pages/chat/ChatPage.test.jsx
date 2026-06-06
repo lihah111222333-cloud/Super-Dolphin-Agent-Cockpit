@@ -1478,4 +1478,37 @@ describe('ChatPage module', () => {
     
     expect(scrollTop).toBe(500); // 应该没有被重置到 1500
   });
+
+  it('resets scrollTop to 0 when activeThreadId changes to prevent out-of-bounds rendering glitch', () => {
+    const store1 = createActiveThreadStore([
+      { id: 'msg-1', role: 'user', text: 'Thread 1 message', time: '2026-06-02T08:00:00Z' }
+    ], { activeThreadId: 'thread-1' });
+    const { rerender } = render(<ChatPage store={store1} projectPath="/repo/app" />);
+    
+    const timeline = screen.getByTestId('chat-timeline');
+    let scrollTop = 500;
+    Object.defineProperty(timeline, 'clientHeight', { configurable: true, value: 400 });
+    Object.defineProperty(timeline, 'scrollHeight', { configurable: true, value: 1500 });
+    Object.defineProperty(timeline, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (val) => {
+        scrollTop = val;
+      },
+    });
+
+    expect(scrollTop).toBe(500);
+
+    const store2 = createActiveThreadStore([], {
+      activeThreadId: 'thread-2',
+      threadStateLoadingByThread: { 'thread-2': true },
+      threadTimelineReadyByThread: { 'thread-2': false },
+    });
+
+    act(() => {
+      rerender(<ChatPage store={store2} projectPath="/repo/app" />);
+    });
+
+    expect(scrollTop).toBe(0);
+  });
 });

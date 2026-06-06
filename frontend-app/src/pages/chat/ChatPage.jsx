@@ -5324,6 +5324,8 @@ function Conversation(props) {
   const timelineRef = useRef(null);
   const shouldStickToBottomRef = useRef(true);
   const lastTimelineAutoScrollKeyRef = useRef('');
+  const timelineContentBlockedRef = useRef(timelineContentBlocked);
+  const isInitialThreadRenderRef = useRef(true);
   const updateTimelineStickiness = useCallback((timeline) => {
     shouldStickToBottomRef.current = isTimelineNearBottom(timeline);
   }, []);
@@ -5354,12 +5356,21 @@ function Conversation(props) {
     timelineContentBlocked,
   });
   useEffect(() => {
+    timelineContentBlockedRef.current = timelineContentBlocked;
+  }, [timelineContentBlocked]);
+  useEffect(() => {
     shouldStickToBottomRef.current = true;
     lastTimelineAutoScrollKeyRef.current = '';
+    isInitialThreadRenderRef.current = true;
+    const el = timelineRef.current;
+    if (el) {
+      el.scrollTop = 0;
+    }
   }, [activeThreadId]);
   useEffect(() => {
     if (!timelineContentBlocked && activeThreadId) {
       scrollTimelineToBottomInstant();
+      isInitialThreadRenderRef.current = false;
       const timer = setTimeout(() => {
         scrollTimelineToBottomInstant();
       }, 50);
@@ -5380,7 +5391,7 @@ function Conversation(props) {
     const el = timelineRef.current;
     if (!el) return;
     const observer = new MutationObserver(() => {
-      if (shouldStickToBottomRef.current) {
+      if (!isInitialThreadRenderRef.current && !timelineContentBlockedRef.current && shouldStickToBottomRef.current) {
         scrollTimelineElementToBottom(el, false);
       }
     });
@@ -5398,7 +5409,7 @@ function Conversation(props) {
     const el = timelineRef.current;
     if (!el) return;
     const handleLoad = () => {
-      if (shouldStickToBottomRef.current) {
+      if (!isInitialThreadRenderRef.current && !timelineContentBlockedRef.current && shouldStickToBottomRef.current) {
         scrollTimelineElementToBottom(el, false);
       }
     };
