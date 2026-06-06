@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
 	"github.com/qmuntal/stateless"
 	"go.uber.org/fx"
 
@@ -78,6 +79,7 @@ type HookAfterHandlerParams struct {
 	SvcStopper        StopAgentService                 `optional:"true"`
 	SharedFileReader  nodeexec.SharedFileReader        `optional:"true"`
 	SharedFileWriter  nodeexec.SharedFileWriter        `optional:"true"`
+	ArtifactImporter  sharedfilestore.Importer         `optional:"true"`
 	NodeRouter        *NodeExecutorRouter              `optional:"true"`
 	EventBus          *event.Dispatcher                `optional:"true"`
 }
@@ -96,6 +98,7 @@ func ProvideHookAfterHandler(p HookAfterHandlerParams) contract.BootstrapHookAft
 			SvcStopper:       p.SvcStopper,
 			SharedFileReader: p.SharedFileReader,
 			SharedFileWriter: p.SharedFileWriter,
+			ArtifactImporter: p.ArtifactImporter,
 			NodeRouter:       p.NodeRouter,
 			EventBus:         p.EventBus,
 		}),

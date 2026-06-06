@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/sharedfileowner"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/turncompletionretry"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
@@ -42,17 +43,13 @@ type DAGSubscriberDeps struct {
 	SvcStopper       StopAgentService
 	SharedFileReader nodeexec.SharedFileReader `optional:"true"`
 	SharedFileWriter nodeexec.SharedFileWriter `optional:"true"`
+	ArtifactImporter sharedfilestore.Importer  `optional:"true"`
 	NodeRouter       *NodeExecutorRouter       `optional:"true"`
 }
 
 // RegisterDAGTurnCompletedSubscriber advances DAG node state independently
 // from the agent-runtime TurnCompleted subscribers.
-func RegisterDAGTurnCompletedSubscriber(
-	lc fx.Lifecycle,
-	dispatcher *event.Dispatcher,
-	deps DAGSubscriberDeps,
-	logger *slog.Logger,
-) {
+func RegisterDAGTurnCompletedSubscriber(lc fx.Lifecycle, dispatcher *event.Dispatcher, deps DAGSubscriberDeps, logger *slog.Logger) {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -82,12 +79,7 @@ func RegisterDAGTurnCompletedSubscriber(
 	})
 }
 
-func handleDAGTurnCompleted(
-	ctx context.Context,
-	deps DAGSubscriberDeps,
-	logger *slog.Logger,
-	ev turndto.TurnCompleted,
-) {
+func handleDAGTurnCompleted(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, ev turndto.TurnCompleted) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	if threadID == "" {
 		dagSubscriberMetrics.IncLookupNoNode()
@@ -122,13 +114,7 @@ func handleDAGTurnCompleted(
 	stopSpawnedAgentForSubscriber(ctx, deps, logger, threadID)
 }
 
-func advanceNodeForTurnCompleted(
-	ctx context.Context,
-	deps DAGSubscriberDeps,
-	logger *slog.Logger,
-	node *taskdag.Node,
-	ev turndto.TurnCompleted,
-) {
+func advanceNodeForTurnCompleted(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, node *taskdag.Node, ev turndto.TurnCompleted) {
 	if isTerminalNodeStatus(node.Status) {
 		dagSubscriberMetrics.IncIdempotentSkipped()
 		logger.Debug("dag subscriber: node already terminal, skip", "dag_key", node.DagKey, "node_key", node.NodeKey, "status", node.Status)
@@ -136,7 +122,11 @@ func advanceNodeForTurnCompleted(
 	}
 	result := ev.Result
 	if ev.Success && strings.TrimSpace(node.NodeType) == "agent" {
-		result = turnCompletedReportText(ev)
+		if agentNodeUsesArtifactResult(node.Config) {
+			result = ev.Result
+		} else {
+			result = turnCompletedReportText(ev)
+		}
 	}
 	if strings.TrimSpace(result) == "" {
 		dagSubscriberMetrics.IncCompleteResultEmpty()
@@ -148,26 +138,20 @@ func advanceNodeForTurnCompleted(
 	advanceNodeFailed(ctx, deps.FlowStore, deps.EventBus, deps.NodeRouter, logger, node, ev)
 }
 
-func advanceNodeDoneForSuccess(
-	ctx context.Context,
-	deps DAGSubscriberDeps,
-	logger *slog.Logger,
-	node *taskdag.Node,
-	rawResult string,
-	ev turndto.TurnCompleted,
-) {
-	materialized, failure := prepareTurnCompletedResult(node.Config, node.NodeType, rawResult)
+func advanceNodeDoneForSuccess(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, node *taskdag.Node, rawResult string, ev turndto.TurnCompleted) {
+	materialized, failure := prepareTurnCompletedResult(node, rawResult)
 	if failure != nil {
 		handleMaterializationFailure(ctx, deps, logger, node, failure)
 		return
 	}
-	result, ok := materializeSharedfileAfterClaim(ctx, deps, logger, node, materialized, sharedfileowner.Owner{
+	owner := sharedfileowner.Owner{
 		DagKey:   strings.TrimSpace(node.DagKey),
 		NodeKey:  strings.TrimSpace(node.NodeKey),
 		RunID:    taskNodeRunID(node),
 		ThreadID: strings.TrimSpace(ev.ThreadID),
 		TurnID:   strings.TrimSpace(ev.TurnID),
-	})
+	}
+	result, ok := materializeTurnOutputAfterClaim(ctx, deps, logger, node, materialized, owner)
 	if !ok {
 		return
 	}
@@ -180,14 +164,14 @@ func advanceNodeDoneForSuccess(
 	}
 }
 
-func advanceNodeDone(
-	ctx context.Context,
-	flow taskdag.NodeFlowStore,
-	eventBus *event.Dispatcher,
-	logger *slog.Logger,
-	node *taskdag.Node,
-	result json.RawMessage,
-) bool {
+func materializeTurnOutputAfterClaim(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, node *taskdag.Node, materialized turnOutputMaterialization, owner sharedfileowner.Owner) (json.RawMessage, bool) {
+	if materialized.Artifact != nil {
+		return materializeArtifactAfterClaim(ctx, deps, logger, node, materialized)
+	}
+	return materializeSharedfileAfterClaim(ctx, deps, logger, node, materialized, owner)
+}
+
+func advanceNodeDone(ctx context.Context, flow taskdag.NodeFlowStore, eventBus *event.Dispatcher, logger *slog.Logger, node *taskdag.Node, result json.RawMessage) bool {
 	res, err := flow.CompleteNodeAndScheduleDownstream(ctx, taskdag.CompleteNodeInput{
 		Status:  "done",
 		Result:  result,
@@ -213,15 +197,7 @@ func advanceNodeDone(
 	return false
 }
 
-func advanceNodeFailed(
-	ctx context.Context,
-	flow taskdag.NodeFlowStore,
-	eventBus *event.Dispatcher,
-	router *NodeExecutorRouter,
-	logger *slog.Logger,
-	node *taskdag.Node,
-	ev turndto.TurnCompleted,
-) {
+func advanceNodeFailed(ctx context.Context, flow taskdag.NodeFlowStore, eventBus *event.Dispatcher, router *NodeExecutorRouter, logger *slog.Logger, node *taskdag.Node, ev turndto.TurnCompleted) {
 	reason := strings.TrimSpace(ev.Error)
 	if reason == "" {
 		reason = strings.TrimSpace(ev.Reason)
@@ -237,15 +213,7 @@ func advanceNodeFailed(
 	}
 }
 
-func advanceNodeFailedWithReason(
-	ctx context.Context,
-	flow taskdag.NodeFlowStore,
-	eventBus *event.Dispatcher,
-	logger *slog.Logger,
-	node *taskdag.Node,
-	reason string,
-	failFast bool,
-) bool {
+func advanceNodeFailedWithReason(ctx context.Context, flow taskdag.NodeFlowStore, eventBus *event.Dispatcher, logger *slog.Logger, node *taskdag.Node, reason string, failFast bool) bool {
 	res, err := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
 		DagKey:   node.DagKey,
 		NodeKey:  node.NodeKey,
@@ -266,14 +234,7 @@ func advanceNodeFailedWithReason(
 	return false
 }
 
-func materializeSharedfileAfterClaim(
-	ctx context.Context,
-	deps DAGSubscriberDeps,
-	logger *slog.Logger,
-	node *taskdag.Node,
-	materialized turnOutputMaterialization,
-	owner sharedfileowner.Owner,
-) (json.RawMessage, bool) {
+func materializeSharedfileAfterClaim(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, node *taskdag.Node, materialized turnOutputMaterialization, owner sharedfileowner.Owner) (json.RawMessage, bool) {
 	result := materialized.Result
 	if materialized.SharedfilePath == "" {
 		return result, true
@@ -308,14 +269,7 @@ type nodeOutputMaterializationClaimer interface {
 	ClaimNodeOutputMaterialization(context.Context, taskdag.OutputMaterializationClaimInput) (*taskdag.Node, error)
 }
 
-func claimNodeOutputMaterialization(
-	ctx context.Context,
-	flow taskdag.NodeFlowStore,
-	eventBus *event.Dispatcher,
-	logger *slog.Logger,
-	node *taskdag.Node,
-	result json.RawMessage,
-) bool {
+func claimNodeOutputMaterialization(ctx context.Context, flow taskdag.NodeFlowStore, eventBus *event.Dispatcher, logger *slog.Logger, node *taskdag.Node, result json.RawMessage) bool {
 	claimer, ok := flow.(nodeOutputMaterializationClaimer)
 	if !ok {
 		logger.Warn("dag subscriber: output materialization claim not wired", "dag_key", node.DagKey, "node_key", node.NodeKey)
@@ -341,12 +295,7 @@ func claimNodeOutputMaterialization(
 	return false
 }
 
-func stopSpawnedAgentForSubscriber(
-	ctx context.Context,
-	deps DAGSubscriberDeps,
-	logger *slog.Logger,
-	threadID string,
-) {
+func stopSpawnedAgentForSubscriber(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, threadID string) {
 	if deps.AgentThreads == nil || deps.SvcStopper == nil {
 		logger.Debug("dag subscriber: stop helper deps not wired, skip", "thread_id", threadID)
 		return
