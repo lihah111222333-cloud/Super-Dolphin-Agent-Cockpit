@@ -3835,6 +3835,68 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('retains runtime: true protection on completed assistant message when double-channel completed event arrives and later patch omits it', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{ id: 'user-1', role: 'user', text: 'say ok', done: true }],
+      },
+    });
+    registerBridgeEventHandlersForTest();
+
+    // 1. Stream delta
+    bridgeCallback({
+      type: 'item/agentMessage/delta',
+      payload: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        delta: 'ok',
+      },
+    });
+
+    // 2. Double-channel turn/completed event with _threadPatch
+    bridgeCallback({
+      type: 'turn/completed',
+      payload: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        result: 'ok',
+        _threadPatch: {
+          threadId: 'thread-1',
+          sequence: '2',
+          timelineItems: [
+            { id: 'user-1', role: 'user', text: 'say ok', done: true },
+            { id: 'msg-final', role: 'assistant', text: 'ok', done: true }
+          ]
+        }
+      },
+    });
+
+    // Verify it is merged and retains runtime: true
+    const timelineAfterCompleted = useClientStore.getState().timelinesByThread['thread-1'];
+    const assistantMsg = timelineAfterCompleted.find(m => m.id === 'msg-final');
+    expect(assistantMsg).toBeDefined();
+    expect(assistantMsg.runtime).toBe(true);
+
+    // 3. Subsequent ui/thread/patch omitting the message
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        sequence: '3',
+        timelineItems: [{ id: 'turn-end:turn-1', kind: 'turn_end', status: 'completed' }],
+      },
+    });
+
+    // Verify it is still preserved and not discarded
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ role: 'user', text: 'say ok' }),
+      expect.objectContaining({ id: 'msg-final', role: 'assistant', text: 'ok', done: true }),
+    ]);
+  });
+
   it('marks visible live timeline bridge patches ready so tool cards survive empty history hydration', async () => {
     backend.getThreadState.mockResolvedValue({
       activeThreadId: 'thread-1',
