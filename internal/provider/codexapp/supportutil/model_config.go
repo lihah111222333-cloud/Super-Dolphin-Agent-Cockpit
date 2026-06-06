@@ -28,14 +28,11 @@ func DecodeAllowedModels(raw []byte) ([]string, error) {
 }
 
 func PreferredCodexModel(models []string) string {
-	for _, model := range models {
-		if strings.EqualFold(strings.TrimSpace(model), "gpt-5-codex") {
-			return strings.TrimSpace(model)
-		}
-	}
-	for _, model := range models {
-		if trimmed := strings.TrimSpace(model); trimmed != "" && strings.Contains(strings.ToLower(trimmed), "codex") {
-			return trimmed
+	for _, preferred := range []string{"gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5", "codex-auto-review"} {
+		for _, model := range models {
+			if strings.EqualFold(strings.TrimSpace(model), preferred) {
+				return strings.TrimSpace(model)
+			}
 		}
 	}
 	for _, model := range models {
@@ -61,10 +58,11 @@ func CodexModelListContains(models []string, requested string) bool {
 
 func CodexModelNeedsListResolution(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
-	if model == "gpt-5.5" {
+	switch model {
+	case "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5", "codex-auto-review":
 		return false
 	}
-	return model == "" || CodexModelIsGenericGPT(model)
+	return model == ""
 }
 
 func CodexModelIsGenericGPT(model string) bool {

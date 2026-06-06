@@ -32,7 +32,7 @@ func TestDriverStartSessionSelectsDefaultModelFromModelList(t *testing.T) {
 			startParams <- params
 			return mustJSON(map[string]any{
 				"thread": map[string]any{"id": "provider-thread-model-list", "cwd": "/repo"},
-				"model":  "gpt-5-codex",
+				"model":  "gpt-5",
 			})
 		case "initialize":
 			return mustJSON(map[string]any{"ok": true})
@@ -64,16 +64,16 @@ func TestDriverStartSessionSelectsDefaultModelFromModelList(t *testing.T) {
 	}
 	select {
 	case params := <-startParams:
-		if params["model"] != "gpt-5-codex" {
-			t.Fatalf("thread/start model = %#v, want gpt-5-codex; params=%#v", params["model"], params)
+		if params["model"] != "gpt-5" {
+			t.Fatalf("thread/start model = %#v, want gpt-5; params=%#v", params["model"], params)
 		}
 	default:
 		t.Fatal("thread/start params were not captured")
 	}
-	assertRuntimeConfigValue(t, s, "model", "gpt-5-codex")
+	assertRuntimeConfigValue(t, s, "model", "gpt-5")
 }
 
-func TestDriverStartSessionReplacesGenericGPTModelFromModelList(t *testing.T) {
+func TestDriverStartSessionPreservesExplicitGPT5Model(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())
 	startParams := make(chan map[string]any, 1)
@@ -92,7 +92,7 @@ func TestDriverStartSessionReplacesGenericGPTModelFromModelList(t *testing.T) {
 			startParams <- params
 			return mustJSON(map[string]any{
 				"thread": map[string]any{"id": "provider-thread-model-replaced", "cwd": "/repo"},
-				"model":  "gpt-5-codex",
+				"model":  "gpt-5",
 			})
 		case "initialize":
 			return mustJSON(map[string]any{"ok": true})
@@ -120,13 +120,13 @@ func TestDriverStartSessionReplacesGenericGPTModelFromModelList(t *testing.T) {
 
 	select {
 	case params := <-startParams:
-		if params["model"] != "gpt-5-codex" {
-			t.Fatalf("thread/start model = %#v, want gpt-5-codex; params=%#v", params["model"], params)
+		if params["model"] != "gpt-5" {
+			t.Fatalf("thread/start model = %#v, want gpt-5; params=%#v", params["model"], params)
 		}
 	default:
 		t.Fatal("thread/start params were not captured")
 	}
-	assertRuntimeConfigValue(t, s, "model", "gpt-5-codex")
+	assertRuntimeConfigValue(t, s, "model", "gpt-5")
 }
 
 func TestDriverStartSessionPreservesExplicitGPT55Model(t *testing.T) {

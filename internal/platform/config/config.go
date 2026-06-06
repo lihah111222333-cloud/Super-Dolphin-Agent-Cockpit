@@ -233,6 +233,23 @@ func resolveProjectRoot() string {
 	return dir
 }
 
+func SharedFileRoot(cfg *Config) (string, error) {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_RUNTIME_MODE")), "packaged") {
+		root := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_HOME"))
+		if root == "" {
+			return "", fmt.Errorf("packaged sharedfile root requires SUPER_DOLPHIN_HOME")
+		}
+		if !filepath.IsAbs(root) {
+			return "", fmt.Errorf("packaged sharedfile root must be absolute: %s", root)
+		}
+		return filepath.Clean(root), nil
+	}
+	if cfg == nil {
+		return "", nil
+	}
+	return strings.TrimSpace(cfg.ProjectRoot), nil
+}
+
 func resolvePackagedProjectRoot(executablePath string) string {
 	executablePath = strings.TrimSpace(executablePath)
 	if executablePath == "" {

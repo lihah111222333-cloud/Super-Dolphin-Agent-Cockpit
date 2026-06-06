@@ -61,10 +61,7 @@ func codexLocalMCPCommand(name string) string {
 	}
 	return strings.TrimSpace(name)
 }
-
-func resolveCodexLocalMCPBinaryDir() string {
-	return providershared.ResolveBinaryDir("", nil)
-}
+func resolveCodexLocalMCPBinaryDir() string { return providershared.ResolveBinaryDir("", nil) }
 
 func isCodexAppServerListenArgs(args []string) bool {
 	for i := 0; i < len(args)-1; i++ {
@@ -157,6 +154,7 @@ func poolSpawnNativeLSPConfigArgs(ctx context.Context, workDir string) []string 
 		"mcp_servers.lsp.cwd=" + tomlString(primary),
 		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOT=" + tomlString(primary),
 		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOTS=" + tomlString(string(rawRoots)),
+		"mcp_servers.lsp.env." + providershared.SuperDolphinHomeEnv + "=" + tomlString(os.Getenv(providershared.SuperDolphinHomeEnv)),
 	}
 	if binaryDir != "" {
 		overrides = append([]string{

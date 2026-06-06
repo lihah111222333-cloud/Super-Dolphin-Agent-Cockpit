@@ -26,6 +26,11 @@ export const RPC_METHODS = Object.freeze({
   CONFIG_BUILTIN_TOOLS_READ: 'config/builtinTools/read',
   CONFIG_BUILTIN_TOOLS_WRITE: 'config/builtinTools/write',
 
+  APP_UPDATE_CHECK: 'app/update/check',
+  APP_UPDATE_DOWNLOAD: 'app/update/download',
+  APP_UPDATE_INSTALL: 'app/update/install',
+  APP_UPDATE_INSTALL_LATEST: 'app/update/installLatest',
+
   UI_WINDOW_BOOTSTRAP_GET: 'ui/windowBootstrap/get',
   UI_STATE_GET: 'ui/state/get',
   UI_SIDEBAR_GET: 'ui/sidebar/get',
@@ -814,6 +819,15 @@ function createConfigProjectApi(callBackend) {
   };
 }
 
+function createAppUpdateApi(callBackend) {
+  return {
+    checkAppUpdate: () => callBackend(RPC_METHODS.APP_UPDATE_CHECK, {}),
+    downloadAppUpdate: () => callBackend(RPC_METHODS.APP_UPDATE_DOWNLOAD, {}),
+    installAppUpdate: () => callBackend(RPC_METHODS.APP_UPDATE_INSTALL, {}),
+    installLatestAppUpdate: () => callBackend(RPC_METHODS.APP_UPDATE_INSTALL_LATEST, {}),
+  };
+}
+
 function createObservabilityMemoryApi(callBackend) {
   return {
     ...createObservabilityApi(callBackend),
@@ -1162,6 +1176,7 @@ export function createBackendApi(deps = {}) {
   return {
     callBackend,
     ...createConfigProjectApi(callBackend),
+    ...createAppUpdateApi(callBackend),
     ...createObservabilityMemoryApi(callBackend),
     ...createPromptDagApi(callBackend),
     ...createCronApi(callBackend),
@@ -1180,6 +1195,10 @@ export const readLspPromptHint = backendApi.readLspPromptHint;
 export const writeLspPromptHint = backendApi.writeLspPromptHint;
 export const readBuiltinTools = backendApi.readBuiltinTools;
 export const writeBuiltinTool = backendApi.writeBuiltinTool;
+export const checkAppUpdate = backendApi.checkAppUpdate;
+export const downloadAppUpdate = backendApi.downloadAppUpdate;
+export const installAppUpdate = backendApi.installAppUpdate;
+export const installLatestAppUpdate = backendApi.installLatestAppUpdate;
 export const getWindowBootstrap = backendApi.getWindowBootstrap;
 export const getSidebarState = backendApi.getSidebarState;
 export const openNewWindow = backendApi.openNewWindow;

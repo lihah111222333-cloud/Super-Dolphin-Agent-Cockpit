@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/appupdate"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
@@ -28,6 +29,7 @@ var Module = fx.Module("ui.wails",
 		NewEventBridge,
 		NewWailsApplication,
 		NewHTTPAssetServer,
+		provideAppUpdateRequestQuit,
 	),
 	fx.Invoke(bindWailsLifecycle),
 	fx.Invoke(bindEventBridge),
@@ -41,6 +43,10 @@ type appParams struct {
 	Observability *observability.Service `optional:"true"`
 	RPCServer     *rpc.Server
 	PushBridge    *rpc.PushBridge
+}
+
+func provideAppUpdateRequestQuit(lifecycle *WailsLifecycle) appupdate.RequestQuit {
+	return lifecycle.RequestQuit
 }
 
 func NewApp(p appParams) *App {

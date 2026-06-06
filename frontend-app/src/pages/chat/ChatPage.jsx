@@ -1598,6 +1598,7 @@ function timelineAutoScrollKey({ activeThreadId, introMode, messages, pendingRea
   ].join('\u0002');
 }
 
+/*
 function providerToggleState(store) {
   const activeThreadId = normalizedThreadIdentity(store?.activeThreadId);
   const activeThread = activeThreadForStore(store);
@@ -1608,6 +1609,7 @@ function providerToggleState(store) {
     provider,
   };
 }
+*/
 
 function composerConfigThreadId(store, activeThreadId) {
   if (!activeThreadId) return '';
@@ -2260,6 +2262,7 @@ function ProjectDropdown({ options, selectedValue, onSelect, onRemove, onAdd }) 
   );
 }
 
+/*
 function ProviderToggle({ store, canUseProjectActions = true }) {
   const { locked, provider } = providerToggleState(store);
   const isClaude = provider === 'claude';
@@ -2291,6 +2294,7 @@ function ProviderToggle({ store, canUseProjectActions = true }) {
     </button>
   );
 }
+*/
 
 
 function ThreadRail({ store }) {
@@ -4530,7 +4534,7 @@ function renderMarkdownBlocks(lines, actions = {}, cache = null) {
     }
 
     let splitIndex = -1;
-    for (let i = matchingCount; i >= 0; i--) {
+    for (let i = matchingCount - 1; i >= 0; i--) {
       if (cache.checkpoints[i] !== undefined) {
         splitIndex = i;
         break;
@@ -5202,7 +5206,7 @@ function ComposerMeta({
   projectActionBlockedTitle,
   selectFiles,
   sendMessage,
-  showProviderToggle,
+  showProviderToggle: _,
   store,
 }) {
   const canForkThread = canUseProjectActions && Boolean(store.hasActiveThreadActions?.());
@@ -5245,7 +5249,7 @@ function ComposerMeta({
         <GitBranch size={16} />
       </button>
       <div className="composer-actions">
-        {showProviderToggle ? <ProviderToggle store={store} canUseProjectActions={canUseProjectActions} /> : null}
+
         <ModelSelector store={store} activeThreadId={modelThreadId} disabled={projectActionBlocked} />
         <button type="button" className={primaryActionClass} aria-label={primaryActionLabel} title={primaryActionTitle} disabled={primaryActionDisabled} onClick={onPrimaryAction}>
           {canInterrupt ? <CircleStop size={18} /> : <Send size={18} />}
@@ -5320,6 +5324,8 @@ function Conversation(props) {
   const timelineRef = useRef(null);
   const shouldStickToBottomRef = useRef(true);
   const lastTimelineAutoScrollKeyRef = useRef('');
+  const timelineContentBlockedRef = useRef(timelineContentBlocked);
+  const isInitialThreadRenderRef = useRef(true);
   const updateTimelineStickiness = useCallback((timeline) => {
     shouldStickToBottomRef.current = isTimelineNearBottom(timeline);
   }, []);
@@ -5350,9 +5356,27 @@ function Conversation(props) {
     timelineContentBlocked,
   });
   useEffect(() => {
+    timelineContentBlockedRef.current = timelineContentBlocked;
+  }, [timelineContentBlocked]);
+  useEffect(() => {
     shouldStickToBottomRef.current = true;
     lastTimelineAutoScrollKeyRef.current = '';
+    isInitialThreadRenderRef.current = true;
+    const el = timelineRef.current;
+    if (el) {
+      el.scrollTop = 0;
+    }
   }, [activeThreadId]);
+  useEffect(() => {
+    if (!timelineContentBlocked && activeThreadId) {
+      scrollTimelineToBottomInstant();
+      isInitialThreadRenderRef.current = false;
+      const timer = setTimeout(() => {
+        scrollTimelineToBottomInstant();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [activeThreadId, timelineContentBlocked, scrollTimelineToBottomInstant]);
   useEffect(() => {
     if (!autoScrollKey) {
       lastTimelineAutoScrollKeyRef.current = autoScrollKey;
@@ -5363,6 +5387,37 @@ function Conversation(props) {
     if (!shouldStickToBottomRef.current) return;
     requestTimelineBottomScroll(scrollTimelineToBottomInstant);
   }, [autoScrollKey, scrollTimelineToBottomInstant]);
+  useEffect(() => {
+    const el = timelineRef.current;
+    if (!el) return;
+    const observer = new MutationObserver(() => {
+      if (!isInitialThreadRenderRef.current && !timelineContentBlockedRef.current && shouldStickToBottomRef.current) {
+        scrollTimelineElementToBottom(el, false);
+      }
+    });
+    observer.observe(el, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    return () => {
+      observer.disconnect();
+    };
+  }, [activeThreadId]);
+
+  useEffect(() => {
+    const el = timelineRef.current;
+    if (!el) return;
+    const handleLoad = () => {
+      if (!isInitialThreadRenderRef.current && !timelineContentBlockedRef.current && shouldStickToBottomRef.current) {
+        scrollTimelineElementToBottom(el, false);
+      }
+    };
+    el.addEventListener('load', handleLoad, true);
+    return () => {
+      el.removeEventListener('load', handleLoad, true);
+    };
+  }, [activeThreadId]);
   const composer = (
     <ConversationComposer
       {...props}
@@ -5592,7 +5647,7 @@ function ConversationTimeline({
 
   return (
     <div className="timeline-shell">
-      <div className="timeline" data-testid="chat-timeline" ref={timelineRef} onScroll={handleScroll}>
+      <div key={activeThreadId || 'intro'} className="timeline" data-testid="chat-timeline" ref={timelineRef} onScroll={handleScroll}>
         {introMode ? <IntroChatStage composer={composer} projectPath={projectPath} /> : null}
         {!introMode && !timelineContentBlocked && (hiddenOlderCount > 0 || hasBackendOlderPage) ? (
           <TimelineOlderMessagesMarker hiddenCount={hiddenOlderCount} loading={olderPageLoading} onReveal={requestOlderMessages} />
@@ -5723,7 +5778,7 @@ const TimelineMessage = React.memo(function TimelineMessage({ message, actions, 
   });
 
   React.useLayoutEffect(() => {
-    if (onScrollIfSticky) {
+    if (streamingAssistant && onScrollIfSticky) {
       onScrollIfSticky(false);
     }
   }, [displayText, streamingAssistant, smoothStreaming, onScrollIfSticky]);
