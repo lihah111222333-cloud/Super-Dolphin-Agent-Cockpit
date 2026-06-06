@@ -24,6 +24,16 @@ func arrayOfStringsProp(desc string) schema {
 	return schema{"type": "array", "description": desc, "items": map[string]any{"type": "string"}}
 }
 
+func stringOrArrayOfStringsProp(desc string) schema {
+	return schema{
+		"description": desc,
+		"oneOf": []any{
+			map[string]any{"type": "string"},
+			map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		},
+	}
+}
+
 func objectSchema(props map[string]schema, required ...string) schema {
 	s := schema{"type": "object", "additionalProperties": false}
 	if len(props) > 0 {
@@ -71,7 +81,9 @@ var lspXrefSchema = objectSchema(map[string]schema{
 var lspGrepSchema = objectSchema(map[string]schema{
 	"action":         enumProp("Action", "text_search", "ast_search"),
 	"query":          stringProp("Search query"),
-	"path":           stringProp("Search root; pass whitespace- or comma-separated paths to search multiple roots"),
+	"path":           stringOrArrayOfStringsProp("Search root; pass whitespace- or comma-separated paths to search multiple roots. Compatibility accepts an array of paths."),
+	"paths":          arrayOfStringsProp("Compatibility alias for path as multiple search roots; prefer path."),
+	"file_paths":     arrayOfStringsProp("Compatibility alias for callers that reuse read_file batch arguments; prefer path."),
 	"glob":           stringProp("Glob filter (text_search only)"),
 	"language":       stringProp("Language for AST"),
 	"regex":          booleanProp("Regex mode (default literal)"),

@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -26,14 +27,108 @@ const (
 )
 
 type grepToolInput struct {
-	Action        string `json:"action"`
-	Query         string `json:"query,omitempty"`
-	Path          string `json:"path,omitempty"`
-	Glob          string `json:"glob,omitempty"`
-	Language      string `json:"language,omitempty"`
-	Regex         bool   `json:"regex,omitempty"`
-	CaseSensitive *bool  `json:"case_sensitive,omitempty"`
-	MaxResults    int    `json:"max_results,omitempty"`
+	Action        string   `json:"action"`
+	Query         string   `json:"query,omitempty"`
+	Path          string   `json:"path,omitempty"`
+	Paths         []string `json:"-"`
+	Glob          string   `json:"glob,omitempty"`
+	Language      string   `json:"language,omitempty"`
+	Regex         bool     `json:"regex,omitempty"`
+	CaseSensitive *bool    `json:"case_sensitive,omitempty"`
+	MaxResults    int      `json:"max_results,omitempty"`
+}
+
+func (input *grepToolInput) UnmarshalJSON(raw []byte) error {
+	var decoded struct {
+		Action        string          `json:"action"`
+		Query         string          `json:"query,omitempty"`
+		Path          json.RawMessage `json:"path,omitempty"`
+		Paths         json.RawMessage `json:"paths,omitempty"`
+		FilePaths     json.RawMessage `json:"file_paths,omitempty"`
+		Glob          string          `json:"glob,omitempty"`
+		Language      string          `json:"language,omitempty"`
+		Regex         bool            `json:"regex,omitempty"`
+		CaseSensitive *bool           `json:"case_sensitive,omitempty"`
+		MaxResults    int             `json:"max_results,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return err
+	}
+	path, paths, err := decodeGrepPathInputs(
+		grepPathInput{name: "path", raw: decoded.Path},
+		grepPathInput{name: "paths", raw: decoded.Paths},
+		grepPathInput{name: "file_paths", raw: decoded.FilePaths},
+	)
+	if err != nil {
+		return err
+	}
+	*input = grepToolInput{
+		Action:        decoded.Action,
+		Query:         decoded.Query,
+		Path:          path,
+		Paths:         paths,
+		Glob:          decoded.Glob,
+		Language:      decoded.Language,
+		Regex:         decoded.Regex,
+		CaseSensitive: decoded.CaseSensitive,
+		MaxResults:    decoded.MaxResults,
+	}
+	return nil
+}
+
+type grepPathInput struct {
+	name string
+	raw  json.RawMessage
+}
+
+func decodeGrepPathInputs(inputs ...grepPathInput) (string, []string, error) {
+	paths := make([]string, 0, len(inputs))
+	for _, input := range inputs {
+		decoded, err := decodeGrepPathInput(input)
+		if err != nil {
+			return "", nil, err
+		}
+		paths = append(paths, decoded...)
+	}
+	switch len(paths) {
+	case 0:
+		return "", nil, nil
+	case 1:
+		return paths[0], nil, nil
+	default:
+		return "", paths, nil
+	}
+}
+
+func decodeGrepPathInput(input grepPathInput) ([]string, error) {
+	raw := bytes.TrimSpace(input.raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return nil, nil
+	}
+	var single string
+	if err := json.Unmarshal(raw, &single); err == nil {
+		return []string{single}, nil
+	}
+	var paths []string
+	if err := json.Unmarshal(raw, &paths); err == nil {
+		return normalizeGrepPathList(input.name, paths)
+	}
+	return nil, fmt.Errorf("%s must be a string or an array of strings", input.name)
+}
+
+func normalizeGrepPathList(name string, paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("%s array must contain at least one path", name)
+	}
+	normalized := make([]string, 0, len(paths))
+	for index, path := range paths {
+		trimmed := strings.TrimSpace(path)
+		if trimmed == "" {
+			return nil, fmt.Errorf("%s array contains empty path at index %d", name, index)
+		}
+		normalized = append(normalized, trimmed)
+	}
+	return normalized, nil
 }
 
 type grepFileRows struct {
@@ -81,6 +176,7 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 				Root:          root,
 				Roots:         roots,
 				Path:          input.Path,
+				Paths:         input.Paths,
 				Glob:          input.Glob,
 				Query:         input.Query,
 				Regex:         input.Regex,
@@ -103,6 +199,7 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 				Root:         root,
 				Roots:        roots,
 				Path:         input.Path,
+				Paths:        input.Paths,
 				Glob:         input.Glob,
 				Query:        input.Query,
 				Language:     input.Language,
@@ -161,6 +258,9 @@ func searchSiblingWorkspaceOnRuntimeFallback(ctx context.Context, opts search.Te
 
 func runtimeSiblingSearchScope(ctx context.Context, opts search.TextSearchOptions) (string, string, string, bool) {
 	if !common.RuntimeWorkspaceScopeFallbackFromContext(ctx) {
+		return "", "", "", false
+	}
+	if len(opts.Paths) > 0 {
 		return "", "", "", false
 	}
 	relPath := strings.TrimSpace(opts.Path)

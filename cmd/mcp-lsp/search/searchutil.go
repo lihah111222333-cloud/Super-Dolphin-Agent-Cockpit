@@ -32,6 +32,7 @@ type TextSearchOptions struct {
 	Root          string
 	Roots         []string
 	Path          string
+	Paths         []string
 	Glob          string
 	Query         string
 	Regex         bool
@@ -44,6 +45,7 @@ type ASTSearchOptions struct {
 	Root         string
 	Roots        []string
 	Path         string
+	Paths        []string
 	Glob         string
 	Query        string
 	Language     string
@@ -77,7 +79,7 @@ func SearchText(ctx context.Context, opts TextSearchOptions) ([]SearchMatch, err
 	if err := validateSearchGlob(opts.Glob); err != nil {
 		return nil, err
 	}
-	searchPaths, err := statSearchPaths(opts.Root, opts.Roots, opts.Path)
+	searchPaths, err := statSearchPaths(opts.Root, opts.Roots, opts.Path, opts.Paths)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +110,7 @@ func SearchAST(ctx context.Context, opts ASTSearchOptions) ([]SearchMatch, error
 	if err := validateSearchGlob(opts.Glob); err != nil {
 		return nil, err
 	}
-	searchPaths, err := statSearchPaths(opts.Root, opts.Roots, opts.Path)
+	searchPaths, err := statSearchPaths(opts.Root, opts.Roots, opts.Path, opts.Paths)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +192,10 @@ type searchPathStat struct {
 	Info os.FileInfo
 }
 
-func statSearchPaths(root string, roots []string, rawPath string) ([]searchPathStat, error) {
+func statSearchPaths(root string, roots []string, rawPath string, explicitPaths []string) ([]searchPathStat, error) {
+	if len(explicitPaths) > 0 {
+		return statExplicitSearchPaths(root, roots, explicitPaths)
+	}
 	pathInfo, info, err := statSearchPath(root, roots, rawPath)
 	if err == nil {
 		return []searchPathStat{{Path: pathInfo, Info: info}}, nil
@@ -204,6 +209,18 @@ func statSearchPaths(root string, roots []string, rawPath string) ([]searchPathS
 		pathInfo, info, fieldErr := statSearchPath(root, roots, field)
 		if fieldErr != nil {
 			return nil, fmt.Errorf("stat search path %q from %q: %w", field, rawPath, fieldErr)
+		}
+		searchPaths = append(searchPaths, searchPathStat{Path: pathInfo, Info: info})
+	}
+	return searchPaths, nil
+}
+
+func statExplicitSearchPaths(root string, roots []string, rawPaths []string) ([]searchPathStat, error) {
+	searchPaths := make([]searchPathStat, 0, len(rawPaths))
+	for _, rawPath := range rawPaths {
+		pathInfo, info, err := statSearchPath(root, roots, rawPath)
+		if err != nil {
+			return nil, fmt.Errorf("stat search path %q: %w", rawPath, err)
 		}
 		searchPaths = append(searchPaths, searchPathStat{Path: pathInfo, Info: info})
 	}
