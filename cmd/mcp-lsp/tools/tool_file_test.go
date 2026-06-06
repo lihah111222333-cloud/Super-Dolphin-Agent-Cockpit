@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
@@ -166,6 +167,70 @@ func TestReadFileWithLimitDoesNotForceLineWindow(t *testing.T) {
 	if strings.Contains(result, "scope=lines") && !strings.Contains(result, "no symbol provider") {
 		t.Fatalf("limit forced line-window without fallback reason: %q", result)
 	}
+}
+
+func TestReadFileFunctionWindowUsesBestEffortDocumentSymbols(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "main.go")
+	content := "package main\n\nfunc hello() {\n\treturn\n}\n"
+	if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	manager := &readFileBestEffortSymbolManager{
+		bestEffortSymbols: []protocol.DocumentSymbol{{
+			Name: "hello",
+			Kind: protocol.SymbolKindFunction,
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 2, Character: 0},
+				End:   protocol.Position{Line: 5, Character: 0},
+			},
+			SelectionRange: protocol.Range{
+				Start: protocol.Position{Line: 2, Character: 5},
+				End:   protocol.Position{Line: 2, Character: 10},
+			},
+		}},
+	}
+	registry := &structureTestRegistry{fileManager: manager}
+	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+
+	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), marshalFileToolInput(t, fileToolInput{
+		Action: "read_file",
+		Pos:    "main.go:3",
+		Limit:  20,
+	}))
+	if err != nil {
+		t.Fatalf("read_file returned error: %v", err)
+	}
+	if manager.documentSymbolCalls != 0 {
+		t.Fatalf("DocumentSymbol calls = %d, want best-effort path only", manager.documentSymbolCalls)
+	}
+	if manager.bestEffortCalls != 1 {
+		t.Fatalf("DocumentSymbolBestEffort calls = %d, want 1", manager.bestEffortCalls)
+	}
+	text, ok := got.(string)
+	if !ok {
+		t.Fatalf("read_file result = %T, want string", got)
+	}
+	if !strings.Contains(text, "[scope=function hello L3-L5]") {
+		t.Fatalf("read_file result = %q, want function window from best-effort symbols", text)
+	}
+}
+
+type readFileBestEffortSymbolManager struct {
+	structureTestManager
+	bestEffortSymbols   []protocol.DocumentSymbol
+	documentSymbolCalls int
+	bestEffortCalls     int
+}
+
+func (m *readFileBestEffortSymbolManager) DocumentSymbol(context.Context, string) ([]protocol.DocumentSymbol, error) {
+	m.documentSymbolCalls++
+	return nil, nil
+}
+
+func (m *readFileBestEffortSymbolManager) DocumentSymbolBestEffort(context.Context, string) ([]protocol.DocumentSymbol, error) {
+	m.bestEffortCalls++
+	return m.bestEffortSymbols, nil
 }
 
 func TestFileReadAllowsExplicitAbsoluteWorkDirOutsideWorkspaceRoots(t *testing.T) {

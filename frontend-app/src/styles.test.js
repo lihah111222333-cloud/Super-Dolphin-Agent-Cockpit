@@ -1199,6 +1199,29 @@ describe('blue-purple theme contract', () => {
     expect(primaryDisabled.color).toBe('var(--text-muted)');
     expect(secondary.background).toBe('transparent');
   });
+
+  it('keeps workflow final-output media actions theme-token driven', () => {
+    const group = declarationsFor('.workflow-output-actions');
+    const action = declarationsFor('.workflow-page .workflow-output-action');
+    const preview = declarationsFor('.workflow-page .workflow-output-action-preview');
+    const previewHover = declarationsFor('.workflow-page .workflow-output-action-preview:hover');
+    const system = declarationsFor('.workflow-page .workflow-output-action-system');
+    const systemHover = declarationsFor('.workflow-page .workflow-output-action-system:hover');
+    const disabled = declarationsFor('.workflow-page .workflow-output-action:disabled');
+
+    expect(group.background).toContain('var(--surface-2)');
+    expect(group.background).toContain('var(--bg)');
+    expect(action.background).toBe('transparent');
+    expect(action.color).toBe('var(--text-pri)');
+    expect(preview.background).toBe('var(--primary-action-bg)');
+    expect(preview.color).toBe('var(--primary-action-text)');
+    expect(previewHover.background).toBe('var(--primary-action-bg-hover)');
+    expect(system.background).toBe('transparent');
+    expect(system.color).toBe('var(--text-pri)');
+    expect(systemHover.background).toContain('var(--surface-3)');
+    expect(disabled.background).toBe('var(--surface-3)');
+    expect(disabled.color).toBe('var(--text-muted)');
+  });
 });
 
 describe('blue-purple form and notice contract', () => {

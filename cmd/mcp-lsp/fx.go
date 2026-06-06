@@ -141,7 +141,10 @@ func provideLSPBackgroundRunners(m *Manager) []platformrunner.Runner {
 }
 
 func (p registryToolProvider) ListTools(ctx context.Context) ([]mcp.MCPTool, error) {
-	semanticAvailable := p.isSemanticLSPAvailable(ctx)
+	semanticAvailable, err := p.semanticLSPAvailable(ctx)
+	if err != nil {
+		return nil, err
+	}
 	toolsList := make([]mcp.MCPTool, 0, len(p.defs))
 	for _, def := range p.defs {
 		if isSemanticLSPToolName(def.Manifest.Name) && !semanticAvailable {
@@ -168,9 +171,9 @@ func (p registryToolProvider) ListTools(ctx context.Context) ([]mcp.MCPTool, err
 	return toolsList, nil
 }
 
-func (p registryToolProvider) isSemanticLSPAvailable(ctx context.Context) bool {
+func (p registryToolProvider) semanticLSPAvailable(ctx context.Context) (bool, error) {
 	if p.semanticToolsAvailable != nil {
-		return p.semanticToolsAvailable(ctx)
+		return p.semanticToolsAvailable(ctx), nil
 	}
 	return runtimeSemanticLSPToolsAvailable(ctx)
 }
@@ -184,17 +187,20 @@ func isSemanticLSPToolName(name string) bool {
 	}
 }
 
-func runtimeSemanticLSPToolsAvailable(context.Context) bool {
+func runtimeSemanticLSPToolsAvailable(context.Context) (bool, error) {
 	lspBundle, packaged, err := runtimeenv.LoadLSPBundleFromEnv()
 	if packaged {
-		return err == nil && len(lspBundle.SemanticLanguages()) > 0
+		if err != nil {
+			return false, err
+		}
+		return len(lspBundle.SemanticLanguages()) > 0, nil
 	}
 	for _, binary := range runtimeSemanticLSPServerBinaries() {
 		if _, err := exec.LookPath(binary); err == nil {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 func runtimeSemanticLSPServerBinaries() []string {

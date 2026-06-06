@@ -52,8 +52,9 @@ type BootstrapPolicy struct {
 }
 
 type ToolCapabilityPolicy struct {
-	RequiresLSPClient      bool
-	DocumentSymbolFallback bool
+	RequiresLSPClient              bool
+	DocumentSymbolFallback         bool
+	RetryEmptyCallHierarchyPrepare bool
 }
 
 type LanguageAdapterRegistry struct {
@@ -193,13 +194,14 @@ func (goLanguageAdapter) CapabilityPolicy() ToolCapabilityPolicy {
 }
 
 type projectLanguageAdapter struct {
-	languageIDs           []string
-	command               ServerCommand
-	rootMarkers           []string
-	rootKind              string
-	firstSourceExtensions []string
-	ignoredDirNames       map[string]struct{}
-	initOptions           map[string]any
+	languageIDs                    []string
+	command                        ServerCommand
+	rootMarkers                    []string
+	rootKind                       string
+	firstSourceExtensions          []string
+	ignoredDirNames                map[string]struct{}
+	initOptions                    map[string]any
+	retryEmptyCallHierarchyPrepare bool
 }
 
 func (a projectLanguageAdapter) LanguageIDs() []string {
@@ -328,7 +330,10 @@ func (a projectLanguageAdapter) CacheKeyParts(scope ResolvedLanguageScope) map[s
 }
 
 func (a projectLanguageAdapter) CapabilityPolicy() ToolCapabilityPolicy {
-	return ToolCapabilityPolicy{RequiresLSPClient: true}
+	return ToolCapabilityPolicy{
+		RequiresLSPClient:              true,
+		RetryEmptyCallHierarchyPrepare: a.retryEmptyCallHierarchyPrepare,
+	}
 }
 
 type documentFallbackAdapter struct {
