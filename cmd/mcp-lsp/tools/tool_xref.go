@@ -99,7 +99,7 @@ func runCallHierarchy(
 	hint := "next: increase max_results or narrow the target position"
 	list := format.NewCompactList(compactCallHierarchyResults(ctx, limitSlice(results, limit)), total, hint)
 	if total == 0 {
-		list.Hint = "no call hierarchy found"
+		list.Hint = emptyCallHierarchyHint(filePath, req.LanguageID)
 	}
 	return list, nil
 }
@@ -144,5 +144,28 @@ func normalizeTypeHierarchyDirection(raw string) (string, error) {
 		return value, nil
 	default:
 		return "", fmt.Errorf("invalid type_hierarchy direction %q", raw)
+	}
+}
+
+func emptyCallHierarchyHint(filePath, languageID string) string {
+	if isJSTSCallHierarchyLanguage(languageIDForCallHierarchyHint(filePath, languageID)) {
+		return "no call hierarchy found; partial reason: JS/TS language server returned no prepare item after document bootstrap. next: retry with the cursor on a function or method identifier; if this persists, run diagnostics and verify package.json/tsconfig plus installed dependencies"
+	}
+	return "no call hierarchy found"
+}
+
+func languageIDForCallHierarchyHint(filePath, languageID string) string {
+	if normalized := normalizeLanguageIDOverride(languageID); normalized != "" {
+		return normalized
+	}
+	return lspmanager.DetectLanguageID(filePath)
+}
+
+func isJSTSCallHierarchyLanguage(languageID string) bool {
+	switch strings.ToLower(strings.TrimSpace(languageID)) {
+	case "javascript", "javascriptreact", "typescript", "typescriptreact":
+		return true
+	default:
+		return false
 	}
 }
