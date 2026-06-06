@@ -1294,4 +1294,77 @@ describe('ChatPage module', () => {
     expect(img.getAttribute('src')).toBe('/clipboard/clipboard-987654321.png');
     expect(container.querySelector('.user-attachment-file-pill')).toBeNull();
   });
+
+  it('adjusts scroll to bottom when a child resource loads and stickiness is enabled', () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'user', text: '图片加载测试', time: '2026-06-02T08:00:00Z' }
+    ]);
+    render(<ChatPage store={store} projectPath="/repo/app" />);
+    
+    const timeline = screen.getByTestId('chat-timeline');
+    
+    let scrollTop = 500;
+    Object.defineProperty(timeline, 'clientHeight', { configurable: true, value: 400 });
+    Object.defineProperty(timeline, 'scrollHeight', { configurable: true, value: 1500 });
+    Object.defineProperty(timeline, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (val) => {
+        scrollTop = val;
+      },
+    });
+
+    const img = document.createElement('img');
+    timeline.appendChild(img);
+    
+    const loadEvent = createEvent('load', img, {
+      bubbles: false,
+      cancelable: true,
+    });
+    
+    act(() => {
+      fireEvent(img, loadEvent);
+    });
+    
+    expect(scrollTop).toBe(1500);
+  });
+
+  it('does not adjust scroll to bottom when a child resource loads but stickiness is disabled', () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'user', text: '图片加载测试无粘性', time: '2026-06-02T08:00:00Z' }
+    ]);
+    render(<ChatPage store={store} projectPath="/repo/app" />);
+    
+    const timeline = screen.getByTestId('chat-timeline');
+    
+    let scrollTop = 500;
+    Object.defineProperty(timeline, 'clientHeight', { configurable: true, value: 400 });
+    Object.defineProperty(timeline, 'scrollHeight', { configurable: true, value: 1500 });
+    Object.defineProperty(timeline, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (val) => {
+        scrollTop = val;
+      },
+    });
+
+    // 触发 scroll 事件，使 shouldStickToBottomRef 变为 false
+    act(() => {
+      fireEvent.scroll(timeline);
+    });
+
+    const img = document.createElement('img');
+    timeline.appendChild(img);
+    
+    const loadEvent = createEvent('load', img, {
+      bubbles: false,
+      cancelable: true,
+    });
+    
+    act(() => {
+      fireEvent(img, loadEvent);
+    });
+    
+    expect(scrollTop).toBe(500); // 应该没有被重置到 1500
+  });
 });
