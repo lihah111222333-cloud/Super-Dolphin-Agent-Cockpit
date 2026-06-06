@@ -1639,6 +1639,7 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd }) {
   const isImage = useMemo(() => /\.(png|jpe?g|webp|gif|svg)$/i.test(outputPath || ''), [outputPath]);
   const isVideo = useMemo(() => /\.(mp4|webm|ogg|mov)$/i.test(outputPath || ''), [outputPath]);
   const isMedia = isImage || isVideo;
+  const mediaKindLabel = isVideo ? '视频' : '图片';
 
   const readFinalOutput = async () => {
     if (!outputPath) return;
@@ -1722,24 +1723,36 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd }) {
           <div className="workflow-file-row">
             <span>{finalOutputKind(finalOutput) || '文件'}</span>
             <code>{outputPath}</code>
-            <button type="button" className="btn-primary" disabled={reading} onClick={() => { void readFinalOutput(); }}>
-              {reading ? '读取中...' : (() => {
-                if (fileContent) {
-                  if (isImage) return '收起图片';
-                  if (isVideo) return '收起视频';
-                  return '收起最终结果';
-                } else {
-                  if (isImage) return '预览图片';
-                  if (isVideo) return '播放视频';
+            <div className="workflow-output-actions" aria-label="最终结果操作">
+              <button
+                type="button"
+                className="workflow-output-action workflow-output-action-preview"
+                disabled={reading}
+                onClick={() => { void readFinalOutput(); }}
+                title={isMedia ? `在当前页面内预览${mediaKindLabel}` : '读取最终结果内容'}
+              >
+                {reading ? '读取中...' : (() => {
+                  if (fileContent) {
+                    if (isMedia) return '收起预览';
+                    return '收起最终结果';
+                  }
+                  if (isVideo) return '页内播放';
+                  if (isImage) return '页内预览';
                   return '读取最终结果';
-                }
-              })()}
-            </button>
-            {isMedia ? (
-              <button type="button" className="btn-secondary" disabled={opening} onClick={() => { void openFinalOutput(); }}>
-                {opening ? '打开中...' : (isVideo ? '打开视频' : '打开图片')}
+                })()}
               </button>
-            ) : null}
+              {isMedia ? (
+                <button
+                  type="button"
+                  className="workflow-output-action workflow-output-action-system"
+                  disabled={opening}
+                  onClick={() => { void openFinalOutput(); }}
+                  title={`用系统默认应用打开${mediaKindLabel}`}
+                >
+                  {opening ? '打开中...' : '系统打开'}
+                </button>
+              ) : null}
+            </div>
           </div>
           {fileError ? <p className="danger-text">{fileError}</p> : null}
           {openError ? <p className="danger-text">{openError}</p> : null}
