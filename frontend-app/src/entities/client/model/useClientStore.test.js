@@ -1026,6 +1026,46 @@ function registerBridgeEventHandlersForTest() {
     expect(backend.setPreference).not.toHaveBeenCalled();
   });
 
+  it('opens backend-resolved DAG child threads even when the id looks like an agent runtime id', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/main',
+      activeProject: '/repo/main',
+      activeThreadId: 'thread-main',
+      threads: [{ id: 'thread-main', name: 'Main', provider: 'codex', status: 'running' }],
+    });
+    backend.resolveThreadIdentity.mockResolvedValue({
+      id: 'agent_child_1',
+      agent_id: 'agent_child_1',
+      name: 'Review child',
+      provider: 'codex',
+      cwd: '/repo/main/.worktrees/review-child',
+      status: 'running',
+    });
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: '',
+      threads: [{ id: 'thread-main', name: 'Main', provider: 'codex', status: 'running' }],
+      timelinesByThread: {},
+    });
+    backend.getThreadMessages.mockResolvedValue({
+      messages: [{ id: 'm-child', role: 'assistant', content: '子代理评审完成' }],
+      hasMore: false,
+      nextBefore: '',
+    });
+
+    await expect(useClientStore.getState().openThreadById('agent_child_1', { source: 'dag-node' })).resolves.toBe(true);
+
+    expect(backend.resolveThreadIdentity).toHaveBeenCalledWith({ cwd: '/repo/main', threadId: 'agent_child_1' });
+    expect(backend.getThreadState).toHaveBeenCalledWith({ cwd: '/repo/main', threadId: 'agent_child_1', includeDiff: false });
+    expect(backend.getThreadMessages).toHaveBeenCalledWith({ threadId: 'agent_child_1', limit: 300 });
+    expect(useClientStore.getState().activeThreadId).toBe('agent_child_1');
+    expect(useClientStore.getState().threads).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'agent_child_1', agentId: 'agent_child_1', name: 'Review child' }),
+    ]));
+    expect(useClientStore.getState().timelinesByThread.agent_child_1).toEqual([
+      expect.objectContaining({ text: '子代理评审完成' }),
+    ]);
+  });
+
   it('copies thread info as backend-resolved JSON and treats dot project as current cwd', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -4804,6 +4844,4 @@ function registerBridgeEventHandlersForTest() {
     expect(syncedThread.pinned).toBe(true);
     expect(syncedThread.pinnedAt).toBe(1600000000000);
   });
-
-
 
