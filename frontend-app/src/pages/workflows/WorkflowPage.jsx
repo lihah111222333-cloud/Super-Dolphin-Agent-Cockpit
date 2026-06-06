@@ -1884,8 +1884,10 @@ function WorkflowNodeRow({ node, store }) {
 }
 
 function openWorkflowNodeThread(store, threadId) {
-  void store?.setActiveThread?.(threadId);
-  store?.setActivePage?.('chat');
+  if (typeof store?.openThreadById !== 'function') return;
+  void store.openThreadById(threadId, { source: 'dag-node' }).then((opened) => {
+    if (opened) store?.setActivePage?.('chat');
+  });
 }
 
 function WorkflowAdvanced({ model }) {
