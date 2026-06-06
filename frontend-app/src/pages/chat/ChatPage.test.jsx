@@ -1294,4 +1294,39 @@ describe('ChatPage module', () => {
     expect(img.getAttribute('src')).toBe('/clipboard/clipboard-987654321.png');
     expect(container.querySelector('.user-attachment-file-pill')).toBeNull();
   });
+
+  it('[regression] renders streaming list items correctly without splitting them', async () => {
+    const store = createActiveThreadStore([
+      {
+        id: 'msg-stream',
+        role: 'assistant',
+        text: '# Title\n- item 1\n- item 2\n',
+        time: '2026-06-02T08:00:00Z',
+        done: false,
+      },
+    ], { smoothStreaming: false });
+
+    const { rerender } = render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    const updatedStore = createActiveThreadStore([
+      {
+        id: 'msg-stream',
+        role: 'assistant',
+        text: '# Title\n- item 1\n- item 2\n- item 3\n',
+        time: '2026-06-02T08:00:00Z',
+        done: false,
+      },
+    ], { smoothStreaming: false });
+
+    rerender(<TestChatPageWrapper store={updatedStore} projectPath="/repo/app" />);
+
+    const lists = screen.getAllByRole('list');
+    expect(lists).toHaveLength(1);
+
+    const listItems = screen.getAllByRole('listitem');
+    expect(listItems).toHaveLength(3);
+    expect(listItems[0]).toHaveTextContent('item 1');
+    expect(listItems[1]).toHaveTextContent('item 2');
+    expect(listItems[2]).toHaveTextContent('item 3');
+  });
 });
