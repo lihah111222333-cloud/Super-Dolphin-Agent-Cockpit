@@ -367,7 +367,8 @@ describe('WorkflowPage module', () => {
     renderWorkflowPage();
 
     expect(await screen.findByText(finalPath)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '打开视频' }));
+    expect(screen.getByRole('button', { name: '页内播放' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '系统打开' }));
 
     await waitFor(() => expect(backend.openSharedFile).toHaveBeenCalledWith({ path: finalPath }));
     expect(backend.readSharedFile).not.toHaveBeenCalled();
