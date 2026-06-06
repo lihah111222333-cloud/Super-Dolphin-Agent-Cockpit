@@ -189,9 +189,10 @@ func TestBuildPoolSpawnCmdSetsWorkDirAndPWD(t *testing.T) {
 }
 
 func TestBuildPoolSpawnCmdOverridesNativeLSPConfigForWorkDir(t *testing.T) {
-	t.Parallel()
 	parent := t.TempDir()
 	workDir := filepath.Join(parent, "project with space")
+	appHome := filepath.Join(parent, "Library", "Application Support", "Super Dolphin")
+	t.Setenv("SUPER_DOLPHIN_HOME", appHome)
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		t.Fatalf("mkdir work dir: %v", err)
 	}
@@ -202,7 +203,7 @@ func TestBuildPoolSpawnCmdOverridesNativeLSPConfigForWorkDir(t *testing.T) {
 	ctx := withPoolSpawnWorkDir(context.Background(), workDir)
 	cmd, err := BuildPoolSpawnCmd(ctx, PoolSpawnArgs{
 		Home:      "/realpath/home",
-		ParentEnv: []string{},
+		ParentEnv: []string{"SUPER_DOLPHIN_HOME=" + appHome},
 	})
 	if err != nil {
 		t.Fatalf("BuildPoolSpawnCmd error = %v", err)
@@ -213,11 +214,17 @@ func TestBuildPoolSpawnCmdOverridesNativeLSPConfigForWorkDir(t *testing.T) {
 		"mcp_servers.lsp.cwd=",
 		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOT=",
 		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOTS=",
+		"mcp_servers.lsp.env.SUPER_DOLPHIN_HOME=",
 		realWorkDir,
+		appHome,
 	} {
 		if !commandLineContains(commandLine, want) {
 			t.Fatalf("spawn argv missing %q:\n%s", want, commandLine)
 		}
+	}
+	env := strings.Join(cmd.Env, "\n")
+	if !strings.Contains(env, "SUPER_DOLPHIN_HOME="+appHome) {
+		t.Fatalf("spawn env missing SUPER_DOLPHIN_HOME:\n%s", env)
 	}
 }
 

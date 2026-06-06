@@ -12,6 +12,7 @@ func TestBuildAllowlistedSpawnEnvKeepsOnlyListed(t *testing.T) {
 		"PATH=/usr/bin",
 		"HOME=/home/a",
 		"USER=a",
+		"SUPER_DOLPHIN_HOME=/Users/a/Library/Application Support/Super Dolphin",
 		"SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN=bootstrap-token",
 		"SUPER_DOLPHIN_CODEX_RELAY_API_KEY=privileged-key",
 		"CODEX_HOME=/stale/home",   // rogue — must be dropped
@@ -21,7 +22,7 @@ func TestBuildAllowlistedSpawnEnvKeepsOnlyListed(t *testing.T) {
 	got := buildAllowlistedSpawnEnv(parent, nil)
 	text := strings.Join(got, "\n")
 	// Must keep.
-	for _, want := range []string{"PATH=/usr/bin", "HOME=/home/a", "USER=a", "SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN=bootstrap-token"} {
+	for _, want := range []string{"PATH=/usr/bin", "HOME=/home/a", "USER=a", "SUPER_DOLPHIN_HOME=/Users/a/Library/Application Support/Super Dolphin", "SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN=bootstrap-token"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("expected %q retained, got %v", want, got)
 		}
