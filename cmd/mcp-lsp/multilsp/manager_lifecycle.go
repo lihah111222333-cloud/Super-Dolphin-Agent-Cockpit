@@ -501,11 +501,24 @@ func (m *manager) documentClient(ctx context.Context, uri string) (Client, docum
 	if err := m.bootstrapDocument(ctx, ref.uri); err != nil {
 		return nil, documentRef{}, err
 	}
+	if err := m.waitDocumentDiagnosticsReady(ctx, ref); err != nil {
+		return nil, documentRef{}, err
+	}
 	client, err := m.ensureClientForFile(ctx, ref.absPath, ref.languageID)
 	if err != nil {
 		return nil, documentRef{}, err
 	}
 	return client, ref, nil
+}
+
+func (m *manager) waitDocumentDiagnosticsReady(ctx context.Context, ref documentRef) error {
+	if _, ok := ctx.Deadline(); !ok {
+		return nil
+	}
+	if ref.uri == "" || !m.shouldUseClientForLanguage(ref.languageID) || !fileExists(ref.absPath) {
+		return nil
+	}
+	return m.WaitDiagnosticsStable(ctx, []string{ref.uri})
 }
 
 func clientHealthy(client Client) bool {
