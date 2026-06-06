@@ -145,13 +145,14 @@ func RunDesktop(frontendFS fs.FS) error {
 		return errors.New("wails lifecycle not available")
 	}
 
-	watcher := watchFXShutdown(ctx, app, lifecycle)
+	stopper := newDesktopFXStopper(ctx, app)
+	watcher := watchFXShutdown(ctx, app, lifecycle, stopper.Stop)
 	runErr := wailsApp.Run()
 	owner.Cancel()
 	preDrainErr := preDrainDesktopRuntime(ctx, owner)
 	watcher.StopAndWait()
 
-	stopErr := stopFXApp(context.WithoutCancel(ctx), app)
+	stopErr := stopper.Stop()
 	return errors.Join(runErr, preDrainErr, stopErr)
 }
 
@@ -302,20 +303,57 @@ func (w *shutdownWatcher) StopAndWait() {
 	<-w.done
 }
 
-func watchFXShutdown(ctx context.Context, app *fx.App, lifecycle *uiwails.WailsLifecycle) *shutdownWatcher {
+type desktopFXStopper struct {
+	parent context.Context
+	app    *fx.App
+
+	once sync.Once
+	err  error
+}
+
+func newDesktopFXStopper(parent context.Context, app *fx.App) *desktopFXStopper {
+	return &desktopFXStopper{
+		parent: parent,
+		app:    app,
+	}
+}
+
+func (s *desktopFXStopper) Stop() error {
+	if s == nil {
+		return nil
+	}
+	s.once.Do(func() {
+		s.err = stopFXApp(context.WithoutCancel(s.parent), s.app)
+	})
+	return s.err
+}
+
+func watchFXShutdown(ctx context.Context, app *fx.App, lifecycle *uiwails.WailsLifecycle, stopBackend func() error) *shutdownWatcher {
 	watcher := &shutdownWatcher{stop: make(chan struct{}), done: make(chan struct{})}
 	runtimesafe.SafeGo(ctx, pkglogger.Get(), "app.watchFXShutdown", func(ctx context.Context) {
 		defer close(watcher.done)
-		// 误判防护：watchFXShutdown 把 fx.Done 非预期退出转为 NotifyBackendFailed。
-		runShutdownWatcher(ctx, app.Done(), watcher.stop, lifecycle.NotifyBackendFailed)
+		runShutdownWatcher(ctx, app.Done(), watcher.stop, stopBackend, func(err error) {
+			if err != nil {
+				pkglogger.Get().Warn("desktop backend stop before quit failed", "error", err)
+				lifecycle.NotifyBackendFailed()
+				return
+			}
+			lifecycle.NotifyBackendStopped()
+		})
 	})
 	return watcher
 }
 
-func runShutdownWatcher(ctx context.Context, done <-chan os.Signal, stop <-chan struct{}, onFail func()) {
+func runShutdownWatcher(ctx context.Context, done <-chan os.Signal, stop <-chan struct{}, stopBackend func() error, onStopped func(error)) {
 	select {
 	case <-done:
-		onFail()
+		var err error
+		if stopBackend != nil {
+			err = stopBackend()
+		}
+		if onStopped != nil {
+			onStopped(err)
+		}
 	case <-stop:
 	case <-ctx.Done():
 	}

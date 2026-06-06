@@ -115,16 +115,23 @@ func (l *WailsLifecycle) ShouldQuit() bool {
 		return false
 	}
 
-	l.quitAllowed.Store(true)
 	l.requestBackendShutdown()
-	return true
+	return false
 }
 
 func (l *WailsLifecycle) OnShutdown() {
 	l.requestBackendShutdown()
 }
 
+func (l *WailsLifecycle) NotifyBackendStopped() {
+	l.allowQuitAfterBackendShutdown()
+}
+
 func (l *WailsLifecycle) NotifyBackendFailed() {
+	l.allowQuitAfterBackendShutdown()
+}
+
+func (l *WailsLifecycle) allowQuitAfterBackendShutdown() {
 	l.stopShutdownTimer()
 	l.quitAllowed.Store(true)
 	if !l.frontendReady.Load() {

@@ -17,7 +17,9 @@ func TestWatchFXShutdownHonorsContextCancel(t *testing.T) {
 
 	go func() {
 		defer close(exited)
-		runShutdownWatcher(ctx, done, stop, func() {
+		runShutdownWatcher(ctx, done, stop, func() error {
+			return errors.New("watcher should not stop backend on context cancellation")
+		}, func(error) {
 			failed <- struct{}{}
 		})
 	}()
@@ -105,7 +107,9 @@ func TestShutdownWatcherStopAndWaitJoins(t *testing.T) {
 	errCh := make(chan error, 1)
 	go func() {
 		defer close(exited)
-		runShutdownWatcher(ctx, done, stop, func() {
+		runShutdownWatcher(ctx, done, stop, func() error {
+			return errors.New("watcher should not stop backend on explicit stop")
+		}, func(error) {
 			errCh <- errors.New("watcher should not notify backend failure on explicit stop")
 		})
 	}()
@@ -119,5 +123,26 @@ func TestShutdownWatcherStopAndWaitJoins(t *testing.T) {
 	case err := <-errCh:
 		t.Fatal(err)
 	default:
+	}
+}
+
+func TestRunShutdownWatcherStopsBackendBeforeAllowingQuit(t *testing.T) {
+	done := make(chan os.Signal, 1)
+	stop := make(chan struct{})
+	events := make([]string, 0, 2)
+	done <- os.Interrupt
+
+	runShutdownWatcher(context.Background(), done, stop, func() error {
+		events = append(events, "stop")
+		return nil
+	}, func(err error) {
+		if err != nil {
+			t.Fatalf("onStopped error = %v", err)
+		}
+		events = append(events, "quit")
+	})
+
+	if len(events) != 2 || events[0] != "stop" || events[1] != "quit" {
+		t.Fatalf("events = %#v, want stop before quit", events)
 	}
 }
