@@ -327,7 +327,10 @@ func (s *service) fireOrForceLocked(ctx context.Context, agent *agentRuntime, tr
 }
 
 func formatIllegalTransitionError(ctx context.Context, agent *agentRuntime, before, trigger string, err error) error {
-	allowed := allowedTriggersForState(ctx, agent, before)
+	allowed, allowedErr := allowedTriggersForState(ctx, agent, before)
+	if allowedErr != nil {
+		err = fmt.Errorf("failed to retrieve allowed triggers: %w; original error: %w", allowedErr, err)
+	}
 	agentID := ""
 	if agent != nil {
 		agentID = agent.id
@@ -335,19 +338,21 @@ func formatIllegalTransitionError(ctx context.Context, agent *agentRuntime, befo
 	return fmt.Errorf("%w for agent %q: state=%s trigger=%s allowed=%v: %w", errIllegalStateTransition, agentID, before, trigger, allowed, err)
 }
 
-func allowedTriggersForState(ctx context.Context, agent *agentRuntime, state string) []string {
+func allowedTriggersForState(ctx context.Context, agent *agentRuntime, state string) ([]string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if agent != nil && agent.sm != nil {
-		if allowed := platformstatemachine.AllowedTriggers(agent.sm, ctx); allowed != nil {
-			return allowed
+		allowed, err := platformstatemachine.AllowedTriggers(agent.sm, ctx)
+		if err != nil {
+			return nil, err
 		}
+		return allowed, nil
 	}
 	if strings.TrimSpace(state) == "" {
-		return nil
+		return nil, nil
 	}
-	return agentdto.AllowedTriggersStr(state)
+	return agentdto.AllowedTriggersStr(state), nil
 }
 
 // fireAndPublishLocked fires a state-machine trigger and publishes a
