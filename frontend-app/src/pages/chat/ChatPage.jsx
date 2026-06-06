@@ -5403,7 +5403,7 @@ function Conversation(props) {
     return () => {
       observer.disconnect();
     };
-  }, []);
+  }, [activeThreadId]);
 
   useEffect(() => {
     const el = timelineRef.current;
@@ -5417,7 +5417,7 @@ function Conversation(props) {
     return () => {
       el.removeEventListener('load', handleLoad, true);
     };
-  }, [timelineRef]);
+  }, [activeThreadId]);
   const composer = (
     <ConversationComposer
       {...props}
@@ -5647,7 +5647,7 @@ function ConversationTimeline({
 
   return (
     <div className="timeline-shell">
-      <div className="timeline" data-testid="chat-timeline" ref={timelineRef} onScroll={handleScroll}>
+      <div key={activeThreadId || 'intro'} className="timeline" data-testid="chat-timeline" ref={timelineRef} onScroll={handleScroll}>
         {introMode ? <IntroChatStage composer={composer} projectPath={projectPath} /> : null}
         {!introMode && !timelineContentBlocked && (hiddenOlderCount > 0 || hasBackendOlderPage) ? (
           <TimelineOlderMessagesMarker hiddenCount={hiddenOlderCount} loading={olderPageLoading} onReveal={requestOlderMessages} />
