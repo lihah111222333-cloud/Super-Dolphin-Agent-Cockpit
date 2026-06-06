@@ -1270,10 +1270,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     const dialog = screen.getByRole('dialog', { name: '图片预览：Mermaid 图表' });
     expect(dialog.tagName).toBe('DIALOG');
     expect(within(dialog).getByRole('img', { name: 'Mermaid 图表' })).toBeInTheDocument();
-    expect(within(dialog).getByRole('link', { name: '外部打开' })).toHaveAttribute(
-      'href',
-      expect.stringContaining('data:image/svg+xml;charset=utf-8,'),
-    );
+    expect(within(dialog).queryByRole('link', { name: '外部打开' })).not.toBeInTheDocument();
   });
 
   it('keeps assistant output from the thread snapshot when thread message history is stale', async () => {
@@ -1495,7 +1492,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     const dialog = screen.getByRole('dialog', { name: '图片预览：ig_lightbox.png' });
     expect(dialog.tagName).toBe('DIALOG');
     expect(within(dialog).getByRole('img', { name: 'ig_lightbox.png' })).toHaveAttribute('src', routedSrc);
-    expect(within(dialog).getByRole('link', { name: '外部打开' })).toHaveAttribute('href', routedSrc);
+    expect(within(dialog).queryByRole('link', { name: '外部打开' })).not.toBeInTheDocument();
   });
 
   it('shows a readable fallback when a generated image preview cannot load', async () => {
@@ -1632,6 +1629,34 @@ async function toggleInlineTraceFromRecentLogs(table) {
     const configBlock = document.querySelector('[data-output-kind="config"]');
     expect(configBlock).toBeInTheDocument();
     expect(configBlock).toHaveTextContent('sandbox: workspace-write');
+  });
+
+  it('[regression] renders streaming code blocks without showing opening code fences', async () => {
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [
+          {
+            id: 'assistant-streaming-log',
+            kind: 'assistant',
+            text: [
+              '```log',
+              '[INFO] starting server...',
+              '[INFO] server listening on port 8080',
+            ].join('\n'),
+            ts: '2026-05-30T00:00:00Z',
+          },
+        ],
+      },
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText(/\[INFO\] starting server\.\.\./)).toBeInTheDocument();
+    const logBlock = document.querySelector('[data-output-kind="log"]');
+    expect(logBlock).toBeInTheDocument();
+    expect(logBlock).toHaveTextContent('[INFO] starting server...');
+    expect(logBlock).not.toHaveTextContent('```log');
   });
 
   it('derives runtime code-change metrics from the backend diff for the selected thread', async () => {

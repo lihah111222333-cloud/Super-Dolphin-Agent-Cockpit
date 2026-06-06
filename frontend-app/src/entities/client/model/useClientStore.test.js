@@ -1618,6 +1618,59 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('[regression] strips <image> XML placeholders and extracts image attachments from history metadata', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+    });
+    backend.getThreadState.mockResolvedValueOnce({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {},
+    });
+    backend.getThreadMessages.mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'user-with-image',
+          role: 'user',
+          content: '能先识别这张截图内容。<image name=[Image #1]></image>',
+          metadata: {
+            input: [
+              { type: 'text', text: '能先识别这张截图内容。' },
+              { type: 'localImage', path: '/var/folders/abc/T/clipboard-123456.png' },
+            ],
+          },
+          createdAt: '2026-05-30T00:00:00Z',
+        },
+        {
+          id: 'assistant-reply',
+          role: 'assistant',
+          content: '图片内容是一段代码。',
+          createdAt: '2026-05-30T00:01:00Z',
+        },
+      ],
+    });
+
+    await useClientStore.getState().syncThreadState('thread-1');
+
+    const timeline = useClientStore.getState().timelinesByThread['thread-1'];
+    const userMsg = timeline.find((m) => m.role === 'user');
+
+    // XML 占位符应被剥离
+    expect(userMsg.text).toBe('能先识别这张截图内容。');
+    expect(userMsg.text).not.toContain('<image');
+    // 图片附件应被提取
+    expect(Array.isArray(userMsg.attachments)).toBe(true);
+    expect(userMsg.attachments).toHaveLength(1);
+    expect(userMsg.attachments[0].kind).toBe('image');
+    expect(userMsg.attachments[0].path).toBe('/var/folders/abc/T/clipboard-123456.png');
+    // clipboard 路径应转为 /clipboard/ HTTP 路由
+    expect(userMsg.attachments[0].previewUrl).toBe('/clipboard/clipboard-123456.png');
+  });
+
+
   it('applies the selected thread first message page without waiting for older history', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
