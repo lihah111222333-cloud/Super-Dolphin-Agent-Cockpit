@@ -2021,6 +2021,8 @@ function registerBridgeEventHandlersForTest() {
       'settings.provider.codex.codexInstanceKey': 'desktop-main',
       'settings.provider.codex.codexModelProvider': 'openrouter',
     }[key] ?? null));
+    backend.startThread.mockResolvedValue({ threadId: 'thread-default-model' });
+    backend.startTurn.mockResolvedValue({ ok: true });
 
     await useClientStore.getState().sendDraft();
 
@@ -5077,4 +5079,3 @@ function registerBridgeEventHandlersForTest() {
     expect(syncedThread.pinned).toBe(true);
     expect(syncedThread.pinnedAt).toBe(1600000000000);
   });
-

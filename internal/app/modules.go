@@ -8,6 +8,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/appupdate"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/cron"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/feedback"
@@ -63,6 +64,7 @@ var Module = fx.Options(
 	memory.Module,
 	prompt.Module,
 	moduleobservability.Module,
+	appupdate.Module,
 	skill.Module,
 	fx.Invoke(initProviderHooks),
 	thread.Module,

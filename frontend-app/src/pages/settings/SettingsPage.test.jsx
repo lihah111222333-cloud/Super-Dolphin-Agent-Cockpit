@@ -5,9 +5,13 @@ import { SettingsPage } from './SettingsPage.jsx';
 
 const backend = vi.hoisted(() => ({
   callBackend: vi.fn(),
+  checkAppUpdate: vi.fn(),
   copyTextToClipboard: vi.fn(),
+  downloadAppUpdate: vi.fn(),
   getBuildInfo: vi.fn(),
   getPreference: vi.fn(),
+  installAppUpdate: vi.fn(),
+  installLatestAppUpdate: vi.fn(),
   listDashboardLogs: vi.fn(),
   readBuiltinTools: vi.fn(),
   readConfig: vi.fn(),
@@ -83,6 +87,10 @@ beforeEach(() => {
   });
   backend.getPreference.mockImplementation(({ key }) => Promise.resolve(preferences[key] ?? null));
   backend.callBackend.mockResolvedValue({});
+  backend.checkAppUpdate.mockResolvedValue({ available: false });
+  backend.downloadAppUpdate.mockResolvedValue({ ok: true });
+  backend.installAppUpdate.mockResolvedValue({ ok: true });
+  backend.installLatestAppUpdate.mockResolvedValue({ ok: true });
   backend.setPreference.mockResolvedValue({ ok: true });
   backend.readConfig.mockResolvedValue({ cwd: '/repo/app' });
   backend.readLspPromptHint.mockResolvedValue({
@@ -112,6 +120,118 @@ afterEach(() => {
 describe('SettingsPage module', () => {
   it('exports the settings page component', () => {
     expect(SettingsPage).toBeTypeOf('function');
+  });
+});
+
+describe('SettingsPage app update entry', () => {
+  it('shows an available update and installs it', async () => {
+    backend.checkAppUpdate.mockResolvedValueOnce({
+      available: true,
+      version: 'v1.2.4',
+    });
+
+    renderSettingsPage();
+
+    fireEvent.click(await screen.findByTestId('settings-update-check-button'));
+
+    await waitFor(() => {
+      expect(backend.checkAppUpdate).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('发现新版本 v1.2.4');
+    });
+
+    fireEvent.click(screen.getByTestId('settings-update-install-button'));
+
+    await waitFor(() => {
+      expect(backend.installLatestAppUpdate).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('正在安装更新');
+    });
+    expect(screen.queryByTestId('settings-update-install-button')).not.toBeInTheDocument();
+  });
+
+  it('hides the install action while install is pending', async () => {
+    const pendingInstall = deferred();
+    backend.checkAppUpdate.mockResolvedValueOnce({ available: true, version: 'v1.2.4' });
+    backend.installLatestAppUpdate.mockReturnValueOnce(pendingInstall.promise);
+
+    renderSettingsPage();
+
+    fireEvent.click(await screen.findByTestId('settings-update-check-button'));
+    await screen.findByTestId('settings-update-install-button');
+    fireEvent.click(screen.getByTestId('settings-update-install-button'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('settings-update-install-button')).not.toBeInTheDocument();
+      expect(screen.getByTestId('settings-update-check-button')).toBeDisabled();
+      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('正在安装更新');
+    });
+
+    await act(async () => {
+      pendingInstall.resolve({ ok: true });
+      await pendingInstall.promise;
+    });
+    expect(screen.queryByTestId('settings-update-install-button')).not.toBeInTheDocument();
+    expect(screen.getByTestId('settings-update-check-button')).toBeDisabled();
+  });
+
+  it('clears stale update details when no update is available', async () => {
+    backend.checkAppUpdate
+      .mockResolvedValueOnce({ available: true, version: 'v1.2.4' })
+      .mockResolvedValueOnce({ available: false });
+
+    renderSettingsPage();
+
+    fireEvent.click(await screen.findByTestId('settings-update-check-button'));
+    await screen.findByTestId('settings-update-install-button');
+
+    fireEvent.click(screen.getByTestId('settings-update-check-button'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('已是最新版本');
+      expect(screen.queryByTestId('settings-update-install-button')).not.toBeInTheDocument();
+    });
+  });
+
+  it('clears stale update details when checking fails', async () => {
+    backend.checkAppUpdate
+      .mockResolvedValueOnce({ available: true, version: 'v1.2.4' })
+      .mockRejectedValueOnce(new Error('manifest unavailable'));
+
+    renderSettingsPage();
+
+    fireEvent.click(await screen.findByTestId('settings-update-check-button'));
+    await screen.findByTestId('settings-update-install-button');
+
+    fireEvent.click(screen.getByTestId('settings-update-check-button'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('检查更新失败：manifest unavailable');
+      expect(screen.getByTestId('settings-update-notice')).toHaveAttribute('role', 'alert');
+      expect(screen.queryByTestId('settings-update-install-button')).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows install failures and allows retry', async () => {
+    backend.checkAppUpdate.mockResolvedValueOnce({ available: true, version: 'v1.2.4' });
+    backend.installLatestAppUpdate
+      .mockRejectedValueOnce(new Error('permission denied'))
+      .mockResolvedValueOnce({ ok: true });
+
+    renderSettingsPage();
+
+    fireEvent.click(await screen.findByTestId('settings-update-check-button'));
+    fireEvent.click(await screen.findByTestId('settings-update-install-button'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('安装更新失败：permission denied');
+      expect(screen.getByTestId('settings-update-install-button')).toBeEnabled();
+    });
+
+    fireEvent.click(screen.getByTestId('settings-update-install-button'));
+
+    await waitFor(() => {
+      expect(backend.installLatestAppUpdate).toHaveBeenCalledTimes(2);
+      expect(screen.queryByTestId('settings-update-install-button')).not.toBeInTheDocument();
+    });
   });
 });
 

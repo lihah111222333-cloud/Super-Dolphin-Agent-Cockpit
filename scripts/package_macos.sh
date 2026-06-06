@@ -5,6 +5,8 @@ root="$(git rev-parse --show-toplevel)"
 app_name="${APP_NAME:-Super Dolphin}"
 bundle_id="${BUNDLE_ID:-com.superdolphin.app}"
 version="${VERSION:-0.1.0}"
+release_profile="${SUPER_DOLPHIN_RELEASE_PROFILE:-dev-local}"
+codesign_identity="${CODESIGN_IDENTITY:--}"
 goos="$(go env GOOS)"
 goarch="$(go env GOARCH)"
 platform="${goos}-${goarch}"
@@ -22,10 +24,15 @@ packaged_relay_base_url=""
 packaged_relay_api_key=""
 packaged_relay_bootstrap_token=""
 packaged_relay_bootstrap_proof=""
+update_manifest_url=""
+update_public_key=""
+update_channel=""
+update_allow_unsigned="0"
 codex_artifact_env="SUPER_DOLPHIN_CODEX_ARTIFACT"
 codex_sha256_env="SUPER_DOLPHIN_CODEX_SHA256"
 codex_version_env="SUPER_DOLPHIN_CODEX_VERSION"
 lsp_bundle_dir_env="SUPER_DOLPHIN_LSP_BUNDLE_DIR"
+ffmpeg_bin_env="SUPER_DOLPHIN_FFMPEG_BIN"
 lsp_manifest_name="lsp-manifest.json"
 lsp_checksums_name="lsp-checksums.sha256"
 require_bundled_codex="${SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX:-1}"
@@ -33,6 +40,7 @@ packaged_codex_artifact=""
 packaged_codex_sha256=""
 packaged_codex_version=""
 packaged_lsp_bundle_dir=""
+packaged_ffmpeg_bin=""
 lsp_profile="${SUPER_DOLPHIN_LSP_PROFILE:-standard}"
 case "$lsp_profile" in
   standard|full)
@@ -71,6 +79,25 @@ phase_end() {
   echo "==> [$phase_label] done in ${elapsed}s $(date '+%H:%M:%S')" >&2
 }
 
+run_packaged_smoke_check() {
+  local label="$1"
+  shift
+
+  local attempt status
+  for attempt in 1 2 3; do
+    if "$@" >/dev/null 2>&1; then
+      return 0
+    fi
+    status=$?
+    if [[ "$attempt" -eq 3 ]]; then
+      echo "$label failed after $attempt attempts (exit $status)" >&2
+      return "$status"
+    fi
+    echo "$label failed during packaged smoke check (exit $status); retrying" >&2
+    sleep 1
+  done
+}
+
 xml_escape() {
   local value="$1"
   value="${value//&/&amp;}"
@@ -96,35 +123,142 @@ validate_env_file_value() {
   fi
 }
 
+base64_decode_to_file() {
+  local value="$1"
+  local dest="$2"
+  if printf '%s' "$value" | base64 --decode > "$dest" 2>/dev/null; then
+    return
+  fi
+  if printf '%s' "$value" | base64 -D > "$dest" 2>/dev/null; then
+    return
+  fi
+  echo "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be valid base64" >&2
+  exit 1
+}
+
+require_developer_id_codesign() {
+  if [[ "$codesign_identity" != Developer\ ID\ Application:* ]]; then
+    echo "CODESIGN_IDENTITY must be a Developer ID Application identity for gray releases" >&2
+    exit 1
+  fi
+}
+
+resolve_release_profile() {
+  case "$release_profile" in
+    dev-local|gray|gray-unsigned)
+      ;;
+    *)
+      echo "unsupported SUPER_DOLPHIN_RELEASE_PROFILE=$release_profile; expected dev-local, gray, or gray-unsigned" >&2
+      exit 1
+      ;;
+  esac
+
+  if [[ "$release_profile" != "gray" ]]; then
+    return
+  fi
+  require_developer_id_codesign
+  if [[ -z "${NOTARY_PROFILE:-}" ]]; then
+    echo "NOTARY_PROFILE is required for gray releases" >&2
+    exit 1
+  fi
+  validate_env_file_value "NOTARY_PROFILE" "$NOTARY_PROFILE"
+}
+
+updates_enabled_for_profile() {
+  [[ "$release_profile" == "gray" || "$release_profile" == "gray-unsigned" ]]
+}
+
+resolve_update_config() {
+  if ! updates_enabled_for_profile; then
+    return
+  fi
+
+  update_manifest_url="${SUPER_DOLPHIN_UPDATE_MANIFEST_URL:-}"
+  update_public_key="${SUPER_DOLPHIN_UPDATE_PUBLIC_KEY:-}"
+  update_channel="${SUPER_DOLPHIN_UPDATE_CHANNEL:-gray}"
+  if [[ "$release_profile" == "gray-unsigned" ]]; then
+    update_allow_unsigned="1"
+  fi
+  validate_env_file_value "SUPER_DOLPHIN_UPDATE_MANIFEST_URL" "$update_manifest_url"
+  validate_env_file_value "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY" "$update_public_key"
+  validate_env_file_value "SUPER_DOLPHIN_UPDATE_CHANNEL" "$update_channel"
+  if [[ ! "$update_manifest_url" =~ ^https://[^/?#]+($|[/?#]) ]]; then
+    echo "SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be an HTTPS URL with a host" >&2
+    exit 1
+  fi
+
+  local decoded_key byte_count
+  decoded_key="$(mktemp)"
+  base64_decode_to_file "$update_public_key" "$decoded_key"
+  byte_count="$(wc -c < "$decoded_key" | tr -d '[:space:]')"
+  rm -f "$decoded_key"
+  if [[ "$byte_count" != "32" ]]; then
+    echo "decoded SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be 32 bytes" >&2
+    exit 1
+  fi
+}
+
 resolve_packaged_relay_env() {
   packaged_relay_base_url="${SUPER_DOLPHIN_CODEX_RELAY_BASE_URL:-}"
   packaged_relay_api_key="${SUPER_DOLPHIN_CODEX_RELAY_API_KEY:-}"
   packaged_relay_bootstrap_token="${SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN:-}"
-  if [[ -z "${packaged_relay_bootstrap_token//[[:space:]]/}" && -n "${packaged_relay_api_key//[[:space:]]/}" ]]; then
-    packaged_relay_bootstrap_token="$packaged_relay_api_key"
+  if [[ -n "${packaged_relay_api_key//[[:space:]]/}" ]]; then
+    echo "$codex_relay_privileged_api_key_env must not be set for macOS packaging; use $codex_relay_bootstrap_token_env" >&2
+    exit 1
   fi
   packaged_relay_bootstrap_proof="${SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_PROOF:-}"
   validate_env_file_value "$codex_relay_base_url_env" "$packaged_relay_base_url"
   validate_env_file_value "$codex_relay_bootstrap_token_env" "$packaged_relay_bootstrap_token"
   validate_env_file_value "$codex_relay_bootstrap_proof_env" "$packaged_relay_bootstrap_proof"
-  if [[ -n "${packaged_relay_api_key//[[:space:]]/}" ]]; then
-    validate_env_file_value "$codex_relay_privileged_api_key_env" "$packaged_relay_api_key"
+  validate_release_relay_url
+}
+
+validate_release_relay_url() {
+  if ! updates_enabled_for_profile; then
+    return
   fi
+  if [[ ! "$packaged_relay_base_url" =~ ^https://[^/?#]+($|[/?#]) ]]; then
+    echo "$codex_relay_base_url_env must be an HTTPS URL with host for $release_profile releases" >&2
+    exit 1
+  fi
+  case "$packaged_relay_base_url" in
+    http://127.*|https://127.*|http://localhost*|https://localhost*|http://0.0.0.0*|https://0.0.0.0*|*.invalid*|*.test*)
+      echo "$codex_relay_base_url_env must not use a local or placeholder host for $release_profile releases: $packaged_relay_base_url" >&2
+      exit 1
+      ;;
+  esac
 }
 
 write_packaged_relay_env() {
   local resources="$1"
   local env_path="$resources/.env"
   {
-    if [[ -n "${packaged_relay_api_key//[[:space:]]/}" ]]; then
-      printf '%s=%s
-' "$codex_relay_privileged_api_key_env" "$packaged_relay_api_key"
-    fi
     printf '%s=%s
 ' "$codex_relay_base_url_env" "$packaged_relay_base_url"
     printf '%s=%s
 ' "$codex_relay_bootstrap_token_env" "$packaged_relay_bootstrap_token"
+    printf '%s=%s
+' "$codex_relay_bootstrap_proof_env" "$packaged_relay_bootstrap_proof"
   } > "$env_path"
+  chmod 600 "$env_path"
+}
+
+write_packaged_update_env() {
+  local resources="$1"
+  if ! updates_enabled_for_profile; then
+    return
+  fi
+  local env_path="$resources/.env"
+  {
+    printf 'SUPER_DOLPHIN_UPDATE_ENABLED=1\n'
+    printf 'SUPER_DOLPHIN_UPDATE_MANIFEST_URL=%s\n' "$update_manifest_url"
+    printf 'SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=%s\n' "$update_public_key"
+    printf 'SUPER_DOLPHIN_UPDATE_CHANNEL=%s\n' "$update_channel"
+    printf 'SUPER_DOLPHIN_UPDATE_VERSION=%s\n' "$version"
+    if [[ "$update_allow_unsigned" == "1" ]]; then
+      printf 'SUPER_DOLPHIN_UPDATE_ALLOW_UNSIGNED=1\n'
+    fi
+  } >> "$env_path"
   chmod 600 "$env_path"
 }
 
@@ -147,6 +281,11 @@ sha256_file() {
   fi
   echo "missing SHA-256 tool; install sha256sum or shasum" >&2
   exit 1
+}
+
+write_dmg_checksum() {
+  local dmg="$1"
+  sha256_file "$dmg" > "$dmg.sha256"
 }
 
 real_file_path() {
@@ -260,7 +399,7 @@ copy_packaged_codex() {
   mkdir -p "$(dirname "$dest")"
   cp -f "$source_binary" "$dest"
   chmod 755 "$dest"
-  if ! "$dest" app-server --help >/dev/null 2>&1; then
+  if ! run_packaged_smoke_check "Codex CLI app-server" "$dest" app-server --help; then
     echo "packaged Codex CLI failed app-server validation: $dest" >&2
     exit 1
   fi
@@ -780,6 +919,90 @@ is_macho() {
   file -b "$1" 2>/dev/null | grep -q 'Mach-O'
 }
 
+verify_host_ffmpeg() {
+  local candidate="$1"
+  if [[ ! -x "$candidate" ]]; then
+    return 1
+  fi
+  "$candidate" -version >/dev/null 2>&1
+}
+
+resolve_host_ffmpeg_candidate() {
+  local candidate
+  if [[ -n "${SUPER_DOLPHIN_FFMPEG_BIN:-}" ]]; then
+    printf '%s\n' "$SUPER_DOLPHIN_FFMPEG_BIN"
+    return
+  fi
+  if candidate="$(command -v ffmpeg 2>/dev/null)" && [[ -n "$candidate" ]]; then
+    printf '%s\n' "$candidate"
+    return
+  fi
+  if command -v brew >/dev/null 2>&1; then
+    local brew_prefix
+    if brew_prefix="$(brew --prefix ffmpeg 2>/dev/null)" && [[ -x "$brew_prefix/bin/ffmpeg" ]]; then
+      printf '%s\n' "$brew_prefix/bin/ffmpeg"
+    fi
+  fi
+}
+
+resolve_packaged_ffmpeg() {
+  local candidate
+  candidate="$(resolve_host_ffmpeg_candidate || true)"
+  if [[ -n "$candidate" ]] && verify_host_ffmpeg "$candidate"; then
+    packaged_ffmpeg_bin="$(real_file_path "$candidate")"
+    echo "ffmpeg verified: $packaged_ffmpeg_bin" >&2
+    return
+  fi
+  if [[ -n "${SUPER_DOLPHIN_FFMPEG_BIN:-}" ]]; then
+    echo "$ffmpeg_bin_env does not point to a working ffmpeg executable: $SUPER_DOLPHIN_FFMPEG_BIN" >&2
+    echo "Install ffmpeg with Homebrew: brew install ffmpeg" >&2
+    exit 1
+  fi
+  if [[ "${SUPER_DOLPHIN_AUTO_INSTALL_FFMPEG:-1}" == "0" ]]; then
+    echo "missing ffmpeg on the packaging machine; install it with: brew install ffmpeg" >&2
+    echo "Alternatively set $ffmpeg_bin_env to a working ffmpeg binary." >&2
+    exit 1
+  fi
+  if ! command -v brew >/dev/null 2>&1; then
+    echo "missing ffmpeg and Homebrew is not installed." >&2
+    echo "Install Homebrew from https://brew.sh, then run: brew install ffmpeg" >&2
+    echo "Alternatively set $ffmpeg_bin_env to a working ffmpeg binary." >&2
+    exit 1
+  fi
+  echo "ffmpeg not found; attempting to install with Homebrew: brew install ffmpeg" >&2
+  if ! brew install ffmpeg; then
+    echo "Homebrew failed to install ffmpeg." >&2
+    echo "Run manually: brew install ffmpeg" >&2
+    echo "Alternatively set $ffmpeg_bin_env to a working ffmpeg binary." >&2
+    exit 1
+  fi
+  candidate="$(resolve_host_ffmpeg_candidate || true)"
+  if [[ -z "$candidate" ]] || ! verify_host_ffmpeg "$candidate"; then
+    echo "ffmpeg installation finished but ffmpeg is still not executable." >&2
+    echo "Check Homebrew output, then run: brew install ffmpeg" >&2
+    echo "Alternatively set $ffmpeg_bin_env to a working ffmpeg binary." >&2
+    exit 1
+  fi
+  packaged_ffmpeg_bin="$(real_file_path "$candidate")"
+  echo "ffmpeg verified: $packaged_ffmpeg_bin" >&2
+}
+
+copy_packaged_ffmpeg() {
+  local resources="$1"
+  if [[ -z "$packaged_ffmpeg_bin" ]]; then
+    echo "internal error: packaged_ffmpeg_bin is empty; resolve_packaged_ffmpeg must run before copy_packaged_ffmpeg" >&2
+    exit 1
+  fi
+  if ! is_macho "$packaged_ffmpeg_bin"; then
+    echo "ffmpeg binary is not a Mach-O executable: $packaged_ffmpeg_bin" >&2
+    exit 1
+  fi
+  mkdir -p "$resources/bin"
+  cp -f "$packaged_ffmpeg_bin" "$resources/bin/ffmpeg"
+  chmod 755 "$resources/bin/ffmpeg"
+  run_packaged_smoke_check "ffmpeg" "$resources/bin/ffmpeg" -version
+}
+
 add_rpath_if_missing() {
   local file="$1"
   local rpath="$2"
@@ -1140,17 +1363,19 @@ verify_postgres_relocatable_layout() {
 
 verify_postgres_runtime() {
   local pg_bundle="$1"
-  "$pg_bundle/bin/initdb" --version >/dev/null
-  "$pg_bundle/bin/postgres" --version >/dev/null
-  "$pg_bundle/bin/pg_ctl" --version >/dev/null
+  run_packaged_smoke_check "PostgreSQL initdb" "$pg_bundle/bin/initdb" --version
+  run_packaged_smoke_check "PostgreSQL postgres" "$pg_bundle/bin/postgres" --version
+  run_packaged_smoke_check "PostgreSQL pg_ctl" "$pg_bundle/bin/pg_ctl" --version
   verify_postgres_share_dir "$pg_bundle"
 }
 
 verify_packaged_git() {
   local resources="$1"
-  GIT_EXEC_PATH="$resources/libexec/git-core" \
+  run_packaged_smoke_check "Git CLI" \
+    env \
+    GIT_EXEC_PATH="$resources/libexec/git-core" \
     GIT_TEMPLATE_DIR="$resources/share/git-core/templates" \
-    "$resources/bin/git" --version >/dev/null
+    "$resources/bin/git" --version
 }
 
 verify_no_broken_symlinks() {
@@ -1192,17 +1417,21 @@ for bin in postgres initdb pg_ctl pg_config; do
   fi
 done
 verify_postgres_relocatable_layout "$pg_src"
+resolve_release_profile
+resolve_update_config
 resolve_packaged_relay_env
 resolve_packaged_codex_artifact
 resolve_packaged_lsp_bundle
+resolve_packaged_ffmpeg
 
 dist="$root/dist/package/macos"
 app="$dist/$app_name.app"
+dmg_path="$dist/$app_name.dmg"
 contents="$app/Contents"
 macos="$contents/MacOS"
 resources="$contents/Resources"
 
-rm -rf "$app" "$dist/$app_name.dmg"
+rm -rf "$app" "$dmg_path" "$dmg_path.sha256"
 mkdir -p "$macos" "$resources/bin" "$resources/postgres/$platform"
 
 phase_start "frontend build"
@@ -1227,6 +1456,7 @@ phase_start "go binaries"
   make build-peer-binaries
   go build -o bin/agent-terminal ./cmd/agent-terminal
   go build -o bin/mcp-ida ./cmd/mcp-ida
+  go build -o bin/super-dolphin-updater ./cmd/super-dolphin-updater
 )
 phase_end
 
@@ -1238,9 +1468,12 @@ cp "$root/bin/mcp-ida" "$resources/bin/mcp-ida"
 cp -R "$root/migrations" "$resources/migrations"
 copy_model_registry "$resources"
 write_packaged_relay_env "$resources"
+write_packaged_update_env "$resources"
 copy_packaged_git "$resources"
 copy_packaged_lsp_bundle "$resources"
 copy_packaged_codex "$resources" "$resources/bin/codex"
+copy_packaged_ffmpeg "$resources"
+cp "$root/bin/super-dolphin-updater" "$resources/bin/super-dolphin-updater"
 phase_end
 
 phase_start "bundle git dylibs"
@@ -1291,7 +1524,6 @@ cat > "$contents/Info.plist" <<PLIST
 PLIST
 phase_end
 
-codesign_identity="${CODESIGN_IDENTITY:--}"
 phase_start "codesign macho tree"
 sign_macho_tree "$codesign_identity" "$macos" "$resources/bin" "$resources/lib" "$resources/libexec" "$resources/postgres/$platform" "$resources/lsp"
 phase_end
@@ -1372,15 +1604,18 @@ ln -s /Applications "$staging/Applications"
 phase_end
 
 phase_start "create dmg"
-hdiutil create -volname "$app_name" -srcfolder "$staging" -ov -format UDZO "$dist/$app_name.dmg"
+hdiutil create -volname "$app_name" -srcfolder "$staging" -ov -format UDZO "$dmg_path"
 rm -rf "$staging"
 phase_end
 
-if [[ -n "${NOTARY_PROFILE:-}" ]]; then
+if [[ "$release_profile" == "gray" ]]; then
   phase_start "notarize dmg"
-  xcrun notarytool submit "$dist/$app_name.dmg" --keychain-profile "$NOTARY_PROFILE" --wait
-  xcrun stapler staple "$dist/$app_name.dmg"
+  xcrun notarytool submit "$dmg_path" --keychain-profile "$NOTARY_PROFILE" --wait
+  xcrun stapler staple "$dmg_path"
+  spctl -a -t open --context context:primary-signature -v "$dmg_path"
   phase_end
 fi
 
-echo "macOS package ready: $dist/$app_name.dmg"
+write_dmg_checksum "$dmg_path"
+
+echo "macOS package ready: $dmg_path"
