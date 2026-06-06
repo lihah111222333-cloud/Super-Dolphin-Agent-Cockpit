@@ -891,6 +891,38 @@ describe('ChatPage module', () => {
     requestAnimationFrameSpy.mockRestore();
   });
 
+  it('corrects scroll to bottom via MutationObserver when DOM mutations occur and sticky is active', async () => {
+    const initialMessages = [
+      { id: 'reply-user-1', role: 'user', text: '请继续分析', time: '2026-06-02T08:00:00Z' },
+    ];
+    const { rerender } = render(<ChatPage store={createActiveThreadStore(initialMessages)} projectPath="/repo/app" />);
+    const timeline = screen.getByTestId('chat-timeline');
+    let scrollHeight = 1000;
+    let scrollTop = 600;
+    Object.defineProperty(timeline, 'clientHeight', { configurable: true, get: () => 400 });
+    Object.defineProperty(timeline, 'scrollHeight', { configurable: true, get: () => scrollHeight });
+    Object.defineProperty(timeline, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value) => {
+        scrollTop = Number(value);
+      },
+    });
+
+    scrollHeight = 1400;
+
+    await act(async () => {
+      rerender(<ChatPage store={createActiveThreadStore([
+        ...initialMessages,
+        { id: 'reply-assistant-1', role: 'assistant', text: '全新回复。', time: '2026-06-02T08:01:00Z' },
+      ])} projectPath="/repo/app" />);
+    });
+
+    await waitFor(() => {
+      expect(scrollTop).toBe(1400);
+    });
+  });
+
   it('reveals an active assistant reply incrementally when a batched update grows the text', async () => {
     const initialMessages = [
       { id: 'reply-user-1', role: 'user', text: '请继续分析', time: '2026-06-02T08:00:00Z' },
