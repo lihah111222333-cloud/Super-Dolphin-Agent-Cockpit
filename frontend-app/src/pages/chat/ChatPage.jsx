@@ -3315,7 +3315,7 @@ function renderImagePreview(rawSource, altText, key) {
   return <MarkdownImagePreview key={key} src={src} label={label} />;
 }
 
-function LightboxShell({ label, href, onClose, children }) {
+function LightboxShell({ label, onClose, children }) {
   const displayLabel = (label || '').toString().trim() || '预览';
   return createPortal(
     <dialog className="image-lightbox" open aria-label={`图片预览：${displayLabel}`}>
@@ -3324,7 +3324,6 @@ function LightboxShell({ label, href, onClose, children }) {
         <header>
           <strong>{displayLabel}</strong>
           <div>
-            {href ? <a href={href} target="_blank" rel="noreferrer">外部打开</a> : null}
             <button type="button" aria-label="关闭图片预览" onClick={onClose}><X size={16} /></button>
           </div>
         </header>
@@ -3358,7 +3357,7 @@ function MarkdownImagePreview({ src, label }) {
   }
 
   const lightbox = expanded ? (
-    <LightboxShell label={displayLabel} href={src} onClose={() => setExpanded(false)}>
+    <LightboxShell label={displayLabel} onClose={() => setExpanded(false)}>
       <img src={src} alt={displayLabel} />
     </LightboxShell>
   ) : null;
@@ -3885,7 +3884,7 @@ function MermaidDiagram({ source }) {
           <span>点击放大</span>
         </button>
         {expanded ? (
-          <LightboxShell label="Mermaid 图表" href={href} onClose={() => setExpanded(false)}>
+          <LightboxShell label="Mermaid 图表" onClose={() => setExpanded(false)}>
             <div className="mermaid-lightbox-svg">
               <img src={href} alt="Mermaid 图表" />
             </div>
@@ -4094,12 +4093,35 @@ function markdownInputLines(text) {
 
 function standaloneCodeFence(text) {
   const lines = normalizeMessageText(text).trim().split('\n');
-  if (lines.length < 2) return null;
+  if (lines.length < 1) return null;
   const opening = splitMarkdownFenceLine(lines[0]);
   if (!opening || opening.prefix.trim()) return null;
-  const closing = markdownClosingFence(lines.at(-1), opening);
-  if (!closing) return null;
-  const bodyLines = lines.slice(1, -1);
+
+  // Find if there is a closing fence in the lines
+  let closingIndex = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (markdownClosingFence(lines[i], opening)) {
+      closingIndex = i;
+      break;
+    }
+  }
+
+  if (closingIndex !== -1) {
+    // If there is a closing fence, it must be the last line to be a standalone code fence
+    if (closingIndex !== lines.length - 1) {
+      return null; // Closed in the middle, has trailing text -> not standalone
+    }
+    // Complete code fence
+    const bodyLines = lines.slice(1, closingIndex);
+    if (opening.firstCodeLine) bodyLines.unshift(opening.firstCodeLine);
+    return {
+      language: opening.language,
+      body: bodyLines.join('\n'),
+    };
+  }
+
+  // No closing fence found -> it is an incomplete/streaming code fence!
+  const bodyLines = lines.slice(1);
   if (opening.firstCodeLine) bodyLines.unshift(opening.firstCodeLine);
   return {
     language: opening.language,
@@ -5667,6 +5689,74 @@ function IntroChatStage({ composer, projectPath }) {
   );
 }
 
+// resolveAttachmentImageSrc 解析附件图片 URL，处理四种格式：
+// 1. data:image/... — 粘贴截图（imagePreviewSource 因 IMAGE_PATH_RE 不匹配此格式而返回空）
+// 2. /clipboard/xxx.png — 历史 clipboard 图片的 Wails HTTP 路由，直接可用
+// 3. http(s):// — 外部 URL
+// 4. 本地文件路径 — 走 imagePreviewSource（file://, 生成图片路由等）
+function resolveAttachmentImageSrc(att) {
+  const preview = textValue(att.previewUrl || att.url);
+  if (preview) {
+    if (
+      /^data:image\//i.test(preview) ||
+      /^https?:\/\//i.test(preview) ||
+      preview.startsWith('/clipboard/')
+    ) {
+      return preview;
+    }
+    const resolved = imagePreviewSource(preview);
+    if (resolved) return resolved;
+  }
+  const path = textValue(att.path);
+  return path ? imagePreviewSource(path) : '';
+}
+
+function UserMessageAttachments({ attachments }) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return null;
+  const images = [];
+  const files = [];
+  for (const att of attachments) {
+    if (!att) continue;
+    const kind = textValue(att.kind).toLowerCase();
+    if (kind === 'image') {
+      const src = resolveAttachmentImageSrc(att);
+      if (src) {
+        images.push({ ...att, _resolvedSrc: src });
+      } else {
+        files.push(att);
+      }
+    } else {
+      files.push(att);
+    }
+  }
+  if (images.length === 0 && files.length === 0) return null;
+  return (
+    <div className="user-message-attachments">
+      {images.length > 0 ? (
+        <div className="user-attachment-gallery">
+          {images.map((att, idx) => (
+            <MarkdownImagePreview
+              key={att.path || att.previewUrl || idx}
+              src={att._resolvedSrc}
+              label={att.name || basenameFromPath(att.path || att.previewUrl || '') || '图片附件'}
+            />
+          ))}
+        </div>
+      ) : null}
+      {files.length > 0 ? (
+        <div className="user-attachment-file-list">
+          {files.map((att, idx) => (
+            <span key={att.path || att.name || idx} className="user-attachment-file-pill">
+              <File size={12} />
+              <span>{att.name || basenameFromPath(att.path || '') || att.path}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 const TimelineMessage = React.memo(function TimelineMessage({ message, actions, activeThreadId, smoothStreaming, onScrollIfSticky }) {
   const streamKey = `${activeThreadId || ''}:${message.id || ''}`;
   const streamingAssistant = message.role === 'assistant' && message.done === false;
@@ -5692,6 +5782,7 @@ const TimelineMessage = React.memo(function TimelineMessage({ message, actions, 
             <time>{formatTime(message.time)}</time>
           </header>
         ) : null}
+        {isUser ? <UserMessageAttachments attachments={message.attachments} /> : null}
         <MessageContent text={displayText} actions={actions} />
         {!isUser && message.role === 'assistant' ? (
           <div className="assistant-footer">

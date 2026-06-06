@@ -67,6 +67,7 @@ const BOOTSTRAP_PAGE_ALIASES = Object.freeze({
 });
 const APP_PAGE_IDS = new Set(['chat', 'prompts', 'workflows', 'skills', 'memory', 'observability', 'files', 'settings']);
 const IMAGE_ATTACHMENT_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+const IMAGE_PLACEHOLDER_RE = /<image\s[^>]*><\/image>/gi;
 const ACTIVITY_COUNT_FIELDS = Object.freeze({
   lspCalls: Object.freeze(['lspCalls', 'lsp_calls']),
   commands: Object.freeze(['commands']),
@@ -1222,11 +1223,15 @@ function normalizeTimelineDone(item, status) {
 }
 
 function normalizeUserTimelineText(text) {
-  const trimmed = normalizeString(text).trim();
+  let processed = text;
+  if (processed) {
+    processed = processed.replace(IMAGE_PLACEHOLDER_RE, '').trim();
+  }
+  const trimmed = normalizeString(processed).trim();
   const closeTag = '</turn_aborted>';
   const lower = trimmed.toLowerCase();
   if (!lower.startsWith('<turn_aborted>')) {
-    return { text, controlOnly: false };
+    return { text: processed, controlOnly: false };
   }
   const closeIndex = lower.indexOf(closeTag);
   const remaining = closeIndex >= 0 ? trimmed.slice(closeIndex + closeTag.length).trimStart() : '';
@@ -1758,27 +1763,51 @@ function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}
   const incomingById = new Map(visibleIncomingItems.map((item) => [item.id, item]));
   const uniqueIncomingItems = visibleIncomingItems.filter((item) => incomingById.get(item.id) === item);
   const incomingIds = new Set(incomingById.keys());
+  
+  // Maps to associate duplicate existing items and preserve their attachments
+  const duplicateExistingByIncomingId = new Map();
+  const duplicateExistingIds = new Set();
+  
+  for (const existingItem of existingItems) {
+    if (incomingIds.has(existingItem.id)) continue;
+    
+    // Find if this existing item is a duplicate of any incoming item
+    const duplicateIncoming = uniqueIncomingItems.find((incomingItem) => 
+      sameTimelineDuplicateContent(existingItem, incomingItem)
+    );
+    
+    if (duplicateIncoming) {
+      duplicateExistingByIncomingId.set(duplicateIncoming.id, existingItem);
+      duplicateExistingIds.add(existingItem.id);
+    }
+  }
+
   const consumedIncomingIds = new Set();
   const merged = [];
 
   for (const existingItem of existingItems) {
+    // If it was marked as a duplicate of a different-ID incoming item, skip it
+    if (duplicateExistingIds.has(existingItem.id)) {
+      continue;
+    }
+
     const replacement = incomingById.get(existingItem.id);
     if (replacement) {
       if (areTimelineItemsEquivalent(existingItem, replacement)) {
         merged.push(existingItem);
       } else {
-        merged.push(replacement);
+        // Keep attachments from existingItem if replacement doesn't have them
+        merged.push({
+          ...replacement,
+          attachments: replacement.attachments || existingItem.attachments,
+        });
       }
       consumedIncomingIds.add(replacement.id);
       continue;
     }
 
     const shouldPreserveExistingMessage = (
-      ((preserveExistingVisible && isVisibleTimelineItem(existingItem)) || existingItem.role === 'user' || existingItem.optimistic || existingItem.runtime) &&
-      !incomingIds.has(existingItem.id) &&
-      !uniqueIncomingItems.some((incomingItem) => (
-        sameTimelineDuplicateContent(existingItem, incomingItem)
-      ))
+      ((preserveExistingVisible && isVisibleTimelineItem(existingItem)) || existingItem.role === 'user' || existingItem.optimistic || existingItem.runtime)
     );
     if (shouldPreserveExistingMessage) {
       merged.push(existingItem);
@@ -1787,7 +1816,13 @@ function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}
 
   for (const incomingItem of uniqueIncomingItems) {
     if (!consumedIncomingIds.has(incomingItem.id)) {
-      merged.push(incomingItem);
+      // If there was a duplicate existing item with attachments, preserve them!
+      const duplicateExisting = duplicateExistingByIncomingId.get(incomingItem.id);
+      const mergedIncoming = duplicateExisting && duplicateExisting.attachments
+        ? { ...incomingItem, attachments: incomingItem.attachments || duplicateExisting.attachments }
+        : incomingItem;
+        
+      merged.push(mergedIncoming);
     }
   }
 
@@ -3428,15 +3463,66 @@ async function fetchThreadMessagePage(id, before = '') {
   };
 }
 
+// IMAGE_PLACEHOLDER_RE is defined globally at the top of the file
+
+function extractHistoryMetadata(message) {
+  const meta = message.metadata || message.meta;
+  if (!meta || typeof meta !== 'object') return null;
+  try {
+    return typeof meta === 'string' ? JSON.parse(meta) : meta;
+  } catch {
+    return null;
+  }
+}
+
+function buildHistoryMessageAttachments(message) {
+  const meta = extractHistoryMetadata(message);
+  const inputs = Array.isArray(meta?.input) ? meta.input : [];
+  const attachments = [];
+  for (const item of inputs) {
+    if (!item || typeof item !== 'object') continue;
+    if (item.type !== 'image' && item.type !== 'localImage') continue;
+    const rawPath = normalizeString(item.path || item.url || item.source);
+    if (!rawPath) continue;
+    // clipboard 路径转为 Wails HTTP 路由，本地路径保留原样
+    let previewUrl = rawPath;
+    if (rawPath.startsWith('/') && !rawPath.startsWith('/clipboard/')) {
+      const base = rawPath.split('/').pop() || '';
+      if (/\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(base)) {
+        previewUrl = `/clipboard/${base}`;
+      }
+    }
+    attachments.push({
+      kind: 'image',
+      name: normalizeString(item.name) || rawPath.split('/').pop() || rawPath,
+      path: rawPath,
+      previewUrl,
+    });
+  }
+  return attachments;
+}
+
+function stripHistoryImagePlaceholders(text, hasAttachments) {
+  if (!hasAttachments || !text) return text;
+  return text.replace(IMAGE_PLACEHOLDER_RE, '').trim();
+}
+
 function normalizeThreadMessageItems(allMessages) {
-  return sortTimelineChronologically(allMessages.map((message) => normalizeTimelineItem({
-    id: message.id || message.messageId || message.message_id,
-    role: message.role,
-    kind: message.kind || message.type || message.eventType || message.event_type,
-    text: message.content || message.text || message.message || message.delta || message.output || message.result || message.answer || message.response,
-    createdAt: message.createdAt || message.created_at,
-    completedAt: message.completedAt || message.completed_at || message.finishedAt || message.finished_at,
-  })).filter(isVisibleTimelineItem));
+  return sortTimelineChronologically(allMessages.map((message) => {
+    const rawText = message.content || message.text || message.message || message.delta || message.output || message.result || message.answer || message.response;
+    const historyAttachments = message.role === 'user' ? buildHistoryMessageAttachments(message) : [];
+    const text = stripHistoryImagePlaceholders(rawText, historyAttachments.length > 0);
+    const normalized = normalizeTimelineItem({
+      id: message.id || message.messageId || message.message_id,
+      role: message.role,
+      kind: message.kind || message.type || message.eventType || message.event_type,
+      text,
+      createdAt: message.createdAt || message.created_at,
+      completedAt: message.completedAt || message.completed_at || message.finishedAt || message.finished_at,
+    });
+    // normalizeTimelineItem 不透传 attachments，手动合并
+    return historyAttachments.length > 0 ? { ...normalized, attachments: historyAttachments } : normalized;
+  }).filter(isVisibleTimelineItem));
 }
 
 function emitThreadHistoryInitialPageTrace(id, page, status, error) {
