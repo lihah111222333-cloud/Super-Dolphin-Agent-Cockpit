@@ -111,17 +111,11 @@ func markModelProviderAvailability(providers []ProviderModels) []ProviderModels 
 }
 
 func modelProviderAvailability(provider string) (bool, string) {
-	if strings.TrimSpace(provider) != "codex" {
+	provider = strings.TrimSpace(provider)
+	if provider == "codex" {
 		return true, ""
 	}
-	configPath, ok := localCodexConfigPath()
-	if !ok {
-		return false, "local Codex config path is unavailable; DAG node needs explicit codex_home/codex_instance_key/codex_model_provider or provider=claude"
-	}
-	if localCodexModelProviderExists(configPath, "codex") {
-		return true, ""
-	}
-	return false, fmt.Sprintf("local codex model provider codex is not configured in %s; DAG node needs explicit codex_home/codex_instance_key/codex_model_provider or provider=claude", configPath)
+	return false, fmt.Sprintf("model provider %q is not supported in this packaged build", provider)
 }
 
 func localCodexConfigPath() (string, bool) {

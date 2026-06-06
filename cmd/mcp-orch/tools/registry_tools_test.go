@@ -88,13 +88,11 @@ func TestHandleListModels_UsesInjectedRegistry(t *testing.T) {
 	}
 }
 
-func TestHandleListModels_MarksCodexUnavailableWhenLocalModelProviderMissing(t *testing.T) {
+func TestHandleListModels_MarksCodexAlwaysAvailable(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "")
 	t.Setenv("SUPER_DOLPHIN_HOME", "")
-
-	codexConfigPath := writeCodexConfigWithoutModelProvider(t, home)
 
 	h := HandleListModels(WithModelRegistry(testModelRegistry()))
 	out, err := h(context.Background(), json.RawMessage(`{"provider":"codex"}`))
@@ -108,11 +106,9 @@ func TestHandleListModels_MarksCodexUnavailableWhenLocalModelProviderMissing(t *
 	if len(provider.Models) == 0 {
 		t.Fatalf("codex models missing: %+v", provider)
 	}
-	if provider.Available != false {
-		t.Fatalf("codex available = %#v, want false when %s lacks model_providers.codex; json=%s", provider.Available, codexConfigPath, raw)
+	if provider.Available != true {
+		t.Fatalf("codex available = %#v, want true; json=%s", provider.Available, raw)
 	}
-	requireStringContains(t, provider.UnavailableReason, "model provider codex")
-	requireStringContains(t, provider.UnavailableReason, codexConfigPath)
 }
 
 func TestHandleSharedFileList_NilStoreError(t *testing.T) {
