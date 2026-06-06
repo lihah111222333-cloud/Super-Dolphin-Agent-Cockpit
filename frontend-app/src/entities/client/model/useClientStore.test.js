@@ -2481,6 +2481,38 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().workflowRevision).toBe(0);
   });
 
+  it('[regression] completes agent timeline streaming when turn/completed arrives without cwd', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'agent-douyin',
+      threads: [{ id: 'agent-douyin', name: 'Douyin agent', provider: 'codex', status: 'running' }],
+      timelinesByThread: {
+        'agent-douyin': [
+          { id: 'assistant-stream-turn1', role: 'assistant', text: '正在流式输出...', done: false }
+        ]
+      }
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'turn/completed',
+      payload: {
+        threadId: 'agent-douyin',
+        agentId: 'agent-douyin',
+        turnId: 'turn1',
+        success: true
+      }
+    });
+
+    await vi.waitFor(() => {
+      const timeline = useClientStore.getState().timelinesByThread['agent-douyin'] || [];
+      const msg = timeline.find(m => m.id === 'assistant-stream-turn1');
+      expect(msg).toBeDefined();
+      expect(msg.done).toBe(true);
+    });
+  });
+
   it('subscribes bridge events with callback error escalation for malformed DAG payloads', () => {
     registerBridgeEventHandlersForTest();
 

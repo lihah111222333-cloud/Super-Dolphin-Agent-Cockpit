@@ -3702,6 +3702,18 @@ function attachBridgeIdentityRuntime(runtime) {
     const fallback = normalizeBackendThreadId(id);
     if (!fallback) return '';
     if (fallback === normalizeBackendThreadId(state.activeThreadId)) return fallback;
+
+    const eventAgentId = normalizeThreadId(
+      payload.agentId ||
+      payload.agent_id ||
+      payload.agentRuntime?.agentId ||
+      payload.agent_runtime?.agentId ||
+      payload.agent_runtime?.agent_id
+    );
+    if (eventAgentId && eventAgentId === normalizeThreadId(state.activeThreadId)) {
+      return fallback;
+    }
+
     if (payloadCwd && (!activeCwd || payloadCwd === activeCwd)) return fallback;
 
     if (isAgentRuntimeId(id)) return '';
