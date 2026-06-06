@@ -183,6 +183,60 @@ func TestTransportReconnectReinitializes(t *testing.T) {
 	}
 }
 
+func TestTransportInitializeTimeoutReturnsErrorWithoutRepeatedReadPanic(t *testing.T) {
+	t.Parallel()
+
+	initializeReceived := make(chan struct{}, 1)
+	releaseServerConn := make(chan struct{})
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			_, rawBytes, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			msg, ok := decodeRecoveryTransportRPCMessage(rawBytes)
+			if !ok || strings.TrimSpace(msg.Method) != "initialize" {
+				continue
+			}
+			initializeReceived <- struct{}{}
+			<-releaseServerConn
+			return
+		}
+	}))
+	defer func() {
+		close(releaseServerConn)
+		server.CloseClientConnections()
+		server.Close()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	var err error
+	var panicked any
+	func() {
+		defer func() { panicked = recover() }()
+		_, err = newTransport(ctx, "ws"+strings.TrimPrefix(server.URL, "http"))
+	}()
+
+	if panicked != nil {
+		t.Fatalf("newTransport() panicked = %v, want returned error", panicked)
+	}
+	if err == nil {
+		t.Fatal("newTransport() error = nil, want initialize timeout error")
+	}
+	select {
+	case <-initializeReceived:
+	default:
+		t.Fatal("server did not receive initialize request")
+	}
+}
+
 func TestRecoveryCheckHealthUsesWebSocketPingOnly(t *testing.T) {
 	t.Parallel()
 
