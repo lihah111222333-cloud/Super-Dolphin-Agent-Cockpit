@@ -33,7 +33,6 @@ import (
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/claudecli"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/e2efixture"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
@@ -77,7 +76,7 @@ var Module = fx.Options(
 	uistate.Module,
 	unified.Module,
 	promptIntentE2EFixtureModule(),
-	claudecli.Module,
+	// claudecli.Module,
 	codexapp.Module,
 	toolbridge.Module, // P15 新增：始终加载
 	ToolbridgeAdapters,
