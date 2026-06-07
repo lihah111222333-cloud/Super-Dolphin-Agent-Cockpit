@@ -118,7 +118,7 @@ func TestSearchTextCaseSensitiveOverride(t *testing.T) {
 
 func TestWalkSearchEntryPropagatesWalkErr(t *testing.T) {
 	var results []SearchMatch
-	err := walkSearchEntry(context.Background(), "/repo", "/repo/a.go", "", 1024, literalMatcher("x"), &results, nil, errors.New("walk boom"))
+	err := walkSearchEntry(context.Background(), "/repo", "/repo/a.go", "/repo", "", 1024, literalMatcher("x"), &results, nil, errors.New("walk boom"))
 	if err == nil || !strings.Contains(err.Error(), "walk boom") {
 		t.Fatalf("walkSearchEntry() error = %v, want walk boom", err)
 	}

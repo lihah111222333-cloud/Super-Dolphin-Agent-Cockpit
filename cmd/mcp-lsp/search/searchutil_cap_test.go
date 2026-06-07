@@ -50,3 +50,35 @@ func TestFilterAndCapSearchMatchesCapsEachFileWithoutDroppingOtherFiles(t *testi
 		t.Fatalf("small file matches = %d, want 1; filtered=%#v", counts["zz-small.txt"], filtered)
 	}
 }
+
+func TestFilterAndCapSearchMatchesAllowsWorkspaceRootInsideWorktrees(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".worktrees", "p16-batch1-selfguard-ci")
+	kept := filepath.Join(root, "backend", "cmd", "code_guard", "timeauthority_rules.go")
+	filteredWorktreeChild := filepath.Join(root, ".worktrees", "nested", "skip.go")
+	matches := []SearchMatch{
+		{
+			AbsPath:    kept,
+			SearchRoot: root,
+			File:       kept,
+			Line:       13,
+			Col:        35,
+			Text:       "待实现的规则名占位符",
+		},
+		{
+			AbsPath:    filteredWorktreeChild,
+			SearchRoot: root,
+			File:       filteredWorktreeChild,
+			Line:       1,
+			Col:        1,
+			Text:       "待实现的规则名占位符",
+		},
+	}
+
+	filtered, total, truncated := FilterAndCapSearchMatches(matches, 20)
+	if total != 1 || len(filtered) != 1 || truncated {
+		t.Fatalf("FilterAndCapSearchMatches() = len:%d total:%d truncated:%t, want one untruncated match", len(filtered), total, truncated)
+	}
+	if filtered[0].AbsPath != kept {
+		t.Fatalf("FilterAndCapSearchMatches() kept %q, want %q", filtered[0].AbsPath, kept)
+	}
+}
