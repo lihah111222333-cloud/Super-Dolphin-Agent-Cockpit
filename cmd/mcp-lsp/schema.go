@@ -88,7 +88,7 @@ var lspGrepSchema = objectSchema(map[string]schema{
 	"language":       stringProp("Language for AST"),
 	"regex":          booleanProp("Regex mode (default literal)"),
 	"case_sensitive": booleanProp("Override smart-case (default: sensitive when query has uppercase, insensitive otherwise)"),
-	"max_results":    integerProp("Max matches (default 50, cap 50)"),
+	"max_results":    integerProp("Max matches per file (default 50, cap 50)"),
 	"work_dir":       lspWorkDirProp(),
 }, "action")
 
@@ -96,9 +96,9 @@ var lspGrepOutputSchema = schema{
 	"type": "object",
 	"properties": map[string]any{
 		"data":                map[string]any{"type": "object", "description": "matched files keyed by path; each value has cols and rows"},
-		"total":               map[string]any{"type": "integer"},
-		"showing":             map[string]any{"type": "integer"},
-		"truncated":           map[string]any{"type": "boolean"},
+		"total":               map[string]any{"type": "integer", "description": "total filtered matches before display limits"},
+		"showing":             map[string]any{"type": "integer", "description": "rows currently shown across all files"},
+		"truncated":           map[string]any{"type": "boolean", "description": "true when per-file or payload limits omitted rows"},
 		"dropped_for_payload": map[string]any{"type": "integer"},
 		"regex_fallback":      map[string]any{"type": "boolean"},
 		"message":             map[string]any{"type": "string"},
