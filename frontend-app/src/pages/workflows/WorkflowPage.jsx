@@ -1894,14 +1894,17 @@ function WorkflowNodeRow({ node, store }) {
     <article className="dag-node-row">
       <strong>{node.title}</strong>
       <em>{dagStatusLabel(node.status)}</em>
-      {node.threadId ? <button type="button" onClick={() => openWorkflowNodeThread(store, node.threadId)}>查看对话</button> : null}
+      {node.threadId ? <button type="button" onClick={() => openWorkflowNodeThread(store, node)}>查看对话</button> : null}
     </article>
   );
 }
 
-function openWorkflowNodeThread(store, threadId) {
+function openWorkflowNodeThread(store, nodeOrThreadId) {
   if (typeof store?.openThreadById !== 'function') return;
-  void store.openThreadById(threadId, { source: 'dag-node' }).then((opened) => {
+  const node = nodeOrThreadId && typeof nodeOrThreadId === 'object' ? nodeOrThreadId : null;
+  const threadId = node ? node.threadId : nodeOrThreadId;
+  const dagNode = node ? { ...node, result: node.raw?.result ?? node.result } : null;
+  void store.openThreadById(threadId, { source: 'dag-node', ...(dagNode ? { dagNode } : {}) }).then((opened) => {
     if (opened) store?.setActivePage?.('chat');
   });
 }
