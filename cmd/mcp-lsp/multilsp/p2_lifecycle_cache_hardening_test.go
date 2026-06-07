@@ -1,15 +1,17 @@
 package multilsp
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 func TestTransportClosedDetachesWorkspaceClientAndRebuilds(t *testing.T) {
@@ -144,6 +146,75 @@ func TestGenericRSSLimitUsesDefaultLimit(t *testing.T) {
 	if got := rssLimitBytesForLanguage("typescript"); got != defaultRSSLimitBytes {
 		t.Fatalf("rssLimitBytesForLanguage(typescript) = %d, want %d", got, defaultRSSLimitBytes)
 	}
+}
+
+func TestPoolRecyclerIdleWorkspaceWinsOverRSSRecycle(t *testing.T) {
+	root := canonicalScopePath(t.TempDir(), "")
+	writeGenericTestFile(t, filepath.Join(root, "go.mod"), "module idle\n\ngo 1.25.0\n")
+	target := filepath.Join(root, "main.go")
+	writeGenericTestFile(t, target, "package main\n")
+	factory := &p2LifecycleFactory{}
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory, Logger: logger}).(*manager)
+	t.Cleanup(func() { _ = mgr.Close() })
+	scoped := scopedManagerForTest(t, mgr, testLSPToolScope(root, "agent-idle", "thread-1"))
+
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root})
+	client, err := scoped.EnsureClient(ctx, target, "go")
+	if err != nil {
+		t.Fatalf("EnsureClient(scoped): %v", err)
+	}
+	forceWorkspaceLastActivity(t, scoped, client, time.Now().Add(-idleTimeout-time.Minute))
+
+	originalProbe := clientRSSBytesForRecycler
+	clientRSSBytesForRecycler = func(Client) (uint64, int, error) {
+		return defaultGoRSSLimitBytes + 1, 4242, nil
+	}
+	t.Cleanup(func() {
+		clientRSSBytesForRecycler = originalProbe
+	})
+
+	mgr.pool.recycler.check()
+
+	if got := factory.callCount(); got != 1 {
+		t.Fatalf("idle workspace was RSS-recycled and recreated; factory calls = %d, want 1", got)
+	}
+	if got := len(snapshotWorkspaceClients(scoped)); got != 0 {
+		t.Fatalf("idle workspace clients after recycler check = %d, want 0", got)
+	}
+	if first := factory.clientAt(t, 0); !first.closed {
+		t.Fatalf("idle workspace client was not closed")
+	}
+	assertIdleRecyclerDebugLog(t, logs.String())
+}
+
+func assertIdleRecyclerDebugLog(t *testing.T, logText string) {
+	t.Helper()
+	for _, want := range []string{
+		"LSP recycler idle window exceeded",
+		`"idle_timeout":"10m0s"`,
+		`"action":"shutdown"`,
+		`"pid":4242`,
+		`"rss_bytes":402653185`,
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("idle recycler debug log missing %q; log=%s", want, logText)
+		}
+	}
+}
+
+func forceWorkspaceLastActivity(t *testing.T, mgr *manager, client Client, at time.Time) {
+	t.Helper()
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	for _, workspace := range mgr.workspaces {
+		if workspace != nil && workspace.client == client {
+			workspace.lastActivity = at
+			return
+		}
+	}
+	t.Fatalf("workspace for client %T was not found", client)
 }
 
 func TestReleaseScopeClosesOnlyMatchingAgentThreadClone(t *testing.T) {
