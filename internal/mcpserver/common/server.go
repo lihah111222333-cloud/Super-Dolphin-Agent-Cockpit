@@ -322,34 +322,50 @@ func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonR
 	}
 	scope := params.Scope(s.name)
 	ctx = WithToolScope(ctx, scope)
-	pkglogger.Info("mcp: tools/call begin",
+	requestPayload := logToolCallRequestPayload("stdio", s.name, req.ID, params, scope)
+	beginAttrs := []any{
 		"server", s.name, "tool", params.Name,
 		"agent_id", scope.AgentID, "thread_id", scope.ThreadID,
 		"call_id", scope.CallID, "cwd", scope.CWD,
-		"req_id", string(req.ID))
+		"req_id", string(req.ID), "raw_args_len", len(params.Arguments),
+	}
+	beginAttrs = append(beginAttrs, toolPayloadAttrs("request_payload", requestPayload)...)
+	pkglogger.Info("mcp: tools/call begin", beginAttrs...)
 	start := time.Now()
 
 	value, err := callToolSafely(ctx, s.tools, strings.TrimSpace(params.Name), params.Arguments)
 	elapsed := time.Since(start)
 	if err != nil {
-		pkglogger.Warn("mcp: tools/call error",
+		errorPayload := logToolCallResultPayload("stdio", s.name, params.Name, req.ID, scope, nil, err)
+		errorAttrs := []any{
 			"server", s.name, "tool", params.Name,
-			"elapsed", elapsed, "error", err)
+			"elapsed", elapsed, "error", err,
+		}
+		errorAttrs = append(errorAttrs, toolPayloadAttrs("error_payload", errorPayload)...)
+		pkglogger.Warn("mcp: tools/call error", errorAttrs...)
 		if value == nil {
 			value = NewToolErrorEnvelope(params.Name, err)
 		}
 	}
 	resp, raw, err := toolCallResultResponse(req.ID, value)
 	if err != nil {
+		resultPayload := logToolCallResultPayload("stdio", s.name, params.Name, req.ID, scope, nil, err)
+		attrs := []any{"server", s.name, "tool", params.Name, "error", err}
+		attrs = append(attrs, toolPayloadAttrs("result_payload", resultPayload)...)
+		pkglogger.Warn("mcp: tools/call result encode error", attrs...)
 		return errorResponse(req.ID, codeInternal, err.Error())
 	}
+	resultPayload := logToolCallResultPayload("stdio", s.name, params.Name, req.ID, scope, raw, nil)
 	if elapsed > 3*time.Second {
 		pkglogger.Warn("mcp: tools/call slow",
 			"server", s.name, "tool", params.Name, "elapsed", elapsed)
 	}
-	pkglogger.Info("mcp: tools/call done",
+	doneAttrs := []any{
 		"server", s.name, "tool", params.Name,
-		"elapsed", elapsed, "result_len", len(raw))
+		"elapsed", elapsed, "result_len", len(raw),
+	}
+	doneAttrs = append(doneAttrs, toolPayloadAttrs("result_payload", resultPayload)...)
+	pkglogger.Info("mcp: tools/call done", doneAttrs...)
 	return resp
 }
 
