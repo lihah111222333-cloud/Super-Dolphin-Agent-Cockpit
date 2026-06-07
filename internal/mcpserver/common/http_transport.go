@@ -15,8 +15,17 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// HTTPServerOption configures the deprecated Streamable HTTP MCP transport.
+//
+// Deprecated: HTTP MCP transport is retained only for legacy callers; use the
+// stdio MCP sidecar Server path for current tool execution.
 type HTTPServerOption func(*HTTPServer)
 
+// WithBearerToken configures bearer-token authentication for the deprecated
+// Streamable HTTP MCP transport.
+//
+// Deprecated: HTTP MCP transport is retained only for legacy callers; use the
+// stdio MCP sidecar Server path for current tool execution.
 func WithBearerToken(token string) HTTPServerOption {
 	return func(h *HTTPServer) {
 		h.bearerToken = strings.TrimSpace(token)
@@ -26,6 +35,9 @@ func WithBearerToken(token string) HTTPServerOption {
 // HTTPServer exposes the MCP JSON-RPC protocol over Streamable HTTP (POST /mcp).
 // Multiple Claude CLI instances can connect to the same endpoint concurrently,
 // eliminating the need for per-agent stdio sidecar processes.
+//
+// Deprecated: HTTP MCP transport is retained only for legacy callers; use the
+// stdio MCP sidecar Server path for current tool execution.
 type HTTPServer struct {
 	name        string
 	version     string
@@ -35,6 +47,9 @@ type HTTPServer struct {
 }
 
 // NewHTTPServer creates an MCP server that speaks Streamable HTTP transport.
+//
+// Deprecated: HTTP MCP transport is retained only for legacy callers; use the
+// stdio MCP sidecar Server path for current tool execution.
 func NewHTTPServer(name, version string, tools ToolProvider, opts ...HTTPServerOption) *HTTPServer {
 	if strings.TrimSpace(name) == "" {
 		name = "mcp-server"
@@ -53,6 +68,9 @@ func NewHTTPServer(name, version string, tools ToolProvider, opts ...HTTPServerO
 
 // Start binds to listenAddr (use "127.0.0.1:0" for dynamic port) and begins
 // serving. Returns the actual address (including port) on success.
+//
+// Deprecated: HTTP MCP transport is retained only for legacy callers; use the
+// stdio MCP sidecar Server path for current tool execution.
 func (h *HTTPServer) Start(ctx context.Context, listenAddr string) (string, error) {
 	if listenAddr == "" {
 		listenAddr = "127.0.0.1:0"
@@ -88,6 +106,9 @@ func (h *HTTPServer) Start(ctx context.Context, listenAddr string) (string, erro
 }
 
 // Stop gracefully shuts down the HTTP server.
+//
+// Deprecated: HTTP MCP transport is retained only for legacy callers; use the
+// stdio MCP sidecar Server path for current tool execution.
 func (h *HTTPServer) Stop(ctx context.Context) error {
 	if h.server == nil {
 		return nil
@@ -209,34 +230,50 @@ func (h *HTTPServer) handleToolsCall(ctx context.Context, req jsonRPCRequest) *j
 	}
 	scope := params.Scope(h.name)
 	ctx = WithToolScope(ctx, scope)
-	pkglogger.Info("mcp http: tools/call begin",
-		"server", h.name, "tool", params.Name,
+	requestPayload := logToolCallRequestPayload("http", h.name, req.ID, params, scope)
+	beginAttrs := []any{
+		"server", h.name, "tool", params.Name, "deprecated", true,
 		"agent_id", scope.AgentID, "thread_id", scope.ThreadID,
 		"call_id", scope.CallID, "cwd", scope.CWD,
-		"req_id", string(req.ID))
+		"req_id", string(req.ID), "raw_args_len", len(params.Arguments),
+	}
+	beginAttrs = append(beginAttrs, toolPayloadAttrs("request_payload", requestPayload)...)
+	pkglogger.Info("mcp http: tools/call begin", beginAttrs...)
 	start := time.Now()
 
 	value, err := callToolSafely(ctx, h.tools, strings.TrimSpace(params.Name), params.Arguments)
 	elapsed := time.Since(start)
 	if err != nil {
-		pkglogger.Warn("mcp http: tools/call error",
-			"server", h.name, "tool", params.Name,
-			"elapsed", elapsed, "error", err)
+		errorPayload := logToolCallResultPayload("http", h.name, params.Name, req.ID, scope, nil, err)
+		errorAttrs := []any{
+			"server", h.name, "tool", params.Name, "deprecated", true,
+			"elapsed", elapsed, "error", err,
+		}
+		errorAttrs = append(errorAttrs, toolPayloadAttrs("error_payload", errorPayload)...)
+		pkglogger.Warn("mcp http: tools/call error", errorAttrs...)
 		if value == nil {
 			value = NewToolErrorEnvelope(params.Name, err)
 		}
 	}
 	resp, raw, err := toolCallResultResponse(req.ID, value)
 	if err != nil {
+		resultPayload := logToolCallResultPayload("http", h.name, params.Name, req.ID, scope, nil, err)
+		attrs := []any{"server", h.name, "tool", params.Name, "deprecated", true, "error", err}
+		attrs = append(attrs, toolPayloadAttrs("result_payload", resultPayload)...)
+		pkglogger.Warn("mcp http: tools/call result encode error", attrs...)
 		return errorResponse(req.ID, codeInternal, err.Error())
 	}
+	resultPayload := logToolCallResultPayload("http", h.name, params.Name, req.ID, scope, raw, nil)
 	if elapsed > 3*time.Second {
 		pkglogger.Warn("mcp http: tools/call slow",
 			"server", h.name, "tool", params.Name, "elapsed", elapsed)
 	}
-	pkglogger.Info("mcp http: tools/call done",
-		"server", h.name, "tool", params.Name,
-		"elapsed", elapsed, "result_len", len(raw))
+	doneAttrs := []any{
+		"server", h.name, "tool", params.Name, "deprecated", true,
+		"elapsed", elapsed, "result_len", len(raw),
+	}
+	doneAttrs = append(doneAttrs, toolPayloadAttrs("result_payload", resultPayload)...)
+	pkglogger.Info("mcp http: tools/call done", doneAttrs...)
 	return resp
 }
 

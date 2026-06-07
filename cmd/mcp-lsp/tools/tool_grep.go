@@ -161,6 +161,7 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 		return nil, err
 	}
 	limit := shared.ClampLimit(input.MaxResults, 1, maxSearchResults, defaultSearchResults)
+	logGrepCallDecoded(input, limit)
 
 	var (
 		matches []search.SearchMatch
@@ -168,26 +169,7 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 	)
 	if _, err := dispatchToolAction(ctx, "grep", input.Action, input, map[string]actionHandler[grepToolInput]{
 		"text_search": func(ctx context.Context, input grepToolInput) (any, error) {
-			root, roots, err := toolWorkspaceRoots(ctx)
-			if err != nil {
-				return nil, err
-			}
-			opts := search.TextSearchOptions{
-				Root:          root,
-				Roots:         roots,
-				Path:          input.Path,
-				Paths:         input.Paths,
-				Glob:          input.Glob,
-				Query:         input.Query,
-				Regex:         input.Regex,
-				CaseSensitive: input.CaseSensitive,
-				MaxResults:    limit,
-				MaxFileBytes:  maxReadFileBytes,
-			}
-			matches, runErr = search.SearchText(ctx, opts)
-			if runErr == nil && len(matches) == 0 {
-				matches, runErr = searchSiblingWorkspaceOnRuntimeFallback(ctx, opts)
-			}
+			matches, runErr = h.runGrepTextSearch(ctx, input, limit)
 			return nil, runErr
 		},
 		"ast_search": func(ctx context.Context, input grepToolInput) (any, error) {
@@ -212,9 +194,10 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 		return nil, err
 	}
 
-	filtered, total, truncated := search.FilterAndCapSearchMatches(matches, limit)
+	filtered, total, truncated := filterAndLogGrepMatches(input, matches, limit)
 	h.attachFuncRanges(ctx, filtered)
 	if len(filtered) == 0 {
+		logGrepResponseEmpty(input, len(matches), total)
 		return grepResponse{
 			Data:    map[string]grepFileRows{},
 			Total:   0,
@@ -226,7 +209,7 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 	if message := grepMessage(false, resp.DroppedForPayload); message != "" {
 		resp.Message = message
 	}
-	capGrepResponseBytes(&resp, middleware.ToolBudget("grep"))
+	finalizeGrepResponse(input, &resp)
 	return resp, nil
 }
 

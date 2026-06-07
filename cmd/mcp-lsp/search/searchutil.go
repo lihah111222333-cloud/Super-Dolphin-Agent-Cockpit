@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type SearchMatch struct {
@@ -83,6 +84,16 @@ func SearchText(ctx context.Context, opts TextSearchOptions) ([]SearchMatch, err
 	if err != nil {
 		return nil, err
 	}
+	pkglogger.Info("mcp-lsp grep text_search paths resolved",
+		"query", opts.Query,
+		"path", opts.Path,
+		"paths_count", len(opts.Paths),
+		"glob", opts.Glob,
+		"root", opts.Root,
+		"roots_count", len(opts.Roots),
+		"search_paths_count", len(searchPaths),
+		"max_results", opts.MaxResults,
+	)
 	results := make([]SearchMatch, 0, maxInt(opts.MaxResults, 8))
 	for _, searchPath := range searchPaths {
 		if !searchPath.Info.IsDir() {
@@ -99,6 +110,14 @@ func SearchText(ctx context.Context, opts TextSearchOptions) ([]SearchMatch, err
 			return nil, err
 		}
 	}
+	pkglogger.Info("mcp-lsp grep text_search completed",
+		"query", opts.Query,
+		"path", opts.Path,
+		"paths_count", len(opts.Paths),
+		"glob", opts.Glob,
+		"root", opts.Root,
+		"matches", len(results),
+	)
 	return results, nil
 }
 
@@ -320,6 +339,13 @@ func shouldSearchFile(root, candidate, glob string, maxFileBytes int) (bool, err
 func shouldSearchPath(root, candidate, glob string, maxFileBytes int, entry os.DirEntry) (bool, error) {
 	matched, err := matchesPathGlob(root, candidate, glob)
 	if err != nil || !matched {
+		if err == nil && strings.TrimSpace(glob) != "" && filepath.Clean(root) == filepath.Clean(candidate) {
+			pkglogger.Info("mcp-lsp grep text_search skipped single file by glob",
+				"root", root,
+				"candidate", candidate,
+				"glob", glob,
+			)
+		}
 		return matched, err
 	}
 	return isSearchCandidate(candidate, entry, maxFileBytes)
