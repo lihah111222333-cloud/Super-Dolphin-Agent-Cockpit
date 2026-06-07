@@ -22,7 +22,7 @@ import (
 const (
 	defaultSearchResults = 50
 	maxSearchResults     = 50
-	grepTruncatedHint    = "next: increase max_results, narrow path/glob, or refine query"
+	grepTruncatedHint    = "next: adjust max_results, narrow path/glob, refine query, or search a specific file"
 	grepFuncRangeHint    = "next: file action=read_file pos=<file>:<func_start> limit=<func_end-func_start+1>"
 )
 

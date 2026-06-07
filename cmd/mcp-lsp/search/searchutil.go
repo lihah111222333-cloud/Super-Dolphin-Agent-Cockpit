@@ -166,10 +166,10 @@ func FilterAndCapSearchMatches(matches []SearchMatch, maxResults int) ([]SearchM
 	})
 
 	total := len(filtered)
-	if maxResults <= 0 || total <= maxResults {
+	if maxResults <= 0 {
 		return filtered, total, false
 	}
-	return append([]SearchMatch(nil), filtered[:maxResults]...), total, true
+	return capSearchMatchesPerFile(filtered, total, maxResults)
 }
 
 func statSearchPath(root string, roots []string, rawPath string) (PathInfo, os.FileInfo, error) {
