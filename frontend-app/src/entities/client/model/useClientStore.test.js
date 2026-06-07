@@ -1108,6 +1108,91 @@ function registerBridgeEventHandlersForTest() {
     });
   });
 
+  it('shows DAG node prompt and result when a child thread has no provider history', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/main',
+      activeProject: '/repo/main',
+      activeThreadId: 'thread-main',
+      threads: [{ id: 'thread-main', name: 'Main', provider: 'codex', status: 'running' }],
+    });
+    backend.resolveThreadIdentity.mockResolvedValue({
+      id: 'agent_child_1',
+      agent_id: 'agent_child_1',
+      name: 'Review child',
+      provider: 'codex',
+      cwd: '/repo/main/.worktrees/review-child',
+      status: 'done',
+    });
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: '',
+      threads: [{ id: 'thread-main', name: 'Main', provider: 'codex', status: 'running' }],
+      timelinesByThread: {},
+    });
+    backend.getThreadMessages.mockResolvedValue({
+      messages: [],
+      hasMore: false,
+      nextBefore: '',
+    });
+
+    await expect(useClientStore.getState().openThreadById('agent_child_1', {
+      source: 'dag-node',
+      dagNode: {
+        nodeKey: 'review',
+        title: 'Review',
+        config: { prompt: '请评审这个方案' },
+        result: '评审完成：可以继续。',
+      },
+    })).resolves.toBe(true);
+
+    expect(useClientStore.getState().timelinesByThread.agent_child_1).toEqual([
+      expect.objectContaining({ role: 'user', text: '请评审这个方案' }),
+      expect.objectContaining({ role: 'assistant', text: '评审完成：可以继续。' }),
+    ]);
+    expect(useClientStore.getState().threadTimelineReadyByThread.agent_child_1).toBe(true);
+    expect(useClientStore.getState().threadStateLoadingByThread.agent_child_1).toBe(false);
+  });
+
+  it('prefers provider history over DAG node fallback content', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/main',
+      activeProject: '/repo/main',
+      activeThreadId: 'thread-main',
+      threads: [{ id: 'thread-main', name: 'Main', provider: 'codex', status: 'running' }],
+    });
+    backend.resolveThreadIdentity.mockResolvedValue({
+      id: 'agent_child_1',
+      agent_id: 'agent_child_1',
+      name: 'Review child',
+      provider: 'codex',
+      cwd: '/repo/main/.worktrees/review-child',
+      status: 'done',
+    });
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: '',
+      threads: [{ id: 'thread-main', name: 'Main', provider: 'codex', status: 'running' }],
+      timelinesByThread: {},
+    });
+    backend.getThreadMessages.mockResolvedValue({
+      messages: [{ id: 'm-real', role: 'assistant', content: '真实 provider 历史' }],
+      hasMore: false,
+      nextBefore: '',
+    });
+
+    await expect(useClientStore.getState().openThreadById('agent_child_1', {
+      source: 'dag-node',
+      dagNode: {
+        nodeKey: 'review',
+        title: 'Review',
+        config: { prompt: '请评审这个方案' },
+        result: 'DAG 兜底结果',
+      },
+    })).resolves.toBe(true);
+
+    expect(useClientStore.getState().timelinesByThread.agent_child_1).toEqual([
+      expect.objectContaining({ role: 'assistant', text: '真实 provider 历史' }),
+    ]);
+  });
+
   it('copies thread info as backend-resolved JSON and treats dot project as current cwd', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
