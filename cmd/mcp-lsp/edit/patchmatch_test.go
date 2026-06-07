@@ -143,4 +143,60 @@ func TestMatchContextPureInsertionEOF(t *testing.T) {
 	if matches[0].ResolvedStartOffset != len(content) {
 		t.Fatalf("EOF insertion offset = %d, want %d", matches[0].ResolvedStartOffset, len(content))
 	}
+	context := matches[0].EditContext
+	if !strings.Contains(context, "+   6 | func helper() {}") {
+		t.Fatalf("EditContext missing helper at EOF insertion line:\n%s", context)
+	}
+	if strings.Contains(context, "    6 | }") {
+		t.Fatalf("EditContext rendered old EOF line after insertion:\n%s", context)
+	}
+}
+
+func TestMatchContextPureInsertionEditContextKeepsFollowingComment(t *testing.T) {
+	content := strings.Join([]string{
+		"func TestBefore(t *testing.T) {",
+		"\tselect {",
+		"\tcase <-time.After(wait):",
+		"\t\tt.Fatal(\"timeout\")",
+		"\t}",
+		"}",
+		"",
+		"// TestAfter verifies missing handler handling.",
+		"func TestAfter(t *testing.T) {",
+		"\tcfg := Config{}",
+		"}",
+		"",
+	}, "\n")
+	patch := strings.Join([]string{
+		" }",
+		" ",
+		"+// inserted repro marker.",
+		" // TestAfter verifies missing handler handling.",
+		" func TestAfter(t *testing.T) {",
+		"",
+	}, "\n")
+	hunks, err := ParseMulti(patch)
+	if err != nil {
+		t.Fatalf("ParseMulti returned error: %v", err)
+	}
+	matches, err := MatchContext(content, hunks)
+	if err != nil {
+		t.Fatalf("MatchContext returned error: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("len(matches) = %d, want 1", len(matches))
+	}
+	if matches[0].MatchedBy != "pure_insertion" {
+		t.Fatalf("MatchedBy = %q, want pure_insertion", matches[0].MatchedBy)
+	}
+	context := matches[0].EditContext
+	if !strings.Contains(context, "+   8 | // inserted repro marker.") {
+		t.Fatalf("EditContext missing inserted marker:\n%s", context)
+	}
+	if !strings.Contains(context, "    9 | // TestAfter verifies missing handler handling.") {
+		t.Fatalf("EditContext missing shifted original comment after insertion:\n%s", context)
+	}
+	if !strings.Contains(context, "   10 | func TestAfter(t *testing.T) {") {
+		t.Fatalf("EditContext missing shifted function declaration after insertion:\n%s", context)
+	}
 }
