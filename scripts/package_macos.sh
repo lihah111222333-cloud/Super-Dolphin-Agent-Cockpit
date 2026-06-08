@@ -1199,7 +1199,7 @@ restore_git_core_hardlinks() {
   local resources="$1"
   local manifest="$resources/.git-core-hardlinks.tsv"
   local dest_root="$resources/libexec/git-core"
-  [[ -s "$manifest" ]] || return
+  [[ -s "$manifest" ]] || return 0
 
   local current_group="" canonical="" group rel path
   while IFS=$'\t' read -r group rel; do
