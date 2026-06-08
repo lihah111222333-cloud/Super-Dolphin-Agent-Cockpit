@@ -1066,6 +1066,48 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('continues backend-resolved DAG child threads with the child thread cwd', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/main',
+      activeProject: '/repo/main',
+      activeThreadId: 'thread-main',
+      threads: [{ id: 'thread-main', name: 'Main', provider: 'codex', status: 'running', cwd: '/repo/main' }],
+    });
+    backend.resolveThreadIdentity.mockResolvedValue({
+      id: 'agent_child_1',
+      agent_id: 'agent_child_1',
+      name: 'Review child',
+      provider: 'codex',
+      cwd: '/repo/main/.worktrees/review-child',
+      status: 'done',
+    });
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: '',
+      threads: [{ id: 'thread-main', name: 'Main', provider: 'codex', status: 'running', cwd: '/repo/main' }],
+      timelinesByThread: {},
+    });
+    backend.getThreadMessages.mockResolvedValue({
+      messages: [{ id: 'm-child', role: 'assistant', content: '子代理评审完成' }],
+      hasMore: false,
+      nextBefore: '',
+    });
+    backend.startTurn.mockResolvedValue({ ok: true });
+
+    await expect(useClientStore.getState().openThreadById('agent_child_1', { source: 'dag-node' })).resolves.toBe(true);
+    expect(useClientStore.getState().threads).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'agent_child_1', cwd: '/repo/main/.worktrees/review-child' }),
+    ]));
+    useClientStore.getState().setDraft('继续处理这个 DAG 结果');
+    await useClientStore.getState().sendDraft();
+
+    expect(backend.startTurn).toHaveBeenCalledWith({
+      cwd: '/repo/main/.worktrees/review-child',
+      threadId: 'agent_child_1',
+      input: [{ type: 'text', text: '继续处理这个 DAG 结果' }],
+      manualSkillSelection: false,
+    });
+  });
+
   it('copies thread info as backend-resolved JSON and treats dot project as current cwd', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',

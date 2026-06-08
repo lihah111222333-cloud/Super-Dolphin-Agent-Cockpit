@@ -931,6 +931,17 @@ function reusableThreadIdForSend(state, value) {
   return normalizeBackendThreadId(id);
 }
 
+function cwdForExistingThreadSend(state, threadId, fallbackCwd) {
+  const id = normalizeThreadId(threadId);
+  if (!id) return fallbackCwd;
+  const matchedThread = state.threads.find((thread) => (
+    threadMatchesIdentifier(thread, id) ||
+    threadMatchesIdentifier(thread, state.activeThreadId)
+  ));
+  const threadCwd = normalizePath(matchedThread?.cwd);
+  return threadCwd && threadCwd !== '.' ? threadCwd : fallbackCwd;
+}
+
 function activeProviderLockedThreadId(state) {
   const id = normalizeThreadId(state?.activeThreadId);
   if (!id) return '';
@@ -2383,8 +2394,9 @@ function createSendDraftRequest(state, cwd) {
   const previousThreadId = reusableThreadIdForSend(state, previousActiveThreadId);
   const launchIntentId = createLaunchIntentId();
   const provisionalThreadId = previousThreadId || launchIntentId;
+  const requestCwd = previousThreadId ? cwdForExistingThreadSend(state, previousThreadId, cwd) : cwd;
   return {
-    cwd,
+    cwd: requestCwd,
     text,
     attachments,
     input,
@@ -5138,7 +5150,7 @@ function createComposerSendActions(runtime) {
         }
 
         await startTurnWithStoppedThreadRecovery({
-          cwd,
+          cwd: request.cwd,
           threadId,
           input: request.input,
           manualSkillSelection: false,
@@ -5185,7 +5197,7 @@ function createDashboardCommandActions(runtime) {
         }
 
         await startTurn({
-          cwd,
+          cwd: request.cwd,
           threadId,
           input: request.input,
           manualSkillSelection: false,
