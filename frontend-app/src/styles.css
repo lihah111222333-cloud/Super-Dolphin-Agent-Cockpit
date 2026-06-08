@@ -6548,6 +6548,14 @@ dd {
   margin-top: 12px;
 }
 
+.settings-update-card {
+  margin-top: 12px;
+}
+
+.settings-update-card .settings-action-row {
+  margin-top: 4px;
+}
+
 .settings-log-card {
   gap: 8px;
 }
