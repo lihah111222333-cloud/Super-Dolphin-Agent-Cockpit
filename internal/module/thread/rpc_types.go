@@ -80,11 +80,75 @@ type handoffParams struct {
 func (p *startParams) UnmarshalJSON(data []byte) error {
 	type raw startParams
 	var current raw
+	if err := rejectUnknownStartParamFields(data); err != nil {
+		return err
+	}
 	if err := decodeLegacyParams(data, &current, nil); err != nil {
 		return err
 	}
 	*p = startParams(current)
 	return p.fillLegacyFields(data)
+}
+
+var startParamWireFields = map[string]struct{}{
+	"agent_id":               {},
+	"agent_type":             {},
+	"agent_key":              {},
+	"agent_memory_scope":     {},
+	"approval_policy":        {},
+	"base_instructions":      {},
+	"config":                 {},
+	"cwd":                    {},
+	"defer_spawn":            {},
+	"developer_instructions": {},
+	"effort":                 {},
+	"language":               {},
+	"launch_intent_id":       {},
+	"manual_skill_selection": {},
+	"model":                  {},
+	"model_provider":         {},
+	"name":                   {},
+	"parent_agent_id":        {},
+	"personality":            {},
+	"prompt":                 {},
+	"prompt_key":             {},
+	"provider":               {},
+	"sandbox":                {},
+	"selected_skill_refs":    {},
+	"selected_skills":        {},
+	"summary":                {},
+	"tool_surface_mode":      {},
+	"agentId":                {},
+	"agentMemoryScope":       {},
+	"agentType":              {},
+	"approvalPolicy":         {},
+	"baseInstructions":       {},
+	"developerInstructions":  {},
+	"instructions":           {},
+	"launchIntentId":         {},
+	"manualSkillSelection":   {},
+	"memoryScope":            {},
+	"memory_scope":           {},
+	"modelProvider":          {},
+	"parentAgentId":          {},
+	"parentID":               {},
+	"parentId":               {},
+	"selectedSkillRefs":      {},
+	"selectedSkills":         {},
+	"toolSurfaceMode":        {},
+}
+
+func rejectUnknownStartParamFields(data []byte) error {
+	payload, err := decodeCompatPayload(data)
+	if err != nil {
+		return err
+	}
+	for key := range payload {
+		if _, ok := startParamWireFields[key]; !ok {
+			return fmt.Errorf("thread/start: unknown field %q", key)
+		}
+	}
+	return nil
 }
 
 func (p *startParams) fillLegacyFields(data []byte) error {

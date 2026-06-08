@@ -99,6 +99,20 @@ func TestNewThreadHandlersDispatchStart(t *testing.T) {
 	assertThreadStartRequest(t, stub.startReq)
 }
 
+func TestNewThreadHandlersDispatchStartRejectsUnknownField(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubThreadService{}
+	server := newThreadTestServer(stub)
+	_, err := server.Dispatch(context.Background(), "thread/start", json.RawMessage(`{"provider":"codex","cwd":"/tmp/demo","unexpectedUiOnlyField":"leak"}`))
+	if err == nil || !strings.Contains(err.Error(), "invalid parameters") {
+		t.Fatalf("Dispatch(thread/start) error = %v, want unknown field rejection", err)
+	}
+	if stub.startReq.Provider != "" || stub.startReq.CWD != "" {
+		t.Fatalf("Start() was called with %#v, want decode rejection before service call", stub.startReq)
+	}
+}
+
 func TestNewThreadHandlersDispatchResume(t *testing.T) {
 	t.Parallel()
 
