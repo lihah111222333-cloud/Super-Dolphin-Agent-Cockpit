@@ -39,7 +39,7 @@ import (
 //
 // If this test fails with "bare MemoryLifecycleHooks literal forbidden",
 // rewrite the test to call newTestHooks(...) with the appropriate
-// withXxx options. Add a new option in helpers_test.go if needed.
+// withLogger/withLocks style options. Add a new option in helpers_test.go if needed.
 func TestNoBareMemoryLifecycleHooksInTests(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)
@@ -82,7 +82,7 @@ func TestNoBareMemoryLifecycleHooksInTests(t *testing.T) {
 		})
 	}
 	if len(violations) > 0 {
-		t.Fatalf("memory lifecycle hooks bare construction in tests:\n%s\n\nFix: replace `&MemoryLifecycleHooks{...}` with `newTestHooks(withXxx(...), ...)` from helpers_test.go.",
+		t.Fatalf("memory lifecycle hooks bare construction in tests:\n%s\n\nFix: replace `&MemoryLifecycleHooks{...}` with `newTestHooks(withLogger(...), ...)` from helpers_test.go.",
 			strings.Join(violations, "\n"))
 	}
 }

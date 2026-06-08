@@ -121,7 +121,7 @@ func TestTrimInjectedSkillBlocks_NoMatch(t *testing.T) {
 	if got := TrimInjectedSkillBlocks(plain); got != plain {
 		t.Fatalf("plain text altered: got %q", got)
 	}
-	// 有 [skill:xxx] 但没 AND 命中 markers → legacy 识别不算数
+	// 有 [skill:feature] 但没 AND 命中 markers -> legacy 识别不算数
 	partial := "discussing the [skill: feature] in general\n(no other markers)"
 	if got := TrimInjectedSkillBlocks(partial); got != partial {
 		t.Fatalf("partial legacy altered: got %q", got)

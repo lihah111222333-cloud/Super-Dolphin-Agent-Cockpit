@@ -18,7 +18,7 @@ import (
 // updated_by / 时间戳；正文超过 InlineThresholdBytes 时 DB content 为空）。
 //
 // 本包只做文件 IO + sandbox 边界，不知道 SQL。Caller（store）负责：
-//   - 在 ResolveAbs 之前把 rel 通过 sharedfilepath.ValidateXxx 清洗
+//   - 在 ResolveAbs 之前把 rel 通过 sharedfilepath.ValidateRel 清洗
 //   - 写完磁盘后再 Upsert DB（顺序保证 read 路径不会在 DB 命中但磁盘读不到）
 //   - Delete 时先删 DB 再删磁盘（DB 是 List 的真理来源；磁盘残留比 DB 残留
 //     更安全，下次 startup reconciler 可以扫掉）
