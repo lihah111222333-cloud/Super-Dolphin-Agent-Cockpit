@@ -265,7 +265,8 @@ async function assertObject(promise, method) {
 
 export async function packageScriptIncludesSmoke(packageJSONPath = path.join(repoRootFromScript(), 'frontend-app', 'package.json')) {
   const pkg = JSON.parse(await readFile(packageJSONPath, 'utf8'));
-  return pkg.scripts?.['smoke:desktop'] === 'node scripts/desktop-smoke.mjs';
+  return pkg.scripts?.['smoke:desktop'] === 'npm run smoke:desktop:rpc'
+    && pkg.scripts?.['smoke:desktop:rpc'] === 'node scripts/desktop-smoke.mjs';
 }
 
 export function isMain(metaURL, argv1) {

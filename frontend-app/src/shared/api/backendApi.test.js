@@ -11,16 +11,23 @@ import {
   setVideoApiKey,
 } from './backendApi.js';
 
+function expectInvalidInputDoesNotCall(callAPI, action, message) {
+  const callCount = callAPI.mock.calls.length;
+  expect(action).toThrow(message);
+  expect(callAPI).toHaveBeenCalledTimes(callCount);
+}
+
   it('exposes the dedicated frontend observability ingest RPC method name', () => {
     expect(RPC_METHODS.OBSERVABILITY_FRONTEND_INGEST).toBe('observability/frontend/ingest');
     expect(typeof emitFrontendTraceEvent).toBe('function');
   });
 
   it('maps observability query helpers to dedicated RPC methods', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ source: 'memory' });
+    const response = { source: 'memory', events: [{ traceId: 'trace-1' }] };
+    const callAPI = vi.fn().mockResolvedValue(response);
     const api = createBackendApi({ callAPI });
 
-    await api.getObservabilityTrace({ trace_id: 'trace-1', limit: 5 });
+    await expect(api.getObservabilityTrace({ trace_id: 'trace-1', limit: 5 })).resolves.toEqual(response);
     await api.getObservabilityThreadRecent({ thread_id: 'thread-1', limit: 7 });
     await api.listObservabilityRecent({ limit: 20, status: 'error', component: 'frontend', keyword: 'thread/start', includeTail: false });
     await api.listObservabilitySlow({ component: 'rpc' });
@@ -33,6 +40,19 @@ import {
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.OBSERVABILITY_SLOW_LIST, { component: 'rpc' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.OBSERVABILITY_ERROR_LIST, { limit: 3 });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.OBSERVABILITY_STATUS, {});
+  });
+
+  it('fails fast without extra backend calls for representative invalid facade inputs', () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    expectInvalidInputDoesNotCall(callAPI, () => api.getObservabilityTrace({ trace_id: '' }), 'traceId is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.startThread({ cwd: '', modelProvider: 'codex' }), 'cwd is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.startThread({ cwd: '/repo/app' }), 'provider is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.startTurn({ cwd: '/repo/app', threadId: '', input: 'build it' }), 'threadId is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.dispatchDagNode({ dagKey: 'dag-1', runId: 88, nodeKey: 'draft', assignedTo: '' }), 'assignedTo is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.applyDagOps({ dagKey: 'dag-1', ops: [] }), 'baseVersion is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.setVideoApiKey({ apiKey: '' }), 'apiKey is required');
   });
 
   it('wraps app update RPC methods', async () => {
@@ -55,10 +75,11 @@ import {
   });
 
   it('starts a pending backend thread with the legacy thread/start payload shape', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ threadId: 'thread-123' });
+    const response = { threadId: 'thread-123', state: 'pending' };
+    const callAPI = vi.fn().mockResolvedValue(response);
     const api = createBackendApi({ callAPI });
 
-    await api.startThread({
+    await expect(api.startThread({
       cwd: '/repo/app',
       name: 'Hello',
       provider: 'codex',
@@ -69,7 +90,7 @@ import {
       launchIntentId: 'launch_018f00e0-39fc-72ac-a47a-2a858c75d111',
       optimisticUserMessage: 'Hello',
       skipInitialRuntimeSync: true,
-    });
+    })).resolves.toEqual(response);
 
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_START, {
       cwd: '/repo/app',
@@ -87,12 +108,11 @@ import {
     const callAPI = vi.fn().mockResolvedValue({ threadId: 'thread-123' });
     const api = createBackendApi({ callAPI });
 
-    expect(() => api.startThread({
+    expectInvalidInputDoesNotCall(callAPI, () => api.startThread({
       cwd: '/repo/app',
       modelProvider: 'codex',
       toolSurfaceMode: 'full',
-    })).toThrow('toolSurfaceMode must be chat, auto, or agent');
-    expect(callAPI).not.toHaveBeenCalled();
+    }), 'toolSurfaceMode must be chat, auto, or agent');
   });
 
   it('does not opt into pending launch unless deferSpawn is explicitly requested', async () => {
@@ -111,23 +131,27 @@ import {
   });
 
   it('sends turn/start input-only text and expanded arrays with explicit cwd', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const firstResponse = { turnId: 'turn-1', status: 'queued' };
+    const secondResponse = { turnId: 'turn-2', status: 'queued' };
+    const callAPI = vi.fn()
+      .mockResolvedValueOnce(firstResponse)
+      .mockResolvedValueOnce(secondResponse);
     const api = createBackendApi({ callAPI });
 
-    await api.startTurn({
+    await expect(api.startTurn({
       cwd: '/repo/app',
       threadId: 'thread-123',
       input: 'build it',
       manualSkillSelection: false,
-    });
-    await api.startTurn({
+    })).resolves.toEqual(firstResponse);
+    await expect(api.startTurn({
       cwd: '/repo/app',
       threadId: 'thread-456',
       input: [
         { type: 'text', text: 'inspect this' },
         { type: 'mention', name: 'a.txt', path: '/tmp/a.txt' },
       ],
-    });
+    })).resolves.toEqual(secondResponse);
 
     expect(callAPI).toHaveBeenNthCalledWith(1, RPC_METHODS.TURN_START, {
       cwd: '/repo/app',
@@ -183,39 +207,36 @@ import {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
 
-    expect(() => api.startTurn({
+    expectInvalidInputDoesNotCall(callAPI, () => api.startTurn({
       cwd: '/repo/app',
       threadId: 'thread-123',
       prompt: 'build it',
       attachments: ['/tmp/a.txt'],
-    })).toThrow('turn/start: prompt and attachments cannot both contain content');
-    expect(callAPI).not.toHaveBeenCalled();
+    }), 'turn/start: prompt and attachments cannot both contain content');
   });
 
   it('rejects turn/start array input with legacy attachments before calling the backend', () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
 
-    expect(() => api.startTurn({
+    expectInvalidInputDoesNotCall(callAPI, () => api.startTurn({
       cwd: '/repo/app',
       threadId: 'thread-123',
       input: [{ type: 'text', text: 'build it' }],
       attachments: ['/tmp/a.txt'],
-    })).toThrow('turn/start: input and attachments cannot both contain content');
-    expect(callAPI).not.toHaveBeenCalled();
+    }), 'turn/start: input and attachments cannot both contain content');
   });
 
   it('rejects turn/start string input with legacy attachments before calling the backend', () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
 
-    expect(() => api.startTurn({
+    expectInvalidInputDoesNotCall(callAPI, () => api.startTurn({
       cwd: '/repo/app',
       threadId: 'thread-123',
       input: 'build it',
       attachments: ['/tmp/a.txt'],
-    })).toThrow('turn/start: input and attachments cannot both contain content');
-    expect(callAPI).not.toHaveBeenCalled();
+    }), 'turn/start: input and attachments cannot both contain content');
   });
 
   it('maps archive, unarchive, and delete thread actions to legacy thread RPCs', async () => {
@@ -342,9 +363,8 @@ import {
     const callAPI = vi.fn();
     const api = createBackendApi({ callAPI });
 
-    expect(() => api.getProjects({ cwd: '' })).toThrow('cwd is required');
-    expect(() => api.startThread({ cwd: '/repo/app', name: 'Hello' })).toThrow('provider is required');
-    expect(callAPI).not.toHaveBeenCalled();
+    expectInvalidInputDoesNotCall(callAPI, () => api.getProjects({ cwd: '' }), 'cwd is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.startThread({ cwd: '/repo/app', name: 'Hello' }), 'provider is required');
   });
 
   it('deletes skills with cwd, scope, and personal type', async () => {
@@ -535,10 +555,31 @@ function expectSkillEditorCalls(callAPI) {
     await callDagDashboardApis(api);
 
     expectDagDashboardCalls(callAPI);
-    expect(() => api.applyDagOps({ dagKey: 'dag-1', ops: [] })).toThrow('baseVersion is required');
-    expect(() => api.getDagRun({ runKey: '' })).toThrow('runKey is required');
-    expect(() => api.dispatchDagNode({ dagKey: 'dag-1', runId: 88, nodeKey: 'draft', assignedTo: '' })).toThrow('assignedTo is required');
-    expect(() => api.terminateDagRun({ dagKey: 'dag-1', runKey: '' })).toThrow('runKey is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.applyDagOps({ dagKey: 'dag-1', ops: [] }), 'baseVersion is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.getDagRun({ runKey: '' }), 'runKey is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.dispatchDagNode({ dagKey: 'dag-1', runId: 88, nodeKey: 'draft', assignedTo: '' }), 'assignedTo is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.terminateDagRun({ dagKey: 'dag-1', runKey: '' }), 'runKey is required');
+  });
+
+  it('passes through representative DAG mutation responses', async () => {
+    const dispatchResponse = { ok: true, nodeKey: 'draft', assignedTo: 'codex-runner' };
+    const applyResponse = { ok: true, version: 12 };
+    const callAPI = vi.fn()
+      .mockResolvedValueOnce(dispatchResponse)
+      .mockResolvedValueOnce(applyResponse);
+    const api = createBackendApi({ callAPI });
+
+    await expect(api.dispatchDagNode({
+      dagKey: 'dag-1',
+      runId: 88,
+      nodeKey: 'draft',
+      assignedTo: 'codex-runner',
+    })).resolves.toEqual(dispatchResponse);
+    await expect(api.applyDagOps({
+      dagKey: 'dag-1',
+      baseVersion: 11,
+      ops: [{ op: 'update_node', node_key: 'draft', patch: { title: 'Draft v2' } }],
+    })).resolves.toEqual(applyResponse);
   });
 
   it('wraps cronjob RPCs with the legacy payload shapes', async () => {
@@ -650,15 +691,26 @@ function expectSkillEditorCalls(callAPI) {
   });
 
   it('wraps video API key RPCs with named facade methods', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ configured: true, masked: 'sk***ed' });
+    const getResponse = { configured: true, masked: 'sk***ed' };
+    const setResponse = { ok: true, savedAt: '2026-06-08T12:00:00Z' };
+    const callAPI = vi.fn()
+      .mockResolvedValueOnce(getResponse)
+      .mockResolvedValueOnce(setResponse)
+      .mockRejectedValueOnce(new Error('credential store unavailable'));
     const api = createBackendApi({ callAPI });
 
-    await api.getVideoApiKey();
-    await api.setVideoApiKey({ apiKey: 'sk-test-key' });
+    await expect(api.getVideoApiKey()).resolves.toEqual(getResponse);
+    await expect(api.setVideoApiKey({
+      apiKey: ' sk-test-key ',
+      unexpectedUiOnlyField: 'must-not-leak',
+    })).resolves.toEqual(setResponse);
+    await expect(api.setVideoApiKey({ apiKey: 'sk-test-key-2' }))
+      .rejects.toThrow('credential store unavailable');
 
     expect(callAPI).toHaveBeenNthCalledWith(1, RPC_METHODS.UI_VIDEO_GET_API_KEY, {});
     expect(callAPI).toHaveBeenNthCalledWith(2, RPC_METHODS.UI_VIDEO_SET_API_KEY, { apiKey: 'sk-test-key' });
-    expect(() => api.setVideoApiKey({ apiKey: '' })).toThrow('apiKey is required');
+    expect(callAPI).toHaveBeenNthCalledWith(3, RPC_METHODS.UI_VIDEO_SET_API_KEY, { apiKey: 'sk-test-key-2' });
+    expectInvalidInputDoesNotCall(callAPI, () => api.setVideoApiKey({ apiKey: '' }), 'apiKey is required');
     expect(typeof getVideoApiKey).toBe('function');
     expect(typeof setVideoApiKey).toBe('function');
   });

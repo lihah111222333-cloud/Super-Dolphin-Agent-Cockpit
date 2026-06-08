@@ -108,7 +108,7 @@ export function createFrontendViteConfig(env = process.env) {
           url: 'http://127.0.0.1:5175/',
         },
       },
-      exclude: ['**/node_modules/**', '**/dist/**', '**/.agents/**'],
+      exclude: ['**/node_modules/**', '**/dist/**', '**/.agents/**', '**/tests/e2e/**'],
       globals: true,
       setupFiles: './src/test-setup.js',
     },

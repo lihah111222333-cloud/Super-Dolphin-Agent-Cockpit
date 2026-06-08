@@ -1,45 +1,85 @@
 import { describe, expect, it } from 'vitest';
 import { RPC_METHODS } from './backendApi.js';
 import {
+  RPC_CONTRACT_LEVELS,
   RPC_CONTRACT_MATRIX,
-  RPC_RESPONSE_BEHAVIORS,
-  RPC_RISK_LEVELS,
+  RPC_CONTRACT_REGISTRY,
 } from './backendApi.contractMatrix.js';
 
 describe('backend API contract matrix', () => {
-  it('classifies every RPC method with risk and response behavior', () => {
-    const methodValues = Object.values(RPC_METHODS);
+  it('uses an explicit registry entry for every RPC method', () => {
+    const methodKeys = Object.keys(RPC_METHODS);
+    const registryKeys = Object.keys(RPC_CONTRACT_REGISTRY);
 
-    expect(RPC_CONTRACT_MATRIX).toHaveLength(methodValues.length);
-    expect(new Set(RPC_CONTRACT_MATRIX.map((entry) => entry.method))).toEqual(new Set(methodValues));
+    expect(registryKeys).toEqual(methodKeys);
+    expect(RPC_CONTRACT_MATRIX).toHaveLength(methodKeys.length);
+    expect(new Set(RPC_CONTRACT_MATRIX).size).toBe(methodKeys.length);
 
-    for (const entry of RPC_CONTRACT_MATRIX) {
-      expect(Object.values(RPC_RISK_LEVELS)).toContain(entry.risk);
-      expect(Object.values(RPC_RESPONSE_BEHAVIORS)).toContain(entry.responseBehavior);
-      expect(entry.key).toBeTruthy();
-      expect(entry.method).toBe(RPC_METHODS[entry.key]);
-      expect(Array.isArray(entry.contractNotes)).toBe(true);
+    for (const key of methodKeys) {
+      const entry = RPC_CONTRACT_REGISTRY[key];
+      expect(entry).toEqual(expect.objectContaining({
+        key,
+        method: RPC_METHODS[key],
+        facade: expect.any(String),
+        level: expect.any(String),
+        backendOwner: expect.any(String),
+        tests: expect.any(Array),
+        rawLiteralRpc: expect.any(Boolean),
+        notes: expect.any(Array),
+      }));
+      expect(Object.values(RPC_CONTRACT_LEVELS)).toContain(entry.level);
+      expect(entry.facade).not.toBe('');
+      expect(entry.backendOwner).not.toBe('');
+      expect(entry.tests.length).toBeGreaterThan(0);
+      expect(entry.rawLiteralRpc).toBe(false);
     }
   });
 
-  it('defaults mutating and credential-affecting methods away from P2', () => {
-    const mutating = RPC_CONTRACT_MATRIX.filter((entry) => (
-      /(^|_)(WRITE|DELETE|SAVE|APPLY|DISPATCH|START|RUN_ONCE|SET_ACTIVE|SET|UPSERT|MERGE|IGNORE|CONSOLIDATE)(_|$)/.test(entry.key)
-      || /(^|\/)(write|delete|save|apply|dispatch|start|runOnce|setActive|set|upsert|merge|ignore|consolidate)(\/|$|[A-Z])/.test(entry.method)
-    ));
+  it('marks video credential methods at the documented risk levels', () => {
+    expect(RPC_CONTRACT_REGISTRY.UI_VIDEO_SET_API_KEY.level).toBe('P0');
+    expect(RPC_CONTRACT_REGISTRY.UI_VIDEO_SET_API_KEY.notes).toContain('credential-affecting mutation');
+    expect(RPC_CONTRACT_REGISTRY.UI_VIDEO_GET_API_KEY.level).toBe('P1');
+    expect(RPC_CONTRACT_REGISTRY.UI_VIDEO_GET_API_KEY.notes).toContain('credential configuration read');
+  });
 
-    expect(mutating.length).toBeGreaterThan(0);
-    for (const entry of mutating) {
-      expect(entry.risk).not.toBe(RPC_RISK_LEVELS.P2);
+  it('keeps P1 read families explicitly represented', () => {
+    const expectedP1Reads = [
+      'THREAD_MESSAGES',
+      'THREAD_RESOLVE',
+      'THREAD_CONFIG_GET',
+      'UI_STATE_GET',
+      'DASHBOARD_DAGS',
+      'DASHBOARD_DAG_DETAIL',
+      'DASHBOARD_DAG_RUNS',
+      'DASHBOARD_DAG_RUN',
+      'UI_DASHBOARD_GET',
+      'PROMPT_ASSETS_LIST',
+      'DASHBOARD_PROMPTS',
+      'PROMPTS_GET',
+      'PROMPT_SECTIONS_LIST',
+      'UI_MEMORY_GET',
+      'UI_MEMORY_ENTRY_GET',
+      'UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS',
+      'DASHBOARD_SHARED_FILES',
+      'UI_SHARED_FILE_GET',
+      'OBSERVABILITY_TRACE_GET',
+      'OBSERVABILITY_THREAD_RECENT',
+      'OBSERVABILITY_RECENT_LIST',
+      'OBSERVABILITY_SLOW_LIST',
+      'OBSERVABILITY_ERROR_LIST',
+      'OBSERVABILITY_STATUS',
+    ];
+
+    for (const key of expectedP1Reads) {
+      expect(RPC_CONTRACT_REGISTRY[key].level).toBe('P1');
     }
   });
 
-  it('marks known contract exceptions explicitly', () => {
-    const byMethod = new Map(RPC_CONTRACT_MATRIX.map((entry) => [entry.method, entry]));
-
-    expect(byMethod.get(RPC_METHODS.DASHBOARD_SHARED_FILES).contractNotes).toContain('params:{}-only');
-    expect(byMethod.get(RPC_METHODS.THREAD_START).contractNotes).toContain('custom-decoder');
-    expect(byMethod.get(RPC_METHODS.TURN_START).contractNotes).toContain('custom-decoder');
-    expect(byMethod.get(RPC_METHODS.TURN_INTERRUPT).contractNotes).toContain('custom-decoder');
+  it('anchors known contract exceptions in notes instead of implicit defaults', () => {
+    expect(RPC_CONTRACT_REGISTRY.DASHBOARD_SHARED_FILES.notes).toContain('params:{}-only');
+    expect(RPC_CONTRACT_REGISTRY.THREAD_START.notes).toContain('custom-decoder');
+    expect(RPC_CONTRACT_REGISTRY.TURN_START.notes).toContain('custom-decoder');
+    expect(RPC_CONTRACT_REGISTRY.TURN_INTERRUPT.notes).toContain('custom-decoder');
+    expect(RPC_CONTRACT_REGISTRY.TURN_INTERRUPT.notes).toContain('passthrough response');
   });
 });

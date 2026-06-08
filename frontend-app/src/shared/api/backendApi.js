@@ -719,6 +719,13 @@ function lspPromptHintWritePayload(params) {
   return { cwd: payload.cwd, hint: (payload.hint ?? '').toString() };
 }
 
+function videoApiKeyPayload(params) {
+  const payload = assertPlainObject(RPC_METHODS.UI_VIDEO_SET_API_KEY, params);
+  const apiKey = normalizeString(payload.apiKey);
+  if (!apiKey) throw new Error(`${RPC_METHODS.UI_VIDEO_SET_API_KEY}: apiKey is required`);
+  return { apiKey };
+}
+
 function builtinToolWritePayload(params) {
   const payload = requireBoolean(
     RPC_METHODS.CONFIG_BUILTIN_TOOLS_WRITE,
@@ -820,7 +827,7 @@ function createConfigProjectApi(callBackend) {
     getVideoApiKey: () => callBackend(RPC_METHODS.UI_VIDEO_GET_API_KEY, {}),
     setVideoApiKey: (params) => callBackend(
       RPC_METHODS.UI_VIDEO_SET_API_KEY,
-      requireKey(RPC_METHODS.UI_VIDEO_SET_API_KEY, assertPlainObject(RPC_METHODS.UI_VIDEO_SET_API_KEY, params), 'apiKey'),
+      videoApiKeyPayload(params),
     ),
     listDashboardLogs: (params = {}) => callBackend(RPC_METHODS.DASHBOARD_LOGS, dashboardLogsPayload(params)),
   };
