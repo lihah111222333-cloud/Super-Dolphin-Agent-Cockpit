@@ -1,34 +1,4 @@
 {
-  "cmd/mcp-lsp/multilsp/generic_language_service_test.go": {
-    "lines": 520,
-    "max_func_len": 41,
-    "max_nesting": 3,
-    "max_complexity": 10,
-    "max_params": 6,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 1,
-    "todo_count": 0,
-    "max_struct_fields": 6
-  },
-  "cmd/mcp-lsp/multilsp/multi_cwd_e2e_helpers_test.go": {
-    "lines": 217,
-    "max_func_len": 38,
-    "max_nesting": 2,
-    "max_complexity": 7,
-    "max_params": 5,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 1,
-    "todo_count": 0,
-    "max_struct_fields": 9
-  },
   "cmd/mcp-lsp/search/searchutil_test.go": {
     "lines": 480,
     "max_func_len": 39,
@@ -73,35 +43,6 @@
     "empty_funcs": 0,
     "todo_count": 0
   },
-  "cmd/mcp-orch/fxadapter/dag_cron_store_test.go": {
-    "lines": 91,
-    "max_func_len": 15,
-    "max_nesting": 1,
-    "max_complexity": 4,
-    "max_params": 3,
-    "max_returns": 2,
-    "max_underscore": 1,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 1,
-    "todo_count": 0,
-    "max_struct_fields": 6
-  },
-  "cmd/mcp-orch/memory/test_symlink_unix_test.go": {
-    "lines": 3,
-    "max_func_len": 1,
-    "max_nesting": 0,
-    "max_complexity": 1,
-    "max_params": 2,
-    "max_returns": 0,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 1,
-    "todo_count": 0
-  },
   "cmd/mcp-orch/orchestration/nodeexec/test_cwd_test.go": {
     "lines": 16,
     "max_func_len": 9,
@@ -129,51 +70,6 @@
     "naked_returns": 0,
     "empty_funcs": 0,
     "todo_count": 0
-  },
-  "cmd/mcp-orch/store/prompt/store_test.go": {
-    "lines": 566,
-    "max_func_len": 49,
-    "max_nesting": 2,
-    "max_complexity": 9,
-    "max_params": 9,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 1,
-    "todo_count": 0,
-    "max_struct_fields": 4
-  },
-  "cmd/mcp-orch/store/taskdag/scan_helpers_test.go": {
-    "lines": 117,
-    "max_func_len": 25,
-    "max_nesting": 2,
-    "max_complexity": 7,
-    "max_params": 2,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 1,
-    "todo_count": 0,
-    "max_struct_fields": 2
-  },
-  "cmd/mcp-orch/store/workspace/test_helpers_test.go": {
-    "lines": 127,
-    "max_func_len": 26,
-    "max_nesting": 2,
-    "max_complexity": 7,
-    "max_params": 3,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 1,
-    "todo_count": 0,
-    "max_struct_fields": 3
   },
   "internal/archtest/baseline_shrink_test.go": {
     "lines": 142,
@@ -246,21 +142,6 @@
     "todo_count": 0,
     "max_struct_fields": 1
   },
-  "internal/module/dashboard/query_test.go": {
-    "lines": 517,
-    "max_func_len": 36,
-    "max_nesting": 2,
-    "max_complexity": 10,
-    "max_params": 4,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 1,
-    "todo_count": 0,
-    "max_struct_fields": 4
-  },
   "internal/module/memory/memory_behavioral_guards_test.go": {
     "lines": 188,
     "max_func_len": 46,
@@ -276,20 +157,6 @@
     "todo_count": 0,
     "max_struct_fields": 6
   },
-  "internal/module/memory/team/test_symlink_unix_test.go": {
-    "lines": 3,
-    "max_func_len": 1,
-    "max_nesting": 0,
-    "max_complexity": 1,
-    "max_params": 2,
-    "max_returns": 0,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 1,
-    "todo_count": 0
-  },
   "internal/module/skill/rollout_markers_test.go": {
     "lines": 381,
     "max_func_len": 28,
@@ -303,20 +170,6 @@
     "naked_returns": 0,
     "empty_funcs": 0,
     "todo_count": 1
-  },
-  "internal/module/skill/test_symlink_unix_test.go": {
-    "lines": 3,
-    "max_func_len": 1,
-    "max_nesting": 0,
-    "max_complexity": 1,
-    "max_params": 2,
-    "max_returns": 0,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 1,
-    "todo_count": 0
   },
   "internal/module/thread/handoff_test.go": {
     "lines": 209,
@@ -332,21 +185,6 @@
     "empty_funcs": 0,
     "todo_count": 0,
     "max_struct_fields": 2
-  },
-  "internal/module/thread/history_test.go": {
-    "lines": 407,
-    "max_func_len": 55,
-    "max_nesting": 2,
-    "max_complexity": 7,
-    "max_params": 3,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 1,
-    "todo_count": 0,
-    "max_struct_fields": 5
   },
   "internal/module/thread/phase45_regression_test.go": {
     "lines": 312,
@@ -446,7 +284,7 @@
     "global_vars": 0,
     "panic_count": 1,
     "naked_returns": 0,
-    "empty_funcs": 1,
+    "empty_funcs": 0,
     "todo_count": 0,
     "max_struct_fields": 7
   },
@@ -464,20 +302,6 @@
     "empty_funcs": 0,
     "todo_count": 0,
     "max_struct_fields": 4
-  },
-  "internal/platform/rpc/server_minimal_test.go": {
-    "lines": 186,
-    "max_func_len": 29,
-    "max_nesting": 3,
-    "max_complexity": 10,
-    "max_params": 2,
-    "max_returns": 1,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 2,
-    "todo_count": 0
   },
   "internal/platform/runtimesafe/safego_test.go": {
     "lines": 77,
@@ -582,20 +406,6 @@
     "todo_count": 1,
     "max_struct_fields": 4
   },
-  "internal/provider/shared/config_helpers_test.go": {
-    "lines": 154,
-    "max_func_len": 24,
-    "max_nesting": 1,
-    "max_complexity": 3,
-    "max_params": 3,
-    "max_returns": 0,
-    "max_underscore": 0,
-    "global_vars": 1,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0
-  },
   "internal/provider/unified/session_resolver_identity_test.go": {
     "lines": 220,
     "max_func_len": 35,
@@ -610,51 +420,6 @@
     "empty_funcs": 0,
     "todo_count": 1,
     "max_struct_fields": 4
-  },
-  "internal/store/ailog/store_test.go": {
-    "lines": 267,
-    "max_func_len": 39,
-    "max_nesting": 1,
-    "max_complexity": 9,
-    "max_params": 5,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 1,
-    "todo_count": 0,
-    "max_struct_fields": 4
-  },
-  "internal/store/dbquery/executor_test.go": {
-    "lines": 367,
-    "max_func_len": 61,
-    "max_nesting": 3,
-    "max_complexity": 10,
-    "max_params": 4,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 1,
-    "todo_count": 0,
-    "max_struct_fields": 7
-  },
-  "internal/store/hookstore/hookstore_helpers_test.go": {
-    "lines": 324,
-    "max_func_len": 40,
-    "max_nesting": 2,
-    "max_complexity": 10,
-    "max_params": 3,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 1,
-    "todo_count": 0,
-    "max_struct_fields": 7
   },
   "internal/ui/wails/rpc_test.go": {
     "lines": 518,
