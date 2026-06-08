@@ -31,6 +31,7 @@ func TestPackageMacOSScriptBundlesRuntimeContracts(t *testing.T) {
 	assertScriptContains(t, script, "@rpath/*.dylib")
 	assertScriptContains(t, script, "xml_escape()")
 	assertScriptContains(t, script, "plist_app_name=\"$(xml_escape \"$app_name\")\"")
+	assertScriptContains(t, script, "macos_min_version=\"${SUPER_DOLPHIN_MACOS_MIN_VERSION:-13.0}\"")
 	assertScriptContains(t, script, "sign_macho_tree \"$codesign_identity\" \"$macos\" \"$resources/bin\" \"$resources/lib\"")
 	assertScriptContains(t, verify, "$resources/bin/super-dolphin-updater")
 	assertScriptContains(t, verify, "$resources/bin/ffmpeg")
