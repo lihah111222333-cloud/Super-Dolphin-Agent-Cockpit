@@ -187,6 +187,15 @@ func assertScriptOrder(t *testing.T, script, first, second string) {
 	}
 }
 
+func assertScriptOrderAfter(t *testing.T, script, anchor, first, second string) {
+	t.Helper()
+	anchorIndex := strings.Index(script, anchor)
+	if anchorIndex < 0 {
+		t.Fatalf("script missing %q", anchor)
+	}
+	assertScriptOrder(t, script[anchorIndex:], first, second)
+}
+
 type testLSPServerFixture struct {
 	id      string
 	path    string

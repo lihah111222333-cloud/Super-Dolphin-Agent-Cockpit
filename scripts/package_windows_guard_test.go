@@ -27,6 +27,31 @@ func TestPackageWindowsScriptBuildsNativeWindowsPackage(t *testing.T) {
 	assertScriptOrder(t, script, "Build-CurrentFrontendApp", "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags '-H=windowsgui'")
 }
 
+func TestPackageWindowsScriptUsesIncrementalBuildPhaseCache(t *testing.T) {
+	script := readScript(t, "package_windows.ps1")
+
+	assertScriptContains(t, script, "SUPER_DOLPHIN_SKIP_BUILD_CACHE")
+	assertScriptContains(t, script, "$BuildCacheDir = Join-Path $Root '.build-cache/phases'")
+	assertScriptContains(t, script, "function Get-BuildPhaseHash")
+	assertScriptContains(t, script, "function Test-BuildPhaseCache")
+	assertScriptContains(t, script, "function Save-BuildPhaseCache")
+	assertScriptContains(t, script, "cache hit")
+
+	assertScriptContains(t, script, "Test-BuildPhaseCache -Name 'frontend' -Paths @((Join-Path $Root 'frontend-app/src'), (Join-Path $Root 'frontend-app/package-lock.json'))")
+	assertScriptContains(t, script, "Save-BuildPhaseCache")
+	assertScriptOrder(t, script, "Test-BuildPhaseCache -Name 'frontend'", "& npm ci")
+	assertScriptOrderAfter(t, script, "Test-BuildPhaseCache -Name 'frontend'", "& npm run build", "Save-BuildPhaseCache")
+
+	assertScriptContains(t, script, "Test-BuildPhaseCache -Name 'go-binaries'")
+	assertScriptContains(t, script, "(Join-Path $Root 'cmd'), (Join-Path $Root 'internal'), (Join-Path $Root 'pkg'), (Join-Path $Root 'go.sum')")
+	assertScriptContains(t, script, "@('GOOS=windows', \"GOARCH=$WindowsPackageArch\"")
+	assertScriptOrder(t, script, "Test-BuildPhaseCache -Name 'go-binaries'", "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-orch.exe') -Package './cmd/mcp-orch'")
+	assertScriptOrderAfter(t, script, "Test-BuildPhaseCache -Name 'go-binaries'", "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-ida.exe') -Package './cmd/mcp-ida'", "Save-BuildPhaseCache")
+
+	assertScriptOrder(t, script, "Assert-WindowsNativeArchitecture -Path (Join-Path $Root 'bin/agent-terminal.exe')", "Copy-PackagedLSPBundle -BundleRoot $Stage")
+	assertScriptOrder(t, script, "Copy-PackagedLSPBundle -BundleRoot $Stage", "Copy-PostgresRuntime -Source $pgSrc -Destination (Join-Path $Stage \"postgres/$Platform\")")
+}
+
 func TestPackageWindowsBuildsDesktopExeWithoutConsoleWindow(t *testing.T) {
 	script := readScript(t, "package_windows.ps1")
 

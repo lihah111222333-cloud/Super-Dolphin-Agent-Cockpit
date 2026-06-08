@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/internal/hiddenexec"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -102,7 +103,7 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 	)
 
 	// 2. Perform installation
-	cmd := exec.CommandContext(ctx, cfg.InstallCmd, cfg.InstallArgs...)
+	cmd := hiddenexec.CommandContext(ctx, cfg.InstallCmd, cfg.InstallArgs...)
 
 	start := time.Now()
 	out, err := cmd.CombinedOutput()
@@ -152,7 +153,7 @@ func validateRequiredBinaries(ctx context.Context, cfg InstallerConfig) error {
 		if len(required.CheckArgs) == 0 {
 			continue
 		}
-		cmd := exec.CommandContext(ctx, path, required.CheckArgs...)
+		cmd := hiddenexec.CommandContext(ctx, path, required.CheckArgs...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("required LSP companion binary %s failed health check (%s %v): %w\nOutput: %s",
 				name, path, required.CheckArgs, err, string(out))
@@ -185,7 +186,7 @@ func postInstallBinaryPath(ctx context.Context, cfg InstallerConfig) (string, bo
 }
 
 func goInstallBinDir(ctx context.Context, goCmd string) string {
-	out, err := exec.CommandContext(ctx, goCmd, "env", "GOBIN", "GOPATH").Output()
+	out, err := hiddenexec.CommandContext(ctx, goCmd, "env", "GOBIN", "GOPATH").Output()
 	if err != nil {
 		return ""
 	}
