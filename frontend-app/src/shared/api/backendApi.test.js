@@ -589,6 +589,66 @@ function expectSkillEditorCalls(callAPI) {
     expect(() => api.listDashboardLogs({ limit: 0 })).toThrow('limit must be a positive integer');
   });
 
+  it('wraps config, project, preference, and dashboard page RPCs with stable payloads', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    await api.readConfig();
+    await api.getWindowBootstrap();
+    await api.getSidebarState({ cwd: '/repo/app' });
+    await api.getThreadState({ cwd: '/repo/app', threadId: 'thread-1' });
+    await api.getProjects({ cwd: '/repo/app' });
+    await api.setActiveProject({ cwd: '/repo/app', path: '/repo/next' });
+    await api.addProject({ cwd: '/repo/app', path: '/repo/new' });
+    await api.removeProject({ cwd: '/repo/app', path: '/repo/old' });
+    await api.getPreference({ key: 'settings.provider.active' });
+    await api.getAllPreferences({});
+    await api.setPreference({ key: 'settings.provider.active', value: 'codex' });
+    await api.getDashboardPage({ cwd: '/repo/app', page: 'settings' });
+
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CONFIG_READ, {});
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_WINDOW_BOOTSTRAP_GET, {});
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_SIDEBAR_GET, { cwd: '/repo/app' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_STATE_GET, { cwd: '/repo/app', threadId: 'thread-1' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_PROJECTS_GET, { cwd: '/repo/app' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_PROJECTS_SET_ACTIVE, { cwd: '/repo/app', path: '/repo/next' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_PROJECTS_ADD, { cwd: '/repo/app', path: '/repo/new' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_PROJECTS_REMOVE, { cwd: '/repo/app', path: '/repo/old' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_PREFERENCES_GET, { key: 'settings.provider.active' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_PREFERENCES_GET_ALL, {});
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_PREFERENCES_SET, { key: 'settings.provider.active', value: 'codex' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_DASHBOARD_GET, { cwd: '/repo/app', page: 'settings' });
+
+    expect(() => api.getSidebarState({ cwd: '' })).toThrow('cwd is required');
+    expect(() => api.getThreadState({ cwd: '/repo/app', threadId: '' })).toThrow('threadId is required');
+    expect(() => api.setActiveProject({ cwd: '/repo/app', path: '' })).toThrow('path is required');
+    expect(() => api.setPreference({ key: '', value: 'codex' })).toThrow('key is required');
+    expect(() => api.setPreference({ key: 'settings.provider.active' })).toThrow('value is required');
+    expect(() => api.getDashboardPage({ cwd: '/repo/app', page: '' })).toThrow('page is required');
+  });
+
+  it('wraps prompt-section and thread read RPCs with stable payloads', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    await api.listPromptSections({ cwd: '/repo/app', prompt_id: 'prompt-1' });
+    await api.writePromptSection({ cwd: '/repo/app', prompt_id: 'prompt-1', section: 'body' });
+    await api.deletePromptSection({ cwd: '/repo/app', prompt_id: 'prompt-1', section: 'body' });
+    await api.getThreadMessages({ threadId: 'thread-1' });
+    await api.resolveThreadIdentity({ thread_id: 'thread-2' });
+
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_SECTIONS_LIST, { cwd: '/repo/app', prompt_id: 'prompt-1' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_SECTIONS_WRITE, { cwd: '/repo/app', prompt_id: 'prompt-1', section: 'body' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_SECTIONS_DELETE, { cwd: '/repo/app', prompt_id: 'prompt-1', section: 'body' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_MESSAGES, { threadId: 'thread-1' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_RESOLVE, { thread_id: 'thread-2', threadId: 'thread-2' });
+
+    expect(() => api.listPromptSections({ cwd: '', prompt_id: 'prompt-1' })).toThrow('cwd is required');
+    expect(() => api.writePromptSection({ cwd: '/repo/app', prompt_id: '' })).toThrow('prompt_id is required');
+    expect(() => api.getThreadMessages({ threadId: '' })).toThrow('threadId is required');
+    expect(() => api.resolveThreadIdentity({})).toThrow('threadId is required');
+  });
+
   it('wraps video API key RPCs with named facade methods', async () => {
     const callAPI = vi.fn().mockResolvedValue({ configured: true, masked: 'sk***ed' });
     const api = createBackendApi({ callAPI });
