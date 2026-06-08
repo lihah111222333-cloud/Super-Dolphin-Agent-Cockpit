@@ -29,18 +29,13 @@ func Start(ctx context.Context, cfg contract.EmbeddedPostgresConfig) error {
 	if err != nil || !enabled {
 		return err
 	}
-	if err := ensureStartedDataDir(ctx, cfg, binaries); err != nil {
+	return startPreparedRuntime(ctx, cfg, binaries)
+}
+
+func startPreparedRuntime(ctx context.Context, cfg contract.EmbeddedPostgresConfig, binaries postgresBinaries) error {
+	alreadyOwned, err := ensureStartableDataDir(ctx, cfg, binaries)
+	if err != nil || alreadyOwned {
 		return err
-	}
-	running, err := postgresRunning(ctx, cfg, binaries.pgCtl)
-	if err != nil {
-		return err
-	}
-	if running {
-		if ownsPostgresDataDir(cfg.DataDir) {
-			return nil
-		}
-		return fmt.Errorf("embedded postgres already running for data dir %q; refusing to reuse a server this process did not start", cfg.DataDir)
 	}
 	if err := writePostgresRuntimeConfig(cfg); err != nil {
 		return err
@@ -52,6 +47,44 @@ func Start(ctx context.Context, cfg contract.EmbeddedPostgresConfig) error {
 		return err
 	}
 	markPostgresDataDirOwned(cfg.DataDir)
+	return nil
+}
+
+func ensureStartableDataDir(ctx context.Context, cfg contract.EmbeddedPostgresConfig, binaries postgresBinaries) (bool, error) {
+	if err := ensureStartedDataDir(ctx, cfg, binaries); err != nil {
+		return false, err
+	}
+	running, err := postgresRunning(ctx, cfg, binaries.pgCtl)
+	if err != nil {
+		return false, err
+	}
+	if !running {
+		return false, nil
+	}
+	if ownsPostgresDataDir(cfg.DataDir) {
+		return true, nil
+	}
+	if !cfg.RecoverRunningDataDir {
+		return false, fmt.Errorf("embedded postgres already running for data dir %q; refusing to reuse a server this process did not start", cfg.DataDir)
+	}
+	if err := recoverRunningDataDir(ctx, cfg, binaries.pgCtl); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+func recoverRunningDataDir(ctx context.Context, cfg contract.EmbeddedPostgresConfig, pgCtl string) error {
+	if err := runCommand(ctx, pgCtl, "-D", cfg.DataDir, "-w", "-t", pgCtlTimeoutSeconds, "stop", "-m", "fast"); err != nil {
+		return fmt.Errorf("recover embedded postgres running data dir %q: %w", cfg.DataDir, err)
+	}
+	forgetPostgresDataDirOwned(cfg.DataDir)
+	running, err := postgresRunning(ctx, cfg, pgCtl)
+	if err != nil {
+		return err
+	}
+	if running {
+		return fmt.Errorf("embedded postgres still running for data dir %q after recovery stop", cfg.DataDir)
+	}
 	return nil
 }
 
