@@ -81,6 +81,14 @@ func TestPrepareLSPBundleScriptsIncludeShellcheckInManifestAndChecksums(t *testi
 	}
 }
 
+func TestPrepareLSPBundleWindowsWritesManifestLanguagesAsArrays(t *testing.T) {
+	script := readScript(t, "prepare_lsp_bundle_windows.ps1")
+
+	assertScriptContains(t, script, "[string[]](ConvertFrom-Json -InputObject $parts[2])")
+	assertScriptContains(t, script, "LSP manifest languages for $serverId must be a non-empty JSON array")
+	assertScriptDoesNotContain(t, script, "$languages = $parts[2] | ConvertFrom-Json")
+}
+
 func TestPrepareLSPBundleMacOSStandardProfileExcludesJDTLSManifestEntry(t *testing.T) {
 	script := readScript(t, "prepare_lsp_bundle_macos.sh")
 	standardStart := strings.Index(script, "lsp_specs=(")
@@ -201,4 +209,49 @@ func TestPrepareLSPBundleJDTLSWrapperDoesNotExecHomebrewPythonScript(t *testing.
 			assertScriptDoesNotContain(t, script, "exec \"$here/../jdtls/bin/jdtls\"")
 		})
 	}
+}
+
+func TestPrepareLSPBundleWindowsScriptContracts(t *testing.T) {
+	script := readScript(t, "prepare_lsp_bundle_windows.ps1")
+
+	assertScriptContains(t, script, "prepare_lsp_bundle_windows.ps1 must run on Windows")
+	assertScriptContains(t, script, "Resolve-RepoRoot")
+	assertScriptContains(t, script, "keep prepare_lsp_bundle_windows.ps1 under <repo>\\scripts")
+	assertScriptContains(t, script, "$GoOS -ne 'windows'")
+	assertScriptContains(t, script, "node.exe")
+	assertScriptContains(t, script, "npm install --prefix $LspDir")
+	assertScriptContains(t, script, "typescript-language-server")
+	assertScriptContains(t, script, "vscode-langservers-extracted")
+	assertScriptContains(t, script, "pyright")
+	assertScriptContains(t, script, "bash-language-server")
+	assertScriptContains(t, script, "shellcheck")
+	assertScriptContains(t, script, "@ast-grep/cli")
+	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'typescript-language-server.cmd'")
+	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'vscode-css-language-server.cmd'")
+	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'pyright-langserver.cmd'")
+	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'bash-language-server.cmd'")
+	assertScriptContains(t, script, "node_modules/shellcheck/bin/shellcheck.js")
+	assertScriptContains(t, script, "shellcheck npm launcher failed to prepare bundled executable")
+	assertScriptOrder(t, script, "shellcheck.js", "node_modules/shellcheck/bin/shellcheck.exe")
+	assertScriptContains(t, script, "SUPER_DOLPHIN_MSVC_RUNTIME_DIR")
+	assertScriptContains(t, script, "node_modules/@ast-grep/cli/ast-grep.exe")
+	assertScriptContains(t, script, "bin/ast-grep.exe")
+	assertScriptContains(t, script, "vcruntime140.dll")
+	assertScriptContains(t, script, "bundled ast-grep smoke failed")
+	assertScriptOrder(t, script, "node_modules/@ast-grep/cli/sg.exe", "node_modules/@ast-grep/cli/ast-grep.exe")
+	assertScriptOrder(t, script, "Copy-Item -LiteralPath $astGrep", "Copy-Item -LiteralPath $vcruntime140")
+	assertScriptContains(t, script, "Write-GoToolchainWrapper")
+	assertScriptContains(t, script, "go|bin/go.cmd|[\"go-toolchain\"]")
+	assertScriptContains(t, script, "gopls|bin/gopls.exe|[\"go\",\"gomod\",\"gosum\",\"gowork\"]")
+	assertScriptContains(t, script, "sg|bin/sg.exe|[\"ast-grep\"]")
+	assertScriptContains(t, script, "'bin/ast-grep.exe'")
+	assertScriptContains(t, script, "'bin/vcruntime140.dll'")
+	assertScriptContains(t, script, "'amd64' { 'win32-x64' }")
+	assertScriptContains(t, script, "'arm64' { 'win32-arm64' }")
+	assertScriptContains(t, script, "python.cmd")
+	assertScriptContains(t, script, "python3.cmd")
+	assertScriptContains(t, script, "lsp-manifest.json")
+	assertScriptContains(t, script, "lsp-checksums.sha256")
+	assertScriptOrder(t, script, "npm install --prefix $LspDir", "Write-NodeCmdWrapper -Name 'typescript-language-server.cmd'")
+	assertScriptOrder(t, script, "Write-GoToolchainWrapper", "Write-LSPManifestAndChecksums")
 }

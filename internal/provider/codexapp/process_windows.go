@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -31,18 +32,14 @@ const (
 	sigForceKill
 )
 
-// setCodexProcessAttrs is intentionally a no-op on Windows — Unix process
-// groups do not exist. Phase 2 will attach the child to a Job Object so the
-// supervisor can terminate the whole subtree when the parent exits.
 func setCodexProcessAttrs(cmd *exec.Cmd) {
-	if cmd == nil {
-		return
+	if cmd != nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000200, HideWindow: true}
 	}
 }
 
 // wrapWithFDLimit is a no-op wrapper on Windows. There is no `ulimit`
-// equivalent, and the default handle limit on Windows (16384+) is already
-// adequate for our batch-agent workload. Just exec the command directly.
+// equivalent; the default Windows handle limit is already adequate.
 // Before exec we unwrap any npm shim so the child is spawned as a real .exe
 // (bypassing cmd.exe arg reparse — see resolveCodexBinary).
 func wrapWithFDLimit(argv []string) *exec.Cmd {

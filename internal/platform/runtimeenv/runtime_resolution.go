@@ -154,7 +154,7 @@ func ownerPackageResources(input RuntimeResolveInput, env map[string]string, goo
 	if root := strings.TrimSpace(env[packageRootEnv]); root != "" {
 		return root, true
 	}
-	resources := packagedResourcesDir(input.ExecutablePath)
+	resources := packagedResourcesDirForOS(goos, input.ExecutablePath)
 	if goos == "darwin" || resources != "" {
 		return resources, resources != ""
 	}
@@ -187,7 +187,7 @@ func resolvePackagedOwner(resources, userHome, goos, goarch string) (ResolvedRun
 	if err != nil {
 		return ResolvedRuntime{}, err
 	}
-	runtime := packagedRuntimeFromResources(resources, userHome)
+	runtime := packagedRuntimeFromResourcesForOS(goos, resources, userHome)
 	return ResolvedRuntime{
 		ProcessRole:      ProcessRoleOwner,
 		RuntimeMode:      RuntimeModePackaged,
@@ -230,8 +230,8 @@ func verifyRuntimeManifest(resources, goos, goarch string) (string, error) {
 		want  string
 		kind  string
 	}{
-		{"bundled_codex_path", manifest.BundledCodexPath, "bin/codex", "exec"},
-		{"bundled_gopls_path", manifest.BundledGoplsPath, "bin/gopls", "exec"},
+		{"bundled_codex_path", manifest.BundledCodexPath, filepath.Join("bin", executableNameForOS(goos, "codex")), "exec"},
+		{"bundled_gopls_path", manifest.BundledGoplsPath, filepath.Join("bin", executableNameForOS(goos, "gopls")), "exec"},
 		{"lsp_bundle_path", manifest.LSPBundlePath, lspBundleName, "dir"},
 		{"lsp_manifest_path", manifest.LSPManifestPath, filepath.Join(lspBundleName, lspManifestName), "file"},
 		{"model_registry_path", manifest.ModelRegistryPath, modelRegistryBundle, "file"},
@@ -301,7 +301,7 @@ func requireManifestPathKind(path, kind string) error {
 	}
 	switch kind {
 	case "exec":
-		if info.IsDir() || info.Mode()&0o111 == 0 {
+		if err := requireExecutableFile(path); err != nil {
 			return fmt.Errorf("points to non-executable path: %s", path)
 		}
 	case "file":
