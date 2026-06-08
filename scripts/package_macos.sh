@@ -20,10 +20,15 @@ codex_relay_base_url_env="SUPER_DOLPHIN_CODEX_RELAY_BASE_URL"
 codex_relay_bootstrap_token_env="SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN"
 codex_relay_bootstrap_proof_env="SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_PROOF"
 codex_relay_privileged_api_key_env="SUPER_DOLPHIN_CODEX_RELAY_API_KEY"
+video_api_key_env="SILICONFLOW_API_KEY"
+package_video_api_key_opt_in_env="SUPER_DOLPHIN_PACKAGE_INCLUDE_VIDEO_API_KEY"
+macos_min_version_env="SUPER_DOLPHIN_MACOS_MIN_VERSION"
 packaged_relay_base_url=""
 packaged_relay_api_key=""
 packaged_relay_bootstrap_token=""
 packaged_relay_bootstrap_proof=""
+packaged_video_api_key=""
+macos_min_version=""
 update_manifest_url=""
 update_public_key=""
 update_channel=""
@@ -213,6 +218,31 @@ resolve_packaged_relay_env() {
   validate_release_relay_url
 }
 
+resolve_packaged_video_env() {
+  local opt_in="${SUPER_DOLPHIN_PACKAGE_INCLUDE_VIDEO_API_KEY:-0}"
+  case "$opt_in" in
+    1|true|yes|on)
+      packaged_video_api_key="${SILICONFLOW_API_KEY:-}"
+      validate_env_file_value "$video_api_key_env" "$packaged_video_api_key"
+      ;;
+    ""|0|false|no|off)
+      packaged_video_api_key=""
+      ;;
+    *)
+      echo "$package_video_api_key_opt_in_env must be 1, true, yes, on, 0, false, no, or off" >&2
+      exit 1
+      ;;
+  esac
+}
+
+resolve_macos_min_version() {
+  macos_min_version="${SUPER_DOLPHIN_MACOS_MIN_VERSION:-11.0}"
+  if [[ ! "$macos_min_version" =~ ^[0-9]+([.][0-9]+){1,2}$ ]]; then
+    echo "$macos_min_version_env must be a dotted numeric version such as 13.0" >&2
+    exit 1
+  fi
+}
+
 validate_release_relay_url() {
   if ! updates_enabled_for_profile; then
     return
@@ -240,6 +270,16 @@ write_packaged_relay_env() {
     printf '%s=%s
 ' "$codex_relay_bootstrap_proof_env" "$packaged_relay_bootstrap_proof"
   } > "$env_path"
+  chmod 600 "$env_path"
+}
+
+write_packaged_video_env() {
+  local resources="$1"
+  if [[ -z "$packaged_video_api_key" ]]; then
+    return
+  fi
+  local env_path="$resources/.env"
+  printf '%s=%s\n' "$video_api_key_env" "$packaged_video_api_key" >> "$env_path"
   chmod 600 "$env_path"
 }
 
@@ -717,12 +757,48 @@ resolve_packaged_lsp_bundle() {
   echo "LSP bundle checksums verified: $packaged_lsp_bundle_dir" >&2
 }
 
+lsp_node_prebuild_arch() {
+  case "$goarch" in
+    amd64)
+      printf '%s\n' "x64"
+      ;;
+    arm64)
+      printf '%s\n' "arm64"
+      ;;
+    *)
+      printf '%s\n' "$goarch"
+      ;;
+  esac
+}
+
+prune_packaged_lsp_non_macos_prebuilds() {
+  local dest_root="$1"
+  local node_modules="$dest_root/node_modules"
+  [[ -d "$node_modules" ]] || return
+
+  local prebuild_arch prebuilds_dir platform_dir platform_name
+  prebuild_arch="$(lsp_node_prebuild_arch)"
+  while IFS= read -r -d '' prebuilds_dir; do
+    while IFS= read -r -d '' platform_dir; do
+      platform_name="$(basename "$platform_dir")"
+      case "$platform_name" in
+        "darwin-$prebuild_arch"|darwin-"$prebuild_arch"-*|darwin-"$prebuild_arch"+*)
+          ;;
+        *)
+          rm -rf "$platform_dir"
+          ;;
+      esac
+    done < <(find "$prebuilds_dir" -mindepth 1 -maxdepth 1 -type d -print0)
+  done < <(find "$dest_root/node_modules" -type d -name prebuilds -print0)
+}
+
 copy_packaged_lsp_bundle() {
   local resources="$1"
   local dest_root="$resources/lsp"
   rm -rf "$dest_root"
   mkdir -p "$dest_root" "$resources/bin"
   rsync -aL --delete "$packaged_lsp_bundle_dir"/ "$dest_root"/
+  prune_packaged_lsp_non_macos_prebuilds "$dest_root"
   local spec server_id rel_path bin_name link_path
   for spec in "${lsp_server_specs[@]}"; do
     IFS='|' read -r server_id rel_path <<< "$spec"
@@ -1104,6 +1180,46 @@ resolve_git_bin() {
   fi
 }
 
+write_git_core_hardlink_manifest() {
+  local git_exec_path="$1"
+  local resources="$2"
+  local dest_root="$resources/libexec/git-core"
+  local manifest="$resources/.git-core-hardlinks.tsv"
+  : > "$manifest"
+  while IFS= read -r -d '' src; do
+    local rel inode
+    rel="${src#"$git_exec_path"/}"
+    [[ -f "$dest_root/$rel" ]] || continue
+    inode="$(stat -f '%i' "$src")"
+    printf '%s\t%s\n' "$inode" "$rel"
+  done < <(find "$git_exec_path" -type f -links +1 -print0) | sort -k1,1 -k2,2 > "$manifest"
+}
+
+restore_git_core_hardlinks() {
+  local resources="$1"
+  local manifest="$resources/.git-core-hardlinks.tsv"
+  local dest_root="$resources/libexec/git-core"
+  [[ -s "$manifest" ]] || return
+
+  local current_group="" canonical="" group rel path
+  while IFS=$'\t' read -r group rel; do
+    path="$dest_root/$rel"
+    [[ -f "$path" ]] || continue
+    if [[ "$group" != "$current_group" ]]; then
+      current_group="$group"
+      canonical=""
+    fi
+    if [[ -z "$canonical" ]]; then
+      canonical="$path"
+      continue
+    fi
+    [[ "$path" == "$canonical" ]] && continue
+    rm -f "$path"
+    ln "$canonical" "$path"
+  done < "$manifest"
+  rm -f "$manifest"
+}
+
 copy_packaged_git() {
   local resources="$1"
   local git_bin
@@ -1129,9 +1245,10 @@ copy_packaged_git() {
   mkdir -p "$resources/bin" "$resources/libexec" "$resources/share"
   cp -f "$git_bin" "$resources/bin/git"
   chmod 755 "$resources/bin/git"
-  rsync -a --delete "$git_exec_path"/ "$resources/libexec/git-core"/
-  rsync -a --delete "$git_share"/ "$resources/share/git-core"/
+  rsync -aH --delete "$git_exec_path"/ "$resources/libexec/git-core"/
+  rsync -aH --delete "$git_share"/ "$resources/share/git-core"/
   rm -f "$resources/libexec/git-core/git-p4"
+  write_git_core_hardlink_manifest "$git_exec_path" "$resources"
 
   while IFS= read -r -d '' link; do
     local target helper
@@ -1420,6 +1537,8 @@ verify_postgres_relocatable_layout "$pg_src"
 resolve_release_profile
 resolve_update_config
 resolve_packaged_relay_env
+resolve_packaged_video_env
+resolve_macos_min_version
 resolve_packaged_codex_artifact
 resolve_packaged_lsp_bundle
 resolve_packaged_ffmpeg
@@ -1468,6 +1587,7 @@ cp "$root/bin/mcp-ida" "$resources/bin/mcp-ida"
 cp -R "$root/migrations" "$resources/migrations"
 copy_model_registry "$resources"
 write_packaged_relay_env "$resources"
+write_packaged_video_env "$resources"
 write_packaged_update_env "$resources"
 copy_packaged_git "$resources"
 copy_packaged_lsp_bundle "$resources"
@@ -1497,6 +1617,7 @@ phase_start "write plist"
 plist_bundle_id="$(xml_escape "$bundle_id")"
 plist_app_name="$(xml_escape "$app_name")"
 plist_version="$(xml_escape "$version")"
+plist_macos_min_version="$(xml_escape "$macos_min_version")"
 
 cat > "$contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -1518,7 +1639,7 @@ cat > "$contents/Info.plist" <<PLIST
   <key>CFBundleVersion</key>
   <string>$plist_version</string>
   <key>LSMinimumSystemVersion</key>
-  <string>11.0</string>
+  <string>$plist_macos_min_version</string>
 </dict>
 </plist>
 PLIST
@@ -1526,6 +1647,7 @@ phase_end
 
 phase_start "codesign macho tree"
 sign_macho_tree "$codesign_identity" "$macos" "$resources/bin" "$resources/lib" "$resources/libexec" "$resources/postgres/$platform" "$resources/lsp"
+restore_git_core_hardlinks "$resources"
 phase_end
 
 phase_start "runtime smoke checks"
