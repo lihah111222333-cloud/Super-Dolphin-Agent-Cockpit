@@ -288,11 +288,93 @@ resolve_packaged_video_env() {
 }
 
 resolve_macos_min_version() {
-  macos_min_version="${SUPER_DOLPHIN_MACOS_MIN_VERSION:-11.0}"
+  macos_min_version="${SUPER_DOLPHIN_MACOS_MIN_VERSION:-13.0}"
   if [[ ! "$macos_min_version" =~ ^[0-9]+([.][0-9]+){1,2}$ ]]; then
     echo "$macos_min_version_env must be a dotted numeric version such as 13.0" >&2
     exit 1
   fi
+}
+
+version_gt() {
+  local left="$1"
+  local right="$2"
+  local left_parts=()
+  local right_parts=()
+  local i left_num right_num
+  IFS=. read -r -a left_parts <<< "$left"
+  IFS=. read -r -a right_parts <<< "$right"
+  for i in 0 1 2; do
+    left_num=$((10#${left_parts[$i]:-0}))
+    right_num=$((10#${right_parts[$i]:-0}))
+    if ((left_num > right_num)); then
+      return 0
+    fi
+    if ((left_num < right_num)); then
+      return 1
+    fi
+  done
+  return 1
+}
+
+macho_minos_versions() {
+  local file="$1"
+  otool -l "$file" 2>/dev/null | awk '
+    /LC_BUILD_VERSION/ { in_build = 1; next }
+    in_build && $1 == "minos" { print $2; in_build = 0; next }
+    in_build && $1 == "ntools" { in_build = 0; next }
+    /LC_VERSION_MIN_MACOSX/ { in_version_min = 1; next }
+    in_version_min && $1 == "version" { print $2; in_version_min = 0; next }
+    in_version_min && $1 == "sdk" { in_version_min = 0; next }
+  '
+}
+
+verify_macho_macos_compatibility() {
+  local label="$1"
+  local max_version="$2"
+  shift 2
+  local failed=0 file minos_values found minos
+  for file in "$@"; do
+    if [[ ! -e "$file" ]]; then
+      echo "missing $label for macOS compatibility check: $file" >&2
+      failed=1
+      continue
+    fi
+    is_macho "$file" || continue
+    if ! minos_values="$(macho_minos_versions "$file")"; then
+      echo "unable to read $label Mach-O minimum macOS version: $file" >&2
+      failed=1
+      continue
+    fi
+    found=0
+    while IFS= read -r minos; do
+      [[ -n "$minos" ]] || continue
+      found=1
+      if version_gt "$minos" "$max_version"; then
+        echo "$label requires macOS $minos but target is $max_version: $file" >&2
+        failed=1
+      fi
+    done <<< "$minos_values"
+    if [[ "$found" != "1" ]]; then
+      echo "unable to find $label Mach-O minimum macOS version: $file" >&2
+      failed=1
+    fi
+  done
+  if [[ "$failed" != "0" ]]; then
+    exit 1
+  fi
+}
+
+verify_startup_macos_compatibility() {
+  local max_version="$1"
+  local postgres_root="$2"
+  verify_macho_macos_compatibility "startup binary" "$max_version" \
+    "$macos/agent-terminal" \
+    "$resources/bin/mcp-orch" \
+    "$resources/bin/mcp-lsp" \
+    "$postgres_root/bin/postgres" \
+    "$postgres_root/bin/initdb" \
+    "$postgres_root/bin/pg_ctl" \
+    "$postgres_root/bin/pg_config"
 }
 
 validate_release_relay_url() {
@@ -1633,6 +1715,10 @@ phase_start "go binaries"
 if ! phase_cache_check "go-binaries" "$root/cmd" "$root/internal" "$root/pkg" "$root/go.sum"; then
   (
     cd "$root"
+    export MACOSX_DEPLOYMENT_TARGET="$macos_min_version"
+    export CGO_CFLAGS="${CGO_CFLAGS:+$CGO_CFLAGS }-mmacosx-version-min=$macos_min_version"
+    export CGO_CXXFLAGS="${CGO_CXXFLAGS:+$CGO_CXXFLAGS }-mmacosx-version-min=$macos_min_version"
+    export CGO_LDFLAGS="${CGO_LDFLAGS:+$CGO_LDFLAGS }-mmacosx-version-min=$macos_min_version"
     make build-peer-binaries
     go build -o bin/agent-terminal ./cmd/agent-terminal
     go build -o bin/mcp-ida ./cmd/mcp-ida
@@ -1674,6 +1760,10 @@ phase_end
 phase_start "bundle postgres dylibs"
 bundle_homebrew_dylibs "$resources/postgres/$platform"
 verify_no_broken_symlinks "$app"
+phase_end
+
+phase_start "macos startup compatibility"
+verify_startup_macos_compatibility "$macos_min_version" "$resources/postgres/$platform"
 phase_end
 
 phase_start "write plist"
