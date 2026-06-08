@@ -27,6 +27,7 @@ const (
 
 	envUpdateEnabled       = "SUPER_DOLPHIN_UPDATE_ENABLED"
 	envUpdateManifestURL   = "SUPER_DOLPHIN_UPDATE_MANIFEST_URL"
+	envUpdateGitHubRepo    = "SUPER_DOLPHIN_UPDATE_GITHUB_REPO"
 	envUpdatePublicKey     = "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY"
 	envUpdateChannel       = "SUPER_DOLPHIN_UPDATE_CHANNEL"
 	envUpdateStageDir      = "SUPER_DOLPHIN_UPDATE_STAGE_DIR"
@@ -41,12 +42,14 @@ const (
 
 	selectedUpdateFilename = "selected-update.json"
 	dmgFilename            = "Super-Dolphin-update.dmg"
+	exeFilename            = "Super-Dolphin-update.exe"
 	updaterHelperName      = "super-dolphin-updater"
 )
 
 type Config struct {
 	Enabled        bool
 	ManifestURL    string
+	GitHubRepo     string
 	PublicKey      []byte
 	Channel        string
 	StageDir       string
@@ -75,6 +78,7 @@ type CheckResult struct {
 
 type DownloadResult struct {
 	StagedManifestPath string `json:"stagedManifestPath"`
+	ArtifactPath       string `json:"artifactPath"`
 	DMGPath            string `json:"dmgPath"`
 	Version            string `json:"version"`
 	SHA256             string `json:"sha256"`
@@ -89,6 +93,7 @@ type InstallResult struct {
 type selectedUpdate struct {
 	Payload      ManifestPayload `json:"payload"`
 	Artifact     UpdateArtifact  `json:"artifact"`
+	ArtifactPath string          `json:"artifact_path,omitempty"`
 	DMGPath      string          `json:"dmg_path"`
 	DownloadedAt string          `json:"downloaded_at"`
 }
@@ -107,6 +112,7 @@ func ProvideConfig(_ *platformconfig.Config) (Config, error) {
 	cfg := Config{
 		Enabled:        true,
 		ManifestURL:    strings.TrimSpace(os.Getenv(envUpdateManifestURL)),
+		GitHubRepo:     strings.TrimSpace(os.Getenv(envUpdateGitHubRepo)),
 		Channel:        strings.TrimSpace(os.Getenv(envUpdateChannel)),
 		StageDir:       strings.TrimSpace(os.Getenv(envUpdateStageDir)),
 		HelperPath:     strings.TrimSpace(os.Getenv(envUpdateHelperPath)),
@@ -218,15 +224,21 @@ func (s *service) Download(ctx context.Context) (DownloadResult, error) {
 	if err := os.MkdirAll(s.cfg.StageDir, 0o700); err != nil {
 		return DownloadResult{}, fmt.Errorf("create app update stage dir: %w", err)
 	}
-	dmgPath := filepath.Join(s.cfg.StageDir, dmgFilename)
-	if err := s.downloadArtifact(ctx, artifact, dmgPath); err != nil {
+	artifactPath, err := stagedArtifactPathFor(s.cfg.StageDir, artifact)
+	if err != nil {
+		return DownloadResult{}, err
+	}
+	if err := s.downloadArtifact(ctx, artifact, artifactPath); err != nil {
 		return DownloadResult{}, err
 	}
 	staged := selectedUpdate{
 		Payload:      payload,
 		Artifact:     artifact,
-		DMGPath:      dmgPath,
+		ArtifactPath: artifactPath,
 		DownloadedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	if updatePlatformOS(artifact.Platform) == "darwin" {
+		staged.DMGPath = artifactPath
 	}
 	stagedPath := s.stagedManifestPath()
 	if err := writeSelectedUpdate(stagedPath, staged); err != nil {
@@ -234,7 +246,8 @@ func (s *service) Download(ctx context.Context) (DownloadResult, error) {
 	}
 	return DownloadResult{
 		StagedManifestPath: stagedPath,
-		DMGPath:            dmgPath,
+		ArtifactPath:       artifactPath,
+		DMGPath:            staged.DMGPath,
 		Version:            payload.Version,
 		SHA256:             artifact.SHA256,
 		Size:               artifact.Size,
@@ -253,11 +266,10 @@ func (s *service) Install(ctx context.Context) (InstallResult, error) {
 	if err := validateStagedUpdate(staged); err != nil {
 		return InstallResult{}, err
 	}
-	args := []string{"-dmg", staged.DMGPath, "-target", s.cfg.TargetAppPath, "-restart"}
-	if s.cfg.AllowUnsigned {
-		args = append(args, "-allow-unsigned")
+	cmd, helper, err := s.installCommand(staged)
+	if err != nil {
+		return InstallResult{}, err
 	}
-	cmd := exec.Command(s.cfg.HelperPath, args...)
 	if err := cmd.Start(); err != nil {
 		return InstallResult{}, fmt.Errorf("start app update helper: %w", err)
 	}
@@ -268,7 +280,7 @@ func (s *service) Install(ctx context.Context) (InstallResult, error) {
 		return InstallResult{}, fmt.Errorf("release app update helper: %w", err)
 	}
 	s.requestQuit()
-	return InstallResult{Started: true, Helper: s.cfg.HelperPath}, nil
+	return InstallResult{Started: true, Helper: helper}, nil
 }
 
 func (s *service) InstallLatest(ctx context.Context) (InstallResult, error) {
@@ -281,6 +293,9 @@ func (s *service) InstallLatest(ctx context.Context) (InstallResult, error) {
 func (s *service) fetchManifest(ctx context.Context) (ManifestPayload, UpdateArtifact, error) {
 	if !s.cfg.Enabled {
 		return ManifestPayload{}, UpdateArtifact{}, ErrNoUpdate
+	}
+	if strings.TrimSpace(s.cfg.GitHubRepo) != "" {
+		return s.fetchGitHubLatestManifest(ctx)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.cfg.ManifestURL, nil)
 	if err != nil {
@@ -367,28 +382,85 @@ func (s *service) stagedManifestPath() string {
 	return filepath.Join(s.cfg.StageDir, selectedUpdateFilename)
 }
 
+func (s *service) installCommand(staged selectedUpdate) (*exec.Cmd, string, error) {
+	artifactPath := selectedArtifactPath(staged)
+	switch updatePlatformOS(staged.Artifact.Platform) {
+	case "darwin":
+		args := []string{"-dmg", artifactPath, "-target", s.cfg.TargetAppPath, "-restart"}
+		if s.cfg.AllowUnsigned {
+			args = append(args, "-allow-unsigned")
+		}
+		return exec.Command(s.cfg.HelperPath, args...), s.cfg.HelperPath, nil
+	case "windows":
+		return exec.Command(artifactPath, "/S"), artifactPath, nil
+	default:
+		return nil, "", fmt.Errorf("unsupported app update platform %q", staged.Artifact.Platform)
+	}
+}
+
 func validateConfig(cfg Config) error {
 	if !cfg.Enabled {
 		return nil
 	}
-	manifestURL, err := url.Parse(cfg.ManifestURL)
-	if err != nil {
-		return fmt.Errorf("parse app update manifest URL: %w", err)
-	}
-	if manifestURL.Scheme != "https" || manifestURL.Host == "" {
-		return fmt.Errorf("app update manifest URL must be HTTPS with host: %q", cfg.ManifestURL)
+	if err := validateUpdateSourceConfig(cfg); err != nil {
+		return err
 	}
 	if len(cfg.PublicKey) != ed25519.PublicKeySize {
 		return fmt.Errorf("app update public key length = %d, want %d", len(cfg.PublicKey), ed25519.PublicKeySize)
 	}
-	required := map[string]string{
-		envUpdateChannel:    cfg.Channel,
-		envUpdateStageDir:   cfg.StageDir,
-		envUpdateHelperPath: cfg.HelperPath,
-		envUpdateTargetApp:  cfg.TargetAppPath,
-		envUpdatePlatform:   cfg.Platform,
-		envVersion:          cfg.CurrentVersion,
+	required, err := requiredUpdateConfigValues(cfg)
+	if err != nil {
+		return err
 	}
+	return requireConfigValues(required)
+}
+
+func validateUpdateSourceConfig(cfg Config) error {
+	if cfg.ManifestURL == "" && cfg.GitHubRepo == "" {
+		return fmt.Errorf("%s or %s is required when app update is enabled", envUpdateGitHubRepo, envUpdateManifestURL)
+	}
+	if err := validateLegacyManifestURL(cfg.ManifestURL); err != nil {
+		return err
+	}
+	if cfg.GitHubRepo == "" {
+		return nil
+	}
+	return validateGitHubRepo(cfg.GitHubRepo)
+}
+
+func validateLegacyManifestURL(rawURL string) error {
+	if rawURL == "" {
+		return nil
+	}
+	manifestURL, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("parse app update manifest URL: %w", err)
+	}
+	if manifestURL.Scheme != "https" || manifestURL.Host == "" {
+		return fmt.Errorf("app update manifest URL must be HTTPS with host: %q", rawURL)
+	}
+	return nil
+}
+
+func requiredUpdateConfigValues(cfg Config) (map[string]string, error) {
+	required := map[string]string{
+		envUpdateChannel:  cfg.Channel,
+		envUpdateStageDir: cfg.StageDir,
+		envUpdatePlatform: cfg.Platform,
+		envVersion:        cfg.CurrentVersion,
+	}
+	switch updatePlatformOS(cfg.Platform) {
+	case "darwin":
+		required[envUpdateHelperPath] = cfg.HelperPath
+		required[envUpdateTargetApp] = cfg.TargetAppPath
+	case "windows":
+	default:
+		return nil, fmt.Errorf("unsupported app update platform %q", cfg.Platform)
+	}
+	return required, nil
+}
+
+func requireConfigValues(required map[string]string) error {
 	for name, value := range required {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("%s is required when app update is enabled", name)
@@ -434,18 +506,45 @@ func readSelectedUpdate(path string) (selectedUpdate, error) {
 }
 
 func validateStagedUpdate(staged selectedUpdate) error {
-	if strings.TrimSpace(staged.DMGPath) == "" {
-		return errors.New("selected app update dmg_path is required")
+	artifactPath := selectedArtifactPath(staged)
+	if strings.TrimSpace(artifactPath) == "" {
+		return errors.New("selected app update artifact_path is required")
 	}
-	if info, err := os.Stat(staged.DMGPath); err != nil {
-		return fmt.Errorf("selected app update dmg is not available: %w", err)
+	if info, err := os.Stat(artifactPath); err != nil {
+		return fmt.Errorf("selected app update artifact is not available: %w", err)
 	} else if info.IsDir() {
-		return fmt.Errorf("selected app update dmg must be a file: %s", staged.DMGPath)
+		return fmt.Errorf("selected app update artifact must be a file: %s", artifactPath)
 	}
 	if err := validateArtifact(staged.Artifact); err != nil {
 		return err
 	}
 	return nil
+}
+
+func selectedArtifactPath(staged selectedUpdate) string {
+	if strings.TrimSpace(staged.ArtifactPath) != "" {
+		return staged.ArtifactPath
+	}
+	return staged.DMGPath
+}
+
+func stagedArtifactPathFor(stageDir string, artifact UpdateArtifact) (string, error) {
+	switch updatePlatformOS(artifact.Platform) {
+	case "darwin":
+		return filepath.Join(stageDir, dmgFilename), nil
+	case "windows":
+		return filepath.Join(stageDir, exeFilename), nil
+	default:
+		return "", fmt.Errorf("unsupported app update platform %q", artifact.Platform)
+	}
+}
+
+func updatePlatformOS(platform string) string {
+	osName, _, ok := strings.Cut(strings.TrimSpace(platform), "-")
+	if !ok {
+		return ""
+	}
+	return osName
 }
 
 func envTruthy(raw string) bool {
