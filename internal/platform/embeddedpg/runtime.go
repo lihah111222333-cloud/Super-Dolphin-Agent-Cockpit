@@ -43,7 +43,7 @@ func startPreparedRuntime(ctx context.Context, cfg contract.EmbeddedPostgresConf
 	if err := removeStalePostmasterPID(cfg.DataDir); err != nil {
 		return err
 	}
-	if err := runCommand(ctx, binaries.pgCtl, "-D", cfg.DataDir, "-l", cfg.LogPath, "-w", "-t", pgCtlTimeoutSeconds, "start"); err != nil {
+	if err := runPostgresStartCommand(ctx, binaries.pgCtl, cfg); err != nil {
 		return err
 	}
 	markPostgresDataDirOwned(cfg.DataDir)
@@ -222,6 +222,9 @@ func validatePrivateDir(path, label string) error {
 	if !info.IsDir() {
 		return fmt.Errorf("embedded postgres %s %q is not a directory", label, path)
 	}
+	if runtimeGOOS() == "windows" {
+		return nil
+	}
 	mode := info.Mode().Perm()
 	if mode&0o077 != 0 {
 		return fmt.Errorf("embedded postgres %s %q has permissions %s; require private permissions with group/other bits clear", label, path, formatPermission(mode))
@@ -313,14 +316,21 @@ func initDataDir(ctx context.Context, cfg contract.EmbeddedPostgresConfig, binar
 }
 
 func writePostgresRuntimeConfig(cfg contract.EmbeddedPostgresConfig) error {
-	content := strings.Join([]string{
-		"listen_addresses = ''",
-		"unix_socket_directories = '" + postgresConfigString(cfg.RuntimeDir) + "'",
+	lines := []string{
 		"port = " + strconv.Itoa(cfg.Port),
 		"log_timezone = '" + postgresFixedTZ + "'",
 		"timezone = '" + postgresFixedTZ + "'",
 		"",
-	}, "\n")
+	}
+	if runtimeGOOS() == "windows" {
+		lines = append([]string{"listen_addresses = '127.0.0.1'"}, lines...)
+	} else {
+		lines = append([]string{
+			"listen_addresses = ''",
+			"unix_socket_directories = '" + postgresConfigString(cfg.RuntimeDir) + "'",
+		}, lines...)
+	}
+	content := strings.Join(lines, "\n")
 	if err := os.WriteFile(filepath.Join(cfg.DataDir, "postgresql.auto.conf"), []byte(content), 0o600); err != nil {
 		return fmt.Errorf("write embedded postgres runtime config: %w", err)
 	}
@@ -335,6 +345,7 @@ func postgresConfigString(value string) string {
 func postgresRunning(ctx context.Context, cfg contract.EmbeddedPostgresConfig, pgCtl string) (bool, error) {
 	args := []string{"-D", cfg.DataDir, "status"}
 	cmd := exec.CommandContext(ctx, pgCtl, args...)
+	configurePostgresCommand(cmd)
 	output, err := cmd.CombinedOutput()
 	if err == nil {
 		return true, nil
@@ -394,9 +405,20 @@ func processExists(pid int) bool {
 
 func runCommand(ctx context.Context, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
+	configurePostgresCommand(cmd)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return commandError(name, args, err, output)
+	}
+	return nil
+}
+
+func runPostgresStartCommand(ctx context.Context, pgCtl string, cfg contract.EmbeddedPostgresConfig) error {
+	args := []string{"-D", cfg.DataDir, "-l", cfg.LogPath, "-w", "-t", pgCtlTimeoutSeconds, "start"}
+	cmd := exec.CommandContext(ctx, pgCtl, args...)
+	configurePostgresCommand(cmd)
+	if err := cmd.Run(); err != nil {
+		return commandError(pgCtl, args, err, nil)
 	}
 	return nil
 }

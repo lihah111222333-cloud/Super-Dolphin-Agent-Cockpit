@@ -72,6 +72,31 @@ func TestResolveConfigDefaultsToDarwinApplicationSupport(t *testing.T) {
 	}
 }
 
+func TestResolveConfigWindowsDatabaseURLUsesTCP(t *testing.T) {
+	cfg, databaseURL := ResolveConfig(ResolveInput{
+		GOOS:   "windows",
+		GOARCH: "amd64",
+		Env: map[string]string{
+			"SUPER_DOLPHIN_EMBEDDED_POSTGRES": "true",
+			"SUPER_DOLPHIN_POSTGRES_BIN_DIR":  `C:\SuperDolphin\postgres\windows-amd64\bin`,
+		},
+		UserHome: `C:\Users\tester`,
+	})
+	if !cfg.Enabled {
+		t.Fatal("EmbeddedPostgres.Enabled = false, want true")
+	}
+	parsed, err := url.Parse(databaseURL)
+	if err != nil {
+		t.Fatalf("parse databaseURL: %v", err)
+	}
+	if parsed.Host != "127.0.0.1:55432" {
+		t.Fatalf("databaseURL host = %q, want TCP localhost", parsed.Host)
+	}
+	if got := parsed.Query().Get("host"); got != "" {
+		t.Fatalf("databaseURL unix-socket host query = %q, want empty on windows", got)
+	}
+}
+
 func TestResolveConfigMarksDesktopAsEmbeddedPostgresOwner(t *testing.T) {
 	app := filepath.Join(t.TempDir(), "Super Dolphin.app")
 	resources := filepath.Join(app, "Contents", "Resources")
