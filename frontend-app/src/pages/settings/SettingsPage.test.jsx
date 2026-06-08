@@ -138,6 +138,7 @@ describe('SettingsPage app update entry', () => {
       enabled: true,
       available: true,
       version: 'v1.2.4',
+      artifact: { platform: 'darwin-arm64' },
     });
 
     renderSettingsPage();
@@ -146,7 +147,7 @@ describe('SettingsPage app update entry', () => {
 
     await waitFor(() => {
       expect(backend.checkAppUpdate).toHaveBeenCalledTimes(1);
-      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('发现新版本 v1.2.4');
+      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('发现新版本 v1.2.4 (darwin-arm64)');
     });
 
     fireEvent.click(screen.getByTestId('settings-update-install-button'));
@@ -232,6 +233,20 @@ describe('SettingsPage app update entry', () => {
       expect(screen.getByTestId('settings-update-notice')).toHaveAttribute('role', 'alert');
       expect(screen.queryByTestId('settings-update-install-button')).not.toBeInTheDocument();
     });
+  });
+
+  it('shows backend manifest and signature errors as actionable check failures', async () => {
+    backend.checkAppUpdate.mockRejectedValueOnce(new Error('GitHub release missing update manifest asset Super-Dolphin-darwin-arm64.update.json'));
+
+    renderSettingsPage();
+
+    fireEvent.click(await screen.findByTestId('settings-update-check-button'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('检查更新失败：GitHub release missing update manifest asset Super-Dolphin-darwin-arm64.update.json');
+      expect(screen.getByTestId('settings-update-notice')).toHaveAttribute('role', 'alert');
+    });
+    expect(screen.queryByTestId('settings-update-install-button')).not.toBeInTheDocument();
   });
 
   it('shows install failures and allows retry', async () => {
