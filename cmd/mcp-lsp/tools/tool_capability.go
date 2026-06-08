@@ -13,15 +13,32 @@ func isUnsupportedCapability(err error) bool {
 	return errors.Is(err, lspmanager.ErrUnsupportedCapability)
 }
 
-func unsupportedCapabilityEmptyResult(capability string) emptyListEnvelope {
+func unsupportedCapabilityEmptyResult(capability string, languageIDs ...string) emptyListEnvelope {
 	return emptyListEnvelope{
 		Success: true,
 		Data:    []any{},
 		Meta: resultMeta{
 			Count:   0,
-			Message: fmt.Sprintf("%s unsupported by current language server", capability),
+			Message: unsupportedCapabilityMessage(capability, languageIDs...),
 		},
 	}
+}
+
+func unsupportedCapabilityMessage(capability string, languageIDs ...string) string {
+	if languageID := limitedDocumentFallbackLanguage(languageIDs...); languageID != "" {
+		return fmt.Sprintf("%s is not available for %s. %s support is limited to document_symbol fallback; use lsp_structure action=document_symbol file_path=<%s file> or lsp_grep action=text_search.", capability, languageID, languageID, languageID)
+	}
+	return fmt.Sprintf("%s unsupported by current language server", capability)
+}
+
+func limitedDocumentFallbackLanguage(languageIDs ...string) string {
+	for _, languageID := range languageIDs {
+		switch strings.ToLower(strings.TrimSpace(languageID)) {
+		case "markdown", "json", "yaml":
+			return strings.ToLower(strings.TrimSpace(languageID))
+		}
+	}
+	return ""
 }
 
 func implementationTargetError(err error) error {

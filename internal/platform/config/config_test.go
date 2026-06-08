@@ -135,6 +135,32 @@ func TestResolvePackagedProjectRootUsesMacOSResources(t *testing.T) {
 	}
 }
 
+func TestSharedFileRootUsesProjectRootOutsidePackagedRuntime(t *testing.T) {
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "")
+	projectRoot := filepath.Join(t.TempDir(), "project")
+
+	got, err := SharedFileRoot(&Config{ProjectRoot: projectRoot})
+	if err != nil {
+		t.Fatalf("SharedFileRoot() error = %v", err)
+	}
+	if got != projectRoot {
+		t.Fatalf("SharedFileRoot() = %q, want project root %q", got, projectRoot)
+	}
+}
+
+func TestSharedFileRootFailsFastForPackagedRuntimeWithoutHome(t *testing.T) {
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
+	t.Setenv("SUPER_DOLPHIN_HOME", "")
+
+	_, err := SharedFileRoot(&Config{ProjectRoot: filepath.Join(t.TempDir(), "Super Dolphin.app", "Contents", "Resources")})
+	if err == nil {
+		t.Fatal("SharedFileRoot() error = nil, want missing SUPER_DOLPHIN_HOME failure")
+	}
+	if !strings.Contains(err.Error(), "SUPER_DOLPHIN_HOME") {
+		t.Fatalf("SharedFileRoot() error = %v, want SUPER_DOLPHIN_HOME", err)
+	}
+}
+
 func TestNew_DefaultsPersistentSubagentDefaultOff(t *testing.T) {
 	isolateConfigTestEnv(t)
 	t.Setenv("PERSISTENT_SUBAGENT_DEFAULT", "")

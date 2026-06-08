@@ -24,6 +24,16 @@ func arrayOfStringsProp(desc string) schema {
 	return schema{"type": "array", "description": desc, "items": map[string]any{"type": "string"}}
 }
 
+func stringOrArrayOfStringsProp(desc string) schema {
+	return schema{
+		"description": desc,
+		"oneOf": []any{
+			map[string]any{"type": "string"},
+			map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		},
+	}
+}
+
 func objectSchema(props map[string]schema, required ...string) schema {
 	s := schema{"type": "object", "additionalProperties": false}
 	if len(props) > 0 {
@@ -71,12 +81,14 @@ var lspXrefSchema = objectSchema(map[string]schema{
 var lspGrepSchema = objectSchema(map[string]schema{
 	"action":         enumProp("Action", "text_search", "ast_search"),
 	"query":          stringProp("Search query"),
-	"path":           stringProp("Search root; pass whitespace- or comma-separated paths to search multiple roots"),
+	"path":           stringOrArrayOfStringsProp("Search root; pass whitespace- or comma-separated paths to search multiple roots. Compatibility accepts an array of paths."),
+	"paths":          arrayOfStringsProp("Compatibility alias for path as multiple search roots; prefer path."),
+	"file_paths":     arrayOfStringsProp("Compatibility alias for callers that reuse read_file batch arguments; prefer path."),
 	"glob":           stringProp("Glob filter (text_search only)"),
 	"language":       stringProp("Language for AST"),
 	"regex":          booleanProp("Regex mode (default literal)"),
 	"case_sensitive": booleanProp("Override smart-case (default: sensitive when query has uppercase, insensitive otherwise)"),
-	"max_results":    integerProp("Max matches (default 50, cap 50)"),
+	"max_results":    integerProp("Max matches per file (default 50, cap 50)"),
 	"work_dir":       lspWorkDirProp(),
 }, "action")
 
@@ -84,9 +96,9 @@ var lspGrepOutputSchema = schema{
 	"type": "object",
 	"properties": map[string]any{
 		"data":                map[string]any{"type": "object", "description": "matched files keyed by path; each value has cols and rows"},
-		"total":               map[string]any{"type": "integer"},
-		"showing":             map[string]any{"type": "integer"},
-		"truncated":           map[string]any{"type": "boolean"},
+		"total":               map[string]any{"type": "integer", "description": "total filtered matches before display limits"},
+		"showing":             map[string]any{"type": "integer", "description": "rows currently shown across all files"},
+		"truncated":           map[string]any{"type": "boolean", "description": "true when per-file or payload limits omitted rows"},
 		"dropped_for_payload": map[string]any{"type": "integer"},
 		"regex_fallback":      map[string]any{"type": "boolean"},
 		"message":             map[string]any{"type": "string"},

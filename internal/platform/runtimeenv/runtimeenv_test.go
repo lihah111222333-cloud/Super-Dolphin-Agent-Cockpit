@@ -97,6 +97,30 @@ func TestApplyPackagedEnvPrependsBundledTools(t *testing.T) {
 	assertEnvEquals(t, "GIT_TEMPLATE_DIR", templates)
 }
 
+func TestApplySidecarRuntimeContractPackagedRebuildsBundledToolPath(t *testing.T) {
+	resources := t.TempDir()
+	binDir := filepath.Join(resources, "bin")
+	lspBinDir := filepath.Join(resources, "lsp", "bin")
+	lspNodeBinDir := filepath.Join(resources, "lsp", "node", "bin")
+	lspNodeModulesBinDir := filepath.Join(resources, "lsp", "node_modules", ".bin")
+	makeDirs(t, binDir, lspBinDir, lspNodeBinDir, lspNodeModulesBinDir)
+	t.Setenv("PATH", strings.Join([]string{"/bin", "/opt/homebrew/bin"}, string(os.PathListSeparator)))
+	t.Setenv(peerBinDirEnv, "")
+	t.Setenv(lspBundleDirEnv, "")
+	t.Setenv(lspManifestEnv, "")
+
+	if err := applySidecarRuntimeContract(SidecarRuntimeContract{Mode: "packaged", ResourcesDir: resources}); err != nil {
+		t.Fatalf("applySidecarRuntimeContract() error = %v", err)
+	}
+
+	path := os.Getenv("PATH")
+	assertPathHasPrefix(t, path, lspBinDir, lspNodeBinDir, lspNodeModulesBinDir, binDir)
+	assertPathListExcludes(t, path, "/opt/homebrew/bin")
+	assertEnvEquals(t, peerBinDirEnv, binDir)
+	assertEnvEquals(t, lspBundleDirEnv, filepath.Join(resources, "lsp"))
+	assertEnvEquals(t, lspManifestEnv, filepath.Join(resources, "lsp", "lsp-manifest.json"))
+}
+
 func TestApplyPackagedEnvSetsControlPlaneDefaults(t *testing.T) {
 	resources := t.TempDir()
 	writeBundledSidecars(t, filepath.Join(resources, "bin"))
@@ -260,6 +284,45 @@ func TestApplyPackagedEnvFailsWhenBundledLSPServerMissing(t *testing.T) {
 	}
 }
 
+func TestApplyPackagedEnvAcceptsStandardLSPBundleWithoutJDTLS(t *testing.T) {
+	resources := t.TempDir()
+	binDir := filepath.Join(resources, "bin")
+	writeOnlyBundledSidecars(t, binDir)
+	writeStandardBundledLSPManifest(t, resources)
+	for _, name := range []string{
+		"gopls",
+		"typescript-language-server",
+		"pyright-langserver",
+		"vscode-css-language-server",
+		"rust-analyzer",
+		"bash-language-server",
+	} {
+		writeExecutable(t, filepath.Join(resources, "lsp", "bin"), name)
+	}
+	if _, err := os.Stat(filepath.Join(resources, "lsp", "bin", "jdtls")); !os.IsNotExist(err) {
+		t.Fatalf("standard LSP bundle unexpectedly contains jdtls: %v", err)
+	}
+
+	if err := applyPackagedEnv(resources, "/Users/alice"); err != nil {
+		t.Fatalf("applyPackagedEnv() error = %v", err)
+	}
+	bundle, packaged, err := LoadLSPBundleFromEnv()
+	if err != nil {
+		t.Fatalf("LoadLSPBundleFromEnv() error = %v", err)
+	}
+	if !packaged {
+		t.Fatal("LoadLSPBundleFromEnv() packaged = false, want true")
+	}
+	for _, languageID := range []string{"go", "gomod", "gosum", "gowork", "javascript", "javascriptreact", "typescript", "typescriptreact", "css", "python", "rust", "shellscript"} {
+		if _, ok := bundle.ServerForLanguage(languageID); !ok {
+			t.Fatalf("standard LSP bundle missing language %q; languages=%v", languageID, bundle.SemanticLanguages())
+		}
+	}
+	if _, ok := bundle.ServerForLanguage("java"); ok {
+		t.Fatalf("standard LSP bundle registered java without bundled jdtls; languages=%v", bundle.SemanticLanguages())
+	}
+}
+
 func TestDefaultLSPLanguagesMapsBashLanguageServerToShellscript(t *testing.T) {
 	got := defaultLSPLanguages("bash-language-server")
 	want := []string{"shellscript"}
@@ -299,6 +362,29 @@ func writeBundledLSPManifest(t *testing.T, resources string) {
     "vscode-langservers-extracted": {"path": "lsp/bin/vscode-css-language-server", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
     "rust-analyzer": {"path": "lsp/bin/rust-analyzer", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
     "jdtls": {"path": "lsp/bin/jdtls", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
+  }
+}
+`
+	path := filepath.Join(resources, "lsp", "lsp-manifest.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(manifest), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
+}
+
+func writeStandardBundledLSPManifest(t *testing.T, resources string) {
+	t.Helper()
+	manifest := `{
+  "schema_version": 1,
+  "servers": {
+    "gopls": {"path": "lsp/bin/gopls", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "typescript-language-server": {"path": "lsp/bin/typescript-language-server", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "pyright": {"path": "lsp/bin/pyright-langserver", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "vscode-langservers-extracted": {"path": "lsp/bin/vscode-css-language-server", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "rust-analyzer": {"path": "lsp/bin/rust-analyzer", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "bash-language-server": {"path": "lsp/bin/bash-language-server", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
   }
 }
 `

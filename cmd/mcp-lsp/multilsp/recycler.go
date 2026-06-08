@@ -28,6 +28,8 @@ const (
 	idleCheckInterval = 30 * time.Second
 )
 
+var clientRSSBytesForRecycler = clientRSSBytes
+
 // poolRecycler is the background loop that periodically scans managed
 // LSP server processes and recycles ones whose RSS exceeds the configured
 // limit. Pre-P22 P2 it spun itself up from NewManagerPool via a
@@ -88,8 +90,8 @@ func (r *poolRecycler) check() {
 		return
 	}
 	for _, snapshot := range r.pool.snapshotManagers() {
-		r.checkManager(snapshot.index, snapshot.manager, snapshot.resolvedScope)
 		r.checkIdleWorkspaces(snapshot.manager, snapshot.resolvedScope)
+		r.checkManager(snapshot.index, snapshot.manager, snapshot.resolvedScope)
 	}
 }
 
@@ -107,7 +109,7 @@ func (r *poolRecycler) checkManager(index int, mgr *manager, scope ResolvedLSPTo
 }
 
 func (r *poolRecycler) recycleIfNeeded(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) {
-	rssBytes, pid, err := clientRSSBytes(workspace.client)
+	rssBytes, pid, err := clientRSSBytesForRecycler(workspace.client)
 	if err != nil || pid <= 0 {
 		return
 	}
@@ -116,6 +118,7 @@ func (r *poolRecycler) recycleIfNeeded(mgr *manager, scope ResolvedLSPToolScope,
 		return
 	}
 	activeLeases := r.pool.activeLeases(workspace.client)
+	logRSSWindowExceeded(mgr, scope, workspace, pid, rssBytes, limit, activeLeases)
 	if activeLeases > 0 {
 		if mgr.logger != nil {
 			mgr.logger.Info("LSP recycle skipped: active leases",
@@ -177,10 +180,19 @@ func (r *poolRecycler) checkIdleWorkspaces(mgr *manager, scope ResolvedLSPToolSc
 	}
 	now := time.Now()
 	for _, workspace := range snapshotWorkspaceClients(mgr) {
-		if workspace.lastActivity.IsZero() || now.Sub(workspace.lastActivity) < idleTimeout {
+		if workspace.lastActivity.IsZero() {
 			continue
 		}
-		if r.pool != nil && r.pool.activeLeases(workspace.client) > 0 {
+		idleDuration := now.Sub(workspace.lastActivity)
+		if idleDuration < idleTimeout {
+			continue
+		}
+		activeLeases := 0
+		if r.pool != nil {
+			activeLeases = r.pool.activeLeases(workspace.client)
+		}
+		logIdleWindowExceeded(mgr, scope, workspace, idleDuration, activeLeases)
+		if activeLeases > 0 {
 			continue
 		}
 		r.shutdownIdleWorkspace(mgr, scope, workspace)
@@ -209,6 +221,62 @@ func (r *poolRecycler) shutdownIdleWorkspace(mgr *manager, scope ResolvedLSPTool
 			"reason", "idle_timeout",
 		)
 	}
+}
+
+func logIdleWindowExceeded(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient, idleDuration time.Duration, activeLeases int) {
+	if mgr == nil || mgr.logger == nil {
+		return
+	}
+	action := "shutdown"
+	if activeLeases > 0 {
+		action = "skip_active_leases"
+	}
+	args := recyclerWorkspaceLogArgs(scope, workspace,
+		"idle_duration", idleDuration.String(),
+		"idle_timeout", idleTimeout.String(),
+		"active_leases", activeLeases,
+		"action", action,
+		"reason", "idle_timeout",
+	)
+	args = appendRecyclerRSSProbeArgs(args, workspace.client)
+	mgr.logger.Debug("LSP recycler idle window exceeded", args...)
+}
+
+func logRSSWindowExceeded(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient, pid int, rssBytes, limit uint64, activeLeases int) {
+	if mgr == nil || mgr.logger == nil {
+		return
+	}
+	action := "recycle"
+	if activeLeases > 0 {
+		action = "skip_active_leases"
+	}
+	args := recyclerWorkspaceLogArgs(scope, workspace,
+		"pid", pid,
+		"rss_bytes", rssBytes,
+		"rss_limit_bytes", limit,
+		"active_leases", activeLeases,
+		"action", action,
+		"reason", "rss_limit",
+	)
+	mgr.logger.Debug("LSP recycler RSS threshold exceeded", args...)
+}
+
+func recyclerWorkspaceLogArgs(scope ResolvedLSPToolScope, workspace workspaceClient, extra ...any) []any {
+	args := []any{
+		"manager_key", scope.ManagerKey,
+		"scope_key", scope.ScopeKey,
+		"workspace", workspace.key,
+		"language", normalizeLanguageID(workspace.languageID),
+	}
+	return append(args, extra...)
+}
+
+func appendRecyclerRSSProbeArgs(args []any, client Client) []any {
+	rssBytes, pid, err := clientRSSBytesForRecycler(client)
+	if err != nil {
+		return append(args, "rss_error", err.Error())
+	}
+	return append(args, "pid", pid, "rss_bytes", rssBytes)
 }
 
 func recycleWorkspaceClient(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) (bool, error) {

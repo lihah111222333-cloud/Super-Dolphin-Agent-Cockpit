@@ -1,5 +1,13 @@
 import { expect, it, vi } from 'vitest';
-import { createBackendApi, emitFrontendTraceEvent, RPC_METHODS } from './backendApi.js';
+import {
+  checkAppUpdate,
+  createBackendApi,
+  downloadAppUpdate,
+  emitFrontendTraceEvent,
+  installAppUpdate,
+  installLatestAppUpdate,
+  RPC_METHODS,
+} from './backendApi.js';
 
   it('exposes the dedicated frontend observability ingest RPC method name', () => {
     expect(RPC_METHODS.OBSERVABILITY_FRONTEND_INGEST).toBe('observability/frontend/ingest');
@@ -23,6 +31,25 @@ import { createBackendApi, emitFrontendTraceEvent, RPC_METHODS } from './backend
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.OBSERVABILITY_SLOW_LIST, { component: 'rpc' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.OBSERVABILITY_ERROR_LIST, { limit: 3 });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.OBSERVABILITY_STATUS, {});
+  });
+
+  it('wraps app update RPC methods', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    await api.checkAppUpdate();
+    await api.downloadAppUpdate();
+    await api.installAppUpdate();
+    await api.installLatestAppUpdate();
+
+    expect(callAPI).toHaveBeenNthCalledWith(1, RPC_METHODS.APP_UPDATE_CHECK, {});
+    expect(callAPI).toHaveBeenNthCalledWith(2, RPC_METHODS.APP_UPDATE_DOWNLOAD, {});
+    expect(callAPI).toHaveBeenNthCalledWith(3, RPC_METHODS.APP_UPDATE_INSTALL, {});
+    expect(callAPI).toHaveBeenNthCalledWith(4, RPC_METHODS.APP_UPDATE_INSTALL_LATEST, {});
+    expect(typeof checkAppUpdate).toBe('function');
+    expect(typeof downloadAppUpdate).toBe('function');
+    expect(typeof installAppUpdate).toBe('function');
+    expect(typeof installLatestAppUpdate).toBe('function');
   });
 
   it('starts a pending backend thread with the legacy thread/start payload shape', async () => {
@@ -831,13 +858,15 @@ function expectMemoryCenterValidation(api) {
     expect(() => api.openNewWindow({ cwd: '' })).toThrow('cwd is required');
   });
 
-  it('wraps shared file list, read and delete RPCs with the global payload shapes', async () => {
+  it('wraps shared file list, read, delete and native open helpers with the expected payload shapes', async () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
-    const api = createBackendApi({ callAPI });
+    const openSharedFile = vi.fn().mockResolvedValue({ opened: true });
+    const api = createBackendApi({ callAPI, openSharedFile });
 
     await api.listSharedFiles();
     await api.readSharedFile({ path: 'reports/final.md' });
     await api.deleteSharedFile({ path: 'scratch/work.json' });
+    await api.openSharedFile({ path: 'dag/video/final.mp4' });
 
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DASHBOARD_SHARED_FILES, {});
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_SHARED_FILE_GET, {
@@ -846,6 +875,7 @@ function expectMemoryCenterValidation(api) {
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_SHARED_FILE_DELETE, {
       path: 'scratch/work.json',
     });
+    expect(openSharedFile).toHaveBeenCalledWith({ path: 'dag/video/final.mp4' });
     expect(() => api.listSharedFiles([])).toThrow('params must be an object');
     expect(() => api.readSharedFile({ path: '' })).toThrow('path is required');
     expect(() => api.deleteSharedFile({ path: '' })).toThrow('path is required');

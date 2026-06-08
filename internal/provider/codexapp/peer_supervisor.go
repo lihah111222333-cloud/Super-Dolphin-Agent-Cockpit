@@ -69,36 +69,14 @@ const (
 // cleanup matches them, and Windows discovery accepts their .exe variants.
 var managedPeerNames = []string{"mcp-orch", "mcp-lsp"}
 
-var managedMCPBinaries = managedPeerBinarySet(managedPeerNames)
-
-func managedPeerBinarySet(names []string) map[string]struct{} {
-	set := make(map[string]struct{}, len(names))
-	for _, name := range names {
-		set[name] = struct{}{}
-	}
-	return set
-}
+var managedMCPBinaries = map[string]struct{}{"mcp-orch": {}, "mcp-lsp": {}}
 
 // defaultPeerNames is kept as a function so tests can override via
 // WithPeerNames without mutating the lifecycle-owned peer definition.
 func defaultPeerNames() []string { return append([]string(nil), managedPeerNames...) }
 
-// PeerSupervisor is the single RunnerModule owner for mcp-orch / mcp-lsp peer
-// processes. See docs/plans/迁移/p22/P1a_CodexAppPeerSupervisor.md §目标架构.
-//
-// Run(ctx):
-//  1. bounded best-effort probe of GO_AGENT_CTL_RPC_ADDR (default 127.0.0.1:8090);
-//     a failed probe is warn+skip — startup does not abort.
-//  2. launch each configured peer; track its handle; spawn a per-peer supervise
-//     goroutine that waits on Wait() and re-launches after a cancellable backoff.
-//  3. on ctx.Done(): close stdin pipes (EOF), bounded-wait for supervise
-//     goroutines to finish, then SIGTERM and finally SIGKILL any survivor.
-//  4. after confirmed peer exit, unregister PIDs, remove discovery files, return ctx.Err().
-//
-// Run never surfaces per-peer launch/restart failures as run.Group-fatal — P1a
-// explicitly forbids turning a missing binary or a flapping peer into
-// app-shutdown. The degraded path is logged and the owner stays alive until
-// ctx cancels.
+// Run keeps dev initial launch failures best-effort, but packaged runtime must
+// fail fast when bundled peers cannot start.
 type PeerSupervisor struct {
 	pidRegistry peerPIDTracker
 	logger      *slog.Logger
@@ -174,9 +152,7 @@ func WithPeerCleanupHook(fn func()) PeerSupervisorOption {
 	return func(s *PeerSupervisor) { s.cleanupHook = fn }
 }
 
-// WithPeerPIDTracker replaces the default pid registry (taken from the
-// ServerManager) with a custom tracker. Used exclusively in tests to observe
-// Register/Unregister calls without materialising a real pidregistry file.
+// WithPeerPIDTracker replaces the default pid registry.
 func WithPeerPIDTracker(t peerPIDTracker) PeerSupervisorOption {
 	return func(s *PeerSupervisor) { s.pidRegistry = t }
 }
@@ -185,9 +161,7 @@ func WithPeerWorkspaceRoots(fn func() []string) PeerSupervisorOption {
 	return func(s *PeerSupervisor) { s.workspaceRoots = fn }
 }
 
-// NewPeerSupervisor is the production constructor consumed by fx. It takes
-// *ServerManager for the embedded pidRegistry reference; ServerManager does
-// not participate in peer lifecycle after P1a.
+// NewPeerSupervisor is the production constructor.
 func NewPeerSupervisor(mgr *ServerManager, logger *slog.Logger, opts ...PeerSupervisorOption) *PeerSupervisor {
 	return NewPeerSupervisorWithOptions(mgr, logger, opts...)
 }
@@ -230,17 +204,25 @@ func NewPeerSupervisorWithOptions(mgr *ServerManager, logger *slog.Logger, opts 
 
 var _ platformrunner.Runner = (*PeerSupervisor)(nil)
 
-// Run implements platformrunner.Runner. It blocks until ctx is cancelled and
-// returns any bounded shutdown failure so Fx can surface an unclean peer exit.
+// Run implements platformrunner.Runner.
 func (s *PeerSupervisor) Run(ctx context.Context) error {
 	s.probeControlPlane(ctx)
 
+	superviseCtx, cancelSupervise := context.WithCancel(ctx)
+	defer cancelSupervise()
 	var wg sync.WaitGroup
 	for _, name := range s.peerNames {
-		name := name
 		s.clearPeerDiscovery(name)
-		h, err := s.launcher.Launch(ctx, name)
+		h, err := s.launcher.Launch(superviseCtx, name)
 		if err != nil {
+			if strings.TrimSpace(os.Getenv(sidecarRuntimeModeEnv)) == "packaged" {
+				cancelSupervise()
+				launchErr := fmt.Errorf("packaged peer launch failed: %s: %w", name, err)
+				if sdErr := s.shutdown(&wg); sdErr != nil {
+					return errors.Join(launchErr, sdErr)
+				}
+				return launchErr
+			}
 			s.logger.Warn("peer_supervisor: initial launch failed, peer skipped",
 				"peer", name, "error", err)
 			continue
@@ -255,11 +237,12 @@ func (s *PeerSupervisor) Run(ctx context.Context) error {
 					wg.Done()
 				}
 			}()
-			s.superviseOne(ctx, name, h, &wg)
+			s.superviseOne(superviseCtx, name, h, &wg)
 		}()
 	}
 
 	<-ctx.Done()
+	cancelSupervise()
 	if err := s.shutdown(&wg); err != nil {
 		return err
 	}
@@ -357,7 +340,7 @@ func (s *PeerSupervisor) clearPeerDiscovery(name string) {
 	}
 }
 
-// trackPeer appends a newly-launched handle and syncs the pid registry.
+// trackPeer appends a new handle.
 func (s *PeerSupervisor) trackPeer(h peerHandle) {
 	s.mu.Lock()
 	s.peers = append(s.peers, h)
@@ -367,7 +350,7 @@ func (s *PeerSupervisor) trackPeer(h peerHandle) {
 	}
 }
 
-// replacePeer atomically swaps the current handle and updates the pid registry.
+// replacePeer swaps the current handle.
 func (s *PeerSupervisor) replacePeer(old, next peerHandle) {
 	s.mu.Lock()
 	for i, h := range s.peers {
@@ -403,8 +386,7 @@ func (s *PeerSupervisor) shutdown(wg *sync.WaitGroup) error {
 	return err
 }
 
-// closePeerPipes sends EOF to every peer by closing its stdin pipe. ErrClosed
-// is treated as a benign race (handle already drained by Wait) and not logged.
+// closePeerPipes sends EOF to every peer.
 func (s *PeerSupervisor) closePeerPipes(peers []peerHandle) {
 	for _, h := range peers {
 		s.closePeerPipe(h)
@@ -555,10 +537,10 @@ type execPeerHandle struct {
 func (h *execPeerHandle) Name() string { return h.name }
 
 func (h *execPeerHandle) PID() int {
-	if h.cmd == nil || h.cmd.Process == nil {
-		return 0
+	if h.cmd != nil && h.cmd.Process != nil {
+		return h.cmd.Process.Pid
 	}
-	return h.cmd.Process.Pid
+	return 0
 }
 
 func (h *execPeerHandle) Wait() error {
@@ -581,8 +563,8 @@ func (h *execPeerHandle) ClosePipe() error {
 }
 
 func (h *execPeerHandle) Signal(sig processSig) error {
-	if h.cmd == nil || h.cmd.Process == nil {
-		return nil
+	if h.cmd != nil && h.cmd.Process != nil {
+		return signalCodexProcess(h.cmd, h.guard, sig)
 	}
-	return signalCodexProcess(h.cmd, h.guard, sig)
+	return nil
 }

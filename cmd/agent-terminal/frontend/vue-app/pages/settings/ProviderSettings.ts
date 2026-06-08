@@ -45,7 +45,6 @@ const DEFAULT_APPROVAL_MODE = 'on-request';
 const DEFAULT_PERSONALITY = 'pragmatic';
 const PROVIDER_OPTIONS = [
   { value: 'codex', label: 'Codex (默认)' },
-  { value: 'claude', label: 'Claude 命令行 (原生)' },
 ];
 const SUMMARY_MODES = [
   { value: 'detailed', label: 'detailed（详细摘要，推荐）' },

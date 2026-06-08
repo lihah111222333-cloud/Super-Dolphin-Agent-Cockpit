@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	sharedfilepath "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
 )
 
 // AutomationKindCommandCard 是当前唯一实装的 automation.kind 取值（ADR-007 §6 登记表）。
@@ -44,6 +47,8 @@ type SummarizationConfig struct {
 type OutputsConfig struct {
 	// ToSharedfile 把节点输出写入 sharedfile（含 lock_mode 防并发冲突）。
 	ToSharedfile *SharedfileTarget `json:"to_sharedfile,omitempty"`
+	// ToArtifact 把结构化 tool result 里的本地文件物化为 sharedfile。
+	ToArtifact *ArtifactTarget `json:"to_artifact,omitempty"`
 	// ToNodeResult 是否把输出写入 task_dag_nodes.result JSONB。
 	// **仅适合 < 4KB 摘要**（蓝图 v2 §5 决策）；大输出走 ToSharedfile。
 	ToNodeResult bool `json:"to_node_result,omitempty"`
@@ -59,6 +64,177 @@ type SharedfileTarget struct {
 	Path string `json:"path"`
 	// LockMode: exclusive (独占) | append (追加合并) | shared (并发只读).
 	LockMode string `json:"lock_mode,omitempty"`
+}
+
+// ArtifactTarget 描述从结构化 tool result 中抽取本地文件并导入 sharedfile 的规则。
+type ArtifactTarget struct {
+	SourceTool         string   `json:"source_tool"`
+	SourcePathField    string   `json:"source_path_field"`
+	PathTemplate       string   `json:"path_template"`
+	ContentType        string   `json:"content_type,omitempty"`
+	AllowedExtensions  []string `json:"allowed_extensions,omitempty"`
+	AllowedSourceRoots []string `json:"allowed_source_roots,omitempty"`
+	MaxBytes           int64    `json:"max_bytes,omitempty"`
+	Overwrite          string   `json:"overwrite,omitempty"`
+}
+
+// Validate enforces the fail-fast contract for outputs.to_artifact.
+func (t *ArtifactTarget) Validate() error {
+	if t == nil {
+		return nil
+	}
+	if strings.TrimSpace(t.SourceTool) == "" {
+		return errors.New("nodeexec: outputs.to_artifact.source_tool is required")
+	}
+	if strings.TrimSpace(t.SourcePathField) == "" {
+		return errors.New("nodeexec: outputs.to_artifact.source_path_field is required")
+	}
+	pathTemplate := strings.TrimSpace(t.PathTemplate)
+	if pathTemplate == "" {
+		return errors.New("nodeexec: outputs.to_artifact.path_template is required")
+	}
+	if !strings.Contains(pathTemplate, "{{run_key}}") && !strings.Contains(pathTemplate, "{{run_id}}") {
+		return errors.New("nodeexec: outputs.to_artifact.path_template must contain {{run_key}} or {{run_id}}")
+	}
+	return nil
+}
+
+func validateOutputsConfig(out OutputsConfig) error {
+	if out.ToArtifact == nil {
+		return nil
+	}
+	return out.ToArtifact.Validate()
+}
+
+type ArtifactImportPlan struct {
+	SourcePath         string
+	TargetPath         string
+	ContentType        string
+	AllowedExtensions  []string
+	AllowedSourceRoots []string
+	MaxBytes           int64
+	Overwrite          string
+}
+
+func BuildArtifactImportPlan(target *ArtifactTarget, rawResult string, runID int64) (ArtifactImportPlan, error) {
+	if target == nil {
+		return ArtifactImportPlan{}, errors.New("outputs.to_artifact is required")
+	}
+	sourcePath, err := extractArtifactSourcePath(rawResult, target.SourceTool, target.SourcePathField)
+	if err != nil {
+		return ArtifactImportPlan{}, err
+	}
+	targetPath, err := renderArtifactTargetPath(target.PathTemplate, runID)
+	if err != nil {
+		return ArtifactImportPlan{}, fmt.Errorf("path_template: %w", err)
+	}
+	return ArtifactImportPlan{
+		SourcePath:         sourcePath,
+		TargetPath:         targetPath,
+		ContentType:        target.ContentType,
+		AllowedExtensions:  append([]string(nil), target.AllowedExtensions...),
+		AllowedSourceRoots: append([]string(nil), target.AllowedSourceRoots...),
+		MaxBytes:           target.MaxBytes,
+		Overwrite:          target.Overwrite,
+	}, nil
+}
+
+func renderArtifactTargetPath(template string, runID int64) (string, error) {
+	trimmed := strings.TrimSpace(template)
+	if !strings.Contains(trimmed, "{{run_key}}") && !strings.Contains(trimmed, "{{run_id}}") {
+		return "", errors.New("must contain {{run_key}} or {{run_id}}")
+	}
+	if runID <= 0 {
+		return "", errors.New("run_id is required")
+	}
+	runIDText := strconv.FormatInt(runID, 10)
+	rendered := strings.ReplaceAll(trimmed, "{{run_id}}", runIDText)
+	rendered = strings.ReplaceAll(rendered, "{{run_key}}", "run-"+runIDText)
+	return sharedfilepath.ValidateWritePath(rendered)
+}
+
+func extractArtifactSourcePath(rawResult, sourceTool, pathField string) (string, error) {
+	trimmed := strings.TrimSpace(rawResult)
+	if trimmed == "" {
+		return "", errors.New("source path requires structured JSON result")
+	}
+	var payload any
+	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+		return "", fmt.Errorf("source path requires structured JSON result: %w", err)
+	}
+	path, ok := artifactPathFromValue(payload, strings.TrimSpace(sourceTool), strings.TrimSpace(pathField), false)
+	if !ok || strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("source path field %q from tool %q not found in structured JSON result", pathField, sourceTool)
+	}
+	return strings.TrimSpace(path), nil
+}
+
+func artifactPathFromValue(value any, sourceTool, pathField string, requireTool bool) (string, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		return artifactPathFromObject(typed, sourceTool, pathField, requireTool)
+	case []any:
+		for _, item := range typed {
+			if path, ok := artifactPathFromValue(item, sourceTool, pathField, true); ok {
+				return path, true
+			}
+		}
+	}
+	return "", false
+}
+
+func artifactPathFromObject(obj map[string]any, sourceTool, pathField string, requireTool bool) (string, bool) {
+	if path, ok := artifactPathFromDirectObject(obj, sourceTool, pathField, requireTool); ok {
+		return path, true
+	}
+	if nested, ok := obj[sourceTool].(map[string]any); ok {
+		if path, ok := artifactPathFromObject(nested, sourceTool, pathField, false); ok {
+			return path, true
+		}
+	}
+	for _, key := range []string{"structuredContent", "structured_content", "result", "output", "payload"} {
+		if nested, ok := obj[key].(map[string]any); ok {
+			if path, ok := artifactPathFromObject(nested, sourceTool, pathField, false); ok {
+				return path, true
+			}
+		}
+	}
+	for _, key := range []string{"tool_results", "toolResults", "items"} {
+		if items, ok := obj[key].([]any); ok {
+			if path, ok := artifactPathFromValue(items, sourceTool, pathField, true); ok {
+				return path, true
+			}
+		}
+	}
+	return "", false
+}
+
+func artifactPathFromDirectObject(obj map[string]any, sourceTool, pathField string, requireTool bool) (string, bool) {
+	if artifactObjectMatchesTool(obj, sourceTool, requireTool) {
+		return artifactStringField(obj, pathField)
+	}
+	return "", false
+}
+
+func artifactObjectMatchesTool(obj map[string]any, sourceTool string, requireTool bool) bool {
+	for _, key := range []string{"source_tool", "tool_name", "tool", "name"} {
+		if got, ok := artifactStringField(obj, key); ok {
+			return got == sourceTool
+		}
+	}
+	return !requireTool
+}
+
+func artifactStringField(obj map[string]any, key string) (string, bool) {
+	value, ok := obj[key]
+	if !ok {
+		return "", false
+	}
+	text, ok := value.(string)
+	if !ok || strings.TrimSpace(text) == "" {
+		return "", false
+	}
+	return strings.TrimSpace(text), true
 }
 
 // OnFailureConfig 是节点失败处理策略（蓝图 v2 §7 + §10 补丁 8）。
@@ -221,6 +397,9 @@ func ParseAgentConfig(raw json.RawMessage) (*AgentNodeConfig, error) {
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("nodeexec: parse agent config: %w", err)
 	}
+	if err := validateOutputsConfig(cfg.Outputs); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
 }
 
@@ -233,6 +412,9 @@ func ParseAutomationConfig(raw json.RawMessage) (*AutomationNodeConfig, error) {
 	}
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("nodeexec: parse automation config: %w", err)
+	}
+	if err := validateOutputsConfig(cfg.Outputs); err != nil {
+		return nil, err
 	}
 	switch cfg.Exec.Kind {
 	case "":
@@ -253,6 +435,9 @@ func ParseHybridConfig(raw json.RawMessage) (*HybridNodeConfig, error) {
 	}
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("nodeexec: parse hybrid config: %w", err)
+	}
+	if err := validateOutputsConfig(cfg.Outputs); err != nil {
+		return nil, err
 	}
 	return &cfg, nil
 }

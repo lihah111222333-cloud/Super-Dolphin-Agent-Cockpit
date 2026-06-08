@@ -117,9 +117,12 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 	agentID := strings.TrimSpace(binding.AgentID)
 	provider := strings.TrimSpace(binding.Provider)
 	publicThreadID := bindingPublicThreadID(binding, threadID)
-	providerThreadID := historyTargetID(binding, threadID)
+	providerThreadID := recoverableBindingProviderThreadID(binding)
 	recoverCWD, err := resolveRecoverCWD(meta.CWD, binding.Cwd)
 	if err != nil {
+		return RecoverResult{}, err
+	}
+	if err := s.requireRecoverProviderSession(agentID, publicThreadID, providerThreadID); err != nil {
 		return RecoverResult{}, err
 	}
 	mode := "restore_launch"
@@ -131,6 +134,8 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 		meta.ParentAgentID,
 		meta.AgentType,
 		meta.AgentMemoryScope,
+		provider,
+		meta.Model,
 	); err != nil {
 		return RecoverResult{}, err
 	}
@@ -145,7 +150,7 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 	if err := s.persistThreadState(ctx, newThreadState(threadStateRecoverKind, threadStateFields{
 		RequestedThreadID: threadID,
 		PublicThreadID:    publicThreadID,
-		ProviderThreadID:  util.FirstNonEmpty(providerThreadID, resolvedProviderUUID(session)),
+		ProviderThreadID:  util.FirstNonEmpty(providerThreadID, resolvedProviderUUID(session), binding.ProviderThreadID),
 		AgentID:           agentID,
 		ParentAgentID:     meta.ParentAgentID,
 		AgentType:         meta.AgentType,
@@ -173,6 +178,16 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 		Recovered: true,
 		Mode:      mode,
 	}, nil
+}
+
+func (s *service) requireRecoverProviderSession(agentID, publicThreadID, providerThreadID string) error {
+	if strings.TrimSpace(providerThreadID) != "" {
+		return nil
+	}
+	if _, err := s.lookupSession(agentID); err == nil {
+		return nil
+	}
+	return fmt.Errorf("thread recover provider session id is required for %q", strings.TrimSpace(publicThreadID))
 }
 
 func (s *service) ensureRecoveredSession(

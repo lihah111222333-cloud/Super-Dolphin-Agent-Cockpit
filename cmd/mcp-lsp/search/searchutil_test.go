@@ -118,7 +118,7 @@ func TestSearchTextCaseSensitiveOverride(t *testing.T) {
 
 func TestWalkSearchEntryPropagatesWalkErr(t *testing.T) {
 	var results []SearchMatch
-	err := walkSearchEntry(context.Background(), "/repo", "/repo/a.go", "", 1024, literalMatcher("x"), &results, nil, errors.New("walk boom"))
+	err := walkSearchEntry(context.Background(), "/repo", "/repo/a.go", "/repo", "", 1024, literalMatcher("x"), &results, nil, errors.New("walk boom"))
 	if err == nil || !strings.Contains(err.Error(), "walk boom") {
 		t.Fatalf("walkSearchEntry() error = %v, want walk boom", err)
 	}
@@ -222,10 +222,35 @@ func TestSearchTextSearchesDelimitedPaths(t *testing.T) {
 	}
 }
 
+func TestSearchTextSearchesExplicitPathList(t *testing.T) {
+	root, err := NormalizeRoot(t.TempDir())
+	if err != nil {
+		t.Fatalf("NormalizeRoot() error = %v", err)
+	}
+	writeSearchTestFile(t, filepath.Join(root, "first dir", "one.go"), "package first\nconst needleOne = true\n")
+	writeSearchTestFile(t, filepath.Join(root, "second dir", "two.go"), "package second\nconst needleTwo = true\n")
+	writeSearchTestFile(t, filepath.Join(root, "third dir", "skip.go"), "package third\nconst needleThree = true\n")
+
+	matches, err := SearchText(context.Background(), TextSearchOptions{
+		Root:         root,
+		Paths:        []string{"first dir", "second dir"},
+		Query:        "needle",
+		MaxFileBytes: 1024,
+	})
+	if err != nil {
+		t.Fatalf("SearchText() error = %v", err)
+	}
+	assertSearchTextPathMatches(t, root, matches, []string{"first dir/one.go", "second dir/two.go"}, "third dir/skip.go")
+}
+
 func assertSearchTextDelimitedPathMatches(t *testing.T, root string, matches []SearchMatch) {
+	assertSearchTextPathMatches(t, root, matches, []string{"first/one.go", "second/two.go"}, "third/skip.go")
+}
+
+func assertSearchTextPathMatches(t *testing.T, root string, matches []SearchMatch, wants []string, unwanted string) {
 	t.Helper()
-	if len(matches) != 2 {
-		t.Fatalf("SearchText() matches = %#v, want two matches from first and second", matches)
+	if len(matches) != len(wants) {
+		t.Fatalf("SearchText() matches = %#v, want %d matches from requested paths", matches, len(wants))
 	}
 	got := map[string]bool{}
 	for _, match := range matches {
@@ -235,12 +260,12 @@ func assertSearchTextDelimitedPathMatches(t *testing.T, root string, matches []S
 		}
 		got[filepath.ToSlash(rel)] = true
 	}
-	for _, want := range []string{"first/one.go", "second/two.go"} {
+	for _, want := range wants {
 		if !got[want] {
 			t.Fatalf("SearchText() paths = %#v, missing %s", got, want)
 		}
 	}
-	if got["third/skip.go"] {
+	if got[unwanted] {
 		t.Fatalf("SearchText() paths = %#v, searched path outside requested scopes", got)
 	}
 }

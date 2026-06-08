@@ -20,7 +20,6 @@ type diagnosticStableWait struct {
 	ctx       context.Context
 	filter    diagnosticFilter
 	uris      []string
-	deadline  time.Time
 	readiness diagnosticReadiness
 	last      time.Time
 }
@@ -35,7 +34,6 @@ func (m *manager) newDiagnosticStableWait(ctx context.Context, filter diagnostic
 		ctx:       ctx,
 		filter:    filter,
 		uris:      uris,
-		deadline:  time.Now().Add(m.diagMaxWait),
 		readiness: readiness,
 		last:      readiness.latest,
 	}, nil
@@ -43,7 +41,7 @@ func (m *manager) newDiagnosticStableWait(ctx context.Context, filter diagnostic
 
 func (w *diagnosticStableWait) wait() error {
 	for {
-		if err := w.deadlineError(); err != nil {
+		if err := w.contextError(w.ctx.Err()); err != nil {
 			return err
 		}
 		if len(w.readiness.missing) > 0 {
@@ -61,20 +59,23 @@ func (w *diagnosticStableWait) wait() error {
 	}
 }
 
-func (w *diagnosticStableWait) deadlineError() error {
-	if !time.Now().After(w.deadline) {
+func (w *diagnosticStableWait) contextError(err error) error {
+	if err == nil {
 		return nil
 	}
 	if len(w.readiness.missing) > 0 {
-		return fmt.Errorf("%w: diagnostics did not publish for requested targets before %s: %s", lspmanager.ErrDiagnosticsNotReady, w.manager.diagMaxWait, strings.Join(w.readiness.missing, ", "))
+		return fmt.Errorf("%w: diagnostics did not publish for requested targets before context finished: %s: %w", lspmanager.ErrDiagnosticsNotReady, strings.Join(w.readiness.missing, ", "), err)
 	}
-	return fmt.Errorf("%w: diagnostics did not stabilize before %s", lspmanager.ErrDiagnosticsNotReady, w.manager.diagMaxWait)
+	return fmt.Errorf("%w: diagnostics did not stabilize before context finished: %w", lspmanager.ErrDiagnosticsNotReady, err)
 }
 
 func (w *diagnosticStableWait) refresh(resetLast bool) error {
-	waitFor := minDuration(w.manager.diagPoll, time.Until(w.deadline))
+	waitFor := w.manager.diagPoll
+	if deadline, ok := w.ctx.Deadline(); ok {
+		waitFor = minDuration(waitFor, time.Until(deadline))
+	}
 	if err := sleepContext(w.ctx, waitFor); err != nil {
-		return err
+		return w.contextError(err)
 	}
 	readiness, err := w.manager.diagnosticReadiness(w.ctx, w.filter, w.uris)
 	if err != nil {

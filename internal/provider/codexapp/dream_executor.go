@@ -14,16 +14,11 @@ import (
 )
 
 const (
-	// dreamBinaryEnv 覆盖 codex binary 路径，未设走 PATH 默认 "codex"。
-	dreamBinaryEnv = "DREAM_CODEX_BIN"
-	// dreamModelEnv dream 调用 codex 可选 model override。
-	dreamModelEnv = "DREAM_CODEX_MODEL"
-	// defaultCodexBin 默认 binary 名。
-	defaultCodexBin = "codex"
-	// dreamMaxStdoutBytes 与 dispatcher prompt cap 对齐。
+	dreamBinaryEnv            = "DREAM_CODEX_BIN"
+	dreamModelEnv             = "DREAM_CODEX_MODEL"
+	defaultCodexBin           = "codex"
 	dreamMaxStdoutBytes int64 = 256 * 1024
-	// dreamMaxRetries: parse 失败重试一次，dispatcher failover 兑底。
-	dreamMaxRetries = 1
+	dreamMaxRetries           = 1
 )
 
 type dreamExecutor struct {
@@ -32,8 +27,6 @@ type dreamExecutor struct {
 	model     string
 }
 
-// newDreamExecutor 构造 dream provider。commander==nil 走 NewRealCommander，
-// binary 为空走 resolveDreamBinary()。
 func newDreamExecutor(commander dreamexec.Commander, binary, model string) dreamExecutor {
 	if commander == nil {
 		commander = dreamexec.NewRealCommander()
@@ -70,9 +63,6 @@ func (e dreamExecutor) ExecuteDreamWithOptions(ctx context.Context, prompt strin
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	// codex exec 是 non-interactive 子命令（见 `codex --help` "Commands: exec"）
-	// --json 输出 JSONL stream（含 agent_message + turn.completed.usage），供
-	// dreamexec.Run 自动探测后走 ExtractCodexJSONL；usage 由 OnUsage 路由到 dreammetrics。
 	args := []string{"exec", "--json", "--skip-git-repo-check"}
 	if modelProvider := strings.TrimSpace(options.ModelProvider); modelProvider != "" {
 		args = append(args, "-c", "model_provider="+strconv.Quote(modelProvider))

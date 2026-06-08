@@ -50,7 +50,7 @@ func TestStartTurnAppliesTurnToolScopeRuntimeConfig(t *testing.T) {
 	}
 }
 
-func TestStartTurnReplacesGenericGPTModelFromModelList(t *testing.T) {
+func TestStartTurnPreservesExplicitGPT5Model(t *testing.T) {
 	turnParams := make(chan map[string]any, 1)
 	serverURL := startCodexRPCServerWithHandler(t, func(msg jsonRPCMessage) json.RawMessage {
 		switch msg.Method {
@@ -90,14 +90,14 @@ func TestStartTurnReplacesGenericGPTModelFromModelList(t *testing.T) {
 	}
 	select {
 	case params := <-turnParams:
-		if params["model"] != "gpt-5-codex" {
-			t.Fatalf("turn/start model = %#v, want gpt-5-codex; params=%#v", params["model"], params)
+		if params["model"] != "gpt-5" {
+			t.Fatalf("turn/start model = %#v, want gpt-5; params=%#v", params["model"], params)
 		}
 	default:
 		t.Fatal("turn/start params were not captured")
 	}
-	if got := s.RuntimeConfigSnapshot()["model"]; got != "gpt-5-codex" {
-		t.Fatalf("runtime model = %#v, want gpt-5-codex", got)
+	if got := s.RuntimeConfigSnapshot()["model"]; got != "gpt-5" {
+		t.Fatalf("runtime model = %#v, want gpt-5", got)
 	}
 }
 

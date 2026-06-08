@@ -16,22 +16,25 @@ import (
 	"unicode"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type SearchMatch struct {
-	AbsPath   string `json:"-"`
-	File      string `json:"file"`
-	Line      int    `json:"line"`
-	Col       int    `json:"col"`
-	Text      string `json:"text"`
-	FuncStart int    `json:"func_start,omitempty"`
-	FuncEnd   int    `json:"func_end,omitempty"`
+	AbsPath    string `json:"-"`
+	SearchRoot string `json:"-"`
+	File       string `json:"file"`
+	Line       int    `json:"line"`
+	Col        int    `json:"col"`
+	Text       string `json:"text"`
+	FuncStart  int    `json:"func_start,omitempty"`
+	FuncEnd    int    `json:"func_end,omitempty"`
 }
 
 type TextSearchOptions struct {
 	Root          string
 	Roots         []string
 	Path          string
+	Paths         []string
 	Glob          string
 	Query         string
 	Regex         bool
@@ -44,6 +47,7 @@ type ASTSearchOptions struct {
 	Root         string
 	Roots        []string
 	Path         string
+	Paths        []string
 	Glob         string
 	Query        string
 	Language     string
@@ -77,14 +81,24 @@ func SearchText(ctx context.Context, opts TextSearchOptions) ([]SearchMatch, err
 	if err := validateSearchGlob(opts.Glob); err != nil {
 		return nil, err
 	}
-	searchPaths, err := statSearchPaths(opts.Root, opts.Roots, opts.Path)
+	searchPaths, err := statSearchPaths(opts.Root, opts.Roots, opts.Path, opts.Paths)
 	if err != nil {
 		return nil, err
 	}
+	pkglogger.Info("mcp-lsp grep text_search paths resolved",
+		"query", opts.Query,
+		"path", opts.Path,
+		"paths_count", len(opts.Paths),
+		"glob", opts.Glob,
+		"root", opts.Root,
+		"roots_count", len(opts.Roots),
+		"search_paths_count", len(searchPaths),
+		"max_results", opts.MaxResults,
+	)
 	results := make([]SearchMatch, 0, maxInt(opts.MaxResults, 8))
 	for _, searchPath := range searchPaths {
 		if !searchPath.Info.IsDir() {
-			found, err := searchTextFile(ctx, searchPath.Path.AbsPath, searchPath.Path.AbsPath, opts.Glob, opts.MaxFileBytes, matcher)
+			found, err := searchTextFile(ctx, searchPath.Path.AbsPath, searchPath.Path.AbsPath, searchPath.Path.Root, opts.Glob, opts.MaxFileBytes, matcher)
 			if err != nil {
 				return nil, err
 			}
@@ -92,11 +106,19 @@ func SearchText(ctx context.Context, opts TextSearchOptions) ([]SearchMatch, err
 			continue
 		}
 		if err := filepath.WalkDir(searchPath.Path.AbsPath, func(candidate string, entry os.DirEntry, walkErr error) error {
-			return walkSearchEntry(ctx, searchPath.Path.AbsPath, candidate, opts.Glob, opts.MaxFileBytes, matcher, &results, entry, walkErr)
+			return walkSearchEntry(ctx, searchPath.Path.AbsPath, candidate, searchPath.Path.Root, opts.Glob, opts.MaxFileBytes, matcher, &results, entry, walkErr)
 		}); err != nil {
 			return nil, err
 		}
 	}
+	pkglogger.Info("mcp-lsp grep text_search completed",
+		"query", opts.Query,
+		"path", opts.Path,
+		"paths_count", len(opts.Paths),
+		"glob", opts.Glob,
+		"root", opts.Root,
+		"matches", len(results),
+	)
 	return results, nil
 }
 
@@ -108,7 +130,7 @@ func SearchAST(ctx context.Context, opts ASTSearchOptions) ([]SearchMatch, error
 	if err := validateSearchGlob(opts.Glob); err != nil {
 		return nil, err
 	}
-	searchPaths, err := statSearchPaths(opts.Root, opts.Roots, opts.Path)
+	searchPaths, err := statSearchPaths(opts.Root, opts.Roots, opts.Path, opts.Paths)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +162,7 @@ func FilterAndCapSearchMatches(matches []SearchMatch, maxResults int) ([]SearchM
 	filtered := make([]SearchMatch, 0, len(matches))
 	seen := make(map[string]struct{}, len(matches))
 	for _, match := range matches {
-		if strings.TrimSpace(match.File) == "" || shouldExcludePath(match.AbsPath) {
+		if strings.TrimSpace(match.File) == "" || shouldExcludeSearchMatch(match) {
 			continue
 		}
 		key := fmt.Sprintf("%s:%d:%d:%s", match.AbsPath, match.Line, match.Col, match.Text)
@@ -164,10 +186,32 @@ func FilterAndCapSearchMatches(matches []SearchMatch, maxResults int) ([]SearchM
 	})
 
 	total := len(filtered)
-	if maxResults <= 0 || total <= maxResults {
+	if maxResults <= 0 {
 		return filtered, total, false
 	}
-	return append([]SearchMatch(nil), filtered[:maxResults]...), total, true
+	return capSearchMatchesPerFile(filtered, total, maxResults)
+}
+
+func shouldExcludeSearchMatch(match SearchMatch) bool {
+	filterPath := match.AbsPath
+	if relPath := relativeSearchMatchPath(match.SearchRoot, match.AbsPath); relPath != "" {
+		filterPath = relPath
+	}
+	return shouldExcludePath(filterPath)
+}
+
+func relativeSearchMatchPath(root, absPath string) string {
+	if strings.TrimSpace(root) == "" || strings.TrimSpace(absPath) == "" {
+		return ""
+	}
+	relPath, err := filepath.Rel(filepath.Clean(root), filepath.Clean(absPath))
+	if err != nil || relPath == "" || relPath == "." || relPath == ".." {
+		return ""
+	}
+	if strings.HasPrefix(relPath, ".."+string(filepath.Separator)) {
+		return ""
+	}
+	return relPath
 }
 
 func statSearchPath(root string, roots []string, rawPath string) (PathInfo, os.FileInfo, error) {
@@ -190,7 +234,10 @@ type searchPathStat struct {
 	Info os.FileInfo
 }
 
-func statSearchPaths(root string, roots []string, rawPath string) ([]searchPathStat, error) {
+func statSearchPaths(root string, roots []string, rawPath string, explicitPaths []string) ([]searchPathStat, error) {
+	if len(explicitPaths) > 0 {
+		return statExplicitSearchPaths(root, roots, explicitPaths)
+	}
 	pathInfo, info, err := statSearchPath(root, roots, rawPath)
 	if err == nil {
 		return []searchPathStat{{Path: pathInfo, Info: info}}, nil
@@ -210,6 +257,18 @@ func statSearchPaths(root string, roots []string, rawPath string) ([]searchPathS
 	return searchPaths, nil
 }
 
+func statExplicitSearchPaths(root string, roots []string, rawPaths []string) ([]searchPathStat, error) {
+	searchPaths := make([]searchPathStat, 0, len(rawPaths))
+	for _, rawPath := range rawPaths {
+		pathInfo, info, err := statSearchPath(root, roots, rawPath)
+		if err != nil {
+			return nil, fmt.Errorf("stat search path %q: %w", rawPath, err)
+		}
+		searchPaths = append(searchPaths, searchPathStat{Path: pathInfo, Info: info})
+	}
+	return searchPaths, nil
+}
+
 func splitSearchPathList(rawPath string) []string {
 	return strings.FieldsFunc(rawPath, func(r rune) bool {
 		return r == ',' || unicode.IsSpace(r)
@@ -218,7 +277,7 @@ func splitSearchPathList(rawPath string) []string {
 
 func walkSearchEntry(
 	ctx context.Context,
-	root, candidate, glob string,
+	root, candidate, searchRoot, glob string,
 	maxFileBytes int,
 	matcher lineMatcher,
 	results *[]SearchMatch,
@@ -250,7 +309,7 @@ func walkSearchEntry(
 	if !selected {
 		return nil
 	}
-	found, err := searchTextFile(ctx, root, candidate, glob, maxFileBytes, matcher)
+	found, err := searchTextFile(ctx, root, candidate, searchRoot, glob, maxFileBytes, matcher)
 	if err != nil {
 		return fmt.Errorf("search %s: %w", candidate, err)
 	}
@@ -271,7 +330,7 @@ func findDirEntry(candidate string) (os.DirEntry, error) {
 	return nil, nil
 }
 
-func searchTextFile(ctx context.Context, root, candidate, glob string, maxFileBytes int, matcher lineMatcher) ([]SearchMatch, error) {
+func searchTextFile(ctx context.Context, root, candidate, searchRoot, glob string, maxFileBytes int, matcher lineMatcher) ([]SearchMatch, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -289,7 +348,7 @@ func searchTextFile(ctx context.Context, root, candidate, glob string, maxFileBy
 	}
 	defer func() { _ = file.Close() }()
 
-	return scanSearchTextFile(ctx, candidate, maxFileBytes, matcher, file)
+	return scanSearchTextFile(ctx, candidate, searchRoot, maxFileBytes, matcher, file)
 }
 
 func shouldSearchFile(root, candidate, glob string, maxFileBytes int) (bool, error) {
@@ -303,12 +362,19 @@ func shouldSearchFile(root, candidate, glob string, maxFileBytes int) (bool, err
 func shouldSearchPath(root, candidate, glob string, maxFileBytes int, entry os.DirEntry) (bool, error) {
 	matched, err := matchesPathGlob(root, candidate, glob)
 	if err != nil || !matched {
+		if err == nil && strings.TrimSpace(glob) != "" && filepath.Clean(root) == filepath.Clean(candidate) {
+			pkglogger.Info("mcp-lsp grep text_search skipped single file by glob",
+				"root", root,
+				"candidate", candidate,
+				"glob", glob,
+			)
+		}
 		return matched, err
 	}
 	return isSearchCandidate(candidate, entry, maxFileBytes)
 }
 
-func scanSearchTextFile(ctx context.Context, candidate string, maxFileBytes int, matcher lineMatcher, file *os.File) ([]SearchMatch, error) {
+func scanSearchTextFile(ctx context.Context, candidate, searchRoot string, maxFileBytes int, matcher lineMatcher, file *os.File) ([]SearchMatch, error) {
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxInt(maxFileBytes, 64*1024))
 	results := make([]SearchMatch, 0, 8)
@@ -322,11 +388,12 @@ func scanSearchTextFile(ctx context.Context, candidate string, maxFileBytes int,
 			continue
 		}
 		results = append(results, SearchMatch{
-			AbsPath: candidate,
-			File:    displayPath(candidate),
-			Line:    lineNum,
-			Col:     col + 1,
-			Text:    truncateSnippet(strings.TrimSpace(line)),
+			AbsPath:    candidate,
+			SearchRoot: searchRoot,
+			File:       displayPath(candidate),
+			Line:       lineNum,
+			Col:        col + 1,
+			Text:       truncateSnippet(strings.TrimSpace(line)),
 		})
 	}
 	return results, scanner.Err()
@@ -420,11 +487,12 @@ func decodeSGScanMatches(output []byte, root string) ([]SearchMatch, error) {
 		}
 		absPath = filepath.Clean(absPath)
 		results = append(results, SearchMatch{
-			AbsPath: absPath,
-			File:    displayPath(absPath),
-			Line:    item.Range.Start.Line + 1,
-			Col:     item.Range.Start.Column + 1,
-			Text:    collapseSnippet(item.Lines, item.Text),
+			AbsPath:    absPath,
+			SearchRoot: root,
+			File:       displayPath(absPath),
+			Line:       item.Range.Start.Line + 1,
+			Col:        item.Range.Start.Column + 1,
+			Text:       collapseSnippet(item.Lines, item.Text),
 		})
 	}
 	return results, nil
@@ -447,11 +515,12 @@ func decodeSGMatches(output []byte, root string) ([]SearchMatch, error) {
 		}
 		absPath = filepath.Clean(absPath)
 		results = append(results, SearchMatch{
-			AbsPath: absPath,
-			File:    displayPath(absPath),
-			Line:    item.Range.Start.Line + 1,
-			Col:     item.Range.Start.Column + 1,
-			Text:    collapseSnippet(item.Lines, item.Text),
+			AbsPath:    absPath,
+			SearchRoot: root,
+			File:       displayPath(absPath),
+			Line:       item.Range.Start.Line + 1,
+			Col:        item.Range.Start.Column + 1,
+			Text:       collapseSnippet(item.Lines, item.Text),
 		})
 	}
 	if err := scanner.Err(); err != nil {

@@ -26,8 +26,9 @@ const MODEL_OPTIONS_BY_PROVIDER = Object.freeze({
   codex: Object.freeze([
     { value: 'gpt-5.5', label: 'GPT-5.5', short: '5.5' },
     { value: 'gpt-5.4', label: 'GPT-5.4', short: '5.4' },
-    { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', short: '5.3 Codex' },
-    { value: 'gpt-5.2', label: 'GPT-5.2', short: '5.2' },
+    { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini', short: '5.4 Mini' },
+    { value: 'gpt-5', label: 'GPT-5', short: '5' },
+    { value: 'codex-auto-review', label: 'Codex Auto Review', short: 'Auto Review' },
   ]),
   claude: Object.freeze([
     { value: 'opus', label: 'Opus 4.7' },

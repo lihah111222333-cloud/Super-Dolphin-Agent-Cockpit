@@ -18,6 +18,8 @@ import (
 const maxReactiveBootstrap = 30
 const maxDiagnosticSummaryRunes = 300
 const typeScriptDeprecatedDiagnosticCode = "6385"
+const appManagedDiagnosticsNoBootstrapSource = "app_managed_no_bootstrap"
+const appManagedDiagnosticsNoBootstrapMessage = "diagnostics target is app-managed data outside workspace roots; skipped workspace LSP bootstrap and returned an empty diagnostics cache"
 
 type diagnosticsTable struct {
 	File string   `json:"file"`
@@ -40,9 +42,10 @@ type diagnosticsResponse struct {
 }
 
 type diagnosticsWaitResult struct {
-	recovered bool
-	partial   bool
-	message   string
+	recovered                  bool
+	partial                    bool
+	appManagedOutsideWorkspace bool
+	message                    string
 }
 
 func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, string, string, error) {
@@ -51,9 +54,15 @@ func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, uris []strin
 	if err != nil {
 		return nil, "", "", err
 	}
+	if source == appManagedDiagnosticsNoBootstrapSource {
+		return emptyDiagnosticsForURIs(uris), source, appManagedDiagnosticsNoBootstrapMessage, nil
+	}
 	waitResult, err := h.waitDiagnosticsWithStartupRecovery(ctx, uris, existingURIs)
 	if err != nil {
 		return nil, "", "", err
+	}
+	if waitResult.appManagedOutsideWorkspace {
+		return emptyDiagnosticsForURIs(uris), source, waitResult.message, nil
 	}
 	if waitResult.partial {
 		source = "startup_recovery_partial"
@@ -73,6 +82,13 @@ func (h handlerBase) bootstrapDiagnostics(ctx context.Context, existingURIs []st
 	if len(existingURIs) == 0 {
 		return "manager", nil
 	}
+	appManaged, _, err := appManagedDiagnosticsOutsideWorkspace(ctx, existingURIs)
+	if err != nil {
+		return "", err
+	}
+	if appManaged {
+		return appManagedDiagnosticsNoBootstrapSource, nil
+	}
 	bootstrapped, err := h.reactiveBootstrap(ctx, existingURIs)
 	if err != nil {
 		return "", err
@@ -84,6 +100,9 @@ func (h handlerBase) bootstrapDiagnostics(ctx context.Context, existingURIs []st
 }
 
 func (h handlerBase) waitDiagnosticsWithStartupRecovery(ctx context.Context, uris, existingURIs []string) (diagnosticsWaitResult, error) {
+	if diagnosticsStartupWaitUnsupported(existingURIs) {
+		return diagnosticsWaitResult{}, nil
+	}
 	if _, err := h.waitDiagnosticsStable(ctx, uris); err != nil {
 		return h.recoverDiagnosticsStartupWait(ctx, uris, existingURIs, err)
 	}
@@ -93,6 +112,13 @@ func (h handlerBase) waitDiagnosticsWithStartupRecovery(ctx context.Context, uri
 func (h handlerBase) recoverDiagnosticsStartupWait(ctx context.Context, uris, existingURIs []string, waitErr error) (diagnosticsWaitResult, error) {
 	if !errors.Is(waitErr, lspmanager.ErrDiagnosticsNotReady) || len(existingURIs) == 0 {
 		return diagnosticsWaitResult{}, waitErr
+	}
+	appManaged, message, err := appManagedDiagnosticsOutsideWorkspace(ctx, existingURIs)
+	if err != nil {
+		return diagnosticsWaitResult{}, err
+	}
+	if appManaged {
+		return diagnosticsWaitResult{appManagedOutsideWorkspace: true, message: message}, nil
 	}
 	opened, openErr := h.openDiagnosticDocuments(ctx, existingURIs)
 	if openErr != nil {
@@ -206,7 +232,11 @@ func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolIn
 	displayPaths := make(map[string]string, len(targets))
 	seen := make(map[string]struct{}, len(targets))
 	for _, target := range targets {
-		pathInfo, err := search.ResolvePathInRoots(root, roots, target)
+		normalizedTarget, err := normalizeFilePathTarget(target)
+		if err != nil {
+			return nil, nil, err
+		}
+		pathInfo, err := search.ResolvePathInRoots(root, roots, normalizedTarget)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -218,7 +248,7 @@ func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolIn
 			continue
 		}
 		seen[uri] = struct{}{}
-		displayPaths[uri] = diagnosticDisplayPath(target, pathInfo.DisplayPath)
+		displayPaths[uri] = diagnosticDisplayPath(normalizedTarget, pathInfo.DisplayPath)
 		uris = append(uris, uri)
 	}
 	return uris, displayPaths, nil
@@ -249,6 +279,18 @@ func existingDiagnosticURIs(uris []string) []string {
 		}
 	}
 	return existing
+}
+
+func diagnosticsStartupWaitUnsupported(uris []string) bool {
+	if len(uris) == 0 {
+		return false
+	}
+	for _, uri := range uris {
+		if !isDetachedRustFile(format.URIToPath(uri)) {
+			return false
+		}
+	}
+	return true
 }
 
 func ensureDiagnosticFile(absPath, displayPath string) error {
@@ -329,6 +371,44 @@ func (h handlerBase) openDiagnosticDocument(ctx context.Context, uri string) err
 		return errManagerUnavailable
 	}
 	return manager.DidOpen(ctx, uri, lspmanager.DetectLanguageID(path), 1, string(content))
+}
+
+func appManagedDiagnosticsOutsideWorkspace(ctx context.Context, uris []string) (bool, string, error) {
+	root, roots, err := toolWorkspaceRoots(ctx)
+	if err != nil {
+		return false, "", err
+	}
+	workspaceRoots, err := search.NormalizeRootSet(root, roots)
+	if err != nil {
+		return false, "", err
+	}
+	allAppManaged := len(uris) > 0
+	for _, uri := range uris {
+		path := format.URIToPath(uri)
+		if strings.TrimSpace(path) == "" {
+			return false, "", nil
+		}
+		pathInfo, err := search.ResolvePathInRoots(root, roots, path)
+		if err != nil {
+			return false, "", err
+		}
+		if pathWithinAnyRoot(workspaceRoots, pathInfo.AbsPath) {
+			allAppManaged = false
+			break
+		}
+	}
+	if !allAppManaged {
+		return false, "", nil
+	}
+	return true, appManagedDiagnosticsNoBootstrapMessage, nil
+}
+
+func emptyDiagnosticsForURIs(uris []string) []protocol.PublishDiagnosticsParams {
+	items := make([]protocol.PublishDiagnosticsParams, 0, len(uris))
+	for _, uri := range uris {
+		items = append(items, protocol.PublishDiagnosticsParams{URI: uri})
+	}
+	return items
 }
 
 func (h handlerBase) reactiveBootstrap(ctx context.Context, uris []string) (int, error) {

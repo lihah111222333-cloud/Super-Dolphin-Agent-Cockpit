@@ -8,6 +8,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/appupdate"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/cron"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/feedback"
@@ -33,7 +34,6 @@ import (
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/claudecli"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/e2efixture"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
@@ -64,6 +64,7 @@ var Module = fx.Options(
 	memory.Module,
 	prompt.Module,
 	moduleobservability.Module,
+	appupdate.Module,
 	skill.Module,
 	fx.Invoke(initProviderHooks),
 	thread.Module,
@@ -77,7 +78,7 @@ var Module = fx.Options(
 	uistate.Module,
 	unified.Module,
 	promptIntentE2EFixtureModule(),
-	claudecli.Module,
+	// claudecli.Module,
 	codexapp.Module,
 	toolbridge.Module, // P15 新增：始终加载
 	toolbridgeAdaptersModule(),
