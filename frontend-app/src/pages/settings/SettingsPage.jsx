@@ -405,7 +405,10 @@ async function checkForAppUpdate({ setUpdateBusy, setUpdateInfo, setUpdateNotice
   setUpdateNotice({ level: 'info', message: '检查中...' });
   try {
     const info = await checkAppUpdate();
-    if (info?.available) {
+    if (info?.enabled === false) {
+      setUpdateInfo(null);
+      setUpdateNotice({ level: 'warning', message: '当前构建未启用应用更新' });
+    } else if (info?.available) {
       setUpdateInfo(info);
       setUpdateNotice({ level: 'info', message: '发现新版本 ' + appUpdateVersionLabel(info) });
     } else {
@@ -976,11 +979,17 @@ function AboutPanel({ buildInfo, cwd, runtime }) {
         <dt>Commit</dt><dd>{buildInfo?.commit || 'unknown'}</dd>
         <dt>当前项目</dt><dd>{cwd || '未选择项目'}</dd>
       </dl>
-      <div className="settings-action-row settings-action-inline">
-        <button className="btn btn-secondary btn-toolbar-sm" type="button" data-testid="settings-update-check-button" onClick={() => void runtime.checkForUpdate()} disabled={runtime.updateBusy || runtime.updateInstalling}>{runtime.updateBusy ? '检查中...' : '检查更新'}</button>
-        {canInstallUpdate ? <button className="btn btn-primary btn-toolbar-sm" type="button" data-testid="settings-update-install-button" onClick={() => void runtime.installUpdate()} disabled={runtime.updateInstalling}>安装更新</button> : null}
+      <div className="data-card-vue settings-update-card" data-testid="settings-update-card">
+        <div className="data-row-vue">
+          <strong>应用更新</strong>
+          <span>当前版本 {buildInfo?.version || 'unknown'}</span>
+        </div>
+        <div className="settings-action-row settings-action-inline">
+          <button className="btn btn-secondary btn-toolbar-sm" type="button" data-testid="settings-update-check-button" onClick={() => void runtime.checkForUpdate()} disabled={runtime.updateBusy || runtime.updateInstalling}>{runtime.updateBusy ? '检查中...' : '检查更新'}</button>
+          {canInstallUpdate ? <button className="btn btn-primary btn-toolbar-sm" type="button" data-testid="settings-update-install-button" onClick={() => void runtime.installUpdate()} disabled={runtime.updateInstalling}>安装更新</button> : null}
+        </div>
+        {runtime.updateNotice.message ? <SettingsPromptNotice notice={runtime.updateNotice} testId="settings-update-notice" /> : null}
       </div>
-      {runtime.updateNotice.message ? <SettingsPromptNotice notice={runtime.updateNotice} testId="settings-update-notice" /> : null}
     </Panel>
   );
 }

@@ -41,6 +41,19 @@ export SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_PROOF=<bootstrap-proof>
 
 `SUPER_DOLPHIN_UPDATE_MANIFEST_URL` and `SUPER_DOLPHIN_UPDATE_ARTIFACT_URL` must be HTTPS URLs with real hosts. `SUPER_DOLPHIN_UPDATE_APP_ID` must stay `super-dolphin`, matching the runtime verifier. `SUPER_DOLPHIN_UPDATE_PUBLIC_KEY` must base64-decode to exactly 32 bytes. Keep `SUPER_DOLPHIN_UPDATE_SIGNING_KEY` out of the packaged app; it is required for signing the update manifest, not for runtime verification.
 
+For the GitHub Releases `v1.0` page at `https://github.com/xiaoxiaotest9527-bit/-/releases/tag/v1.0`, use:
+
+```bash
+export VERSION=1.0
+export SUPER_DOLPHIN_UPDATE_MANIFEST_URL=https://github.com/xiaoxiaotest9527-bit/-/releases/latest/download/latest.json
+export SUPER_DOLPHIN_UPDATE_ARTIFACT_URL=https://github.com/xiaoxiaotest9527-bit/-/releases/download/v1.0/Super.Dolphin.dmg
+export SUPER_DOLPHIN_UPDATE_APP_ID=super-dolphin
+export SUPER_DOLPHIN_UPDATE_MINIMUM_VERSION=0.1.0
+export SUPER_DOLPHIN_UPDATE_CHANNEL=gray
+```
+
+GitHub reports the `v1.0` release as public and published with a `Super.Dolphin.dmg` asset. Upload the generated `latest.json` manifest to the same release before enabling packaged updates; the manifest URL above must return JSON, not GitHub's 404 asset page. `SUPER_DOLPHIN_UPDATE_PUBLIC_KEY` and `SUPER_DOLPHIN_UPDATE_SIGNING_KEY` come from the Ed25519 update signing keypair and cannot be derived from GitHub release metadata.
+
 ## Build
 
 Run from the repository root on macOS:

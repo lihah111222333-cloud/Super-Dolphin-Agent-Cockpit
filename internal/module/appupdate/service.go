@@ -67,6 +67,7 @@ type Service interface {
 }
 
 type CheckResult struct {
+	Enabled   bool            `json:"enabled"`
 	Available bool            `json:"available"`
 	Version   string          `json:"version,omitempty"`
 	Artifact  *UpdateArtifact `json:"artifact,omitempty"`
@@ -191,14 +192,18 @@ func newService(cfg Config, client *http.Client, requestQuit RequestQuit) *servi
 }
 
 func (s *service) Check(ctx context.Context) (CheckResult, error) {
+	if !s.cfg.Enabled {
+		return CheckResult{Enabled: false, Available: false}, nil
+	}
 	payload, artifact, err := s.fetchManifest(ctx)
 	if errors.Is(err, ErrNoUpdate) {
-		return CheckResult{Available: false}, nil
+		return CheckResult{Enabled: true, Available: false}, nil
 	}
 	if err != nil {
 		return CheckResult{}, err
 	}
 	return CheckResult{
+		Enabled:   true,
 		Available: true,
 		Version:   payload.Version,
 		Artifact:  &artifact,
