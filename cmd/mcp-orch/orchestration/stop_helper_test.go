@@ -45,32 +45,6 @@ func (s *stopHelperServiceSpy) StopAgent(_ context.Context, agentID string) erro
 	return s.stopErr
 }
 
-// stopHelperMetricSpy is a stopSpawnedAgentSink double. Each Inc is
-// recorded so the test can assert the helper hits the right label
-// exactly once per call.
-type stopHelperMetricSpy struct {
-	counts map[StopResult]int
-}
-
-func newStopHelperMetricSpy() *stopHelperMetricSpy {
-	return &stopHelperMetricSpy{counts: make(map[StopResult]int)}
-}
-
-func (m *stopHelperMetricSpy) Inc(result StopResult) {
-	m.counts[result]++
-}
-
-// withMetricSpy swaps stopSpawnedAgentMetrics for the lifetime of the
-// test. Returns a restore func — defer-friendly.
-func withMetricSpy(t *testing.T) *stopHelperMetricSpy {
-	t.Helper()
-	spy := newStopHelperMetricSpy()
-	prev := stopSpawnedAgentMetrics
-	stopSpawnedAgentMetrics = spy
-	t.Cleanup(func() { stopSpawnedAgentMetrics = prev })
-	return spy
-}
-
 // --- helpers --------------------------------------------------------------
 
 func assertResult(t *testing.T, got, want StopResult) {
@@ -80,27 +54,55 @@ func assertResult(t *testing.T, got, want StopResult) {
 	}
 }
 
-func assertMetric(t *testing.T, spy *stopHelperMetricSpy, want StopResult) {
+func assertMetricDelta(t *testing.T, before StopSpawnedAgentMetrics, want StopResult) {
 	t.Helper()
-	if spy.counts[want] != 1 {
-		t.Fatalf("metric %q count = %d, want 1; full snapshot=%v",
-			want, spy.counts[want], spy.counts)
+	after := StopSpawnedAgentCounters()
+	for _, result := range []StopResult{
+		StopResultSuccess,
+		StopResultSkippedAlreadyStopped,
+		StopResultSkippedAlreadyArchived,
+		StopResultSkippedBindingMissing,
+		StopResultSkippedNoThreadID,
+		StopResultSkippedLookupFailed,
+		StopResultFailed,
+	} {
+		delta := metricValue(after, result) - metricValue(before, result)
+		wantDelta := int64(0)
+		if result == want {
+			wantDelta = 1
+		}
+		if delta != wantDelta {
+			t.Fatalf("metric %q delta = %d, want %d; before=%+v after=%+v",
+				result, delta, wantDelta, before, after)
+		}
 	}
-	for label, n := range spy.counts {
-		if label == want {
-			continue
-		}
-		if n != 0 {
-			t.Fatalf("metric %q unexpectedly = %d (want 0); only %q should fire",
-				label, n, want)
-		}
+}
+
+func metricValue(snapshot StopSpawnedAgentMetrics, result StopResult) int64 {
+	switch result {
+	case StopResultSuccess:
+		return snapshot.Success
+	case StopResultSkippedAlreadyStopped:
+		return snapshot.SkippedAlreadyStopped
+	case StopResultSkippedAlreadyArchived:
+		return snapshot.SkippedAlreadyArchived
+	case StopResultSkippedBindingMissing:
+		return snapshot.SkippedBindingMissing
+	case StopResultSkippedNoThreadID:
+		return snapshot.SkippedNoThreadID
+	case StopResultSkippedLookupFailed:
+		return snapshot.SkippedLookupFailed
+	case StopResultFailed:
+		return snapshot.Failed
+	default:
+		return 0
 	}
 }
 
 // --- tests ---------------------------------------------------------------
 
 func TestStopSpawnedAgent_Success(t *testing.T) {
-	metrics := withMetricSpy(t)
+	before := StopSpawnedAgentCounters()
 	threads := &stopHelperThreadSpy{
 		thread: &PersistedThread{ThreadID: "thr-1", AgentID: "agent-1"},
 	}
@@ -111,7 +113,7 @@ func TestStopSpawnedAgent_Success(t *testing.T) {
 		t.Fatalf("Success branch must not surface error, got %v", err)
 	}
 	assertResult(t, result, StopResultSuccess)
-	assertMetric(t, metrics, StopResultSuccess)
+	assertMetricDelta(t, before, StopResultSuccess)
 	if svc.calls != 1 || svc.lastAgentID != "agent-1" {
 		t.Fatalf("StopAgent calls=%d lastAgentID=%q, want 1 / agent-1",
 			svc.calls, svc.lastAgentID)
@@ -119,7 +121,7 @@ func TestStopSpawnedAgent_Success(t *testing.T) {
 }
 
 func TestStopSpawnedAgent_SkippedAlreadyStopped(t *testing.T) {
-	metrics := withMetricSpy(t)
+	before := StopSpawnedAgentCounters()
 	threads := &stopHelperThreadSpy{
 		thread: &PersistedThread{ThreadID: "thr-1", AgentID: "agent-1"},
 	}
@@ -133,11 +135,11 @@ func TestStopSpawnedAgent_SkippedAlreadyStopped(t *testing.T) {
 		t.Fatalf("skipped_already_stopped must not surface error, got %v", err)
 	}
 	assertResult(t, result, StopResultSkippedAlreadyStopped)
-	assertMetric(t, metrics, StopResultSkippedAlreadyStopped)
+	assertMetricDelta(t, before, StopResultSkippedAlreadyStopped)
 }
 
 func TestStopSpawnedAgent_SkippedStopping(t *testing.T) {
-	metrics := withMetricSpy(t)
+	before := StopSpawnedAgentCounters()
 	threads := &stopHelperThreadSpy{
 		thread: &PersistedThread{ThreadID: "thr-1", AgentID: "agent-1"},
 	}
@@ -151,11 +153,11 @@ func TestStopSpawnedAgent_SkippedStopping(t *testing.T) {
 		t.Fatalf("is-stopping branch must not surface error, got %v", err)
 	}
 	assertResult(t, result, StopResultSkippedAlreadyStopped)
-	assertMetric(t, metrics, StopResultSkippedAlreadyStopped)
+	assertMetricDelta(t, before, StopResultSkippedAlreadyStopped)
 }
 
 func TestStopSpawnedAgent_SkippedAlreadyArchived(t *testing.T) {
-	metrics := withMetricSpy(t)
+	before := StopSpawnedAgentCounters()
 	threads := &stopHelperThreadSpy{
 		thread: &PersistedThread{ThreadID: "thr-1", AgentID: "agent-1"},
 	}
@@ -170,11 +172,11 @@ func TestStopSpawnedAgent_SkippedAlreadyArchived(t *testing.T) {
 		t.Fatalf("already_archived must not surface error, got %v", err)
 	}
 	assertResult(t, result, StopResultSkippedAlreadyArchived)
-	assertMetric(t, metrics, StopResultSkippedAlreadyArchived)
+	assertMetricDelta(t, before, StopResultSkippedAlreadyArchived)
 }
 
 func TestStopSpawnedAgent_MarksPersistedThreadStoppedWhenRuntimeAlreadyGone(t *testing.T) {
-	metrics := withMetricSpy(t)
+	before := StopSpawnedAgentCounters()
 	threads := &stopHelperThreadSpy{
 		thread: &PersistedThread{ThreadID: "thr-1", AgentID: "agent-1", Status: "created"},
 	}
@@ -187,7 +189,7 @@ func TestStopSpawnedAgent_MarksPersistedThreadStoppedWhenRuntimeAlreadyGone(t *t
 		t.Fatalf("already-gone runtime must not surface error, got %v", err)
 	}
 	assertResult(t, result, StopResultSkippedAlreadyArchived)
-	assertMetric(t, metrics, StopResultSkippedAlreadyArchived)
+	assertMetricDelta(t, before, StopResultSkippedAlreadyArchived)
 	if threads.updateCalls != 1 {
 		t.Fatalf("UpdateStatus calls = %d, want 1", threads.updateCalls)
 	}
@@ -197,7 +199,7 @@ func TestStopSpawnedAgent_MarksPersistedThreadStoppedWhenRuntimeAlreadyGone(t *t
 }
 
 func TestStopSpawnedAgent_SkippedBindingMissing(t *testing.T) {
-	metrics := withMetricSpy(t)
+	before := StopSpawnedAgentCounters()
 	// Thread exists but derived AgentID is "" — binding missing/archived.
 	threads := &stopHelperThreadSpy{
 		thread: &PersistedThread{ThreadID: "thr-1", AgentID: ""},
@@ -209,7 +211,7 @@ func TestStopSpawnedAgent_SkippedBindingMissing(t *testing.T) {
 		t.Fatalf("binding_missing must not surface error, got %v", err)
 	}
 	assertResult(t, result, StopResultSkippedBindingMissing)
-	assertMetric(t, metrics, StopResultSkippedBindingMissing)
+	assertMetricDelta(t, before, StopResultSkippedBindingMissing)
 	if svc.calls != 0 {
 		t.Fatalf("StopAgent should not be called when AgentID is empty, got %d calls",
 			svc.calls)
@@ -217,7 +219,7 @@ func TestStopSpawnedAgent_SkippedBindingMissing(t *testing.T) {
 }
 
 func TestStopSpawnedAgent_SkippedNoThreadID_EmptyInput(t *testing.T) {
-	metrics := withMetricSpy(t)
+	before := StopSpawnedAgentCounters()
 	threads := &stopHelperThreadSpy{}
 	svc := &stopHelperServiceSpy{}
 
@@ -226,7 +228,7 @@ func TestStopSpawnedAgent_SkippedNoThreadID_EmptyInput(t *testing.T) {
 		t.Fatalf("empty threadID must not surface error, got %v", err)
 	}
 	assertResult(t, result, StopResultSkippedNoThreadID)
-	assertMetric(t, metrics, StopResultSkippedNoThreadID)
+	assertMetricDelta(t, before, StopResultSkippedNoThreadID)
 	if threads.calls != 0 {
 		t.Fatalf("lookup should be skipped for empty threadID, got %d calls",
 			threads.calls)
@@ -234,7 +236,7 @@ func TestStopSpawnedAgent_SkippedNoThreadID_EmptyInput(t *testing.T) {
 }
 
 func TestStopSpawnedAgent_SkippedNoThreadID_NilRow(t *testing.T) {
-	metrics := withMetricSpy(t)
+	before := StopSpawnedAgentCounters()
 	// thread store returns (nil, nil) — row absent without error sentinel.
 	threads := &stopHelperThreadSpy{thread: nil, err: nil}
 	svc := &stopHelperServiceSpy{}
@@ -244,7 +246,7 @@ func TestStopSpawnedAgent_SkippedNoThreadID_NilRow(t *testing.T) {
 		t.Fatalf("nil-row no_thread_id must not surface error, got %v", err)
 	}
 	assertResult(t, result, StopResultSkippedNoThreadID)
-	assertMetric(t, metrics, StopResultSkippedNoThreadID)
+	assertMetricDelta(t, before, StopResultSkippedNoThreadID)
 	if svc.calls != 0 {
 		t.Fatalf("StopAgent should not be called when row absent, got %d calls",
 			svc.calls)
@@ -252,7 +254,7 @@ func TestStopSpawnedAgent_SkippedNoThreadID_NilRow(t *testing.T) {
 }
 
 func TestStopSpawnedAgent_SkippedNoThreadID_NotFoundSentinel(t *testing.T) {
-	metrics := withMetricSpy(t)
+	before := StopSpawnedAgentCounters()
 	// store returns errAgentNotFound (archive_test.go:208 pattern).
 	threads := &stopHelperThreadSpy{thread: nil, err: errAgentNotFound}
 	svc := &stopHelperServiceSpy{}
@@ -262,11 +264,11 @@ func TestStopSpawnedAgent_SkippedNoThreadID_NotFoundSentinel(t *testing.T) {
 		t.Fatalf("StopSpawnedAgent error = %v, want agent not found", err)
 	}
 	assertResult(t, result, StopResultSkippedNoThreadID)
-	assertMetric(t, metrics, StopResultSkippedNoThreadID)
+	assertMetricDelta(t, before, StopResultSkippedNoThreadID)
 }
 
 func TestStopSpawnedAgent_SkippedLookupFailed(t *testing.T) {
-	metrics := withMetricSpy(t)
+	before := StopSpawnedAgentCounters()
 	lookupErr := errors.New("rpc broken pipe")
 	threads := &stopHelperThreadSpy{err: lookupErr}
 	svc := &stopHelperServiceSpy{}
@@ -276,7 +278,7 @@ func TestStopSpawnedAgent_SkippedLookupFailed(t *testing.T) {
 		t.Fatalf("lookup_failed must surface original error for log, got %v", err)
 	}
 	assertResult(t, result, StopResultSkippedLookupFailed)
-	assertMetric(t, metrics, StopResultSkippedLookupFailed)
+	assertMetricDelta(t, before, StopResultSkippedLookupFailed)
 	if svc.calls != 0 {
 		t.Fatalf("StopAgent should not be called after lookup failed, got %d calls",
 			svc.calls)
@@ -284,7 +286,7 @@ func TestStopSpawnedAgent_SkippedLookupFailed(t *testing.T) {
 }
 
 func TestStopSpawnedAgent_Failed(t *testing.T) {
-	metrics := withMetricSpy(t)
+	before := StopSpawnedAgentCounters()
 	threads := &stopHelperThreadSpy{
 		thread: &PersistedThread{ThreadID: "thr-1", AgentID: "agent-1"},
 	}
@@ -296,15 +298,13 @@ func TestStopSpawnedAgent_Failed(t *testing.T) {
 		t.Fatalf("failed must surface original error for log, got %v", err)
 	}
 	assertResult(t, result, StopResultFailed)
-	assertMetric(t, metrics, StopResultFailed)
+	assertMetricDelta(t, before, StopResultFailed)
 }
 
 // --- counter integration sanity ------------------------------------------
 
-// TestStopSpawnedAgent_DefaultCounterIncrements proves the
-// stop_metric.go init() wires defaultStopSpawnedAgentCounter into
-// stopSpawnedAgentMetrics — i.e. the package singleton actually
-// receives Inc() calls when no spy is installed.
+// TestStopSpawnedAgent_DefaultCounterIncrements proves the package default
+// counter receives Inc() calls without init-time mutable global wiring.
 func TestStopSpawnedAgent_DefaultCounterIncrements(t *testing.T) {
 	before := defaultStopSpawnedAgentCounter.Snapshot()
 

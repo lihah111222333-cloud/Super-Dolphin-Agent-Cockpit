@@ -80,9 +80,9 @@ var Module = fx.Options(
 	claudecli.Module,
 	codexapp.Module,
 	toolbridge.Module, // P15 新增：始终加载
-	ToolbridgeAdapters,
-	ToolbridgeCodexBinding,
-	SharedFileAdapter,
+	toolbridgeAdaptersModule(),
+	toolbridgeCodexBindingModule(),
+	sharedFileAdapterModule(),
 
 	// orchestration is handled entirely by the standalone mcp-orch MCP server;
 	// the desktop app must NOT embed its own orchestration module, otherwise

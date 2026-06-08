@@ -247,13 +247,11 @@ func TestMCPOrchDAGRuntimePropagatesPeerFailure(t *testing.T) {
 }
 
 func TestMCPOrchDAGRuntimeWaitsForPeerReady(t *testing.T) {
-	withDAGRuntimePeerWaitForTest(t, 200*time.Millisecond, time.Millisecond)
-
 	caller := &recordingDAGToolCaller{
 		result:     `{"dags":[{"dag_key":"dag-1","title":"Daily","status":"running"}]}`,
 		callErrors: []error{toolbridge.ErrNoPeerAvailable, toolbridge.ErrNoPeerAvailable},
 	}
-	runtime := &mcpOrchDAGRuntime{tools: caller}
+	runtime := newDAGRuntimeWithPeerWaitForTest(caller, 200*time.Millisecond, time.Millisecond)
 
 	dags, err := runtime.ListDAGs(context.Background(), contract.ListDAGsFilter{Limit: 7})
 	if err != nil {
@@ -269,10 +267,8 @@ func TestMCPOrchDAGRuntimeWaitsForPeerReady(t *testing.T) {
 }
 
 func TestMCPOrchDAGRuntimePeerUnavailableErrorIsActionable(t *testing.T) {
-	withDAGRuntimePeerWaitForTest(t, 3*time.Millisecond, time.Millisecond)
-
 	caller := &recordingDAGToolCaller{err: toolbridge.ErrNoPeerAvailable}
-	runtime := &mcpOrchDAGRuntime{tools: caller}
+	runtime := newDAGRuntimeWithPeerWaitForTest(caller, 3*time.Millisecond, time.Millisecond)
 
 	_, err := runtime.ListDAGs(context.Background(), contract.ListDAGsFilter{Limit: 7})
 	if !errors.Is(err, toolbridge.ErrNoPeerAvailable) {
@@ -406,14 +402,10 @@ func assertDAGToolCall(t *testing.T, caller *recordingDAGToolCaller, wantName st
 	}
 }
 
-func withDAGRuntimePeerWaitForTest(t *testing.T, timeout, interval time.Duration) {
-	t.Helper()
-	oldTimeout := dagRuntimePeerReadyTimeout
-	oldInterval := dagRuntimePeerReadyPollInterval
-	dagRuntimePeerReadyTimeout = timeout
-	dagRuntimePeerReadyPollInterval = interval
-	t.Cleanup(func() {
-		dagRuntimePeerReadyTimeout = oldTimeout
-		dagRuntimePeerReadyPollInterval = oldInterval
-	})
+func newDAGRuntimeWithPeerWaitForTest(caller dagToolCaller, timeout, interval time.Duration) *mcpOrchDAGRuntime {
+	return &mcpOrchDAGRuntime{
+		tools:             caller,
+		peerReadyTimeout:  timeout,
+		peerReadyInterval: interval,
+	}
 }
