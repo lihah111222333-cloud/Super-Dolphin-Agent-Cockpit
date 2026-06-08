@@ -2,6 +2,10 @@
 
 Use `scripts/package_macos.sh` with `SUPER_DOLPHIN_RELEASE_PROFILE=gray` to produce the macOS gray release artifact.
 
+For the GitHub latest-release update flow used by the in-app updater, use
+`scripts/package_macos_github_release.sh` and the cross-platform staging/publish
+process in `docs/packaging/github-release-update.md`.
+
 The signed `gray` profile is intentionally stricter than the default `dev-local` profile:
 
 - The only user-facing and update artifact is `dist/package/macos/Super Dolphin.dmg`.

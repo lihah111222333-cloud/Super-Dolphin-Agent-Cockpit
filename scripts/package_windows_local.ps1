@@ -73,6 +73,8 @@ $RequestedWindowsOutput = $Artifact
 $RequestedKeepStage = $KeepStage.IsPresent -or ([Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_WINDOWS_KEEP_STAGE', 'Process') -eq '1')
 $RelayUrl = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_CODEX_RELAY_BASE_URL', 'Process')
 $BootstrapToken = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN', 'Process')
+$UpdateManifestURL = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_UPDATE_MANIFEST_URL', 'Process')
+$UpdateGitHubRepo = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_UPDATE_GITHUB_REPO', 'Process')
 $PostgresDist = if ($env:SUPER_DOLPHIN_POSTGRES_DIST) { $env:SUPER_DOLPHIN_POSTGRES_DIST } else { Join-Path $Root "third_party/postgres/$Platform" }
 $CodexBin = if ($env:SUPER_DOLPHIN_CODEX_ARTIFACT) { $env:SUPER_DOLPHIN_CODEX_ARTIFACT } else { Get-CommandSource 'codex.exe' }
 
@@ -93,6 +95,28 @@ if (-not (Test-Path -LiteralPath $CodexBin -PathType Leaf)) {
 }
 if (-not (Test-Path -LiteralPath $PostgresDist -PathType Container)) {
     throw "missing PostgreSQL dist; set SUPER_DOLPHIN_POSTGRES_DIST: $PostgresDist"
+}
+
+function Forward-UpdateEnv() {
+    if (($null -ne $script:UpdateManifestURL -and $script:UpdateManifestURL.Trim() -ne '') -or
+        ($null -ne $script:UpdateGitHubRepo -and $script:UpdateGitHubRepo.Trim() -ne '')) {
+        $env:SUPER_DOLPHIN_UPDATE_ENABLED = '1'
+    }
+    if ($null -ne $script:UpdateManifestURL) {
+        $env:SUPER_DOLPHIN_UPDATE_MANIFEST_URL = $script:UpdateManifestURL
+    }
+    if ($null -ne $script:UpdateGitHubRepo) {
+        $env:SUPER_DOLPHIN_UPDATE_GITHUB_REPO = $script:UpdateGitHubRepo
+    }
+    if (-not $env:SUPER_DOLPHIN_UPDATE_CHANNEL) {
+        $env:SUPER_DOLPHIN_UPDATE_CHANNEL = 'gray'
+    }
+    if (-not $env:SUPER_DOLPHIN_UPDATE_VERSION -and $env:VERSION) {
+        $env:SUPER_DOLPHIN_UPDATE_VERSION = $env:VERSION
+    }
+    if ($env:SUPER_DOLPHIN_UPDATE_PUBLIC_KEY) {
+        $env:SUPER_DOLPHIN_UPDATE_PUBLIC_KEY = $env:SUPER_DOLPHIN_UPDATE_PUBLIC_KEY
+    }
 }
 
 function Package-One() {
@@ -116,6 +140,7 @@ function Package-One() {
     $env:SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN = $BootstrapToken
     $env:SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_PROOF = if ($env:SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_PROOF) { $env:SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_PROOF } else { 'local-private-package' }
     Remove-Item Env:SUPER_DOLPHIN_CODEX_RELAY_API_KEY -ErrorAction SilentlyContinue
+    Forward-UpdateEnv
 
     $packageArgs = @{ Artifact = $RequestedWindowsOutput }
     if ($RequestedKeepStage) {

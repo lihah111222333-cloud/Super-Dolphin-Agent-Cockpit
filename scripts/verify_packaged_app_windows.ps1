@@ -138,6 +138,99 @@ function Get-JsonProperty() {
     return $prop.Value
 }
 
+function Get-DotEnvValue() {
+    param(
+        [Parameter(Mandatory)][string]$EnvFile,
+        [Parameter(Mandatory)][string]$Name
+    )
+    if (-not (Test-Path -LiteralPath $EnvFile -PathType Leaf)) {
+        return ''
+    }
+    foreach ($line in Get-Content -LiteralPath $EnvFile) {
+        $trimmed = $line.Trim()
+        if ($trimmed -eq '' -or $trimmed.StartsWith('#')) {
+            continue
+        }
+        $idx = $line.IndexOf('=')
+        if ($idx -lt 0) {
+            continue
+        }
+        $key = $line.Substring(0, $idx)
+        if ($key -eq $Name) {
+            return $line.Substring($idx + 1)
+        }
+    }
+    return ''
+}
+
+function Require-DotEnvValue() {
+    param(
+        [Parameter(Mandatory)][string]$EnvFile,
+        [Parameter(Mandatory)][string]$Name
+    )
+    $value = Get-DotEnvValue -EnvFile $EnvFile -Name $Name
+    if ($value.Trim() -eq '') {
+        throw "packaged update .env missing non-empty $Name"
+    }
+    return $value
+}
+
+function Test-Truthy() {
+    param([AllowEmptyString()][string]$Value)
+    if ($null -eq $Value) { return $false }
+    switch ($Value.Trim().ToLowerInvariant()) {
+        '' { return $false }
+        '0' { return $false }
+        'false' { return $false }
+        'no' { return $false }
+        'off' { return $false }
+        default { return $true }
+    }
+}
+
+function Assert-UpdatePublicKey() {
+    param([Parameter(Mandatory)][string]$PublicKey)
+    try {
+        $decoded = [Convert]::FromBase64String($PublicKey)
+    } catch {
+        throw 'SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be valid base64'
+    }
+    if ($decoded.Length -ne 32) {
+        throw 'decoded SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be 32 bytes'
+    }
+}
+
+function Verify-UpdateEnv() {
+    param([Parameter(Mandatory)][string]$PackageRoot)
+    $envFile = Join-Path $PackageRoot '.env'
+    if (-not (Test-Truthy -Value (Get-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_ENABLED'))) {
+        return
+    }
+    $manifestURL = Get-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_MANIFEST_URL'
+    $githubRepo = Get-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_GITHUB_REPO'
+    if ($manifestURL.Trim() -eq '' -and $githubRepo.Trim() -eq '') {
+        throw 'SUPER_DOLPHIN_UPDATE_MANIFEST_URL or SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required when app update is enabled'
+    }
+    $source = ''
+    if ($manifestURL.Trim() -ne '') {
+        if ($manifestURL -notmatch '^https://[^/?#]+($|[/?#])') {
+            throw 'SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be an HTTPS URL with a host'
+        }
+        $source = "manifest:$manifestURL"
+    }
+    if ($githubRepo.Trim() -ne '') {
+        if ($githubRepo -notmatch '^[^/\s]+/[^/\s]+$') {
+            throw 'SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace'
+        }
+        $source = "github:$githubRepo"
+    }
+    $publicKey = Require-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_PUBLIC_KEY'
+    $channel = Require-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_CHANNEL'
+    $version = Require-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_VERSION'
+    Assert-UpdatePublicKey -PublicKey $publicKey
+    Write-Host "packaged app update env verified: source=$source channel=$channel version=$version"
+}
+
 function Assert-JsonStringArray() {
     param(
         [Parameter(Mandatory)]$Value,
@@ -425,6 +518,7 @@ $script:CleanupDir = ''
 try {
     $packageRoot = Resolve-PackageRoot -InputPath $Target
     Verify-RequiredFiles -PackageRoot $packageRoot
+    Verify-UpdateEnv -PackageRoot $packageRoot
     Verify-RuntimeManifest -PackageRoot $packageRoot
     Assert-PackageNativeArchitecture -PackageRoot $packageRoot
     Verify-CodexManifest -PackageRoot $packageRoot
