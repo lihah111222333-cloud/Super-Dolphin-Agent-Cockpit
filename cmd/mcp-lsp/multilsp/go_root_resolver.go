@@ -293,8 +293,9 @@ func resolvedGoNoiseDirNames(noiseDirNames []string) []string {
 	if len(noiseDirNames) > 0 {
 		return noiseDirNames
 	}
-	names := make([]string, 0, len(defaultLanguageServiceNoiseDirSet))
-	for name := range defaultLanguageServiceNoiseDirSet {
+	noiseDirSet := defaultLanguageServiceNoiseDirSet()
+	names := make([]string, 0, len(noiseDirSet))
+	for name := range noiseDirSet {
 		names = append(names, name)
 	}
 	return names

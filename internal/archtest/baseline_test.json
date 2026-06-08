@@ -1,34 +1,4 @@
 {
-  "cmd/mcp-lsp/search/searchutil_test.go": {
-    "lines": 480,
-    "max_func_len": 39,
-    "max_nesting": 2,
-    "max_complexity": 7,
-    "max_params": 4,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 1,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0,
-    "max_struct_fields": 3
-  },
-  "cmd/mcp-lsp/tools/tool_edit_patch_sync_test.go": {
-    "lines": 160,
-    "max_func_len": 48,
-    "max_nesting": 2,
-    "max_complexity": 5,
-    "max_params": 4,
-    "max_returns": 1,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 1,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0,
-    "max_struct_fields": 4
-  },
   "cmd/mcp-lsp/tools/tool_middleware_test.go": {
     "lines": 37,
     "max_func_len": 15,
@@ -39,34 +9,6 @@
     "max_underscore": 0,
     "global_vars": 0,
     "panic_count": 1,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0
-  },
-  "cmd/mcp-orch/orchestration/nodeexec/test_cwd_test.go": {
-    "lines": 16,
-    "max_func_len": 9,
-    "max_nesting": 1,
-    "max_complexity": 2,
-    "max_params": 2,
-    "max_returns": 1,
-    "max_underscore": 0,
-    "global_vars": 1,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0
-  },
-  "cmd/mcp-orch/orchestration/test_cwd_test.go": {
-    "lines": 25,
-    "max_func_len": 9,
-    "max_nesting": 1,
-    "max_complexity": 2,
-    "max_params": 2,
-    "max_returns": 1,
-    "max_underscore": 0,
-    "global_vars": 1,
-    "panic_count": 0,
     "naked_returns": 0,
     "empty_funcs": 0,
     "todo_count": 0
@@ -189,20 +131,6 @@
     "todo_count": 0,
     "max_struct_fields": 17
   },
-  "internal/module/uistate/builtin_tools_test.go": {
-    "lines": 249,
-    "max_func_len": 25,
-    "max_nesting": 2,
-    "max_complexity": 6,
-    "max_params": 2,
-    "max_returns": 1,
-    "max_underscore": 0,
-    "global_vars": 1,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0
-  },
   "internal/platform/db/tx_test.go": {
     "lines": 181,
     "max_func_len": 27,
@@ -292,20 +220,6 @@
     "empty_funcs": 0,
     "todo_count": 0
   },
-  "internal/provider/claudecli/driver_auth_preflight_test.go": {
-    "lines": 118,
-    "max_func_len": 27,
-    "max_nesting": 1,
-    "max_complexity": 4,
-    "max_params": 2,
-    "max_returns": 0,
-    "max_underscore": 0,
-    "global_vars": 1,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0
-  },
   "internal/provider/claudecli/session_restart_test.go": {
     "lines": 450,
     "max_func_len": 48,
@@ -320,21 +234,6 @@
     "empty_funcs": 0,
     "todo_count": 0,
     "max_struct_fields": 4
-  },
-  "internal/ui/wails/rpc_test.go": {
-    "lines": 518,
-    "max_func_len": 51,
-    "max_nesting": 4,
-    "max_complexity": 10,
-    "max_params": 4,
-    "max_returns": 1,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 1,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0,
-    "max_struct_fields": 2
   },
   "scripts/bash_test_helpers_test.go": {
     "lines": 98,

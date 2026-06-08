@@ -13,8 +13,8 @@ import (
 
 // NOTE(P8): 这里仍处在过渡态；provider-neutral Session 只暴露 Configure /
 // Interrupt 等少量 typed surface，所以 SendCommand 目前只对高频命令做结构化
-// 处理，其余命令保留壳层并显式标 TODO。`thread/skills/list` 返回线程绑定的
-// active skills，不同于扫描全量本地目录的 `skills/list`。
+// 处理，其余命令保留低频兼容壳。`thread/skills/list` 返回线程绑定的 active
+// skills，不同于扫描全量本地目录的 `skills/list`。
 func (s *service) SendCommand(ctx context.Context, threadID, command, args string) (any, error) {
 	cmd := normalizeCommand(command)
 	if cmd == "/clear" {
