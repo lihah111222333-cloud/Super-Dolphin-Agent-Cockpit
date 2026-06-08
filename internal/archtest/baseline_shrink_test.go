@@ -39,7 +39,7 @@ func TestShrinkBaseline_Shrunk(t *testing.T) {
 	}
 	fileSet := map[string]bool{"improving.go": true}
 	measure := func(_ string) FileMetrics {
-		// panic 减少但 todo 仍有 → 仍违规，质量指标应收紧；未违规的行数不应 churn
+		// panic 减少但 blocked-work marker 仍有 -> 仍违规，质量指标应收紧；未违规的行数不应 churn
 		return FileMetrics{
 			SizeMetrics:    SizeMetrics{Lines: 400},
 			QualityMetrics: QualityMetrics{PanicCount: 1, TodoCount: 2},
@@ -112,7 +112,7 @@ func TestShrinkBaseline_NoRelax(t *testing.T) {
 	}
 	fileSet := map[string]bool{"worsening.go": true}
 	measure := func(_ string) FileMetrics {
-		// panic 增加（恶化）但 todo 减少 → 应保持 panic=1（frozen），todo=1（tightened）
+		// panic 增加（恶化）但 blocked-work marker 减少 -> 应保持 panic=1（frozen），marker=1（tightened）
 		return FileMetrics{
 			SizeMetrics:    SizeMetrics{Lines: 300},
 			QualityMetrics: QualityMetrics{PanicCount: 5, TodoCount: 1},
@@ -120,7 +120,7 @@ func TestShrinkBaseline_NoRelax(t *testing.T) {
 	}
 	newBL, stats := ShrinkBaseline(oldBL, fileSet, measure)
 	if stats.Shrunk != 1 {
-		t.Errorf("Shrunk: got %d, want 1 (todo was tightened)", stats.Shrunk)
+		t.Errorf("Shrunk: got %d, want 1 (blocked-work marker was tightened)", stats.Shrunk)
 	}
 	m := newBL["worsening.go"]
 	if m.PanicCount != 1 {

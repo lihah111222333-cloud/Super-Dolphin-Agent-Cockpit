@@ -85,7 +85,7 @@ func countEffectiveLinesFromRaw(rawLines []string) int {
 // countGlobalVarsV3 计算包级 var 数量，豁免 V3 特有模式：
 //   - var Module = fx.Module(...)
 //   - var _ Interface = (*impl)(nil) 接口合规检查
-//   - var ErrXxx / var errXxx 哨兵错误
+//   - var ErrExample / var errExample 哨兵错误
 //   - regexp.MustCompile / event.New 不可变全局
 func countGlobalVarsV3(node *ast.File) int {
 	count := 0
@@ -115,7 +115,7 @@ func countGlobalVarsV3(node *ast.File) int {
 
 // isExemptGlobalVar 判断包级 var 是否属于 V3 豁免模式。
 func isExemptGlobalVar(name string, vs *ast.ValueSpec) bool {
-	// 哨兵错误: ErrXxx or errXxx
+	// 哨兵错误: ErrExample or errExample
 	if strings.HasPrefix(name, "Err") || strings.HasPrefix(name, "err") {
 		return true
 	}
@@ -138,17 +138,17 @@ func isExemptGlobalVar(name string, vs *ast.ValueSpec) bool {
 }
 
 // isImmutableGlobalInit 检查初始化表达式是否为不可变全局构造。
-// 覆盖：函数调用类（regexp.MustCompile, promauto.NewXxx 等）、复合字面量（slice/map/struct literal）。
+// 覆盖：函数调用类（regexp.MustCompile, promauto.NewCounter 等）、复合字面量（slice/map/struct literal）。
 func isImmutableGlobalInit(expr ast.Expr) bool {
 	switch e := expr.(type) {
 	case *ast.CompositeLit:
-		// var xxx = []string{...}, map[K]V{...}, SomeStruct{...}
+		// var sample = []string{...}, map[K]V{...}, SomeStruct{...}
 		// 只读声明式字面量，不是可变状态
 		return true
 	case *ast.CallExpr:
 		return isImmutableFuncCall(e)
 	case *ast.UnaryExpr:
-		// var xxx = &SomeStruct{...}
+		// var sample = &SomeStruct{...}
 		if _, ok := e.X.(*ast.CompositeLit); ok {
 			return true
 		}
@@ -171,7 +171,7 @@ func isImmutableFuncCall(call *ast.CallExpr) bool {
 	if pkg.Name == "fx" && fn == "Module" {
 		return true
 	}
-	// 通用模式：pkg.NewXxx() / pkg.MustXxx() 通常返回不可变工厂值
+	// 通用模式：pkg.NewResource() / pkg.MustResource() 通常返回不可变工厂值
 	return strings.HasPrefix(fn, "New") || strings.HasPrefix(fn, "Must")
 }
 
@@ -202,7 +202,7 @@ func countPanicCalls(node *ast.File) int {
 	return count
 }
 
-// countTodoComments 计算文件中 TODO / FIXME / HACK / XXX 注释数量。
+// 计算文件中的 blocked-work marker 数量。
 func countTodoComments(node *ast.File) int {
 	count := 0
 	for _, cg := range node.Comments {
