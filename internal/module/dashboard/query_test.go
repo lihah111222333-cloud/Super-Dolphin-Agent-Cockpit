@@ -450,6 +450,39 @@ func TestDashboardDAGDispatchNodeRequiresRuntimeRunID(t *testing.T) {
 	}
 }
 
+func TestDashboardDAGDispatchNodeRequiresAssignedTo(t *testing.T) {
+	t.Parallel()
+
+	server := newDashboardTestServer(t, &service{orchestration: &stubDashboardOrchestration{}})
+
+	var resp contract.DispatchNodeResponse
+	err := dispatchDashboardInto(server, "dashboard/dagDispatchNode", `{"dagKey":"dag-1","runId":88,"nodeKey":"draft"}`, &resp)
+	if err == nil || !strings.Contains(err.Error(), "assignedTo is required") {
+		t.Fatalf("dispatch dag node error = %v, want assignedTo required", err)
+	}
+}
+
+func TestDashboardDAGDispatchNodeRejectsUnknownFieldBeforeServiceCall(t *testing.T) {
+	t.Parallel()
+
+	orchestration := &stubDashboardOrchestration{}
+	server := newDashboardTestServer(t, &service{orchestration: orchestration})
+
+	var params dagDispatchNodeParams
+	if err := json.Unmarshal([]byte(`{"dagKey":"dag-1","runId":88,"nodeKey":"draft","assignedTo":"codex-runner","unexpectedUiOnlyField":"leak"}`), &params); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("dagDispatchNodeParams decode error = %v, want unknown field rejection", err)
+	}
+
+	var resp contract.DispatchNodeResponse
+	err := dispatchDashboardInto(server, "dashboard/dagDispatchNode", `{"dagKey":"dag-1","runId":88,"nodeKey":"draft","assignedTo":"codex-runner","unexpectedUiOnlyField":"leak"}`, &resp)
+	if err == nil || !strings.Contains(err.Error(), "invalid parameters") {
+		t.Fatalf("dispatch dag node error = %v, want invalid parameters", err)
+	}
+	if orchestration.dispatchNodeRequest != (contract.DispatchNodeRequest{}) {
+		t.Fatalf("DispatchNode() request = %#v, want decode rejection before service call", orchestration.dispatchNodeRequest)
+	}
+}
+
 func assertDashboardDAGDelete(t *testing.T, server *platformrpc.Server, orchestration *stubDashboardOrchestration) {
 	t.Helper()
 

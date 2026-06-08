@@ -43,7 +43,7 @@ const backend = vi.hoisted(() => {
   const mockNames = `
 	    readConfig getWindowBootstrap openNewWindow getProjects setActiveProject addProject removeProject
 	    callBackend
-	    getSidebarState getThreadState getThreadMessages getBuildInfo getDashboardPage getObservabilityStatus
+    getSidebarState getThreadState getThreadMessages getBuildInfo getVideoApiKey getDashboardPage getObservabilityStatus
     getObservabilityTrace getObservabilityThreadRecent listObservabilityRecent listObservabilitySlow
     listObservabilityErrors listSharedFiles listPromptAssets getDashboardPrompts getPrompt writePrompt
     readLspPromptHint writeLspPromptHint readBuiltinTools writeBuiltinTool listDashboardLogs
@@ -56,7 +56,7 @@ const backend = vi.hoisted(() => {
     readSkill listSkillFiles createSkill writeSkill importSkillDirectories suggestSkillSummary selectProjectDir selectProjectDirs
     listSkillResolutions previewSkillResolution applySkillResolution readSharedFile deleteSharedFile getPreference
     startThread startTurn interruptTurn forceCompleteTurn compactThread recoverThread respondApproval resolveThreadIdentity archiveThread unarchiveThread
-    deleteThread getThreadConfig setThreadConfig renameThread setPreference selectFiles saveClipboardImage saveTextFile
+    deleteThread getThreadConfig setThreadConfig renameThread setPreference setVideoApiKey selectFiles saveClipboardImage saveTextFile
     locateCodeFile openCodeFile saveCodeFile beginTextClipboardWrite copyTextToClipboard emitFrontendTraceEvent
   `.trim().split(/\s+/);
   return {
@@ -177,8 +177,10 @@ function mockBootstrapBackendDefaults() {
       'thread-1': 'diff --git a/file b/file',
     },
   });
-	backend.getThreadMessages.mockResolvedValue({ messages: [] });
-	backend.callBackend.mockResolvedValue({});
+  backend.getThreadMessages.mockResolvedValue({ messages: [] });
+  backend.callBackend.mockResolvedValue({});
+  backend.getVideoApiKey.mockResolvedValue({ configured: false, masked: '' });
+  backend.setVideoApiKey.mockResolvedValue({ ok: true });
 }
 
 function mockDashboardPageDefaults() {

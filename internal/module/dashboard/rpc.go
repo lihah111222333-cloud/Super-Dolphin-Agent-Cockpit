@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/creachadair/jrpc2/handler"
@@ -111,6 +112,32 @@ type dagDispatchNodeParams struct {
 	NodeKey    string `json:"nodeKey,omitempty"`
 	RunID      int64  `json:"runId,omitempty"`
 	AssignedTo string `json:"assignedTo,omitempty"`
+}
+
+func (p *dagDispatchNodeParams) UnmarshalJSON(data []byte) error {
+	type raw dagDispatchNodeParams
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return err
+	}
+	for key := range payload {
+		if _, ok := dagDispatchNodeFields[key]; !ok {
+			return fmt.Errorf("dashboard/dagDispatchNode: unknown field %q", key)
+		}
+	}
+	var current raw
+	if err := json.Unmarshal(data, &current); err != nil {
+		return err
+	}
+	*p = dagDispatchNodeParams(current)
+	return nil
+}
+
+var dagDispatchNodeFields = map[string]struct{}{
+	"assignedTo": {},
+	"dagKey":     {},
+	"nodeKey":    {},
+	"runId":      {},
 }
 
 type dagTerminateParams struct {

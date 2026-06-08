@@ -467,7 +467,7 @@ func TestNewThreadHandlersDispatchStartRejectsInvalidConfig(t *testing.T) {
 		raw  string
 		want string
 	}{
-		{name: "provider", raw: `{"provider":"other","prompt":"hello"}`, want: "invalid provider"},
+		{name: "provider", raw: `{"provider":"other","cwd":"/tmp/project","prompt":"hello"}`, want: "invalid provider"},
 		{name: "approval", raw: `{"provider":"codex","approval_policy":"later","cwd":"/tmp/project","prompt":"hello"}`, want: "invalid approval policy"},
 		{name: "sandbox", raw: `{"sandbox":{`, want: "unexpected end of JSON input"},
 	} {
