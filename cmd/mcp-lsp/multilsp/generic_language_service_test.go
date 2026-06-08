@@ -477,7 +477,10 @@ type genericMatrixClient struct {
 	initLanguageID string
 }
 
-func (c *genericMatrixClient) setWorkspaceFolders([]protocol.WorkspaceFolder) {}
+func (c *genericMatrixClient) setWorkspaceFolders(folders []protocol.WorkspaceFolder) {
+	_ = c
+	_ = folders
+}
 
 func (c *genericMatrixClient) Initialize(ctx context.Context, _ string) error {
 	c.mu.Lock()

@@ -44,9 +44,6 @@ func TestHandleSystemInitRawRecordsProviderSessionUUID(t *testing.T) {
 }
 
 func TestHandleSystemInitRawStartsLogWatcherAndUsesRuntimeContextWindow(t *testing.T) {
-
-	defer swapDefaultSessionLogWatcherPollIntervalForTest(10 * time.Millisecond)()
-
 	dir := t.TempDir()
 	sessionID := "11111111-2222-3333-4444-555555555555"
 	writeWatcherIntegrationLog(t, dir, sessionID)
@@ -106,7 +103,7 @@ func assertLogWatcherEvent(t *testing.T, rawEvents <-chan dto.BusRawProviderEven
 	case ev := <-rawEvents:
 		data, _ := ev.Event.Data.(map[string]any)
 		assertWatcherPayload(t, data)
-	case <-time.After(time.Second):
+	case <-time.After(2 * time.Second):
 		t.Fatal("tokens:log_watcher event was not published")
 	}
 }

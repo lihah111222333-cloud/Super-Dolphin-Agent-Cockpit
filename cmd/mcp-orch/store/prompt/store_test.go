@@ -533,7 +533,7 @@ type stubPromptSectionRows struct {
 	err  error
 }
 
-func (*stubPromptSectionRows) Close()                                       {}
+func (r *stubPromptSectionRows) Close()                                     { _ = r }
 func (r *stubPromptSectionRows) Err() error                                 { return r.err }
 func (*stubPromptSectionRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
 func (*stubPromptSectionRows) FieldDescriptions() []pgconn.FieldDescription { return nil }

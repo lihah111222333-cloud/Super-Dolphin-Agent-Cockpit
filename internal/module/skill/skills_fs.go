@@ -459,7 +459,8 @@ func (s *service) WriteRemote(ctx context.Context, name, content string) (any, e
 }
 
 func (s *service) ReadConfig(_ context.Context, agentID string) (any, error) {
-	// TODO(P7): replace this placeholder response with persisted agent-scoped skill bindings when the config storage contract exists.
+	// Preserve the current unconfigured response until agent-scoped skill
+	// bindings have a persisted storage contract.
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
 		return nil, errors.New("agent_id is required")

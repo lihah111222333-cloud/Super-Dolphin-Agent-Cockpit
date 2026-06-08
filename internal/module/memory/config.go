@@ -234,7 +234,9 @@ func hasPersistentMemoryStorage(cfg *Config) bool {
 	return configuredAutoMemPathOverride(cfg) != ""
 }
 
-func HandleDateChange() {}
+func HandleDateChange() {
+	// Date-change hooks are currently handled by callers that rebuild Config.
+}
 
 func LoadNestedMemoryPaths() []string {
 	return []string{}

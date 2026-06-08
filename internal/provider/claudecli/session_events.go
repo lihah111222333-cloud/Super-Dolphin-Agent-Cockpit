@@ -149,7 +149,7 @@ func (s *session) handleSystemInitRaw(tr *transport, raw dto.RawProviderEvent) {
 		eventThreadID := s.EventThreadID()
 		if newID != prevID || eventThreadID != newID {
 			// When the previous thread ID was a placeholder (empty or
-			// agent_xxx), use agentID as thread_id so the frontend
+			// an agent placeholder ID), use agentID as thread_id so the frontend
 			// matches this event to the existing session card instead
 			// of creating a duplicate. The real provider UUID is still
 			// carried in session_id for backend binding resolution.

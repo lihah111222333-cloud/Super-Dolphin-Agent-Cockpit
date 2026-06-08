@@ -43,8 +43,8 @@ func (s *store) Query(ctx context.Context, query string, args ...any) ([]map[str
 	return rows, nil
 }
 
-// TODO(p7w2): replace PlaceholderDBQuery with a real sql/queries-backed dbquery
-// contract once the V3 dbquery migration surface is defined.
+// Placeholder preserves the legacy PlaceholderDBQuery compatibility path until
+// callers migrate to the generic Query contract.
 func (s *store) Placeholder(ctx context.Context) ([]PlaceholderRow, error) {
 	if s == nil || s.q == nil {
 		return nil, wrapDBQueryError(errors.New("dbquery store is not initialized"), "placeholder")

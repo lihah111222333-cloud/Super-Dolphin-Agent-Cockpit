@@ -7,12 +7,12 @@ import (
 	"go.uber.org/fx"
 )
 
-// SharedFileAdapter Module provides the UISharedFilesChanged emitter adapter
+// sharedFileAdapterModule provides the UISharedFilesChanged emitter adapter
 // so that the low-level store.sharedfile does not directly import the dispatcher
 // or contract layers, preserving strict DDD dependency isolation.
-var SharedFileAdapter = fx.Options(
-	fx.Provide(provideUISharedFilesChangedEmitter),
-)
+func sharedFileAdapterModule() fx.Option {
+	return fx.Provide(provideUISharedFilesChangedEmitter)
+}
 
 func provideUISharedFilesChangedEmitter(dispatcher *event.Dispatcher) func(uidto.UISharedFilesChanged) {
 	if dispatcher == nil {

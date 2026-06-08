@@ -16,19 +16,23 @@ import (
 	"go.uber.org/fx"
 )
 
-// ToolbridgeAdapters provides the fx wiring that bridges concrete store,
+// toolbridgeAdaptersModule provides the fx wiring that bridges concrete store,
 // module, and provider types into toolbridge's narrow contract ports.
 // This keeps internal/platform/toolbridge free of module/provider/store
 // imports while the assembly seam (this file) legitimately knows all layers.
-var ToolbridgeAdapters = fx.Provide(
-	provideToolbridgeAgentThreadLookup,
-	provideToolbridgeThreadConfigOverrideStore,
-	provideToolbridgeUIPreferenceReader,
-	provideToolbridgeWorkDirResolver,
-)
+func toolbridgeAdaptersModule() fx.Option {
+	return fx.Provide(
+		provideToolbridgeAgentThreadLookup,
+		provideToolbridgeThreadConfigOverrideStore,
+		provideToolbridgeUIPreferenceReader,
+		provideToolbridgeWorkDirResolver,
+	)
+}
 
-// ToolbridgeCodexBinding wires the codex handler binding as an fx.Invoke.
-var ToolbridgeCodexBinding = fx.Invoke(bindToolbridgeCodexHandlers)
+// toolbridgeCodexBindingModule wires the codex handler binding as an fx.Invoke.
+func toolbridgeCodexBindingModule() fx.Option {
+	return fx.Invoke(bindToolbridgeCodexHandlers)
+}
 
 // ---------------------------------------------------------------------------
 // Store adapters: binding → AgentThreadLookup

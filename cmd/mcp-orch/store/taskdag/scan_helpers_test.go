@@ -28,7 +28,7 @@ type stubTaskDAGRows struct {
 	idx  int
 }
 
-func (r *stubTaskDAGRows) Close()                                       {}
+func (r *stubTaskDAGRows) Close()                                       { _ = r }
 func (r *stubTaskDAGRows) Err() error                                   { return nil }
 func (r *stubTaskDAGRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
 func (r *stubTaskDAGRows) FieldDescriptions() []pgconn.FieldDescription { return nil }

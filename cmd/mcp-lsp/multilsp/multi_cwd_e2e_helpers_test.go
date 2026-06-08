@@ -31,9 +31,12 @@ type e2eRecordedRequest struct {
 	params any
 }
 
-func (c *e2eClient) setWorkspaceFolders([]protocol.WorkspaceFolder) {}
-func (c *e2eClient) Initialize(_ context.Context, _ string) error   { return nil }
-func (c *e2eClient) Shutdown(_ context.Context) error               { return nil }
+func (c *e2eClient) setWorkspaceFolders(folders []protocol.WorkspaceFolder) {
+	_ = c
+	_ = folders
+}
+func (c *e2eClient) Initialize(_ context.Context, _ string) error { return nil }
+func (c *e2eClient) Shutdown(_ context.Context) error             { return nil }
 func (c *e2eClient) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

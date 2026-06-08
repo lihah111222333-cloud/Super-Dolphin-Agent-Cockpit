@@ -14,49 +14,6 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-const ReportMethodReportEvent, ReportMethodRememberReportRequest, ReportEventTypeThreadStatusChanged = "agent/reportEvent", "agent/rememberReportRequest", "thread/status/changed"
-
-var terminalReportEventTypesList = []string{
-	"agent/event/task_complete",
-	"completed",
-	"completion",
-	"connection.dead",
-	"connection_dead",
-	"error",
-	"idle",
-	"shutdown.complete",
-	"shutdown_complete",
-	"stream.error",
-	"stream_error",
-	"turn.completed",
-	"turn/completed",
-	"turn.aborted",
-	"turn_aborted",
-	"turn_complete",
-}
-
-var terminalThreadStatusesList = []string{
-	"error",
-	"idle",
-	"not_loaded",
-	"notloaded",
-	"system_error",
-	"systemerror",
-}
-
-var reportTextPayloadKeys = []string{"report", "summary", "uiText", "text", "message", "output", "result"}
-var reportTextNestedKeys = []string{"item", "payload"}
-var terminalReportEventTypes = buildStringSet(terminalReportEventTypesList)
-var terminalThreadStatuses = buildStringSet(terminalThreadStatusesList)
-
-func buildStringSet(values []string) map[string]struct{} {
-	out := make(map[string]struct{}, len(values))
-	for _, v := range values {
-		out[v] = struct{}{}
-	}
-	return out
-}
-
 func (s *service) GetState(ctx context.Context, agentID string) (AgentStateResult, error) {
 	var result AgentStateResult
 	err := s.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
@@ -318,12 +275,11 @@ func reportTextFromPayload(payload map[string]any) string {
 	if len(payload) == 0 {
 		return ""
 	}
-	if report := platformshared.FirstPayloadString(payload, reportTextPayloadKeys...); report != "" {
+	if report := firstReportTextPayloadString(payload); report != "" {
 		return report
 	}
-	for _, key := range reportTextNestedKeys {
-		nested, ok := payload[key].(map[string]any)
-		if ok {
+	for _, key := range []string{"item", "payload"} {
+		if nested, ok := payload[key].(map[string]any); ok {
 			if report := reportTextFromPayload(nested); report != "" {
 				return report
 			}
@@ -332,13 +288,26 @@ func reportTextFromPayload(payload map[string]any) string {
 	return ""
 }
 
-func isTerminalReportEvent(eventType string, raw json.RawMessage) bool {
-	eventType = strings.ToLower(strings.TrimSpace(eventType))
-	if eventType == ReportEventTypeThreadStatusChanged {
-		return isTerminalThreadStatus(raw)
+func firstReportTextPayloadString(payload map[string]any) string {
+	return platformshared.FirstPayloadString(payload, "report", "summary", "uiText", "text", "message", "output", "result")
+}
+
+func isTerminalReportEventType(eventType string) bool {
+	switch eventType {
+	case "agent/event/task_complete", "completed", "completion", "connection.dead", "connection_dead", "error", "idle", "shutdown.complete", "shutdown_complete", "stream.error", "stream_error", "turn.completed", "turn/completed", "turn.aborted", "turn_aborted", "turn_complete":
+		return true
+	default:
+		return false
 	}
-	_, ok := terminalReportEventTypes[eventType]
-	return ok
+}
+
+func isTerminalThreadStatusValue(status string) bool {
+	switch status {
+	case "error", "idle", "not_loaded", "notloaded", "system_error", "systemerror":
+		return true
+	default:
+		return false
+	}
 }
 
 func isRuntimeLossStopEventType(eventType string) bool {
@@ -348,6 +317,14 @@ func isRuntimeLossStopEventType(eventType string) bool {
 	default:
 		return false
 	}
+}
+
+func isTerminalReportEvent(eventType string, raw json.RawMessage) bool {
+	eventType = strings.ToLower(strings.TrimSpace(eventType))
+	if eventType == ReportEventTypeThreadStatusChanged {
+		return isTerminalThreadStatus(raw)
+	}
+	return isTerminalReportEventType(eventType)
 }
 
 func isTerminalThreadStatus(raw json.RawMessage) bool {
@@ -366,6 +343,5 @@ func isTerminalThreadStatus(raw json.RawMessage) bool {
 	if status == "" {
 		return false
 	}
-	_, ok = terminalThreadStatuses[strings.ToLower(status)]
-	return ok
+	return isTerminalThreadStatusValue(strings.ToLower(status))
 }

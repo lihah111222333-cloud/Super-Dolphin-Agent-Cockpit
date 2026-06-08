@@ -11,29 +11,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
 const fallbackSessionLogWatcherPollInterval = 500 * time.Millisecond
 
-var defaultSessionLogWatcherPollIntervalNanos atomic.Int64
-
-func init() {
-	defaultSessionLogWatcherPollIntervalNanos.Store(int64(fallbackSessionLogWatcherPollInterval))
-}
-
 func defaultSessionLogWatcherPollInterval() time.Duration {
-	d := time.Duration(defaultSessionLogWatcherPollIntervalNanos.Load())
-	if d <= 0 {
-		return fallbackSessionLogWatcherPollInterval
-	}
-	return d
-}
-
-func swapDefaultSessionLogWatcherPollIntervalForTest(d time.Duration) func() {
-	old := defaultSessionLogWatcherPollIntervalNanos.Swap(int64(d))
-	return func() { defaultSessionLogWatcherPollIntervalNanos.Store(old) }
+	return fallbackSessionLogWatcherPollInterval
 }
 
 type sessionLogWatcherConfig struct {

@@ -209,7 +209,7 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 		}
 	}
 	// Note: deliberately do NOT fall back to binding.CodexThreadID here.
-	// CodexThreadID is a routing key (often agent_xxx placeholder) and
+	// CodexThreadID is a routing key (often an agent placeholder ID) and
 	// passing it as req.ThreadID let placeholders cross provider boundaries
 	// into claude driver, where it caused the 5s system:init deadlock.
 	// req.ThreadID may be empty; the driver derives a synthetic ID itself.
