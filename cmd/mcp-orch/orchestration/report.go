@@ -292,13 +292,42 @@ func firstReportTextPayloadString(payload map[string]any) string {
 	return platformshared.FirstPayloadString(payload, "report", "summary", "uiText", "text", "message", "output", "result")
 }
 
-func isTerminalReportEventType(eventType string) bool {
+type reportEventTypeFlag uint8
+
+const (
+	reportEventTypeTerminal reportEventTypeFlag = 1 << iota
+	reportEventTypeRuntimeLossStop
+)
+
+func reportEventTypeFlags(eventType string) reportEventTypeFlag {
 	switch eventType {
-	case "agent/event/task_complete", "completed", "completion", "connection.dead", "connection_dead", "error", "idle", "shutdown.complete", "shutdown_complete", "stream.error", "stream_error", "turn.completed", "turn/completed", "turn.aborted", "turn_aborted", "turn_complete":
-		return true
+	case "connection.dead",
+		"connection_dead",
+		"error",
+		"shutdown.complete",
+		"shutdown_complete",
+		"stream.error",
+		"stream_error",
+		"turn.aborted",
+		"turn_aborted":
+		return reportEventTypeTerminal | reportEventTypeRuntimeLossStop
+	case "agent/event/task_complete",
+		"completed",
+		"completion",
+		"idle",
+		"turn.completed",
+		"turn/completed",
+		"turn_complete":
+		return reportEventTypeTerminal
+	case "turn/aborted":
+		return reportEventTypeRuntimeLossStop
 	default:
-		return false
+		return 0
 	}
+}
+
+func isTerminalReportEventType(eventType string) bool {
+	return reportEventTypeFlags(eventType)&reportEventTypeTerminal != 0
 }
 
 func isTerminalThreadStatusValue(status string) bool {
@@ -311,12 +340,8 @@ func isTerminalThreadStatusValue(status string) bool {
 }
 
 func isRuntimeLossStopEventType(eventType string) bool {
-	switch strings.ToLower(strings.TrimSpace(eventType)) {
-	case "connection.dead", "connection_dead", "error", "shutdown.complete", "shutdown_complete", "stream.error", "stream_error", "turn.aborted", "turn/aborted", "turn_aborted":
-		return true
-	default:
-		return false
-	}
+	eventType = strings.ToLower(strings.TrimSpace(eventType))
+	return reportEventTypeFlags(eventType)&reportEventTypeRuntimeLossStop != 0
 }
 
 func isTerminalReportEvent(eventType string, raw json.RawMessage) bool {

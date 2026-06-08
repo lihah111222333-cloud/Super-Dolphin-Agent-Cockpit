@@ -105,7 +105,7 @@ func TestSessionResolverAutoResumePassesRuntimeConfig(t *testing.T) {
 func TestSessionResolverProviderThreadAutoResumeDoesNotUseCodexThreadID(t *testing.T) {
 	// Phase 2 of the session-stopped rootfix removed the
 	// binding.CodexThreadID -> req.ThreadID fallback because CodexThreadID is
-	// a routing key (often agent_xxx placeholder) and feeding it into the
+	// a routing key (often agent-placeholder value) and feeding it into the
 	// driver as a thread id let placeholders cross provider boundaries into
 	// claudecli, which caused the 5s system:init deadlock. After the change
 	// req.ThreadID stays empty when no public thread id is provided, even if

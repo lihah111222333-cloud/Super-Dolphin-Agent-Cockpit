@@ -444,7 +444,7 @@ func TestSessionRuntimeUsesFakeClockForHealthIntervals(t *testing.T) {
 func TestSessionRuntimeStoppedSentinel(t *testing.T) {
 	t.Parallel()
 	// Ensures the sentinel exists and is a non-nil error value — P1c §需冻结的
-	// 兼容语义 requires "ErrXxxRequired" style sentinels for missing context,
+	// 兼容语义 requires "ErrContextRequired" style sentinels for missing context,
 	// and errRuntimeStopped is the analogue for post-Close recovery attempts.
 	if errRuntimeStopped == nil {
 		t.Fatal("errRuntimeStopped must be a non-nil sentinel")

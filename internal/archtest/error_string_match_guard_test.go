@@ -79,7 +79,7 @@ func countErrorStringMatchesInFile(path string) int {
 	return countErrorStringMatches(node)
 }
 
-// countErrorStringMatches 计算 strings.Contains(xxx.Error(), ...) 调用数量。
+// countErrorStringMatches 计算 strings.Contains(errValue.Error(), ...) 调用数量。
 func countErrorStringMatches(node *ast.File) int {
 	count := 0
 	ast.Inspect(node, func(n ast.Node) bool {
@@ -98,7 +98,7 @@ func countErrorStringMatches(node *ast.File) int {
 		if sel.Sel.Name != "Contains" || len(call.Args) < 1 {
 			return true
 		}
-		// 检查第一个参数是否为 xxx.Error() 调用
+		// 检查第一个参数是否为 errValue.Error() 调用
 		if isErrorMethodCall(call.Args[0]) {
 			count++
 		}
@@ -107,7 +107,7 @@ func countErrorStringMatches(node *ast.File) int {
 	return count
 }
 
-// isErrorMethodCall 检查表达式是否为 xxx.Error() 方法调用。
+// isErrorMethodCall 检查表达式是否为 errValue.Error() 方法调用。
 func isErrorMethodCall(expr ast.Expr) bool {
 	call, ok := expr.(*ast.CallExpr)
 	if !ok {
