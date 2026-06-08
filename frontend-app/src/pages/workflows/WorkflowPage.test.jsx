@@ -802,6 +802,8 @@ describe('WorkflowPage module', () => {
         status: 'done',
         assigned_to: 'codex',
         spawning_thread_id: 'agent_child_1',
+        config: { prompt: '请评审这个方案' },
+        result: '评审完成：可以继续。',
       }],
     });
     backend.getDagRuns.mockResolvedValue({ runs: [] });
@@ -817,7 +819,15 @@ describe('WorkflowPage module', () => {
     fireEvent.click(await screen.findByRole('button', { name: '查看对话' }));
 
     await waitFor(() => {
-      expect(store.openThreadById).toHaveBeenCalledWith('agent_child_1', { source: 'dag-node' });
+      expect(store.openThreadById).toHaveBeenCalledWith('agent_child_1', {
+        source: 'dag-node',
+        dagNode: expect.objectContaining({
+          nodeKey: 'review',
+          title: 'Review',
+          config: { prompt: '请评审这个方案' },
+          result: '评审完成：可以继续。',
+        }),
+      });
     });
     expect(store.setActiveThread).not.toHaveBeenCalled();
     await waitFor(() => {
@@ -858,7 +868,10 @@ describe('WorkflowPage module', () => {
     fireEvent.click(await screen.findByRole('button', { name: '查看对话' }));
 
     await waitFor(() => {
-      expect(store.openThreadById).toHaveBeenCalledWith('agent_child_1', { source: 'dag-node' });
+      expect(store.openThreadById).toHaveBeenCalledWith('agent_child_1', {
+        source: 'dag-node',
+        dagNode: expect.objectContaining({ nodeKey: 'review', title: 'Review' }),
+      });
     });
     expect(store.setActiveThread).not.toHaveBeenCalled();
     expect(store.setActivePage).not.toHaveBeenCalled();
