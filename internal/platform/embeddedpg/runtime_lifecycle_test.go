@@ -27,6 +27,22 @@ func TestStartReturnsNilWhenCalledAgainForOwnedDataDir(t *testing.T) {
 	}
 }
 
+func TestStartRecoversRunningDataDirWhenPackagedRecoveryEnabled(t *testing.T) {
+	cfg, stopPath, startPath := newRecoverRunningStartConfig(t)
+	if err := Start(context.Background(), cfg); err != nil {
+		t.Fatalf("Start() error = %v, want recovery stop then start", err)
+	}
+	if _, err := os.Stat(stopPath); err != nil {
+		t.Fatalf("pg_ctl stop was not called during recovery: %v", err)
+	}
+	if _, err := os.Stat(startPath); err != nil {
+		t.Fatalf("pg_ctl start was not called after recovery: %v", err)
+	}
+	if !ownsPostgresDataDir(cfg.DataDir) {
+		t.Fatal("recovered data dir was not marked owned after start")
+	}
+}
+
 func TestStartReturnsPGCtlStatusError(t *testing.T) {
 	cfg, startPath := newStatusErrorStartConfig(t)
 	err := Start(context.Background(), cfg)
@@ -79,6 +95,45 @@ exit 99
 	t.Setenv("SUPER_DOLPHIN_TEST_STARTS", startPath)
 	t.Setenv("SUPER_DOLPHIN_TEST_RUNNING", runningPath)
 	return cfg, startPath
+}
+
+func newRecoverRunningStartConfig(t *testing.T) (contract.EmbeddedPostgresConfig, string, string) {
+	t.Helper()
+	temp := t.TempDir()
+	runningPath := filepath.Join(temp, "pg_ctl.running")
+	stopPath := filepath.Join(temp, "pg_ctl.stop")
+	startPath := filepath.Join(temp, "pg_ctl.start")
+	cfg := newInitializedRuntimeConfig(t, temp, `#!/bin/sh
+	mode=""
+	for arg in "$@"; do
+	  case "$arg" in
+	    status|stop|start) mode="$arg" ;;
+	  esac
+	done
+	if [ "$mode" = "status" ]; then
+	  if [ -f "$SUPER_DOLPHIN_TEST_RUNNING" ]; then
+	    exit 0
+	  fi
+	  exit 3
+	fi
+	if [ "$mode" = "stop" ]; then
+	  touch "$SUPER_DOLPHIN_TEST_STOP"
+	  rm -f "$SUPER_DOLPHIN_TEST_RUNNING"
+	  exit 0
+	fi
+	if [ "$mode" = "start" ]; then
+	  touch "$SUPER_DOLPHIN_TEST_START"
+	  touch "$SUPER_DOLPHIN_TEST_RUNNING"
+	  exit 0
+fi
+exit 99
+`)
+	t.Setenv("SUPER_DOLPHIN_TEST_RUNNING", runningPath)
+	t.Setenv("SUPER_DOLPHIN_TEST_STOP", stopPath)
+	t.Setenv("SUPER_DOLPHIN_TEST_START", startPath)
+	mustWriteEmbeddedPGFile(t, runningPath, []byte("running\n"), 0o600)
+	cfg.RecoverRunningDataDir = true
+	return cfg, stopPath, startPath
 }
 
 func newStatusErrorStartConfig(t *testing.T) (contract.EmbeddedPostgresConfig, string) {

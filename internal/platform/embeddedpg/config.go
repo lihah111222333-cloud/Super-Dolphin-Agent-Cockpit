@@ -72,17 +72,18 @@ func ResolveConfig(input ResolveInput) (contract.EmbeddedPostgresConfig, string)
 	resolveErr = joinResolveErrors(resolveErr, portErr)
 	binDir := resolveBinDir(input, goos, goarch, packagedRuntime, packaged)
 	cfg := contract.EmbeddedPostgresConfig{
-		Enabled:      true,
-		Owner:        resolveOwner(env),
-		BinDir:       binDir,
-		ShareDir:     resolveShareDir(env, binDir),
-		DataDir:      filepath.Join(base, "postgres", "data"),
-		RuntimeDir:   resolveRuntimeDir(base, goos, packaged, port),
-		LogPath:      filepath.Join(base, "logs", "postgres.log"),
-		DatabaseName: defaultDatabaseName,
-		UserName:     defaultUserName,
-		Port:         port,
-		ResolveError: resolveErr,
+		Enabled:               true,
+		Owner:                 resolveOwner(env),
+		RecoverRunningDataDir: packaged && resolveOwner(env),
+		BinDir:                binDir,
+		ShareDir:              resolveShareDir(env, binDir),
+		DataDir:               filepath.Join(base, "postgres", "data"),
+		RuntimeDir:            resolveRuntimeDir(base, goos, packaged, port),
+		LogPath:               filepath.Join(base, "logs", "postgres.log"),
+		DatabaseName:          defaultDatabaseName,
+		UserName:              defaultUserName,
+		Port:                  port,
+		ResolveError:          resolveErr,
 	}
 	return cfg, databaseURLFor(cfg)
 }
