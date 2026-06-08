@@ -14,6 +14,12 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+const (
+	ReportMethodReportEvent            = "agent/reportEvent"
+	ReportMethodRememberReportRequest  = "agent/rememberReportRequest"
+	ReportEventTypeThreadStatusChanged = "thread/status/changed"
+)
+
 func (s *service) GetState(ctx context.Context, agentID string) (AgentStateResult, error) {
 	var result AgentStateResult
 	err := s.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
