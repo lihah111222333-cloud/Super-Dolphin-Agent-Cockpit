@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/internal/hiddenexec"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
@@ -42,7 +43,7 @@ func parseGoWorkModuleRoots(goWorkPath string) ([]string, error) {
 }
 
 func parseGoWorkModuleRootsWithGoCommand(goWorkPath string) ([]string, error) {
-	cmd := exec.Command("go", "work", "edit", "-json", goWorkPath)
+	cmd := hiddenexec.Command("go", "work", "edit", "-json", goWorkPath)
 	cmd.Dir = filepath.Dir(goWorkPath)
 	output, err := cmd.Output()
 	if err != nil {

@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/internal/hiddenexec"
 )
 
 const goVersionProbeTimeout = 2 * time.Second
@@ -172,7 +173,7 @@ func goToolchainCandidateForDir(dir string, seenDirs map[string]struct{}) (goToo
 func goExecutableVersion(path string) (goVersion, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), goVersionProbeTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, path, "version").Output()
+	out, err := hiddenexec.CommandContext(ctx, path, "version").Output()
 	if ctx.Err() != nil {
 		return goVersion{}, ctx.Err()
 	}
