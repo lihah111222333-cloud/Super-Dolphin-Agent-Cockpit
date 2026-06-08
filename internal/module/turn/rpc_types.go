@@ -2,6 +2,7 @@ package turn
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -155,6 +156,9 @@ func (p *turnInterruptParams) UnmarshalJSON(data []byte) error {
 		ThreadID string `json:"threadId"`
 	}
 	type raw turnInterruptParams
+	if err := rejectUnknownTurnFields(data, "turn/interrupt", turnInterruptParamFields); err != nil {
+		return err
+	}
 	return decodeLegacyTurnParams(data, (*raw)(p), &legacy, func(current *raw, legacy *struct {
 		ThreadID string `json:"threadId"`
 	}) error {
@@ -163,6 +167,26 @@ func (p *turnInterruptParams) UnmarshalJSON(data []byte) error {
 		}
 		return nil
 	})
+}
+
+var turnInterruptParamFields = map[string]struct{}{
+	"source":    {},
+	"thread_id": {},
+	"threadId":  {},
+	"threadID":  {},
+}
+
+func rejectUnknownTurnFields(data []byte, method string, allowed map[string]struct{}) error {
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return err
+	}
+	for key := range payload {
+		if _, ok := allowed[key]; !ok {
+			return fmt.Errorf("%s: unknown field %q", method, key)
+		}
+	}
+	return nil
 }
 
 type threadIDOnlyParams struct {
