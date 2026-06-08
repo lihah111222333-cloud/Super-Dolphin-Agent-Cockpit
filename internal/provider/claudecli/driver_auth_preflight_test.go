@@ -4,22 +4,20 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"sync"
 	"testing"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
-var claudeAuthStatusOverrideMu sync.Mutex
-
 func overrideClaudeAuthStatus(t *testing.T, fn func(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error)) {
 	t.Helper()
-	claudeAuthStatusOverrideMu.Lock()
+	// Call after overrideLaunchCLI(t, ...). That helper holds the provider
+	// global override lock for the test lifetime and restores readClaudeAuthStatus
+	// after this cleanup runs.
 	prev := readClaudeAuthStatus
 	readClaudeAuthStatus = fn
 	t.Cleanup(func() {
 		readClaudeAuthStatus = prev
-		claudeAuthStatusOverrideMu.Unlock()
 	})
 }
 

@@ -555,9 +555,7 @@ func xmlAttr(value string) string {
 
 func xmlText(value string) string {
 	var b bytes.Buffer
-	if err := xml.EscapeText(&b, []byte(value)); err != nil {
-		panic(err)
-	}
+	_ = xml.EscapeText(&b, []byte(value))
 	return b.String()
 }
 
