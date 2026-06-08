@@ -3554,6 +3554,102 @@ function normalizeThreadMessageItems(allMessages) {
   }).filter(isVisibleTimelineItem));
 }
 
+function dagNodeFallbackText(value) {
+  const text = extractText(value);
+  if (text) return text;
+  if (!value || typeof value !== 'object') return '';
+  try {
+    return normalizeString(JSON.stringify(value, null, 2));
+  }
+  catch {
+    return '';
+  }
+}
+
+function dagNodeFallbackPrompt(node) {
+  const config = objectRecord(node?.config || node?.raw?.config);
+  const exec = objectRecord(config.exec);
+  const verifier = objectRecord(exec.verifier);
+  const prompt = firstValueFromSources([
+    [config, ['first_turn', 'firstTurn', 'prompt', 'instructions', 'message', 'text', 'input']],
+    [exec, ['first_turn', 'firstTurn', 'prompt', 'instructions', 'message', 'text', 'input']],
+    [verifier, ['first_turn', 'firstTurn', 'prompt', 'instructions', 'message', 'text', 'input']],
+  ]);
+  return dagNodeFallbackText(prompt);
+}
+
+function dagNodeFallbackResult(node) {
+  const result = firstValueFromSources([
+    [node, ['result', 'output', 'summary', 'message', 'text', 'content']],
+    [objectRecord(node?.raw), ['result', 'output', 'summary', 'message', 'text', 'content']],
+  ]);
+  return dagNodeFallbackText(result);
+}
+
+function dagNodeHistoryFallbackItems(threadId, dagNode) {
+  const node = objectRecord(dagNode);
+  if (Object.keys(node).length === 0) return [];
+  const nodeKey = normalizeString(node.nodeKey || node.node_key || node.id || threadId) || 'dag-node';
+  const title = normalizeString(node.title || node.name || nodeKey);
+  const startedAt = normalizeString(node.startedAt || node.started_at || node.createdAt || node.created_at) || new Date().toISOString();
+  const finishedAt = normalizeString(node.finishedAt || node.finished_at) || startedAt;
+  const prompt = dagNodeFallbackPrompt(node);
+  const result = dagNodeFallbackResult(node);
+  const items = [];
+  if (prompt) {
+    items.push(normalizeTimelineItem({
+      id: `dag-node:${nodeKey}:prompt`,
+      role: 'user',
+      text: prompt,
+      createdAt: startedAt,
+      done: true,
+    }));
+  }
+  if (result) {
+    items.push(normalizeTimelineItem({
+      id: `dag-node:${nodeKey}:result`,
+      role: 'assistant',
+      text: result,
+      title: title ? `DAG 节点结果：${title}` : 'DAG 节点结果',
+      createdAt: finishedAt,
+      done: true,
+    }));
+  }
+  return sortTimelineChronologically(items.filter(isVisibleTimelineItem));
+}
+
+function threadOpenHistoryFallbackItems(threadId, options = {}) {
+  if (normalizeString(options?.source) !== 'dag-node') return [];
+  return dagNodeHistoryFallbackItems(threadId, options?.dagNode);
+}
+
+function applyThreadHistoryFallback(set, id, fallbackItems) {
+  const items = Array.isArray(fallbackItems) ? fallbackItems.filter(isVisibleTimelineItem) : [];
+  if (items.length === 0) return false;
+  set((state) => {
+    const existing = state.timelinesByThread[id] || [];
+    const nextTimeline = existing.some(isVisibleTimelineItem)
+      ? existing
+      : mergeTimelineItems(existing, items, { preserveExistingVisible: true });
+    return {
+      timelinesByThread: {
+        ...state.timelinesByThread,
+        [id]: nextTimeline,
+      },
+      threadTimelineReadyByThread: {
+        ...state.threadTimelineReadyByThread,
+        [id]: true,
+      },
+      ...threadMessagesPaginationPatch(state, id, {
+        hasMore: false,
+        nextBefore: '',
+        loading: false,
+      }),
+    };
+  });
+  return true;
+}
+
 function emitThreadHistoryInitialPageTrace(id, page, status, error) {
   emitFrontendTraceEvent(cleanObject({
     phase: 'frontend.thread_history.initial_page.load',
@@ -3616,7 +3712,9 @@ function attachThreadMessagesRuntime(runtime) {
       emitThreadHistoryInitialPageTrace(id, page, 'ok');
       if (!isCurrentThreadMessageGeneration(id, generation)) return;
       if (page.messages.length === 0) {
-        markThreadMessagesReady(set, id);
+        if (!applyThreadHistoryFallback(set, id, loadOptions.historyFallback)) {
+          markThreadMessagesReady(set, id);
+        }
         setThreadMessagesLoading(id, generation, false);
         return;
       }
@@ -3633,7 +3731,10 @@ function attachThreadMessagesRuntime(runtime) {
 
   const startThreadMessagesLoad = async (threadId, syncOptions) => {
     if (syncOptions.loadMessages === false) return;
-    await loadThreadMessages(threadId, { includeArchived: syncOptions.includeArchived === true });
+    await loadThreadMessages(threadId, {
+      includeArchived: syncOptions.includeArchived === true,
+      historyFallback: syncOptions.historyFallback,
+    });
   };
 
   const loadOlderThreadMessages = async (threadId, options = {}) => {
@@ -4743,6 +4844,7 @@ function createThreadSelectionActions(runtime) {
         return runtime.notifyRPCFailure('打开会话', 'thread.open.resolve.invalid', new Error('thread/resolve returned a different or empty thread id'), { threadId: requestedId, source });
       }
       const id = normalizeBackendThreadId(resolvedThread.id);
+      const historyFallback = threadOpenHistoryFallbackItems(id, options);
       const current = runtime.get();
       void runtime.saveActiveComposerDraft(current);
       const restored = runtime.restoreComposerDraft(current, id);
@@ -4758,7 +4860,12 @@ function createThreadSelectionActions(runtime) {
         },
       }));
       try {
-        const synced = await runtime.get().syncThreadState(id, { includeArchived: true, includeDiff: false, preserveActiveThreadId: true });
+        const synced = await runtime.get().syncThreadState(id, {
+          includeArchived: true,
+          includeDiff: false,
+          preserveActiveThreadId: true,
+          ...(historyFallback.length > 0 ? { historyFallback } : {}),
+        });
         if (!synced) return false;
       }
       catch (error) {
