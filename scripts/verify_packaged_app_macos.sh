@@ -738,13 +738,22 @@ verify_update_env() {
   if [[ "$enabled" != "1" && "$enabled" != "true" && "$enabled" != "yes" && "$enabled" != "on" ]]; then
     return
   fi
-  local manifest_url public_key channel version decoded_key byte_count
-  manifest_url="$(require_dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_MANIFEST_URL)"
+  local manifest_url github_repo public_key channel version decoded_key byte_count
+  manifest_url="$(dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_MANIFEST_URL 2>/dev/null || true)"
+  github_repo="$(dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_GITHUB_REPO 2>/dev/null || true)"
   public_key="$(require_dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_PUBLIC_KEY)"
   channel="$(require_dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_CHANNEL)"
   version="$(require_dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_VERSION)"
-  if [[ ! "$manifest_url" =~ ^https://[^/?#]+($|[/?#]) ]]; then
+  if [[ -z "${manifest_url//[[:space:]]/}" && -z "${github_repo//[[:space:]]/}" ]]; then
+    echo "SUPER_DOLPHIN_UPDATE_MANIFEST_URL or SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required when app update is enabled" >&2
+    exit 1
+  fi
+  if [[ -n "${manifest_url//[[:space:]]/}" && ! "$manifest_url" =~ ^https://[^/?#]+($|[/?#]) ]]; then
     echo "SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be HTTPS with host: $manifest_url" >&2
+    exit 1
+  fi
+  if [[ -n "${github_repo//[[:space:]]/}" && ! "$github_repo" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
+    echo "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace: $github_repo" >&2
     exit 1
   fi
   decoded_key="$(mktemp)"
@@ -763,7 +772,11 @@ verify_update_env() {
     echo "missing updater helper: $resources/bin/super-dolphin-updater" >&2
     exit 1
   fi
-  echo "packaged app update env verified: channel=$channel version=$version"
+  if [[ -n "$github_repo" ]]; then
+    echo "packaged app update env verified: source=github:$github_repo channel=$channel version=$version"
+  else
+    echo "packaged app update env verified: source=manifest channel=$channel version=$version"
+  fi
 }
 
 required_execs=(
