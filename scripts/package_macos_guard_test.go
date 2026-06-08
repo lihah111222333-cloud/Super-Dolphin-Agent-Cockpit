@@ -38,6 +38,7 @@ func TestPackageMacOSScriptBundlesRuntimeContracts(t *testing.T) {
 	assertScriptContains(t, verify, "packaged ffmpeg smoke verified")
 	assertScriptContains(t, verify, "verify_update_env")
 	assertScriptContains(t, verify, "SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be HTTPS with host")
+	assertScriptContains(t, verify, "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace")
 	assertScriptContains(t, verify, "decoded SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be 32 bytes")
 }
 
@@ -318,10 +319,10 @@ func TestPackageMacOSScriptEnforcesGrayReleaseProfile(t *testing.T) {
 	for _, want := range []string{"dev-local|gray|gray-unsigned", "unsupported SUPER_DOLPHIN_RELEASE_PROFILE=$release_profile; expected dev-local, gray, or gray-unsigned"} {
 		assertScriptContains(t, profileBody, want)
 	}
-	for _, want := range []string{"SUPER_DOLPHIN_UPDATE_MANIFEST_URL", "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY", "SUPER_DOLPHIN_UPDATE_CHANNEL", "SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be an HTTPS URL with a host", "^https://[^/?#]+", "decoded SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be 32 bytes"} {
+	for _, want := range []string{"SUPER_DOLPHIN_UPDATE_MANIFEST_URL", "SUPER_DOLPHIN_UPDATE_GITHUB_REPO", "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY", "SUPER_DOLPHIN_UPDATE_CHANNEL", "SUPER_DOLPHIN_UPDATE_MANIFEST_URL or SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required when app update is enabled", "SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be an HTTPS URL with a host", "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace", "^https://[^/?#]+", "decoded SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be 32 bytes"} {
 		assertScriptContains(t, updateBody, want)
 	}
-	for _, want := range []string{"SUPER_DOLPHIN_UPDATE_ENABLED=1", "SUPER_DOLPHIN_UPDATE_MANIFEST_URL=%s", "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=%s", "SUPER_DOLPHIN_UPDATE_CHANNEL=%s", "SUPER_DOLPHIN_UPDATE_VERSION=%s"} {
+	for _, want := range []string{"SUPER_DOLPHIN_UPDATE_ENABLED=1", "SUPER_DOLPHIN_UPDATE_MANIFEST_URL=%s", "SUPER_DOLPHIN_UPDATE_GITHUB_REPO=%s", "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=%s", "SUPER_DOLPHIN_UPDATE_CHANNEL=%s", "SUPER_DOLPHIN_UPDATE_VERSION=%s"} {
 		assertScriptContains(t, envBody, want)
 	}
 	assertScriptContains(t, envBody, "\"$version\"")
