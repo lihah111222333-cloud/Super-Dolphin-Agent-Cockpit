@@ -721,3 +721,47 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 
 - 生产冻结：104 -> 65。
 - 测试冻结：47 -> 21。
+
+## 2026-06-08 追加推进：测试 helper 非必要 panic 与重复锁
+
+### 测试 helper 非必要 panic
+
+变更：
+
+- `cmd/mcp-lsp/tools/tool_edit_patch_sync_test.go`：`quoteJSON` 改为接收 `*testing.T`，JSON fixture 构造失败时 `t.Fatalf`。
+- `cmd/mcp-lsp/search/searchutil_test.go`：`literalMatcher` 改为接收 `*testing.T`，matcher fixture 构造失败时 `t.Fatalf`。
+- `internal/ui/wails/rpc_test.go`：`xmlText` 使用 `bytes.Buffer` 时忽略 `xml.EscapeText` 的 writer error，避免不可能失败分支中的 panic。
+
+审查结论：
+
+- 这些 panic 都不是被测 panic-recovery 语义，只是测试 fixture 构造防御分支。
+- 被测输入、断言和生产代码路径不变。
+- 保留 `SafeGo`、`tx`、`proxy_runner`、`toolbridge` 等故意 panic/recover/repanic 测试，不做伪解冻。
+
+### claudecli auth preflight 测试重复锁
+
+变更：
+
+- `internal/provider/claudecli/driver_auth_preflight_test.go`：删除单独的 `claudeAuthStatusOverrideMu`。
+- `overrideClaudeAuthStatus` 明确依赖每个测试已先调用 `overrideLaunchCLI`，由后者持有 provider 全局 override 锁并按 cleanup 顺序恢复。
+
+审查结论：
+
+- 全局覆盖串行化仍由 `overrideLaunchCLI` 保证。
+- cleanup 顺序保持：先恢复 auth status，再由 `overrideLaunchCLI` 恢复原始 launch/auth hook。
+
+验证：
+
+```bash
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-lsp/search ./cmd/mcp-lsp/tools -run 'TestSearch|TestWalk|TestEdit|TestMiddleware' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/ui/wails -run 'Test.*RPC|Test.*XLSX|Test.*Bootstrap' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/provider/claudecli -run 'TestDriverStartSession.*Auth' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh --guard-only
+```
+
+结果：PASS。测试 baseline 追加毕业 4 个文件。
+
+当前冻结数：
+
+- 生产冻结：104 -> 65。
+- 测试冻结：47 -> 17。

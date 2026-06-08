@@ -48,12 +48,12 @@ func TestEditRejectsInvalidActionAndMissingFields(t *testing.T) {
 	}{
 		{
 			name:    "invalid_action",
-			raw:     `{"action":"delete","file_path":` + quoteJSON(path) + `}`,
+			raw:     `{"action":"delete","file_path":` + quoteJSON(t, path) + `}`,
 			wantErr: "unsupported edit action",
 		},
 		{
 			name:    "replace_range_missing_patch",
-			raw:     `{"action":"replace_range","file_path":` + quoteJSON(path) + `}`,
+			raw:     `{"action":"replace_range","file_path":` + quoteJSON(t, path) + `}`,
 			wantErr: "replace_range requires patch",
 		},
 		{
@@ -84,10 +84,11 @@ func TestEditRejectsInvalidActionAndMissingFields(t *testing.T) {
 	}
 }
 
-func quoteJSON(value string) string {
+func quoteJSON(t *testing.T, value string) string {
+	t.Helper()
 	raw, err := json.Marshal(value)
 	if err != nil {
-		panic(err)
+		t.Fatalf("quote JSON: %v", err)
 	}
 	return string(raw)
 }
