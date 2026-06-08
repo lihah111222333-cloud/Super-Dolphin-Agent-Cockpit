@@ -66,6 +66,12 @@ $CodexRelayPrivilegedApiKeyEnv = 'SUPER_DOLPHIN_CODEX_RELAY_API_KEY'
 $CodexArtifactEnv = 'SUPER_DOLPHIN_CODEX_ARTIFACT'
 $CodexSHA256Env = 'SUPER_DOLPHIN_CODEX_SHA256'
 $CodexVersionEnv = 'SUPER_DOLPHIN_CODEX_VERSION'
+$UpdateEnabledEnv = 'SUPER_DOLPHIN_UPDATE_ENABLED'
+$UpdateManifestURLEnv = 'SUPER_DOLPHIN_UPDATE_MANIFEST_URL'
+$UpdateGitHubRepoEnv = 'SUPER_DOLPHIN_UPDATE_GITHUB_REPO'
+$UpdatePublicKeyEnv = 'SUPER_DOLPHIN_UPDATE_PUBLIC_KEY'
+$UpdateChannelEnv = 'SUPER_DOLPHIN_UPDATE_CHANNEL'
+$UpdateVersionEnv = 'SUPER_DOLPHIN_UPDATE_VERSION'
 $LSPBundleDirEnv = 'SUPER_DOLPHIN_LSP_BUNDLE_DIR'
 $LSPManifestName = 'lsp-manifest.json'
 $LSPChecksumsName = 'lsp-checksums.sha256'
@@ -76,6 +82,12 @@ $PackagedRelayBootstrapProof = ''
 $PackagedCodexArtifact = ''
 $PackagedCodexSHA256 = ''
 $PackagedCodexVersion = ''
+$PackagedUpdateEnabled = $false
+$PackagedUpdateManifestURL = ''
+$PackagedUpdateGitHubRepo = ''
+$PackagedUpdatePublicKey = ''
+$PackagedUpdateChannel = ''
+$PackagedUpdateVersion = ''
 $PackagedLSPBundleDir = ''
 $LSPProfile = if ($env:SUPER_DOLPHIN_LSP_PROFILE) { $env:SUPER_DOLPHIN_LSP_PROFILE } else { 'standard' }
 
@@ -119,6 +131,19 @@ function Validate-EnvFileValue() {
     }
     if ($Value.Contains("`n") -or $Value.Contains("`r")) {
         throw "$Label must not contain newline characters"
+    }
+}
+
+function Test-Truthy() {
+    param([AllowEmptyString()][string]$Value)
+    if ($null -eq $Value) { return $false }
+    switch ($Value.Trim().ToLowerInvariant()) {
+        '' { return $false }
+        '0' { return $false }
+        'false' { return $false }
+        'no' { return $false }
+        'off' { return $false }
+        default { return $true }
     }
 }
 
@@ -412,6 +437,87 @@ function Write-PackagedRelayEnv() {
         "$CodexRelayBootstrapProofEnv=$PackagedRelayBootstrapProof"
     ) -join "`n"
     Write-Utf8NoBom -Path $envPath -Content ($content + "`n")
+}
+
+function Assert-UpdatePublicKey() {
+    param([Parameter(Mandatory)][string]$PublicKey)
+    try {
+        $decoded = [Convert]::FromBase64String($PublicKey)
+    } catch {
+        throw "$UpdatePublicKeyEnv must be valid base64"
+    }
+    if ($decoded.Length -ne 32) {
+        throw "decoded SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be 32 bytes"
+    }
+}
+
+function Resolve-UpdateConfig() {
+    $script:PackagedUpdateManifestURL = Get-EnvValue $UpdateManifestURLEnv
+    $script:PackagedUpdateGitHubRepo = Get-EnvValue $UpdateGitHubRepoEnv
+    $script:PackagedUpdatePublicKey = Get-EnvValue $UpdatePublicKeyEnv
+    $script:PackagedUpdateChannel = Get-EnvValue $UpdateChannelEnv
+    $script:PackagedUpdateVersion = Get-EnvValue $UpdateVersionEnv
+    $enabledValue = Get-EnvValue $UpdateEnabledEnv
+    $script:PackagedUpdateEnabled = (Test-Truthy -Value $enabledValue) -or
+        ($script:PackagedUpdateManifestURL.Trim() -ne '') -or
+        ($script:PackagedUpdateGitHubRepo.Trim() -ne '')
+    if (-not $script:PackagedUpdateEnabled) {
+        return
+    }
+    if ($script:PackagedUpdateManifestURL.Trim() -eq '' -and $script:PackagedUpdateGitHubRepo.Trim() -eq '') {
+        throw "SUPER_DOLPHIN_UPDATE_MANIFEST_URL or SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required when app update is enabled"
+    }
+    if ($script:PackagedUpdateManifestURL.Trim() -ne '') {
+        Validate-EnvFileValue -Label $UpdateManifestURLEnv -Value $script:PackagedUpdateManifestURL
+        if ($script:PackagedUpdateManifestURL -notmatch '^https://[^/?#]+($|[/?#])') {
+            throw "$UpdateManifestURLEnv must be an HTTPS URL with a host"
+        }
+    }
+    if ($script:PackagedUpdateGitHubRepo.Trim() -ne '') {
+        Validate-EnvFileValue -Label $UpdateGitHubRepoEnv -Value $script:PackagedUpdateGitHubRepo
+        if ($script:PackagedUpdateGitHubRepo -notmatch '^[^/\s]+/[^/\s]+$') {
+            throw "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace"
+        }
+    }
+    if ($script:PackagedUpdateChannel.Trim() -eq '') {
+        $script:PackagedUpdateChannel = 'gray'
+    }
+    if ($script:PackagedUpdateVersion.Trim() -eq '') {
+        $script:PackagedUpdateVersion = $Version
+    }
+    Validate-EnvFileValue -Label $UpdatePublicKeyEnv -Value $script:PackagedUpdatePublicKey
+    Validate-EnvFileValue -Label $UpdateChannelEnv -Value $script:PackagedUpdateChannel
+    Validate-EnvFileValue -Label $UpdateVersionEnv -Value $script:PackagedUpdateVersion
+    Assert-UpdatePublicKey -PublicKey $script:PackagedUpdatePublicKey
+}
+
+function Write-PackagedUpdateEnv() {
+    param([Parameter(Mandatory)][string]$BundleRoot)
+    if (-not $script:PackagedUpdateEnabled) {
+        return
+    }
+    $envPath = Join-Path $BundleRoot '.env'
+    $lines = [Collections.Generic.List[string]]::new()
+    $lines.Add("$UpdateEnabledEnv=1")
+    if ($script:PackagedUpdateManifestURL.Trim() -ne '') {
+        $lines.Add("$UpdateManifestURLEnv=$script:PackagedUpdateManifestURL")
+    }
+    if ($script:PackagedUpdateGitHubRepo.Trim() -ne '') {
+        $lines.Add("$UpdateGitHubRepoEnv=$script:PackagedUpdateGitHubRepo")
+    }
+    $lines.Add("$UpdatePublicKeyEnv=$script:PackagedUpdatePublicKey")
+    $lines.Add("$UpdateChannelEnv=$script:PackagedUpdateChannel")
+    $lines.Add("$UpdateVersionEnv=$script:PackagedUpdateVersion")
+
+    $content = ''
+    if (Test-Path -LiteralPath $envPath -PathType Leaf) {
+        $content = [IO.File]::ReadAllText($envPath)
+    }
+    if ($content -ne '' -and -not $content.EndsWith("`n")) {
+        $content += "`n"
+    }
+    $content += (($lines.ToArray() -join "`n") + "`n")
+    Write-Utf8NoBom -Path $envPath -Content $content
 }
 
 function Resolve-PackagedCodexArtifact() {
@@ -864,6 +970,7 @@ function Package-WindowsMain() {
     }
 
     Resolve-PackagedRelayEnv
+    Resolve-UpdateConfig
     Resolve-PackagedCodexArtifact
     Resolve-PackagedLSPBundle
 
@@ -912,6 +1019,7 @@ function Package-WindowsMain() {
     Copy-ModelRegistry -BundleRoot $Stage
     Copy-PostgresRuntime -Source $pgSrc -Destination (Join-Path $Stage "postgres/$Platform")
     Write-PackagedRelayEnv -BundleRoot $Stage
+    Write-PackagedUpdateEnv -BundleRoot $Stage
     Write-RuntimeManifest -BundleRoot $Stage
     Write-RunScripts -BundleRoot $Stage
     Assert-PackageNativeArchitecture -PackageRoot $Stage
