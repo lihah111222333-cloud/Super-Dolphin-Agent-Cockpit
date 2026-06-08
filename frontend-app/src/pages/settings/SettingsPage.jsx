@@ -426,12 +426,13 @@ async function checkForAppUpdate({ setUpdateBusy, setUpdateInfo, setUpdateNotice
 async function installAvailableAppUpdate({ setUpdateInfo, setUpdateInstalling, setUpdateNotice, updateInfo, updateInstalling }) {
   if (!updateInfo?.available || updateInstalling) return;
   const pendingInfo = updateInfo;
+  const installingMessage = appUpdateInstallingMessage(pendingInfo);
   setUpdateInstalling(true);
   setUpdateInfo(null);
-  setUpdateNotice({ level: 'info', message: '正在安装更新' });
+  setUpdateNotice({ level: 'info', message: installingMessage });
   try {
     await installLatestAppUpdate();
-    setUpdateNotice({ level: 'info', message: '正在安装更新' });
+    setUpdateNotice({ level: 'info', message: installingMessage });
   } catch (error) {
     setUpdateInfo(pendingInfo);
     setUpdateInstalling(false);
@@ -440,9 +441,20 @@ async function installAvailableAppUpdate({ setUpdateInfo, setUpdateInstalling, s
 }
 
 function appUpdateVersionLabel(info) {
-  const version = (info?.version || info?.latestVersion || info?.latest_version || '').toString().trim() || '可用更新';
+  const version = appUpdateConcreteVersionLabel(info) || '可用更新';
   const platform = (info?.platform || info?.artifact?.platform || '').toString().trim();
   return platform ? `${version} (${platform})` : version;
+}
+
+function appUpdateInstallingMessage(info) {
+  const version = appUpdateConcreteVersionLabel(info);
+  if (!version) return '正在安装更新';
+  const platform = (info?.platform || info?.artifact?.platform || '').toString().trim();
+  return '正在安装更新 ' + (platform ? `${version} (${platform})` : version);
+}
+
+function appUpdateConcreteVersionLabel(info) {
+  return (info?.version || info?.latestVersion || info?.latest_version || '').toString().trim();
 }
 
 function settingsFormWithUpdate(current, key, value) {

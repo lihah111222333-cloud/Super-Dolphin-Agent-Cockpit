@@ -154,14 +154,14 @@ describe('SettingsPage app update entry', () => {
 
     await waitFor(() => {
       expect(backend.installLatestAppUpdate).toHaveBeenCalledTimes(1);
-      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('正在安装更新');
+      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('正在安装更新 v1.2.4 (darwin-arm64)');
     });
     expect(screen.queryByTestId('settings-update-install-button')).not.toBeInTheDocument();
   });
 
   it('hides the install action while install is pending', async () => {
     const pendingInstall = deferred();
-    backend.checkAppUpdate.mockResolvedValueOnce({ enabled: true, available: true, version: 'v1.2.4' });
+    backend.checkAppUpdate.mockResolvedValueOnce({ enabled: true, available: true, version: 'v1.2.4', artifact: { platform: 'darwin-arm64' } });
     backend.installLatestAppUpdate.mockReturnValueOnce(pendingInstall.promise);
 
     renderSettingsPage();
@@ -173,7 +173,7 @@ describe('SettingsPage app update entry', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('settings-update-install-button')).not.toBeInTheDocument();
       expect(screen.getByTestId('settings-update-check-button')).toBeDisabled();
-      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('正在安装更新');
+      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('正在安装更新 v1.2.4 (darwin-arm64)');
     });
 
     await act(async () => {
