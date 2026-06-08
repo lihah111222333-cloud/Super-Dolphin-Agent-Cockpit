@@ -291,6 +291,36 @@ describe('SettingsPage provider migration', () => {
     expect(screen.getByLabelText('Network Access')).toBeChecked();
   });
 
+  it('accepts Windows absolute writable roots when saving provider settings', async () => {
+    const preferences = preferenceFixture({
+      'settings.provider.codex.sandbox': {
+        type: 'workspaceWrite',
+        writableRoots: ['C:\\Users\\alice\\project', '\\\\server\\share\\repo'],
+        networkAccess: false,
+      },
+    });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve(preferences[key] ?? null));
+
+    renderSettingsPage();
+
+    expect(await screen.findByLabelText('Writable Roots')).toHaveValue('C:\\Users\\alice\\project\n\\\\server\\share\\repo');
+    backend.setPreference.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: '保存 Provider 设置' }));
+
+    await waitFor(() => {
+      expect(backend.setPreference).toHaveBeenCalledWith({
+        cwd: '/repo/app',
+        key: 'settings.provider.codex.sandbox',
+        value: {
+          type: 'workspaceWrite',
+          writableRoots: ['C:\\Users\\alice\\project', '\\\\server\\share\\repo'],
+          networkAccess: false,
+        },
+      });
+    });
+  });
+
   it('fails fast when the backend returns an invalid active provider preference', async () => {
     const preferences = preferenceFixture({
       'settings.provider.active': 'bad-provider',

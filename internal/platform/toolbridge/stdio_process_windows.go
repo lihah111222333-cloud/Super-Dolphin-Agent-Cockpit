@@ -14,7 +14,10 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-const stdioCreateNewProcessGroup = 0x00000200
+const (
+	stdioCreateNewProcessGroup = 0x00000200
+	stdioCreateNoWindow        = 0x08000000
+)
 
 type stdioProcessGuard struct {
 	handle windows.Handle
@@ -24,7 +27,10 @@ func stdioConfigureCommand(cmd *exec.Cmd) {
 	if cmd == nil {
 		return
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: stdioCreateNewProcessGroup}
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: stdioCreateNewProcessGroup | stdioCreateNoWindow,
+		HideWindow:    true,
+	}
 }
 
 func stdioAttachProcessGuard(cmd *exec.Cmd) *stdioProcessGuard {

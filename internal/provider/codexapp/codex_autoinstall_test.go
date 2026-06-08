@@ -290,6 +290,23 @@ func TestCodexPathAvailableRequiresAppServerSupport(t *testing.T) {
 	}
 }
 
+func TestCodexValidationCommandAppliesProcessAttrsBeforeRun(t *testing.T) {
+	source, err := os.ReadFile("codex_autoinstall.go")
+	if err != nil {
+		t.Fatalf("read codex_autoinstall.go: %v", err)
+	}
+	text := string(source)
+	commandIdx := strings.Index(text, `cmd := exec.CommandContext(checkCtx, path, codexAppServerCommand, "--help")`)
+	attrsIdx := strings.Index(text, "setCodexProcessAttrs(cmd)")
+	runIdx := strings.Index(text, "return cmd.Run() == nil")
+	if commandIdx < 0 || attrsIdx < 0 || runIdx < 0 {
+		t.Fatalf("validCodexCLI command path missing expected process attr hook")
+	}
+	if !(commandIdx < attrsIdx && attrsIdx < runIdx) {
+		t.Fatalf("validCodexCLI must apply process attrs before running validation command")
+	}
+}
+
 func TestExtractCodexWheelRejectsOversizedEntry(t *testing.T) {
 	previousFileLimit := maxCodexExtractedFileBytes
 	previousTotalLimit := maxCodexExtractedTotalBytes

@@ -308,6 +308,28 @@ func TestStartRejectsPermissivePrivateDirectoryParents(t *testing.T) {
 	}
 }
 
+func TestValidatePrivateDirSkipsPOSIXPermissionBitsOnWindows(t *testing.T) {
+	prev := runtimeGOOS
+	runtimeGOOS = func() string { return "windows" }
+	t.Cleanup(func() { runtimeGOOS = prev })
+
+	dir := filepath.Join(t.TempDir(), "postgres")
+	makePermissiveDir(t, dir, 0o777)
+	if err := validatePrivateDir(dir, "data parent"); err != nil {
+		t.Fatalf("validatePrivateDir() on windows error = %v, want nil for POSIX mode bits", err)
+	}
+
+	file := filepath.Join(t.TempDir(), "postgres-file")
+	mustWriteEmbeddedPGFile(t, file, []byte("not a dir"), 0o666)
+	err := validatePrivateDir(file, "data parent")
+	if err == nil {
+		t.Fatal("validatePrivateDir() on windows file error = nil, want not-a-directory failure")
+	}
+	if !strings.Contains(err.Error(), "is not a directory") {
+		t.Fatalf("validatePrivateDir() error = %v, want not-a-directory failure", err)
+	}
+}
+
 func TestStartFailsFastWhenDataDirAlreadyRunningWithoutRewritingRuntimeConfig(t *testing.T) {
 	cfg, statusPath, startPath := newAlreadyRunningStartConfig(t)
 	configPath := filepath.Join(cfg.DataDir, "postgresql.auto.conf")
@@ -538,5 +560,59 @@ func TestPostgresConfigStringEscapesBackslashAndQuote(t *testing.T) {
 	want := `/tmp/sd\\home/it''s`
 	if got != want {
 		t.Fatalf("postgresConfigString() = %q, want %q", got, want)
+	}
+}
+
+func TestWritePostgresRuntimeConfigUsesTCPOnWindows(t *testing.T) {
+	prev := runtimeGOOS
+	runtimeGOOS = func() string { return "windows" }
+	t.Cleanup(func() { runtimeGOOS = prev })
+
+	cfg := contract.EmbeddedPostgresConfig{
+		DataDir:    t.TempDir(),
+		RuntimeDir: `C:\Users\tester\AppData\Local\Temp\sd-pg-55432`,
+		Port:       55432,
+	}
+	if err := writePostgresRuntimeConfig(cfg); err != nil {
+		t.Fatalf("writePostgresRuntimeConfig() error = %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(cfg.DataDir, "postgresql.auto.conf"))
+	if err != nil {
+		t.Fatalf("read postgresql.auto.conf: %v", err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "listen_addresses = '127.0.0.1'") {
+		t.Fatalf("postgresql.auto.conf missing TCP listen address:\n%s", text)
+	}
+	if strings.Contains(text, "unix_socket_directories") {
+		t.Fatalf("postgresql.auto.conf contains unix socket config on windows:\n%s", text)
+	}
+}
+
+func TestWritePostgresRuntimeConfigUsesUnixSocketOffWindows(t *testing.T) {
+	prev := runtimeGOOS
+	runtimeGOOS = func() string { return "linux" }
+	t.Cleanup(func() { runtimeGOOS = prev })
+
+	cfg := contract.EmbeddedPostgresConfig{
+		DataDir:    t.TempDir(),
+		RuntimeDir: `/tmp/sd-pg-test`,
+		Port:       55432,
+	}
+	if err := writePostgresRuntimeConfig(cfg); err != nil {
+		t.Fatalf("writePostgresRuntimeConfig() error = %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(cfg.DataDir, "postgresql.auto.conf"))
+	if err != nil {
+		t.Fatalf("read postgresql.auto.conf: %v", err)
+	}
+	text := string(raw)
+	for _, want := range []string{
+		"listen_addresses = ''",
+		"unix_socket_directories = '/tmp/sd-pg-test'",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("postgresql.auto.conf missing %q:\n%s", want, text)
+		}
 	}
 }
