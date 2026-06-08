@@ -30,6 +30,7 @@ packaged_relay_bootstrap_proof=""
 packaged_video_api_key=""
 macos_min_version=""
 update_manifest_url=""
+update_github_repo=""
 update_public_key=""
 update_channel=""
 update_allow_unsigned="0"
@@ -216,18 +217,32 @@ resolve_update_config() {
   fi
 
   update_manifest_url="${SUPER_DOLPHIN_UPDATE_MANIFEST_URL:-}"
+  update_github_repo="${SUPER_DOLPHIN_UPDATE_GITHUB_REPO:-}"
   update_public_key="${SUPER_DOLPHIN_UPDATE_PUBLIC_KEY:-}"
   update_channel="${SUPER_DOLPHIN_UPDATE_CHANNEL:-gray}"
   if [[ "$release_profile" == "gray-unsigned" ]]; then
     update_allow_unsigned="1"
   fi
-  validate_env_file_value "SUPER_DOLPHIN_UPDATE_MANIFEST_URL" "$update_manifest_url"
-  validate_env_file_value "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY" "$update_public_key"
-  validate_env_file_value "SUPER_DOLPHIN_UPDATE_CHANNEL" "$update_channel"
-  if [[ ! "$update_manifest_url" =~ ^https://[^/?#]+($|[/?#]) ]]; then
-    echo "SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be an HTTPS URL with a host" >&2
+  if [[ -z "${update_manifest_url//[[:space:]]/}" && -z "${update_github_repo//[[:space:]]/}" ]]; then
+    echo "SUPER_DOLPHIN_UPDATE_MANIFEST_URL or SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required when app update is enabled" >&2
     exit 1
   fi
+  if [[ -n "${update_manifest_url//[[:space:]]/}" ]]; then
+    validate_env_file_value "SUPER_DOLPHIN_UPDATE_MANIFEST_URL" "$update_manifest_url"
+    if [[ ! "$update_manifest_url" =~ ^https://[^/?#]+($|[/?#]) ]]; then
+      echo "SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be an HTTPS URL with a host" >&2
+      exit 1
+    fi
+  fi
+  if [[ -n "${update_github_repo//[[:space:]]/}" ]]; then
+    validate_env_file_value "SUPER_DOLPHIN_UPDATE_GITHUB_REPO" "$update_github_repo"
+    if [[ ! "$update_github_repo" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
+      echo "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace" >&2
+      exit 1
+    fi
+  fi
+  validate_env_file_value "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY" "$update_public_key"
+  validate_env_file_value "SUPER_DOLPHIN_UPDATE_CHANNEL" "$update_channel"
 
   local decoded_key byte_count
   decoded_key="$(mktemp)"
@@ -328,7 +343,12 @@ write_packaged_update_env() {
   local env_path="$resources/.env"
   {
     printf 'SUPER_DOLPHIN_UPDATE_ENABLED=1\n'
-    printf 'SUPER_DOLPHIN_UPDATE_MANIFEST_URL=%s\n' "$update_manifest_url"
+    if [[ -n "$update_manifest_url" ]]; then
+      printf 'SUPER_DOLPHIN_UPDATE_MANIFEST_URL=%s\n' "$update_manifest_url"
+    fi
+    if [[ -n "$update_github_repo" ]]; then
+      printf 'SUPER_DOLPHIN_UPDATE_GITHUB_REPO=%s\n' "$update_github_repo"
+    fi
     printf 'SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=%s\n' "$update_public_key"
     printf 'SUPER_DOLPHIN_UPDATE_CHANNEL=%s\n' "$update_channel"
     printf 'SUPER_DOLPHIN_UPDATE_VERSION=%s\n' "$version"
