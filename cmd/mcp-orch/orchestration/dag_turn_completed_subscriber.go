@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeevents"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
@@ -240,12 +239,6 @@ func materializeSharedfileAfterClaim(ctx context.Context, deps DAGSubscriberDeps
 	if materialized.SharedfilePath == "" {
 		return result, true
 	}
-	rendered, err := sharedfileowner.RenderPath(materialized.SharedfilePath, owner, time.Now())
-	if err != nil {
-		handleMaterializationFailure(ctx, deps, logger, node, validationMaterializationFailure("outputs.to_sharedfile path template: "+err.Error()))
-		return nil, false
-	}
-	materialized.SharedfilePath = rendered
 	if strings.TrimSpace(materialized.RawResult) == "" {
 		current, err := sharedfileowner.HasCurrent(ctx, deps.SharedFileReader, materialized.SharedfilePath, owner)
 		if err != nil {
