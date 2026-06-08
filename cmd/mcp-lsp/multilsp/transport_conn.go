@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/internal/hiddenexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 )
 
@@ -25,7 +26,7 @@ const (
 )
 
 func startTransport(options transportOptions) (*exec.Cmd, io.WriteCloser, io.ReadCloser, *limitedBuffer, error) {
-	cmd := exec.Command(options.Binary, options.Args...)
+	cmd := hiddenexec.Command(options.Binary, options.Args...)
 	cmd.Dir = options.Dir
 	if len(options.Env) > 0 {
 		cmd.Env = append(os.Environ(), options.Env...)
