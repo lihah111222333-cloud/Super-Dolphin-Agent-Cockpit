@@ -61,8 +61,8 @@ func (c *stopSpawnedAgentCounter) Snapshot() StopSpawnedAgentMetrics {
 
 var defaultStopSpawnedAgentCounter = &stopSpawnedAgentCounter{}
 
-func init() {
-	stopSpawnedAgentMetrics = defaultStopSpawnedAgentCounter
+func recordStopSpawnedAgentMetric(result StopResult) {
+	defaultStopSpawnedAgentCounter.Inc(result)
 }
 
 func StopSpawnedAgentCounters() StopSpawnedAgentMetrics {

@@ -88,7 +88,7 @@ type OrchestrationService interface {
 	// DispatchNode 是 ADR-004 「无 assignee 就绪节点」的显式推进入口：
 	// 给粘在 ready / pending 无 assignee 状态的节点指派一个 assigned_to
 	// 后立即 enqueue 一条 wakeup，让 dispatcher 能指取跳 launch。
-	// 骨架阶段 / F6.4 实装后在本 batch 中接通。
+	// 当前实现接通 F6.4 runtime-node dispatch 路径。
 	//
 	// DispatchNode is the explicit-resume entrypoint for ready/pending nodes
 	// that lack an assigned_to (ADR-004 §Open Q1). It records the assignee
@@ -142,7 +142,7 @@ type ListRunsRequest struct {
 	Limit  int32
 }
 
-// ListRunsResponse 用对象包裹 runs slice，给后续扩展（next_cursor / total
+// ListRunsResponse 用对象包裹 runs slice，给分页元数据（next_cursor / total
 // 等分页/聚合字段）留位，避免一开始就把 wire 形状钉成裸数组。
 //
 // ListRunsResponse wraps the runs slice in an object so the wire shape can
@@ -326,10 +326,8 @@ type UpdateNodeStatusRequest struct {
 	Result          json.RawMessage
 }
 
-// DAG v2 骨架阶段 T1.1: StartDAG 生命周期入参出参。
-// 骨架阶段 service 实现返回 ErrLifecycleNotImplemented；T1.2 接通真实路径
-// （创建 task_dag_runs 行 + snapshot dag.version）。契约见
-// docs/adr/0001-dag-v2-contracts.md §2.1 + 骨架阶段补丁 2。
+// DAG v2 StartDAG 生命周期入参出参。实现创建 task_dag_runs 行并
+// snapshot dag.version；契约见 docs/adr/0001-dag-v2-contracts.md §2.1。
 type StartDAGRequest struct {
 	DagKey         string
 	TriggerSource  string // manual | auto | scheduled | external
@@ -346,7 +344,7 @@ const (
 
 type StartDAGResponse struct {
 	RunID            int64  `json:"run_id,omitempty"`  // task_dag_runs.id；dispatch runtime node 时需要
-	RunKey           string `json:"run_key"`           // 新 run 的唯一键（例 dag_xxx#run_2026-05-10T08:00）
+	RunKey           string `json:"run_key"`           // 新 run 的唯一键（例 dag_alpha#run_2026-05-10T08:00）
 	Version          int64  `json:"version"`           // 该 run snapshot 的 dag.version
 	ReadyRootNodes   int64  `json:"ready_root_nodes"`  // 本次 start 置为 ready 的根节点数
 	ScheduledWakeups int64  `json:"scheduled_wakeups"` // 已 enqueue 的根节点 wakeup 数
@@ -389,11 +387,10 @@ func StartDAGExecutionDiagnostics(readyRootNodes, scheduledWakeups int64) (strin
 	return StartDAGExecutionNoReadyRoots, "run 已启动，但没有可调度的根节点；请检查 DAG 节点依赖。"
 }
 
-// DAG v2 骨架阶段 T2.1+T2.2: ApplyOps 入参出参。
+// DAG v2 ApplyOps 入参出参。
 // Ops 是 raw JSON（typed 解码由 service 内部 nodeexec.Ops UnmarshalJSON 处理）
 // 以免 contract 包依赖 mcp-orch 内部的 nodeexec 子包。
-// 骨架阶段 service 实现返回 ErrLifecycleNotImplemented；F4.1-F4.5 真实补齐
-// add/update/remove + 环检测 + base_version OCC。
+// service 实现 add/update/remove + 环检测 + base_version OCC。
 type ApplyOpsRequest struct {
 	DagKey      string
 	BaseVersion int64

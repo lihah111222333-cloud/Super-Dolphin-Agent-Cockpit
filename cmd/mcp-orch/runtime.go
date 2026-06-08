@@ -130,9 +130,14 @@ func registerPoolLifecycle(lc fx.Lifecycle, logger *slog.Logger, pool *pgxpool.P
 // RemoveSession, which in this noop case is also a no-op).
 type noopSessionCleaner struct{}
 
-func (noopSessionCleaner) RemoveSession(string) {}
+func (noopSessionCleaner) RemoveSession(sessionID string) {
+	_ = sessionID
+}
 
-func (noopSessionCleaner) RemoveSessionGeneration(string, uint64) {}
+func (noopSessionCleaner) RemoveSessionGeneration(sessionID string, generation uint64) {
+	_ = sessionID
+	_ = generation
+}
 
 func newNoopSessionCleaner() contract.OrchestrationSessionCleaner {
 	return noopSessionCleaner{}

@@ -15,8 +15,8 @@ func (s *service) UpdateRuntime(ctx context.Context, report RuntimeReport) error
 	if agentID == "" {
 		return errors.New("agent id is required")
 	}
-	// TODO: add explicit clear semantics for runtime port updates instead of
-	// treating port<=0 as "not provided" for backward compatibility.
+	// Compatibility contract: port<=0 means "not provided", not "clear".
+	// TestUpdateRuntimeZeroPortDoesNotClearRuntimePort locks this behavior.
 	if !shouldUpdatePort(report.Port) && !shouldUpdateProvider(provider) {
 		return errors.New("runtime report must include port or provider")
 	}
