@@ -12,6 +12,7 @@ const backend = vi.hoisted(() => ({
   installLatestAppUpdate: vi.fn(),
   readConfig: vi.fn(),
   getBuildInfo: vi.fn(),
+  getVideoApiKey: vi.fn(),
   getWindowBootstrap: vi.fn(),
   getProjects: vi.fn(),
   getSidebarState: vi.fn(),
@@ -19,6 +20,7 @@ const backend = vi.hoisted(() => ({
   getThreadMessages: vi.fn(),
   getMemorySnapshot: vi.fn(),
   setPreference: vi.fn(),
+  setVideoApiKey: vi.fn(),
   getPreference: vi.fn(),
   readLspPromptHint: vi.fn(),
   writeLspPromptHint: vi.fn(),
@@ -79,6 +81,8 @@ function mockSettingsBootstrap() {
   backend.readConfig.mockResolvedValue({ cwd: '/repo/app' });
   backend.getWindowBootstrap.mockResolvedValue({ ok: true });
   backend.callBackend.mockResolvedValue({});
+  backend.getVideoApiKey.mockResolvedValue({ configured: false, masked: '' });
+  backend.setVideoApiKey.mockResolvedValue({ ok: true });
   backend.checkAppUpdate.mockResolvedValue({ available: false });
   backend.downloadAppUpdate.mockResolvedValue({ ok: true });
   backend.installAppUpdate.mockResolvedValue({ ok: true });

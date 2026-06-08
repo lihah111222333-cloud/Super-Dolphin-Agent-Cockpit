@@ -10,6 +10,7 @@ const backend = vi.hoisted(() => ({
   downloadAppUpdate: vi.fn(),
   getBuildInfo: vi.fn(),
   getPreference: vi.fn(),
+  getVideoApiKey: vi.fn(),
   installAppUpdate: vi.fn(),
   installLatestAppUpdate: vi.fn(),
   listDashboardLogs: vi.fn(),
@@ -17,6 +18,7 @@ const backend = vi.hoisted(() => ({
   readConfig: vi.fn(),
   readLspPromptHint: vi.fn(),
   setPreference: vi.fn(),
+  setVideoApiKey: vi.fn(),
   writeBuiltinTool: vi.fn(),
   writeLspPromptHint: vi.fn(),
 }));
@@ -87,6 +89,8 @@ beforeEach(() => {
   });
   backend.getPreference.mockImplementation(({ key }) => Promise.resolve(preferences[key] ?? null));
   backend.callBackend.mockResolvedValue({});
+  backend.getVideoApiKey.mockResolvedValue({ configured: false, masked: '' });
+  backend.setVideoApiKey.mockResolvedValue({ ok: true });
   backend.checkAppUpdate.mockResolvedValue({ available: false });
   backend.downloadAppUpdate.mockResolvedValue({ ok: true });
   backend.installAppUpdate.mockResolvedValue({ ok: true });
@@ -510,7 +514,7 @@ describe('SettingsPage builtin tools migration', () => {
 
 describe('SettingsPage video settings', () => {
   it('reports API key load failures instead of silently ignoring them', async () => {
-    backend.callBackend.mockRejectedValueOnce(new Error('credential store unavailable'));
+    backend.getVideoApiKey.mockRejectedValueOnce(new Error('credential store unavailable'));
 
     renderSettingsPage();
 
@@ -519,5 +523,36 @@ describe('SettingsPage video settings', () => {
       expect(screen.getByTestId('settings-video-notice')).toHaveTextContent('读取视频 API Key 失败：credential store unavailable');
       expect(screen.getByTestId('settings-video-notice')).toHaveAttribute('role', 'alert');
     });
+    expect(backend.callBackend).not.toHaveBeenCalled();
+  });
+
+  it('saves API keys through the named video facade method', async () => {
+    renderSettingsPage();
+
+    const card = await screen.findByTestId('settings-video-card');
+    fireEvent.change(within(card).getByLabelText('API Key'), { target: { value: 'sk-test-video-key' } });
+    fireEvent.click(within(card).getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(backend.setVideoApiKey).toHaveBeenCalledWith({ apiKey: 'sk-test-video-key' });
+    });
+    expect(backend.callBackend).not.toHaveBeenCalled();
+  });
+
+  it('shows save failures from the named video facade method', async () => {
+    backend.setVideoApiKey.mockRejectedValueOnce(new Error('credential store unavailable'));
+
+    renderSettingsPage();
+
+    const card = await screen.findByTestId('settings-video-card');
+    fireEvent.change(within(card).getByLabelText('API Key'), { target: { value: 'sk-test-video-key' } });
+    fireEvent.click(within(card).getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-video-notice')).toHaveTextContent('保存失败：credential store unavailable');
+      expect(screen.getByTestId('settings-video-notice')).toHaveAttribute('role', 'alert');
+    });
+    expect(backend.setVideoApiKey).toHaveBeenCalledWith({ apiKey: 'sk-test-video-key' });
+    expect(backend.callBackend).not.toHaveBeenCalled();
   });
 });

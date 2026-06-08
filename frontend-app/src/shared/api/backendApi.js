@@ -57,6 +57,8 @@ export const RPC_METHODS = Object.freeze({
   UI_PREFERENCES_SET: 'ui/preferences/set',
 
   UI_DASHBOARD_GET: 'ui/dashboard/get',
+  UI_VIDEO_GET_API_KEY: 'ui/video/getApiKey',
+  UI_VIDEO_SET_API_KEY: 'ui/video/setApiKey',
   DASHBOARD_LOGS: 'dashboard/logs',
   UI_MEMORY_GET: 'ui/memory/get',
   UI_MEMORY_ENTRY_GET: 'ui/memory/entry/get',
@@ -717,6 +719,13 @@ function lspPromptHintWritePayload(params) {
   return { cwd: payload.cwd, hint: (payload.hint ?? '').toString() };
 }
 
+function videoApiKeyPayload(params) {
+  const payload = assertPlainObject(RPC_METHODS.UI_VIDEO_SET_API_KEY, params);
+  const apiKey = normalizeString(payload.apiKey);
+  if (!apiKey) throw new Error(`${RPC_METHODS.UI_VIDEO_SET_API_KEY}: apiKey is required`);
+  return { apiKey };
+}
+
 function builtinToolWritePayload(params) {
   const payload = requireBoolean(
     RPC_METHODS.CONFIG_BUILTIN_TOOLS_WRITE,
@@ -814,6 +823,11 @@ function createConfigProjectApi(callBackend) {
     getDashboardPage: (params) => callBackend(
       RPC_METHODS.UI_DASHBOARD_GET,
       requireKey(RPC_METHODS.UI_DASHBOARD_GET, requireCwd(RPC_METHODS.UI_DASHBOARD_GET, params), 'page'),
+    ),
+    getVideoApiKey: () => callBackend(RPC_METHODS.UI_VIDEO_GET_API_KEY, {}),
+    setVideoApiKey: (params) => callBackend(
+      RPC_METHODS.UI_VIDEO_SET_API_KEY,
+      videoApiKeyPayload(params),
     ),
     listDashboardLogs: (params = {}) => callBackend(RPC_METHODS.DASHBOARD_LOGS, dashboardLogsPayload(params)),
   };
@@ -1211,6 +1225,8 @@ export const getPreference = backendApi.getPreference;
 export const getAllPreferences = backendApi.getAllPreferences;
 export const setPreference = backendApi.setPreference;
 export const getDashboardPage = backendApi.getDashboardPage;
+export const getVideoApiKey = backendApi.getVideoApiKey;
+export const setVideoApiKey = backendApi.setVideoApiKey;
 export const listDashboardLogs = backendApi.listDashboardLogs;
 export const getObservabilityTrace = backendApi.getObservabilityTrace;
 export const getObservabilityThreadRecent = backendApi.getObservabilityThreadRecent;
