@@ -19,6 +19,45 @@ func TestNewClientFromFactoryRejectsEnvWithLegacyFactory(t *testing.T) {
 	}
 }
 
+func TestEffectiveLSPLogMessageTypeDowngradesGoplsWarningText(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   protocol.LogMessageParams
+		want protocol.LogMessageType
+	}{
+		{
+			name: "gopls orphaned shutdown warning",
+			in: protocol.LogMessageParams{
+				Type:    protocol.LogMessageError,
+				Message: "2026/06/08 05:39:23 warning: while diagnosing orphaned files: session is shut down",
+			},
+			want: protocol.LogMessageWarning,
+		},
+		{
+			name: "plain warning prefix",
+			in: protocol.LogMessageParams{
+				Type:    protocol.LogMessageError,
+				Message: "warning: while diagnosing orphaned files: session is shut down",
+			},
+			want: protocol.LogMessageWarning,
+		},
+		{
+			name: "real error stays error",
+			in: protocol.LogMessageParams{
+				Type:    protocol.LogMessageError,
+				Message: "failed to load workspace: package metadata unavailable",
+			},
+			want: protocol.LogMessageError,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := effectiveLSPLogMessageType(tc.in); got != tc.want {
+				t.Fatalf("effectiveLSPLogMessageType() = %s, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestEnsureClientForLanguageReturnsBootstrapDidOpenError(t *testing.T) {
 	root := t.TempDir()
 	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"bootstrap-error"}`)

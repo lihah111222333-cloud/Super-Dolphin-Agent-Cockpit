@@ -486,7 +486,7 @@ func (m *manager) LogMessage(params protocol.LogMessageParams) error {
 	if m.logger == nil {
 		return nil
 	}
-	switch params.Type {
+	switch effectiveLSPLogMessageType(params) {
 	case protocol.LogMessageError:
 		m.logger.Error("lsp", "message", params.Message)
 	case protocol.LogMessageWarning:
