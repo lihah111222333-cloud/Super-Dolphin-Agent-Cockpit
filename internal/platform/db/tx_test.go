@@ -199,7 +199,7 @@ func (*captureReadOnlyTx) Conn() *pgx.Conn { return nil }
 
 type platformStubRows struct{}
 
-func (*platformStubRows) Close() {}
+func (r *platformStubRows) Close() { _ = r }
 
 func (*platformStubRows) Err() error { return nil }
 

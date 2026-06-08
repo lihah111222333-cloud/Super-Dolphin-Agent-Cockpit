@@ -40,7 +40,7 @@ func decodeClipboardImagePayload(payload string) ([]byte, error) {
 	if payload == "" {
 		return nil, errors.New("clipboard image: base64 payload is empty")
 	}
-	// 容错 data URL 前缀 (data:image/png;base64,XXXX) 与裸 base64。
+	// 容错 data URL 前缀（例如 data:image/png;base64,AAAA）与裸 base64。
 	if strings.HasPrefix(payload, "data:") {
 		if idx := strings.Index(payload, ","); idx >= 0 {
 			payload = payload[idx+1:]

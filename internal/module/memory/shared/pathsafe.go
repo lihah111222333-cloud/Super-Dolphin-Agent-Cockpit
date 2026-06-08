@@ -198,8 +198,8 @@ func isRootOrNearRoot(path string) bool {
 //
 
 // TOCTOU between Lstat/EvalSymlinks and ReadFile is best-effort.
-// TODO(tracker:safe-read-toctou): os.OpenRoot-based replacement to close
-// the TOCTOU window. Tracked in p25 B-class infrastructure backlog
+// A future os.OpenRoot-based implementation can close the TOCTOU window.
+// Tracked in p25 B-class infrastructure backlog
 // (docs/plans/迁移/p25记忆业务能力/p25记忆业务能力对齐.md basic
 // infrastructure gap table). Contract is already result-equivalent via
 // EvalSymlinks + ContainsPath (mapping §11.2 + §2.3 strong contracts);

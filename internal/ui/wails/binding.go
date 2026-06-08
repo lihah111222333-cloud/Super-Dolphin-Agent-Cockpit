@@ -220,8 +220,8 @@ func (a *App) openNewWindow(group string, n int, uiBootstrap, cwd string) (strin
 	if title == "" {
 		title = applicationTitle()
 	}
-	// TODO(P7.5): Frontend still needs to read ao_ui_bootstrap/ao_window_cwd
-	// from window.location.search before these query params affect runtime state.
+	// Backend propagates bootstrap values into the window URL; frontend
+	// consumers read ao_ui_bootstrap/ao_window_cwd from window.location.search.
 	name := buildWindowName(group, n)
 	window := createWindow(app, title, a.debug, name, uiBootstrap, cwd, a)
 	if window == nil {

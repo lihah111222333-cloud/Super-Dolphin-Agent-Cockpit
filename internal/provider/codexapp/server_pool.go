@@ -145,11 +145,11 @@ func NewServerPool(logger *slog.Logger, spawner Spawner, cfg PoolConfig) *Server
 func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexIdentity, ownerKey string) (SpawnedServer, func(), error) {
 	home, key, provider, err := normalizePoolIdentity(identity)
 	if err != nil {
-		return nil, noopRelease, err
+		return nil, newNoopRelease(), err
 	}
 	ownerKey = strings.TrimSpace(ownerKey)
 	if ownerKey == "" {
-		return nil, noopRelease, fmt.Errorf("%w: pool owner agentID is empty", ErrInvalidIdentity)
+		return nil, newNoopRelease(), fmt.Errorf("%w: pool owner agentID is empty", ErrInvalidIdentity)
 	}
 	entryKey := poolEntryKey{
 		home:          home,
@@ -167,7 +167,7 @@ func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexI
 	// Respect spawn backoff before spawning.
 	if err := p.checkBackoffLocked(fastPath.entry, fastPath.now); err != nil {
 		p.mu.Unlock()
-		return nil, noopRelease, err
+		return nil, newNoopRelease(), err
 	}
 	spawnAt := fastPath.now
 	p.mu.Unlock()
@@ -178,13 +178,15 @@ func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexI
 	entry := p.entries[entryKey]
 	if err != nil {
 		p.recordSpawnErrorLocked(entry, entryKey, err, spawnAt)
-		return nil, noopRelease, fmt.Errorf("codexapp: spawn %q: %w", home, err)
+		return nil, newNoopRelease(), fmt.Errorf("codexapp: spawn %q: %w", home, err)
 	}
 	p.storeSpawnedLocked(entry, entryKey, server, spawnAt)
 	return server, p.releaser(entryKey), nil
 }
 
-func noopRelease() {}
+func newNoopRelease() func() {
+	return func() {}
+}
 
 type acquireFastPathResult struct {
 	entry   *poolEntry
@@ -196,7 +198,7 @@ type acquireFastPathResult struct {
 }
 
 func (p *ServerPool) acquireFastPathLocked(entryKey poolEntryKey) acquireFastPathResult {
-	result := acquireFastPathResult{release: noopRelease}
+	result := acquireFastPathResult{release: newNoopRelease()}
 	if p.closed {
 		result.err = ErrPoolClosed
 		result.done = true

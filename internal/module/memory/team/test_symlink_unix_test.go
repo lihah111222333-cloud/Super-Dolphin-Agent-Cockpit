@@ -4,4 +4,7 @@ package team
 
 import "testing"
 
-func skipIfSymlinkPrivilegeNotHeld(_ *testing.T, _ error) {}
+func skipIfSymlinkPrivilegeNotHeld(t *testing.T, err error) {
+	_ = t
+	_ = err
+}
