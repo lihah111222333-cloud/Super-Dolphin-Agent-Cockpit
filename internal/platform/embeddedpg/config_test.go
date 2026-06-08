@@ -54,6 +54,9 @@ func TestResolveConfigDefaultsToDarwinApplicationSupport(t *testing.T) {
 	if cfg.BinDir != filepath.Join(resources, "postgres", "darwin-arm64", "bin") {
 		t.Fatalf("BinDir = %q", cfg.BinDir)
 	}
+	if !cfg.RecoverRunningDataDir {
+		t.Fatal("RecoverRunningDataDir = false, want true for packaged desktop")
+	}
 	if cfg.ShareDir != filepath.Join(resources, "postgres", "darwin-arm64", "share", "postgresql@16") {
 		t.Fatalf("ShareDir = %q", cfg.ShareDir)
 	}
@@ -110,6 +113,9 @@ func TestResolveConfigMarksSidecarAsClientOnly(t *testing.T) {
 	if cfg.Owner {
 		t.Fatal("Owner = true, want false for sidecar role")
 	}
+	if cfg.RecoverRunningDataDir {
+		t.Fatal("RecoverRunningDataDir = true, want false for sidecar role")
+	}
 	if databaseURL != "postgres://owner@localhost/super_dolphin?sslmode=disable" {
 		t.Fatalf("databaseURL = %q, want inherited owner DATABASE_URL", databaseURL)
 	}
@@ -142,6 +148,9 @@ func TestResolveConfigDoesNotEnableEmbeddedPostgresInDevByDefault(t *testing.T) 
 	})
 	if cfg.Enabled {
 		t.Fatal("Enabled = true, want false without packaged runtime or explicit opt-in")
+	}
+	if cfg.RecoverRunningDataDir {
+		t.Fatal("RecoverRunningDataDir = true, want false outside packaged desktop")
 	}
 	if strings.TrimSpace(databaseURL) != "" {
 		t.Fatalf("databaseURL = %q, want empty without packaged runtime or explicit opt-in", databaseURL)
