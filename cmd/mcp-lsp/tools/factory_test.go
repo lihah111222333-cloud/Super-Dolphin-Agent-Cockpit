@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 func TestDispatchToolActionReportsValidActionsAndClosestMatch(t *testing.T) {
@@ -129,5 +131,40 @@ func TestWrapToolHandlerAllowsExplicitAbsoluteWorkDirOutsideWorkspaceRoots(t *te
 	}
 	if !found {
 		t.Fatalf("workspace roots = %#v, want explicit root %q", gotScope.WorkspaceRoots, want)
+	}
+}
+
+func TestWrapToolHandlerResolvesRelativeClaudeWorktreeWorkDir(t *testing.T) {
+	root := t.TempDir()
+	worktreeRoot := filepath.Join(root, ".claude", "worktrees", "feature")
+	if err := os.MkdirAll(worktreeRoot, 0o755); err != nil {
+		t.Fatalf("mkdir worktree root: %v", err)
+	}
+	var gotScope common.ToolScope
+	handler := wrapToolHandler("file", time.Second, func(ctx context.Context, _ json.RawMessage) (any, error) {
+		var ok bool
+		gotScope, ok = common.ToolScopeFromContext(ctx)
+		if !ok {
+			t.Fatal("ToolScopeFromContext() missing scope")
+		}
+		return "ok", nil
+	})
+	payload, err := json.Marshal(map[string]any{
+		"work_dir": filepath.Join(".claude", "worktrees", "feature"),
+	})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	ctx := testToolContext(root)
+
+	if _, err := handler(ctx, payload); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	want, err := filepath.EvalSymlinks(worktreeRoot)
+	if err != nil {
+		t.Fatalf("eval worktree root: %v", err)
+	}
+	if gotScope.CWD != filepath.Clean(want) {
+		t.Fatalf("scope CWD = %q, want %q", gotScope.CWD, want)
 	}
 }

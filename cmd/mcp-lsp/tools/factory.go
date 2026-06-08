@@ -523,18 +523,18 @@ func contextWithExplicitToolWorkDir(ctx context.Context, params json.RawMessage)
 		return ctx, fmt.Errorf("parse explicit tool work_dir params: %w", err)
 	}
 	workDir := strings.TrimSpace(input.WorkDir)
-	if workDir == "" || !filepath.IsAbs(workDir) {
+	if workDir == "" {
 		return ctx, nil
 	}
-	scopedCtx, _, err := contextWithExplicitAbsoluteWorkDir(ctx, workDir)
+	scopedCtx, _, err := contextWithExplicitWorkDir(ctx, workDir)
 	if err != nil {
 		return ctx, err
 	}
 	return scopedCtx, nil
 }
 
-func contextWithExplicitAbsoluteWorkDir(ctx context.Context, workDir string) (context.Context, string, error) {
-	normalized, err := normalizeExplicitAbsoluteWorkDir(workDir)
+func contextWithExplicitWorkDir(ctx context.Context, workDir string) (context.Context, string, error) {
+	normalized, err := normalizeExplicitWorkDir(ctx, workDir)
 	if err != nil {
 		return ctx, "", err
 	}
@@ -547,13 +547,17 @@ func contextWithExplicitAbsoluteWorkDir(ctx context.Context, workDir string) (co
 	return common.WithToolScope(ctx, scope), normalized, nil
 }
 
-func normalizeExplicitAbsoluteWorkDir(workDir string) (string, error) {
+func normalizeExplicitWorkDir(ctx context.Context, workDir string) (string, error) {
 	trimmed := strings.TrimSpace(workDir)
 	if trimmed == "" {
 		return "", errors.New("work_dir is required")
 	}
 	if !filepath.IsAbs(trimmed) {
-		return "", fmt.Errorf("work_dir must be absolute: %q", workDir)
+		root, err := common.WorkspaceRootFromContextStrict(ctx)
+		if err != nil {
+			return "", fmt.Errorf("relative work_dir requires trusted workspace root: %w", err)
+		}
+		trimmed = filepath.Join(root, trimmed)
 	}
 	absolute, err := filepath.Abs(trimmed)
 	if err != nil {
