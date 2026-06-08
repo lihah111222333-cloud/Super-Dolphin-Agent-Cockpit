@@ -23,17 +23,18 @@ type NotifyConfig struct {
 // EmbeddedPostgresConfig describes the app-managed PostgreSQL runtime used
 // when no external DATABASE_URL is supplied.
 type EmbeddedPostgresConfig struct {
-	Enabled      bool
-	Owner        bool
-	BinDir       string
-	ShareDir     string
-	DataDir      string
-	RuntimeDir   string
-	LogPath      string
-	DatabaseName string
-	UserName     string
-	Port         int
-	ResolveError string
+	Enabled               bool
+	Owner                 bool
+	RecoverRunningDataDir bool
+	BinDir                string
+	ShareDir              string
+	DataDir               string
+	RuntimeDir            string
+	LogPath               string
+	DatabaseName          string
+	UserName              string
+	Port                  int
+	ResolveError          string
 }
 
 const (
