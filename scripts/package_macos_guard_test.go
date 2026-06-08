@@ -37,7 +37,7 @@ func TestPackageMacOSScriptBundlesRuntimeContracts(t *testing.T) {
 	assertScriptContains(t, verify, "verify_packaged_ffmpeg")
 	assertScriptContains(t, verify, "packaged ffmpeg smoke verified")
 	assertScriptContains(t, verify, "verify_update_env")
-	assertScriptContains(t, verify, "SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be HTTPS with host")
+	assertScriptContains(t, verify, "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo")
 	assertScriptContains(t, verify, "decoded SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be 32 bytes")
 }
 
@@ -318,12 +318,13 @@ func TestPackageMacOSScriptEnforcesGrayReleaseProfile(t *testing.T) {
 	for _, want := range []string{"dev-local|gray|gray-unsigned", "unsupported SUPER_DOLPHIN_RELEASE_PROFILE=$release_profile; expected dev-local, gray, or gray-unsigned"} {
 		assertScriptContains(t, profileBody, want)
 	}
-	for _, want := range []string{"SUPER_DOLPHIN_UPDATE_MANIFEST_URL", "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY", "SUPER_DOLPHIN_UPDATE_CHANNEL", "SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be an HTTPS URL with a host", "^https://[^/?#]+", "decoded SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be 32 bytes"} {
+	for _, want := range []string{"SUPER_DOLPHIN_UPDATE_GITHUB_REPO", "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY", "SUPER_DOLPHIN_UPDATE_CHANNEL", "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo", "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be xiaoxiaotest9527-bit/-", "decoded SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be 32 bytes"} {
 		assertScriptContains(t, updateBody, want)
 	}
-	for _, want := range []string{"SUPER_DOLPHIN_UPDATE_ENABLED=1", "SUPER_DOLPHIN_UPDATE_MANIFEST_URL=%s", "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=%s", "SUPER_DOLPHIN_UPDATE_CHANNEL=%s", "SUPER_DOLPHIN_UPDATE_VERSION=%s"} {
+	for _, want := range []string{"SUPER_DOLPHIN_UPDATE_ENABLED=1", "SUPER_DOLPHIN_UPDATE_GITHUB_REPO=%s", "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=%s", "SUPER_DOLPHIN_UPDATE_CHANNEL=%s", "SUPER_DOLPHIN_UPDATE_VERSION=%s"} {
 		assertScriptContains(t, envBody, want)
 	}
+	assertScriptContains(t, envBody, "SUPER_DOLPHIN_UPDATE_MANIFEST_URL=%s")
 	assertScriptContains(t, envBody, "\"$version\"")
 	assertScriptDoesNotContain(t, envBody, "$VERSION")
 	assertScriptOrder(t, script, "resolve_release_profile", "resolve_update_config")
@@ -333,9 +334,10 @@ func TestPackageMacOSScriptEnforcesGrayReleaseProfile(t *testing.T) {
 func TestPackageMacOSScriptUsesDMGAsOnlyReleaseArtifact(t *testing.T) {
 	script := readScript(t, "package_macos.sh")
 
-	for _, want := range []string{"dmg_path=\"$dist/$app_name.dmg\"", "write_dmg_checksum()", "hdiutil create -volname \"$app_name\" -srcfolder \"$staging\" -ov -format UDZO \"$dmg_path\"", "xcrun notarytool submit \"$dmg_path\" --keychain-profile \"$NOTARY_PROFILE\" --wait", "xcrun stapler staple \"$dmg_path\"", "spctl -a -t open --context context:primary-signature -v \"$dmg_path\"", "write_dmg_checksum \"$dmg_path\""} {
+	for _, want := range []string{"dmg_filename=\"$app_name.dmg\"", "dmg_filename=\"Super-Dolphin-$platform.dmg\"", "dmg_path=\"$dist/$dmg_filename\"", "write_dmg_checksum()", "hdiutil create -volname \"$app_name\" -srcfolder \"$staging\" -ov -format UDZO \"$dmg_path\"", "xcrun notarytool submit \"$dmg_path\" --keychain-profile \"$NOTARY_PROFILE\" --wait", "xcrun stapler staple \"$dmg_path\"", "spctl -a -t open --context context:primary-signature -v \"$dmg_path\"", "write_dmg_checksum \"$dmg_path\""} {
 		assertScriptContains(t, script, want)
 	}
+	assertScriptOrder(t, script, "if updates_enabled_for_profile; then", "dmg_filename=\"Super-Dolphin-$platform.dmg\"")
 	assertScriptDoesNotContain(t, script, ".app.zip")
 	assertScriptOrder(t, script, "hdiutil create -volname \"$app_name\"", "xcrun notarytool submit \"$dmg_path\"")
 	assertScriptOrder(t, script, "xcrun notarytool submit \"$dmg_path\"", "xcrun stapler staple \"$dmg_path\"")
@@ -350,7 +352,8 @@ func TestMacOSReleaseSmokeScriptCoversGrayUpdateManifest(t *testing.T) {
 		"update-loop",
 		"manifest",
 		"latest_json_path",
-		"SUPER_DOLPHIN_UPDATE_MANIFEST_URL",
+		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO",
+		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be xiaoxiaotest9527-bit/-",
 		"SUPER_DOLPHIN_UPDATE_PUBLIC_KEY",
 		"SUPER_DOLPHIN_UPDATE_SIGNING_KEY",
 		"SUPER_DOLPHIN_UPDATE_ARTIFACT_URL",

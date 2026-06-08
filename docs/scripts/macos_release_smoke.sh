@@ -5,10 +5,12 @@ root="$(git rev-parse --show-toplevel)"
 smoke_date="$(date +%Y-%m-%d)"
 log_dir="${SMOKE_LOG_DIR:-$root/docs/reviews/smoke-logs/$smoke_date}"
 app_path="${APP_PATH:-$root/dist/package/macos/Super Dolphin.app}"
-dmg_path="${DMG_PATH:-$root/dist/package/macos/Super Dolphin.dmg}"
-latest_json_path="${LATEST_JSON_PATH:-$root/dist/package/macos/latest.json}"
+update_platform="${SUPER_DOLPHIN_UPDATE_PLATFORM:-$(go env GOOS)-$(go env GOARCH)}"
+dmg_path="${DMG_PATH:-$root/dist/package/macos/Super-Dolphin-$update_platform.dmg}"
+latest_json_path="${LATEST_JSON_PATH:-$root/dist/package/macos/Super-Dolphin-$update_platform.update.json}"
 dmg_sha256_path="${DMG_SHA256_PATH:-$dmg_path.sha256}"
 mode="${1:-local}"
+required_update_github_repo="xiaoxiaotest9527-bit/-"
 
 usage() {
   cat >&2 <<'USAGE'
@@ -24,7 +26,7 @@ Modes:
                  and real update-loop installation.
   notarized-dmg  Validate that the DMG is notarized/stapled, then mount and verify it.
   relay-turn     Run a non-GUI Codex CLI turn against the configured relay using the bundled Codex.
-  manifest       Verify gray update manifest inputs and that latest.json matches a freshly
+  manifest       Verify gray update manifest inputs and that the platform manifest matches a freshly
                  generated manifest for the local DMG. Does not publish or install updates.
   update-loop    Run manifest smoke, then require explicit evidence that the real app update
                  install loop was executed outside this script.
@@ -200,13 +202,21 @@ validate_https_url_env() {
 }
 
 require_update_manifest_env() {
-  require_env_blocker SUPER_DOLPHIN_UPDATE_MANIFEST_URL
+  require_env_blocker SUPER_DOLPHIN_UPDATE_GITHUB_REPO
   require_env_blocker SUPER_DOLPHIN_UPDATE_PUBLIC_KEY
   require_env_blocker SUPER_DOLPHIN_UPDATE_SIGNING_KEY
   require_env_blocker SUPER_DOLPHIN_UPDATE_ARTIFACT_URL
   require_env_blocker VERSION
   require_env_blocker SUPER_DOLPHIN_UPDATE_MINIMUM_VERSION
-  validate_https_url_env SUPER_DOLPHIN_UPDATE_MANIFEST_URL
+  if [[ ! "$SUPER_DOLPHIN_UPDATE_GITHUB_REPO" =~ ^[^[:space:]/]+/[^[:space:]/]+$ ]]; then
+    blocker "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo"
+  fi
+  if [[ "$SUPER_DOLPHIN_UPDATE_GITHUB_REPO" != "$required_update_github_repo" ]]; then
+    blocker "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be xiaoxiaotest9527-bit/-"
+  fi
+  if [[ -n "${SUPER_DOLPHIN_UPDATE_MANIFEST_URL:-}" ]]; then
+    validate_https_url_env SUPER_DOLPHIN_UPDATE_MANIFEST_URL
+  fi
   validate_https_url_env SUPER_DOLPHIN_UPDATE_ARTIFACT_URL
   validate_update_public_key
   if [[ ! -f "$SUPER_DOLPHIN_UPDATE_SIGNING_KEY" ]]; then
@@ -239,7 +249,7 @@ verify_packaged_update_env() {
   require_file "$env_file"
   for expected_line in \
     "SUPER_DOLPHIN_UPDATE_ENABLED=1" \
-    "SUPER_DOLPHIN_UPDATE_MANIFEST_URL=$SUPER_DOLPHIN_UPDATE_MANIFEST_URL" \
+    "SUPER_DOLPHIN_UPDATE_GITHUB_REPO=$SUPER_DOLPHIN_UPDATE_GITHUB_REPO" \
     "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=$SUPER_DOLPHIN_UPDATE_PUBLIC_KEY" \
     "SUPER_DOLPHIN_UPDATE_CHANNEL=${SUPER_DOLPHIN_UPDATE_CHANNEL:-gray}" \
     "SUPER_DOLPHIN_UPDATE_VERSION=$VERSION"; do
@@ -247,6 +257,9 @@ verify_packaged_update_env() {
       fail "packaged update .env missing expected line: ${expected_line%%=*}=<redacted>"
     fi
   done
+  if [[ -n "${SUPER_DOLPHIN_UPDATE_MANIFEST_URL:-}" ]] && ! grep -Fqx "SUPER_DOLPHIN_UPDATE_MANIFEST_URL=$SUPER_DOLPHIN_UPDATE_MANIFEST_URL" "$env_file"; then
+    fail "packaged update .env missing expected legacy manifest URL line"
+  fi
   echo "packaged update .env keys match release manifest env with values redacted: $env_file"
 }
 
@@ -488,7 +501,8 @@ manifest_smoke() {
   echo "dmg_path: $dmg_path"
   echo "dmg_sha256_path: $dmg_sha256_path"
   echo "latest_json_path: $latest_json_path"
-  echo "update_manifest_url: ${SUPER_DOLPHIN_UPDATE_MANIFEST_URL}"
+  echo "update_github_repo: ${SUPER_DOLPHIN_UPDATE_GITHUB_REPO}"
+  echo "update_manifest_url: ${SUPER_DOLPHIN_UPDATE_MANIFEST_URL:-<legacy-unset>}"
   echo "update_artifact_url: ${SUPER_DOLPHIN_UPDATE_ARTIFACT_URL}"
   echo "update_channel: ${SUPER_DOLPHIN_UPDATE_CHANNEL:-gray}"
   echo "update_version: $VERSION"
@@ -497,7 +511,7 @@ manifest_smoke() {
 
   local tmp_dir generated_manifest
   tmp_dir="$(mktemp -d)"
-  generated_manifest="$tmp_dir/latest.json"
+  generated_manifest="$tmp_dir/Super-Dolphin-$update_platform.update.json"
   (
     cd "$root"
     go run ./cmd/super-dolphin-release-manifest \
@@ -514,10 +528,10 @@ manifest_smoke() {
   if ! cmp -s "$generated_manifest" "$latest_json_path"; then
     echo "generated_manifest: $generated_manifest" >&2
     echo "latest_json_path: $latest_json_path" >&2
-    fail "latest.json does not match fresh output from cmd/super-dolphin-release-manifest"
+    fail "platform update manifest does not match fresh output from cmd/super-dolphin-release-manifest"
   fi
   rm -rf "$tmp_dir"
-  echo "update manifest smoke verified latest.json against local DMG; does not publish, install, or execute a real update loop"
+  echo "update manifest smoke verified platform manifest against local DMG; does not publish, install, or execute a real update loop"
 }
 
 update_loop_smoke() {

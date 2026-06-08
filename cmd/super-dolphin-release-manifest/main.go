@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/appupdate"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -68,7 +69,7 @@ func parseFlags(args []string) (manifestFlags, error) {
 	var cfg manifestFlags
 	flags := flag.NewFlagSet("super-dolphin-release-manifest", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	flags.StringVar(&cfg.artifact, "artifact", "", "path to DMG artifact")
+	flags.StringVar(&cfg.artifact, "artifact", "", "path to release artifact")
 	flags.StringVar(&cfg.artifactURL, "artifact-url", "", "published artifact URL")
 	flags.StringVar(&cfg.appID, "app-id", "", "application identifier")
 	flags.StringVar(&cfg.channel, "channel", "", "release channel")
@@ -76,7 +77,7 @@ func parseFlags(args []string) (manifestFlags, error) {
 	flags.StringVar(&cfg.minimumVersion, "minimum-version", "", "minimum supported app version")
 	flags.StringVar(&cfg.platform, "platform", "", "artifact platform")
 	flags.StringVar(&cfg.signingKey, "signing-key", "", "64-byte Ed25519 private key path")
-	flags.StringVar(&cfg.out, "out", "", "output latest.json path")
+	flags.StringVar(&cfg.out, "out", "", "output update manifest path")
 	flags.StringVar(&cfg.notes, "notes", "", "release notes accepted for release tooling compatibility")
 	if err := flags.Parse(args); err != nil {
 		return manifestFlags{}, err
@@ -86,6 +87,9 @@ func parseFlags(args []string) (manifestFlags, error) {
 	}
 	if err := requireFlagValues(cfg); err != nil {
 		return manifestFlags{}, err
+	}
+	if cfg.out == "" {
+		cfg.out = defaultManifestOutputPath(cfg.artifact, cfg.platform)
 	}
 	return cfg, nil
 }
@@ -100,7 +104,6 @@ func requireFlagValues(cfg manifestFlags) error {
 		"minimum-version": cfg.minimumVersion,
 		"platform":        cfg.platform,
 		"signing-key":     cfg.signingKey,
-		"out":             cfg.out,
 	}
 	for name, value := range required {
 		if value == "" {
@@ -108,6 +111,10 @@ func requireFlagValues(cfg manifestFlags) error {
 		}
 	}
 	return nil
+}
+
+func defaultManifestOutputPath(artifactPath, platform string) string {
+	return filepath.Join(filepath.Dir(artifactPath), "Super-Dolphin-"+platform+".update.json")
 }
 
 type artifactIntegrity struct {

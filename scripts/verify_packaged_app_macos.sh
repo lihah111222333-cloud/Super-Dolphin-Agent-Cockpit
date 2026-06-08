@@ -31,6 +31,7 @@ fi
 resources="$app/Contents/Resources"
 macos="$app/Contents/MacOS"
 lsp_smoke_path="$resources/bin:$resources/lsp/bin:$resources/lsp/node/bin:$resources/lsp/node_modules/.bin:/usr/bin:/bin:/usr/sbin:/sbin"
+required_update_github_repo="xiaoxiaotest9527-bit/-"
 
 detect_platform() {
   local os arch
@@ -738,12 +739,21 @@ verify_update_env() {
   if [[ "$enabled" != "1" && "$enabled" != "true" && "$enabled" != "yes" && "$enabled" != "on" ]]; then
     return
   fi
-  local manifest_url public_key channel version decoded_key byte_count
-  manifest_url="$(require_dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_MANIFEST_URL)"
+  local github_repo manifest_url public_key channel version decoded_key byte_count
+  github_repo="$(require_dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_GITHUB_REPO)"
+  manifest_url="$(dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_MANIFEST_URL 2>/dev/null || true)"
   public_key="$(require_dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_PUBLIC_KEY)"
   channel="$(require_dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_CHANNEL)"
   version="$(require_dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_VERSION)"
-  if [[ ! "$manifest_url" =~ ^https://[^/?#]+($|[/?#]) ]]; then
+  if [[ ! "$github_repo" =~ ^[^[:space:]/]+/[^[:space:]/]+$ ]]; then
+    echo "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo: $github_repo" >&2
+    exit 1
+  fi
+  if [[ "$github_repo" != "$required_update_github_repo" ]]; then
+    echo "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be xiaoxiaotest9527-bit/-" >&2
+    exit 1
+  fi
+  if [[ -n "$manifest_url" && ! "$manifest_url" =~ ^https://[^/?#]+($|[/?#]) ]]; then
     echo "SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be HTTPS with host: $manifest_url" >&2
     exit 1
   fi
