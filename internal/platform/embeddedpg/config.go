@@ -85,7 +85,7 @@ func ResolveConfig(input ResolveInput) (contract.EmbeddedPostgresConfig, string)
 		Port:                  port,
 		ResolveError:          resolveErr,
 	}
-	return cfg, databaseURLFor(cfg)
+	return cfg, databaseURLFor(cfg, goos)
 }
 
 func resolveInputPackagedRuntime(input ResolveInput, env map[string]string, goos, goarch string) (runtimeenv.PackagedRuntime, bool) {
@@ -125,14 +125,19 @@ func environmentMap(entries []string) map[string]string {
 	return out
 }
 
-func databaseURLFor(cfg contract.EmbeddedPostgresConfig) string {
+func databaseURLFor(cfg contract.EmbeddedPostgresConfig, goos string) string {
 	values := url.Values{}
-	values.Set("host", cfg.RuntimeDir)
 	values.Set("sslmode", "disable")
+	host := "localhost:" + strconv.Itoa(cfg.Port)
+	if goos == "windows" {
+		host = "127.0.0.1:" + strconv.Itoa(cfg.Port)
+	} else {
+		values.Set("host", cfg.RuntimeDir)
+	}
 	u := url.URL{
 		Scheme:   "postgres",
 		User:     url.User(cfg.UserName),
-		Host:     "localhost:" + strconv.Itoa(cfg.Port),
+		Host:     host,
 		Path:     "/" + cfg.DatabaseName,
 		RawQuery: values.Encode(),
 	}

@@ -128,6 +128,7 @@ exit 1
 
 func scriptPrefixThroughFunction(t *testing.T, script, name string) string {
 	t.Helper()
+	script = strings.ReplaceAll(script, "\r\n", "\n")
 	startMarker := name + "() {"
 	start := strings.Index(script, startMarker)
 	if start < 0 {
@@ -143,6 +144,7 @@ func scriptPrefixThroughFunction(t *testing.T, script, name string) string {
 
 func functionBody(t *testing.T, script, name string) string {
 	t.Helper()
+	script = strings.ReplaceAll(script, "\r\n", "\n")
 	startMarker := name + "() {"
 	start := strings.Index(script, startMarker)
 	if start < 0 {

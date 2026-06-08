@@ -81,6 +81,14 @@ func TestPrepareLSPBundleScriptsIncludeShellcheckInManifestAndChecksums(t *testi
 	}
 }
 
+func TestPrepareLSPBundleWindowsWritesManifestLanguagesAsArrays(t *testing.T) {
+	script := readScript(t, "prepare_lsp_bundle_windows.ps1")
+
+	assertScriptContains(t, script, "[string[]](ConvertFrom-Json -InputObject $parts[2])")
+	assertScriptContains(t, script, "LSP manifest languages for $serverId must be a non-empty JSON array")
+	assertScriptDoesNotContain(t, script, "$languages = $parts[2] | ConvertFrom-Json")
+}
+
 func TestPrepareLSPBundleMacOSStandardProfileExcludesJDTLSManifestEntry(t *testing.T) {
 	script := readScript(t, "prepare_lsp_bundle_macos.sh")
 	standardStart := strings.Index(script, "lsp_specs=(")
@@ -201,4 +209,95 @@ func TestPrepareLSPBundleJDTLSWrapperDoesNotExecHomebrewPythonScript(t *testing.
 			assertScriptDoesNotContain(t, script, "exec \"$here/../jdtls/bin/jdtls\"")
 		})
 	}
+}
+
+func TestPrepareLSPBundleWindowsScriptContracts(t *testing.T) {
+	script := readScript(t, "prepare_lsp_bundle_windows.ps1")
+
+	assertScriptContains(t, script, "prepare_lsp_bundle_windows.ps1 must run on Windows")
+	assertScriptContains(t, script, "Resolve-RepoRoot")
+	assertScriptContains(t, script, "keep prepare_lsp_bundle_windows.ps1 under <repo>\\scripts")
+	assertScriptContains(t, script, "$GoOS -ne 'windows'")
+	assertScriptContains(t, script, "node.exe")
+	assertScriptContains(t, script, "& $NpmBin install --prefix $LspDir @LSPNpmPackages")
+	assertScriptContains(t, script, "typescript-language-server")
+	assertScriptContains(t, script, "vscode-langservers-extracted")
+	assertScriptContains(t, script, "pyright")
+	assertScriptContains(t, script, "bash-language-server")
+	assertScriptContains(t, script, "shellcheck")
+	assertScriptContains(t, script, "@ast-grep/cli")
+	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'typescript-language-server.cmd'")
+	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'vscode-css-language-server.cmd'")
+	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'pyright-langserver.cmd'")
+	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'bash-language-server.cmd'")
+	assertScriptContains(t, script, "node_modules/shellcheck/bin/shellcheck.js")
+	assertScriptContains(t, script, "shellcheck npm launcher failed to prepare bundled executable")
+	assertScriptContains(t, script, "SUPER_DOLPHIN_SHELLCHECK_BIN")
+	assertScriptContains(t, script, "SUPER_DOLPHIN_WINDOWS_OMIT_SHELLCHECK")
+	assertScriptContains(t, script, "shellcheck will not be included")
+	assertScriptContains(t, script, "missing ARM64 shellcheck.exe; shellcheck npm package does not publish win32-arm64")
+	assertScriptContains(t, script, "$shellcheck = Resolve-ShellcheckExecutable")
+	assertScriptOrder(t, script, "function Resolve-ShellcheckExecutable", "$shellcheck = Resolve-ShellcheckExecutable")
+	assertScriptContains(t, script, "SUPER_DOLPHIN_MSVC_RUNTIME_DIR")
+	assertScriptContains(t, script, "node_modules/@ast-grep/cli/ast-grep.exe")
+	assertScriptContains(t, script, "bin/ast-grep.exe")
+	assertScriptContains(t, script, "vcruntime140.dll")
+	assertScriptContains(t, script, "bundled ast-grep smoke failed")
+	assertScriptOrder(t, script, "node_modules/@ast-grep/cli/sg.exe", "node_modules/@ast-grep/cli/ast-grep.exe")
+	assertScriptOrder(t, script, "Copy-Item -LiteralPath $astGrep", "Copy-Item -LiteralPath $vcruntime140")
+	assertScriptContains(t, script, "Write-GoToolchainWrapper")
+	assertScriptContains(t, script, "go|bin/go.cmd|[\"go-toolchain\"]")
+	assertScriptContains(t, script, "gopls|bin/gopls.exe|[\"go\",\"gomod\",\"gosum\",\"gowork\"]")
+	assertScriptContains(t, script, "sg|bin/sg.exe|[\"ast-grep\"]")
+	assertScriptContains(t, script, "'bin/ast-grep.exe'")
+	assertScriptContains(t, script, "'bin/vcruntime140.dll'")
+	assertScriptContains(t, script, "'amd64' { 'win32-x64' }")
+	assertScriptContains(t, script, "'arm64' { 'win32-arm64' }")
+	assertScriptContains(t, script, "python.cmd")
+	assertScriptContains(t, script, "python3.cmd")
+	assertScriptContains(t, script, "lsp-manifest.json")
+	assertScriptContains(t, script, "lsp-checksums.sha256")
+	assertScriptOrder(t, script, "& $NpmBin install --prefix $LspDir @LSPNpmPackages", "Write-NodeCmdWrapper -Name 'typescript-language-server.cmd'")
+	assertScriptOrder(t, script, "Write-GoToolchainWrapper", "Write-LSPManifestAndChecksums")
+}
+
+func TestPrepareLSPBundleWindowsPinsNpmDependencyVersions(t *testing.T) {
+	script := readScript(t, "prepare_lsp_bundle_windows.ps1")
+
+	assertScriptContains(t, script, "$LSPNpmPackages = @(")
+	for _, want := range []string{
+		"typescript-language-server@5.3.0",
+		"typescript@6.0.3",
+		"vscode-langservers-extracted@4.10.0",
+		"pyright@1.1.410",
+		"bash-language-server@5.6.0",
+		"shellcheck@4.1.0",
+		"@ast-grep/cli@0.43.0",
+	} {
+		assertScriptContains(t, script, want)
+	}
+	assertScriptContains(t, script, "if (-not $OmitShellcheck -and $ShellcheckBin.Trim() -eq '' -and $WindowsPackageArch -ne 'arm64')")
+	assertScriptContains(t, script, "$LSPNpmPackages += 'shellcheck@4.1.0'")
+	assertScriptContains(t, script, "& $NpmBin install --prefix $LspDir @LSPNpmPackages")
+	assertScriptDoesNotContain(t, script, "npm install --prefix $LspDir typescript-language-server typescript vscode-langservers-extracted pyright bash-language-server shellcheck @ast-grep/cli")
+}
+
+func TestPrepareLSPBundleWindowsFullProfileBundlesJavaRuntimeAndJDTLS(t *testing.T) {
+	script := readScript(t, "prepare_lsp_bundle_windows.ps1")
+
+	assertScriptContains(t, script, "$JDTLSHome = if ($env:SUPER_DOLPHIN_JDTLS_HOME)")
+	assertScriptContains(t, script, "$JDKHome = if ($env:SUPER_DOLPHIN_JDK_HOME)")
+	assertScriptContains(t, script, "Write-JavaRuntimeWrapper")
+	assertScriptContains(t, script, "Write-JDTLSWrapper")
+	assertScriptContains(t, script, "java|bin/java.cmd|[\"java-runtime\"]")
+	assertScriptContains(t, script, "jdtls|bin/jdtls.cmd|[\"java\"]")
+	assertScriptContains(t, script, "if ($LSPProfile -eq 'full') {")
+	assertScriptContains(t, script, "missing jdtls; set SUPER_DOLPHIN_JDTLS_HOME")
+	assertScriptContains(t, script, "missing JDK; set SUPER_DOLPHIN_JDK_HOME or JAVA_HOME")
+	assertScriptContains(t, script, "Assert-WindowsNativeArchitecture -Path (Join-Path $JDKHome 'bin/java.exe') -ExpectedArch $WindowsPackageArch -Label 'JDK java'")
+	assertScriptContains(t, script, "Copy-DirectoryClean -Source $JDTLSHome -Destination (Join-Path $LspDir 'jdtls')")
+	assertScriptContains(t, script, "Copy-DirectoryClean -Source $JDKHome -Destination (Join-Path $LspDir 'jdk')")
+	assertScriptContains(t, script, "Assert-WindowsNativeArchitecture -Path $javaPath -ExpectedArch $WindowsPackageArch -Label 'LSP bundle jdk/bin/java.exe'")
+	assertScriptOrder(t, script, "Copy-DirectoryClean -Source $JDKHome -Destination (Join-Path $LspDir 'jdk')", "    Write-JavaRuntimeWrapper")
+	assertScriptOrder(t, script, "    Write-JavaRuntimeWrapper", "    Write-JDTLSWrapper")
 }

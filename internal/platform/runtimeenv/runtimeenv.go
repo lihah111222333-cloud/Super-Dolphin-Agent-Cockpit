@@ -39,7 +39,7 @@ var (
 var bundledSidecarNames = []string{"mcp-orch", "mcp-lsp", "mcp-ida"}
 
 // PackagedRuntime describes the resources and app-owned data directories for a
-// macOS app bundle runtime.
+// packaged desktop runtime.
 type PackagedRuntime struct {
 	ResourcesDir  string
 	BinDir        string
@@ -161,37 +161,15 @@ func PackagedRuntimeFromExecutable(executablePath, userHome string) (PackagedRun
 }
 
 func packagedRuntimeFromResources(resources, userHome string) PackagedRuntime {
-	return PackagedRuntime{
-		ResourcesDir:  resources,
-		BinDir:        filepath.Join(resources, "bin"),
-		MigrationsDir: filepath.Join(resources, "migrations"),
-		PostgresRoot:  filepath.Join(resources, "postgres"),
-		AppDataDir:    packagedAppDataDir(userHome),
-	}
+	return packagedRuntimeFromResourcesForOS(runtimeGOOS(), resources, userHome)
 }
 
 func packagedAppDataDir(userHome string) string {
-	userHome = strings.TrimSpace(userHome)
-	if userHome == "" {
-		return ""
-	}
-	return filepath.Join(userHome, "Library", "Application Support", "Super Dolphin")
+	return packagedAppDataDirForOS(runtimeGOOS(), userHome)
 }
 
 func packagedResourcesDir(executablePath string) string {
-	executablePath = strings.TrimSpace(executablePath)
-	if executablePath == "" {
-		return ""
-	}
-	exeDir := filepath.Dir(executablePath)
-	if filepath.Base(exeDir) != "MacOS" {
-		return ""
-	}
-	contentsDir := filepath.Dir(exeDir)
-	if filepath.Base(contentsDir) != "Contents" {
-		return ""
-	}
-	return filepath.Join(contentsDir, "Resources")
+	return packagedResourcesDirForOS(runtimeGOOS(), executablePath)
 }
 
 func applyPackagedEnv(resources, userHome string) error {
@@ -476,7 +454,7 @@ func runEnvSetters(setters ...func() error) error {
 }
 
 func requireBundledSidecars(binDir string) error {
-	for _, name := range bundledSidecarNames {
+	for _, name := range executableNamesForOS(runtimeGOOS(), bundledSidecarNames) {
 		path := filepath.Join(binDir, name)
 		if err := requireExecutableFile(path); err != nil {
 			return fmt.Errorf("missing bundled sidecar %s: %w", path, err)
@@ -486,14 +464,7 @@ func requireBundledSidecars(binDir string) error {
 }
 
 func requireExecutableFile(path string) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	if info.IsDir() || info.Mode()&0o111 == 0 {
-		return fmt.Errorf("not an executable file")
-	}
-	return nil
+	return requireExecutableFileForOS(runtimeGOOS(), path)
 }
 
 func newSessionToken() string {
@@ -505,31 +476,11 @@ func newSessionToken() string {
 }
 
 func packagedPathEntries(runtime PackagedRuntime) []string {
-	lspDir := filepath.Join(runtime.ResourcesDir, lspBundleName)
-	return []string{
-		runtime.BinDir,
-		filepath.Join(lspDir, "bin"),
-		filepath.Join(lspDir, "node", "bin"),
-		filepath.Join(lspDir, "node_modules", ".bin"),
-		"/usr/bin",
-		"/bin",
-		"/usr/sbin",
-		"/sbin",
-	}
+	return packagedPathEntriesForOS(runtimeGOOS(), runtime)
 }
 
 func packagedSidecarPathEntries(runtime PackagedRuntime) []string {
-	lspDir := filepath.Join(runtime.ResourcesDir, lspBundleName)
-	return []string{
-		filepath.Join(lspDir, "bin"),
-		filepath.Join(lspDir, "node", "bin"),
-		filepath.Join(lspDir, "node_modules", ".bin"),
-		runtime.BinDir,
-		"/usr/bin",
-		"/bin",
-		"/usr/sbin",
-		"/sbin",
-	}
+	return packagedSidecarPathEntriesForOS(runtimeGOOS(), runtime)
 }
 
 func setControlledEnvPath(key string, entries ...string) error {

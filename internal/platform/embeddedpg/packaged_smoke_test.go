@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -125,12 +126,17 @@ func assertPackagedSmokeQuery(t *testing.T, cfg contract.EmbeddedPostgresConfig)
 
 func packagedSmokePostgresDSN(cfg contract.EmbeddedPostgresConfig) string {
 	values := url.Values{}
-	values.Set("host", cfg.RuntimeDir)
 	values.Set("sslmode", "disable")
+	host := "localhost:" + strconv.Itoa(cfg.Port)
+	if runtime.GOOS == "windows" {
+		host = "127.0.0.1:" + strconv.Itoa(cfg.Port)
+	} else {
+		values.Set("host", cfg.RuntimeDir)
+	}
 	return (&url.URL{
 		Scheme:   "postgres",
 		User:     url.User(cfg.UserName),
-		Host:     "localhost:" + strconv.Itoa(cfg.Port),
+		Host:     host,
 		Path:     "/postgres",
 		RawQuery: values.Encode(),
 	}).String()
@@ -138,6 +144,9 @@ func packagedSmokePostgresDSN(cfg contract.EmbeddedPostgresConfig) string {
 
 func assertPackagedSmokeDirMode(t *testing.T, path string, want os.FileMode) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		return
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("stat %s: %v", path, err)

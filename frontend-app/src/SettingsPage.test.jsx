@@ -369,7 +369,7 @@ describe('SettingsPage provider settings', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存 Provider 设置' }));
 
     await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent('路径必须以 / 开头：relative/path');
+      expect(screen.getByRole('alert')).toHaveTextContent('路径必须是绝对路径：relative/path');
     });
     expect(backend.setPreference).not.toHaveBeenCalled();
   });
