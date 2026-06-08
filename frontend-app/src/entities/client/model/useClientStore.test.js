@@ -2145,6 +2145,33 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().draft).toBe('Retry on missing session');
   });
 
+  it('recovers a stopped thread and retries turn/start once', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      draft: 'Continue stopped DAG agent',
+      attachments: [],
+      threads: [{ id: 'thread-1', name: 'DAG agent', provider: 'codex', status: 'stopped' }],
+    });
+    backend.startTurn
+      .mockRejectedValueOnce(new Error('{"message":"[-32098] resolve session: thread \\"thread-1\\": resolve session: thread \\"thread-1\\" is stopped"}'))
+      .mockResolvedValueOnce({ ok: true });
+    backend.recoverThread.mockResolvedValue({ recovered: true, mode: 'relaunch_resume' });
+
+    await expect(useClientStore.getState().sendDraft()).resolves.toBe(true);
+
+    expect(backend.recoverThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
+    expect(backend.startTurn).toHaveBeenCalledTimes(2);
+    expect(backend.startTurn).toHaveBeenNthCalledWith(2, {
+      cwd: '/repo/app',
+      threadId: 'thread-1',
+      input: [{ type: 'text', text: 'Continue stopped DAG agent' }],
+      manualSkillSelection: false,
+    });
+    expect(useClientStore.getState().draft).toBe('');
+  });
+
   it('applies window bootstrap snapshot before scoped RPCs', async () => {
     backend.getWindowBootstrap.mockResolvedValue({
       snapshot: { cwd: '/repo/other', page: 'skills' },
