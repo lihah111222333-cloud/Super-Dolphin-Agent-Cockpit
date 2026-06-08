@@ -237,6 +237,9 @@ func nearestProjectRoot(dir string) (string, error) {
 	for {
 		gitPath := filepath.Join(dir, ".git")
 		if _, err := os.Stat(gitPath); err == nil {
+			if filepath.Clean(dir) == filepath.Clean(os.TempDir()) && filepath.Clean(original) != filepath.Clean(dir) {
+				return original, nil
+			}
 			return dir, nil
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return "", err

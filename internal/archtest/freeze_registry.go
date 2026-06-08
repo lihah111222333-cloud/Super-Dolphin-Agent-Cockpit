@@ -20,10 +20,10 @@ var explicitFreezeRegistry = []explicitFreeze{
 	{
 		Path:       "cmd/mcp-orch/orchestration",
 		Kind:       ViolationPackageCount,
-		Limit:      39,
-		Reason:     "dispatcher-wiring batch (5 reviewer P0 #1) 接入 NodeExecutor 抽象后新增 node_router.go + dag_dispatch.go 两个必要单职责文件 (30→32)；closure follow-up 再加 sharedfile_adapter.go 把 store/sharedfile.Store 适配成 nodeexec.SharedFileReader/Writer 端口 (32→33)；ADR-016 v1.2 §2.1-§2.5 C3（spawned agent 自动 stop）按 §2.5 P1 拍板新建 stop_helper.go + stop_metric.go 两个必要单职责文件 (33→35)，与 archive.go 单职责先例对齐；ADR-017 v1.2 A1（DAG turn.completed subscriber + thread.stopped fallback）按 §2.9 + §2.5 拍板新建 5 个必要单职责文件：dag_turn_completed_subscriber.go + dag_subscriber_module.go + dag_subscriber_metric.go + dispatch_agent_running_metric.go + dag_fallback_metric.go (35→40)，同样与 archive / stop_helper 单职责设计一致。F13.1 lifecycle hooks 真实触发按计划新增 node_executor_dispatch.go 承载 Execute 包裹与 hook side-effect helper (40→41)，避免把 node_router.go 主路由继续胀大。⚠️ 当前 Limit=41 已贴顶 0 余量；后续 lifecycle 子包拆出（含 node dispatch hooks、stop_helper + stop_metric + dag_subscriber + dag_fallback + dispatch_agent metrics）后取消。",
+		Limit:      38,
+		Reason:     "dispatcher-wiring batch (5 reviewer P0 #1) 接入 NodeExecutor 抽象后新增 node_router.go + dag_dispatch.go 两个必要单职责文件 (30→32)；closure follow-up 再加 sharedfile_adapter.go 把 store/sharedfile.Store 适配成 nodeexec.SharedFileReader/Writer 端口 (32→33)；ADR-016 v1.2 §2.1-§2.5 C3（spawned agent 自动 stop）按 §2.5 P1 拍板新增 stop helper；ADR-017 v1.2 A1（DAG turn.completed subscriber + thread.stopped fallback）按 §2.9 + §2.5 拍板新增 subscriber/fallback/metric helper；F13.1 lifecycle hooks 真实触发按计划新增 node_executor_dispatch.go 承载 Execute 包裹与 hook side-effect helper。2026-06-08 thaw 将 dispatch agent running metric 合并回 dag_dispatch.go、stop metric 合并回 stop_helper.go，守卫口径（不计 factory.go）已从 40/39 收缩到 38。⚠️ 当前 Limit=38 已贴顶 0 余量；后续 lifecycle 子包拆出后取消。",
 		Owner:      "orchestration",
-		RemoveWhen: "orchestration 包拆出 node-dispatch / lifecycle / dag-subscription 子包（含 node_executor_dispatch + stop_helper + stop_metric + archive + dag_turn_completed_subscriber + dag_subscriber_module + dag_subscriber_metric + dag_fallback_metric + dispatch_agent_running_metric 等 lifecycle / subscriber / metric helper）后文件数回落 ≤ 30，删除该 freeze。",
+		RemoveWhen: "orchestration 包拆出 node-dispatch / lifecycle / dag-subscription 子包（含 node_executor_dispatch + stop_helper + archive + dag_turn_completed_subscriber + dag_subscriber_module 等 lifecycle / subscriber helper）后文件数回落 ≤ 30，删除该 freeze。",
 	},
 }
 

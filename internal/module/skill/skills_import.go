@@ -395,6 +395,9 @@ func copySkillDir(source, target string) (int, int64, error) {
 		if entry.IsDir() {
 			return os.MkdirAll(dst, 0o755)
 		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
 		if entry.Type()&os.ModeSymlink != 0 {
 			return fmt.Errorf("symlink is not allowed: %s", rel)
 		}

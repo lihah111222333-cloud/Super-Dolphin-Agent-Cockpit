@@ -62,15 +62,14 @@ var lspCompatEmptyStructMethods = []string{
 	LSPCompatMethodWorkspaceDiagnosticRefresh,
 }
 
-// lspCompatEmptyStructMethodSet materialises the slice as an O(1)
-// lookup table for dispatchCompatServerRequest.
-var lspCompatEmptyStructMethodSet = func() map[string]struct{} {
-	out := make(map[string]struct{}, len(lspCompatEmptyStructMethods))
-	for _, m := range lspCompatEmptyStructMethods {
-		out[m] = struct{}{}
+func isLSPCompatEmptyStructMethod(method string) bool {
+	for _, candidate := range lspCompatEmptyStructMethods {
+		if candidate == method {
+			return true
+		}
 	}
-	return out
-}()
+	return false
+}
 
 // dispatchCompatServerRequest resolves a server-initiated request
 // against the frozen compatibility contract. A method outside the
@@ -85,7 +84,7 @@ var lspCompatEmptyStructMethodSet = func() map[string]struct{} {
 // JSON-RPC MethodNotFound and belongs to a different contract
 // (future observability: genuinely unknown methods).
 func dispatchCompatServerRequest(method string, params json.RawMessage) (any, error) {
-	if _, ok := lspCompatEmptyStructMethodSet[method]; ok {
+	if isLSPCompatEmptyStructMethod(method) {
 		pkglogger.Get().Info("LSP compat fallback hit",
 			"event", "gopls.compat_fallback.hit",
 			"method", method,

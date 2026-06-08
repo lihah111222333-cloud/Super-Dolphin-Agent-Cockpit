@@ -100,20 +100,6 @@
     "empty_funcs": 0,
     "todo_count": 0
   },
-  "cmd/mcp-lsp/multilsp/transport_compat.go": {
-    "lines": 53,
-    "max_func_len": 19,
-    "max_nesting": 1,
-    "max_complexity": 3,
-    "max_params": 2,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 1,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0
-  },
   "cmd/mcp-lsp/schema.go": {
     "lines": 103,
     "max_func_len": 14,
@@ -302,20 +288,6 @@
     "empty_funcs": 0,
     "todo_count": 0,
     "max_struct_fields": 7
-  },
-  "internal/archtest/metrics.go": {
-    "lines": 278,
-    "max_func_len": 25,
-    "max_nesting": 4,
-    "max_complexity": 9,
-    "max_params": 4,
-    "max_returns": 1,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 7
   },
   "internal/archtest/ratchet.go": {
     "lines": 156,
@@ -847,21 +819,6 @@
     "empty_funcs": 0,
     "todo_count": 0
   },
-  "internal/platform/sharedfilefs/disk.go": {
-    "lines": 132,
-    "max_func_len": 37,
-    "max_nesting": 2,
-    "max_complexity": 9,
-    "max_params": 2,
-    "max_returns": 3,
-    "max_underscore": 1,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 1,
-    "max_struct_fields": 2
-  },
   "internal/platform/sharedfilegitignore/gitignore.go": {
     "lines": 128,
     "max_func_len": 30,
@@ -965,21 +922,6 @@
     "empty_funcs": 0,
     "todo_count": 0,
     "max_struct_fields": 4
-  },
-  "internal/provider/codexapp/peer_supervisor.go": {
-    "lines": 460,
-    "max_func_len": 43,
-    "max_nesting": 3,
-    "max_complexity": 9,
-    "max_params": 4,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 1,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0,
-    "max_struct_fields": 14
   },
   "internal/provider/codexapp/session.go": {
     "lines": 520,

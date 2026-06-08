@@ -30,7 +30,7 @@ import (
 // This guard prevents the regression by failing whenever a future change
 // re-introduces a package-level mutable error variable in this package.
 //
-// Allowed: sentinel errors declared with `var ErrXxx = errors.New(...)`
+// Allowed: sentinel errors declared with `var ErrPackageRequired = errors.New(...)`
 // (exported, value computed at init, never reassigned) — those are
 // idiomatic Go. The guard requires exported names beginning with "Err"
 // to opt out; everything else flagged.

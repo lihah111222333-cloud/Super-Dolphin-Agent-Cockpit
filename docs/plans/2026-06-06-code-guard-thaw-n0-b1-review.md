@@ -604,3 +604,64 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 
 - 生产冻结：104 -> 74。
 - 测试冻结：47 -> 31。
+
+## 2026-06-08 继续推进：包文件数收缩与注释假阳性
+
+### orchestration package_count freeze 收缩
+
+变更：
+
+- `cmd/mcp-orch/orchestration/dispatch_agent_running_metric.go` 合并回 `dag_dispatch.go`。
+- `cmd/mcp-orch/orchestration/stop_metric.go` 合并回 `stop_helper.go`。
+- `internal/archtest/freeze_registry.go` 同步当前 freeze 说明：守卫包文件数口径不计 `factory.go`，当前 observed/Limit 为 38。
+
+审查结论：
+
+- 两个 metric helper 只移动定义位置，函数名、调用点、counter delta 语义不变。
+- 普通文件系统和 `go list` 看到 39 个生产 Go 文件；守卫按既有 `isFactoryFile` 规则排除 `factory.go` 后计 38，不是假收缩。
+
+### archtest / provider / skill 测试注释假阳性
+
+变更：
+
+- `internal/archtest/metrics.go`：注释中的 `ErrXxx` / `NewXxx` / `xxx` 示例改为具体示例，避免守卫自身注释触发 marker。
+- `internal/archtest/baseline_shrink_test.go`、`error_string_match_guard_test.go`、`memory_lifecycle_hooks_construct_guard_test.go`、`sharedfilegitignore_no_pkg_error_var_test.go`：测试注释和失败提示中的占位示例改为具体示例。
+- `internal/provider/unified/session_resolver_identity_test.go`、`internal/provider/codexapp/session_runtime_test.go`、`internal/module/skill/rollout_markers_test.go`：测试注释中的占位 agent / sentinel / skill marker 示例改写。
+
+审查结论：
+
+- 均为注释或测试失败提示文本变更，不改变断言、输入样例和执行路径。
+- `internal/provider/codexapp` 的窄测需要 localhost listener，沙箱内失败，提权重跑通过。
+
+### 生产假阳性与派生全局
+
+变更：
+
+- `internal/platform/sharedfilefs/disk.go`：`ValidateXxx` 注释示例改为 `ValidateRel`。
+- `cmd/mcp-lsp/multilsp/transport_compat.go`：删除由常量方法表派生的包级 map，改为局部线性查找函数；兼容协议常量和返回分支不变。
+
+审查结论：
+
+- `sharedfilefs/disk.go` 是注释假阳性。
+- `transport_compat.go` 删除的是派生缓存全局；方法集只有 7 个，查找结果与原 map 完全一致，协议守卫仍通过。
+- `mcpStdout`、`embed.FS`、`editFileLocks`、Prometheus metric 注册、`idgen` atomic、provider 测试注入点均判定为真实全局契约或 Go 语义要求，本轮不改。
+
+验证：
+
+```bash
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration -run 'Test.*StopSpawnedAgent|Test.*DispatchRetry|Test.*WakeupDispatcher|Test.*DispatchNode|Test.*DispatchAgentRunning' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/archtest -run 'TestMeasureFileMetrics|TestBaselineShrink|TestErrorStringMatchGuard|TestCodeSizeGuard' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/provider/unified -run 'TestSessionResolverProviderThreadAutoResumeDoesNotUseCodexThreadID' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/provider/codexapp -run 'TestSessionRuntimeStartOwnedByStartSession' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/module/skill -run 'TestTrimInjectedSkillBlocks_NoMatch' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/platform/sharedfilefs -run 'Test' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-lsp/multilsp ./internal/archtest -run 'Test.*Compat|TestMultiLSPTransportCompatFreeze|TestCodeSizeGuard' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh --guard-only
+```
+
+结果：PASS。生产 baseline 追加毕业 4 个文件，freeze registry package_count 收缩到 38；测试 baseline 追加毕业 7 个文件。
+
+当前冻结数：
+
+- 生产冻结：104 -> 70。
+- 测试冻结：47 -> 24。
