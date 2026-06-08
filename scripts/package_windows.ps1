@@ -37,6 +37,10 @@ function Resolve-RepoRoot() {
 $Root = Resolve-RepoRoot
 Set-Location -LiteralPath $Root
 
+$BuildCacheDir = Join-Path $Root '.build-cache/phases'
+$CurrentBuildPhaseName = ''
+$CurrentBuildPhaseHash = ''
+
 $AppName = if ($env:APP_NAME) { $env:APP_NAME } else { 'super-dolphin' }
 $Version = if ($env:VERSION) { $env:VERSION } else { '0.1.0' }
 $GoOS = (& go env GOOS).Trim()
@@ -159,6 +163,78 @@ function Get-SHA256File() {
         throw "missing file for SHA-256: $Path"
     }
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+}
+
+function Get-BuildPhaseInputPath() {
+    param([Parameter(Mandatory)][string]$Path)
+    $resolvedRoot = (Resolve-Path -LiteralPath $Root).Path.TrimEnd('\', '/')
+    $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
+    if ($resolvedPath.StartsWith($resolvedRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        return $resolvedPath.Substring($resolvedRoot.Length).TrimStart('\', '/').Replace('\', '/')
+    }
+    return $resolvedPath.Replace('\', '/')
+}
+
+function Get-BuildPhaseHash() {
+    param(
+        [Parameter(Mandatory)][string[]]$Paths,
+        [string[]]$Inputs = @()
+    )
+    $lines = [Collections.Generic.List[string]]::new()
+    foreach ($inputValue in $Inputs) {
+        $lines.Add("input`t$inputValue")
+    }
+    foreach ($path in $Paths) {
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            $relative = Get-BuildPhaseInputPath -Path $path
+            $lines.Add("file`t$relative`t$(Get-SHA256File $path)")
+            continue
+        }
+        if (-not (Test-Path -LiteralPath $path -PathType Container)) {
+            throw "missing build phase input: $path"
+        }
+        Get-ChildItem -LiteralPath $path -Recurse -File -Force |
+            Sort-Object FullName |
+            ForEach-Object {
+                $relative = Get-BuildPhaseInputPath -Path $_.FullName
+                $lines.Add("file`t$relative`t$(Get-SHA256File $_.FullName)")
+            }
+    }
+    $payload = ($lines | Sort-Object) -join "`n"
+    $bytes = [Text.Encoding]::UTF8.GetBytes($payload)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant())
+    } finally {
+        $sha.Dispose()
+    }
+}
+
+function Test-BuildPhaseCache() {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string[]]$Paths,
+        [string[]]$Inputs = @()
+    )
+    if ($env:SUPER_DOLPHIN_SKIP_BUILD_CACHE -eq '1') { return $false }
+    $hash = Get-BuildPhaseHash -Paths $Paths -Inputs $Inputs
+    $marker = Join-Path (Join-Path $BuildCacheDir $Name) "$hash.ok"
+    if (Test-Path -LiteralPath $marker -PathType Leaf) {
+        Write-Host "==> [$Name] cache hit ($hash), skipping"
+        return $true
+    }
+    $script:CurrentBuildPhaseName = $Name
+    $script:CurrentBuildPhaseHash = $hash
+    return $false
+}
+
+function Save-BuildPhaseCache() {
+    if ($env:SUPER_DOLPHIN_SKIP_BUILD_CACHE -eq '1') { return }
+    if ($script:CurrentBuildPhaseName.Trim() -eq '' -or $script:CurrentBuildPhaseHash.Trim() -eq '') { return }
+    $phaseDir = Join-Path $BuildCacheDir $script:CurrentBuildPhaseName
+    New-Item -ItemType Directory -Force -Path $phaseDir | Out-Null
+    Remove-Item -Path (Join-Path $phaseDir '*.ok') -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType File -Force -Path (Join-Path $phaseDir "$($script:CurrentBuildPhaseHash).ok") | Out-Null
 }
 
 function Get-PEMachineType() {
@@ -619,14 +695,17 @@ function Write-RuntimeManifest() {
 
 function Build-CurrentFrontendApp() {
     if ($env:SUPER_DOLPHIN_SKIP_FRONTEND_BUILD -ne '1') {
-        Push-Location -LiteralPath (Join-Path $Root 'frontend-app')
-        try {
-            & npm ci
-            if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
-            & npm run build
-            if ($LASTEXITCODE -ne 0) { throw 'npm run build failed' }
-        } finally {
-            Pop-Location
+        if (-not (Test-BuildPhaseCache -Name 'frontend' -Paths @((Join-Path $Root 'frontend-app/src'), (Join-Path $Root 'frontend-app/package-lock.json')))) {
+            Push-Location -LiteralPath (Join-Path $Root 'frontend-app')
+            try {
+                & npm ci
+                if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+                & npm run build
+                if ($LASTEXITCODE -ne 0) { throw 'npm run build failed' }
+                Save-BuildPhaseCache
+            } finally {
+                Pop-Location
+            }
         }
     } elseif (-not (Test-Path -LiteralPath (Join-Path $Root 'frontend-app/dist/index.html') -PathType Leaf)) {
         throw 'frontend dist missing; unset SUPER_DOLPHIN_SKIP_FRONTEND_BUILD or run npm run build first'
@@ -805,10 +884,14 @@ function Package-WindowsMain() {
 
     Push-Location -LiteralPath $Root
     try {
-        Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-orch.exe') -Package './cmd/mcp-orch'
-        Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-lsp.exe') -Package './cmd/mcp-lsp'
-        Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags '-H=windowsgui'
-        Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-ida.exe') -Package './cmd/mcp-ida'
+        $goInputs = @('GOOS=windows', "GOARCH=$WindowsPackageArch", "GOVERSION=$((& go env GOVERSION).Trim())")
+        if (-not (Test-BuildPhaseCache -Name 'go-binaries' -Paths @((Join-Path $Root 'cmd'), (Join-Path $Root 'internal'), (Join-Path $Root 'pkg'), (Join-Path $Root 'go.sum')) -Inputs $goInputs)) {
+            Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-orch.exe') -Package './cmd/mcp-orch'
+            Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-lsp.exe') -Package './cmd/mcp-lsp'
+            Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags '-H=windowsgui'
+            Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-ida.exe') -Package './cmd/mcp-ida'
+            Save-BuildPhaseCache
+        }
     } finally {
         Pop-Location
     }
