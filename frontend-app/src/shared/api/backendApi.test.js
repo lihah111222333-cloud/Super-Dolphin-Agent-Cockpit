@@ -6,7 +6,9 @@ import {
   emitFrontendTraceEvent,
   installAppUpdate,
   installLatestAppUpdate,
+  getVideoApiKey,
   RPC_METHODS,
+  setVideoApiKey,
 } from './backendApi.js';
 
   it('exposes the dedicated frontend observability ingest RPC method name', () => {
@@ -585,6 +587,20 @@ function expectSkillEditorCalls(callAPI) {
     expect(() => api.writeBuiltinTool({ cwd: '/repo/app', id: '', enabled: true })).toThrow('id is required');
     expect(() => api.writeBuiltinTool({ cwd: '/repo/app', id: 'Shell', enabled: 'false' })).toThrow('enabled must be boolean');
     expect(() => api.listDashboardLogs({ limit: 0 })).toThrow('limit must be a positive integer');
+  });
+
+  it('wraps video API key RPCs with named facade methods', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ configured: true, masked: 'sk***ed' });
+    const api = createBackendApi({ callAPI });
+
+    await api.getVideoApiKey();
+    await api.setVideoApiKey({ apiKey: 'sk-test-key' });
+
+    expect(callAPI).toHaveBeenNthCalledWith(1, RPC_METHODS.UI_VIDEO_GET_API_KEY, {});
+    expect(callAPI).toHaveBeenNthCalledWith(2, RPC_METHODS.UI_VIDEO_SET_API_KEY, { apiKey: 'sk-test-key' });
+    expect(() => api.setVideoApiKey({ apiKey: '' })).toThrow('apiKey is required');
+    expect(typeof getVideoApiKey).toBe('function');
+    expect(typeof setVideoApiKey).toBe('function');
   });
 
 async function callDagDashboardApis(api) {

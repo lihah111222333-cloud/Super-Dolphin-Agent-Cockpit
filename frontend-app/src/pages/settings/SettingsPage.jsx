@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Settings } from 'lucide-react';
 import { useClientStore } from '../../entities/client/model/useClientStore.js';
-import { callBackend, checkAppUpdate, copyTextToClipboard, getBuildInfo, getPreference, installLatestAppUpdate, listDashboardLogs, readBuiltinTools, readConfig, readLspPromptHint, setPreference, writeBuiltinTool, writeLspPromptHint as writeLspPromptHintBackend } from '../../shared/api/backendApi.js';
+import { checkAppUpdate, copyTextToClipboard, getBuildInfo, getPreference, getVideoApiKey, installLatestAppUpdate, listDashboardLogs, readBuiltinTools, readConfig, readLspPromptHint, setPreference, setVideoApiKey, writeBuiltinTool, writeLspPromptHint as writeLspPromptHintBackend } from '../../shared/api/backendApi.js';
 import { PageHeader, Panel } from '../shared/pageComponents.jsx';
 
 const PROVIDER_LABELS = Object.freeze({
@@ -1332,7 +1332,7 @@ function VideoSettingsCard() {
   const [masked, setMasked] = useState('');
 
   useEffect(() => {
-    callBackend('ui/video/getApiKey', {}).then((res) => {
+    getVideoApiKey().then((res) => {
       if (res?.configured) { setConfigured(true); setMasked(res.masked); }
     }).catch((err) => {
       setNotice({ level: 'error', message: '读取视频 API Key 失败：' + (err?.message || String(err)) });
@@ -1343,7 +1343,7 @@ function VideoSettingsCard() {
     const key = apiKey.trim();
     if (!key) { setNotice({ level: 'error', message: '请输入 API Key' }); return; }
     try {
-      await callBackend('ui/video/setApiKey', { apiKey: key });
+      await setVideoApiKey({ apiKey: key });
       setConfigured(true);
       setMasked(key.length > 8 ? key.slice(0, 4) + '*'.repeat(key.length - 8) + key.slice(-4) : '*'.repeat(key.length));
       setApiKey('');
