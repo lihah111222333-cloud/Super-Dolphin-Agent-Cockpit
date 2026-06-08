@@ -1607,6 +1607,30 @@ function formatWorkflowFileContent(content) {
   return fenceMatch ? fenceMatch[2] : content;
 }
 
+function formatInlinePreviewText(text) {
+  if (!text) return { formatted: '', isJson: false };
+  const trimmed = text.trim();
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return { formatted: JSON.stringify(parsed, null, 2), isJson: true };
+    } catch {
+      // not valid JSON
+    }
+  }
+  return { formatted: text, isJson: false };
+}
+
+function WorkflowInlinePreviewText({ text }) {
+  const fallback = '当前运行尚未标记最终结果。';
+  if (!text) return <span className="workflow-inline-preview-empty">{fallback}</span>;
+  const { formatted, isJson } = formatInlinePreviewText(text);
+  if (isJson) {
+    return <pre className="workflow-final-preview">{formatted}</pre>;
+  }
+  return <p className="workflow-inline-preview-text">{text}</p>;
+}
+
 function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd }) {
   const [fileContent, setFileContent] = useState('');
   const [fileError, setFileError] = useState('');
@@ -1741,7 +1765,7 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd }) {
           ) : null}
         </div>
       ) : (
-        previewText || '当前运行尚未标记最终结果。'
+        <WorkflowInlinePreviewText text={previewText} />
       )}
     </Panel>
   );
