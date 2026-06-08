@@ -223,6 +223,28 @@ func TestServiceRecoverReturnsResumeEnvelopeWhenSessionMissing(t *testing.T) {
 	assertResumeRecoverResult(t, result, fixture)
 }
 
+func TestServiceRecoverFallbackLaunchPreservesStoredProviderAndModel(t *testing.T) {
+	t.Parallel()
+
+	fixture := newResumeRecoverFixture(t)
+	fixture.orch.recoverErr = contract.ErrAgentNotFound
+
+	result, err := fixture.svc.Recover(context.Background(), "thread-parent")
+	if err != nil {
+		t.Fatalf("Recover() error = %v", err)
+	}
+	assertResumeRecoverResult(t, result, fixture)
+	if fixture.orch.launch.AgentID != "agent-parent" || fixture.orch.launch.Cwd != "/repo" {
+		t.Fatalf("fallback launch = %#v, want agent-parent in /repo", fixture.orch.launch)
+	}
+	if gotProvider := launchEnvValue(fixture.orch.launch.Env, "AGENT_PROVIDER"); gotProvider != "codex" {
+		t.Fatalf("fallback launch AGENT_PROVIDER = %q, want codex; env=%v", gotProvider, fixture.orch.launch.Env)
+	}
+	if gotModel := launchEnvValue(fixture.orch.launch.Env, "AGENT_MODEL"); gotModel != "gpt-5.5" {
+		t.Fatalf("fallback launch AGENT_MODEL = %q, want gpt-5.5; env=%v", gotModel, fixture.orch.launch.Env)
+	}
+}
+
 func TestServiceRecoverRejectsMissingCWDBeforeOrchestrationSideEffects(t *testing.T) {
 	t.Parallel()
 
@@ -272,25 +294,29 @@ type recoverServiceFixture struct {
 
 func newResumeRecoverFixture(t *testing.T) *recoverServiceFixture {
 	t.Helper()
-	resumedSession := &stubSession{threadID: "provider-parent"}
+	const providerParentUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	resumedSession := &stubSession{threadID: providerParentUUID, rolloutPath: rolloutPath}
 	sessions := &stubSessionProvider{}
 	threads := resumeRecoverThreadStore()
 	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-		assertResumeRecoverRequest(t, req)
+		assertResumeRecoverRequest(t, req, providerParentUUID)
 		sessions.session = resumedSession
 		return resumedSession, nil
 	}}
 	orch := &forkOrchestrationStub{}
-	svc := NewService(silentLogger(), threads, resumeRecoverBindingStore(), sessions, starter, nil, orch, nil).(*service)
+	svc := NewService(silentLogger(), threads, resumeRecoverBindingStore(providerParentUUID, rolloutPath), sessions, starter, nil, orch, nil).(*service)
 	return &recoverServiceFixture{threads: threads, orch: orch, svc: svc}
 }
 
-func resumeRecoverBindingStore() *stubBindingStore {
+func resumeRecoverBindingStore(providerParentUUID, rolloutPath string) *stubBindingStore {
 	return &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-parent",
 		Provider:         "codex",
-		ProviderThreadID: "provider-parent",
+		ProviderThreadID: providerParentUUID,
 		CodexThreadID:    "thread-parent",
+		RolloutPath:      rolloutPath,
+		SessionUUID:      providerParentUUID,
 		Cwd:              "/repo",
 	}}
 }
@@ -313,13 +339,13 @@ func resumeRecoverThreadStore() *stubThreadStore {
 	}}
 }
 
-func assertResumeRecoverRequest(t *testing.T, req dto.ResumeSessionRequest) {
+func assertResumeRecoverRequest(t *testing.T, req dto.ResumeSessionRequest, providerParentUUID string) {
 	t.Helper()
 	if req.Provider != "codex" || req.AgentID != "agent-parent" || req.ThreadID != "thread-parent" {
 		t.Fatalf("ResumeSession request = %#v", req)
 	}
-	if req.ProviderThreadID != "provider-parent" {
-		t.Fatalf("ProviderThreadID = %q, want provider-parent", req.ProviderThreadID)
+	if req.ProviderThreadID != providerParentUUID {
+		t.Fatalf("ProviderThreadID = %q, want %s", req.ProviderThreadID, providerParentUUID)
 	}
 	if req.PromptSnapshot.BaseInstructions != "stored base" || req.PromptSnapshot.DeveloperInstructions != "stored dev" {
 		t.Fatalf("PromptSnapshot = %#v, want stored snapshot", req.PromptSnapshot)
@@ -345,6 +371,16 @@ func assertResumeRecoverResult(t *testing.T, result RecoverResult, fixture *reco
 	}
 }
 
+func launchEnvValue(env []string, key string) string {
+	prefix := key + "="
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(item, prefix))
+		}
+	}
+	return ""
+}
+
 func TestServiceRecoverRehydratesClaudeOverrideConfigWhenSessionMissing(t *testing.T) {
 	t.Parallel()
 
@@ -361,7 +397,8 @@ func newClaudeRecoverService(t *testing.T) *service {
 	model := "claude-sonnet-4-20250514[1m]"
 	effort := "max"
 	const providerParentUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
-	resumedSession := &stubSession{threadID: providerParentUUID}
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	resumedSession := &stubSession{threadID: providerParentUUID, rolloutPath: rolloutPath}
 	sessions := &stubSessionProvider{}
 	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 		assertClaudeRecoverRequest(t, req, model, effort)
@@ -371,7 +408,7 @@ func newClaudeRecoverService(t *testing.T) *service {
 	return NewService(
 		silentLogger(),
 		claudeRecoverThreadStore(t, model, effort),
-		claudeRecoverBindingStore(providerParentUUID),
+		claudeRecoverBindingStore(providerParentUUID, rolloutPath),
 		sessions,
 		starter,
 		nil,
@@ -380,12 +417,13 @@ func newClaudeRecoverService(t *testing.T) *service {
 	).(*service)
 }
 
-func claudeRecoverBindingStore(providerParentUUID string) *stubBindingStore {
+func claudeRecoverBindingStore(providerParentUUID, rolloutPath string) *stubBindingStore {
 	return &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-parent",
 		Provider:         "claude",
 		ProviderThreadID: providerParentUUID,
 		CodexThreadID:    "thread-parent",
+		RolloutPath:      rolloutPath,
 		SessionUUID:      providerParentUUID,
 		Cwd:              "/repo",
 	}}
@@ -545,6 +583,7 @@ type forkOrchestrationStub struct {
 	launch       LaunchAgentRequest
 	recovered    []string
 	bindAgentIDs []string
+	recoverErr   error
 }
 
 func (s *forkOrchestrationStub) LaunchAgent(_ context.Context, req LaunchAgentRequest) error {
@@ -556,7 +595,7 @@ func (s *forkOrchestrationStub) StopAgent(context.Context, string) error { retur
 
 func (s *forkOrchestrationStub) Recover(_ context.Context, agentID string) error {
 	s.recovered = append(s.recovered, agentID)
-	return nil
+	return s.recoverErr
 }
 
 func (s *forkOrchestrationStub) BindSessionGeneration(_ context.Context, agentID string, _ uint64) error {

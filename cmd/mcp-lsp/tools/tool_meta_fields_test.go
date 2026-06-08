@@ -58,3 +58,15 @@ func requireAbsentField(t *testing.T, payload map[string]any, key string) {
 		t.Fatalf("payload contains legacy %s: %#v", key, payload)
 	}
 }
+
+func requireLimitedMarkdownSupportMessage(t *testing.T, message string, capability string) {
+	t.Helper()
+	for _, part := range []string{capability, "markdown", "limited", "document_symbol", "text_search"} {
+		if !strings.Contains(message, part) {
+			t.Fatalf("message = %q, want containing %q", message, part)
+		}
+	}
+	if strings.Contains(message, "language server") {
+		t.Fatalf("message = %q, must not imply a broken language server", message)
+	}
+}

@@ -9,12 +9,21 @@ import (
 
 func TestPackageMacOSScriptBundlesRuntimeContracts(t *testing.T) {
 	script := readScript(t, "package_macos.sh")
+	verify := readScript(t, "verify_packaged_app_macos.sh")
 
 	assertScriptContains(t, script, "copy_model_registry \"$resources\"")
 	assertScriptContains(t, script, "write_runtime_manifest \"$resources\" \"$platform\"")
 	assertScriptContains(t, script, "write_packaged_relay_env \"$resources\"")
 	assertScriptContains(t, script, "bundle_git_dylibs \"$resources\"")
 	assertScriptContains(t, script, "copy_packaged_codex \"$resources\" \"$resources/bin/codex\"")
+	assertScriptContains(t, script, "resolve_packaged_ffmpeg")
+	assertScriptContains(t, script, "copy_packaged_ffmpeg \"$resources\"")
+	assertScriptContains(t, script, "cp -f \"$packaged_ffmpeg_bin\" \"$resources/bin/ffmpeg\"")
+	assertScriptContains(t, script, "brew install ffmpeg")
+	assertScriptContains(t, script, "go build -o bin/super-dolphin-updater ./cmd/super-dolphin-updater")
+	assertScriptContains(t, script, "cp \"$root/bin/super-dolphin-updater\" \"$resources/bin/super-dolphin-updater\"")
+	assertScriptOrder(t, script, "copy_packaged_codex \"$resources\" \"$resources/bin/codex\"", "cp \"$root/bin/super-dolphin-updater\" \"$resources/bin/super-dolphin-updater\"")
+	assertScriptOrder(t, script, "copy_packaged_ffmpeg \"$resources\"", "bundle_git_dylibs \"$resources\"")
 	assertScriptContains(t, script, "write_codex_manifest \"$resources\"")
 	assertScriptDoesNotContain(t, script, "command -v codex")
 	assertScriptDoesNotContain(t, script, "/Applications/Codex.app")
@@ -23,6 +32,25 @@ func TestPackageMacOSScriptBundlesRuntimeContracts(t *testing.T) {
 	assertScriptContains(t, script, "xml_escape()")
 	assertScriptContains(t, script, "plist_app_name=\"$(xml_escape \"$app_name\")\"")
 	assertScriptContains(t, script, "sign_macho_tree \"$codesign_identity\" \"$macos\" \"$resources/bin\" \"$resources/lib\"")
+	assertScriptContains(t, verify, "$resources/bin/super-dolphin-updater")
+	assertScriptContains(t, verify, "$resources/bin/ffmpeg")
+	assertScriptContains(t, verify, "verify_packaged_ffmpeg")
+	assertScriptContains(t, verify, "packaged ffmpeg smoke verified")
+	assertScriptContains(t, verify, "verify_update_env")
+	assertScriptContains(t, verify, "SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be HTTPS with host")
+	assertScriptContains(t, verify, "decoded SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be 32 bytes")
+}
+
+func TestPackageMacOSScriptSupportsUnsignedGrayUpdateProfile(t *testing.T) {
+	script := readScript(t, "package_macos.sh")
+
+	assertScriptContains(t, script, "dev-local|gray|gray-unsigned")
+	assertScriptContains(t, script, "updates_enabled_for_profile()")
+	assertScriptContains(t, script, "[[ \"$release_profile\" == \"gray\" || \"$release_profile\" == \"gray-unsigned\" ]]")
+	assertScriptContains(t, script, "SUPER_DOLPHIN_UPDATE_ALLOW_UNSIGNED=1")
+	assertScriptContains(t, script, "if [[ \"$release_profile\" == \"gray-unsigned\" ]]; then")
+	assertScriptOrder(t, script, "resolve_release_profile", "resolve_update_config")
+	assertScriptOrder(t, script, "resolve_update_config", "write_packaged_update_env \"$resources\"")
 }
 
 func TestPackageMacOSScriptWritesRuntimeManifest(t *testing.T) {
@@ -61,8 +89,9 @@ func TestPackageMacOSScriptRequiresVerifiedBundledCodexArtifact(t *testing.T) {
 	assertScriptContains(t, script, "target_triple=\"x86_64-apple-darwin\"")
 	assertScriptContains(t, script, "candidate=\"$source_pkg/node_modules/$platform_pkg/vendor/$target_triple/codex/codex\"")
 	assertScriptContains(t, script, "packaged Codex CLI artifact resolved to non-Mach-O binary")
-	assertScriptContains(t, script, "\"$dest\" app-server --help")
+	assertScriptContains(t, script, "run_packaged_smoke_check \"Codex CLI app-server\" \"$dest\" app-server --help")
 	assertScriptContains(t, script, "packaged Codex CLI failed app-server validation")
+	assertScriptContains(t, script, "failed during packaged smoke check")
 	assertScriptDoesNotContain(t, script, "copy_packaged_codex_vendor")
 	assertScriptDoesNotContain(t, script, "\"vendor_path\": \"vendor\"")
 	assertScriptDoesNotContain(t, script, "\"vendor_sha256\": \"$vendor_sha256\"")
@@ -112,28 +141,34 @@ func TestPackageMacOSScriptRequiresVerifiedLSPBundle(t *testing.T) {
 	assertScriptOrder(t, script, "write_lsp_manifest \"$resources\"", "write_runtime_manifest \"$resources\" \"$platform\"")
 }
 
-func TestPackageMacOSScriptRequiresAndCopiesBashLanguageServer(t *testing.T) {
+func TestPackageMacOSScriptStandardProfileDoesNotRequireJDTLS(t *testing.T) {
 	script := readScript(t, "package_macos.sh")
+	standardStart := strings.Index(script, "lsp_server_specs=(")
+	if standardStart < 0 {
+		t.Fatal("package_macos.sh missing lsp_server_specs")
+	}
+	fullStart := strings.Index(script, "if [[ \"$lsp_profile\" == \"full\" ]]; then\n  lsp_server_specs+=")
+	if fullStart < 0 {
+		t.Fatal("package_macos.sh missing full profile lsp_server_specs append")
+	}
+	standardSpecs := script[standardStart:fullStart]
 
-	assertScriptContains(t, script, "\"bash-language-server|bin/bash-language-server\"")
-	assertScriptContains(t, script, "packaged LSP bundle is required; set $lsp_bundle_dir_env")
-	assertScriptContains(t, script, "bash-language-server")
-	assertScriptContains(t, script, "packaged LSP bundle missing executable $server_id")
-	assertScriptContains(t, script, "copy_packaged_lsp_bundle \"$resources\"")
-	assertScriptContains(t, script, "ln -s \"../lsp/$rel_path\" \"$link_path\"")
-	assertScriptOrder(t, script, "\"bash-language-server|bin/bash-language-server\"", "resolve_packaged_lsp_bundle")
+	assertScriptContains(t, script, "lsp_profile=\"${SUPER_DOLPHIN_LSP_PROFILE:-standard}\"")
+	assertScriptContains(t, script, "lsp_server_specs+=(\"jdtls|bin/jdtls\")")
+	assertScriptDoesNotContain(t, standardSpecs, "jdtls")
 }
 
-func TestPackageMacOSScriptRequiresAndCopiesShellcheck(t *testing.T) {
+func TestPackageMacOSScriptRequiresAndCopiesShellLSPTools(t *testing.T) {
 	script := readScript(t, "package_macos.sh")
 
-	assertScriptContains(t, script, "\"shellcheck|bin/shellcheck\"")
+	for _, spec := range []string{"\"bash-language-server|bin/bash-language-server\"", "\"shellcheck|bin/shellcheck\""} {
+		assertScriptContains(t, script, spec)
+		assertScriptOrder(t, script, spec, "resolve_packaged_lsp_bundle")
+	}
 	assertScriptContains(t, script, "packaged LSP bundle is required; set $lsp_bundle_dir_env")
-	assertScriptContains(t, script, "shellcheck")
 	assertScriptContains(t, script, "packaged LSP bundle missing executable $server_id")
 	assertScriptContains(t, script, "copy_packaged_lsp_bundle \"$resources\"")
 	assertScriptContains(t, script, "ln -s \"../lsp/$rel_path\" \"$link_path\"")
-	assertScriptOrder(t, script, "\"shellcheck|bin/shellcheck\"", "resolve_packaged_lsp_bundle")
 }
 
 func TestPackageMacOSScriptsDoNotInvokeHostPython3(t *testing.T) {
@@ -271,6 +306,78 @@ func TestPackageMacOSScriptRecordsFinalPackagedCodexDigest(t *testing.T) {
 	assertScriptOrder(t, script, "write_codex_manifest \"$resources\"", "codesign \"${codesign_args[@]}\" \"$app\"")
 }
 
+func TestPackageMacOSScriptEnforcesGrayReleaseProfile(t *testing.T) {
+	script := readScript(t, "package_macos.sh")
+	profileBody := functionBody(t, script, "resolve_release_profile")
+	updateBody := functionBody(t, script, "resolve_update_config")
+	envBody := functionBody(t, script, "write_packaged_update_env")
+
+	for _, want := range []string{"release_profile=\"${SUPER_DOLPHIN_RELEASE_PROFILE:-dev-local}\"", "require_developer_id_codesign", "CODESIGN_IDENTITY must be a Developer ID Application identity for gray releases", "NOTARY_PROFILE is required for gray releases"} {
+		assertScriptContains(t, script, want)
+	}
+	for _, want := range []string{"dev-local|gray|gray-unsigned", "unsupported SUPER_DOLPHIN_RELEASE_PROFILE=$release_profile; expected dev-local, gray, or gray-unsigned"} {
+		assertScriptContains(t, profileBody, want)
+	}
+	for _, want := range []string{"SUPER_DOLPHIN_UPDATE_MANIFEST_URL", "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY", "SUPER_DOLPHIN_UPDATE_CHANNEL", "SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be an HTTPS URL with a host", "^https://[^/?#]+", "decoded SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be 32 bytes"} {
+		assertScriptContains(t, updateBody, want)
+	}
+	for _, want := range []string{"SUPER_DOLPHIN_UPDATE_ENABLED=1", "SUPER_DOLPHIN_UPDATE_MANIFEST_URL=%s", "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=%s", "SUPER_DOLPHIN_UPDATE_CHANNEL=%s", "SUPER_DOLPHIN_UPDATE_VERSION=%s"} {
+		assertScriptContains(t, envBody, want)
+	}
+	assertScriptContains(t, envBody, "\"$version\"")
+	assertScriptDoesNotContain(t, envBody, "$VERSION")
+	assertScriptOrder(t, script, "resolve_release_profile", "resolve_update_config")
+	assertScriptOrder(t, script, "resolve_update_config", "write_packaged_update_env \"$resources\"")
+}
+
+func TestPackageMacOSScriptUsesDMGAsOnlyReleaseArtifact(t *testing.T) {
+	script := readScript(t, "package_macos.sh")
+
+	for _, want := range []string{"dmg_path=\"$dist/$app_name.dmg\"", "write_dmg_checksum()", "hdiutil create -volname \"$app_name\" -srcfolder \"$staging\" -ov -format UDZO \"$dmg_path\"", "xcrun notarytool submit \"$dmg_path\" --keychain-profile \"$NOTARY_PROFILE\" --wait", "xcrun stapler staple \"$dmg_path\"", "spctl -a -t open --context context:primary-signature -v \"$dmg_path\"", "write_dmg_checksum \"$dmg_path\""} {
+		assertScriptContains(t, script, want)
+	}
+	assertScriptDoesNotContain(t, script, ".app.zip")
+	assertScriptOrder(t, script, "hdiutil create -volname \"$app_name\"", "xcrun notarytool submit \"$dmg_path\"")
+	assertScriptOrder(t, script, "xcrun notarytool submit \"$dmg_path\"", "xcrun stapler staple \"$dmg_path\"")
+	assertScriptOrder(t, script, "xcrun stapler staple \"$dmg_path\"", "spctl -a -t open --context context:primary-signature -v \"$dmg_path\"")
+	assertScriptOrder(t, script, "spctl -a -t open --context context:primary-signature -v \"$dmg_path\"", "write_dmg_checksum \"$dmg_path\"")
+}
+
+func TestMacOSReleaseSmokeScriptCoversGrayUpdateManifest(t *testing.T) {
+	script := readScript(t, "../docs/scripts/macos_release_smoke.sh")
+
+	for _, want := range []string{
+		"update-loop",
+		"manifest",
+		"latest_json_path",
+		"SUPER_DOLPHIN_UPDATE_MANIFEST_URL",
+		"SUPER_DOLPHIN_UPDATE_PUBLIC_KEY",
+		"SUPER_DOLPHIN_UPDATE_SIGNING_KEY",
+		"SUPER_DOLPHIN_UPDATE_ARTIFACT_URL",
+		"verify_dmg_checksum",
+		"validate_update_public_key",
+		"go run ./cmd/super-dolphin-release-manifest",
+		"-out \"$generated_manifest\"",
+		"cmp -s \"$generated_manifest\" \"$latest_json_path\"",
+		"BLOCKER:",
+		"does not install or execute a real update loop",
+	} {
+		assertScriptContains(t, script, want)
+	}
+	assertScriptOrder(t, script, "verify_dmg_checksum \"$dmg_path\"", "go run ./cmd/super-dolphin-release-manifest")
+	assertScriptOrder(t, script, "go run ./cmd/super-dolphin-release-manifest", "cmp -s \"$generated_manifest\" \"$latest_json_path\"")
+}
+
+func TestVerifyPackagedAppMacOSSupportsUpdateDMG(t *testing.T) {
+	script := readScript(t, "verify_packaged_app_macos.sh")
+
+	for _, want := range []string{"UPDATE_DMG", "hdiutil attach \"$UPDATE_DMG\" -nobrowse -readonly -mountpoint \"$dmg_mount\"", "trap detach_update_dmg EXIT", "hdiutil detach \"$dmg_mount\"", "find \"$dmg_mount\" -maxdepth 1 -name '*.app' -type d"} {
+		assertScriptContains(t, script, want)
+	}
+	assertScriptOrder(t, script, "hdiutil attach \"$UPDATE_DMG\"", "app=\"$(find \"$dmg_mount\"")
+	assertScriptOrder(t, script, "app=\"$(find \"$dmg_mount\"", "resources=\"$app/Contents/Resources\"")
+}
+
 func TestVerifyPackagedAppMacOSChecksFinalCodexDigest(t *testing.T) {
 	script := readScript(t, "verify_packaged_app_macos.sh")
 
@@ -280,9 +387,8 @@ func TestVerifyPackagedAppMacOSChecksFinalCodexDigest(t *testing.T) {
 	assertScriptContains(t, script, "Codex packaged digest mismatch")
 }
 
-func TestVerifyPackagedAppMacOSAcceptsRuntimeManifestContract(t *testing.T) {
-	app := writeMinimalPackagedMacOSApp(t)
-	resources := filepath.Join(app, "Contents", "Resources")
+func writeDefaultMacOSRuntimeManifest(t *testing.T, resources string) {
+	t.Helper()
 	writeRuntimeManifest(t, resources, map[string]string{
 		"bundled_codex_path":              "bin/codex",
 		"bundled_gopls_path":              "bin/gopls",
@@ -291,6 +397,12 @@ func TestVerifyPackagedAppMacOSAcceptsRuntimeManifestContract(t *testing.T) {
 		"model_registry_path":             "models.yaml",
 		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
 	})
+}
+
+func TestVerifyPackagedAppMacOSAcceptsRuntimeManifestContract(t *testing.T) {
+	app := writeMinimalPackagedMacOSApp(t)
+	resources := filepath.Join(app, "Contents", "Resources")
+	writeDefaultMacOSRuntimeManifest(t, resources)
 
 	output, err := runVerifyPackagedAppMacOS(t, app)
 	if err != nil {
@@ -301,14 +413,7 @@ func TestVerifyPackagedAppMacOSAcceptsRuntimeManifestContract(t *testing.T) {
 func TestVerifyPackagedAppMacOSDoesNotRequireGoToolchain(t *testing.T) {
 	app := writeMinimalPackagedMacOSApp(t)
 	resources := filepath.Join(app, "Contents", "Resources")
-	writeRuntimeManifest(t, resources, map[string]string{
-		"bundled_codex_path":              "bin/codex",
-		"bundled_gopls_path":              "bin/gopls",
-		"lsp_bundle_path":                 "lsp",
-		"lsp_manifest_path":               "lsp/lsp-manifest.json",
-		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
-	})
+	writeDefaultMacOSRuntimeManifest(t, resources)
 
 	output, err := runVerifyPackagedAppMacOSWithEnv(t, app, []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin"})
 	if err != nil {
@@ -331,14 +436,7 @@ func TestVerifyPackagedAppMacOSSmokesJDTLSWhenBundled(t *testing.T) {
 	serverPath := filepath.Join(resources, "lsp", "bin", "jdtls")
 	writeFile(t, serverPath, "#!/bin/sh\necho jdtls smoke ran >&2\nexit 42\n", 0o755)
 	writeLSPManifest(t, resources)
-	writeRuntimeManifest(t, resources, map[string]string{
-		"bundled_codex_path":              "bin/codex",
-		"bundled_gopls_path":              "bin/gopls",
-		"lsp_bundle_path":                 "lsp",
-		"lsp_manifest_path":               "lsp/lsp-manifest.json",
-		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
-	})
+	writeDefaultMacOSRuntimeManifest(t, resources)
 
 	output, err := runVerifyPackagedAppMacOS(t, app)
 	if err == nil {
@@ -357,14 +455,7 @@ func TestVerifyPackagedAppMacOSTypeScriptLSPExecutableCheckPassesUnderCleanPath(
 	writeFile(t, nodePath, "#!/bin/sh\necho bundled-node\nexit 0\n", 0o755)
 	writeFile(t, serverPath, "#!/bin/sh\nnode_path=\"$(command -v node || true)\"\nexpected="+shellSingleQuoted(nodePath)+"\nif [ \"$node_path\" != \"$expected\" ]; then\n  echo \"expected bundled node $expected, got ${node_path:-<missing>}\" >&2\n  exit 42\nfi\n\"$node_path\" --version >/dev/null\nexit 0\n", 0o755)
 	writeLSPManifest(t, resources)
-	writeRuntimeManifest(t, resources, map[string]string{
-		"bundled_codex_path":              "bin/codex",
-		"bundled_gopls_path":              "bin/gopls",
-		"lsp_bundle_path":                 "lsp",
-		"lsp_manifest_path":               "lsp/lsp-manifest.json",
-		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
-	})
+	writeDefaultMacOSRuntimeManifest(t, resources)
 
 	output, err := runVerifyPackagedAppMacOSWithEnv(t, app, []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin"})
 	if err != nil {
@@ -378,14 +469,7 @@ func TestVerifyPackagedAppMacOSTypeScriptLSPExecutableCheckPassesUnderCleanPath(
 func TestVerifyPackagedAppMacOSAcceptsMinifiedLSPManifestWithReorderedFields(t *testing.T) {
 	app := writeMinimalPackagedMacOSApp(t)
 	resources := filepath.Join(app, "Contents", "Resources")
-	writeRuntimeManifest(t, resources, map[string]string{
-		"bundled_codex_path":              "bin/codex",
-		"bundled_gopls_path":              "bin/gopls",
-		"lsp_bundle_path":                 "lsp",
-		"lsp_manifest_path":               "lsp/lsp-manifest.json",
-		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
-	})
+	writeDefaultMacOSRuntimeManifest(t, resources)
 	writeMinifiedReorderedLSPManifest(t, filepath.Join(resources, "lsp"), "lsp/")
 
 	output, err := runVerifyPackagedAppMacOS(t, app)
@@ -445,14 +529,7 @@ func TestPackageScriptsWriteLSPManifestPreservesLanguages(t *testing.T) {
 func TestVerifyPackagedAppMacOSRejectsMissingLSPManifest(t *testing.T) {
 	app := writeMinimalPackagedMacOSApp(t)
 	resources := filepath.Join(app, "Contents", "Resources")
-	writeRuntimeManifest(t, resources, map[string]string{
-		"bundled_codex_path":              "bin/codex",
-		"bundled_gopls_path":              "bin/gopls",
-		"lsp_bundle_path":                 "lsp",
-		"lsp_manifest_path":               "lsp/lsp-manifest.json",
-		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
-	})
+	writeDefaultMacOSRuntimeManifest(t, resources)
 	if err := os.Remove(filepath.Join(resources, "lsp", "lsp-manifest.json")); err != nil {
 		t.Fatalf("remove LSP manifest: %v", err)
 	}
@@ -469,14 +546,7 @@ func TestVerifyPackagedAppMacOSRejectsMissingLSPManifest(t *testing.T) {
 func TestVerifyPackagedAppMacOSRejectsLSPManifestDigestMismatch(t *testing.T) {
 	app := writeMinimalPackagedMacOSApp(t)
 	resources := filepath.Join(app, "Contents", "Resources")
-	writeRuntimeManifest(t, resources, map[string]string{
-		"bundled_codex_path":              "bin/codex",
-		"bundled_gopls_path":              "bin/gopls",
-		"lsp_bundle_path":                 "lsp",
-		"lsp_manifest_path":               "lsp/lsp-manifest.json",
-		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
-	})
+	writeDefaultMacOSRuntimeManifest(t, resources)
 	writeFile(t, filepath.Join(resources, "lsp", "bin", "rust-analyzer"), "#!/bin/sh\nexit 9\n", 0o755)
 
 	output, err := runVerifyPackagedAppMacOS(t, app)
@@ -503,14 +573,7 @@ func TestVerifyPackagedAppMacOSRequiresRuntimeManifest(t *testing.T) {
 func TestVerifyPackagedAppMacOSRejectsMissingBundledGopls(t *testing.T) {
 	app := writeMinimalPackagedMacOSApp(t)
 	resources := filepath.Join(app, "Contents", "Resources")
-	writeRuntimeManifest(t, resources, map[string]string{
-		"bundled_codex_path":              "bin/codex",
-		"bundled_gopls_path":              "bin/gopls",
-		"lsp_bundle_path":                 "lsp",
-		"lsp_manifest_path":               "lsp/lsp-manifest.json",
-		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
-	})
+	writeDefaultMacOSRuntimeManifest(t, resources)
 	if err := os.Remove(filepath.Join(resources, "bin", "gopls")); err != nil {
 		t.Fatalf("remove bundled gopls: %v", err)
 	}
@@ -548,14 +611,7 @@ func TestVerifyPackagedAppMacOSRejectsRuntimeManifestMismatch(t *testing.T) {
 func TestVerifyPackagedAppMacOSRejectsRuntimeManifestSymlinkEscape(t *testing.T) {
 	app := writeMinimalPackagedMacOSApp(t)
 	resources := filepath.Join(app, "Contents", "Resources")
-	writeRuntimeManifest(t, resources, map[string]string{
-		"bundled_codex_path":              "bin/codex",
-		"bundled_gopls_path":              "bin/gopls",
-		"lsp_bundle_path":                 "lsp",
-		"lsp_manifest_path":               "lsp/lsp-manifest.json",
-		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
-	})
+	writeDefaultMacOSRuntimeManifest(t, resources)
 	outside := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(outside, bashVerifierPlatform()), 0o755); err != nil {
 		t.Fatalf("mkdir escaped postgres: %v", err)
@@ -598,6 +654,7 @@ func TestPackageEnvExampleDocumentsExistingReleaseInputsWithoutSecrets(t *testin
 	for _, want := range []string{
 		"SUPER_DOLPHIN_POSTGRES_DIST=",
 		"SUPER_DOLPHIN_LSP_BUNDLE_DIR=",
+		"SUPER_DOLPHIN_FFMPEG_BIN=",
 		"SUPER_DOLPHIN_CODEX_ARTIFACT=",
 		"SUPER_DOLPHIN_CODEX_SHA256=",
 		"SUPER_DOLPHIN_CODEX_VERSION=",

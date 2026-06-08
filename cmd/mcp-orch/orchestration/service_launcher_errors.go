@@ -39,18 +39,9 @@ func waitRetryBackoff(ctx context.Context, attempt int, agentID string, prevErr 
 			pkglogger.Int("attempt", attempt+1),
 			pkglogger.Int64(pkglogger.FieldDurationMS, elapsed.Milliseconds()),
 		}
-		if elapsed >= longWaitLogThreshold {
-			pkglogger.Warn("orchestration: launch retry backoff slow", attrs...)
-		} else {
-			pkglogger.Info("orchestration: launch retry backoff completed", attrs...)
-		}
+		pkglogger.Info("orchestration: launch retry backoff completed", attrs...)
 		return nil
 	case <-ctx.Done():
-		pkglogger.Warn("orchestration: launch retry backoff cancelled",
-			pkglogger.String(pkglogger.FieldAgentID, agentID),
-			pkglogger.Int("attempt", attempt+1),
-			pkglogger.String(pkglogger.FieldError, ctx.Err().Error()),
-			pkglogger.Int64(pkglogger.FieldDurationMS, time.Since(startedAt).Milliseconds()))
 		return ctx.Err()
 	}
 }
@@ -77,10 +68,7 @@ func classifyLaunchError(err error) launchErrorClass {
 			return launchClassPermanent
 		}
 	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		return launchClassTransient
-	}
-	if isRateLimited(err) {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || isRateLimited(err) {
 		return launchClassTransient
 	}
 	for _, pattern := range transientLaunchPatterns {
@@ -96,17 +84,8 @@ func isRateLimited(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	for _, pattern := range []string{
-		"rate limit",
-		"rate-limit",
-		"rate_limit",
-		"too many requests",
-		"http 429",
-		" 429 ",
-		"status 429",
-		"status: 429",
-	} {
-		if strings.Contains(msg, pattern) {
+	for _, p := range []string{"rate limit", "rate-limit", "rate_limit", "too many requests", "http 429", " 429 ", "status 429", "status: 429"} {
+		if strings.Contains(msg, p) {
 			return true
 		}
 	}

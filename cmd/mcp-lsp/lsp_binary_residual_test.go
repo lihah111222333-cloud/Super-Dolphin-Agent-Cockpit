@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -40,9 +39,7 @@ func TestLSPBinaryPromptDocsUseReadFilePosContract(t *testing.T) {
 func TestLSPBinaryGrepTruncatedTextSearchIncludesHint(t *testing.T) {
 	skipLSPBinaryResidualE2EInShortMode(t)
 	root := canonicalToolTestRoot(t, t.TempDir())
-	for i := range 6 {
-		writeLSPBinaryFixture(t, filepath.Join(root, fmt.Sprintf("file-%02d.txt", i)), "needle\n")
-	}
+	writeLSPBinaryFixture(t, filepath.Join(root, "sample.txt"), strings.Repeat("needle\n", 6))
 	client := startLSPBinaryClient(t, root)
 
 	result := client.callTool(t, "grep", map[string]any{

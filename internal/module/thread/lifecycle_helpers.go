@@ -337,7 +337,9 @@ func (s *service) recoverAgent(
 	name,
 	parentID,
 	agentType,
-	memoryScope string,
+	memoryScope,
+	provider,
+	model string,
 ) error {
 	if s.orchestration == nil {
 		return nil
@@ -346,7 +348,7 @@ func (s *service) recoverAgent(
 	if err := s.orchestration.Recover(ctx, agentID); err == nil {
 		return nil
 	}
-	return s.launchAgent(ctx, agentID, cwd, name, parentID, agentType, memoryScope, "", "")
+	return s.launchAgent(ctx, agentID, cwd, name, parentID, agentType, memoryScope, provider, model)
 }
 
 func bindingPublicThreadID(binding *bindingstore.Binding, fallback string) string {

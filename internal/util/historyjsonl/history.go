@@ -257,27 +257,72 @@ func buildMessage(role, content, rawTime string) (dto.Message, bool) {
 	return dto.Message{Role: role, Content: content, Timestamp: parseTime(rawTime)}, true
 }
 
+var rolloutSystemNoiseTagPairs = []struct {
+	open  string
+	close string
+}{
+	{open: "<environment_context>", close: "</environment_context>"},
+	{open: "<instructions>", close: "</instructions>"},
+	{open: "<permissions instructions>", close: "</permissions instructions>"},
+	{open: "<turn_aborted>", close: "</turn_aborted>"},
+}
+
 func normalizeHistoryUserContent(content string) (string, bool) {
-	content = strings.TrimSpace(content)
-	content = stripLeadingHistoryTurnAbortedBlock(content)
+	content = stripLeadingSystemNoise(content)
 	if content == "" {
 		return "", false
 	}
 	return content, true
 }
 
-func stripLeadingHistoryTurnAbortedBlock(content string) string {
-	const closeTag = "</turn_aborted>"
-	trimmed := strings.TrimLeft(content, "\ufeff \t\r\n")
-	lower := strings.ToLower(trimmed)
-	if !strings.HasPrefix(lower, "<turn_aborted>") {
-		return content
+func stripLeadingSystemNoise(text string) string {
+	for current := text; ; {
+		next, stripped := stripOneLeadingSystemNoise(current)
+		if !stripped {
+			return current
+		}
+		current = next
+		if strings.TrimSpace(current) == "" {
+			return ""
+		}
 	}
-	idx := strings.Index(lower, closeTag)
+}
+
+func stripOneLeadingSystemNoise(text string) (string, bool) {
+	trimmed := strings.TrimLeft(text, "\ufeff \t\r\n")
+	lower := strings.ToLower(trimmed)
+	if strings.HasPrefix(lower, "# agents.md") {
+		return stripAgentsMDBlock(trimmed), true
+	}
+	for _, pair := range rolloutSystemNoiseTagPairs {
+		if strings.HasPrefix(lower, pair.open) {
+			return stripTagBlock(trimmed, pair.close), true
+		}
+	}
+	return text, false
+}
+
+func stripTagBlock(text, closeTag string) string {
+	if idx := strings.Index(strings.ToLower(text), closeTag); idx >= 0 {
+		return strings.TrimLeft(text[idx+len(closeTag):], "\ufeff \t\r\n")
+	}
+	return ""
+}
+
+func stripAgentsMDBlock(text string) string {
+	const closeInstructions = "</instructions>"
+	lower := strings.ToLower(text)
+	if idx := strings.Index(lower, closeInstructions); idx >= 0 {
+		return strings.TrimLeft(text[idx+len(closeInstructions):], "\ufeff \t\r\n")
+	}
+	idx, width := strings.Index(text, "\n\n"), 2
+	if crlf := strings.Index(text, "\r\n\r\n"); idx < 0 || (crlf >= 0 && crlf < idx) {
+		idx, width = crlf, 4
+	}
 	if idx < 0 {
 		return ""
 	}
-	return strings.TrimLeft(trimmed[idx+len(closeTag):], "\ufeff \t\r\n")
+	return strings.TrimLeft(text[idx+width:], "\ufeff \t\r\n")
 }
 
 func collectText(items []textItem) string {

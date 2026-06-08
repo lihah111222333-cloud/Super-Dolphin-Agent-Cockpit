@@ -134,6 +134,7 @@ type turnOutputMaterialization struct {
 	Result         json.RawMessage
 	SharedfilePath string
 	RawResult      string
+	Artifact       *artifactMaterialization
 }
 
 func classifyMaterializationFailure(failure *turnOutputMaterializationFailure) nodeexec.FailureClass {
@@ -163,13 +164,16 @@ func encodeTurnResultForNodeUpdate(raw string) json.RawMessage {
 	return json.RawMessage(wrapped)
 }
 
-func prepareTurnCompletedResult(nodeConfig json.RawMessage, nodeType, rawResult string) (turnOutputMaterialization, *turnOutputMaterializationFailure) {
-	if strings.TrimSpace(nodeType) != "agent" {
+func prepareTurnCompletedResult(node *taskdag.Node, rawResult string) (turnOutputMaterialization, *turnOutputMaterializationFailure) {
+	if node == nil || strings.TrimSpace(node.NodeType) != "agent" {
 		return turnOutputMaterialization{Result: encodeTurnResultForNodeUpdate(rawResult)}, nil
 	}
-	cfg, failure := parseAgentOutputConfig(nodeConfig)
+	cfg, failure := parseAgentOutputConfig(node.Config)
 	if failure != nil {
 		return turnOutputMaterialization{}, failure
+	}
+	if cfg.Outputs.ToArtifact != nil {
+		return prepareArtifactTurnCompletedResult(node, cfg.Outputs.ToArtifact, rawResult)
 	}
 	trimmed := strings.TrimSpace(rawResult)
 	path := configuredSharedfilePath(cfg.Outputs)

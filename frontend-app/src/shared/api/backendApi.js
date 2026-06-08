@@ -9,6 +9,7 @@ import {
   saveClipboardImage as saveClipboardImageViaBridge,
   registerBridgeLogStore,
   saveTextFile as saveTextFileViaBridge,
+  openSharedFile as openSharedFileViaBridge,
   beginTextClipboardWrite as beginTextClipboardWriteViaBridge,
   copyTextToClipboard as copyTextToClipboardViaBridge,
   selectFiles as selectFilesViaBridge,
@@ -24,6 +25,11 @@ export const RPC_METHODS = Object.freeze({
   CONFIG_LSP_PROMPT_HINT_WRITE: 'config/lspPromptHint/write',
   CONFIG_BUILTIN_TOOLS_READ: 'config/builtinTools/read',
   CONFIG_BUILTIN_TOOLS_WRITE: 'config/builtinTools/write',
+
+  APP_UPDATE_CHECK: 'app/update/check',
+  APP_UPDATE_DOWNLOAD: 'app/update/download',
+  APP_UPDATE_INSTALL: 'app/update/install',
+  APP_UPDATE_INSTALL_LATEST: 'app/update/installLatest',
 
   UI_WINDOW_BOOTSTRAP_GET: 'ui/windowBootstrap/get',
   UI_STATE_GET: 'ui/state/get',
@@ -750,6 +756,7 @@ const NATIVE_DEP_FALLBACKS = Object.freeze([
   ['readDroppedTextFiles', readDroppedTextFilesViaBridge],
   ['saveClipboardImage', saveClipboardImageViaBridge],
   ['saveTextFile', saveTextFileViaBridge],
+  ['openSharedFile', openSharedFileViaBridge],
   ['beginTextClipboardWrite', beginTextClipboardWriteViaBridge],
   ['copyTextToClipboard', copyTextToClipboardViaBridge],
   ['selectFiles', selectFilesViaBridge],
@@ -809,6 +816,15 @@ function createConfigProjectApi(callBackend) {
       requireKey(RPC_METHODS.UI_DASHBOARD_GET, requireCwd(RPC_METHODS.UI_DASHBOARD_GET, params), 'page'),
     ),
     listDashboardLogs: (params = {}) => callBackend(RPC_METHODS.DASHBOARD_LOGS, dashboardLogsPayload(params)),
+  };
+}
+
+function createAppUpdateApi(callBackend) {
+  return {
+    checkAppUpdate: () => callBackend(RPC_METHODS.APP_UPDATE_CHECK, {}),
+    downloadAppUpdate: () => callBackend(RPC_METHODS.APP_UPDATE_DOWNLOAD, {}),
+    installAppUpdate: () => callBackend(RPC_METHODS.APP_UPDATE_INSTALL, {}),
+    installLatestAppUpdate: () => callBackend(RPC_METHODS.APP_UPDATE_INSTALL_LATEST, {}),
   };
 }
 
@@ -1146,6 +1162,7 @@ function createNativeApi(native) {
     readDroppedTextFiles: native.readDroppedTextFiles,
     saveClipboardImage: native.saveClipboardImage,
     saveTextFile: native.saveTextFile,
+    openSharedFile: native.openSharedFile,
     beginTextClipboardWrite: native.beginTextClipboardWrite,
     copyTextToClipboard: native.copyTextToClipboard,
     selectFiles: native.selectFiles,
@@ -1159,6 +1176,7 @@ export function createBackendApi(deps = {}) {
   return {
     callBackend,
     ...createConfigProjectApi(callBackend),
+    ...createAppUpdateApi(callBackend),
     ...createObservabilityMemoryApi(callBackend),
     ...createPromptDagApi(callBackend),
     ...createCronApi(callBackend),
@@ -1177,6 +1195,10 @@ export const readLspPromptHint = backendApi.readLspPromptHint;
 export const writeLspPromptHint = backendApi.writeLspPromptHint;
 export const readBuiltinTools = backendApi.readBuiltinTools;
 export const writeBuiltinTool = backendApi.writeBuiltinTool;
+export const checkAppUpdate = backendApi.checkAppUpdate;
+export const downloadAppUpdate = backendApi.downloadAppUpdate;
+export const installAppUpdate = backendApi.installAppUpdate;
+export const installLatestAppUpdate = backendApi.installLatestAppUpdate;
 export const getWindowBootstrap = backendApi.getWindowBootstrap;
 export const getSidebarState = backendApi.getSidebarState;
 export const openNewWindow = backendApi.openNewWindow;
@@ -1275,6 +1297,7 @@ export const onRuntimeReconnect = backendApi.onRuntimeReconnect;
 export const readDroppedTextFiles = backendApi.readDroppedTextFiles;
 export const saveClipboardImage = backendApi.saveClipboardImage;
 export const saveTextFile = backendApi.saveTextFile;
+export const openSharedFile = backendApi.openSharedFile;
 export const beginTextClipboardWrite = backendApi.beginTextClipboardWrite;
 export const copyTextToClipboard = backendApi.copyTextToClipboard;
 export const selectFiles = backendApi.selectFiles;

@@ -62,19 +62,52 @@ func BuildEditContext(content string, startOffset int, endOffset int, replacemen
 	if err != nil {
 		return "", 0, 0, err
 	}
+	startLine, endLine = normalizeInsertionEOFLine(content, index, startOffset, endOffset, startLine, endLine)
 	windowStart, windowEnd := affectedWindow(index.lines, startLine, endLine)
 	removed := splitAffectedLines(content[startOffset:endOffset])
 	added := splitAffectedLines(replacement)
 	before := sliceLines(index.lines, windowStart, startLine-1)
-	after := sliceLines(index.lines, endLine+1, windowEnd)
+	afterStartLine := editContextAfterStartLine(content, startOffset, endOffset, startLine, endLine)
+	afterDisplayLine := editContextAfterDisplayLine(startOffset, endOffset, startLine, endLine, len(added))
+	displayWindowEnd := editContextDisplayWindowEnd(windowEnd, startOffset, endOffset, len(added))
+	after := sliceLines(index.lines, afterStartLine, windowEnd)
 
 	var builder strings.Builder
-	fmt.Fprintf(&builder, "@@ lines %d-%d @@\n", windowStart, windowEnd)
+	fmt.Fprintf(&builder, "@@ lines %d-%d @@\n", windowStart, displayWindowEnd)
 	writeContextLines(&builder, ' ', windowStart, before)
 	writeContextLines(&builder, '-', startLine, removed)
 	writeContextLines(&builder, '+', startLine, added)
-	writeContextLines(&builder, ' ', endLine+1, after)
-	return strings.TrimRight(builder.String(), "\n"), windowStart, windowEnd, nil
+	writeContextLines(&builder, ' ', afterDisplayLine, after)
+	return strings.TrimRight(builder.String(), "\n"), windowStart, displayWindowEnd, nil
+}
+
+func normalizeInsertionEOFLine(content string, idx contentIndex, startOffset int, endOffset int, startLine int, endLine int) (int, int) {
+	if startOffset == endOffset && startOffset == len(content) && strings.HasSuffix(content, "\n") {
+		line := len(idx.lines) + 1
+		return line, line
+	}
+	return startLine, endLine
+}
+
+func editContextAfterStartLine(content string, startOffset int, endOffset int, startLine int, endLine int) int {
+	if startOffset == endOffset && startOffset < len(content) {
+		return startLine
+	}
+	return endLine + 1
+}
+
+func editContextAfterDisplayLine(startOffset int, endOffset int, startLine int, endLine int, addedLineCount int) int {
+	if startOffset == endOffset {
+		return startLine + addedLineCount
+	}
+	return endLine + 1
+}
+
+func editContextDisplayWindowEnd(windowEnd int, startOffset int, endOffset int, addedLineCount int) int {
+	if startOffset == endOffset {
+		return windowEnd + addedLineCount
+	}
+	return windowEnd
 }
 
 func indexContent(content string) (contentIndex, error) {

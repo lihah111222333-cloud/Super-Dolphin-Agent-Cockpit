@@ -517,8 +517,14 @@ func TestWaitDiagnosticsStableFailsWhenTargetNeverPublishes(t *testing.T) {
 	root := t.TempDir()
 	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"missing-diagnostics"}`)
 	target := writeDiagnosticsTestFile(t, root, "app.js", "const value = 1\n")
-	mgr := newDiagnosticsTestManager(t, Config{WorkspaceRoot: root, DiagnosticsMaxWait: time.Millisecond})
-	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}})
+	mgr := newDiagnosticsTestManager(t, Config{
+		WorkspaceRoot:           root,
+		DiagnosticsInitialDelay: time.Millisecond,
+		DiagnosticsPollInterval: time.Millisecond,
+		DiagnosticsMaxWait:      time.Millisecond,
+	})
+	ctx, cancel := context.WithTimeout(common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}), 20*time.Millisecond)
+	defer cancel()
 	uri := fileURIFromPath(target)
 
 	err := mgr.WaitDiagnosticsStable(ctx, []string{uri})
@@ -532,8 +538,14 @@ func TestWaitDiagnosticsStableFailsWhenAnyRequestedTargetNeverPublishes(t *testi
 	writeDiagnosticsTestFile(t, root, "package.json", `{"name":"partial-diagnostics"}`)
 	first := writeDiagnosticsTestFile(t, root, "one.js", "const one = 1\n")
 	second := writeDiagnosticsTestFile(t, root, "two.js", "const two = 2\n")
-	mgr := newDiagnosticsTestManager(t, Config{WorkspaceRoot: root, DiagnosticsMaxWait: time.Millisecond})
-	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}})
+	mgr := newDiagnosticsTestManager(t, Config{
+		WorkspaceRoot:           root,
+		DiagnosticsInitialDelay: time.Millisecond,
+		DiagnosticsPollInterval: time.Millisecond,
+		DiagnosticsMaxWait:      time.Millisecond,
+	})
+	ctx, cancel := context.WithTimeout(common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}), 20*time.Millisecond)
+	defer cancel()
 	firstURI := fileURIFromPath(first)
 	secondURI := fileURIFromPath(second)
 	resolveDiagnosticsScopeForTarget(t, mgr, ctx, first, "first")

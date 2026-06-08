@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Settings } from 'lucide-react';
 import { useClientStore } from '../../entities/client/model/useClientStore.js';
-import { callBackend, copyTextToClipboard, getBuildInfo, getPreference, listDashboardLogs, readBuiltinTools, readConfig, readLspPromptHint, setPreference, writeBuiltinTool, writeLspPromptHint as writeLspPromptHintBackend } from '../../shared/api/backendApi.js';
+import { callBackend, checkAppUpdate, copyTextToClipboard, getBuildInfo, getPreference, installLatestAppUpdate, listDashboardLogs, readBuiltinTools, readConfig, readLspPromptHint, setPreference, writeBuiltinTool, writeLspPromptHint as writeLspPromptHintBackend } from '../../shared/api/backendApi.js';
 import { PageHeader, Panel } from '../shared/pageComponents.jsx';
 
 const PROVIDER_LABELS = Object.freeze({
@@ -23,7 +23,7 @@ const SETTINGS_DEFAULTS = Object.freeze({
   activeProvider: 'codex',
   codexHome: '~/.codex',
   codexInstanceKey: 'default',
-  providerModel: 'gpt-5-codex',
+  providerModel: 'gpt-5.5',
   providerEffort: 'xhigh',
   personality: 'pragmatic',
   sandboxPolicy: 'workspaceWrite',
@@ -34,7 +34,7 @@ const SETTINGS_DEFAULTS = Object.freeze({
 });
 
 const PROVIDER_DEFAULTS = Object.freeze({
-  codex: Object.freeze({ model: 'gpt-5-codex', effort: 'xhigh' }),
+  codex: Object.freeze({ model: 'gpt-5.5', effort: 'xhigh' }),
   claude: Object.freeze({ model: 'sonnet', effort: 'high' }),
 });
 
@@ -46,11 +46,11 @@ const CLAUDE_LONG_TO_SHORT = Object.freeze({
 
 const MODEL_OPTIONS_BY_PROVIDER = Object.freeze({
   codex: Object.freeze([
-    { value: 'gpt-5-codex', label: 'GPT-5 Codex' },
     { value: 'gpt-5.5', label: 'GPT-5.5' },
     { value: 'gpt-5.4', label: 'GPT-5.4' },
-    { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
-    { value: 'gpt-5.2', label: 'GPT-5.2' },
+    { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
+    { value: 'gpt-5', label: 'GPT-5' },
+    { value: 'codex-auto-review', label: 'Codex Auto Review' },
   ]),
   claude: Object.freeze([
     { value: 'opus', label: 'Opus 4.7' },
@@ -133,9 +133,8 @@ function numberSetting(value, fallback) {
   return Number.isFinite(number) ? number : fallback;
 }
 
-function normalizeProviderName(value) {
-  const provider = stringSetting(value, SETTINGS_DEFAULTS.activeProvider).toLowerCase();
-  return provider === 'claude' ? 'claude' : 'codex';
+function normalizeProviderName(_value) {
+  return 'codex';
 }
 
 function providerNameFromPreference(value) {
@@ -363,6 +362,10 @@ function useSettingsRuntime(cwd) {
   const [form, setForm] = useState(defaultSettingsForm);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [updateInstalling, setUpdateInstalling] = useState(false);
+  const [updateNotice, setUpdateNotice] = useState({ level: 'info', message: '' });
   const preferenceRequestSeq = useRef(0);
   const nextPreferenceRequest = useCallback(() => {
     preferenceRequestSeq.current += 1;
@@ -388,9 +391,56 @@ function useSettingsRuntime(cwd) {
   const changeActiveProvider = useCallback((event) => changeActiveProviderPreference({ cwd, event, isCurrent: nextPreferenceRequest(), setError, setForm, setStatus }), [cwd, nextPreferenceRequest]);
   const saveRuntimeSettings = useCallback(() => saveRuntimePreferences({ cwd, form, setError, setStatus }), [cwd, form]);
   const saveProviderSettings = useCallback(() => saveProviderRuntimePreferences({ cwd, form, setError, setStatus }), [cwd, form]);
+  const checkForUpdate = useCallback(() => checkForAppUpdate({ setUpdateBusy, setUpdateInfo, setUpdateNotice, updateBusy, updateInstalling }), [updateBusy, updateInstalling]);
+  const installUpdate = useCallback(() => installAvailableAppUpdate({ setUpdateInfo, setUpdateInstalling, setUpdateNotice, updateInfo, updateInstalling }), [updateInfo, updateInstalling]);
   useEffect(() => { void refreshBuildInfo(); }, [refreshBuildInfo]);
   useEffect(() => { void loadPreferences(); }, [loadPreferences]);
-  return { buildInfo, changeActiveProvider, error, form, refreshBuildInfo, saveProviderSettings, saveRuntimeSettings, status, updateForm };
+  return { buildInfo, changeActiveProvider, checkForUpdate, error, form, installUpdate, refreshBuildInfo, saveProviderSettings, saveRuntimeSettings, status, updateBusy, updateInfo, updateInstalling, updateNotice, updateForm };
+}
+
+async function checkForAppUpdate({ setUpdateBusy, setUpdateInfo, setUpdateNotice, updateBusy, updateInstalling }) {
+  if (updateBusy || updateInstalling) return;
+  setUpdateInfo(null);
+  setUpdateBusy(true);
+  setUpdateNotice({ level: 'info', message: '检查中...' });
+  try {
+    const info = await checkAppUpdate();
+    if (info?.enabled === false) {
+      setUpdateInfo(null);
+      setUpdateNotice({ level: 'warning', message: '当前构建未启用应用更新' });
+    } else if (info?.available) {
+      setUpdateInfo(info);
+      setUpdateNotice({ level: 'info', message: '发现新版本 ' + appUpdateVersionLabel(info) });
+    } else {
+      setUpdateInfo(null);
+      setUpdateNotice({ level: 'info', message: '已是最新版本' });
+    }
+  } catch (error) {
+    setUpdateInfo(null);
+    setUpdateNotice({ level: 'error', message: '检查更新失败：' + (error?.message || error) });
+  } finally {
+    setUpdateBusy(false);
+  }
+}
+
+async function installAvailableAppUpdate({ setUpdateInfo, setUpdateInstalling, setUpdateNotice, updateInfo, updateInstalling }) {
+  if (!updateInfo?.available || updateInstalling) return;
+  const pendingInfo = updateInfo;
+  setUpdateInstalling(true);
+  setUpdateInfo(null);
+  setUpdateNotice({ level: 'info', message: '正在安装更新' });
+  try {
+    await installLatestAppUpdate();
+    setUpdateNotice({ level: 'info', message: '正在安装更新' });
+  } catch (error) {
+    setUpdateInfo(pendingInfo);
+    setUpdateInstalling(false);
+    setUpdateNotice({ level: 'error', message: '安装更新失败：' + (error?.message || error) });
+  }
+}
+
+function appUpdateVersionLabel(info) {
+  return (info?.version || info?.latestVersion || info?.latest_version || '').toString().trim() || '可用更新';
 }
 
 function settingsFormWithUpdate(current, key, value) {
@@ -896,7 +946,7 @@ function SettingsPageView({ builtins, cwd, prompt, provider, runtime, store }) {
       <PageHeader icon={Settings} title="设置" actions={<button className="btn btn-secondary" type="button" data-testid="settings-refresh-build-button" onClick={() => void runtime.refreshBuildInfo()}>刷新构建信息</button>} />
       <SettingsNotices error={runtime.error} status={runtime.status} />
       <div className="panel-body" data-testid="settings-panel-body">
-        <AboutPanel buildInfo={runtime.buildInfo} cwd={cwd} />
+        <AboutPanel buildInfo={runtime.buildInfo} cwd={cwd} runtime={runtime} />
         <RuntimeSettingsPanels runtime={runtime} />
         <ProviderSettingsPanel runtime={runtime} />
         <ProviderPropertiesCard provider={provider} />
@@ -918,7 +968,8 @@ function SettingsNotices({ error, status }) {
   );
 }
 
-function AboutPanel({ buildInfo, cwd }) {
+function AboutPanel({ buildInfo, cwd, runtime }) {
+  const canInstallUpdate = Boolean(runtime.updateInfo?.available) && !runtime.updateInstalling;
   return (
     <Panel title="ABOUT">
       <dl>
@@ -928,6 +979,17 @@ function AboutPanel({ buildInfo, cwd }) {
         <dt>Commit</dt><dd>{buildInfo?.commit || 'unknown'}</dd>
         <dt>当前项目</dt><dd>{cwd || '未选择项目'}</dd>
       </dl>
+      <div className="data-card-vue settings-update-card" data-testid="settings-update-card">
+        <div className="data-row-vue">
+          <strong>应用更新</strong>
+          <span>当前版本 {buildInfo?.version || 'unknown'}</span>
+        </div>
+        <div className="settings-action-row settings-action-inline">
+          <button className="btn btn-secondary btn-toolbar-sm" type="button" data-testid="settings-update-check-button" onClick={() => void runtime.checkForUpdate()} disabled={runtime.updateBusy || runtime.updateInstalling}>{runtime.updateBusy ? '检查中...' : '检查更新'}</button>
+          {canInstallUpdate ? <button className="btn btn-primary btn-toolbar-sm" type="button" data-testid="settings-update-install-button" onClick={() => void runtime.installUpdate()} disabled={runtime.updateInstalling}>安装更新</button> : null}
+        </div>
+        {runtime.updateNotice.message ? <SettingsPromptNotice notice={runtime.updateNotice} testId="settings-update-notice" /> : null}
+      </div>
     </Panel>
   );
 }
@@ -979,7 +1041,7 @@ function ProviderSettingsForm({ changeActiveProvider, form, updateForm }) {
   const effortOptions = appendCurrentOption(filteredEffortOptions, normalizeProviderEffortSetting(form.activeProvider, form.providerModel, form.providerEffort));
   return (
     <div className="form-grid">
-      <label>Active Provider<select value={form.activeProvider} onChange={changeActiveProvider}><option value="codex">Codex</option><option value="claude">Claude</option></select></label>
+      <label>Active Provider<select value={form.activeProvider} onChange={changeActiveProvider}><option value="codex">Codex</option></select></label>
       <label>Provider Model<select aria-label="Provider Model" value={form.providerModel} onChange={updateForm('providerModel')}>{modelOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
       <label>Provider Effort<select aria-label="Provider Effort" value={form.providerEffort} onChange={updateForm('providerEffort')}>{effortOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
       <label>Personality<select aria-label="Personality" value={form.personality} onChange={updateForm('personality')}>{appendCurrentOption(PERSONALITY_OPTIONS, form.personality).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>

@@ -88,13 +88,11 @@ func TestHandleListModels_UsesInjectedRegistry(t *testing.T) {
 	}
 }
 
-func TestHandleListModels_MarksCodexUnavailableWhenLocalModelProviderMissing(t *testing.T) {
+func TestHandleListModels_MarksCodexAlwaysAvailable(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "")
 	t.Setenv("SUPER_DOLPHIN_HOME", "")
-
-	codexConfigPath := writeCodexConfigWithoutModelProvider(t, home)
 
 	h := HandleListModels(WithModelRegistry(testModelRegistry()))
 	out, err := h(context.Background(), json.RawMessage(`{"provider":"codex"}`))
@@ -108,11 +106,9 @@ func TestHandleListModels_MarksCodexUnavailableWhenLocalModelProviderMissing(t *
 	if len(provider.Models) == 0 {
 		t.Fatalf("codex models missing: %+v", provider)
 	}
-	if provider.Available != false {
-		t.Fatalf("codex available = %#v, want false when %s lacks model_providers.codex; json=%s", provider.Available, codexConfigPath, raw)
+	if provider.Available != true {
+		t.Fatalf("codex available = %#v, want true; json=%s", provider.Available, raw)
 	}
-	requireStringContains(t, provider.UnavailableReason, "model provider codex")
-	requireStringContains(t, provider.UnavailableReason, codexConfigPath)
 }
 
 func TestHandleSharedFileList_NilStoreError(t *testing.T) {
@@ -231,7 +227,7 @@ func (s *stubSharedFileListStore) Delete(context.Context, string) (int64, error)
 func testModelRegistry() stubModelRegistry {
 	return stubModelRegistry{providers: []ProviderModels{
 		{Provider: "claude", Models: []string{"opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"}},
-		{Provider: "codex", Models: []string{"gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2", "codex-auto-review"}},
+		{Provider: "codex", Models: []string{"gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5", "codex-auto-review"}},
 	}}
 }
 

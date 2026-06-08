@@ -3,7 +3,6 @@ package statemachine
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/qmuntal/stateless"
 )
@@ -68,15 +67,14 @@ func New(cfg Config, accessor func() string, mutator func(string)) *stateless.St
 	return sm
 }
 
-func AllowedTriggers(sm *stateless.StateMachine, ctx context.Context) []string {
+func AllowedTriggers(sm *stateless.StateMachine, ctx context.Context) ([]string, error) {
 	triggers, err := sm.PermittedTriggersCtx(ctx)
 	if err != nil {
-		slog.ErrorContext(ctx, "statemachine: PermittedTriggersCtx failed", "error", err)
-		return nil
+		return nil, fmt.Errorf("statemachine: PermittedTriggersCtx failed: %w", err)
 	}
 	result := make([]string, 0, len(triggers))
 	for _, trigger := range triggers {
 		result = append(result, fmt.Sprint(trigger))
 	}
-	return result
+	return result, nil
 }

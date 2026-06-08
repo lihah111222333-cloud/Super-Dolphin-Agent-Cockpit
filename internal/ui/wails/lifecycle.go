@@ -123,7 +123,27 @@ func (l *WailsLifecycle) OnShutdown() {
 	l.requestBackendShutdown()
 }
 
+func (l *WailsLifecycle) NotifyBackendStopped() {
+	l.allowQuitAfterBackendShutdown()
+}
+
+func (l *WailsLifecycle) RequestQuit() {
+	if l == nil {
+		return
+	}
+	l.quitAllowed.Store(true)
+	if !l.frontendReady.Load() {
+		l.pendingQuit.Store(true)
+		return
+	}
+	l.invokeQuit()
+}
+
 func (l *WailsLifecycle) NotifyBackendFailed() {
+	l.allowQuitAfterBackendShutdown()
+}
+
+func (l *WailsLifecycle) allowQuitAfterBackendShutdown() {
 	l.stopShutdownTimer()
 	l.quitAllowed.Store(true)
 	if !l.frontendReady.Load() {

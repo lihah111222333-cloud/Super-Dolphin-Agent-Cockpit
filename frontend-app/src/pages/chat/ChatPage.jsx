@@ -68,9 +68,9 @@ const WARNING_POPOVER_MIN_WIDTH = 280;
 
 const STREAMING_REVEAL_SHORT_TEXT_CHARS = 16;
 
-const STREAMING_REVEAL_CATCHUP_FRAMES = 10;
+const STREAMING_REVEAL_CATCHUP_FRAMES = 80;
 
-const STREAMING_REVEAL_MAX_CHARS_PER_FRAME = 64;
+const STREAMING_REVEAL_MAX_CHARS_PER_FRAME = 8;
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
@@ -181,6 +181,12 @@ function useSmoothStreamingText(text, { enabled = false, streamKey = '' } = {}) 
   const targetText = (text || '').toString();
   const [state, setState] = useState(() => ({ streamKey, visibleText: targetText }));
   const frameRef = useRef(0);
+  const targetTextRef = useRef(targetText);
+
+  useEffect(() => {
+    targetTextRef.current = targetText;
+  }, [targetText]);
+
   const reducedMotion = useReducedMotionPreference(enabled);
   const streamKeyChanged = state.streamKey !== streamKey;
   const passthrough = !enabled || reducedMotion || streamKeyChanged;
@@ -189,42 +195,48 @@ function useSmoothStreamingText(text, { enabled = false, streamKey = '' } = {}) 
   useEffect(() => () => cancelAnimationFrameRef(frameRef), []);
 
   useEffect(() => {
-    cancelAnimationFrameRef(frameRef);
-    if (streamKeyChanged) {
-      setState({ streamKey, visibleText: targetText });
-      return undefined;
-    }
+    setState({ streamKey, visibleText: targetText });
+  }, [streamKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
     if (!enabled || reducedMotion) {
-      return undefined;
-    }
-    if (!targetText.startsWith(visibleText) || visibleText.length > targetText.length) {
-      if (visibleText !== targetText) setState({ streamKey, visibleText: targetText });
-      return undefined;
-    }
-    if (visibleText === targetText) return undefined;
-    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-      setState({ streamKey, visibleText: targetText });
+      cancelAnimationFrameRef(frameRef);
       return undefined;
     }
 
-    frameRef.current = window.requestAnimationFrame(() => {
-      frameRef.current = 0;
+    let active = true;
+
+    const tick = () => {
+      if (!active) return;
+
       setState((current) => {
         if (current.streamKey !== streamKey) return current;
+        const latestTarget = targetTextRef.current;
         const currentText = current.visibleText;
-        if (!targetText.startsWith(currentText) || currentText.length > targetText.length) {
-          return { streamKey, visibleText: targetText };
+
+        if (!latestTarget.startsWith(currentText) || currentText.length > latestTarget.length) {
+          return { streamKey, visibleText: latestTarget };
         }
-        const remaining = targetText.length - currentText.length;
+
+        const remaining = latestTarget.length - currentText.length;
         if (remaining <= 0) return current;
+
         return {
           streamKey,
-          visibleText: targetText.slice(0, currentText.length + streamingRevealStepSize(remaining)),
+          visibleText: latestTarget.slice(0, currentText.length + streamingRevealStepSize(remaining)),
         };
       });
-    });
-    return () => cancelAnimationFrameRef(frameRef);
-  }, [enabled, reducedMotion, streamKey, streamKeyChanged, targetText, visibleText, state.visibleText]);
+
+      frameRef.current = window.requestAnimationFrame(tick);
+    };
+
+    frameRef.current = window.requestAnimationFrame(tick);
+
+    return () => {
+      active = false;
+      cancelAnimationFrameRef(frameRef);
+    };
+  }, [enabled, reducedMotion, streamKey]);
 
   return visibleText;
 }
@@ -1497,29 +1509,6 @@ function firstStatusText(...values) {
   return '';
 }
 
-function cleanWorkStatusDetails(value) {
-  return (
-    normalizedThreadIdentity(value)
-    .replace(/\uFFFD+/g, '')
-    .replace(/\|+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-  );
-}
-
-function isInternalThreadDisplayText(value, activeThreadId, activeThread) {
-  const text = normalizedThreadIdentity(value);
-  if (!text) return false;
-  const unprefixed = text.replace(/^线程\s+/u, '').trim();
-  const ids = activeThreadIdentifiers(activeThreadId, activeThread);
-  return (
-    ids.has(text)
-    || ids.has(unprefixed)
-    || isInternalThreadIdentifier(text)
-    || isInternalThreadIdentifier(unprefixed)
-  );
-}
-
 function displayThreadName(thread, fallback = '新对话') {
   const ids = activeThreadIdentifiers(thread?.id, thread);
   for (const value of [thread?.name, thread?.title, thread?.displayName, thread?.display_name]) {
@@ -1531,18 +1520,12 @@ function displayThreadName(thread, fallback = '新对话') {
   return fallback;
 }
 
-function workStatusDetailsForThread({ activeThreadId, activeThread, statusEntry }) {
-  const details = cleanWorkStatusDetails(firstStatusText(statusEntry?.statusDetails, activeThread?.lastMessage));
-  if (details && !isInternalThreadDisplayText(details, activeThreadId, activeThread)) return details;
-  return '当前会话已连接';
-}
-
 function workStatusForThread({ sending, loading, activeThreadId, activeThread, statusEntry }) {
   if (!activeThreadId) {
-    return { label: '待启动', details: '发送首条消息后创建线程', tone: 'idle', busy: false };
+    return { busy: false };
   }
   if (loading) {
-    return { label: '加载中', details: '正在同步当前会话', tone: 'active', busy: true };
+    return { busy: true };
   }
   const rawState = firstStatusText(
     statusEntry?.state,
@@ -1553,11 +1536,7 @@ function workStatusForThread({ sending, loading, activeThreadId, activeThread, s
   );
   const normalizedState = normalizeTurnState(rawState);
   const mapped = TURN_STATE_INFO[normalizedState];
-  const label = mapped?.label || firstStatusText(statusEntry?.statusHeader, rawState) || '已连接';
   return {
-    label,
-    details: workStatusDetailsForThread({ activeThreadId, activeThread, statusEntry }),
-    tone: mapped?.tone || 'connected',
     busy: mapped?.busy ?? Boolean(sending),
   };
 }
@@ -1619,6 +1598,7 @@ function timelineAutoScrollKey({ activeThreadId, introMode, messages, pendingRea
   ].join('\u0002');
 }
 
+/*
 function providerToggleState(store) {
   const activeThreadId = normalizedThreadIdentity(store?.activeThreadId);
   const activeThread = activeThreadForStore(store);
@@ -1629,6 +1609,7 @@ function providerToggleState(store) {
     provider,
   };
 }
+*/
 
 function composerConfigThreadId(store, activeThreadId) {
   if (!activeThreadId) return '';
@@ -2281,6 +2262,7 @@ function ProjectDropdown({ options, selectedValue, onSelect, onRemove, onAdd }) 
   );
 }
 
+/*
 function ProviderToggle({ store, canUseProjectActions = true }) {
   const { locked, provider } = providerToggleState(store);
   const isClaude = provider === 'claude';
@@ -2312,6 +2294,7 @@ function ProviderToggle({ store, canUseProjectActions = true }) {
     </button>
   );
 }
+*/
 
 
 function ThreadRail({ store }) {
@@ -3303,7 +3286,7 @@ function renderImagePreview(rawSource, altText, key) {
   return <MarkdownImagePreview key={key} src={src} label={label} />;
 }
 
-function LightboxShell({ label, href, onClose, children }) {
+function LightboxShell({ label, onClose, children }) {
   const displayLabel = (label || '').toString().trim() || '预览';
   return createPortal(
     <dialog className="image-lightbox" open aria-label={`图片预览：${displayLabel}`}>
@@ -3312,7 +3295,6 @@ function LightboxShell({ label, href, onClose, children }) {
         <header>
           <strong>{displayLabel}</strong>
           <div>
-            {href ? <a href={href} target="_blank" rel="noreferrer">外部打开</a> : null}
             <button type="button" aria-label="关闭图片预览" onClick={onClose}><X size={16} /></button>
           </div>
         </header>
@@ -3346,7 +3328,7 @@ function MarkdownImagePreview({ src, label }) {
   }
 
   const lightbox = expanded ? (
-    <LightboxShell label={displayLabel} href={src} onClose={() => setExpanded(false)}>
+    <LightboxShell label={displayLabel} onClose={() => setExpanded(false)}>
       <img src={src} alt={displayLabel} />
     </LightboxShell>
   ) : null;
@@ -3873,7 +3855,7 @@ function MermaidDiagram({ source }) {
           <span>点击放大</span>
         </button>
         {expanded ? (
-          <LightboxShell label="Mermaid 图表" href={href} onClose={() => setExpanded(false)}>
+          <LightboxShell label="Mermaid 图表" onClose={() => setExpanded(false)}>
             <div className="mermaid-lightbox-svg">
               <img src={href} alt="Mermaid 图表" />
             </div>
@@ -4082,12 +4064,35 @@ function markdownInputLines(text) {
 
 function standaloneCodeFence(text) {
   const lines = normalizeMessageText(text).trim().split('\n');
-  if (lines.length < 2) return null;
+  if (lines.length < 1) return null;
   const opening = splitMarkdownFenceLine(lines[0]);
   if (!opening || opening.prefix.trim()) return null;
-  const closing = markdownClosingFence(lines.at(-1), opening);
-  if (!closing) return null;
-  const bodyLines = lines.slice(1, -1);
+
+  // Find if there is a closing fence in the lines
+  let closingIndex = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (markdownClosingFence(lines[i], opening)) {
+      closingIndex = i;
+      break;
+    }
+  }
+
+  if (closingIndex !== -1) {
+    // If there is a closing fence, it must be the last line to be a standalone code fence
+    if (closingIndex !== lines.length - 1) {
+      return null; // Closed in the middle, has trailing text -> not standalone
+    }
+    // Complete code fence
+    const bodyLines = lines.slice(1, closingIndex);
+    if (opening.firstCodeLine) bodyLines.unshift(opening.firstCodeLine);
+    return {
+      language: opening.language,
+      body: bodyLines.join('\n'),
+    };
+  }
+
+  // No closing fence found -> it is an incomplete/streaming code fence!
+  const bodyLines = lines.slice(1);
   if (opening.firstCodeLine) bodyLines.unshift(opening.firstCodeLine);
   return {
     language: opening.language,
@@ -4529,7 +4534,7 @@ function renderMarkdownBlocks(lines, actions = {}, cache = null) {
     }
 
     let splitIndex = -1;
-    for (let i = matchingCount; i >= 0; i--) {
+    for (let i = matchingCount - 1; i >= 0; i--) {
       if (cache.checkpoints[i] !== undefined) {
         splitIndex = i;
         break;
@@ -4798,12 +4803,27 @@ function durationLabelFromMs(ms, options = {}) {
 
 function useElapsedLabel(startValue, endValue, active) {
   const [now, setNow] = useState(() => Date.now());
+  const [firstStart, setFirstStart] = useState(null);
+
+  useEffect(() => {
+    if (active) {
+      if (!firstStart && startValue) {
+        setFirstStart(timestampMs(startValue));
+      }
+    } else {
+      if (firstStart !== null) {
+        setFirstStart(null);
+      }
+    }
+  }, [active, startValue, firstStart]);
+
   useEffect(() => {
     if (!active) return undefined;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [active]);
-  const start = timestampMs(startValue);
+
+  const start = active ? (firstStart || timestampMs(startValue)) : timestampMs(startValue);
   if (!start) return '';
   const completed = timestampMs(endValue);
   if (!active && !completed) return '';
@@ -4846,15 +4866,18 @@ function ReasoningTrace({ message, active = false }) {
   );
 }
 
-function syntheticReasoningMessage({ activeTurn, sending }) {
-  if (!activeTurn && !sending) return null;
+function syntheticReasoningMessage({ activeTurn, sending, isBusy, fallbackStartTime }) {
+  if (!activeTurn && !sending && !isBusy) return null;
+  const turnId = activeTurn?.id;
+  const id = turnId ? `thinking:${turnId}` : 'thinking-sending';
+  const defaultStartTime = fallbackStartTime || new Date().toISOString();
   return {
-    id: `thinking-${activeTurn?.id || 'sending'}`,
+    id,
     role: 'assistant',
     kind: 'thinking',
     title: '正在处理请求',
     text: '',
-    time: activeTurn?.startedAt || new Date().toISOString(),
+    time: activeTurn?.startedAt || defaultStartTime,
     done: false,
   };
 }
@@ -5183,7 +5206,7 @@ function ComposerMeta({
   projectActionBlockedTitle,
   selectFiles,
   sendMessage,
-  showProviderToggle,
+  showProviderToggle: _,
   store,
 }) {
   const canForkThread = canUseProjectActions && Boolean(store.hasActiveThreadActions?.());
@@ -5226,7 +5249,7 @@ function ComposerMeta({
         <GitBranch size={16} />
       </button>
       <div className="composer-actions">
-        {showProviderToggle ? <ProviderToggle store={store} canUseProjectActions={canUseProjectActions} /> : null}
+
         <ModelSelector store={store} activeThreadId={modelThreadId} disabled={projectActionBlocked} />
         <button type="button" className={primaryActionClass} aria-label={primaryActionLabel} title={primaryActionTitle} disabled={primaryActionDisabled} onClick={onPrimaryAction}>
           {canInterrupt ? <CircleStop size={18} /> : <Send size={18} />}
@@ -5259,10 +5282,36 @@ function Conversation(props) {
     canUseProjectActions = true,
     sendMessage,
   } = props;
+  const [justSent, setJustSent] = useState(false);
+  useEffect(() => {
+    if (sending) {
+      setJustSent(true);
+    } else if (justSent) {
+      if (activeTurn) {
+        setJustSent(false);
+      } else {
+        const timer = setTimeout(() => {
+          setJustSent(false);
+        }, 5000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [sending, activeTurn, justSent]);
+
+  const threadStatus = workStatusForThread({
+    sending,
+    loading: timelineContentBlocked,
+    activeThreadId,
+    activeThread,
+    statusEntry,
+  });
+  const isBusy = threadStatus.busy;
   const introMode = !activeThreadId && !timelineBlocked && messages.length === 0;
   const hasProcessingAfterLastUser = hasReasoningMessageAfterLastUser(messages);
+  const lastUserMessage = [...messages].reverse().find((msg) => (msg.role || '').toLowerCase() === 'user');
+  const fallbackStartTime = lastUserMessage?.time;
   const pendingReasoning = !introMode && !timelineBlocked && !hasProcessingAfterLastUser && !hasAssistantReplyAfterLastUser(messages)
-    ? syntheticReasoningMessage({ activeTurn, sending })
+    ? syntheticReasoningMessage({ activeTurn, sending: sending || justSent, isBusy, fallbackStartTime })
     : null;
   const composerController = useComposerInteractions({
     attachments,
@@ -5275,6 +5324,8 @@ function Conversation(props) {
   const timelineRef = useRef(null);
   const shouldStickToBottomRef = useRef(true);
   const lastTimelineAutoScrollKeyRef = useRef('');
+  const timelineContentBlockedRef = useRef(timelineContentBlocked);
+  const isInitialThreadRenderRef = useRef(true);
   const updateTimelineStickiness = useCallback((timeline) => {
     shouldStickToBottomRef.current = isTimelineNearBottom(timeline);
   }, []);
@@ -5285,6 +5336,11 @@ function Conversation(props) {
   const scrollTimelineToBottomSmooth = useCallback(() => {
     shouldStickToBottomRef.current = true;
     scrollTimelineElementToBottom(timelineRef.current, true);
+  }, []);
+  const scrollTimelineToBottomIfSticky = useCallback((smooth = false) => {
+    if (timelineRef.current && shouldStickToBottomRef.current) {
+      scrollTimelineElementToBottom(timelineRef.current, smooth);
+    }
   }, []);
   const sendMessageAndScrollToBottom = useCallback(() => {
     const result = sendMessage();
@@ -5300,9 +5356,27 @@ function Conversation(props) {
     timelineContentBlocked,
   });
   useEffect(() => {
+    timelineContentBlockedRef.current = timelineContentBlocked;
+  }, [timelineContentBlocked]);
+  useEffect(() => {
     shouldStickToBottomRef.current = true;
     lastTimelineAutoScrollKeyRef.current = '';
+    isInitialThreadRenderRef.current = true;
+    const el = timelineRef.current;
+    if (el) {
+      el.scrollTop = 0;
+    }
   }, [activeThreadId]);
+  useEffect(() => {
+    if (!timelineContentBlocked && activeThreadId) {
+      scrollTimelineToBottomInstant();
+      isInitialThreadRenderRef.current = false;
+      const timer = setTimeout(() => {
+        scrollTimelineToBottomInstant();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [activeThreadId, timelineContentBlocked, scrollTimelineToBottomInstant]);
   useEffect(() => {
     if (!autoScrollKey) {
       lastTimelineAutoScrollKeyRef.current = autoScrollKey;
@@ -5313,6 +5387,37 @@ function Conversation(props) {
     if (!shouldStickToBottomRef.current) return;
     requestTimelineBottomScroll(scrollTimelineToBottomInstant);
   }, [autoScrollKey, scrollTimelineToBottomInstant]);
+  useEffect(() => {
+    const el = timelineRef.current;
+    if (!el) return;
+    const observer = new MutationObserver(() => {
+      if (!isInitialThreadRenderRef.current && !timelineContentBlockedRef.current && shouldStickToBottomRef.current) {
+        scrollTimelineElementToBottom(el, false);
+      }
+    });
+    observer.observe(el, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    return () => {
+      observer.disconnect();
+    };
+  }, [activeThreadId]);
+
+  useEffect(() => {
+    const el = timelineRef.current;
+    if (!el) return;
+    const handleLoad = () => {
+      if (!isInitialThreadRenderRef.current && !timelineContentBlockedRef.current && shouldStickToBottomRef.current) {
+        scrollTimelineElementToBottom(el, false);
+      }
+    };
+    el.addEventListener('load', handleLoad, true);
+    return () => {
+      el.removeEventListener('load', handleLoad, true);
+    };
+  }, [activeThreadId]);
   const composer = (
     <ConversationComposer
       {...props}
@@ -5349,18 +5454,9 @@ function Conversation(props) {
         messageActions={messageActions}
         onTimelineScroll={updateTimelineStickiness}
         onScrollToBottom={scrollTimelineToBottomSmooth}
+        onScrollIfSticky={scrollTimelineToBottomIfSticky}
         timelineRef={timelineRef}
       />
-      {!introMode ? (
-        <WorkStatus
-          sending={sending}
-          loading={timelineContentBlocked}
-          activeThreadId={activeThreadId}
-          activeThread={activeThread}
-          statusEntry={statusEntry}
-          tokenUsage={tokenUsage}
-        />
-      ) : null}
       {!introMode ? composer : null}
     </section>
   );
@@ -5473,6 +5569,7 @@ function ConversationTimeline({
   messageActions,
   onTimelineScroll,
   onScrollToBottom,
+  onScrollIfSticky,
   timelineRef,
   smoothStreaming,
 }) {
@@ -5543,18 +5640,25 @@ function ConversationTimeline({
     userScrolledRef.current = false;
   }, [activeThreadId]);
 
+  const timelineMessages = [...visibleMessages];
+  if (pendingReasoning) {
+    timelineMessages.push(pendingReasoning);
+  }
+
   return (
     <div className="timeline-shell">
-      <div className="timeline" data-testid="chat-timeline" ref={timelineRef} onScroll={handleScroll}>
+      <div key={activeThreadId || 'intro'} className="timeline" data-testid="chat-timeline" ref={timelineRef} onScroll={handleScroll}>
         {introMode ? <IntroChatStage composer={composer} projectPath={projectPath} /> : null}
         {!introMode && !timelineContentBlocked && (hiddenOlderCount > 0 || hasBackendOlderPage) ? (
           <TimelineOlderMessagesMarker hiddenCount={hiddenOlderCount} loading={olderPageLoading} onReveal={requestOlderMessages} />
         ) : null}
-        {!introMode && !timelineContentBlocked ? visibleMessages.map((message) => (
-          <TimelineMessage key={message.id} message={message} actions={messageActions} activeThreadId={activeThreadId} smoothStreaming={smoothStreaming} />
-        )) : null}
+        {!introMode && !timelineContentBlocked ? timelineMessages.map((message) => {
+          const key = message.callId ? `tool-${message.callId}` : message.id;
+          return (
+            <TimelineMessage key={key} message={message} actions={messageActions} activeThreadId={activeThreadId} smoothStreaming={smoothStreaming} onScrollIfSticky={onScrollIfSticky} />
+          );
+        }) : null}
         {!introMode && timelineContentBlocked ? <TimelineLoadingPlaceholder /> : null}
-        {pendingReasoning ? <ReasoningTrace key={pendingReasoning.id} message={pendingReasoning} active /> : null}
         <div ref={bottomRef} style={{ height: 0 }} aria-hidden="true" />
       </div>
       {activeThreadId && !introMode && !timelineContentBlocked ? (
@@ -5597,13 +5701,87 @@ function IntroChatStage({ composer, projectPath }) {
   );
 }
 
-const TimelineMessage = React.memo(function TimelineMessage({ message, actions, activeThreadId, smoothStreaming }) {
+// resolveAttachmentImageSrc 解析附件图片 URL，处理四种格式：
+// 1. data:image/... — 粘贴截图（imagePreviewSource 因 IMAGE_PATH_RE 不匹配此格式而返回空）
+// 2. /clipboard/xxx.png — 历史 clipboard 图片的 Wails HTTP 路由，直接可用
+// 3. http(s):// — 外部 URL
+// 4. 本地文件路径 — 走 imagePreviewSource（file://, 生成图片路由等）
+function resolveAttachmentImageSrc(att) {
+  const preview = textValue(att.previewUrl || att.url);
+  if (preview) {
+    if (
+      /^data:image\//i.test(preview) ||
+      /^https?:\/\//i.test(preview) ||
+      preview.startsWith('/clipboard/')
+    ) {
+      return preview;
+    }
+    const resolved = imagePreviewSource(preview);
+    if (resolved) return resolved;
+  }
+  const path = textValue(att.path);
+  return path ? imagePreviewSource(path) : '';
+}
+
+function UserMessageAttachments({ attachments }) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return null;
+  const images = [];
+  const files = [];
+  for (const att of attachments) {
+    if (!att) continue;
+    const kind = textValue(att.kind).toLowerCase();
+    if (kind === 'image') {
+      const src = resolveAttachmentImageSrc(att);
+      if (src) {
+        images.push({ ...att, _resolvedSrc: src });
+      } else {
+        files.push(att);
+      }
+    } else {
+      files.push(att);
+    }
+  }
+  if (images.length === 0 && files.length === 0) return null;
+  return (
+    <div className="user-message-attachments">
+      {images.length > 0 ? (
+        <div className="user-attachment-gallery">
+          {images.map((att, idx) => (
+            <MarkdownImagePreview
+              key={att.path || att.previewUrl || idx}
+              src={att._resolvedSrc}
+              label={att.name || basenameFromPath(att.path || att.previewUrl || '') || '图片附件'}
+            />
+          ))}
+        </div>
+      ) : null}
+      {files.length > 0 ? (
+        <div className="user-attachment-file-list">
+          {files.map((att, idx) => (
+            <span key={att.path || att.name || idx} className="user-attachment-file-pill">
+              <File size={12} />
+              <span>{att.name || basenameFromPath(att.path || '') || att.path}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const TimelineMessage = React.memo(function TimelineMessage({ message, actions, activeThreadId, smoothStreaming, onScrollIfSticky }) {
   const streamKey = `${activeThreadId || ''}:${message.id || ''}`;
   const streamingAssistant = message.role === 'assistant' && message.done === false;
   const displayText = useSmoothStreamingText(message.text, {
     enabled: streamingAssistant && smoothStreaming,
     streamKey,
   });
+
+  React.useLayoutEffect(() => {
+    if (streamingAssistant && onScrollIfSticky) {
+      onScrollIfSticky(false);
+    }
+  }, [displayText, streamingAssistant, smoothStreaming, onScrollIfSticky]);
   if (isApprovalMessage(message)) return <ApprovalTimelineMessage message={message} actions={actions} />;
   if (isReasoningMessage(message)) return <ReasoningTrace message={message} active={message.done === false} />;
   
@@ -5616,6 +5794,7 @@ const TimelineMessage = React.memo(function TimelineMessage({ message, actions, 
             <time>{formatTime(message.time)}</time>
           </header>
         ) : null}
+        {isUser ? <UserMessageAttachments attachments={message.attachments} /> : null}
         <MessageContent text={displayText} actions={actions} />
         {!isUser && message.role === 'assistant' ? (
           <div className="assistant-footer">
@@ -5696,20 +5875,6 @@ function TimelineLoadingPlaceholder() {
       <span className="timeline-placeholder-line" />
       <span className="timeline-placeholder-line timeline-placeholder-line--short" />
       <p>正在同步会话历史</p>
-    </div>
-  );
-}
-
-function WorkStatus({ sending, loading, activeThreadId, activeThread, statusEntry, tokenUsage }) {
-  const status = workStatusForThread({ sending, loading, activeThreadId, activeThread, statusEntry });
-  const className = `work-status work-status--${status.tone}${status.busy ? ' is-busy' : ''}`;
-  const tokenText = tokenUsage ? `${tokenUsage.usedTokens} / ${tokenUsage.contextWindowTokens} tokens` : 'token usage 等待后端同步';
-  return (
-    <div className={className}>
-      <span className="spinner" aria-hidden="true" />
-      <span className="work-status-label">{status.label}</span>
-      <em>{status.details}</em>
-      <code title={tokenText}>{tokenText}</code>
     </div>
   );
 }

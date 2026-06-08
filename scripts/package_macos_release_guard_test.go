@@ -19,9 +19,25 @@ func TestPackageMacOSScriptRequiresPackagedCodexRelayConfig(t *testing.T) {
 	assertScriptContains(t, script, "is required and must not be whitespace-only")
 	assertScriptContains(t, script, "packaged_relay_bootstrap_token=\"${SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN:-}\"")
 	assertScriptContains(t, script, "packaged_relay_api_key=\"${SUPER_DOLPHIN_CODEX_RELAY_API_KEY:-}\"")
-	assertScriptContains(t, script, "packaged_relay_bootstrap_token=\"$packaged_relay_api_key\"")
-	assertScriptContains(t, script, "\"$codex_relay_privileged_api_key_env\" \"$packaged_relay_api_key\"")
+	assertScriptContains(t, script, "$codex_relay_privileged_api_key_env must not be set for macOS packaging")
+	assertScriptDoesNotContain(t, script, "packaged_relay_bootstrap_token=\"$packaged_relay_api_key\"")
+	assertScriptDoesNotContain(t, script, "\"$codex_relay_privileged_api_key_env\" \"$packaged_relay_api_key\"")
+	assertScriptDoesNotContain(t, script, "printf '%s=%s\n' \"$codex_relay_privileged_api_key_env\"")
+	assertScriptContains(t, functionBody(t, script, "write_packaged_relay_env"), "\"$codex_relay_bootstrap_proof_env\" \"$packaged_relay_bootstrap_proof\"")
 	assertScriptContains(t, script, "$resources/.env")
+}
+
+func TestPackageMacOSScriptRejectsPlaceholderRelayForReleaseProfiles(t *testing.T) {
+	script := readScript(t, "package_macos.sh")
+	body := functionBody(t, script, "validate_release_relay_url")
+
+	assertScriptContains(t, script, "validate_release_relay_url")
+	assertScriptContains(t, body, "$codex_relay_base_url_env must be an HTTPS URL with host for $release_profile releases")
+	assertScriptContains(t, body, "$codex_relay_base_url_env must not use a local or placeholder host")
+	for _, want := range []string{"http://127.*", "https://127.*", "http://localhost*", "https://localhost*", "*.invalid*", "*.test*"} {
+		assertScriptContains(t, body, want)
+	}
+	assertScriptOrder(t, script, "validate_env_file_value \"$codex_relay_bootstrap_proof_env\"", "validate_release_relay_url")
 }
 
 func TestPackageMacOSScriptRejectsWhitespaceOnlyPackagedCodexRelayEnv(t *testing.T) {
@@ -65,9 +81,9 @@ func TestPackageMacOSScriptVerifiesStagedPostgresFiles(t *testing.T) {
 	script := readScript(t, "package_macos.sh")
 	body := functionBody(t, script, "verify_postgres_runtime")
 
-	assertScriptContains(t, body, "\"$pg_bundle/bin/initdb\" --version")
-	assertScriptContains(t, body, "\"$pg_bundle/bin/postgres\" --version")
-	assertScriptContains(t, body, "\"$pg_bundle/bin/pg_ctl\" --version")
+	assertScriptContains(t, body, "run_packaged_smoke_check \"PostgreSQL initdb\" \"$pg_bundle/bin/initdb\" --version")
+	assertScriptContains(t, body, "run_packaged_smoke_check \"PostgreSQL postgres\" \"$pg_bundle/bin/postgres\" --version")
+	assertScriptContains(t, body, "run_packaged_smoke_check \"PostgreSQL pg_ctl\" \"$pg_bundle/bin/pg_ctl\" --version")
 	assertScriptContains(t, body, "verify_postgres_share_dir \"$pg_bundle\"")
 	assertScriptDoesNotContain(t, body, "pg_config\" --sharedir")
 	assertScriptDoesNotContain(t, body, "compiled_sharedir")

@@ -144,6 +144,74 @@ func TestShouldQuitStartsShutdownWhenActiveAgentCountFails(t *testing.T) {
 	}
 }
 
+func TestShouldQuitWaitsForBackendStopWithoutActiveAgents(t *testing.T) {
+	t.Parallel()
+
+	lifecycle := NewWailsLifecycle(ActiveAgentCounterFunc(func(context.Context) (int, error) {
+		return 0, nil
+	}), nil)
+	lifecycle.MarkFrontendReady()
+
+	shutdownCalled := make(chan struct{}, 1)
+	lifecycle.SetShutdownerFunc(func() {
+		shutdownCalled <- struct{}{}
+	})
+	quitCalled := make(chan struct{}, 1)
+	lifecycle.SetQuitFunc(func() {
+		quitCalled <- struct{}{}
+	})
+
+	if lifecycle.ShouldQuit() {
+		t.Fatal("ShouldQuit() = true without active agents, want false until backend shutdown completes")
+	}
+	select {
+	case <-shutdownCalled:
+	case <-time.After(time.Second):
+		t.Fatal("shutdown was not requested before allowing quit")
+	}
+	select {
+	case <-quitCalled:
+		t.Fatal("quit was invoked before backend shutdown completed")
+	default:
+	}
+	if lifecycle.ShouldQuit() {
+		t.Fatal("second ShouldQuit() = true before backend stop, want false")
+	}
+
+	lifecycle.NotifyBackendStopped()
+
+	select {
+	case <-quitCalled:
+	case <-time.After(time.Second):
+		t.Fatal("quit was not invoked after backend shutdown completed")
+	}
+	if !lifecycle.ShouldQuit() {
+		t.Fatal("ShouldQuit() = false after backend stop, want true")
+	}
+}
+
+func TestRequestQuitAllowsImmediateQuit(t *testing.T) {
+	t.Parallel()
+
+	lifecycle := NewWailsLifecycle(nil, nil)
+	lifecycle.MarkFrontendReady()
+	quitCalled := make(chan struct{}, 1)
+	lifecycle.SetQuitFunc(func() {
+		quitCalled <- struct{}{}
+	})
+
+	lifecycle.RequestQuit()
+
+	select {
+	case <-quitCalled:
+	case <-time.After(time.Second):
+		t.Fatal("RequestQuit() did not invoke quit function")
+	}
+	if !lifecycle.ShouldQuit() {
+		t.Fatal("ShouldQuit() = false after RequestQuit, want true")
+	}
+}
+
 type stubThreadLister struct {
 	refs []contract.ThreadRef
 	err  error

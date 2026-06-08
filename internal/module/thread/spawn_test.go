@@ -127,7 +127,7 @@ func TestStartPendingLaunchSkipsPromptAssemblyPreflight(t *testing.T) {
 
 	result, err := svc.Start(context.Background(), StartRequest{
 		AgentID:    "agent-pending-preflight",
-		Provider:   "claude",
+		Provider:   "codex",
 		CWD:        "/tmp/project",
 		DeferSpawn: true,
 	})
@@ -158,7 +158,7 @@ func TestStartPendingLaunchAllowsIntakeMetadataWithoutStartingProvider(t *testin
 
 	result, err := svc.Start(context.Background(), StartRequest{
 		AgentID:    "thread-dag-designer",
-		Provider:   "claude",
+		Provider:   "codex",
 		CWD:        "/tmp/project",
 		DeferSpawn: true,
 		Name:       "AI 设计流程",
@@ -266,13 +266,13 @@ func TestSpawnIfNeededLaunchIntentFailureKeepsThreadVisible(t *testing.T) {
 func TestSpawnIfNeededPropagatesPromptKeyStale(t *testing.T) {
 	t.Parallel()
 
-	threadID := "thread-pending-stale"
+	threadID := "019d5f6b-fb3c-7760-9d6f-54005553f6c2"
 	store := &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:       threadID,
 		Status:         statusCreated,
 		PendingLaunch:  true,
 		Cwd:            "/tmp/project",
-		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Provider: "claude", PromptKey: "main/missing"}),
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Provider: "codex", PromptKey: "main/missing"}),
 	}}
 	sessions := &stubSessionProvider{}
 	svc := &service{

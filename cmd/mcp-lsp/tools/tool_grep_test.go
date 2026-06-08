@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,6 +69,51 @@ func TestGrepTextSearchEmptyResultHasMessage(t *testing.T) {
 	}
 	if resp.Message != "no matches found" {
 		t.Fatalf("message = %q, want no matches found", resp.Message)
+	}
+}
+
+func TestGrepTextSearchAcceptsCommonMultiPathParams(t *testing.T) {
+	root := t.TempDir()
+	writeGrepFixtureFile(t, filepath.Join(root, "first", "one.go"), "package first\nconst needleOne = true\n")
+	writeGrepFixtureFile(t, filepath.Join(root, "second", "two.go"), "package second\nconst needleTwo = true\n")
+	writeGrepFixtureFile(t, filepath.Join(root, "third", "skip.go"), "package third\nconst needleThree = true\n")
+
+	cases := map[string]map[string]any{
+		"path_array":       {"path": []string{"first", "second"}},
+		"paths_array":      {"paths": []string{"first", "second"}},
+		"paths_string":     {"paths": "first,second"},
+		"file_paths_array": {"file_paths": []string{"first", "second"}},
+	}
+	for name, fields := range cases {
+		t.Run(name, func(t *testing.T) {
+			input := map[string]any{
+				"action": "text_search",
+				"query":  "needle",
+				"glob":   "*.go",
+			}
+			maps.Copy(input, fields)
+			got, err := callGrepToolRaw(t, root, input)
+			if err != nil {
+				t.Fatalf("grep returned error: %v", err)
+			}
+			resp, ok := got.(grepResponse)
+			if !ok {
+				t.Fatalf("grep result type = %T, want grepResponse", got)
+			}
+			assertGrepResponseRelativeFiles(t, root, resp, []string{"first/one.go", "second/two.go"}, "third/skip.go")
+		})
+	}
+}
+
+func TestGrepTextSearchRejectsEmptyPathArray(t *testing.T) {
+	root := t.TempDir()
+	_, err := callGrepToolRaw(t, root, map[string]any{
+		"action": "text_search",
+		"query":  "needle",
+		"path":   []string{},
+	})
+	if err == nil || !strings.Contains(err.Error(), "path array must contain at least one path") {
+		t.Fatalf("grep empty path array error = %v, want path array validation", err)
 	}
 }
 
@@ -320,7 +366,33 @@ func canonicalGrepPath(t *testing.T, path string) string {
 	return resolved
 }
 
+func assertGrepResponseRelativeFiles(t *testing.T, root string, resp grepResponse, wants []string, unwanted string) {
+	t.Helper()
+	resolvedRoot := canonicalGrepPath(t, root)
+	got := make(map[string]bool, len(resp.Data))
+	for file := range resp.Data {
+		rel, err := filepath.Rel(resolvedRoot, file)
+		if err != nil {
+			t.Fatalf("relative grep result path %s: %v", file, err)
+		}
+		got[filepath.ToSlash(rel)] = true
+	}
+	for _, want := range wants {
+		if !got[want] {
+			t.Fatalf("grep paths = %#v, missing %s", got, want)
+		}
+	}
+	if got[unwanted] {
+		t.Fatalf("grep paths = %#v, searched path outside requested scopes", got)
+	}
+}
+
 func callGrepTool(t *testing.T, root string, input grepToolInput) (any, error) {
+	t.Helper()
+	return callGrepToolRaw(t, root, input)
+}
+
+func callGrepToolRaw(t *testing.T, root string, input any) (any, error) {
 	t.Helper()
 	handler := NewGrepHandler(Config{WorkspaceRoot: root})
 	payload, err := json.Marshal(input)

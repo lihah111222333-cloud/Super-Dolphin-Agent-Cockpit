@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import { isCancelledError, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Workflow } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
-import { applyDagOps, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, readSharedFile, startDag, startThread, startTurn, terminateDagRun } from '../../shared/api/backendApi.js';
+import { applyDagOps, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, openSharedFile, readSharedFile, startDag, startThread, terminateDagRun } from '../../shared/api/backendApi.js';
 import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.jsx';
 
@@ -35,18 +35,6 @@ const DAG_CATEGORIES = Object.freeze([
   { key: 'scheduled', label: '定时任务' },
   { key: 'history', label: '历史记录' },
 ]);
-
-const DOUYIN_DAILY_VIDEO_TEMPLATE_PROMPT = `请把自动化模块更新为“每天早上 5 点生成 1 条抖音爆款候选视频”的 DAG。
-
-目标：
-- dag_key 使用 daily_workplace_mentor_douyin_video。
-- 如运行时已有旧 DAG daily_workplace_mentor_douyin_videos，请优先读取并更新为新需求；如果 key 不能改，再创建新 DAG 并提示用户清理旧 DAG。
-- 每天 05:00 Asia/Shanghai 运行；cron_expr = \`CRON_TZ=Asia/Shanghai 0 5 * * *\`，不要换算成 UTC 裸 cron。
-- 每次只生成 1 条“职场导师型”抖音爆款候选视频方案，不自动发布。
-- 输出完整 Markdown 到 sharedfile：dag/douyin/workplace/YYYY-MM-DD-video.md，最终 DAG run 只返回小 JSON 引用。
-- 不写“必爆”，只写“爆款候选/爆款潜力”；没有可验证来源时 blocked=true，不要编造热点。
-
-请按 prompt_template-first DAG 流程执行：先用 prompt_list 核对 source_monitor 和 topic_curator，再用 task_create_dag / task_get_dag / task_dag_apply_ops 创建或更新 DAG，并展示最终节点列表、依赖和 cron。`;
 
 const STARTABLE_DAG_STATUSES = new Set(['draft', 'ready']);
 
@@ -1394,7 +1382,7 @@ function useDispatchDagNodeAction({ actionState, derived, list, notices, refresh
 }
 
 function useStartDesignFlowAction({ actionState, notices, store, workflowCwd }) {
-  return useCallback(async (seedPrompt = '') => {
+  return useCallback(async () => {
     if (!workflowCwd) return;
     actionState.setActioning('design');
     actionState.setError('');
@@ -1403,12 +1391,8 @@ function useStartDesignFlowAction({ actionState, notices, store, workflowCwd }) 
       if (typeof store?.resolveLaunchPreferences !== 'function') throw new Error('自动化启动配置不可用');
       const launchPreferences = await store.resolveLaunchPreferences(workflowCwd);
       const { config: launchConfig = {}, ...launchPayload } = launchPreferences || {};
-      const response = await withWorkflowActionTimeout(startThread(workflowDesignThreadPayload(workflowCwd, launchConfig, launchPayload, seedPrompt)));
+      const response = await withWorkflowActionTimeout(startThread(workflowDesignThreadPayload(workflowCwd, launchConfig, launchPayload)));
       const threadId = threadIdFromStartResponse(response);
-      if (seedPrompt) {
-        if (!threadId) throw new Error('自动化设计线程缺少 threadId');
-        await withWorkflowActionTimeout(startTurn({ cwd: workflowCwd, threadId, input: seedPrompt }));
-      }
       if (threadId && typeof store?.setActiveThread === 'function') await store.setActiveThread(threadId);
       if (typeof store?.setActivePage === 'function') store.setActivePage('chat');
     } catch (err) {
@@ -1419,12 +1403,12 @@ function useStartDesignFlowAction({ actionState, notices, store, workflowCwd }) 
   }, [actionState, notices, store, workflowCwd]);
 }
 
-function workflowDesignThreadPayload(cwd, launchConfig, launchPayload, seedPrompt = '') {
+function workflowDesignThreadPayload(cwd, launchConfig, launchPayload) {
   return {
     cwd,
     ...launchPayload,
     provider: textValue(launchPayload.provider || launchPayload.modelProvider),
-    name: seedPrompt ? '抖音 5 点视频自动化' : 'AI 设计流程',
+    name: 'AI 设计流程',
     agentKey: 'dag_designer',
     promptKey: 'main/dag_designer_zh',
     deferSpawn: true,
@@ -1451,14 +1435,9 @@ function WorkflowHeader({ model }) {
       title="自动化"
       subtitle={workflowCwd ? '当前项目：' + workflowCwd : '正在连接本地项目...'}
       actions={(
-        <>
-          <button type="button" onClick={() => { void actions.startDesignFlow(DOUYIN_DAILY_VIDEO_TEMPLATE_PROMPT); }} disabled={isProjectPending || actionState.actioning === 'design'}>
-            抖音 5 点模板
-          </button>
-          <button type="button" onClick={() => { void actions.startDesignFlow(); }} disabled={isProjectPending || actionState.actioning === 'design'}>
-            {actionState.actioning === 'design' ? '启动中...' : 'AI 设计流程'}
-          </button>
-        </>
+        <button type="button" onClick={() => { void actions.startDesignFlow(); }} disabled={isProjectPending || actionState.actioning === 'design'}>
+          {actionState.actioning === 'design' ? '启动中...' : 'AI 设计流程'}
+        </button>
       )}
     />
   );
@@ -1631,15 +1610,19 @@ function formatWorkflowFileContent(content) {
 function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd }) {
   const [fileContent, setFileContent] = useState('');
   const [fileError, setFileError] = useState('');
+  const [openError, setOpenError] = useState('');
+  const [opening, setOpening] = useState(false);
   const [reading, setReading] = useState(false);
   const outputPath = finalOutputPath(finalOutput);
 
   const isImage = useMemo(() => /\.(png|jpe?g|webp|gif|svg)$/i.test(outputPath || ''), [outputPath]);
   const isVideo = useMemo(() => /\.(mp4|webm|ogg|mov)$/i.test(outputPath || ''), [outputPath]);
   const isMedia = isImage || isVideo;
+  const mediaKindLabel = isVideo ? '视频' : '图片';
 
   const readFinalOutput = async () => {
     if (!outputPath) return;
+    setOpenError('');
     if (fileContent) {
       setFileContent('');
       return;
@@ -1661,6 +1644,21 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd }) {
       setReading(false);
     }
   };
+  const openFinalOutput = async () => {
+    if (!outputPath) return;
+    setOpening(true);
+    setOpenError('');
+    try {
+      await openSharedFile({ path: outputPath });
+    }
+    catch (err) {
+      setOpenError(`打开最终结果文件失败：${err?.message || String(err)}`);
+    }
+    finally {
+      setOpening(false);
+    }
+  };
+
   const formattedContent = useMemo(() => {
     return formatWorkflowFileContent(fileContent);
   }, [fileContent]);
@@ -1704,21 +1702,39 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd }) {
           <div className="workflow-file-row">
             <span>{finalOutputKind(finalOutput) || '文件'}</span>
             <code>{outputPath}</code>
-            <button type="button" className="btn-primary" disabled={reading} onClick={() => { void readFinalOutput(); }}>
-              {reading ? '读取中...' : (() => {
-                if (fileContent) {
-                  if (isImage) return '收起图片';
-                  if (isVideo) return '收起视频';
-                  return '收起最终结果';
-                } else {
-                  if (isImage) return '预览图片';
-                  if (isVideo) return '播放视频';
+            <div className="workflow-output-actions" aria-label="最终结果操作">
+              <button
+                type="button"
+                className="workflow-output-action workflow-output-action-preview"
+                disabled={reading}
+                onClick={() => { void readFinalOutput(); }}
+                title={isMedia ? `在当前页面内预览${mediaKindLabel}` : '读取最终结果内容'}
+              >
+                {reading ? '读取中...' : (() => {
+                  if (fileContent) {
+                    if (isMedia) return '收起预览';
+                    return '收起最终结果';
+                  }
+                  if (isVideo) return '页内播放';
+                  if (isImage) return '页内预览';
                   return '读取最终结果';
-                }
-              })()}
-            </button>
+                })()}
+              </button>
+              {isMedia ? (
+                <button
+                  type="button"
+                  className="workflow-output-action workflow-output-action-system"
+                  disabled={opening}
+                  onClick={() => { void openFinalOutput(); }}
+                  title={`用系统默认应用打开${mediaKindLabel}`}
+                >
+                  {opening ? '打开中...' : '系统打开'}
+                </button>
+              ) : null}
+            </div>
           </div>
           {fileError ? <p className="danger-text">{fileError}</p> : null}
+          {openError ? <p className="danger-text">{openError}</p> : null}
           {previewBlock}
           {fileContent === '__MEDIA_PREVIEW__' ? (
             <p className="workflow-media-tip">提示：如果浏览器环境限制无法直接播放/预览本地媒体文件，请在「文件产物」页导出查看。</p>
@@ -1878,14 +1894,19 @@ function WorkflowNodeRow({ node, store }) {
     <article className="dag-node-row">
       <strong>{node.title}</strong>
       <em>{dagStatusLabel(node.status)}</em>
-      {node.threadId ? <button type="button" onClick={() => openWorkflowNodeThread(store, node.threadId)}>查看对话</button> : null}
+      {node.threadId ? <button type="button" onClick={() => openWorkflowNodeThread(store, node)}>查看对话</button> : null}
     </article>
   );
 }
 
-function openWorkflowNodeThread(store, threadId) {
-  void store?.setActiveThread?.(threadId);
-  store?.setActivePage?.('chat');
+function openWorkflowNodeThread(store, nodeOrThreadId) {
+  if (typeof store?.openThreadById !== 'function') return;
+  const node = nodeOrThreadId && typeof nodeOrThreadId === 'object' ? nodeOrThreadId : null;
+  const threadId = node ? node.threadId : nodeOrThreadId;
+  const dagNode = node ? { ...node, result: node.raw?.result ?? node.result } : null;
+  void store.openThreadById(threadId, { source: 'dag-node', ...(dagNode ? { dagNode } : {}) }).then((opened) => {
+    if (opened) store?.setActivePage?.('chat');
+  });
 }
 
 function WorkflowAdvanced({ model }) {

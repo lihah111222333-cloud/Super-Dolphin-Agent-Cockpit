@@ -158,11 +158,6 @@ const TOKEN_COLOR_RULES = [
   ['.diff-line--hunk', ['color', 'background']],
   ['.diff-line--added', ['color', 'background']],
   ['.diff-line--deleted', ['color', 'background']],
-  ['.work-status', ['border', 'background', 'color']],
-  ['.work-status--done', ['border-color']],
-  ['.work-status--warning', ['border-color']],
-  ['.work-status--error', ['border-color']],
-  ['.work-status code', ['border', 'background', 'color']],
   ['.composer-card', ['background']],
   ['.composer--floating .composer-card', ['border-color', 'background']],
   ['.composer textarea:focus', ['border-color']],
@@ -380,19 +375,6 @@ describe('composer layout styles', () => {
     expect(time['justify-self']).toBe('end');
     expect(time['font-variant-numeric']).toBe('tabular-nums');
     expect(time['white-space']).toBe('nowrap');
-  });
-
-  it('keeps the chat token usage chip inside the work status bar', () => {
-    const status = declarationsFor('.work-status');
-    const chip = declarationsFor('.work-status code');
-
-    expect(status.display).toBe('grid');
-    expect(status['grid-template-columns']).toBe('auto auto minmax(0, 1fr) minmax(0, max-content)');
-    expect(chip['min-width']).toBe('0');
-    expect(chip['max-width']).toBe('100%');
-    expect(chip.overflow).toBe('hidden');
-    expect(chip['text-overflow']).toBe('ellipsis');
-    expect(chip['white-space']).toBe('nowrap');
   });
 
   it('keeps runtime panel details shrink-safe inside the right rail', () => {
@@ -710,7 +692,6 @@ describe('conversation grid styles', () => {
     const timeline = declarationsFor('.timeline');
     const message = declarationsFor('.message');
     const bubble = declarationsFor('.bubble');
-    const status = declarationsFor('.work-status');
     const composer = declarationsFor('.composer');
 
     expect(conversation['min-width']).toBe('0');
@@ -725,38 +706,20 @@ describe('conversation grid styles', () => {
     expect(message['min-width']).toBe('0');
     expect(bubble['min-width']).toBe('0');
     expect(bubble['max-width']).toBe('100%');
-    expect(status['min-width']).toBe('0');
-    expect(status['max-width']).toBe('var(--conversation-content-width)');
     expect(composer['min-width']).toBe('0');
     expect(composer['max-width']).toBe('100%');
-  });
-
-  it('keeps the work-status token chip from being squeezed by long status text', () => {
-    const status = declarationsFor('.work-status');
-    const detail = declarationsFor('.work-status em');
-    const token = declarationsFor('.work-status code');
-
-    expect(status['grid-template-columns']).toBe('auto auto minmax(0, 1fr) minmax(0, max-content)');
-    expect(detail['min-width']).toBe('0');
-    expect(detail.overflow).toBe('hidden');
-    expect(token['justify-self']).toBe('end');
-    expect(token['min-width']).toBe('0');
-    expect(token['max-width']).toBe('100%');
-    expect(token['white-space']).toBe('nowrap');
-    expect(token.overflow).toBe('hidden');
-    expect(token['text-overflow']).toBe('ellipsis');
   });
 });
 
 describe('conversation content column styles', () => {
-  it('keeps timeline messages, status, and docked composer in one left-biased content column', () => {
+  it('keeps timeline messages left-biased while the docked composer fills the footer frame', () => {
     const conversation = declarationsFor('.conversation');
     const timeline = declarationsFor('.timeline');
     const message = declarationsFor('.message');
     const userMessage = declarationsFor('.message.user');
     const userBubble = declarationsFor('.message.user .bubble');
-    const status = declarationsFor('.work-status');
-    const composerCard = declarationsFor('.composer-card');
+    const dockedComposer = declarationsFor('.composer.composer--docked');
+    const dockedComposerCard = declarationsFor('.composer--docked .composer-card');
     const scrollButton = declarationsFor('.chat-scroll-bottom-btn');
 
     expect(conversation['--conversation-content-width']).toBe('min(1040px, calc(100% - 56px))');
@@ -778,14 +741,13 @@ describe('conversation content column styles', () => {
     expect(userMessage['margin-left']).toBeUndefined();
     expect(userMessage.width).toBe('var(--conversation-content-width)');
     expect(userBubble['margin-left']).toBe('auto');
-    expect(status.width).toBe('var(--conversation-content-width)');
-    expect(status['max-width']).toBe('var(--conversation-content-width)');
-    expect(status['justify-self']).toBe('start');
-    expect(status['margin-left']).toBe('var(--conversation-content-left-gutter)');
-    expect(composerCard.width).toBe('var(--conversation-content-width)');
-    expect(composerCard.margin).toBe(
-      '0 var(--conversation-content-right-gutter) 0 var(--conversation-content-left-gutter)',
-    );
+    expect(dockedComposer.padding).toBe('0');
+    expect(dockedComposerCard.width).toBe('100%');
+    expect(dockedComposerCard['max-width']).toBe('100%');
+    expect(dockedComposerCard.margin).toBe('0');
+    expect(dockedComposerCard.border).toBe('0');
+    expect(dockedComposerCard['border-radius']).toBe('0');
+    expect(dockedComposerCard['box-shadow']).toBe('none');
     expect(scrollButton.position).toBe('absolute');
     expect(scrollButton.right).toBe('max(18px, var(--conversation-content-right-gutter))');
     expect(scrollButton.bottom).toBe('18px');
@@ -1236,6 +1198,29 @@ describe('blue-purple theme contract', () => {
     expect(primaryDisabled.background).toBe('var(--surface-3)');
     expect(primaryDisabled.color).toBe('var(--text-muted)');
     expect(secondary.background).toBe('transparent');
+  });
+
+  it('keeps workflow final-output media actions theme-token driven', () => {
+    const group = declarationsFor('.workflow-output-actions');
+    const action = declarationsFor('.workflow-page .workflow-output-action');
+    const preview = declarationsFor('.workflow-page .workflow-output-action-preview');
+    const previewHover = declarationsFor('.workflow-page .workflow-output-action-preview:hover');
+    const system = declarationsFor('.workflow-page .workflow-output-action-system');
+    const systemHover = declarationsFor('.workflow-page .workflow-output-action-system:hover');
+    const disabled = declarationsFor('.workflow-page .workflow-output-action:disabled');
+
+    expect(group.background).toContain('var(--surface-2)');
+    expect(group.background).toContain('var(--bg)');
+    expect(action.background).toBe('transparent');
+    expect(action.color).toBe('var(--text-pri)');
+    expect(preview.background).toBe('var(--primary-action-bg)');
+    expect(preview.color).toBe('var(--primary-action-text)');
+    expect(previewHover.background).toBe('var(--primary-action-bg-hover)');
+    expect(system.background).toBe('transparent');
+    expect(system.color).toBe('var(--text-pri)');
+    expect(systemHover.background).toContain('var(--surface-3)');
+    expect(disabled.background).toBe('var(--surface-3)');
+    expect(disabled.color).toBe('var(--text-muted)');
   });
 });
 
