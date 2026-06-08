@@ -41,6 +41,14 @@ type GoRootInfo struct {
 	ModuleRoots   []string
 	GOWORKMode    string
 	ProjectRoot   string
+	GoToolchain   GoToolchainInfo
+}
+
+type GoToolchainInfo struct {
+	RequiredVersion string
+	BinDir          string
+	PathEnv         string
+	ForceLocal      bool
 }
 
 type goWorkspaceKeyParts struct {
@@ -60,16 +68,18 @@ func ResolveGoRoot(req GoRootRequest) (GoRootInfo, error) {
 	env := goRootRequestEnv(req)
 	noiseDirNames := resolvedGoNoiseDirNames(req.NoiseDirNames)
 	if info, handled, err := resolveGoRootFromGOWORK(target, projectRoot, env, noiseDirNames); handled || err != nil {
-		return info, err
+		return withGoToolchain(info, env, err)
 	}
 	goWorkPath, err := findGoWorkPath(target)
 	if err != nil {
 		return GoRootInfo{}, err
 	}
 	if goWorkPath != "" {
-		return resolveGoWorkRoot(target, projectRoot, goWorkPath, goworkModeAuto)
+		info, err := resolveGoWorkRoot(target, projectRoot, goWorkPath, goworkModeAuto)
+		return withGoToolchain(info, env, err)
 	}
-	return resolveGoRootWithoutGoWork(target, projectRoot, goworkModeAuto, noiseDirNames)
+	info, err := resolveGoRootWithoutGoWork(target, projectRoot, goworkModeAuto, noiseDirNames)
+	return withGoToolchain(info, env, err)
 }
 
 func resolveGoRootRequestPaths(req GoRootRequest) (string, string, error) {
@@ -428,15 +438,25 @@ func cleanSortedUniquePaths(paths []string) []string {
 }
 
 func goRootEnv(root GoRootInfo) []string {
+	env := make([]string, 0, 3)
 	switch root.GOWORKMode {
 	case goworkModeOff:
-		return []string{"GOWORK=off"}
+		env = append(env, "GOWORK=off")
 	case goworkModeAuto, goworkModeExplicit:
 		if root.GoWorkPath != "" {
-			return []string{"GOWORK=" + root.GoWorkPath}
+			env = append(env, "GOWORK="+root.GoWorkPath)
 		}
 	}
-	return nil
+	if root.GoToolchain.PathEnv != "" {
+		env = append(env, "PATH="+root.GoToolchain.PathEnv)
+	}
+	if root.GoToolchain.ForceLocal {
+		env = append(env, "GOTOOLCHAIN=local")
+	}
+	if len(env) == 0 {
+		return nil
+	}
+	return env
 }
 
 func goWorkspaceKey(root GoRootInfo) string {
@@ -471,7 +491,7 @@ func goWorkspaceKeyPartsFor(root GoRootInfo) goWorkspaceKeyParts {
 }
 
 func goLanguageSpecific(root GoRootInfo) map[string]string {
-	return map[string]string{
+	specific := map[string]string{
 		"goModPath":            root.GoModPath,
 		"goWorkPath":           root.GoWorkPath,
 		"goworkMode":           root.GOWORKMode,
@@ -479,6 +499,12 @@ func goLanguageSpecific(root GoRootInfo) map[string]string {
 		"moduleRootsHash":      hashStringList(cleanSortedUniquePaths(root.ModuleRoots)),
 		"workspaceFoldersHash": hashWorkspaceFolders(workspaceFolders(root)),
 	}
+	if root.GoToolchain.PathEnv != "" {
+		specific["goToolchainBinDir"] = root.GoToolchain.BinDir
+		specific["goToolchainPathEnv"] = root.GoToolchain.PathEnv
+		specific["goToolchainRequired"] = root.GoToolchain.RequiredVersion
+	}
+	return specific
 }
 
 func formatLanguageSpecific(values map[string]string) string {
