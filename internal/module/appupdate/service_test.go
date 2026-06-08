@@ -40,6 +40,29 @@ func TestProvideConfigRequiresHTTPSManifestWithHost(t *testing.T) {
 	}
 }
 
+func TestProvideConfigAcceptsGitHubRepoWithoutLegacyManifestURL(t *testing.T) {
+	publicKey, _ := testManifestKeypair(t)
+	t.Setenv(envUpdateEnabled, "1")
+	t.Setenv(envUpdateGitHubRepo, "xiaoxiaotest9527-bit/-")
+	t.Setenv(envUpdatePublicKey, base64.StdEncoding.EncodeToString(publicKey))
+	t.Setenv(envUpdateStageDir, t.TempDir())
+	t.Setenv(envUpdateHelperPath, "/bin/echo")
+	t.Setenv(envUpdateTargetApp, "/Applications/Super Dolphin.app")
+	t.Setenv(envUpdatePlatform, "darwin-arm64")
+	t.Setenv(envVersion, "1.0.0")
+
+	cfg, err := ProvideConfig(&platformconfig.Config{})
+	if err != nil {
+		t.Fatalf("ProvideConfig() error = %v", err)
+	}
+	if cfg.GitHubRepo != "xiaoxiaotest9527-bit/-" {
+		t.Fatalf("GitHubRepo = %q, want configured repo", cfg.GitHubRepo)
+	}
+	if cfg.ManifestURL != "" {
+		t.Fatalf("ManifestURL = %q, want empty legacy manifest URL", cfg.ManifestURL)
+	}
+}
+
 func TestProvideConfigReadsCurrentVersionFromInfoPlist(t *testing.T) {
 	publicKey, _ := testManifestKeypair(t)
 	targetApp := filepath.Join(t.TempDir(), "Super Dolphin.app")
@@ -270,6 +293,43 @@ func TestInstallPassesAllowUnsignedToHelper(t *testing.T) {
 	}
 }
 
+func TestInstallStartsWindowsInstallerWithSilentFlag(t *testing.T) {
+	stageDir := t.TempDir()
+	argsPath := filepath.Join(stageDir, "installer.args")
+	installer := writeArgsHelperScriptWithName(t, argsPath, "Super-Dolphin-windows-amd64.exe")
+	quitCalled := false
+	svc := newService(Config{
+		Enabled:  true,
+		StageDir: stageDir,
+		Platform: "windows-amd64",
+	}, nil, func() {
+		quitCalled = true
+	})
+	writeSelectedInstallFixtureForPlatform(t, svc, "windows-amd64", installer)
+
+	result, err := svc.Install(context.Background())
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	if !result.Started {
+		t.Fatalf("Install() Started = false, want true")
+	}
+	waitForFile(t, argsPath)
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("ReadFile(argsPath) error = %v", err)
+	}
+	if strings.TrimSpace(string(args)) != "/S" {
+		t.Fatalf("installer args = %q, want /S", string(args))
+	}
+	if result.Helper != installer {
+		t.Fatalf("Install() Helper = %q, want installer path", result.Helper)
+	}
+	if !quitCalled {
+		t.Fatal("RequestQuit was not called")
+	}
+}
+
 func testServiceConfig(publicKey []byte, stageDir, currentVersion string) Config {
 	return Config{
 		Enabled:        true,
@@ -345,7 +405,12 @@ func writeHelperScript(t *testing.T, marker string, sleep time.Duration) string 
 
 func writeArgsHelperScript(t *testing.T, argsPath string) string {
 	t.Helper()
-	helper := filepath.Join(t.TempDir(), "helper-args.sh")
+	return writeArgsHelperScriptWithName(t, argsPath, "helper-args.sh")
+}
+
+func writeArgsHelperScriptWithName(t *testing.T, argsPath, name string) string {
+	t.Helper()
+	helper := filepath.Join(t.TempDir(), name)
 	body := "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" > " + shellQuote(argsPath) + "\n"
 	if err := os.WriteFile(helper, []byte(body), 0o755); err != nil {
 		t.Fatalf("WriteFile(helper) error = %v", err)
@@ -363,22 +428,38 @@ func shellQuote(value string) string {
 
 func writeSelectedInstallFixture(t *testing.T, svc *service) {
 	t.Helper()
+	dmgPath := filepath.Join(svc.cfg.StageDir, "fixture.dmg")
+	writeSelectedInstallFixtureForPlatform(t, svc, "darwin-arm64", dmgPath)
+}
+
+func writeSelectedInstallFixtureForPlatform(t *testing.T, svc *service, platform, artifactPath string) {
+	t.Helper()
 	if err := os.MkdirAll(svc.cfg.StageDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll(StageDir) error = %v", err)
 	}
-	dmgPath := filepath.Join(svc.cfg.StageDir, "fixture.dmg")
-	if err := os.WriteFile(dmgPath, []byte("dmg"), 0o600); err != nil {
-		t.Fatalf("WriteFile(dmg) error = %v", err)
+	if _, err := os.Stat(artifactPath); err != nil {
+		if err := os.WriteFile(artifactPath, []byte("dmg"), 0o700); err != nil {
+			t.Fatalf("WriteFile(artifact) error = %v", err)
+		}
+	}
+	artifactBytes, err := os.ReadFile(artifactPath)
+	if err != nil {
+		t.Fatalf("ReadFile(artifact) error = %v", err)
+	}
+	artifactURL := "https://updates.example.com/Super-Dolphin-1.2.3-arm64.dmg"
+	if platform == "windows-amd64" {
+		artifactURL = "https://github.com/xiaoxiaotest9527-bit/-/releases/download/v1.2.3/Super-Dolphin-windows-amd64.exe"
 	}
 	staged := selectedUpdate{
 		Payload: testManifestPayload(),
 		Artifact: UpdateArtifact{
-			Platform: "darwin-arm64",
-			URL:      "https://updates.example.com/Super-Dolphin-1.2.3-arm64.dmg",
-			SHA256:   sha256Hex([]byte("dmg")),
-			Size:     3,
+			Platform: platform,
+			URL:      artifactURL,
+			SHA256:   sha256Hex(artifactBytes),
+			Size:     int64(len(artifactBytes)),
 		},
-		DMGPath:      dmgPath,
+		DMGPath:      artifactPath,
+		ArtifactPath: artifactPath,
 		DownloadedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	if err := writeSelectedUpdate(svc.stagedManifestPath(), staged); err != nil {
