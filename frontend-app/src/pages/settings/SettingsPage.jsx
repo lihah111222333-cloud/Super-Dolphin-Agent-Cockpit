@@ -273,8 +273,13 @@ function pathsFromTextarea(value) {
 function absolutePathsError(value) {
   const paths = pathsFromTextarea(value);
   if (paths.length === 0) return '请至少填写一个绝对路径';
-  const bad = paths.filter((root) => !root.startsWith('/'));
-  return bad.length > 0 ? `路径必须以 / 开头：${bad.join(', ')}` : '';
+  const bad = paths.filter((root) => !isAbsoluteRootPath(root));
+  return bad.length > 0 ? `路径必须是绝对路径：${bad.join(', ')}` : '';
+}
+
+function isAbsoluteRootPath(value) {
+  const root = (value || '').toString().trim();
+  return root.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(root) || /^\\\\[^\\]+\\[^\\]+/.test(root);
 }
 
 function sandboxPreferenceValue(policy, writableRootsText, networkAccess, readOnlyMode, readableRootsText) {

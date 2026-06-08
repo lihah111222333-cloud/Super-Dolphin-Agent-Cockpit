@@ -115,6 +115,49 @@ func TestResolveRuntimeExplicitLinuxPackageRootValidManifestResolvesPackaged(t *
 	}
 }
 
+func TestResolveRuntimeWindowsPackageRootValidManifestResolvesPackaged(t *testing.T) {
+	root := t.TempDir()
+	writeWindowsPackagedRuntimeFixture(t, root, "windows-amd64")
+
+	got, err := ResolveRuntime(RuntimeResolveInput{
+		GOOS:     "windows",
+		GOARCH:   "amd64",
+		Env:      map[string]string{processRoleEnv: string(ProcessRoleOwner), packageRootEnv: root},
+		UserHome: `C:\Users\alice`,
+	})
+	if err != nil {
+		t.Fatalf("ResolveRuntime() error = %v", err)
+	}
+	if got.RuntimeMode != RuntimeModePackaged {
+		t.Fatalf("ResolveRuntime() mode = %q, want packaged", got.RuntimeMode)
+	}
+	if got.PackagedRuntime == nil || got.PackagedRuntime.ResourcesDir != root {
+		t.Fatalf("ResolveRuntime() packaged runtime = %#v, want root %q", got.PackagedRuntime, root)
+	}
+}
+
+func TestResolveRuntimeWindowsExecutableInPackageBinAutoDetectsPackagedRoot(t *testing.T) {
+	root := t.TempDir()
+	writeWindowsPackagedRuntimeFixture(t, root, "windows-amd64")
+
+	got, err := ResolveRuntime(RuntimeResolveInput{
+		GOOS:           "windows",
+		GOARCH:         "amd64",
+		Env:            map[string]string{processRoleEnv: string(ProcessRoleOwner)},
+		ExecutablePath: filepath.Join(root, "bin", "agent-terminal.exe"),
+		UserHome:       `C:\Users\alice`,
+	})
+	if err != nil {
+		t.Fatalf("ResolveRuntime() error = %v", err)
+	}
+	if got.RuntimeMode != RuntimeModePackaged {
+		t.Fatalf("ResolveRuntime() mode = %q, want packaged", got.RuntimeMode)
+	}
+	if got.PackagedRuntime == nil || got.PackagedRuntime.ResourcesDir != root {
+		t.Fatalf("ResolveRuntime() packaged runtime = %#v, want root %q", got.PackagedRuntime, root)
+	}
+}
+
 func TestResolveRuntimeRepoRootManifestDoesNotTriggerDevExecutablePackaged(t *testing.T) {
 	repo := t.TempDir()
 	writePackagedRuntimeFixture(t, repo, "linux-amd64")
@@ -231,6 +274,35 @@ func writePackagedRuntimeFixture(t *testing.T, resources, platform string) {
 	}
 	makeDirs(t, filepath.Join(resources, "postgres", platform, "bin"), filepath.Join(resources, "postgres", platform, "share"))
 	writeRuntimeManifestFixture(t, resources, platform)
+}
+
+func writeWindowsPackagedRuntimeFixture(t *testing.T, resources, platform string) {
+	t.Helper()
+	writeExecutable(t, filepath.Join(resources, "bin"), "mcp-orch.exe")
+	writeExecutable(t, filepath.Join(resources, "bin"), "mcp-lsp.exe")
+	writeExecutable(t, filepath.Join(resources, "bin"), "mcp-ida.exe")
+	writeExecutable(t, filepath.Join(resources, "bin"), "codex.exe")
+	writeExecutable(t, filepath.Join(resources, "bin"), "gopls.exe")
+	makeDirs(t, filepath.Join(resources, "lsp"))
+	if err := os.WriteFile(filepath.Join(resources, "lsp", "lsp-manifest.json"), []byte(`{"servers":{}}`+"\n"), 0o644); err != nil {
+		t.Fatalf("write lsp manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(resources, "models.yaml"), []byte("models: []\n"), 0o644); err != nil {
+		t.Fatalf("write models.yaml: %v", err)
+	}
+	makeDirs(t, filepath.Join(resources, "postgres", platform, "bin"), filepath.Join(resources, "postgres", platform, "share"))
+	manifest := `{
+  "bundled_codex_path": "bin/codex.exe",
+  "bundled_gopls_path": "bin/gopls.exe",
+  "lsp_bundle_path": "lsp",
+  "lsp_manifest_path": "lsp/lsp-manifest.json",
+  "model_registry_path": "models.yaml",
+  "embedded_postgres_resource_path": "postgres/` + platform + `"
+}
+`
+	if err := os.WriteFile(filepath.Join(resources, "runtime-manifest.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write runtime manifest: %v", err)
+	}
 }
 
 func writeRuntimeManifestFixture(t *testing.T, resources, platform string) {
