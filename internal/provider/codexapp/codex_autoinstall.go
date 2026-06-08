@@ -248,9 +248,9 @@ func validCodexCLI(ctx context.Context, path string) bool {
 	checkCtx, cancel := withTimeout(context.WithoutCancel(ctx), codexValidationTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(checkCtx, path, codexAppServerCommand, "--help")
+	setCodexProcessAttrs(cmd)
 	return cmd.Run() == nil
 }
-
 func codexManagedInstallRoot() (string, error) {
 	if root := strings.TrimSpace(os.Getenv(codexInstallRootEnv)); root != "" {
 		if !filepath.IsAbs(root) {
