@@ -76,6 +76,9 @@ func ResolveGoRoot(req GoRootRequest) (GoRootInfo, error) {
 	}
 	if goWorkPath != "" {
 		info, err := resolveGoWorkRoot(target, projectRoot, goWorkPath, goworkModeAuto)
+		if err == nil && !goWorkRootContainsTarget(info, target) {
+			info, err = resolveGoRootWithoutGoWork(target, projectRoot, goworkModeAuto, noiseDirNames)
+		}
 		return withGoToolchain(info, env, err)
 	}
 	info, err := resolveGoRootWithoutGoWork(target, projectRoot, goworkModeAuto, noiseDirNames)
@@ -132,7 +135,8 @@ func resolveGoRootFromGOWORK(target, projectRoot string, env []string, noiseDirN
 	}
 	info, err := resolveGoWorkRoot(target, projectRoot, goWorkPath, goworkModeExplicit)
 	if err == nil && !goWorkRootContainsTarget(info, target) {
-		err = fmt.Errorf("GOWORK path %s does not contain target %s", goWorkPath, target)
+		// Ambient GOWORK can point at another worktree's go.work; let target-local discovery decide.
+		return GoRootInfo{}, false, nil
 	}
 	return info, true, err
 }
@@ -224,7 +228,7 @@ func goWorkRootContainsTarget(info GoRootInfo, target string) bool {
 	if strings.TrimSpace(target) == "" {
 		return true
 	}
-	if info.WorkspaceRoot != "" && pathWithinRoot(target, info.WorkspaceRoot) {
+	if goWorkRootContainsSpecialTarget(info, target) {
 		return true
 	}
 	for _, moduleRoot := range info.ModuleRoots {
@@ -233,6 +237,15 @@ func goWorkRootContainsTarget(info GoRootInfo, target string) bool {
 		}
 	}
 	return false
+}
+
+func goWorkRootContainsSpecialTarget(info GoRootInfo, target string) bool {
+	normalized, err := platformshared.NormalizeAbsolutePath(target)
+	if err != nil || normalized == "" {
+		return false
+	}
+	return (info.GoWorkPath != "" && normalized == info.GoWorkPath) ||
+		(info.WorkspaceRoot != "" && normalized == info.WorkspaceRoot)
 }
 
 func findGoModPath(path string) (string, error) {
