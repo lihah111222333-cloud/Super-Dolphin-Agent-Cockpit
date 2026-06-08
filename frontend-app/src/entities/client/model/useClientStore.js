@@ -2657,6 +2657,21 @@ async function deleteProvisionalThreadAfterSendFailure(threadId, addWarning) {
   }
 }
 
+function isStoppedThreadTurnStartError(error) {
+  const message = normalizeString(error?.message || error?.cause?.message || String(error || '')).toLowerCase();
+  return message.includes('resolve session: thread') && message.includes(' is stopped');
+}
+
+async function startTurnWithStoppedThreadRecovery(params) {
+  try {
+    return await startTurn(params);
+  } catch (error) {
+    if (!isStoppedThreadTurnStartError(error)) throw error;
+    await recoverThread({ cwd: params.cwd, threadId: params.threadId });
+    return startTurn(params);
+  }
+}
+
 function hasComposerConfigKey(config, key) {
   return Object.prototype.hasOwnProperty.call(config, key);
 }
@@ -5122,7 +5137,7 @@ function createComposerSendActions(runtime) {
           runtime.set((state) => promotedDraftThreadState(state, request, started));
         }
 
-        await startTurn({
+        await startTurnWithStoppedThreadRecovery({
           cwd,
           threadId,
           input: request.input,
