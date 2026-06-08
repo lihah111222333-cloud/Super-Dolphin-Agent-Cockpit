@@ -16,9 +16,8 @@ import (
 	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 )
 
-// TODO(P7): event-driven auto-match. The current skills/match/preview RPC
-// is the only trigger; we still need a thread.Started subscriber that
-// performs auto-match + binds the result onto the session at runtime.
+// Skill matching currently runs on demand through skills/match/preview; runtime
+// session binding waits for the provider context to expose the required state.
 var Module = fx.Module("skill",
 	fx.Provide(
 		fx.Annotate(

@@ -386,7 +386,10 @@ func (p *historyTestSessionProvider) GetSession(agentID string) (contract.Sessio
 	return nil, contract.ErrSessionNotFound
 }
 
-func (p *historyTestSessionProvider) RemoveSession(string) {}
+func (p *historyTestSessionProvider) RemoveSession(sessionID string) {
+	_ = p
+	_ = sessionID
+}
 
 type historyTestThreadStore struct {
 	threads  map[string]threadstore.Thread

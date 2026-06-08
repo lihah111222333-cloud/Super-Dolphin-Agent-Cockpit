@@ -41,7 +41,7 @@ type stubWorkspaceRows struct {
 	err  error
 }
 
-func (r *stubWorkspaceRows) Close() {}
+func (r *stubWorkspaceRows) Close() { _ = r }
 
 func (r *stubWorkspaceRows) Err() error { return r.err }
 

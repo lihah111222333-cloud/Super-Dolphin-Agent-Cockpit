@@ -598,9 +598,8 @@ func (d *driver) reportRuntime(agentID string) {
 	ctx, cancel := platformconfig.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	// TODO: Prefer a provider-reported control/runtime port once the Codex App
-	// protocol exposes one explicitly; for now we fall back to the configured
-	// app-server endpoint port after session startup succeeds.
+	// Runtime reports use the configured app-server endpoint port until the
+	// Codex App protocol exposes a provider-reported control/runtime port.
 	if err := d.reporter.ReportRuntime(ctx, contract.RuntimeReport{
 		AgentID:  agentID,
 		Port:     parsePortFromURL(d.serverURL),

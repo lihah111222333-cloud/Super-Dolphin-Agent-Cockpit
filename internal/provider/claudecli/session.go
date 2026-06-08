@@ -410,7 +410,7 @@ func isProxyManifest(m dto.MCPManifest) bool {
 	}
 	for _, bin := range m.Binaries {
 		if bin.Type == "http" && strings.Contains(bin.URL, "/mcp/") {
-			// Proxy URLs append the agent ID: http://host:port/mcp/family/agent_xxx (len >= 6)
+			// Proxy URLs append the agent ID, e.g. http://host:port/mcp/family/agent-123 (len >= 6).
 			// Peer URLs end at /mcp: http://host:port/mcp (len = 4)
 			parts := strings.Split(strings.TrimRight(bin.URL, "/"), "/")
 			if len(parts) >= 6 {

@@ -289,7 +289,7 @@ func (*ailogQueryCaptureDB) QueryRow(context.Context, string, ...interface{}) pg
 
 type ailogEmptyRows struct{}
 
-func (*ailogEmptyRows) Close() {}
+func (r *ailogEmptyRows) Close() { _ = r }
 
 func (*ailogEmptyRows) Err() error { return nil }
 

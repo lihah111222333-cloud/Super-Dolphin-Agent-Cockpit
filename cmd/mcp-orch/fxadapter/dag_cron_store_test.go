@@ -56,7 +56,7 @@ func (r errScheduleRow) Scan(...any) error { return r.err }
 
 type emptyScheduleRows struct{}
 
-func (*emptyScheduleRows) Close()                                       {}
+func (r *emptyScheduleRows) Close()                                     { _ = r }
 func (*emptyScheduleRows) Err() error                                   { return nil }
 func (*emptyScheduleRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
 func (*emptyScheduleRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
