@@ -18,12 +18,15 @@ var testNativeTools = []contract.NativeToolDescriptor{
 	{ID: "shell", Label: "执行命令", Description: "Codex shell", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
 }
 
-var testNativeToolIndex = buildNativeToolIndex(testNativeTools)
+func testNativeToolIndex() map[string]contract.NativeToolDescriptor {
+	return buildNativeToolIndex(testNativeTools)
+}
 
 func TestBuiltinToolsReadReturnsDefaultsWhenNoPreferenceStored(t *testing.T) {
 	t.Parallel()
 	prefs := &uiPreferenceStoreStub{}
-	res, err := readBuiltinTools(context.Background(), prefs, nil, testNativeTools, testNativeToolIndex, "/repo")
+	toolIndex := testNativeToolIndex()
+	res, err := readBuiltinTools(context.Background(), prefs, nil, testNativeTools, toolIndex, "/repo")
 	if err != nil {
 		t.Fatalf("readBuiltinTools error = %v", err)
 	}
@@ -31,7 +34,7 @@ func TestBuiltinToolsReadReturnsDefaultsWhenNoPreferenceStored(t *testing.T) {
 		t.Fatalf("tools length = %d, want %d", len(res.Tools), len(testNativeTools))
 	}
 	for _, view := range res.Tools {
-		descriptor, ok := testNativeToolIndex[view.ID]
+		descriptor, ok := toolIndex[view.ID]
 		if !ok {
 			t.Fatalf("unknown tool id in response: %q", view.ID)
 		}
@@ -63,7 +66,7 @@ func TestBuiltinToolsWritePersistsDisabledAndReturnsCurrentView(t *testing.T) {
 	if webFetch == nil || webFetch.Enabled {
 		t.Fatalf("WebFetch disabled after write = %#v", webFetch)
 	}
-	got := ResolveDisabledBuiltinTools(context.Background(), prefs, "/repo", testNativeTools, testNativeToolIndex)
+	got := ResolveDisabledBuiltinTools(context.Background(), prefs, "/repo", testNativeTools, testNativeToolIndex())
 	want := []string{"Bash", "WebFetch", "Write", "shell"}
 	if !equalSortedStrings(got, want) {
 		t.Fatalf("ResolveDisabledBuiltinTools = %#v, want %#v", got, want)
@@ -111,7 +114,7 @@ func TestBuiltinToolsWriteRequiresPreferenceStore(t *testing.T) {
 
 func TestResolveDisabledBuiltinToolsFallsBackToDefaults(t *testing.T) {
 	t.Parallel()
-	got := ResolveDisabledBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex)
+	got := ResolveDisabledBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex())
 	want := []string{"Bash", "Read", "Write", "shell"}
 	if !equalSortedStrings(got, want) {
 		t.Fatalf("ResolveDisabledBuiltinTools(nil prefs) = %#v, want %#v", got, want)
@@ -123,7 +126,7 @@ func TestResolveDisabledBuiltinToolsHonorsExplicitEmptyOverride(t *testing.T) {
 	prefs := &uiPreferenceStoreStub{values: map[string]json.RawMessage{
 		preferenceStubKey("/repo", builtinToolsDisabledKey): json.RawMessage(`[]`),
 	}}
-	got := ResolveDisabledBuiltinTools(context.Background(), prefs, "/repo", testNativeTools, testNativeToolIndex)
+	got := ResolveDisabledBuiltinTools(context.Background(), prefs, "/repo", testNativeTools, testNativeToolIndex())
 	if len(got) != 0 {
 		t.Fatalf("ResolveDisabledBuiltinTools(explicit empty) = %#v, want empty", got)
 	}
@@ -134,7 +137,7 @@ func TestResolveDisabledBuiltinToolsMergesDefaultsForLegacyStoredSet(t *testing.
 	prefs := &uiPreferenceStoreStub{values: map[string]json.RawMessage{
 		preferenceStubKey("/repo", builtinToolsDisabledKey): json.RawMessage(`["shell"]`),
 	}}
-	got := ResolveDisabledBuiltinTools(context.Background(), prefs, "/repo", testNativeTools, testNativeToolIndex)
+	got := ResolveDisabledBuiltinTools(context.Background(), prefs, "/repo", testNativeTools, testNativeToolIndex())
 	want := []string{"Bash", "Read", "Write", "shell"}
 	if !equalSortedStrings(got, want) {
 		t.Fatalf("ResolveDisabledBuiltinTools(legacy prefs) = %#v, want %#v", got, want)
@@ -147,7 +150,7 @@ func TestResolveDisabledBuiltinToolsRespectsKnownEnabledDefaults(t *testing.T) {
 		preferenceStubKey("/repo", builtinToolsDisabledKey): json.RawMessage(`["shell"]`),
 		preferenceStubKey("/repo", builtinToolsKnownIDsKey): json.RawMessage(`["Bash","shell"]`),
 	}}
-	got := ResolveDisabledBuiltinTools(context.Background(), prefs, "/repo", testNativeTools, testNativeToolIndex)
+	got := ResolveDisabledBuiltinTools(context.Background(), prefs, "/repo", testNativeTools, testNativeToolIndex())
 	want := []string{"Read", "Write", "shell"}
 	if !equalSortedStrings(got, want) {
 		t.Fatalf("ResolveDisabledBuiltinTools(known prefs) = %#v, want %#v", got, want)
@@ -156,7 +159,7 @@ func TestResolveDisabledBuiltinToolsRespectsKnownEnabledDefaults(t *testing.T) {
 
 func TestResolveSoftFilteredBuiltinToolsReturnsOnlySoftTools(t *testing.T) {
 	t.Parallel()
-	got := ResolveSoftFilteredBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex, "")
+	got := ResolveSoftFilteredBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex(), "")
 	want := []string{"shell"}
 	if !equalSortedStrings(got, want) {
 		t.Fatalf("ResolveSoftFilteredBuiltinTools(nil prefs) = %#v, want %#v", got, want)
@@ -165,7 +168,7 @@ func TestResolveSoftFilteredBuiltinToolsReturnsOnlySoftTools(t *testing.T) {
 
 func TestResolveSoftFilteredBuiltinToolsFiltersProvider(t *testing.T) {
 	t.Parallel()
-	got := ResolveSoftFilteredBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex, "claude")
+	got := ResolveSoftFilteredBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex(), "claude")
 	if len(got) != 0 {
 		t.Fatalf("ResolveSoftFilteredBuiltinTools(provider=claude) = %#v, want none", got)
 	}
@@ -174,7 +177,7 @@ func TestResolveSoftFilteredBuiltinToolsFiltersProvider(t *testing.T) {
 func TestBuiltinToolsReadReturnsEnforcementTier(t *testing.T) {
 	t.Parallel()
 	prefs := &uiPreferenceStoreStub{}
-	res, err := readBuiltinTools(context.Background(), prefs, nil, testNativeTools, testNativeToolIndex, "/repo")
+	res, err := readBuiltinTools(context.Background(), prefs, nil, testNativeTools, testNativeToolIndex(), "/repo")
 	if err != nil {
 		t.Fatalf("readBuiltinTools error = %v", err)
 	}
@@ -194,7 +197,7 @@ func TestBuiltinToolsReadReturnsEnforcementTier(t *testing.T) {
 
 func TestResolveHardEnabledBuiltinToolsReturnsClaudeAllowlist(t *testing.T) {
 	t.Parallel()
-	got := ResolveHardEnabledBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex, "claude")
+	got := ResolveHardEnabledBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex(), "claude")
 	want := []string{"WebFetch"}
 	if !equalSortedStrings(got, want) {
 		t.Fatalf("ResolveHardEnabledBuiltinTools(nil prefs) = %#v, want %#v", got, want)
@@ -206,7 +209,7 @@ func TestResolveHardEnabledBuiltinToolsHonorsExplicitEmptyOverride(t *testing.T)
 	prefs := &uiPreferenceStoreStub{values: map[string]json.RawMessage{
 		preferenceStubKey("/repo", builtinToolsDisabledKey): json.RawMessage(`[]`),
 	}}
-	got := ResolveHardEnabledBuiltinTools(context.Background(), prefs, "/repo", testNativeTools, testNativeToolIndex, "claude")
+	got := ResolveHardEnabledBuiltinTools(context.Background(), prefs, "/repo", testNativeTools, testNativeToolIndex(), "claude")
 	want := []string{"Bash", "Read", "WebFetch", "Write"}
 	if !equalSortedStrings(got, want) {
 		t.Fatalf("ResolveHardEnabledBuiltinTools(explicit empty) = %#v, want %#v", got, want)
@@ -241,7 +244,7 @@ func equalSortedStrings(a, b []string) bool {
 func TestBuiltinToolsReadIncludesMultipleProviders(t *testing.T) {
 	t.Parallel()
 	prefs := &uiPreferenceStoreStub{}
-	res, err := readBuiltinTools(context.Background(), prefs, nil, testNativeTools, testNativeToolIndex, "/repo")
+	res, err := readBuiltinTools(context.Background(), prefs, nil, testNativeTools, testNativeToolIndex(), "/repo")
 	if err != nil {
 		t.Fatalf("readBuiltinTools error = %v", err)
 	}
@@ -260,12 +263,13 @@ func TestBuiltinToolsReadIncludesMultipleProviders(t *testing.T) {
 func TestBuiltinToolsReadReturnsFilterMode(t *testing.T) {
 	t.Parallel()
 	prefs := &uiPreferenceStoreStub{}
-	res, err := readBuiltinTools(context.Background(), prefs, nil, testNativeTools, testNativeToolIndex, "/repo")
+	toolIndex := testNativeToolIndex()
+	res, err := readBuiltinTools(context.Background(), prefs, nil, testNativeTools, toolIndex, "/repo")
 	if err != nil {
 		t.Fatalf("readBuiltinTools error = %v", err)
 	}
 	for _, view := range res.Tools {
-		descriptor := testNativeToolIndex[view.ID]
+		descriptor := toolIndex[view.ID]
 		want := string(descriptor.FilterMode)
 		if view.FilterMode != want {
 			t.Errorf("tool %q FilterMode = %q, want %q", view.ID, view.FilterMode, want)

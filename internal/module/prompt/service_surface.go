@@ -21,7 +21,8 @@ import (
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
-// TODO(P8): add SetEnabled once the store/service contract exists end-to-end.
+// SetEnabled intentionally stays outside this surface until the store/service
+// contract exists end-to-end.
 type PromptService interface {
 	ListPrompts(ctx context.Context, cwd, keyword string) ([]promptstore.PromptTemplate, error)
 	ListPromptSectionsByTemplates(ctx context.Context, cwd string, templates []promptstore.PromptTemplate) (map[int64][]promptstore.PromptTemplateSection, error)

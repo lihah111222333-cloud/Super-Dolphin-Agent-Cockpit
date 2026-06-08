@@ -54,41 +54,41 @@ func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) pla
 			return nil, svc.SetName(ctx, contract.ThreadIDFrom(ctx), p.Name)
 		}),
 		"thread/config/get": newThreadConfigGetHandler(svc),
-		// TODO(P9): 补真实参数校验和结构化返回。当前仍走通用 SendCommand 壳。
+		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
 		"thread/config/set": newThreadConfigSetHandler(svc),
 		"thread/model/set":  newModelSetHandler(svc),
 		"thread/clear":      newThreadCommandHandler(svc, "/clear"),
-		// TODO(P9): 补真实参数校验和结构化返回。当前仍走通用 SendCommand 壳。
+		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
 		"thread/personality/set": newThreadCommandHandler(svc, "/personality"),
 		"thread/approvals/set":   newApprovalsSetHandler(svc),
 		"thread/compact/start":   newCompactStartHandler(svc, capResolver),
-		// TODO(P9): 补真实参数校验和结构化返回。当前仍走通用 SendCommand 壳。
+		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
 		"thread/rollback": newThreadCommandHandler(svc, "/rollback"),
-		// TODO(P9): 补真实参数校验和结构化返回。当前仍走通用 SendCommand 壳。
+		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
 		"thread/undo": newThreadCommandHandler(svc, "/undo"),
-		// TODO(P9): 补真实参数校验和结构化返回。当前仍走通用 SendCommand 壳。
+		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
 		"thread/backgroundTerminals/clean": newThreadCommandHandler(svc, "/clean"),
-		// TODO(P9): 补真实参数校验和结构化返回。当前仍走通用 SendCommand 壳。
+		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
 		"thread/mcp/list": newThreadCommandHandler(svc, "/mcp"),
 		// thread/skills/list: 走 thread 命令通道，语义上返回 thread 绑定的 active skills。
 		// 与 skills/list 不同：后者扫描本地 skill 目录，返回所有已安装的 skill 元信息。
-		// TODO(P9): 补真实参数校验和结构化返回。当前仍走通用 SendCommand 壳。
+		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
 		"thread/skills/list": newThreadCommandHandler(svc, "/skills"),
 
 		// thread/debugMemory 当前返回 Go runtime.MemStats。
-		// TODO(P7): V2 返回的是 agent 进程内存快照（通过 provider），不是宿主进程 stats。
+		// P7 backlog: V2 返回 agent 进程内存快照（通过 provider），不是宿主进程 stats。
 		// P7 补齐 provider-level memory stats 后替换此实现。
 		"thread/debugMemory": newThreadCall(func(context.Context, string) (any, error) {
 			return runtimeMemoryStats(), nil
 		}),
 
-		// TODO(P9): 补真实参数校验和结构化返回。当前仍走通用 SendCommand 壳。
+		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
 		"thread/realtime/start": newCapabilityThreadCommandHandler(svc, capResolver, capabilityRealtime, "realtime/start"),
-		// TODO(P9): 补真实参数校验和结构化返回。当前仍走通用 SendCommand 壳。
+		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
 		"thread/realtime/appendAudio": newCapabilityThreadCommandHandler(svc, capResolver, capabilityRealtime, "realtime/appendAudio"),
-		// TODO(P9): 补真实参数校验和结构化返回。当前仍走通用 SendCommand 壳。
+		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
 		"thread/realtime/appendText": newCapabilityThreadCommandHandler(svc, capResolver, capabilityRealtime, "realtime/appendText"),
-		// TODO(P9): 补真实参数校验和结构化返回。当前仍走通用 SendCommand 壳。
+		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
 		"thread/realtime/stop": newCapabilityThreadCommandHandler(svc, capResolver, capabilityRealtime, "realtime/stop"),
 	}}
 }
@@ -381,7 +381,7 @@ func newRecoverHandler(svc Service) handler.Func {
 }
 
 // cmd 构造低频命令的 SendCommand handler。
-// 高频命令已拆到 typed handler；剩余命令先保留 string args 壳，并在路由上显式标 TODO(P9)。
+// 高频命令已拆到 typed handler；剩余命令先保留 string args 兼容壳，P9 再补 typed contract。
 func newThreadCommandHandler(svc Service, command string) handler.Func {
 	return platformrpc.ThreadHandler(func(ctx context.Context, p commandParams) (any, error) {
 		return svc.SendCommand(ctx, contract.ThreadIDFrom(ctx), command, p.Args)
