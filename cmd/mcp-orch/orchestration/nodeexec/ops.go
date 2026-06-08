@@ -10,7 +10,9 @@ import (
 
 // task_dag_apply_ops typed payload —— 蓝图 v2 §9 + 实施计划 S4.1 + S4.2。
 // 4 个动词 + base_version OCC 是 AI 设计师与用户共用的"动态可重写 DAG"原语。
-// 骨架阶段只定 schema 和 marshal/unmarshal；ApplyOps 真实执行在 F4.1-F4.5。
+// 本文件只定义 wire schema 和 marshal/unmarshal 契约；ApplyOps 的状态变更由
+// orchestration service 层执行，nodeexec 侧测试覆盖 typed dispatch、strict
+// decode、三态 patch 与 banned-field 拦截。
 
 // OpKind 标识 ops 数组中每个元素的种类（discriminator）。
 type OpKind string
@@ -162,7 +164,7 @@ var nodePatchBannedDeepKeys = map[string]struct{}{
 //   - stdlib 标准做法是 json.NewDecoder(...).DisallowUnknownFields()。原先
 //     双 pass map[string]json.RawMessage 也能做，但注释把它说成「标准做法」
 //     不准确——decoder strict 模式才是 stdlib 一等公民。
-//   - decoder 在解码到非白名单字段时返回 `json: unknown field "xxx"` 错误。
+//   - decoder 在解码到非白名单字段时返回 `json: unknown field "extra"` 错误。
 //     我们包成 ErrNodePatchBannedField 让 errors.Is 路径不变。
 //   - 用 type alias 跳过 UnmarshalJSON 自调用，防递归。
 //   - 顶层 strict 解码 + 单独遍 walk patch.Config 做深层 banned key 校验，

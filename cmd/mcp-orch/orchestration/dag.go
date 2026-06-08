@@ -624,8 +624,8 @@ func (s *service) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (c
 		// nodeexec.Ops.UnmarshalJSON already classifies the three sub-cases
 		// (bad outer JSON / bad item header / missing or unknown op
 		// discriminator); wrap them all as ErrApplyOpsInvalid so callers can
-		// match with errors.Is. 双 %w 链（Go 1.20+）保留 nodeexec 子错误链
-		// 让 errors.Is(err, nodeexec.ErrXxx) 仍能命中。
+		// match with errors.Is. 双 %w 链（Go 1.20+）保留 nodeexec sentinel
+		// 子错误链，让 errors.Is 仍能命中具体分类。
 		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: %w", ErrApplyOpsInvalid, err)
 	}
 
