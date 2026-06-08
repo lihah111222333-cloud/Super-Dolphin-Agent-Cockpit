@@ -28,11 +28,6 @@
 
 最小可执行 agent 节点示例：`{"node_key":"final","title":"最终输出","node_type":"agent","assigned_to":"my_dag_final_runner","depends_on":[],"config":{"exec":{"prompt_key":"main/expert/prompt","provider":"<selected provider from list_models()>","model":"<selected model from list_models()>","cwd":"/absolute/project/cwd"},"first_turn":"输出最终答案；如果内容超过 4KB，只返回 sharedfile 引用。","outputs":{"to_sharedfile":{"path":"reports/final.md","lock_mode":"exclusive"},"to_node_result":true}}}`
 
-视频生成节点示例（产物是 mp4 二进制文件时必须用 to_artifact，不能用 to_sharedfile）：`{"node_key":"generate_video","title":"生成视频","node_type":"agent","assigned_to":"my_dag_video_runner","depends_on":[],"config":{"exec":{"prompt_key":"<video agent prompt_key>","provider":"<selected provider>","model":"<selected model>","cwd":"/absolute/project/cwd"},"first_turn":"使用 video_with_audio 工具生成视频，prompt 为「<视频描述>」，voice_text 为「<旁白文字>」。","outputs":{"to_artifact":{"source_tool":"video_with_audio","source_path_field":"output_path","path_template":"dag/videos/{{date}}/run-{{run_id}}.mp4","content_type":"video/mp4","allowed_extensions":[".mp4"],"allowed_source_roots":["$HOME/Movies"],"max_bytes":524288000,"overwrite":"replace"}}}}`
-
-- `to_artifact` 用于把 agent 工具产生的本地二进制文件（mp4、图片等）导入 sharedfile 存储，字段含义：`source_tool` = 产出文件的工具名，`source_path_field` = 该工具返回 JSON 中的路径字段名（`video_with_audio` 用 `output_path`，`video_generate` 用 `local_path`），`path_template` 支持 `{{date}}` `{{run_id}}` 等变量防止覆盖，`allowed_source_roots` 必须包含工具实际写文件的目录（视频工具默认写 `$HOME/Movies`）。
-- 用户需求涉及"生成视频"时，必须用 `to_artifact` 而非 `to_sharedfile`；`to_sharedfile` 只适合文本内容。
-
 automation 节点示例：`{"node_key":"fetch","title":"采集","node_type":"automation","assigned_to":"my_dag_fetch_runner","depends_on":[],"config":{"exec":{"kind":"command_card","command_ref":"<card_key from command_list>","args":{}},"outputs":{"to_node_result":true}}}`
 
 hybrid 节点示例：`{"node_key":"test_and_review","title":"测试并复核","node_type":"hybrid","assigned_to":"my_dag_review_runner","depends_on":["fetch"],"config":{"exec":{"automation":{"kind":"command_card","command_ref":"run_tests","args":{}},"verifier":{"prompt_key":"main/expert/prompt","provider":"<selected provider from list_models()>","model":"<selected model from list_models()>","cwd":"/absolute/project/cwd"}},"inputs":{"from_nodes":["fetch"]},"outputs":{"to_node_result":true}}}`

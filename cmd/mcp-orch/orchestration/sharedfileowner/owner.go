@@ -5,12 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
 )
 
 var ErrInvalidOwner = errors.New("invalid sharedfile owner")
@@ -110,21 +108,4 @@ func matches(raw string, owner Owner) bool {
 	}
 	return got.DagKey == strings.TrimSpace(owner.DagKey) && got.NodeKey == strings.TrimSpace(owner.NodeKey) &&
 		got.RunID == owner.RunID && got.ThreadID == strings.TrimSpace(owner.ThreadID) && got.TurnID == strings.TrimSpace(owner.TurnID)
-}
-
-// RenderPath replaces template variables in path with runtime values.
-// Paths without variables are returned unchanged (backward compatible).
-// Supported: {{date}} {{datetime}} {{run_id}} {{turn_id}} {{thread_id}}
-func RenderPath(path string, owner Owner, now time.Time) (string, error) {
-	if !strings.Contains(path, "{{") {
-		return path, nil
-	}
-	rendered := strings.NewReplacer(
-		"{{date}}", now.UTC().Format("2006-01-02"),
-		"{{datetime}}", now.UTC().Format("20060102T150405Z"),
-		"{{run_id}}", strconv.FormatInt(owner.RunID, 10),
-		"{{turn_id}}", owner.TurnID,
-		"{{thread_id}}", owner.ThreadID,
-	).Replace(path)
-	return sharedfilepath.ValidateWritePath(rendered)
 }
