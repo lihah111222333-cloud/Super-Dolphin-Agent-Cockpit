@@ -7,6 +7,27 @@ import (
 	"testing"
 )
 
+func TestPackageMacOSScriptBundlesFFmpegForVideoTools(t *testing.T) {
+	script := readScript(t, "package_macos.sh")
+	verify := readScript(t, "verify_packaged_app_macos.sh")
+
+	for _, want := range []string{
+		"SUPER_DOLPHIN_FFMPEG_BIN",
+		"SUPER_DOLPHIN_AUTO_INSTALL_FFMPEG",
+		"resolve_packaged_ffmpeg",
+		"copy_packaged_ffmpeg \"$resources\"",
+		"cp -f \"$packaged_ffmpeg_bin\" \"$resources/bin/ffmpeg\"",
+		"brew install ffmpeg",
+	} {
+		assertScriptContains(t, script, want)
+	}
+	assertScriptOrder(t, script, "resolve_packaged_ffmpeg", "mkdir -p \"$macos\" \"$resources/bin\"")
+	assertScriptOrder(t, script, "copy_packaged_ffmpeg \"$resources\"", "bundle_git_dylibs \"$resources\"")
+	assertScriptContains(t, verify, "$resources/bin/ffmpeg")
+	assertScriptContains(t, verify, "verify_packaged_ffmpeg")
+	assertScriptContains(t, verify, "packaged ffmpeg smoke verified")
+}
+
 func TestPackageMacOSLocalScriptChecksHostFFmpegDependency(t *testing.T) {
 	script := readScript(t, "package_macos_local.sh")
 
@@ -22,14 +43,20 @@ func TestPackageMacOSLocalScriptChecksHostFFmpegDependency(t *testing.T) {
 		assertScriptContains(t, script, want)
 	}
 	assertScriptOrder(t, script, "test -d \"$postgres_dist\"", "resolve_or_install_host_ffmpeg\n\npackage_one()")
-	assertScriptOrder(t, script, "resolve_or_install_host_ffmpeg\n\npackage_one()", "package_one()")
 	assertScriptOrder(t, script, "SUPER_DOLPHIN_FFMPEG_BIN=\"$ffmpeg_bin\"", "\"$root/scripts/package_macos.sh\"")
 }
 
 func TestVerifyPackagedAppMacOSRejectsMissingBundledFFmpeg(t *testing.T) {
 	app := writeMinimalPackagedMacOSApp(t)
 	resources := filepath.Join(app, "Contents", "Resources")
-	writeDefaultMacOSRuntimeManifest(t, resources)
+	writeRuntimeManifest(t, resources, map[string]string{
+		"bundled_codex_path":              "bin/codex",
+		"bundled_gopls_path":              "bin/gopls",
+		"lsp_bundle_path":                 "lsp",
+		"lsp_manifest_path":               "lsp/lsp-manifest.json",
+		"model_registry_path":             "models.yaml",
+		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
+	})
 	if err := os.Remove(filepath.Join(resources, "bin", "ffmpeg")); err != nil {
 		t.Fatalf("remove bundled ffmpeg: %v", err)
 	}
@@ -41,4 +68,11 @@ func TestVerifyPackagedAppMacOSRejectsMissingBundledFFmpeg(t *testing.T) {
 	if !strings.Contains(output, "missing executable:") || !strings.Contains(output, "Resources/bin/ffmpeg") {
 		t.Fatalf("expected missing ffmpeg executable error, got:\n%s", output)
 	}
+}
+
+func TestPackageEnvExampleDocumentsFFmpegWithoutSecrets(t *testing.T) {
+	example := readScript(t, "../.env.packaging.example")
+
+	assertScriptContains(t, example, "SUPER_DOLPHIN_FFMPEG_BIN=")
+	assertScriptDoesNotContain(t, example, "SILICONFLOW_API_KEY=")
 }
