@@ -63,7 +63,7 @@ const COLOR_THEMES = Object.freeze({
 });
 
 function normalizeColorTheme(value) {
-  return value === COLOR_THEMES.light || value === COLOR_THEMES.dark ? value : COLOR_THEMES.dark;
+  return value === COLOR_THEMES.light || value === COLOR_THEMES.dark ? value : COLOR_THEMES.light;
 }
 
 function normalizeAppPathname(value) {

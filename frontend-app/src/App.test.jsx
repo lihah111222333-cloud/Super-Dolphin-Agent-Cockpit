@@ -576,16 +576,16 @@ async function showAllTraceDashboardEvents() {
   expect(screen.getAllByText('bus.event.lifecycle').length).toBeGreaterThan(0);
 }
 
-  it('renders the app shell toolbar with the local product title and defaults to dark theme', async () => {
+  it('renders the app shell toolbar with the local product title and defaults to light theme', async () => {
     render(<App />);
 
     const shell = await screen.findByTestId('frontend-app');
     const titlebar = document.querySelector('.titlebar');
-    expect(shell).toHaveAttribute('data-theme', 'dark');
+    expect(shell).toHaveAttribute('data-theme', 'light');
     expect(document.querySelector('.traffic-lights')).not.toBeInTheDocument();
     expect(titlebar).toBeInTheDocument();
     expect(within(titlebar).getByText('Super Dolphin')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '切换到白天模式' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '切换到黑夜模式' })).toBeInTheDocument();
   });
 
   it('toggles the local color theme without calling backend preferences', async () => {
@@ -594,15 +594,15 @@ async function showAllTraceDashboardEvents() {
     const shell = await screen.findByTestId('frontend-app');
     const preferenceCallsBeforeToggle = backend.setPreference.mock.calls.length;
 
-    fireEvent.click(screen.getByRole('button', { name: '切换到白天模式' }));
-    expect(shell).toHaveAttribute('data-theme', 'light');
-    expect(window.localStorage.getItem('super-dolphin-theme')).toBe('light');
-    expect(screen.getByRole('button', { name: '切换到黑夜模式' })).toBeInTheDocument();
-
     fireEvent.click(screen.getByRole('button', { name: '切换到黑夜模式' }));
     expect(shell).toHaveAttribute('data-theme', 'dark');
     expect(window.localStorage.getItem('super-dolphin-theme')).toBe('dark');
     expect(screen.getByRole('button', { name: '切换到白天模式' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '切换到白天模式' }));
+    expect(shell).toHaveAttribute('data-theme', 'light');
+    expect(window.localStorage.getItem('super-dolphin-theme')).toBe('light');
+    expect(screen.getByRole('button', { name: '切换到黑夜模式' })).toBeInTheDocument();
     expect(backend.setPreference.mock.calls.length).toBe(preferenceCallsBeforeToggle);
   });
 
