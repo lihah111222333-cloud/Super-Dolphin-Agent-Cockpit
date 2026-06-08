@@ -89,7 +89,7 @@ func TestNewThreadHandlersDispatchStart(t *testing.T) {
 		},
 	}
 	server := newThreadTestServer(stub)
-	raw, err := server.Dispatch(context.Background(), "thread/start", json.RawMessage(`{"provider":"codex","cwd":"/tmp/demo","prompt":"hello","toolSurfaceMode":"chat"}`))
+	raw, err := server.Dispatch(context.Background(), "thread/start", json.RawMessage(`{"cwd":"/tmp/demo","name":"Hello","modelProvider":"codex","prompt_key":"main/dag_designer_zh","agent_key":"assistant","toolSurfaceMode":"chat","defer_spawn":true,"launchIntentId":"launch_018f00e0-39fc-72ac-a47a-2a858c75d111"}`))
 	if err != nil {
 		t.Fatalf("Dispatch(thread/start) error = %v", err)
 	}
@@ -110,6 +110,34 @@ func TestNewThreadHandlersDispatchStartRejectsUnknownField(t *testing.T) {
 	}
 	if stub.startReq.Provider != "" || stub.startReq.CWD != "" {
 		t.Fatalf("Start() was called with %#v, want decode rejection before service call", stub.startReq)
+	}
+}
+
+func TestNewThreadHandlersDispatchStartRequiresProvider(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubThreadService{}
+	server := newThreadTestServer(stub)
+	_, err := server.Dispatch(context.Background(), "thread/start", json.RawMessage(`{"cwd":"/tmp/demo"}`))
+	if err == nil || !strings.Contains(err.Error(), "provider is required") {
+		t.Fatalf("Dispatch(thread/start) error = %v, want provider required", err)
+	}
+	if startRequestWasCalled(stub.startReq) {
+		t.Fatalf("Start() was called with %#v, want dispatch rejection before service call", stub.startReq)
+	}
+}
+
+func TestNewThreadHandlersDispatchStartRequiresCWD(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubThreadService{}
+	server := newThreadTestServer(stub)
+	_, err := server.Dispatch(context.Background(), "thread/start", json.RawMessage(`{"modelProvider":"codex"}`))
+	if err == nil || !strings.Contains(err.Error(), "cwd is required") {
+		t.Fatalf("Dispatch(thread/start) error = %v, want cwd required", err)
+	}
+	if startRequestWasCalled(stub.startReq) {
+		t.Fatalf("Start() was called with %#v, want dispatch rejection before service call", stub.startReq)
 	}
 }
 
@@ -178,7 +206,30 @@ func assertNestedStartEffectiveFields(t *testing.T, effective map[string]any) {
 
 func assertThreadStartRequest(t *testing.T, req StartRequest) {
 	t.Helper()
-	if req.Provider != "codex" || req.CWD != "/tmp/demo" || req.Name != "" || req.Prompt != "hello" || req.BaseInstructions != "" || req.ToolSurfaceMode != "chat" {
+	assertThreadStartCoreRequest(t, req)
+	assertThreadStartLaunchMetadata(t, req)
+}
+
+func startRequestWasCalled(req StartRequest) bool {
+	return req.Provider != "" ||
+		req.ModelProvider != "" ||
+		req.CWD != "" ||
+		req.Name != "" ||
+		req.Prompt != "" ||
+		req.AgentKey != "" ||
+		req.PromptKey != ""
+}
+
+func assertThreadStartCoreRequest(t *testing.T, req StartRequest) {
+	t.Helper()
+	if req.Provider != "" || req.ModelProvider != "codex" || req.CWD != "/tmp/demo" || req.Name != "Hello" || req.Prompt != "" || req.BaseInstructions != "" || req.ToolSurfaceMode != "chat" {
+		t.Fatalf("StartRequest = %#v", req)
+	}
+}
+
+func assertThreadStartLaunchMetadata(t *testing.T, req StartRequest) {
+	t.Helper()
+	if req.PromptKey != "main/dag_designer_zh" || req.AgentKey != "assistant" || !req.DeferSpawn || req.LaunchIntentID != "launch_018f00e0-39fc-72ac-a47a-2a858c75d111" {
 		t.Fatalf("StartRequest = %#v", req)
 	}
 }

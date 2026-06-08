@@ -538,4 +538,21 @@ describe('SettingsPage video settings', () => {
     });
     expect(backend.callBackend).not.toHaveBeenCalled();
   });
+
+  it('shows save failures from the named video facade method', async () => {
+    backend.setVideoApiKey.mockRejectedValueOnce(new Error('credential store unavailable'));
+
+    renderSettingsPage();
+
+    const card = await screen.findByTestId('settings-video-card');
+    fireEvent.change(within(card).getByLabelText('API Key'), { target: { value: 'sk-test-video-key' } });
+    fireEvent.click(within(card).getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-video-notice')).toHaveTextContent('保存失败：credential store unavailable');
+      expect(screen.getByTestId('settings-video-notice')).toHaveAttribute('role', 'alert');
+    });
+    expect(backend.setVideoApiKey).toHaveBeenCalledWith({ apiKey: 'sk-test-video-key' });
+    expect(backend.callBackend).not.toHaveBeenCalled();
+  });
 });

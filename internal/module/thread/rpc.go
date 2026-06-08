@@ -95,6 +95,9 @@ func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) pla
 
 func newStartHandler(svc Service) handler.Func {
 	return platformrpc.LoggedStrictHandler(contract.ThreadRPCStart, func(ctx context.Context, p startParams) (any, error) {
+		if err := validateStartParams(p); err != nil {
+			return nil, err
+		}
 		cfg, err := decodeConfigMap(p.Config)
 		if err != nil {
 			return nil, err
@@ -106,6 +109,16 @@ func newStartHandler(svc Service) handler.Func {
 		}
 		return buildStartResponse(result), nil
 	})
+}
+
+func validateStartParams(p startParams) error {
+	if strings.TrimSpace(p.CWD) == "" {
+		return fmt.Errorf("%s: cwd is required", contract.ThreadRPCStart)
+	}
+	if strings.TrimSpace(util.FirstNonEmpty(p.Provider, p.ModelProvider)) == "" {
+		return fmt.Errorf("%s: provider is required", contract.ThreadRPCStart)
+	}
+	return nil
 }
 
 func logStartRPCReceived(p startParams, cfg map[string]any) {
