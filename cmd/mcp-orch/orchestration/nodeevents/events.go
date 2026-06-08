@@ -1,7 +1,6 @@
 package nodeevents
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -15,7 +14,11 @@ func Publish(bus *event.Dispatcher, oldStatus string, node *taskdag.Node) {
 	if bus == nil || node == nil {
 		return
 	}
-	event.Publish(bus, build(oldStatus, node))
+	ev, ok := build(oldStatus, node)
+	if !ok {
+		return
+	}
+	event.Publish(bus, ev)
 }
 
 func PublishFields(bus *event.Dispatcher, oldStatus, newStatus, dagKey, nodeKey string, runID int64) {
@@ -48,14 +51,14 @@ func PublishFail(bus *event.Dispatcher, oldStatus string, res *taskdag.FailNodeR
 	}
 }
 
-func build(oldStatus string, node *taskdag.Node) taskdto.TaskNodeStatusChanged {
+func build(oldStatus string, node *taskdag.Node) (taskdto.TaskNodeStatusChanged, bool) {
 	dagKey, nodeKey, newStatus := strings.TrimSpace(node.DagKey), strings.TrimSpace(node.NodeKey), strings.TrimSpace(node.Status)
 	runID := int64(0)
 	if node.RunID != nil {
 		runID = *node.RunID
 	}
 	if dagKey == "" || nodeKey == "" || newStatus == "" || runID <= 0 {
-		panic(fmt.Sprintf("publish task node status changed: invalid identity dag=%q node=%q run_id=%d status=%q", node.DagKey, node.NodeKey, runID, node.Status))
+		return taskdto.TaskNodeStatusChanged{}, false
 	}
 	ev := taskdto.TaskNodeStatusChanged{
 		TaskNodeHeader: shareddto.TaskNodeHeader{
@@ -72,5 +75,5 @@ func build(oldStatus string, node *taskdag.Node) taskdto.TaskNodeStatusChanged {
 	if node.ActiveWakeupID != nil {
 		ev.ActiveWakeupID = *node.ActiveWakeupID
 	}
-	return ev
+	return ev, true
 }
