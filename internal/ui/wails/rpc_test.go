@@ -39,6 +39,16 @@ func TestNewRPCHandlersRegistersNativeDialogRoutes(t *testing.T) {
 	}
 }
 
+func TestCurrentBuildInfoIncludesPackagedAppVersion(t *testing.T) {
+	t.Setenv("SUPER_DOLPHIN_UPDATE_VERSION", "1.0.2")
+
+	info := currentBuildInfo()
+
+	if info["appVersion"] != "1.0.2" {
+		t.Fatalf("appVersion = %q, want packaged update version", info["appVersion"])
+	}
+}
+
 func TestReadDroppedTextFilesRouteReadsRecentDroppedText(t *testing.T) {
 	t.Parallel()
 
