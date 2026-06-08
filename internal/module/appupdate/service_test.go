@@ -116,6 +116,24 @@ func TestCheckMapsErrNoUpdateToUnavailable(t *testing.T) {
 	if result.Available {
 		t.Fatalf("Check() Available = true, want false for ErrNoUpdate")
 	}
+	if !result.Enabled {
+		t.Fatalf("Check() Enabled = false, want true for configured updates")
+	}
+}
+
+func TestCheckReportsDisabledWhenUpdateConfigDisabled(t *testing.T) {
+	svc := newService(Config{}, nil, nil)
+
+	result, err := svc.Check(context.Background())
+	if err != nil {
+		t.Fatalf("Check() error = %v", err)
+	}
+	if result.Enabled {
+		t.Fatalf("Check() Enabled = true, want false for disabled updates")
+	}
+	if result.Available {
+		t.Fatalf("Check() Available = true, want false for disabled updates")
+	}
 }
 
 func TestDownloadVerifiesArtifactAndWritesSelectedUpdate(t *testing.T) {
