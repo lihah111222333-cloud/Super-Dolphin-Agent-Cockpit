@@ -118,7 +118,7 @@ func TestSearchTextCaseSensitiveOverride(t *testing.T) {
 
 func TestWalkSearchEntryPropagatesWalkErr(t *testing.T) {
 	var results []SearchMatch
-	err := walkSearchEntry(context.Background(), "/repo", "/repo/a.go", "/repo", "", 1024, literalMatcher("x"), &results, nil, errors.New("walk boom"))
+	err := walkSearchEntry(context.Background(), "/repo", "/repo/a.go", "/repo", "", 1024, literalMatcher(t, "x"), &results, nil, errors.New("walk boom"))
 	if err == nil || !strings.Contains(err.Error(), "walk boom") {
 		t.Fatalf("walkSearchEntry() error = %v, want walk boom", err)
 	}
@@ -436,10 +436,11 @@ func TestASTGrepLanguageIDMapsReactIDs(t *testing.T) {
 	}
 }
 
-func literalMatcher(query string) lineMatcher {
+func literalMatcher(t *testing.T, query string) lineMatcher {
+	t.Helper()
 	matcher, err := shared.NewLineMatcher(query, false, false)
 	if err != nil {
-		panic(err)
+		t.Fatalf("create literal matcher: %v", err)
 	}
 	return matcher
 }
