@@ -30,9 +30,11 @@ packaged_relay_bootstrap_proof=""
 packaged_video_api_key=""
 macos_min_version=""
 update_manifest_url=""
+update_github_repo=""
 update_public_key=""
 update_channel=""
 update_allow_unsigned="0"
+required_update_github_repo="xiaoxiaotest9527-bit/-"
 codex_artifact_env="SUPER_DOLPHIN_CODEX_ARTIFACT"
 codex_sha256_env="SUPER_DOLPHIN_CODEX_SHA256"
 codex_version_env="SUPER_DOLPHIN_CODEX_VERSION"
@@ -179,17 +181,29 @@ resolve_update_config() {
   fi
 
   update_manifest_url="${SUPER_DOLPHIN_UPDATE_MANIFEST_URL:-}"
+  update_github_repo="${SUPER_DOLPHIN_UPDATE_GITHUB_REPO:-}"
   update_public_key="${SUPER_DOLPHIN_UPDATE_PUBLIC_KEY:-}"
   update_channel="${SUPER_DOLPHIN_UPDATE_CHANNEL:-gray}"
   if [[ "$release_profile" == "gray-unsigned" ]]; then
     update_allow_unsigned="1"
   fi
-  validate_env_file_value "SUPER_DOLPHIN_UPDATE_MANIFEST_URL" "$update_manifest_url"
+  validate_env_file_value "SUPER_DOLPHIN_UPDATE_GITHUB_REPO" "$update_github_repo"
   validate_env_file_value "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY" "$update_public_key"
   validate_env_file_value "SUPER_DOLPHIN_UPDATE_CHANNEL" "$update_channel"
-  if [[ ! "$update_manifest_url" =~ ^https://[^/?#]+($|[/?#]) ]]; then
-    echo "SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be an HTTPS URL with a host" >&2
+  if [[ ! "$update_github_repo" =~ ^[^[:space:]/]+/[^[:space:]/]+$ ]]; then
+    echo "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo" >&2
     exit 1
+  fi
+  if [[ "$update_github_repo" != "$required_update_github_repo" ]]; then
+    echo "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be xiaoxiaotest9527-bit/-" >&2
+    exit 1
+  fi
+  if [[ -n "$update_manifest_url" ]]; then
+    validate_env_file_value "SUPER_DOLPHIN_UPDATE_MANIFEST_URL" "$update_manifest_url"
+    if [[ ! "$update_manifest_url" =~ ^https://[^/?#]+($|[/?#]) ]]; then
+      echo "SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be an HTTPS URL with a host" >&2
+      exit 1
+    fi
   fi
 
   local decoded_key byte_count
@@ -291,7 +305,10 @@ write_packaged_update_env() {
   local env_path="$resources/.env"
   {
     printf 'SUPER_DOLPHIN_UPDATE_ENABLED=1\n'
-    printf 'SUPER_DOLPHIN_UPDATE_MANIFEST_URL=%s\n' "$update_manifest_url"
+    printf 'SUPER_DOLPHIN_UPDATE_GITHUB_REPO=%s\n' "$update_github_repo"
+    if [[ -n "$update_manifest_url" ]]; then
+      printf 'SUPER_DOLPHIN_UPDATE_MANIFEST_URL=%s\n' "$update_manifest_url"
+    fi
     printf 'SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=%s\n' "$update_public_key"
     printf 'SUPER_DOLPHIN_UPDATE_CHANNEL=%s\n' "$update_channel"
     printf 'SUPER_DOLPHIN_UPDATE_VERSION=%s\n' "$version"
@@ -1545,7 +1562,11 @@ resolve_packaged_ffmpeg
 
 dist="$root/dist/package/macos"
 app="$dist/$app_name.app"
-dmg_path="$dist/$app_name.dmg"
+dmg_filename="$app_name.dmg"
+if updates_enabled_for_profile; then
+  dmg_filename="Super-Dolphin-$platform.dmg"
+fi
+dmg_path="$dist/$dmg_filename"
 contents="$app/Contents"
 macos="$contents/MacOS"
 resources="$contents/Resources"

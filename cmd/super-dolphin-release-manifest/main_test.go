@@ -98,6 +98,32 @@ func TestRunRejectsInvalidSigningKeyLength(t *testing.T) {
 	}
 }
 
+func TestRunDefaultsOutputToPlatformUpdateManifest(t *testing.T) {
+	_, privateKey := testKeypair(t)
+	dir := t.TempDir()
+	artifactPath := filepath.Join(dir, "Super-Dolphin-darwin-arm64.dmg")
+	writeFile(t, artifactPath, []byte("fake dmg bytes"), 0o644)
+	signingKeyPath := filepath.Join(dir, "ed25519.key")
+	writeFile(t, signingKeyPath, privateKey, 0o600)
+
+	err := run([]string{
+		"-artifact", artifactPath,
+		"-artifact-url", "https://github.com/xiaoxiaotest9527-bit/-/releases/download/v1.2.3/Super-Dolphin-darwin-arm64.dmg",
+		"-app-id", "super-dolphin",
+		"-channel", "gray",
+		"-version", "1.2.3",
+		"-minimum-version", "1.0.0",
+		"-platform", "darwin-arm64",
+		"-signing-key", signingKeyPath,
+	})
+	if err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "Super-Dolphin-darwin-arm64.update.json")); err != nil {
+		t.Fatalf("expected default platform manifest output: %v", err)
+	}
+}
+
 func testKeypair(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
 	t.Helper()
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
