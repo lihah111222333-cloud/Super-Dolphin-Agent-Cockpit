@@ -43,34 +43,6 @@
     "empty_funcs": 0,
     "todo_count": 0
   },
-  "cmd/mcp-orch/orchestration/nodeexec/test_cwd_test.go": {
-    "lines": 16,
-    "max_func_len": 9,
-    "max_nesting": 1,
-    "max_complexity": 2,
-    "max_params": 2,
-    "max_returns": 1,
-    "max_underscore": 0,
-    "global_vars": 1,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0
-  },
-  "cmd/mcp-orch/orchestration/test_cwd_test.go": {
-    "lines": 25,
-    "max_func_len": 9,
-    "max_nesting": 1,
-    "max_complexity": 2,
-    "max_params": 2,
-    "max_returns": 1,
-    "max_underscore": 0,
-    "global_vars": 1,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0
-  },
   "internal/mcpserver/common/server_test.go": {
     "lines": 245,
     "max_func_len": 30,
@@ -188,20 +160,6 @@
     "empty_funcs": 0,
     "todo_count": 0,
     "max_struct_fields": 17
-  },
-  "internal/module/uistate/builtin_tools_test.go": {
-    "lines": 249,
-    "max_func_len": 25,
-    "max_nesting": 2,
-    "max_complexity": 6,
-    "max_params": 2,
-    "max_returns": 1,
-    "max_underscore": 0,
-    "global_vars": 1,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0
   },
   "internal/platform/db/tx_test.go": {
     "lines": 181,

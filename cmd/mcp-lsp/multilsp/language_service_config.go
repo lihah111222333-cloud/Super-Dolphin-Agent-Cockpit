@@ -8,7 +8,9 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
-var defaultLanguageServiceNoiseDirSet = stringSetFromList(platformconfig.DefaultLSPConfig().NoiseDirNames)
+func defaultLanguageServiceNoiseDirSet() map[string]struct{} {
+	return stringSetFromList(platformconfig.DefaultLSPConfig().NoiseDirNames)
+}
 
 func NewLanguageAdapterRegistryFromConfig(cfg contract.LSPConfig) *LanguageAdapterRegistry {
 	cfg = lspConfigWithDefaults(cfg)

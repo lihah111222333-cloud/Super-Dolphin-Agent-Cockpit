@@ -665,3 +665,59 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 
 - 生产冻结：104 -> 70。
 - 测试冻结：47 -> 24。
+
+## 2026-06-08 追加推进：测试 fixture 与兼容契约注释
+
+### 测试派生全局与 cwd helper
+
+变更：
+
+- `internal/module/uistate/builtin_tools_test.go`：`testNativeToolIndex` 从包级派生 map 改为按需 helper，固定测试工具表不变。
+- `cmd/mcp-orch/orchestration/test_cwd_test.go`、`nodeexec/test_cwd_test.go`：去掉包级 `sync.Map` cwd 缓存，改为按 `t.Name()` 和 cwd 名称生成稳定临时目录，并在测试结束清理。
+
+审查结论：
+
+- `uistate` 只删除派生 map 全局；每次 helper 返回的 index 内容与原 map 一致。
+- `testCWD(t, name)` 仍保持同一测试内同名 cwd 稳定，且目录真实存在；不改变 launch/cwd 断言语义。
+
+### multilsp 派生全局与 archtest fixture
+
+变更：
+
+- `cmd/mcp-lsp/multilsp/language_service_config.go`、`go_root_resolver.go`：默认 noise dir set 从包级派生 map 改成函数返回。
+- `internal/archtest/testdata/metrics_sample.go` 改名为 `metrics_sample.gotxt`，`metrics_test.go` 改用新 fixture 路径。
+
+审查结论：
+
+- `multilsp` 默认 noise dir 来源仍是 `platformconfig.DefaultLSPConfig().NoiseDirNames`，过滤结果不变。
+- `metrics_sample` 是 `MeasureFileMetrics` 的故意违规测试样本，不参与构建；改为 `.gotxt` 后仍由 `parser.ParseFile` 解析，但不再被生产 guard 当作生产 Go 文件扫描。
+
+### thread/prompt backlog 注释
+
+变更：
+
+- `internal/module/thread/rpc.go`、`command.go`：重复 `TODO(P9)` 改为当前低频 SendCommand 兼容壳契约说明。
+- `internal/module/prompt/service_surface.go`：`SetEnabled` 未来能力说明改为当前接口边界说明。
+
+审查结论：
+
+- 均为注释文本调整，不改变路由表、handler、接口方法集或返回行为。
+- orchestration `helpers.go` / `service.go` 的状态机与锁语义 TODO 仍判定为真实设计债，本轮继续跳过。
+
+验证：
+
+```bash
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/module/uistate -run 'TestBuiltinTools|TestResolve.*BuiltinTools|TestConfig' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration ./cmd/mcp-orch/orchestration/nodeexec -run 'Test.*CWD|Test.*Launch|Test.*Agent|Test.*Wakeup.*Retry' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-lsp/multilsp -run 'Test.*Go.*Root|Test.*Language|Test.*Config|Test.*Compat' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/archtest -run 'TestMeasureFileMetrics|TestCountGlobalVarsV3|TestCodeSizeGuard' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/module/thread ./internal/module/prompt -run 'Test.*Command|Test.*RPC|Test.*Prompt|Test.*Service|Test.*DebugMemory|Test.*Skills' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh --guard-only
+```
+
+结果：PASS。`cmd/mcp-orch/orchestration` 窄测在普通沙箱下因 localhost listener 失败，提权重跑通过。
+
+当前冻结数：
+
+- 生产冻结：104 -> 65。
+- 测试冻结：47 -> 21。

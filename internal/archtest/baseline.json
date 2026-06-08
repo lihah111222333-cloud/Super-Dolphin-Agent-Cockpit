@@ -72,20 +72,6 @@
     "todo_count": 0,
     "max_struct_fields": 5
   },
-  "cmd/mcp-lsp/multilsp/language_service_config.go": {
-    "lines": 133,
-    "max_func_len": 20,
-    "max_nesting": 2,
-    "max_complexity": 5,
-    "max_params": 3,
-    "max_returns": 1,
-    "max_underscore": 0,
-    "global_vars": 1,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0
-  },
   "cmd/mcp-lsp/multilsp/manager_retry.go": {
     "lines": 163,
     "max_func_len": 24,
@@ -304,21 +290,6 @@
     "todo_count": 0,
     "max_struct_fields": 4
   },
-  "internal/archtest/testdata/metrics_sample.go": {
-    "lines": 59,
-    "max_func_len": 19,
-    "max_nesting": 4,
-    "max_complexity": 7,
-    "max_params": 8,
-    "max_returns": 5,
-    "max_underscore": 0,
-    "global_vars": 1,
-    "panic_count": 1,
-    "naked_returns": 1,
-    "empty_funcs": 1,
-    "todo_count": 2,
-    "max_struct_fields": 16
-  },
   "internal/contract/codex_identity.go": {
     "lines": 150,
     "max_func_len": 25,
@@ -497,21 +468,6 @@
     "todo_count": 0,
     "max_struct_fields": 12
   },
-  "internal/module/prompt/service_surface.go": {
-    "lines": 587,
-    "max_func_len": 49,
-    "max_nesting": 2,
-    "max_complexity": 8,
-    "max_params": 3,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 1,
-    "max_struct_fields": 15
-  },
   "internal/module/skill/contract.go": {
     "lines": 328,
     "max_func_len": 36,
@@ -570,35 +526,6 @@
     "naked_returns": 0,
     "empty_funcs": 0,
     "todo_count": 0
-  },
-  "internal/module/thread/command.go": {
-    "lines": 383,
-    "max_func_len": 38,
-    "max_nesting": 3,
-    "max_complexity": 10,
-    "max_params": 5,
-    "max_returns": 3,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 1,
-    "max_struct_fields": 2
-  },
-  "internal/module/thread/rpc.go": {
-    "lines": 427,
-    "max_func_len": 48,
-    "max_nesting": 2,
-    "max_complexity": 7,
-    "max_params": 4,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 13
   },
   "internal/module/thread/service.go": {
     "lines": 536,
