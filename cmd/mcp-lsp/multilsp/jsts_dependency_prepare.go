@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/internal/hiddenexec"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
@@ -134,7 +135,7 @@ func runJSTSPnpmInstall(ctx context.Context, installRoot string) error {
 	}
 	installCtx, cancel := platformconfig.WithTimeoutIfNone(ctx, jstsPnpmInstallTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(installCtx, pnpmPath, "install", "--frozen-lockfile")
+	cmd := hiddenexec.CommandContext(installCtx, pnpmPath, "install", "--frozen-lockfile")
 	cmd.Dir = installRoot
 	output, err := cmd.CombinedOutput()
 	if err != nil {

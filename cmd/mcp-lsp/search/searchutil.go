@@ -406,7 +406,7 @@ func runSGPatternSearch(ctx context.Context, query, language, absPath, root, glo
 	}
 	args = append(args, absPath)
 
-	cmd := exec.CommandContext(ctx, "sg", args...)
+	cmd := hiddenCommandContext(ctx, "sg", args...)
 	cmd.Dir = root
 	output, err := cmd.Output()
 	if err != nil {
@@ -460,7 +460,7 @@ func runSGKindSearch(ctx context.Context, kind, language, absPath, root, glob st
 	}
 	args = append(args, absPath)
 
-	cmd := exec.CommandContext(ctx, "sg", args...)
+	cmd := hiddenCommandContext(ctx, "sg", args...)
 	cmd.Dir = root
 	output, err := cmd.Output()
 	if err != nil {
