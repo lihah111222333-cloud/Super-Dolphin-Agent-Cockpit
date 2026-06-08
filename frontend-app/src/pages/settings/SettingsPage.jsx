@@ -440,7 +440,9 @@ async function installAvailableAppUpdate({ setUpdateInfo, setUpdateInstalling, s
 }
 
 function appUpdateVersionLabel(info) {
-  return (info?.version || info?.latestVersion || info?.latest_version || '').toString().trim() || '可用更新';
+  const version = (info?.version || info?.latestVersion || info?.latest_version || '').toString().trim() || '可用更新';
+  const platform = (info?.platform || info?.artifact?.platform || '').toString().trim();
+  return platform ? `${version} (${platform})` : version;
 }
 
 function settingsFormWithUpdate(current, key, value) {
