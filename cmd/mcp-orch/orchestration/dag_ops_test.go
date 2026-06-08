@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -91,6 +92,23 @@ func TestApplyOps_UnmarshalFails(t *testing.T) {
 	}
 	if !errors.Is(err, ErrApplyOpsInvalid) {
 		t.Fatalf("ApplyOps err = %v, want errors.Is(err, ErrApplyOpsInvalid)", err)
+	}
+}
+
+func TestApplyOps_PreservesNodeexecSentinelErrorChain(t *testing.T) {
+	t.Parallel()
+	s := &service{}
+	ops := json.RawMessage(`[{"op":"update_dag","patch":{"status":"running"}}]`)
+	req := contract.ApplyOpsRequest{DagKey: "dag-a", BaseVersion: 0, Ops: ops}
+	_, err := s.ApplyOps(context.Background(), req)
+	if err == nil {
+		t.Fatalf("ApplyOps want error, got nil")
+	}
+	if !errors.Is(err, ErrApplyOpsInvalid) {
+		t.Fatalf("ApplyOps err = %v, want errors.Is(err, ErrApplyOpsInvalid)", err)
+	}
+	if !errors.Is(err, nodeexec.ErrDAGPatchUnknownField) {
+		t.Fatalf("ApplyOps err = %v, want errors.Is(err, nodeexec.ErrDAGPatchUnknownField)", err)
 	}
 }
 
