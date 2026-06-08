@@ -457,6 +457,19 @@ function appUpdateConcreteVersionLabel(info) {
   return (info?.version || info?.latestVersion || info?.latest_version || '').toString().trim();
 }
 
+function appUpdateCurrentVersionLabel(buildInfo) {
+  const packagedVersion = (buildInfo?.appVersion || buildInfo?.app_version || buildInfo?.updateVersion || buildInfo?.update_version || '').toString().trim();
+  if (packagedVersion) return appUpdateDisplayVersion(packagedVersion);
+  return (buildInfo?.version || 'unknown').toString().trim();
+}
+
+function appUpdateDisplayVersion(version) {
+  const value = (version || '').toString().trim();
+  if (!value) return '';
+  if (/^[0-9]+(?:\.[0-9]+){1,2}(?:[-+].*)?$/.test(value)) return `v${value}`;
+  return value;
+}
+
 function settingsFormWithUpdate(current, key, value) {
   if (key === 'activeProvider') {
     const activeProvider = normalizeProviderName(value);
@@ -984,6 +997,7 @@ function SettingsNotices({ error, status }) {
 
 function AboutPanel({ buildInfo, cwd, runtime }) {
   const canInstallUpdate = Boolean(runtime.updateInfo?.available) && !runtime.updateInstalling;
+  const updateCurrentVersion = appUpdateCurrentVersionLabel(buildInfo);
   return (
     <Panel title="ABOUT">
       <dl>
@@ -996,7 +1010,7 @@ function AboutPanel({ buildInfo, cwd, runtime }) {
       <div className="data-card-vue settings-update-card" data-testid="settings-update-card">
         <div className="data-row-vue">
           <strong>应用更新</strong>
-          <span>当前版本 {buildInfo?.version || 'unknown'}</span>
+          <span>当前版本 {updateCurrentVersion}</span>
         </div>
         <div className="settings-action-row settings-action-inline">
           <button className="btn btn-secondary btn-toolbar-sm" type="button" data-testid="settings-update-check-button" onClick={() => void runtime.checkForUpdate()} disabled={runtime.updateBusy || runtime.updateInstalling}>{runtime.updateBusy ? '检查中...' : '检查更新'}</button>

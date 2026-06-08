@@ -133,6 +133,21 @@ describe('SettingsPage app update entry', () => {
     expect(within(updateCard).getByTestId('settings-update-check-button')).toHaveTextContent('检查更新');
   });
 
+  it('prefers the packaged app version in the app update card', async () => {
+    backend.getBuildInfo.mockResolvedValueOnce({
+      version: 'v0.0.0-20260608130413-c9d1688c7e99+dirty',
+      appVersion: '1.0.2',
+      runtime: 'darwin/arm64',
+      buildTime: '2026-06-08T13:04:13Z',
+      commit: 'c9d1688c7e99',
+    });
+
+    renderSettingsPage();
+
+    const updateCard = await screen.findByTestId('settings-update-card');
+    expect(updateCard).toHaveTextContent('当前版本 v1.0.2');
+  });
+
   it('shows an available update and installs it', async () => {
     backend.checkAppUpdate.mockResolvedValueOnce({
       enabled: true,

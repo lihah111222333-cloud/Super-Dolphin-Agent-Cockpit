@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 	"runtime/debug"
 	"sort"
@@ -448,6 +449,9 @@ func currentBuildInfo() map[string]string {
 		"version": "dev",
 		"commit":  "unknown",
 		"runtime": runtime.GOOS + "/" + runtime.GOARCH,
+	}
+	if appVersion := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_UPDATE_VERSION")); appVersion != "" {
+		info["appVersion"] = appVersion
 	}
 	buildInfo, ok := debug.ReadBuildInfo()
 	if !ok {
