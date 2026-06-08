@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsPage } from './SettingsPage.jsx';
 
@@ -124,8 +124,18 @@ describe('SettingsPage module', () => {
 });
 
 describe('SettingsPage app update entry', () => {
+  it('renders the app update area as a prominent about card', async () => {
+    renderSettingsPage();
+
+    const updateCard = await screen.findByTestId('settings-update-card');
+    expect(updateCard).toHaveTextContent('应用更新');
+    expect(updateCard).toHaveTextContent('当前版本 v1.2.3');
+    expect(within(updateCard).getByTestId('settings-update-check-button')).toHaveTextContent('检查更新');
+  });
+
   it('shows an available update and installs it', async () => {
     backend.checkAppUpdate.mockResolvedValueOnce({
+      enabled: true,
       available: true,
       version: 'v1.2.4',
     });
@@ -150,7 +160,7 @@ describe('SettingsPage app update entry', () => {
 
   it('hides the install action while install is pending', async () => {
     const pendingInstall = deferred();
-    backend.checkAppUpdate.mockResolvedValueOnce({ available: true, version: 'v1.2.4' });
+    backend.checkAppUpdate.mockResolvedValueOnce({ enabled: true, available: true, version: 'v1.2.4' });
     backend.installLatestAppUpdate.mockReturnValueOnce(pendingInstall.promise);
 
     renderSettingsPage();
@@ -175,8 +185,8 @@ describe('SettingsPage app update entry', () => {
 
   it('clears stale update details when no update is available', async () => {
     backend.checkAppUpdate
-      .mockResolvedValueOnce({ available: true, version: 'v1.2.4' })
-      .mockResolvedValueOnce({ available: false });
+      .mockResolvedValueOnce({ enabled: true, available: true, version: 'v1.2.4' })
+      .mockResolvedValueOnce({ enabled: true, available: false });
 
     renderSettingsPage();
 
@@ -191,9 +201,23 @@ describe('SettingsPage app update entry', () => {
     });
   });
 
+  it('shows a disabled update notice instead of saying the dev build is current', async () => {
+    backend.checkAppUpdate.mockResolvedValueOnce({ enabled: false, available: false });
+
+    renderSettingsPage();
+
+    fireEvent.click(await screen.findByTestId('settings-update-check-button'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('当前构建未启用应用更新');
+      expect(screen.getByTestId('settings-update-notice')).toHaveAttribute('role', 'status');
+    });
+    expect(screen.queryByTestId('settings-update-install-button')).not.toBeInTheDocument();
+  });
+
   it('clears stale update details when checking fails', async () => {
     backend.checkAppUpdate
-      .mockResolvedValueOnce({ available: true, version: 'v1.2.4' })
+      .mockResolvedValueOnce({ enabled: true, available: true, version: 'v1.2.4' })
       .mockRejectedValueOnce(new Error('manifest unavailable'));
 
     renderSettingsPage();
@@ -211,7 +235,7 @@ describe('SettingsPage app update entry', () => {
   });
 
   it('shows install failures and allows retry', async () => {
-    backend.checkAppUpdate.mockResolvedValueOnce({ available: true, version: 'v1.2.4' });
+    backend.checkAppUpdate.mockResolvedValueOnce({ enabled: true, available: true, version: 'v1.2.4' });
     backend.installLatestAppUpdate
       .mockRejectedValueOnce(new Error('permission denied'))
       .mockResolvedValueOnce({ ok: true });
