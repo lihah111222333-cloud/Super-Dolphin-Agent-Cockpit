@@ -28,6 +28,52 @@ func TestGoRootResolverGoMod(t *testing.T) {
 	})
 }
 
+func TestGoRootResolverUsesGoModVersionBeforePATHDefault(t *testing.T) {
+	repo := normalizedTempDir(t)
+	backend := filepath.Join(repo, "backend")
+	writeFile(t, filepath.Join(backend, "go.mod"), "module example.com/backend\n\ngo 1.26.4\n")
+	target := writeGoFile(t, backend, "main.go")
+	oldGoDir := writeFakeGoVersion(t, repo, "old-go", "go version go1.25.6 darwin/arm64")
+	requiredGoDir := writeFakeGoVersion(t, repo, "required-go", "go version go1.26.4 darwin/arm64")
+
+	info, err := ResolveGoRoot(GoRootRequest{
+		CWD:      repo,
+		FilePath: target,
+		Env:      []string{"PATH=" + oldGoDir + string(os.PathListSeparator) + requiredGoDir},
+	})
+	if err != nil {
+		t.Fatalf("ResolveGoRoot() error = %v", err)
+	}
+
+	wantPath := "PATH=" + requiredGoDir + string(os.PathListSeparator) + oldGoDir
+	wantEnv := []string{wantPath, "GOTOOLCHAIN=local"}
+	if got := goRootEnv(info); !reflect.DeepEqual(got, wantEnv) {
+		t.Fatalf("go.mod toolchain env = %#v, want %#v", got, wantEnv)
+	}
+}
+
+func TestGoRootResolverFailsWhenGoModVersionMissingFromPATH(t *testing.T) {
+	repo := normalizedTempDir(t)
+	backend := filepath.Join(repo, "backend")
+	writeFile(t, filepath.Join(backend, "go.mod"), "module example.com/backend\n\ngo 1.26.4\n")
+	target := writeGoFile(t, backend, "main.go")
+	oldGoDir := writeFakeGoVersion(t, repo, "old-go", "go version go1.25.6 darwin/arm64")
+
+	info, err := ResolveGoRoot(GoRootRequest{
+		CWD:      repo,
+		FilePath: target,
+		Env:      []string{"PATH=" + oldGoDir},
+	})
+	if err == nil {
+		t.Fatalf("ResolveGoRoot() error = nil, got info %#v", info)
+	}
+	for _, fragment := range []string{"go.mod", "go 1.26.4", "PATH"} {
+		if !strings.Contains(err.Error(), fragment) {
+			t.Fatalf("ResolveGoRoot() error = %v, want fragment %q", err, fragment)
+		}
+	}
+}
+
 func TestGoRootResolverGoWork(t *testing.T) {
 	repo := normalizedTempDir(t)
 	backend := filepath.Join(repo, "backend")
@@ -576,6 +622,17 @@ func normalizedTempDir(t *testing.T) string {
 func writeGoMod(t *testing.T, dir, module string) {
 	t.Helper()
 	writeFile(t, filepath.Join(dir, "go.mod"), "module "+module+"\n\ngo 1.25.0\n")
+}
+
+func writeFakeGoVersion(t *testing.T, root, name, output string) string {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	body := "#!/bin/sh\n/bin/echo '" + output + "'\nexit 0\n"
+	writeFile(t, filepath.Join(dir, "go"), body)
+	if err := os.Chmod(filepath.Join(dir, "go"), 0o755); err != nil {
+		t.Fatalf("chmod fake go: %v", err)
+	}
+	return dir
 }
 
 func writeGoFile(t *testing.T, dir, name string) string {

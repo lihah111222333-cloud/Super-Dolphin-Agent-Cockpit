@@ -167,16 +167,23 @@ func (a goLanguageAdapter) resolvedDirectoryFilters() []string {
 }
 
 func (goLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
+	env := make([]string, 0, 3)
 	mode := scope.LanguageSpecific["goworkMode"]
 	switch mode {
 	case goworkModeOff:
-		return []string{"GOWORK=off"}
+		env = append(env, "GOWORK=off")
 	case goworkModeAuto, goworkModeExplicit:
 		if path := scope.LanguageSpecific["goWorkPath"]; path != "" {
-			return []string{"GOWORK=" + path}
+			env = append(env, "GOWORK="+path)
 		}
 	}
-	return nil
+	if pathEnv := scope.LanguageSpecific["goToolchainPathEnv"]; pathEnv != "" {
+		env = append(env, "PATH="+pathEnv, "GOTOOLCHAIN=local")
+	}
+	if len(env) == 0 {
+		return nil
+	}
+	return env
 }
 
 func (goLanguageAdapter) BootstrapPolicy(ResolvedLanguageScope) BootstrapPolicy {
