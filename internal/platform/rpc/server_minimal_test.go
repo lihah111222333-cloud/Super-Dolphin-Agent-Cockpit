@@ -200,8 +200,15 @@ func TestServerRunPublishesActualControlRPCAddr(t *testing.T) {
 
 type stubRPCLogger struct{}
 
-func (stubRPCLogger) LogRequest(context.Context, *jrpc2.Request)   {}
-func (stubRPCLogger) LogResponse(context.Context, *jrpc2.Response) {}
+func (stubRPCLogger) LogRequest(ctx context.Context, req *jrpc2.Request) {
+	_ = ctx
+	_ = req
+}
+
+func (stubRPCLogger) LogResponse(ctx context.Context, resp *jrpc2.Response) {
+	_ = ctx
+	_ = resp
+}
 
 func newTestServer() *Server {
 	return NewServer(Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})

@@ -70,7 +70,8 @@ func (s *service) collectConfiguredAutoMatchedSkills(ctx context.Context, resolv
 	if err != nil {
 		return nil, err
 	}
-	// TODO(P7): replace config-read derived matches with a provider-backed matcher once provider context can express explicit vs force configured bindings.
+	// Config-read derived matches remain the compatibility source until
+	// provider context can express explicit vs force configured bindings.
 	items := make([]autoMatchedSkill, 0)
 	for _, name := range configuredSkillNames(config) {
 		if canonicalName, ok := skillidentity.CanonicalNameForAlias(name, skills); ok {

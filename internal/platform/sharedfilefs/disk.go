@@ -30,7 +30,7 @@ const (
 	// 大多数 handoff / progress 文件，又能挡住整段 LLM transcript 这类
 	// 大对象。可由 Config.InlineThresholdBytes 覆盖。
 	DefaultInlineThresholdBytes = 100 * 1024
-	// 临时文件后缀；rename 失败兜底由 cleanupTmp 处理。
+	// Staging file suffix; rename 失败兜底由 cleanupTmp 处理。
 	tmpSuffix = ".tmp-"
 )
 

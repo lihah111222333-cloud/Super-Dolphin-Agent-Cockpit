@@ -19,15 +19,17 @@ type dagToolCaller interface {
 }
 
 type mcpOrchDAGRuntime struct {
-	tools dagToolCaller
+	tools             dagToolCaller
+	peerReadyTimeout  time.Duration
+	peerReadyInterval time.Duration
+	now               func() time.Time
 }
 
 var _ contract.DAGRuntime = (*mcpOrchDAGRuntime)(nil)
 
-var (
-	dagRuntimePeerReadyTimeout      = 10 * time.Second
-	dagRuntimePeerReadyPollInterval = 300 * time.Millisecond
-	nowFunc                         = time.Now
+const (
+	defaultDAGRuntimePeerReadyTimeout      = 10 * time.Second
+	defaultDAGRuntimePeerReadyPollInterval = 300 * time.Millisecond
 )
 
 func newMCPOrchDAGRuntime(handler *toolbridge.Handler) *mcpOrchDAGRuntime {
@@ -165,17 +167,19 @@ func encodeDAGToolCall(toolName string, args any) (contract.ToolCallRawMessage, 
 }
 
 func (r *mcpOrchDAGRuntime) runDAGToolCall(ctx context.Context, toolName string, msg contract.ToolCallRawMessage) (*toolbridge.ToolCallResult, error) {
-	deadline := nowFunc().Add(dagRuntimePeerReadyTimeout)
+	now := r.clock()
+	timeout := r.peerTimeout()
+	deadline := now().Add(timeout)
 	for {
 		result, err := r.runDAGToolCallOnce(ctx, toolName, msg)
 		if err == nil || !errors.Is(err, toolbridge.ErrNoPeerAvailable) {
 			return result, err
 		}
-		if nowFunc().After(deadline) {
-			return nil, fmt.Errorf("app: mcp-orch peer not ready for %s after %s: %w", toolName, dagRuntimePeerReadyTimeout, err)
+		if now().After(deadline) {
+			return nil, fmt.Errorf("app: mcp-orch peer not ready for %s after %s: %w", toolName, timeout, err)
 		}
-		wait := dagRuntimePeerReadyPollInterval
-		if remaining := time.Until(deadline); remaining < wait {
+		wait := r.peerPollInterval()
+		if remaining := deadline.Sub(now()); remaining < wait {
 			wait = remaining
 		}
 		if wait <= 0 {
@@ -187,6 +191,27 @@ func (r *mcpOrchDAGRuntime) runDAGToolCall(ctx context.Context, toolName string,
 		case <-time.After(wait):
 		}
 	}
+}
+
+func (r *mcpOrchDAGRuntime) peerTimeout() time.Duration {
+	if r != nil && r.peerReadyTimeout > 0 {
+		return r.peerReadyTimeout
+	}
+	return defaultDAGRuntimePeerReadyTimeout
+}
+
+func (r *mcpOrchDAGRuntime) peerPollInterval() time.Duration {
+	if r != nil && r.peerReadyInterval > 0 {
+		return r.peerReadyInterval
+	}
+	return defaultDAGRuntimePeerReadyPollInterval
+}
+
+func (r *mcpOrchDAGRuntime) clock() func() time.Time {
+	if r != nil && r.now != nil {
+		return r.now
+	}
+	return time.Now
 }
 
 func (r *mcpOrchDAGRuntime) runDAGToolCallOnce(ctx context.Context, toolName string, msg contract.ToolCallRawMessage) (*toolbridge.ToolCallResult, error) {

@@ -323,7 +323,7 @@ func newHookRows(values [][]any) *hookRowsStub {
 	return &hookRowsStub{values: values}
 }
 
-func (r *hookRowsStub) Close() {}
+func (r *hookRowsStub) Close() { _ = r }
 
 func (r *hookRowsStub) Err() error { return r.err }
 

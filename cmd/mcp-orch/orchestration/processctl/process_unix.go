@@ -23,7 +23,9 @@ func Attach(_ *exec.Cmd, _ *slog.Logger) *Guard {
 	return &Guard{}
 }
 
-func (g *Guard) Close() {}
+func (g *Guard) Close() {
+	_ = g
+}
 
 func RequestStop(cmd *exec.Cmd, guard *Guard) error {
 	return signalProcess(cmd, guard, syscall.SIGTERM)

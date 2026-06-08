@@ -27,7 +27,9 @@ func attachProcessGuard(cmd *exec.Cmd) *processGuard {
 	return &processGuard{}
 }
 
-func (g *processGuard) close() {}
+func (g *processGuard) close() {
+	_ = g
+}
 
 func signalClaudeProcess(cmd *exec.Cmd, guard *processGuard, sig processSig) error {
 	_ = guard

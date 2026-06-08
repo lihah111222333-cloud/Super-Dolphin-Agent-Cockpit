@@ -34,8 +34,8 @@ func newWindowOptions(title string, debug bool, name, uiBootstrap, cwd string) a
 	if name = strings.TrimSpace(name); name != "" {
 		options.Name = name
 	}
-	// TODO(P7.5): Frontend bootstrap must consume ao_ui_bootstrap/ao_window_cwd
-	// from the query string; backend only propagates them into the window URL.
+	// Backend propagates bootstrap values into the window URL; frontend
+	// consumers read ao_ui_bootstrap/ao_window_cwd from the query string.
 	options.URL = windowURL(uiBootstrap, cwd)
 	return options
 }

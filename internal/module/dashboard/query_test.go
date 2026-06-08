@@ -614,7 +614,7 @@ type queryRowsStub struct {
 	err    error
 }
 
-func (r *queryRowsStub) Close() {}
+func (r *queryRowsStub) Close() { _ = r }
 
 func (r *queryRowsStub) Err() error { return r.err }
 

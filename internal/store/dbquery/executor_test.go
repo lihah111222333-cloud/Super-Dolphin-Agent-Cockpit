@@ -398,7 +398,7 @@ type stubRows struct {
 	err    error
 }
 
-func (r *stubRows) Close() {}
+func (r *stubRows) Close() { _ = r }
 
 func (r *stubRows) Err() error { return r.err }
 
