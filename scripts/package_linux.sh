@@ -50,6 +50,35 @@ if [[ "$lsp_profile" == "full" ]]; then
   lsp_server_specs+=("jdtls|bin/jdtls")
 fi
 
+# 增量构建缓存：对 phase 产物做哈希指纹，命中则跳过耗时构建。
+# 设置 SUPER_DOLPHIN_SKIP_BUILD_CACHE=1 可强制全量重建。
+_build_cache_dir="${root}/.build-cache/phases"
+
+_phase_hash() {
+  find "$@" -type f 2>/dev/null | sort | xargs shasum -a 256 2>/dev/null | shasum -a 256 | awk '{print $1}'
+}
+
+phase_cache_check() {
+  [[ "${SUPER_DOLPHIN_SKIP_BUILD_CACHE:-0}" == "1" ]] && return 1
+  local name="$1"; shift
+  local hash; hash="$(_phase_hash "$@")"
+  if [[ -f "$_build_cache_dir/$name/$hash.ok" ]]; then
+    echo "==> [$name] cache hit ($hash), skipping" >&2
+    return 0
+  fi
+  _current_phase_name="$name"; _current_phase_hash="$hash"
+  return 1
+}
+
+phase_cache_save() {
+  [[ "${SUPER_DOLPHIN_SKIP_BUILD_CACHE:-0}" == "1" ]] && return 0
+  local name="${_current_phase_name:-}"; local hash="${_current_phase_hash:-}"
+  [[ -z "$name" || -z "$hash" ]] && return 0
+  mkdir -p "$_build_cache_dir/$name"
+  rm -f "$_build_cache_dir/$name/"*.ok
+  touch "$_build_cache_dir/$name/$hash.ok"
+}
+
 validate_env_file_value() {
   local label="$1"
   local value="$2"
@@ -619,11 +648,14 @@ JSON
 
 build_current_frontend_app() {
   if [[ "${SUPER_DOLPHIN_SKIP_FRONTEND_BUILD:-}" != "1" ]]; then
-    (
-      cd "$root/frontend-app"
-      npm ci
-      npm run build
-    )
+    if ! phase_cache_check "frontend" "$root/frontend-app/src" "$root/frontend-app/package-lock.json"; then
+      (
+        cd "$root/frontend-app"
+        npm ci
+        npm run build
+      )
+      phase_cache_save
+    fi
   elif [[ ! -f "$root/frontend-app/dist/index.html" ]]; then
     echo "frontend dist missing; unset SUPER_DOLPHIN_SKIP_FRONTEND_BUILD or run npm run build first" >&2
     exit 1
@@ -666,12 +698,15 @@ package_linux_main() {
 
   build_current_frontend_app
 
-  (
-    cd "$root"
-    make build-peer-binaries
-    go build -o bin/agent-terminal ./cmd/agent-terminal
-    go build -o bin/mcp-ida ./cmd/mcp-ida
-  )
+  if ! phase_cache_check "go-binaries" "$root/cmd" "$root/internal" "$root/pkg" "$root/go.sum"; then
+    (
+      cd "$root"
+      make build-peer-binaries
+      go build -o bin/agent-terminal ./cmd/agent-terminal
+      go build -o bin/mcp-ida ./cmd/mcp-ida
+    )
+    phase_cache_save
+  fi
 
   cp "$root/bin/agent-terminal" "$stage/bin/agent-terminal"
   cp "$root/bin/mcp-orch" "$stage/bin/mcp-orch"
