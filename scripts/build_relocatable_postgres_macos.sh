@@ -6,9 +6,14 @@ version="${POSTGRES_VERSION:-16.14}"
 goos="$(go env GOOS)"
 goarch="$(go env GOARCH)"
 platform="${goos}-${goarch}"
+postgres_macos_min_version="${SUPER_DOLPHIN_MACOS_MIN_VERSION:-13.0}"
 
 if [[ "$goos" != "darwin" ]]; then
   echo "build_relocatable_postgres_macos.sh must run on macOS; current GOOS=$goos" >&2
+  exit 1
+fi
+if [[ ! "$postgres_macos_min_version" =~ ^[0-9]+([.][0-9]+){1,2}$ ]]; then
+  echo "SUPER_DOLPHIN_MACOS_MIN_VERSION must be a dotted numeric version such as 13.0" >&2
   exit 1
 fi
 
@@ -33,7 +38,14 @@ rm -rf "$prefix"
 (
   cd "$src"
   make distclean >/dev/null 2>&1 || true
-  LDFLAGS="-Wl,-headerpad_max_install_names" ./configure \
+  deployment_cflags="${CFLAGS:-}"
+  deployment_ldflags="${LDFLAGS:-}"
+  deployment_cflags="${deployment_cflags:+$deployment_cflags }-mmacosx-version-min=$postgres_macos_min_version"
+  deployment_ldflags="${deployment_ldflags:+$deployment_ldflags }-mmacosx-version-min=$postgres_macos_min_version -Wl,-headerpad_max_install_names"
+  MACOSX_DEPLOYMENT_TARGET="$postgres_macos_min_version" \
+  CFLAGS="$deployment_cflags" \
+  LDFLAGS="$deployment_ldflags" \
+    ./configure \
     --prefix="$prefix" \
     --without-icu \
     --without-readline \

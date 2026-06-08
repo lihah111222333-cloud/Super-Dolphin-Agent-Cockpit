@@ -25,6 +25,6 @@ func TestPackageMacOSScriptSupportsOptInPackagedVideoAPIKey(t *testing.T) {
 
 	assertScriptContains(t, local, "SUPER_DOLPHIN_PACKAGE_INCLUDE_VIDEO_API_KEY=\"${SUPER_DOLPHIN_PACKAGE_INCLUDE_VIDEO_API_KEY:-0}\"")
 	assertScriptContains(t, local, "SILICONFLOW_API_KEY=\"${SILICONFLOW_API_KEY:-}\"")
-	assertScriptContains(t, local, "SUPER_DOLPHIN_MACOS_MIN_VERSION=\"${SUPER_DOLPHIN_MACOS_MIN_VERSION:-11.0}\"")
+	assertScriptContains(t, local, "SUPER_DOLPHIN_MACOS_MIN_VERSION=\"${SUPER_DOLPHIN_MACOS_MIN_VERSION:-13.0}\"")
 	assertScriptOrder(t, local, "SILICONFLOW_API_KEY=\"${SILICONFLOW_API_KEY:-}\"", "\"$root/scripts/package_macos.sh\"")
 }
