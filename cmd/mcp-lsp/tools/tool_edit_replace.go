@@ -16,6 +16,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -276,7 +277,7 @@ func (h EditHandler) applyReplaceRangeUpdate(ctx context.Context, manager lspman
 }
 
 func (h EditHandler) startReplaceConfirmations(ctx context.Context, manager lspmanager.Manager, path string, updatedContent string, version int) (<-chan replaceSyncResult, <-chan editDiskConfirmResult, context.CancelFunc) {
-	syncCtx, cancelSync := context.WithTimeout(ctx, editLSPSyncTimeout)
+	syncCtx, cancelSync := platformconfig.WithTimeout(ctx, editLSPSyncTimeout)
 	syncC := make(chan replaceSyncResult, 1)
 	diffC := make(chan editDiskConfirmResult, 1)
 	go func() {
@@ -332,7 +333,7 @@ func (h EditHandler) rollbackReplaceRangeUpdate(ctx context.Context, manager lsp
 }
 
 func confirmEditDiskWriteWithGitDiff(path string, updatedContent string) editDiskConfirmResult {
-	ctx, cancel := context.WithTimeout(context.Background(), editDiskConfirmTimeout)
+	ctx, cancel := platformconfig.WithTimeout(context.Background(), editDiskConfirmTimeout)
 	defer cancel()
 	raw, err := os.ReadFile(path)
 	if err != nil {

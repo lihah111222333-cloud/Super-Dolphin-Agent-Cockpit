@@ -257,23 +257,46 @@ func loadFromSharedfiles(
 	return b.String(), nil
 }
 
-// composePrompt 拼接 inputs 前缀与 first_turn。F1.2 设计决策：
+func artifactOutputContract(target *ArtifactTarget) string {
+	if target == nil {
+		return ""
+	}
+	sourceTool := strings.TrimSpace(target.SourceTool)
+	pathField := strings.TrimSpace(target.SourcePathField)
+	if sourceTool == "" || pathField == "" {
+		return ""
+	}
+	return fmt.Sprintf(`[outputs.to_artifact]
+This DAG node imports a local artifact from tool %q using result field %q.
+After a successful tool call, the final response must be exactly one JSON object like {"success":true,"source_tool":%q,"%s":"<path>"}.
+Do not return only natural language and do not invent a path. If the tool cannot run or required inputs are missing, return {"success":false,"source_tool":%q,"error":"<reason>"} without %q.`, sourceTool, pathField, sourceTool, pathField, sourceTool, pathField)
+}
+
+// composePrompt 拼接 inputs 前缀、artifact 输出契约与 first_turn。F1.2 设计决策：
 //   - 两者都为空 → 返回空串，表示未指定 Prompt（以免 service 层以 「空填充」 处理）。
-//   - prefix 非空 + first_turn 非空 → prefix + "\n\n[first_turn]\n" + first_turn。
+//   - prefix / artifactContract 非空 + first_turn 非空 → 前缀段 + "\n\n[first_turn]\n" + first_turn。
 //   - 仅 prefix 非空 → 返回 prefix（末尾别加叠加 first_turn header）。
 //   - 仅 first_turn 非空 → 返回 first_turn（保证与 F1.1 现状完全一致）。
 //
-// composePrompt joins the inputs prefix with first_turn under the F1.2
-// design decision. When only first_turn is present it returns first_turn
-// verbatim, preserving F1.1 behavior bit-for-bit so unrelated tests stay
-// stable.
-func composePrompt(prefix, firstTurn string) string {
+// composePrompt joins the inputs prefix and artifact contract with first_turn.
+// When only first_turn is present it returns first_turn verbatim, preserving
+// F1.1 behavior bit-for-bit so unrelated tests stay stable.
+func composePrompt(prefix, artifactContract, firstTurn string) string {
 	prefix = strings.TrimRight(prefix, "\n")
-	if prefix == "" {
-		return firstTurn
+	artifactContract = strings.TrimRight(artifactContract, "\n")
+	var sections []string
+	if prefix != "" {
+		sections = append(sections, prefix)
 	}
-	if firstTurn == "" {
-		return prefix
+	if artifactContract != "" {
+		sections = append(sections, artifactContract)
 	}
-	return prefix + "\n\n[first_turn]\n" + firstTurn
+	if firstTurn != "" {
+		if len(sections) == 0 {
+			sections = append(sections, firstTurn)
+		} else {
+			sections = append(sections, "[first_turn]\n"+firstTurn)
+		}
+	}
+	return strings.Join(sections, "\n\n")
 }

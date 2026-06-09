@@ -178,6 +178,46 @@ func TestAgentExecutorInputsMixedSources(t *testing.T) {
 	}
 }
 
+func TestAgentExecutorInjectsArtifactOutputContract(t *testing.T) {
+	t.Parallel()
+	launcher := &stubAgentLauncher{}
+	exec := NewAgentExecutor(launcher)
+
+	cfg := AgentNodeConfig{
+		Exec: AgentExecConfig{AgentKey: "video"},
+		Outputs: OutputsConfig{ToArtifact: &ArtifactTarget{
+			SourceTool:      "video_with_audio",
+			SourcePathField: "output_path",
+			PathTemplate:    "dag/douyin/daily-video/{{run_id}}/final.mp4",
+		}},
+		FirstTurn: "调用 video_with_audio 生成 MP4。",
+	}
+	node := makeAgentNode(t, cfg)
+
+	out, err := exec.Execute(context.Background(), node, RunContext{DagKey: "dag-video", RunID: 42})
+	if err != nil {
+		t.Fatalf("Execute() = %v", err)
+	}
+	if out.Status != NodeStatusDone {
+		t.Fatalf("Status = %q, want done (out=%+v)", out.Status, out)
+	}
+	prompt := launcher.lastReq.Prompt
+	for _, want := range []string{
+		"[outputs.to_artifact]",
+		`"source_tool":"video_with_audio"`,
+		`"output_path":"<path>"`,
+		"Do not return only natural language",
+		"调用 video_with_audio 生成 MP4。",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("Prompt missing artifact contract %q; got: %q", want, prompt)
+		}
+	}
+	if strings.Index(prompt, "[outputs.to_artifact]") > strings.Index(prompt, "[first_turn]") {
+		t.Fatalf("artifact contract must appear before first_turn; got: %q", prompt)
+	}
+}
+
 // TestAgentExecutor_Inputs_EmptyInputs_BackwardsCompat 验证 cfg.Inputs 为空时
 // LaunchRequest.Prompt 与 F1.1 保持一致（仅 first_turn）。
 func TestAgentExecutor_Inputs_EmptyInputs_BackwardsCompat(t *testing.T) {
