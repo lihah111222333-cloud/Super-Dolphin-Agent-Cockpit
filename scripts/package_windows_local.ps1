@@ -3,7 +3,8 @@ param(
     [string]$Target = $(if ($env:SUPER_DOLPHIN_PACKAGE_TARGET) { $env:SUPER_DOLPHIN_PACKAGE_TARGET } else { 'standard' }),
     [ValidateSet('all', 'installer', 'zip')]
     [string]$Artifact = $(if ($env:SUPER_DOLPHIN_WINDOWS_OUTPUT) { $env:SUPER_DOLPHIN_WINDOWS_OUTPUT } else { 'all' }),
-    [switch]$KeepStage
+    [switch]$KeepStage,
+    [switch]$Fast
 )
 
 Set-StrictMode -Version Latest
@@ -54,6 +55,20 @@ function Require-NonEmptyEnv() {
     return $value
 }
 
+function Test-TruthyEnv() {
+    param([Parameter(Mandatory)][string]$Name)
+    $value = [Environment]::GetEnvironmentVariable($Name, 'Process')
+    if ($null -eq $value) { return $false }
+    switch ($value.Trim().ToLowerInvariant()) {
+        '' { return $false }
+        '0' { return $false }
+        'false' { return $false }
+        'no' { return $false }
+        'off' { return $false }
+        default { return $true }
+    }
+}
+
 $GoOS = (& go env GOOS).Trim()
 
 function Resolve-WindowsPackageArch() {
@@ -69,8 +84,28 @@ function Resolve-WindowsPackageArch() {
 $WindowsPackageArch = Resolve-WindowsPackageArch
 $env:SUPER_DOLPHIN_WINDOWS_ARCH = $WindowsPackageArch
 $Platform = "$GoOS-$WindowsPackageArch"
+$ConfiguredWindowsOutput = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_WINDOWS_OUTPUT', 'Process')
+$WindowsOutputConfigured = $PSBoundParameters.ContainsKey('Artifact') -or ($null -ne $ConfiguredWindowsOutput -and $ConfiguredWindowsOutput.Trim() -ne '')
 $RequestedWindowsOutput = $Artifact
-$RequestedKeepStage = $KeepStage.IsPresent -or ([Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_WINDOWS_KEEP_STAGE', 'Process') -eq '1')
+$RequestedKeepStage = $KeepStage.IsPresent -or (Test-TruthyEnv 'SUPER_DOLPHIN_WINDOWS_KEEP_STAGE')
+$ConfiguredLSPBundleDir = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_LSP_BUNDLE_DIR', 'Process')
+$FastMode = $Fast.IsPresent -or (Test-TruthyEnv 'SUPER_DOLPHIN_WINDOWS_FAST')
+if ($FastMode -and -not $WindowsOutputConfigured) {
+    $RequestedWindowsOutput = 'installer'
+}
+if ($FastMode) {
+    $RequestedKeepStage = $true
+    if (-not $env:SUPER_DOLPHIN_REUSE_LSP_BUNDLE) {
+        $env:SUPER_DOLPHIN_REUSE_LSP_BUNDLE = '1'
+    }
+    if (-not $env:SUPER_DOLPHIN_WINDOWS_INSTALLER_COMPRESSION) {
+        $env:SUPER_DOLPHIN_WINDOWS_INSTALLER_COMPRESSION = 'zip'
+    }
+    if (-not $env:SUPER_DOLPHIN_WINDOWS_INSTALLER_SOLID_COMPRESSION) {
+        $env:SUPER_DOLPHIN_WINDOWS_INSTALLER_SOLID_COMPRESSION = 'no'
+    }
+    Write-Host '==> fast Windows packaging enabled: installer-only default, reusable LSP bundle, fast installer compression'
+}
 $RelayUrl = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_CODEX_RELAY_BASE_URL', 'Process')
 $BootstrapToken = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN', 'Process')
 $UpdateManifestURL = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_UPDATE_MANIFEST_URL', 'Process')
@@ -128,17 +163,70 @@ function Forward-UpdateEnv() {
     }
 }
 
+function Resolve-LSPBundleDir() {
+    param([Parameter(Mandatory)][string]$Profile)
+    if ($null -ne $script:ConfiguredLSPBundleDir -and $script:ConfiguredLSPBundleDir.Trim() -ne '') {
+        return $script:ConfiguredLSPBundleDir.Trim()
+    }
+    $cacheDir = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_PACKAGE_CACHE_DIR', 'Process')
+    if ($script:FastMode -and $null -ne $cacheDir -and $cacheDir.Trim() -ne '') {
+        return Join-Path $cacheDir.Trim() "lsp/$Profile/$Platform"
+    }
+    return Join-Path $Root ".build-cache/lsp/$Profile/$Platform"
+}
+
+function Test-ExistingLSPBundle() {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Profile
+    )
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        return $false
+    }
+
+    $requiredFiles = @(
+        'lsp-manifest.json',
+        'lsp-checksums.sha256',
+        'node/node.exe',
+        'bin/gopls.exe',
+        'bin/typescript-language-server.cmd',
+        'bin/vscode-css-language-server.cmd',
+        'bin/pyright-langserver.cmd',
+        'bin/rust-analyzer.exe',
+        'bin/bash-language-server.cmd',
+        'bin/sg.exe',
+        'bin/go.cmd'
+    )
+    if (-not (Test-TruthyEnv 'SUPER_DOLPHIN_WINDOWS_OMIT_SHELLCHECK')) {
+        $requiredFiles += 'bin/shellcheck.exe'
+    }
+    if ($Profile -eq 'full') {
+        $requiredFiles += @('bin/java.cmd', 'bin/jdtls.cmd')
+    }
+
+    foreach ($relativePath in $requiredFiles) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Path $relativePath) -PathType Leaf)) {
+            return $false
+        }
+    }
+    return $true
+}
+
 function Package-One() {
     param([Parameter(Mandatory)][string]$Profile)
 
     $appName = if ($Profile -eq 'full') { 'super-dolphin-full-lsp' } else { 'super-dolphin' }
-    $lspDir = if ($env:SUPER_DOLPHIN_LSP_BUNDLE_DIR) { $env:SUPER_DOLPHIN_LSP_BUNDLE_DIR } else { Join-Path $Root ".build-cache/lsp/$Profile/$Platform" }
+    $lspDir = Resolve-LSPBundleDir -Profile $Profile
     Write-Host "==> packaging Windows $Profile profile as $appName"
 
     $env:SUPER_DOLPHIN_LSP_PROFILE = $Profile
     $env:SUPER_DOLPHIN_LSP_BUNDLE_DIR = $lspDir
-    & (Join-Path $Root 'scripts/prepare_lsp_bundle_windows.ps1')
-    if ($LASTEXITCODE -ne 0) { throw 'prepare_lsp_bundle_windows.ps1 failed' }
+    if ((Test-TruthyEnv 'SUPER_DOLPHIN_REUSE_LSP_BUNDLE') -and (Test-ExistingLSPBundle -Path $lspDir -Profile $Profile)) {
+        Write-Host "==> reusing existing Windows LSP bundle: $lspDir"
+    } else {
+        & (Join-Path $Root 'scripts/prepare_lsp_bundle_windows.ps1')
+        if ($LASTEXITCODE -ne 0) { throw 'prepare_lsp_bundle_windows.ps1 failed' }
+    }
 
     $env:APP_NAME = $appName
     $env:SUPER_DOLPHIN_POSTGRES_DIST = $PostgresDist
