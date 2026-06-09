@@ -66,6 +66,8 @@ $CodexRelayPrivilegedApiKeyEnv = 'SUPER_DOLPHIN_CODEX_RELAY_API_KEY'
 $CodexArtifactEnv = 'SUPER_DOLPHIN_CODEX_ARTIFACT'
 $CodexSHA256Env = 'SUPER_DOLPHIN_CODEX_SHA256'
 $CodexVersionEnv = 'SUPER_DOLPHIN_CODEX_VERSION'
+$VideoAPIKeyEnv = 'SILICONFLOW_API_KEY'
+$FFmpegBinEnv = 'SUPER_DOLPHIN_FFMPEG_BIN'
 $LSPBundleDirEnv = 'SUPER_DOLPHIN_LSP_BUNDLE_DIR'
 $LSPManifestName = 'lsp-manifest.json'
 $LSPChecksumsName = 'lsp-checksums.sha256'
@@ -73,9 +75,12 @@ $RequireBundledCodex = if ($env:SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX) { $env:SUPE
 $PackagedRelayBaseUrl = ''
 $PackagedRelayBootstrapToken = ''
 $PackagedRelayBootstrapProof = ''
+$PackagedVideoAPIKey = ''
 $PackagedCodexArtifact = ''
 $PackagedCodexSHA256 = ''
 $PackagedCodexVersion = ''
+$PackagedFFmpegBin = ''
+$PackagedFFmpegRuntimeDir = ''
 $PackagedLSPBundleDir = ''
 $LSPProfile = if ($env:SUPER_DOLPHIN_LSP_PROFILE) { $env:SUPER_DOLPHIN_LSP_PROFILE } else { 'standard' }
 
@@ -403,14 +408,26 @@ function Resolve-PackagedRelayEnv() {
     Validate-EnvFileValue -Label $CodexRelayBootstrapProofEnv -Value $script:PackagedRelayBootstrapProof
 }
 
+function Resolve-PackagedVideoEnv() {
+    $script:PackagedVideoAPIKey = Get-EnvValue $VideoAPIKeyEnv
+    if ($script:PackagedVideoAPIKey.Trim() -eq '') {
+        $script:PackagedVideoAPIKey = ''
+        return
+    }
+    Validate-EnvFileValue -Label $VideoAPIKeyEnv -Value $script:PackagedVideoAPIKey
+}
+
 function Write-PackagedRelayEnv() {
     param([Parameter(Mandatory)][string]$BundleRoot)
     $envPath = Join-Path $BundleRoot '.env'
-    $content = @(
-        "$CodexRelayBaseUrlEnv=$PackagedRelayBaseUrl",
-        "$CodexRelayBootstrapTokenEnv=$PackagedRelayBootstrapToken",
-        "$CodexRelayBootstrapProofEnv=$PackagedRelayBootstrapProof"
-    ) -join "`n"
+    $contentLines = [Collections.Generic.List[string]]::new()
+    $contentLines.Add("$CodexRelayBaseUrlEnv=$PackagedRelayBaseUrl")
+    $contentLines.Add("$CodexRelayBootstrapTokenEnv=$PackagedRelayBootstrapToken")
+    $contentLines.Add("$CodexRelayBootstrapProofEnv=$PackagedRelayBootstrapProof")
+    if ($PackagedVideoAPIKey.Trim() -ne '') {
+        $contentLines.Add("$VideoAPIKeyEnv=$PackagedVideoAPIKey")
+    }
+    $content = $contentLines -join "`n"
     Write-Utf8NoBom -Path $envPath -Content ($content + "`n")
 }
 
@@ -460,6 +477,57 @@ function Copy-PackagedCodex() {
     if ($PackagedCodexArtifact.Trim() -eq '') { return }
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Destination) | Out-Null
     Copy-Item -LiteralPath $PackagedCodexArtifact -Destination $Destination -Force
+}
+
+function Resolve-PackagedFFmpeg() {
+    $configured = Get-EnvValue $FFmpegBinEnv
+    if ($configured.Trim() -ne '') {
+        $candidate = $configured
+    } else {
+        $cmd = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+        $candidate = if ($cmd) { $cmd.Source } else { '' }
+    }
+    if ($candidate.Trim() -eq '') {
+        throw "packaged ffmpeg is required for video tools; install ffmpeg.exe or set $FFmpegBinEnv"
+    }
+    if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+        throw "packaged ffmpeg does not exist: $candidate"
+    }
+    if ([IO.Path]::GetExtension($candidate).ToLowerInvariant() -ne '.exe') {
+        throw "packaged ffmpeg must be a Windows .exe: $candidate"
+    }
+    $script:PackagedFFmpegBin = $candidate
+    $script:PackagedFFmpegRuntimeDir = Split-Path -Parent $candidate
+    & $script:PackagedFFmpegBin -version *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "ffmpeg smoke failed: $script:PackagedFFmpegBin -version"
+    }
+    Assert-WindowsNativeArchitecture -Path $script:PackagedFFmpegBin -ExpectedArch $WindowsPackageArch -Label 'ffmpeg'
+    Write-Host "ffmpeg verified: $script:PackagedFFmpegBin"
+}
+
+function Copy-PackagedFFmpeg() {
+    param([Parameter(Mandatory)][string]$BundleRoot)
+    if ($PackagedFFmpegBin.Trim() -eq '') {
+        throw "packaged ffmpeg was not resolved; call Resolve-PackagedFFmpeg before staging"
+    }
+    if ($PackagedFFmpegRuntimeDir.Trim() -eq '') {
+        throw "packaged ffmpeg runtime dir was not resolved; call Resolve-PackagedFFmpeg before staging"
+    }
+    $binDir = Join-Path $BundleRoot 'bin'
+    $dest = Join-Path $binDir 'ffmpeg.exe'
+    New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+    Copy-Item -LiteralPath $PackagedFFmpegBin -Destination $dest -Force
+    Get-ChildItem -LiteralPath $script:PackagedFFmpegRuntimeDir -Filter '*.dll' -File |
+        ForEach-Object {
+            Assert-WindowsNativeArchitecture -Path $_.FullName -ExpectedArch $WindowsPackageArch -Label 'ffmpeg runtime DLL'
+            Copy-Item -LiteralPath $_.FullName -Destination $binDir -Force
+        }
+    Assert-WindowsNativeArchitecture -Path $dest -ExpectedArch $WindowsPackageArch -Label 'packaged ffmpeg'
+    & $dest -version *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "packaged ffmpeg smoke failed: $dest -version"
+    }
 }
 
 function Get-LSPManifestEntry() {
@@ -722,7 +790,8 @@ function Write-RunScripts() {
         'mcp-orch.exe',
         'mcp-lsp.exe',
         'mcp-ida.exe',
-        'codex.exe'
+        'codex.exe',
+        'ffmpeg.exe'
     )
     foreach ($spec in $LSPServerSpecs) {
         $requiredExecutables += $spec.Split('|')[2]
@@ -736,6 +805,7 @@ for %%I in ("%here%.") do set "here=%%~fI"
 set "SUPER_DOLPHIN_PACKAGE_ROOT=%here%"
 set "PROJECT_ROOT=%here%"
 set "SUPER_DOLPHIN_MODEL_REGISTRY=%here%\models.yaml"
+set "FFMPEG_PATH=%here%\bin\ffmpeg.exe"
 set "SUPER_DOLPHIN_POSTGRES_BIN_DIR=%here%\postgres\__PLATFORM__\bin"
 set "PATH=%here%\bin;%here%\lsp\bin;%here%\lsp\node;%here%\lsp\node_modules\.bin;%SystemRoot%\System32;%SystemRoot%;%PATH%"
 set "GO_AGENT_PEER_BIN_DIR=%here%\bin"
@@ -764,6 +834,7 @@ $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $env:SUPER_DOLPHIN_PACKAGE_ROOT = $Here
 $env:PROJECT_ROOT = $Here
 $env:SUPER_DOLPHIN_MODEL_REGISTRY = Join-Path $Here 'models.yaml'
+$env:FFMPEG_PATH = Join-Path $Here 'bin\ffmpeg.exe'
 $env:SUPER_DOLPHIN_POSTGRES_BIN_DIR = Join-Path $Here 'postgres\__PLATFORM__\bin'
 $env:Path = ((Join-Path $Here 'bin'), (Join-Path $Here 'lsp\bin'), (Join-Path $Here 'lsp\node'), (Join-Path $Here 'lsp\node_modules\.bin'), (Join-Path $env:SystemRoot 'System32'), $env:SystemRoot, $env:Path) -join [IO.Path]::PathSeparator
 $env:GO_AGENT_PEER_BIN_DIR = Join-Path $Here 'bin'
@@ -864,8 +935,10 @@ function Package-WindowsMain() {
     }
 
     Resolve-PackagedRelayEnv
+    Resolve-PackagedVideoEnv
     Resolve-PackagedCodexArtifact
     Resolve-PackagedLSPBundle
+    Resolve-PackagedFFmpeg
 
     $dist = Join-Path $Root 'dist/package/windows'
     $stage = Join-Path $dist "$AppName-$Version-$Platform"
@@ -908,6 +981,7 @@ function Package-WindowsMain() {
     Copy-DirectoryClean -Source (Join-Path $Root 'migrations') -Destination (Join-Path $Stage 'migrations')
     Copy-PackagedLSPBundle -BundleRoot $Stage
     Copy-PackagedCodex -BundleRoot $Stage -Destination (Join-Path $Stage 'bin/codex.exe')
+    Copy-PackagedFFmpeg -BundleRoot $Stage
     Write-CodexManifest -BundleRoot $Stage
     Write-LSPManifest -BundleRoot $Stage
     Copy-ModelRegistry -BundleRoot $Stage

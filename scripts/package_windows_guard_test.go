@@ -259,6 +259,61 @@ func TestPackageWindowsScriptBundlesVerifiedCodexAndLSP(t *testing.T) {
 	assertScriptOrder(t, script, "Copy-PackagedLSPBundle -BundleRoot $Stage", "Write-LSPManifest -BundleRoot $Stage")
 }
 
+func TestPackageWindowsScriptSupportsPackagedVideoAPIKey(t *testing.T) {
+	script := readScript(t, "package_windows.ps1")
+
+	assertScriptContains(t, script, "$VideoAPIKeyEnv = 'SILICONFLOW_API_KEY'")
+	assertScriptContains(t, script, "function Resolve-PackagedVideoEnv")
+	assertScriptContains(t, script, "Validate-EnvFileValue -Label $VideoAPIKeyEnv -Value $script:PackagedVideoAPIKey")
+	assertScriptContains(t, script, "$contentLines.Add(\"$VideoAPIKeyEnv=$PackagedVideoAPIKey\")")
+	assertScriptOrder(t, script, "Resolve-PackagedVideoEnv", "Write-PackagedRelayEnv -BundleRoot $Stage")
+	assertScriptOrder(t, script, "Write-PackagedRelayEnv -BundleRoot $Stage", "Write-RuntimeManifest -BundleRoot $Stage")
+}
+
+func TestPackageWindowsScriptBundlesFFmpegForVideoTools(t *testing.T) {
+	script := readScript(t, "package_windows.ps1")
+	verify := readScript(t, "verify_packaged_app_windows.ps1")
+
+	for _, want := range []string{
+		"$FFmpegBinEnv = 'SUPER_DOLPHIN_FFMPEG_BIN'",
+		"$PackagedFFmpegRuntimeDir = ''",
+		"function Resolve-PackagedFFmpeg",
+		"function Copy-PackagedFFmpeg",
+		"ffmpeg.exe",
+		"Copy-Item -LiteralPath $PackagedFFmpegBin -Destination $dest -Force",
+		"Get-ChildItem -LiteralPath $script:PackagedFFmpegRuntimeDir -Filter '*.dll' -File",
+		"Copy-Item -LiteralPath $_.FullName -Destination $binDir -Force",
+		"Assert-WindowsNativeArchitecture -Path $_.FullName -ExpectedArch $WindowsPackageArch -Label 'ffmpeg runtime DLL'",
+		"Assert-WindowsNativeArchitecture -Path $script:PackagedFFmpegBin -ExpectedArch $WindowsPackageArch -Label 'ffmpeg'",
+		"Copy-PackagedFFmpeg -BundleRoot $Stage",
+		"set \"FFMPEG_PATH=%here%\\bin\\ffmpeg.exe\"",
+		"$env:FFMPEG_PATH = Join-Path $Here 'bin\\ffmpeg.exe'",
+	} {
+		assertScriptContains(t, script, want)
+	}
+	assertScriptOrder(t, script, "Resolve-PackagedFFmpeg", "New-Item -ItemType Directory -Force -Path (Join-Path $Stage 'bin')")
+	assertScriptOrder(t, script, "Copy-Item -LiteralPath $_.FullName -Destination $binDir -Force", "& $dest -version *> $null")
+	assertScriptOrder(t, script, "Copy-PackagedFFmpeg -BundleRoot $Stage", "Write-RuntimeManifest -BundleRoot $Stage")
+	assertScriptContains(t, verify, "function Verify-FFmpeg")
+	assertScriptContains(t, verify, "bin/ffmpeg.exe")
+	assertScriptContains(t, verify, "packaged ffmpeg smoke verified")
+}
+
+func TestPackageWindowsLocalScriptChecksHostFFmpegDependency(t *testing.T) {
+	script := readScript(t, "package_windows_local.ps1")
+
+	for _, want := range []string{
+		"SUPER_DOLPHIN_FFMPEG_BIN",
+		"$FFmpegBin = if ($env:SUPER_DOLPHIN_FFMPEG_BIN) { $env:SUPER_DOLPHIN_FFMPEG_BIN } else { Get-CommandSource 'ffmpeg.exe' }",
+		"missing ffmpeg.exe; install ffmpeg or set SUPER_DOLPHIN_FFMPEG_BIN",
+		"$env:SUPER_DOLPHIN_FFMPEG_BIN = $FFmpegBin",
+	} {
+		assertScriptContains(t, script, want)
+	}
+	assertScriptOrder(t, script, "missing PostgreSQL dist; set SUPER_DOLPHIN_POSTGRES_DIST", "$env:SUPER_DOLPHIN_FFMPEG_BIN = $FFmpegBin")
+	assertScriptOrder(t, script, "$env:SUPER_DOLPHIN_FFMPEG_BIN = $FFmpegBin", "scripts/package_windows.ps1') @packageArgs")
+}
+
 func TestPackageWindowsRunScriptsAdvertisePackagedRuntime(t *testing.T) {
 	script := readScript(t, "package_windows.ps1")
 
