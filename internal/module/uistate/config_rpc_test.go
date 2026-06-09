@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -25,6 +26,25 @@ func TestConfigHandlersReadAndWriteLSPPromptHint(t *testing.T) {
 	assertLSPPromptHintRead(t, server)
 	assertLSPPromptHintWrite(t, server)
 	assertStoredLSPPromptHintOverride(t, prefs)
+}
+
+func TestDefaultRuntimeConfigRoutesVideoRequestsToVideoWithAudio(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig(&contract.Config{})
+	instructions, ok := cfg.DeveloperInstructions.(string)
+	if !ok {
+		t.Fatalf("DeveloperInstructions type = %T, want string", cfg.DeveloperInstructions)
+	}
+	if !strings.Contains(instructions, "video_with_audio") {
+		t.Fatalf("DeveloperInstructions = %q, want video_with_audio guidance", instructions)
+	}
+	if strings.Contains(instructions, "access to a `video_generate` MCP tool") {
+		t.Fatalf("DeveloperInstructions = %q, must not advertise video_generate", instructions)
+	}
+	if !strings.Contains(instructions, "Do not call `video_generate`") {
+		t.Fatalf("DeveloperInstructions = %q, want explicit video_generate ban", instructions)
+	}
 }
 
 func newConfigPromptHintFixture(t *testing.T) (*platformrpc.Server, *uiPreferenceStoreStub, *configThreadServiceStub, string) {

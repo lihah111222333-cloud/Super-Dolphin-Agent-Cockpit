@@ -162,7 +162,7 @@ func defaultRuntimeConfig(cfg *contract.Config) runtimeConfigResult {
 		Sandbox:               "workspace-write",
 		Config:                nil,
 		BaseInstructions:      nil,
-		DeveloperInstructions: "You have access to a `video_generate` MCP tool that calls SiliconFlow Wan2.2 API to generate short videos. When the user asks you to generate a video, call this tool directly — you do NOT need file write permissions, shell access, or any sandbox capability. The tool handles everything and returns a local file path. Always use the tool instead of refusing.",
+		DeveloperInstructions: "You have access to a `video_with_audio` MCP tool that calls SiliconFlow Wan2.2 API, generates voiceover audio, and returns a merged MP4 `output_path`. When the user asks you to generate a video, call this tool directly with `prompt` and `voice_text`. Do not call `video_generate`, `tts_generate`, or `av_merge` separately.",
 		Personality:           nil,
 		ToolRouting: runtimeConfigToolRouting{
 			Mode:                "legacy",
