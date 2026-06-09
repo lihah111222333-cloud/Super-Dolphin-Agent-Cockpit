@@ -1,0 +1,72 @@
+# Local Elastic Stack for Super Dolphin development logs.
+# Production deployments should keep the same JSON log fields but enable TLS/auth
+# and run Elasticsearch/Logstash/Kibana in the target orchestrator.
+name: super-dolphin-elk
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION:-9.4.2}
+    container_name: super-dolphin-elasticsearch
+    environment:
+      # Single-node and disabled security are for local development only.
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+    ports:
+      - "9200:9200"
+    volumes:
+      - super-dolphin-es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200 >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:${ELASTIC_VERSION:-9.4.2}
+    container_name: super-dolphin-logstash
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      LS_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      # Beats input from Filebeat.
+      - "5044:5044"
+      # Optional JSON-lines TCP input for direct app or smoke-test ingestion.
+      - "5000:5000"
+    volumes:
+      - ./logstash/pipeline/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:${ELASTIC_VERSION:-9.4.2}
+    container_name: super-dolphin-filebeat
+    user: root
+    depends_on:
+      - logstash
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    environment:
+      SUPER_DOLPHIN_SERVICE_NAME: ${SUPER_DOLPHIN_SERVICE_NAME:-super-dolphin}
+      SUPER_DOLPHIN_ENV: ${SUPER_DOLPHIN_ENV:-dev}
+    volumes:
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      # Local launchers write backend/frontend logs under .tmp and pkg/logger
+      # writes durable app logs under logs or the per-user Super Dolphin log dir.
+      - ./.tmp:/var/log/super-dolphin/tmp:ro
+      - ./logs:/var/log/super-dolphin/logs:ro
+      - super-dolphin-filebeat-data:/usr/share/filebeat/data
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:${ELASTIC_VERSION:-9.4.2}
+    container_name: super-dolphin-kibana
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+
+volumes:
+  super-dolphin-es-data:
+  super-dolphin-filebeat-data:
