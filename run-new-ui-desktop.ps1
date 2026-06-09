@@ -594,15 +594,20 @@ ON CONFLICT (cwd, key) DO NOTHING;
     $sqlFile = Join-Path $script:RunLogDir 'seed-dev-preferences.sql'
     New-Item -ItemType Directory -Force -Path $script:RunLogDir | Out-Null
     Set-Content -LiteralPath $sqlFile -Value $sql -Encoding UTF8
-    & $psql $env:DATABASE_URL `
-        -v 'ON_ERROR_STOP=1' `
-        -v "active_provider=$($env:SUPER_DOLPHIN_DEV_PROVIDER)" `
-        -v "codex_model=$($env:SUPER_DOLPHIN_DEV_CODEX_MODEL)" `
-        -v "codex_effort=$($env:SUPER_DOLPHIN_DEV_CODEX_EFFORT)" `
-        -v "codex_home=$($env:SUPER_DOLPHIN_DEV_CODEX_HOME)" `
-        -v "codex_instance_key=$($env:SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY)" `
-        -v "codex_model_provider=$($env:SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER)" `
-        -f $sqlFile *> $null
+    $psqlArgs = @(
+        '--set=ON_ERROR_STOP=1',
+        "--set=active_provider=$($env:SUPER_DOLPHIN_DEV_PROVIDER)",
+        "--set=codex_model=$($env:SUPER_DOLPHIN_DEV_CODEX_MODEL)",
+        "--set=codex_effort=$($env:SUPER_DOLPHIN_DEV_CODEX_EFFORT)",
+        "--set=codex_home=$($env:SUPER_DOLPHIN_DEV_CODEX_HOME)",
+        "--set=codex_instance_key=$($env:SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY)",
+        "--set=codex_model_provider=$($env:SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER)",
+        '-d',
+        $env:DATABASE_URL,
+        '-f',
+        $sqlFile
+    )
+    & $psql @psqlArgs *> $null
     if ($LASTEXITCODE -ne 0) { throw 'failed to seed dev provider preferences' }
     Write-Host '  -> dev provider preferences ready'
 }

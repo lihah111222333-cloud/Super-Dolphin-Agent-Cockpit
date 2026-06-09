@@ -92,6 +92,34 @@ func TestBuildStartSessionConfigCarriesTurnContextFields(t *testing.T) {
 	requireSessionConfigValue(t, cfg, "threadKind", "child_agent")
 }
 
+func TestBuildStartSessionConfigDoesNotTreatProviderAsModelProvider(t *testing.T) {
+	cfg := buildStartSessionConfig(StartRequest{
+		Provider:      "codex",
+		ModelProvider: "codex",
+	}, contract.StartInput{
+		Provider: "codex",
+		CWD:      "/repo",
+	}, contract.StartAssembly{})
+
+	if got, exists := cfg["modelProvider"]; exists {
+		t.Fatalf("modelProvider = %#v, want omitted when it only repeats provider", got)
+	}
+	requireSessionConfigValue(t, cfg, "provider", "codex")
+}
+
+func TestBuildStartSessionConfigKeepsExplicitModelProviderOverride(t *testing.T) {
+	cfg := buildStartSessionConfig(StartRequest{
+		Provider:      "codex",
+		ModelProvider: "openai",
+	}, contract.StartInput{
+		Provider: "codex",
+		CWD:      "/repo",
+	}, contract.StartAssembly{})
+
+	requireSessionConfigValue(t, cfg, "modelProvider", "openai")
+	requireSessionConfigValue(t, cfg, "provider", "codex")
+}
+
 func requireSessionConfigValue(t *testing.T, cfg map[string]any, key string, want any) {
 	t.Helper()
 	if cfg[key] != want {

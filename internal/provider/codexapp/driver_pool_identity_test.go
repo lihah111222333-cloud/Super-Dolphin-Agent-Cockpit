@@ -8,7 +8,6 @@ import (
 
 func TestWithDefaultCodexIdentityUsesLegacyModelProviderForCanonicalDefault(t *testing.T) {
 	t.Parallel()
-
 	got, err := withDefaultCodexIdentity(map[string]any{"modelProvider": " openai "}, t.TempDir(), localCodexModelProvider)
 	if err != nil {
 		t.Fatalf("withDefaultCodexIdentity returned error: %v", err)
@@ -20,12 +19,11 @@ func TestWithDefaultCodexIdentityUsesLegacyModelProviderForCanonicalDefault(t *t
 
 func TestWithDefaultCodexIdentityUsesLocalProviderForDevDefaultHome(t *testing.T) {
 	t.Parallel()
-
-	got, err := withDefaultCodexIdentity(nil, t.TempDir(), localCodexModelProvider)
+	got, err := withDefaultCodexIdentity(map[string]any{"modelProvider": " codex "}, t.TempDir(), localCodexModelProvider)
 	if err != nil {
 		t.Fatalf("withDefaultCodexIdentity returned error: %v", err)
 	}
-	if got[contract.CodexModelProviderKey] != localCodexModelProvider {
-		t.Fatalf("%s = %q, want %s", contract.CodexModelProviderKey, got[contract.CodexModelProviderKey], localCodexModelProvider)
+	if got[contract.CodexModelProviderKey] != "openai" {
+		t.Fatalf("%s = %q, want openai", contract.CodexModelProviderKey, got[contract.CodexModelProviderKey])
 	}
 }

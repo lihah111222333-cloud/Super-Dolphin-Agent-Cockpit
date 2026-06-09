@@ -74,7 +74,7 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     expect(typeof installLatestAppUpdate).toBe('function');
   });
 
-  it('starts a pending backend thread with the legacy thread/start payload shape', async () => {
+  it('starts a pending backend thread with the canonical thread/start payload shape', async () => {
     const response = { threadId: 'thread-123', state: 'pending' };
     const callAPI = vi.fn().mockResolvedValue(response);
     const api = createBackendApi({ callAPI });
@@ -95,7 +95,7 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_START, {
       cwd: '/repo/app',
       name: 'Hello',
-      modelProvider: 'codex',
+      provider: 'codex',
       prompt_key: 'main/dag_designer_zh',
       agent_key: 'assistant',
       toolSurfaceMode: 'chat',
@@ -126,7 +126,7 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
 
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_START, {
       cwd: '/repo/app',
-      modelProvider: 'claude',
+      provider: 'claude',
     });
   });
 

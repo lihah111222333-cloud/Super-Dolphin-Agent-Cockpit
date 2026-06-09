@@ -20,15 +20,12 @@ import (
 )
 
 // poolRoutingEnvVar is the binary-level override for ServerPool routing.
-// When unset, routing is enabled and fail-closed: valid codex identity uses the
-// pool, while missing identity errors instead of falling back to the legacy
-// ServerManager. Explicit false disables the pool for legacy deployments.
-const poolRoutingEnvVar = "CODEXAPP_USE_POOL"
-
+// When unset, routing is fail-closed instead of falling back to ServerManager.
 const (
+	poolRoutingEnvVar         = "CODEXAPP_USE_POOL"
 	defaultCodexInstanceKey   = "default"
 	defaultCodexModelProvider = defaultBootstrapModelProvider
-	localCodexModelProvider   = "codex"
+	localCodexModelProvider   = "openai"
 )
 
 func (d *driver) prepareStartSessionRequest(ctx context.Context, req dto.StartSessionRequest) (dto.StartSessionRequest, error) {
@@ -222,16 +219,14 @@ func withDefaultCodexIdentity(config map[string]any, home, fallbackModelProvider
 	}
 	return out, nil
 }
-
 func defaultCodexModelProviderForHome(providerHome codexProviderHomeSelection) string {
 	if providerHome.useAppManagedHome {
 		return defaultCodexModelProvider
 	}
 	return localCodexModelProvider
 }
-
 func defaultCodexModelProviderForConfig(config map[string]any, fallback string) string {
-	if provider := supportutil.FirstConfigString(config, "modelProvider", "model_provider"); provider != "" {
+	if provider := supportutil.FirstConfigString(config, "modelProvider", "model_provider"); provider != "" && strings.ToLower(provider) != providershared.ProviderClaude && strings.ToLower(provider) != providershared.ProviderCodex {
 		return provider
 	}
 	if fallback = strings.TrimSpace(fallback); fallback != "" {
@@ -239,7 +234,6 @@ func defaultCodexModelProviderForConfig(config map[string]any, fallback string) 
 	}
 	return localCodexModelProvider
 }
-
 func putDefaultCodexString(config map[string]any, key, value string) error {
 	raw, ok := config[key]
 	if !ok || raw == nil {
