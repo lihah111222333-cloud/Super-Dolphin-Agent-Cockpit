@@ -9,10 +9,10 @@ func TestPackageWindowsScriptBuildsNativeWindowsPackage(t *testing.T) {
 	assertScriptContains(t, script, "Resolve-RepoRoot")
 	assertScriptContains(t, script, "keep package_windows.ps1 under <repo>\\scripts")
 	assertScriptContains(t, script, "$GoOS -ne 'windows'")
-	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags '-H=windowsgui'")
-	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-orch.exe') -Package './cmd/mcp-orch'")
-	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-lsp.exe') -Package './cmd/mcp-lsp'")
-	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-ida.exe') -Package './cmd/mcp-ida'")
+	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags $windowsGuiLdFlags")
+	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-orch.exe') -Package './cmd/mcp-orch' -LdFlags $windowsGuiLdFlags")
+	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-lsp.exe') -Package './cmd/mcp-lsp' -LdFlags $windowsGuiLdFlags")
+	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-ida.exe') -Package './cmd/mcp-ida' -LdFlags $windowsGuiLdFlags")
 	assertScriptContains(t, script, "SUPER_DOLPHIN_SKIP_FRONTEND_BUILD")
 	assertScriptContains(t, script, "npm run build")
 	assertScriptContains(t, script, "Copy-DirectoryClean -Source (Join-Path $Root 'frontend-app/dist') -Destination (Join-Path $Root 'cmd/agent-terminal/frontend/dist')")
@@ -24,7 +24,7 @@ func TestPackageWindowsScriptBuildsNativeWindowsPackage(t *testing.T) {
 	assertScriptContains(t, script, "& $tar.Source -a -cf $ZipPath $stageName")
 	assertScriptContains(t, script, "Compress-Archive")
 	assertScriptContains(t, script, "$zipPath = Join-Path $dist \"$AppName-$Version-$Platform.zip\"")
-	assertScriptOrder(t, script, "Build-CurrentFrontendApp", "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags '-H=windowsgui'")
+	assertScriptOrder(t, script, "Build-CurrentFrontendApp", "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags $windowsGuiLdFlags")
 }
 
 func TestPackageWindowsScriptUsesIncrementalBuildPhaseCache(t *testing.T) {
@@ -45,8 +45,10 @@ func TestPackageWindowsScriptUsesIncrementalBuildPhaseCache(t *testing.T) {
 	assertScriptContains(t, script, "Test-BuildPhaseCache -Name 'go-binaries'")
 	assertScriptContains(t, script, "(Join-Path $Root 'cmd'), (Join-Path $Root 'internal'), (Join-Path $Root 'pkg'), (Join-Path $Root 'go.sum')")
 	assertScriptContains(t, script, "@('GOOS=windows', \"GOARCH=$WindowsPackageArch\"")
-	assertScriptOrder(t, script, "Test-BuildPhaseCache -Name 'go-binaries'", "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-orch.exe') -Package './cmd/mcp-orch'")
-	assertScriptOrderAfter(t, script, "Test-BuildPhaseCache -Name 'go-binaries'", "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-ida.exe') -Package './cmd/mcp-ida'", "Save-BuildPhaseCache")
+	assertScriptContains(t, script, "$windowsGuiLdFlags = '-H=windowsgui'")
+	assertScriptContains(t, script, `"WINDOWS_GUI_LDFLAGS=$windowsGuiLdFlags"`)
+	assertScriptOrder(t, script, "Test-BuildPhaseCache -Name 'go-binaries'", "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-orch.exe') -Package './cmd/mcp-orch' -LdFlags $windowsGuiLdFlags")
+	assertScriptOrderAfter(t, script, "Test-BuildPhaseCache -Name 'go-binaries'", "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-ida.exe') -Package './cmd/mcp-ida' -LdFlags $windowsGuiLdFlags", "Save-BuildPhaseCache")
 
 	assertScriptOrder(t, script, "Assert-WindowsNativeArchitecture -Path (Join-Path $Root 'bin/agent-terminal.exe')", "Copy-PackagedLSPBundle -BundleRoot $Stage")
 	assertScriptOrder(t, script, "Copy-PackagedLSPBundle -BundleRoot $Stage", "Copy-PostgresRuntime -Source $pgSrc -Destination (Join-Path $Stage \"postgres/$Platform\")")
@@ -55,9 +57,24 @@ func TestPackageWindowsScriptUsesIncrementalBuildPhaseCache(t *testing.T) {
 func TestPackageWindowsBuildsDesktopExeWithoutConsoleWindow(t *testing.T) {
 	script := readScript(t, "package_windows.ps1")
 
-	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags '-H=windowsgui'")
+	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags $windowsGuiLdFlags")
 	assertScriptContains(t, script, "& go build -ldflags $LdFlags -o $Output $Package")
 	assertScriptDoesNotContain(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal'\n")
+}
+
+func TestPackageWindowsBuildsSidecarExesWithoutConsoleWindow(t *testing.T) {
+	script := readScript(t, "package_windows.ps1")
+
+	for _, want := range []string{
+		"Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-orch.exe') -Package './cmd/mcp-orch' -LdFlags $windowsGuiLdFlags",
+		"Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-lsp.exe') -Package './cmd/mcp-lsp' -LdFlags $windowsGuiLdFlags",
+		"Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-ida.exe') -Package './cmd/mcp-ida' -LdFlags $windowsGuiLdFlags",
+	} {
+		assertScriptContains(t, script, want)
+	}
+	assertScriptDoesNotContain(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-orch.exe') -Package './cmd/mcp-orch'\n")
+	assertScriptDoesNotContain(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-lsp.exe') -Package './cmd/mcp-lsp'\n")
+	assertScriptDoesNotContain(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-ida.exe') -Package './cmd/mcp-ida'\n")
 }
 
 func TestPackageWindowsScriptsSupportExplicitTargetArchitecture(t *testing.T) {
