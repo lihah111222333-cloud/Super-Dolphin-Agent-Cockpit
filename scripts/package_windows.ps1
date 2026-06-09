@@ -884,12 +884,13 @@ function Package-WindowsMain() {
 
     Push-Location -LiteralPath $Root
     try {
-        $goInputs = @('GOOS=windows', "GOARCH=$WindowsPackageArch", "GOVERSION=$((& go env GOVERSION).Trim())")
+        $windowsGuiLdFlags = '-H=windowsgui'
+        $goInputs = @('GOOS=windows', "GOARCH=$WindowsPackageArch", "GOVERSION=$((& go env GOVERSION).Trim())", "WINDOWS_GUI_LDFLAGS=$windowsGuiLdFlags")
         if (-not (Test-BuildPhaseCache -Name 'go-binaries' -Paths @((Join-Path $Root 'cmd'), (Join-Path $Root 'internal'), (Join-Path $Root 'pkg'), (Join-Path $Root 'go.sum')) -Inputs $goInputs)) {
-            Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-orch.exe') -Package './cmd/mcp-orch'
-            Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-lsp.exe') -Package './cmd/mcp-lsp'
-            Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags '-H=windowsgui'
-            Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-ida.exe') -Package './cmd/mcp-ida'
+            Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-orch.exe') -Package './cmd/mcp-orch' -LdFlags $windowsGuiLdFlags
+            Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-lsp.exe') -Package './cmd/mcp-lsp' -LdFlags $windowsGuiLdFlags
+            Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags $windowsGuiLdFlags
+            Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-ida.exe') -Package './cmd/mcp-ida' -LdFlags $windowsGuiLdFlags
             Save-BuildPhaseCache
         }
     } finally {
