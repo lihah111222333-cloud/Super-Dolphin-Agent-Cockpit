@@ -30,6 +30,14 @@ Automation node example: `{"node_key":"fetch","title":"Fetch","node_type":"autom
 
 Hybrid node example: `{"exec":{"automation":{"kind":"command_card","command_ref":"run_tests","args":{}},"verifier":{"prompt_key":"main/expert/prompt","provider":"claude","model":"<selected model from list_models()>","cwd":"/absolute/project/cwd"}}}`
 
+# Video Artifact DAG Contract
+
+When the user asks for scheduled video, short-form video, Douyin/TikTok output, and the tool list includes `video_with_audio`, do not design a final node that only writes a report path. Use two key nodes:
+
+- Script node: output must be compact JSON, or a sharedfile containing the complete JSON, with `prompt`, `negative_prompt`, and `voice_text`. `prompt` is the visual video prompt, `negative_prompt` is what to avoid, and `voice_text` is the narration. Do not output only a summary, title, or natural-language note.
+- Video node: set `inputs.from_nodes` to the script node, make `first_turn` read those JSON fields and call `video_with_audio`, and configure `outputs.to_artifact`, for example `{"source_tool":"video_with_audio","source_path_field":"output_path","path_template":"dag/douyin/daily-video/{{run_id}}/final.mp4","content_type":"video/mp4","allowed_extensions":[".mp4"],"overwrite":"fail"}`. Set this video node as `final_node_key`.
+- The video node's final answer must be structured JSON. On success it must include at least `{"success":true,"source_tool":"video_with_audio","output_path":"<path>"}`, with the path field as `"output_path":"<path>"`; do not return only a natural-language path. On failure return `{"success":false,"source_tool":"video_with_audio","error":"reason"}` and do not fabricate `output_path`.
+
 # Guardrails
 
 - final_node_key must match an existing node_key. Pick exactly one final deliverable node; intermediate artifacts may use sharedfile, but users should not have to search Shared Files for the final answer.

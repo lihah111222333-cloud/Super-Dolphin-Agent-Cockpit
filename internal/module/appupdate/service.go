@@ -21,6 +21,8 @@ import (
 	"time"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const (
@@ -295,11 +297,11 @@ func (s *service) InstallLatest(ctx context.Context) (InstallResult, error) {
 
 func (s *service) scheduleRequestQuit() {
 	quit := s.requestQuit
-	go func() {
+	safego.Go(context.Background(), pkglogger.Get(), "appupdate.scheduleRequestQuit", func(context.Context) {
 		// Let the RPC bridge flush InstallResult before the app closes.
 		time.Sleep(installQuitDelay)
 		quit()
-	}()
+	})
 }
 
 func (s *service) fetchManifest(ctx context.Context) (ManifestPayload, UpdateArtifact, error) {
