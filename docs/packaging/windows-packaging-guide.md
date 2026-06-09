@@ -5,6 +5,10 @@ WebView2 runtime path, and the release package must contain Windows-native
 `.exe` and `.cmd` launchers. Do not treat a macOS cross-compile as a release
 artifact.
 
+For the GitHub latest-release update flow used by the in-app updater, use
+`scripts\package_windows_github_release.ps1` and the cross-platform
+staging/publish process in `docs/packaging/github-release-update.md`.
+
 ## Outputs
 
 Default ARM64 package command for a Windows 11 on ARM packaging host:
