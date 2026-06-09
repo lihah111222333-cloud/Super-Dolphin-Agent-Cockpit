@@ -35,6 +35,17 @@ func TestRegistryAdvertisesDAGConsoleReadTools(t *testing.T) {
 	}
 }
 
+func TestRegistryExposesOnlyVideoWithAudioGeneration(t *testing.T) {
+	registry := NewRegistry(Dependencies{})
+
+	if _, ok := registry.Lookup("video_with_audio"); !ok {
+		t.Fatal("registry.Lookup(video_with_audio) = false, want true")
+	}
+	if _, ok := registry.Lookup("video_generate"); ok {
+		t.Fatal("registry.Lookup(video_generate) = true, want false")
+	}
+}
+
 func TestRegistryLookupAcceptsLegacyOrchestrationAliases(t *testing.T) {
 	registry := NewRegistry(Dependencies{})
 
