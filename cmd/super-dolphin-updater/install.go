@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -25,6 +26,8 @@ type installRequest struct {
 	TargetAppPath string
 	Restart       bool
 	AllowUnsigned bool
+	WaitPID       int
+	LogPath       string
 }
 
 type commandResult struct {
@@ -44,6 +47,22 @@ var runCommand = func(name string, args ...string) (commandResult, error) {
 		stderr: stderr.String(),
 	}, err
 }
+
+var runRestartCommand = func(args ...string) (commandResult, error) {
+	cmd := exec.Command("open", args...)
+	cmd.Env = sanitizedRestartEnv(os.Environ())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return commandResult{
+		stdout: stdout.String(),
+		stderr: stderr.String(),
+	}, err
+}
+
+var waitForProcessExit = waitForProcessExitImpl
 
 func install(req installRequest) error {
 	if err := validateInstallRequest(req); err != nil {
@@ -67,6 +86,11 @@ func installFromMount(req installRequest, mountPoint string) error {
 	if err := validateMountedApp(stagedApp); err != nil {
 		return err
 	}
+	if req.WaitPID > 0 {
+		if err := waitForProcessExit(req.WaitPID, 30*time.Second); err != nil {
+			return err
+		}
+	}
 	teamID := ""
 	if !req.AllowUnsigned {
 		var err error
@@ -88,10 +112,38 @@ func installFromMount(req installRequest, mountPoint string) error {
 }
 
 func restartTargetApp(targetApp string) error {
-	if _, err := runCommand("open", targetApp); err != nil {
+	if _, err := runRestartCommand("-n", targetApp); err != nil {
 		return fmt.Errorf("restart target app: %w", commandError(err))
 	}
 	return nil
+}
+
+func sanitizedRestartEnv(environ []string) []string {
+	out := make([]string, 0, len(environ))
+	for _, entry := range environ {
+		if shouldDropRestartEnv(entry) {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func shouldDropRestartEnv(entry string) bool {
+	key, _, ok := strings.Cut(entry, "=")
+	if !ok {
+		key = entry
+	}
+	switch key {
+	case "DATABASE_URL", "POSTGRES_CONNECTION_STRING", "VERSION":
+		return true
+	}
+	for _, prefix := range []string{"SUPER_DOLPHIN_", "GO_AGENT_", "VITE_", "FRONTEND_DEVSERVER_"} {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateInstallRequest(req installRequest) error {
@@ -124,7 +176,48 @@ func validateInstallRequest(req installRequest) error {
 	if err := verifyWritableDir(parent); err != nil {
 		return fmt.Errorf("target parent is not writable: %w", err)
 	}
+	return validateWaitPID(req.WaitPID)
+}
+
+func validateWaitPID(pid int) error {
+	if pid < 0 {
+		return fmt.Errorf("wait pid must be non-negative: %d", pid)
+	}
 	return nil
+}
+
+func waitForProcessExitImpl(pid int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		exists, err := processExists(pid)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for process %d to exit", pid)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+func processExists(pid int) (bool, error) {
+	if pid <= 0 {
+		return false, nil
+	}
+	cmd := exec.Command("kill", "-0", strconv.Itoa(pid))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		output := stderr.String()
+		if strings.Contains(output, "No such process") {
+			return false, nil
+		}
+		return false, fmt.Errorf("inspect process %d: %w: %s", pid, err, strings.TrimSpace(output))
+	}
+	return true, nil
 }
 
 func verifyWritableDir(dir string) error {
@@ -393,7 +486,25 @@ func clearQuarantine(appPath string) error {
 	if allLinesAreNoSuchXattr(output) {
 		return nil
 	}
+	if strings.Contains(output, "Permission denied") {
+		remains, inspectErr := quarantineAttributeRemains(appPath)
+		if inspectErr != nil {
+			return errors.Join(commandError(err), inspectErr)
+		}
+		if !remains {
+			return nil
+		}
+	}
 	return commandError(err)
+}
+
+func quarantineAttributeRemains(appPath string) (bool, error) {
+	result, err := runCommand("xattr", "-lr", appPath)
+	output := result.stdout + result.stderr
+	if err != nil {
+		return false, fmt.Errorf("inspect quarantine attributes: %w", commandError(err))
+	}
+	return strings.Contains(output, "com.apple.quarantine:"), nil
 }
 
 func allLinesAreNoSuchXattr(output string) bool {
