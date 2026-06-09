@@ -32,10 +32,12 @@ var (
 	logFilePath          string
 	logFileConsole       io.Writer
 	logFileMu            sync.Mutex
-	utc8                 = time.FixedZone("UTC+8", 8*60*60)
 	exitFunc             = os.Exit
 	shutdownDBHandler    = func() {}
 	globalProject        string
+	globalServiceName    = "super-dolphin"
+	globalServiceVersion = "dev"
+	globalEnv            = "dev"
 	activeMode           = modeFromBuildMode()
 	activeLevel          = defaultLevelForMode(activeMode)
 	defaultLogFilePrefix = "agent-terminal"
@@ -92,6 +94,8 @@ func resolveInitModeAndLevel(raw string) (Mode, slog.Level) {
 	case "development", "dev":
 		return Development, defaultLevelForMode(Development)
 	case "debug":
+		return buildMode, slog.LevelDebug
+	case "debug-mode":
 		return ModeDebug, defaultLevelForMode(ModeDebug)
 	case "production", "prod", "release":
 		return Production, defaultLevelForMode(Production)
@@ -112,11 +116,39 @@ func outputWriterForMode(mode Mode) io.Writer {
 	return os.Stderr
 }
 
-func replaceTimeAttr(_ []string, a slog.Attr) slog.Attr {
-	if a.Key == slog.TimeKey {
+func replaceLogAttr(_ []string, a slog.Attr) slog.Attr {
+	switch a.Key {
+	case slog.TimeKey:
 		if t, ok := a.Value.Any().(time.Time); ok {
-			a.Value = slog.StringValue(t.In(utc8).Format("2006-01-02 15:04:05"))
+			a.Value = slog.StringValue(t.UTC().Format(time.RFC3339Nano))
 		}
+	case slog.LevelKey:
+		a.Value = slog.StringValue(strings.ToLower(a.Value.String()))
+	}
+	a = sanitizeLogAttr(a)
+	return mapECSLogAttr(a)
+}
+
+func mapECSLogAttr(a slog.Attr) slog.Attr {
+	switch a.Key {
+	case slog.TimeKey:
+		a.Key = FieldTimestamp
+	case slog.LevelKey:
+		a.Key = FieldLogLevel
+	case slog.MessageKey:
+		a.Key = "message"
+	case FieldTraceID:
+		a.Key = FieldECSTraceID
+	case FieldSpanID:
+		a.Key = FieldECSSpanID
+	case FieldParentSpanID:
+		a.Key = FieldECSParentSpanID
+	case FieldError:
+		a.Key = FieldECSErrorMessage
+	case FieldStacktrace:
+		a.Key = FieldECSErrorStackTrace
+	case FieldDurationMS, FieldLatencyMS:
+		a.Key = FieldEventDuration
 	}
 	return a
 }
@@ -125,7 +157,7 @@ func newHandler(mode Mode, level slog.Level, out io.Writer) slog.Handler {
 	opts := &slog.HandlerOptions{
 		Level:       level,
 		AddSource:   normalizeMode(mode) != Production,
-		ReplaceAttr: replaceTimeAttr,
+		ReplaceAttr: replaceLogAttr,
 	}
 	var handler slog.Handler
 	if normalizeMode(mode) == Production {
@@ -138,7 +170,11 @@ func newHandler(mode Mode, level slog.Level, out io.Writer) slog.Handler {
 }
 
 func newLogger(mode Mode, level slog.Level) *slog.Logger {
-	return slog.New(newHandler(mode, level, outputWriterForMode(mode)))
+	return newLoggerWithWriter(mode, level, outputWriterForMode(mode))
+}
+
+func newLoggerWithWriter(mode Mode, level slog.Level, out io.Writer) *slog.Logger {
+	return applyGlobalAttrs(slog.New(newHandler(mode, level, out)))
 }
 
 func Init(env string) {
@@ -230,7 +266,6 @@ func InitWithConsoleWriter(out io.Writer) {
 	}
 
 	logFileMu.Lock()
-	defer logFileMu.Unlock()
 	stopFileWatcherLocked()
 	if logFile != nil {
 		closeLogFileLocked()
@@ -238,12 +273,11 @@ func InitWithConsoleWriter(out io.Writer) {
 		logFilePath = ""
 	}
 	logFileConsole = out
+	mode := activeMode
+	level := activeLevel
+	logFileMu.Unlock()
 
-	l := slog.New(newHandler(activeMode, activeLevel, out))
-	if globalProject != "" {
-		l = l.With("project", globalProject)
-	}
-	storeLogger(l)
+	storeLogger(newLoggerWithWriter(mode, level, out))
 }
 
 func rebuildLoggerWithFile(f *os.File) {
@@ -257,23 +291,14 @@ func rebuildLoggerWithFile(f *os.File) {
 		console = outputWriterForMode(mode)
 	}
 	writer := io.MultiWriter(console, f)
-	l := slog.New(newHandler(mode, level, writer))
-	if globalProject != "" {
-		l = l.With("project", globalProject)
-	}
-	storeLogger(l)
+	storeLogger(newLoggerWithWriter(mode, level, writer))
 }
 
 func SetProject(name string) {
-	globalProject = strings.TrimSpace(name)
 	logFileMu.Lock()
-	f := logFile
+	globalProject = strings.TrimSpace(name)
 	logFileMu.Unlock()
-	if f != nil {
-		rebuildLoggerWithFile(f)
-		return
-	}
-	storeLogger(getLogger().With("project", globalProject))
+	rebuildActiveLogger()
 }
 
 func resolveProjectLogDir(homeDir, cwd string) (string, string) {

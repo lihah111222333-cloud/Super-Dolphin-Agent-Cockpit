@@ -1,7 +1,9 @@
 package wails
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -10,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/metrics"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
@@ -31,6 +34,45 @@ func TestHTTPAssetRoutesExposePrometheusMetricsEndpoint(t *testing.T) {
 	}
 	if body := rec.Body.String(); !strings.Contains(body, `host_tool_calls_total{outcome="ok"} 1`) {
 		t.Fatalf("metrics endpoint did not expose host tool counters:\n%s", body)
+	}
+}
+
+func TestHTTPLoggingAddsRequestFields(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	handler := withHTTPLogging(logger, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte("ok"))
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/test", nil)
+	req.RemoteAddr = "127.0.0.1:12345"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	requestID := rec.Header().Get(requestIDHeader)
+	if requestID == "" {
+		t.Fatal("missing X-Request-ID response header")
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(logs.String())), &payload); err != nil {
+		t.Fatalf("unmarshal request log: %v\n%s", err, logs.String())
+	}
+	if got := payload["request_id"]; got != requestID {
+		t.Fatalf("request_id = %#v, want %q", got, requestID)
+	}
+	if got := payload["request.method"]; got != http.MethodPost {
+		t.Fatalf("request.method = %#v, want POST", got)
+	}
+	if got := payload["url.path"]; got != "/api/test" {
+		t.Fatalf("url.path = %#v, want /api/test", got)
+	}
+	if got := payload["http.response.status_code"]; got != float64(http.StatusCreated) {
+		t.Fatalf("http.response.status_code = %#v, want 201", got)
+	}
+	if got := payload[pkglogger.FieldTraceID]; got == "" {
+		t.Fatalf("missing %s in %#v", pkglogger.FieldTraceID, payload)
 	}
 }
 

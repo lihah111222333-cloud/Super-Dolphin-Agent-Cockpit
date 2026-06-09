@@ -31,7 +31,7 @@ describe('desktop UX smoke command', () => {
     expect(config.viteURL).toBe('http://127.0.0.1:5276');
     expect(config.ctlAddr).toBe('127.0.0.1:8193');
     expect(config.postgresPort).toBe(56434);
-    expect(config.postgresRuntimeDir).toMatch(/^\/tmp\/sd-pw-pg-56434-/);
+    expect(config.postgresRuntimeDir).toMatch(/^[/\\]tmp[/\\]sd-pw-pg-56434-/);
     expect(config.postgresRuntimeDir.length).toBeLessThan(60);
   });
 
@@ -44,7 +44,7 @@ describe('desktop UX smoke command', () => {
     expect(env.FRONTEND_DEVSERVER_URL).toBe('http://127.0.0.1:5176');
     expect(env.GO_AGENT_CTL_RPC_ADDR).toBe('127.0.0.1:8093');
     expect(env.SUPER_DOLPHIN_LOCAL_POSTGRES_PORT).toBe('55434');
-    expect(env.SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR).toMatch(/^\/tmp\/sd-pw-pg-55434-/);
+    expect(env.SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR).toMatch(/^[/\\]tmp[/\\]sd-pw-pg-55434-/);
     expect(env.PLAYWRIGHT_CHROMIUM_EXECUTABLE).toBe('/opt/chrome');
     expect(env.SUPER_DOLPHIN_DESKTOP_UX_BASE_URL).toBe('http://127.0.0.1:5176');
   });

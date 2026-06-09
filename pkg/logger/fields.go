@@ -70,6 +70,14 @@ func WithTraceContext(ctx context.Context, traceID, spanID, parentSpanID string)
 	return WithParentSpanID(ctx, parentSpanID)
 }
 
+func NewTraceID() (string, error) {
+	var data [16]byte
+	if _, err := rand.Read(data[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(data[:]), nil
+}
+
 func NewSpanID() (string, error) {
 	var data [8]byte
 	if _, err := rand.Read(data[:]); err != nil {
@@ -188,6 +196,18 @@ func ResolveProjectLogDir(homeDir, cwd string) (string, string) {
 }
 
 const (
+	FieldTimestamp          = "@timestamp"
+	FieldLogLevel           = "log.level"
+	FieldServiceName        = "service.name"
+	FieldServiceVersion     = "service.version"
+	FieldEnv                = "env"
+	FieldECSTraceID         = "trace.id"
+	FieldECSSpanID          = "span.id"
+	FieldECSParentSpanID    = "span.parent_id"
+	FieldECSErrorMessage    = "error.message"
+	FieldECSErrorStackTrace = "error.stack_trace"
+	FieldEventDuration      = "event.duration"
+
 	FieldTraceID      = "trace_id"
 	FieldSpanID       = "span_id"
 	FieldParentSpanID = "parent_span_id"

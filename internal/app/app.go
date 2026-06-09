@@ -38,14 +38,9 @@ const (
 )
 
 func NewLogger() *slog.Logger {
-	pkglogger.Init(os.Getenv("LOG_LEVEL"))
 	info := currentBuildInfo()
-	pkglogger.Info("build info",
-		"version", info.Version,
-		"commit", info.Commit,
-		"build_time", info.BuildTime,
-		"runtime", info.Runtime,
-	)
+	pkglogger.ConfigureServiceFromEnv(info.Version)
+	pkglogger.Init(os.Getenv("LOG_LEVEL"))
 
 	homeDir, _ := os.UserHomeDir()
 	cwd, _ := os.Getwd()
@@ -56,6 +51,12 @@ func NewLogger() *slog.Logger {
 	if projectName != "" {
 		pkglogger.SetProject(projectName)
 	}
+	pkglogger.Info("build info",
+		"version", info.Version,
+		"commit", info.Commit,
+		"build_time", info.BuildTime,
+		"runtime", info.Runtime,
+	)
 	return pkglogger.Get()
 }
 

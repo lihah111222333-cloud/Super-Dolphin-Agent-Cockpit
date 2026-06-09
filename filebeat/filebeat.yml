@@ -1,0 +1,37 @@
+# Filebeat reads Super Dolphin JSON log files and forwards them to Logstash.
+# Keep fields_under_root=true so Kibana can query service.name/env/log.level
+# directly with KQL.
+filebeat.inputs:
+  - type: filestream
+    id: super-dolphin-json-logs
+    enabled: true
+    paths:
+      - /var/log/super-dolphin/tmp/*.log
+      - /var/log/super-dolphin/tmp/*/*.log
+      - /var/log/super-dolphin/tmp/**/*.log
+      - /var/log/super-dolphin/logs/*.log
+      - /var/log/super-dolphin/logs/*/*.log
+      - /var/log/super-dolphin/logs/**/*.log
+    parsers:
+      - ndjson:
+          target: ""
+          overwrite_keys: true
+          add_error_key: true
+    fields_under_root: true
+    fields:
+      service.name: ${SUPER_DOLPHIN_SERVICE_NAME:super-dolphin}
+      env: ${SUPER_DOLPHIN_ENV:dev}
+
+processors:
+  # Adds host.* metadata for filtering local developer machines or servers.
+  - add_host_metadata: ~
+  # Explicit ECS version marker; application fields already use ECS-style names.
+  - add_fields:
+      target: ""
+      fields:
+        ecs.version: "8.11.0"
+
+output.logstash:
+  hosts: ["logstash:5044"]
+
+logging.level: info
