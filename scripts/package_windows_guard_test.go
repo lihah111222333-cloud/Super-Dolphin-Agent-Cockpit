@@ -430,3 +430,45 @@ func TestPackageWindowsLocalHelperContracts(t *testing.T) {
 	assertScriptContains(t, script, "Get-FileHash -Algorithm SHA256")
 	assertScriptContains(t, script, "SUPER_DOLPHIN_POSTGRES_DIST")
 }
+
+func TestPackageWindowsLocalFastModeOptimizesRepeatPackaging(t *testing.T) {
+	script := readScript(t, "package_windows_local.ps1")
+
+	for _, want := range []string{
+		"[switch]$Fast",
+		"SUPER_DOLPHIN_WINDOWS_FAST",
+		"SUPER_DOLPHIN_REUSE_LSP_BUNDLE",
+		"SUPER_DOLPHIN_PACKAGE_CACHE_DIR",
+		"SUPER_DOLPHIN_WINDOWS_INSTALLER_COMPRESSION",
+		"SUPER_DOLPHIN_WINDOWS_INSTALLER_SOLID_COMPRESSION",
+		"$WindowsOutputConfigured = $PSBoundParameters.ContainsKey('Artifact') -or",
+		"$FastMode = $Fast.IsPresent -or (Test-TruthyEnv 'SUPER_DOLPHIN_WINDOWS_FAST')",
+		"if ($FastMode -and -not $WindowsOutputConfigured)",
+		"$RequestedWindowsOutput = 'installer'",
+		"$RequestedKeepStage = $true",
+		"$env:SUPER_DOLPHIN_REUSE_LSP_BUNDLE = '1'",
+		"$env:SUPER_DOLPHIN_WINDOWS_INSTALLER_COMPRESSION = 'zip'",
+		"$env:SUPER_DOLPHIN_WINDOWS_INSTALLER_SOLID_COMPRESSION = 'no'",
+		"fast Windows packaging enabled",
+		"function Resolve-LSPBundleDir",
+		"function Test-ExistingLSPBundle",
+		"lsp-manifest.json",
+		"lsp-checksums.sha256",
+		"node/node.exe",
+		"bin/gopls.exe",
+		"bin/typescript-language-server.cmd",
+		"bin/pyright-langserver.cmd",
+		"bin/rust-analyzer.exe",
+		"bin/sg.exe",
+		"bin/go.cmd",
+		"bin/shellcheck.exe",
+		"bin/java.cmd",
+		"bin/jdtls.cmd",
+		"reusing existing Windows LSP bundle",
+	} {
+		assertScriptContains(t, script, want)
+	}
+	assertScriptOrder(t, script, "Test-ExistingLSPBundle -Path $lspDir -Profile $Profile", "prepare_lsp_bundle_windows.ps1")
+	assertScriptOrder(t, script, "Resolve-LSPBundleDir -Profile $Profile", "$env:SUPER_DOLPHIN_LSP_BUNDLE_DIR = $lspDir")
+	assertScriptOrder(t, script, "$env:SUPER_DOLPHIN_WINDOWS_INSTALLER_COMPRESSION = 'zip'", "scripts/package_windows.ps1') @packageArgs")
+}
