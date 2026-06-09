@@ -500,13 +500,21 @@ function Resolve-PackageRoot() {
         }
         $temp = Join-Path ([IO.Path]::GetTempPath()) ("super-dolphin-windows-verify-" + [Guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Force -Path $temp | Out-Null
-        Expand-Archive -LiteralPath $InputPath -DestinationPath $temp -Force
-        $roots = @(Get-ChildItem -LiteralPath $temp -Directory)
-        if ($roots.Count -ne 1) {
-            throw "Windows package zip must contain exactly one package root"
+        try {
+            & tar.exe -xf $InputPath -C $temp
+            if ($LASTEXITCODE -ne 0) {
+                throw "zip extraction failed: $LASTEXITCODE"
+            }
+            $roots = @(Get-ChildItem -LiteralPath $temp -Directory)
+            if ($roots.Count -ne 1) {
+                throw "Windows package zip must contain exactly one package root"
+            }
+            $script:CleanupDir = $temp
+            return $roots[0].FullName
+        } catch {
+            Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+            throw
         }
-        $script:CleanupDir = $temp
-        return $roots[0].FullName
     }
     if (Test-Path -LiteralPath $InputPath -PathType Container) {
         return (Resolve-Path -LiteralPath $InputPath).Path

@@ -297,7 +297,6 @@ func TestPackageWindowsValidatesLSPManifestLanguages(t *testing.T) {
 func TestVerifyPackagedAppWindowsScriptContracts(t *testing.T) {
 	script := readScript(t, "verify_packaged_app_windows.ps1")
 
-	assertScriptContains(t, script, "Expand-Archive")
 	assertScriptContains(t, script, "runtime-manifest.json")
 	assertScriptContains(t, script, "codex-manifest.json")
 	assertScriptContains(t, script, "lsp/lsp-manifest.json")
@@ -328,6 +327,14 @@ func TestVerifyPackagedAppWindowsScriptContracts(t *testing.T) {
 	assertScriptContains(t, script, "function Expected-LSPServerSpecs()")
 	assertScriptContains(t, script, "$profile.Trim() -eq 'full'")
 	assertScriptContains(t, script, "Expected-LSPServerSpecs -Manifest $manifest")
+}
+
+func TestVerifyPackagedAppWindowsUsesTarForZipExtraction(t *testing.T) {
+	script := readScript(t, "verify_packaged_app_windows.ps1")
+
+	assertScriptContains(t, script, "tar.exe -xf")
+	assertScriptContains(t, script, "zip extraction failed")
+	assertScriptDoesNotContain(t, script, "Expand-Archive -LiteralPath")
 }
 
 func TestPackageWindowsLocalHelperContracts(t *testing.T) {
