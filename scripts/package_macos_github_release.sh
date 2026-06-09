@@ -17,6 +17,88 @@ manifest_name="Super-Dolphin-darwin-arm64.update.json"
 artifact="$stage_dir/$asset_name"
 manifest="$stage_dir/$manifest_name"
 artifact_url="https://github.com/${github_release_repo}/releases/download/${tag}/${asset_name}"
+previous_dmg_mount=""
+
+cleanup() {
+  if [[ -n "$previous_dmg_mount" && -d "$previous_dmg_mount" ]]; then
+    hdiutil detach "$previous_dmg_mount" >/dev/null 2>&1 || true
+    rmdir "$previous_dmg_mount" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
+dotenv_value() {
+  local env_file="$1"
+  local key="$2"
+  awk -v key="$key" '
+    index($0, "=") {
+      k = substr($0, 1, index($0, "=") - 1)
+      if (k == key) {
+        print substr($0, index($0, "=") + 1)
+        found = 1
+        exit
+      }
+    }
+    END { if (!found) exit 1 }
+  ' "$env_file"
+}
+
+previous_public_key_from_env_file() {
+  local env_file="$1"
+  if [[ ! -f "$env_file" ]]; then
+    echo "previous update .env does not exist: $env_file" >&2
+    exit 1
+  fi
+  dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_PUBLIC_KEY
+}
+
+previous_public_key_from_app() {
+  local app="$1"
+  local env_file="$app/Contents/Resources/.env"
+  if [[ ! -f "$env_file" ]]; then
+    echo "previous app update .env does not exist: $env_file" >&2
+    exit 1
+  fi
+  previous_public_key_from_env_file "$env_file"
+}
+
+previous_public_key_from_dmg() {
+  local dmg="$1"
+  if [[ ! -f "$dmg" ]]; then
+    echo "previous DMG does not exist: $dmg" >&2
+    exit 1
+  fi
+  previous_dmg_mount="$(mktemp -d "${TMPDIR:-/tmp}/super-dolphin-previous-dmg.XXXXXX")"
+  hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$previous_dmg_mount" >/dev/null
+  local app
+  app="$(find "$previous_dmg_mount" -maxdepth 1 -name '*.app' -type d -print | sort | head -n 1)"
+  if [[ -z "$app" ]]; then
+    echo "previous DMG does not contain an app bundle" >&2
+    exit 1
+  fi
+  previous_public_key_from_app "$app"
+}
+
+resolve_update_public_key() {
+  if [[ -n "${SUPER_DOLPHIN_UPDATE_PUBLIC_KEY:-}" ]]; then
+    return
+  fi
+  if [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE:-}" ]]; then
+    SUPER_DOLPHIN_UPDATE_PUBLIC_KEY="$(previous_public_key_from_env_file "$SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE")"
+  elif [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_APP:-}" ]]; then
+    SUPER_DOLPHIN_UPDATE_PUBLIC_KEY="$(previous_public_key_from_app "$SUPER_DOLPHIN_UPDATE_PREVIOUS_APP")"
+  elif [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG:-}" ]]; then
+    SUPER_DOLPHIN_UPDATE_PUBLIC_KEY="$(previous_public_key_from_dmg "$SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG")"
+  else
+    echo "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY, SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG, SUPER_DOLPHIN_UPDATE_PREVIOUS_APP, or SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE is required" >&2
+    exit 1
+  fi
+  if [[ -z "$SUPER_DOLPHIN_UPDATE_PUBLIC_KEY" ]]; then
+    echo "previous package is missing SUPER_DOLPHIN_UPDATE_PUBLIC_KEY" >&2
+    exit 1
+  fi
+  export SUPER_DOLPHIN_UPDATE_PUBLIC_KEY
+}
 
 if [[ "$(go env GOOS)" != "darwin" || "$(go env GOARCH)" != "arm64" ]]; then
   echo "package_macos_github_release.sh must run on macOS arm64" >&2
@@ -26,10 +108,7 @@ if [[ -z "${SUPER_DOLPHIN_UPDATE_SIGNING_KEY:-}" ]]; then
   echo "SUPER_DOLPHIN_UPDATE_SIGNING_KEY is required" >&2
   exit 1
 fi
-if [[ -z "${SUPER_DOLPHIN_UPDATE_PUBLIC_KEY:-}" ]]; then
-  echo "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY is required" >&2
-  exit 1
-fi
+resolve_update_public_key
 
 go run "$root/cmd/super-dolphin-release-manifest" \
   -check-key \
