@@ -303,15 +303,20 @@ function emitRPCNotification(method, params) {
 // a short one to surface disconnects quickly. Methods are matched by substring
 // so new endpoints don't silently inherit the short default.
 const DREAM_RPC_TIMEOUT_MS = 300_000;
+const UPDATE_RPC_TIMEOUT_MS = 900_000;
 const LONG_RPC_TIMEOUT_MS = 120_000;
 const SHORT_RPC_TIMEOUT_MS = 30_000;
 const DREAM_RPC_PATTERNS = ['prompt-intents/draft'];
+const UPDATE_RPC_PATTERNS = ['app/update/download', 'app/update/installlatest'];
 const LONG_RPC_PATTERNS = ['compact', 'summary', 'memory', 'dream', 'extract', 'state/get', 'fork', 'cron'];
 
 function rpcTimeoutMs(methodName) {
   const lower = methodName.toLowerCase();
   for (const pattern of DREAM_RPC_PATTERNS) {
     if (lower.includes(pattern)) return DREAM_RPC_TIMEOUT_MS;
+  }
+  for (const pattern of UPDATE_RPC_PATTERNS) {
+    if (lower.includes(pattern)) return UPDATE_RPC_TIMEOUT_MS;
   }
   for (const pattern of LONG_RPC_PATTERNS) {
     if (lower.includes(pattern)) return LONG_RPC_TIMEOUT_MS;
