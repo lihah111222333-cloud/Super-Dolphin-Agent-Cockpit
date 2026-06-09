@@ -237,14 +237,14 @@ func TestInstallIgnoresCanceledContextAfterDetachedHelperStarts(t *testing.T) {
 	stageDir := t.TempDir()
 	marker := filepath.Join(stageDir, "helper.started")
 	helper := writeHelperScript(t, marker, 200*time.Millisecond)
-	quitCalled := false
+	quitCalled := make(chan struct{}, 1)
 	svc := newService(Config{
 		Enabled:       true,
 		StageDir:      stageDir,
 		HelperPath:    helper,
 		TargetAppPath: "/Applications/Super Dolphin.app",
 	}, nil, func() {
-		quitCalled = true
+		quitCalled <- struct{}{}
 	})
 	writeSelectedInstallFixture(t, svc)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -257,9 +257,7 @@ func TestInstallIgnoresCanceledContextAfterDetachedHelperStarts(t *testing.T) {
 	if !result.Started {
 		t.Fatalf("Install() Started = false, want true")
 	}
-	if !quitCalled {
-		t.Fatal("RequestQuit was not called")
-	}
+	waitForSignal(t, quitCalled, "RequestQuit")
 	waitForFile(t, marker)
 }
 
@@ -291,19 +289,56 @@ func TestInstallPassesAllowUnsignedToHelper(t *testing.T) {
 	if !strings.Contains(string(args), "-allow-unsigned") {
 		t.Fatalf("helper args = %q, want -allow-unsigned", string(args))
 	}
+	if !strings.Contains(string(args), "-wait-pid "+strconv.Itoa(os.Getpid())) {
+		t.Fatalf("helper args = %q, want current process wait pid", string(args))
+	}
+}
+
+func TestInstallCommandUsesDetachedLauncherForMacHelper(t *testing.T) {
+	stageDir := t.TempDir()
+	helper := filepath.Join(stageDir, "helper.sh")
+	svc := newService(Config{
+		Enabled:       true,
+		StageDir:      stageDir,
+		HelperPath:    helper,
+		TargetAppPath: "/Applications/Super Dolphin.app",
+	}, nil, func() {})
+	dmgPath := filepath.Join(stageDir, "fixture.dmg")
+	staged := selectedUpdate{
+		Artifact:     UpdateArtifact{Platform: "darwin-arm64"},
+		ArtifactPath: dmgPath,
+		DMGPath:      dmgPath,
+	}
+
+	cmd, gotHelper, err := svc.installCommand(staged)
+	if err != nil {
+		t.Fatalf("installCommand() error = %v", err)
+	}
+	if gotHelper != helper {
+		t.Fatalf("helper = %q, want %q", gotHelper, helper)
+	}
+	if filepath.Base(cmd.Path) != "sh" {
+		t.Fatalf("command path = %q, want shell launcher", cmd.Path)
+	}
+	joinedArgs := strings.Join(cmd.Args, " ")
+	for _, want := range []string{"nohup", helper, "-wait-pid " + strconv.Itoa(os.Getpid()), "-log", "super-dolphin-updater.log"} {
+		if !strings.Contains(joinedArgs, want) {
+			t.Fatalf("command args = %q, want %q", joinedArgs, want)
+		}
+	}
 }
 
 func TestInstallStartsWindowsInstallerWithSilentFlag(t *testing.T) {
 	stageDir := t.TempDir()
 	argsPath := filepath.Join(stageDir, "installer.args")
 	installer := writeArgsHelperScriptWithName(t, argsPath, "Super-Dolphin-windows-amd64.exe")
-	quitCalled := false
+	quitCalled := make(chan struct{}, 1)
 	svc := newService(Config{
 		Enabled:  true,
 		StageDir: stageDir,
 		Platform: "windows-amd64",
 	}, nil, func() {
-		quitCalled = true
+		quitCalled <- struct{}{}
 	})
 	writeSelectedInstallFixtureForPlatform(t, svc, "windows-amd64", installer)
 
@@ -325,9 +360,7 @@ func TestInstallStartsWindowsInstallerWithSilentFlag(t *testing.T) {
 	if result.Helper != installer {
 		t.Fatalf("Install() Helper = %q, want installer path", result.Helper)
 	}
-	if !quitCalled {
-		t.Fatal("RequestQuit was not called")
-	}
+	waitForSignal(t, quitCalled, "RequestQuit")
 }
 
 func testServiceConfig(publicKey []byte, stageDir, currentVersion string) Config {
@@ -477,4 +510,13 @@ func waitForFile(t *testing.T, path string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %s", path)
+}
+
+func waitForSignal(t *testing.T, signal <-chan struct{}, name string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", name)
+	}
 }

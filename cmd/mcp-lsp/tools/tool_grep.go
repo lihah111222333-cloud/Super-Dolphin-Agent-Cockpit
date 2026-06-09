@@ -232,10 +232,16 @@ func searchSiblingWorkspaceOnRuntimeFallback(ctx context.Context, opts search.Te
 	if !ok {
 		return nil, nil
 	}
-	candidates, err := collectSiblingWorkspaceFileCandidates(parent, relPath, configuredWorkspaceRoots(root, opts.Roots))
+	configured := configuredWorkspaceRoots(root, opts.Roots)
+	candidates, err := collectSiblingWorkspaceFileCandidates(parent, relPath, configured)
 	if err != nil {
 		return nil, err
 	}
+	claudeWorktreeCandidates, err := collectClaudeWorktreeFileCandidates(root, relPath, configured)
+	if err != nil {
+		return nil, err
+	}
+	candidates = appendUniqueWorkspaceCandidates(candidates, claudeWorktreeCandidates...)
 	return searchUniqueSiblingWorkspaceText(ctx, opts, root, relPath, candidates)
 }
 
@@ -267,9 +273,28 @@ func configuredWorkspaceRoots(root string, additionalRoots []string) map[string]
 }
 
 func collectSiblingWorkspaceFileCandidates(parent, relPath string, configured map[string]struct{}) ([]string, error) {
+	return collectWorkspaceFileCandidates(parent, relPath, configured, "runtime fallback sibling search path")
+}
+
+func collectClaudeWorktreeFileCandidates(root, relPath string, configured map[string]struct{}) ([]string, error) {
+	worktreesDir := filepath.Join(root, ".claude", "worktrees")
+	info, err := os.Stat(worktreesDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("stat runtime fallback Claude worktrees %s: %w", worktreesDir, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("runtime fallback Claude worktrees path is not a directory: %s", worktreesDir)
+	}
+	return collectWorkspaceFileCandidates(worktreesDir, relPath, configured, "runtime fallback Claude worktree search path")
+}
+
+func collectWorkspaceFileCandidates(parent, relPath string, configured map[string]struct{}, errorPrefix string) ([]string, error) {
 	entries, err := os.ReadDir(parent)
 	if err != nil {
-		return nil, fmt.Errorf("read runtime fallback sibling workspaces under %s: %w", parent, err)
+		return nil, fmt.Errorf("read %s parent %s: %w", errorPrefix, parent, err)
 	}
 	candidates := make([]string, 0, 1)
 	for _, entry := range entries {
@@ -286,10 +311,10 @@ func collectSiblingWorkspaceFileCandidates(parent, relPath string, configured ma
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("stat runtime fallback sibling search path %s: %w", candidateTarget, err)
+			return nil, fmt.Errorf("stat %s %s: %w", errorPrefix, candidateTarget, err)
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return nil, fmt.Errorf("runtime fallback sibling search path %q cannot be a symlink", candidateTarget)
+			return nil, fmt.Errorf("%s %q cannot be a symlink", errorPrefix, candidateTarget)
 		}
 		if info.IsDir() {
 			continue
@@ -298,6 +323,26 @@ func collectSiblingWorkspaceFileCandidates(parent, relPath string, configured ma
 	}
 	sort.Strings(candidates)
 	return candidates, nil
+}
+
+func appendUniqueWorkspaceCandidates(candidates []string, extra ...string) []string {
+	if len(extra) == 0 {
+		return candidates
+	}
+	seen := make(map[string]struct{}, len(candidates)+len(extra))
+	for _, candidate := range candidates {
+		seen[filepath.Clean(candidate)] = struct{}{}
+	}
+	for _, candidate := range extra {
+		cleaned := filepath.Clean(candidate)
+		if _, ok := seen[cleaned]; ok {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		candidates = append(candidates, candidate)
+	}
+	sort.Strings(candidates)
+	return candidates
 }
 
 func searchUniqueSiblingWorkspaceText(ctx context.Context, opts search.TextSearchOptions, root, relPath string, candidates []string) ([]search.SearchMatch, error) {

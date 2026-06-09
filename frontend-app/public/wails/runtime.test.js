@@ -165,6 +165,54 @@ describe('development Wails runtime shim', () => {
     await expect(nextCall).resolves.toEqual({ ok: true });
   });
 
+  it('uses a longer timeout for update download and installLatest RPCs', async () => {
+    vi.useFakeTimers();
+    const sockets = [];
+    const telemetry = vi.fn();
+    window.__AO_WAILS_RUNTIME_TELEMETRY__ = telemetry;
+    vi.stubGlobal('WebSocket', createTestWebSocketClass(sockets));
+
+    const runtime = await importFreshRuntimeShim();
+    const installPromise = runtime.Call.ByID(2963398832, 'app/update/installLatest', {
+      _aoTraceId: 'trace-update-install',
+      _aoSpanId: 'span-update-install',
+      _aoRequestId: 88,
+    });
+    sockets[0].open();
+    await Promise.resolve();
+    const request = JSON.parse(sockets[0].sent[0]);
+    const installTimeoutAssertion = expect(installPromise).rejects.toThrow('runtime shim: rpc call timeout (900s) for app/update/installLatest');
+
+    await vi.advanceTimersByTimeAsync(30_001);
+    expect(telemetry).not.toHaveBeenCalledWith(expect.objectContaining({
+      phase: 'runtime.rpc.timeout',
+      method: 'app/update/installLatest',
+    }));
+
+    await vi.advanceTimersByTimeAsync(869_999);
+    await installTimeoutAssertion;
+    expect(telemetry).toHaveBeenCalledWith(expect.objectContaining({
+      phase: 'runtime.rpc.timeout',
+      method: 'app/update/installLatest',
+      call_id: String(request.id),
+      req_id: 88,
+      pending_count: 0,
+      status: 'error',
+      error: 'timeout',
+    }));
+
+    const downloadPromise = runtime.Call.ByID(2963398832, 'app/update/download', {
+      _aoTraceId: 'trace-update-download',
+      _aoSpanId: 'span-update-download',
+      _aoRequestId: 89,
+    });
+    await Promise.resolve();
+    const downloadRequest = JSON.parse(sockets[0].sent[1]);
+    await vi.advanceTimersByTimeAsync(60_000);
+    sockets[0].receive({ jsonrpc: '2.0', id: downloadRequest.id, result: { ok: true } });
+    await expect(downloadPromise).resolves.toEqual({ ok: true });
+  });
+
   it('emits failure telemetry and clears pending calls on websocket close', async () => {
     const sockets = [];
     const telemetry = vi.fn();

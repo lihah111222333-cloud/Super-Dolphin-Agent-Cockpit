@@ -133,5 +133,5 @@ var lspCompletionSchema = objectSchema(map[string]schema{
 }, "pos")
 
 func lspWorkDirProp() schema {
-	return stringProp("Explicit working directory for this tool call. Absolute paths are accepted as the call's trusted workspace root; relative tool paths resolve under it.")
+	return stringProp("Explicit working directory for this tool call. Absolute paths are accepted as the call's trusted workspace root; relative work_dir paths resolve against the current trusted CWD, and relative tool paths resolve under it.")
 }
