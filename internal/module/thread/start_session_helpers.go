@@ -320,12 +320,16 @@ func toProviderResolvedSections(sections []contract.ResolvedPromptSection) []dto
 
 func buildStartSessionConfig(req StartRequest, input contract.StartInput, assembly contract.StartAssembly) map[string]any {
 	cfg := map[string]any{}
+	modelProvider := strings.TrimSpace(req.ModelProvider)
+	if provider := strings.TrimSpace(input.Provider); strings.EqualFold(modelProvider, provider) {
+		modelProvider = ""
+	}
 	for _, field := range []struct {
 		value string
 		keys  []string
 	}{
 		{req.ApprovalPolicy, []string{"approvalPolicy", "approval_policy", "approvals"}},
-		{req.ModelProvider, []string{"modelProvider"}},
+		{modelProvider, []string{"modelProvider"}},
 		{assembly.DeveloperInstructions, []string{"developerInstructions", "developer_instructions"}},
 		{req.Summary, []string{"summary"}},
 		{req.Effort, []string{"effort"}},

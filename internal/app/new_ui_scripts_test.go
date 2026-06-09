@@ -385,6 +385,33 @@ func TestNewUIDesktopScriptSeedsDevProviderPreferencesAfterBackendReady(t *testi
 	assertTextOrder(t, text, "\nstart_desktop_backend\nwait_for_backend\nseed_dev_preferences\n", "\nif backend_hot_reload_enabled; then\n  run_backend_hot_supervisor_loop")
 }
 
+func TestNewUIDesktopPowerShellScriptSeedsDevProviderPreferencesWithStablePsqlArgs(t *testing.T) {
+	text := readRootScript(t, "../../run-new-ui-desktop.ps1")
+
+	required := []string{
+		`Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER' -Value 'openai'`,
+		`'settings.provider.codex.codexModelProvider'`,
+		`$psqlArgs = @(`,
+		`'--set=ON_ERROR_STOP=1'`,
+		`"--set=active_provider=$($env:SUPER_DOLPHIN_DEV_PROVIDER)"`,
+		`"--set=codex_model_provider=$($env:SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER)"`,
+		`'-d'`,
+		`& $psql @psqlArgs *> $null`,
+	}
+	for _, want := range required {
+		if !strings.Contains(text, want) {
+			t.Fatalf("run-new-ui-desktop.ps1 missing %q", want)
+		}
+	}
+	if strings.Contains(text, "-v 'ON_ERROR_STOP=1'") {
+		t.Fatal("run-new-ui-desktop.ps1 must use --set argument strings instead of quoted -v pairs")
+	}
+	assertTextOrderAfter(t, text, "$psqlArgs = @(", "'--set=ON_ERROR_STOP=1'", "'-d'")
+	assertTextOrderAfter(t, text, "$psqlArgs = @(", "'-d'", "$env:DATABASE_URL")
+	assertTextOrderAfter(t, text, "$script:DesktopProcess = Start-Process", "Wait-ForBackend", "Seed-DevPreferences")
+	assertTextOrderAfter(t, text, "$script:DesktopProcess = Start-Process", "Seed-DevPreferences", "Wait-ForAnyProcessExit")
+}
+
 func TestNewUIDesktopScriptReadmeMatchesStartupOrder(t *testing.T) {
 	script := readRootScript(t, "../../run-new-ui-desktop.sh")
 	readme := readRootScript(t, "../../frontend-app/README.md")

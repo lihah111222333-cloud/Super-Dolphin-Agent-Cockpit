@@ -1109,7 +1109,7 @@ function threadStartPayload(params) {
   const deferSpawn = rest.deferSpawn ?? rest.defer_spawn;
   const toolSurfaceMode = normalizeToolSurfaceMode(rest.toolSurfaceMode || rest.tool_surface_mode);
   stripThreadStartInternalKeys(rest);
-  const request = cleanObject({ ...rest, modelProvider: provider, prompt_key: promptKey, agent_key: agentKey, toolSurfaceMode });
+  const request = cleanObject({ ...rest, provider, prompt_key: promptKey, agent_key: agentKey, toolSurfaceMode });
   if (deferSpawn === true) request.defer_spawn = true;
   return request;
 }
