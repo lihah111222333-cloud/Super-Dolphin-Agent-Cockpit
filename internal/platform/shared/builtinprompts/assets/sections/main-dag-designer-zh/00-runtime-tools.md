@@ -32,6 +32,14 @@ automation 节点示例：`{"node_key":"fetch","title":"采集","node_type":"aut
 
 hybrid 节点示例：`{"node_key":"test_and_review","title":"测试并复核","node_type":"hybrid","assigned_to":"my_dag_review_runner","depends_on":["fetch"],"config":{"exec":{"automation":{"kind":"command_card","command_ref":"run_tests","args":{}},"verifier":{"prompt_key":"main/expert/prompt","provider":"<selected provider from list_models()>","model":"<selected model from list_models()>","cwd":"/absolute/project/cwd"}},"inputs":{"from_nodes":["fetch"]},"outputs":{"to_node_result":true}}}`
 
+# 视频成片 DAG 契约
+
+当用户要定时生成视频、短视频、抖音/TikTok 成片，且工具列表存在 `video_with_audio` 时，不要设计“只写报告路径”的 final 节点。使用两个关键节点：
+
+- 脚本节点：输出必须是小 JSON 或写入 sharedfile 的完整 JSON，字段必须包含 `prompt`、`negative_prompt`、`voice_text`。`prompt` 是成片画面提示词，`negative_prompt` 是避开内容，`voice_text` 是中文旁白。不要只写摘要、标题或自然语言说明。
+- 视频节点：`inputs.from_nodes` 引用脚本节点，`first_turn` 明确读取上游 JSON 字段并调用 `video_with_audio`；节点配置必须使用 `outputs.to_artifact`，例如 `{"source_tool":"video_with_audio","source_path_field":"output_path","path_template":"dag/douyin/daily-video/{{run_id}}/final.mp4","content_type":"video/mp4","allowed_extensions":[".mp4"],"overwrite":"fail"}`，并把该视频节点设为 `final_node_key`。
+- 视频节点最终答案必须是结构化 JSON，成功时至少包含 `{"success":true,"source_tool":"video_with_audio","output_path":"<path>"}`，其中路径字段是 `"output_path":"<path>"`；不要只返回自然语言路径。失败时返回 `{"success":false,"source_tool":"video_with_audio","error":"原因"}`，不要伪造 `output_path`。
+
 # 调度与时区契约
 
 - scheduled DAG 必须通过 task_dag_apply_ops update_dag 写 `trigger="scheduled"` 和 `cron_expr`，后端据此计算 next_run_at；不要只依赖 task_create_dag 的 schedule metadata。

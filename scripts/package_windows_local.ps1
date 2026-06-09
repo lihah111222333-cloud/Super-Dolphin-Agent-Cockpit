@@ -75,6 +75,7 @@ $RelayUrl = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_CODEX_RELAY_BAS
 $BootstrapToken = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN', 'Process')
 $PostgresDist = if ($env:SUPER_DOLPHIN_POSTGRES_DIST) { $env:SUPER_DOLPHIN_POSTGRES_DIST } else { Join-Path $Root "third_party/postgres/$Platform" }
 $CodexBin = if ($env:SUPER_DOLPHIN_CODEX_ARTIFACT) { $env:SUPER_DOLPHIN_CODEX_ARTIFACT } else { Get-CommandSource 'codex.exe' }
+$FFmpegBin = if ($env:SUPER_DOLPHIN_FFMPEG_BIN) { $env:SUPER_DOLPHIN_FFMPEG_BIN } else { Get-CommandSource 'ffmpeg.exe' }
 
 if ($GoOS -ne 'windows') {
     throw "package_windows_local.ps1 must run on Windows; current GOOS=$GoOS"
@@ -94,6 +95,14 @@ if (-not (Test-Path -LiteralPath $CodexBin -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $PostgresDist -PathType Container)) {
     throw "missing PostgreSQL dist; set SUPER_DOLPHIN_POSTGRES_DIST: $PostgresDist"
 }
+if (-not (Test-Path -LiteralPath $FFmpegBin -PathType Leaf)) {
+    throw 'missing ffmpeg.exe; install ffmpeg or set SUPER_DOLPHIN_FFMPEG_BIN'
+}
+& $FFmpegBin -version *> $null
+if ($LASTEXITCODE -ne 0) {
+    throw "ffmpeg smoke failed: $FFmpegBin -version"
+}
+$env:SUPER_DOLPHIN_FFMPEG_BIN = $FFmpegBin
 
 function Package-One() {
     param([Parameter(Mandatory)][string]$Profile)

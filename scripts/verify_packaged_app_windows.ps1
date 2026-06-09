@@ -372,6 +372,19 @@ function Verify-PostgresRuntime() {
     Write-Host 'PostgreSQL runtime verified'
 }
 
+function Verify-FFmpeg() {
+    param([Parameter(Mandatory)][string]$PackageRoot)
+    $path = Join-Path $PackageRoot 'bin/ffmpeg.exe'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "missing packaged ffmpeg executable: $path"
+    }
+    & $path -version *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "packaged ffmpeg smoke failed: $path -version"
+    }
+    Write-Host 'packaged ffmpeg smoke verified'
+}
+
 function Verify-RequiredFiles() {
     param([Parameter(Mandatory)][string]$PackageRoot)
     foreach ($rel in @(
@@ -380,6 +393,7 @@ function Verify-RequiredFiles() {
         'bin/mcp-lsp.exe',
         'bin/mcp-ida.exe',
         'bin/codex.exe',
+        'bin/ffmpeg.exe',
         'bin/gopls.exe',
         'runtime-manifest.json',
         'codex-manifest.json',
@@ -430,6 +444,7 @@ try {
     Verify-CodexManifest -PackageRoot $packageRoot
     Verify-LSPManifest -PackageRoot $packageRoot
     Verify-PostgresRuntime -PackageRoot $packageRoot
+    Verify-FFmpeg -PackageRoot $packageRoot
     Write-Host "Windows package verified: $packageRoot"
 } finally {
     if ($script:CleanupDir -and (Test-Path -LiteralPath $script:CleanupDir)) {

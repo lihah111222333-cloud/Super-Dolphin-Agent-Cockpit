@@ -220,7 +220,7 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 
 	// 5. 构造 LaunchRequest 并调 launcher；F1.2 inputsPrefix 拼在 first_turn 之前。
 	req := buildLaunchRequestFromAgentConfig(cfg, node, runCtx)
-	req.Prompt = composePrompt(inputsPrefix, cfg.FirstTurn)
+	req.Prompt = composePrompt(inputsPrefix, artifactOutputContract(cfg.Outputs.ToArtifact), cfg.FirstTurn)
 	threadID, launchErr := e.launchAgent(ctx, req, node, runCtx)
 	return e.agentLaunchOutcome(ctx, node, runCtx, threadID, launchErr), nil
 }
