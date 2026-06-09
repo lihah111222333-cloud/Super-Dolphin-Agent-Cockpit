@@ -27,50 +27,6 @@ type videoGenerateInput struct {
 	NegativePrompt string `json:"negative_prompt,omitempty"`
 }
 
-func videoToolDefinitions() []ToolDefinition {
-	return buildToolDefinitions(
-		defineTool(
-			"video_generate",
-			"Generate a short-form video (Douyin/TikTok style) from a text prompt using SiliconFlow Wan2.2. Returns a video download URL when complete. Requires SILICONFLOW_API_KEY environment variable.",
-			ObjectSchema(map[string]Schema{
-				"prompt":          StringSchema("Detailed description of the video content and style. Be vivid and specific."),
-				"negative_prompt": StringSchema("What to avoid in the video (optional)."),
-			}, "prompt"),
-			HandleVideoGenerate(),
-		),
-	)
-}
-
-func HandleVideoGenerate() ToolHandler {
-	return func(ctx context.Context, input json.RawMessage) (any, error) {
-		apiKey, err := siliconFlowAPIKey()
-		if err != nil {
-			return nil, err
-		}
-		var in videoGenerateInput
-		if err := json.Unmarshal(input, &in); err != nil {
-			return nil, fmt.Errorf("invalid input: %w", err)
-		}
-		if strings.TrimSpace(in.Prompt) == "" {
-			return nil, errors.New("prompt is required")
-		}
-
-		requestID, err := sfSubmit(ctx, apiKey, in)
-		if err != nil {
-			return nil, err
-		}
-		videoURL, err := sfPoll(ctx, apiKey, requestID)
-		if err != nil {
-			return nil, err
-		}
-		localPath, err := downloadVideoToDesktop(ctx, videoURL, requestID)
-		if err != nil {
-			return nil, fmt.Errorf("download generated video from %s: %w", videoURL, err)
-		}
-		return map[string]any{"success": true, "request_id": requestID, "local_path": localPath}, nil
-	}
-}
-
 func siliconFlowAPIKey() (string, error) {
 	apiKey := strings.TrimSpace(os.Getenv("SILICONFLOW_API_KEY"))
 	if apiKey != "" {
