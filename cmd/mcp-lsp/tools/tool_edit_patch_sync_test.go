@@ -122,7 +122,7 @@ func (m *editRereadSyncManager) DidChange(_ context.Context, _ string, _ int, ch
 	return nil
 }
 
-func TestReplaceRangeSyncRereadsFileAfterPatchWrite(t *testing.T) {
+func TestReplaceRangeSyncUsesDirectDidChangeWithoutBootstrap(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "sample.go")
 	original := "package main\n\nfunc f() { old() }\n"
@@ -151,7 +151,12 @@ func TestReplaceRangeSyncRereadsFileAfterPatchWrite(t *testing.T) {
 		t.Fatalf("edit returned error: %v", err)
 	}
 	requireSyncedReplaceRangeResult(t, got)
-	assertRereadSyncContent(t, manager, patched, diskAfterBootstrap)
+	if manager.bootstrapContent != "" {
+		t.Fatalf("BootstrapDocument content = %q, want direct DidChange without bootstrap", manager.bootstrapContent)
+	}
+	if manager.didChangeText != patched {
+		t.Fatalf("DidChange text = %q, want patched content %q", manager.didChangeText, patched)
+	}
 }
 
 func TestReplaceRangeDoesNotWarnForLargeFullDocumentSync(t *testing.T) {
@@ -213,14 +218,4 @@ func repeatString(value string, count int) []string {
 		out[idx] = value
 	}
 	return out
-}
-
-func assertRereadSyncContent(t *testing.T, manager *editRereadSyncManager, patched string, diskAfterBootstrap string) {
-	t.Helper()
-	if manager.bootstrapContent != patched {
-		t.Fatalf("bootstrap content = %q, want patched content %q", manager.bootstrapContent, patched)
-	}
-	if manager.didChangeText != diskAfterBootstrap {
-		t.Fatalf("DidChange text = %q, want re-read disk content %q", manager.didChangeText, diskAfterBootstrap)
-	}
 }

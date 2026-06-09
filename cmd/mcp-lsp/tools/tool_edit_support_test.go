@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
@@ -400,6 +402,60 @@ func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
 	}
 }
 
+type editBlockingSyncManager struct {
+	structureTestManager
+	started chan struct{}
+}
+
+func (m *editBlockingSyncManager) DidChange(ctx context.Context, _ string, _ int, _ []protocol.TextDocumentContentChangeEvent) error {
+	close(m.started)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestReplaceRangeConfirmsDiskWriteWithGitDiffBeforeSlowLSPSync(t *testing.T) {
+	root := initEditGitRepo(t, map[string]string{
+		"sample.go": "package main\n\nfunc f() { old() }\n",
+	})
+	logDir := filepath.Join(root, "logs")
+	t.Setenv("GO_AGENT_LOG_FALLBACK_DIR", logDir)
+	path := filepath.Join(root, "sample.go")
+	manager := &editBlockingSyncManager{started: make(chan struct{})}
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
+	input, err := json.Marshal(EditRequest{
+		FilePath: path,
+		Patch: strings.Join([]string{
+			"@@",
+			"-func f() { old() }",
+			"+func f() { new() }",
+			"",
+		}, "\n"),
+	})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(testToolContext(root), 2*time.Second)
+	defer cancel()
+
+	startedAt := time.Now()
+	got, err := handler(ctx, input)
+	if err != nil {
+		t.Fatalf("edit returned error: %v", err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > time.Second {
+		t.Fatalf("edit elapsed = %s, want fast git diff confirmation", elapsed)
+	}
+	result := requireReplaceRangeResult(t, got)
+	if result.LSPSync {
+		t.Fatalf("LSPSync = true, want git diff confirmation before slow LSP sync")
+	}
+	if !strings.Contains(result.Warning, "git diff") {
+		t.Fatalf("warning = %q, want git diff confirmation", result.Warning)
+	}
+	assertFileContent(t, path, "package main\n\nfunc f() { new() }\n")
+	assertEditRecoveryLog(t, logDir, path)
+}
+
 func requireSyncRollbackFailure(t *testing.T, err error) {
 	t.Helper()
 	if err == nil {
@@ -407,6 +463,47 @@ func requireSyncRollbackFailure(t *testing.T, err error) {
 	}
 	if !strings.Contains(err.Error(), "lsp sync boom") || !strings.Contains(err.Error(), "rollback failed") {
 		t.Fatalf("edit error = %v, want sync and rollback failure details", err)
+	}
+}
+
+func initEditGitRepo(t *testing.T, files map[string]string) string {
+	t.Helper()
+	root := t.TempDir()
+	runEditGit(t, root, "init")
+	runEditGit(t, root, "config", "user.email", "test@example.invalid")
+	runEditGit(t, root, "config", "user.name", "Test User")
+	for rel, content := range files {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("mkdir fixture: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+	}
+	runEditGit(t, root, "add", ".")
+	runEditGit(t, root, "commit", "-m", "initial")
+	return root
+}
+
+func runEditGit(t *testing.T, root string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = root
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, output)
+	}
+}
+
+func assertEditRecoveryLog(t *testing.T, logDir string, path string) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(logDir, "mcp-lsp-edit-recovery.jsonl"))
+	if err != nil {
+		t.Fatalf("read edit recovery log: %v", err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, path) || !strings.Contains(text, "git_diff_confirmed") {
+		t.Fatalf("edit recovery log = %q, want file path and git_diff_confirmed", text)
 	}
 }
 
