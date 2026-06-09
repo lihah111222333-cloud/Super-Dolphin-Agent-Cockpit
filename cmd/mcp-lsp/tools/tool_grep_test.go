@@ -188,6 +188,40 @@ func TestGrepTextSearchExcludesWorkspaceCacheDirectoriesFromRootSearch(t *testin
 	}
 }
 
+func TestGrepRuntimeFallbackSearchesClaudeWorktrees(t *testing.T) {
+	root := t.TempDir()
+	relPath := filepath.Join("docs", "li", "p15", "TASKS", "TN-integration.md")
+	worktreeRoot := filepath.Join(root, ".claude", "worktrees", "feature")
+	target := filepath.Join(worktreeRoot, relPath)
+	writeGrepFixtureFile(t, filepath.Join(root, relPath), "stale notes\n")
+	writeGrepFixtureFile(t, target, "fresh notes\nBenchmarkTickAppendStrictParallel\n")
+
+	handler := NewGrepHandler(Config{WorkspaceRoot: root})
+	payload, err := json.Marshal(grepToolInput{
+		Action:     "text_search",
+		Query:      "BenchmarkTickAppendStrictParallel",
+		Path:       relPath,
+		MaxResults: 5,
+	})
+	if err != nil {
+		t.Fatalf("marshal grep input: %v", err)
+	}
+	ctx := common.WithRuntimeWorkspaceScopeFallback(testToolContext(root))
+
+	got, err := handler(ctx, payload)
+	if err != nil {
+		t.Fatalf("grep returned error: %v", err)
+	}
+	resp, ok := got.(grepResponse)
+	if !ok {
+		t.Fatalf("grep result type = %T, want grepResponse", got)
+	}
+	want := canonicalGrepPath(t, target)
+	if _, ok := resp.Data[want]; !ok {
+		t.Fatalf("grep data = %#v, want worktree result %q", resp.Data, want)
+	}
+}
+
 func TestGrepHandlerAppliesSixteenKiBPayloadBudget(t *testing.T) {
 	root := t.TempDir()
 	writeLargeGrepFixture(t, root)

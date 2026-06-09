@@ -61,7 +61,7 @@ func TestLSPToolSchemasExposeExplicitWorkDir(t *testing.T) {
 			t.Fatalf("%s work_dir schema missing or wrong type: %T", name, props["work_dir"])
 		}
 		desc, _ := workDir["description"].(string)
-		for _, must := range []string{"Absolute paths", "trusted workspace root"} {
+		for _, must := range []string{"Absolute paths", "trusted workspace root", "relative work_dir"} {
 			if !strings.Contains(desc, must) {
 				t.Fatalf("%s work_dir description = %q, want %q", name, desc, must)
 			}

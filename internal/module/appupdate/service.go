@@ -16,10 +16,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const (
@@ -43,7 +46,9 @@ const (
 	selectedUpdateFilename = "selected-update.json"
 	dmgFilename            = "Super-Dolphin-update.dmg"
 	exeFilename            = "Super-Dolphin-update.exe"
+	helperLogFilename      = "super-dolphin-updater.log"
 	updaterHelperName      = "super-dolphin-updater"
+	installQuitDelay       = 250 * time.Millisecond
 )
 
 type Config struct {
@@ -279,7 +284,7 @@ func (s *service) Install(ctx context.Context) (InstallResult, error) {
 	if err := cmd.Process.Release(); err != nil {
 		return InstallResult{}, fmt.Errorf("release app update helper: %w", err)
 	}
-	s.requestQuit()
+	s.scheduleRequestQuit()
 	return InstallResult{Started: true, Helper: helper}, nil
 }
 
@@ -288,6 +293,15 @@ func (s *service) InstallLatest(ctx context.Context) (InstallResult, error) {
 		return InstallResult{}, err
 	}
 	return s.Install(ctx)
+}
+
+func (s *service) scheduleRequestQuit() {
+	quit := s.requestQuit
+	safego.Go(context.Background(), pkglogger.Get(), "appupdate.scheduleRequestQuit", func(context.Context) {
+		// Let the RPC bridge flush InstallResult before the app closes.
+		time.Sleep(installQuitDelay)
+		quit()
+	})
 }
 
 func (s *service) fetchManifest(ctx context.Context) (ManifestPayload, UpdateArtifact, error) {
@@ -382,20 +396,31 @@ func (s *service) stagedManifestPath() string {
 	return filepath.Join(s.cfg.StageDir, selectedUpdateFilename)
 }
 
+func (s *service) helperLogPath() string {
+	return filepath.Join(s.cfg.StageDir, helperLogFilename)
+}
+
 func (s *service) installCommand(staged selectedUpdate) (*exec.Cmd, string, error) {
 	artifactPath := selectedArtifactPath(staged)
 	switch updatePlatformOS(staged.Artifact.Platform) {
 	case "darwin":
-		args := []string{"-dmg", artifactPath, "-target", s.cfg.TargetAppPath, "-restart"}
+		args := []string{"-dmg", artifactPath, "-target", s.cfg.TargetAppPath, "-restart", "-wait-pid", strconv.Itoa(os.Getpid()), "-log", s.helperLogPath()}
 		if s.cfg.AllowUnsigned {
 			args = append(args, "-allow-unsigned")
 		}
-		return exec.Command(s.cfg.HelperPath, args...), s.cfg.HelperPath, nil
+		return detachedHelperCommand(s.helperLogPath(), s.cfg.HelperPath, args), s.cfg.HelperPath, nil
 	case "windows":
 		return exec.Command(artifactPath, "/S"), artifactPath, nil
 	default:
 		return nil, "", fmt.Errorf("unsupported app update platform %q", staged.Artifact.Platform)
 	}
+}
+
+func detachedHelperCommand(logPath string, helperPath string, args []string) *exec.Cmd {
+	script := `log_path=$1; shift; nohup "$@" >"$log_path" 2>&1 &`
+	shellArgs := []string{"-c", script, "super-dolphin-updater-launcher", logPath, helperPath}
+	shellArgs = append(shellArgs, args...)
+	return exec.Command("/bin/sh", shellArgs...)
 }
 
 func validateConfig(cfg Config) error {
