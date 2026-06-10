@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -506,18 +505,6 @@ func (s *lspCacheStore) writePersistentPayloadLocked(payload []byte) error {
 		return err
 	}
 	return nil
-}
-
-func (s *lspCacheStore) quarantinePersistentLocked() error {
-	path := s.cachePath()
-	if path == "" {
-		return errors.New("cache path is empty")
-	}
-	if _, err := os.Stat(path); err != nil {
-		return err
-	}
-	quarantine := path + ".corrupt-" + strconv.FormatInt(time.Now().UnixNano(), 10)
-	return os.Rename(path, quarantine)
 }
 
 func (s *lspCacheStore) expired(value lspCacheValue, now time.Time) bool {

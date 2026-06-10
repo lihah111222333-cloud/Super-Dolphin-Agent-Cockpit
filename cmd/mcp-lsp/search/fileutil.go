@@ -264,10 +264,6 @@ func ReadToolFileContentInRoots(root string, roots []string, target string, maxB
 	}, nil
 }
 
-func readValidatedFile(root, target string, maxBytes int) (validatedFile, error) {
-	return readValidatedFileInRoots(root, nil, target, maxBytes)
-}
-
 func readValidatedFileInRoots(root string, roots []string, target string, maxBytes int) (validatedFile, error) {
 	pathInfo, err := ResolvePathInRoots(root, roots, target)
 	if err != nil {

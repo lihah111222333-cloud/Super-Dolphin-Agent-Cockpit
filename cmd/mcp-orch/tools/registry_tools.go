@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
@@ -116,32 +114,6 @@ func modelProviderAvailability(provider string) (bool, string) {
 		return true, ""
 	}
 	return false, fmt.Sprintf("model provider %q is not supported in this packaged build", provider)
-}
-
-func localCodexConfigPath() (string, bool) {
-	home, err := os.UserHomeDir()
-	if err != nil || strings.TrimSpace(home) == "" {
-		return "", false
-	}
-	return filepath.Join(home, ".codex", "config.toml"), true
-}
-
-func localCodexModelProviderExists(configPath, provider string) bool {
-	raw, err := os.ReadFile(configPath)
-	if err != nil {
-		return false
-	}
-	return containsCodexModelProviderTable(string(raw), provider)
-}
-
-func containsCodexModelProviderTable(config, provider string) bool {
-	for _, line := range strings.Split(config, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "[model_providers."+provider+"]" || line == "[model_providers.\""+provider+"\"]" {
-			return true
-		}
-	}
-	return false
 }
 
 func boolPtr(value bool) *bool {
