@@ -471,10 +471,6 @@ func rssLimitBytesForLanguage(languageID string) uint64 {
 	return defaultRSSLimitBytes
 }
 
-func rssLimitBytes() uint64 {
-	return rssLimitBytesForLanguage("")
-}
-
 func rssLimitBytesFromEnv(envKey string) (uint64, bool) {
 	value, err := strconv.ParseUint(strings.TrimSpace(os.Getenv(envKey)), 10, 64)
 	if err != nil || value == 0 {
