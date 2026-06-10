@@ -3,8 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -160,19 +158,6 @@ type providerModelsJSON struct {
 	UnavailableReason string   `json:"unavailable_reason"`
 }
 
-func writeCodexConfigWithoutModelProvider(t *testing.T, home string) string {
-	t.Helper()
-	codexConfigDir := filepath.Join(home, ".codex")
-	if err := os.MkdirAll(codexConfigDir, 0o700); err != nil {
-		t.Fatalf("MkdirAll(.codex) error = %v", err)
-	}
-	codexConfigPath := filepath.Join(codexConfigDir, "config.toml")
-	if err := os.WriteFile(codexConfigPath, []byte("model = \"gpt-5.5\"\n"), 0o600); err != nil {
-		t.Fatalf("WriteFile(config.toml) error = %v", err)
-	}
-	return codexConfigPath
-}
-
 func decodeFirstProviderModelsJSON(t *testing.T, out any) (providerModelsJSON, []byte) {
 	t.Helper()
 	raw, err := json.Marshal(out)
@@ -189,13 +174,6 @@ func decodeFirstProviderModelsJSON(t *testing.T, out any) (providerModelsJSON, [
 		t.Fatalf("providers = %+v, want exactly one provider", decoded.Providers)
 	}
 	return decoded.Providers[0], raw
-}
-
-func requireStringContains(t *testing.T, got, wantSubstring string) {
-	t.Helper()
-	if !strings.Contains(got, wantSubstring) {
-		t.Fatalf("string = %q, want substring %q", got, wantSubstring)
-	}
 }
 
 type stubModelRegistry struct {
