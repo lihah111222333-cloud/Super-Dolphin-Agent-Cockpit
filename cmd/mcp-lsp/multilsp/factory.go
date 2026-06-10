@@ -135,30 +135,6 @@ func (m *manager) withPooledClient(client Client, fn func() error) error {
 	return fn()
 }
 
-func (m *manager) forEachCurrentDiagnostic(filter map[string]struct{}, fn func(diagnosticSnapshot)) {
-	if m == nil || fn == nil {
-		return
-	}
-	withReadLock(&m.diagMu, func() struct{} {
-		current := m.CurrentDiagnosticGeneration()
-		for _, snapshot := range m.diagnostics {
-			if snapshot.generation != current || !matchesDiagnosticFilter(filter, snapshot.params.URI) {
-				continue
-			}
-			fn(snapshot)
-		}
-		return struct{}{}
-	})
-}
-
-func matchesDiagnosticFilter(filter map[string]struct{}, uri string) bool {
-	if len(filter) == 0 {
-		return true
-	}
-	_, ok := filter[uri]
-	return ok
-}
-
 func queryHierarchy[I any, R any](
 	ctx context.Context,
 	m *manager,
