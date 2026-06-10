@@ -16,14 +16,6 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-func findGoModRoot(path string) (string, error) {
-	goModPath, err := findGoModPath(path)
-	if err != nil || goModPath == "" {
-		return "", err
-	}
-	return filepath.Dir(goModPath), nil
-}
-
 type goWorkEditJSON struct {
 	Use []struct {
 		DiskPath string `json:"DiskPath"`
@@ -270,26 +262,6 @@ func fileExists(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
-func shouldUseClientForLanguage(languageID string) bool {
-	id := normalizeLanguageID(languageID)
-	// Fallback-only file types don't need an LSP client.
-	switch id {
-	case "markdown", "json", "yaml":
-		return false
-	default:
-		return true
-	}
-}
-
-func shouldUseGoWorkspace(languageID string) bool {
-	switch normalizeLanguageID(languageID) {
-	case "", "go", "gomod", "gosum", "gowork":
-		return true
-	default:
-		return false
-	}
-}
-
 func shouldUseJSTSWorkspace(languageID string) bool {
 	switch normalizeLanguageID(languageID) {
 	case "javascript", "typescript", "javascriptreact", "typescriptreact":
@@ -297,10 +269,6 @@ func shouldUseJSTSWorkspace(languageID string) bool {
 	default:
 		return false
 	}
-}
-
-func findJSTSProjectRoot(path string) (string, error) {
-	return findProjectRoot(path, lspProjectAdapterConfig(contract.LSPServiceJSTS).RootMarkers)
 }
 
 func findJSTSProjectRootWithin(root string) (string, error) {

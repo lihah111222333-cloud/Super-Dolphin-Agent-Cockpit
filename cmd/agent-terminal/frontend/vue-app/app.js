@@ -615,10 +615,7 @@ export const AppRoot = {
           threadStore.setPreferenceScopeCwd(next || '');
         }
         if (!next || next === prev) return;
-        console.warn('[TRACE-CWD] threadScopeCwd changed', { next, prev, ts: Date.now() });
-        threadStore.refreshSidebarState({ force: true }).then(() => {
-          console.warn('[TRACE-CWD] refreshSidebarState completed', { ts: Date.now() });
-        }).catch((/** @type {unknown} */ error) => {
+        threadStore.refreshSidebarState({ force: true }).catch((/** @type {unknown} */ error) => {
           console.warn('refresh threads after scope change failed', error);
         });
         refreshScopedPageAfterCwdChange(page.value, { refreshMemoryCenter, refreshDashboardByPage });

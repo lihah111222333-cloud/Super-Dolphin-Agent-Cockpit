@@ -570,14 +570,6 @@ func (k diagnosticStoreKey) String() string {
 	return k.scopeKey + "\x00" + k.workspaceKey + "\x00" + k.uri
 }
 
-func (m *manager) deleteDiagnosticsByURI(uri string) {
-	for key, snapshot := range m.diagnostics {
-		if snapshot.uri == uri || snapshot.params.URI == uri {
-			delete(m.diagnostics, key)
-		}
-	}
-}
-
 func diagnosticMetadataForURI(uri string) diagnosticMetadata {
 	path := pathFromDiagnosticURI(uri)
 	info, err := os.Stat(path)
