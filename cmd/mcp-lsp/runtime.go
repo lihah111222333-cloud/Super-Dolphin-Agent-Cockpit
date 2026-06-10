@@ -429,10 +429,6 @@ func createFallbackManager(adapters *multilsp.LanguageAdapterRegistry, root stri
 	})
 }
 
-func createGenericManager(adapter multilsp.LanguageAdapter, adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger) (multilsp.Manager, error) {
-	return createGenericManagerWithBinary(adapter, adapters, root, log, "", false)
-}
-
 func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger, binaryOverride string, packagedLSP bool) (multilsp.Manager, error) {
 	command, err := adapter.ServerCommand(context.Background(), multilsp.ResolvedLanguageScope{})
 	if err != nil {
