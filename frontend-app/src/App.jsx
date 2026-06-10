@@ -10,6 +10,7 @@ import { PromptPage } from './pages/prompts/PromptPage.jsx';
 import { SettingsPage } from './pages/settings/SettingsPage.jsx';
 import { SkillsPage } from './pages/skills/SkillsPage.jsx';
 import { WorkflowPage } from './pages/workflows/WorkflowPage.jsx';
+import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.js';
 import { dashboardQueryKey, errorMessage, fetchMemoryDashboard, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, useDashboardFocusInvalidation, textValue } from './pages/shared/pageShared.js';
 
 const navItems = [
@@ -50,6 +51,9 @@ const PAGE_ID_BY_ROUTE = Object.freeze({
 });
 
 const DASHBOARD_QUERY_STALE_MS = 30_000;
+
+const UPDATE_CHECK_DELAY_MS = 2_000;
+const UPDATE_BANNER_DISMISSED_PREFIX = 'super-dolphin-update-dismissed:';
 
 const DASHBOARD_QUERY_GC_MS = 10 * 60_000;
 
@@ -302,6 +306,71 @@ function useAppBootstrap(bootstrap, skipBootstrap) {
   }, [bootstrap, skipBootstrap]);
 }
 
+function updateVersionFromResult(result) {
+  return (result?.version || result?.artifact?.version || '').toString().trim();
+}
+
+function updateDismissedKey(version) {
+  return `${UPDATE_BANNER_DISMISSED_PREFIX}${version}`;
+}
+
+function useAppUpdateBanner(skipBootstrap) {
+  const [state, setState] = useState({ status: 'idle', update: null, message: '' });
+
+  useEffect(() => {
+    if (skipBootstrap) return undefined;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setState((current) => (current.update ? current : { ...current, status: 'checking' }));
+      checkAppUpdate()
+        .then((result) => {
+          if (cancelled || !result?.enabled || !result?.available) return;
+          const version = updateVersionFromResult(result);
+          if (version && window.localStorage.getItem(updateDismissedKey(version)) === '1') return;
+          setState({ status: 'available', update: { ...result, version }, message: '' });
+        })
+        .catch((error) => {
+          if (!cancelled) console.info('[frontend-app] background update check failed', error);
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setState((current) => (current.status === 'checking' ? { ...current, status: 'idle' } : current));
+          }
+        });
+    }, UPDATE_CHECK_DELAY_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [skipBootstrap]);
+
+  const dismiss = useCallback(() => {
+    setState((current) => {
+      const version = updateVersionFromResult(current.update);
+      if (version) window.localStorage.setItem(updateDismissedKey(version), '1');
+      return { status: 'dismissed', update: null, message: '' };
+    });
+  }, []);
+
+  const install = useCallback(async () => {
+    setState((current) => ({ ...current, status: 'installing', message: '' }));
+    try {
+      const result = await installLatestAppUpdate();
+      setState((current) => ({ ...current, status: 'installing', message: result?.started === false ? '安装没有启动，请稍后重试。' : '安装程序已启动，请按提示完成更新。' }));
+    } catch (error) {
+      setState((current) => ({ ...current, status: 'available', message: `更新失败：${errorMessage(error)}` }));
+    }
+  }, []);
+
+  return {
+    update: state.update,
+    status: state.status,
+    message: state.message,
+    dismiss,
+    install,
+  };
+}
+
 function useAppShellState(store, skipBootstrap) {
   const routeBootstrapPending = !skipBootstrap && !['ready', 'failed'].includes(store.bootstrapStatus);
   useActivePageHistory(store.activePage, store.setActivePage, routeBootstrapPending);
@@ -313,10 +382,11 @@ function useAppShellState(store, skipBootstrap) {
   ), [store.activePage]);
   const { theme, toggleTheme } = useColorTheme();
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
-  return { activeLabel, memoryBadge, projectPath, theme, toggleTheme, rightPanelOpen, setRightPanelOpen };
+  const updateBanner = useAppUpdateBanner(skipBootstrap);
+  return { activeLabel, memoryBadge, projectPath, theme, toggleTheme, rightPanelOpen, setRightPanelOpen, updateBanner };
 }
 
-function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggleTheme, rightPanelOpen, setRightPanelOpen }) {
+function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggleTheme, rightPanelOpen, setRightPanelOpen, updateBanner }) {
   return (
     <div className="sa-window" data-theme={theme} data-testid="frontend-app">
       <Titlebar
@@ -334,6 +404,7 @@ function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggle
           memorySimilarCount={memoryBadge.memorySimilarCount}
         />
         <main className="sa-main">
+          <AppUpdateBanner updateBanner={updateBanner} />
           <ActivePageContent
             store={store}
             projectPath={projectPath}
@@ -346,6 +417,29 @@ function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggle
         </main>
       </div>
     </div>
+  );
+}
+
+function AppUpdateBanner({ updateBanner }) {
+  if (!updateBanner?.update) return null;
+  const version = updateVersionFromResult(updateBanner.update);
+  const installing = updateBanner.status === 'installing';
+  return (
+    <section className="app-update-banner" data-testid="app-update-banner" role="status">
+      <div className="app-update-copy">
+        <strong>发现新版本{version ? ` ${version}` : ''}</strong>
+        <span>建议更新到最新版，以获得最新功能和修复。</span>
+        {updateBanner.message ? <small>{updateBanner.message}</small> : null}
+      </div>
+      <div className="app-update-actions">
+        <button type="button" className="app-update-primary" onClick={updateBanner.install} disabled={installing}>
+          {installing ? '正在更新…' : '立即更新'}
+        </button>
+        <button type="button" className="app-update-secondary" onClick={updateBanner.dismiss} disabled={installing}>
+          稍后
+        </button>
+      </div>
+    </section>
   );
 }
 
