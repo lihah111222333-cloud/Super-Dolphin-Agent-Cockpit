@@ -6,13 +6,13 @@ import { FilesPage } from './FilesPage.jsx';
 
 const backend = vi.hoisted(() => ({
   deleteSharedFile: vi.fn(),
-  listSharedFiles: vi.fn(),
+  listSharedFilesDashboard: vi.fn(),
   openSharedFile: vi.fn(),
   readSharedFile: vi.fn(),
   saveTextFile: vi.fn(),
 }));
 
-vi.mock('../../shared/api/backendApi.js', () => backend);
+vi.mock('../../services/modules/fileService.js', () => backend);
 
 function renderFilesPage() {
   const queryClient = new QueryClient({
@@ -39,10 +39,10 @@ describe('FilesPage module', () => {
 
   it('opens mp4 shared files through native open without reading binary content as text', async () => {
     const finalPath = 'dag/douyin/daily-video/run-1/final.mp4';
-    backend.listSharedFiles.mockResolvedValue({
-      files: [{ path: finalPath, content: '', updated_at: '2026-06-06T08:00:00Z' }],
+    backend.listSharedFilesDashboard.mockResolvedValue({
+      files: [{ id: `${finalPath}:0`, path: finalPath, content: '', updatedAt: '2026-06-06T08:00:00Z' }],
       finalOutputRefs: [{ path: finalPath, runKey: 'run-1', dagKey: 'douyin-video' }],
-      sharedFileRetention: {
+      retention: {
         items: [{ path: finalPath, protected: true, cleanupCandidate: false, reason: 'final_output' }],
         protectedCount: 1,
         cleanupCandidateCount: 0,

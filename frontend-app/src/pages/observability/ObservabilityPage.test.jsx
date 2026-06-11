@@ -2,9 +2,9 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ObservabilityPage } from './ObservabilityPage.jsx';
-import { copyTextToClipboard, getObservabilityTrace, listObservabilityRecent } from '../../shared/api/backendApi.js';
+import { copyTextToClipboard, getObservabilityTrace, listObservabilityRecent } from '../../services/modules/observabilityService.js';
 
-vi.mock('../../shared/api/backendApi.js', () => ({
+vi.mock('../../services/modules/observabilityService.js', () => ({
   copyTextToClipboard: vi.fn(),
   getObservabilityTrace: vi.fn(),
   listObservabilityRecent: vi.fn(),
@@ -16,12 +16,12 @@ const recentResult = {
   events: [
     {
       ts: '2026-06-02T09:01:22.459Z',
-      trace_id: 'trace-frontend-1',
-      span_id: 'span-request',
+      traceId: 'trace-frontend-1',
+      spanId: 'span-request',
       method: 'thread/start',
       status: 'error',
-      thread_id: 'thread-1',
-      duration_ms: 12,
+      threadId: 'thread-1',
+      durationMs: 12,
       error: 'thread start failed',
     },
   ],
@@ -30,16 +30,16 @@ const recentResult = {
 const traceResult = {
   source: 'memory',
   truncated: false,
-  total_duration_ms: 12,
+  totalDurationMs: 12,
   events: [
     {
       ts: '2026-06-02T09:01:22.459Z',
-      trace_id: 'trace-frontend-1',
-      span_id: 'span-request',
+      traceId: 'trace-frontend-1',
+      spanId: 'span-request',
       method: 'thread/start',
       status: 'error',
-      thread_id: 'thread-1',
-      duration_ms: 12,
+      threadId: 'thread-1',
+      durationMs: 12,
       error: 'thread start failed',
     },
   ],
@@ -129,19 +129,19 @@ describe('ObservabilityPage module', () => {
       events: [
         {
           ts: '2026-06-02T09:01:22.000Z',
-          trace_id: 'trace-mixed-1',
-          span_id: 'span-ok',
+          traceId: 'trace-mixed-1',
+          spanId: 'span-ok',
           method: 'thread/start',
           status: 'ok',
-          duration_ms: 10,
+          durationMs: 10,
         },
         {
           ts: '2026-06-02T09:01:23.000Z',
-          trace_id: 'trace-mixed-1',
-          span_id: 'span-slow',
+          traceId: 'trace-mixed-1',
+          spanId: 'span-slow',
           method: 'thread/start',
           status: 'slow',
-          duration_ms: 25,
+          durationMs: 25,
         },
       ],
     });
@@ -163,50 +163,50 @@ describe('ObservabilityPage module', () => {
       events: [
         {
           ts: '2026-06-02T09:01:25.000Z',
-          trace_id: 'trace-slow-representative',
-          span_id: 'span-frontend-ok',
+          traceId: 'trace-slow-representative',
+          spanId: 'span-frontend-ok',
           kind: 'frontend',
           phase: 'frontend.rpc.done',
           method: 'turn/start',
           status: 'ok',
-          duration_ms: 5,
+          durationMs: 5,
         },
         {
           ts: '2026-06-02T09:01:24.000Z',
-          trace_id: 'trace-slow-representative',
-          span_id: 'span-tool-slow',
+          traceId: 'trace-slow-representative',
+          spanId: 'span-tool-slow',
           method: 'tool.call.end',
           status: 'slow',
-          tool_name: 'grep',
-          duration_ms: 1200,
+          toolName: 'grep',
+          durationMs: 1200,
         },
         {
           ts: '2026-06-02T09:01:23.000Z',
-          trace_id: 'trace-error-representative',
-          span_id: 'span-frontend-ok',
+          traceId: 'trace-error-representative',
+          spanId: 'span-frontend-ok',
           kind: 'frontend',
           phase: 'frontend.rpc.done',
           method: 'turn/start',
           status: 'ok',
-          duration_ms: 6,
+          durationMs: 6,
         },
         {
           ts: '2026-06-02T09:01:22.000Z',
-          trace_id: 'trace-error-representative',
-          span_id: 'span-tool-slow',
+          traceId: 'trace-error-representative',
+          spanId: 'span-tool-slow',
           method: 'tool.call.end',
           status: 'slow',
-          tool_name: 'grep',
-          duration_ms: 900,
+          toolName: 'grep',
+          durationMs: 900,
         },
         {
           ts: '2026-06-02T09:01:21.000Z',
-          trace_id: 'trace-error-representative',
-          span_id: 'span-tool-error',
+          traceId: 'trace-error-representative',
+          spanId: 'span-tool-error',
           method: 'tool.call.end',
           status: 'error',
-          tool_name: 'file',
-          duration_ms: 10,
+          toolName: 'file',
+          durationMs: 10,
           error: 'tool failed',
         },
       ],
@@ -340,20 +340,20 @@ describe('ObservabilityPage module', () => {
         {
           ...baseEvent,
           ts: olderLocalTimestamp,
-          trace_id: 'trace-local-offset',
-          span_id: 'span-local-offset',
+          traceId: 'trace-local-offset',
+          spanId: 'span-local-offset',
         },
         {
           ...baseEvent,
           ts: newerUTCTimestamp,
-          trace_id: 'trace-newest-utc',
-          span_id: 'span-newest-utc',
+          traceId: 'trace-newest-utc',
+          spanId: 'span-newest-utc',
         },
         {
           ...baseEvent,
           ts: middleUTCTimestamp,
-          trace_id: 'trace-middle-utc',
-          span_id: 'span-middle-utc',
+          traceId: 'trace-middle-utc',
+          spanId: 'span-middle-utc',
         },
       ],
     });
@@ -383,8 +383,8 @@ describe('ObservabilityPage module', () => {
         {
           ...recentResult.events[0],
           ts: 'not-a-date',
-          trace_id: 'trace-invalid-time',
-          span_id: 'span-invalid-time',
+          traceId: 'trace-invalid-time',
+          spanId: 'span-invalid-time',
         },
       ],
     });
