@@ -230,6 +230,24 @@ func TestCallAPIRecordsLifecycleEventsWithoutRawParams(t *testing.T) {
 		assertWailsTraceEvent(t, event, traceID, frontendSpanID)
 		assertTracePayloadExcludes(t, event, "secret prompt", "params_preview", "ParamsPreview", "rpcParamPreview")
 	}
+	if got, want := metadataInt(events[1].Metadata, "result_bytes"), len(json.RawMessage(`{"ok":true}`)); got != want {
+		t.Fatalf("done result_bytes = %d, want %d", got, want)
+	}
+	assertTracePayloadExcludes(t, events[1], `{"ok":true}`)
+}
+
+func metadataInt(metadata map[string]any, key string) int {
+	value := metadata[key]
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	default:
+		return -1
+	}
 }
 
 func TestCallAPIRejectsInvalidTraceparent(t *testing.T) {

@@ -274,7 +274,7 @@ func (s *Server) Dispatch(ctx context.Context, method string, params json.RawMes
 		return nil, err
 	}
 	startedAt := time.Now()
-	if err := s.recordDispatchTrace(ctx, method, params, startedAt, "backend.rpc.dispatch.start", "start", 0, TraceStatusOK, nil); err != nil {
+	if err := s.recordDispatchTrace(ctx, method, params, nil, startedAt, "backend.rpc.dispatch.start", "start", 0, TraceStatusOK, nil); err != nil {
 		s.logTraceRecordError(ctx, method, "start", err)
 	}
 
@@ -295,13 +295,13 @@ func (s *Server) Dispatch(ctx context.Context, method string, params json.RawMes
 
 	var result json.RawMessage
 	if err := local.Client.CallResult(ctx, method, callParams, &result); err != nil {
-		if recordErr := s.recordDispatchTrace(ctx, method, params, startedAt, "backend.rpc.dispatch.failed", "failed", time.Since(startedAt), TraceStatusError, err); recordErr != nil {
+		if recordErr := s.recordDispatchTrace(ctx, method, params, nil, startedAt, "backend.rpc.dispatch.failed", "failed", time.Since(startedAt), TraceStatusError, err); recordErr != nil {
 			s.logTraceRecordError(ctx, method, "failed", recordErr)
 		}
 		return nil, err
 	}
 	duration := time.Since(startedAt)
-	if err := s.recordDispatchTrace(ctx, method, params, startedAt, "backend.rpc.dispatch.done", "done", duration, rpcTraceStatus(method, duration), nil); err != nil {
+	if err := s.recordDispatchTrace(ctx, method, params, result, startedAt, "backend.rpc.dispatch.done", "done", duration, rpcTraceStatus(method, duration), nil); err != nil {
 		s.logTraceRecordError(ctx, method, "done", err)
 	}
 	return append(json.RawMessage(nil), result...), nil
@@ -315,7 +315,7 @@ func (s *Server) logTraceRecordError(ctx context.Context, method string, phase s
 	logger.Warn("rpc dispatch trace record failed", "phase", phase, "method", method, "error", err)
 }
 
-func (s *Server) recordDispatchTrace(ctx context.Context, method string, params json.RawMessage, startedAt time.Time, kind string, phase string, duration time.Duration, status TraceStatus, dispatchErr error) error {
+func (s *Server) recordDispatchTrace(ctx context.Context, method string, params json.RawMessage, result json.RawMessage, startedAt time.Time, kind string, phase string, duration time.Duration, status TraceStatus, dispatchErr error) error {
 	if s == nil || s.traceRecorder == nil || !s.traceRecorder.Enabled() {
 		return nil
 	}
@@ -324,6 +324,9 @@ func (s *Server) recordDispatchTrace(ctx context.Context, method string, params 
 	}
 	if keys := rpcParamKeys(params); len(keys) > 0 {
 		metadata["param_keys"] = keys
+	}
+	if result != nil {
+		metadata["result_bytes"] = len(result)
 	}
 	record := TraceRecord{
 		Timestamp:    startedAt,

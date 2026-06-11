@@ -37,12 +37,21 @@ import {
 } from './components/projectSelectorModel.js';
 import { useTimelineMaterialization } from './hooks/useTimelineMaterialization.js';
 import { onFilesDropped, copyTextToClipboard, locateCodeFile, openCodeFile, saveCodeFile } from './services/chatCodeService.js';
+import { emitSlowRenderTrace } from '../../shared/performanceTrace.js';
 
 const CONVERSATION_DROP_TARGET_ID = 'conversation-drop-zone';
 const runtimeCodeActions = Object.freeze({ locateCodeFile, openCodeFile, saveCodeFile });
 const CLIPBOARD_FILE_PATH_TYPES = Object.freeze(['x-special/gnome-copied-files', 'text/uri-list', 'text/plain']);
 const DROP_FILE_PATH_TYPES = new Set(['x-special/gnome-copied-files', 'text/uri-list']);
 const NATIVE_FILE_DROP_TARGET_IDS = new Set(['composer-input', 'chat-input-bar', CONVERSATION_DROP_TARGET_ID]);
+
+function emitThreadRailSlowRenderTrace(id, phase, actualDuration) {
+  return emitSlowRenderTrace(id, phase, actualDuration, 'frontend.render.threadrail.slow');
+}
+
+function emitTimelineSlowRenderTrace(id, phase, actualDuration) {
+  return emitSlowRenderTrace(id, phase, actualDuration, 'frontend.render.timeline.slow');
+}
 const NATIVE_FILE_DROP_TARGET_ATTRIBUTE = 'data-file-drop-target';
 const NATIVE_FILE_DROP_TARGET_CLASSES = new Set([
   'composer',
@@ -944,7 +953,9 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
   return (
     <section className="chat-page" data-testid="chat-page">
       <div ref={chatLayoutRef} className="chat-layout" data-testid="chat-layout" style={{ gridTemplateColumns: layoutColumns }}>
-        <ThreadRail store={store} />
+        <React.Profiler id="ThreadRail" onRender={emitThreadRailSlowRenderTrace}>
+          <ThreadRail store={store} />
+        </React.Profiler>
         <ThreadRailResizer rail={rail} />
         <Conversation
           messages={threadData.messages}
@@ -3279,23 +3290,25 @@ function Conversation(props) {
       onDrop={(event) => runUIAction(() => composerController.handleDrop(event))}
     >
       <ContextUsageBanner activeThreadId={activeThreadId} store={store} tokenUsage={tokenUsage} />
-      <ConversationTimeline
-        composer={composer}
-        smoothStreaming={store?.smoothStreaming ?? false}
-        introMode={introMode}
-        messages={messages}
-        pendingReasoning={pendingReasoning}
-        projectPath={projectPath}
-        activeThreadId={activeThreadId}
-        messagePagination={messagePagination}
-        loadOlderThreadMessages={loadOlderThreadMessages}
-        timelineContentBlocked={timelineContentBlocked}
-        messageActions={messageActions}
-        onTimelineScroll={updateTimelineStickiness}
-        onScrollToBottom={scrollTimelineToBottomSmooth}
-        onScrollIfSticky={scrollTimelineToBottomIfSticky}
-        timelineRef={timelineRef}
-      />
+      <React.Profiler id="ConversationTimeline" onRender={emitTimelineSlowRenderTrace}>
+        <ConversationTimeline
+          composer={composer}
+          smoothStreaming={store?.smoothStreaming ?? false}
+          introMode={introMode}
+          messages={messages}
+          pendingReasoning={pendingReasoning}
+          projectPath={projectPath}
+          activeThreadId={activeThreadId}
+          messagePagination={messagePagination}
+          loadOlderThreadMessages={loadOlderThreadMessages}
+          timelineContentBlocked={timelineContentBlocked}
+          messageActions={messageActions}
+          onTimelineScroll={updateTimelineStickiness}
+          onScrollToBottom={scrollTimelineToBottomSmooth}
+          onScrollIfSticky={scrollTimelineToBottomIfSticky}
+          timelineRef={timelineRef}
+        />
+      </React.Profiler>
       {!introMode ? composer : null}
     </section>
   );

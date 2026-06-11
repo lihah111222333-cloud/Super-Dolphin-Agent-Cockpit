@@ -133,3 +133,52 @@ func TestServerDispatchRecordsTraceEventsWithoutRawParamsPreview(t *testing.T) {
 		assertRPCTracePayloadExcludes(t, event, "secret prompt from user", "do not leak", "params_preview", "ParamsPreview", "rpcParamPreview")
 	}
 }
+
+func TestServerDispatchDoneTraceIncludesResultBytesWithoutRawResult(t *testing.T) {
+	cfg, err := observability.ParseConfig(observability.EnvMap{
+		"OBS_TRACING_ENABLED": "true",
+	})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	svc := observability.NewService(cfg)
+	server := NewServer(Params{
+		Config:        &config.Config{RPCAddr: "127.0.0.1:0"},
+		TraceRecorder: testRPCTraceRecorder{svc},
+	})
+	server.Register(handler.Map{"thread/start": StrictHandler(func(_ context.Context, _ struct{}) (map[string]string, error) {
+		return map[string]string{"threadId": "thread-1", "secretResult": "do not leak"}, nil
+	})})
+
+	ctx := pkglogger.WithTraceContext(context.Background(), "4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7", "parent-span")
+	result, err := server.Dispatch(ctx, "thread/start", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Dispatch() error = %v", err)
+	}
+
+	events := svc.Query(context.Background(), observability.Query{TraceID: "4bf92f3577b34da6a3ce929d0e0e4736"}).Events
+	if len(events) != 2 {
+		t.Fatalf("trace event count = %d, want 2: %#v", len(events), events)
+	}
+	if events[1].Kind != "backend.rpc.dispatch.done" {
+		t.Fatalf("done event kind = %q", events[1].Kind)
+	}
+	if got, want := rpcMetadataInt(events[1].Metadata, "result_bytes"), len(result); got != want {
+		t.Fatalf("done result_bytes = %d, want %d", got, want)
+	}
+	assertRPCTracePayloadExcludes(t, events[1], "do not leak", "secretResult")
+}
+
+func rpcMetadataInt(metadata map[string]any, key string) int {
+	value := metadata[key]
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	default:
+		return -1
+	}
+}

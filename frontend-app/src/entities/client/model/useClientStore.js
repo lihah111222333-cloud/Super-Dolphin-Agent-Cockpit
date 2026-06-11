@@ -2179,6 +2179,36 @@ function assistantDeltaBufferKey(threadId, itemId) {
   return `${threadId}\u0000${itemId}`;
 }
 
+function timelineItemIndexForThread(indexesByThread, threadId) {
+  let indexes = indexesByThread.get(threadId);
+  if (!indexes) {
+    indexes = new Map();
+    indexesByThread.set(threadId, indexes);
+  }
+  return indexes;
+}
+
+function setTimelineItemIndex(indexesByThread, threadId, itemId, index) {
+  if (!threadId || !itemId || index < 0) return;
+  timelineItemIndexForThread(indexesByThread, threadId).set(itemId, index);
+}
+
+function findTimelineItemIndex(indexesByThread, threadId, timeline, itemId) {
+  if (!threadId || !itemId || !Array.isArray(timeline)) return -1;
+  const indexes = timelineItemIndexForThread(indexesByThread, threadId);
+  const indexed = indexes.get(itemId);
+  if (Number.isInteger(indexed) && timeline[indexed]?.id === itemId) return indexed;
+  if (Number.isInteger(indexed)) indexes.delete(itemId);
+  for (let index = timeline.length - 1; index >= 0; index -= 1) {
+    if (timeline[index]?.id === itemId) {
+      indexes.set(itemId, index);
+      return index;
+    }
+  }
+  indexes.delete(itemId);
+  return -1;
+}
+
 function mergeRuntimeAssistantCompletion(existingItems = [], completion) {
   if (!completion?.item) return existingItems;
   const finalItem = completion.item;
@@ -3155,6 +3185,7 @@ function createClientStoreRuntime(set, get) {
     threadMessageGenerations: new Map(),
     threadSyncGenerations: new Map(),
     assistantDeltaBuffers: new Map(),
+    assistantDeltaItemIndexesByThread: new Map(),
     assistantDeltaFlushTimer: null,
     sidebarRefreshSeq: 0,
     bootstrapRetryAfterReconnect: false,
@@ -3375,6 +3406,7 @@ function attachScopeRuntime(runtime) {
     sequencesByThread.clear();
     threadMessageGenerations.clear();
     threadSyncGenerations.clear();
+    runtime.assistantDeltaItemIndexesByThread.clear();
     set({
       activeThreadId: '',
       threads: [],
@@ -3954,7 +3986,7 @@ function attachBridgeIdentityRuntime(runtime) {
 
 function attachAssistantEventRuntime(runtime) {
   const { set, get, bridgeThreadIdForPayload } = runtime;
-  const { assistantDeltaBuffers } = runtime;
+  const { assistantDeltaBuffers, assistantDeltaItemIndexesByThread } = runtime;
 
   const clearAssistantDeltaFlushTimer = () => {
     if (!runtime.assistantDeltaFlushTimer) return;
@@ -3975,18 +4007,19 @@ function attachAssistantEventRuntime(runtime) {
       const timelinesByThread = { ...state.timelinesByThread };
       for (const entry of entries) {
         const timeline = timelinesByThread[entry.threadId] || [];
-        let found = false;
-        const nextTimeline = timeline.map((item) => {
-          if (item.id !== entry.itemId) return item;
-          found = true;
-          return {
-            ...item,
+        const itemIndex = findTimelineItemIndex(assistantDeltaItemIndexesByThread, entry.threadId, timeline, entry.itemId);
+        let nextTimeline;
+        if (itemIndex >= 0) {
+          nextTimeline = timeline.slice();
+          nextTimeline[itemIndex] = {
+            ...timeline[itemIndex],
             role: 'assistant',
-            text: appendAssistantDeltaText(item.text, entry.delta),
+            text: appendAssistantDeltaText(timeline[itemIndex].text, entry.delta),
             done: false,
           };
-        });
-        if (!found) {
+          setTimelineItemIndex(assistantDeltaItemIndexesByThread, entry.threadId, entry.itemId, itemIndex);
+        } else {
+          nextTimeline = timeline.slice();
           if (entry.kind === 'thinking') {
             nextTimeline.push({
               id: entry.itemId,
@@ -4009,6 +4042,7 @@ function attachAssistantEventRuntime(runtime) {
               runtime: true,
             });
           }
+          setTimelineItemIndex(assistantDeltaItemIndexesByThread, entry.threadId, entry.itemId, nextTimeline.length - 1);
         }
         timelinesByThread[entry.threadId] = nextTimeline;
       }

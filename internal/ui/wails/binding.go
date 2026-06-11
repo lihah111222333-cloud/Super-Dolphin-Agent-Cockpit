@@ -52,19 +52,19 @@ func (a *App) CallAPI(method string, params json.RawMessage) (any, error) {
 		return nil, err
 	}
 	startedAt := time.Now()
-	if err := a.recordCallAPITrace(ctx, method, params, startedAt, "wails.call_api.start", "start", 0, observability.StatusOK, nil); err != nil {
+	if err := a.recordCallAPITrace(ctx, method, params, nil, startedAt, "wails.call_api.start", "start", 0, observability.StatusOK, nil); err != nil {
 		pkglogger.FromContext(ctx).Warn("wails call api trace record failed", "phase", "start", "method", method, "error", err)
 	}
 	params = stripCallAPITraceParams(method, params)
 	result, err := a.dispatch(ctx, method, params)
 	if err != nil {
-		if recordErr := a.recordCallAPITrace(ctx, method, params, startedAt, "wails.call_api.failed", "failed", time.Since(startedAt), observability.StatusError, err); recordErr != nil {
+		if recordErr := a.recordCallAPITrace(ctx, method, params, nil, startedAt, "wails.call_api.failed", "failed", time.Since(startedAt), observability.StatusError, err); recordErr != nil {
 			pkglogger.FromContext(ctx).Warn("wails call api trace record failed", "phase", "failed", "method", method, "error", recordErr)
 		}
 		return nil, err
 	}
 	duration := time.Since(startedAt)
-	if err := a.recordCallAPITrace(ctx, method, params, startedAt, "wails.call_api.done", "done", duration, wailsTraceStatus(method, duration), nil); err != nil {
+	if err := a.recordCallAPITrace(ctx, method, params, result, startedAt, "wails.call_api.done", "done", duration, wailsTraceStatus(method, duration), nil); err != nil {
 		pkglogger.FromContext(ctx).Warn("wails call api trace record failed", "phase", "done", "method", method, "error", err)
 	}
 	return decodeAPIResult(result)
@@ -109,7 +109,7 @@ func contextWithObservabilityTraceFromLogger(ctx context.Context) context.Contex
 	return observability.ContextWithSpan(ctx, traceID, spanID, pkglogger.ParentSpanIDFromContext(ctx))
 }
 
-func (a *App) recordCallAPITrace(ctx context.Context, method string, params json.RawMessage, startedAt time.Time, kind string, phase string, duration time.Duration, status observability.Status, callErr error) error {
+func (a *App) recordCallAPITrace(ctx context.Context, method string, params json.RawMessage, result json.RawMessage, startedAt time.Time, kind string, phase string, duration time.Duration, status observability.Status, callErr error) error {
 	if a == nil || a.observability == nil || !a.observability.Enabled() {
 		return nil
 	}
@@ -117,6 +117,9 @@ func (a *App) recordCallAPITrace(ctx context.Context, method string, params json
 	metadata := map[string]any{"param_bytes": len(params)}
 	if keys := wailsParamKeys(params); len(keys) > 0 {
 		metadata["param_keys"] = keys
+	}
+	if result != nil {
+		metadata["result_bytes"] = len(result)
 	}
 	event := observability.TraceEvent{
 		Timestamp:    startedAt,

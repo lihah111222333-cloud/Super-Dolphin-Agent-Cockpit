@@ -3927,6 +3927,127 @@ function registerBridgeEventHandlersForTest() {
     }
   });
 
+  it('updates a large timeline assistant delta at the indexed item without changing order', async () => {
+    vi.useFakeTimers();
+    try {
+      const timeline = Array.from({ length: 1000 }, (_, index) => ({
+        id: index === 999 ? 'assistant-target' : `msg-${index}`,
+        role: index % 2 === 0 ? 'user' : 'assistant',
+        text: `message-${index}`,
+        time: `2026-05-30T00:${String(index % 60).padStart(2, '0')}:00Z`,
+      }));
+      timeline[999] = { ...timeline[999], role: 'assistant', kind: 'assistant', done: false };
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+        timelinesByThread: { 'thread-1': timeline },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback({
+        method: 'item/agentMessage/delta',
+        payload: {
+          threadId: 'thread-1',
+          itemId: 'assistant-target',
+          delta: ' plus',
+        },
+      });
+      await flushAssistantDeltaBatch();
+
+      bridgeCallback({
+        method: 'item/agentMessage/delta',
+        payload: {
+          threadId: 'thread-1',
+          itemId: 'assistant-target',
+          delta: ' again',
+        },
+      });
+      await flushAssistantDeltaBatch();
+
+      const updated = useClientStore.getState().timelinesByThread['thread-1'];
+      expect(updated).toHaveLength(1000);
+      expect(updated.map((item) => item.id)).toEqual(timeline.map((item) => item.id));
+      expect(updated[999]).toEqual(expect.objectContaining({
+        id: 'assistant-target',
+        role: 'assistant',
+        text: 'message-999plusagain',
+        done: false,
+      }));
+    }
+    finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('appends assistant deltas when the target item does not exist', async () => {
+    vi.useFakeTimers();
+    try {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+        timelinesByThread: {
+          'thread-1': [{ id: 'user-1', role: 'user', text: 'say hi', time: '2026-05-30T00:00:00Z' }],
+        },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback({
+        method: 'item/agentMessage/delta',
+        payload: {
+          threadId: 'thread-1',
+          itemId: 'assistant-new',
+          delta: 'hello',
+        },
+      });
+      await flushAssistantDeltaBatch();
+
+      expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+        expect.objectContaining({ id: 'user-1', role: 'user' }),
+        expect.objectContaining({ id: 'assistant-new', role: 'assistant', kind: 'assistant', text: 'hello', done: false }),
+      ]);
+    }
+    finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('updates thinking deltas through the timeline item index path', async () => {
+    vi.useFakeTimers();
+    try {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+        timelinesByThread: {
+          'thread-1': [{ id: 'thinking:turn-1', role: 'assistant', kind: 'thinking', text: '思考', done: false }],
+        },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback({
+        method: 'item/reasoning/textDelta',
+        payload: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          delta: '中',
+        },
+      });
+      await flushAssistantDeltaBatch();
+
+      expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+        expect.objectContaining({ id: 'thinking:turn-1', role: 'assistant', kind: 'thinking', text: '思考中', done: false }),
+      ]);
+    }
+    finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('deduplicates overlapping assistant deltas before merging the formatted patch reply', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',

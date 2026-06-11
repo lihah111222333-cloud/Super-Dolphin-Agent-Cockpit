@@ -1023,6 +1023,20 @@ select {
   gap: 6px;
 }
 
+.thread-list--virtual {
+  gap: 0;
+}
+
+.thread-window-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.thread-list-spacer {
+  flex: 0 0 auto;
+}
+
 .thread-empty {
   color: var(--muted);
   margin: 10px;

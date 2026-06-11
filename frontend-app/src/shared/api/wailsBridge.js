@@ -28,8 +28,14 @@ const FRONTEND_TRACE_ALLOWED_PHASES = new Set([
   'runtime.rpc.timeout',
   'runtime.rpc.failed',
   'frontend.warning',
+  'frontend.vitals.fcp',
+  'frontend.vitals.lcp',
+  'frontend.longtask',
   'frontend.patch.apply.slow',
   'frontend.render.slow',
+  'frontend.render.chat.slow',
+  'frontend.render.threadrail.slow',
+  'frontend.render.timeline.slow',
 ]);
 const FRONTEND_TRACE_ALLOWED_METADATA_KEYS = new Set([
   'req_id',
@@ -40,6 +46,8 @@ const FRONTEND_TRACE_ALLOWED_METADATA_KEYS = new Set([
 ]);
 const FRONTEND_TRACE_ALLOWED_STATUSES = new Set(['ok', 'slow', 'error']);
 const FRONTEND_RUNTIME_TRACE_DEFAULT_PHASES = new Set([
+  'frontend.vitals.fcp',
+  'frontend.vitals.lcp',
   'runtime.rpc.pending',
   'runtime.rpc.send.done',
   'runtime.rpc.settled',

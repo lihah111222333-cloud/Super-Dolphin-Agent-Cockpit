@@ -7,6 +7,7 @@ import { copyTextToClipboard, locateCodeFile, onFilesDropped, openCodeFile } fro
 
 vi.mock('../../shared/api/backendApi.js', () => ({
   copyTextToClipboard: vi.fn(),
+  emitFrontendTraceEvent: vi.fn(),
   locateCodeFile: vi.fn(),
   openCodeFile: vi.fn(),
   onFilesDropped: vi.fn(() => () => {}),

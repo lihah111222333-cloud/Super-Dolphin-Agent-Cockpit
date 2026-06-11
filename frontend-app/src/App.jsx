@@ -5,6 +5,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { ProjectSelector } from './pages/chat/components/ProjectSelector.jsx';
 import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.js';
+import { emitSlowRenderTrace } from './shared/performanceTrace.js';
 import { dashboardQueryKey, errorMessage, fetchMemoryDashboard, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, useDashboardFocusInvalidation, textValue } from './pages/shared/pageShared.js';
 
 function lazyNamedPage(loader, exportName) {
@@ -65,6 +66,7 @@ const UPDATE_BANNER_DISMISSED_PREFIX = 'super-dolphin-update-dismissed:';
 const DASHBOARD_QUERY_GC_MS = 10 * 60_000;
 
 export const APP_PROFILER_ID = 'App';
+const CHAT_PROFILER_ID = 'ChatPage';
 
 const THEME_STORAGE_KEY = 'super-dolphin-theme';
 
@@ -278,13 +280,19 @@ function PageLoadingFallback() {
 function ChatPageRoute({ projectPath, rightPanelOpen, setRightPanelOpen }) {
   const store = useClientStore();
   return (
-    <ChatPage
-      store={store}
-      projectPath={projectPath}
-      rightPanelOpen={rightPanelOpen}
-      setRightPanelOpen={setRightPanelOpen}
-    />
+    <React.Profiler id={CHAT_PROFILER_ID} onRender={emitChatSlowRenderTrace}>
+      <ChatPage
+        store={store}
+        projectPath={projectPath}
+        rightPanelOpen={rightPanelOpen}
+        setRightPanelOpen={setRightPanelOpen}
+      />
+    </React.Profiler>
   );
+}
+
+function emitChatSlowRenderTrace(id, phase, actualDuration) {
+  return emitSlowRenderTrace(id, phase, actualDuration, 'frontend.render.chat.slow');
 }
 
 function PromptPageRoute({ projectPath, refreshKey }) {

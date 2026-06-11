@@ -733,6 +733,55 @@ describe('wails bridge frontend trace emitter', () => {
     expect(serialized).not.toContain('prompt');
   });
 
+  it('flushes whitelisted frontend performance traces without sensitive metadata', async () => {
+    const byID = vi.fn((_methodID, method, payload) => {
+      if (method === 'observability/frontend/ingest') return Promise.resolve({ recorded: payload.events.length });
+      return Promise.resolve({ ok: true });
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { emitFrontendTraceEvent } = await import('./wailsBridge.js');
+
+    expect(emitFrontendTraceEvent({
+      phase: 'frontend.vitals.fcp',
+      duration_ms: 900,
+      status: 'ok',
+      metadata: { component: 'app', prompt: 'secret prompt must not leak' },
+    })).toBe(true);
+    expect(emitFrontendTraceEvent({
+      phase: 'frontend.longtask',
+      duration_ms: 72,
+      status: 'slow',
+      metadata: { component: 'main-thread', text: 'secret text must not leak' },
+    })).toBe(true);
+    expect(emitFrontendTraceEvent({
+      phase: 'frontend.render.threadrail.slow',
+      duration_ms: 81,
+      status: 'slow',
+      metadata: { component: 'ThreadRail', react_phase: 'update', content: 'secret content must not leak' },
+    })).toBe(true);
+
+    let events = [];
+    await waitFor(() => {
+      events = byID.mock.calls
+        .filter(([, method]) => method === 'observability/frontend/ingest')
+        .flatMap(([, , payload]) => payload.events);
+      expect(events).toHaveLength(3);
+    });
+    expect(events.map((event) => event.phase)).toEqual([
+      'frontend.vitals.fcp',
+      'frontend.longtask',
+      'frontend.render.threadrail.slow',
+    ]);
+    expect(events[0].metadata).toEqual({ component: 'app' });
+    expect(events[2].metadata).toEqual({ component: 'ThreadRail', react_phase: 'update' });
+    const serialized = JSON.stringify(events);
+    expect(serialized).not.toContain('secret');
+    expect(serialized).not.toContain('prompt');
+  });
+
   it('keeps runtime RPC telemetry metadata while dropping forbidden content', async () => {
     window.__AO_FRONTEND_TRACE_DEBUG__ = true;
     const byID = vi.fn((_methodID, method, payload) => {

@@ -1,7 +1,14 @@
-import React, { useState } from 'react';
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { archivedStaleReason, displayThreadName, threadSortTimestamp } from '../adapters/threadStateAdapter.js';
 import { ThreadCard } from './ThreadCard.jsx';
 import { ThreadRailTools } from './ThreadRailTools.jsx';
+import {
+  THREAD_RAIL_DEFAULT_VIEWPORT_HEIGHT,
+  THREAD_RAIL_OVERSCAN,
+  THREAD_RAIL_ROW_HEIGHT,
+  THREAD_RAIL_WINDOW_THRESHOLD,
+  computeThreadWindow,
+} from './ThreadRailWindow.js';
 import { runUIAction } from './chatUiActions.js';
 
 function ThreadRail({ store }) {
@@ -10,12 +17,39 @@ function ThreadRail({ store }) {
   const [deletingThreadId, setDeletingThreadId] = useState('');
   const [hoveredArchiveThreadId, setHoveredArchiveThreadId] = useState('');
   const [hoveredPinThreadId, setHoveredPinThreadId] = useState('');
+  const listRef = useRef(null);
+  const anchoredThreadIdRef = useRef('');
+  const [windowState, setWindowState] = useState({ scrollTop: 0, viewportHeight: THREAD_RAIL_DEFAULT_VIEWPORT_HEIGHT });
   const rename = useThreadRenameController(store);
   const activeThreads = store.threads.filter((thread) => !thread.archived);
   const archivedThreads = store.threads.filter((thread) => thread.archived);
   const threads = showArchivedThreads ? archivedThreads : activeThreads;
   const chatListLoading = Boolean(store.chatSurfaceLoadingCwd);
   const visibleThreads = visibleThreadRows(threads, store);
+  const activeThreadId = store.pendingActiveThreadId || store.activeThreadId;
+  const activeThreadIndex = useMemo(
+    () => visibleThreads.findIndex((thread) => thread.id === activeThreadId),
+    [activeThreadId, visibleThreads],
+  );
+  const threadWindow = useMemo(
+    () => computeThreadWindow(visibleThreads, windowState),
+    [visibleThreads, windowState],
+  );
+  useLayoutEffect(() => {
+    if (visibleThreads.length <= THREAD_RAIL_WINDOW_THRESHOLD || activeThreadIndex < 0 || !activeThreadId) {
+      anchoredThreadIdRef.current = '';
+      return;
+    }
+    if (anchoredThreadIdRef.current === activeThreadId) return;
+    const targetScrollTop = Math.max(0, (activeThreadIndex - THREAD_RAIL_OVERSCAN) * THREAD_RAIL_ROW_HEIGHT);
+    anchoredThreadIdRef.current = activeThreadId;
+    if (listRef.current) listRef.current.scrollTop = targetScrollTop;
+    setWindowState((current) => (
+      current.scrollTop === targetScrollTop
+        ? current
+        : { ...current, scrollTop: targetScrollTop }
+    ));
+  }, [activeThreadId, activeThreadIndex, visibleThreads.length]);
   const staleThreadIds = [];
   if (showArchivedThreads) {
     for (const thread of visibleThreads) {
@@ -36,8 +70,21 @@ function ThreadRail({ store }) {
         setConfirmCleanMode(false);
         setDeletingThreadId('');
       }
+      anchoredThreadIdRef.current = '';
+      setWindowState({ scrollTop: 0, viewportHeight: THREAD_RAIL_DEFAULT_VIEWPORT_HEIGHT });
+      if (listRef.current) listRef.current.scrollTop = 0;
       return next;
     });
+  };
+  const handleThreadListScroll = (event) => {
+    const target = event.currentTarget;
+    const viewportHeight = Number(target.clientHeight) || THREAD_RAIL_DEFAULT_VIEWPORT_HEIGHT;
+    const scrollTop = Math.max(0, Number(target.scrollTop) || 0);
+    setWindowState((current) => (
+      current.scrollTop === scrollTop && current.viewportHeight === viewportHeight
+        ? current
+        : { scrollTop, viewportHeight }
+    ));
   };
   return (
     <aside className="thread-rail" data-testid="thread-rail" aria-label={showArchivedThreads ? '归档列表' : '会话列表'}>
@@ -56,39 +103,48 @@ function ThreadRail({ store }) {
         onCancelClean={() => setConfirmCleanMode(false)}
         onToggleArchive={toggleArchiveList}
       />
-      <div className="thread-list">
+      <div
+        ref={listRef}
+        className={`thread-list ${threadWindow.virtualized ? 'thread-list--virtual' : ''}`}
+        data-testid="thread-list"
+        onScroll={handleThreadListScroll}
+      >
         {visibleThreads.length === 0 ? (
           <p className="thread-empty">
             {emptyThreadText}
           </p>
         ) : null}
-        {visibleThreads.map((thread) => (
-          <ThreadCard
-            key={thread.id}
-            thread={thread}
-            store={store}
-            active={(store.pendingActiveThreadId || store.activeThreadId) === thread.id}
-            editing={rename.editingThreadId === thread.id}
-            editingName={rename.editingName}
-            hoveredArchiveThreadId={hoveredArchiveThreadId}
-            hoveredPinThreadId={hoveredPinThreadId}
-            renaming={rename.renamingThreadId === thread.id}
-            onBeginRename={rename.beginRename}
-            onCancelRename={rename.cancelRename}
-            onRenameBlur={rename.handleRenameBlur}
-            onSetEditingName={rename.setEditingName}
-            onSetHoveredArchiveThreadId={setHoveredArchiveThreadId}
-            onSetHoveredPinThreadId={setHoveredPinThreadId}
-            onSubmitRename={rename.submitRename}
-            deleting={deletingThreadId === thread.id}
-            onBeginDelete={() => setDeletingThreadId(thread.id)}
-            onCancelDelete={() => setDeletingThreadId('')}
-            onConfirmDelete={() => {
-              setDeletingThreadId('');
-              runUIAction(() => store.deleteStaleThreads([thread.id]));
-            }}
-          />
-        ))}
+        {threadWindow.virtualized ? <div className="thread-list-spacer" style={{ height: threadWindow.topSpacer }} /> : null}
+        <div className="thread-window-items">
+          {threadWindow.rows.map((thread) => (
+            <ThreadCard
+              key={thread.id}
+              thread={thread}
+              store={store}
+              active={activeThreadId === thread.id}
+              editing={rename.editingThreadId === thread.id}
+              editingName={rename.editingName}
+              hoveredArchiveThreadId={hoveredArchiveThreadId}
+              hoveredPinThreadId={hoveredPinThreadId}
+              renaming={rename.renamingThreadId === thread.id}
+              onBeginRename={rename.beginRename}
+              onCancelRename={rename.cancelRename}
+              onRenameBlur={rename.handleRenameBlur}
+              onSetEditingName={rename.setEditingName}
+              onSetHoveredArchiveThreadId={setHoveredArchiveThreadId}
+              onSetHoveredPinThreadId={setHoveredPinThreadId}
+              onSubmitRename={rename.submitRename}
+              deleting={deletingThreadId === thread.id}
+              onBeginDelete={() => setDeletingThreadId(thread.id)}
+              onCancelDelete={() => setDeletingThreadId('')}
+              onConfirmDelete={() => {
+                setDeletingThreadId('');
+                runUIAction(() => store.deleteStaleThreads([thread.id]));
+              }}
+            />
+          ))}
+        </div>
+        {threadWindow.virtualized ? <div className="thread-list-spacer" style={{ height: threadWindow.bottomSpacer }} /> : null}
       </div>
     </aside>
   );
