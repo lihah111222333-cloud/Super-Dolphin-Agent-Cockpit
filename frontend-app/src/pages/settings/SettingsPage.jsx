@@ -1,8 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Settings } from 'lucide-react';
 import { useClientStore } from '../../entities/client/model/useClientStore.js';
-import { checkAppUpdate, copyTextToClipboard, getBuildInfo, getPreference, getVideoApiKey, installLatestAppUpdate, listDashboardLogs, readBuiltinTools, readConfig, readLspPromptHint, setPreference, setVideoApiKey, writeBuiltinTool, writeLspPromptHint as writeLspPromptHintBackend } from '../../shared/api/backendApi.js';
-import { PageHeader, Panel } from '../shared/pageComponents.jsx';
+import { PageHeader } from '../shared/pageComponents.jsx';
+import { BuiltinToolsCard } from './components/BuiltinToolsCard.jsx';
+import { ProviderPropertiesCard, ProviderSettingsPanel } from './components/ProviderSettingsPanels.jsx';
+import { PromptSettingsCard } from './components/PromptSettingsCard.jsx';
+import { AboutPanel, RuntimeSettingsPanels } from './components/SettingsSystemPanels.jsx';
+import { UILogCard } from './components/UILogCard.jsx';
+import { VideoSettingsCard } from './components/VideoSettingsCard.jsx';
+import { checkAppUpdate, copyTextToClipboard, getBuildInfo, getPreference, getVideoApiKey, installLatestAppUpdate, listDashboardLogs, readBuiltinTools, readConfig, readLspPromptHint, setPreference, setVideoApiKey, writeBuiltinTool, writeLspPromptHint } from './services/settingsPageService.js';
 
 const PROVIDER_LABELS = Object.freeze({
   claude: 'Claude',
@@ -301,6 +307,19 @@ function appendCurrentOption(options, currentValue) {
   const normalized = providerConfigValue(currentValue);
   if (!normalized || options.some((option) => providerConfigValue(option.value) === normalized)) return options;
   return [...options, { value: normalized, label: normalized }];
+}
+
+const providerSettingsViewConfig = Object.freeze({
+  appendCurrentOption,
+  effortModesByProvider: EFFORT_MODES_BY_PROVIDER,
+  isClaudeOpusFamilyModel,
+  modelOptionsByProvider: MODEL_OPTIONS_BY_PROVIDER,
+  normalizeProviderEffortSetting,
+  personalityOptions: PERSONALITY_OPTIONS,
+});
+
+function loadSettingsDashboardLogs() {
+  return listDashboardLogs({ limit: 14 });
 }
 
 function parsePositiveInteger(label, value) {
@@ -799,7 +818,7 @@ async function saveLspPromptHintState(state) {
   if (!state.cwd || state.saving) return;
   state.setSaving(true);
   try {
-    const res = await writeLspPromptHintBackend({ cwd: state.cwd, hint: state.hint });
+    const res = await writeLspPromptHint({ cwd: state.cwd, hint: state.hint });
     state.setEffectiveHint((res?.hint || '').toString());
     state.setDefaultHint((res?.defaultHint || state.defaultHint || '').toString());
     state.setHint((res?.overrideHint || '').toString());
@@ -978,14 +997,14 @@ function SettingsPageView({ builtins, cwd, prompt, provider, runtime, store }) {
       <PageHeader icon={Settings} title="设置" actions={<button className="btn btn-secondary" type="button" data-testid="settings-refresh-build-button" onClick={() => void runtime.refreshBuildInfo()}>刷新构建信息</button>} />
       <SettingsNotices error={runtime.error} status={runtime.status} />
       <div className="panel-body" data-testid="settings-panel-body">
-        <AboutPanel buildInfo={runtime.buildInfo} cwd={cwd} runtime={runtime} />
+        <AboutPanel buildInfo={runtime.buildInfo} cwd={cwd} runtime={runtime} updateCurrentVersion={appUpdateCurrentVersionLabel(runtime.buildInfo)} />
         <RuntimeSettingsPanels runtime={runtime} />
-        <ProviderSettingsPanel runtime={runtime} />
+        <ProviderSettingsPanel runtime={runtime} viewConfig={providerSettingsViewConfig} />
         <ProviderPropertiesCard provider={provider} />
         <PromptSettingsCard prompt={prompt} />
         <BuiltinToolsCard builtins={builtins} />
-        <VideoSettingsCard />
-        <UILogCard store={store} />
+        <VideoSettingsCard getApiKey={getVideoApiKey} setApiKey={setVideoApiKey} />
+        <UILogCard loadLogs={loadSettingsDashboardLogs} store={store} />
       </div>
     </section>
   );
@@ -996,394 +1015,6 @@ function SettingsNotices({ error, status }) {
     <>
       {status ? <output className="settings-page-notice settings-status">{status}</output> : null}
       {error ? <p className="settings-page-notice danger-text" role="alert">{error}</p> : null}
-    </>
-  );
-}
-
-function AboutPanel({ buildInfo, cwd, runtime }) {
-  const canInstallUpdate = Boolean(runtime.updateInfo?.available) && !runtime.updateInstalling;
-  const updateCurrentVersion = appUpdateCurrentVersionLabel(buildInfo);
-  return (
-    <Panel title="ABOUT">
-      <dl>
-        <dt>版本</dt><dd>Agent Orchestrator {buildInfo?.version || 'unknown'}</dd>
-        <dt>运行时</dt><dd>{buildInfo?.runtime || 'unknown'}</dd>
-        <dt>构建时间</dt><dd>{buildInfo?.buildTime || 'unknown'}</dd>
-        <dt>Commit</dt><dd>{buildInfo?.commit || 'unknown'}</dd>
-        <dt>当前项目</dt><dd>{cwd || '未选择项目'}</dd>
-      </dl>
-      <div className="data-card-vue settings-update-card" data-testid="settings-update-card">
-        <div className="data-row-vue">
-          <strong>应用更新</strong>
-          <span>当前版本 {updateCurrentVersion}</span>
-        </div>
-        <div className="settings-action-row settings-action-inline">
-          <button className="btn btn-secondary btn-toolbar-sm" type="button" data-testid="settings-update-check-button" onClick={() => void runtime.checkForUpdate()} disabled={runtime.updateBusy || runtime.updateInstalling}>{runtime.updateBusy ? '检查中...' : '检查更新'}</button>
-          {canInstallUpdate ? <button className="btn btn-primary btn-toolbar-sm" type="button" data-testid="settings-update-install-button" onClick={() => void runtime.installUpdate()} disabled={runtime.updateInstalling}>安装更新</button> : null}
-        </div>
-        {runtime.updateNotice.message ? <SettingsPromptNotice notice={runtime.updateNotice} testId="settings-update-notice" /> : null}
-      </div>
-    </Panel>
-  );
-}
-
-function RuntimeSettingsPanels({ runtime }) {
-  const { form, saveRuntimeSettings, updateForm } = runtime;
-  return (
-    <>
-      <Panel title="TURN TRACKER">
-        <div className="form-line">
-          <label>统一超时阈值<input aria-label="统一超时阈值" data-testid="settings-stall-threshold-input" type="number" min="30" value={form.stallThresholdSec} onChange={updateForm('stallThresholdSec')} /> 秒</label>
-          <button className="btn btn-primary" type="button" data-testid="settings-stall-threshold-save-button" onClick={() => void saveRuntimeSettings()}>保存超时阈值</button>
-        </div>
-      </Panel>
-      <ContextUsagePanel form={form} onSave={saveRuntimeSettings} updateForm={updateForm} />
-    </>
-  );
-}
-
-function ContextUsagePanel({ form, onSave, updateForm }) {
-  return (
-    <Panel title="CONTEXT USAGE ALERT" data-testid="settings-ctx-thresholds-card">
-      <div className="form-line">
-        <label>Warn 阈值<input aria-label="Warn 阈值" type="number" min="1" max="100" value={form.contextWarn} onChange={updateForm('contextWarn')} /></label>
-        <label>Danger 阈值<input aria-label="Danger 阈值" type="number" min="1" max="100" value={form.contextDanger} onChange={updateForm('contextDanger')} /></label>
-        <label>Critical 阈值<input aria-label="Critical 阈值" type="number" min="1" max="100" value={form.contextCritical} onChange={updateForm('contextCritical')} /></label>
-        <button className="btn btn-primary" type="button" data-testid="settings-ctx-thresholds-save-button" onClick={() => void onSave()}>保存运行阈值</button>
-      </div>
-    </Panel>
-  );
-}
-
-function ProviderSettingsPanel({ runtime }) {
-  const { changeActiveProvider, form, saveProviderSettings, updateForm } = runtime;
-  return (
-    <Panel title="PROVIDER">
-      <ProviderSettingsForm changeActiveProvider={changeActiveProvider} form={form} updateForm={updateForm} />
-      <div className="settings-actions"><button className="btn btn-primary" type="button" onClick={() => void saveProviderSettings()}>保存 Provider 设置</button></div>
-    </Panel>
-  );
-}
-
-function ProviderSettingsForm({ changeActiveProvider, form, updateForm }) {
-  const modelOptions = appendCurrentOption(MODEL_OPTIONS_BY_PROVIDER[form.activeProvider] || MODEL_OPTIONS_BY_PROVIDER.codex, form.providerModel);
-  const baseEffortOptions = EFFORT_MODES_BY_PROVIDER[form.activeProvider] || EFFORT_MODES_BY_PROVIDER.codex;
-  const filteredEffortOptions = form.activeProvider === 'claude' && !isClaudeOpusFamilyModel(form.providerModel)
-    ? baseEffortOptions.filter((item) => item.value !== 'max')
-    : baseEffortOptions;
-  const effortOptions = appendCurrentOption(filteredEffortOptions, normalizeProviderEffortSetting(form.activeProvider, form.providerModel, form.providerEffort));
-  return (
-    <div className="form-grid">
-      <label>Active Provider<select value={form.activeProvider} onChange={changeActiveProvider}><option value="codex">Codex</option></select></label>
-      <label>Provider Model<select aria-label="Provider Model" value={form.providerModel} onChange={updateForm('providerModel')}>{modelOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-      <label>Provider Effort<select aria-label="Provider Effort" value={form.providerEffort} onChange={updateForm('providerEffort')}>{effortOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-      <label>Personality<select aria-label="Personality" value={form.personality} onChange={updateForm('personality')}>{appendCurrentOption(PERSONALITY_OPTIONS, form.personality).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-      {form.activeProvider === 'codex' ? <label>Codex Home<input aria-label="Codex Home" value={form.codexHome} onChange={updateForm('codexHome')} /></label> : null}
-      {form.activeProvider === 'codex' ? <label>Instance Key<input aria-label="Instance Key" value={form.codexInstanceKey} onChange={updateForm('codexInstanceKey')} /></label> : null}
-      <label>Sandbox Policy<select aria-label="Sandbox Policy" value={form.sandboxPolicy} onChange={updateForm('sandboxPolicy')}><option value="workspaceWrite">workspaceWrite</option><option value="readOnly">readOnly</option><option value="dangerFullAccess">dangerFullAccess</option></select></label>
-      {form.sandboxPolicy === 'readOnly' ? <label>Read Only Mode<select aria-label="Read Only Mode" value={form.readOnlyMode} onChange={updateForm('readOnlyMode')}><option value="fullAccess">fullAccess（全量只读）</option><option value="restricted">restricted（限定目录）</option></select></label> : null}
-      {form.sandboxPolicy === 'workspaceWrite' ? <label className="checkbox-line"><input type="checkbox" checked={form.networkAccess} onChange={updateForm('networkAccess')} /> Network Access</label> : null}
-      {form.sandboxPolicy === 'workspaceWrite' ? <label className="wide">Writable Roots<textarea aria-label="Writable Roots" value={form.writableRoots} onChange={updateForm('writableRoots')} placeholder="每行一个绝对路径" /></label> : null}
-      {form.sandboxPolicy === 'readOnly' && form.readOnlyMode === 'restricted' ? <label className="wide">Readable Roots<textarea aria-label="Readable Roots" value={form.readableRoots} onChange={updateForm('readableRoots')} placeholder="每行一个绝对路径" /></label> : null}
-    </div>
-  );
-}
-
-function ProviderPropertiesCard({ provider }) {
-  return (
-    <>
-      <div className="section-header">PROPERTIES</div>
-      <div className="data-card-vue" data-testid="settings-provider-sandbox-card">
-        <ProviderSelectRow id="provider-summary-mode-select" label="推理摘要 (Summary)" value={provider.summaryMode} onChange={provider.setSummaryMode} options={SUMMARY_MODE_OPTIONS} />
-        <ProviderSelectRow id="provider-approval-mode-select" label="审批策略 (ApprovalPolicy)" value={provider.approvalMode} onChange={provider.setApprovalMode} options={APPROVAL_MODE_OPTIONS} />
-        {provider.notice.message ? <SettingsPromptNotice notice={provider.notice} className="settings-provider-notice" /> : null}
-        <div className="settings-action-row settings-action-inline settings-provider-actions">
-          <button type="button" className="btn btn-secondary btn-toolbar-sm" onClick={provider.load} disabled={provider.saving}>刷新</button>
-          <button type="button" className="btn btn-primary btn-toolbar-sm" data-testid="provider-sandbox-save-button" onClick={provider.save} disabled={provider.saving}>{provider.saving ? '保存中...' : '保存'}</button>
-        </div>
-      </div>
-    </>
-  );
-}
-
-const SUMMARY_MODE_OPTIONS = Object.freeze([
-  ['detailed', 'detailed（详细摘要，推荐）'], ['auto', 'auto（自动）'], ['concise', 'concise（简洁）'], ['none', 'none（关闭）'],
-]);
-const APPROVAL_MODE_OPTIONS = Object.freeze([
-  ['on-request', 'on-request（按需，默认）'], ['untrusted', 'untrusted（始终询问）'], ['on-failure', 'on-failure（失败后询问）'], ['never', 'never（全部放行）'],
-]);
-
-function ProviderSelectRow({ id, label, onChange, options, value }) {
-  return (
-    <div className="settings-stall-row settings-provider-control-row">
-      <label className="settings-stall-label" htmlFor={id}>{label}</label>
-      <select id={id} className="settings-stall-input settings-provider-select" data-testid={id} value={value} onChange={(event) => onChange(event.target.value)}>
-        {options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}
-      </select>
-    </div>
-  );
-}
-
-function SettingsPromptNotice({ className = '', notice, testId = '' }) {
-  return (
-    <div className={'settings-prompt-notice ' + className + ' is-' + notice.level} data-testid={testId || undefined} role={notice.level === 'error' ? 'alert' : 'status'}>
-      {notice.message}
-    </div>
-  );
-}
-
-function PromptSettingsCard({ prompt }) {
-  return (
-    <>
-      <div className="section-header">PROMPT</div>
-      <div className="data-card-vue settings-prompt-card" data-testid="settings-lsp-prompt-card">
-        <PromptSummary prompt={prompt} />
-        <PromptVisibilityToggle prompt={prompt} />
-        <PromptTextareas prompt={prompt} />
-        {prompt.notice.message ? <SettingsPromptNotice notice={prompt.notice} testId="settings-lsp-prompt-notice" /> : null}
-        <PromptActions prompt={prompt} />
-      </div>
-    </>
-  );
-}
-
-function PromptSummary({ prompt }) {
-  return (
-    <>
-      <div className="data-row-vue"><strong>自动注入提示词 (LSP / Playwright / json-render)</strong><span>{prompt.modeLabel}</span></div>
-      <div className="settings-prompt-desc">下方“生效内容”是后端每轮实际注入文本：“覆盖编辑”用于调试，留空保存可恢复默认。</div>
-      <div className="settings-prompt-meta" data-testid="settings-lsp-effective-cwd">当前作用 CWD: {prompt.currentScopeCwd || '未知'}</div>
-    </>
-  );
-}
-
-function PromptVisibilityToggle({ prompt }) {
-  return (
-    <label className="settings-prompt-toggle" data-testid="settings-show-injected-toggle">
-      <div className="settings-prompt-toggle-copy"><span className="settings-prompt-toggle-title">聊天区显示自动注入内容（调试）</span><span className="settings-prompt-toggle-desc">开启后将保留首发消息里的“已注入 ...”段。</span></div>
-      <input type="checkbox" className="settings-prompt-toggle-input" data-testid="settings-show-injected-toggle-input" checked={prompt.showInjected} onChange={prompt.toggleVisibility} disabled={prompt.loading || prompt.showInjectedSaving} />
-    </label>
-  );
-}
-
-function PromptTextareas({ prompt }) {
-  return (
-    <>
-      <div className="settings-prompt-meta">生效行数 {prompt.lineCount} · 字符 {prompt.charCount}</div>
-      <label className="settings-prompt-label" htmlFor="settings-lsp-effective-output">当前生效内容（只读）</label>
-      <textarea id="settings-lsp-effective-output" className="settings-prompt-textarea settings-prompt-textarea-readonly" data-testid="settings-lsp-effective-output" rows={12} value={prompt.displayHint} readOnly />
-      <label className="settings-prompt-label" htmlFor="settings-lsp-prompt-input">自定义覆盖（可编辑，空=默认）</label>
-      <textarea id="settings-lsp-prompt-input" className="settings-prompt-textarea" data-testid="settings-lsp-prompt-input" rows={8} value={prompt.hint} onChange={(event) => prompt.setHint(event.target.value)} placeholder={prompt.defaultHint || '请输入提示词'} disabled={prompt.loading || prompt.saving} />
-    </>
-  );
-}
-
-function PromptActions({ prompt }) {
-  return (
-    <div className="settings-action-row settings-action-inline">
-      <button type="button" className="btn btn-secondary btn-toolbar-sm" data-testid="settings-lsp-refresh-button" onClick={prompt.loadPrompt} disabled={prompt.saving}>刷新</button>
-      <button type="button" className="btn btn-secondary btn-toolbar-sm" data-testid="settings-lsp-copy-button" onClick={prompt.copy} disabled={prompt.loading || prompt.saving}>复制生效提示词</button>
-      <button type="button" className="btn btn-secondary btn-toolbar-sm" data-testid="settings-lsp-reset-button" onClick={prompt.reset} disabled={prompt.loading || prompt.saving}>恢复默认</button>
-      <button type="button" className="btn btn-primary btn-toolbar-sm" data-testid="settings-lsp-save-button" onClick={prompt.save} disabled={prompt.loading || prompt.saving}>{prompt.saving ? '保存中...' : '保存提示词'}</button>
-    </div>
-  );
-}
-
-function BuiltinToolsCard({ builtins }) {
-  return (
-    <>
-      <div className="section-header">模型内置能力</div>
-      <div className="data-card-vue" data-testid="settings-builtin-tools-card">
-        <BuiltinToolsSummary builtins={builtins} />
-        <BuiltinToolsContent builtins={builtins} />
-        {builtins.notice.message ? <SettingsPromptNotice notice={builtins.notice} testId="settings-builtin-tools-notice" /> : null}
-      </div>
-    </>
-  );
-}
-
-function BuiltinToolsSummary({ builtins }) {
-  return (
-    <>
-      <div className="data-row-vue"><strong>内置能力开关</strong><span data-testid="settings-builtin-tools-summary">{builtins.loading ? '加载中...' : '已管控 ' + builtins.filteredCount + ' / ' + builtins.totalToolCount}</span></div>
-      <div className="settings-prompt-desc">默认管控与本项目文件、命令、编排、计划、权限、插件管理重复，或会绕过项目治理的能力。</div>
-    </>
-  );
-}
-
-function BuiltinToolsContent({ builtins }) {
-  if (builtins.tools.length === 0 && !builtins.loading) {
-    return <div className="settings-log-empty" data-testid="settings-builtin-tools-empty">暂无可配置的内置工具</div>;
-  }
-  return (
-    <div className="settings-builtin-tool-groups" data-testid="settings-builtin-tools-groups">
-      {builtins.groups.map((group) => <BuiltinToolGroup builtins={builtins} group={group} key={group.key} />)}
-    </div>
-  );
-}
-
-function BuiltinToolGroup({ builtins, group }) {
-  const isOpen = builtins.isOpen(group.key);
-  return (
-    <section className="settings-builtin-tool-group" data-testid={'settings-builtin-tool-group-' + group.key}>
-      <button type="button" className="settings-builtin-tool-group-head" data-testid={'settings-builtin-tool-group-head-' + group.key} aria-expanded={isOpen ? 'true' : 'false'} onClick={() => builtins.toggleGroup(group.key)}>
-        <span className={'settings-builtin-tool-group-chevron ' + (isOpen ? 'is-open' : '')}>▸</span><span className="settings-builtin-tool-group-name">{group.label}</span><span className="settings-builtin-tool-group-summary">{builtins.groupSummary(group)}</span>
-      </button>
-      {isOpen ? <BuiltinToolGroupBody builtins={builtins} group={group} /> : null}
-    </section>
-  );
-}
-
-function BuiltinToolGroupBody({ builtins, group }) {
-  return (
-    <div className="settings-builtin-tool-group-body">
-      {group.note ? <p className="settings-builtin-tool-group-note" data-testid={'settings-builtin-tool-group-note-' + group.key}>{group.note}</p> : null}
-      {group.tools.map((tool) => <BuiltinToolRow builtins={builtins} key={tool.id} tool={tool} />)}
-    </div>
-  );
-}
-
-function BuiltinToolRow({ builtins, tool }) {
-  return (
-    <label className={'settings-prompt-toggle ' + ((!tool.enabled || tool.replacedBy) ? 'is-disabled-tool' : '')} data-testid={'settings-builtin-tool-' + tool.id}>
-      <div className="settings-prompt-toggle-copy"><span className="settings-prompt-toggle-title">{tool.label}</span><span className="settings-prompt-toggle-desc">{builtins.toolMetaText(tool)}</span></div>
-      <input type="checkbox" className="settings-prompt-toggle-input" data-testid={'settings-builtin-tool-input-' + tool.id} checked={!tool.enabled || Boolean(tool.replacedBy)} disabled={Boolean(tool.replacedBy) || Boolean(builtins.savingIds[tool.id])} onChange={() => builtins.toggleTool(tool)} />
-    </label>
-  );
-}
-
-function UILogCard({ store }) {
-  const [remoteLogs, setRemoteLogs] = useState([]);
-  const [logError, setLogError] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
-  const refreshLogs = useCallback(async () => {
-    setRefreshing(true);
-    setLogError('');
-    try {
-      setRemoteLogs(normalizeDashboardLogs(await listDashboardLogs({ limit: 14 })));
-    } catch (error) {
-      setLogError('刷新日志失败：' + (error?.message || error));
-    } finally {
-      setRefreshing(false);
-    }
-  }, []);
-  const localLogs = store.logEntries ? store.logEntries.slice(0, 14) : [];
-  const logList = remoteLogs.length > 0 ? remoteLogs : localLogs;
-  return (
-    <>
-      <div className="section-header">UI LOG</div>
-      <div className="data-card-vue settings-log-card" data-testid="settings-log-card">
-        <div className="data-row-vue"><strong>日志级别</strong><span>{store.logLevel}</span></div>
-        <UILogLevelRow store={store} />
-        <div className="settings-action-row settings-log-action-row"><button type="button" className="btn btn-secondary btn-toolbar-sm" data-testid="settings-log-refresh-button" onClick={() => { void refreshLogs(); }} disabled={refreshing}>{refreshing ? '刷新中...' : '刷新日志'}</button></div>
-        {logError ? <SettingsPromptNotice notice={{ level: 'error', message: logError }} testId="settings-log-notice" /> : null}
-        <UILogList logList={logList} />
-      </div>
-    </>
-  );
-}
-
-function normalizeDashboardLogs(payload) {
-  const list = Array.isArray(payload?.logs) ? payload.logs : [];
-  return list.map(normalizeDashboardLogEntry);
-}
-
-function normalizeDashboardLogEntry(entry, index) {
-  const scope = textValue(entry.component || entry.logger || entry.source || 'dashboard') || 'dashboard';
-  const event = textValue(entry.event_type || entry.eventType || entry.message || entry.raw || `log.${entry.id || index}`);
-  return {
-    id: entry.id || `${scope}-${index}`,
-    ts: entry.timestamp || entry.ts || entry.createdAt || entry.created_at,
-    level: textValue(entry.level || 'info').toLowerCase() || 'info',
-    scope,
-    event,
-    fields: entry,
-  };
-}
-
-function UILogLevelRow({ store }) {
-  return (
-    <div className="settings-stall-row settings-log-control-row">
-      <label className="settings-stall-label" htmlFor="settings-log-level-select">日志级别</label>
-      <select id="settings-log-level-select" className="settings-stall-input settings-log-level-select" data-testid="settings-log-level-select" value={store.logLevel} onChange={(event) => store.setLogLevel(event.target.value)}>
-        <option value="debug">debug（最详细）</option><option value="info">info（默认）</option><option value="warn">warn</option><option value="error">error（仅错误）</option>
-      </select>
-      <span className="settings-stall-unit">立即生效（跨 tab 同步）</span>
-    </div>
-  );
-}
-
-function UILogList({ logList }) {
-  if (logList.length === 0) return <div className="settings-log-empty" data-testid="settings-log-empty">暂无日志</div>;
-  return (
-    <div className="settings-log-list" data-testid="settings-log-list">
-      {logList.map((entry) => <UILogItem entry={entry} key={entry.seq || entry.id} />)}
-    </div>
-  );
-}
-
-function UILogItem({ entry }) {
-  return (
-    <div className="settings-log-item">
-      <span className="settings-log-time">{formatLogTime(entry.ts)}</span>
-      <span className={'settings-log-level is-' + entry.level}>{entry.level}</span>
-      <span className="settings-log-event">{entry.scope}.{entry.event}</span>
-    </div>
-  );
-}
-
-function formatLogTime(value) {
-  if (!value) return '--:--:--';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '--:--:--';
-  return date.toLocaleTimeString('zh-CN', { hour12: false });
-}
-
-function VideoSettingsCard() {
-  const [apiKey, setApiKey] = useState('');
-  const [notice, setNotice] = useState(null);
-  const [configured, setConfigured] = useState(false);
-  const [masked, setMasked] = useState('');
-
-  useEffect(() => {
-    getVideoApiKey().then((res) => {
-      if (res?.configured) { setConfigured(true); setMasked(res.masked); }
-    }).catch((err) => {
-      setNotice({ level: 'error', message: '读取视频 API Key 失败：' + (err?.message || String(err)) });
-    });
-  }, []);
-
-  const save = useCallback(async () => {
-    const key = apiKey.trim();
-    if (!key) { setNotice({ level: 'error', message: '请输入 API Key' }); return; }
-    try {
-      await setVideoApiKey({ apiKey: key });
-      setConfigured(true);
-      setMasked(key.length > 8 ? key.slice(0, 4) + '*'.repeat(key.length - 8) + key.slice(-4) : '*'.repeat(key.length));
-      setApiKey('');
-      setNotice({ level: 'info', message: '已保存' });
-    } catch (err) {
-      setNotice({ level: 'error', message: '保存失败：' + (err?.message || String(err)) });
-    }
-  }, [apiKey]);
-
-  return (
-    <>
-      <div className="section-header">视频生成（硅基流动 Wan2.2）</div>
-      <div className="data-card-vue" data-testid="settings-video-card">
-        <div className="data-row-vue">
-          <strong>SiliconFlow API Key</strong>
-          <span>{configured ? masked : '未配置'}</span>
-        </div>
-        <div className="settings-stall-row">
-          <label className="settings-stall-label" htmlFor="settings-sf-key">API Key</label>
-          <input id="settings-sf-key" className="settings-stall-input" type="password" placeholder="sk-..." value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
-        </div>
-        <div className="settings-action-row">
-          <button className="btn btn-primary" type="button" onClick={save}>保存</button>
-          {notice ? <span className="settings-page-notice" data-testid="settings-video-notice" role={notice.level === 'error' ? 'alert' : 'status'}>{notice.message}</span> : null}
-        </div>
-      </div>
     </>
   );
 }

@@ -516,7 +516,7 @@ function mockTraceDashboardQueryResult() {
 async function openTraceDashboardForTraceId() {
   render(<App />);
   fireEvent.click(await screen.findByRole('button', { name: '链路追踪' }));
-  fireEvent.change(screen.getByLabelText('Trace ID'), { target: { value: 'trace-1' } });
+  fireEvent.change(await screen.findByLabelText('Trace ID'), { target: { value: 'trace-1' } });
   fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
   const table = await screen.findByTestId('observability-recent-logs');
   fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-1' }));
@@ -730,7 +730,7 @@ function mockRecentSystemLogsResult() {
 async function openRecentSystemLogs() {
   render(<App />);
   fireEvent.click(await screen.findByRole('button', { name: '链路追踪' }));
-  fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'error' } });
+  fireEvent.change(await screen.findByLabelText('状态'), { target: { value: 'error' } });
   fireEvent.change(screen.getByLabelText('关键词'), { target: { value: 'thread/start' } });
   fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
   return screen.findByTestId('observability-recent-logs');
@@ -4553,7 +4553,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByLabelText('任务')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText('技能'));
-    expect(screen.getByText('技能管理')).toBeInTheDocument();
+    expect(await screen.findByText('技能管理')).toBeInTheDocument();
     expect(await screen.findByText('后端')).toBeInTheDocument();
     expect(screen.getByText('/repo/app/.agent/skills/backend')).toBeInTheDocument();
     expect(screen.getByText('私人使用 1')).toBeInTheDocument();
@@ -4563,7 +4563,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(backend.getDashboardPage).toHaveBeenCalledWith({ cwd: '/repo/app', page: 'skills' });
 
     fireEvent.click(screen.getByLabelText('共享文件'));
-    expect(screen.getByText('文件产物')).toBeInTheDocument();
+    expect(await screen.findByText('文件产物')).toBeInTheDocument();
     await waitFor(() => {
       expect(backend.listSharedFiles).toHaveBeenCalledWith();
     });
@@ -4580,8 +4580,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
     render(<App />);
     fireEvent.click(screen.getByLabelText(navLabel));
 
-    expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
-    expect(screen.getByText('正在连接本地项目...')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument();
+    expect(await screen.findByText('正在连接本地项目...')).toBeInTheDocument();
     assertNoInvalidLoad();
 
     await act(async () => {
@@ -4601,7 +4601,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     render(<App />);
     fireEvent.click(screen.getByLabelText('共享文件'));
 
-    expect(screen.getByRole('heading', { name: '文件产物' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '文件产物' })).toBeInTheDocument();
     expect(screen.queryByText('正在连接本地项目...')).not.toBeInTheDocument();
     await waitFor(() => {
       expect(backend.listSharedFiles).toHaveBeenCalledWith();
@@ -7395,8 +7395,8 @@ async function designWorkflowWithAi() {
     render(<App />);
     fireEvent.click(screen.getByLabelText('技能'));
 
-    expect(screen.getByRole('heading', { name: '技能管理' })).toBeInTheDocument();
-    expect(screen.getByText('正在连接本地项目...')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '技能管理' })).toBeInTheDocument();
+    expect(await screen.findByText('正在连接本地项目...')).toBeInTheDocument();
     expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '未选择项目', page: 'skills' });
 
     await act(async () => {
