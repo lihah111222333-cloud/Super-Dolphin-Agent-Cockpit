@@ -39,14 +39,11 @@ import {
   unarchiveThread as unarchiveThreadRPC,
 } from '../../../shared/api/backendApi.js';
 import {
-  createComposerDropActions,
-  createComposerFilePickerActions,
-} from './composerAttachmentActions.js';
-import { createForkThreadActions } from './forkActions.js';
-import {
-  createActiveProjectActions,
-  createProjectPickerActions,
-} from './projectActions.js';
+  createComposerSlice,
+} from './composerSlice.js';
+import { createForkSlice } from './forkSlice.js';
+import { createProjectSlice } from './projectSlice.js';
+import { createRuntimeSlice } from './runtimeSlice.js';
 
 const DEFAULT_PROVIDER = 'codex';
 const MAX_WARNING_ENTRIES = 300;
@@ -2380,6 +2377,38 @@ const composerAttachmentActionDeps = {
   selectFiles: () => selectFiles(),
 };
 
+const composerActionDeps = {
+  attachment: composerAttachmentActionDeps,
+  model: {
+    actionNotice,
+    composerModelConfigTarget,
+    normalizeThreadConfig,
+    saveGlobalComposerModelConfig,
+    saveThreadComposerModelConfig,
+    setThreadConfig: (payload) => setThreadConfig(payload),
+    threadConfigTargetIdForState,
+  },
+  modelProvider: {
+    actionNotice,
+    defaultProvider: DEFAULT_PROVIDER,
+    normalizeProviderRuntimeConfig,
+    providerPreferenceKey,
+    requireProviderPreferenceValue,
+    setPreference: (payload) => setPreference(payload),
+  },
+  send: {
+    createSendDraftRequest,
+    createdThreadIdForSendRollback,
+    deleteProvisionalThreadAfterSendFailure,
+    optimisticSendDraftState,
+    promotedDraftThreadState,
+    resolveLaunchPreferences,
+    rollbackSendDraftState,
+    startNewDraftThread,
+    startTurnWithStoppedThreadRecovery,
+  },
+};
+
 function attachmentToInputItem(item) {
   const attachment = normalizeAttachment(item);
   if (!attachment) return null;
@@ -2600,6 +2629,26 @@ const forkActionDeps = {
   resolveLaunchPreferences,
   startThread: (payload) => startThread(payload),
   startTurn: (payload) => startTurn(payload),
+};
+
+const runtimeActionDeps = {
+  backendThreadIdForState,
+  getPreference: (payload) => getPreference(payload),
+  getProjects: (payload) => getProjects(payload),
+  getSidebarState: (payload) => getSidebarState(payload),
+  getThreadState: (payload) => getThreadState(payload),
+  getWindowBootstrap: () => getWindowBootstrap(),
+  isDagNodeStatusBridgeEvent,
+  normalizeBootstrapPage,
+  normalizeBootstrapSnapshot,
+  normalizePath,
+  normalizeThreadId,
+  onBridgeEvent: (callback, options) => onBridgeEvent(callback, options),
+  onRuntimeReconnect: (callback) => onRuntimeReconnect(callback),
+  providerActivePreferenceKey: PROVIDER_ACTIVE_PREF_KEY,
+  readConfig: () => readConfig(),
+  requireActiveProviderPreference,
+  shouldAutoLoadThreadConfig,
 };
 
 function optimisticSendThreads(threads = [], previousThreadId = '') {
@@ -4307,186 +4356,6 @@ function attachActiveThreadRpcRuntime(runtime) {
   Object.assign(runtime, { activeThreadRPC });
 }
 
-function createLifecycleActions(runtime) {
-  const retryBootstrapAfterReconnect = () => {
-    void runtime.get().bootstrap().catch((error) => {
-      runtime.addWarning('error', 'app.bootstrap.reconnect_failed', { error: error?.message || String(error) });
-    });
-  };
-
-  return {
-    initializeEvents: () => {
-      if (runtime.bridgeUnsubscribe) return;
-      runtime.bridgeUnsubscribe = onBridgeEvent(runtime.handleBridgeEvent, {
-        escalateCallbackError: (_error, evt) => isDagNodeStatusBridgeEvent(evt),
-      });
-      runtime.reconnectUnsubscribe = onRuntimeReconnect(() => {
-        const { activeThreadId, bootstrapStatus } = runtime.get();
-        if (bootstrapStatus !== 'ready') {
-          if (bootstrapStatus === 'loading') {
-            runtime.bootstrapRetryAfterReconnect = true;
-            return;
-          }
-          retryBootstrapAfterReconnect();
-          return;
-        }
-        if (activeThreadId) void runtime.get().syncThreadState(activeThreadId, { includeDiff: true, preserveActiveThreadId: true });
-      });
-    },
-
-    destroy: () => {
-      if (runtime.bridgeUnsubscribe) {
-        runtime.bridgeUnsubscribe();
-        runtime.bridgeUnsubscribe = null;
-      }
-      if (runtime.reconnectUnsubscribe) {
-        runtime.reconnectUnsubscribe();
-        runtime.reconnectUnsubscribe = null;
-      }
-      runtime.sequencesByThread.clear();
-      runtime.composerDrafts.clear();
-      runtime.sidebarSnapshotsByCwd.clear();
-      runtime.sidebarRefreshesByCwd.clear();
-      runtime.threadMessageGenerations.clear();
-      runtime.threadSyncGenerations.clear();
-      runtime.clearAssistantDeltaFlushTimer?.();
-      runtime.assistantDeltaBuffers.clear();
-      runtime.sidebarRefreshSeq += 1;
-    },
-
-
-  };
-}
-
-function createBootstrapActions(runtime) {
-  return {
-    bootstrap: async () => {
-      runtime.set({ bootstrapStatus: 'loading', error: '' });
-      void runtime.get().initializeEvents();
-      try {
-        const [config, rawWindowBootstrap] = await Promise.all([readConfig(), getWindowBootstrap()]);
-        const cwd = normalizePath(config?.cwd);
-        if (!cwd || cwd === '.') {
-          throw new Error('frontend-app bootstrap cwd is required');
-        }
-        const windowSnapshot = normalizeBootstrapSnapshot(rawWindowBootstrap);
-        const windowCwd = normalizePath(windowSnapshot.cwd);
-        const scopedCwd = windowCwd || cwd;
-        const bootstrapPage = normalizeBootstrapPage(windowSnapshot.page);
-        const activeProvider = requireActiveProviderPreference(
-          await getPreference({ cwd: scopedCwd, key: PROVIDER_ACTIVE_PREF_KEY }),
-          'frontend-app bootstrap',
-        );
-        runtime.set({
-          cwd,
-          projectScopeCwd: scopedCwd,
-          activeProject: scopedCwd,
-          provider: activeProvider,
-          ...(bootstrapPage ? { activePage: bootstrapPage } : {}),
-        });
-        const [projects, sidebar] = await Promise.all([
-          getProjects({ cwd: scopedCwd }),
-          getSidebarState({ cwd: scopedCwd }),
-          runtime.loadProviderConfig(scopedCwd, activeProvider),
-        ]);
-        runtime.applyProjects(projects, scopedCwd);
-        runtime.cacheSidebarSnapshot(scopedCwd, sidebar);
-        runtime.applySnapshot(sidebar);
-        runtime.bootstrapRetryAfterReconnect = false;
-        runtime.set({ bootstrapStatus: 'ready' });
-      }
-      catch (error) {
-        runtime.set({ bootstrapStatus: 'failed', error: error.message });
-        runtime.addWarning('error', 'app.bootstrap.failed', { error: error.message });
-        if (runtime.bootstrapRetryAfterReconnect) {
-          runtime.bootstrapRetryAfterReconnect = false;
-          void runtime.get().bootstrap().catch((retryError) => {
-            runtime.addWarning('error', 'app.bootstrap.reconnect_failed', { error: retryError?.message || String(retryError) });
-          });
-        }
-        throw error;
-      }
-    },
-
-
-  };
-}
-
-function createThreadSyncActions(runtime) {
-  const nextThreadSyncGeneration = (id) => {
-    const nextGeneration = (runtime.threadSyncGenerations.get(id) || 0) + 1;
-    runtime.threadSyncGenerations.set(id, nextGeneration);
-    return nextGeneration;
-  };
-
-  const isCurrentThreadSyncGeneration = (id, generation) => runtime.threadSyncGenerations.get(id) === generation;
-
-  const setThreadStateLoading = (id, generation, loading) => {
-    runtime.set((state) => {
-      if (!isCurrentThreadSyncGeneration(id, generation)) return {};
-      return {
-        threadStateLoadingByThread: {
-          ...state.threadStateLoadingByThread,
-          [id]: loading,
-        },
-      };
-    });
-  };
-
-  return {
-    syncThreadState: async (threadId, options = {}) => {
-      const syncOptions = options && typeof options === 'object' ? options : {};
-      const id = backendThreadIdForState(runtime.get(), threadId, { includeArchived: syncOptions.includeArchived === true });
-      if (!id) return false;
-      const cwd = runtime.requireCwd('thread.sync');
-      const activeAtRequest = runtime.get().activeThreadId;
-      const includeDiff = syncOptions.includeDiff !== false;
-      const generation = nextThreadSyncGeneration(id);
-      setThreadStateLoading(id, generation, true);
-      try {
-        const snapshotPromise = getThreadState({ cwd, threadId: id, includeDiff });
-        const messagesPromise = runtime.startThreadMessagesLoad(id, syncOptions);
-        const snapshot = await snapshotPromise;
-        if (!isCurrentThreadSyncGeneration(id, generation)) {
-          await messagesPromise;
-          return true;
-        }
-        const activeChanged = normalizeThreadId(runtime.get().activeThreadId) !== normalizeThreadId(activeAtRequest);
-        runtime.applySnapshot(snapshot, {
-          preferredActiveThreadId: id,
-          preserveActiveThreadId: activeChanged || syncOptions.preserveActiveThreadId === true,
-          includeArchivedActiveThread: syncOptions.includeArchived === true,
-        });
-        if (includeDiff) {
-          runtime.set((state) => ({
-            threadDiffReadyByThread: {
-              ...state.threadDiffReadyByThread,
-              [id]: true,
-            },
-          }));
-        }
-        await messagesPromise;
-        if (!activeChanged && shouldAutoLoadThreadConfig(runtime.get(), id)) await runtime.get().loadThreadConfig(id);
-        return true;
-      }
-      catch (error) {
-        if (!isCurrentThreadSyncGeneration(id, generation)) return false;
-        const message = error?.message || String(error);
-        runtime.notifyAction(`同步会话失败：${message}`, 'error', { threadId: id });
-        runtime.addWarning('error', 'thread.sync.failed', { threadId: id, error: message });
-        return false;
-      }
-      finally {
-        setThreadStateLoading(id, generation, false);
-      }
-    },
-
-    loadOlderThreadMessages: async (threadId, options = {}) => runtime.loadOlderThreadMessages(threadId, options),
-
-
-  };
-}
-
 function createNavigationActions(runtime) {
   return {
     setActivePage: (activePage) => runtime.set({ activePage }),
@@ -4588,7 +4457,6 @@ function createResourcePageCacheActions(runtime) {
         },
       }));
     },
-    setDraft: (draft) => runtime.set({ draft }),
     setRightPanelWidth: (rightPanelWidth) => runtime.set({ rightPanelWidth }),
 
 
@@ -4644,79 +4512,6 @@ function createProviderConfigActions(runtime) {
         }));
         runtime.addWarning('error', 'thread.config.get.failed', { threadId: id, error: error.message });
         return null;
-      }
-    },
-
-
-  };
-}
-
-function createComposerModelSaveActions(runtime) {
-  return {
-    saveComposerModelConfig: async (config = {}) => {
-      const cwd = runtime.requireCwd('composer.model.save');
-      const state = runtime.get();
-      const target = await composerModelConfigTarget(config, state, runtime.get().loadThreadConfig);
-      if (target.threadId && !target.threadConfig) {
-        runtime.notifyAction('线程配置加载失败，无法保存模型配置', 'error', { threadId: target.threadId });
-        return false;
-      }
-      if (target.threadConfig?.supportsThreadOverride) {
-        return saveThreadComposerModelConfig(target, runtime.set, runtime.addWarning);
-      }
-      return saveGlobalComposerModelConfig(cwd, state, target, runtime.set, runtime.notifyRPCFailure);
-    },
-
-    restoreComposerModelInheritance: async (config = {}) => {
-      const state = runtime.get();
-      const requestedThreadId = Object.prototype.hasOwnProperty.call(config, 'threadId') ||
-        Object.prototype.hasOwnProperty.call(config, 'thread_id')
-        ? (config.threadId || config.thread_id)
-        : state.activeThreadId;
-      const threadId = threadConfigTargetIdForState(state, requestedThreadId);
-      if (!threadId) return false;
-      const existingConfig = state.threadConfigByThread[threadId] || await runtime.get().loadThreadConfig(threadId);
-      if (!existingConfig?.supportsThreadOverride) return false;
-      try {
-        const saved = await setThreadConfig({ threadId, model: '', effort: '' });
-        const normalized = normalizeThreadConfig(saved, threadId, existingConfig.provider || state.provider);
-        runtime.set((current) => ({
-          threadConfigByThread: {
-            ...current.threadConfigByThread,
-            [threadId]: normalized,
-          },
-          actionNotice: actionNotice('已恢复继承全局默认', 'success'),
-        }));
-        return true;
-      }
-      catch (error) {
-        return runtime.notifyRPCFailure('恢复线程模型继承', 'thread.config.restore.failed', error, { threadId });
-      }
-    },
-
-
-  };
-}
-
-function createComposerModelProviderActions(runtime) {
-  return {
-    saveComposerModelProvider: async (codexModelProvider) => {
-      const key = providerPreferenceKey('codex', 'codexModelProvider');
-      const value = requireProviderPreferenceValue(codexModelProvider, key, 'composer.modelProvider.save');
-      const cwd = runtime.requireCwd('composer.modelProvider.save');
-      try {
-        await setPreference({ cwd, key, value });
-        runtime.set((state) => ({
-          providerConfig: normalizeProviderRuntimeConfig({
-            ...state.providerConfig,
-            codexModelProvider: value,
-          }, state.provider || DEFAULT_PROVIDER),
-          actionNotice: actionNotice('模型渠道已保存', 'success'),
-        }));
-        return true;
-      }
-      catch (error) {
-        return runtime.notifyRPCFailure('模型渠道保存', 'provider.model_provider.save.failed', error, { provider: 'codex' });
       }
     },
 
@@ -4898,47 +4693,6 @@ function createThreadSelectionActions(runtime) {
       return true;
     },
 
-
-  };
-}
-
-function createComposerSendActions(runtime) {
-  return {
-    sendDraft: async () => {
-      const cwd = runtime.requireCwd('send message');
-      const request = createSendDraftRequest(runtime.get(), cwd);
-      if (!request) return false;
-
-      runtime.set((state) => optimisticSendDraftState(state, request));
-
-      let threadId = request.previousThreadId;
-      try {
-        if (!threadId) {
-          const started = await startNewDraftThread(request, resolveLaunchPreferences);
-          threadId = started.threadId;
-          runtime.set((state) => promotedDraftThreadState(state, request, started));
-        }
-
-        await startTurnWithStoppedThreadRecovery({
-          cwd: request.cwd,
-          threadId,
-          input: request.input,
-          manualSkillSelection: false,
-        });
-        runtime.clearComposerDraft({ ...runtime.get(), activeThreadId: request.previousActiveThreadId }, request.previousActiveThreadId);
-        runtime.clearComposerDraft(runtime.get(), request.provisionalThreadId);
-        runtime.clearComposerDraft(runtime.get(), threadId);
-        runtime.set({ sending: false });
-        return true;
-      }
-      catch (error) {
-        const createdThreadId = createdThreadIdForSendRollback(runtime.get(), request, threadId);
-        runtime.set((state) => rollbackSendDraftState(state, request, error));
-        await deleteProvisionalThreadAfterSendFailure(createdThreadId, runtime.addWarning);
-        runtime.addWarning('error', 'thread.send.failed', { error: error.message });
-        throw error;
-      }
-    },
 
   };
 }
@@ -5332,23 +5086,16 @@ function createClientStore(set, get) {
   const runtime = createClientStoreRuntime(set, get);
   return {
     ...baseState,
-    ...createLifecycleActions(runtime),
-    ...createBootstrapActions(runtime),
-    ...createThreadSyncActions(runtime),
+    ...createRuntimeSlice(runtime, runtimeActionDeps),
     ...createNavigationActions(runtime),
     ...createPromptWorkflowCacheActions(runtime),
     ...createResourcePageCacheActions(runtime),
     ...createProviderConfigActions(runtime),
-    ...createComposerModelSaveActions(runtime),
-    ...createComposerModelProviderActions(runtime),
-    ...createActiveProjectActions(runtime, projectActionDeps),
-    ...createProjectPickerActions(runtime, projectActionDeps),
+    ...createProjectSlice(runtime, projectActionDeps),
     ...createProviderActions(runtime),
     ...createThreadSelectionActions(runtime),
-    ...createForkThreadActions(runtime, forkActionDeps),
-    ...createComposerFilePickerActions(runtime, composerAttachmentActionDeps),
-    ...createComposerDropActions(runtime, composerAttachmentActionDeps),
-    ...createComposerSendActions(runtime),
+    ...createForkSlice(runtime, forkActionDeps),
+    ...createComposerSlice(runtime, composerActionDeps),
     ...createDashboardCommandActions(runtime),
     ...createActiveThreadActions(runtime),
     ...createThreadCopyActions(runtime),

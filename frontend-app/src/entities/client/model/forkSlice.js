@@ -4,7 +4,7 @@ import {
   FORK_KICKOFF_PROMPT,
 } from './threadFork.js';
 
-export function createForkThreadActions(runtime, deps) {
+export function createForkSlice(runtime, deps) {
   const {
     actionNotice,
     addForkThreadState,

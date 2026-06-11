@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Brain, CheckCircle2, ChevronDown, Copy, File, Folder, Plus, Sparkles, Terminal, Wrench, X } from 'lucide-react';
+import { Brain, CheckCircle2, ChevronDown, Copy, File, Sparkles, Terminal, Wrench, X } from 'lucide-react';
 import { onFilesDropped, copyTextToClipboard, locateCodeFile, openCodeFile, saveCodeFile } from '../../shared/api/backendApi.js';
 import { textValue } from '../shared/pageShared.js';
 import {
@@ -31,6 +31,11 @@ import { PathChoiceDialog } from './components/PathChoiceDialog.jsx';
 import { RuntimePanel } from './components/RuntimePanel.jsx';
 import { ThreadRail } from './components/ThreadRail.jsx';
 import { runUIAction } from './components/chatUiActions.js';
+import {
+  canUseProjectActionsForStore,
+  projectDisplayName,
+  runtimeProjectPath,
+} from './components/projectSelectorModel.js';
 import { useTimelineMaterialization } from './hooks/useTimelineMaterialization.js';
 
 const CONVERSATION_DROP_TARGET_ID = 'conversation-drop-zone';
@@ -367,39 +372,6 @@ function useCodePreviewController({ projectPath, projects }) {
   return { dialogs, openFileRef };
 }
 
-function projectDisplayName(path) {
-  const value = (path || '').toString().trim();
-  if (!value || value === '未选择项目') return '未选择项目';
-  return value.split(/[\\/]/).filter(Boolean).pop() || value;
-}
-
-function normalizeProjectPath(path) {
-  const value = (path || '').toString().trim();
-  if (!value) return '';
-  if (value !== '/' && !/^[a-zA-Z]:[\\/]?$/.test(value)) {
-    return value.replace(/[\\/]+$/, '');
-  }
-  return value;
-}
-
-function hasUsableProjectCwd(store) {
-  const activeProject = normalizeProjectPath(store?.activeProject);
-  const cwd = activeProject && activeProject !== '.' && activeProject !== '未选择项目'
-    ? activeProject
-    : normalizeProjectPath(store?.cwd);
-  return Boolean(cwd && cwd !== '.' && cwd !== '未选择项目');
-}
-
-function runtimeProjectPath(activeProject, fallbackProject) {
-  const normalized = normalizeProjectPath(activeProject);
-  if (normalized && normalized !== '.' && normalized !== '未选择项目') return normalized;
-  return normalizeProjectPath(fallbackProject);
-}
-
-function canUseProjectActionsForStore(store) {
-  return store?.bootstrapStatus === 'ready' && hasUsableProjectCwd(store);
-}
-
 function shouldIgnoreGlobalEscape(target) {
   const element = target instanceof Element ? target : null;
   if (!element) return false;
@@ -407,57 +379,6 @@ function shouldIgnoreGlobalEscape(target) {
   if (['input', 'textarea', 'select', 'option'].includes(tagName)) return true;
   if (element.isContentEditable) return true;
   return Boolean(element.closest('dialog, [role="dialog"], [role="menu"], [role="listbox"], [data-escape-scope="local"]'));
-}
-
-function disambiguateProjectLabels(items) {
-  let changed = true;
-  while (changed) {
-    changed = false;
-    const countByLabel = items.reduce((acc, item) => {
-      acc[item.label] = (acc[item.label] || 0) + 1;
-      return acc;
-    }, {});
-    for (const item of items) {
-      if (countByLabel[item.label] <= 1 || item.label === item.full) continue;
-      const nextDepth = Math.min(item.depth + 1, item.segments.length);
-      const nextLabel = item.segments.slice(-nextDepth).join('/') || item.full;
-      if (nextLabel === item.label) continue;
-      item.depth = nextDepth;
-      item.label = nextLabel;
-      changed = true;
-    }
-  }
-}
-
-function projectOptionsFor(projects = [], activeProject = '', fallbackProject = '') {
-  const values = [];
-  const addValue = (value) => {
-    const normalized = normalizeProjectPath(value);
-    if (!normalized || values.includes(normalized)) return;
-    values.push(normalized);
-  };
-  addValue(activeProject);
-  addValue(fallbackProject);
-  for (const project of projects || []) addValue(project);
-
-  const items = [];
-  for (const value of values) {
-    if (value === '.') continue;
-    const segments = value.split(/[\\/]/).filter(Boolean);
-    const depth = Math.min(2, segments.length);
-    items.push({
-      value,
-      label: segments.slice(-depth).join('/') || value,
-      full: value,
-      segments,
-      depth,
-    });
-  }
-  disambiguateProjectLabels(items);
-  return [
-    { value: '.', label: '当前目录 (.)', full: '.' },
-    ...items.map(({ value, label, full }) => ({ value, label, full })),
-  ];
 }
 
 const GENERIC_TIMELINE_COMMAND_TITLES = new Set(['command', 'execute command', 'running command', '执行命令', '命令', '终端命令']);
@@ -1123,117 +1044,6 @@ function RuntimePanelSlot({ beginResize, handleKeyDown, maxWidth, open, projectP
         renderMarkdownPreview={renderCodePreviewMarkdown}
       />
     </>
-  );
-}
-
-export function ProjectSelector({ store, projectPath }) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef(null);
-  const activeProject = store.activeProject || projectPath;
-  const options = useMemo(
-    () => projectOptionsFor(store.projects, activeProject, projectPath),
-    [store.projects, activeProject, projectPath],
-  );
-  const selectedValue = normalizeProjectPath(activeProject) || '.';
-  const selected = options.find((item) => item.value === selectedValue)
-    || options.find((item) => item.value === '.')
-    || { value: '.', label: '当前目录 (.)', full: '.' };
-  const selectedButtonLabel = selected.value === '.'
-    ? projectDisplayName(projectPath)
-    : projectDisplayName(selected.full || selected.value);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const onPointerDown = (event) => {
-      if (wrapRef.current && !wrapRef.current.contains(event.target)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('pointerdown', onPointerDown, true);
-    return () => document.removeEventListener('pointerdown', onPointerDown, true);
-  }, [open, wrapRef]);
-
-  const selectProject = (value) => {
-    setOpen(false);
-    return store.setActiveProjectPath?.(value);
-  };
-
-  const addProject = () => {
-    setOpen(false);
-    return store.addProjectFromPicker?.();
-  };
-
-  const removeProject = (event, value) => {
-    event.stopPropagation();
-    return store.removeProjectPath?.(value);
-  };
-
-  return (
-    <div className="project-select-wrap" ref={wrapRef}>
-      <button
-        type="button"
-        className="project-select"
-        aria-label="选择项目"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        title={selected.full === '.' ? projectPath : selected.full}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <Folder size={15} />
-        <span>{selectedButtonLabel}</span>
-        <ChevronDown size={14} />
-      </button>
-      {open ? (
-        <ProjectDropdown
-          options={options}
-          selectedValue={selected.value}
-          onSelect={selectProject}
-          onRemove={removeProject}
-          onAdd={addProject}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-function ProjectDropdown({ options, selectedValue, onSelect, onRemove, onAdd }) {
-  return (
-    <div className="project-dropdown" role="menu" aria-label="项目列表">
-      {options.map((item) => (
-        <div key={item.value} className={`project-dropdown-row ${item.value === selectedValue ? 'selected' : ''}`} role="none" title={item.full}>
-          <button
-            type="button"
-            className="project-dropdown-item"
-            role="menuitem"
-            onClick={() => runUIAction(() => onSelect(item.value))}
-          >
-            <span className="project-option-check" aria-hidden="true">{item.value === selectedValue ? '✓' : ''}</span>
-            <span className="project-dropdown-label">{item.label}</span>
-          </button>
-          {item.value !== '.' ? (
-            <button
-              type="button"
-              className="project-dropdown-remove"
-              aria-label={`移除此项目 ${item.label}`}
-              title="移除此项目"
-              onClick={(event) => runUIAction(() => onRemove(event, item.value))}
-            >
-              <X size={12} />
-            </button>
-          ) : null}
-        </div>
-      ))}
-      <div className="project-dropdown-divider" />
-      <button
-        type="button"
-        className="project-dropdown-item project-dropdown-add"
-        role="menuitem"
-        onClick={() => runUIAction(onAdd)}
-      >
-        <Plus size={13} />
-        <span>添加项目</span>
-      </button>
-    </div>
   );
 }
 
