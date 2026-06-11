@@ -43,21 +43,6 @@
     "todo_count": 0,
     "max_struct_fields": 6
   },
-  "internal/module/thread/handoff_test.go": {
-    "lines": 209,
-    "max_func_len": 48,
-    "max_nesting": 1,
-    "max_complexity": 8,
-    "max_params": 3,
-    "max_returns": 2,
-    "max_underscore": 1,
-    "global_vars": 0,
-    "panic_count": 20,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0,
-    "max_struct_fields": 2
-  },
   "internal/module/thread/phase45_regression_test.go": {
     "lines": 312,
     "max_func_len": 65,
@@ -87,35 +72,6 @@
     "empty_funcs": 0,
     "todo_count": 0
   },
-  "internal/module/thread/router_resolve_recall_test.go": {
-    "lines": 252,
-    "max_func_len": 49,
-    "max_nesting": 3,
-    "max_complexity": 8,
-    "max_params": 4,
-    "max_returns": 2,
-    "max_underscore": 1,
-    "global_vars": 0,
-    "panic_count": 14,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0
-  },
-  "internal/module/thread/router_resolve_test.go": {
-    "lines": 412,
-    "max_func_len": 25,
-    "max_nesting": 1,
-    "max_complexity": 6,
-    "max_params": 4,
-    "max_returns": 2,
-    "max_underscore": 1,
-    "global_vars": 0,
-    "panic_count": 6,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0,
-    "max_struct_fields": 9
-  },
   "internal/module/threadprompt/providers_test_helpers_test.go": {
     "lines": 159,
     "max_func_len": 18,
@@ -125,7 +81,7 @@
     "max_returns": 2,
     "max_underscore": 0,
     "global_vars": 0,
-    "panic_count": 12,
+    "panic_count": 1,
     "naked_returns": 0,
     "empty_funcs": 0,
     "todo_count": 0,

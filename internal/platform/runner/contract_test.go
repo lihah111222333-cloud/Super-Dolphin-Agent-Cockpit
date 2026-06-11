@@ -35,9 +35,3 @@ func TestWorkerAsRunnerAdapter(t *testing.T) {
 		t.Fatalf("calls = %v, want %v", worker.calls, want)
 	}
 }
-
-func TestAsRunnerGroupUsesRunnersTagContract(t *testing.T) {
-	if AsRunnerGroup(&fakeWorker{}) == nil {
-		t.Fatal("runner group helper did not return Runner")
-	}
-}

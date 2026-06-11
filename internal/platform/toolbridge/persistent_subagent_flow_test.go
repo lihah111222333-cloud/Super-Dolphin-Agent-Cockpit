@@ -35,6 +35,7 @@ func (a testThreadConfigOverrideStore) GetConfigOverride(ctx context.Context, th
 }
 
 type persistentFlowThreadStore struct {
+	threadstore.Store
 	row *threadstore.Thread
 }
 
@@ -43,37 +44,6 @@ func (s *persistentFlowThreadStore) GetByThreadID(_ context.Context, threadID st
 		return nil, platformdb.ErrNotFound
 	}
 	return s.row, nil
-}
-
-func (*persistentFlowThreadStore) GetByPort(context.Context, int32) (*threadstore.Thread, error) {
-	return nil, platformdb.ErrNotFound
-}
-
-func (*persistentFlowThreadStore) ListConfigsByIDs(context.Context, []string) ([]threadstore.Thread, error) {
-	return nil, nil
-}
-func (*persistentFlowThreadStore) ListAll(context.Context) ([]threadstore.Thread, error) {
-	return nil, nil
-}
-
-func (*persistentFlowThreadStore) ListRunning(context.Context) ([]threadstore.Thread, error) {
-	return nil, nil
-}
-
-func (*persistentFlowThreadStore) ListRecoverable(context.Context) ([]threadstore.Thread, error) {
-	return nil, nil
-}
-
-func (*persistentFlowThreadStore) ListRunningAgents(context.Context) ([]threadstore.RunningAgent, error) {
-	return nil, nil
-}
-
-// CountChildren and Exists satisfy the threadstore.Store interface updates
-// from upstream commit 28ee10b (persistent ui child agents). The fixture has
-// no child agents and only cares about ThreadID lookup, so these stubs
-// return zero values.
-func (*persistentFlowThreadStore) CountChildren(context.Context, string) (int64, error) {
-	return 0, nil
 }
 
 func (s *persistentFlowThreadStore) Exists(_ context.Context, threadID string) (bool, error) {
@@ -105,44 +75,6 @@ func (s *persistentFlowThreadStore) Upsert(_ context.Context, params threadstore
 func (*persistentFlowThreadStore) SavePromptSnapshot(context.Context, string, threadstore.PromptSnapshot) error {
 	return nil
 }
-
-func (*persistentFlowThreadStore) LoadPromptSnapshot(context.Context, string) (*threadstore.PromptSnapshot, error) {
-	return nil, platformdb.ErrNotFound
-}
-
-func (*persistentFlowThreadStore) UpdateStatus(context.Context, threadstore.UpdateStatusParams) error {
-	return nil
-}
-
-func (*persistentFlowThreadStore) UpdateLaunchResult(context.Context, threadstore.UpdateLaunchResultParams) error {
-	return nil
-}
-
-func (*persistentFlowThreadStore) DeleteByThreadID(context.Context, string) error {
-	return nil
-}
-
-func (*persistentFlowThreadStore) ResetRunning(context.Context) error {
-	return nil
-}
-
-func (*persistentFlowThreadStore) ExpireStale(context.Context, threadstore.ExpireStaleParams) (int64, error) {
-	return 0, nil
-}
-
-func (*persistentFlowThreadStore) RunningExists(context.Context, string) (bool, error) {
-	return false, nil
-}
-
-func (*persistentFlowThreadStore) ListCwds(context.Context) ([]threadstore.ThreadCwd, error) {
-	return nil, nil
-}
-
-func (*persistentFlowThreadStore) ListCwdsByPrefix(context.Context, string) ([]threadstore.ThreadCwd, error) {
-	return nil, nil
-}
-
-func (*persistentFlowThreadStore) CountAll(context.Context) (int64, error) { return 0, nil }
 
 type persistentFlowSessions struct {
 	byAgent map[string]contract.Session
@@ -195,35 +127,15 @@ func (*persistentFlowOrchestration) BindSessionGeneration(context.Context, strin
 }
 
 type persistentFlowSession struct {
+	contract.Session
 	threadID string
 	rollout  string
 	runtime  map[string]any
 }
 
-func (s *persistentFlowSession) ThreadID() string                { return s.threadID }
-func (s *persistentFlowSession) RolloutPath() string             { return s.rollout }
-func (s *persistentFlowSession) Capabilities() dto.CapabilitySet { return nil }
-func (s *persistentFlowSession) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
-	return nil, errors.New("unused")
-}
-func (s *persistentFlowSession) Interrupt(context.Context, dto.InterruptRequest) error {
-	return errors.New("unused")
-}
-func (s *persistentFlowSession) ForceComplete(context.Context, dto.ForceCompleteRequest) error {
-	return errors.New("unused")
-}
-func (s *persistentFlowSession) ListThreads(context.Context) ([]dto.ThreadRef, error) {
-	return nil, errors.New("unused")
-}
-func (s *persistentFlowSession) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
-	return dto.ForkResult{}, errors.New("unused")
-}
-func (s *persistentFlowSession) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
-	return nil, errors.New("unused")
-}
-func (s *persistentFlowSession) Configure(context.Context, dto.ThreadConfigPatch) error {
-	return errors.New("unused")
-}
+func (s *persistentFlowSession) ThreadID() string                      { return s.threadID }
+func (s *persistentFlowSession) RolloutPath() string                   { return s.rollout }
+func (s *persistentFlowSession) Capabilities() dto.CapabilitySet       { return nil }
 func (s *persistentFlowSession) Close(context.Context) error           { return nil }
 func (s *persistentFlowSession) ForceStop() error                      { return nil }
 func (s *persistentFlowSession) RuntimeConfigSnapshot() map[string]any { return s.runtime }
