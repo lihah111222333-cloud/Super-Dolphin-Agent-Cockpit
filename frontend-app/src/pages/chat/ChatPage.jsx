@@ -1,18 +1,18 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Brain, CheckCircle2, ChevronDown, CircleStop, Copy, File, FileText, Folder, GitBranch, Plus, Send, Sparkles, Terminal, Trash2, Wrench, X } from 'lucide-react';
+import { Brain, CheckCircle2, ChevronDown, Copy, File, Folder, Plus, Sparkles, Terminal, Wrench, X } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { onFilesDropped, copyTextToClipboard, locateCodeFile, openCodeFile, saveCodeFile } from '../../shared/api/backendApi.js';
-import { appendCurrentModelOption, canonicalizeModelValue, modelOptionFor, normalizeConfigText, normalizeProviderKey, textValue } from '../shared/pageShared.js';
-import { ComposerAttachments } from './components/ComposerAttachments.jsx';
+import { textValue } from '../shared/pageShared.js';
+import { ComposerDock } from './components/ComposerDock.jsx';
 import { composerAttachmentKey } from './components/composerAttachmentKey.js';
-import { ComposerTextarea } from './components/ComposerTextarea.jsx';
 import { RuntimeActivityPanel } from './components/RuntimeActivityPanel.jsx';
 import { RuntimeDiffView } from './components/RuntimeDiffView.jsx';
 import { RuntimeToolbar } from './components/RuntimeToolbar.jsx';
 import { ThreadCardActions } from './components/ThreadCardActions.jsx';
 import { ThreadDisplayCardContent as ThreadDisplayCardContentView } from './components/ThreadDisplayCardContent.jsx';
 import { ThreadRailTools } from './components/ThreadRailTools.jsx';
+import { runUIAction } from './components/chatUiActions.js';
 import { useTimelineMaterialization } from './hooks/useTimelineMaterialization.js';
 
 const CONVERSATION_DROP_TARGET_ID = 'conversation-drop-zone';
@@ -978,28 +978,6 @@ function projectOptionsFor(projects = [], activeProject = '', fallbackProject = 
   ];
 }
 
-const EFFORT_OPTIONS_BY_PROVIDER = Object.freeze({
-  codex: Object.freeze([
-    { value: 'xhigh', label: '极高' },
-    { value: 'high', label: '高' },
-    { value: 'medium', label: '中' },
-    { value: 'low', label: '低' },
-    { value: 'minimal', label: '极低' },
-    { value: 'none', label: '关闭' },
-  ]),
-  claude: Object.freeze([
-    { value: 'max', label: 'max' },
-    { value: 'high', label: 'high' },
-    { value: 'medium', label: 'medium' },
-    { value: 'low', label: 'low' },
-  ]),
-});
-
-const MODEL_DEFAULTS_BY_PROVIDER = Object.freeze({
-  codex: Object.freeze({ model: 'gpt-5.5', effort: 'xhigh' }),
-  claude: Object.freeze({ model: 'sonnet', effort: 'high' }),
-});
-
 const TURN_STATE_INFO = Object.freeze({
   idle: Object.freeze({ label: '空闲', tone: 'connected', busy: false }),
   starting: Object.freeze({ label: '启动中', tone: 'active', busy: true }),
@@ -1390,37 +1368,6 @@ function composerConfigThreadId(store, activeThreadId) {
   return activeThreadId;
 }
 
-function isClaudeOpusFamilyModel(model) {
-  const normalized = normalizeConfigText(model).toLowerCase();
-  return normalized === 'best' || normalized.includes('opus');
-}
-
-function effortOptionFor(provider, value) {
-  const normalized = normalizeConfigText(value);
-  const options = EFFORT_OPTIONS_BY_PROVIDER[normalizeProviderKey(provider)] || EFFORT_OPTIONS_BY_PROVIDER.codex;
-  return options.find((item) => item.value === normalized) || (normalized ? { value: normalized, label: normalized } : null);
-}
-
-function appendCurrentEffortOption(provider, value, model = '') {
-  const providerKey = normalizeProviderKey(provider);
-  const baseOptions = EFFORT_OPTIONS_BY_PROVIDER[providerKey] || EFFORT_OPTIONS_BY_PROVIDER.codex;
-  const options = providerKey === 'claude' && !isClaudeOpusFamilyModel(model)
-    ? baseOptions.filter((item) => item.value !== 'max')
-    : baseOptions;
-  const current = effortOptionFor(provider, value);
-  if (!current || options.some((item) => item.value === current.value)) return options;
-  return [...options, current];
-}
-
-function composerModelLabel(provider, model, effort) {
-  const providerKey = normalizeProviderKey(provider);
-  const modelValue = normalizeConfigText(model) || MODEL_DEFAULTS_BY_PROVIDER[providerKey].model;
-  const effortValue = normalizeConfigText(effort) || MODEL_DEFAULTS_BY_PROVIDER[providerKey].effort;
-  const modelLabel = modelOptionFor(providerKey, modelValue)?.label || modelValue;
-  const effortLabel = effortOptionFor(providerKey, effortValue)?.label || effortValue;
-  return `${modelLabel} · ${effortLabel}`.trim();
-}
-
 const STALE_ARCHIVE_MS = 7 * 24 * 60 * 60 * 1000;
 
 function archivedStaleReason(thread) {
@@ -1433,18 +1380,6 @@ function archivedStaleReason(thread) {
     return 'empty';
   }
   return '';
-}
-
-function runUIAction(action) {
-  try {
-    const result = typeof action === 'function' ? action() : action;
-    if (result && typeof result.catch === 'function') {
-      void result.catch(() => {});
-    }
-  }
-  catch (error) {
-    void error;
-  }
 }
 
 function composerTextFromCitation(payload = {}) {
@@ -2362,196 +2297,6 @@ function ThreadDisplayCardContent({ thread, store }) {
   );
 }
 
-function firstConfigText(...values) {
-  for (const value of values) {
-    const text = normalizeConfigText(value);
-    if (text) return text;
-  }
-  return '';
-}
-
-function activeThreadComposerConfig(store, activeThreadId) {
-  return activeThreadId ? store.threadConfigByThread?.[activeThreadId] : null;
-}
-
-function modelSnapshotValue(canOverrideThread, activeThreadConfig, providerValue, defaultValue, key) {
-  if (canOverrideThread) {
-    return firstConfigText(activeThreadConfig?.override?.[key], activeThreadConfig?.effective?.[key], defaultValue);
-  }
-  return firstConfigText(providerValue, defaultValue);
-}
-
-function modelSelectorSnapshot(store, activeThreadId) {
-  const activeThreadConfig = activeThreadComposerConfig(store, activeThreadId);
-  const providerKey = normalizeProviderKey(firstConfigText(activeThreadConfig?.provider, store.providerConfig?.provider, store.provider));
-  const providerDefaults = MODEL_DEFAULTS_BY_PROVIDER[providerKey] || MODEL_DEFAULTS_BY_PROVIDER.codex;
-  const canOverrideThread = Boolean(activeThreadId && activeThreadConfig?.supportsThreadOverride);
-  const activeModel = modelSnapshotValue(canOverrideThread, activeThreadConfig, store.providerConfig?.model, providerDefaults.model, 'model');
-  const activeEffort = modelSnapshotValue(canOverrideThread, activeThreadConfig, store.providerConfig?.effort, providerDefaults.effort, 'effort');
-  return {
-    activeEffort,
-    activeModel,
-    activeThreadConfig,
-    canOverrideThread,
-    draftEffort: canOverrideThread ? normalizeConfigText(activeThreadConfig?.override?.effort) : activeEffort,
-    draftModel: canOverrideThread ? normalizeConfigText(activeThreadConfig?.override?.model) : activeModel,
-    providerKey,
-  };
-}
-
-function modelSelectorTitle(disabled, canOverrideThread) {
-  if (disabled) return '请先连接后端并选择项目';
-  return canOverrideThread ? '线程执行配置' : '全局模型配置';
-}
-
-function nextModelDraft(providerKey, draft, patch, activeModel) {
-  const next = { ...draft, ...patch };
-  const nextEffort = normalizeConfigText(next.effort).toLowerCase();
-  if (providerKey === 'claude' && nextEffort === 'max' && !isClaudeOpusFamilyModel(next.model || activeModel)) {
-    return { ...next, effort: 'high' };
-  }
-  return next;
-}
-
-function loadedModelDraft(loaded, activeModel, activeEffort) {
-  const loadedCanOverride = Boolean(loaded?.supportsThreadOverride);
-  return {
-    model: loadedCanOverride ? normalizeConfigText(loaded.override?.model) : activeModel,
-    effort: loadedCanOverride ? normalizeConfigText(loaded.override?.effort) : activeEffort,
-  };
-}
-
-function modelSelectorDerivedState({ activeEffort, activeModel, activeThreadConfig, canOverrideThread, disabled, draft, providerKey, store, activeThreadId }) {
-  const selectedModel = canonicalizeModelValue(providerKey, draft.model || activeModel);
-  const selectedEffort = draft.effort || activeEffort;
-  return {
-    canOverrideThread,
-    disabled,
-    effortOptions: appendCurrentEffortOption(providerKey, selectedEffort, selectedModel),
-    inheritEffortLabel: activeEffort ? `默认（当前：${effortOptionFor(providerKey, activeEffort)?.label || activeEffort}）` : '默认',
-    inheritModelLabel: activeModel ? `默认（当前：${modelOptionFor(providerKey, activeModel)?.label || activeModel}）` : '默认',
-    inherited: canOverrideThread && !activeThreadConfig?.override?.model && !activeThreadConfig?.override?.effort,
-    label: composerModelLabel(providerKey, activeModel, activeEffort),
-    modelOptions: appendCurrentModelOption(providerKey, selectedModel),
-    selectEffortValue: canOverrideThread ? draft.effort : draft.effort || activeEffort,
-    selectModelValue: canOverrideThread
-      ? canonicalizeModelValue(providerKey, draft.model)
-      : canonicalizeModelValue(providerKey, draft.model || activeModel),
-    selectorBusy: Boolean(store.threadConfigSaving || (activeThreadId && store.threadConfigLoadingByThread?.[activeThreadId])),
-    selectorTitle: modelSelectorTitle(disabled, canOverrideThread),
-  };
-}
-
-function useModelSelectorController({ store, activeThreadId, disabled, wrapRef }) {
-  const [open, setOpen] = useState(false);
-  const snapshot = modelSelectorSnapshot(store, activeThreadId);
-  const { activeEffort, activeModel, activeThreadConfig, canOverrideThread, draftEffort, draftModel, providerKey } = snapshot;
-  const [draft, setDraft] = useState({ model: draftModel, effort: draftEffort });
-  const closedDraft = { model: draftModel, effort: draftEffort };
-  const selectorOpen = open && !disabled;
-  useEffect(() => { if (disabled && open) setOpen(false); }, [disabled, open]);
-  const selectorDraft = selectorOpen ? draft : closedDraft;
-
-  useEffect(() => {
-    if (!selectorOpen) return undefined;
-    const onPointerDown = (event) => {
-      if (wrapRef.current && !wrapRef.current.contains(event.target)) setOpen(false);
-    };
-    document.addEventListener('pointerdown', onPointerDown, true);
-    return () => document.removeEventListener('pointerdown', onPointerDown, true);
-  }, [selectorOpen, wrapRef]);
-
-  const openSelector = async () => {
-    if (disabled) return;
-    const nextOpen = !selectorOpen;
-    setDraft({ model: draftModel, effort: draftEffort });
-    setOpen(nextOpen);
-    if (!nextOpen || !activeThreadId) return;
-    let cancelled = false;
-    const loaded = await store.loadThreadConfig?.(activeThreadId);
-    if (cancelled || !loaded) return;
-    setDraft(loadedModelDraft(loaded, activeModel, activeEffort));
-    return () => { cancelled = true; };
-  };
-
-  const saveModelConfig = async (patch) => {
-    const next = nextModelDraft(providerKey, selectorDraft, patch, activeModel);
-    setDraft(next);
-    await store.saveComposerModelConfig?.({ threadId: activeThreadId, model: next.model, effort: next.effort });
-  };
-
-  const restoreInheritance = async () => {
-    const restored = await store.restoreComposerModelInheritance?.({ threadId: activeThreadId });
-    if (restored) setOpen(false);
-  };
-
-  return {
-    ...modelSelectorDerivedState({ activeEffort, activeModel, activeThreadConfig, canOverrideThread, disabled, draft: selectorDraft, providerKey, store, activeThreadId }),
-    open: selectorOpen,
-    openSelector,
-    restoreInheritance,
-    saveModelConfig,
-  };
-}
-
-function ModelSelector({ store, activeThreadId, disabled = false }) {
-  const wrapRef = useRef(null);
-  const controller = useModelSelectorController({ store, activeThreadId, disabled, wrapRef });
-
-  return (
-    <div className="composer-model-wrap" ref={wrapRef}>
-      <ModelSelectorButton controller={controller} />
-      {controller.open ? <ModelSelectorDropdown controller={controller} /> : null}
-    </div>
-  );
-}
-
-function ModelSelectorButton({ controller }) {
-  return (
-    <button
-      type="button"
-      className="composer-model"
-      aria-label="选择模型"
-      aria-expanded={controller.open}
-      aria-haspopup="dialog"
-      aria-busy={controller.selectorBusy}
-      title={controller.selectorTitle}
-      disabled={controller.disabled}
-      onClick={() => runUIAction(controller.openSelector)}
-    >
-      {controller.label}
-      <ChevronDown size={12} />
-    </button>
-  );
-}
-
-function ModelSelectorDropdown({ controller }) {
-  const optionDisabled = controller.disabled || controller.selectorBusy;
-  return (
-    <dialog className="model-dropdown" open aria-label="模型配置">
-      <label>
-        <span>模型</span>
-        <select aria-label="模型" value={controller.selectModelValue} disabled={optionDisabled} onChange={(event) => runUIAction(() => controller.saveModelConfig({ model: event.target.value }))}>
-          {controller.canOverrideThread ? <option value="">{controller.inheritModelLabel}</option> : null}
-          {controller.modelOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-        </select>
-      </label>
-      <label>
-        <span>强度</span>
-        <select aria-label="推理强度" value={controller.selectEffortValue} disabled={optionDisabled} onChange={(event) => runUIAction(() => controller.saveModelConfig({ effort: event.target.value }))}>
-          {controller.canOverrideThread ? <option value="">{controller.inheritEffortLabel}</option> : null}
-          {controller.effortOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-        </select>
-      </label>
-      {controller.canOverrideThread && !controller.inherited ? (
-        <button type="button" className="model-inherit" disabled={optionDisabled} onClick={() => runUIAction(controller.restoreInheritance)}>
-          继承全局
-        </button>
-      ) : null}
-    </dialog>
-  );
-}
-
 function hasFilesTransfer(event) {
   const transfer = event?.dataTransfer;
   if (!transfer) return false;
@@ -2714,33 +2459,6 @@ function nativeDropTargetAcceptsFiles(details, options = {}) {
     || Object.prototype.hasOwnProperty.call(attributes, NATIVE_FILE_DROP_TARGET_ATTRIBUTE)
     || nativeDropHasAcceptedClass(attributes.class)
     || Boolean(options.acceptEmptyDetails && !nativeDropHasTargetEvidence(details, attributes));
-}
-
-function AttachmentPreviewModal({ attachment, onClose, onRemove }) {
-  const isImage = attachment.kind === 'image' && attachment.previewUrl;
-  return (
-    <FocusTrapDialog ariaLabel="附件预览" className="modal-box attachment-preview-modal" onClose={onClose}>
-        <header>
-          <div>
-            <strong>{attachment.name || attachment.path}</strong>
-            <p>{attachment.path}</p>
-          </div>
-          <button type="button" aria-label="关闭附件预览" onClick={onClose}><X size={16} /></button>
-        </header>
-        {isImage ? (
-          <img className="attachment-preview-image" src={attachment.previewUrl} alt={attachment.name || '附件图片预览'} />
-        ) : (
-          <div className="attachment-preview-file">
-            <File size={28} />
-            <code>{attachment.path}</code>
-          </div>
-        )}
-        <footer>
-          <button type="button" onClick={onRemove}><Trash2 size={14} /> 移除附件</button>
-          <button type="button" onClick={onClose}>关闭</button>
-        </footer>
-    </FocusTrapDialog>
-  );
 }
 
 function markdownTableCells(line) {
@@ -4590,232 +4308,6 @@ function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, canUsePr
     if (paths.length > 0 && typeof attachPaths === 'function') attachPaths(paths);
   };
   return { handleDragEnter, handleDragLeave, handleDragOver, handleDrop, handlePaste };
-}
-
-function useComposerDropTarget(ref, composer) {
-  useEffect(() => {
-    const target = ref.current;
-    if (!target) return undefined;
-
-    const handleDragEnter = (event) => composer.handleDragEnter(event);
-    const handleDragOver = (event) => composer.handleDragOver(event);
-    const handleDragLeave = (event) => composer.handleDragLeave(event);
-    const handleDrop = (event) => runUIAction(() => composer.handleDrop(event));
-
-    target.addEventListener('dragenter', handleDragEnter);
-    target.addEventListener('dragover', handleDragOver);
-    target.addEventListener('dragleave', handleDragLeave);
-    target.addEventListener('drop', handleDrop);
-    return () => {
-      target.removeEventListener('dragenter', handleDragEnter);
-      target.removeEventListener('dragover', handleDragOver);
-      target.removeEventListener('dragleave', handleDragLeave);
-      target.removeEventListener('drop', handleDrop);
-    };
-  }, [composer, ref]);
-}
-
-function ComposerDock({
-  floating = false,
-  draft,
-  setDraft,
-  sendMessage,
-  attachments,
-  selectFiles,
-  sending,
-  store,
-  modelThreadId,
-  showProviderToggle = true,
-  composer,
-  canUseProjectActions = true,
-}) {
-  const composerClass = `composer ${floating ? 'composer--floating' : 'composer--docked'}`;
-  const hasComposerInput = Boolean(textValue(draft) || attachments.length > 0);
-  const canInterrupt = canUseProjectActions && Boolean(store?.hasInterruptibleThreadAction?.(modelThreadId));
-  const canSend = canUseProjectActions && !sending && !canInterrupt && hasComposerInput;
-  const projectActionBlocked = !canUseProjectActions;
-  const projectActionBlockedTitle = '请先连接后端并选择项目';
-  const dockRef = useRef(null);
-  const textareaRef = useRef(null);
-  useComposerDropTarget(dockRef, composer);
-  useComposerDropTarget(textareaRef, composer);
-
-  const handleKeyDown = useComposerSendKeyHandler({ canSend, composer, sendMessage });
-  const handleTextareaChange = (event) => setDraft(event.target.value);
-  const handleTextareaPaste = (event) => { runUIAction(() => composer.handlePaste(event)); };
-
-  return (
-    <footer
-      ref={dockRef}
-      id="chat-input-bar"
-      className={`${composerClass}${composer.dropActive ? ' drop-active' : ''}`}
-      data-testid="composer-dock"
-      data-file-drop-target=""
-    >
-      <div className="composer-card">
-        {composer.dropActive ? <div className="composer-drop-hint" aria-live="polite">松开即可添加附件</div> : null}
-        <ForkDraftCard store={store} />
-        <ComposerAttachments attachments={attachments} onPreview={composer.previewAttachmentItem} onRemove={composer.removeAttachmentItem} />
-        <ComposerTextarea
-          ref={textareaRef}
-          draft={draft}
-          onChange={handleTextareaChange}
-          onPaste={handleTextareaPaste}
-          onCompositionStart={composer.handleCompositionStart}
-          onCompositionEnd={composer.handleCompositionEnd}
-          onKeyDown={handleKeyDown}
-        />
-        <ComposerMeta
-          canInterrupt={canInterrupt}
-          canSend={canSend}
-          canUseProjectActions={canUseProjectActions}
-          modelThreadId={modelThreadId}
-          projectActionBlocked={projectActionBlocked}
-          projectActionBlockedTitle={projectActionBlockedTitle}
-          selectFiles={selectFiles}
-          sendMessage={sendMessage}
-          showProviderToggle={showProviderToggle}
-          store={store}
-        />
-      </div>
-      <ComposerPreviewModal composer={composer} />
-    </footer>
-  );
-}
-
-function ComposerPreviewModal({ composer }) {
-  if (!composer.activePreview) return null;
-  return (
-    <AttachmentPreviewModal
-      attachment={composer.activePreview}
-      onClose={() => composer.setPreviewAttachment(null)}
-      onRemove={() => composer.removeAttachmentItem(composer.activePreview)}
-    />
-  );
-}
-
-function useComposerSendKeyHandler({ canSend, composer, sendMessage }) {
-  return (event) => {
-    if (event.key !== 'Enter' || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
-    const keyCode = Number(event.keyCode || event.which || 0);
-    const imeLikely = event.isComposing || composer.isComposing() || keyCode === 229 || event.key === 'Process' || event.key === 'Unidentified';
-    if (imeLikely) return;
-    event.preventDefault();
-    if (!canSend) return;
-    runUIAction(() => sendMessage());
-  };
-}
-
-function ForkDraftCard({ store }) {
-  const draft = store.forkDraft;
-  if (!draft?.open) return null;
-  const selected = new Set(draft.sharedFilePaths || []);
-  const files = Array.isArray(draft.availableSharedFiles) ? draft.availableSharedFiles : [];
-  return (
-    <section className="fork-draft-card" data-testid="fork-draft-card" aria-label="继承对话草稿">
-      <header>
-        <div>
-          <p>继承对话</p>
-          <strong>{draft.sourceTitle || '继承自当前会话'}</strong>
-        </div>
-        <button
-          type="button"
-          className="fork-draft-close"
-          aria-label="关闭继承对话草稿"
-          disabled={draft.submitting}
-          onClick={() => runUIAction(() => store.closeForkDraft?.())}
-        >
-          <X size={14} />
-        </button>
-      </header>
-      {draft.error ? <div className="fork-draft-error" role="alert">{draft.error}</div> : null}
-      <div className="fork-draft-files" aria-live="polite">
-        {draft.loadingSharedFiles ? <span className="fork-draft-muted">正在加载共享文件...</span> : null}
-        {!draft.loadingSharedFiles && files.length === 0 ? <span className="fork-draft-muted">暂无可选共享文件</span> : null}
-        {files.map((file) => (
-          <label key={file.path} className="fork-draft-file">
-            <input
-              type="checkbox"
-              aria-label={`选择共享文件 ${file.path}`}
-              checked={selected.has(file.path)}
-              disabled={draft.submitting}
-              onChange={() => runUIAction(() => store.toggleForkDraftSharedFile?.(file.path))}
-            />
-            <FileText size={14} />
-            <span>{file.path}</span>
-          </label>
-        ))}
-      </div>
-      <div className="fork-draft-actions">
-        <button type="button" disabled={draft.submitting} onClick={() => runUIAction(() => store.closeForkDraft?.())}>取消</button>
-        <button type="button" className="fork-draft-submit" disabled={draft.submitting} onClick={() => runUIAction(() => store.submitForkThread?.())}>
-          {draft.submitting ? '创建中...' : '创建继承对话'}
-        </button>
-      </div>
-    </section>
-  );
-}
-
-function ComposerMeta({
-  canInterrupt,
-  canSend,
-  canUseProjectActions,
-  modelThreadId,
-  projectActionBlocked,
-  projectActionBlockedTitle,
-  selectFiles,
-  sendMessage,
-  showProviderToggle: _,
-  store,
-}) {
-  const canForkThread = canUseProjectActions && Boolean(store.hasActiveThreadActions?.());
-  const forkBlockedTitle = projectActionBlocked ? projectActionBlockedTitle : '当前没有可继承的会话';
-  const primaryActionLabel = canInterrupt ? '中断当前执行' : '发送消息';
-  const primaryActionTitle = canInterrupt ? '中断当前执行' : undefined;
-  const primaryActionClass = `send${canInterrupt ? ' send--interrupt' : ''}`;
-  const primaryActionDisabled = canInterrupt ? false : !canSend;
-  const onPrimaryAction = () => {
-    if (canInterrupt) {
-      runUIAction(() => store.interruptActiveThread?.());
-      return;
-    }
-    if (canSend) runUIAction(() => sendMessage());
-  };
-  return (
-    <div className="composer-meta">
-      <button
-        type="button"
-        className="composer-attach"
-        aria-label="添加文件"
-        title={projectActionBlocked ? projectActionBlockedTitle : '添加文件'}
-        disabled={projectActionBlocked}
-        onClick={() => {
-          if (!projectActionBlocked) runUIAction(() => selectFiles());
-        }}
-      >
-        <Plus size={18} />
-      </button>
-      <button
-        type="button"
-        className="composer-attach composer-fork"
-        aria-label="继承当前对话"
-        title={canForkThread ? '继承当前对话' : forkBlockedTitle}
-        disabled={!canForkThread}
-        onClick={() => {
-          if (canForkThread) runUIAction(() => store.openForkDraft?.());
-        }}
-      >
-        <GitBranch size={16} />
-      </button>
-      <div className="composer-actions">
-
-        <ModelSelector store={store} activeThreadId={modelThreadId} disabled={projectActionBlocked} />
-        <button type="button" className={primaryActionClass} aria-label={primaryActionLabel} title={primaryActionTitle} disabled={primaryActionDisabled} onClick={onPrimaryAction}>
-          {canInterrupt ? <CircleStop size={18} /> : <Send size={18} />}
-        </button>
-      </div>
-    </div>
-  );
 }
 
 function Conversation(props) {
