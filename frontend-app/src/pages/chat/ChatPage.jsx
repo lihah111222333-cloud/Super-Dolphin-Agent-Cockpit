@@ -8,6 +8,7 @@ import { RuntimeActivityPanel } from './components/RuntimeActivityPanel.jsx';
 import { RuntimeDiffView } from './components/RuntimeDiffView.jsx';
 import { RuntimeToolbar } from './components/RuntimeToolbar.jsx';
 import { ThreadCardActions } from './components/ThreadCardActions.jsx';
+import { ThreadDisplayCardContent as ThreadDisplayCardContentView } from './components/ThreadDisplayCardContent.jsx';
 import { ThreadRailTools } from './components/ThreadRailTools.jsx';
 
 const CONVERSATION_DROP_TARGET_ID = 'conversation-drop-zone';
@@ -2349,36 +2350,15 @@ function ThreadDisplayCardContent({ thread, store }) {
   const statusDotState = threadStatusDotState(thread.status);
   const statusDotTitle = threadStatusDotTitle(thread.status, statusLabel);
   return (
-    <button type="button" className="thread-main" onClick={() => runUIAction(() => store.setActiveThread(thread.id))}>
-      <span className="thread-name" title={threadLabel}>
-        {threadLabel}
-      </span>
-      <b>{threadProviderLabel(thread.provider)}</b>
-      <ThreadStatusLine
-        thread={thread}
-        statusDotState={statusDotState}
-        statusDotTitle={statusDotTitle}
-        statusLabel={statusLabel}
-      />
-    </button>
-  );
-}
-
-function ThreadStatusLine({ thread, statusDotState, statusDotTitle, statusLabel }) {
-  return (
-    <span className="thread-status-row" data-thread-status={statusDotState}>
-      <span
-        className={`thread-status-dot thread-status-dot--${statusDotState}`}
-        title={statusDotTitle}
-        aria-hidden="true"
-      />
-      {statusLabel ? <span className="thread-status-label">{statusLabel}</span> : null}
-      {thread.staleReason ? (
-        <span className="thread-stale-badge" data-stale-reason={thread.staleReason}>
-          {thread.staleReason === 'expired' ? '超7天' : '空对话'}
-        </span>
-      ) : null}
-    </span>
+    <ThreadDisplayCardContentView
+      providerLabel={threadProviderLabel(thread.provider)}
+      staleReason={thread.staleReason}
+      statusDotState={statusDotState}
+      statusDotTitle={statusDotTitle}
+      statusLabel={statusLabel}
+      threadLabel={threadLabel}
+      onSelect={() => runUIAction(() => store.setActiveThread(thread.id))}
+    />
   );
 }
 
