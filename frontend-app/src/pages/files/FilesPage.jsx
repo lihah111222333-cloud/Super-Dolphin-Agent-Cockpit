@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, Download, Eye, File, FolderOpen, MessageCircle, Search, Trash2, X } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
-import { deleteSharedFile, listSharedFiles, openSharedFile, readSharedFile, saveTextFile } from '../../shared/api/backendApi.js';
-import { dashboardQueryErrorState, firstText, optionalSettingsCwd, queryHasSnapshot, sharedFileTimestamp, SKILLS_REQUEST_TIMEOUT_MS, textValue, useDashboardQueryFocusInvalidation, withTimeout } from '../shared/pageShared.js';
+import { deleteSharedFile, listSharedFilesDashboard, openSharedFile, readSharedFile, saveTextFile } from '../../services/modules/fileService.js';
+import { dashboardQueryErrorState, optionalSettingsCwd, queryHasSnapshot, sharedFileTimestamp, textValue, useDashboardQueryFocusInvalidation } from '../shared/pageShared.js';
 import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx';
 
 const SHARED_FILE_CATEGORIES = Object.freeze([
@@ -52,15 +52,6 @@ function dashboardGlobalQueryKey(page, ...parts) {
     if (value) normalizedParts.push(value);
   }
   return ['dashboard', 'global', page, ...normalizedParts];
-}
-
-async function fetchSharedFilesDashboard() {
-  const response = await withTimeout(
-    listSharedFiles(),
-    SKILLS_REQUEST_TIMEOUT_MS,
-    '共享文件加载超时，请检查文件索引或后端状态。',
-  );
-  return normalizeSharedFilesResponse(response);
 }
 
 function splitSharedFilePath(path) {
@@ -248,92 +239,6 @@ function sharedFilePreview(file) {
   return sharedFileDisplay(file).text;
 }
 
-function normalizeSharedFile(raw, index) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    throw new Error(`shared file item ${index} must be an object`);
-  }
-  const path = textValue(raw.path);
-  if (!path) throw new Error(`shared file item ${index} path is required`);
-  return {
-    id: `${path}:${index}`,
-    path,
-    content: (raw.content || '').toString(),
-    updatedBy: firstText(raw.updated_by, raw.updatedBy),
-    updatedAt: firstText(raw.updated_at, raw.updatedAt),
-    createdAt: firstText(raw.created_at, raw.createdAt),
-  };
-}
-
-function normalizeFinalOutputRefs(value) {
-  if (value === undefined) return [];
-  if (!Array.isArray(value)) throw new Error('shared files dashboard finalOutputRefs must be an array');
-  return value.map((item, index) => {
-    if (typeof item === 'string') {
-      const path = textValue(item);
-      if (!path) throw new Error(`final output ref ${index} path is required`);
-      return { path, runKey: '', dagKey: '', sourceNodeKey: '' };
-    }
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      throw new Error(`final output ref ${index} must be an object`);
-    }
-    const path = firstText(item.path, item.sharedfile?.path, item.sharedFile?.path, item.shared_file?.path);
-    if (!path) throw new Error(`final output ref ${index} path is required`);
-    return {
-      path,
-      runKey: firstText(item.runKey, item.run_key),
-      dagKey: firstText(item.dagKey, item.dag_key),
-      sourceNodeKey: firstText(item.sourceNodeKey, item.source_node_key),
-    };
-  });
-}
-
-function normalizeSharedFileRetention(value) {
-  if (value === undefined) {
-    return { items: [], protectedCount: 0, cleanupCandidateCount: 0 };
-  }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('shared files dashboard sharedFileRetention must be an object');
-  }
-  if (!Array.isArray(value.items)) {
-    throw new Error('shared files dashboard sharedFileRetention.items must be an array');
-  }
-  return {
-    items: value.items.map((item, index) => {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) {
-        throw new Error(`shared file retention item ${index} must be an object`);
-      }
-      const path = textValue(item.path);
-      if (!path) throw new Error(`shared file retention item ${index} path is required`);
-      return {
-        path,
-        protected: Boolean(item.protected),
-        cleanupCandidate: Boolean(item.cleanupCandidate),
-        reason: textValue(item.reason),
-        finalOutput: item.finalOutput || item.final_output || null,
-      };
-    }),
-    protectedCount: Number(value.protectedCount) || 0,
-    cleanupCandidateCount: Number(value.cleanupCandidateCount) || 0,
-  };
-}
-
-function normalizeSharedFilesResponse(response) {
-  if (!response || typeof response !== 'object' || Array.isArray(response)) {
-    throw new Error('shared files dashboard response must be an object');
-  }
-  const rawFiles = Array.isArray(response.files) ? response.files : response.memory;
-  if (!Array.isArray(rawFiles)) {
-    throw new Error('shared files dashboard response files must be an array');
-  }
-  const rawRefs = response.finalOutputRefs;
-  const rawRetention = response.sharedFileRetention;
-  return {
-    files: rawFiles.map((item, index) => normalizeSharedFile(item, index)),
-    finalOutputRefs: normalizeFinalOutputRefs(rawRefs),
-    retention: normalizeSharedFileRetention(rawRetention),
-  };
-}
-
 function sharedFileMatches(file, query) {
   const needle = textValue(query).toLowerCase();
   if (!needle) return true;
@@ -368,7 +273,7 @@ function useSharedFilesDashboard(store) {
   const queryClient = useQueryClient();
   const queryKey = useMemo(() => dashboardGlobalQueryKey('shared-files'), []);
   useDashboardQueryFocusInvalidation(queryKey);
-  const query = useQuery({ queryKey, queryFn: fetchSharedFilesDashboard });
+  const query = useQuery({ queryKey, queryFn: listSharedFilesDashboard });
   const hasSnapshot = queryHasSnapshot(query);
   const data = query.data || {
     files: [],
@@ -516,13 +421,7 @@ function useSharedFileDetailLoader(setBusyPath) {
     if (!path) throw new Error('shared file path is required');
     setBusyPath(path);
     try {
-      const detail = await readSharedFile({ path });
-      return normalizeSharedFile({
-        path: detail?.path || path,
-        content: detail?.content || file?.content || '',
-        updatedBy: detail?.updatedBy || file?.updatedBy || '',
-        updatedAt: detail?.updatedAt || file?.updatedAt || '',
-      }, 0);
+      return await readSharedFile({ path }, file);
     } finally {
       setBusyPath('');
     }

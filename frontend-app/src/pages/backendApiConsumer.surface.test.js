@@ -6,6 +6,12 @@ import { describe, expect, it } from 'vitest';
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const scannedDirs = ['pages', 'features', 'entities'];
 const rawFacadeNames = new Set(['callAPI', 'callBackend']);
+const migratedBackendApiConsumers = new Set([
+  'pages/files/FilesPage.jsx',
+  'pages/memory/MemoryPage.jsx',
+  'pages/observability/ObservabilityPage.jsx',
+  'pages/shared/pageShared.js',
+]);
 
 function collectSourceFiles() {
   const files = [];
@@ -43,6 +49,10 @@ function backendApiNamedImports(source) {
   return imports;
 }
 
+function importsBackendApi(source) {
+  return /from\s*['"][^'"]*shared\/api\/backendApi\.js['"]/.test(source);
+}
+
 describe('backend API consumer guardrails', () => {
   it('keeps page, feature, and entity consumers on named backend facade imports', () => {
     const violations = [];
@@ -54,6 +64,21 @@ describe('backend API consumer guardrails', () => {
         if (rawFacadeNames.has(imported)) {
           violations.push(`${relativePath} imports raw ${imported}`);
         }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  it('keeps migrated page surfaces behind service modules', () => {
+    const violations = [];
+
+    for (const filePath of collectSourceFiles()) {
+      const relativePath = rel(filePath);
+      if (!migratedBackendApiConsumers.has(relativePath)) continue;
+      const source = fs.readFileSync(filePath, 'utf8');
+      if (importsBackendApi(source)) {
+        violations.push(`${relativePath} imports shared/api/backendApi.js directly`);
       }
     }
 
