@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/launcherrors"
 	"github.com/kelindar/event"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
@@ -239,7 +240,7 @@ func TestWaitRetryBackoffLogsCompletion(t *testing.T) {
 	pkglogger.SetForTest(logger)
 	t.Cleanup(func() { pkglogger.SetForTest(silentLogger()) })
 
-	if err := waitRetryBackoff(context.Background(), 0, "agent-1", errors.New("transient")); err != nil {
+	if err := launcherrors.WaitRetryBackoff(context.Background(), 0, "agent-1", errors.New("transient")); err != nil {
 		t.Fatalf("waitRetryBackoff() error = %v", err)
 	}
 	output := buf.String()

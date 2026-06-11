@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/reportstore"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -246,7 +247,7 @@ func attachPersistedAgentReport(snapshot *AgentSnapshot) {
 	if snapshot == nil {
 		return
 	}
-	report, err := readPersistedAgentReportFile(agentReportFileRecordFromSnapshot(*snapshot))
+	report, err := reportstore.ReadPersisted(agentReportFileRecordFromSnapshot(*snapshot))
 	if err == nil {
 		snapshot.LastReport = normalizeDisplayReportText(report)
 	}

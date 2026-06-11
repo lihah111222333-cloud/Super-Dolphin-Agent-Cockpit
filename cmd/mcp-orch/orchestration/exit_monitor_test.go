@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/exitmonitor"
 	"github.com/kelindar/event"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
@@ -49,7 +50,7 @@ func spawnP3TestCmd(t *testing.T, svc *service, agentID string, launchSeq uint64
 	agent.launchSeq = launchSeq
 	agent.sessionGeneration = 42
 	svc.agents[agent.id] = agent
-	svc.exitMonitor.Arm(monitorTarget{agentID: agentID, launchSeq: launchSeq, cmd: cmd})
+	svc.exitMonitor.Arm(exitmonitor.Target{AgentID: agentID, LaunchSeq: launchSeq, Cmd: cmd})
 	agent.monitoredSeq = launchSeq
 	return cmd
 }
@@ -71,7 +72,7 @@ func TestExitEventExactlyOnceByLaunchSeq(t *testing.T) {
 	svc.exitMonitor.Emit("agent-1", 5, nil)
 	select {
 	case result := <-svc.exitMonitor.ExitEvents():
-		svc.handleProcessExit(context.Background(), result.agentID, result.launchSeq, result.err)
+		svc.handleProcessExit(context.Background(), result.AgentID, result.LaunchSeq, result.Err)
 	case <-time.After(time.Second):
 		t.Fatal("first Emit did not publish exit event")
 	}
@@ -121,7 +122,7 @@ func TestStopPathReusesExitOwner(t *testing.T) {
 	svc.exitMonitor.Emit("agent-2", 7, nil)
 	select {
 	case result := <-svc.exitMonitor.ExitEvents():
-		svc.handleProcessExit(context.Background(), result.agentID, result.launchSeq, result.err)
+		svc.handleProcessExit(context.Background(), result.AgentID, result.LaunchSeq, result.Err)
 	case <-time.After(time.Second):
 		t.Fatal("synthetic Emit did not publish")
 	}
@@ -310,7 +311,7 @@ func TestProcessExitStateMachine(t *testing.T) {
 
 func TestExitMonitorDrainClosesGate(t *testing.T) {
 	t.Parallel()
-	m := newProcessExitMonitor(silentLogger())
+	m := exitmonitor.New(silentLogger())
 
 	cmd := newLongRunningTestCommand()
 	if err := cmd.Start(); err != nil {
@@ -318,7 +319,7 @@ func TestExitMonitorDrainClosesGate(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
 
-	m.Arm(monitorTarget{agentID: "a", launchSeq: 1, cmd: cmd})
+	m.Arm(exitmonitor.Target{AgentID: "a", LaunchSeq: 1, Cmd: cmd})
 
 	// Drain in a goroutine so the test can observe the gate flipping.
 	drainDone := make(chan error, 1)
@@ -341,7 +342,7 @@ func TestExitMonitorDrainClosesGate(t *testing.T) {
 		t.Fatalf("cmd.Start(): %v", err)
 	}
 	t.Cleanup(func() { _ = other.Process.Kill(); _ = other.Wait() })
-	if armed := m.Arm(monitorTarget{agentID: "b", launchSeq: 1, cmd: other}); armed {
+	if armed := m.Arm(exitmonitor.Target{AgentID: "b", LaunchSeq: 1, Cmd: other}); armed {
 		t.Fatal("Arm after Drain must return false")
 	}
 }

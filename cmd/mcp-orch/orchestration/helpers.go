@@ -12,6 +12,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/qmuntal/stateless"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/exitmonitor"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -68,7 +69,7 @@ func (s *service) BindActiveTurnID(ctx context.Context, agentID, turnID string) 
 
 // P22 P3: claimMonitorTargets is deleted. Exit monitoring is now armed at
 // launch time by startProcessLocked (and the launcher bridge for remote
-// launches) via processExitMonitor.Arm; the runnerActor is a pure consumer
+// launches) via exitmonitor.Monitor.Arm; the runnerActor is a pure consumer
 // of monitor.ExitEvents() and no longer polls for unmonitored cmds.
 
 func (s *service) reconcileReadyStateLocked(ctx context.Context, agent *agentRuntime) {
@@ -298,10 +299,10 @@ func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) e
 	// runnerActor's main loop consumes that stream. monitoredSeq is kept as a
 	// test-visible flag so existing polling-based assertions keep working.
 	if s.exitMonitor != nil {
-		s.exitMonitor.Arm(monitorTarget{
-			agentID:   agent.id,
-			launchSeq: agent.launchSeq,
-			cmd:       cmd,
+		s.exitMonitor.Arm(exitmonitor.Target{
+			AgentID:   agent.id,
+			LaunchSeq: agent.launchSeq,
+			Cmd:       cmd,
 		})
 	}
 	agent.monitoredSeq = agent.launchSeq

@@ -582,7 +582,7 @@ func sanitizeLaunchName(value string) string {
 
 // classifyAgentLaunchError 把 launcher 返回的 error 映射成 FailureClass。
 //
-// 与 cmd/mcp-orch/orchestration/service_launcher_errors.go::classifyLaunchError
+// 与 cmd/mcp-orch/orchestration/launcherrors/errors.go::Classify
 // 同源思路（关键字命中），但目标空间不同：service 层只分 transient/permanent/
 // unknown，nodeexec 这层细化到 FailureClass{transient,quota,capability,validation}，
 // 让 OnFailureConfig.ByClass 能直接路由。
