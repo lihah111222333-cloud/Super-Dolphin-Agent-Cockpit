@@ -5,6 +5,9 @@ import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { applyDagOps, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, openSharedFile, readSharedFile, startDag, startThread, terminateDagRun } from '../../shared/api/backendApi.js';
 import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.jsx';
+import { finalOutputPath, workflowOrderedNodes } from './adapters/workflowDisplayAdapter.js';
+import { WorkflowDiagnostics } from './components/WorkflowDiagnostics.jsx';
+import { WorkflowFinalOutputPanel } from './components/WorkflowFinalOutputPanel.jsx';
 
 const DAG_RECENT_RUN_LIMIT = 30;
 const DAG_RUN_HISTORY_VISIBLE_LIMIT = 10;
@@ -499,24 +502,6 @@ function finalOutputPreviewText(value) {
   return '';
 }
 
-function finalOutputPath(value) {
-  if (!value || typeof value !== 'object') return '';
-  return firstText(value.path, value.sharedfile?.path, value.sharedFile?.path, value.shared_file?.path);
-}
-
-function finalOutputKind(value) {
-  if (!value || typeof value !== 'object') return '';
-  const kind = firstText(value.kind, value.type);
-  const labels = {
-    file: '文件',
-    sharedfile: '文件',
-    shared_file: '文件',
-    text: '文本',
-    json: '数据',
-  };
-  return labels[kind.toLowerCase()] || kind || (finalOutputPath(value) ? '文件' : '');
-}
-
 function parsedDagConfig(value) {
   if (!value) return {};
   if (typeof value === 'object' && !Array.isArray(value)) return value;
@@ -528,90 +513,6 @@ function parsedDagConfig(value) {
   catch {
     return {};
   }
-}
-
-function workflowSharedFileRows(nodes = []) {
-  const rows = [];
-  nodes.forEach((node, index) => {
-    const config = parsedDagConfig(node?.config);
-    const inputs = parsedDagConfig(config.inputs);
-    const outputs = parsedDagConfig(config.outputs);
-    const stepLabel = `第 ${index + 1} 步`;
-    const nodeKey = node?.nodeKey || `node:${index}`;
-    const reads = Array.isArray(inputs.from_sharedfiles) ? inputs.from_sharedfiles : [];
-    reads.forEach((path) => {
-      const filePath = textValue(path);
-      if (filePath) rows.push({ nodeKey, stepLabel, path: filePath, access: '读取' });
-    });
-    const target = parsedDagConfig(outputs.to_sharedfile);
-    const outputPath = textValue(target.path);
-    if (outputPath) {
-      rows.push({
-        nodeKey,
-        stepLabel,
-        path: outputPath,
-        access: `写入 · ${workflowLockModeLabel(target.lock_mode || target.lockMode)}`,
-      });
-    }
-  });
-  return rows;
-}
-
-function workflowLockModeLabel(value) {
-  const mode = textValue(value).toLowerCase();
-  if (mode === 'exclusive') return '独占写入';
-  if (mode === 'append') return '追加写入';
-  if (mode === 'shared') return '共享读取';
-  return mode || '-';
-}
-
-function workflowOrderedNodes(nodes = []) {
-  const source = Array.isArray(nodes) ? nodes : [];
-  const byKey = new Map(source.filter((node) => textValue(node?.nodeKey)).map((node) => [node.nodeKey, node]));
-  const ordered = [];
-  const visited = new Set();
-  const visiting = new Set();
-
-  const visit = (node) => {
-    const key = textValue(node?.nodeKey);
-    if (!key) {
-      ordered.push(node);
-      return;
-    }
-    if (visited.has(key)) return;
-    if (visiting.has(key)) return;
-
-    visiting.add(key);
-    if (Array.isArray(node.dependsOn)) {
-      node.dependsOn.forEach((depKey) => {
-        const dependency = byKey.get(depKey);
-        if (dependency) visit(dependency);
-      });
-    }
-    visiting.delete(key);
-    visited.add(key);
-    ordered.push(node);
-  };
-
-  source.forEach((node) => visit(node));
-  return ordered;
-}
-
-function workflowTopologyRows(nodes = []) {
-  const orderedNodes = workflowOrderedNodes(nodes);
-  const known = new Map(orderedNodes.map((node, index) => [node.nodeKey, node.title || `步骤 ${index + 1}`]));
-  const missingLabels = new Map();
-  const labelForMissing = (key) => {
-    if (!missingLabels.has(key)) missingLabels.set(key, `外部依赖 ${missingLabels.size + 1}`);
-    return missingLabels.get(key);
-  };
-  const edgeRows = orderedNodes.flatMap((node) => {
-    const title = node.title || node.nodeKey;
-    if (!Array.isArray(node.dependsOn) || node.dependsOn.length === 0) return [];
-    return node.dependsOn.map((depKey) => `${known.get(depKey) || labelForMissing(depKey)} --> ${title}`);
-  });
-  if (edgeRows.length > 0) return edgeRows;
-  return orderedNodes.map((node, index) => node.title || node.nodeKey || `步骤 ${index + 1}`);
 }
 
 function validThreadIdText(value) {
@@ -1536,7 +1437,9 @@ function WorkflowDetailContent({ model }) {
       <WorkflowFinalOutputPanel
         key={finalOutputPath(derived.finalOutput) || 'inline-output'}
         finalOutput={derived.finalOutput}
+        openFile={(payload) => openSharedFile(payload)}
         previewText={derived.finalText}
+        readFile={(payload) => readSharedFile(payload)}
         workflowCwd={model.workflowCwd}
       />
       <WorkflowStatGrid derived={derived} selection={selection} />
@@ -1577,273 +1480,6 @@ function WorkflowStopButton({ model }) {
     <button type="button" className="danger" onClick={() => { void actions.stopSelectedDag(); }} disabled={actionState.actioning === 'stop'}>
       {actionState.actioning === 'stop' ? '停止中...' : '停止运行'}
     </button>
-  );
-}
-
-function formatWorkflowFileContent(content) {
-  if (!content) return '';
-  let trimmed = content.trim();
-
-  // Remove markdown code fences if present (e.g. ```json ... ```)
-  const fenceMatch = trimmed.match(/^`{3,}([a-zA-Z0-9_-]*)\n([\s\S]*?)\n`{3,}$/);
-  let isJson = false;
-  if (fenceMatch) {
-    trimmed = fenceMatch[2].trim();
-    if (fenceMatch[1] && fenceMatch[1].toLowerCase() === 'json') {
-      isJson = true;
-    }
-  }
-
-  // Check if it is a JSON object or array
-  if (isJson || trimmed.startsWith('{') || trimmed.startsWith('[')) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      return JSON.stringify(parsed, null, 2);
-    } catch {
-      // Ignore parsing errors, fall back
-    }
-  }
-
-  return fenceMatch ? fenceMatch[2] : content;
-}
-
-function formatInlinePreviewText(text) {
-  if (!text) return { formatted: '', isJson: false };
-  const trimmed = text.trim();
-  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      return { formatted: JSON.stringify(parsed, null, 2), isJson: true };
-    } catch {
-      // not valid JSON
-    }
-  }
-  return { formatted: text, isJson: false };
-}
-
-function WorkflowInlinePreviewText({ text }) {
-  const fallback = '当前运行尚未标记最终结果。';
-  if (!text) return <span className="workflow-inline-preview-empty">{fallback}</span>;
-  const { formatted, isJson } = formatInlinePreviewText(text);
-  if (isJson) {
-    return <pre className="workflow-final-preview">{formatted}</pre>;
-  }
-  return <p className="workflow-inline-preview-text">{text}</p>;
-}
-
-function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd }) {
-  const [fileContent, setFileContent] = useState('');
-  const [fileError, setFileError] = useState('');
-  const [openError, setOpenError] = useState('');
-  const [opening, setOpening] = useState(false);
-  const [reading, setReading] = useState(false);
-  const outputPath = finalOutputPath(finalOutput);
-
-  const isImage = useMemo(() => /\.(png|jpe?g|webp|gif|svg)$/i.test(outputPath || ''), [outputPath]);
-  const isVideo = useMemo(() => /\.(mp4|webm|ogg|mov)$/i.test(outputPath || ''), [outputPath]);
-  const isMedia = isImage || isVideo;
-  const mediaKindLabel = isVideo ? '视频' : '图片';
-
-  const readFinalOutput = async () => {
-    if (!outputPath) return;
-    setOpenError('');
-    if (fileContent) {
-      setFileContent('');
-      return;
-    }
-    if (isMedia) {
-      setFileContent('__MEDIA_PREVIEW__');
-      return;
-    }
-    setReading(true);
-    setFileError('');
-    try {
-      const response = await readSharedFile({ path: outputPath });
-      setFileContent((response?.content || '').toString());
-    }
-    catch {
-      setFileError('无法读取最终结果文件，请稍后重试。');
-    }
-    finally {
-      setReading(false);
-    }
-  };
-  const openFinalOutput = async () => {
-    if (!outputPath) return;
-    setOpening(true);
-    setOpenError('');
-    try {
-      await openSharedFile({ path: outputPath });
-    }
-    catch (err) {
-      setOpenError(`打开最终结果文件失败：${err?.message || String(err)}`);
-    }
-    finally {
-      setOpening(false);
-    }
-  };
-
-  const formattedContent = useMemo(() => {
-    return formatWorkflowFileContent(fileContent);
-  }, [fileContent]);
-
-  const fileUrl = useMemo(() => {
-    if (!outputPath || !workflowCwd) return '';
-    const cleanCwd = workflowCwd.replace(/\\/g, '/');
-    const cleanPath = outputPath.replace(/\\/g, '/');
-    const fullPath = `${cleanCwd}/.agnet/shared/${cleanPath}`;
-    if (/^[A-Za-z]:\//.test(fullPath)) {
-      return `file:///${fullPath}`;
-    }
-    return fullPath.startsWith('/') ? `file://${fullPath}` : `file:///${fullPath}`;
-  }, [outputPath, workflowCwd]);
-
-  const previewBlock = (() => {
-    if (!fileContent) return null;
-    if (fileContent === '__MEDIA_PREVIEW__') {
-      if (isImage) {
-        return (
-          <div className="workflow-media-preview">
-            <img src={fileUrl} alt="最终结果图片" />
-          </div>
-        );
-      }
-      if (isVideo) {
-        return (
-          <div className="workflow-media-preview">
-            <video src={fileUrl} controls />
-          </div>
-        );
-      }
-    }
-    return <pre className="workflow-final-preview">{formattedContent}</pre>;
-  })();
-
-  return (
-    <Panel title="最终结果">
-      {outputPath ? (
-        <div className="workflow-final-output">
-          <div className="workflow-file-row">
-            <span>{finalOutputKind(finalOutput) || '文件'}</span>
-            <code>{outputPath}</code>
-            <div className="workflow-output-actions" aria-label="最终结果操作">
-              <button
-                type="button"
-                className="workflow-output-action workflow-output-action-preview"
-                disabled={reading}
-                onClick={() => { void readFinalOutput(); }}
-                title={isMedia ? `在当前页面内预览${mediaKindLabel}` : '读取最终结果内容'}
-              >
-                {reading ? '读取中...' : (() => {
-                  if (fileContent) {
-                    if (isMedia) return '收起预览';
-                    return '收起最终结果';
-                  }
-                  if (isVideo) return '页内播放';
-                  if (isImage) return '页内预览';
-                  return '读取最终结果';
-                })()}
-              </button>
-              {isMedia ? (
-                <button
-                  type="button"
-                  className="workflow-output-action workflow-output-action-system"
-                  disabled={opening}
-                  onClick={() => { void openFinalOutput(); }}
-                  title={`用系统默认应用打开${mediaKindLabel}`}
-                >
-                  {opening ? '打开中...' : '系统打开'}
-                </button>
-              ) : null}
-            </div>
-          </div>
-          {fileError ? <p className="danger-text">{fileError}</p> : null}
-          {openError ? <p className="danger-text">{openError}</p> : null}
-          {previewBlock}
-          {fileContent === '__MEDIA_PREVIEW__' ? (
-            <p className="workflow-media-tip">提示：如果浏览器环境限制无法直接播放/预览本地媒体文件，请在「文件产物」页导出查看。</p>
-          ) : null}
-        </div>
-      ) : (
-        <WorkflowInlinePreviewText text={previewText} />
-      )}
-    </Panel>
-  );
-}
-
-function WorkflowDiagnostics({ model }) {
-  const { derived } = model;
-  return (
-    <div className="workflow-diagnostics">
-      <WorkflowDiagnosticPanel model={model} />
-      <WorkflowTopologyPanel nodes={derived.diagnosticNodes} />
-      <WorkflowSharedFilesPanel nodes={derived.diagnosticNodes} />
-    </div>
-  );
-}
-
-function WorkflowDiagnosticPanel({ model }) {
-  const { derived } = model;
-  return (
-    <Panel title="运行诊断">
-      {derived.diagnostics.length === 0 ? <p>暂无 blocked/ready-no-wakeup/failed 诊断</p> : (
-        <div className="workflow-diagnostic-list">
-          {derived.diagnostics.map((diagnostic) => <WorkflowDiagnosticRow diagnostic={diagnostic} key={diagnostic.key} model={model} />)}
-        </div>
-      )}
-    </Panel>
-  );
-}
-
-function WorkflowDiagnosticRow({ diagnostic, model }) {
-  const { actionState, actions, derived } = model;
-  const [assignee, setAssignee] = useState(textValue(diagnostic.node?.assignedTo));
-  const canDispatch = diagnostic.recovery === 'dispatch' && Boolean(derived.runId);
-  const dispatching = actionState.dispatchingNodeKey === diagnostic.node?.nodeKey;
-  return (
-    <article className={`workflow-diagnostic-row ${diagnostic.severity || ''}`}>
-      <strong>{diagnostic.title}</strong>
-      <span>{diagnostic.message}</span>
-      {diagnostic.recovery === 'dispatch' ? (
-        <div className="workflow-diagnostic-actions">
-          <label>
-            恢复执行者
-            <input value={assignee} onChange={(event) => setAssignee(event.target.value)} aria-label="恢复执行者" />
-          </label>
-          <button type="button" onClick={() => { void actions.dispatchNode(diagnostic.node, assignee); }} disabled={!canDispatch || dispatching} title={canDispatch ? '' : '当前运行缺少 runId'}>
-            {dispatching ? '派发中...' : '指派并派发'}
-          </button>
-        </div>
-      ) : null}
-    </article>
-  );
-}
-
-function WorkflowTopologyPanel({ nodes }) {
-  const rows = workflowTopologyRows(nodes);
-  return (
-    <Panel title="流程图">
-      {rows.length === 0 ? <p>暂无流程图</p> : <pre className="workflow-topology-source">{rows.join('\n')}</pre>}
-    </Panel>
-  );
-}
-
-function WorkflowSharedFilesPanel({ nodes }) {
-  const rows = workflowSharedFileRows(nodes);
-  return (
-    <Panel title="工作文件">
-      {rows.length === 0 ? <p>暂无工作文件读写</p> : (
-        <div className="workflow-shared-files">
-          {rows.map((row) => (
-            <div className="workflow-shared-file-row" key={`${row.nodeKey}:${row.access}:${row.path}`}>
-              <span>{row.stepLabel}</span>
-              <strong>{row.path}</strong>
-              <small>{row.access}</small>
-            </div>
-          ))}
-        </div>
-      )}
-    </Panel>
   );
 }
 
