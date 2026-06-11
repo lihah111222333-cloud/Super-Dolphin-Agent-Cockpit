@@ -317,6 +317,7 @@ func (r rpcHelperResolver) ResolveSession(context.Context, string) (contract.Ses
 }
 
 type rpcHelperSession struct {
+	contract.Session
 	caps          dto.CapabilitySet
 	runtimeConfig map[string]any
 	lastPatch     dto.ThreadConfigPatch
@@ -330,31 +331,7 @@ func (s rpcHelperSession) Capabilities() dto.CapabilitySet { return s.caps }
 
 func (s rpcHelperSession) RuntimeConfigSnapshot() map[string]any { return s.runtimeConfig }
 
-func (s rpcHelperSession) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
-	return nil, errors.New("unexpected StartTurn call")
-}
-
-func (s rpcHelperSession) Steer(context.Context, dto.SteerRequest) error { return nil }
-
-func (s rpcHelperSession) Interrupt(context.Context, dto.InterruptRequest) error { return nil }
-
-func (s rpcHelperSession) ForceComplete(context.Context, dto.ForceCompleteRequest) error { return nil }
-
-func (s rpcHelperSession) ListThreads(context.Context) ([]dto.ThreadRef, error) { return nil, nil }
-
-func (s rpcHelperSession) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
-	return dto.ForkResult{}, nil
-}
-
-func (s rpcHelperSession) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
-	return nil, nil
-}
-
 func (s *rpcHelperSession) Configure(_ context.Context, patch dto.ThreadConfigPatch) error {
 	s.lastPatch = patch
 	return nil
 }
-
-func (s rpcHelperSession) Close(context.Context) error { return nil }
-
-func (s rpcHelperSession) ForceStop() error { return nil }

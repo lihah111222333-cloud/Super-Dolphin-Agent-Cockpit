@@ -605,6 +605,7 @@ func (s *stubPromptReader) List(_ context.Context, filter promptstore.ListFilter
 }
 
 type stubAILogStore struct {
+	ailogstore.Store
 	listByCategoryResult   []ailogstore.AILog
 	listByCategoryErr      error
 	listByCategoryCalls    int
@@ -623,10 +624,6 @@ type stubAILogStore struct {
 }
 
 var _ ailogstore.Store = (*stubAILogStore)(nil)
-
-func (s *stubAILogStore) List(context.Context, ailogstore.ListFilter) ([]ailogstore.AILog, error) {
-	return []ailogstore.AILog{}, nil
-}
 
 func (s *stubAILogStore) ListByCategory(_ context.Context, category string, keyword string, limit int32) ([]ailogstore.AILog, error) {
 	s.listByCategoryCalls++
@@ -648,6 +645,7 @@ func (s *stubAILogStore) ListRecent(_ context.Context, limit int32) ([]ailogstor
 }
 
 type stubAuditLogStore struct {
+	auditlogstore.Store
 	listResult []auditlogstore.AuditEvent
 	listErr    error
 	listFilter auditlogstore.ListFilter
@@ -660,10 +658,6 @@ func (s *stubAuditLogStore) List(_ context.Context, filter auditlogstore.ListFil
 	s.listCalls++
 	s.listFilter = filter
 	return s.listResult, s.listErr
-}
-
-func (*stubAuditLogStore) Insert(context.Context, auditlogstore.InsertParams) error {
-	return nil
 }
 
 type stubBusLogStore struct {
