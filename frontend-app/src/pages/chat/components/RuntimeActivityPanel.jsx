@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { activityStatDetailEntries, activityStatItems, runtimeLogEntries } from '../adapters/runtimeActivityAdapter.js';
+import { activityStatDetailEntries, activityStatItems } from '../adapters/runtimeActivityAdapter.js';
+import { runtimeLogEntries } from '../adapters/runtimeLogAdapter.js';
 import { RuntimeLogLines, RuntimeWarningPopover } from './RuntimeActivityLog.jsx';
 import { RuntimeStatList, RuntimeStatTooltip } from './RuntimeActivityStats.jsx';
 import { elementViewportRect } from './runtimeActivityGeometry.js';

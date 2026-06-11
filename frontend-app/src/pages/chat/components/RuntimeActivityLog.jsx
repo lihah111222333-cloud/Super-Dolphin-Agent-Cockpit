@@ -1,5 +1,5 @@
 import React from 'react';
-import { runtimeLogInlineLabel, runtimeLogTimestamp, warningDetailText } from '../adapters/runtimeActivityAdapter.js';
+import { runtimeLogInlineLabel, runtimeLogTimestamp, warningDetailText } from '../adapters/runtimeLogAdapter.js';
 import { warningLogPopoverStyle } from './runtimeActivityGeometry.js';
 
 function RuntimeLogLines({ activeWarning, entries, formatTime, onWarningKeyDown, onToggleWarning }) {
