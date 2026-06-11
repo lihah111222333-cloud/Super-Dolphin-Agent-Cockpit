@@ -70,6 +70,36 @@ function Set-DefaultEnv {
     }
 }
 
+function Add-ProcessPathEntry {
+    param([Parameter(Mandatory)][string]$PathEntry)
+
+    $entry = $PathEntry.Trim()
+    if (-not $entry -or -not (Test-Path -LiteralPath $entry -PathType Container)) { return }
+
+    $separator = [IO.Path]::PathSeparator
+    $parts = @()
+    if ($env:PATH) {
+        $parts = @($env:PATH -split [regex]::Escape([string]$separator) | Where-Object { $_ })
+    }
+    foreach ($part in $parts) {
+        if ([string]::Equals($part.TrimEnd('\'), $entry.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) {
+            return
+        }
+    }
+    $env:PATH = $entry + $separator + $env:PATH
+}
+
+function Add-InstalledEnvironmentPath {
+    foreach ($scope in @('Machine', 'User')) {
+        $pathValue = [Environment]::GetEnvironmentVariable('Path', $scope)
+        if (-not $pathValue) { continue }
+        foreach ($entry in ($pathValue -split [regex]::Escape([string][IO.Path]::PathSeparator))) {
+            if (-not $entry) { continue }
+            Add-ProcessPathEntry -PathEntry $entry
+        }
+    }
+}
+
 function Ensure-DevControlSessionToken {
     if ($env:GO_AGENT_CTL_SESSION_TOKEN) { return }
     if ($env:GO_AGENT_MCP_SESSION_TOKEN) {
@@ -262,11 +292,46 @@ function Wait-ForAnyProcessExit {
 }
 
 function Resolve-NpmCommand {
+    if ($env:SUPER_DOLPHIN_NPM_CMD -and (Test-Path -LiteralPath $env:SUPER_DOLPHIN_NPM_CMD -PathType Leaf)) {
+        return $env:SUPER_DOLPHIN_NPM_CMD
+    }
+
     $cmd = Get-Command npm.cmd -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
-    $cmd = Get-Command npm -ErrorAction SilentlyContinue
+
+    $candidateDirs = New-Object System.Collections.Generic.List[string]
+    if ($env:SUPER_DOLPHIN_NODE_BIN_DIR) {
+        $candidateDirs.Add($env:SUPER_DOLPHIN_NODE_BIN_DIR)
+    }
+    foreach ($dir in @(
+        (Join-Path $env:ProgramFiles 'nodejs'),
+        (Join-Path ${env:ProgramFiles(x86)} 'nodejs'),
+        (Join-Path $env:LOCALAPPDATA 'Programs\nodejs')
+    )) {
+        if ($dir) { $candidateDirs.Add($dir) }
+    }
+
+    $wingetPackages = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages'
+    if (Test-Path -LiteralPath $wingetPackages -PathType Container) {
+        Get-ChildItem -LiteralPath $wingetPackages -Directory -Filter 'OpenJS.NodeJS*' -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                Get-ChildItem -LiteralPath $_.FullName -Recurse -Filter 'npm.cmd' -ErrorAction SilentlyContinue |
+                    ForEach-Object { $candidateDirs.Add($_.DirectoryName) }
+            }
+    }
+
+    foreach ($dir in ($candidateDirs | Select-Object -Unique)) {
+        if (-not $dir) { continue }
+        $candidate = Join-Path $dir 'npm.cmd'
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            Add-ProcessPathEntry -PathEntry $dir
+            return $candidate
+        }
+    }
+
+    $cmd = Get-Command npm -CommandType Application -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
-    throw 'npm was not found on PATH'
+    throw 'npm.cmd was not found; install Node.js LTS or set SUPER_DOLPHIN_NPM_CMD to npm.cmd'
 }
 
 function Add-CodexCliToPath {
@@ -634,6 +699,7 @@ function Stop-StartedProcesses {
 }
 
 Import-DotEnvFile -Path (Join-Path $ProjectDir '.env')
+Add-InstalledEnvironmentPath
 
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_HTTP_ADDR' -Value '127.0.0.1:4512'
 Set-DefaultEnv -Name 'GO_AGENT_CTL_RPC_ADDR' -Value '127.0.0.1:8092'
