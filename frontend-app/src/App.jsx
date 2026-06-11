@@ -1,17 +1,24 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Brain, CheckCircle2, CircleStop, Copy, Eye, FileText, FolderOpen, MessageCircle, Moon, MoreHorizontal, PanelTopOpen, RefreshCw, Search, Sparkles, Sun, Workflow, X } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useClientStore } from './entities/client/model/useClientStore.js';
-import { ChatPage, ProjectSelector } from './pages/chat/ChatPage.jsx';
-import { FilesPage } from './pages/files/FilesPage.jsx';
-import { MemoryPage } from './pages/memory/MemoryPage.jsx';
-import { ObservabilityPage } from './pages/observability/ObservabilityPage.jsx';
-import { PromptPage } from './pages/prompts/PromptPage.jsx';
-import { SettingsPage } from './pages/settings/SettingsPage.jsx';
-import { SkillsPage } from './pages/skills/SkillsPage.jsx';
-import { WorkflowPage } from './pages/workflows/WorkflowPage.jsx';
+import { ProjectSelector } from './pages/chat/components/ProjectSelector.jsx';
 import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.js';
 import { dashboardQueryKey, errorMessage, fetchMemoryDashboard, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, useDashboardFocusInvalidation, textValue } from './pages/shared/pageShared.js';
+
+function lazyNamedPage(loader, exportName) {
+  return lazy(() => loader().then((module) => ({ default: module[exportName] })));
+}
+
+const ChatPage = lazyNamedPage(() => import('./pages/chat/ChatPage.jsx'), 'ChatPage');
+const FilesPage = lazyNamedPage(() => import('./pages/files/FilesPage.jsx'), 'FilesPage');
+const MemoryPage = lazyNamedPage(() => import('./pages/memory/MemoryPage.jsx'), 'MemoryPage');
+const ObservabilityPage = lazyNamedPage(() => import('./pages/observability/ObservabilityPage.jsx'), 'ObservabilityPage');
+const PromptPage = lazyNamedPage(() => import('./pages/prompts/PromptPage.jsx'), 'PromptPage');
+const SettingsPage = lazyNamedPage(() => import('./pages/settings/SettingsPage.jsx'), 'SettingsPage');
+const SkillsPage = lazyNamedPage(() => import('./pages/skills/SkillsPage.jsx'), 'SkillsPage');
+const WorkflowPage = lazyNamedPage(() => import('./pages/workflows/WorkflowPage.jsx'), 'WorkflowPage');
 
 const navItems = [
   { id: 'chat', label: 'Chat', icon: MessageCircle },
@@ -259,23 +266,59 @@ function runUIAction(action) {
   }
 }
 
-function ActivePageContent({ store, projectPath, memoryRevision, setMemoryPageSimilarCount, rightPanelOpen, setRightPanelOpen }) {
-  if (store.activePage === 'chat') {
+function PageLoadingFallback() {
+  return (
+    <div className="empty-state" aria-live="polite">
+      <h2>正在加载页面</h2>
+      <p>请稍候</p>
+    </div>
+  );
+}
+
+function ChatPageRoute({ projectPath, rightPanelOpen, setRightPanelOpen }) {
+  const store = useClientStore();
+  return (
+    <ChatPage
+      store={store}
+      projectPath={projectPath}
+      rightPanelOpen={rightPanelOpen}
+      setRightPanelOpen={setRightPanelOpen}
+    />
+  );
+}
+
+function PromptPageRoute({ projectPath, refreshKey }) {
+  const resolveLaunchPreferences = useClientStore((state) => state.resolveLaunchPreferences);
+  const store = useMemo(() => ({ resolveLaunchPreferences }), [resolveLaunchPreferences]);
+  return <PromptPage projectPath={projectPath} store={store} refreshKey={refreshKey} />;
+}
+
+function WorkflowPageRoute({ projectPath, refreshKey }) {
+  const store = useClientStore();
+  return <WorkflowPage projectPath={projectPath} store={store} refreshKey={refreshKey} />;
+}
+
+function FilesPageRoute({ projectPath }) {
+  const store = useClientStore();
+  return <FilesPage projectPath={projectPath} store={store} />;
+}
+
+function ActivePageContent({ activePage, store, projectPath, memoryRevision, setMemoryPageSimilarCount, rightPanelOpen, setRightPanelOpen }) {
+  if (activePage === 'chat') {
     return (
-      <ChatPage
-        store={store}
+      <ChatPageRoute
         projectPath={projectPath}
         rightPanelOpen={rightPanelOpen}
         setRightPanelOpen={setRightPanelOpen}
       />
     );
   }
-  if (store.activePage === 'prompts') return <PromptPage projectPath={projectPath} store={store} refreshKey={store.promptRevision} />;
-  if (store.activePage === 'workflows') return <WorkflowPage projectPath={projectPath} store={store} refreshKey={store.workflowRevision} />;
-  if (store.activePage === 'skills') {
+  if (activePage === 'prompts') return <PromptPageRoute projectPath={projectPath} refreshKey={store.promptRevision} />;
+  if (activePage === 'workflows') return <WorkflowPageRoute projectPath={projectPath} refreshKey={store.workflowRevision} />;
+  if (activePage === 'skills') {
     return <SkillsPage projectPath={projectPath} refreshKey={store.skillRevision} resolveLaunchPreferences={store.resolveLaunchPreferences} />;
   }
-  if (store.activePage === 'memory') {
+  if (activePage === 'memory') {
     return (
       <MemoryPage
         projectPath={projectPath}
@@ -285,9 +328,9 @@ function ActivePageContent({ store, projectPath, memoryRevision, setMemoryPageSi
       />
     );
   }
-  if (store.activePage === 'files') return <FilesPage projectPath={projectPath} store={store} />;
-  if (store.activePage === 'observability') return <ObservabilityPage />;
-  if (store.activePage === 'settings') return <SettingsPage projectPath={projectPath} />;
+  if (activePage === 'files') return <FilesPageRoute projectPath={projectPath} />;
+  if (activePage === 'observability') return <ObservabilityPage />;
+  if (activePage === 'settings') return <SettingsPage projectPath={projectPath} />;
   return null;
 }
 
@@ -405,14 +448,17 @@ function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggle
         />
         <main className="sa-main">
           <AppUpdateBanner updateBanner={updateBanner} />
-          <ActivePageContent
-            store={store}
-            projectPath={projectPath}
-            memoryRevision={memoryBadge.memoryRevision}
-            setMemoryPageSimilarCount={memoryBadge.setMemoryPageSimilarCount}
-            rightPanelOpen={rightPanelOpen}
-            setRightPanelOpen={setRightPanelOpen}
-          />
+          <Suspense fallback={<PageLoadingFallback />}>
+            <ActivePageContent
+              activePage={store.activePage}
+              store={store}
+              projectPath={projectPath}
+              memoryRevision={memoryBadge.memoryRevision}
+              setMemoryPageSimilarCount={memoryBadge.setMemoryPageSimilarCount}
+              rightPanelOpen={rightPanelOpen}
+              setRightPanelOpen={setRightPanelOpen}
+            />
+          </Suspense>
           <span className="sr-only">当前页面：{activeLabel}</span>
         </main>
       </div>
@@ -443,8 +489,41 @@ function AppUpdateBanner({ updateBanner }) {
   );
 }
 
+function selectAppShellStore(state) {
+  return {
+    actionNotice: state.actionNotice,
+    activePage: state.activePage,
+    activeProject: state.activeProject,
+    activeThreadId: state.activeThreadId,
+    activeTurnByThread: state.activeTurnByThread,
+    addProjectFromPicker: state.addProjectFromPicker,
+    addWarning: state.addWarning,
+    bootstrap: state.bootstrap,
+    bootstrapStatus: state.bootstrapStatus,
+    copyActiveThreadInfo: state.copyActiveThreadInfo,
+    cwd: state.cwd,
+    error: state.error,
+    forceCompleteActiveThread: state.forceCompleteActiveThread,
+    hasActiveThreadActions: state.hasActiveThreadActions,
+    hasInterruptibleThreadAction: state.hasInterruptibleThreadAction,
+    interruptActiveThread: state.interruptActiveThread,
+    memoryRevision: state.memoryRevision,
+    openNewWindow: state.openNewWindow,
+    projects: state.projects,
+    promptRevision: state.promptRevision,
+    recoverActiveThread: state.recoverActiveThread,
+    removeProjectPath: state.removeProjectPath,
+    resolveLaunchPreferences: state.resolveLaunchPreferences,
+    setActivePage: state.setActivePage,
+    setActiveProjectPath: state.setActiveProjectPath,
+    skillRevision: state.skillRevision,
+    threads: state.threads,
+    workflowRevision: state.workflowRevision,
+  };
+}
+
 function AppShell({ skipBootstrap = false }) {
-  const store = useClientStore();
+  const store = useClientStore(useShallow(selectAppShellStore));
   const shell = useAppShellState(store, skipBootstrap);
   return <AppWindow {...shell} store={store} />;
 }

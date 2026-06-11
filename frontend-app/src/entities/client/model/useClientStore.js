@@ -39,10 +39,11 @@ import {
   unarchiveThread as unarchiveThreadRPC,
 } from '../../../shared/api/backendApi.js';
 import {
-  buildSeedInstructionsFromSummary,
-  extractTimelineSummary,
-  FORK_KICKOFF_PROMPT,
-} from './threadFork.js';
+  createComposerSlice,
+} from './composerSlice.js';
+import { createForkSlice } from './forkSlice.js';
+import { createProjectSlice } from './projectSlice.js';
+import { createRuntimeSlice } from './runtimeSlice.js';
 
 const DEFAULT_PROVIDER = 'codex';
 const MAX_WARNING_ENTRIES = 300;
@@ -391,6 +392,16 @@ function projectShortLabel(path) {
   const segments = value.split(/[\\/]/).filter(Boolean);
   return segments.slice(-2).join('/') || value;
 }
+
+const projectActionDeps = {
+  addProject: (payload) => addProjectRPC(payload),
+  normalizePath,
+  openNewWindow: (payload) => openNewWindowRPC(payload),
+  projectShortLabel,
+  removeProject: (payload) => removeProjectRPC(payload),
+  selectProjectDir: (seed) => selectProjectDir(seed),
+  setActiveProject: (payload) => setActiveProjectRPC(payload),
+};
 
 function normalizeThreadId(value) {
   return normalizeString(value);
@@ -2352,6 +2363,52 @@ async function imageFileAttachment(file, index, fallbackPrefix) {
   };
 }
 
+const composerAttachmentActionDeps = {
+  actionNotice,
+  appendUniqueAttachments,
+  attachmentKey,
+  droppedFilePath,
+  fileListOf,
+  fileLooksImage,
+  imageFileAttachment,
+  normalizeAttachment,
+  normalizeFileAttachment,
+  normalizeString,
+  selectFiles: () => selectFiles(),
+};
+
+const composerActionDeps = {
+  attachment: composerAttachmentActionDeps,
+  model: {
+    actionNotice,
+    composerModelConfigTarget,
+    normalizeThreadConfig,
+    saveGlobalComposerModelConfig,
+    saveThreadComposerModelConfig,
+    setThreadConfig: (payload) => setThreadConfig(payload),
+    threadConfigTargetIdForState,
+  },
+  modelProvider: {
+    actionNotice,
+    defaultProvider: DEFAULT_PROVIDER,
+    normalizeProviderRuntimeConfig,
+    providerPreferenceKey,
+    requireProviderPreferenceValue,
+    setPreference: (payload) => setPreference(payload),
+  },
+  send: {
+    createSendDraftRequest,
+    createdThreadIdForSendRollback,
+    deleteProvisionalThreadAfterSendFailure,
+    optimisticSendDraftState,
+    promotedDraftThreadState,
+    resolveLaunchPreferences,
+    rollbackSendDraftState,
+    startNewDraftThread,
+    startTurnWithStoppedThreadRecovery,
+  },
+};
+
 function attachmentToInputItem(item) {
   const attachment = normalizeAttachment(item);
   if (!attachment) return null;
@@ -2552,6 +2609,47 @@ function addForkThreadState(state, threadId, identity, launchPreferences, name, 
     },
   };
 }
+
+const forkActionDeps = {
+  actionNotice,
+  addForkThreadState,
+  backendThreadIdForState,
+  cachedForkSharedFiles,
+  createLaunchIntentId,
+  emptyForkDraft,
+  forkSourceThread,
+  forkSourceTitle,
+  initialForkSharedFilePaths,
+  listSharedFiles: () => listSharedFiles(),
+  loadForkSharedFiles,
+  mergeForkSharedFilesWithSelected,
+  normalizeForkSharedFiles,
+  normalizeString,
+  normalizeThreadIdentity,
+  resolveLaunchPreferences,
+  startThread: (payload) => startThread(payload),
+  startTurn: (payload) => startTurn(payload),
+};
+
+const runtimeActionDeps = {
+  backendThreadIdForState,
+  getPreference: (payload) => getPreference(payload),
+  getProjects: (payload) => getProjects(payload),
+  getSidebarState: (payload) => getSidebarState(payload),
+  getThreadState: (payload) => getThreadState(payload),
+  getWindowBootstrap: () => getWindowBootstrap(),
+  isDagNodeStatusBridgeEvent,
+  normalizeBootstrapPage,
+  normalizeBootstrapSnapshot,
+  normalizePath,
+  normalizeThreadId,
+  onBridgeEvent: (callback, options) => onBridgeEvent(callback, options),
+  onRuntimeReconnect: (callback) => onRuntimeReconnect(callback),
+  providerActivePreferenceKey: PROVIDER_ACTIVE_PREF_KEY,
+  readConfig: () => readConfig(),
+  requireActiveProviderPreference,
+  shouldAutoLoadThreadConfig,
+};
 
 function optimisticSendThreads(threads = [], previousThreadId = '') {
   if (!previousThreadId || !threads.some((thread) => threadMatchesIdentifier(thread, previousThreadId))) return threads;
@@ -4258,186 +4356,6 @@ function attachActiveThreadRpcRuntime(runtime) {
   Object.assign(runtime, { activeThreadRPC });
 }
 
-function createLifecycleActions(runtime) {
-  const retryBootstrapAfterReconnect = () => {
-    void runtime.get().bootstrap().catch((error) => {
-      runtime.addWarning('error', 'app.bootstrap.reconnect_failed', { error: error?.message || String(error) });
-    });
-  };
-
-  return {
-    initializeEvents: () => {
-      if (runtime.bridgeUnsubscribe) return;
-      runtime.bridgeUnsubscribe = onBridgeEvent(runtime.handleBridgeEvent, {
-        escalateCallbackError: (_error, evt) => isDagNodeStatusBridgeEvent(evt),
-      });
-      runtime.reconnectUnsubscribe = onRuntimeReconnect(() => {
-        const { activeThreadId, bootstrapStatus } = runtime.get();
-        if (bootstrapStatus !== 'ready') {
-          if (bootstrapStatus === 'loading') {
-            runtime.bootstrapRetryAfterReconnect = true;
-            return;
-          }
-          retryBootstrapAfterReconnect();
-          return;
-        }
-        if (activeThreadId) void runtime.get().syncThreadState(activeThreadId, { includeDiff: true, preserveActiveThreadId: true });
-      });
-    },
-
-    destroy: () => {
-      if (runtime.bridgeUnsubscribe) {
-        runtime.bridgeUnsubscribe();
-        runtime.bridgeUnsubscribe = null;
-      }
-      if (runtime.reconnectUnsubscribe) {
-        runtime.reconnectUnsubscribe();
-        runtime.reconnectUnsubscribe = null;
-      }
-      runtime.sequencesByThread.clear();
-      runtime.composerDrafts.clear();
-      runtime.sidebarSnapshotsByCwd.clear();
-      runtime.sidebarRefreshesByCwd.clear();
-      runtime.threadMessageGenerations.clear();
-      runtime.threadSyncGenerations.clear();
-      runtime.clearAssistantDeltaFlushTimer?.();
-      runtime.assistantDeltaBuffers.clear();
-      runtime.sidebarRefreshSeq += 1;
-    },
-
-
-  };
-}
-
-function createBootstrapActions(runtime) {
-  return {
-    bootstrap: async () => {
-      runtime.set({ bootstrapStatus: 'loading', error: '' });
-      void runtime.get().initializeEvents();
-      try {
-        const [config, rawWindowBootstrap] = await Promise.all([readConfig(), getWindowBootstrap()]);
-        const cwd = normalizePath(config?.cwd);
-        if (!cwd || cwd === '.') {
-          throw new Error('frontend-app bootstrap cwd is required');
-        }
-        const windowSnapshot = normalizeBootstrapSnapshot(rawWindowBootstrap);
-        const windowCwd = normalizePath(windowSnapshot.cwd);
-        const scopedCwd = windowCwd || cwd;
-        const bootstrapPage = normalizeBootstrapPage(windowSnapshot.page);
-        const activeProvider = requireActiveProviderPreference(
-          await getPreference({ cwd: scopedCwd, key: PROVIDER_ACTIVE_PREF_KEY }),
-          'frontend-app bootstrap',
-        );
-        runtime.set({
-          cwd,
-          projectScopeCwd: scopedCwd,
-          activeProject: scopedCwd,
-          provider: activeProvider,
-          ...(bootstrapPage ? { activePage: bootstrapPage } : {}),
-        });
-        const [projects, sidebar] = await Promise.all([
-          getProjects({ cwd: scopedCwd }),
-          getSidebarState({ cwd: scopedCwd }),
-          runtime.loadProviderConfig(scopedCwd, activeProvider),
-        ]);
-        runtime.applyProjects(projects, scopedCwd);
-        runtime.cacheSidebarSnapshot(scopedCwd, sidebar);
-        runtime.applySnapshot(sidebar);
-        runtime.bootstrapRetryAfterReconnect = false;
-        runtime.set({ bootstrapStatus: 'ready' });
-      }
-      catch (error) {
-        runtime.set({ bootstrapStatus: 'failed', error: error.message });
-        runtime.addWarning('error', 'app.bootstrap.failed', { error: error.message });
-        if (runtime.bootstrapRetryAfterReconnect) {
-          runtime.bootstrapRetryAfterReconnect = false;
-          void runtime.get().bootstrap().catch((retryError) => {
-            runtime.addWarning('error', 'app.bootstrap.reconnect_failed', { error: retryError?.message || String(retryError) });
-          });
-        }
-        throw error;
-      }
-    },
-
-
-  };
-}
-
-function createThreadSyncActions(runtime) {
-  const nextThreadSyncGeneration = (id) => {
-    const nextGeneration = (runtime.threadSyncGenerations.get(id) || 0) + 1;
-    runtime.threadSyncGenerations.set(id, nextGeneration);
-    return nextGeneration;
-  };
-
-  const isCurrentThreadSyncGeneration = (id, generation) => runtime.threadSyncGenerations.get(id) === generation;
-
-  const setThreadStateLoading = (id, generation, loading) => {
-    runtime.set((state) => {
-      if (!isCurrentThreadSyncGeneration(id, generation)) return {};
-      return {
-        threadStateLoadingByThread: {
-          ...state.threadStateLoadingByThread,
-          [id]: loading,
-        },
-      };
-    });
-  };
-
-  return {
-    syncThreadState: async (threadId, options = {}) => {
-      const syncOptions = options && typeof options === 'object' ? options : {};
-      const id = backendThreadIdForState(runtime.get(), threadId, { includeArchived: syncOptions.includeArchived === true });
-      if (!id) return false;
-      const cwd = runtime.requireCwd('thread.sync');
-      const activeAtRequest = runtime.get().activeThreadId;
-      const includeDiff = syncOptions.includeDiff !== false;
-      const generation = nextThreadSyncGeneration(id);
-      setThreadStateLoading(id, generation, true);
-      try {
-        const snapshotPromise = getThreadState({ cwd, threadId: id, includeDiff });
-        const messagesPromise = runtime.startThreadMessagesLoad(id, syncOptions);
-        const snapshot = await snapshotPromise;
-        if (!isCurrentThreadSyncGeneration(id, generation)) {
-          await messagesPromise;
-          return true;
-        }
-        const activeChanged = normalizeThreadId(runtime.get().activeThreadId) !== normalizeThreadId(activeAtRequest);
-        runtime.applySnapshot(snapshot, {
-          preferredActiveThreadId: id,
-          preserveActiveThreadId: activeChanged || syncOptions.preserveActiveThreadId === true,
-          includeArchivedActiveThread: syncOptions.includeArchived === true,
-        });
-        if (includeDiff) {
-          runtime.set((state) => ({
-            threadDiffReadyByThread: {
-              ...state.threadDiffReadyByThread,
-              [id]: true,
-            },
-          }));
-        }
-        await messagesPromise;
-        if (!activeChanged && shouldAutoLoadThreadConfig(runtime.get(), id)) await runtime.get().loadThreadConfig(id);
-        return true;
-      }
-      catch (error) {
-        if (!isCurrentThreadSyncGeneration(id, generation)) return false;
-        const message = error?.message || String(error);
-        runtime.notifyAction(`同步会话失败：${message}`, 'error', { threadId: id });
-        runtime.addWarning('error', 'thread.sync.failed', { threadId: id, error: message });
-        return false;
-      }
-      finally {
-        setThreadStateLoading(id, generation, false);
-      }
-    },
-
-    loadOlderThreadMessages: async (threadId, options = {}) => runtime.loadOlderThreadMessages(threadId, options),
-
-
-  };
-}
-
 function createNavigationActions(runtime) {
   return {
     setActivePage: (activePage) => runtime.set({ activePage }),
@@ -4539,7 +4457,6 @@ function createResourcePageCacheActions(runtime) {
         },
       }));
     },
-    setDraft: (draft) => runtime.set({ draft }),
     setRightPanelWidth: (rightPanelWidth) => runtime.set({ rightPanelWidth }),
 
 
@@ -4595,197 +4512,6 @@ function createProviderConfigActions(runtime) {
         }));
         runtime.addWarning('error', 'thread.config.get.failed', { threadId: id, error: error.message });
         return null;
-      }
-    },
-
-
-  };
-}
-
-function createComposerModelSaveActions(runtime) {
-  return {
-    saveComposerModelConfig: async (config = {}) => {
-      const cwd = runtime.requireCwd('composer.model.save');
-      const state = runtime.get();
-      const target = await composerModelConfigTarget(config, state, runtime.get().loadThreadConfig);
-      if (target.threadId && !target.threadConfig) {
-        runtime.notifyAction('线程配置加载失败，无法保存模型配置', 'error', { threadId: target.threadId });
-        return false;
-      }
-      if (target.threadConfig?.supportsThreadOverride) {
-        return saveThreadComposerModelConfig(target, runtime.set, runtime.addWarning);
-      }
-      return saveGlobalComposerModelConfig(cwd, state, target, runtime.set, runtime.notifyRPCFailure);
-    },
-
-    restoreComposerModelInheritance: async (config = {}) => {
-      const state = runtime.get();
-      const requestedThreadId = Object.prototype.hasOwnProperty.call(config, 'threadId') ||
-        Object.prototype.hasOwnProperty.call(config, 'thread_id')
-        ? (config.threadId || config.thread_id)
-        : state.activeThreadId;
-      const threadId = threadConfigTargetIdForState(state, requestedThreadId);
-      if (!threadId) return false;
-      const existingConfig = state.threadConfigByThread[threadId] || await runtime.get().loadThreadConfig(threadId);
-      if (!existingConfig?.supportsThreadOverride) return false;
-      try {
-        const saved = await setThreadConfig({ threadId, model: '', effort: '' });
-        const normalized = normalizeThreadConfig(saved, threadId, existingConfig.provider || state.provider);
-        runtime.set((current) => ({
-          threadConfigByThread: {
-            ...current.threadConfigByThread,
-            [threadId]: normalized,
-          },
-          actionNotice: actionNotice('已恢复继承全局默认', 'success'),
-        }));
-        return true;
-      }
-      catch (error) {
-        return runtime.notifyRPCFailure('恢复线程模型继承', 'thread.config.restore.failed', error, { threadId });
-      }
-    },
-
-
-  };
-}
-
-function createComposerModelProviderActions(runtime) {
-  return {
-    saveComposerModelProvider: async (codexModelProvider) => {
-      const key = providerPreferenceKey('codex', 'codexModelProvider');
-      const value = requireProviderPreferenceValue(codexModelProvider, key, 'composer.modelProvider.save');
-      const cwd = runtime.requireCwd('composer.modelProvider.save');
-      try {
-        await setPreference({ cwd, key, value });
-        runtime.set((state) => ({
-          providerConfig: normalizeProviderRuntimeConfig({
-            ...state.providerConfig,
-            codexModelProvider: value,
-          }, state.provider || DEFAULT_PROVIDER),
-          actionNotice: actionNotice('模型渠道已保存', 'success'),
-        }));
-        return true;
-      }
-      catch (error) {
-        return runtime.notifyRPCFailure('模型渠道保存', 'provider.model_provider.save.failed', error, { provider: 'codex' });
-      }
-    },
-
-
-  };
-}
-
-function createActiveProjectActions(runtime) {
-  return {
-    setActiveProjectPath: async (path) => {
-      const target = normalizePath(path);
-      if (!target) return false;
-      const cwd = runtime.requireProjectScopeCwd('project.setActive');
-      const previousActiveProject = normalizePath(runtime.get().activeProject);
-      const previousProjects = Array.isArray(runtime.get().projects) ? [...runtime.get().projects] : [];
-      try {
-        void runtime.saveActiveComposerDraft();
-        const visibleProjects = Array.isArray(runtime.get().projects) ? runtime.get().projects.map(normalizePath).filter(Boolean) : [];
-        if (target !== '.' && (previousActiveProject === '.' || !visibleProjects.includes(target))) {
-          const addedProjects = await addProjectRPC({ cwd, path: target });
-          runtime.applyProjects(addedProjects, cwd);
-        }
-        const optimisticProjects = target === '.' || visibleProjects.includes(target)
-          ? previousProjects
-          : [...new Set([...previousProjects, target])];
-        runtime.set({
-          projects: optimisticProjects,
-          activeProject: target,
-        });
-        const optimisticCwd = target && target !== '.' ? target : cwd;
-        runtime.refreshChatSurfaceForCwdInBackground(optimisticCwd);
-        const projects = await setActiveProjectRPC({ cwd, path: target });
-        runtime.applyProjects(projects, cwd);
-        const selectedProject = normalizePath(runtime.get().activeProject);
-        const selectedCwd = selectedProject && selectedProject !== '.' ? selectedProject : cwd;
-        if (selectedCwd !== optimisticCwd) {
-          runtime.refreshChatSurfaceForCwdInBackground(selectedCwd);
-        }
-        runtime.notifyAction(`已切换项目：${projectShortLabel(target)}`, 'success');
-        return true;
-      }
-      catch (error) {
-        runtime.set({
-          activeProject: previousActiveProject,
-          projects: previousProjects,
-          chatSurfaceLoadingCwd: '',
-        });
-        runtime.notifyAction(`切换项目失败：${error.message}`, 'error');
-        runtime.addWarning('error', 'project.set_active.failed', { path: target, error: error.message });
-        return false;
-      }
-    },
-
-
-  };
-}
-
-function createProjectPickerActions(runtime) {
-  return {
-    addProjectFromPicker: async () => {
-      const scopeCwd = runtime.requireProjectScopeCwd('project.add');
-      const activeProject = normalizePath(runtime.get().activeProject);
-      const seed = activeProject && activeProject !== '.' ? activeProject : scopeCwd;
-      let selected = '';
-      try {
-        selected = normalizePath(await selectProjectDir(seed));
-        if (!selected) {
-          runtime.notifyAction('未选择项目', 'info');
-          return false;
-        }
-        const projects = await addProjectRPC({ cwd: scopeCwd, path: selected });
-        runtime.applyProjects(projects, scopeCwd);
-        runtime.notifyAction(`已添加项目：${projectShortLabel(selected)}`, 'success');
-        return true;
-      }
-      catch (error) {
-        runtime.notifyAction(`添加项目失败：${error.message}`, 'error');
-        runtime.addWarning('error', 'project.add.failed', { path: selected, error: error.message });
-        return false;
-      }
-    },
-
-    openNewWindow: async () => {
-      const scopeCwd = runtime.requireProjectScopeCwd('ui.open_new_window');
-      const activeProject = normalizePath(runtime.get().activeProject);
-      const seed = activeProject && activeProject !== '.' ? activeProject : scopeCwd;
-      let selected = '';
-      try {
-        selected = normalizePath(await selectProjectDir(seed));
-        if (!selected) {
-          runtime.notifyAction('未选择新窗口目录', 'info');
-          return false;
-        }
-        await openNewWindowRPC({ cwd: selected });
-        runtime.notifyAction(`已打开新窗口：${projectShortLabel(selected)}`, 'success');
-        return true;
-      }
-      catch (error) {
-        runtime.notifyAction(`打开新窗口失败：${error.message}`, 'error');
-        runtime.addWarning('error', 'ui.open_new_window.failed', { path: selected, error: error.message });
-        return false;
-      }
-    },
-
-    removeProjectPath: async (path) => {
-      const target = normalizePath(path);
-      if (!target) return false;
-      const cwd = runtime.requireProjectScopeCwd('project.remove');
-      try {
-        const projects = await removeProjectRPC({ cwd, path: target });
-        runtime.applyProjects(projects, cwd);
-        runtime.notifyAction(`已移除项目：${projectShortLabel(target)}`, 'success');
-        return true;
-      }
-      catch (error) {
-        runtime.notifyAction(`移除项目失败：${error.message}`, 'error');
-        runtime.addWarning('error', 'project.remove.failed', { path: target, error: error.message });
-        return false;
       }
     },
 
@@ -4967,315 +4693,6 @@ function createThreadSelectionActions(runtime) {
       return true;
     },
 
-
-  };
-}
-
-function createForkThreadActions(runtime) {
-  return {
-    openForkDraft: async (options = {}) => {
-      const state = runtime.get();
-      const sourceThreadId = backendThreadIdForState(state, state.activeThreadId);
-      if (!sourceThreadId) {
-        runtime.notifyAction('当前没有可继承的后端会话', 'warning');
-        return false;
-      }
-      const seedSharedFilePath = normalizeString(options?.sharedFilePath || options?.seedSharedFilePath);
-      const thread = forkSourceThread(state, sourceThreadId);
-      const sourceTitle = forkSourceTitle(thread, sourceThreadId);
-      const cachedFiles = cachedForkSharedFiles(state);
-      const sharedFilePaths = initialForkSharedFilePaths(state, cachedFiles, seedSharedFilePath);
-      runtime.set({
-        forkDraft: {
-          ...emptyForkDraft(),
-          open: true,
-          sourceThreadId,
-          sourceThreadName: normalizeString(thread?.name),
-          sourceTitle,
-          availableSharedFiles: mergeForkSharedFilesWithSelected(cachedFiles, sharedFilePaths),
-          sharedFilePaths,
-          loadingSharedFiles: true,
-        },
-      });
-
-      try {
-        const response = await listSharedFiles();
-        const availableSharedFiles = normalizeForkSharedFiles(response);
-        runtime.set((latest) => {
-          if (latest.forkDraft.sourceThreadId !== sourceThreadId) return {};
-          const selectedPaths = latest.forkDraft.sharedFilePaths || [];
-          const selected = new Set(selectedPaths);
-          const mergedSharedFiles = mergeForkSharedFilesWithSelected(availableSharedFiles, selectedPaths);
-          return {
-            forkDraft: {
-              ...latest.forkDraft,
-              availableSharedFiles: mergedSharedFiles,
-              sharedFilePaths: mergedSharedFiles
-                .map((file) => file.path)
-                .filter((path) => selected.has(path)),
-              loadingSharedFiles: false,
-              error: '',
-            },
-          };
-        });
-      }
-      catch (error) {
-        const message = error.message || String(error);
-        runtime.set((latest) => {
-          if (latest.forkDraft.sourceThreadId !== sourceThreadId) return {};
-          return {
-            forkDraft: {
-              ...latest.forkDraft,
-              loadingSharedFiles: false,
-              error: `共享文件列表加载失败：${message}`,
-            },
-          };
-        });
-        runtime.addWarning('warn', 'thread.fork.shared_files.failed', { threadId: sourceThreadId, error: message });
-      }
-      return true;
-    },
-
-    closeForkDraft: () => {
-      runtime.set({ forkDraft: emptyForkDraft() });
-      return true;
-    },
-
-    toggleForkDraftSharedFile: (path) => {
-      const target = normalizeString(path);
-      if (!target) return false;
-      runtime.set((state) => {
-        const selected = new Set(state.forkDraft.sharedFilePaths || []);
-        if (selected.has(target)) selected.delete(target);
-        else selected.add(target);
-        return {
-          forkDraft: {
-            ...state.forkDraft,
-            sharedFilePaths: Array.from(selected),
-          },
-        };
-      });
-      return true;
-    },
-
-    submitForkThread: async () => {
-      const state = runtime.get();
-      const draft = state.forkDraft || emptyForkDraft();
-      const sourceThreadId = backendThreadIdForState(state, draft.sourceThreadId);
-      if (!draft.open || !sourceThreadId) throw new Error('fork thread: source thread is required');
-      if (draft.submitting) return '';
-
-      runtime.set((latest) => ({
-        forkDraft: {
-          ...latest.forkDraft,
-          submitting: true,
-          error: '',
-          kickoffError: '',
-        },
-      }));
-
-      let newThreadId = '';
-      try {
-        const latest = runtime.get();
-        const sourceThread = forkSourceThread(latest, sourceThreadId);
-        const sourceTitle = draft.sourceTitle || forkSourceTitle(sourceThread, sourceThreadId);
-        const summary = extractTimelineSummary(latest.timelinesByThread?.[sourceThreadId] || []);
-        const sharedFiles = await loadForkSharedFiles(latest.forkDraft.sharedFilePaths);
-        if (!summary && sharedFiles.length === 0) {
-          throw new Error('当前会话没有可用上下文，且未选择共享文件，无法创建继承对话。');
-        }
-        const baseInstructions = buildSeedInstructionsFromSummary(summary, {
-          sourceTitle,
-          sharedFiles,
-        });
-        const cwd = runtime.requireCwd('fork thread');
-        const launchPreferences = await resolveLaunchPreferences(cwd);
-        const response = await startThread({
-          cwd,
-          name: sourceTitle,
-          ...launchPreferences,
-          deferSpawn: true,
-          launchIntentId: createLaunchIntentId(),
-          baseInstructions,
-        });
-        const identity = normalizeThreadIdentity(response);
-        if (!identity.threadId) throw new Error('thread/start response missing threadId');
-        newThreadId = identity.threadId;
-        runtime.set((current) => addForkThreadState(current, newThreadId, identity, launchPreferences, sourceTitle, FORK_KICKOFF_PROMPT));
-
-        try {
-          await startTurn({
-            cwd,
-            threadId: newThreadId,
-            input: [{ type: 'text', text: FORK_KICKOFF_PROMPT }],
-            manualSkillSelection: false,
-          });
-        }
-        catch (kickoffError) {
-          const message = kickoffError.message || String(kickoffError);
-          runtime.set({
-            actionNotice: actionNotice(`已创建继承对话，但开场消息发送失败：${message}`, 'warning'),
-          });
-          runtime.addWarning('warn', 'thread.fork.kickoff.failed', { threadId: newThreadId, error: message });
-        }
-        return newThreadId;
-      }
-      catch (error) {
-        if (!newThreadId) {
-          const message = error.message || String(error);
-          runtime.set((latest) => ({
-            forkDraft: {
-              ...latest.forkDraft,
-              submitting: false,
-              error: message,
-            },
-            actionNotice: actionNotice(`创建继承对话失败：${message}`, 'error'),
-          }));
-        }
-        throw error;
-      }
-    },
-
-
-  };
-}
-
-function createComposerFilePickerActions(runtime) {
-  return {
-    selectFilesForComposer: async () => {
-      try {
-        const picked = await selectFiles();
-        const attachments = (Array.isArray(picked) ? picked : [])
-          .map(normalizeAttachment)
-          .filter(Boolean);
-        runtime.set((state) => ({
-          attachments: appendUniqueAttachments(state.attachments, attachments),
-          actionNotice: actionNotice(attachments.length > 0 ? `已添加 ${attachments.length} 个附件` : '未选择附件', attachments.length > 0 ? 'success' : 'info'),
-        }));
-        return attachments;
-      }
-      catch (error) {
-        runtime.notifyAction(`选择附件失败：${error.message || String(error)}`, 'error');
-        runtime.addWarning('error', 'attachments.select.failed', { error: error.message || String(error) });
-        return [];
-      }
-    },
-
-    attachPathsForComposer: (paths) => {
-      const attachments = (Array.isArray(paths) ? paths : [])
-        .map(normalizeAttachment)
-        .filter(Boolean);
-      runtime.set((state) => ({
-        attachments: appendUniqueAttachments(state.attachments, attachments),
-        actionNotice: actionNotice(
-          attachments.length > 0 ? `已添加 ${attachments.length} 个附件` : '未找到可添加的附件路径',
-          attachments.length > 0 ? 'success' : 'info',
-        ),
-      }));
-      return attachments.length;
-    },
-
-
-  };
-}
-
-function createComposerDropActions(runtime) {
-  return {
-    attachDroppedFilesForComposer: async (files) => {
-      const list = fileListOf(files);
-      if (list.length === 0) return 0;
-      const attachments = [];
-      const rejected = [];
-      for (let index = 0; index < list.length; index += 1) {
-        const file = list[index];
-        const path = droppedFilePath(file);
-        if (path) {
-          attachments.push(normalizeFileAttachment(path));
-          continue;
-        }
-        if (fileLooksImage(file)) {
-          attachments.push(await imageFileAttachment(file, index, 'dropped-image'));
-          continue;
-        }
-        rejected.push(normalizeString(file?.name) || `file-${index + 1}`);
-      }
-      runtime.set((state) => ({
-        attachments: appendUniqueAttachments(state.attachments, attachments),
-        actionNotice: actionNotice(
-          attachments.length > 0
-            ? `已添加 ${attachments.length} 个附件`
-            : '无法添加无路径的非图片文件',
-          attachments.length > 0 ? 'success' : 'error',
-        ),
-      }));
-      if (rejected.length > 0) {
-        runtime.addWarning('warn', 'attachments.drop.rejected_no_path', { files: rejected });
-      }
-      return attachments.length;
-    },
-
-    attachPastedImagesForComposer: async (files) => {
-      const images = fileListOf(files).filter(fileLooksImage);
-      if (images.length === 0) return 0;
-      const attachments = [];
-      for (let index = 0; index < images.length; index += 1) {
-        attachments.push(await imageFileAttachment(images[index], index, 'pasted-image'));
-      }
-      runtime.set((state) => ({
-        attachments: appendUniqueAttachments(state.attachments, attachments),
-        actionNotice: actionNotice(`已添加 ${attachments.length} 张图片`, 'success'),
-      }));
-      return attachments.length;
-    },
-
-    removeAttachment: (path) => {
-      const target = normalizeString(path);
-      runtime.set((state) => ({
-        attachments: state.attachments.filter((item) => attachmentKey(item) !== target && item.path !== target),
-      }));
-    },
-
-
-  };
-}
-
-function createComposerSendActions(runtime) {
-  return {
-    sendDraft: async () => {
-      const cwd = runtime.requireCwd('send message');
-      const request = createSendDraftRequest(runtime.get(), cwd);
-      if (!request) return false;
-
-      runtime.set((state) => optimisticSendDraftState(state, request));
-
-      let threadId = request.previousThreadId;
-      try {
-        if (!threadId) {
-          const started = await startNewDraftThread(request, resolveLaunchPreferences);
-          threadId = started.threadId;
-          runtime.set((state) => promotedDraftThreadState(state, request, started));
-        }
-
-        await startTurnWithStoppedThreadRecovery({
-          cwd: request.cwd,
-          threadId,
-          input: request.input,
-          manualSkillSelection: false,
-        });
-        runtime.clearComposerDraft({ ...runtime.get(), activeThreadId: request.previousActiveThreadId }, request.previousActiveThreadId);
-        runtime.clearComposerDraft(runtime.get(), request.provisionalThreadId);
-        runtime.clearComposerDraft(runtime.get(), threadId);
-        runtime.set({ sending: false });
-        return true;
-      }
-      catch (error) {
-        const createdThreadId = createdThreadIdForSendRollback(runtime.get(), request, threadId);
-        runtime.set((state) => rollbackSendDraftState(state, request, error));
-        await deleteProvisionalThreadAfterSendFailure(createdThreadId, runtime.addWarning);
-        runtime.addWarning('error', 'thread.send.failed', { error: error.message });
-        throw error;
-      }
-    },
 
   };
 }
@@ -5669,23 +5086,16 @@ function createClientStore(set, get) {
   const runtime = createClientStoreRuntime(set, get);
   return {
     ...baseState,
-    ...createLifecycleActions(runtime),
-    ...createBootstrapActions(runtime),
-    ...createThreadSyncActions(runtime),
+    ...createRuntimeSlice(runtime, runtimeActionDeps),
     ...createNavigationActions(runtime),
     ...createPromptWorkflowCacheActions(runtime),
     ...createResourcePageCacheActions(runtime),
     ...createProviderConfigActions(runtime),
-    ...createComposerModelSaveActions(runtime),
-    ...createComposerModelProviderActions(runtime),
-    ...createActiveProjectActions(runtime),
-    ...createProjectPickerActions(runtime),
+    ...createProjectSlice(runtime, projectActionDeps),
     ...createProviderActions(runtime),
     ...createThreadSelectionActions(runtime),
-    ...createForkThreadActions(runtime),
-    ...createComposerFilePickerActions(runtime),
-    ...createComposerDropActions(runtime),
-    ...createComposerSendActions(runtime),
+    ...createForkSlice(runtime, forkActionDeps),
+    ...createComposerSlice(runtime, composerActionDeps),
     ...createDashboardCommandActions(runtime),
     ...createActiveThreadActions(runtime),
     ...createThreadCopyActions(runtime),

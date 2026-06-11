@@ -7,11 +7,17 @@ const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const scannedDirs = ['pages', 'features', 'entities'];
 const rawFacadeNames = new Set(['callAPI', 'callBackend']);
 const migratedBackendApiConsumers = new Set([
+  'pages/chat/ChatPage.jsx',
   'pages/files/FilesPage.jsx',
   'pages/memory/MemoryPage.jsx',
   'pages/observability/ObservabilityPage.jsx',
+  'pages/settings/SettingsPage.jsx',
   'pages/shared/pageShared.js',
+  'pages/workflows/WorkflowPage.jsx',
 ]);
+const migratedBackendApiConsumerPrefixes = [
+  'pages/chat/components/',
+];
 
 function collectSourceFiles() {
   const files = [];
@@ -75,7 +81,9 @@ describe('backend API consumer guardrails', () => {
 
     for (const filePath of collectSourceFiles()) {
       const relativePath = rel(filePath);
-      if (!migratedBackendApiConsumers.has(relativePath)) continue;
+      const migrated = migratedBackendApiConsumers.has(relativePath)
+        || migratedBackendApiConsumerPrefixes.some((prefix) => relativePath.startsWith(prefix));
+      if (!migrated) continue;
       const source = fs.readFileSync(filePath, 'utf8');
       if (importsBackendApi(source)) {
         violations.push(`${relativePath} imports shared/api/backendApi.js directly`);
