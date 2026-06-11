@@ -1,4 +1,4 @@
-package orchestration
+package wakeupreclaim
 
 import (
 	"context"
@@ -29,11 +29,11 @@ import (
 // 即使持有过时 wakeup 引用调 MarkSent / Retry / Fail 也会因 claimed_at /
 // lease_expires_at 不匹配而无效（rows = 0）。
 const (
-	defaultWakeupReclaimInterval = 30 * time.Second
+	DefaultWakeupReclaimInterval = 30 * time.Second
 )
 
 // WakeupReclaimerConfig 决定 reclaimer ticker 的间隔。零值 fallback 到
-// defaultWakeupReclaimInterval（30s）。
+// DefaultWakeupReclaimInterval（30s）。
 type WakeupReclaimerConfig struct {
 	TickInterval time.Duration
 }
@@ -42,7 +42,7 @@ type WakeupReclaimerConfig struct {
 func (c WakeupReclaimerConfig) ConfigOrDefaults() WakeupReclaimerConfig {
 	out := c
 	if out.TickInterval <= 0 {
-		out.TickInterval = defaultWakeupReclaimInterval
+		out.TickInterval = DefaultWakeupReclaimInterval
 	}
 	return out
 }
@@ -79,7 +79,7 @@ func (r *WakeupReclaimer) Run(ctx context.Context) error {
 	}
 	interval := r.cfg.TickInterval
 	if interval <= 0 {
-		interval = defaultWakeupReclaimInterval
+		interval = DefaultWakeupReclaimInterval
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

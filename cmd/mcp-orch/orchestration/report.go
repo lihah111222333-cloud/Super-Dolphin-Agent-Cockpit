@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/reportgc"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/reportstore"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
@@ -47,9 +48,9 @@ func (s *service) persistedAgentReport(ctx context.Context, agentID string) (Age
 	if err != nil {
 		return AgentReportResult{}, err
 	}
-	report, err := readPersistedAgentReportFile(agentReportFileRecordFromSnapshot(snapshot))
+	report, err := reportstore.ReadPersisted(agentReportFileRecordFromSnapshot(snapshot))
 	if err != nil {
-		if errors.Is(err, errAgentReportNotFound) {
+		if errors.Is(err, reportstore.ErrNotFound) {
 			return AgentReportResult{AgentID: snapshot.AgentID, State: snapshot.State}, fmt.Errorf("%w: persisted report missing for %s", errAgentNotFound, snapshot.AgentID)
 		}
 		return AgentReportResult{}, err
@@ -150,8 +151,8 @@ func setReportLocked(ctx context.Context, agent *agentRuntime, report string) {
 	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 }
 
-func (s *service) persistAgentReportFileAndGC(ctx context.Context, record agentReportFileRecord) error {
-	if err := persistAgentReportFile(record); err != nil || strings.TrimSpace(record.Report) == "" || strings.TrimSpace(record.Cwd) == "" || s == nil || s.agentThreads == nil {
+func (s *service) persistAgentReportFileAndGC(ctx context.Context, record reportstore.Record) error {
+	if err := reportstore.Persist(record); err != nil || strings.TrimSpace(record.Report) == "" || strings.TrimSpace(record.Cwd) == "" || s == nil || s.agentThreads == nil {
 		return err
 	}
 	threads, err := s.agentThreads.ListAll(ctx)
@@ -161,6 +162,27 @@ func (s *service) persistAgentReportFileAndGC(ctx context.Context, record agentR
 	return reportgc.Collect(record.Cwd, threads, func(thread PersistedThread) (string, string, string) {
 		return persistedThreadAgentID(thread), thread.Cwd, thread.Status
 	}, time.Now(), s.logger)
+}
+
+func agentReportFileRecordFromRuntime(agent *agentRuntime) reportstore.Record {
+	if agent == nil {
+		return reportstore.Record{}
+	}
+	return reportstore.Record{
+		AgentID: agent.id,
+		Name:    agent.name,
+		Cwd:     agent.cwd,
+		Report:  agent.lastReport,
+	}
+}
+
+func agentReportFileRecordFromSnapshot(snapshot AgentSnapshot) reportstore.Record {
+	return reportstore.Record{
+		AgentID: snapshot.AgentID,
+		Name:    snapshot.Name,
+		Cwd:     snapshot.Cwd,
+		Report:  snapshot.LastReport,
+	}
 }
 
 func normalizeDisplayReportText(raw string) string {

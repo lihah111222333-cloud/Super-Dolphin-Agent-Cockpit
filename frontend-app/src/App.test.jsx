@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import App from './App.jsx';
 import { resetClientStoreForTests, useClientStore } from './entities/client/model/useClientStore.js';
 import mermaid from 'mermaid';
@@ -42,7 +42,7 @@ function formatParsedTimestampForTest(value) {
 const backend = vi.hoisted(() => {
   const mockNames = `
 	    readConfig getWindowBootstrap openNewWindow getProjects setActiveProject addProject removeProject
-	    callBackend
+	    callBackend checkAppUpdate installLatestAppUpdate
     getSidebarState getThreadState getThreadMessages getBuildInfo getVideoApiKey getDashboardPage getObservabilityStatus
     getObservabilityTrace getObservabilityThreadRecent listObservabilityRecent listObservabilitySlow
     listObservabilityErrors listSharedFiles listPromptAssets getDashboardPrompts getPrompt writePrompt
@@ -179,6 +179,8 @@ function mockBootstrapBackendDefaults() {
   });
   backend.getThreadMessages.mockResolvedValue({ messages: [] });
   backend.callBackend.mockResolvedValue({});
+  backend.checkAppUpdate.mockResolvedValue({ enabled: true, available: false });
+  backend.installLatestAppUpdate.mockResolvedValue({ started: true, helper: '/tmp/updater' });
   backend.getVideoApiKey.mockResolvedValue({ configured: false, masked: '' });
   backend.setVideoApiKey.mockResolvedValue({ ok: true });
 }
@@ -462,6 +464,9 @@ beforeEach(mockCronDefaults);
 beforeEach(mockSkillDefaults);
 beforeEach(mockSharedFileDefaults);
 beforeEach(mockSettingsAndThreadDefaults);
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function mockTraceDashboardQueryResult() {
   backend.listObservabilityRecent.mockResolvedValueOnce({
@@ -588,6 +593,39 @@ async function showAllTraceDashboardEvents() {
     expect(titlebar).toBeInTheDocument();
     expect(within(titlebar).getByText('Super Dolphin')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '切换到黑夜模式' })).toBeInTheDocument();
+  });
+
+  it('shows an app update banner after the background check finds a new version', async () => {
+    vi.useFakeTimers();
+    backend.checkAppUpdate.mockResolvedValueOnce({ enabled: true, available: true, version: '0.1.1' });
+
+    render(<App />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2100);
+    });
+
+    const banner = screen.getByTestId('app-update-banner');
+    expect(banner).toHaveTextContent('发现新版本 0.1.1');
+    expect(banner).toHaveTextContent('建议更新到最新版');
+    expect(backend.checkAppUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts installing the latest update from the main update banner', async () => {
+    vi.useFakeTimers();
+    backend.checkAppUpdate.mockResolvedValueOnce({ enabled: true, available: true, version: '0.1.1' });
+    backend.installLatestAppUpdate.mockResolvedValueOnce({ started: true, helper: 'updater' });
+
+    render(<App />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2100);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '立即更新' }));
+      await Promise.resolve();
+    });
+    expect(backend.installLatestAppUpdate).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('安装程序已启动，请按提示完成更新。')).toBeInTheDocument();
   });
 
   it('toggles the local color theme without calling backend preferences', async () => {

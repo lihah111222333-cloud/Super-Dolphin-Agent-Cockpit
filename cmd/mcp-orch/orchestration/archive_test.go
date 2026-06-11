@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/exitmonitor"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/kelindar/event"
 )
@@ -106,7 +107,7 @@ func TestArchiveAgentStopsLocalRuntimeBeforePersistedArchive(t *testing.T) {
 	agent.state = agentdto.StateIdle
 	agent.launchSeq = 1
 	svc.agents[agent.id] = agent
-	svc.exitMonitor.Arm(monitorTarget{agentID: agent.id, launchSeq: agent.launchSeq, cmd: cmd})
+	svc.exitMonitor.Arm(exitmonitor.Target{AgentID: agent.id, LaunchSeq: agent.launchSeq, Cmd: cmd})
 	agent.monitoredSeq = agent.launchSeq
 
 	runCtx, cancelRunner := context.WithCancel(context.Background())

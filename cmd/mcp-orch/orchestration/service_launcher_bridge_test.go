@@ -9,6 +9,7 @@ import (
 
 	"github.com/creachadair/jrpc2/handler"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/launcherrors"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
@@ -38,7 +39,7 @@ func TestIsRateLimited(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := isRateLimited(tc.err); got != tc.want {
+			if got := launcherrors.IsRateLimited(tc.err); got != tc.want {
 				t.Fatalf("isRateLimited(%v) = %v, want %v", tc.err, got, tc.want)
 			}
 		})
@@ -54,14 +55,14 @@ func TestComputeRetryBackoff(t *testing.T) {
 	}{
 		{"linear attempt 1 transient", 1, errors.New("i/o timeout"), 2 * time.Second},
 		{"linear attempt 2 transient", 2, errors.New("connection refused"), 4 * time.Second},
-		{"rate limit attempt 1 -> 60s", 1, errors.New("rate limit hit"), rateLimitBackoff},
-		{"rate limit attempt 2 -> still 60s", 2, errors.New("HTTP 429"), rateLimitBackoff},
-		{"too many requests -> 60s", 1, errors.New("Too Many Requests"), rateLimitBackoff},
+		{"rate limit attempt 1 -> 60s", 1, errors.New("rate limit hit"), launcherrors.RateLimitBackoff},
+		{"rate limit attempt 2 -> still 60s", 2, errors.New("HTTP 429"), launcherrors.RateLimitBackoff},
+		{"too many requests -> 60s", 1, errors.New("Too Many Requests"), launcherrors.RateLimitBackoff},
 		{"nil err falls through to linear", 1, nil, 2 * time.Second},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := computeRetryBackoff(tc.attempt, tc.err); got != tc.want {
+			if got := launcherrors.ComputeRetryBackoff(tc.attempt, tc.err); got != tc.want {
 				t.Fatalf("computeRetryBackoff(%d, %v) = %v, want %v", tc.attempt, tc.err, got, tc.want)
 			}
 		})
@@ -72,68 +73,68 @@ func TestClassifyLaunchError(t *testing.T) {
 	cases := []struct {
 		name string
 		err  error
-		want launchErrorClass
+		want launcherrors.Class
 	}{
 		// nil 当 transient（保守 default：让重试逻辑遇到 nil 不主动跳出）
-		{"nil -> transient", nil, launchClassTransient},
+		{"nil -> transient", nil, launcherrors.ClassTransient},
 		// transient · context cancellation / timeout
-		{"context deadline -> transient", context.DeadlineExceeded, launchClassTransient},
-		{"context canceled -> transient", context.Canceled, launchClassTransient},
-		{"deadline exceeded msg -> transient", errors.New("deadline exceeded"), launchClassTransient},
+		{"context deadline -> transient", context.DeadlineExceeded, launcherrors.ClassTransient},
+		{"context canceled -> transient", context.Canceled, launcherrors.ClassTransient},
+		{"deadline exceeded msg -> transient", errors.New("deadline exceeded"), launcherrors.ClassTransient},
 		// transient · 连接级 / 启动竞态
-		{"connection refused -> transient", errors.New("connection refused"), launchClassTransient},
-		{"transport unavailable -> transient", errors.New("transport unavailable"), launchClassTransient},
-		{"empty thread id -> transient", errors.New("empty thread id"), launchClassTransient},
-		{"i/o timeout -> transient", errors.New("i/o timeout"), launchClassTransient},
-		{"timed out -> transient", errors.New("timed out"), launchClassTransient},
+		{"connection refused -> transient", errors.New("connection refused"), launcherrors.ClassTransient},
+		{"transport unavailable -> transient", errors.New("transport unavailable"), launcherrors.ClassTransient},
+		{"empty thread id -> transient", errors.New("empty thread id"), launcherrors.ClassTransient},
+		{"i/o timeout -> transient", errors.New("i/o timeout"), launcherrors.ClassTransient},
+		{"timed out -> transient", errors.New("timed out"), launcherrors.ClassTransient},
 		// transient · rate limit (1.8c)
-		{"rate limit -> transient", errors.New("rate limit exceeded"), launchClassTransient},
-		{"http 429 -> transient", errors.New("upstream http 429"), launchClassTransient},
-		{"too many requests -> transient", errors.New("Too Many Requests"), launchClassTransient},
+		{"rate limit -> transient", errors.New("rate limit exceeded"), launcherrors.ClassTransient},
+		{"http 429 -> transient", errors.New("upstream http 429"), launcherrors.ClassTransient},
+		{"too many requests -> transient", errors.New("Too Many Requests"), launcherrors.ClassTransient},
 		// permanent · 401
-		{"401 unauthorized -> permanent", errors.New("401 unauthorized"), launchClassPermanent},
-		{"invalid api key -> permanent", errors.New("invalid api key"), launchClassPermanent},
-		{"invalid_api_key -> permanent", errors.New("invalid_api_key"), launchClassPermanent},
-		{"authentication failed login again -> permanent", errors.New("Authentication failed. Please log in again."), launchClassPermanent},
-		{"not authenticated -> permanent", errors.New("provider is not authenticated"), launchClassPermanent},
-		{"not logged in -> permanent", errors.New("codex is not logged in; run codex login"), launchClassPermanent},
-		{"login required -> permanent", errors.New("login required before starting provider session"), launchClassPermanent},
-		{"slash login prompt -> permanent", errors.New("please run /login to authenticate"), launchClassPermanent},
-		{"sign in prompt -> permanent", errors.New("sign in to continue"), launchClassPermanent},
-		{"auth expired -> permanent", errors.New("provider auth token expired"), launchClassPermanent},
-		{"session expired -> permanent", errors.New("provider session expired"), launchClassPermanent},
-		{"login-required -> permanent", errors.New("provider login-required before continuing"), launchClassPermanent},
-		{"login_required -> permanent", errors.New("provider login_required before continuing"), launchClassPermanent},
-		{"claude api connection refused -> permanent", errors.New("API Error: Unable to connect to API (ConnectionRefused)"), launchClassPermanent},
-		{"claude selected model unavailable -> permanent", errors.New("There's an issue with the selected model (gpt-5.5). It may not exist or you may not have access to it. Run --model to pick a different model."), launchClassPermanent},
+		{"401 unauthorized -> permanent", errors.New("401 unauthorized"), launcherrors.ClassPermanent},
+		{"invalid api key -> permanent", errors.New("invalid api key"), launcherrors.ClassPermanent},
+		{"invalid_api_key -> permanent", errors.New("invalid_api_key"), launcherrors.ClassPermanent},
+		{"authentication failed login again -> permanent", errors.New("Authentication failed. Please log in again."), launcherrors.ClassPermanent},
+		{"not authenticated -> permanent", errors.New("provider is not authenticated"), launcherrors.ClassPermanent},
+		{"not logged in -> permanent", errors.New("codex is not logged in; run codex login"), launcherrors.ClassPermanent},
+		{"login required -> permanent", errors.New("login required before starting provider session"), launcherrors.ClassPermanent},
+		{"slash login prompt -> permanent", errors.New("please run /login to authenticate"), launcherrors.ClassPermanent},
+		{"sign in prompt -> permanent", errors.New("sign in to continue"), launcherrors.ClassPermanent},
+		{"auth expired -> permanent", errors.New("provider auth token expired"), launcherrors.ClassPermanent},
+		{"session expired -> permanent", errors.New("provider session expired"), launcherrors.ClassPermanent},
+		{"login-required -> permanent", errors.New("provider login-required before continuing"), launcherrors.ClassPermanent},
+		{"login_required -> permanent", errors.New("provider login_required before continuing"), launcherrors.ClassPermanent},
+		{"claude api connection refused -> permanent", errors.New("API Error: Unable to connect to API (ConnectionRefused)"), launcherrors.ClassPermanent},
+		{"claude selected model unavailable -> permanent", errors.New("There's an issue with the selected model (gpt-5.5). It may not exist or you may not have access to it. Run --model to pick a different model."), launcherrors.ClassPermanent},
 		// permanent · 403
-		{"403 forbidden -> permanent", errors.New("403 forbidden"), launchClassPermanent},
-		{"permission denied -> permanent", errors.New("permission denied"), launchClassPermanent},
+		{"403 forbidden -> permanent", errors.New("403 forbidden"), launcherrors.ClassPermanent},
+		{"permission denied -> permanent", errors.New("permission denied"), launcherrors.ClassPermanent},
 		// permanent · quota
-		{"quota_exhausted -> permanent", errors.New("quota_exhausted"), launchClassPermanent},
-		{"insufficient_quota -> permanent", errors.New("insufficient_quota"), launchClassPermanent},
-		{"usage limit -> permanent", errors.New("daily usage limit reached"), launchClassPermanent},
-		{"out of credits -> permanent", errors.New("out of credits"), launchClassPermanent},
+		{"quota_exhausted -> permanent", errors.New("quota_exhausted"), launcherrors.ClassPermanent},
+		{"insufficient_quota -> permanent", errors.New("insufficient_quota"), launcherrors.ClassPermanent},
+		{"usage limit -> permanent", errors.New("daily usage limit reached"), launcherrors.ClassPermanent},
+		{"out of credits -> permanent", errors.New("out of credits"), launcherrors.ClassPermanent},
 		// permanent · payment
-		{"402 payment required -> permanent", errors.New("402 payment_required"), launchClassPermanent},
-		{"subscription expired -> permanent", errors.New("subscription expired"), launchClassPermanent},
+		{"402 payment required -> permanent", errors.New("402 payment_required"), launcherrors.ClassPermanent},
+		{"subscription expired -> permanent", errors.New("subscription expired"), launcherrors.ClassPermanent},
 		// permanent · context_length
-		{"context_length_exceeded -> permanent", errors.New("context_length_exceeded"), launchClassPermanent},
-		{"context length exceeded msg -> permanent", errors.New("context length exceeded"), launchClassPermanent},
-		{"maximum context -> permanent", errors.New("maximum context tokens"), launchClassPermanent},
-		{"prompt is too long -> permanent", errors.New("prompt is too long"), launchClassPermanent},
+		{"context_length_exceeded -> permanent", errors.New("context_length_exceeded"), launcherrors.ClassPermanent},
+		{"context length exceeded msg -> permanent", errors.New("context length exceeded"), launcherrors.ClassPermanent},
+		{"maximum context -> permanent", errors.New("maximum context tokens"), launcherrors.ClassPermanent},
+		{"prompt is too long -> permanent", errors.New("prompt is too long"), launcherrors.ClassPermanent},
 		// permanent · launch contract
-		{"missing launch cwd -> permanent", contract.ErrLaunchCWDRequired, launchClassPermanent},
-		{"invalid launch cwd -> permanent", contract.ErrLaunchCWDInvalid, launchClassPermanent},
+		{"missing launch cwd -> permanent", contract.ErrLaunchCWDRequired, launcherrors.ClassPermanent},
+		{"invalid launch cwd -> permanent", contract.ErrLaunchCWDInvalid, launcherrors.ClassPermanent},
 		// permanent 优先级高于 transient（同时含两类关键字时归 permanent）
-		{"401 + timeout -> permanent", errors.New("401 unauthorized after i/o timeout"), launchClassPermanent},
+		{"401 + timeout -> permanent", errors.New("401 unauthorized after i/o timeout"), launcherrors.ClassPermanent},
 		// unknown · 不在任何已知关键字列表里
-		{"random unknown -> unknown", errors.New("some_unrecognized_failure"), launchClassUnknown},
-		{"empty msg -> unknown", errors.New(""), launchClassUnknown},
+		{"random unknown -> unknown", errors.New("some_unrecognized_failure"), launcherrors.ClassUnknown},
+		{"empty msg -> unknown", errors.New(""), launcherrors.ClassUnknown},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := classifyLaunchError(tc.err); got != tc.want {
+			if got := launcherrors.Classify(tc.err); got != tc.want {
 				t.Fatalf("classifyLaunchError(%v) = %q, want %q", tc.err, got, tc.want)
 			}
 		})

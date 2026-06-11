@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/launcherrors"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/retrypolicy"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/turncompletionretry"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/wakeuptext"
@@ -242,7 +243,7 @@ func (d *WakeupDispatcher) handleClaimedViaLegacyLauncher(ctx context.Context, w
 		return d.markLaunched(ctx, w, fence)
 	}
 	lastErr := truncateWakeupError(launchErr.Error())
-	if classifyLaunchError(launchErr) == launchClassPermanent {
+	if launcherrors.Classify(launchErr) == launcherrors.ClassPermanent {
 		return d.markPermanentFail(ctx, w, fence, lastErr, launchErr)
 	}
 	return d.markTransientRetry(ctx, w, fence, dispatchFailure{lastErr: lastErr, launchErr: launchErr, outcome: failedWakeupOutcome(lastErr)})

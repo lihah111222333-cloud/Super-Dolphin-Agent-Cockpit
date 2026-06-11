@@ -1,4 +1,4 @@
-package orchestration
+package reportstore
 
 import (
 	"errors"
@@ -10,9 +10,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/reportgc"
 )
 
-var errAgentReportNotFound = errors.New("agent report not found")
+var ErrNotFound = errors.New("agent report not found")
 
-type agentReportFileRecord struct {
+type Record struct {
 	AgentID string
 	Name    string
 	Cwd     string
@@ -25,28 +25,7 @@ type agentReportFileCandidate struct {
 	ModTime int64
 }
 
-func agentReportFileRecordFromRuntime(agent *agentRuntime) agentReportFileRecord {
-	if agent == nil {
-		return agentReportFileRecord{}
-	}
-	return agentReportFileRecord{
-		AgentID: agent.id,
-		Name:    agent.name,
-		Cwd:     agent.cwd,
-		Report:  agent.lastReport,
-	}
-}
-
-func agentReportFileRecordFromSnapshot(snapshot AgentSnapshot) agentReportFileRecord {
-	return agentReportFileRecord{
-		AgentID: snapshot.AgentID,
-		Name:    snapshot.Name,
-		Cwd:     snapshot.Cwd,
-		Report:  snapshot.LastReport,
-	}
-}
-
-func persistAgentReportFile(record agentReportFileRecord) error {
+func Persist(record Record) error {
 	report := strings.TrimSpace(record.Report)
 	if report == "" || strings.TrimSpace(record.Cwd) == "" {
 		return nil
@@ -84,12 +63,12 @@ func persistAgentReportFile(record agentReportFileRecord) error {
 	return nil
 }
 
-func readPersistedAgentReportFile(record agentReportFileRecord) (string, error) {
+func ReadPersisted(record Record) (string, error) {
 	report, err := readAgentReportFile(record)
 	if err == nil {
 		return report, nil
 	}
-	if !errors.Is(err, errAgentReportNotFound) {
+	if !errors.Is(err, ErrNotFound) {
 		return "", err
 	}
 	fallbackPath, fallbackErr := newestAgentReportFilePath(record)
@@ -103,7 +82,7 @@ func readPersistedAgentReportFile(record agentReportFileRecord) (string, error) 
 	return report, nil
 }
 
-func readAgentReportFile(record agentReportFileRecord) (string, error) {
+func readAgentReportFile(record Record) (string, error) {
 	path, err := agentReportFilePath(record)
 	if err != nil {
 		return "", err
@@ -115,18 +94,18 @@ func readReportFileAtPath(path, agentID string) (string, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("%w: %s", errAgentReportNotFound, agentID)
+			return "", fmt.Errorf("%w: %s", ErrNotFound, agentID)
 		}
 		return "", fmt.Errorf("read agent report: %w", err)
 	}
 	report := strings.TrimSpace(string(raw))
 	if report == "" {
-		return "", fmt.Errorf("%w: %s", errAgentReportNotFound, agentID)
+		return "", fmt.Errorf("%w: %s", ErrNotFound, agentID)
 	}
 	return report, nil
 }
 
-func newestAgentReportFilePath(record agentReportFileRecord) (string, error) {
+func newestAgentReportFilePath(record Record) (string, error) {
 	dir, filenamePrefix, err := agentReportFileDirAndPrefix(record)
 	if err != nil {
 		return "", err
@@ -140,14 +119,14 @@ func newestAgentReportFilePath(record agentReportFileRecord) (string, error) {
 		return "", err
 	}
 	if best.Path == "" {
-		return "", fmt.Errorf("%w: %s", errAgentReportNotFound, strings.TrimSpace(record.AgentID))
+		return "", fmt.Errorf("%w: %s", ErrNotFound, strings.TrimSpace(record.AgentID))
 	}
 	return best.Path, nil
 }
 
 func agentReportReadDirError(err error, agentID string) error {
 	if errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%w: %s", errAgentReportNotFound, agentID)
+		return fmt.Errorf("%w: %s", ErrNotFound, agentID)
 	}
 	return fmt.Errorf("read agent report: %w", err)
 }
@@ -195,7 +174,7 @@ func (candidate agentReportFileCandidate) newerThan(other agentReportFileCandida
 	return candidate.Name > other.Name
 }
 
-func agentReportFilePath(record agentReportFileRecord) (string, error) {
+func agentReportFilePath(record Record) (string, error) {
 	dir, filenamePrefix, err := agentReportFileDirAndPrefix(record)
 	if err != nil {
 		return "", err
@@ -204,11 +183,11 @@ func agentReportFilePath(record agentReportFileRecord) (string, error) {
 	return filepath.Join(dir, filename), nil
 }
 
-func agentReportFileDirAndPrefix(record agentReportFileRecord) (string, string, error) {
+func agentReportFileDirAndPrefix(record Record) (string, string, error) {
 	cwd := strings.TrimSpace(record.Cwd)
 	agentID := strings.TrimSpace(record.AgentID)
 	if cwd == "" {
-		return "", "", fmt.Errorf("%w: %s", errAgentReportNotFound, agentID)
+		return "", "", fmt.Errorf("%w: %s", ErrNotFound, agentID)
 	}
 	idPart := reportgc.Sanitize(agentID)
 	if idPart == "" {

@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from 'react';
-import { locateCodeFile, openCodeFile, saveCodeFile } from '../../../shared/api/backendApi.js';
 import {
   codeOpenDisplayPath,
   codePreviewStateFromOpenResult,
@@ -33,6 +32,7 @@ function RuntimePanel({
   runtimeResults,
   projectPath,
   projects,
+  codeFileActions,
   formatTime,
   renderMarkdownPreview,
 }) {
@@ -55,7 +55,7 @@ function RuntimePanel({
   const locateDiffFile = async (file) => {
     setDiffActionNotice(`正在定位 ${file.filename}`);
     try {
-      const result = await locateCodeFile(runtimeCodeScopePayload(file.filename, projectPath, projects));
+      const result = await codeFileActions.locateCodeFile(runtimeCodeScopePayload(file.filename, projectPath, projects));
       const options = normalizeCodeLocateOptions(result);
       if (options.length > 1) {
         setPathChoice({ open: true, file, options, truncated: Boolean(result?.truncated) });
@@ -70,7 +70,7 @@ function RuntimePanel({
     const displayPath = (fallbackRelative || filePath || '').toString();
     setCodePreview({ ...emptyCodePreviewState(), open: true, loading: true, filePath, relative: displayPath });
     try {
-      const result = await openCodeFile(runtimeCodeScopePayload(filePath, projectPath, projects));
+      const result = await codeFileActions.openCodeFile(runtimeCodeScopePayload(filePath, projectPath, projects));
       setCodePreview(codePreviewStateFromOpenResult(result, filePath, displayPath));
     } catch (error) {
       setCodePreview((current) => ({ ...current, loading: false, error: codeActionError(error, '打开失败') }));
@@ -87,7 +87,7 @@ function RuntimePanel({
     if (!codePreview.filePath || codePreview.saving) return;
     setCodePreview((current) => ({ ...current, saving: true, error: '', status: '' }));
     try {
-      const result = await saveCodeFile({
+      const result = await codeFileActions.saveCodeFile({
         ...runtimeCodeScopePayload(codePreview.filePath, projectPath, projects),
         content: codePreview.draft,
       });
