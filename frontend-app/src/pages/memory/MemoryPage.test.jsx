@@ -3,13 +3,14 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryPage } from './MemoryPage.jsx';
-import { getMemorySnapshot, upsertMemoryEntry } from '../../shared/api/backendApi.js';
+import { normalizeMemorySnapshot } from '../../adapters/memoryAdapter.js';
+import { fetchMemoryDashboard, upsertMemoryEntry } from '../../services/modules/memoryService.js';
 
 const backend = vi.hoisted(() => ({
   deleteMemoryEntry: vi.fn(),
+  fetchMemoryDashboard: vi.fn(),
   getMemoryConsolidationStatus: vi.fn(),
   getMemoryEntry: vi.fn(),
-  getMemorySnapshot: vi.fn(),
   ignoreMemorySimilarity: vi.fn(),
   mergeMemoryEntries: vi.fn(),
   setMemoryAutoDreamIntent: vi.fn(),
@@ -17,7 +18,7 @@ const backend = vi.hoisted(() => ({
   upsertMemoryEntry: vi.fn(),
 }));
 
-vi.mock('../../shared/api/backendApi.js', () => backend);
+vi.mock('../../services/modules/memoryService.js', () => backend);
 
 function memorySnapshot({ privateEntries = [], teamEntries = [] } = {}) {
   return {
@@ -52,7 +53,7 @@ function renderMemoryPage(projectPath = '/repo/app') {
 
 function resetMemoryBackendMocks() {
   vi.clearAllMocks();
-  getMemorySnapshot.mockResolvedValue(memorySnapshot());
+  fetchMemoryDashboard.mockResolvedValue(normalizeMemorySnapshot(memorySnapshot()));
   upsertMemoryEntry.mockResolvedValue({ path: 'feedback/default.md' });
 }
 
@@ -65,8 +66,8 @@ describe('MemoryPage module export', () => {
 });
 
 describe('MemoryPage dashboard loading', () => {
-  it('loads memory dashboard entries through getMemorySnapshot', async () => {
-    getMemorySnapshot.mockResolvedValue(memorySnapshot({
+  it('loads memory dashboard entries through memory service', async () => {
+    fetchMemoryDashboard.mockResolvedValue(normalizeMemorySnapshot(memorySnapshot({
       privateEntries: [{
         name: 'reply-language',
         title: '默认中文',
@@ -85,12 +86,12 @@ describe('MemoryPage dashboard loading', () => {
         updatedAt: '2026-05-29T08:00:00Z',
         preview: 'DAG 内容',
       }],
-    }));
+    })));
 
     renderMemoryPage();
 
     expect(await screen.findByText('默认中文')).toBeInTheDocument();
-    expect(getMemorySnapshot).toHaveBeenCalledWith({ cwd: '/repo/app' });
+    expect(fetchMemoryDashboard).toHaveBeenCalledWith('/repo/app');
     expect(screen.getByRole('tab', { name: '偏好 1' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tab', { name: '项目 1' })).toHaveAttribute('aria-selected', 'false');
 
