@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useReducer, useRef, useState } from 'react';
 import { Copy } from 'lucide-react';
-import { getObservabilityTrace, listObservabilityRecent as getObservabilityRecent, copyTextToClipboard } from '../../shared/api/backendApi.js';
+import { copyTextToClipboard, getObservabilityTrace, listObservabilityRecent as getObservabilityRecent } from '../../services/modules/observabilityService.js';
 import { errorMessage, textValue } from '../shared/pageShared.js';
 
 const OBSERVABILITY_PAGE_INITIAL_STATE = Object.freeze({
@@ -335,7 +335,7 @@ function groupObservabilityTraceRows(events) {
   const source = Array.isArray(events) ? events : [];
   for (let index = 0; index < source.length; index += 1) {
     const event = source[index];
-    const traceID = textValue(event.trace_id);
+    const traceID = textValue(event.traceId);
     const rowKey = traceID || observabilityEventRowKey(event, index);
     const existing = rowsByTrace.get(rowKey);
     if (!existing) {
@@ -347,7 +347,7 @@ function groupObservabilityTraceRows(events) {
   }
   return Array.from(rowsByTrace.values()).map((row) => {
     const status = worstObservabilityStatus(row.events);
-    const durationMS = row.events.reduce((total, event) => total + (Number(event.duration_ms) || 0), 0);
+    const durationMS = row.events.reduce((total, event) => total + (Number(event.durationMs) || 0), 0);
     return {
       ...row,
       status,
@@ -372,7 +372,7 @@ function observabilityTimestampMillis(value) {
 }
 
 function observabilityEventRowKey(event, index) {
-  const parts = [event.ts, event.span_id, event.method, event.phase, event.kind]
+  const parts = [event.ts, event.spanId, event.method, event.phase, event.kind]
     .map(textValue)
     .filter(Boolean);
   return `event-${parts.join(':') || 'unknown'}-${index}`;
@@ -450,7 +450,7 @@ function ObservabilityLogTableRow({ row, onOpenTrace, onCopyTrace, copied, trace
             <strong>{event.method || event.phase || event.kind || 'event'}</strong>
             <p>{summary}</p>
             <p className="observability-log-identifiers">
-              trace={traceID || '-'} · thread={event.thread_id || '-'} · {row.eventCount} 个匹配 event
+              trace={traceID || '-'} · thread={event.threadId || '-'} · {row.eventCount} 个匹配 event
             </p>
             {row.error ? <p className="observability-event-error">{row.error}</p> : null}
           </div>
@@ -503,10 +503,10 @@ function observabilityTraceSummary(row) {
   const parts = [
     event.kind,
     event.phase,
-    event.client_route,
-    event.agent_id ? `agent=${event.agent_id}` : '',
-    event.call_id ? `call=${event.call_id}` : '',
-    event.tool_name ? `tool=${event.tool_name}` : '',
+    event.clientRoute,
+    event.agentId ? `agent=${event.agentId}` : '',
+    event.callId ? `call=${event.callId}` : '',
+    event.toolName ? `tool=${event.toolName}` : '',
     durationText,
   ].map(textValue).filter(Boolean);
   return parts.join(' · ');
@@ -527,7 +527,7 @@ function ObservabilityInlineTraceResult({ traceID, detailId, state }) {
         <div>
           <h3>Trace 结果</h3>
           {result ? (
-            <p>source={result.source || 'memory'} total_duration_ms={result.total_duration_ms || 0} truncated={String(Boolean(result.truncated))}</p>
+            <p>source={result.source || 'memory'} total_duration_ms={result.totalDurationMs || 0} truncated={String(Boolean(result.truncated))}</p>
           ) : null}
         </div>
       </div>
@@ -542,7 +542,7 @@ function ObservabilityInlineTraceResult({ traceID, detailId, state }) {
 function TraceEventTable({ events }) {
   const sourceEvents = useMemo(() => (Array.isArray(events) ? events : []), [events]);
   const eventSignature = useMemo(() => sourceEvents
-    .map((event, index) => `${textValue(event.trace_id)}:${textValue(event.span_id) || index}:${textValue(event.phase)}:${textValue(event.ts)}:${textValue(event.method)}`)
+    .map((event, index) => `${textValue(event.traceId)}:${textValue(event.spanId) || index}:${textValue(event.phase)}:${textValue(event.ts)}:${textValue(event.method)}`)
     .join('|'), [sourceEvents]);
   const [displayState, setDisplayState] = useState({ eventSignature: '', showAll: false });
   const showAll = displayState.eventSignature === eventSignature ? displayState.showAll : false;
@@ -582,7 +582,7 @@ function TraceEventTable({ events }) {
 }
 
 function traceEventRenderKey(event, sourceIndex) {
-  const parts = [event.trace_id, event.span_id, event.phase, event.ts, event.method, String(sourceIndex)]
+  const parts = [event.traceId, event.spanId, event.phase, event.ts, event.method, String(sourceIndex)]
     .map(textValue)
     .filter(Boolean);
   return `trace-event-${parts.join(':')}`;
@@ -634,30 +634,30 @@ function TraceEventRow({ event, index }) {
   const title = event.method || event.phase || event.kind || 'event';
   const formattedTimestamp = formatObservabilityTimestamp(event.ts);
   const timestampText = formattedTimestamp === '-' ? '' : formattedTimestamp;
-  const durationText = formatObservabilityDuration(event.duration_ms);
+  const durationText = formatObservabilityDuration(event.durationMs);
   const codeText = formatCodeAnchor(event.code);
   const context = [
     event.kind,
     event.phase,
-    event.client_kind,
-    event.client_route,
+    event.clientKind,
+    event.clientRoute,
   ].map(textValue).filter(Boolean);
   const requestContext = [
     ['组件', event.kind],
     ['阶段', event.phase],
-    ['客户端', event.client_kind],
-    ['页面', event.client_route],
+    ['客户端', event.clientKind],
+    ['页面', event.clientRoute],
     ['方法', event.method],
   ].map(([label, value]) => [label, textValue(value)]).filter(([, value]) => value);
   const traceContext = [
-    ['trace', event.trace_id],
-    ['span', event.span_id],
-    ['parent', event.parent_span_id],
-    ['thread', event.thread_id],
-    ['turn', event.turn_id],
-    ['agent', event.agent_id],
-    ['call', event.call_id],
-    ['tool', event.tool_name],
+    ['trace', event.traceId],
+    ['span', event.spanId],
+    ['parent', event.parentSpanId],
+    ['thread', event.threadId],
+    ['turn', event.turnId],
+    ['agent', event.agentId],
+    ['call', event.callId],
+    ['tool', event.toolName],
   ].map(([label, value]) => [label, textValue(value)]).filter(([, value]) => value);
   const metadataText = stableTraceEventMetadata(event.metadata);
   const stackText = Array.isArray(event.stack) && event.stack.length
