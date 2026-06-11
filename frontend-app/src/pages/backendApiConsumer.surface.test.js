@@ -16,7 +16,14 @@ const migratedBackendApiConsumers = new Set([
   'pages/workflows/WorkflowPage.jsx',
 ]);
 const migratedBackendApiConsumerPrefixes = [
-  'pages/chat/components/',
+  'pages/chat/',
+  'pages/settings/',
+  'pages/workflows/',
+];
+const backendApiServiceConsumerPrefixes = [
+  'pages/chat/services/',
+  'pages/settings/services/',
+  'pages/workflows/services/',
 ];
 
 function collectSourceFiles() {
@@ -45,7 +52,7 @@ function rel(filePath) {
 
 function backendApiNamedImports(source) {
   const imports = [];
-  const importPattern = /import\s*\{([^}]+)\}\s*from\s*['"]([^'"]*shared\/api\/backendApi\.js)['"]/g;
+  const importPattern = /import\s*\{([^}]+)\}\s*from\s*['"]([^'"]*shared\/api\/backendApi(?:\.js)?)['"]/g;
   for (const match of source.matchAll(importPattern)) {
     for (const part of match[1].split(',')) {
       const imported = part.trim().split(/\s+as\s+/)[0]?.trim();
@@ -56,7 +63,16 @@ function backendApiNamedImports(source) {
 }
 
 function importsBackendApi(source) {
-  return /from\s*['"][^'"]*shared\/api\/backendApi\.js['"]/.test(source);
+  return /from\s*['"][^'"]*shared\/api\/backendApi(?:\.js)?['"]/.test(source);
+}
+
+function isMigratedBackendApiConsumer(relativePath) {
+  return migratedBackendApiConsumers.has(relativePath)
+    || migratedBackendApiConsumerPrefixes.some((prefix) => relativePath.startsWith(prefix));
+}
+
+function isBackendApiServiceConsumer(relativePath) {
+  return backendApiServiceConsumerPrefixes.some((prefix) => relativePath.startsWith(prefix));
 }
 
 describe('backend API consumer guardrails', () => {
@@ -81,9 +97,7 @@ describe('backend API consumer guardrails', () => {
 
     for (const filePath of collectSourceFiles()) {
       const relativePath = rel(filePath);
-      const migrated = migratedBackendApiConsumers.has(relativePath)
-        || migratedBackendApiConsumerPrefixes.some((prefix) => relativePath.startsWith(prefix));
-      if (!migrated) continue;
+      if (!isMigratedBackendApiConsumer(relativePath) || isBackendApiServiceConsumer(relativePath)) continue;
       const source = fs.readFileSync(filePath, 'utf8');
       if (importsBackendApi(source)) {
         violations.push(`${relativePath} imports shared/api/backendApi.js directly`);
