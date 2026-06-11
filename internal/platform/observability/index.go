@@ -152,8 +152,12 @@ func (i *Index) evict(seq uint64) {
 	delete(i.events, seq)
 	i.removeKeyRef(i.traceRefs, event.TraceID, seq)
 	i.removeKeyRef(i.threadRefs, event.ThreadID, seq)
-	i.slowRefs.remove(seq)
-	i.errorRefs.remove(seq)
+	if event.Status == StatusSlow {
+		i.slowRefs.remove(seq)
+	}
+	if event.Status == StatusError || event.Status == StatusPanic {
+		i.errorRefs.remove(seq)
+	}
 }
 
 func (i *Index) removeKeyRef(refs map[string]*seqRing, key string, seq uint64) {
