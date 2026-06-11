@@ -32,10 +32,6 @@ func AsRunner(worker Worker, opts ...WorkerRunnerOption) Runner {
 	return r
 }
 
-func AsRunnerGroup(worker Worker, opts ...WorkerRunnerOption) Runner {
-	return AsRunner(worker, opts...)
-}
-
 func WithStartedSignal(ch chan struct{}) WorkerRunnerOption {
 	return func(r *workerRunner) {
 		if ch != nil {
