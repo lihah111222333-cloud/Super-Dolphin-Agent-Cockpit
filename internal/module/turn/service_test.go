@@ -460,6 +460,7 @@ func (*stubPromptAssemblyService) Invalidate(context.Context, contract.Invalidat
 }
 
 type stubSession struct {
+	contract.Session
 	threadID          string
 	caps              dto.CapabilitySet
 	runtimeConfig     map[string]any
@@ -510,22 +511,6 @@ func (s *stubSession) ForceComplete(ctx context.Context, req dto.ForceCompleteRe
 	}
 	return nil
 }
-
-func (s *stubSession) ListThreads(context.Context) ([]dto.ThreadRef, error) { return nil, nil }
-
-func (s *stubSession) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
-	return dto.ForkResult{}, nil
-}
-
-func (s *stubSession) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
-	return nil, nil
-}
-
-func (s *stubSession) Configure(context.Context, dto.ThreadConfigPatch) error { return nil }
-
-func (s *stubSession) Close(context.Context) error { return nil }
-
-func (s *stubSession) ForceStop() error { return nil }
 
 type stubTurnHandle struct {
 	localID    string

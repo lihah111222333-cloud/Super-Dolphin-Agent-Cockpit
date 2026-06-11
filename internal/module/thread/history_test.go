@@ -2,7 +2,6 @@ package thread
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -184,7 +183,7 @@ type forkedThreadHistoryFixture struct {
 	svc         Service
 	parent      *historyTestSession
 	forked      *historyTestSession
-	threadStore *historyTestThreadStore
+	threadStore *stubThreadStore
 }
 
 func newForkedThreadHistoryFixture(t *testing.T) forkedThreadHistoryFixture {
@@ -194,16 +193,14 @@ func newForkedThreadHistoryFixture(t *testing.T) forkedThreadHistoryFixture {
 		forkResult: dto.ForkResult{NewThreadID: "thread-2"},
 	}
 	forkedSession := &historyTestSession{threadID: "thread-2"}
-	threadStore := &historyTestThreadStore{
-		threads: map[string]threadstore.Thread{
-			"thread-1": {
-				ThreadID:  "thread-1",
-				AgentID:   "agent-1",
-				Prompt:    "demo",
-				Model:     "gpt-5",
-				Cwd:       "/tmp/demo",
-				CreatedAt: 123,
-			},
+	threadStore := &stubThreadStore{
+		thread: &threadstore.Thread{
+			ThreadID:  "thread-1",
+			AgentID:   "agent-1",
+			Prompt:    "demo",
+			Model:     "gpt-5",
+			Cwd:       "/tmp/demo",
+			CreatedAt: 123,
 		},
 	}
 	bindings := newHistoryTestBindingStore(&bindingstore.Binding{
@@ -243,13 +240,13 @@ func newForkedThreadHistoryFixture(t *testing.T) forkedThreadHistoryFixture {
 	}
 }
 
-func requireForkedThreadResult(t *testing.T, result ForkResult, threadStore *historyTestThreadStore) {
+func requireForkedThreadResult(t *testing.T, result ForkResult, threadStore *stubThreadStore) {
 	t.Helper()
 	if result.NewThreadID != "thread-2" {
 		t.Fatalf("Fork() new thread id = %q, want thread-2", result.NewThreadID)
 	}
-	if len(threadStore.upserts) != 1 || threadStore.upserts[0].OwnerThreadID != "thread-1" {
-		t.Fatalf("fork upserts = %#v, want owner_thread_id thread-1", threadStore.upserts)
+	if threadStore.upsertCount != 1 || threadStore.upsert.OwnerThreadID != "thread-1" {
+		t.Fatalf("fork upsert = %#v (count %d), want owner_thread_id thread-1", threadStore.upsert, threadStore.upsertCount)
 	}
 }
 
@@ -390,126 +387,6 @@ func (p *historyTestSessionProvider) RemoveSession(sessionID string) {
 	_ = p
 	_ = sessionID
 }
-
-type historyTestThreadStore struct {
-	threads  map[string]threadstore.Thread
-	upserts  []threadstore.UpsertParams
-	statuses []threadstore.UpdateStatusParams
-}
-
-func (s *historyTestThreadStore) GetByThreadID(_ context.Context, threadID string) (*threadstore.Thread, error) {
-	thread, ok := s.threads[strings.TrimSpace(threadID)]
-	if !ok {
-		return nil, platformdb.ErrNotFound
-	}
-	copy := thread
-	return &copy, nil
-}
-
-func (s *historyTestThreadStore) GetByPort(context.Context, int32) (*threadstore.Thread, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (s *historyTestThreadStore) ListAll(context.Context) ([]threadstore.Thread, error) {
-	out := make([]threadstore.Thread, 0, len(s.threads))
-	for _, thread := range s.threads {
-		out = append(out, thread)
-	}
-	return out, nil
-}
-
-func (s *historyTestThreadStore) ListConfigsByIDs(ctx context.Context, threadIDs []string) ([]threadstore.Thread, error) {
-	idMap := make(map[string]bool)
-	for _, id := range threadIDs {
-		idMap[id] = true
-	}
-	var result []threadstore.Thread
-	for _, id := range threadIDs {
-		if t, ok := s.threads[id]; ok {
-			result = append(result, t)
-		}
-	}
-	return result, nil
-}
-
-func (s *historyTestThreadStore) ListRunning(context.Context) ([]threadstore.Thread, error) {
-	return nil, nil
-}
-
-func (s *historyTestThreadStore) ListRecoverable(context.Context) ([]threadstore.Thread, error) {
-	return nil, nil
-}
-
-func (s *historyTestThreadStore) ListRunningAgents(context.Context) ([]threadstore.RunningAgent, error) {
-	return nil, nil
-}
-
-func (*historyTestThreadStore) SavePromptSnapshot(context.Context, string, threadstore.PromptSnapshot) error {
-	return nil
-}
-
-func (*historyTestThreadStore) LoadPromptSnapshot(context.Context, string) (*threadstore.PromptSnapshot, error) {
-	return nil, nil
-}
-
-func (s *historyTestThreadStore) Upsert(_ context.Context, params threadstore.UpsertParams) error {
-	s.upserts = append(s.upserts, params)
-	if s.threads == nil {
-		s.threads = map[string]threadstore.Thread{}
-	}
-	s.threads[params.ThreadID] = threadstore.Thread{
-		ThreadID:       params.ThreadID,
-		Prompt:         params.Prompt,
-		Model:          params.Model,
-		Cwd:            params.Cwd,
-		Status:         params.Status,
-		CreatedAt:      params.CreatedAt,
-		UpdatedAt:      params.UpdatedAt,
-		OwnerThreadID:  params.OwnerThreadID,
-		ConfigOverride: params.ConfigOverride,
-	}
-	return nil
-}
-
-func (s *historyTestThreadStore) UpdateStatus(_ context.Context, params threadstore.UpdateStatusParams) error {
-	s.statuses = append(s.statuses, params)
-	return nil
-}
-
-func (*historyTestThreadStore) UpdateLaunchResult(context.Context, threadstore.UpdateLaunchResultParams) error {
-	return nil
-}
-
-func (s *historyTestThreadStore) DeleteByThreadID(context.Context, string) error { return nil }
-
-func (s *historyTestThreadStore) ResetRunning(context.Context) error { return nil }
-
-func (s *historyTestThreadStore) ExpireStale(context.Context, threadstore.ExpireStaleParams) (int64, error) {
-	return 0, nil
-}
-
-func (s *historyTestThreadStore) RunningExists(context.Context, string) (bool, error) {
-	return false, nil
-}
-
-func (s *historyTestThreadStore) ListCwds(context.Context) ([]threadstore.ThreadCwd, error) {
-	return nil, nil
-}
-
-func (s *historyTestThreadStore) ListCwdsByPrefix(context.Context, string) ([]threadstore.ThreadCwd, error) {
-	return nil, nil
-}
-
-func (s *historyTestThreadStore) CountChildren(context.Context, string) (int64, error) {
-	return 0, nil
-}
-
-func (s *historyTestThreadStore) Exists(_ context.Context, threadID string) (bool, error) {
-	_, ok := s.threads[strings.TrimSpace(threadID)]
-	return ok, nil
-}
-
-func (s *historyTestThreadStore) CountAll(context.Context) (int64, error) { return 0, nil }
 
 type historyReadCall struct {
 	ThreadID string

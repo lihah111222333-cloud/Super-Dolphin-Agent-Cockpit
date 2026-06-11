@@ -72,18 +72,11 @@ func TestDashboardAgentStatusHandlerSupportsStatusFilter(t *testing.T) {
 }
 
 type stubAgentStatusStore struct {
+	agentstatusstore.Store
 	listResult []agentstatusstore.AgentStatus
 	listErr    error
 	listStatus string
 	listCalls  int
-}
-
-func (*stubAgentStatusStore) Upsert(context.Context, agentstatusstore.UpsertParams) (*agentstatusstore.AgentStatus, error) {
-	return nil, nil
-}
-
-func (*stubAgentStatusStore) Get(context.Context, string) (*agentstatusstore.AgentStatus, error) {
-	return nil, nil
 }
 
 func (s *stubAgentStatusStore) List(_ context.Context, status string) ([]agentstatusstore.AgentStatus, error) {

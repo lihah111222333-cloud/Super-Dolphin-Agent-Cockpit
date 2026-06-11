@@ -19,41 +19,11 @@ type capturingSessionBridge struct {
 	startReq dto.StartSessionRequest
 }
 
-type e2ePromptStore struct{}
+type e2ePromptStore struct{ promptstore.Store }
 
 func newE2EPromptStore() promptstore.Store { return e2ePromptStore{} }
 
 func (e2ePromptStore) List(context.Context, promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
-	return nil, nil
-}
-
-func (e2ePromptStore) WithTx(_ context.Context, fn func(promptstore.Store) error) error {
-	return fn(e2ePromptStore{})
-}
-
-func (e2ePromptStore) Get(context.Context, string) (*promptstore.PromptTemplate, error) {
-	return nil, platformdb.ErrNotFound
-}
-
-func (e2ePromptStore) Delete(context.Context, string) error { return nil }
-
-func (e2ePromptStore) InsertVersion(context.Context, promptstore.PromptTemplateVersion) (int64, error) {
-	return 0, nil
-}
-
-func (e2ePromptStore) CreatePromptTemplate(context.Context, promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
-	return &promptstore.PromptTemplate{}, nil
-}
-
-func (e2ePromptStore) Upsert(context.Context, promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
-	return &promptstore.PromptTemplate{}, nil
-}
-
-func (e2ePromptStore) ListSectionsByTemplateID(context.Context, int64) ([]promptstore.PromptTemplateSection, error) {
-	return nil, nil
-}
-
-func (e2ePromptStore) ListSectionsByTemplateIDs(context.Context, []int64) ([]promptstore.PromptTemplateSection, error) {
 	return nil, nil
 }
 
@@ -63,35 +33,6 @@ func (e2ePromptStore) ListRecallSections(context.Context, string) ([]promptstore
 
 func (e2ePromptStore) ListDefaultRuleSections(context.Context, string) ([]promptstore.PromptTemplateSection, error) {
 	return nil, nil
-}
-
-func (e2ePromptStore) UpsertSection(_ context.Context, section promptstore.PromptTemplateSection) (*promptstore.PromptTemplateSection, error) {
-	copy := section
-	return &copy, nil
-}
-
-func (e2ePromptStore) DeleteSection(context.Context, int64, string) error {
-	return nil
-}
-
-func (e2ePromptStore) UpsertIntentDraft(context.Context, promptstore.PromptIntentDraft) (*promptstore.PromptIntentDraft, error) {
-	return &promptstore.PromptIntentDraft{}, nil
-}
-
-func (e2ePromptStore) GetIntentDraft(context.Context, string, string) (*promptstore.PromptIntentDraft, error) {
-	return nil, platformdb.ErrNotFound
-}
-
-func (e2ePromptStore) ListIntentDrafts(context.Context, promptstore.PromptIntentDraftListFilter) ([]promptstore.PromptIntentDraft, error) {
-	return nil, nil
-}
-
-func (e2ePromptStore) UpdateIntentDraftStatus(context.Context, string, string, string) (*promptstore.PromptIntentDraft, error) {
-	return &promptstore.PromptIntentDraft{}, nil
-}
-
-func (e2ePromptStore) LockRecallTopicInCWD(context.Context, string, string) error {
-	return nil
 }
 
 func newMockSession(threadID string) contractpkg.Session { return &mockSession{threadID: threadID} }
@@ -122,6 +63,7 @@ func (b *capturingSessionBridge) GetSession(string) (contractpkg.Session, error)
 func (b *capturingSessionBridge) RemoveSession(string) { b.session = nil }
 
 type mockSession struct {
+	contractpkg.Session
 	threadID    string
 	rolloutPath string
 }
@@ -129,21 +71,9 @@ type mockSession struct {
 func (s *mockSession) ThreadID() string              { return s.threadID }
 func (s *mockSession) RolloutPath() string           { return s.rolloutPath }
 func (*mockSession) Capabilities() dto.CapabilitySet { return nil }
-func (*mockSession) StartTurn(context.Context, dto.TurnRequest) (contractpkg.TurnHandle, error) {
-	return nil, errors.New("not implemented")
-}
-func (*mockSession) Interrupt(context.Context, dto.InterruptRequest) error         { return nil }
-func (*mockSession) ForceComplete(context.Context, dto.ForceCompleteRequest) error { return nil }
-func (*mockSession) ListThreads(context.Context) ([]dto.ThreadRef, error)          { return nil, nil }
-func (*mockSession) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
-	return dto.ForkResult{}, nil
-}
-func (*mockSession) ReadHistory(context.Context, string, int) ([]dto.Message, error) { return nil, nil }
-func (*mockSession) Configure(context.Context, dto.ThreadConfigPatch) error          { return nil }
-func (*mockSession) Close(context.Context) error                                     { return nil }
-func (*mockSession) ForceStop() error                                                { return nil }
 
 type capturingThreadStore struct {
+	threadstore.Store
 	thread *threadstore.Thread
 	upsert threadstore.UpsertParams
 	status threadstore.UpdateStatusParams
@@ -157,27 +87,8 @@ func (s *capturingThreadStore) GetByThreadID(_ context.Context, threadID string)
 	return &thread, nil
 }
 
-func (*capturingThreadStore) GetByPort(context.Context, int32) (*threadstore.Thread, error) {
-	return nil, platformdb.ErrNotFound
-}
-func (*capturingThreadStore) ListAll(context.Context) ([]threadstore.Thread, error) { return nil, nil }
-func (*capturingThreadStore) ListConfigsByIDs(context.Context, []string) ([]threadstore.Thread, error) {
-	return nil, nil
-}
-func (*capturingThreadStore) ListRunning(context.Context) ([]threadstore.Thread, error) {
-	return nil, nil
-}
-func (*capturingThreadStore) ListRecoverable(context.Context) ([]threadstore.Thread, error) {
-	return nil, nil
-}
-func (*capturingThreadStore) ListRunningAgents(context.Context) ([]threadstore.RunningAgent, error) {
-	return nil, nil
-}
 func (*capturingThreadStore) SavePromptSnapshot(context.Context, string, threadstore.PromptSnapshot) error {
 	return nil
-}
-func (*capturingThreadStore) LoadPromptSnapshot(context.Context, string) (*threadstore.PromptSnapshot, error) {
-	return nil, nil
 }
 func (s *capturingThreadStore) Upsert(_ context.Context, params threadstore.UpsertParams) error {
 	s.upsert = params
@@ -188,26 +99,11 @@ func (s *capturingThreadStore) UpdateStatus(_ context.Context, params threadstor
 	s.status = params
 	return nil
 }
-func (*capturingThreadStore) UpdateLaunchResult(context.Context, threadstore.UpdateLaunchResultParams) error {
-	return nil
-}
-func (*capturingThreadStore) DeleteByThreadID(context.Context, string) error { return nil }
-func (*capturingThreadStore) ResetRunning(context.Context) error             { return nil }
-func (*capturingThreadStore) ExpireStale(context.Context, threadstore.ExpireStaleParams) (int64, error) {
-	return 0, nil
-}
-func (*capturingThreadStore) RunningExists(context.Context, string) (bool, error) { return false, nil }
-func (*capturingThreadStore) ListCwds(context.Context) ([]threadstore.ThreadCwd, error) {
-	return nil, nil
-}
-func (*capturingThreadStore) ListCwdsByPrefix(context.Context, string) ([]threadstore.ThreadCwd, error) {
-	return nil, nil
-}
 func (*capturingThreadStore) CountChildren(context.Context, string) (int64, error) { return 0, nil }
 func (*capturingThreadStore) Exists(context.Context, string) (bool, error)         { return false, nil }
-func (*capturingThreadStore) CountAll(context.Context) (int64, error)              { return 0, nil }
 
 type capturingBindingStore struct {
+	bindingstore.Store
 	binding *bindingstore.Binding
 	upsert  bindingstore.UpsertParams
 }
@@ -245,7 +141,6 @@ func (s *capturingBindingStore) Upsert(_ context.Context, params bindingstore.Up
 	return nil
 }
 
-func (*capturingBindingStore) DeleteByAgentID(context.Context, string) error { return nil }
 func (s *capturingBindingStore) UpdateSessionUUID(_ context.Context, params bindingstore.UpdateSessionUUIDParams) error {
 	if s.binding != nil && s.binding.AgentID == params.AgentID {
 		s.binding.SessionUUID = params.SessionUUID
@@ -263,9 +158,6 @@ func (s *capturingBindingStore) UpdateProviderThreadID(_ context.Context, params
 	}
 	return nil
 }
-func (*capturingBindingStore) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
-	return nil
-}
 func (s *capturingBindingStore) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
 	if s.binding == nil || (agentID != "" && s.binding.AgentID != agentID) {
 		return nil, platformdb.ErrNotFound
@@ -273,10 +165,6 @@ func (s *capturingBindingStore) GetByAgentID(_ context.Context, agentID string) 
 	binding := *s.binding
 	return &binding, nil
 }
-func (*capturingBindingStore) BindAgentThread(context.Context, bindingstore.BindAgentThreadParams) error {
-	return nil
-}
-func (*capturingBindingStore) UnbindAgentThread(context.Context, string) error { return nil }
 func (s *capturingBindingStore) ListAgentThreadBindings(context.Context) ([]bindingstore.Binding, error) {
 	if s.binding == nil {
 		return nil, nil
@@ -288,19 +176,6 @@ func (s *capturingBindingStore) GetThreadByAgent(context.Context, string) (strin
 		return "", platformdb.ErrNotFound
 	}
 	return s.binding.CodexThreadID, nil
-}
-func (*capturingBindingStore) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
-	return nil
-}
-
-func (*capturingBindingStore) Rebind(context.Context, bindingstore.RebindParams) error { return nil }
-
-func (*capturingBindingStore) ListProviderMap(context.Context) (map[string]string, error) {
-	return nil, nil
-}
-
-func (*capturingBindingStore) ListCwdMap(context.Context) (map[string]string, error) {
-	return nil, nil
 }
 
 type capturingOrchestration struct{ launchReq thread.LaunchAgentRequest }

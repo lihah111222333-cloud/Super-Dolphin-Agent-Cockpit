@@ -17,11 +17,13 @@ import (
 // resolveRoutedPrompt exercises. Other methods panic on use so an incorrect
 // code path fails loudly.
 type fakePromptStore struct {
+	promptstore.Store
 	templates            []promptstore.PromptTemplate
 	listErr              error
 	listFilters          []promptstore.ListFilter
 	sectionsByTemplateID map[int64][]promptstore.PromptTemplateSection
 	recallSections       []promptstore.PromptTemplateSection
+	defaultRuleSections  []promptstore.PromptTemplateSection
 	recallErr            error
 	nextVersionID        int64
 	insertErr            error
@@ -45,52 +47,32 @@ func (f *fakePromptStore) InsertVersion(_ context.Context, v promptstore.PromptT
 	return f.nextVersionID, nil
 }
 
-func (f *fakePromptStore) CreatePromptTemplate(context.Context, promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
-	return nil, errors.New("unused create prompt template")
-}
-
-func (f *fakePromptStore) Get(context.Context, string) (*promptstore.PromptTemplate, error) {
-	panic("unused")
-}
-func (f *fakePromptStore) Delete(context.Context, string) error { panic("unused") }
-func (f *fakePromptStore) Upsert(context.Context, promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
-	panic("unused")
-}
-func (f *fakePromptStore) WithTx(context.Context, func(promptstore.Store) error) error {
-	panic("unused")
-}
 func (f *fakePromptStore) ListSectionsByTemplateID(_ context.Context, templateID int64) ([]promptstore.PromptTemplateSection, error) {
 	return append([]promptstore.PromptTemplateSection(nil), f.sectionsByTemplateID[templateID]...), nil
 }
-func (f *fakePromptStore) ListRecallSections(context.Context, string) ([]promptstore.PromptTemplateSection, error) {
+func (f *fakePromptStore) ListRecallSections(_ context.Context, cwd string) ([]promptstore.PromptTemplateSection, error) {
 	if f.recallErr != nil {
 		return nil, f.recallErr
 	}
-	return append([]promptstore.PromptTemplateSection(nil), f.recallSections...), nil
+	return filterFakePromptSectionsByCWD(f.recallSections, cwd), nil
 }
-func (f *fakePromptStore) ListDefaultRuleSections(context.Context, string) ([]promptstore.PromptTemplateSection, error) {
-	return nil, nil
+func (f *fakePromptStore) ListDefaultRuleSections(_ context.Context, cwd string) ([]promptstore.PromptTemplateSection, error) {
+	return filterFakePromptSectionsByCWD(f.defaultRuleSections, cwd), nil
 }
-func (f *fakePromptStore) UpsertSection(context.Context, promptstore.PromptTemplateSection) (*promptstore.PromptTemplateSection, error) {
-	panic("unused")
-}
-func (f *fakePromptStore) DeleteSection(context.Context, int64, string) error {
-	panic("unused")
-}
-func (f *fakePromptStore) UpsertIntentDraft(context.Context, promptstore.PromptIntentDraft) (*promptstore.PromptIntentDraft, error) {
-	return nil, errors.New("unused upsert intent draft")
-}
-func (f *fakePromptStore) GetIntentDraft(context.Context, string, string) (*promptstore.PromptIntentDraft, error) {
-	return nil, errors.New("unused get intent draft")
-}
-func (f *fakePromptStore) ListIntentDrafts(context.Context, promptstore.PromptIntentDraftListFilter) ([]promptstore.PromptIntentDraft, error) {
-	return nil, errors.New("unused list intent drafts")
-}
-func (f *fakePromptStore) UpdateIntentDraftStatus(context.Context, string, string, string) (*promptstore.PromptIntentDraft, error) {
-	return nil, errors.New("unused update intent draft status")
-}
-func (f *fakePromptStore) LockRecallTopicInCWD(context.Context, string, string) error {
-	return errors.New("unused lock recall topic")
+func filterFakePromptSectionsByCWD(sections []promptstore.PromptTemplateSection, cwd string) []promptstore.PromptTemplateSection {
+	if len(sections) == 0 {
+		return nil
+	}
+	out := make([]promptstore.PromptTemplateSection, 0, len(sections))
+	for _, section := range sections {
+		if !section.Enabled {
+			continue
+		}
+		if promptTemplateVisibleInCWD(promptstore.TemplateTags(section.TemplateTags), cwd) {
+			out = append(out, section)
+		}
+	}
+	return out
 }
 
 func newServiceWithRouter(store promptstore.Store) *service {

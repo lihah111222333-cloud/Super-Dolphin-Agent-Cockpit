@@ -319,10 +319,6 @@ func allowHydratedSummary(info contract.SkillInfo, ref dto.SkillRef, policy skil
 // Source=Unspecified、trigger、force 等来源不得因为 name-only hydration 看到 summary。
 // untrusted full body 不在 selected hydration 中注入；V1 provider runtime 也不再
 // 通过 turn 注入正文，而是由 provider-native mirror 交给 Claude/Codex 自己发现。
-func (s *service) applyHydration(ctx context.Context, ref dto.SkillRef, index map[string]contract.SkillInfo, policy skillHydrationPolicy) (dto.SkillRef, error) {
-	return s.applyHydrationWithConflict(ctx, ref, index, policy)
-}
-
 func (s *service) applyHydrationWithConflict(ctx context.Context, ref dto.SkillRef, index map[string]contract.SkillInfo, policy skillHydrationPolicy) (dto.SkillRef, error) {
 	info, found, err := hydrationInfoForRef(ref, index)
 	if err != nil {
