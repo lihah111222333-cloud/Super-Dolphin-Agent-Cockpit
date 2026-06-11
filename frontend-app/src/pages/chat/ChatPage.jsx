@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, ArrowLeft, Bot, Brain, CheckCircle2, ChevronDown, CircleStop, Copy, File, FileText, Folder, GitBranch, Pencil, Plus, Send, Sparkles, Terminal, Trash2, Wrench, X } from 'lucide-react';
+import { Brain, CheckCircle2, ChevronDown, CircleStop, Copy, File, FileText, Folder, GitBranch, Plus, Send, Sparkles, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { onFilesDropped, copyTextToClipboard, locateCodeFile, openCodeFile, saveCodeFile } from '../../shared/api/backendApi.js';
 import { appendCurrentModelOption, canonicalizeModelValue, modelOptionFor, normalizeConfigText, normalizeProviderKey, textValue } from '../shared/pageShared.js';
@@ -8,6 +8,7 @@ import { RuntimeActivityPanel } from './components/RuntimeActivityPanel.jsx';
 import { RuntimeDiffView } from './components/RuntimeDiffView.jsx';
 import { RuntimeToolbar } from './components/RuntimeToolbar.jsx';
 import { ThreadCardActions } from './components/ThreadCardActions.jsx';
+import { ThreadRailTools } from './components/ThreadRailTools.jsx';
 
 const CONVERSATION_DROP_TARGET_ID = 'conversation-drop-zone';
 const CLIPBOARD_FILE_PATH_TYPES = Object.freeze(['x-special/gnome-copied-files', 'text/uri-list', 'text/plain']);
@@ -2218,51 +2219,6 @@ function sortThreadRows(left, right) {
   if (leftPinned && rightPinned && left.pinnedAt !== right.pinnedAt) return right.pinnedAt - left.pinnedAt;
   if (!leftPinned && !rightPinned && left.activityAt !== right.activityAt) return right.activityAt - left.activityAt;
   return left.listIndex - right.listIndex;
-}
-
-function ThreadRailTools({
-  count,
-  confirmCleanMode,
-  showArchivedThreads,
-  staleThreadIds,
-  toggleArchiveLabel,
-  onNewThread,
-  onCleanConfirm,
-  onCleanMode,
-  onCancelClean,
-  onToggleArchive,
-}) {
-  return (
-    <div className="thread-tools">
-      <button type="button" className="round thread-new-primary" aria-label="新建对话" title="新对话：发送第一条消息时才会创建会话" onClick={onNewThread}>
-        <Pencil size={17} />
-      </button>
-      <output className="count thread-count" aria-label={`${count} 个 Agent`} title={`${count} 个 Agent`}>
-        <Bot size={14} />
-        <strong>{count}</strong>
-      </output>
-      {showArchivedThreads && staleThreadIds.length > 0 && !confirmCleanMode ? (
-        <button type="button" className="round thread-clean" aria-label="清理无用对话" title="清理无用对话" onClick={onCleanMode}>
-          <Trash2 size={15} />
-        </button>
-      ) : null}
-      {showArchivedThreads && confirmCleanMode ? (
-        <>
-          <button type="button" className="thread-clean-confirm" onClick={onCleanConfirm}>确认</button>
-          <button type="button" className="thread-clean-cancel" onClick={onCancelClean}>取消</button>
-        </>
-      ) : null}
-      <button
-        type="button"
-        className={`round thread-archive-toggle ${showArchivedThreads ? 'active' : ''}`}
-        aria-label={toggleArchiveLabel}
-        title={toggleArchiveLabel}
-        onClick={onToggleArchive}
-      >
-        {showArchivedThreads ? <ArrowLeft size={15} /> : <Archive size={15} />}
-      </button>
-    </div>
-  );
 }
 
 function ThreadCard({
