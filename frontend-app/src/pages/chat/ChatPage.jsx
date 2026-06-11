@@ -4,6 +4,8 @@ import { Brain, CheckCircle2, ChevronDown, CircleStop, Copy, File, FileText, Fol
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { onFilesDropped, copyTextToClipboard, locateCodeFile, openCodeFile, saveCodeFile } from '../../shared/api/backendApi.js';
 import { appendCurrentModelOption, canonicalizeModelValue, modelOptionFor, normalizeConfigText, normalizeProviderKey, textValue } from '../shared/pageShared.js';
+import { ComposerAttachments } from './components/ComposerAttachments.jsx';
+import { composerAttachmentKey } from './components/composerAttachmentKey.js';
 import { RuntimeActivityPanel } from './components/RuntimeActivityPanel.jsx';
 import { RuntimeDiffView } from './components/RuntimeDiffView.jsx';
 import { RuntimeToolbar } from './components/RuntimeToolbar.jsx';
@@ -2549,10 +2551,6 @@ function ModelSelectorDropdown({ controller }) {
   );
 }
 
-function attachmentKey(item) {
-  return textValue(item?.path || item?.previewUrl || item?.url);
-}
-
 function hasFilesTransfer(event) {
   const transfer = event?.dataTransfer;
   if (!transfer) return false;
@@ -4488,7 +4486,7 @@ function useComposerInteractions({
   const [dropActive, setDropActive] = useState(false);
   const dropDepthRef = useRef(0);
   const isComposingRef = useRef(false);
-  const activePreview = previewAttachment && attachments.some((item) => attachmentKey(item) === attachmentKey(previewAttachment))
+  const activePreview = previewAttachment && attachments.some((item) => composerAttachmentKey(item) === composerAttachmentKey(previewAttachment))
     ? previewAttachment
     : null;
 
@@ -4496,8 +4494,8 @@ function useComposerInteractions({
     setPreviewAttachment(item);
   };
   const removeAttachmentItem = (item) => {
-    removeAttachment(attachmentKey(item));
-    if (activePreview && attachmentKey(activePreview) === attachmentKey(item)) {
+    removeAttachment(composerAttachmentKey(item));
+    if (activePreview && composerAttachmentKey(activePreview) === composerAttachmentKey(item)) {
       setPreviewAttachment(null);
     }
   };
@@ -4720,25 +4718,6 @@ function useComposerSendKeyHandler({ canSend, composer, sendMessage }) {
     if (!canSend) return;
     runUIAction(() => sendMessage());
   };
-}
-
-function ComposerAttachments({ attachments, onPreview, onRemove }) {
-  if (attachments.length === 0) return null;
-  return (
-    <div className="attachments">
-      {attachments.map((item) => (
-        <span key={attachmentKey(item)} className={`attachment-pill${item.kind === 'image' ? ' attachment-pill--image' : ''}`}>
-          <button type="button" className="attachment-preview" aria-label={`预览附件 ${item.name || item.path}`} onClick={() => onPreview(item)}>
-            {item.kind === 'image' && item.previewUrl ? <img src={item.previewUrl} alt="" /> : <File size={14} />}
-            <span>{item.name || item.path}</span>
-          </button>
-          <button type="button" className="attachment-remove" aria-label={`移除附件 ${item.name || item.path}`} onClick={() => onRemove(item)}>
-            <X size={12} />
-          </button>
-        </span>
-      ))}
-    </div>
-  );
 }
 
 function ForkDraftCard({ store }) {
