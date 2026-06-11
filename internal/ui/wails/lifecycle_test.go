@@ -20,21 +20,18 @@ func (t *stubLifecycleTimer) Stop() bool {
 }
 
 func TestRequestBackendShutdownArmsHardDeadline(t *testing.T) {
-	oldAfterFunc := lifecycleAfterFunc
-	defer func() { lifecycleAfterFunc = oldAfterFunc }()
-
 	var (
 		scheduledDelay time.Duration
 		scheduledFn    func()
 		timer          = &stubLifecycleTimer{}
 	)
-	lifecycleAfterFunc = func(delay time.Duration, fn func()) lifecycleTimer {
+
+	lifecycle := NewWailsLifecycle(nil, nil)
+	lifecycle.afterFunc = func(delay time.Duration, fn func()) lifecycleTimer {
 		scheduledDelay = delay
 		scheduledFn = fn
 		return timer
 	}
-
-	lifecycle := NewWailsLifecycle(nil, nil)
 	lifecycle.MarkFrontendReady()
 
 	shutdownCalled := make(chan struct{}, 1)

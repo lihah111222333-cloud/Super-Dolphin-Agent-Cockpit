@@ -20,8 +20,6 @@ const (
 	maxRefreshConcurrency = 8
 )
 
-var bootstrapCoordinators sync.Map
-
 type bootstrapCoordinator struct {
 	cache  *lspCacheStore
 	states *bootstrapStateStore
@@ -139,31 +137,33 @@ func restoreBootstrappedWorkspace(ctx context.Context, m *manager, cfg workspace
 }
 
 func bootstrapCoordinatorFor(m *manager) (*bootstrapCoordinator, error) {
-	if existing, ok := bootstrapCoordinators.Load(m); ok {
-		return existing.(*bootstrapCoordinator), nil
+	m.coordinatorMu.Lock()
+	defer m.coordinatorMu.Unlock()
+	if m.coordinator != nil {
+		return m.coordinator, nil
 	}
 	cache, err := newLSPCacheStoreFromEnv(m.logger)
 	if err != nil {
 		return nil, err
 	}
-	created := &bootstrapCoordinator{
+	m.coordinator = &bootstrapCoordinator{
 		cache:  cache,
 		states: newBootstrapStateStore(),
 	}
-	actual, _ := bootstrapCoordinators.LoadOrStore(m, created)
-	return actual.(*bootstrapCoordinator), nil
+	return m.coordinator, nil
 }
 
 func closeBootstrapCoordinator(m *manager) {
 	if m == nil {
 		return
 	}
-	value, ok := bootstrapCoordinators.LoadAndDelete(m)
-	if !ok {
-		return
+	m.coordinatorMu.Lock()
+	c := m.coordinator
+	m.coordinator = nil
+	m.coordinatorMu.Unlock()
+	if c != nil {
+		c.cache.Close()
 	}
-	coordinator := value.(*bootstrapCoordinator)
-	coordinator.cache.Close()
 }
 
 func (m *manager) bootstrapTarget(ctx context.Context, uri string) (documentRef, workspaceConfig, error) {

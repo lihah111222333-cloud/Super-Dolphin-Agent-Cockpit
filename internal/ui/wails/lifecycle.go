@@ -25,10 +25,6 @@ type lifecycleTimer interface {
 	Stop() bool
 }
 
-var lifecycleAfterFunc = func(delay time.Duration, fn func()) lifecycleTimer {
-	return time.AfterFunc(delay, fn)
-}
-
 type ActiveAgentCounter interface {
 	ActiveAgentCount(context.Context) (int, error)
 }
@@ -40,8 +36,9 @@ func (f ActiveAgentCounterFunc) ActiveAgentCount(ctx context.Context) (int, erro
 }
 
 type WailsLifecycle struct {
-	logger  *slog.Logger
-	counter ActiveAgentCounter
+	logger    *slog.Logger
+	counter   ActiveAgentCounter
+	afterFunc func(time.Duration, func()) lifecycleTimer
 
 	mu             sync.RWMutex
 	quitFunc       func()
@@ -61,8 +58,9 @@ func NewWailsLifecycle(counter ActiveAgentCounter, slogLogger *slog.Logger) *Wai
 		slogLogger = pkglogger.Get()
 	}
 	return &WailsLifecycle{
-		logger:  slogLogger,
-		counter: counter,
+		logger:    slogLogger,
+		counter:   counter,
+		afterFunc: func(d time.Duration, fn func()) lifecycleTimer { return time.AfterFunc(d, fn) },
 	}
 }
 
@@ -111,7 +109,7 @@ func (l *WailsLifecycle) ShouldQuit() bool {
 	}
 	if activeCount > 0 {
 		l.emitQuitOverlay(activeCount)
-		lifecycleAfterFunc(quitGraceDelay, l.requestBackendShutdown)
+		l.afterFunc(quitGraceDelay, l.requestBackendShutdown)
 		return false
 	}
 
@@ -272,7 +270,7 @@ func (l *WailsLifecycle) armShutdownTimer() {
 	if l.shutdownTimer != nil {
 		l.shutdownTimer.Stop()
 	}
-	l.shutdownTimer = lifecycleAfterFunc(shutdownHardDeadline, func() {
+	l.shutdownTimer = l.afterFunc(shutdownHardDeadline, func() {
 		l.logger.Warn("wails: shutdown hard deadline exceeded", "deadline", shutdownHardDeadline.String())
 		l.NotifyBackendFailed()
 	})

@@ -212,7 +212,7 @@ func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *s
 					logger.Warn("orchestration: failed to bind active turn id", "agent_id", ev.AgentID, "turn_id", ev.TurnID, "error", err)
 				}
 			}, logger)
-			// TODO(convention): event handler 直接操作状态机违反 statemachine-event-convention B7。
+			// NOTE(convention): event handler 直接操作状态机违反 statemachine-event-convention B7。
 			// 当前安全（kelindar/event 异步投递），但应改为 trigger channel 解耦。
 			completedCancel = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnCompleted) {
 				if lifecycleCtx.Err() != nil {
@@ -220,7 +220,7 @@ func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *s
 				}
 				handleTurnCompletedEventWithCtx(svc, logger, ev, lifecycleCtx)
 			}, logger)
-			// TODO(convention): event handler 直接操作状态机违反 statemachine-event-convention B7。
+			// NOTE(convention): event handler 直接操作状态机违反 statemachine-event-convention B7。
 			// 当前安全（kelindar/event 异步投递），但应改为 trigger channel 解耦。
 			interruptedCancel = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnInterrupted) {
 				if lifecycleCtx.Err() != nil {
@@ -250,12 +250,12 @@ func RegisterApprovalLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, sv
 	resolvedCancel := func() {}
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
-			// TODO(convention): event handler 直接操作状态机违反 statemachine-event-convention B7。
+			// NOTE(convention): event handler 直接操作状态机违反 statemachine-event-convention B7。
 			// 当前安全（kelindar/event 异步投递），但应改为 trigger channel 解耦。
 			requestedCancel = bus.ResilientSubscribe(dispatcher, func(ev tooldto.ToolApprovalRequested) {
 				handleToolApprovalRequestedEvent(svc, loggerOrDefault(logger), ev)
 			}, logger)
-			// TODO(convention): event handler 直接操作状态机违反 statemachine-event-convention B7。
+			// NOTE(convention): event handler 直接操作状态机违反 statemachine-event-convention B7。
 			// 当前安全（kelindar/event 异步投递），但应改为 trigger channel 解耦。
 			resolvedCancel = bus.ResilientSubscribe(dispatcher, func(ev tooldto.ToolApprovalResolved) {
 				handleToolApprovalResolvedEvent(svc, loggerOrDefault(logger), ev)

@@ -30,11 +30,17 @@ const (
 	lspManifestName     = "lsp-manifest.json"
 )
 
-var (
-	executablePathForRuntime = os.Executable
-	userHomeDirForRuntime    = os.UserHomeDir
-	setenvForRuntime         = os.Setenv
-)
+type runtimeDeps struct {
+	executable  func() (string, error)
+	userHomeDir func() (string, error)
+	setenv      func(string, string) error
+}
+
+var deps = runtimeDeps{
+	executable:  os.Executable,
+	userHomeDir: os.UserHomeDir,
+	setenv:      os.Setenv,
+}
 
 var bundledSidecarNames = []string{"mcp-orch", "mcp-lsp", "mcp-ida"}
 
@@ -83,7 +89,7 @@ type lspServerManifest struct {
 }
 
 func ConfigurePackagedApp() error {
-	exe, err := executablePathForRuntime()
+	exe, err := deps.executable()
 	if err != nil {
 		return fmt.Errorf("resolve executable for packaged runtime: %w", err)
 	}
@@ -99,7 +105,7 @@ func ConfigurePackagedApp() error {
 	if resolved.RuntimeMode != RuntimeModePackaged || resolved.PackagedRuntime == nil {
 		return nil
 	}
-	home, err := userHomeDirForRuntime()
+	home, err := deps.userHomeDir()
 	if err != nil {
 		return fmt.Errorf("resolve packaged runtime home: %w", err)
 	}
@@ -529,7 +535,7 @@ func setEnvIfEmpty(key, value string) error {
 }
 
 func setEnv(key, value string) error {
-	if err := setenvForRuntime(key, value); err != nil {
+	if err := deps.setenv(key, value); err != nil {
 		return fmt.Errorf("%s: %w", key, err)
 	}
 	return nil

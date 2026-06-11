@@ -3,8 +3,9 @@ package main
 import (
 	"os"
 	"runtime"
+	"sync/atomic"
 
-	_ "github.com/anthropic-ai/super-agent-v3/internal/platform/rlimit"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/rlimit"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimeenv"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -16,9 +17,10 @@ const (
 
 // mcpStdout holds the original stdout exclusively for the MCP JSON-RPC
 // protocol. All other output is redirected to stderr.
-var mcpStdout *os.File
+var mcpStdout atomic.Pointer[os.File]
 
 func main() {
+	rlimit.Init()
 	if err := os.Setenv("SUPER_DOLPHIN_PROCESS_ROLE", "sidecar"); err != nil {
 		_, _ = os.Stderr.WriteString("mcp-lsp startup env failed: " + err.Error() + "\n")
 		os.Exit(1)
@@ -31,7 +33,7 @@ func main() {
 	if runtime.GOMAXPROCS(0) > 2 {
 		runtime.GOMAXPROCS(2)
 	}
-	mcpStdout = os.Stdout
+	mcpStdout.Store(os.Stdout)
 	os.Stdout = os.Stderr
 	os.Exit(runMain())
 }

@@ -121,6 +121,7 @@ func newService(
 		emitCompacted:    contract.NewEmitter[threaddto.Compacted](dispatcher),
 		emitLaunched:     contract.NewEmitter[threaddto.Launched](dispatcher),
 		threadAgents:     make(map[string]string),
+		reconnectDelay:   sessionRecoveryReconnectDelay,
 	}
 	// Workers live beside service methods they call; bus callbacks only enqueue.
 	s.agentLaunchedWorker = newAgentLaunchedWorker(s, logger)

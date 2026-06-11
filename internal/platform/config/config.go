@@ -21,8 +21,6 @@ type (
 	LSPConfig    = contract.LSPConfig
 )
 
-var setenvForConfig = os.Setenv
-
 func New() (*Config, error) {
 	projectRoot, err := PrimeProcessEnvironment()
 	if err != nil {
@@ -55,10 +53,10 @@ func New() (*Config, error) {
 		},
 		LSP: lspConfigFromEnv(),
 	}
-	if err := exportRPCAddrIfMissing(cfg.RPCAddr); err != nil {
+	if err := exportRPCAddrIfMissing(os.Setenv, cfg.RPCAddr); err != nil {
 		return nil, err
 	}
-	if err := exportDatabaseURLIfMissing(cfg.DatabaseURL); err != nil {
+	if err := exportDatabaseURLIfMissing(os.Setenv, cfg.DatabaseURL); err != nil {
 		return nil, err
 	}
 	return cfg, nil
@@ -115,10 +113,10 @@ func loadDotEnv(projectRoot string) error {
 		}
 		return nil
 	}
-	return applyDotEnv(path, string(content), packaged)
+	return applyDotEnv(os.Setenv, path, string(content), packaged)
 }
 
-func applyDotEnv(path, content string, strict bool) error {
+func applyDotEnv(setenv func(string, string) error, path, content string, strict bool) error {
 	for i, line := range strings.Split(content, "\n") {
 		key, value, ok, err := parseDotEnvLineStrict(line, i+1)
 		if err != nil {
@@ -130,7 +128,7 @@ func applyDotEnv(path, content string, strict bool) error {
 		if !ok || strings.TrimSpace(os.Getenv(key)) != "" {
 			continue
 		}
-		if err := setenvForConfig(key, value); err != nil {
+		if err := setenv(key, value); err != nil {
 			return fmt.Errorf("set environment from .env %s for %s: %w", path, key, err)
 		}
 	}
@@ -189,27 +187,27 @@ func hasPackagedRuntimeManifest(projectRoot string) (bool, error) {
 // RPC address to MCP child processes (mcp-orch, mcp-lsp) automatically.
 // Without this, mcp-orch falls back to localLauncher and spawns the desktop
 // binary as a subprocess, which crashes immediately.
-func exportRPCAddrIfMissing(addr string) error {
+func exportRPCAddrIfMissing(setenv func(string, string) error, addr string) error {
 	if strings.TrimSpace(os.Getenv("GO_AGENT_CTL_RPC_ADDR")) != "" {
 		return nil
 	}
 	if strings.TrimSpace(os.Getenv("RPC_ADDR")) != "" {
 		return nil
 	}
-	if err := setenvForConfig("GO_AGENT_CTL_RPC_ADDR", addr); err != nil {
+	if err := setenv("GO_AGENT_CTL_RPC_ADDR", addr); err != nil {
 		return fmt.Errorf("set GO_AGENT_CTL_RPC_ADDR: %w", err)
 	}
 	return nil
 }
 
-func exportDatabaseURLIfMissing(databaseURL string) error {
+func exportDatabaseURLIfMissing(setenv func(string, string) error, databaseURL string) error {
 	if strings.TrimSpace(os.Getenv("DATABASE_URL")) != "" {
 		return nil
 	}
 	if strings.TrimSpace(databaseURL) == "" {
 		return nil
 	}
-	if err := setenvForConfig("DATABASE_URL", databaseURL); err != nil {
+	if err := setenv("DATABASE_URL", databaseURL); err != nil {
 		return fmt.Errorf("set DATABASE_URL: %w", err)
 	}
 	return nil

@@ -2,6 +2,7 @@ package archtest
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -137,13 +138,13 @@ func freezeBaselineFiltered(opts CheckOptions, testsOnly bool) Baseline {
 	}
 	files, err := collectGoFilesFiltered(repoRoot, opts.scanRoots(), opts.skipDirs(), testsOnly)
 	if err != nil {
-		panic(fmt.Errorf("collect baseline files: %w", err))
+		log.Fatalf("collect baseline files: %v", err)
 	}
 	bl := make(Baseline)
 	for _, absPath := range files {
 		relPath, err := filepath.Rel(repoRoot, absPath)
 		if err != nil {
-			panic(fmt.Errorf("baseline file relative path: %w", err))
+			log.Fatalf("baseline file relative path: %v", err)
 		}
 		relPath = filepath.ToSlash(relPath)
 		m := MeasureFileMetrics(absPath)
@@ -158,7 +159,7 @@ func freezeBaselineFiltered(opts CheckOptions, testsOnly bool) Baseline {
 func collectGoFiles(repoRoot string, scanRoots []string, skipDirs map[string]bool) []string {
 	files, err := collectGoFilesFiltered(repoRoot, scanRoots, skipDirs, false)
 	if err != nil {
-		panic(fmt.Errorf("collect go files: %w", err))
+		log.Fatalf("collect go files: %v", err)
 	}
 	return files
 }

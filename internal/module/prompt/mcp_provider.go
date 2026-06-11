@@ -16,7 +16,7 @@ var (
 	_ DynamicSectionProvider        = MCPInstructionsProvider{}
 	_ dynamicTurnAttachmentProvider = MCPInstructionsProvider{}
 
-	defaultMCPInstructionsTracker = newMCPInstructionsTracker()
+	defaultMCPInstructionsTracker = sync.OnceValue(newMCPInstructionsTracker)
 )
 
 type MCPInstructionsProvider struct {
@@ -87,7 +87,7 @@ func (p MCPInstructionsProvider) trackerOrDefault() *mcpInstructionsTracker {
 	if p.tracker != nil {
 		return p.tracker
 	}
-	return defaultMCPInstructionsTracker
+	return defaultMCPInstructionsTracker()
 }
 
 func (t *mcpInstructionsTracker) Update(threadID string, current map[string]string) mcpInstructionsDiff {

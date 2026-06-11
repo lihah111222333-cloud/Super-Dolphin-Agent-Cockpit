@@ -363,22 +363,18 @@ func TestPrimeProcessEnvironmentReturnsDotEnvSetenvError(t *testing.T) {
 		t.Fatalf("write .env: %v", err)
 	}
 
-	previous := setenvForConfig
-	setenvForConfig = func(key, value string) error {
+	err := applyDotEnv(func(key, value string) error {
 		if key == "LOG_LEVEL" {
 			return errors.New("injected config setenv failure")
 		}
 		return os.Setenv(key, value)
-	}
-	t.Cleanup(func() { setenvForConfig = previous })
-
-	_, err := PrimeProcessEnvironment()
+	}, filepath.Join(root, ".env"), "LOG_LEVEL=debug\n", true)
 	if err == nil {
-		t.Fatal("PrimeProcessEnvironment() error = nil, want setenv failure")
+		t.Fatal("applyDotEnv() error = nil, want setenv failure")
 	}
 	for _, want := range []string{"set environment from .env", "LOG_LEVEL", "injected config setenv failure"} {
 		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("PrimeProcessEnvironment() error = %v, want substring %q", err, want)
+			t.Fatalf("applyDotEnv() error = %v, want substring %q", err, want)
 		}
 	}
 }

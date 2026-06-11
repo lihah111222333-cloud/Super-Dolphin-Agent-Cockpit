@@ -53,9 +53,6 @@ var (
 	ErrCodexIdentityInvalidType   = errors.New("codex identity field has invalid type or value")
 )
 
-// UserHomeDir is overridable in tests.
-var UserHomeDir = os.UserHomeDir
-
 // ResolveCodexIdentity extracts the (Home, InstanceKey, ModelProvider) triple
 // from a config map. All three keys must be present as non-empty strings.
 //
@@ -132,13 +129,13 @@ func expandCodexHome(raw string) (string, error) {
 	if strings.HasPrefix(s, "~") {
 		switch {
 		case s == "~":
-			home, err := UserHomeDir()
+			home, err := os.UserHomeDir()
 			if err != nil {
 				return "", fmt.Errorf("codexHome ~ expand: %w", err)
 			}
 			s = home
 		case strings.HasPrefix(s, "~/"):
-			home, err := UserHomeDir()
+			home, err := os.UserHomeDir()
 			if err != nil {
 				return "", fmt.Errorf("codexHome ~ expand: %w", err)
 			}

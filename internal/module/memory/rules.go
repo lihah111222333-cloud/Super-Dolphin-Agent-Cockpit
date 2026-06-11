@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 type MemoryMode string
@@ -174,7 +175,7 @@ var standardSearchingPastContextRules = []string{
 	"Only use runtime-surfaced memory or transcript snippets included in context, and apply the access/trust rules above before acting on them.",
 }
 
-var defaultMemoryRuleEngine = NewMemoryRuleEngine()
+var defaultMemoryRuleEngine = sync.OnceValue(NewMemoryRuleEngine)
 
 func NewMemoryRuleEngine() *MemoryRuleEngine {
 	engine := &MemoryRuleEngine{
@@ -188,7 +189,7 @@ func NewMemoryRuleEngine() *MemoryRuleEngine {
 }
 
 func BuildMemoryLines(skipIndex, searchPastContextEnabled bool, extraGuidelines []string) string {
-	return defaultMemoryRuleEngine.BuildMemoryLines(MemoryRuleOptions{
+	return defaultMemoryRuleEngine().BuildMemoryLines(MemoryRuleOptions{
 		SkipIndex:                skipIndex,
 		SearchPastContextEnabled: searchPastContextEnabled,
 		ExtraGuidelines:          extraGuidelines,
@@ -196,7 +197,7 @@ func BuildMemoryLines(skipIndex, searchPastContextEnabled bool, extraGuidelines 
 }
 
 func LoadMemoryPrompt(mode MemoryMode, autoEnabled, skipIndex, searchPastContextEnabled bool, extraGuidelines []string) *string {
-	return defaultMemoryRuleEngine.LoadMemoryPrompt(mode, autoEnabled, MemoryRuleOptions{
+	return defaultMemoryRuleEngine().LoadMemoryPrompt(mode, autoEnabled, MemoryRuleOptions{
 		SkipIndex:                skipIndex,
 		SearchPastContextEnabled: searchPastContextEnabled,
 		ExtraGuidelines:          extraGuidelines,
@@ -413,7 +414,7 @@ func resolvedRuleEngine(engine *MemoryRuleEngine) *MemoryRuleEngine {
 	if engine != nil {
 		return engine
 	}
-	return defaultMemoryRuleEngine
+	return defaultMemoryRuleEngine()
 }
 
 func renderSection(title string, lines []string) string {

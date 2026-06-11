@@ -2,6 +2,7 @@ package notify
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -30,13 +31,13 @@ const dagNotifyProcessTimeout = 5 * time.Second
 
 type DAGNotifierOption func(*DAGNotifier)
 
-func WithDAGNotifyQueueCapacity(capacity int) DAGNotifierOption {
+func WithDAGNotifyQueueCapacity(capacity int) (DAGNotifierOption, error) {
 	if capacity <= 0 {
-		panic("notify(orch): dag notifier queue capacity must be positive")
+		return nil, fmt.Errorf("notify(orch): dag notifier queue capacity must be positive, got %d", capacity)
 	}
 	return func(n *DAGNotifier) {
 		n.queueCapacity = capacity
-	}
+	}, nil
 }
 
 // dagNotifyRequest is the unit of work enqueued by the bus callback.

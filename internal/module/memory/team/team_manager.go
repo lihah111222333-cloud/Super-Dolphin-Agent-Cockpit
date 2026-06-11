@@ -46,10 +46,6 @@ type TeamMemoryManager struct {
 
 var teamMemoryRuntimeReady atomic.Bool
 
-var teamMemoryRuntimeReadyFunc = func() bool {
-	return teamMemoryRuntimeReady.Load()
-}
-
 func SetRuntimeReady(ready bool) {
 	teamMemoryRuntimeReady.Store(ready)
 }
@@ -58,10 +54,10 @@ func SwapRuntimeReadyFuncForTest(fn func() bool) func() {
 	if fn == nil {
 		fn = func() bool { return false }
 	}
-	prev := teamMemoryRuntimeReadyFunc
-	teamMemoryRuntimeReadyFunc = fn
+	prev := teamMemoryRuntimeReady.Load()
+	teamMemoryRuntimeReady.Store(fn())
 	return func() {
-		teamMemoryRuntimeReadyFunc = prev
+		teamMemoryRuntimeReady.Store(prev)
 	}
 }
 
@@ -99,7 +95,7 @@ func isTeamMemoryEnabled(m *TeamMemoryManager, buildCtx contract.BuildCtx) bool 
 	if !gate.AutoEnabled || !gate.TeamMemEnabled || gate.KairosActive {
 		return false
 	}
-	if !teamMemoryRuntimeReadyFunc() {
+	if !teamMemoryRuntimeReady.Load() {
 		return false
 	}
 	_, err := configuredTeamMemPath(m, buildCtx)

@@ -20,11 +20,9 @@ import (
 // grace which has a similar cost profile.
 const sessionRecoveryDrainGrace = 15 * time.Second
 
-// sessionRecoveryReconnectDelay is the original 3s "give Codex time to
-// close the thread" wait that used to live inline in onAgentFailed.
-// Exposed as a var (not const) so tests can shorten it without racing
-// the default.
-var sessionRecoveryReconnectDelay = 3 * time.Second
+// sessionRecoveryReconnectDelay is the default reconnect delay used when
+// constructing a new service. Tests can override via service.reconnectDelay.
+const sessionRecoveryReconnectDelay = 3 * time.Second
 
 // sessionRecoverer is the narrow contract over *service that the worker
 // needs. processSessionRecovery carries the pre-P22 body of

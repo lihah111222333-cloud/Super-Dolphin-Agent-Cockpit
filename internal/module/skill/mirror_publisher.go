@@ -15,7 +15,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
 )
 
-var skillMirrorRootLocks sync.Map
+type mirrorLockRegistry struct{ m sync.Map }
+
+var skillMirrorRootLocks = &mirrorLockRegistry{}
 
 type SkillMirrorTarget struct {
 	TargetID, Scope, Root, CanonicalRootID string
@@ -143,7 +145,7 @@ func projectMismatchedManifestPublishReport(records []canonicalSkillRecord, targ
 
 func lockSkillMirrorRoot(root string) func() {
 	key := filepath.Clean(strings.TrimSpace(root))
-	value, _ := skillMirrorRootLocks.LoadOrStore(key, &sync.Mutex{})
+	value, _ := skillMirrorRootLocks.m.LoadOrStore(key, &sync.Mutex{})
 	mu, ok := value.(*sync.Mutex)
 	if !ok {
 		mu = &sync.Mutex{}

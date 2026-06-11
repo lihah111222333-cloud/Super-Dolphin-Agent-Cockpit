@@ -309,9 +309,9 @@ func TestStartRejectsPermissivePrivateDirectoryParents(t *testing.T) {
 }
 
 func TestValidatePrivateDirSkipsPOSIXPermissionBitsOnWindows(t *testing.T) {
-	prev := runtimeGOOS
-	runtimeGOOS = func() string { return "windows" }
-	t.Cleanup(func() { runtimeGOOS = prev })
+	prev := pgDeps
+	pgDeps = embeddedPGDeps{goos: func() string { return "windows" }}
+	t.Cleanup(func() { pgDeps = prev })
 
 	dir := filepath.Join(t.TempDir(), "postgres")
 	makePermissiveDir(t, dir, 0o777)
@@ -564,9 +564,9 @@ func TestPostgresConfigStringEscapesBackslashAndQuote(t *testing.T) {
 }
 
 func TestWritePostgresRuntimeConfigUsesTCPOnWindows(t *testing.T) {
-	prev := runtimeGOOS
-	runtimeGOOS = func() string { return "windows" }
-	t.Cleanup(func() { runtimeGOOS = prev })
+	prev := pgDeps
+	pgDeps = embeddedPGDeps{goos: func() string { return "windows" }}
+	t.Cleanup(func() { pgDeps = prev })
 
 	cfg := contract.EmbeddedPostgresConfig{
 		DataDir:    t.TempDir(),
@@ -590,9 +590,9 @@ func TestWritePostgresRuntimeConfigUsesTCPOnWindows(t *testing.T) {
 }
 
 func TestWritePostgresRuntimeConfigUsesUnixSocketOffWindows(t *testing.T) {
-	prev := runtimeGOOS
-	runtimeGOOS = func() string { return "linux" }
-	t.Cleanup(func() { runtimeGOOS = prev })
+	prev := pgDeps
+	pgDeps = embeddedPGDeps{goos: func() string { return "linux" }}
+	t.Cleanup(func() { pgDeps = prev })
 
 	cfg := contract.EmbeddedPostgresConfig{
 		DataDir:    t.TempDir(),

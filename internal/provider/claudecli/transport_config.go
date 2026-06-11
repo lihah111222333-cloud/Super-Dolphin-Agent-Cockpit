@@ -57,8 +57,6 @@ type cliLaunchConfig struct {
 	DisableProviderNativeSkills bool
 }
 
-var launchCLI = launchCLIWithManifest
-
 func launchCLIWithManifest(
 	binary string,
 	cwd string,

@@ -22,12 +22,10 @@ type claudeAuthStatus struct {
 	APIKeySource string `json:"apiKeySource"`
 }
 
-var readClaudeAuthStatus = runClaudeAuthStatus
-
-func preflightClaudeAuth(ctx context.Context, binary, cwd string, cfg cliLaunchConfig) error {
+func (d *driver) preflightClaudeAuth(ctx context.Context, binary, cwd string, cfg cliLaunchConfig) error {
 	checkCtx, cancel := ctxutil.WithTimeout(ctx, claudeAuthPreflightTimeout)
 	defer cancel()
-	status, raw, statusErr := readClaudeAuthStatus(checkCtx, binary, cwd, cfg)
+	status, raw, statusErr := d.authStatus(checkCtx, binary, cwd, cfg)
 	inconclusive := statusErr != nil
 	if inconclusive {
 		pkglogger.Warn("claudecli: auth status preflight inconclusive; continuing launch", "error", statusErr)

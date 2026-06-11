@@ -37,10 +37,16 @@ var (
 		[]string{"dag_key", "node_key"},
 		nil,
 	)
+
+	// Register the custom collector at package init time via a var
+	// assignment. The helper returns a bool so we can use it in a var
+	// declaration (prometheus.MustRegister itself returns nothing).
+	_ = registerDAGRetryCountPerNodeCollector()
 )
 
-func init() {
+func registerDAGRetryCountPerNodeCollector() bool {
 	prometheus.MustRegister(dagRetryCountPerNodeCollector{})
+	return true
 }
 
 type dagRetryCountPerNodeCollector struct{}

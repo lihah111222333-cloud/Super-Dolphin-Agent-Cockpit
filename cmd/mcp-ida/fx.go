@@ -161,7 +161,7 @@ func (emptyToolProvider) CallTool(_ context.Context, name string, _ json.RawMess
 }
 
 func newStdioServer() *common.Server {
-	stdout := mcpStdout
+	stdout := mcpStdout.Load()
 	if stdout == nil {
 		stdout = os.Stdout
 	}

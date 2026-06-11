@@ -116,22 +116,13 @@ var launchCLIOverrideMu sync.Mutex
 
 const restartTestTimeout = 15 * time.Second
 
-func overrideLaunchCLI(t *testing.T, fn func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error)) {
+func overrideLaunchCLI(t *testing.T, fn func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error)) func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 	t.Helper()
 	launchCLIOverrideMu.Lock()
-	prev := launchCLI
-	prevAuth := readClaudeAuthStatus
-	launchCLI = fn
-	readClaudeAuthStatus = loggedInClaudeAuthStatus
 	t.Cleanup(func() {
-		launchCLI = prev
-		readClaudeAuthStatus = prevAuth
 		launchCLIOverrideMu.Unlock()
 	})
-}
-
-func loggedInClaudeAuthStatus(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error) {
-	return claudeAuthStatus{LoggedIn: true, AuthMethod: "test", APIProvider: "firstParty"}, `{"loggedIn":true}`, nil
+	return fn
 }
 
 func snapshotSessionState(s *session) (string, string, chan struct{}) {
@@ -290,7 +281,7 @@ func TestRestartIfNeededLockedRebuildsReadyAndPreservesIDs(t *testing.T) {
 	next := newScriptedTransport()
 	defer next.finish()
 	resumeIDs := make(chan string, 1)
-	overrideLaunchCLI(t, func(_, _, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(_, _, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
 		resumeIDs <- resumeID
 		return next.tr, nil, nil
 	})
@@ -304,6 +295,7 @@ func TestRestartIfNeededLockedRebuildsReadyAndPreservesIDs(t *testing.T) {
 		transport:       closedTransport(),
 		suppressedTurns: map[string]struct{}{"old-turn": {}},
 		model:           "claude-old",
+		launchCLI:       launchFn,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), restartTestTimeout)
 	defer cancel()
@@ -333,7 +325,7 @@ func TestRestartIfNeededLockedRebuildsReadyAndPreservesIDs(t *testing.T) {
 
 func TestRestartIfNeededLockedKeepsEarlyReadyEvent(t *testing.T) {
 	next := newBufferedTransport(t, "thread-early")
-	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		return next.tr, nil, nil
 	})
 
@@ -346,6 +338,7 @@ func TestRestartIfNeededLockedKeepsEarlyReadyEvent(t *testing.T) {
 		transport:       closedTransport(),
 		suppressedTurns: map[string]struct{}{},
 		model:           "claude-old",
+		launchCLI:       launchFn,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), restartTestTimeout)
 	defer cancel()
@@ -375,7 +368,7 @@ func TestRestartIfNeededLockedKeepsEarlyReadyEvent(t *testing.T) {
 func TestStartTurnBlocksConcurrentSubmitUntilRestartReady(t *testing.T) {
 	next := newScriptedTransport()
 	defer next.finish()
-	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		return next.tr, nil, nil
 	})
 
@@ -388,6 +381,7 @@ func TestStartTurnBlocksConcurrentSubmitUntilRestartReady(t *testing.T) {
 		transport:       closedTransport(),
 		suppressedTurns: map[string]struct{}{},
 		model:           "claude-old",
+		launchCLI:       launchFn,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), restartTestTimeout)
 	defer cancel()

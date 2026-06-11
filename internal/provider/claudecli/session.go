@@ -30,6 +30,7 @@ type session struct {
 	eventDispatcher      *unified.EventDispatcher
 	binaryPath           string
 	cwd                  string
+	launchCLI            func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error)
 	model                string
 	transportModel       string
 	transportConfig      cliLaunchConfig
@@ -61,6 +62,7 @@ type session struct {
 	activeToolCalls map[string]string
 	suppressedTurns map[string]struct{}
 	imageTracker    *imageHashTracker
+	settleTransport func(*transport) error
 }
 
 type turnHandle struct {
@@ -291,7 +293,7 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 	if watcher != nil {
 		watcher.stopAndWait()
 	}
-	cleanupInterruptedTransport(s.logger, reg, tr, cleanup)
+	cleanupInterruptedTransport(s.logger, reg, tr, cleanup, s.resolveSettleTransport())
 	if handle == nil {
 		return nil
 	}
@@ -305,6 +307,12 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 	return nil
 }
 
+func (s *session) resolveSettleTransport() func(*transport) error {
+	if s.settleTransport != nil {
+		return s.settleTransport
+	}
+	return defaultSettleInterruptedTransport
+}
 func (s *session) ListThreads(context.Context) ([]dto.ThreadRef, error) {
 	return nil, contract.NewCapabilityError(dto.CapThreadList, "claude")
 }

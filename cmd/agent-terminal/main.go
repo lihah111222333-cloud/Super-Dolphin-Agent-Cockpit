@@ -4,12 +4,13 @@ import (
 	"os"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/app"
-	_ "github.com/anthropic-ai/super-agent-v3/internal/platform/rlimit"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/rlimit"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimeenv"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func main() {
+	rlimit.Init()
 	if err := os.Setenv("SUPER_DOLPHIN_PROCESS_ROLE", "desktop"); err != nil {
 		pkglogger.Get().Error("agent-terminal startup env failed", "error", err)
 		os.Exit(1)

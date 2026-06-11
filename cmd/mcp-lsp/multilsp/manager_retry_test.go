@@ -13,10 +13,6 @@ import (
 )
 
 func TestHoverRetriesRustAnalyzerContentModified(t *testing.T) {
-	previousDelay := transientLSPRequestBaseDelay
-	transientLSPRequestBaseDelay = time.Millisecond
-	t.Cleanup(func() { transientLSPRequestBaseDelay = previousDelay })
-
 	root := t.TempDir()
 	writeGenericTestFile(t, filepath.Join(root, "Cargo.toml"), "[package]\nname = \"retry-hover\"\nversion = \"0.1.0\"\n")
 	target := filepath.Join(root, "src", "main.rs")
@@ -29,6 +25,7 @@ func TestHoverRetriesRustAnalyzerContentModified(t *testing.T) {
 			return client, nil
 		}),
 	}).(*manager)
+	mgr.retryBaseDelay = time.Millisecond
 	t.Cleanup(func() { _ = mgr.Close() })
 
 	hover, err := mgr.Hover(ctxWithCWD(root, "agent-rust-content-modified", "thread-1"), target, protocol.Position{Line: 0, Character: 3})

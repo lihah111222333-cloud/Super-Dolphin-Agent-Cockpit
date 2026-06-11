@@ -308,13 +308,13 @@ func TestCodexValidationCommandAppliesProcessAttrsBeforeRun(t *testing.T) {
 }
 
 func TestExtractCodexWheelRejectsOversizedEntry(t *testing.T) {
-	previousFileLimit := maxCodexExtractedFileBytes
-	previousTotalLimit := maxCodexExtractedTotalBytes
-	maxCodexExtractedFileBytes = 8
-	maxCodexExtractedTotalBytes = 16
+	previousFileLimit := codexInstall.maxFileBytes
+	previousTotalLimit := codexInstall.maxTotalBytes
+	codexInstall.maxFileBytes = 8
+	codexInstall.maxTotalBytes = 16
 	t.Cleanup(func() {
-		maxCodexExtractedFileBytes = previousFileLimit
-		maxCodexExtractedTotalBytes = previousTotalLimit
+		codexInstall.maxFileBytes = previousFileLimit
+		codexInstall.maxTotalBytes = previousTotalLimit
 	})
 	wheel := codexWheelWithLargeEntryForTest(t)
 
