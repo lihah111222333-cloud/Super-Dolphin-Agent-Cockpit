@@ -1,25 +1,25 @@
-# PostgreSQL 切换 SQLite 修改评审与实施规格
+# PostgreSQL 完全移除与 SQLite 本地持久化切换实施规格
 
 检查时间：2026-06-11
 
 代码基线：`d0a8dd160` (`main`, after `origin/main` fast-forward)
 
-目标：将 Super Dolphin 桌面应用与 `cmd/mcp-orch` 的产品运行时持久化从 PostgreSQL / embedded PostgreSQL 切换为本地 SQLite，并保证既有功能、历史数据、并发语义和发布体验不发生已知回归。
+目标：将 Super Dolphin 桌面应用与 `cmd/mcp-orch` 的产品运行时持久化从 PostgreSQL / embedded PostgreSQL 切换为本地 SQLite。由于当前仍处于开发阶段，既有本地 PG 数据不作为用户资产，本次切换允许本地数据重置；必须保证 SQLite 新运行时功能完整、并发语义等价、启动与打包体验不再依赖 PostgreSQL，且产品运行时不再读取 PG 相关配置。
 
-修订依据：用户提供的 `three-agent-postgres-to-sqlite-review.md` 评审文档。本版已按源码追溯真阳性、重复项和上层防护后重写为可执行实施规格。
+修订依据：用户提供的 `three-agent-postgres-to-sqlite-review.md` 与 `sqlite-switch-data-reset-scope-review-2026-06-11.md` 评审文档。本版已按源码追溯真阳性、重复项和上层防护后重写为可执行实施规格。
 
 ## 1. 结论
 
 当前项目不能通过“换 driver”完成切换。现有代码把 PostgreSQL 深度嵌入到运行时配置、生命周期、sqlc 生成、手写 store、`mcp-orch` sidecar、迁移系统、并发 claim、advisory lock、JSONB 事件数组和打包脚本中。
 
-要满足“从 PG 完美切换到 SQLite，不能影响原功能”，必须把目标定义为：在下列功能等价矩阵和发布 gate 全部通过后，达到“无已知功能回归、无静默数据丢失、无未覆盖并发语义差异”的发布状态。绝对意义上的“完美”不能只靠文档保证，但本文件给出了后续实现必须逐项落地和验收的规格。
+要满足“从 PG 完美切换到 SQLite，不能影响原功能”，必须把目标定义为：在下列功能等价矩阵和发布 gate 全部通过后，达到“无已知功能回归、无未覆盖并发语义差异、无产品运行时 PG 依赖残留”的发布状态。旧本地 PG 数据按开发阶段遗留状态处理，不进入本次功能等价范围。绝对意义上的“完美”不能只靠文档保证，但本文件给出了后续实现必须逐项落地和验收的规格。
 
 建议路线：
 
 - 产品运行时硬切到 SQLite，不长期保留双数据库兼容分支。
-- 发布前提供一次性 PG -> SQLite 迁移工具；迁移失败必须 fail-fast，不修改旧 PG 数据，不覆盖既有 SQLite。
-- SQLite 启动时如果发现旧 PG 数据而没有 SQLite 文件，必须拒绝静默创建空库。
-- `schema_migrations` 最低版本 gate、迁移窗口独占与一致快照、首次迁移可读取旧 PG、cron claim、DAG wakeup claim、DAG scheduled advisory lock、prompt recall topic lock、JSON event append/truncate、多进程写入稳定性是 P0 发布阻断项。
+- 不提供默认 PG -> SQLite 自动迁移工具；旧 PG 数据目录存在时不启动、不读取、不迁移、不阻断 SQLite 启动。
+- 产品运行时完全忽略 `DATABASE_URL` / `POSTGRES_CONNECTION_STRING`，不得把 PG DSN 作为 DB 配置源，也不得继续向子进程导出 PG DSN。
+- `schema_migrations` 最低版本 gate、cron claim、DAG wakeup claim、DAG scheduled advisory lock、prompt recall topic lock、JSON event append/truncate、多进程写入稳定性、PG runtime/config 完全解耦是 P0 发布阻断项。
 - SQLite schema 必须是从当前有效 PG schema 重建的 baseline，不应逐个套用旧 PG migrations。
 
 ## 2. 源码证据与评审裁决
@@ -39,8 +39,9 @@
 
 | 评审项 | 裁决 | 源码追溯 | 处理方式 |
 |---|---|---|---|
-| 没有 PG -> SQLite 迁移工具会丢历史数据 | 真阳性，P0，无上层防护 | `rg "sd-pg-to-sqlite|PG_MIGRATE|SUPER_DOLPHIN_SQLITE"` 只命中文档/历史规划；产品启动仍走 PG lifecycle | 新增 `cmd/sd-pg-to-sqlite`，并设为发布 gate |
-| 旧 PG 存在但 SQLite 不存在时静默空库 | 真阳性，P0，属于未来 SQLite runtime 必须新增的防护 | 当前没有 SQLite runtime；现有路径会解析/启动 PG 并 auto-migrate | SQLite 启动前检测旧 PG data dir / `DATABASE_URL`，否则 fail-fast |
+| 没有 PG -> SQLite 迁移工具会丢历史数据 | 按新产品前提降级：旧 PG 本地数据无用户价值，不作为 P0 | `rg "sd-pg-to-sqlite|PG_MIGRATE|SUPER_DOLPHIN_SQLITE"` 只命中文档/历史规划；产品尚未上线，用户确认允许丢弃旧 PG 本地数据 | 删除正式迁移工具要求；README / release note 明确旧 PG 数据不会自动迁移 |
+| 旧 PG 存在但 SQLite 不存在时静默空库 | 按新产品前提改判：不是数据丢失 P0，而是 PG 解耦 P0 | 当前没有 SQLite runtime；现有路径会解析/启动 PG 并 auto-migrate | SQLite runtime 直接创建新库；旧 PG data dir 不读取、不启动、不迁移、不阻断 |
+| PG 环境变量残留影响 SQLite 启动 | 真阳性，P0，属于完全解耦风险 | `internal/platform/embeddedpg/config.go:57` 会消费 `DATABASE_URL` / `POSTGRES_CONNECTION_STRING`；`internal/platform/config/config.go:205-213` 会回写 `DATABASE_URL` 给子进程 | 产品运行时完全忽略 PG env；`config.New()` 不再读取或导出这些变量，残留 env 不影响 SQLite 启动 |
 | `schema_migrations` 低版本仍允许启动 | 当前 PG 路径不是真阳性；SQLite 必须复制防护 | `VerifyMinSchemaVersion` 已存在并被 app 与 `mcp-orch` 调用 | 不作为全新缺陷；列为 SQLite 等价 gate |
 | cron `FOR UPDATE SKIP LOCKED` 替换不严谨会重复 claim | 真阳性，P0，上层 token/dedupe 不是等价防护 | `sql/queries/cron_job.sql:83-96` 与 `internal/module/cron/scheduler.go:247` 明确依赖 `SKIP LOCKED`；`dedupe_key` 包含每次新生成 idempotency key | SQLite 用原子条件 `UPDATE ... RETURNING` + lease，并加并发测试 |
 | DAG wakeup claim 替换不严谨会重复 dispatch | 真阳性，P0，后置 holder/status guard 不保护选择阶段 | `cmd/mcp-orch/sql/queries/task_dag_wakeup_dispatch.sql:7-28` 在选择阶段使用 `FOR UPDATE SKIP LOCKED` | SQLite 把选择与状态变更合成单个条件更新 |
@@ -54,12 +55,12 @@
 
 | 复核项 | 真实性与可达性 | 上层防护 | 文档处理 |
 |---|---|---|---|
-| 迁移期间并发写入导致快照不一致或迁移后丢写 | 真阳性，P0，属于切换流程真实可达风险：当前没有 `cmd/sd-pg-to-sqlite` 产品迁移工具；运行时写入点包括 `sql/queries/cron_job.sql:83-96`、`internal/module/cron/scheduler.go:247,277`、`cmd/mcp-orch/sql/queries/task_dag_wakeup_dispatch.sql:6-30`、`cmd/mcp-orch/orchestration/dag_dispatch.go:225,267` | 无产品级全库迁移锁。PG 的 row lock / advisory lock 只保护业务抢占，不保护跨表导出和切换窗口 | 7.1、G3、G13 明确要求应用主进程、`mcp-orch` 和 cron scheduler 停止，或未来实现可证明的维护锁；否则迁移工具 fail-fast |
-| 升级后无法读取旧 embedded PG data dir | 真阳性，P0，首次迁移真实可达风险：旧数据默认在 `SUPER_DOLPHIN_HOME/postgres/data`，必须通过 PG server/DSN 读取；当前 packaging/runtime manifest 强依赖 `embedded_postgres_resource_path`，若新版直接移除 PG runtime 且迁移未先跑，工具无法只靠 SQLite 读取 PG 数据目录 | 无上层防护；updater 只替换 app 并清理 PG 相关环境，不执行迁移 | G3/G14 要求迁移在 PG runtime 移除前完成，或迁移工具临时携带/定位 PG 只读 runtime；无法读取旧 PG 时禁止静默新建 SQLite |
+| 迁移期间并发写入导致快照不一致或迁移后丢写 | 按新产品前提降级并排除：不做 PG 历史数据迁移时，该风险不再真实可达 | 用户确认旧 PG 本地数据无价值；SQLite 新库从 baseline 创建，不读取 PG | 删除旧 7.x 迁移规格与原 12.3 迁移测试 |
+| 升级后无法读取旧 embedded PG data dir | 按新产品前提降级并排除：旧 PG data dir 不再作为输入源 | 产品运行时不启动、不读取旧 PG；旧目录只是遗留文件 | 删除原“首次迁移 PG 读取能力”gate；打包与 config gate 改为验证无 PG runtime/config 消费 |
 | 文档 SQL 示例使用 `RETURNING *` | 真阳性，但只影响文档可执行性，不是当前产品运行风险 | `internal/archtest/sqlc_bypass_guard_test.go:15,92-122` 已禁止 `cmd/mcp-orch/sql/queries` 中出现 `SELECT *` / `RETURNING *` | 示例改为枚举列；不升级为运行时 P0 |
-| prompt recall topic lock 迁移遗漏 | 真阳性，P0，业务可达：dashboard prompt section 写入与 intent commit 都会在写 recall topic 前走 `LockRecallTopicInCWD` | 无可替代上层防护；后续 duplicate scan 依赖锁避免并发插入穿透 | 8.6、G15 与 G8/G9/G13 的并发验证需补 recall topic 同 cwd/topic 双写重复=0 |
-| 性能门槛不够量化 | 真阳性，属于发布就绪风险；当前 SQLite runtime 尚未实现，因此不是现有源码路径上的生产缺陷 | 无上层自动防护；如果没有基准，单连接/WAL 策略可能在发布前才暴露退化 | 新增 G16 与 12.6，要求 PG 基线、SQLite 对照、p95/内存/迁移耗时门槛 |
-| 回滚与灾难恢复不明确 | 真阳性，属于切换发布风险；当前只能保留旧 PG，尚无 SQLite 切换后的自动回滚协议 | 无自动回滚防护；启动路径一旦切到 SQLite，不能依赖隐式回退 PG | 7.1、G17 要求 pre-migration backup、迁移 manifest、旧 PG 保留、失败禁止提升临时库、降级 fail-fast |
+| prompt recall topic lock 迁移遗漏 | 真阳性，P0，业务可达：dashboard prompt section 写入与 intent commit 都会在写 recall topic 前走 `LockRecallTopicInCWD` | 无可替代上层防护；后续 duplicate scan 依赖锁避免并发插入穿透 | 8.6、G8 与 12.4 的并发验证需补 recall topic 同 cwd/topic 双写重复=0 |
+| 改写完成后缺少回归与冒烟验证 | 真阳性，属于发布就绪风险；当前 SQLite runtime 尚未实现，因此不是现有源码路径上的生产缺陷 | 无上层自动防护；如果没有完整测试，功能缺口、明显卡顿或锁等待可能在发布后才暴露 | 新增 G14 与 12.6，要求实现完成后运行功能回归、启动 smoke、并发压力和基础性能冒烟；删除迁移工具耗时/RSS |
+| 回滚与灾难恢复不明确 | 真阳性，但范围改为 SQLite 备份/恢复；PG 回滚语义删除 | 无自动回滚防护；SQLite WAL 模式下备份只拷 `.db` 会有恢复风险 | G14 要求 `.db/.wal/.shm`、checkpoint、恢复流程；不再定义回滚到 PG |
 | SQLite baseline 路径不明确 | 真阳性，属于文档执行歧义 | 无需上层防护 | 固定为 `internal/platform/db/sqlite/migrations/001_baseline.sql` |
 
 ## 3. 当前持久化边界
@@ -101,7 +102,7 @@
 - 新增 SQLite 平台层，保留 `internal/platform/db` 作为上层注入边界，但底层改为 `database/sql` + SQLite driver。
 - 默认 driver 建议使用 `modernc.org/sqlite`，理由是 CGo-free，适合 Windows/macOS/Linux 桌面打包。若压测发现性能或兼容问题，再单独评估 `mattn/go-sqlite3`，但后者会引入 CGO 和交叉编译成本。
 - SQLite 文件默认放在 `SUPER_DOLPHIN_HOME` 派生目录，例如 `<home>/super-dolphin.db`；新增 `SUPER_DOLPHIN_SQLITE_PATH` 显式覆盖。
-- 产品运行时不再把 `DATABASE_URL` 作为 DB 配置入口；`DATABASE_URL` / `POSTGRES_CONNECTION_STRING` 只用于迁移工具或旧数据检测错误提示。
+- 产品运行时不再把 `DATABASE_URL` 作为 DB 配置入口；`DATABASE_URL` / `POSTGRES_CONNECTION_STRING` 只保留为历史废弃配置名，运行时必须完全忽略。
 - 打开连接后必须设置并验证：
   - `PRAGMA foreign_keys = ON`
   - `PRAGMA journal_mode = WAL`
@@ -125,7 +126,7 @@
 
 | 功能面 | 当前 PG 行为 | SQLite 实施要求 | 验收 |
 |---|---|---|---|
-| 启动与配置 | `config.New()` 解析 embedded PG / `DATABASE_URL`，`db.Module` 启动 PG 并 auto-migrate | `config.New()` 解析 SQLite path；产品运行时拒绝外部 PG DSN；旧 PG 数据存在但 SQLite 缺失时 fail-fast | 新旧三类启动测试：新装、迁移后、旧 PG 未迁移 |
+| 启动与配置 | `config.New()` 解析 embedded PG / `DATABASE_URL`，`db.Module` 启动 PG 并 auto-migrate | `config.New()` 只解析 SQLite path；产品运行时忽略外部 PG DSN；旧 PG 数据存在也不阻断 SQLite 新库创建 | 新装、PG env 残留、旧 PG data dir 残留三类启动测试 |
 | schema gate | `VerifyMinSchemaVersion` 拦截低版本 PG | SQLite runner 保留同等低版本 gate | 低版本 SQLite fixture 启动失败 |
 | migrations | PG migrations 按文件 apply，记录 `schema_migrations` | SQLite baseline + 后续 SQLite migrations；不复用 PG migration 文件 | `make sqlc-verify` + migration runner 单测 |
 | thread lifecycle | `agent_threads` 保存 thread / runtime / prompt snapshot / recoverable 状态 | 保持字段、状态、JSON snapshot 兼容；时间转 epoch ms | thread start/list/recover/prompt snapshot golden |
@@ -152,7 +153,7 @@
 | worker lease | PG 条件 upsert/interval | SQLite CAS + now_ms/lease_ms | acquire/renew/release 并发测试 |
 | scheduled DAG | PG advisory lock 保证跨进程单 scheduler | `runtime_locks` 表 CAS + holder + lease | 两个 `mcp-orch` 同时跑只启动一次 |
 | workspace runs | status CAS、file upsert/list/get | 保持 CAS 和 merge 状态 | workspace create/merge/abort tests |
-| packaging | bundled PostgreSQL binary / scripts / manifest | 移除 PG runtime；加入 SQLite 文件说明和迁移入口 | Windows/macOS/Linux smoke |
+| packaging | bundled PostgreSQL binary / scripts / manifest | 移除 PG runtime；加入 SQLite 文件说明和旧 PG 废弃说明 | Windows/macOS/Linux smoke |
 | backup/restore | 现有 PG 语义 | 文档说明 `.db/.wal/.shm`、checkpoint、恢复流程 | 发布文档 gate |
 
 ## 6. PG -> SQLite 映射规则
@@ -164,7 +165,7 @@
 | `TEXT`, `VARCHAR` | `TEXT` | 空串与 NULL 保持原 contract |
 | `BOOLEAN` | `INTEGER CHECK (col IN (0,1))` | store 映射为 bool |
 | `INTEGER`, `BIGINT` | `INTEGER` | 主键用 `INTEGER PRIMARY KEY` |
-| `SERIAL`, `BIGSERIAL` | `INTEGER PRIMARY KEY` | 导入时保留原 id；导入后校验下一次插入不会复用 |
+| `SERIAL`, `BIGSERIAL` | `INTEGER PRIMARY KEY` | seed / fixture 需要固定 id 时显式写入；校验下一次插入不会复用 |
 | `TIMESTAMPTZ`, `TIMESTAMP` | `INTEGER` epoch ms | Go 层统一 UTC |
 | `JSONB`, `JSON` | `TEXT CHECK json_valid(col)` | `encoding/json.RawMessage` 保持 canonical JSON |
 | `INTERVAL` | `INTEGER` milliseconds 或 Go 参数 | 禁止把 PG interval 字符串直接迁移 |
@@ -196,74 +197,37 @@
 | `cmd/mcp-orch/sql/queries` | `task_dag_wakeup_dispatch.sql`, `task_dag_dag.sql`, `task_dag_run.sql`, `task_dag_node_*.sql`, `task_dag_worker_lease.sql`, `workspace_run.sql` | DAG/wakeup/lock/run events 必须先有 golden，再改 SQL |
 | 手写 SQL | `internal/store/hookstore`, `internal/store/dbquery`, `cmd/mcp-orch/fxadapter` | 直接改为 `database/sql` 接口，避免继续暴露 pgx 类型 |
 
-## 7. 数据迁移工具规格
+## 7. 旧 PG 数据与配置废弃策略
 
-### 7.1 新增入口
+### 7.1 产品运行时行为
 
-新增 `cmd/sd-pg-to-sqlite`：
+本次切换不提供默认 PG -> SQLite 自动迁移。旧 PG 本地数据属于开发阶段遗留状态，不作为用户资产参与功能等价验收。
 
-- `--pg-url` 或 `SUPER_DOLPHIN_PG_MIGRATE_URL`：旧 PostgreSQL DSN。为空时可从旧 embedded PG 默认目录解析，但必须输出明确来源。
-- `--pg-runtime-bin-dir`：可选的一次性 PG 只读 runtime 路径。迁移发生在新版包已移除 bundled PG 后，若旧 embedded PG 没有运行且没有外部 `--pg-url`，必须通过该路径启动旧 data dir 只读读取；找不到时 fail-fast。
-- `--sqlite-path` 或 `SUPER_DOLPHIN_SQLITE_PATH`：目标 SQLite 文件。
-- `--dry-run`：读 PG、写临时 SQLite、完整校验，但不替换目标文件。
-- `--force`：目标 SQLite 已存在时才允许覆盖；默认 fail-fast。
-- `--report <path>`：写迁移报告，包含表行数、主键摘要、JSON 校验、失败原因、旧/新路径。
+运行时规则：
 
-成功路径：
+- 无 SQLite 文件时，直接创建 SQLite baseline 并启动。
+- 旧 embedded PG data dir 存在时，产品运行时不启动 PG、不读取 PG、不迁移 PG、不因旧 PG 存在而阻断 SQLite 启动。
+- `DATABASE_URL` / `POSTGRES_CONNECTION_STRING` 存在时，产品运行时完全忽略并继续按 SQLite 启动。
+- `config.New()` 不得再从 PG env 推导数据库配置，也不得再把 PG DSN 回写到 `DATABASE_URL` 供子进程继承。
+- `cmd/mcp-orch` 与其他 sidecar 必须继承 SQLite 配置，而不是依赖 owner 进程导出的 PG DSN。
+- 产品运行时不得保留“PG 不可达则 fallback 到 SQLite”之类隐式分支；SQLite 是唯一运行时 DB。
 
-1. preflight 确认应用主进程、`mcp-orch` sidecar、cron scheduler 均已停止；当前源码没有全库迁移锁，因此第一版迁移工具遇到疑似运行中的进程或仍在变化的 PG 写入水位必须 fail-fast。
-2. 检查 PG 可连接、`schema_migrations` 版本不低于最低版本，并打开单个只读一致性快照。PostgreSQL 源建议使用 `REPEATABLE READ READ ONLY` 事务；embedded PG 自动解析路径也必须进入同一快照读取。
-3. 若 `--pg-url` 不可用且旧数据来自 embedded PG，迁移工具必须能定位旧 `SUPER_DOLPHIN_HOME/postgres/data` 并使用旧包内 PG runtime 或 `--pg-runtime-bin-dir` 启动只读实例；如果新版包已移除 PG runtime 且无法定位可用 runtime，命令必须退出非 0。
-4. 检查目标 SQLite 不存在，或显式 `--force`；`--force` 仍必须先写 `<target>.tmp`，不得原地覆盖。
-5. 创建 `<target>.tmp`，设置 PRAGMA，建立 `internal/platform/db/sqlite/migrations/001_baseline.sql`。
-6. 在同一 PG 快照下按依赖顺序批量导入数据；SQLite 侧可分批事务写入，但 PG 侧不得每表重新打开普通读连接。
-7. 运行一致性校验和关键查询 smoke。
-8. 写入迁移 manifest：源 schema 版本、源快照标识、表行数、关键表主键摘要、目标 SQLite 路径、迁移工具版本、完成时间、PG runtime 来源。
-9. checkpoint，关闭连接，原子 rename `<target>.tmp` -> `<target>`。
-10. 保留旧 PG data dir，不自动删除；首次 SQLite 启动成功前禁止清理旧 PG。
-11. 迁移报告必须给出 rollback 指引：删除未启用的 SQLite 目标文件后可继续从旧 PG 启动；一旦 SQLite 已作为产品运行时写入，旧 PG 只能作为只读备份，不能静默降级回写。
+### 7.2 实施要求
 
-失败路径：
+- 移除或隔离 `internal/platform/embeddedpg` 的产品启动路径；如果代码仍保留，只能作为历史兼容/测试辅助存在，不能被 `cmd/agent-terminal` 或 `cmd/mcp-orch` runtime 调用。
+- 删除 `internal/platform/config` 中对 `DATABASE_URL` / `POSTGRES_CONNECTION_STRING` 的 DB 入口语义。保留这些字符串只能用于文档、测试 fixture 或明确的废弃说明。
+- 更新 provider manifest / env passthrough，避免继续把 `DATABASE_URL` 作为 MCP provider 的必传或默认透传项。
+- 打包 manifest、安装脚本、verify smoke 不再要求 `embedded_postgres_resource_path`、Postgres runtime 或 `migrations/` PG 目录。
+- 启动脚本不再安装、启动或探测本地 PostgreSQL；开发脚本也应以 SQLite 为默认。
+- README / release note 必须说明：切换后旧 PG 本地数据不会自动迁移，PG 相关环境变量不再生效。
 
-- 任何失败都删除临时文件或保留为 `.failed` 供诊断，但不得修改旧 PG 数据。
-- 无法证明应用和 sidecar 已停止、无法建立一致性快照、或源库在 preflight 期间继续写入时，命令必须退出非 0，不得继续迁移。
-- 旧 embedded PG data dir 存在但没有可用 PG runtime / DSN 可读取时，命令必须退出非 0；产品运行时也必须拒绝创建空 SQLite。
-- 未通过 JSON/time/row count/关键查询校验时，迁移命令退出非 0。
-- `<target>.tmp` 或 `.failed` 永远不得被产品运行时自动当作正式库打开。
-- 迁移报告必须明确“未切换产品运行时”或“迁移完成可启动”。
+### 7.3 验收用例
 
-### 7.2 导入顺序
-
-按约束从基础到派生导入：
-
-1. `schema_migrations`
-2. 配置/资产基础表：`prompt_templates`, `prompt_versions`, `prompt_template_sections`, `command_cards`, `command_card_versions`, `shared_files`, `ui_preferences`
-3. 线程与绑定：`agent_threads`, `agent_provider_binding`, `agent_status`, `turn_dedupe_registry`
-4. 协作与审批：`hook_pending_reviews`, `agent_interactions`, `topology_approvals`, `topology_approval_archives`
-5. 日志/审计/追踪：`system_logs`, `audit_events`, `bus_exception_logs`, `task_traces`, `agent_feedback_events`, `session_insights`
-6. cron：`cron_jobs`, `cron_job_runs`
-7. DAG/workspace：`task_dags`, `task_dag_runs`, `task_dag_nodes`, `task_dag_wakeups`, `task_dag_worker_leases`, `workspace_runs`, `workspace_run_files`
-8. 辅助/历史表：`prompt_routing_tests`, `prompt_intent_drafts`, `skill_candidates`, `task_acks`, legacy compatibility tables
-
-导入规则：
-
-- JSONB 读取后用 Go `json.Valid` 校验，写入 canonical JSON text。
-- timestamptz 转 UTC epoch ms；NULL timestamp 保持 NULL。
-- 自增 id 原值写入，导入后插入一行临时记录或读取 `MAX(id)` 验证不会复用。
-- 对大表分批，每批一个事务；批失败时停止并保留报告。
-- 所有 PG 读取必须来自 7.1 的同一个只读一致性快照；跨表导入不能混用不同时间点的普通查询结果。
-
-### 7.3 一致性校验
-
-最低校验：
-
-- 每张迁移表 row count 一致。
-- 关键表主键集合一致：`agent_threads`, `agent_provider_binding`, `prompt_templates`, `cron_jobs`, `task_dags`, `task_dag_runs`, `task_dag_nodes`, `task_dag_wakeups`, `workspace_runs`。
-- 所有 JSON 列 `json_valid(...) = 1`。
-- `schema_migrations` 最大版本不低于 `MinRequiredSchemaVersion`。
-- 关键查询可执行：thread list、prompt list/get、cron due scan、DAG list/run/node/wakeup、workspace list、dbquery 白名单查询。
-- 迁移 manifest 中记录的表行数、关键主键摘要和源快照标识必须与报告一致；缺失 manifest 视为迁移失败。
-- JSON/time/search/array golden 对比通过，不能只比行数。
+- 新装：无 PG、无 SQLite，启动后创建 SQLite 并通过 PRAGMA 与 schema gate。
+- 旧 PG data dir 存在：无 SQLite 时仍创建 SQLite；不启动 `pg_ctl`、不打开 PG socket、不读取 PG data dir。
+- PG env 残留：设置 `DATABASE_URL` / `POSTGRES_CONNECTION_STRING` 后启动，仍使用 SQLite；日志和配置中不得把这些值作为 DB DSN。
+- `cmd/mcp-orch` 启动：没有 `DATABASE_URL` 时可正常连接同一 SQLite 文件。
+- 静态扫描：除历史文档、废弃说明、测试 fixture 外，产品运行路径不得再出现 `embeddedpg.Start`、`pgxpool.New`、`DATABASE_URL` DB 配置入口或 bundled PG manifest 依赖。
 
 ## 8. 并发与锁规格
 
@@ -410,13 +374,13 @@ WHERE runtime_locks.lease_expires_at <= ?
 改动文件：
 
 - 新增 SQLite golden fixtures：`internal/platform/db/sqlite/testdata/**`
-- 新增迁移 fixture：`internal/platform/db/migrationtest/**` 或同等包
+- 新增 SQLite runtime fixture：`internal/platform/db/sqlite/runtime_testdata/**` 或同等包
 - 新增并发测试 fixture：`internal/store/cron/**`, `cmd/mcp-orch/store/taskdag/**`
 
 任务：
 
 - 为功能等价矩阵建立 golden 样本：JSON、timestamp、ILIKE/search、array、DAG event、cron claim。
-- 把当前 PG 行为用测试锁住，确保迁移时能对照。
+- 把当前 PG 行为用测试锁住，确保 SQLite 等价实现能对照。
 - 建立固定路径 `internal/platform/db/sqlite/migrations/001_baseline.sql`，并把 runner 单测绑定到该路径。
 
 验证：
@@ -435,7 +399,7 @@ WHERE runtime_locks.lease_expires_at <= ?
 
 任务：
 
-- 新增 SQLite path config，保留旧 PG 检测逻辑只用于 fail-fast / 迁移提示。
+- 新增 SQLite path config；删除产品运行时 PG env/config 入口，`DATABASE_URL` / `POSTGRES_CONNECTION_STRING` 残留时完全忽略。
 - 抽象 DB 注入边界，从 `*pgxpool.Pool` 改为 SQLite 兼容 query/exec/tx 接口。
 - 改写 `WrapStoreError`, `WithTx`, `OpenReadOnlyRows`, `RowsFieldNames`。
 - 跑通最小 `sqlc` SQLite 生成，清理 generated pgx 类型。
@@ -489,25 +453,28 @@ WHERE runtime_locks.lease_expires_at <= ?
 - `./scripts/test_with_guard.sh ./cmd/mcp-orch/... -count=1`
 - 两进程 scheduled DAG / wakeup / worker lease 压测通过。
 
-### Phase 4：迁移工具与启动 fail-fast
+### Phase 4：PG runtime/config 移除与启动兼容
 
 改动文件：
 
-- 新增 `cmd/sd-pg-to-sqlite/**`
-- `internal/platform/embeddedpg/**` 只保留迁移解析所需代码或移动到迁移包
+- `internal/platform/embeddedpg/**`
 - `internal/platform/config/**`
 - `internal/app/**` 启动脚本测试
+- `internal/contract/manifest.go`
+- provider / sidecar env passthrough 相关测试
 
 任务：
 
-- 实现 dry-run、force、report、atomic rename。
-- 启动时检测旧 PG 数据和 SQLite 缺失，拒绝空库。
-- 迁移失败不破坏旧数据和既有 SQLite。
+- 从产品 runtime 移除 `embeddedpg.Start`、`pgxpool.New`、PG auto-migrate 和 PG schema gate 调用链。
+- `config.New()` 不再读取、解析、导出 `DATABASE_URL` / `POSTGRES_CONNECTION_STRING`。
+- `cmd/mcp-orch` 不再依赖 owner 进程导出的 PG DSN，直接连接同一 SQLite 文件。
+- 旧 PG data dir 存在时不启动 PG、不读取 PG、不迁移 PG、不阻断启动。
+- provider manifest / env passthrough 不再把 `DATABASE_URL` 作为 DB 依赖传递。
 
 验证：
 
-- 迁移 fixture 全量通过。
-- 失败注入：PG 不可达、目标存在、非法 JSON、只读目录、中断。
+- 启动测试覆盖：PG env 残留、旧 PG data dir 残留、无 PG runtime、无 SQLite 初次启动。
+- 静态扫描确认产品 runtime 路径不再引用 bundled PG lifecycle。
 
 ### Phase 5：移除产品 PG runtime 与打包文档
 
@@ -521,7 +488,7 @@ WHERE runtime_locks.lease_expires_at <= ?
 任务：
 
 - 移除 bundled PostgreSQL runtime 打包。
-- README 改为 SQLite 默认运行；PG 只作为旧版本迁移来源。
+- README 改为 SQLite 默认运行；说明旧 PG 本地数据不会自动迁移，PG env 不再生效。
 - 写清 `.db/.wal/.shm`、checkpoint、备份、恢复。
 
 验证：
@@ -534,22 +501,19 @@ WHERE runtime_locks.lease_expires_at <= ?
 | Gate | 等级 | 验收方式 |
 |---|---|---|
 | G1 SQLite runtime 启动 | P0 | 新装无 PG 依赖可启动；PRAGMA 验证通过 |
-| G2 schema version gate | P0 | SQLite 低版本 fixture fail-fast |
-| G3 PG -> SQLite 迁移工具 | P0 | dry-run/force/report/atomic rename/失败不破坏旧数据；迁移报告含 manifest |
-| G4 旧 PG 检测 | P0 | PG 数据存在但 SQLite 缺失时禁止静默空库 |
-| G5 主 store 等价 | P0 | 功能等价矩阵主应用项全部有自动化测试 |
-| G6 cron claim | P0 | 同进程/跨进程重复 claim = 0，遗漏 = 0 |
-| G7 `mcp-orch` DAG/wakeup/lease | P0 | DAG apply/start/complete/wakeup/worker lease 并发测试通过 |
-| G8 advisory lock 替代 | P0 | 两个 scheduled runner 同时运行只启动一次 |
-| G9 JSON event golden | P0 | DAG run events append/truncate 与 PG 行为一致 |
-| G10 sqlc SQLite 生成 | P0 | `make sqlc-verify` 通过；`pgx/pgtype/pgconn/pgxpool` 只剩迁移工具或历史文档 |
+| G2 产品运行时无 PG 依赖 | P0 | 主应用和 `cmd/mcp-orch` 不需要 `DATABASE_URL`，不启动/连接 PG，不依赖 `pgxpool`，PG env 残留时仍按 SQLite 启动 |
+| G3 SQLite schema baseline | P0 | `internal/platform/db/sqlite/migrations/001_baseline.sql` 覆盖全部本地持久化表、约束、索引，并保留 schema version gate |
+| G4 主应用 store 等价 | P0 | thread/session/binding、prompt、cron、UI preference、logs/audit/trace、hook、feedback/insight、shared file、command card、dbquery 全部有 SQLite 实现和自动化测试 |
+| G5 `mcp-orch` store 等价 | P0 | DAG/run/node/wakeup/worker lease/workspace run 等 `cmd/mcp-orch` 持久化能力正常 |
+| G6 cron claim 等价 | P0 | 同进程/跨进程重复 claim = 0，遗漏 = 0 |
+| G7 DAG wakeup claim 等价 | P0 | pending -> dispatching -> sent/retry/fail/reclaim 无重复 dispatch |
+| G8 advisory lock 替代 | P0 | scheduled DAG 使用 SQLite `runtime_locks`，两个 runner 同时运行只启动一次 |
+| G9 prompt recall lock | P0 | 同一 cwd/topic 并发写 recall section 重复=0；不同 cwd 同 topic 不互相阻塞 |
+| G10 JSON event golden | P0 | DAG run events append/truncate 与当前 PG 行为一致 |
 | G11 多进程 SQLite 写入 | P0 | 主进程 + `mcp-orch` 同写无不可恢复 `database is locked` |
-| G12 打包文档 | P1 | manifest/script 不再引用 PG runtime；安装、升级、卸载说明不再要求 PG runtime |
-| G13 迁移窗口独占与一致快照 | P0 | 迁移 preflight 能证明主进程、`mcp-orch`、cron scheduler 已停，或维护锁测试能证明全库停写；同一 PG 快照导出；迁移期间写入注入测试必须 fail-fast |
-| G14 首次迁移 PG 读取能力 | P0 | 旧 embedded PG data dir 存在时，迁移工具能通过旧 PG runtime / `--pg-runtime-bin-dir` / 外部 DSN 读取；无法读取时产品启动 fail-fast，不创建空 SQLite |
-| G15 prompt recall topic lock | P0 | 同一 cwd/topic 并发写 recall section 重复=0；不同 cwd 同 topic 不互相阻塞；global/project 覆盖规则与 PG 行为一致 |
-| G16 性能基准 | P1 | 12.6 的 PG 基线与 SQLite 对照全部通过；超过阈值必须在 RC 前有明确例外审批 |
-| G17 备份、恢复与回滚 | P1 | 备份/恢复文档覆盖 `.db/.wal/.shm` 和 checkpoint；迁移前备份、旧 PG 保留、失败恢复、降级 fail-fast 有自动化或 smoke 验证 |
+| G12 打包去 PG | P0 | 发布包、manifest、verify smoke、启动脚本不携带/要求 bundled PG runtime |
+| G13 旧 PG 数据忽略说明 | P1 | README / release note / 可选提示说明旧 PG 本地数据不会迁移，可选提供清理说明 |
+| G14 回归测试、性能冒烟与备份 | P1 | SQLite 改写完成后运行完整回归、启动 smoke、并发压力和基础性能冒烟；备份/恢复文档覆盖 `.db/.wal/.shm` 和 checkpoint，恢复 smoke 通过 |
 
 P0 全部通过前不能进入 RC；P1 关闭前不能正式发布；P2 只允许作为发布后性能优化。
 
@@ -557,9 +521,8 @@ P0 全部通过前不能进入 RC；P1 关闭前不能正式发布；P2 只允�
 
 ### P0
 
-- 历史数据丢失：没有迁移工具或启动时静默建空 SQLite。
-- 首次迁移不可读旧 PG：新版包移除 PG runtime 后，如果没有外部 DSN 或一次性 PG 读取 runtime，旧 embedded PG data dir 无法被 SQLite 代码直接读取。
-- 迁移窗口并发写：迁移时主应用或 `mcp-orch` 仍运行，导致跨表快照不一致或迁移后丢失迁移期间写入；当前无产品级迁移锁，必须停进程或强一致快照并阻断继续写入。
+- PG runtime/config 残留：`config.New()` 继续消费 `DATABASE_URL` / `POSTGRES_CONNECTION_STRING`，或产品启动路径仍调用 embedded PG / pgx pool，导致 SQLite-only 目标失败。
+- 旧 PG 遗留状态误触发：旧 `postgres/data` 存在时误启动 PG、误读取 PG 或阻断 SQLite 新库创建。
 - 并发 claim 漂移：cron / DAG wakeup 从 `SKIP LOCKED` 改到 SQLite 时重复领取。
 - 跨进程锁失效：scheduled DAG 从 PG advisory lock 改动后重复启动。
 - prompt recall topic 锁丢失：同一 cwd/topic 的 recall section 并发写可能绕过 duplicate scan，导致项目知识资料重复或覆盖规则漂移。
@@ -571,10 +534,9 @@ P0 全部通过前不能进入 RC；P1 关闭前不能正式发布；P2 只允�
 ### P1
 
 - 搜索语义变化：`ILIKE` / regex / JSON key exists 与 PG 不完全一致。
-- 性能基准缺失：没有 PG 对照和 SQLite 阈值时，单连接、WAL、JSON 转换或大表迁移退化可能在发布后才暴露。
-- 迁移耗时和内存峰值影响首次升级体验。
-- 回滚/灾难恢复路径不清晰：迁移后若 SQLite 首次启动失败、备份不完整或降级回 PG，会造成数据分叉。
-- 外部 `DATABASE_URL` 用户需要明确迁移引导。
+- 回归与性能冒烟缺失：没有实现后的测试矩阵时，功能缺口、明显卡顿、锁等待或大表查询退化可能在发布后才暴露。
+- 回滚/灾难恢复路径不清晰：SQLite 备份不完整或恢复流程不明确会造成数据不可恢复。
+- 外部 `DATABASE_URL` 用户需要明确废弃说明，避免误以为 PG 仍是运行时入口。
 - 打包脚本、manifest、smoke 残留 PG 路径。
 - 备份/恢复文档遗漏 WAL/SHM。
 
@@ -593,7 +555,7 @@ make guard
 rg "pgx|pgxpool|pgconn|pgtype|embeddedpg|DATABASE_URL"
 ```
 
-`rg` 命中只能出现在迁移工具、历史文档、兼容错误提示或已明确保留的测试 fixture。
+`rg` 命中只能出现在历史文档、废弃说明或已明确保留的测试 fixture；产品 runtime 路径不得继续消费 PG env 或启动 embedded PG。
 
 ### 12.2 Go 测试
 
@@ -602,12 +564,12 @@ rg "pgx|pgxpool|pgconn|pgtype|embeddedpg|DATABASE_URL"
 ./scripts/test_with_guard.sh ./cmd/mcp-orch/... -count=1
 ```
 
-### 12.3 迁移测试
+### 12.3 PG 解耦启动测试
 
-- 小型完整 PG fixture：覆盖所有关键表。
-- 大表 fixture：system logs、session insights、DAG events、cron runs。
-- 失败注入：目标存在、只读目录、PG 断连、非法 JSON、中断。
-- 对比项：row count、主键集合、JSON canonical、timestamp、关键查询结果。
+- 无 PG runtime、无 SQLite：首次启动创建 SQLite 并通过 schema gate。
+- 旧 `postgres/data` 存在、无 SQLite：启动仍创建 SQLite；不启动 PG、不读取旧 data dir。
+- `DATABASE_URL` / `POSTGRES_CONNECTION_STRING` 存在：启动仍使用 SQLite；配置对象、日志和 sidecar env 不把这些值当作 DB DSN。
+- `cmd/mcp-orch` 无 `DATABASE_URL`：仍连接同一 SQLite 文件并通过 DAG/wakeup smoke。
 
 ### 12.4 并发测试
 
@@ -620,27 +582,31 @@ rg "pgx|pgxpool|pgconn|pgtype|embeddedpg|DATABASE_URL"
 ### 12.5 打包 smoke
 
 - clean machine 首次启动生成 SQLite。
-- 旧 PG 目录存在时提示迁移并退出。
-- 旧 PG 目录存在且旧 PG runtime 可用时，升级后首次启动能执行或引导一键迁移；旧 PG runtime 不可用时明确报错，不创建空库。
-- 迁移后启动 UI 可见旧 thread/prompt/skill/cron/DAG/workspace 数据。
+- 旧 PG 目录存在时不启动 PG、不阻断 SQLite；可展示一次“旧 PG 数据不会迁移”的说明。
+- PG env 残留时仍启动 SQLite；安装/升级说明明确这些变量已废弃。
+- 启动 UI 可创建并读取新的 thread/prompt/skill/cron/DAG/workspace 数据。
 - Windows/macOS/Linux 验证 SQLite 路径、权限、`.wal/.shm` 行为。
 
-### 12.6 性能与生产就绪基准
+### 12.6 回归、性能冒烟与生产就绪
 
-先用当前 PG 实现建立基线，再用 SQLite 实现跑同一 fixture。基线结果必须随实现 PR 一起落盘到测试报告或 benchmark artifact，不能只写人工结论。
+SQLite 改写完成后必须跑固定 fixture 和真实启动 smoke。结果必须随实现 PR 一起落盘到测试报告或 benchmark artifact，不能只写人工结论。当前 PG 可作为开发对照，但不是发布 gate 的必要输入。
 
 最低 fixture：
 
 - 中型 fixture：1,000 threads、10,000 system logs、1,000 prompts/versions、500 cron jobs/runs、500 DAG runs、10,000 wakeups/events。
 - 大表 fixture：100,000 system logs、50,000 session insights、20,000 cron runs、20,000 DAG wakeups/events。
 
-发布阈值：
+验收要求：
 
-- 核心 store/RPC 的 p95 延迟不得超过 PG 基线 20%；超过 20% 必须在 RC 前有明确例外审批和用户影响说明。
-- dashboard 关键列表查询（thread、logs、prompt、cron、DAG、wakeup）在中型 fixture 下 p95 不得超过 200ms。
-- 迁移工具必须流式导入大表；大表 fixture 峰值 RSS 不得超过 512MB，不能把整表 JSON 或日志一次性载入内存。
-- 迁移后首次启动、schema gate、首屏 dashboard 查询的总耗时不得超过 PG 基线 20%。
+- 核心 store/RPC、dashboard 关键列表查询（thread、logs、prompt、cron、DAG、wakeup）必须跑回归测试和基础性能冒烟；不得出现明显卡顿、无限等待或整表加载导致的不可接受内存增长。
+- 首次 SQLite 创建、schema gate、首屏 dashboard 查询必须纳入启动 smoke；失败或超时即阻断发布。
+- 大表 fixture 用来证明 dashboard、日志和 DAG 列表不会把整表 JSON 或日志一次性载入内存。
 - 5 分钟主进程 + `mcp-orch` 混合写压测中，不允许出现不可恢复 `database is locked`；可重试 busy 必须有上限、指标和错误上下文。
+
+备份/恢复验收：
+
+- 文档明确 SQLite WAL 模式下需要同时处理 `.db/.wal/.shm`，或在备份前执行 checkpoint。
+- 至少一个 smoke 从备份恢复后能启动应用并读写 thread、prompt、cron、DAG 基础数据。
 
 ## 13. 外部参考
 
@@ -652,7 +618,7 @@ rg "pgx|pgxpool|pgconn|pgtype|embeddedpg|DATABASE_URL"
 
 ## 14. 本轮可执行性复核结论
 
-- 已确认真实可达且无现成上层防护的 P0：PG -> SQLite 迁移工具缺失、旧 PG 存在时禁止静默空库、首次迁移 PG 读取能力、迁移窗口停写/一致快照、cron claim、DAG wakeup claim、scheduled DAG advisory lock 替代、prompt recall topic lock、DAG events append/truncate、多进程 SQLite 写入、schema gate。
-- 已降级或排除为非运行时 P0 的项：`RETURNING *` 属于文档示例可执行性问题，已改为枚举列；性能门槛缺失属于发布就绪 P1，需 gate 阻断正式发布但不是当前源码可达缺陷；当前 PG 的低版本 schema 已有 `VerifyMinSchemaVersion`，风险只要求 SQLite 等价复制。
-- 文档现在具备执行性：baseline 路径固定、迁移流程含 preflight/一致快照/manifest/失败路径/回滚边界，发布 gate 明确到 G17，验证计划覆盖静态、生成、迁移、并发、打包和性能。
-- 后续实现必须先完成 Phase 0 的 PG 行为锁定和 benchmark 基线，再进入 SQLite runtime 与 store 改造；任何 P0 gate 未通过都不能进入 RC。
+- 已确认真实可达且无现成上层防护的 P0：产品运行时无 PG 依赖、SQLite schema baseline、主应用 store 等价、`mcp-orch` store 等价、cron claim、DAG wakeup claim、scheduled DAG advisory lock 替代、prompt recall topic lock、DAG events append/truncate、多进程 SQLite 写入、sqlc SQLite 生成。
+- 已降级或排除为非运行时 P0 的项：旧 PG 本地历史数据迁移、首次迁移 PG 读取能力、迁移窗口停写/一致快照不再属于本次目标；`RETURNING *` 属于文档示例可执行性问题，已改为枚举列；性能阈值不再作为当前文档的硬编码指标，改为实现完成后的回归测试、启动 smoke、并发压力和基础性能冒烟；当前 PG 的低版本 schema 已有 `VerifyMinSchemaVersion`，风险只要求 SQLite 等价复制。
+- 文档现在具备执行性：baseline 路径固定、旧 PG 数据与配置废弃策略明确，发布 gate 明确到 G14，验证计划覆盖静态、生成、PG 解耦启动、并发、打包、回归测试和性能冒烟。
+- 后续实现必须先完成 Phase 0 的 PG 行为锁定和 SQLite fixture，再进入 SQLite runtime 与 store 改造；任何 P0 gate 未通过都不能进入 RC。
