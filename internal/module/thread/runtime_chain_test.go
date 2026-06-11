@@ -3,7 +3,6 @@ package thread
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -61,10 +60,10 @@ func runtimeChainBuiltinRegistry() *threadBuiltinPromptRegistry {
 	}
 }
 
-func newRuntimeChainPromptStore() *runtimeChainPromptStore {
+func newRuntimeChainPromptStore() *fakePromptStore {
 	cwd := resolvePromptCWD("/repo/a")
 	otherCWD := resolvePromptCWD("/repo/b")
-	return &runtimeChainPromptStore{
+	return &fakePromptStore{
 		templates: []promptstore.PromptTemplate{
 			{ID: 10, PromptKey: "user/expert/sql", Title: "SQL Expert", AgentKey: "main", WhenToUse: "Use for SQL work.", Tags: runtimeChainJSONTags("scope.cwd:"+cwd, "intent:expert"), Enabled: true, Priority: 160},
 			{ID: 11, PromptKey: "user/knowledge/sqlc", Title: "SQLC Knowledge", AgentKey: "main", WhenToUse: "Recall SQLC workflow.", Tags: runtimeChainJSONTags("scope.cwd:"+cwd, "intent:recall"), Enabled: true},
@@ -131,7 +130,7 @@ func runtimeChainHiddenSubstrings() []string {
 }
 
 func newRuntimeChainService(
-	store *runtimeChainPromptStore,
+	store *fakePromptStore,
 	catalog threadprompt.RuntimePromptCatalog,
 	promptAssembly contract.PromptAssemblyService,
 	sessions *stubSessionProvider,
@@ -155,101 +154,6 @@ func newRuntimeChainService(
 		promptpkg.EvaluateMatchWhen,
 		promptpkg.EvaluateEnableWhen,
 	).(*service)
-}
-
-type runtimeChainPromptStore struct {
-	templates           []promptstore.PromptTemplate
-	recallSections      []promptstore.PromptTemplateSection
-	defaultRuleSections []promptstore.PromptTemplateSection
-	lastInsertVersion   promptstore.PromptTemplateVersion
-	nextVersionID       int64
-}
-
-func (s *runtimeChainPromptStore) List(_ context.Context, filter promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
-	return filterFakePromptTemplatesByCWD(s.templates, filter.CWD), nil
-}
-
-func (s *runtimeChainPromptStore) WithTx(context.Context, func(promptstore.Store) error) error {
-	return fmt.Errorf("unused with tx")
-}
-
-func (s *runtimeChainPromptStore) Get(context.Context, string) (*promptstore.PromptTemplate, error) {
-	return nil, fmt.Errorf("unused get")
-}
-
-func (s *runtimeChainPromptStore) Delete(context.Context, string) error {
-	return fmt.Errorf("unused delete")
-}
-
-func (s *runtimeChainPromptStore) InsertVersion(_ context.Context, version promptstore.PromptTemplateVersion) (int64, error) {
-	s.lastInsertVersion = version
-	s.nextVersionID++
-	return s.nextVersionID, nil
-}
-
-func (s *runtimeChainPromptStore) CreatePromptTemplate(context.Context, promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
-	return nil, fmt.Errorf("unused create prompt template")
-}
-
-func (s *runtimeChainPromptStore) Upsert(context.Context, promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
-	return nil, fmt.Errorf("unused upsert")
-}
-
-func (s *runtimeChainPromptStore) ListSectionsByTemplateID(context.Context, int64) ([]promptstore.PromptTemplateSection, error) {
-	return nil, nil
-}
-
-func (s *runtimeChainPromptStore) ListSectionsByTemplateIDs(context.Context, []int64) ([]promptstore.PromptTemplateSection, error) {
-	return nil, fmt.Errorf("unused list sections by template ids")
-}
-
-func (s *runtimeChainPromptStore) ListRecallSections(_ context.Context, cwd string) ([]promptstore.PromptTemplateSection, error) {
-	return filterRuntimeChainSectionsByCWD(s.recallSections, cwd), nil
-}
-
-func (s *runtimeChainPromptStore) ListDefaultRuleSections(_ context.Context, cwd string) ([]promptstore.PromptTemplateSection, error) {
-	return filterRuntimeChainSectionsByCWD(s.defaultRuleSections, cwd), nil
-}
-
-func (s *runtimeChainPromptStore) UpsertSection(context.Context, promptstore.PromptTemplateSection) (*promptstore.PromptTemplateSection, error) {
-	return nil, fmt.Errorf("unused upsert section")
-}
-
-func (s *runtimeChainPromptStore) DeleteSection(context.Context, int64, string) error {
-	return fmt.Errorf("unused delete section")
-}
-
-func (s *runtimeChainPromptStore) UpsertIntentDraft(context.Context, promptstore.PromptIntentDraft) (*promptstore.PromptIntentDraft, error) {
-	return nil, fmt.Errorf("unused upsert intent draft")
-}
-
-func (s *runtimeChainPromptStore) GetIntentDraft(context.Context, string, string) (*promptstore.PromptIntentDraft, error) {
-	return nil, fmt.Errorf("unused get intent draft")
-}
-
-func (s *runtimeChainPromptStore) ListIntentDrafts(context.Context, promptstore.PromptIntentDraftListFilter) ([]promptstore.PromptIntentDraft, error) {
-	return nil, fmt.Errorf("unused list intent drafts")
-}
-
-func (s *runtimeChainPromptStore) UpdateIntentDraftStatus(context.Context, string, string, string) (*promptstore.PromptIntentDraft, error) {
-	return nil, fmt.Errorf("unused update intent draft status")
-}
-
-func (s *runtimeChainPromptStore) LockRecallTopicInCWD(context.Context, string, string) error {
-	return fmt.Errorf("unused lock recall topic")
-}
-
-func filterRuntimeChainSectionsByCWD(sections []promptstore.PromptTemplateSection, cwd string) []promptstore.PromptTemplateSection {
-	out := make([]promptstore.PromptTemplateSection, 0, len(sections))
-	for _, section := range sections {
-		if !section.Enabled {
-			continue
-		}
-		if promptTemplateVisibleInCWD(promptstore.TemplateTags(section.TemplateTags), cwd) {
-			out = append(out, section)
-		}
-	}
-	return out
 }
 
 func runtimeChainJSONTags(tags ...string) json.RawMessage {

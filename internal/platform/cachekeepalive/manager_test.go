@@ -8,7 +8,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
@@ -24,24 +23,7 @@ func (s *resolverStub) ResolveSession(_ context.Context, threadID string) (contr
 	return s.session, s.err
 }
 
-type plainSession struct{}
-
-func (plainSession) ThreadID() string                { return "" }
-func (plainSession) RolloutPath() string             { return "" }
-func (plainSession) Capabilities() dto.CapabilitySet { return dto.CapabilitySet{} }
-func (plainSession) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
-	return nil, nil
-}
-func (plainSession) Interrupt(context.Context, dto.InterruptRequest) error         { return nil }
-func (plainSession) ForceComplete(context.Context, dto.ForceCompleteRequest) error { return nil }
-func (plainSession) ListThreads(context.Context) ([]dto.ThreadRef, error)          { return nil, nil }
-func (plainSession) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
-	return dto.ForkResult{}, nil
-}
-func (plainSession) ReadHistory(context.Context, string, int) ([]dto.Message, error) { return nil, nil }
-func (plainSession) Configure(context.Context, dto.ThreadConfigPatch) error          { return nil }
-func (plainSession) Close(context.Context) error                                     { return nil }
-func (plainSession) ForceStop() error                                                { return nil }
+type plainSession struct{ contract.Session }
 
 type keepaliveSession struct{ plainSession }
 
@@ -54,52 +36,19 @@ func (*failingKeepaliveSession) SendKeepalive(context.Context) error {
 }
 
 type bindingStoreStub struct {
+	bindingstore.Store
 	byAgent map[string]*bindingstore.Binding
 }
 
-func (*bindingStoreStub) GetByProviderThread(context.Context, string, string) (*bindingstore.Binding, error) {
-	return nil, nil
-}
-func (*bindingStoreStub) Upsert(context.Context, bindingstore.UpsertParams) error { return nil }
-func (*bindingStoreStub) DeleteByAgentID(context.Context, string) error           { return nil }
-func (*bindingStoreStub) UpdateSessionUUID(context.Context, bindingstore.UpdateSessionUUIDParams) error {
-	return nil
-}
-func (*bindingStoreStub) UpdateProviderThreadID(context.Context, bindingstore.UpdateProviderThreadIDParams) error {
-	return nil
-}
-func (*bindingStoreStub) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
-	return nil
-}
 func (s *bindingStoreStub) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
 	if s == nil || s.byAgent == nil {
 		return nil, nil
 	}
 	return s.byAgent[agentID], nil
 }
-func (*bindingStoreStub) BindAgentThread(context.Context, bindingstore.BindAgentThreadParams) error {
-	return nil
-}
-func (*bindingStoreStub) UnbindAgentThread(context.Context, string) error { return nil }
-func (*bindingStoreStub) ListAgentThreadBindings(context.Context) ([]bindingstore.Binding, error) {
-	return nil, nil
-}
-func (*bindingStoreStub) GetThreadByAgent(context.Context, string) (string, error) { return "", nil }
-func (*bindingStoreStub) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
-	return nil
-}
-
-func (*bindingStoreStub) Rebind(context.Context, bindingstore.RebindParams) error { return nil }
-
-func (*bindingStoreStub) ListProviderMap(context.Context) (map[string]string, error) {
-	return nil, nil
-}
-
-func (*bindingStoreStub) ListCwdMap(context.Context) (map[string]string, error) {
-	return nil, nil
-}
 
 type threadStoreStub struct {
+	threadstore.Store
 	byThread map[string]*threadstore.Thread
 	lookups  []string
 }
@@ -114,46 +63,6 @@ func (s *threadStoreStub) GetByThreadID(_ context.Context, threadID string) (*th
 	}
 	return s.byThread[threadID], nil
 }
-func (*threadStoreStub) GetByPort(context.Context, int32) (*threadstore.Thread, error) {
-	return nil, nil
-}
-func (*threadStoreStub) ListAll(context.Context) ([]threadstore.Thread, error) { return nil, nil }
-func (*threadStoreStub) ListConfigsByIDs(context.Context, []string) ([]threadstore.Thread, error) {
-	return nil, nil
-}
-func (*threadStoreStub) ListRunning(context.Context) ([]threadstore.Thread, error) { return nil, nil }
-func (*threadStoreStub) ListRecoverable(context.Context) ([]threadstore.Thread, error) {
-	return nil, nil
-}
-func (*threadStoreStub) ListRunningAgents(context.Context) ([]threadstore.RunningAgent, error) {
-	return nil, nil
-}
-func (*threadStoreStub) SavePromptSnapshot(context.Context, string, threadstore.PromptSnapshot) error {
-	return nil
-}
-func (*threadStoreStub) LoadPromptSnapshot(context.Context, string) (*threadstore.PromptSnapshot, error) {
-	return nil, nil
-}
-func (*threadStoreStub) Upsert(context.Context, threadstore.UpsertParams) error { return nil }
-func (*threadStoreStub) UpdateStatus(context.Context, threadstore.UpdateStatusParams) error {
-	return nil
-}
-func (*threadStoreStub) UpdateLaunchResult(context.Context, threadstore.UpdateLaunchResultParams) error {
-	return nil
-}
-func (*threadStoreStub) DeleteByThreadID(context.Context, string) error { return nil }
-func (*threadStoreStub) ResetRunning(context.Context) error             { return nil }
-func (*threadStoreStub) ExpireStale(context.Context, threadstore.ExpireStaleParams) (int64, error) {
-	return 0, nil
-}
-func (*threadStoreStub) RunningExists(context.Context, string) (bool, error)       { return false, nil }
-func (*threadStoreStub) ListCwds(context.Context) ([]threadstore.ThreadCwd, error) { return nil, nil }
-func (*threadStoreStub) ListCwdsByPrefix(context.Context, string) ([]threadstore.ThreadCwd, error) {
-	return nil, nil
-}
-func (*threadStoreStub) CountChildren(context.Context, string) (int64, error) { return 0, nil }
-func (*threadStoreStub) Exists(context.Context, string) (bool, error)         { return false, nil }
-func (*threadStoreStub) CountAll(context.Context) (int64, error)              { return 0, nil }
 
 func newTestManager(resolver contract.SessionResolver, bindings bindingstore.Store, threads threadstore.Store) *Manager {
 	pingCtx, pingCancel := context.WithCancel(context.Background())

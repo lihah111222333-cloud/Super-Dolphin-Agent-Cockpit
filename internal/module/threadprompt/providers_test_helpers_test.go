@@ -21,6 +21,7 @@ func expertTemplate(promptKey string, priority int, whenToUse string) promptstor
 }
 
 type fakePromptStore struct {
+	promptstore.Store
 	templates                []promptstore.PromptTemplate
 	getTemplates             map[string]promptstore.PromptTemplate
 	getErr                   error
@@ -48,10 +49,6 @@ func (f *fakePromptStore) List(_ context.Context, filter promptstore.ListFilter)
 	return append([]promptstore.PromptTemplate(nil), f.templates...), nil
 }
 
-func (f *fakePromptStore) WithTx(context.Context, func(promptstore.Store) error) error {
-	panic("unused")
-}
-
 func (f *fakePromptStore) Get(_ context.Context, promptKey string) (*promptstore.PromptTemplate, error) {
 	if f.getErr != nil {
 		return nil, f.getErr
@@ -71,10 +68,6 @@ func (f *fakePromptStore) Get(_ context.Context, promptKey string) (*promptstore
 	return nil, platformdb.ErrNotFound
 }
 
-func (f *fakePromptStore) Delete(context.Context, string) error {
-	panic("unused")
-}
-
 func (f *fakePromptStore) InsertVersion(_ context.Context, version promptstore.PromptTemplateVersion) (int64, error) {
 	if f.insertVersionErr != nil {
 		return 0, f.insertVersionErr
@@ -84,14 +77,6 @@ func (f *fakePromptStore) InsertVersion(_ context.Context, version promptstore.P
 		return f.insertVersionID, nil
 	}
 	return int64(len(f.insertVersions)), nil
-}
-
-func (f *fakePromptStore) CreatePromptTemplate(context.Context, promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
-	panic("unused")
-}
-
-func (f *fakePromptStore) Upsert(context.Context, promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
-	panic("unused")
 }
 
 func (f *fakePromptStore) ListSectionsByTemplateID(_ context.Context, templateID int64) ([]promptstore.PromptTemplateSection, error) {
@@ -122,34 +107,6 @@ func (f *fakePromptStore) ListDefaultRuleSections(_ context.Context, cwd string)
 		return append([]promptstore.PromptTemplateSection(nil), f.defaultRuleSectionsByCWD[cwd]...), nil
 	}
 	return append([]promptstore.PromptTemplateSection(nil), f.defaultRuleSections...), nil
-}
-
-func (f *fakePromptStore) UpsertSection(context.Context, promptstore.PromptTemplateSection) (*promptstore.PromptTemplateSection, error) {
-	panic("unused")
-}
-
-func (f *fakePromptStore) DeleteSection(context.Context, int64, string) error {
-	panic("unused")
-}
-
-func (f *fakePromptStore) UpsertIntentDraft(context.Context, promptstore.PromptIntentDraft) (*promptstore.PromptIntentDraft, error) {
-	panic("unused")
-}
-
-func (f *fakePromptStore) GetIntentDraft(context.Context, string, string) (*promptstore.PromptIntentDraft, error) {
-	panic("unused")
-}
-
-func (f *fakePromptStore) ListIntentDrafts(context.Context, promptstore.PromptIntentDraftListFilter) ([]promptstore.PromptIntentDraft, error) {
-	panic("unused")
-}
-
-func (f *fakePromptStore) UpdateIntentDraftStatus(context.Context, string, string, string) (*promptstore.PromptIntentDraft, error) {
-	panic("unused")
-}
-
-func (f *fakePromptStore) LockRecallTopicInCWD(context.Context, string, string) error {
-	panic("unused")
 }
 
 type capturingDynamicRegistrar struct {

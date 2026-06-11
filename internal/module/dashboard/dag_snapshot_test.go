@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -169,6 +168,7 @@ func newDashboardSnapshotServiceForTest(now time.Time) (*service, *stubDashboard
 }
 
 type stubDashboardQueryStore struct {
+	dbquery.Store
 	mu        sync.Mutex
 	responses []stubDashboardQueryResponse
 	calls     []stubDashboardQueryCall
@@ -196,10 +196,6 @@ func (s *stubDashboardQueryStore) Query(_ context.Context, query string, args ..
 		}
 	}
 	return nil, fmt.Errorf("unexpected dashboard query: %s", query)
-}
-
-func (s *stubDashboardQueryStore) Placeholder(context.Context) ([]dbquery.PlaceholderRow, error) {
-	return nil, errors.New("stub placeholder not implemented")
 }
 
 func dashboardQueryContainsAll(query string, needles []string) bool {
