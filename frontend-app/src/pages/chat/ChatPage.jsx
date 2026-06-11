@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, ArrowLeft, Bot, Boxes, Brain, CheckCircle2, ChevronDown, CircleStop, Code2, Copy, File, FileText, Folder, GitBranch, Link2, Pencil, Pin, Plus, Send, Settings, Sparkles, Terminal, Trash2, Workflow, Wrench, X } from 'lucide-react';
+import { Archive, ArrowLeft, Bot, Brain, CheckCircle2, ChevronDown, CircleStop, Copy, File, FileText, Folder, GitBranch, Pencil, Pin, Plus, Send, Sparkles, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { onFilesDropped, copyTextToClipboard, locateCodeFile, openCodeFile, saveCodeFile } from '../../shared/api/backendApi.js';
 import { appendCurrentModelOption, canonicalizeModelValue, modelOptionFor, normalizeConfigText, normalizeProviderKey, textValue } from '../shared/pageShared.js';
+import { RuntimeActivityPanel } from './components/RuntimeActivityPanel.jsx';
 import { RuntimeDiffView } from './components/RuntimeDiffView.jsx';
 import { RuntimeToolbar } from './components/RuntimeToolbar.jsx';
 
@@ -50,8 +51,6 @@ const ACTIVITY_PANEL_MIN_HEIGHT = ACTIVITY_ICON_ROW_HEIGHT;
 
 const ACTIVITY_PANEL_DEFAULT_HEIGHT = ACTIVITY_ICON_ROW_HEIGHT;
 
-const FLOATING_POPOVER_MARGIN = 12;
-
 const TIMELINE_INITIAL_MATERIALIZED_MESSAGES = 80;
 
 const TIMELINE_MATERIALIZATION_INCREMENT = 80;
@@ -62,12 +61,6 @@ const TIMELINE_BOTTOM_STICKY_THRESHOLD = 48;
 
 const CONTEXT_USAGE_FORK_THRESHOLD = 90;
 
-const RUNTIME_STAT_TOOLTIP_WIDTH = 360;
-
-const RUNTIME_STAT_TOOLTIP_MIN_HEIGHT = 96;
-
-const WARNING_POPOVER_MIN_WIDTH = 280;
-
 const STREAMING_REVEAL_SHORT_TEXT_CHARS = 16;
 
 const STREAMING_REVEAL_CATCHUP_FRAMES = 80;
@@ -76,22 +69,6 @@ const STREAMING_REVEAL_MAX_CHARS_PER_FRAME = 8;
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
-const LSP_TOOL_NAMES = Object.freeze([
-  'grep',
-  'file',
-  'inspect',
-  'xref',
-  'structure',
-  'edit',
-  'completion',
-  'format_preview',
-]);
-
-const JSON_RENDER_TOOL_NAMES = Object.freeze(['json_render']);
-
-const GO_RUN_TOOL_NAMES = Object.freeze(['go_run']);
-
-const PLAYWRIGHT_TOOL_PREFIXES = Object.freeze(['mcp__playwright__', 'playwright_', 'browser_']);
 const APPROVAL_TERMINAL_STATUSES = new Set(['approved', 'rejected', 'denied', 'resolved', 'completed', 'complete', 'done', 'success', 'succeeded']);
 
 function clampWidth(value, min, max) {
@@ -294,171 +271,6 @@ function runtimePanelHeightVars(activityPanelHeight, viewportHeight = currentVie
     '--diff-panel-min-height': `${diffMinHeight}px`,
     '--diff-panel-max-height': `${diffMaxHeight}px`,
   };
-}
-
-function elementViewportRect(element) {
-  if (!element?.getBoundingClientRect) return null;
-  const rect = element.getBoundingClientRect();
-  return {
-    left: rect.left,
-    right: rect.right,
-    top: rect.top,
-    bottom: rect.bottom,
-    width: rect.width,
-    height: rect.height,
-  };
-}
-
-function runtimeStatTooltipStyle(anchorRect) {
-  if (!anchorRect) return {};
-  const viewportWidth = currentViewportWidth();
-  const viewportHeight = currentViewportHeight();
-  const maxLeft = Math.max(FLOATING_POPOVER_MARGIN, viewportWidth - RUNTIME_STAT_TOOLTIP_WIDTH - FLOATING_POPOVER_MARGIN);
-  const left = Math.max(FLOATING_POPOVER_MARGIN, Math.min(maxLeft, Math.round(anchorRect.left)));
-  const preferredBottom = Math.max(FLOATING_POPOVER_MARGIN, Math.round(viewportHeight - anchorRect.top + 10));
-  const maxBottom = Math.max(FLOATING_POPOVER_MARGIN, viewportHeight - FLOATING_POPOVER_MARGIN - RUNTIME_STAT_TOOLTIP_MIN_HEIGHT);
-  const bottom = Math.min(preferredBottom, maxBottom);
-  const maxHeight = Math.max(
-    RUNTIME_STAT_TOOLTIP_MIN_HEIGHT,
-    Math.round(viewportHeight - bottom - FLOATING_POPOVER_MARGIN),
-  );
-  return {
-    '--runtime-stat-tooltip-left': `${left}px`,
-    '--runtime-stat-tooltip-bottom': `${bottom}px`,
-    '--runtime-stat-tooltip-max-height': `${maxHeight}px`,
-  };
-}
-
-function warningLogPopoverStyle(anchorRect, panelRect) {
-  if (!anchorRect || !panelRect) return {};
-  const viewportWidth = currentViewportWidth();
-  const viewportHeight = currentViewportHeight();
-  const preferredLeft = Math.round(panelRect.left + 18);
-  const preferredRight = Math.round(viewportWidth - panelRect.right + 18);
-  const leftLimit = Math.max(FLOATING_POPOVER_MARGIN, viewportWidth - WARNING_POPOVER_MIN_WIDTH - FLOATING_POPOVER_MARGIN);
-  const left = Math.max(FLOATING_POPOVER_MARGIN, Math.min(leftLimit, preferredLeft));
-  const right = Math.max(FLOATING_POPOVER_MARGIN, preferredRight);
-  const bottom = Math.max(FLOATING_POPOVER_MARGIN, Math.round(viewportHeight - anchorRect.top + 10));
-  return {
-    '--warning-log-popover-left': `${left}px`,
-    '--warning-log-popover-right': `${right}px`,
-    '--warning-log-popover-bottom': `${bottom}px`,
-  };
-}
-
-function canonicalLspToolName(name) {
-  return ({
-    lsp_file: 'file',
-    lsp_grep: 'grep',
-    lsp_inspect: 'inspect',
-    lsp_xref: 'xref',
-    lsp_structure: 'structure',
-    lsp_edit: 'edit',
-    lsp_completion: 'completion',
-    lsp_format_preview: 'format_preview',
-  })[name] || name;
-}
-
-function normalizeActivityToolName(name) {
-  const raw = (name || '').toString().trim().toLowerCase();
-  const mcpParts = raw.startsWith('mcp__') ? raw.split('__') : [];
-  const withoutMCPServer = mcpParts.length >= 3 ? mcpParts.slice(2).join('__') : raw;
-  const normalized = withoutMCPServer
-    .replace(/[./:-]+/g, '_')
-    .replace(/^functions_+/, '')
-    .replace(/^function_+/, '')
-    .replace(/^tools_+/, '')
-    .replace(/^tool_+/, '')
-    .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '');
-  return canonicalLspToolName(normalized);
-}
-
-function sumToolCallsByMatcher(toolMap, matcher) {
-  let sum = 0;
-  for (const [rawName, value] of Object.entries(toolMap || {})) {
-    const name = normalizeActivityToolName(rawName);
-    if (!name || !matcher(name, (rawName || '').toString().trim().toLowerCase())) continue;
-    sum += Number(value) || 0;
-  }
-  return sum;
-}
-
-function sumToolCallsByNames(toolMap, names) {
-  const expected = new Set();
-  for (const rawName of names || []) {
-    const name = normalizeActivityToolName(rawName);
-    if (name) expected.add(name);
-  }
-  if (expected.size === 0) return 0;
-  return sumToolCallsByMatcher(toolMap, (name) => expected.has(name));
-}
-
-function activityStatItems(stats = {}) {
-  const toolCalls = stats?.toolCalls || {};
-  const lspFromTools = sumToolCallsByNames(toolCalls, LSP_TOOL_NAMES);
-  const totalTools = Object.values(toolCalls).reduce((sum, value) => sum + (Number(value) || 0), 0);
-  return [
-    { key: 'lsp', label: 'LSP (8 tools)', icon: Code2, className: 'stat-lsp', value: lspFromTools || Number(stats?.lspCalls) || 0 },
-    { key: 'jsonRender', label: 'JSON-Render', icon: Boxes, className: 'stat-json-render', value: sumToolCallsByNames(toolCalls, JSON_RENDER_TOOL_NAMES) },
-    {
-      key: 'playwright',
-      label: 'Playwright',
-      icon: Workflow,
-      className: 'stat-playwright',
-      value: sumToolCallsByMatcher(toolCalls, (name, rawName) => PLAYWRIGHT_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix) || rawName.startsWith(prefix))),
-    },
-    { key: 'goRun', label: 'go-run', icon: Link2, className: 'stat-go-run', value: sumToolCallsByNames(toolCalls, GO_RUN_TOOL_NAMES) },
-    { key: 'command', label: '命令', icon: GitBranch, className: 'stat-cmd', value: Number(stats?.commands) || 0 },
-    { key: 'file', label: '文件', icon: FileText, className: 'stat-file', value: Number(stats?.fileEdits) || 0 },
-    { key: 'tool', label: '工具', icon: Settings, className: 'stat-tool', value: totalTools },
-  ];
-}
-
-function activityToolEntries(stats = {}) {
-  return filteredActivityToolEntries(stats, () => true);
-}
-
-function filteredActivityToolEntries(stats = {}, matcher) {
-  const merged = {};
-  for (const [rawName, value] of Object.entries(stats?.toolCalls || {})) {
-    const raw = (rawName || '').toString().trim().toLowerCase();
-    const name = normalizeActivityToolName(rawName) || rawName;
-    if (!matcher(name, raw)) continue;
-    merged[name] = (merged[name] || 0) + (Number(value) || 0);
-  }
-  const entries = [];
-  for (const [name, count] of Object.entries(merged)) {
-    if (count > 0) entries.push({ name, count });
-  }
-  return entries.sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
-}
-
-function activityStatDetailEntries(stats = {}, statKey = '') {
-  if (statKey === 'lsp') {
-    const lspNames = new Set(LSP_TOOL_NAMES.map((name) => normalizeActivityToolName(name)));
-    return filteredActivityToolEntries(stats, (name) => lspNames.has(name));
-  }
-  if (statKey === 'jsonRender') {
-    const names = new Set(JSON_RENDER_TOOL_NAMES.map((name) => normalizeActivityToolName(name)));
-    return filteredActivityToolEntries(stats, (name) => names.has(name));
-  }
-  if (statKey === 'playwright') {
-    return filteredActivityToolEntries(stats, (name, rawName) => (
-      PLAYWRIGHT_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix) || rawName.startsWith(prefix))
-    ));
-  }
-  if (statKey === 'goRun') {
-    const names = new Set(GO_RUN_TOOL_NAMES.map((name) => normalizeActivityToolName(name)));
-    return filteredActivityToolEntries(stats, (name) => names.has(name));
-  }
-  if (statKey === 'command') {
-    return Number(stats?.commands) > 0 ? [{ name: '命令调用', count: Number(stats.commands) }] : [];
-  }
-  if (statKey === 'file') {
-    return Number(stats?.fileEdits) > 0 ? [{ name: '文件变更', count: Number(stats.fileEdits) }] : [];
-  }
-  return activityToolEntries(stats);
 }
 
 function parseDiffFilename(line, prefix) {
@@ -1068,52 +880,6 @@ function useCodePreviewController({ projectPath, projects }) {
   );
 
   return { dialogs, openFileRef };
-}
-
-function warningDetailText(entry) {
-  if (entry?.runtimeKind === 'result' && entry?.fields && typeof entry.fields === 'object') {
-    return JSON.stringify(entry.fields, null, 2);
-  }
-  return entry?.detail || JSON.stringify(entry?.fields ?? {}, null, 2);
-}
-
-function runtimeLogTimestamp(entry) {
-  return entry?.timestamp || entry?.time || entry?.ts || '';
-}
-
-function runtimeLogLabel(entry) {
-  return entry?.message || entry?.event || entry?.method || '';
-}
-
-function parseSafeLogTimestamp(entry) {
-  const ts = runtimeLogTimestamp(entry);
-  if (!ts) return 0;
-  const text = ts.toString().trim();
-  const asNumber = Number(text);
-  if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
-  // 截断高精度时间戳中的多余小数秒，以兼容 JS Date.parse 的 3 位毫秒限制
-  const sanitized = text.replace(/(\.\d{3})\d+/g, '$1');
-  const parsed = Date.parse(sanitized);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-}
-
-function runtimeLogInlineLabel(entry) {
-  const label = runtimeLogLabel(entry);
-  if (entry?.runtimeKind === 'result') {
-    return label.split(' · ', 1)[0] || label;
-  }
-  return label;
-}
-
-function runtimeLogEntries(warnings = [], results = []) {
-  return [
-    ...(warnings || []).map((entry) => ({ ...entry, runtimeKind: 'warning' })),
-    ...(results || []).map((entry) => ({ ...entry, runtimeKind: 'result' })),
-  ].sort((left, right) => {
-    const leftTime = parseSafeLogTimestamp(left);
-    const rightTime = parseSafeLogTimestamp(right);
-    return rightTime - leftTime;
-  });
 }
 
 function projectDisplayName(path) {
@@ -6070,6 +5836,8 @@ function RuntimePanel({ diffText, tokenUsage, activityStats, warnings, runtimeRe
         runtimeResults={runtimeResults}
         activityPanelMax={runtimeLayout.activityPanelMax}
         activityPanelHeight={runtimeLayout.activityPanelHeight}
+        activityPanelMinHeight={ACTIVITY_PANEL_MIN_HEIGHT}
+        formatTime={formatTime}
         onResizeKeyDown={runtimeLayout.handleActivityPanelResizeKeyDown}
         onResizeStart={runtimeLayout.beginActivityPanelResize}
       />
@@ -6186,271 +5954,6 @@ function CodePreviewDialog({ preview, onBeginEdit, onCancelEdit, onChangeDraft, 
         ) : null}
       </footer>
     </FocusTrapDialog>
-  );
-}
-
-function RuntimeActivityPanel({
-  activityStats,
-  tokenUsage,
-  warnings,
-  runtimeResults,
-  activityPanelMax,
-  activityPanelHeight,
-  onResizeKeyDown,
-  onResizeStart,
-}) {
-  const [activeStat, setActiveStat] = useState(null);
-  const [activeWarning, setActiveWarning] = useState(null);
-  const panelRef = useRef(null);
-  const runtimePopupOpenRef = useRef(false);
-  const stats = useMemo(() => activityStats || {}, [activityStats]);
-  const statItems = useMemo(() => activityStatItems(stats), [stats]);
-  const detailEntriesByStat = useMemo(() => Object.fromEntries(
-    statItems.map((item) => [item.key, activityStatDetailEntries(stats, item.key)]),
-  ), [statItems, stats]);
-  const logEntries = useMemo(() => runtimeLogEntries(warnings, runtimeResults), [warnings, runtimeResults]);
-  const logLinesVisible = activityPanelHeight > ACTIVITY_PANEL_MIN_HEIGHT;
-  const visibleActiveWarning = logLinesVisible ? activeWarning : null;
-  const activeWarningEntry = useMemo(
-    () => logEntries.find((entry) => entry.id === visibleActiveWarning?.id) || null,
-    [visibleActiveWarning, logEntries],
-  );
-  const activeStatItem = useMemo(
-    () => statItems.find((item) => item.key === activeStat?.key) || null,
-    [activeStat, statItems],
-  );
-  const activeStatDetailEntries = activeStat ? detailEntriesByStat[activeStat.key] || [] : [];
-  const hideStatTooltip = useCallback(() => setActiveStat(null), []);
-  const hideWarningPopover = useCallback(() => setActiveWarning(null), []);
-  const toggleStatTooltip = (key, element) => {
-    setActiveWarning(null);
-    setActiveStat((current) => (
-      current?.key === key ? null : { key, anchorRect: elementViewportRect(element) }
-    ));
-  };
-  const toggleWarningPopover = (id, element) => {
-    setActiveStat(null);
-    setActiveWarning((current) => (
-      current?.id === id ? null : {
-        id,
-        anchorRect: elementViewportRect(element),
-        panelRect: elementViewportRect(panelRef.current),
-      }
-    ));
-  };
-  const handleStatKeyDown = (event, key) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      toggleStatTooltip(key, event.currentTarget);
-    }
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      hideStatTooltip();
-    }
-  };
-  const handleWarningKeyDown = (event, id) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      toggleWarningPopover(id, event.currentTarget);
-    }
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      hideWarningPopover();
-    }
-  };
-
-  if (!logLinesVisible && activeWarning) {
-    setActiveWarning(null);
-  }
-
-  useEffect(() => {
-    runtimePopupOpenRef.current = Boolean(activeStat || visibleActiveWarning);
-  }, [activeStat, visibleActiveWarning]);
-
-  useEffect(() => {
-    const keepRuntimePopupOpen = (target) => {
-      if (!(target instanceof Element)) return false;
-      return Boolean(target.closest('.runtime-stat, .runtime-stat-tooltip, .warning-log-line, .warning-log-popover, .activity-panel-resizer'));
-    };
-    const handleDocumentDismiss = (event) => {
-      if (!runtimePopupOpenRef.current) return;
-      if (keepRuntimePopupOpen(event.target)) return;
-      setActiveStat(null);
-      setActiveWarning(null);
-    };
-    const handleDocumentKeyDown = (event) => {
-      if (!runtimePopupOpenRef.current) return;
-      if (event.key !== 'Escape') return;
-      setActiveStat(null);
-      setActiveWarning(null);
-    };
-    document.addEventListener('pointerdown', handleDocumentDismiss);
-    document.addEventListener('click', handleDocumentDismiss);
-    document.addEventListener('keydown', handleDocumentKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', handleDocumentDismiss);
-      document.removeEventListener('click', handleDocumentDismiss);
-      document.removeEventListener('keydown', handleDocumentKeyDown);
-    };
-  }, []);
-
-  return (
-    <section
-      className={`runtime-activity-panel${logLinesVisible ? '' : ' is-log-collapsed'}`}
-      aria-label="工具使用面板"
-      ref={panelRef}
-    >
-      <RuntimeActivityResizer
-        activityPanelMax={activityPanelMax}
-        activityPanelHeight={activityPanelHeight}
-        onResizeKeyDown={onResizeKeyDown}
-        onResizeStart={onResizeStart}
-      />
-      <RuntimeStatList
-        activeStat={activeStat}
-        onStatKeyDown={handleStatKeyDown}
-        onToggleStat={toggleStatTooltip}
-        statItems={statItems}
-        tokenUsage={tokenUsage}
-      />
-      <RuntimeStatTooltip
-        activeStat={activeStat}
-        detailEntries={activeStatDetailEntries}
-        item={activeStatItem}
-      />
-      {logLinesVisible ? (
-        <RuntimeLogLines
-          activeWarning={visibleActiveWarning}
-          entries={logEntries}
-          onWarningKeyDown={handleWarningKeyDown}
-          onToggleWarning={toggleWarningPopover}
-        />
-      ) : null}
-      <RuntimeWarningPopover entry={activeWarningEntry} hoverState={visibleActiveWarning} />
-    </section>
-  );
-}
-
-function RuntimeActivityResizer({ activityPanelMax, activityPanelHeight, onResizeKeyDown, onResizeStart }) {
-  return (
-    <button
-      type="button"
-      className="activity-panel-resizer"
-      role="separator"
-      aria-label="调整工具使用面板高度"
-      aria-orientation="horizontal"
-      aria-valuemin={ACTIVITY_PANEL_MIN_HEIGHT}
-      aria-valuemax={activityPanelMax}
-      aria-valuenow={activityPanelHeight}
-      title="拖动调整工具使用面板高度，最大为应用高度的 1/2"
-      data-testid="activity-panel-resizer"
-      onKeyDown={onResizeKeyDown}
-      onPointerDown={(event) => onResizeStart(event, 'pointer')}
-      onMouseDown={(event) => {
-        if (!window.PointerEvent) onResizeStart(event, 'mouse');
-      }}
-    >
-      <span className="sr-only">调整工具使用面板高度，当前 {activityPanelHeight} 像素</span>
-    </button>
-  );
-}
-
-function RuntimeStatList({ activeStat, onStatKeyDown, onToggleStat, statItems, tokenUsage }) {
-  return (
-    <ul className="runtime-icons" aria-label="工具调用统计">
-      {statItems.map((item) => (
-        <RuntimeStatItem
-          key={item.key}
-          item={item}
-          activeStat={activeStat}
-          onKeyDown={onStatKeyDown}
-          onToggle={onToggleStat}
-        />
-      ))}
-      <li className="runtime-context" aria-label={tokenUsage ? `上下文使用率 ${tokenUsage.usedPercent.toFixed(1)}%` : '等待后端同步上下文使用率'}>
-        {tokenUsage ? `${tokenUsage.usedPercent.toFixed(1)}% context` : 'context --'}
-      </li>
-    </ul>
-  );
-}
-
-function RuntimeStatItem({ activeStat, item, onKeyDown, onToggle }) {
-  const { key, label, icon: Icon, className, value } = item;
-  return (
-    <li className="runtime-stat-listitem">
-      <button
-        type="button"
-        className={`runtime-stat ${className}`}
-        aria-expanded={activeStat?.key === key}
-        aria-haspopup="dialog"
-        aria-label={key === 'tool' ? '工具调用总数' : `${label} 调用次数`}
-        onClick={(event) => {
-          event.stopPropagation();
-          onToggle(key, event.currentTarget);
-        }}
-        onKeyDown={(event) => onKeyDown(event, key)}
-      >
-        <Icon size={16} aria-hidden="true" />
-        <strong>{value}</strong>
-      </button>
-    </li>
-  );
-}
-
-function RuntimeStatTooltip({ activeStat, detailEntries, item }) {
-  if (!activeStat || !item) return null;
-  return (
-    <span className="runtime-stat-tooltip" data-testid="runtime-stat-tooltip" role="tooltip" style={runtimeStatTooltipStyle(activeStat.anchorRect)}>
-      <span className="runtime-stat-tooltip-title"><b>{item.label}</b><strong>{item.value}</strong></span>
-      {detailEntries.length > 0 ? (
-        <span className="runtime-stat-tooltip-list">
-          {detailEntries.map((entry) => (
-            <span key={entry.name} className="runtime-stat-tooltip-row">
-              <span className="runtime-stat-tooltip-name">{entry.name}</span>
-              <strong>{entry.count}</strong>
-            </span>
-          ))}
-        </span>
-      ) : <span className="runtime-stat-tooltip-empty">后端暂无明细</span>}
-    </span>
-  );
-}
-
-function RuntimeLogLines({ activeWarning, entries, onWarningKeyDown, onToggleWarning }) {
-  return (
-    <div className="log-lines" data-testid="warning-log-panel">
-      {entries.length === 0 ? <p><time>--:--</time> runtime log 等待事件</p> : null}
-      {entries.map((entry) => (
-        <button
-          type="button"
-          key={entry.id}
-          className={`warning-log-line runtime-log-line--${entry.runtimeKind || 'warning'}`}
-          aria-expanded={activeWarning?.id === entry.id}
-          aria-haspopup="dialog"
-          onClick={(event) => {
-            event.stopPropagation();
-            onToggleWarning(entry.id, event.currentTarget);
-          }}
-          onKeyDown={(event) => onWarningKeyDown(event, entry.id)}
-        >
-          <time>{formatTime(runtimeLogTimestamp(entry))}</time> <b>{runtimeLogInlineLabel(entry)}</b>
-          {Number(entry.occurrenceCount) > 1 ? <span> ×{Number(entry.occurrenceCount)}</span> : null}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function RuntimeWarningPopover({ entry, hoverState }) {
-  if (!entry) return null;
-  return (
-    <div className="warning-log-popover" data-testid="warning-log-popover" role="tooltip" style={warningLogPopoverStyle(hoverState.anchorRect, hoverState.panelRect)}>
-      <span className="warning-log-popover-title">
-        <time>{formatTime(runtimeLogTimestamp(entry))}</time>
-        <b>{runtimeLogInlineLabel(entry)}</b>
-      </span>
-      <code>{warningDetailText(entry)}</code>
-    </div>
   );
 }
 
