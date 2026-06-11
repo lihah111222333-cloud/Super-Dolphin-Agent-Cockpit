@@ -6,6 +6,7 @@ import { onFilesDropped, copyTextToClipboard, locateCodeFile, openCodeFile, save
 import { appendCurrentModelOption, canonicalizeModelValue, modelOptionFor, normalizeConfigText, normalizeProviderKey, textValue } from '../shared/pageShared.js';
 import { ComposerAttachments } from './components/ComposerAttachments.jsx';
 import { composerAttachmentKey } from './components/composerAttachmentKey.js';
+import { ComposerTextarea } from './components/ComposerTextarea.jsx';
 import { RuntimeActivityPanel } from './components/RuntimeActivityPanel.jsx';
 import { RuntimeDiffView } from './components/RuntimeDiffView.jsx';
 import { RuntimeToolbar } from './components/RuntimeToolbar.jsx';
@@ -4635,9 +4636,13 @@ function ComposerDock({
   const projectActionBlocked = !canUseProjectActions;
   const projectActionBlockedTitle = '请先连接后端并选择项目';
   const dockRef = useRef(null);
+  const textareaRef = useRef(null);
   useComposerDropTarget(dockRef, composer);
+  useComposerDropTarget(textareaRef, composer);
 
   const handleKeyDown = useComposerSendKeyHandler({ canSend, composer, sendMessage });
+  const handleTextareaChange = (event) => setDraft(event.target.value);
+  const handleTextareaPaste = (event) => { runUIAction(() => composer.handlePaste(event)); };
 
   return (
     <footer
@@ -4652,10 +4657,13 @@ function ComposerDock({
         <ForkDraftCard store={store} />
         <ComposerAttachments attachments={attachments} onPreview={composer.previewAttachmentItem} onRemove={composer.removeAttachmentItem} />
         <ComposerTextarea
-          composer={composer}
+          ref={textareaRef}
           draft={draft}
-          handleKeyDown={handleKeyDown}
-          setDraft={setDraft}
+          onChange={handleTextareaChange}
+          onPaste={handleTextareaPaste}
+          onCompositionStart={composer.handleCompositionStart}
+          onCompositionEnd={composer.handleCompositionEnd}
+          onKeyDown={handleKeyDown}
         />
         <ComposerMeta
           canInterrupt={canInterrupt}
@@ -4672,28 +4680,6 @@ function ComposerDock({
       </div>
       <ComposerPreviewModal composer={composer} />
     </footer>
-  );
-}
-
-function ComposerTextarea({ composer, draft, handleKeyDown, setDraft }) {
-  const textareaRef = useRef(null);
-  useComposerDropTarget(textareaRef, composer);
-  return (
-    <textarea
-      ref={textareaRef}
-      id="composer-input"
-      data-testid="composer-input"
-      data-file-drop-target=""
-      aria-label="输入给 Agent 的内容"
-      rows={3}
-      value={draft}
-      onChange={(event) => setDraft(event.target.value)}
-      onPaste={(event) => { runUIAction(() => composer.handlePaste(event)); }}
-      onCompositionStart={composer.handleCompositionStart}
-      onCompositionEnd={composer.handleCompositionEnd}
-      onKeyDown={handleKeyDown}
-      placeholder="输入给 Agent 的内容，Enter 发送，Shift+Enter 换行"
-    />
   );
 }
 
