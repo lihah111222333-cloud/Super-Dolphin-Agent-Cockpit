@@ -1,16 +1,17 @@
-package orchestration
+package exitmonitor
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os/exec"
 	"sync"
 	"time"
 
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// processExitMonitor is the single owner of `cmd.Wait()` for every locally
+// Monitor is the single owner of `cmd.Wait()` for every locally
 // launched orchestration process, introduced by P22 P3 to replace the
 // fire-and-forget `go a.waitForExit(...)` that used to live in
 // runnerActor.Run (Finding 8).
@@ -28,9 +29,9 @@ import (
 //   - Drain: closes the gate (no new Arm accepted), waits for every
 //     in-flight cmd.Wait to finish. Called by runnerActor.drainOnStop after
 //     ctx is cancelled. bounded by the caller's ctx.
-type processExitMonitor struct {
+type Monitor struct {
 	logger *slog.Logger
-	events chan waitResult
+	events chan Event
 
 	mu     sync.Mutex
 	wg     sync.WaitGroup
@@ -43,13 +44,25 @@ type processExitMonitor struct {
 	publishBlockTimeout time.Duration
 }
 
-func newProcessExitMonitor(logger *slog.Logger) *processExitMonitor {
+type Target struct {
+	AgentID   string
+	LaunchSeq uint64
+	Cmd       *exec.Cmd
+}
+
+type Event struct {
+	AgentID   string
+	LaunchSeq uint64
+	Err       error
+}
+
+func New(logger *slog.Logger) *Monitor {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	return &processExitMonitor{
+	return &Monitor{
 		logger:              logger,
-		events:              make(chan waitResult, 32),
+		events:              make(chan Event, 32),
 		fired:               make(map[string]struct{}),
 		publishBlockTimeout: 5 * time.Second,
 	}
@@ -59,8 +72,8 @@ func newProcessExitMonitor(logger *slog.Logger) *processExitMonitor {
 // has already been closed by Drain — callers in that window must NOT assume
 // the process will emit an exit event via the monitor; they are responsible
 // for synchronous cleanup.
-func (m *processExitMonitor) Arm(target monitorTarget) bool {
-	if target.cmd == nil {
+func (m *Monitor) Arm(target Target) bool {
+	if target.Cmd == nil {
 		return false
 	}
 	m.mu.Lock()
@@ -72,8 +85,8 @@ func (m *processExitMonitor) Arm(target monitorTarget) bool {
 	m.mu.Unlock()
 	go func() {
 		defer m.wg.Done()
-		err := target.cmd.Wait()
-		m.publishExit(target.agentID, target.launchSeq, err)
+		err := target.Cmd.Wait()
+		m.publishExit(target.AgentID, target.LaunchSeq, err)
 	}()
 	return true
 }
@@ -81,18 +94,18 @@ func (m *processExitMonitor) Arm(target monitorTarget) bool {
 // Emit is the synthetic-exit path for launcher-driven stops that do NOT have
 // a local cmd to Wait on (e.g. remote launcher.Stop succeeded). Shares the
 // exactly-once fence with Arm so accidental double-emit is a no-op.
-func (m *processExitMonitor) Emit(agentID string, launchSeq uint64, err error) {
+func (m *Monitor) Emit(agentID string, launchSeq uint64, err error) {
 	m.publishExit(agentID, launchSeq, err)
 }
 
 // ExitEvents returns the read-only event stream. runnerActor.Run is the
 // only production consumer.
-func (m *processExitMonitor) ExitEvents() <-chan waitResult { return m.events }
+func (m *Monitor) ExitEvents() <-chan Event { return m.events }
 
 // Drain closes the gate (no more Arm) and blocks until every in-flight
 // cmd.Wait goroutine has finished. Callers pass a bounded ctx for the
 // shutdown budget.
-func (m *processExitMonitor) Drain(ctx context.Context) error {
+func (m *Monitor) Drain(ctx context.Context) error {
 	m.mu.Lock()
 	m.closed = true
 	m.mu.Unlock()
@@ -109,14 +122,14 @@ func (m *processExitMonitor) Drain(ctx context.Context) error {
 // publishExit enforces the exactly-once-per-(agentID, launchSeq) fence and
 // pushes the event onto the buffered channel. It is safe for concurrent use;
 // Arm goroutines, Emit callers, and tests all route through here.
-func (m *processExitMonitor) publishExit(agentID string, seq uint64, err error) {
+func (m *Monitor) publishExit(agentID string, seq uint64, err error) {
 	if agentID == "" || seq == 0 {
 		return
 	}
 	if !m.claimFire(agentID, seq) {
 		return
 	}
-	result := waitResult{agentID: agentID, launchSeq: seq, err: err}
+	result := Event{AgentID: agentID, LaunchSeq: seq, Err: err}
 	select {
 	case m.events <- result:
 		return
@@ -136,7 +149,7 @@ func (m *processExitMonitor) publishExit(agentID string, seq uint64, err error) 
 
 // claimFire attempts to reserve the (agentID, launchSeq) fence slot. Returns
 // false if the slot was already claimed by an earlier publish.
-func (m *processExitMonitor) claimFire(agentID string, seq uint64) bool {
+func (m *Monitor) claimFire(agentID string, seq uint64) bool {
 	key := exitMonitorFenceKey(agentID, seq)
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -225,6 +225,87 @@ select {
   min-width: 0;
 }
 
+.app-update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 14px 18px 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--primary) 42%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--primary) 12%, var(--surface));
+  box-shadow: var(--shadow);
+}
+
+.app-update-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.app-update-copy strong {
+  color: var(--text-pri);
+  font-size: 14px;
+  font-weight: 780;
+}
+
+.app-update-copy span {
+  color: var(--text-sec);
+  font-size: 13px;
+}
+
+.app-update-copy small {
+  color: var(--warning);
+  font-size: 12px;
+}
+
+.app-update-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.app-update-primary,
+.app-update-secondary {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  font-weight: 720;
+}
+
+.app-update-primary {
+  border-color: var(--primary-action-border);
+  background: var(--primary-action-bg);
+  color: var(--primary-action-text);
+  box-shadow: var(--primary-action-shadow);
+}
+
+.app-update-primary:hover:not(:disabled) {
+  background: var(--primary-action-bg-hover);
+}
+
+.app-update-secondary {
+  background: var(--panel-2);
+  color: var(--text-sec);
+}
+
+.app-update-primary:disabled,
+.app-update-secondary:disabled {
+  cursor: default;
+  opacity: 0.68;
+}
+
+@media (max-width: 720px) {
+  .app-update-banner {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 .titlebar .project-select,
 .titlebar .icon-btn,
 .titlebar .theme-toggle {

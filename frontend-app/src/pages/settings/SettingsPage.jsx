@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Settings } from 'lucide-react';
 import { useClientStore } from '../../entities/client/model/useClientStore.js';
-import { checkAppUpdate, copyTextToClipboard, getBuildInfo, getPreference, getVideoApiKey, installLatestAppUpdate, listDashboardLogs, readBuiltinTools, readConfig, readLspPromptHint, setPreference, setVideoApiKey, writeBuiltinTool, writeLspPromptHint as writeLspPromptHintBackend } from '../../shared/api/backendApi.js';
 import { PageHeader } from '../shared/pageComponents.jsx';
 import { BuiltinToolsCard } from './components/BuiltinToolsCard.jsx';
 import { ProviderPropertiesCard, ProviderSettingsPanel } from './components/ProviderSettingsPanels.jsx';
@@ -9,6 +8,7 @@ import { PromptSettingsCard } from './components/PromptSettingsCard.jsx';
 import { AboutPanel, RuntimeSettingsPanels } from './components/SettingsSystemPanels.jsx';
 import { UILogCard } from './components/UILogCard.jsx';
 import { VideoSettingsCard } from './components/VideoSettingsCard.jsx';
+import { checkAppUpdate, copyTextToClipboard, getBuildInfo, getPreference, getVideoApiKey, installLatestAppUpdate, listDashboardLogs, readBuiltinTools, readConfig, readLspPromptHint, setPreference, setVideoApiKey, writeBuiltinTool, writeLspPromptHint } from './services/settingsPageService.js';
 
 const PROVIDER_LABELS = Object.freeze({
   claude: 'Claude',
@@ -818,7 +818,7 @@ async function saveLspPromptHintState(state) {
   if (!state.cwd || state.saving) return;
   state.setSaving(true);
   try {
-    const res = await writeLspPromptHintBackend({ cwd: state.cwd, hint: state.hint });
+    const res = await writeLspPromptHint({ cwd: state.cwd, hint: state.hint });
     state.setEffectiveHint((res?.hint || '').toString());
     state.setDefaultHint((res?.defaultHint || state.defaultHint || '').toString());
     state.setHint((res?.overrideHint || '').toString());

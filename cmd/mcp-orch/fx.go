@@ -13,6 +13,7 @@ import (
 	orchnotify "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/notify"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/wakeupreclaim"
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
@@ -195,7 +196,7 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 			// 三路并发安全（v1.2 reviewer A 实证）。
 			fx.Invoke(orchestration.RegisterDAGTurnCompletedSubscriber),
 			fx.Provide(fx.Annotate(orchestration.ProvideWakeupDispatcherRunner, fx.ResultTags(`group:"runners"`))),
-			fx.Provide(fx.Annotate(orchestration.ProvideWakeupReclaimerRunner, fx.ResultTags(`group:"runners"`))),
+			fx.Provide(fx.Annotate(wakeupreclaim.ProvideWakeupReclaimerRunner, fx.ResultTags(`group:"runners"`))),
 			fx.Provide(fx.Annotate(provideScheduledDAGCronRunner, fx.ResultTags(`group:"runners"`))),
 		),
 		fx.Provide(func(lc fx.Lifecycle, turnStarter orchestration.TurnStarter, logger *slog.Logger) orchestration.AgentLauncher {

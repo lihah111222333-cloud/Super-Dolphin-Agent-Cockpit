@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Brain, CheckCircle2, ChevronDown, Copy, File, Sparkles, Terminal, Wrench, X } from 'lucide-react';
-import { onFilesDropped, copyTextToClipboard, locateCodeFile, openCodeFile, saveCodeFile } from '../../shared/api/backendApi.js';
 import { textValue } from '../shared/pageShared.js';
 import {
   codeOpenDisplayPath,
@@ -37,8 +36,10 @@ import {
   runtimeProjectPath,
 } from './components/projectSelectorModel.js';
 import { useTimelineMaterialization } from './hooks/useTimelineMaterialization.js';
+import { onFilesDropped, copyTextToClipboard, locateCodeFile, openCodeFile, saveCodeFile } from './services/chatCodeService.js';
 
 const CONVERSATION_DROP_TARGET_ID = 'conversation-drop-zone';
+const runtimeCodeActions = Object.freeze({ locateCodeFile, openCodeFile, saveCodeFile });
 const CLIPBOARD_FILE_PATH_TYPES = Object.freeze(['x-special/gnome-copied-files', 'text/uri-list', 'text/plain']);
 const DROP_FILE_PATH_TYPES = new Set(['x-special/gnome-copied-files', 'text/uri-list']);
 const NATIVE_FILE_DROP_TARGET_IDS = new Set(['composer-input', 'chat-input-bar', CONVERSATION_DROP_TARGET_ID]);
@@ -973,6 +974,7 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
         />
         <RuntimePanelSlot
           beginResize={beginRuntimeResize}
+          codeFileActions={runtimeCodeActions}
           handleKeyDown={handleRuntimeResizeKeyDown}
           maxWidth={runtimeMaxWidth}
           open={rightPanelOpen}
@@ -1012,7 +1014,7 @@ function renderCodePreviewMarkdown(content) {
   return <MarkdownBlocks lines={normalizeMessageText(content).split('\n')} />;
 }
 
-function RuntimePanelSlot({ beginResize, handleKeyDown, maxWidth, open, projectPath, projects, threadData, width }) {
+function RuntimePanelSlot({ beginResize, codeFileActions, handleKeyDown, maxWidth, open, projectPath, projects, threadData, width }) {
   if (!open) return null;
   return (
     <>
@@ -1040,6 +1042,7 @@ function RuntimePanelSlot({ beginResize, handleKeyDown, maxWidth, open, projectP
         runtimeResults={threadData.runtimeResults}
         projectPath={projectPath}
         projects={projects}
+        codeFileActions={codeFileActions}
         formatTime={formatTime}
         renderMarkdownPreview={renderCodePreviewMarkdown}
       />

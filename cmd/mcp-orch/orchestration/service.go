@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/contextlock"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/exitmonitor"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
@@ -76,7 +77,7 @@ type service struct {
 	agentBindings            AgentBindingStore
 	machineCfg               platformstatemachine.Config
 	processExitWaitTimeout   time.Duration
-	exitMonitor              *processExitMonitor
+	exitMonitor              *exitmonitor.Monitor
 	mu                       contextlock.RWMutex
 	agents                   map[string]*agentRuntime
 	suppressedStoppedThreads sync.Map
@@ -131,12 +132,6 @@ type agentRuntime struct {
 	sm                                                                                        *stateless.StateMachine
 }
 
-type monitorTarget struct {
-	agentID   string
-	launchSeq uint64
-	cmd       *exec.Cmd
-}
-
 type turnWork struct {
 	agentID    string
 	threadID   string
@@ -173,7 +168,7 @@ func NewService(
 			States:  buildStatesFromDefinitions(agentdto.TransitionDefinitions),
 		},
 		processExitWaitTimeout: 30 * time.Second,
-		exitMonitor:            newProcessExitMonitor(logger),
+		exitMonitor:            exitmonitor.New(logger),
 		agents:                 make(map[string]*agentRuntime),
 		asyncCtx:               asyncCtx,
 		asyncCancel:            asyncCancel,

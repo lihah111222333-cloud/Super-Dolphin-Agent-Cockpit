@@ -2,12 +2,12 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import { isCancelledError, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Workflow } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
-import { applyDagOps, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, openSharedFile, readSharedFile, startDag, startThread, terminateDagRun } from '../../shared/api/backendApi.js';
 import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.jsx';
 import { finalOutputPath, workflowOrderedNodes } from './adapters/workflowDisplayAdapter.js';
 import { WorkflowDiagnostics } from './components/WorkflowDiagnostics.jsx';
 import { WorkflowFinalOutputPanel } from './components/WorkflowFinalOutputPanel.jsx';
+import { applyDagOps, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, openSharedFile, readSharedFile, startDag, startThread, terminateDagRun } from './services/workflowPageService.js';
 
 const DAG_RECENT_RUN_LIMIT = 30;
 const DAG_RUN_HISTORY_VISIBLE_LIMIT = 10;

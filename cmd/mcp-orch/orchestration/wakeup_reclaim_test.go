@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/wakeupreclaim"
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 )
 
@@ -33,14 +34,14 @@ func (s *reclaimStubStore) ReclaimStaleDispatchingWakeups(_ context.Context) (in
 }
 
 func TestNewWakeupReclaimerRejectsNilStore(t *testing.T) {
-	if _, err := NewWakeupReclaimer(nil, nil, WakeupReclaimerConfig{}); err == nil {
+	if _, err := wakeupreclaim.NewWakeupReclaimer(nil, nil, wakeupreclaim.WakeupReclaimerConfig{}); err == nil {
 		t.Fatalf("err = nil, want error for nil store")
 	}
 }
 
 func TestWakeupReclaimerReclaimOnceNoStaleRowsReturnsZero(t *testing.T) {
 	store := &reclaimStubStore{}
-	r, err := NewWakeupReclaimer(store, nil, WakeupReclaimerConfig{})
+	r, err := wakeupreclaim.NewWakeupReclaimer(store, nil, wakeupreclaim.WakeupReclaimerConfig{})
 	if err != nil {
 		t.Fatalf("NewWakeupReclaimer err = %v", err)
 	}
@@ -58,7 +59,7 @@ func TestWakeupReclaimerReclaimOnceNoStaleRowsReturnsZero(t *testing.T) {
 
 func TestWakeupReclaimerReclaimOnceStaleRowsReturnsCount(t *testing.T) {
 	store := &reclaimStubStore{rowsReplies: []int64{3}}
-	r, _ := NewWakeupReclaimer(store, nil, WakeupReclaimerConfig{})
+	r, _ := wakeupreclaim.NewWakeupReclaimer(store, nil, wakeupreclaim.WakeupReclaimerConfig{})
 	rows, err := r.ReclaimOnce(context.Background())
 	if err != nil {
 		t.Fatalf("ReclaimOnce err = %v", err)
@@ -70,7 +71,7 @@ func TestWakeupReclaimerReclaimOnceStaleRowsReturnsCount(t *testing.T) {
 
 func TestWakeupReclaimerReclaimOncePropagatesError(t *testing.T) {
 	store := &reclaimStubStore{err: errors.New("db unreachable")}
-	r, _ := NewWakeupReclaimer(store, nil, WakeupReclaimerConfig{})
+	r, _ := wakeupreclaim.NewWakeupReclaimer(store, nil, wakeupreclaim.WakeupReclaimerConfig{})
 	rows, err := r.ReclaimOnce(context.Background())
 	if err == nil {
 		t.Fatalf("err = nil, want store err propagation")
@@ -82,7 +83,7 @@ func TestWakeupReclaimerReclaimOncePropagatesError(t *testing.T) {
 
 func TestWakeupReclaimerReclaimOnceHandlesNilContextSafely(t *testing.T) {
 	store := &reclaimStubStore{}
-	r, _ := NewWakeupReclaimer(store, nil, WakeupReclaimerConfig{})
+	r, _ := wakeupreclaim.NewWakeupReclaimer(store, nil, wakeupreclaim.WakeupReclaimerConfig{})
 	if _, err := r.ReclaimOnce(nil); err != nil { //nolint:staticcheck // testing fallback
 		t.Fatalf("nil ctx fallback err = %v", err)
 	}
@@ -93,7 +94,7 @@ func TestWakeupReclaimerReclaimOnceHandlesNilContextSafely(t *testing.T) {
 
 func TestWakeupReclaimerRunStopsOnContextCancel(t *testing.T) {
 	store := &reclaimStubStore{}
-	r, _ := NewWakeupReclaimer(store, nil, WakeupReclaimerConfig{TickInterval: 10 * time.Millisecond})
+	r, _ := wakeupreclaim.NewWakeupReclaimer(store, nil, wakeupreclaim.WakeupReclaimerConfig{TickInterval: 10 * time.Millisecond})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- r.Run(ctx) }()
@@ -114,7 +115,7 @@ func TestWakeupReclaimerRunStopsOnContextCancel(t *testing.T) {
 
 func TestWakeupReclaimerRunSurvivesStoreError(t *testing.T) {
 	store := &reclaimStubStore{err: errors.New("transient db blip")}
-	r, _ := NewWakeupReclaimer(store, nil, WakeupReclaimerConfig{TickInterval: 10 * time.Millisecond})
+	r, _ := wakeupreclaim.NewWakeupReclaimer(store, nil, wakeupreclaim.WakeupReclaimerConfig{TickInterval: 10 * time.Millisecond})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- r.Run(ctx) }()
@@ -127,15 +128,15 @@ func TestWakeupReclaimerRunSurvivesStoreError(t *testing.T) {
 }
 
 func TestWakeupReclaimerConfigOrDefaultsKeepsExplicit(t *testing.T) {
-	cfg := WakeupReclaimerConfig{TickInterval: 7 * time.Second}.ConfigOrDefaults()
+	cfg := wakeupreclaim.WakeupReclaimerConfig{TickInterval: 7 * time.Second}.ConfigOrDefaults()
 	if cfg.TickInterval != 7*time.Second {
 		t.Fatalf("explicit interval overridden: %v", cfg.TickInterval)
 	}
 }
 
 func TestWakeupReclaimerConfigOrDefaultsFillsZero(t *testing.T) {
-	cfg := WakeupReclaimerConfig{}.ConfigOrDefaults()
-	if cfg.TickInterval != defaultWakeupReclaimInterval {
-		t.Fatalf("default interval = %v, want %v", cfg.TickInterval, defaultWakeupReclaimInterval)
+	cfg := wakeupreclaim.WakeupReclaimerConfig{}.ConfigOrDefaults()
+	if cfg.TickInterval != wakeupreclaim.DefaultWakeupReclaimInterval {
+		t.Fatalf("default interval = %v, want %v", cfg.TickInterval, wakeupreclaim.DefaultWakeupReclaimInterval)
 	}
 }

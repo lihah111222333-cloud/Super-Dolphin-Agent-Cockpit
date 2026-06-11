@@ -286,7 +286,7 @@ func TestAgentExecutor_ImplementsNodeExecutor(t *testing.T) {
 func TestClassifyAgentLaunchError(t *testing.T) {
 	t.Parallel()
 	// classifyAgentLaunchError 把 launcher 返回的 error 映射到 FailureClass。
-	// 与 service_launcher_errors.go::classifyLaunchError 模式对齐，
+	// 与 launcherrors/errors.go::Classify 模式对齐，
 	// 但目标空间是 nodeexec.FailureClass。
 	cases := []struct {
 		name string

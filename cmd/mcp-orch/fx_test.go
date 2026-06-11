@@ -16,6 +16,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	orchcron "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/cron"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/wakeupreclaim"
 	taskdagstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
@@ -71,7 +72,7 @@ func TestParentFxStartup(t *testing.T) {
 		// *WakeupDispatcher 单例，需同时提供 ProvideWakeupDispatcher。
 		fx.Provide(orchestration.ProvideWakeupDispatcher),
 		fx.Provide(fx.Annotate(orchestration.ProvideWakeupDispatcherRunner, fx.ResultTags(`group:"runners"`))),
-		fx.Provide(fx.Annotate(orchestration.ProvideWakeupReclaimerRunner, fx.ResultTags(`group:"runners"`))),
+		fx.Provide(fx.Annotate(wakeupreclaim.ProvideWakeupReclaimerRunner, fx.ResultTags(`group:"runners"`))),
 		fx.Provide(fx.Annotate(provideScheduledDAGCronRunner, fx.ResultTags(`group:"runners"`))),
 	)
 	type consumeRunners struct {
