@@ -440,6 +440,37 @@ func assertTraceDiagnosisDefaultLimitAndNoRawEvents(t *testing.T, diagnosis Trac
 	}
 }
 
+func TestDiagnoseTraceRedactsUnixSlashPaths(t *testing.T) {
+	svc := NewService(diagnosisTestConfig(), WithSampler(NewSampler(SamplerConfig{HighFrequencyKeepEvery: 1})))
+	if err := svc.Record(context.Background(), TraceEvent{
+		TraceID: "trace-slash",
+		Method:  fmt.Sprintf("open /workspace/project/internal/handler.go"),
+		Status:  StatusError,
+		Error:   "failed at /workspace/project/pkg/util.go",
+		Code:    CodeAnchor{File: "/workspace/project/internal/handler.go", Function: "Handle", Line: 42},
+		Stack:   []StackFrame{{File: "/home/user/outside-project/leak.go", Function: "caller", Line: 5}},
+	}); err != nil {
+		t.Fatalf("Record slash path event: %v", err)
+	}
+
+	diagnosis, err := svc.DiagnoseTrace(context.Background(), TraceDiagnosisRequest{
+		TraceID:       "trace-slash",
+		IncludeStack:  true,
+		WorkspaceRoot: "/workspace/project",
+	})
+	if err != nil {
+		t.Fatalf("DiagnoseTrace: %v", err)
+	}
+	text := marshalDiagnosisText(t, diagnosis)
+	assertDiagnosisDoesNotLeak(t, text, []string{"/home/user/outside-project"})
+	if diagnosis.Timeline[0].Code.File != "internal/handler.go" {
+		t.Fatalf("slash path code file = %q, want repo-relative internal/handler.go", diagnosis.Timeline[0].Code.File)
+	}
+	if diagnosis.ErrorSummaries[0].Stack[0].File != redactedPath {
+		t.Fatalf("slash path stack file = %q, want %s", diagnosis.ErrorSummaries[0].Stack[0].File, redactedPath)
+	}
+}
+
 func diagnosisTestConfig() Config {
 	return Config{
 		IndexMaxEvents:          16,
