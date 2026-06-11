@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -338,6 +339,15 @@ func (p traceDiagnosisProjector) path(value string) string {
 	if value == "" {
 		return ""
 	}
+	if diagnosisSlashAbs(value) {
+		candidate := path.Clean(value)
+		for _, root := range p.roots {
+			if rel, ok := diagnosisSlashRelativePath(root, candidate); ok {
+				return p.string(rel)
+			}
+		}
+		return redactedPath
+	}
 	if filepath.IsAbs(value) {
 		candidate := filepath.Clean(value)
 		for _, root := range p.roots {
@@ -363,12 +373,45 @@ func diagnosisForeignPathLike(value string) bool {
 func diagnosisRoots(values ...string) []string {
 	roots := make([]string, 0, len(values))
 	for _, value := range values {
-		cleaned := filepath.Clean(strings.TrimSpace(value))
-		if cleaned != "." && filepath.IsAbs(cleaned) {
-			roots = append(roots, cleaned)
+		value = strings.TrimSpace(value)
+		switch {
+		case diagnosisSlashAbs(value):
+			cleaned := path.Clean(value)
+			if cleaned != "/" {
+				roots = append(roots, cleaned)
+			}
+		default:
+			cleaned := filepath.Clean(value)
+			if cleaned != "." && filepath.IsAbs(cleaned) {
+				roots = append(roots, cleaned)
+			}
 		}
 	}
 	return roots
+}
+
+func diagnosisSlashAbs(value string) bool {
+	return strings.HasPrefix(value, "/")
+}
+
+func diagnosisSlashRelativePath(root string, candidate string) (string, bool) {
+	if !diagnosisSlashAbs(root) || !diagnosisSlashAbs(candidate) {
+		return "", false
+	}
+	root = strings.TrimSuffix(path.Clean(root), "/")
+	candidate = path.Clean(candidate)
+	if root == "" || root == candidate {
+		return "", false
+	}
+	prefix := root + "/"
+	if !strings.HasPrefix(candidate, prefix) {
+		return "", false
+	}
+	rel := strings.TrimPrefix(candidate, prefix)
+	if rel == "" || rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
+		return "", false
+	}
+	return rel, true
 }
 
 func diagnosisRelativePath(root string, candidate string) (string, bool) {
