@@ -11,7 +11,6 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
@@ -21,82 +20,7 @@ type promptHandlerCollector struct {
 	Maps []handler.Map `group:"rpc_handlers"`
 }
 
-type noopPromptStore struct{}
-
-func (noopPromptStore) List(context.Context, promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
-	return []promptstore.PromptTemplate{}, nil
-}
-
-func (noopPromptStore) WithTx(_ context.Context, fn func(promptstore.Store) error) error {
-	return fn(noopPromptStore{})
-}
-
-func (noopPromptStore) Get(context.Context, string) (*promptstore.PromptTemplate, error) {
-	return nil, platformdb.ErrNotFound
-}
-
-func (noopPromptStore) Delete(context.Context, string) error { return nil }
-
-func (noopPromptStore) InsertVersion(context.Context, promptstore.PromptTemplateVersion) (int64, error) {
-	return 0, nil
-}
-
-func (noopPromptStore) CreatePromptTemplate(context.Context, promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
-	template := promptstore.PromptTemplate{}
-	return &template, nil
-}
-
-func (noopPromptStore) Upsert(context.Context, promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
-	template := promptstore.PromptTemplate{}
-	return &template, nil
-}
-
-func (noopPromptStore) ListSectionsByTemplateID(context.Context, int64) ([]promptstore.PromptTemplateSection, error) {
-	return nil, nil
-}
-
-func (noopPromptStore) ListSectionsByTemplateIDs(context.Context, []int64) ([]promptstore.PromptTemplateSection, error) {
-	return nil, nil
-}
-
-func (noopPromptStore) ListRecallSections(context.Context, string) ([]promptstore.PromptTemplateSection, error) {
-	return nil, nil
-}
-
-func (noopPromptStore) ListDefaultRuleSections(context.Context, string) ([]promptstore.PromptTemplateSection, error) {
-	return nil, nil
-}
-
-func (noopPromptStore) UpsertSection(_ context.Context, section promptstore.PromptTemplateSection) (*promptstore.PromptTemplateSection, error) {
-	copy := section
-	return &copy, nil
-}
-
-func (noopPromptStore) DeleteSection(context.Context, int64, string) error {
-	return nil
-}
-
-func (noopPromptStore) UpsertIntentDraft(context.Context, promptstore.PromptIntentDraft) (*promptstore.PromptIntentDraft, error) {
-	draft := promptstore.PromptIntentDraft{}
-	return &draft, nil
-}
-
-func (noopPromptStore) GetIntentDraft(context.Context, string, string) (*promptstore.PromptIntentDraft, error) {
-	return nil, platformdb.ErrNotFound
-}
-
-func (noopPromptStore) ListIntentDrafts(context.Context, promptstore.PromptIntentDraftListFilter) ([]promptstore.PromptIntentDraft, error) {
-	return nil, nil
-}
-
-func (noopPromptStore) UpdateIntentDraftStatus(context.Context, string, string, string) (*promptstore.PromptIntentDraft, error) {
-	draft := promptstore.PromptIntentDraft{}
-	return &draft, nil
-}
-
-func (noopPromptStore) LockRecallTopicInCWD(context.Context, string, string) error {
-	return nil
-}
+type noopPromptStore struct{ promptstore.Store }
 
 func TestNewServiceRegistersBuiltInSlots(t *testing.T) {
 	svc := NewService(&Config{}, nil)

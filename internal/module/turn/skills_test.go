@@ -203,15 +203,15 @@ func TestNormalizePrepareSkillRefsDropsNameOnlyDuplicatesCoveredByExplicitRefs(t
 	}
 }
 
-// TestApplyHydration_HydratesSummaryAndVersionForBareRef 锁定 applyHydration 给
+// TestApplyHydrationWithConflict_HydratesSummaryAndVersionForBareRef 锁定 hydration 给
 // 仅含 Name 的 ref 补出 Summary + Version；Source=Unspecified 不被改写。
-func TestApplyHydration_HydratesSummaryAndVersionForBareRef(t *testing.T) {
+func TestApplyHydrationWithConflict_HydratesSummaryAndVersionForBareRef(t *testing.T) {
 	svc := &service{}
 	index := map[string]contract.SkillInfo{
 		"alpha": {Name: "alpha", Dir: "/tmp/skills/alpha", Summary: "summary-a", ContentHash: "hash-aaaaaaaaaaaa", Trust: contract.TrustUser},
 	}
 	ref := dto.SkillRef{Name: "alpha"}
-	out, _ := svc.applyHydration(context.Background(), ref, index, skillHydrationPolicy{})
+	out, _ := svc.applyHydrationWithConflict(context.Background(), ref, index, skillHydrationPolicy{})
 	if out.Summary != "summary-a" || out.Version == "" {
 		t.Fatalf("hydration fields not populated: %+v", out)
 	}
@@ -220,7 +220,7 @@ func TestApplyHydration_HydratesSummaryAndVersionForBareRef(t *testing.T) {
 	}
 }
 
-func TestApplyHydration_UntrustedSummary_RedactedWhenSourceUnspecified(t *testing.T) {
+func TestApplyHydrationWithConflict_UntrustedSummary_RedactedWhenSourceUnspecified(t *testing.T) {
 	svc := &service{}
 	index := map[string]contract.SkillInfo{
 		"project-skill": {
@@ -230,7 +230,7 @@ func TestApplyHydration_UntrustedSummary_RedactedWhenSourceUnspecified(t *testin
 			Trust:       contract.TrustProject,
 		},
 	}
-	out, _ := svc.applyHydration(context.Background(), dto.SkillRef{Name: "project-skill"}, index, skillHydrationPolicy{ManualSkillSelection: true})
+	out, _ := svc.applyHydrationWithConflict(context.Background(), dto.SkillRef{Name: "project-skill"}, index, skillHydrationPolicy{ManualSkillSelection: true})
 	if out.Summary != "" {
 		t.Fatalf("untrusted unspecified summary leaked: %+v", out)
 	}
@@ -242,7 +242,7 @@ func TestApplyHydration_UntrustedSummary_RedactedWhenSourceUnspecified(t *testin
 	}
 }
 
-func TestApplyHydration_UntrustedSummary_AllowsOnlyRealManualSelection(t *testing.T) {
+func TestApplyHydrationWithConflict_UntrustedSummary_AllowsOnlyRealManualSelection(t *testing.T) {
 	svc := &service{}
 	index := map[string]contract.SkillInfo{
 		"project-skill": {
@@ -253,7 +253,7 @@ func TestApplyHydration_UntrustedSummary_AllowsOnlyRealManualSelection(t *testin
 		},
 	}
 
-	manual, _ := svc.applyHydration(context.Background(), dto.SkillRef{Name: "project-skill", Source: dto.SkillSourceManual}, index, skillHydrationPolicy{ManualSkillSelection: true})
+	manual, _ := svc.applyHydrationWithConflict(context.Background(), dto.SkillRef{Name: "project-skill", Source: dto.SkillSourceManual}, index, skillHydrationPolicy{ManualSkillSelection: true})
 	if manual.Summary != "manual approved summary" {
 		t.Fatalf("real manual selection should allow summary: %+v", manual)
 	}
@@ -261,13 +261,13 @@ func TestApplyHydration_UntrustedSummary_AllowsOnlyRealManualSelection(t *testin
 		t.Fatalf("manual source should be preserved: %+v", manual)
 	}
 
-	legacyManualSource, _ := svc.applyHydration(context.Background(), dto.SkillRef{Name: "project-skill", Source: dto.SkillSourceManual}, index, skillHydrationPolicy{})
+	legacyManualSource, _ := svc.applyHydrationWithConflict(context.Background(), dto.SkillRef{Name: "project-skill", Source: dto.SkillSourceManual}, index, skillHydrationPolicy{})
 	if legacyManualSource.Summary != "" {
 		t.Fatalf("manual source without ManualSkillSelection flag must stay redacted: %+v", legacyManualSource)
 	}
 }
 
-func TestApplyHydration_UntrustedSummary_RedactedForTriggerAndForce(t *testing.T) {
+func TestApplyHydrationWithConflict_UntrustedSummary_RedactedForTriggerAndForce(t *testing.T) {
 	svc := &service{}
 	index := map[string]contract.SkillInfo{
 		"project-skill": {
@@ -278,7 +278,7 @@ func TestApplyHydration_UntrustedSummary_RedactedForTriggerAndForce(t *testing.T
 		},
 	}
 	for _, source := range []dto.SkillSource{dto.SkillSourceTrigger, dto.SkillSourceForce} {
-		out, _ := svc.applyHydration(context.Background(), dto.SkillRef{Name: "project-skill", Source: source}, index, skillHydrationPolicy{ManualSkillSelection: true})
+		out, _ := svc.applyHydrationWithConflict(context.Background(), dto.SkillRef{Name: "project-skill", Source: source}, index, skillHydrationPolicy{ManualSkillSelection: true})
 		if out.Summary != "" {
 			t.Fatalf("source %q should not expose untrusted summary: %+v", source, out)
 		}
