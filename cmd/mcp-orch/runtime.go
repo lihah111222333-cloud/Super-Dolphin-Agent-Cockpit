@@ -196,7 +196,7 @@ func newRegistry(p newRegistryParams) tools.Registry {
 }
 
 func newStdioServer(registry tools.Registry) *common.Server {
-	stdout := mcpStdout
+	stdout := mcpStdout.Load()
 	if stdout == nil {
 		stdout = os.Stdout
 	}

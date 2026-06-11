@@ -22,7 +22,13 @@ const (
 	postgresFixedTZ               = "UTC0"
 )
 
-var ownedPostgresDataDirs sync.Map
+type pgDataDirRegistry struct{ m sync.Map }
+
+var ownedPGDirs = &pgDataDirRegistry{}
+
+type embeddedPGDeps struct{ goos func() string }
+
+var pgDeps = embeddedPGDeps{goos: func() string { return runtime.GOOS }}
 
 func Start(ctx context.Context, cfg contract.EmbeddedPostgresConfig) error {
 	binaries, enabled, err := prepareStartRuntime(cfg)
@@ -176,7 +182,7 @@ func requiredBinaries(binDir string) (postgresBinaries, error) {
 }
 
 func executableName(name string) string {
-	if runtimeGOOS() == "windows" {
+	if pgDeps.goos() == "windows" {
 		return name + ".exe"
 	}
 	return name
@@ -222,7 +228,7 @@ func validatePrivateDir(path, label string) error {
 	if !info.IsDir() {
 		return fmt.Errorf("embedded postgres %s %q is not a directory", label, path)
 	}
-	if runtimeGOOS() == "windows" {
+	if pgDeps.goos() == "windows" {
 		return nil
 	}
 	mode := info.Mode().Perm()
@@ -322,7 +328,7 @@ func writePostgresRuntimeConfig(cfg contract.EmbeddedPostgresConfig) error {
 		"timezone = '" + postgresFixedTZ + "'",
 		"",
 	}
-	if runtimeGOOS() == "windows" {
+	if pgDeps.goos() == "windows" {
 		lines = append([]string{"listen_addresses = '127.0.0.1'"}, lines...)
 	} else {
 		lines = append([]string{
@@ -358,16 +364,16 @@ func postgresRunning(ctx context.Context, cfg contract.EmbeddedPostgresConfig, p
 }
 
 func markPostgresDataDirOwned(dataDir string) {
-	ownedPostgresDataDirs.Store(filepath.Clean(dataDir), struct{}{})
+	ownedPGDirs.m.Store(filepath.Clean(dataDir), struct{}{})
 }
 
 func ownsPostgresDataDir(dataDir string) bool {
-	_, ok := ownedPostgresDataDirs.Load(filepath.Clean(dataDir))
+	_, ok := ownedPGDirs.m.Load(filepath.Clean(dataDir))
 	return ok
 }
 
 func forgetPostgresDataDirOwned(dataDir string) {
-	ownedPostgresDataDirs.Delete(filepath.Clean(dataDir))
+	ownedPGDirs.m.Delete(filepath.Clean(dataDir))
 }
 
 func removeStalePostmasterPID(dataDir string) error {
@@ -426,5 +432,3 @@ func runPostgresStartCommand(ctx context.Context, pgCtl string, cfg contract.Emb
 func commandError(name string, args []string, err error, output []byte) error {
 	return fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(output)))
 }
-
-var runtimeGOOS = func() string { return runtime.GOOS }

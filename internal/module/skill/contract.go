@@ -42,7 +42,9 @@ const (
 
 // WithCWD delegates to contract.WithSkillCWD. Kept for backward compatibility
 // so existing callers (e.g. dashboard) that import skill.WithCWD keep compiling.
-var WithCWD = contract.WithSkillCWD
+func WithCWD(ctx context.Context, cwd string) context.Context {
+	return contract.WithSkillCWD(ctx, cwd)
+}
 
 func cwdFromContext(ctx context.Context) string {
 	return contract.SkillCWDFromContext(ctx)
@@ -51,9 +53,6 @@ func cwdFromContext(ctx context.Context) string {
 func requireCWD(ctx context.Context) (string, error) {
 	return contract.RequireSkillCWD(ctx)
 }
-
-// RequireCWD delegates to contract.RequireSkillCWD.
-var RequireCWD = contract.RequireSkillCWD
 
 // Service is the backwards-compatible aggregate for the skill module itself
 // and the RPC handler surface. Cross-module consumers should depend on the

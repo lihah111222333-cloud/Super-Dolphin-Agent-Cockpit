@@ -236,6 +236,7 @@ func hasPersistentMemoryStorage(cfg *Config) bool {
 
 func HandleDateChange() {
 	// Date-change hooks are currently handled by callers that rebuild Config.
+	_ = struct{}{}
 }
 
 func LoadNestedMemoryPaths() []string {

@@ -34,7 +34,7 @@ func stringOrArrayOfStringsProp(desc string) schema {
 	}
 }
 
-func objectSchema(props map[string]schema, required ...string) schema {
+func NewObjectSchema(props map[string]schema, required ...string) schema {
 	s := schema{"type": "object", "additionalProperties": false}
 	if len(props) > 0 {
 		mapped := make(map[string]any, len(props))
@@ -53,7 +53,7 @@ func objectSchema(props map[string]schema, required ...string) schema {
 // Per-tool schemas
 // ---------------------------------------------------------------------------
 
-var lspFileSchema = objectSchema(map[string]schema{
+var lspFileSchema = NewObjectSchema(map[string]schema{
 	"action":     enumProp("Action", "open_file", "read_file", "diagnostics"),
 	"pos":        stringProp("Position: 'file_path' (full file) or 'file_path:line' (function at line). Example: internal/foo.go:42 reads the function containing line 42 with its doc comments."),
 	"scope":      enumProp("Read mode override (default: function at line). Pass scope=lines to force a line-window read instead of function extraction.", "lines"),
@@ -63,13 +63,13 @@ var lspFileSchema = objectSchema(map[string]schema{
 	"work_dir":   lspWorkDirProp(),
 }, "action")
 
-var lspInspectSchema = objectSchema(map[string]schema{
+var lspInspectSchema = NewObjectSchema(map[string]schema{
 	"action":   enumProp("Action", "hover", "definition", "implementation", "type_definition", "signature_help"),
 	"pos":      stringProp("Position as 'file_path:line:column' (example internal/foo.go:42:9)"),
 	"work_dir": lspWorkDirProp(),
 }, "action", "pos")
 
-var lspXrefSchema = objectSchema(map[string]schema{
+var lspXrefSchema = NewObjectSchema(map[string]schema{
 	"action":              enumProp("Action", "references", "call_hierarchy", "type_hierarchy"),
 	"pos":                 stringProp("Position as 'file_path:line:column' (example internal/foo.go:42:9)"),
 	"direction":           enumProp("call_hierarchy: incoming/outgoing/both; type_hierarchy: supertypes/subtypes", "incoming", "outgoing", "both", "supertypes", "subtypes"),
@@ -78,7 +78,7 @@ var lspXrefSchema = objectSchema(map[string]schema{
 	"work_dir":            lspWorkDirProp(),
 }, "action", "pos")
 
-var lspGrepSchema = objectSchema(map[string]schema{
+var lspGrepSchema = NewObjectSchema(map[string]schema{
 	"action":         enumProp("Action", "text_search", "ast_search"),
 	"query":          stringProp("Search query"),
 	"path":           stringOrArrayOfStringsProp("Search root; pass whitespace- or comma-separated paths to search multiple roots. Compatibility accepts an array of paths."),
@@ -107,7 +107,7 @@ var lspGrepOutputSchema = schema{
 	"required": []string{"total"},
 }
 
-var lspStructureSchema = objectSchema(map[string]schema{
+var lspStructureSchema = NewObjectSchema(map[string]schema{
 	"action":      enumProp("Action", "document_symbol", "workspace_symbol"),
 	"file_path":   stringProp("File path (absolute or relative, auto-resolved). Path-only; no :line:column suffix."),
 	"query":       stringProp("Symbol query (workspace_symbol only)"),
@@ -116,7 +116,7 @@ var lspStructureSchema = objectSchema(map[string]schema{
 	"work_dir":    lspWorkDirProp(),
 }, "action")
 
-var lspEditSchema = objectSchema(map[string]schema{
+var lspEditSchema = NewObjectSchema(map[string]schema{
 	"action":    enumProp("Action (default: replace_range)", "replace_range", "rename", "code_action", "format"),
 	"file_path": stringProp("File path (absolute or relative, auto-resolved). Required for replace_range and format."),
 	"patch":     stringProp("Patch body for replace_range. Each non-header line starts with one prefix: ' '=context (use ' ' for blank context lines, never empty), '-'=remove, '+'=add. Pure-insertion: use ' ' context lines to anchor, then '+' lines only (no '-' needed). Example: \" import (\\n+\\t\\\"fmt\\\"\\n )\". Accepted forms: (a) implicit single hunk = body only; (b) one explicit '@@ ...' header + body; (c) multiple '@@ ...' hunks; (d) compatibility form with a leading implicit hunk followed by explicit '@@ ...' hunks."),
@@ -126,7 +126,7 @@ var lspEditSchema = objectSchema(map[string]schema{
 	"work_dir":  lspWorkDirProp(),
 }, "action")
 
-var lspCompletionSchema = objectSchema(map[string]schema{
+var lspCompletionSchema = NewObjectSchema(map[string]schema{
 	"pos":         stringProp("Position as 'file_path:line:column' (example internal/foo.go:42:9)"),
 	"max_results": integerProp("Max candidates (default 20, cap 50)"),
 	"work_dir":    lspWorkDirProp(),

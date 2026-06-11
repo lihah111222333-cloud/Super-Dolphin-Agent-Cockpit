@@ -57,9 +57,9 @@ func Ensure(cwd string, logger *slog.Logger) error {
 // helper repeatedly inside a single process. Production callers must not use
 // this.
 func ResetForTests() {
-	stateMu.Lock()
-	defer stateMu.Unlock()
-	stateByCWD = make(map[string]*ensureState)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.byCWD = make(map[string]*ensureState)
 }
 
 // ensureState bundles the per-cwd sync.Once gate with the error captured
@@ -74,19 +74,21 @@ type ensureState struct {
 	err  error
 }
 
-var (
-	stateMu    sync.Mutex
-	stateByCWD = make(map[string]*ensureState)
-)
+type gitignoreState struct {
+	mu    sync.Mutex
+	byCWD map[string]*ensureState
+}
+
+var state = &gitignoreState{byCWD: make(map[string]*ensureState)}
 
 func loadOrCreateState(cwd string) *ensureState {
-	stateMu.Lock()
-	defer stateMu.Unlock()
-	if existing, ok := stateByCWD[cwd]; ok {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if existing, ok := state.byCWD[cwd]; ok {
 		return existing
 	}
 	s := &ensureState{}
-	stateByCWD[cwd] = s
+	state.byCWD[cwd] = s
 	return s
 }
 

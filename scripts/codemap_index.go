@@ -430,7 +430,7 @@ func findRefs(cmID string, lines []string, secs []Section, terms []string) (refs
 		matched[key] = true
 		refs = append(refs, rawRef{cmID, sec, s, e})
 	}
-	return
+	return refs
 }
 
 func blockRange(lines []string, ln int, secs []Section) (string, int, int) {

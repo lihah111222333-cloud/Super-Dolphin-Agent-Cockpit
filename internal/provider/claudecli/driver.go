@@ -40,6 +40,8 @@ type driver struct {
 	mirror          contract.SkillMirrorReconciler
 	recovery        contract.SessionRecoveryReporter
 	tracer          *observability.Service
+	launchCLI       func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error)
+	authStatus      func(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error)
 }
 
 type startSpec struct {
@@ -110,6 +112,8 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, re
 		mirror:          mirror,
 		recovery:        recovery,
 		tracer:          firstClaudeTracer(tracers),
+		launchCLI:       launchCLIWithManifest,
+		authStatus:      runClaudeAuthStatus,
 	}
 }
 
@@ -249,10 +253,10 @@ func (d *driver) prepareSessionStart(ctx context.Context, spec startSpec) (prepa
 	if launchConfig.ClaudeHome == "" {
 		launchConfig.ClaudeHome = strings.TrimSpace(spec.historyDir)
 	}
-	if err := preflightClaudeAuth(ctx, d.binaryPath, spec.cwd, launchConfig); err != nil {
+	if err := d.preflightClaudeAuth(ctx, d.binaryPath, spec.cwd, launchConfig); err != nil {
 		return preparedStartSession{}, err
 	}
-	tr, cleanup, err := launchCLI(
+	tr, cleanup, err := d.launchCLI(
 		d.binaryPath,
 		spec.cwd,
 		requestedModel,
@@ -352,6 +356,7 @@ func (d *driver) newStartedSession(spec startSpec, started preparedStartSession)
 		eventDispatcher:   d.eventDispatcher,
 		binaryPath:        d.binaryPath,
 		cwd:               resolveAbsCWD(spec.cwd),
+		launchCLI:         d.launchCLI,
 		model:             started.requestedModel,
 		transportModel:    started.launchModel,
 		transportConfig:   started.launchConfig,
@@ -366,6 +371,7 @@ func (d *driver) newStartedSession(spec startSpec, started preparedStartSession)
 		tracer:            d.tracer,
 		suppressedTurns:   map[string]struct{}{},
 		imageTracker:      newImageHashTracker(),
+		settleTransport:   defaultSettleInterruptedTransport,
 	}
 	s.applyConfiguredOverridesLocked(spec.configOverride, false)
 	// Claude CLI v2.1+ only emits system:init (which carries the real

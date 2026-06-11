@@ -14,18 +14,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLaunchHandlerAllowsMCPOrchExecutable(t *testing.T) {
-	originalExecutable := osExecutable
-	osExecutable = func() (string, error) { return "/tmp/mcp-orch", nil }
-	defer func() { osExecutable = originalExecutable }()
+func mockExe() func() (string, error) {
+	return func() (string, error) { return "/tmp/mcp-orch", nil }
+}
 
+func TestLaunchHandlerAllowsMCPOrchExecutable(t *testing.T) {
 	done := make(chan contract.LaunchRequest, 1)
-	handler := HandleLaunchAgent(&golden.OrchestrationStub{
+	handler := handleLaunchAgentWithExeFn(&golden.OrchestrationStub{
 		LaunchAgentFunc: func(_ context.Context, req contract.LaunchRequest) error {
 			done <- req
 			return nil
 		},
-	})
+	}, mockExe())
 
 	input, err := json.Marshal(LaunchAgentInput{
 		AgentID:     "agent-persist-1",
@@ -65,12 +65,8 @@ func TestLaunchHandlerAllowsMCPOrchExecutable(t *testing.T) {
 }
 
 func TestLaunchHandlerReturnsExistingDuplicateAgentID(t *testing.T) {
-	originalExecutable := osExecutable
-	osExecutable = func() (string, error) { return "/tmp/mcp-orch", nil }
-	defer func() { osExecutable = originalExecutable }()
-
 	launchCalls := 0
-	handler := HandleLaunchAgent(&golden.OrchestrationStub{
+	handler := handleLaunchAgentWithExeFn(&golden.OrchestrationStub{
 		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
 			return []contract.AgentSnapshot{{ID: "agent-dup", AgentID: "agent-dup", ThreadID: "thread-dup", State: "turn_running"}}, nil
 		},
@@ -78,7 +74,7 @@ func TestLaunchHandlerReturnsExistingDuplicateAgentID(t *testing.T) {
 			launchCalls++
 			return nil
 		},
-	})
+	}, mockExe())
 
 	input, err := json.Marshal(LaunchAgentInput{
 		AgentID:  "agent-dup",
@@ -152,17 +148,13 @@ func TestLaunchHandlerRetriesInactiveExplicitAgentIDWithoutReassigning(t *testin
 }
 
 func TestLaunchHandlerLeavesCwdEmptyWhenOnlyParentIDProvided(t *testing.T) {
-	originalExecutable := osExecutable
-	osExecutable = func() (string, error) { return "/tmp/mcp-orch", nil }
-	defer func() { osExecutable = originalExecutable }()
-
 	var captured contract.LaunchRequest
-	handler := HandleLaunchAgent(&golden.OrchestrationStub{
+	handler := handleLaunchAgentWithExeFn(&golden.OrchestrationStub{
 		LaunchAgentSnapshotFunc: func(_ context.Context, req contract.LaunchRequest) (contract.AgentSnapshot, error) {
 			captured = req
 			return contract.AgentSnapshot{ID: req.AgentID, AgentID: req.AgentID, State: "launching"}, nil
 		},
-	})
+	}, mockExe())
 
 	_, err := handler(context.Background(), json.RawMessage(`{"name":"child","parent_id":"parent-1","provider":"codex"}`))
 	if err != nil {
@@ -177,11 +169,7 @@ func TestLaunchHandlerLeavesCwdEmptyWhenOnlyParentIDProvided(t *testing.T) {
 }
 
 func TestLaunchHandlerReturnsFinalPersistedAgentID(t *testing.T) {
-	originalExecutable := osExecutable
-	osExecutable = func() (string, error) { return "/tmp/mcp-orch", nil }
-	defer func() { osExecutable = originalExecutable }()
-
-	handler := HandleLaunchAgent(&golden.OrchestrationStub{
+	handler := handleLaunchAgentWithExeFn(&golden.OrchestrationStub{
 		LaunchAgentSnapshotFunc: func(_ context.Context, req contract.LaunchRequest) (contract.AgentSnapshot, error) {
 			return contract.AgentSnapshot{
 				ID:       req.AgentID,
@@ -190,7 +178,7 @@ func TestLaunchHandlerReturnsFinalPersistedAgentID(t *testing.T) {
 				State:    "idle",
 			}, nil
 		},
-	})
+	}, mockExe())
 
 	input, err := json.Marshal(LaunchAgentInput{
 		AgentID:  "agent-requested",
@@ -246,15 +234,11 @@ func TestLaunchAgentCWDDescriptionDocumentsConditionalRequirement(t *testing.T) 
 }
 
 func TestLaunchHandlerMissingCWDEnvelopeIsNotLSPUnavailable(t *testing.T) {
-	originalExecutable := osExecutable
-	osExecutable = func() (string, error) { return "/tmp/mcp-orch", nil }
-	defer func() { osExecutable = originalExecutable }()
-
-	handler := HandleLaunchAgent(&golden.OrchestrationStub{
+	handler := handleLaunchAgentWithExeFn(&golden.OrchestrationStub{
 		LaunchAgentSnapshotFunc: func(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error) {
 			return contract.AgentSnapshot{}, fmt.Errorf("%w: launch_agent cwd is required", contract.ErrLaunchCWDRequired)
 		},
-	})
+	}, mockExe())
 	_, err := handler(context.Background(), json.RawMessage(`{"name":"child"}`))
 	if err == nil {
 		t.Fatal("HandleLaunchAgent() error = nil, want cwd error")

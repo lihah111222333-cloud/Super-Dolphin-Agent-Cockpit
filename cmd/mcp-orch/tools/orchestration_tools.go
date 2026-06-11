@@ -14,12 +14,12 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-var osExecutable = os.Executable
+type agentIDRegistry struct {
+	mu           sync.Mutex
+	reservations map[string]struct{}
+}
 
-var (
-	launchAgentIDMu           sync.Mutex
-	launchAgentIDReservations map[string]struct{}
-)
+var agentIDReg = &agentIDRegistry{}
 
 type LaunchAgentInput struct {
 	AgentID            string `json:"agent_id,omitempty"`
@@ -91,8 +91,16 @@ var (
 )
 
 func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
+	return handleLaunchAgentWithExeFn(svc, os.Executable)
+}
+
+func handleLaunchAgentWithExeFn(svc contract.OrchestrationService, exeFn func() (string, error)) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in LaunchAgentInput) (map[string]any, error) {
-		req, err := launchRequestFromInput(in)
+		exe, err := exeFn()
+		if err != nil {
+			return nil, err
+		}
+		req, err := launchRequestFromExecutable(in, exe)
 		if err != nil {
 			return nil, err
 		}
@@ -220,31 +228,31 @@ func reserveLaunchAgentID(ctx context.Context, svc contract.OrchestrationService
 	if err != nil {
 		return "", nil, false, err
 	}
-	launchAgentIDMu.Lock()
-	defer launchAgentIDMu.Unlock()
-	if launchAgentIDReservations == nil {
-		launchAgentIDReservations = make(map[string]struct{})
+	agentIDReg.mu.Lock()
+	defer agentIDReg.mu.Unlock()
+	if agentIDReg.reservations == nil {
+		agentIDReg.reservations = make(map[string]struct{})
 	}
 	candidate := strings.TrimSpace(requested)
 	if candidate != "" {
-		if _, ok := launchAgentIDReservations[candidate]; ok {
+		if _, ok := agentIDReg.reservations[candidate]; ok {
 			return candidate, func() {}, false, nil
 		}
 		if _, ok := activeExisting[candidate]; ok {
 			return candidate, func() {}, false, nil
 		}
-		launchAgentIDReservations[candidate] = struct{}{}
+		agentIDReg.reservations[candidate] = struct{}{}
 		return candidate, releaseLaunchAgentID(candidate), true, nil
 	}
 	candidate = shared.NewAgentID()
 	for i := 0; i < 64; i++ {
 		if !launchAgentIDInUseLocked(candidate, existing) {
-			launchAgentIDReservations[candidate] = struct{}{}
+			agentIDReg.reservations[candidate] = struct{}{}
 			return candidate, releaseLaunchAgentID(candidate), true, nil
 		}
 		candidate = shared.NewAgentID()
 	}
-	launchAgentIDReservations[candidate] = struct{}{}
+	agentIDReg.reservations[candidate] = struct{}{}
 	return candidate, releaseLaunchAgentID(candidate), true, nil
 }
 
@@ -286,15 +294,15 @@ func launchAgentIDInUseLocked(agentID string, existing map[string]struct{}) bool
 	if _, ok := existing[agentID]; ok {
 		return true
 	}
-	_, ok := launchAgentIDReservations[agentID]
+	_, ok := agentIDReg.reservations[agentID]
 	return ok
 }
 
 func releaseLaunchAgentID(agentID string) func() {
 	return func() {
-		launchAgentIDMu.Lock()
-		delete(launchAgentIDReservations, strings.TrimSpace(agentID))
-		launchAgentIDMu.Unlock()
+		agentIDReg.mu.Lock()
+		delete(agentIDReg.reservations, strings.TrimSpace(agentID))
+		agentIDReg.mu.Unlock()
 	}
 }
 
@@ -425,14 +433,6 @@ func hydrateListAgentReports(ctx context.Context, svc contract.OrchestrationServ
 		agents[i].LastReport = report.Report
 	}
 	return nil
-}
-
-func launchRequestFromInput(in LaunchAgentInput) (contract.LaunchRequest, error) {
-	exe, err := osExecutable()
-	if err != nil {
-		return contract.LaunchRequest{}, err
-	}
-	return launchRequestFromExecutable(in, exe)
 }
 
 func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.LaunchRequest, error) {

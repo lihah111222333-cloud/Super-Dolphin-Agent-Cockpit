@@ -41,10 +41,6 @@ type registryToolProvider struct {
 	semanticToolsAvailable func(context.Context) bool
 }
 
-func init() {
-	common.RegisterToolResultPlainTextRenderer(tools.FormatToPlainText)
-}
-
 // run boots the MCP binary itself. The core process only exposes ctl/* endpoints
 // and manifest metadata; external executors decide when and how this binary starts.
 func run() error {
@@ -101,6 +97,7 @@ func run() error {
 			// so each recycler becomes its own Runner entry.
 			fx.Annotate(provideLSPBackgroundRunners, fx.ResultTags(`group:"runners,flatten"`)),
 		),
+		fx.Invoke(func() { common.RegisterToolResultPlainTextRenderer(tools.FormatToPlainText) }),
 		fx.Invoke(bindRuntime),
 	)
 	if err := app.Err(); err != nil {
@@ -118,7 +115,7 @@ func run() error {
 }
 
 func newServer(handlers ToolHandlers) *common.Server {
-	stdout := mcpStdout
+	stdout := mcpStdout.Load()
 	if stdout == nil {
 		stdout = os.Stdout
 	}

@@ -9,7 +9,7 @@ import (
 
 const interruptTransportGracePeriod = 2 * time.Second
 
-var settleInterruptedTransport = func(tr *transport) error {
+func defaultSettleInterruptedTransport(tr *transport) error {
 	return settleInterruptedTransportWithTimeout(tr, interruptTransportGracePeriod)
 }
 
@@ -30,7 +30,7 @@ func settleInterruptedTransportWithTimeout(tr *transport, grace time.Duration) e
 	return nil
 }
 
-func cleanupInterruptedTransport(logger *slog.Logger, reg *pidregistry.Registry, tr *transport, cleanup func()) {
+func cleanupInterruptedTransport(logger *slog.Logger, reg *pidregistry.Registry, tr *transport, cleanup func(), settleTransport func(*transport) error) {
 	if tr == nil {
 		if cleanup != nil {
 			cleanup()
@@ -38,7 +38,7 @@ func cleanupInterruptedTransport(logger *slog.Logger, reg *pidregistry.Registry,
 		return
 	}
 	unregisterTransportPID(reg, tr)
-	if err := settleInterruptedTransport(tr); err != nil && logger != nil {
+	if err := settleTransport(tr); err != nil && logger != nil {
 		logger.Warn("claudecli: interrupt transport cleanup failed", "error", err)
 	}
 	if cleanup != nil {

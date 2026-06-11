@@ -103,6 +103,7 @@ type manager struct {
 	logger                           *slog.Logger
 	pool                             *ManagerPool
 	disableInitialWorkspaceBootstrap bool
+	retryBaseDelay                   time.Duration
 
 	mu         sync.RWMutex
 	ensureMu   sync.Mutex
@@ -118,6 +119,9 @@ type manager struct {
 
 	explicitOpenMu sync.RWMutex
 	explicitlyOpen map[string]struct{}
+
+	coordinatorMu sync.Mutex
+	coordinator   *bootstrapCoordinator
 }
 
 type workspaceClient struct {
@@ -191,6 +195,7 @@ func NewManager(cfg Config) Manager {
 		diagPoll:                         chooseDuration(cfg.DiagnosticsPollInterval, defaultDiagnosticsPollInterval),
 		diagMaxWait:                      chooseDuration(cfg.DiagnosticsMaxWait, defaultDiagnosticsMaxWait),
 		disableInitialWorkspaceBootstrap: cfg.DisableInitialWorkspaceBootstrap,
+		retryBaseDelay:                   500 * time.Millisecond,
 	}
 	if mgr.adapters == nil {
 		mgr.adapters = NewDefaultLanguageAdapterRegistry()

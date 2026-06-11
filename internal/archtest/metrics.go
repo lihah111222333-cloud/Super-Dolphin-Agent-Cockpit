@@ -133,46 +133,96 @@ func isExemptGlobalVar(name string, vs *ast.ValueSpec) bool {
 			return true
 		}
 	}
-	// 检查类型是否为不可变全局类型（无初始值但类型为 func/chan 等之外的声明式类型）
+	// 无右值时检查类型：embed.FS 和 atomic.* 零值声明
+	return len(vs.Values) == 0 && isExemptZeroValueType(vs.Type)
+}
+
+// isExemptZeroValueType 检查零值声明的类型是否属于豁免类型（embed.FS、atomic.*）。
+func isExemptZeroValueType(typeExpr ast.Expr) bool {
+	switch t := typeExpr.(type) {
+	case *ast.SelectorExpr:
+		if t.Sel.Name == "FS" {
+			return true
+		}
+		pkg, ok := t.X.(*ast.Ident)
+		return ok && pkg.Name == "atomic"
+	case *ast.IndexExpr:
+		// atomic.Pointer[T] — generic atomic type
+		sel, ok := t.X.(*ast.SelectorExpr)
+		if !ok {
+			return false
+		}
+		pkg, ok := sel.X.(*ast.Ident)
+		return ok && pkg.Name == "atomic"
+	}
 	return false
 }
 
 // isImmutableGlobalInit 检查初始化表达式是否为不可变全局构造。
-// 覆盖：函数调用类（regexp.MustCompile, promauto.NewCounter 等）、复合字面量（slice/map/struct literal）。
+// 覆盖：函数调用类（regexp.MustCompile, promauto.NewCounter 等）、复合字面量（slice/map/struct literal）、
+// 函数字面量（no-op 占位符，如 test hook 默认值）、flag 包注册、常量乘法表达式（如 5 * time.Minute）。
 func isImmutableGlobalInit(expr ast.Expr) bool {
 	switch e := expr.(type) {
 	case *ast.CompositeLit:
-		// var sample = []string{...}, map[K]V{...}, SomeStruct{...}
-		// 只读声明式字面量，不是可变状态
+		return true
+	case *ast.FuncLit:
 		return true
 	case *ast.CallExpr:
 		return isImmutableFuncCall(e)
 	case *ast.UnaryExpr:
-		// var sample = &SomeStruct{...}
 		if _, ok := e.X.(*ast.CompositeLit); ok {
 			return true
 		}
 		return false
+	case *ast.BinaryExpr:
+		return isConstantExpr(e)
+	default:
+		return false
+	}
+}
+
+// isConstantExpr 递归检查表达式是否为纯常量（字面量、包选择器或其乘积），
+// 用于豁免如 5 * time.Minute 这类 const-like 全局变量。
+func isConstantExpr(expr ast.Expr) bool {
+	switch e := expr.(type) {
+	case *ast.BasicLit:
+		return true
+	case *ast.Ident:
+		return true
+	case *ast.SelectorExpr:
+		return true
+	case *ast.BinaryExpr:
+		return isConstantExpr(e.X) && isConstantExpr(e.Y)
 	default:
 		return false
 	}
 }
 
 func isImmutableFuncCall(call *ast.CallExpr) bool {
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return false
+	switch fn := call.Fun.(type) {
+	case *ast.SelectorExpr:
+		return isImmutableSelectorCall(fn)
+	case *ast.Ident:
+		return strings.HasPrefix(fn.Name, "New") || strings.HasPrefix(fn.Name, "Must")
 	}
+	return false
+}
+
+func isImmutableSelectorCall(sel *ast.SelectorExpr) bool {
 	pkg, ok := sel.X.(*ast.Ident)
 	if !ok {
 		return false
 	}
-	fn := sel.Sel.Name
-	if pkg.Name == "fx" && fn == "Module" {
+	name := sel.Sel.Name
+	switch pkg.Name {
+	case "fx":
+		return name == "Module"
+	case "sync":
+		return name == "OnceValue"
+	case "flag":
 		return true
 	}
-	// 通用模式：pkg.NewResource() / pkg.MustResource() 通常返回不可变工厂值
-	return strings.HasPrefix(fn, "New") || strings.HasPrefix(fn, "Must")
+	return strings.HasPrefix(name, "New") || strings.HasPrefix(name, "Must")
 }
 
 // hasInitFunc 检查文件是否包含 init() 函数。

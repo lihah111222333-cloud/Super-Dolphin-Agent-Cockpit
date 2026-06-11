@@ -41,7 +41,7 @@ type WakeupDispatcherConfig struct {
 func (c WakeupDispatcherConfig) ConfigOrDefaults() WakeupDispatcherConfig {
 	out := c
 	if out.ClaimedBy == "" {
-		seq := atomic.AddUint64(&dispatcherClaimedBySeq, 1)
+		seq := dispatcherClaimedBySeq.Add(1)
 		out.ClaimedBy = "mcp-orch-dispatcher-" + strconv.FormatUint(seq, 10)
 	}
 	if out.LeaseInterval == "" {
@@ -59,7 +59,7 @@ func (c WakeupDispatcherConfig) ConfigOrDefaults() WakeupDispatcherConfig {
 	return out
 }
 
-var dispatcherClaimedBySeq uint64
+var dispatcherClaimedBySeq atomic.Uint64
 
 type WakeupLauncher interface {
 	LaunchAgent(ctx context.Context, req LaunchRequest) error

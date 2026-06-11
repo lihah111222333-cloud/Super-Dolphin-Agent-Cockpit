@@ -13,7 +13,7 @@ func TestProtectMCPStdoutRebindsLoggerOffProtocolStdout(t *testing.T) {
 	t.Cleanup(func() {
 		os.Stdout = originalStdout
 		os.Stderr = originalStderr
-		mcpStdout = nil
+		mcpStdout.Store(nil)
 		pkglogger.InitWithConsoleWriter(os.Stderr)
 	})
 
@@ -38,8 +38,8 @@ func TestProtectMCPStdoutRebindsLoggerOffProtocolStdout(t *testing.T) {
 	protectMCPStdout()
 	pkglogger.Info("mcp-ida logger routing test")
 
-	if mcpStdout != protocolWrite {
-		t.Fatalf("mcpStdout = %v, want original protocol stdout", mcpStdout)
+	if mcpStdout.Load() != protocolWrite {
+		t.Fatalf("mcpStdout = %v, want original protocol stdout", mcpStdout.Load())
 	}
 	if os.Stdout != os.Stderr {
 		t.Fatalf("os.Stdout was not redirected to stderr")

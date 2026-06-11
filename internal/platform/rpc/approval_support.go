@@ -15,8 +15,7 @@ import (
 	"github.com/creachadair/jrpc2"
 )
 
-// DefaultApprovalTimeout bounds approvals that do not carry an explicit deadline.
-// Tests may override it with a shorter duration.
+// DefaultApprovalTimeout is the package-level default; tests use setApprovalTimeoutForTest.
 var DefaultApprovalTimeout = 5 * time.Minute
 
 type approvalContextKey string

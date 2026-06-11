@@ -23,13 +23,41 @@ var (
 		func() float64 { return float64(skillmetrics.ArtifactApprovalMiss()) },
 	)
 
-	HostToolCallsOK = newHostToolCallsCounter(skillmetrics.HostToolOutcomeOK, skillmetrics.HostToolCallOK)
+	HostToolCallsOK = promauto.NewCounterFunc(
+		prometheus.CounterOpts{
+			Name:        "host_tool_calls_total",
+			Help:        "Number of codexapp host-direct skill tool calls labelled by outcome.",
+			ConstLabels: prometheus.Labels{"outcome": skillmetrics.HostToolOutcomeOK},
+		},
+		func() float64 { return float64(skillmetrics.HostToolCallOK()) },
+	)
 
-	HostToolCallsCWDMissing = newHostToolCallsCounter(skillmetrics.HostToolOutcomeCWDMissing, skillmetrics.HostToolCallCWDMissing)
+	HostToolCallsCWDMissing = promauto.NewCounterFunc(
+		prometheus.CounterOpts{
+			Name:        "host_tool_calls_total",
+			Help:        "Number of codexapp host-direct skill tool calls labelled by outcome.",
+			ConstLabels: prometheus.Labels{"outcome": skillmetrics.HostToolOutcomeCWDMissing},
+		},
+		func() float64 { return float64(skillmetrics.HostToolCallCWDMissing()) },
+	)
 
-	HostToolCallsApprovalRequired = newHostToolCallsCounter(skillmetrics.HostToolOutcomeApprovalRequired, skillmetrics.HostToolCallApprovalRequired)
+	HostToolCallsApprovalRequired = promauto.NewCounterFunc(
+		prometheus.CounterOpts{
+			Name:        "host_tool_calls_total",
+			Help:        "Number of codexapp host-direct skill tool calls labelled by outcome.",
+			ConstLabels: prometheus.Labels{"outcome": skillmetrics.HostToolOutcomeApprovalRequired},
+		},
+		func() float64 { return float64(skillmetrics.HostToolCallApprovalRequired()) },
+	)
 
-	HostToolCallsError = newHostToolCallsCounter(skillmetrics.HostToolOutcomeError, skillmetrics.HostToolCallError)
+	HostToolCallsError = promauto.NewCounterFunc(
+		prometheus.CounterOpts{
+			Name:        "host_tool_calls_total",
+			Help:        "Number of codexapp host-direct skill tool calls labelled by outcome.",
+			ConstLabels: prometheus.Labels{"outcome": skillmetrics.HostToolOutcomeError},
+		},
+		func() float64 { return float64(skillmetrics.HostToolCallError()) },
+	)
 
 	EnrichFailuresTotal = promauto.NewCounterFunc(
 		prometheus.CounterOpts{
@@ -39,14 +67,3 @@ var (
 		func() float64 { return float64(skillmetrics.EnrichFailures()) },
 	)
 )
-
-func newHostToolCallsCounter(outcome string, read func() uint64) prometheus.CounterFunc {
-	return promauto.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name:        "host_tool_calls_total",
-			Help:        "Number of codexapp host-direct skill tool calls labelled by outcome.",
-			ConstLabels: prometheus.Labels{"outcome": outcome},
-		},
-		func() float64 { return float64(read()) },
-	)
-}

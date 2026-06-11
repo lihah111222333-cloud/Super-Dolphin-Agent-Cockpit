@@ -370,7 +370,11 @@ func TestDAGNotifierDropsWhenQueueFull(t *testing.T) {
 			return []taskdag.Node{{NodeKey: "n", Config: jsonB(t, map[string]any{"notify_channel": "ch"})}}, nil
 		},
 	}
-	n := NewDAGNotifier(slog.Default(), rec, store, WithDAGNotifyQueueCapacity(1))
+	capOpt, err := WithDAGNotifyQueueCapacity(1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	n := NewDAGNotifier(slog.Default(), rec, store, capOpt)
 	n.Start()
 
 	n.onNodeStatusChanged(taskdto.TaskNodeStatusChanged{

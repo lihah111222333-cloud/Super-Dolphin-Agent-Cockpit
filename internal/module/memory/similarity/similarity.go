@@ -102,11 +102,9 @@ func IgnoreKey(targetA, pathA, targetB, pathB string) string {
 	return a + "|" + b
 }
 
-// ignoreLock 序列化 ignored set 的读改写。
-// 单进程语义：sync.Mutex 只挡同一 agent-terminal 进程内的并发；多 agent-terminal
-// 实例同写 .similarity-ignored.json 仍可能 last-write-wins。当前 UI 是单实例场景，
-// 多实例需求出现时改成 flock（参考 dedup/consolidation_lock.go）或 diskLockCoordinator。
-var ignoreLock sync.Mutex
+type ignoreMgr struct{ mu sync.Mutex }
+
+var ignoreMgrInst = &ignoreMgr{}
 
 // LoadIgnored 读取 privateRoot 下 .similarity-ignored.json 的 ignored set。
 // privateRoot 为空、文件不存在或 JSON 解析失败都返回错误。
@@ -151,8 +149,8 @@ func AppendIgnored(privateRoot, key string) error {
 	if key == "" {
 		return errors.New("ignored key is empty")
 	}
-	ignoreLock.Lock()
-	defer ignoreLock.Unlock()
+	ignoreMgrInst.mu.Lock()
+	defer ignoreMgrInst.mu.Unlock()
 	path := filepath.Join(root, ignoredFileName)
 	if _, statErr := os.Stat(path); statErr != nil {
 		if errors.Is(statErr, os.ErrNotExist) {

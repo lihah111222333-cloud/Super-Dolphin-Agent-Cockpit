@@ -17,24 +17,20 @@ func TestRunDesktopPreflightDoesNotEnsureCodexCLIAvailable(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN", "")
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_API_KEY", "")
 	var called bool
-	previous := ensureCodexCLIAvailableForDesktop
-	ensureCodexCLIAvailableForDesktop = func(ctx context.Context) error {
+	previous := deps
+	deps.ensureCodexCLIAvailable = func(context.Context) error {
 		called = true
 		return errors.New("codex CLI check must not run during desktop preflight")
 	}
-	previousHome := codexAppManagedHomeForDesktop
-	codexAppManagedHomeForDesktop = func() (string, error) {
+	deps.codexAppManagedHome = func() (string, error) {
 		t.Fatal("Codex home must not be resolved when relay config is unset")
 		return "", nil
 	}
-	previousBootstrap := ensureCodexBootstrapForDesktop
-	ensureCodexBootstrapForDesktop = func(context.Context, codexapp.CodexBootstrapConfig) error {
+	deps.ensureCodexBootstrap = func(context.Context, codexapp.CodexBootstrapConfig) error {
 		t.Fatal("Codex bootstrap must not run when relay config is unset")
 		return nil
 	}
-	t.Cleanup(func() { ensureCodexCLIAvailableForDesktop = previous })
-	t.Cleanup(func() { codexAppManagedHomeForDesktop = previousHome })
-	t.Cleanup(func() { ensureCodexBootstrapForDesktop = previousBootstrap })
+	t.Cleanup(func() { deps = previous })
 
 	if err := runDesktopPreflight(context.Background()); err != nil {
 		t.Fatalf("runDesktopPreflight() error = %v", err)
@@ -57,24 +53,18 @@ func TestRunDesktopPreflightBootstrapsManagedCodexRelayConfig(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BASE_URL", "https://relay.example.test/v1")
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN", "test-token")
 
-	previousCLI := ensureCodexCLIAvailableForDesktop
-	ensureCodexCLIAvailableForDesktop = func(context.Context) error {
+	previous := deps
+	deps.ensureCodexCLIAvailable = func(context.Context) error {
 		t.Fatal("Codex CLI check must not run during desktop preflight")
 		return errors.New("unexpected Codex CLI check")
 	}
-	previousHome := codexAppManagedHomeForDesktop
-	codexAppManagedHomeForDesktop = func() (string, error) {
-		return home, nil
-	}
+	deps.codexAppManagedHome = func() (string, error) { return home, nil }
 	var got codexapp.CodexBootstrapConfig
-	previousBootstrap := ensureCodexBootstrapForDesktop
-	ensureCodexBootstrapForDesktop = func(ctx context.Context, cfg codexapp.CodexBootstrapConfig) error {
+	deps.ensureCodexBootstrap = func(_ context.Context, cfg codexapp.CodexBootstrapConfig) error {
 		got = cfg
 		return nil
 	}
-	t.Cleanup(func() { ensureCodexCLIAvailableForDesktop = previousCLI })
-	t.Cleanup(func() { codexAppManagedHomeForDesktop = previousHome })
-	t.Cleanup(func() { ensureCodexBootstrapForDesktop = previousBootstrap })
+	t.Cleanup(func() { deps = previous })
 
 	if err := runDesktopPreflight(context.Background()); err != nil {
 		t.Fatalf("runDesktopPreflight() error = %v", err)
@@ -105,22 +95,16 @@ func TestRunDesktopPreflightReturnsCodexBootstrapError(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BASE_URL", "https://relay.example.test/v1")
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN", "test-token")
 	want := errors.New("relay config missing")
-	previousCLI := ensureCodexCLIAvailableForDesktop
-	ensureCodexCLIAvailableForDesktop = func(context.Context) error {
+	previous := deps
+	deps.ensureCodexCLIAvailable = func(context.Context) error {
 		t.Fatal("Codex CLI check must not run during desktop preflight")
 		return errors.New("unexpected Codex CLI check")
 	}
-	previousHome := codexAppManagedHomeForDesktop
-	codexAppManagedHomeForDesktop = func() (string, error) {
+	deps.codexAppManagedHome = func() (string, error) {
 		return filepath.Join(t.TempDir(), "codex-home"), nil
 	}
-	previousBootstrap := ensureCodexBootstrapForDesktop
-	ensureCodexBootstrapForDesktop = func(context.Context, codexapp.CodexBootstrapConfig) error {
-		return want
-	}
-	t.Cleanup(func() { ensureCodexCLIAvailableForDesktop = previousCLI })
-	t.Cleanup(func() { codexAppManagedHomeForDesktop = previousHome })
-	t.Cleanup(func() { ensureCodexBootstrapForDesktop = previousBootstrap })
+	deps.ensureCodexBootstrap = func(context.Context, codexapp.CodexBootstrapConfig) error { return want }
+	t.Cleanup(func() { deps = previous })
 
 	err := runDesktopPreflight(context.Background())
 	if err == nil {
@@ -136,24 +120,20 @@ func TestRunDesktopPreflightSkipsCodexBootstrapWhenRelayUnset(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BASE_URL", "")
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN", "")
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_API_KEY", "")
-	previousCLI := ensureCodexCLIAvailableForDesktop
-	ensureCodexCLIAvailableForDesktop = func(context.Context) error {
+	previous := deps
+	deps.ensureCodexCLIAvailable = func(context.Context) error {
 		t.Fatal("Codex CLI check must not run during desktop preflight")
 		return errors.New("unexpected Codex CLI check")
 	}
-	previousHome := codexAppManagedHomeForDesktop
-	codexAppManagedHomeForDesktop = func() (string, error) {
+	deps.codexAppManagedHome = func() (string, error) {
 		t.Fatal("Codex home must not be resolved when relay config is unset")
 		return "", nil
 	}
-	previousBootstrap := ensureCodexBootstrapForDesktop
-	ensureCodexBootstrapForDesktop = func(context.Context, codexapp.CodexBootstrapConfig) error {
+	deps.ensureCodexBootstrap = func(context.Context, codexapp.CodexBootstrapConfig) error {
 		t.Fatal("Codex bootstrap must not run when relay config is unset")
 		return nil
 	}
-	t.Cleanup(func() { ensureCodexCLIAvailableForDesktop = previousCLI })
-	t.Cleanup(func() { codexAppManagedHomeForDesktop = previousHome })
-	t.Cleanup(func() { ensureCodexBootstrapForDesktop = previousBootstrap })
+	t.Cleanup(func() { deps = previous })
 
 	if err := runDesktopPreflight(context.Background()); err != nil {
 		t.Fatalf("runDesktopPreflight() error = %v", err)
@@ -172,18 +152,16 @@ func TestRunDesktopPreflightFailsFastInPackagedRuntimeWhenRelayUnset(t *testing.
 	if err := os.WriteFile(filepath.Join(root, ".env"), []byte(""), 0o600); err != nil {
 		t.Fatalf("write .env: %v", err)
 	}
-	previousHome := codexAppManagedHomeForDesktop
-	codexAppManagedHomeForDesktop = func() (string, error) {
+	previous := deps
+	deps.codexAppManagedHome = func() (string, error) {
 		t.Fatal("Codex home must not be resolved when packaged relay config is missing")
 		return "", nil
 	}
-	previousBootstrap := ensureCodexBootstrapForDesktop
-	ensureCodexBootstrapForDesktop = func(context.Context, codexapp.CodexBootstrapConfig) error {
+	deps.ensureCodexBootstrap = func(context.Context, codexapp.CodexBootstrapConfig) error {
 		t.Fatal("Codex bootstrap must not run when packaged relay config is missing")
 		return nil
 	}
-	t.Cleanup(func() { codexAppManagedHomeForDesktop = previousHome })
-	t.Cleanup(func() { ensureCodexBootstrapForDesktop = previousBootstrap })
+	t.Cleanup(func() { deps = previous })
 
 	err := runDesktopPreflight(context.Background())
 	if err == nil {
@@ -247,18 +225,16 @@ func TestRunDesktopPreflightReturnsPackagedDotEnvErrors(t *testing.T) {
 			if tt.prepare != nil {
 				tt.prepare(t, root)
 			}
-			previousHome := codexAppManagedHomeForDesktop
-			codexAppManagedHomeForDesktop = func() (string, error) {
+			previous := deps
+			deps.codexAppManagedHome = func() (string, error) {
 				t.Fatal("Codex home must not be resolved when packaged .env is invalid")
 				return "", nil
 			}
-			previousBootstrap := ensureCodexBootstrapForDesktop
-			ensureCodexBootstrapForDesktop = func(context.Context, codexapp.CodexBootstrapConfig) error {
+			deps.ensureCodexBootstrap = func(context.Context, codexapp.CodexBootstrapConfig) error {
 				t.Fatal("Codex bootstrap must not run when packaged .env is invalid")
 				return nil
 			}
-			t.Cleanup(func() { codexAppManagedHomeForDesktop = previousHome })
-			t.Cleanup(func() { ensureCodexBootstrapForDesktop = previousBootstrap })
+			t.Cleanup(func() { deps = previous })
 
 			err := runDesktopPreflight(context.Background())
 			if err == nil {
@@ -291,18 +267,16 @@ func TestRunDesktopPreflightIgnoresResidualRelayEnvOutsidePackagedRuntime(t *tes
 			t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BASE_URL", tt.baseURL)
 			t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN", tt.token)
 			t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_API_KEY", tt.apiKey)
-			previousHome := codexAppManagedHomeForDesktop
-			codexAppManagedHomeForDesktop = func() (string, error) {
+			previous := deps
+			deps.codexAppManagedHome = func() (string, error) {
 				t.Fatal("Codex home must not be resolved outside packaged desktop preflight")
 				return "", nil
 			}
-			previousBootstrap := ensureCodexBootstrapForDesktop
-			ensureCodexBootstrapForDesktop = func(context.Context, codexapp.CodexBootstrapConfig) error {
+			deps.ensureCodexBootstrap = func(context.Context, codexapp.CodexBootstrapConfig) error {
 				t.Fatal("Codex bootstrap must not run outside packaged desktop preflight")
 				return nil
 			}
-			t.Cleanup(func() { codexAppManagedHomeForDesktop = previousHome })
-			t.Cleanup(func() { ensureCodexBootstrapForDesktop = previousBootstrap })
+			t.Cleanup(func() { deps = previous })
 
 			if err := runDesktopPreflight(context.Background()); err != nil {
 				t.Fatalf("runDesktopPreflight() error = %v, want nil outside packaged runtime", err)
@@ -343,18 +317,16 @@ func TestRunDesktopPreflightFailsFastInPackagedRuntimeWhenRelayPartiallySet(t *t
 			if err := os.WriteFile(filepath.Join(root, ".env"), []byte(""), 0o600); err != nil {
 				t.Fatalf("write .env: %v", err)
 			}
-			previousHome := codexAppManagedHomeForDesktop
-			codexAppManagedHomeForDesktop = func() (string, error) {
+			previous := deps
+			deps.codexAppManagedHome = func() (string, error) {
 				t.Fatal("Codex home must not be resolved when packaged relay config is incomplete")
 				return "", nil
 			}
-			previousBootstrap := ensureCodexBootstrapForDesktop
-			ensureCodexBootstrapForDesktop = func(context.Context, codexapp.CodexBootstrapConfig) error {
+			deps.ensureCodexBootstrap = func(context.Context, codexapp.CodexBootstrapConfig) error {
 				t.Fatal("Codex bootstrap must not run when packaged relay config is incomplete")
 				return nil
 			}
-			t.Cleanup(func() { codexAppManagedHomeForDesktop = previousHome })
-			t.Cleanup(func() { ensureCodexBootstrapForDesktop = previousBootstrap })
+			t.Cleanup(func() { deps = previous })
 
 			err := runDesktopPreflight(context.Background())
 			if err == nil {
@@ -379,24 +351,20 @@ func TestRunDesktopPreflightLoadsDotEnvBeforeCodexBootstrap(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("SUPER_DOLPHIN_CODEX_RELAY_BASE_URL=https://relay.example.test/v1\nSUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN=test-token\n"), 0o600); err != nil {
 		t.Fatalf("write .env: %v", err)
 	}
-	previous := ensureCodexCLIAvailableForDesktop
-	ensureCodexCLIAvailableForDesktop = func(context.Context) error {
+	previous := deps
+	deps.ensureCodexCLIAvailable = func(context.Context) error {
 		t.Fatal("Codex CLI check must not run during desktop preflight")
 		return errors.New("unexpected Codex CLI check")
 	}
-	previousHome := codexAppManagedHomeForDesktop
-	codexAppManagedHomeForDesktop = func() (string, error) {
+	deps.codexAppManagedHome = func() (string, error) {
 		return filepath.Join(t.TempDir(), "codex-home"), nil
 	}
-	previousBootstrap := ensureCodexBootstrapForDesktop
 	var got codexapp.CodexBootstrapConfig
-	ensureCodexBootstrapForDesktop = func(_ context.Context, cfg codexapp.CodexBootstrapConfig) error {
+	deps.ensureCodexBootstrap = func(_ context.Context, cfg codexapp.CodexBootstrapConfig) error {
 		got = cfg
 		return nil
 	}
-	t.Cleanup(func() { ensureCodexCLIAvailableForDesktop = previous })
-	t.Cleanup(func() { codexAppManagedHomeForDesktop = previousHome })
-	t.Cleanup(func() { ensureCodexBootstrapForDesktop = previousBootstrap })
+	t.Cleanup(func() { deps = previous })
 
 	if err := runDesktopPreflight(context.Background()); err != nil {
 		t.Fatalf("runDesktopPreflight() error = %v", err)
@@ -417,18 +385,16 @@ func TestRunDesktopPreflightRejectsPrivilegedRelayAPIKeyEnv(t *testing.T) {
 	}
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BASE_URL", "https://relay.example.test/v1")
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_API_KEY", "privileged-key")
-	previousHome := codexAppManagedHomeForDesktop
-	codexAppManagedHomeForDesktop = func() (string, error) {
+	previous := deps
+	deps.codexAppManagedHome = func() (string, error) {
 		t.Fatal("Codex home must not be resolved when privileged relay API key env is set")
 		return "", nil
 	}
-	previousBootstrap := ensureCodexBootstrapForDesktop
-	ensureCodexBootstrapForDesktop = func(context.Context, codexapp.CodexBootstrapConfig) error {
+	deps.ensureCodexBootstrap = func(context.Context, codexapp.CodexBootstrapConfig) error {
 		t.Fatal("Codex bootstrap must not run when privileged relay API key env is set")
 		return nil
 	}
-	t.Cleanup(func() { codexAppManagedHomeForDesktop = previousHome })
-	t.Cleanup(func() { ensureCodexBootstrapForDesktop = previousBootstrap })
+	t.Cleanup(func() { deps = previous })
 
 	err := runDesktopPreflight(context.Background())
 	if err == nil {

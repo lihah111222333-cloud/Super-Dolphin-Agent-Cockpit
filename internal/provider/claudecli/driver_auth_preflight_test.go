@@ -9,29 +9,18 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
-func overrideClaudeAuthStatus(t *testing.T, fn func(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error)) {
-	t.Helper()
-	// Call after overrideLaunchCLI(t, ...). That helper holds the provider
-	// global override lock for the test lifetime and restores readClaudeAuthStatus
-	// after this cleanup runs.
-	prev := readClaudeAuthStatus
-	readClaudeAuthStatus = fn
-	t.Cleanup(func() {
-		readClaudeAuthStatus = prev
-	})
-}
-
 func TestDriverStartSessionFailsFastWhenClaudeAuthMissing(t *testing.T) {
 	var launched bool
-	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		launched = true
 		return nil, nil, nil
 	})
-	overrideClaudeAuthStatus(t, func(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error) {
-		return claudeAuthStatus{LoggedIn: false, AuthMethod: "none", APIProvider: "firstParty"}, `{"loggedIn":false}`, nil
-	})
 
 	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
+	d.launchCLI = launchFn
+	d.authStatus = func(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error) {
+		return claudeAuthStatus{LoggedIn: false, AuthMethod: "none", APIProvider: "firstParty"}, `{"loggedIn":false}`, nil
+	}
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		Provider: "claude",
 		AgentID:  "agent-auth-missing",
@@ -51,16 +40,17 @@ func TestDriverStartSessionFailsFastWhenClaudeAuthMissing(t *testing.T) {
 func TestDriverStartSessionPassesClaudeHomeToAuthPreflight(t *testing.T) {
 	var preflightHome string
 	next := newBufferedTransport(t, "provider-thread-auth-ok")
-	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		return next.tr, nil, nil
-	})
-	overrideClaudeAuthStatus(t, func(_ context.Context, _ string, _ string, cfg cliLaunchConfig) (claudeAuthStatus, string, error) {
-		preflightHome = cfg.ClaudeHome
-		return claudeAuthStatus{LoggedIn: true, AuthMethod: "oauth_token", APIProvider: "firstParty"}, `{"loggedIn":true}`, nil
 	})
 
 	claudeHome := t.TempDir()
 	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
+	d.launchCLI = launchFn
+	d.authStatus = func(_ context.Context, _ string, _ string, cfg cliLaunchConfig) (claudeAuthStatus, string, error) {
+		preflightHome = cfg.ClaudeHome
+		return claudeAuthStatus{LoggedIn: true, AuthMethod: "oauth_token", APIProvider: "firstParty"}, `{"loggedIn":true}`, nil
+	}
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		Provider: "claude",
 		AgentID:  "agent-auth-ok",
@@ -80,15 +70,16 @@ func TestDriverStartSessionPassesClaudeHomeToAuthPreflight(t *testing.T) {
 func TestDriverStartSessionContinuesWhenClaudeAuthStatusFails(t *testing.T) {
 	var launched bool
 	next := newBufferedTransport(t, "provider-thread-auth-status-error")
-	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		launched = true
 		return next.tr, nil, nil
 	})
-	overrideClaudeAuthStatus(t, func(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error) {
-		return claudeAuthStatus{}, "unsupported auth status command", errors.New("exit status 1")
-	})
 
 	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
+	d.launchCLI = launchFn
+	d.authStatus = func(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error) {
+		return claudeAuthStatus{}, "unsupported auth status command", errors.New("exit status 1")
+	}
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		Provider: "claude",
 		AgentID:  "agent-auth-status-error",
@@ -105,15 +96,16 @@ func TestDriverStartSessionContinuesWhenClaudeAuthStatusFails(t *testing.T) {
 func TestDriverStartSessionContinuesWhenClaudeAuthStatusIsInconclusive(t *testing.T) {
 	var launched bool
 	next := newBufferedTransport(t, "provider-thread-auth-status-inconclusive")
-	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		launched = true
 		return next.tr, nil, nil
 	})
-	overrideClaudeAuthStatus(t, func(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error) {
-		return claudeAuthStatus{}, `{}`, nil
-	})
 
 	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
+	d.launchCLI = launchFn
+	d.authStatus = func(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error) {
+		return claudeAuthStatus{}, `{}`, nil
+	}
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		Provider: "claude",
 		AgentID:  "agent-auth-status-inconclusive",

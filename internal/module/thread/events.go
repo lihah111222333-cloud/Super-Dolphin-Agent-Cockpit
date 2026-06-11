@@ -254,7 +254,7 @@ func (s *service) processSessionRecovery(ctx context.Context, ev agentdto.AgentF
 	)
 	s.evictZombieSession(ctx, target)
 	select {
-	case <-time.After(sessionRecoveryReconnectDelay):
+	case <-time.After(s.reconnectDelay):
 	case <-ctx.Done():
 		return
 	}

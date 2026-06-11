@@ -13,7 +13,7 @@ import (
 )
 
 func TestStartDoesNotWaitForPostgresChildStdoutAfterPGCtlStart(t *testing.T) {
-	if runtimeGOOS() == "windows" {
+	if pgDeps.goos() == "windows" {
 		t.Skip("fake pg_ctl script uses /bin/sh")
 	}
 	cfg, holderPIDPath := newStartWithStdoutHolderConfig(t)

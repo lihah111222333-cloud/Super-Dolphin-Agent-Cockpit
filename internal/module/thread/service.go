@@ -104,6 +104,8 @@ type service struct {
 	// enableWhenEval keeps router prompt_versions snapshots aligned with assembler gates.
 	enableWhenEval contract.EnableWhenEvaluator
 
+	reconnectDelay time.Duration
+
 	// agentLaunchedWorker is the P22 P2 (thread S4) single owner of the
 	// onAgentLaunched -> binding store write + prompt-assembly
 	// invalidation slow-path. Always constructed; processAgentLaunched
@@ -194,7 +196,7 @@ func (s *service) SetName(ctx context.Context, threadID, name string) error {
 	if !ok {
 		return nil
 	}
-	// TODO(P8): promote provider-backed thread rename into the unified Session
+	// NOTE(P8): promote provider-backed thread rename into the unified Session
 	// contract once at least one provider exposes a stable rename surface.
 	if err := syncer.SetThreadName(ctx, historyTargetID(binding, threadID), name); err != nil && s.logger != nil {
 		s.logger.Warn("thread/name/set: provider sync failed", "thread_id", threadID, "error", err)

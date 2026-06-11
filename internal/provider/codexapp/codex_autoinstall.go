@@ -38,12 +38,13 @@ const (
 	defaultBootstrapModelProvider = "super-dolphin-relay"
 )
 
-var codexInstallMu sync.Mutex
+type codexInstallState struct {
+	mu            sync.Mutex
+	maxFileBytes  int64
+	maxTotalBytes int64
+}
 
-var (
-	maxCodexExtractedFileBytes  int64 = defaultCodexExtractLimit
-	maxCodexExtractedTotalBytes int64 = defaultCodexExtractLimit
-)
+var codexInstall = &codexInstallState{maxFileBytes: defaultCodexExtractLimit, maxTotalBytes: defaultCodexExtractLimit}
 
 func EnsureCLIAvailable(ctx context.Context) error {
 	return ensureCodexCLIAvailable(ctx)
@@ -139,8 +140,8 @@ func ensureCodexCLIAvailable(ctx context.Context) error {
 	if err != nil || ok {
 		return err
 	}
-	codexInstallMu.Lock()
-	defer codexInstallMu.Unlock()
+	codexInstall.mu.Lock()
+	defer codexInstall.mu.Unlock()
 	ok, err = bundledOrPathCodexAvailable(ctx)
 	if err != nil || ok {
 		return err

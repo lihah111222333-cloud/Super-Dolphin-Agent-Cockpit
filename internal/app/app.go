@@ -25,10 +25,18 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-var ensureCodexCLIAvailableForDesktop = codexapp.EnsureCLIAvailable
-var ensureCodexBootstrapForDesktop = codexapp.EnsureCodexBootstrap
-var codexAppManagedHomeForDesktop = func() (string, error) {
-	return providershared.AppManagedProviderHome(providershared.ProviderCodex)
+type appDeps struct {
+	ensureCodexCLIAvailable func(context.Context) error
+	ensureCodexBootstrap    func(context.Context, codexapp.CodexBootstrapConfig) error
+	codexAppManagedHome     func() (string, error)
+}
+
+var deps = appDeps{
+	ensureCodexCLIAvailable: codexapp.EnsureCLIAvailable,
+	ensureCodexBootstrap:    codexapp.EnsureCodexBootstrap,
+	codexAppManagedHome: func() (string, error) {
+		return providershared.AppManagedProviderHome(providershared.ProviderCodex)
+	},
 }
 
 const (
@@ -162,13 +170,13 @@ func runDesktopPreflight(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("desktop preflight: load environment: %w", err)
 	}
-	if err := ensurePackagedCodexBootstrap(ctx, projectRoot); err != nil {
+	if err := ensurePackagedCodexBootstrap(ctx, projectRoot, deps); err != nil {
 		return fmt.Errorf("desktop preflight: Codex bootstrap failed: %w", err)
 	}
 	return nil
 }
 
-func ensurePackagedCodexBootstrap(ctx context.Context, projectRoot string) error {
+func ensurePackagedCodexBootstrap(ctx context.Context, projectRoot string, d appDeps) error {
 	required, err := packagedCodexRelayRequired(projectRoot)
 	if err != nil {
 		return err
@@ -183,11 +191,11 @@ func ensurePackagedCodexBootstrap(ctx context.Context, projectRoot string) error
 	if !configured {
 		return fmt.Errorf("packaged Codex relay config missing: set %s and %s in %s or the process environment", codexRelayBaseURLEnv, codexRelayBootstrapTokenEnv, filepath.Join(projectRoot, ".env"))
 	}
-	home, err := codexAppManagedHomeForDesktop()
+	home, err := d.codexAppManagedHome()
 	if err != nil {
 		return fmt.Errorf("resolve app-managed Codex home: %w", err)
 	}
-	return ensureCodexBootstrapForDesktop(ctx, codexapp.CodexBootstrapConfig{
+	return d.ensureCodexBootstrap(ctx, codexapp.CodexBootstrapConfig{
 		Home:                home,
 		RelayBaseURL:        baseURL,
 		RelayBootstrapToken: bootstrapToken,

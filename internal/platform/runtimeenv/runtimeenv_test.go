@@ -513,24 +513,18 @@ func writeExecutable(t *testing.T, dir, name string) {
 }
 
 func TestConfigurePackagedAppReturnsSetenvError(t *testing.T) {
-	previousExecutable := executablePathForRuntime
-	previousHome := userHomeDirForRuntime
-	previousSetenv := setenvForRuntime
-	t.Cleanup(func() {
-		executablePathForRuntime = previousExecutable
-		userHomeDirForRuntime = previousHome
-		setenvForRuntime = previousSetenv
-	})
+	prev := deps
+	t.Cleanup(func() { deps = prev })
 
 	app := filepath.Join(t.TempDir(), "Super Dolphin.app")
 	writePackagedRuntimeFixture(t, filepath.Join(app, "Contents", "Resources"), runtimeGOOS()+"-"+runtimeGOARCH())
-	executablePathForRuntime = func() (string, error) {
+	deps.executable = func() (string, error) {
 		return filepath.Join(app, "Contents", "MacOS", "agent-terminal"), nil
 	}
-	userHomeDirForRuntime = func() (string, error) {
+	deps.userHomeDir = func() (string, error) {
 		return "/Users/alice", nil
 	}
-	setenvForRuntime = func(key, value string) error {
+	deps.setenv = func(key, value string) error {
 		if key == projectRootEnv {
 			return errors.New("injected setenv failure")
 		}
@@ -550,20 +544,16 @@ func TestConfigurePackagedAppReturnsSetenvError(t *testing.T) {
 }
 
 func TestConfigurePackagedAppSkipsDevBinaryWithoutUserHome(t *testing.T) {
-	previousExecutable := executablePathForRuntime
-	previousHome := userHomeDirForRuntime
-	t.Cleanup(func() {
-		executablePathForRuntime = previousExecutable
-		userHomeDirForRuntime = previousHome
-	})
+	prev := deps
+	t.Cleanup(func() { deps = prev })
 	t.Setenv(runtimeModeEnv, "")
 	t.Setenv(packageRootEnv, "")
 	t.Setenv(packagedLauncherEnv, "")
 
-	executablePathForRuntime = func() (string, error) {
+	deps.executable = func() (string, error) {
 		return filepath.Join(t.TempDir(), "bin", "agent-terminal"), nil
 	}
-	userHomeDirForRuntime = func() (string, error) {
+	deps.userHomeDir = func() (string, error) {
 		t.Fatal("user home must not be required for a dev binary")
 		return "", nil
 	}

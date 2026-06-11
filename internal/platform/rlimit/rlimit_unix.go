@@ -8,7 +8,8 @@ import (
 	"syscall"
 )
 
-func init() {
+// Init raises the open-file descriptor limit. Call it early in main().
+func Init() {
 	raiseLimit()
 }
 

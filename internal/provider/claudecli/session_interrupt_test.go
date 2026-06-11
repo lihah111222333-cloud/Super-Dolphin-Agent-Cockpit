@@ -18,15 +18,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
-func overrideSettleInterruptedTransport(t *testing.T, fn func(*transport) error) {
-	t.Helper()
-	prev := settleInterruptedTransport
-	settleInterruptedTransport = fn
-	t.Cleanup(func() {
-		settleInterruptedTransport = prev
-	})
-}
-
 func newInterruptTestTransport(t *testing.T, script string) *transport {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -86,18 +77,15 @@ func (w *blockingWriteCloser) Close() error { return nil }
 
 func runInterruptRestartScenario(t *testing.T, script string) {
 	t.Helper()
-	overrideSettleInterruptedTransport(t, func(tr *transport) error {
-		return settleInterruptedTransportWithTimeout(tr, 50*time.Millisecond)
-	})
 	next := newScriptedTransport()
 	defer next.finish()
 	resumeIDs := make(chan string, 1)
-	overrideLaunchCLI(t, func(_, _, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(_, _, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
 		resumeIDs <- resumeID
 		return next.tr, nil, nil
 	})
 	cleanupCalled := false
-	s, active, oldTransport := newInterruptRestartSession(t, script, &cleanupCalled)
+	s, active, oldTransport := newInterruptRestartSession(t, script, &cleanupCalled, launchFn)
 	assertInterruptStopsSession(t, s, active, oldTransport, &cleanupCalled)
 	startTurnAfterInterrupt(t, s)
 	assertInterruptRestartWrite(t, next)
@@ -105,7 +93,7 @@ func runInterruptRestartScenario(t *testing.T, script string) {
 	assertInterruptRestartResumeID(t, resumeIDs)
 }
 
-func newInterruptRestartSession(t *testing.T, script string, cleanupCalled *bool) (*session, *turnHandle, *transport) {
+func newInterruptRestartSession(t *testing.T, script string, cleanupCalled *bool, launchFn func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error)) (*session, *turnHandle, *transport) {
 	t.Helper()
 	oldReady := make(chan struct{})
 	close(oldReady)
@@ -121,6 +109,10 @@ func newInterruptRestartSession(t *testing.T, script string, cleanupCalled *bool
 		activeTurn:      active,
 		suppressedTurns: map[string]struct{}{},
 		model:           "claude-old",
+		launchCLI:       launchFn,
+		settleTransport: func(tr *transport) error {
+			return settleInterruptedTransportWithTimeout(tr, 50*time.Millisecond)
+		},
 	}, active, oldTransport
 }
 

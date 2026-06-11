@@ -15,7 +15,7 @@ func sectionInputCacheKey(section PromptSection, input SectionContext) (string, 
 	case InputScoped:
 		encoded, err := json.Marshal(inputScopedCacheDependency(section, input))
 		if err != nil {
-			panic("prompt/cache: failed to marshal cache dependency: " + err.Error())
+			return "", false
 		}
 		digest := sha256.Sum256(encoded)
 		return section.Name + ":" + hex.EncodeToString(digest[:]), true

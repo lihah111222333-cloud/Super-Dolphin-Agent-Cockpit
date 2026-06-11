@@ -304,7 +304,10 @@ func TestReleaseScopeClearsDiagnosticsBootstrapAndCache(t *testing.T) {
 	if result.ClosedManagers != 1 {
 		t.Fatalf("ClosedManagers = %d, want 1", result.ClosedManagers)
 	}
-	if _, ok := bootstrapCoordinators.Load(scoped); ok {
+	scoped.coordinatorMu.Lock()
+	hasCoordinator := scoped.coordinator != nil
+	scoped.coordinatorMu.Unlock()
+	if hasCoordinator {
 		t.Fatalf("bootstrap/cache coordinator survived ReleaseScope close")
 	}
 	if !managerIsClosed(scoped) {

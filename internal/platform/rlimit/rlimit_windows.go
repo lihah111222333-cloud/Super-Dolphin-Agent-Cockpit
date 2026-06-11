@@ -2,6 +2,5 @@
 
 package rlimit
 
-func init() {
-	// Not applicable on Windows.
-}
+// Init is a no-op on Windows.
+func Init() {}

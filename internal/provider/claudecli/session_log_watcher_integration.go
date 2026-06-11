@@ -230,7 +230,11 @@ func (s *session) logRestartLocked(reason string, next stagedSessionState, resum
 
 func (s *session) prepareSessionRestartLocked(ctx context.Context, next stagedSessionState, resumeID, reason string) (preparedSessionRestart, error) {
 	baseInstructions := promptSnapshotBaseInstructions(next.config.PromptSnapshot, s.instructions)
-	tr, cleanup, err := launchCLI(
+	fn := s.launchCLI
+	if fn == nil {
+		fn = launchCLIWithManifest
+	}
+	tr, cleanup, err := fn(
 		s.binaryPath,
 		s.cwd,
 		next.model,

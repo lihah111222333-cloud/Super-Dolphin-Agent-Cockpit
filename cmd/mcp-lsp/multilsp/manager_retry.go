@@ -15,8 +15,6 @@ const (
 	transientLSPRequestMaxRetries = 3
 )
 
-var transientLSPRequestBaseDelay = 500 * time.Millisecond
-
 func (m *manager) request(ctx context.Context, client Client, method string, params any) (json.RawMessage, error) {
 	if client == nil {
 		return nil, fmt.Errorf("request %s: client is nil", method)
@@ -27,7 +25,7 @@ func (m *manager) request(ctx context.Context, client Client, method string, par
 			return raw, nil
 		}
 		if isRetryableTransientLSPRequestError(method, err) && attempt < transientLSPRequestMaxRetries {
-			if waitErr := waitBeforeTransientLSPRequestRetry(ctx, attempt); waitErr != nil {
+			if waitErr := m.waitBeforeTransientLSPRequestRetry(ctx, attempt); waitErr != nil {
 				return nil, fmt.Errorf("%s: %w", method, errors.Join(err, waitErr))
 			}
 			continue
@@ -99,8 +97,8 @@ func isRetryableTransientLSPRequestError(method string, err error) bool {
 	return responseErr.Code == lspErrorContentModified
 }
 
-func waitBeforeTransientLSPRequestRetry(ctx context.Context, attempt int) error {
-	delay := transientLSPRequestBaseDelay
+func (m *manager) waitBeforeTransientLSPRequestRetry(ctx context.Context, attempt int) error {
+	delay := m.retryBaseDelay
 	for range attempt {
 		delay *= 2
 	}

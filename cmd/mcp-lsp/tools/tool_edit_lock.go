@@ -2,7 +2,9 @@ package tools
 
 import "sync"
 
-var editFileLocks sync.Map
+type editLockRegistry struct{ m sync.Map }
+
+var editFileLocks = &editLockRegistry{}
 
 func lockEditFile(path string) func() {
 	return lockEditFiles([]string{path})
@@ -19,7 +21,7 @@ func lockEditFiles(paths []string) func() {
 			continue
 		}
 		last = path
-		value, _ := editFileLocks.LoadOrStore(path, &sync.Mutex{})
+		value, _ := editFileLocks.m.LoadOrStore(path, &sync.Mutex{})
 		mu := value.(*sync.Mutex)
 		mu.Lock()
 		locks = append(locks, mu)
