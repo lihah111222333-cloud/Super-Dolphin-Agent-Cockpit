@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/exitmonitor"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -201,12 +202,6 @@ type runnerActor struct {
 	service *service
 }
 
-type waitResult struct {
-	agentID   string
-	launchSeq uint64
-	err       error
-}
-
 func NewRunnerActor(logger *slog.Logger, service *service) platformrunner.Runner {
 	return &runnerActor{logger: logger, service: service}
 }
@@ -230,14 +225,14 @@ func (a *runnerActor) Run(ctx context.Context) error {
 			if !ok {
 				return ctx.Err()
 			}
-			a.service.handleProcessExit(ctx, result.agentID, result.launchSeq, result.err)
+			a.service.handleProcessExit(ctx, result.AgentID, result.LaunchSeq, result.Err)
 		case <-ticker.C:
 			a.recoverStalledAgents(ctx, stallDetector)
 		}
 	}
 }
 
-func (a *runnerActor) drainOnStop(exitEvents <-chan waitResult) {
+func (a *runnerActor) drainOnStop(exitEvents <-chan exitmonitor.Event) {
 	stopDone := make(chan struct{})
 	go func() {
 		defer close(stopDone)
@@ -278,20 +273,20 @@ func (a *runnerActor) drainOnStop(exitEvents <-chan waitResult) {
 			if !ok {
 				return
 			}
-			a.service.handleProcessExit(context.Background(), result.agentID, result.launchSeq, result.err)
+			a.service.handleProcessExit(context.Background(), result.AgentID, result.LaunchSeq, result.Err)
 		}
 	}
 	a.flushRemainingExitEvents(exitEvents)
 }
 
-func (a *runnerActor) flushRemainingExitEvents(exitEvents <-chan waitResult) {
+func (a *runnerActor) flushRemainingExitEvents(exitEvents <-chan exitmonitor.Event) {
 	for {
 		select {
 		case result, ok := <-exitEvents:
 			if !ok {
 				return
 			}
-			a.service.handleProcessExit(context.Background(), result.agentID, result.launchSeq, result.err)
+			a.service.handleProcessExit(context.Background(), result.AgentID, result.LaunchSeq, result.Err)
 		default:
 			return
 		}

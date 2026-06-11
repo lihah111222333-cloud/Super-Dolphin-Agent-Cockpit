@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/exitmonitor"
 	"github.com/kelindar/event"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
@@ -198,10 +199,10 @@ func TestRunnerActorShutdownObservesProcessExitAfterContextCancel(t *testing.T) 
 	// P22 P3: this test bypasses startProcessLocked (it hand-rolls a cmd and
 	// agentRuntime). The production path arms the exit monitor there; the
 	// test must mirror that so the runner can observe the eventual cmd.Wait.
-	svc.exitMonitor.Arm(monitorTarget{
-		agentID:   agent.id,
-		launchSeq: agent.launchSeq,
-		cmd:       cmd,
+	svc.exitMonitor.Arm(exitmonitor.Target{
+		AgentID:   agent.id,
+		LaunchSeq: agent.launchSeq,
+		Cmd:       cmd,
 	})
 	agent.monitoredSeq = agent.launchSeq
 

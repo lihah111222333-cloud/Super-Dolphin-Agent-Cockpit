@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/launcherrors"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -96,10 +97,10 @@ func (s *service) launchWithRetry(ctx context.Context, attempt launcherLaunchAtt
 	launchStartedAt := time.Now()
 	pkglogger.Info("orchestration: launch attempt sequence start",
 		pkglogger.String(pkglogger.FieldAgentID, attempt.agentID),
-		pkglogger.Int64("max_retries", int64(maxLaunchRetries)))
-	for i := 0; i < maxLaunchRetries; i++ {
+		pkglogger.Int64("max_retries", int64(launcherrors.MaxRetries)))
+	for i := 0; i < launcherrors.MaxRetries; i++ {
 		if i > 0 {
-			if err := waitRetryBackoff(ctx, i, attempt.agentID, lastErr); err != nil {
+			if err := launcherrors.WaitRetryBackoff(ctx, i, attempt.agentID, lastErr); err != nil {
 				return launchedAgent{}, s.finishLauncherLaunch(ctx, attempt, LaunchResult{}, err)
 			}
 		}
@@ -121,10 +122,10 @@ func (s *service) launchWithRetry(ctx context.Context, attempt launcherLaunchAtt
 			pkglogger.String(pkglogger.FieldAgentID, attempt.agentID),
 			pkglogger.Int64("attempt", int64(i+1)),
 			pkglogger.String(pkglogger.FieldError, launchErr.Error()),
-			pkglogger.String("error_class", string(classifyLaunchError(launchErr))),
+			pkglogger.String("error_class", string(launcherrors.Classify(launchErr))),
 			pkglogger.Int64(pkglogger.FieldDurationMS, time.Since(attemptStartedAt).Milliseconds()),
 			pkglogger.Int64("total_duration_ms", time.Since(launchStartedAt).Milliseconds()))
-		if classifyLaunchError(launchErr) == launchClassPermanent {
+		if launcherrors.Classify(launchErr) == launcherrors.ClassPermanent {
 			break
 		}
 	}
@@ -431,7 +432,7 @@ func (s *service) trySubmitRemoteTurn(ctx context.Context, agentID string, req T
 	remoteTurnID, submitErr := s.launcher.SubmitTurn(ctx, attempt.agent, attempt.req)
 	if submitErr != nil {
 		s.finishRemoteTurnSubmitFailure(ctx, attempt, submitErr)
-		if classifyLaunchError(submitErr) == launchClassPermanent {
+		if launcherrors.Classify(submitErr) == launcherrors.ClassPermanent {
 			cleanupCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.AsyncLaunchTimeout)
 			defer cancel()
 			submitErr = errors.Join(submitErr, s.stopAgentViaLauncher(cleanupCtx, attempt.agentID, "remote_turn_submit_failed"))

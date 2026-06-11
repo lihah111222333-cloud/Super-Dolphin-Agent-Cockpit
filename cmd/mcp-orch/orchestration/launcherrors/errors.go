@@ -1,4 +1,4 @@
-package orchestration
+package launcherrors
 
 import (
 	"context"
@@ -10,27 +10,27 @@ import (
 )
 
 const (
-	maxLaunchRetries = 3
+	MaxRetries       = 3
 	launchRetryBase  = 2 * time.Second
-	rateLimitBackoff = 60 * time.Second
+	RateLimitBackoff = 60 * time.Second
 )
 
-func computeRetryBackoff(attempt int, prevErr error) time.Duration {
-	if isRateLimited(prevErr) {
-		return rateLimitBackoff
+func ComputeRetryBackoff(attempt int, prevErr error) time.Duration {
+	if IsRateLimited(prevErr) {
+		return RateLimitBackoff
 	}
 	return time.Duration(attempt) * launchRetryBase
 }
 
-func waitRetryBackoff(ctx context.Context, attempt int, agentID string, prevErr error) error {
-	delay := computeRetryBackoff(attempt, prevErr)
+func WaitRetryBackoff(ctx context.Context, attempt int, agentID string, prevErr error) error {
+	delay := ComputeRetryBackoff(attempt, prevErr)
 	startedAt := time.Now()
 	pkglogger.Info("orchestration: retrying launch",
 		pkglogger.String(pkglogger.FieldAgentID, agentID),
 		pkglogger.Int("attempt", attempt+1),
 		pkglogger.Any("prev_error", prevErr),
 		pkglogger.Int64("backoff_ms", delay.Milliseconds()),
-		pkglogger.Any("rate_limited", isRateLimited(prevErr)))
+		pkglogger.Any("rate_limited", IsRateLimited(prevErr)))
 	select {
 	case <-time.After(delay):
 		elapsed := time.Since(startedAt)
@@ -46,40 +46,40 @@ func waitRetryBackoff(ctx context.Context, attempt int, agentID string, prevErr 
 	}
 }
 
-type launchErrorClass string
+type Class string
 
 const (
-	launchClassTransient launchErrorClass = "transient"
-	launchClassPermanent launchErrorClass = "permanent"
-	launchClassUnknown   launchErrorClass = "unknown"
+	ClassTransient Class = "transient"
+	ClassPermanent Class = "permanent"
+	ClassUnknown   Class = "unknown"
 )
 
 var permanentLaunchPatterns = []string{"401", "unauthoriz", "authentication failed", "authentication required", "not authenticated", "not logged in", "login required", "login-required", "login_required", "please log in", "please run /login", "sign in", "auth expired", "auth token expired", "session expired", "unable to connect to api (connectionrefused)", "selected model", "may not exist or you may not have access", "not have access to it", "pick a different model", "model unavailable", "model_not_found", "model not found", "invalid api key", "invalid_api_key", "403", "forbidden", "permission denied", "quota_exhausted", "insufficient_quota", "usage limit", "out of credits", "402", "payment_required", "subscription expired", "context_length_exceeded", "context length exceeded", "maximum context", "prompt is too long", "launch cwd is required", "launch cwd is invalid"}
 
 var transientLaunchPatterns = []string{"deadline exceeded", "connection refused", "transport unavailable", "empty thread id", "timed out", "i/o timeout"}
 
-func classifyLaunchError(err error) launchErrorClass {
+func Classify(err error) Class {
 	if err == nil {
-		return launchClassTransient
+		return ClassTransient
 	}
 	msg := strings.ToLower(err.Error())
 	for _, pattern := range permanentLaunchPatterns {
 		if strings.Contains(msg, pattern) {
-			return launchClassPermanent
+			return ClassPermanent
 		}
 	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || isRateLimited(err) {
-		return launchClassTransient
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || IsRateLimited(err) {
+		return ClassTransient
 	}
 	for _, pattern := range transientLaunchPatterns {
 		if strings.Contains(msg, pattern) {
-			return launchClassTransient
+			return ClassTransient
 		}
 	}
-	return launchClassUnknown
+	return ClassUnknown
 }
 
-func isRateLimited(err error) bool {
+func IsRateLimited(err error) bool {
 	if err == nil {
 		return false
 	}
