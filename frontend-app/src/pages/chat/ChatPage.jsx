@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, ArrowLeft, Bot, Brain, CheckCircle2, ChevronDown, CircleStop, Copy, File, FileText, Folder, GitBranch, Pencil, Pin, Plus, Send, Sparkles, Terminal, Trash2, Wrench, X } from 'lucide-react';
+import { Archive, ArrowLeft, Bot, Brain, CheckCircle2, ChevronDown, CircleStop, Copy, File, FileText, Folder, GitBranch, Pencil, Plus, Send, Sparkles, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { onFilesDropped, copyTextToClipboard, locateCodeFile, openCodeFile, saveCodeFile } from '../../shared/api/backendApi.js';
 import { appendCurrentModelOption, canonicalizeModelValue, modelOptionFor, normalizeConfigText, normalizeProviderKey, textValue } from '../shared/pageShared.js';
 import { RuntimeActivityPanel } from './components/RuntimeActivityPanel.jsx';
 import { RuntimeDiffView } from './components/RuntimeDiffView.jsx';
 import { RuntimeToolbar } from './components/RuntimeToolbar.jsx';
+import { ThreadCardActions } from './components/ThreadCardActions.jsx';
 
 const CONVERSATION_DROP_TARGET_ID = 'conversation-drop-zone';
 const CLIPBOARD_FILE_PATH_TYPES = Object.freeze(['x-special/gnome-copied-files', 'text/uri-list', 'text/plain']);
@@ -2286,6 +2287,7 @@ function ThreadCard({
   onConfirmDelete,
 }) {
   const archiveLabel = thread.archived ? '恢复会话' : '归档会话';
+  const threadLabel = displayThreadName(thread);
   if (deleting) {
     return (
       <div className={`thread-card ${active ? 'active' : ''} thread-card--deleting`}>
@@ -2317,103 +2319,20 @@ function ThreadCard({
       )}
       <ThreadCardActions
         thread={thread}
-        store={store}
+        threadLabel={threadLabel}
         editing={editing}
         archiveLabel={archiveLabel}
         hoveredArchiveThreadId={hoveredArchiveThreadId}
         hoveredPinThreadId={hoveredPinThreadId}
         loading={Boolean(store.threadArchiveLoadingByThread?.[thread.id])}
-        onBeginRename={onBeginRename}
+        onBeginRename={() => onBeginRename(thread)}
         onSetHoveredArchiveThreadId={onSetHoveredArchiveThreadId}
         onSetHoveredPinThreadId={onSetHoveredPinThreadId}
-        onToggle={() => store.archiveThread(thread.id, !thread.archived)}
+        onToggleArchive={() => runUIAction(() => store.archiveThread(thread.id, !thread.archived))}
+        onTogglePin={() => runUIAction(() => store.toggleThreadPin(thread.id))}
         onBeginDelete={onBeginDelete}
       />
     </div>
-  );
-}
-
-function ThreadCardActions({
-  thread,
-  store,
-  editing,
-  archiveLabel,
-  hoveredArchiveThreadId,
-  hoveredPinThreadId,
-  loading,
-  onBeginRename,
-  onSetHoveredArchiveThreadId,
-  onSetHoveredPinThreadId,
-  onToggle,
-  onBeginDelete,
-}) {
-  const threadLabel = displayThreadName(thread);
-  return (
-    <div className="thread-card-actions" aria-label={`${threadLabel} 操作`}>
-      {!editing ? (
-        <>
-          <button
-            type="button"
-            className="thread-rename-trigger"
-            aria-label="重命名会话"
-            title={`重命名 ${threadLabel}`}
-            onClick={() => onBeginRename(thread)}
-          >
-            <Pencil size={13} aria-hidden="true" />
-          </button>
-          {thread.archived ? (
-            <button
-              type="button"
-              className="thread-delete-trigger"
-              aria-label="删除会话"
-              title={`删除 ${threadLabel}`}
-              onClick={onBeginDelete}
-            >
-              <Trash2 size={13} aria-hidden="true" />
-            </button>
-          ) : (
-            <ThreadPinButton
-              thread={thread}
-              hoveredPinThreadId={hoveredPinThreadId}
-              onSetHoveredPinThreadId={onSetHoveredPinThreadId}
-              onToggle={() => store.toggleThreadPin(thread.id)}
-            />
-          )}
-        </>
-      ) : null}
-      <ThreadArchiveButton
-        thread={thread}
-        archiveLabel={archiveLabel}
-        hoveredArchiveThreadId={hoveredArchiveThreadId}
-        loading={loading}
-        onSetHoveredArchiveThreadId={onSetHoveredArchiveThreadId}
-        onToggle={onToggle}
-      />
-    </div>
-  );
-}
-
-function ThreadArchiveButton({ thread, archiveLabel, hoveredArchiveThreadId, loading, onSetHoveredArchiveThreadId, onToggle }) {
-  const clearHover = () => onSetHoveredArchiveThreadId((current) => (current === thread.id ? '' : current));
-  return (
-    <button
-      type="button"
-      className={`thread-archive ${thread.archived ? 'active' : ''}`}
-      aria-label={archiveLabel}
-      disabled={loading}
-      onClick={() => runUIAction(onToggle)}
-      onMouseEnter={() => onSetHoveredArchiveThreadId(thread.id)}
-      onMouseLeave={clearHover}
-      onFocus={() => onSetHoveredArchiveThreadId(thread.id)}
-      onBlur={clearHover}
-    >
-      <Archive size={15} />
-      {hoveredArchiveThreadId === thread.id ? (
-        <span className="thread-action-tooltip" data-testid="thread-archive-tooltip" role="tooltip">
-          {archiveLabel}
-        </span>
-      ) : null}
-    </button>
   );
 }
 
@@ -2485,32 +2404,6 @@ function ThreadDisplayCardContent({ thread, store }) {
         statusDotTitle={statusDotTitle}
         statusLabel={statusLabel}
       />
-    </button>
-  );
-}
-
-function ThreadPinButton({ thread, hoveredPinThreadId, onSetHoveredPinThreadId, onToggle }) {
-  const pinned = thread.pinnedAt > 0 || thread.pinned;
-  const pinLabel = pinned ? '取消置顶对话' : '置顶对话';
-  const clearHover = () => onSetHoveredPinThreadId((current) => (current === thread.id ? '' : current));
-  return (
-    <button
-      type="button"
-      className={`thread-pin ${pinned ? 'active' : ''}`}
-      aria-label={pinLabel}
-      aria-pressed={pinned}
-      onClick={() => runUIAction(onToggle)}
-      onMouseEnter={() => onSetHoveredPinThreadId(thread.id)}
-      onMouseLeave={clearHover}
-      onFocus={() => onSetHoveredPinThreadId(thread.id)}
-      onBlur={clearHover}
-    >
-      <Pin size={14} strokeWidth={2.2} />
-      {hoveredPinThreadId === thread.id ? (
-        <span className="thread-pin-tooltip" data-testid="thread-pin-tooltip" role="tooltip">
-          {pinLabel}
-        </span>
-      ) : null}
     </button>
   );
 }
