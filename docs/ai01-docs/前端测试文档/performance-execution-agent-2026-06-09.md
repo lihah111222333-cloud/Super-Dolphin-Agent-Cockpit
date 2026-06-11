@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development`（推荐）或 `superpowers:executing-plans` 按任务逐项执行。每个任务必须有独立检查点、独立验证结果和可回滚边界。
 
-**Goal:** 根据 `ai01-docs/performance-audit-2026-06-09.md` 的审计结论，分阶段修复 Super-Dolphin 前后端结构性性能瓶颈，并用可量化指标证明优化收益。
+**Goal:** 根据 `docs/ai01-docs/前端测试文档/performance-audit-2026-06-09.md` 的审计结论，分阶段修复 Super-Dolphin 前后端结构性性能瓶颈，并用可量化指标证明优化收益。
 
 **Architecture:** 当前产品主界面是 `frontend-app/` React/Vite UI，经 Wails v3 桌面宿主调用 Go RPC，再进入 `internal/module/*`、`internal/store/*` 和 PostgreSQL。执行策略必须先补齐观测，再处理 P1 核心瓶颈，最后处理 P2/P3 局部优化；不要一次性重写大文件或混合多个风险面。
 
@@ -17,19 +17,19 @@
 1. `AGENTS.md`
 2. `README.md`
 3. `docs/doc/codemap/README.md`
-4. `ai01-docs/performance-audit-2026-06-09.md`
+4. `docs/ai01-docs/前端测试文档/performance-audit-2026-06-09.md`
 5. 当前任务涉及的源码和同包测试。
 
 当前审计报告已经确认的最高优先级问题：
 
 | 编号 | 问题 | 优先级 | 主要文件 |
 |---|---|---|---|
-| PERF-P1-01 | 页面级静态 import，首屏 bundle 偏大 | P1 | `frontend-app/src/App.jsx` |
-| PERF-P1-02 | `AppShell` 全量订阅 Zustand store | P1 | `frontend-app/src/App.jsx`、`frontend-app/src/entities/client/model/useClientStore.js` |
-| PERF-P1-03 | assistant streaming 每 50ms flush 且 timeline O(n) 更新 | P1 | `frontend-app/src/entities/client/model/useClientStore.js` |
-| PERF-P1-04 | bootstrap 多轮 Wails RPC | P1 | `frontend-app/src/entities/client/model/useClientStore.js`、`frontend-app/src/shared/api/backendApi.js`、`internal/module/uistate/*` |
-| PERF-P1-05 | `ui/sidebar/get` DB enrich 启动热点 | P1 | `internal/module/uistate/service.go`、`internal/module/uistate/module.go`、`internal/store/binding/*`、`sql/queries/thread_binding.sql` |
-| PERF-P1-06 | 多处 `%keyword% ILIKE` 和 JSONB tag scan | P1/P2 | `sql/queries/*.sql`、`migrations/*` |
+| PERF-P1-01 | assistant streaming 每 50ms flush 且 timeline O(n) 更新 | P1 | `frontend-app/src/entities/client/model/useClientStore.js` |
+| PERF-P1-02 | Wails/RPC done trace 缺少 `result_bytes` | P1 | `internal/ui/wails/binding.go`、`internal/platform/rpc/server.go` |
+| PERF-P1-03 | bootstrap 多轮 Wails RPC | P1 | `frontend-app/src/entities/client/model/runtimeSlice.js`、`frontend-app/src/shared/api/backendApi.js`、`internal/module/uistate/*` |
+| PERF-P1-04 | `ui/sidebar/get` enrich 仍需 rows/bytes 证据和 binding 范围核查 | P1/P2 | `internal/module/uistate/service.go`、`internal/module/uistate/module.go`、`internal/store/binding/*`、`sql/queries/thread_binding.sql` |
+| PERF-P1-05 | 多处 `%keyword% ILIKE` 和 JSONB tag scan | P1/P2 | `sql/queries/*.sql`、`migrations/*` |
+| PERF-P2-01 | 页面级 lazy import 与 `AppShell` shallow selector 已落地，需要回归锁定与收益采样 | P2 | `frontend-app/src/App.jsx`、`frontend-app/src/pages/chat/*` |
 
 ## 1. 硬性执行约束
 
@@ -65,11 +65,11 @@
 | Agent | 任务面 | 默认优先级 |
 |---|---|---|
 | Exec-Agent-01 | 观测补齐：RPC result bytes、frontend vitals、sub-span | P1 |
-| Exec-Agent-02 | 首屏加载：页面级 lazy import、bundle 采样 | P1 |
-| Exec-Agent-03 | 状态订阅：`AppShell` selector 化 | P1 |
-| Exec-Agent-04 | Streaming timeline：O(n) 更新优化 | P1 |
-| Exec-Agent-05 | `ui/sidebar/get`：分段埋点、binding/runtime config 优化 | P1 |
-| Exec-Agent-06 | SQL 搜索：EXPLAIN、索引/查询策略计划或实现 | P1/P2 |
+| Exec-Agent-02 | Streaming timeline：O(n) 更新优化 | P1 |
+| Exec-Agent-03 | Bootstrap：多轮 RPC 证据采样与合并方案 | P1 |
+| Exec-Agent-04 | `ui/sidebar/get`：保留现有分段日志，补 rows/bytes，核查 binding 范围 | P1/P2 |
+| Exec-Agent-05 | SQL 搜索：EXPLAIN、索引/查询策略计划或实现 | P1/P2 |
+| Exec-Agent-06 | 已落地项回归：页面 lazy import、`AppShell` shallow selector、bundle 采样 | P2 |
 | Exec-Agent-07 | ThreadRail/Timeline 虚拟化和大文本渲染 | P2 |
 | Exec-Agent-08 | sharedFiles / Observability 读放大优化 | P2 |
 
@@ -93,7 +93,7 @@
    先让后续优化有 `duration + bytes + rows + frontend render` 指标。
 
 3. **Phase 2：首屏与全局重渲染**
-   优先处理页面 lazy import 和 Zustand selector。
+   页面 lazy import 和 `AppShell` shallow selector 已落地；本阶段只做回归锁定、bundle 采样和 Chat 子树 selector 收窄。
 
 4. **Phase 3：聊天高频路径**
    优化 streaming timeline O(n)、ThreadRail/Timeline 渲染。
@@ -280,24 +280,27 @@ npm run build
 
 ## 6. Phase 2：首屏加载与全局重渲染
 
-### Task 2.1：非 Chat 页面级 lazy import
+### Task 2.1：页面级 lazy import 回归锁定与 bundle 采样
 
 **Files:**
 
-- Modify: `frontend-app/src/App.jsx`
+- Read/Verify: `frontend-app/src/App.jsx`
+- Modify only if regression is found: `frontend-app/src/App.jsx`
 - Test: `frontend-app/src/App.test.jsx`
 
 **Implementation requirements:**
 
-1. 默认首屏 Chat 保持同步 import。
-2. `PromptPage`、`WorkflowPage`、`SkillsPage`、`MemoryPage`、`FilesPage`、`ObservabilityPage`、`SettingsPage` 改为 dynamic import。
-3. fallback 必须稳定，不改变 nav/sidebar 布局，不遮挡 titlebar。
-4. 页面导出名不变；测试仍能定位页面。
+1. 先确认当前 `frontend-app/src/App.jsx` 已通过 `lazyNamedPage` + `Suspense` 加载页面。
+2. 不要把页面回退成静态 import。
+3. 记录 `npm run build` 后页面 chunk 与最大 vendor/图表 chunk。
+4. 如发现某个页面又被静态引入，只修复该页面并保留稳定 fallback。
+5. 继续关注 Mermaid/KaTeX/Cytoscape 大 chunk，但不要为了体积引入新生产依赖。
 
-**Suggested pattern:**
+**Current source shape:**
 
 ```jsx
-const PromptPage = React.lazy(() => import('./pages/prompts/PromptPage.jsx').then((module) => ({ default: module.PromptPage })));
+const ChatPage = lazyNamedPage(() => import('./pages/chat/ChatPage.jsx'), 'ChatPage');
+const FilesPage = lazyNamedPage(() => import('./pages/files/FilesPage.jsx'), 'FilesPage');
 ```
 
 **Verification:**
@@ -314,32 +317,37 @@ find dist/assets -maxdepth 1 -type f -print0 | xargs -0 du -h | sort -h | tail -
 
 - 路由切换正常。
 - build 通过。
-- 初始业务 chunk 有下降趋势；如未下降，报告原因，不要强行复杂拆包。
+- 页面 chunk 仍独立存在，例如 `ChatPage-*`、`FilesPage-*`、`ObservabilityPage-*`。
+- 最大 chunk 若仍超过 500KB，报告是哪类依赖导致，不要强行复杂拆包。
 
 **Rollback:**
 
-- 恢复静态 import 和原 `ActivePageContent`。
+- 如果本任务只做验证，无需回滚。
+- 如果修复了 lazy 回归，回滚只限该页面 import，不要撤销已存在的 lazy 框架。
 
-### Task 2.2：`AppShell` selector 化
+### Task 2.2：`AppShell` selector 回归锁定与 Chat 子树 selector 收窄
 
 **Files:**
 
-- Modify: `frontend-app/src/App.jsx`
+- Read/Verify: `frontend-app/src/App.jsx`
+- Modify if needed: `frontend-app/src/pages/chat/ChatPage.jsx`
+- Modify if needed: `frontend-app/src/pages/chat/components/ThreadRail.jsx`
 - Modify if needed: `frontend-app/src/entities/client/model/useClientStore.js`
-- Test: `frontend-app/src/App.test.jsx`、`frontend-app/src/entities/client/model/useClientStore.test.js`
+- Test: `frontend-app/src/App.test.jsx`、`frontend-app/src/pages/chat/ChatPage.test.jsx`、`frontend-app/src/entities/client/model/useClientStore.test.js`
 
 **Implementation requirements:**
 
-1. `AppShell` 不再 `const store = useClientStore()` 全量订阅。
-2. 只订阅 shell 必须字段：`activePage`、`setActivePage`、`bootstrapStatus`、`bootstrap`、`cwd`、`activeProject`、revision、必要 actions。
-3. 高频 timeline、runtime stats、warnings 不应触发整个 App shell 重渲染。
-4. 不要一次性改完整 Chat store 数据结构。
+1. 先确认当前 `AppShell` 使用 `useClientStore(useShallow(selectAppShellStore))`。
+2. 不要回退到 `const store = useClientStore()` 全量订阅。
+3. 增加或保留测试，证明高频 timeline delta 不触发整个 App shell 高频重渲染。
+4. 如继续优化，只收窄 Chat / ThreadRail / Timeline 的订阅面，不要一次性改完整 store 数据结构。
+5. 高频 timeline、runtime stats、warnings 不应穿过整个 App shell。
 
 **Verification:**
 
 ```bash
 cd frontend-app
-npm test -- src/App.test.jsx src/entities/client/model/useClientStore.test.js
+npm test -- src/App.test.jsx src/pages/chat/ChatPage.test.jsx src/entities/client/model/useClientStore.test.js
 npm run lint
 npm test
 npm run build
@@ -349,11 +357,12 @@ npm run build
 
 - App 测试通过。
 - 发送/流式事件时 shell 不因 timeline delta 高频重渲染。
-- 无 stale closure 或路由不同步。
+- Chat 子树的 selector 或 memo 改动有对应测试，不出现 stale closure 或路由不同步。
 
 **Rollback:**
 
-- 恢复 `const store = useClientStore()`，保留测试诊断结果。
+- 如果只是补测试/采样，无需回滚。
+- 如果 Chat 子树 selector 改动导致回归，只回退该子树改动，不要回退 `AppShell` 的 shallow selector。
 
 ## 7. Phase 3：聊天高频路径
 
@@ -738,15 +747,15 @@ make sqlc-verify
 
 ## 14. 推荐首轮执行范围
 
-首轮不要碰 SQL 索引、bootstrap contract 或大型 timeline 虚拟化。推荐先执行这 3 个任务：
+首轮不要碰 SQL 索引、bootstrap contract 或大型 timeline 虚拟化。页面 lazy import 和 `AppShell` shallow selector 已在当前源码落地，首轮不要重复实现。推荐先执行这 3 个任务：
 
 1. Task 1.1：Wails/RPC trace 增加 `result_bytes`。
-2. Task 2.1：非 Chat 页面级 lazy import。
+2. Task 1.2：前端补充 Web Vitals / Long Task / 子组件 Profiler。
 3. Task 3.1：assistant delta flush 从 O(n) 降到接近 O(1)。
 
 推荐理由：
 
-- 三者都直接对应 P1。
+- 三者都直接对应当前仍未落地的 P1 或 P1 观测前置。
 - 改动边界相对清晰。
 - 能用现有测试和 build 验证。
 - 能快速形成 before/after 指标，为后续 sidebar、SQL、sharedFiles 优化提供证据。
