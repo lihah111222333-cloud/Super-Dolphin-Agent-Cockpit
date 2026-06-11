@@ -1,4 +1,4 @@
-export function createActiveProjectActions(runtime, deps) {
+function createActiveProjectActions(runtime, deps) {
   const {
     addProject,
     normalizePath,
@@ -55,7 +55,7 @@ export function createActiveProjectActions(runtime, deps) {
   };
 }
 
-export function createProjectPickerActions(runtime, deps) {
+function createProjectPickerActions(runtime, deps) {
   const {
     addProject,
     normalizePath,
@@ -129,5 +129,12 @@ export function createProjectPickerActions(runtime, deps) {
     },
 
 
+  };
+}
+
+export function createProjectSlice(runtime, deps) {
+  return {
+    ...createActiveProjectActions(runtime, deps),
+    ...createProjectPickerActions(runtime, deps),
   };
 }
