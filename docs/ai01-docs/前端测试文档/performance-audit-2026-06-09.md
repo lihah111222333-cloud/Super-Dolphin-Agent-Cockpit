@@ -1,33 +1,39 @@
 # Super-Dolphin 前后端整体性能指标评估与瓶颈定位
 
 审计日期：2026-06-09
+复核日期：2026-06-11
 审计范围：当前主线产品面 `frontend-app/` React/Vite UI、`cmd/agent-terminal` Wails 桌面宿主、Go RPC/业务模块、sqlc/PostgreSQL 数据访问层。
 执行约束：本报告只做扫描和性能审计，不修改业务代码。后续如需修复，应先确认优先级、修改计划、风险和回滚方案。
 
 ## 0. 审计方法与边界
 
-本次结论来自源码扫描、关键调用链阅读和当前构建产物尺寸采样。没有启动真实桌面端做 Chrome Performance / React Profiler / Go pprof 实测，因此 FCP、LCP、P95 等运行时数值在本文中被定义为“指标体系与目标值”，当前风险以代码证据和可验证路径为依据。
+本次结论来自源码扫描、关键调用链阅读和当前构建产物尺寸采样。2026-06-11 复核重新扫描了 `frontend-app/`、`internal/ui/wails`、`internal/platform/rpc`、`internal/module/{uistate,thread,dashboard,observability}`、`internal/store` 与 `sql/queries`。没有启动真实桌面端做 Chrome Performance / React Profiler / Go pprof 实测，因此 FCP、LCP、P95 等运行时数值在本文中被定义为“指标体系与目标值”，当前风险以代码证据和可验证路径为依据。
 
 已采样的构建体积：
 
 ```text
 frontend-app/dist     4.1M
-frontend-app/src      2.1M
+frontend-app/src      2.3M
 
 当前 dist 中较大的资源：
 580K  assets/chunk-NNHCCRGN-CJl81Ioh.js
-528K  assets/index-DXQQpagn.js
 428K  assets/cytoscape.esm-FqbQrHcz.js
 256K  assets/katex-Vhh-h91d.js
+224K  assets/chunk-CSCIHK7Q-B3gDLdd9.js
 180K  assets/react-core-05sbo8Qa.js
-140K  assets/index-BiBIfQcY.css
+176K  assets/index-DvOFsHns.js
+144K  assets/architectureDiagram-3BPJPVTR-C-9L4ycb.js
+140K  assets/index-Bwov1iGb.css
+120K  assets/ChatPage-CLc5k-OG.js
 ```
 
 关键判断：
 
 - 当前产品主 UI 是 `frontend-app/`，不是 legacy Vue：`README.md:15`、`docs/doc/codemap/README.md:7`。
-- 当前审计未发现可直接定为 P0 的性能缺陷。最值得优先处理的是 P1 级结构性问题：首屏静态加载、Zustand 全局订阅、聊天流式 O(n) 更新、启动多轮 RPC、`ui/sidebar/get` DB enrich 热点。
-- 后端已有部分性能观测基础：Wails / RPC 层记录慢调用，但缺少跨端 bytes、React 子组件、DB 查询耗时和文件 IO 耗时的闭环指标。
+- 当前审计未发现可直接定为 P0 的性能缺陷。
+- 2026-06-11 复核确认：页面级 `React.lazy` / `Suspense` 已落地，`AppShell` 已改为 `useShallow(selectAppShellStore)`。旧版 P1 的“页面静态 import”和“AppShell 全量订阅”不再按未实现修复项处理，应改为收益验证与剩余拆包/局部 selector 跟进。
+- 当前仍值得优先处理的 P1 结构性问题是：聊天流式 O(n) timeline 更新、启动多轮 Wails RPC、Wails/RPC `result_bytes` 缺失、`thread/messages` / sharedFiles 大响应观测不足、SQL `%keyword% ILIKE` 和 JSONB tag scan 需要 EXPLAIN 证据。
+- 后端已有部分性能观测基础：Wails / RPC 层记录慢调用，`ui/sidebar/get` 已有 `get_prefs_ms`、`snapshot_ms`、`enrich_db_ms`；但跨端 bytes、React 子组件、DB 查询耗时和文件 IO 耗时的闭环指标仍不完整。
 
 ## 1. 项目性能总览
 
@@ -82,8 +88,8 @@ flowchart TD
 | 模块 | 文件/函数 | 性能角色 |
 |---|---|---|
 | 应用入口 | `frontend-app/src/main.jsx:28-38` | React root + App 级 Profiler |
-| 页面注册/路由 | `frontend-app/src/App.jsx:15-35`、`frontend-app/src/App.jsx:258-287` | activePage 内部分发，无 React Router；所有页面静态 import |
-| 全局状态 | `frontend-app/src/entities/client/model/useClientStore.js:5704` | Zustand store，Chat/App 主要状态集中于单 store |
+| 页面注册/路由 | `frontend-app/src/App.jsx:10-21`、`frontend-app/src/App.jsx:306-333`、`:451-461` | activePage 内部分发，无 React Router；页面已通过 `lazyNamedPage` + `Suspense` 拆为异步 chunk |
+| 全局状态 | `frontend-app/src/entities/client/model/useClientStore.js:5114` | Zustand store，Chat/App 主要状态集中于单 store；AppShell 已使用 shallow selector，Chat/Workflow/Files 仍通过 route wrapper 传较大的 store 面 |
 | API 调用层 | `frontend-app/src/shared/api/backendApi.js:22-136` | RPC method 索引与参数校验 |
 | Wails bridge | `frontend-app/src/shared/api/wailsBridge.js:801-825` | 每次 RPC 注入 trace、跨桥调用、记录 done/failed |
 | 聊天主页面 | `frontend-app/src/pages/chat/ChatPage.jsx` | 最大交互面，包含线程列表、timeline、Markdown/diff/Mermaid 渲染 |
@@ -107,67 +113,83 @@ flowchart TD
 
 | 排名 | 风险 | 等级 | 代码证据 | 影响 |
 |---:|---|---|---|---|
-| 1 | 页面级代码没有懒加载，所有页面在 `App.jsx` 顶部静态 import | P1 | `frontend-app/src/App.jsx:5-13`、`:258-287` | 首屏 JS 解析/执行压力高，非当前页面也进入首屏 bundle 依赖图 |
-| 2 | AppShell 订阅整个 Zustand store | P1 | `frontend-app/src/App.jsx:352-355` | streaming、sidebar、warnings、revision 更新可能触发 App 级重渲染 |
-| 3 | assistant streaming 每 50ms flush，更新 timeline 时 `map` 全数组 | P1 | `useClientStore.js:52`、`:3876-3915` | 长会话中每批 delta 都是 O(n)，UI 线程易被长任务占用 |
-| 4 | 启动链路多轮 Wails RPC，且 `getPreference` 在首轮后串行发生 | P1 | `useClientStore.js:4314-4342` | 首屏 ready 依赖跨桥多次往返；`ui/sidebar/get` 慢会拖住启动 |
-| 5 | `ui/sidebar/get` 做 Preferences、snapshot、DB enrich，并已有分段耗时日志 | P1 | `uistate/service.go:213-233`、`module.go:127-157` | 切项目/启动/刷新 sidebar 时后端读放大 |
-| 6 | ThreadRail 对所有线程 filter + map 渲染，无虚拟列表 | P2 | `ChatPage.jsx:2307-2359` | 线程数多时 sidebar 交互卡顿，hover/rename/delete 状态也触发列表重算 |
-| 7 | Timeline 只是“物化窗口”，不是虚拟滚动，且 MutationObserver 监听 subtree/characterData | P2 | `ChatPage.jsx:53-55`、`:5390-5406`、`:5516-5535` | 长消息/流式字符变更触发滚动修正；DOM 和布局压力随消息增长 |
-| 8 | Markdown/diff/table/JSON 格式化在 UI 线程同步执行 | P2 | `ChatPage.jsx:4183-4203`、`:4205+`、`:4115` | 大 diff、大 JSON、大 Markdown 会直接阻塞渲染 |
-| 9 | Observability recent/list 默认 50 行但后端最多扩大读 2500-5000 原始事件再筛选 | P2 | `ObservabilityPage.jsx:193-213`、`observability/rpc.go:165-180`、`:468-480` | 开发者页面查询可能把后端过滤、前端渲染和 JSON 传输拉高 |
+| 1 | assistant streaming 每 50ms flush，更新 timeline 时 `map` 全数组 | P1 | `useClientStore.js:53`、`:3974-4017` | 长会话中每批 delta 都是 O(n)，UI 线程易被长任务占用 |
+| 2 | 启动链路多轮 Wails RPC，且 active provider `getPreference` 在首轮后串行发生 | P1 | `runtimeSlice.js:81-114` | 首屏 ready 依赖跨桥多次往返；`ui/sidebar/get` 慢会拖住启动 |
+| 3 | Wails/RPC done trace 只有 `param_bytes` / `param_keys`，没有 `result_bytes` | P1 | `binding.go:112-132`、`server.go:318-340` | 无法按 method 定位大响应和 IPC 序列化成本 |
+| 4 | SQL `%keyword% ILIKE` 与 JSONB tag scan 仍未用 EXPLAIN 证明成本 | P1/P2 | `system_log.sql:16-22`、`shared_file.sql:18`、`command_card.sql:48-52`、`prompt_template.sql:53-63` | 数据量上来后搜索容易全表扫；是否加索引必须先看真实计划 |
+| 5 | `ui/sidebar/get` 已有分段日志和 batch runtime config，但 binding 仍可能全量读取 | P1/P2 | `uistate/service.go:213-233`、`module.go:127-157`、`binding/store.go:176-203` | 切项目/启动/刷新 sidebar 时后端读放大；需要 rows/bytes 证据 |
+| 6 | ThreadRail 对所有线程 filter + map 渲染，无虚拟列表 | P2 | `ThreadRail.jsx:14-18`、`:65-91`、`:139-149` | 线程数多时 sidebar 交互卡顿，hover/rename/delete 状态也触发列表重算 |
+| 7 | Timeline 只是“物化窗口”，不是虚拟滚动，且 MutationObserver 监听 subtree/characterData | P2 | `ChatPage.jsx:3232-3241`、`:3355+` | 长消息/流式字符变更触发滚动修正；DOM 和布局压力随消息增长 |
+| 8 | Markdown/diff/table/JSON 格式化在 UI 线程同步执行 | P2 | `ChatPage.jsx:1878-1894`、`:2274-2304`、`:2624-2702` | 大 diff、大 JSON、大 Markdown 会直接阻塞渲染 |
+| 9 | Observability recent/list 默认 50 行但后端最多扩大读 2500-5000 原始事件再筛选 | P2 | `ObservabilityPage.jsx:171-178`、`observability/rpc.go:165-180`、`:468-480` | 开发者页面查询可能把后端过滤、前端渲染和 JSON 传输拉高 |
 | 10 | shared files 列表/详情含大文本，跨桥传输与 JSON 序列化成本高 | P2 | `FilesPage.jsx:57-63`、`:513-529`、`dashboard/rpc.go:275-292`、`sharedfile/store.go:46-73` | 大 shared file 或 500 项列表时，数据加载和详情打开变慢 |
 
 ## 3. 前端性能问题清单
 
-### FE-01 所有页面静态导入，首屏 bundle 偏大
+### FE-01 页面级懒加载已落地，但 vendor / 图表 chunk 仍偏大
 
-等级：P1
-影响范围：首屏加载、桌面启动后首次显示、低性能机器上的 JS parse/execute。
+等级：已缓解，剩余风险 P2
+影响范围：首屏加载、桌面启动后首次显示、低性能机器上的 JS parse/execute、首次打开 Mermaid/图表相关消息。
 证据：
 
 ```jsx
-// frontend-app/src/App.jsx:5-13
-import { ChatPage } from './pages/chat/ChatPage.jsx';
-import { FilesPage } from './pages/files/FilesPage.jsx';
-import { MemoryPage } from './pages/memory/MemoryPage.jsx';
-import { ObservabilityPage } from './pages/observability/ObservabilityPage.jsx';
-import { PromptPage } from './pages/prompts/PromptPage.jsx';
-import { SettingsPage } from './pages/settings/SettingsPage.jsx';
-import { SkillsPage } from './pages/skills/SkillsPage.jsx';
-import { WorkflowPage } from './pages/workflows/WorkflowPage.jsx';
+// frontend-app/src/App.jsx:10-21
+function lazyNamedPage(loader, exportName) {
+  return lazy(() => loader().then((module) => ({ default: module[exportName] })));
+}
+
+const ChatPage = lazyNamedPage(() => import('./pages/chat/ChatPage.jsx'), 'ChatPage');
+const FilesPage = lazyNamedPage(() => import('./pages/files/FilesPage.jsx'), 'FilesPage');
+const MemoryPage = lazyNamedPage(() => import('./pages/memory/MemoryPage.jsx'), 'MemoryPage');
 ```
 
-`ActivePageContent` 再通过 `store.activePage` 条件渲染页面：`frontend-app/src/App.jsx:258-287`。这意味着非当前页面模块仍参与初始加载。Vite 配置已有依赖级 manualChunks：`frontend-app/vite.config.js:73-83`，但没有页面级切分。当前 dist 仍存在 528K / 580K 业务 chunk。
+`ActivePageContent` 通过 `store.activePage` 条件渲染页面：`frontend-app/src/App.jsx:306-333`，页面外层有稳定 `Suspense` fallback：`frontend-app/src/App.jsx:451-461`。2026-06-11 `npm run build` 采样显示页面 chunk 已拆出：`ChatPage` 约 120K，`FilesPage` 约 20K，`ObservabilityPage` 约 18K，`PromptPage` 约 36K，`WorkflowPage` / `SkillsPage` 约 56K。
+
+剩余问题不是“页面完全静态 import”，而是图表/Markdown 相关依赖仍有大 chunk：`chunk-NNHCCRGN` 约 580K、`cytoscape.esm` 约 428K、`katex` 约 256K；Vite 仍提示存在超过 500KB 的 chunk。
 
 可验证指标：
 
 - 初始 JS 下载/解析/执行耗时。
 - `performance.getEntriesByType('resource')` 中 initial route JS bytes。
 - Chrome Performance 的 Scripting 时间。
+- 首次渲染 Mermaid/KaTeX/Cytoscape 消息时的 async chunk 加载和 scripting 时间。
 
-优化建议：
+后续建议：
 
-- 用 `React.lazy` / dynamic import 对 `Prompts`、`Workflow`、`Skills`、`Memory`、`Files`、`Observability`、`Settings` 做页面级懒加载。
-- 保持 `ChatPage` 为默认首屏，但 Mermaid/Katex/Cytoscape 继续动态加载。
-- 用稳定 skeleton，不让 fallback 改变页面布局。
+- 保留现有页面级 lazy import，不要回退为静态 import。
+- 对 Mermaid/KaTeX/Cytoscape 继续按使用点动态加载，必要时拆子图表 chunk 或延迟初始化。
+- 用 Playwright/Performance trace 证明首屏 initial route 不再拉取非当前页面 chunk。
 
-### FE-02 `AppShell` 订阅整个 Zustand store，导致全局重渲染面过大
+### FE-02 `AppShell` 已 selector 化，剩余风险在 Chat 子树 store 面
 
-等级：P1
+等级：已缓解，剩余风险 P2
 影响范围：所有页面，尤其聊天 streaming、sidebar refresh、warnings、revision 事件。
 证据：
 
 ```jsx
-// frontend-app/src/App.jsx:352-355
+// frontend-app/src/App.jsx:492-528
+function selectAppShellStore(state) {
+  return {
+    activePage: state.activePage,
+    activeProject: state.activeProject,
+    bootstrap: state.bootstrap,
+    bootstrapStatus: state.bootstrapStatus,
+    cwd: state.cwd,
+    threads: state.threads,
+    ...
+  };
+}
+
 function AppShell({ skipBootstrap = false }) {
-  const store = useClientStore();
+  const store = useClientStore(useShallow(selectAppShellStore));
   const shell = useAppShellState(store, skipBootstrap);
   return <AppWindow {...shell} store={store} />;
 }
 ```
 
-`useClientStore` 只有全量订阅调用：`frontend-app/src/App.jsx:353`、`frontend-app/src/pages/settings/SettingsPage.jsx:356`。当前未见 `subscribeWithSelector` / shallow selector 用法。store 定义集中在 `frontend-app/src/entities/client/model/useClientStore.js:5704`。
+旧版“AppShell 全量订阅 store”结论已过期。当前 `frontend-app/src/App.jsx:4` 引入 `useShallow`，`AppShell` 在 `:526` 用 `useClientStore(useShallow(selectAppShellStore))` 订阅 shell 字段。
+
+剩余风险是：`ChatPageRoute`、`WorkflowPageRoute`、`FilesPageRoute` 仍把较大的 `store` 面传给页面组件：`frontend-app/src/App.jsx:278-303`；`ThreadRail` 仍基于 `store.threads` 全量 filter/map：`frontend-app/src/pages/chat/components/ThreadRail.jsx:14-18`、`:65-91`。
 
 可验证指标：
 
@@ -175,10 +197,10 @@ function AppShell({ skipBootstrap = false }) {
 - streaming 时 App、Titlebar、NavRail、ThreadRail、ConversationTimeline 的 render 次数。
 - Zustand state patch 频率与每次影响字段数量。
 
-优化建议：
+后续建议：
 
-- `AppShell` 改成 selector 订阅：`activePage`、`cwd`、`activeProject`、`bootstrapStatus`、revision 字段分开取。
-- Chat 子树通过局部 selector 订阅 timeline、thread list、composer 状态。
+- 保留现有 `selectAppShellStore`，用测试锁住 streaming delta 不触发 App shell 高频重渲染。
+- Chat 子树继续通过局部 selector 订阅 timeline、thread list、composer 状态，减少整页 props 面。
 - 高更新频率字段，如 streaming delta、runtime stats，避免穿过整个 `store` prop。
 
 ### FE-03 聊天流式增量每 50ms flush 且 O(n) 更新 timeline
@@ -188,10 +210,10 @@ function AppShell({ skipBootstrap = false }) {
 证据：
 
 ```js
-// frontend-app/src/entities/client/model/useClientStore.js:52
+// frontend-app/src/entities/client/model/useClientStore.js:53
 const ASSISTANT_DELTA_FLUSH_MS = 50;
 
-// frontend-app/src/entities/client/model/useClientStore.js:3876-3889
+// frontend-app/src/entities/client/model/useClientStore.js:3974-4017
 set((state) => {
   const timelinesByThread = { ...state.timelinesByThread };
   for (const entry of entries) {
@@ -223,7 +245,7 @@ set((state) => {
 证据：
 
 ```js
-// frontend-app/src/entities/client/model/useClientStore.js:4314-4342
+// frontend-app/src/entities/client/model/runtimeSlice.js:81-114
 const [config, rawWindowBootstrap] = await Promise.all([readConfig(), getWindowBootstrap()]);
 const activeProvider = requireActiveProviderPreference(
   await getPreference({ cwd: scopedCwd, key: PROVIDER_ACTIVE_PREF_KEY }),
@@ -261,13 +283,13 @@ const [projects, sidebar] = await Promise.all([
 const TIMELINE_INITIAL_MATERIALIZED_MESSAGES = 80;
 const TIMELINE_MATERIALIZATION_INCREMENT = 80;
 
-// frontend-app/src/pages/chat/ChatPage.jsx:5393-5402
+// frontend-app/src/pages/chat/ChatPage.jsx:3232-3241
 const observer = new MutationObserver(() => {
   if (...) scrollTimelineElementToBottom(el, false);
 });
 observer.observe(el, { childList: true, subtree: true, characterData: true });
 
-// frontend-app/src/pages/chat/ChatPage.jsx:5516-5535
+// frontend-app/src/pages/chat/ChatPage.jsx:3355+
 const visibleMessages = useMemo(() => messages.slice(visibleStart), [messages, visibleStart]);
 ```
 
@@ -292,11 +314,12 @@ const visibleMessages = useMemo(() => messages.slice(visibleStart), [messages, v
 证据：
 
 ```jsx
-// frontend-app/src/pages/chat/ChatPage.jsx:2307-2359
+// frontend-app/src/pages/chat/components/ThreadRail.jsx:14-18
 const activeThreads = store.threads.filter((thread) => !thread.archived);
 const archivedThreads = store.threads.filter((thread) => thread.archived);
 const visibleThreads = visibleThreadRows(threads, store);
 ...
+// frontend-app/src/pages/chat/components/ThreadRail.jsx:65-91
 {visibleThreads.map((thread) => <ThreadCard key={thread.id} ... />)}
 ```
 
@@ -318,12 +341,12 @@ const visibleThreads = visibleThreadRows(threads, store);
 证据：
 
 ```jsx
-// frontend-app/src/pages/chat/ChatPage.jsx:4183-4192
+// frontend-app/src/pages/chat/ChatPage.jsx:2274-2304
 {outputText.split('\n').map((line, index) => (
   <span key={`${kind}-${index}`} className={diffLineClass(line)}>{line || ' '}</span>
 ))}
 
-// frontend-app/src/pages/chat/ChatPage.jsx:4115
+// frontend-app/src/pages/chat/ChatPage.jsx:2624-2702
 return JSON.stringify(JSON.parse(trimmed), null, 2);
 ```
 
@@ -532,15 +555,18 @@ ChatPage thread selection
 证据：
 
 ```js
-// frontend-app/src/entities/client/model/useClientStore.js:54
+// frontend-app/src/entities/client/model/useClientStore.js:55
 const THREAD_MESSAGES_PAGE_SIZE = 300;
 
-// frontend-app/src/entities/client/model/useClientStore.js:3483-3491
-const res = await getThreadMessages({ threadId, limit: 300 });
-items: normalizeThreadMessageItems(page)
+// frontend-app/src/entities/client/model/useClientStore.js:3557-3559
+function messagePageParams(id, before) {
+  if (before) return { threadId: id, limit: THREAD_MESSAGES_PAGE_SIZE, before };
+  return { threadId: id, limit: THREAD_MESSAGES_PAGE_SIZE };
+}
 
-// frontend-app/src/entities/client/model/useClientStore.js:3539-3555
-return sortTimelineChronologically(allMessages.map(...).filter(...));
+// frontend-app/src/entities/client/model/useClientStore.js:3802-3819
+const page = await fetchThreadMessagePage(id);
+applyThreadMessageItems(set, id, page.items, page.meta);
 ```
 
 ```go
@@ -778,11 +804,11 @@ flowchart TD
 
 | 分类 | 指标 | 当前风险 | 目标值 | 采集方式 | 优化方向 |
 |---|---|---|---|---|---|
-| 前端 | 首屏时间 FCP | 页面静态 import，bundle 偏大 | 桌面冷启 FCP < 1.5s，本地热启 < 800ms | PerformanceObserver + Playwright trace | 页面懒加载、bootstrap 合并 |
+| 前端 | 首屏时间 FCP | 页面 lazy import 已落地；仍需证明 bootstrap 与重依赖 chunk 不拖慢首屏 | 桌面冷启 FCP < 1.5s，本地热启 < 800ms | PerformanceObserver + Playwright trace | bootstrap 合并、重依赖按需加载 |
 | 前端 | LCP | 默认 Chat 首屏受 shell/sidebar 数据影响 | LCP < 2.5s | PerformanceObserver | shell 先渲染、数据渐进加载 |
 | 前端 | 交互响应 INP | streaming O(n)、大文本同步渲染 | P75 < 200ms，长任务 0/min | Long Task API + Chrome trace | O(1) timeline、虚拟列表、Worker |
-| 前端 | Bundle 体积 | dist 4.1M；528K/580K 大 chunk | 初始 JS gzip < 250KB，单 chunk < 300KB raw | `npm run build` + bundle visualizer | 页面级 split，重依赖按需加载 |
-| 前端 | 重渲染次数 | App 全量订阅 store | streaming 时 App 不随每批 delta 重渲染 | React Profiler 子组件埋点 | Zustand selector + memo |
+| 前端 | Bundle 体积 | dist 4.1M；580K/428K/256K 大 chunk 仍在 | 初始 JS gzip < 250KB，单 chunk < 300KB raw | `npm run build` + bundle visualizer | 保持页面级 split，继续拆重依赖 |
+| 前端 | 重渲染次数 | AppShell 已 shallow selector；Chat 子树仍有较大 store 面 | streaming 时 App 不随每批 delta 重渲染 | React Profiler 子组件埋点 | Chat 局部 selector + memo |
 | 前端 | Timeline DOM 数 | 物化窗口非虚拟化 | 可见 DOM < 3000 nodes | Chrome DOM counters | virtualized timeline |
 | API | 平均响应时间 | 已有 threshold，缺 P50/P95 汇总 | `ui/*` P50 < 100ms | observability 聚合 | per-method histogram |
 | API | P95 响应时间 | `ui/sidebar/get`、`thread/messages` 高风险 | `ui/*` P95 < 300ms，history < 500ms | RPC trace + method histogram | 合并 bootstrap、减 rows/bytes |
@@ -803,22 +829,24 @@ flowchart TD
 
 ### P1
 
-1. 页面级懒加载：拆 `App.jsx` 静态页面 import，降低首屏 bundle。
-2. Zustand selector 化：`AppShell`、Chat、Settings 等改局部订阅，减少全局重渲染。
-3. Timeline O(n) streaming 更新：将 timeline store 改为 id-indexed 结构或增加 item index。
-4. bootstrap 聚合：合并 `readConfig/windowBootstrap/preference/projects/sidebar/providerConfig` 的关键路径。
-5. `ui/sidebar/get` enrich 优化：限制 binding 查询范围、完善 batch runtime config、记录 result bytes。
-6. SQL 搜索热点：对 system_logs/shared_files/command_cards/prompt_templates 做 EXPLAIN，补索引或改查询策略。
+1. Timeline O(n) streaming 更新：将 timeline store 改为 id-indexed 结构或增加 item index。
+2. Wails/RPC `result_bytes`：让 observability 能按 method 看到 duration + result bytes。
+3. bootstrap 聚合：合并 `readConfig/windowBootstrap/preference/projects/sidebar/providerConfig` 的关键路径，或至少减少 active provider 串行等待。
+4. `ui/sidebar/get` enrich 优化：限制 binding 查询范围、补充 rows/bytes 字段，保留现有 batch runtime config。
+5. SQL 搜索热点：对 system_logs/shared_files/command_cards/prompt_templates 做 EXPLAIN，补索引或改查询策略。
+6. `thread/messages` / sharedFiles 大响应观测：补 `messages_count`、`result_bytes`、`read_source_ms`、`file_bytes`。
 
 ### P2
 
-1. ThreadRail 虚拟列表和 memo。
-2. Timeline 真虚拟滚动、MutationObserver 收窄。
-3. Markdown/diff/JSON 大文本按需渲染或 worker 化。
-4. `thread/messages` 默认 page size 下调，并增加后端规范化 timeline response。
-5. Observability recent/list 下推过滤，metadata 延迟格式化。
-6. sharedFiles 列表 metadata/detail 分离，详情大文件 preview/range。
-7. Dashboard loader 分段耗时和分页。
+1. 保持并验证页面级 lazy import，不回退；继续拆 Mermaid/KaTeX/Cytoscape 重依赖。
+2. 保持并验证 `AppShell` shallow selector；继续收窄 Chat 子树 selector。
+3. ThreadRail 虚拟列表和 memo。
+4. Timeline 真虚拟滚动、MutationObserver 收窄。
+5. Markdown/diff/JSON 大文本按需渲染或 worker 化。
+6. `thread/messages` 默认 page size 下调，并增加后端规范化 timeline response。
+7. Observability recent/list 下推过滤，metadata 延迟格式化。
+8. sharedFiles 列表 metadata/detail 分离，详情大文件 preview/range。
+9. Dashboard loader 分段耗时和分页。
 
 ### P3
 
@@ -850,19 +878,19 @@ flowchart TD
 
 建议变更：
 
-- `App.jsx` 页面级 dynamic import。
-- `AppShell` 和主要页面改 Zustand selector。
-- 保持旧组件导出和测试入口，逐步拆。
+- 保持现有 `App.jsx` 页面级 dynamic import，并补首屏不加载非当前页面 chunk 的回归采样。
+- 保持现有 `AppShell` shallow selector，并补 streaming delta 不触发 shell 高频重渲染的测试或 Profiler 采样。
+- 继续把 Chat / ThreadRail / Timeline 主要页面改为更窄 selector，逐步拆，不一次性重写 store。
 
 风险：
 
-- lazy fallback 可能影响测试快照和路由初始化。
-- selector 过细可能漏订阅，导致 UI 不更新。
+- lazy fallback 回归仍可能影响测试快照和路由初始化。
+- Chat 子树 selector 过细可能漏订阅，导致 UI 不更新。
 
 回滚：
 
-- 保留原 `ActivePageContent` 分支结构；必要时回退单个页面 import。
-- 每个 selector 改动配对应渲染/交互测试。
+- 保留当前 `ActivePageContent` 分支结构；必要时只回退新拆出的子组件 selector。
+- 每个 selector 改动配对应渲染/交互测试；不要回退已落地的页面级 lazy import / AppShell shallow selector，除非有复现回归。
 
 ### 8.3 第三阶段：聊天高频路径
 
@@ -994,11 +1022,11 @@ SELECT ... FROM shared_files WHERE path ILIKE '%prefix%' ORDER BY updated_at DES
 | 任务 | 优先级 | 目标文件 | 验收方式 |
 |---|---|---|---|
 | 增加 RPC result_bytes 和 frontend vitals 埋点 | P1 | `internal/ui/wails/binding.go`、`internal/platform/rpc/server.go`、`frontend-app/src/main.jsx` | observability 能按 method 看到 duration + result_bytes；无敏感内容 |
-| 页面级懒加载 | P1 | `frontend-app/src/App.jsx` | `npm run build` 后 initial chunk 下降；各路由测试通过 |
-| `AppShell` selector 化 | P1 | `frontend-app/src/App.jsx`、`useClientStore.js` | streaming 时 App render 次数显著下降；App 测试通过 |
 | Timeline O(1) delta 更新 | P1 | `frontend-app/src/entities/client/model/useClientStore.js` | 300/1000 messages fixture 下 delta flush duration 下降 |
 | `ui/sidebar/get` 分段优化 | P1 | `internal/module/uistate/service.go`、`module.go`、binding store/SQL | `enrich_db_ms` 下降；启动日志无 batch config fallback |
 | SQL 搜索 EXPLAIN 和索引计划 | P1 | `sql/queries/*.sql`、`migrations/*` | EXPLAIN 证明搜索不再全表扫；迁移幂等 |
+| 页面级懒加载收益验证和重依赖拆包 | P2 | `frontend-app/src/App.jsx`、`ChatPage.jsx` | `npm run build` 保持页面 chunk；首屏不拉非当前页 chunk；Mermaid/KaTeX/Cytoscape 按需加载 |
+| `AppShell` selector 回归锁定和 Chat 子树 selector 化 | P2 | `frontend-app/src/App.jsx`、`ChatPage.jsx`、`ThreadRail.jsx` | streaming 时 App shell 不高频重渲染；Chat 子树 render count 降低 |
 | ThreadRail 虚拟化 | P2 | `frontend-app/src/pages/chat/ChatPage.jsx` | 1000 threads 下 hover/scroll 无明显长任务 |
 | Timeline 虚拟滚动 | P2 | `frontend-app/src/pages/chat/ChatPage.jsx` | 1000 messages DOM nodes 受控；滚动定位测试通过 |
 | 大 diff/Markdown 分块渲染 | P2 | `ChatPage.jsx` | 10k/50k 行 diff 不阻塞 UI；默认可展开 |
@@ -1010,10 +1038,10 @@ SELECT ... FROM shared_files WHERE path ILIKE '%prefix%' ORDER BY updated_at DES
 
 当前项目的性能风险不是单点函数慢，而是几个结构性放大器叠加：
 
-1. 首屏加载：页面静态 import + 多轮 bootstrap RPC。
-2. 高频交互：单一 Zustand store 全量订阅 + streaming timeline O(n) patch。
+1. 首屏加载：页面 lazy import 已落地，但 bootstrap 仍是多轮 RPC，重依赖 chunk 仍需按需验证。
+2. 高频交互：AppShell 已 shallow selector，但 streaming timeline 仍是 O(n) patch，Chat 子树 store 面仍偏大。
 3. 长内容渲染：Markdown/diff/JSON 大文本在 UI 线程同步处理。
 4. 数据链路：sidebar/dashboard/sharedFiles/history 读取量偏大，并通过 Wails JSON 桥接传输。
 5. DB 查询：多处 `%keyword% ILIKE` 和 JSONB tag scan 在数据量上来后会成为页面慢的根因。
 
-建议先做“观测补齐 + 首屏/Store/Timeline 三件套”。这三项风险最高、证据最明确，也最容易用 before/after 指标证明收益。SQL 和 sharedFiles 优化应紧随其后，但需要先跑 EXPLAIN 和真实数据量评估，避免为低频小表过早引入复杂索引。
+建议先做“观测补齐 + Timeline O(1) + bootstrap/大响应证据”三件套。页面 lazy import 和 AppShell selector 已在当前源码落地，后续应以回归测试和收益采样为主，不应让执行 Agent 重复实现过期任务。SQL 和 sharedFiles 优化应紧随其后，但需要先跑 EXPLAIN 和真实数据量评估，避免为低频小表过早引入复杂索引。
