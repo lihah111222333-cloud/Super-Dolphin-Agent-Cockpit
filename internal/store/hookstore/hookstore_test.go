@@ -3,8 +3,6 @@ package hookstore
 import (
 	"context"
 	"errors"
-	"fmt"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -12,20 +10,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-)
-
-// Keep these compacted SQL strings aligned with hookstore.go so the test stub
-// rejects stale query shape changes, including SELECT column count/order.
-const (
-	savePendingReviewSQL           = "INSERT INTO hook_pending_reviews ( hook_call_id, topic, agent_id, subscriber_lease, default_action, status, created_at, deadline_at ) VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7) ON CONFLICT (hook_call_id) DO NOTHING"
-	getPendingReviewSQL            = "SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action, status, created_at, deadline_at FROM hook_pending_reviews WHERE hook_call_id = $1 AND status = 'pending'"
-	listPendingReviewsSQL          = "SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action, status, created_at, deadline_at FROM hook_pending_reviews WHERE agent_id = $1 AND status = 'pending' ORDER BY created_at ASC"
-	resolveIdempotencySQL          = "SELECT 1::int AS already_resolved FROM hook_pending_reviews WHERE hook_call_id = $1 AND status = 'resolved' AND idempotency_key = $2"
-	resolvePendingReviewSQL        = "UPDATE hook_pending_reviews SET status = 'resolved', decision = $2, reason = $3, idempotency_key = $4, resolved_by = $5, resolved_at = $6 WHERE hook_call_id = $1 AND status = 'pending'"
-	cancelPendingReviewsByLeaseSQL = "UPDATE hook_pending_reviews SET status = 'cancelled', resolved_at = $2 WHERE subscriber_lease = $1 AND status = 'pending'"
-	cancelPendingReviewsByAgentSQL = "UPDATE hook_pending_reviews SET status = 'cancelled', resolved_at = $2 WHERE agent_id = $1 AND status = 'pending'"
-	cancelExpiredReviewsSQL        = "UPDATE hook_pending_reviews SET status = 'expired', decision = default_action, resolved_at = $1 WHERE status = 'pending' AND deadline_at <= $1"
-	recoverOnStartupSQL            = "SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action, status, created_at, deadline_at FROM hook_pending_reviews WHERE status = 'pending' ORDER BY deadline_at ASC"
 )
 
 func TestSavePendingReview(t *testing.T) {
@@ -123,101 +107,6 @@ func TestListPendingReviews(t *testing.T) {
 	}
 }
 
-func pendingReviewFromArgs(args []any) (mcp.PendingHookReview, error) {
-	hookCallID, ok := args[0].(string)
-	if !ok {
-		return mcp.PendingHookReview{}, fmt.Errorf("hook_call_id arg type = %T, want string", args[0])
-	}
-	topic, ok := args[1].(string)
-	if !ok {
-		return mcp.PendingHookReview{}, fmt.Errorf("topic arg type = %T, want string", args[1])
-	}
-	agentID, ok := args[2].(string)
-	if !ok {
-		return mcp.PendingHookReview{}, fmt.Errorf("agent_id arg type = %T, want string", args[2])
-	}
-	subscriberLease, ok := args[3].(string)
-	if !ok {
-		return mcp.PendingHookReview{}, fmt.Errorf("subscriber_lease arg type = %T, want string", args[3])
-	}
-	defaultAction, ok := args[4].(string)
-	if !ok {
-		return mcp.PendingHookReview{}, fmt.Errorf("default_action arg type = %T, want string", args[4])
-	}
-	createdAt, err := timeArg(args[5], "created_at")
-	if err != nil {
-		return mcp.PendingHookReview{}, err
-	}
-	deadlineAt, err := timeArg(args[6], "deadline_at")
-	if err != nil {
-		return mcp.PendingHookReview{}, err
-	}
-	return mcp.PendingHookReview{
-		HookCallID:      hookCallID,
-		Topic:           topic,
-		AgentID:         agentID,
-		SubscriberLease: subscriberLease,
-		DefaultAction:   defaultAction,
-		CreatedAt:       createdAt,
-		DeadlineAt:      deadlineAt,
-	}, nil
-}
-
-func rowsToValues(rows []*testRecord) [][]any {
-	values := make([][]any, 0, len(rows))
-	for _, row := range rows {
-		values = append(values, reviewValues(row.review))
-	}
-	return values
-}
-
-func reviewValues(review mcp.PendingHookReview) []any {
-	return []any{
-		review.HookCallID,
-		review.Topic,
-		review.AgentID,
-		review.SubscriberLease,
-		review.DefaultAction,
-		"pending",
-		toTS(review.CreatedAt),
-		toTS(review.DeadlineAt),
-	}
-}
-
-func assignScanDest(dest []any, values []any) error {
-	if len(dest) != len(values) {
-		return fmt.Errorf("scan dest len = %d, want %d", len(dest), len(values))
-	}
-	for i := range dest {
-		if err := assignValue(dest[i], values[i]); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func assignValue(dest, value any) error {
-	rv := reflect.ValueOf(dest)
-	if rv.Kind() != reflect.Pointer || rv.IsNil() {
-		return fmt.Errorf("scan dest = %T, want non-nil pointer", dest)
-	}
-	target := rv.Elem()
-	if value == nil {
-		target.Set(reflect.Zero(target.Type()))
-		return nil
-	}
-	vv := reflect.ValueOf(value)
-	if vv.Type().AssignableTo(target.Type()) {
-		target.Set(vv)
-		return nil
-	}
-	if vv.Type().ConvertibleTo(target.Type()) {
-		target.Set(vv.Convert(target.Type()))
-		return nil
-	}
-	return fmt.Errorf("cannot assign %T to %s", value, target.Type())
-}
-
 func testPendingReview(hookCallID, agentID, defaultAction string, createdAt, deadlineAt time.Time) mcp.PendingHookReview {
 	return mcp.PendingHookReview{
 		HookCallID:      hookCallID,
@@ -257,16 +146,4 @@ func assertStoreError(t *testing.T, err error, operation, entity string, baseErr
 	if !strings.Contains(err.Error(), operation+" "+entity+":") {
 		t.Fatalf("error message = %q, want operation/entity prefix", err.Error())
 	}
-}
-
-func compactSQL(query string) string {
-	lines := strings.Split(query, "\n")
-	kept := lines[:0]
-	for _, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), "--") {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	return strings.Join(strings.Fields(strings.Join(kept, "\n")), " ")
 }

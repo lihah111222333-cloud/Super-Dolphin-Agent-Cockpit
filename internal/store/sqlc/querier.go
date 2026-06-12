@@ -184,7 +184,7 @@ type Querier interface {
 	ResetRunningAgentThreads(ctx context.Context) error
 	ResolveHookPendingReview(ctx context.Context, arg ResolveHookPendingReviewParams) (int64, error)
 	ReviewInteraction(ctx context.Context, arg ReviewInteractionParams) (AgentInteraction, error)
-	// hook_pending_review.sql — sqlc queries for hook_pending_reviews table.
+	// hook_pending_review.sql - sqlc queries for hook_pending_reviews table.
 	// Migrated from internal/store/hookstore/hookstore.go raw SQL.
 	SaveHookPendingReview(ctx context.Context, arg SaveHookPendingReviewParams) error
 	SetCronJobActiveTurn(ctx context.Context, arg SetCronJobActiveTurnParams) (int64, error)
