@@ -77,7 +77,6 @@ const EFFORT_MODES_BY_PROVIDER = Object.freeze({
     { value: 'high', label: '高' },
     { value: 'medium', label: '中' },
     { value: 'low', label: '低' },
-    { value: 'minimal', label: '极低' },
     { value: 'none', label: '关闭' },
   ]),
   claude: Object.freeze([
@@ -174,6 +173,7 @@ function normalizeProviderEffortSetting(provider, model, value) {
   const normalizedProvider = normalizeProviderName(provider);
   const normalizedValue = providerConfigValue(value).toLowerCase();
   if (normalizedProvider !== 'claude') {
+    if (normalizedValue === 'minimal') return 'low';
     return EFFORT_MODES_BY_PROVIDER.codex.some((item) => item.value === normalizedValue)
       ? normalizedValue
       : providerDefaults(normalizedProvider).effort;

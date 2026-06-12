@@ -280,7 +280,7 @@ func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) threadStart
 		ApprovalPolicy:        supportutil.ResolveApprovalPolicy(req.Config),
 		Personality:           supportutil.ConfigString(req.Config, "personality"),
 		Summary:               supportutil.ConfigString(req.Config, "summary"),
-		Effort:                supportutil.ConfigString(req.Config, "effort"),
+		Effort:                normalizeCodexAppEffort(supportutil.ConfigString(req.Config, "effort")),
 		Sandbox:               codexSandboxWireJSON(supportutil.ConfigJSON(req.Config, "sandbox")),
 	}
 	codexNativeToolPolicyFromConfig(req.Config).ApplyThreadStartParams(&params)

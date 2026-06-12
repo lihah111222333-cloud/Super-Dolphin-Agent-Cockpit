@@ -229,6 +229,17 @@ func TestBuildThreadStartParamsUsesStartAssemblyInstructions(t *testing.T) {
 	}
 }
 
+func TestBuildThreadStartParamsNormalizesMinimalEffortToLow(t *testing.T) {
+	t.Parallel()
+
+	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
+		Config: map[string]any{"effort": " minimal "},
+	})
+	if params.Effort != "low" {
+		t.Fatalf("Effort = %q, want low", params.Effort)
+	}
+}
+
 func TestBuildThreadStartParamsPrefersCanonicalCodexModelProvider(t *testing.T) {
 	t.Parallel()
 
