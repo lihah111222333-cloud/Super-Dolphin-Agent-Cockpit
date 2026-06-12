@@ -1,5 +1,8 @@
 -- name: GetPromptTemplate :one
-SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, when_to_use, enabled, manually_edited, match_when, priority, created_by, updated_by, created_at, updated_at
+SELECT id, prompt_key, title, agent_key, tool_name, prompt_text,
+       CAST(variables AS BLOB) AS variables, CAST(tags AS BLOB) AS tags,
+       description, when_to_use, enabled, manually_edited,
+       CAST(match_when AS BLOB) AS match_when, priority, created_by, updated_by, created_at, updated_at
 FROM prompt_templates
 WHERE prompt_key = ?;
 
@@ -35,7 +38,10 @@ SET title = EXCLUDED.title,
     priority = EXCLUDED.priority,
     updated_by = EXCLUDED.updated_by,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-RETURNING id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, when_to_use, enabled, manually_edited, match_when, priority, created_by, updated_by, created_at, updated_at;
+RETURNING id, prompt_key, title, agent_key, tool_name, prompt_text,
+          CAST(variables AS BLOB) AS variables, CAST(tags AS BLOB) AS tags,
+          description, when_to_use, enabled, manually_edited,
+          CAST(match_when AS BLOB) AS match_when, priority, created_by, updated_by, created_at, updated_at;
 
 -- name: CreatePromptTemplate :one
 INSERT INTO prompt_templates (
@@ -44,18 +50,38 @@ INSERT INTO prompt_templates (
     created_by, updated_by, updated_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000))
 ON CONFLICT (prompt_key) DO NOTHING
-RETURNING id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, when_to_use, enabled, manually_edited, match_when, priority, created_by, updated_by, created_at, updated_at;
+RETURNING id, prompt_key, title, agent_key, tool_name, prompt_text,
+          CAST(variables AS BLOB) AS variables, CAST(tags AS BLOB) AS tags,
+          description, when_to_use, enabled, manually_edited,
+          CAST(match_when AS BLOB) AS match_when, priority, created_by, updated_by, created_at, updated_at;
 
 -- name: ListPromptTemplates :many
-SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, when_to_use, enabled, manually_edited, match_when, priority, created_by, updated_by, created_at, updated_at
+SELECT id, prompt_key, title, agent_key, tool_name, prompt_text,
+       CAST(variables AS BLOB) AS variables, CAST(tags AS BLOB) AS tags,
+       description, when_to_use, enabled, manually_edited,
+       CAST(match_when AS BLOB) AS match_when, priority, created_by, updated_by, created_at, updated_at
 FROM prompt_templates
 WHERE (sqlc.arg(agent_key) = '' OR agent_key = sqlc.arg(agent_key))
   AND (sqlc.arg(keyword) = ''
     OR prompt_key LIKE '%' || sqlc.arg(keyword) || '%'
     OR title LIKE '%' || sqlc.arg(keyword) || '%'
     OR prompt_text LIKE '%' || sqlc.arg(keyword) || '%')
-  AND (instr(tags, '"scope.cwd:') = 0
-    OR instr(tags, '"scope.global"') > 0
-    OR instr(tags, '"scope.cwd:' || sqlc.arg(cwd) || '"') > 0)
+  AND (
+    NOT EXISTS (
+      SELECT 1
+      FROM json_each(tags)
+      WHERE value LIKE 'scope.cwd:%'
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM json_each(tags)
+      WHERE value = 'scope.global'
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM json_each(tags)
+      WHERE value = 'scope.cwd:' || sqlc.arg(cwd)
+    )
+  )
 ORDER BY updated_at DESC
 LIMIT sqlc.arg(limit_count);

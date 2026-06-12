@@ -13,11 +13,11 @@ import (
 )
 
 type querier interface {
-	ListPromptTemplates(ctx context.Context, arg sqlc.ListPromptTemplatesParams) ([]sqlc.PromptTemplate, error)
+	ListPromptTemplates(ctx context.Context, arg sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error)
 }
 
 type getQuerier interface {
-	GetPromptTemplate(ctx context.Context, arg sqlc.GetPromptTemplateParams) (sqlc.PromptTemplate, error)
+	GetPromptTemplate(ctx context.Context, arg sqlc.GetPromptTemplateParams) (sqlc.GetPromptTemplateRow, error)
 }
 
 type deleteQuerier interface {
@@ -29,11 +29,11 @@ type insertVersionQuerier interface {
 }
 
 type upsertQuerier interface {
-	UpsertPromptTemplate(ctx context.Context, arg sqlc.UpsertPromptTemplateParams) (sqlc.PromptTemplate, error)
+	UpsertPromptTemplate(ctx context.Context, arg sqlc.UpsertPromptTemplateParams) (sqlc.UpsertPromptTemplateRow, error)
 }
 
 type createPromptTemplateQuerier interface {
-	CreatePromptTemplate(ctx context.Context, arg sqlc.CreatePromptTemplateParams) (sqlc.PromptTemplate, error)
+	CreatePromptTemplate(ctx context.Context, arg sqlc.CreatePromptTemplateParams) (sqlc.CreatePromptTemplateRow, error)
 }
 
 type listSectionsQuerier interface {
@@ -262,7 +262,7 @@ func (s *store) CreatePromptTemplate(ctx context.Context, template PromptTemplat
 		WhenToUse:      template.WhenToUse,
 		Enabled:        boolToInt64(template.Enabled),
 		ManuallyEdited: boolToInt64(template.ManuallyEdited),
-		MatchWhen:      string(template.MatchWhen),
+		MatchWhen:      normalizePromptMatchWhen(template.MatchWhen),
 		Priority:       int64(template.Priority),
 		CreatedBy:      template.CreatedBy,
 		UpdatedBy:      template.UpdatedBy,
@@ -294,7 +294,7 @@ func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTem
 		WhenToUse:      template.WhenToUse,
 		Enabled:        boolToInt64(template.Enabled),
 		ManuallyEdited: boolToInt64(template.ManuallyEdited),
-		MatchWhen:      string(template.MatchWhen),
+		MatchWhen:      normalizePromptMatchWhen(template.MatchWhen),
 		Priority:       int64(template.Priority),
 		CreatedBy:      template.CreatedBy,
 		UpdatedBy:      template.UpdatedBy,
@@ -306,42 +306,72 @@ func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTem
 	return &mapped, nil
 }
 
-func fromCreateTemplate(row sqlc.PromptTemplate) PromptTemplate {
-	return promptTemplateFromRow(row)
+func fromCreateTemplate(row sqlc.CreatePromptTemplateRow) PromptTemplate {
+	return promptTemplateFromFields(
+		row.ID, row.PromptKey, row.Title, row.AgentKey, row.ToolName, row.PromptText,
+		row.WhenToUse, row.Variables, row.Tags, row.Enabled, row.ManuallyEdited,
+		row.CreatedBy, row.UpdatedBy, row.CreatedAt, row.UpdatedAt, row.Description,
+		row.MatchWhen, row.Priority,
+	)
 }
 
-func fromGetTemplate(row sqlc.PromptTemplate) PromptTemplate {
-	return promptTemplateFromRow(row)
+func fromGetTemplate(row sqlc.GetPromptTemplateRow) PromptTemplate {
+	return promptTemplateFromFields(
+		row.ID, row.PromptKey, row.Title, row.AgentKey, row.ToolName, row.PromptText,
+		row.WhenToUse, row.Variables, row.Tags, row.Enabled, row.ManuallyEdited,
+		row.CreatedBy, row.UpdatedBy, row.CreatedAt, row.UpdatedAt, row.Description,
+		row.MatchWhen, row.Priority,
+	)
 }
 
-func fromListTemplate(row sqlc.PromptTemplate) PromptTemplate {
-	return promptTemplateFromRow(row)
+func fromListTemplate(row sqlc.ListPromptTemplatesRow) PromptTemplate {
+	return promptTemplateFromFields(
+		row.ID, row.PromptKey, row.Title, row.AgentKey, row.ToolName, row.PromptText,
+		row.WhenToUse, row.Variables, row.Tags, row.Enabled, row.ManuallyEdited,
+		row.CreatedBy, row.UpdatedBy, row.CreatedAt, row.UpdatedAt, row.Description,
+		row.MatchWhen, row.Priority,
+	)
 }
 
-func fromUpsertTemplate(row sqlc.PromptTemplate) PromptTemplate {
-	return promptTemplateFromRow(row)
+func fromUpsertTemplate(row sqlc.UpsertPromptTemplateRow) PromptTemplate {
+	return promptTemplateFromFields(
+		row.ID, row.PromptKey, row.Title, row.AgentKey, row.ToolName, row.PromptText,
+		row.WhenToUse, row.Variables, row.Tags, row.Enabled, row.ManuallyEdited,
+		row.CreatedBy, row.UpdatedBy, row.CreatedAt, row.UpdatedAt, row.Description,
+		row.MatchWhen, row.Priority,
+	)
 }
 
-func promptTemplateFromRow(row sqlc.PromptTemplate) PromptTemplate {
+func promptTemplateFromFields(
+	id int64,
+	promptKey, title, agentKey, toolName, promptText, whenToUse string,
+	variables, tags []byte,
+	enabled, manuallyEdited int64,
+	createdBy, updatedBy string,
+	createdAt, updatedAt int64,
+	description string,
+	matchWhen []byte,
+	priority int64,
+) PromptTemplate {
 	return PromptTemplate{
-		ID:             row.ID,
-		PromptKey:      row.PromptKey,
-		Title:          row.Title,
-		AgentKey:       row.AgentKey,
-		ToolName:       row.ToolName,
-		PromptText:     row.PromptText,
-		WhenToUse:      row.WhenToUse,
-		Variables:      json.RawMessage(row.Variables),
-		Tags:           json.RawMessage(row.Tags),
-		Enabled:        row.Enabled != 0,
-		ManuallyEdited: row.ManuallyEdited != 0,
-		CreatedBy:      row.CreatedBy,
-		UpdatedBy:      row.UpdatedBy,
-		CreatedAt:      platformdb.TimeFromMillis(row.CreatedAt),
-		UpdatedAt:      platformdb.TimeFromMillis(row.UpdatedAt),
-		Description:    row.Description,
-		MatchWhen:      json.RawMessage(row.MatchWhen),
-		Priority:       int(row.Priority),
+		ID:             id,
+		PromptKey:      promptKey,
+		Title:          title,
+		AgentKey:       agentKey,
+		ToolName:       toolName,
+		PromptText:     promptText,
+		WhenToUse:      whenToUse,
+		Variables:      json.RawMessage(variables),
+		Tags:           json.RawMessage(tags),
+		Enabled:        enabled != 0,
+		ManuallyEdited: manuallyEdited != 0,
+		CreatedBy:      createdBy,
+		UpdatedBy:      updatedBy,
+		CreatedAt:      platformdb.TimeFromMillis(createdAt),
+		UpdatedAt:      platformdb.TimeFromMillis(updatedAt),
+		Description:    description,
+		MatchWhen:      json.RawMessage(matchWhen),
+		Priority:       int(priority),
 	}
 }
 
@@ -528,6 +558,13 @@ func boolToInt64(b bool) int64 {
 		return 1
 	}
 	return 0
+}
+
+func normalizePromptMatchWhen(matchWhen json.RawMessage) string {
+	if strings.TrimSpace(string(matchWhen)) == "" {
+		return "{}"
+	}
+	return string(matchWhen)
 }
 
 func timePtrToInt64Ptr(t *time.Time) *int64 {
