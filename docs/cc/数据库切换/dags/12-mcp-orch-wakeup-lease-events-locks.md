@@ -2,7 +2,7 @@
 
 ## Agent Prompt
 
-你负责 `cmd/mcp-orch` 中所有 PostgreSQL locking/concurrency 特性的 SQLite 等价：DAG wakeup claim、worker lease、scheduled DAG advisory lock 替代、DAG run events append/truncate。重复 dispatch、重复 scheduled run、event 覆盖都是 P0 发布阻断项。
+你负责 `cmd/mcp-orch` 中所有 PostgreSQL locking/concurrency 特性的 SQLite 语义加固：DAG wakeup claim、worker lease、Task 10 已建立的 scheduled DAG runtime lock、DAG run events append/truncate。重复 dispatch、重复 scheduled run、event 覆盖都是 P0 发布阻断项。
 
 ## Scope
 
@@ -21,7 +21,7 @@
   - `cmd/mcp-orch/store/taskdag/store_lease.go`
   - `cmd/mcp-orch/store/taskdag/store_run.go`
   - `cmd/mcp-orch/store/taskdag/store_dispatch_guard.go`
-- Modify runtime lock:
+- Harden runtime lock from Task 10:
   - `cmd/mcp-orch/dag_cron_runner.go`
   - `cmd/mcp-orch/fx.go`
   - `cmd/mcp-orch/fxadapter/dag_cron_store.go`
@@ -42,6 +42,7 @@
   - `Renew` and `Release` match owner.
 - Runtime locks:
   - Use shared table `runtime_locks`.
+  - Start from the SQLite provider introduced by Task 10; do not reintroduce PG advisory lock code.
   - holder includes pid, hostname, process start nonce.
   - acquire/renew/release must match holder; no Go mutex.
 - DAG events:

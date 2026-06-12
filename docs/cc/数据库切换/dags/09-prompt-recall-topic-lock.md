@@ -6,9 +6,9 @@
 
 ## Scope
 
-依赖：Task 03。
+依赖：Task 03、Task 05。
 
-可并行：可与 Task 04、05、06、07、08 并行，但会触碰 `prompt_template_sections`，合并时需与 Task 05 协调。
+可并行：可与 Task 04、06、07、08 并行；不得与 Task 05 并行执行，因为两者共享 `prompt_template_sections`、`internal/store/prompt/store.go` 与 prompt 模块测试。
 
 ## 修改点
 
@@ -25,7 +25,9 @@
   - `internal/module/prompt/service_provider_intent_test.go`
   - `internal/module/prompt/intent_commit_test.go`
 - Schema dependency:
+  - 当前 Task 02 baseline 不包含专用 `prompt_recall_topics` 表；如果采用该表，必须在本任务新增 SQLite-only migration，例如 `internal/platform/db/sqlite/migrations/104_prompt_recall_topics.sql`，并更新 schema contract/gate 测试。
   - Use `prompt_recall_topics(cwd TEXT NOT NULL, topic TEXT NOT NULL, template_id INTEGER NOT NULL, section_key TEXT NOT NULL, PRIMARY KEY(cwd, topic))` or an equivalent SQLite-enforced uniqueness strategy.
+  - 如果选择不新增表而使用 `prompt_template_sections` 上的唯一约束/partial unique index，必须证明不同 cwd 同 topic 仍可并行且 global/project duplicate 规则不被破坏。
 
 ## 语义要求
 

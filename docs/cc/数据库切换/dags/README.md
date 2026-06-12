@@ -19,8 +19,8 @@
 - 新 codeagent 修改完成后，必须重新拉起两个彼此独立的 reviewagent 审查该 task worktree 的完整 diff；不允许复用上一轮 reviewagent 的通过结论。
 - 双 reviewagent 通过后，才允许在 task worktree 用中文 commit message 提交该任务改动，然后合并回集成分支 `codex/sqlite-switch-integration`。
 - 每个 task worktree 的生命周期必须用 `mcp-go-agent-orchestration` 记录：创建任务节点、启动 codeagent、记录验收命令、启动两个 reviewagent、记录 review 结论；若未双通过，记录新 codeagent 接手、修复验收、重新双评审；双通过后记录 commit 与 merge 结果。
-- Go 文件每次改完后先跑单文件守卫：`./scripts/test_with_guard.sh <file.go>`。
-- `internal/store/sqlc/**` 与 `cmd/mcp-orch/store/sqlc/**` 是共享生成物，任何任务都不得手改。单个任务可以本地生成用于编译验证，但最终提交的 generated diff 只能由串行 sqlc finalize 检查点统一产生。
+- Go 文件每次改完后先跑单文件守卫。macOS/Linux/Git Bash/WSL 使用 `./scripts/test_with_guard.sh <file.go>`；Windows PowerShell 只有在当前 worktree 确认存在 `scripts/test_with_guard.ps1` 时才允许使用 `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\test_with_guard.ps1 <file.go>`。如果 Windows worktree 没有 `.ps1` 入口，agent 必须明确报告 skipped reason，并运行真实可执行的 `gofmt`、`go test`、`git diff --check` 等替代验证；禁止在 PowerShell 里直接运行 `.sh` 来刷失败日志。
+- `internal/store/sqlc/**` 与 `cmd/mcp-orch/store/sqlc/**` 是共享生成物目录，任何任务都不得手改带有 `Code generated` 标记的文件。凡是切换 `sqlc.yaml`、修改 `sql/queries/**` 或 `cmd/mcp-orch/sql/queries/**` 且需要编译/测试通过的任务，必须运行 sqlc 生成并提交由生成器产生的 generated diff；reviewagent 必须确认 generated diff 来源于生成器且没有手工改写。手写扩展文件例外，例如当前 `cmd/mcp-orch/store/sqlc/types_ext.go` 没有 generated header，Task 10 可迁移/删除/移动它以移除 pgtype 依赖。Wave 1.5 / Wave 2.5 是串行冲突消解与 drift verify 检查点，不再是唯一允许提交 generated diff 的地方。
 - 不允许静默兜底：配置缺失、PRAGMA 未生效、schema 版本不足、SQLite lock 重试耗尽都必须 fail-fast。
 - 不做 PG -> SQLite 历史数据迁移；旧 PG data dir 只能被忽略或在文档中说明清理方式。
 - `DATABASE_URL` / `POSTGRES_CONNECTION_STRING` 在产品运行时不得作为 DB 配置源，也不得继续透传给 sidecar/provider 当作数据库依赖。
@@ -30,6 +30,7 @@
 1. 从集成分支 `codex/sqlite-switch-integration` 为单个任务创建专属 worktree，命名建议：`.worktrees/sqlite-switch-task-XX-<slug>`。
 2. codeagent 只读取 `README.md`、`00-source-trace-risk-review.md`、对应 `XX-*.md` 任务文档，以及任务明确要求的源码；实施修改前先记录计划和预期验收。
 3. codeagent 完成本任务修改后，运行任务文档列出的验收命令；涉及 Go 文件时同时遵守单文件守卫和受影响 package 测试。
+   - 任务文档中的 shell 代码块是 Unix/Git Bash 形式的推荐命令；Windows 原生 PowerShell 必须按上方守卫规则选择 `.ps1` 或真实可执行替代命令。不存在的命令、当前 PATH 没有的 `make`、或 PowerShell 不能直接执行的 `.sh` 都必须报告 skipped reason 和替代验证结果。
 4. reviewagent A 与 reviewagent B 分别独立审查 task worktree 的全部 diff 和验收输出，不共享审查结论。
 5. 只要任一 reviewagent 不通过，当前 codeagent 不再继续改该 worktree；新开 codeagent 接手同一 task worktree，修复后重新运行验收，并重新执行第 4 步双评审。
 6. 只有两个 reviewagent 都明确给出“通过，可以合并”时，才允许提交；commit message 必须为中文，建议格式：`sqlite切换：完成任务XX <任务名>`。
@@ -64,6 +65,7 @@ flowchart TD
   T03 --> T08
   T03 --> T09
   T03 --> T10
+  T05 --> T09
   T10 --> T11
   T10 --> T12
   T11 --> T12
@@ -82,13 +84,13 @@ flowchart TD
 
 Wave 0：`01`、`02` 可以并行；`03` 等两者落地后执行。
 
-Wave 1：`04`、`05`、`06`、`07`、`08`、`09` 可并行，但必须基于 `03` 的 DB/sqlc 接口；不要各自改写同一层抽象。
+Wave 1：`04`、`05`、`06`、`07`、`08` 可并行，但必须基于 `03` 的 root DB/sqlc cutover；不要各自改写同一层抽象。`09` 触碰 `prompt_template_sections` 与 `internal/store/prompt/store.go`，必须等 `05` 合并后再执行，避免同一 store/query 双写冲突。
 
-Wave 1.5：串行 root sqlc finalize，由集成者在 `04` 到 `09` 合并后运行 `make sqlc-generate && make sqlc-verify`，统一解决 `internal/store/sqlc/**` drift。
+Wave 1.5：串行 root sqlc finalize，由集成者在 `04` 到 `09` 合并后运行 sqlc generate/verify 或当前环境等价命令，统一解决 `internal/store/sqlc/**` merge drift；如果 `make` 不可用，必须报告原因并运行项目中真实可执行的 sqlc 生成/校验入口或阻断。
 
-Wave 2：`10` 先做 mcp-orch SQLite 注入；`11` 与 `12` 在 `10` 后可分工，`12` 依赖 `11` 的核心 DAG schema/store 类型。
+Wave 2：`10` 先做 mcp-orch SQLC 机械 cutover、SQLite runtime 注入、最小 runtime lock provider，使 `cmd/mcp-orch` 不依赖 `DATABASE_URL`/pgx pool 即可构图启动；`11` 在 `10` 后做 DAG 核心 store 语义，`12` 必须等 `11` 合并后做 wakeup/lease/events/runtime-lock 高并发语义。
 
-Wave 2.5：串行 mcp-orch sqlc finalize，由集成者在 `11` 与 `12` 合并后运行 `make sqlc-generate && make sqlc-verify`，统一解决 `cmd/mcp-orch/store/sqlc/**` drift。
+Wave 2.5：串行 mcp-orch sqlc finalize，由集成者在 `11` 与 `12` 合并后运行 sqlc generate/verify 或当前环境等价命令，统一解决 `cmd/mcp-orch/store/sqlc/**` merge drift。
 
 Wave 3：`13` 移除 PG runtime/packaging 残留；`14` 和 `15` 做发布 gate、压测与最终扫描。
 

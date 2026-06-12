@@ -2,7 +2,7 @@
 
 ## Agent Prompt
 
-你负责主应用中低并发、CRUD 为主的 store SQLite 等价迁移。只处理 agent status、UI preference、日志、审计、bus log、task trace、routing tests。目标是锁定 JSON/text/time/search 的基础映射，让后续复杂 store 复用同一模式。
+你负责主应用中低并发、CRUD 为主的 store SQLite 等价迁移。只处理 agent status、UI preference、日志、审计、bus log、routing tests。目标是锁定 JSON/text/time/search 的基础映射，让后续复杂 store 复用同一模式。当前源码没有 `internal/store/tasktrace` store，`task_traces` 只保留 schema/dbquery 历史查询入口；不要为不存在的 store 新建迁移范围。
 
 ## Scope
 
@@ -19,7 +19,6 @@
   - `sql/queries/ai_log.sql`
   - `sql/queries/audit_log.sql`
   - `sql/queries/bus_log.sql`
-  - `sql/queries/task_trace.sql`
   - `sql/queries/prompt_routing_test.sql`
 - Modify stores:
   - `internal/store/agentstatus/store.go`
@@ -28,7 +27,6 @@
   - `internal/store/ailog/store.go`
   - `internal/store/auditlog/store.go`
   - `internal/store/buslog/store.go`
-  - `internal/store/tasktrace/store.go`
   - `internal/store/routingtest/store.go`
 - Modify tests:
   - Add SQLite-backed tests for insert/list/get filters.
@@ -52,14 +50,14 @@
 ## 验收方案
 
 ```bash
-./scripts/test_with_guard.sh ./internal/store/agentstatus ./internal/store/uipreference ./internal/store/systemlog ./internal/store/ailog ./internal/store/auditlog ./internal/store/buslog ./internal/store/tasktrace ./internal/store/routingtest -count=1
+./scripts/test_with_guard.sh ./internal/store/agentstatus ./internal/store/uipreference ./internal/store/systemlog ./internal/store/ailog ./internal/store/auditlog ./internal/store/buslog ./internal/store/routingtest -count=1
 make sqlc-verify
 ```
 
 静态扫描：
 
 ```bash
-rg -n "NOW\\(|ILIKE|regexp_match|::text|::bigint|::jsonb|jsonb|pgtype|pgx" sql/queries/agent_status.sql sql/queries/ui_preference.sql sql/queries/system_log.sql sql/queries/ai_log.sql sql/queries/audit_log.sql sql/queries/bus_log.sql sql/queries/task_trace.sql sql/queries/prompt_routing_test.sql internal/store/agentstatus internal/store/uipreference internal/store/systemlog internal/store/ailog internal/store/auditlog internal/store/buslog internal/store/tasktrace internal/store/routingtest
+rg -n "NOW\\(|ILIKE|regexp_match|::text|::bigint|::jsonb|jsonb|pgtype|pgx" sql/queries/agent_status.sql sql/queries/ui_preference.sql sql/queries/system_log.sql sql/queries/ai_log.sql sql/queries/audit_log.sql sql/queries/bus_log.sql sql/queries/prompt_routing_test.sql internal/store/agentstatus internal/store/uipreference internal/store/systemlog internal/store/ailog internal/store/auditlog internal/store/buslog internal/store/routingtest
 ```
 
 预期：无 PostgreSQL-only 语法；测试覆盖 JSON、时间和 keyword filter。
