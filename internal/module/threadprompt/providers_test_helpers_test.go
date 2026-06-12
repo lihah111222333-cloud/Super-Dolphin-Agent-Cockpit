@@ -137,6 +137,7 @@ func requireContainsInOrder(t *testing.T, text string, values ...string) {
 func mustJSONTags(tags ...string) json.RawMessage {
 	encoded, err := json.Marshal(tags)
 	if err != nil {
+		// archguard:ignore panic_count -- static string-slice test fixture must always marshal.
 		panic(err)
 	}
 	return encoded
