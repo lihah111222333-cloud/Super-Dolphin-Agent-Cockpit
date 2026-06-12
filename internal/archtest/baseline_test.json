@@ -1,16 +1,1 @@
-{
-  "scripts/bash_test_helpers_test.go": {
-    "lines": 98,
-    "max_func_len": 33,
-    "max_nesting": 3,
-    "max_complexity": 11,
-    "max_params": 2,
-    "max_returns": 1,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0
-  }
-}
+{}
