@@ -112,6 +112,7 @@ func closedTransport() *transport {
 	return &transport{done: done}
 }
 
+// archguard:ignore global_vars -- serializes process-wide CLI launch override used by parallel restart tests.
 var launchCLIOverrideMu sync.Mutex
 
 const restartTestTimeout = 15 * time.Second

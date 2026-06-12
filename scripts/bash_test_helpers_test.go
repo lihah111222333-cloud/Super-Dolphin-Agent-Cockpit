@@ -10,6 +10,7 @@ import (
 	"sync"
 )
 
+// archguard:ignore global_vars -- caches expensive bash drive-mount probing across tests.
 var bashDriveMountCache sync.Map
 
 func bashPath(parts ...string) string {
@@ -74,13 +75,30 @@ func bashVerifierPlatform() string {
 }
 
 func appendWSLEnvKeys(env []string, keys ...string) []string {
+	keySet := wslEnvKeySet(keys...)
+	existing := wslEnvValue(env)
+	for _, part := range strings.Split(existing, ":") {
+		addWSLEnvPart(keySet, part)
+	}
+	parts := make([]string, 0, len(keySet))
+	for key := range keySet {
+		parts = append(parts, key)
+	}
+	sort.Strings(parts)
+	return append(env, "WSLENV="+strings.Join(parts, ":"))
+}
+
+func wslEnvKeySet(keys ...string) map[string]struct{} {
 	keySet := map[string]struct{}{}
 	for _, key := range keys {
 		if key != "" {
 			keySet[key] = struct{}{}
 		}
 	}
+	return keySet
+}
 
+func wslEnvValue(env []string) string {
 	existing := os.Getenv("WSLENV")
 	for _, entry := range env {
 		key, value, ok := strings.Cut(entry, "=")
@@ -88,23 +106,18 @@ func appendWSLEnvKeys(env []string, keys ...string) []string {
 			existing = value
 		}
 	}
-	for _, part := range strings.Split(existing, ":") {
-		if part == "" {
-			continue
-		}
-		name := part
-		if idx := strings.IndexByte(part, '/'); idx >= 0 {
-			name = part[:idx]
-		}
-		if name != "" {
-			keySet[part] = struct{}{}
-		}
-	}
+	return existing
+}
 
-	parts := make([]string, 0, len(keySet))
-	for key := range keySet {
-		parts = append(parts, key)
+func addWSLEnvPart(keySet map[string]struct{}, part string) {
+	if part == "" {
+		return
 	}
-	sort.Strings(parts)
-	return append(env, "WSLENV="+strings.Join(parts, ":"))
+	name := part
+	if idx := strings.IndexByte(part, '/'); idx >= 0 {
+		name = part[:idx]
+	}
+	if name != "" {
+		keySet[part] = struct{}{}
+	}
 }

@@ -297,7 +297,7 @@ for p in "${PKG_CANDIDATES[@]}"; do
     PKGS+=("$p")
     continue
   fi
-  if grep -q "no Go files" "$GO_LIST_ERR"; then
+  if grep -q -e "no Go files" -e "build constraints exclude all Go files" "$GO_LIST_ERR"; then
     continue
   fi
   echo "❌ go list 失败：$p" >&2

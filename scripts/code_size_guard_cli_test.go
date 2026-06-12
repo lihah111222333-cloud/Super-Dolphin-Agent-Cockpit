@@ -68,6 +68,36 @@ func bad_identifier_with_too_many_underscores() {}
 	}
 }
 
+func TestTestWithGuardPowerShellWrapperMatchesBashContract(t *testing.T) {
+	script := readScript(t, "test_with_guard.ps1")
+
+	for _, want := range []string{
+		"param(",
+		"[Parameter(ValueFromRemainingArguments = $true)]",
+		"[string[]]$GuardArgs",
+		"$ErrorActionPreference = 'Stop'",
+		"Set-StrictMode -Version Latest",
+		"function Resolve-RealGo",
+		"$env:REAL_GO_BIN",
+		"Get-Command go -All",
+		"function Invoke-RawGoTestGuard",
+		"Makefile",
+		".github/workflows",
+		"go\\s+test",
+		"function Invoke-Guard",
+		"code_size_guard.go",
+		"TestCodeSizeGuard",
+		"function Test-AllArgsAreGoFiles",
+		"function Invoke-SingleFileGuard",
+		"[System.IO.Path]::GetFullPath",
+		"exit $status",
+		"if (Test-AllArgsAreGoFiles -Args $GuardArgs)",
+		"& $realGo test @GuardArgs",
+	} {
+		assertScriptContains(t, script, want)
+	}
+}
+
 type codeSizeGuardCLIResult struct {
 	exitCode int
 	stdout   string
@@ -142,5 +172,20 @@ func TestAgentDocsRequireSingleFileGuardAfterGoEdits(t *testing.T) {
 			assertScriptContains(t, body, "0 表示无违规")
 			assertScriptContains(t, body, "1 表示有违规")
 		})
+	}
+}
+
+func TestAgentDocsSelectGuardCommandByDevice(t *testing.T) {
+	body := readRepoFile(t, "../AGENTS.md")
+
+	for _, want := range []string{
+		"根据当前设备和 shell 选择守卫入口",
+		"macOS / Linux / Git Bash / WSL",
+		"./scripts/test_with_guard.sh <file.go>",
+		"Windows 原生 PowerShell",
+		"pwsh -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\test_with_guard.ps1 <file.go>",
+		"不要在 Windows PowerShell 中直接运行 `.sh`",
+	} {
+		assertScriptContains(t, body, want)
 	}
 }

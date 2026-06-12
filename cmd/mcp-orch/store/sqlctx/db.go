@@ -54,6 +54,7 @@ func withTxBeginner(ctx context.Context, beginner txBeginner, fn func(tx pgx.Tx)
 	defer func() {
 		if r := recover(); r != nil {
 			_ = tx.Rollback(ctx)
+			// archguard:ignore panic_count -- rethrow after rollback preserves caller panic semantics.
 			panic(r)
 		}
 	}()

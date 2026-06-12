@@ -70,6 +70,7 @@ func NewDefaultRedactor() *DefaultRedactor {
 	for _, s := range specs {
 		re, err := regexp.Compile(s.expr)
 		if err != nil {
+			// archguard:ignore panic_count -- builtin redaction regexps must compile during package initialization.
 			panic(fmt.Sprintf("redaction pattern %q compile failed: %v", s.name, err))
 		}
 		rs = append(rs, redactionPattern{name: s.name, re: re})

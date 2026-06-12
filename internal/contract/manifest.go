@@ -127,6 +127,7 @@ func addLSPWorkspaceRootEnv(env map[string]string, ctx dto.ManifestContext) {
 	}
 	raw, err := json.Marshal(roots)
 	if err != nil {
+		// archguard:ignore panic_count -- []string workspace roots must always JSON-encode.
 		panic(fmt.Sprintf("manifest workspace roots must encode as JSON: %v", err))
 	}
 	env["GO_AGENT_LSP_ROOT"] = roots[0]

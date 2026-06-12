@@ -54,10 +54,10 @@ echo
 # --------------------------------------------------------------------
 # RT-1  fingerprint 跨实现一致 + 128-bit
 # 文档：fix01.v2.md T-06 / harden-followups.md F1
-# 现状：已统一到 internal/platform/repofingerprint
+# 现状：已统一到 internal/util/repofingerprint
 # --------------------------------------------------------------------
 ASSERT RT-1a "RepoFingerprint 128-bit 稳定性" \
-  "go test ./internal/platform/repofingerprint/... -run 'TestCompute' -count=1"
+  "go test ./internal/util/repofingerprint/... -run 'TestCompute' -count=1"
 
 ASSERT RT-1b "全仓只剩一份 RepoFingerprint 实现（其余必须是 delegator）" \
   "go run ./docs/security/internal/check_repofp_delegators.go"

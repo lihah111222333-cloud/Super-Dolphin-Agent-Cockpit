@@ -520,6 +520,7 @@ func TestListToolsForCodex_PeerPanicSurfacesAsError(t *testing.T) {
 type panicActiveRegistry struct{}
 
 func (panicActiveRegistry) FindActiveByKind(string) []*mcpcontrol.ToolInstance {
+	// archguard:ignore panic_count -- this test double verifies registry panic recovery.
 	panic("registry failed")
 }
 

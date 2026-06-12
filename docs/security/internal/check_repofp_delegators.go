@@ -1,10 +1,7 @@
 //go:build ignore
 
-// check_repofp_delegators 校验：仓内除 internal/platform/repofingerprint 外，
-// 任何 `func RepoFingerprint(...)` 都必须是 thin delegator —— 函数体内
-// 必须命中 `repofingerprint.MustCompute(` 或 `repofingerprint.Compute(`。
-//
-// 用途：docs/security/p21-redteam.sh 的 RT-1b 断言。
+// check_repofp_delegators verifies that RepoFingerprint helpers outside
+// internal/util/repofingerprint remain thin delegators.
 package main
 
 import (
@@ -19,45 +16,7 @@ import (
 )
 
 func main() {
-	root := "internal"
-	violations := []string{}
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		// 共享实现自身允许有 RepoFingerprint / Compute 的"非 delegator"函数。
-		if strings.HasPrefix(filepath.ToSlash(path), "internal/platform/repofingerprint/") {
-			return nil
-		}
-		fset := token.NewFileSet()
-		f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-		if err != nil {
-			return err
-		}
-		src, _ := os.ReadFile(path)
-		for _, decl := range f.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Name.Name != "RepoFingerprint" || fn.Body == nil {
-				continue
-			}
-			start := fset.Position(fn.Body.Pos()).Offset
-			end := fset.Position(fn.Body.End()).Offset
-			body := string(src[start:end])
-			if !strings.Contains(body, "repofingerprint.MustCompute(") &&
-				!strings.Contains(body, "repofingerprint.Compute(") {
-				violations = append(violations,
-					fmt.Sprintf("%s:%d func RepoFingerprint not a delegator",
-						path, fset.Position(fn.Pos()).Line))
-			}
-		}
-		return nil
-	})
+	violations, err := findViolations("internal")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "walk:", err)
 		os.Exit(2)
@@ -69,4 +28,68 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Println("ok: all RepoFingerprint outside repofingerprint package are delegators")
+}
+
+func findViolations(root string) ([]string, error) {
+	violations := []string{}
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || shouldSkip(path, d) {
+			return err
+		}
+		fileViolations, err := scanFile(path)
+		if err != nil {
+			return err
+		}
+		violations = append(violations, fileViolations...)
+		return nil
+	})
+	return violations, err
+}
+
+func shouldSkip(path string, d fs.DirEntry) bool {
+	if d.IsDir() {
+		return true
+	}
+	if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+		return true
+	}
+	return strings.HasPrefix(filepath.ToSlash(path), "internal/util/repofingerprint/")
+}
+
+func scanFile(path string) ([]string, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, err
+	}
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	violations := []string{}
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || !isRepoFingerprint(fn) {
+			continue
+		}
+		if !isDelegatorBody(src, fset, fn) {
+			violations = append(violations,
+				fmt.Sprintf("%s:%d func RepoFingerprint not a delegator",
+					path, fset.Position(fn.Pos()).Line))
+		}
+	}
+	return violations, nil
+}
+
+func isRepoFingerprint(fn *ast.FuncDecl) bool {
+	return fn.Name.Name == "RepoFingerprint" && fn.Body != nil
+}
+
+func isDelegatorBody(src []byte, fset *token.FileSet, fn *ast.FuncDecl) bool {
+	start := fset.Position(fn.Body.Pos()).Offset
+	end := fset.Position(fn.Body.End()).Offset
+	body := string(src[start:end])
+	return strings.Contains(body, "repofingerprint.MustCompute(") ||
+		strings.Contains(body, "repofingerprint.Compute(")
 }
