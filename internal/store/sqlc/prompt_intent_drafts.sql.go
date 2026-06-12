@@ -12,8 +12,8 @@ import (
 
 const getPromptIntentDraft = `-- name: GetPromptIntentDraft :one
 SELECT id, draft_key, cwd, kind, raw_input, source_type, source_url,
-       origin_hash, license_hint, generated_card, confidence, status, scope,
-       issues, created_at, updated_at
+       origin_hash, license_hint, CAST(generated_card AS BLOB) AS generated_card,
+       confidence, status, scope, CAST(issues AS BLOB) AS issues, created_at, updated_at
 FROM prompt_intent_drafts
 WHERE draft_key = ?1
   AND cwd = ?2
@@ -24,9 +24,28 @@ type GetPromptIntentDraftParams struct {
 	CWD      string `db:"cwd" json:"cwd"`
 }
 
-func (q *Queries) GetPromptIntentDraft(ctx context.Context, arg GetPromptIntentDraftParams) (PromptIntentDraft, error) {
+type GetPromptIntentDraftRow struct {
+	ID            int64   `db:"id" json:"id"`
+	DraftKey      string  `db:"draft_key" json:"draft_key"`
+	CWD           string  `db:"cwd" json:"cwd"`
+	Kind          string  `db:"kind" json:"kind"`
+	RawInput      string  `db:"raw_input" json:"raw_input"`
+	SourceType    string  `db:"source_type" json:"source_type"`
+	SourceUrl     string  `db:"source_url" json:"source_url"`
+	OriginHash    string  `db:"origin_hash" json:"origin_hash"`
+	LicenseHint   string  `db:"license_hint" json:"license_hint"`
+	GeneratedCard []byte  `db:"generated_card" json:"generated_card"`
+	Confidence    float64 `db:"confidence" json:"confidence"`
+	Status        string  `db:"status" json:"status"`
+	Scope         string  `db:"scope" json:"scope"`
+	Issues        []byte  `db:"issues" json:"issues"`
+	CreatedAt     int64   `db:"created_at" json:"created_at"`
+	UpdatedAt     int64   `db:"updated_at" json:"updated_at"`
+}
+
+func (q *Queries) GetPromptIntentDraft(ctx context.Context, arg GetPromptIntentDraftParams) (GetPromptIntentDraftRow, error) {
 	row := q.db.QueryRowContext(ctx, getPromptIntentDraft, arg.DraftKey, arg.CWD)
-	var i PromptIntentDraft
+	var i GetPromptIntentDraftRow
 	err := row.Scan(
 		&i.ID,
 		&i.DraftKey,
@@ -50,8 +69,8 @@ func (q *Queries) GetPromptIntentDraft(ctx context.Context, arg GetPromptIntentD
 
 const listPromptIntentDrafts = `-- name: ListPromptIntentDrafts :many
 SELECT id, draft_key, cwd, kind, raw_input, source_type, source_url,
-       origin_hash, license_hint, generated_card, confidence, status, scope,
-       issues, created_at, updated_at
+       origin_hash, license_hint, CAST(generated_card AS BLOB) AS generated_card,
+       confidence, status, scope, CAST(issues AS BLOB) AS issues, created_at, updated_at
 FROM prompt_intent_drafts
 WHERE cwd = ?1
   AND (?2 = '' OR status = ?2)
@@ -65,15 +84,34 @@ type ListPromptIntentDraftsParams struct {
 	LimitCount int64       `db:"limit_count" json:"limit_count"`
 }
 
-func (q *Queries) ListPromptIntentDrafts(ctx context.Context, arg ListPromptIntentDraftsParams) ([]PromptIntentDraft, error) {
+type ListPromptIntentDraftsRow struct {
+	ID            int64   `db:"id" json:"id"`
+	DraftKey      string  `db:"draft_key" json:"draft_key"`
+	CWD           string  `db:"cwd" json:"cwd"`
+	Kind          string  `db:"kind" json:"kind"`
+	RawInput      string  `db:"raw_input" json:"raw_input"`
+	SourceType    string  `db:"source_type" json:"source_type"`
+	SourceUrl     string  `db:"source_url" json:"source_url"`
+	OriginHash    string  `db:"origin_hash" json:"origin_hash"`
+	LicenseHint   string  `db:"license_hint" json:"license_hint"`
+	GeneratedCard []byte  `db:"generated_card" json:"generated_card"`
+	Confidence    float64 `db:"confidence" json:"confidence"`
+	Status        string  `db:"status" json:"status"`
+	Scope         string  `db:"scope" json:"scope"`
+	Issues        []byte  `db:"issues" json:"issues"`
+	CreatedAt     int64   `db:"created_at" json:"created_at"`
+	UpdatedAt     int64   `db:"updated_at" json:"updated_at"`
+}
+
+func (q *Queries) ListPromptIntentDrafts(ctx context.Context, arg ListPromptIntentDraftsParams) ([]ListPromptIntentDraftsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listPromptIntentDrafts, arg.CWD, arg.Status, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []PromptIntentDraft{}
+	items := []ListPromptIntentDraftsRow{}
 	for rows.Next() {
-		var i PromptIntentDraft
+		var i ListPromptIntentDraftsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.DraftKey,
@@ -111,8 +149,8 @@ SET status = ?1, updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE draft_key = ?2
   AND cwd = ?3
 RETURNING id, draft_key, cwd, kind, raw_input, source_type, source_url,
-          origin_hash, license_hint, generated_card, confidence, status, scope,
-          issues, created_at, updated_at
+          origin_hash, license_hint, CAST(generated_card AS BLOB) AS generated_card,
+          confidence, status, scope, CAST(issues AS BLOB) AS issues, created_at, updated_at
 `
 
 type UpdatePromptIntentDraftStatusParams struct {
@@ -121,9 +159,28 @@ type UpdatePromptIntentDraftStatusParams struct {
 	CWD      string `db:"cwd" json:"cwd"`
 }
 
-func (q *Queries) UpdatePromptIntentDraftStatus(ctx context.Context, arg UpdatePromptIntentDraftStatusParams) (PromptIntentDraft, error) {
+type UpdatePromptIntentDraftStatusRow struct {
+	ID            int64   `db:"id" json:"id"`
+	DraftKey      string  `db:"draft_key" json:"draft_key"`
+	CWD           string  `db:"cwd" json:"cwd"`
+	Kind          string  `db:"kind" json:"kind"`
+	RawInput      string  `db:"raw_input" json:"raw_input"`
+	SourceType    string  `db:"source_type" json:"source_type"`
+	SourceUrl     string  `db:"source_url" json:"source_url"`
+	OriginHash    string  `db:"origin_hash" json:"origin_hash"`
+	LicenseHint   string  `db:"license_hint" json:"license_hint"`
+	GeneratedCard []byte  `db:"generated_card" json:"generated_card"`
+	Confidence    float64 `db:"confidence" json:"confidence"`
+	Status        string  `db:"status" json:"status"`
+	Scope         string  `db:"scope" json:"scope"`
+	Issues        []byte  `db:"issues" json:"issues"`
+	CreatedAt     int64   `db:"created_at" json:"created_at"`
+	UpdatedAt     int64   `db:"updated_at" json:"updated_at"`
+}
+
+func (q *Queries) UpdatePromptIntentDraftStatus(ctx context.Context, arg UpdatePromptIntentDraftStatusParams) (UpdatePromptIntentDraftStatusRow, error) {
 	row := q.db.QueryRowContext(ctx, updatePromptIntentDraftStatus, arg.Status, arg.DraftKey, arg.CWD)
-	var i PromptIntentDraft
+	var i UpdatePromptIntentDraftStatusRow
 	err := row.Scan(
 		&i.ID,
 		&i.DraftKey,
@@ -167,8 +224,8 @@ ON CONFLICT (draft_key) DO UPDATE SET
     issues = EXCLUDED.issues,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 RETURNING id, draft_key, cwd, kind, raw_input, source_type, source_url,
-          origin_hash, license_hint, generated_card, confidence, status, scope,
-          issues, created_at, updated_at
+          origin_hash, license_hint, CAST(generated_card AS BLOB) AS generated_card,
+          confidence, status, scope, CAST(issues AS BLOB) AS issues, created_at, updated_at
 `
 
 type UpsertPromptIntentDraftParams struct {
@@ -187,7 +244,26 @@ type UpsertPromptIntentDraftParams struct {
 	Issues        json.RawMessage `db:"issues" json:"issues"`
 }
 
-func (q *Queries) UpsertPromptIntentDraft(ctx context.Context, arg UpsertPromptIntentDraftParams) (PromptIntentDraft, error) {
+type UpsertPromptIntentDraftRow struct {
+	ID            int64   `db:"id" json:"id"`
+	DraftKey      string  `db:"draft_key" json:"draft_key"`
+	CWD           string  `db:"cwd" json:"cwd"`
+	Kind          string  `db:"kind" json:"kind"`
+	RawInput      string  `db:"raw_input" json:"raw_input"`
+	SourceType    string  `db:"source_type" json:"source_type"`
+	SourceUrl     string  `db:"source_url" json:"source_url"`
+	OriginHash    string  `db:"origin_hash" json:"origin_hash"`
+	LicenseHint   string  `db:"license_hint" json:"license_hint"`
+	GeneratedCard []byte  `db:"generated_card" json:"generated_card"`
+	Confidence    float64 `db:"confidence" json:"confidence"`
+	Status        string  `db:"status" json:"status"`
+	Scope         string  `db:"scope" json:"scope"`
+	Issues        []byte  `db:"issues" json:"issues"`
+	CreatedAt     int64   `db:"created_at" json:"created_at"`
+	UpdatedAt     int64   `db:"updated_at" json:"updated_at"`
+}
+
+func (q *Queries) UpsertPromptIntentDraft(ctx context.Context, arg UpsertPromptIntentDraftParams) (UpsertPromptIntentDraftRow, error) {
 	row := q.db.QueryRowContext(ctx, upsertPromptIntentDraft,
 		arg.DraftKey,
 		arg.CWD,
@@ -203,7 +279,7 @@ func (q *Queries) UpsertPromptIntentDraft(ctx context.Context, arg UpsertPromptI
 		arg.Scope,
 		arg.Issues,
 	)
-	var i PromptIntentDraft
+	var i UpsertPromptIntentDraftRow
 	err := row.Scan(
 		&i.ID,
 		&i.DraftKey,

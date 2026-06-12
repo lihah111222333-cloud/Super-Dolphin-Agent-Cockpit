@@ -2,12 +2,13 @@ package commandcard
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
-	"github.com/jackc/pgx/v5"
+	_ "modernc.org/sqlite"
 )
 
 type commandCardQuerierStub struct {
@@ -54,13 +55,54 @@ func TestListForwardsFilterAndMapsRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List() unexpected error: %v", err)
 	}
-	if captured.Column1 != "roll" || captured.Limit != 25 {
+	if captured.Keyword != "roll" || captured.LimitCount != 25 {
 		t.Fatalf("List() forwarded wrong params: %+v", captured)
 	}
 	if len(got) != 1 {
 		t.Fatalf("List() len = %d, want 1", len(got))
 	}
 	assertMappedCommandCardRow(t, got[0], lastRun)
+}
+
+func TestListKeywordMatchesRealSQLiteQuery(t *testing.T) {
+	t.Parallel()
+
+	db := openCommandCardSQLite(t)
+	execCommandCardSQL(t, db, `CREATE TABLE command_cards (
+		id INTEGER PRIMARY KEY,
+		card_key TEXT NOT NULL,
+		title TEXT NOT NULL,
+		description TEXT NOT NULL,
+		command_template TEXT NOT NULL,
+		args_schema TEXT NOT NULL,
+		risk_level TEXT NOT NULL,
+		enabled INTEGER NOT NULL,
+		created_by TEXT NOT NULL,
+		updated_by TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	);`)
+	execCommandCardSQL(t, db, `CREATE TABLE command_card_runs (
+		id INTEGER PRIMARY KEY,
+		card_key TEXT NOT NULL,
+		created_at INTEGER NOT NULL
+	);`)
+	now := time.Unix(1_000_000, 0).UTC().UnixMilli()
+	execCommandCardSQL(t, db, `INSERT INTO command_cards (
+		card_key, title, description, command_template, args_schema, risk_level,
+		enabled, created_by, updated_by, created_at, updated_at
+	) VALUES
+		('deploy.rollback', 'Rollback deploy', 'rollback last build', 'make rollback', '{}', 'high', 1, 'ops', 'ops', ?, ?),
+		('deploy.status', 'Status deploy', 'show status', 'make status', '{}', 'low', 1, 'ops', 'ops', ?, ?);`, now, now, now-1, now-1)
+
+	s := &store{q: sqlc.New(db)}
+	got, err := s.List(context.Background(), ListFilter{Keyword: "rollback", Limit: 10})
+	if err != nil {
+		t.Fatalf("List() unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0].CardKey != "deploy.rollback" {
+		t.Fatalf("List() keyword result = %+v, want only deploy.rollback", got)
+	}
 }
 
 func assertMappedCommandCardRow(t *testing.T, card CommandCard, lastRun time.Time) {
@@ -132,7 +174,23 @@ func TestListMapsNilLastRunAt(t *testing.T) {
 	}
 }
 
-// ensureNotPgxErrCompat keeps jackc/pgx/v5 in the test imports so future
-// tests that exercise pgx.ErrNoRows / pgconn.PgError paths can share the
-// module. Without this reference the unused import would fail to build.
-var _ = pgx.ErrNoRows
+func openCommandCardSQLite(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("close sqlite: %v", err)
+		}
+	})
+	return db
+}
+
+func execCommandCardSQL(t *testing.T, db *sql.DB, query string, args ...any) {
+	t.Helper()
+	if _, err := db.Exec(query, args...); err != nil {
+		t.Fatalf("exec sql: %v\n%s", err, query)
+	}
+}

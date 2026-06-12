@@ -7,7 +7,7 @@
 --    likewise frozen once the locked terminal is set.
 --  * token no-regression: counters only advance. A context-window-only
 --    event with zero counts cannot regress token_input / token_output /
---    token_total. Scalar GREATEST is per-field so a legitimate zero
+--    token_total. Each CASE guard is per-field so a legitimate zero
 --    event for one dimension does not zero out a sibling.
 --
 -- The *_observed flags go sticky: once TRUE, no later event can flip
@@ -86,7 +86,7 @@ RETURNING id, thread_id, agent_id, session_id, provider, local_turn_id,
           tool_failures, tool_failures_observed,
           approval_requests, approval_requests_observed,
           token_input, token_output, token_total, token_snapshot_observed,
-          context_window_tokens, ui_projection, skills_selected,
+          context_window_tokens, ui_projection, CAST(skills_selected AS BLOB) AS skills_selected,
           created_at, updated_at;
 
 -- name: GetSessionInsightByLocalTurn :one
@@ -97,7 +97,7 @@ SELECT id, thread_id, agent_id, session_id, provider, local_turn_id,
        tool_failures, tool_failures_observed,
        approval_requests, approval_requests_observed,
        token_input, token_output, token_total, token_snapshot_observed,
-       context_window_tokens, ui_projection, skills_selected,
+       context_window_tokens, ui_projection, CAST(skills_selected AS BLOB) AS skills_selected,
        created_at, updated_at
 FROM session_insights
 WHERE thread_id = ? AND local_turn_id = ?;
@@ -110,7 +110,7 @@ SELECT id, thread_id, agent_id, session_id, provider, local_turn_id,
        tool_failures, tool_failures_observed,
        approval_requests, approval_requests_observed,
        token_input, token_output, token_total, token_snapshot_observed,
-       context_window_tokens, ui_projection, skills_selected,
+       context_window_tokens, ui_projection, CAST(skills_selected AS BLOB) AS skills_selected,
        created_at, updated_at
 FROM session_insights
 WHERE thread_id = ?
@@ -128,7 +128,7 @@ SELECT id, thread_id, agent_id, session_id, provider, local_turn_id,
        tool_failures, tool_failures_observed,
        approval_requests, approval_requests_observed,
        token_input, token_output, token_total, token_snapshot_observed,
-       context_window_tokens, ui_projection, skills_selected,
+       context_window_tokens, ui_projection, CAST(skills_selected AS BLOB) AS skills_selected,
        created_at, updated_at
 FROM session_insights
 ORDER BY created_at DESC, id DESC

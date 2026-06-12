@@ -19,33 +19,33 @@ import (
 // consumes. Each *Fn defaults to a safe no-op return when not wired by a
 // specific test.
 type insightQuerierStub struct {
-	upsertFn         func(context.Context, sqlc.UpsertSessionInsightParams) (sqlc.SessionInsight, error)
-	getByLocalFn     func(context.Context, sqlc.GetSessionInsightByLocalTurnParams) (sqlc.SessionInsight, error)
-	listByThreadFn   func(context.Context, sqlc.ListSessionInsightsByThreadParams) ([]sqlc.SessionInsight, error)
-	listRecentFn     func(context.Context, sqlc.ListRecentSessionInsightsParams) ([]sqlc.SessionInsight, error)
+	upsertFn         func(context.Context, sqlc.UpsertSessionInsightParams) (sqlc.UpsertSessionInsightRow, error)
+	getByLocalFn     func(context.Context, sqlc.GetSessionInsightByLocalTurnParams) (sqlc.GetSessionInsightByLocalTurnRow, error)
+	listByThreadFn   func(context.Context, sqlc.ListSessionInsightsByThreadParams) ([]sqlc.ListSessionInsightsByThreadRow, error)
+	listRecentFn     func(context.Context, sqlc.ListRecentSessionInsightsParams) ([]sqlc.ListRecentSessionInsightsRow, error)
 	listApprovalFn   func(context.Context, sqlc.ListObservedApprovalRequestsParams) ([]sqlc.ListObservedApprovalRequestsRow, error)
 	listTokenTurnsFn func(context.Context, sqlc.ListObservedTokenTurnsParams) ([]sqlc.ListObservedTokenTurnsRow, error)
 }
 
-func (s *insightQuerierStub) UpsertSessionInsight(ctx context.Context, a sqlc.UpsertSessionInsightParams) (sqlc.SessionInsight, error) {
+func (s *insightQuerierStub) UpsertSessionInsight(ctx context.Context, a sqlc.UpsertSessionInsightParams) (sqlc.UpsertSessionInsightRow, error) {
 	if s.upsertFn != nil {
 		return s.upsertFn(ctx, a)
 	}
-	return sqlc.SessionInsight{ID: 1, ThreadID: a.ThreadID, LocalTurnID: a.LocalTurnID, Status: a.Status}, nil
+	return sqlc.UpsertSessionInsightRow{ID: 1, ThreadID: a.ThreadID, LocalTurnID: a.LocalTurnID, Status: a.Status}, nil
 }
-func (s *insightQuerierStub) GetSessionInsightByLocalTurn(ctx context.Context, a sqlc.GetSessionInsightByLocalTurnParams) (sqlc.SessionInsight, error) {
+func (s *insightQuerierStub) GetSessionInsightByLocalTurn(ctx context.Context, a sqlc.GetSessionInsightByLocalTurnParams) (sqlc.GetSessionInsightByLocalTurnRow, error) {
 	if s.getByLocalFn != nil {
 		return s.getByLocalFn(ctx, a)
 	}
-	return sqlc.SessionInsight{ThreadID: a.ThreadID, LocalTurnID: a.LocalTurnID}, nil
+	return sqlc.GetSessionInsightByLocalTurnRow{ThreadID: a.ThreadID, LocalTurnID: a.LocalTurnID}, nil
 }
-func (s *insightQuerierStub) ListSessionInsightsByThread(ctx context.Context, a sqlc.ListSessionInsightsByThreadParams) ([]sqlc.SessionInsight, error) {
+func (s *insightQuerierStub) ListSessionInsightsByThread(ctx context.Context, a sqlc.ListSessionInsightsByThreadParams) ([]sqlc.ListSessionInsightsByThreadRow, error) {
 	if s.listByThreadFn != nil {
 		return s.listByThreadFn(ctx, a)
 	}
 	return nil, nil
 }
-func (s *insightQuerierStub) ListRecentSessionInsights(ctx context.Context, arg sqlc.ListRecentSessionInsightsParams) ([]sqlc.SessionInsight, error) {
+func (s *insightQuerierStub) ListRecentSessionInsights(ctx context.Context, arg sqlc.ListRecentSessionInsightsParams) ([]sqlc.ListRecentSessionInsightsRow, error) {
 	if s.listRecentFn != nil {
 		return s.listRecentFn(ctx, arg)
 	}
@@ -71,9 +71,9 @@ func TestUpsertDefaultsStatusAndSkills(t *testing.T) {
 
 	var got sqlc.UpsertSessionInsightParams
 	s := &store{q: &insightQuerierStub{
-		upsertFn: func(_ context.Context, a sqlc.UpsertSessionInsightParams) (sqlc.SessionInsight, error) {
+		upsertFn: func(_ context.Context, a sqlc.UpsertSessionInsightParams) (sqlc.UpsertSessionInsightRow, error) {
 			got = a
-			return sqlc.SessionInsight{ID: 1, Status: a.Status}, nil
+			return sqlc.UpsertSessionInsightRow{ID: 1, Status: a.Status}, nil
 		},
 	}}
 	_, err := s.Upsert(context.Background(), UpsertParams{
@@ -97,9 +97,9 @@ func TestUpsertForwardsSuccessPointer(t *testing.T) {
 	t.Parallel()
 	var got sqlc.UpsertSessionInsightParams
 	s := &store{q: &insightQuerierStub{
-		upsertFn: func(_ context.Context, a sqlc.UpsertSessionInsightParams) (sqlc.SessionInsight, error) {
+		upsertFn: func(_ context.Context, a sqlc.UpsertSessionInsightParams) (sqlc.UpsertSessionInsightRow, error) {
 			got = a
-			return sqlc.SessionInsight{ID: 1, Success: a.Success}, nil
+			return sqlc.UpsertSessionInsightRow{ID: 1, Success: a.Success}, nil
 		},
 	}}
 	fval := false
@@ -142,8 +142,8 @@ func TestGetByLocalTurnRejectsEmptyIDs(t *testing.T) {
 func TestGetByLocalTurnMapsNotFound(t *testing.T) {
 	t.Parallel()
 	s := &store{q: &insightQuerierStub{
-		getByLocalFn: func(context.Context, sqlc.GetSessionInsightByLocalTurnParams) (sqlc.SessionInsight, error) {
-			return sqlc.SessionInsight{}, platformdb.ErrNotFound
+		getByLocalFn: func(context.Context, sqlc.GetSessionInsightByLocalTurnParams) (sqlc.GetSessionInsightByLocalTurnRow, error) {
+			return sqlc.GetSessionInsightByLocalTurnRow{}, platformdb.ErrNotFound
 		},
 	}}
 	_, err := s.GetByLocalTurn(context.Background(), "t", "lt")
@@ -158,7 +158,7 @@ func TestListByThreadDefaultsLimit(t *testing.T) {
 	t.Parallel()
 	var got sqlc.ListSessionInsightsByThreadParams
 	s := &store{q: &insightQuerierStub{
-		listByThreadFn: func(_ context.Context, a sqlc.ListSessionInsightsByThreadParams) ([]sqlc.SessionInsight, error) {
+		listByThreadFn: func(_ context.Context, a sqlc.ListSessionInsightsByThreadParams) ([]sqlc.ListSessionInsightsByThreadRow, error) {
 			got = a
 			return nil, nil
 		},
@@ -176,10 +176,10 @@ func TestListRecentPassesThrough(t *testing.T) {
 	t.Parallel()
 	var gotLimit int64
 	s := &store{q: &insightQuerierStub{
-		listRecentFn: func(_ context.Context, arg sqlc.ListRecentSessionInsightsParams) ([]sqlc.SessionInsight, error) {
+		listRecentFn: func(_ context.Context, arg sqlc.ListRecentSessionInsightsParams) ([]sqlc.ListRecentSessionInsightsRow, error) {
 			limit := arg.Limit
 			gotLimit = limit
-			return []sqlc.SessionInsight{{ID: 42, ThreadID: "t", LocalTurnID: "lt"}}, nil
+			return []sqlc.ListRecentSessionInsightsRow{{ID: 42, ThreadID: "t", LocalTurnID: "lt"}}, nil
 		},
 	}}
 	rows, err := s.ListRecent(context.Background(), 10)
@@ -254,9 +254,9 @@ func TestUpsertQueryEnforcesPrecedenceAndNoRegression(t *testing.T) {
 	for _, col := range []string{"token_input", "token_output", "token_total",
 		"context_window_tokens", "tool_calls", "tool_failures", "approval_requests",
 		"duration_ms"} {
-		want := "GREATEST(session_insights." + col + ", EXCLUDED." + col + ")"
+		want := "CASE WHEN (session_insights." + col + ") > (EXCLUDED." + col + ") THEN (session_insights." + col + ") ELSE (EXCLUDED." + col + ") END"
 		if !strings.Contains(sql, want) {
-			t.Fatalf("upsert query missing GREATEST guard for %q", col)
+			t.Fatalf("upsert query missing no-regression CASE guard for %q", col)
 		}
 	}
 

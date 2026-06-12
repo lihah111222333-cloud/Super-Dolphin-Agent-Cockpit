@@ -1,5 +1,5 @@
 -- name: GetCommandCard :one
-SELECT id, card_key, title, description, command_template, args_schema, risk_level, enabled, created_by, updated_by, created_at, updated_at
+SELECT id, card_key, title, description, command_template, CAST(args_schema AS BLOB) AS args_schema, risk_level, enabled, created_by, updated_by, created_at, updated_at
 FROM command_cards
 WHERE card_key = ?;
 
@@ -14,7 +14,7 @@ INSERT INTO command_card_versions (
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListCommandCardVersions :many
-SELECT id, card_key, title, description, command_template, args_schema, risk_level, enabled,
+SELECT id, card_key, title, description, command_template, CAST(args_schema AS BLOB) AS args_schema, risk_level, enabled,
        created_by, updated_by, source_updated_at, created_at, archived_at
 FROM command_card_versions
 WHERE card_key = ?
@@ -34,10 +34,10 @@ SET title = EXCLUDED.title,
     enabled = EXCLUDED.enabled,
     updated_by = EXCLUDED.updated_by,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-RETURNING id, card_key, title, description, command_template, args_schema, risk_level, enabled, created_by, updated_by, created_at, updated_at;
+RETURNING id, card_key, title, description, command_template, CAST(args_schema AS BLOB) AS args_schema, risk_level, enabled, created_by, updated_by, created_at, updated_at;
 
 -- name: ListCommandCards :many
-SELECT c.id, c.card_key, c.title, c.description, c.command_template, c.args_schema, c.risk_level, c.enabled, c.created_by, c.updated_by, c.created_at, c.updated_at,
+SELECT c.id, c.card_key, c.title, c.description, c.command_template, CAST(c.args_schema AS BLOB) AS args_schema, c.risk_level, c.enabled, c.created_by, c.updated_by, c.created_at, c.updated_at,
        stats.last_run_at, COALESCE(stats.run_count, 0) AS run_count
 FROM command_cards AS c
 LEFT JOIN (
@@ -45,10 +45,10 @@ LEFT JOIN (
     FROM command_card_runs
     GROUP BY card_key
 ) AS stats ON stats.card_key = c.card_key
-WHERE (? = ''
-    OR c.card_key LIKE '%' || ? || '%'
-    OR c.title LIKE '%' || ? || '%'
-    OR c.description LIKE '%' || ? || '%'
-    OR c.command_template LIKE '%' || ? || '%')
+WHERE (sqlc.arg(keyword) = ''
+    OR c.card_key LIKE '%' || sqlc.arg(keyword) || '%'
+    OR c.title LIKE '%' || sqlc.arg(keyword) || '%'
+    OR c.description LIKE '%' || sqlc.arg(keyword) || '%'
+    OR c.command_template LIKE '%' || sqlc.arg(keyword) || '%')
 ORDER BY c.updated_at DESC, c.id DESC
-LIMIT ?;
+LIMIT sqlc.arg(limit_count);

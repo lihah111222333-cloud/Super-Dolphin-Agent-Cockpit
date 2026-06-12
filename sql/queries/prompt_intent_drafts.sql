@@ -20,21 +20,21 @@ ON CONFLICT (draft_key) DO UPDATE SET
     issues = EXCLUDED.issues,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 RETURNING id, draft_key, cwd, kind, raw_input, source_type, source_url,
-          origin_hash, license_hint, generated_card, confidence, status, scope,
-          issues, created_at, updated_at;
+          origin_hash, license_hint, CAST(generated_card AS BLOB) AS generated_card,
+          confidence, status, scope, CAST(issues AS BLOB) AS issues, created_at, updated_at;
 
 -- name: GetPromptIntentDraft :one
 SELECT id, draft_key, cwd, kind, raw_input, source_type, source_url,
-       origin_hash, license_hint, generated_card, confidence, status, scope,
-       issues, created_at, updated_at
+       origin_hash, license_hint, CAST(generated_card AS BLOB) AS generated_card,
+       confidence, status, scope, CAST(issues AS BLOB) AS issues, created_at, updated_at
 FROM prompt_intent_drafts
 WHERE draft_key = sqlc.arg(draft_key)
   AND cwd = sqlc.arg(cwd);
 
 -- name: ListPromptIntentDrafts :many
 SELECT id, draft_key, cwd, kind, raw_input, source_type, source_url,
-       origin_hash, license_hint, generated_card, confidence, status, scope,
-       issues, created_at, updated_at
+       origin_hash, license_hint, CAST(generated_card AS BLOB) AS generated_card,
+       confidence, status, scope, CAST(issues AS BLOB) AS issues, created_at, updated_at
 FROM prompt_intent_drafts
 WHERE cwd = sqlc.arg(cwd)
   AND (sqlc.arg(status) = '' OR status = sqlc.arg(status))
@@ -47,5 +47,5 @@ SET status = sqlc.arg(status), updated_at = (CAST(strftime('%s','now') AS INTEGE
 WHERE draft_key = sqlc.arg(draft_key)
   AND cwd = sqlc.arg(cwd)
 RETURNING id, draft_key, cwd, kind, raw_input, source_type, source_url,
-          origin_hash, license_hint, generated_card, confidence, status, scope,
-          issues, created_at, updated_at;
+          origin_hash, license_hint, CAST(generated_card AS BLOB) AS generated_card,
+          confidence, status, scope, CAST(issues AS BLOB) AS issues, created_at, updated_at;

@@ -8,18 +8,6 @@ import (
 	"encoding/json"
 )
 
-type AgentFeedbackEvent struct {
-	ID              int64           `db:"id" json:"id"`
-	ThreadID        string          `db:"thread_id" json:"thread_id"`
-	TurnID          string          `db:"turn_id" json:"turn_id"`
-	AgentKey        string          `db:"agent_key" json:"agent_key"`
-	PromptVersionID *int64          `db:"prompt_version_id" json:"prompt_version_id"`
-	EventType       string          `db:"event_type" json:"event_type"`
-	Actor           string          `db:"actor" json:"actor"`
-	Payload         json.RawMessage `db:"payload" json:"payload"`
-	CreatedAt       int64           `db:"created_at" json:"created_at"`
-}
-
 type AgentInteraction struct {
 	ID             int64           `db:"id" json:"id"`
 	ThreadID       string          `db:"thread_id" json:"thread_id"`
@@ -66,37 +54,6 @@ type AgentStatus struct {
 	OutputTail  json.RawMessage `db:"output_tail" json:"output_tail"`
 	CreatedAt   int64           `db:"created_at" json:"created_at"`
 	UpdatedAt   int64           `db:"updated_at" json:"updated_at"`
-}
-
-type CommandCard struct {
-	ID              int64           `db:"id" json:"id"`
-	CardKey         string          `db:"card_key" json:"card_key"`
-	Title           string          `db:"title" json:"title"`
-	Description     string          `db:"description" json:"description"`
-	CommandTemplate string          `db:"command_template" json:"command_template"`
-	ArgsSchema      json.RawMessage `db:"args_schema" json:"args_schema"`
-	RiskLevel       string          `db:"risk_level" json:"risk_level"`
-	Enabled         int64           `db:"enabled" json:"enabled"`
-	CreatedBy       string          `db:"created_by" json:"created_by"`
-	UpdatedBy       string          `db:"updated_by" json:"updated_by"`
-	CreatedAt       int64           `db:"created_at" json:"created_at"`
-	UpdatedAt       int64           `db:"updated_at" json:"updated_at"`
-}
-
-type CommandCardVersion struct {
-	ID              int64  `db:"id" json:"id"`
-	CardKey         string `db:"card_key" json:"card_key"`
-	Title           string `db:"title" json:"title"`
-	Description     string `db:"description" json:"description"`
-	CommandTemplate string `db:"command_template" json:"command_template"`
-	ArgsSchema      string `db:"args_schema" json:"args_schema"`
-	RiskLevel       string `db:"risk_level" json:"risk_level"`
-	Enabled         int64  `db:"enabled" json:"enabled"`
-	CreatedBy       string `db:"created_by" json:"created_by"`
-	UpdatedBy       string `db:"updated_by" json:"updated_by"`
-	SourceUpdatedAt *int64 `db:"source_updated_at" json:"source_updated_at"`
-	CreatedAt       int64  `db:"created_at" json:"created_at"`
-	ArchivedAt      int64  `db:"archived_at" json:"archived_at"`
 }
 
 type CronJob struct {
@@ -150,25 +107,6 @@ type CronJobRun struct {
 	UpdatedAt      int64  `db:"updated_at" json:"updated_at"`
 }
 
-type PromptIntentDraft struct {
-	ID            int64           `db:"id" json:"id"`
-	DraftKey      string          `db:"draft_key" json:"draft_key"`
-	CWD           string          `db:"cwd" json:"cwd"`
-	Kind          string          `db:"kind" json:"kind"`
-	RawInput      string          `db:"raw_input" json:"raw_input"`
-	SourceType    string          `db:"source_type" json:"source_type"`
-	SourceUrl     string          `db:"source_url" json:"source_url"`
-	OriginHash    string          `db:"origin_hash" json:"origin_hash"`
-	LicenseHint   string          `db:"license_hint" json:"license_hint"`
-	GeneratedCard json.RawMessage `db:"generated_card" json:"generated_card"`
-	Confidence    float64         `db:"confidence" json:"confidence"`
-	Status        string          `db:"status" json:"status"`
-	Scope         string          `db:"scope" json:"scope"`
-	Issues        json.RawMessage `db:"issues" json:"issues"`
-	CreatedAt     int64           `db:"created_at" json:"created_at"`
-	UpdatedAt     int64           `db:"updated_at" json:"updated_at"`
-}
-
 type PromptRoutingTest struct {
 	ID                int64  `db:"id" json:"id"`
 	Input             string `db:"input" json:"input"`
@@ -177,27 +115,6 @@ type PromptRoutingTest struct {
 	Enabled           int64  `db:"enabled" json:"enabled"`
 	CreatedAt         int64  `db:"created_at" json:"created_at"`
 	UpdatedAt         int64  `db:"updated_at" json:"updated_at"`
-}
-
-type PromptTemplate struct {
-	ID             int64           `db:"id" json:"id"`
-	PromptKey      string          `db:"prompt_key" json:"prompt_key"`
-	Title          string          `db:"title" json:"title"`
-	AgentKey       string          `db:"agent_key" json:"agent_key"`
-	ToolName       string          `db:"tool_name" json:"tool_name"`
-	PromptText     string          `db:"prompt_text" json:"prompt_text"`
-	Variables      json.RawMessage `db:"variables" json:"variables"`
-	Tags           json.RawMessage `db:"tags" json:"tags"`
-	Description    string          `db:"description" json:"description"`
-	WhenToUse      string          `db:"when_to_use" json:"when_to_use"`
-	Enabled        int64           `db:"enabled" json:"enabled"`
-	ManuallyEdited int64           `db:"manually_edited" json:"manually_edited"`
-	MatchWhen      string          `db:"match_when" json:"match_when"`
-	Priority       int64           `db:"priority" json:"priority"`
-	CreatedBy      string          `db:"created_by" json:"created_by"`
-	UpdatedBy      string          `db:"updated_by" json:"updated_by"`
-	CreatedAt      int64           `db:"created_at" json:"created_at"`
-	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
 }
 
 type PromptTemplateSection struct {
@@ -213,37 +130,6 @@ type PromptTemplateSection struct {
 	UpdatedAt   int64  `db:"updated_at" json:"updated_at"`
 	TriggerType string `db:"trigger_type" json:"trigger_type"`
 	RecallTopic string `db:"recall_topic" json:"recall_topic"`
-}
-
-type SessionInsight struct {
-	ID                       int64           `db:"id" json:"id"`
-	ThreadID                 string          `db:"thread_id" json:"thread_id"`
-	AgentID                  string          `db:"agent_id" json:"agent_id"`
-	SessionID                string          `db:"session_id" json:"session_id"`
-	Provider                 string          `db:"provider" json:"provider"`
-	LocalTurnID              string          `db:"local_turn_id" json:"local_turn_id"`
-	ProviderTurnID           string          `db:"provider_turn_id" json:"provider_turn_id"`
-	StartedAt                *int64          `db:"started_at" json:"started_at"`
-	CompletedAt              *int64          `db:"completed_at" json:"completed_at"`
-	DurationMs               int64           `db:"duration_ms" json:"duration_ms"`
-	Success                  *int64          `db:"success" json:"success"`
-	Status                   string          `db:"status" json:"status"`
-	StopReason               string          `db:"stop_reason" json:"stop_reason"`
-	ToolCalls                int64           `db:"tool_calls" json:"tool_calls"`
-	ToolCallsObserved        int64           `db:"tool_calls_observed" json:"tool_calls_observed"`
-	ToolFailures             int64           `db:"tool_failures" json:"tool_failures"`
-	ToolFailuresObserved     int64           `db:"tool_failures_observed" json:"tool_failures_observed"`
-	ApprovalRequests         int64           `db:"approval_requests" json:"approval_requests"`
-	ApprovalRequestsObserved int64           `db:"approval_requests_observed" json:"approval_requests_observed"`
-	TokenInput               int64           `db:"token_input" json:"token_input"`
-	TokenOutput              int64           `db:"token_output" json:"token_output"`
-	TokenTotal               int64           `db:"token_total" json:"token_total"`
-	TokenSnapshotObserved    int64           `db:"token_snapshot_observed" json:"token_snapshot_observed"`
-	ContextWindowTokens      int64           `db:"context_window_tokens" json:"context_window_tokens"`
-	UIProjection             string          `db:"ui_projection" json:"ui_projection"`
-	SkillsSelected           json.RawMessage `db:"skills_selected" json:"skills_selected"`
-	CreatedAt                int64           `db:"created_at" json:"created_at"`
-	UpdatedAt                int64           `db:"updated_at" json:"updated_at"`
 }
 
 type SharedFile struct {
