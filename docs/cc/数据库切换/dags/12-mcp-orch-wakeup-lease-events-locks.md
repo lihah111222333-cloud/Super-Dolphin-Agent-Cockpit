@@ -1,0 +1,70 @@
+# Task 12: mcp-orch Wakeup/Lease/Events/Runtime Locks
+
+## Agent Prompt
+
+你负责 `cmd/mcp-orch` 中所有 PostgreSQL locking/concurrency 特性的 SQLite 等价：DAG wakeup claim、worker lease、scheduled DAG advisory lock 替代、DAG run events append/truncate。重复 dispatch、重复 scheduled run、event 覆盖都是 P0 发布阻断项。
+
+## Scope
+
+依赖：Task 10 + Task 11 merged。DAG core schema/store types and generated sqlc must be finalized before this task starts.
+
+## 修改点
+
+- Modify SQL:
+  - `cmd/mcp-orch/sql/queries/task_dag_wakeup_dispatch.sql`
+  - `cmd/mcp-orch/sql/queries/task_dag_wakeup_query.sql`
+  - `cmd/mcp-orch/sql/queries/task_dag_worker_lease.sql`
+  - `cmd/mcp-orch/sql/queries/task_dag_run.sql`
+  - `cmd/mcp-orch/sql/queries/task_dag_dag.sql` remove advisory lock queries.
+- Modify stores:
+  - `cmd/mcp-orch/store/taskdag/store_wakeup.go`
+  - `cmd/mcp-orch/store/taskdag/store_lease.go`
+  - `cmd/mcp-orch/store/taskdag/store_run.go`
+  - `cmd/mcp-orch/store/taskdag/store_dispatch_guard.go`
+- Modify runtime lock:
+  - `cmd/mcp-orch/dag_cron_runner.go`
+  - `cmd/mcp-orch/fx.go`
+  - `cmd/mcp-orch/fxadapter/dag_cron_store.go`
+  - `cmd/mcp-orch/orchestration/cron/scheduler_cron.go` only if interface needs holder/renew/release semantics.
+- Add tests:
+  - `cmd/mcp-orch/store/taskdag/wakeup_sqlite_concurrency_test.go`
+  - `cmd/mcp-orch/store/taskdag/runtime_lock_sqlite_test.go`
+  - `cmd/mcp-orch/store/taskdag/run_event_sqlite_golden_test.go`
+
+## 目标语义
+
+- Wakeup claim:
+  - pending -> dispatching happens in one `UPDATE ... WHERE id IN (SELECT...) RETURNING ...` or one `BEGIN IMMEDIATE` transaction.
+  - `MarkWakeupSent`, `RetryWakeup`, `FailWakeup` keep `id + claimed_at + claimed_by + lease_expires_at` fencing.
+  - stale dispatching reclaim only reclaims expired lease.
+- Worker lease:
+  - `Acquire` uses SQLite CAS with owner and lease expiry.
+  - `Renew` and `Release` match owner.
+- Runtime locks:
+  - Use shared table `runtime_locks`.
+  - holder includes pid, hostname, process start nonce.
+  - acquire/renew/release must match holder; no Go mutex.
+- DAG events:
+  - Implement append/truncate in Go under `BEGIN IMMEDIATE`.
+  - Preserve last 50 events.
+  - Golden cases: empty, 50, 51, object, array, string, null payload, node_spawn retry.
+- Wakeup/run list queries must use metadata-only projection; large columns such as `prompt_payload`, `events`, `metadata`, `result`, and `config` are read only by detail-by-id queries unless a protocol golden proves they are required.
+
+## 不允许改
+
+- 不要 keep `pg_try_advisory_lock`.
+- 不要 ignore `database is locked`; bounded retry then fail-fast.
+- 不要 replace JSON event append with last-write-wins.
+
+## 验收方案
+
+```bash
+./scripts/test_with_guard.sh ./cmd/mcp-orch/store/taskdag ./cmd/mcp-orch/orchestration ./cmd/mcp-orch/fxadapter ./cmd/mcp-orch -count=1
+make sqlc-verify
+```
+
+并发测试必须覆盖：
+
+- 100 pending wakeups, 4 goroutines + 2 OS processes claim -> duplicate dispatch = 0, missing = 0.
+- two scheduled DAG tickers use same SQLite file -> only one run is started.
+- event append under concurrent writers does not lose or overwrite events.
