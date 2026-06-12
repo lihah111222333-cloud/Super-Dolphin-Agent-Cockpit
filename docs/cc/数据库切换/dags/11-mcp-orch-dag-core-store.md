@@ -8,7 +8,7 @@
 
 依赖：Task 10。
 
-可并行：可与 Task 12 分工，但 Task 12 依赖本任务确认 DAG run/node schema 类型。
+不可与 Task 12 并行。Task 12 依赖本任务合并后的 DAG run/node schema、store 类型和 generated sqlc；并行会同时触碰 `task_dag_dag.sql`、`task_dag_run.sql` 与 `cmd/mcp-orch/store/taskdag/**`，容易产生不可评审的冲突。
 
 ## 修改点
 
