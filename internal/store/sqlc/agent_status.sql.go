@@ -40,18 +40,17 @@ func (q *Queries) GetAgentStatus(ctx context.Context, arg GetAgentStatusParams) 
 const listAgentStatuses = `-- name: ListAgentStatuses :many
 SELECT agent_id, agent_name, session_id, status, stagnant_sec, error, output_tail, created_at, updated_at
 FROM agent_status
-WHERE (? = '' OR status = ?)
+WHERE (?1 = '' OR status = ?1)
 ORDER BY updated_at DESC
 LIMIT 500
 `
 
 type ListAgentStatusesParams struct {
-	Column1 interface{} `db:"column_1" json:"column_1"`
-	Status  string      `db:"status" json:"status"`
+	StatusFilter interface{} `db:"status_filter" json:"status_filter"`
 }
 
 func (q *Queries) ListAgentStatuses(ctx context.Context, arg ListAgentStatusesParams) ([]AgentStatus, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentStatuses, arg.Column1, arg.Status)
+	rows, err := q.db.QueryContext(ctx, listAgentStatuses, arg.StatusFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +84,17 @@ func (q *Queries) ListAgentStatuses(ctx context.Context, arg ListAgentStatusesPa
 
 const upsertAgentStatus = `-- name: UpsertAgentStatus :one
 INSERT INTO agent_status (agent_id, agent_name, session_id, status, stagnant_sec, error, output_tail, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
+VALUES (
+    ?1,
+    ?2,
+    ?3,
+    ?4,
+    ?5,
+    ?6,
+    ?7,
+    ?8,
+    ?8
+)
 ON CONFLICT (agent_id) DO UPDATE
 SET agent_name = EXCLUDED.agent_name,
     session_id = EXCLUDED.session_id,
@@ -93,7 +102,7 @@ SET agent_name = EXCLUDED.agent_name,
     stagnant_sec = EXCLUDED.stagnant_sec,
     error = EXCLUDED.error,
     output_tail = EXCLUDED.output_tail,
-    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+    updated_at = EXCLUDED.updated_at
 RETURNING agent_id, agent_name, session_id, status, stagnant_sec, error, output_tail, created_at, updated_at
 `
 
@@ -105,6 +114,7 @@ type UpsertAgentStatusParams struct {
 	StagnantSec int64           `db:"stagnant_sec" json:"stagnant_sec"`
 	Error       string          `db:"error" json:"error"`
 	OutputTail  json.RawMessage `db:"output_tail" json:"output_tail"`
+	Now         int64           `db:"now" json:"now"`
 }
 
 func (q *Queries) UpsertAgentStatus(ctx context.Context, arg UpsertAgentStatusParams) (AgentStatus, error) {
@@ -116,6 +126,7 @@ func (q *Queries) UpsertAgentStatus(ctx context.Context, arg UpsertAgentStatusPa
 		arg.StagnantSec,
 		arg.Error,
 		arg.OutputTail,
+		arg.Now,
 	)
 	var i AgentStatus
 	err := row.Scan(

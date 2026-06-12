@@ -2,32 +2,33 @@ package ailog
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
-	"strings"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
+	_ "modernc.org/sqlite"
 )
 
 type ailogQuerierStub struct {
-	countAILogsByStatusFn  func(context.Context) ([]sqlc.CountAILogsByStatusRow, error)
-	listAILogSystemLogsFn  func(context.Context, sqlc.ListAILogSystemLogsParams) ([]sqlc.SystemLog, error)
+	countAILogsByStatusFn  func(context.Context) ([]string, error)
+	listAILogSystemLogsFn  func(context.Context, sqlc.ListAILogSystemLogsParams) ([]sqlc.ListAILogSystemLogsRow, error)
 	listAILogsByCategoryFn func(context.Context, sqlc.ListAILogsByCategoryParams) ([]sqlc.ListAILogsByCategoryRow, error)
 	listRecentAILogsFn     func(context.Context, sqlc.ListRecentAILogsParams) ([]sqlc.ListRecentAILogsRow, error)
 }
 
-func (s *ailogQuerierStub) CountAILogsByStatus(ctx context.Context) ([]sqlc.CountAILogsByStatusRow, error) {
+func (s *ailogQuerierStub) CountAILogsByStatus(ctx context.Context) ([]string, error) {
 	if s.countAILogsByStatusFn != nil {
 		return s.countAILogsByStatusFn(ctx)
 	}
 	return nil, nil
 }
 
-func (s *ailogQuerierStub) ListAILogSystemLogs(ctx context.Context, arg sqlc.ListAILogSystemLogsParams) ([]sqlc.SystemLog, error) {
+func (s *ailogQuerierStub) ListAILogSystemLogs(ctx context.Context, arg sqlc.ListAILogSystemLogsParams) ([]sqlc.ListAILogSystemLogsRow, error) {
 	if s.listAILogSystemLogsFn != nil {
 		return s.listAILogSystemLogsFn(ctx, arg)
 	}
@@ -51,20 +52,20 @@ func (s *ailogQuerierStub) ListRecentAILogs(ctx context.Context, arg sqlc.ListRe
 func TestList(t *testing.T) {
 	t.Parallel()
 
-	ts := time.Unix(100, 0)
-	duration := int32(25)
+	ts := time.Unix(100, 0).UTC()
+	duration := int64(25)
 	s := &store{q: &ailogQuerierStub{
-		listAILogSystemLogsFn: func(_ context.Context, arg sqlc.ListAILogSystemLogsParams) ([]sqlc.SystemLog, error) {
-			if arg.Keyword != "req" || arg.LimitCount != 5 {
+		listAILogSystemLogsFn: func(_ context.Context, arg sqlc.ListAILogSystemLogsParams) ([]sqlc.ListAILogSystemLogsRow, error) {
+			if arg.Keyword != "req" || arg.KeywordPattern != "%req%" || arg.LimitCount != 5 {
 				t.Fatalf("List() forwarded wrong params: %+v", arg)
 			}
-			return []sqlc.SystemLog{{
+			return []sqlc.ListAILogSystemLogsRow{{
 				ID:         1,
-				Ts:         ts,
+				Ts:         ts.UnixMilli(),
 				Level:      "info",
 				Logger:     "ai",
 				Message:    "request",
-				Raw:        "raw",
+				Raw:        "",
 				Source:     "ai",
 				Component:  "model",
 				AgentID:    "agent-1",
@@ -73,7 +74,7 @@ func TestList(t *testing.T) {
 				EventType:  "evt",
 				ToolName:   "tool",
 				DurationMs: &duration,
-				Extra:      []byte(`{"ok":true}`),
+				Extra:      `{}`,
 			}}, nil
 		},
 	}}
@@ -85,33 +86,34 @@ func TestList(t *testing.T) {
 	if len(rows) != 1 || rows[0].Message != "request" || rows[0].DurationMs == nil || *rows[0].DurationMs != 25 {
 		t.Fatalf("List() = %+v", rows)
 	}
-	if string(rows[0].Extra) != `{"ok":true}` {
+	if string(rows[0].Extra) != `{}` {
 		t.Fatalf("List() Extra = %s", rows[0].Extra)
 	}
 }
 
-func TestListByCategory(t *testing.T) {
+func TestListByCategoryDerivesFieldsInGo(t *testing.T) {
 	t.Parallel()
 
-	ts := time.Unix(200, 0)
+	ts := time.Unix(200, 0).UTC()
 	s := &store{q: &ailogQuerierStub{
 		listAILogsByCategoryFn: func(_ context.Context, arg sqlc.ListAILogsByCategoryParams) ([]sqlc.ListAILogsByCategoryRow, error) {
-			if arg.Category != "api_request" || arg.Keyword != "models" || arg.LimitCount != 7 {
+			if arg.Column1 != "models" || arg.LOWER != "%models%" || arg.Column3 != "api_request" || arg.Message != "api_request" || arg.Limit != 7 {
 				t.Fatalf("ListByCategory() forwarded wrong params: %+v", arg)
 			}
-			return []sqlc.ListAILogsByCategoryRow{{
-				ID:         2,
-				Ts:         ts,
-				Message:    "GET https://example.test/v1",
-				Extra:      []byte(`{"kind":"api"}`),
-				Category:   "api_request",
-				Method:     "GET",
-				Url:        "https://example.test/v1",
-				Endpoint:   "/v1",
-				Status:     "200",
-				StatusText: "OK",
-				Model:      "gpt-5",
-			}}, nil
+			return []sqlc.ListAILogsByCategoryRow{
+				{
+					ID:      2,
+					Ts:      ts.UnixMilli(),
+					Message: "api request GET https://example.test/v1/models HTTP/1.1 200 OK model=gpt-5",
+					Extra:   `{}`,
+				},
+				{
+					ID:      3,
+					Ts:      ts.UnixMilli(),
+					Message: "runtime config loaded",
+					Extra:   `{}`,
+				},
+			}, nil
 		},
 	}}
 
@@ -119,19 +121,25 @@ func TestListByCategory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListByCategory() error = %v", err)
 	}
-	if len(rows) != 1 || rows[0].Category != "api_request" || rows[0].Endpoint != "/v1" {
-		t.Fatalf("ListByCategory() = %+v", rows)
+	if len(rows) != 1 {
+		t.Fatalf("ListByCategory() len = %d, want 1: %+v", len(rows), rows)
+	}
+	got := rows[0]
+	if got.Category != "api_request" || got.Method != "GET" || got.Endpoint != "/v1/models" || got.Status != "200" || got.Model != "gpt-5" {
+		t.Fatalf("ListByCategory() derived fields = %+v", got)
 	}
 }
 
-func TestCountByStatus(t *testing.T) {
+func TestCountByStatusDerivesHTTPStatusCountsInGo(t *testing.T) {
 	t.Parallel()
 
 	s := &store{q: &ailogQuerierStub{
-		countAILogsByStatusFn: func(context.Context) ([]sqlc.CountAILogsByStatusRow, error) {
-			return []sqlc.CountAILogsByStatusRow{
-				{Status: "200", Count: 3},
-				{Status: "500", Count: 1},
+		countAILogsByStatusFn: func(context.Context) ([]string, error) {
+			return []string{
+				"api request GET https://example.test/v1/models HTTP/1.1 200 OK model=gpt-5",
+				"api error POST https://example.test/v1/models HTTP/1.1 500 Internal model=gpt-5",
+				"api error POST https://example.test/v1/models HTTP/1.1 500 Internal model=gpt-5",
+				"runtime config loaded",
 			}, nil
 		},
 	}}
@@ -140,31 +148,26 @@ func TestCountByStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountByStatus() error = %v", err)
 	}
-	if len(rows) != 2 || rows[0].Status != "200" || rows[1].Count != 1 {
+	if len(rows) != 2 || rows[0].Status != "200" || rows[0].Count != 1 || rows[1].Status != "500" || rows[1].Count != 2 {
 		t.Fatalf("CountByStatus() = %+v", rows)
 	}
 }
 
-func TestListRecent(t *testing.T) {
+func TestListRecentDerivesFieldsInGo(t *testing.T) {
 	t.Parallel()
 
-	ts := time.Unix(300, 0)
-	rawExtra := json.RawMessage(`{"recent":true}`)
+	ts := time.Unix(300, 0).UTC()
+	rawExtra := json.RawMessage(`{}`)
 	s := &store{q: &ailogQuerierStub{
 		listRecentAILogsFn: func(_ context.Context, arg sqlc.ListRecentAILogsParams) ([]sqlc.ListRecentAILogsRow, error) {
-			limit := arg.Limit
-			if limit != 9 {
-				t.Fatalf("ListRecent() limit = %d, want 9", limit)
+			if arg.LimitCount != 9 {
+				t.Fatalf("ListRecent() limit = %d, want 9", arg.LimitCount)
 			}
 			return []sqlc.ListRecentAILogsRow{{
-				ID:         3,
-				Ts:         ts,
-				Message:    "recent",
-				Extra:      []byte(rawExtra),
-				Category:   "ai_event",
-				Status:     "unknown",
-				StatusText: "",
-				Model:      "gpt-5-mini",
+				ID:      3,
+				Ts:      ts.UnixMilli(),
+				Message: "api error POST https://example.test/v1/chat HTTP/1.1 500 Internal model=gpt-5-mini",
+				Extra:   string(rawExtra),
 			}}, nil
 		},
 	}}
@@ -173,142 +176,172 @@ func TestListRecent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRecent() error = %v", err)
 	}
-	if len(rows) != 1 || rows[0].Model != "gpt-5-mini" || string(rows[0].Extra) != string(rawExtra) {
+	if len(rows) != 1 || rows[0].Model != "gpt-5-mini" || rows[0].Category != "api_error" || string(rows[0].Extra) != string(rawExtra) {
 		t.Fatalf("ListRecent() = %+v", rows)
 	}
 }
 
-func TestListKeywordHandling(t *testing.T) {
+func TestDeriveCategoryPreservesSemantics(t *testing.T) {
 	t.Parallel()
 
-	db := &ailogQueryCaptureDB{}
-	s := NewStore(sqlc.New(db))
+	tests := []struct {
+		name    string
+		message string
+		want    string
+	}{
+		{name: "api request", message: "API REQUEST GET https://api.test/v1/models", want: "api_request"},
+		{name: "api error before fallback", message: "api error fallback HTTP/1.1 500 Internal", want: "api_error"},
+		{name: "compat before runtime and error", message: "runtime config fallback exception", want: "compat_fallback"},
+		{name: "unicode compat", message: "\u517c\u5bb9 mode enabled", want: "compat_fallback"},
+		{name: "runtime config", message: "runtime config loaded", want: "runtime_config"},
+		{name: "generic error", message: "worker exception without api markers", want: "error"},
+		{name: "default", message: "model stream completed", want: "ai_event"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	filtered, err := s.List(context.Background(), ListFilter{Keyword: "req", Limit: 10})
-	if err != nil {
-		t.Fatalf("List(filtered) error = %v", err)
+			if got := deriveCategory(tt.message); got != tt.want {
+				t.Fatalf("deriveCategory(%q) = %q, want %q", tt.message, got, tt.want)
+			}
+		})
 	}
-	if len(filtered) != 0 {
-		t.Fatalf("List(filtered) = %+v", filtered)
-	}
-	requireAILogQuery(t, db, "req", int32(10))
-	requireSQLContains(t, db.query, "WHERE ($1::text = '' OR message ILIKE '%' || $1::text || '%')")
-
-	all, err := s.List(context.Background(), ListFilter{Keyword: "", Limit: 10})
-	if err != nil {
-		t.Fatalf("List(all) error = %v", err)
-	}
-	if len(all) != 0 {
-		t.Fatalf("List(all) = %+v", all)
-	}
-	requireAILogQuery(t, db, "", int32(10))
-	requireSQLContains(t, db.query, "WHERE ($1::text = '' OR message ILIKE '%' || $1::text || '%')")
 }
 
-func TestListByCategoryAllowsEmptyKeyword(t *testing.T) {
-	t.Parallel()
+func TestSQLiteAILogQueriesUseMetadataProjectionAndGoDerivedFields(t *testing.T) {
+	db := openAILogSQLiteDB(t)
+	insertAILogSystemRow(t, db, 1_700_000_002_000, "info", "api request GET https://api.test/v1/responses HTTP/1.1 200 OK model=gpt-5", "RESPONSES raw payload")
+	insertAILogSystemRow(t, db, 1_700_000_001_000, "error", "runtime config fallback exception", "runtime raw payload")
 
-	db := &ailogQueryCaptureDB{}
 	s := NewStore(sqlc.New(db))
+	recent, err := s.ListRecent(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("ListRecent() error = %v", err)
+	}
+	if len(recent) != 1 {
+		t.Fatalf("ListRecent() len = %d, want 1", len(recent))
+	}
+	if recent[0].Raw != "" || string(recent[0].Extra) != `{}` {
+		t.Fatalf("ListRecent() projected heavy fields: raw=%q extra=%s", recent[0].Raw, recent[0].Extra)
+	}
+	if recent[0].Endpoint != "/v1/responses" || recent[0].Status != "200" || recent[0].Category != "api_request" {
+		t.Fatalf("ListRecent() derived fields = %+v", recent[0])
+	}
 
-	rows, err := s.ListByCategory(context.Background(), "api_request", "", 3)
+	filtered, err := s.List(context.Background(), ListFilter{Keyword: "responses", Limit: 10})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].Raw != "" || string(filtered[0].Extra) != `{}` {
+		t.Fatalf("List() = %+v", filtered)
+	}
+
+	categoryRows, err := s.ListByCategory(context.Background(), "compat_fallback", "", 10)
 	if err != nil {
 		t.Fatalf("ListByCategory() error = %v", err)
 	}
-	if len(rows) != 0 {
-		t.Fatalf("ListByCategory() = %+v", rows)
+	if len(categoryRows) != 1 || categoryRows[0].Category != "compat_fallback" {
+		t.Fatalf("ListByCategory() = %+v", categoryRows)
 	}
-	requireAILogCategoryQuery(t, db, "api_request", "", int32(3))
-	requireSQLContains(t, db.query, "WHERE ($1::text = '' OR category = $1::text)")
-	requireSQLContains(t, db.query, "AND ($2::text = '' OR message ILIKE '%' || $2::text || '%')")
+
+	counts, err := s.CountByStatus(context.Background())
+	if err != nil {
+		t.Fatalf("CountByStatus() error = %v", err)
+	}
+	if len(counts) != 1 || counts[0].Status != "200" || counts[0].Count != 1 {
+		t.Fatalf("CountByStatus() = %+v", counts)
+	}
 }
 
-func requireSQLContains(t *testing.T, got, want string) {
+func TestSQLiteListByCategoryReturnsLimitMatchingRowsAfterNewerNonMatches(t *testing.T) {
+	db := openAILogSQLiteDB(t)
+	insertAILogSystemRow(t, db, 1_700_000_003_000, "info", "runtime config loaded", "runtime raw payload")
+	insertAILogSystemRow(t, db, 1_700_000_002_000, "error", "api error POST https://api.test/v1/messages HTTP/1.1 500 Internal model=gpt-5", "error raw payload")
+	insertAILogSystemRow(t, db, 1_700_000_001_000, "info", "api request GET https://api.test/v1/responses HTTP/1.1 200 OK model=gpt-5", "request raw payload")
+
+	s := NewStore(sqlc.New(db))
+	rows, err := s.ListByCategory(context.Background(), "api_request", "", 1)
+	if err != nil {
+		t.Fatalf("ListByCategory() error = %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("ListByCategory() len = %d, want 1: %+v", len(rows), rows)
+	}
+	got := rows[0]
+	if got.Category != "api_request" || got.Status != "200" || got.Endpoint != "/v1/responses" {
+		t.Fatalf("ListByCategory() = %+v", got)
+	}
+	if got.Raw != "" || string(got.Extra) != `{}` {
+		t.Fatalf("ListByCategory() projected heavy fields: raw=%q extra=%s", got.Raw, got.Extra)
+	}
+}
+
+func TestSQLiteCountByStatusDerivesHTTPStatusCounts(t *testing.T) {
+	db := openAILogSQLiteDB(t)
+	insertAILogSystemRow(t, db, 1_700_000_004_000, "info", "api request GET https://api.test/v1/responses HTTP/1.1 200 OK model=gpt-5", "request raw payload")
+	insertAILogSystemRow(t, db, 1_700_000_003_000, "error", "api error POST https://api.test/v1/messages HTTP/1.1 500 Internal model=gpt-5", "error raw payload")
+	insertAILogSystemRow(t, db, 1_700_000_002_000, "error", "api error POST https://api.test/v1/messages HTTP/1.1 500 Internal model=gpt-5", "error raw payload")
+	insertAILogSystemRow(t, db, 1_700_000_001_000, "info", "runtime config loaded", "runtime raw payload")
+
+	s := NewStore(sqlc.New(db))
+	counts, err := s.CountByStatus(context.Background())
+	if err != nil {
+		t.Fatalf("CountByStatus() error = %v", err)
+	}
+	if len(counts) != 2 {
+		t.Fatalf("CountByStatus() len = %d, want 2: %+v", len(counts), counts)
+	}
+	if counts[0].Status != "200" || counts[0].Count != 1 || counts[1].Status != "500" || counts[1].Count != 2 {
+		t.Fatalf("CountByStatus() = %+v", counts)
+	}
+}
+
+func openAILogSQLiteDB(t *testing.T) *sql.DB {
 	t.Helper()
 
-	if !strings.Contains(compactAILogSQL(got), compactAILogSQL(want)) {
-		t.Fatalf("query = %q, want substring %q", got, want)
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
 	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		t.Fatalf("enable foreign keys: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join("..", "..", "platform", "db", "sqlite", "migrations", "001_baseline.sql"))
+	if err != nil {
+		t.Fatalf("read baseline: %v", err)
+	}
+	if _, err := db.Exec(string(body)); err != nil {
+		t.Fatalf("exec baseline: %v", err)
+	}
+	return db
 }
 
-func requireAILogQuery(t *testing.T, db *ailogQueryCaptureDB, keyword string, limit int32) {
+func insertAILogSystemRow(t *testing.T, db *sql.DB, ts int64, level string, message string, raw string) {
 	t.Helper()
 
-	if len(db.args) != 2 {
-		t.Fatalf("query args = %#v, want 2 args", db.args)
-	}
-	if got, ok := db.args[0].(string); !ok || got != keyword {
-		t.Fatalf("query keyword arg = %#v, want %q", db.args[0], keyword)
-	}
-	if got, ok := db.args[1].(int32); !ok || got != limit {
-		t.Fatalf("query limit arg = %#v, want %d", db.args[1], limit)
-	}
-}
-
-func requireAILogCategoryQuery(t *testing.T, db *ailogQueryCaptureDB, category, keyword string, limit int32) {
-	t.Helper()
-
-	if len(db.args) != 3 {
-		t.Fatalf("query args = %#v, want 3 args", db.args)
-	}
-	if got, ok := db.args[0].(string); !ok || got != category {
-		t.Fatalf("query category arg = %#v, want %q", db.args[0], category)
-	}
-	if got, ok := db.args[1].(string); !ok || got != keyword {
-		t.Fatalf("query keyword arg = %#v, want %q", db.args[1], keyword)
-	}
-	if got, ok := db.args[2].(int32); !ok || got != limit {
-		t.Fatalf("query limit arg = %#v, want %d", db.args[2], limit)
+	_, err := db.Exec(`
+INSERT INTO system_logs (
+    ts, level, logger, message, raw, source, component, agent_id, thread_id, trace_id, event_type, tool_name, duration_ms, extra
+) VALUES (?, ?, 'ai', ?, ?, 'provider', 'model', 'agent-1', 'thread-1', 'trace-1', 'event', 'tool', 25, ?);
+`, ts, level, message, raw, `{"big":"payload"}`)
+	if err != nil {
+		t.Fatalf("insert system log: %v", err)
 	}
 }
 
-type ailogQueryCaptureDB struct {
-	query string
-	args  []any
-	err   error
-	rows  pgx.Rows
-}
+func TestAILogWrapsErrors(t *testing.T) {
+	t.Parallel()
 
-func (*ailogQueryCaptureDB) Exec(context.Context, string, ...interface{}) (pgconn.CommandTag, error) {
-	return pgconn.CommandTag{}, errors.New("ailogQueryCaptureDB: exec not implemented")
-}
-
-func (db *ailogQueryCaptureDB) Query(_ context.Context, query string, args ...interface{}) (pgx.Rows, error) {
-	db.query = query
-	db.args = append([]any(nil), args...)
-	if db.err != nil {
-		return nil, db.err
+	sentinel := errors.New("db closed")
+	s := &store{q: &ailogQuerierStub{
+		listRecentAILogsFn: func(context.Context, sqlc.ListRecentAILogsParams) ([]sqlc.ListRecentAILogsRow, error) {
+			return nil, sentinel
+		},
+	}}
+	_, err := s.ListRecent(context.Background(), 1)
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("ListRecent() error = %v, want sentinel", err)
 	}
-	if db.rows != nil {
-		return db.rows, nil
-	}
-	return &ailogEmptyRows{}, nil
-}
-
-func (*ailogQueryCaptureDB) QueryRow(context.Context, string, ...interface{}) pgx.Row { return nil }
-
-type ailogEmptyRows struct{}
-
-func (r *ailogEmptyRows) Close() { _ = r }
-
-func (*ailogEmptyRows) Err() error { return nil }
-
-func (*ailogEmptyRows) CommandTag() pgconn.CommandTag { return pgconn.CommandTag{} }
-
-func (*ailogEmptyRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
-
-func (*ailogEmptyRows) Next() bool { return false }
-
-func (*ailogEmptyRows) Scan(...any) error { return errors.New("ailogEmptyRows: scan not implemented") }
-
-func (*ailogEmptyRows) Values() ([]any, error) {
-	return nil, errors.New("ailogEmptyRows: values not implemented")
-}
-
-func (*ailogEmptyRows) RawValues() [][]byte { return nil }
-
-func (*ailogEmptyRows) Conn() *pgx.Conn { return nil }
-
-func compactAILogSQL(query string) string {
-	return strings.Join(strings.Fields(query), " ")
 }

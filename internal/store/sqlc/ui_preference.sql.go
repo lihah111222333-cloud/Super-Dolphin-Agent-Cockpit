@@ -32,13 +32,12 @@ const listUIPreferences = `-- name: ListUIPreferences :many
 SELECT key, value, cwd, updated_at
 FROM ui_preferences
 WHERE cwd = ''
-   OR (? <> '' AND cwd = ?)
+   OR (?1 <> '' AND cwd = ?1)
 ORDER BY cwd ASC, key ASC
 `
 
 type ListUIPreferencesParams struct {
-	Column1 interface{} `db:"column_1" json:"column_1"`
-	CWD     string      `db:"cwd" json:"cwd"`
+	CWDFilter interface{} `db:"cwd_filter" json:"cwd_filter"`
 }
 
 type ListUIPreferencesRow struct {
@@ -49,7 +48,7 @@ type ListUIPreferencesRow struct {
 }
 
 func (q *Queries) ListUIPreferences(ctx context.Context, arg ListUIPreferencesParams) ([]ListUIPreferencesRow, error) {
-	rows, err := q.db.QueryContext(ctx, listUIPreferences, arg.Column1, arg.CWD)
+	rows, err := q.db.QueryContext(ctx, listUIPreferences, arg.CWDFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -78,19 +77,25 @@ func (q *Queries) ListUIPreferences(ctx context.Context, arg ListUIPreferencesPa
 
 const upsertUIPreference = `-- name: UpsertUIPreference :exec
 INSERT INTO ui_preferences (cwd, key, value, updated_at)
-VALUES (?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000))
+VALUES (?1, ?2, ?3, ?4)
 ON CONFLICT (cwd, key) DO UPDATE
 SET value = EXCLUDED.value,
-    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+    updated_at = EXCLUDED.updated_at
 `
 
 type UpsertUIPreferenceParams struct {
-	CWD   string          `db:"cwd" json:"cwd"`
-	Key   string          `db:"key" json:"key"`
-	Value json.RawMessage `db:"value" json:"value"`
+	CWD       string          `db:"cwd" json:"cwd"`
+	Key       string          `db:"key" json:"key"`
+	Value     json.RawMessage `db:"value" json:"value"`
+	UpdatedAt int64           `db:"updated_at" json:"updated_at"`
 }
 
 func (q *Queries) UpsertUIPreference(ctx context.Context, arg UpsertUIPreferenceParams) error {
-	_, err := q.db.ExecContext(ctx, upsertUIPreference, arg.CWD, arg.Key, arg.Value)
+	_, err := q.db.ExecContext(ctx, upsertUIPreference,
+		arg.CWD,
+		arg.Key,
+		arg.Value,
+		arg.UpdatedAt,
+	)
 	return err
 }
