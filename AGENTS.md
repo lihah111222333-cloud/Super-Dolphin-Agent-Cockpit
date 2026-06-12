@@ -70,6 +70,11 @@ This policy governs agent instruction loading from `.agent/skills/**`. It does n
 ## Command Policy
 
 - Run commands from the repository root unless a command explicitly changes directory.
+- Local Windows toolchain paths:
+  - Go binary directory: `C:\Program Files\Go\bin`.
+  - Node.js binary directory: `C:\Program Files\nodejs`.
+  - PostgreSQL binary directory: `D:\Program Files\PostgreSQL\16\bin`.
+  - If `go`, `node`, or `npm` are not available on `PATH`, invoke them from these directories.
 - This repository has no `backend/` submodule; do not use `go -C backend`, `GOWORK=off go -C backend`, or `./cmd/code_guard`.
 - Prefer repository wrappers over ad hoc commands:
   - `make guard`
