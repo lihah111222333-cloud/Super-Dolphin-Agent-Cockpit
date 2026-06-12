@@ -31,8 +31,8 @@
 ## 语义要求
 
 - `hook_pending_reviews`:
-  - 必须保持 generated-sqlc backed；不得在 `internal/store/hookstore` 重新引入 raw `Exec` / `Query` / `QueryRow`。
-  - `TestHookstoreUsesGeneratedSQLC` 或等价 archtest 必须继续通过。
+  - hookstore 当前是 sqlc 显式例外，使用手写 SQL（不走 generated code）。迁移时直接将手写 SQL 改写为 SQLite 兼容的 `database/sql` 接口；不需要转为 sqlc generated，也不需要在 `sql/queries/hook_pending_review.sql` 生成新接口。
+  - 若存在 `TestHookstoreUsesGeneratedSQLC` 或类似 archtest，应同步更新或移除，以反映手写 SQL 的实际架构。
   - `SavePendingReview` remains idempotent on `hook_call_id`.
   - `ResolvePendingReview` preserves idempotency key behavior.
   - cancel/recover/expire statuses remain exact.
@@ -56,7 +56,7 @@
 - 不要 allow arbitrary PRAGMA through dbquery.
 - 不要 treat parser failure as permission to execute.
 - 不要 remove hook review idempotency.
-- 不要 reintroduce raw SQL execution in `internal/store/hookstore`.
+- 不要在 `internal/store/hookstore` 引入 pgx / pgxpool 类型；手写 SQL 保持 `database/sql` 接口即可。
 
 ## 验收方案
 

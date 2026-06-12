@@ -43,6 +43,7 @@
   - DB content can be empty for large files.
   - path validation remains in `internal/platform/sharedfilepath`.
 - `session_insights` large-list queries must retain limit and not read all payloads when only counts/list metadata are needed.
+- `session_insight.sql` 的 `UpsertSessionInsight` 使用 `GREATEST(col, excluded.col)` 实现 token 计数只增不减；SQLite 无 `GREATEST` 函数，改为 `CASE WHEN col > excluded.col THEN col ELSE excluded.col END`（适用于 `input_tokens`、`output_tokens`、`total_tokens` 等所有用到 GREATEST 的列）。
 
 ## 不允许改
 
