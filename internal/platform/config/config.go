@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/embeddedpg"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/securefs"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -26,17 +27,16 @@ func New() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	embeddedPostgres, databaseURL := embeddedpg.ResolveFromEnvironment(projectRoot)
-	if strings.TrimSpace(os.Getenv("DATABASE_URL")) == "" && strings.TrimSpace(os.Getenv("POSTGRES_CONNECTION_STRING")) != "" {
-		pkglogger.Get().Warn("config env POSTGRES_CONNECTION_STRING is deprecated; use DATABASE_URL instead")
+	sqlitePath, err := resolveSQLitePath(projectRoot)
+	if err != nil {
+		return nil, err
 	}
 
 	cfg := &Config{
-		DatabaseURL:      databaseURL,
-		RPCAddr:          envOrCompat("GO_AGENT_CTL_RPC_ADDR", "RPC_ADDR", "127.0.0.1:8090"),
-		LogLevel:         envOr("LOG_LEVEL", "info"),
-		ProjectRoot:      projectRoot,
-		EmbeddedPostgres: embeddedPostgres,
+		SQLitePath:  sqlitePath,
+		RPCAddr:     envOrCompat("GO_AGENT_CTL_RPC_ADDR", "RPC_ADDR", "127.0.0.1:8090"),
+		LogLevel:    envOr("LOG_LEVEL", "info"),
+		ProjectRoot: projectRoot,
 		Skill: SkillConfig{
 			ProgressiveDisclosure: envBoolOr("SKILL_PROGRESSIVE_DISCLOSURE", false),
 			TokenBudget:           envPositiveIntOr("SKILL_TOKEN_BUDGET", 3000),
@@ -54,9 +54,6 @@ func New() (*Config, error) {
 		LSP: lspConfigFromEnv(),
 	}
 	if err := exportRPCAddrIfMissing(os.Setenv, cfg.RPCAddr); err != nil {
-		return nil, err
-	}
-	if err := exportDatabaseURLIfMissing(os.Setenv, cfg.DatabaseURL); err != nil {
 		return nil, err
 	}
 	return cfg, nil
@@ -109,7 +106,7 @@ func loadDotEnv(projectRoot string) error {
 	content, readFailure := os.ReadFile(path)
 	if readFailure != nil {
 		if packaged {
-			return fmt.Errorf("load packaged .env %s: %w", path, readFailure)
+			return fmt.Errorf("load packaged .env %s: %s", redactPath(path), securefs.SafeErrorForPath(readFailure, path))
 		}
 		return nil
 	}
@@ -121,7 +118,7 @@ func applyDotEnv(setenv func(string, string) error, path, content string, strict
 		key, value, ok, err := parseDotEnvLineStrict(line, i+1)
 		if err != nil {
 			if strict {
-				return fmt.Errorf("parse packaged .env %s: %w", path, err)
+				return fmt.Errorf("parse packaged .env %s: %w", redactPath(path), err)
 			}
 			continue
 		}
@@ -129,7 +126,7 @@ func applyDotEnv(setenv func(string, string) error, path, content string, strict
 			continue
 		}
 		if err := setenv(key, value); err != nil {
-			return fmt.Errorf("set environment from .env %s for %s: %w", path, key, err)
+			return fmt.Errorf("set environment from .env %s for %s: %w", redactPath(path), key, err)
 		}
 	}
 	return nil
@@ -178,7 +175,7 @@ func hasPackagedRuntimeManifest(projectRoot string) (bool, error) {
 	if os.IsNotExist(err) {
 		return false, nil
 	}
-	return false, fmt.Errorf("inspect packaged runtime manifest %s: %w", path, err)
+	return false, fmt.Errorf("inspect packaged runtime manifest %s: %s", redactPath(path), securefs.SafeErrorForPath(err, path))
 }
 
 // exportRPCAddrIfMissing sets GO_AGENT_CTL_RPC_ADDR in the process environment
@@ -200,19 +197,6 @@ func exportRPCAddrIfMissing(setenv func(string, string) error, addr string) erro
 	return nil
 }
 
-func exportDatabaseURLIfMissing(setenv func(string, string) error, databaseURL string) error {
-	if strings.TrimSpace(os.Getenv("DATABASE_URL")) != "" {
-		return nil
-	}
-	if strings.TrimSpace(databaseURL) == "" {
-		return nil
-	}
-	if err := setenv("DATABASE_URL", databaseURL); err != nil {
-		return fmt.Errorf("set DATABASE_URL: %w", err)
-	}
-	return nil
-}
-
 func resolveProjectRoot() string {
 	if root := strings.TrimSpace(os.Getenv("PROJECT_ROOT")); root != "" {
 		return root
@@ -229,6 +213,105 @@ func resolveProjectRoot() string {
 		return ""
 	}
 	return dir
+}
+
+func resolveSQLitePath(projectRoot string) (string, error) {
+	if rawExplicit, ok := os.LookupEnv("SUPER_DOLPHIN_SQLITE_PATH"); ok {
+		explicit := strings.TrimSpace(rawExplicit)
+		if explicit == "" {
+			return "", fmt.Errorf("SUPER_DOLPHIN_SQLITE_PATH resolves to an empty SQLite path")
+		}
+		return validateSQLitePath(explicit, true)
+	}
+
+	home := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_HOME"))
+	if home == "" && strings.EqualFold(strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_RUNTIME_MODE")), "packaged") {
+		resolved, err := resolvePackagedSQLiteHome(runtime.GOOS, os.Getenv, os.UserHomeDir)
+		if err != nil {
+			return "", err
+		}
+		home = resolved
+	}
+	if home == "" {
+		if strings.TrimSpace(projectRoot) == "" {
+			return "", fmt.Errorf("SQLite path requires PROJECT_ROOT or SUPER_DOLPHIN_HOME")
+		}
+		home = filepath.Join(projectRoot, ".super-dolphin")
+	}
+	return validateSQLitePath(filepath.Join(home, "super-dolphin.db"), false)
+}
+
+func validateSQLitePath(path string, explicit bool) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		if explicit {
+			return "", fmt.Errorf("SUPER_DOLPHIN_SQLITE_PATH resolves to an empty SQLite path")
+		}
+		return "", fmt.Errorf("resolved SQLite path is empty")
+	}
+	clean := filepath.Clean(path)
+	if info, err := os.Stat(clean); err == nil && info.IsDir() {
+		return "", fmt.Errorf("SQLite database path points to a directory: %s", redactPath(clean))
+	} else if err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("inspect SQLite database path %s: %s", redactPath(clean), securefs.SafeErrorForPath(err, clean))
+	}
+	parent := filepath.Dir(clean)
+	if err := validateSQLiteParent(clean, parent); err != nil {
+		return "", err
+	}
+	return clean, nil
+}
+
+func validateSQLiteParent(dbPath, parent string) error {
+	if parent == "." || strings.TrimSpace(parent) == "" {
+		return fmt.Errorf("SQLite database path must include a parent directory: %s", redactPath(dbPath))
+	}
+	info, err := os.Stat(parent)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect SQLite database parent %s: %s", redactPath(parent), securefs.SafeErrorForPath(err, parent))
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("SQLite database parent is not a directory: %s", redactPath(parent))
+	}
+	if err := securefs.CheckExistingOwnerOnly(parent, info); err != nil {
+		return fmt.Errorf("SQLite database parent permissions are not owner-only: %s", redactPath(parent))
+	}
+	if err := securefs.ProbeWritableDir(parent); err != nil {
+		return fmt.Errorf("SQLite database parent is not writable: %s", redactPath(parent))
+	}
+	return nil
+}
+
+func resolvePackagedSQLiteHome(goos string, getenv func(string) string, userHomeDir func() (string, error)) (string, error) {
+	switch goos {
+	case "windows":
+		if dir := strings.TrimSpace(getenv("APPDATA")); dir != "" {
+			return filepath.Join(dir, "Super Dolphin"), nil
+		}
+		return "", fmt.Errorf("packaged SQLite path requires APPDATA on Windows")
+	case "darwin":
+		home, err := userHomeDir()
+		if err != nil || strings.TrimSpace(home) == "" {
+			return "", fmt.Errorf("packaged SQLite path requires user home on macOS")
+		}
+		return filepath.Join(home, "Library", "Application Support", "Super Dolphin"), nil
+	default:
+		if dir := strings.TrimSpace(getenv("XDG_DATA_HOME")); dir != "" {
+			return filepath.Join(dir, "Super Dolphin"), nil
+		}
+		home, err := userHomeDir()
+		if err != nil || strings.TrimSpace(home) == "" {
+			return "", fmt.Errorf("packaged SQLite path requires XDG_DATA_HOME or user home on Linux")
+		}
+		return filepath.Join(home, ".local", "share", "Super Dolphin"), nil
+	}
+}
+
+func redactPath(path string) string {
+	return securefs.RedactPath(path)
 }
 
 func SharedFileRoot(cfg *Config) (string, error) {
