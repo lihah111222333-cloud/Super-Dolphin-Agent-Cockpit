@@ -3,6 +3,7 @@ package agentstatus
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
@@ -27,6 +28,10 @@ func NewStore(q *sqlc.Queries) Store {
 func newStoreForTest(q querier) Store { return &store{q: q} }
 
 func (s *store) Upsert(ctx context.Context, params UpsertParams) (*AgentStatus, error) {
+	if err := platformdb.ValidateJSONRaw(params.OutputTail); err != nil {
+		return nil, wrapAgentStatusError(err, "upsert")
+	}
+	now := platformdb.Millis(time.Now().UTC())
 	row, err := s.q.UpsertAgentStatus(ctx, sqlc.UpsertAgentStatusParams{
 		AgentID:     params.AgentID,
 		AgentName:   params.AgentName,
@@ -35,6 +40,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*AgentStatus, 
 		StagnantSec: int64(params.StagnantSec),
 		Error:       params.Error,
 		OutputTail:  params.OutputTail,
+		Now:         now,
 	})
 	if err != nil {
 		return nil, wrapAgentStatusError(err, "upsert")
@@ -53,7 +59,7 @@ func (s *store) Get(ctx context.Context, agentID string) (*AgentStatus, error) {
 }
 
 func (s *store) List(ctx context.Context, status string) ([]AgentStatus, error) {
-	rows, err := s.q.ListAgentStatuses(ctx, sqlc.ListAgentStatusesParams{Column1: status})
+	rows, err := s.q.ListAgentStatuses(ctx, sqlc.ListAgentStatusesParams{StatusFilter: status})
 	if err != nil {
 		return nil, wrapAgentStatusError(err, "list")
 	}

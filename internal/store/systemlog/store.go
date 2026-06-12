@@ -3,13 +3,14 @@ package systemlog
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
 type querier interface {
-	ListSystemLogs(ctx context.Context, arg sqlc.ListSystemLogsParams) ([]sqlc.SystemLog, error)
+	ListSystemLogs(ctx context.Context, arg sqlc.ListSystemLogsParams) ([]sqlc.ListSystemLogsRow, error)
 	InsertSystemLog(ctx context.Context, arg sqlc.InsertSystemLogParams) error
 }
 
@@ -23,24 +24,17 @@ func NewStore(q *sqlc.Queries) Store {
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]SystemLog, error) {
 	rows, err := s.q.ListSystemLogs(ctx, sqlc.ListSystemLogsParams{
-		Column1:   filter.Level,
-		Level:     filter.Level,
-		Column3:   filter.Logger,
-		Logger:    filter.Logger,
-		Column5:   filter.Source,
-		Source:    filter.Source,
-		Column7:   filter.Component,
-		Component: filter.Component,
-		Column9:   filter.AgentID,
-		AgentID:   filter.AgentID,
-		Column11:  filter.ThreadID,
-		ThreadID:  filter.ThreadID,
-		Column13:  filter.EventType,
-		EventType: filter.EventType,
-		Column15:  filter.ToolName,
-		ToolName:  filter.ToolName,
-		Column17:  filter.Keyword,
-		Limit:     int64(filter.Limit),
+		LevelFilter:     filter.Level,
+		LoggerFilter:    filter.Logger,
+		SourceFilter:    filter.Source,
+		ComponentFilter: filter.Component,
+		AgentIDFilter:   filter.AgentID,
+		ThreadIDFilter:  filter.ThreadID,
+		EventTypeFilter: filter.EventType,
+		ToolNameFilter:  filter.ToolName,
+		Keyword:         filter.Keyword,
+		KeywordPattern:  platformdb.LikeContainsFold(filter.Keyword),
+		LimitCount:      int64(filter.Limit),
 	})
 	if err != nil {
 		return nil, wrapSystemLogError(err, "list")
@@ -54,6 +48,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]SystemLog, error
 
 func (s *store) Insert(ctx context.Context, params InsertParams) error {
 	return wrapSystemLogError(s.q.InsertSystemLog(ctx, sqlc.InsertSystemLogParams{
+		Ts:      platformdb.Millis(time.Now().UTC()),
 		Level:   params.Level,
 		Logger:  params.Logger,
 		Message: params.Message,
@@ -61,7 +56,7 @@ func (s *store) Insert(ctx context.Context, params InsertParams) error {
 	}), "insert")
 }
 
-func mapSystemLog(row sqlc.SystemLog) SystemLog {
+func mapSystemLog(row sqlc.ListSystemLogsRow) SystemLog {
 	return SystemLog{
 		ID:         row.ID,
 		Ts:         platformdb.TimeFromMillis(row.Ts),

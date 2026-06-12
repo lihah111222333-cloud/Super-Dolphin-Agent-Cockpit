@@ -23,8 +23,8 @@ func (f *fakeQuerier) ListBusExceptionLogs(_ context.Context, p sqlc.ListBusExce
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
-	if int(p.Limit) > 0 && int(p.Limit) < len(f.rows) {
-		return f.rows[:p.Limit], nil
+	if int(p.LimitCount) > 0 && int(p.LimitCount) < len(f.rows) {
+		return f.rows[:p.LimitCount], nil
 	}
 	return f.rows, nil
 }

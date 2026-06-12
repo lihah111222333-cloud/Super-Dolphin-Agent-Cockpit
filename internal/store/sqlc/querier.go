@@ -35,7 +35,7 @@ type Querier interface {
 	// rechecked at write time, preserving fencing if another writer wins first.
 	//
 	ClaimDueJobsForUpdate(ctx context.Context, arg ClaimDueJobsForUpdateParams) ([]CronJob, error)
-	CountAILogsByStatus(ctx context.Context) ([]CountAILogsByStatusRow, error)
+	CountAILogsByStatus(ctx context.Context) ([]string, error)
 	CountAllThreads(ctx context.Context) (int64, error)
 	// Returns the number of child agents belonging to the given parent.
 	// Used to determine the next sequential suffix for child agent IDs.
@@ -97,7 +97,7 @@ type Querier interface {
 	InsertCronJobRun(ctx context.Context, arg InsertCronJobRunParams) (CronJobRun, error)
 	InsertPromptVersion(ctx context.Context, arg InsertPromptVersionParams) (int64, error)
 	InsertSystemLog(ctx context.Context, arg InsertSystemLogParams) error
-	ListAILogSystemLogs(ctx context.Context, arg ListAILogSystemLogsParams) ([]SystemLog, error)
+	ListAILogSystemLogs(ctx context.Context, arg ListAILogSystemLogsParams) ([]ListAILogSystemLogsRow, error)
 	ListAILogsByCategory(ctx context.Context, arg ListAILogsByCategoryParams) ([]ListAILogsByCategoryRow, error)
 	ListAgentFeedbackEventsByAgent(ctx context.Context, arg ListAgentFeedbackEventsByAgentParams) ([]AgentFeedbackEvent, error)
 	ListAgentFeedbackEventsByThread(ctx context.Context, arg ListAgentFeedbackEventsByThreadParams) ([]AgentFeedbackEvent, error)
@@ -148,7 +148,7 @@ type Querier interface {
 	ListRunningAgents(ctx context.Context) ([]ListRunningAgentsRow, error)
 	ListSessionInsightsByThread(ctx context.Context, arg ListSessionInsightsByThreadParams) ([]SessionInsight, error)
 	ListSharedFiles(ctx context.Context, arg ListSharedFilesParams) ([]SharedFile, error)
-	ListSystemLogs(ctx context.Context, arg ListSystemLogsParams) ([]SystemLog, error)
+	ListSystemLogs(ctx context.Context, arg ListSystemLogsParams) ([]ListSystemLogsRow, error)
 	ListUIPreferences(ctx context.Context, arg ListUIPreferencesParams) ([]ListUIPreferencesRow, error)
 	// Used on scheduler boot for crash recovery: any run stuck in submitting /
 	// submitted / running must be re-entered through Observe / LookupByDedupeKey

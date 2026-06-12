@@ -11,10 +11,21 @@ import (
 
 const insertAuditEvent = `-- name: InsertAuditEvent :exec
 INSERT INTO audit_events (ts, event_type, action, result, actor, target, detail, level, extra)
-VALUES ((CAST(strftime('%s','now') AS INTEGER) * 1000), ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (
+    ?1,
+    ?2,
+    ?3,
+    ?4,
+    ?5,
+    ?6,
+    ?7,
+    ?8,
+    ?9
+)
 `
 
 type InsertAuditEventParams struct {
+	Ts        int64  `db:"ts" json:"ts"`
 	EventType string `db:"event_type" json:"event_type"`
 	Action    string `db:"action" json:"action"`
 	Result    string `db:"result" json:"result"`
@@ -27,6 +38,7 @@ type InsertAuditEventParams struct {
 
 func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventParams) error {
 	_, err := q.db.ExecContext(ctx, insertAuditEvent,
+		arg.Ts,
 		arg.EventType,
 		arg.Action,
 		arg.Result,
@@ -40,40 +52,33 @@ func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventPara
 }
 
 const listAuditEvents = `-- name: ListAuditEvents :many
-SELECT ts, event_type, action, result, actor, target, detail, level, extra
+SELECT id, ts, event_type, action, result, actor, target, detail, level, '{}' AS extra
 FROM audit_events
-WHERE (? = '' OR event_type = ?)
-  AND (? = '' OR action = ?)
-  AND (? = '' OR actor = ?)
-  AND (? = ''
-    OR event_type LIKE '%' || ? || '%'
-    OR action LIKE '%' || ? || '%'
-    OR result LIKE '%' || ? || '%'
-    OR actor LIKE '%' || ? || '%'
-    OR target LIKE '%' || ? || '%'
-    OR detail LIKE '%' || ? || '%')
+WHERE (?1 = '' OR event_type = ?1)
+  AND (?2 = '' OR action = ?2)
+  AND (?3 = '' OR actor = ?3)
+  AND (?4 = ''
+    OR lower(event_type) LIKE lower(?5)
+    OR lower(action) LIKE lower(?5)
+    OR lower(result) LIKE lower(?5)
+    OR lower(actor) LIKE lower(?5)
+    OR lower(target) LIKE lower(?5)
+    OR lower(detail) LIKE lower(?5))
 ORDER BY ts DESC, id DESC
-LIMIT ?
+LIMIT ?6
 `
 
 type ListAuditEventsParams struct {
-	Column1   interface{} `db:"column_1" json:"column_1"`
-	EventType string      `db:"event_type" json:"event_type"`
-	Column3   interface{} `db:"column_3" json:"column_3"`
-	Action    string      `db:"action" json:"action"`
-	Column5   interface{} `db:"column_5" json:"column_5"`
-	Actor     string      `db:"actor" json:"actor"`
-	Column7   interface{} `db:"column_7" json:"column_7"`
-	Column8   *string     `db:"column_8" json:"column_8"`
-	Column9   *string     `db:"column_9" json:"column_9"`
-	Column10  *string     `db:"column_10" json:"column_10"`
-	Column11  *string     `db:"column_11" json:"column_11"`
-	Column12  *string     `db:"column_12" json:"column_12"`
-	Column13  *string     `db:"column_13" json:"column_13"`
-	Limit     int64       `db:"limit" json:"limit"`
+	EventTypeFilter interface{} `db:"event_type_filter" json:"event_type_filter"`
+	ActionFilter    interface{} `db:"action_filter" json:"action_filter"`
+	ActorFilter     interface{} `db:"actor_filter" json:"actor_filter"`
+	Keyword         interface{} `db:"keyword" json:"keyword"`
+	KeywordPattern  string      `db:"keyword_pattern" json:"keyword_pattern"`
+	LimitCount      int64       `db:"limit_count" json:"limit_count"`
 }
 
 type ListAuditEventsRow struct {
+	ID        int64  `db:"id" json:"id"`
 	Ts        int64  `db:"ts" json:"ts"`
 	EventType string `db:"event_type" json:"event_type"`
 	Action    string `db:"action" json:"action"`
@@ -87,20 +92,12 @@ type ListAuditEventsRow struct {
 
 func (q *Queries) ListAuditEvents(ctx context.Context, arg ListAuditEventsParams) ([]ListAuditEventsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listAuditEvents,
-		arg.Column1,
-		arg.EventType,
-		arg.Column3,
-		arg.Action,
-		arg.Column5,
-		arg.Actor,
-		arg.Column7,
-		arg.Column8,
-		arg.Column9,
-		arg.Column10,
-		arg.Column11,
-		arg.Column12,
-		arg.Column13,
-		arg.Limit,
+		arg.EventTypeFilter,
+		arg.ActionFilter,
+		arg.ActorFilter,
+		arg.Keyword,
+		arg.KeywordPattern,
+		arg.LimitCount,
 	)
 	if err != nil {
 		return nil, err
@@ -110,6 +107,7 @@ func (q *Queries) ListAuditEvents(ctx context.Context, arg ListAuditEventsParams
 	for rows.Next() {
 		var i ListAuditEventsRow
 		if err := rows.Scan(
+			&i.ID,
 			&i.Ts,
 			&i.EventType,
 			&i.Action,
