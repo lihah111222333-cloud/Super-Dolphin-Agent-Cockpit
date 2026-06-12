@@ -68,5 +68,5 @@ make sqlc-verify
 并发测试必须覆盖：
 
 - two transactions apply ops to same DAG version -> one success, one OCC conflict.
-- single running run constraint still blocks duplicate active run.
+- DAG v2 F6.5 multi-run isolation still holds: two running runs for the same DAG may coexist, and all node/run mutations are fenced by `run_id` so runs cannot cross-write each other.
 - workspace status CAS rejects stale transition.

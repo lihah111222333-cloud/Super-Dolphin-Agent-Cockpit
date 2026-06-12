@@ -29,14 +29,14 @@
     - `agent_provider_binding` 的 `agent_id` 主键和 `(provider, provider_thread_id)` 唯一。
     - `turn_dedupe_registry` 的活跃 entry 幂等约束。
     - `cron_jobs` 的 due/claim 索引。
-    - `task_dag_runs` 的单 DAG running run 约束。
+    - `task_dag_runs` 保持 DAG v2 F6.5 multi-run 语义：不得恢复 `uniq_task_dag_runs_one_running_per_dag`，只保留 run lookup/status/running 查询索引。
     - `prompt_template_sections` recall 字段和 lookup index。专用 `prompt_recall_topics` 锁表或等价唯一策略由 Task 09 通过 SQLite-only incremental migration 添加，不属于 Task 02 baseline 的完成条件。
   - 验证大表索引覆盖：
     - `system_logs`: level/source/agent_id/thread_id filters + `ORDER BY ts DESC, id DESC`。
     - `session_insights`: `(thread_id, created_at DESC, id DESC)`、全局 recent、observed approval/token filters。
     - `cron_job_runs`: job_id recent、dedupe_key、active status、turn_id running。
     - `task_dag_wakeups`: pending claim status/next_retry_at/id、target_agent_id sent binding、run_id/dag_key/node_key。
-    - `task_dag_runs`: run_key lookup、dag_key/status/started_at/id、running partial unique/index。
+    - `task_dag_runs`: run_key lookup、dag_key/status/started_at/id、running partial index；验收必须证明 `uniq_task_dag_runs_one_running_per_dag` 不存在。
 - Create: `internal/platform/db/sqlite/schema_contract_test.go`
   - 为每个持久化表声明 expected contract：primary keys、foreign keys、CHECK constraints、UNIQUE constraints、partial indexes、required non-null columns。
   - 通过 `sqlite_master`、`PRAGMA foreign_key_list`、`PRAGMA index_list` 校验；任何 expected constraint/index 缺失必须失败。
