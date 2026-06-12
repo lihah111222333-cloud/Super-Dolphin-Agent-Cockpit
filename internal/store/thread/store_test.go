@@ -271,11 +271,11 @@ func TestAgentThreadConfigBatchSQLUsesTextArray(t *testing.T) {
 	}{
 		{
 			path: "../../../sql/queries/agent_thread.sql",
-			want: "thread_id = ANY(sqlc.arg(thread_ids)::text[])",
+			want: "thread_id IN (sqlc.slice(thread_ids))",
 		},
 		{
 			path: "../sqlc/agent_thread.sql.go",
-			want: "thread_id = ANY($1::text[])",
+			want: "/*SLICE:thread_ids*/?",
 		},
 	}
 	for _, tt := range tests {
