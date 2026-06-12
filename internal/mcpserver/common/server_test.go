@@ -256,6 +256,7 @@ func TestRecoveryErrorIsStructured(t *testing.T) {
 	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"panic_tool","arguments":{}}}`)
 	var output bytes.Buffer
 	provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
+		// archguard:ignore panic_count -- this test verifies JSON-RPC panic recovery envelope behavior.
 		panic("boom")
 	}}
 

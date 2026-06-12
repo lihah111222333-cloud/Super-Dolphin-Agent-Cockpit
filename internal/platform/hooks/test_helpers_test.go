@@ -119,6 +119,7 @@ func newDepthTestManager(args ...any) (*Manager, *HookRegistry) {
 		cb = first
 		opts = castManagerOptions(nil, args[1:]...)
 	default:
+		// archguard:ignore panic_count -- helper misuse is a test authoring error.
 		panic(fmt.Sprintf("newDepthTestManager() first arg type = %T", args[0]))
 	}
 	if t != nil {
@@ -128,14 +129,17 @@ func newDepthTestManager(args ...any) (*Manager, *HookRegistry) {
 	if t == nil {
 		dispatcher, err := NewHookDispatcher(registry, cb)
 		if err != nil {
+			// archguard:ignore panic_count -- helper constructs a fixed-valid hook dispatcher.
 			panic(err)
 		}
 		resolver, err := NewHookResolver(&managerReviewStoreStub{})
 		if err != nil {
+			// archguard:ignore panic_count -- helper constructs a fixed-valid hook resolver.
 			panic(err)
 		}
 		manager, err := NewManager(registry, dispatcher, resolver, opts...)
 		if err != nil {
+			// archguard:ignore panic_count -- helper constructs a fixed-valid hook manager.
 			panic(err)
 		}
 		return manager, registry
@@ -178,6 +182,7 @@ func castManagerOptions(t testing.TB, args ...any) []ManagerOption {
 			if t != nil {
 				t.Fatalf("manager option type = %T, want hooks.ManagerOption", arg)
 			}
+			// archguard:ignore panic_count -- helper misuse without testing.TB must fail loudly.
 			panic(fmt.Sprintf("manager option type = %T", arg))
 		}
 		opts = append(opts, opt)

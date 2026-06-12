@@ -2,10 +2,12 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/exitmonitor"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
@@ -388,4 +391,172 @@ func (s *service) listAgents() []agentRuntime {
 		agents = append(agents, snapshot)
 	}
 	return agents
+}
+
+// Agent lookup and shared decode helpers moved from factory.go to keep orchestration factory focused.
+func (s *service) discardStaleSuccessfulLaunch(ctx context.Context, launching *agentRuntime, staleErr error) error {
+	if stopErr := s.launcher.Stop(ctx, launching); stopErr != nil {
+		s.logger.Warn("orchestration: discard stale successful launch stop failed", "agent_id", launching.id, "error", stopErr)
+	}
+	return staleErr
+}
+
+func (s *service) withAgentLocked(agentID string, fn func(*agentState) error) error {
+	if s == nil {
+		return fmt.Errorf("%w: %s", errAgentNotFound, strings.TrimSpace(agentID))
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	agent, err := lookupAgentByIDLocked(s.agents, agentID)
+	if err != nil {
+		return err
+	}
+	return fn(agent)
+}
+
+func (s *service) withAgentReadLocked(agentID string, fn func(*agentState) error) error {
+	if s == nil {
+		return fmt.Errorf("%w: %s", errAgentNotFound, strings.TrimSpace(agentID))
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	agent, err := lookupAgentByIDLocked(s.agents, agentID)
+	if err != nil {
+		return err
+	}
+	return fn(agent)
+}
+
+func (s *service) withAgentReadLockedByAgentID(ctx context.Context, agentID string, fn func(*agentState) error) error {
+	if s == nil {
+		return fmt.Errorf("%w: %s", errAgentNotFound, strings.TrimSpace(agentID))
+	}
+	if err := s.lockRead(ctx); err != nil {
+		return err
+	}
+	defer s.mu.RUnlock()
+
+	agent, err := lookupAgentByIdentityLocked(s.agents, agentID, agentIdentityLocalOnly)
+	if err != nil {
+		return err
+	}
+	return fn(agent)
+}
+
+func (s *service) lockRead(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return s.mu.RLockCtx(ctx)
+}
+
+func (s *service) runtimeAgentSnapshots(ctx context.Context) ([]AgentSnapshot, error) {
+	if err := s.lockRead(ctx); err != nil {
+		return nil, err
+	}
+	defer s.mu.RUnlock()
+	snapshots := make([]AgentSnapshot, 0, len(s.agents))
+	for _, agent := range s.agents {
+		snapshots = append(snapshots, s.snapshotLocked(ctx, agent))
+	}
+	return snapshots, nil
+}
+
+// agentIdentityKind separates persisted-id API lookups from hook-only reverse lookups.
+type agentIdentityKind int
+
+const (
+	agentIdentityLocalOnly agentIdentityKind = iota
+	agentIdentityAny
+)
+
+// lookupAgentByIDLocked keeps reverse-capable lookup for trusted hook/event ingestion paths.
+func lookupAgentByIDLocked(agents map[string]*agentState, agentID string) (*agentState, error) {
+	return lookupAgentByIdentityLocked(agents, agentID, agentIdentityAny)
+}
+
+// lookupAgentByIdentityLocked resolves an agent handle under the declared trust domain.
+func lookupAgentByIdentityLocked(agents map[string]*agentState, agentID string, kind agentIdentityKind) (*agentState, error) {
+	agentID = strings.TrimSpace(agentID)
+	if agent, ok := agents[agentID]; ok {
+		return agent, nil
+	}
+	if kind == agentIdentityLocalOnly {
+		return nil, fmt.Errorf("%w: %s", errAgentNotFound, agentID)
+	}
+	for _, candidate := range agents {
+		if candidate.remoteAgentID == agentID || candidate.remoteThreadID == agentID {
+			return candidate, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: %s", errAgentNotFound, agentID)
+}
+
+func agentSessionFenceOK(agent *agentState, evSessionID string) bool {
+	if agent == nil {
+		return false
+	}
+	ev := strings.TrimSpace(evSessionID)
+	if ev == "" {
+		return true
+	}
+	return ev == agentSessionID(agent)
+}
+
+func lookupAgentBySeqLocked(
+	agents map[string]*agentState,
+	agentID string,
+	launchSeq uint64,
+) (*agentState, error) {
+	agent, err := lookupAgentByIDLocked(agents, agentID)
+	if err != nil {
+		return nil, err
+	}
+	if agent.launchSeq != launchSeq {
+		return nil, fmt.Errorf("%w: %s/%d", errAgentNotFound, strings.TrimSpace(agentID), launchSeq)
+	}
+	return agent, nil
+}
+
+func (s *service) withDAGStore(fn func(taskdag.OrchestrationStore) error) error {
+	if s == nil || s.dagStore == nil {
+		return errors.New("dag store is not configured")
+	}
+	return fn(s.dagStore)
+}
+
+func decodeLegacyAlias[C any, L any](
+	raw []byte,
+	current *C,
+	aliasFn func(*C, *L) error,
+) error {
+	return decodeLegacyAliasWith(raw, current, aliasFn, json.Unmarshal)
+}
+
+func decodeLegacyAliasWith[C any, L any](
+	raw []byte,
+	current *C,
+	aliasFn func(*C, *L) error,
+	decode func([]byte, any) error,
+) error {
+	if decode == nil {
+		decode = json.Unmarshal
+	}
+	if err := decode(raw, current); err != nil {
+		return err
+	}
+	var legacy L
+	if err := decode(raw, &legacy); err != nil {
+		return err
+	}
+	return aliasFn(current, &legacy)
+}
+
+func agentSessionID(agent *agentState) string {
+	if agent == nil || agent.launchSeq == 0 {
+		return ""
+	}
+	return strconv.FormatUint(agent.launchSeq, 10)
 }

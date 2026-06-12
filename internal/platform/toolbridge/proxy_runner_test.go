@@ -152,9 +152,12 @@ func TestProxyRunnerServePanicSurfaces(t *testing.T) {
 
 type panicListener struct{}
 
-func (panicListener) Accept() (net.Conn, error) { panic("accept failed") }
-func (panicListener) Close() error              { return nil }
-func (panicListener) Addr() net.Addr            { return dummyAddr("panic") }
+func (panicListener) Accept() (net.Conn, error) {
+	// archguard:ignore panic_count -- this test double verifies accept-loop panic recovery.
+	panic("accept failed")
+}
+func (panicListener) Close() error   { return nil }
+func (panicListener) Addr() net.Addr { return dummyAddr("panic") }
 
 type dummyAddr string
 

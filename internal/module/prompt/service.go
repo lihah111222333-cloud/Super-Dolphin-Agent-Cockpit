@@ -400,12 +400,14 @@ func (s *service) registerBuiltInSections() {
 
 func mustRegisterSection(registry *SectionRegistry, section PromptSection) {
 	if err := registry.Register(section); err != nil {
+		// archguard:ignore panic_count -- builtin prompt section registration is a startup invariant.
 		panic(err)
 	}
 }
 
 func mustRegisterDynamicProvider(svc *service, provider DynamicSectionProvider) {
 	if err := svc.RegisterDynamicProvider(provider); err != nil {
+		// archguard:ignore panic_count -- builtin dynamic provider registration is a startup invariant.
 		panic(err)
 	}
 }

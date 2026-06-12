@@ -91,6 +91,7 @@ func resolutionPreviewHash(item skillResolutionItem, preview skillResolutionPrev
 func hashResolutionEnvelope(v any) string {
 	data, err := json.Marshal(v)
 	if err != nil {
+		// archguard:ignore panic_count -- resolution envelopes are JSON-safe internal DTOs.
 		panic("skill: hashResolutionEnvelope: " + err.Error())
 	}
 	sum := sha256.Sum256(data)

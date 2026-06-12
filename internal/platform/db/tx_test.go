@@ -65,6 +65,7 @@ func TestRunWithTxRollsBackOnPanicAndRepanics(t *testing.T) {
 	}()
 
 	_ = runWithTx(context.Background(), tx, func(pgx.Tx) error {
+		// archguard:ignore panic_count -- this test verifies transaction rollback preserves caller panic.
 		panic(panicVal)
 	})
 	t.Fatal("unreachable: panic should have propagated")

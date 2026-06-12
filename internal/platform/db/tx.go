@@ -43,6 +43,7 @@ func runWithTx(ctx context.Context, tx pgx.Tx, fn func(tx pgx.Tx) error) (retErr
 			cleanupCtx, cancel := txCleanupContext(ctx)
 			defer cancel()
 			_ = tx.Rollback(cleanupCtx)
+			// archguard:ignore panic_count -- rethrow after rollback preserves caller panic semantics.
 			panic(r)
 		}
 	}()

@@ -396,6 +396,7 @@ func runtimeAppendTagIfMissing(tags []string, tag string) []string {
 func runtimeEncodeTags(tags []string) json.RawMessage {
 	raw, err := json.Marshal(tags)
 	if err != nil {
+		// archguard:ignore panic_count -- tag lists are JSON-safe internal string slices.
 		panic(fmt.Sprintf("runtime prompt catalog: encode tags: %v", err))
 	}
 	return raw

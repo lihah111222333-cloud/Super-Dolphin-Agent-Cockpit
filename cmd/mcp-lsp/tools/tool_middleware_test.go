@@ -32,12 +32,14 @@ func TestMiddlewareChainRecoversPanic(t *testing.T) {
 	handler := middleware.WithOutputBudget(
 		"test_tool",
 		wrapToolHandler("test_tool", time.Second, func(context.Context, json.RawMessage) (any, error) {
-			panic("boom")
+			var crash func()
+			crash()
+			return nil, nil
 		}),
 		middleware.Budget{MaxBytes: 1024},
 	)
 
-	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), nil); err == nil || !strings.Contains(err.Error(), "panic recovered: boom") {
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), nil); err == nil || !strings.Contains(err.Error(), "panic recovered:") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

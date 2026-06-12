@@ -103,6 +103,7 @@ func TestSafeGoRecoversPanicAndLogs(t *testing.T) {
 
 	SafeGo(logger, func() {
 		defer close(done)
+		// archguard:ignore panic_count -- this test verifies SafeGo panic recovery logging.
 		panic("boom")
 	})
 
@@ -126,6 +127,7 @@ func TestSafeGoRecoversPanicWithNilLogger(t *testing.T) {
 	done := make(chan struct{})
 	SafeGo(nil, func() {
 		defer close(done)
+		// archguard:ignore panic_count -- this test verifies SafeGo nil-logger panic recovery.
 		panic("boom")
 	})
 
