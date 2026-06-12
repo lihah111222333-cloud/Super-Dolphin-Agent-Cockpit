@@ -56,8 +56,8 @@ func TestGetMapsRow(t *testing.T) {
 				Path:      "dag/dag-1/readme.md",
 				Content:   "hello",
 				UpdatedBy: "alice",
-				CreatedAt: now,
-				UpdatedAt: now,
+				CreatedAt: now.UnixMilli(),
+				UpdatedAt: now.UnixMilli(),
 			}, nil
 		},
 	}}
@@ -95,8 +95,8 @@ func TestListForwardsPrefixAndLimit(t *testing.T) {
 		listFn: func(_ context.Context, arg sqlc.ListSharedFilesParams) ([]sqlc.SharedFile, error) {
 			captured = arg
 			return []sqlc.SharedFile{
-				{Path: "dag/dag-1/x.md", Content: "a", UpdatedBy: "u", CreatedAt: now, UpdatedAt: now},
-				{Path: "dag/dag-1/y.md", Content: "b", UpdatedBy: "u", CreatedAt: now, UpdatedAt: now},
+				{Path: "dag/dag-1/x.md", Content: "a", UpdatedBy: "u", CreatedAt: now.UnixMilli(), UpdatedAt: now.UnixMilli()},
+				{Path: "dag/dag-1/y.md", Content: "b", UpdatedBy: "u", CreatedAt: now.UnixMilli(), UpdatedAt: now.UnixMilli()},
 			}, nil
 		},
 	}}
@@ -139,8 +139,8 @@ func TestUpsertForwardsPayloadAndMapsRow(t *testing.T) {
 				Path:      arg.Path,
 				Content:   arg.Content,
 				UpdatedBy: arg.UpdatedBy,
-				CreatedAt: now,
-				UpdatedAt: now,
+				CreatedAt: now.UnixMilli(),
+				UpdatedAt: now.UnixMilli(),
 			}, nil
 		},
 	}, emitSharedFilesChanged: func(ev uidto.UISharedFilesChanged) { emitted = ev }}

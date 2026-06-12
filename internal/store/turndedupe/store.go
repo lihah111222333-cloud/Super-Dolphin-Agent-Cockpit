@@ -6,8 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
@@ -47,7 +45,7 @@ func (s *store) Upsert(ctx context.Context, p UpsertParams) error {
 		DedupeKey:   key,
 		LocalTurnID: strings.TrimSpace(p.LocalTurnID),
 		ThreadID:    strings.TrimSpace(p.ThreadID),
-		Now:         ts(nonZero(p.Now)),
+		Now:         tsMS(nonZero(p.Now)),
 	})
 }
 
@@ -58,7 +56,7 @@ func (s *store) BindProviderTurnID(ctx context.Context, p BindProviderTurnIDPara
 	}
 	return s.q.BindTurnDedupeProviderID(ctx, sqlc.BindTurnDedupeProviderIDParams{
 		ProviderTurnID: strings.TrimSpace(p.ProviderTurnID),
-		Now:            ts(nonZero(p.Now)),
+		Now:            tsMS(nonZero(p.Now)),
 		DedupeKey:      key,
 	})
 }
@@ -68,8 +66,9 @@ func (s *store) MarkTerminal(ctx context.Context, dedupeKey string, now time.Tim
 	if key == "" {
 		return errors.New("turndedupe: dedupe key required for mark terminal")
 	}
+	v := tsMS(nonZero(now))
 	return s.q.MarkTurnDedupeTerminal(ctx, sqlc.MarkTurnDedupeTerminalParams{
-		Now:       ts(nonZero(now)),
+		Now:       &v,
 		DedupeKey: key,
 	})
 }
@@ -91,9 +90,9 @@ func (s *store) GetLive(ctx context.Context, dedupeKey string) (Entry, error) {
 		LocalTurnID:    row.LocalTurnID,
 		ProviderTurnID: row.ProviderTurnID,
 		ThreadID:       row.ThreadID,
-		CreatedAt:      fromTS(row.CreatedAt),
-		UpdatedAt:      fromTS(row.UpdatedAt),
-		TerminalAt:     fromTS(row.TerminalAt),
+		CreatedAt:      fromMS(row.CreatedAt),
+		UpdatedAt:      fromMS(row.UpdatedAt),
+		TerminalAt:     fromMSPtr(row.TerminalAt),
 	}, nil
 }
 
@@ -102,14 +101,13 @@ func (s *store) Sweep(ctx context.Context, cutoff time.Time) error {
 		return errors.New("turndedupe: sweep cutoff must be non-zero")
 	}
 	return platformdb.WrapStoreError(
-		s.q.SweepTurnDedupeRegistry(ctx, sqlc.SweepTurnDedupeRegistryParams{Cutoff: ts(cutoff)}),
+		s.q.SweepTurnDedupeRegistry(ctx, sqlc.SweepTurnDedupeRegistryParams{Cutoff: tsMS(cutoff)}),
 		"sweep",
 		"turn_dedupe_registry",
 	)
 }
 
-// nonZero returns now when t is zero, otherwise t. Guards against a
-// caller forgetting to stamp time.Now() into the params.
+// nonZero returns now when t is zero, otherwise t.
 func nonZero(t time.Time) time.Time {
 	if t.IsZero() {
 		return time.Now()
@@ -117,16 +115,20 @@ func nonZero(t time.Time) time.Time {
 	return t
 }
 
-func ts(t time.Time) pgtype.Timestamptz {
-	if t.IsZero() {
-		return pgtype.Timestamptz{Valid: false}
-	}
-	return pgtype.Timestamptz{Time: t, Valid: true}
+func tsMS(t time.Time) int64 {
+	return platformdb.Millis(t)
 }
 
-func fromTS(p pgtype.Timestamptz) time.Time {
-	if !p.Valid {
+func fromMS(ms int64) time.Time {
+	if ms == 0 {
 		return time.Time{}
 	}
-	return p.Time
+	return platformdb.TimeFromMillis(ms)
+}
+
+func fromMSPtr(ms *int64) time.Time {
+	if ms == nil {
+		return time.Time{}
+	}
+	return fromMS(*ms)
 }

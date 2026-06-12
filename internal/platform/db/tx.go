@@ -2,112 +2,94 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// Queryable はメインの DB/Tx を抽象する最小インタフェース。
+// database/sql の *sql.DB と *sql.Tx が両方満たす。
 type Queryable interface {
-	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
-	Query(context.Context, string, ...any) (pgx.Rows, error)
-	QueryRow(context.Context, string, ...any) pgx.Row
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
+// QueryFinish はトランザクション or Rows のクリーンアップ関数。
 type QueryFinish func(success bool) error
 
-type readOnlyTxBeginner interface {
-	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
-}
-
-func WithTx(ctx context.Context, pool *pgxpool.Pool, fn func(tx pgx.Tx) error) error {
-	tx, err := pool.Begin(ctx)
+// WithTx は通常の読み書きトランザクション。panic-safe rollback 付き。
+func WithTx(ctx context.Context, db *sql.DB, fn func(tx *sql.Tx) error) error {
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	return runWithTx(ctx, tx, fn)
 }
 
-// runWithTx 是 WithTx 的内部实现：拿到 tx 后跑 fn 并保证 panic-safe rollback。
-// 抽出来便于 unit test —— 测试用 fake pgx.Tx 直接覆盖 commit / error / panic 三条路径，
-// 不必 mock pgxpool.Pool（pgxpool.Pool 是具体类型不是 interface 没法直接 mock）。
-func runWithTx(ctx context.Context, tx pgx.Tx, fn func(tx pgx.Tx) error) (retErr error) {
-	// panic-safe rollback：若 fn 内部 panic，进入 recover 分支同步 rollback 后重抛
-	// panic，保证调用方仍能看到原始 stack。正常 commit / 错误 rollback 路径走完后
-	// tx 已 closed，再调 Rollback 返回 pgx.ErrTxClosed —— defer 里裸吃不传播。
+// WithImmediateTx は BEGIN IMMEDIATE トランザクション（SQLite 書き込み競合防止用）。
+func WithImmediateTx(ctx context.Context, db *sql.DB, fn func(tx *sql.Tx) error) error {
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return fmt.Errorf("begin immediate tx: %w", err)
+	}
+	return runWithTx(ctx, tx, fn)
+}
+
+// sqlTxCommitter abstracts *sql.Tx for unit testing.
+type sqlTxCommitter interface {
+	Commit() error
+	Rollback() error
+}
+
+func runWithTx(ctx context.Context, tx *sql.Tx, fn func(tx *sql.Tx) error) (retErr error) {
+	return runWithCommitter(ctx, tx, func(c sqlTxCommitter) error { return fn(c.(*sql.Tx)) })
+}
+
+func runWithCommitter(ctx context.Context, tx sqlTxCommitter, fn func(c sqlTxCommitter) error) (retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
 			cleanupCtx, cancel := txCleanupContext(ctx)
 			defer cancel()
-			_ = tx.Rollback(cleanupCtx)
+			_ = tx.Rollback()
+			_ = cleanupCtx
 			panic(r)
 		}
 	}()
 	if err := fn(tx); err != nil {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 		return err
 	}
-	return tx.Commit(ctx)
+	return tx.Commit()
 }
 
-func OpenReadOnlyRows(ctx context.Context, queryer Queryable, query string, args ...any) (pgx.Rows, QueryFinish, error) {
-	beginner, ok := queryer.(readOnlyTxBeginner)
-	if !ok {
-		return openDirectRows(ctx, queryer, query, args...)
-	}
-	tx, err := beginner.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
-	if err != nil {
-		return nil, nil, err
-	}
-	if _, err := tx.Exec(ctx, "SET TRANSACTION READ ONLY"); err != nil {
-		return nil, nil, rollbackTx(ctx, tx, err)
-	}
-	rows, err := tx.Query(ctx, query, args...)
-	if err != nil {
-		return nil, nil, rollbackTx(ctx, tx, err)
-	}
-
-	return rows, func(success bool) error {
-		rows.Close()
-		if success {
-			cleanupCtx, cancel := txCleanupContext(ctx)
-			defer cancel()
-			return tx.Commit(cleanupCtx)
-		}
-		return rollbackTx(ctx, tx, nil)
-	}, nil
-}
-
-func RowsFieldNames(rows pgx.Rows) []string {
-	if rows == nil {
-		return nil
-	}
-	fields := rows.FieldDescriptions()
-	names := make([]string, 0, len(fields))
-	for _, field := range fields {
-		names = append(names, string(field.Name))
-	}
-	return names
-}
-
-func openDirectRows(ctx context.Context, queryer Queryable, query string, args ...any) (pgx.Rows, QueryFinish, error) {
-	rows, err := queryer.Query(ctx, query, args...)
+// OpenReadOnlyRows はクエリ専用の rows を開く。finish を必ず呼ぶこと。
+func OpenReadOnlyRows(ctx context.Context, queryer Queryable, query string, args ...any) (*sql.Rows, QueryFinish, error) {
+	rows, err := queryer.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, nil, err
 	}
 	return rows, func(bool) error {
-		rows.Close()
-		return nil
+		return rows.Close()
 	}, nil
 }
 
-func rollbackTx(ctx context.Context, tx pgx.Tx, queryErr error) error {
-	cleanupCtx, cancel := txCleanupContext(ctx)
-	defer cancel()
-	if err := tx.Rollback(cleanupCtx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+// RowsFieldNames は *sql.Rows のカラム名リストを返す。
+func RowsFieldNames(rows *sql.Rows) []string {
+	if rows == nil {
+		return nil
+	}
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil
+	}
+	return cols
+}
+
+func rollbackTx(_ context.Context, tx *sql.Tx, queryErr error) error {
+	if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
 		return errors.Join(queryErr, err)
 	}
 	return queryErr

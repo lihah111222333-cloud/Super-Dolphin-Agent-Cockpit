@@ -3,13 +3,13 @@ package interaction
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
 // querier is the narrow subset of sqlc.Queries this store depends on.
-// NewStore still accepts the concrete *sqlc.Queries for fx wiring.
 type querier interface {
 	CreateInteraction(ctx context.Context, arg sqlc.CreateInteractionParams) (sqlc.AgentInteraction, error)
 	GetInteraction(ctx context.Context, arg sqlc.GetInteractionParams) (sqlc.AgentInteraction, error)
@@ -23,6 +23,13 @@ type store struct {
 
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
+func boolToInt(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func (s *store) Create(ctx context.Context, interaction Interaction) (*Interaction, error) {
 	row, err := s.q.CreateInteraction(ctx, sqlc.CreateInteractionParams{
 		ThreadID:       interaction.ThreadID,
@@ -31,8 +38,8 @@ func (s *store) Create(ctx context.Context, interaction Interaction) (*Interacti
 		Receiver:       interaction.Receiver,
 		MsgType:        interaction.MsgType,
 		Status:         interaction.Status,
-		RequiresReview: interaction.RequiresReview,
-		Column8:        interaction.Payload,
+		RequiresReview: boolToInt(interaction.RequiresReview),
+		Payload:        interaction.Payload,
 	})
 	if err != nil {
 		return nil, wrapInteractionError(err, "create")
@@ -51,7 +58,7 @@ func (s *store) Get(ctx context.Context, id int64) (*Interaction, error) {
 }
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]Interaction, error) {
-	rows, err := s.q.ListInteractions(ctx, sqlc.ListInteractionsParams{Column1: filter.ThreadID, Column2: filter.Keyword, Limit: filter.Limit})
+	rows, err := s.q.ListInteractions(ctx, sqlc.ListInteractionsParams{Column1: filter.ThreadID, ThreadID: filter.ThreadID, Column3: filter.Keyword, Limit: int64(filter.Limit)})
 	if err != nil {
 		return nil, wrapInteractionError(err, "list")
 	}
@@ -71,6 +78,14 @@ func (s *store) Review(ctx context.Context, input ReviewInput) (*Interaction, er
 	return &mapped, nil
 }
 
+func reviewedAtPtr(ms *int64) *time.Time {
+	if ms == nil {
+		return nil
+	}
+	t := platformdb.TimeFromMillis(*ms)
+	return &t
+}
+
 func fromSQLC(row sqlc.AgentInteraction) Interaction {
 	return Interaction{
 		ID:             row.ID,
@@ -80,13 +95,13 @@ func fromSQLC(row sqlc.AgentInteraction) Interaction {
 		Receiver:       row.Receiver,
 		MsgType:        row.MsgType,
 		Status:         row.Status,
-		RequiresReview: row.RequiresReview,
+		RequiresReview: row.RequiresReview != 0,
 		ReviewedBy:     row.ReviewedBy,
 		ReviewNote:     row.ReviewNote,
-		ReviewedAt:     row.ReviewedAt,
+		ReviewedAt:     reviewedAtPtr(row.ReviewedAt),
 		Payload:        json.RawMessage(row.Payload),
-		CreatedAt:      row.CreatedAt,
-		UpdatedAt:      row.UpdatedAt,
+		CreatedAt:      platformdb.TimeFromMillis(row.CreatedAt),
+		UpdatedAt:      platformdb.TimeFromMillis(row.UpdatedAt),
 	}
 }
 

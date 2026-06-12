@@ -17,7 +17,7 @@ ORDER BY id
 `
 
 func (q *Queries) ListEnabledPromptRoutingTests(ctx context.Context) ([]PromptRoutingTest, error) {
-	rows, err := q.db.Query(ctx, listEnabledPromptRoutingTests)
+	rows, err := q.db.QueryContext(ctx, listEnabledPromptRoutingTests)
 	if err != nil {
 		return nil, err
 	}
@@ -37,6 +37,9 @@ func (q *Queries) ListEnabledPromptRoutingTests(ctx context.Context) ([]PromptRo
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

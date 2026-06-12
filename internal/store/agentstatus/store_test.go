@@ -26,7 +26,7 @@ func (f *fakeQuerier) UpsertAgentStatus(_ context.Context, p sqlc.UpsertAgentSta
 	if f.upsertErr != nil {
 		return sqlc.AgentStatus{}, f.upsertErr
 	}
-	now := time.Now().UTC()
+	now := time.Now().UnixMilli()
 	row := sqlc.AgentStatus{
 		AgentID:     p.AgentID,
 		AgentName:   p.AgentName,
@@ -34,7 +34,7 @@ func (f *fakeQuerier) UpsertAgentStatus(_ context.Context, p sqlc.UpsertAgentSta
 		Status:      p.Status,
 		StagnantSec: p.StagnantSec,
 		Error:       p.Error,
-		OutputTail:  p.Column7,
+		OutputTail:  p.OutputTail,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}

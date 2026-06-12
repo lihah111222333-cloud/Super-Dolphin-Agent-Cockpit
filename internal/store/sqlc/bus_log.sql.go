@@ -7,46 +7,57 @@ package sqlc
 
 import (
 	"context"
-	"time"
 )
 
 const listBusExceptionLogs = `-- name: ListBusExceptionLogs :many
 SELECT ts, category, severity, source, tool_name, message, traceback, extra
 FROM bus_exception_logs
-WHERE ($1::text = '' OR category = $1)
-  AND ($2::text = '' OR severity = $2)
-  AND ($3::text = ''
-    OR source ILIKE '%' || $3 || '%'
-    OR tool_name ILIKE '%' || $3 || '%'
-    OR message ILIKE '%' || $3 || '%'
-    OR traceback ILIKE '%' || $3 || '%')
+WHERE (? = '' OR category = ?)
+  AND (? = '' OR severity = ?)
+  AND (? = ''
+    OR source LIKE '%' || ? || '%'
+    OR tool_name LIKE '%' || ? || '%'
+    OR message LIKE '%' || ? || '%'
+    OR traceback LIKE '%' || ? || '%')
 ORDER BY ts DESC, id DESC
-LIMIT $4
+LIMIT ?
 `
 
 type ListBusExceptionLogsParams struct {
-	Column1 string `db:"column_1" json:"column_1"`
-	Column2 string `db:"column_2" json:"column_2"`
-	Column3 string `db:"column_3" json:"column_3"`
-	Limit   int32  `db:"limit" json:"limit"`
+	Column1  interface{} `db:"column_1" json:"column_1"`
+	Category string      `db:"category" json:"category"`
+	Column3  interface{} `db:"column_3" json:"column_3"`
+	Severity string      `db:"severity" json:"severity"`
+	Column5  interface{} `db:"column_5" json:"column_5"`
+	Column6  *string     `db:"column_6" json:"column_6"`
+	Column7  *string     `db:"column_7" json:"column_7"`
+	Column8  *string     `db:"column_8" json:"column_8"`
+	Column9  *string     `db:"column_9" json:"column_9"`
+	Limit    int64       `db:"limit" json:"limit"`
 }
 
 type ListBusExceptionLogsRow struct {
-	Ts        time.Time `db:"ts" json:"ts"`
-	Category  string    `db:"category" json:"category"`
-	Severity  string    `db:"severity" json:"severity"`
-	Source    string    `db:"source" json:"source"`
-	ToolName  string    `db:"tool_name" json:"tool_name"`
-	Message   string    `db:"message" json:"message"`
-	Traceback string    `db:"traceback" json:"traceback"`
-	Extra     []byte    `db:"extra" json:"extra"`
+	Ts        int64  `db:"ts" json:"ts"`
+	Category  string `db:"category" json:"category"`
+	Severity  string `db:"severity" json:"severity"`
+	Source    string `db:"source" json:"source"`
+	ToolName  string `db:"tool_name" json:"tool_name"`
+	Message   string `db:"message" json:"message"`
+	Traceback string `db:"traceback" json:"traceback"`
+	Extra     string `db:"extra" json:"extra"`
 }
 
 func (q *Queries) ListBusExceptionLogs(ctx context.Context, arg ListBusExceptionLogsParams) ([]ListBusExceptionLogsRow, error) {
-	rows, err := q.db.Query(ctx, listBusExceptionLogs,
+	rows, err := q.db.QueryContext(ctx, listBusExceptionLogs,
 		arg.Column1,
-		arg.Column2,
+		arg.Category,
 		arg.Column3,
+		arg.Severity,
+		arg.Column5,
+		arg.Column6,
+		arg.Column7,
+		arg.Column8,
+		arg.Column9,
 		arg.Limit,
 	)
 	if err != nil {
@@ -69,6 +80,9 @@ func (q *Queries) ListBusExceptionLogs(ctx context.Context, arg ListBusException
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

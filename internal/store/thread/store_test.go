@@ -22,12 +22,12 @@ type threadQuerierStub struct {
 	upsertFn             func(context.Context, sqlc.UpsertAgentThreadParams) error
 }
 
-func (s *threadQuerierStub) AgentThreadRunningExists(context.Context, sqlc.AgentThreadRunningExistsParams) (bool, error) {
-	return false, nil
+func (s *threadQuerierStub) AgentThreadRunningExists(context.Context, sqlc.AgentThreadRunningExistsParams) (int64, error) {
+	return 0, nil
 }
 
-func (s *threadQuerierStub) AgentThreadExists(context.Context, sqlc.AgentThreadExistsParams) (bool, error) {
-	return false, nil
+func (s *threadQuerierStub) AgentThreadExists(context.Context, sqlc.AgentThreadExistsParams) (int64, error) {
+	return 0, nil
 }
 
 func (s *threadQuerierStub) CountAllThreads(context.Context) (int64, error) {
@@ -94,7 +94,7 @@ func (*threadQuerierStub) ListRunningAgents(context.Context) ([]sqlc.ListRunning
 	return nil, nil
 }
 
-func (s *threadQuerierStub) LoadAgentThreadPromptSnapshot(ctx context.Context, arg sqlc.LoadAgentThreadPromptSnapshotParams) ([]byte, error) {
+func (s *threadQuerierStub) LoadAgentThreadPromptSnapshot(ctx context.Context, arg sqlc.LoadAgentThreadPromptSnapshotParams) (json.RawMessage, error) {
 	if s.loadPromptSnapshotFn != nil {
 		return s.loadPromptSnapshotFn(ctx, arg.ThreadID)
 	}
@@ -196,18 +196,19 @@ func TestGetAndListMapConfigOverride(t *testing.T) {
 }
 
 func newThreadConfigOverrideStore(raw []byte) *store {
+	rawStr := string(raw)
 	return &store{q: &threadQuerierStub{
 		getByIDFn: func(context.Context, string) (sqlc.GetAgentThreadByIDRow, error) {
-			return sqlc.GetAgentThreadByIDRow{ThreadID: "thread-1", Name: "display name", ParentAgentID: "agent-root", AgentType: "reviewer", AgentMemoryScope: "project", ConfigOverride: raw}, nil
+			return sqlc.GetAgentThreadByIDRow{ThreadID: "thread-1", Name: "display name", ParentAgentID: "agent-root", AgentType: "reviewer", AgentMemoryScope: "project", ConfigOverride: rawStr}, nil
 		},
 		listAllFn: func(context.Context) ([]sqlc.ListAgentThreadsRow, error) {
-			return []sqlc.ListAgentThreadsRow{{ThreadID: "thread-1", Name: "display name", ParentAgentID: "agent-root", AgentType: "reviewer", AgentMemoryScope: "project", ConfigOverride: raw}}, nil
+			return []sqlc.ListAgentThreadsRow{{ThreadID: "thread-1", Name: "display name", ParentAgentID: "agent-root", AgentType: "reviewer", AgentMemoryScope: "project", ConfigOverride: rawStr}}, nil
 		},
 		listRunningFn: func(context.Context) ([]sqlc.ListRunningAgentThreadsRow, error) {
-			return []sqlc.ListRunningAgentThreadsRow{{ThreadID: "thread-1", Name: "display name", ParentAgentID: "agent-root", AgentType: "reviewer", AgentMemoryScope: "project", ConfigOverride: raw}}, nil
+			return []sqlc.ListRunningAgentThreadsRow{{ThreadID: "thread-1", Name: "display name", ParentAgentID: "agent-root", AgentType: "reviewer", AgentMemoryScope: "project", ConfigOverride: rawStr}}, nil
 		},
 		listRecoverableFn: func(context.Context) ([]sqlc.ListRecoverableAgentThreadsRow, error) {
-			return []sqlc.ListRecoverableAgentThreadsRow{{ThreadID: "thread-1", Name: "display name", ParentAgentID: "agent-root", AgentType: "reviewer", AgentMemoryScope: "project", ConfigOverride: raw}}, nil
+			return []sqlc.ListRecoverableAgentThreadsRow{{ThreadID: "thread-1", Name: "display name", ParentAgentID: "agent-root", AgentType: "reviewer", AgentMemoryScope: "project", ConfigOverride: rawStr}}, nil
 		},
 	}}
 }

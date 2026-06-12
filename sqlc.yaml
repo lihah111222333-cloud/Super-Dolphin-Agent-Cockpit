@@ -1,51 +1,13 @@
 version: "2"
 sql:
-  - engine: "postgresql"
+  - engine: "sqlite"
     queries: "sql/queries/"
     schema:
-      - "migrations/001_baseline.sql"
-      - "migrations/0022_binding_session_uuid.sql"
-      - "migrations/0023_dag_watcher_phase1.sql"
-      - "migrations/0024_prompt_versions_description.sql"
-      - "migrations/0025_agent_thread_config_override.sql"
-      - "migrations/0025_hook_pending_reviews.sql"
-      - "migrations/0026_hook_pending_reviews_resolved_by.sql"
-      - "migrations/0027_prompt_description_columns.sql"
-      - "migrations/0028_binding_provider_thread_nullable.sql"
-      - "migrations/0029_agent_provider_binding_schema_repair.sql"
-      - "migrations/0030_baseline_schema_repair.sql"
-      - "migrations/0031_prompt_snapshot.sql"
-      - "migrations/0032_agent_memory_identity.sql"
-      - "migrations/0033_prompt_id_sequence_repair.sql"
-      - "migrations/0034_thread_agent_routing.sql"
-      - "migrations/0035_agent_feedback_events.sql"
-      - "migrations/0037_thread_pending_launch.sql"
-      - "migrations/0041_prompt_routing_tests.sql"
-      - "migrations/0045_cron_jobs.sql"
-      - "migrations/0046_session_insights.sql"
-      - "migrations/0048_binding_codex_identity.sql"
-      - "migrations/0049_prompt_template_sections.sql"
-      - "migrations/0053_prompt_template_match_when.sql"
-      - "migrations/0060_turn_dedupe_registry.sql"
-      - "migrations/0063_agent_thread_name.sql"
-      - "migrations/0064_skill_candidates.sql"
-      - "migrations/0066_skill_candidates_repo_fp_widen.sql"
-      - "migrations/0068_thread_manually_renamed.sql"
-      - "migrations/0072_dag_v2_dag_columns.sql"
-      - "migrations/0073_dag_v2_node_columns.sql"
-      - "migrations/0074_dag_v2_runs.sql"
-      - "migrations/0075_dag_v2_compat.sql"
-      - "migrations/0086_prompt_template_manually_edited.sql"
-      - "migrations/0094_add_when_to_use_column.sql"
-      - "migrations/0096_add_section_recall_columns.sql"
-      - "sql/schema/prompt_intent_drafts.sql"
-    strict_order_by: true
+      - "internal/platform/db/sqlite/migrations/001_baseline.sql"
     gen:
       go:
         package: "sqlc"
         out: "internal/store/sqlc"
-        sql_package: "pgx/v5"
-        sql_driver: "github.com/jackc/pgx/v5"
         emit_json_tags: true
         emit_db_tags: true
         emit_empty_slices: true
@@ -62,37 +24,120 @@ sql:
           - uuid
           - cwd
         overrides:
-          - db_type: "pg_catalog.timestamptz"
-            go_type: "time.Time"
-          - db_type: "pg_catalog.timestamptz"
-            nullable: true
-            go_type:
-              import: "time"
-              type: "Time"
-              pointer: true
-          - db_type: "pg_catalog.timestamp"
-            go_type: "time.Time"
-          - db_type: "pg_catalog.timestamp"
-            nullable: true
-            go_type:
-              import: "time"
-              type: "Time"
-              pointer: true
-          - db_type: "pg_catalog.jsonb"
+          # JSON TEXT 列 → json.RawMessage
+          - column: "agent_threads.config"
             go_type:
               import: "encoding/json"
               type: "RawMessage"
-          - db_type: "pg_catalog.jsonb"
-            nullable: true
+          - column: "agent_threads.prompt_snapshot"
             go_type:
               import: "encoding/json"
               type: "RawMessage"
-          - db_type: "pg_catalog.json"
+          - column: "agent_status.output_tail"
             go_type:
               import: "encoding/json"
               type: "RawMessage"
-          - db_type: "pg_catalog.json"
-            nullable: true
+          - column: "agent_provider_binding.config"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "ui_preferences.value"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "system_logs.extra"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "audit_events.payload"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "bus_exception_logs.payload"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "agent_interactions.payload"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "topology_approvals.payload"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "hook_pending_reviews.payload"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "hook_pending_reviews.result"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "prompt_templates.variables"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "prompt_templates.tags"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "prompt_templates.metadata"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "prompt_versions.variables"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "prompt_versions.tags"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "prompt_versions.metadata"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "prompt_template_sections.metadata"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "command_cards.args_schema"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "agent_feedback_events.payload"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "session_insights.payload"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "session_insights.skills_selected"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "prompt_intent_drafts.generated_card"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "prompt_intent_drafts.issues"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "cron_jobs.config"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "cron_jobs.skills"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "workspace_runs.config"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - column: "workspace_run_files.metadata"
             go_type:
               import: "encoding/json"
               type: "RawMessage"

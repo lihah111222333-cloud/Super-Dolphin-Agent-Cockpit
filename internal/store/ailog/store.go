@@ -25,8 +25,8 @@ func NewStore(q *sqlc.Queries) Store {
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]AILog, error) {
 	rows, err := s.q.ListAILogSystemLogs(ctx, sqlc.ListAILogSystemLogsParams{
-		Keyword:    filter.Keyword,
-		LimitCount: filter.Limit,
+		Column1: filter.Keyword,
+		Limit:   int64(filter.Limit),
 	})
 	if err != nil {
 		return nil, wrapAILogError(err, "list")
@@ -40,9 +40,10 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]AILog, error) {
 
 func (s *store) ListByCategory(ctx context.Context, category string, keyword string, limit int32) ([]AILog, error) {
 	rows, err := s.q.ListAILogsByCategory(ctx, sqlc.ListAILogsByCategoryParams{
-		Category:   category,
-		Keyword:    keyword,
-		LimitCount: limit,
+		Column1: category,
+		Message: keyword,
+		Column3: keyword,
+		Limit:   int64(limit),
 	})
 	if err != nil {
 		return nil, wrapAILogError(err, "list_by_category")
@@ -61,13 +62,13 @@ func (s *store) CountByStatus(ctx context.Context) ([]StatusCount, error) {
 	}
 	result := make([]StatusCount, len(rows))
 	for i, row := range rows {
-		result[i] = StatusCount{Status: row.Status, Count: row.Count}
+		result[i] = StatusCount{Status: row.HttpStatus, Count: row.Count}
 	}
 	return result, nil
 }
 
 func (s *store) ListRecent(ctx context.Context, limit int32) ([]AILog, error) {
-	rows, err := s.q.ListRecentAILogs(ctx, sqlc.ListRecentAILogsParams{Limit: limit})
+	rows, err := s.q.ListRecentAILogs(ctx, sqlc.ListRecentAILogsParams{Limit: int64(limit)})
 	if err != nil {
 		return nil, wrapAILogError(err, "list_recent")
 	}
@@ -78,10 +79,18 @@ func (s *store) ListRecent(ctx context.Context, limit int32) ([]AILog, error) {
 	return result, nil
 }
 
+func durationMsPtr(v *int64) *int32 {
+	if v == nil {
+		return nil
+	}
+	x := int32(*v)
+	return &x
+}
+
 func mapAILog(row sqlc.SystemLog) AILog {
 	return AILog{
 		ID:         row.ID,
-		Ts:         row.Ts,
+		Ts:         platformdb.TimeFromMillis(row.Ts),
 		Level:      row.Level,
 		Logger:     row.Logger,
 		Message:    row.Message,
@@ -93,7 +102,7 @@ func mapAILog(row sqlc.SystemLog) AILog {
 		TraceID:    row.TraceID,
 		EventType:  row.EventType,
 		ToolName:   row.ToolName,
-		DurationMs: row.DurationMs,
+		DurationMs: durationMsPtr(row.DurationMs),
 		Extra:      json.RawMessage(row.Extra),
 	}
 }
@@ -101,7 +110,7 @@ func mapAILog(row sqlc.SystemLog) AILog {
 func mapCategoryAILog(row sqlc.ListAILogsByCategoryRow) AILog {
 	return AILog{
 		ID:         row.ID,
-		Ts:         row.Ts,
+		Ts:         platformdb.TimeFromMillis(row.Ts),
 		Level:      row.Level,
 		Logger:     row.Logger,
 		Message:    row.Message,
@@ -113,13 +122,13 @@ func mapCategoryAILog(row sqlc.ListAILogsByCategoryRow) AILog {
 		TraceID:    row.TraceID,
 		EventType:  row.EventType,
 		ToolName:   row.ToolName,
-		DurationMs: row.DurationMs,
+		DurationMs: durationMsPtr(row.DurationMs),
 		Extra:      json.RawMessage(row.Extra),
 		Category:   row.Category,
 		Method:     row.Method,
 		URL:        row.Url,
 		Endpoint:   row.Endpoint,
-		Status:     row.Status,
+		Status:     row.HttpStatus,
 		StatusText: row.StatusText,
 		Model:      row.Model,
 	}
@@ -128,7 +137,7 @@ func mapCategoryAILog(row sqlc.ListAILogsByCategoryRow) AILog {
 func mapRecentAILog(row sqlc.ListRecentAILogsRow) AILog {
 	return AILog{
 		ID:         row.ID,
-		Ts:         row.Ts,
+		Ts:         platformdb.TimeFromMillis(row.Ts),
 		Level:      row.Level,
 		Logger:     row.Logger,
 		Message:    row.Message,
@@ -140,13 +149,13 @@ func mapRecentAILog(row sqlc.ListRecentAILogsRow) AILog {
 		TraceID:    row.TraceID,
 		EventType:  row.EventType,
 		ToolName:   row.ToolName,
-		DurationMs: row.DurationMs,
+		DurationMs: durationMsPtr(row.DurationMs),
 		Extra:      json.RawMessage(row.Extra),
 		Category:   row.Category,
 		Method:     row.Method,
 		URL:        row.Url,
 		Endpoint:   row.Endpoint,
-		Status:     row.Status,
+		Status:     row.HttpStatus,
 		StatusText: row.StatusText,
 		Model:      row.Model,
 	}

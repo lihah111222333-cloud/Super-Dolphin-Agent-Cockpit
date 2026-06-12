@@ -7,83 +7,80 @@ package sqlc
 
 import (
 	"context"
-	"time"
 )
 
 const acquireCwdLock = `-- name: AcquireCwdLock :execrows
 INSERT INTO cwd_instance_locks (cwd, instance_id, pid, acquired_at, heartbeat_at)
-VALUES ($1, $2, $3, NOW(), NOW())
+VALUES (?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 ON CONFLICT (cwd) DO UPDATE
 SET instance_id = EXCLUDED.instance_id,
     pid = EXCLUDED.pid,
-    acquired_at = NOW(),
-    heartbeat_at = NOW()
+    acquired_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
+    heartbeat_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE cwd_instance_locks.instance_id = EXCLUDED.instance_id
-   OR cwd_instance_locks.heartbeat_at < NOW() - INTERVAL '45 seconds'
+   OR cwd_instance_locks.heartbeat_at < ?
 `
 
 type AcquireCwdLockParams struct {
 	CWD        string `db:"cwd" json:"cwd"`
 	InstanceID string `db:"instance_id" json:"instance_id"`
-	Pid        int32  `db:"pid" json:"pid"`
+	Pid        int64  `db:"pid" json:"pid"`
 }
 
 func (q *Queries) AcquireCwdLock(ctx context.Context, arg AcquireCwdLockParams) (int64, error) {
-	result, err := q.db.Exec(ctx, acquireCwdLock, arg.CWD, arg.InstanceID, arg.Pid)
+	result, err := q.db.ExecContext(ctx, acquireCwdLock, arg.CWD, arg.InstanceID, arg.Pid)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }
 
 const deleteStaleCwdLocks = `-- name: DeleteStaleCwdLocks :execrows
 DELETE FROM cwd_instance_locks
-WHERE heartbeat_at < NOW() - INTERVAL '45 seconds'
+WHERE heartbeat_at < ?
 `
 
-func (q *Queries) DeleteStaleCwdLocks(ctx context.Context) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteStaleCwdLocks)
+type DeleteStaleCwdLocksParams struct {
+	HeartbeatAt int64 `db:"heartbeat_at" json:"heartbeat_at"`
+}
+
+func (q *Queries) DeleteStaleCwdLocks(ctx context.Context, arg DeleteStaleCwdLocksParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteStaleCwdLocks, arg.HeartbeatAt)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }
 
 const forceAcquireCwdLock = `-- name: ForceAcquireCwdLock :execrows
 INSERT INTO cwd_instance_locks (cwd, instance_id, pid, acquired_at, heartbeat_at)
-VALUES ($1, $2, $3, NOW(), NOW())
+VALUES (?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 ON CONFLICT (cwd) DO UPDATE
 SET instance_id = EXCLUDED.instance_id,
     pid = EXCLUDED.pid,
-    acquired_at = NOW(),
-    heartbeat_at = NOW()
-WHERE cwd_instance_locks.pid = $4
+    acquired_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
+    heartbeat_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE cwd_instance_locks.pid = ?
 `
 
 type ForceAcquireCwdLockParams struct {
 	CWD        string `db:"cwd" json:"cwd"`
 	InstanceID string `db:"instance_id" json:"instance_id"`
-	Pid        int32  `db:"pid" json:"pid"`
-	Pid_2      int32  `db:"pid_2" json:"pid_2"`
+	Pid        int64  `db:"pid" json:"pid"`
 }
 
 func (q *Queries) ForceAcquireCwdLock(ctx context.Context, arg ForceAcquireCwdLockParams) (int64, error) {
-	result, err := q.db.Exec(ctx, forceAcquireCwdLock,
-		arg.CWD,
-		arg.InstanceID,
-		arg.Pid,
-		arg.Pid_2,
-	)
+	result, err := q.db.ExecContext(ctx, forceAcquireCwdLock, arg.CWD, arg.InstanceID, arg.Pid)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }
 
 const getCwdLockHolder = `-- name: GetCwdLockHolder :one
 SELECT instance_id, pid, heartbeat_at
 FROM cwd_instance_locks
-WHERE cwd = $1
+WHERE cwd = ?
 `
 
 type GetCwdLockHolderParams struct {
@@ -91,13 +88,13 @@ type GetCwdLockHolderParams struct {
 }
 
 type GetCwdLockHolderRow struct {
-	InstanceID  string    `db:"instance_id" json:"instance_id"`
-	Pid         int32     `db:"pid" json:"pid"`
-	HeartbeatAt time.Time `db:"heartbeat_at" json:"heartbeat_at"`
+	InstanceID  string `db:"instance_id" json:"instance_id"`
+	Pid         int64  `db:"pid" json:"pid"`
+	HeartbeatAt int64  `db:"heartbeat_at" json:"heartbeat_at"`
 }
 
 func (q *Queries) GetCwdLockHolder(ctx context.Context, arg GetCwdLockHolderParams) (GetCwdLockHolderRow, error) {
-	row := q.db.QueryRow(ctx, getCwdLockHolder, arg.CWD)
+	row := q.db.QueryRowContext(ctx, getCwdLockHolder, arg.CWD)
 	var i GetCwdLockHolderRow
 	err := row.Scan(&i.InstanceID, &i.Pid, &i.HeartbeatAt)
 	return i, err
@@ -105,25 +102,25 @@ func (q *Queries) GetCwdLockHolder(ctx context.Context, arg GetCwdLockHolderPara
 
 const heartbeatCwdLock = `-- name: HeartbeatCwdLock :exec
 UPDATE cwd_instance_locks
-SET heartbeat_at = NOW(),
-    pid = $3
-WHERE cwd = $1 AND instance_id = $2
+SET heartbeat_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
+    pid = ?
+WHERE cwd = ? AND instance_id = ?
 `
 
 type HeartbeatCwdLockParams struct {
+	Pid        int64  `db:"pid" json:"pid"`
 	CWD        string `db:"cwd" json:"cwd"`
 	InstanceID string `db:"instance_id" json:"instance_id"`
-	Pid        int32  `db:"pid" json:"pid"`
 }
 
 func (q *Queries) HeartbeatCwdLock(ctx context.Context, arg HeartbeatCwdLockParams) error {
-	_, err := q.db.Exec(ctx, heartbeatCwdLock, arg.CWD, arg.InstanceID, arg.Pid)
+	_, err := q.db.ExecContext(ctx, heartbeatCwdLock, arg.Pid, arg.CWD, arg.InstanceID)
 	return err
 }
 
 const releaseCwdLock = `-- name: ReleaseCwdLock :execrows
 DELETE FROM cwd_instance_locks
-WHERE cwd = $1 AND instance_id = $2
+WHERE cwd = ? AND instance_id = ?
 `
 
 type ReleaseCwdLockParams struct {
@@ -132,9 +129,9 @@ type ReleaseCwdLockParams struct {
 }
 
 func (q *Queries) ReleaseCwdLock(ctx context.Context, arg ReleaseCwdLockParams) (int64, error) {
-	result, err := q.db.Exec(ctx, releaseCwdLock, arg.CWD, arg.InstanceID)
+	result, err := q.db.ExecContext(ctx, releaseCwdLock, arg.CWD, arg.InstanceID)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }
