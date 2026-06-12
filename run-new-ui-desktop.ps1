@@ -74,7 +74,13 @@ function Add-ProcessPathEntry {
     param([Parameter(Mandatory)][string]$PathEntry)
 
     $entry = $PathEntry.Trim()
-    if (-not $entry -or -not (Test-Path -LiteralPath $entry -PathType Container)) { return }
+    if (-not $entry) { return }
+    try {
+        if (-not (Test-Path -LiteralPath $entry -PathType Container)) { return }
+    } catch {
+        Write-Host "  -> skipping invalid PATH entry: $entry"
+        return
+    }
 
     $separator = [IO.Path]::PathSeparator
     $parts = @()
