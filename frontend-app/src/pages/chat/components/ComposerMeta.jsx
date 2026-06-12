@@ -1,6 +1,7 @@
 import React from 'react';
-import { CircleStop, GitBranch, Plus, Send } from 'lucide-react';
+import { ArrowUp, CircleStop, GitBranch, Paperclip } from 'lucide-react';
 import { ComposerModelSelector } from './ComposerModelSelector.jsx';
+import { ProjectSelector } from './ProjectSelector.jsx';
 import { runUIAction } from './chatUiActions.js';
 
 function ComposerMeta({
@@ -8,11 +9,13 @@ function ComposerMeta({
   canSend,
   canUseProjectActions,
   modelThreadId,
+  projectPath,
   projectActionBlocked,
   projectActionBlockedTitle,
   selectFiles,
   sendMessage,
   showProviderToggle: _,
+  showProjectSelector = false,
   store,
 }) {
   const canForkThread = canUseProjectActions && Boolean(store.hasActiveThreadActions?.());
@@ -30,6 +33,7 @@ function ComposerMeta({
   };
   return (
     <div className="composer-meta">
+      {showProjectSelector ? <ProjectSelector store={store} projectPath={projectPath} /> : null}
       <button
         type="button"
         className="composer-attach"
@@ -40,7 +44,8 @@ function ComposerMeta({
           if (!projectActionBlocked) runUIAction(() => selectFiles());
         }}
       >
-        <Plus size={18} />
+        <Paperclip size={18} />
+        <span>添加附件</span>
       </button>
       <button
         type="button"
@@ -57,7 +62,7 @@ function ComposerMeta({
       <div className="composer-actions">
         <ComposerModelSelector store={store} activeThreadId={modelThreadId} disabled={projectActionBlocked} />
         <button type="button" className={primaryActionClass} aria-label={primaryActionLabel} title={primaryActionTitle} disabled={primaryActionDisabled} onClick={onPrimaryAction}>
-          {canInterrupt ? <CircleStop size={18} /> : <Send size={18} />}
+          {canInterrupt ? <CircleStop size={18} /> : <ArrowUp size={22} />}
         </button>
       </div>
     </div>

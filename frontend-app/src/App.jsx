@@ -1,11 +1,11 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Brain, CheckCircle2, CircleStop, Copy, Eye, FileText, FolderOpen, MessageCircle, Moon, MoreHorizontal, PanelTopOpen, RefreshCw, Search, Sparkles, Sun, Workflow, X } from 'lucide-react';
+import { Brain, ChevronDown, FileText, Folder, FolderOpen, Menu, Moon, Plus, Search, Settings as SettingsIcon, SquareTerminal, Sun, Workflow, X, Zap } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useClientStore } from './entities/client/model/useClientStore.js';
-import { ProjectSelector } from './pages/chat/components/ProjectSelector.jsx';
 import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.js';
 import { dashboardQueryKey, errorMessage, fetchMemoryDashboard, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, useDashboardFocusInvalidation, textValue } from './pages/shared/pageShared.js';
+import superDolphinLogo from './assets/super-dolphin-logo.png';
 
 function lazyNamedPage(loader, exportName) {
   return lazy(() => loader().then((module) => ({ default: module[exportName] })));
@@ -20,16 +20,28 @@ const SettingsPage = lazyNamedPage(() => import('./pages/settings/SettingsPage.j
 const SkillsPage = lazyNamedPage(() => import('./pages/skills/SkillsPage.jsx'), 'SkillsPage');
 const WorkflowPage = lazyNamedPage(() => import('./pages/workflows/WorkflowPage.jsx'), 'WorkflowPage');
 
-const navItems = [
-  { id: 'chat', label: 'Chat', icon: MessageCircle },
-  { id: 'skills', label: '技能', icon: Sparkles },
-  { id: 'prompts', label: '提示词', icon: FileText },
+const primaryNavItems = [
+  { id: 'skills', label: '插件市场', icon: Zap },
+  { id: 'prompts', label: '提示词', icon: SquareTerminal },
   { id: 'workflows', label: '自动化', icon: Workflow },
+];
+
+const secondaryNavItems = [
   { id: 'memory', label: '记忆中心', icon: Brain },
   { id: 'files', label: '共享文件', icon: FolderOpen },
   { id: 'observability', label: '链路追踪', icon: Search },
-  { id: 'settings', label: '设置', icon: MoreHorizontal },
 ];
+
+const pageLabels = Object.freeze({
+  chat: '聊天页面',
+  skills: '插件市场',
+  prompts: '提示词',
+  workflows: '自动化',
+  memory: '记忆中心',
+  files: '共享文件',
+  observability: '链路追踪',
+  settings: 'Settings',
+});
 
 const PAGE_ROUTE_BY_ID = Object.freeze({
   chat: '/',
@@ -421,7 +433,7 @@ function useAppShellState(store, skipBootstrap) {
   const projectPath = store.activeProject && store.activeProject !== '.' ? store.activeProject : store.cwd || '未选择项目';
   const memoryBadge = useMemoryBadgeState(store, projectPath);
   const activeLabel = useMemo(() => (
-    navItems.find((item) => item.id === store.activePage)?.label || 'Chat'
+    pageLabels[store.activePage] || pageLabels.chat
   ), [store.activePage]);
   const { theme, toggleTheme } = useColorTheme();
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
@@ -430,20 +442,35 @@ function useAppShellState(store, skipBootstrap) {
 }
 
 function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggleTheme, rightPanelOpen, setRightPanelOpen, updateBanner }) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const setActivePageFromSidebar = useCallback((page) => {
+    store.setActivePage(page);
+    setSidebarOpen(false);
+  }, [store]);
+  const SidebarToggleIcon = sidebarOpen ? X : Menu;
   return (
-    <div className="sa-window" data-theme={theme} data-testid="frontend-app">
-      <Titlebar
-        theme={theme}
-        onToggleTheme={toggleTheme}
-        store={store}
-        projectPath={projectPath}
-        rightPanelOpen={rightPanelOpen}
-        setRightPanelOpen={setRightPanelOpen}
-      />
+    <div className={`sa-window${sidebarOpen ? ' sidebar-open' : ''}`} data-theme={theme} data-testid="frontend-app">
+      <button
+        type="button"
+        className="workbench-toggle"
+        aria-label={sidebarOpen ? '关闭工作台' : '打开工作台'}
+        aria-controls="app-sidebar"
+        aria-expanded={sidebarOpen}
+        onClick={() => setSidebarOpen((open) => !open)}
+      >
+        <SidebarToggleIcon size={22} aria-hidden="true" />
+      </button>
+      {sidebarOpen ? <button type="button" className="sidebar-scrim" aria-label="关闭工作台" onClick={closeSidebar} /> : null}
       <div className="sa-body">
-        <NavRail
+        <WorkbenchSidebar
           activePage={store.activePage}
-          setActivePage={store.setActivePage}
+          isOpen={sidebarOpen}
+          setActivePage={setActivePageFromSidebar}
+          store={store}
+          projectPath={projectPath}
+          theme={theme}
+          toggleTheme={toggleTheme}
           memorySimilarCount={memoryBadge.memorySimilarCount}
         />
         <main className="sa-main">
@@ -496,28 +523,56 @@ function selectAppShellStore(state) {
     activeProject: state.activeProject,
     activeThreadId: state.activeThreadId,
     activeTurnByThread: state.activeTurnByThread,
+    activityStatsByThread: state.activityStatsByThread,
     addProjectFromPicker: state.addProjectFromPicker,
     addWarning: state.addWarning,
+    attachDroppedFilesForComposer: state.attachDroppedFilesForComposer,
+    attachPathsForComposer: state.attachPathsForComposer,
+    attachments: state.attachments,
     bootstrap: state.bootstrap,
     bootstrapStatus: state.bootstrapStatus,
     copyActiveThreadInfo: state.copyActiveThreadInfo,
     cwd: state.cwd,
+    diffTextByThread: state.diffTextByThread,
+    draft: state.draft,
     error: state.error,
     forceCompleteActiveThread: state.forceCompleteActiveThread,
     hasActiveThreadActions: state.hasActiveThreadActions,
     hasInterruptibleThreadAction: state.hasInterruptibleThreadAction,
     interruptActiveThread: state.interruptActiveThread,
+    loadOlderThreadMessages: state.loadOlderThreadMessages,
     memoryRevision: state.memoryRevision,
+    newThread: state.newThread,
+    openForkDraft: state.openForkDraft,
     openNewWindow: state.openNewWindow,
     projects: state.projects,
     promptRevision: state.promptRevision,
     recoverActiveThread: state.recoverActiveThread,
     removeProjectPath: state.removeProjectPath,
+    removeAttachment: state.removeAttachment,
+    respondApproval: state.respondApproval,
     resolveLaunchPreferences: state.resolveLaunchPreferences,
+    rightPanelWidth: state.rightPanelWidth,
+    runtimeResultEntries: state.runtimeResultEntries,
+    selectFilesForComposer: state.selectFilesForComposer,
+    sendDraft: state.sendDraft,
+    sending: state.sending,
     setActivePage: state.setActivePage,
     setActiveProjectPath: state.setActiveProjectPath,
+    setDraft: state.setDraft,
+    setRightPanelWidth: state.setRightPanelWidth,
     skillRevision: state.skillRevision,
+    statuses: state.statuses,
+    syncThreadState: state.syncThreadState,
+    threadDiffReadyByThread: state.threadDiffReadyByThread,
+    threadMessagePaginationByThread: state.threadMessagePaginationByThread,
+    threadStateLoadingByThread: state.threadStateLoadingByThread,
+    threadTimelineReadyByThread: state.threadTimelineReadyByThread,
     threads: state.threads,
+    timelinesByThread: state.timelinesByThread,
+    toggleProviderMode: state.toggleProviderMode,
+    tokenUsageByThread: state.tokenUsageByThread,
+    warningEntries: state.warningEntries,
     workflowRevision: state.workflowRevision,
   };
 }
@@ -537,147 +592,174 @@ function App(props) {
   );
 }
 
-function Titlebar({ theme, onToggleTheme, store, projectPath, rightPanelOpen, setRightPanelOpen }) {
-  const isDark = theme === COLOR_THEMES.dark;
-  const ThemeIcon = isDark ? Sun : Moon;
-  const label = isDark ? '白天模式' : '黑夜模式';
-  const isChatPage = store?.activePage === 'chat';
+function projectNameFromPath(projectPath) {
+  const value = textValue(projectPath);
+  if (!value || value === '未选择项目') return 'Super-Dolphin';
+  const normalized = value.replace(/\\/g, '/').replace(/\/+$/g, '');
+  return normalized.split('/').filter(Boolean).pop() || 'Super-Dolphin';
+}
 
-  const canUseThreadActions = Boolean(store?.hasActiveThreadActions?.());
-  const canInterruptThread = Boolean(store?.hasInterruptibleThreadAction?.());
-  const bootstrapFailureMessage = store?.bootstrapStatus === 'failed' && textValue(store?.error)
-    ? `连接后端失败：${textValue(store?.error)}`
-    : '';
-  const feedback = store?.actionNotice?.message
-    ? store?.actionNotice
-    : (bootstrapFailureMessage ? { message: bootstrapFailureMessage, tone: 'error' } : null);
-
-  const toggleRightPanel = () => {
-    setRightPanelOpen?.((prev) => !prev);
+function projectDirectoryItems(projectPath, projects = [], activeProject = '') {
+  const seen = new Set();
+  const items = [];
+  const add = (value) => {
+    const path = textValue(value);
+    if (!path || path === '未选择项目' || seen.has(path)) return;
+    seen.add(path);
+    items.push({ path, name: projectNameFromPath(path) });
   };
+  add(activeProject);
+  add(projectPath);
+  projects.forEach(add);
+  return items.length ? items : [{ path: '', name: 'Super-Dolphin' }];
+}
 
+function SidebarNavList({ items, activePage, setActivePage, memoryBadgeCount = 0, testId, className }) {
   return (
-    <header className="titlebar" data-testid="chat-toolbar">
-      <div className="titlebar-brand">
-        <span className="brand-orb" aria-hidden="true" />
-        <strong>Super Dolphin</strong>
-      </div>
-      <div className="titlebar-center">
-        {isChatPage && store && (
-          <div className="titlebar-actions">
-            <ProjectSelector store={store} projectPath={projectPath} />
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label="新窗口（独立进程）"
-              title="新窗口（独立进程）"
-              onClick={() => runUIAction(() => store.openNewWindow?.())}
-            >
-              <PanelTopOpen size={14} />
-            </button>
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label={canUseThreadActions ? "复制当前线程" : "复制当前线程（不可用）"}
-              title={canUseThreadActions ? "复制当前线程" : "请先选择会话"}
-              disabled={!canUseThreadActions}
-              onClick={() => runUIAction(() => store.copyActiveThreadInfo())}
-            >
-              <Copy size={14} />
-            </button>
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label={canInterruptThread ? "停止" : "停止（不可用）"}
-              title={canInterruptThread ? "中断当前执行" : "无运行中任务"}
-              disabled={!canInterruptThread}
-              onClick={() => runUIAction(() => store.interruptActiveThread())}
-            >
-              <CircleStop size={14} />
-            </button>
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label={canUseThreadActions ? "强制完成" : "强制完成（不可用）"}
-              title={canUseThreadActions ? "强制完成当前执行" : "请先选择会话"}
-              disabled={!canUseThreadActions}
-              onClick={() => runUIAction(() => store.forceCompleteActiveThread())}
-            >
-              <CheckCircle2 size={14} />
-            </button>
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label={canUseThreadActions ? "进程恢复" : "请先选择会话"}
-              title={canUseThreadActions ? "手动杀进程并恢复连接" : "请先选择会话"}
-              disabled={!canUseThreadActions}
-              onClick={() => runUIAction(() => store.recoverActiveThread())}
-            >
-              <RefreshCw size={14} />
-            </button>
-            {feedback?.message ? (
-              <output
-                className={`action-feedback ${feedback.tone || "info"}`}
-                data-testid="chat-action-feedback"
-              >
-                {feedback.message}
-              </output>
-            ) : null}
-          </div>
-        )}
-      </div>
-
-      <div className="titlebar-right">
-        <button
-          type="button"
-          className="theme-toggle"
-          onClick={onToggleTheme}
-          aria-label={`切换到${label}`}
-        >
-          <ThemeIcon size={14} aria-hidden="true" />
-          <span>{label}</span>
-        </button>
-
-        {isChatPage && (
+    <nav className={`app-sidebar-nav ${className || ''}`} data-testid={testId}>
+      {items.map((item) => {
+        const Icon = item.icon;
+        const badgeCount = item.id === 'memory' ? memoryBadgeCount : 0;
+        return (
           <button
+            key={item.id}
             type="button"
-            className={`icon-btn sidebar-toggle ${rightPanelOpen ? 'active' : ''}`}
-            aria-label={rightPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}
-            title={rightPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}
-            aria-pressed={rightPanelOpen}
-            onClick={toggleRightPanel}
+            className={activePage === item.id ? 'active' : ''}
+            onClick={() => setActivePage(item.id)}
+            aria-label={item.label}
           >
-            {rightPanelOpen ? <X size={14} /> : <Eye size={14} />}
+            <Icon size={22} aria-hidden="true" />
+            <span>{item.label}</span>
+            {badgeCount > 0 ? <i aria-hidden="true" title={`${badgeCount} 条待整合相似记忆`} /> : null}
           </button>
-        )}
-      </div>
-    </header>
+        );
+      })}
+    </nav>
   );
 }
 
-function NavRail({ activePage, setActivePage, memorySimilarCount = 0 }) {
-  const memoryBadgeCount = Math.max(0, Number(memorySimilarCount) || 0);
+function SidebarProjectTree({ projectPath, setActivePage, store }) {
+  const projectItems = projectDirectoryItems(projectPath, store?.projects, store?.activeProject);
+  const activeProjectPath = textValue(store?.activeProject || projectPath);
+  const addProject = () => runUIAction(() => store?.addProjectFromPicker?.());
+  const addFilesToChat = () => {
+    setActivePage('chat');
+    runUIAction(() => store?.selectFilesForComposer?.());
+  };
+  const openSharedFiles = () => setActivePage('files');
+  const selectProject = (path) => {
+    if (!path) return;
+    runUIAction(() => store?.setActiveProjectPath?.(path));
+  };
   return (
-    <aside className="nav-rail" data-testid="sidebar-nav">
-      <nav>
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const badgeCount = item.id === 'memory' ? memoryBadgeCount : 0;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              className={activePage === item.id ? 'active' : ''}
-              onClick={() => setActivePage(item.id)}
-              aria-label={item.label}
-            >
-              <Icon size={22} aria-hidden="true" />
-              <span>{item.label}</span>
-              {badgeCount > 0 ? <i aria-hidden="true" title={`${badgeCount} 条待整合相似记忆`} /> : null}
+    <section className="sidebar-project-tree" aria-label="项目目录">
+      <div className="sidebar-section-heading">
+        <span className="sidebar-section-title">
+          <ChevronDown size={15} aria-hidden="true" />
+          <span>项目目录</span>
+        </span>
+        <button type="button" className="sidebar-icon-action" aria-label="添加项目目录" onClick={addProject}>
+          <Plus size={16} aria-hidden="true" />
+        </button>
+      </div>
+      <div className="sidebar-tree-root">
+        {projectItems.map((item) => (
+          <button
+            key={item.path || item.name}
+            type="button"
+            className={`sidebar-tree-folder${item.path && item.path === activeProjectPath ? ' active' : ''}`}
+            onClick={() => selectProject(item.path)}
+            aria-label={`选择项目 ${item.name}`}
+          >
+            <ChevronDown size={14} aria-hidden="true" />
+            <Folder size={18} aria-hidden="true" />
+            <span>{item.name}</span>
+          </button>
+        ))}
+        <ul className="sidebar-tree-actions">
+          <li>
+            <button type="button" className="sidebar-tree-item" onClick={addFilesToChat}>
+              <FileText size={15} aria-hidden="true" />
+              <span>添加文件到会话</span>
             </button>
-          );
-        })}
-      </nav>
+          </li>
+          <li>
+            <button type="button" className="sidebar-tree-item" onClick={openSharedFiles}>
+              <FolderOpen size={15} aria-hidden="true" />
+              <span>打开共享文件</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function WorkbenchSidebar({ activePage, isOpen = false, setActivePage, store, projectPath, theme, toggleTheme, memorySimilarCount = 0 }) {
+  const memoryBadgeCount = Math.max(0, Number(memorySimilarCount) || 0);
+  const isDark = theme === COLOR_THEMES.dark;
+  const ThemeIcon = isDark ? Sun : Moon;
+  const themeLabel = isDark ? '白天模式' : '黑夜模式';
+  const startNewChat = () => {
+    setActivePage('chat');
+    runUIAction(() => store?.newThread?.());
+  };
+
+  return (
+    <aside
+      id="app-sidebar"
+      className={`app-sidebar${isOpen ? ' is-open' : ''}`}
+      data-testid="app-sidebar"
+      aria-label="Super Dolphin 工作台"
+      style={isOpen ? { marginLeft: 0 } : undefined}
+    >
+      <div className="sidebar-brand">
+        <img src={superDolphinLogo} alt="" aria-hidden="true" />
+        <strong>Super Dolphin</strong>
+      </div>
+      <button
+        type="button"
+        className={`sidebar-new-chat ${activePage === 'chat' ? 'active' : ''}`}
+        aria-label="新会话"
+        onClick={startNewChat}
+      >
+        <Plus size={22} aria-hidden="true" />
+        <span>新会话</span>
+      </button>
+      <SidebarNavList
+        items={primaryNavItems}
+        activePage={activePage}
+        setActivePage={setActivePage}
+        testId="sidebar-nav"
+        className="sidebar-primary-nav"
+      />
+      <SidebarProjectTree projectPath={projectPath} setActivePage={setActivePage} store={store} />
+      <SidebarNavList
+        items={secondaryNavItems}
+        activePage={activePage}
+        setActivePage={setActivePage}
+        memoryBadgeCount={memoryBadgeCount}
+        testId="sidebar-secondary-nav"
+        className="sidebar-secondary-nav"
+      />
+      <button
+        type="button"
+        className="sidebar-theme-toggle"
+        onClick={toggleTheme}
+        aria-label={`切换到${themeLabel}`}
+      >
+        <ThemeIcon size={16} aria-hidden="true" />
+        <span>{themeLabel}</span>
+      </button>
+      <button
+        type="button"
+        className={`sidebar-settings ${activePage === 'settings' ? 'active' : ''}`}
+        aria-label="Settings"
+        onClick={() => setActivePage('settings')}
+      >
+        <SettingsIcon size={25} aria-hidden="true" />
+        <span>Settings</span>
+      </button>
     </aside>
   );
 }
