@@ -10,26 +10,26 @@ import (
 )
 
 type querierStub struct {
-	insertFn        func(context.Context, sqlc.InsertAgentFeedbackEventParams) (sqlc.AgentFeedbackEvent, error)
-	listByThreadFn  func(context.Context, sqlc.ListAgentFeedbackEventsByThreadParams) ([]sqlc.AgentFeedbackEvent, error)
-	listByAgentFn   func(context.Context, sqlc.ListAgentFeedbackEventsByAgentParams) ([]sqlc.AgentFeedbackEvent, error)
+	insertFn        func(context.Context, sqlc.InsertAgentFeedbackEventParams) (sqlc.InsertAgentFeedbackEventRow, error)
+	listByThreadFn  func(context.Context, sqlc.ListAgentFeedbackEventsByThreadParams) ([]sqlc.ListAgentFeedbackEventsByThreadRow, error)
+	listByAgentFn   func(context.Context, sqlc.ListAgentFeedbackEventsByAgentParams) ([]sqlc.ListAgentFeedbackEventsByAgentRow, error)
 	lastInsertParam sqlc.InsertAgentFeedbackEventParams
 }
 
-func (q *querierStub) InsertAgentFeedbackEvent(ctx context.Context, p sqlc.InsertAgentFeedbackEventParams) (sqlc.AgentFeedbackEvent, error) {
+func (q *querierStub) InsertAgentFeedbackEvent(ctx context.Context, p sqlc.InsertAgentFeedbackEventParams) (sqlc.InsertAgentFeedbackEventRow, error) {
 	q.lastInsertParam = p
 	if q.insertFn != nil {
 		return q.insertFn(ctx, p)
 	}
-	return sqlc.AgentFeedbackEvent{ID: 1, ThreadID: p.ThreadID, EventType: p.EventType}, nil
+	return sqlc.InsertAgentFeedbackEventRow{ID: 1, ThreadID: p.ThreadID, EventType: p.EventType}, nil
 }
-func (q *querierStub) ListAgentFeedbackEventsByThread(ctx context.Context, p sqlc.ListAgentFeedbackEventsByThreadParams) ([]sqlc.AgentFeedbackEvent, error) {
+func (q *querierStub) ListAgentFeedbackEventsByThread(ctx context.Context, p sqlc.ListAgentFeedbackEventsByThreadParams) ([]sqlc.ListAgentFeedbackEventsByThreadRow, error) {
 	if q.listByThreadFn != nil {
 		return q.listByThreadFn(ctx, p)
 	}
 	return nil, nil
 }
-func (q *querierStub) ListAgentFeedbackEventsByAgent(ctx context.Context, p sqlc.ListAgentFeedbackEventsByAgentParams) ([]sqlc.AgentFeedbackEvent, error) {
+func (q *querierStub) ListAgentFeedbackEventsByAgent(ctx context.Context, p sqlc.ListAgentFeedbackEventsByAgentParams) ([]sqlc.ListAgentFeedbackEventsByAgentRow, error) {
 	if q.listByAgentFn != nil {
 		return q.listByAgentFn(ctx, p)
 	}
@@ -111,7 +111,7 @@ func TestListByThread_DefaultsLimit(t *testing.T) {
 	t.Parallel()
 	var captured sqlc.ListAgentFeedbackEventsByThreadParams
 	q := &querierStub{
-		listByThreadFn: func(_ context.Context, p sqlc.ListAgentFeedbackEventsByThreadParams) ([]sqlc.AgentFeedbackEvent, error) {
+		listByThreadFn: func(_ context.Context, p sqlc.ListAgentFeedbackEventsByThreadParams) ([]sqlc.ListAgentFeedbackEventsByThreadRow, error) {
 			captured = p
 			return nil, nil
 		},
@@ -130,7 +130,7 @@ func TestListByAgentKey_PassesThrough(t *testing.T) {
 	t.Parallel()
 	var captured sqlc.ListAgentFeedbackEventsByAgentParams
 	q := &querierStub{
-		listByAgentFn: func(_ context.Context, p sqlc.ListAgentFeedbackEventsByAgentParams) ([]sqlc.AgentFeedbackEvent, error) {
+		listByAgentFn: func(_ context.Context, p sqlc.ListAgentFeedbackEventsByAgentParams) ([]sqlc.ListAgentFeedbackEventsByAgentRow, error) {
 			captured = p
 			return nil, nil
 		},

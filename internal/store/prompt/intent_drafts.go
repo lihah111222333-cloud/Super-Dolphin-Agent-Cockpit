@@ -11,19 +11,19 @@ import (
 )
 
 type upsertIntentDraftQuerier interface {
-	UpsertPromptIntentDraft(ctx context.Context, arg sqlc.UpsertPromptIntentDraftParams) (sqlc.PromptIntentDraft, error)
+	UpsertPromptIntentDraft(ctx context.Context, arg sqlc.UpsertPromptIntentDraftParams) (sqlc.UpsertPromptIntentDraftRow, error)
 }
 
 type getIntentDraftQuerier interface {
-	GetPromptIntentDraft(ctx context.Context, arg sqlc.GetPromptIntentDraftParams) (sqlc.PromptIntentDraft, error)
+	GetPromptIntentDraft(ctx context.Context, arg sqlc.GetPromptIntentDraftParams) (sqlc.GetPromptIntentDraftRow, error)
 }
 
 type listIntentDraftsQuerier interface {
-	ListPromptIntentDrafts(ctx context.Context, arg sqlc.ListPromptIntentDraftsParams) ([]sqlc.PromptIntentDraft, error)
+	ListPromptIntentDrafts(ctx context.Context, arg sqlc.ListPromptIntentDraftsParams) ([]sqlc.ListPromptIntentDraftsRow, error)
 }
 
 type updateIntentDraftStatusQuerier interface {
-	UpdatePromptIntentDraftStatus(ctx context.Context, arg sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.PromptIntentDraft, error)
+	UpdatePromptIntentDraftStatus(ctx context.Context, arg sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.UpdatePromptIntentDraftStatusRow, error)
 }
 
 func (s *store) UpsertIntentDraft(ctx context.Context, draft PromptIntentDraft) (*PromptIntentDraft, error) {
@@ -211,23 +211,50 @@ func normalizePromptIntentJSON(raw json.RawMessage, defaultValue string) ([]byte
 	return []byte(trimmed), nil
 }
 
-func fromSQLCPromptIntentDraft(row sqlc.PromptIntentDraft) PromptIntentDraft {
+func fromSQLCPromptIntentDraft(row any) PromptIntentDraft {
+	switch r := row.(type) {
+	case sqlc.UpsertPromptIntentDraftRow:
+		return promptIntentDraftFromFields(r.ID, r.DraftKey, r.CWD, r.Kind, r.RawInput, r.SourceType, r.SourceUrl,
+			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt)
+	case sqlc.GetPromptIntentDraftRow:
+		return promptIntentDraftFromFields(r.ID, r.DraftKey, r.CWD, r.Kind, r.RawInput, r.SourceType, r.SourceUrl,
+			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt)
+	case sqlc.ListPromptIntentDraftsRow:
+		return promptIntentDraftFromFields(r.ID, r.DraftKey, r.CWD, r.Kind, r.RawInput, r.SourceType, r.SourceUrl,
+			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt)
+	case sqlc.UpdatePromptIntentDraftStatusRow:
+		return promptIntentDraftFromFields(r.ID, r.DraftKey, r.CWD, r.Kind, r.RawInput, r.SourceType, r.SourceUrl,
+			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt)
+	default:
+		panic("unsupported prompt intent draft row type")
+	}
+}
+
+func promptIntentDraftFromFields(
+	id int64,
+	draftKey, cwd, kind, rawInput, sourceType, sourceURL, originHash, licenseHint string,
+	generatedCard []byte,
+	confidence float64,
+	status, scope string,
+	issues []byte,
+	createdAt, updatedAt int64,
+) PromptIntentDraft {
 	return PromptIntentDraft{
-		ID:            row.ID,
-		DraftKey:      row.DraftKey,
-		CWD:           row.CWD,
-		Kind:          row.Kind,
-		RawInput:      row.RawInput,
-		SourceType:    row.SourceType,
-		SourceURL:     row.SourceUrl,
-		OriginHash:    row.OriginHash,
-		LicenseHint:   row.LicenseHint,
-		GeneratedCard: json.RawMessage(row.GeneratedCard),
-		Confidence:    row.Confidence,
-		Status:        row.Status,
-		Scope:         normalizePromptIntentDraftScope(row.Scope),
-		Issues:        json.RawMessage(row.Issues),
-		CreatedAt:     platformdb.TimeFromMillis(row.CreatedAt),
-		UpdatedAt:     platformdb.TimeFromMillis(row.UpdatedAt),
+		ID:            id,
+		DraftKey:      draftKey,
+		CWD:           cwd,
+		Kind:          kind,
+		RawInput:      rawInput,
+		SourceType:    sourceType,
+		SourceURL:     sourceURL,
+		OriginHash:    originHash,
+		LicenseHint:   licenseHint,
+		GeneratedCard: json.RawMessage(generatedCard),
+		Confidence:    confidence,
+		Status:        status,
+		Scope:         normalizePromptIntentDraftScope(scope),
+		Issues:        json.RawMessage(issues),
+		CreatedAt:     platformdb.TimeFromMillis(createdAt),
+		UpdatedAt:     platformdb.TimeFromMillis(updatedAt),
 	}
 }

@@ -10,10 +10,10 @@ import (
 )
 
 type querier interface {
-	UpsertSessionInsight(ctx context.Context, arg sqlc.UpsertSessionInsightParams) (sqlc.SessionInsight, error)
-	GetSessionInsightByLocalTurn(ctx context.Context, arg sqlc.GetSessionInsightByLocalTurnParams) (sqlc.SessionInsight, error)
-	ListSessionInsightsByThread(ctx context.Context, arg sqlc.ListSessionInsightsByThreadParams) ([]sqlc.SessionInsight, error)
-	ListRecentSessionInsights(ctx context.Context, arg sqlc.ListRecentSessionInsightsParams) ([]sqlc.SessionInsight, error)
+	UpsertSessionInsight(ctx context.Context, arg sqlc.UpsertSessionInsightParams) (sqlc.UpsertSessionInsightRow, error)
+	GetSessionInsightByLocalTurn(ctx context.Context, arg sqlc.GetSessionInsightByLocalTurnParams) (sqlc.GetSessionInsightByLocalTurnRow, error)
+	ListSessionInsightsByThread(ctx context.Context, arg sqlc.ListSessionInsightsByThreadParams) ([]sqlc.ListSessionInsightsByThreadRow, error)
+	ListRecentSessionInsights(ctx context.Context, arg sqlc.ListRecentSessionInsightsParams) ([]sqlc.ListRecentSessionInsightsRow, error)
 	ListObservedApprovalRequests(ctx context.Context, arg sqlc.ListObservedApprovalRequestsParams) ([]sqlc.ListObservedApprovalRequestsRow, error)
 	ListObservedTokenTurns(ctx context.Context, arg sqlc.ListObservedTokenTurnsParams) ([]sqlc.ListObservedTokenTurnsRow, error)
 }
@@ -257,39 +257,84 @@ func (s *store) ListObservedTokenTurns(ctx context.Context, threadID string, lim
 	return out, nil
 }
 
-// fromRow maps a sqlc SessionInsight row into the domain Insight. Time
+// fromRow maps a sqlc session insight row into the domain Insight. Time
 // fields follow the same "zero value = NULL" convention used across this
 // project's stores.
-func fromRow(r sqlc.SessionInsight) Insight {
+func fromRow(row any) Insight {
+	switch r := row.(type) {
+	case sqlc.UpsertSessionInsightRow:
+		return insightFromFields(r.ID, r.ThreadID, r.AgentID, r.SessionID, r.Provider, r.LocalTurnID,
+			r.ProviderTurnID, r.StartedAt, r.CompletedAt, r.DurationMs, r.Success, r.Status, r.StopReason,
+			r.ToolCalls, r.ToolCallsObserved, r.ToolFailures, r.ToolFailuresObserved, r.ApprovalRequests,
+			r.ApprovalRequestsObserved, r.TokenInput, r.TokenOutput, r.TokenTotal, r.TokenSnapshotObserved,
+			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt)
+	case sqlc.GetSessionInsightByLocalTurnRow:
+		return insightFromFields(r.ID, r.ThreadID, r.AgentID, r.SessionID, r.Provider, r.LocalTurnID,
+			r.ProviderTurnID, r.StartedAt, r.CompletedAt, r.DurationMs, r.Success, r.Status, r.StopReason,
+			r.ToolCalls, r.ToolCallsObserved, r.ToolFailures, r.ToolFailuresObserved, r.ApprovalRequests,
+			r.ApprovalRequestsObserved, r.TokenInput, r.TokenOutput, r.TokenTotal, r.TokenSnapshotObserved,
+			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt)
+	case sqlc.ListSessionInsightsByThreadRow:
+		return insightFromFields(r.ID, r.ThreadID, r.AgentID, r.SessionID, r.Provider, r.LocalTurnID,
+			r.ProviderTurnID, r.StartedAt, r.CompletedAt, r.DurationMs, r.Success, r.Status, r.StopReason,
+			r.ToolCalls, r.ToolCallsObserved, r.ToolFailures, r.ToolFailuresObserved, r.ApprovalRequests,
+			r.ApprovalRequestsObserved, r.TokenInput, r.TokenOutput, r.TokenTotal, r.TokenSnapshotObserved,
+			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt)
+	case sqlc.ListRecentSessionInsightsRow:
+		return insightFromFields(r.ID, r.ThreadID, r.AgentID, r.SessionID, r.Provider, r.LocalTurnID,
+			r.ProviderTurnID, r.StartedAt, r.CompletedAt, r.DurationMs, r.Success, r.Status, r.StopReason,
+			r.ToolCalls, r.ToolCallsObserved, r.ToolFailures, r.ToolFailuresObserved, r.ApprovalRequests,
+			r.ApprovalRequestsObserved, r.TokenInput, r.TokenOutput, r.TokenTotal, r.TokenSnapshotObserved,
+			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt)
+	default:
+		panic("unsupported session insight row type")
+	}
+}
+
+func insightFromFields(
+	id int64,
+	threadID, agentID, sessionID, provider, localTurnID, providerTurnID string,
+	startedAt, completedAt *int64,
+	durationMs int64,
+	success *int64,
+	status, stopReason string,
+	toolCalls, toolCallsObserved, toolFailures, toolFailuresObserved int64,
+	approvalRequests, approvalRequestsObserved int64,
+	tokenInput, tokenOutput, tokenTotal, tokenSnapshotObserved int64,
+	contextWindowTokens int64,
+	uiProjection string,
+	skillsSelected []byte,
+	createdAt, updatedAt int64,
+) Insight {
 	return Insight{
-		ID:                       r.ID,
-		ThreadID:                 r.ThreadID,
-		AgentID:                  r.AgentID,
-		SessionID:                r.SessionID,
-		Provider:                 r.Provider,
-		LocalTurnID:              r.LocalTurnID,
-		ProviderTurnID:           r.ProviderTurnID,
-		StartedAt:                fromTSPtr(r.StartedAt),
-		CompletedAt:              fromTSPtr(r.CompletedAt),
-		DurationMS:               int32(r.DurationMs),
-		Success:                  intPtrToBoolPtr(r.Success),
-		Status:                   r.Status,
-		StopReason:               r.StopReason,
-		ToolCalls:                int32(r.ToolCalls),
-		ToolCallsObserved:        r.ToolCallsObserved != 0,
-		ToolFailures:             int32(r.ToolFailures),
-		ToolFailuresObserved:     r.ToolFailuresObserved != 0,
-		ApprovalRequests:         int32(r.ApprovalRequests),
-		ApprovalRequestsObserved: r.ApprovalRequestsObserved != 0,
-		TokenInput:               int32(r.TokenInput),
-		TokenOutput:              int32(r.TokenOutput),
-		TokenTotal:               int32(r.TokenTotal),
-		TokenSnapshotObserved:    r.TokenSnapshotObserved != 0,
-		ContextWindowTokens:      int32(r.ContextWindowTokens),
-		UIProjection:             r.UIProjection,
-		SkillsSelected:           cloneBytes(r.SkillsSelected),
-		CreatedAt:                fromTS(r.CreatedAt),
-		UpdatedAt:                fromTS(r.UpdatedAt),
+		ID:                       id,
+		ThreadID:                 threadID,
+		AgentID:                  agentID,
+		SessionID:                sessionID,
+		Provider:                 provider,
+		LocalTurnID:              localTurnID,
+		ProviderTurnID:           providerTurnID,
+		StartedAt:                fromTSPtr(startedAt),
+		CompletedAt:              fromTSPtr(completedAt),
+		DurationMS:               int32(durationMs),
+		Success:                  intPtrToBoolPtr(success),
+		Status:                   status,
+		StopReason:               stopReason,
+		ToolCalls:                int32(toolCalls),
+		ToolCallsObserved:        toolCallsObserved != 0,
+		ToolFailures:             int32(toolFailures),
+		ToolFailuresObserved:     toolFailuresObserved != 0,
+		ApprovalRequests:         int32(approvalRequests),
+		ApprovalRequestsObserved: approvalRequestsObserved != 0,
+		TokenInput:               int32(tokenInput),
+		TokenOutput:              int32(tokenOutput),
+		TokenTotal:               int32(tokenTotal),
+		TokenSnapshotObserved:    tokenSnapshotObserved != 0,
+		ContextWindowTokens:      int32(contextWindowTokens),
+		UIProjection:             uiProjection,
+		SkillsSelected:           cloneBytes(skillsSelected),
+		CreatedAt:                fromTS(createdAt),
+		UpdatedAt:                fromTS(updatedAt),
 	}
 }
 

@@ -9,14 +9,23 @@ func TestUpsertPromptTemplateSQLWhenToUseOrder(t *testing.T) {
 	t.Parallel()
 
 	checks := []string{
+		"INSERT INTO prompt_templates (",
 		"variables, tags, description, when_to_use, enabled, manually_edited, match_when, priority",
-		") VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12::jsonb, $13, $14, $15, NOW())",
+		") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000))",
 		"when_to_use = EXCLUDED.when_to_use",
-		"RETURNING id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, when_to_use, enabled, manually_edited, match_when, priority",
+		"match_when = EXCLUDED.match_when",
+		"updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)",
+		"RETURNING id, prompt_key, title, agent_key, tool_name, prompt_text,",
+		"CAST(variables AS BLOB) AS variables, CAST(tags AS BLOB) AS tags",
+		"CAST(match_when AS BLOB) AS match_when, priority",
 	}
 	for _, check := range checks {
 		if !strings.Contains(upsertPromptTemplate, check) {
 			t.Fatalf("upsertPromptTemplate SQL missing %q:\n%s", check, upsertPromptTemplate)
 		}
+	}
+
+	if got := strings.Count(upsertPromptTemplate, "CAST(strftime('%s','now') AS INTEGER) * 1000"); got != 2 {
+		t.Fatalf("upsertPromptTemplate SQL should use SQLite millisecond timestamps for insert and update, got %d occurrences:\n%s", got, upsertPromptTemplate)
 	}
 }

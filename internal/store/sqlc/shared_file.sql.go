@@ -52,19 +52,18 @@ func (q *Queries) GetSharedFile(ctx context.Context, arg GetSharedFileParams) (S
 const listSharedFiles = `-- name: ListSharedFiles :many
 SELECT path, content, updated_by, created_at, updated_at
 FROM shared_files
-WHERE (? = '' OR path LIKE '%' || ? || '%')
+WHERE (?1 = '' OR path LIKE '%' || ?1 || '%')
 ORDER BY updated_at DESC, path ASC
-LIMIT ?
+LIMIT ?2
 `
 
 type ListSharedFilesParams struct {
-	Column1 interface{} `db:"column_1" json:"column_1"`
-	Column2 *string     `db:"column_2" json:"column_2"`
-	Limit   int64       `db:"limit" json:"limit"`
+	Prefix     interface{} `db:"prefix" json:"prefix"`
+	LimitCount int64       `db:"limit_count" json:"limit_count"`
 }
 
 func (q *Queries) ListSharedFiles(ctx context.Context, arg ListSharedFilesParams) ([]SharedFile, error) {
-	rows, err := q.db.QueryContext(ctx, listSharedFiles, arg.Column1, arg.Column2, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listSharedFiles, arg.Prefix, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}

@@ -2,12 +2,12 @@ package prompt
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
-	"github.com/jackc/pgx/v5"
 )
 
 func TestCreatePromptTemplateConflictMapsToConflict(t *testing.T) {
@@ -15,7 +15,7 @@ func TestCreatePromptTemplateConflictMapsToConflict(t *testing.T) {
 
 	s := &store{q: &promptQuerierStub{
 		createFn: func(context.Context, sqlc.CreatePromptTemplateParams) (sqlc.CreatePromptTemplateRow, error) {
-			return sqlc.CreatePromptTemplateRow{}, pgx.ErrNoRows
+			return sqlc.CreatePromptTemplateRow{}, sql.ErrNoRows
 		},
 	}}
 	_, err := s.CreatePromptTemplate(context.Background(), promptUpsertInput())
@@ -55,15 +55,15 @@ func promptCreateRow(arg sqlc.CreatePromptTemplateParams, now time.Time) sqlc.Cr
 		AgentKey:       arg.AgentKey,
 		ToolName:       arg.ToolName,
 		PromptText:     arg.PromptText,
-		Variables:      arg.Column6,
-		Tags:           arg.Column7,
+		Variables:      arg.Variables,
+		Tags:           arg.Tags,
 		Description:    arg.Description,
 		Enabled:        arg.Enabled,
 		ManuallyEdited: arg.ManuallyEdited,
 		CreatedBy:      arg.CreatedBy,
 		UpdatedBy:      arg.UpdatedBy,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		CreatedAt:      platformdb.Millis(now),
+		UpdatedAt:      platformdb.Millis(now),
 		WhenToUse:      arg.WhenToUse,
 	}
 }
@@ -191,7 +191,7 @@ func TestStoreListSectionsMapsTriggerTypeAndRecallTopic(t *testing.T) {
 				SectionKey:  "project_memory",
 				Region:      "dynamic",
 				Body:        "body",
-				Enabled:     true,
+				Enabled:     int64(1),
 				TriggerType: "recall",
 				RecallTopic: "project-memory",
 			}}, nil
@@ -215,8 +215,8 @@ func TestStoreListSectionsByTemplateIDsForwardsBatchIDsAndMapsRows(t *testing.T)
 		listSectionsBatchFn: func(_ context.Context, arg sqlc.ListPromptTemplateSectionsByTemplatesParams) ([]sqlc.PromptTemplateSection, error) {
 			captured = arg
 			return []sqlc.PromptTemplateSection{
-				{ID: 11, TemplateID: 7, SectionKey: "identity", Region: "static", Body: "identity", Enabled: true, TriggerType: "always"},
-				{ID: 12, TemplateID: 8, SectionKey: "workflow", Region: "dynamic", Body: "workflow", Enabled: true, TriggerType: "keyword"},
+				{ID: 11, TemplateID: 7, SectionKey: "identity", Region: "static", Body: "identity", Enabled: int64(1), TriggerType: "always"},
+				{ID: 12, TemplateID: 8, SectionKey: "workflow", Region: "dynamic", Body: "workflow", Enabled: int64(1), TriggerType: "keyword"},
 			}, nil
 		},
 	}}

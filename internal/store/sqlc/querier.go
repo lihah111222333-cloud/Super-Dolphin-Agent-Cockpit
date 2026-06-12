@@ -41,7 +41,7 @@ type Querier interface {
 	// CRUD --------------------------------------------------------------
 	CreateCronJob(ctx context.Context, arg CreateCronJobParams) (CronJob, error)
 	CreateInteraction(ctx context.Context, arg CreateInteractionParams) (AgentInteraction, error)
-	CreatePromptTemplate(ctx context.Context, arg CreatePromptTemplateParams) (PromptTemplate, error)
+	CreatePromptTemplate(ctx context.Context, arg CreatePromptTemplateParams) (CreatePromptTemplateRow, error)
 	// Legacy V2 store SQL used proposal_hash/proposal_json columns.
 	// These queries are aligned to the V2 exported public schema used for the baseline.
 	CreateTopologyApproval(ctx context.Context, arg CreateTopologyApprovalParams) (TopologyApproval, error)
@@ -61,7 +61,7 @@ type Querier interface {
 	GetAgentStatus(ctx context.Context, arg GetAgentStatusParams) (AgentStatus, error)
 	GetAgentThreadByID(ctx context.Context, arg GetAgentThreadByIDParams) (GetAgentThreadByIDRow, error)
 	GetAgentThreadByPort(ctx context.Context, arg GetAgentThreadByPortParams) (GetAgentThreadByPortRow, error)
-	GetCommandCard(ctx context.Context, arg GetCommandCardParams) (CommandCard, error)
+	GetCommandCard(ctx context.Context, arg GetCommandCardParams) (GetCommandCardRow, error)
 	GetCronJobByID(ctx context.Context, arg GetCronJobByIDParams) (CronJob, error)
 	GetCronJobRunByDedupeKey(ctx context.Context, arg GetCronJobRunByDedupeKeyParams) (CronJobRun, error)
 	GetCronJobRunByID(ctx context.Context, arg GetCronJobRunByIDParams) (CronJobRun, error)
@@ -74,21 +74,21 @@ type Querier interface {
 	// scheduler's caller checks local_turn_id == "" to distinguish miss
 	// from hit.
 	GetLiveTurnDedupe(ctx context.Context, arg GetLiveTurnDedupeParams) (TurnDedupeRegistry, error)
-	GetPromptIntentDraft(ctx context.Context, arg GetPromptIntentDraftParams) (PromptIntentDraft, error)
-	GetPromptTemplate(ctx context.Context, arg GetPromptTemplateParams) (PromptTemplate, error)
+	GetPromptIntentDraft(ctx context.Context, arg GetPromptIntentDraftParams) (GetPromptIntentDraftRow, error)
+	GetPromptTemplate(ctx context.Context, arg GetPromptTemplateParams) (GetPromptTemplateRow, error)
 	// Used by CompleteTurn to locate the active run for a completed turn without
 	// scanning all unresolved rows. turn_id is indexed by the dedupe_key B-tree
 	// and the status guard ensures only one row can match (at most one run per
 	// turn can be in 'running').
 	GetRunningCronJobRunByTurnID(ctx context.Context, arg GetRunningCronJobRunByTurnIDParams) (CronJobRun, error)
-	GetSessionInsightByLocalTurn(ctx context.Context, arg GetSessionInsightByLocalTurnParams) (SessionInsight, error)
+	GetSessionInsightByLocalTurn(ctx context.Context, arg GetSessionInsightByLocalTurnParams) (GetSessionInsightByLocalTurnRow, error)
 	GetSharedFile(ctx context.Context, arg GetSharedFileParams) (SharedFile, error)
 	GetThreadByAgent(ctx context.Context, arg GetThreadByAgentParams) (string, error)
 	GetUIPreferenceValue(ctx context.Context, arg GetUIPreferenceValueParams) (json.RawMessage, error)
 	GetWorkspaceRun(ctx context.Context, arg GetWorkspaceRunParams) (WorkspaceRun, error)
 	GetWorkspaceRunFile(ctx context.Context, arg GetWorkspaceRunFileParams) (WorkspaceRunFile, error)
 	HeartbeatCwdLock(ctx context.Context, arg HeartbeatCwdLockParams) error
-	InsertAgentFeedbackEvent(ctx context.Context, arg InsertAgentFeedbackEventParams) (AgentFeedbackEvent, error)
+	InsertAgentFeedbackEvent(ctx context.Context, arg InsertAgentFeedbackEventParams) (InsertAgentFeedbackEventRow, error)
 	InsertAuditEvent(ctx context.Context, arg InsertAuditEventParams) error
 	InsertCommandCardVersion(ctx context.Context, arg InsertCommandCardVersionParams) error
 	// cron_job_runs -----------------------------------------------------
@@ -97,8 +97,8 @@ type Querier interface {
 	InsertSystemLog(ctx context.Context, arg InsertSystemLogParams) error
 	ListAILogSystemLogs(ctx context.Context, arg ListAILogSystemLogsParams) ([]SystemLog, error)
 	ListAILogsByCategory(ctx context.Context, arg ListAILogsByCategoryParams) ([]ListAILogsByCategoryRow, error)
-	ListAgentFeedbackEventsByAgent(ctx context.Context, arg ListAgentFeedbackEventsByAgentParams) ([]AgentFeedbackEvent, error)
-	ListAgentFeedbackEventsByThread(ctx context.Context, arg ListAgentFeedbackEventsByThreadParams) ([]AgentFeedbackEvent, error)
+	ListAgentFeedbackEventsByAgent(ctx context.Context, arg ListAgentFeedbackEventsByAgentParams) ([]ListAgentFeedbackEventsByAgentRow, error)
+	ListAgentFeedbackEventsByThread(ctx context.Context, arg ListAgentFeedbackEventsByThreadParams) ([]ListAgentFeedbackEventsByThreadRow, error)
 	ListAgentStatuses(ctx context.Context, arg ListAgentStatusesParams) ([]AgentStatus, error)
 	ListAgentThreadBindings(ctx context.Context) ([]AgentProviderBinding, error)
 	ListAgentThreadConfigsByIDs(ctx context.Context, arg ListAgentThreadConfigsByIDsParams) ([]ListAgentThreadConfigsByIDsRow, error)
@@ -107,7 +107,7 @@ type Querier interface {
 	ListAgentThreads(ctx context.Context) ([]ListAgentThreadsRow, error)
 	ListAuditEvents(ctx context.Context, arg ListAuditEventsParams) ([]ListAuditEventsRow, error)
 	ListBusExceptionLogs(ctx context.Context, arg ListBusExceptionLogsParams) ([]ListBusExceptionLogsRow, error)
-	ListCommandCardVersions(ctx context.Context, arg ListCommandCardVersionsParams) ([]CommandCardVersion, error)
+	ListCommandCardVersions(ctx context.Context, arg ListCommandCardVersionsParams) ([]ListCommandCardVersionsRow, error)
 	ListCommandCards(ctx context.Context, arg ListCommandCardsParams) ([]ListCommandCardsRow, error)
 	ListCronJobRunsByJob(ctx context.Context, arg ListCronJobRunsByJobParams) ([]CronJobRun, error)
 	ListCronJobs(ctx context.Context) ([]CronJob, error)
@@ -131,20 +131,20 @@ type Querier interface {
 	//
 	ListObservedTokenTurns(ctx context.Context, arg ListObservedTokenTurnsParams) ([]ListObservedTokenTurnsRow, error)
 	ListPendingTopologyApprovals(ctx context.Context) ([]TopologyApproval, error)
-	ListPromptIntentDrafts(ctx context.Context, arg ListPromptIntentDraftsParams) ([]PromptIntentDraft, error)
+	ListPromptIntentDrafts(ctx context.Context, arg ListPromptIntentDraftsParams) ([]ListPromptIntentDraftsRow, error)
 	ListPromptTemplateSectionsByTemplate(ctx context.Context, arg ListPromptTemplateSectionsByTemplateParams) ([]PromptTemplateSection, error)
 	ListPromptTemplateSectionsByTemplates(ctx context.Context, arg ListPromptTemplateSectionsByTemplatesParams) ([]PromptTemplateSection, error)
-	ListPromptTemplates(ctx context.Context, arg ListPromptTemplatesParams) ([]PromptTemplate, error)
+	ListPromptTemplates(ctx context.Context, arg ListPromptTemplatesParams) ([]ListPromptTemplatesRow, error)
 	ListRecallSections(ctx context.Context, arg ListRecallSectionsParams) ([]ListRecallSectionsRow, error)
 	ListRecentAILogs(ctx context.Context, arg ListRecentAILogsParams) ([]ListRecentAILogsRow, error)
 	// ListRecentSessionInsights is used by the dashboard API to return the
 	// N most recent turns across all threads.
 	//
-	ListRecentSessionInsights(ctx context.Context, arg ListRecentSessionInsightsParams) ([]SessionInsight, error)
+	ListRecentSessionInsights(ctx context.Context, arg ListRecentSessionInsightsParams) ([]ListRecentSessionInsightsRow, error)
 	ListRecoverableAgentThreads(ctx context.Context) ([]ListRecoverableAgentThreadsRow, error)
 	ListRunningAgentThreads(ctx context.Context) ([]ListRunningAgentThreadsRow, error)
 	ListRunningAgents(ctx context.Context) ([]ListRunningAgentsRow, error)
-	ListSessionInsightsByThread(ctx context.Context, arg ListSessionInsightsByThreadParams) ([]SessionInsight, error)
+	ListSessionInsightsByThread(ctx context.Context, arg ListSessionInsightsByThreadParams) ([]ListSessionInsightsByThreadRow, error)
 	ListSharedFiles(ctx context.Context, arg ListSharedFilesParams) ([]SharedFile, error)
 	ListSystemLogs(ctx context.Context, arg ListSystemLogsParams) ([]SystemLog, error)
 	ListUIPreferences(ctx context.Context, arg ListUIPreferencesParams) ([]ListUIPreferencesRow, error)
@@ -206,7 +206,7 @@ type Querier interface {
 	UpdateAgentThreadPromptSnapshot(ctx context.Context, arg UpdateAgentThreadPromptSnapshotParams) (int64, error)
 	UpdateAgentThreadStatus(ctx context.Context, arg UpdateAgentThreadStatusParams) error
 	UpdateCronJobSchedule(ctx context.Context, arg UpdateCronJobScheduleParams) error
-	UpdatePromptIntentDraftStatus(ctx context.Context, arg UpdatePromptIntentDraftStatusParams) (PromptIntentDraft, error)
+	UpdatePromptIntentDraftStatus(ctx context.Context, arg UpdatePromptIntentDraftStatusParams) (UpdatePromptIntentDraftStatusRow, error)
 	UpdateWorkspaceRunStatus(ctx context.Context, arg UpdateWorkspaceRunStatusParams) (WorkspaceRun, error)
 	// Codex identity columns use "'' preserves existing value" semantics so
 	// non-P1a callers that pass '' do not overwrite an already-persisted
@@ -215,9 +215,9 @@ type Querier interface {
 	UpsertAgentProviderBinding(ctx context.Context, arg UpsertAgentProviderBindingParams) error
 	UpsertAgentStatus(ctx context.Context, arg UpsertAgentStatusParams) (AgentStatus, error)
 	UpsertAgentThread(ctx context.Context, arg UpsertAgentThreadParams) error
-	UpsertCommandCard(ctx context.Context, arg UpsertCommandCardParams) (CommandCard, error)
-	UpsertPromptIntentDraft(ctx context.Context, arg UpsertPromptIntentDraftParams) (PromptIntentDraft, error)
-	UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemplateParams) (PromptTemplate, error)
+	UpsertCommandCard(ctx context.Context, arg UpsertCommandCardParams) (UpsertCommandCardRow, error)
+	UpsertPromptIntentDraft(ctx context.Context, arg UpsertPromptIntentDraftParams) (UpsertPromptIntentDraftRow, error)
+	UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemplateParams) (UpsertPromptTemplateRow, error)
 	// Upsert by (template_id, section_key). Touches updated_at on conflict so
 	// operators see when they last edited a row. Empty enable_when stays as-is
 	// (NULL or '{}' both mean "always inject" per EvaluateEnableWhen).
@@ -231,14 +231,14 @@ type Querier interface {
 	//    likewise frozen once the locked terminal is set.
 	//  * token no-regression: counters only advance. A context-window-only
 	//    event with zero counts cannot regress token_input / token_output /
-	//    token_total. Scalar GREATEST is per-field so a legitimate zero
+	//    token_total. Each CASE guard is per-field so a legitimate zero
 	//    event for one dimension does not zero out a sibling.
 	//
 	// The *_observed flags go sticky: once TRUE, no later event can flip
 	// them back to FALSE. This keeps "we already saw real data" from being
 	// clobbered by a projection that doesn't re-emit the signal.
 	//
-	UpsertSessionInsight(ctx context.Context, arg UpsertSessionInsightParams) (SessionInsight, error)
+	UpsertSessionInsight(ctx context.Context, arg UpsertSessionInsightParams) (UpsertSessionInsightRow, error)
 	UpsertSharedFile(ctx context.Context, arg UpsertSharedFileParams) (SharedFile, error)
 	// Queries for turn_dedupe_registry. See migration 0060 for the table
 	// layout + lifetime contract.
