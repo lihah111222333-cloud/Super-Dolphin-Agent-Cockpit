@@ -317,7 +317,7 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 		params.Model = s.runtimeConfigString("model")
 	}
 	if params.Effort == "" {
-		params.Effort = s.runtimeConfigString("effort")
+		params.Effort = normalizeCodexAppEffort(s.runtimeConfigString("effort"))
 	}
 	if supportutil.CodexModelNeedsListResolution(params.Model) {
 		params.Model = s.resolveTurnStartModel(ctx, params.Model)

@@ -45,7 +45,7 @@ func buildTurnStartParams(threadID string, req dto.TurnRequest) turnStartParams 
 		SelectedSkills:       selectedSkills,
 		ManualSkillSelection: req.ManualSkillSelection,
 		Model:                strings.TrimSpace(req.Overrides.Model),
-		Effort:               strings.TrimSpace(req.Overrides.Effort),
+		Effort:               normalizeCodexAppEffort(req.Overrides.Effort),
 		OutputSchema:         req.OutputSchema,
 	}
 }

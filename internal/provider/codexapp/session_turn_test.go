@@ -101,6 +101,45 @@ func TestStartTurnPreservesExplicitGPT5Model(t *testing.T) {
 	}
 }
 
+func TestStartTurnNormalizesRuntimeMinimalEffortToLow(t *testing.T) {
+	turnParams := make(chan map[string]any, 1)
+	serverURL := startCodexRPCServerWithHandler(t, func(msg jsonRPCMessage) json.RawMessage {
+		switch msg.Method {
+		case "turn/start":
+			var params map[string]any
+			_ = json.Unmarshal(msg.Params, &params)
+			turnParams <- params
+			return mustJSON(map[string]any{"turn": map[string]any{"id": "turn-1"}})
+		default:
+			return mustJSON(map[string]any{"ok": true})
+		}
+	})
+	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("newSession() error = %v", err)
+	}
+	s.runtime.Start()
+	t.Cleanup(func() { closeCodexTestSession(t, s) })
+	s.setThreadID("provider-thread-1")
+	s.setRuntimeConfig(map[string]any{"effort": "minimal"})
+
+	_, err = s.StartTurn(context.Background(), dto.TurnRequest{
+		Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("StartTurn() error = %v", err)
+	}
+
+	select {
+	case params := <-turnParams:
+		if params["effort"] != "low" {
+			t.Fatalf("turn/start effort = %#v, want low; params=%#v", params["effort"], params)
+		}
+	default:
+		t.Fatal("turn/start params were not captured")
+	}
+}
+
 func TestApplyTurnToolScopeRuntimeConfigUpdatesCWDAndRoots(t *testing.T) {
 	s := &session{runtimeConfig: map[string]any{
 		"cwd":                          "/old",
