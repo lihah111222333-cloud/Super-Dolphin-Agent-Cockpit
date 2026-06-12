@@ -30,7 +30,7 @@
     - `turn_dedupe_registry` 的活跃 entry 幂等约束。
     - `cron_jobs` 的 due/claim 索引。
     - `task_dag_runs` 的单 DAG running run 约束。
-    - `prompt_template_sections` recall 字段与 `prompt_recall_topics` 或等价唯一约束。
+    - `prompt_template_sections` recall 字段和 lookup index。专用 `prompt_recall_topics` 锁表或等价唯一策略由 Task 09 通过 SQLite-only incremental migration 添加，不属于 Task 02 baseline 的完成条件。
   - 验证大表索引覆盖：
     - `system_logs`: level/source/agent_id/thread_id filters + `ORDER BY ts DESC, id DESC`。
     - `session_insights`: `(thread_id, created_at DESC, id DESC)`、全局 recent、observed approval/token filters。
