@@ -2,14 +2,16 @@ package interaction
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
-	"github.com/jackc/pgx/v5"
+	_ "modernc.org/sqlite"
 )
 
 type interactionQuerierStub struct {
@@ -291,12 +293,12 @@ func TestGetForwardsIDAndMapsResult(t *testing.T) {
 	}
 }
 
-func TestGetWrapsPgxErrNoRowsAsNotFound(t *testing.T) {
+func TestGetWrapsSQLErrNoRowsAsNotFound(t *testing.T) {
 	t.Parallel()
 
 	s := &store{q: &interactionQuerierStub{
 		getFn: func(context.Context, sqlc.GetInteractionParams) (sqlc.AgentInteraction, error) {
-			return sqlc.AgentInteraction{}, pgx.ErrNoRows
+			return sqlc.AgentInteraction{}, sql.ErrNoRows
 		},
 	}}
 
@@ -325,8 +327,11 @@ func TestListForwardsFilterAndMapsRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if captured.Column1 != "thread-1" || captured.Column2 != "agent" || captured.Limit != 20 {
+	if captured.Column1 != "thread-1" || captured.Column3 != "agent" || captured.Limit != 20 {
 		t.Fatalf("List() forwarded wrong params: %+v", captured)
+	}
+	if captured.Column4 == nil || *captured.Column4 != "agent" || captured.Column5 == nil || *captured.Column5 != "agent" || captured.Column6 == nil || *captured.Column6 != "agent" {
+		t.Fatalf("List() forwarded wrong keyword LIKE params: %+v", captured)
 	}
 	if len(got) != 1 || got[0].ID != fixture.ID || got[0].ThreadID != fixture.ThreadID {
 		t.Fatalf("List() = %+v", got)
@@ -410,5 +415,140 @@ func TestReviewWrapsQuerierError(t *testing.T) {
 	}
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("Review() error = %v, want wrap of sentinel", err)
+	}
+}
+
+func TestInteractionSQLiteCreateSetsTimestampsAndRejectsInvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newInteractionSQLiteStore(t)
+	got, err := store.Create(context.Background(), Interaction{
+		ThreadID:       "thread-1",
+		Sender:         "orchestrator",
+		Receiver:       "agent-A",
+		MsgType:        "request",
+		Status:         "pending",
+		RequiresReview: true,
+		Payload:        json.RawMessage(`{"ok":true}`),
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() {
+		t.Fatalf("Create() timestamps = created %v updated %v, want non-zero", got.CreatedAt, got.UpdatedAt)
+	}
+
+	_, err = store.Create(context.Background(), Interaction{
+		ThreadID: "thread-1",
+		Sender:   "orchestrator",
+		Receiver: "agent-A",
+		MsgType:  "request",
+		Status:   "pending",
+		Payload:  json.RawMessage(`{`),
+	})
+	if err == nil {
+		t.Fatal("Create() invalid JSON error = nil, want CHECK failure")
+	}
+}
+
+func TestReviewInteractionSQLiteRequiresPendingReview(t *testing.T) {
+	t.Parallel()
+
+	store, db := newInteractionSQLiteStore(t)
+	created, err := store.Create(context.Background(), Interaction{
+		ThreadID:       "thread-1",
+		Sender:         "orchestrator",
+		Receiver:       "agent-A",
+		MsgType:        "request",
+		Status:         "pending",
+		RequiresReview: true,
+		Payload:        json.RawMessage(`{"needs":"review"}`),
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	approved, err := store.Review(context.Background(), ReviewInput{ID: created.ID, Status: "approved", ReviewedBy: "reviewer-1", ReviewNote: "ok"})
+	if err != nil {
+		t.Fatalf("Review() first error = %v", err)
+	}
+	if approved.Status != "approved" || approved.ReviewedBy != "reviewer-1" {
+		t.Fatalf("Review() first = %+v", approved)
+	}
+
+	_, err = store.Review(context.Background(), ReviewInput{ID: created.ID, Status: "rejected", ReviewedBy: "reviewer-2", ReviewNote: "stale"})
+	if !errors.Is(err, platformdb.ErrNotFound) {
+		t.Fatalf("Review() repeated error = %v, want ErrNotFound", err)
+	}
+	assertInteractionStatus(t, db, created.ID, "approved", "reviewer-1")
+}
+
+func TestReviewInteractionSQLiteRequiresReviewFlag(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newInteractionSQLiteStore(t)
+	created, err := store.Create(context.Background(), Interaction{
+		ThreadID:       "thread-1",
+		Sender:         "orchestrator",
+		Receiver:       "agent-A",
+		MsgType:        "message",
+		Status:         "pending",
+		RequiresReview: false,
+		Payload:        json.RawMessage(`{"needs":"none"}`),
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	_, err = store.Review(context.Background(), ReviewInput{ID: created.ID, Status: "approved", ReviewedBy: "reviewer-1"})
+	if !errors.Is(err, platformdb.ErrNotFound) {
+		t.Fatalf("Review() non-reviewable error = %v, want ErrNotFound", err)
+	}
+}
+
+func newInteractionSQLiteStore(t *testing.T) (*store, *sql.DB) {
+	t.Helper()
+
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "interaction.sqlite"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("close sqlite: %v", err)
+		}
+	})
+	if _, err := db.Exec(`
+CREATE TABLE agent_interactions (
+	id INTEGER PRIMARY KEY,
+	thread_id TEXT NOT NULL DEFAULT '',
+	parent_id INTEGER,
+	sender TEXT NOT NULL,
+	receiver TEXT NOT NULL DEFAULT '',
+	msg_type TEXT NOT NULL DEFAULT 'task',
+	status TEXT NOT NULL DEFAULT 'pending',
+	requires_review INTEGER NOT NULL DEFAULT 0 CHECK(requires_review IN (0, 1)),
+	reviewed_by TEXT NOT NULL DEFAULT '',
+	review_note TEXT NOT NULL DEFAULT '',
+	reviewed_at INTEGER,
+	payload TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(payload)),
+	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL
+);
+`); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	return &store{q: sqlc.New(db)}, db
+}
+
+func assertInteractionStatus(t *testing.T, db *sql.DB, id int64, wantStatus, wantReviewer string) {
+	t.Helper()
+
+	var status, reviewer string
+	if err := db.QueryRow("SELECT status, reviewed_by FROM agent_interactions WHERE id = ?", id).Scan(&status, &reviewer); err != nil {
+		t.Fatalf("query interaction status: %v", err)
+	}
+	if status != wantStatus || reviewer != wantReviewer {
+		t.Fatalf("interaction status/reviewer = %q/%q, want %q/%q", status, reviewer, wantStatus, wantReviewer)
 	}
 }

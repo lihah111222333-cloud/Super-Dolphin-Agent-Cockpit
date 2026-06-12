@@ -1,6 +1,6 @@
 -- name: CreateInteraction :one
-INSERT INTO agent_interactions (thread_id, parent_id, sender, receiver, msg_type, status, requires_review, payload, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000))
+INSERT INTO agent_interactions (thread_id, parent_id, sender, receiver, msg_type, status, requires_review, payload, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 RETURNING id, thread_id, parent_id, sender, receiver, msg_type, status, requires_review, reviewed_by, review_note, reviewed_at, payload, created_at, updated_at;
 
 -- name: GetInteraction :one
@@ -26,5 +26,5 @@ SET status = ?,
     review_note = ?,
     reviewed_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE id = ?
+WHERE id = ? AND status = 'pending' AND requires_review = 1
 RETURNING id, thread_id, parent_id, sender, receiver, msg_type, status, requires_review, reviewed_by, review_note, reviewed_at, payload, created_at, updated_at;

@@ -10,11 +10,9 @@ import (
 )
 
 const cancelExpiredHookReviews = `-- name: CancelExpiredHookReviews :execrows
-';
-
 UPDATE hook_pending_reviews
 SET status = 'expired', decision = default_action, resolved_at = ?
-WHERE status = 'pending' AND deadline_at <=
+WHERE status = 'pending' AND deadline_at <= ?
 `
 
 type CancelExpiredHookReviewsParams struct {
@@ -31,11 +29,9 @@ func (q *Queries) CancelExpiredHookReviews(ctx context.Context, arg CancelExpire
 }
 
 const cancelHookPendingReviewsByAgent = `-- name: CancelHookPendingReviewsByAgent :execrows
-';
-
 UPDATE hook_pending_reviews
 SET status = 'cancelled', resolved_at = ?
-WHERE agent_id = ? AND status = 'pendin
+WHERE agent_id = ? AND status = 'pending'
 `
 
 type CancelHookPendingReviewsByAgentParams struct {
@@ -52,11 +48,9 @@ func (q *Queries) CancelHookPendingReviewsByAgent(ctx context.Context, arg Cance
 }
 
 const cancelHookPendingReviewsByLease = `-- name: CancelHookPendingReviewsByLease :execrows
-';
-
 UPDATE hook_pending_reviews
 SET status = 'cancelled', resolved_at = ?
-WHERE subscriber_lease = ? AND status = 'pendin
+WHERE subscriber_lease = ? AND status = 'pending'
 `
 
 type CancelHookPendingReviewsByLeaseParams struct {
@@ -73,11 +67,9 @@ func (q *Queries) CancelHookPendingReviewsByLease(ctx context.Context, arg Cance
 }
 
 const checkHookReviewIdempotency = `-- name: CheckHookReviewIdempotency :one
-C;
-
 SELECT 1 AS already_resolved
 FROM hook_pending_reviews
-WHERE hook_call_id = ? AND status = 'resolved' AND idempotency_key =
+WHERE hook_call_id = ? AND status = 'resolved' AND idempotency_key = ?
 `
 
 type CheckHookReviewIdempotencyParams struct {
@@ -94,12 +86,10 @@ func (q *Queries) CheckHookReviewIdempotency(ctx context.Context, arg CheckHookR
 }
 
 const getHookPendingReview = `-- name: GetHookPendingReview :one
-G;
-
 SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action,
        status, created_at, deadline_at
 FROM hook_pending_reviews
-WHERE hook_call_id = ? AND status = 'pendin
+WHERE hook_call_id = ? AND status = 'pending'
 `
 
 type GetHookPendingReviewParams struct {
@@ -134,11 +124,9 @@ func (q *Queries) GetHookPendingReview(ctx context.Context, arg GetHookPendingRe
 }
 
 const getHookResolvedReview = `-- name: GetHookResolvedReview :one
-';
-
 SELECT decision, resolved_at, subscriber_lease
 FROM hook_pending_reviews
-WHERE hook_call_id = ? AND status = 'resolve
+WHERE hook_call_id = ? AND status = 'resolved'
 `
 
 type GetHookResolvedReviewParams struct {
@@ -159,13 +147,11 @@ func (q *Queries) GetHookResolvedReview(ctx context.Context, arg GetHookResolved
 }
 
 const listHookPendingReviewsByAgent = `-- name: ListHookPendingReviewsByAgent :many
-';
-
 SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action,
        status, created_at, deadline_at
 FROM hook_pending_reviews
 WHERE agent_id = ? AND status = 'pending'
-ORDER BY created_at A
+ORDER BY created_at ASC
 `
 
 type ListHookPendingReviewsByAgentParams struct {
@@ -216,13 +202,11 @@ func (q *Queries) ListHookPendingReviewsByAgent(ctx context.Context, arg ListHoo
 }
 
 const recoverHookPendingReviews = `-- name: RecoverHookPendingReviews :many
-?;
-
 SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action,
        status, created_at, deadline_at
 FROM hook_pending_reviews
 WHERE status = 'pending'
-ORDER BY deadline_at A
+ORDER BY deadline_at ASC
 `
 
 type RecoverHookPendingReviewsRow struct {
@@ -269,11 +253,9 @@ func (q *Queries) RecoverHookPendingReviews(ctx context.Context) ([]RecoverHookP
 }
 
 const resolveHookPendingReview = `-- name: ResolveHookPendingReview :execrows
-?;
-
 UPDATE hook_pending_reviews
 SET status = 'resolved', decision = ?, reason = ?, idempotency_key = ?, resolved_by = ?, resolved_at = ?
-WHERE hook_call_id = ? AND status = 'pendin
+WHERE hook_call_id = ? AND status = 'pending'
 `
 
 type ResolveHookPendingReviewParams struct {
@@ -306,7 +288,7 @@ INSERT INTO hook_pending_reviews (
     hook_call_id, topic, agent_id, subscriber_lease, default_action,
     status, created_at, deadline_at
 ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
-ON CONFLICT (hook_call_id) DO NOTHI
+ON CONFLICT (hook_call_id) DO NOTHING
 `
 
 type SaveHookPendingReviewParams struct {
@@ -319,7 +301,7 @@ type SaveHookPendingReviewParams struct {
 	DeadlineAt      int64  `db:"deadline_at" json:"deadline_at"`
 }
 
-// hook_pending_review.sql — sqlc queries for hook_pending_reviews table.
+// hook_pending_review.sql - sqlc queries for hook_pending_reviews table.
 // Migrated from internal/store/hookstore/hookstore.go raw SQL.
 func (q *Queries) SaveHookPendingReview(ctx context.Context, arg SaveHookPendingReviewParams) error {
 	_, err := q.db.ExecContext(ctx, saveHookPendingReview,

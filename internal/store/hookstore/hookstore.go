@@ -149,7 +149,11 @@ func (s *store) CancelPendingReviewsByAgent(ctx context.Context, agentID string)
 // CancelExpiredReviews transitions all expired pending reviews to their default action.
 // Returns the number of reviews cancelled.
 func (s *store) CancelExpiredReviews(ctx context.Context) (int, error) {
-	rows, err := s.q.CancelExpiredHookReviews(ctx, sqlc.CancelExpiredHookReviewsParams{ResolvedAt: toMSPtr(time.Now().UTC())})
+	now := time.Now().UTC()
+	rows, err := s.q.CancelExpiredHookReviews(ctx, sqlc.CancelExpiredHookReviewsParams{
+		ResolvedAt: toMSPtr(now),
+		DeadlineAt: toMS(now),
+	})
 	if err != nil {
 		return 0, wrapErr(err, "cancel_expired")
 	}
