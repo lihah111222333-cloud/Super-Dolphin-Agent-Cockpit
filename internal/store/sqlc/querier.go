@@ -30,7 +30,9 @@ type Querier interface {
 	// Claim / lease -----------------------------------------------------
 	// ClaimDueJobsForUpdate marks up to `limit` due rows as claimed by `claimed_by`.
 	// FOR UPDATE SKIP LOCKED removed: SQLite does not support it.
-	// Task07 implements atomic claim via application-layer optimistic locking.
+	// Task07 implements atomic claim with one UPDATE ... RETURNING statement.
+	// The outer UPDATE repeats the availability predicate so claim ownership is
+	// rechecked at write time, preserving fencing if another writer wins first.
 	//
 	ClaimDueJobsForUpdate(ctx context.Context, arg ClaimDueJobsForUpdateParams) ([]CronJob, error)
 	CountAILogsByStatus(ctx context.Context) ([]CountAILogsByStatusRow, error)
