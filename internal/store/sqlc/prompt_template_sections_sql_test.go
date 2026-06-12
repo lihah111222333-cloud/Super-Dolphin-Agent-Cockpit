@@ -21,7 +21,7 @@ func TestPromptTemplateSectionsSQLIncludesTriggerTypeAndRecallTopic(t *testing.T
 	}
 
 	batchChecks := []string{
-		"template_id = ANY($1::bigint[])",
+		"WHERE template_id IN (/*SLICE:template_ids*/?)",
 		"ORDER BY template_id, region, ordinal, id",
 		"created_at, updated_at, trigger_type, recall_topic",
 	}
@@ -36,9 +36,10 @@ func TestPromptTemplateSectionsSQLIncludesTriggerTypeAndRecallTopic(t *testing.T
 
 	upsertChecks := []string{
 		"template_id, section_key, region, ordinal, body, enable_when, enabled, trigger_type, recall_topic",
-		"VALUES\n    ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+		"VALUES\n    (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		"trigger_type = EXCLUDED.trigger_type",
 		"recall_topic = EXCLUDED.recall_topic",
+		"updated_at   = (CAST(strftime('%s','now') AS INTEGER) * 1000)",
 		"created_at, updated_at, trigger_type, recall_topic",
 	}
 	for _, check := range upsertChecks {

@@ -27,8 +27,8 @@ func NewStore(q *sqlc.Queries) Reader { return &store{q: q} }
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]CommandCard, error) {
 	rows, err := s.q.ListCommandCards(ctx, sqlc.ListCommandCardsParams{
-		Column1: filter.Keyword,
-		Limit:   int64(filter.Limit),
+		Keyword:    filter.Keyword,
+		LimitCount: int64(filter.Limit),
 	})
 	if err != nil {
 		return nil, platformdb.WrapStoreError(err, "list", "command_card")

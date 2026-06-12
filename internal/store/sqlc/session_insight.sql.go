@@ -18,7 +18,7 @@ SELECT id, thread_id, agent_id, session_id, provider, local_turn_id,
        tool_failures, tool_failures_observed,
        approval_requests, approval_requests_observed,
        token_input, token_output, token_total, token_snapshot_observed,
-       context_window_tokens, ui_projection, skills_selected,
+       context_window_tokens, ui_projection, CAST(skills_selected AS BLOB) AS skills_selected,
        created_at, updated_at
 FROM session_insights
 WHERE thread_id = ? AND local_turn_id = ?
@@ -29,9 +29,40 @@ type GetSessionInsightByLocalTurnParams struct {
 	LocalTurnID string `db:"local_turn_id" json:"local_turn_id"`
 }
 
-func (q *Queries) GetSessionInsightByLocalTurn(ctx context.Context, arg GetSessionInsightByLocalTurnParams) (SessionInsight, error) {
+type GetSessionInsightByLocalTurnRow struct {
+	ID                       int64  `db:"id" json:"id"`
+	ThreadID                 string `db:"thread_id" json:"thread_id"`
+	AgentID                  string `db:"agent_id" json:"agent_id"`
+	SessionID                string `db:"session_id" json:"session_id"`
+	Provider                 string `db:"provider" json:"provider"`
+	LocalTurnID              string `db:"local_turn_id" json:"local_turn_id"`
+	ProviderTurnID           string `db:"provider_turn_id" json:"provider_turn_id"`
+	StartedAt                *int64 `db:"started_at" json:"started_at"`
+	CompletedAt              *int64 `db:"completed_at" json:"completed_at"`
+	DurationMs               int64  `db:"duration_ms" json:"duration_ms"`
+	Success                  *int64 `db:"success" json:"success"`
+	Status                   string `db:"status" json:"status"`
+	StopReason               string `db:"stop_reason" json:"stop_reason"`
+	ToolCalls                int64  `db:"tool_calls" json:"tool_calls"`
+	ToolCallsObserved        int64  `db:"tool_calls_observed" json:"tool_calls_observed"`
+	ToolFailures             int64  `db:"tool_failures" json:"tool_failures"`
+	ToolFailuresObserved     int64  `db:"tool_failures_observed" json:"tool_failures_observed"`
+	ApprovalRequests         int64  `db:"approval_requests" json:"approval_requests"`
+	ApprovalRequestsObserved int64  `db:"approval_requests_observed" json:"approval_requests_observed"`
+	TokenInput               int64  `db:"token_input" json:"token_input"`
+	TokenOutput              int64  `db:"token_output" json:"token_output"`
+	TokenTotal               int64  `db:"token_total" json:"token_total"`
+	TokenSnapshotObserved    int64  `db:"token_snapshot_observed" json:"token_snapshot_observed"`
+	ContextWindowTokens      int64  `db:"context_window_tokens" json:"context_window_tokens"`
+	UIProjection             string `db:"ui_projection" json:"ui_projection"`
+	SkillsSelected           []byte `db:"skills_selected" json:"skills_selected"`
+	CreatedAt                int64  `db:"created_at" json:"created_at"`
+	UpdatedAt                int64  `db:"updated_at" json:"updated_at"`
+}
+
+func (q *Queries) GetSessionInsightByLocalTurn(ctx context.Context, arg GetSessionInsightByLocalTurnParams) (GetSessionInsightByLocalTurnRow, error) {
 	row := q.db.QueryRowContext(ctx, getSessionInsightByLocalTurn, arg.ThreadID, arg.LocalTurnID)
-	var i SessionInsight
+	var i GetSessionInsightByLocalTurnRow
 	err := row.Scan(
 		&i.ID,
 		&i.ThreadID,
@@ -202,7 +233,7 @@ SELECT id, thread_id, agent_id, session_id, provider, local_turn_id,
        tool_failures, tool_failures_observed,
        approval_requests, approval_requests_observed,
        token_input, token_output, token_total, token_snapshot_observed,
-       context_window_tokens, ui_projection, skills_selected,
+       context_window_tokens, ui_projection, CAST(skills_selected AS BLOB) AS skills_selected,
        created_at, updated_at
 FROM session_insights
 ORDER BY created_at DESC, id DESC
@@ -213,17 +244,48 @@ type ListRecentSessionInsightsParams struct {
 	Limit int64 `db:"limit" json:"limit"`
 }
 
+type ListRecentSessionInsightsRow struct {
+	ID                       int64  `db:"id" json:"id"`
+	ThreadID                 string `db:"thread_id" json:"thread_id"`
+	AgentID                  string `db:"agent_id" json:"agent_id"`
+	SessionID                string `db:"session_id" json:"session_id"`
+	Provider                 string `db:"provider" json:"provider"`
+	LocalTurnID              string `db:"local_turn_id" json:"local_turn_id"`
+	ProviderTurnID           string `db:"provider_turn_id" json:"provider_turn_id"`
+	StartedAt                *int64 `db:"started_at" json:"started_at"`
+	CompletedAt              *int64 `db:"completed_at" json:"completed_at"`
+	DurationMs               int64  `db:"duration_ms" json:"duration_ms"`
+	Success                  *int64 `db:"success" json:"success"`
+	Status                   string `db:"status" json:"status"`
+	StopReason               string `db:"stop_reason" json:"stop_reason"`
+	ToolCalls                int64  `db:"tool_calls" json:"tool_calls"`
+	ToolCallsObserved        int64  `db:"tool_calls_observed" json:"tool_calls_observed"`
+	ToolFailures             int64  `db:"tool_failures" json:"tool_failures"`
+	ToolFailuresObserved     int64  `db:"tool_failures_observed" json:"tool_failures_observed"`
+	ApprovalRequests         int64  `db:"approval_requests" json:"approval_requests"`
+	ApprovalRequestsObserved int64  `db:"approval_requests_observed" json:"approval_requests_observed"`
+	TokenInput               int64  `db:"token_input" json:"token_input"`
+	TokenOutput              int64  `db:"token_output" json:"token_output"`
+	TokenTotal               int64  `db:"token_total" json:"token_total"`
+	TokenSnapshotObserved    int64  `db:"token_snapshot_observed" json:"token_snapshot_observed"`
+	ContextWindowTokens      int64  `db:"context_window_tokens" json:"context_window_tokens"`
+	UIProjection             string `db:"ui_projection" json:"ui_projection"`
+	SkillsSelected           []byte `db:"skills_selected" json:"skills_selected"`
+	CreatedAt                int64  `db:"created_at" json:"created_at"`
+	UpdatedAt                int64  `db:"updated_at" json:"updated_at"`
+}
+
 // ListRecentSessionInsights is used by the dashboard API to return the
 // N most recent turns across all threads.
-func (q *Queries) ListRecentSessionInsights(ctx context.Context, arg ListRecentSessionInsightsParams) ([]SessionInsight, error) {
+func (q *Queries) ListRecentSessionInsights(ctx context.Context, arg ListRecentSessionInsightsParams) ([]ListRecentSessionInsightsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listRecentSessionInsights, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []SessionInsight{}
+	items := []ListRecentSessionInsightsRow{}
 	for rows.Next() {
-		var i SessionInsight
+		var i ListRecentSessionInsightsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ThreadID,
@@ -275,7 +337,7 @@ SELECT id, thread_id, agent_id, session_id, provider, local_turn_id,
        tool_failures, tool_failures_observed,
        approval_requests, approval_requests_observed,
        token_input, token_output, token_total, token_snapshot_observed,
-       context_window_tokens, ui_projection, skills_selected,
+       context_window_tokens, ui_projection, CAST(skills_selected AS BLOB) AS skills_selected,
        created_at, updated_at
 FROM session_insights
 WHERE thread_id = ?
@@ -288,15 +350,46 @@ type ListSessionInsightsByThreadParams struct {
 	Limit    int64  `db:"limit" json:"limit"`
 }
 
-func (q *Queries) ListSessionInsightsByThread(ctx context.Context, arg ListSessionInsightsByThreadParams) ([]SessionInsight, error) {
+type ListSessionInsightsByThreadRow struct {
+	ID                       int64  `db:"id" json:"id"`
+	ThreadID                 string `db:"thread_id" json:"thread_id"`
+	AgentID                  string `db:"agent_id" json:"agent_id"`
+	SessionID                string `db:"session_id" json:"session_id"`
+	Provider                 string `db:"provider" json:"provider"`
+	LocalTurnID              string `db:"local_turn_id" json:"local_turn_id"`
+	ProviderTurnID           string `db:"provider_turn_id" json:"provider_turn_id"`
+	StartedAt                *int64 `db:"started_at" json:"started_at"`
+	CompletedAt              *int64 `db:"completed_at" json:"completed_at"`
+	DurationMs               int64  `db:"duration_ms" json:"duration_ms"`
+	Success                  *int64 `db:"success" json:"success"`
+	Status                   string `db:"status" json:"status"`
+	StopReason               string `db:"stop_reason" json:"stop_reason"`
+	ToolCalls                int64  `db:"tool_calls" json:"tool_calls"`
+	ToolCallsObserved        int64  `db:"tool_calls_observed" json:"tool_calls_observed"`
+	ToolFailures             int64  `db:"tool_failures" json:"tool_failures"`
+	ToolFailuresObserved     int64  `db:"tool_failures_observed" json:"tool_failures_observed"`
+	ApprovalRequests         int64  `db:"approval_requests" json:"approval_requests"`
+	ApprovalRequestsObserved int64  `db:"approval_requests_observed" json:"approval_requests_observed"`
+	TokenInput               int64  `db:"token_input" json:"token_input"`
+	TokenOutput              int64  `db:"token_output" json:"token_output"`
+	TokenTotal               int64  `db:"token_total" json:"token_total"`
+	TokenSnapshotObserved    int64  `db:"token_snapshot_observed" json:"token_snapshot_observed"`
+	ContextWindowTokens      int64  `db:"context_window_tokens" json:"context_window_tokens"`
+	UIProjection             string `db:"ui_projection" json:"ui_projection"`
+	SkillsSelected           []byte `db:"skills_selected" json:"skills_selected"`
+	CreatedAt                int64  `db:"created_at" json:"created_at"`
+	UpdatedAt                int64  `db:"updated_at" json:"updated_at"`
+}
+
+func (q *Queries) ListSessionInsightsByThread(ctx context.Context, arg ListSessionInsightsByThreadParams) ([]ListSessionInsightsByThreadRow, error) {
 	rows, err := q.db.QueryContext(ctx, listSessionInsightsByThread, arg.ThreadID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []SessionInsight{}
+	items := []ListSessionInsightsByThreadRow{}
 	for rows.Next() {
-		var i SessionInsight
+		var i ListSessionInsightsByThreadRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ThreadID,
@@ -412,7 +505,7 @@ RETURNING id, thread_id, agent_id, session_id, provider, local_turn_id,
           tool_failures, tool_failures_observed,
           approval_requests, approval_requests_observed,
           token_input, token_output, token_total, token_snapshot_observed,
-          context_window_tokens, ui_projection, skills_selected,
+          context_window_tokens, ui_projection, CAST(skills_selected AS BLOB) AS skills_selected,
           created_at, updated_at
 `
 
@@ -446,6 +539,37 @@ type UpsertSessionInsightParams struct {
 	UpdatedAt                int64           `db:"updated_at" json:"updated_at"`
 }
 
+type UpsertSessionInsightRow struct {
+	ID                       int64  `db:"id" json:"id"`
+	ThreadID                 string `db:"thread_id" json:"thread_id"`
+	AgentID                  string `db:"agent_id" json:"agent_id"`
+	SessionID                string `db:"session_id" json:"session_id"`
+	Provider                 string `db:"provider" json:"provider"`
+	LocalTurnID              string `db:"local_turn_id" json:"local_turn_id"`
+	ProviderTurnID           string `db:"provider_turn_id" json:"provider_turn_id"`
+	StartedAt                *int64 `db:"started_at" json:"started_at"`
+	CompletedAt              *int64 `db:"completed_at" json:"completed_at"`
+	DurationMs               int64  `db:"duration_ms" json:"duration_ms"`
+	Success                  *int64 `db:"success" json:"success"`
+	Status                   string `db:"status" json:"status"`
+	StopReason               string `db:"stop_reason" json:"stop_reason"`
+	ToolCalls                int64  `db:"tool_calls" json:"tool_calls"`
+	ToolCallsObserved        int64  `db:"tool_calls_observed" json:"tool_calls_observed"`
+	ToolFailures             int64  `db:"tool_failures" json:"tool_failures"`
+	ToolFailuresObserved     int64  `db:"tool_failures_observed" json:"tool_failures_observed"`
+	ApprovalRequests         int64  `db:"approval_requests" json:"approval_requests"`
+	ApprovalRequestsObserved int64  `db:"approval_requests_observed" json:"approval_requests_observed"`
+	TokenInput               int64  `db:"token_input" json:"token_input"`
+	TokenOutput              int64  `db:"token_output" json:"token_output"`
+	TokenTotal               int64  `db:"token_total" json:"token_total"`
+	TokenSnapshotObserved    int64  `db:"token_snapshot_observed" json:"token_snapshot_observed"`
+	ContextWindowTokens      int64  `db:"context_window_tokens" json:"context_window_tokens"`
+	UIProjection             string `db:"ui_projection" json:"ui_projection"`
+	SkillsSelected           []byte `db:"skills_selected" json:"skills_selected"`
+	CreatedAt                int64  `db:"created_at" json:"created_at"`
+	UpdatedAt                int64  `db:"updated_at" json:"updated_at"`
+}
+
 // UpsertSessionInsight merges an incoming snapshot with any existing row
 // keyed by (thread_id, local_turn_id). The update clause encodes two
 // invariants the P3 plan requires at the SQL layer:
@@ -455,13 +579,13 @@ type UpsertSessionInsightParams struct {
 //     likewise frozen once the locked terminal is set.
 //   - token no-regression: counters only advance. A context-window-only
 //     event with zero counts cannot regress token_input / token_output /
-//     token_total. Scalar GREATEST is per-field so a legitimate zero
+//     token_total. Each CASE guard is per-field so a legitimate zero
 //     event for one dimension does not zero out a sibling.
 //
 // The *_observed flags go sticky: once TRUE, no later event can flip
 // them back to FALSE. This keeps "we already saw real data" from being
 // clobbered by a projection that doesn't re-emit the signal.
-func (q *Queries) UpsertSessionInsight(ctx context.Context, arg UpsertSessionInsightParams) (SessionInsight, error) {
+func (q *Queries) UpsertSessionInsight(ctx context.Context, arg UpsertSessionInsightParams) (UpsertSessionInsightRow, error) {
 	row := q.db.QueryRowContext(ctx, upsertSessionInsight,
 		arg.ThreadID,
 		arg.AgentID,
@@ -491,7 +615,7 @@ func (q *Queries) UpsertSessionInsight(ctx context.Context, arg UpsertSessionIns
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
-	var i SessionInsight
+	var i UpsertSessionInsightRow
 	err := row.Scan(
 		&i.ID,
 		&i.ThreadID,

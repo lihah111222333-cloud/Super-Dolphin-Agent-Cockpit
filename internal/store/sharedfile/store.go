@@ -132,8 +132,8 @@ func (s *store) Delete(ctx context.Context, path string) (int64, error) {
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, error) {
 	rows, err := s.q.ListSharedFiles(ctx, sqlc.ListSharedFilesParams{
-		Column1: filter.Prefix,
-		Limit:   int64(filter.Limit),
+		Prefix:     filter.Prefix,
+		LimitCount: int64(filter.Limit),
 	})
 	if err != nil {
 		return nil, platformdb.WrapStoreError(err, "list", "shared_file")

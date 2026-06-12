@@ -15,9 +15,9 @@ WHERE path = ?;
 -- name: ListSharedFiles :many
 SELECT path, content, updated_by, created_at, updated_at
 FROM shared_files
-WHERE (? = '' OR path LIKE '%' || ? || '%')
+WHERE (sqlc.arg(prefix) = '' OR path LIKE '%' || sqlc.arg(prefix) || '%')
 ORDER BY updated_at DESC, path ASC
-LIMIT ?;
+LIMIT sqlc.arg(limit_count);
 
 -- name: DeleteSharedFile :execrows
 DELETE FROM shared_files
