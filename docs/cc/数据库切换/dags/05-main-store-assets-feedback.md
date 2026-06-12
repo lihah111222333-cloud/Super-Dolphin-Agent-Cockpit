@@ -8,7 +8,7 @@
 
 依赖：Task 03。
 
-可并行：可与 Task 04、06、07、08、09 并行。
+可并行：可与 Task 04、06、07、08 并行。Task 09 依赖本任务合并后再执行，因为两者都会触碰 `prompt_template_sections`、`internal/store/prompt/store.go` 和 prompt 模块测试。
 
 ## 修改点
 
@@ -64,4 +64,3 @@ rg -n "jsonb|::jsonb|jsonb_array|ILIKE|NOW\\(|pgtype|pgx" sql/queries/prompt_tem
 ```
 
 预期：无 PG-only 语法；prompt、shared file disk integration、feedback/insight tests 通过。
-
