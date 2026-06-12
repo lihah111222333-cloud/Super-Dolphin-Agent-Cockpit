@@ -18,6 +18,8 @@ type querier interface {
 	GetCwdLockHolder(ctx context.Context, arg sqlc.GetCwdLockHolderParams) (sqlc.GetCwdLockHolderRow, error)
 }
 
+const staleHeartbeatThreshold = 45 * time.Second
+
 type store struct {
 	q querier
 }
@@ -28,9 +30,10 @@ func NewStore(q *sqlc.Queries) Store {
 
 func (s *store) Acquire(ctx context.Context, params AcquireParams) (int64, error) {
 	count, err := s.q.AcquireCwdLock(ctx, sqlc.AcquireCwdLockParams{
-		CWD:        params.Cwd,
-		InstanceID: params.InstanceID,
-		Pid:        int64(params.PID),
+		CWD:            params.Cwd,
+		InstanceID:     params.InstanceID,
+		Pid:            int64(params.PID),
+		StaleThreshold: platformdb.Millis(time.Now().Add(-staleHeartbeatThreshold)),
 	})
 	if err != nil {
 		return 0, wrapCwdLockError(err, "acquire", "cwd_lock")
@@ -43,6 +46,7 @@ func (s *store) ForceAcquire(ctx context.Context, params ForceAcquireParams) (in
 		CWD:        params.Cwd,
 		InstanceID: params.InstanceID,
 		Pid:        int64(params.PID),
+		HolderPid:  int64(params.HolderPID),
 	})
 	if err != nil {
 		return 0, wrapCwdLockError(err, "force_acquire", "cwd_lock")
@@ -70,8 +74,8 @@ func (s *store) Heartbeat(ctx context.Context, params HeartbeatParams) error {
 }
 
 func (s *store) DeleteStale(ctx context.Context) (int64, error) {
-	now := platformdb.Millis(time.Now())
-	count, err := s.q.DeleteStaleCwdLocks(ctx, sqlc.DeleteStaleCwdLocksParams{HeartbeatAt: now})
+	staleThreshold := platformdb.Millis(time.Now().Add(-staleHeartbeatThreshold))
+	count, err := s.q.DeleteStaleCwdLocks(ctx, sqlc.DeleteStaleCwdLocksParams{HeartbeatAt: staleThreshold})
 	if err != nil {
 		return 0, wrapCwdLockError(err, "delete_stale", "cwd_lock")
 	}

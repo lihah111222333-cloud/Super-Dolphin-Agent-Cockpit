@@ -1,23 +1,23 @@
 -- name: AcquireCwdLock :execrows
 INSERT INTO cwd_instance_locks (cwd, instance_id, pid, acquired_at, heartbeat_at)
-VALUES (?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
+VALUES (?1, ?2, ?3, (CAST(strftime('%s','now') AS INTEGER) * 1000) + ((CAST(sqlc.arg(stale_threshold) AS INTEGER) - CAST(sqlc.arg(stale_threshold) AS INTEGER)) * 0), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 ON CONFLICT (cwd) DO UPDATE
 SET instance_id = EXCLUDED.instance_id,
     pid = EXCLUDED.pid,
     acquired_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     heartbeat_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE cwd_instance_locks.instance_id = EXCLUDED.instance_id
-   OR cwd_instance_locks.heartbeat_at < ?;
+   OR cwd_instance_locks.heartbeat_at < ?4;
 
 -- name: ForceAcquireCwdLock :execrows
 INSERT INTO cwd_instance_locks (cwd, instance_id, pid, acquired_at, heartbeat_at)
-VALUES (?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
+VALUES (?1, ?2, ?3, (CAST(strftime('%s','now') AS INTEGER) * 1000) + ((CAST(sqlc.arg(holder_pid) AS INTEGER) - CAST(sqlc.arg(holder_pid) AS INTEGER)) * 0), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 ON CONFLICT (cwd) DO UPDATE
 SET instance_id = EXCLUDED.instance_id,
     pid = EXCLUDED.pid,
     acquired_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     heartbeat_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE cwd_instance_locks.pid = ?;
+WHERE cwd_instance_locks.pid = ?4;
 
 -- name: ReleaseCwdLock :execrows
 DELETE FROM cwd_instance_locks
