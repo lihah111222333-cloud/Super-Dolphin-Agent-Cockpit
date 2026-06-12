@@ -11,27 +11,30 @@ import (
 
 const placeholderDBQuery = `-- name: PlaceholderDBQuery :many
 
-SELECT NULL::text AS placeholder
+SELECT NULL AS placeholder
 WHERE FALSE
 `
 
 // Runtime SQL template from V2 DBQueryStore.Query:
-// WITH q AS (<runtime read-only SQL>) SELECT * FROM q LIMIT $1;
+// WITH q AS (<runtime read-only SQL>) SELECT * FROM q LIMIT ?;
 // A true sqlc query cannot represent a runtime-supplied SELECT shape, so this
 // file keeps a typed placeholder until sqlc generation is introduced.
-func (q *Queries) PlaceholderDBQuery(ctx context.Context) ([]*string, error) {
-	rows, err := q.db.Query(ctx, placeholderDBQuery)
+func (q *Queries) PlaceholderDBQuery(ctx context.Context) ([]interface{}, error) {
+	rows, err := q.db.QueryContext(ctx, placeholderDBQuery)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []*string{}
+	items := []interface{}{}
 	for rows.Next() {
-		var placeholder *string
+		var placeholder interface{}
 		if err := rows.Scan(&placeholder); err != nil {
 			return nil, err
 		}
 		items = append(items, placeholder)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

@@ -7,12 +7,13 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 )
 
 const loadAgentThreadPromptSnapshot = `-- name: LoadAgentThreadPromptSnapshot :one
 SELECT prompt_snapshot
 FROM agent_threads
-WHERE thread_id = $1
+WHERE thread_id = ?
 LIMIT 1
 `
 
@@ -20,28 +21,28 @@ type LoadAgentThreadPromptSnapshotParams struct {
 	ThreadID string `db:"thread_id" json:"thread_id"`
 }
 
-func (q *Queries) LoadAgentThreadPromptSnapshot(ctx context.Context, arg LoadAgentThreadPromptSnapshotParams) ([]byte, error) {
-	row := q.db.QueryRow(ctx, loadAgentThreadPromptSnapshot, arg.ThreadID)
-	var prompt_snapshot []byte
+func (q *Queries) LoadAgentThreadPromptSnapshot(ctx context.Context, arg LoadAgentThreadPromptSnapshotParams) (json.RawMessage, error) {
+	row := q.db.QueryRowContext(ctx, loadAgentThreadPromptSnapshot, arg.ThreadID)
+	var prompt_snapshot json.RawMessage
 	err := row.Scan(&prompt_snapshot)
 	return prompt_snapshot, err
 }
 
 const updateAgentThreadPromptSnapshot = `-- name: UpdateAgentThreadPromptSnapshot :execrows
 UPDATE agent_threads
-SET prompt_snapshot = $2
-WHERE thread_id = $1
+SET prompt_snapshot = ?
+WHERE thread_id = ?
 `
 
 type UpdateAgentThreadPromptSnapshotParams struct {
-	ThreadID       string `db:"thread_id" json:"thread_id"`
-	PromptSnapshot []byte `db:"prompt_snapshot" json:"prompt_snapshot"`
+	PromptSnapshot json.RawMessage `db:"prompt_snapshot" json:"prompt_snapshot"`
+	ThreadID       string          `db:"thread_id" json:"thread_id"`
 }
 
 func (q *Queries) UpdateAgentThreadPromptSnapshot(ctx context.Context, arg UpdateAgentThreadPromptSnapshotParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateAgentThreadPromptSnapshot, arg.ThreadID, arg.PromptSnapshot)
+	result, err := q.db.ExecContext(ctx, updateAgentThreadPromptSnapshot, arg.PromptSnapshot, arg.ThreadID)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }

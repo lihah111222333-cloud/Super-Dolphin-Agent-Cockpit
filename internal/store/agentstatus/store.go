@@ -32,9 +32,9 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*AgentStatus, 
 		AgentName:   params.AgentName,
 		SessionID:   params.SessionID,
 		Status:      params.Status,
-		StagnantSec: params.StagnantSec,
+		StagnantSec: int64(params.StagnantSec),
 		Error:       params.Error,
-		Column7:     params.OutputTail,
+		OutputTail:  params.OutputTail,
 	})
 	if err != nil {
 		return nil, wrapAgentStatusError(err, "upsert")
@@ -70,11 +70,11 @@ func mapAgentStatus(row sqlc.AgentStatus) AgentStatus {
 		AgentName:   row.AgentName,
 		SessionID:   row.SessionID,
 		Status:      row.Status,
-		StagnantSec: row.StagnantSec,
+		StagnantSec: int32(row.StagnantSec),
 		Error:       row.Error,
 		OutputTail:  json.RawMessage(row.OutputTail),
-		CreatedAt:   row.CreatedAt,
-		UpdatedAt:   row.UpdatedAt,
+		CreatedAt:   platformdb.TimeFromMillis(row.CreatedAt),
+		UpdatedAt:   platformdb.TimeFromMillis(row.UpdatedAt),
 	}
 }
 

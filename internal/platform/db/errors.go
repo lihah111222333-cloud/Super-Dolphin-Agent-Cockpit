@@ -2,12 +2,12 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 var (
@@ -62,7 +62,7 @@ func WrapStoreError(err error, operation, entity string) error {
 }
 
 func IsNotFound(err error) bool {
-	return errors.Is(err, ErrNotFound) || errors.Is(err, pgx.ErrNoRows)
+	return errors.Is(err, ErrNotFound) || errors.Is(err, sql.ErrNoRows)
 }
 
 func IsConflict(err error) bool {
@@ -73,13 +73,17 @@ func IsTimeout(err error) bool {
 	if errors.Is(err, ErrTimeout) || errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "57014"
+	return IsSQLiteBusyLocked(err)
 }
 
+// IsUniqueViolation は SQLite の UNIQUE 制約違反エラーを検出する。
 func IsUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "UNIQUE constraint failed") ||
+		strings.Contains(msg, "unique constraint failed")
 }
 
 func classifyStoreError(err error) error {

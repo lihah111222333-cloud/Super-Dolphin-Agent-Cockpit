@@ -6,8 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
@@ -64,18 +62,19 @@ func requireClaim(id, token string) (string, string, error) {
 	return id, token, nil
 }
 
-func ts(t time.Time) pgtype.Timestamptz {
+func ts(t time.Time) int64 {
 	if t.IsZero() {
-		return pgtype.Timestamptz{Valid: false}
+		return 0
 	}
-	return pgtype.Timestamptz{Time: t, Valid: true}
+	return platformdb.Millis(t)
 }
 
-func fromTS(p pgtype.Timestamptz) time.Time {
-	if !p.Valid {
-		return time.Time{}
+func tsPtr(t time.Time) *int64 {
+	if t.IsZero() {
+		return nil
 	}
-	return p.Time
+	ms := platformdb.Millis(t)
+	return &ms
 }
 
 func bytesOrDefault(b []byte, def string) []byte {
@@ -117,9 +116,9 @@ func (s *store) CreateJob(ctx context.Context, p CreateJobParams) (Job, error) {
 		Config:        bytesOrDefault(p.Config, "{}"),
 		Skills:        bytesOrDefault(p.Skills, "[]"),
 		NotifyChannel: p.NotifyChannel,
-		Enabled:       p.Enabled,
+		Enabled:       boolToInt(p.Enabled),
 		NextRunAt:     ts(p.NextRunAt),
-		MaxAttempts:   p.MaxAttempts,
+		MaxAttempts:   int64(p.MaxAttempts),
 		CreatedAt:     ts(p.CreatedAt),
 		UpdatedAt:     ts(p.UpdatedAt),
 	})
@@ -189,9 +188,9 @@ func (s *store) UpdateJobSchedule(ctx context.Context, p UpdateJobScheduleParams
 		Config:        p.Config,
 		Skills:        p.Skills,
 		NotifyChannel: p.NotifyChannel,
-		Enabled:       p.Enabled,
+		Enabled:       boolToInt(p.Enabled),
 		NextRunAt:     ts(p.NextRunAt),
-		MaxAttempts:   p.MaxAttempts,
+		MaxAttempts:   int64(p.MaxAttempts),
 		UpdatedAt:     ts(p.UpdatedAt),
 		ID:            p.ID,
 	}), "update_job_schedule")
@@ -203,7 +202,7 @@ func (s *store) SetJobEnabled(ctx context.Context, id string, enabled bool, now 
 		return wrap(err, "set_job_enabled")
 	}
 	return wrap(s.q.SetCronJobEnabled(ctx, sqlc.SetCronJobEnabledParams{
-		Enabled:   enabled,
+		Enabled:   boolToInt(enabled),
 		UpdatedAt: ts(now),
 		ID:        id,
 	}), "set_job_enabled")
@@ -236,10 +235,10 @@ func (s *store) ClaimDueJobsForUpdate(ctx context.Context, p ClaimDueJobsForUpda
 	}
 	rows, err := s.q.ClaimDueJobsForUpdate(ctx, sqlc.ClaimDueJobsForUpdateParams{
 		ClaimedBy:      p.ClaimedBy,
-		Now:            ts(p.Now),
-		LeaseExpiresAt: ts(p.LeaseExpiresAt),
+		Now:            tsPtr(p.Now),
+		LeaseExpiresAt: tsPtr(p.LeaseExpiresAt),
 		ClaimToken:     p.ClaimToken,
-		MaxClaim:       maxClaim,
+		MaxClaim:       int64(maxClaim),
 	})
 	if err != nil {
 		return nil, wrap(err, "claim_due_jobs")
@@ -257,7 +256,7 @@ func (s *store) RenewLease(ctx context.Context, p LeaseParams) error {
 		return wrap(err, "renew_lease")
 	}
 	rows, err := s.q.RenewLease(ctx, sqlc.RenewLeaseParams{
-		LeaseExpiresAt: ts(p.LeaseExpiresAt),
+		LeaseExpiresAt: tsPtr(p.LeaseExpiresAt),
 		Now:            ts(p.Now),
 		ID:             id,
 		ClaimToken:     token,
@@ -277,7 +276,7 @@ func (s *store) ExtendClaim(ctx context.Context, p LeaseParams) error {
 		return wrap(err, "extend_claim")
 	}
 	rows, err := s.q.ExtendClaim(ctx, sqlc.ExtendClaimParams{
-		LeaseExpiresAt: ts(p.LeaseExpiresAt),
+		LeaseExpiresAt: tsPtr(p.LeaseExpiresAt),
 		Now:            ts(p.Now),
 		ID:             id,
 		ClaimToken:     token,
@@ -320,7 +319,7 @@ func (s *store) MarkFinished(ctx context.Context, p MarkFinishedParams) error {
 		return wrap(err, "mark_finished")
 	}
 	rows, err := s.q.MarkCronJobFinished(ctx, sqlc.MarkCronJobFinishedParams{
-		LastRunAt:  ts(p.LastRunAt),
+		LastRunAt:  tsPtr(p.LastRunAt),
 		LastTurnID: p.LastTurnID,
 		NextRunAt:  ts(p.NextRunAt),
 		Now:        ts(p.Now),
@@ -346,12 +345,12 @@ func (s *store) MarkFailed(ctx context.Context, p MarkFailedParams) error {
 		status = StatusFailed
 	}
 	rows, err := s.q.MarkCronJobFailed(ctx, sqlc.MarkCronJobFailedParams{
-		LastRunAt:   ts(p.LastRunAt),
+		LastRunAt:   tsPtr(p.LastRunAt),
 		LastTurnID:  p.LastTurnID,
 		LastStatus:  status,
-		LastErrorAt: ts(p.LastErrorAt),
+		LastErrorAt: tsPtr(p.LastErrorAt),
 		LastError:   p.LastError,
-		NextRetryAt: ts(p.NextRetryAt),
+		NextRetryAt: tsPtr(p.NextRetryAt),
 		Now:         ts(p.Now),
 		ID:          id,
 		ClaimToken:  token,
@@ -444,7 +443,7 @@ func (s *store) SetRunTurn(ctx context.Context, p SetRunTurnParams) error {
 		TurnID:      p.TurnID,
 		ThreadID:    p.ThreadID,
 		AgentID:     p.AgentID,
-		SubmittedAt: ts(p.SubmittedAt),
+		SubmittedAt: tsPtr(p.SubmittedAt),
 		UpdatedAt:   ts(p.UpdatedAt),
 		ID:          p.ID,
 	})
@@ -497,7 +496,7 @@ func (s *store) ListRunsByJob(ctx context.Context, jobID string, limit int32) ([
 	}
 	rows, err := s.q.ListCronJobRunsByJob(ctx, sqlc.ListCronJobRunsByJobParams{
 		JobID: jobID,
-		Limit: limit,
+		Limit: int64(limit),
 	})
 	if err != nil {
 		return nil, wrap(err, "list_runs_by_job")
@@ -557,6 +556,13 @@ func (s *store) ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]Job,
 		out[i] = fromCronJob(r)
 	}
 	return out, nil
+}
+
+func boolToInt(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func wrap(err error, operation string) error {

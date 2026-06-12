@@ -3,14 +3,11 @@ package db
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -21,10 +18,10 @@ import (
 var Module = fx.Module(
 	"db",
 	fx.Provide(NewDB),
-	fx.Provide(NewPool),
 	fx.Invoke(registerLifecycle),
 )
 
+// NewDB opens the SQLite database for the product runtime.
 func NewDB(cfg *config.Config) (*sql.DB, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("SQLite DB config is nil")
@@ -32,20 +29,13 @@ func NewDB(cfg *config.Config) (*sql.DB, error) {
 	return sqliteruntime.Open(context.Background(), sqliteruntime.OpenOptions{Path: cfg.SQLitePath})
 }
 
-// NewPool is a temporary compatibility symbol for store and mcp-orch callers
-// that Task 01 is not allowed to migrate. PostgreSQL runtime support has been
-// removed from the product path; this function must not parse PG config,
-// connect to PG, or derive configuration from environment.
-func NewPool(_ *config.Config) (*pgxpool.Pool, error) {
-	return nil, errors.New("PostgreSQL pool removed; migrate caller to SQLite DB boundary")
-}
-
 // MinRequiredSchemaVersion is the lower bound this binary needs in
 // schema_migrations.version to operate correctly.
 const MinRequiredSchemaVersion = 103
 
 var requiredBaselineTables = []string{
-	"agent_codex_binding",
+	// agent_codex_binding: 历史遗留表，数据合并至 agent_provider_binding.codex_thread_id，无活跃 sqlc query
+	// topology_approval_archives: 无 sql/queries/*.sql 文件，不进入 SQLite runtime
 	"agent_provider_binding",
 	"agent_status",
 	"agent_threads",
@@ -67,7 +57,6 @@ var requiredBaselineTables = []string{
 	"hook_pending_reviews",
 	"agent_interactions",
 	"topology_approvals",
-	"topology_approval_archives",
 	"ui_preferences",
 	"system_logs",
 	"task_traces",
@@ -110,20 +99,13 @@ type sqlContextQueryRow interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-type pgxContextQueryRow interface {
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
-
 func querySchemaVersion(ctx context.Context, q any, dest *int) error {
 	const query = "SELECT COALESCE(MAX(version), 0) FROM schema_migrations"
-	switch v := q.(type) {
-	case sqlContextQueryRow:
-		return v.QueryRowContext(ctx, query).Scan(dest)
-	case pgxContextQueryRow:
-		return v.QueryRow(ctx, query).Scan(dest)
-	default:
+	v, ok := q.(sqlContextQueryRow)
+	if !ok {
 		return fmt.Errorf("unsupported schema version queryer %T", q)
 	}
+	return v.QueryRowContext(ctx, query).Scan(dest)
 }
 
 func verifySQLiteBaselineTables(ctx context.Context, q any) error {

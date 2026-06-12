@@ -19,7 +19,7 @@ INSERT INTO agent_feedback_events (
     actor,
     payload
 ) VALUES (
-    $1, $2, $3, $6, $4, $5, COALESCE($7, '{}'::jsonb)
+    ?, ?, ?, ?6, ?, ?, COALESCE(?7, '{}')
 )
 RETURNING id, thread_id, turn_id, agent_key, prompt_version_id, event_type, actor, payload, created_at
 `
@@ -28,20 +28,20 @@ type InsertAgentFeedbackEventParams struct {
 	ThreadID        string      `db:"thread_id" json:"thread_id"`
 	TurnID          string      `db:"turn_id" json:"turn_id"`
 	AgentKey        string      `db:"agent_key" json:"agent_key"`
+	PromptVersionID *int64      `db:"prompt_version_id" json:"prompt_version_id"`
 	EventType       string      `db:"event_type" json:"event_type"`
 	Actor           string      `db:"actor" json:"actor"`
-	PromptVersionID *int64      `db:"prompt_version_id" json:"prompt_version_id"`
 	Payload         interface{} `db:"payload" json:"payload"`
 }
 
 func (q *Queries) InsertAgentFeedbackEvent(ctx context.Context, arg InsertAgentFeedbackEventParams) (AgentFeedbackEvent, error) {
-	row := q.db.QueryRow(ctx, insertAgentFeedbackEvent,
+	row := q.db.QueryRowContext(ctx, insertAgentFeedbackEvent,
 		arg.ThreadID,
 		arg.TurnID,
 		arg.AgentKey,
+		arg.PromptVersionID,
 		arg.EventType,
 		arg.Actor,
-		arg.PromptVersionID,
 		arg.Payload,
 	)
 	var i AgentFeedbackEvent
@@ -62,18 +62,18 @@ func (q *Queries) InsertAgentFeedbackEvent(ctx context.Context, arg InsertAgentF
 const listAgentFeedbackEventsByAgent = `-- name: ListAgentFeedbackEventsByAgent :many
 SELECT id, thread_id, turn_id, agent_key, prompt_version_id, event_type, actor, payload, created_at
 FROM agent_feedback_events
-WHERE agent_key = $1
+WHERE agent_key = ?
 ORDER BY created_at DESC, id DESC
-LIMIT $2
+LIMIT ?
 `
 
 type ListAgentFeedbackEventsByAgentParams struct {
 	AgentKey string `db:"agent_key" json:"agent_key"`
-	Limit    int32  `db:"limit" json:"limit"`
+	Limit    int64  `db:"limit" json:"limit"`
 }
 
 func (q *Queries) ListAgentFeedbackEventsByAgent(ctx context.Context, arg ListAgentFeedbackEventsByAgentParams) ([]AgentFeedbackEvent, error) {
-	rows, err := q.db.Query(ctx, listAgentFeedbackEventsByAgent, arg.AgentKey, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listAgentFeedbackEventsByAgent, arg.AgentKey, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -95,6 +95,9 @@ func (q *Queries) ListAgentFeedbackEventsByAgent(ctx context.Context, arg ListAg
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -105,18 +108,18 @@ func (q *Queries) ListAgentFeedbackEventsByAgent(ctx context.Context, arg ListAg
 const listAgentFeedbackEventsByThread = `-- name: ListAgentFeedbackEventsByThread :many
 SELECT id, thread_id, turn_id, agent_key, prompt_version_id, event_type, actor, payload, created_at
 FROM agent_feedback_events
-WHERE thread_id = $1
+WHERE thread_id = ?
 ORDER BY created_at DESC, id DESC
-LIMIT $2
+LIMIT ?
 `
 
 type ListAgentFeedbackEventsByThreadParams struct {
 	ThreadID string `db:"thread_id" json:"thread_id"`
-	Limit    int32  `db:"limit" json:"limit"`
+	Limit    int64  `db:"limit" json:"limit"`
 }
 
 func (q *Queries) ListAgentFeedbackEventsByThread(ctx context.Context, arg ListAgentFeedbackEventsByThreadParams) ([]AgentFeedbackEvent, error) {
-	rows, err := q.db.Query(ctx, listAgentFeedbackEventsByThread, arg.ThreadID, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listAgentFeedbackEventsByThread, arg.ThreadID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -138,6 +141,9 @@ func (q *Queries) ListAgentFeedbackEventsByThread(ctx context.Context, arg ListA
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

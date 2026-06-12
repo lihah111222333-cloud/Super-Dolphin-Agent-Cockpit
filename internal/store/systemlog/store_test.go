@@ -31,7 +31,7 @@ func (s *systemLogQuerierStub) InsertSystemLog(ctx context.Context, arg sqlc.Ins
 func TestListForwardsAll9ColumnsAndLimit(t *testing.T) {
 	t.Parallel()
 	now := time.Unix(100, 0).UTC()
-	duration := int32(42)
+	duration := int64(42)
 	var captured sqlc.ListSystemLogsParams
 
 	s := &store{q: &systemLogQuerierStub{
@@ -39,7 +39,7 @@ func TestListForwardsAll9ColumnsAndLimit(t *testing.T) {
 			captured = arg
 			return []sqlc.SystemLog{{
 				ID:         1,
-				Ts:         now,
+				Ts:         now.UnixMilli(),
 				Level:      "info",
 				Logger:     "app",
 				Message:    "hello",
@@ -84,15 +84,15 @@ func assertSystemLogListParams(t *testing.T, captured sqlc.ListSystemLogsParams)
 		got  string
 		want string
 	}{
-		{name: "level", got: captured.Column1, want: "info"},
-		{name: "logger", got: captured.Column2, want: "app"},
-		{name: "source", got: captured.Column3, want: "src"},
-		{name: "component", got: captured.Column4, want: "cmp"},
-		{name: "agent", got: captured.Column5, want: "a1"},
-		{name: "thread", got: captured.Column6, want: "t1"},
-		{name: "event", got: captured.Column7, want: "evt"},
-		{name: "tool", got: captured.Column8, want: "tool"},
-		{name: "keyword", got: captured.Column9, want: "hel"},
+		{name: "level", got: captured.Level, want: "info"},
+		{name: "logger", got: captured.Logger, want: "app"},
+		{name: "source", got: captured.Source, want: "src"},
+		{name: "component", got: captured.Component, want: "cmp"},
+		{name: "agent", got: captured.AgentID, want: "a1"},
+		{name: "thread", got: captured.ThreadID, want: "t1"},
+		{name: "event", got: captured.EventType, want: "evt"},
+		{name: "tool", got: captured.ToolName, want: "tool"},
+		{name: "keyword", got: captured.Column17.(string), want: "hel"},
 	} {
 		if check.got != check.want {
 			t.Fatalf("List() %s param = %q, want %q; all params=%+v", check.name, check.got, check.want, captured)

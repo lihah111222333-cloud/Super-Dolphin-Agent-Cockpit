@@ -11,7 +11,7 @@ import (
 
 const insertSystemLog = `-- name: InsertSystemLog :exec
 INSERT INTO system_logs (ts, level, logger, message, raw)
-VALUES (NOW(), $1, $2, $3, $4)
+VALUES ((CAST(strftime('%s','now') AS INTEGER) * 1000), ?, ?, ?, ?)
 `
 
 type InsertSystemLogParams struct {
@@ -22,7 +22,7 @@ type InsertSystemLogParams struct {
 }
 
 func (q *Queries) InsertSystemLog(ctx context.Context, arg InsertSystemLogParams) error {
-	_, err := q.db.Exec(ctx, insertSystemLog,
+	_, err := q.db.ExecContext(ctx, insertSystemLog,
 		arg.Level,
 		arg.Logger,
 		arg.Message,
@@ -34,49 +34,77 @@ func (q *Queries) InsertSystemLog(ctx context.Context, arg InsertSystemLogParams
 const listSystemLogs = `-- name: ListSystemLogs :many
 SELECT id, ts, level, logger, message, raw, source, component, agent_id, thread_id, trace_id, event_type, tool_name, duration_ms, extra
 FROM system_logs
-WHERE ($1::text = '' OR level = $1)
-  AND ($2::text = '' OR logger = $2)
-  AND ($3::text = '' OR source = $3)
-  AND ($4::text = '' OR component = $4)
-  AND ($5::text = '' OR agent_id = $5)
-  AND ($6::text = '' OR thread_id = $6)
-  AND ($7::text = '' OR event_type = $7)
-  AND ($8::text = '' OR tool_name = $8)
-  AND ($9::text = ''
-    OR level ILIKE '%' || $9 || '%'
-    OR logger ILIKE '%' || $9 || '%'
-    OR message ILIKE '%' || $9 || '%'
-    OR raw ILIKE '%' || $9 || '%'
-    OR source ILIKE '%' || $9 || '%'
-    OR component ILIKE '%' || $9 || '%')
+WHERE (? = '' OR level = ?)
+  AND (? = '' OR logger = ?)
+  AND (? = '' OR source = ?)
+  AND (? = '' OR component = ?)
+  AND (? = '' OR agent_id = ?)
+  AND (? = '' OR thread_id = ?)
+  AND (? = '' OR event_type = ?)
+  AND (? = '' OR tool_name = ?)
+  AND (? = ''
+    OR level LIKE '%' || ? || '%'
+    OR logger LIKE '%' || ? || '%'
+    OR message LIKE '%' || ? || '%'
+    OR raw LIKE '%' || ? || '%'
+    OR source LIKE '%' || ? || '%'
+    OR component LIKE '%' || ? || '%')
 ORDER BY ts DESC, id DESC
-LIMIT $10
+LIMIT ?
 `
 
 type ListSystemLogsParams struct {
-	Column1 string `db:"column_1" json:"column_1"`
-	Column2 string `db:"column_2" json:"column_2"`
-	Column3 string `db:"column_3" json:"column_3"`
-	Column4 string `db:"column_4" json:"column_4"`
-	Column5 string `db:"column_5" json:"column_5"`
-	Column6 string `db:"column_6" json:"column_6"`
-	Column7 string `db:"column_7" json:"column_7"`
-	Column8 string `db:"column_8" json:"column_8"`
-	Column9 string `db:"column_9" json:"column_9"`
-	Limit   int32  `db:"limit" json:"limit"`
+	Column1   interface{} `db:"column_1" json:"column_1"`
+	Level     string      `db:"level" json:"level"`
+	Column3   interface{} `db:"column_3" json:"column_3"`
+	Logger    string      `db:"logger" json:"logger"`
+	Column5   interface{} `db:"column_5" json:"column_5"`
+	Source    string      `db:"source" json:"source"`
+	Column7   interface{} `db:"column_7" json:"column_7"`
+	Component string      `db:"component" json:"component"`
+	Column9   interface{} `db:"column_9" json:"column_9"`
+	AgentID   string      `db:"agent_id" json:"agent_id"`
+	Column11  interface{} `db:"column_11" json:"column_11"`
+	ThreadID  string      `db:"thread_id" json:"thread_id"`
+	Column13  interface{} `db:"column_13" json:"column_13"`
+	EventType string      `db:"event_type" json:"event_type"`
+	Column15  interface{} `db:"column_15" json:"column_15"`
+	ToolName  string      `db:"tool_name" json:"tool_name"`
+	Column17  interface{} `db:"column_17" json:"column_17"`
+	Column18  *string     `db:"column_18" json:"column_18"`
+	Column19  *string     `db:"column_19" json:"column_19"`
+	Column20  *string     `db:"column_20" json:"column_20"`
+	Column21  *string     `db:"column_21" json:"column_21"`
+	Column22  *string     `db:"column_22" json:"column_22"`
+	Column23  *string     `db:"column_23" json:"column_23"`
+	Limit     int64       `db:"limit" json:"limit"`
 }
 
 func (q *Queries) ListSystemLogs(ctx context.Context, arg ListSystemLogsParams) ([]SystemLog, error) {
-	rows, err := q.db.Query(ctx, listSystemLogs,
+	rows, err := q.db.QueryContext(ctx, listSystemLogs,
 		arg.Column1,
-		arg.Column2,
+		arg.Level,
 		arg.Column3,
-		arg.Column4,
+		arg.Logger,
 		arg.Column5,
-		arg.Column6,
+		arg.Source,
 		arg.Column7,
-		arg.Column8,
+		arg.Component,
 		arg.Column9,
+		arg.AgentID,
+		arg.Column11,
+		arg.ThreadID,
+		arg.Column13,
+		arg.EventType,
+		arg.Column15,
+		arg.ToolName,
+		arg.Column17,
+		arg.Column18,
+		arg.Column19,
+		arg.Column20,
+		arg.Column21,
+		arg.Column22,
+		arg.Column23,
 		arg.Limit,
 	)
 	if err != nil {
@@ -106,6 +134,9 @@ func (q *Queries) ListSystemLogs(ctx context.Context, arg ListSystemLogsParams) 
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

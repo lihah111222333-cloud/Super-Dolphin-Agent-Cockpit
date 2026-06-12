@@ -48,7 +48,7 @@ func (s *cwdLockQuerierStub) HeartbeatCwdLock(ctx context.Context, arg sqlc.Hear
 	return nil
 }
 
-func (s *cwdLockQuerierStub) DeleteStaleCwdLocks(ctx context.Context) (int64, error) {
+func (s *cwdLockQuerierStub) DeleteStaleCwdLocks(ctx context.Context, arg sqlc.DeleteStaleCwdLocksParams) (int64, error) {
 	if s.deleteStaleFn != nil {
 		return s.deleteStaleFn(ctx)
 	}
@@ -132,7 +132,7 @@ func TestForceAcquireForwardsParamsAndReturnsCount(t *testing.T) {
 	if count != 2 {
 		t.Fatalf("ForceAcquire() count = %d, want 2", count)
 	}
-	if captured.CWD != "/var" || captured.InstanceID != "inst-2" || captured.Pid != 42 || captured.Pid_2 != 99 {
+	if captured.CWD != "/var" || captured.InstanceID != "inst-2" || captured.Pid != 42 {
 		t.Fatalf("ForceAcquire() forwarded wrong params: %+v", captured)
 	}
 }
@@ -271,7 +271,7 @@ func TestGetHolderMapsRow(t *testing.T) {
 	s := &store{q: &cwdLockQuerierStub{
 		getHolderFn: func(_ context.Context, cwd string) (sqlc.GetCwdLockHolderRow, error) {
 			capturedCwd = cwd
-			return sqlc.GetCwdLockHolderRow{InstanceID: "inst-x", Pid: 321, HeartbeatAt: heartbeat}, nil
+			return sqlc.GetCwdLockHolderRow{InstanceID: "inst-x", Pid: 321, HeartbeatAt: heartbeat.UnixMilli()}, nil
 		},
 	}}
 

@@ -26,11 +26,14 @@ func newStoreForTest(q querier) Store { return &store{q: q} }
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]AuditEvent, error) {
 	rows, err := s.q.ListAuditEvents(ctx, sqlc.ListAuditEventsParams{
-		Column1: filter.EventType,
-		Column2: filter.Action,
-		Column3: filter.Actor,
-		Column4: filter.Keyword,
-		Limit:   filter.Limit,
+		Column1:   filter.EventType,
+		EventType: filter.EventType,
+		Column3:   filter.Action,
+		Action:    filter.Action,
+		Column5:   filter.Actor,
+		Actor:     filter.Actor,
+		Column7:   filter.Keyword,
+		Limit:     int64(filter.Limit),
 	})
 	if err != nil {
 		return nil, wrapAuditLogError(err, "list")
@@ -51,13 +54,13 @@ func (s *store) Insert(ctx context.Context, params InsertParams) error {
 		Target:    params.Target,
 		Detail:    params.Detail,
 		Level:     params.Level,
-		Column8:   params.Extra,
+		Extra:     string(params.Extra),
 	}), "insert")
 }
 
 func mapAuditEvent(row sqlc.ListAuditEventsRow) AuditEvent {
 	return AuditEvent{
-		Ts:        row.Ts,
+		Ts:        platformdb.TimeFromMillis(row.Ts),
 		EventType: row.EventType,
 		Action:    row.Action,
 		Result:    row.Result,

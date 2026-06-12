@@ -23,16 +23,24 @@ func NewStore(q *sqlc.Queries) Store {
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]SystemLog, error) {
 	rows, err := s.q.ListSystemLogs(ctx, sqlc.ListSystemLogsParams{
-		Column1: filter.Level,
-		Column2: filter.Logger,
-		Column3: filter.Source,
-		Column4: filter.Component,
-		Column5: filter.AgentID,
-		Column6: filter.ThreadID,
-		Column7: filter.EventType,
-		Column8: filter.ToolName,
-		Column9: filter.Keyword,
-		Limit:   filter.Limit,
+		Column1:   filter.Level,
+		Level:     filter.Level,
+		Column3:   filter.Logger,
+		Logger:    filter.Logger,
+		Column5:   filter.Source,
+		Source:    filter.Source,
+		Column7:   filter.Component,
+		Component: filter.Component,
+		Column9:   filter.AgentID,
+		AgentID:   filter.AgentID,
+		Column11:  filter.ThreadID,
+		ThreadID:  filter.ThreadID,
+		Column13:  filter.EventType,
+		EventType: filter.EventType,
+		Column15:  filter.ToolName,
+		ToolName:  filter.ToolName,
+		Column17:  filter.Keyword,
+		Limit:     int64(filter.Limit),
 	})
 	if err != nil {
 		return nil, wrapSystemLogError(err, "list")
@@ -56,7 +64,7 @@ func (s *store) Insert(ctx context.Context, params InsertParams) error {
 func mapSystemLog(row sqlc.SystemLog) SystemLog {
 	return SystemLog{
 		ID:         row.ID,
-		Ts:         row.Ts,
+		Ts:         platformdb.TimeFromMillis(row.Ts),
 		Level:      row.Level,
 		Logger:     row.Logger,
 		Message:    row.Message,
@@ -68,9 +76,17 @@ func mapSystemLog(row sqlc.SystemLog) SystemLog {
 		TraceID:    row.TraceID,
 		EventType:  row.EventType,
 		ToolName:   row.ToolName,
-		DurationMs: row.DurationMs,
+		DurationMs: durationMsPtr(row.DurationMs),
 		Extra:      json.RawMessage(row.Extra),
 	}
+}
+
+func durationMsPtr(v *int64) *int32 {
+	if v == nil {
+		return nil
+	}
+	x := int32(*v)
+	return &x
 }
 
 func wrapSystemLogError(err error, operation string) error {

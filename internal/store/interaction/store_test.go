@@ -49,9 +49,9 @@ func (s *interactionQuerierStub) ReviewInteraction(ctx context.Context, arg sqlc
 
 func fullAgentInteractionFixture() sqlc.AgentInteraction {
 	parent := int64(42)
-	reviewed := time.Unix(1700000000, 0).UTC()
-	created := time.Unix(1699000000, 0).UTC()
-	updated := time.Unix(1699500000, 0).UTC()
+	reviewed := time.Unix(1700000000, 0).UTC().UnixMilli()
+	created := time.Unix(1699000000, 0).UTC().UnixMilli()
+	updated := time.Unix(1699500000, 0).UTC().UnixMilli()
 	return sqlc.AgentInteraction{
 		ID:             1,
 		ThreadID:       "thread-1",
@@ -60,7 +60,7 @@ func fullAgentInteractionFixture() sqlc.AgentInteraction {
 		Receiver:       "agent-A",
 		MsgType:        "request",
 		Status:         "pending",
-		RequiresReview: true,
+		RequiresReview: int64(1),
 		ReviewedBy:     "reviewer-1",
 		ReviewNote:     "ok",
 		ReviewedAt:     &reviewed,
@@ -112,7 +112,7 @@ type createParamsView struct {
 	Receiver       string
 	MsgType        string
 	Status         string
-	RequiresReview bool
+	RequiresReview int64
 	Payload        string
 }
 
@@ -145,7 +145,7 @@ func assertCreateParams(t *testing.T, got sqlc.CreateInteractionParams) {
 		Receiver:       "agent-A",
 		MsgType:        "request",
 		Status:         "pending",
-		RequiresReview: true,
+		RequiresReview: int64(1),
 		Payload:        `{"a":1}`,
 	}
 	if createParamsViewOf(got) != want {
@@ -172,7 +172,7 @@ func createParamsViewOf(arg sqlc.CreateInteractionParams) createParamsView {
 		MsgType:        arg.MsgType,
 		Status:         arg.Status,
 		RequiresReview: arg.RequiresReview,
-		Payload:        string(arg.Column8),
+		Payload:        string(arg.Payload),
 	}
 }
 
@@ -199,9 +199,16 @@ func interactionViewOf(got *Interaction) interactionView {
 	}
 }
 
+func int64MilliPointerView(ms *int64) (time.Time, bool) {
+	if ms == nil {
+		return time.Time{}, false
+	}
+	return time.UnixMilli(*ms).UTC(), true
+}
+
 func interactionViewOfFixture(fixture sqlc.AgentInteraction) interactionView {
 	parentID, hasParentID := int64PointerView(fixture.ParentID)
-	reviewedAt, hasReviewedAt := timePointerView(fixture.ReviewedAt)
+	reviewedAt, hasReviewedAt := int64MilliPointerView(fixture.ReviewedAt)
 	return interactionView{
 		ID:             fixture.ID,
 		ThreadID:       fixture.ThreadID,
@@ -211,14 +218,14 @@ func interactionViewOfFixture(fixture sqlc.AgentInteraction) interactionView {
 		Receiver:       fixture.Receiver,
 		MsgType:        fixture.MsgType,
 		Status:         fixture.Status,
-		RequiresReview: fixture.RequiresReview,
+		RequiresReview: fixture.RequiresReview != 0,
 		ReviewedBy:     fixture.ReviewedBy,
 		ReviewNote:     fixture.ReviewNote,
 		ReviewedAt:     reviewedAt,
 		HasReviewedAt:  hasReviewedAt,
 		Payload:        string(fixture.Payload),
-		CreatedAt:      fixture.CreatedAt,
-		UpdatedAt:      fixture.UpdatedAt,
+		CreatedAt:      time.UnixMilli(fixture.CreatedAt).UTC(),
+		UpdatedAt:      time.UnixMilli(fixture.UpdatedAt).UTC(),
 	}
 }
 
