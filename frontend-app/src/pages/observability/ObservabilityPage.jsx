@@ -72,6 +72,59 @@ function formatMatchedEventDuration(value) {
   return `匹配 event 耗时合计 ${durationText}`;
 }
 
+function traceEventValue(event, camelKey, snakeKey) {
+  if (!event || typeof event !== 'object') return '';
+  return event[camelKey] ?? event[snakeKey] ?? '';
+}
+
+function traceEventTraceId(event) {
+  return textValue(traceEventValue(event, 'traceId', 'trace_id'));
+}
+
+function traceEventSpanId(event) {
+  return textValue(traceEventValue(event, 'spanId', 'span_id'));
+}
+
+function traceEventParentSpanId(event) {
+  return textValue(traceEventValue(event, 'parentSpanId', 'parent_span_id'));
+}
+
+function traceEventThreadId(event) {
+  return textValue(traceEventValue(event, 'threadId', 'thread_id'));
+}
+
+function traceEventTurnId(event) {
+  return textValue(traceEventValue(event, 'turnId', 'turn_id'));
+}
+
+function traceEventAgentId(event) {
+  return textValue(traceEventValue(event, 'agentId', 'agent_id'));
+}
+
+function traceEventCallId(event) {
+  return textValue(traceEventValue(event, 'callId', 'call_id'));
+}
+
+function traceEventToolName(event) {
+  return textValue(traceEventValue(event, 'toolName', 'tool_name'));
+}
+
+function traceEventClientKind(event) {
+  return textValue(traceEventValue(event, 'clientKind', 'client_kind'));
+}
+
+function traceEventClientRoute(event) {
+  return textValue(traceEventValue(event, 'clientRoute', 'client_route'));
+}
+
+function traceEventDurationMs(event) {
+  return traceEventValue(event, 'durationMs', 'duration_ms');
+}
+
+function traceResultTotalDurationMs(result) {
+  return traceEventValue(result, 'totalDurationMs', 'total_duration_ms') || 0;
+}
+
 function useObservabilityFilters() {
   const [filters, setFilters] = useState({
     agentId: '',
@@ -335,7 +388,7 @@ function groupObservabilityTraceRows(events) {
   const source = Array.isArray(events) ? events : [];
   for (let index = 0; index < source.length; index += 1) {
     const event = source[index];
-    const traceID = textValue(event.traceId);
+    const traceID = traceEventTraceId(event);
     const rowKey = traceID || observabilityEventRowKey(event, index);
     const existing = rowsByTrace.get(rowKey);
     if (!existing) {
@@ -347,7 +400,7 @@ function groupObservabilityTraceRows(events) {
   }
   return Array.from(rowsByTrace.values()).map((row) => {
     const status = worstObservabilityStatus(row.events);
-    const durationMS = row.events.reduce((total, event) => total + (Number(event.durationMs) || 0), 0);
+    const durationMS = row.events.reduce((total, event) => total + (Number(traceEventDurationMs(event)) || 0), 0);
     return {
       ...row,
       status,
@@ -372,7 +425,7 @@ function observabilityTimestampMillis(value) {
 }
 
 function observabilityEventRowKey(event, index) {
-  const parts = [event.ts, event.spanId, event.method, event.phase, event.kind]
+  const parts = [event.ts, traceEventSpanId(event), event.method, event.phase, event.kind]
     .map(textValue)
     .filter(Boolean);
   return `event-${parts.join(':') || 'unknown'}-${index}`;
@@ -450,7 +503,7 @@ function ObservabilityLogTableRow({ row, onOpenTrace, onCopyTrace, copied, trace
             <strong>{event.method || event.phase || event.kind || 'event'}</strong>
             <p>{summary}</p>
             <p className="observability-log-identifiers">
-              trace={traceID || '-'} · thread={event.threadId || '-'} · {row.eventCount} 个匹配 event
+              trace={traceID || '-'} · thread={traceEventThreadId(event) || '-'} · {row.eventCount} 个匹配 event
             </p>
             {row.error ? <p className="observability-event-error">{row.error}</p> : null}
           </div>
@@ -503,10 +556,10 @@ function observabilityTraceSummary(row) {
   const parts = [
     event.kind,
     event.phase,
-    event.clientRoute,
-    event.agentId ? `agent=${event.agentId}` : '',
-    event.callId ? `call=${event.callId}` : '',
-    event.toolName ? `tool=${event.toolName}` : '',
+    traceEventClientRoute(event),
+    traceEventAgentId(event) ? `agent=${traceEventAgentId(event)}` : '',
+    traceEventCallId(event) ? `call=${traceEventCallId(event)}` : '',
+    traceEventToolName(event) ? `tool=${traceEventToolName(event)}` : '',
     durationText,
   ].map(textValue).filter(Boolean);
   return parts.join(' · ');
@@ -527,7 +580,7 @@ function ObservabilityInlineTraceResult({ traceID, detailId, state }) {
         <div>
           <h3>Trace 结果</h3>
           {result ? (
-            <p>source={result.source || 'memory'} total_duration_ms={result.totalDurationMs || 0} truncated={String(Boolean(result.truncated))}</p>
+            <p>source={result.source || 'memory'} total_duration_ms={traceResultTotalDurationMs(result)} truncated={String(Boolean(result.truncated))}</p>
           ) : null}
         </div>
       </div>
@@ -542,7 +595,7 @@ function ObservabilityInlineTraceResult({ traceID, detailId, state }) {
 function TraceEventTable({ events }) {
   const sourceEvents = useMemo(() => (Array.isArray(events) ? events : []), [events]);
   const eventSignature = useMemo(() => sourceEvents
-    .map((event, index) => `${textValue(event.traceId)}:${textValue(event.spanId) || index}:${textValue(event.phase)}:${textValue(event.ts)}:${textValue(event.method)}`)
+    .map((event, index) => `${traceEventTraceId(event)}:${traceEventSpanId(event) || index}:${textValue(event.phase)}:${textValue(event.ts)}:${textValue(event.method)}`)
     .join('|'), [sourceEvents]);
   const [displayState, setDisplayState] = useState({ eventSignature: '', showAll: false });
   const showAll = displayState.eventSignature === eventSignature ? displayState.showAll : false;
@@ -582,7 +635,7 @@ function TraceEventTable({ events }) {
 }
 
 function traceEventRenderKey(event, sourceIndex) {
-  const parts = [event.traceId, event.spanId, event.phase, event.ts, event.method, String(sourceIndex)]
+  const parts = [traceEventTraceId(event), traceEventSpanId(event), event.phase, event.ts, event.method, String(sourceIndex)]
     .map(textValue)
     .filter(Boolean);
   return `trace-event-${parts.join(':')}`;
@@ -634,30 +687,30 @@ function TraceEventRow({ event, index }) {
   const title = event.method || event.phase || event.kind || 'event';
   const formattedTimestamp = formatObservabilityTimestamp(event.ts);
   const timestampText = formattedTimestamp === '-' ? '' : formattedTimestamp;
-  const durationText = formatObservabilityDuration(event.durationMs);
+  const durationText = formatObservabilityDuration(traceEventDurationMs(event));
   const codeText = formatCodeAnchor(event.code);
   const context = [
     event.kind,
     event.phase,
-    event.clientKind,
-    event.clientRoute,
+    traceEventClientKind(event),
+    traceEventClientRoute(event),
   ].map(textValue).filter(Boolean);
   const requestContext = [
     ['组件', event.kind],
     ['阶段', event.phase],
-    ['客户端', event.clientKind],
-    ['页面', event.clientRoute],
+    ['客户端', traceEventClientKind(event)],
+    ['页面', traceEventClientRoute(event)],
     ['方法', event.method],
   ].map(([label, value]) => [label, textValue(value)]).filter(([, value]) => value);
   const traceContext = [
-    ['trace', event.traceId],
-    ['span', event.spanId],
-    ['parent', event.parentSpanId],
-    ['thread', event.threadId],
-    ['turn', event.turnId],
-    ['agent', event.agentId],
-    ['call', event.callId],
-    ['tool', event.toolName],
+    ['trace', traceEventTraceId(event)],
+    ['span', traceEventSpanId(event)],
+    ['parent', traceEventParentSpanId(event)],
+    ['thread', traceEventThreadId(event)],
+    ['turn', traceEventTurnId(event)],
+    ['agent', traceEventAgentId(event)],
+    ['call', traceEventCallId(event)],
+    ['tool', traceEventToolName(event)],
   ].map(([label, value]) => [label, textValue(value)]).filter(([, value]) => value);
   const metadataText = stableTraceEventMetadata(event.metadata);
   const stackText = Array.isArray(event.stack) && event.stack.length
