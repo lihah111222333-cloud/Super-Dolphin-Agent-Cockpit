@@ -68,6 +68,7 @@ type LSPProjectAdapterConfig struct {
 // can depend on them without importing a platform package.
 type Config struct {
 	DatabaseURL      string
+	SQLitePath       string
 	RPCAddr          string
 	LogLevel         string
 	ProjectRoot      string
