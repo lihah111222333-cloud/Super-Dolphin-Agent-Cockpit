@@ -55,12 +55,15 @@ SET claimed_by       = ?1,
 WHERE id IN (
     SELECT id
     FROM cron_jobs
-    WHERE enabled = TRUE
+    WHERE enabled = 1
       AND (claim_token = '' OR COALESCE(lease_expires_at, 0) <= ?2)
       AND COALESCE(next_retry_at, next_run_at) <= ?2
     ORDER BY COALESCE(next_retry_at, next_run_at) ASC, id ASC
     LIMIT ?5
 )
+  AND enabled = 1
+  AND (claim_token = '' OR COALESCE(lease_expires_at, 0) <= ?2)
+  AND COALESCE(next_retry_at, next_run_at) <= ?2
 RETURNING id, name, prompt, schedule_type, schedule_expr,
           timezone, provider, model, cwd, config, skills,
           notify_channel, enabled, next_run_at, last_scheduled_at,
@@ -82,7 +85,9 @@ type ClaimDueJobsForUpdateParams struct {
 // Claim / lease -----------------------------------------------------
 // ClaimDueJobsForUpdate marks up to `limit` due rows as claimed by `claimed_by`.
 // FOR UPDATE SKIP LOCKED removed: SQLite does not support it.
-// Task07 implements atomic claim via application-layer optimistic locking.
+// Task07 implements atomic claim with one UPDATE ... RETURNING statement.
+// The outer UPDATE repeats the availability predicate so claim ownership is
+// rechecked at write time, preserving fencing if another writer wins first.
 func (q *Queries) ClaimDueJobsForUpdate(ctx context.Context, arg ClaimDueJobsForUpdateParams) ([]CronJob, error) {
 	rows, err := q.db.QueryContext(ctx, claimDueJobsForUpdate,
 		arg.ClaimedBy,
