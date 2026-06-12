@@ -11,24 +11,30 @@ import (
 
 const acquireCwdLock = `-- name: AcquireCwdLock :execrows
 INSERT INTO cwd_instance_locks (cwd, instance_id, pid, acquired_at, heartbeat_at)
-VALUES (?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
+VALUES (?1, ?2, ?3, (CAST(strftime('%s','now') AS INTEGER) * 1000) + ((CAST(?4 AS INTEGER) - CAST(?4 AS INTEGER)) * 0), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 ON CONFLICT (cwd) DO UPDATE
 SET instance_id = EXCLUDED.instance_id,
     pid = EXCLUDED.pid,
     acquired_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     heartbeat_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE cwd_instance_locks.instance_id = EXCLUDED.instance_id
-   OR cwd_instance_locks.heartbeat_at < ?
+   OR cwd_instance_locks.heartbeat_at < ?4
 `
 
 type AcquireCwdLockParams struct {
-	CWD        string `db:"cwd" json:"cwd"`
-	InstanceID string `db:"instance_id" json:"instance_id"`
-	Pid        int64  `db:"pid" json:"pid"`
+	CWD            string `db:"cwd" json:"cwd"`
+	InstanceID     string `db:"instance_id" json:"instance_id"`
+	Pid            int64  `db:"pid" json:"pid"`
+	StaleThreshold int64  `db:"stale_threshold" json:"stale_threshold"`
 }
 
 func (q *Queries) AcquireCwdLock(ctx context.Context, arg AcquireCwdLockParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, acquireCwdLock, arg.CWD, arg.InstanceID, arg.Pid)
+	result, err := q.db.ExecContext(ctx, acquireCwdLock,
+		arg.CWD,
+		arg.InstanceID,
+		arg.Pid,
+		arg.StaleThreshold,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -54,23 +60,29 @@ func (q *Queries) DeleteStaleCwdLocks(ctx context.Context, arg DeleteStaleCwdLoc
 
 const forceAcquireCwdLock = `-- name: ForceAcquireCwdLock :execrows
 INSERT INTO cwd_instance_locks (cwd, instance_id, pid, acquired_at, heartbeat_at)
-VALUES (?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
+VALUES (?1, ?2, ?3, (CAST(strftime('%s','now') AS INTEGER) * 1000) + ((CAST(?4 AS INTEGER) - CAST(?4 AS INTEGER)) * 0), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 ON CONFLICT (cwd) DO UPDATE
 SET instance_id = EXCLUDED.instance_id,
     pid = EXCLUDED.pid,
     acquired_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     heartbeat_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE cwd_instance_locks.pid = ?
+WHERE cwd_instance_locks.pid = ?4
 `
 
 type ForceAcquireCwdLockParams struct {
 	CWD        string `db:"cwd" json:"cwd"`
 	InstanceID string `db:"instance_id" json:"instance_id"`
 	Pid        int64  `db:"pid" json:"pid"`
+	HolderPid  int64  `db:"holder_pid" json:"holder_pid"`
 }
 
 func (q *Queries) ForceAcquireCwdLock(ctx context.Context, arg ForceAcquireCwdLockParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, forceAcquireCwdLock, arg.CWD, arg.InstanceID, arg.Pid)
+	result, err := q.db.ExecContext(ctx, forceAcquireCwdLock,
+		arg.CWD,
+		arg.InstanceID,
+		arg.Pid,
+		arg.HolderPid,
+	)
 	if err != nil {
 		return 0, err
 	}
