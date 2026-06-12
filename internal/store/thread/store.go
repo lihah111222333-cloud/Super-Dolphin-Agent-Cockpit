@@ -10,8 +10,8 @@ import (
 )
 
 type querier interface {
-	AgentThreadRunningExists(ctx context.Context, arg sqlc.AgentThreadRunningExistsParams) (bool, error)
-	AgentThreadExists(ctx context.Context, arg sqlc.AgentThreadExistsParams) (bool, error)
+	AgentThreadRunningExists(ctx context.Context, arg sqlc.AgentThreadRunningExistsParams) (int64, error)
+	AgentThreadExists(ctx context.Context, arg sqlc.AgentThreadExistsParams) (int64, error)
 	CountAllThreads(ctx context.Context) (int64, error)
 	CountChildAgentThreads(ctx context.Context, arg sqlc.CountChildAgentThreadsParams) (int64, error)
 	DeleteAgentThreadByID(ctx context.Context, arg sqlc.DeleteAgentThreadByIDParams) error
@@ -25,7 +25,7 @@ type querier interface {
 	ListRecoverableAgentThreads(ctx context.Context) ([]sqlc.ListRecoverableAgentThreadsRow, error)
 	ListRunningAgentThreads(ctx context.Context) ([]sqlc.ListRunningAgentThreadsRow, error)
 	ListRunningAgents(ctx context.Context) ([]sqlc.ListRunningAgentsRow, error)
-	LoadAgentThreadPromptSnapshot(ctx context.Context, arg sqlc.LoadAgentThreadPromptSnapshotParams) ([]byte, error)
+	LoadAgentThreadPromptSnapshot(ctx context.Context, arg sqlc.LoadAgentThreadPromptSnapshotParams) (json.RawMessage, error)
 	ResetRunningAgentThreads(ctx context.Context) error
 	UpdateAgentThreadPromptSnapshot(ctx context.Context, arg sqlc.UpdateAgentThreadPromptSnapshotParams) (int64, error)
 	UpdateAgentThreadStatus(ctx context.Context, arg sqlc.UpdateAgentThreadStatusParams) error
@@ -51,7 +51,7 @@ func (s *store) GetByThreadID(ctx context.Context, threadID string) (*Thread, er
 }
 
 func (s *store) GetByPort(ctx context.Context, port int32) (*Thread, error) {
-	row, err := s.q.GetAgentThreadByPort(ctx, sqlc.GetAgentThreadByPortParams{Port: port})
+	row, err := s.q.GetAgentThreadByPort(ctx, sqlc.GetAgentThreadByPortParams{Port: int64(port)})
 	if err != nil {
 		return nil, wrapThreadError(err, "get_by_port")
 	}
@@ -99,8 +99,8 @@ func (s *store) ListRunningAgents(ctx context.Context) ([]RunningAgent, error) {
 	for i, row := range rows {
 		result[i] = RunningAgent{
 			ThreadID: row.ThreadID,
-			Port:     row.Port,
-			PID:      row.Pid,
+			Port:     int32(row.Port),
+			PID:      int32(row.Pid),
 			Status:   row.Status,
 		}
 	}
@@ -115,8 +115,8 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 		Model:            params.Model,
 		CWD:              params.Cwd,
 		Status:           params.Status,
-		Port:             params.Port,
-		Pid:              params.PID,
+		Port:             int64(params.Port),
+		Pid:              int64(params.PID),
 		CreatedAt:        params.CreatedAt,
 		UpdatedAt:        params.UpdatedAt,
 		OwnerThreadID:    params.OwnerThreadID,
@@ -126,8 +126,8 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 		ConfigOverride:   params.ConfigOverride,
 		AgentKey:         params.AgentKey,
 		PromptVersionID:  params.PromptVersionID,
-		PendingLaunch:    params.PendingLaunch,
-		ManuallyRenamed:  params.ManuallyRenamed,
+		PendingLaunch:    boolToInt64(params.PendingLaunch),
+		ManuallyRenamed:  boolToInt64(params.ManuallyRenamed),
 	}), "upsert")
 }
 
@@ -210,11 +210,11 @@ func (s *store) ExpireStale(ctx context.Context, params ExpireStaleParams) (int6
 }
 
 func (s *store) RunningExists(ctx context.Context, threadID string) (bool, error) {
-	exists, err := s.q.AgentThreadRunningExists(ctx, sqlc.AgentThreadRunningExistsParams{ThreadID: threadID})
+	v, err := s.q.AgentThreadRunningExists(ctx, sqlc.AgentThreadRunningExistsParams{ThreadID: threadID})
 	if err != nil {
 		return false, wrapThreadError(err, "running_exists")
 	}
-	return exists, nil
+	return v != 0, nil
 }
 
 func (s *store) ListCwds(ctx context.Context) ([]ThreadCwd, error) {
@@ -242,11 +242,11 @@ func (s *store) CountChildren(ctx context.Context, parentAgentID string) (int64,
 }
 
 func (s *store) Exists(ctx context.Context, threadID string) (bool, error) {
-	exists, err := s.q.AgentThreadExists(ctx, sqlc.AgentThreadExistsParams{ThreadID: threadID})
+	v, err := s.q.AgentThreadExists(ctx, sqlc.AgentThreadExistsParams{ThreadID: threadID})
 	if err != nil {
 		return false, wrapThreadError(err, "exists")
 	}
-	return exists, nil
+	return v != 0, nil
 }
 
 func (s *store) CountAll(ctx context.Context) (int64, error) {
@@ -261,6 +261,13 @@ func wrapThreadError(err error, operation string) error {
 	return platformdb.WrapStoreError(err, operation, "thread")
 }
 
+func boolToInt64(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func mapThreadByID(row sqlc.GetAgentThreadByIDRow) Thread {
 	return Thread{
 		ThreadID:         row.ThreadID,
@@ -273,8 +280,8 @@ func mapThreadByID(row sqlc.GetAgentThreadByIDRow) Thread {
 		Model:            row.Model,
 		Cwd:              row.CWD,
 		Status:           row.Status,
-		Port:             row.Port,
-		PID:              row.Pid,
+		Port:             int32(row.Port),
+		PID:              int32(row.Pid),
 		CreatedAt:        row.CreatedAt,
 		UpdatedAt:        row.UpdatedAt,
 		FinishedAt:       row.FinishedAt,
@@ -282,11 +289,11 @@ func mapThreadByID(row sqlc.GetAgentThreadByIDRow) Thread {
 		ErrorMessage:     row.ErrorMessage,
 		WorkspaceRunKey:  row.WorkspaceRunKey,
 		OwnerThreadID:    row.OwnerThreadID,
-		ConfigOverride:   row.ConfigOverride,
+		ConfigOverride:   json.RawMessage(row.ConfigOverride),
 		AgentKey:         row.AgentKey,
 		PromptVersionID:  row.PromptVersionID,
-		PendingLaunch:    row.PendingLaunch,
-		ManuallyRenamed:  row.ManuallyRenamed,
+		PendingLaunch:    row.PendingLaunch != 0,
+		ManuallyRenamed:  row.ManuallyRenamed != 0,
 	}
 }
 
@@ -302,8 +309,8 @@ func mapThreadByPort(row sqlc.GetAgentThreadByPortRow) Thread {
 		Model:            row.Model,
 		Cwd:              row.CWD,
 		Status:           row.Status,
-		Port:             row.Port,
-		PID:              row.Pid,
+		Port:             int32(row.Port),
+		PID:              int32(row.Pid),
 		CreatedAt:        row.CreatedAt,
 		UpdatedAt:        row.UpdatedAt,
 		FinishedAt:       row.FinishedAt,
@@ -311,11 +318,11 @@ func mapThreadByPort(row sqlc.GetAgentThreadByPortRow) Thread {
 		ErrorMessage:     row.ErrorMessage,
 		WorkspaceRunKey:  row.WorkspaceRunKey,
 		OwnerThreadID:    row.OwnerThreadID,
-		ConfigOverride:   row.ConfigOverride,
+		ConfigOverride:   json.RawMessage(row.ConfigOverride),
 		AgentKey:         row.AgentKey,
 		PromptVersionID:  row.PromptVersionID,
-		PendingLaunch:    row.PendingLaunch,
-		ManuallyRenamed:  row.ManuallyRenamed,
+		PendingLaunch:    row.PendingLaunch != 0,
+		ManuallyRenamed:  row.ManuallyRenamed != 0,
 	}
 }
 
@@ -325,7 +332,7 @@ func mapConfigList(rows []sqlc.ListAgentThreadConfigsByIDsRow) []Thread {
 		result[i] = Thread{
 			ThreadID:       row.ThreadID,
 			Model:          row.Model,
-			ConfigOverride: row.ConfigOverride,
+			ConfigOverride: json.RawMessage(row.ConfigOverride),
 		}
 	}
 	return result
@@ -346,8 +353,8 @@ func mapThreadList(rows []sqlc.ListAgentThreadsRow) []Thread {
 			Model:            row.Model,
 			Cwd:              row.CWD,
 			Status:           row.Status,
-			Port:             row.Port,
-			PID:              row.Pid,
+			Port:             int32(row.Port),
+			PID:              int32(row.Pid),
 			CreatedAt:        row.CreatedAt,
 			UpdatedAt:        row.UpdatedAt,
 			FinishedAt:       row.FinishedAt,
@@ -355,11 +362,11 @@ func mapThreadList(rows []sqlc.ListAgentThreadsRow) []Thread {
 			ErrorMessage:     row.ErrorMessage,
 			WorkspaceRunKey:  row.WorkspaceRunKey,
 			OwnerThreadID:    row.OwnerThreadID,
-			ConfigOverride:   row.ConfigOverride,
+			ConfigOverride:   json.RawMessage(row.ConfigOverride),
 			AgentKey:         row.AgentKey,
 			PromptVersionID:  row.PromptVersionID,
-			PendingLaunch:    row.PendingLaunch,
-			ManuallyRenamed:  row.ManuallyRenamed,
+			PendingLaunch:    row.PendingLaunch != 0,
+			ManuallyRenamed:  row.ManuallyRenamed != 0,
 		}
 	}
 	return result
@@ -379,8 +386,8 @@ func mapRunningThreadList(rows []sqlc.ListRunningAgentThreadsRow) []Thread {
 			Model:            row.Model,
 			Cwd:              row.CWD,
 			Status:           row.Status,
-			Port:             row.Port,
-			PID:              row.Pid,
+			Port:             int32(row.Port),
+			PID:              int32(row.Pid),
 			CreatedAt:        row.CreatedAt,
 			UpdatedAt:        row.UpdatedAt,
 			FinishedAt:       row.FinishedAt,
@@ -388,11 +395,11 @@ func mapRunningThreadList(rows []sqlc.ListRunningAgentThreadsRow) []Thread {
 			ErrorMessage:     row.ErrorMessage,
 			WorkspaceRunKey:  row.WorkspaceRunKey,
 			OwnerThreadID:    row.OwnerThreadID,
-			ConfigOverride:   row.ConfigOverride,
+			ConfigOverride:   json.RawMessage(row.ConfigOverride),
 			AgentKey:         row.AgentKey,
 			PromptVersionID:  row.PromptVersionID,
-			PendingLaunch:    row.PendingLaunch,
-			ManuallyRenamed:  row.ManuallyRenamed,
+			PendingLaunch:    row.PendingLaunch != 0,
+			ManuallyRenamed:  row.ManuallyRenamed != 0,
 		}
 	}
 	return result
@@ -412,8 +419,8 @@ func mapRecoverableThreadList(rows []sqlc.ListRecoverableAgentThreadsRow) []Thre
 			Model:            row.Model,
 			Cwd:              row.CWD,
 			Status:           row.Status,
-			Port:             row.Port,
-			PID:              row.Pid,
+			Port:             int32(row.Port),
+			PID:              int32(row.Pid),
 			CreatedAt:        row.CreatedAt,
 			UpdatedAt:        row.UpdatedAt,
 			FinishedAt:       row.FinishedAt,
@@ -421,11 +428,11 @@ func mapRecoverableThreadList(rows []sqlc.ListRecoverableAgentThreadsRow) []Thre
 			ErrorMessage:     row.ErrorMessage,
 			WorkspaceRunKey:  row.WorkspaceRunKey,
 			OwnerThreadID:    row.OwnerThreadID,
-			ConfigOverride:   row.ConfigOverride,
+			ConfigOverride:   json.RawMessage(row.ConfigOverride),
 			AgentKey:         row.AgentKey,
 			PromptVersionID:  row.PromptVersionID,
-			PendingLaunch:    row.PendingLaunch,
-			ManuallyRenamed:  row.ManuallyRenamed,
+			PendingLaunch:    row.PendingLaunch != 0,
+			ManuallyRenamed:  row.ManuallyRenamed != 0,
 		}
 	}
 	return result

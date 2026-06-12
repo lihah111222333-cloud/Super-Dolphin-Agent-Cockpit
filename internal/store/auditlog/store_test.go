@@ -37,7 +37,7 @@ func (f *fakeQuerier) InsertAuditEvent(_ context.Context, p sqlc.InsertAuditEven
 	}
 	f.inserted = append(f.inserted, p)
 	f.events = append(f.events, sqlc.ListAuditEventsRow{
-		Ts:        time.Now().UTC(),
+		Ts:        time.Now().UnixMilli(),
 		EventType: p.EventType,
 		Action:    p.Action,
 		Result:    p.Result,
@@ -45,7 +45,7 @@ func (f *fakeQuerier) InsertAuditEvent(_ context.Context, p sqlc.InsertAuditEven
 		Target:    p.Target,
 		Detail:    p.Detail,
 		Level:     p.Level,
-		Extra:     p.Column8,
+		Extra:     p.Extra,
 	})
 	return nil
 }

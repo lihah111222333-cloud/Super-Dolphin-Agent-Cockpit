@@ -25,18 +25,18 @@ INSERT INTO agent_provider_binding (
     updated_at,
     session_uuid
 ) VALUES (
-    $1,
+    ?1,
     'codex',
-    $2,
-    $2,
+    ?2,
+    ?2,
     '',
-    $3,
+    ?3,
     '',
     '',
     '',
     false,
-    $4,
-    $5,
+    ?4,
+    ?5,
     ''
 )
 ON CONFLICT (agent_id) DO UPDATE
@@ -54,7 +54,7 @@ type BindAgentThreadParams struct {
 }
 
 func (q *Queries) BindAgentThread(ctx context.Context, arg BindAgentThreadParams) error {
-	_, err := q.db.Exec(ctx, bindAgentThread,
+	_, err := q.db.ExecContext(ctx, bindAgentThread,
 		arg.AgentID,
 		arg.ThreadID,
 		arg.CWD,
@@ -67,7 +67,7 @@ func (q *Queries) BindAgentThread(ctx context.Context, arg BindAgentThreadParams
 const getThreadByAgent = `-- name: GetThreadByAgent :one
 SELECT COALESCE(NULLIF(codex_thread_id, ''), provider_thread_id) AS thread_id
 FROM agent_provider_binding
-WHERE agent_id = $1
+WHERE agent_id = ?
 `
 
 type GetThreadByAgentParams struct {
@@ -75,7 +75,7 @@ type GetThreadByAgentParams struct {
 }
 
 func (q *Queries) GetThreadByAgent(ctx context.Context, arg GetThreadByAgentParams) (string, error) {
-	row := q.db.QueryRow(ctx, getThreadByAgent, arg.AgentID)
+	row := q.db.QueryRowContext(ctx, getThreadByAgent, arg.AgentID)
 	var thread_id string
 	err := row.Scan(&thread_id)
 	return thread_id, err
@@ -87,34 +87,15 @@ FROM agent_provider_binding
 ORDER BY created_at DESC, agent_id DESC
 `
 
-type ListAgentThreadBindingsRow struct {
-	AgentID            string `db:"agent_id" json:"agent_id"`
-	Provider           string `db:"provider" json:"provider"`
-	ProviderThreadID   string `db:"provider_thread_id" json:"provider_thread_id"`
-	CodexThreadID      string `db:"codex_thread_id" json:"codex_thread_id"`
-	RolloutPath        string `db:"rollout_path" json:"rollout_path"`
-	CWD                string `db:"cwd" json:"cwd"`
-	ParentAgentID      string `db:"parent_agent_id" json:"parent_agent_id"`
-	AgentType          string `db:"agent_type" json:"agent_type"`
-	AgentMemoryScope   string `db:"agent_memory_scope" json:"agent_memory_scope"`
-	Archived           bool   `db:"archived" json:"archived"`
-	CreatedAt          int64  `db:"created_at" json:"created_at"`
-	UpdatedAt          int64  `db:"updated_at" json:"updated_at"`
-	SessionUUID        string `db:"session_uuid" json:"session_uuid"`
-	CodexHome          string `db:"codex_home" json:"codex_home"`
-	CodexInstanceKey   string `db:"codex_instance_key" json:"codex_instance_key"`
-	CodexModelProvider string `db:"codex_model_provider" json:"codex_model_provider"`
-}
-
-func (q *Queries) ListAgentThreadBindings(ctx context.Context) ([]ListAgentThreadBindingsRow, error) {
-	rows, err := q.db.Query(ctx, listAgentThreadBindings)
+func (q *Queries) ListAgentThreadBindings(ctx context.Context) ([]AgentProviderBinding, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentThreadBindings)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListAgentThreadBindingsRow{}
+	items := []AgentProviderBinding{}
 	for rows.Next() {
-		var i ListAgentThreadBindingsRow
+		var i AgentProviderBinding
 		if err := rows.Scan(
 			&i.AgentID,
 			&i.Provider,
@@ -137,6 +118,9 @@ func (q *Queries) ListAgentThreadBindings(ctx context.Context) ([]ListAgentThrea
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -144,33 +128,38 @@ func (q *Queries) ListAgentThreadBindings(ctx context.Context) ([]ListAgentThrea
 }
 
 const rebindAgentThreadTx = `-- name: RebindAgentThreadTx :exec
-WITH deleted AS (
-    DELETE FROM agent_provider_binding
-    WHERE agent_id = $1
-    RETURNING created_at, session_uuid, parent_agent_id, agent_type, agent_memory_scope, rollout_path
-)
 INSERT INTO agent_provider_binding (
     agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd,
     parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid
 )
-SELECT 
-    $1, 'codex', $2, $2, deleted.rollout_path, $3,
-    deleted.parent_agent_id, deleted.agent_type, deleted.agent_memory_scope, false, deleted.created_at, $4, deleted.session_uuid
-FROM deleted
+VALUES (
+    ?1, 'codex', ?2, ?2, '', ?3,
+    '', '', '', false, ?4, ?5, ''
+)
+ON CONFLICT (agent_id) DO UPDATE
+SET provider_thread_id = EXCLUDED.provider_thread_id,
+    codex_thread_id    = EXCLUDED.codex_thread_id,
+    cwd                = EXCLUDED.cwd,
+    updated_at         = EXCLUDED.updated_at
 `
 
 type RebindAgentThreadTxParams struct {
 	AgentID   string `db:"agent_id" json:"agent_id"`
 	ThreadID  string `db:"thread_id" json:"thread_id"`
 	CWD       string `db:"cwd" json:"cwd"`
+	CreatedAt int64  `db:"created_at" json:"created_at"`
 	UpdatedAt int64  `db:"updated_at" json:"updated_at"`
 }
 
+// SQLite does not support DML inside CTEs; Task rewrite: DELETE then INSERT.
+// The Go layer wraps these in a transaction. This placeholder keeps the
+// same query name so generated code compiles; real atomicity is in the Go tx.
 func (q *Queries) RebindAgentThreadTx(ctx context.Context, arg RebindAgentThreadTxParams) error {
-	_, err := q.db.Exec(ctx, rebindAgentThreadTx,
+	_, err := q.db.ExecContext(ctx, rebindAgentThreadTx,
 		arg.AgentID,
 		arg.ThreadID,
 		arg.CWD,
+		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
 	return err
@@ -178,7 +167,7 @@ func (q *Queries) RebindAgentThreadTx(ctx context.Context, arg RebindAgentThread
 
 const unbindAgentThread = `-- name: UnbindAgentThread :exec
 DELETE FROM agent_provider_binding
-WHERE agent_id = $1
+WHERE agent_id = ?
 `
 
 type UnbindAgentThreadParams struct {
@@ -186,15 +175,15 @@ type UnbindAgentThreadParams struct {
 }
 
 func (q *Queries) UnbindAgentThread(ctx context.Context, arg UnbindAgentThreadParams) error {
-	_, err := q.db.Exec(ctx, unbindAgentThread, arg.AgentID)
+	_, err := q.db.ExecContext(ctx, unbindAgentThread, arg.AgentID)
 	return err
 }
 
 const updateAgentCwd = `-- name: UpdateAgentCwd :exec
 UPDATE agent_provider_binding
-SET cwd = $1,
-    updated_at = $2
-WHERE agent_id = $3
+SET cwd = ?,
+    updated_at = ?
+WHERE agent_id = ?
 `
 
 type UpdateAgentCwdParams struct {
@@ -204,6 +193,6 @@ type UpdateAgentCwdParams struct {
 }
 
 func (q *Queries) UpdateAgentCwd(ctx context.Context, arg UpdateAgentCwdParams) error {
-	_, err := q.db.Exec(ctx, updateAgentCwd, arg.CWD, arg.UpdatedAt, arg.AgentID)
+	_, err := q.db.ExecContext(ctx, updateAgentCwd, arg.CWD, arg.UpdatedAt, arg.AgentID)
 	return err
 }

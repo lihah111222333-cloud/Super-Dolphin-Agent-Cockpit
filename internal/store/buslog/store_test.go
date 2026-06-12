@@ -33,8 +33,8 @@ func TestStore_List_Success(t *testing.T) {
 	t.Parallel()
 	fq := newFakeQuerier()
 	fq.rows = []sqlc.ListBusExceptionLogsRow{
-		{Ts: time.Now().UTC(), Category: "rpc", Severity: "error", Source: "dashboard", ToolName: "task_get_dag", Message: "failed"},
-		{Ts: time.Now().UTC(), Category: "bus", Severity: "warn", Source: "cron", ToolName: "", Message: "stale"},
+		{Ts: time.Now().UnixMilli(), Category: "rpc", Severity: "error", Source: "dashboard", ToolName: "task_get_dag", Message: "failed"},
+		{Ts: time.Now().UnixMilli(), Category: "bus", Severity: "warn", Source: "cron", ToolName: "", Message: "stale"},
 	}
 	s := newStoreForTest(fq)
 	got, err := s.List(context.Background(), ListFilter{Limit: 100})
@@ -84,14 +84,14 @@ func TestStore_List_MapsFieldsCorrectly(t *testing.T) {
 	fq := newFakeQuerier()
 	fq.rows = []sqlc.ListBusExceptionLogsRow{
 		{
-			Ts:        time.Unix(1000, 0).UTC(),
+			Ts:        time.Unix(1000, 0).UnixMilli(),
 			Category:  "rpc",
 			Severity:  "critical",
 			Source:    "orchestration",
 			ToolName:  "agent_launch",
 			Message:   "timeout after 30s",
 			Traceback: "goroutine 42\nstack trace",
-			Extra:     []byte(`{"retry":true}`),
+			Extra:     `{"retry":true}`,
 		},
 	}
 	s := newStoreForTest(fq)

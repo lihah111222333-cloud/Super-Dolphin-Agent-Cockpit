@@ -7,12 +7,11 @@ package sqlc
 
 import (
 	"context"
-	"time"
 )
 
 const insertAuditEvent = `-- name: InsertAuditEvent :exec
 INSERT INTO audit_events (ts, event_type, action, result, actor, target, detail, level, extra)
-VALUES (NOW(), $1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+VALUES ((CAST(strftime('%s','now') AS INTEGER) * 1000), ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertAuditEventParams struct {
@@ -23,11 +22,11 @@ type InsertAuditEventParams struct {
 	Target    string `db:"target" json:"target"`
 	Detail    string `db:"detail" json:"detail"`
 	Level     string `db:"level" json:"level"`
-	Column8   []byte `db:"column_8" json:"column_8"`
+	Extra     string `db:"extra" json:"extra"`
 }
 
 func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventParams) error {
-	_, err := q.db.Exec(ctx, insertAuditEvent,
+	_, err := q.db.ExecContext(ctx, insertAuditEvent,
 		arg.EventType,
 		arg.Action,
 		arg.Result,
@@ -35,7 +34,7 @@ func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventPara
 		arg.Target,
 		arg.Detail,
 		arg.Level,
-		arg.Column8,
+		arg.Extra,
 	)
 	return err
 }
@@ -43,46 +42,64 @@ func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventPara
 const listAuditEvents = `-- name: ListAuditEvents :many
 SELECT ts, event_type, action, result, actor, target, detail, level, extra
 FROM audit_events
-WHERE ($1::text = '' OR event_type = $1)
-  AND ($2::text = '' OR action = $2)
-  AND ($3::text = '' OR actor = $3)
-  AND ($4::text = ''
-    OR event_type ILIKE '%' || $4 || '%'
-    OR action ILIKE '%' || $4 || '%'
-    OR result ILIKE '%' || $4 || '%'
-    OR actor ILIKE '%' || $4 || '%'
-    OR target ILIKE '%' || $4 || '%'
-    OR detail ILIKE '%' || $4 || '%')
+WHERE (? = '' OR event_type = ?)
+  AND (? = '' OR action = ?)
+  AND (? = '' OR actor = ?)
+  AND (? = ''
+    OR event_type LIKE '%' || ? || '%'
+    OR action LIKE '%' || ? || '%'
+    OR result LIKE '%' || ? || '%'
+    OR actor LIKE '%' || ? || '%'
+    OR target LIKE '%' || ? || '%'
+    OR detail LIKE '%' || ? || '%')
 ORDER BY ts DESC, id DESC
-LIMIT $5
+LIMIT ?
 `
 
 type ListAuditEventsParams struct {
-	Column1 string `db:"column_1" json:"column_1"`
-	Column2 string `db:"column_2" json:"column_2"`
-	Column3 string `db:"column_3" json:"column_3"`
-	Column4 string `db:"column_4" json:"column_4"`
-	Limit   int32  `db:"limit" json:"limit"`
+	Column1   interface{} `db:"column_1" json:"column_1"`
+	EventType string      `db:"event_type" json:"event_type"`
+	Column3   interface{} `db:"column_3" json:"column_3"`
+	Action    string      `db:"action" json:"action"`
+	Column5   interface{} `db:"column_5" json:"column_5"`
+	Actor     string      `db:"actor" json:"actor"`
+	Column7   interface{} `db:"column_7" json:"column_7"`
+	Column8   *string     `db:"column_8" json:"column_8"`
+	Column9   *string     `db:"column_9" json:"column_9"`
+	Column10  *string     `db:"column_10" json:"column_10"`
+	Column11  *string     `db:"column_11" json:"column_11"`
+	Column12  *string     `db:"column_12" json:"column_12"`
+	Column13  *string     `db:"column_13" json:"column_13"`
+	Limit     int64       `db:"limit" json:"limit"`
 }
 
 type ListAuditEventsRow struct {
-	Ts        time.Time `db:"ts" json:"ts"`
-	EventType string    `db:"event_type" json:"event_type"`
-	Action    string    `db:"action" json:"action"`
-	Result    string    `db:"result" json:"result"`
-	Actor     string    `db:"actor" json:"actor"`
-	Target    string    `db:"target" json:"target"`
-	Detail    string    `db:"detail" json:"detail"`
-	Level     string    `db:"level" json:"level"`
-	Extra     []byte    `db:"extra" json:"extra"`
+	Ts        int64  `db:"ts" json:"ts"`
+	EventType string `db:"event_type" json:"event_type"`
+	Action    string `db:"action" json:"action"`
+	Result    string `db:"result" json:"result"`
+	Actor     string `db:"actor" json:"actor"`
+	Target    string `db:"target" json:"target"`
+	Detail    string `db:"detail" json:"detail"`
+	Level     string `db:"level" json:"level"`
+	Extra     string `db:"extra" json:"extra"`
 }
 
 func (q *Queries) ListAuditEvents(ctx context.Context, arg ListAuditEventsParams) ([]ListAuditEventsRow, error) {
-	rows, err := q.db.Query(ctx, listAuditEvents,
+	rows, err := q.db.QueryContext(ctx, listAuditEvents,
 		arg.Column1,
-		arg.Column2,
+		arg.EventType,
 		arg.Column3,
-		arg.Column4,
+		arg.Action,
+		arg.Column5,
+		arg.Actor,
+		arg.Column7,
+		arg.Column8,
+		arg.Column9,
+		arg.Column10,
+		arg.Column11,
+		arg.Column12,
+		arg.Column13,
 		arg.Limit,
 	)
 	if err != nil {
@@ -106,6 +123,9 @@ func (q *Queries) ListAuditEvents(ctx context.Context, arg ListAuditEventsParams
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

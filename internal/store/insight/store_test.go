@@ -88,7 +88,7 @@ func TestUpsertDefaultsStatusAndSkills(t *testing.T) {
 	if string(got.SkillsSelected) != "[]" {
 		t.Fatalf("SkillsSelected default = %q, want []", got.SkillsSelected)
 	}
-	if !got.CreatedAt.Valid || !got.UpdatedAt.Valid {
+	if got.CreatedAt == 0 || got.UpdatedAt == 0 {
 		t.Fatalf("timestamps must default to now: created=%v updated=%v", got.CreatedAt, got.UpdatedAt)
 	}
 }
@@ -109,7 +109,7 @@ func TestUpsertForwardsSuccessPointer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Upsert error = %v", err)
 	}
-	if got.Success == nil || *got.Success != false {
+	if got.Success == nil || *got.Success != 0 {
 		t.Fatalf("Success = %v, want pointer to false", got.Success)
 	}
 	// A nil Success must reach sqlc as nil — this keeps the "unknown"
@@ -174,7 +174,7 @@ func TestListByThreadDefaultsLimit(t *testing.T) {
 
 func TestListRecentPassesThrough(t *testing.T) {
 	t.Parallel()
-	var gotLimit int32
+	var gotLimit int64
 	s := &store{q: &insightQuerierStub{
 		listRecentFn: func(_ context.Context, arg sqlc.ListRecentSessionInsightsParams) ([]sqlc.SessionInsight, error) {
 			limit := arg.Limit

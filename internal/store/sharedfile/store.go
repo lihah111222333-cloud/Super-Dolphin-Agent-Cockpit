@@ -133,7 +133,7 @@ func (s *store) Delete(ctx context.Context, path string) (int64, error) {
 func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, error) {
 	rows, err := s.q.ListSharedFiles(ctx, sqlc.ListSharedFilesParams{
 		Column1: filter.Prefix,
-		Limit:   filter.Limit,
+		Limit:   int64(filter.Limit),
 	})
 	if err != nil {
 		return nil, platformdb.WrapStoreError(err, "list", "shared_file")
@@ -173,8 +173,8 @@ func fromSQLCRow(row sqlc.SharedFile) SharedFile {
 		Path:      row.Path,
 		Content:   row.Content,
 		UpdatedBy: row.UpdatedBy,
-		CreatedAt: row.CreatedAt,
-		UpdatedAt: row.UpdatedAt,
+		CreatedAt: platformdb.TimeFromMillis(row.CreatedAt),
+		UpdatedAt: platformdb.TimeFromMillis(row.UpdatedAt),
 	}
 }
 
@@ -183,8 +183,8 @@ func fromSQLCListRow(row sqlc.SharedFile) SharedFile {
 		Path:      row.Path,
 		Content:   row.Content,
 		UpdatedBy: row.UpdatedBy,
-		CreatedAt: row.CreatedAt,
-		UpdatedAt: row.UpdatedAt,
+		CreatedAt: platformdb.TimeFromMillis(row.CreatedAt),
+		UpdatedAt: platformdb.TimeFromMillis(row.UpdatedAt),
 	}
 }
 

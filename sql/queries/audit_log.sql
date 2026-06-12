@@ -1,19 +1,19 @@
 -- name: InsertAuditEvent :exec
 INSERT INTO audit_events (ts, event_type, action, result, actor, target, detail, level, extra)
-VALUES (NOW(), $1, $2, $3, $4, $5, $6, $7, $8::jsonb);
+VALUES ((CAST(strftime('%s','now') AS INTEGER) * 1000), ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListAuditEvents :many
 SELECT ts, event_type, action, result, actor, target, detail, level, extra
 FROM audit_events
-WHERE ($1::text = '' OR event_type = $1)
-  AND ($2::text = '' OR action = $2)
-  AND ($3::text = '' OR actor = $3)
-  AND ($4::text = ''
-    OR event_type ILIKE '%' || $4 || '%'
-    OR action ILIKE '%' || $4 || '%'
-    OR result ILIKE '%' || $4 || '%'
-    OR actor ILIKE '%' || $4 || '%'
-    OR target ILIKE '%' || $4 || '%'
-    OR detail ILIKE '%' || $4 || '%')
+WHERE (? = '' OR event_type = ?)
+  AND (? = '' OR action = ?)
+  AND (? = '' OR actor = ?)
+  AND (? = ''
+    OR event_type LIKE '%' || ? || '%'
+    OR action LIKE '%' || ? || '%'
+    OR result LIKE '%' || ? || '%'
+    OR actor LIKE '%' || ? || '%'
+    OR target LIKE '%' || ? || '%'
+    OR detail LIKE '%' || ? || '%')
 ORDER BY ts DESC, id DESC
-LIMIT $5;
+LIMIT ?;

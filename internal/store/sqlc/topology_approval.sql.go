@@ -7,15 +7,14 @@ package sqlc
 
 import (
 	"context"
-	"time"
 )
 
 const approveTopologyApproval = `-- name: ApproveTopologyApproval :execrows
 UPDATE topology_approvals
 SET status = 'approved',
-    reviewer = $1,
-    reviewed_at = NOW()
-WHERE id = $2 AND status = 'pending'
+    reviewer = ?,
+    reviewed_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE id = ? AND status = 'pending'
 `
 
 type ApproveTopologyApprovalParams struct {
@@ -24,42 +23,42 @@ type ApproveTopologyApprovalParams struct {
 }
 
 func (q *Queries) ApproveTopologyApproval(ctx context.Context, arg ApproveTopologyApprovalParams) (int64, error) {
-	result, err := q.db.Exec(ctx, approveTopologyApproval, arg.Reviewer, arg.ID)
+	result, err := q.db.ExecContext(ctx, approveTopologyApproval, arg.Reviewer, arg.ID)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }
 
 const createTopologyApproval = `-- name: CreateTopologyApproval :one
 
 INSERT INTO topology_approvals (
     id, status, requested_by, reason, created_at, expire_at, arch_hash, proposed_architecture
-) VALUES ($1, 'pending', $2, $3, $4, $5, $6, $7::jsonb)
+) VALUES (?, 'pending', ?, ?, ?, ?, ?, ?)
 RETURNING id, status, requested_by, reason, created_at, expire_at, reviewed_at, reviewer, review_note, arch_hash, proposed_architecture
 `
 
 type CreateTopologyApprovalParams struct {
-	ID          string    `db:"id" json:"id"`
-	RequestedBy string    `db:"requested_by" json:"requested_by"`
-	Reason      string    `db:"reason" json:"reason"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
-	ExpireAt    time.Time `db:"expire_at" json:"expire_at"`
-	ArchHash    string    `db:"arch_hash" json:"arch_hash"`
-	Column7     []byte    `db:"column_7" json:"column_7"`
+	ID                   string `db:"id" json:"id"`
+	RequestedBy          string `db:"requested_by" json:"requested_by"`
+	Reason               string `db:"reason" json:"reason"`
+	CreatedAt            int64  `db:"created_at" json:"created_at"`
+	ExpireAt             int64  `db:"expire_at" json:"expire_at"`
+	ArchHash             string `db:"arch_hash" json:"arch_hash"`
+	ProposedArchitecture string `db:"proposed_architecture" json:"proposed_architecture"`
 }
 
 // Legacy V2 store SQL used proposal_hash/proposal_json columns.
 // These queries are aligned to the V2 exported public schema used for the baseline.
 func (q *Queries) CreateTopologyApproval(ctx context.Context, arg CreateTopologyApprovalParams) (TopologyApproval, error) {
-	row := q.db.QueryRow(ctx, createTopologyApproval,
+	row := q.db.QueryRowContext(ctx, createTopologyApproval,
 		arg.ID,
 		arg.RequestedBy,
 		arg.Reason,
 		arg.CreatedAt,
 		arg.ExpireAt,
 		arg.ArchHash,
-		arg.Column7,
+		arg.ProposedArchitecture,
 	)
 	var i TopologyApproval
 	err := row.Scan(
@@ -81,12 +80,12 @@ func (q *Queries) CreateTopologyApproval(ctx context.Context, arg CreateTopology
 const listPendingTopologyApprovals = `-- name: ListPendingTopologyApprovals :many
 SELECT id, status, requested_by, reason, created_at, expire_at, reviewed_at, reviewer, review_note, arch_hash, proposed_architecture
 FROM topology_approvals
-WHERE status = 'pending' AND expire_at > NOW()
+WHERE status = 'pending' AND expire_at > (CAST(strftime('%s','now') AS INTEGER) * 1000)
 ORDER BY created_at DESC
 `
 
 func (q *Queries) ListPendingTopologyApprovals(ctx context.Context) ([]TopologyApproval, error) {
-	rows, err := q.db.Query(ctx, listPendingTopologyApprovals)
+	rows, err := q.db.QueryContext(ctx, listPendingTopologyApprovals)
 	if err != nil {
 		return nil, err
 	}
@@ -111,6 +110,9 @@ func (q *Queries) ListPendingTopologyApprovals(ctx context.Context) ([]TopologyA
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -120,9 +122,9 @@ func (q *Queries) ListPendingTopologyApprovals(ctx context.Context) ([]TopologyA
 const rejectTopologyApproval = `-- name: RejectTopologyApproval :execrows
 UPDATE topology_approvals
 SET status = 'rejected',
-    reviewer = $1,
-    reviewed_at = NOW()
-WHERE id = $2 AND status = 'pending'
+    reviewer = ?,
+    reviewed_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE id = ? AND status = 'pending'
 `
 
 type RejectTopologyApprovalParams struct {
@@ -131,9 +133,9 @@ type RejectTopologyApprovalParams struct {
 }
 
 func (q *Queries) RejectTopologyApproval(ctx context.Context, arg RejectTopologyApprovalParams) (int64, error) {
-	result, err := q.db.Exec(ctx, rejectTopologyApproval, arg.Reviewer, arg.ID)
+	result, err := q.db.ExecContext(ctx, rejectTopologyApproval, arg.Reviewer, arg.ID)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }

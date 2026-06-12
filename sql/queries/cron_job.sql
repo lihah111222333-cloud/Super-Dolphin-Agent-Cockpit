@@ -9,8 +9,8 @@ INSERT INTO cron_jobs (
     sqlc.arg(id), sqlc.arg(name), sqlc.arg(prompt), sqlc.arg(schedule_type),
     sqlc.arg(schedule_expr), sqlc.arg(timezone), sqlc.arg(provider),
     sqlc.arg(model), sqlc.arg(cwd),
-    sqlc.arg(config)::jsonb,
-    sqlc.arg(skills)::jsonb,
+    sqlc.arg(config),
+    sqlc.arg(skills),
     sqlc.arg(notify_channel), sqlc.arg(enabled), sqlc.arg(next_run_at),
     sqlc.arg(max_attempts), sqlc.arg(created_at), sqlc.arg(updated_at)
 )
@@ -29,7 +29,7 @@ SELECT id, name, prompt, schedule_type, schedule_expr, timezone, provider,
        last_turn_id, failure_count, max_attempts, next_retry_at,
        last_status, last_error_at, last_error, created_at, updated_at
 FROM cron_jobs
-WHERE id = $1;
+WHERE id = ?;
 
 -- name: ListCronJobs :many
 SELECT id, name, prompt, schedule_type, schedule_expr, timezone, provider,
@@ -42,7 +42,7 @@ FROM cron_jobs
 ORDER BY created_at DESC, id DESC;
 
 -- name: DeleteCronJob :exec
-DELETE FROM cron_jobs WHERE id = $1;
+DELETE FROM cron_jobs WHERE id = ?;
 
 -- name: UpdateCronJobSchedule :exec
 UPDATE cron_jobs
@@ -54,8 +54,8 @@ SET name            = sqlc.arg(name),
     provider        = sqlc.arg(provider),
     model           = sqlc.arg(model),
     cwd             = sqlc.arg(cwd),
-    config          = sqlc.arg(config)::jsonb,
-    skills          = sqlc.arg(skills)::jsonb,
+    config          = sqlc.arg(config),
+    skills          = sqlc.arg(skills),
     notify_channel  = sqlc.arg(notify_channel),
     enabled         = sqlc.arg(enabled),
     next_run_at     = sqlc.arg(next_run_at),
@@ -79,39 +79,34 @@ WHERE id = sqlc.arg(id);
 
 -- Claim / lease -----------------------------------------------------
 
--- ClaimDueJobs marks up to `limit` due rows as claimed by `claimed_by`.
--- The embedded SELECT ... FOR UPDATE SKIP LOCKED makes sure two
--- schedulers hitting the same tick never grab the same row. claim_token
--- is generated in the application layer (Go UUID) and passed in so no
--- Postgres extension (pgcrypto / uuid-ossp) is required.
+-- ClaimDueJobsForUpdate marks up to `limit` due rows as claimed by `claimed_by`.
+-- FOR UPDATE SKIP LOCKED removed: SQLite does not support it.
+-- Task07 implements atomic claim via application-layer optimistic locking.
 --
 -- name: ClaimDueJobsForUpdate :many
-WITH due AS (
-    SELECT id
-    FROM cron_jobs
-    WHERE enabled = TRUE
-      AND (claim_token = '' OR COALESCE(lease_expires_at, 'epoch'::timestamptz) <= sqlc.arg(now))
-      AND COALESCE(next_retry_at, next_run_at) <= sqlc.arg(now)
-    ORDER BY COALESCE(next_retry_at, next_run_at) ASC, id ASC
-    FOR UPDATE SKIP LOCKED
-    LIMIT sqlc.arg(max_claim)
-)
-UPDATE cron_jobs AS j
+UPDATE cron_jobs
 SET claimed_by       = sqlc.arg(claimed_by),
     claimed_at       = sqlc.arg(now),
     lease_expires_at = sqlc.arg(lease_expires_at),
     claim_token      = sqlc.arg(claim_token),
     updated_at       = sqlc.arg(now)
-FROM due
-WHERE j.id = due.id
-RETURNING j.id, j.name, j.prompt, j.schedule_type, j.schedule_expr,
-          j.timezone, j.provider, j.model, j.cwd, j.config, j.skills,
-          j.notify_channel, j.enabled, j.next_run_at, j.last_scheduled_at,
-          j.last_run_at, j.claimed_at, j.claimed_by, j.lease_expires_at,
-          j.claim_token, j.thread_id, j.agent_id, j.active_turn_id,
-          j.last_turn_id, j.failure_count, j.max_attempts, j.next_retry_at,
-          j.last_status, j.last_error_at, j.last_error, j.created_at,
-          j.updated_at;
+WHERE id IN (
+    SELECT id
+    FROM cron_jobs
+    WHERE enabled = TRUE
+      AND (claim_token = '' OR COALESCE(lease_expires_at, 0) <= sqlc.arg(now))
+      AND COALESCE(next_retry_at, next_run_at) <= sqlc.arg(now)
+    ORDER BY COALESCE(next_retry_at, next_run_at) ASC, id ASC
+    LIMIT sqlc.arg(max_claim)
+)
+RETURNING id, name, prompt, schedule_type, schedule_expr,
+          timezone, provider, model, cwd, config, skills,
+          notify_channel, enabled, next_run_at, last_scheduled_at,
+          last_run_at, claimed_at, claimed_by, lease_expires_at,
+          claim_token, thread_id, agent_id, active_turn_id,
+          last_turn_id, failure_count, max_attempts, next_retry_at,
+          last_status, last_error_at, last_error, created_at,
+          updated_at;
 
 -- name: RenewLease :execrows
 UPDATE cron_jobs
@@ -224,23 +219,23 @@ SELECT id, job_id, scheduled_at, idempotency_key, dedupe_key, thread_id,
        agent_id, turn_id, submitted_at, status, error, created_at,
        updated_at
 FROM cron_job_runs
-WHERE dedupe_key = $1 AND dedupe_key <> '';
+WHERE dedupe_key = ? AND dedupe_key <> '';
 
 -- name: GetCronJobRunByID :one
 SELECT id, job_id, scheduled_at, idempotency_key, dedupe_key, thread_id,
        agent_id, turn_id, submitted_at, status, error, created_at,
        updated_at
 FROM cron_job_runs
-WHERE id = $1;
+WHERE id = ?;
 
 -- name: ListCronJobRunsByJob :many
 SELECT id, job_id, scheduled_at, idempotency_key, dedupe_key, thread_id,
        agent_id, turn_id, submitted_at, status, error, created_at,
        updated_at
 FROM cron_job_runs
-WHERE job_id = $1
+WHERE job_id = ?
 ORDER BY created_at DESC, id DESC
-LIMIT $2;
+LIMIT ?;
 
 -- name: ListUnresolvedCronJobRuns :many
 -- Used on scheduler boot for crash recovery: any run stuck in submitting /
@@ -262,7 +257,7 @@ SELECT id, job_id, scheduled_at, idempotency_key, dedupe_key, thread_id,
        agent_id, turn_id, submitted_at, status, error, created_at,
        updated_at
 FROM cron_job_runs
-WHERE turn_id = $1 AND status = 'running'
+WHERE turn_id = ? AND status = 'running'
 LIMIT 1;
 
 -- name: ListCronJobsClaimedBy :many
@@ -275,5 +270,5 @@ SELECT id, name, prompt, schedule_type, schedule_expr, timezone, provider,
        last_turn_id, failure_count, max_attempts, next_retry_at,
        last_status, last_error_at, last_error, created_at, updated_at
 FROM cron_jobs
-WHERE claimed_by = $1 AND claim_token <> ''
+WHERE claimed_by = ? AND claim_token <> ''
 ORDER BY id ASC;
