@@ -79,9 +79,12 @@ This policy governs agent instruction loading from `.agent/skills/**`. It does n
   - `make install-hooks`
   - `make sqlc-verify`
   - `make codemap-check`
-- 每改完一个 Go 文件，先运行单文件守卫再继续：
-  `./scripts/test_with_guard.sh <file.go>`.
-  只传入 Go 文件路径时，该守卫保持安静：exit 0 表示无违规且不输出内容；exit 1 表示有违规，stderr 只输出具体违规项。
+- 每改完一个 Go 文件，先运行单文件守卫再继续。根据当前设备和 shell 选择守卫入口：
+  - macOS / Linux / Git Bash / WSL:
+    `./scripts/test_with_guard.sh <file.go>`
+  - Windows 原生 PowerShell:
+    `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\test_with_guard.ps1 <file.go>`
+  只传入 Go 文件路径时，该守卫保持安静：exit 0 表示无违规且不输出内容；exit 1 表示有违规，stderr 只输出具体违规项。不要在 Windows PowerShell 中直接运行 `.sh`；必须使用 `.ps1` 入口。
 - Current new UI frontend commands run in `frontend-app`.
 - Legacy Vue frontend commands run in `cmd/agent-terminal/frontend` only when the task explicitly targets the legacy/package-embed path.
 
