@@ -2,8 +2,10 @@ package dashboard
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -13,17 +15,13 @@ import (
 	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
 	dbquerystore "github.com/anthropic-ai/super-agent-v3/internal/store/dbquery"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
+	_ "modernc.org/sqlite"
 )
 
 func TestServiceQueryPassesThroughAndNormalizesArgs(t *testing.T) {
 	t.Parallel()
 
-	db := &queryDBTXStub{rows: &queryRowsStub{
-		fields: []pgconn.FieldDescription{{Name: "thread_id"}},
-		values: [][]any{{"thread-1"}},
-	}}
+	db := &queryDBTXStub{columns: []string{"thread_id"}, values: [][]any{{"thread-1"}}}
 	svc := NewService(nil, nil, nil, nil, nil, nil, dbquerystore.NewQueryStore(db, time.Second), nil, nil, nil, nil)
 
 	rows, err := svc.Query(context.Background(), "SELECT * FROM agent_threads WHERE thread_id = $1 AND score > $2", float64(7), float64(1.5))
@@ -127,10 +125,7 @@ func TestDashboardQueryHandlerRejectsDangerousSQL(t *testing.T) {
 func TestDashboardQueryHandlerNormalArgs(t *testing.T) {
 	t.Parallel()
 
-	db := &queryDBTXStub{rows: &queryRowsStub{
-		fields: []pgconn.FieldDescription{{Name: "thread_id"}},
-		values: [][]any{{"thread-1"}},
-	}}
+	db := &queryDBTXStub{columns: []string{"thread_id"}, values: [][]any{{"thread-1"}}}
 	server := newDashboardQueryTestServer(t, db)
 
 	rows, err := dispatchDashboardQuery(server, `{"query":"SELECT * FROM agent_threads WHERE thread_id = $1","args":["thread-1"]}`)
@@ -148,10 +143,7 @@ func TestDashboardQueryHandlerNormalArgs(t *testing.T) {
 func TestDashboardQueryHandlerFloat64Normalization(t *testing.T) {
 	t.Parallel()
 
-	db := &queryDBTXStub{rows: &queryRowsStub{
-		fields: []pgconn.FieldDescription{{Name: "thread_id"}},
-		values: [][]any{{"thread-1"}},
-	}}
+	db := &queryDBTXStub{columns: []string{"thread_id"}, values: [][]any{{"thread-1"}}}
 	server := newDashboardQueryTestServer(t, db)
 
 	_, err := dispatchDashboardQuery(server, `{"query":"SELECT * FROM agent_threads WHERE thread_id = $1","args":[7]}`)
@@ -610,68 +602,103 @@ func dispatchDashboardInto(server *platformrpc.Server, method, raw string, out a
 }
 
 type queryDBTXStub struct {
-	args   []any
-	called bool
-	rows   pgx.Rows
-	err    error
+	args    []any
+	called  bool
+	columns []string
+	values  [][]any
+	err     error
+	db      *sql.DB
 }
 
-func (s *queryDBTXStub) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
-	return pgconn.CommandTag{}, errors.New("queryDBTXStub: exec not implemented")
+func (s *queryDBTXStub) ExecContext(context.Context, string, ...any) (sql.Result, error) {
+	return queryResultStub(0), errors.New("queryDBTXStub: exec not implemented")
 }
 
-func (s *queryDBTXStub) Query(_ context.Context, _ string, args ...any) (pgx.Rows, error) {
+func (s *queryDBTXStub) QueryContext(ctx context.Context, _ string, args ...any) (*sql.Rows, error) {
 	s.called = true
 	s.args = append([]any(nil), args...)
 	if s.err != nil {
 		return nil, s.err
 	}
-	if s.rows != nil {
-		return s.rows, nil
+	return s.openRows(ctx)
+}
+
+func (s *queryDBTXStub) QueryRowContext(ctx context.Context, _ string, _ ...any) *sql.Row {
+	db, err := s.openDB()
+	if err != nil {
+		panic(err)
 	}
-	return &queryRowsStub{}, nil
+	return db.QueryRowContext(ctx, "SELECT 1 WHERE 0")
 }
 
-func (s *queryDBTXStub) QueryRow(context.Context, string, ...any) pgx.Row {
-	return queryRowStub{}
-}
-
-type queryRowStub struct{}
-
-func (queryRowStub) Scan(...any) error { return errors.New("queryRowStub: scan not implemented") }
-
-type queryRowsStub struct {
-	fields []pgconn.FieldDescription
-	values [][]any
-	index  int
-	err    error
-}
-
-func (r *queryRowsStub) Close() { _ = r }
-
-func (r *queryRowsStub) Err() error { return r.err }
-
-func (r *queryRowsStub) CommandTag() pgconn.CommandTag { return pgconn.CommandTag{} }
-
-func (r *queryRowsStub) FieldDescriptions() []pgconn.FieldDescription { return r.fields }
-
-func (r *queryRowsStub) Next() bool {
-	if r.index >= len(r.values) {
-		return false
+func (s *queryDBTXStub) openRows(ctx context.Context) (*sql.Rows, error) {
+	db, err := s.openDB()
+	if err != nil {
+		return nil, err
 	}
-	r.index++
-	return true
-}
-
-func (r *queryRowsStub) Scan(...any) error { return errors.New("queryRowsStub: scan not implemented") }
-
-func (r *queryRowsStub) Values() ([]any, error) {
-	if r.index == 0 || r.index > len(r.values) {
-		return nil, errors.New("queryRowsStub: invalid cursor")
+	query, args, err := s.stubRowsQuery()
+	if err != nil {
+		return nil, err
 	}
-	return append([]any(nil), r.values[r.index-1]...), nil
+	return db.QueryContext(ctx, query, args...)
 }
 
-func (r *queryRowsStub) RawValues() [][]byte { return nil }
+func (s *queryDBTXStub) openDB() (*sql.DB, error) {
+	if s.db != nil {
+		return s.db, nil
+	}
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		return nil, err
+	}
+	s.db = db
+	return db, nil
+}
 
-func (r *queryRowsStub) Conn() *pgx.Conn { return nil }
+func (s *queryDBTXStub) stubRowsQuery() (string, []any, error) {
+	if len(s.columns) == 0 {
+		return "SELECT 1 AS stub_value WHERE 0", nil, nil
+	}
+	if len(s.values) == 0 {
+		return "SELECT " + stubNullColumns(s.columns) + " WHERE 0", nil, nil
+	}
+
+	var builder strings.Builder
+	args := make([]any, 0, len(s.columns)*len(s.values))
+	for rowIndex, row := range s.values {
+		if len(row) != len(s.columns) {
+			return "", nil, fmt.Errorf("queryDBTXStub row has %d values for %d columns", len(row), len(s.columns))
+		}
+		if rowIndex > 0 {
+			builder.WriteString(" UNION ALL ")
+		}
+		builder.WriteString("SELECT ")
+		for columnIndex, column := range s.columns {
+			if columnIndex > 0 {
+				builder.WriteString(", ")
+			}
+			builder.WriteString("? AS ")
+			builder.WriteString(quoteSQLiteIdentifier(column))
+			args = append(args, row[columnIndex])
+		}
+	}
+	return builder.String(), args, nil
+}
+
+func stubNullColumns(columns []string) string {
+	parts := make([]string, 0, len(columns))
+	for _, column := range columns {
+		parts = append(parts, "NULL AS "+quoteSQLiteIdentifier(column))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func quoteSQLiteIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+type queryResultStub int64
+
+func (r queryResultStub) LastInsertId() (int64, error) { return int64(r), nil }
+
+func (r queryResultStub) RowsAffected() (int64, error) { return int64(r), nil }

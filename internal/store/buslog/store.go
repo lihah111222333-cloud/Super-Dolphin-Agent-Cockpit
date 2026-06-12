@@ -25,12 +25,11 @@ func newStoreForTest(q querier) Store { return &store{q: q} }
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]BusExceptionLog, error) {
 	rows, err := s.q.ListBusExceptionLogs(ctx, sqlc.ListBusExceptionLogsParams{
-		Column1:  filter.Category,
-		Category: filter.Category,
-		Column3:  filter.Severity,
-		Severity: filter.Severity,
-		Column5:  filter.Keyword,
-		Limit:    int64(filter.Limit),
+		CategoryFilter: filter.Category,
+		SeverityFilter: filter.Severity,
+		Keyword:        filter.Keyword,
+		KeywordPattern: platformdb.LikeContainsFold(filter.Keyword),
+		LimitCount:     int64(filter.Limit),
 	})
 	if err != nil {
 		return nil, wrapBusLogError(err, "list")
@@ -44,6 +43,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]BusExceptionLog,
 
 func mapBusExceptionLog(row sqlc.ListBusExceptionLogsRow) BusExceptionLog {
 	return BusExceptionLog{
+		ID:        row.ID,
 		Ts:        platformdb.TimeFromMillis(row.Ts),
 		Category:  row.Category,
 		Severity:  row.Severity,

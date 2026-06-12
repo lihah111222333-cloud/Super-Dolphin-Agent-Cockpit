@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
@@ -25,8 +24,8 @@ func (f *fakeQuerier) ListAuditEvents(_ context.Context, p sqlc.ListAuditEventsP
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
-	if int(p.Limit) > 0 && int(p.Limit) < len(f.events) {
-		return f.events[:p.Limit], nil
+	if int(p.LimitCount) > 0 && int(p.LimitCount) < len(f.events) {
+		return f.events[:p.LimitCount], nil
 	}
 	return f.events, nil
 }
@@ -37,7 +36,8 @@ func (f *fakeQuerier) InsertAuditEvent(_ context.Context, p sqlc.InsertAuditEven
 	}
 	f.inserted = append(f.inserted, p)
 	f.events = append(f.events, sqlc.ListAuditEventsRow{
-		Ts:        time.Now().UnixMilli(),
+		ID:        int64(len(f.events) + 1),
+		Ts:        p.Ts,
 		EventType: p.EventType,
 		Action:    p.Action,
 		Result:    p.Result,
@@ -59,6 +59,7 @@ func TestStore_Insert_Success(t *testing.T) {
 		Action:    "create",
 		Result:    "ok",
 		Actor:     "tester",
+		Extra:     []byte(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("Insert() error = %v", err)
@@ -69,6 +70,23 @@ func TestStore_Insert_Success(t *testing.T) {
 	if fq.inserted[0].EventType != "dag" {
 		t.Fatalf("inserted EventType = %q, want dag", fq.inserted[0].EventType)
 	}
+	if fq.inserted[0].Ts == 0 {
+		t.Fatalf("inserted Ts = 0, want Go epoch milliseconds")
+	}
+}
+
+func TestStore_InsertRejectsInvalidExtraJSON(t *testing.T) {
+	t.Parallel()
+	fq := newFakeQuerier()
+	s := newStoreForTest(fq)
+
+	err := s.Insert(context.Background(), InsertParams{EventType: "dag", Extra: []byte(`not-json`)})
+	if err == nil {
+		t.Fatal("expected invalid JSON error")
+	}
+	if len(fq.inserted) != 0 {
+		t.Fatalf("Insert() called query despite invalid JSON: %+v", fq.inserted)
+	}
 }
 
 func TestStore_Insert_DBError(t *testing.T) {
@@ -76,7 +94,7 @@ func TestStore_Insert_DBError(t *testing.T) {
 	fq := newFakeQuerier()
 	fq.insertErr = errors.New("disk full")
 	s := newStoreForTest(fq)
-	err := s.Insert(context.Background(), InsertParams{EventType: "dag"})
+	err := s.Insert(context.Background(), InsertParams{EventType: "dag", Extra: []byte(`{}`)})
 	if err == nil {
 		t.Fatal("expected error from Insert")
 	}
@@ -90,8 +108,8 @@ func TestStore_List_Success(t *testing.T) {
 	t.Parallel()
 	fq := newFakeQuerier()
 	s := newStoreForTest(fq)
-	s.Insert(context.Background(), InsertParams{EventType: "dag", Action: "create"})
-	s.Insert(context.Background(), InsertParams{EventType: "dag", Action: "delete"})
+	s.Insert(context.Background(), InsertParams{EventType: "dag", Action: "create", Extra: []byte(`{}`)})
+	s.Insert(context.Background(), InsertParams{EventType: "dag", Action: "delete", Extra: []byte(`{}`)})
 	got, err := s.List(context.Background(), ListFilter{Limit: 100})
 	if err != nil {
 		t.Fatalf("List() error = %v", err)

@@ -10,33 +10,29 @@ import (
 )
 
 const listBusExceptionLogs = `-- name: ListBusExceptionLogs :many
-SELECT ts, category, severity, source, tool_name, message, traceback, extra
+SELECT id, ts, category, severity, source, tool_name, message, '' AS traceback, '{}' AS extra
 FROM bus_exception_logs
-WHERE (? = '' OR category = ?)
-  AND (? = '' OR severity = ?)
-  AND (? = ''
-    OR source LIKE '%' || ? || '%'
-    OR tool_name LIKE '%' || ? || '%'
-    OR message LIKE '%' || ? || '%'
-    OR traceback LIKE '%' || ? || '%')
+WHERE (?1 = '' OR category = ?1)
+  AND (?2 = '' OR severity = ?2)
+  AND (?3 = ''
+    OR lower(source) LIKE lower(?4)
+    OR lower(tool_name) LIKE lower(?4)
+    OR lower(message) LIKE lower(?4)
+    OR lower(traceback) LIKE lower(?4))
 ORDER BY ts DESC, id DESC
-LIMIT ?
+LIMIT ?5
 `
 
 type ListBusExceptionLogsParams struct {
-	Column1  interface{} `db:"column_1" json:"column_1"`
-	Category string      `db:"category" json:"category"`
-	Column3  interface{} `db:"column_3" json:"column_3"`
-	Severity string      `db:"severity" json:"severity"`
-	Column5  interface{} `db:"column_5" json:"column_5"`
-	Column6  *string     `db:"column_6" json:"column_6"`
-	Column7  *string     `db:"column_7" json:"column_7"`
-	Column8  *string     `db:"column_8" json:"column_8"`
-	Column9  *string     `db:"column_9" json:"column_9"`
-	Limit    int64       `db:"limit" json:"limit"`
+	CategoryFilter interface{} `db:"category_filter" json:"category_filter"`
+	SeverityFilter interface{} `db:"severity_filter" json:"severity_filter"`
+	Keyword        interface{} `db:"keyword" json:"keyword"`
+	KeywordPattern string      `db:"keyword_pattern" json:"keyword_pattern"`
+	LimitCount     int64       `db:"limit_count" json:"limit_count"`
 }
 
 type ListBusExceptionLogsRow struct {
+	ID        int64  `db:"id" json:"id"`
 	Ts        int64  `db:"ts" json:"ts"`
 	Category  string `db:"category" json:"category"`
 	Severity  string `db:"severity" json:"severity"`
@@ -49,16 +45,11 @@ type ListBusExceptionLogsRow struct {
 
 func (q *Queries) ListBusExceptionLogs(ctx context.Context, arg ListBusExceptionLogsParams) ([]ListBusExceptionLogsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listBusExceptionLogs,
-		arg.Column1,
-		arg.Category,
-		arg.Column3,
-		arg.Severity,
-		arg.Column5,
-		arg.Column6,
-		arg.Column7,
-		arg.Column8,
-		arg.Column9,
-		arg.Limit,
+		arg.CategoryFilter,
+		arg.SeverityFilter,
+		arg.Keyword,
+		arg.KeywordPattern,
+		arg.LimitCount,
 	)
 	if err != nil {
 		return nil, err
@@ -68,6 +59,7 @@ func (q *Queries) ListBusExceptionLogs(ctx context.Context, arg ListBusException
 	for rows.Next() {
 		var i ListBusExceptionLogsRow
 		if err := rows.Scan(
+			&i.ID,
 			&i.Ts,
 			&i.Category,
 			&i.Severity,

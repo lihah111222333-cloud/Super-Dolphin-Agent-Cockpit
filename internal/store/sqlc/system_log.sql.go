@@ -11,10 +11,11 @@ import (
 
 const insertSystemLog = `-- name: InsertSystemLog :exec
 INSERT INTO system_logs (ts, level, logger, message, raw)
-VALUES ((CAST(strftime('%s','now') AS INTEGER) * 1000), ?, ?, ?, ?)
+VALUES (?1, ?2, ?3, ?4, ?5)
 `
 
 type InsertSystemLogParams struct {
+	Ts      int64  `db:"ts" json:"ts"`
 	Level   string `db:"level" json:"level"`
 	Logger  string `db:"logger" json:"logger"`
 	Message string `db:"message" json:"message"`
@@ -23,6 +24,7 @@ type InsertSystemLogParams struct {
 
 func (q *Queries) InsertSystemLog(ctx context.Context, arg InsertSystemLogParams) error {
 	_, err := q.db.ExecContext(ctx, insertSystemLog,
+		arg.Ts,
 		arg.Level,
 		arg.Logger,
 		arg.Message,
@@ -32,88 +34,80 @@ func (q *Queries) InsertSystemLog(ctx context.Context, arg InsertSystemLogParams
 }
 
 const listSystemLogs = `-- name: ListSystemLogs :many
-SELECT id, ts, level, logger, message, raw, source, component, agent_id, thread_id, trace_id, event_type, tool_name, duration_ms, extra
+SELECT id, ts, level, logger, message, '' AS raw, source, component, agent_id, thread_id, trace_id, event_type, tool_name, duration_ms, '{}' AS extra
 FROM system_logs
-WHERE (? = '' OR level = ?)
-  AND (? = '' OR logger = ?)
-  AND (? = '' OR source = ?)
-  AND (? = '' OR component = ?)
-  AND (? = '' OR agent_id = ?)
-  AND (? = '' OR thread_id = ?)
-  AND (? = '' OR event_type = ?)
-  AND (? = '' OR tool_name = ?)
-  AND (? = ''
-    OR level LIKE '%' || ? || '%'
-    OR logger LIKE '%' || ? || '%'
-    OR message LIKE '%' || ? || '%'
-    OR raw LIKE '%' || ? || '%'
-    OR source LIKE '%' || ? || '%'
-    OR component LIKE '%' || ? || '%')
+WHERE (?1 = '' OR level = ?1)
+  AND (?2 = '' OR logger = ?2)
+  AND (?3 = '' OR source = ?3)
+  AND (?4 = '' OR component = ?4)
+  AND (?5 = '' OR agent_id = ?5)
+  AND (?6 = '' OR thread_id = ?6)
+  AND (?7 = '' OR event_type = ?7)
+  AND (?8 = '' OR tool_name = ?8)
+  AND (?9 = ''
+    OR lower(level) LIKE lower(?10)
+    OR lower(logger) LIKE lower(?10)
+    OR lower(message) LIKE lower(?10)
+    OR lower(raw) LIKE lower(?10)
+    OR lower(source) LIKE lower(?10)
+    OR lower(component) LIKE lower(?10))
 ORDER BY ts DESC, id DESC
-LIMIT ?
+LIMIT ?11
 `
 
 type ListSystemLogsParams struct {
-	Column1   interface{} `db:"column_1" json:"column_1"`
-	Level     string      `db:"level" json:"level"`
-	Column3   interface{} `db:"column_3" json:"column_3"`
-	Logger    string      `db:"logger" json:"logger"`
-	Column5   interface{} `db:"column_5" json:"column_5"`
-	Source    string      `db:"source" json:"source"`
-	Column7   interface{} `db:"column_7" json:"column_7"`
-	Component string      `db:"component" json:"component"`
-	Column9   interface{} `db:"column_9" json:"column_9"`
-	AgentID   string      `db:"agent_id" json:"agent_id"`
-	Column11  interface{} `db:"column_11" json:"column_11"`
-	ThreadID  string      `db:"thread_id" json:"thread_id"`
-	Column13  interface{} `db:"column_13" json:"column_13"`
-	EventType string      `db:"event_type" json:"event_type"`
-	Column15  interface{} `db:"column_15" json:"column_15"`
-	ToolName  string      `db:"tool_name" json:"tool_name"`
-	Column17  interface{} `db:"column_17" json:"column_17"`
-	Column18  *string     `db:"column_18" json:"column_18"`
-	Column19  *string     `db:"column_19" json:"column_19"`
-	Column20  *string     `db:"column_20" json:"column_20"`
-	Column21  *string     `db:"column_21" json:"column_21"`
-	Column22  *string     `db:"column_22" json:"column_22"`
-	Column23  *string     `db:"column_23" json:"column_23"`
-	Limit     int64       `db:"limit" json:"limit"`
+	LevelFilter     interface{} `db:"level_filter" json:"level_filter"`
+	LoggerFilter    interface{} `db:"logger_filter" json:"logger_filter"`
+	SourceFilter    interface{} `db:"source_filter" json:"source_filter"`
+	ComponentFilter interface{} `db:"component_filter" json:"component_filter"`
+	AgentIDFilter   interface{} `db:"agent_id_filter" json:"agent_id_filter"`
+	ThreadIDFilter  interface{} `db:"thread_id_filter" json:"thread_id_filter"`
+	EventTypeFilter interface{} `db:"event_type_filter" json:"event_type_filter"`
+	ToolNameFilter  interface{} `db:"tool_name_filter" json:"tool_name_filter"`
+	Keyword         interface{} `db:"keyword" json:"keyword"`
+	KeywordPattern  string      `db:"keyword_pattern" json:"keyword_pattern"`
+	LimitCount      int64       `db:"limit_count" json:"limit_count"`
 }
 
-func (q *Queries) ListSystemLogs(ctx context.Context, arg ListSystemLogsParams) ([]SystemLog, error) {
+type ListSystemLogsRow struct {
+	ID         int64  `db:"id" json:"id"`
+	Ts         int64  `db:"ts" json:"ts"`
+	Level      string `db:"level" json:"level"`
+	Logger     string `db:"logger" json:"logger"`
+	Message    string `db:"message" json:"message"`
+	Raw        string `db:"raw" json:"raw"`
+	Source     string `db:"source" json:"source"`
+	Component  string `db:"component" json:"component"`
+	AgentID    string `db:"agent_id" json:"agent_id"`
+	ThreadID   string `db:"thread_id" json:"thread_id"`
+	TraceID    string `db:"trace_id" json:"trace_id"`
+	EventType  string `db:"event_type" json:"event_type"`
+	ToolName   string `db:"tool_name" json:"tool_name"`
+	DurationMs *int64 `db:"duration_ms" json:"duration_ms"`
+	Extra      string `db:"extra" json:"extra"`
+}
+
+func (q *Queries) ListSystemLogs(ctx context.Context, arg ListSystemLogsParams) ([]ListSystemLogsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listSystemLogs,
-		arg.Column1,
-		arg.Level,
-		arg.Column3,
-		arg.Logger,
-		arg.Column5,
-		arg.Source,
-		arg.Column7,
-		arg.Component,
-		arg.Column9,
-		arg.AgentID,
-		arg.Column11,
-		arg.ThreadID,
-		arg.Column13,
-		arg.EventType,
-		arg.Column15,
-		arg.ToolName,
-		arg.Column17,
-		arg.Column18,
-		arg.Column19,
-		arg.Column20,
-		arg.Column21,
-		arg.Column22,
-		arg.Column23,
-		arg.Limit,
+		arg.LevelFilter,
+		arg.LoggerFilter,
+		arg.SourceFilter,
+		arg.ComponentFilter,
+		arg.AgentIDFilter,
+		arg.ThreadIDFilter,
+		arg.EventTypeFilter,
+		arg.ToolNameFilter,
+		arg.Keyword,
+		arg.KeywordPattern,
+		arg.LimitCount,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []SystemLog{}
+	items := []ListSystemLogsRow{}
 	for rows.Next() {
-		var i SystemLog
+		var i ListSystemLogsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Ts,

@@ -3,6 +3,7 @@ package auditlog
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
@@ -26,14 +27,12 @@ func newStoreForTest(q querier) Store { return &store{q: q} }
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]AuditEvent, error) {
 	rows, err := s.q.ListAuditEvents(ctx, sqlc.ListAuditEventsParams{
-		Column1:   filter.EventType,
-		EventType: filter.EventType,
-		Column3:   filter.Action,
-		Action:    filter.Action,
-		Column5:   filter.Actor,
-		Actor:     filter.Actor,
-		Column7:   filter.Keyword,
-		Limit:     int64(filter.Limit),
+		EventTypeFilter: filter.EventType,
+		ActionFilter:    filter.Action,
+		ActorFilter:     filter.Actor,
+		Keyword:         filter.Keyword,
+		KeywordPattern:  platformdb.LikeContainsFold(filter.Keyword),
+		LimitCount:      int64(filter.Limit),
 	})
 	if err != nil {
 		return nil, wrapAuditLogError(err, "list")
@@ -46,7 +45,11 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]AuditEvent, erro
 }
 
 func (s *store) Insert(ctx context.Context, params InsertParams) error {
+	if err := platformdb.ValidateJSONRaw(params.Extra); err != nil {
+		return wrapAuditLogError(err, "insert")
+	}
 	return wrapAuditLogError(s.q.InsertAuditEvent(ctx, sqlc.InsertAuditEventParams{
+		Ts:        platformdb.Millis(time.Now().UTC()),
 		EventType: params.EventType,
 		Action:    params.Action,
 		Result:    params.Result,
@@ -60,6 +63,7 @@ func (s *store) Insert(ctx context.Context, params InsertParams) error {
 
 func mapAuditEvent(row sqlc.ListAuditEventsRow) AuditEvent {
 	return AuditEvent{
+		ID:        row.ID,
 		Ts:        platformdb.TimeFromMillis(row.Ts),
 		EventType: row.EventType,
 		Action:    row.Action,
