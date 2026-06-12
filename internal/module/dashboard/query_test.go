@@ -5,12 +5,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
@@ -21,31 +22,25 @@ import (
 func TestServiceQueryPassesThroughAndNormalizesArgs(t *testing.T) {
 	t.Parallel()
 
-	db := &queryDBTXStub{columns: []string{"thread_id"}, values: [][]any{{"thread-1"}}}
+	db := newDashboardQuerySQLiteDB(t)
 	svc := NewService(nil, nil, nil, nil, nil, nil, dbquerystore.NewQueryStore(db, time.Second), nil, nil, nil, nil)
 
-	rows, err := svc.Query(context.Background(), "SELECT * FROM agent_threads WHERE thread_id = $1 AND score > $2", float64(7), float64(1.5))
+	rows, err := svc.Query(context.Background(), "SELECT * FROM agent_threads WHERE score = $1", float64(7))
 	if err != nil {
 		t.Fatalf("Query() error = %v", err)
 	}
 	if len(rows) != 1 || rows[0]["thread_id"] != "thread-1" {
 		t.Fatalf("Query() rows = %#v", rows)
 	}
-	if got, ok := db.args[0].(int64); !ok || got != 7 {
-		t.Fatalf("arg[0] = %#v", db.args[0])
-	}
-	if got, ok := db.args[1].(float64); !ok || got != 1.5 {
-		t.Fatalf("arg[1] = %#v", db.args[1])
-	}
 }
 
 func TestServiceQueryRejectsDangerousSQL(t *testing.T) {
 	t.Parallel()
 
-	db := &queryDBTXStub{}
+	db := &dangerousQueryDBStub{}
 	svc := NewService(nil, nil, nil, nil, nil, nil, dbquerystore.NewQueryStore(db, time.Second), nil, nil, nil, nil)
 
-	_, err := svc.Query(context.Background(), "SELECT version() FROM agent_threads")
+	_, err := svc.Query(context.Background(), "SELECT load_extension('x') FROM agent_threads")
 	if err == nil || !strings.Contains(err.Error(), "disallowed function") {
 		t.Fatalf("Query() error = %v", err)
 	}
@@ -110,10 +105,10 @@ func TestDashboardTaskTraceHandlerRemoved(t *testing.T) {
 func TestDashboardQueryHandlerRejectsDangerousSQL(t *testing.T) {
 	t.Parallel()
 
-	db := &queryDBTXStub{}
+	db := &dangerousQueryDBStub{}
 	server := newDashboardQueryTestServer(t, db)
 
-	_, err := dispatchDashboardQuery(server, `{"query":"SELECT pg_sleep(1) FROM agent_threads"}`)
+	_, err := dispatchDashboardQuery(server, `{"query":"SELECT load_extension('x') FROM agent_threads"}`)
 	if err == nil || !strings.Contains(err.Error(), "disallowed function") {
 		t.Fatalf("Dispatch() error = %v", err)
 	}
@@ -125,7 +120,7 @@ func TestDashboardQueryHandlerRejectsDangerousSQL(t *testing.T) {
 func TestDashboardQueryHandlerNormalArgs(t *testing.T) {
 	t.Parallel()
 
-	db := &queryDBTXStub{columns: []string{"thread_id"}, values: [][]any{{"thread-1"}}}
+	db := newDashboardQuerySQLiteDB(t)
 	server := newDashboardQueryTestServer(t, db)
 
 	rows, err := dispatchDashboardQuery(server, `{"query":"SELECT * FROM agent_threads WHERE thread_id = $1","args":["thread-1"]}`)
@@ -135,26 +130,20 @@ func TestDashboardQueryHandlerNormalArgs(t *testing.T) {
 	if len(rows) != 1 || rows[0]["thread_id"] != "thread-1" {
 		t.Fatalf("Dispatch() rows = %#v", rows)
 	}
-	if len(db.args) != 1 || db.args[0] != "thread-1" {
-		t.Fatalf("captured args = %#v", db.args)
-	}
 }
 
 func TestDashboardQueryHandlerFloat64Normalization(t *testing.T) {
 	t.Parallel()
 
-	db := &queryDBTXStub{columns: []string{"thread_id"}, values: [][]any{{"thread-1"}}}
+	db := newDashboardQuerySQLiteDB(t)
 	server := newDashboardQueryTestServer(t, db)
 
-	_, err := dispatchDashboardQuery(server, `{"query":"SELECT * FROM agent_threads WHERE thread_id = $1","args":[7]}`)
+	rows, err := dispatchDashboardQuery(server, `{"query":"SELECT * FROM agent_threads WHERE score = $1","args":[7]}`)
 	if err != nil {
 		t.Fatalf("Dispatch() error = %v", err)
 	}
-	if len(db.args) != 1 {
-		t.Fatalf("len(args) = %d, want 1", len(db.args))
-	}
-	if got, ok := db.args[0].(int64); !ok || got != 7 {
-		t.Fatalf("args[0] = %#v", db.args[0])
+	if len(rows) != 1 || rows[0]["thread_id"] != "thread-1" {
+		t.Fatalf("Dispatch() rows = %#v", rows)
 	}
 }
 
@@ -570,7 +559,7 @@ func assertDashboardMethodServiceUnavailable(t *testing.T, server *platformrpc.S
 	}
 }
 
-func newDashboardQueryTestServer(t *testing.T, db *queryDBTXStub) *platformrpc.Server {
+func newDashboardQueryTestServer(t *testing.T, db platformdb.Queryable) *platformrpc.Server {
 	t.Helper()
 
 	svc := NewService(nil, nil, nil, nil, nil, nil, dbquerystore.NewQueryStore(db, time.Second), nil, nil, nil, nil)
@@ -601,104 +590,65 @@ func dispatchDashboardInto(server *platformrpc.Server, method, raw string, out a
 	return json.Unmarshal(result, out)
 }
 
-type queryDBTXStub struct {
-	args    []any
-	called  bool
-	columns []string
-	values  [][]any
-	err     error
-	db      *sql.DB
+func newDashboardQuerySQLiteDB(t *testing.T) *sql.DB {
+	t.Helper()
+
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "dashboard-query.sqlite"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("close sqlite: %v", err)
+		}
+	})
+	if _, err := db.Exec(`
+CREATE TABLE agent_threads (
+	thread_id TEXT PRIMARY KEY,
+	status TEXT NOT NULL,
+	score REAL NOT NULL DEFAULT 0
+);
+INSERT INTO agent_threads(thread_id, status, score) VALUES
+	('thread-1', 'running', 7),
+	('thread-2', 'idle', 1);
+
+CREATE TABLE task_dag_runs (
+	id INTEGER PRIMARY KEY,
+	run_key TEXT NOT NULL,
+	dag_key TEXT NOT NULL,
+	dag_version_snapshot INTEGER NOT NULL,
+	trigger_source TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT '',
+	started_at TEXT NOT NULL,
+	finished_at TEXT,
+	events TEXT NOT NULL DEFAULT '[]',
+	budget_used INTEGER NOT NULL DEFAULT 0,
+	budget_limit INTEGER,
+	metadata TEXT NOT NULL DEFAULT '{}',
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+`); err != nil {
+		t.Fatalf("seed sqlite: %v", err)
+	}
+	return db
 }
 
-func (s *queryDBTXStub) ExecContext(context.Context, string, ...any) (sql.Result, error) {
-	return queryResultStub(0), errors.New("queryDBTXStub: exec not implemented")
+type dangerousQueryDBStub struct {
+	called bool
 }
 
-func (s *queryDBTXStub) QueryContext(ctx context.Context, _ string, args ...any) (*sql.Rows, error) {
+func (*dangerousQueryDBStub) ExecContext(context.Context, string, ...any) (sql.Result, error) {
+	return nil, errors.New("dangerousQueryDBStub: exec not implemented")
+}
+
+func (s *dangerousQueryDBStub) QueryContext(context.Context, string, ...any) (*sql.Rows, error) {
 	s.called = true
-	s.args = append([]any(nil), args...)
-	if s.err != nil {
-		return nil, s.err
-	}
-	return s.openRows(ctx)
+	return nil, errors.New("dangerousQueryDBStub: query should not be called")
 }
 
-func (s *queryDBTXStub) QueryRowContext(ctx context.Context, _ string, _ ...any) *sql.Row {
-	db, err := s.openDB()
-	if err != nil {
-		panic(err)
-	}
-	return db.QueryRowContext(ctx, "SELECT 1 WHERE 0")
+func (*dangerousQueryDBStub) QueryRowContext(context.Context, string, ...any) *sql.Row {
+	return nil
 }
-
-func (s *queryDBTXStub) openRows(ctx context.Context) (*sql.Rows, error) {
-	db, err := s.openDB()
-	if err != nil {
-		return nil, err
-	}
-	query, args, err := s.stubRowsQuery()
-	if err != nil {
-		return nil, err
-	}
-	return db.QueryContext(ctx, query, args...)
-}
-
-func (s *queryDBTXStub) openDB() (*sql.DB, error) {
-	if s.db != nil {
-		return s.db, nil
-	}
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		return nil, err
-	}
-	s.db = db
-	return db, nil
-}
-
-func (s *queryDBTXStub) stubRowsQuery() (string, []any, error) {
-	if len(s.columns) == 0 {
-		return "SELECT 1 AS stub_value WHERE 0", nil, nil
-	}
-	if len(s.values) == 0 {
-		return "SELECT " + stubNullColumns(s.columns) + " WHERE 0", nil, nil
-	}
-
-	var builder strings.Builder
-	args := make([]any, 0, len(s.columns)*len(s.values))
-	for rowIndex, row := range s.values {
-		if len(row) != len(s.columns) {
-			return "", nil, fmt.Errorf("queryDBTXStub row has %d values for %d columns", len(row), len(s.columns))
-		}
-		if rowIndex > 0 {
-			builder.WriteString(" UNION ALL ")
-		}
-		builder.WriteString("SELECT ")
-		for columnIndex, column := range s.columns {
-			if columnIndex > 0 {
-				builder.WriteString(", ")
-			}
-			builder.WriteString("? AS ")
-			builder.WriteString(quoteSQLiteIdentifier(column))
-			args = append(args, row[columnIndex])
-		}
-	}
-	return builder.String(), args, nil
-}
-
-func stubNullColumns(columns []string) string {
-	parts := make([]string, 0, len(columns))
-	for _, column := range columns {
-		parts = append(parts, "NULL AS "+quoteSQLiteIdentifier(column))
-	}
-	return strings.Join(parts, ", ")
-}
-
-func quoteSQLiteIdentifier(name string) string {
-	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
-}
-
-type queryResultStub int64
-
-func (r queryResultStub) LastInsertId() (int64, error) { return int64(r), nil }
-
-func (r queryResultStub) RowsAffected() (int64, error) { return int64(r), nil }

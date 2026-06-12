@@ -2,13 +2,16 @@ package topologyapproval
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	_ "modernc.org/sqlite"
 )
 
 type topologyApprovalQuerierStub struct {
@@ -47,19 +50,19 @@ func (s *topologyApprovalQuerierStub) ListPendingTopologyApprovals(ctx context.C
 }
 
 func fullTopologyApprovalFixture() sqlc.TopologyApproval {
-	reviewed := time.Unix(1_700_000_000, 0).UTC()
+	reviewed := time.Unix(1_700_000_000, 0).UTC().UnixMilli()
 	return sqlc.TopologyApproval{
 		ID:                   "appr-1",
 		Status:               "pending",
 		RequestedBy:          "alice",
 		Reason:               "add-node",
-		CreatedAt:            time.Unix(1_699_000_000, 0).UTC(),
-		ExpireAt:             time.Unix(1_800_000_000, 0).UTC(),
+		CreatedAt:            time.Unix(1_699_000_000, 0).UTC().UnixMilli(),
+		ExpireAt:             time.Unix(1_800_000_000, 0).UTC().UnixMilli(),
 		ReviewedAt:           &reviewed,
 		Reviewer:             "bob",
 		ReviewNote:           "ok",
 		ArchHash:             "hash-xyz",
-		ProposedArchitecture: []byte(`{"nodes":1}`),
+		ProposedArchitecture: `{"nodes":1}`,
 	}
 }
 
@@ -92,8 +95,8 @@ func topologyApprovalCreateInput(fixture sqlc.TopologyApproval) TopologyApproval
 		ID:                   "appr-1",
 		RequestedBy:          "alice",
 		Reason:               "add-node",
-		CreatedAt:            fixture.CreatedAt,
-		ExpireAt:             fixture.ExpireAt,
+		CreatedAt:            platformdb.TimeFromMillis(fixture.CreatedAt),
+		ExpireAt:             platformdb.TimeFromMillis(fixture.ExpireAt),
 		ArchHash:             "hash-xyz",
 		ProposedArchitecture: json.RawMessage(`{"nodes":1}`),
 	}
@@ -107,10 +110,10 @@ func requireCreateTopologyApprovalParams(t *testing.T, captured sqlc.CreateTopol
 	if captured.RequestedBy != "alice" || captured.Reason != "add-node" {
 		t.Fatalf("Create() forwarded wrong params: %+v", captured)
 	}
-	if !captured.CreatedAt.Equal(fixture.CreatedAt) || !captured.ExpireAt.Equal(fixture.ExpireAt) {
+	if captured.CreatedAt != fixture.CreatedAt || captured.ExpireAt != fixture.ExpireAt {
 		t.Fatalf("Create() forwarded wrong times: %+v", captured)
 	}
-	if captured.ArchHash != "hash-xyz" || string(captured.Column7) != `{"nodes":1}` {
+	if captured.ArchHash != "hash-xyz" || captured.ProposedArchitecture != `{"nodes":1}` {
 		t.Fatalf("Create() forwarded wrong payload: %+v", captured)
 	}
 }
@@ -126,8 +129,9 @@ func requireCreatedTopologyApproval(t *testing.T, got *TopologyApproval, fixture
 	if got.ReviewNote != "ok" || got.ArchHash != "hash-xyz" {
 		t.Fatalf("Create() review/hash = %+v", got)
 	}
-	if got.ReviewedAt == nil || !got.ReviewedAt.Equal(*fixture.ReviewedAt) {
-		t.Fatalf("Create() ReviewedAt = %+v, want %+v", got.ReviewedAt, fixture.ReviewedAt)
+	wantReviewedAt := platformdb.TimeFromMillis(*fixture.ReviewedAt)
+	if got.ReviewedAt == nil || !got.ReviewedAt.Equal(wantReviewedAt) {
+		t.Fatalf("Create() ReviewedAt = %+v, want %+v", got.ReviewedAt, wantReviewedAt)
 	}
 	if string(got.ProposedArchitecture) != `{"nodes":1}` {
 		t.Fatalf("Create() ProposedArchitecture = %s", got.ProposedArchitecture)
@@ -284,5 +288,129 @@ func TestListPendingWrapsQuerierError(t *testing.T) {
 	var storeErr *platformdb.StoreError
 	if !errors.As(err, &storeErr) || storeErr.Operation != "list_pending" {
 		t.Fatalf("ListPending() error metadata = %+v", err)
+	}
+}
+
+func TestTopologyApprovalSQLiteApproveRejectSingleWinner(t *testing.T) {
+	t.Parallel()
+
+	store, db := newTopologyApprovalSQLiteStore(t)
+	input := TopologyApproval{
+		ID:                   "appr-race",
+		RequestedBy:          "alice",
+		Reason:               "change",
+		CreatedAt:            time.Now().UTC(),
+		ExpireAt:             time.Now().UTC().Add(time.Hour),
+		ArchHash:             "hash-race",
+		ProposedArchitecture: json.RawMessage(`{"nodes":[{"id":"a"}]}`),
+	}
+	if _, err := store.Create(context.Background(), input); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	approved, err := store.Approve(context.Background(), "reviewer-a", input.ID)
+	if err != nil {
+		t.Fatalf("Approve() error = %v", err)
+	}
+	rejected, err := store.Reject(context.Background(), "reviewer-b", input.ID)
+	if err != nil {
+		t.Fatalf("Reject() stale error = %v", err)
+	}
+	if approved != 1 || rejected != 0 {
+		t.Fatalf("approve/reject rows = %d/%d, want 1/0", approved, rejected)
+	}
+	assertTopologyApprovalStatus(t, db, input.ID, "approved", "reviewer-a")
+}
+
+func TestTopologyApprovalSQLiteRejectApproveSingleWinner(t *testing.T) {
+	t.Parallel()
+
+	store, db := newTopologyApprovalSQLiteStore(t)
+	input := TopologyApproval{
+		ID:                   "appr-reject",
+		RequestedBy:          "alice",
+		Reason:               "change",
+		CreatedAt:            time.Now().UTC(),
+		ExpireAt:             time.Now().UTC().Add(time.Hour),
+		ArchHash:             "hash-reject",
+		ProposedArchitecture: json.RawMessage(`{"nodes":[{"id":"a"}]}`),
+	}
+	if _, err := store.Create(context.Background(), input); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	rejected, err := store.Reject(context.Background(), "reviewer-b", input.ID)
+	if err != nil {
+		t.Fatalf("Reject() error = %v", err)
+	}
+	approved, err := store.Approve(context.Background(), "reviewer-a", input.ID)
+	if err != nil {
+		t.Fatalf("Approve() stale error = %v", err)
+	}
+	if rejected != 1 || approved != 0 {
+		t.Fatalf("reject/approve rows = %d/%d, want 1/0", rejected, approved)
+	}
+	assertTopologyApprovalStatus(t, db, input.ID, "rejected", "reviewer-b")
+}
+
+func TestTopologyApprovalSQLiteRejectsInvalidArchitectureJSON(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newTopologyApprovalSQLiteStore(t)
+	_, err := store.Create(context.Background(), TopologyApproval{
+		ID:                   "appr-invalid-json",
+		RequestedBy:          "alice",
+		Reason:               "bad",
+		CreatedAt:            time.Now().UTC(),
+		ExpireAt:             time.Now().UTC().Add(time.Hour),
+		ArchHash:             "hash-invalid",
+		ProposedArchitecture: json.RawMessage(`{`),
+	})
+	if err == nil {
+		t.Fatal("Create() invalid proposed_architecture error = nil, want CHECK failure")
+	}
+}
+
+func newTopologyApprovalSQLiteStore(t *testing.T) (*store, *sql.DB) {
+	t.Helper()
+
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "topologyapproval.sqlite"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("close sqlite: %v", err)
+		}
+	})
+	if _, err := db.Exec(`
+CREATE TABLE topology_approvals (
+	id TEXT PRIMARY KEY,
+	status TEXT NOT NULL,
+	requested_by TEXT NOT NULL DEFAULT '',
+	reason TEXT NOT NULL DEFAULT '',
+	created_at INTEGER NOT NULL,
+	expire_at INTEGER NOT NULL,
+	reviewed_at INTEGER,
+	reviewer TEXT NOT NULL DEFAULT '',
+	review_note TEXT NOT NULL DEFAULT '',
+	arch_hash TEXT NOT NULL,
+	proposed_architecture TEXT NOT NULL CHECK(json_valid(proposed_architecture))
+);
+`); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	return &store{q: sqlc.New(db)}, db
+}
+
+func assertTopologyApprovalStatus(t *testing.T, db *sql.DB, id, wantStatus, wantReviewer string) {
+	t.Helper()
+
+	var status, reviewer string
+	if err := db.QueryRow("SELECT status, reviewer FROM topology_approvals WHERE id = ?", id).Scan(&status, &reviewer); err != nil {
+		t.Fatalf("query topology approval status: %v", err)
+	}
+	if status != wantStatus || reviewer != wantReviewer {
+		t.Fatalf("topology approval status/reviewer = %q/%q, want %q/%q", status, reviewer, wantStatus, wantReviewer)
 	}
 }
