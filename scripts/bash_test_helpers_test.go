@@ -10,6 +10,7 @@ import (
 	"sync"
 )
 
+// archguard:ignore global_vars -- caches expensive bash drive-mount probing across tests.
 var bashDriveMountCache sync.Map
 
 func bashPath(parts ...string) string {

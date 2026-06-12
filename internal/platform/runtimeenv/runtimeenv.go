@@ -476,6 +476,7 @@ func requireExecutableFile(path string) error {
 func newSessionToken() string {
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {
+		// archguard:ignore panic_count -- cryptographic entropy failure is unrecoverable for session-token generation.
 		panic("generate packaged control-plane session token: " + err.Error())
 	}
 	return "sd-" + hex.EncodeToString(raw[:])

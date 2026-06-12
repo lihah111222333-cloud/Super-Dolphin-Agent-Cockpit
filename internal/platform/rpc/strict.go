@@ -11,6 +11,7 @@ import (
 func StrictHandler[Req, Resp any](fn func(context.Context, Req) (Resp, error)) handler.Func {
 	info, err := handler.Check(fn)
 	if err != nil {
+		// archguard:ignore panic_count -- invalid RPC handler signatures are programmer errors at registration time.
 		panic(err)
 	}
 	return InvalidParamsMapper()(info.AllowArray(false).SetStrict(true).Wrap())
