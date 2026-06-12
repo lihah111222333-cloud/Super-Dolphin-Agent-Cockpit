@@ -1,9 +1,9 @@
 -- name: ListAILogSystemLogs :many
-SELECT id, ts, level, logger, message, raw, source, component, agent_id, thread_id, trace_id, event_type, tool_name, duration_ms, extra
+SELECT id, ts, level, logger, message, '' AS raw, source, component, agent_id, thread_id, trace_id, event_type, tool_name, duration_ms, '{}' AS extra
 FROM system_logs
-WHERE (? = '' OR message LIKE '%' || ? || '%')
+WHERE (sqlc.arg(keyword) = '' OR lower(message) LIKE lower(sqlc.arg(keyword_pattern)))
 ORDER BY ts DESC, id DESC
-LIMIT ?;
+LIMIT sqlc.arg(limit_count);
 
 -- name: ListAILogsByCategory :many
 SELECT
@@ -12,7 +12,7 @@ SELECT
     level,
     logger,
     message,
-    raw,
+    '' AS raw,
     source,
     component,
     agent_id,
@@ -21,96 +21,44 @@ SELECT
     event_type,
     tool_name,
     duration_ms,
-    extra,
-    CASE
-        WHEN message LIKE '%api request%'
-            OR message LIKE '%request to%'
-            OR message LIKE '%http request%' THEN 'api_request'
-        WHEN message LIKE '%api error%'
-            OR message LIKE '%api_error%' THEN 'api_error'
-        WHEN message LIKE '%compat%'
-            OR message LIKE '%fallback%'
-            OR message LIKE '%兼容%' THEN 'compat_fallback'
-        WHEN message LIKE '%runtime%'
-            AND message LIKE '%config%' THEN 'runtime_config'
-        WHEN message LIKE '%error%'
-            OR message LIKE '%exception%' THEN 'error'
-        ELSE 'ai_event'
-    END AS category,
-    '' AS method,
-    '' AS url,
-    '' AS endpoint,
-    '' AS http_status,
-    '' AS status_text,
-    '' AS model
+    '{}' AS extra
 FROM system_logs
-WHERE (? = '' OR (
-    CASE
-        WHEN message LIKE '%api request%' OR message LIKE '%request to%' OR message LIKE '%http request%' THEN 'api_request'
-        WHEN message LIKE '%api error%' OR message LIKE '%api_error%' THEN 'api_error'
-        WHEN message LIKE '%compat%' OR message LIKE '%fallback%' OR message LIKE '%兼容%' THEN 'compat_fallback'
-        WHEN message LIKE '%runtime%' AND message LIKE '%config%' THEN 'runtime_config'
-        WHEN message LIKE '%error%' OR message LIKE '%exception%' THEN 'error'
+WHERE (? = '' OR lower(message) LIKE lower(?))
+  AND (
+    ? = ''
+    OR (CASE
+        WHEN lower(message) LIKE '%api request%'
+            OR lower(message) LIKE '%request to%'
+            OR lower(message) LIKE '%http request%' THEN 'api_request'
+        WHEN lower(message) LIKE '%api error%'
+            OR lower(message) LIKE '%api_error%' THEN 'api_error'
+        WHEN lower(message) LIKE '%compat%'
+            OR lower(message) LIKE '%fallback%'
+            OR instr(message, char(20860) || char(23481)) > 0 THEN 'compat_fallback'
+        WHEN lower(message) LIKE '%runtime%'
+            AND lower(message) LIKE '%config%' THEN 'runtime_config'
+        WHEN lower(message) LIKE '%error%'
+            OR lower(message) LIKE '%exception%' THEN 'error'
         ELSE 'ai_event'
-    END = ?))
-  AND (? = '' OR message LIKE '%' || ? || '%')
+    END) = ?
+  )
 ORDER BY ts DESC, id DESC
 LIMIT ?;
 
 -- name: CountAILogsByStatus :many
-SELECT level AS http_status, COUNT(*) AS count
+SELECT message
 FROM system_logs
-GROUP BY level
-ORDER BY level ASC;
+WHERE lower(message) LIKE '%http/%'
+ORDER BY ts DESC, id DESC;
 
 -- name: ListRecentAILogs :many
-WITH derived_logs AS (
-    SELECT
-        id,
-        ts,
-        level,
-        logger,
-        message,
-        raw,
-        source,
-        component,
-        agent_id,
-        thread_id,
-        trace_id,
-        event_type,
-        tool_name,
-        duration_ms,
-        extra,
-        CASE
-            WHEN message LIKE '%api request%'
-                OR message LIKE '%request to%'
-                OR message LIKE '%http request%' THEN 'api_request'
-            WHEN message LIKE '%api error%'
-                OR message LIKE '%api_error%' THEN 'api_error'
-            WHEN message LIKE '%compat%'
-                OR message LIKE '%fallback%'
-                OR message LIKE '%兼容%' THEN 'compat_fallback'
-            WHEN message LIKE '%runtime%'
-                AND message LIKE '%config%' THEN 'runtime_config'
-            WHEN message LIKE '%error%'
-                OR message LIKE '%exception%' THEN 'error'
-            ELSE 'ai_event'
-        END AS category,
-        '' AS method,
-        '' AS url,
-        '' AS endpoint,
-        '' AS http_status,
-        '' AS status_text,
-        '' AS model
-    FROM system_logs
-)
 SELECT
     id,
     ts,
     level,
     logger,
     message,
-    raw,
+    '' AS raw,
     source,
     component,
     agent_id,
@@ -119,14 +67,7 @@ SELECT
     event_type,
     tool_name,
     duration_ms,
-    extra,
-    category,
-    method,
-    url,
-    endpoint,
-    http_status,
-    status_text,
-    model
-FROM derived_logs
+    '{}' AS extra
+FROM system_logs
 ORDER BY ts DESC, id DESC
-LIMIT ?;
+LIMIT sqlc.arg(limit_count);

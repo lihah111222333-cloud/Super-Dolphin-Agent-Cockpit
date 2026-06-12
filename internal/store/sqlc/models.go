@@ -254,24 +254,6 @@ type SharedFile struct {
 	UpdatedAt int64  `db:"updated_at" json:"updated_at"`
 }
 
-type SystemLog struct {
-	ID         int64           `db:"id" json:"id"`
-	Ts         int64           `db:"ts" json:"ts"`
-	Level      string          `db:"level" json:"level"`
-	Logger     string          `db:"logger" json:"logger"`
-	Message    string          `db:"message" json:"message"`
-	Raw        string          `db:"raw" json:"raw"`
-	Source     string          `db:"source" json:"source"`
-	Component  string          `db:"component" json:"component"`
-	AgentID    string          `db:"agent_id" json:"agent_id"`
-	ThreadID   string          `db:"thread_id" json:"thread_id"`
-	TraceID    string          `db:"trace_id" json:"trace_id"`
-	EventType  string          `db:"event_type" json:"event_type"`
-	ToolName   string          `db:"tool_name" json:"tool_name"`
-	DurationMs *int64          `db:"duration_ms" json:"duration_ms"`
-	Extra      json.RawMessage `db:"extra" json:"extra"`
-}
-
 type TopologyApproval struct {
 	ID                   string `db:"id" json:"id"`
 	Status               string `db:"status" json:"status"`

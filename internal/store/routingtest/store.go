@@ -33,9 +33,8 @@ type store struct {
 	q *sqlc.Queries
 }
 
-// NewStore returns the sqlc-backed Reader. Pass a *sqlc.Queries (or a real
-// pgx-wrapped queries instance); returns a Reader so downstream code can
-// swap in fakes for tests.
+// NewStore returns the sqlc-backed Reader. Pass a *sqlc.Queries backed by
+// database/sql; returns a Reader so downstream code can swap in fakes for tests.
 func NewStore(q *sqlc.Queries) Reader {
 	return &store{q: q}
 }
