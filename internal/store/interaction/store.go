@@ -58,7 +58,16 @@ func (s *store) Get(ctx context.Context, id int64) (*Interaction, error) {
 }
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]Interaction, error) {
-	rows, err := s.q.ListInteractions(ctx, sqlc.ListInteractionsParams{Column1: filter.ThreadID, ThreadID: filter.ThreadID, Column3: filter.Keyword, Limit: int64(filter.Limit)})
+	keyword := filter.Keyword
+	rows, err := s.q.ListInteractions(ctx, sqlc.ListInteractionsParams{
+		Column1:  filter.ThreadID,
+		ThreadID: filter.ThreadID,
+		Column3:  keyword,
+		Column4:  &keyword,
+		Column5:  &keyword,
+		Column6:  &keyword,
+		Limit:    int64(filter.Limit),
+	})
 	if err != nil {
 		return nil, wrapInteractionError(err, "list")
 	}

@@ -1,4 +1,4 @@
--- hook_pending_review.sql — sqlc queries for hook_pending_reviews table.
+-- hook_pending_review.sql - sqlc queries for hook_pending_reviews table.
 -- Migrated from internal/store/hookstore/hookstore.go raw SQL.
 
 -- name: SaveHookPendingReview :exec

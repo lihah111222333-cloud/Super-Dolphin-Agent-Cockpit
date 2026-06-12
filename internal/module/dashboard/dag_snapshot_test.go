@@ -52,7 +52,7 @@ func TestGetDashboardPageDAGsBatchesLatestRunsFromSnapshot(t *testing.T) {
 			},
 		},
 		{
-			contains: []string{"FROM task_dag_runs", "ROW_NUMBER() OVER", "ANY($1::text[])"},
+			contains: []string{"FROM task_dag_runs", "ROW_NUMBER() OVER", "dag_key IN ($1, $2, $3)"},
 			rows: []map[string]any{
 				dashboardRunRowWithKey(now, "dag-b", "run-b", []byte(`{"final_output":{"kind":"file","path":"reports/b.md"}}`)),
 				dashboardRunRowWithKey(now, "dag-a", "run-a", []byte(`{}`)),
@@ -75,8 +75,8 @@ func TestGetDashboardPageDAGsBatchesLatestRunsFromSnapshot(t *testing.T) {
 	if len(db.calls) != 2 {
 		t.Fatalf("snapshot query calls = %#v, want list DAGs + single batch latest-runs query", db.calls)
 	}
-	if gotArgs, ok := db.calls[1].args[0].([]string); !ok || strings.Join(gotArgs, ",") != "dag-a,dag-b,dag-c" {
-		t.Fatalf("latest-runs batch dag keys arg = %#v, want dag-a,dag-b,dag-c", db.calls[1].args)
+	if strings.Join(anyStrings(db.calls[1].args[:3]), ",") != "dag-a,dag-b,dag-c" {
+		t.Fatalf("latest-runs batch dag keys args = %#v, want dag-a,dag-b,dag-c", db.calls[1].args)
 	}
 	if len(orchestration.listRunsRequests) != 0 {
 		t.Fatalf("orchestration ListRuns should not be called, got %#v", orchestration.listRunsRequests)
@@ -86,7 +86,7 @@ func TestGetDashboardPageDAGsBatchesLatestRunsFromSnapshot(t *testing.T) {
 func TestLatestRunsByDAGSnapshotQueryPassesDBQueryValidation(t *testing.T) {
 	t.Parallel()
 
-	db := &queryDBTXStub{}
+	db := newDashboardQuerySQLiteDB(t)
 	svc := &service{dbQueries: dbquery.NewQueryStore(db, time.Second)}
 
 	got, err := svc.listLatestDAGRunsByDAGFromSnapshot(context.Background(), []string{"dag-a", "dag-b"})
@@ -95,9 +95,6 @@ func TestLatestRunsByDAGSnapshotQueryPassesDBQueryValidation(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("listLatestDAGRunsByDAGFromSnapshot() = %#v, want no rows", got)
-	}
-	if gotArgs, ok := db.args[0].([]string); !ok || strings.Join(gotArgs, ",") != "dag-a,dag-b" {
-		t.Fatalf("query args = %#v, want dag-a,dag-b text array arg", db.args)
 	}
 }
 
@@ -215,6 +212,14 @@ func cloneDashboardQueryRows(rows []map[string]any) []map[string]any {
 			clone[key] = value
 		}
 		out[i] = clone
+	}
+	return out
+}
+
+func anyStrings(values []any) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, fmt.Sprint(value))
 	}
 	return out
 }

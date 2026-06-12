@@ -18,11 +18,11 @@ const (
 SELECT id, dag_key, version, title, description, status, created_by, metadata,
        trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
 FROM task_dags
-WHERE ($1::text = '' OR status = $1)
-  AND ($2::text = ''
-    OR dag_key ILIKE '%' || $2 || '%'
-    OR title ILIKE '%' || $2 || '%'
-    OR description ILIKE '%' || $2 || '%')
+WHERE ($1 = '' OR status = $1)
+  AND ($2 = ''
+    OR LOWER(dag_key) LIKE '%' || LOWER($2) || '%'
+    OR LOWER(title) LIKE '%' || LOWER($2) || '%'
+    OR LOWER(description) LIKE '%' || LOWER($2) || '%')
 ORDER BY updated_at DESC, id DESC
 LIMIT $3`
 	dashboardGetDAGSnapshotQuery = `
@@ -50,10 +50,10 @@ SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
        started_at, finished_at, events, budget_used, budget_limit, metadata,
        created_at, updated_at
 FROM task_dag_runs
-WHERE dag_key = $1 AND ($2::text = '' OR status = $2)
+WHERE dag_key = $1 AND ($2 = '' OR status = $2)
 ORDER BY started_at DESC, id DESC
 LIMIT $3`
-	dashboardListLatestRunsByDAGSnapshotQuery = `
+	dashboardListLatestRunsByDAGSnapshotQueryTemplate = `
 SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
        started_at, finished_at, events, budget_used, budget_limit, metadata,
        created_at, updated_at
@@ -63,10 +63,10 @@ FROM (
            created_at, updated_at,
            ROW_NUMBER() OVER (PARTITION BY dag_key ORDER BY started_at DESC, id DESC) AS run_rank
     FROM task_dag_runs
-    WHERE dag_key = ANY($1::text[])
+    WHERE dag_key IN (%s)
 ) latest_runs
 WHERE run_rank = 1
-LIMIT $2`
+LIMIT $%d`
 	dashboardGetRunSnapshotQuery = `
 SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
        started_at, finished_at, events, budget_used, budget_limit, metadata,
@@ -123,7 +123,8 @@ func (s *service) listLatestDAGRunsByDAGFromSnapshot(ctx context.Context, dagKey
 	if len(dagKeys) == 0 {
 		return map[string]contract.Run{}, nil
 	}
-	rows, err := s.dbQueries.Query(ctx, dashboardListLatestRunsByDAGSnapshotQuery, dagKeys, int32(len(dagKeys)))
+	query, args := dashboardLatestRunsByDAGQuery(dagKeys)
+	rows, err := s.dbQueries.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -138,6 +139,18 @@ func (s *service) listLatestDAGRunsByDAGFromSnapshot(ctx context.Context, dagKey
 		}
 	}
 	return out, nil
+}
+
+func dashboardLatestRunsByDAGQuery(dagKeys []string) (string, []any) {
+	placeholders := make([]string, len(dagKeys))
+	args := make([]any, 0, len(dagKeys)+1)
+	for index, dagKey := range dagKeys {
+		placeholders[index] = fmt.Sprintf("$%d", index+1)
+		args = append(args, dagKey)
+	}
+	limitPlaceholder := len(dagKeys) + 1
+	args = append(args, int32(len(dagKeys)))
+	return fmt.Sprintf(dashboardListLatestRunsByDAGSnapshotQueryTemplate, strings.Join(placeholders, ", "), limitPlaceholder), args
 }
 
 func (s *service) getDAGRunFromSnapshot(ctx context.Context, runKey string) (contract.GetRunResponse, error) {

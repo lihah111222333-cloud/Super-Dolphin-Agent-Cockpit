@@ -2,17 +2,14 @@ package hookstore
 
 import (
 	"context"
-	"errors"
-	"fmt"
+	"database/sql"
 	"sort"
 	"testing"
 	"time"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type testRecord struct {
@@ -25,220 +22,153 @@ type testRecord struct {
 	resolvedAt     time.Time
 }
 
-type hookStoreDBStub struct {
+// hookStoreQuerierStub is an in-memory implementation of the hookstore querier
+// interface. It models hook_pending_reviews state transitions so the store can
+// be exercised without a real database, mirroring the generated sqlc semantics.
+type hookStoreQuerierStub struct {
 	records             map[string]*testRecord
 	execOps             []string
 	beforeCancelExpired func(now time.Time)
 }
 
-func newTestStore(records ...testRecord) (*store, *hookStoreDBStub) {
-	db := &hookStoreDBStub{records: make(map[string]*testRecord, len(records))}
+func newTestStore(records ...testRecord) (*store, *hookStoreQuerierStub) {
+	db := &hookStoreQuerierStub{records: make(map[string]*testRecord, len(records))}
 	for i := range records {
 		record := records[i]
 		recordCopy := record
 		db.records[record.review.HookCallID] = &recordCopy
 	}
-	return newStoreForTest(sqlc.New(db)), db
+	return newStoreForTest(db), db
 }
 
-func (db *hookStoreDBStub) Exec(_ context.Context, query string, args ...any) (pgconn.CommandTag, error) {
-	switch compactSQL(query) {
-	case savePendingReviewSQL:
-		db.execOps = append(db.execOps, "insert")
-		return db.execSave(args)
-	case resolvePendingReviewSQL:
-		db.execOps = append(db.execOps, "resolve")
-		return db.execResolve(args)
-	case cancelPendingReviewsByLeaseSQL:
-		db.execOps = append(db.execOps, "cancel_by_lease")
-		return db.execCancelByLease(args)
-	case cancelPendingReviewsByAgentSQL:
-		db.execOps = append(db.execOps, "cancel_by_agent")
-		return db.execCancelByAgent(args)
-	case cancelExpiredReviewsSQL:
-		db.execOps = append(db.execOps, "cancel_expired")
-		return db.execCancelExpired(args)
-	default:
-		return pgconn.CommandTag{}, fmt.Errorf("unexpected Exec query: %s", compactSQL(query))
+func (db *hookStoreQuerierStub) SaveHookPendingReview(_ context.Context, arg sqlc.SaveHookPendingReviewParams) error {
+	db.execOps = append(db.execOps, "insert")
+	if _, exists := db.records[arg.HookCallID]; exists {
+		return nil
 	}
+	db.records[arg.HookCallID] = &testRecord{
+		review: mcp.PendingHookReview{
+			HookCallID:      arg.HookCallID,
+			Topic:           arg.Topic,
+			AgentID:         arg.AgentID,
+			SubscriberLease: arg.SubscriberLease,
+			DefaultAction:   arg.DefaultAction,
+			CreatedAt:       fromMS(arg.CreatedAt),
+			DeadlineAt:      fromMS(arg.DeadlineAt),
+		},
+		status: "pending",
+	}
+	return nil
 }
 
-func (db *hookStoreDBStub) Query(_ context.Context, query string, args ...any) (pgx.Rows, error) {
-	switch compactSQL(query) {
-	case listPendingReviewsSQL:
-		agentID, ok := args[0].(string)
-		if !ok {
-			return nil, fmt.Errorf("agent_id arg type = %T, want string", args[0])
-		}
-		rows := db.pendingReviewsByAgent(agentID)
-		sort.Slice(rows, func(i, j int) bool {
-			return rows[i].review.CreatedAt.Before(rows[j].review.CreatedAt)
-		})
-		return newHookRows(rowsToValues(rows)), nil
-	case recoverOnStartupSQL:
-		rows := db.pendingReviews()
-		sort.Slice(rows, func(i, j int) bool {
-			return rows[i].review.DeadlineAt.Before(rows[j].review.DeadlineAt)
-		})
-		return newHookRows(rowsToValues(rows)), nil
-	default:
-		return nil, fmt.Errorf("unexpected Query query: %s", compactSQL(query))
-	}
-}
-
-func (db *hookStoreDBStub) QueryRow(_ context.Context, query string, args ...any) pgx.Row {
-	switch compactSQL(query) {
-	case getPendingReviewSQL:
-		return db.queryPendingReviewRow(args)
-	case resolveIdempotencySQL:
-		return db.queryResolveIdempotencyRow(args)
-	default:
-		return hookRowStub{err: fmt.Errorf("unexpected QueryRow query: %s", compactSQL(query))}
-	}
-}
-
-func (db *hookStoreDBStub) queryPendingReviewRow(args []any) pgx.Row {
-	hookCallID, ok := args[0].(string)
-	if !ok {
-		return hookRowStub{err: fmt.Errorf("hook_call_id arg type = %T, want string", args[0])}
-	}
-	record, ok := db.records[hookCallID]
+func (db *hookStoreQuerierStub) GetHookPendingReview(_ context.Context, arg sqlc.GetHookPendingReviewParams) (sqlc.GetHookPendingReviewRow, error) {
+	record, ok := db.records[arg.HookCallID]
 	if !ok || record.status != "pending" {
-		return hookRowStub{err: pgx.ErrNoRows}
+		return sqlc.GetHookPendingReviewRow{}, sql.ErrNoRows
 	}
-	return hookRowStub{values: reviewValues(record.review)}
+	return sqlc.GetHookPendingReviewRow{
+		HookCallID:      record.review.HookCallID,
+		Topic:           record.review.Topic,
+		AgentID:         record.review.AgentID,
+		SubscriberLease: record.review.SubscriberLease,
+		DefaultAction:   record.review.DefaultAction,
+		Status:          "pending",
+		CreatedAt:       toMS(record.review.CreatedAt),
+		DeadlineAt:      toMS(record.review.DeadlineAt),
+	}, nil
 }
 
-func (db *hookStoreDBStub) queryResolveIdempotencyRow(args []any) pgx.Row {
-	hookCallID, ok := args[0].(string)
-	if !ok {
-		return hookRowStub{err: fmt.Errorf("hook_call_id arg type = %T, want string", args[0])}
+func (db *hookStoreQuerierStub) ListHookPendingReviewsByAgent(_ context.Context, arg sqlc.ListHookPendingReviewsByAgentParams) ([]sqlc.ListHookPendingReviewsByAgentRow, error) {
+	rows := db.pendingReviewsByAgent(arg.AgentID)
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].review.CreatedAt.Before(rows[j].review.CreatedAt)
+	})
+	result := make([]sqlc.ListHookPendingReviewsByAgentRow, 0, len(rows))
+	for _, record := range rows {
+		result = append(result, sqlc.ListHookPendingReviewsByAgentRow{
+			HookCallID:      record.review.HookCallID,
+			Topic:           record.review.Topic,
+			AgentID:         record.review.AgentID,
+			SubscriberLease: record.review.SubscriberLease,
+			DefaultAction:   record.review.DefaultAction,
+			Status:          "pending",
+			CreatedAt:       toMS(record.review.CreatedAt),
+			DeadlineAt:      toMS(record.review.DeadlineAt),
+		})
 	}
-	idempotencyKey, ok := args[1].(string)
-	if !ok {
-		return hookRowStub{err: fmt.Errorf("idempotency_key arg type = %T, want string", args[1])}
-	}
-	record, ok := db.records[hookCallID]
-	if !ok || record.status != "resolved" || record.idempotencyKey != idempotencyKey {
-		return hookRowStub{err: pgx.ErrNoRows}
-	}
-	return hookRowStub{values: []any{1}}
+	return result, nil
 }
 
-func (db *hookStoreDBStub) execSave(args []any) (pgconn.CommandTag, error) {
-	if len(args) != 7 {
-		return pgconn.CommandTag{}, fmt.Errorf("save args = %d, want 7", len(args))
+func (db *hookStoreQuerierStub) CheckHookReviewIdempotency(_ context.Context, arg sqlc.CheckHookReviewIdempotencyParams) (int64, error) {
+	record, ok := db.records[arg.HookCallID]
+	if !ok || record.status != "resolved" || record.idempotencyKey != arg.IdempotencyKey {
+		return 0, sql.ErrNoRows
 	}
-	review, err := pendingReviewFromArgs(args)
-	if err != nil {
-		return pgconn.CommandTag{}, err
-	}
-	if _, exists := db.records[review.HookCallID]; exists {
-		return pgconn.NewCommandTag("INSERT 0 0"), nil
-	}
-	db.records[review.HookCallID] = &testRecord{review: review, status: "pending"}
-	return pgconn.NewCommandTag("INSERT 0 1"), nil
+	return 1, nil
 }
 
-func (db *hookStoreDBStub) execResolve(args []any) (pgconn.CommandTag, error) {
-	if len(args) != 6 {
-		return pgconn.CommandTag{}, fmt.Errorf("resolve args = %d, want 6", len(args))
-	}
-	hookCallID, ok := args[0].(string)
-	if !ok {
-		return pgconn.CommandTag{}, fmt.Errorf("hook_call_id arg type = %T, want string", args[0])
-	}
-	decision, ok := args[1].(string)
-	if !ok {
-		return pgconn.CommandTag{}, fmt.Errorf("decision arg type = %T, want string", args[1])
-	}
-	reason, ok := args[2].(string)
-	if !ok {
-		return pgconn.CommandTag{}, fmt.Errorf("reason arg type = %T, want string", args[2])
-	}
-	idempotencyKey, ok := args[3].(string)
-	if !ok {
-		return pgconn.CommandTag{}, fmt.Errorf("idempotency_key arg type = %T, want string", args[3])
-	}
-	resolvedBy, ok := args[4].(string)
-	if !ok {
-		return pgconn.CommandTag{}, fmt.Errorf("resolved_by arg type = %T, want string", args[4])
-	}
-	resolvedAt, err := timeArg(args[5], "resolved_at")
-	if err != nil {
-		return pgconn.CommandTag{}, err
-	}
-	record, exists := db.records[hookCallID]
+func (db *hookStoreQuerierStub) ResolveHookPendingReview(_ context.Context, arg sqlc.ResolveHookPendingReviewParams) (int64, error) {
+	db.execOps = append(db.execOps, "resolve")
+	record, exists := db.records[arg.HookCallID]
 	if !exists || record.status != "pending" {
-		return pgconn.NewCommandTag("UPDATE 0"), nil
+		return 0, nil
 	}
 	record.status = "resolved"
-	record.decision = decision
-	record.reason = reason
-	record.idempotencyKey = idempotencyKey
-	record.resolvedBy = resolvedBy
-	record.resolvedAt = resolvedAt
-	return pgconn.NewCommandTag("UPDATE 1"), nil
+	record.decision = arg.Decision
+	record.reason = arg.Reason
+	record.idempotencyKey = arg.IdempotencyKey
+	record.resolvedBy = arg.ResolvedBy
+	record.resolvedAt = fromMSPtr(arg.ResolvedAt)
+	return 1, nil
 }
 
-func (db *hookStoreDBStub) execCancelByLease(args []any) (pgconn.CommandTag, error) {
-	if len(args) != 2 {
-		return pgconn.CommandTag{}, fmt.Errorf("cancel_by_lease args = %d, want 2", len(args))
+func (db *hookStoreQuerierStub) GetHookResolvedReview(_ context.Context, arg sqlc.GetHookResolvedReviewParams) (sqlc.GetHookResolvedReviewRow, error) {
+	record, ok := db.records[arg.HookCallID]
+	if !ok || record.status != "resolved" {
+		return sqlc.GetHookResolvedReviewRow{}, sql.ErrNoRows
 	}
-	subscriberLease, ok := args[0].(string)
-	if !ok {
-		return pgconn.CommandTag{}, fmt.Errorf("subscriber_lease arg type = %T, want string", args[0])
-	}
-	resolvedAt, err := timeArg(args[1], "resolved_at")
-	if err != nil {
-		return pgconn.CommandTag{}, err
-	}
-	count := 0
+	return sqlc.GetHookResolvedReviewRow{
+		Decision:        record.decision,
+		ResolvedAt:      toMSPtr(record.resolvedAt),
+		SubscriberLease: record.review.SubscriberLease,
+	}, nil
+}
+
+func (db *hookStoreQuerierStub) CancelHookPendingReviewsByLease(_ context.Context, arg sqlc.CancelHookPendingReviewsByLeaseParams) (int64, error) {
+	db.execOps = append(db.execOps, "cancel_by_lease")
+	resolvedAt := fromMSPtr(arg.ResolvedAt)
+	count := int64(0)
 	for _, record := range db.records {
-		if record.review.SubscriberLease == subscriberLease && record.status == "pending" {
+		if record.review.SubscriberLease == arg.SubscriberLease && record.status == "pending" {
 			record.status = "cancelled"
 			record.resolvedAt = resolvedAt
 			count++
 		}
 	}
-	return pgconn.NewCommandTag(fmt.Sprintf("UPDATE %d", count)), nil
+	return count, nil
 }
 
-func (db *hookStoreDBStub) execCancelByAgent(args []any) (pgconn.CommandTag, error) {
-	if len(args) != 2 {
-		return pgconn.CommandTag{}, fmt.Errorf("cancel_by_agent args = %d, want 2", len(args))
-	}
-	agentID, ok := args[0].(string)
-	if !ok {
-		return pgconn.CommandTag{}, fmt.Errorf("agent_id arg type = %T, want string", args[0])
-	}
-	resolvedAt, err := timeArg(args[1], "resolved_at")
-	if err != nil {
-		return pgconn.CommandTag{}, err
-	}
-	count := 0
+func (db *hookStoreQuerierStub) CancelHookPendingReviewsByAgent(_ context.Context, arg sqlc.CancelHookPendingReviewsByAgentParams) (int64, error) {
+	db.execOps = append(db.execOps, "cancel_by_agent")
+	resolvedAt := fromMSPtr(arg.ResolvedAt)
+	count := int64(0)
 	for _, record := range db.records {
-		if record.review.AgentID == agentID && record.status == "pending" {
+		if record.review.AgentID == arg.AgentID && record.status == "pending" {
 			record.status = "cancelled"
 			record.resolvedAt = resolvedAt
 			count++
 		}
 	}
-	return pgconn.NewCommandTag(fmt.Sprintf("UPDATE %d", count)), nil
+	return count, nil
 }
 
-func (db *hookStoreDBStub) execCancelExpired(args []any) (pgconn.CommandTag, error) {
-	if len(args) != 1 {
-		return pgconn.CommandTag{}, fmt.Errorf("cancel_expired args = %d, want 1", len(args))
-	}
-	now, err := timeArg(args[0], "deadline")
-	if err != nil {
-		return pgconn.CommandTag{}, err
-	}
+func (db *hookStoreQuerierStub) CancelExpiredHookReviews(_ context.Context, arg sqlc.CancelExpiredHookReviewsParams) (int64, error) {
+	db.execOps = append(db.execOps, "cancel_expired")
+	now := fromMS(arg.DeadlineAt)
 	if db.beforeCancelExpired != nil {
 		db.beforeCancelExpired(now)
 	}
-	count := 0
+	count := int64(0)
 	for _, record := range db.records {
 		if record.status == "pending" && !record.review.DeadlineAt.After(now) {
 			record.status = "expired"
@@ -247,21 +177,31 @@ func (db *hookStoreDBStub) execCancelExpired(args []any) (pgconn.CommandTag, err
 			count++
 		}
 	}
-	return pgconn.NewCommandTag(fmt.Sprintf("UPDATE %d", count)), nil
+	return count, nil
 }
 
-func timeArg(value any, name string) (time.Time, error) {
-	switch t := value.(type) {
-	case time.Time:
-		return t, nil
-	case pgtype.Timestamptz:
-		return fromTS(t), nil
-	default:
-		return time.Time{}, fmt.Errorf("%s arg type = %T, want pgtype.Timestamptz", name, value)
+func (db *hookStoreQuerierStub) RecoverHookPendingReviews(_ context.Context) ([]sqlc.RecoverHookPendingReviewsRow, error) {
+	rows := db.pendingReviews()
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].review.DeadlineAt.Before(rows[j].review.DeadlineAt)
+	})
+	result := make([]sqlc.RecoverHookPendingReviewsRow, 0, len(rows))
+	for _, record := range rows {
+		result = append(result, sqlc.RecoverHookPendingReviewsRow{
+			HookCallID:      record.review.HookCallID,
+			Topic:           record.review.Topic,
+			AgentID:         record.review.AgentID,
+			SubscriberLease: record.review.SubscriberLease,
+			DefaultAction:   record.review.DefaultAction,
+			Status:          "pending",
+			CreatedAt:       toMS(record.review.CreatedAt),
+			DeadlineAt:      toMS(record.review.DeadlineAt),
+		})
 	}
+	return result, nil
 }
 
-func (db *hookStoreDBStub) pendingReviewsByAgent(agentID string) []*testRecord {
+func (db *hookStoreQuerierStub) pendingReviewsByAgent(agentID string) []*testRecord {
 	var rows []*testRecord
 	for _, record := range db.records {
 		if record.review.AgentID == agentID && record.status == "pending" {
@@ -271,7 +211,7 @@ func (db *hookStoreDBStub) pendingReviewsByAgent(agentID string) []*testRecord {
 	return rows
 }
 
-func (db *hookStoreDBStub) pendingReviews() []*testRecord {
+func (db *hookStoreQuerierStub) pendingReviews() []*testRecord {
 	var rows []*testRecord
 	for _, record := range db.records {
 		if record.status == "pending" {
@@ -281,7 +221,7 @@ func (db *hookStoreDBStub) pendingReviews() []*testRecord {
 	return rows
 }
 
-func (db *hookStoreDBStub) execCount(op string) int {
+func (db *hookStoreQuerierStub) execCount(op string) int {
 	count := 0
 	for _, got := range db.execOps {
 		if got == op {
@@ -291,7 +231,7 @@ func (db *hookStoreDBStub) execCount(op string) int {
 	return count
 }
 
-func (db *hookStoreDBStub) mustRecord(t *testing.T, hookCallID string) testRecord {
+func (db *hookStoreQuerierStub) mustRecord(t *testing.T, hookCallID string) testRecord {
 	t.Helper()
 
 	record, ok := db.records[hookCallID]
@@ -301,58 +241,5 @@ func (db *hookStoreDBStub) mustRecord(t *testing.T, hookCallID string) testRecor
 	return *record
 }
 
-type hookRowStub struct {
-	values []any
-	err    error
-}
-
-func (r hookRowStub) Scan(dest ...any) error {
-	if r.err != nil {
-		return r.err
-	}
-	return assignScanDest(dest, r.values)
-}
-
-type hookRowsStub struct {
-	values [][]any
-	index  int
-	err    error
-}
-
-func newHookRows(values [][]any) *hookRowsStub {
-	return &hookRowsStub{values: values}
-}
-
-func (r *hookRowsStub) Close() { _ = r }
-
-func (r *hookRowsStub) Err() error { return r.err }
-
-func (r *hookRowsStub) CommandTag() pgconn.CommandTag { return pgconn.CommandTag{} }
-
-func (r *hookRowsStub) FieldDescriptions() []pgconn.FieldDescription { return nil }
-
-func (r *hookRowsStub) Next() bool {
-	if r.index >= len(r.values) {
-		return false
-	}
-	r.index++
-	return true
-}
-
-func (r *hookRowsStub) Scan(dest ...any) error {
-	if r.index == 0 || r.index > len(r.values) {
-		return errors.New("hookRowsStub: invalid cursor")
-	}
-	return assignScanDest(dest, r.values[r.index-1])
-}
-
-func (r *hookRowsStub) Values() ([]any, error) {
-	if r.index == 0 || r.index > len(r.values) {
-		return nil, errors.New("hookRowsStub: invalid cursor")
-	}
-	return append([]any(nil), r.values[r.index-1]...), nil
-}
-
-func (r *hookRowsStub) RawValues() [][]byte { return nil }
-
-func (r *hookRowsStub) Conn() *pgx.Conn { return nil }
+// Ensure the stub stays aligned with the production not-found mapping.
+var _ = platformdb.IsNotFound
