@@ -1,0 +1,382 @@
+package cron
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	sqliteruntime "github.com/anthropic-ai/super-agent-v3/internal/platform/db/sqlite"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	"github.com/google/uuid"
+)
+
+// These tests exercise the real SQLite ClaimDueJobsForUpdate statement (no
+// stubs) to prove the atomic-claim semantics that replaced PostgreSQL's
+// FOR UPDATE SKIP LOCKED. The contract: across concurrent claimers, every
+// due job is claimed exactly once: duplicate claims = 0, missing = 0.
+
+const (
+	subprocEnvDB    = "CRON_CLAIM_SUBPROC_DB"
+	subprocEnvBy    = "CRON_CLAIM_SUBPROC_CLAIMED_BY"
+	subprocEnvNow   = "CRON_CLAIM_SUBPROC_NOW_MS"
+	subprocEnvLease = "CRON_CLAIM_SUBPROC_LEASE_MS"
+)
+
+func TestClaimDueJobsSameProcessNoDuplicates(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, _ := openMigratedCronStore(t)
+
+	now := time.Unix(1_700_000_000, 0).UTC()
+	const total = 100
+	ids := seedDueJobs(ctx, t, store, total, now)
+
+	const workers = 4
+	var (
+		mu      sync.Mutex
+		claimed = make(map[string]int)
+		wg      sync.WaitGroup
+	)
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			claimedBy := fmt.Sprintf("scheduler-%d", worker)
+			for {
+				jobs, err := store.ClaimDueJobsForUpdate(ctx, ClaimDueJobsForUpdateParams{
+					Now:            now,
+					ClaimedBy:      claimedBy,
+					LeaseExpiresAt: now.Add(30 * time.Minute),
+					ClaimToken:     uuid.NewString(),
+					MaxClaim:       8,
+				})
+				if err != nil {
+					t.Errorf("worker %d claim error: %v", worker, err)
+					return
+				}
+				if len(jobs) == 0 {
+					return
+				}
+				mu.Lock()
+				for _, j := range jobs {
+					claimed[j.ID]++
+				}
+				mu.Unlock()
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	assertExactlyOnce(t, ids, claimed)
+}
+
+func TestClaimDueJobsCrossProcessNoDuplicates(t *testing.T) {
+	if os.Getenv(subprocEnvDB) != "" {
+		// Running as a claim subprocess: claim everything we can and print
+		// each claimed job ID on its own stdout line, then exit.
+		runCrossProcessClaimWorker(t)
+		return
+	}
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "secure", "cron-crossproc.db")
+	db := openMigratedCronDB(ctx, t, dbPath)
+	store := NewStore(sqlc.New(db))
+
+	now := time.Unix(1_700_000_000, 0).UTC()
+	const total = 100
+	ids := seedDueJobs(ctx, t, store, total, now)
+	// Release the parent's handle so the two subprocesses are the only
+	// writers contending for the SQLite file lock.
+	if err := db.Close(); err != nil {
+		t.Fatalf("close parent DB before subprocess claim: %v", err)
+	}
+
+	leaseMS := now.Add(30 * time.Minute).UnixMilli()
+	type result struct {
+		ids []string
+		err error
+		out string
+	}
+	results := make(chan result, 2)
+	for i := 0; i < 2; i++ {
+		claimedBy := fmt.Sprintf("proc-%d", i)
+		go func() {
+			out, err := runClaimSubprocess(dbPath, claimedBy, now.UnixMilli(), leaseMS)
+			results <- result{ids: parseClaimedIDs(out), err: err, out: out}
+		}()
+	}
+
+	claimed := make(map[string]int)
+	for i := 0; i < 2; i++ {
+		r := <-results
+		if r.err != nil {
+			t.Fatalf("claim subprocess error: %v\noutput:\n%s", r.err, r.out)
+		}
+		for _, id := range r.ids {
+			claimed[id]++
+		}
+	}
+
+	assertExactlyOnce(t, ids, claimed)
+}
+
+func TestClaimReclaimsStaleLeaseButNotFreshLease(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, _ := openMigratedCronStore(t)
+
+	now := time.Unix(1_700_000_000, 0).UTC()
+	ids := seedDueJobs(ctx, t, store, 1, now)
+	jobID := ids[0]
+
+	// First claimer takes the job with a lease that expires at now+10m.
+	firstToken := uuid.NewString()
+	firstLease := now.Add(10 * time.Minute)
+	first, err := store.ClaimDueJobsForUpdate(ctx, ClaimDueJobsForUpdateParams{
+		Now:            now,
+		ClaimedBy:      "owner-A",
+		LeaseExpiresAt: firstLease,
+		ClaimToken:     firstToken,
+		MaxClaim:       1,
+	})
+	if err != nil {
+		t.Fatalf("first claim error: %v", err)
+	}
+	if len(first) != 1 || first[0].ID != jobID {
+		t.Fatalf("first claim = %+v, want job %s", first, jobID)
+	}
+
+	// A second claimer at a time before the lease expires must NOT steal it.
+	beforeExpiry := firstLease.Add(-time.Minute)
+	stolen, err := store.ClaimDueJobsForUpdate(ctx, ClaimDueJobsForUpdateParams{
+		Now:            beforeExpiry,
+		ClaimedBy:      "owner-B",
+		LeaseExpiresAt: beforeExpiry.Add(10 * time.Minute),
+		ClaimToken:     uuid.NewString(),
+		MaxClaim:       1,
+	})
+	if err != nil {
+		t.Fatalf("pre-expiry claim error: %v", err)
+	}
+	if len(stolen) != 0 {
+		t.Fatalf("fresh lease was stolen: %+v", stolen)
+	}
+
+	// After the lease expires, the job becomes reclaimable. Note the claim
+	// predicate is due-at <= now, so the job is also due again at this time.
+	afterExpiry := firstLease.Add(time.Minute)
+	reclaimToken := uuid.NewString()
+	reclaimed, err := store.ClaimDueJobsForUpdate(ctx, ClaimDueJobsForUpdateParams{
+		Now:            afterExpiry,
+		ClaimedBy:      "owner-B",
+		LeaseExpiresAt: afterExpiry.Add(10 * time.Minute),
+		ClaimToken:     reclaimToken,
+		MaxClaim:       1,
+	})
+	if err != nil {
+		t.Fatalf("reclaim error: %v", err)
+	}
+	if len(reclaimed) != 1 || reclaimed[0].ID != jobID {
+		t.Fatalf("stale lease not reclaimed: %+v", reclaimed)
+	}
+	if reclaimed[0].ClaimToken != reclaimToken || reclaimed[0].ClaimedBy != "owner-B" {
+		t.Fatalf("reclaimed row not re-fenced: token=%q by=%q", reclaimed[0].ClaimToken, reclaimed[0].ClaimedBy)
+	}
+
+	// The preempted original owner must not be able to mutate via its stale
+	// token: claim_token fencing rejects it.
+	if err := store.MarkFinished(ctx, MarkFinishedParams{
+		ID: jobID, ClaimToken: firstToken, NextRunAt: afterExpiry.Add(time.Hour), Now: afterExpiry,
+	}); err == nil {
+		t.Fatalf("stale-token MarkFinished succeeded; claim fencing broken")
+	}
+}
+
+// runCrossProcessClaimWorker is the body executed when the test binary is
+// re-invoked as a claim subprocess. It opens the shared DB, claims in a loop
+// until drained, prints each claimed ID, and exits 0.
+func runCrossProcessClaimWorker(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	dbPath := os.Getenv(subprocEnvDB)
+	claimedBy := os.Getenv(subprocEnvBy)
+	nowMS := mustAtoi64(os.Getenv(subprocEnvNow))
+	leaseMS := mustAtoi64(os.Getenv(subprocEnvLease))
+	now := time.UnixMilli(nowMS).UTC()
+	lease := time.UnixMilli(leaseMS).UTC()
+
+	db, err := sqliteruntime.OpenTest(ctx, dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "subproc open: %v\n", err)
+		os.Exit(2)
+	}
+	defer func() { _ = db.Close() }()
+	store := NewStore(sqlc.New(db))
+
+	for {
+		jobs, err := store.ClaimDueJobsForUpdate(ctx, ClaimDueJobsForUpdateParams{
+			Now:            now,
+			ClaimedBy:      claimedBy,
+			LeaseExpiresAt: lease,
+			ClaimToken:     uuid.NewString(),
+			MaxClaim:       8,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "subproc claim: %v\n", err)
+			os.Exit(3)
+		}
+		if len(jobs) == 0 {
+			break
+		}
+		for _, j := range jobs {
+			fmt.Fprintf(os.Stdout, "CLAIMED %s\n", j.ID)
+		}
+	}
+	os.Exit(0)
+}
+
+func runClaimSubprocess(dbPath, claimedBy string, nowMS, leaseMS int64) (string, error) {
+	cmd := exec.Command(os.Args[0], "-test.run=TestClaimDueJobsCrossProcessNoDuplicates", "-test.v")
+	cmd.Env = append(os.Environ(),
+		subprocEnvDB+"="+dbPath,
+		subprocEnvBy+"="+claimedBy,
+		fmt.Sprintf("%s=%d", subprocEnvNow, nowMS),
+		fmt.Sprintf("%s=%d", subprocEnvLease, leaseMS),
+	)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func parseClaimedIDs(out string) []string {
+	var ids []string
+	for _, line := range strings.Split(out, "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "CLAIMED "); ok {
+			ids = append(ids, strings.TrimSpace(rest))
+		}
+	}
+	return ids
+}
+
+func mustAtoi64(s string) int64 {
+	var v int64
+	if _, err := fmt.Sscanf(s, "%d", &v); err != nil {
+		fmt.Fprintf(os.Stderr, "bad int %q: %v\n", s, err)
+		os.Exit(2)
+	}
+	return v
+}
+
+// ----- shared helpers -----
+
+func seedDueJobs(ctx context.Context, t *testing.T, store Store, n int, now time.Time) []string {
+	t.Helper()
+	ids := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		id := fmt.Sprintf("job-%04d", i)
+		_, err := store.CreateJob(ctx, CreateJobParams{
+			ID:           id,
+			Name:         id,
+			Prompt:       "run",
+			ScheduleType: "cron",
+			ScheduleExpr: "0 * * * *",
+			Provider:     ProviderCodex,
+			CWD:          "/repo",
+			Config:       json.RawMessage(`{}`),
+			Skills:       json.RawMessage(`[]`),
+			Enabled:      true,
+			// due now: next_run_at <= now so the claim predicate matches.
+			NextRunAt: now.Add(-time.Minute),
+			CreatedAt: now,
+			UpdatedAt: now,
+		})
+		if err != nil {
+			t.Fatalf("seed job %s: %v", id, err)
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func assertExactlyOnce(t *testing.T, want []string, got map[string]int) {
+	t.Helper()
+	var dups, missing []string
+	for id, n := range got {
+		if n > 1 {
+			dups = append(dups, fmt.Sprintf("%s(x%d)", id, n))
+		}
+	}
+	for _, id := range want {
+		if got[id] == 0 {
+			missing = append(missing, id)
+		}
+	}
+	sort.Strings(dups)
+	sort.Strings(missing)
+	if len(dups) != 0 {
+		t.Fatalf("duplicate claims (must be 0): %v", dups)
+	}
+	if len(missing) != 0 {
+		t.Fatalf("missing claims (must be 0): %d of %d, e.g. %v", len(missing), len(want), missing)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("claimed %d distinct jobs, want %d", len(got), len(want))
+	}
+}
+
+func openMigratedCronStore(t *testing.T) (Store, *sql.DB) {
+	t.Helper()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "secure", "cron-claim.db")
+	db := openMigratedCronDB(ctx, t, dbPath)
+	return NewStore(sqlc.New(db)), db
+}
+
+func openMigratedCronDB(ctx context.Context, t *testing.T, dbPath string) *sql.DB {
+	t.Helper()
+	db, err := sqliteruntime.OpenTest(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("open SQLite test DB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := sqliteruntime.RunMigrations(ctx, db, sqliteMigrationsDir(t)); err != nil {
+		t.Fatalf("run SQLite migrations: %v", err)
+	}
+	return db
+}
+
+// sqliteMigrationsDir walks up to the go.mod root and returns the canonical
+// SQLite migrations directory used by the production runner.
+func sqliteMigrationsDir(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	dir := filepath.Dir(file)
+	for i := 0; i < 8; i++ {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return filepath.Join(dir, "internal", "platform", "db", "sqlite", "migrations")
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	t.Fatalf("go.mod not found walking up from %s", file)
+	return ""
+}

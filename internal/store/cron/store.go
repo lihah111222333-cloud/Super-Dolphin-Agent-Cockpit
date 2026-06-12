@@ -3,11 +3,13 @@ package cron
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	"github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type querier interface {
@@ -37,6 +39,8 @@ type querier interface {
 }
 
 type store struct{ q querier }
+
+const cronClaimBusyRetryAttempts = 3
 
 // NewStore returns the production Store backed by the sqlc queries.
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
@@ -233,13 +237,14 @@ func (s *store) ClaimDueJobsForUpdate(ctx context.Context, p ClaimDueJobsForUpda
 	if maxClaim <= 0 {
 		maxClaim = 16
 	}
-	rows, err := s.q.ClaimDueJobsForUpdate(ctx, sqlc.ClaimDueJobsForUpdateParams{
+	arg := sqlc.ClaimDueJobsForUpdateParams{
 		ClaimedBy:      p.ClaimedBy,
 		Now:            tsPtr(p.Now),
 		LeaseExpiresAt: tsPtr(p.LeaseExpiresAt),
 		ClaimToken:     p.ClaimToken,
 		MaxClaim:       int64(maxClaim),
-	})
+	}
+	rows, err := s.claimDueJobsWithRetry(ctx, arg)
 	if err != nil {
 		return nil, wrap(err, "claim_due_jobs")
 	}
@@ -248,6 +253,41 @@ func (s *store) ClaimDueJobsForUpdate(ctx context.Context, p ClaimDueJobsForUpda
 		out[i] = fromCronJob(r)
 	}
 	return out, nil
+}
+
+func (s *store) claimDueJobsWithRetry(ctx context.Context, arg sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
+	log := logger.FromContext(ctx)
+	var lastErr error
+	for attempt := 1; attempt <= cronClaimBusyRetryAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		rows, err := s.q.ClaimDueJobsForUpdate(ctx, arg)
+		if err == nil {
+			return rows, nil
+		}
+		lastErr = err
+		if !platformdb.IsSQLiteBusyLocked(err) {
+			return nil, err
+		}
+		if attempt == cronClaimBusyRetryAttempts {
+			log.ErrorContext(ctx, "cron claim sqlite busy retry exhausted",
+				logger.FieldComponent, "cron_store",
+				logger.FieldAction, "claim_due_jobs",
+				logger.FieldCount, attempt,
+				logger.FieldError, err,
+			)
+			return nil, fmt.Errorf("sqlite claim busy after %d attempts: %w", attempt, err)
+		}
+		log.WarnContext(ctx, "cron claim sqlite busy; retrying",
+			logger.FieldComponent, "cron_store",
+			logger.FieldAction, "claim_due_jobs",
+			logger.FieldCount, attempt,
+			logger.FieldMax, cronClaimBusyRetryAttempts,
+			logger.FieldError, err,
+		)
+	}
+	return nil, lastErr
 }
 
 func (s *store) RenewLease(ctx context.Context, p LeaseParams) error {

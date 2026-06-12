@@ -244,7 +244,7 @@ func (s *Scheduler) ClaimToken() string { return s.newID() }
 
 // RunTick claims due jobs and drives each through the three-phase state
 // machine. It is safe to call from multiple schedulers pointing at the
-// same DB because ClaimDueJobsForUpdate uses FOR UPDATE SKIP LOCKED.
+// same DB because ClaimDueJobsForUpdate is an atomic UPDATE+subquery.
 func (s *Scheduler) RunTick(ctx context.Context) error {
 	var firstErr error
 	seen := map[string]struct{}{}
