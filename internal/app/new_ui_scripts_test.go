@@ -412,6 +412,24 @@ func TestNewUIDesktopPowerShellScriptSeedsDevProviderPreferencesWithStablePsqlAr
 	assertTextOrderAfter(t, text, "$script:DesktopProcess = Start-Process", "Seed-DevPreferences", "Wait-ForAnyProcessExit")
 }
 
+func TestNewUIDesktopPowerShellScriptSkipsInvalidPathEntries(t *testing.T) {
+	text := readRootScript(t, "../../run-new-ui-desktop.ps1")
+
+	required := []string{
+		"function Add-ProcessPathEntry",
+		"try {",
+		"Test-Path -LiteralPath $entry -PathType Container",
+		"skipping invalid PATH entry",
+		"return",
+	}
+	for _, want := range required {
+		if !strings.Contains(text, want) {
+			t.Fatalf("run-new-ui-desktop.ps1 missing %q", want)
+		}
+	}
+	assertTextOrderAfter(t, text, "function Add-ProcessPathEntry", "try {", "skipping invalid PATH entry")
+}
+
 func TestNewUIDesktopScriptReadmeMatchesStartupOrder(t *testing.T) {
 	script := readRootScript(t, "../../run-new-ui-desktop.sh")
 	readme := readRootScript(t, "../../frontend-app/README.md")

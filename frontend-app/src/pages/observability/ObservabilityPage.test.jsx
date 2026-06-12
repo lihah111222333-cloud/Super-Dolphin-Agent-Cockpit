@@ -266,6 +266,56 @@ describe('ObservabilityPage module', () => {
     expect(within(table).getByRole('button', { name: '收起 Trace trace-frontend-1' })).toHaveAttribute('aria-expanded', 'true');
   });
 
+  it('groups and expands backend snake_case trace fields', async () => {
+    const snakeCaseEvent = {
+      ts: '2026-06-02T09:01:22.459Z',
+      trace_id: 'trace-snake',
+      span_id: 'span-snake',
+      parent_span_id: 'span-parent',
+      method: 'tool.call.done',
+      status: 'slow',
+      thread_id: 'thread-snake',
+      agent_id: 'agent-snake',
+      call_id: 'call-snake',
+      tool_name: 'rg',
+      client_kind: 'wails',
+      client_route: '/observability',
+      duration_ms: 42,
+    };
+    listObservabilityRecent.mockResolvedValueOnce({
+      source: 'mixed',
+      truncated: false,
+      events: [snakeCaseEvent],
+    });
+    getObservabilityTrace.mockResolvedValueOnce({
+      source: 'mixed',
+      truncated: false,
+      total_duration_ms: 42,
+      events: [snakeCaseEvent],
+    });
+
+    renderObservabilityPage();
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+    const table = await screen.findByTestId('observability-recent-logs');
+
+    expect(table).toHaveTextContent('trace=trace-snake');
+    expect(table).toHaveTextContent('thread=thread-snake');
+    expect(table).toHaveTextContent('/observability');
+    expect(table).toHaveTextContent('agent=agent-snake');
+    expect(table).toHaveTextContent('call=call-snake');
+    expect(table).toHaveTextContent('tool=rg');
+    expect(table).toHaveTextContent('匹配 event 耗时合计 42ms');
+
+    fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-snake' }));
+    const inlineTrace = await within(table).findByTestId('observability-inline-trace-trace-snake');
+
+    expect(inlineTrace).toHaveTextContent('total_duration_ms=42');
+    expect(inlineTrace).toHaveTextContent('span-snake');
+    expect(inlineTrace).toHaveTextContent('span-parent');
+    expect(inlineTrace).toHaveTextContent('thread-snake');
+    expect(inlineTrace).toHaveTextContent('42ms');
+  });
+
   it('renders expanded trace detail as a full-width grid panel instead of a colspan table row', async () => {
     const table = await queryRecentLogs();
 

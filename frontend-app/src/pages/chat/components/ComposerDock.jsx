@@ -51,8 +51,10 @@ function ComposerDock({
   selectFiles,
   sending,
   store,
+  projectPath,
   modelThreadId,
   showProviderToggle = true,
+  showProjectSelector = false,
   composer,
   canUseProjectActions = true,
 }) {
@@ -97,11 +99,13 @@ function ComposerDock({
           canSend={canSend}
           canUseProjectActions={canUseProjectActions}
           modelThreadId={modelThreadId}
+          projectPath={projectPath}
           projectActionBlocked={projectActionBlocked}
           projectActionBlockedTitle={projectActionBlockedTitle}
           selectFiles={selectFiles}
           sendMessage={sendMessage}
           showProviderToggle={showProviderToggle}
+          showProjectSelector={showProjectSelector}
           store={store}
         />
       </div>
