@@ -293,7 +293,7 @@ func TestClaimDueJobsForUpdateForwardsParamsAndMapsRows(t *testing.T) {
 	if got.ClaimToken != "tok-uuid" || got.ClaimedBy != "scheduler-A" || got.MaxClaim != 8 {
 		t.Fatalf("ClaimDueJobsForUpdate params = %+v", got)
 	}
-	if got.Now.Time != now || got.LeaseExpiresAt.Time != leaseExpiry {
+	if got.Now == nil || time.UnixMilli(*got.Now).UTC() != now || got.LeaseExpiresAt == nil || time.UnixMilli(*got.LeaseExpiresAt).UTC() != leaseExpiry {
 		t.Fatalf("ClaimDueJobsForUpdate timestamps = %+v", got)
 	}
 }

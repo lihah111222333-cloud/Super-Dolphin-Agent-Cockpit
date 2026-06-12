@@ -7,8 +7,7 @@ package sqlc
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"encoding/json"
 )
 
 const getSessionInsightByLocalTurn = `-- name: GetSessionInsightByLocalTurn :one
@@ -22,7 +21,7 @@ SELECT id, thread_id, agent_id, session_id, provider, local_turn_id,
        context_window_tokens, ui_projection, skills_selected,
        created_at, updated_at
 FROM session_insights
-WHERE thread_id = $1 AND local_turn_id = $2
+WHERE thread_id = ? AND local_turn_id = ?
 `
 
 type GetSessionInsightByLocalTurnParams struct {
@@ -31,7 +30,7 @@ type GetSessionInsightByLocalTurnParams struct {
 }
 
 func (q *Queries) GetSessionInsightByLocalTurn(ctx context.Context, arg GetSessionInsightByLocalTurnParams) (SessionInsight, error) {
-	row := q.db.QueryRow(ctx, getSessionInsightByLocalTurn, arg.ThreadID, arg.LocalTurnID)
+	row := q.db.QueryRowContext(ctx, getSessionInsightByLocalTurn, arg.ThreadID, arg.LocalTurnID)
 	var i SessionInsight
 	err := row.Scan(
 		&i.ID,
@@ -71,24 +70,25 @@ SELECT id, thread_id, agent_id, local_turn_id, provider_turn_id,
        approval_requests, created_at
 FROM session_insights
 WHERE approval_requests_observed = TRUE
-  AND ($1 = '' OR thread_id = $1)
+  AND (? = '' OR thread_id = ?)
 ORDER BY created_at DESC, id DESC
-LIMIT $2
+LIMIT ?
 `
 
 type ListObservedApprovalRequestsParams struct {
-	Column1 interface{} `db:"column_1" json:"column_1"`
-	Limit   int32       `db:"limit" json:"limit"`
+	Column1  interface{} `db:"column_1" json:"column_1"`
+	ThreadID string      `db:"thread_id" json:"thread_id"`
+	Limit    int64       `db:"limit" json:"limit"`
 }
 
 type ListObservedApprovalRequestsRow struct {
-	ID               int64              `db:"id" json:"id"`
-	ThreadID         string             `db:"thread_id" json:"thread_id"`
-	AgentID          string             `db:"agent_id" json:"agent_id"`
-	LocalTurnID      string             `db:"local_turn_id" json:"local_turn_id"`
-	ProviderTurnID   string             `db:"provider_turn_id" json:"provider_turn_id"`
-	ApprovalRequests int32              `db:"approval_requests" json:"approval_requests"`
-	CreatedAt        pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	ID               int64  `db:"id" json:"id"`
+	ThreadID         string `db:"thread_id" json:"thread_id"`
+	AgentID          string `db:"agent_id" json:"agent_id"`
+	LocalTurnID      string `db:"local_turn_id" json:"local_turn_id"`
+	ProviderTurnID   string `db:"provider_turn_id" json:"provider_turn_id"`
+	ApprovalRequests int64  `db:"approval_requests" json:"approval_requests"`
+	CreatedAt        int64  `db:"created_at" json:"created_at"`
 }
 
 // ListObservedApprovalRequests returns the per-thread approval_requests
@@ -97,7 +97,7 @@ type ListObservedApprovalRequestsRow struct {
 // don't conflate "provider didn't emit the event" with "the turn had
 // zero approvals". See P3 plan *_observed discussion.
 func (q *Queries) ListObservedApprovalRequests(ctx context.Context, arg ListObservedApprovalRequestsParams) ([]ListObservedApprovalRequestsRow, error) {
-	rows, err := q.db.Query(ctx, listObservedApprovalRequests, arg.Column1, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listObservedApprovalRequests, arg.Column1, arg.ThreadID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -118,6 +118,9 @@ func (q *Queries) ListObservedApprovalRequests(ctx context.Context, arg ListObse
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -130,34 +133,35 @@ SELECT id, thread_id, agent_id, local_turn_id, provider_turn_id,
        created_at
 FROM session_insights
 WHERE token_snapshot_observed = TRUE
-  AND ($1 = '' OR thread_id = $1)
+  AND (? = '' OR thread_id = ?)
 ORDER BY created_at DESC, id DESC
-LIMIT $2
+LIMIT ?
 `
 
 type ListObservedTokenTurnsParams struct {
-	Column1 interface{} `db:"column_1" json:"column_1"`
-	Limit   int32       `db:"limit" json:"limit"`
+	Column1  interface{} `db:"column_1" json:"column_1"`
+	ThreadID string      `db:"thread_id" json:"thread_id"`
+	Limit    int64       `db:"limit" json:"limit"`
 }
 
 type ListObservedTokenTurnsRow struct {
-	ID                  int64              `db:"id" json:"id"`
-	ThreadID            string             `db:"thread_id" json:"thread_id"`
-	AgentID             string             `db:"agent_id" json:"agent_id"`
-	LocalTurnID         string             `db:"local_turn_id" json:"local_turn_id"`
-	ProviderTurnID      string             `db:"provider_turn_id" json:"provider_turn_id"`
-	TokenInput          int32              `db:"token_input" json:"token_input"`
-	TokenOutput         int32              `db:"token_output" json:"token_output"`
-	TokenTotal          int32              `db:"token_total" json:"token_total"`
-	ContextWindowTokens int32              `db:"context_window_tokens" json:"context_window_tokens"`
-	CreatedAt           pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	ID                  int64  `db:"id" json:"id"`
+	ThreadID            string `db:"thread_id" json:"thread_id"`
+	AgentID             string `db:"agent_id" json:"agent_id"`
+	LocalTurnID         string `db:"local_turn_id" json:"local_turn_id"`
+	ProviderTurnID      string `db:"provider_turn_id" json:"provider_turn_id"`
+	TokenInput          int64  `db:"token_input" json:"token_input"`
+	TokenOutput         int64  `db:"token_output" json:"token_output"`
+	TokenTotal          int64  `db:"token_total" json:"token_total"`
+	ContextWindowTokens int64  `db:"context_window_tokens" json:"context_window_tokens"`
+	CreatedAt           int64  `db:"created_at" json:"created_at"`
 }
 
 // ListObservedTokenTurns returns turns where token_snapshot_observed =
 // TRUE. Used by dashboards that want to average token costs without
 // pulling in thread-projection zero-fallback rows.
 func (q *Queries) ListObservedTokenTurns(ctx context.Context, arg ListObservedTokenTurnsParams) ([]ListObservedTokenTurnsRow, error) {
-	rows, err := q.db.Query(ctx, listObservedTokenTurns, arg.Column1, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listObservedTokenTurns, arg.Column1, arg.ThreadID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -181,6 +185,9 @@ func (q *Queries) ListObservedTokenTurns(ctx context.Context, arg ListObservedTo
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -199,17 +206,17 @@ SELECT id, thread_id, agent_id, session_id, provider, local_turn_id,
        created_at, updated_at
 FROM session_insights
 ORDER BY created_at DESC, id DESC
-LIMIT $1
+LIMIT ?
 `
 
 type ListRecentSessionInsightsParams struct {
-	Limit int32 `db:"limit" json:"limit"`
+	Limit int64 `db:"limit" json:"limit"`
 }
 
 // ListRecentSessionInsights is used by the dashboard API to return the
 // N most recent turns across all threads.
 func (q *Queries) ListRecentSessionInsights(ctx context.Context, arg ListRecentSessionInsightsParams) ([]SessionInsight, error) {
-	rows, err := q.db.Query(ctx, listRecentSessionInsights, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listRecentSessionInsights, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -250,6 +257,9 @@ func (q *Queries) ListRecentSessionInsights(ctx context.Context, arg ListRecentS
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -268,18 +278,18 @@ SELECT id, thread_id, agent_id, session_id, provider, local_turn_id,
        context_window_tokens, ui_projection, skills_selected,
        created_at, updated_at
 FROM session_insights
-WHERE thread_id = $1
+WHERE thread_id = ?
 ORDER BY created_at DESC, id DESC
-LIMIT $2
+LIMIT ?
 `
 
 type ListSessionInsightsByThreadParams struct {
 	ThreadID string `db:"thread_id" json:"thread_id"`
-	Limit    int32  `db:"limit" json:"limit"`
+	Limit    int64  `db:"limit" json:"limit"`
 }
 
 func (q *Queries) ListSessionInsightsByThread(ctx context.Context, arg ListSessionInsightsByThreadParams) ([]SessionInsight, error) {
-	rows, err := q.db.Query(ctx, listSessionInsightsByThread, arg.ThreadID, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listSessionInsightsByThread, arg.ThreadID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -320,6 +330,9 @@ func (q *Queries) ListSessionInsightsByThread(ctx context.Context, arg ListSessi
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -340,16 +353,16 @@ INSERT INTO session_insights (
     context_window_tokens, ui_projection, skills_selected,
     created_at, updated_at
 ) VALUES (
-    $1, $2, $3, $4,
-    $5, $6,
-    $7, $8, $9,
-    $10, $11, $12,
-    $13, $14,
-    $15, $16,
-    $17, $18,
-    $19, $20, $21, $22,
-    $23, $24, $25::jsonb,
-    $26, $27
+    ?1, ?2, ?3, ?4,
+    ?5, ?6,
+    ?7, ?8, ?9,
+    ?10, ?11, ?12,
+    ?13, ?14,
+    ?15, ?16,
+    ?17, ?18,
+    ?19, ?20, ?21, ?22,
+    ?23, ?24, ?25,
+    ?26, ?27
 )
 ON CONFLICT (thread_id, local_turn_id)
 WHERE thread_id <> '' AND local_turn_id <> ''
@@ -360,7 +373,7 @@ DO UPDATE SET
     provider_turn_id = COALESCE(NULLIF(EXCLUDED.provider_turn_id, ''), session_insights.provider_turn_id),
     started_at       = COALESCE(session_insights.started_at, EXCLUDED.started_at),
     completed_at     = COALESCE(EXCLUDED.completed_at, session_insights.completed_at),
-    duration_ms      = GREATEST(session_insights.duration_ms, EXCLUDED.duration_ms),
+    duration_ms      = (CASE WHEN (session_insights.duration_ms) > (EXCLUDED.duration_ms) THEN (session_insights.duration_ms) ELSE (EXCLUDED.duration_ms) END),
     status = CASE
         WHEN session_insights.status IN ('interrupted', 'aborted') THEN session_insights.status
         ELSE EXCLUDED.status
@@ -374,20 +387,20 @@ DO UPDATE SET
         WHEN EXCLUDED.stop_reason <> '' THEN EXCLUDED.stop_reason
         ELSE session_insights.stop_reason
     END,
-    tool_calls               = GREATEST(session_insights.tool_calls, EXCLUDED.tool_calls),
+    tool_calls               = (CASE WHEN (session_insights.tool_calls) > (EXCLUDED.tool_calls) THEN (session_insights.tool_calls) ELSE (EXCLUDED.tool_calls) END),
     tool_calls_observed      = session_insights.tool_calls_observed OR EXCLUDED.tool_calls_observed,
-    tool_failures            = GREATEST(session_insights.tool_failures, EXCLUDED.tool_failures),
+    tool_failures            = (CASE WHEN (session_insights.tool_failures) > (EXCLUDED.tool_failures) THEN (session_insights.tool_failures) ELSE (EXCLUDED.tool_failures) END),
     tool_failures_observed   = session_insights.tool_failures_observed OR EXCLUDED.tool_failures_observed,
-    approval_requests        = GREATEST(session_insights.approval_requests, EXCLUDED.approval_requests),
+    approval_requests        = (CASE WHEN (session_insights.approval_requests) > (EXCLUDED.approval_requests) THEN (session_insights.approval_requests) ELSE (EXCLUDED.approval_requests) END),
     approval_requests_observed = session_insights.approval_requests_observed OR EXCLUDED.approval_requests_observed,
-    token_input              = GREATEST(session_insights.token_input, EXCLUDED.token_input),
-    token_output             = GREATEST(session_insights.token_output, EXCLUDED.token_output),
-    token_total              = GREATEST(session_insights.token_total, EXCLUDED.token_total),
+    token_input              = (CASE WHEN (session_insights.token_input) > (EXCLUDED.token_input) THEN (session_insights.token_input) ELSE (EXCLUDED.token_input) END),
+    token_output             = (CASE WHEN (session_insights.token_output) > (EXCLUDED.token_output) THEN (session_insights.token_output) ELSE (EXCLUDED.token_output) END),
+    token_total              = (CASE WHEN (session_insights.token_total) > (EXCLUDED.token_total) THEN (session_insights.token_total) ELSE (EXCLUDED.token_total) END),
     token_snapshot_observed  = session_insights.token_snapshot_observed OR EXCLUDED.token_snapshot_observed,
-    context_window_tokens    = GREATEST(session_insights.context_window_tokens, EXCLUDED.context_window_tokens),
+    context_window_tokens    = (CASE WHEN (session_insights.context_window_tokens) > (EXCLUDED.context_window_tokens) THEN (session_insights.context_window_tokens) ELSE (EXCLUDED.context_window_tokens) END),
     ui_projection            = COALESCE(NULLIF(EXCLUDED.ui_projection, ''), session_insights.ui_projection),
     skills_selected = CASE
-        WHEN EXCLUDED.skills_selected IS NULL OR EXCLUDED.skills_selected = '[]'::jsonb
+        WHEN EXCLUDED.skills_selected IS NULL OR EXCLUDED.skills_selected = '[]'
             THEN session_insights.skills_selected
         ELSE EXCLUDED.skills_selected
     END,
@@ -404,33 +417,33 @@ RETURNING id, thread_id, agent_id, session_id, provider, local_turn_id,
 `
 
 type UpsertSessionInsightParams struct {
-	ThreadID                 string             `db:"thread_id" json:"thread_id"`
-	AgentID                  string             `db:"agent_id" json:"agent_id"`
-	SessionID                string             `db:"session_id" json:"session_id"`
-	Provider                 string             `db:"provider" json:"provider"`
-	LocalTurnID              string             `db:"local_turn_id" json:"local_turn_id"`
-	ProviderTurnID           string             `db:"provider_turn_id" json:"provider_turn_id"`
-	StartedAt                pgtype.Timestamptz `db:"started_at" json:"started_at"`
-	CompletedAt              pgtype.Timestamptz `db:"completed_at" json:"completed_at"`
-	DurationMs               int32              `db:"duration_ms" json:"duration_ms"`
-	Success                  *bool              `db:"success" json:"success"`
-	Status                   string             `db:"status" json:"status"`
-	StopReason               string             `db:"stop_reason" json:"stop_reason"`
-	ToolCalls                int32              `db:"tool_calls" json:"tool_calls"`
-	ToolCallsObserved        bool               `db:"tool_calls_observed" json:"tool_calls_observed"`
-	ToolFailures             int32              `db:"tool_failures" json:"tool_failures"`
-	ToolFailuresObserved     bool               `db:"tool_failures_observed" json:"tool_failures_observed"`
-	ApprovalRequests         int32              `db:"approval_requests" json:"approval_requests"`
-	ApprovalRequestsObserved bool               `db:"approval_requests_observed" json:"approval_requests_observed"`
-	TokenInput               int32              `db:"token_input" json:"token_input"`
-	TokenOutput              int32              `db:"token_output" json:"token_output"`
-	TokenTotal               int32              `db:"token_total" json:"token_total"`
-	TokenSnapshotObserved    bool               `db:"token_snapshot_observed" json:"token_snapshot_observed"`
-	ContextWindowTokens      int32              `db:"context_window_tokens" json:"context_window_tokens"`
-	UIProjection             string             `db:"ui_projection" json:"ui_projection"`
-	SkillsSelected           []byte             `db:"skills_selected" json:"skills_selected"`
-	CreatedAt                pgtype.Timestamptz `db:"created_at" json:"created_at"`
-	UpdatedAt                pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+	ThreadID                 string          `db:"thread_id" json:"thread_id"`
+	AgentID                  string          `db:"agent_id" json:"agent_id"`
+	SessionID                string          `db:"session_id" json:"session_id"`
+	Provider                 string          `db:"provider" json:"provider"`
+	LocalTurnID              string          `db:"local_turn_id" json:"local_turn_id"`
+	ProviderTurnID           string          `db:"provider_turn_id" json:"provider_turn_id"`
+	StartedAt                *int64          `db:"started_at" json:"started_at"`
+	CompletedAt              *int64          `db:"completed_at" json:"completed_at"`
+	DurationMs               int64           `db:"duration_ms" json:"duration_ms"`
+	Success                  *int64          `db:"success" json:"success"`
+	Status                   string          `db:"status" json:"status"`
+	StopReason               string          `db:"stop_reason" json:"stop_reason"`
+	ToolCalls                int64           `db:"tool_calls" json:"tool_calls"`
+	ToolCallsObserved        int64           `db:"tool_calls_observed" json:"tool_calls_observed"`
+	ToolFailures             int64           `db:"tool_failures" json:"tool_failures"`
+	ToolFailuresObserved     int64           `db:"tool_failures_observed" json:"tool_failures_observed"`
+	ApprovalRequests         int64           `db:"approval_requests" json:"approval_requests"`
+	ApprovalRequestsObserved int64           `db:"approval_requests_observed" json:"approval_requests_observed"`
+	TokenInput               int64           `db:"token_input" json:"token_input"`
+	TokenOutput              int64           `db:"token_output" json:"token_output"`
+	TokenTotal               int64           `db:"token_total" json:"token_total"`
+	TokenSnapshotObserved    int64           `db:"token_snapshot_observed" json:"token_snapshot_observed"`
+	ContextWindowTokens      int64           `db:"context_window_tokens" json:"context_window_tokens"`
+	UIProjection             string          `db:"ui_projection" json:"ui_projection"`
+	SkillsSelected           json.RawMessage `db:"skills_selected" json:"skills_selected"`
+	CreatedAt                int64           `db:"created_at" json:"created_at"`
+	UpdatedAt                int64           `db:"updated_at" json:"updated_at"`
 }
 
 // UpsertSessionInsight merges an incoming snapshot with any existing row
@@ -449,7 +462,7 @@ type UpsertSessionInsightParams struct {
 // them back to FALSE. This keeps "we already saw real data" from being
 // clobbered by a projection that doesn't re-emit the signal.
 func (q *Queries) UpsertSessionInsight(ctx context.Context, arg UpsertSessionInsightParams) (SessionInsight, error) {
-	row := q.db.QueryRow(ctx, upsertSessionInsight,
+	row := q.db.QueryRowContext(ctx, upsertSessionInsight,
 		arg.ThreadID,
 		arg.AgentID,
 		arg.SessionID,

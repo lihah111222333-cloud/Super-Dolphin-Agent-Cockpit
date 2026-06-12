@@ -1,7 +1,7 @@
 -- name: GetAgentProviderBindingByProviderThread :one
 SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid, codex_home, codex_instance_key, codex_model_provider
 FROM agent_provider_binding
-WHERE provider = $1 AND provider_thread_id = $2;
+WHERE provider = ? AND provider_thread_id = ?;
 
 -- name: UpsertAgentProviderBinding :exec
 -- Codex identity columns use "'' preserves existing value" semantics so
@@ -10,7 +10,7 @@ WHERE provider = $1 AND provider_thread_id = $2;
 -- non-empty identity column with a different non-empty value.
 INSERT INTO agent_provider_binding (
     agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid, codex_home, codex_instance_key, codex_model_provider
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12, $13, $14, $15)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, false, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (agent_id) DO UPDATE
 SET provider = EXCLUDED.provider,
     provider_thread_id = CASE WHEN EXCLUDED.provider_thread_id = '' THEN agent_provider_binding.provider_thread_id ELSE EXCLUDED.provider_thread_id END,
@@ -28,32 +28,32 @@ SET provider = EXCLUDED.provider,
 
 -- name: DeleteAgentProviderBindingByAgentID :exec
 DELETE FROM agent_provider_binding
-WHERE agent_id = $1;
+WHERE agent_id = ?;
 
 -- name: UpdateAgentProviderBindingSessionUUID :exec
 UPDATE agent_provider_binding
-SET session_uuid = $1,
+SET session_uuid = ?,
     provider_thread_id = CASE
         WHEN provider_thread_id = '' OR provider_thread_id = agent_id
-        THEN $1
+        THEN ?
         ELSE provider_thread_id
     END,
-    updated_at = $2
-WHERE agent_id = $3;
+    updated_at = ?
+WHERE agent_id = ?;
 
 -- name: UpdateAgentProviderBindingArchived :exec
 UPDATE agent_provider_binding
-SET archived = $1,
-    updated_at = $2
-WHERE agent_id = $3;
+SET archived = ?,
+    updated_at = ?
+WHERE agent_id = ?;
 
 -- name: UpdateAgentProviderBindingProviderThreadID :exec
 UPDATE agent_provider_binding
-SET provider_thread_id = $1,
-    updated_at = $2
-WHERE agent_id = $3;
+SET provider_thread_id = ?,
+    updated_at = ?
+WHERE agent_id = ?;
 
 -- name: GetAgentProviderBindingByAgentID :one
 SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid, codex_home, codex_instance_key, codex_model_provider
 FROM agent_provider_binding
-WHERE agent_id = $1;
+WHERE agent_id = ?;

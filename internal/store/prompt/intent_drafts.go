@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
@@ -42,19 +43,19 @@ func (s *store) UpsertIntentDraft(ctx context.Context, draft PromptIntentDraft) 
 		return nil, wrapPromptError(errors.New("prompt store does not support upsert_intent_draft"), "upsert", "prompt_intent_drafts")
 	}
 	row, err := q.UpsertPromptIntentDraft(ctx, sqlc.UpsertPromptIntentDraftParams{
-		DraftKey:    strings.TrimSpace(draft.DraftKey),
-		CWD:         strings.TrimSpace(draft.CWD),
-		Kind:        strings.TrimSpace(draft.Kind),
-		RawInput:    strings.TrimSpace(draft.RawInput),
-		SourceType:  strings.TrimSpace(draft.SourceType),
-		SourceUrl:   strings.TrimSpace(draft.SourceURL),
-		OriginHash:  strings.TrimSpace(draft.OriginHash),
-		LicenseHint: strings.TrimSpace(draft.LicenseHint),
-		Column9:     generatedCard,
-		Confidence:  draft.Confidence,
-		Status:      strings.TrimSpace(draft.Status),
-		Scope:       normalizePromptIntentDraftScope(draft.Scope),
-		Column13:    issues,
+		DraftKey:      strings.TrimSpace(draft.DraftKey),
+		CWD:           strings.TrimSpace(draft.CWD),
+		Kind:          strings.TrimSpace(draft.Kind),
+		RawInput:      strings.TrimSpace(draft.RawInput),
+		SourceType:    strings.TrimSpace(draft.SourceType),
+		SourceUrl:     strings.TrimSpace(draft.SourceURL),
+		OriginHash:    strings.TrimSpace(draft.OriginHash),
+		LicenseHint:   strings.TrimSpace(draft.LicenseHint),
+		GeneratedCard: generatedCard,
+		Confidence:    draft.Confidence,
+		Status:        strings.TrimSpace(draft.Status),
+		Scope:         normalizePromptIntentDraftScope(draft.Scope),
+		Issues:        issues,
 	})
 	if err != nil {
 		return nil, wrapPromptError(err, "upsert", "prompt_intent_drafts")
@@ -101,7 +102,7 @@ func (s *store) ListIntentDrafts(ctx context.Context, filter PromptIntentDraftLi
 	rows, err := q.ListPromptIntentDrafts(ctx, sqlc.ListPromptIntentDraftsParams{
 		CWD:        cwd,
 		Status:     status,
-		LimitCount: filter.Limit,
+		LimitCount: int64(filter.Limit),
 	})
 	if err != nil {
 		return nil, wrapPromptError(err, "list", "prompt_intent_drafts")
@@ -226,7 +227,7 @@ func fromSQLCPromptIntentDraft(row sqlc.PromptIntentDraft) PromptIntentDraft {
 		Status:        row.Status,
 		Scope:         normalizePromptIntentDraftScope(row.Scope),
 		Issues:        json.RawMessage(row.Issues),
-		CreatedAt:     row.CreatedAt.Time,
-		UpdatedAt:     row.UpdatedAt.Time,
+		CreatedAt:     platformdb.TimeFromMillis(row.CreatedAt),
+		UpdatedAt:     platformdb.TimeFromMillis(row.UpdatedAt),
 	}
 }

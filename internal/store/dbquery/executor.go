@@ -65,11 +65,15 @@ func executeQuery(ctx context.Context, queryer platformdb.Queryable, timeout tim
 		if len(result) >= maxQueryRows {
 			return nil, fmt.Errorf("dbquery query exceeded row limit %d", maxQueryRows)
 		}
-		values, err := rows.Values()
-		if err != nil {
+		scanDest := make([]any, len(fields))
+		scanPtrs := make([]any, len(fields))
+		for i := range scanDest {
+			scanPtrs[i] = &scanDest[i]
+		}
+		if err := rows.Scan(scanPtrs...); err != nil {
 			return nil, err
 		}
-		result = append(result, rowValues(fields, values))
+		result = append(result, rowValues(fields, scanDest))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

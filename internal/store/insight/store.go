@@ -5,8 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
@@ -27,18 +25,59 @@ func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
 // ----- helpers -----
 
-func ts(t time.Time) pgtype.Timestamptz {
+func ts(t time.Time) int64 {
 	if t.IsZero() {
-		return pgtype.Timestamptz{Valid: false}
+		return 0
 	}
-	return pgtype.Timestamptz{Time: t, Valid: true}
+	return platformdb.Millis(t)
 }
 
-func fromTS(p pgtype.Timestamptz) time.Time {
-	if !p.Valid {
+func tsPtr(t time.Time) *int64 {
+	if t.IsZero() {
+		return nil
+	}
+	ms := platformdb.Millis(t)
+	return &ms
+}
+
+func fromTS(ms int64) time.Time {
+	if ms == 0 {
 		return time.Time{}
 	}
-	return p.Time
+	return platformdb.TimeFromMillis(ms)
+}
+
+func fromTSPtr(ms *int64) time.Time {
+	if ms == nil {
+		return time.Time{}
+	}
+	return fromTS(*ms)
+}
+
+func boolToInt64(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func boolToIntPtr(b *bool) *int64 {
+	if b == nil {
+		return nil
+	}
+	var v int64
+	if *b {
+		v = 1
+	}
+	return &v
+}
+
+func intPtrToBoolPtr(v *int64) *bool {
+	if v == nil {
+		return nil
+	}
+	b := *v != 0
+	return &b
 }
 
 func bytesOrDefault(b []byte, def string) []byte {
@@ -79,23 +118,23 @@ func (s *store) Upsert(ctx context.Context, p UpsertParams) (Insight, error) {
 		Provider:                 strings.TrimSpace(p.Provider),
 		LocalTurnID:              strings.TrimSpace(p.LocalTurnID),
 		ProviderTurnID:           strings.TrimSpace(p.ProviderTurnID),
-		StartedAt:                ts(p.StartedAt),
-		CompletedAt:              ts(p.CompletedAt),
-		DurationMs:               p.DurationMS,
-		Success:                  p.Success,
+		StartedAt:                tsPtr(p.StartedAt),
+		CompletedAt:              tsPtr(p.CompletedAt),
+		DurationMs:               int64(p.DurationMS),
+		Success:                  boolToIntPtr(p.Success),
 		Status:                   firstNonEmpty(p.Status, StatusUnknown),
 		StopReason:               p.StopReason,
-		ToolCalls:                p.ToolCalls,
-		ToolCallsObserved:        p.ToolCallsObserved,
-		ToolFailures:             p.ToolFailures,
-		ToolFailuresObserved:     p.ToolFailuresObserved,
-		ApprovalRequests:         p.ApprovalRequests,
-		ApprovalRequestsObserved: p.ApprovalRequestsObserved,
-		TokenInput:               p.TokenInput,
-		TokenOutput:              p.TokenOutput,
-		TokenTotal:               p.TokenTotal,
-		TokenSnapshotObserved:    p.TokenSnapshotObserved,
-		ContextWindowTokens:      p.ContextWindowTokens,
+		ToolCalls:                int64(p.ToolCalls),
+		ToolCallsObserved:        boolToInt64(p.ToolCallsObserved),
+		ToolFailures:             int64(p.ToolFailures),
+		ToolFailuresObserved:     boolToInt64(p.ToolFailuresObserved),
+		ApprovalRequests:         int64(p.ApprovalRequests),
+		ApprovalRequestsObserved: boolToInt64(p.ApprovalRequestsObserved),
+		TokenInput:               int64(p.TokenInput),
+		TokenOutput:              int64(p.TokenOutput),
+		TokenTotal:               int64(p.TokenTotal),
+		TokenSnapshotObserved:    boolToInt64(p.TokenSnapshotObserved),
+		ContextWindowTokens:      int64(p.ContextWindowTokens),
 		UIProjection:             p.UIProjection,
 		SkillsSelected:           bytesOrDefault(p.SkillsSelected, "[]"),
 		CreatedAt:                ts(createdAt),
@@ -136,7 +175,7 @@ func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) 
 	}
 	rows, err := s.q.ListSessionInsightsByThread(ctx, sqlc.ListSessionInsightsByThreadParams{
 		ThreadID: threadID,
-		Limit:    limit,
+		Limit:    int64(limit),
 	})
 	if err != nil {
 		return nil, wrap(err, "list_by_thread")
@@ -152,7 +191,7 @@ func (s *store) ListRecent(ctx context.Context, limit int32) ([]Insight, error) 
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := s.q.ListRecentSessionInsights(ctx, sqlc.ListRecentSessionInsightsParams{Limit: limit})
+	rows, err := s.q.ListRecentSessionInsights(ctx, sqlc.ListRecentSessionInsightsParams{Limit: int64(limit)})
 	if err != nil {
 		return nil, wrap(err, "list_recent")
 	}
@@ -169,7 +208,7 @@ func (s *store) ListObservedApprovalRequests(ctx context.Context, threadID strin
 	}
 	rows, err := s.q.ListObservedApprovalRequests(ctx, sqlc.ListObservedApprovalRequestsParams{
 		Column1: strings.TrimSpace(threadID),
-		Limit:   limit,
+		Limit:   int64(limit),
 	})
 	if err != nil {
 		return nil, wrap(err, "list_observed_approval_requests")
@@ -182,7 +221,7 @@ func (s *store) ListObservedApprovalRequests(ctx context.Context, threadID strin
 			AgentID:          r.AgentID,
 			LocalTurnID:      r.LocalTurnID,
 			ProviderTurnID:   r.ProviderTurnID,
-			ApprovalRequests: r.ApprovalRequests,
+			ApprovalRequests: int32(r.ApprovalRequests),
 			CreatedAt:        fromTS(r.CreatedAt),
 		}
 	}
@@ -195,7 +234,7 @@ func (s *store) ListObservedTokenTurns(ctx context.Context, threadID string, lim
 	}
 	rows, err := s.q.ListObservedTokenTurns(ctx, sqlc.ListObservedTokenTurnsParams{
 		Column1: strings.TrimSpace(threadID),
-		Limit:   limit,
+		Limit:   int64(limit),
 	})
 	if err != nil {
 		return nil, wrap(err, "list_observed_token_turns")
@@ -208,10 +247,10 @@ func (s *store) ListObservedTokenTurns(ctx context.Context, threadID string, lim
 			AgentID:             r.AgentID,
 			LocalTurnID:         r.LocalTurnID,
 			ProviderTurnID:      r.ProviderTurnID,
-			TokenInput:          r.TokenInput,
-			TokenOutput:         r.TokenOutput,
-			TokenTotal:          r.TokenTotal,
-			ContextWindowTokens: r.ContextWindowTokens,
+			TokenInput:          int32(r.TokenInput),
+			TokenOutput:         int32(r.TokenOutput),
+			TokenTotal:          int32(r.TokenTotal),
+			ContextWindowTokens: int32(r.ContextWindowTokens),
 			CreatedAt:           fromTS(r.CreatedAt),
 		}
 	}
@@ -230,36 +269,28 @@ func fromRow(r sqlc.SessionInsight) Insight {
 		Provider:                 r.Provider,
 		LocalTurnID:              r.LocalTurnID,
 		ProviderTurnID:           r.ProviderTurnID,
-		StartedAt:                fromTS(r.StartedAt),
-		CompletedAt:              fromTS(r.CompletedAt),
-		DurationMS:               r.DurationMs,
-		Success:                  cloneBoolPtr(r.Success),
+		StartedAt:                fromTSPtr(r.StartedAt),
+		CompletedAt:              fromTSPtr(r.CompletedAt),
+		DurationMS:               int32(r.DurationMs),
+		Success:                  intPtrToBoolPtr(r.Success),
 		Status:                   r.Status,
 		StopReason:               r.StopReason,
-		ToolCalls:                r.ToolCalls,
-		ToolCallsObserved:        r.ToolCallsObserved,
-		ToolFailures:             r.ToolFailures,
-		ToolFailuresObserved:     r.ToolFailuresObserved,
-		ApprovalRequests:         r.ApprovalRequests,
-		ApprovalRequestsObserved: r.ApprovalRequestsObserved,
-		TokenInput:               r.TokenInput,
-		TokenOutput:              r.TokenOutput,
-		TokenTotal:               r.TokenTotal,
-		TokenSnapshotObserved:    r.TokenSnapshotObserved,
-		ContextWindowTokens:      r.ContextWindowTokens,
+		ToolCalls:                int32(r.ToolCalls),
+		ToolCallsObserved:        r.ToolCallsObserved != 0,
+		ToolFailures:             int32(r.ToolFailures),
+		ToolFailuresObserved:     r.ToolFailuresObserved != 0,
+		ApprovalRequests:         int32(r.ApprovalRequests),
+		ApprovalRequestsObserved: r.ApprovalRequestsObserved != 0,
+		TokenInput:               int32(r.TokenInput),
+		TokenOutput:              int32(r.TokenOutput),
+		TokenTotal:               int32(r.TokenTotal),
+		TokenSnapshotObserved:    r.TokenSnapshotObserved != 0,
+		ContextWindowTokens:      int32(r.ContextWindowTokens),
 		UIProjection:             r.UIProjection,
 		SkillsSelected:           cloneBytes(r.SkillsSelected),
 		CreatedAt:                fromTS(r.CreatedAt),
 		UpdatedAt:                fromTS(r.UpdatedAt),
 	}
-}
-
-func cloneBoolPtr(v *bool) *bool {
-	if v == nil {
-		return nil
-	}
-	out := *v
-	return &out
 }
 
 func firstNonEmpty(a, b string) string {

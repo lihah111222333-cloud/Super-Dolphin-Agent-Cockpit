@@ -65,7 +65,7 @@ func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) 
 	}
 	rows, err := s.q.ListAgentFeedbackEventsByThread(ctx, sqlc.ListAgentFeedbackEventsByThreadParams{
 		ThreadID: threadID,
-		Limit:    limit,
+		Limit:    int64(limit),
 	})
 	if err != nil {
 		return nil, wrapErr(err, "list_by_thread")
@@ -83,7 +83,7 @@ func (s *store) ListByAgentKey(ctx context.Context, agentKey string, limit int32
 	}
 	rows, err := s.q.ListAgentFeedbackEventsByAgent(ctx, sqlc.ListAgentFeedbackEventsByAgentParams{
 		AgentKey: agentKey,
-		Limit:    limit,
+		Limit:    int64(limit),
 	})
 	if err != nil {
 		return nil, wrapErr(err, "list_by_agent_key")
@@ -101,9 +101,7 @@ func fromRow(row sqlc.AgentFeedbackEvent) Event {
 		EventType:       row.EventType,
 		Actor:           row.Actor,
 		Payload:         append(json.RawMessage(nil), row.Payload...),
-	}
-	if row.CreatedAt.Valid {
-		ev.CreatedAt = row.CreatedAt.Time
+		CreatedAt:       platformdb.TimeFromMillis(row.CreatedAt),
 	}
 	return ev
 }

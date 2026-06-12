@@ -9,9 +9,8 @@ import (
 )
 
 // querier is the narrow subset of sqlc.Queries this store depends on.
-// NewStore still accepts the concrete *sqlc.Queries for fx wiring.
 type querier interface {
-	GetUIPreferenceValue(ctx context.Context, arg sqlc.GetUIPreferenceValueParams) ([]byte, error)
+	GetUIPreferenceValue(ctx context.Context, arg sqlc.GetUIPreferenceValueParams) (json.RawMessage, error)
 	UpsertUIPreference(ctx context.Context, arg sqlc.UpsertUIPreferenceParams) error
 	ListUIPreferences(ctx context.Context, arg sqlc.ListUIPreferencesParams) ([]sqlc.ListUIPreferencesRow, error)
 }
@@ -53,7 +52,7 @@ func (s *store) List(ctx context.Context, cwd string) ([]UIPreference, error) {
 		result[i] = UIPreference{
 			Key:       row.Key,
 			Value:     row.Value,
-			UpdatedAt: row.UpdatedAt,
+			UpdatedAt: platformdb.TimeFromMillis(row.UpdatedAt),
 			Cwd:       row.CWD,
 		}
 	}

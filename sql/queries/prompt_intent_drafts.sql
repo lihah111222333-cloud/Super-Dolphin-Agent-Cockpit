@@ -3,7 +3,7 @@ INSERT INTO prompt_intent_drafts (
     draft_key, cwd, kind, raw_input, source_type, source_url,
     origin_hash, license_hint, generated_card, confidence, status, scope, issues, updated_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13::jsonb, NOW()
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000)
 )
 ON CONFLICT (draft_key) DO UPDATE SET
     cwd = EXCLUDED.cwd,
@@ -18,7 +18,7 @@ ON CONFLICT (draft_key) DO UPDATE SET
     status = EXCLUDED.status,
     scope = EXCLUDED.scope,
     issues = EXCLUDED.issues,
-    updated_at = NOW()
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 RETURNING id, draft_key, cwd, kind, raw_input, source_type, source_url,
           origin_hash, license_hint, generated_card, confidence, status, scope,
           issues, created_at, updated_at;
@@ -37,13 +37,13 @@ SELECT id, draft_key, cwd, kind, raw_input, source_type, source_url,
        issues, created_at, updated_at
 FROM prompt_intent_drafts
 WHERE cwd = sqlc.arg(cwd)
-  AND (sqlc.arg(status)::text = '' OR status = sqlc.arg(status))
+  AND (sqlc.arg(status) = '' OR status = sqlc.arg(status))
 ORDER BY updated_at DESC
 LIMIT sqlc.arg(limit_count);
 
 -- name: UpdatePromptIntentDraftStatus :one
 UPDATE prompt_intent_drafts
-SET status = sqlc.arg(status), updated_at = NOW()
+SET status = sqlc.arg(status), updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE draft_key = sqlc.arg(draft_key)
   AND cwd = sqlc.arg(cwd)
 RETURNING id, draft_key, cwd, kind, raw_input, source_type, source_url,

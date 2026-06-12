@@ -6,12 +6,13 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 )
 
 type Querier interface {
 	AcquireCwdLock(ctx context.Context, arg AcquireCwdLockParams) (int64, error)
-	AgentThreadExists(ctx context.Context, arg AgentThreadExistsParams) (bool, error)
-	AgentThreadRunningExists(ctx context.Context, arg AgentThreadRunningExistsParams) (bool, error)
+	AgentThreadExists(ctx context.Context, arg AgentThreadExistsParams) (int64, error)
+	AgentThreadRunningExists(ctx context.Context, arg AgentThreadRunningExistsParams) (int64, error)
 	ApproveTopologyApproval(ctx context.Context, arg ApproveTopologyApprovalParams) (int64, error)
 	BindAgentThread(ctx context.Context, arg BindAgentThreadParams) error
 	BindTurnDedupeProviderID(ctx context.Context, arg BindTurnDedupeProviderIDParams) error
@@ -25,13 +26,11 @@ type Querier interface {
 	CancelHookPendingReviewsByAgent(ctx context.Context, arg CancelHookPendingReviewsByAgentParams) (int64, error)
 	CancelHookPendingReviewsByLease(ctx context.Context, arg CancelHookPendingReviewsByLeaseParams) (int64, error)
 	// Returns 1 if a review is already resolved with the given idempotency key.
-	CheckHookReviewIdempotency(ctx context.Context, arg CheckHookReviewIdempotencyParams) (int32, error)
+	CheckHookReviewIdempotency(ctx context.Context, arg CheckHookReviewIdempotencyParams) (int64, error)
 	// Claim / lease -----------------------------------------------------
-	// ClaimDueJobs marks up to `limit` due rows as claimed by `claimed_by`.
-	// The embedded SELECT ... FOR UPDATE SKIP LOCKED makes sure two
-	// schedulers hitting the same tick never grab the same row. claim_token
-	// is generated in the application layer (Go UUID) and passed in so no
-	// Postgres extension (pgcrypto / uuid-ossp) is required.
+	// ClaimDueJobsForUpdate marks up to `limit` due rows as claimed by `claimed_by`.
+	// FOR UPDATE SKIP LOCKED removed: SQLite does not support it.
+	// Task07 implements atomic claim via application-layer optimistic locking.
 	//
 	ClaimDueJobsForUpdate(ctx context.Context, arg ClaimDueJobsForUpdateParams) ([]CronJob, error)
 	CountAILogsByStatus(ctx context.Context) ([]CountAILogsByStatusRow, error)
@@ -42,7 +41,7 @@ type Querier interface {
 	// CRUD --------------------------------------------------------------
 	CreateCronJob(ctx context.Context, arg CreateCronJobParams) (CronJob, error)
 	CreateInteraction(ctx context.Context, arg CreateInteractionParams) (AgentInteraction, error)
-	CreatePromptTemplate(ctx context.Context, arg CreatePromptTemplateParams) (CreatePromptTemplateRow, error)
+	CreatePromptTemplate(ctx context.Context, arg CreatePromptTemplateParams) (PromptTemplate, error)
 	// Legacy V2 store SQL used proposal_hash/proposal_json columns.
 	// These queries are aligned to the V2 exported public schema used for the baseline.
 	CreateTopologyApproval(ctx context.Context, arg CreateTopologyApprovalParams) (TopologyApproval, error)
@@ -53,12 +52,12 @@ type Querier interface {
 	DeletePromptTemplate(ctx context.Context, arg DeletePromptTemplateParams) (int64, error)
 	DeletePromptTemplateSection(ctx context.Context, arg DeletePromptTemplateSectionParams) (int64, error)
 	DeleteSharedFile(ctx context.Context, arg DeleteSharedFileParams) (int64, error)
-	DeleteStaleCwdLocks(ctx context.Context) (int64, error)
+	DeleteStaleCwdLocks(ctx context.Context, arg DeleteStaleCwdLocksParams) (int64, error)
 	ExpireStaleAgentThreads(ctx context.Context, arg ExpireStaleAgentThreadsParams) (int64, error)
 	ExtendClaim(ctx context.Context, arg ExtendClaimParams) (int64, error)
 	ForceAcquireCwdLock(ctx context.Context, arg ForceAcquireCwdLockParams) (int64, error)
-	GetAgentProviderBindingByAgentID(ctx context.Context, arg GetAgentProviderBindingByAgentIDParams) (GetAgentProviderBindingByAgentIDRow, error)
-	GetAgentProviderBindingByProviderThread(ctx context.Context, arg GetAgentProviderBindingByProviderThreadParams) (GetAgentProviderBindingByProviderThreadRow, error)
+	GetAgentProviderBindingByAgentID(ctx context.Context, arg GetAgentProviderBindingByAgentIDParams) (AgentProviderBinding, error)
+	GetAgentProviderBindingByProviderThread(ctx context.Context, arg GetAgentProviderBindingByProviderThreadParams) (AgentProviderBinding, error)
 	GetAgentStatus(ctx context.Context, arg GetAgentStatusParams) (AgentStatus, error)
 	GetAgentThreadByID(ctx context.Context, arg GetAgentThreadByIDParams) (GetAgentThreadByIDRow, error)
 	GetAgentThreadByPort(ctx context.Context, arg GetAgentThreadByPortParams) (GetAgentThreadByPortRow, error)
@@ -76,7 +75,7 @@ type Querier interface {
 	// from hit.
 	GetLiveTurnDedupe(ctx context.Context, arg GetLiveTurnDedupeParams) (TurnDedupeRegistry, error)
 	GetPromptIntentDraft(ctx context.Context, arg GetPromptIntentDraftParams) (PromptIntentDraft, error)
-	GetPromptTemplate(ctx context.Context, arg GetPromptTemplateParams) (GetPromptTemplateRow, error)
+	GetPromptTemplate(ctx context.Context, arg GetPromptTemplateParams) (PromptTemplate, error)
 	// Used by CompleteTurn to locate the active run for a completed turn without
 	// scanning all unresolved rows. turn_id is indexed by the dedupe_key B-tree
 	// and the status guard ensures only one row can match (at most one run per
@@ -85,7 +84,7 @@ type Querier interface {
 	GetSessionInsightByLocalTurn(ctx context.Context, arg GetSessionInsightByLocalTurnParams) (SessionInsight, error)
 	GetSharedFile(ctx context.Context, arg GetSharedFileParams) (SharedFile, error)
 	GetThreadByAgent(ctx context.Context, arg GetThreadByAgentParams) (string, error)
-	GetUIPreferenceValue(ctx context.Context, arg GetUIPreferenceValueParams) ([]byte, error)
+	GetUIPreferenceValue(ctx context.Context, arg GetUIPreferenceValueParams) (json.RawMessage, error)
 	GetWorkspaceRun(ctx context.Context, arg GetWorkspaceRunParams) (WorkspaceRun, error)
 	GetWorkspaceRunFile(ctx context.Context, arg GetWorkspaceRunFileParams) (WorkspaceRunFile, error)
 	HeartbeatCwdLock(ctx context.Context, arg HeartbeatCwdLockParams) error
@@ -101,7 +100,7 @@ type Querier interface {
 	ListAgentFeedbackEventsByAgent(ctx context.Context, arg ListAgentFeedbackEventsByAgentParams) ([]AgentFeedbackEvent, error)
 	ListAgentFeedbackEventsByThread(ctx context.Context, arg ListAgentFeedbackEventsByThreadParams) ([]AgentFeedbackEvent, error)
 	ListAgentStatuses(ctx context.Context, arg ListAgentStatusesParams) ([]AgentStatus, error)
-	ListAgentThreadBindings(ctx context.Context) ([]ListAgentThreadBindingsRow, error)
+	ListAgentThreadBindings(ctx context.Context) ([]AgentProviderBinding, error)
 	ListAgentThreadConfigsByIDs(ctx context.Context, arg ListAgentThreadConfigsByIDsParams) ([]ListAgentThreadConfigsByIDsRow, error)
 	ListAgentThreadCwds(ctx context.Context) ([]ListAgentThreadCwdsRow, error)
 	ListAgentThreadCwdsByPrefix(ctx context.Context, arg ListAgentThreadCwdsByPrefixParams) ([]ListAgentThreadCwdsByPrefixRow, error)
@@ -135,7 +134,7 @@ type Querier interface {
 	ListPromptIntentDrafts(ctx context.Context, arg ListPromptIntentDraftsParams) ([]PromptIntentDraft, error)
 	ListPromptTemplateSectionsByTemplate(ctx context.Context, arg ListPromptTemplateSectionsByTemplateParams) ([]PromptTemplateSection, error)
 	ListPromptTemplateSectionsByTemplates(ctx context.Context, arg ListPromptTemplateSectionsByTemplatesParams) ([]PromptTemplateSection, error)
-	ListPromptTemplates(ctx context.Context, arg ListPromptTemplatesParams) ([]ListPromptTemplatesRow, error)
+	ListPromptTemplates(ctx context.Context, arg ListPromptTemplatesParams) ([]PromptTemplate, error)
 	ListRecallSections(ctx context.Context, arg ListRecallSectionsParams) ([]ListRecallSectionsRow, error)
 	ListRecentAILogs(ctx context.Context, arg ListRecentAILogsParams) ([]ListRecentAILogsRow, error)
 	// ListRecentSessionInsights is used by the dashboard API to return the
@@ -155,8 +154,9 @@ type Querier interface {
 	ListUnresolvedCronJobRuns(ctx context.Context) ([]CronJobRun, error)
 	ListWorkspaceRunFiles(ctx context.Context, arg ListWorkspaceRunFilesParams) ([]WorkspaceRunFile, error)
 	ListWorkspaceRuns(ctx context.Context, arg ListWorkspaceRunsParams) ([]WorkspaceRun, error)
-	LoadAgentThreadPromptSnapshot(ctx context.Context, arg LoadAgentThreadPromptSnapshotParams) ([]byte, error)
-	LockRecallTopicInCWD(ctx context.Context, arg LockRecallTopicInCWDParams) error
+	LoadAgentThreadPromptSnapshot(ctx context.Context, arg LoadAgentThreadPromptSnapshotParams) (json.RawMessage, error)
+	// SQLite has no advisory locks; no-op placeholder replaced by Task09.
+	LockRecallTopicInCWD(ctx context.Context) error
 	MarkCronJobFailed(ctx context.Context, arg MarkCronJobFailedParams) (int64, error)
 	// MarkCronJobFinished releases the claim, records the successful run's
 	// turn id and advances scheduling fields. Conditional on claim_token so
@@ -168,10 +168,13 @@ type Querier interface {
 	// without overwriting any other field, avoiding a read-modify-write race.
 	PatchCronJobNextRunAt(ctx context.Context, arg PatchCronJobNextRunAtParams) error
 	// Runtime SQL template from V2 DBQueryStore.Query:
-	// WITH q AS (<runtime read-only SQL>) SELECT * FROM q LIMIT $1;
+	// WITH q AS (<runtime read-only SQL>) SELECT * FROM q LIMIT ?;
 	// A true sqlc query cannot represent a runtime-supplied SELECT shape, so this
 	// file keeps a typed placeholder until sqlc generation is introduced.
-	PlaceholderDBQuery(ctx context.Context) ([]*string, error)
+	PlaceholderDBQuery(ctx context.Context) ([]interface{}, error)
+	// SQLite does not support DML inside CTEs; Task rewrite: DELETE then INSERT.
+	// The Go layer wraps these in a transaction. This placeholder keeps the
+	// same query name so generated code compiles; real atomicity is in the Go tx.
 	RebindAgentThreadTx(ctx context.Context, arg RebindAgentThreadTxParams) error
 	RecoverHookPendingReviews(ctx context.Context) ([]RecoverHookPendingReviewsRow, error)
 	RejectTopologyApproval(ctx context.Context, arg RejectTopologyApprovalParams) (int64, error)
@@ -214,7 +217,7 @@ type Querier interface {
 	UpsertAgentThread(ctx context.Context, arg UpsertAgentThreadParams) error
 	UpsertCommandCard(ctx context.Context, arg UpsertCommandCardParams) (CommandCard, error)
 	UpsertPromptIntentDraft(ctx context.Context, arg UpsertPromptIntentDraftParams) (PromptIntentDraft, error)
-	UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemplateParams) (UpsertPromptTemplateRow, error)
+	UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemplateParams) (PromptTemplate, error)
 	// Upsert by (template_id, section_key). Touches updated_at on conflict so
 	// operators see when they last edited a row. Empty enable_when stays as-is
 	// (NULL or '{}' both mean "always inject" per EvaluateEnableWhen).
