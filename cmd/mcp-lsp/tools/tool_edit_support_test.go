@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -413,6 +414,20 @@ func (m *editBlockingSyncManager) DidChange(ctx context.Context, _ string, _ int
 	return ctx.Err()
 }
 
+type editBlockingFunctionLookupManager struct {
+	structureTestManager
+	started chan struct{}
+	once    sync.Once
+}
+
+func (m *editBlockingFunctionLookupManager) DocumentSymbol(ctx context.Context, _ string) ([]protocol.DocumentSymbol, error) {
+	m.once.Do(func() {
+		close(m.started)
+	})
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 func TestReplaceRangeConfirmsDiskWriteWithGitDiffBeforeSlowLSPSync(t *testing.T) {
 	root := initEditGitRepo(t, map[string]string{
 		"sample.go": "package main\n\nfunc f() { old() }\n",
@@ -454,6 +469,49 @@ func TestReplaceRangeConfirmsDiskWriteWithGitDiffBeforeSlowLSPSync(t *testing.T)
 	}
 	assertFileContent(t, path, "package main\n\nfunc f() { new() }\n")
 	assertEditRecoveryLog(t, logDir, path)
+}
+
+func TestReplaceRangeReturnsAppliedWhenFunctionLookupBlocksAfterSync(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sample.go")
+	if err := os.WriteFile(path, []byte("package main\n\nfunc f() { old() }\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	manager := &editBlockingFunctionLookupManager{started: make(chan struct{})}
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
+	input, err := json.Marshal(EditRequest{
+		FilePath: path,
+		Patch: strings.Join([]string{
+			"@@",
+			"-func f() { old() }",
+			"+func f() { new() }",
+			"",
+		}, "\n"),
+	})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(testToolContext(root), 2*time.Second)
+	defer cancel()
+
+	startedAt := time.Now()
+	got, err := handler(ctx, input)
+	if err != nil {
+		t.Fatalf("edit returned error after disk write and LSP sync: %v", err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > time.Second {
+		t.Fatalf("edit elapsed = %s, want bounded best-effort function lookup", elapsed)
+	}
+	result := requireSyncedReplaceRangeResult(t, got)
+	if result.FuncStart != 0 || result.FuncEnd != 0 || result.FuncBody != "" {
+		t.Fatalf("function context = %#v, want empty when lookup times out", result)
+	}
+	assertFileContent(t, path, "package main\n\nfunc f() { new() }\n")
+	select {
+	case <-manager.started:
+	default:
+		t.Fatalf("DocumentSymbol was not called; test did not exercise blocking function lookup")
+	}
 }
 
 func requireSyncRollbackFailure(t *testing.T, err error) {
