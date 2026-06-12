@@ -81,7 +81,9 @@ WHERE id = sqlc.arg(id);
 
 -- ClaimDueJobsForUpdate marks up to `limit` due rows as claimed by `claimed_by`.
 -- FOR UPDATE SKIP LOCKED removed: SQLite does not support it.
--- Task07 implements atomic claim via application-layer optimistic locking.
+-- Task07 implements atomic claim with one UPDATE ... RETURNING statement.
+-- The outer UPDATE repeats the availability predicate so claim ownership is
+-- rechecked at write time, preserving fencing if another writer wins first.
 --
 -- name: ClaimDueJobsForUpdate :many
 UPDATE cron_jobs
@@ -93,12 +95,15 @@ SET claimed_by       = sqlc.arg(claimed_by),
 WHERE id IN (
     SELECT id
     FROM cron_jobs
-    WHERE enabled = TRUE
+    WHERE enabled = 1
       AND (claim_token = '' OR COALESCE(lease_expires_at, 0) <= sqlc.arg(now))
       AND COALESCE(next_retry_at, next_run_at) <= sqlc.arg(now)
     ORDER BY COALESCE(next_retry_at, next_run_at) ASC, id ASC
     LIMIT sqlc.arg(max_claim)
 )
+  AND enabled = 1
+  AND (claim_token = '' OR COALESCE(lease_expires_at, 0) <= sqlc.arg(now))
+  AND COALESCE(next_retry_at, next_run_at) <= sqlc.arg(now)
 RETURNING id, name, prompt, schedule_type, schedule_expr,
           timezone, provider, model, cwd, config, skills,
           notify_channel, enabled, next_run_at, last_scheduled_at,

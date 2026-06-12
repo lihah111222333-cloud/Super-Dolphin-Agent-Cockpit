@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,7 +37,7 @@ func Open(ctx context.Context, opts OpenOptions) (*sql.DB, error) {
 		return nil, err
 	}
 
-	db, err := sql.Open(driverName, path)
+	db, err := sql.Open(driverName, sqliteDSN(path))
 	if err != nil {
 		return nil, fmt.Errorf("open SQLite database %s: %s", redactPath(path), securefs.SafeErrorForPath(err, path))
 	}
@@ -58,6 +59,16 @@ func Open(ctx context.Context, opts OpenOptions) (*sql.DB, error) {
 		return nil, fmt.Errorf("restrict SQLite database sidecar permissions %s: %w", redactPath(path), err)
 	}
 	return db, nil
+}
+
+func sqliteDSN(path string) string {
+	q := url.Values{}
+	q.Add("_pragma", fmt.Sprintf("busy_timeout=%d", busyTimeoutMillis))
+	q.Add("_pragma", "foreign_keys=ON")
+	q.Add("_pragma", "journal_mode=WAL")
+	q.Add("_pragma", "synchronous=FULL")
+	q.Add("_pragma", fmt.Sprintf("wal_autocheckpoint=%d", walAutoCheckpointPage))
+	return path + "?" + q.Encode()
 }
 
 func configureAndVerifyPragmas(ctx context.Context, db *sql.DB) error {

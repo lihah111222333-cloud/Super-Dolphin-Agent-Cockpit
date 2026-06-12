@@ -318,6 +318,58 @@ func TestClaimDueJobsForUpdateDefaultsMaxClaim(t *testing.T) {
 	}
 }
 
+func TestClaimDueJobsForUpdateRetriesSQLiteBusy(t *testing.T) {
+	t.Parallel()
+	attempts := 0
+	s := &store{q: &cronQuerierStub{
+		claimFn: func(context.Context, sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
+			attempts++
+			if attempts < 3 {
+				return nil, errors.New("database is locked")
+			}
+			return []sqlc.CronJob{{ID: "job-1"}}, nil
+		},
+	}}
+	jobs, err := s.ClaimDueJobsForUpdate(context.Background(), ClaimDueJobsForUpdateParams{
+		ClaimedBy:  "scheduler",
+		ClaimToken: "tok",
+	})
+	if err != nil {
+		t.Fatalf("ClaimDueJobsForUpdate error = %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].ID != "job-1" {
+		t.Fatalf("jobs = %+v, want job-1", jobs)
+	}
+	if attempts != 3 {
+		t.Fatalf("attempts = %d, want 3", attempts)
+	}
+}
+
+func TestClaimDueJobsForUpdateSQLiteBusyExhaustionReturnsContext(t *testing.T) {
+	t.Parallel()
+	const wantAttempts = 3
+	attempts := 0
+	s := &store{q: &cronQuerierStub{
+		claimFn: func(context.Context, sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
+			attempts++
+			return nil, errors.New("database is locked")
+		},
+	}}
+	_, err := s.ClaimDueJobsForUpdate(context.Background(), ClaimDueJobsForUpdateParams{
+		ClaimedBy:  "scheduler",
+		ClaimToken: "tok",
+	})
+	if err == nil {
+		t.Fatal("ClaimDueJobsForUpdate error = nil, want locked error")
+	}
+	if attempts != wantAttempts {
+		t.Fatalf("attempts = %d, want %d", attempts, wantAttempts)
+	}
+	if !errors.Is(err, platformdb.ErrTimeout) || !contains(err.Error(), "claim_due_jobs cron") || !contains(err.Error(), "database is locked") {
+		t.Fatalf("err = %v, want wrapped timeout with claim context", err)
+	}
+}
+
 func TestRenewLeaseReturnsTokenMismatchOnZeroRows(t *testing.T) {
 	t.Parallel()
 	s := &store{q: &cronQuerierStub{
@@ -488,11 +540,19 @@ func TestListUnresolvedRunsPassesThrough(t *testing.T) {
 
 // ----- migration + query lint (schema-level guarantees) -----
 
-func TestMigration0045RequiresLockingSemantics(t *testing.T) {
+func TestClaimQueryUsesSQLiteAtomicClaimSemantics(t *testing.T) {
 	t.Parallel()
 	sql := readCronQuerySQL(t, "cron_job.sql")
 	for _, want := range []string{
-		"FOR UPDATE SKIP LOCKED",
+		// SQLite has no FOR UPDATE SKIP LOCKED. Atomic claim is a single
+		// UPDATE whose inner SELECT re-checks the unclaimed/expired-lease
+		// predicate, so concurrent writers cannot double-claim the same row.
+		"WHERE id IN (",
+		"claim_token = '' OR COALESCE(lease_expires_at, 0) <= sqlc.arg(now)",
+		"COALESCE(next_retry_at, next_run_at) <= sqlc.arg(now)",
+		"LIMIT sqlc.arg(max_claim)",
+		// claim_token fencing on every claim-mutating statement.
+		"claim_token      = sqlc.arg(claim_token)",
 		// preserve-on-empty CASE for identity-like thread / agent fields
 		"COALESCE(NULLIF(sqlc.arg(thread_id), ''), thread_id)",
 	} {
@@ -500,6 +560,23 @@ func TestMigration0045RequiresLockingSemantics(t *testing.T) {
 			t.Fatalf("cron_job.sql missing required fragment %q", want)
 		}
 	}
+	// The PG-only lock hint must not reappear as live SQL. Allow it only
+	// inside a comment line documenting why it was removed.
+	if idx := indexOf(sql, "FOR UPDATE SKIP LOCKED"); idx >= 0 {
+		if !onCommentLine(sql, idx) {
+			t.Fatalf("cron_job.sql still contains live FOR UPDATE SKIP LOCKED; SQLite does not support it")
+		}
+	}
+}
+
+// onCommentLine reports whether the byte at idx sits on a `--` SQL comment line.
+func onCommentLine(sql string, idx int) bool {
+	lineStart := idx
+	for lineStart > 0 && sql[lineStart-1] != '\n' {
+		lineStart--
+	}
+	line := sql[lineStart:idx]
+	return indexOf(line, "--") >= 0
 }
 
 func TestMigration0045CrashRecoveryStatuses(t *testing.T) {
