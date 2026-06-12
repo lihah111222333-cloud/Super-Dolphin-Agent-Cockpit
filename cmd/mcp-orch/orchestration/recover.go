@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -248,4 +249,142 @@ func replayRecoveredTurn(ctx context.Context, s *service, agent *agentRuntime, s
 	}
 	agent.queue.Prepend(submission)
 	return s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnEnqueued)
+}
+
+// Launcher-backed recovery helpers moved from factory.go to keep orchestration factory focused.
+type launcherRecoveryAttempt struct {
+	agentID, threadID, turnID string
+	expectedSeq               uint64
+	launching                 agentRuntime
+	replay                    TurnSubmission
+	shouldReplay              bool
+	req                       LaunchRequest
+}
+
+func (s *service) canRecoverAgentViaLauncher(ctx context.Context, agentID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	agent, err := lookupAgentByIDLocked(s.agents, agentID)
+	return err == nil && shouldRecoverViaLauncher(ctx, s, agent)
+}
+
+func (s *service) recoverLauncherWithReason(ctx context.Context, agentID, reason string) error {
+	attempt, err := s.prepareLauncherRecovery(ctx, agentID, reason)
+	if err != nil {
+		return err
+	}
+	replay, shouldReplay, err := loadRecoveredTurnSubmission(ctx, s, &attempt.launching)
+	if err != nil {
+		return s.commitLauncherRecoveryFailure(ctx, attempt, err)
+	}
+	attempt.replay, attempt.shouldReplay = replay, shouldReplay
+	if err := s.launcher.Stop(ctx, &attempt.launching); err != nil {
+		return s.commitLauncherRecoveryFailure(ctx, attempt, err)
+	}
+	result, err := s.launcher.Launch(ctx, &attempt.launching, attempt.req)
+	if err != nil {
+		return s.commitLauncherRecoveryFailure(ctx, attempt, err)
+	}
+	return s.commitLauncherRecoverySuccess(ctx, attempt, result)
+}
+
+func (s *service) prepareLauncherRecovery(ctx context.Context, agentID, reason string) (launcherRecoveryAttempt, error) {
+	var attempt launcherRecoveryAttempt
+	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		if !shouldRecoverViaLauncher(ctx, s, agent) {
+			return fmt.Errorf("agent %q is not running under launcher", agent.id)
+		}
+		threadID, turnID := agent.threadID, agent.activeTurnID
+		if err := normalizeRecoveryState(ctx, s, agent); err != nil {
+			return err
+		}
+		agent.launchSeq++
+		agent.pendingLaunchThreadID, agent.pendingLaunchThreadAt = "", time.Time{}
+		emitEvent(s.eventBus, eventTypeAgentRecovering, eventAgentID(agent), agent, reason)
+		attempt = launcherRecoveryAttempt{
+			agentID: agent.id, expectedSeq: agent.launchSeq, launching: *agent,
+			threadID: threadID, turnID: turnID, req: recoveryLaunchRequest(agent),
+		}
+		return nil
+	})
+	return attempt, err
+}
+
+func (s *service) commitLauncherRecoveryFailure(ctx context.Context, attempt launcherRecoveryAttempt, launchErr error) error {
+	s.mu.Lock()
+	agent, err := lookupAgentBySeqLocked(s.agents, attempt.agentID, attempt.expectedSeq)
+	if err != nil {
+		s.mu.Unlock()
+		return s.discardStaleLaunchResult(ctx, &attempt.launching, launchErr)
+	}
+	err = s.commitLaunchFailureLocked(ctx, agent, launchErr)
+	if fallbackErr := s.setNoReportFallbackLocked(ctx, agent); fallbackErr != nil {
+		err = errors.Join(err, fallbackErr)
+	}
+	s.mu.Unlock()
+	return err
+}
+
+func (s *service) commitLauncherRecoverySuccess(ctx context.Context, attempt launcherRecoveryAttempt, result LaunchResult) error {
+	s.mu.Lock()
+	agent, err := lookupAgentBySeqLocked(s.agents, attempt.agentID, attempt.expectedSeq)
+	if err != nil || agent.state != agentdto.StateRecovering || agent.stopRequested {
+		s.mu.Unlock()
+		return s.discardStaleSuccessfulLaunch(ctx, &attempt.launching, err)
+	}
+	adoptLaunchStateLocked(agent, &attempt.launching)
+	bindLaunchResult(agent, result)
+	agent.activeTurnID, agent.monitoredSeq = "", 0
+	agent.stopRequested = false
+	if err := s.rekeyLaunchedAgentLocked(agent); err != nil {
+		commitErr := s.commitLaunchFailureLocked(ctx, agent, err)
+		s.mu.Unlock()
+		if stopErr := s.launcher.Stop(ctx, &attempt.launching); stopErr != nil {
+			s.logger.Warn("orchestration: recovery rekey failure cleanup stop failed", "agent_id", attempt.launching.id, "error", stopErr)
+		}
+		return commitErr
+	}
+	if err := s.commitLaunchSuccessLocked(ctx, agent); err != nil {
+		closeAgentProcessGuard(agent)
+		agent.cmd = nil
+		agent.threadID = ""
+		resetRuntimeStateLocked(agent)
+		s.mu.Unlock()
+		if stopErr := s.launcher.Stop(ctx, &attempt.launching); stopErr != nil {
+			s.logger.Warn("orchestration: recovery success cleanup stop failed", "agent_id", attempt.launching.id, "error", stopErr)
+		}
+		return err
+	}
+	if err := s.finishLauncherRecoveryTurnLocked(ctx, agent, attempt); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *service) finishLauncherRecoveryTurnLocked(ctx context.Context, agent *agentRuntime, attempt launcherRecoveryAttempt) error {
+	if !attempt.shouldReplay {
+		if shouldWriteRecoveryNoReplayFallback(agent, attempt.turnID) {
+			return s.setNoReportFallbackLocked(ctx, agent)
+		}
+		return nil
+	}
+	attempt.replay.AgentID, attempt.replay.ThreadID = agent.id, agent.threadID
+	if err := replayRecoveredTurn(ctx, s, agent, attempt.replay); err != nil {
+		return err
+	}
+	s.suppressStoppedHookThreadLocked(attempt.threadID)
+	s.publishTurnResumed(agent, attempt.threadID, attempt.turnID, turnResumeReasonRecover, resolveEventTime(ctx, time.Now()))
+	return nil
+}
+
+func (s *service) notifyRecoveryFailure(ctx context.Context, agentID string, recoverErr error) error {
+	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		if strings.TrimSpace(agent.lastReport) == "" {
+			agent.lastError = strings.TrimSpace(recoverErr.Error())
+			return s.setNoReportFallbackLocked(ctx, agent)
+		}
+		return nil
+	})
 }
