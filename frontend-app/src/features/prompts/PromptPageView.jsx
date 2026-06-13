@@ -861,7 +861,8 @@ function PromptPageLayout(props) {
   const showCards = !props.isProjectPending && !props.loading && props.visibleItems.length > 0;
   return (
     <section className="console-page prompt-page">
-      <PageHeader title="AI 能力与资料" projectPath={props.cwd || props.projectPath} />
+      <PageHeader title="个性化" subtitle="管理您的身份信息以及 Super-Dolphin 的记忆内容" projectPath={props.cwd || props.projectPath} />
+      <PromptPersonalizationOverview counts={props.counts} isProjectPending={props.isProjectPending} fallbackMode={props.fallbackMode} />
       <PromptTabs tabs={PROMPT_TABS} activeTab={props.activeTab} counts={props.counts} disabled={props.fallbackMode} onSwitch={props.editorActions.switchTab} />
       <PromptFilterControls {...props.filters} fallbackMode={props.fallbackMode} />
       <PromptToolbar cwd={props.cwd} fallbackMode={props.fallbackMode} onCreate={props.editorActions.openCreate} />
@@ -1020,14 +1021,69 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
   return <PromptPageLayout {...layoutProps} />;
 }
 
-function PageHeader({ title, projectPath }) {
+function PageHeader({ title, subtitle, projectPath }) {
   return (
     <header className="prompt-header">
       <div>
         <h1><FileText size={25} /> {title}</h1>
+        {subtitle ? <strong>{subtitle}</strong> : null}
         <p title={projectPath}>当前项目：{projectPath || '未知'}</p>
       </div>
     </header>
+  );
+}
+
+function PromptPersonalizationOverview({ counts, isProjectPending, fallbackMode }) {
+  const metrics = [
+    ['定制角色', counts.expert || 0],
+    ['知识', counts.recall || 0],
+    ['默认规则', counts.default_rule || 0],
+    ['待确认', counts.pending || 0],
+  ];
+  const overviewText = isProjectPending
+    ? '正在连接本地项目。'
+    : fallbackMode
+      ? 'prompt-assets/list 暂不可用；当前仅显示只读的提示词与参考资料。'
+      : '已接入提示词与参考资料；个人资料和外部记忆导入等待后端接口。';
+  return (
+    <section className="personalization-overview" aria-label="个性化概览">
+      <div className="personalization-overview-copy">
+        <span>个人资料</span>
+        <h2>定制角色、知识和记忆</h2>
+        <p>{overviewText}</p>
+      </div>
+      <dl>
+        {metrics.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="personalization-profile-grid">
+        <section className="personalization-profile-card" aria-label="个人资料">
+          <header>
+            <h3>个人资料</h3>
+            <span>待后端接入</span>
+          </header>
+          <div className="personalization-form-grid">
+            <label>昵称<input type="text" placeholder="待个人资料接口接入" disabled /></label>
+            <label>职业<input type="text" placeholder="待个人资料接口接入" disabled /></label>
+            <label>更多关于您的信息<textarea rows={3} placeholder="待个人资料接口接入" disabled /></label>
+            <label>自定义指令<textarea rows={3} placeholder="待自定义指令接口接入" disabled /></label>
+          </div>
+          <button type="button" disabled>保存个人资料</button>
+        </section>
+        <section className="personalization-profile-card" aria-label="从其他 AI 导入记忆">
+          <header>
+            <h3>从其他 AI 导入记忆</h3>
+            <span>待后端接入</span>
+          </header>
+          <p>当前页面只读取真实提示词与参考资料数据；导入记忆接口接入前不会显示为可用。</p>
+          <button type="button" disabled>导入记忆</button>
+        </section>
+      </div>
+    </section>
   );
 }
 

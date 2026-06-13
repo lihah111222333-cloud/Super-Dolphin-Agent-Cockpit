@@ -8480,6 +8480,10 @@ textarea:disabled {
   gap: 10px;
 }
 
+.settings-mobile-account {
+  display: none;
+}
+
 .settings-page-notice {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -8544,6 +8548,138 @@ textarea:disabled {
 
 .prompt-header h1 {
   font-size: 20px;
+}
+
+.prompt-header strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-sec);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.personalization-overview {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-2) 70%, var(--surface));
+}
+
+.personalization-overview-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.personalization-overview-copy span,
+.personalization-profile-card header span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.personalization-overview-copy h2,
+.personalization-profile-card h3 {
+  margin: 0;
+  color: var(--text-pri);
+  font-size: 17px;
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.personalization-overview-copy p,
+.personalization-profile-card p {
+  margin: 0;
+  color: var(--text-sec);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.personalization-overview dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(82px, 1fr));
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+}
+
+.personalization-overview dl div,
+.personalization-profile-card {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 10px;
+}
+
+.personalization-overview dt {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.personalization-overview dd {
+  margin: 4px 0 0;
+  color: var(--text-pri);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.personalization-profile-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(220px, 0.75fr);
+  gap: 10px;
+}
+
+.personalization-profile-card {
+  display: grid;
+  gap: 10px;
+}
+
+@media (max-width: 1100px) {
+  .personalization-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .personalization-overview dl {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.personalization-profile-card header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.personalization-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.personalization-form-grid label {
+  display: grid;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.personalization-form-grid input,
+.personalization-form-grid textarea {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-pri);
+  padding: 9px 10px;
 }
 
 .prompt-toolbar {
@@ -8700,6 +8836,92 @@ textarea:disabled {
 
   dl {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .settings-mobile-account {
+    display: grid;
+    gap: 10px;
+    margin: 12px 14px 0;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+  }
+
+  .settings-mobile-account header {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr) 42px;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .settings-mobile-account header button,
+  .settings-mobile-tabs button,
+  .settings-mobile-card button {
+    min-height: 38px;
+    border-radius: var(--radius-sm);
+  }
+
+  .settings-mobile-account h2 {
+    margin: 0;
+    color: var(--text-pri);
+    font-size: 20px;
+    font-weight: 760;
+  }
+
+  .settings-mobile-avatar {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--accent-2) 15%, var(--surface-3));
+    color: var(--text-pri);
+    font-weight: 760;
+  }
+
+  .settings-mobile-card {
+    display: grid;
+    gap: 4px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    padding: 10px;
+  }
+
+  .settings-mobile-card span,
+  .settings-mobile-card small {
+    color: var(--text-muted);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .settings-mobile-card strong {
+    color: var(--text-pri);
+    font-size: 16px;
+    overflow-wrap: anywhere;
+  }
+
+  .settings-mobile-card.is-disabled {
+    opacity: 0.82;
+  }
+
+  .settings-mobile-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .personalization-overview,
+  .personalization-profile-grid,
+  .personalization-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .personalization-overview dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

@@ -4645,7 +4645,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
   });
 
   it.each([
-    ['提示词', 'AI 能力与资料', '暂无内容', () => expect(backend.listPromptAssets).not.toHaveBeenCalled()],
+    ['提示词', '个性化', '暂无内容', () => expect(backend.listPromptAssets).not.toHaveBeenCalled()],
     ['自动化', '自动化', '无任务', () => expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '未选择项目', page: 'dags' })],
     ['记忆中心', '记忆中心', '暂无记忆', () => expect(backend.getMemorySnapshot).not.toHaveBeenCalledWith({ cwd: '未选择项目' })],
   ])('keeps the %s route visible while project context resolves', async (navLabel, heading, settledText, assertNoInvalidLoad) => {
