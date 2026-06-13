@@ -3,7 +3,6 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -14,7 +13,7 @@ import (
 func TestAddRPCCreatesMCPServerConfig(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
-	server := newMCPServerTestServer()
+	server := newMCPServerTestServer(newMemoryMCPServerStore())
 	payload, err := json.Marshal(AddServersRequest{
 		MCPServers: map[string]ServerConfig{
 			"my-search": {
@@ -41,13 +40,10 @@ func TestAddRPCCreatesMCPServerConfig(t *testing.T) {
 	if got.ConfigPath != filepath.Join(project, ".agent", "mcp_server", "config.json") {
 		t.Fatalf("ConfigPath = %q", got.ConfigPath)
 	}
-	if _, err := os.Stat(got.ConfigPath); err != nil {
-		t.Fatalf("stat config path: %v", err)
-	}
 }
 
 func TestAddRPCRejectsMissingMCPServers(t *testing.T) {
-	server := newMCPServerTestServer()
+	server := newMCPServerTestServer(newMemoryMCPServerStore())
 	payload, err := json.Marshal(map[string]any{})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -61,22 +57,13 @@ func TestAddRPCRejectsMissingMCPServers(t *testing.T) {
 func TestListRPCReturnsMCPServerConfig(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
+	store := newMemoryMCPServerStore()
 	configPath := filepath.Join(project, ".agent", "mcp_server", "config.json")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("create config dir: %v", err)
-	}
-	existing := []byte(`{
-  "mcpServers": {
-    "my-search": {
-      "transport": "http",
-      "url": "https://your-domain.com/mcp"
-    }
-  }
-}`)
-	if err := os.WriteFile(configPath, existing, 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-	server := newMCPServerTestServer()
+	store.seed(project, "my-search", ServerConfig{
+		Transport: "http",
+		URL:       "https://your-domain.com/mcp",
+	})
+	server := newMCPServerTestServer(store)
 	payload, err := json.Marshal(map[string]any{})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -98,8 +85,38 @@ func TestListRPCReturnsMCPServerConfig(t *testing.T) {
 	}
 }
 
-func newMCPServerTestServer() *platformrpc.Server {
+func TestDeleteRPCRemovesMCPServerConfig(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	store := newMemoryMCPServerStore()
+	store.seed(project, "my-search", ServerConfig{
+		Transport: "http",
+		URL:       "https://your-domain.com/mcp",
+	})
+	server := newMCPServerTestServer(store)
+	payload, err := json.Marshal(DeleteServerRequest{ServerName: "my-search"})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	raw, err := server.Dispatch(context.Background(), "mcpServer/delete", payload)
+	if err != nil {
+		t.Fatalf("Dispatch mcpServer/delete: %v", err)
+	}
+	var got DeleteServerResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if !got.Deleted || got.ServerName != "my-search" {
+		t.Fatalf("DeleteServerResult = %#v, want deleted my-search", got)
+	}
+	if _, ok := store.servers[project]["my-search"]; ok {
+		t.Fatalf("server still stored after delete: %#v", store.servers[project])
+	}
+}
+
+func newMCPServerTestServer(store MCPServerConfigStore) *platformrpc.Server {
 	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
-	server.Register(NewHandlers(NewService()).Handlers)
+	server.Register(NewHandlers(NewServiceWithStore(store)).Handlers)
 	return server
 }

@@ -1,6 +1,7 @@
 package wstest
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -54,9 +55,6 @@ func TestWailsWebSocketRequestsMCPServerAndDatasourceRPC(t *testing.T) {
 	}
 	if !slices.Equal(addResult.ServerNames, []string{"my-search"}) {
 		t.Fatalf("mcpServer/add serverNames = %#v, want my-search", addResult.ServerNames)
-	}
-	if _, err := os.Stat(wantConfigPath); err != nil {
-		t.Fatalf("stat written MCP config: %v", err)
 	}
 
 	var listResult mcpserver.ListServersResult
@@ -122,13 +120,14 @@ func TestWailsWebSocketUploadsDatasourceFromAbsolutePath(t *testing.T) {
 
 func newWailsWSServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	mcpStore := newWSMCPServerStore()
 
 	rpcServer := platformrpc.NewServer(platformrpc.Params{
 		Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"},
 	})
 	rpcServer.Register(
 		datasource.NewHandlers(datasource.NewService()).Handlers,
-		mcpserver.NewHandlers(mcpserver.NewService()).Handlers,
+		mcpserver.NewHandlers(mcpserver.NewServiceWithStore(mcpStore)).Handlers,
 	)
 
 	mux := http.NewServeMux()
@@ -209,6 +208,60 @@ func writeDatasourceFiles(t *testing.T, project string, names ...string) {
 			t.Fatalf("write datasource file %s: %v", name, err)
 		}
 	}
+}
+
+type wsMCPServerStore struct {
+	servers map[string]map[string]mcpserver.ServerConfig
+}
+
+func newWSMCPServerStore() *wsMCPServerStore {
+	return &wsMCPServerStore{servers: map[string]map[string]mcpserver.ServerConfig{}}
+}
+
+func (s *wsMCPServerStore) InsertServer(_ context.Context, params mcpserver.StoreMCPServerConfigParams) (bool, error) {
+	if s.servers[params.WorkspaceRoot] == nil {
+		s.servers[params.WorkspaceRoot] = map[string]mcpserver.ServerConfig{}
+	}
+	if _, exists := s.servers[params.WorkspaceRoot][params.Name]; exists {
+		return false, nil
+	}
+	s.servers[params.WorkspaceRoot][params.Name] = cloneWSMCPServerConfig(params.Config)
+	return true, nil
+}
+
+func (s *wsMCPServerStore) ListServers(_ context.Context, workspaceRoot string) (map[string]mcpserver.ServerConfig, error) {
+	return cloneWSMCPServers(s.servers[workspaceRoot]), nil
+}
+
+func (s *wsMCPServerStore) DeleteServer(_ context.Context, workspaceRoot, name string) (bool, error) {
+	if s.servers[workspaceRoot] == nil {
+		return false, nil
+	}
+	if _, exists := s.servers[workspaceRoot][name]; !exists {
+		return false, nil
+	}
+	delete(s.servers[workspaceRoot], name)
+	return true, nil
+}
+
+func cloneWSMCPServers(input map[string]mcpserver.ServerConfig) map[string]mcpserver.ServerConfig {
+	out := make(map[string]mcpserver.ServerConfig, len(input))
+	for name, config := range input {
+		out[name] = cloneWSMCPServerConfig(config)
+	}
+	return out
+}
+
+func cloneWSMCPServerConfig(config mcpserver.ServerConfig) mcpserver.ServerConfig {
+	headers := make(map[string]string, len(config.Headers))
+	for name, value := range config.Headers {
+		headers[name] = value
+	}
+	if len(headers) == 0 {
+		headers = nil
+	}
+	config.Headers = headers
+	return config
 }
 
 func websocketResponseBody(t *testing.T, resp *http.Response) string {

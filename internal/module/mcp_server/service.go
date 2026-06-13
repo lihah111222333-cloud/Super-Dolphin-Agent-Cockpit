@@ -15,23 +15,27 @@ import (
 )
 
 var (
-	errMissingMCPServers      = errors.New("mcp_server: mcpServers is required")
-	errMissingServerName      = errors.New("mcp_server: server name is required")
-	errDuplicateServerName    = errors.New("mcp_server: duplicate server name")
-	errMissingServerTransport = errors.New("mcp_server: transport is required")
-	errUnsupportedTransport   = errors.New("mcp_server: unsupported transport")
-	errMissingServerURL       = errors.New("mcp_server: url is required")
-	errInvalidServerURL       = errors.New("mcp_server: invalid url")
-	errMissingHeaderName      = errors.New("mcp_server: header name is required")
-	errMissingHeaderValue     = errors.New("mcp_server: header value is required")
-	errInvalidConfigDocument  = errors.New("mcp_server: invalid config document")
-	errServerAlreadyExists    = errors.New("mcp_server: server already exists")
+	errMissingMCPServers           = errors.New("mcp_server: mcpServers is required")
+	errMissingServerName           = errors.New("mcp_server: server name is required")
+	errDuplicateServerName         = errors.New("mcp_server: duplicate server name")
+	errMissingServerTransport      = errors.New("mcp_server: transport is required")
+	errUnsupportedTransport        = errors.New("mcp_server: unsupported transport")
+	errMissingServerURL            = errors.New("mcp_server: url is required")
+	errInvalidServerURL            = errors.New("mcp_server: invalid url")
+	errMissingHeaderName           = errors.New("mcp_server: header name is required")
+	errMissingHeaderValue          = errors.New("mcp_server: header value is required")
+	errInvalidConfigDocument       = errors.New("mcp_server: invalid config document")
+	errServerAlreadyExists         = errors.New("mcp_server: server already exists")
+	errServerNotFound              = errors.New("mcp_server: server not found")
+	errMissingWorkspaceRoot        = errors.New("mcp_server: workspaceRoot is required")
+	errMCPServerStoreNotConfigured = errors.New("mcp_server: config store is not configured")
 )
 
 type Service interface {
 	AddServers(context.Context, AddServersRequest) (AddServersResult, error)
 	ListServers(context.Context) (ListServersResult, error)
 	ListServersForCWD(context.Context, string) (ListServersResult, error)
+	DeleteServer(context.Context, DeleteServerRequest) (DeleteServerResult, error)
 }
 
 type ConfigDocument struct {
@@ -40,6 +44,10 @@ type ConfigDocument struct {
 
 type AddServersRequest struct {
 	MCPServers map[string]ServerConfig `json:"mcpServers"`
+}
+
+type DeleteServerRequest struct {
+	ServerName string `json:"serverName"`
 }
 
 type ServerConfig struct {
@@ -58,16 +66,26 @@ type ListServersResult struct {
 	MCPServers map[string]ServerConfig `json:"mcpServers"`
 }
 
-type service struct{}
+type DeleteServerResult struct {
+	ConfigPath string `json:"configPath"`
+	ServerName string `json:"serverName"`
+	Deleted    bool   `json:"deleted"`
+}
+
+type service struct {
+	store MCPServerConfigStore
+}
 
 func NewService() Service {
-	return &service{}
+	return NewServiceWithStore(nil)
+}
+
+func NewServiceWithStore(store MCPServerConfigStore) Service {
+	return &service{store: store}
 }
 
 func (s *service) AddServers(ctx context.Context, req AddServersRequest) (AddServersResult, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = mcpServerContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return AddServersResult{}, err
 	}
@@ -75,25 +93,24 @@ func (s *service) AddServers(ctx context.Context, req AddServersRequest) (AddSer
 	if err != nil {
 		return AddServersResult{}, err
 	}
-
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return AddServersResult{}, fmt.Errorf("get working directory: %w", err)
-	}
-	configPath := mcpServerConfigPath(workingDir)
-	doc, err := readMCPServerConfig(configPath)
+	store, err := s.requireStore()
 	if err != nil {
 		return AddServersResult{}, err
 	}
-	for _, name := range names {
-		if _, ok := doc.MCPServers[name]; ok {
-			return AddServersResult{}, fmt.Errorf("%w: %s", errServerAlreadyExists, name)
-		}
+
+	workspaceRoot, err := currentMCPServerWorkspaceRoot()
+	if err != nil {
+		return AddServersResult{}, err
 	}
-	for _, name := range names {
-		doc.MCPServers[name] = additions[name]
+	configPath := mcpServerConfigPath(workspaceRoot)
+	existing, err := store.ListServers(ctx, workspaceRoot)
+	if err != nil {
+		return AddServersResult{}, err
 	}
-	if err := writeMCPServerConfig(configPath, doc); err != nil {
+	if err := rejectExistingMCPServers(existing, names); err != nil {
+		return AddServersResult{}, err
+	}
+	if err := insertMCPServerConfigs(ctx, store, workspaceRoot, additions, names); err != nil {
 		return AddServersResult{}, err
 	}
 
@@ -101,39 +118,64 @@ func (s *service) AddServers(ctx context.Context, req AddServersRequest) (AddSer
 }
 
 func (s *service) ListServers(ctx context.Context) (ListServersResult, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = mcpServerContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return ListServersResult{}, err
 	}
 
-	workingDir, err := os.Getwd()
+	workspaceRoot, err := currentMCPServerWorkspaceRoot()
 	if err != nil {
-		return ListServersResult{}, fmt.Errorf("get working directory: %w", err)
+		return ListServersResult{}, err
 	}
-	return s.ListServersForCWD(ctx, workingDir)
+	return s.ListServersForCWD(ctx, workspaceRoot)
 }
 
 func (s *service) ListServersForCWD(ctx context.Context, cwd string) (ListServersResult, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = mcpServerContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return ListServersResult{}, err
 	}
-	workingDir, err := resolveMCPServerConfigBaseDir(cwd)
-	if err != nil {
-		return ListServersResult{}, err
-	}
-	configPath := mcpServerConfigPath(workingDir)
-	doc, err := readMCPServerConfig(configPath)
+	workspaceRoot, servers, err := s.resolveWorkspaceServers(ctx, cwd)
 	if err != nil {
 		return ListServersResult{}, err
 	}
 	return ListServersResult{
-		ConfigPath: configPath,
-		MCPServers: cloneMCPServers(doc.MCPServers),
+		ConfigPath: mcpServerConfigPath(workspaceRoot),
+		MCPServers: cloneMCPServers(servers),
+	}, nil
+}
+
+func (s *service) DeleteServer(ctx context.Context, req DeleteServerRequest) (DeleteServerResult, error) {
+	ctx = mcpServerContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return DeleteServerResult{}, err
+	}
+	name, err := normalizeDeleteServerName(req)
+	if err != nil {
+		return DeleteServerResult{}, err
+	}
+	workspaceRoot, servers, err := s.resolveWorkspaceServers(ctx, "")
+	if err != nil {
+		return DeleteServerResult{}, err
+	}
+	if _, ok := servers[name]; !ok {
+		return DeleteServerResult{}, fmt.Errorf("%w: %s", errServerNotFound, name)
+	}
+	store, err := s.requireStore()
+	if err != nil {
+		return DeleteServerResult{}, err
+	}
+	deleted, err := store.DeleteServer(ctx, workspaceRoot, name)
+	if err != nil {
+		return DeleteServerResult{}, err
+	}
+	if !deleted {
+		return DeleteServerResult{}, fmt.Errorf("%w: %s", errServerNotFound, name)
+	}
+	return DeleteServerResult{
+		ConfigPath: mcpServerConfigPath(workspaceRoot),
+		ServerName: name,
+		Deleted:    true,
 	}, nil
 }
 
@@ -154,6 +196,85 @@ func (p mcpServerConfigProvider) ListMCPServerConfigs(ctx context.Context, cwd s
 		return nil, err
 	}
 	return mcpServersToContract(result.MCPServers), nil
+}
+
+func rejectExistingMCPServers(existing map[string]ServerConfig, names []string) error {
+	for _, name := range names {
+		if _, ok := existing[name]; ok {
+			return fmt.Errorf("%w: %s", errServerAlreadyExists, name)
+		}
+	}
+	return nil
+}
+
+func insertMCPServerConfigs(
+	ctx context.Context,
+	store MCPServerConfigStore,
+	workspaceRoot string,
+	additions map[string]ServerConfig,
+	names []string,
+) error {
+	for _, name := range names {
+		inserted, err := store.InsertServer(ctx, StoreMCPServerConfigParams{
+			WorkspaceRoot: workspaceRoot,
+			Name:          name,
+			Config:        additions[name],
+		})
+		if err != nil {
+			return err
+		}
+		if !inserted {
+			return fmt.Errorf("%w: %s", errServerAlreadyExists, name)
+		}
+	}
+	return nil
+}
+
+func (s *service) requireStore() (MCPServerConfigStore, error) {
+	if s == nil || s.store == nil {
+		return nil, errMCPServerStoreNotConfigured
+	}
+	return s.store, nil
+}
+
+func (s *service) resolveWorkspaceServers(ctx context.Context, cwd string) (string, map[string]ServerConfig, error) {
+	store, err := s.requireStore()
+	if err != nil {
+		return "", nil, err
+	}
+	workspaceRoot, err := normalizeMCPServerWorkspaceRoot(cwd)
+	if err != nil {
+		return "", nil, err
+	}
+	empty := map[string]ServerConfig{}
+	for _, candidate := range mcpServerWorkspaceCandidates(workspaceRoot) {
+		servers, err := store.ListServers(ctx, candidate)
+		if err != nil {
+			return "", nil, err
+		}
+		if len(servers) > 0 {
+			return candidate, servers, nil
+		}
+		if candidate == workspaceRoot {
+			empty = servers
+		}
+	}
+	return workspaceRoot, empty, nil
+}
+
+func normalizeDeleteServerName(req DeleteServerRequest) (string, error) {
+	name := strings.TrimSpace(req.ServerName)
+	if name == "" || name != req.ServerName {
+		return "", errMissingServerName
+	}
+	return name, nil
+}
+
+func mcpServerContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
 }
 
 func normalizeMCPServers(input map[string]ServerConfig) (map[string]ServerConfig, []string, error) {
@@ -351,4 +472,36 @@ func resolveMCPServerConfigBaseDir(cwd string) (string, error) {
 
 func mcpServerConfigPath(workingDir string) string {
 	return filepath.Join(workingDir, ".agent", "mcp_server", "config.json")
+}
+
+func currentMCPServerWorkspaceRoot() (string, error) {
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("get working directory: %w", err)
+	}
+	return filepath.Clean(workingDir), nil
+}
+
+func normalizeMCPServerWorkspaceRoot(cwd string) (string, error) {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return currentMCPServerWorkspaceRoot()
+	}
+	if abs, err := filepath.Abs(cwd); err == nil {
+		cwd = abs
+	}
+	return filepath.Clean(cwd), nil
+}
+
+func mcpServerWorkspaceCandidates(workspaceRoot string) []string {
+	workspaceRoot = filepath.Clean(workspaceRoot)
+	candidates := make([]string, 0, 4)
+	for dir := workspaceRoot; dir != ""; dir = filepath.Dir(dir) {
+		candidates = append(candidates, dir)
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+	}
+	return candidates
 }

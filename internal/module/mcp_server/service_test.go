@@ -2,9 +2,7 @@ package mcpserver
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"os"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -12,8 +10,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-func TestAddServersWritesProjectAgentConfig(t *testing.T) {
-	svc := NewService()
+func TestAddServersPersistsProjectMCPServerConfig(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
 	project := t.TempDir()
 	t.Chdir(project)
 
@@ -40,10 +39,9 @@ func TestAddServersWritesProjectAgentConfig(t *testing.T) {
 		t.Fatalf("ServerNames = %#v, want my-search", got.ServerNames)
 	}
 
-	doc := readConfigDocument(t, wantPath)
-	server, ok := doc.MCPServers["my-search"]
+	server, ok := store.servers[project]["my-search"]
 	if !ok {
-		t.Fatalf("mcpServers = %#v, want my-search", doc.MCPServers)
+		t.Fatalf("stored servers = %#v, want my-search", store.servers)
 	}
 	if server.Transport != "http" {
 		t.Fatalf("Transport = %q, want http", server.Transport)
@@ -56,25 +54,15 @@ func TestAddServersWritesProjectAgentConfig(t *testing.T) {
 	}
 }
 
-func TestAddServersMergesWithExistingConfig(t *testing.T) {
-	svc := NewService()
+func TestAddServersKeepsExistingTableRows(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
 	project := t.TempDir()
 	t.Chdir(project)
-	configPath := filepath.Join(project, ".agent", "mcp_server", "config.json")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("create config dir: %v", err)
-	}
-	existing := []byte(`{
-  "mcpServers": {
-    "existing": {
-      "transport": "http",
-      "url": "https://existing.example/mcp"
-    }
-  }
-}`)
-	if err := os.WriteFile(configPath, existing, 0o600); err != nil {
-		t.Fatalf("write existing config: %v", err)
-	}
+	store.seed(project, "existing", ServerConfig{
+		Transport: "http",
+		URL:       "https://existing.example/mcp",
+	})
 
 	got, err := svc.AddServers(context.Background(), AddServersRequest{
 		MCPServers: map[string]ServerConfig{
@@ -91,34 +79,27 @@ func TestAddServersMergesWithExistingConfig(t *testing.T) {
 		t.Fatalf("ServerNames = %#v, want new-search", got.ServerNames)
 	}
 
-	doc := readConfigDocument(t, configPath)
-	if _, ok := doc.MCPServers["existing"]; !ok {
-		t.Fatalf("existing server missing from %#v", doc.MCPServers)
+	listed, err := svc.ListServers(context.Background())
+	if err != nil {
+		t.Fatalf("ListServers() error = %v", err)
 	}
-	if _, ok := doc.MCPServers["new-search"]; !ok {
-		t.Fatalf("new server missing from %#v", doc.MCPServers)
+	if _, ok := listed.MCPServers["existing"]; !ok {
+		t.Fatalf("existing server missing from %#v", listed.MCPServers)
+	}
+	if _, ok := listed.MCPServers["new-search"]; !ok {
+		t.Fatalf("new server missing from %#v", listed.MCPServers)
 	}
 }
 
 func TestAddServersRejectsDuplicateServer(t *testing.T) {
-	svc := NewService()
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
 	project := t.TempDir()
 	t.Chdir(project)
-	configPath := filepath.Join(project, ".agent", "mcp_server", "config.json")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("create config dir: %v", err)
-	}
-	existing := []byte(`{
-  "mcpServers": {
-    "my-search": {
-      "transport": "http",
-      "url": "https://existing.example/mcp"
-    }
-  }
-}`)
-	if err := os.WriteFile(configPath, existing, 0o600); err != nil {
-		t.Fatalf("write existing config: %v", err)
-	}
+	store.seed(project, "my-search", ServerConfig{
+		Transport: "http",
+		URL:       "https://existing.example/mcp",
+	})
 
 	_, err := svc.AddServers(context.Background(), AddServersRequest{
 		MCPServers: map[string]ServerConfig{
@@ -134,7 +115,7 @@ func TestAddServersRejectsDuplicateServer(t *testing.T) {
 }
 
 func TestAddServersRejectsInvalidHTTPURL(t *testing.T) {
-	svc := NewService()
+	svc := NewServiceWithStore(newMemoryMCPServerStore())
 	t.Chdir(t.TempDir())
 
 	_, err := svc.AddServers(context.Background(), AddServersRequest{
@@ -150,35 +131,25 @@ func TestAddServersRejectsInvalidHTTPURL(t *testing.T) {
 	}
 }
 
-func TestListServersReadsProjectAgentConfig(t *testing.T) {
-	svc := NewService()
+func TestListServersReadsProjectTableRows(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
 	project := t.TempDir()
 	t.Chdir(project)
-	configPath := filepath.Join(project, ".agent", "mcp_server", "config.json")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("create config dir: %v", err)
-	}
-	existing := []byte(`{
-  "mcpServers": {
-    "my-search": {
-      "transport": "http",
-      "url": "https://your-domain.com/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_API_KEY"
-      }
-    }
-  }
-}`)
-	if err := os.WriteFile(configPath, existing, 0o600); err != nil {
-		t.Fatalf("write existing config: %v", err)
-	}
+	store.seed(project, "my-search", ServerConfig{
+		Transport: "http",
+		URL:       "https://your-domain.com/mcp",
+		Headers: map[string]string{
+			"Authorization": "Bearer YOUR_API_KEY",
+		},
+	})
 
 	got, err := svc.ListServers(context.Background())
 	if err != nil {
 		t.Fatalf("ListServers() error = %v", err)
 	}
-	if got.ConfigPath != configPath {
-		t.Fatalf("ConfigPath = %q, want %q", got.ConfigPath, configPath)
+	if got.ConfigPath != filepath.Join(project, ".agent", "mcp_server", "config.json") {
+		t.Fatalf("ConfigPath = %q", got.ConfigPath)
 	}
 	server, ok := got.MCPServers["my-search"]
 	if !ok {
@@ -195,8 +166,8 @@ func TestListServersReadsProjectAgentConfig(t *testing.T) {
 	}
 }
 
-func TestListServersReturnsEmptyWhenConfigDoesNotExist(t *testing.T) {
-	svc := NewService()
+func TestListServersReturnsEmptyWhenProjectHasNoTableRows(t *testing.T) {
+	svc := NewServiceWithStore(newMemoryMCPServerStore())
 	project := t.TempDir()
 	t.Chdir(project)
 
@@ -212,31 +183,50 @@ func TestListServersReturnsEmptyWhenConfigDoesNotExist(t *testing.T) {
 	}
 }
 
-func TestMCPServerConfigProviderReadsProjectConfigForNestedCWD(t *testing.T) {
-	svc := NewService()
+func TestDeleteServerRemovesProjectTableRow(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
+	project := t.TempDir()
+	t.Chdir(project)
+	store.seed(project, "my-search", ServerConfig{
+		Transport: "http",
+		URL:       "https://your-domain.com/mcp",
+	})
+
+	got, err := svc.DeleteServer(context.Background(), DeleteServerRequest{ServerName: "my-search"})
+	if err != nil {
+		t.Fatalf("DeleteServer() error = %v", err)
+	}
+	if !got.Deleted || got.ServerName != "my-search" {
+		t.Fatalf("DeleteServer() = %#v, want deleted my-search", got)
+	}
+	if _, ok := store.servers[project]["my-search"]; ok {
+		t.Fatalf("server still stored after delete: %#v", store.servers[project])
+	}
+}
+
+func TestDeleteServerReturnsNotFoundForMissingTableRow(t *testing.T) {
+	svc := NewServiceWithStore(newMemoryMCPServerStore())
+	t.Chdir(t.TempDir())
+
+	_, err := svc.DeleteServer(context.Background(), DeleteServerRequest{ServerName: "missing"})
+	if !errors.Is(err, errServerNotFound) {
+		t.Fatalf("DeleteServer() error = %v, want errServerNotFound", err)
+	}
+}
+
+func TestMCPServerConfigProviderReadsProjectTableRowsForNestedCWD(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
 	project := t.TempDir()
 	nested := filepath.Join(project, "pkg", "api")
-	if err := os.MkdirAll(nested, 0o755); err != nil {
-		t.Fatalf("create nested cwd: %v", err)
-	}
-	configPath := filepath.Join(project, ".agent", "mcp_server", "config.json")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		t.Fatalf("create config dir: %v", err)
-	}
-	existing := []byte(`{
-  "mcpServers": {
-    "my-search": {
-      "transport": "http",
-      "url": "https://your-domain.com/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_API_KEY"
-      }
-    }
-  }
-}`)
-	if err := os.WriteFile(configPath, existing, 0o600); err != nil {
-		t.Fatalf("write existing config: %v", err)
-	}
+	store.seed(project, "my-search", ServerConfig{
+		Transport: "http",
+		URL:       "https://your-domain.com/mcp",
+		Headers: map[string]string{
+			"Authorization": "Bearer YOUR_API_KEY",
+		},
+	})
 
 	provider := AsMCPServerConfigProvider(svc)
 	got, err := provider.ListMCPServerConfigs(context.Background(), nested)
@@ -248,21 +238,60 @@ func TestMCPServerConfigProviderReadsProjectConfigForNestedCWD(t *testing.T) {
 		URL:       "https://your-domain.com/mcp",
 		Headers:   map[string]string{"Authorization": "Bearer YOUR_API_KEY"},
 	}
-	if got["my-search"].Transport != want.Transport || got["my-search"].URL != want.URL || got["my-search"].Headers["Authorization"] != want.Headers["Authorization"] {
+	if got["my-search"].Transport != want.Transport ||
+		got["my-search"].URL != want.URL ||
+		got["my-search"].Headers["Authorization"] != want.Headers["Authorization"] {
 		t.Fatalf("ListMCPServerConfigs() = %#v, want my-search %#v", got, want)
 	}
 }
 
-func readConfigDocument(t *testing.T, path string) ConfigDocument {
-	t.Helper()
+type memoryMCPServerStore struct {
+	servers map[string]map[string]ServerConfig
+}
 
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read config: %v", err)
+func newMemoryMCPServerStore() *memoryMCPServerStore {
+	return &memoryMCPServerStore{servers: map[string]map[string]ServerConfig{}}
+}
+
+func (s *memoryMCPServerStore) InsertServer(_ context.Context, params StoreMCPServerConfigParams) (bool, error) {
+	if s.servers == nil {
+		s.servers = map[string]map[string]ServerConfig{}
 	}
-	var doc ConfigDocument
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatalf("unmarshal config: %v", err)
+	if s.servers[params.WorkspaceRoot] == nil {
+		s.servers[params.WorkspaceRoot] = map[string]ServerConfig{}
 	}
-	return doc
+	if _, exists := s.servers[params.WorkspaceRoot][params.Name]; exists {
+		return false, nil
+	}
+	s.servers[params.WorkspaceRoot][params.Name] = cloneSingleMCPServerConfig(params.Config)
+	return true, nil
+}
+
+func (s *memoryMCPServerStore) ListServers(_ context.Context, workspaceRoot string) (map[string]ServerConfig, error) {
+	return cloneMCPServers(s.servers[workspaceRoot]), nil
+}
+
+func (s *memoryMCPServerStore) DeleteServer(_ context.Context, workspaceRoot, name string) (bool, error) {
+	if s.servers[workspaceRoot] == nil {
+		return false, nil
+	}
+	if _, exists := s.servers[workspaceRoot][name]; !exists {
+		return false, nil
+	}
+	delete(s.servers[workspaceRoot], name)
+	return true, nil
+}
+
+func (s *memoryMCPServerStore) seed(workspaceRoot, name string, config ServerConfig) {
+	if s.servers == nil {
+		s.servers = map[string]map[string]ServerConfig{}
+	}
+	if s.servers[workspaceRoot] == nil {
+		s.servers[workspaceRoot] = map[string]ServerConfig{}
+	}
+	s.servers[workspaceRoot][name] = cloneSingleMCPServerConfig(config)
+}
+
+func cloneSingleMCPServerConfig(config ServerConfig) ServerConfig {
+	return cloneMCPServers(map[string]ServerConfig{"server": config})["server"]
 }
