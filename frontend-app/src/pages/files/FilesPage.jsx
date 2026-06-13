@@ -487,11 +487,30 @@ function SharedFilesPageView({ actions, dashboard, filters }) {
   return (
     <section className="console-page shared-files-page">
       <SharedFilesHeader dashboard={dashboard} filters={filters} />
+      <SharedFilesOverview dashboard={dashboard} filters={filters} />
       <SharedFilesIntro />
       <SharedFilesTabs category={filters.category} categoryCounts={filters.categoryCounts} onCategory={filters.setCategory} />
       <SharedFilesStatus actions={actions} dashboard={dashboard} />
       <SharedFilesContent actions={actions} dashboard={dashboard} filters={filters} />
       <SharedFilesModals actions={actions} />
+    </section>
+  );
+}
+
+function SharedFilesOverview({ dashboard, filters }) {
+  const cleanupCount = Number(dashboard.retention?.cleanupCandidateCount || 0);
+  return (
+    <section className="shared-files-overview" aria-label="共享文件状态">
+      <div className="shared-files-overview-copy">
+        <span>当前资产</span>
+        <h2>共享文件和最终产物</h2>
+      </div>
+      <dl>
+        <div><dt>全部文件</dt><dd>{dashboard.files.length}</dd></div>
+        <div><dt>最终产物</dt><dd>{filters.finalCount}</dd></div>
+        <div><dt>工作文件</dt><dd>{filters.workCount}</dd></div>
+        <div><dt>可清理文件</dt><dd>{cleanupCount}</dd></div>
+      </dl>
     </section>
   );
 }
