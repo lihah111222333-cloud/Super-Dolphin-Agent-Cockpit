@@ -62,7 +62,37 @@ func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 			AutoApprove: append([]string(nil), autoApprove...),
 		})
 	}
-	return dto.MCPManifest{Binaries: bins}
+	return dto.MCPManifest{Binaries: appendExtraManifestBinaries(bins, ctx.ExtraBinaries)}
+}
+
+func appendExtraManifestBinaries(bins []dto.MCPBinary, extras []dto.MCPBinary) []dto.MCPBinary {
+	if len(extras) == 0 {
+		return bins
+	}
+	seen := make(map[string]struct{}, len(bins))
+	for _, bin := range bins {
+		if name := strings.TrimSpace(bin.Name); name != "" {
+			seen[name] = struct{}{}
+		}
+	}
+	for _, extra := range extras {
+		extra.Name = strings.TrimSpace(extra.Name)
+		if extra.Name == "" {
+			continue
+		}
+		if _, exists := seen[extra.Name]; exists {
+			continue
+		}
+		extra.Type = strings.TrimSpace(extra.Type)
+		extra.URL = strings.TrimSpace(extra.URL)
+		extra.Headers = cloneManifestEnv(extra.Headers)
+		extra.Env = cloneManifestEnv(extra.Env)
+		extra.Command = append([]string(nil), extra.Command...)
+		extra.AutoApprove = append([]string(nil), extra.AutoApprove...)
+		bins = append(bins, extra)
+		seen[extra.Name] = struct{}{}
+	}
+	return bins
 }
 
 const manifestProjectRootEnvKey = "PROJECT_ROOT"

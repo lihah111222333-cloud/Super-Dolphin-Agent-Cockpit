@@ -97,7 +97,7 @@ func (s *service) completeStart(ctx context.Context, req StartRequest, agentID s
 	if req.PromptAssemblyRef == nil {
 		req.PromptAssemblyRef = s.promptAssembly
 	}
-	assemblyInput, cleanupScratchpad, err := s.buildStartAssemblyInput(req, agentID)
+	assemblyInput, cleanupScratchpad, err := s.buildStartAssemblyInput(ctx, req, agentID)
 	if err != nil {
 		return StartResult{}, err
 	}

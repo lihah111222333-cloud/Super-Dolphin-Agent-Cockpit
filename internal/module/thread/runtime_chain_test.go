@@ -149,6 +149,7 @@ func newRuntimeChainService(
 		promptAssembly,
 		&contract.Config{},
 		nil,
+		nil,
 		store,
 		catalog,
 		promptpkg.EvaluateMatchWhen,

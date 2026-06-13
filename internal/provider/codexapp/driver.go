@@ -70,11 +70,9 @@ var codexCapabilities = dto.CapabilitySet{
 
 type threadRPCResult struct {
 	Thread struct {
-		ID  string `json:"id"`
-		Cwd string `json:"cwd"`
+		ID string `json:"id"`
 	} `json:"thread"`
-	Model         string `json:"model"`
-	ModelProvider string `json:"modelProvider"`
+	Model string `json:"model"`
 }
 
 type threadStartParams struct {
@@ -88,6 +86,7 @@ type threadStartParams struct {
 	Summary               string                            `json:"summary,omitempty"`
 	Effort                string                            `json:"effort,omitempty"`
 	Sandbox               json.RawMessage                   `json:"sandbox,omitempty"`
+	MCPConfig             json.RawMessage                   `json:"mcpConfig,omitempty"`
 	DynamicTools          []codexprotocol.DynamicToolSchema `json:"dynamicTools,omitempty"`
 }
 

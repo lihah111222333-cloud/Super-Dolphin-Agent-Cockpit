@@ -136,6 +136,7 @@ func TestNonForcedStartCarriesAvailableExpertsToProviderAssembly(t *testing.T) {
 		promptAssembly,
 		&contract.Config{},
 		nil,
+		nil,
 		store,
 		catalog,
 		promptpkg.EvaluateMatchWhen,

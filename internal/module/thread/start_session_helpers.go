@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -29,8 +30,13 @@ func normalizeStartDisplayName(value string) string {
 	return string(runes[:startDisplayNameMaxRunes])
 }
 
-func (s *service) buildStartAssemblyInput(req StartRequest, threadID string) (contract.StartInput, func(), error) {
+func (s *service) buildStartAssemblyInput(ctx context.Context, req StartRequest, threadID string) (contract.StartInput, func(), error) {
 	buildCtx := buildStartCtx(req, s.cfg, s.toolRegistry)
+	var err error
+	buildCtx.MCPSnapshot, err = mergeConfiguredMCPServers(ctx, buildCtx.MCPSnapshot, s.mcpServers, mcpServerConfigLookupRoot(buildCtx))
+	if err != nil {
+		return contract.StartInput{}, nil, err
+	}
 	buildCtx, cleanup, err := s.prepareScratchpadBuildCtx(req, threadID, buildCtx)
 	if err != nil {
 		return contract.StartInput{}, nil, err
@@ -362,6 +368,7 @@ func buildStartSessionConfig(req StartRequest, input contract.StartInput, assemb
 	putConfigStrings(cfg, "mcpServers", input.MCPSnapshot.Servers)
 	putConfigStrings(cfg, "mcpTools", input.MCPSnapshot.Tools)
 	putConfigStringMap(cfg, "mcpInstructions", input.MCPSnapshot.Instructions)
+	putConfigMCPServerConfigs(cfg, "mcpConfig", input.MCPSnapshot.ServerConfigs)
 	for _, key := range []string{"mcpInstructionsDeltaEnabled", "mcp_instructions_delta_enabled"} {
 		putConfigBool(cfg, key, input.MCPSnapshot.InstructionsDeltaEnabled)
 	}
@@ -487,6 +494,65 @@ func putConfigStringMap(cfg map[string]any, key string, values map[string]string
 	if len(out) > 0 {
 		cfg[key] = out
 	}
+}
+
+func putConfigMCPServerConfigs(cfg map[string]any, key string, values map[string]contract.MCPServerConfig) {
+	servers := renderMCPServerConfigMap(values)
+	if len(servers) == 0 {
+		return
+	}
+	cfg[key] = map[string]any{"mcpServers": servers}
+}
+
+func renderMCPServerConfigMap(values map[string]contract.MCPServerConfig) map[string]any {
+	if len(values) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(values))
+	rawNames := make(map[string]string, len(values))
+	for rawName := range values {
+		name := strings.TrimSpace(rawName)
+		if name != "" {
+			names = append(names, name)
+			rawNames[name] = rawName
+		}
+	}
+	sort.Strings(names)
+	out := make(map[string]any, len(names))
+	for _, name := range names {
+		config := values[rawNames[name]]
+		server := map[string]any{}
+		putConfigString(server, "transport", config.Transport)
+		putConfigString(server, "url", config.URL)
+		if headers := renderMCPServerHeaderMap(config.Headers); len(headers) > 0 {
+			server["headers"] = headers
+		}
+		if len(server) > 0 {
+			out[name] = server
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func renderMCPServerHeaderMap(headers map[string]string) map[string]any {
+	if len(headers) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(headers))
+	for name, value := range headers {
+		name = strings.TrimSpace(name)
+		value = strings.TrimSpace(value)
+		if name != "" && value != "" {
+			out[name] = value
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func putConfigBoolMap(cfg map[string]any, key string, values map[string]bool) {
