@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 var (
@@ -29,6 +31,7 @@ var (
 type Service interface {
 	AddServers(context.Context, AddServersRequest) (AddServersResult, error)
 	ListServers(context.Context) (ListServersResult, error)
+	ListServersForCWD(context.Context, string) (ListServersResult, error)
 }
 
 type ConfigDocument struct {
@@ -109,6 +112,20 @@ func (s *service) ListServers(ctx context.Context) (ListServersResult, error) {
 	if err != nil {
 		return ListServersResult{}, fmt.Errorf("get working directory: %w", err)
 	}
+	return s.ListServersForCWD(ctx, workingDir)
+}
+
+func (s *service) ListServersForCWD(ctx context.Context, cwd string) (ListServersResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return ListServersResult{}, err
+	}
+	workingDir, err := resolveMCPServerConfigBaseDir(cwd)
+	if err != nil {
+		return ListServersResult{}, err
+	}
 	configPath := mcpServerConfigPath(workingDir)
 	doc, err := readMCPServerConfig(configPath)
 	if err != nil {
@@ -118,6 +135,25 @@ func (s *service) ListServers(ctx context.Context) (ListServersResult, error) {
 		ConfigPath: configPath,
 		MCPServers: cloneMCPServers(doc.MCPServers),
 	}, nil
+}
+
+type mcpServerConfigProvider struct {
+	svc Service
+}
+
+func AsMCPServerConfigProvider(svc Service) contract.MCPServerConfigProvider {
+	return mcpServerConfigProvider{svc: svc}
+}
+
+func (p mcpServerConfigProvider) ListMCPServerConfigs(ctx context.Context, cwd string) (map[string]contract.MCPServerConfig, error) {
+	if p.svc == nil {
+		return nil, errors.New("mcp server service is not configured")
+	}
+	result, err := p.svc.ListServersForCWD(ctx, cwd)
+	if err != nil {
+		return nil, err
+	}
+	return mcpServersToContract(result.MCPServers), nil
 }
 
 func normalizeMCPServers(input map[string]ServerConfig) (map[string]ServerConfig, []string, error) {
@@ -210,10 +246,10 @@ func validateHTTPURL(rawURL string) error {
 
 func readMCPServerConfig(configPath string) (ConfigDocument, error) {
 	raw, err := os.ReadFile(configPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return ConfigDocument{MCPServers: map[string]ServerConfig{}}, nil
-		}
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return ConfigDocument{MCPServers: map[string]ServerConfig{}}, nil
+	case err != nil:
 		return ConfigDocument{}, fmt.Errorf("read mcp server config: %w", err)
 	}
 	var doc ConfigDocument
@@ -262,6 +298,55 @@ func cloneMCPServers(input map[string]ServerConfig) map[string]ServerConfig {
 		out[name] = config
 	}
 	return out
+}
+
+func mcpServersToContract(input map[string]ServerConfig) map[string]contract.MCPServerConfig {
+	out := make(map[string]contract.MCPServerConfig, len(input))
+	for name, config := range input {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		headers := make(map[string]string, len(config.Headers))
+		for header, value := range config.Headers {
+			headers[header] = value
+		}
+		if len(headers) == 0 {
+			headers = nil
+		}
+		out[name] = contract.MCPServerConfig{
+			Transport: strings.TrimSpace(config.Transport),
+			URL:       strings.TrimSpace(config.URL),
+			Headers:   headers,
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func resolveMCPServerConfigBaseDir(cwd string) (string, error) {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return os.Getwd()
+	}
+	if abs, err := filepath.Abs(cwd); err == nil {
+		cwd = abs
+	}
+	for dir := filepath.Clean(cwd); dir != ""; dir = filepath.Dir(dir) {
+		configPath := mcpServerConfigPath(dir)
+		if _, err := os.Stat(configPath); err == nil {
+			return dir, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("stat mcp server config: %w", err)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+	}
+	return filepath.Clean(cwd), nil
 }
 
 func mcpServerConfigPath(workingDir string) string {

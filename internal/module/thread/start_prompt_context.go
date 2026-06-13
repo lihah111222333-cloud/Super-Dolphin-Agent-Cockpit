@@ -324,6 +324,7 @@ func mergeMCPSnapshot(base, extra contract.MCPSnapshot) contract.MCPSnapshot {
 	out := contract.MCPSnapshot{
 		Servers:                  uniquePromptStrings(base.Servers, extra.Servers),
 		Tools:                    uniquePromptStrings(base.Tools, extra.Tools),
+		ServerConfigs:            mergeMCPServerConfigMaps(base.ServerConfigs, extra.ServerConfigs),
 		InstructionsDeltaEnabled: base.InstructionsDeltaEnabled || extra.InstructionsDeltaEnabled,
 		InstructionAttachments:   append(append([]contract.MCPAttachmentRef(nil), base.InstructionAttachments...), extra.InstructionAttachments...),
 	}
