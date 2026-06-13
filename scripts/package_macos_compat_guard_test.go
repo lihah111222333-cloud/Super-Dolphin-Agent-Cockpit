@@ -15,8 +15,8 @@ func TestPackageMacOSScriptRejectsStartupBinariesAboveTargetMacOS(t *testing.T) 
 	assertScriptContains(t, script, "export CGO_CXXFLAGS=\"${CGO_CXXFLAGS:+$CGO_CXXFLAGS }-mmacosx-version-min=$macos_min_version\"")
 	assertScriptContains(t, script, "export CGO_LDFLAGS=\"${CGO_LDFLAGS:+$CGO_LDFLAGS }-mmacosx-version-min=$macos_min_version\"")
 	assertScriptOrder(t, script, "export CGO_LDFLAGS=\"${CGO_LDFLAGS:+$CGO_LDFLAGS }-mmacosx-version-min=$macos_min_version\"", "make build-peer-binaries")
-	assertScriptContains(t, script, "verify_startup_macos_compatibility \"$macos_min_version\" \"$resources/postgres/$platform\"")
-	assertScriptOrder(t, script, "bundle_homebrew_dylibs \"$resources/postgres/$platform\"", "verify_startup_macos_compatibility \"$macos_min_version\"")
+	assertScriptContains(t, script, "verify_startup_macos_compatibility \"$macos_min_version\"")
+	assertScriptDoesNotContain(t, script, "bundle_homebrew_dylibs \"$resources/postgres/$platform\"")
 	assertScriptOrder(t, script, "verify_startup_macos_compatibility \"$macos_min_version\"", "phase_start \"write plist\"")
 
 	assertScriptContains(t, versionBody, "IFS=. read -r -a left_parts")
@@ -28,11 +28,8 @@ func TestPackageMacOSScriptRejectsStartupBinariesAboveTargetMacOS(t *testing.T) 
 		"\"$macos/agent-terminal\"",
 		"\"$resources/bin/mcp-orch\"",
 		"\"$resources/bin/mcp-lsp\"",
-		"\"$postgres_root/bin/postgres\"",
-		"\"$postgres_root/bin/initdb\"",
-		"\"$postgres_root/bin/pg_ctl\"",
-		"\"$postgres_root/bin/pg_config\"",
 	} {
 		assertScriptContains(t, verifyBody, want)
 	}
+	assertScriptDoesNotContain(t, verifyBody, "postgres_root")
 }

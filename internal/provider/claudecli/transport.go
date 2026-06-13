@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // processSig is the internal signal abstraction used by the transport so that
@@ -52,9 +54,9 @@ func newTransport(binary string, args []string, cwd string, env []string) (*tran
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
-	baseEnv := os.Environ()
+	baseEnv := contract.ScrubDatabaseEnv(os.Environ())
 	if len(env) > 0 {
-		baseEnv = append(baseEnv, env...)
+		baseEnv = append(baseEnv, contract.ScrubDatabaseEnv(env)...)
 	}
 	cmd.Env = ensureLoopbackNoProxy(baseEnv)
 	setClaudeProcessAttrs(cmd)

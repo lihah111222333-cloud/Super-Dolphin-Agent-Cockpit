@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
@@ -57,7 +58,7 @@ func (h *Handler) defaultStdioClientFactory(ctx context.Context, binary provider
 
 func newStdioMCPClient(ctx context.Context, binary providerdto.MCPBinary) (*stdioMCPClient, error) {
 	cmd := exec.Command(strings.TrimSpace(binary.Command[0]), binary.Command[1:]...)
-	cmd.Env = append(os.Environ(), manifestEnv(binary.Env)...)
+	cmd.Env = append(contract.ScrubDatabaseEnv(os.Environ()), manifestEnv(binary.Env)...)
 	stdioConfigureCommand(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -89,6 +90,9 @@ func newStdioMCPClient(ctx context.Context, binary providerdto.MCPBinary) (*stdi
 func manifestEnv(env map[string]string) []string {
 	out := make([]string, 0, len(env))
 	for key, value := range env {
+		if contract.IsForbiddenDatabaseEnvKey(key) {
+			continue
+		}
 		out = append(out, key+"="+value)
 	}
 	return out

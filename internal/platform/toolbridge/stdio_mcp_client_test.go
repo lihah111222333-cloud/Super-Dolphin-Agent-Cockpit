@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -120,6 +121,48 @@ func TestStdioMCPClientCloseTerminatesChildProcesses(t *testing.T) {
 	assertProcessExited(t, childPID)
 }
 
+func TestStdioMCPClientScrubsDatabaseEnvFromParentAndManifest(t *testing.T) {
+	if os.Getenv("TOOLBRIDGE_STDIO_MCP_HELPER") == "1" {
+		runStdioMCPTestHelper()
+		return
+	}
+
+	t.Setenv("DATABASE_URL", "postgres://parent@localhost/super_dolphin")
+	t.Setenv("POSTGRES_CONNECTION_STRING", "postgres://compat@localhost/super_dolphin")
+	t.Setenv("SUPER_DOLPHIN_SQLITE_PATH", filepath.Join(t.TempDir(), "parent.db"))
+	t.Setenv("SUPER_DOLPHIN_INTERNAL_SQLITE_PATH", filepath.Join(t.TempDir(), "parent-internal.db"))
+	t.Setenv("TOOLBRIDGE_SAFE_PARENT", "keep-parent")
+
+	envPath := filepath.Join(t.TempDir(), "stdio-env.txt")
+	client, err := newStdioMCPClient(context.Background(), providerdto.MCPBinary{
+		Name: "env-helper",
+		Command: []string{
+			os.Args[0],
+			"-test.run=^TestStdioMCPClientScrubsDatabaseEnvFromParentAndManifest$",
+		},
+		Env: map[string]string{
+			"TOOLBRIDGE_STDIO_MCP_HELPER":        "1",
+			"TOOLBRIDGE_STDIO_ENV_FILE":          envPath,
+			"TOOLBRIDGE_SAFE_MANIFEST":           "keep-manifest",
+			"DATABASE_URL":                       "postgres://manifest@localhost/super_dolphin",
+			"POSTGRES_CONNECTION_STRING":         "postgres://manifest-compat@localhost/super_dolphin",
+			"SUPER_DOLPHIN_SQLITE_PATH":          filepath.Join(t.TempDir(), "manifest.db"),
+			"SUPER_DOLPHIN_INTERNAL_SQLITE_PATH": filepath.Join(t.TempDir(), "manifest-internal.db"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("newStdioMCPClient() error = %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	env := waitForEnvFile(t, envPath)
+	for _, key := range []string{"DATABASE_URL", "POSTGRES_CONNECTION_STRING", "SUPER_DOLPHIN_SQLITE_PATH", "SUPER_DOLPHIN_INTERNAL_SQLITE_PATH"} {
+		requireEnvKeyAbsent(t, env, key)
+	}
+	requireEnvValueInSlice(t, env, "TOOLBRIDGE_SAFE_PARENT", "keep-parent")
+	requireEnvValueInSlice(t, env, "TOOLBRIDGE_SAFE_MANIFEST", "keep-manifest")
+}
+
 type fakeStdioTransport struct {
 	reads  []json.RawMessage
 	writes []any
@@ -143,10 +186,16 @@ func (t *fakeStdioTransport) Close() error {
 }
 
 func runStdioMCPTestHelper() {
+	if envFile := os.Getenv("TOOLBRIDGE_STDIO_ENV_FILE"); envFile != "" {
+		if err := os.WriteFile(envFile, []byte(strings.Join(os.Environ(), "\n")), 0o600); err != nil {
+			fmt.Fprintf(os.Stderr, "write env file: %v\n", err)
+			os.Exit(2)
+		}
+	}
 	marker := os.Getenv("TOOLBRIDGE_STDIO_PID_FILE")
 	if marker == "" {
-		fmt.Fprintln(os.Stderr, "missing TOOLBRIDGE_STDIO_PID_FILE")
-		os.Exit(2)
+		serveMinimalStdioMCP()
+		return
 	}
 	child := exec.Command(os.Args[0], "-test.run=TestStdioMCPClientCloseTerminatesChildProcesses")
 	child.Env = append(withoutEnvKey(os.Environ(), "TOOLBRIDGE_STDIO_MCP_HELPER"), "TOOLBRIDGE_STDIO_CHILD_HELPER=1")
@@ -207,6 +256,24 @@ func waitForPIDFile(t *testing.T, path string) int {
 	return 0
 }
 
+func waitForEnvFile(t *testing.T, path string) []string {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		raw, err := os.ReadFile(path)
+		if err == nil {
+			text := strings.TrimSpace(strings.ReplaceAll(string(raw), "\r\n", "\n"))
+			if text == "" {
+				return nil
+			}
+			return strings.Split(text, "\n")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for env file %s", path)
+	return nil
+}
+
 func assertProcessExited(t *testing.T, pid int) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -217,6 +284,34 @@ func assertProcessExited(t *testing.T, pid int) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("process %d still alive after stdio MCP client close", pid)
+}
+
+func requireEnvKeyAbsent(t *testing.T, env []string, key string) {
+	t.Helper()
+	if value, ok := envValueInSlice(env, key); ok {
+		t.Fatalf("%s leaked with value %q in env %#v", key, value, env)
+	}
+}
+
+func requireEnvValueInSlice(t *testing.T, env []string, key, want string) {
+	t.Helper()
+	got, ok := envValueInSlice(env, key)
+	if !ok {
+		t.Fatalf("%s missing from env %#v", key, env)
+	}
+	if got != want {
+		t.Fatalf("%s = %q, want %q", key, got, want)
+	}
+}
+
+func envValueInSlice(env []string, key string) (string, bool) {
+	prefix := key + "="
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return strings.TrimPrefix(item, prefix), true
+		}
+	}
+	return "", false
 }
 
 func withoutEnvKey(env []string, key string) []string {

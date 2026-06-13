@@ -66,8 +66,12 @@ func TestBuildAllowlistedSpawnEnvOverridesWin(t *testing.T) {
 		"HOME=/home/a",
 	}
 	got := buildAllowlistedSpawnEnv(parent, map[string]string{
-		"CODEX_HOME": "/canonicalized/home",
-		"HOME":       "/override/home", // override must win even for allowlisted keys
+		"CODEX_HOME":                         "/canonicalized/home",
+		"HOME":                               "/override/home", // override must win even for allowlisted keys
+		"DATABASE_URL":                       "postgres://override@localhost/super_dolphin",
+		"POSTGRES_CONNECTION_STRING":         "postgres://override-compat@localhost/super_dolphin",
+		"SUPER_DOLPHIN_SQLITE_PATH":          "/private/override.db",
+		"SUPER_DOLPHIN_INTERNAL_SQLITE_PATH": "/private/internal.db",
 	})
 	text := strings.Join(got, "\n")
 	if !strings.Contains(text, "CODEX_HOME=/canonicalized/home") {
@@ -79,6 +83,7 @@ func TestBuildAllowlistedSpawnEnvOverridesWin(t *testing.T) {
 	if strings.Contains(text, "HOME=/home/a") {
 		t.Fatalf("parent HOME should be shadowed by override: %v", got)
 	}
+	requireCodexDatabaseEnvAbsent(t, got)
 }
 
 func TestBuildAllowlistedSpawnEnvIsDeterministic(t *testing.T) {

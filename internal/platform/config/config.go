@@ -203,7 +203,7 @@ func resolveProjectRoot() string {
 	}
 	if exe, err := os.Executable(); err == nil {
 		if root := resolvePackagedProjectRoot(exe); root != "" {
-			if info, err := os.Stat(filepath.Join(root, "migrations")); err == nil && info.IsDir() {
+			if hasPackagedProjectRootMigrationsDir(root) {
 				return root
 			}
 		}
@@ -215,13 +215,16 @@ func resolveProjectRoot() string {
 	return dir
 }
 
+func hasPackagedProjectRootMigrationsDir(root string) bool {
+	info, err := os.Stat(filepath.Join(root, "internal", "platform", "db", "sqlite", "migrations"))
+	return err == nil && info.IsDir()
+}
+
 func resolveSQLitePath(projectRoot string) (string, error) {
-	if rawExplicit, ok := os.LookupEnv("SUPER_DOLPHIN_SQLITE_PATH"); ok {
-		explicit := strings.TrimSpace(rawExplicit)
-		if explicit == "" {
-			return "", fmt.Errorf("SUPER_DOLPHIN_SQLITE_PATH resolves to an empty SQLite path")
-		}
-		return validateSQLitePath(explicit, true)
+	publicRaw, hasPublic := os.LookupEnv(contract.SQLitePathEnvKey)
+	internalRaw, hasInternal := os.LookupEnv(contract.InternalSQLitePathEnvKey)
+	if hasPublic || hasInternal {
+		return resolveExplicitSQLitePath(publicRaw, hasPublic, internalRaw, hasInternal)
 	}
 
 	home := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_HOME"))
@@ -238,14 +241,42 @@ func resolveSQLitePath(projectRoot string) (string, error) {
 		}
 		home = filepath.Join(projectRoot, ".super-dolphin")
 	}
-	return validateSQLitePath(filepath.Join(home, "super-dolphin.db"), false)
+	return validateSQLitePath(filepath.Join(home, "super-dolphin.db"), "")
 }
 
-func validateSQLitePath(path string, explicit bool) (string, error) {
+func resolveExplicitSQLitePath(publicRaw string, hasPublic bool, internalRaw string, hasInternal bool) (string, error) {
+	publicPath := ""
+	if hasPublic {
+		var err error
+		publicPath, err = validateSQLitePath(publicRaw, contract.SQLitePathEnvKey)
+		if err != nil {
+			return "", err
+		}
+	}
+	internalPath := ""
+	if hasInternal {
+		var err error
+		internalPath, err = validateSQLitePath(internalRaw, contract.InternalSQLitePathEnvKey)
+		if err != nil {
+			return "", err
+		}
+	}
+	if hasPublic && hasInternal && publicPath != internalPath {
+		return "", fmt.Errorf("conflicting SQLite path env %s=%s and %s=%s",
+			contract.SQLitePathEnvKey, redactPath(publicPath),
+			contract.InternalSQLitePathEnvKey, redactPath(internalPath))
+	}
+	if hasPublic {
+		return publicPath, nil
+	}
+	return internalPath, nil
+}
+
+func validateSQLitePath(path string, explicitKey string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		if explicit {
-			return "", fmt.Errorf("SUPER_DOLPHIN_SQLITE_PATH resolves to an empty SQLite path")
+		if explicitKey != "" {
+			return "", fmt.Errorf("%s resolves to an empty SQLite path", explicitKey)
 		}
 		return "", fmt.Errorf("resolved SQLite path is empty")
 	}

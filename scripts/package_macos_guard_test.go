@@ -65,12 +65,11 @@ func TestPackageMacOSScriptWritesRuntimeManifest(t *testing.T) {
 	assertScriptContains(t, body, "\"lsp_bundle_path\": \"lsp\"")
 	assertScriptContains(t, body, "\"lsp_manifest_path\": \"lsp/lsp-manifest.json\"")
 	assertScriptContains(t, body, "\"model_registry_path\": \"models.yaml\"")
-	assertScriptContains(t, body, "\"embedded_postgres_resource_path\": \"postgres/$platform\"")
+	assertScriptDoesNotContain(t, body, "embedded_postgres_resource_path")
 	assertScriptDoesNotContain(t, body, "$root")
 	assertScriptOrder(t, script, "copy_packaged_codex \"$resources\" \"$resources/bin/codex\"", "write_runtime_manifest \"$resources\" \"$platform\"")
 	assertScriptOrder(t, script, "copy_packaged_lsp_bundle \"$resources\"", "write_runtime_manifest \"$resources\" \"$platform\"")
 	assertScriptOrder(t, script, "copy_model_registry \"$resources\"", "write_runtime_manifest \"$resources\" \"$platform\"")
-	assertScriptOrder(t, script, "rsync -aL --delete \"$pg_src\"/", "write_runtime_manifest \"$resources\" \"$platform\"")
 	assertScriptOrder(t, script, "write_runtime_manifest \"$resources\" \"$platform\"", "\"$root/scripts/verify_packaged_app_macos.sh\" \"$app\"")
 }
 
@@ -134,7 +133,7 @@ func TestPackageMacOSScriptRequiresVerifiedLSPBundle(t *testing.T) {
 	assertScriptContains(t, script, "resolve_packaged_lsp_bundle")
 	assertScriptContains(t, script, "copy_packaged_lsp_bundle \"$resources\"")
 	assertScriptContains(t, script, "write_lsp_manifest \"$resources\"")
-	assertScriptContains(t, script, "sign_macho_tree \"$codesign_identity\" \"$macos\" \"$resources/bin\" \"$resources/lib\" \"$resources/libexec\" \"$resources/postgres/$platform\" \"$resources/lsp\"")
+	assertScriptContains(t, script, "sign_macho_tree \"$codesign_identity\" \"$macos\" \"$resources/bin\" \"$resources/lib\" \"$resources/libexec\" \"$resources/lsp\"")
 	assertScriptContains(t, body, "\"lsp_bundle_path\": \"lsp\"")
 	assertScriptContains(t, body, "\"lsp_manifest_path\": \"lsp/lsp-manifest.json\"")
 	assertScriptOrder(t, script, "resolve_packaged_lsp_bundle", "mkdir -p \"$macos\" \"$resources/bin\"")
@@ -392,12 +391,11 @@ func TestVerifyPackagedAppMacOSChecksFinalCodexDigest(t *testing.T) {
 func writeDefaultMacOSRuntimeManifest(t *testing.T, resources string) {
 	t.Helper()
 	writeRuntimeManifest(t, resources, map[string]string{
-		"bundled_codex_path":              "bin/codex",
-		"bundled_gopls_path":              "bin/gopls",
-		"lsp_bundle_path":                 "lsp",
-		"lsp_manifest_path":               "lsp/lsp-manifest.json",
-		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
+		"bundled_codex_path":  "bin/codex",
+		"bundled_gopls_path":  "bin/gopls",
+		"lsp_bundle_path":     "lsp",
+		"lsp_manifest_path":   "lsp/lsp-manifest.json",
+		"model_registry_path": "models.yaml",
 	})
 }
 
@@ -593,12 +591,11 @@ func TestVerifyPackagedAppMacOSRejectsRuntimeManifestMismatch(t *testing.T) {
 	app := writeMinimalPackagedMacOSApp(t)
 	resources := filepath.Join(app, "Contents", "Resources")
 	writeRuntimeManifest(t, resources, map[string]string{
-		"bundled_codex_path":              "bin/missing-codex",
-		"bundled_gopls_path":              "bin/gopls",
-		"lsp_bundle_path":                 "lsp",
-		"lsp_manifest_path":               "lsp/lsp-manifest.json",
-		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
+		"bundled_codex_path":  "bin/missing-codex",
+		"bundled_gopls_path":  "bin/gopls",
+		"lsp_bundle_path":     "lsp",
+		"lsp_manifest_path":   "lsp/lsp-manifest.json",
+		"model_registry_path": "models.yaml",
 	})
 
 	output, err := runVerifyPackagedAppMacOS(t, app)
@@ -613,18 +610,18 @@ func TestVerifyPackagedAppMacOSRejectsRuntimeManifestMismatch(t *testing.T) {
 func TestVerifyPackagedAppMacOSRejectsRuntimeManifestSymlinkEscape(t *testing.T) {
 	app := writeMinimalPackagedMacOSApp(t)
 	resources := filepath.Join(app, "Contents", "Resources")
-	writeDefaultMacOSRuntimeManifest(t, resources)
 	outside := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(outside, bashVerifierPlatform()), 0o755); err != nil {
-		t.Fatalf("mkdir escaped postgres: %v", err)
-	}
-	if err := os.RemoveAll(filepath.Join(resources, "postgres")); err != nil {
-		t.Fatalf("remove bundled postgres: %v", err)
-	}
-	if err := os.Symlink(outside, filepath.Join(resources, "postgres")); err != nil {
+	if err := os.Symlink(outside, filepath.Join(resources, "lsp-escape")); err != nil {
 		skipIfSymlinkPrivilegeNotHeld(t, err)
-		t.Fatalf("symlink escaped postgres: %v", err)
+		t.Fatalf("symlink escaped lsp bundle: %v", err)
 	}
+	writeRuntimeManifest(t, resources, map[string]string{
+		"bundled_codex_path":  "bin/codex",
+		"bundled_gopls_path":  "bin/gopls",
+		"lsp_bundle_path":     "lsp-escape",
+		"lsp_manifest_path":   "lsp/lsp-manifest.json",
+		"model_registry_path": "models.yaml",
+	})
 
 	output, err := runVerifyPackagedAppMacOS(t, app)
 	if err == nil {
@@ -654,7 +651,6 @@ func TestPackageScriptsGovernanceForbidPrivatePathsURLsAndInteractiveSecrets(t *
 func TestPackageEnvExampleDocumentsExistingReleaseInputsWithoutSecrets(t *testing.T) {
 	example := readScript(t, "../.env.packaging.example")
 	for _, want := range []string{
-		"SUPER_DOLPHIN_POSTGRES_DIST=",
 		"SUPER_DOLPHIN_LSP_BUNDLE_DIR=",
 		"SUPER_DOLPHIN_FFMPEG_BIN=",
 		"SUPER_DOLPHIN_CODEX_ARTIFACT=",
@@ -666,6 +662,7 @@ func TestPackageEnvExampleDocumentsExistingReleaseInputsWithoutSecrets(t *testin
 	} {
 		assertScriptContains(t, example, want)
 	}
+	assertScriptDoesNotContain(t, example, "SUPER_DOLPHIN_POSTGRES_DIST=")
 	for _, unwanted := range []string{"/Users/ai", "ai.wlll.shop", "api.opusclaw.me", "OPUSCLAW_API_KEY", "SUPER_DOLPHIN_CODEX_RELAY_API_KEY", "sk-"} {
 		assertScriptDoesNotContain(t, example, unwanted)
 	}

@@ -280,8 +280,8 @@ verify_runtime_manifest() {
     echo "missing runtime manifest: $manifest" >&2
     exit 1
   fi
-  local bundled_codex_path bundled_gopls_path lsp_bundle_path lsp_manifest_path model_registry_path embedded_postgres_resource_path
-  for key in bundled_codex_path bundled_gopls_path lsp_bundle_path lsp_manifest_path model_registry_path embedded_postgres_resource_path; do
+  local bundled_codex_path bundled_gopls_path lsp_bundle_path lsp_manifest_path model_registry_path
+  for key in bundled_codex_path bundled_gopls_path lsp_bundle_path lsp_manifest_path model_registry_path; do
     if ! value="$(manifest_string "$manifest" "$key")"; then
       echo "runtime manifest missing $key: $manifest" >&2
       exit 1
@@ -292,7 +292,6 @@ verify_runtime_manifest() {
       lsp_bundle_path) lsp_bundle_path="$value" ;;
       lsp_manifest_path) lsp_manifest_path="$value" ;;
       model_registry_path) model_registry_path="$value" ;;
-      embedded_postgres_resource_path) embedded_postgres_resource_path="$value" ;;
     esac
   done
   require_runtime_manifest_path bundled_codex_path "$bundled_codex_path" "bin/codex" exec
@@ -304,12 +303,6 @@ verify_runtime_manifest() {
     exit 1
   fi
   require_runtime_manifest_path model_registry_path "$model_registry_path" "models.yaml" file
-  require_manifest_relative_path embedded_postgres_resource_path "$embedded_postgres_resource_path"
-  pg="$package_root/$embedded_postgres_resource_path"
-  if [[ ! -d "$pg" ]]; then
-    echo "runtime manifest embedded_postgres_resource_path points to missing directory: $pg" >&2
-    exit 1
-  fi
 }
 
 verify_codex_manifest() {
@@ -375,7 +368,6 @@ verify_package_root_links() {
   done < <(find "$package_root" -type l -print0)
 }
 
-pg=""
 verify_runtime_manifest
 
 required_execs=(
@@ -395,10 +387,6 @@ required_execs=(
   "$package_root/lsp/bin/python"
   "$package_root/lsp/bin/python3"
   "$package_root/lsp/bin/go"
-  "$pg/bin/postgres"
-  "$pg/bin/initdb"
-  "$pg/bin/pg_ctl"
-  "$pg/bin/pg_config"
 )
 if [[ -f "$package_root/lsp/lsp-manifest.json" ]] && lsp_manifest_value "$package_root/lsp/lsp-manifest.json" "jdtls" path >/dev/null 2>&1; then
   required_execs+=("$package_root/bin/jdtls")
@@ -410,15 +398,11 @@ for path in "${required_execs[@]}"; do
   fi
 done
 
-if [[ ! -d "$package_root/migrations" || -z "$(find "$package_root/migrations" -type f -print -quit)" ]]; then
-  echo "missing migration files under $package_root/migrations" >&2
+sqlite_migrations_dir="$package_root/internal/platform/db/sqlite/migrations"
+if [[ ! -d "$sqlite_migrations_dir" || -z "$(find "$sqlite_migrations_dir" -type f -print -quit)" ]]; then
+  echo "missing SQLite migration files under $sqlite_migrations_dir" >&2
   exit 1
 fi
-if [[ ! -d "$pg/share" || -z "$(find "$pg/share" -name postgres.bki -type f -print -quit)" ]]; then
-  echo "missing postgres.bki under $pg/share" >&2
-  exit 1
-fi
-
 verify_codex_manifest
 verify_lsp_manifest
 verify_package_root_links

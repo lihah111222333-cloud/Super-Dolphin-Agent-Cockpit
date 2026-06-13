@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -68,9 +69,7 @@ func EnsureCodexBootstrap(ctx context.Context, cfg CodexBootstrapConfig) error {
 	if err := validateCodexBootstrapConfig(home, baseURL, bootstrapToken); err != nil {
 		return err
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -133,9 +132,7 @@ type codexGitHubAsset struct {
 }
 
 func ensureCodexCLIAvailable(ctx context.Context) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	ok, err := bundledOrPathCodexAvailable(ctx)
 	if err != nil || ok {
 		return err
@@ -243,12 +240,11 @@ func validCodexCLI(ctx context.Context, path string) bool {
 	if path == "" || !isExecutable(path) {
 		return false
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	checkCtx, cancel := withTimeout(context.WithoutCancel(ctx), codexValidationTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(checkCtx, path, codexAppServerCommand, "--help")
+	cmd.Env = contract.ScrubDatabaseEnv(os.Environ())
 	setCodexProcessAttrs(cmd)
 	return cmd.Run() == nil
 }
@@ -395,28 +391,20 @@ func installCodexAsset(ctx context.Context, asset codexGitHubAsset, checksum, wo
 }
 
 func installCodexWheel(ctx context.Context, downloadURL, checksum, workDir, target string) error {
-	wheelPath := filepath.Join(workDir, "codex.whl")
-	if err := downloadCodexAsset(ctx, downloadURL, checksum, wheelPath); err != nil {
-		return err
-	}
-	extractDir := filepath.Join(workDir, "extract")
-	if err := extractCodexWheel(wheelPath, extractDir); err != nil {
-		return err
-	}
-	codexPath := filepath.Join(target, "codex_cli_bin", "bin", codexExecutableFileName())
-	if err := ensureCodexInstallLayout(extractDir); err != nil {
-		return err
-	}
-	return promoteCodexInstall(extractDir, target, codexPath)
+	return installCodexArchive(ctx, downloadURL, checksum, workDir, target, "codex.whl", extractCodexWheel)
 }
 
 func installCodexTarGz(ctx context.Context, downloadURL, checksum, workDir, target string) error {
-	archivePath := filepath.Join(workDir, "codex.tar.gz")
+	return installCodexArchive(ctx, downloadURL, checksum, workDir, target, "codex.tar.gz", extractCodexTarGz)
+}
+
+func installCodexArchive(ctx context.Context, downloadURL, checksum, workDir, target, archiveName string, extract func(string, string) error) error {
+	archivePath := filepath.Join(workDir, archiveName)
 	if err := downloadCodexAsset(ctx, downloadURL, checksum, archivePath); err != nil {
 		return err
 	}
 	extractDir := filepath.Join(workDir, "extract")
-	if err := extractCodexTarGz(archivePath, extractDir); err != nil {
+	if err := extract(archivePath, extractDir); err != nil {
 		return err
 	}
 	codexPath := filepath.Join(target, "codex_cli_bin", "bin", codexExecutableFileName())
@@ -484,10 +472,6 @@ func selectCodexReleaseAsset(assets []codexGitHubAsset) (codexGitHubAsset, error
 	return codexGitHubAsset{}, fmt.Errorf("no compatible OpenAI Codex release asset for %s/%s in %s", runtime.GOOS, runtime.GOARCH, codexGitHubRepoURL)
 }
 
-func codexReleasePlatform() (string, error) {
-	return codexWheelReleasePlatform()
-}
-
 func codexReleaseAssetCandidates() []func(string) bool {
 	var out []func(string) bool
 	if target, err := codexRustReleaseTarget(); err == nil {
@@ -510,55 +494,30 @@ func codexReleaseAssetCandidates() []func(string) bool {
 }
 
 func codexRustReleaseTarget() (string, error) {
-	switch runtime.GOOS {
-	case "darwin":
-		switch runtime.GOARCH {
-		case "arm64":
-			return "aarch64-apple-darwin", nil
-		case "amd64":
-			return "x86_64-apple-darwin", nil
-		}
-	case "linux":
-		switch runtime.GOARCH {
-		case "arm64":
-			return "aarch64-unknown-linux-musl", nil
-		case "amd64":
-			return "x86_64-unknown-linux-musl", nil
-		}
-	case "windows":
-		switch runtime.GOARCH {
-		case "arm64":
-			return "aarch64-pc-windows-msvc", nil
-		case "amd64":
-			return "x86_64-pc-windows-msvc", nil
-		}
-	}
-	return "", fmt.Errorf("unsupported Codex auto-install platform %s/%s", runtime.GOOS, runtime.GOARCH)
+	return codexSupportedPlatformValue(map[string]string{
+		"darwin/arm64":  "aarch64-apple-darwin",
+		"darwin/amd64":  "x86_64-apple-darwin",
+		"linux/arm64":   "aarch64-unknown-linux-musl",
+		"linux/amd64":   "x86_64-unknown-linux-musl",
+		"windows/arm64": "aarch64-pc-windows-msvc",
+		"windows/amd64": "x86_64-pc-windows-msvc",
+	})
 }
 
 func codexWheelReleasePlatform() (string, error) {
-	switch runtime.GOOS {
-	case "darwin":
-		switch runtime.GOARCH {
-		case "arm64":
-			return "macosx_11_0_arm64", nil
-		case "amd64":
-			return "macosx_10_9_x86_64", nil
-		}
-	case "linux":
-		switch runtime.GOARCH {
-		case "arm64":
-			return "manylinux_2_17_aarch64", nil
-		case "amd64":
-			return "manylinux_2_17_x86_64", nil
-		}
-	case "windows":
-		switch runtime.GOARCH {
-		case "arm64":
-			return "win_arm64", nil
-		case "amd64":
-			return "win_amd64", nil
-		}
+	return codexSupportedPlatformValue(map[string]string{
+		"darwin/arm64":  "macosx_11_0_arm64",
+		"darwin/amd64":  "macosx_10_9_x86_64",
+		"linux/arm64":   "manylinux_2_17_aarch64",
+		"linux/amd64":   "manylinux_2_17_x86_64",
+		"windows/arm64": "win_arm64",
+		"windows/amd64": "win_amd64",
+	})
+}
+
+func codexSupportedPlatformValue(values map[string]string) (string, error) {
+	if value := values[runtime.GOOS+"/"+runtime.GOARCH]; value != "" {
+		return value, nil
 	}
 	return "", fmt.Errorf("unsupported Codex auto-install platform %s/%s", runtime.GOOS, runtime.GOARCH)
 }

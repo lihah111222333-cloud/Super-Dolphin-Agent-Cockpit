@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -115,6 +116,9 @@ snapshot_backend_watch_state
 
 func runDesktopScriptHarness(t *testing.T, projectDir, body string) (string, int) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("bash harness uses WSL on Windows and cannot reliably access native temp paths")
+	}
 	text := readRootScript(t, "../../run-new-ui-desktop.sh")
 	marker := "\nSUPER_DOLPHIN_HTTP_ADDR="
 	mainIndex := strings.Index(text, marker)

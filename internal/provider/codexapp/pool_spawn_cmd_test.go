@@ -141,6 +141,7 @@ func TestBuildPoolSpawnCmdDefaultsParentEnvToOSEnviron(t *testing.T) {
 	// Not Parallel: t.Setenv mutates process env and the stdlib
 	// testing framework forbids combining it with t.Parallel.
 	t.Setenv("OPENAI_API_KEY", "from-os-env")
+	setCodexDatabaseEnvForTest(t)
 	t.Setenv("TZ", "UTC") // on the allowlist
 	cmd, err := BuildPoolSpawnCmd(context.Background(), PoolSpawnArgs{
 		Home: "/realpath/home",
@@ -156,6 +157,7 @@ func TestBuildPoolSpawnCmdDefaultsParentEnvToOSEnviron(t *testing.T) {
 	if !strings.Contains(env, "TZ=UTC") {
 		t.Fatalf("allowlisted OS-Environ value missing:\n%s", env)
 	}
+	requireCodexDatabaseEnvAbsent(t, cmd.Env)
 }
 
 func TestBuildPoolSpawnCmdSetsWorkDirAndPWD(t *testing.T) {
