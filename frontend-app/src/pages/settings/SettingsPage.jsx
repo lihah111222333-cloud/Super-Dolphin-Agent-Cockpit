@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Settings } from 'lucide-react';
+import { Menu, Settings } from 'lucide-react';
 import { useClientStore } from '../../entities/client/model/useClientStore.js';
 import { PageHeader } from '../shared/pageComponents.jsx';
 import { BuiltinToolsCard } from './components/BuiltinToolsCard.jsx';
@@ -991,10 +991,55 @@ function groupSummary(group) {
   return '已管控 ' + group.disabledCount + ' 项';
 }
 
+function mobileAccountName(cwd) {
+  const parts = (cwd || '').toString().split(/[\\/]/).filter(Boolean);
+  return parts.at(-1) || '本地用户';
+}
+
+function MobileAccountPanel({ cwd, runtime }) {
+  const accountName = mobileAccountName(cwd);
+  const provider = PROVIDER_LABELS[runtime.form.activeProvider] || runtime.form.activeProvider || 'Codex';
+  return (
+    <section className="settings-mobile-account" data-testid="settings-mobile-account" aria-label="移动端账号设置">
+      <header>
+        <button type="button" aria-label="菜单" disabled><Menu size={18} /></button>
+        <h2>Super-Dolphin</h2>
+        <div className="settings-mobile-avatar" aria-label="用户头像">SD</div>
+      </header>
+      <div className="settings-mobile-card">
+        <span>用户名</span>
+        <strong>{accountName}</strong>
+        <small>{cwd || '未选择项目'}</small>
+      </div>
+      <div className="settings-mobile-card">
+        <span>账号</span>
+        <strong>{provider}</strong>
+        <small>使用当前 Provider 与本地项目设置</small>
+      </div>
+      <div className="settings-mobile-card">
+        <span>设置</span>
+        <strong>运行时配置</strong>
+        <small>下方设置卡片继续使用真实偏好接口</small>
+      </div>
+      <div className="settings-mobile-card is-disabled">
+        <span>退出登录</span>
+        <strong>待鉴权接入</strong>
+        <button type="button" data-testid="settings-mobile-logout-button" disabled>Log Out</button>
+      </div>
+      <nav className="settings-mobile-tabs" aria-label="移动端设置入口">
+        <button type="button" disabled>Account</button>
+        <button type="button" disabled>Settings</button>
+        <button type="button" disabled>Log Out</button>
+      </nav>
+    </section>
+  );
+}
+
 function SettingsPageView({ builtins, cwd, prompt, provider, runtime, store }) {
   return (
     <section className="settings-page" data-testid="settings-page">
       <PageHeader icon={Settings} title="设置" actions={<button className="btn btn-secondary" type="button" data-testid="settings-refresh-build-button" onClick={() => void runtime.refreshBuildInfo()}>刷新构建信息</button>} />
+      <MobileAccountPanel cwd={cwd} runtime={runtime} />
       <SettingsNotices error={runtime.error} status={runtime.status} />
       <div className="panel-body" data-testid="settings-panel-body">
         <AboutPanel buildInfo={runtime.buildInfo} cwd={cwd} runtime={runtime} updateCurrentVersion={appUpdateCurrentVersionLabel(runtime.buildInfo)} />

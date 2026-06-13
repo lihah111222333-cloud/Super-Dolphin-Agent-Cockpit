@@ -82,6 +82,51 @@ describe('PromptPageView module', () => {
   it('exports the prompt page view component', () => {
     expect(PromptPageView).toBeTypeOf('function');
   });
+
+  it('shows personalization overview with pending profile and import actions disabled', async () => {
+    backend.listPromptAssets.mockResolvedValue({
+      prompts: [
+        { id: 'main/role', name: '代码审查专家', tags: ['intent:expert'], content: 'review', scope: 'project' },
+        { id: 'recall/vue', name: 'Vue 规范', tags: ['intent:recall'], content: 'vue', scope: 'project' },
+        { id: 'rule/default', name: '默认规则', tags: ['intent:default_rule'], content: 'rule', scope: 'global' },
+        { id: 'draft/profile', name: '待确认角色', draft_key: 'draft-profile', draft_status: 'ready_to_save', tags: ['intent:expert'], content: 'draft', scope: 'project' },
+      ],
+    });
+
+    renderPromptPage();
+
+    expect(await screen.findByRole('heading', { name: '个性化' })).toBeInTheDocument();
+    expect(screen.getByText('管理您的身份信息以及 Super-Dolphin 的记忆内容')).toBeInTheDocument();
+    const overview = screen.getByLabelText('个性化概览');
+    const metricValue = (label) => {
+      const term = Array.from(overview.querySelectorAll('dt')).find((node) => node.textContent === label);
+      expect(term).toBeTruthy();
+      return term.nextElementSibling;
+    };
+    await waitFor(() => expect(metricValue('定制角色')).toHaveTextContent('1'));
+    expect(metricValue('知识')).toHaveTextContent('1');
+    expect(metricValue('默认规则')).toHaveTextContent('1');
+    expect(metricValue('待确认')).toHaveTextContent('1');
+    expect(within(overview).getByLabelText('昵称')).toBeDisabled();
+    expect(within(overview).getByLabelText('职业')).toBeDisabled();
+    expect(within(overview).getByLabelText('更多关于您的信息')).toBeDisabled();
+    expect(within(overview).getByLabelText('自定义指令')).toBeDisabled();
+    expect(within(overview).getByRole('button', { name: '保存个人资料' })).toBeDisabled();
+    expect(within(overview).getByRole('button', { name: '导入记忆' })).toBeDisabled();
+  });
+
+  it('labels the personalization overview as read-only when prompt assets fall back', async () => {
+    const error = Object.assign(new Error('method not found'), { code: -32601 });
+    backend.listPromptAssets.mockRejectedValueOnce(error);
+
+    renderPromptPage();
+
+    const overview = await screen.findByLabelText('个性化概览');
+    await waitFor(() => {
+      expect(within(overview).getByText('prompt-assets/list 暂不可用；当前仅显示只读的提示词与参考资料。')).toBeInTheDocument();
+    });
+    expect(within(overview).queryByText(/已接入提示词与参考资料/)).not.toBeInTheDocument();
+  });
 });
 
 describe('PromptPageView backend wiring', () => {
