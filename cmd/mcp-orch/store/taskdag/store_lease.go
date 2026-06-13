@@ -15,7 +15,7 @@ func (s *store) AcquireWorkerLease(ctx context.Context, input AcquireWorkerLease
 		return s.q.AcquireTaskDagWorkerLease(ctx, sqlc.AcquireTaskDagWorkerLeaseParams{
 			TargetAgentID: input.TargetAgentID,
 			OwnerID:       input.OwnerID,
-			Column3:       leaseInterval,
+			LeaseMs:       leaseInterval,
 		})
 	}, "acquire", "task_dag_worker_lease")
 }
@@ -27,7 +27,7 @@ func (s *store) RenewWorkerLease(ctx context.Context, input RenewWorkerLeaseInpu
 	}
 	return queryValue(func() (int64, error) {
 		return s.q.RenewTaskDagWorkerLease(ctx, sqlc.RenewTaskDagWorkerLeaseParams{
-			Column1:       leaseInterval,
+			LeaseMs:       leaseInterval,
 			TargetAgentID: input.TargetAgentID,
 			OwnerID:       input.OwnerID,
 		})

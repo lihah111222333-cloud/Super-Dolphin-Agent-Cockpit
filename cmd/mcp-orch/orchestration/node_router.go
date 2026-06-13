@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,7 +17,6 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
-	"github.com/jackc/pgx/v5"
 	"github.com/kelindar/event"
 )
 
@@ -376,7 +376,7 @@ func (r *NodeExecutorRouter) dispatchByNodeType(ctx context.Context, nodeType st
 //
 // ADR-017 v1.2 §2.4 选项 C：launch 成功后用 UpdateRunningTaskDagNodeStatus
 // 写 running（白名单 IN ('pending','ready')，避免 UpdateNodeStatusFlexible
-// 反向覆盖 done→running）；sqlc 返 (TaskDagNode, error)，0 rows 错是 pgx.ErrNoRows，
+// 反向覆盖 done→running）；sqlc 返 (TaskDagNode, error)，0 rows 错是 sql.ErrNoRows，
 // 走 race window D 分支（subscriber 已先推 done）。
 func (r *NodeExecutorRouter) dispatchAgent(ctx context.Context, node nodeexec.Node, runCtx nodeexec.RunContext, wakeupID int64, oldStatus string) (nodeexec.NodeOutcome, error) {
 	var hooks map[nodeexec.HookPoint]nodeexec.HookHandler
@@ -472,7 +472,7 @@ func (r *NodeExecutorRouter) advanceAgentNodeToRunning(ctx context.Context, dagK
 		nodeevents.Publish(r.eventBus, oldStatus, node)
 		orchmetrics.IncDispatchAgentRunningWritten()
 		return true, nil
-	case errors.Is(updateErr, pgx.ErrNoRows) || platformdb.IsNotFound(updateErr):
+	case errors.Is(updateErr, sql.ErrNoRows) || platformdb.IsNotFound(updateErr):
 		// race window D：subscriber 已推终态，不在白名单 IN ('pending','ready')。
 		orchmetrics.IncDispatchAgentRunningSkippedAlreadyTerminal()
 		r.logger.Debug("node router: ready->running skipped, node already terminal",

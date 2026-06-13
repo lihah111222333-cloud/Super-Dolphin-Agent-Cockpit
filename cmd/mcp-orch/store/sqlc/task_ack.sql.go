@@ -7,39 +7,38 @@ package sqlc
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"encoding/json"
 )
 
 const listTaskAcks = `-- name: ListTaskAcks :many
 SELECT id, ack_key, title, description, assigned_to, requested_by, priority, status, progress, ack_message, result_summary, metadata, due_at, acked_at, started_at, finished_at, created_at, updated_at
 FROM task_acks
-WHERE ($1::text = '' OR status = $1)
-  AND ($2::text = '' OR priority = $2)
-  AND ($3::text = '' OR assigned_to = $3)
-  AND ($4::text = ''
-    OR ack_key ILIKE '%' || $4 || '%'
-    OR title ILIKE '%' || $4 || '%'
-    OR description ILIKE '%' || $4 || '%')
+WHERE (?1 = '' OR status = ?1)
+  AND (?2 = '' OR priority = ?2)
+  AND (?3 = '' OR assigned_to = ?3)
+  AND (?4 = ''
+    OR ack_key LIKE '%' || ?4 || '%'
+    OR title LIKE '%' || ?4 || '%'
+    OR description LIKE '%' || ?4 || '%')
 ORDER BY updated_at DESC, id DESC
-LIMIT $5
+LIMIT ?5
 `
 
 type ListTaskAcksParams struct {
-	Column1 string `json:"column_1"`
-	Column2 string `json:"column_2"`
-	Column3 string `json:"column_3"`
-	Column4 string `json:"column_4"`
-	Limit   int32  `json:"limit"`
+	StatusFilter     interface{} `db:"status_filter" json:"status_filter"`
+	PriorityFilter   interface{} `db:"priority_filter" json:"priority_filter"`
+	AssignedToFilter interface{} `db:"assigned_to_filter" json:"assigned_to_filter"`
+	Keyword          interface{} `db:"keyword" json:"keyword"`
+	LimitCount       int64       `db:"limit_count" json:"limit_count"`
 }
 
 func (q *Queries) ListTaskAcks(ctx context.Context, arg ListTaskAcksParams) ([]TaskAck, error) {
-	rows, err := q.db.Query(ctx, listTaskAcks,
-		arg.Column1,
-		arg.Column2,
-		arg.Column3,
-		arg.Column4,
-		arg.Limit,
+	rows, err := q.db.QueryContext(ctx, listTaskAcks,
+		arg.StatusFilter,
+		arg.PriorityFilter,
+		arg.AssignedToFilter,
+		arg.Keyword,
+		arg.LimitCount,
 	)
 	if err != nil {
 		return nil, err
@@ -72,6 +71,9 @@ func (q *Queries) ListTaskAcks(ctx context.Context, arg ListTaskAcksParams) ([]T
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -81,8 +83,8 @@ func (q *Queries) ListTaskAcks(ctx context.Context, arg ListTaskAcksParams) ([]T
 const upsertTaskAck = `-- name: UpsertTaskAck :one
 INSERT INTO task_acks (
     ack_key, title, description, assigned_to, requested_by,
-    priority, status, progress, ack_message, result_summary, metadata, due_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, GREATEST(0, LEAST($8, 100)), $9, $10, $11::jsonb, $12::timestamptz)
+    priority, status, progress, ack_message, result_summary, metadata, due_at, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, max(0, min(?12, 100)), ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 ON CONFLICT (ack_key) DO UPDATE
 SET title = EXCLUDED.title,
     description = EXCLUDED.description,
@@ -95,27 +97,27 @@ SET title = EXCLUDED.title,
     result_summary = EXCLUDED.result_summary,
     metadata = EXCLUDED.metadata,
     due_at = EXCLUDED.due_at,
-    updated_at = NOW()
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 RETURNING id, ack_key, title, description, assigned_to, requested_by, priority, status, progress, ack_message, result_summary, metadata, due_at, acked_at, started_at, finished_at, created_at, updated_at
 `
 
 type UpsertTaskAckParams struct {
-	AckKey        string             `json:"ack_key"`
-	Title         string             `json:"title"`
-	Description   string             `json:"description"`
-	AssignedTo    string             `json:"assigned_to"`
-	RequestedBy   string             `json:"requested_by"`
-	Priority      string             `json:"priority"`
-	Status        string             `json:"status"`
-	Column8       interface{}        `json:"column_8"`
-	AckMessage    string             `json:"ack_message"`
-	ResultSummary string             `json:"result_summary"`
-	Column11      []byte             `json:"column_11"`
-	Column12      pgtype.Timestamptz `json:"column_12"`
+	AckKey        string          `db:"ack_key" json:"ack_key"`
+	Title         string          `db:"title" json:"title"`
+	Description   string          `db:"description" json:"description"`
+	AssignedTo    string          `db:"assigned_to" json:"assigned_to"`
+	RequestedBy   string          `db:"requested_by" json:"requested_by"`
+	Priority      string          `db:"priority" json:"priority"`
+	Status        string          `db:"status" json:"status"`
+	Progress      interface{}     `db:"progress" json:"progress"`
+	AckMessage    string          `db:"ack_message" json:"ack_message"`
+	ResultSummary string          `db:"result_summary" json:"result_summary"`
+	Metadata      json.RawMessage `db:"metadata" json:"metadata"`
+	DueAt         *int64          `db:"due_at" json:"due_at"`
 }
 
 func (q *Queries) UpsertTaskAck(ctx context.Context, arg UpsertTaskAckParams) (TaskAck, error) {
-	row := q.db.QueryRow(ctx, upsertTaskAck,
+	row := q.db.QueryRowContext(ctx, upsertTaskAck,
 		arg.AckKey,
 		arg.Title,
 		arg.Description,
@@ -123,11 +125,11 @@ func (q *Queries) UpsertTaskAck(ctx context.Context, arg UpsertTaskAckParams) (T
 		arg.RequestedBy,
 		arg.Priority,
 		arg.Status,
-		arg.Column8,
+		arg.Progress,
 		arg.AckMessage,
 		arg.ResultSummary,
-		arg.Column11,
-		arg.Column12,
+		arg.Metadata,
+		arg.DueAt,
 	)
 	var i TaskAck
 	err := row.Scan(

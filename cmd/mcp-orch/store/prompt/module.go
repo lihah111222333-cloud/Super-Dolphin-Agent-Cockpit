@@ -1,14 +1,15 @@
 package prompt
 
 import (
-	"github.com/jackc/pgx/v5/pgxpool"
+	"database/sql"
+
 	"go.uber.org/fx"
 )
 
 var Module = fx.Module("store.prompt",
-	fx.Provide(NewStoreFromPool),
+	fx.Provide(NewStoreFromDB),
 )
 
-func NewStoreFromPool(pool *pgxpool.Pool) Store {
-	return NewStore(pool)
+func NewStoreFromDB(db *sql.DB) Store {
+	return NewStore(db)
 }

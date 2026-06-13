@@ -1,13 +1,14 @@
 package taskdag
 
 import (
-	"github.com/jackc/pgx/v5/pgxpool"
+	"database/sql"
+
 	"go.uber.org/fx"
 )
 
 var Module = fx.Module("store.taskdag",
 	fx.Provide(
-		NewStoreFromPool,
+		NewStoreFromDB,
 		ProvideOrchestrationStore,
 		// ProvideRunStore 把同一 *store 实例并行登记为 RunStore binding，
 		// 修复 RunStore wiring bug：消费方 (orchestration.serviceParams) 可命中此 provider。
@@ -33,8 +34,8 @@ var Module = fx.Module("store.taskdag",
 	),
 )
 
-func NewStoreFromPool(pool *pgxpool.Pool) Store {
-	return NewStore(pool)
+func NewStoreFromDB(db *sql.DB) Store {
+	return NewStore(db)
 }
 
 // ProvideNodeSpawnRecorderStore 从聚合 Store type-assert 出 F1.5 / ADR-009
