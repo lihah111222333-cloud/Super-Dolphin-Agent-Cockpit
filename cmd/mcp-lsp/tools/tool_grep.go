@@ -12,7 +12,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
@@ -195,7 +194,6 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 	}
 
 	filtered, total, truncated := filterAndLogGrepMatches(input, matches, limit)
-	h.attachFuncRanges(ctx, filtered)
 	if len(filtered) == 0 {
 		logGrepResponseEmpty(input, len(matches), total)
 		return grepResponse{
@@ -376,25 +374,6 @@ func emptyGrepMessage(regexFallback bool) string {
 		return "regex parse failed; retried query as literal text; no matches found"
 	}
 	return "no matches found"
-}
-
-func (h handlerBase) attachFuncRanges(ctx context.Context, matches []search.SearchMatch) {
-	if h.registry == nil || len(matches) == 0 {
-		return
-	}
-	provider := newFuncRangeEnricher(ctx, h.registry)
-	if provider == nil {
-		return
-	}
-	lastRange := make(map[string][2]int)
-	for index := range matches {
-		start, end, _, ok := format.ResolveEnclosingFunctionRange(provider, fileURI(matches[index].AbsPath), matches[index].Line-1, lastRange)
-		if !ok {
-			continue
-		}
-		matches[index].FuncStart = start
-		matches[index].FuncEnd = end
-	}
 }
 
 func capGrepResponseBytes(resp *grepResponse, maxBytes int) {
