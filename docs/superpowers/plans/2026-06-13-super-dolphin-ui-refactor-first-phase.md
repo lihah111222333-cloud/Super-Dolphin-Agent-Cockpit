@@ -6,7 +6,7 @@ Date: 2026-06-13
 
 This is a first-phase analysis and task split for the uploaded UI refactor prompt. No production UI or backend code has been changed in this phase.
 
-Implementation is blocked until the current prototype images are available and explicitly bound as the visual target. The uploaded prompt says to stop if the prototype images cannot be seen, and Product Design image-to-code also requires a selected visual target.
+Update: the current prototype screenshots were recovered from Codex clipboard temp files and copied into this worktree as durable visual references. Implementation can proceed in small slices against those local references.
 
 ## Confirmed Repository State
 
@@ -33,6 +33,8 @@ Interactivity target: full interaction where the existing backend supports it; h
 | Source | Status | Notes |
 |---|---|---|
 | `C:\Users\ai01\Downloads\super_dolphin_codex_ui_refactor_prompt.md` | Valid requirements doc | Not a visual target |
+| `docs/superpowers/plans/assets/2026-06-13-super-dolphin-new-chat-prototype.png` | Valid prototype | New-chat/home reference, 1568x1240 |
+| `docs/superpowers/plans/assets/2026-06-13-super-dolphin-chat-detail-prototype.png` | Valid prototype | Chat-detail/reference answer state, 1600x1280 |
 | `C:\Users\ai01\Downloads\mermaid-diagram.png` | Invalid for this task | It is not a Super-Dolphin UI prototype |
 | `frontend-app/src/assets/super-dolphin-logo.png` | Valid asset | Logo only |
 | `frontend-app/design-qa-active-chat.png` | Not accepted as current prototype | Historical/current QA screenshot unless user explicitly selects it |
@@ -40,16 +42,16 @@ Interactivity target: full interaction where the existing backend supports it; h
 | `docs/ai01-docs/assets/2026-06-03-*.png` | Not accepted as current prototype | Older review screenshots |
 | `cmd/agent-terminal/frontend/tests/e2e/**/*.png` | Out of scope | Legacy Vue E2E snapshots |
 
-Blocking conclusion: no current uploaded Super-Dolphin prototype image was found in the conversation, Downloads, or this worktree.
+Visual conclusion: the two recovered Codex clipboard screenshots are now the selected local visual target for the first implementation slices.
 
 ## Skill And Tool Routing
 
 | Subtask | Routed skills/tools | Result |
 |---|---|---|
 | Skill routing | `route-skills-by-function`, `find-skills` | Installed skills were sufficient; no new skill installation needed |
-| Product Design | Product Design `index`, `get-context`, `user-context`, `image-to-code` rules | Brief can be played back; implementation blocked because selected visual target is missing |
+| Product Design | Product Design `index`, `get-context`, `user-context`, `image-to-code` rules | Brief can be played back against the recovered local screenshot targets |
 | Worktree setup | Super-Dolphin workflow, git worktree workflow | Worktree and integration branch created from the requested commit |
-| Browser/Chrome/Computer Use | Browser, Chrome, Computer Use skills loaded for later UI verification | Deferred until a local UI target or visual source exists |
+| Browser/Chrome/Computer Use | Browser, Chrome, Computer Use skills loaded for later UI verification | Use Browser/Chrome for local UI visual checks after implementation; Computer Use only if desktop-host behavior cannot be verified in-browser |
 | Subagents | `multi_agent_v1.spawn_agent` | Used because `task_create_dag`/`task_start_node`/`task_update_node` were not exposed in this session and MCP catalog did not expose `mcp-go-agent-orchestration` |
 
 ## Subagent Split
@@ -58,7 +60,7 @@ Blocking conclusion: no current uploaded Super-Dolphin prototype image was found
 |---|---|---|
 | Frontend explorer | `frontend-app` routes, pages, state, API facade, styles | Confirmed React/Vite JS app, manual route state in `App.jsx`, Zustand store, React Query, global CSS, and no direct page-level `fetch/axios` pattern |
 | Backend/API explorer | Wails/JSON-RPC backend support and pending contracts | Confirmed UI backend is Wails JSON-RPC, not REST; identified real support vs pending areas |
-| Product Design/UX explorer | Visual source inventory and Product Design blockers | Confirmed no valid current prototype image; implementation must stop until visual target is provided |
+| Product Design/UX explorer | Visual source inventory and Product Design blockers | Initial scan missed temp clipboard images; current run recovered and anchored two valid prototype screenshots |
 
 ## Current Frontend Structure
 
@@ -127,7 +129,7 @@ Backend pending behavior should use the existing JSON-RPC fail-fast convention. 
 7. Mobile settings/account.
    Likely write set: `pages/settings/**`, `App.jsx`, CSS, tests. Logout/account must remain pending unless an auth API is confirmed.
 
-Do not implement all slices in one large refactor. Start with slice 1 or 2 after the visual target is supplied and confirmed.
+Do not implement all slices in one large refactor. Start with slice 1 or 2 against the recovered local visual targets.
 
 ## Verification Plan
 
@@ -156,19 +158,13 @@ For UI-visible changes, start the dev app and verify with Browser/Chrome against
 
 ## Stop Conditions
 
-Stop before code implementation if any of these remain true:
+Stop before code implementation if any of these become true:
 
-- No selected prototype image, Figma frame, URL, or explicit local visual target.
-- The user has not confirmed whether old QA screenshots may be used as the visual target.
+- The recovered prototype screenshots are unavailable or invalidated.
 - The planned slice would mix unrelated pages or backend contracts.
 - A backend capability is only assumed, not confirmed from source/tests.
 - Verification cannot be run and no concrete blocker is documented.
 
-## Required User Confirmation Before Implementation
+## Implementation Gate
 
-The next implementation turn needs one of these inputs:
-
-1. The actual prototype image paths, Figma link/frame, or URL for the uploaded Super-Dolphin design.
-2. Or explicit approval to use `frontend-app/design-qa-active-chat.png` and `frontend-app/design-qa-mobile-chat-loaded.png` as the visual source despite them being historical/current QA screenshots.
-
-After that, confirm the Product Design brief and implement only the first approved slice.
+Use the two local prototype screenshots above as the visual source. Confirm the Product Design brief in playback form, then implement only the first approved slice.
