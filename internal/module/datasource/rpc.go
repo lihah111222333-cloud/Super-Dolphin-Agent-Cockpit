@@ -13,6 +13,7 @@ import (
 func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		"datasource/upload": platformrpc.StrictHandler(uploadHandler(svc)),
+		"datasource/list":   platformrpc.StrictHandler(listHandler(svc)),
 	}}
 }
 
@@ -29,12 +30,22 @@ func uploadHandler(svc Service) func(context.Context, UploadFileRequest) (Upload
 	}
 }
 
+func listHandler(svc Service) func(context.Context, struct{}) (ListFilesResult, error) {
+	return func(ctx context.Context, _ struct{}) (ListFilesResult, error) {
+		if svc == nil {
+			return ListFilesResult{}, platformrpc.ErrInvalidState("datasource service is not configured")
+		}
+		result, err := svc.ListFiles(ctx)
+		if err != nil {
+			return ListFilesResult{}, datasourceRPCError(err)
+		}
+		return result, nil
+	}
+}
+
 func datasourceRPCError(err error) error {
 	switch {
-	case errors.Is(err, errMissingCWD),
-		errors.Is(err, errMissingSourcePath),
-		errors.Is(err, errCWDMustBeAbsolute),
-		errors.Is(err, errCWDMustBeDirectory),
+	case errors.Is(err, errMissingSourcePath),
 		errors.Is(err, errSourcePathMustBeAbsolute),
 		errors.Is(err, errSourcePathMustBeFile),
 		errors.Is(err, errUnsupportedFileExtension):
