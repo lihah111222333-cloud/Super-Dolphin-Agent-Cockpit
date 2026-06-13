@@ -18,6 +18,9 @@ import (
 // method is invoked by the BusModule terminal-event subscriber once the turn
 // actually completes or fails. Missing/non-running rows are surfaced so crash
 // recovery races cannot silently drop terminal state.
+//
+// 这是 turn 终态写回 cron run 的入口。找不到 running run 要报错，
+// 方便发现 recovery 或事件顺序问题。
 func (s *Scheduler) CompleteTurn(ctx context.Context, turnID string, success bool, terminalErr string) error {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
@@ -104,6 +107,7 @@ func (s *Scheduler) nextRetry(job cronstore.Job, now time.Time) time.Time {
 // and otherwise ignored — a dropped lease simply means another
 // scheduler gets to claim the job next tick, which is the intended
 // recovery path.
+// RenewLeases 续租仍由当前实例持有的 cron run。
 func (s *Scheduler) RenewLeases(ctx context.Context) error {
 	jobs, err := s.store.ListJobsClaimedBy(ctx, s.cfg.ClaimedBy)
 	if err != nil {
@@ -130,6 +134,9 @@ func (s *Scheduler) RenewLeases(ctx context.Context) error {
 // RecoverDanglingRuns re-attaches observation for unresolved runs after a
 // process restart. It never calls StartTurn; submitting-window recovery
 // only probes the provider dedupe index and then observes an existing turn.
+//
+// 恢复只接管 submitting/submitted/running。没有 turn_id 的 submitting
+// 只能先 Lookup，不能重新提交。
 func (s *Scheduler) RecoverDanglingRuns(ctx context.Context) error {
 	runs, err := s.store.ListUnresolvedRuns(ctx)
 	if err != nil {
@@ -166,10 +173,13 @@ func (s *Scheduler) recoverDanglingRun(ctx context.Context, run cronstore.Run) e
 	}
 }
 
+// recoverSubmittingRun 恢复停在提交中的 cron run。
 func (s *Scheduler) recoverSubmittingRun(ctx context.Context, job cronstore.Job, run cronstore.Run) error {
 	if run.TurnID != "" {
 		return s.observeRecoveredSubmittedRun(ctx, job, run, run.TurnID)
 	}
+	// 这是最容易重复提交的窗口：StartTurn 可能成功但还没落库。
+	// 先查 dedupe，查不到才按失败处理。
 	observed, err := s.submitter.LookupByDedupeKey(ctx, run.DedupeKey)
 	if err != nil {
 		return err
@@ -198,6 +208,7 @@ func (s *Scheduler) recoverRunningRun(ctx context.Context, job cronstore.Job, ru
 		return s.finalizeRecoveredFailure(ctx, job, run, errors.New("cron: running run missing turn_id"))
 	}
 	if !job.LeaseExpiresAt.IsZero() && job.LeaseExpiresAt.Before(s.now().UTC()) {
+		// lease 过期后无法确认旧 observer 是否还活着，按 observe_lost 处理，避免无人接手。
 		return s.finalizeRecoveredObserveLost(ctx, job, run, run.TurnID, errors.New("cron: running lease expired"))
 	}
 	if err := s.submitter.Observe(ctx, run.TurnID); err != nil {
@@ -210,6 +221,7 @@ func (s *Scheduler) observeRecoveredSubmittedRun(ctx context.Context, job cronst
 	if err := s.submitter.Observe(ctx, turnID); err != nil {
 		return s.finalizeRecoveredObserveLost(ctx, job, run, turnID, err)
 	}
+	// 恢复也用 CAS 保持状态往前走。若终态事件抢先写入，这里会失败并暴露出来。
 	if run.Status == cronstore.StatusSubmitting {
 		if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{ID: run.ID, ExpectedStatus: cronstore.StatusSubmitting, NextStatus: cronstore.StatusSubmitted, UpdatedAt: s.now().UTC()}); err != nil {
 			return err
@@ -231,6 +243,7 @@ func (s *Scheduler) finalizeRecoveredFailure(ctx context.Context, job cronstore.
 
 func (s *Scheduler) finalizeRecoveredObserveLost(ctx context.Context, job cronstore.Job, run cronstore.Run, turnID string, err error) error {
 	now := s.now().UTC()
+	// 恢复期的 observe_lost 也不自动 retry；旧 turn 状态未知时，新 turn 会造成重复。
 	if casErr := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{ID: run.ID, ExpectedStatus: run.Status, NextStatus: cronstore.StatusObserveLost, Error: err.Error(), UpdatedAt: now}); casErr != nil {
 		s.logger.Warn("cron: recovered CAS submitted->observe_lost failed",
 			slog.String("run_id", run.ID),
@@ -242,6 +255,9 @@ func (s *Scheduler) finalizeRecoveredObserveLost(ctx context.Context, job cronst
 
 // ExtendClaimForTurnProgress extends the active job lease when the turn bus
 // reports progress, keeping long-running turns from losing their claim.
+//
+// 这里只延长当前 scheduler 持有且 active_turn_id 匹配的 job。
+// 抢不到就交给后续 tick/recovery。
 func (s *Scheduler) ExtendClaimForTurnProgress(ctx context.Context, turnID string) error {
 	if strings.TrimSpace(turnID) == "" {
 		return nil

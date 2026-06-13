@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// CaptureStackForStatus 为状态处理capturestack。
 func CaptureStackForStatus(cfg Config, status Status) []StackFrame {
 	if !cfg.CaptureStackFor(status) {
 		return nil
@@ -13,6 +14,7 @@ func CaptureStackForStatus(cfg Config, status Status) []StackFrame {
 	return CaptureStack(cfg)
 }
 
+// CaptureStack 处理capturestack。
 func CaptureStack(cfg Config) []StackFrame {
 	pcs := make([]uintptr, cfg.StackMaxFrames+16)
 	count := runtime.Callers(2, pcs)
@@ -55,6 +57,7 @@ func stackJSONSize(frames []StackFrame) int {
 	return len(data)
 }
 
+// MarshalStackJSON 编码stackJSON。
 func MarshalStackJSON(frames []StackFrame) ([]byte, error) {
 	return json.Marshal(frames)
 }

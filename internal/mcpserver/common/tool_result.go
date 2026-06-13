@@ -23,6 +23,7 @@ var registeredPlainTextRenderer atomic.Value // PlainTextRenderer
 // used by both the direct stdio path (toolCallResultResponse) and the
 // scoped MCP path (cmd/mcp-lsp wrapScopedToolResult). Passing nil clears
 // the registration so tests can reset state.
+// RegisterToolResultPlainTextRenderer 注册工具结果纯文本渲染器。
 func RegisterToolResultPlainTextRenderer(renderer PlainTextRenderer) {
 	if renderer == nil {
 		registeredPlainTextRenderer.Store(PlainTextRenderer(nil))
@@ -44,6 +45,7 @@ func currentPlainTextRenderer() PlainTextRenderer {
 // 5) JSON marshal of the value.
 // raw is the already-marshaled JSON; pass nil to make this function do the
 // marshal itself when needed. Returns the resolved text and any marshal err.
+// ResolveToolResultText 解析工具结果文本。
 func ResolveToolResultText(value any, raw []byte) (string, error) {
 	if value == nil {
 		return "null", nil
@@ -79,6 +81,7 @@ func ResolveToolResultText(value any, raw []byte) (string, error) {
 // internal textContent struct) so that the rendered envelope is friendly
 // to cross-package consumers and tests that have to interrogate the slice
 // without importing common's unexported types. JSON marshaling is identical.
+// BuildToolCallResult 构建工具call结果。
 func BuildToolCallResult(value any) (map[string]any, error) {
 	raw, err := json.Marshal(value)
 	if err != nil {

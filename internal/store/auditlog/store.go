@@ -18,12 +18,14 @@ type store struct {
 	q querier
 }
 
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store {
 	return &store{q: q}
 }
 
 func newStoreForTest(q querier) Store { return &store{q: q} }
 
+// List 列出auditlog存储。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]AuditEvent, error) {
 	rows, err := s.q.ListAuditEvents(ctx, sqlc.ListAuditEventsParams{
 		Column1: filter.EventType,
@@ -42,6 +44,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]AuditEvent, erro
 	return result, nil
 }
 
+// Insert 插入auditlog存储。
 func (s *store) Insert(ctx context.Context, params InsertParams) error {
 	return wrapAuditLogError(s.q.InsertAuditEvent(ctx, sqlc.InsertAuditEventParams{
 		EventType: params.EventType,

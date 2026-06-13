@@ -33,6 +33,7 @@ type turnStartParams struct {
 	OutputSchema                 json.RawMessage      `json:"output_schema,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *turnStartParams) UnmarshalJSON(data []byte) error {
 	var legacy struct {
 		ThreadID             string           `json:"threadId"`
@@ -111,6 +112,7 @@ type turnSteerParams struct {
 	SessionFlags                 map[string]bool       `json:"session_flags,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *turnSteerParams) UnmarshalJSON(data []byte) error {
 	var legacy struct {
 		ThreadID             string           `json:"threadId"`
@@ -151,6 +153,7 @@ type turnInterruptParams struct {
 	Source   string `json:"source,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *turnInterruptParams) UnmarshalJSON(data []byte) error {
 	var legacy struct {
 		ThreadID string `json:"threadId"`
@@ -193,6 +196,7 @@ type threadIDOnlyParams struct {
 	ThreadID string `json:"thread_id"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *threadIDOnlyParams) UnmarshalJSON(data []byte) error {
 	var legacy struct {
 		ThreadID string `json:"threadId"`
@@ -215,6 +219,7 @@ type approvalRespondParams struct {
 	Decision  json.RawMessage `json:"decision,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *approvalRespondParams) UnmarshalJSON(data []byte) error {
 	var legacy struct {
 		CallID    string          `json:"callId"`

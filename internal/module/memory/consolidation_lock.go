@@ -36,6 +36,7 @@ type consolidationLockGuard struct {
 	hadPrevious   bool
 }
 
+// acquireConsolidationLock 处理acquireconsolidation锁。
 func acquireConsolidationLock(root string, opts consolidationLockOptions) (*consolidationLockGuard, error) {
 	lockPath, err := consolidationLockPath(root)
 	if err != nil {
@@ -115,6 +116,7 @@ func isConsolidationLockStale(modTime, now time.Time, ttl time.Duration) bool {
 	return now.Sub(modTime) >= ttl
 }
 
+// Touch 处理touch。
 func (g *consolidationLockGuard) Touch() error {
 	if g == nil || g.path == "" {
 		return nil
@@ -129,6 +131,7 @@ func (g *consolidationLockGuard) Touch() error {
 	return nil
 }
 
+// RollbackMtime 处理rollbackmtime。
 func (g *consolidationLockGuard) RollbackMtime() error {
 	if g == nil || g.path == "" {
 		return nil
@@ -145,6 +148,7 @@ func (g *consolidationLockGuard) RollbackMtime() error {
 	return nil
 }
 
+// Release 释放锁、租约或资源。
 func (g *consolidationLockGuard) Release() error {
 	if g == nil || g.path == "" {
 		return nil
@@ -155,6 +159,7 @@ func (g *consolidationLockGuard) Release() error {
 	return nil
 }
 
+// Complete 完成记忆。
 func (g *consolidationLockGuard) Complete(committed bool) error {
 	if committed {
 		return g.Release()
@@ -239,6 +244,7 @@ func acquireMemoryRootFileLock(root string, timeout time.Duration) (*os.File, er
 	return file, nil
 }
 
+// waitForMemoryRootFileLock 为记忆根目录文件锁等待记忆。
 func waitForMemoryRootFileLock(file *os.File, timeout time.Duration) error {
 	if timeout <= 0 {
 		timeout = diskStoreLockTimeout

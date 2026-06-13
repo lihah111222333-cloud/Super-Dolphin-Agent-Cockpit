@@ -26,6 +26,7 @@ import (
 // on the shared cache or dynamic provider map produces a race detector
 // report. Without -race the test still verifies completion without panic
 // plus the monotonic generation contract.
+// SectionInvalidatorConcurrent 处理sectioninvalidatorconcurrent。
 func SectionInvalidatorConcurrent(t *testing.T, factory func() contract.SectionInvalidator) {
 	t.Helper()
 	inv := factory()

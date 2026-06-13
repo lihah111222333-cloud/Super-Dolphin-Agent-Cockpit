@@ -80,6 +80,7 @@ type cronListRunsResponse struct {
 
 // NewHandlers wires the cronjob/* host RPC methods. It is registered via
 // the Fx platformrpc.HandlerMapResult aggregate.
+// NewHandlers 创建处理器。
 func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		"cronjob/create":     platformrpc.StrictHandler(createHandler(svc)),
@@ -107,6 +108,7 @@ func createHandler(svc Service) func(context.Context, cronCreateParams) (Job, er
 	}
 }
 
+// updateHandler 更新处理器。
 func updateHandler(svc Service) func(context.Context, cronUpdateParams) (Job, error) {
 	return func(ctx context.Context, p cronUpdateParams) (Job, error) {
 		base, err := createRequestFrom(p.cronCreateParams)
@@ -205,6 +207,7 @@ func listRunsHandler(svc Service) func(context.Context, cronListRunsParams) (cro
 // createRequestFrom normalizes the RPC wire shape into the service-level
 // CreateJobRequest. It parses next_run_at from RFC3339 when supplied and
 // defaults Enabled to true when the caller omits the field.
+// createRequestFrom 从cron创建请求。
 func createRequestFrom(p cronCreateParams) (CreateJobRequest, error) {
 	enabled := true
 	if p.Enabled != nil {

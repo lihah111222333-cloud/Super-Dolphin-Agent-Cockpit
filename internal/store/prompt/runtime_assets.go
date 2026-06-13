@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// IsRuntimeAssetTemplate 判断运行时assettemplate是否可用。
 func IsRuntimeAssetTemplate(template PromptTemplate) bool {
 	if strings.TrimSpace(template.AgentKey) == "default_rule" {
 		return true
@@ -19,6 +20,7 @@ func IsRuntimeAssetTemplate(template PromptTemplate) bool {
 	return false
 }
 
+// TemplateTags 处理templatetags。
 func TemplateTags(raw json.RawMessage) []string {
 	var tags []string
 	if err := json.Unmarshal(raw, &tags); err != nil {

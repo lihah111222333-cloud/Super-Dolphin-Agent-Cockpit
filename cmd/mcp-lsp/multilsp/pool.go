@@ -80,10 +80,12 @@ type ManagerFactory interface {
 
 type managerFactoryFunc func(language string, workspaceRoot string, options RootOptions) (*manager, error)
 
+// NewManager 创建manager。
 func (fn managerFactoryFunc) NewManager(language string, workspaceRoot string, options RootOptions) (*manager, error) {
 	return fn(language, workspaceRoot, options)
 }
 
+// NewManagerPool 创建managerpool。
 func NewManagerPool(primary *manager, size int) *ManagerPool {
 	clamped := clampPoolSize(size)
 	pool := &ManagerPool{
@@ -104,6 +106,7 @@ func NewManagerPool(primary *manager, size int) *ManagerPool {
 // RecyclerRunner exposes the pool's background recycler as a
 // platformrunner.Runner. The root bridge collects recyclers from each
 // language pool and feeds them into `group:"runners"`.
+// RecyclerRunner 处理recyclerrunner。
 func (p *ManagerPool) RecyclerRunner() platformrunner.Runner {
 	if p == nil {
 		return nil
@@ -111,6 +114,7 @@ func (p *ManagerPool) RecyclerRunner() platformrunner.Runner {
 	return p.recycler
 }
 
+// PoolSizeFromEnv 从env处理poolsize。
 func PoolSizeFromEnv() int {
 	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv(lspPoolSizeEnv)))
 	if err != nil {
@@ -119,6 +123,7 @@ func PoolSizeFromEnv() int {
 	return clampPoolSize(value)
 }
 
+// PoolShardCapFromEnv 从env处理poolshardcap。
 func PoolShardCapFromEnv() int {
 	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv(lspPoolShardCapEnv)))
 	if err != nil {
@@ -134,6 +139,7 @@ func PoolShardCapFromEnv() int {
 	}
 }
 
+// Primary 返回主 manager。
 func (p *ManagerPool) Primary() Manager {
 	if p == nil {
 		return nil
@@ -141,6 +147,7 @@ func (p *ManagerPool) Primary() Manager {
 	return p.primary
 }
 
+// Size 返回池内 manager 数量。
 func (p *ManagerPool) Size() int {
 	if p == nil {
 		return 0
@@ -153,10 +160,12 @@ func (p *ManagerPool) Size() int {
 // by the root runner group via ctx cancellation, so this method is a
 // no-op for the recycler; callers that previously relied on StopAll
 // halting the loop must now cancel the runner context instead.
+// StopAll 停止all。
 func (p *ManagerPool) StopAll() error {
 	return nil
 }
 
+// Close 关闭 LSP 管理器资源。
 func (p *ManagerPool) Close() error {
 	return p.closeManagersExcept(nil)
 }
@@ -165,6 +174,7 @@ func (p *ManagerPool) Close() error {
 // to a stable shard, and returns the scoped manager plus the canonical scope
 // that diagnostics/cache/bootstrap callers must reuse instead of rebuilding
 // their own keys.
+// ForScope 为作用域处理LSP。
 func (p *ManagerPool) ForScope(scope LSPToolScope) (ScopedManager, error) {
 	if p == nil {
 		return ScopedManager{}, errors.New("LSP manager pool is nil")
@@ -204,6 +214,7 @@ func (p *ManagerPool) release(client Client) {
 	p.trackLease(client, -1)
 }
 
+// snapshotManagers 处理快照managers。
 func (p *ManagerPool) snapshotManagers() []poolManagerSnapshot {
 	if p == nil {
 		return nil
@@ -238,6 +249,7 @@ func (p *ManagerPool) snapshotManagers() []poolManagerSnapshot {
 	return snapshots
 }
 
+// SnapshotManagers 处理快照managers。
 func (p *ManagerPool) SnapshotManagers() []poolManagerSnapshot {
 	return p.snapshotManagers()
 }
@@ -274,6 +286,7 @@ func clampPoolSize(size int) int {
 	}
 }
 
+// buildShards 构建shards。
 func (p *ManagerPool) buildShards(primary *manager, size int) []*managerShard {
 	shards := make([]*managerShard, size)
 	for i := 0; i < size; i++ {
@@ -303,6 +316,7 @@ func (p *ManagerPool) shardForKey(key string) *managerShard {
 	return p.shards[shardIndexForKey(key, len(p.shards))]
 }
 
+// managerForResolvedScope 为已解析作用域处理manager。
 func (p *ManagerPool) managerForResolvedScope(shard *managerShard, resolved ResolvedLSPToolScope) (*pooledManager, error) {
 	if shard == nil {
 		return nil, errors.New("LSP manager shard is nil")
@@ -347,6 +361,7 @@ func (p *ManagerPool) managerForResolvedScope(shard *managerShard, resolved Reso
 	return pooled, nil
 }
 
+// evictIdleClonesLocked 处理evictidlecloneslocked。
 func (p *ManagerPool) evictIdleClonesLocked(shard *managerShard, keepKey string) []*manager {
 	if p == nil || shard == nil || p.shardCap <= 0 {
 		return nil
@@ -400,6 +415,7 @@ func (s *managerShard) snapshotClones() []pooledManager {
 	return clones
 }
 
+// closeManagersExcept 关闭managersexcept。
 func (p *ManagerPool) closeManagersExcept(skip *manager) error {
 	if p == nil {
 		return nil

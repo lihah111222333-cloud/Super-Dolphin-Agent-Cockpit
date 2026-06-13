@@ -1,5 +1,10 @@
 const DEFAULT_REQUEST_TIMEOUT_MS = 8000;
 
+/*
+ * services 层把 backendApi/Wails 错误统一变成 ApiError。
+ * 页面可以读 code/requestId/traceId；service 不吞错、不返回空兜底。
+ */
+
 class ApiError extends Error {
   constructor(message, options = {}) {
     super(message);

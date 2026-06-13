@@ -18,6 +18,7 @@ func promptEnvEnabled(keys ...string) bool {
 	return false
 }
 
+// promptFlagEnabled 处理promptflagenabled。
 func promptFlagEnabled(flags map[string]bool, names ...string) bool {
 	if len(flags) == 0 || len(names) == 0 {
 		return false

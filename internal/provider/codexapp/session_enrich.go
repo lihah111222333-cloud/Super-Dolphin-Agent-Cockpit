@@ -128,6 +128,7 @@ type preparedToolCall struct {
 	started time.Time
 }
 
+// prepareToolCall 准备工具call。
 func (s *session) prepareToolCall(msg RawMessage) (preparedToolCall, error) {
 	started := time.Now()
 	callID := firstNonEmptyToolString(jsonRPCIDString(msg.ID), toolCallParamStringAny(msg.Params, "callId", "call_id"), nestedToolCallString(msg.Params, "item", "callId", "call_id"))
@@ -232,6 +233,7 @@ func toolCallEndOutcome(result any, callErr error) (bool, string) {
 	return false, envelope.failureText(result)
 }
 
+// decodeToolCallResultEnvelope 解码工具call结果包装。
 func decodeToolCallResultEnvelope(result any) (toolCallResultEnvelope, bool, error) {
 	if result == nil {
 		return toolCallResultEnvelope{}, false, nil
@@ -255,6 +257,7 @@ func (e toolCallResultEnvelope) explicitFailure() bool {
 	return (e.Success != nil && !*e.Success) || (e.IsError != nil && *e.IsError)
 }
 
+// failureText 提取失败说明文本。
 func (e toolCallResultEnvelope) failureText(result any) string {
 	if text := firstNonEmptyToolString(e.Error, e.Message, e.Reason); text != "" {
 		return text
@@ -281,6 +284,7 @@ func (s *session) activeTurnSnapshot() string {
 	return strings.TrimSpace(s.activeTurnID)
 }
 
+// enrichToolCallParamsStrict 补充工具callparamsstrict。
 func enrichToolCallParamsStrict(msg RawMessage, agentID, threadID, callID, cwd string, workspaceRoots []string) (RawMessage, error) {
 	var payload map[string]json.RawMessage
 	if len(bytes.TrimSpace(msg.Params)) == 0 {
@@ -347,6 +351,7 @@ func trustedWorkspaceRoots(cwd string, additional []string) []string {
 	return roots
 }
 
+// normalizeTrustedWorkspaceRoot 规范化trusted工作区根目录。
 func normalizeTrustedWorkspaceRoot(base, root string) string {
 	root = strings.TrimSpace(root)
 	if root == "" {
@@ -367,6 +372,7 @@ func normalizeTrustedWorkspaceRoot(base, root string) string {
 	return ""
 }
 
+// toolCallParamStringAny 处理工具callparamstring任意值。
 func toolCallParamStringAny(params json.RawMessage, keys ...string) string {
 	var payload map[string]json.RawMessage
 	if len(params) == 0 || json.Unmarshal(params, &payload) != nil {
@@ -381,6 +387,7 @@ func toolCallParamStringAny(params json.RawMessage, keys ...string) string {
 	return ""
 }
 
+// nestedToolCallString 处理nested工具callstring。
 func nestedToolCallString(params json.RawMessage, objectKey string, keys ...string) string {
 	var payload map[string]json.RawMessage
 	if len(params) == 0 || json.Unmarshal(params, &payload) != nil {

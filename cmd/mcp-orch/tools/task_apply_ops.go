@@ -11,6 +11,7 @@ import (
 
 var applyOpsActionEnum = []string{"update_dag", "add_node", "update_node", "remove_node", "apply_ops_raw"}
 
+// HandleApplyOps 处理应用ops。
 func HandleApplyOps(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ApplyOpsInput) (any, error) {
 		req, err := applyOpsRequestFromInput(in)
@@ -37,6 +38,7 @@ func applyOpsRequestFromInput(in ApplyOpsInput) (contract.ApplyOpsRequest, error
 	}, nil
 }
 
+// applyOpsPayloadFromInput 从input应用ops载荷。
 func applyOpsPayloadFromInput(in ApplyOpsInput) (json.RawMessage, error) {
 	action := strings.TrimSpace(in.Action)
 	if action == "" {
@@ -64,6 +66,7 @@ func applyOpsPayloadFromInput(in ApplyOpsInput) (json.RawMessage, error) {
 	return json.Marshal([]map[string]any{op})
 }
 
+// flatApplyOpFromInput 从input处理flat应用op。
 func flatApplyOpFromInput(action string, in ApplyOpsInput) (map[string]any, error) {
 	switch action {
 	case "update_dag":
@@ -99,6 +102,7 @@ func flatApplyOpFromInput(action string, in ApplyOpsInput) (map[string]any, erro
 	}
 }
 
+// flatAddNodeFromInput 从input处理flatadd节点。
 func flatAddNodeFromInput(in ApplyOpsInput) (map[string]any, error) {
 	nodeKey, err := requireTrimmed(in.NodeKey, "node_key")
 	if err != nil {
@@ -129,6 +133,7 @@ func flatAddNodeFromInput(in ApplyOpsInput) (map[string]any, error) {
 	return node, nil
 }
 
+// flatDAGPatchFromInput 从input处理flatDAG补丁。
 func flatDAGPatchFromInput(in ApplyOpsInput) (map[string]any, error) {
 	if hasExplicitRawJSON(in.Patch) {
 		if hasFlatDAGPatchFields(in) {
@@ -158,6 +163,7 @@ func flatDAGPatchFromInput(in ApplyOpsInput) (map[string]any, error) {
 	return patch, nil
 }
 
+// flatNodePatchFromInput 从input处理flat节点补丁。
 func flatNodePatchFromInput(in ApplyOpsInput) (map[string]any, error) {
 	if hasExplicitRawJSON(in.Patch) {
 		if hasFlatNodePatchFields(in) {

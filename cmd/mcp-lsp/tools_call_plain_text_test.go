@@ -14,6 +14,10 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
+func init() {
+	common.RegisterToolResultPlainTextRenderer(lsptools.FormatToPlainText)
+}
+
 func TestDirectToolsCallReadFileReturnsPlainTextContent(t *testing.T) {
 	root := canonicalToolTestRoot(t, t.TempDir())
 	target := filepath.Join(root, "main.go")

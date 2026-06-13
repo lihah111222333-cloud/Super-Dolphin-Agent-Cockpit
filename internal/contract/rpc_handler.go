@@ -32,12 +32,14 @@ type CapabilityResolver func(ctx context.Context) (dto.CapabilitySet, error)
 type threadIDKey struct{}
 
 // ThreadIDFrom extracts the thread ID previously set by ThreadScope.
+// ThreadIDFrom 从跨模块契约处理线程ID。
 func ThreadIDFrom(ctx context.Context) string {
 	value, _ := ctx.Value(threadIDKey{}).(string)
 	return value
 }
 
 // WithThreadID sets the thread ID in context.
+// WithThreadID 设置线程ID。
 func WithThreadID(ctx context.Context, threadID string) context.Context {
 	return context.WithValue(ctx, threadIDKey{}, threadID)
 }

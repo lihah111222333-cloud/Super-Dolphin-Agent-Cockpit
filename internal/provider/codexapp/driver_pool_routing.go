@@ -28,6 +28,7 @@ const (
 	localCodexModelProvider   = "openai"
 )
 
+// prepareStartSessionRequest 准备起点会话请求。
 func (d *driver) prepareStartSessionRequest(ctx context.Context, req dto.StartSessionRequest) (dto.StartSessionRequest, error) {
 	if err := validateStartCodexIdentityShape(req.Config); err != nil {
 		return req, err
@@ -57,6 +58,7 @@ func (d *driver) prepareStartSessionRequest(ctx context.Context, req dto.StartSe
 	return req, nil
 }
 
+// validateStartCodexIdentityShape 校验起点codex身份shape。
 func validateStartCodexIdentityShape(config map[string]any) error {
 	for _, key := range []string{contract.CodexHomeKey, contract.CodexInstanceKeyKey, contract.CodexModelProviderKey} {
 		if raw, ok := config[key]; ok && raw != nil {
@@ -68,6 +70,7 @@ func validateStartCodexIdentityShape(config map[string]any) error {
 	return nil
 }
 
+// prepareResumeSessionRequest 准备恢复会话请求。
 func (d *driver) prepareResumeSessionRequest(ctx context.Context, req dto.ResumeSessionRequest) (dto.ResumeSessionRequest, error) {
 	requestedHome := req.CodexHome
 	if _, ok := resumeIdentity(req); !ok {
@@ -93,6 +96,7 @@ func (d *driver) prepareResumeSessionRequest(ctx context.Context, req dto.Resume
 	return req, nil
 }
 
+// reconcileProviderMirrors 对齐providermirrors。
 func (d *driver) reconcileProviderMirrors(ctx context.Context, cwd, home string) error {
 	if d == nil || d.mirror == nil {
 		return errors.New("codex skill mirror reconciler is required")
@@ -162,6 +166,7 @@ func defaultCodexCLIHome() (string, error) {
 	return "", fmt.Errorf("resolve default codex home realpath: %w", err)
 }
 
+// comparableCodexHomePath 处理comparablecodexhome路径。
 func comparableCodexHomePath(raw string) (string, error) {
 	path := strings.TrimSpace(raw)
 	if path == "" {
@@ -199,6 +204,7 @@ func comparableCodexHomePath(raw string) (string, error) {
 	return "", fmt.Errorf("codexHome canonicalize: %w", err)
 }
 
+// withDefaultCodexIdentity 设置defaultcodex身份。
 func withDefaultCodexIdentity(config map[string]any, home, fallbackModelProvider string) (map[string]any, error) {
 	home = strings.TrimSpace(home)
 	if home == "" {
@@ -287,6 +293,8 @@ func cloneCodexConfigMap(config map[string]any) map[string]any {
 //     attach its URL + release to the session via withPoolServer.
 //     ErrSpawnBackoff is surfaced to the caller so retry pressure is
 //     visible at the StartSession seam.
+//
+// resolveSessionOptions 解析会话选项。
 func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSessionRequest) ([]sessionOption, error) {
 	policy := codexNativeToolPolicyFromConfig(req.Config)
 	if d == nil || d.pool == nil {
@@ -308,6 +316,7 @@ func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSession
 	return d.acquirePoolSessionOptions(ctx, req, policy, identity)
 }
 
+// resolveStartPoolIdentity 解析起点pool身份。
 func (d *driver) resolveStartPoolIdentity(req dto.StartSessionRequest) (providershared.CodexIdentity, bool, error) {
 	enabled, _, err := poolRoutingDecision()
 	if err != nil {
@@ -397,6 +406,7 @@ func canonicalStartRuntimeConfig(config map[string]any) map[string]any {
 	return out
 }
 
+// resolveResumeOptions 解析恢复选项。
 func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSessionRequest) ([]sessionOption, error) {
 	policy := codexNativeToolPolicyFromDisabled(req.CodexDisabledNativeTools)
 	identity, hasIdentity := resumeIdentity(req)
@@ -569,6 +579,7 @@ func cleanCodexNativeToolIDs(values []string) []string {
 	return out
 }
 
+// ApplyThreadStartParams 应用线程起点params。
 func (p codexNativeToolPolicy) ApplyThreadStartParams(params *threadStartParams) {
 	if params == nil || !p.RequiresReadOnlySandbox() {
 		return
@@ -577,6 +588,7 @@ func (p codexNativeToolPolicy) ApplyThreadStartParams(params *threadStartParams)
 	params.ApprovalPolicy = "never"
 }
 
+// ApplyThreadResumeParams 应用线程恢复params。
 func (p codexNativeToolPolicy) ApplyThreadResumeParams(params *threadResumeParams) {
 	if params == nil || !p.RequiresReadOnlySandbox() {
 		return
@@ -601,6 +613,7 @@ func codexReadOnlySandbox(raw json.RawMessage) json.RawMessage {
 	return json.RawMessage(`{"read-only":null}`)
 }
 
+// codexSandboxIsReadOnly 处理codex沙箱isreadonly。
 func codexSandboxIsReadOnly(raw json.RawMessage) bool {
 	raw = json.RawMessage(strings.TrimSpace(string(raw)))
 	if len(raw) == 0 {

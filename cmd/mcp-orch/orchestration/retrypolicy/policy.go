@@ -30,6 +30,7 @@ type nodeExecutionEnvelope struct {
 	} `json:"execution"`
 }
 
+// ResolveRetryPolicy 解析重试策略。
 func ResolveRetryPolicy(dagMetadata, nodeConfig json.RawMessage) (RetryPolicy, error) {
 	dagPolicy, err := decodeDAGSchedulePolicy(dagMetadata)
 	if err != nil {

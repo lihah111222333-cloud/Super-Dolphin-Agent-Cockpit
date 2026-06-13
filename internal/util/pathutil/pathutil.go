@@ -25,6 +25,7 @@ const (
 )
 
 // ContainsPath reports whether target is inside root (or equal to it).
+// ContainsPath 判断路径是否可用。
 func ContainsPath(root, target string) bool {
 	rootPath, err := NormalizeAbsolutePath(root)
 	if err != nil || rootPath == "" {
@@ -48,6 +49,7 @@ func ContainsPath(root, target string) bool {
 // NormalizeAbsolutePath returns a cleaned absolute path suitable for path-scope
 // comparisons. On Windows it accepts file-URI drive aliases such as /C:/repo
 // and \C:\repo, then resolves existing symlinks where possible.
+// NormalizeAbsolutePath 规范化absolute路径。
 func NormalizeAbsolutePath(path string) (string, error) {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
@@ -73,6 +75,7 @@ func NormalizeAbsolutePath(path string) (string, error) {
 	return cleaned, nil
 }
 
+// normalizeWithExistingAncestor 规范化带existingancestor的工具。
 func normalizeWithExistingAncestor(cleaned string) (string, bool) {
 	current := cleaned
 	suffix := make([]string, 0)
@@ -110,6 +113,7 @@ func normalizeWindowsSymlinkPath(cleaned string) string {
 	return filepath.Clean(filepath.Join(resolved, suffix))
 }
 
+// windowsExistingPathWithSymlink 处理带symlink的Windowsexisting路径。
 func windowsExistingPathWithSymlink(cleaned string) (existing, suffix string, hasSymlink bool) {
 	volume := filepath.VolumeName(cleaned)
 	rest := strings.TrimPrefix(cleaned, volume)
@@ -150,6 +154,7 @@ func normalizeWindowsDriveAlias(path string) string {
 	return cleaned
 }
 
+// windowsDriveAliasPrefixLen 处理Windowsdrivealiasprefixlen。
 func windowsDriveAliasPrefixLen(path string) (int, bool) {
 	if len(path) < 3 || !isSlash(path[0]) {
 		return 0, false
@@ -174,6 +179,7 @@ func isWindowsDriveLetter(b byte) bool {
 // SanitizeMemoryProjectKey is byte-for-byte compatible with the legacy
 // memory/mcp-orch sanitizePath implementation: full-path dash slug, lowercase,
 // collapsed separators, max-len trim, and 8-char hash suffix.
+// SanitizeMemoryProjectKey 清理记忆项目键。
 func SanitizeMemoryProjectKey(raw string) string {
 	normalized := filepath.ToSlash(norm.NFC.String(strings.TrimSpace(raw)))
 	var builder strings.Builder
@@ -205,6 +211,7 @@ func SanitizeMemoryProjectKey(raw string) string {
 
 // SanitizeSkillProjectKey preserves the on-disk skill directory semantics:
 // keep the last two path segments, preserve case, and join them with "_".
+// SanitizeSkillProjectKey 清理技能项目键。
 func SanitizeSkillProjectKey(raw string) string {
 	normalized := filepath.ToSlash(norm.NFC.String(strings.TrimSpace(raw)))
 	normalized = strings.Trim(normalized, "/")
@@ -238,11 +245,13 @@ func SanitizeSkillProjectKey(raw string) string {
 }
 
 // ProjectKeyFromCwd resolves cwd to the skill-scoped project key.
+// ProjectKeyFromCwd 从工作目录处理项目键。
 func ProjectKeyFromCwd(cwd string) (string, error) {
 	return projectKeyFromCwd(cwd, SanitizeSkillProjectKey)
 }
 
 // MemoryProjectKeyFromCwd resolves cwd to the legacy memory/mcp-orch project key.
+// MemoryProjectKeyFromCwd 从工作目录处理记忆项目键。
 func MemoryProjectKeyFromCwd(cwd string) (string, error) {
 	return projectKeyFromCwd(cwd, SanitizeMemoryProjectKey)
 }
@@ -262,6 +271,7 @@ func projectKeyFromCwd(cwd string, sanitize func(string) string) (string, error)
 	return sanitize(canonical), nil
 }
 
+// sanitizeSkillProjectKeySegment 清理技能项目键segment。
 func sanitizeSkillProjectKeySegment(raw string) string {
 	raw = norm.NFC.String(strings.TrimSpace(raw))
 	if raw == "" {
@@ -291,6 +301,7 @@ func shortProjectKeyHash(text string) string {
 	return hex.EncodeToString(sum[:4])
 }
 
+// canonicalProjectRoot 处理canonical项目根目录。
 func canonicalProjectRoot(ctx context.Context, cwd string) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()

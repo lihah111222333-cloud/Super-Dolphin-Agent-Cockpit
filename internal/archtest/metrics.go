@@ -212,6 +212,7 @@ func isImmutableFuncCall(call *ast.CallExpr) bool {
 	return false
 }
 
+// isImmutableSelectorCall 判断immutableselectorcall是否可用。
 func isImmutableSelectorCall(sel *ast.SelectorExpr) bool {
 	pkg, ok := sel.X.(*ast.Ident)
 	if !ok {

@@ -48,6 +48,7 @@ var _ orchestration.NotifyTap = (*TurnNotifier)(nil)
 // even when the deployment has no alias source wired in; every
 // terminal still passes through the hook consumer unchanged and the
 // skipped counter tracks the "no alias, dropped" branch.
+// NewTurnNotifier 创建turnnotifier。
 func NewTurnNotifier(logger *slog.Logger, notifier contract.MessageNotifier, resolver AgentAliasResolver) *TurnNotifier {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -59,6 +60,7 @@ func NewTurnNotifier(logger *slog.Logger, notifier contract.MessageNotifier, res
 }
 
 // OnTurnCompleted implements orchestration.NotifyTap.
+// OnTurnCompleted 处理onturncompleted。
 func (t *TurnNotifier) OnTurnCompleted(ctx context.Context, ev turndto.TurnCompleted) {
 	alias := t.lookupAlias(ev.AgentID, ev.ThreadID)
 	if alias == "" {
@@ -74,6 +76,7 @@ func (t *TurnNotifier) OnTurnCompleted(ctx context.Context, ev turndto.TurnCompl
 }
 
 // OnTurnInterrupted implements orchestration.NotifyTap.
+// OnTurnInterrupted 处理onturninterrupted。
 func (t *TurnNotifier) OnTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted) {
 	alias := t.lookupAlias(ev.AgentID, ev.ThreadID)
 	if alias == "" {
@@ -95,6 +98,7 @@ func (t *TurnNotifier) OnTurnInterrupted(ctx context.Context, ev turndto.TurnInt
 }
 
 // OnThreadStopped implements orchestration.NotifyTap.
+// OnThreadStopped 处理on线程stopped。
 func (t *TurnNotifier) OnThreadStopped(ctx context.Context, ev threaddto.Stopped) {
 	alias := t.lookupAlias(ev.AgentID, ev.ThreadID)
 	if alias == "" {
@@ -151,6 +155,7 @@ type TurnMetrics struct {
 }
 
 // Metrics returns a point-in-time snapshot.
+// Metrics 处理指标。
 func (t *TurnNotifier) Metrics() TurnMetrics {
 	if t == nil {
 		return TurnMetrics{}

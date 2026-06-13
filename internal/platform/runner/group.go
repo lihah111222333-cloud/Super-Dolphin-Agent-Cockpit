@@ -20,6 +20,7 @@ type Runner interface {
 // Used as a placeholder when an optional component is disabled.
 type NoopRunner struct{}
 
+// Run 启动平台runner后台流程。
 func (NoopRunner) Run(ctx context.Context) error {
 	<-ctx.Done()
 	return nil
@@ -29,6 +30,7 @@ type GroupOptions struct {
 	EnableSignals bool
 }
 
+// RunGroup 运行group。
 func RunGroup(ctx context.Context, runners []Runner, options GroupOptions) error {
 	if len(runners) == 0 {
 		return errors.New("no runners registered")

@@ -1,3 +1,8 @@
+/*
+ * project selector model 只整理路径显示和按钮可用性。
+ * 注册项目、保存 activeProject、刷新聊天列表都在 project slice。
+ */
+
 export function projectDisplayName(path) {
   const value = (path || '').toString().trim();
   if (!value || value === '未选择项目') return '未选择项目';

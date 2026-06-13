@@ -18,11 +18,13 @@ var (
 )
 
 // ResolveCodexIdentity delegates to contract.ResolveCodexIdentity.
+// ResolveCodexIdentity 解析codex身份。
 func ResolveCodexIdentity(config map[string]any) (CodexIdentity, error) {
 	return contract.ResolveCodexIdentity(config)
 }
 
 // CanonicalizeCodexHome delegates to contract.CanonicalizeCodexHome.
+// CanonicalizeCodexHome 处理canonicalizecodexhome。
 func CanonicalizeCodexHome(raw string) (string, error) {
 	return contract.CanonicalizeCodexHome(raw)
 }

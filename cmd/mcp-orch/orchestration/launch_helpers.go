@@ -30,18 +30,21 @@ type SubmissionQueue struct {
 	items []turndto.TurnSubmission
 }
 
+// Enqueue 把项目追加到队尾。
 func (q *SubmissionQueue) Enqueue(s turndto.TurnSubmission) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.items = append(q.items, cloneTurnSubmission(s))
 }
 
+// Prepend 把项目放到队头。
 func (q *SubmissionQueue) Prepend(s turndto.TurnSubmission) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.items = append([]turndto.TurnSubmission{cloneTurnSubmission(s)}, q.items...)
 }
 
+// Dequeue 从队头取出项目。
 func (q *SubmissionQueue) Dequeue() (turndto.TurnSubmission, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -54,6 +57,7 @@ func (q *SubmissionQueue) Dequeue() (turndto.TurnSubmission, bool) {
 }
 
 // Peek is currently used only in tests; kept for diagnostic/debugging use.
+// Peek 查看队头项目但不移除。
 func (q *SubmissionQueue) Peek() (turndto.TurnSubmission, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -63,12 +67,14 @@ func (q *SubmissionQueue) Peek() (turndto.TurnSubmission, bool) {
 	return cloneTurnSubmission(q.items[0]), true
 }
 
+// Len 返回队列长度。
 func (q *SubmissionQueue) Len() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return len(q.items)
 }
 
+// Clear 清理编排。
 func (q *SubmissionQueue) Clear() {
 	q.mu.Lock()
 	defer q.mu.Unlock()

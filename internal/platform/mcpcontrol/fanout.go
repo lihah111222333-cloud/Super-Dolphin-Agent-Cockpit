@@ -22,6 +22,7 @@ type selectorBucket struct {
 // IntersectTargets returns active peers that satisfy every populated selector dimension.
 // It walks the smallest bucket first and checks the remaining buckets with O(1) membership lookups.
 // scope.agent_id only matches instances that explicitly set AgentID; bootstrap shared-service peers with AgentID="" are excluded.
+// IntersectTargets 处理intersecttargets。
 func (r *ToolRegistry) IntersectTargets(sel dto.Selector) []sendTarget {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -62,6 +63,7 @@ func (r *ToolRegistry) selectorBucketsLocked(sel dto.Selector) ([]selectorBucket
 	return buckets, true
 }
 
+// snapshotTargets 处理快照targets。
 func (r *ToolRegistry) snapshotTargets(index map[string]map[LeaseKey]struct{}, bucket string) []sendTarget {
 	bucket = strings.TrimSpace(bucket)
 	if bucket == "" {

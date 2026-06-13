@@ -38,6 +38,7 @@ func (s *store) GetDAGVersion(ctx context.Context, dagKey string) (int64, error)
 // CountRunningRunsByDagKey is used by ApplyOps after GetDAGVersionForUpdate has
 // locked the DAG row. This is not a StartDAG pre-check; it is part of the
 // template mutation transaction that protects running executions.
+// CountRunningRunsByDagKey 按DAG键统计running运行记录。
 func (s *store) CountRunningRunsByDagKey(ctx context.Context, dagKey string) (int64, error) {
 	return queryValue(func() (int64, error) {
 		return s.q.CountActiveTaskDagRunsByKey(ctx, dagKey)
@@ -46,6 +47,7 @@ func (s *store) CountRunningRunsByDagKey(ctx context.Context, dagKey string) (in
 
 // GetDAGSchedule reads the scheduling columns. ApplyOps calls this after
 // GetDAGVersionForUpdate has locked the row in the same transaction.
+// GetDAGSchedule 读取DAG计划。
 func (s *store) GetDAGSchedule(ctx context.Context, dagKey string) (DAGSchedule, error) {
 	row, err := s.q.GetTaskDagSchedule(ctx, dagKey)
 	if err != nil {
@@ -57,6 +59,7 @@ func (s *store) GetDAGSchedule(ctx context.Context, dagKey string) (DAGSchedule,
 // UpdateDAGPatch applies the F4.4 update_dag metadata whitelist under the
 // caller's DAGOps transaction. Nil pointer fields mean "leave the column as-is";
 // empty strings are deliberate values and are written through.
+// UpdateDAGPatch 更新DAG补丁。
 func (s *store) UpdateDAGPatch(ctx context.Context, input UpdateDAGPatchInput) (int64, error) {
 	rows, err := s.q.UpdateTaskDagPatch(ctx, sqlc.UpdateTaskDagPatchParams{
 		DagKey:          input.DagKey,

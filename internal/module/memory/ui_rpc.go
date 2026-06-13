@@ -79,6 +79,7 @@ type UISimilarGroup struct {
 	Score   float64 `json:"score"`
 }
 
+// buildUIMemorySnapshot 构建UI记忆快照。
 func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger, cwd string) (UIMemorySnapshot, error) {
 	if svc == nil {
 		return UIMemorySnapshot{}, errors.New("memory service is not configured")
@@ -204,6 +205,7 @@ func countByCategory(entryType string, pref, proj *int) {
 	}
 }
 
+// loadUIMemoryScope 加载UI记忆作用域。
 func loadUIMemoryScope(logger *slog.Logger, label, root string, rootErr error, filterPrivateTeam bool) UIMemoryScopeSection {
 	section := UIMemoryScopeSection{
 		Label:   label,
@@ -335,6 +337,7 @@ type publicValidationError struct {
 	msg string
 }
 
+// Error 返回错误文本。
 func (e *publicValidationError) Error() string { return e.msg }
 
 // publicValidationErr wraps msg as a UI-safe validation error. Always
@@ -471,6 +474,7 @@ func ensureSharedFileDeleteAllowed(ctx context.Context, dagRuntime contract.DAGR
 	return nil
 }
 
+// sharedFileReferencedByFinalOutput 按finaloutput处理shared文件referenced。
 func sharedFileReferencedByFinalOutput(ctx context.Context, dagRuntime contract.DAGRuntime, path string) (bool, error) {
 	target := strings.TrimSpace(path)
 	if target == "" {
@@ -500,6 +504,7 @@ func listDAGsForDeleteGuard(ctx context.Context, dagRuntime contract.DAGRuntime)
 	return dags, nil
 }
 
+// dagFinalOutputReferencesPath 处理DAGfinaloutput引用路径。
 func dagFinalOutputReferencesPath(ctx context.Context, dagRuntime contract.DAGRuntime, dagKey, target string) (bool, error) {
 	dagKey = strings.TrimSpace(dagKey)
 	if dagKey == "" {
@@ -542,8 +547,10 @@ func newSimilarityAdapter(d memoryHandlerDeps, options ...contract.DreamOptions)
 	return adapter
 }
 
+// Logger 处理日志器。
 func (s similarityAdapter) Logger() *slog.Logger { return s.deps.Logger }
 
+// PrivateRoot 处理private根目录。
 func (s similarityAdapter) PrivateRoot(_ context.Context, cwd string) (string, error) {
 	if s.deps.Service == nil {
 		return "", errors.New("memory service is not configured")
@@ -556,6 +563,7 @@ func (s similarityAdapter) PrivateRoot(_ context.Context, cwd string) (string, e
 	return resolvedStoreRoot(cfg.RootDir, projectRoot, cfg.AutoMemPathOverride)
 }
 
+// SimilarPairs 返回相似记忆条目配对。
 func (s similarityAdapter) SimilarPairs(ctx context.Context, cwd string) ([]similarity.SimilarPair, error) {
 	snap, err := buildUIMemorySnapshot(ctx, s.deps.Service, s.deps.Logger, cwd)
 	if err != nil {
@@ -577,6 +585,7 @@ func (s similarityAdapter) SimilarPairs(ctx context.Context, cwd string) ([]simi
 	return out, nil
 }
 
+// ReadEntry 读取条目。
 func (s similarityAdapter) ReadEntry(ctx context.Context, cwd, target, path string) (similarity.EntrySnapshot, error) {
 	root, _, err := resolveUIMemoryTargetRoot(ctx, s.deps.Service, cwd, target)
 	if err != nil {
@@ -594,6 +603,7 @@ func (s similarityAdapter) ReadEntry(ctx context.Context, cwd, target, path stri
 	}, nil
 }
 
+// Merge 合并记忆。
 func (s similarityAdapter) Merge(ctx context.Context, req similarity.MergeRequest) error {
 	_, err := mergeUIMemoryEntries(ctx, s.deps, uiMemoryEntryMergeParams{
 		CWD:               req.CWD,
@@ -607,6 +617,7 @@ func (s similarityAdapter) Merge(ctx context.Context, req similarity.MergeReques
 	return err
 }
 
+// DreamExecute 处理dreamexecute。
 func (s similarityAdapter) DreamExecute(ctx context.Context, prompt string) (string, error) {
 	if s.deps.DreamExecutor == nil {
 		return "", contract.ErrDreamExecutorNotConfigured

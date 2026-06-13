@@ -60,6 +60,7 @@ func newRPCRequestTracker(logger *pkglogger.Logger) *rpcRequestTracker {
 	}
 }
 
+// LogRequest 处理日志请求。
 func (t *rpcRequestTracker) LogRequest(_ context.Context, req *jrpc2.Request) {
 	if t == nil || req == nil || req.IsNotification() {
 		return
@@ -80,6 +81,7 @@ func (t *rpcRequestTracker) LogRequest(_ context.Context, req *jrpc2.Request) {
 	t.mu.Unlock()
 }
 
+// LogResponse 处理日志响应。
 func (t *rpcRequestTracker) LogResponse(_ context.Context, rsp *jrpc2.Response) {
 	if t == nil || rsp == nil {
 		return
@@ -154,6 +156,7 @@ func (t *rpcRequestTracker) logConnectionExit(err error) {
 	)
 }
 
+// snapshotPending 处理快照待处理。
 func (t *rpcRequestTracker) snapshotPending(now time.Time) []map[string]any {
 	if t == nil {
 		return nil
@@ -185,6 +188,7 @@ func (t *rpcRequestTracker) snapshotPending(now time.Time) []map[string]any {
 	return out
 }
 
+// rpcRequestThreadID 处理RPC请求线程ID。
 func rpcRequestThreadID(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -242,6 +246,7 @@ func isRPCCanceledMessage(raw string) bool {
 		strings.Contains(value, "canceled")
 }
 
+// NewServer 创建服务端。
 func NewServer(p Params) *Server {
 	logger := p.Logger
 	if logger == nil {
@@ -256,6 +261,7 @@ func NewServer(p Params) *Server {
 	}
 }
 
+// Register 注册平台RPC。
 func (s *Server) Register(handlerMaps ...handler.Map) {
 	for _, current := range handlerMaps {
 		maps.Copy(s.methods, current)
@@ -266,6 +272,7 @@ func (s *Server) Register(handlerMaps ...handler.Map) {
 // It is used by the Wails binding layer to bridge CallAPI requests.
 // json.RawMessage: justified -- Wails bridge layer; params/result are dynamic JSON
 // whose shape is determined by the dispatched method at runtime.
+// Dispatch 派发平台RPC。
 func (s *Server) Dispatch(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
 	ctx = platformshared.NonNilContext(ctx)
 	var err error
@@ -315,6 +322,7 @@ func (s *Server) logTraceRecordError(ctx context.Context, method string, phase s
 	logger.Warn("rpc dispatch trace record failed", "phase", phase, "method", method, "error", err)
 }
 
+// recordDispatchTrace 记录dispatchtrace。
 func (s *Server) recordDispatchTrace(ctx context.Context, method string, params json.RawMessage, startedAt time.Time, kind string, phase string, duration time.Duration, status TraceStatus, dispatchErr error) error {
 	if s == nil || s.traceRecorder == nil || !s.traceRecorder.Enabled() {
 		return nil
@@ -375,6 +383,7 @@ func rpcSlowThreshold(method string) time.Duration {
 	}
 }
 
+// NotifyAll 处理notifyall。
 func (s *Server) NotifyAll(ctx context.Context, bridge *PushBridge, method string, params any) {
 	if bridge == nil {
 		return
@@ -387,6 +396,7 @@ func (s *Server) NotifyAll(ctx context.Context, bridge *PushBridge, method strin
 	}
 }
 
+// Run 启动平台RPC后台流程。
 func (s *Server) Run(ctx context.Context) error {
 	listener, err := net.Listen("tcp", s.addr)
 	if err != nil {
@@ -420,6 +430,7 @@ func (s *Server) acceptLoop(ctx context.Context, accepter jrpcserver.Accepter) e
 	}
 }
 
+// serveConn 处理serveconn。
 func (s *Server) serveConn(ctx context.Context, ch channel.Channel, wg *sync.WaitGroup) {
 	defer wg.Done()
 
@@ -495,6 +506,7 @@ func (s *Server) releaseUIWebSocketSlot() {
 	s.activeUIWS--
 }
 
+// OnConnect 处理onconnect。
 func (s *Server) OnConnect(fn func(*jrpc2.Server)) {
 	if s == nil || fn == nil {
 		return
@@ -504,6 +516,7 @@ func (s *Server) OnConnect(fn func(*jrpc2.Server)) {
 	}
 }
 
+// OnConnectUI 处理onconnectUI。
 func (s *Server) OnConnectUI(fn func(*jrpc2.Server)) {
 	if s == nil || fn == nil {
 		return
@@ -521,6 +534,7 @@ func (s *Server) notifyConnected(srv *jrpc2.Server) {
 	}
 }
 
+// PeerKind 处理peerkind。
 func (s *Server) PeerKind(srv *jrpc2.Server) string {
 	if s == nil || srv == nil {
 		return ""

@@ -35,6 +35,7 @@ func discoveryPath(binaryName string, parentPID int) string {
 // WriteDiscoveryFile atomically writes the HTTP listen address to the
 // discovery file so that BuildManifest() can find the peer's HTTP endpoint.
 // Uses write-to-temp + rename for crash-safe, race-free updates.
+// WriteDiscoveryFile 写入discovery文件。
 func WriteDiscoveryFile(binaryName string, parentPID int, addr string) error {
 	path := discoveryPath(binaryName, parentPID)
 	tmp := path + ".tmp"
@@ -46,6 +47,7 @@ func WriteDiscoveryFile(binaryName string, parentPID int, addr string) error {
 
 // ReadDiscoveryAddr reads the peer HTTP listen address from the discovery file.
 // Returns the address string (e.g. "127.0.0.1:9091") or an error if not found.
+// ReadDiscoveryAddr 读取discoveryaddr。
 func ReadDiscoveryAddr(binaryName string, parentPID int) (string, error) {
 	path := discoveryPath(binaryName, parentPID)
 	data, err := os.ReadFile(path)
@@ -60,6 +62,7 @@ func ReadDiscoveryAddr(binaryName string, parentPID int) (string, error) {
 }
 
 // CleanupDiscoveryFile removes the discovery file for a given binary.
+// CleanupDiscoveryFile 处理cleanupdiscovery文件。
 func CleanupDiscoveryFile(binaryName string, parentPID int) error {
 	return os.Remove(discoveryPath(binaryName, parentPID))
 }
@@ -67,20 +70,24 @@ func CleanupDiscoveryFile(binaryName string, parentPID int) error {
 // DiscoverPeerHTTPAddr reads and verifies a peer HTTP endpoint. Stale
 // discovery is fail-closed: if the address cannot answer a short MCP ping, the
 // discovery file is removed and no address is returned.
+// DiscoverPeerHTTPAddr 处理discoverpeerHTTPaddr。
 func DiscoverPeerHTTPAddr(binaryName string) (string, error) {
 	return DiscoverPeerHTTPAddrWithToken(binaryName, "")
 }
 
+// DiscoverPeerHTTPAddrWithToken 处理带令牌的discoverpeerHTTPaddr。
 func DiscoverPeerHTTPAddrWithToken(binaryName, token string) (string, error) {
 	return DiscoverPeerHTTPAddrForParentWithToken(binaryName, os.Getpid(), token)
 }
 
 // DiscoverPeerHTTPAddrForParent is the parent-PID-aware form used by tests and
 // parent processes that need to inspect a specific discovery file.
+// DiscoverPeerHTTPAddrForParent 为parent处理discoverpeerHTTPaddr。
 func DiscoverPeerHTTPAddrForParent(binaryName string, parentPID int) (string, error) {
 	return DiscoverPeerHTTPAddrForParentWithToken(binaryName, parentPID, "")
 }
 
+// DiscoverPeerHTTPAddrForParentWithToken 处理带令牌的discoverpeerHTTPaddrparent。
 func DiscoverPeerHTTPAddrForParentWithToken(binaryName string, parentPID int, token string) (string, error) {
 	addr, err := ReadDiscoveryAddr(binaryName, parentPID)
 	if err != nil {
@@ -94,10 +101,12 @@ func DiscoverPeerHTTPAddrForParentWithToken(binaryName string, parentPID int, to
 }
 
 // ProbePeerHTTPAddr verifies that addr speaks the MCP HTTP ping endpoint.
+// ProbePeerHTTPAddr 处理probepeerHTTPaddr。
 func ProbePeerHTTPAddr(addr string) error {
 	return ProbePeerHTTPAddrWithToken(addr, "")
 }
 
+// ProbePeerHTTPAddrWithToken 处理带令牌的probepeerHTTPaddr。
 func ProbePeerHTTPAddrWithToken(addr, token string) error {
 	addr = strings.TrimSpace(addr)
 	if !IsValidHTTPAddr(addr) {
@@ -150,6 +159,7 @@ func newPeerProbeRequest(addr, token string, body io.Reader) (*http.Request, err
 
 // WritePeerDiscovery writes the discovery file using the current process's
 // parent PID. This is intended for use inside a peer process.
+// WritePeerDiscovery 写入peerdiscovery。
 func WritePeerDiscovery(binaryName string, addr string) error {
 	ppid := os.Getppid()
 	if ppid <= 1 {
@@ -160,6 +170,7 @@ func WritePeerDiscovery(binaryName string, addr string) error {
 
 // CleanupPeerDiscovery removes the discovery file using the current process's
 // parent PID. Intended for use in peer process shutdown.
+// CleanupPeerDiscovery 处理cleanuppeerdiscovery。
 func CleanupPeerDiscovery(binaryName string) error {
 	ppid := os.Getppid()
 	if ppid <= 1 {
@@ -169,6 +180,7 @@ func CleanupPeerDiscovery(binaryName string) error {
 }
 
 // IsValidHTTPAddr does a basic check that addr looks like host:port.
+// IsValidHTTPAddr 判断validHTTPaddr是否可用。
 func IsValidHTTPAddr(addr string) bool {
 	_, portStr, err := net.SplitHostPort(addr)
 	if err != nil {

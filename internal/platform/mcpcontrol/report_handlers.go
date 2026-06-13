@@ -45,6 +45,7 @@ func handleReport(
 	})
 }
 
+// dispatchReport 派发report。
 func dispatchReport(
 	ctx context.Context,
 	instance *ToolInstance,
@@ -82,6 +83,7 @@ type defaultRuntimeReportHandler struct {
 	orchestration contract.OrchestrationService
 }
 
+// HandleRuntimeReport 处理运行时report。
 func (h defaultRuntimeReportHandler) HandleRuntimeReport(
 	ctx context.Context,
 	instance *ToolInstance,
@@ -110,6 +112,7 @@ type defaultCompletionReportHandler struct {
 	orchestration contract.OrchestrationService
 }
 
+// HandleCompletionReport 处理补全report。
 func (h defaultCompletionReportHandler) HandleCompletionReport(
 	ctx context.Context,
 	instance *ToolInstance,

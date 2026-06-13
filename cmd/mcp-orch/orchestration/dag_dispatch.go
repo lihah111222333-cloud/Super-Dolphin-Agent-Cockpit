@@ -42,6 +42,7 @@ const dispatchNodeWakeupKind = "manual_dispatch"
 
 // DispatchNode assigns a runtime pending/ready node and enqueues manual_dispatch.
 // Agent nodes must include node.config.exec.cwd before enqueue.
+// DispatchNode 领取并调度一个可运行的 DAG 节点。
 func (s *service) DispatchNode(ctx context.Context, req contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {
 	dagKey, nodeKey, assignedTo, runID, err := normalizeDispatchInputs(s, req)
 	if err != nil {
@@ -203,14 +204,19 @@ var ErrSchedulerNotImplemented = errors.New("scheduler: not implemented in skele
 
 type noopScheduler struct{}
 
+// Tick 触发一次调度扫描。
 func (noopScheduler) Tick(context.Context, time.Time) (int, error) {
 	return 0, ErrSchedulerNotImplemented
 }
 
+// Schedule 注册下一次调度唤醒。
 func (noopScheduler) Schedule(_ context.Context, _ string) error { return ErrSchedulerNotImplemented }
 
+// NewNoopScheduler 创建不执行外部调度的空实现。
 func NewNoopScheduler() Scheduler { return noopScheduler{} }
 
+// StartDAG 创建一次 run，不直接改模板。
+// 根节点会先变 ready；没 assigned_to 的根节点要等 task_dispatch_node。
 func (s *service) StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error) {
 	dagKey, dag, err := s.validateStartDAGPrereq(ctx, req)
 	if err != nil {
@@ -222,6 +228,7 @@ func (s *service) StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGRe
 	return s.runStartDAGWithFallback(ctx, dagKey, runKey, input)
 }
 
+// StartScheduledDAG 按计划启动 DAG，并写入本次运行记录。
 func (s *service) StartScheduledDAG(ctx context.Context, req orchcron.ScheduledDAGStartRequest) error {
 	if s == nil || s.scheduledStartStore == nil {
 		return ErrRunStoreUnset
@@ -233,8 +240,10 @@ type ScheduledDAGStartService interface {
 	StartScheduledDAG(context.Context, orchcron.ScheduledDAGStartRequest) error
 }
 
+// ProvideScheduledDAGStartService 为 fx 提供计划 DAG 启动服务。
 func ProvideScheduledDAGStartService(s *service) ScheduledDAGStartService { return s }
 
+// validateStartDAGPrereq 校验计划启动 DAG 前必须存在的依赖。
 func (s *service) validateStartDAGPrereq(ctx context.Context, req StartDAGRequest) (string, *taskdag.DAG, error) {
 	if s == nil || s.dagStore == nil {
 		return "", nil, ErrLifecycleNotImplemented
@@ -256,6 +265,8 @@ func (s *service) validateStartDAGPrereq(ctx context.Context, req StartDAGReques
 	return dagKey, dag, nil
 }
 
+// 创建 run、复制节点、调度根节点要在同一事务里完成。
+// 并发启动靠数据库唯一键兜住，不在这里先查再猜。
 func (s *service) runStartDAGWithFallback(ctx context.Context, dagKey, runKey string, input taskdag.CreateRunInput) (StartDAGResponse, error) {
 	var resp StartDAGResponse
 	txErr := s.runStore.WithRunTx(ctx, func(tx taskdag.RunStore) error {
@@ -287,6 +298,8 @@ func (s *service) runStartDAGWithFallback(ctx context.Context, dagKey, runKey st
 	return s.resolveStartDAGUniqueViolation(ctx, dagKey, runKey, txErr)
 }
 
+// 启动 run 前先锁模板行，确保 version 和复制出的节点来自同一版。
+// 去掉这把锁会让 apply_ops 与 start 并发时产生混版 run。
 func lockDAGForRunStart(ctx context.Context, tx taskdag.RunStore, dagKey string) (*taskdag.DAG, error) {
 	locker, ok := tx.(interface {
 		GetDAGForUpdate(context.Context, string) (*taskdag.DAG, error)
@@ -307,6 +320,8 @@ func lockDAGForRunStart(ctx context.Context, tx taskdag.RunStore, dagKey string)
 	return dag, nil
 }
 
+// 同一个 run_key 已经 running/succeeded 时返回已有 run。
+// 如果它 failed/cancelled，调用方要换 idempotency_key，不能复用旧失败 run。
 func (s *service) resolveStartDAGUniqueViolation(ctx context.Context, dagKey, runKey string, txErr error) (StartDAGResponse, error) {
 	existing, getErr := s.runStore.GetRun(ctx, runKey)
 	if getErr == nil && existing != nil {

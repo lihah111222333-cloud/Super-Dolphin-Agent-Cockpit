@@ -44,6 +44,7 @@ func (s *service) ensureRuntimeForPersistedAgent(ctx context.Context, agentID st
 		"cwd", agent.cwd)
 }
 
+// canRehydratePersistedRuntime 判断rehydratepersisted运行时是否可用。
 func (s *service) canRehydratePersistedRuntime(agentID string) bool {
 	if s == nil {
 		return false
@@ -118,6 +119,7 @@ type persistedRuntimeSource struct {
 	remoteThreadID string
 }
 
+// loadPersistedRuntimeSource 加载persisted运行时source。
 func (s *service) loadPersistedRuntimeSource(ctx context.Context, agentID string) (persistedRuntimeSource, string, error) {
 	binding, err := s.agentBindings.GetByAgentID(ctx, agentID)
 	if err != nil {
@@ -212,6 +214,7 @@ func (s *service) newPersistedRuntimeAgent(agentID string, source persistedRunti
 	return agent
 }
 
+// persistedThreadForBinding 为binding处理persisted线程。
 func (s *service) persistedThreadForBinding(ctx context.Context, agentID, remoteThreadID string) (*PersistedThread, error) {
 	if s.agentThreads == nil {
 		return nil, platformdb.ErrNotFound

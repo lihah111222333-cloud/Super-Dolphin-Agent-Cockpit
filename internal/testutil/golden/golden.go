@@ -30,6 +30,7 @@ type Case struct {
 	Name    string
 }
 
+// AssertJSON 处理assertJSON。
 func AssertJSON(t *testing.T, tc Case, actual any) {
 	t.Helper()
 
@@ -59,6 +60,7 @@ func AssertJSON(t *testing.T, tc Case, actual any) {
 	t.Fatalf("golden mismatch for %s:\n%s", path, unifiedDiff(want, got))
 }
 
+// path 处理路径。
 func (tc Case) path() (string, error) {
 	baseDir := strings.TrimSpace(tc.BaseDir)
 	name := strings.TrimSpace(tc.Name)

@@ -9,6 +9,7 @@ import (
 	"time"
 )
 
+// UpdateRuntime 更新运行时。
 func (s *service) UpdateRuntime(ctx context.Context, report RuntimeReport) error {
 	agentID := strings.TrimSpace(report.AgentID)
 	provider := normalizeRuntimeProvider(report.Provider)
@@ -58,6 +59,7 @@ func (s *service) UpdateRuntime(ctx context.Context, report RuntimeReport) error
 	})
 }
 
+// snapshotLocked 处理快照locked。
 func (s *service) snapshotLocked(_ context.Context, agent *agentRuntime) AgentSnapshot {
 	port, portSource := snapshotPort(agent)
 	provider, providerSource := snapshotProvider(agent)
@@ -208,6 +210,7 @@ func clearAgentTurnStateLocked(agent *agentRuntime) {
 	agent.exitedAt = nil
 }
 
+// snapshotPort 处理快照port。
 func snapshotPort(agent *agentRuntime) (int, string) {
 	if agent != nil && agent.runtimePort > 0 {
 		source := strings.TrimSpace(agent.portSource)
@@ -222,6 +225,7 @@ func snapshotPort(agent *agentRuntime) (int, string) {
 	return agent.port, agent.portSource
 }
 
+// snapshotProvider 处理快照provider。
 func snapshotProvider(agent *agentRuntime) (string, string) {
 	if agent != nil && strings.TrimSpace(agent.runtimeProvider) != "" {
 		source := strings.TrimSpace(agent.providerSource)

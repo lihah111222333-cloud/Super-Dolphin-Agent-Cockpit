@@ -39,6 +39,7 @@ type dashboardHandlersParams struct {
 	Insights InsightReader `optional:"true"`
 }
 
+// NewDashboardHandlersWithInsights 创建带insights的dashboard处理器。
 func NewDashboardHandlersWithInsights(p dashboardHandlersParams) platformrpc.HandlerMapResult {
 	result := NewDashboardHandlers(p.Service)
 	addDashboardInsightHandlers(result.Handlers, p.Insights)

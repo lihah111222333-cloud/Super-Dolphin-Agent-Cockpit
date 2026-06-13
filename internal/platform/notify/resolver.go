@@ -67,6 +67,7 @@ type staticResolver struct {
 // Resolve returns the ChannelConfig for the trimmed alias. An unknown
 // alias returns ErrAliasNotFound so callers can branch on
 // misconfiguration vs transient failures.
+// Resolve 解析平台notify。
 func (r *staticResolver) Resolve(alias string) (ChannelConfig, error) {
 	a := strings.TrimSpace(alias)
 	if a == "" {
@@ -94,6 +95,7 @@ func (r *staticResolver) Resolve(alias string) (ChannelConfig, error) {
 //	}
 //
 // Empty / whitespace input parses to an empty resolver (no channels).
+// ParseChannelsJSON 解析channelsJSON。
 func ParseChannelsJSON(raw string) (Resolver, error) {
 	text := strings.TrimSpace(raw)
 	if text == "" {
@@ -134,6 +136,7 @@ type rawChannel struct {
 	Secret   string `json:"secret,omitempty"`
 }
 
+// toChannelConfig 把平台notify处理为channel配置。
 func (r rawChannel) toChannelConfig(alias string) (ChannelConfig, error) {
 	plat := Platform(strings.TrimSpace(strings.ToLower(r.Platform)))
 	switch plat {
@@ -160,6 +163,7 @@ func (r rawChannel) toChannelConfig(alias string) (ChannelConfig, error) {
 // unmarshaling so duplicate aliases can be detected before
 // encoding/json silently collapses them. Keys seen more than once
 // surface ErrDuplicateAlias.
+// scanTopLevelAliases 扫描toplevelaliases。
 func scanTopLevelAliases(text string) ([]string, error) {
 	dec := json.NewDecoder(strings.NewReader(text))
 	dec.UseNumber()
@@ -201,6 +205,7 @@ func scanTopLevelAliases(text string) ([]string, error) {
 // skipValue consumes one JSON value from the decoder, including nested
 // arrays / objects. Used to fast-forward past an alias value once the
 // key has been recorded.
+// skipValue 处理skip值。
 func skipValue(dec *json.Decoder) error {
 	tok, err := dec.Token()
 	if err != nil {

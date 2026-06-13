@@ -18,6 +18,7 @@ func resolveRegisteredInstance(registry *ToolRegistry, key dto.LeaseKey, allowSt
 	})
 }
 
+// contextPayload 处理上下文载荷。
 func contextPayload(scope string, instance *ToolInstance, snapshot *contract.AgentSnapshot) (map[string]any, error) {
 	agentID, threadID, status, pid := contextAgentFields(instance, snapshot)
 	switch strings.TrimSpace(scope) {
@@ -76,12 +77,14 @@ func buildContextResponse(scope string, payload map[string]any) (dto.ContextResp
 	}, nil
 }
 
+// FindActiveByKind 按kind查找active。
 func (r *ToolRegistry) FindActiveByKind(clientKind string) []*ToolInstance {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.findActiveByKindLocked(strings.TrimSpace(clientKind))
 }
 
+// FindActiveForScope 为作用域查找active。
 func (r *ToolRegistry) FindActiveForScope(scope ToolScope) []*ToolInstance {
 	scope = normalizeToolScope(scope)
 	peers := r.FindActiveByKind(scope.Family)

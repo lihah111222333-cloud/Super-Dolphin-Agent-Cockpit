@@ -3,6 +3,10 @@ import { File, X } from 'lucide-react';
 import { composerAttachmentKey } from './composerAttachmentKey.js';
 
 function ComposerAttachments({ attachments, onPreview, onRemove }) {
+  /*
+   * 这里只展示已经整理好的附件。
+   * 文件路径、预览地址、去重和图片保存都在 store 里做。
+   */
   if (attachments.length === 0) return null;
   return (
     <div className="attachments">

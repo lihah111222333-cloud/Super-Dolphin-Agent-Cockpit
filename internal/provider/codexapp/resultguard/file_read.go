@@ -7,10 +7,12 @@ import (
 	"strings"
 )
 
+// EmptyFileReadFromRaw 从原始处理empty文件read。
 func EmptyFileReadFromRaw(toolName string, params json.RawMessage, result any) (string, bool) {
 	return EmptyFileRead(toolName, ArgsFromRaw(params), result)
 }
 
+// ApplyEmptyFileReadFromRaw 从原始应用empty文件read。
 func ApplyEmptyFileReadFromRaw(success bool, errorText, preview, toolName string, params json.RawMessage, result any) (bool, string, string) {
 	if !success {
 		return success, errorText, preview
@@ -21,6 +23,7 @@ func ApplyEmptyFileReadFromRaw(success bool, errorText, preview, toolName string
 	return success, errorText, preview
 }
 
+// ApplyCodexMCPPreview 应用codexMCPpreview。
 func ApplyCodexMCPPreview(success bool, errorText, preview, toolName string, item map[string]any) string {
 	if text, ok := EmptyCodexMCPFileRead(toolName, item); !success && errorText != "" && ok {
 		return text
@@ -28,6 +31,7 @@ func ApplyCodexMCPPreview(success bool, errorText, preview, toolName string, ite
 	return preview
 }
 
+// SuccessUnlessEmptyCodexMCPFileRead 处理successunlessemptycodexMCP文件read。
 func SuccessUnlessEmptyCodexMCPFileRead(toolName string, item map[string]any) (bool, string) {
 	if text, ok := EmptyCodexMCPFileRead(toolName, item); ok {
 		return false, text
@@ -35,6 +39,7 @@ func SuccessUnlessEmptyCodexMCPFileRead(toolName string, item map[string]any) (b
 	return true, ""
 }
 
+// EmptyCodexMCPFileRead 处理emptycodexMCP文件read。
 func EmptyCodexMCPFileRead(toolName string, item map[string]any) (string, bool) {
 	result, _ := item["result"].(map[string]any)
 	if len(result) == 0 {
@@ -43,6 +48,7 @@ func EmptyCodexMCPFileRead(toolName string, item map[string]any) (string, bool) 
 	return EmptyFileRead(toolName, ArgsFromPayload(item), resultPayload(result))
 }
 
+// EmptyFileRead 处理empty文件read。
 func EmptyFileRead(toolName string, args map[string]any, result any) (string, bool) {
 	if !isFileRead(toolName, args) || resultHasReadableText(result) {
 		return "", false
@@ -57,6 +63,7 @@ func EmptyFileRead(toolName string, args map[string]any, result any) (string, bo
 	return fmt.Sprintf("file read returned no content for %q; the path does not exist or is outside workspace", target), true
 }
 
+// ArgsFromRaw 从原始处理args。
 func ArgsFromRaw(raw json.RawMessage) map[string]any {
 	var payload map[string]any
 	if len(bytes.TrimSpace(raw)) == 0 || json.Unmarshal(raw, &payload) != nil {
@@ -65,6 +72,7 @@ func ArgsFromRaw(raw json.RawMessage) map[string]any {
 	return ArgsFromPayload(payload)
 }
 
+// ArgsFromPayload 从载荷处理args。
 func ArgsFromPayload(payload map[string]any) map[string]any {
 	if invocation, _ := payload["invocation"].(map[string]any); len(invocation) > 0 {
 		if args := argumentObject(invocation); len(args) > 0 {
@@ -90,6 +98,7 @@ func resultPayload(result map[string]any) map[string]any {
 	return result
 }
 
+// argumentObject 处理argumentobject。
 func argumentObject(payload map[string]any) map[string]any {
 	for _, key := range []string{"arguments", "args"} {
 		switch value := payload[key].(type) {
@@ -117,6 +126,7 @@ func isFileRead(toolName string, args map[string]any) bool {
 	}
 }
 
+// resultHasReadableText 处理结果hasreadable文本。
 func resultHasReadableText(result any) bool {
 	raw, err := json.Marshal(result)
 	if err != nil {
@@ -162,6 +172,7 @@ func stringValue(payload map[string]any, keys ...string) string {
 	return ""
 }
 
+// stringListValue 处理stringlist值。
 func stringListValue(payload map[string]any, keys ...string) string {
 	for _, key := range keys {
 		items, _ := payload[key].([]any)

@@ -15,6 +15,7 @@ type ProjectsState struct {
 	Active   string   `json:"active"`
 }
 
+// GetProjects 读取projects。
 func (s *service) GetProjects(ctx context.Context) (*ProjectsState, error) {
 	prefs, err := s.GetPreferences(ctx)
 	if err != nil {
@@ -23,12 +24,14 @@ func (s *service) GetProjects(ctx context.Context) (*ProjectsState, error) {
 	return buildProjectsState(prefs), nil
 }
 
+// SetActiveProject 设置active项目。
 func (s *service) SetActiveProject(ctx context.Context, path string) (*ProjectsState, error) {
 	s.projectsMu.Lock()
 	defer s.projectsMu.Unlock()
 	return s.setActiveProjectLocked(ctx, path)
 }
 
+// setActiveProjectLocked 设置active项目locked。
 func (s *service) setActiveProjectLocked(ctx context.Context, path string) (*ProjectsState, error) {
 	state, err := s.GetProjects(ctx)
 	if err != nil {
@@ -48,12 +51,14 @@ func (s *service) setActiveProjectLocked(ctx context.Context, path string) (*Pro
 	return cloneProjectsState(*state), nil
 }
 
+// AddProject 添加项目。
 func (s *service) AddProject(ctx context.Context, path string) (*ProjectsState, error) {
 	s.projectsMu.Lock()
 	defer s.projectsMu.Unlock()
 	return s.addProjectLocked(ctx, path)
 }
 
+// addProjectLocked 添加项目locked。
 func (s *service) addProjectLocked(ctx context.Context, path string) (*ProjectsState, error) {
 	state, err := s.GetProjects(ctx)
 	if err != nil {
@@ -73,12 +78,14 @@ func (s *service) addProjectLocked(ctx context.Context, path string) (*ProjectsS
 	return cloneProjectsState(*state), nil
 }
 
+// RemoveProject 移除项目。
 func (s *service) RemoveProject(ctx context.Context, path string) (*ProjectsState, error) {
 	s.projectsMu.Lock()
 	defer s.projectsMu.Unlock()
 	return s.removeProjectLocked(ctx, path)
 }
 
+// removeProjectLocked 移除项目locked。
 func (s *service) removeProjectLocked(ctx context.Context, path string) (*ProjectsState, error) {
 	state, err := s.GetProjects(ctx)
 	if err != nil {
@@ -136,6 +143,7 @@ func normalizeProjectsState(state ProjectsState) ProjectsState {
 	return state
 }
 
+// projectPathsFromValue 从值处理项目路径。
 func projectPathsFromValue(value any) []string {
 	switch typed := value.(type) {
 	case []string:

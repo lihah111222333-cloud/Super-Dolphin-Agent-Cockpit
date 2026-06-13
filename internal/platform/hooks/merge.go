@@ -22,6 +22,7 @@ type peerDecision[T any] struct {
 	ConsecutiveFailures int
 }
 
+// MergeBefore 合并before。
 func MergeBefore(decisions []peerDecision[mcp.BeforeDecision]) MergeResult[mcp.BeforeDecision] {
 	normalized, failed, lost := normalizeBeforeDecisions(decisions)
 	merged := mergeBeforeDecision(normalized)
@@ -54,6 +55,7 @@ func normalizeBeforeDecisions(decisions []peerDecision[mcp.BeforeDecision]) ([]m
 	})
 }
 
+// mergeBeforeDecision 合并beforedecision。
 func mergeBeforeDecision(decisions []mcp.BeforeDecision) mcp.BeforeDecision {
 	if len(decisions) == 0 {
 		return mcp.BeforeDecision{Decision: mcp.HookDecisionDeny}
@@ -112,6 +114,7 @@ func mergeAllowedTools(decisions []mcp.BeforeDecision) []string {
 	return sortedTools(intersection)
 }
 
+// mergeDeniedTools 合并denied工具。
 func mergeDeniedTools(decisions []mcp.BeforeDecision) []string {
 	union := make(map[string]struct{})
 	for _, item := range decisions {

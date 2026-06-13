@@ -132,6 +132,7 @@ func provideDisabledBuiltinToolsFn(prefs uipreference.Store, tools []contract.Na
 	}
 }
 
+// AsRPCRunner 把应用装配处理为RPCrunner。
 func AsRPCRunner(server *rpc.Server) RunnerResult {
 	return RunnerResult{Runner: server}
 }

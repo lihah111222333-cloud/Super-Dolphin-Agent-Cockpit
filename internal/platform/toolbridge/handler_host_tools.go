@@ -23,6 +23,7 @@ type peerToolsListOutcome struct {
 	err        error
 }
 
+// listPeerToolsForCodex 为codex列出peer工具。
 func (h *Handler) listPeerToolsForCodex(ctx context.Context, kinds ...string) []peerToolsListOutcome {
 	if ctx == nil {
 		ctx = context.Background()
@@ -77,6 +78,7 @@ func joinPeerToolErrors(outcomes []peerToolsListOutcome) error {
 	return errors.Join(errs...)
 }
 
+// ListToolsForCodex 为codex列出工具。
 func (h *Handler) ListToolsForCodex(ctx context.Context) ([]contract.DynamicToolSchema, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -106,6 +108,7 @@ func (h *Handler) appendDynamicToolsWithShadowWarning(dst []dto.MCPTool, seen ma
 	return h.appendMCPToolsWithShadowWarning(dst, seen, source, tools)
 }
 
+// appendMCPToolsWithShadowWarning 追加带shadowwarning的MCP工具。
 func (h *Handler) appendMCPToolsWithShadowWarning(dst []dto.MCPTool, seen map[string]string, source string, tools []dto.MCPTool) []dto.MCPTool {
 	if seen == nil {
 		seen = make(map[string]string, len(tools))
@@ -285,6 +288,7 @@ func hostToolErrorOutcome(err error) string {
 	}
 }
 
+// hostToolErrorResult 生成host工具错误结果。
 func hostToolErrorResult(req ToolCallRequest, err error) *ToolCallResult {
 	envelope := map[string]any{
 		"kind":  "host_tool_error",
@@ -354,6 +358,7 @@ func hostToolRequiresCWD(registry HostToolRegistry, name string) bool {
 	return !ok || policy.RequiresCWD(name)
 }
 
+// resolveRequiredHostToolCWD 解析必需host工具工作目录。
 func (h *Handler) resolveRequiredHostToolCWD(ctx context.Context, req ToolCallRequest) (string, error) {
 	cwd := normalizeToolCallCWD(req.CWD)
 	if cwd == "" {

@@ -20,6 +20,7 @@ var (
 	ErrImportInfrastructure = errors.New("sharedfile: import infrastructure failed")
 )
 
+// ImportLocalFile 导入local文件。
 func (s *store) ImportLocalFile(ctx context.Context, params ImportLocalFileParams) (*SharedFile, error) {
 	if s == nil || s.q == nil {
 		return nil, importInfrastructure("store not configured", nil)
@@ -59,6 +60,7 @@ func (s *store) ImportLocalFile(ctx context.Context, params ImportLocalFileParam
 	return &mapped, nil
 }
 
+// validateImportSource 校验importsource。
 func validateImportSource(params ImportLocalFileParams) (string, fs.FileInfo, error) {
 	source := strings.TrimSpace(params.SourcePath)
 	if source == "" {
@@ -88,6 +90,7 @@ func validateImportSource(params ImportLocalFileParams) (string, fs.FileInfo, er
 	return sourceAbs, info, nil
 }
 
+// ensureImportAllowed 确保importallowed。
 func ensureImportAllowed(params ImportLocalFileParams, sourceAbs, targetRel string, size int64) error {
 	if params.MaxBytes < 0 {
 		return importValidation("max_bytes must be non-negative")
@@ -104,6 +107,7 @@ func ensureImportAllowed(params ImportLocalFileParams, sourceAbs, targetRel stri
 	return nil
 }
 
+// ensureImportExtension 确保importextension。
 func ensureImportExtension(allowed []string, sourceAbs, targetRel string) error {
 	if len(allowed) == 0 {
 		return nil
@@ -133,6 +137,7 @@ func ensureImportExtension(allowed []string, sourceAbs, targetRel string) error 
 	return nil
 }
 
+// ensureImportSourceRoot 确保importsource根目录。
 func ensureImportSourceRoot(roots []string, sourceAbs string) error {
 	if len(roots) == 0 {
 		return nil
@@ -163,6 +168,7 @@ func pathWithinRoot(absPath, root string) bool {
 	return cleanPath == cleanRoot || strings.HasPrefix(cleanPath, cleanRoot+string(filepath.Separator))
 }
 
+// copyImportToTarget 把import复制为target。
 func copyImportToTarget(sourceAbs, targetAbs string, params ImportLocalFileParams) error {
 	if err := ensureImportOverwrite(targetAbs, params.Overwrite); err != nil {
 		return err
@@ -185,6 +191,7 @@ func copyImportToTarget(sourceAbs, targetAbs string, params ImportLocalFileParam
 	return nil
 }
 
+// ensureImportOverwrite 确保importoverwrite。
 func ensureImportOverwrite(targetAbs, rawOverwrite string) error {
 	overwrite := strings.TrimSpace(rawOverwrite)
 	if overwrite == "" {
@@ -205,6 +212,7 @@ func ensureImportOverwrite(targetAbs, rawOverwrite string) error {
 	}
 }
 
+// writeImportTempFile 写入importtemp文件。
 func writeImportTempFile(sourceAbs, targetAbs string, maxBytes int64) (string, error) {
 	tmp, err := os.CreateTemp(filepath.Dir(targetAbs), filepath.Base(targetAbs)+".tmp-")
 	if err != nil {
@@ -232,6 +240,7 @@ func writeImportTempFile(sourceAbs, targetAbs string, maxBytes int64) (string, e
 	return tmpPath, nil
 }
 
+// streamCopyWithLimit 返回带limit的流copy。
 func streamCopyWithLimit(dst *os.File, sourceAbs string, maxBytes int64) error {
 	src, err := os.Open(sourceAbs)
 	if err != nil {

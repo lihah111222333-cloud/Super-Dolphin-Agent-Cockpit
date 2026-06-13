@@ -14,6 +14,7 @@ type SymbolProvider interface {
 	Symbols(absPath string) ([]protocol.DocumentSymbol, error)
 }
 
+// FindEnclosingFunction 查找所属函数。
 func FindEnclosingFunction(symbols []protocol.DocumentSymbol, zeroBasedLine int) (startLine, endLine int, ok bool) {
 	if zeroBasedLine < 0 {
 		return 0, 0, false
@@ -25,6 +26,7 @@ func FindEnclosingFunction(symbols []protocol.DocumentSymbol, zeroBasedLine int)
 	return startLine + 1, endLine + 1, true
 }
 
+// EnrichLocationResultsWithFuncRange 补充带func范围的位置结果。
 func EnrichLocationResultsWithFuncRange(results []protocol.LocationResult, provider SymbolProvider) {
 	if len(results) == 0 || provider == nil {
 		return
@@ -43,6 +45,7 @@ func EnrichLocationResultsWithFuncRange(results []protocol.LocationResult, provi
 	}
 }
 
+// ResolveEnclosingFunctionRange 解析所属函数范围。
 func ResolveEnclosingFunctionRange(provider SymbolProvider, uri string, zeroBasedLine int, lastRange map[string][2]int) (startLine, endLine int, isNew, ok bool) {
 	if provider == nil {
 		return 0, 0, false, false
@@ -68,6 +71,7 @@ func ResolveEnclosingFunctionRange(provider SymbolProvider, uri string, zeroBase
 	return startLine, endLine, isNew, true
 }
 
+// AbsolutePathFromURI 从URI处理absolute路径。
 func AbsolutePathFromURI(uri string) (string, error) {
 	trimmed := strings.TrimSpace(uri)
 	if trimmed == "" {
@@ -103,6 +107,7 @@ func findEnclosing(symbols []protocol.DocumentSymbol, zeroBasedLine int) (startL
 	return 0, 0, false
 }
 
+// findInSymbol 在符号查找LSP。
 func findInSymbol(symbol protocol.DocumentSymbol, zeroBasedLine int) (startLine, endLine int, ok bool) {
 	startLine, endLine, ok = documentSymbolBounds(symbol)
 	if !ok || zeroBasedLine < startLine || zeroBasedLine > endLine {
@@ -117,6 +122,7 @@ func findInSymbol(symbol protocol.DocumentSymbol, zeroBasedLine int) (startLine,
 	return startLine, endLine, true
 }
 
+// documentSymbolBounds 转换document符号边界用于展示。
 func documentSymbolBounds(symbol protocol.DocumentSymbol) (startLine, endLine int, ok bool) {
 	startLine = symbol.Range.Start.Line
 	endLine = symbol.Range.End.Line

@@ -190,6 +190,8 @@ func (c *Client) handleHookAfter(ctx context.Context, req *jrpc2.Request) (any, 
 //     reconnect path picks it up. Pre-P22 P2 bootstrap-S2 this path
 //     dropped the subscription on the floor, so a first-call failure
 //     required manual resubscribe to self-heal.
+//
+// SubscribeHooks 处理subscribehooks。
 func (c *Client) SubscribeHooks(ctx context.Context, subscriptionID string, topics []string, scope mcp.Selector, filters json.RawMessage, mode string) (*mcp.HookSubscribeResponse, error) {
 	conn, degraded := c.currentConn()
 	if conn == nil || degraded {
@@ -225,6 +227,7 @@ func (c *Client) SubscribeHooks(ctx context.Context, subscriptionID string, topi
 }
 
 // ResolveHook sends a ctl/hook/resolve request to the core layer.
+// ResolveHook 解析hook。
 func (c *Client) ResolveHook(ctx context.Context, req mcp.HookResolveRequest) (*mcp.HookResolveResponse, error) {
 	conn, degraded := c.currentConn()
 	if conn == nil || degraded {
@@ -242,6 +245,7 @@ func (c *Client) ResolveHook(ctx context.Context, req mcp.HookResolveRequest) (*
 }
 
 // PendingHooks fetches the current agent's pending hook reviews from the core layer.
+// PendingHooks 处理待处理hooks。
 func (c *Client) PendingHooks(ctx context.Context) ([]mcp.PendingHookReview, error) {
 	conn, degraded := c.currentConn()
 	if conn == nil || degraded {
@@ -273,6 +277,7 @@ func (c *Client) PendingHooks(ctx context.Context) ([]mcp.PendingHookReview, err
 
 // replayHookSubscriptions re-sends the last ctl/hook/subscribe after a
 // successful reconnect. Safe to call when no prior subscription exists.
+// replayHookSubscriptions 处理replayhooksubscriptions。
 func (c *Client) replayHookSubscriptions(ctx context.Context) error {
 	subID, topics, scope, filters, mode, ok := c.hooks.load()
 	if !ok {
@@ -381,4 +386,5 @@ func errHookPendingAgentIDRequired() error {
 // hookUnavailableError marks a non-fatal connectivity error for hook subscribe.
 type hookUnavailableError struct{ msg string }
 
+// Error 返回错误文本。
 func (e *hookUnavailableError) Error() string { return e.msg }

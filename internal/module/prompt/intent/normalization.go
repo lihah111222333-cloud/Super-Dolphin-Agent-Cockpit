@@ -2,6 +2,7 @@ package intent
 
 import "strings"
 
+// NormalizeGeneratedCard 规范化generatedcard。
 func NormalizeGeneratedCard(requestedKind string, rawInput string, card Card) Card {
 	kind, err := normalizeKind(requestedKind)
 	if err != nil {
@@ -37,6 +38,7 @@ func promptIntentNormalizeSuggestedAlternative(requestedKind Kind, card Card) Ca
 	return card
 }
 
+// promptIntentNormalizeCommunicationFact 处理promptintentnormalizecommunicationfact。
 func promptIntentNormalizeCommunicationFact(card Card) Card {
 	if strings.TrimSpace(card.Kind) != string(KindExpert) || len(card.SourceFacts) == 0 {
 		return card

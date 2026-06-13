@@ -30,6 +30,7 @@ func settleInterruptedTransportWithTimeout(tr *transport, grace time.Duration) e
 	return nil
 }
 
+// cleanupInterruptedTransport 处理cleanupinterrupted传输。
 func cleanupInterruptedTransport(logger *slog.Logger, reg *pidregistry.Registry, tr *transport, cleanup func(), settleTransport func(*transport) error) {
 	if tr == nil {
 		if cleanup != nil {

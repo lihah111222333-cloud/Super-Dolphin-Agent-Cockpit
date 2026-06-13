@@ -63,6 +63,7 @@ type MergeRunResult struct {
 	Files         []MergeFileResult `json:"files,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (r *CreateRunRequest) UnmarshalJSON(data []byte) error {
 	type raw CreateRunRequest
 	var legacy struct {

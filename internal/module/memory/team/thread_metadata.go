@@ -14,6 +14,7 @@ type Lifecycle interface {
 	StopSession(context.Context, string) error
 }
 
+// BuildCtxFromThreadMetadata 从线程元数据构建ctx。
 func BuildCtxFromThreadMetadata(meta *contract.ThreadMetadata, fallbackCWD string) (contract.BuildCtx, bool) {
 	buildCtx := contract.BuildCtx{CWD: strings.TrimSpace(fallbackCWD)}
 	if meta == nil {
@@ -38,6 +39,7 @@ func BuildCtxFromThreadMetadata(meta *contract.ThreadMetadata, fallbackCWD strin
 	return buildCtx, buildCtx.CWD != ""
 }
 
+// boolMapValue 处理boolmap值。
 func boolMapValue(raw any) map[string]bool {
 	src, ok := raw.(map[string]any)
 	if !ok || len(src) == 0 {
@@ -60,6 +62,7 @@ func boolMapValue(raw any) map[string]bool {
 	return out
 }
 
+// StartSessionFromThreadEvent 从线程事件启动会话。
 func StartSessionFromThreadEvent(svc Lifecycle, store contract.ThreadMetadataStore, ev threaddto.Started) error {
 	if svc == nil {
 		return nil
@@ -76,6 +79,7 @@ func StartSessionFromThreadEvent(svc Lifecycle, store contract.ThreadMetadataSto
 	return svc.StartSession(context.Background(), ev.ThreadID, buildCtx)
 }
 
+// StopSessionFromThreadEvent 从线程事件停止会话。
 func StopSessionFromThreadEvent(svc Lifecycle, ev threaddto.Stopped) error {
 	if svc == nil {
 		return nil

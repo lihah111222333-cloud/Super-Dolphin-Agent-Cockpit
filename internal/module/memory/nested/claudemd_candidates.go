@@ -21,6 +21,7 @@ type claudeRuleMetadata struct {
 	Globs       []string
 }
 
+// parseClaudeRuleMetadata 解析clauderule元数据。
 func parseClaudeRuleMetadata(frontmatter string) claudeRuleMetadata {
 	metadata := claudeRuleMetadata{Globs: parseFrontmatterPaths(frontmatter)}
 	for line := range strings.SplitSeq(strings.ReplaceAll(frontmatter, "\r\n", "\n"), "\n") {
@@ -50,6 +51,7 @@ func digestClaudeMdCandidates(candidates []claudeMdCandidate) string {
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
+// resolveClaudeMdCandidates 解析claudemd候选项。
 func resolveClaudeMdCandidates(cfg ClaudeMdResolveConfig, gate GateSnapshot) ([]claudeMdCandidate, error) {
 	seen := make(map[string]struct{}, 16)
 	candidates := make([]claudeMdCandidate, 0, 16)
@@ -119,6 +121,7 @@ func appendAdditionalDirClaudeMdCandidates(candidates *[]claudeMdCandidate, seen
 	return nil
 }
 
+// appendProjectStyleCandidates 追加项目style候选项。
 func appendProjectStyleCandidates(candidates *[]claudeMdCandidate, seen map[string]struct{}, dir, sourceType, origin string, includeLocal bool) error {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
@@ -159,6 +162,7 @@ func appendClaudeMdCandidateAtPath(candidates *[]claudeMdCandidate, seen map[str
 	return appendClaudeMdCandidate(candidates, seen, claudeMdCandidate{Path: path, Type: sourceType, Origin: origin, BaseDir: baseDir, RuleScope: ruleScope, IsRule: isRule})
 }
 
+// appendClaudeMdCandidate 追加claudemd候选项。
 func appendClaudeMdCandidate(candidates *[]claudeMdCandidate, seen map[string]struct{}, candidate claudeMdCandidate) error {
 	resolvedPath, digest, ok, err := resolveClaudeMdCandidatePath(candidate.Path)
 	if err != nil {
@@ -197,6 +201,7 @@ func appendClaudeMdCandidate(candidates *[]claudeMdCandidate, seen map[string]st
 	return nil
 }
 
+// resolveClaudeMdCandidatePath 解析claudemd候选项路径。
 func resolveClaudeMdCandidatePath(path string) (string, string, bool, error) {
 	path = cleanClaudeMdPath(path)
 	if path == "" {
@@ -223,6 +228,7 @@ func resolveClaudeMdCandidatePath(path string) (string, string, bool, error) {
 	return resolved, hex.EncodeToString(digest[:]), true, nil
 }
 
+// ancestorWalkDirs 处理ancestorwalk目录。
 func ancestorWalkDirs(root, cwd string) []string {
 	cwd = cleanClaudeMdPath(cwd)
 	if cwd == "" {
@@ -249,6 +255,7 @@ func ancestorWalkDirs(root, cwd string) []string {
 	return stack
 }
 
+// ruleMarkdownFiles 处理rulemarkdown文件。
 func ruleMarkdownFiles(root string) ([]string, error) {
 	root = cleanClaudeMdPath(root)
 	if root == "" {
@@ -338,6 +345,7 @@ func cleanClaudeMdPath(path string) string {
 	return filepath.Clean(path)
 }
 
+// isAncestorOrSame 判断ancestorsame是否可用。
 func isAncestorOrSame(root, child string) bool {
 	root = cleanClaudeMdPath(root)
 	child = cleanClaudeMdPath(child)

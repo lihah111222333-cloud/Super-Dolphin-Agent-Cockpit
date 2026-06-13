@@ -63,6 +63,7 @@ func transcriptWindow(messages []providerdto.Message, cursor int64) []providerdt
 	return window
 }
 
+// Extract 提取记忆。
 func (e *MemoryExtractor) Extract(ctx context.Context, fn ExtractFunc, params ExtractParams) ([]ExtractedMemory, error) {
 	if err := contextErr(ctx); err != nil {
 		return nil, err
@@ -161,6 +162,7 @@ func renderTranscriptMessages(messages []providerdto.Message) string {
 	return strings.Join(lines, "\n")
 }
 
+// filterManifestDuplicates 处理过滤条件manifestduplicates。
 func filterManifestDuplicates(items []ExtractedMemory, manifest []MemoryEntry) []ExtractedMemory {
 	if len(items) == 0 || len(manifest) == 0 {
 		return items
@@ -203,6 +205,7 @@ func extractInternalMemories(messages []providerdto.Message, manifest []MemoryEn
 	return normalizeExtractedMemories(filterManifestDuplicates(candidates, manifest), limit)
 }
 
+// internalMemoryFromMessage 从消息处理internal记忆。
 func internalMemoryFromMessage(msg providerdto.Message) (ExtractedMemory, bool) {
 	text := condensedMemoryText(msg.Content)
 	if text == "" || strings.Contains(text, "```") {

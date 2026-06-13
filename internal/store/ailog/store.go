@@ -19,10 +19,12 @@ type store struct {
 	q querier
 }
 
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store {
 	return &store{q: q}
 }
 
+// List 列出 AI 日志记录。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]AILog, error) {
 	rows, err := s.q.ListAILogSystemLogs(ctx, sqlc.ListAILogSystemLogsParams{
 		Keyword:    filter.Keyword,
@@ -38,6 +40,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]AILog, error) {
 	return result, nil
 }
 
+// ListByCategory 按分类列出 AI 日志记录。
 func (s *store) ListByCategory(ctx context.Context, category string, keyword string, limit int32) ([]AILog, error) {
 	rows, err := s.q.ListAILogsByCategory(ctx, sqlc.ListAILogsByCategoryParams{
 		Category:   category,
@@ -54,6 +57,7 @@ func (s *store) ListByCategory(ctx context.Context, category string, keyword str
 	return result, nil
 }
 
+// CountByStatus 按状态统计 AI 日志。
 func (s *store) CountByStatus(ctx context.Context) ([]StatusCount, error) {
 	rows, err := s.q.CountAILogsByStatus(ctx)
 	if err != nil {
@@ -66,6 +70,7 @@ func (s *store) CountByStatus(ctx context.Context) ([]StatusCount, error) {
 	return result, nil
 }
 
+// ListRecent 列出recent。
 func (s *store) ListRecent(ctx context.Context, limit int32) ([]AILog, error) {
 	rows, err := s.q.ListRecentAILogs(ctx, sqlc.ListRecentAILogsParams{Limit: limit})
 	if err != nil {

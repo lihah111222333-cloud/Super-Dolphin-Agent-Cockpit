@@ -54,6 +54,7 @@ type markdownFenceState struct {
 	marker byte
 }
 
+// NewMemoryExtractor 创建记忆extractor。
 func NewMemoryExtractor() *MemoryExtractor {
 	return &MemoryExtractor{MaxItems: defaultExtractMaxItems}
 }
@@ -95,6 +96,7 @@ func decodeExtractedMemories(raw string) ([]ExtractedMemory, error) {
 	return nil, fmt.Errorf("invalid extractor response")
 }
 
+// normalizeExtractedMemories 规范化extractedmemories。
 func normalizeExtractedMemories(items []ExtractedMemory, limit int) []ExtractedMemory {
 	if len(items) == 0 || limit <= 0 {
 		return nil
@@ -276,6 +278,7 @@ func extractLimit(limit, fallback int) int {
 	return defaultExtractMaxItems
 }
 
+// ParseMemoryFile 解析记忆文件。
 func ParseMemoryFile(path string) (*ParsedMemory, error) {
 	rawContent, err := os.ReadFile(path)
 	if err != nil {
@@ -285,6 +288,7 @@ func ParseMemoryFile(path string) (*ParsedMemory, error) {
 	return &parsed, nil
 }
 
+// ExtractIncludes 提取includes。
 func ExtractIncludes(content string) []string {
 	if !strings.Contains(content, "@") {
 		return nil
@@ -362,6 +366,7 @@ func isValidIncludePath(path string) bool {
 	return isAlphaNumericOrAllowedIncludeLead(path[0])
 }
 
+// isAlphaNumericOrAllowedIncludeLead 判断alphanumericallowedincludelead是否可用。
 func isAlphaNumericOrAllowedIncludeLead(first byte) bool {
 	if first == '.' || first == '_' || first == '-' {
 		return true
@@ -436,6 +441,7 @@ func turnWriteFiles(files map[string]struct{}) []string {
 	return uniqueNonEmptyStrings(out)
 }
 
+// extractDiffFiles 提取diff文件。
 func extractDiffFiles(diffText string) []string {
 	lines := strings.Split(strings.ReplaceAll(diffText, "\r\n", "\n"), "\n")
 	files := make([]string, 0, len(lines))

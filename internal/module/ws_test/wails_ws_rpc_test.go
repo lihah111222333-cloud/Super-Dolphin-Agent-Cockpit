@@ -20,8 +20,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const realDatasourceUploadPath = `D:\data_test\测试.txt`
-
 func TestWailsWebSocketRequestsMCPServerAndDatasourceRPC(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
@@ -75,16 +73,17 @@ func TestWailsWebSocketUploadsDatasourceFromAbsolutePath(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
 
-	sourceInfo, err := os.Stat(realDatasourceUploadPath)
+	sourcePath := filepath.Join(t.TempDir(), "测试.txt")
+	sourceBytes := []byte("websocket datasource upload")
+	if err := os.WriteFile(sourcePath, sourceBytes, 0o600); err != nil {
+		t.Fatalf("write datasource upload fixture: %v", err)
+	}
+	sourceInfo, err := os.Stat(sourcePath)
 	if err != nil {
-		t.Fatalf("stat real datasource upload file %q: %v", realDatasourceUploadPath, err)
+		t.Fatalf("stat datasource upload fixture %q: %v", sourcePath, err)
 	}
 	if !sourceInfo.Mode().IsRegular() {
-		t.Fatalf("real datasource upload path %q is not a regular file", realDatasourceUploadPath)
-	}
-	sourceBytes, err := os.ReadFile(realDatasourceUploadPath)
-	if err != nil {
-		t.Fatalf("read real datasource upload file %q: %v", realDatasourceUploadPath, err)
+		t.Fatalf("datasource upload fixture %q is not a regular file", sourcePath)
 	}
 
 	conn := dialWailsWebSocket(t, newWailsWSServer(t))
@@ -92,7 +91,7 @@ func TestWailsWebSocketUploadsDatasourceFromAbsolutePath(t *testing.T) {
 
 	var uploadResult datasource.UploadFileResult
 	callWailsRPC(t, conn, 1, "datasource/upload", datasource.UploadFileRequest{
-		SourcePath: realDatasourceUploadPath,
+		SourcePath: sourcePath,
 	}, &uploadResult)
 
 	wantStoredPath := filepath.Join(project, ".agent", "datasources", "uploads", "测试.txt")

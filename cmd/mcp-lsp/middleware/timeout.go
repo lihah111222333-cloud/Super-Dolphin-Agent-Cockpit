@@ -16,6 +16,7 @@ const (
 	TierSlow   = 120 * time.Second
 )
 
+// Timeout 给请求套上超时控制。
 func Timeout(limit time.Duration) Middleware {
 	if limit <= 0 {
 		limit = TierNormal
@@ -79,6 +80,7 @@ func newToolTimeoutError(limit time.Duration, err error) error {
 	}
 }
 
+// ClampTimeout 把超时时间限制在允许范围内。
 func ClampTimeout(requestedSeconds int, fallback time.Duration, ceiling time.Duration) time.Duration {
 	if fallback <= 0 {
 		fallback = TierNormal

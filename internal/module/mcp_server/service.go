@@ -50,11 +50,7 @@ type DeleteServerRequest struct {
 	ServerName string `json:"serverName"`
 }
 
-type ServerConfig struct {
-	Transport string            `json:"transport"`
-	URL       string            `json:"url"`
-	Headers   map[string]string `json:"headers,omitempty"`
-}
+type ServerConfig = contract.MCPServerConfig
 
 type AddServersResult struct {
 	ConfigPath  string   `json:"configPath"`
@@ -76,14 +72,17 @@ type service struct {
 	store MCPServerConfigStore
 }
 
+// NewService 创建服务。
 func NewService() Service {
 	return NewServiceWithStore(nil)
 }
 
+// NewServiceWithStore 创建带配置存储的 MCP server 服务。
 func NewServiceWithStore(store MCPServerConfigStore) Service {
 	return &service{store: store}
 }
 
+// AddServers 添加servers。
 func (s *service) AddServers(ctx context.Context, req AddServersRequest) (AddServersResult, error) {
 	ctx = mcpServerContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -117,6 +116,7 @@ func (s *service) AddServers(ctx context.Context, req AddServersRequest) (AddSer
 	return AddServersResult{ConfigPath: configPath, ServerNames: names}, nil
 }
 
+// ListServers 列出servers。
 func (s *service) ListServers(ctx context.Context) (ListServersResult, error) {
 	ctx = mcpServerContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -130,6 +130,7 @@ func (s *service) ListServers(ctx context.Context) (ListServersResult, error) {
 	return s.ListServersForCWD(ctx, workspaceRoot)
 }
 
+// ListServersForCWD 为工作目录列出servers。
 func (s *service) ListServersForCWD(ctx context.Context, cwd string) (ListServersResult, error) {
 	ctx = mcpServerContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -145,6 +146,7 @@ func (s *service) ListServersForCWD(ctx context.Context, cwd string) (ListServer
 	}, nil
 }
 
+// DeleteServer 从当前工作区的 MCP server 配置中删除指定条目。
 func (s *service) DeleteServer(ctx context.Context, req DeleteServerRequest) (DeleteServerResult, error) {
 	ctx = mcpServerContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -183,10 +185,12 @@ type mcpServerConfigProvider struct {
 	svc Service
 }
 
+// AsMCPServerConfigProvider 把mcp_server处理为MCP服务端配置provider。
 func AsMCPServerConfigProvider(svc Service) contract.MCPServerConfigProvider {
 	return mcpServerConfigProvider{svc: svc}
 }
 
+// ListMCPServerConfigs 列出MCP服务端配置。
 func (p mcpServerConfigProvider) ListMCPServerConfigs(ctx context.Context, cwd string) (map[string]contract.MCPServerConfig, error) {
 	if p.svc == nil {
 		return nil, errors.New("mcp server service is not configured")
@@ -237,6 +241,7 @@ func (s *service) requireStore() (MCPServerConfigStore, error) {
 	return s.store, nil
 }
 
+// resolveWorkspaceServers 读取当前工作区及兼容路径下的 MCP server 配置。
 func (s *service) resolveWorkspaceServers(ctx context.Context, cwd string) (string, map[string]ServerConfig, error) {
 	store, err := s.requireStore()
 	if err != nil {
@@ -277,6 +282,7 @@ func mcpServerContext(ctx context.Context) context.Context {
 	return ctx
 }
 
+// normalizeMCPServers 校验并整理待写入的 MCP server 配置。
 func normalizeMCPServers(input map[string]ServerConfig) (map[string]ServerConfig, []string, error) {
 	if len(input) == 0 {
 		return nil, nil, errMissingMCPServers
@@ -305,6 +311,7 @@ func normalizeMCPServers(input map[string]ServerConfig) (map[string]ServerConfig
 	return servers, names, nil
 }
 
+// normalizeServerConfig 规范化服务端配置。
 func normalizeServerConfig(name string, config ServerConfig) (ServerConfig, error) {
 	transport := strings.TrimSpace(config.Transport)
 	if transport == "" {
@@ -365,6 +372,7 @@ func validateHTTPURL(rawURL string) error {
 	return nil
 }
 
+// readMCPServerConfig 读取MCP服务端配置。
 func readMCPServerConfig(configPath string) (ConfigDocument, error) {
 	raw, err := os.ReadFile(configPath)
 	switch {
@@ -421,6 +429,7 @@ func cloneMCPServers(input map[string]ServerConfig) map[string]ServerConfig {
 	return out
 }
 
+// mcpServersToContract 把MCPservers处理为contract。
 func mcpServersToContract(input map[string]ServerConfig) map[string]contract.MCPServerConfig {
 	out := make(map[string]contract.MCPServerConfig, len(input))
 	for name, config := range input {
@@ -447,6 +456,7 @@ func mcpServersToContract(input map[string]ServerConfig) map[string]contract.MCP
 	return out
 }
 
+// resolveMCPServerConfigBaseDir 解析MCP服务端配置base目录。
 func resolveMCPServerConfigBaseDir(cwd string) (string, error) {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {

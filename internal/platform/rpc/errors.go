@@ -14,10 +14,23 @@ const (
 )
 
 // RPC error constructors.
-func ErrNotFound(msg string) error        { return rpcError(CodeNotFound, msg) }
-func ErrInvalidState(msg string) error    { return rpcError(CodeInvalidState, msg) }
-func ErrConflict(msg string) error        { return rpcError(CodeConflict, msg) }
-func ErrCapabilityGate(msg string) error  { return rpcError(CodeCapabilityGate, msg) }
+// ErrNotFound 处理errnotfound。
+func ErrNotFound(msg string) error { return rpcError(CodeNotFound, msg) }
+
+// ErrInvalidState 处理errinvalid状态。
+func ErrInvalidState(msg string) error { return rpcError(CodeInvalidState, msg) }
+
+// ErrConflict 处理errconflict。
+func ErrConflict(msg string) error { return rpcError(CodeConflict, msg) }
+
+// ErrCapabilityGate 处理errcapabilitygate。
+func ErrCapabilityGate(msg string) error { return rpcError(CodeCapabilityGate, msg) }
+
+// ErrApprovalTimeout 处理err审批超时。
 func ErrApprovalTimeout(msg string) error { return rpcError(CodeApprovalTimeout, msg) }
-func ErrInvalidParams(msg string) error   { return rpcError(CodeInvalidParams, msg) }
-func ErrMethodNotFound(msg string) error  { return rpcError(CodeMethodNotFound, msg) }
+
+// ErrInvalidParams 处理errinvalidparams。
+func ErrInvalidParams(msg string) error { return rpcError(CodeInvalidParams, msg) }
+
+// ErrMethodNotFound 处理errmethodnotfound。
+func ErrMethodNotFound(msg string) error { return rpcError(CodeMethodNotFound, msg) }

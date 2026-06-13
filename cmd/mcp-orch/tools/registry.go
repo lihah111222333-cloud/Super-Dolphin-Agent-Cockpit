@@ -31,6 +31,7 @@ var legacyOrchestrationAliases = map[string]string{
 	"orchestration_get_agent_report": "get_agent_report",
 }
 
+// NewRegistry 创建注册表。
 func NewRegistry(deps Dependencies) Registry {
 	tools := append(orchestrationToolDefinitions(deps.Orchestration), taskToolDefinitions(deps.Orchestration)...)
 	tools = append(tools, workspaceToolDefinitions(deps.Workspace)...)
@@ -49,10 +50,12 @@ func NewRegistry(deps Dependencies) Registry {
 	return Registry{tools: tools, byName: byName}
 }
 
+// List 列出编排。
 func (r Registry) List() []ToolDefinition {
 	return append([]ToolDefinition(nil), r.tools...)
 }
 
+// Lookup 按名称查找注册项。
 func (r Registry) Lookup(name string) (ToolDefinition, bool) {
 	if canonical, ok := legacyOrchestrationAliases[name]; ok {
 		name = canonical

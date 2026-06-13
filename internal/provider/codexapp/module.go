@@ -152,6 +152,7 @@ func provideServerPool(p ServerPoolParams) *ServerPool {
 }
 
 // NewServerManager creates and registers a ServerManager with the fx lifecycle.
+// NewServerManager 创建服务端manager。
 func NewServerManager(p ServerManagerParams) *ServerManager {
 	m := &ServerManager{pidRegistry: p.PIDRegistry}
 	p.Lifecycle.Append(fx.Hook{
@@ -165,6 +166,7 @@ func NewServerManager(p ServerManagerParams) *ServerManager {
 }
 
 // ServerURL returns the ws:// address of the shared app-server.
+// ServerURL 处理服务端URL。
 func (m *ServerManager) ServerURL() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -172,12 +174,14 @@ func (m *ServerManager) ServerURL() string {
 }
 
 // Running returns true if the shared app-server process is alive.
+// Running 返回底层进程是否仍在运行。
 func (m *ServerManager) Running() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.ready && m.process != nil && m.process.processRunning()
 }
 
+// EnsureRunning 确保running。
 func (m *ServerManager) EnsureRunning(ctx context.Context) error {
 	if m == nil {
 		return nil
@@ -191,6 +195,7 @@ func (m *ServerManager) EnsureRunning(ctx context.Context) error {
 	return m.startLocked(ctx)
 }
 
+// SetToolHandler 设置工具处理器。
 func (m *ServerManager) SetToolHandler(h ToolHandler) {
 	if m == nil {
 		return
@@ -268,6 +273,7 @@ func (m *ServerManager) startLocked(ctx context.Context) error {
 	return nil
 }
 
+// stop 停止codexapp provider。
 func (m *ServerManager) stop(ctx context.Context) error {
 	// P22 P1a: peer stop/drain moved to PeerSupervisor.shutdown; ServerManager
 	// only owns the shared app-server transport from this point onwards.
@@ -466,6 +472,7 @@ func mergeProtectedPIDs(protected, extra map[int]struct{}) map[int]struct{} {
 
 // buildProcessTree returns all PIDs that are descendants of rootPID
 // (including rootPID itself). Uses a children-map + BFS for O(N) traversal.
+// buildProcessTree 构建进程tree。
 func buildProcessTree(rootPID int, allProcs map[int]int) map[int]struct{} {
 	children := make(map[int][]int, len(allProcs))
 	for pid, ppid := range allProcs {
@@ -492,6 +499,7 @@ func buildProcessTree(rootPID int, allProcs map[int]int) map[int]struct{} {
 // rootPID itself, excluding PID 1). It is used by orphan cleanup to avoid
 // killing an ancestor app-server when this binary is launched from an existing
 // tool runner: killing that ancestor's descendants can kill the current process.
+// buildProcessAncestry 构建进程ancestry。
 func buildProcessAncestry(rootPID int, allProcs map[int]int) map[int]struct{} {
 	ancestry := make(map[int]struct{}, 8)
 	for pid := rootPID; pid > 1; {

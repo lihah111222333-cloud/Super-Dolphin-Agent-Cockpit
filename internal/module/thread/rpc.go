@@ -21,6 +21,7 @@ const (
 	capabilityRealtime       = "realtime"
 )
 
+// NewThreadHandlers 创建线程处理器。
 func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		contract.ThreadRPCStart:   newStartHandler(svc),
@@ -121,6 +122,7 @@ func validateStartParams(p startParams) error {
 	return nil
 }
 
+// logStartRPCReceived 处理日志起点RPCreceived。
 func logStartRPCReceived(p startParams, cfg map[string]any) {
 	// Observability: dump the params that thread/start actually received so
 	// we can distinguish "frontend never sent agent_key" from "backend
@@ -185,6 +187,7 @@ func shouldWarnStartProviderIdentity(p startParams, cfg map[string]any) bool {
 		configTraceString(cfg, "codexModelProvider") != ""
 }
 
+// buildStartRequestFromParams 从params构建起点请求。
 func buildStartRequestFromParams(p startParams, cfg map[string]any) StartRequest {
 	return StartRequest{
 		AgentID:               p.AgentID,
@@ -220,6 +223,7 @@ func buildStartRequestFromParams(p startParams, cfg map[string]any) StartRequest
 	}
 }
 
+// threadSkillRefsFromParams 从params处理线程技能refs。
 func threadSkillRefsFromParams(params []skillRefParams, manual bool) []dto.SkillRef {
 	if len(params) == 0 {
 		return nil
@@ -250,6 +254,7 @@ func threadSkillRefsFromParams(params []skillRefParams, manual bool) []dto.Skill
 	return refs
 }
 
+// buildStartResponse 构建起点响应。
 func buildStartResponse(result StartResult) startResponse {
 	status := util.FirstNonEmpty(result.Status, "running")
 	sessionID := util.FirstNonEmpty(result.SessionID, result.ThreadID)

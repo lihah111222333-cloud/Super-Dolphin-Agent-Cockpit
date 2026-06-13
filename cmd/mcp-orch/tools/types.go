@@ -44,18 +44,22 @@ func successResult(fields map[string]any) map[string]any {
 	return result
 }
 
+// StringSchema 构建字符串参数 schema。
 func StringSchema(description string) Schema {
 	return scalarSchema("string", description)
 }
 
+// IntegerSchema 构建整数参数 schema。
 func IntegerSchema(description string) Schema {
 	return scalarSchema("integer", description)
 }
 
+// BooleanSchema 构建布尔参数 schema。
 func BooleanSchema(description string) Schema {
 	return scalarSchema("boolean", description)
 }
 
+// EnumStringSchema 构建枚举字符串参数 schema。
 func EnumStringSchema(description string, values ...string) Schema {
 	schema := StringSchema(description)
 	schema["enum"] = append([]string(nil), values...)
@@ -99,6 +103,7 @@ func EnumValues(s Schema) []string {
 	}
 }
 
+// ArraySchema 构建数组参数 schema。
 func ArraySchema(items Schema, description string) Schema {
 	schema := Schema{"type": "array", "items": map[string]any(items)}
 	if description != "" {
@@ -107,6 +112,7 @@ func ArraySchema(items Schema, description string) Schema {
 	return schema
 }
 
+// ObjectSchema 构建对象参数 schema。
 func ObjectSchema(properties map[string]Schema, required ...string) Schema {
 	schema := Schema{
 		"type":                 "object",
@@ -119,6 +125,7 @@ func ObjectSchema(properties map[string]Schema, required ...string) Schema {
 	return schema
 }
 
+// RawObjectSchema 处理原始objectschema。
 func RawObjectSchema(description string) Schema {
 	schema := Schema{"type": "object", "additionalProperties": true}
 	if description != "" {

@@ -29,6 +29,7 @@ type sessionResolver struct {
 
 var _ contract.SessionResolver = (*sessionResolver)(nil)
 
+// NewSessionResolver 创建会话解析器。
 func NewSessionResolver(
 	threadStore contract.SessionThreadLookup,
 	bindingStore contract.SessionBindingLookup,
@@ -43,6 +44,7 @@ func NewSessionResolver(
 	}
 }
 
+// ResolveSession 解析会话。
 func (r *sessionResolver) ResolveSession(ctx context.Context, threadID string) (contract.Session, error) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -69,6 +71,7 @@ func (r *sessionResolver) tryExistingSession(threadID string) (contract.Session,
 
 // "Create" here means recovering the active session through durable thread bindings
 // after the direct agent-ID lookup misses; it does not construct a new runtime session.
+// tryCreateSession 处理trycreate会话。
 func (r *sessionResolver) tryCreateSession(ctx context.Context, threadID string) (contract.Session, []error) {
 	errs := make([]error, 0, 2)
 	if session, err := r.resolveThreadSession(ctx, threadID); err == nil {
@@ -94,6 +97,7 @@ func (r *sessionResolver) resolveLookupError(threadID string, errs []error) erro
 	return fmt.Errorf("resolve session: thread %q not found", threadID)
 }
 
+// resolveThreadSession 解析线程会话。
 func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID string) (contract.Session, error) {
 	if r.threadStore == nil {
 		return nil, platformdb.ErrNotFound
@@ -130,6 +134,7 @@ func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID str
 	return r.autoResumeSession(ctx, binding, ref.RuntimeConfig, ref.ThreadID, threadID)
 }
 
+// resolveProviderThreadSession 解析provider线程会话。
 func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, threadID string) (contract.Session, error) {
 	if r.bindingStore == nil {
 		return nil, platformdb.ErrNotFound
@@ -166,6 +171,7 @@ func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, thre
 // autoResumeSession rebuilds a runtime session from a persisted binding.
 // This is the key recovery path after application restart: the DB has the
 // thread UUID but the in-memory SessionManager is empty.
+// autoResumeSession 处理auto恢复会话。
 func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contract.SessionBinding, runtimeConfig map[string]any, publicThreadID ...string) (contract.Session, error) {
 	if binding == nil {
 		return nil, contract.ErrSessionNotFound
@@ -254,6 +260,7 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 	return session, nil
 }
 
+// lookupAutoResumeRuntimeConfig 处理lookupauto恢复运行时配置。
 func (r *sessionResolver) lookupAutoResumeRuntimeConfig(ctx context.Context, binding *contract.SessionBinding) map[string]any {
 	if r == nil || r.threadStore == nil || binding == nil {
 		return nil
@@ -274,6 +281,7 @@ func (r *sessionResolver) lookupAutoResumeRuntimeConfig(ctx context.Context, bin
 	return nil
 }
 
+// rejectBindingAutoResumeLifecycle 处理rejectbindingauto恢复生命周期。
 func (r *sessionResolver) rejectBindingAutoResumeLifecycle(ctx context.Context, binding *contract.SessionBinding) error {
 	if r == nil || r.threadStore == nil || binding == nil {
 		return nil
@@ -320,6 +328,7 @@ func autoResumeBindingCWD(binding *contract.SessionBinding) (string, error) {
 	return cwd, nil
 }
 
+// recoverableAutoResumeProviderThreadID 处理recoverableauto恢复provider线程ID。
 func recoverableAutoResumeProviderThreadID(binding *contract.SessionBinding) (string, error) {
 	if binding == nil {
 		return "", contract.ErrSessionNotFound
@@ -349,6 +358,7 @@ func recoverableAutoResumeProviderThreadID(binding *contract.SessionBinding) (st
 	return "", contract.ErrSessionNotFound
 }
 
+// providerNames 处理provider名称。
 func (r *sessionResolver) providerNames() []string {
 	names := []string(nil)
 	if r.registry != nil {

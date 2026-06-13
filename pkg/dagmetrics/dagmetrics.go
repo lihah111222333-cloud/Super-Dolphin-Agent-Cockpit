@@ -43,10 +43,12 @@ var (
 	retryByNode = map[string]NodeRetryCount{}
 )
 
+// IncDispatchFailed 累加dispatchfailed。
 func IncDispatchFailed() {
 	dispatchFailedTotal.Add(1)
 }
 
+// RecordRetry 记录重试。
 func RecordRetry(dagKey, nodeKey string, attemptCount int32) RetryRecord {
 	dagKey = strings.TrimSpace(dagKey)
 	nodeKey = strings.TrimSpace(nodeKey)
@@ -80,6 +82,7 @@ func RecordRetry(dagKey, nodeKey string, attemptCount int32) RetryRecord {
 	}
 }
 
+// Read 读取DAG 指标。
 func Read() Snapshot {
 	mu.RLock()
 	retries := make([]NodeRetryCount, 0, len(retryByNode))
@@ -101,6 +104,7 @@ func Read() Snapshot {
 	}
 }
 
+// RetryCountForNode 为节点重试count。
 func RetryCountForNode(dagKey, nodeKey string) uint64 {
 	dagKey = strings.TrimSpace(dagKey)
 	nodeKey = strings.TrimSpace(nodeKey)
@@ -112,6 +116,7 @@ func RetryCountForNode(dagKey, nodeKey string) uint64 {
 	return retryByNode[dagKey+"\x00"+nodeKey].Count
 }
 
+// ResetForTesting 为testing重置DAG 指标。
 func ResetForTesting() {
 	dispatchFailedTotal.Store(0)
 	retryAlertTotal.Store(0)

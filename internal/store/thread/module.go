@@ -12,6 +12,7 @@ var Module = fx.Module("store.thread",
 	fx.Provide(NewSessionThreadLookup),
 )
 
+// NewStoreFromPool 从pool创建存储。
 func NewStoreFromPool(pool *pgxpool.Pool) Store {
 	return NewStore(sqlc.New(pool))
 }

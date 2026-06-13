@@ -22,6 +22,7 @@ type persistedArchiveTarget struct {
 // ArchiveAgent is the MCP-tool recycle path: stop the live runtime when it is
 // known to this process, then mark the persisted thread/binding archived so the
 // agent lands in the recycle-bin lifecycle rather than only becoming stopped.
+// ArchiveAgent 归档代理。
 func (s *service) ArchiveAgent(ctx context.Context, agentID string) error {
 	ctx, agentID, err := normalizeArchiveAgentArgs(ctx, agentID)
 	if err != nil {
@@ -68,6 +69,7 @@ func normalizeArchiveAgentArgs(ctx context.Context, agentID string) (context.Con
 	return ctx, agentID, nil
 }
 
+// stopArchiveTarget 停止归档target。
 func (s *service) stopArchiveTarget(ctx context.Context, requestedAgentID string, target persistedArchiveTarget, resolveErr error) (bool, error) {
 	stopAgentID := strings.TrimSpace(requestedAgentID)
 	if resolveErr == nil && strings.TrimSpace(target.agentID) != "" {
@@ -88,6 +90,7 @@ func (s *service) stopArchiveTarget(ctx context.Context, requestedAgentID string
 	return true, s.launcher.Archive(ctx, agent)
 }
 
+// archivePersistedArchiveTarget 归档persisted归档target。
 func (s *service) archivePersistedArchiveTarget(ctx context.Context, target persistedArchiveTarget) (bool, error) {
 	if target.threadID == "" && !target.bindingFound {
 		pkglogger.Warn("archive: nothing to archive (binding=missing, thread=missing); runtime stopped but DB unchanged",
@@ -128,6 +131,7 @@ func (s *service) archivePersistedArchiveTarget(ctx context.Context, target pers
 	return true, nil
 }
 
+// resolvePersistedArchiveTarget 解析persisted归档target。
 func (s *service) resolvePersistedArchiveTarget(ctx context.Context, agentID string) (persistedArchiveTarget, error) {
 	target := persistedArchiveTarget{agentID: strings.TrimSpace(agentID)}
 	binding, err := s.lookupPersistedArchiveBinding(ctx, target.agentID)
@@ -163,6 +167,7 @@ func (s *service) resolvePersistedArchiveTarget(ctx context.Context, agentID str
 	return target, nil
 }
 
+// lookupPersistedArchiveBinding 处理lookuppersisted归档binding。
 func (s *service) lookupPersistedArchiveBinding(ctx context.Context, agentID string) (*PersistedBinding, error) {
 	if s == nil || s.agentBindings == nil || strings.TrimSpace(agentID) == "" {
 		if s != nil && s.agentBindings == nil && strings.TrimSpace(agentID) != "" {
@@ -205,6 +210,7 @@ func (s *service) lookupPersistedArchiveThreadByIDs(ctx context.Context, candida
 	return nil, nil
 }
 
+// lookupPersistedArchiveThreadByList 按list处理lookuppersisted归档线程。
 func (s *service) lookupPersistedArchiveThreadByList(ctx context.Context, agentID string) (*PersistedThread, error) {
 	threads, err := s.agentThreads.ListAll(ctx)
 	if archiveLookupNotFound(err) {
@@ -245,6 +251,7 @@ func archiveThreadCandidateExists(candidates []string, candidate string) bool {
 	return false
 }
 
+// getPersistedArchiveThread 读取persisted归档线程。
 func (s *service) getPersistedArchiveThread(ctx context.Context, threadID string) (*PersistedThread, error) {
 	threadID = strings.TrimSpace(threadID)
 	if s == nil || s.agentThreads == nil || threadID == "" {

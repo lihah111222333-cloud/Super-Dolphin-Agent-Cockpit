@@ -23,6 +23,7 @@ var (
 // If no main log file is open (tests, early init) it returns the global
 // logger with agent_id bound.  If the per-agent file cannot be created it
 // falls back to the global logger — main log flow is never interrupted.
+// NewAgentLogger 创建代理日志器。
 func NewAgentLogger(agentID string) *slog.Logger {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -82,6 +83,7 @@ func openOrReuseAgentFile(agentID, path string) *os.File {
 
 // CloseAgentLogger closes the per-agent log file for the given agent.
 // Safe to call multiple times or with unknown IDs.
+// CloseAgentLogger 关闭代理日志器。
 func CloseAgentLogger(agentID string) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {

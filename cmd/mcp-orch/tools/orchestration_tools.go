@@ -90,10 +90,12 @@ var (
 	launchAgentProviderEnum = []string{"codex", "claude"}
 )
 
+// HandleLaunchAgent 处理启动代理。
 func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
 	return handleLaunchAgentWithExeFn(svc, os.Executable)
 }
 
+// handleLaunchAgentWithExeFn 处理带exefn的启动代理。
 func handleLaunchAgentWithExeFn(svc contract.OrchestrationService, exeFn func() (string, error)) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in LaunchAgentInput) (map[string]any, error) {
 		exe, err := exeFn()
@@ -159,6 +161,7 @@ func handleLaunchAgentWithExeFn(svc contract.OrchestrationService, exeFn func() 
 	})
 }
 
+// matchingAgentID 处理matching代理ID。
 func matchingAgentID(ctx context.Context, svc contract.OrchestrationService, agentID string) (contract.AgentSnapshot, bool, error) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -223,6 +226,7 @@ func launchAgentAcceptedResult(snapshot contract.AgentSnapshot, reservedID strin
 	return result
 }
 
+// reserveLaunchAgentID 处理reserve启动代理ID。
 func reserveLaunchAgentID(ctx context.Context, svc contract.OrchestrationService, requested string) (string, func(), bool, error) {
 	existing, activeExisting, err := existingLaunchAgentIDs(ctx, svc)
 	if err != nil {
@@ -256,6 +260,7 @@ func reserveLaunchAgentID(ctx context.Context, svc contract.OrchestrationService
 	return candidate, releaseLaunchAgentID(candidate), true, nil
 }
 
+// existingLaunchAgentIDs 处理existing启动代理ids。
 func existingLaunchAgentIDs(ctx context.Context, svc contract.OrchestrationService) (map[string]struct{}, map[string]struct{}, error) {
 	existing := make(map[string]struct{})
 	activeExisting := make(map[string]struct{})
@@ -306,6 +311,7 @@ func releaseLaunchAgentID(agentID string) func() {
 	}
 }
 
+// HandleSendMessage 处理send消息。
 func HandleSendMessage(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in SendMessageInput) (map[string]any, error) {
 		submission, err := submissionFromMessage(ctx, svc, in)
@@ -331,6 +337,7 @@ func HandleSendMessage(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
+// HandleStopAgent 处理stop代理。
 func HandleStopAgent(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in AgentIDInput) (map[string]any, error) {
 		agentID, err := resolveAgentIDInput(in.AgentID, in.Pos)
@@ -357,6 +364,7 @@ func HandleStopAgent(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
+// HandleListAgents 处理list代理。
 func HandleListAgents(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ListAgentsInput) (any, error) {
 		cwdFilter, err := listAgentsCWDFilter(ctx, in.CWD)
@@ -435,6 +443,7 @@ func hydrateListAgentReports(ctx context.Context, svc contract.OrchestrationServ
 	return nil
 }
 
+// launchRequestFromExecutable 从可执行文件启动请求。
 func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.LaunchRequest, error) {
 	// NOTE: the old standalone-mcp-orch guard has been removed.  When
 	// GO_AGENT_CTL_RPC_ADDR is set the orchestration service uses
@@ -502,6 +511,7 @@ func validateMemoryScope(raw string) (string, error) {
 	}
 }
 
+// launchEnv 启动env。
 func launchEnv(provider, model, effort, codexHome, codexInstanceKey, codexModelProvider string) []string {
 	var env []string
 	if provider = strings.TrimSpace(provider); provider != "" {

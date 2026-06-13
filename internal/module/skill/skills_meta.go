@@ -38,6 +38,7 @@ type skillScanRoot struct {
 	personalType string
 }
 
+// scanSkills 扫描skills。
 func (s *service) scanSkills(cwd string) ([]skillRecord, error) {
 	roots := s.scanSkillRoots(cwd)
 	if len(roots) == 0 {
@@ -72,6 +73,7 @@ func (s *service) scanSkillRoots(cwd string) []skillScanRoot {
 	return roots
 }
 
+// visitSkillEntry 处理visit技能条目。
 func (s *service) visitSkillEntry(root skillScanRoot, path string, entry os.DirEntry, walkErr error, projectSkillsRoot string, records *[]skillRecord) error {
 	if walkErr != nil || entry == nil {
 		return walkErr
@@ -156,6 +158,7 @@ func parseSkillRecord(root, path string, defaultTrust TrustScope) (skillRecord, 
 	return skillRecord{info: info, path: path, rel: filepath.ToSlash(rel)}, nil
 }
 
+// parseSkillInfo 解析技能info。
 func parseSkillInfo(rel, dir, content string, defaultTrust TrustScope) SkillInfo {
 	info := SkillInfo{Name: fallbackSkillName(rel), Dir: dir}
 	frontmatter, body, ok := splitFrontmatter(content)
@@ -200,6 +203,7 @@ func parseSkillInfo(rel, dir, content string, defaultTrust TrustScope) SkillInfo
 	return info
 }
 
+// capSkillTrustByRoot 按根目录处理cap技能trust。
 func capSkillTrustByRoot(trust, defaultTrust TrustScope) TrustScope {
 	if !trust.Valid() {
 		return TrustProject
@@ -387,6 +391,7 @@ func applyYAMLFrontmatter(info *SkillInfo, frontmatter string) {
 	}
 }
 
+// parseReplacesNativeYAML 解析replacesnativeyaml。
 func parseReplacesNativeYAML(raw any) map[string][]string {
 	switch value := raw.(type) {
 	case map[string]any:
@@ -495,6 +500,7 @@ func parseScalar(value string) string {
 	return strings.TrimSpace(value)
 }
 
+// summarizeSkillBody 处理summarize技能正文。
 func summarizeSkillBody(body, description string) string {
 	if description = strings.TrimSpace(description); description != "" {
 		return description
@@ -527,6 +533,7 @@ func isInternalSkillMarkerSummary(value string) bool {
 	return internalSkillMarkerSummaryPattern.MatchString(strings.TrimSpace(value))
 }
 
+// internalSkillMarkerOpenName 处理internal技能marker打开名称。
 func internalSkillMarkerOpenName(value string) (string, bool) {
 	value = strings.TrimSpace(value)
 	if len(value) < 3 || !strings.HasPrefix(value, "<") || !strings.HasSuffix(value, ">") || strings.HasPrefix(value, "</") {
@@ -568,6 +575,7 @@ func uniqStrings(values []string) []string {
 	return out
 }
 
+// upsertSkillSummary 处理upsert技能摘要。
 func upsertSkillSummary(content, summary string) string {
 	summary = strings.TrimSpace(summary)
 	frontmatter, body, ok := splitFrontmatter(content)

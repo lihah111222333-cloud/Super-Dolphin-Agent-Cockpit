@@ -28,10 +28,12 @@ type store struct {
 	q querier
 }
 
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store {
 	return &store{q: q}
 }
 
+// GetByProviderThread 按provider线程读取binding存储。
 func (s *store) GetByProviderThread(ctx context.Context, provider, providerThreadID string) (*Binding, error) {
 	row, err := s.q.GetAgentProviderBindingByProviderThread(ctx, sqlc.GetAgentProviderBindingByProviderThreadParams{
 		Provider:         provider,
@@ -61,6 +63,7 @@ func (s *store) GetByProviderThread(ctx context.Context, provider, providerThrea
 	return &result, nil
 }
 
+// Upsert 新增或更新记录。
 func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 	err := s.q.UpsertAgentProviderBinding(ctx, sqlc.UpsertAgentProviderBindingParams{
 		AgentID:            params.AgentID,
@@ -98,10 +101,12 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 	return wrapBindingError(err, "upsert")
 }
 
+// DeleteByAgentID 按代理ID删除binding存储。
 func (s *store) DeleteByAgentID(ctx context.Context, agentID string) error {
 	return wrapBindingError(s.q.DeleteAgentProviderBindingByAgentID(ctx, sqlc.DeleteAgentProviderBindingByAgentIDParams{AgentID: agentID}), "delete_by_agent_id")
 }
 
+// UpdateSessionUUID 更新会话UUID。
 func (s *store) UpdateSessionUUID(ctx context.Context, params UpdateSessionUUIDParams) error {
 	return wrapBindingError(s.q.UpdateAgentProviderBindingSessionUUID(ctx, sqlc.UpdateAgentProviderBindingSessionUUIDParams{
 		SessionUUID: params.SessionUUID,
@@ -110,6 +115,7 @@ func (s *store) UpdateSessionUUID(ctx context.Context, params UpdateSessionUUIDP
 	}), "update_session_uuid")
 }
 
+// UpdateProviderThreadID 更新provider线程ID。
 func (s *store) UpdateProviderThreadID(ctx context.Context, params UpdateProviderThreadIDParams) error {
 	return wrapBindingError(s.q.UpdateAgentProviderBindingProviderThreadID(ctx, sqlc.UpdateAgentProviderBindingProviderThreadIDParams{
 		ProviderThreadID: params.ProviderThreadID,
@@ -118,6 +124,7 @@ func (s *store) UpdateProviderThreadID(ctx context.Context, params UpdateProvide
 	}), "update_provider_thread_id")
 }
 
+// SetArchived 设置archived。
 func (s *store) SetArchived(ctx context.Context, params SetArchivedParams) error {
 	return wrapBindingError(s.q.UpdateAgentProviderBindingArchived(ctx, sqlc.UpdateAgentProviderBindingArchivedParams{
 		Archived:  params.Archived,
@@ -126,6 +133,7 @@ func (s *store) SetArchived(ctx context.Context, params SetArchivedParams) error
 	}), "set_archived")
 }
 
+// GetByAgentID 按代理ID读取binding存储。
 func (s *store) GetByAgentID(ctx context.Context, agentID string) (*Binding, error) {
 	row, err := s.q.GetAgentProviderBindingByAgentID(ctx, sqlc.GetAgentProviderBindingByAgentIDParams{AgentID: agentID})
 	if err != nil {
@@ -152,6 +160,7 @@ func (s *store) GetByAgentID(ctx context.Context, agentID string) (*Binding, err
 	return &result, nil
 }
 
+// BindAgentThread 绑定代理线程。
 func (s *store) BindAgentThread(ctx context.Context, params BindAgentThreadParams) error {
 	now := time.Now().Unix()
 	if params.CreatedAt == 0 {
@@ -169,10 +178,12 @@ func (s *store) BindAgentThread(ctx context.Context, params BindAgentThreadParam
 	}), "bind_agent_thread")
 }
 
+// UnbindAgentThread 解绑代理线程。
 func (s *store) UnbindAgentThread(ctx context.Context, agentID string) error {
 	return wrapBindingError(s.q.UnbindAgentThread(ctx, sqlc.UnbindAgentThreadParams{AgentID: agentID}), "unbind_agent_thread")
 }
 
+// ListAgentThreadBindings 列出代理线程bindings。
 func (s *store) ListAgentThreadBindings(ctx context.Context) ([]Binding, error) {
 	rows, err := s.q.ListAgentThreadBindings(ctx)
 	if err != nil {
@@ -202,6 +213,7 @@ func (s *store) ListAgentThreadBindings(ctx context.Context) ([]Binding, error) 
 	return result, nil
 }
 
+// GetThreadByAgent 按代理读取线程。
 func (s *store) GetThreadByAgent(ctx context.Context, agentID string) (string, error) {
 	threadID, err := s.q.GetThreadByAgent(ctx, sqlc.GetThreadByAgentParams{AgentID: agentID})
 	if err != nil {
@@ -210,6 +222,7 @@ func (s *store) GetThreadByAgent(ctx context.Context, agentID string) (string, e
 	return threadID, nil
 }
 
+// UpdateAgentCwd 更新代理工作目录。
 func (s *store) UpdateAgentCwd(ctx context.Context, params UpdateAgentCwdParams) error {
 	updatedAt := params.UpdatedAt
 	if updatedAt == 0 {
@@ -222,6 +235,7 @@ func (s *store) UpdateAgentCwd(ctx context.Context, params UpdateAgentCwdParams)
 	}), "update_agent_cwd")
 }
 
+// Rebind 处理rebind。
 func (s *store) Rebind(ctx context.Context, params RebindParams) error {
 	now := time.Now().Unix()
 	updatedAt := params.UpdatedAt
@@ -236,6 +250,7 @@ func (s *store) Rebind(ctx context.Context, params RebindParams) error {
 	}), "rebind")
 }
 
+// ListProviderMap 列出providermap。
 func (s *store) ListProviderMap(ctx context.Context) (map[string]string, error) {
 	bindings, err := s.ListAgentThreadBindings(ctx)
 	if err != nil {
@@ -255,6 +270,7 @@ func (s *store) ListProviderMap(ctx context.Context) (map[string]string, error) 
 	return m, nil
 }
 
+// ListCwdMap 列出工作目录map。
 func (s *store) ListCwdMap(ctx context.Context) (map[string]string, error) {
 	bindings, err := s.ListAgentThreadBindings(ctx)
 	if err != nil {

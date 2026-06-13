@@ -42,6 +42,7 @@ func sanitizeClaudeModel(model string) string {
 	}
 }
 
+// claudeModelContextWindow 处理claude模型上下文window。
 func claudeModelContextWindow(model string) int {
 	normalized := strings.ToLower(strings.TrimSpace(model))
 	switch {

@@ -73,6 +73,7 @@ type Service interface {
 
 const defaultCapacity = 200
 
+// New 创建uistate。
 func New(logger *slog.Logger, emitter AppendedEmitter, capacity int) Service {
 	if capacity <= 0 {
 		capacity = defaultCapacity
@@ -96,6 +97,7 @@ type service struct {
 	capacity  int
 }
 
+// Append 追加uistate。
 func (s *service) Append(threadID, agentID string, item Item) {
 	s.mu.Lock()
 	tl := s.timelineLocked(threadID)
@@ -121,6 +123,7 @@ func (s *service) Append(threadID, agentID string, item Item) {
 	s.emitAppended(emitter, threadID, item)
 }
 
+// UpdateByCallID 按callID更新uistate。
 func (s *service) UpdateByCallID(threadID, agentID, callID string, fn func(*Item)) bool {
 	callID = strings.TrimSpace(callID)
 	if callID == "" {
@@ -134,6 +137,7 @@ func (s *service) UpdateByCallID(threadID, agentID, callID string, fn func(*Item
 	return updated
 }
 
+// GetByThread 按线程读取uistate。
 func (s *service) GetByThread(threadID string) []Item {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -145,6 +149,7 @@ func (s *service) GetByThread(threadID string) []Item {
 	return tl.snapshot()
 }
 
+// Snapshot 处理快照。
 func (s *service) Snapshot() map[string][]Item {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -163,6 +168,7 @@ func (s *service) Snapshot() map[string][]Item {
 	return out
 }
 
+// SetEmitter 设置emitter。
 func (s *service) SetEmitter(emitter AppendedEmitter) {
 	s.mu.Lock()
 	s.emitter = emitter
@@ -232,6 +238,7 @@ func (tl *threadTimeline) append(item Item) {
 	}
 }
 
+// insertPlan 插入plan。
 func (tl *threadTimeline) insertPlan(item Item) {
 	if len(tl.items) >= tl.cap {
 		tl.evictOldest()
@@ -283,6 +290,7 @@ func (tl *threadTimeline) findByCallID(callID string) (int, bool) {
 	return idx, true
 }
 
+// findDuplicate 查找duplicate。
 func (tl *threadTimeline) findDuplicate(item Item) (int, bool) {
 	if lookupKey := itemLookupKey(item); lookupKey != "" {
 		if idx, exists := tl.index[lookupKey]; exists && idx >= 0 && idx < len(tl.items) {

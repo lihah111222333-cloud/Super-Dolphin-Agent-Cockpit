@@ -68,6 +68,7 @@ type LogSinkDeps struct {
 	Trace      TraceRecorder
 }
 
+// NewLogSink 创建日志sink。
 func NewLogSink(p LogSinkDeps) *LogSink {
 	sink := &LogSink{subs: NewSubscription(), trace: p.Trace, traceCounts: map[string]int64{}}
 	if p.Dispatcher == nil || p.Logger == nil {
@@ -83,6 +84,7 @@ func NewLogSink(p LogSinkDeps) *LogSink {
 	return sink
 }
 
+// Close 关闭平台bus资源。
 func (s *LogSink) Close() {
 	if s.subs == nil {
 		return
@@ -264,6 +266,7 @@ func busTraceIdentifiers(ev any) busTraceIDs {
 	}
 }
 
+// stringField 处理string字段。
 func stringField(value reflect.Value, name string) string {
 	field := value.FieldByName(name)
 	if !field.IsValid() && value.Kind() == reflect.Struct {

@@ -10,6 +10,7 @@ func lockEditFile(path string) func() {
 	return lockEditFiles([]string{path})
 }
 
+// lockEditFiles 处理锁编辑文件。
 func lockEditFiles(paths []string) func() {
 	if len(paths) == 0 {
 		return func() {}

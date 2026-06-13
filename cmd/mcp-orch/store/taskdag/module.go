@@ -33,6 +33,7 @@ var Module = fx.Module("store.taskdag",
 	),
 )
 
+// NewStoreFromPool 从pool创建存储。
 func NewStoreFromPool(pool *pgxpool.Pool) Store {
 	return NewStore(pool)
 }
@@ -51,10 +52,12 @@ func ProvideNodeSpawnRecorderStore(store Store) NodeSpawnRecorderStore {
 // NodeSpawningThreadLookup (consumed by the DAG turn.completed subscriber /
 // hookConsumer thread.stopped DAG fallback). Safety is statically guarded by
 // store_compile_assertions_test.go.
+// ProvideNodeSpawningThreadLookup 提供节点spawning线程lookup。
 func ProvideNodeSpawningThreadLookup(store Store) NodeSpawningThreadLookup {
 	return store.(NodeSpawningThreadLookup)
 }
 
+// ProvideOrchestrationStore 提供orchestration存储。
 func ProvideOrchestrationStore(store Store) OrchestrationStore { return store }
 
 // ProvideRunStore 通过 type-assertion 从聚合 Store 中取出 RunStore 窄接口。
@@ -65,6 +68,7 @@ func ProvideOrchestrationStore(store Store) OrchestrationStore { return store }
 // (var _ RunStore = (*store)(nil)); the assertion will not panic at runtime.
 func ProvideRunStore(store Store) RunStore { return store.(RunStore) }
 
+// ProvideScheduledStartStore 提供scheduled起点存储。
 func ProvideScheduledStartStore(store Store) ScheduledStartStore {
 	return store.(ScheduledStartStore)
 }

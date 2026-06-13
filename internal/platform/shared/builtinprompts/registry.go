@@ -32,6 +32,7 @@ func newRegistry(loaded []loadedTemplate) *Registry {
 	return registry
 }
 
+// loadedTemplateLess 处理loadedtemplateless。
 func loadedTemplateLess(loaded []loadedTemplate) func(i, j int) bool {
 	return func(i, j int) bool {
 		left, right := loaded[i].Config, loaded[j].Config
@@ -99,6 +100,7 @@ func buildSection(templateID, id int64, item loadedSection) contract.BuiltinProm
 	}
 }
 
+// ListTemplates 列出templates。
 func (r *Registry) ListTemplates() []contract.BuiltinPromptTemplate {
 	out := make([]contract.BuiltinPromptTemplate, len(r.templates))
 	copy(out, r.templates)
@@ -109,6 +111,7 @@ func (r *Registry) ListTemplates() []contract.BuiltinPromptTemplate {
 	return out
 }
 
+// GetTemplate 读取template。
 func (r *Registry) GetTemplate(promptKey string) (contract.BuiltinPromptTemplate, bool) {
 	template, ok := r.templatesByPromptKey[promptKey]
 	if !ok {
@@ -119,6 +122,7 @@ func (r *Registry) GetTemplate(promptKey string) (contract.BuiltinPromptTemplate
 	return template, true
 }
 
+// SectionsByTemplateID 按templateID处理sections。
 func (r *Registry) SectionsByTemplateID(templateID int64) []contract.BuiltinPromptSection {
 	sections := r.sectionsByTemplateID[templateID]
 	out := make([]contract.BuiltinPromptSection, len(sections))

@@ -13,10 +13,12 @@ var _ DynamicSectionProvider = NumericLengthAnchorsProvider{}
 
 type NumericLengthAnchorsProvider struct{}
 
+// SectionName 处理section名称。
 func (NumericLengthAnchorsProvider) SectionName() string {
 	return DynamicSectionNumericLengthAnchors
 }
 
+// Resolve 解析prompt。
 func (NumericLengthAnchorsProvider) Resolve(context.Context, SectionContext) (*string, error) {
 	if !numericLengthAnchorsEnabled() {
 		return nil, nil

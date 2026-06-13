@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -14,10 +15,10 @@ import (
 func TestConfigStoreInsertLazilyCreatesTable(t *testing.T) {
 	db := &recordingMCPServerDB{}
 	store := &configStore{db: db}
-	params := StoreMCPServerConfigParams{
+	params := contract.StoreMCPServerConfigParams{
 		WorkspaceRoot: "D:\\project",
 		Name:          "my-search",
-		Config: ServerConfig{
+		Config: contract.MCPServerConfig{
 			Transport: "http",
 			URL:       "https://your-domain.com/mcp",
 			Headers: map[string]string{

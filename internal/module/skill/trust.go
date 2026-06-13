@@ -47,6 +47,7 @@ const (
 )
 
 // IsValidArtifactKind delegates to contract.IsValidArtifactKind.
+// IsValidArtifactKind 判断valid产物kind是否可用。
 func IsValidArtifactKind(kind string) bool { return contract.IsValidArtifactKind(kind) }
 
 // RepoFingerprint 生成项目根目录的稳定 128-bit 指纹，作为审批缓存 key 的第一维数据。
@@ -54,6 +55,7 @@ func RepoFingerprint(projectRoot string) string {
 	return repofingerprint.MustCompute(projectRoot)
 }
 
+// NormalizeArtifactLocator 规范化产物locator。
 func NormalizeArtifactLocator(kind, locator string) (string, error) {
 	if !IsValidArtifactKind(kind) {
 		return "", fmt.Errorf("invalid artifact kind: %q", kind)
@@ -78,6 +80,7 @@ func normalizeMetadataLocator(trimmed string) (string, error) {
 	return "", nil
 }
 
+// normalizeBodyLocator 规范化正文locator。
 func normalizeBodyLocator(trimmed string) (string, error) {
 	if trimmed == "" {
 		return "SKILL.md", nil
@@ -103,6 +106,7 @@ func normalizeBodyLocator(trimmed string) (string, error) {
 	return base + "#" + anchor, nil
 }
 
+// normalizeResourceLocator 规范化resourcelocator。
 func normalizeResourceLocator(trimmed string) (string, error) {
 	if trimmed == "" {
 		return "", errors.New("resource locator cannot be empty")
@@ -145,6 +149,7 @@ func parseTrustScope(raw string) TrustScope {
 }
 
 // inferTrustFromRoot infers trust scope from skill root directory.
+// inferTrustFromRoot 从根目录处理infertrust。
 func inferTrustFromRoot(dir, projectRoot, userRoot string) TrustScope {
 	dir = normalizeTrustRoot(dir)
 	if dir == "" {

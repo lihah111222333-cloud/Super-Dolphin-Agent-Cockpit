@@ -33,6 +33,7 @@ func beginToolTraceContext(ctx context.Context) context.Context {
 	return observability.ContextWithTrace(ctx, trace)
 }
 
+// fillToolTrace 处理fill工具trace。
 func fillToolTrace(ctx context.Context, event *observability.TraceEvent) {
 	fillToolTraceDefaults(event)
 	if trace, ok := observability.TraceFromContext(ctx); ok {

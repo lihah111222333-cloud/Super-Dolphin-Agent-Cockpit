@@ -50,6 +50,7 @@ func startTransport(options transportOptions) (*exec.Cmd, io.WriteCloser, io.Rea
 	return cmd, stdin, stdout, stderr, nil
 }
 
+// Close 关闭 LSP 管理器资源。
 func (t *transport) Close() error {
 	if t == nil {
 		return nil
@@ -96,6 +97,7 @@ func (t *transport) readLoop() {
 	}
 }
 
+// readMessage 读取消息。
 func (t *transport) readMessage() (json.RawMessage, error) {
 	length := -1
 	for {
@@ -129,6 +131,7 @@ func (t *transport) readMessage() (json.RawMessage, error) {
 	return body, nil
 }
 
+// writeMessage 写入消息。
 func (t *transport) writeMessage(message any) error {
 	if t.closed.Load() {
 		return ErrTransportClosed

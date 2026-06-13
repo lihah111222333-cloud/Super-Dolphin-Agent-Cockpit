@@ -12,6 +12,7 @@ import (
 )
 
 // NewInsightSubscribers declares the collector bus subscriptions for BusModule.
+// NewInsightSubscribers 创建insightsubscribers。
 func NewInsightSubscribers(c *collector, logger *pkglogger.Logger) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: contract.SubscriberSpec{

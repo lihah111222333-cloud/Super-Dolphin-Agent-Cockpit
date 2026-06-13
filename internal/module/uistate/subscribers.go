@@ -10,6 +10,7 @@ import (
 )
 
 // NewUIStateSubscribers declares UI state projection subscriptions for BusModule.
+// NewUIStateSubscribers 创建UI状态subscribers。
 func NewUIStateSubscribers(svc *service) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: contract.SubscriberSpec{

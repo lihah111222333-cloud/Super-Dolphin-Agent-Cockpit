@@ -60,10 +60,12 @@ type service struct {
 	documents DatasourceDocumentStore
 }
 
+// NewService 创建服务。
 func NewService() Service {
 	return NewServiceWithStore(nil)
 }
 
+// NewServiceWithStore 创建带文档存储的 datasource 服务。
 func NewServiceWithStore(store DatasourceDocumentStore) Service {
 	return &service{documents: store}
 }
@@ -75,6 +77,7 @@ func datasourceContext(ctx context.Context) context.Context {
 	return ctx
 }
 
+// UploadFile 处理upload文件。
 func (s *service) UploadFile(ctx context.Context, req UploadFileRequest) (UploadFileResult, error) {
 	ctx = datasourceContext(ctx)
 	source, err := prepareUploadSource(ctx, req)
@@ -102,6 +105,7 @@ type uploadSource struct {
 	size      int64
 }
 
+// prepareUploadSource 校验上传请求并读取源文件元信息。
 func prepareUploadSource(ctx context.Context, req UploadFileRequest) (uploadSource, error) {
 	sourcePath, err := validateUploadRequest(req)
 	if err != nil {
@@ -174,6 +178,7 @@ func uploadFileResult(source uploadSource, targetPath string) UploadFileResult {
 	}
 }
 
+// ListFiles 列出文件。
 func (s *service) ListFiles(ctx context.Context) (ListFilesResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -211,6 +216,7 @@ func (s *service) ListFiles(ctx context.Context) (ListFilesResult, error) {
 	return ListFilesResult{FileNames: fileNames}, nil
 }
 
+// ListDocuments 读取指定工作区已持久化的数据源文档。
 func (s *service) ListDocuments(ctx context.Context, workspaceRoot string) (ListDocumentsResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -257,6 +263,7 @@ func ensureDatasourceUploadDir(workspaceRoot string) (string, error) {
 	return uploadDir, nil
 }
 
+// DeleteFile 删除文件。
 func (s *service) DeleteFile(ctx context.Context, req DeleteFileRequest) (DeleteFileResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -306,6 +313,7 @@ func validateUploadRequest(req UploadFileRequest) (string, error) {
 	return sourcePath, nil
 }
 
+// validateDeleteRequest 校验delete请求。
 func validateDeleteRequest(req DeleteFileRequest) (string, error) {
 	fileName := strings.TrimSpace(req.FileName)
 	if fileName == "" ||
@@ -348,6 +356,7 @@ func isAllowedUploadExtension(ext string) bool {
 	}
 }
 
+// copyUploadFile 复制upload文件。
 func copyUploadFile(ctx context.Context, sourcePath, targetPath string) (err error) {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -373,6 +382,7 @@ func copyUploadFile(ctx context.Context, sourcePath, targetPath string) (err err
 	return nil
 }
 
+// copySourceToUploadTemp 先把源文件复制到上传目录的临时文件。
 func copySourceToUploadTemp(sourcePath, targetDir string) (tempPath string, err error) {
 	source, err := os.Open(sourcePath)
 	if err != nil {
@@ -405,6 +415,7 @@ func copySourceToUploadTemp(sourcePath, targetDir string) (tempPath string, err 
 	return tempPath, nil
 }
 
+// replaceUploadFile 用临时文件替换最终上传文件，兼容不能原子重命名的场景。
 func replaceUploadFile(tempPath, targetPath string) error {
 	if err := os.Rename(tempPath, targetPath); err == nil {
 		return nil

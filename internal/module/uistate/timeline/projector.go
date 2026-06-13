@@ -15,6 +15,7 @@ import (
 
 var timelineOutputDeltaLogSampler = pkglogger.NewEverySampler(1000)
 
+// RegisterSubscriptions 注册subscriptions。
 func RegisterSubscriptions(
 	dispatcher *event.Dispatcher,
 	svc Service,
@@ -64,6 +65,7 @@ func turnStartedHandler(svc Service, onUpdated func(string)) func(turndto.TurnSt
 	}
 }
 
+// turnCompletedHandler 处理turncompleted处理器。
 func turnCompletedHandler(svc Service, onUpdated func(string)) func(turndto.TurnCompleted) {
 	return func(ev turndto.TurnCompleted) {
 		threadID := strings.TrimSpace(ev.ThreadID)
@@ -111,6 +113,7 @@ func turnCompletedHandler(svc Service, onUpdated func(string)) func(turndto.Turn
 	}
 }
 
+// reasoningDeltaHandler 处理reasoningdelta处理器。
 func reasoningDeltaHandler(svc Service, onUpdated func(string)) func(turndto.TurnOutputDelta) {
 	return func(ev turndto.TurnOutputDelta) {
 		if timelineOutputDeltaLogSampler.ShouldLog(ev.Stream) {
@@ -227,6 +230,7 @@ func toolCallBeginHandler(svc Service, onUpdated func(string)) func(tooldto.Tool
 	}
 }
 
+// toolCallEndHandler 处理工具callend处理器。
 func toolCallEndHandler(svc Service, onUpdated func(string)) func(tooldto.ToolCallEnd) {
 	return func(ev tooldto.ToolCallEnd) {
 		threadID := strings.TrimSpace(ev.ThreadID)
@@ -255,6 +259,7 @@ func toolCallEndHandler(svc Service, onUpdated func(string)) func(tooldto.ToolCa
 // recoverToolEndByCallID handles ToolName-less End events: some runtimes
 // only echo CallID on the End event. We scan the timeline backwards for
 // a matching tool item and complete it.
+// recoverToolEndByCallID 按callID恢复工具end。
 func recoverToolEndByCallID(svc Service, threadID string, ev tooldto.ToolCallEnd, success bool) bool {
 	if strings.TrimSpace(ev.ToolName) != "" {
 		return false
@@ -305,6 +310,7 @@ func approvalRequestedHandler(svc Service, onUpdated func(string)) func(tooldto.
 	}
 }
 
+// approvalResolvedHandler 处理审批已解析处理器。
 func approvalResolvedHandler(svc Service, onUpdated func(string)) func(tooldto.ToolApprovalResolved) {
 	return func(ev tooldto.ToolApprovalResolved) {
 		threadID := strings.TrimSpace(ev.ThreadID)

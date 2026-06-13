@@ -43,6 +43,7 @@ type ToolCallParams struct {
 	MetaWorkspaceRootsSnake []string `json:"_workspace_roots,omitempty"`
 }
 
+// DecodeToolCallParams 解码工具callparams。
 func DecodeToolCallParams(raw json.RawMessage) (ToolCallParams, error) {
 	var params ToolCallParams
 	if err := platformshared.DecodeInput(raw, &params); err != nil {
@@ -51,6 +52,7 @@ func DecodeToolCallParams(raw json.RawMessage) (ToolCallParams, error) {
 	return params, nil
 }
 
+// Scope 处理作用域。
 func (p ToolCallParams) Scope(family string) ToolScope {
 	return NormalizeToolScope(ToolScope{
 		AgentID:  p.MetaAgentID,
@@ -65,6 +67,7 @@ func (p ToolCallParams) Scope(family string) ToolScope {
 	})
 }
 
+// NormalizeToolScope 规范化工具作用域。
 func NormalizeToolScope(scope ToolScope) ToolScope {
 	scope.AgentID = strings.TrimSpace(scope.AgentID)
 	scope.ThreadID = strings.TrimSpace(scope.ThreadID)
@@ -76,6 +79,7 @@ func NormalizeToolScope(scope ToolScope) ToolScope {
 	return scope
 }
 
+// WithToolScope 设置工具作用域。
 func WithToolScope(ctx context.Context, scope ToolScope) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -91,6 +95,7 @@ func WithToolScope(ctx context.Context, scope ToolScope) context.Context {
 	return ctx
 }
 
+// ToolScopeFromContext 从上下文处理工具作用域。
 func ToolScopeFromContext(ctx context.Context) (ToolScope, bool) {
 	if ctx == nil {
 		return ToolScope{}, false
@@ -103,6 +108,7 @@ func ToolScopeFromContext(ctx context.Context) (ToolScope, bool) {
 	return scope, !scope.isEmpty()
 }
 
+// WithRuntimeWorkspaceScopeFallback 设置运行时工作区作用域兜底。
 func WithRuntimeWorkspaceScopeFallback(ctx context.Context) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -110,6 +116,7 @@ func WithRuntimeWorkspaceScopeFallback(ctx context.Context) context.Context {
 	return context.WithValue(ctx, RuntimeWorkspaceScopeFallbackContextKey, true)
 }
 
+// RuntimeWorkspaceScopeFallbackFromContext 从上下文处理运行时工作区作用域兜底。
 func RuntimeWorkspaceScopeFallbackFromContext(ctx context.Context) bool {
 	if ctx == nil {
 		return false
@@ -118,6 +125,7 @@ func RuntimeWorkspaceScopeFallbackFromContext(ctx context.Context) bool {
 	return value
 }
 
+// isEmpty 判断empty是否可用。
 func (scope ToolScope) isEmpty() bool {
 	return scope.AgentID == "" &&
 		scope.ThreadID == "" &&
@@ -156,6 +164,7 @@ func normalizeScopeCWD(cwd string) string {
 	return ""
 }
 
+// normalizeWorkspaceRoots 规范化工作区根目录。
 func normalizeWorkspaceRoots(cwd string, roots []string) []string {
 	out := make([]string, 0, len(roots)+1)
 	seen := map[string]struct{}{}
@@ -184,6 +193,7 @@ func normalizeWorkspaceRoots(cwd string, roots []string) []string {
 	return out
 }
 
+// normalizeWorkspaceRoot 规范化工作区根目录。
 func normalizeWorkspaceRoot(base, root string) string {
 	root = strings.TrimSpace(root)
 	if root == "" {

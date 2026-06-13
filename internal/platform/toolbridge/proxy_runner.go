@@ -39,6 +39,7 @@ type ProxyRunner struct {
 
 // NewProxyRunner constructs the runner. Handler may be nil; a nil handler
 // runner blocks on ctx and no-ops, mirroring the pre-P2 defensive branch.
+// NewProxyRunner 创建proxyrunner。
 func NewProxyRunner(h *Handler) *ProxyRunner {
 	logger := pkglogger.Get()
 	if h != nil && h.logger != nil {
@@ -59,6 +60,7 @@ func asRunnerGroup(r *ProxyRunner) platformrunner.Runner { return r }
 //
 // Calling SetListener after Run has already observed the listener is a
 // no-op: Run reads once under the mutex and keeps the reference locally.
+// SetListener 设置listener。
 func (r *ProxyRunner) SetListener(ln net.Listener) {
 	if r == nil {
 		return
@@ -70,6 +72,7 @@ func (r *ProxyRunner) SetListener(ln net.Listener) {
 
 // Run implements platformrunner.Runner. See the type-level doc for the
 // shutdown contract.
+// Run 启动平台toolbridge后台流程。
 func (r *ProxyRunner) Run(ctx context.Context) error {
 	if r == nil {
 		<-ctx.Done()

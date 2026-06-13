@@ -14,7 +14,6 @@ type promptProviderParams struct {
 
 var Module = fx.Module("datasource",
 	fx.Provide(
-		NewDocumentStore,
 		NewServiceWithStore,
 		NewHandlers,
 		NewPromptProvider,

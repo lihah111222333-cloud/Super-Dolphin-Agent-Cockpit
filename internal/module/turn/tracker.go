@@ -50,12 +50,14 @@ func newInMemoryTurnTrackerStore() *inMemoryTurnTrackerStore {
 	return &inMemoryTurnTrackerStore{turns: make(map[string]*trackedTurn)}
 }
 
+// Put 写入turn。
 func (s *inMemoryTurnTrackerStore) Put(localID string, turn *trackedTurn) {
 	s.mu.Lock()
 	s.turns[localID] = turn
 	s.mu.Unlock()
 }
 
+// Mutate 处理mutate。
 func (s *inMemoryTurnTrackerStore) Mutate(localID string, fn func(*trackedTurn)) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -67,6 +69,7 @@ func (s *inMemoryTurnTrackerStore) Mutate(localID string, fn func(*trackedTurn))
 	return true
 }
 
+// RangeMut 处理范围mut。
 func (s *inMemoryTurnTrackerStore) RangeMut(fn func(localID string, turn *trackedTurn)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -75,6 +78,7 @@ func (s *inMemoryTurnTrackerStore) RangeMut(fn func(localID string, turn *tracke
 	}
 }
 
+// DeleteMatching 删除matching。
 func (s *inMemoryTurnTrackerStore) DeleteMatching(fn func(localID string, turn *trackedTurn) bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -85,6 +89,7 @@ func (s *inMemoryTurnTrackerStore) DeleteMatching(fn func(localID string, turn *
 	}
 }
 
+// View 处理view。
 func (s *inMemoryTurnTrackerStore) View(localID string, fn func(*trackedTurn)) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -96,6 +101,7 @@ func (s *inMemoryTurnTrackerStore) View(localID string, fn func(*trackedTurn)) b
 	return true
 }
 
+// RangeView 处理范围view。
 func (s *inMemoryTurnTrackerStore) RangeView(fn func(localID string, turn *trackedTurn) bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -106,6 +112,7 @@ func (s *inMemoryTurnTrackerStore) RangeView(fn func(localID string, turn *track
 	}
 }
 
+// Tick 处理tick。
 func (s *inMemoryTurnTrackerStore) Tick() time.Time {
 	s.tickMu.Lock()
 	defer s.tickMu.Unlock()
@@ -147,6 +154,7 @@ func newTurnTracker() *turnTracker {
 	return &turnTracker{store: newInMemoryTurnTrackerStore(), logger: pkglogger.Get()}
 }
 
+// Start 启动turn流程。
 func (t *turnTracker) Start(localID, providerID, threadID string) {
 	localID = strings.TrimSpace(localID)
 	if localID == "" {
@@ -172,6 +180,7 @@ func (t *turnTracker) Start(localID, providerID, threadID string) {
 	t.store.Put(localID, turn)
 }
 
+// AttachHandle 处理attachhandle。
 func (t *turnTracker) AttachHandle(localID string, handle contract.TurnHandle) {
 	localID = strings.TrimSpace(localID)
 	if localID == "" || handle == nil {
@@ -186,6 +195,7 @@ func (t *turnTracker) AttachHandle(localID string, handle contract.TurnHandle) {
 	})
 }
 
+// BindProviderID 绑定providerID。
 func (t *turnTracker) BindProviderID(localID, providerID string) {
 	localID = strings.TrimSpace(localID)
 	if localID == "" || strings.TrimSpace(providerID) == "" {
@@ -207,6 +217,7 @@ var stateToTrigger = map[TurnState]TurnTrigger{
 	StateStalled:         TriggerStall,
 }
 
+// Update 更新turn。
 func (t *turnTracker) Update(localID string, state TurnState) {
 	localID = strings.TrimSpace(localID)
 	trigger := stateToTrigger[state]
@@ -221,6 +232,7 @@ func (t *turnTracker) Update(localID string, state TurnState) {
 	})
 }
 
+// Complete 完成turn。
 func (t *turnTracker) Complete(localID string, success bool, errMsg string) {
 	localID = strings.TrimSpace(localID)
 	if localID == "" {
@@ -253,6 +265,7 @@ func (t *turnTracker) Complete(localID string, success bool, errMsg string) {
 	})
 }
 
+// MarkInterruptRequested 标记interruptrequested。
 func (t *turnTracker) MarkInterruptRequested(localID string) bool {
 	localID = strings.TrimSpace(localID)
 	if localID == "" {
@@ -271,6 +284,7 @@ func (t *turnTracker) MarkInterruptRequested(localID string) bool {
 	return interrupted
 }
 
+// Stall 处理stall。
 func (t *turnTracker) Stall(localID string, errMsg string) {
 	localID = strings.TrimSpace(localID)
 	if localID == "" {
@@ -286,6 +300,7 @@ func (t *turnTracker) Stall(localID string, errMsg string) {
 	})
 }
 
+// Cleanup 处理cleanup。
 func (t *turnTracker) Cleanup() {
 	cutoff := time.Now().Add(-trackerTTL)
 	t.store.DeleteMatching(func(_ string, turn *trackedTurn) bool {
@@ -293,6 +308,7 @@ func (t *turnTracker) Cleanup() {
 	})
 }
 
+// ActiveByThread 按线程处理active。
 func (t *turnTracker) ActiveByThread(threadID string) (activeTurn, bool) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -319,6 +335,7 @@ func (t *turnTracker) ActiveByThread(threadID string) (activeTurn, bool) {
 	return result, found
 }
 
+// AbortThread 处理abort线程。
 func (t *turnTracker) AbortThread(threadID, errMsg string) bool {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -341,6 +358,7 @@ func (t *turnTracker) AbortThread(threadID, errMsg string) bool {
 	return updated
 }
 
+// Get 读取turn。
 func (t *turnTracker) Get(localID string) (TurnStatus, bool) {
 	localID = strings.TrimSpace(localID)
 	if localID == "" {
@@ -353,6 +371,7 @@ func (t *turnTracker) Get(localID string) (TurnStatus, bool) {
 	return status, found
 }
 
+// GetByProviderID 按providerID读取turn。
 func (t *turnTracker) GetByProviderID(providerID string) (TurnStatus, bool) {
 	providerID = strings.TrimSpace(providerID)
 	if providerID == "" {
@@ -371,6 +390,7 @@ func (t *turnTracker) GetByProviderID(providerID string) (TurnStatus, bool) {
 	return status, found
 }
 
+// RegisterDedupeKey 注册去重键。
 func (t *turnTracker) RegisterDedupeKey(localID, dedupeKey string) {
 	localID = strings.TrimSpace(localID)
 	dedupeKey = strings.TrimSpace(dedupeKey)
@@ -383,6 +403,7 @@ func (t *turnTracker) RegisterDedupeKey(localID, dedupeKey string) {
 	})
 }
 
+// DedupeKeyOf 去重键。
 func (t *turnTracker) DedupeKeyOf(localID string) string {
 	localID = strings.TrimSpace(localID)
 	if localID == "" {
@@ -395,6 +416,7 @@ func (t *turnTracker) DedupeKeyOf(localID string) string {
 	return key
 }
 
+// GetByDedupeKey 按去重键读取turn。
 func (t *turnTracker) GetByDedupeKey(dedupeKey string) (TurnStatus, bool) {
 	dedupeKey = strings.TrimSpace(dedupeKey)
 	if dedupeKey == "" {

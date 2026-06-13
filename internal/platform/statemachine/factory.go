@@ -25,6 +25,7 @@ type Config struct {
 	States  []StateConfig
 }
 
+// New 创建平台statemachine。
 func New(cfg Config, accessor func() string, mutator func(string)) *stateless.StateMachine {
 	if accessor == nil || mutator == nil {
 		state := cfg.Initial
@@ -67,6 +68,7 @@ func New(cfg Config, accessor func() string, mutator func(string)) *stateless.St
 	return sm
 }
 
+// AllowedTriggers 处理allowedtriggers。
 func AllowedTriggers(sm *stateless.StateMachine, ctx context.Context) ([]string, error) {
 	triggers, err := sm.PermittedTriggersCtx(ctx)
 	if err != nil {

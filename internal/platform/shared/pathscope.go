@@ -11,14 +11,17 @@ import (
 
 const SuperDolphinHomeEnv = "SUPER_DOLPHIN_HOME"
 
+// NormalizeRelativePath 规范化相对路径。
 func NormalizeRelativePath(path string) string {
 	return filepath.Clean(strings.TrimSpace(path))
 }
 
 // ContainsPath delegates to pathutil.ContainsPath.
+// ContainsPath 判断路径是否可用。
 func ContainsPath(root, target string) bool { return pathutil.ContainsPath(root, target) }
 
 // AppManagedDataRoots returns the explicit user-data roots managed by Super Dolphin.
+// AppManagedDataRoots 处理appmanaged数据根目录。
 func AppManagedDataRoots() ([]string, error) {
 	userHome, err := os.UserHomeDir()
 	if err != nil {
@@ -89,6 +92,7 @@ func hasPathSuffix(path string, suffix string) bool {
 	return strings.HasSuffix(path, string(filepath.Separator)+suffix)
 }
 
+// appendAppManagedDataRoot 追加appmanaged数据根目录。
 func appendAppManagedDataRoot(roots []string, seen map[string]struct{}, root, userHome string) ([]string, error) {
 	cleaned, err := cleanAppManagedDataRoot(root, userHome)
 	if err != nil {
@@ -111,6 +115,7 @@ func appendAppManagedDataRoot(roots []string, seen map[string]struct{}, root, us
 	return append(roots, cleaned), nil
 }
 
+// cleanAppManagedDataRoot 处理cleanappmanaged数据根目录。
 func cleanAppManagedDataRoot(root, userHome string) (string, error) {
 	root = strings.TrimSpace(os.ExpandEnv(root))
 	if root == "" {

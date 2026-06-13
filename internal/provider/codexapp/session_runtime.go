@@ -103,6 +103,7 @@ func newSessionRuntime(s *session, logger *slog.Logger, opts ...sessionRuntimeOp
 // Start is idempotent: the first call spawns reader + health + recovery
 // workers; every subsequent call is a no-op. StartSession / ResumeSession
 // are the only production callers; tests call Start() directly.
+// Start 启动codexapp provider流程。
 func (r *SessionRuntime) Start() {
 	r.startedOnce.Do(func() {
 		r.started.Store(true)
@@ -119,14 +120,17 @@ func (r *SessionRuntime) Start() {
 }
 
 // Started reports whether Start has been called at least once.
+// Started 记录阶段开始并返回开始时间。
 func (r *SessionRuntime) Started() bool { return r.started.Load() }
 
 // Stopped reports whether Stop has been initiated.
+// Stopped 处理stopped。
 func (r *SessionRuntime) Stopped() bool { return r.stopped.Load() }
 
 // Stop closes the stop gate, cancels the session context, joins reader /
 // health / recovery, and records the drain latency. Idempotent: second and
 // subsequent callers block on drainCh until the first Stop finishes.
+// Stop 停止codexapp provider流程。
 func (r *SessionRuntime) Stop() {
 	first := false
 	r.stopOnce.Do(func() {
@@ -157,6 +161,7 @@ func (r *SessionRuntime) Stop() {
 }
 
 // Drained returns a channel closed once Stop has completed.
+// Drained 标记运行时已经完成收尾。
 func (r *SessionRuntime) Drained() <-chan struct{} { return r.drainCh }
 
 // NotifyRecovery enqueues a recovery signal under the stop gate.
@@ -191,9 +196,14 @@ func (r *SessionRuntime) NotifyRecovery(source, reason string) {
 
 // RecoverySignalsTotal / RecoveryCoalescedTotal / DroppedSignalsTotal expose
 // the internal counters for test assertions and future metric hookup (P2).
-func (r *SessionRuntime) RecoverySignalsTotal() int64   { return r.recoverySignalTotal.Load() }
+// RecoverySignalsTotal 处理recoverysignalstotal。
+func (r *SessionRuntime) RecoverySignalsTotal() int64 { return r.recoverySignalTotal.Load() }
+
+// RecoveryCoalescedTotal 处理recoverycoalescedtotal。
 func (r *SessionRuntime) RecoveryCoalescedTotal() int64 { return r.recoveryCoalescedTotal.Load() }
-func (r *SessionRuntime) DroppedSignalsTotal() int64    { return r.droppedSignalTotal.Load() }
+
+// DroppedSignalsTotal 处理droppedsignalstotal。
+func (r *SessionRuntime) DroppedSignalsTotal() int64 { return r.droppedSignalTotal.Load() }
 
 // -----------------------------------------------------------------------------
 // Health loop
@@ -222,6 +232,7 @@ func (r *SessionRuntime) runHealthLoop() {
 
 // tickHealth runs one health probe. On transport failure it converts the
 // failure into a recovery signal; it never spawns its own worker.
+// tickHealth 处理tickhealth。
 func (r *SessionRuntime) tickHealth() {
 	if r.s.recovery == nil {
 		return
@@ -257,6 +268,7 @@ func (r *SessionRuntime) safeRunRecoveryWorker() {
 	r.runRecoveryWorker()
 }
 
+// runRecoveryWorker 运行recoveryworker。
 func (r *SessionRuntime) runRecoveryWorker() {
 	for {
 		select {
@@ -280,6 +292,7 @@ func (r *SessionRuntime) runRecoveryWorker() {
 // reader is currently tracked. Returns true when a goroutine was spawned.
 // Callers that need to replace an existing reader (e.g. attemptRecovery after
 // Reconnect) must waitReader first.
+// spawnReader 处理spawn读取器。
 func (r *SessionRuntime) spawnReader() bool {
 	r.readerMu.Lock()
 	defer r.readerMu.Unlock()

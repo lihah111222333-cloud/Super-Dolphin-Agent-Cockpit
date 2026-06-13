@@ -8,6 +8,10 @@ function timelineMaterializationKey({ activeThreadId, introMode, timelineContent
 }
 
 function useTimelineMaterialization({ activeThreadId, introMode, messages, timelineContentBlocked }) {
+  /*
+   * 这里控制一次渲染多少条消息，不改 store。
+   * 切换线程或进入加载态时，要重新计算展开数量。
+   */
   const materializationKey = timelineMaterializationKey({ activeThreadId, introMode, timelineContentBlocked });
   const [materialization, setMaterialization] = useState(() => ({
     count: TIMELINE_INITIAL_MATERIALIZED_MESSAGES,

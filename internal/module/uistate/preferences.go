@@ -51,6 +51,7 @@ func splitFallbackPreferenceKey(raw string) (string, string, bool) {
 	return scope, strings.TrimSpace(key), ok && strings.TrimSpace(key) != ""
 }
 
+// normalizePreferenceKey 规范化preference键。
 func normalizePreferenceKey(key string) string {
 	switch strings.TrimSpace(key) {
 	case "active_thread_id":
@@ -116,6 +117,7 @@ func isEmptyProviderPreference(value any) bool {
 	return ok && strings.TrimSpace(text) == ""
 }
 
+// preferenceValue 处理preference值。
 func preferenceValue(prefs Preferences, key string) any {
 	switch normalizePreferenceKey(key) {
 	case preferenceActiveThreadID:
@@ -192,6 +194,7 @@ func activeThreadPreference(threads []ThreadSummary, current string) string {
 // preference-driven archive map. LifecycleStatus is the DB lifecycle truth;
 // State is only a fallback for old in-memory/test snapshots because it is a
 // runtime/UI union field overwritten by deriveThreadStatuses.
+// projectArchivedThreadStatus 处理项目archived线程状态。
 func projectArchivedThreadStatus(threads []ThreadSummary, archived map[string]int64) map[string]int64 {
 	out := cloneTimestampMap(archived)
 	for _, thread := range threads {
@@ -237,6 +240,7 @@ func deriveMainAgentID(agents []AgentSummary, current string) string {
 	return strings.TrimSpace(agents[0].ID)
 }
 
+// buildThreadGroups 构建线程groups。
 func buildThreadGroups(threads []ThreadSummary, pinned, archived map[string]int64) []ThreadGroup {
 	var pinnedThreads, archivedThreads, otherThreads []ThreadSummary
 	for _, thread := range threads {
@@ -325,6 +329,7 @@ func normalizeJSONObject(value any) map[string]any {
 	return clone.JSONMap(typed)
 }
 
+// normalizeTimestampMap 规范化timestampmap。
 func normalizeTimestampMap(value any) map[string]int64 {
 	typed, ok := value.(map[string]any)
 	if !ok {
@@ -371,6 +376,7 @@ func cloneTimestampMap(input map[string]int64) map[string]int64 {
 	return out
 }
 
+// asInt64 把uistate处理为int64。
 func asInt64(value any) (int64, bool) {
 	switch typed := value.(type) {
 	case int:
@@ -389,6 +395,7 @@ func asInt64(value any) (int64, bool) {
 	}
 }
 
+// asPositiveInt 把uistate处理为positiveint。
 func asPositiveInt(value any, minVal int) int {
 	switch typed := value.(type) {
 	case string:

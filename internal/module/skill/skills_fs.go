@@ -17,10 +17,12 @@ import (
 
 type skillNotFoundError string
 
+// Error 返回错误文本。
 func (e skillNotFoundError) Error() string {
 	return fmt.Sprintf("skill not found: %s", string(e))
 }
 
+// Unwrap 返回底层错误。
 func (skillNotFoundError) Unwrap() error {
 	return os.ErrNotExist
 }
@@ -33,6 +35,7 @@ func requireCWDOrLog(ctx context.Context, op string) string {
 	return cwd
 }
 
+// ListSkills 列出skills。
 func (s *service) ListSkills(ctx context.Context) ([]SkillInfo, error) {
 	cwd, err := requireCWD(ctx)
 	if err != nil {
@@ -52,6 +55,7 @@ func (s *service) ListSkills(ctx context.Context) ([]SkillInfo, error) {
 	return skills, nil
 }
 
+// ListSkillInventory 列出技能inventory。
 func (s *service) ListSkillInventory(ctx context.Context) ([]SkillInfo, error) {
 	cwd, err := requireCWD(ctx)
 	if err != nil {
@@ -69,6 +73,7 @@ func (s *service) ListSkillInventory(ctx context.Context) ([]SkillInfo, error) {
 	return skills, nil
 }
 
+// resolveSkillRecordByName 按名称解析技能记录。
 func (s *service) resolveSkillRecordByName(name, cwd string) (skillRecord, error) {
 	trimmed := strings.TrimSpace(name)
 	normalized, _, err := normalizeSkillIdentityName(trimmed, "")
@@ -97,6 +102,7 @@ func (s *service) resolveSkillRecordByName(name, cwd string) (skillRecord, error
 	return skillRecord{}, skillNotFoundError(normalized)
 }
 
+// resolveCanonicalRecordByNameInTarget 按名称target解析canonical记录。
 func (s *service) resolveCanonicalRecordByNameInTarget(name, cwd, scope, personalType string) (canonicalSkillRecord, error) {
 	trimmed := strings.TrimSpace(name)
 	normalized, _, err := normalizeSkillIdentityName(trimmed, "")
@@ -148,6 +154,7 @@ func skillRecordFromCanonical(record canonicalSkillRecord) skillRecord {
 	}
 }
 
+// ReadLocal 读取local。
 func (s *service) ReadLocal(ctx context.Context, path string) (any, error) {
 	cwd, err := requireCWD(ctx)
 	if err != nil {
@@ -179,6 +186,7 @@ func (s *service) ReadLocal(ctx context.Context, path string) (any, error) {
 	return map[string]any{"skill": map[string]any{"path": path, "content": content, "summary": summary, "summary_source": summarySource}}, nil
 }
 
+// summarizeReadLocalSkill 处理summarizereadlocal技能。
 func summarizeReadLocalSkill(content string) (string, string) {
 	body := content
 	if frontmatter, parsedBody, ok := splitFrontmatter(content); ok {
@@ -214,6 +222,7 @@ func (s *service) resolveReadLocalPath(path, cwd string) (string, error) {
 	return record.path, nil
 }
 
+// ListLocalFiles 列出local文件。
 func (s *service) ListLocalFiles(ctx context.Context, p listSkillFilesParams) (any, error) {
 	cwd, err := requireCWD(ctx)
 	if err != nil {
@@ -246,6 +255,7 @@ func (s *service) ListLocalFiles(ctx context.Context, p listSkillFilesParams) (a
 // so the one-writer rule in the P21 plan holds. system-scope writes are not
 // accepted from this entry; they must go through skills/local/write plus the
 // review gate that the plan defines.
+// CreateSkill 创建技能。
 func (s *service) CreateSkill(ctx context.Context, p createSkillParams) (any, error) {
 	name, err := validateSkillName(p.Name)
 	if err != nil {
@@ -260,6 +270,7 @@ func (s *service) CreateSkill(ctx context.Context, p createSkillParams) (any, er
 	return s.WriteLocal(ctx, name, p.Content, skillScopeProject)
 }
 
+// WriteLocal 写入local。
 func (s *service) WriteLocal(ctx context.Context, path, content string, scopeAndType ...string) (any, error) {
 	cwd, err := requireCWD(ctx)
 	if err != nil {
@@ -275,6 +286,7 @@ func (s *service) WriteLocal(ctx context.Context, path, content string, scopeAnd
 	return s.writeProjectLocal(ctx, cwd, target.path, content, target.scope, target.personalType)
 }
 
+// writePersonalLocal 写入personallocal。
 func (s *service) writePersonalLocal(ctx context.Context, path, content, scope, personalType string) (any, error) {
 	name := filepath.Base(filepath.Dir(path))
 	record, err := s.preparePersonalMutation(ctx, "personal_write", name, filepath.Dir(path), scope, personalType)
@@ -309,6 +321,7 @@ func (s *service) writePersonalLocal(ctx context.Context, path, content, scope, 
 	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, requireCWDOrLog(ctx, "WriteLocal"), scope, personalType, name)), nil
 }
 
+// ImportLocalDir 导入local目录。
 func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (any, error) {
 	cwd, err := requireCWD(ctx)
 	if err != nil {
@@ -332,6 +345,7 @@ func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (a
 	return response, nil
 }
 
+// validateImportLocalDirParams 校验importlocal目录params。
 func validateImportLocalDirParams(p importSkillDirParams) ([]string, string, error) {
 	mode, err := normalizeImportMode(p.Mode)
 	if err != nil {
@@ -364,6 +378,7 @@ func buildImportLocalDirResponse(sources []string, results []map[string]any, fai
 	return response
 }
 
+// DeleteLocal 删除local。
 func (s *service) DeleteLocal(ctx context.Context, p DeleteSkillParams) (any, error) {
 	cwd, err := requireCWD(ctx)
 	if err != nil {
@@ -393,6 +408,7 @@ func (s *service) DeleteLocal(ctx context.Context, p DeleteSkillParams) (any, er
 	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, cwd, scope, personalType, name)), nil
 }
 
+// deletePersonalLocal 删除personallocal。
 func (s *service) deletePersonalLocal(ctx context.Context, name, dir, scope, personalType string) (any, error) {
 	archiveDir := s.personalSkillArchiveDir(scope, personalType, name)
 	canonicalHash, err := skillDirContentHash(dir)
@@ -430,6 +446,7 @@ func (s *service) deletePersonalLocal(ctx context.Context, name, dir, scope, per
 	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, requireCWDOrLog(ctx, "DeleteLocal"), scope, personalType, name)), nil
 }
 
+// ReadRemote 读取remote。
 func (s *service) ReadRemote(ctx context.Context, url string) (any, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSpace(url), nil)
 	if err != nil {
@@ -451,6 +468,7 @@ func (s *service) ReadRemote(ctx context.Context, url string) (any, error) {
 	return map[string]any{"skill": map[string]any{"url": url, "content": string(body)}}, nil
 }
 
+// WriteRemote 写入remote。
 func (s *service) WriteRemote(ctx context.Context, name, content string) (any, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, errors.New("name is required")
@@ -458,6 +476,7 @@ func (s *service) WriteRemote(ctx context.Context, name, content string) (any, e
 	return nil, ErrSkillSystemScopeRemoved
 }
 
+// ReadConfig 读取配置。
 func (s *service) ReadConfig(_ context.Context, agentID string) (any, error) {
 	// Preserve the current unconfigured response until agent-scoped skill
 	// bindings have a persisted storage contract.
@@ -475,6 +494,7 @@ func (s *service) ReadConfig(_ context.Context, agentID string) (any, error) {
 	}, nil
 }
 
+// WriteSkillContent 写入技能内容。
 func (s *service) WriteSkillContent(ctx context.Context, name, content string) (any, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, errors.New("name is required")
@@ -482,6 +502,7 @@ func (s *service) WriteSkillContent(ctx context.Context, name, content string) (
 	return nil, ErrSkillSystemScopeRemoved
 }
 
+// WriteSummary 写入摘要。
 func (s *service) WriteSummary(ctx context.Context, name, summary string) (any, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, errors.New("name is required")

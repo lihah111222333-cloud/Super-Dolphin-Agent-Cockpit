@@ -61,6 +61,7 @@ type offlineConfigSnapshot struct {
 	Runtime map[string]any
 }
 
+// buildOfflineConfig 构建offline配置。
 func (s *service) buildOfflineConfig(
 	ctx context.Context,
 	threadID string,
@@ -120,6 +121,7 @@ func (s *service) loadOfflineThread(
 	}
 }
 
+// buildOfflineRuntimeConfig 构建offline运行时配置。
 func buildOfflineRuntimeConfig(stored storedThreadConfig, thread *threadstore.Thread, binding *bindingstore.Binding) map[string]any {
 	cfg := map[string]any{
 		"approvalPolicy": offlineApprovalPolicy,
@@ -169,6 +171,7 @@ func codexDisabledNativeToolsFromRuntime(runtime map[string]any) []string {
 	return cleanResumeStringList(runtime["codexDisabledNativeTools"])
 }
 
+// cleanResumeStringList 处理clean恢复stringlist。
 func cleanResumeStringList(value any) []string {
 	var raw []string
 	switch typed := value.(type) {
@@ -263,6 +266,7 @@ func applyConfigValue(dst *string, value *string) {
 	*dst = strings.TrimSpace(*value)
 }
 
+// persistThreadConfig 持久化线程配置。
 func (s *service) persistThreadConfig(
 	ctx context.Context,
 	threadID string,
@@ -354,6 +358,7 @@ func (s *service) emitThreadModelUpdated(threadID string, model *string) {
 	s.emitUpdated(threaddto.Updated{EventHeader: shareddto.EventHeader{Timestamp: time.Now()}, ThreadID: strings.TrimSpace(threadID), Model: model})
 }
 
+// normalizeThreadConfig 规范化线程配置。
 func (s *service) normalizeThreadConfig(
 	ctx context.Context,
 	threadID string,
@@ -383,6 +388,7 @@ func decodeLegacyParams[T any](raw []byte, target *T, legacyFn func([]byte, *T) 
 	return legacyFn(raw, target)
 }
 
+// resolveBindingChain 解析bindingchain。
 func (s *service) resolveBindingChain(ctx context.Context, threadID string) (*bindingstore.Binding, error) {
 	binding, err := s.bindingStore.GetByAgentID(ctx, threadID)
 	switch {
@@ -404,6 +410,7 @@ func (s *service) resolveBindingChain(ctx context.Context, threadID string) (*bi
 	return nil, err
 }
 
+// bindingByPersistedOrRememberedAgent 按persistedremembered代理处理binding。
 func (s *service) bindingByPersistedOrRememberedAgent(ctx context.Context, threadID string) (*bindingstore.Binding, bool, error, error) {
 	persistedAgentID, persistedFound, missingErr := s.lookupPersistedAgentID(ctx, threadID)
 	if missingErr != nil && !platformdb.IsNotFound(missingErr) {
@@ -450,6 +457,7 @@ func (s *service) bindingByProviderThreadID(ctx context.Context, threadID string
 }
 
 // NewThreadSubscribers declares thread bus subscriptions for BusModule.
+// NewThreadSubscribers 创建线程subscribers。
 func NewThreadSubscribers(svc *service) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: contract.SubscriberSpec{
@@ -487,6 +495,7 @@ type threadBusWorkerRunner struct {
 	svc *service
 }
 
+// Start 启动线程流程。
 func (r *threadBusWorkerRunner) Start() {
 	if r == nil || r.svc == nil {
 		return
@@ -494,6 +503,7 @@ func (r *threadBusWorkerRunner) Start() {
 	r.svc.startBusWorkers()
 }
 
+// Stop 停止线程流程。
 func (r *threadBusWorkerRunner) Stop(ctx context.Context) error {
 	if r == nil || r.svc == nil {
 		return nil

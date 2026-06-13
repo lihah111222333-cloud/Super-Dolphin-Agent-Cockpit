@@ -13,8 +13,10 @@ type store struct {
 	q *sqlc.Queries
 }
 
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
+// Get 读取编排。
 func (s *store) Get(ctx context.Context, cardKey string) (*CommandCard, error) {
 	row, err := s.q.GetCommandCard(ctx, cardKey)
 	if err != nil {
@@ -24,6 +26,7 @@ func (s *store) Get(ctx context.Context, cardKey string) (*CommandCard, error) {
 	return &mapped, nil
 }
 
+// Upsert 新增或更新记录。
 func (s *store) Upsert(ctx context.Context, card CommandCard) (*CommandCard, error) {
 	row, err := s.q.UpsertCommandCard(ctx, sqlc.UpsertCommandCardParams{
 		CardKey:         card.CardKey,
@@ -43,6 +46,7 @@ func (s *store) Upsert(ctx context.Context, card CommandCard) (*CommandCard, err
 	return &mapped, nil
 }
 
+// List 列出编排。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]CommandCard, error) {
 	rows, err := s.q.ListCommandCards(ctx, sqlc.ListCommandCardsParams{Column1: filter.Keyword, Limit: filter.Limit})
 	if err != nil {
@@ -55,11 +59,13 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]CommandCard, err
 	return cards, nil
 }
 
+// Delete 删除编排。
 func (s *store) Delete(ctx context.Context, cardKey string) error {
 	_, err := s.q.DeleteCommandCard(ctx, cardKey)
 	return wrapCommandCardError(err, "delete", "command_card")
 }
 
+// InsertVersion 插入版本。
 func (s *store) InsertVersion(ctx context.Context, version CommandCardVersion) error {
 	return wrapCommandCardError(s.q.InsertCommandCardVersion(ctx, sqlc.InsertCommandCardVersionParams{
 		CardKey:         version.CardKey,
@@ -75,6 +81,7 @@ func (s *store) InsertVersion(ctx context.Context, version CommandCardVersion) e
 	}), "insert_version", "command_card_version")
 }
 
+// ListVersions 列出versions。
 func (s *store) ListVersions(ctx context.Context, cardKey string) ([]CommandCardVersion, error) {
 	rows, err := s.q.ListCommandCardVersions(ctx, cardKey)
 	if err != nil {

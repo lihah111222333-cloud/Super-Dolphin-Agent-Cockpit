@@ -21,6 +21,7 @@ type SweeperRunner struct {
 // NewSweeperRunner constructs the runner. Returned as platformrunner.Runner
 // for fx group annotation, kept as a constructor (not a factory) so the
 // module's Provide list can stay small.
+// NewSweeperRunner 创建sweeperrunner。
 func NewSweeperRunner(sweeper *Sweeper) platformrunner.Runner {
 	return &SweeperRunner{sweeper: sweeper}
 }
@@ -28,6 +29,7 @@ func NewSweeperRunner(sweeper *Sweeper) platformrunner.Runner {
 // Run implements platformrunner.Runner. Blocks until ctx.Done or sweeper.Run
 // returns (which only happens on ctx.Done). Returns ctx.Err() so the
 // run.Group actor sees a clean cancellation.
+// Run 启动平台mcpcontrol后台流程。
 func (r *SweeperRunner) Run(ctx context.Context) error {
 	if r == nil || r.sweeper == nil {
 		<-ctx.Done()

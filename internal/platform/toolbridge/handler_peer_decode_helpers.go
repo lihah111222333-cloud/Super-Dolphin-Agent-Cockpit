@@ -122,6 +122,7 @@ func toolDeferLoading(tool mcpdto.MCPTool) bool {
 	return field.IsValid() && field.Kind() == reflect.Bool && field.Bool()
 }
 
+// setDynamicToolDeferLoading 设置dynamic工具deferloading。
 func setDynamicToolDeferLoading(schema *contract.DynamicToolSchema, enabled bool) {
 	if schema == nil {
 		return

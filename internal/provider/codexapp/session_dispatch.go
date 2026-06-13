@@ -16,6 +16,7 @@ const (
 	maxRolloutToolNames   = 256
 )
 
+// dispatch 派发codexapp provider。
 func (s *session) dispatch(raw dto.RawProviderEvent) {
 	if s.dispatcher == nil {
 		pkglogger.Warn("codexapp: dispatch skipped: no dispatcher",
@@ -39,6 +40,7 @@ func (s *session) dispatch(raw dto.RawProviderEvent) {
 	s.dispatcher.Dispatch(raw)
 }
 
+// remapEventIdentity 处理remap事件身份。
 func (s *session) remapEventIdentity(eventType string, payload map[string]any, hostAgentID string) {
 	pid := payloadAgentID(payload)
 	tid := payloadThreadID(payload)
@@ -59,6 +61,7 @@ func (s *session) remapEventIdentity(eventType string, payload map[string]any, h
 	payload["thread_id"] = hostAgentID
 }
 
+// finishTurn 处理finishturn。
 func (s *session) finishTurn(params json.RawMessage, optimistic bool) {
 	payload := decodeEventPayload(params)
 	turnID := payloadTurnID(payload)
@@ -171,6 +174,7 @@ func isToolEndEvent(method string) bool {
 	}
 }
 
+// toolEndSuppressionPayload 处理工具endsuppression载荷。
 func (s *session) toolEndSuppressionPayload(method string, payload map[string]any) (string, string, string, bool) {
 	item := codexToolItemPayload(payload)
 	switch strings.TrimSpace(stringValue(item, "type")) {
@@ -233,6 +237,7 @@ func (s *session) consumeSuppressedTurn(turnID string) bool {
 	return true
 }
 
+// consumeSuppressedToolEnd 处理consumesuppressed工具end。
 func (s *session) consumeSuppressedToolEnd(turnID, callID, toolName string) bool {
 	callID = strings.TrimSpace(callID)
 	names := toolEndSuppressionToolNames(toolName)
@@ -317,6 +322,7 @@ func toolEndSuppressionKey(turnID, callID, toolName string) string {
 	return turnID + "\x00" + callID + "\x00" + toolName
 }
 
+// trackCodexRolloutToolName 跟踪codexrollout工具名称。
 func (s *session) trackCodexRolloutToolName(eventType string, payload map[string]any) bool {
 	if !isCodexRolloutToolEventType(eventType) {
 		return false
@@ -360,6 +366,7 @@ func isCodexRolloutToolEventType(eventType string) bool {
 	}
 }
 
+// rememberRolloutToolName 处理rememberrollout工具名称。
 func (s *session) rememberRolloutToolName(callID, toolName string) {
 	callID = strings.TrimSpace(callID)
 	toolName = strings.TrimSpace(toolName)
@@ -405,6 +412,7 @@ func (s *session) rolloutEndToolName(callID string, item map[string]any) string 
 	return codexRolloutToolName(item)
 }
 
+// toolEventEndOutcome 处理工具事件endoutcome。
 func toolEventEndOutcome(eventType string, payload map[string]any) (bool, string) {
 	success := turnTerminalSuccess(eventType, payload)
 	errorText := stringValue(payload, "error", "message", "reason")
@@ -422,6 +430,7 @@ func toolEventEndOutcome(eventType string, payload map[string]any) (bool, string
 	return success, errorText
 }
 
+// toolEventResultOutcome 处理工具事件结果outcome。
 func toolEventResultOutcome(result any) (bool, string, bool) {
 	switch value := result.(type) {
 	case nil, string, float64, bool, []any:

@@ -15,14 +15,17 @@ type PromptProvider struct {
 	svc Service
 }
 
+// NewPromptProvider 创建promptprovider。
 func NewPromptProvider(svc Service) *PromptProvider {
 	return &PromptProvider{svc: svc}
 }
 
+// SectionName 处理section名称。
 func (p *PromptProvider) SectionName() string {
 	return contract.DynamicSectionDatasource
 }
 
+// Resolve 把当前工作区的数据源内容整理进动态提示段。
 func (p *PromptProvider) Resolve(ctx context.Context, input contract.SectionContext) (*string, error) {
 	if p == nil || p.svc == nil {
 		err := errors.New("datasource service is not configured")

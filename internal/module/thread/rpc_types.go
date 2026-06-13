@@ -12,6 +12,7 @@ type threadIDParams struct {
 	ThreadID string `json:"thread_id"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *threadIDParams) UnmarshalJSON(data []byte) error {
 	type raw threadIDParams
 	var current raw
@@ -77,6 +78,7 @@ type handoffParams struct {
 	InitialMessage string `json:"initial_message,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *startParams) UnmarshalJSON(data []byte) error {
 	type raw startParams
 	var current raw
@@ -275,6 +277,7 @@ func assignCompatString(payload map[string]json.RawMessage, target *string, fiel
 	return nil
 }
 
+// resolveCompatString 解析compatstring。
 func resolveCompatString(payload map[string]json.RawMessage, field string, keys ...string) (string, bool, error) {
 	var resolved compatStringValue
 	for _, key := range keys {
@@ -322,6 +325,7 @@ type resumeParams struct {
 	Provider string `json:"provider,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *resumeParams) UnmarshalJSON(data []byte) error {
 	type raw resumeParams
 	var current raw
@@ -344,6 +348,7 @@ type threadInfo struct {
 	ForkedFrom string `json:"forkedFrom,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *messagesParams) UnmarshalJSON(data []byte) error {
 	type raw struct {
 		ThreadID string          `json:"thread_id"`
@@ -387,6 +392,7 @@ type nameSetParams struct {
 	Name     string `json:"name"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *nameSetParams) UnmarshalJSON(data []byte) error {
 	type raw nameSetParams
 	var current raw
@@ -402,6 +408,7 @@ type commandParams struct {
 	Args     string `json:"args,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *commandParams) UnmarshalJSON(data []byte) error {
 	type raw commandParams
 	var current raw
@@ -418,6 +425,7 @@ type approvalsSetParams struct {
 	Policy   string `json:"policy,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *approvalsSetParams) UnmarshalJSON(data []byte) error {
 	type raw approvalsSetParams
 	var current raw
@@ -432,6 +440,7 @@ type configGetParams struct {
 	ThreadID string `json:"thread_id"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *configGetParams) UnmarshalJSON(data []byte) error {
 	type raw configGetParams
 	var current raw
@@ -448,6 +457,7 @@ type configSetParams struct {
 	Effort   *string `json:"effort,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *configSetParams) UnmarshalJSON(data []byte) error {
 	type raw configSetParams
 	var current raw
@@ -464,6 +474,7 @@ type modelSetParams struct {
 	Args     string `json:"args,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *modelSetParams) UnmarshalJSON(data []byte) error {
 	type raw modelSetParams
 	var current raw
@@ -479,6 +490,7 @@ type compactStartParams struct {
 	Args     string `json:"args,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *compactStartParams) UnmarshalJSON(data []byte) error {
 	type raw compactStartParams
 	var current raw

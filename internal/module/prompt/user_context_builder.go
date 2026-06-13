@@ -27,12 +27,14 @@ func newUserContextCache() *userContextCache {
 	return &userContextCache{values: map[string]userContextPayload{}}
 }
 
+// Generation 处理代际。
 func (c *userContextCache) Generation() uint64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.generation
 }
 
+// Lookup 按名称查找注册项。
 func (c *userContextCache) Lookup(key string, generation uint64) (userContextPayload, bool) {
 	key = strings.TrimSpace(key)
 	if key == "" {
@@ -50,6 +52,7 @@ func (c *userContextCache) Lookup(key string, generation uint64) (userContextPay
 	return cloneUserContextPayload(payload), true
 }
 
+// Store 保存prompt。
 func (c *userContextCache) Store(key string, generation uint64, payload userContextPayload) bool {
 	key = strings.TrimSpace(key)
 	if key == "" {
@@ -64,6 +67,7 @@ func (c *userContextCache) Store(key string, generation uint64, payload userCont
 	return true
 }
 
+// InvalidateAll 处理invalidateall。
 func (c *userContextCache) InvalidateAll() uint64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -72,6 +76,7 @@ func (c *userContextCache) InvalidateAll() uint64 {
 	return c.generation
 }
 
+// BuildBaseUserContext 构建baseuser上下文。
 func BuildBaseUserContext(sources []contract.ClaudeMdSource) map[string]string {
 	block := renderClaudeMdSources(sources)
 	if strings.TrimSpace(block) == "" {
@@ -80,6 +85,7 @@ func BuildBaseUserContext(sources []contract.ClaudeMdSource) map[string]string {
 	return userContextPayload{"claudeMd": block}
 }
 
+// CollectRuntimeUserContext 收集运行时user上下文。
 func CollectRuntimeUserContext(input TurnInput, resolved []ResolvedPromptSection) map[string]string {
 	currentDateValue := strings.TrimSpace(input.CurrentDate)
 	if currentDateValue == "" {
@@ -95,6 +101,7 @@ func CollectRuntimeUserContext(input TurnInput, resolved []ResolvedPromptSection
 	return MergeRuntimeUserContext(extras, input.RuntimeUserContext)
 }
 
+// MergeRuntimeUserContext 合并运行时user上下文。
 func MergeRuntimeUserContext(base, extras map[string]string) map[string]string {
 	merged := cloneUserContextPayload(base)
 	if merged == nil {
@@ -274,6 +281,7 @@ func escapeUntrustedClaudeMdContent(content string) string {
 	return content
 }
 
+// renderClaudeMdSources 渲染claudemdsources。
 func renderClaudeMdSources(sources []contract.ClaudeMdSource) string {
 	visible := visibleClaudeMdSources(sources)
 	blocks := make([]string, 0, len(visible))
@@ -312,6 +320,7 @@ func renderClaudeMdSources(sources []contract.ClaudeMdSource) string {
 	return strings.TrimSpace(joinBlocks(blocks...))
 }
 
+// renderClaudeMdSource 渲染claudemdsource。
 func renderClaudeMdSource(source contract.ClaudeMdSource) string {
 	header := "Contents of " + strings.TrimSpace(source.Path)
 	if description := strings.TrimSpace(source.Description); description != "" {
@@ -359,6 +368,7 @@ func sourceDigest(source contract.ClaudeMdSource) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// cloneUserContextPayload 复制user上下文载荷。
 func cloneUserContextPayload(payload map[string]string) userContextPayload {
 	if len(payload) == 0 {
 		return nil

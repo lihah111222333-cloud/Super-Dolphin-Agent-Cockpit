@@ -30,6 +30,7 @@ type memoryReadToolInput struct {
 	Type  string `json:"type,omitempty"`
 }
 
+// NewMemoryReadHostToolRegistry 创建记忆readhost工具注册表。
 func NewMemoryReadHostToolRegistry(reader contract.AgentMemoryReader, opts MemoryReadHostToolOptions) *MemoryReadHostToolRegistry {
 	if reader == nil {
 		return nil
@@ -37,6 +38,7 @@ func NewMemoryReadHostToolRegistry(reader contract.AgentMemoryReader, opts Memor
 	return &MemoryReadHostToolRegistry{reader: reader, opts: opts}
 }
 
+// ListHostTools 列出host工具。
 func (r *MemoryReadHostToolRegistry) ListHostTools() []mcpdto.MCPTool {
 	if r == nil || r.reader == nil || !r.opts.Enabled || !r.opts.ToolsEnabled {
 		return nil
@@ -45,10 +47,12 @@ func (r *MemoryReadHostToolRegistry) ListHostTools() []mcpdto.MCPTool {
 	return []mcpdto.MCPTool{{Name: ToolNameMemoryRead, Description: descriptionMemoryRead, InputSchema: schema}}
 }
 
+// HasTool 判断工具是否可用。
 func (r *MemoryReadHostToolRegistry) HasTool(name string) bool {
 	return r != nil && name == ToolNameMemoryRead
 }
 
+// CallHostTool 调用host工具。
 func (r *MemoryReadHostToolRegistry) CallHostTool(ctx context.Context, call HostToolCall) (any, error) {
 	if r == nil || r.reader == nil {
 		return nil, contract.NewAgentMemoryError("reader_unavailable", fmt.Errorf("memory_read reader is not configured"))

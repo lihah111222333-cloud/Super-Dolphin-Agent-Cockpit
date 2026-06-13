@@ -16,6 +16,7 @@ type Filter struct {
 }
 
 // NewFilter creates a new Filter.  scanTeam may be nil.
+// NewFilter 创建过滤条件。
 func NewFilter(scanPrivate, scanTeam ScanFunc) *Filter {
 	return &Filter{
 		scanPrivate: scanPrivate,
@@ -41,6 +42,8 @@ type CheckResult struct {
 //     - Merge, same scope → merge content + frontmatter, return Merge result.
 //     - Merge, cross scope → WriteNew (no cross-scope merge).
 //     - WriteNew from Decide → WriteNew.
+//
+// Check 处理check。
 func (f *Filter) Check(candidate EntrySnapshot) (CheckResult, error) {
 	// --- 1. gather existing entries ---
 	existing, err := f.collectAll(candidate.Type)
@@ -95,6 +98,7 @@ type OverflowInstruction struct {
 // found, it returns a merge instruction.  Otherwise it returns nil.
 //
 // It operates only on the private scope and never writes anything itself.
+// FindOverflowMerge 查找overflowmerge。
 func (f *Filter) FindOverflowMerge(memType string) (*OverflowInstruction, error) {
 	entries, err := f.scanPrivate(memType)
 	if err != nil {
@@ -125,6 +129,7 @@ func (f *Filter) FindOverflowMerge(memType string) (*OverflowInstruction, error)
 // --- helpers ---
 
 // collectAll returns private + team entries for the given type.
+// collectAll 收集all。
 func (f *Filter) collectAll(memType string) ([]EntrySnapshot, error) {
 	private, err := f.scanPrivate(memType)
 	if err != nil {

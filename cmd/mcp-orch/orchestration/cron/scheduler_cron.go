@@ -278,6 +278,7 @@ type TickError struct {
 	Err   error
 }
 
+// Error 返回错误文本。
 func (e *TickError) Error() string {
 	if e == nil {
 		return "<nil>"
@@ -285,6 +286,7 @@ func (e *TickError) Error() string {
 	return fmt.Sprintf("cron tick %s error (%s): %v", e.Op, e.Class, e.Err)
 }
 
+// Unwrap 返回底层错误。
 func (e *TickError) Unwrap() error {
 	if e == nil {
 		return nil
@@ -347,6 +349,7 @@ var (
 	ErrScheduleStateChanged = errors.New("cron: scheduled dag state changed before next_run_at update")
 )
 
+// NewScheduledDAGTicker 创建scheduledDAGticker。
 func NewScheduledDAGTicker(cfg ScheduledDAGTickerConfig) (*ScheduledDAGTicker, error) {
 	if cfg.Store == nil {
 		return nil, ErrNilScheduleStore
@@ -372,6 +375,7 @@ type AdvisoryLockHandle interface {
 	Unlock(ctx context.Context) error
 }
 
+// Tick 处理tick。
 func (t *ScheduledDAGTicker) Tick(ctx context.Context, now time.Time) (triggered int, err error) {
 	handle, acquired, err := t.tryAdvisoryLock(ctx)
 	if err != nil {
@@ -458,6 +462,7 @@ func joinDAGErrors(errs []error) error {
 // interpreted in UTC; callers that need wall-clock local time must prefix the
 // expression with CRON_TZ=<IANA>, for example:
 // CRON_TZ=Asia/Shanghai 0 8 * * *.
+// ParseDAGCronExpr 解析DAGcronexpr。
 func ParseDAGCronExpr(cronExpr string) (robcron.Schedule, error) {
 	spec, err := normalizedDAGCronSpec(cronExpr)
 	if err != nil {
@@ -470,6 +475,7 @@ func ParseDAGCronExpr(cronExpr string) (robcron.Schedule, error) {
 	return schedule, nil
 }
 
+// NextDAGRunAt 处理nextDAG运行记录at。
 func NextDAGRunAt(cronExpr string, after time.Time) (time.Time, error) {
 	schedule, err := ParseDAGCronExpr(cronExpr)
 	if err != nil {

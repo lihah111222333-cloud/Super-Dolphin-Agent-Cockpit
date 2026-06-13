@@ -54,6 +54,7 @@ func lookupHint(toolName string) toolOverflowHint {
 	return toolOverflowHint{Hint: "next: narrow the query"}
 }
 
+// extractSummary 提取摘要。
 func extractSummary(toolName string, payload map[string]any) map[string]any {
 	if payload == nil {
 		return map[string]any{}

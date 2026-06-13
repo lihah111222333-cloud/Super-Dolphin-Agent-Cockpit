@@ -21,6 +21,7 @@ type projectStateFacadeAdapter struct {
 // the underlying Service and converts the internal *ProjectsState into
 // the contract-level *contract.ProjectsSnapshot. A nil service returns
 // (nil, nil) so optional DI wiring stays a cheap no-op.
+// GetProjects 读取projects。
 func (a projectStateFacadeAdapter) GetProjects(ctx context.Context) (*contract.ProjectsSnapshot, error) {
 	if a.svc == nil {
 		return nil, nil
@@ -42,6 +43,7 @@ func (a projectStateFacadeAdapter) GetProjects(ctx context.Context) (*contract.P
 // implementation backed by the uistate Service. Exposed via fx.Provide
 // in Module so other packages can consume the facade without importing
 // this one.
+// NewProjectStateFacade 创建项目状态facade。
 func NewProjectStateFacade(svc Service) contract.UIProjectStateFacade {
 	return projectStateFacadeAdapter{svc: svc}
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 )
 
+// RenderJSON 渲染JSON。
 func RenderJSON(value any) (string, error) {
 	var buffer bytes.Buffer
 	encoder := json.NewEncoder(&buffer)
@@ -24,6 +25,7 @@ func RenderJSON(value any) (string, error) {
 	return strings.TrimRight(buffer.String(), "\n"), nil
 }
 
+// RenderLineNumberedText 渲染行带行号文本。
 func RenderLineNumberedText(content string, startLine int) string {
 	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
 	if len(lines) == 0 {
@@ -43,6 +45,7 @@ func RenderLineNumberedText(content string, startLine int) string {
 	return builder.String()
 }
 
+// RenderGroupedLocations 渲染分组位置。
 func RenderGroupedLocations(result protocol.GroupedLocationResult) string {
 	if len(result.Data) == 0 {
 		return ""
@@ -77,10 +80,12 @@ func RenderGroupedLocations(result protocol.GroupedLocationResult) string {
 	return strings.TrimRight(builder.String(), "\n")
 }
 
+// RenderCompactList 渲染紧凑列表list。
 func RenderCompactList[T any](list CompactList[T]) (string, error) {
 	return RenderJSON(list)
 }
 
+// NormalizeForDisplay 为显示规范化LSP。
 func NormalizeForDisplay[T any](value T) T {
 	if normalizer, ok := displayNormalizers[reflect.TypeOf(value)]; ok {
 		return normalizer(value).(T)
@@ -88,6 +93,7 @@ func NormalizeForDisplay[T any](value T) T {
 	return value
 }
 
+// workspaceSymbolLocationAny 转换工作区符号位置任意值用于展示。
 func workspaceSymbolLocationAny(location any) any {
 	switch value := location.(type) {
 	case nil:
@@ -137,6 +143,7 @@ func rangeMapForDisplay(value map[string]any) map[string]any {
 	return out
 }
 
+// positionMapForDisplay 为显示处理位置map。
 func positionMapForDisplay(value map[string]any) map[string]any {
 	out := cloneAnyMap(value)
 	for _, key := range []string{"line", "character", "column"} {

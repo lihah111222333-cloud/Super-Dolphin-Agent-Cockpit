@@ -64,15 +64,23 @@ func IncHostToolCallOutcome(outcome string) {
 	}
 }
 
-func HostToolCallOK() uint64               { return hostToolCallOKTotal.Load() }
-func HostToolCallCWDMissing() uint64       { return hostToolCallCWDMissingTotal.Load() }
+// HostToolCallOK 处理host工具callok。
+func HostToolCallOK() uint64 { return hostToolCallOKTotal.Load() }
+
+// HostToolCallCWDMissing 处理host工具call工作目录missing。
+func HostToolCallCWDMissing() uint64 { return hostToolCallCWDMissingTotal.Load() }
+
+// HostToolCallApprovalRequired 处理host工具call审批必需。
 func HostToolCallApprovalRequired() uint64 { return hostToolCallApprovalReqTotal.Load() }
-func HostToolCallError() uint64            { return hostToolCallErrorTotal.Load() }
+
+// HostToolCallError 处理host工具call错误。
+func HostToolCallError() uint64 { return hostToolCallErrorTotal.Load() }
 
 // IncEnrichFailure 记录 codexapp tool-call params enrich fail-soft 失败一次。
 // 导出层目标名：enrich_failures_total。
 func IncEnrichFailure() { enrichFailuresTotal.Add(1) }
 
+// EnrichFailures 补充failures。
 func EnrichFailures() uint64 { return enrichFailuresTotal.Load() }
 
 // Snapshot 一次性读 counter 快照，顺序稳定，仅用于诊断 / 测试。

@@ -47,6 +47,7 @@ func matchTagsHas(keyword string, userPrompt string) bool {
 	)
 }
 
+// storePromptTemplateAndContent 保存prompttemplate内容。
 func storePromptTemplateAndContent(
 	ctx context.Context,
 	store promptstore.Store,
@@ -77,6 +78,7 @@ func storePromptTemplateAndContent(
 	return saved, nil
 }
 
+// promptContentSectionTargetForWrite 为write处理prompt内容sectiontarget。
 func promptContentSectionTargetForWrite(
 	ctx context.Context,
 	store promptstore.Store,
@@ -97,6 +99,7 @@ func promptContentSectionTargetForWrite(
 	return target, nil
 }
 
+// promptContentSectionForWrite 为write处理prompt内容section。
 func promptContentSectionForWrite(
 	template promptstore.PromptTemplate,
 	sections []promptstore.PromptTemplateSection,
@@ -135,6 +138,7 @@ func promptTemplateRequiresSectionContent(template promptstore.PromptTemplate, s
 	}
 }
 
+// promptTemplateIntentKind 处理prompttemplateintentkind。
 func promptTemplateIntentKind(template promptstore.PromptTemplate) string {
 	if strings.TrimSpace(template.AgentKey) == "default_rule" {
 		return "default_rule"
@@ -162,6 +166,7 @@ func promptTemplateIntentKindWithSections(
 	return promptSectionsInferredIntentKind(sections)
 }
 
+// promptSectionsInferredIntentKind 处理promptsectionsinferredintentkind。
 func promptSectionsInferredIntentKind(sections []promptstore.PromptTemplateSection) string {
 	hasRecallContent := false
 	for _, section := range sections {
@@ -263,6 +268,7 @@ func promptAssetItemsFromDrafts(drafts []promptstore.PromptIntentDraft) []prompt
 	return items
 }
 
+// promptAssetItemFromDraft 从draft处理promptassetitem。
 func promptAssetItemFromDraft(draft promptstore.PromptIntentDraft) promptAssetRPCItem {
 	card, cardPayload := promptAssetDraftCardPayload(draft)
 	issues := []promptAssetDraftIssue{}

@@ -18,6 +18,7 @@ type completionParams struct {
 	MaxResults int    `json:"max_results"`
 }
 
+// NewCompletionHandler 创建补全处理器。
 func NewCompletionHandler(registry lspmanager.Registry) ToolHandler {
 	return newManagerTool("completion", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req completionParams) (any, error) {
 		filePath, position, err := resolveFilePositionRequest(ctx, filePositionParams{
@@ -53,6 +54,7 @@ func NewCompletionHandler(registry lspmanager.Registry) ToolHandler {
 	})
 }
 
+// completionWithIdentifierEndRetry 处理带identifierend重试的补全。
 func completionWithIdentifierEndRetry(ctx context.Context, manager lspmanager.Manager, filePath string, position protocol.Position) (*protocol.CompletionList, error) {
 	result, err := manager.Completion(ctx, filePath, position)
 	if err != nil {
@@ -81,6 +83,7 @@ func completionHasItems(result *protocol.CompletionList) bool {
 	return result != nil && len(result.Items) > 0
 }
 
+// identifierCompletionRetryPositions 处理identifier补全重试positions。
 func identifierCompletionRetryPositions(filePath string, position protocol.Position) ([]protocol.Position, error) {
 	if position.Line < 0 || position.Character < 0 {
 		return nil, nil
@@ -106,6 +109,7 @@ func identifierCompletionRetryPositions(filePath string, position protocol.Posit
 	return completionRetryPositions(position.Line, position.Character, runes, start, end), nil
 }
 
+// completionIdentifierAnchor 处理补全identifier锚点。
 func completionIdentifierAnchor(runes []rune, character int) (int, bool) {
 	anchor := character
 	if anchor == len(runes) || !isCompletionIdentifierRune(runes[anchor]) {

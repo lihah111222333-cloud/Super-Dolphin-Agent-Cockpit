@@ -75,6 +75,7 @@ func registerBackgroundExtractionSubscriptions(p memorySubscriptionDeps, appendC
 	}, pkglogger.Get()))
 }
 
+// registerThreadHookSubscriptions 注册线程hooksubscriptions。
 func registerThreadHookSubscriptions(p memorySubscriptionDeps, nested *nestedIngestWorker, teamSync *teamSyncCoordinator, hookWorker *memoryHookWorker, appendCancel func(context.CancelFunc)) {
 	if p.NestedRuntime != nil {
 		appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Started) {

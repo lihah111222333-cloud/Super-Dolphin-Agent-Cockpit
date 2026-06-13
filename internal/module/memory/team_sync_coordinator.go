@@ -88,6 +88,7 @@ func newTeamSyncCoordinator(svc teampkg.Lifecycle, store contract.ThreadMetadata
 // Start spawns the worker goroutine. Idempotent. When svc is nil (TeamSync
 // disabled) the worker short-circuits: doneCh closes immediately so Stop
 // is a no-op and Enqueue stays a cheap silent drop.
+// Start 启动记忆流程。
 func (c *teamSyncCoordinator) Start() {
 	if c == nil {
 		return
@@ -110,6 +111,7 @@ func (c *teamSyncCoordinator) Start() {
 
 // EnqueueStart records a thread.Started event. Non-blocking: the only work
 // on the callback path is an O(1) slice append + non-blocking wake.
+// EnqueueStart 处理enqueue起点。
 func (c *teamSyncCoordinator) EnqueueStart(ev threaddto.Started) {
 	if c == nil {
 		return
@@ -124,6 +126,7 @@ func (c *teamSyncCoordinator) EnqueueStart(ev threaddto.Started) {
 // contract as EnqueueStart. StopSession semantics (final flush, last-session
 // watcher close) stay inside TeamSyncService — the coordinator only
 // dispatches events to it serially.
+// EnqueueStop 处理enqueuestop。
 func (c *teamSyncCoordinator) EnqueueStop(ev threaddto.Stopped) {
 	if c == nil {
 		return
@@ -154,6 +157,7 @@ func (c *teamSyncCoordinator) enqueue(op teamSyncOp) {
 // waits bounded by ctx for the worker to exit. Idempotent. Post-Stop
 // enqueue is silently dropped because the subscription is about to be
 // cancelled by RunnerModule shutdown anyway.
+// Stop 停止记忆流程。
 func (c *teamSyncCoordinator) Stop(ctx context.Context) error {
 	if c == nil {
 		return nil
@@ -182,7 +186,10 @@ func (c *teamSyncCoordinator) Stop(ctx context.Context) error {
 
 // EnqueuedTotal / ProcessedTotal expose the observability counters for
 // tests and future metric hookup (P22 observability lane).
-func (c *teamSyncCoordinator) EnqueuedTotal() int64  { return c.enqueuedTotal.Load() }
+// EnqueuedTotal 处理enqueuedtotal。
+func (c *teamSyncCoordinator) EnqueuedTotal() int64 { return c.enqueuedTotal.Load() }
+
+// ProcessedTotal 处理processedtotal。
 func (c *teamSyncCoordinator) ProcessedTotal() int64 { return c.processedTotal.Load() }
 
 func (c *teamSyncCoordinator) runWorker() {
@@ -219,6 +226,7 @@ func (c *teamSyncCoordinator) drainPending() {
 	}
 }
 
+// dispatch 派发记忆。
 func (c *teamSyncCoordinator) dispatch(op teamSyncOp) {
 	switch op.kind {
 	case teamSyncOpStart:

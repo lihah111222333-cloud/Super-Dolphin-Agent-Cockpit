@@ -23,6 +23,7 @@ func (s *session) keepaliveLogger() *slog.Logger {
 	return slog.Default()
 }
 
+// SendKeepalive 处理sendkeepalive。
 func (s *session) SendKeepalive(ctx context.Context) error {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err

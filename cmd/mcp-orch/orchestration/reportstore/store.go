@@ -25,6 +25,7 @@ type agentReportFileCandidate struct {
 	ModTime int64
 }
 
+// Persist 持久化编排。
 func Persist(record Record) error {
 	report := strings.TrimSpace(record.Report)
 	if report == "" || strings.TrimSpace(record.Cwd) == "" {
@@ -63,6 +64,7 @@ func Persist(record Record) error {
 	return nil
 }
 
+// ReadPersisted 读取persisted。
 func ReadPersisted(record Record) (string, error) {
 	report, err := readAgentReportFile(record)
 	if err == nil {

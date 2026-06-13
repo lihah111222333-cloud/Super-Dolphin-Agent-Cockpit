@@ -15,6 +15,7 @@ import (
 	"github.com/kelindar/event"
 )
 
+// NewService 创建服务。
 func NewService(
 	logger *slog.Logger,
 	threadStore threadstore.Store,
@@ -28,6 +29,7 @@ func NewService(
 	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
+// NewServiceWithPromptAssembly 创建带promptassembly的服务。
 func NewServiceWithPromptAssembly(
 	logger *slog.Logger,
 	threadStore threadstore.Store,
@@ -44,6 +46,7 @@ func NewServiceWithPromptAssembly(
 	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, nil, nil, nil, nil, nil, nil)
 }
 
+// NewServiceWithPromptAssemblyAndSharedFiles 创建带promptassemblyshared文件的服务。
 func NewServiceWithPromptAssemblyAndSharedFiles(
 	logger *slog.Logger,
 	threadStore threadstore.Store,
@@ -71,6 +74,7 @@ func NewServiceWithPromptAssemblyAndSharedFiles(
 	return newService(logger, threadStore, bindingStore, sharedFiles, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, mcpServers, promptStore, promptCatalog, matchWhenEval, enableWhenEval, tracing)
 }
 
+// newService 创建服务。
 func newService(
 	logger *slog.Logger,
 	threadStore threadstore.Store,

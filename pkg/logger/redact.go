@@ -26,6 +26,7 @@ var logSecretPatterns = []struct {
 	},
 }
 
+// sanitizeLogAttr 清理日志attr。
 func sanitizeLogAttr(attr slog.Attr) slog.Attr {
 	if attr.Equal(slog.Attr{}) {
 		return attr
@@ -59,6 +60,7 @@ func redactLogString(value string) string {
 	return value
 }
 
+// secretLikeLogKey 处理密钥like日志键。
 func secretLikeLogKey(key string) bool {
 	key = strings.ToLower(strings.TrimSpace(key))
 	normalized := strings.NewReplacer("-", "_", ".", "_", " ", "_").Replace(key)

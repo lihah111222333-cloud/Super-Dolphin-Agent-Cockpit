@@ -27,6 +27,7 @@ const (
 	terminalSuccessStatus = "done"
 )
 
+// CompleteNodeAndScheduleDownstream 完成节点计划downstream。
 func (s *store) CompleteNodeAndScheduleDownstream(ctx context.Context, input CompleteNodeInput) (*CompleteNodeWithDownstreamResult, error) {
 	if err := requireRuntimeRunID("complete_and_schedule_downstream", input.RunID); err != nil {
 		return nil, err
@@ -220,6 +221,7 @@ func dependsSatisfiedForUpstream(cand *Node, completedKey string, statusByKey ma
 //
 // F6.3 refactor: depends_on / status checks moved up to
 // dependsSatisfiedForUpstream so promote + enqueue share a single decision.
+// tryEnqueueDownstream 处理tryenqueuedownstream。
 func tryEnqueueDownstream(
 	ctx context.Context,
 	txStore *store,

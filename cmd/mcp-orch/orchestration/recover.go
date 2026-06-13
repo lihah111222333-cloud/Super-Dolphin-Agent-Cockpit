@@ -27,6 +27,7 @@ type StallDetector struct {
 	logger    *slog.Logger
 }
 
+// CheckStall 处理checkstall。
 func (d *StallDetector) CheckStall(agent *agentRuntime) bool {
 	if agent.state != agentdto.StateTurnRunning {
 		return false
@@ -40,6 +41,7 @@ func (d *StallDetector) CheckStall(agent *agentRuntime) bool {
 
 // Recover restarts the agent process and replays persisted DAG-backed work when
 // the stored wakeup is still fenced to the same active turn.
+// Recover 恢复编排。
 func (s *service) Recover(ctx context.Context, agentID string) error {
 	return s.recoverWithReason(ctx, agentID, recoverReasonManual)
 }
@@ -70,6 +72,7 @@ func (s *service) recoverLocalWithReason(ctx context.Context, agentID, reason st
 	})
 }
 
+// recoverAgent 恢复代理。
 func recoverAgent(ctx context.Context, s *service, agent *agentRuntime) (bool, error) {
 	activeTurnID := strings.TrimSpace(agent.activeTurnID)
 	replay, shouldReplay, err := loadRecoveredTurnSubmission(ctx, s, agent)
@@ -136,6 +139,7 @@ func loadRecoveredTurnSubmission(ctx context.Context, s *service, agent *agentRu
 	return submission, true, nil
 }
 
+// findReplayWakeup 查找replaywakeup。
 func findReplayWakeup(ctx context.Context, s *service, agent *agentRuntime, activeTurnID string) (*taskdag.Wakeup, error) {
 	nodes, err := s.recoveryStore.ListRunningNodesByAssignee(ctx, agent.id)
 	if err != nil {
@@ -190,6 +194,7 @@ func validateRecoveryContext(s *service, agent *agentRuntime) (string, bool) {
 	return activeTurnID, true
 }
 
+// wakeupEligibleForReplay 为replay处理wakeupeligible。
 func wakeupEligibleForReplay(agent *agentRuntime, activeTurnID string, wakeup *taskdag.Wakeup) bool {
 	if wakeup == nil || strings.TrimSpace(wakeup.Status) != "sent" {
 		return false
@@ -325,6 +330,7 @@ func (s *service) commitLauncherRecoveryFailure(ctx context.Context, attempt lau
 	return err
 }
 
+// commitLauncherRecoverySuccess 处理commit启动器recoverysuccess。
 func (s *service) commitLauncherRecoverySuccess(ctx context.Context, attempt launcherRecoveryAttempt, result LaunchResult) error {
 	s.mu.Lock()
 	agent, err := lookupAgentBySeqLocked(s.agents, attempt.agentID, attempt.expectedSeq)

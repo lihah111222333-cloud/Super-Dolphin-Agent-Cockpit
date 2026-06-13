@@ -10,6 +10,7 @@ import (
 )
 
 // runThreadStoppedDAGFallback advances the DAG fallback outside the agent lock.
+// runThreadStoppedDAGFallback 运行线程stoppedDAG兜底。
 func (c *hookConsumer) runThreadStoppedDAGFallback(ctx context.Context, threadID string) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -70,6 +71,7 @@ func (c *hookConsumer) invokeThreadStoppedFallbackLifecycleHook(ctx context.Cont
 	}
 }
 
+// failedNodeForLifecycle 为生命周期处理failed节点。
 func failedNodeForLifecycle(original taskdag.Node, result *taskdag.FailNodeResult) *taskdag.Node {
 	node := original
 	if result != nil && result.Node != nil {

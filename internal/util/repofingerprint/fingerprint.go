@@ -10,6 +10,7 @@ import (
 
 var valid128 = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
+// Compute 计算工具。
 func Compute(cwd string) (string, error) {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
@@ -27,6 +28,7 @@ func Compute(cwd string) (string, error) {
 	return hex.EncodeToString(sum[:])[:32], nil
 }
 
+// MustCompute 处理mustcompute。
 func MustCompute(cwd string) string {
 	fp, err := Compute(cwd)
 	if err != nil {
@@ -35,6 +37,7 @@ func MustCompute(cwd string) string {
 	return fp
 }
 
+// IsValid 判断valid是否可用。
 func IsValid(fp string) bool {
 	return valid128.MatchString(strings.TrimSpace(fp))
 }

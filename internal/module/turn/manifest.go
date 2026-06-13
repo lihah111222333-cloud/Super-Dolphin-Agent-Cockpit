@@ -22,6 +22,7 @@ func newManifestBuilder(binaryDir string, buildFn contract.ManifestBuildFunc) *m
 	}
 }
 
+// Build 构建turn。
 func (b *manifestBuilder) Build(input PrepareInput, threadID string) dto.MCPManifest {
 	peerAddrs, peerTokens := discoverPeers()
 	return b.buildFn(dto.ManifestContext{
@@ -83,6 +84,7 @@ func cloneMCPServerHeaders(headers map[string]string) map[string]string {
 }
 
 // discoverPeers probes for running peer HTTP endpoints. Returns nil maps if none.
+// discoverPeers 处理discoverpeers。
 func discoverPeers() (map[dto.ToolFamily]string, map[dto.ToolFamily]string) {
 	token := bootstrap.SessionTokenFromEnv()
 	addrs := make(map[dto.ToolFamily]string)

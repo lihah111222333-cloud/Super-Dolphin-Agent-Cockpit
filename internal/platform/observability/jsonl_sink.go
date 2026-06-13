@@ -35,6 +35,7 @@ type JSONLSink struct {
 	stats     SinkStats
 }
 
+// NewJSONLSink 创建JSONLsink。
 func NewJSONLSink(project string, cfg Config) (*JSONLSink, error) {
 	dir, err := TraceDirectory(project)
 	if err != nil {
@@ -43,6 +44,7 @@ func NewJSONLSink(project string, cfg Config) (*JSONLSink, error) {
 	return NewJSONLSinkInDir(dir, cfg)
 }
 
+// NewJSONLSinkInDir 在目录创建JSONLsink。
 func NewJSONLSinkInDir(dir string, cfg Config) (*JSONLSink, error) {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
@@ -54,6 +56,7 @@ func NewJSONLSinkInDir(dir string, cfg Config) (*JSONLSink, error) {
 	return &JSONLSink{cfg: cfg, sanitizer: NewSanitizer(cfg), now: time.Now, dir: dir}, nil
 }
 
+// TraceDirectory 处理tracedirectory。
 func TraceDirectory(project string) (string, error) {
 	project = strings.TrimSpace(project)
 	if project == "" {
@@ -72,6 +75,7 @@ func TraceDirectory(project string) (string, error) {
 	return filepath.Join(home, ".multi-agent", "log", project, "traces"), nil
 }
 
+// Append 追加平台observability。
 func (s *JSONLSink) Append(ctx context.Context, event TraceEvent) error {
 	if ctx == nil {
 		return errors.New("observability trace append context is nil")
@@ -105,18 +109,21 @@ func (s *JSONLSink) Append(ctx context.Context, event TraceEvent) error {
 	return nil
 }
 
+// Close 关闭平台observability资源。
 func (s *JSONLSink) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.closeLocked()
 }
 
+// Stats 处理stats。
 func (s *JSONLSink) Stats() SinkStats {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.stats
 }
 
+// ApplyRetention 应用retention。
 func (s *JSONLSink) ApplyRetention(now time.Time) error {
 	return ApplyTraceRetention(s.dir, s.cfg, now)
 }
@@ -127,6 +134,7 @@ func (s *JSONLSink) recordWriteError() {
 	s.stats.WriteErrors++
 }
 
+// rotateLocked 处理rotatelocked。
 func (s *JSONLSink) rotateLocked(nextWriteBytes int64) error {
 	now := s.now()
 	date := now.Format("2006-01-02")
@@ -216,6 +224,7 @@ func chmodOwnerOnly(path string, perm os.FileMode) error {
 	return nil
 }
 
+// ApplyTraceRetention 应用traceretention。
 func ApplyTraceRetention(dir string, cfg Config, now time.Time) error {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {

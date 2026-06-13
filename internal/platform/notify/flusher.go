@@ -42,6 +42,7 @@ var _ contract.Runner = (*Flusher)(nil)
 // NewFlusher wires a Flusher with the notifier's queue + resolver and a
 // pre-built webhook client. drainTimeout <= 0 falls back to the plan
 // default.
+// NewFlusher 创建flusher。
 func NewFlusher(logger *slog.Logger, notifier *Notifier, client *WebhookClient, drainTimeout time.Duration) *Flusher {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -79,6 +80,7 @@ func NewFlusher(logger *slog.Logger, notifier *Notifier, client *WebhookClient, 
 // drain — which runs the POST with a fresh background context so
 // the in-flight work isn't aborted by the same signal that triggered
 // shutdown.
+// Run 启动平台notify后台流程。
 func (f *Flusher) Run(ctx context.Context) error {
 	if f == nil || f.queue == nil {
 		// Nothing to drain; sit on ctx so the run.Group keeps the
@@ -120,6 +122,7 @@ loop:
 // after ctx cancel. Exits as soon as the queue is empty OR the
 // drainTimeout fires; does not wait for new enqueues because bus
 // subscribers should already be shutting down alongside Run.
+// drain 处理drain。
 func (f *Flusher) drain() {
 	if f.drainTimeout <= 0 {
 		return
@@ -151,6 +154,7 @@ func (f *Flusher) drain() {
 
 // handle is the single-request path. All failures end here — we log,
 // bump a counter, and move on.
+// handle 处理平台notify。
 func (f *Flusher) handle(ctx context.Context, req contract.NotifyRequest) {
 	f.sent.Add(1)
 	if f.resolver == nil {
@@ -221,6 +225,7 @@ type Metrics struct {
 }
 
 // Metrics returns the current counter values.
+// Metrics 处理指标。
 func (f *Flusher) Metrics() Metrics {
 	if f == nil {
 		return Metrics{}

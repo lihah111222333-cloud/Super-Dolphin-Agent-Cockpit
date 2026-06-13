@@ -29,6 +29,7 @@ func parseBoolEnv(key string, fallback bool) bool {
 	}
 }
 
+// normalizeStringSlice 规范化stringslice。
 func normalizeStringSlice(values []string) []string {
 	if len(values) == 0 {
 		return nil
@@ -65,6 +66,7 @@ func parseScalar(raw string) string {
 	return strings.Trim(strings.TrimSpace(raw), "\"'")
 }
 
+// parseStringList 解析stringlist。
 func parseStringList(raw string) []string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

@@ -39,6 +39,7 @@ type preparedConsolidation struct {
 	locks          *diskLockCoordinator
 }
 
+// Consolidate 处理consolidate。
 func (c *AutoDreamConsolidator) Consolidate(ctx context.Context, memoryRoot string, extractFn ExtractFunc) error {
 	cfg, err := c.consolidationConfig(memoryRoot, nil)
 	if err != nil {
@@ -57,6 +58,7 @@ func (c *AutoDreamConsolidator) consolidationConfig(path string, cfg *Config) (*
 	return nil, rejectConsolidationPath(nil, path)
 }
 
+// consolidateWithOptions 处理带选项的consolidate。
 func (c *AutoDreamConsolidator) consolidateWithOptions(
 	ctx context.Context,
 	memoryRoot string,
@@ -111,6 +113,7 @@ func refreshConsolidationWithoutExtract(root string, now func() time.Time, locks
 	})
 }
 
+// prepareConsolidation 准备consolidation。
 func (c *AutoDreamConsolidator) prepareConsolidation(
 	ctx context.Context,
 	memoryRoot string,
@@ -148,6 +151,7 @@ func (c *AutoDreamConsolidator) prepareConsolidation(
 	return preparedConsolidation{root: root, cfg: opts.cfg, now: now, extractFn: extractFn, guard: guard, runtimeContext: opts.runtimeContext, locks: c.locks}, nil
 }
 
+// runConsolidationExtract 运行consolidationextract。
 func (c *AutoDreamConsolidator) runConsolidationExtract(
 	ctx context.Context,
 	run preparedConsolidation,
@@ -240,6 +244,7 @@ func newAutoDreamScheduler(hooks *MemoryLifecycleHooks, logger *slog.Logger) *au
 	}
 }
 
+// Start 启动记忆流程。
 func (s *autoDreamScheduler) Start() {
 	if s == nil {
 		return
@@ -260,6 +265,7 @@ func (s *autoDreamScheduler) Start() {
 	})
 }
 
+// Enqueue 把项目追加到队尾。
 func (s *autoDreamScheduler) Enqueue(threadID string) {
 	if s == nil {
 		return
@@ -285,6 +291,7 @@ func (s *autoDreamScheduler) Enqueue(threadID string) {
 	}
 }
 
+// Stop 停止记忆流程。
 func (s *autoDreamScheduler) Stop(ctx context.Context) error {
 	if s == nil {
 		return nil
@@ -312,8 +319,13 @@ func (s *autoDreamScheduler) Stop(ctx context.Context) error {
 	return firstErr
 }
 
-func (s *autoDreamScheduler) DroppedTotal() int64   { return s.droppedTotal.Load() }
+// DroppedTotal 处理droppedtotal。
+func (s *autoDreamScheduler) DroppedTotal() int64 { return s.droppedTotal.Load() }
+
+// ProcessedTotal 处理processedtotal。
 func (s *autoDreamScheduler) ProcessedTotal() int64 { return s.processedTotal.Load() }
+
+// ScheduledTotal 处理scheduledtotal。
 func (s *autoDreamScheduler) ScheduledTotal() int64 { return s.scheduledTotal.Load() }
 
 func (s *autoDreamScheduler) runWorker() {
@@ -328,6 +340,7 @@ func (s *autoDreamScheduler) runWorker() {
 	}
 }
 
+// process 处理进程。
 func (s *autoDreamScheduler) process(threadID string) {
 	if strings.TrimSpace(threadID) == "" {
 		return

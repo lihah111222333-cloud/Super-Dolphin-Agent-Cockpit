@@ -95,6 +95,7 @@ type replaceUpdateDecision struct {
 // window and (only for relaxed match modes) a verification nudge. The
 // raw replaced/replacement bodies stay in structuredContent for any
 // diff-aware UI but no longer bloat the LLM-facing channel.
+// ToPlainText 渲染为纯文本。
 func (r replaceRangeResult) ToPlainText() string {
 	base := r.editEnvelope.ToPlainText()
 	if !strings.EqualFold(strings.TrimSpace(r.Status), "applied") {
@@ -115,6 +116,7 @@ func (r replaceRangeResult) ToPlainText() string {
 	return strings.TrimSpace(sb.String()) + "\n\nEdit context:\n" + context
 }
 
+// ToPlainText 渲染为纯文本。
 func (r replaceRangeFailure) ToPlainText() string {
 	var sb strings.Builder
 	header := "Tool error in \"edit\""
@@ -162,6 +164,7 @@ func appendFailureNextStep(sb *strings.Builder, r replaceRangeFailure) {
 	fmt.Fprintf(sb, "next: file action=read_file pos=%s\n", r.FilePath)
 }
 
+// handleReplaceRange 处理replace范围。
 func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (any, error) {
 	log := newEditStageLogger("replace_range", req.FilePath)
 	stage := log.Started("workspace_roots")
@@ -408,6 +411,7 @@ func buildPatchReplacePlan(content string, patch string) (replacePlan, error) {
 	return buildHunksReplacePlan(content, hunks)
 }
 
+// buildHunksReplacePlan 构建hunksreplaceplan。
 func buildHunksReplacePlan(content string, hunks []editpkg.Hunk) (replacePlan, error) {
 	matches, err := editpkg.MatchContext(content, hunks)
 	if err != nil {

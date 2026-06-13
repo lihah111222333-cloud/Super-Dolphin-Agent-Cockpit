@@ -49,16 +49,19 @@ type fileRegistryConfig struct {
 	logger *slog.Logger
 }
 
+// WithLogger 设置日志器。
 func WithLogger(logger *slog.Logger) FileRegistryOption {
 	return func(cfg *fileRegistryConfig) {
 		cfg.logger = logger
 	}
 }
 
+// NewDefaultRegistry 创建default注册表。
 func NewDefaultRegistry(opts ...FileRegistryOption) (*FileRegistry, error) {
 	return NewFileRegistry(DefaultRegistryPath(), opts...)
 }
 
+// NewFileRegistry 创建文件注册表。
 func NewFileRegistry(path string, opts ...FileRegistryOption) (*FileRegistry, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -78,10 +81,12 @@ func NewFileRegistry(path string, opts ...FileRegistryOption) (*FileRegistry, er
 	return registry, nil
 }
 
+// NewStaticRegistry 创建static注册表。
 func NewStaticRegistry(providers []ProviderModels) StaticRegistry {
 	return StaticRegistry{providers: cloneProviders(providers)}
 }
 
+// ListProviders 列出providers。
 func (r *FileRegistry) ListProviders() ([]ProviderModels, error) {
 	if err := r.Reload(); err != nil {
 		return nil, err
@@ -89,6 +94,7 @@ func (r *FileRegistry) ListProviders() ([]ProviderModels, error) {
 	return r.snapshot(), nil
 }
 
+// LookupProvider 按 provider 名称查找模型配置。
 func (r *FileRegistry) LookupProvider(name string) (ProviderModels, bool, error) {
 	if err := r.Reload(); err != nil {
 		return ProviderModels{}, false, err
@@ -97,10 +103,12 @@ func (r *FileRegistry) LookupProvider(name string) (ProviderModels, bool, error)
 	return provider, ok, nil
 }
 
+// Path 处理路径。
 func (r *FileRegistry) Path() string {
 	return r.path
 }
 
+// Reload 重新加载注册表配置。
 func (r *FileRegistry) Reload() error {
 	providers, err := loadFile(r.path)
 	if err != nil {
@@ -118,15 +126,18 @@ func (r *FileRegistry) snapshot() []ProviderModels {
 	return cloneProviders(r.providers)
 }
 
+// ListProviders 列出providers。
 func (r StaticRegistry) ListProviders() ([]ProviderModels, error) {
 	return cloneProviders(r.providers), nil
 }
 
+// LookupProvider 按 provider 名称查找模型配置。
 func (r StaticRegistry) LookupProvider(name string) (ProviderModels, bool, error) {
 	provider, ok := lookupProvider(r.providers, name)
 	return provider, ok, nil
 }
 
+// DefaultRegistryPath 返回默认注册表路径。
 func DefaultRegistryPath() string {
 	if path := strings.TrimSpace(os.Getenv(EnvRegistryPath)); path != "" {
 		return path
@@ -159,6 +170,7 @@ func parse(raw []byte) ([]ProviderModels, error) {
 	return cloneProviders(cfg.Providers), nil
 }
 
+// validateProviders 校验providers。
 func validateProviders(providers []ProviderModels) error {
 	if len(providers) == 0 {
 		return fmt.Errorf("model registry has no providers")

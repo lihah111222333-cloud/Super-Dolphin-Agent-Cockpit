@@ -32,6 +32,7 @@ var staticSectionSpecs = []staticSectionSpec{
 	{name: SectionOutputEfficiency, order: 70, resolve: resolveOutputEfficiencySection},
 }
 
+// StaticSections 处理staticsections。
 func StaticSections() []PromptSection {
 	sections := make([]PromptSection, 0, len(staticSectionSpecs))
 	for _, spec := range staticSectionSpecs {
@@ -284,6 +285,7 @@ func clientTagsOrDefault(clientTags json.RawMessage, existing json.RawMessage) j
 	return json.RawMessage("[]")
 }
 
+// mergeClientTagsWithExistingInternalTags 合并带existinginternaltags的客户端tags。
 func mergeClientTagsWithExistingInternalTags(clientTags json.RawMessage, existing json.RawMessage) json.RawMessage {
 	tags := promptTags(clientTags)
 	seen := make(map[string]struct{}, len(tags))

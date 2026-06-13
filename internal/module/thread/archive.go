@@ -9,6 +9,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// Archive 归档线程。
 func (s *service) Archive(ctx context.Context, threadID string) error {
 	ctx = util.NonNilContext(ctx)
 	caller := archiveCallerStack()
@@ -55,6 +56,7 @@ func (s *service) Archive(ctx context.Context, threadID string) error {
 	return nil
 }
 
+// archivePendingLaunchThread 归档待处理启动线程。
 func (s *service) archivePendingLaunchThread(ctx context.Context, threadID string, caller string) (bool, error) {
 	if s == nil || s.threadStore == nil {
 		return false, nil
@@ -85,6 +87,7 @@ func (s *service) archivePendingLaunchThread(ctx context.Context, threadID strin
 	return true, nil
 }
 
+// Unarchive 处理unarchive。
 func (s *service) Unarchive(ctx context.Context, threadID string) error {
 	caller := archiveCallerStack()
 	pkglogger.Info("thread: Unarchive() ENTERED",
@@ -117,6 +120,7 @@ func (s *service) Unarchive(ctx context.Context, threadID string) error {
 
 // archiveCallerStack returns a compact caller stack for debugging
 // which code path triggered Archive/Unarchive.
+// archiveCallerStack 归档callerstack。
 func archiveCallerStack() string {
 	var pcs [8]uintptr
 	n := runtime.Callers(3, pcs[:])

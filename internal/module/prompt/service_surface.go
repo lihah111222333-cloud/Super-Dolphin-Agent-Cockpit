@@ -109,6 +109,7 @@ type promptOptionalRawMessage struct {
 	Set bool
 }
 
+// UnmarshalJSON 解码JSON。
 func (m *promptOptionalRawMessage) UnmarshalJSON(data []byte) error {
 	m.Set = true
 	if strings.TrimSpace(string(data)) == "null" {
@@ -194,6 +195,7 @@ var promptRecallTopicPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 var _ contract.PromptAssemblyService = (*service)(nil)
 var _ PromptService = (*promptService)(nil)
 
+// NewService 创建服务。
 func NewService(cfg *Config, logger *slog.Logger, opts ...ServiceOption) Service {
 	if cfg == nil {
 		cfg = &Config{}
@@ -242,6 +244,7 @@ func newPromptServiceWithBuiltin(
 	return &promptService{store: store, sections: sectionInvalidator, builtin: builtin}
 }
 
+// buildPromptHandlersWithService 构建带服务的prompt处理器。
 func buildPromptHandlersWithService(promptSvc PromptService, deps ...any) platformrpc.HandlerMapResult {
 	var promptStore promptstore.Store
 	var sectionInvalidator contract.SectionInvalidator
@@ -325,6 +328,7 @@ func handlePromptWrite(ctx context.Context, promptSvc PromptService, p promptWri
 	return map[string]any{"prompt": promptItemFromTemplate(*template)}, nil
 }
 
+// promptWriteRequestFromParams 从params处理promptwrite请求。
 func promptWriteRequestFromParams(p promptWriteParams) PromptWriteRequest {
 	content := ""
 	contentSet := false
@@ -529,6 +533,7 @@ func promptSectionsContentPreview(sections []promptstore.PromptTemplateSection) 
 	return promptSectionsContent(sections, promptListContentPreviewMaxRunes)
 }
 
+// promptSectionsContent 处理promptsections内容。
 func promptSectionsContent(sections []promptstore.PromptTemplateSection, maxRunes int) string {
 	if len(sections) == 0 {
 		return ""
@@ -559,6 +564,7 @@ func promptEditableSectionsContent(template promptstore.PromptTemplate, sections
 	return promptSectionsContent(sections, 0)
 }
 
+// promptRecallSectionsContent 处理promptrecallsections内容。
 func promptRecallSectionsContent(sections []promptstore.PromptTemplateSection) string {
 	if len(sections) == 0 {
 		return ""
@@ -635,6 +641,7 @@ func truncatePromptListContentPreview(text string) string {
 }
 
 // filterVisibleTags strips internal scope tags, returning only user-visible tags.
+// filterVisibleTags 处理过滤条件visibletags。
 func filterVisibleTags(raw json.RawMessage) json.RawMessage {
 	tags := promptTags(raw)
 	visible := make([]string, 0, len(tags))
@@ -653,14 +660,17 @@ func filterVisibleTags(raw json.RawMessage) json.RawMessage {
 	return json.RawMessage(encoded)
 }
 
+// AsPromptRegistry 把prompt处理为prompt注册表。
 func AsPromptRegistry(svc Service) PromptRegistry {
 	return svc
 }
 
+// AsPromptAssemblyService 把prompt处理为promptassembly服务。
 func AsPromptAssemblyService(svc Service) contract.PromptAssemblyService {
 	return svc
 }
 
+// AsDynamicSectionRegistrar 把prompt处理为dynamicsectionregistrar。
 func AsDynamicSectionRegistrar(svc Service) contract.DynamicSectionRegistrar {
 	return svc
 }

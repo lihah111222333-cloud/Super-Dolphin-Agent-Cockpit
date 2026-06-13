@@ -30,6 +30,7 @@ type NotificationHandler interface {
 	LogMessage(LogMessageParams) error
 }
 
+// String 返回字符串表示。
 func (t LogMessageType) String() string {
 	switch t {
 	case LogMessageError:
@@ -45,6 +46,7 @@ func (t LogMessageType) String() string {
 	}
 }
 
+// DispatchNotification 派发notification。
 func DispatchNotification(payload []byte, handler NotificationHandler) error {
 	if handler == nil {
 		return ErrNotificationHandlerNil

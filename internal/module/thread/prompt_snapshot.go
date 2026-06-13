@@ -15,6 +15,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
+// ensureStartAssemblySnapshot 把 start 提示整理成可保存的 snapshot。
+// start、fallback、resume rebuild 都走这里，避免 provider 和 thread store 各拿一份。
 func ensureStartAssemblySnapshot(assembly contract.StartAssembly, provider string) contract.StartAssembly {
 	assembly.DisplayName = normalizeStartDisplayName(strings.TrimSpace(assembly.DisplayName))
 	assembly.BaseInstructions = strings.TrimSpace(assembly.BaseInstructions)
@@ -118,6 +120,7 @@ func fromStoredPromptBoundary(boundary *threadstore.PromptBoundary) *dto.PromptA
 	})
 }
 
+// promptSnapshotSectionMap 把 prompt section 列表整理成按名称索引的 map。
 func promptSnapshotSectionMap(sections []contract.ResolvedPromptSection) map[string]string {
 	if len(sections) == 0 {
 		return nil
@@ -136,6 +139,7 @@ func promptSnapshotSectionMap(sections []contract.ResolvedPromptSection) map[str
 	return out
 }
 
+// clonePromptSectionMap 复制 prompt section map，避免调用方修改缓存。
 func clonePromptSectionMap(src map[string]string) map[string]string {
 	if len(src) == 0 {
 		return nil
@@ -173,6 +177,8 @@ func promptSnapshotHash(
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// savePromptSnapshot 保存 thread/start 生成的 prompt snapshot。
+// snapshot 为空或 thread_id/store 缺失就报错，否则后续 resume/fork 没法稳定恢复。
 func (s *service) savePromptSnapshot(ctx context.Context, threadID string, assembly contract.StartAssembly) error {
 	threadID = strings.TrimSpace(threadID)
 	if s == nil {
@@ -205,6 +211,8 @@ func toStoredPromptSnapshot(snapshot contract.PromptAssemblySnapshot) threadstor
 	}
 }
 
+// resolveStablePromptSnapshot 给 fork/recover 找一份可信的旧 start 提示。
+// version、provider、hash 对不上就不要复用，避免把旧格式继续交给 provider。
 func (s *service) resolveStablePromptSnapshot(
 	ctx context.Context,
 	threadID string,
@@ -225,6 +233,8 @@ func (s *service) resolveStablePromptSnapshot(
 	return normalizeCallerPromptSnapshot(fallback, provider), nil
 }
 
+// resolveResumePromptSnapshot 决定 resume 用哪份 prompt snapshot。
+// 先用已保存的，再看调用方传入的，最后才按旧 thread 身份重建；这里不重新选 prompt。
 func (s *service) resolveResumePromptSnapshot(
 	ctx context.Context,
 	req ResumeRequest,
@@ -247,6 +257,8 @@ func (s *service) resolveResumePromptSnapshot(
 	return rebuilt, nil
 }
 
+// rebuildResumePromptSnapshot 只给缺 snapshot 的旧线程补一次。
+// 子 agent 的 parent/type/memory scope 缺了就报错，不生成近似 prompt。
 func (s *service) rebuildResumePromptSnapshot(
 	ctx context.Context,
 	state resumeState,
@@ -291,6 +303,8 @@ func (s *service) rebuildResumePromptSnapshot(
 	return snapshot, nil
 }
 
+// resumePromptSnapshotRequired 判断 resume 是否必须重建 snapshot。
+// 子 agent 的 memory scope 会影响 prompt；身份字段不全时不能继续。
 func resumePromptSnapshotRequired(state resumeState) (bool, error) {
 	parent := strings.TrimSpace(state.ParentAgentID)
 	agentType := strings.TrimSpace(state.AgentType)
@@ -332,6 +346,7 @@ func (s *service) preferredStoredPromptSnapshot(
 	return contract.PromptAssemblySnapshot{}, false, nil
 }
 
+// loadStoredPromptSnapshot 读取已保存的 prompt 快照。
 func (s *service) loadStoredPromptSnapshot(ctx context.Context, threadID string) (contract.PromptAssemblySnapshot, error) {
 	threadID = strings.TrimSpace(threadID)
 	if s == nil {
@@ -367,6 +382,7 @@ func fromStoredPromptSnapshot(snapshot *threadstore.PromptSnapshot) contract.Pro
 	}
 }
 
+// storedPromptSnapshotValid 判断存储中的 prompt 快照是否仍可复用。
 func storedPromptSnapshotValid(snapshot contract.PromptAssemblySnapshot, provider string) bool {
 	snapshot = normalizePromptSnapshotContent(snapshot)
 	if promptSnapshotBlank(snapshot) || snapshot.Version == 0 || snapshot.Provider == "" || snapshot.Hash == "" {
@@ -407,6 +423,7 @@ func normalizeCallerPromptSnapshot(snapshot contract.PromptAssemblySnapshot, pro
 	return snapshot
 }
 
+// promptSnapshotBlank 判断 prompt 快照是否为空。
 func promptSnapshotBlank(snapshot contract.PromptAssemblySnapshot) bool {
 	snapshot = normalizePromptSnapshotContent(snapshot)
 	return snapshot.DisplayName == "" &&

@@ -9,6 +9,7 @@ import (
 )
 
 // Init raises the open-file descriptor limit. Call it early in main().
+// Init 处理init。
 func Init() {
 	raiseLimit()
 }
@@ -41,6 +42,7 @@ func raiseLimit() {
 	applyFallbackLimit(rLimit, before)
 }
 
+// applyFallbackLimit 应用兜底limit。
 func applyFallbackLimit(rLimit syscall.Rlimit, oldLimit uint64) {
 	for _, fallback := range []uint64{250000, 65535, 10240, 4096} {
 		if rLimit.Max >= fallback && oldLimit < fallback {

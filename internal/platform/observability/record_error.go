@@ -14,6 +14,7 @@ const traceRecordErrorWarnInterval = time.Minute
 var traceRecordErrorWarnings sync.Map
 
 // WarnRecordError reports tracing write failures without failing the caller path.
+// WarnRecordError 处理warn记录错误。
 func WarnRecordError(logger *slog.Logger, scope string, event TraceEvent, err error) {
 	if err == nil {
 		return
@@ -34,6 +35,7 @@ func WarnRecordError(logger *slog.Logger, scope string, event TraceEvent, err er
 	)
 }
 
+// allowTraceRecordErrorWarning 判断trace记录错误warning是否可用。
 func allowTraceRecordErrorWarning(scope string, now time.Time) bool {
 	if scope == "" {
 		scope = "unknown"

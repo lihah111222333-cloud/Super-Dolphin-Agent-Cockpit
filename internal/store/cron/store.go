@@ -41,6 +41,7 @@ type querier interface {
 type store struct{ q querier }
 
 // NewStore returns the production Store backed by the sqlc queries.
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
 // ----- validation helpers -----
@@ -87,6 +88,7 @@ func bytesOrDefault(b []byte, def string) []byte {
 
 // ----- jobs -----
 
+// CreateJob 创建任务。
 func (s *store) CreateJob(ctx context.Context, p CreateJobParams) (Job, error) {
 	if _, err := requireID(p.ID); err != nil {
 		return Job{}, wrap(err, "create_job")
@@ -129,6 +131,7 @@ func (s *store) CreateJob(ctx context.Context, p CreateJobParams) (Job, error) {
 	return fromCronJob(row), nil
 }
 
+// GetJobByID 按ID读取任务。
 func (s *store) GetJobByID(ctx context.Context, id string) (Job, error) {
 	id, err := requireID(id)
 	if err != nil {
@@ -144,6 +147,7 @@ func (s *store) GetJobByID(ctx context.Context, id string) (Job, error) {
 	return fromCronJob(row), nil
 }
 
+// ListJobs 列出任务。
 func (s *store) ListJobs(ctx context.Context) ([]Job, error) {
 	rows, err := s.q.ListCronJobs(ctx)
 	if err != nil {
@@ -156,6 +160,7 @@ func (s *store) ListJobs(ctx context.Context) ([]Job, error) {
 	return out, nil
 }
 
+// DeleteJob 删除任务。
 func (s *store) DeleteJob(ctx context.Context, id string) error {
 	id, err := requireID(id)
 	if err != nil {
@@ -164,6 +169,7 @@ func (s *store) DeleteJob(ctx context.Context, id string) error {
 	return wrap(s.q.DeleteCronJob(ctx, sqlc.DeleteCronJobParams{ID: id}), "delete_job")
 }
 
+// UpdateJobSchedule 更新任务计划。
 func (s *store) UpdateJobSchedule(ctx context.Context, p UpdateJobScheduleParams) error {
 	if _, err := requireID(p.ID); err != nil {
 		return wrap(err, "update_job_schedule")
@@ -197,6 +203,7 @@ func (s *store) UpdateJobSchedule(ctx context.Context, p UpdateJobScheduleParams
 	}), "update_job_schedule")
 }
 
+// SetJobEnabled 设置任务enabled。
 func (s *store) SetJobEnabled(ctx context.Context, id string, enabled bool, now time.Time) error {
 	id, err := requireID(id)
 	if err != nil {
@@ -209,6 +216,7 @@ func (s *store) SetJobEnabled(ctx context.Context, id string, enabled bool, now 
 	}), "set_job_enabled")
 }
 
+// PatchNextRunAt 处理补丁next运行记录at。
 func (s *store) PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Time, now time.Time) error {
 	id, err := requireID(id)
 	if err != nil {
@@ -223,6 +231,7 @@ func (s *store) PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Ti
 
 // ----- claim / lease -----
 
+// ClaimDueJobsForUpdate 领取到期的更新任务。
 func (s *store) ClaimDueJobsForUpdate(ctx context.Context, p ClaimDueJobsForUpdateParams) ([]Job, error) {
 	if strings.TrimSpace(p.ClaimToken) == "" {
 		return nil, wrap(ErrEmptyClaimToken, "claim_due_jobs")
@@ -251,6 +260,7 @@ func (s *store) ClaimDueJobsForUpdate(ctx context.Context, p ClaimDueJobsForUpda
 	return out, nil
 }
 
+// RenewLease 处理renew租约。
 func (s *store) RenewLease(ctx context.Context, p LeaseParams) error {
 	id, token, err := requireClaim(p.ID, p.ClaimToken)
 	if err != nil {
@@ -271,6 +281,7 @@ func (s *store) RenewLease(ctx context.Context, p LeaseParams) error {
 	return nil
 }
 
+// ExtendClaim 延长当前任务领取租约。
 func (s *store) ExtendClaim(ctx context.Context, p LeaseParams) error {
 	id, token, err := requireClaim(p.ID, p.ClaimToken)
 	if err != nil {
@@ -295,6 +306,7 @@ func (s *store) ExtendClaim(ctx context.Context, p LeaseParams) error {
 	return nil
 }
 
+// ReleaseClaim 释放当前任务领取租约。
 func (s *store) ReleaseClaim(ctx context.Context, id, claimToken string, now time.Time) error {
 	id, token, err := requireClaim(id, claimToken)
 	if err != nil {
@@ -314,6 +326,7 @@ func (s *store) ReleaseClaim(ctx context.Context, id, claimToken string, now tim
 	return nil
 }
 
+// MarkFinished 标记finished。
 func (s *store) MarkFinished(ctx context.Context, p MarkFinishedParams) error {
 	id, token, err := requireClaim(p.ID, p.ClaimToken)
 	if err != nil {
@@ -336,6 +349,7 @@ func (s *store) MarkFinished(ctx context.Context, p MarkFinishedParams) error {
 	return nil
 }
 
+// MarkFailed 标记任务失败。
 func (s *store) MarkFailed(ctx context.Context, p MarkFailedParams) error {
 	id, token, err := requireClaim(p.ID, p.ClaimToken)
 	if err != nil {
@@ -365,6 +379,7 @@ func (s *store) MarkFailed(ctx context.Context, p MarkFailedParams) error {
 	return nil
 }
 
+// SetActiveTurn 设置activeturn。
 func (s *store) SetActiveTurn(ctx context.Context, p SetActiveTurnParams) error {
 	id, token, err := requireClaim(p.ID, p.ClaimToken)
 	if err != nil {
@@ -389,6 +404,7 @@ func (s *store) SetActiveTurn(ctx context.Context, p SetActiveTurnParams) error 
 
 // ----- runs -----
 
+// InsertRun 插入运行记录。
 func (s *store) InsertRun(ctx context.Context, p InsertRunParams) (Run, error) {
 	if _, err := requireID(p.ID); err != nil {
 		return Run{}, wrap(err, "insert_run")
@@ -416,6 +432,7 @@ func (s *store) InsertRun(ctx context.Context, p InsertRunParams) (Run, error) {
 	return fromCronJobRun(row), nil
 }
 
+// CASRunStatus 处理cas运行记录状态。
 func (s *store) CASRunStatus(ctx context.Context, p CASRunStatusParams) error {
 	if _, err := requireID(p.ID); err != nil {
 		return wrap(err, "cas_run_status")
@@ -436,6 +453,7 @@ func (s *store) CASRunStatus(ctx context.Context, p CASRunStatusParams) error {
 	return nil
 }
 
+// SetRunTurn 设置运行记录turn。
 func (s *store) SetRunTurn(ctx context.Context, p SetRunTurnParams) error {
 	if _, err := requireID(p.ID); err != nil {
 		return wrap(err, "set_run_turn")
@@ -457,6 +475,7 @@ func (s *store) SetRunTurn(ctx context.Context, p SetRunTurnParams) error {
 	return nil
 }
 
+// GetRunByID 按ID读取运行记录。
 func (s *store) GetRunByID(ctx context.Context, id string) (Run, error) {
 	id, err := requireID(id)
 	if err != nil {
@@ -472,6 +491,7 @@ func (s *store) GetRunByID(ctx context.Context, id string) (Run, error) {
 	return fromCronJobRun(row), nil
 }
 
+// GetRunByDedupeKey 按去重键读取运行记录。
 func (s *store) GetRunByDedupeKey(ctx context.Context, dedupeKey string) (Run, error) {
 	key := strings.TrimSpace(dedupeKey)
 	if key == "" {
@@ -487,6 +507,7 @@ func (s *store) GetRunByDedupeKey(ctx context.Context, dedupeKey string) (Run, e
 	return fromCronJobRun(row), nil
 }
 
+// ListRunsByJob 按任务列出运行记录。
 func (s *store) ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]Run, error) {
 	jobID, err := requireID(jobID)
 	if err != nil {
@@ -509,6 +530,7 @@ func (s *store) ListRunsByJob(ctx context.Context, jobID string, limit int32) ([
 	return out, nil
 }
 
+// ListUnresolvedRuns 列出unresolved运行记录。
 func (s *store) ListUnresolvedRuns(ctx context.Context) ([]Run, error) {
 	rows, err := s.q.ListUnresolvedCronJobRuns(ctx)
 	if err != nil {
@@ -528,6 +550,7 @@ func firstNonEmpty(a, b string) string {
 	return b
 }
 
+// GetRunningRunByTurnID 按turnID读取running运行记录。
 func (s *store) GetRunningRunByTurnID(ctx context.Context, turnID string) (Run, error) {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
@@ -543,6 +566,7 @@ func (s *store) GetRunningRunByTurnID(ctx context.Context, turnID string) (Run, 
 	return fromCronJobRun(row), nil
 }
 
+// ListJobsClaimedBy 列出指定执行者已领取的 cron 任务。
 func (s *store) ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]Job, error) {
 	claimedBy = strings.TrimSpace(claimedBy)
 	if claimedBy == "" {

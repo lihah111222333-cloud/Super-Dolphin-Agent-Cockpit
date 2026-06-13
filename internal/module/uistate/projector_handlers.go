@@ -14,6 +14,7 @@ import (
 
 var uiOutputDeltaLogSampler = pkglogger.NewEverySampler(1000)
 
+// applyAgentStateChanged 应用代理状态changed。
 func (s *service) applyAgentStateChanged(ev agentdto.StateChanged) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
@@ -54,6 +55,7 @@ func (s *service) applyAgentStateChanged(ev agentdto.StateChanged) {
 	})
 }
 
+// applyAgentLaunched 应用代理launched。
 func (s *service) applyAgentLaunched(ev agentdto.AgentLaunched) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
@@ -241,6 +243,7 @@ func (s *service) replaceAgentOnThreadStarted(agentID string, next AgentSummary)
 	s.state.Agents = append(s.state.Agents, next)
 }
 
+// applyThreadUpdated 应用线程updated。
 func (s *service) applyThreadUpdated(ev threaddto.Updated) {
 	threadID, name := strings.TrimSpace(ev.ThreadID), strings.TrimSpace(ev.Name)
 	if threadID == "" {
@@ -267,6 +270,7 @@ func (s *service) applyThreadUpdated(ev threaddto.Updated) {
 	s.emitProjectionUpdatedEvents(s.projectionUpdatedLocked("sidebar"), s.projectionUpdatedLocked("state"))
 }
 
+// applyThreadStopped 应用线程stopped。
 func (s *service) applyThreadStopped(ev threaddto.Stopped) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
@@ -325,6 +329,7 @@ func threadStoppedLastMessage(status, reason string) string {
 	}
 }
 
+// applyTurnStarted 应用turnstarted。
 func (s *service) applyTurnStarted(ev turndto.TurnStarted) {
 	turnID := strings.TrimSpace(ev.TurnID)
 	threadID := strings.TrimSpace(ev.ThreadID)
@@ -371,6 +376,7 @@ func (s *service) applyTurnStarted(ev turndto.TurnStarted) {
 	})
 }
 
+// applyTurnInterrupted 应用turninterrupted。
 func (s *service) applyTurnInterrupted(ev turndto.TurnInterrupted) {
 	turnID := strings.TrimSpace(ev.TurnID)
 	threadID := strings.TrimSpace(ev.ThreadID)
@@ -449,6 +455,8 @@ func (s *service) applyTurnInputReceived(ev turndto.TurnInputReceived) {
 		}
 	}, func() uidto.UIThreadPatch { return s.refreshThreadPatchLocked(threadID, agentID, "turn/inputReceived") })
 }
+
+// applyTurnOutputDelta 应用turnoutputdelta。
 func (s *service) applyTurnOutputDelta(ev turndto.TurnOutputDelta) {
 	stream, delta := strings.TrimSpace(ev.Stream), strings.TrimSpace(ev.Delta)
 	if s.logger != nil && uiOutputDeltaLogSampler.ShouldLog("received:"+stream) {

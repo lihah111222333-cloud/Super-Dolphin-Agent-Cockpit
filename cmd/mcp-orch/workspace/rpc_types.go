@@ -14,6 +14,7 @@ type mergeRunParams struct {
 	DeleteRemoved bool   `json:"delete_removed,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *mergeRunParams) UnmarshalJSON(data []byte) error {
 	type raw mergeRunParams
 	var legacy struct {
@@ -54,6 +55,7 @@ type runKeyParams struct {
 	RunKey string `json:"run_key"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *runKeyParams) UnmarshalJSON(data []byte) error {
 	type raw runKeyParams
 	var current raw
@@ -70,6 +72,7 @@ type abortRunParams struct {
 	Reason    string `json:"reason,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *abortRunParams) UnmarshalJSON(data []byte) error {
 	type raw abortRunParams
 	var legacy struct {
@@ -102,6 +105,7 @@ type listRunsParams struct {
 	Limit  int    `json:"limit,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *listRunsParams) UnmarshalJSON(data []byte) error {
 	type raw listRunsParams
 	var legacy struct {
@@ -128,6 +132,7 @@ type listRunFilesParams struct {
 	State  string `json:"state,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *listRunFilesParams) UnmarshalJSON(data []byte) error {
 	type raw listRunFilesParams
 	var current raw
@@ -143,6 +148,7 @@ type runFileParams struct {
 	Path   string `json:"path"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *runFileParams) UnmarshalJSON(data []byte) error {
 	type raw runFileParams
 	var current raw

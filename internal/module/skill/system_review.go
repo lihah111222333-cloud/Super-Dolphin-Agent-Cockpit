@@ -17,6 +17,7 @@ var ErrSkillSystemReviewRequired = errors.New("skill system review required")
 // scope never reaches this gate. System scope requires a stable slug, content
 // hash, repo fingerprint, reviewer and reason so callers can persist/audit the
 // decision before retrying the write.
+// RequireSkillSystemReview 处理require技能systemreview。
 func RequireSkillSystemReview(scope, slug, contentHash, repoFingerprint, approvedBy, reason string) error {
 	if strings.EqualFold(strings.TrimSpace(scope), skillScopeSystem) &&
 		(strings.TrimSpace(slug) == "" || strings.TrimSpace(contentHash) == "" || strings.TrimSpace(repoFingerprint) == "" || strings.TrimSpace(approvedBy) == "" || strings.TrimSpace(reason) == "") {
@@ -29,6 +30,7 @@ func skillContentHash(content string) string { return skillhash.Content(content)
 
 func skillDirContentHash(root string) (string, error) { return skillhash.Dir(root) }
 
+// resolveSymlinkPath 解析symlink路径。
 func resolveSymlinkPath(path string) string {
 	if realPath, err := filepath.EvalSymlinks(path); err == nil {
 		return realPath

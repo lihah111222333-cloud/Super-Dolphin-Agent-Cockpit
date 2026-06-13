@@ -63,6 +63,7 @@ func PlanAddNodes(ops Ops, existing []ExistingNode) (map[string][]string, []Node
 	return adjacency, accepted, nil
 }
 
+// ValidateCreateDAGNodes 校验createDAG节点。
 func ValidateCreateDAGNodes(nodes []contract.CreateDAGNodeRequest) error {
 	specs := make([]NodeSpec, len(nodes))
 	for i, n := range nodes {
@@ -71,6 +72,7 @@ func ValidateCreateDAGNodes(nodes []contract.CreateDAGNodeRequest) error {
 	return ValidateAddNodeTopology(specs)
 }
 
+// ValidateAddNodeTopology 校验add节点topology。
 func ValidateAddNodeTopology(specs []NodeSpec) error {
 	ops := make(Ops, 0, len(specs))
 	for _, spec := range specs {
@@ -372,6 +374,7 @@ func ensureRemovableStatus(idx int, key, status string) error {
 	return nil
 }
 
+// firstDependentOn 处理firstdependenton。
 func firstDependentOn(adjacency map[string][]string, target string) string {
 	for nodeKey, deps := range adjacency {
 		if nodeKey == target {

@@ -27,6 +27,7 @@ type scheduledDAGCronRunner struct {
 	daemon dagCronDaemon
 }
 
+// Run 启动编排后台流程。
 func (r scheduledDAGCronRunner) Run(ctx context.Context) error {
 	if r.daemon == nil {
 		return errors.New("mcp-orch: scheduled dag cron daemon is nil")
@@ -50,6 +51,7 @@ type scheduledDAGStarter struct {
 	svc orchestration.ScheduledDAGStartService
 }
 
+// StartDAG 启动DAG。
 func (s scheduledDAGStarter) StartDAG(ctx context.Context, req orchcron.ScheduledDAGStartRequest) error {
 	return s.svc.StartScheduledDAG(ctx, req)
 }
@@ -68,6 +70,7 @@ func providePGAdvisoryLocker(pool *pgxpool.Pool) (orchcron.AdvisoryLocker, error
 	return fxadapter.NewPGAdvisoryLocker(pool, scheduledDAGCronAdvisoryLockID)
 }
 
+// provideScheduledDAGCronRunner 提供scheduledDAGcronrunner。
 func provideScheduledDAGCronRunner(
 	store orchcron.DAGScheduleStore,
 	locker orchcron.AdvisoryLocker,

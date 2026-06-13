@@ -10,6 +10,7 @@ import (
 )
 
 // NewToolbridgeDiffFallbackSubscribers declares the diff fallback subscription for BusModule.
+// NewToolbridgeDiffFallbackSubscribers 创建toolbridgediff兜底subscribers。
 func NewToolbridgeDiffFallbackSubscribers(tracker *diffFallbackTracker) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: platformbus.SubscriberSpec{

@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// refreshAllDiagnosticTargets 刷新all诊断targets。
 func (m *manager) refreshAllDiagnosticTargets(ctx context.Context, filter diagnosticFilter) error {
 	refs, err := m.allDiagnosticRefreshCandidates(ctx, filter)
 	if err != nil {
@@ -45,6 +46,7 @@ func (m *manager) refreshAllDiagnosticTargets(ctx context.Context, filter diagno
 	return nil
 }
 
+// allDiagnosticRefreshCandidates 处理all诊断refresh候选项。
 func (m *manager) allDiagnosticRefreshCandidates(ctx context.Context, filter diagnosticFilter) ([]documentRef, error) {
 	seen := map[string]struct{}{}
 	var refs []documentRef

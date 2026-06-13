@@ -49,6 +49,7 @@ type InputsError struct {
 }
 
 // Error implements error. nil-safe (returns "").
+// Error 返回错误文本。
 func (e *InputsError) Error() string {
 	if e == nil || e.Err == nil {
 		return ""
@@ -58,6 +59,7 @@ func (e *InputsError) Error() string {
 
 // Unwrap exposes the wrapped error so errors.Is(ErrInputsValidation) and
 // errors.As(target) keep working through the InputsError shell.
+// Unwrap 返回底层错误。
 func (e *InputsError) Unwrap() error {
 	if e == nil {
 		return nil

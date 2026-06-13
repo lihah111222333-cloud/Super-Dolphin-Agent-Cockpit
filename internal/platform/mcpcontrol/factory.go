@@ -18,6 +18,7 @@ type hookInvalidParamsError struct {
 	message string
 }
 
+// Error 返回错误文本。
 func (e *hookInvalidParamsError) Error() string {
 	return e.message
 }
@@ -150,6 +151,7 @@ func handleHookRPC[Req any, Resp any](
 	})
 }
 
+// forEachInstanceBucket 为eachinstancebucket处理平台mcpcontrol。
 func (r *ToolRegistry) forEachInstanceBucket(
 	instance *ToolInstance,
 	fn func(index map[string]map[LeaseKey]struct{}, bucket string, key LeaseKey),
@@ -184,6 +186,7 @@ func (r *ToolRegistry) disconnectLease(key LeaseKey, opts disconnectLeaseOptions
 	return err
 }
 
+// lookupLease 处理lookup租约。
 func lookupLease(opts leaseLookupOptions) (*ToolInstance, error) {
 	if opts.registry == nil {
 		return nil, errLeaseNotFound("mcp registry is not configured")
@@ -213,6 +216,7 @@ func lookupLease(opts leaseLookupOptions) (*ToolInstance, error) {
 	return cloneInstance(instance), nil
 }
 
+// fanoutTargets 处理fanouttargets。
 func (r *ToolRegistry) fanoutTargets(
 	ctx context.Context,
 	targets []sendTarget,
@@ -315,6 +319,7 @@ func configPayloadHeader(agentID, threadID string) shareddto.AgentSessionHeader 
 	}
 }
 
+// mapHookHandlerError 映射hook处理器错误。
 func mapHookHandlerError(operation string, err error) error {
 	if err == nil {
 		return nil
