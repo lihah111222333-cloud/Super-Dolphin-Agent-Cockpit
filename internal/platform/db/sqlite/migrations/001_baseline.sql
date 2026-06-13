@@ -743,6 +743,7 @@ CREATE INDEX IF NOT EXISTS idx_task_acks_priority ON task_acks(priority, status)
 CREATE INDEX IF NOT EXISTS idx_task_acks_assigned_to ON task_acks(assigned_to);
 CREATE INDEX IF NOT EXISTS idx_task_acks_due_at ON task_acks(due_at);
 CREATE INDEX IF NOT EXISTS idx_task_dags_status ON task_dags(status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_task_dags_updated_id ON task_dags(updated_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_task_dags_next_run_scheduled ON task_dags(next_run_at) WHERE trigger = 'scheduled';
 
 CREATE INDEX IF NOT EXISTS idx_task_dag_nodes_dag_key ON task_dag_nodes(dag_key, id);
