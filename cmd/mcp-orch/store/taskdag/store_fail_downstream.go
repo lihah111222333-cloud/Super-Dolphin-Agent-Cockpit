@@ -31,7 +31,7 @@ func (s *store) FailNodeAndCancelDownstream(ctx context.Context, input FailNodeI
 		return nil, err
 	}
 	var result FailNodeResult
-	err := sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
+	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
 		txStore := &store{db: txdb, q: txq}
 		res, failErr := failNodeAndCancelDownstreamTx(ctx, txStore, input)
 		if failErr != nil {
@@ -95,7 +95,7 @@ func failNodeTx(ctx context.Context, txStore *store, dagKey, nodeKey string, run
 	if err != nil {
 		return nil, fmt.Errorf("marshal fail reason for %s/%s: %w", dagKey, nodeKey, err)
 	}
-	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
+	return updateNodeStatus(func() (sqlc.FailTaskDagNodeIfNonTerminalRow, error) {
 		return txStore.q.FailTaskDagNodeIfNonTerminal(ctx, sqlc.FailTaskDagNodeIfNonTerminalParams{
 			Status:  "failed",
 			Result:  encoded,
@@ -103,7 +103,7 @@ func failNodeTx(ctx context.Context, txStore *store, dagKey, nodeKey string, run
 			NodeKey: nodeKey,
 			RunID:   int64Ptr(runID),
 		})
-	}, "fail_non_terminal")
+	}, "fail_non_terminal", fromNodeFailNonTerminalRow)
 }
 
 // cancelDownstreamTx walks the reverse-dependency graph from the failed node

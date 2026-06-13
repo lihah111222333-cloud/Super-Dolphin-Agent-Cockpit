@@ -11,7 +11,7 @@ import (
 )
 
 const getWorkspaceRun = `-- name: GetWorkspaceRun :one
-SELECT id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, metadata, created_at, updated_at, finished_at
+SELECT id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, CAST(metadata AS BLOB) AS metadata, created_at, updated_at, finished_at
 FROM workspace_runs
 WHERE run_key = ?
 `
@@ -20,9 +20,24 @@ type GetWorkspaceRunParams struct {
 	RunKey string `db:"run_key" json:"run_key"`
 }
 
-func (q *Queries) GetWorkspaceRun(ctx context.Context, arg GetWorkspaceRunParams) (WorkspaceRun, error) {
+type GetWorkspaceRunRow struct {
+	ID            int64  `db:"id" json:"id"`
+	RunKey        string `db:"run_key" json:"run_key"`
+	DagKey        string `db:"dag_key" json:"dag_key"`
+	SourceRoot    string `db:"source_root" json:"source_root"`
+	WorkspacePath string `db:"workspace_path" json:"workspace_path"`
+	Status        string `db:"status" json:"status"`
+	CreatedBy     string `db:"created_by" json:"created_by"`
+	UpdatedBy     string `db:"updated_by" json:"updated_by"`
+	Metadata      []byte `db:"metadata" json:"metadata"`
+	CreatedAt     int64  `db:"created_at" json:"created_at"`
+	UpdatedAt     int64  `db:"updated_at" json:"updated_at"`
+	FinishedAt    *int64 `db:"finished_at" json:"finished_at"`
+}
+
+func (q *Queries) GetWorkspaceRun(ctx context.Context, arg GetWorkspaceRunParams) (GetWorkspaceRunRow, error) {
 	row := q.db.QueryRowContext(ctx, getWorkspaceRun, arg.RunKey)
-	var i WorkspaceRun
+	var i GetWorkspaceRunRow
 	err := row.Scan(
 		&i.ID,
 		&i.RunKey,
@@ -121,7 +136,7 @@ func (q *Queries) ListWorkspaceRunFiles(ctx context.Context, arg ListWorkspaceRu
 }
 
 const listWorkspaceRuns = `-- name: ListWorkspaceRuns :many
-SELECT id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, metadata, created_at, updated_at, finished_at
+SELECT id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, CAST('{}' AS BLOB) AS metadata, created_at, updated_at, finished_at
 FROM workspace_runs
 WHERE (?1 = '' OR status = ?1)
   AND (?2 = '' OR dag_key = ?2)
@@ -135,15 +150,30 @@ type ListWorkspaceRunsParams struct {
 	LimitCount   int64       `db:"limit_count" json:"limit_count"`
 }
 
-func (q *Queries) ListWorkspaceRuns(ctx context.Context, arg ListWorkspaceRunsParams) ([]WorkspaceRun, error) {
+type ListWorkspaceRunsRow struct {
+	ID            int64  `db:"id" json:"id"`
+	RunKey        string `db:"run_key" json:"run_key"`
+	DagKey        string `db:"dag_key" json:"dag_key"`
+	SourceRoot    string `db:"source_root" json:"source_root"`
+	WorkspacePath string `db:"workspace_path" json:"workspace_path"`
+	Status        string `db:"status" json:"status"`
+	CreatedBy     string `db:"created_by" json:"created_by"`
+	UpdatedBy     string `db:"updated_by" json:"updated_by"`
+	Metadata      []byte `db:"metadata" json:"metadata"`
+	CreatedAt     int64  `db:"created_at" json:"created_at"`
+	UpdatedAt     int64  `db:"updated_at" json:"updated_at"`
+	FinishedAt    *int64 `db:"finished_at" json:"finished_at"`
+}
+
+func (q *Queries) ListWorkspaceRuns(ctx context.Context, arg ListWorkspaceRunsParams) ([]ListWorkspaceRunsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listWorkspaceRuns, arg.StatusFilter, arg.DagKeyFilter, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []WorkspaceRun{}
+	items := []ListWorkspaceRunsRow{}
 	for rows.Next() {
-		var i WorkspaceRun
+		var i ListWorkspaceRunsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.RunKey,
@@ -173,17 +203,19 @@ func (q *Queries) ListWorkspaceRuns(ctx context.Context, arg ListWorkspaceRunsPa
 
 const transitionWorkspaceRunStatus = `-- name: TransitionWorkspaceRunStatus :one
 UPDATE workspace_runs
-SET status = ?2,
-    updated_by = ?3,
-    metadata = ?4,
+SET status = ?1,
+    updated_by = ?2,
+    metadata = ?3,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     finished_at = CASE
-        WHEN ?1 IN ('merged', 'aborted', 'failed') THEN (CAST(strftime('%s','now') AS INTEGER) * 1000)
+        WHEN ?1 = 'merged'
+          OR ?1 = 'aborted'
+          OR ?1 = 'failed' THEN (CAST(strftime('%s','now') AS INTEGER) * 1000)
         WHEN ?1 = 'active' THEN NULL
         ELSE finished_at
     END
-WHERE run_key = ?5 AND status = ?6
-RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, metadata, created_at, updated_at, finished_at
+WHERE run_key = ?4 AND status = ?5
+RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, CAST(metadata AS BLOB) AS metadata, created_at, updated_at, finished_at
 `
 
 type TransitionWorkspaceRunStatusParams struct {
@@ -194,7 +226,22 @@ type TransitionWorkspaceRunStatusParams struct {
 	ExpectedStatus string          `db:"expected_status" json:"expected_status"`
 }
 
-func (q *Queries) TransitionWorkspaceRunStatus(ctx context.Context, arg TransitionWorkspaceRunStatusParams) (WorkspaceRun, error) {
+type TransitionWorkspaceRunStatusRow struct {
+	ID            int64  `db:"id" json:"id"`
+	RunKey        string `db:"run_key" json:"run_key"`
+	DagKey        string `db:"dag_key" json:"dag_key"`
+	SourceRoot    string `db:"source_root" json:"source_root"`
+	WorkspacePath string `db:"workspace_path" json:"workspace_path"`
+	Status        string `db:"status" json:"status"`
+	CreatedBy     string `db:"created_by" json:"created_by"`
+	UpdatedBy     string `db:"updated_by" json:"updated_by"`
+	Metadata      []byte `db:"metadata" json:"metadata"`
+	CreatedAt     int64  `db:"created_at" json:"created_at"`
+	UpdatedAt     int64  `db:"updated_at" json:"updated_at"`
+	FinishedAt    *int64 `db:"finished_at" json:"finished_at"`
+}
+
+func (q *Queries) TransitionWorkspaceRunStatus(ctx context.Context, arg TransitionWorkspaceRunStatusParams) (TransitionWorkspaceRunStatusRow, error) {
 	row := q.db.QueryRowContext(ctx, transitionWorkspaceRunStatus,
 		arg.NewStatus,
 		arg.UpdatedBy,
@@ -202,7 +249,7 @@ func (q *Queries) TransitionWorkspaceRunStatus(ctx context.Context, arg Transiti
 		arg.RunKey,
 		arg.ExpectedStatus,
 	)
-	var i WorkspaceRun
+	var i TransitionWorkspaceRunStatusRow
 	err := row.Scan(
 		&i.ID,
 		&i.RunKey,
@@ -222,17 +269,19 @@ func (q *Queries) TransitionWorkspaceRunStatus(ctx context.Context, arg Transiti
 
 const updateWorkspaceRunStatus = `-- name: UpdateWorkspaceRunStatus :one
 UPDATE workspace_runs
-SET status = ?2,
-    updated_by = ?3,
-    metadata = ?4,
+SET status = ?1,
+    updated_by = ?2,
+    metadata = ?3,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     finished_at = CASE
-        WHEN ?1 IN ('merged', 'aborted', 'failed') THEN (CAST(strftime('%s','now') AS INTEGER) * 1000)
+        WHEN ?1 = 'merged'
+          OR ?1 = 'aborted'
+          OR ?1 = 'failed' THEN (CAST(strftime('%s','now') AS INTEGER) * 1000)
         WHEN ?1 = 'active' THEN NULL
         ELSE finished_at
     END
-WHERE run_key = ?5
-RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, metadata, created_at, updated_at, finished_at
+WHERE run_key = ?4
+RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, CAST(metadata AS BLOB) AS metadata, created_at, updated_at, finished_at
 `
 
 type UpdateWorkspaceRunStatusParams struct {
@@ -242,14 +291,29 @@ type UpdateWorkspaceRunStatusParams struct {
 	RunKey    string          `db:"run_key" json:"run_key"`
 }
 
-func (q *Queries) UpdateWorkspaceRunStatus(ctx context.Context, arg UpdateWorkspaceRunStatusParams) (WorkspaceRun, error) {
+type UpdateWorkspaceRunStatusRow struct {
+	ID            int64  `db:"id" json:"id"`
+	RunKey        string `db:"run_key" json:"run_key"`
+	DagKey        string `db:"dag_key" json:"dag_key"`
+	SourceRoot    string `db:"source_root" json:"source_root"`
+	WorkspacePath string `db:"workspace_path" json:"workspace_path"`
+	Status        string `db:"status" json:"status"`
+	CreatedBy     string `db:"created_by" json:"created_by"`
+	UpdatedBy     string `db:"updated_by" json:"updated_by"`
+	Metadata      []byte `db:"metadata" json:"metadata"`
+	CreatedAt     int64  `db:"created_at" json:"created_at"`
+	UpdatedAt     int64  `db:"updated_at" json:"updated_at"`
+	FinishedAt    *int64 `db:"finished_at" json:"finished_at"`
+}
+
+func (q *Queries) UpdateWorkspaceRunStatus(ctx context.Context, arg UpdateWorkspaceRunStatusParams) (UpdateWorkspaceRunStatusRow, error) {
 	row := q.db.QueryRowContext(ctx, updateWorkspaceRunStatus,
 		arg.NewStatus,
 		arg.UpdatedBy,
 		arg.Metadata,
 		arg.RunKey,
 	)
-	var i WorkspaceRun
+	var i UpdateWorkspaceRunStatusRow
 	err := row.Scan(
 		&i.ID,
 		&i.RunKey,
@@ -281,7 +345,7 @@ SET dag_key = EXCLUDED.dag_key,
     metadata = EXCLUDED.metadata,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     finished_at = EXCLUDED.finished_at
-RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, metadata, created_at, updated_at, finished_at
+RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, CAST(metadata AS BLOB) AS metadata, created_at, updated_at, finished_at
 `
 
 type UpsertWorkspaceRunParams struct {
@@ -296,7 +360,22 @@ type UpsertWorkspaceRunParams struct {
 	FinishedAt    *int64          `db:"finished_at" json:"finished_at"`
 }
 
-func (q *Queries) UpsertWorkspaceRun(ctx context.Context, arg UpsertWorkspaceRunParams) (WorkspaceRun, error) {
+type UpsertWorkspaceRunRow struct {
+	ID            int64  `db:"id" json:"id"`
+	RunKey        string `db:"run_key" json:"run_key"`
+	DagKey        string `db:"dag_key" json:"dag_key"`
+	SourceRoot    string `db:"source_root" json:"source_root"`
+	WorkspacePath string `db:"workspace_path" json:"workspace_path"`
+	Status        string `db:"status" json:"status"`
+	CreatedBy     string `db:"created_by" json:"created_by"`
+	UpdatedBy     string `db:"updated_by" json:"updated_by"`
+	Metadata      []byte `db:"metadata" json:"metadata"`
+	CreatedAt     int64  `db:"created_at" json:"created_at"`
+	UpdatedAt     int64  `db:"updated_at" json:"updated_at"`
+	FinishedAt    *int64 `db:"finished_at" json:"finished_at"`
+}
+
+func (q *Queries) UpsertWorkspaceRun(ctx context.Context, arg UpsertWorkspaceRunParams) (UpsertWorkspaceRunRow, error) {
 	row := q.db.QueryRowContext(ctx, upsertWorkspaceRun,
 		arg.RunKey,
 		arg.DagKey,
@@ -308,7 +387,7 @@ func (q *Queries) UpsertWorkspaceRun(ctx context.Context, arg UpsertWorkspaceRun
 		arg.Metadata,
 		arg.FinishedAt,
 	)
-	var i WorkspaceRun
+	var i UpsertWorkspaceRunRow
 	err := row.Scan(
 		&i.ID,
 		&i.RunKey,

@@ -22,10 +22,10 @@ WHERE dag_key = ?
   AND status = 'running'
   AND active_turn_id IS NULL
   AND active_wakeup_id = ?
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
-          status, command_ref, config, result, started_at, finished_at,
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
+          status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
           created_at, updated_at, active_turn_id, active_wakeup_id,
-          last_event_at, run_id, reads, writes, spawning_thread_id
+          last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id
 `
 
 type BindRunningTaskDagNodeTurnParams struct {
@@ -36,7 +36,32 @@ type BindRunningTaskDagNodeTurnParams struct {
 	ActiveWakeupID *int64  `db:"active_wakeup_id" json:"active_wakeup_id"`
 }
 
-func (q *Queries) BindRunningTaskDagNodeTurn(ctx context.Context, arg BindRunningTaskDagNodeTurnParams) (TaskDagNode, error) {
+type BindRunningTaskDagNodeTurnRow struct {
+	ID               int64   `db:"id" json:"id"`
+	DagKey           string  `db:"dag_key" json:"dag_key"`
+	NodeKey          string  `db:"node_key" json:"node_key"`
+	Title            string  `db:"title" json:"title"`
+	NodeType         string  `db:"node_type" json:"node_type"`
+	AssignedTo       string  `db:"assigned_to" json:"assigned_to"`
+	DependsOn        []byte  `db:"depends_on" json:"depends_on"`
+	Status           string  `db:"status" json:"status"`
+	CommandRef       string  `db:"command_ref" json:"command_ref"`
+	Config           []byte  `db:"config" json:"config"`
+	Result           []byte  `db:"result" json:"result"`
+	StartedAt        *int64  `db:"started_at" json:"started_at"`
+	FinishedAt       *int64  `db:"finished_at" json:"finished_at"`
+	CreatedAt        int64   `db:"created_at" json:"created_at"`
+	UpdatedAt        int64   `db:"updated_at" json:"updated_at"`
+	ActiveTurnID     *string `db:"active_turn_id" json:"active_turn_id"`
+	ActiveWakeupID   *int64  `db:"active_wakeup_id" json:"active_wakeup_id"`
+	LastEventAt      *int64  `db:"last_event_at" json:"last_event_at"`
+	RunID            *int64  `db:"run_id" json:"run_id"`
+	Reads            []byte  `db:"reads" json:"reads"`
+	Writes           []byte  `db:"writes" json:"writes"`
+	SpawningThreadID *string `db:"spawning_thread_id" json:"spawning_thread_id"`
+}
+
+func (q *Queries) BindRunningTaskDagNodeTurn(ctx context.Context, arg BindRunningTaskDagNodeTurnParams) (BindRunningTaskDagNodeTurnRow, error) {
 	row := q.db.QueryRowContext(ctx, bindRunningTaskDagNodeTurn,
 		arg.ActiveTurnID,
 		arg.DagKey,
@@ -44,7 +69,7 @@ func (q *Queries) BindRunningTaskDagNodeTurn(ctx context.Context, arg BindRunnin
 		arg.RunID,
 		arg.ActiveWakeupID,
 	)
-	var i TaskDagNode
+	var i BindRunningTaskDagNodeTurnRow
 	err := row.Scan(
 		&i.ID,
 		&i.DagKey,
@@ -80,10 +105,10 @@ WHERE dag_key = ?3 AND node_key = ?4
   AND run_id = ?5
   AND ?5 > 0
   AND status IN ('ready', 'running', 'awaiting_verify')
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
-          status, command_ref, config, result, started_at, finished_at,
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
+          status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
           created_at, updated_at, active_turn_id, active_wakeup_id,
-          last_event_at, run_id, reads, writes, spawning_thread_id
+          last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id
 `
 
 type CompleteTaskDagNodeParams struct {
@@ -94,7 +119,32 @@ type CompleteTaskDagNodeParams struct {
 	RunID   *int64          `db:"run_id" json:"run_id"`
 }
 
-func (q *Queries) CompleteTaskDagNode(ctx context.Context, arg CompleteTaskDagNodeParams) (TaskDagNode, error) {
+type CompleteTaskDagNodeRow struct {
+	ID               int64   `db:"id" json:"id"`
+	DagKey           string  `db:"dag_key" json:"dag_key"`
+	NodeKey          string  `db:"node_key" json:"node_key"`
+	Title            string  `db:"title" json:"title"`
+	NodeType         string  `db:"node_type" json:"node_type"`
+	AssignedTo       string  `db:"assigned_to" json:"assigned_to"`
+	DependsOn        []byte  `db:"depends_on" json:"depends_on"`
+	Status           string  `db:"status" json:"status"`
+	CommandRef       string  `db:"command_ref" json:"command_ref"`
+	Config           []byte  `db:"config" json:"config"`
+	Result           []byte  `db:"result" json:"result"`
+	StartedAt        *int64  `db:"started_at" json:"started_at"`
+	FinishedAt       *int64  `db:"finished_at" json:"finished_at"`
+	CreatedAt        int64   `db:"created_at" json:"created_at"`
+	UpdatedAt        int64   `db:"updated_at" json:"updated_at"`
+	ActiveTurnID     *string `db:"active_turn_id" json:"active_turn_id"`
+	ActiveWakeupID   *int64  `db:"active_wakeup_id" json:"active_wakeup_id"`
+	LastEventAt      *int64  `db:"last_event_at" json:"last_event_at"`
+	RunID            *int64  `db:"run_id" json:"run_id"`
+	Reads            []byte  `db:"reads" json:"reads"`
+	Writes           []byte  `db:"writes" json:"writes"`
+	SpawningThreadID *string `db:"spawning_thread_id" json:"spawning_thread_id"`
+}
+
+func (q *Queries) CompleteTaskDagNode(ctx context.Context, arg CompleteTaskDagNodeParams) (CompleteTaskDagNodeRow, error) {
 	row := q.db.QueryRowContext(ctx, completeTaskDagNode,
 		arg.Status,
 		arg.Result,
@@ -102,7 +152,7 @@ func (q *Queries) CompleteTaskDagNode(ctx context.Context, arg CompleteTaskDagNo
 		arg.NodeKey,
 		arg.RunID,
 	)
-	var i TaskDagNode
+	var i CompleteTaskDagNodeRow
 	err := row.Scan(
 		&i.ID,
 		&i.DagKey,
@@ -141,10 +191,10 @@ WHERE dag_key = ?
   AND status = 'running'
   AND active_turn_id = ?
   AND (last_event_at IS NULL OR last_event_at < ?6)
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
-          status, command_ref, config, result, started_at, finished_at,
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
+          status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
           created_at, updated_at, active_turn_id, active_wakeup_id,
-          last_event_at, run_id, reads, writes, spawning_thread_id
+          last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id
 `
 
 type TouchRunningTaskDagNodeEventParams struct {
@@ -155,7 +205,32 @@ type TouchRunningTaskDagNodeEventParams struct {
 	ActiveTurnID *string `db:"active_turn_id" json:"active_turn_id"`
 }
 
-func (q *Queries) TouchRunningTaskDagNodeEvent(ctx context.Context, arg TouchRunningTaskDagNodeEventParams) (TaskDagNode, error) {
+type TouchRunningTaskDagNodeEventRow struct {
+	ID               int64   `db:"id" json:"id"`
+	DagKey           string  `db:"dag_key" json:"dag_key"`
+	NodeKey          string  `db:"node_key" json:"node_key"`
+	Title            string  `db:"title" json:"title"`
+	NodeType         string  `db:"node_type" json:"node_type"`
+	AssignedTo       string  `db:"assigned_to" json:"assigned_to"`
+	DependsOn        []byte  `db:"depends_on" json:"depends_on"`
+	Status           string  `db:"status" json:"status"`
+	CommandRef       string  `db:"command_ref" json:"command_ref"`
+	Config           []byte  `db:"config" json:"config"`
+	Result           []byte  `db:"result" json:"result"`
+	StartedAt        *int64  `db:"started_at" json:"started_at"`
+	FinishedAt       *int64  `db:"finished_at" json:"finished_at"`
+	CreatedAt        int64   `db:"created_at" json:"created_at"`
+	UpdatedAt        int64   `db:"updated_at" json:"updated_at"`
+	ActiveTurnID     *string `db:"active_turn_id" json:"active_turn_id"`
+	ActiveWakeupID   *int64  `db:"active_wakeup_id" json:"active_wakeup_id"`
+	LastEventAt      *int64  `db:"last_event_at" json:"last_event_at"`
+	RunID            *int64  `db:"run_id" json:"run_id"`
+	Reads            []byte  `db:"reads" json:"reads"`
+	Writes           []byte  `db:"writes" json:"writes"`
+	SpawningThreadID *string `db:"spawning_thread_id" json:"spawning_thread_id"`
+}
+
+func (q *Queries) TouchRunningTaskDagNodeEvent(ctx context.Context, arg TouchRunningTaskDagNodeEventParams) (TouchRunningTaskDagNodeEventRow, error) {
 	row := q.db.QueryRowContext(ctx, touchRunningTaskDagNodeEvent,
 		arg.LastEventAt,
 		arg.DagKey,
@@ -164,7 +239,7 @@ func (q *Queries) TouchRunningTaskDagNodeEvent(ctx context.Context, arg TouchRun
 		arg.ActiveTurnID,
 		arg.LastEventAt,
 	)
-	var i TaskDagNode
+	var i TouchRunningTaskDagNodeEventRow
 	err := row.Scan(
 		&i.ID,
 		&i.DagKey,
@@ -199,10 +274,10 @@ WHERE dag_key = ?3 AND node_key = ?4
   AND run_id = ?5
   AND ?5 > 0
   AND status IN ('running')
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
-          status, command_ref, config, result, started_at, finished_at,
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
+          status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
           created_at, updated_at, active_turn_id, active_wakeup_id,
-          last_event_at, run_id, reads, writes, spawning_thread_id
+          last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id
 `
 
 type UpdateAwaitingVerifyTaskDagNodeStatusParams struct {
@@ -213,7 +288,32 @@ type UpdateAwaitingVerifyTaskDagNodeStatusParams struct {
 	RunID   *int64          `db:"run_id" json:"run_id"`
 }
 
-func (q *Queries) UpdateAwaitingVerifyTaskDagNodeStatus(ctx context.Context, arg UpdateAwaitingVerifyTaskDagNodeStatusParams) (TaskDagNode, error) {
+type UpdateAwaitingVerifyTaskDagNodeStatusRow struct {
+	ID               int64   `db:"id" json:"id"`
+	DagKey           string  `db:"dag_key" json:"dag_key"`
+	NodeKey          string  `db:"node_key" json:"node_key"`
+	Title            string  `db:"title" json:"title"`
+	NodeType         string  `db:"node_type" json:"node_type"`
+	AssignedTo       string  `db:"assigned_to" json:"assigned_to"`
+	DependsOn        []byte  `db:"depends_on" json:"depends_on"`
+	Status           string  `db:"status" json:"status"`
+	CommandRef       string  `db:"command_ref" json:"command_ref"`
+	Config           []byte  `db:"config" json:"config"`
+	Result           []byte  `db:"result" json:"result"`
+	StartedAt        *int64  `db:"started_at" json:"started_at"`
+	FinishedAt       *int64  `db:"finished_at" json:"finished_at"`
+	CreatedAt        int64   `db:"created_at" json:"created_at"`
+	UpdatedAt        int64   `db:"updated_at" json:"updated_at"`
+	ActiveTurnID     *string `db:"active_turn_id" json:"active_turn_id"`
+	ActiveWakeupID   *int64  `db:"active_wakeup_id" json:"active_wakeup_id"`
+	LastEventAt      *int64  `db:"last_event_at" json:"last_event_at"`
+	RunID            *int64  `db:"run_id" json:"run_id"`
+	Reads            []byte  `db:"reads" json:"reads"`
+	Writes           []byte  `db:"writes" json:"writes"`
+	SpawningThreadID *string `db:"spawning_thread_id" json:"spawning_thread_id"`
+}
+
+func (q *Queries) UpdateAwaitingVerifyTaskDagNodeStatus(ctx context.Context, arg UpdateAwaitingVerifyTaskDagNodeStatusParams) (UpdateAwaitingVerifyTaskDagNodeStatusRow, error) {
 	row := q.db.QueryRowContext(ctx, updateAwaitingVerifyTaskDagNodeStatus,
 		arg.Status,
 		arg.Result,
@@ -221,7 +321,7 @@ func (q *Queries) UpdateAwaitingVerifyTaskDagNodeStatus(ctx context.Context, arg
 		arg.NodeKey,
 		arg.RunID,
 	)
-	var i TaskDagNode
+	var i UpdateAwaitingVerifyTaskDagNodeStatusRow
 	err := row.Scan(
 		&i.ID,
 		&i.DagKey,
@@ -257,10 +357,10 @@ WHERE dag_key = ?4 AND node_key = ?5
   AND run_id = ?6
   AND ?6 > 0
   AND status IN ('pending', 'ready')
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
-          status, command_ref, config, result, started_at, finished_at,
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
+          status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
           created_at, updated_at, active_turn_id, active_wakeup_id,
-          last_event_at, run_id, reads, writes, spawning_thread_id
+          last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id
 `
 
 type UpdateRunningTaskDagNodeStatusParams struct {
@@ -272,7 +372,32 @@ type UpdateRunningTaskDagNodeStatusParams struct {
 	RunID          *int64          `db:"run_id" json:"run_id"`
 }
 
-func (q *Queries) UpdateRunningTaskDagNodeStatus(ctx context.Context, arg UpdateRunningTaskDagNodeStatusParams) (TaskDagNode, error) {
+type UpdateRunningTaskDagNodeStatusRow struct {
+	ID               int64   `db:"id" json:"id"`
+	DagKey           string  `db:"dag_key" json:"dag_key"`
+	NodeKey          string  `db:"node_key" json:"node_key"`
+	Title            string  `db:"title" json:"title"`
+	NodeType         string  `db:"node_type" json:"node_type"`
+	AssignedTo       string  `db:"assigned_to" json:"assigned_to"`
+	DependsOn        []byte  `db:"depends_on" json:"depends_on"`
+	Status           string  `db:"status" json:"status"`
+	CommandRef       string  `db:"command_ref" json:"command_ref"`
+	Config           []byte  `db:"config" json:"config"`
+	Result           []byte  `db:"result" json:"result"`
+	StartedAt        *int64  `db:"started_at" json:"started_at"`
+	FinishedAt       *int64  `db:"finished_at" json:"finished_at"`
+	CreatedAt        int64   `db:"created_at" json:"created_at"`
+	UpdatedAt        int64   `db:"updated_at" json:"updated_at"`
+	ActiveTurnID     *string `db:"active_turn_id" json:"active_turn_id"`
+	ActiveWakeupID   *int64  `db:"active_wakeup_id" json:"active_wakeup_id"`
+	LastEventAt      *int64  `db:"last_event_at" json:"last_event_at"`
+	RunID            *int64  `db:"run_id" json:"run_id"`
+	Reads            []byte  `db:"reads" json:"reads"`
+	Writes           []byte  `db:"writes" json:"writes"`
+	SpawningThreadID *string `db:"spawning_thread_id" json:"spawning_thread_id"`
+}
+
+func (q *Queries) UpdateRunningTaskDagNodeStatus(ctx context.Context, arg UpdateRunningTaskDagNodeStatusParams) (UpdateRunningTaskDagNodeStatusRow, error) {
 	row := q.db.QueryRowContext(ctx, updateRunningTaskDagNodeStatus,
 		arg.Status,
 		arg.Result,
@@ -281,7 +406,7 @@ func (q *Queries) UpdateRunningTaskDagNodeStatus(ctx context.Context, arg Update
 		arg.NodeKey,
 		arg.RunID,
 	)
-	var i TaskDagNode
+	var i UpdateRunningTaskDagNodeStatusRow
 	err := row.Scan(
 		&i.ID,
 		&i.DagKey,
