@@ -21,14 +21,14 @@ const SkillsPage = lazyNamedPage(() => import('./pages/skills/SkillsPage.jsx'), 
 const WorkflowPage = lazyNamedPage(() => import('./pages/workflows/WorkflowPage.jsx'), 'WorkflowPage');
 
 const primaryNavItems = [
-  { id: 'skills', label: '插件市场', icon: Zap },
-  { id: 'prompts', label: '提示词', icon: SquareTerminal },
+  { id: 'skills', label: '插件市场', displayLabel: '插件', icon: Zap },
   { id: 'workflows', label: '自动化', icon: Workflow },
+  { id: 'prompts', label: '提示词', displayLabel: '定制角色', icon: SquareTerminal },
+  { id: 'files', label: '共享文件', icon: FolderOpen },
 ];
 
 const secondaryNavItems = [
   { id: 'memory', label: '记忆中心', icon: Brain },
-  { id: 'files', label: '共享文件', icon: FolderOpen },
   { id: 'observability', label: '链路追踪', icon: Search },
 ];
 
@@ -629,7 +629,7 @@ function SidebarNavList({ items, activePage, setActivePage, memoryBadgeCount = 0
             aria-label={item.label}
           >
             <Icon size={22} aria-hidden="true" />
-            <span>{item.label}</span>
+            <span>{item.displayLabel || item.label}</span>
             {badgeCount > 0 ? <i aria-hidden="true" title={`${badgeCount} 条待整合相似记忆`} /> : null}
           </button>
         );
@@ -652,11 +652,11 @@ function SidebarProjectTree({ projectPath, setActivePage, store }) {
     runUIAction(() => store?.setActiveProjectPath?.(path));
   };
   return (
-    <section className="sidebar-project-tree" aria-label="项目目录">
+    <section className="sidebar-project-tree" aria-label="项目">
       <div className="sidebar-section-heading">
         <span className="sidebar-section-title">
           <ChevronDown size={15} aria-hidden="true" />
-          <span>项目目录</span>
+          <span>项目</span>
         </span>
         <button type="button" className="sidebar-icon-action" aria-label="添加项目目录" onClick={addProject}>
           <Plus size={16} aria-hidden="true" />
@@ -710,21 +710,21 @@ function WorkbenchSidebar({ activePage, isOpen = false, setActivePage, store, pr
       id="app-sidebar"
       className={`app-sidebar${isOpen ? ' is-open' : ''}`}
       data-testid="app-sidebar"
-      aria-label="Super Dolphin 工作台"
+      aria-label="Super-Dolphin 工作台"
       style={isOpen ? { marginLeft: 0 } : undefined}
     >
       <div className="sidebar-brand">
         <img src={superDolphinLogo} alt="" aria-hidden="true" />
-        <strong>Super Dolphin</strong>
+        <strong>Super-Dolphin</strong>
       </div>
       <button
         type="button"
         className={`sidebar-new-chat ${activePage === 'chat' ? 'active' : ''}`}
-        aria-label="新会话"
+        aria-label="新对话"
         onClick={startNewChat}
       >
         <Plus size={22} aria-hidden="true" />
-        <span>新会话</span>
+        <span>新对话</span>
       </button>
       <SidebarNavList
         items={primaryNavItems}
@@ -742,6 +742,7 @@ function WorkbenchSidebar({ activePage, isOpen = false, setActivePage, store, pr
         testId="sidebar-secondary-nav"
         className="sidebar-secondary-nav"
       />
+      <SidebarTaskSummary />
       <button
         type="button"
         className="sidebar-theme-toggle"
@@ -761,6 +762,15 @@ function WorkbenchSidebar({ activePage, isOpen = false, setActivePage, store, pr
         <span>Settings</span>
       </button>
     </aside>
+  );
+}
+
+function SidebarTaskSummary() {
+  return (
+    <section className="sidebar-task-summary" aria-label="任务">
+      <h2>任务</h2>
+      <p>待后端接入</p>
+    </section>
   );
 }
 

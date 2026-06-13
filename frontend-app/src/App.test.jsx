@@ -591,8 +591,8 @@ async function showAllTraceDashboardEvents() {
     expect(shell).toHaveAttribute('data-theme', 'light');
     expect(document.querySelector('.traffic-lights')).not.toBeInTheDocument();
     expect(document.querySelector('.titlebar')).not.toBeInTheDocument();
-    expect(within(sidebar).getByText('Super Dolphin')).toBeInTheDocument();
-    expect(within(sidebar).getByRole('button', { name: '新会话' })).toBeInTheDocument();
+    expect(within(sidebar).getByText('Super-Dolphin')).toBeInTheDocument();
+    expect(within(sidebar).getByRole('button', { name: '新对话' })).toBeInTheDocument();
     expect(within(sidebar).getByRole('button', { name: 'Settings' })).toBeInTheDocument();
   });
 
@@ -640,11 +640,11 @@ async function showAllTraceDashboardEvents() {
     render(<App />);
 
     await screen.findByText('后端线程');
-    expect(screen.queryByText('让我们从 Super-Dolphin 开始!')).not.toBeInTheDocument();
+    expect(screen.queryByText('我们应该在 Super-Dolphin 中构建什么？')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '新会话' }));
+    fireEvent.click(screen.getByRole('button', { name: '新对话' }));
 
-    await screen.findByText('让我们从 Super-Dolphin 开始!');
+    await screen.findByText('我们应该在 Super-Dolphin 中构建什么？');
     expect(screen.getByTestId('composer-input')).toHaveValue('');
   });
 
@@ -903,22 +903,22 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(sidebarToggle).not.toHaveTextContent('侧边栏');
   });
 
-  it('renders the screenshot sidebar primary navigation order', () => {
+  it('renders the prototype sidebar primary navigation order', () => {
     render(<App skipBootstrap />);
 
-    expect(within(screen.getByTestId('sidebar-nav')).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
-      '插件市场',
-      '提示词',
+    expect(within(screen.getByTestId('sidebar-nav')).getAllByRole('button').map((button) => button.textContent)).toEqual([
+      '插件',
       '自动化',
+      '定制角色',
+      '共享文件',
     ]);
   });
 
-  it('keeps secondary navigation outside the screenshot primary rail', () => {
+  it('keeps non-prototype utility navigation outside the primary rail', () => {
     render(<App skipBootstrap />);
 
     expect(within(screen.getByTestId('sidebar-secondary-nav')).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
       '记忆中心',
-      '共享文件',
       '链路追踪',
     ]);
   });
@@ -940,7 +940,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    const chatButton = await screen.findByRole('button', { name: '新会话' });
+    const chatButton = await screen.findByRole('button', { name: '新对话' });
     await waitFor(() => expect(chatButton).toHaveClass('active'));
     expect(screen.queryByRole('button', { name: '任务' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '命令' })).not.toBeInTheDocument();
@@ -2168,7 +2168,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     await screen.findByText('新对话');
     expect(container.querySelector('.work-status')).toBeNull();
     expect(container).not.toHaveTextContent(internalId);
-    expect(screen.getByText('新对话')).toBeInTheDocument();
+    expect(screen.getAllByText('新对话').length).toBeGreaterThan(0);
   });
 
   it('shows a lightweight history placeholder when the active thread has no trusted cache', async () => {
@@ -2668,6 +2668,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const composer = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
     expect(composer).toHaveAttribute('rows', '3');
+    expect(composer).toHaveAttribute('placeholder', '随心输入');
   });
 
   it('does not render a desktop titlebar inside the workbench shell', async () => {
@@ -2676,7 +2677,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(await screen.findByText('后端线程')).toBeInTheDocument();
     expect(container.querySelector('.traffic-lights')).toBeNull();
     expect(container.querySelectorAll('.titlebar')).toHaveLength(0);
-    expect(within(screen.getByTestId('app-sidebar')).getByText('Super Dolphin')).toBeInTheDocument();
+    expect(within(screen.getByTestId('app-sidebar')).getByText('Super-Dolphin')).toBeInTheDocument();
   });
 
   it('keeps the user message visible and calls thread/start before turn/start for a new chat', async () => {
@@ -2687,7 +2688,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    await screen.findByText('让我们从 Super-Dolphin 开始!');
+    await screen.findByText('我们应该在 Super-Dolphin 中构建什么？');
     expect(screen.queryByTestId('composer-project')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('发送权限')).not.toBeInTheDocument();
     fireEvent.change(screen.getByTestId('composer-input'), {
@@ -2847,7 +2848,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const { container } = render(<App />);
 
-    await screen.findByText('让我们从 Super-Dolphin 开始!');
+    await screen.findByText('我们应该在 Super-Dolphin 中构建什么？');
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer', 'composer--floating');
     expect(screen.getByTestId('chat-timeline')).toContainElement(screen.getByTestId('composer-dock'));
     expect(container.querySelector('.work-status')).toBeNull();
@@ -3458,7 +3459,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    await screen.findByText('让我们从 Super-Dolphin 开始!');
+    await screen.findByText('我们应该在 Super-Dolphin 中构建什么？');
     expect(screen.queryByLabelText('复制当前线程')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('停止')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('线程状态')).not.toBeInTheDocument();
@@ -3483,7 +3484,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    await screen.findByText('让我们从 Super-Dolphin 开始!');
+    await screen.findByText('我们应该在 Super-Dolphin 中构建什么？');
     expect(screen.queryByLabelText('复制当前线程')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('线程状态')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('停止')).not.toBeInTheDocument();
@@ -3873,7 +3874,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     backend.getThreadState.mockResolvedValue({ timelinesByThread: {} });
 
     render(<App />);
-    await screen.findByText('让我们从 Super-Dolphin 开始!');
+    await screen.findByText('我们应该在 Super-Dolphin 中构建什么？');
 
     const providerToggle = screen.getByLabelText('切换 Claude / Codex provider');
     expect(providerToggle).not.toBeDisabled();
@@ -4593,7 +4594,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     await screen.findByText('后端线程');
 
     expect(screen.queryByLabelText('命令')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('任务')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('任务')).toHaveTextContent('待后端接入');
 
     fireEvent.click(screen.getByLabelText('插件市场'));
     expect(await screen.findByText('技能管理')).toBeInTheDocument();
@@ -5081,7 +5082,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(screen.getByLabelText('提示词'));
     expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('新会话'));
+    fireEvent.click(screen.getByLabelText('新对话'));
     prompts = [{
       id: 'main/deploy',
       name: '部署助手',
@@ -5683,7 +5684,7 @@ async function createGeneratedPromptIntent() {
     fireEvent.click(screen.getByLabelText('记忆中心'));
     expect(await screen.findByText('遵守 TDD')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('新会话'));
+    fireEvent.click(screen.getByLabelText('新对话'));
     entries = [{
       name: 'reply-language',
       title: '默认中文',
@@ -6312,7 +6313,7 @@ async function continueChatFromFinalSharedFile() {
     fireEvent.click(screen.getByLabelText('共享文件'));
     expect(await screen.findByText('final.md')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('新会话'));
+    fireEvent.click(screen.getByLabelText('新对话'));
     memoryFiles = [{
       path: 'scratch/notes.md',
       content: 'fresh notes',
@@ -6918,7 +6919,7 @@ async function continueChatFromFinalSharedFile() {
     fireEvent.click(screen.getByLabelText('自动化'));
     expect((await screen.findAllByText('流程 A')).length).toBeGreaterThanOrEqual(1);
 
-    fireEvent.click(screen.getByLabelText('新会话'));
+    fireEvent.click(screen.getByLabelText('新对话'));
     dags = [{
       dag_key: 'flow-b',
       title: '流程 B',
@@ -7507,7 +7508,7 @@ async function designWorkflowWithAi() {
     fireEvent.click(screen.getByLabelText('插件市场'));
     expect(await screen.findByText('后端')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('新会话'));
+    fireEvent.click(screen.getByLabelText('新对话'));
     backend.getDashboardPage.mockResolvedValueOnce({
       skills: [{
         name: 'security',

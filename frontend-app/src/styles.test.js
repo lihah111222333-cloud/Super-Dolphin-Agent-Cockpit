@@ -748,7 +748,7 @@ describe('conversation content column styles', () => {
     const floatingComposer = declarationsFor('.conversation--intro .composer--floating');
     const floatingCard = declarationsFor('.composer--floating .composer-card');
 
-    expect(introConversation['--conversation-intro-width']).toBe('min(1120px, calc(100% - 96px))');
+    expect(introConversation['--conversation-intro-width']).toBe('min(884px, calc(100% - 120px))');
     expect(introConversation['--conversation-content-width']).toBe('var(--conversation-intro-width)');
     expect(introConversation['--conversation-content-left-nudge']).toBe('0px');
     expect(introTimeline['align-items']).toBe('center');
@@ -779,14 +779,14 @@ describe('workbench shell styles', () => {
     const brand = declarationsFor('.sidebar-brand');
     const newChat = declarationsFor('.sidebar-new-chat');
 
-    expect(sidebar.width).toBe('324px');
+    expect(sidebar.width).toBe('340px');
     expect(sidebar.background).toBe('var(--sidebar-bg)');
     expect(sidebar['border-right']).toBe('1px solid var(--sidebar-border)');
     expect(body.height).toBe('100vh');
-    expect(body['grid-template-columns']).toBe('324px minmax(0, 1fr)');
+    expect(body['grid-template-columns']).toBe('340px minmax(0, 1fr)');
     expect(brand.display).toBe('inline-flex');
     expect(newChat.height).toBe('56px');
-    expect(newChat.background).toBe('var(--accent-2)');
+    expect(newChat.background).toBe('var(--sidebar-active)');
   });
 
   it('exposes a mobile workbench drawer so settings remains reachable', () => {
