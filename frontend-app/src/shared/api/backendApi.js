@@ -1118,6 +1118,8 @@ function stripThreadStartInternalKeys(rest) {
   delete rest.provider;
   delete rest.modelProvider;
   delete rest.model_provider;
+  delete rest.codexModelProvider;
+  delete rest.codex_model_provider;
   delete rest.promptKey;
   delete rest.prompt_key;
   delete rest.agentKey;

@@ -1291,7 +1291,7 @@ async function buildPromptDraft({ cwd, kind, rawInput, scope, resolveLaunchPrefe
     scope,
     provider: textValue(launchPreferences?.modelProvider || launchPreferences?.provider),
     model: textValue(launchPreferences?.model),
-    codexModelProvider: textValue(launchPreferences?.config?.codexModelProvider),
+    codexModelProvider: textValue(launchPreferences?.codexModelProvider || launchPreferences?.config?.codexModelProvider),
   });
 }
 

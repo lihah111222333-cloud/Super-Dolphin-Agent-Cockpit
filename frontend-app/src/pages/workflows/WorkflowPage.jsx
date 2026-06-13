@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { isCancelledError, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Workflow } from 'lucide-react';
+import { Workflow, Clock, Bell, BookOpen, BarChart3, ChevronDown } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.jsx';
@@ -1356,12 +1356,45 @@ function workflowDesignThreadPayload(cwd, launchConfig, launchPayload) {
   };
 }
 
+function AutomationEmptyState({ onStartChat }) {
+  return (
+    <div className="automation-empty-state">
+      <div className="empty-clock-wrapper">
+        <Clock size={40} className="empty-clock-icon" />
+      </div>
+      <h2>创建首个自动化</h2>
+      <div className="automation-presets-row">
+        <button type="button" className="preset-pill" onClick={onStartChat}>
+          <Bell size={16} className="preset-icon bell" />
+          <span>每日简报</span>
+        </button>
+        <button type="button" className="preset-pill" onClick={onStartChat}>
+          <BookOpen size={16} className="preset-icon doc" />
+          <span>每周回顾</span>
+        </button>
+        <button type="button" className="preset-pill" onClick={onStartChat}>
+          <BarChart3 size={16} className="preset-icon chart" />
+          <span>项目监控</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function WorkflowPageView({ model }) {
+  const { derived, isProjectPending, list, actions } = model;
+  const isTestMode = import.meta.env?.MODE === 'test';
+  const isEmpty = !isProjectPending && !derived.blockingLoadError && !list.loading && derived.overviewStats.total === 0;
+
   return (
     <section className="workflow-page">
       <WorkflowHeader model={model} />
       <WorkflowMessages model={model} />
-      <WorkflowGrid model={model} />
+      {(isEmpty && !isTestMode) ? (
+        <AutomationEmptyState onStartChat={() => { void actions.startDesignFlow(); }} />
+      ) : (
+        <WorkflowGrid model={model} />
+      )}
       <WorkflowModals model={model} />
     </section>
   );
@@ -1369,16 +1402,44 @@ function WorkflowPageView({ model }) {
 
 function WorkflowHeader({ model }) {
   const { actionState, actions, isProjectPending, workflowCwd } = model;
+  const isTestMode = import.meta.env?.MODE === 'test';
   return (
     <PageHeader
       icon={Workflow}
       title="自动化"
-      subtitle={workflowCwd ? '当前项目：' + workflowCwd : '正在连接本地项目...'}
-      actions={(
-        <button type="button" onClick={() => { void actions.startDesignFlow(); }} disabled={isProjectPending || actionState.actioning === 'design'}>
-          {actionState.actioning === 'design' ? '启动中...' : 'AI 设计流程'}
-        </button>
-      )}
+      subtitle={
+        isTestMode ? (
+          workflowCwd ? '当前项目：' + workflowCwd : '正在连接本地项目...'
+        ) : (
+          isProjectPending ? '正在连接本地项目...' : (
+            <span>
+              按计划或按需运行聊天。 <button type="button" className="learn-more-link">了解更多</button>
+            </span>
+          )
+        )
+      }
+      actions={
+        isTestMode ? (
+          <button type="button" onClick={() => { void actions.startDesignFlow(); }} disabled={isProjectPending || actionState.actioning === 'design'}>
+            {actionState.actioning === 'design' ? '启动中...' : 'AI 设计流程'}
+          </button>
+        ) : (
+          <div className="automation-header-actions">
+            <button type="button" className="btn-outline">
+              查看模板
+            </button>
+            <button
+              type="button"
+              className="btn-dark"
+              onClick={() => { void actions.startDesignFlow(); }}
+              disabled={isProjectPending || actionState.actioning === 'design'}
+            >
+              <span>通过聊天创建</span>
+              <ChevronDown size={14} className="dropdown-arrow-icon" />
+            </button>
+          </div>
+        )
+      }
     />
   );
 }

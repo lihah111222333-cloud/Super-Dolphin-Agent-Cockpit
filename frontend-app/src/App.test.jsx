@@ -645,25 +645,49 @@ async function showAllTraceDashboardEvents() {
     expect(shell).not.toHaveClass('sidebar-open');
   });
 
-  it('wires the sidebar project directory to project and file picker actions', async () => {
+  it('wires the sidebar project directory to project and thread actions', async () => {
+    backend.getSidebarState.mockImplementation(({ cwd }) => Promise.resolve(cwd === '/repo/other' ? {
+      activeThreadId: 'thread-other',
+      threads: [{ id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle', cwd: '/repo/other' }],
+    } : {
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中', cwd: '/repo/app' }],
+    }));
+    backend.getThreadState.mockImplementation(({ threadId }) => Promise.resolve({
+      activeThreadId: threadId,
+      threads: [
+        { id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中', cwd: '/repo/app' },
+        { id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle', cwd: '/repo/other' },
+      ],
+      timelinesByThread: {
+        [threadId]: [{ id: `message-${threadId}`, kind: 'assistant', text: `${threadId} message`, ts: '2026-05-30T00:00:00Z' }],
+      },
+    }));
     backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
     backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
     backend.addProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other', '/repo/new'], active: '/repo/other' });
     backend.selectProjectDir.mockResolvedValue('/repo/new');
-    backend.selectFiles.mockResolvedValue(['/repo/app/src/main.go']);
 
     render(<App />);
 
     const sidebar = await screen.findByTestId('app-sidebar');
+    const appChats = await within(sidebar).findByRole('list', { name: 'app 聊天记录' });
+    const otherChats = await within(sidebar).findByRole('list', { name: 'other 聊天记录' });
+    expect(within(appChats).getByTitle('后端线程')).toBeInTheDocument();
+    expect(within(appChats).queryByText('指定文件')).not.toBeInTheDocument();
+    expect(within(appChats).queryByText('共享文件')).not.toBeInTheDocument();
+    expect(within(otherChats).queryByTitle('Other project chat')).not.toBeInTheDocument();
+
     fireEvent.click(await within(sidebar).findByRole('button', { name: '选择项目 other' }));
     await waitFor(() => expect(backend.setActiveProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/other' }));
+    await waitFor(() => expect(within(otherChats).getByTitle('Other project chat')).toBeInTheDocument());
+
+    fireEvent.click(within(otherChats).getByTitle('Other project chat'));
+    await waitFor(() => expect(useClientStore.getState().activeThreadId).toBe('thread-other'));
 
     fireEvent.click(within(sidebar).getByRole('button', { name: '添加项目目录' }));
     await waitFor(() => expect(backend.selectProjectDir).toHaveBeenCalledWith('/repo/other'));
     expect(backend.addProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
-
-    fireEvent.click(within(sidebar).getByRole('button', { name: '添加文件到会话' }));
-    await waitFor(() => expect(backend.selectFiles).toHaveBeenCalled());
     expect(await screen.findByTestId('chat-page')).toBeInTheDocument();
   });
 
@@ -937,12 +961,21 @@ async function toggleInlineTraceFromRecentLogs(table) {
   it('renders the prototype sidebar primary navigation order', () => {
     render(<App skipBootstrap />);
 
-    expect(within(screen.getByTestId('sidebar-nav')).getAllByRole('button').map((button) => button.textContent)).toEqual([
+    const navButtons = within(screen.getByTestId('sidebar-nav')).getAllByRole('button');
+
+    expect(navButtons.map((button) => button.textContent)).toEqual([
       '插件',
       '自动化',
       '定制角色',
       '共享文件',
     ]);
+    expect(navButtons.map((button) => button.querySelector('svg')?.classList.value)).toEqual([
+      expect.stringContaining('lucide-puzzle'),
+      expect.stringContaining('lucide-refresh-cw'),
+      expect.stringContaining('lucide-circle-user-round'),
+      expect.stringContaining('lucide-folder-open'),
+    ]);
+    expect(screen.getByRole('button', { name: '新对话' }).querySelector('svg')).toHaveClass('lucide-square-plus');
   });
 
   it('keeps non-prototype utility navigation outside the primary rail', () => {
@@ -2740,6 +2773,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(startPayload).not.toHaveProperty('prompt');
     expect(startPayload).not.toHaveProperty('optimisticUserMessage');
     expect(startPayload).not.toHaveProperty('skipInitialRuntimeSync');
+    expect(startPayload).not.toHaveProperty('config');
 
     expect(screen.getAllByText('请真正调用后端聊天').length).toBeGreaterThanOrEqual(1);
   });

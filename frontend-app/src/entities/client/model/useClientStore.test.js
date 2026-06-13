@@ -2133,6 +2133,68 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
+  it('omits default Codex identity preferences from thread/start launch payload', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Use default Codex identity',
+      attachments: [],
+    });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexHome': '~/.codex',
+      'settings.provider.codex.codexInstanceKey': 'default',
+      'settings.provider.codex.codexModelProvider': 'openai',
+    }[key] ?? null));
+    backend.startThread.mockResolvedValue({ threadId: 'thread-default-codex' });
+    backend.startTurn.mockResolvedValue({ ok: true });
+
+    await useClientStore.getState().sendDraft();
+
+    const payload = backend.startThread.mock.calls[0][0];
+    expect(payload).toEqual(expect.objectContaining({
+      cwd: '/repo/app',
+      modelProvider: 'codex',
+      model: 'gpt-5.5',
+      effort: 'xhigh',
+    }));
+    expect(payload).not.toHaveProperty('config');
+  });
+
+  it('omits expanded local Codex home defaults from thread/start launch payload', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Use expanded default Codex home',
+      attachments: [],
+    });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexHome': 'C:\\Users\\ai01\\.codex',
+      'settings.provider.codex.codexInstanceKey': 'default',
+      'settings.provider.codex.codexModelProvider': 'openai',
+    }[key] ?? null));
+    backend.startThread.mockResolvedValue({ threadId: 'thread-expanded-default-codex' });
+    backend.startTurn.mockResolvedValue({ ok: true });
+
+    await useClientStore.getState().sendDraft();
+
+    const payload = backend.startThread.mock.calls[0][0];
+    expect(payload).toEqual(expect.objectContaining({
+      cwd: '/repo/app',
+      modelProvider: 'codex',
+      model: 'gpt-5.5',
+      effort: 'xhigh',
+    }));
+    expect(payload).not.toHaveProperty('config');
+  });
+
   it('starts thread without model preference when it is missing', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -2180,6 +2242,7 @@ function registerBridgeEventHandlersForTest() {
       modelProvider: 'codex',
       model: 'gpt-5.5',
       effort: 'xhigh',
+      codexModelProvider: 'openrouter',
       prompt_key: 'main/reviewer',
       config: {
         codexHome: '/Users/test/.codex-alt',

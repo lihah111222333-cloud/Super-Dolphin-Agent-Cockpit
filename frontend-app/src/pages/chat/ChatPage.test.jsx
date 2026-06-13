@@ -187,6 +187,19 @@ describe('ChatPage module', () => {
     expect(screen.queryByRole('button', { name: '滚动到底部' })).not.toBeInTheDocument();
   });
 
+  it('keeps successful new-chat notices out of the intro title bar', () => {
+    const store = createFakeStore({
+      actionNotice: { message: '已创建新对话草稿', tone: 'success' },
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    expect(screen.getByRole('heading', { name: '我们应该在 Super-Dolphin 中构建什么？' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '聊天页面' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('chat-action-feedback')).toHaveClass('sr-only');
+    expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('已创建新对话草稿');
+  });
+
   it('keeps the generic title when active thread metadata is missing', () => {
     const store = createFakeStore({
       activeThreadId: 'missing-thread',
@@ -241,6 +254,9 @@ describe('ChatPage module', () => {
     const { container } = render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
 
     expect(screen.getByRole('heading', { name: '修复会话' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '筛选消息' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '消息列表' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '布局视图' })).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByTestId('chat-page')).not.toHaveClass('chat-page--intro');
     expect(screen.getByTestId('conversation-drop-zone')).not.toHaveClass('conversation--intro');
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer--docked');
@@ -279,7 +295,7 @@ describe('ChatPage module', () => {
     expect(timeline.scrollTop).toBe(960);
     requestAnimationFrameSpy.mockRestore();
 
-    fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
+    fireEvent.click(screen.getByRole('button', { name: '布局视图' }));
     await waitFor(() => expect(screen.getByTestId('runtime-panel')).toBeInTheDocument());
     expect(store.setRightPanelWidth).toHaveBeenCalledWith(expect.any(Number));
     expect(store.syncThreadState).toHaveBeenCalledWith('thread-1', {

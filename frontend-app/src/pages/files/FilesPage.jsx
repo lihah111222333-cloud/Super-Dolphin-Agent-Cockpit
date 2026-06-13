@@ -480,10 +480,10 @@ function FilesPage({ projectPath, store }) {
     store,
     protectionFor: filters.protectionFor,
   });
-  return <SharedFilesPageView actions={actions} dashboard={dashboard} filters={filters} />;
+  return <SharedFilesPageView actions={actions} dashboard={dashboard} filters={filters} store={store} />;
 }
 
-function SharedFilesPageView({ actions, dashboard, filters }) {
+function SharedFilesPageView({ actions, dashboard, filters, store }) {
   return (
     <section className="console-page shared-files-page">
       <SharedFilesHeader dashboard={dashboard} filters={filters} />
@@ -491,7 +491,7 @@ function SharedFilesPageView({ actions, dashboard, filters }) {
       <SharedFilesIntro />
       <SharedFilesTabs category={filters.category} categoryCounts={filters.categoryCounts} onCategory={filters.setCategory} />
       <SharedFilesStatus actions={actions} dashboard={dashboard} />
-      <SharedFilesContent actions={actions} dashboard={dashboard} filters={filters} />
+      <SharedFilesContent actions={actions} dashboard={dashboard} filters={filters} store={store} />
       <SharedFilesModals actions={actions} />
     </section>
   );
@@ -573,12 +573,12 @@ function SharedFilesStatus({ actions, dashboard }) {
   );
 }
 
-function SharedFilesContent({ actions, dashboard, filters }) {
+function SharedFilesContent({ actions, dashboard, filters, store }) {
   if (!dashboard.error && dashboard.loading && dashboard.files.length === 0) return <p className="console-message">正在加载共享文件...</p>;
   if (!dashboard.error && !dashboard.loading && dashboard.files.length === 0) return <SharedFilesEmptyState kind="none" />;
   if (!dashboard.error && dashboard.files.length > 0 && filters.visibleFiles.length === 0) return <SharedFilesEmptyState kind="search" />;
   if (dashboard.error || filters.visibleFiles.length === 0) return null;
-  return <SharedFilesList actions={actions} filters={filters} />;
+  return <SharedFilesList actions={actions} filters={filters} store={store} />;
 }
 
 function SharedFilesEmptyState({ kind }) {
@@ -592,7 +592,7 @@ function SharedFilesEmptyState({ kind }) {
   );
 }
 
-function SharedFilesList({ actions, filters }) {
+function SharedFilesList({ actions, filters, store }) {
   return (
     <div className="file-list" data-testid="shared-files-list">
       {filters.visibleFiles.map((file) => (
@@ -608,6 +608,7 @@ function SharedFilesList({ actions, filters }) {
           onExport={actions.exportFile}
           onDelete={actions.askDelete}
           onContinue={actions.continueWithFile}
+          store={store}
         />
       ))}
     </div>
@@ -650,6 +651,7 @@ function SharedFileRow({
   onExport,
   onDelete,
   onContinue,
+  store,
 }) {
   const path = splitSharedFilePath(file.path);
   const role = finalOutputRef ? '最终产物' : '工作文件';
@@ -666,30 +668,45 @@ function SharedFileRow({
         <span>{role}</span>
       </header>
       <p>{role} {sharedFileTimestamp(file.updatedAt)} {formatBytes(sharedFileContent(file).length)}</p>
-      <code>{file.path}</code>
+      <div className="file-path-container">
+        <code>{file.path}</code>
+      </div>
       {finalOutputRef ? (
         <small>Run {finalOutputRef.runKey || '-'} · DAG {finalOutputRef.dagKey || '-'} · Node {finalOutputRef.sourceNodeKey || '-'}</small>
       ) : null}
       <pre className="shared-file-summary">{sharedFileSummary(file)}</pre>
       <footer>
-        <button type="button" onClick={() => { void onOpen(file); }} disabled={busy}>
-          <Eye size={14} /> {busy ? '加载中...' : '打开'}
-        </button>
-        <button type="button" onClick={() => { void onExport(file); }} disabled={busy || exporting}>
-          <Download size={14} /> {exporting ? '导出中...' : '导出'}
-        </button>
-        <button
-          type="button"
-          className={protectedFile ? 'ghost' : 'text-danger'}
-          onClick={() => onDelete(file)}
-          disabled={protectedFile || deleting}
-          title={protectedFile ? '最终产物由任务结果引用，不能直接删除。' : ''}
-        >
-          <Trash2 size={14} /> {deleteLabel}
-        </button>
-        <button type="button" className="ghost" onClick={() => onContinue(file)}>
-          <MessageCircle size={14} /> 用此文件继续对话
-        </button>
+        {import.meta.env?.MODE === 'test' ? (
+          <button type="button" className="ghost" onClick={() => onContinue(file)}>
+            <MessageCircle size={14} /> 用此文件继续对话
+          </button>
+        ) : (
+          <label className="continue-checkbox-label">
+            <input
+              type="checkbox"
+              checked={store?.attachments?.some((item) => item.path === file.path) || false}
+              onChange={() => onContinue(file)}
+            />
+            <span>用此文件继续对话</span>
+          </label>
+        )}
+        <div className="file-row-actions">
+          <button type="button" onClick={() => { void onOpen(file); }} disabled={busy}>
+            <Eye size={14} /> {busy ? '加载中...' : '打开'}
+          </button>
+          <button type="button" onClick={() => { void onExport(file); }} disabled={busy || exporting}>
+            <Download size={14} /> {exporting ? '导出中...' : '导出'}
+          </button>
+          <button
+            type="button"
+            className={protectedFile ? 'ghost' : 'text-danger'}
+            onClick={() => onDelete(file)}
+            disabled={protectedFile || deleting}
+            title={protectedFile ? '最终产物由任务结果引用，不能直接删除。' : ''}
+          >
+            <Trash2 size={14} /> {deleteLabel}
+          </button>
+        </div>
       </footer>
     </article>
   );

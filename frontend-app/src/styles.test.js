@@ -82,6 +82,12 @@ function mediaDeclarationsFor(mediaParams, selector) {
   return matches;
 }
 
+function mediaDeclarationFor(mediaParams, selector, property) {
+  return mediaDeclarationsFor(mediaParams, selector).find((declarations) => (
+    Object.prototype.hasOwnProperty.call(declarations, property)
+  )) || {};
+}
+
 function containerDeclarationsFor(containerParams, selector) {
   const matches = [];
   root.walkAtRules('container', (atRule) => {
@@ -232,10 +238,10 @@ describe('composer layout styles', () => {
     const floatingTextarea = declarationsFor('.composer--floating textarea');
 
     expect(textarea['line-height']).toBe('1.5');
-    expect(textarea.height).toBe('116px');
-    expect(textarea['min-height']).toBe('116px');
-    expect(floatingTextarea.height).toBe('160px');
-    expect(floatingTextarea['min-height']).toBe('160px');
+    expect(textarea.height).toBe('104px');
+    expect(textarea['min-height']).toBe('104px');
+    expect(floatingTextarea.height).toBe('136px');
+    expect(floatingTextarea['min-height']).toBe('136px');
     expect(textarea['max-height']).toBe('calc(1.5em * 8 + 34px)');
     expect(textarea['overflow-y']).toBe('auto');
   });
@@ -268,13 +274,13 @@ describe('composer layout styles', () => {
     const statusLine = declarationsFor('.thread-status-row');
     const statusDot = declarationsFor('.thread-status-dot');
 
-    expect(nav.gap).toBe('14px');
+    expect(nav.gap).toBe('10px');
     expect(nav['padding-top']).toBe('0');
     expect(navButton.width).toBe('100%');
     expect(navButton['border-left']).toBeUndefined();
     expect(navActive.background).toBe('var(--sidebar-active)');
-    expect(navIcon.width).toBe('22px');
-    expect(navIcon.height).toBe('22px');
+    expect(navIcon.width).toBe('20px');
+    expect(navIcon.height).toBe('20px');
     expect(navIcon['flex-shrink']).toBe('0');
     expect(threadToolIcon.width).toBe('16px');
     expect(threadToolIcon.height).toBe('16px');
@@ -736,8 +742,20 @@ describe('conversation content column styles', () => {
     const dockedComposer = declarationsFor('.composer.composer--docked');
     const dockedComposerCard = declarationsFor('.composer--docked .composer-card');
     const scrollButton = declarationsFor('.chat-scroll-bottom-btn');
+    const headerTools = declarationsFor('.chat-header-tools');
+    const headerTool = declarationsFor('.chat-header-tool');
+    const disabledHeaderTool = declarationsFor('.chat-header-tool:disabled');
 
-    expect(conversation['--conversation-content-width']).toBe('min(940px, calc(100% - 128px))');
+    expect(conversation['--conversation-content-width']).toBe('min(900px, max(0px, calc(100% - clamp(24px, 7vw, 104px))))');
+    expect(headerTools.display).toBe('inline-flex');
+    expect(headerTools['align-items']).toBe('center');
+    expect(headerTools.gap).toBe('22px');
+    expect(headerTools['margin-top']).toBe('-6px');
+    expect(headerTool.width).toBe('32px');
+    expect(headerTool.height).toBe('32px');
+    expect(headerTool.background).toBe('transparent');
+    expect(headerTool.color).toBe('var(--text-sec)');
+    expect(disabledHeaderTool.opacity).toBe('1');
     expect(timeline.display).toBe('flex');
     expect(timeline['flex-direction']).toBe('column');
     expect(timeline['align-items']).toBe('flex-start');
@@ -748,12 +766,14 @@ describe('conversation content column styles', () => {
     expect(userBubble['margin-left']).toBe('auto');
     expect(userBubble.background).toBe('var(--message-user-bg, var(--workbench-ink, var(--accent-2)))');
     expect(userBubble.color).toBe('var(--message-user-text, var(--on-accent))');
-    expect(composer.width).toBe('min(940px, calc(100% - 112px))');
+    expect(composer.width).toBe('min(900px, max(0px, calc(100% - clamp(24px, 6vw, 96px))))');
     expect(dockedComposer.padding).toBe('0');
+    expect(dockedComposer['border-top']).toBe('0');
+    expect(dockedComposer.background).toBe('transparent');
     expect(dockedComposerCard.width).toBe('100%');
     expect(dockedComposerCard.margin).toBe('0 auto');
     expect(dockedComposerCard.border).toBe('1px solid color-mix(in srgb, var(--border) 88%, var(--surface))');
-    expect(dockedComposerCard['border-radius']).toBe('36px');
+    expect(dockedComposerCard['border-radius']).toBe('30px');
     expect(dockedComposerCard['box-shadow']).toBe('var(--composer-shadow)');
     expect(scrollButton.position).toBe('absolute');
     expect(scrollButton.right).toBe('max(18px, var(--conversation-content-right-gutter))');
@@ -764,27 +784,48 @@ describe('conversation content column styles', () => {
 
   it('keeps the new-chat intro stage positioned and full width', () => {
     const introConversation = declarationsFor('.conversation--intro');
+    const introTimelineShell = declarationsFor('.conversation--intro .timeline-shell');
     const introTimeline = declarationsFor('.conversation--intro .timeline');
-    const introStage = declarationsFor('.intro-chat-stage');
+    const introStage = declarationsFor('.conversation--intro .intro-chat-stage');
     const introTitle = topLevelDeclarationsFor('.empty-chat h2');
+    const scopedIntroTitle = declarationsFor('.conversation--intro .empty-chat h2');
     const introCopy = topLevelDeclarationsFor('.empty-chat p');
     const floatingComposer = declarationsFor('.conversation--intro .composer--floating');
     const floatingCard = declarationsFor('.composer--floating .composer-card');
 
-    expect(introConversation['--conversation-intro-width']).toBe('min(1040px, calc(100% - 104px))');
-    expect(introConversation['--conversation-composer-width']).toBe('min(884px, 100%)');
+    expect(introConversation['--conversation-intro-width']).toBe('min(920px, max(0px, calc(100% - clamp(24px, 6vw, 88px))))');
+    expect(introConversation['--conversation-composer-width']).toBe('min(820px, 100%)');
     expect(introConversation['--conversation-content-width']).toBe('var(--conversation-intro-width)');
     expect(introConversation['--conversation-content-left-nudge']).toBe('0px');
+    expect(introTimelineShell.display).toBe('block');
+    expect(introTimelineShell.width).toBe('100%');
+    expect(introTimelineShell.height).toBe('100%');
+    expect(introTimeline.display).toBe('flex');
+    expect(introTimeline.width).toBe('100%');
+    expect(introTimeline.height).toBe('100%');
     expect(introTimeline['align-items']).toBe('center');
-    expect(introStage.width).toBe('var(--conversation-intro-width)');
+    expect(introTimeline['justify-content']).toBe('flex-start');
+    expect(introTimeline.padding).toBe('0');
+    expect(introStage.width).toBe('min(100%, var(--conversation-intro-width))');
+    expect(introStage['max-width']).toBe('100%');
+    expect(introStage.display).toBe('flex');
     expect(introStage['justify-content']).toBe('flex-start');
-    expect(introStage['padding-top']).toBe('clamp(280px, 36vh, 450px)');
-    expect(introTitle['font-size']).toBe('50px');
+    expect(introStage['min-height']).toBe('0');
+    expect(introStage.gap).toBe('clamp(22px, 3.8vh, 38px)');
+    expect(introStage['padding-top']).toBe('clamp(116px, 30vh, 340px)');
+    expect(introTitle['font-size']).toBe('clamp(28px, 3vw, 46px)');
     expect(introTitle['font-weight']).toBe('800');
     expect(introTitle['white-space']).toBe('nowrap');
+    expect(introTitle['overflow-wrap']).toBe('normal');
+    expect(scopedIntroTitle.margin).toBe('0 auto');
+    expect(scopedIntroTitle.width).toBe('min(100%, max-content)');
+    expect(scopedIntroTitle['max-width']).toBe('100%');
+    expect(scopedIntroTitle.transform).toBe('translateX(clamp(-28px, -2.2vw, 0px))');
     expect(introCopy.display).toBe('none');
     expect(floatingComposer.width).toBe('var(--conversation-composer-width)');
     expect(floatingComposer['max-width']).toBe('100%');
+    expect(floatingComposer.padding).toBe('0');
+    expect(floatingComposer.background).toBe('transparent');
     expect(floatingCard.width).toBe('100%');
     expect(floatingCard.margin).toBe('0 auto');
   });
@@ -808,15 +849,44 @@ describe('workbench shell styles', () => {
     const body = declarationsFor('.sa-body');
     const brand = declarationsFor('.sidebar-brand');
     const newChat = declarationsFor('.sidebar-new-chat');
+    const projectTree = declarationsFor('.sidebar-project-tree');
+    const settings = declarationsFor('.sidebar-settings');
 
-    expect(sidebar.width).toBe('350px');
+    expect(sidebar.width).toBe('var(--workbench-sidebar-width)');
     expect(sidebar.background).toBe('var(--sidebar-bg)');
     expect(sidebar['border-right']).toBe('1px solid var(--sidebar-border)');
+    expect(sidebar.overflow).toBe('hidden');
     expect(body.height).toBe('100vh');
-    expect(body['grid-template-columns']).toBe('350px minmax(0, 1fr)');
+    expect(body['grid-template-columns']).toBe('var(--workbench-sidebar-width) minmax(0, 1fr)');
     expect(brand.display).toBe('inline-flex');
-    expect(newChat.height).toBe('56px');
+    expect(newChat.height).toBe('50px');
     expect(newChat.background).toBe('var(--sidebar-active)');
+    expect(projectTree.flex).toBe('1 1 auto');
+    expect(projectTree['min-height']).toBe('0');
+    expect(projectTree['overflow-y']).toBe('auto');
+    expect(settings['margin-top']).toBe('auto');
+    expect(settings['flex-shrink']).toBe('0');
+  });
+
+  it('keeps project chat records visible under each sidebar project', () => {
+    const root = declarationsFor('.sidebar-tree-root');
+    const list = declarationsFor('.sidebar-project-thread-list');
+    const thread = declarationsFor('.sidebar-project-thread');
+    const threadLabel = declarationsFor('.sidebar-project-thread span::before');
+    const empty = declarationsFor('.sidebar-project-thread-empty');
+    const chatList = declarationsFor('.app-sidebar--chat .sidebar-project-thread-list');
+    const chatThread = declarationsFor('.app-sidebar--chat .sidebar-project-thread');
+
+    expect(root.display).toBe('grid');
+    expect(root['min-width']).toBe('0');
+    expect(list['border-left']).toBe('1px solid var(--sidebar-border)');
+    expect(list.display).toBe('grid');
+    expect(thread['min-height']).toBe('28px');
+    expect(thread['font-size']).toBe('13px');
+    expect(threadLabel.content).toBe('attr(data-label)');
+    expect(empty['font-style']).toBe('italic');
+    expect(chatList['margin-left']).toBe('14px');
+    expect(chatThread['min-height']).toBe('28px');
   });
 
   it('exposes a mobile workbench drawer so settings remains reachable', () => {
@@ -832,12 +902,16 @@ describe('workbench shell styles', () => {
     expect(mobileToggle.position).toBe('fixed');
     expect(mobileToggle['z-index']).toBe('45');
     expect(mobileSidebar.position).toBe('fixed');
-    expect(mobileSidebar['margin-left']).toBe('-324px');
+    expect(mobileSidebar['--workbench-sidebar-width']).toBe('min(320px, calc(100vw - 52px))');
+    expect(mobileSidebar.width).toBe('var(--workbench-sidebar-width)');
+    expect(mobileSidebar['margin-left']).toBe('calc(-1 * var(--workbench-sidebar-width))');
     expect(mobileSidebar.transform).toBe('none');
     expect(mobileSidebar.transition).toBe('margin-left 180ms ease');
-    expect(mobileSidebar['max-width']).toBe('min(324px, calc(100vw - 52px))');
+    expect(mobileSidebar['max-width']).toBe('var(--workbench-sidebar-width)');
+    expect(mobileSidebar['box-shadow']).toBe('none');
     expect(openSidebar['margin-left']).toBe('0');
     expect(openSidebar.transform).toBe('none');
+    expect(openSidebar['box-shadow']).toBe('var(--shadow)');
     expect(scrim.display).toBe('block');
     expect(mobileSettings['padding-top']).toBe('78px');
   });
@@ -846,15 +920,18 @@ describe('workbench shell styles', () => {
     const mediumConversation = mediaDeclarationsFor('(max-width: 1180px)', '.sa-window .conversation')[0];
     const mediumComposer = mediaDeclarationsFor('(max-width: 1180px)', '.sa-window .composer')[0];
     const mediumActions = mediaDeclarationsFor('(max-width: 1180px)', '.sa-window .composer-actions')[0];
+    const tabletTitle = mediaDeclarationsFor('(max-width: 920px)', '.empty-chat h2')[0];
     const mobileMeta = mediaDeclarationsFor('(max-width: 640px)', '.sa-window .composer-meta')[0];
-    const mobileProject = mediaDeclarationsFor('(max-width: 640px)', '.sa-window .composer-meta .project-select-wrap')[0];
-    const mobileActions = mediaDeclarationsFor('(max-width: 640px)', '.sa-window .composer-actions')[0];
-    const mobileModel = mediaDeclarationsFor('(max-width: 640px)', '.sa-window .composer-model')[0];
+    const mobileProject = mediaDeclarationFor('(max-width: 640px)', '.sa-window .composer-meta .project-select-wrap', 'grid-column');
+    const mobileActions = mediaDeclarationFor('(max-width: 640px)', '.sa-window .composer-actions', 'grid-template-columns');
+    const mobileModel = mediaDeclarationFor('(max-width: 640px)', '.sa-window .composer-model', 'max-width');
     const mobileSend = mediaDeclarationsFor('(max-width: 640px)', '.sa-window .composer .send')[0];
 
-    expect(mediumConversation['--conversation-content-width']).toBe('min(100%, calc(100% - 56px))');
-    expect(mediumComposer.width).toBe('min(100%, calc(100% - 56px))');
+    expect(mediumConversation['--conversation-content-width']).toBe('min(100%, calc(100% - 44px))');
+    expect(mediumComposer.width).toBe('min(100%, calc(100% - 44px))');
     expect(mediumActions['min-width']).toBe('0');
+    expect(tabletTitle['white-space']).toBe('normal');
+    expect(tabletTitle['overflow-wrap']).toBe('anywhere');
     expect(mobileMeta.display).toBe('grid');
     expect(mobileMeta['grid-template-columns']).toBe('minmax(0, 1fr) auto');
     expect(mobileProject['grid-column']).toBe('1 / -1');
@@ -894,7 +971,7 @@ describe('composer control styles', () => {
     expect(wrap.width).toBe('fit-content');
     expect(wrap['max-width']).toBe('min(150px, 42vw)');
     expect(button.width).toBe('fit-content');
-    expect(button.padding).toBe('0 14px');
+    expect(button.padding).toBe('0 12px');
     expect(dropdown.position).toBe('absolute');
     expect(dropdown.inset).toBe('auto 0 calc(100% + 8px) auto');
     expect(dropdown.bottom).toBe('calc(100% + 8px)');

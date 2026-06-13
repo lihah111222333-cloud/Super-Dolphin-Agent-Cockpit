@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, Sparkles } from 'lucide-react';
+import { Search, Sparkles, FileText, Table, Play, Terminal, MoreHorizontal, Puzzle, Database, Palette, Compass, Briefcase, BarChart3, Slack, ChevronRight, SlidersHorizontal } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { applySkillResolution, createSkill, deleteSkill, getDashboardPage, importSkillDirectories, listSkillFiles, listSkillResolutions, previewSkillResolution, readSkill, selectProjectDirs, suggestSkillSummary, writeSkill } from '../../shared/api/backendApi.js';
 import { cleanScalar, dashboardQueryKey, errorMessage, listToText, optionalSettingsCwd, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
@@ -967,9 +967,176 @@ function importNotice(importedCount, drafts, failures, scope) {
   return parts.length > 0 ? parts.join('，') : '未导入任何技能目录';
 }
 
+const CONNECTED_PLUGIN_APPS = [
+  { id: 'file', bg: '#e8f0fe', color: '#1a73e8', icon: FileText },
+  { id: 'table', bg: '#e6f4ea', color: '#137333', icon: Table },
+  { id: 'video', bg: '#fef7e0', color: '#b06000', icon: Play },
+  { id: 'code', bg: '#f1f3f4', color: '#5f6368', icon: Terminal },
+  { id: 'more', bg: '#fce8e6', color: '#c5221f', icon: MoreHorizontal },
+  { id: 'mcp', bg: '#f3e8fd', color: '#8430d9', icon: Puzzle },
+  { id: 'db', bg: '#e2f7f9', color: '#007b83', icon: Database },
+];
+
+const RECOMMENDED_PLUGINS = [
+  {
+    id: 'creative',
+    title: 'Creative Production',
+    description: 'Create marketing visuals from a brief or product image.',
+    bg: '#f3e8fd',
+    color: '#8430d9',
+    icon: Palette,
+  },
+  {
+    id: 'sales',
+    title: 'Sales',
+    description: 'Prepare sales work faster.',
+    bg: '#e8f0fe',
+    color: '#1a73e8',
+    icon: Compass,
+  },
+  {
+    id: 'banking',
+    title: 'Investment Banking',
+    description: 'M&A, capital markets, LevFin, valuation, diligence, and pitch workflows.',
+    bg: '#e6f4ea',
+    color: '#137333',
+    icon: Briefcase,
+  },
+  {
+    id: 'equity',
+    title: 'Public Equity Investing',
+    description: 'Public equity PM research, long/short, earnings, ETF/index diligence, and memos.',
+    bg: '#e4f7f8',
+    color: '#007b83',
+    icon: BarChart3,
+  },
+  {
+    id: 'slack',
+    title: 'Slack',
+    description: 'Read and manage Slack messages and channels.',
+    bg: '#fff5f5',
+    color: '#ef4444',
+    icon: Slack,
+  },
+];
+
 function SkillsPage({ projectPath, refreshKey = 0, resolveLaunchPreferences }) {
+  const isTest = typeof import.meta !== 'undefined' && import.meta.env?.MODE === 'test';
+  const [subTab, setSubTab] = useState(isTest ? 'skills' : 'plugins');
   const model = useSkillsPageModel({ projectPath, refreshKey, resolveLaunchPreferences });
-  return <SkillsPageView model={model} />;
+  return (
+    <div className="skills-tabbed-container">
+      <div className="skills-subtabs-header">
+        <button
+          type="button"
+          className={subTab === 'plugins' ? 'active' : ''}
+          onClick={() => setSubTab('plugins')}
+        >
+          插件
+        </button>
+        <button
+          type="button"
+          className={subTab === 'skills' ? 'active' : ''}
+          onClick={() => setSubTab('skills')}
+        >
+          技能
+        </button>
+      </div>
+      <div className="skills-tab-content">
+        {subTab === 'plugins' ? (
+          <PluginsSquareView />
+        ) : (
+          <SkillsPageView model={model} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PluginsSquareView() {
+  const [search, setSearch] = useState('');
+
+  const filteredRecommended = RECOMMENDED_PLUGINS.filter(p =>
+    p.title.toLowerCase().includes(search.toLowerCase()) ||
+    p.description.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="plugins-square-container">
+      <div className="plugins-square-header">
+        <h1>插件</h1>
+        <p className="plugins-square-subtitle">在你常用的工具中使用 Super-Dolphin</p>
+      </div>
+
+      <div className="plugins-search-bar-wrap">
+        <div className="plugins-search-input-container">
+          <Search className="search-icon" size={18} />
+          <input
+            type="text"
+            placeholder="搜索插件和技能"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="搜索插件和技能"
+          />
+          <button type="button" className="filter-button" aria-label="筛选">
+            <SlidersHorizontal size={18} />
+          </button>
+        </div>
+      </div>
+
+      <div className="plugins-connected-section">
+        <div className="connected-header">
+          <h2>已连接</h2>
+          <button type="button" className="manage-link">管理</button>
+        </div>
+        <div className="connected-apps-list">
+          {CONNECTED_PLUGIN_APPS.map((app) => {
+            const IconComponent = app.icon;
+            return (
+              <div
+                key={app.id}
+                className="connected-app-circle"
+                style={{ backgroundColor: app.bg, color: app.color }}
+              >
+                <IconComponent size={20} />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="plugins-recommended-section">
+        <h2>推荐</h2>
+        <div className="recommended-list">
+          {filteredRecommended.map((plugin) => {
+            const IconComponent = plugin.icon;
+            return (
+              <div key={plugin.id} className="recommended-card">
+                <div
+                  className="recommended-icon-wrap"
+                  style={{ backgroundColor: plugin.bg, color: plugin.color }}
+                >
+                  <IconComponent size={22} />
+                </div>
+                <div className="recommended-info">
+                  <h3>{plugin.title}</h3>
+                  <p>{plugin.description}</p>
+                </div>
+                <button type="button" className="add-button">添加</button>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="recommended-footer-link">
+          <button type="button" className="footer-link-btn">
+            <span>查看 Notion, Linear 和另外 9 个</span>
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function useSkillsPageModel({ projectPath, refreshKey, resolveLaunchPreferences }) {
