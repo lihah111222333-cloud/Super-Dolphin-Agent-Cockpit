@@ -628,14 +628,27 @@ describe('reasoning trace styles', () => {
 describe('assistant message styles', () => {
   it('keeps assistant message content compact instead of spanning the full timeline', () => {
     const message = declarationsFor('.message');
-    const assistantBubble = declarationsFor('.message.assistant .bubble');
+    const assistantBubble = declarationsFor('.message.assistant:not(.approval-message) .bubble');
     const markdown = declarationsFor('.message-markdown');
 
     expect(message.margin).toBe('18px auto');
     expect(assistantBubble['max-width']).toBe('min(1080px, 100%)');
-    expect(assistantBubble.background).toBe('var(--assistant-card-bg)');
+    expect(assistantBubble.padding).toBe('0');
+    expect(assistantBubble.border).toBe('0');
+    expect(assistantBubble.background).toBe('transparent');
     expect(markdown['font-size']).toBe('14px');
     expect(markdown['line-height']).toBe('1.62');
+  });
+
+  it('does not flatten approval message cards through the no-avatar assistant rule', () => {
+    const genericNoAvatarBubble = declarationsFor('.message.assistant.no-avatar .bubble');
+    const noAvatarBubble = declarationsFor('.message.assistant.no-avatar:not(.approval-message) .bubble');
+    const approvalCard = declarationsFor('.message.assistant .approval-card');
+
+    expect(genericNoAvatarBubble.background).toBeUndefined();
+    expect(noAvatarBubble.background).toBe('transparent');
+    expect(approvalCard.background).toBe('color-mix(in srgb, var(--surface-2) 82%, var(--accent) 4%)');
+    expect(approvalCard['box-shadow']).toBe('var(--shadow)');
   });
 
   it('keeps streaming markdown and long code lines from forcing single-line layout', () => {
@@ -715,6 +728,7 @@ describe('conversation content column styles', () => {
     const message = declarationsFor('.message');
     const userMessage = declarationsFor('.message.user');
     const userBubble = declarationsFor('.message.user .bubble');
+    const composer = declarationsFor('.composer');
     const dockedComposer = declarationsFor('.composer.composer--docked');
     const dockedComposerCard = declarationsFor('.composer--docked .composer-card');
     const scrollButton = declarationsFor('.chat-scroll-bottom-btn');
@@ -728,6 +742,9 @@ describe('conversation content column styles', () => {
     expect(userMessage['margin-left']).toBeUndefined();
     expect(userMessage.width).toBe('var(--conversation-content-width)');
     expect(userBubble['margin-left']).toBe('auto');
+    expect(userBubble.background).toBe('var(--message-user-bg, var(--workbench-ink, var(--accent-2)))');
+    expect(userBubble.color).toBe('var(--message-user-text, var(--on-accent))');
+    expect(composer.width).toBe('min(940px, calc(100% - 112px))');
     expect(dockedComposer.padding).toBe('0');
     expect(dockedComposerCard.width).toBe('100%');
     expect(dockedComposerCard.margin).toBe('0 auto');

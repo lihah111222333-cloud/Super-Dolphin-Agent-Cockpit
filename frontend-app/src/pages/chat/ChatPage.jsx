@@ -18,6 +18,7 @@ import {
 import {
   activeThreadForStore,
   activeThreadIdentifiers,
+  displayThreadName,
   normalizedThreadIdentity,
   threadScopedBooleanValue,
   threadScopedMapValue,
@@ -1002,6 +1003,8 @@ function ChatPageHeader({ store, projectPath, rightPanelOpen, setRightPanelOpen 
   const feedback = store?.actionNotice?.message
     ? store.actionNotice
     : (bootstrapFailureMessage ? { message: bootstrapFailureMessage, tone: 'error' } : null);
+  const activeThread = activeThreadForStore(store);
+  const title = store?.activeThreadId && activeThread ? displayThreadName(activeThread) : '聊天页面';
   useEffect(() => {
     if (!actionsOpen) return undefined;
     const closeOnPointerDown = (event) => {
@@ -1028,7 +1031,7 @@ function ChatPageHeader({ store, projectPath, rightPanelOpen, setRightPanelOpen 
   return (
     <header className="chat-page-header">
       <div className="chat-page-title">
-        <h1>聊天页面</h1>
+        <h1>{title}</h1>
         <button
           ref={actionsButtonRef}
           type="button"
