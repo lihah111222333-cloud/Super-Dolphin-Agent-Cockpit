@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
-import { CheckCircle2, File, FileText, Plus } from 'lucide-react';
+import { CheckCircle2, File, FileText } from 'lucide-react';
 import {
   commitPromptIntent,
   copyTextToClipboard,
@@ -19,27 +19,6 @@ import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
 const PROMPTS_REQUEST_TIMEOUT_MS = 8000;
-
-const PROMPT_TABS = Object.freeze([
-  { key: 'all', label: '全部' },
-  { key: 'expert', label: '专家能力' },
-  { key: 'recall', label: '参考资料' },
-  { key: 'default_rule', label: '默认规则' },
-  { key: 'pending', label: '待确认' },
-]);
-
-const PROMPT_SCOPE_FILTERS = Object.freeze([
-  { key: 'all', label: '全部范围' },
-  { key: 'project', label: '这个项目' },
-  { key: 'global', label: '全局可用' },
-]);
-
-const PROMPT_STATUS_FILTERS = Object.freeze([
-  { key: 'all', label: '全部状态' },
-  { key: 'created', label: '已创建' },
-  { key: 'started', label: '已启动' },
-  { key: 'disabled', label: '已停用' },
-]);
 
 const PROMPT_KIND_OPTIONS = Object.freeze([
   { key: 'expert', label: '专家能力' },
@@ -283,10 +262,6 @@ function promptLifecycleStatusLabel(status) {
   return '';
 }
 
-function promptIsForceActive(item, activePromptId) {
-  return activePromptId === item.id && canForceLaunchPrompt(item);
-}
-
 function promptCounts(items) {
   const counts = { all: items.length, expert: 0, recall: 0, default_rule: 0, pending: 0 };
   items.forEach((item) => {
@@ -294,16 +269,6 @@ function promptCounts(items) {
     counts[bucket] = (counts[bucket] || 0) + 1;
   });
   return counts;
-}
-
-function filterPrompts(items, activePromptId, tab, scopeFilter, statusFilter) {
-  return items.filter((item) => {
-    if (tab !== 'all' && promptBucket(item) !== tab) return false;
-    if (scopeFilter !== 'all' && item.scope !== scopeFilter) return false;
-    if (tab === 'pending') return true;
-    if (statusFilter !== 'all' && promptLifecycleStatus(item, promptIsForceActive(item, activePromptId)) !== statusFilter) return false;
-    return true;
-  });
 }
 
 function trunc(value, max = 120) {
@@ -714,23 +679,10 @@ async function discardPromptDraftItem({ cwd, item, refreshPromptSurface, setActi
 
 function usePromptEditorActions(params) {
   const { cwd, fallbackMode, actioning, form, queryClient, refreshPromptSurface, setters } = params;
-  const { setActioning, setEditorOpen, setForm, setNotice, setSaving, setWizardDraft, setWizardOpen } = setters;
+  const { setActioning, setEditorOpen, setForm, setNotice, setSaving } = setters;
   return {
-    switchTab: (key) => {
-      setters.setActiveTab(key);
-      setNotice('');
-    },
     retryPromptSync: () => {
       void refreshPromptSurface({ force: true });
-    },
-    openCreate: () => {
-      if (fallbackMode) {
-        setNotice('当前为只读降级，暂不支持新建');
-        return;
-      }
-      setWizardDraft(null);
-      setWizardOpen(true);
-      setNotice('');
     },
     openEdit: (item) => {
       setForm(promptFormFromItem(item));
@@ -783,25 +735,6 @@ function usePromptDraftActions({ cwd, actioning, refreshPromptSurface, setters }
   };
 }
 
-function PromptFilterControls({ scopeFilter, statusFilter, fallbackMode, onScopeChange, onStatusChange }) {
-  return (
-    <div className="prompt-filter-row">
-      <PromptSegment title="范围" items={PROMPT_SCOPE_FILTERS} value={scopeFilter} disabled={fallbackMode} onChange={onScopeChange} />
-      <PromptSegment title="状态" items={PROMPT_STATUS_FILTERS} value={statusFilter} disabled={fallbackMode} onChange={onStatusChange} />
-    </div>
-  );
-}
-
-function PromptToolbar({ cwd, fallbackMode, onCreate }) {
-  return (
-    <div className="prompt-toolbar">
-      <button type="button" onClick={onCreate} disabled={fallbackMode || !cwd}>
-        <Plus size={15} /> 添加给 AI 的内容
-      </button>
-    </div>
-  );
-}
-
 function PromptStatusMessages({ isProjectPending, fallbackMode, syncError, error, loading, onRetry }) {
   return (
     <>
@@ -823,12 +756,12 @@ function PromptRetryNotice({ message, onRetry }) {
   );
 }
 
-function PromptEmptyState({ activeTab }) {
+function PromptEmptyState() {
   return (
     <div className="empty-state prompt-empty">
       <File size={30} />
       <h3>暂无内容</h3>
-      <p>{activeTab === 'pending' ? '暂无待确认内容。' : '点击“添加给 AI 的内容”开始创建。'}</p>
+      <p>暂无可显示内容。</p>
     </div>
   );
 }
@@ -863,11 +796,8 @@ function PromptPageLayout(props) {
     <section className="console-page prompt-page">
       <PageHeader title="个性化" subtitle="管理您的身份信息以及 Super-Dolphin 的记忆内容" projectPath={props.cwd || props.projectPath} />
       <PromptPersonalizationOverview counts={props.counts} isProjectPending={props.isProjectPending} fallbackMode={props.fallbackMode} />
-      <PromptTabs tabs={PROMPT_TABS} activeTab={props.activeTab} counts={props.counts} disabled={props.fallbackMode} onSwitch={props.editorActions.switchTab} />
-      <PromptFilterControls {...props.filters} fallbackMode={props.fallbackMode} />
-      <PromptToolbar cwd={props.cwd} fallbackMode={props.fallbackMode} onCreate={props.editorActions.openCreate} />
       <PromptStatusMessages {...props} onRetry={props.editorActions.retryPromptSync} />
-      {showEmpty ? <PromptEmptyState activeTab={props.activeTab} /> : null}
+      {showEmpty ? <PromptEmptyState /> : null}
       {showCards ? <PromptCardsGrid {...props} /> : null}
       {props.notice && !props.modals.editorOpen && !props.modals.wizardOpen ? <div className="prompt-notice">{props.notice}</div> : null}
       <PromptEditorHost {...props} />
@@ -917,9 +847,6 @@ function promptWizardKey(draft) {
 }
 
 function usePromptPageState(cwd) {
-  const [activeTab, setActiveTab] = useState('all');
-  const [scopeFilter, setScopeFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
   const [noticeState, setNoticeState] = useState({ cwd, notice: '' });
   if (noticeState.cwd !== cwd) {
     setNoticeState({ cwd, notice: '' });
@@ -934,23 +861,17 @@ function usePromptPageState(cwd) {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardDraft, setWizardDraft] = useState(null);
   return {
-    activeTab,
     actioning,
     form,
     modals: { editorOpen, form, wizardDraft, wizardOpen },
     notice: noticeState.cwd === cwd ? noticeState.notice : '',
     saving,
-    scopeFilter,
-    statusFilter,
     setters: {
-      setActiveTab,
       setActioning,
       setEditorOpen,
       setForm,
       setNotice,
       setSaving,
-      setScopeFilter,
-      setStatusFilter,
       setWizardDraft,
       setWizardOpen,
     },
@@ -962,7 +883,7 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
   const isProjectPending = !cwd;
   const queryClient = useQueryClient();
   const pageState = usePromptPageState(cwd);
-  const { activeTab, actioning, form, modals, notice, saving, scopeFilter, statusFilter, setters } = pageState;
+  const { actioning, form, modals, notice, saving, setters } = pageState;
 
   const queryState = usePromptQueries(cwd);
   const { items, fallbackMode, activePromptId, loading, syncError, error } = queryState;
@@ -975,10 +896,7 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
   usePromptRefreshEffects(Number(refreshKey || 0), refreshPromptSurface);
 
   const counts = useMemo(() => promptCounts(items), [items]);
-  const visibleItems = useMemo(
-    () => filterPrompts(items, activePromptId, activeTab, scopeFilter, statusFilter),
-    [activePromptId, activeTab, items, scopeFilter, statusFilter],
-  );
+  const visibleItems = items;
   const editorActions = usePromptEditorActions({
     cwd,
     fallbackMode,
@@ -991,7 +909,6 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
   const draftActions = usePromptDraftActions({ cwd, actioning, refreshPromptSurface, setters });
   const layoutProps = {
     activePromptId,
-    activeTab,
     actioning,
     counts,
     cwd,
@@ -999,12 +916,6 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
     editorActions,
     error,
     fallbackMode,
-    filters: {
-      scopeFilter,
-      statusFilter,
-      onScopeChange: setters.setScopeFilter,
-      onStatusChange: setters.setStatusFilter,
-    },
     isProjectPending,
     loading,
     modals,
@@ -1084,45 +995,6 @@ function PromptPersonalizationOverview({ counts, isProjectPending, fallbackMode 
         </section>
       </div>
     </section>
-  );
-}
-
-function PromptTabs({ tabs, activeTab, counts, disabled, onSwitch }) {
-  return (
-    <div className="prompt-tabs" role="tablist" aria-label="提示词分类">
-      {tabs.map((tab) => (
-        <button
-          key={tab.key}
-          type="button"
-          role="tab"
-          aria-selected={activeTab === tab.key}
-          className={activeTab === tab.key ? 'active' : ''}
-          disabled={disabled}
-          onClick={() => onSwitch(tab.key)}
-        >
-          {tab.label} {counts[tab.key] || 0}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function PromptSegment({ title, items, value, disabled, onChange }) {
-  return (
-    <div className="prompt-segment">
-      <span>{title}</span>
-      {items.map((item) => (
-        <button
-          key={item.key}
-          type="button"
-          className={value === item.key ? 'active' : ''}
-          disabled={disabled}
-          onClick={() => onChange(item.key)}
-        >
-          {item.label}
-        </button>
-      ))}
-    </div>
   );
 }
 
