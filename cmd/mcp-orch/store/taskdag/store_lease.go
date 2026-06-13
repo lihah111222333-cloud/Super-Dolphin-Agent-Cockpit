@@ -2,6 +2,7 @@ package taskdag
 
 import (
 	"context"
+	"errors"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 )
@@ -11,7 +12,7 @@ func (s *store) AcquireWorkerLease(ctx context.Context, input AcquireWorkerLease
 	if err != nil {
 		return 0, err
 	}
-	return queryValue(func() (int64, error) {
+	return queryValueWrite(ctx, func() (int64, error) {
 		return s.q.AcquireTaskDagWorkerLease(ctx, sqlc.AcquireTaskDagWorkerLeaseParams{
 			TargetAgentID: input.TargetAgentID,
 			OwnerID:       input.OwnerID,
@@ -25,7 +26,7 @@ func (s *store) RenewWorkerLease(ctx context.Context, input RenewWorkerLeaseInpu
 	if err != nil {
 		return 0, err
 	}
-	return queryValue(func() (int64, error) {
+	return queryValueWrite(ctx, func() (int64, error) {
 		return s.q.RenewTaskDagWorkerLease(ctx, sqlc.RenewTaskDagWorkerLeaseParams{
 			LeaseMs:       leaseInterval,
 			TargetAgentID: input.TargetAgentID,
@@ -35,11 +36,17 @@ func (s *store) RenewWorkerLease(ctx context.Context, input RenewWorkerLeaseInpu
 }
 
 func (s *store) ReleaseWorkerLease(ctx context.Context, input ReleaseWorkerLeaseInput) error {
-	_, err := queryValue(func() (struct{}, error) {
-		return struct{}{}, s.q.ReleaseTaskDagWorkerLease(ctx, sqlc.ReleaseTaskDagWorkerLeaseParams{
+	rows, err := queryValueWrite(ctx, func() (int64, error) {
+		return s.q.ReleaseTaskDagWorkerLease(ctx, sqlc.ReleaseTaskDagWorkerLeaseParams{
 			TargetAgentID: input.TargetAgentID,
 			OwnerID:       input.OwnerID,
 		})
 	}, "release", "task_dag_worker_lease")
-	return err
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return wrapTaskDAGError(errors.New("worker lease was not held by owner"), "release", "task_dag_worker_lease")
+	}
+	return nil
 }

@@ -4,7 +4,7 @@
 //   - F5.1（本文件）：cron daemon 进程入口 + 接 robfig/cron + Tick 占位
 //   - F5.2：Tick 真实业务 SQL —— 扫 next_run_at <= now 的 trigger=scheduled
 //     DAG，调 StartDAG 注入适配口，避免反向依赖 orchestration 主包。
-//   - F5.3：多实例锁 —— 通过 PostgreSQL advisory lock 防止多副本 daemon
+//   - F5.3：多实例锁 —— 通过 SQLite runtime_locks 防止多副本 daemon
 //     重复触发同一批到期 DAG。
 //
 // 拆出独立子包是因为 cmd/mcp-orch/orchestration 已在包文件数预算上限（默认
@@ -16,7 +16,7 @@
 // Package cron is the cron-daemon process entrypoint skeleton for the DAG
 // rework Scheduler (blueprint v2 §5). It wraps robfig/cron/v3, scans due
 // next_run_at rows, triggers StartDAG through an injected adapter, and gates
-// each Tick with PostgreSQL advisory locking. Lives in its own subpackage to
+// each Tick with a SQLite runtime lock. Lives in its own subpackage to
 // avoid pushing the orchestration package over the archtest file-count budget.
 package cron
 
@@ -262,8 +262,9 @@ const (
 )
 
 const (
-	scheduledTriggerSource = "scheduled"
-	advisoryUnlockTimeout  = 5 * time.Second
+	scheduledTriggerSource    = "scheduled"
+	runtimeLockCleanupTimeout = 5 * time.Second
+	runtimeLockRenewInterval  = time.Minute
 )
 
 var dagCronParser = robcron.NewParser(
@@ -331,19 +332,19 @@ type ScheduledDAGStartRequest struct {
 type ScheduledDAGTicker struct {
 	store   DAGScheduleStore
 	starter DAGStarter
-	locker  AdvisoryLocker
+	locker  RuntimeLocker
 }
 
 type ScheduledDAGTickerConfig struct {
 	Store   DAGScheduleStore
 	Starter DAGStarter
-	Locker  AdvisoryLocker
+	Locker  RuntimeLocker
 }
 
 var (
 	ErrNilScheduleStore     = errors.New("cron: nil schedule store")
 	ErrNilDAGStarter        = errors.New("cron: nil dag starter")
-	ErrNilLockPool          = errors.New("cron: nil advisory lock pool")
+	ErrNilLockPool          = errors.New("cron: nil runtime lock provider")
 	ErrScheduleStateChanged = errors.New("cron: scheduled dag state changed before next_run_at update")
 )
 
@@ -364,30 +365,42 @@ func NewScheduledDAGTicker(cfg ScheduledDAGTickerConfig) (*ScheduledDAGTicker, e
 	}, nil
 }
 
-type AdvisoryLocker interface {
-	TryLock(ctx context.Context) (AdvisoryLockHandle, bool, error)
+type RuntimeLocker interface {
+	TryLock(ctx context.Context) (RuntimeLockHandle, bool, error)
 }
 
-type AdvisoryLockHandle interface {
+type RuntimeLockHandle interface {
+	Renew(ctx context.Context) error
 	Unlock(ctx context.Context) error
 }
 
 func (t *ScheduledDAGTicker) Tick(ctx context.Context, now time.Time) (triggered int, err error) {
-	handle, acquired, err := t.tryAdvisoryLock(ctx)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	handle, acquired, err := t.tryRuntimeLock(ctx)
 	if err != nil {
 		return 0, err
 	}
 	if !acquired {
 		return 0, nil
 	}
-	defer t.releaseAdvisoryLock(ctx, handle, &err)
-	dags, err := t.store.DueDAGs(ctx, now)
+	lockCtx, stopRenewal := context.WithCancel(ctx)
+	renewErr := t.startRuntimeLockRenewal(lockCtx, handle, stopRenewal)
+	defer func() {
+		stopRenewal()
+		if renewalErr := <-renewErr; renewalErr != nil && err == nil {
+			err = classifyTickError(TickErrorClassInfrastructure, "runtime_lock_renew", renewalErr)
+		}
+		t.releaseRuntimeLock(handle, &err)
+	}()
+	dags, err := t.store.DueDAGs(lockCtx, now)
 	if err != nil {
 		return 0, classifyTickError(TickErrorClassInfrastructure, "scan", err)
 	}
 	var dagErrs []error
 	for _, dag := range dags {
-		if err := t.triggerDueDAG(ctx, dag, now); err != nil {
+		if err := t.triggerDueDAG(lockCtx, dag, now); err != nil {
 			dagErrs = append(dagErrs, err)
 			continue
 		}
@@ -396,19 +409,44 @@ func (t *ScheduledDAGTicker) Tick(ctx context.Context, now time.Time) (triggered
 	return triggered, joinDAGErrors(dagErrs)
 }
 
-func (t *ScheduledDAGTicker) tryAdvisoryLock(ctx context.Context) (AdvisoryLockHandle, bool, error) {
+func (t *ScheduledDAGTicker) tryRuntimeLock(ctx context.Context) (RuntimeLockHandle, bool, error) {
 	handle, acquired, err := t.locker.TryLock(ctx)
 	if err != nil {
-		return nil, false, classifyTickError(TickErrorClassInfrastructure, "try_advisory_lock", err)
+		return nil, false, classifyTickError(TickErrorClassInfrastructure, "try_runtime_lock", err)
 	}
 	return handle, acquired, nil
 }
 
-func (t *ScheduledDAGTicker) releaseAdvisoryLock(_ context.Context, handle AdvisoryLockHandle, result *error) {
-	cleanupCtx, cancel := platformconfig.WithTimeout(context.Background(), advisoryUnlockTimeout)
+func (t *ScheduledDAGTicker) startRuntimeLockRenewal(ctx context.Context, handle RuntimeLockHandle, stop func()) <-chan error {
+	errCh := make(chan error, 1)
+	go func() {
+		ticker := time.NewTicker(runtimeLockRenewInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				errCh <- nil
+				return
+			case <-ticker.C:
+				cleanupCtx, cancel := platformconfig.WithTimeout(context.Background(), runtimeLockCleanupTimeout)
+				err := handle.Renew(cleanupCtx)
+				cancel()
+				if err != nil {
+					stop()
+					errCh <- err
+					return
+				}
+			}
+		}
+	}()
+	return errCh
+}
+
+func (t *ScheduledDAGTicker) releaseRuntimeLock(handle RuntimeLockHandle, result *error) {
+	cleanupCtx, cancel := platformconfig.WithTimeout(context.Background(), runtimeLockCleanupTimeout)
 	defer cancel()
 	if unlockErr := handle.Unlock(cleanupCtx); unlockErr != nil && *result == nil {
-		*result = classifyTickError(TickErrorClassInfrastructure, "advisory_unlock", unlockErr)
+		*result = classifyTickError(TickErrorClassInfrastructure, "runtime_lock_release", unlockErr)
 	}
 }
 
