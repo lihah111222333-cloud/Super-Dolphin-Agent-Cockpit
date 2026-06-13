@@ -17,11 +17,14 @@ var (
 	errSourcePathMustBeFile      = errors.New("datasource: sourcePath must be a file")
 	errUnsupportedFileExtension  = errors.New("datasource: unsupported file extension")
 	errUploadTargetAlreadyExists = errors.New("datasource: upload target already exists")
+	errInvalidDatasourceFileName = errors.New("datasource: fileName must be a file name")
+	errDeleteTargetMustBeFile    = errors.New("datasource: delete target must be a file")
 )
 
 type Service interface {
 	UploadFile(context.Context, UploadFileRequest) (UploadFileResult, error)
 	ListFiles(context.Context) (ListFilesResult, error)
+	DeleteFile(context.Context, DeleteFileRequest) (DeleteFileResult, error)
 }
 
 type UploadFileRequest struct {
@@ -37,6 +40,15 @@ type UploadFileResult struct {
 
 type ListFilesResult struct {
 	FileNames []string `json:"fileNames"`
+}
+
+type DeleteFileRequest struct {
+	FileName string `json:"fileName"`
+}
+
+type DeleteFileResult struct {
+	Name    string `json:"name"`
+	Deleted bool   `json:"deleted"`
 }
 
 type service struct{}
@@ -130,6 +142,37 @@ func (s *service) ListFiles(ctx context.Context) (ListFilesResult, error) {
 	return ListFilesResult{FileNames: fileNames}, nil
 }
 
+func (s *service) DeleteFile(ctx context.Context, req DeleteFileRequest) (DeleteFileResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	fileName, err := validateDeleteRequest(req)
+	if err != nil {
+		return DeleteFileResult{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return DeleteFileResult{}, err
+	}
+
+	uploadDir, err := currentDatasourceUploadDir()
+	if err != nil {
+		return DeleteFileResult{}, err
+	}
+	targetPath := filepath.Join(uploadDir, fileName)
+	info, err := os.Stat(targetPath)
+	if err != nil {
+		return DeleteFileResult{}, fmt.Errorf("stat datasource file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return DeleteFileResult{}, errDeleteTargetMustBeFile
+	}
+	if err := os.Remove(targetPath); err != nil {
+		return DeleteFileResult{}, fmt.Errorf("delete datasource file: %w", err)
+	}
+
+	return DeleteFileResult{Name: fileName, Deleted: true}, nil
+}
+
 func validateUploadRequest(req UploadFileRequest) (string, error) {
 	sourcePath := strings.TrimSpace(req.SourcePath)
 	if sourcePath == "" {
@@ -140,6 +183,19 @@ func validateUploadRequest(req UploadFileRequest) (string, error) {
 		return "", errSourcePathMustBeAbsolute
 	}
 	return sourcePath, nil
+}
+
+func validateDeleteRequest(req DeleteFileRequest) (string, error) {
+	fileName := strings.TrimSpace(req.FileName)
+	if fileName == "" ||
+		fileName == "." ||
+		fileName == ".." ||
+		filepath.IsAbs(fileName) ||
+		filepath.VolumeName(fileName) != "" ||
+		strings.ContainsAny(fileName, `/\`) {
+		return "", errInvalidDatasourceFileName
+	}
+	return fileName, nil
 }
 
 func currentDatasourceUploadDir() (string, error) {

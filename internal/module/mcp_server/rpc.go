@@ -1,0 +1,63 @@
+package mcpserver
+
+import (
+	"context"
+	"errors"
+
+	"github.com/creachadair/jrpc2/handler"
+
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+)
+
+func NewHandlers(svc Service) platformrpc.HandlerMapResult {
+	return platformrpc.HandlerMapResult{Handlers: handler.Map{
+		"mcpServer/add":  platformrpc.StrictHandler(addServersHandler(svc)),
+		"mcpServer/list": platformrpc.StrictHandler(listServersHandler(svc)),
+	}}
+}
+
+func addServersHandler(svc Service) func(context.Context, AddServersRequest) (AddServersResult, error) {
+	return func(ctx context.Context, req AddServersRequest) (AddServersResult, error) {
+		if svc == nil {
+			return AddServersResult{}, platformrpc.ErrInvalidState("mcp server service is not configured")
+		}
+		result, err := svc.AddServers(ctx, req)
+		if err != nil {
+			return AddServersResult{}, mcpServerRPCError(err)
+		}
+		return result, nil
+	}
+}
+
+func listServersHandler(svc Service) func(context.Context, struct{}) (ListServersResult, error) {
+	return func(ctx context.Context, _ struct{}) (ListServersResult, error) {
+		if svc == nil {
+			return ListServersResult{}, platformrpc.ErrInvalidState("mcp server service is not configured")
+		}
+		result, err := svc.ListServers(ctx)
+		if err != nil {
+			return ListServersResult{}, mcpServerRPCError(err)
+		}
+		return result, nil
+	}
+}
+
+func mcpServerRPCError(err error) error {
+	switch {
+	case errors.Is(err, errMissingMCPServers),
+		errors.Is(err, errMissingServerName),
+		errors.Is(err, errDuplicateServerName),
+		errors.Is(err, errMissingServerTransport),
+		errors.Is(err, errUnsupportedTransport),
+		errors.Is(err, errMissingServerURL),
+		errors.Is(err, errInvalidServerURL),
+		errors.Is(err, errMissingHeaderName),
+		errors.Is(err, errMissingHeaderValue),
+		errors.Is(err, errInvalidConfigDocument):
+		return platformrpc.ErrInvalidParams(err.Error())
+	case errors.Is(err, errServerAlreadyExists):
+		return platformrpc.ErrConflict(err.Error())
+	default:
+		return err
+	}
+}
