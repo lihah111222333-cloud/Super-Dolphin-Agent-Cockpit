@@ -7,7 +7,6 @@ package sqlc
 
 import (
 	"context"
-	"encoding/json"
 )
 
 const updateTaskDagNodeSpawningThread = `-- name: UpdateTaskDagNodeSpawningThread :one
@@ -20,8 +19,8 @@ WHERE dag_key = ?
   AND ?4 > 0
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
 RETURNING id, dag_key, node_key, run_id, title,
-          node_type, assigned_to, depends_on,
-          status, command_ref, config, result,
+          node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
+          status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result,
           started_at, finished_at, created_at,
           updated_at, active_turn_id, active_wakeup_id,
           last_event_at, spawning_thread_id,
@@ -36,27 +35,27 @@ type UpdateTaskDagNodeSpawningThreadParams struct {
 }
 
 type UpdateTaskDagNodeSpawningThreadRow struct {
-	ID               int64           `db:"id" json:"id"`
-	DagKey           string          `db:"dag_key" json:"dag_key"`
-	NodeKey          string          `db:"node_key" json:"node_key"`
-	RunID            *int64          `db:"run_id" json:"run_id"`
-	Title            string          `db:"title" json:"title"`
-	NodeType         string          `db:"node_type" json:"node_type"`
-	AssignedTo       string          `db:"assigned_to" json:"assigned_to"`
-	DependsOn        json.RawMessage `db:"depends_on" json:"depends_on"`
-	Status           string          `db:"status" json:"status"`
-	CommandRef       string          `db:"command_ref" json:"command_ref"`
-	Config           json.RawMessage `db:"config" json:"config"`
-	Result           json.RawMessage `db:"result" json:"result"`
-	StartedAt        *int64          `db:"started_at" json:"started_at"`
-	FinishedAt       *int64          `db:"finished_at" json:"finished_at"`
-	CreatedAt        int64           `db:"created_at" json:"created_at"`
-	UpdatedAt        int64           `db:"updated_at" json:"updated_at"`
-	ActiveTurnID     *string         `db:"active_turn_id" json:"active_turn_id"`
-	ActiveWakeupID   *int64          `db:"active_wakeup_id" json:"active_wakeup_id"`
-	LastEventAt      *int64          `db:"last_event_at" json:"last_event_at"`
-	SpawningThreadID *string         `db:"spawning_thread_id" json:"spawning_thread_id"`
-	Column21         string          `db:"column_21" json:"column_21"`
+	ID               int64   `db:"id" json:"id"`
+	DagKey           string  `db:"dag_key" json:"dag_key"`
+	NodeKey          string  `db:"node_key" json:"node_key"`
+	RunID            *int64  `db:"run_id" json:"run_id"`
+	Title            string  `db:"title" json:"title"`
+	NodeType         string  `db:"node_type" json:"node_type"`
+	AssignedTo       string  `db:"assigned_to" json:"assigned_to"`
+	DependsOn        []byte  `db:"depends_on" json:"depends_on"`
+	Status           string  `db:"status" json:"status"`
+	CommandRef       string  `db:"command_ref" json:"command_ref"`
+	Config           []byte  `db:"config" json:"config"`
+	Result           []byte  `db:"result" json:"result"`
+	StartedAt        *int64  `db:"started_at" json:"started_at"`
+	FinishedAt       *int64  `db:"finished_at" json:"finished_at"`
+	CreatedAt        int64   `db:"created_at" json:"created_at"`
+	UpdatedAt        int64   `db:"updated_at" json:"updated_at"`
+	ActiveTurnID     *string `db:"active_turn_id" json:"active_turn_id"`
+	ActiveWakeupID   *int64  `db:"active_wakeup_id" json:"active_wakeup_id"`
+	LastEventAt      *int64  `db:"last_event_at" json:"last_event_at"`
+	SpawningThreadID *string `db:"spawning_thread_id" json:"spawning_thread_id"`
+	Column21         string  `db:"column_21" json:"column_21"`
 }
 
 func (q *Queries) UpdateTaskDagNodeSpawningThread(ctx context.Context, arg UpdateTaskDagNodeSpawningThreadParams) (UpdateTaskDagNodeSpawningThreadRow, error) {

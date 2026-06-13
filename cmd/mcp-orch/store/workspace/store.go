@@ -16,28 +16,35 @@ type store struct {
 func NewStore(db sqlc.DBTX) Store { return &store{db: db, q: sqlc.New(db)} }
 
 func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error {
-	err := sqlctx.WithTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
+	err := sqlctx.WithImmediateTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
 		return fn(&store{db: tx, q: txq})
 	})
 	return wrapWorkspaceError(err, "with_tx", "workspace")
 }
 
 func (s *store) UpsertRun(ctx context.Context, run WorkspaceRun) (*WorkspaceRun, error) {
-	row, err := s.q.UpsertWorkspaceRun(ctx, sqlc.UpsertWorkspaceRunParams{
-		RunKey:        run.RunKey,
-		DagKey:        run.DagKey,
-		SourceRoot:    run.SourceRoot,
-		WorkspacePath: run.WorkspacePath,
-		Status:        run.Status,
-		CreatedBy:     run.CreatedBy,
-		UpdatedBy:     run.UpdatedBy,
-		Metadata:      run.Metadata,
-		FinishedAt:    sqlc.TimeValuePtr(run.FinishedAt),
+	var mapped WorkspaceRun
+	err := sqlctx.WithWriteRetry(ctx, func() error {
+		next, err := s.q.UpsertWorkspaceRun(ctx, sqlc.UpsertWorkspaceRunParams{
+			RunKey:        run.RunKey,
+			DagKey:        run.DagKey,
+			SourceRoot:    run.SourceRoot,
+			WorkspacePath: run.WorkspacePath,
+			Status:        run.Status,
+			CreatedBy:     run.CreatedBy,
+			UpdatedBy:     run.UpdatedBy,
+			Metadata:      run.Metadata,
+			FinishedAt:    sqlc.TimeValuePtr(run.FinishedAt),
+		})
+		if err != nil {
+			return wrapWorkspaceError(err, "upsert", "workspace_run")
+		}
+		mapped = fromSQLCUpsertRun(next)
+		return nil
 	})
 	if err != nil {
-		return nil, wrapWorkspaceError(err, "upsert", "workspace_run")
+		return nil, err
 	}
-	mapped := fromSQLCRun(row)
 	return &mapped, nil
 }
 
@@ -46,7 +53,7 @@ func (s *store) GetRun(ctx context.Context, runKey string) (*WorkspaceRun, error
 	if err != nil {
 		return nil, wrapWorkspaceError(err, "get", "workspace_run")
 	}
-	mapped := fromSQLCRun(row)
+	mapped := fromSQLCGetRun(row)
 	return &mapped, nil
 }
 
@@ -61,53 +68,75 @@ func (s *store) ListRuns(ctx context.Context, filter ListRunsFilter) ([]Workspac
 	}
 	runs := make([]WorkspaceRun, 0, len(rows))
 	for _, row := range rows {
-		runs = append(runs, fromSQLCRun(row))
+		runs = append(runs, fromSQLCListRun(row))
 	}
 	return runs, nil
 }
 
 func (s *store) UpdateRunStatus(ctx context.Context, input UpdateRunStatusInput) (*WorkspaceRun, error) {
-	row, err := s.q.UpdateWorkspaceRunStatus(ctx, sqlc.UpdateWorkspaceRunStatusParams{
-		NewStatus: input.Status,
-		UpdatedBy: input.UpdatedBy,
-		Metadata:  input.Metadata,
-		RunKey:    input.RunKey,
+	var mapped WorkspaceRun
+	err := sqlctx.WithWriteRetry(ctx, func() error {
+		next, err := s.q.UpdateWorkspaceRunStatus(ctx, sqlc.UpdateWorkspaceRunStatusParams{
+			NewStatus: input.Status,
+			UpdatedBy: input.UpdatedBy,
+			Metadata:  input.Metadata,
+			RunKey:    input.RunKey,
+		})
+		if err != nil {
+			return wrapWorkspaceError(err, "update_status", "workspace_run")
+		}
+		mapped = fromSQLCUpdateRunStatus(next)
+		return nil
 	})
 	if err != nil {
-		return nil, wrapWorkspaceError(err, "update_status", "workspace_run")
+		return nil, err
 	}
-	mapped := fromSQLCRun(row)
 	return &mapped, nil
 }
 
 func (s *store) TransitionRunStatus(ctx context.Context, input TransitionRunStatusInput) (*WorkspaceRun, error) {
-	row, err := s.q.TransitionWorkspaceRunStatus(ctx, sqlc.TransitionWorkspaceRunStatusParams{
-		NewStatus:      input.Status,
-		UpdatedBy:      input.UpdatedBy,
-		Metadata:       input.Metadata,
-		RunKey:         input.RunKey,
-		ExpectedStatus: input.FromStatus,
+	var mapped WorkspaceRun
+	err := sqlctx.WithWriteRetry(ctx, func() error {
+		next, err := s.q.TransitionWorkspaceRunStatus(ctx, sqlc.TransitionWorkspaceRunStatusParams{
+			NewStatus:      input.Status,
+			UpdatedBy:      input.UpdatedBy,
+			Metadata:       input.Metadata,
+			RunKey:         input.RunKey,
+			ExpectedStatus: input.FromStatus,
+		})
+		if err != nil {
+			return wrapWorkspaceError(err, "transition_status", "workspace_run")
+		}
+		mapped = fromSQLCTransitionRunStatus(next)
+		return nil
 	})
 	if err != nil {
-		return nil, wrapWorkspaceError(err, "transition_status", "workspace_run")
+		return nil, err
 	}
-	mapped := fromSQLCRun(row)
 	return &mapped, nil
 }
 
 func (s *store) UpsertFile(ctx context.Context, file WorkspaceRunFile) (*WorkspaceRunFile, error) {
-	row, err := s.q.UpsertWorkspaceRunFile(ctx, sqlc.UpsertWorkspaceRunFileParams{
-		RunKey:             file.RunKey,
-		RelativePath:       file.RelativePath,
-		BaselineSha256:     file.BaselineSHA256,
-		WorkspaceSha256:    file.WorkspaceSHA256,
-		SourceSha256Before: file.SourceSHA256Before,
-		SourceSha256After:  file.SourceSHA256After,
-		State:              file.State,
-		LastError:          file.LastError,
+	var row sqlc.WorkspaceRunFile
+	err := sqlctx.WithWriteRetry(ctx, func() error {
+		next, err := s.q.UpsertWorkspaceRunFile(ctx, sqlc.UpsertWorkspaceRunFileParams{
+			RunKey:             file.RunKey,
+			RelativePath:       file.RelativePath,
+			BaselineSha256:     file.BaselineSHA256,
+			WorkspaceSha256:    file.WorkspaceSHA256,
+			SourceSha256Before: file.SourceSHA256Before,
+			SourceSha256After:  file.SourceSHA256After,
+			State:              file.State,
+			LastError:          file.LastError,
+		})
+		if err != nil {
+			return wrapWorkspaceError(err, "upsert", "workspace_run_file")
+		}
+		row = next
+		return nil
 	})
 	if err != nil {
-		return nil, wrapWorkspaceError(err, "upsert", "workspace_run_file")
+		return nil, err
 	}
 	mapped := fromSQLCFile(row)
 	return &mapped, nil
@@ -142,20 +171,11 @@ func (s *store) ListFiles(ctx context.Context, filter ListFilesFilter) ([]Worksp
 }
 
 func fromSQLCRun(row sqlc.WorkspaceRun) WorkspaceRun {
-	return WorkspaceRun{
-		ID:            row.ID,
-		RunKey:        row.RunKey,
-		DagKey:        row.DagKey,
-		SourceRoot:    row.SourceRoot,
-		WorkspacePath: row.WorkspacePath,
-		Status:        row.Status,
-		CreatedBy:     row.CreatedBy,
-		UpdatedBy:     row.UpdatedBy,
-		Metadata:      row.Metadata,
-		CreatedAt:     sqlc.TimeValue(row.CreatedAt),
-		UpdatedAt:     sqlc.TimeValue(row.UpdatedAt),
-		FinishedAt:    sqlc.TimePtr(row.FinishedAt),
-	}
+	return fromSQLCRunRaw(row.ID, row.RunKey, row.DagKey, row.SourceRoot, row.WorkspacePath, row.Status, row.CreatedBy, row.UpdatedBy, row.Metadata, row.CreatedAt, row.UpdatedAt, row.FinishedAt)
+}
+
+func fromSQLCListRun(row sqlc.ListWorkspaceRunsRow) WorkspaceRun {
+	return fromSQLCRunRaw(row.ID, row.RunKey, row.DagKey, row.SourceRoot, row.WorkspacePath, row.Status, row.CreatedBy, row.UpdatedBy, row.Metadata, row.CreatedAt, row.UpdatedAt, row.FinishedAt)
 }
 
 func fromSQLCFile(row sqlc.WorkspaceRunFile) WorkspaceRunFile {

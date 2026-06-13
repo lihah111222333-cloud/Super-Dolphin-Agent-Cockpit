@@ -57,7 +57,7 @@ func (s *store) RecordNodeSpawn(ctx context.Context, input RecordNodeSpawnInput)
 	}
 
 	var result RecordNodeSpawnResult
-	err := sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
+	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
 		return recordNodeSpawnTx(ctx, txq, dagKey, nodeKey, input.RunID, threadID, &result)
 	})
 	if err != nil {
@@ -74,6 +74,18 @@ func (s *store) RecordNodeSpawn(ctx context.Context, input RecordNodeSpawnInput)
 // function so the public RecordNodeSpawn stays under the cyclomatic
 // complexity guard (10).
 func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey string, runID int64, threadID string, result *RecordNodeSpawnResult) error {
+	current, err := txq.GetTaskDagRunNodeForUpdate(ctx, sqlc.GetTaskDagRunNodeForUpdateParams{
+		DagKey:  dagKey,
+		NodeKey: nodeKey,
+		RunID:   int64Ptr(runID),
+	})
+	if err != nil {
+		return err
+	}
+	previousThreadID := ""
+	if current.SpawningThreadID != nil {
+		previousThreadID = strings.TrimSpace(*current.SpawningThreadID)
+	}
 	row, err := txq.UpdateTaskDagNodeSpawningThread(ctx, sqlc.UpdateTaskDagNodeSpawningThreadParams{
 		SpawningThreadID: sqlc.TextValuePtr(&threadID),
 		DagKey:           dagKey,
@@ -84,7 +96,7 @@ func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey s
 		return err
 	}
 	result.Node = nodeFromSpawnRow(row)
-	result.PreviousThreadID = strings.TrimSpace(row.Column21)
+	result.PreviousThreadID = previousThreadID
 	// First spawn (prev empty) or idempotent retry (prev == new) keeps events lean.
 	if result.PreviousThreadID == "" || result.PreviousThreadID == threadID {
 		return nil

@@ -28,18 +28,17 @@ func requireRuntimeRunID(op string, runID int64) error {
 	return nil
 }
 
-// WithTx only scopes a pool-backed SQL transaction and rebinds sqlc queries.
-// Unlike V2's DAG-specific WithDAGTx helper, it does not pre-lock the DAG row
-// or node rows with FOR UPDATE; callers must explicitly use the *_ForUpdate
-// accessors inside the transaction when they need serialized DAG mutation.
+// WithTx scopes a SQLite write transaction and rebinds sqlc queries. The
+// former PostgreSQL row-lock reads are serialized by BEGIN IMMEDIATE plus
+// explicit CAS predicates in the write statements.
 func (s *store) WithTx(ctx context.Context, fn func(txStore DAGMutationStore) error) error {
-	return wrapTaskDAGError(sqlctx.WithTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
+	return wrapTaskDAGError(sqlctx.WithImmediateTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
 		return fn(&store{db: tx, q: txq})
 	}), "with_tx", "task_dag")
 }
 
 func (s *store) UpsertDAG(ctx context.Context, dag DAG) (*DAG, error) {
-	return queryOne(func() (sqlc.TaskDag, error) {
+	return queryOneWrite(ctx, func() (sqlc.UpsertTaskDagRow, error) {
 		return s.q.UpsertTaskDag(ctx, sqlc.UpsertTaskDagParams{
 			DagKey:      dag.DagKey,
 			Title:       dag.Title,
@@ -48,23 +47,23 @@ func (s *store) UpsertDAG(ctx context.Context, dag DAG) (*DAG, error) {
 			CreatedBy:   dag.CreatedBy,
 			Metadata:    dag.Metadata,
 		})
-	}, "upsert", "task_dag", fromDAG)
+	}, "upsert", "task_dag", fromDAGUpsertRow)
 }
 
 func (s *store) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAG, error) {
-	return queryMany(func() ([]sqlc.TaskDag, error) {
+	return queryMany(func() ([]sqlc.ListTaskDagsRow, error) {
 		return s.q.ListTaskDags(ctx, sqlc.ListTaskDagsParams{
 			StatusFilter: filter.Status,
 			Keyword:      filter.Keyword,
 			LimitCount:   int64(filter.Limit),
 		})
-	}, "list", "task_dag", fromDAG)
+	}, "list", "task_dag", fromDAGListRow)
 }
 
 func (s *store) GetDAG(ctx context.Context, dagKey string) (*DAG, error) {
-	return queryOne(func() (sqlc.TaskDag, error) {
+	return queryOne(func() (sqlc.GetTaskDagRow, error) {
 		return s.q.GetTaskDag(ctx, sqlc.GetTaskDagParams{DagKey: dagKey})
-	}, "get", "task_dag", fromDAG)
+	}, "get", "task_dag", fromDAGGetRow)
 }
 
 func (s *store) DeleteDAG(ctx context.Context, dagKey string) (int64, error) {
@@ -73,7 +72,7 @@ func (s *store) DeleteDAG(ctx context.Context, dagKey string) (int64, error) {
 		return 0, errors.New("delete task_dag: dag_key is required")
 	}
 	var rows int64
-	err := sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
+	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
 		txStore := &store{db: txdb, q: txq}
 		if _, err := txStore.lockDAGForDelete(ctx, key); err != nil {
 			return err
@@ -99,7 +98,7 @@ func (s *store) DeleteDAG(ctx context.Context, dagKey string) (int64, error) {
 }
 
 func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error) {
-	return queryOne(func() (sqlc.TaskDagNode, error) {
+	return queryOneWrite(ctx, func() (sqlc.UpsertTaskDagNodeRow, error) {
 		return s.q.UpsertTaskDagNode(ctx, sqlc.UpsertTaskDagNodeParams{
 			DagKey:     node.DagKey,
 			NodeKey:    node.NodeKey,
@@ -110,14 +109,14 @@ func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error) {
 			CommandRef: node.CommandRef,
 			Config:     node.Config,
 		})
-	}, "upsert", "task_dag_node", fromNode)
+	}, "upsert", "task_dag_node", fromNodeUpsertRow)
 }
 
 func (s *store) PatchNodeConfigIfUnchanged(ctx context.Context, input NodeConfigPatchInput) (*Node, error) {
 	if err := requireRuntimeRunID("patch_config", input.RunID); err != nil {
 		return nil, err
 	}
-	return queryOne(func() (sqlc.TaskDagNode, error) {
+	return queryOneWrite(ctx, func() (sqlc.PatchTaskDagNodeConfigIfUnchangedRow, error) {
 		return s.q.PatchTaskDagNodeConfigIfUnchanged(ctx, sqlc.PatchTaskDagNodeConfigIfUnchangedParams{
 			DagKey:         input.DagKey,
 			NodeKey:        input.NodeKey,
@@ -125,15 +124,16 @@ func (s *store) PatchNodeConfigIfUnchanged(ctx context.Context, input NodeConfig
 			PreviousConfig: input.PreviousConfig,
 			RunID:          int64Ptr(input.RunID),
 		})
-	}, "patch_config", "task_dag_node", fromNode)
+	}, "patch_config", "task_dag_node", fromNodePatchConfigRow)
 }
 
 func (s *store) DeleteNode(ctx context.Context, dagKey, nodeKey string) (int64, error) {
-	rows, err := s.q.DeleteTaskDagNode(ctx, sqlc.DeleteTaskDagNodeParams{
-		DagKey:  dagKey,
-		NodeKey: nodeKey,
-	})
-	return rows, wrapTaskDAGError(err, "delete", "task_dag_node")
+	return queryValueWrite(ctx, func() (int64, error) {
+		return s.q.DeleteTaskDagNode(ctx, sqlc.DeleteTaskDagNodeParams{
+			DagKey:  dagKey,
+			NodeKey: nodeKey,
+		})
+	}, "delete", "task_dag_node")
 }
 
 func (s *store) UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*Node, error) {
@@ -143,7 +143,7 @@ func (s *store) UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*
 	// R1 dead code 清理：原 2 份 SQL（UpdateTaskDagNodeStatus / UpdateTaskDagNodeStatusFlexible）
 	// 逻辑上完全重复，合并为 Flexible 一份。本函数保留为发布层 sentinel（NodeStatusUpdate
 	// 与 FlexibleNodeStatusUpdate 输入名字不同），但底层走同一 query。
-	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
+	return updateNodeStatusWrite(ctx, func() (sqlc.UpdateTaskDagNodeStatusFlexibleRow, error) {
 		return s.q.UpdateTaskDagNodeStatusFlexible(ctx, sqlc.UpdateTaskDagNodeStatusFlexibleParams{
 			Status:  input.Status,
 			Result:  input.Result,
@@ -151,36 +151,36 @@ func (s *store) UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*
 			NodeKey: input.NodeKey,
 			RunID:   int64Ptr(input.RunID),
 		})
-	}, "update_status")
+	}, "update_status", fromNodeStatusFlexibleRow)
 }
 
 func (s *store) ListNodes(ctx context.Context, dagKey string) ([]Node, error) {
-	return queryMany(func() ([]sqlc.TaskDagNode, error) {
+	return queryMany(func() ([]sqlc.ListTaskDagNodesRow, error) {
 		return s.q.ListTaskDagNodes(ctx, sqlc.ListTaskDagNodesParams{DagKey: dagKey})
-	}, "list", "task_dag_node", fromNode)
+	}, "list", "task_dag_node", fromNodeListRow)
 }
 
 func (s *store) AssignNode(ctx context.Context, input AssignNodeInput) (*Node, error) {
 	if err := requireRuntimeRunID("assign", input.RunID); err != nil {
 		return nil, err
 	}
-	return queryOne(func() (sqlc.TaskDagNode, error) {
+	return queryOneWrite(ctx, func() (sqlc.AssignTaskDagNodeRow, error) {
 		return s.q.AssignTaskDagNode(ctx, sqlc.AssignTaskDagNodeParams{
 			AssignedTo: input.AssignedTo,
 			DagKey:     input.DagKey,
 			NodeKey:    input.NodeKey,
 			RunID:      int64Ptr(input.RunID),
 		})
-	}, "assign", "task_dag_node", fromNode)
+	}, "assign", "task_dag_node", fromNodeAssignRow)
 }
 
 func (s *store) ListRunNodes(ctx context.Context, dagKey string, runID int64) ([]Node, error) {
-	return queryMany(func() ([]sqlc.TaskDagNode, error) {
+	return queryMany(func() ([]sqlc.ListTaskDagRunNodesRow, error) {
 		return s.q.ListTaskDagRunNodes(ctx, sqlc.ListTaskDagRunNodesParams{
 			DagKey: dagKey,
 			RunID:  int64Ptr(runID),
 		})
-	}, "list_run", "task_dag_node", fromNode)
+	}, "list_run", "task_dag_node", fromNodeRunListRow)
 }
 
 // LookupNodesBySpawningThread reverses task_dag_nodes.spawning_thread_id back
@@ -192,27 +192,27 @@ func (s *store) ListRunNodes(ctx context.Context, dagKey string, runID int64) ([
 // is not single-writer); the caller iterates and applies idempotent
 // advancement on every row.
 func (s *store) LookupNodesBySpawningThread(ctx context.Context, threadID string) ([]Node, error) {
-	return queryMany(func() ([]sqlc.TaskDagNode, error) {
+	return queryMany(func() ([]sqlc.LookupNodesBySpawningThreadRow, error) {
 		return s.q.LookupNodesBySpawningThread(ctx, sqlc.LookupNodesBySpawningThreadParams{SpawningThreadID: sqlc.TextValuePtr(&threadID)})
-	}, "lookup_by_spawning_thread", "task_dag_node", fromNode)
+	}, "lookup_by_spawning_thread", "task_dag_node", fromNodeLookupBySpawningThreadRow)
 }
 
 func (s *store) ListRunningNodesByAssignee(ctx context.Context, assignee string) ([]Node, error) {
-	return queryMany(func() ([]sqlc.TaskDagNode, error) {
+	return queryMany(func() ([]sqlc.ListRunningTaskDagNodesByAssigneeRow, error) {
 		return s.q.ListRunningTaskDagNodesByAssignee(ctx, sqlc.ListRunningTaskDagNodesByAssigneeParams{AssignedTo: assignee})
-	}, "list_running_by_assignee", "task_dag_node", fromNode)
+	}, "list_running_by_assignee", "task_dag_node", fromNodeRunningByAssigneeRow)
 }
 
 func (s *store) GetDAGForUpdate(ctx context.Context, dagKey string) (*DAG, error) {
-	return queryOne(func() (sqlc.TaskDag, error) {
+	return queryOne(func() (sqlc.GetTaskDagForUpdateRow, error) {
 		return s.q.GetTaskDagForUpdate(ctx, sqlc.GetTaskDagForUpdateParams{DagKey: dagKey})
-	}, "get_for_update", "task_dag", fromDAG)
+	}, "get_for_update", "task_dag", fromDAGGetForUpdateRow)
 }
 
 func (s *store) GetNodesForUpdate(ctx context.Context, dagKey string) ([]Node, error) {
-	return queryMany(func() ([]sqlc.TaskDagNode, error) {
+	return queryMany(func() ([]sqlc.GetTaskDagNodesForUpdateRow, error) {
 		return s.q.GetTaskDagNodesForUpdate(ctx, sqlc.GetTaskDagNodesForUpdateParams{DagKey: dagKey})
-	}, "get_for_update", "task_dag_node", fromNode)
+	}, "get_for_update", "task_dag_node", fromNodeForUpdateRow)
 }
 
 func (s *store) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTurnInput) (*Node, error) {
@@ -220,7 +220,7 @@ func (s *store) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTu
 		return nil, err
 	}
 	var mapped Node
-	err := sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
+	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
 		_, err := bindWakeupTurnTx(ctx, txq, BindWakeupTurnInput{
 			TurnID: input.TurnID,
 			ID:     input.WakeupID,
@@ -238,7 +238,7 @@ func (s *store) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTu
 		if err != nil {
 			return wrapTaskDAGError(err, "bind_running_turn", "task_dag_node")
 		}
-		mapped = fromNode(row)
+		mapped = fromNodeBindTurnRow(row)
 		return nil
 	})
 	if err != nil {
@@ -251,7 +251,7 @@ func (s *store) TouchRunningNodeEvent(ctx context.Context, input TouchRunningNod
 	if err := requireRuntimeRunID("touch_running_event", input.RunID); err != nil {
 		return nil, err
 	}
-	return queryOne(func() (sqlc.TaskDagNode, error) {
+	return queryOneWrite(ctx, func() (sqlc.TouchRunningTaskDagNodeEventRow, error) {
 		return s.q.TouchRunningTaskDagNodeEvent(ctx, sqlc.TouchRunningTaskDagNodeEventParams{
 			LastEventAt:  timestampValue(input.ObservedAt),
 			DagKey:       input.DagKey,
@@ -259,14 +259,14 @@ func (s *store) TouchRunningNodeEvent(ctx context.Context, input TouchRunningNod
 			ActiveTurnID: stringPtr(input.TurnID),
 			RunID:        int64Ptr(input.RunID),
 		})
-	}, "touch_running_event", "task_dag_node", fromNode)
+	}, "touch_running_event", "task_dag_node", fromNodeTouchEventRow)
 }
 
 func (s *store) UpdateRunningNodeStatus(ctx context.Context, input RunningNodeStatusUpdate) (*Node, error) {
 	if err := requireRuntimeRunID("update_running_status", input.RunID); err != nil {
 		return nil, err
 	}
-	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
+	return updateNodeStatusWrite(ctx, func() (sqlc.UpdateRunningTaskDagNodeStatusRow, error) {
 		return s.q.UpdateRunningTaskDagNodeStatus(ctx, sqlc.UpdateRunningTaskDagNodeStatusParams{
 			Status:         input.Status,
 			Result:         input.Result,
@@ -275,14 +275,14 @@ func (s *store) UpdateRunningNodeStatus(ctx context.Context, input RunningNodeSt
 			NodeKey:        input.NodeKey,
 			RunID:          int64Ptr(input.RunID),
 		})
-	}, "update_running_status")
+	}, "update_running_status", fromNodeUpdateRunningRow)
 }
 
 func (s *store) UpdateAwaitingVerifyNodeStatus(ctx context.Context, input AwaitingVerifyNodeStatusUpdate) (*Node, error) {
 	if err := requireRuntimeRunID("update_awaiting_verify_status", input.RunID); err != nil {
 		return nil, err
 	}
-	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
+	return updateNodeStatusWrite(ctx, func() (sqlc.UpdateAwaitingVerifyTaskDagNodeStatusRow, error) {
 		return s.q.UpdateAwaitingVerifyTaskDagNodeStatus(ctx, sqlc.UpdateAwaitingVerifyTaskDagNodeStatusParams{
 			Status:  input.Status,
 			Result:  input.Result,
@@ -290,14 +290,14 @@ func (s *store) UpdateAwaitingVerifyNodeStatus(ctx context.Context, input Awaiti
 			NodeKey: input.NodeKey,
 			RunID:   int64Ptr(input.RunID),
 		})
-	}, "update_awaiting_verify_status")
+	}, "update_awaiting_verify_status", fromNodeUpdateAwaitingVerifyRow)
 }
 
 func (s *store) CompleteNode(ctx context.Context, input CompleteNodeInput) (*Node, error) {
 	if err := requireRuntimeRunID("complete", input.RunID); err != nil {
 		return nil, err
 	}
-	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
+	return updateNodeStatusWrite(ctx, func() (sqlc.CompleteTaskDagNodeRow, error) {
 		return s.q.CompleteTaskDagNode(ctx, sqlc.CompleteTaskDagNodeParams{
 			Status:  input.Status,
 			Result:  input.Result,
@@ -305,14 +305,14 @@ func (s *store) CompleteNode(ctx context.Context, input CompleteNodeInput) (*Nod
 			NodeKey: input.NodeKey,
 			RunID:   int64Ptr(input.RunID),
 		})
-	}, "complete")
+	}, "complete", fromNodeCompleteRow)
 }
 
 func (s *store) UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNodeStatusUpdate) (*Node, error) {
 	if err := requireRuntimeRunID("update_status_flexible", input.RunID); err != nil {
 		return nil, err
 	}
-	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
+	return updateNodeStatusWrite(ctx, func() (sqlc.UpdateTaskDagNodeStatusFlexibleRow, error) {
 		return s.q.UpdateTaskDagNodeStatusFlexible(ctx, sqlc.UpdateTaskDagNodeStatusFlexibleParams{
 			Status:  input.Status,
 			Result:  input.Result,
@@ -320,21 +320,21 @@ func (s *store) UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNode
 			NodeKey: input.NodeKey,
 			RunID:   int64Ptr(input.RunID),
 		})
-	}, "update_status_flexible")
+	}, "update_status_flexible", fromNodeStatusFlexibleRow)
 }
 
 func (s *store) ClaimNodeOutputMaterialization(ctx context.Context, input OutputMaterializationClaimInput) (*Node, error) {
 	if err := requireRuntimeRunID("claim_output_materialization", input.RunID); err != nil {
 		return nil, err
 	}
-	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
+	return updateNodeStatusWrite(ctx, func() (sqlc.ClaimTaskDagNodeOutputMaterializationRow, error) {
 		return s.q.ClaimTaskDagNodeOutputMaterialization(ctx, sqlc.ClaimTaskDagNodeOutputMaterializationParams{
 			Result:  input.Result,
 			DagKey:  input.DagKey,
 			NodeKey: input.NodeKey,
 			RunID:   int64Ptr(input.RunID),
 		})
-	}, "claim_output_materialization")
+	}, "claim_output_materialization", fromNodeClaimOutputRow)
 }
 
 func int64Ptr(value int64) sqlc.Int8 {
@@ -346,48 +346,15 @@ func stringPtr(value string) sqlc.Text {
 }
 
 func fromDAG(row sqlc.TaskDag) DAG {
-	return DAG{
-		ID:          row.ID,
-		DagKey:      row.DagKey,
-		Version:     row.Version,
-		Title:       row.Title,
-		Description: row.Description,
-		Status:      row.Status,
-		CreatedBy:   row.CreatedBy,
-		Metadata:    row.Metadata,
-		Trigger:     row.Trigger,
-		CronExpr:    row.CronExpr,
-		NextRunAt:   timestampPtr(row.NextRunAt),
-		StartedAt:   timestampPtr(row.StartedAt),
-		FinishedAt:  timestampPtr(row.FinishedAt),
-		CreatedAt:   timeValue(row.CreatedAt),
-		UpdatedAt:   timeValue(row.UpdatedAt),
-	}
+	return fromDAGRaw(row.ID, row.DagKey, row.Version, row.Title, row.Description, row.Status, row.CreatedBy, row.Metadata, row.Trigger, row.CronExpr, row.NextRunAt, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt)
+}
+
+func fromDAGListRow(row sqlc.ListTaskDagsRow) DAG {
+	return fromDAGRaw(row.ID, row.DagKey, row.Version, row.Title, row.Description, row.Status, row.CreatedBy, row.Metadata, row.Trigger, row.CronExpr, row.NextRunAt, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt)
 }
 
 func fromNode(row sqlc.TaskDagNode) Node {
-	return Node{
-		ID:               row.ID,
-		DagKey:           row.DagKey,
-		NodeKey:          row.NodeKey,
-		RunID:            sqlc.Int8Ptr(row.RunID),
-		Title:            row.Title,
-		NodeType:         row.NodeType,
-		AssignedTo:       row.AssignedTo,
-		DependsOn:        row.DependsOn,
-		Status:           row.Status,
-		CommandRef:       row.CommandRef,
-		Config:           row.Config,
-		Result:           row.Result,
-		StartedAt:        timestampPtr(row.StartedAt),
-		FinishedAt:       timestampPtr(row.FinishedAt),
-		CreatedAt:        timeValue(row.CreatedAt),
-		UpdatedAt:        timeValue(row.UpdatedAt),
-		ActiveTurnID:     sqlc.TextPtr(row.ActiveTurnID),
-		ActiveWakeupID:   sqlc.Int8Ptr(row.ActiveWakeupID),
-		LastEventAt:      timestampPtr(row.LastEventAt),
-		SpawningThreadID: sqlc.TextPtr(row.SpawningThreadID),
-	}
+	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.SpawningThreadID)
 }
 
 func wrapTaskDAGError(err error, operation, entity string) error {
