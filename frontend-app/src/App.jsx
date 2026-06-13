@@ -1,10 +1,11 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Brain, ChevronDown, FileText, Folder, FolderOpen, Menu, Moon, Plus, Search, Settings as SettingsIcon, SquareTerminal, Sun, Workflow, X, Zap } from 'lucide-react';
+import { Brain, ChevronDown, FileText, Folder, FolderOpen, Menu, Moon, PanelLeftClose, Plus, Search, Settings as SettingsIcon, SquareTerminal, Sun, Workflow, X, Zap } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.js';
 import { dashboardQueryKey, errorMessage, fetchMemoryDashboard, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, useDashboardFocusInvalidation, textValue } from './pages/shared/pageShared.js';
+import { ProjectSelector } from './pages/chat/components/ProjectSelector.jsx';
 import superDolphinLogo from './assets/super-dolphin-logo.png';
 
 function lazyNamedPage(loader, exportName) {
@@ -40,7 +41,7 @@ const pageLabels = Object.freeze({
   memory: '记忆中心',
   files: '共享文件',
   observability: '链路追踪',
-  settings: 'Settings',
+  settings: '设置',
 });
 
 const PAGE_ROUTE_BY_ID = Object.freeze({
@@ -708,14 +709,24 @@ function WorkbenchSidebar({ activePage, isOpen = false, setActivePage, store, pr
   return (
     <aside
       id="app-sidebar"
-      className={`app-sidebar${isOpen ? ' is-open' : ''}`}
+      className={`app-sidebar${isOpen ? ' is-open' : ''}${activePage === 'chat' ? ' app-sidebar--chat' : ''}`}
       data-testid="app-sidebar"
       aria-label="Super-Dolphin 工作台"
       style={isOpen ? { marginLeft: 0 } : undefined}
     >
-      <div className="sidebar-brand">
-        <img src={superDolphinLogo} alt="" aria-hidden="true" />
-        <strong>Super-Dolphin</strong>
+      <div className="sidebar-brand-row">
+        <div className="sidebar-brand">
+          <img src={superDolphinLogo} alt="" aria-hidden="true" />
+          <strong>Super-Dolphin</strong>
+        </div>
+        <div className="sidebar-brand-actions" aria-label="工作台工具">
+          <button type="button" aria-label="搜索" title="搜索" onClick={() => setActivePage('observability')}>
+            <Search size={19} aria-hidden="true" />
+          </button>
+          <button type="button" aria-label="折叠侧栏" title="桌面侧栏当前固定展示" disabled>
+            <PanelLeftClose size={19} aria-hidden="true" />
+          </button>
+        </div>
       </div>
       <button
         type="button"
@@ -733,6 +744,9 @@ function WorkbenchSidebar({ activePage, isOpen = false, setActivePage, store, pr
         testId="sidebar-nav"
         className="sidebar-primary-nav"
       />
+      <div className="sidebar-project-selector">
+        <ProjectSelector store={store} projectPath={projectPath} />
+      </div>
       <SidebarProjectTree projectPath={projectPath} setActivePage={setActivePage} store={store} />
       <SidebarNavList
         items={secondaryNavItems}
@@ -755,11 +769,11 @@ function WorkbenchSidebar({ activePage, isOpen = false, setActivePage, store, pr
       <button
         type="button"
         className={`sidebar-settings ${activePage === 'settings' ? 'active' : ''}`}
-        aria-label="Settings"
+        aria-label="设置"
         onClick={() => setActivePage('settings')}
       >
         <SettingsIcon size={25} aria-hidden="true" />
-        <span>Settings</span>
+        <span>设置</span>
       </button>
     </aside>
   );
@@ -769,7 +783,7 @@ function SidebarTaskSummary() {
   return (
     <section className="sidebar-task-summary" aria-label="任务">
       <h2>任务</h2>
-      <p>待后端接入</p>
+      <p>暂无任务</p>
     </section>
   );
 }

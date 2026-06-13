@@ -7656,10 +7656,9 @@ textarea:disabled {
 }
 
 .sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-card {
-  border-color: color-mix(in srgb, var(--border-strong) 82%, var(--surface));
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 94%, var(--accent-2) 6%), var(--surface));
-  box-shadow: var(--shadow), 0 1px 0 color-mix(in srgb, var(--surface) 92%, transparent) inset;
+  border-color: color-mix(in srgb, var(--border) 82%, var(--surface));
+  background: var(--composer-floating-bg, var(--surface));
+  box-shadow: 0 18px 46px color-mix(in srgb, var(--text-pri) 8%, transparent);
 }
 
 .sa-window[data-theme="light"] .conversation--intro .composer--floating textarea {
@@ -7671,11 +7670,20 @@ textarea:disabled {
 }
 
 .sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-attach,
+.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-custom,
+.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-voice,
 .sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-model {
   border-color: var(--border-strong);
   background: color-mix(in srgb, var(--surface-2) 86%, var(--surface));
   color: var(--text-sec);
   box-shadow: 0 1px 0 color-mix(in srgb, var(--surface) 72%, transparent) inset;
+}
+
+.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-attach,
+.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-voice {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
 .sa-window[data-theme="light"] .conversation--intro .composer--floating .provider {
@@ -9037,6 +9045,8 @@ textarea:disabled {
   --workbench-bg: #fcfaf4;
   --assistant-card-bg: #f4f0e7;
   --code-block-bg: #fbf8f0;
+  --composer-docked-bg: #ffffff;
+  --composer-floating-bg: #f7f3ec;
   --on-accent: #ffffff;
   --on-accent-muted: rgba(255, 255, 255, 0.72);
   --surface: #fcfaf4;
@@ -9056,7 +9066,7 @@ textarea:disabled {
 
 .sa-body {
   display: grid;
-  grid-template-columns: 340px minmax(0, 1fr);
+  grid-template-columns: 350px minmax(0, 1fr);
   height: 100vh;
   min-height: 0;
   background: var(--bg);
@@ -9075,7 +9085,7 @@ textarea:disabled {
 }
 
 .app-sidebar {
-  width: 340px;
+  width: 350px;
   height: 100vh;
   min-height: 0;
   display: flex;
@@ -9095,6 +9105,37 @@ textarea:disabled {
   color: var(--text-pri);
 }
 
+.sidebar-brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px;
+}
+
+.sidebar-brand-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sidebar-brand-actions button {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--workbench-ink);
+  cursor: pointer;
+}
+
+.sidebar-brand-actions button:disabled {
+  opacity: 0.8;
+}
+
 .sidebar-brand img {
   width: 50px;
   height: 50px;
@@ -9107,6 +9148,7 @@ textarea:disabled {
   font-size: 25px;
   line-height: 1;
   font-weight: 760;
+  white-space: nowrap;
 }
 
 .sidebar-new-chat {
@@ -9178,6 +9220,15 @@ textarea:disabled {
   margin-left: auto;
   border-radius: 999px;
   background: var(--workbench-ink, var(--accent-2));
+}
+
+.sidebar-project-selector {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
 }
 
 .sidebar-project-tree {
@@ -9347,6 +9398,67 @@ textarea:disabled {
   opacity: 0.68;
 }
 
+.app-sidebar--chat .sidebar-brand {
+  gap: 12px;
+}
+
+.app-sidebar--chat .sidebar-brand img {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+}
+
+.app-sidebar--chat .sidebar-secondary-nav {
+  height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.app-sidebar--chat .sidebar-project-tree {
+  padding-top: 16px;
+}
+
+.app-sidebar--chat .sidebar-icon-action,
+.app-sidebar--chat .sidebar-tree-actions {
+  position: absolute;
+  left: -10000px;
+}
+
+.app-sidebar--chat .sidebar-section-heading {
+  margin-bottom: 14px;
+  min-height: 24px;
+}
+
+.app-sidebar--chat .sidebar-section-title {
+  gap: 0;
+  color: var(--text-muted);
+  font-size: 16px;
+  font-weight: 560;
+}
+
+.app-sidebar--chat .sidebar-section-title svg,
+.app-sidebar--chat .sidebar-tree-folder svg {
+  display: none;
+}
+
+.app-sidebar--chat .sidebar-tree-folder {
+  min-height: 34px;
+  padding: 0 14px;
+  color: var(--text-sec);
+  font-size: 15px;
+  font-weight: 560;
+}
+
+.app-sidebar--chat .sidebar-tree-folder:hover,
+.app-sidebar--chat .sidebar-tree-folder:focus-visible,
+.app-sidebar--chat .sidebar-tree-folder.active {
+  background: transparent;
+  color: var(--text-sec);
+}
+
 .chat-page {
   height: 100%;
   min-height: 0;
@@ -9357,13 +9469,13 @@ textarea:disabled {
 
 .chat-page-header {
   position: relative;
-  min-height: 80px;
+  min-height: 126px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 0 20px;
-  border-bottom: 1px solid var(--border);
+  padding: 76px max(20px, calc((100% - 940px) / 2)) 0;
+  border-bottom: 0;
   background: var(--workbench-bg);
 }
 
@@ -9407,8 +9519,8 @@ textarea:disabled {
 
 .chat-actions-menu {
   position: absolute;
-  top: calc(100% - 12px);
-  left: 20px;
+  top: calc(100% - 30px);
+  left: max(20px, calc((100% - 940px) / 2));
   z-index: 40;
   width: min(292px, calc(100vw - 40px));
   display: grid;
@@ -9473,9 +9585,14 @@ textarea:disabled {
 .chat-layout {
   position: relative;
   flex: 1;
+  height: auto;
   min-height: 0;
   display: grid;
   overflow: hidden;
+}
+
+.chat-page--intro .chat-layout {
+  height: 100%;
 }
 
 .chat-layout > .thread-rail,
@@ -9492,13 +9609,14 @@ textarea:disabled {
 }
 
 .conversation {
-  --conversation-content-width: min(1080px, calc(100% - 128px));
+  --conversation-content-width: min(940px, calc(100% - 128px));
   min-width: 0;
   background: var(--workbench-bg);
 }
 
 .conversation--intro {
-  --conversation-intro-width: min(884px, calc(100% - 120px));
+  --conversation-intro-width: min(1040px, calc(100% - 104px));
+  --conversation-composer-width: min(884px, 100%);
   --conversation-content-width: var(--conversation-intro-width);
   --conversation-content-left-nudge: 0px;
 }
@@ -9519,9 +9637,11 @@ textarea:disabled {
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 58px;
-  padding-bottom: 78px;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 50px;
+  padding-top: clamp(280px, 36vh, 450px);
+  padding-bottom: 0;
 }
 
 .empty-chat {
@@ -9532,10 +9652,11 @@ textarea:disabled {
 .empty-chat h2 {
   margin: 0;
   color: var(--text-pri);
-  font-size: 52px;
-  line-height: 1.15;
-  font-weight: 820;
+  font-size: 50px;
+  line-height: 1.18;
+  font-weight: 800;
   letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .empty-chat p {
@@ -9543,7 +9664,7 @@ textarea:disabled {
 }
 
 .message {
-  width: min(1080px, calc(100% - 128px));
+  width: var(--conversation-content-width);
   margin: 18px auto;
 }
 
@@ -9610,7 +9731,7 @@ textarea:disabled {
 }
 
 .conversation--intro .composer--floating {
-  width: 100%;
+  width: var(--conversation-composer-width);
   max-width: 100%;
 }
 
@@ -9619,26 +9740,32 @@ textarea:disabled {
 .composer--docked .composer-card {
   width: 100%;
   margin: 0 auto;
-  border: 1px solid var(--border-strong);
-  border-radius: 18px;
-  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--border) 88%, var(--surface));
+  border-radius: 36px;
+  background: var(--composer-docked-bg, var(--surface));
   box-shadow: var(--composer-shadow);
   overflow: visible;
 }
 
 .composer textarea,
 .composer--floating textarea {
-  min-height: calc(1.5em * 3 + 34px);
+  height: 116px;
+  min-height: 116px;
   max-height: calc(1.5em * 8 + 34px);
-  padding: 31px 34px;
+  padding: 38px 44px 24px;
   border: 0;
   border-bottom: 1px solid var(--border);
-  border-radius: 18px 18px 0 0;
+  border-radius: 36px 36px 0 0;
   background: transparent;
   color: var(--text-pri);
   font-size: 18px;
   line-height: 1.5;
   overflow-y: auto;
+}
+
+.composer--floating textarea {
+  height: 160px;
+  min-height: 160px;
 }
 
 .composer textarea::placeholder {
@@ -9652,19 +9779,21 @@ textarea:disabled {
 }
 
 .composer-meta {
-  min-height: 66px;
+  min-height: 78px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 22px;
+  gap: 14px;
+  padding: 0 32px;
 }
 
 .composer-meta .project-select,
 .composer-attach,
+.composer-custom,
+.composer-voice,
 .composer-model {
-  height: 42px;
+  height: 46px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--surface-2);
   color: var(--text-sec);
   font-size: 15px;
@@ -9676,44 +9805,68 @@ textarea:disabled {
 }
 
 .composer-attach {
-  min-width: 134px;
+  min-width: 42px;
+  width: 42px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-}
-
-.composer-fork {
-  min-width: 42px;
-  width: 42px;
+  gap: 0;
   padding: 0;
+  border-color: transparent;
+  background: transparent;
 }
 
-.composer-fork span {
-  display: none;
+.composer-custom {
+  min-width: 142px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 18px;
 }
 
 .composer-actions {
-  margin-left: 20px;
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 12px;
-  flex: 1;
-  justify-content: flex-start;
+  flex: 0 0 auto;
+  justify-content: flex-end;
 }
 
 .composer-model {
-  min-width: 242px;
+  min-width: 132px;
   justify-content: space-between;
   padding: 0 14px;
 }
 
+.composer-model span {
+  white-space: nowrap;
+}
+
+.composer-voice {
+  min-width: 42px;
+  width: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+}
+
+.conversation--intro .composer-custom:disabled,
+.conversation--intro .composer-voice:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+}
+
 .composer .send {
-  width: 50px;
-  height: 50px;
+  width: 42px;
+  height: 42px;
   margin-left: auto;
   border: 0;
-  border-radius: 14px;
+  border-radius: 999px;
   background: var(--workbench-ink, var(--accent-2));
   color: var(--on-accent);
 }
@@ -9726,9 +9879,14 @@ textarea:disabled {
 }
 
 .composer .send:disabled {
-  background: var(--workbench-ink, var(--accent-2));
-  color: var(--on-accent);
-  opacity: 0.55;
+  background: var(--surface-3);
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+.conversation--intro .composer .send:disabled {
+  background: var(--workbench-ink, var(--accent-2)) !important;
+  color: var(--on-accent) !important;
 }
 
 .composer .send--interrupt,
