@@ -19,7 +19,7 @@ SET title = EXCLUDED.title,
 RETURNING id, ack_key, title, description, assigned_to, requested_by, priority, status, progress, ack_message, result_summary, metadata, due_at, acked_at, started_at, finished_at, created_at, updated_at;
 
 -- name: ListTaskAcks :many
-SELECT id, ack_key, title, description, assigned_to, requested_by, priority, status, progress, ack_message, result_summary, metadata, due_at, acked_at, started_at, finished_at, created_at, updated_at
+SELECT id, ack_key, title, description, assigned_to, requested_by, priority, status, progress, ack_message, result_summary, CAST('{}' AS BLOB) AS metadata, due_at, acked_at, started_at, finished_at, created_at, updated_at
 FROM task_acks
 WHERE (sqlc.arg(status_filter) = '' OR status = sqlc.arg(status_filter))
   AND (sqlc.arg(priority_filter) = '' OR priority = sqlc.arg(priority_filter))

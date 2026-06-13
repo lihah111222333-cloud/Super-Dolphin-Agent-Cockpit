@@ -57,20 +57,18 @@ func (s *store) GetDAGSchedule(ctx context.Context, dagKey string) (DAGSchedule,
 // caller's DAGOps transaction. Nil pointer fields mean "leave the column as-is";
 // empty strings are deliberate values and are written through.
 func (s *store) UpdateDAGPatch(ctx context.Context, input UpdateDAGPatchInput) (int64, error) {
-	rows, err := s.q.UpdateTaskDagPatch(ctx, sqlc.UpdateTaskDagPatchParams{
-		DagKey:          input.DagKey,
-		Title:           nullableTextArg(input.Title),
-		Description:     nullableTextArg(input.Description),
-		Trigger:         nullableTextArg(input.Trigger),
-		CronExpr:        nullableTextArg(input.CronExpr),
-		OwnerID:         nullableTextArg(input.OwnerID),
-		ScheduleEnabled: nullableBoolArg(input.ScheduleEnabled),
-		NextRunAt:       nullableTimeArg(input.NextRunAt),
-	})
-	if err != nil {
-		return 0, wrapTaskDAGError(err, "update_patch", "task_dag")
-	}
-	return rows, nil
+	return queryValueWrite(ctx, func() (int64, error) {
+		return s.q.UpdateTaskDagPatch(ctx, sqlc.UpdateTaskDagPatchParams{
+			DagKey:          input.DagKey,
+			Title:           nullableTextArg(input.Title),
+			Description:     nullableTextArg(input.Description),
+			Trigger:         nullableTextArg(input.Trigger),
+			CronExpr:        nullableTextArg(input.CronExpr),
+			OwnerID:         nullableTextArg(input.OwnerID),
+			ScheduleEnabled: nullableBoolArg(input.ScheduleEnabled),
+			NextRunAt:       nullableTimeArg(input.NextRunAt),
+		})
+	}, "update_patch", "task_dag")
 }
 
 func nullableBoolArg(value *bool) interface{} {
@@ -99,21 +97,19 @@ func nullableTimeArg(value *time.Time) *int64 {
 // expected/actual 不匹配 → sql ErrNoRows 包成 IsNotFound；service 层把
 // 它翻成 ErrVersionConflict。
 func (s *store) BumpDAGVersion(ctx context.Context, dagKey string, expectedVersion int64) (int64, error) {
-	newVersion, err := s.q.BumpTaskDagVersion(ctx, sqlc.BumpTaskDagVersionParams{
-		DagKey:          dagKey,
-		ExpectedVersion: expectedVersion,
-	})
-	if err != nil {
-		return 0, wrapTaskDAGError(err, "bump_version", "task_dag")
-	}
-	return newVersion, nil
+	return queryValueWrite(ctx, func() (int64, error) {
+		return s.q.BumpTaskDagVersion(ctx, sqlc.BumpTaskDagVersionParams{
+			DagKey:          dagKey,
+			ExpectedVersion: expectedVersion,
+		})
+	}, "bump_version", "task_dag")
 }
 
 // WithDAGOpsTx 是 DAGOpsTxRunner 接口的 *store 实现。复用事务 helper
 // 起 PG 事务，把 fn 拿到的 store 跨上事务 *sqlc.Queries，让 fn 内调
 // GetDAGVersionForUpdate / UpsertNode / BumpDAGVersion 同事务串起来。
 func (s *store) WithDAGOpsTx(ctx context.Context, fn func(tx DAGOpsStore) error) error {
-	return wrapTaskDAGError(sqlctx.WithTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
+	return wrapTaskDAGError(sqlctx.WithImmediateTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
 		return fn(&store{db: tx, q: txq})
 	}), "with_dag_ops_tx", "task_dag")
 }

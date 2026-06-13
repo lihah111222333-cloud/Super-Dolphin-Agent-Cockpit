@@ -11,7 +11,7 @@ import (
 )
 
 const listTaskAcks = `-- name: ListTaskAcks :many
-SELECT id, ack_key, title, description, assigned_to, requested_by, priority, status, progress, ack_message, result_summary, metadata, due_at, acked_at, started_at, finished_at, created_at, updated_at
+SELECT id, ack_key, title, description, assigned_to, requested_by, priority, status, progress, ack_message, result_summary, CAST('{}' AS BLOB) AS metadata, due_at, acked_at, started_at, finished_at, created_at, updated_at
 FROM task_acks
 WHERE (?1 = '' OR status = ?1)
   AND (?2 = '' OR priority = ?2)
@@ -32,7 +32,28 @@ type ListTaskAcksParams struct {
 	LimitCount       int64       `db:"limit_count" json:"limit_count"`
 }
 
-func (q *Queries) ListTaskAcks(ctx context.Context, arg ListTaskAcksParams) ([]TaskAck, error) {
+type ListTaskAcksRow struct {
+	ID            int64  `db:"id" json:"id"`
+	AckKey        string `db:"ack_key" json:"ack_key"`
+	Title         string `db:"title" json:"title"`
+	Description   string `db:"description" json:"description"`
+	AssignedTo    string `db:"assigned_to" json:"assigned_to"`
+	RequestedBy   string `db:"requested_by" json:"requested_by"`
+	Priority      string `db:"priority" json:"priority"`
+	Status        string `db:"status" json:"status"`
+	Progress      int64  `db:"progress" json:"progress"`
+	AckMessage    string `db:"ack_message" json:"ack_message"`
+	ResultSummary string `db:"result_summary" json:"result_summary"`
+	Metadata      []byte `db:"metadata" json:"metadata"`
+	DueAt         *int64 `db:"due_at" json:"due_at"`
+	AckedAt       *int64 `db:"acked_at" json:"acked_at"`
+	StartedAt     *int64 `db:"started_at" json:"started_at"`
+	FinishedAt    *int64 `db:"finished_at" json:"finished_at"`
+	CreatedAt     int64  `db:"created_at" json:"created_at"`
+	UpdatedAt     int64  `db:"updated_at" json:"updated_at"`
+}
+
+func (q *Queries) ListTaskAcks(ctx context.Context, arg ListTaskAcksParams) ([]ListTaskAcksRow, error) {
 	rows, err := q.db.QueryContext(ctx, listTaskAcks,
 		arg.StatusFilter,
 		arg.PriorityFilter,
@@ -44,9 +65,9 @@ func (q *Queries) ListTaskAcks(ctx context.Context, arg ListTaskAcksParams) ([]T
 		return nil, err
 	}
 	defer rows.Close()
-	items := []TaskAck{}
+	items := []ListTaskAcksRow{}
 	for rows.Next() {
-		var i TaskAck
+		var i ListTaskAcksRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.AckKey,

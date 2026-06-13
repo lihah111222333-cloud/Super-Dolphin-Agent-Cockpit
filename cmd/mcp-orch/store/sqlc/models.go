@@ -287,6 +287,13 @@ type PromptIntentDraft struct {
 	UpdatedAt     int64   `db:"updated_at" json:"updated_at"`
 }
 
+type PromptRecallTopic struct {
+	CWD        string `db:"cwd" json:"cwd"`
+	Topic      string `db:"topic" json:"topic"`
+	TemplateID int64  `db:"template_id" json:"template_id"`
+	SectionKey string `db:"section_key" json:"section_key"`
+}
+
 type PromptRoutingTest struct {
 	ID                int64  `db:"id" json:"id"`
 	Input             string `db:"input" json:"input"`
