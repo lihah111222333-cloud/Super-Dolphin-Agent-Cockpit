@@ -3,10 +3,14 @@ package dreamexec
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // ---------- realCommander 测试（依赖 sh / cat） ----------
@@ -16,6 +20,31 @@ func skipIfWindows(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("realCommander 测试依赖 sh/cat，跳过 windows")
 	}
+}
+
+func TestRealCommander_ScrubsDatabaseEnvFromParent(t *testing.T) {
+	if os.Getenv("DREAMEXEC_ENV_HELPER") == "1" {
+		writeDreamExecEnvHelperFile()
+		os.Exit(0)
+	}
+
+	setDreamExecDatabaseEnvForTest(t)
+	t.Setenv("DREAMEXEC_SAFE_PARENT_ENV", "keep-parent")
+	t.Setenv("DREAMEXEC_ENV_HELPER", "1")
+	envPath := filepath.Join(t.TempDir(), "dream-env.txt")
+	t.Setenv("DREAMEXEC_ENV_FILE", envPath)
+
+	c := NewRealCommander()
+	_, err := c.Run(context.Background(), os.Args[0], []string{"-test.run=^TestRealCommander_ScrubsDatabaseEnvFromParent$"}, "", 1024)
+	if err != nil {
+		t.Fatalf("realCommander.Run() error = %v", err)
+	}
+
+	env := readDreamExecEnvFile(t, envPath)
+	for _, key := range contract.ForbiddenDatabaseEnvKeyNames() {
+		requireDreamExecEnvKeyAbsent(t, env, key)
+	}
+	requireDreamExecEnvValue(t, env, "DREAMEXEC_SAFE_PARENT_ENV", "keep-parent")
 }
 
 func TestRealCommander_StdinEchoedToStdout(t *testing.T) {
@@ -399,4 +428,63 @@ func TestLooksLikeCodexJSONL(t *testing.T) {
 			}
 		})
 	}
+}
+
+func setDreamExecDatabaseEnvForTest(t *testing.T) {
+	t.Helper()
+	t.Setenv("DATABASE_URL", "postgres://parent@localhost/super_dolphin")
+	t.Setenv("POSTGRES_CONNECTION_STRING", "postgres://compat@localhost/super_dolphin")
+	t.Setenv("SUPER_DOLPHIN_SQLITE_PATH", filepath.Join(t.TempDir(), "parent.db"))
+	t.Setenv("SUPER_DOLPHIN_INTERNAL_SQLITE_PATH", filepath.Join(t.TempDir(), "parent-internal.db"))
+}
+
+func writeDreamExecEnvHelperFile() {
+	path := strings.TrimSpace(os.Getenv("DREAMEXEC_ENV_FILE"))
+	if path == "" {
+		os.Exit(2)
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(os.Environ(), "\n")), 0o600); err != nil {
+		os.Exit(2)
+	}
+}
+
+func readDreamExecEnvFile(t *testing.T, path string) []string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read dream env file %s: %v", path, err)
+	}
+	text := strings.TrimSpace(strings.ReplaceAll(string(raw), "\r\n", "\n"))
+	if text == "" {
+		return nil
+	}
+	return strings.Split(text, "\n")
+}
+
+func requireDreamExecEnvKeyAbsent(t *testing.T, env []string, key string) {
+	t.Helper()
+	if value, ok := dreamExecEnvValue(env, key); ok {
+		t.Fatalf("%s leaked with value %q in env %#v", key, value, env)
+	}
+}
+
+func requireDreamExecEnvValue(t *testing.T, env []string, key, want string) {
+	t.Helper()
+	got, ok := dreamExecEnvValue(env, key)
+	if !ok {
+		t.Fatalf("%s missing from env %#v", key, env)
+	}
+	if got != want {
+		t.Fatalf("%s = %q, want %q", key, got, want)
+	}
+}
+
+func dreamExecEnvValue(env []string, key string) (string, bool) {
+	for _, item := range env {
+		name, value, ok := strings.Cut(item, "=")
+		if ok && strings.EqualFold(name, key) {
+			return strings.TrimSpace(value), true
+		}
+	}
+	return "", false
 }

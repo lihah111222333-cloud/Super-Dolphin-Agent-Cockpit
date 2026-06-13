@@ -16,8 +16,8 @@ func TestPackageWindowsScriptBuildsNativeWindowsPackage(t *testing.T) {
 	assertScriptContains(t, script, "SUPER_DOLPHIN_SKIP_FRONTEND_BUILD")
 	assertScriptContains(t, script, "npm run build")
 	assertScriptContains(t, script, "Copy-DirectoryClean -Source (Join-Path $Root 'frontend-app/dist') -Destination (Join-Path $Root 'cmd/agent-terminal/frontend/dist')")
-	assertScriptContains(t, script, "Copy-PostgresRuntime")
-	assertScriptContains(t, script, "/XD 'pgAdmin 4' 'StackBuilder'")
+	assertScriptDoesNotContain(t, script, "Copy-PostgresRuntime")
+	assertScriptDoesNotContain(t, script, "SUPER_DOLPHIN_POSTGRES_DIST")
 	assertScriptContains(t, script, "$ProgressPreference = 'SilentlyContinue'")
 	assertScriptContains(t, script, "function New-WindowsZip")
 	assertScriptContains(t, script, "Get-Command tar.exe")
@@ -25,6 +25,19 @@ func TestPackageWindowsScriptBuildsNativeWindowsPackage(t *testing.T) {
 	assertScriptContains(t, script, "Compress-Archive")
 	assertScriptContains(t, script, "$zipPath = Join-Path $dist \"$AppName-$Version-$Platform.zip\"")
 	assertScriptOrder(t, script, "Build-CurrentFrontendApp", "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags $windowsGuiLdFlags")
+}
+
+func TestPackageWindowsScriptCopiesSQLiteRuntimeMigrations(t *testing.T) {
+	script := readScript(t, "package_windows.ps1")
+
+	assertScriptContains(t, script, "function Copy-SQLiteMigrations")
+	assertScriptContains(t, script, "$source = Join-Path $Root 'internal/platform/db/sqlite/migrations'")
+	assertScriptContains(t, script, "$destination = Join-Path $BundleRoot 'internal/platform/db/sqlite/migrations'")
+	assertScriptContains(t, script, "missing SQLite migrations directory: $source")
+	assertScriptContains(t, script, "missing SQLite migration files under $source")
+	assertScriptContains(t, script, "Copy-SQLiteMigrations -BundleRoot $Stage")
+	assertScriptDoesNotContain(t, script, "Copy-DirectoryClean -Source (Join-Path $Root 'migrations') -Destination (Join-Path $Stage 'migrations')")
+	assertScriptOrder(t, script, "Copy-SQLiteMigrations -BundleRoot $Stage", "Write-RuntimeManifest -BundleRoot $Stage")
 }
 
 func TestPackageWindowsScriptUsesIncrementalBuildPhaseCache(t *testing.T) {
@@ -51,7 +64,7 @@ func TestPackageWindowsScriptUsesIncrementalBuildPhaseCache(t *testing.T) {
 	assertScriptOrderAfter(t, script, "Test-BuildPhaseCache -Name 'go-binaries'", "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-ida.exe') -Package './cmd/mcp-ida' -LdFlags $windowsGuiLdFlags", "Save-BuildPhaseCache")
 
 	assertScriptOrder(t, script, "Assert-WindowsNativeArchitecture -Path (Join-Path $Root 'bin/agent-terminal.exe')", "Copy-PackagedLSPBundle -BundleRoot $Stage")
-	assertScriptOrder(t, script, "Copy-PackagedLSPBundle -BundleRoot $Stage", "Copy-PostgresRuntime -Source $pgSrc -Destination (Join-Path $Stage \"postgres/$Platform\")")
+	assertScriptOrder(t, script, "Copy-PackagedLSPBundle -BundleRoot $Stage", "Write-LSPManifest -BundleRoot $Stage")
 }
 
 func TestPackageWindowsBuildsDesktopExeWithoutConsoleWindow(t *testing.T) {
@@ -144,10 +157,10 @@ func TestPackageWindowsVerifiesArm64NativeArtifactsBeforePackaging(t *testing.T)
 		"Assert-WindowsNativeArchitecture -Path (Join-Path $Root 'bin/mcp-ida.exe') -ExpectedArch $WindowsPackageArch -Label 'mcp-ida'",
 		"Assert-WindowsNativeArchitecture -Path $script:PackagedCodexArtifact -ExpectedArch $WindowsPackageArch -Label 'Codex CLI artifact'",
 		"Assert-LSPBundleNativeArchitecture -BundleDir $script:PackagedLSPBundleDir",
-		"Assert-WindowsNativeArchitecture -Path $candidate -ExpectedArch $WindowsPackageArch -Label \"PostgreSQL $bin\"",
 	} {
 		assertScriptContains(t, script, want)
 	}
+	assertScriptDoesNotContain(t, script, "PostgreSQL $bin")
 }
 
 func TestWindowsBackgroundProcessesHideConsoleWindows(t *testing.T) {
@@ -219,7 +232,7 @@ func TestPackageWindowsScriptWritesRuntimeManifestContract(t *testing.T) {
 	assertScriptContains(t, body, "lsp_bundle_path = 'lsp'")
 	assertScriptContains(t, body, "lsp_manifest_path = 'lsp/lsp-manifest.json'")
 	assertScriptContains(t, body, "model_registry_path = 'models.yaml'")
-	assertScriptContains(t, body, "embedded_postgres_resource_path = \"postgres/$Platform\"")
+	assertScriptDoesNotContain(t, body, "embedded_postgres_resource_path")
 	assertScriptOrder(t, script, "Write-RuntimeManifest -BundleRoot $Stage", "New-WindowsZip -Stage $Stage -ZipPath $zipPath")
 }
 
@@ -310,7 +323,7 @@ func TestPackageWindowsLocalScriptChecksHostFFmpegDependency(t *testing.T) {
 	} {
 		assertScriptContains(t, script, want)
 	}
-	assertScriptOrder(t, script, "missing PostgreSQL dist; set SUPER_DOLPHIN_POSTGRES_DIST", "$env:SUPER_DOLPHIN_FFMPEG_BIN = $FFmpegBin")
+	assertScriptDoesNotContain(t, script, "SUPER_DOLPHIN_POSTGRES_DIST")
 	assertScriptOrder(t, script, "$env:SUPER_DOLPHIN_FFMPEG_BIN = $FFmpegBin", "scripts/package_windows.ps1') @packageArgs")
 }
 
@@ -320,7 +333,7 @@ func TestPackageWindowsRunScriptsAdvertisePackagedRuntime(t *testing.T) {
 	assertScriptContains(t, script, "SUPER_DOLPHIN_PACKAGE_ROOT=%here%")
 	assertScriptContains(t, script, "PROJECT_ROOT=%here%")
 	assertScriptContains(t, script, "SUPER_DOLPHIN_MODEL_REGISTRY=%here%\\models.yaml")
-	assertScriptContains(t, script, "SUPER_DOLPHIN_POSTGRES_BIN_DIR=%here%\\postgres\\__PLATFORM__\\bin")
+	assertScriptDoesNotContain(t, script, "SUPER_DOLPHIN_POSTGRES_BIN_DIR")
 	assertScriptContains(t, script, "$runCmd = $runCmd.Replace('__PLATFORM__', $Platform)")
 	assertScriptContains(t, script, "$runPs1 = $runPs1.Replace('__PLATFORM__', $Platform)")
 	assertScriptContains(t, script, "GO_AGENT_PEER_BIN_DIR=%here%\\bin")
@@ -372,19 +385,23 @@ func TestVerifyPackagedAppWindowsScriptContracts(t *testing.T) {
 	assertScriptContains(t, script, "runtime-manifest.json")
 	assertScriptContains(t, script, "codex-manifest.json")
 	assertScriptContains(t, script, "lsp/lsp-manifest.json")
+	assertScriptContains(t, script, "internal/platform/db/sqlite/migrations")
+	assertScriptContains(t, script, "missing SQLite migration files under")
 	assertScriptContains(t, script, "Verify-RuntimeManifest")
 	assertScriptContains(t, script, "Verify-CodexManifest")
 	assertScriptContains(t, script, "Verify-LSPManifest")
-	assertScriptContains(t, script, "postgres.bki")
 	assertScriptContains(t, script, "Get-FileHash -Algorithm SHA256")
 	assertScriptContains(t, script, "bin/codex.exe")
 	assertScriptContains(t, script, "bin/gopls.exe")
 	assertScriptContains(t, script, "$WindowsPackagePlatform")
-	assertScriptContains(t, script, "postgres/$WindowsPackagePlatform")
 	assertScriptContains(t, script, "codex.exe app-server --help")
 	assertScriptContains(t, script, "LSP server smoke verified")
 	assertScriptContains(t, script, "SUPER_DOLPHIN_WINDOWS_PACKAGE_PLATFORM")
-	assertScriptContains(t, script, "runtime manifest embedded_postgres_resource_path must be postgres/windows-amd64 or postgres/windows-arm64")
+	assertScriptContains(t, script, "package root name ending in windows-amd64 or windows-arm64")
+	assertScriptContains(t, script, "Infer-WindowsPackagePlatform")
+	assertScriptDoesNotContain(t, script, "embedded_postgres_resource_path")
+	assertScriptDoesNotContain(t, script, "postgres.bki")
+	assertScriptDoesNotContain(t, script, "Join-Path $PackageRoot 'migrations'")
 	assertScriptContains(t, script, "ast-grep.exe")
 	assertScriptContains(t, script, "vcruntime140.dll")
 	assertScriptContains(t, script, "function Assert-JsonStringArray()")
@@ -428,7 +445,7 @@ func TestPackageWindowsLocalHelperContracts(t *testing.T) {
 	assertScriptContains(t, script, "$packageArgs.KeepStage = $true")
 	assertScriptContains(t, script, "scripts/package_windows.ps1') @packageArgs")
 	assertScriptContains(t, script, "Get-FileHash -Algorithm SHA256")
-	assertScriptContains(t, script, "SUPER_DOLPHIN_POSTGRES_DIST")
+	assertScriptDoesNotContain(t, script, "SUPER_DOLPHIN_POSTGRES_DIST")
 }
 
 func TestPackageWindowsLocalFastModeOptimizesRepeatPackaging(t *testing.T) {

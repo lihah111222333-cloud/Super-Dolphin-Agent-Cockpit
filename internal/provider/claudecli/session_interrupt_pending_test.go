@@ -12,7 +12,7 @@ import (
 func TestInterruptCancelsPendingRestart(t *testing.T) {
 	next := newScriptedTransport()
 	defer next.finish()
-	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		return next.tr, nil, nil
 	})
 
@@ -23,6 +23,7 @@ func TestInterruptCancelsPendingRestart(t *testing.T) {
 		sessionID:       "pending",
 		threadReady:     oldReady,
 		transport:       closedTransport(),
+		launchCLI:       launchFn,
 		suppressedTurns: map[string]struct{}{},
 		model:           "claude-old",
 	}

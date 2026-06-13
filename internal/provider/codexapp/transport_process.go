@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -41,6 +43,13 @@ type limitedBuffer struct {
 }
 
 func newLimitedBuffer(limit int) *limitedBuffer { return &limitedBuffer{limit: limit} }
+
+func nonNilContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
@@ -150,9 +159,7 @@ func (p *localProcess) listenResult() (string, error, bool) {
 }
 
 func (p *localProcess) waitForListenURL(ctx context.Context) (string, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	if url, err, ok := p.listenResult(); ok {
 		return url, err
 	}
@@ -223,9 +230,7 @@ func (t *transport) spawnLocal(ctx context.Context) error {
 	if t.processRunning() {
 		return nil
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	if err := ensureCodexCLIAvailable(ctx); err != nil {
 		return err
 	}
@@ -236,6 +241,7 @@ func (t *transport) spawnLocal(ctx context.Context) error {
 	// for batch agent scenarios; the Unix wrapper raises it before exec. On
 	// Windows the wrapper is a no-op — the default handle limit is adequate.
 	cmd := wrapWithFDLimit(argv)
+	cmd.Env = contract.ScrubDatabaseEnv(os.Environ())
 	cmd.Stdout = io.Discard
 	setCodexProcessAttrs(cmd)
 	stderr, err := cmd.StderrPipe()

@@ -57,7 +57,7 @@ func NewDefaultRedactor() *DefaultRedactor {
 		{"uri_credentials", `(?i)\b[a-z][a-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@`},
 		{"ssh_public_key", `\bssh-(?:rsa|ed25519) [A-Za-z0-9+/=]{40,}`},
 		// credential env name followed by '=' or ':'; value runs to the next whitespace.
-		{"credential_env", `(?i)\b(OPENAI_API_KEY|ANTHROPIC_API_KEY|AWS_(?:SECRET_)?ACCESS_KEY(?:_ID)?|GITHUB_TOKEN|HF_TOKEN|HUGGINGFACE_TOKEN|SLACK_(?:BOT_)?TOKEN|STRIPE_SECRET_KEY|GOOGLE_API_KEY|NPM_TOKEN|PYPI_TOKEN|DATABASE_URL|SENTRY_AUTH_TOKEN|DATABRICKS_TOKEN|AZURE_CLIENT_SECRET)\s*[=:]\s*\S+`},
+		{"credential_env", `(?i)\b(OPENAI_API_KEY|ANTHROPIC_API_KEY|AWS_(?:SECRET_)?ACCESS_KEY(?:_ID)?|GITHUB_TOKEN|HF_TOKEN|HUGGINGFACE_TOKEN|SLACK_(?:BOT_)?TOKEN|STRIPE_SECRET_KEY|GOOGLE_API_KEY|NPM_TOKEN|PYPI_TOKEN|DATABASE_URL|POSTGRES_CONNECTION_STRING|SUPER_DOLPHIN_SQLITE_PATH|SUPER_DOLPHIN_INTERNAL_SQLITE_PATH|SENTRY_AUTH_TOKEN|DATABRICKS_TOKEN|AZURE_CLIENT_SECRET)\s*[=:]\s*\S+`},
 		// HTTP cookie header (Cookie / Set-Cookie).
 		{"http_cookie", `(?i)\b(?:Cookie|Set-Cookie)\s*:\s*[^\r\n]+`},
 		// Generic long hex / base64 blobs (32+ chars). long_hex is listed

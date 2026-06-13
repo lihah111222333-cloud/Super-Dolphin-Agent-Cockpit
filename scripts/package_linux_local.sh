@@ -15,8 +15,6 @@ case "$target" in
 esac
 
 relay_url="${SUPER_DOLPHIN_CODEX_RELAY_BASE_URL:-}"
-postgres_dist_default="$root/third_party/postgres/$(go env GOOS)-$(go env GOARCH)"
-postgres_dist="${SUPER_DOLPHIN_POSTGRES_DIST:-$postgres_dist_default}"
 codex_bin="${SUPER_DOLPHIN_CODEX_ARTIFACT:-$(command -v codex || true)}"
 
 if [[ -z "${SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN:-}" ]]; then
@@ -38,7 +36,6 @@ if [[ -n "${SUPER_DOLPHIN_CODEX_RELAY_API_KEY:-}" ]]; then
 fi
 
 test -x "$codex_bin" || { echo "missing Codex artifact; set SUPER_DOLPHIN_CODEX_ARTIFACT" >&2; exit 1; }
-test -d "$postgres_dist" || { echo "missing PostgreSQL dist; set SUPER_DOLPHIN_POSTGRES_DIST: $postgres_dist" >&2; exit 1; }
 
 package_one() {
   local profile="$1"
@@ -55,7 +52,6 @@ package_one() {
 
   SUPER_DOLPHIN_LSP_PROFILE="$profile" \
     APP_NAME="$app_name" \
-    SUPER_DOLPHIN_POSTGRES_DIST="$postgres_dist" \
     SUPER_DOLPHIN_CODEX_ARTIFACT="$codex_bin" \
     SUPER_DOLPHIN_CODEX_SHA256="$(sha256sum "$codex_bin" | awk '{print $1}')" \
     SUPER_DOLPHIN_CODEX_VERSION="$($codex_bin --version | head -n1)" \

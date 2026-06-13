@@ -4,7 +4,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -27,7 +26,7 @@ func TestResolveConfigUsesExternalDatabaseURL(t *testing.T) {
 	}
 }
 
-func TestResolveConfigDefaultsToDarwinApplicationSupport(t *testing.T) {
+func TestResolveConfigPackagedRuntimeDefaultsDisabled(t *testing.T) {
 	app := filepath.Join(t.TempDir(), "Super Dolphin.app")
 	resources := filepath.Join(app, "Contents", "Resources")
 	writePackagedRuntimeFixture(t, resources, "darwin-arm64")
@@ -40,35 +39,17 @@ func TestResolveConfigDefaultsToDarwinApplicationSupport(t *testing.T) {
 	}
 
 	cfg, databaseURL := ResolveConfig(input)
-	if !cfg.Enabled {
-		t.Fatal("EmbeddedPostgres.Enabled = false, want true when no external database URL is set")
+	if cfg.Enabled {
+		t.Fatal("EmbeddedPostgres.Enabled = true, want disabled for packaged product runtime")
 	}
-	wantBase := filepath.Join("/Users/tester", "Library", "Application Support", "Super Dolphin")
-	if cfg.DataDir != filepath.Join(wantBase, "postgres", "data") {
-		t.Fatalf("DataDir = %q", cfg.DataDir)
+	if cfg.Owner || cfg.RecoverRunningDataDir {
+		t.Fatalf("owner flags = Owner:%v RecoverRunningDataDir:%v, want false", cfg.Owner, cfg.RecoverRunningDataDir)
 	}
-	wantRuntime := filepath.Join("/tmp", "sd-pg-"+strconv.Itoa(os.Getuid())+"-55432")
-	if cfg.RuntimeDir != wantRuntime {
-		t.Fatalf("RuntimeDir = %q", cfg.RuntimeDir)
+	if cfg.BinDir != "" || cfg.ShareDir != "" || cfg.DataDir != "" || cfg.RuntimeDir != "" {
+		t.Fatalf("embedded postgres paths populated for disabled product runtime: %#v", cfg)
 	}
-	if cfg.BinDir != filepath.Join(resources, "postgres", "darwin-arm64", "bin") {
-		t.Fatalf("BinDir = %q", cfg.BinDir)
-	}
-	if !cfg.RecoverRunningDataDir {
-		t.Fatal("RecoverRunningDataDir = false, want true for packaged desktop")
-	}
-	if cfg.ShareDir != filepath.Join(resources, "postgres", "darwin-arm64", "share", "postgresql@16") {
-		t.Fatalf("ShareDir = %q", cfg.ShareDir)
-	}
-	parsed, err := url.Parse(databaseURL)
-	if err != nil {
-		t.Fatalf("parse databaseURL: %v", err)
-	}
-	if parsed.Query().Get("host") != cfg.RuntimeDir {
-		t.Fatalf("databaseURL host query = %q, want runtime dir %q", parsed.Query().Get("host"), cfg.RuntimeDir)
-	}
-	if parsed.Query().Get("sslmode") != "disable" {
-		t.Fatalf("databaseURL sslmode = %q", parsed.Query().Get("sslmode"))
+	if strings.TrimSpace(databaseURL) != "" {
+		t.Fatalf("databaseURL = %q, want empty for packaged product runtime", databaseURL)
 	}
 }
 
@@ -97,7 +78,7 @@ func TestResolveConfigWindowsDatabaseURLUsesTCP(t *testing.T) {
 	}
 }
 
-func TestResolveConfigMarksDesktopAsEmbeddedPostgresOwner(t *testing.T) {
+func TestResolveConfigDoesNotMarkPackagedDesktopAsEmbeddedPostgresOwnerByDefault(t *testing.T) {
 	app := filepath.Join(t.TempDir(), "Super Dolphin.app")
 	resources := filepath.Join(app, "Contents", "Resources")
 	writePackagedRuntimeFixture(t, resources, "darwin-arm64")
@@ -109,14 +90,14 @@ func TestResolveConfigMarksDesktopAsEmbeddedPostgresOwner(t *testing.T) {
 		ProjectRoot:    resources,
 		UserHome:       "/Users/alice",
 	})
-	if !cfg.Enabled {
-		t.Fatal("Enabled = false, want true")
+	if cfg.Enabled {
+		t.Fatal("Enabled = true, want false for packaged product runtime")
 	}
-	if !cfg.Owner {
-		t.Fatal("Owner = false, want true for desktop role")
+	if cfg.Owner {
+		t.Fatal("Owner = true, want false without legacy embedded postgres opt-in")
 	}
-	if !strings.Contains(dsn, "super_dolphin") {
-		t.Fatalf("dsn = %q, want super_dolphin database", dsn)
+	if strings.TrimSpace(dsn) != "" {
+		t.Fatalf("dsn = %q, want empty without legacy embedded postgres opt-in", dsn)
 	}
 }
 
@@ -200,7 +181,7 @@ func TestResolveConfigExplicitOptInUsesProjectRootPostgresBeforeDevExecutable(t 
 	}
 }
 
-func TestResolveConfigHonorsExplicitPostgresBinDir(t *testing.T) {
+func TestResolveConfigIgnoresExplicitPostgresBinDirWithoutLegacyOptIn(t *testing.T) {
 	input := ResolveInput{
 		GOOS:     "linux",
 		GOARCH:   "amd64",
@@ -211,12 +192,15 @@ func TestResolveConfigHonorsExplicitPostgresBinDir(t *testing.T) {
 	}
 
 	cfg, _ := ResolveConfig(input)
-	if cfg.BinDir != "/opt/super-dolphin/postgres/bin" {
-		t.Fatalf("BinDir = %q", cfg.BinDir)
+	if cfg.Enabled {
+		t.Fatal("Enabled = true, want false when only old Postgres bin dir knob is set")
+	}
+	if cfg.BinDir != "" {
+		t.Fatalf("BinDir = %q, want empty without legacy opt-in", cfg.BinDir)
 	}
 }
 
-func TestResolveConfigHonorsExplicitPostgresShareDir(t *testing.T) {
+func TestResolveConfigIgnoresExplicitPostgresShareDirWithoutLegacyOptIn(t *testing.T) {
 	input := ResolveInput{
 		GOOS:     "linux",
 		GOARCH:   "amd64",
@@ -227,18 +211,19 @@ func TestResolveConfigHonorsExplicitPostgresShareDir(t *testing.T) {
 	}
 
 	cfg, _ := ResolveConfig(input)
-	if cfg.ShareDir != "/opt/super-dolphin/postgres/share/postgresql" {
-		t.Fatalf("ShareDir = %q", cfg.ShareDir)
+	if cfg.Enabled {
+		t.Fatal("Enabled = true, want false when only old Postgres share dir knob is set")
+	}
+	if cfg.ShareDir != "" {
+		t.Fatalf("ShareDir = %q, want empty without legacy opt-in", cfg.ShareDir)
 	}
 }
 
-func writePackagedRuntimeFixture(t *testing.T, resources, platform string) {
+func writePackagedRuntimeFixture(t *testing.T, resources, _ string) {
 	t.Helper()
 	for _, path := range []string{
 		filepath.Join(resources, "bin"),
 		filepath.Join(resources, "lsp"),
-		filepath.Join(resources, "postgres", platform, "bin"),
-		filepath.Join(resources, "postgres", platform, "share", "postgresql@16"),
 	} {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatalf("mkdir packaged runtime fixture %s: %v", path, err)
@@ -261,8 +246,7 @@ func writePackagedRuntimeFixture(t *testing.T, resources, platform string) {
   "bundled_gopls_path": "bin/gopls",
   "lsp_bundle_path": "lsp",
   "lsp_manifest_path": "lsp/lsp-manifest.json",
-  "model_registry_path": "models.yaml",
-  "embedded_postgres_resource_path": "postgres/` + platform + `"
+  "model_registry_path": "models.yaml"
 }`
 	if err := os.WriteFile(filepath.Join(resources, "runtime-manifest.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatalf("write runtime manifest: %v", err)

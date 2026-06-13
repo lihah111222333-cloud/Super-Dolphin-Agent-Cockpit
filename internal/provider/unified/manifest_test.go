@@ -215,16 +215,28 @@ func TestBuildManifest_NormalizesControlEnvNames(t *testing.T) {
 	}
 }
 
-func TestBuildManifest_PreservesDatabaseURLFromEnvironment(t *testing.T) {
+func TestBuildManifest_StripsDatabaseEnvironmentFromMCPBinaries(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://tester@127.0.0.1:54320/custom_db?sslmode=disable")
+	t.Setenv("POSTGRES_CONNECTION_STRING", "postgres://compat@127.0.0.1:54320/compat_db?sslmode=disable")
+	t.Setenv("SUPER_DOLPHIN_SQLITE_PATH", filepath.Join(t.TempDir(), "super-dolphin.db"))
+	t.Setenv("SUPER_DOLPHIN_INTERNAL_SQLITE_PATH", filepath.Join(t.TempDir(), "internal.db"))
 
-	got := manifestbuilder.BuildManifest(dto.ManifestContext{})
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{
+		Env: map[string]string{
+			"DATABASE_URL":                       "postgres://ctx@127.0.0.1:54320/custom_db?sslmode=disable",
+			"POSTGRES_CONNECTION_STRING":         "postgres://ctx-compat@127.0.0.1:54320/compat_db?sslmode=disable",
+			"SUPER_DOLPHIN_SQLITE_PATH":          filepath.Join(t.TempDir(), "ctx.db"),
+			"SUPER_DOLPHIN_INTERNAL_SQLITE_PATH": filepath.Join(t.TempDir(), "ctx-internal.db"),
+		},
+	})
 	if len(got.Binaries) == 0 {
 		t.Fatal("expected manifest binaries")
 	}
 	for _, bin := range got.Binaries {
-		if gotURL := bin.Env["DATABASE_URL"]; gotURL != "postgres://tester@127.0.0.1:54320/custom_db?sslmode=disable" {
-			t.Fatalf("binary %q DATABASE_URL = %q", bin.Name, gotURL)
+		for _, key := range []string{"DATABASE_URL", "POSTGRES_CONNECTION_STRING", "SUPER_DOLPHIN_SQLITE_PATH", "SUPER_DOLPHIN_INTERNAL_SQLITE_PATH"} {
+			if _, ok := bin.Env[key]; ok {
+				t.Fatalf("binary %q leaked %s in env %#v", bin.Name, key, bin.Env)
+			}
 		}
 	}
 }
@@ -235,7 +247,7 @@ func TestBuildManifest_InferProjectRootFromBinaryDirForMCPEnv(t *testing.T) {
 	productRoot := t.TempDir()
 	binaryDir := filepath.Join(productRoot, "bin")
 	require.NoError(t, os.MkdirAll(binaryDir, 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(productRoot, "migrations"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(productRoot, "internal", "platform", "db", "sqlite", "migrations"), 0o755))
 	workspaceRoot := t.TempDir()
 
 	got := manifestbuilder.BuildManifest(dto.ManifestContext{
@@ -247,6 +259,25 @@ func TestBuildManifest_InferProjectRootFromBinaryDirForMCPEnv(t *testing.T) {
 	for _, bin := range got.Binaries {
 		require.Equal(t, productRoot, bin.Env["PROJECT_ROOT"], "binary %q env = %#v", bin.Name, bin.Env)
 		require.NotEqual(t, workspaceRoot, bin.Env["PROJECT_ROOT"], "binary %q should not use workspace cwd as project root", bin.Name)
+	}
+}
+
+func TestBuildManifest_DoesNotInferProjectRootFromLegacyTopLevelMigrations(t *testing.T) {
+	t.Setenv("PROJECT_ROOT", "")
+
+	productRoot := t.TempDir()
+	binaryDir := filepath.Join(productRoot, "bin")
+	require.NoError(t, os.MkdirAll(binaryDir, 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(productRoot, "migrations"), 0o755))
+
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{
+		BinaryDir: binaryDir,
+		CWD:       t.TempDir(),
+	})
+
+	require.NotEmpty(t, got.Binaries)
+	for _, bin := range got.Binaries {
+		require.NotContains(t, bin.Env, "PROJECT_ROOT", "binary %q env = %#v", bin.Name, bin.Env)
 	}
 }
 

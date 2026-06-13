@@ -13,14 +13,13 @@ import (
 func TestStartSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
 	next := newBufferedTransport(t, "thread-1")
 	var launched dto.MCPManifest
-	overrideLaunchCLI(t, func(_, _, _, _ string, _ cliLaunchConfig, manifest dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(_, _, _, _ string, _ cliLaunchConfig, manifest dto.MCPManifest, _ string) (*transport, func(), error) {
 		launched = manifest
 		return next.tr, nil, nil
 	})
 
 	workDir := t.TempDir()
 	extraDir := t.TempDir()
-	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
 	sess, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		Provider: "claude",
 		AgentID:  "agent-1",
@@ -48,7 +47,7 @@ func TestStartSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
 func TestResumeSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
 	next := newBufferedTransport(t, "thread-1")
 	var launched dto.MCPManifest
-	overrideLaunchCLI(t, func(_, _, _, _ string, _ cliLaunchConfig, manifest dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(_, _, _, _ string, _ cliLaunchConfig, manifest dto.MCPManifest, _ string) (*transport, func(), error) {
 		launched = manifest
 		return next.tr, nil, nil
 	})
@@ -56,7 +55,6 @@ func TestResumeSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
 	workDir := t.TempDir()
 	extraDir := t.TempDir()
 	binaryDir := filepath.Join(t.TempDir(), "super-agent-bin")
-	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
 	sess, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		Provider:         "claude",
 		AgentID:          "agent-1",

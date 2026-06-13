@@ -4,7 +4,7 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# 自动加载本地配置（如 DATABASE_URL）—— .env 已在 .gitignore，每个开发机器的本地配置可不同
+# 自动加载本地配置（如 SUPER_DOLPHIN_SQLITE_PATH）—— .env 已在 .gitignore，每个开发机器的本地配置可不同
 # set -a 让 source 进来的所有变量自动 export 给子进程（agent-terminal 走 os.Getenv 读到）
 if [ -f "$PROJECT_DIR/.env" ]; then
   set -a
@@ -216,10 +216,8 @@ echo "▶ 模式: $LABEL"
 echo "▶ 目录: $BUILD_DIR"
 echo "────────────────────────────────────"
 
-# ── [0/4] Pre-flight 守卫 (merge 冲突 + DB schema 健康度) ─────────────
-# 加这块的背景：曾因 merge 留 <<<<<<< 标记 + DB schema_migrations 记 baseline
-#   已应用但 task_dags 等表物理 DROP，连环爆 4 个独立 bug，每层都得肉眼排查。
-#   静态检查 + DB 对账放在 [0/4]，编译/启动前直接挡住，省时间。
+# ── [0/4] Pre-flight 守卫 (merge 冲突 + SQLite runtime path) ─────────────
+# 编译/启动前做静态冲突检查，并确保 SQLite runtime 目录存在。
 echo "[0/4] Pre-flight 守卫..."
 
 # (a) merge 冲突标记 — 硬失败 (出现 <<<<<<< 必然 parser 崩)
@@ -236,44 +234,15 @@ if [ -n "$PRE_CONFLICTS" ]; then
   exit 1
 fi
 
-# (b) DB schema 健康检查 — psql 不在 / DB 不通 都跳过 (dev 容忍)
-DEV_DATABASE_URL="postgres://postgres:123@127.0.0.1:5432/go_agent_v2?sslmode=disable"
-export DATABASE_URL="${DATABASE_URL:-$DEV_DATABASE_URL}"
+# (b) SQLite runtime path preflight
 export SUPER_DOLPHIN_RUNTIME_MODE=dev
 export SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR="$BUILD_DIR"
 export SUPER_DOLPHIN_DEV_ENTRYPOINT=run-debug.sh
-DB_URL="$DATABASE_URL"
-if command -v psql >/dev/null 2>&1 && PGCONNECT_TIMEOUT=1 psql "$DB_URL" -tAc "SELECT 1" >/dev/null 2>&1; then
-  # b1) 物理表对账：baseline 设计的 CREATE TABLE 都在 DB 里吗？
-  #     防 task_dags 等表被人手工 DROP / baseline 跑一半挂掉的 zombie 状态。
-  BASELINE_APPLIED=$(psql "$DB_URL" -tAc "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE filename='001_baseline.sql')" 2>/dev/null | tr -d '[:space:]')
-  if [ "$BASELINE_APPLIED" = "t" ]; then
-    EXPECTED=$(grep -oE 'CREATE TABLE (IF NOT EXISTS )?(public\.)?[a-z_]+' \
-      "$BUILD_DIR/migrations/001_baseline.sql" 2>/dev/null \
-      | sed -E 's/CREATE TABLE (IF NOT EXISTS )?(public\.)?//' | sort -u)
-    ACTUAL=$(psql "$DB_URL" -tAc \
-      "SELECT table_name FROM information_schema.tables WHERE table_schema='public'" 2>/dev/null \
-      | sort -u)
-    MISSING=$(comm -23 <(echo "$EXPECTED") <(echo "$ACTUAL"))
-    if [ -n "$MISSING" ]; then
-      echo "  ❌ DB zombie：baseline 已记录为应用，但下列表物理不存在："
-      echo "$MISSING" | sed 's|^|     - |'
-      echo "  autoMigrate 不会重跑 baseline，启动必爆。"
-      echo "  建议：pg_dump 用户数据 → DROP DATABASE → 重启自动重建 → restore"
-      echo "  按 Enter 强行继续 (autoMigrate 必爆)，Ctrl+C 中止排查"
-      read -r
-    fi
-  fi
-  # b2) schema 版本检查：DB 应用进度 ≥ 代码要求
-  MIN_VERSION=$(grep 'MinRequiredSchemaVersion = ' "$BUILD_DIR/internal/platform/db/module.go" 2>/dev/null | grep -oE '[0-9]+' | head -1)
-  CUR_VERSION=$(psql "$DB_URL" -tAc "SELECT COALESCE(MAX(version),0) FROM schema_migrations" 2>/dev/null | tr -d '[:space:]')
-  if [[ "$MIN_VERSION" =~ ^[0-9]+$ ]] && [[ "$CUR_VERSION" =~ ^[0-9]+$ ]] && [ "$CUR_VERSION" -lt "$MIN_VERSION" ]; then
-    echo "  ⚠️  schema 版本落后: DB max=$CUR_VERSION < 代码要求=$MIN_VERSION (autoMigrate 应能自动补齐)"
-  fi
-  echo "  ✓ DB pre-flight 通过"
-else
-  echo "  ⏭  跳过 DB 检查 (psql 未安装或 DB 未启动)"
-fi
+SUPER_DOLPHIN_HOME="${SUPER_DOLPHIN_HOME:-$HOME/.super-dolphin}"
+export SUPER_DOLPHIN_HOME
+export SUPER_DOLPHIN_SQLITE_PATH="${SUPER_DOLPHIN_SQLITE_PATH:-$SUPER_DOLPHIN_HOME/super-dolphin.db}"
+mkdir -p "$(dirname "$SUPER_DOLPHIN_SQLITE_PATH")"
+echo "  SQLite DB: $SUPER_DOLPHIN_SQLITE_PATH"
 
 # run-only 模式: 跳过编译，直接启动
 if [ "$MODE" = "run-only" ]; then
