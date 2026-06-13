@@ -83,6 +83,42 @@ func TestGetDashboardPageDAGsBatchesLatestRunsFromSnapshot(t *testing.T) {
 	}
 }
 
+func TestDashboardDAGSnapshotListQueryCountDoesNotScaleWithPageSize(t *testing.T) {
+	t.Parallel()
+
+	for _, size := range []int{1, 25, dashboardPageDefaultLimit} {
+		size := size
+		t.Run(fmt.Sprintf("page-%d", size), func(t *testing.T) {
+			t.Parallel()
+
+			now := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+			rows := make([]map[string]any, 0, size)
+			for i := 0; i < size; i++ {
+				rows = append(rows, dashboardDAGRowWithKey(now, fmt.Sprintf("dag-%03d", i)))
+			}
+			db := &stubDashboardQueryStore{responses: []stubDashboardQueryResponse{
+				{contains: []string{"FROM task_dags", "ORDER BY updated_at"}, rows: rows},
+				{contains: []string{"FROM task_dag_runs", "ROW_NUMBER() OVER"}, rows: []map[string]any{}},
+			}}
+			svc := &service{
+				dbQueries:  db,
+				dagRuntime: &stubDashboardOrchestration{listDAGsErr: errDashboardStub, listRunsErr: errDashboardStub},
+			}
+
+			got, err := svc.GetDashboardPage(context.Background(), "dags")
+			if err != nil {
+				t.Fatalf("GetDashboardPage(dags) error = %v", err)
+			}
+			if got == nil || len(got.DAGs) != size {
+				t.Fatalf("GetDashboardPage(dags).DAGs len = %d, want %d", len(got.DAGs), size)
+			}
+			if len(db.calls) != 2 {
+				t.Fatalf("snapshot query calls for page size %d = %d (%#v), want exactly list + batched latest-runs", size, len(db.calls), db.calls)
+			}
+		})
+	}
+}
+
 func TestLatestRunsByDAGSnapshotQueryPassesDBQueryValidation(t *testing.T) {
 	t.Parallel()
 

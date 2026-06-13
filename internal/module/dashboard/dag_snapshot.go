@@ -14,13 +14,34 @@ import (
 )
 
 const (
-	dashboardListDAGsSnapshotQuery = `
+	dashboardListDAGsSnapshotAllQuery = `
 SELECT id, dag_key, version, title, description, status, created_by, metadata,
        trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
 FROM task_dags
-WHERE ($1 = '' OR status = $1)
-  AND ($2 = ''
-    OR LOWER(dag_key) LIKE '%' || LOWER($2) || '%'
+ORDER BY updated_at DESC, id DESC
+LIMIT $1`
+	dashboardListDAGsSnapshotStatusQuery = `
+SELECT id, dag_key, version, title, description, status, created_by, metadata,
+       trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
+FROM task_dags
+WHERE status = $1
+ORDER BY updated_at DESC, id DESC
+LIMIT $2`
+	dashboardListDAGsSnapshotKeywordQuery = `
+SELECT id, dag_key, version, title, description, status, created_by, metadata,
+       trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
+FROM task_dags
+WHERE LOWER(dag_key) LIKE '%' || LOWER($1) || '%'
+   OR LOWER(title) LIKE '%' || LOWER($1) || '%'
+   OR LOWER(description) LIKE '%' || LOWER($1) || '%'
+ORDER BY updated_at DESC, id DESC
+LIMIT $2`
+	dashboardListDAGsSnapshotStatusKeywordQuery = `
+SELECT id, dag_key, version, title, description, status, created_by, metadata,
+       trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
+FROM task_dags
+WHERE status = $1
+  AND (LOWER(dag_key) LIKE '%' || LOWER($2) || '%'
     OR LOWER(title) LIKE '%' || LOWER($2) || '%'
     OR LOWER(description) LIKE '%' || LOWER($2) || '%')
 ORDER BY updated_at DESC, id DESC
@@ -45,21 +66,29 @@ SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on, status,
 FROM task_dag_nodes
 WHERE dag_key = $1 AND run_id = $2
 ORDER BY id ASC`
-	dashboardListRunsSnapshotQuery = `
+	dashboardListRunsSnapshotAllQuery = `
 SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
-       started_at, finished_at, events, budget_used, budget_limit, metadata,
+       started_at, finished_at, budget_used, budget_limit, metadata,
        created_at, updated_at
 FROM task_dag_runs
-WHERE dag_key = $1 AND ($2 = '' OR status = $2)
+WHERE dag_key = $1
+ORDER BY started_at DESC, id DESC
+LIMIT $2`
+	dashboardListRunsSnapshotStatusQuery = `
+SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
+       started_at, finished_at, budget_used, budget_limit, metadata,
+       created_at, updated_at
+FROM task_dag_runs
+WHERE dag_key = $1 AND status = $2
 ORDER BY started_at DESC, id DESC
 LIMIT $3`
 	dashboardListLatestRunsByDAGSnapshotQueryTemplate = `
 SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
-       started_at, finished_at, events, budget_used, budget_limit, metadata,
+       started_at, finished_at, budget_used, budget_limit, metadata,
        created_at, updated_at
 FROM (
     SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
-           started_at, finished_at, events, budget_used, budget_limit, metadata,
+           started_at, finished_at, budget_used, budget_limit, metadata,
            created_at, updated_at,
            ROW_NUMBER() OVER (PARTITION BY dag_key ORDER BY started_at DESC, id DESC) AS run_rank
     FROM task_dag_runs
@@ -81,11 +110,27 @@ func (s *service) hasDAGSnapshotQueries() bool {
 }
 
 func (s *service) listDAGsFromSnapshot(ctx context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error) {
-	rows, err := s.dbQueries.Query(ctx, dashboardListDAGsSnapshotQuery, filter.Status, filter.Keyword, filter.Limit)
+	query, args := dashboardListDAGsSnapshotQuery(filter)
+	rows, err := s.dbQueries.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	return dashboardDAGSummariesFromRows(rows)
+}
+
+func dashboardListDAGsSnapshotQuery(filter contract.ListDAGsFilter) (string, []any) {
+	status := strings.TrimSpace(filter.Status)
+	keyword := strings.TrimSpace(filter.Keyword)
+	if status != "" && keyword != "" {
+		return dashboardListDAGsSnapshotStatusKeywordQuery, []any{status, keyword, filter.Limit}
+	}
+	if status != "" {
+		return dashboardListDAGsSnapshotStatusQuery, []any{status, filter.Limit}
+	}
+	if keyword != "" {
+		return dashboardListDAGsSnapshotKeywordQuery, []any{keyword, filter.Limit}
+	}
+	return dashboardListDAGsSnapshotAllQuery, []any{filter.Limit}
 }
 
 func (s *service) getDAGDetailFromSnapshot(ctx context.Context, dagKey string) (*contract.DAGDetail, error) {
@@ -112,11 +157,20 @@ func (s *service) getDAGDetailFromSnapshot(ctx context.Context, dagKey string) (
 }
 
 func (s *service) listDAGRunsFromSnapshot(ctx context.Context, dagKey, status string, limit int32) ([]contract.Run, error) {
-	rows, err := s.dbQueries.Query(ctx, dashboardListRunsSnapshotQuery, dagKey, status, limit)
+	query, args := dashboardListRunsSnapshotQuery(dagKey, status, limit)
+	rows, err := s.dbQueries.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	return dashboardRunsFromRows(rows)
+}
+
+func dashboardListRunsSnapshotQuery(dagKey, status string, limit int32) (string, []any) {
+	status = strings.TrimSpace(status)
+	if status != "" {
+		return dashboardListRunsSnapshotStatusQuery, []any{dagKey, status, limit}
+	}
+	return dashboardListRunsSnapshotAllQuery, []any{dagKey, limit}
 }
 
 func (s *service) listLatestDAGRunsByDAGFromSnapshot(ctx context.Context, dagKeys []string) (map[string]contract.Run, error) {
