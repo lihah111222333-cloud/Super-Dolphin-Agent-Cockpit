@@ -21,6 +21,14 @@ var logSecretPatterns = []struct {
 		replacement: `${1}` + redactedValue,
 	},
 	{
+		pattern:     regexp.MustCompile(`(?i)(?:[A-Za-z]:\\|/)[^\r\n,;&"']*?\.db(?:-(?:wal|shm))?`),
+		replacement: redactedValue,
+	},
+	{
+		pattern:     regexp.MustCompile(`(?i)((?:DATABASE_URL|POSTGRES_CONNECTION_STRING|SUPER_DOLPHIN_SQLITE_PATH|SUPER_DOLPHIN_INTERNAL_SQLITE_PATH)\s*[:=]\s*)[^\s,;&]+`),
+		replacement: `${1}` + redactedValue,
+	},
+	{
 		pattern:     regexp.MustCompile(`sk-[A-Za-z0-9_-]{8,}`),
 		replacement: redactedValue,
 	},
@@ -62,11 +70,24 @@ func redactLogString(value string) string {
 func secretLikeLogKey(key string) bool {
 	key = strings.ToLower(strings.TrimSpace(key))
 	normalized := strings.NewReplacer("-", "_", ".", "_", " ", "_").Replace(key)
-	return strings.Contains(normalized, "token") ||
-		strings.Contains(normalized, "password") ||
-		strings.Contains(normalized, "secret") ||
-		strings.Contains(normalized, "authorization") ||
-		strings.Contains(normalized, "api_key") ||
-		strings.Contains(normalized, "apikey") ||
-		strings.Contains(normalized, "cookie")
+	for _, marker := range secretLikeLogKeyMarkers {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+var secretLikeLogKeyMarkers = []string{
+	"token",
+	"password",
+	"secret",
+	"database_url",
+	"postgres_connection_string",
+	"sqlite_path",
+	"sqlite_db_path",
+	"authorization",
+	"api_key",
+	"apikey",
+	"cookie",
 }

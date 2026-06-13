@@ -632,6 +632,23 @@ copy_model_registry() {
   cp -f "$src" "$stage/models.yaml"
 }
 
+copy_sqlite_migrations() {
+  local bundle_root="$1"
+  local src="$root/internal/platform/db/sqlite/migrations"
+  local dest="$bundle_root/internal/platform/db/sqlite/migrations"
+  if [[ ! -d "$src" ]]; then
+    echo "missing SQLite migrations directory: $src" >&2
+    exit 1
+  fi
+  if [[ -z "$(find "$src" -type f -print -quit)" ]]; then
+    echo "missing SQLite migration files under $src" >&2
+    exit 1
+  fi
+  rm -rf "$dest"
+  mkdir -p "$(dirname "$dest")"
+  cp -R "$src" "$dest"
+}
+
 write_runtime_manifest() {
   local bundle_root="$1"
   cat > "$bundle_root/runtime-manifest.json" <<JSON
@@ -640,8 +657,7 @@ write_runtime_manifest() {
   "bundled_gopls_path": "bin/gopls",
   "lsp_bundle_path": "lsp",
   "lsp_manifest_path": "lsp/lsp-manifest.json",
-  "model_registry_path": "models.yaml",
-  "embedded_postgres_resource_path": "postgres/$platform"
+  "model_registry_path": "models.yaml"
 }
 JSON
 }
@@ -678,15 +694,6 @@ package_linux_main() {
     exit 1
   fi
 
-  local pg_src="${SUPER_DOLPHIN_POSTGRES_DIST:-$root/third_party/postgres/$platform}"
-  for bin in postgres initdb pg_ctl pg_config; do
-    if [[ ! -x "$pg_src/bin/$bin" ]]; then
-      echo "missing PostgreSQL binary: $pg_src/bin/$bin" >&2
-      echo "Set SUPER_DOLPHIN_POSTGRES_DIST to a PostgreSQL runtime containing bin/postgres, bin/initdb, bin/pg_ctl, and bin/pg_config." >&2
-      exit 1
-    fi
-  done
-
   resolve_packaged_relay_env
   resolve_packaged_codex_artifact
   resolve_packaged_lsp_bundle
@@ -694,7 +701,7 @@ package_linux_main() {
   dist="$root/dist/package/linux"
   stage="$dist/$app_name-$version-$platform"
   rm -rf "$stage" "$stage.tar.gz"
-  mkdir -p "$stage/bin" "$stage/postgres/$platform"
+  mkdir -p "$stage/bin"
 
   build_current_frontend_app
 
@@ -712,13 +719,12 @@ package_linux_main() {
   cp "$root/bin/mcp-orch" "$stage/bin/mcp-orch"
   cp "$root/bin/mcp-lsp" "$stage/bin/mcp-lsp"
   cp "$root/bin/mcp-ida" "$stage/bin/mcp-ida"
-  cp -R "$root/migrations" "$stage/migrations"
+  copy_sqlite_migrations "$stage"
   copy_packaged_lsp_bundle "$stage"
   copy_packaged_codex "$stage" "$stage/bin/codex"
   write_codex_manifest "$stage"
   write_lsp_manifest "$stage"
   copy_model_registry "$stage"
-  rsync -aL --delete "$pg_src"/ "$stage/postgres/$platform"/
   write_packaged_relay_env "$stage"
   write_runtime_manifest "$stage"
 
@@ -733,7 +739,6 @@ case "$(uname -m)" in
 esac
 export PROJECT_ROOT="$here"
 export SUPER_DOLPHIN_MODEL_REGISTRY="$here/models.yaml"
-export SUPER_DOLPHIN_POSTGRES_BIN_DIR="$here/postgres/linux-$arch/bin"
 export PATH="$here/bin:${PATH:-}"
 export GO_AGENT_PEER_BIN_DIR="$here/bin"
 export SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX=1

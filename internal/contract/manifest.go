@@ -116,7 +116,7 @@ func normalizeManifestProjectRoot(path string) string {
 }
 
 func hasManifestMigrationsDir(root string) bool {
-	info, err := os.Stat(filepath.Join(root, "migrations"))
+	info, err := os.Stat(filepath.Join(root, "internal", "platform", "db", "sqlite", "migrations"))
 	return err == nil && info.IsDir()
 }
 
@@ -188,6 +188,7 @@ func cloneManifestEnv(in map[string]string) map[string]string {
 	}
 	out := make(map[string]string, len(in))
 	maps.Copy(out, in)
+	removeManifestDatabaseEnv(out)
 	return out
 }
 
@@ -203,7 +204,48 @@ var mcpRequiredEnvKeys = []string{
 	"GO_AGENT_CTL_BOOTSTRAP_JSON",
 }
 
-var mcpPassthroughEnvKeys = []string{"DATABASE_URL", "SUPER_DOLPHIN_MODEL_REGISTRY"}
+var mcpPassthroughEnvKeys = []string{"SUPER_DOLPHIN_MODEL_REGISTRY"}
+
+const (
+	SQLitePathEnvKey         = "SUPER_DOLPHIN_SQLITE_PATH"
+	InternalSQLitePathEnvKey = "SUPER_DOLPHIN_INTERNAL_SQLITE_PATH"
+)
+
+var mcpForbiddenDatabaseEnvKeys = map[string]struct{}{
+	"DATABASE_URL":               {},
+	"POSTGRES_CONNECTION_STRING": {},
+	SQLitePathEnvKey:             {},
+	InternalSQLitePathEnvKey:     {},
+}
+
+func ForbiddenDatabaseEnvKeyNames() []string {
+	return []string{"DATABASE_URL", "POSTGRES_CONNECTION_STRING", SQLitePathEnvKey, InternalSQLitePathEnvKey}
+}
+
+func IsForbiddenDatabaseEnvKey(key string) bool {
+	_, ok := mcpForbiddenDatabaseEnvKeys[strings.ToUpper(strings.TrimSpace(key))]
+	return ok
+}
+
+func ScrubDatabaseEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, item := range env {
+		key, _, ok := strings.Cut(item, "=")
+		if ok && IsForbiddenDatabaseEnvKey(key) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func ScrubDatabaseEnvMap(env map[string]string) {
+	for key := range env {
+		if IsForbiddenDatabaseEnvKey(key) {
+			delete(env, key)
+		}
+	}
+}
 
 var mcpLegacyEnvAliases = map[string][]string{
 	"GO_AGENT_CTL_RPC_ADDR":       {"RPC_ADDR"},
@@ -245,7 +287,12 @@ func normalizeManifestEnv(in map[string]string) map[string]string {
 			out[key] = value
 		}
 	}
+	removeManifestDatabaseEnv(out)
 	return out
+}
+
+func removeManifestDatabaseEnv(env map[string]string) {
+	ScrubDatabaseEnvMap(env)
 }
 
 func promoteManifestEnv(env map[string]string, canonical string, aliases ...string) {

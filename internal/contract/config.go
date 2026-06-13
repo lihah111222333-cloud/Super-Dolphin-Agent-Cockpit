@@ -20,8 +20,8 @@ type NotifyConfig struct {
 	DrainSeconds     int
 }
 
-// EmbeddedPostgresConfig describes the app-managed PostgreSQL runtime used
-// when no external DATABASE_URL is supplied.
+// EmbeddedPostgresConfig is the legacy app-managed PostgreSQL runtime shape.
+// Product startup now uses SQLite configuration and leaves this disabled.
 type EmbeddedPostgresConfig struct {
 	Enabled               bool
 	Owner                 bool

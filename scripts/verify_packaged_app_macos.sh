@@ -31,38 +31,6 @@ fi
 resources="$app/Contents/Resources"
 macos="$app/Contents/MacOS"
 lsp_smoke_path="$resources/bin:$resources/lsp/bin:$resources/lsp/node/bin:$resources/lsp/node_modules/.bin:/usr/bin:/bin:/usr/sbin:/sbin"
-
-detect_platform() {
-  local os arch
-  case "$(uname -s)" in
-    Darwin)
-      os="darwin"
-      ;;
-    Linux)
-      os="linux"
-      ;;
-    *)
-      echo "unsupported packaged app verification OS: $(uname -s)" >&2
-      exit 1
-      ;;
-  esac
-  case "$(uname -m)" in
-    x86_64|amd64)
-      arch="amd64"
-      ;;
-    arm64|aarch64)
-      arch="arm64"
-      ;;
-    *)
-      echo "unsupported packaged app verification architecture: $(uname -m)" >&2
-      exit 1
-      ;;
-  esac
-  printf '%s-%s\n' "$os" "$arch"
-}
-
-platform="$(detect_platform)"
-pg="$resources/postgres/$platform"
 lsp_server_specs=(
   "gopls|bin/gopls"
   "typescript-language-server|bin/typescript-language-server"
@@ -520,7 +488,7 @@ verify_runtime_manifest() {
     echo "missing runtime manifest: $manifest" >&2
     exit 1
   fi
-  local bundled_codex_path bundled_gopls_path lsp_bundle_path lsp_manifest_path model_registry_path embedded_postgres_resource_path
+  local bundled_codex_path bundled_gopls_path lsp_bundle_path lsp_manifest_path model_registry_path
   if ! bundled_codex_path="$(manifest_string "$manifest" bundled_codex_path)"; then
     echo "runtime manifest missing bundled_codex_path: $manifest" >&2
     exit 1
@@ -541,10 +509,6 @@ verify_runtime_manifest() {
     echo "runtime manifest missing model_registry_path: $manifest" >&2
     exit 1
   fi
-  if ! embedded_postgres_resource_path="$(manifest_string "$manifest" embedded_postgres_resource_path)"; then
-    echo "runtime manifest missing embedded_postgres_resource_path: $manifest" >&2
-    exit 1
-  fi
   require_runtime_manifest_path bundled_codex_path "$bundled_codex_path" "bin/codex" exec
   require_runtime_manifest_path bundled_gopls_path "$bundled_gopls_path" "bin/gopls" exec
   require_runtime_manifest_path lsp_bundle_path "$lsp_bundle_path" "lsp" dir
@@ -558,7 +522,6 @@ verify_runtime_manifest() {
     exit 1
   fi
   require_runtime_manifest_path model_registry_path "$model_registry_path" "models.yaml" file
-  require_runtime_manifest_path embedded_postgres_resource_path "$embedded_postgres_resource_path" "postgres/$platform" dir
 }
 
 verify_codex_manifest() {
@@ -799,10 +762,6 @@ required_execs=(
   "$resources/lsp/bin/python3"
   "$resources/lsp/bin/go"
   "$resources/bin/git"
-  "$pg/bin/postgres"
-  "$pg/bin/initdb"
-  "$pg/bin/pg_ctl"
-  "$pg/bin/pg_config"
 )
 
 verify_runtime_manifest
@@ -817,8 +776,9 @@ for path in "${required_execs[@]}"; do
   fi
 done
 
-if [[ ! -d "$resources/migrations" ]]; then
-  echo "missing migrations directory: $resources/migrations" >&2
+sqlite_migrations_dir="$resources/internal/platform/db/sqlite/migrations"
+if [[ ! -d "$sqlite_migrations_dir" || -z "$(find "$sqlite_migrations_dir" -type f -print -quit)" ]]; then
+  echo "missing SQLite migration files under $sqlite_migrations_dir" >&2
   exit 1
 fi
 
@@ -830,21 +790,6 @@ verify_packaged_go_lsp_smoke
 verify_packaged_java_lsp_smoke
 verify_packaged_ast_grep_smoke
 verify_packaged_python_shadow_smoke
-
-if [[ -z "$(find "$resources/migrations" -type f -print -quit)" ]]; then
-  echo "missing migration files under $resources/migrations" >&2
-  exit 1
-fi
-
-if [[ ! -d "$pg/share" ]]; then
-  echo "missing PostgreSQL share directory: $pg/share" >&2
-  exit 1
-fi
-
-if [[ -z "$(find "$pg/share" -name postgres.bki -type f -print -quit)" ]]; then
-  echo "missing postgres.bki under $pg/share" >&2
-  exit 1
-fi
 
 broken_symlinks="$(find -L "$app" -type l -print 2>/dev/null || true)"
 if [[ -n "$broken_symlinks" ]]; then

@@ -15,6 +15,7 @@ import (
 	"github.com/creachadair/jrpc2/channel"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
@@ -53,7 +54,7 @@ func (l *localLauncher) Launch(ctx context.Context, agent *agentRuntime, _ Launc
 	}
 	cmd := exec.Command(agent.command[0], agent.command[1:]...)
 	cmd.Dir = agent.cwd
-	cmd.Env = append(os.Environ(), agent.env...)
+	cmd.Env = append(contract.ScrubDatabaseEnv(os.Environ()), contract.ScrubDatabaseEnv(agent.env)...)
 	processctl.Configure(cmd)
 	if err := cmd.Start(); err != nil {
 		agent.lastError = err.Error()

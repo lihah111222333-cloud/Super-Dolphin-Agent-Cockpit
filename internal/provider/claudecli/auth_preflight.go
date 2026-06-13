@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -62,9 +63,9 @@ func runClaudeAuthStatus(ctx context.Context, binary, cwd string, cfg cliLaunchC
 	if cwd = strings.TrimSpace(cwd); cwd != "" {
 		cmd.Dir = cwd
 	}
-	env := os.Environ()
+	env := contract.ScrubDatabaseEnv(os.Environ())
 	if launchEnv := claudeLaunchEnv(cfg); len(launchEnv) > 0 {
-		env = append(env, launchEnv...)
+		env = append(env, contract.ScrubDatabaseEnv(launchEnv)...)
 	}
 	cmd.Env = ensureLoopbackNoProxy(env)
 	raw, err := cmd.CombinedOutput()

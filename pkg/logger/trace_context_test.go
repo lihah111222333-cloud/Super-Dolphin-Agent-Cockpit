@@ -129,6 +129,44 @@ func TestProductionLogRedactsSensitiveFields(t *testing.T) {
 	}
 }
 
+func TestProductionLogRedactsDatabaseConfigFields(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(newHandler(Production, slog.LevelInfo, &buf))
+	resolvedPath := "/Users/alice/Library/Application Support/Super Dolphin/super-dolphin.db"
+	walPath := resolvedPath + "-wal"
+	logger.Info("config dump",
+		"database_url", "postgres://alice:secret@127.0.0.1:5432/super_dolphin?sslmode=disable",
+		"postgres_connection_string", "postgres://compat:secret@127.0.0.1:5432/super_dolphin?sslmode=disable",
+		"sqlite_path", resolvedPath,
+		"internal_sqlite_path", resolvedPath,
+		"details", "DATABASE_URL=postgres://alice:secret@127.0.0.1:5432/super_dolphin POSTGRES_CONNECTION_STRING=postgres://compat:secret@127.0.0.1:5432/super_dolphin SUPER_DOLPHIN_SQLITE_PATH="+resolvedPath+" SUPER_DOLPHIN_INTERNAL_SQLITE_PATH="+resolvedPath+" wal="+walPath,
+	)
+
+	output := strings.TrimSpace(buf.String())
+	if output == "" {
+		t.Fatal("expected log output")
+	}
+	for _, forbidden := range []string{
+		"alice:secret",
+		"compat:secret",
+		resolvedPath,
+		walPath,
+	} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("log output leaked %q: %s", forbidden, output)
+		}
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		t.Fatalf("unmarshal log output: %v", err)
+	}
+	for _, key := range []string{"database_url", "postgres_connection_string", "sqlite_path", "internal_sqlite_path"} {
+		if got := payload[key]; got != redactedValue {
+			t.Fatalf("%s = %#v, want redacted", key, got)
+		}
+	}
+}
+
 func TestDebugLogLevelKeepsJSONMode(t *testing.T) {
 	mode, level := resolveInitModeAndLevel("debug")
 	if mode != Production {
