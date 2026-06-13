@@ -396,13 +396,13 @@ describe('composer layout styles', () => {
     expect(panel.border).toBeUndefined();
     expect(panel.position).toBe('relative');
     expect(Number(panel['z-index'])).toBeGreaterThan(20);
-    expect(panel['overflow-x']).toBe('visible');
+    expect(panel.overflow).toBe('hidden');
     expect(activityPanel.border).toBeUndefined();
     expect(activityPanel['border-top']).toBe('1px solid var(--line)');
     expect(activityPanel['border-radius']).toBeUndefined();
     expect(activityPanel['min-width']).toBe('0');
     expect(activityPanel['max-width']).toBe('100%');
-    expect(activityPanel['overflow-x']).toBe('visible');
+    expect(activityPanel.overflow).toBe('hidden');
     expect(icons['min-width']).toBe('0');
     expect(icons.overflow).toBe('visible');
     expect(logs['min-width']).toBe('0');
@@ -734,12 +734,16 @@ describe('conversation grid styles', () => {
 describe('conversation content column styles', () => {
   it('keeps timeline messages left-biased while the docked composer fills the footer frame', () => {
     const conversation = declarationsFor('.conversation');
+    const activeConversation = declarationsFor('.conversation:not(.conversation--intro)');
+    const activeTimelineShell = declarationsFor('.conversation:not(.conversation--intro) .timeline-shell');
+    const activeTimeline = declarationsFor('.conversation:not(.conversation--intro) .timeline');
     const timeline = declarationsFor('.timeline');
     const message = declarationsFor('.message');
     const userMessage = declarationsFor('.message.user');
     const userBubble = declarationsFor('.message.user .bubble');
     const composer = declarationsFor('.composer');
     const dockedComposer = declarationsFor('.composer.composer--docked');
+    const activeDockedComposer = declarationsFor('.conversation:not(.conversation--intro) .composer.composer--docked');
     const dockedComposerCard = declarationsFor('.composer--docked .composer-card');
     const scrollButton = declarationsFor('.chat-scroll-bottom-btn');
     const headerTools = declarationsFor('.chat-header-tools');
@@ -747,6 +751,13 @@ describe('conversation content column styles', () => {
     const disabledHeaderTool = declarationsFor('.chat-header-tool:disabled');
 
     expect(conversation['--conversation-content-width']).toBe('min(900px, max(0px, calc(100% - clamp(24px, 7vw, 104px))))');
+    expect(activeConversation.display).toBe('grid');
+    expect(activeConversation['grid-template-rows']).toBe('auto minmax(0, 1fr) auto');
+    expect(activeConversation.overflow).toBe('hidden');
+    expect(activeTimelineShell['min-height']).toBe('0');
+    expect(activeTimelineShell.overflow).toBe('hidden');
+    expect(activeTimeline.height).toBe('100%');
+    expect(activeTimeline['overflow-y']).toBe('auto');
     expect(headerTools.display).toBe('inline-flex');
     expect(headerTools['align-items']).toBe('center');
     expect(headerTools.gap).toBe('22px');
@@ -770,6 +781,9 @@ describe('conversation content column styles', () => {
     expect(dockedComposer.padding).toBe('0');
     expect(dockedComposer['border-top']).toBe('0');
     expect(dockedComposer.background).toBe('transparent');
+    expect(activeDockedComposer.padding).toBe('14px 0 18px');
+    expect(activeDockedComposer['border-top']).toBe('0');
+    expect(activeDockedComposer.background).toBe('transparent');
     expect(dockedComposerCard.width).toBe('100%');
     expect(dockedComposerCard.margin).toBe('0 auto');
     expect(dockedComposerCard.border).toBe('1px solid color-mix(in srgb, var(--border) 88%, var(--surface))');
@@ -845,19 +859,25 @@ describe('conversation content column styles', () => {
 
 describe('workbench shell styles', () => {
   it('keeps the screenshot-style sidebar fixed and branded', () => {
-    const sidebar = declarationsFor('.app-sidebar');
-    const body = declarationsFor('.sa-body');
+    const sidebar = topLevelDeclarationsFor('.app-sidebar');
+    const resizer = topLevelDeclarationsFor('.workbench-sidebar-resizer');
+    const body = topLevelDeclarationsFor('.sa-body');
     const brand = declarationsFor('.sidebar-brand');
     const newChat = declarationsFor('.sidebar-new-chat');
     const projectTree = declarationsFor('.sidebar-project-tree');
     const settings = declarationsFor('.sidebar-settings');
 
     expect(sidebar.width).toBe('var(--workbench-sidebar-width)');
+    expect(sidebar.position).toBe('relative');
     expect(sidebar.background).toBe('var(--sidebar-bg)');
     expect(sidebar['border-right']).toBe('1px solid var(--sidebar-border)');
     expect(sidebar.overflow).toBe('hidden');
     expect(body.height).toBe('100vh');
     expect(body['grid-template-columns']).toBe('var(--workbench-sidebar-width) minmax(0, 1fr)');
+    expect(resizer.cursor).toBe('col-resize');
+    expect(resizer.right).toBe('0');
+    expect(resizer.width).toBe('10px');
+    expect(resizer.height).toBe('100%');
     expect(brand.display).toBe('inline-flex');
     expect(newChat.height).toBe('50px');
     expect(newChat.background).toBe('var(--sidebar-active)');
@@ -876,6 +896,8 @@ describe('workbench shell styles', () => {
     const empty = declarationsFor('.sidebar-project-thread-empty');
     const chatList = declarationsFor('.app-sidebar--chat .sidebar-project-thread-list');
     const chatThread = declarationsFor('.app-sidebar--chat .sidebar-project-thread');
+    const chatProjectAdd = declarationsFor('.app-sidebar--chat .sidebar-icon-action');
+    const chatTreeActions = declarationsFor('.app-sidebar--chat .sidebar-tree-actions');
 
     expect(root.display).toBe('grid');
     expect(root['min-width']).toBe('0');
@@ -887,6 +909,9 @@ describe('workbench shell styles', () => {
     expect(empty['font-style']).toBe('italic');
     expect(chatList['margin-left']).toBe('14px');
     expect(chatThread['min-height']).toBe('28px');
+    expect(chatProjectAdd.position).toBeUndefined();
+    expect(chatTreeActions.position).toBe('absolute');
+    expect(chatTreeActions.left).toBe('-10000px');
   });
 
   it('exposes a mobile workbench drawer so settings remains reachable', () => {
@@ -894,6 +919,7 @@ describe('workbench shell styles', () => {
     const mobileToggle = mediaDeclarationsFor('(max-width: 920px)', '.workbench-toggle')[0];
     const mobileSidebar = mediaDeclarationsFor('(max-width: 920px)', '.app-sidebar')[0];
     const openSidebar = mediaDeclarationsFor('(max-width: 920px)', '.app-sidebar.is-open')[0];
+    const mobileResizer = mediaDeclarationsFor('(max-width: 920px)', '.workbench-sidebar-resizer')[0];
     const scrim = mediaDeclarationsFor('(max-width: 920px)', '.sidebar-scrim')[0];
     const mobileSettings = mediaDeclarationsFor('(max-width: 920px)', '.sa-window .settings-page')[0];
 
@@ -912,6 +938,7 @@ describe('workbench shell styles', () => {
     expect(openSidebar['margin-left']).toBe('0');
     expect(openSidebar.transform).toBe('none');
     expect(openSidebar['box-shadow']).toBe('var(--shadow)');
+    expect(mobileResizer.display).toBe('none');
     expect(scrim.display).toBe('block');
     expect(mobileSettings['padding-top']).toBe('78px');
   });
@@ -1031,11 +1058,9 @@ describe('runtime activity panel styles', () => {
 
     expect(panel['--activity-panel-height']).toBe('64px');
     expect(panel['--activity-panel-min-height']).toBe('64px');
-    expect(panel['overflow-x']).toBe('visible');
-    expect(panel['overflow-y']).toBe('visible');
+    expect(panel.overflow).toBe('hidden');
     expect(panel['grid-template-rows']).toContain('var(--activity-panel-height)');
-    expect(activity['overflow-x']).toBe('visible');
-    expect(activity['overflow-y']).toBe('visible');
+    expect(activity.overflow).toBe('hidden');
     expect(activity.height).toBe('var(--activity-panel-height)');
     expect(collapsedActivity['grid-template-rows']).toBe('minmax(0, 1fr)');
     expect(collapsedIcons.height).toBe('100%');
