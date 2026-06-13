@@ -12,7 +12,7 @@ func (s *store) EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (in
 	if input.RunID <= 0 {
 		return 0, fmt.Errorf("enqueue task dag wakeup: run_id required")
 	}
-	return queryValue(func() (int64, error) {
+	return queryValueWrite(ctx, func() (int64, error) {
 		return s.q.EnqueueTaskDagWakeup(ctx, sqlc.EnqueueTaskDagWakeupParams{
 			DagKey:         input.DagKey,
 			NodeKey:        input.NodeKey,
@@ -30,7 +30,7 @@ func (s *store) ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput)
 	if err != nil {
 		return nil, err
 	}
-	return queryMany(func() ([]sqlc.ClaimDueTaskDagWakeupsRow, error) {
+	return queryManyWrite(ctx, func() ([]sqlc.ClaimDueTaskDagWakeupsRow, error) {
 		return s.q.ClaimDueTaskDagWakeups(ctx, sqlc.ClaimDueTaskDagWakeupsParams{
 			WorkerID:   input.ClaimedBy,
 			LeaseMs:    leaseInterval,
@@ -41,7 +41,7 @@ func (s *store) ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput)
 
 func (s *store) MarkWakeupSent(ctx context.Context, input MarkWakeupSentInput) (int64, error) {
 	fence := wakeupFenceFromMark(input)
-	return fencedWakeupMutation("mark_sent", fence, func(fence wakeupFence) (int64, error) {
+	return fencedWakeupMutationWrite(ctx, "mark_sent", fence, func(fence wakeupFence) (int64, error) {
 		return s.q.MarkTaskDagWakeupSent(ctx, sqlc.MarkTaskDagWakeupSentParams{
 			ID:             fence.ID,
 			ClaimedAt:      timestampValue(fence.ClaimedAt),
@@ -61,7 +61,7 @@ func (s *store) RetryWakeup(ctx context.Context, input RetryWakeupInput) (int64,
 		return 0, err
 	}
 	fence := wakeupFenceFromRetry(input)
-	return fencedWakeupMutation("retry", fence, func(fence wakeupFence) (int64, error) {
+	return fencedWakeupMutationWrite(ctx, "retry", fence, func(fence wakeupFence) (int64, error) {
 		return s.q.RetryTaskDagWakeup(ctx, sqlc.RetryTaskDagWakeupParams{
 			DelayMs:        retryInterval,
 			LastError:      input.LastError,
@@ -116,7 +116,7 @@ func (s *store) RetryWakeupWithNodeConfigPatch(ctx context.Context, input RetryW
 
 func (s *store) FailWakeup(ctx context.Context, input FailWakeupInput) (int64, error) {
 	fence := wakeupFenceFromFail(input)
-	return fencedWakeupMutation("fail", fence, func(fence wakeupFence) (int64, error) {
+	return fencedWakeupMutationWrite(ctx, "fail", fence, func(fence wakeupFence) (int64, error) {
 		return s.q.FailTaskDagWakeup(ctx, sqlc.FailTaskDagWakeupParams{
 			LastError:      input.LastError,
 			ID:             fence.ID,
@@ -134,7 +134,7 @@ func (s *store) FailWakeupAndFailNodeAndCancelDownstream(ctx context.Context, wa
 	fence := wakeupFenceFromFail(wakeup)
 	var failRows int64
 	var result *FailNodeResult
-	err := sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
+	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
 		txStore := &store{db: txdb, q: txq}
 		rows, failWakeupErr := txq.FailTaskDagWakeup(ctx, sqlc.FailTaskDagWakeupParams{
 			LastError:      wakeup.LastError,
@@ -164,7 +164,7 @@ func (s *store) FailWakeupAndFailNodeAndCancelDownstream(ctx context.Context, wa
 }
 
 func (s *store) ReclaimStaleDispatchingWakeups(ctx context.Context) (int64, error) {
-	return queryValue(func() (int64, error) {
+	return queryValueWrite(ctx, func() (int64, error) {
 		return s.q.ReclaimStaleDispatchingTaskDagWakeups(ctx)
 	}, "reclaim_stale_dispatching", "task_dag_wakeup")
 }
@@ -269,7 +269,6 @@ func fromSentUnboundWakeup(row sqlc.ListSentUnboundTaskDagWakeupsRow) Wakeup {
 		RunID:          sqlc.Int8Ptr(row.RunID),
 		WakeupKind:     row.WakeupKind,
 		TargetAgentID:  row.TargetAgentID,
-		PromptPayload:  row.PromptPayload,
 		IdempotencyKey: row.IdempotencyKey,
 		Status:         row.Status,
 		AttemptCount:   int32(row.AttemptCount),
@@ -294,7 +293,6 @@ func fromPendingOrDispatchingWakeup(row sqlc.ListPendingOrDispatchingTaskDagWake
 		RunID:          sqlc.Int8Ptr(row.RunID),
 		WakeupKind:     row.WakeupKind,
 		TargetAgentID:  row.TargetAgentID,
-		PromptPayload:  row.PromptPayload,
 		IdempotencyKey: row.IdempotencyKey,
 		Status:         row.Status,
 		AttemptCount:   int32(row.AttemptCount),

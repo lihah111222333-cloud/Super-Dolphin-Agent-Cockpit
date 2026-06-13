@@ -6,13 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	orchcron "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/cron"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 )
 
 const sqliteRuntimeLockLease = 2 * time.Minute
+
+var runtimeLockProcessStartNonce = strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
 
 type sqlDAGScheduleStore struct {
 	q *sqlc.Queries
@@ -52,72 +57,109 @@ type sqliteRuntimeLocker struct {
 	lease   time.Duration
 }
 
-func NewSQLiteRuntimeLocker(db *sql.DB, lockKey string) (orchcron.AdvisoryLocker, error) {
+func NewSQLiteRuntimeLocker(db *sql.DB, lockKey string) (orchcron.RuntimeLocker, error) {
 	if db == nil {
 		return nil, orchcron.ErrNilLockPool
 	}
 	if lockKey == "" {
 		return nil, errors.New("cron: empty runtime lock key")
 	}
+	holder, err := runtimeLockHolder()
+	if err != nil {
+		return nil, err
+	}
 	return &sqliteRuntimeLocker{
 		db:      db,
 		lockKey: lockKey,
-		holder:  runtimeLockHolder(),
+		holder:  holder,
 		lease:   sqliteRuntimeLockLease,
 	}, nil
 }
 
-func (l *sqliteRuntimeLocker) TryLock(ctx context.Context) (orchcron.AdvisoryLockHandle, bool, error) {
+func (l *sqliteRuntimeLocker) TryLock(ctx context.Context) (orchcron.RuntimeLockHandle, bool, error) {
 	nowMillis := time.Now().UTC().UnixMilli()
-	leaseExpiresAt := time.Now().UTC().Add(l.lease).UnixMilli()
-	result, err := l.db.ExecContext(ctx, acquireRuntimeLockSQL,
-		l.lockKey,
-		l.holder,
-		leaseExpiresAt,
-		nowMillis,
-		nowMillis,
-		l.holder,
-	)
-	if err != nil {
-		return nil, false, err
-	}
-	rows, err := result.RowsAffected()
+	leaseExpiresAt := time.UnixMilli(nowMillis).UTC().Add(l.lease).UnixMilli()
+	var rows int64
+	err := sqlctx.WithWriteRetry(ctx, func() error {
+		result, err := l.db.ExecContext(ctx, acquireRuntimeLockSQL,
+			l.lockKey,
+			l.holder,
+			leaseExpiresAt,
+			nowMillis,
+			nowMillis,
+		)
+		if err != nil {
+			return err
+		}
+		rows, err = result.RowsAffected()
+		return err
+	})
 	if err != nil {
 		return nil, false, err
 	}
 	if rows == 0 {
 		return nil, false, nil
 	}
-	return sqliteRuntimeLockHandle{db: l.db, lockKey: l.lockKey, holder: l.holder}, true, nil
+	return sqliteRuntimeLockHandle{db: l.db, lockKey: l.lockKey, holder: l.holder, lease: l.lease}, true, nil
 }
 
 type sqliteRuntimeLockHandle struct {
 	db      *sql.DB
 	lockKey string
 	holder  string
+	lease   time.Duration
 }
 
-func (h sqliteRuntimeLockHandle) Unlock(ctx context.Context) error {
-	result, err := h.db.ExecContext(ctx, releaseRuntimeLockSQL, h.lockKey, h.holder)
-	if err != nil {
+func (h sqliteRuntimeLockHandle) Renew(ctx context.Context) error {
+	nowMillis := time.Now().UTC().UnixMilli()
+	leaseExpiresAt := time.UnixMilli(nowMillis).UTC().Add(h.lease).UnixMilli()
+	var rows int64
+	err := sqlctx.WithWriteRetry(ctx, func() error {
+		result, err := h.db.ExecContext(ctx, renewRuntimeLockSQL, leaseExpiresAt, nowMillis, h.lockKey, h.holder)
+		if err != nil {
+			return err
+		}
+		rows, err = result.RowsAffected()
 		return err
-	}
-	rows, err := result.RowsAffected()
+	})
 	if err != nil {
 		return err
 	}
 	if rows == 0 {
-		return errors.New("cron: runtime lock was not held")
+		return errors.New("cron: runtime lock was not held by holder")
 	}
 	return nil
 }
 
-func runtimeLockHolder() string {
-	host, err := os.Hostname()
-	if err != nil || host == "" {
-		host = "unknown-host"
+func (h sqliteRuntimeLockHandle) Unlock(ctx context.Context) error {
+	var rows int64
+	err := sqlctx.WithWriteRetry(ctx, func() error {
+		result, err := h.db.ExecContext(ctx, releaseRuntimeLockSQL, h.lockKey, h.holder)
+		if err != nil {
+			return err
+		}
+		rows, err = result.RowsAffected()
+		return err
+	})
+	if err != nil {
+		return err
 	}
-	return fmt.Sprintf("%s:%d", host, os.Getpid())
+	if rows == 0 {
+		return errors.New("cron: runtime lock was not held by holder")
+	}
+	return nil
+}
+
+func runtimeLockHolder() (string, error) {
+	host, err := os.Hostname()
+	if err != nil {
+		return "", fmt.Errorf("cron: resolve runtime lock hostname: %w", err)
+	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return "", errors.New("cron: runtime lock hostname is empty")
+	}
+	return fmt.Sprintf("%s:%d:%s", host, os.Getpid(), runtimeLockProcessStartNonce), nil
 }
 
 const acquireRuntimeLockSQL = `
@@ -128,7 +170,13 @@ SET holder = EXCLUDED.holder,
     lease_expires_at = EXCLUDED.lease_expires_at,
     updated_at = EXCLUDED.updated_at
 WHERE runtime_locks.lease_expires_at < ?
-   OR runtime_locks.holder = ?
+`
+
+const renewRuntimeLockSQL = `
+UPDATE runtime_locks
+SET lease_expires_at = ?,
+    updated_at = ?
+WHERE lock_key = ? AND holder = ?
 `
 
 const releaseRuntimeLockSQL = `

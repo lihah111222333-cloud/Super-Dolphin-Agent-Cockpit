@@ -5,13 +5,17 @@ import (
 	"testing"
 )
 
-func TestAppendTaskDagRunEvent_UsesSQLiteJSONAppend(t *testing.T) {
-	if !strings.Contains(appendTaskDagRunEvent, "json_insert(COALESCE(events, '[]'), '$[#]', json(?1))") {
-		t.Fatalf("appendTaskDagRunEvent must use SQLite JSON array append semantics; got:\n%s", appendTaskDagRunEvent)
+func TestTaskDagRunEventAppendQueriesUseGoComputedEvents(t *testing.T) {
+	if !strings.Contains(loadTaskDagRunEventsForAppend, "SELECT run_key, CAST(events AS BLOB) AS events") {
+		t.Fatalf("loadTaskDagRunEventsForAppend must load current events for Go append; got:\n%s", loadTaskDagRunEventsForAppend)
 	}
+	if !strings.Contains(updateTaskDagRunEventsAfterAppend, "SET events = ?1") {
+		t.Fatalf("updateTaskDagRunEventsAfterAppend must persist Go-computed events; got:\n%s", updateTaskDagRunEventsAfterAppend)
+	}
+	combined := loadTaskDagRunEventsForAppend + updateTaskDagRunEventsAfterAppend
 	for _, forbidden := range []string{"jsonb_build_array", "::jsonb", " || $"} {
-		if strings.Contains(appendTaskDagRunEvent, forbidden) {
-			t.Fatalf("appendTaskDagRunEvent still contains PG JSON fragment %q; got:\n%s", forbidden, appendTaskDagRunEvent)
+		if strings.Contains(combined, forbidden) {
+			t.Fatalf("run event append queries still contain PG JSON fragment %q; got:\n%s\n%s", forbidden, loadTaskDagRunEventsForAppend, updateTaskDagRunEventsAfterAppend)
 		}
 	}
 }

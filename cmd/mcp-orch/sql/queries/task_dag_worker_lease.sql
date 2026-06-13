@@ -16,6 +16,6 @@ WHERE target_agent_id = sqlc.arg(target_agent_id)
   AND owner_id = sqlc.arg(owner_id)
   AND lease_expires_at >= (CAST(strftime('%s','now') AS INTEGER) * 1000);
 
--- name: ReleaseTaskDagWorkerLease :exec
+-- name: ReleaseTaskDagWorkerLease :execrows
 DELETE FROM task_dag_worker_leases
 WHERE target_agent_id = ? AND owner_id = ?;

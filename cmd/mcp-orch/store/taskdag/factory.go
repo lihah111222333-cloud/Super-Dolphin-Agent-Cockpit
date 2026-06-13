@@ -41,6 +41,24 @@ func queryMany[Row any, Out any](
 	return mapRows(rows, mapper), nil
 }
 
+func queryManyWrite[Row any, Out any](
+	ctx context.Context,
+	call func() ([]Row, error),
+	operation, entity string,
+	mapper func(Row) Out,
+) ([]Out, error) {
+	var mapped []Out
+	err := sqlctx.WithWriteRetry(ctx, func() error {
+		rows, err := call()
+		if err != nil {
+			return wrapTaskDAGError(err, operation, entity)
+		}
+		mapped = mapRows(rows, mapper)
+		return nil
+	})
+	return mapped, err
+}
+
 func queryValue[T any](call func() (T, error), operation, entity string) (T, error) {
 	value, err := call()
 	if err != nil {
@@ -135,6 +153,17 @@ func fencedWakeupMutation(
 	call func(wakeupFence) (int64, error),
 ) (int64, error) {
 	return queryValue(func() (int64, error) {
+		return call(fence)
+	}, operation, "task_dag_wakeup")
+}
+
+func fencedWakeupMutationWrite(
+	ctx context.Context,
+	operation string,
+	fence wakeupFence,
+	call func(wakeupFence) (int64, error),
+) (int64, error) {
+	return queryValueWrite(ctx, func() (int64, error) {
 		return call(fence)
 	}, operation, "task_dag_wakeup")
 }
