@@ -288,6 +288,35 @@ function mockPromptDefaults() {
   backend.dryRunPromptIntent.mockResolvedValue({ would_use: true, reasons: ['matched'] });
 }
 
+function mockPromptWizardEntryPrompt(overrides = {}) {
+  const name = overrides.name || '待确认入口';
+  const content = overrides.content || '待确认内容';
+  const scope = overrides.scope || 'project';
+  backend.listPromptAssets.mockResolvedValue({
+    prompts: [{
+      id: overrides.id || 'intent/expert/entry',
+      draft_key: overrides.draftKey || 'intent/expert/entry',
+      draft_status: overrides.status || 'ready_to_save',
+      state: 'pending_confirm',
+      name,
+      content,
+      description: overrides.description || '',
+      tags: overrides.tags || ['intent:expert'],
+      scope,
+      enabled: true,
+      card: overrides.card || {
+        kind: 'expert',
+        scope,
+        title: name,
+        output: content,
+        hit_examples: [],
+        miss_examples: [],
+      },
+      issues: overrides.issues || [],
+    }],
+  });
+}
+
 function mockMemoryDefaults() {
   backend.getMemorySnapshot.mockResolvedValue({
     overview: {
@@ -4772,7 +4801,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
   });
 
 
-  it('loads and filters prompt assets while wiring active launch prompt preference', async () => {
+  it('loads prompt assets while wiring active launch prompt preference', async () => {
     backend.listPromptAssets.mockResolvedValue({
       prompts: [
         {
@@ -4813,22 +4842,20 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(screen.getByLabelText('提示词'));
 
     expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '全部 3' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '专家能力 1' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '参考资料 1' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '待确认 1' })).toBeInTheDocument();
+    expect(screen.getByText('SQLC 资料')).toBeInTheDocument();
+    expect(screen.getByText('价格表资料')).toBeInTheDocument();
+    expect(screen.queryByRole('tablist', { name: '提示词分类' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /全部范围/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /全部状态/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '添加给 AI 的内容' })).not.toBeInTheDocument();
     expect(screen.getByText('强制使用')).toBeInTheDocument();
     expect(screen.getAllByText('全局可用').length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
     expect(backend.listPromptAssets).toHaveBeenCalledWith({ cwd: '/repo/app' });
     expect(backend.getPreference).toHaveBeenCalledWith({ cwd: '/repo/app', key: 'settings.activePromptKey' });
 
-    fireEvent.click(screen.getByRole('tab', { name: '参考资料 1' }));
-    expect(screen.queryByText('代码审查专家')).not.toBeInTheDocument();
-    expect(screen.getByText('SQLC 资料')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('tab', { name: '专家能力 1' }));
-    fireEvent.click(screen.getByRole('button', { name: '取消强制' }));
+    const reviewerCard = screen.getByText('代码审查专家').closest('article');
+    fireEvent.click(within(reviewerCard).getByRole('button', { name: '取消强制' }));
     await waitFor(() => {
       expect(backend.setPreference).toHaveBeenCalledWith({
         cwd: '/repo/app',
@@ -4878,33 +4905,33 @@ async function toggleInlineTraceFromRecentLogs(table) {
   });
 
   it('traps focus in the prompt wizard and restores focus after Escape', async () => {
-    backend.listPromptAssets.mockResolvedValue({ prompts: [] });
+    mockPromptWizardEntryPrompt();
     mockPromptPreferences();
 
     render(<App />);
     await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('提示词'));
 
-    const addButton = await screen.findByRole('button', { name: '添加给 AI 的内容' });
-    addButton.focus();
-    fireEvent.click(addButton);
+    const continueButton = await screen.findByRole('button', { name: '继续确认' });
+    continueButton.focus();
+    fireEvent.click(continueButton);
 
     const wizard = await screen.findByRole('dialog', { name: '添加给 AI 的内容' });
     const firstKindTab = within(wizard).getByRole('tab', { name: '专家能力' });
-    const closeButton = within(wizard).getByRole('button', { name: '关闭' });
+    const saveButton = within(wizard).getByRole('button', { name: '确认保存' });
     await waitFor(() => {
       expect(document.activeElement).toBe(firstKindTab);
     });
 
     fireEvent.keyDown(wizard, { key: 'Tab', code: 'Tab', shiftKey: true });
-    expect(document.activeElement).toBe(closeButton);
+    expect(document.activeElement).toBe(saveButton);
     fireEvent.keyDown(wizard, { key: 'Tab', code: 'Tab' });
     expect(document.activeElement).toBe(firstKindTab);
     fireEvent.keyDown(wizard, { key: 'Escape', code: 'Escape' });
     await waitFor(() => {
       expect(screen.queryByRole('dialog', { name: '添加给 AI 的内容' })).not.toBeInTheDocument();
     });
-    expect(document.activeElement).toBe(addButton);
+    expect(document.activeElement).toBe(continueButton);
   });
 
   it('auto-updates prompt assets without a manual refresh button', async () => {
@@ -5233,6 +5260,14 @@ async function openPromptAssetsPage() {
   expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
 }
 
+async function openPromptWizardFromPendingCard(cardName = '价格表资料') {
+  const pendingCard = (await screen.findByText(cardName)).closest('article');
+  const continueButton = within(pendingCard).getByRole('button', { name: '继续确认' });
+  fireEvent.click(continueButton);
+  const wizard = await screen.findByRole('dialog', { name: '添加给 AI 的内容' });
+  return { continueButton, pendingCard, wizard };
+}
+
 async function editAndDeleteReviewerPrompt() {
   const card = screen.getByText('代码审查专家').closest('article');
   backend.getPrompt.mockResolvedValueOnce({ prompt: { content: '完整审查提示词' } });
@@ -5269,10 +5304,7 @@ async function editAndDeleteReviewerPrompt() {
 }
 
 async function handlePendingPromptDraft() {
-  const pendingCard = screen.getByText('价格表资料').closest('article');
-  fireEvent.click(within(pendingCard).getByRole('button', { name: '继续确认' }));
-  const pendingDialog = await screen.findByRole('dialog', { name: '添加给 AI 的内容' });
-  expect(pendingDialog).toBeInTheDocument();
+  const { pendingCard, wizard: pendingDialog } = await openPromptWizardFromPendingCard('价格表资料');
   expect(screen.getAllByText('价格表资料').length).toBeGreaterThanOrEqual(1);
   fireEvent.click(within(pendingDialog).getAllByRole('button', { name: '关闭' }).at(-1));
 
@@ -5283,8 +5315,8 @@ async function handlePendingPromptDraft() {
 }
 
 async function createGeneratedPromptIntent() {
-  fireEvent.click(screen.getByRole('button', { name: '添加给 AI 的内容' }));
-  expect(await screen.findByRole('dialog', { name: '添加给 AI 的内容' })).toBeInTheDocument();
+  const { wizard } = await openPromptWizardFromPendingCard('价格表资料');
+  fireEvent.click(within(wizard).getByRole('tab', { name: '专家能力' }));
   fireEvent.change(screen.getByLabelText('写下希望 AI 记住或使用的内容'), {
     target: { value: '当用户要求代码审查时，先检查阻塞问题。' },
   });
@@ -5337,11 +5369,13 @@ async function createGeneratedPromptIntent() {
       }],
     });
     backend.commitPromptIntent.mockResolvedValueOnce({ prompt: { id: 'recall/alcohol-guard' } });
+    mockPromptWizardEntryPrompt();
 
     render(<App />);
     await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('提示词'));
-    fireEvent.click(await screen.findByRole('button', { name: '添加给 AI 的内容' }));
+    const { wizard } = await openPromptWizardFromPendingCard('待确认入口');
+    fireEvent.click(within(wizard).getByRole('tab', { name: '专家能力' }));
     fireEvent.change(await screen.findByLabelText('写下希望 AI 记住或使用的内容'), {
       target: { value: '在我喝酒的时候阻止我' },
     });
@@ -5370,11 +5404,12 @@ async function createGeneratedPromptIntent() {
       },
       issues: [{ code: 'missing_when_not_to_use', severity: 'block', message: '需要补充不用它的场景' }],
     });
+    mockPromptWizardEntryPrompt();
 
     render(<App />);
     await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('提示词'));
-    fireEvent.click(await screen.findByRole('button', { name: '添加给 AI 的内容' }));
+    await openPromptWizardFromPendingCard('待确认入口');
     fireEvent.change(await screen.findByLabelText('写下希望 AI 记住或使用的内容'), {
       target: { value: '在我想喝酒的时候鼓励我' },
     });
@@ -5403,11 +5438,12 @@ async function createGeneratedPromptIntent() {
       issues: [],
     });
     backend.commitPromptIntent.mockRejectedValueOnce(new Error('with_tx prompt_template: [-31007] prompt intent draft is not ready to save'));
+    mockPromptWizardEntryPrompt();
 
     render(<App />);
     await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('提示词'));
-    fireEvent.click(await screen.findByRole('button', { name: '添加给 AI 的内容' }));
+    await openPromptWizardFromPendingCard('待确认入口');
     fireEvent.change(await screen.findByLabelText('写下希望 AI 记住或使用的内容'), {
       target: { value: '在我想喝酒的时候鼓励我' },
     });
@@ -5442,11 +5478,12 @@ async function createGeneratedPromptIntent() {
       },
       issues: [{ code: 'missing_when_not_to_use', severity: 'block', message: 'internal field copy' }],
     });
+    mockPromptWizardEntryPrompt();
 
     render(<App />);
     await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('提示词'));
-    fireEvent.click(await screen.findByRole('button', { name: '添加给 AI 的内容' }));
+    await openPromptWizardFromPendingCard('待确认入口');
     fireEvent.change(await screen.findByLabelText('写下希望 AI 记住或使用的内容'), {
       target: { value: '在我想喝酒的时候阻止我' },
     });
