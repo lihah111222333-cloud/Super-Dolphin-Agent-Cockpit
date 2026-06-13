@@ -64,7 +64,7 @@ func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 	if err != nil {
 		return nil, wrapSharedFileError(err, "get")
 	}
-	row, dbErr := s.q.GetSharedFile(ctx, cleaned)
+	row, dbErr := s.q.GetSharedFile(ctx, sqlc.GetSharedFileParams{Path: cleaned})
 	mapped := SharedFile{}
 	dbHit := dbErr == nil
 	if dbHit {
@@ -99,8 +99,8 @@ func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, error) {
 	rows, err := s.q.ListSharedFiles(ctx, sqlc.ListSharedFilesParams{
-		Column1: filter.Prefix,
-		Limit:   filter.Limit,
+		Prefix:     filter.Prefix,
+		LimitCount: int64(filter.Limit),
 	})
 	if err != nil {
 		return nil, wrapSharedFileError(err, "list")
@@ -117,7 +117,7 @@ func (s *store) Delete(ctx context.Context, path string) (int64, error) {
 	if err != nil {
 		return 0, wrapSharedFileError(err, "delete")
 	}
-	count, err := s.q.DeleteSharedFile(ctx, cleaned)
+	count, err := s.q.DeleteSharedFile(ctx, sqlc.DeleteSharedFileParams{Path: cleaned})
 	if err != nil {
 		return 0, wrapSharedFileError(err, "delete")
 	}

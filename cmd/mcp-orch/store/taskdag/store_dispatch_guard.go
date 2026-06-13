@@ -63,9 +63,9 @@ func appendDispatchBlockedEvent(ctx context.Context, txStore *store, node *Node,
 		return fmt.Errorf("marshal dispatch blocked event for %s/%s: %w", node.DagKey, node.NodeKey, err)
 	}
 	if _, err := txStore.q.AppendTaskDagRunEvent(ctx, sqlc.AppendTaskDagRunEventParams{
-		DagKey:  node.DagKey,
-		Column2: payload,
-		ID:      runID,
+		Event:  payload,
+		DagKey: node.DagKey,
+		RunID:  runID,
 	}); err != nil {
 		return fmt.Errorf("append dispatch blocked event for %s/%s run_id=%d: %w", node.DagKey, node.NodeKey, runID, err)
 	}

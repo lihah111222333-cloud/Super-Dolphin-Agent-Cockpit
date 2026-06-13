@@ -46,7 +46,7 @@ func (s *store) UpsertDAG(ctx context.Context, dag DAG) (*DAG, error) {
 			Description: dag.Description,
 			Status:      dag.Status,
 			CreatedBy:   dag.CreatedBy,
-			Column6:     dag.Metadata,
+			Metadata:    dag.Metadata,
 		})
 	}, "upsert", "task_dag", fromDAG)
 }
@@ -54,16 +54,16 @@ func (s *store) UpsertDAG(ctx context.Context, dag DAG) (*DAG, error) {
 func (s *store) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAG, error) {
 	return queryMany(func() ([]sqlc.TaskDag, error) {
 		return s.q.ListTaskDags(ctx, sqlc.ListTaskDagsParams{
-			Column1: filter.Status,
-			Column2: filter.Keyword,
-			Limit:   filter.Limit,
+			StatusFilter: filter.Status,
+			Keyword:      filter.Keyword,
+			LimitCount:   int64(filter.Limit),
 		})
 	}, "list", "task_dag", fromDAG)
 }
 
 func (s *store) GetDAG(ctx context.Context, dagKey string) (*DAG, error) {
 	return queryOne(func() (sqlc.TaskDag, error) {
-		return s.q.GetTaskDag(ctx, dagKey)
+		return s.q.GetTaskDag(ctx, sqlc.GetTaskDagParams{DagKey: dagKey})
 	}, "get", "task_dag", fromDAG)
 }
 
@@ -106,9 +106,9 @@ func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error) {
 			Title:      node.Title,
 			NodeType:   node.NodeType,
 			AssignedTo: node.AssignedTo,
-			Column6:    node.DependsOn,
+			DependsOn:  node.DependsOn,
 			CommandRef: node.CommandRef,
-			Column8:    node.Config,
+			Config:     node.Config,
 		})
 	}, "upsert", "task_dag_node", fromNode)
 }
@@ -156,7 +156,7 @@ func (s *store) UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*
 
 func (s *store) ListNodes(ctx context.Context, dagKey string) ([]Node, error) {
 	return queryMany(func() ([]sqlc.TaskDagNode, error) {
-		return s.q.ListTaskDagNodes(ctx, dagKey)
+		return s.q.ListTaskDagNodes(ctx, sqlc.ListTaskDagNodesParams{DagKey: dagKey})
 	}, "list", "task_dag_node", fromNode)
 }
 
@@ -193,25 +193,25 @@ func (s *store) ListRunNodes(ctx context.Context, dagKey string, runID int64) ([
 // advancement on every row.
 func (s *store) LookupNodesBySpawningThread(ctx context.Context, threadID string) ([]Node, error) {
 	return queryMany(func() ([]sqlc.TaskDagNode, error) {
-		return s.q.LookupNodesBySpawningThread(ctx, sqlc.TextValuePtr(&threadID))
+		return s.q.LookupNodesBySpawningThread(ctx, sqlc.LookupNodesBySpawningThreadParams{SpawningThreadID: sqlc.TextValuePtr(&threadID)})
 	}, "lookup_by_spawning_thread", "task_dag_node", fromNode)
 }
 
 func (s *store) ListRunningNodesByAssignee(ctx context.Context, assignee string) ([]Node, error) {
 	return queryMany(func() ([]sqlc.TaskDagNode, error) {
-		return s.q.ListRunningTaskDagNodesByAssignee(ctx, assignee)
+		return s.q.ListRunningTaskDagNodesByAssignee(ctx, sqlc.ListRunningTaskDagNodesByAssigneeParams{AssignedTo: assignee})
 	}, "list_running_by_assignee", "task_dag_node", fromNode)
 }
 
 func (s *store) GetDAGForUpdate(ctx context.Context, dagKey string) (*DAG, error) {
 	return queryOne(func() (sqlc.TaskDag, error) {
-		return s.q.GetTaskDagForUpdate(ctx, dagKey)
+		return s.q.GetTaskDagForUpdate(ctx, sqlc.GetTaskDagForUpdateParams{DagKey: dagKey})
 	}, "get_for_update", "task_dag", fromDAG)
 }
 
 func (s *store) GetNodesForUpdate(ctx context.Context, dagKey string) ([]Node, error) {
 	return queryMany(func() ([]sqlc.TaskDagNode, error) {
-		return s.q.GetTaskDagNodesForUpdate(ctx, dagKey)
+		return s.q.GetTaskDagNodesForUpdate(ctx, sqlc.GetTaskDagNodesForUpdateParams{DagKey: dagKey})
 	}, "get_for_update", "task_dag_node", fromNode)
 }
 
@@ -253,7 +253,7 @@ func (s *store) TouchRunningNodeEvent(ctx context.Context, input TouchRunningNod
 	}
 	return queryOne(func() (sqlc.TaskDagNode, error) {
 		return s.q.TouchRunningTaskDagNodeEvent(ctx, sqlc.TouchRunningTaskDagNodeEventParams{
-			LastEventAt:  sqlc.Timestamptz{Time: input.ObservedAt, Valid: !input.ObservedAt.IsZero()},
+			LastEventAt:  timestampValue(input.ObservedAt),
 			DagKey:       input.DagKey,
 			NodeKey:      input.NodeKey,
 			ActiveTurnID: stringPtr(input.TurnID),
@@ -394,23 +394,49 @@ func wrapTaskDAGError(err error, operation, entity string) error {
 	return platformdb.WrapStoreError(err, operation, entity)
 }
 
-// intervalValue converts textual interval input into the pgtype shape expected by sqlc.
+// intervalValue converts textual interval input into epoch-millisecond deltas expected by SQLite sqlc queries.
 func intervalValue(value string) (sqlc.Interval, error) {
-	var interval sqlc.Interval
-	if err := interval.Scan(value); err != nil {
-		return sqlc.Interval{}, err
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return 0, errors.New("interval is required")
 	}
-	return interval, nil
+	if duration, err := time.ParseDuration(trimmed); err == nil {
+		return sqlc.IntervalMillis(duration), nil
+	}
+	fields := strings.Fields(strings.ToLower(trimmed))
+	if len(fields) != 2 {
+		return 0, fmt.Errorf("invalid interval %q", value)
+	}
+	amount, err := time.ParseDuration(fields[0] + intervalUnitSuffix(fields[1]))
+	if err != nil {
+		return 0, fmt.Errorf("invalid interval %q: %w", value, err)
+	}
+	return sqlc.IntervalMillis(amount), nil
 }
 
-func timeValue(value sqlc.Timestamptz) time.Time {
+func intervalUnitSuffix(unit string) string {
+	switch strings.TrimSuffix(unit, "s") {
+	case "millisecond", "msec", "ms":
+		return "ms"
+	case "second", "sec", "s":
+		return "s"
+	case "minute", "min", "m":
+		return "m"
+	case "hour", "hr", "h":
+		return "h"
+	default:
+		return unit
+	}
+}
+
+func timeValue(value int64) time.Time {
 	return sqlc.TimeValue(value)
 }
 
-func timestampPtr(value sqlc.Timestamptz) *time.Time {
+func timestampPtr(value *int64) *time.Time {
 	return sqlc.TimePtr(value)
 }
 
-func timestampValue(value time.Time) sqlc.Timestamptz {
-	return sqlc.Timestamptz{Time: value, Valid: !value.IsZero()}
+func timestampValue(value time.Time) *int64 {
+	return sqlc.TimeValuePtr(&value)
 }

@@ -16,7 +16,7 @@ type store struct {
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
 func (s *store) Get(ctx context.Context, cardKey string) (*CommandCard, error) {
-	row, err := s.q.GetCommandCard(ctx, cardKey)
+	row, err := s.q.GetCommandCard(ctx, sqlc.GetCommandCardParams{CardKey: cardKey})
 	if err != nil {
 		return nil, wrapCommandCardError(err, "get", "command_card")
 	}
@@ -30,21 +30,24 @@ func (s *store) Upsert(ctx context.Context, card CommandCard) (*CommandCard, err
 		Title:           card.Title,
 		Description:     card.Description,
 		CommandTemplate: card.CommandTemplate,
-		Column5:         card.ArgsSchema,
+		ArgsSchema:      card.ArgsSchema,
 		RiskLevel:       card.RiskLevel,
-		Enabled:         card.Enabled,
+		Enabled:         boolInt64(card.Enabled),
 		CreatedBy:       card.CreatedBy,
 		UpdatedBy:       card.UpdatedBy,
 	})
 	if err != nil {
 		return nil, wrapCommandCardError(err, "upsert", "command_card")
 	}
-	mapped := fromCard(row)
+	mapped := fromUpsertCard(row)
 	return &mapped, nil
 }
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]CommandCard, error) {
-	rows, err := s.q.ListCommandCards(ctx, sqlc.ListCommandCardsParams{Column1: filter.Keyword, Limit: filter.Limit})
+	rows, err := s.q.ListCommandCards(ctx, sqlc.ListCommandCardsParams{
+		Keyword:    filter.Keyword,
+		LimitCount: int64(filter.Limit),
+	})
 	if err != nil {
 		return nil, wrapCommandCardError(err, "list", "command_card")
 	}
@@ -56,7 +59,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]CommandCard, err
 }
 
 func (s *store) Delete(ctx context.Context, cardKey string) error {
-	_, err := s.q.DeleteCommandCard(ctx, cardKey)
+	_, err := s.q.DeleteCommandCard(ctx, sqlc.DeleteCommandCardParams{CardKey: cardKey})
 	return wrapCommandCardError(err, "delete", "command_card")
 }
 
@@ -66,9 +69,9 @@ func (s *store) InsertVersion(ctx context.Context, version CommandCardVersion) e
 		Title:           version.Title,
 		Description:     version.Description,
 		CommandTemplate: version.CommandTemplate,
-		Column5:         version.ArgsSchema,
+		ArgsSchema:      version.ArgsSchema,
 		RiskLevel:       version.RiskLevel,
-		Enabled:         version.Enabled,
+		Enabled:         boolInt64(version.Enabled),
 		CreatedBy:       version.CreatedBy,
 		UpdatedBy:       version.UpdatedBy,
 		SourceUpdatedAt: sqlc.TimeValuePtr(version.SourceUpdatedAt),
@@ -76,7 +79,7 @@ func (s *store) InsertVersion(ctx context.Context, version CommandCardVersion) e
 }
 
 func (s *store) ListVersions(ctx context.Context, cardKey string) ([]CommandCardVersion, error) {
-	rows, err := s.q.ListCommandCardVersions(ctx, cardKey)
+	rows, err := s.q.ListCommandCardVersions(ctx, sqlc.ListCommandCardVersionsParams{CardKey: cardKey})
 	if err != nil {
 		return nil, wrapCommandCardError(err, "list_versions", "command_card_version")
 	}
@@ -87,7 +90,7 @@ func (s *store) ListVersions(ctx context.Context, cardKey string) ([]CommandCard
 	return versions, nil
 }
 
-func fromCard(row sqlc.CommandCard) CommandCard {
+func fromCard(row sqlc.GetCommandCardRow) CommandCard {
 	return CommandCard{
 		ID:              row.ID,
 		CardKey:         row.CardKey,
@@ -96,7 +99,7 @@ func fromCard(row sqlc.CommandCard) CommandCard {
 		CommandTemplate: row.CommandTemplate,
 		ArgsSchema:      json.RawMessage(row.ArgsSchema),
 		RiskLevel:       row.RiskLevel,
-		Enabled:         row.Enabled,
+		Enabled:         int64Bool(row.Enabled),
 		CreatedBy:       row.CreatedBy,
 		UpdatedBy:       row.UpdatedBy,
 		CreatedAt:       sqlc.TimeValue(row.CreatedAt),
@@ -113,7 +116,7 @@ func fromListRow(row sqlc.ListCommandCardsRow) CommandCard {
 		CommandTemplate: row.CommandTemplate,
 		ArgsSchema:      json.RawMessage(row.ArgsSchema),
 		RiskLevel:       row.RiskLevel,
-		Enabled:         row.Enabled,
+		Enabled:         int64Bool(row.Enabled),
 		CreatedBy:       row.CreatedBy,
 		UpdatedBy:       row.UpdatedBy,
 		CreatedAt:       sqlc.TimeValue(row.CreatedAt),
@@ -123,7 +126,7 @@ func fromListRow(row sqlc.ListCommandCardsRow) CommandCard {
 	}
 }
 
-func fromVersion(row sqlc.CommandCardVersion) CommandCardVersion {
+func fromVersion(row sqlc.ListCommandCardVersionsRow) CommandCardVersion {
 	return CommandCardVersion{
 		ID:              row.ID,
 		CardKey:         row.CardKey,
@@ -132,7 +135,7 @@ func fromVersion(row sqlc.CommandCardVersion) CommandCardVersion {
 		CommandTemplate: row.CommandTemplate,
 		ArgsSchema:      json.RawMessage(row.ArgsSchema),
 		RiskLevel:       row.RiskLevel,
-		Enabled:         row.Enabled,
+		Enabled:         int64Bool(row.Enabled),
 		CreatedBy:       row.CreatedBy,
 		UpdatedBy:       row.UpdatedBy,
 		SourceUpdatedAt: sqlc.TimePtr(row.SourceUpdatedAt),
@@ -145,15 +148,45 @@ func timePtr(value any) *time.Time {
 	switch ts := value.(type) {
 	case nil:
 		return nil
+	case int64:
+		return sqlc.TimePtr(&ts)
+	case *int64:
+		return sqlc.TimePtr(ts)
 	case time.Time:
 		return &ts
 	case *time.Time:
 		return ts
-	case sqlc.Timestamptz:
-		return sqlc.TimePtr(ts)
 	default:
 		return nil
 	}
+}
+
+func fromUpsertCard(row sqlc.UpsertCommandCardRow) CommandCard {
+	return CommandCard{
+		ID:              row.ID,
+		CardKey:         row.CardKey,
+		Title:           row.Title,
+		Description:     row.Description,
+		CommandTemplate: row.CommandTemplate,
+		ArgsSchema:      json.RawMessage(row.ArgsSchema),
+		RiskLevel:       row.RiskLevel,
+		Enabled:         int64Bool(row.Enabled),
+		CreatedBy:       row.CreatedBy,
+		UpdatedBy:       row.UpdatedBy,
+		CreatedAt:       sqlc.TimeValue(row.CreatedAt),
+		UpdatedAt:       sqlc.TimeValue(row.UpdatedAt),
+	}
+}
+
+func boolInt64(value bool) int64 {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func int64Bool(value int64) bool {
+	return value != 0
 }
 
 func wrapCommandCardError(err error, operation, entity string) error {

@@ -183,7 +183,7 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 				orchestration.ProvideHookAfterHandler,
 				orchestration.ProvideRPCFacade,
 				provideSQLDAGScheduleStore,
-				providePGAdvisoryLocker,
+				provideSQLiteRuntimeLocker,
 				// ADR-017 v1.2 §2.9：DAG turn.completed subscriber 的窄端口 provider。
 				orchestration.ProvideDAGSubscriberNodeFlowStore,
 				orchestration.ProvideDAGSubscriberStopAgentService,

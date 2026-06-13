@@ -99,7 +99,7 @@ func maybeFinalizeRunTx(ctx context.Context, txStore *store, dagKey string, runI
 	}
 	rows, err := txStore.q.FinalizeTaskDagRunIfAllNodesTerminal(ctx, sqlc.FinalizeTaskDagRunIfAllNodesTerminalParams{
 		DagKey: dagKey,
-		ID:     runID,
+		RunID:  int64Ptr(runID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("finalize run for dag %s: %w", dagKey, err)
