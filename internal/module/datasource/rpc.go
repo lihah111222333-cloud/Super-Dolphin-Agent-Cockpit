@@ -64,7 +64,9 @@ func datasourceRPCError(err error) error {
 		errors.Is(err, errSourcePathMustBeFile),
 		errors.Is(err, errUnsupportedFileExtension),
 		errors.Is(err, errInvalidDatasourceFileName),
-		errors.Is(err, errDeleteTargetMustBeFile):
+		errors.Is(err, errDeleteTargetMustBeFile),
+		errors.Is(err, errDatasourceContentEmpty),
+		errors.Is(err, errPDFTextNotFound):
 		return platformrpc.ErrInvalidParams(err.Error())
 	case errors.Is(err, os.ErrNotExist):
 		return platformrpc.ErrNotFound(err.Error())

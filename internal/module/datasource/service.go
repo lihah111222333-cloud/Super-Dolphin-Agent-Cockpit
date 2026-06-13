@@ -18,11 +18,13 @@ var (
 	errUnsupportedFileExtension  = errors.New("datasource: unsupported file extension")
 	errInvalidDatasourceFileName = errors.New("datasource: fileName must be a file name")
 	errDeleteTargetMustBeFile    = errors.New("datasource: delete target must be a file")
+	errDatasourceContentEmpty    = errors.New("datasource: extracted content is empty")
 )
 
 type Service interface {
 	UploadFile(context.Context, UploadFileRequest) (UploadFileResult, error)
 	ListFiles(context.Context) (ListFilesResult, error)
+	ListDocuments(context.Context, string) (ListDocumentsResult, error)
 	DeleteFile(context.Context, DeleteFileRequest) (DeleteFileResult, error)
 }
 
@@ -41,6 +43,10 @@ type ListFilesResult struct {
 	FileNames []string `json:"fileNames"`
 }
 
+type ListDocumentsResult struct {
+	Documents []DatasourceDocument `json:"documents"`
+}
+
 type DeleteFileRequest struct {
 	FileName string `json:"fileName"`
 }
@@ -50,52 +56,122 @@ type DeleteFileResult struct {
 	Deleted bool   `json:"deleted"`
 }
 
-type service struct{}
+type service struct {
+	documents DatasourceDocumentStore
+}
 
 func NewService() Service {
-	return &service{}
+	return NewServiceWithStore(nil)
+}
+
+func NewServiceWithStore(store DatasourceDocumentStore) Service {
+	return &service{documents: store}
+}
+
+func datasourceContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
 }
 
 func (s *service) UploadFile(ctx context.Context, req UploadFileRequest) (UploadFileResult, error) {
-	if ctx == nil {
-		ctx = context.Background()
+	ctx = datasourceContext(ctx)
+	source, err := prepareUploadSource(ctx, req)
+	if err != nil {
+		return UploadFileResult{}, err
 	}
+	content, err := extractDatasourceText(ctx, source.path, source.extension)
+	if err != nil {
+		return UploadFileResult{}, err
+	}
+	workspaceRoot, targetPath, err := copyUploadIntoWorkspace(ctx, source.path)
+	if err != nil {
+		return UploadFileResult{}, err
+	}
+	if err := s.persistUploadedDocument(ctx, workspaceRoot, source, targetPath, content); err != nil {
+		return UploadFileResult{}, err
+	}
+	return uploadFileResult(source, targetPath), nil
+}
+
+type uploadSource struct {
+	path      string
+	name      string
+	extension string
+	size      int64
+}
+
+func prepareUploadSource(ctx context.Context, req UploadFileRequest) (uploadSource, error) {
 	sourcePath, err := validateUploadRequest(req)
 	if err != nil {
-		return UploadFileResult{}, err
+		return uploadSource{}, err
 	}
 	if err := ctx.Err(); err != nil {
-		return UploadFileResult{}, err
+		return uploadSource{}, err
 	}
-
 	sourceInfo, err := os.Stat(sourcePath)
 	if err != nil {
-		return UploadFileResult{}, fmt.Errorf("stat source file: %w", err)
+		return uploadSource{}, fmt.Errorf("stat source file: %w", err)
 	}
 	if sourceInfo.IsDir() {
-		return UploadFileResult{}, errSourcePathMustBeFile
+		return uploadSource{}, errSourcePathMustBeFile
 	}
-
 	ext := strings.ToLower(filepath.Ext(sourcePath))
 	if !isAllowedUploadExtension(ext) {
-		return UploadFileResult{}, fmt.Errorf("%w: %s", errUnsupportedFileExtension, ext)
+		return uploadSource{}, fmt.Errorf("%w: %s", errUnsupportedFileExtension, ext)
 	}
+	return uploadSource{
+		path:      sourcePath,
+		name:      filepath.Base(sourcePath),
+		extension: ext,
+		size:      sourceInfo.Size(),
+	}, nil
+}
 
-	targetDir, err := ensureCurrentDatasourceUploadDir()
+func copyUploadIntoWorkspace(ctx context.Context, sourcePath string) (string, string, error) {
+	workspaceRoot, err := currentDatasourceWorkspaceRoot()
 	if err != nil {
-		return UploadFileResult{}, err
+		return "", "", err
+	}
+	targetDir, err := ensureDatasourceUploadDir(workspaceRoot)
+	if err != nil {
+		return "", "", err
 	}
 	targetPath := filepath.Join(targetDir, filepath.Base(sourcePath))
 	if err := copyUploadFile(ctx, sourcePath, targetPath); err != nil {
-		return UploadFileResult{}, err
+		return "", "", err
 	}
+	return workspaceRoot, targetPath, nil
+}
 
+func (s *service) persistUploadedDocument(
+	ctx context.Context,
+	workspaceRoot string,
+	source uploadSource,
+	targetPath string,
+	content string,
+) error {
+	if s.documents == nil {
+		return nil
+	}
+	return s.documents.UpsertDocument(ctx, UpsertDatasourceDocumentParams{
+		WorkspaceRoot: workspaceRoot,
+		Name:          source.name,
+		Extension:     source.extension,
+		Size:          source.size,
+		StoredPath:    targetPath,
+		Content:       content,
+	})
+}
+
+func uploadFileResult(source uploadSource, targetPath string) UploadFileResult {
 	return UploadFileResult{
-		Name:       filepath.Base(sourcePath),
-		Extension:  ext,
-		Size:       sourceInfo.Size(),
+		Name:       source.name,
+		Extension:  source.extension,
+		Size:       source.size,
 		StoredPath: targetPath,
-	}, nil
+	}
 }
 
 func (s *service) ListFiles(ctx context.Context) (ListFilesResult, error) {
@@ -135,11 +211,46 @@ func (s *service) ListFiles(ctx context.Context) (ListFilesResult, error) {
 	return ListFilesResult{FileNames: fileNames}, nil
 }
 
+func (s *service) ListDocuments(ctx context.Context, workspaceRoot string) (ListDocumentsResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return ListDocumentsResult{}, err
+	}
+	if s.documents == nil {
+		return ListDocumentsResult{Documents: []DatasourceDocument{}}, nil
+	}
+	workspaceRoot = strings.TrimSpace(workspaceRoot)
+	if workspaceRoot == "" {
+		var err error
+		workspaceRoot, err = currentDatasourceWorkspaceRoot()
+		if err != nil {
+			return ListDocumentsResult{}, err
+		}
+	} else {
+		workspaceRoot = filepath.Clean(workspaceRoot)
+	}
+	documents, err := s.documents.ListDocuments(ctx, workspaceRoot)
+	if err != nil {
+		return ListDocumentsResult{}, err
+	}
+	return ListDocumentsResult{Documents: documents}, nil
+}
+
 func ensureCurrentDatasourceUploadDir() (string, error) {
 	uploadDir, err := currentDatasourceUploadDir()
 	if err != nil {
 		return "", err
 	}
+	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
+		return "", fmt.Errorf("create datasource upload dir: %w", err)
+	}
+	return uploadDir, nil
+}
+
+func ensureDatasourceUploadDir(workspaceRoot string) (string, error) {
+	uploadDir := datasourceUploadDir(workspaceRoot)
 	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
 		return "", fmt.Errorf("create datasource upload dir: %w", err)
 	}
@@ -158,10 +269,11 @@ func (s *service) DeleteFile(ctx context.Context, req DeleteFileRequest) (Delete
 		return DeleteFileResult{}, err
 	}
 
-	uploadDir, err := currentDatasourceUploadDir()
+	workspaceRoot, err := currentDatasourceWorkspaceRoot()
 	if err != nil {
 		return DeleteFileResult{}, err
 	}
+	uploadDir := datasourceUploadDir(workspaceRoot)
 	targetPath := filepath.Join(uploadDir, fileName)
 	info, err := os.Stat(targetPath)
 	if err != nil {
@@ -172,6 +284,11 @@ func (s *service) DeleteFile(ctx context.Context, req DeleteFileRequest) (Delete
 	}
 	if err := os.Remove(targetPath); err != nil {
 		return DeleteFileResult{}, fmt.Errorf("delete datasource file: %w", err)
+	}
+	if s.documents != nil {
+		if err := s.documents.DeleteDocument(ctx, workspaceRoot, fileName); err != nil {
+			return DeleteFileResult{}, err
+		}
 	}
 
 	return DeleteFileResult{Name: fileName, Deleted: true}, nil
@@ -203,11 +320,19 @@ func validateDeleteRequest(req DeleteFileRequest) (string, error) {
 }
 
 func currentDatasourceUploadDir() (string, error) {
+	baseDir, err := currentDatasourceWorkspaceRoot()
+	if err != nil {
+		return "", err
+	}
+	return datasourceUploadDir(baseDir), nil
+}
+
+func currentDatasourceWorkspaceRoot() (string, error) {
 	baseDir, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("get working directory: %w", err)
 	}
-	return datasourceUploadDir(baseDir), nil
+	return filepath.Clean(baseDir), nil
 }
 
 func datasourceUploadDir(sourceDir string) string {

@@ -69,6 +69,38 @@ func TestPromptProviderReturnsNilWithoutDatasourceFiles(t *testing.T) {
 	}
 }
 
+func TestPromptProviderRendersPersistedDatasourceText(t *testing.T) {
+	project := t.TempDir()
+	store := &recordingDatasourceStore{
+		documents: []DatasourceDocument{
+			{
+				WorkspaceRoot: project,
+				Name:          "notes.txt",
+				Extension:     ".txt",
+				Content:       "first line\nsecond line",
+			},
+		},
+	}
+	provider := NewPromptProvider(NewServiceWithStore(store))
+
+	got, err := provider.Resolve(context.Background(), contract.SectionContext{
+		BuildCtx: contract.BuildCtx{CWD: project},
+		Start:    &contract.StartInput{CWD: project},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("Resolve() = nil, want datasource prompt text")
+	}
+	if !strings.Contains(*got, "### notes.txt") || !strings.Contains(*got, "first line\nsecond line") {
+		t.Fatalf("Resolve() missing persisted datasource content:\n%s", *got)
+	}
+	if strings.Contains(*got, project) {
+		t.Fatalf("Resolve() leaked absolute project path:\n%s", *got)
+	}
+}
+
 func firstDatasourcePromptLine(text string) string {
 	if idx := strings.IndexByte(text, '\n'); idx >= 0 {
 		return text[:idx]
