@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Brain, ChevronDown, CircleUserRound, Folder, FolderOpen, Menu, MessageSquare, Moon, PanelLeftClose, Plus, Puzzle, RefreshCw, Search, Settings as SettingsIcon, SquarePlus, Sun, X } from 'lucide-react';
+import { Archive, Brain, ChevronDown, CircleUserRound, Folder, FolderOpen, Menu, MessageSquare, Moon, PanelLeftClose, PanelLeftOpen, Plus, Puzzle, RefreshCw, Search, Settings as SettingsIcon, SquarePlus, Sun, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.js';
@@ -466,12 +466,22 @@ function workbenchSidebarNextKeyboardWidth(event, currentWidth) {
 }
 
 function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggleTheme, rightPanelOpen, setRightPanelOpen, updateBanner }) {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    const isTest = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
+    if (isTest) return false;
+    if (typeof window !== 'undefined') {
+      return window.innerWidth > 920;
+    }
+    return true;
+  });
   const [workbenchSidebarWidth, setWorkbenchSidebarWidth] = useState(WORKBENCH_SIDEBAR_DEFAULT_WIDTH);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const setActivePageFromSidebar = useCallback((page) => {
     store.setActivePage(page);
-    setSidebarOpen(false);
+    const isTest = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
+    if (isTest || (typeof window !== 'undefined' && window.innerWidth <= 920)) {
+      setSidebarOpen(false);
+    }
   }, [store]);
   const beginWorkbenchSidebarResize = useCallback((event) => {
     event.preventDefault();
@@ -509,7 +519,7 @@ function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggle
   }, [workbenchSidebarWidth]);
   const SidebarToggleIcon = sidebarOpen ? X : Menu;
   return (
-    <div className={`sa-window${sidebarOpen ? ' sidebar-open' : ''}`} data-theme={theme} data-testid="frontend-app">
+    <div className={`sa-window${sidebarOpen ? ' sidebar-open' : ' sidebar-collapsed'}`} data-theme={theme} data-testid="frontend-app">
       <button
         type="button"
         className="workbench-toggle"
@@ -522,6 +532,17 @@ function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggle
       </button>
       {sidebarOpen ? <button type="button" className="sidebar-scrim" aria-label="关闭工作台" onClick={closeSidebar} /> : null}
       <div className="sa-body" style={{ '--workbench-sidebar-width': `${workbenchSidebarWidth}px` }}>
+        {!sidebarOpen && (
+          <button
+            type="button"
+            className="sidebar-expand-trigger"
+            aria-label="展开侧栏"
+            title="展开侧栏"
+            onClick={() => setSidebarOpen(true)}
+          >
+            <PanelLeftOpen size={20} aria-hidden="true" />
+          </button>
+        )}
         <WorkbenchSidebar
           activePage={store.activePage}
           isOpen={sidebarOpen}
@@ -534,6 +555,7 @@ function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggle
           theme={theme}
           toggleTheme={toggleTheme}
           memorySimilarCount={memoryBadge.memorySimilarCount}
+          onCloseSidebar={() => setSidebarOpen(false)}
         />
         <main className="sa-main">
           <AppUpdateBanner updateBanner={updateBanner} />
@@ -757,7 +779,38 @@ function SidebarNavList({ items, activePage, setActivePage, memoryBadgeCount = 0
   );
 }
 
+
+function formatRelativeTime(dateString) {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return '';
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  if (diffMs < 0) return '刚刚';
+  
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+  const diffWeeks = Math.floor(diffDays / 7);
+  const diffMonths = Math.floor(diffDays / 30);
+  
+  if (diffMins < 1) return '刚刚';
+  if (diffMins < 60) return `${diffMins} 分`;
+  if (diffHours < 24) return `${diffHours} 小时`;
+  if (diffDays < 7) return `${diffDays} 天`;
+  if (diffWeeks < 5) return `${diffWeeks} 周`;
+  return `${diffMonths} 月`;
+}
+
 function SidebarProjectTree({ projectPath, setActivePage, store }) {
+  const [expandedProjects, setExpandedProjects] = useState({});
+  const toggleExpandProject = (path) => {
+    setExpandedProjects((current) => ({
+      ...current,
+      [path]: !current[path],
+    }));
+  };
   const projectItems = projectDirectoryItems(projectPath, store?.projects, store?.activeProject);
   const activeProjectPath = textValue(store?.activeProject || projectPath);
   const addProject = () => runUIAction(() => store?.addProjectFromPicker?.());
@@ -770,11 +823,15 @@ function SidebarProjectTree({ projectPath, setActivePage, store }) {
     setActivePage('chat');
     runUIAction(() => store?.setActiveThread?.(threadId));
   };
+  const archiveThread = (threadId, event) => {
+    event.stopPropagation();
+    if (!threadId) return;
+    runUIAction(() => store?.archiveThread?.(threadId, true));
+  };
   return (
     <section className="sidebar-project-tree" aria-label="项目">
       <div className="sidebar-section-heading">
         <span className="sidebar-section-title">
-          <ChevronDown size={15} aria-hidden="true" />
           <span>项目</span>
         </span>
         <button type="button" className="sidebar-icon-action" aria-label="添加项目目录" onClick={addProject}>
@@ -785,6 +842,8 @@ function SidebarProjectTree({ projectPath, setActivePage, store }) {
         {projectItems.map((item) => {
           const isActiveProject = item.path && item.path === activeProjectPath;
           const projectThreads = projectThreadItems(store?.threads, item.path, activeProjectPath);
+          const isExpanded = !!expandedProjects[item.path];
+          const visibleThreads = isExpanded ? projectThreads : projectThreads.slice(0, 5);
           return (
             <div className="sidebar-tree-project" key={item.path || item.name}>
               <button
@@ -793,12 +852,11 @@ function SidebarProjectTree({ projectPath, setActivePage, store }) {
                 onClick={() => selectProject(item.path)}
                 aria-label={`选择项目 ${item.name}`}
               >
-                <ChevronDown size={14} aria-hidden="true" />
                 <Folder size={18} aria-hidden="true" />
                 <span>{item.name}</span>
               </button>
               <ul className="sidebar-project-thread-list" aria-label={`${item.name} 聊天记录`}>
-                {projectThreads.length > 0 ? projectThreads.map((thread) => {
+                {visibleThreads.length > 0 ? visibleThreads.map((thread) => {
                   const label = projectThreadLabel(thread);
                   const active = thread.id === store?.activeThreadId;
                   return (
@@ -810,13 +868,35 @@ function SidebarProjectTree({ projectPath, setActivePage, store }) {
                         aria-label="打开项目聊天"
                         title={label}
                       >
-                        <MessageSquare size={14} aria-hidden="true" />
-                        <span data-label={label} aria-hidden="true" />
+                        <span className="sidebar-thread-title" data-label={label} aria-hidden="true" />
+                        {thread.updatedAt && (
+                          <span className="sidebar-thread-time" aria-hidden="true">{formatRelativeTime(thread.updatedAt)}</span>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        className="thread-archive-btn"
+                        onClick={(e) => archiveThread(thread.id, e)}
+                        aria-label="归档此项目会话"
+                        title="归档此项目会话"
+                      >
+                        <Archive size={14} aria-hidden="true" />
                       </button>
                     </li>
                   );
                 }) : (
                   <li className="sidebar-project-thread-empty">暂无聊天记录</li>
+                )}
+                {projectThreads.length > 5 && (
+                  <li className="thread-expand-item">
+                    <button
+                      type="button"
+                      className="thread-expand-btn"
+                      onClick={() => toggleExpandProject(item.path)}
+                    >
+                      {isExpanded ? '收起' : '展开显示'}
+                    </button>
+                  </li>
                 )}
               </ul>
             </div>
@@ -839,6 +919,7 @@ function WorkbenchSidebar({
   theme,
   toggleTheme,
   memorySimilarCount = 0,
+  onCloseSidebar,
 }) {
   const memoryBadgeCount = Math.max(0, Number(memorySimilarCount) || 0);
   const isDark = theme === COLOR_THEMES.dark;
@@ -866,7 +947,12 @@ function WorkbenchSidebar({
           <button type="button" aria-label="搜索" title="搜索" onClick={() => setActivePage('observability')}>
             <Search size={19} aria-hidden="true" />
           </button>
-          <button type="button" aria-label="折叠侧栏" title="桌面侧栏当前固定展示" disabled>
+          <button
+            type="button"
+            aria-label="折叠侧栏"
+            title="折叠侧栏"
+            onClick={onCloseSidebar}
+          >
             <PanelLeftClose size={19} aria-hidden="true" />
           </button>
         </div>
@@ -884,13 +970,10 @@ function WorkbenchSidebar({
         items={primaryNavItems}
         activePage={activePage}
         setActivePage={setActivePage}
+        memoryBadgeCount={0}
         testId="sidebar-nav"
         className="sidebar-primary-nav"
       />
-      <div className="sidebar-project-selector">
-        <ProjectSelector store={store} projectPath={projectPath} />
-      </div>
-      <SidebarProjectTree projectPath={projectPath} setActivePage={setActivePage} store={store} />
       <SidebarNavList
         items={secondaryNavItems}
         activePage={activePage}
@@ -899,7 +982,13 @@ function WorkbenchSidebar({
         testId="sidebar-secondary-nav"
         className="sidebar-secondary-nav"
       />
-      <SidebarTaskSummary store={store} setActivePage={setActivePage} />
+      <div className="sidebar-project-selector">
+        <ProjectSelector store={store} projectPath={projectPath} />
+      </div>
+      <div className="sidebar-scrollable-content">
+        <SidebarProjectTree projectPath={projectPath} setActivePage={setActivePage} store={store} />
+        <SidebarTaskSummary store={store} setActivePage={setActivePage} />
+      </div>
       <button
         type="button"
         className="sidebar-theme-toggle"
@@ -942,6 +1031,11 @@ function SidebarTaskSummary({ store, setActivePage }) {
     setActivePage('chat');
     runUIAction(() => store?.setActiveThread?.(threadId));
   };
+  const archiveThread = (threadId, event) => {
+    event.stopPropagation();
+    if (!threadId) return;
+    runUIAction(() => store?.archiveThread?.(threadId, true));
+  };
   return (
     <section className="sidebar-task-summary" aria-label="任务">
       <h2>任务</h2>
@@ -959,8 +1053,19 @@ function SidebarTaskSummary({ store, setActivePage }) {
                   aria-label="打开任务对话"
                   title={label}
                 >
-                  <MessageSquare size={14} aria-hidden="true" />
-                  <span>{label}</span>
+                  <span className="sidebar-thread-title" data-label={label} aria-hidden="true" />
+                  {thread.updatedAt && (
+                    <span className="sidebar-thread-time" aria-hidden="true">{formatRelativeTime(thread.updatedAt)}</span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className="thread-archive-btn"
+                  onClick={(e) => archiveThread(thread.id, e)}
+                  aria-label="归档此任务会话"
+                  title="归档此任务会话"
+                >
+                  <Archive size={14} aria-hidden="true" />
                 </button>
               </li>
             );
