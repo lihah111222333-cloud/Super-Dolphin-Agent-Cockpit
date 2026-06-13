@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,7 +14,6 @@ import (
 	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	turndedupe "github.com/anthropic-ai/super-agent-v3/internal/store/turndedupe"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
@@ -39,6 +36,7 @@ type service struct {
 	turnContextProvider    contract.TurnContextProvider
 	skillLookup            skillHydrationPort
 	observation            turnobservation.Contract
+	mcpServers             contract.MCPServerConfigProvider
 	tracing                *platformobs.Service
 	interruptSettleTimeout time.Duration
 	// dedupeStore is the optional durable mirror for dedupe_key -> local_turn_id.
@@ -77,13 +75,18 @@ func NewServiceWithPromptAssemblyAndTurnContext(
 	observation turnobservation.Contract,
 	dedupeStore turndedupe.Store,
 	manifestBuild contract.ManifestBuildFunc,
+	mcpServers contract.MCPServerConfigProvider,
 	tracing *platformobs.Service,
 ) Service {
 	var lookup skillHydrationPort
 	if skillSvc != nil {
 		lookup = skillSvc
 	}
-	return newService(logger, promptAssembly, turnContextProvider, lookup, observation, dedupeStore, manifestBuild, tracing)
+	svc := newService(logger, promptAssembly, turnContextProvider, lookup, observation, dedupeStore, manifestBuild, tracing)
+	if typed, ok := svc.(*service); ok {
+		typed.mcpServers = mcpServers
+	}
+	return svc
 }
 
 func newService(
@@ -128,61 +131,6 @@ func newService(
 	return svc
 }
 
-func resolveBinaryDir() string {
-	if dir := resolvePeerBinDir(); dir != "" {
-		return dir
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return ""
-	}
-	return filepath.Dir(exe)
-}
-
-func resolvePeerBinDir() string {
-	dirs := peerBinDirCandidates()
-	if len(dirs) == 0 {
-		return ""
-	}
-	if dir := firstManagedPeerBinDir(dirs); dir != "" {
-		return dir
-	}
-	return dirs[0]
-}
-
-func peerBinDirCandidates() []string {
-	raw := strings.TrimSpace(os.Getenv(peerBinDirEnv))
-	if raw == "" {
-		return nil
-	}
-	dirs := make([]string, 0, 1)
-	for _, part := range filepath.SplitList(raw) {
-		if dir := strings.TrimSpace(part); dir != "" {
-			dirs = append(dirs, dir)
-		}
-	}
-	return dirs
-}
-
-func firstManagedPeerBinDir(dirs []string) string {
-	for _, dir := range dirs {
-		if hasManagedPeerBinary(dir) {
-			return dir
-		}
-	}
-	return ""
-}
-
-func hasManagedPeerBinary(dir string) bool {
-	for _, name := range []string{"mcp-lsp", "mcp-orch"} {
-		info, err := os.Stat(filepath.Join(dir, name))
-		if err == nil && !info.IsDir() {
-			return true
-		}
-	}
-	return false
-}
-
 func (s *service) PrepareTurn(ctx context.Context, session contract.Session, input PrepareInput) (req dto.TurnRequest, err error) {
 	ctx, threadID, err := requireTurnContext(ctx, session)
 	if err != nil {
@@ -192,6 +140,10 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	ctx = span.ctx
 	defer func() { s.finishTurnTraceSpan(span, err) }()
 	input = hydratePrepareInput(input, session)
+	input, err = s.hydrateMCPServerConfigs(ctx, input)
+	if err != nil {
+		return dto.TurnRequest{}, err
+	}
 	// V1 provider-native skill discovery 只在 turn 侧补全元数据，正文由
 	// Claude/Codex 从 provider-native mirror 自行发现；hydrate 是 optional
 	// 依赖：skillLookup==nil 时（NewService / NewServiceWithPromptAssembly
@@ -240,29 +192,6 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	req.TurnAssembly = assembly
 	s.recordSkillsSelected(req.LocalID, resolvedSkills)
 	return req, nil
-}
-
-func (s *service) cleanupStaleToolResults(threadID string, input PrepareInput) {
-	result := cleanupToolResultLifecycle(threadID, input.Model, input.FRCConfig)
-	if s == nil || s.logger == nil || result.Cleared == 0 {
-		return
-	}
-	s.logger.Debug("turn tool-result lifecycle cleanup", "thread_id", threadID, "cleared", result.Cleared, "kept", result.Kept, "deleted_files", result.DeletedFiles)
-}
-
-func turnMCPSnapshot(snapshot contract.MCPSnapshot, manifest dto.MCPManifest) contract.MCPSnapshot {
-	cloned := cloneMCPSnapshot(snapshot)
-	servers := make([]string, 0, len(manifest.Binaries))
-	for _, binary := range manifest.Binaries {
-		if name := strings.TrimSpace(binary.Name); name != "" {
-			servers = append(servers, name)
-		}
-	}
-	cloned.Servers = configutil.NormalizeConfigStringSlice(servers)
-	if len(cloned.Servers) == 0 {
-		cloned.Servers = nil
-	}
-	return cloned
 }
 
 func (s *service) StartTurn(ctx context.Context, session contract.Session, req dto.TurnRequest) (handle contract.TurnHandle, err error) {
