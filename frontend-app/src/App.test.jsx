@@ -2817,7 +2817,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(startPayload).not.toHaveProperty('prompt');
     expect(startPayload).not.toHaveProperty('optimisticUserMessage');
     expect(startPayload).not.toHaveProperty('skipInitialRuntimeSync');
-    expect(startPayload).not.toHaveProperty('config');
+    expect(startPayload.config).toEqual({
+      codexHome: '~/.codex',
+      codexInstanceKey: 'default',
+      codexModelProvider: 'openai',
+    });
 
     expect(screen.getAllByText('请真正调用后端聊天').length).toBeGreaterThanOrEqual(1);
   });

@@ -2133,7 +2133,7 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
-  it('omits default Codex identity preferences from thread/start launch payload', async () => {
+  it('includes default Codex identity preferences in thread/start launch payload', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -2160,11 +2160,15 @@ function registerBridgeEventHandlersForTest() {
       modelProvider: 'codex',
       model: 'gpt-5.5',
       effort: 'xhigh',
+      config: {
+        codexHome: '~/.codex',
+        codexInstanceKey: 'default',
+        codexModelProvider: 'openai',
+      },
     }));
-    expect(payload).not.toHaveProperty('config');
   });
 
-  it('omits expanded local Codex home defaults from thread/start launch payload', async () => {
+  it('includes expanded local Codex home defaults in thread/start launch payload', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -2191,8 +2195,12 @@ function registerBridgeEventHandlersForTest() {
       modelProvider: 'codex',
       model: 'gpt-5.5',
       effort: 'xhigh',
+      config: {
+        codexHome: 'C:\\Users\\ai01\\.codex',
+        codexInstanceKey: 'default',
+        codexModelProvider: 'openai',
+      },
     }));
-    expect(payload).not.toHaveProperty('config');
   });
 
   it('starts thread without model preference when it is missing', async () => {
@@ -2359,6 +2367,48 @@ function registerBridgeEventHandlersForTest() {
       input: [{ type: 'text', text: 'Continue stopped DAG agent' }],
       manualSkillSelection: false,
     });
+    expect(useClientStore.getState().draft).toBe('');
+  });
+
+  it('starts a fresh Codex thread when auto-resume fails because identity is missing', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-legacy',
+      draft: 'Continue legacy thread',
+      attachments: [],
+      threads: [{ id: 'thread-legacy', name: 'Legacy', provider: 'codex', status: 'running' }],
+    });
+    backend.startTurn
+      .mockRejectedValueOnce(new Error('resolve session: thread "thread-legacy": resolve session: auto-resume failed: codex identity required for resume'))
+      .mockResolvedValueOnce({ ok: true });
+    backend.startThread.mockResolvedValue({ threadId: 'thread-recovered', agentId: 'agent-recovered' });
+
+    await expect(useClientStore.getState().sendDraft()).resolves.toBe(true);
+
+    expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/repo/app',
+      modelProvider: 'codex',
+      config: {
+        codexHome: '~/.codex',
+        codexInstanceKey: 'default',
+        codexModelProvider: 'openai',
+      },
+    }));
+    expect(backend.startTurn).toHaveBeenCalledTimes(2);
+    expect(backend.startTurn).toHaveBeenNthCalledWith(1, {
+      cwd: '/repo/app',
+      threadId: 'thread-legacy',
+      input: [{ type: 'text', text: 'Continue legacy thread' }],
+      manualSkillSelection: false,
+    });
+    expect(backend.startTurn).toHaveBeenNthCalledWith(2, {
+      cwd: '/repo/app',
+      threadId: 'thread-recovered',
+      input: [{ type: 'text', text: 'Continue legacy thread' }],
+      manualSkillSelection: false,
+    });
+    expect(useClientStore.getState().activeThreadId).toBe('thread-recovered');
     expect(useClientStore.getState().draft).toBe('');
   });
 
