@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,8 +31,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/fx"
 )
 
@@ -71,55 +70,29 @@ func newLogger(cfg *platformconfig.Config) *slog.Logger {
 	return pkglogger.Get()
 }
 
-func newPool(cfg *platformconfig.Config) (*pgxpool.Pool, error) { return platformdb.NewPool(cfg) }
+func newQueries(db *sql.DB) *sqlc.Queries { return sqlc.New(db) }
 
-func newQueries(pool *pgxpool.Pool) *sqlc.Queries { return sqlc.New(pool) }
-
-func newAgentThreadStore(pool *pgxpool.Pool) orchestration.AgentThreadStore {
-	return agentstore.NewThreadStore(pool)
+func newAgentThreadStore(db *sql.DB) orchestration.AgentThreadStore {
+	return agentstore.NewThreadStore(db)
 }
 
-func newAgentBindingStore(pool *pgxpool.Pool) orchestration.AgentBindingStore {
-	return agentstore.NewBindingStore(pool)
+func newAgentBindingStore(db *sql.DB) orchestration.AgentBindingStore {
+	return agentstore.NewBindingStore(db)
 }
 
 type mcpOrchDBReadyProbe interface {
-	Ping(context.Context) error
-	QueryRow(context.Context, string, ...any) pgx.Row
+	PingContext(context.Context) error
+	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
 func verifyMCPOrchDatabaseReady(ctx context.Context, probe mcpOrchDBReadyProbe) error {
-	if err := probe.Ping(ctx); err != nil {
+	if err := probe.PingContext(ctx); err != nil {
 		return fmt.Errorf("mcp-orch database ping failed: %w", err)
 	}
 	if err := platformdb.VerifyMinSchemaVersion(ctx, probe); err != nil {
 		return fmt.Errorf("mcp-orch database schema check failed: %w", err)
 	}
 	return nil
-}
-
-func registerPoolLifecycle(lc fx.Lifecycle, logger *slog.Logger, pool *pgxpool.Pool, cfg *platformconfig.Config) {
-	if pool == nil {
-		return
-	}
-	lc.Append(fx.Hook{
-		OnStart: func(ctx context.Context) error {
-			if err := verifyMCPOrchDatabaseReady(ctx, pool); err != nil {
-				return err
-			}
-			if logger != nil {
-				logger.Info("mcp-orch db pool ready")
-			}
-			return nil
-		},
-		OnStop: func(context.Context) error {
-			pool.Close()
-			if logger != nil {
-				logger.Info("mcp-orch db pool closed")
-			}
-			return nil
-		},
-	})
 }
 
 // noopSessionCleaner satisfies contract.OrchestrationSessionCleaner in

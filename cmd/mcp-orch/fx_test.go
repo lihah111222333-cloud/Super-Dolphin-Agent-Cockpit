@@ -124,8 +124,8 @@ func TestBuildOrchestrationOptionsIncludesScheduledDAGCronRunner(t *testing.T) {
 	if !funcBodyContainsIdent(fn, "provideSQLDAGScheduleStore") {
 		t.Fatal("buildOrchestrationOptions must provide scheduled DAG SQL schedule store")
 	}
-	if !funcBodyContainsIdent(fn, "providePGAdvisoryLocker") {
-		t.Fatal("buildOrchestrationOptions must provide scheduled DAG advisory locker")
+	if !funcBodyContainsIdent(fn, "provideSQLiteRuntimeLocker") {
+		t.Fatal("buildOrchestrationOptions must provide scheduled DAG SQLite runtime locker")
 	}
 	if !funcBodyAnnotatesRunner(fn, "provideScheduledDAGCronRunner") {
 		t.Fatal("buildOrchestrationOptions must annotate provideScheduledDAGCronRunner into group:\"runners\"")

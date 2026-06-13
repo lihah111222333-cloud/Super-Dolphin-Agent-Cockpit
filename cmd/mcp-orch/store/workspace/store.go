@@ -31,7 +31,7 @@ func (s *store) UpsertRun(ctx context.Context, run WorkspaceRun) (*WorkspaceRun,
 		Status:        run.Status,
 		CreatedBy:     run.CreatedBy,
 		UpdatedBy:     run.UpdatedBy,
-		Column8:       run.Metadata,
+		Metadata:      run.Metadata,
 		FinishedAt:    sqlc.TimeValuePtr(run.FinishedAt),
 	})
 	if err != nil {
@@ -42,7 +42,7 @@ func (s *store) UpsertRun(ctx context.Context, run WorkspaceRun) (*WorkspaceRun,
 }
 
 func (s *store) GetRun(ctx context.Context, runKey string) (*WorkspaceRun, error) {
-	row, err := s.q.GetWorkspaceRun(ctx, runKey)
+	row, err := s.q.GetWorkspaceRun(ctx, sqlc.GetWorkspaceRunParams{RunKey: runKey})
 	if err != nil {
 		return nil, wrapWorkspaceError(err, "get", "workspace_run")
 	}
@@ -52,9 +52,9 @@ func (s *store) GetRun(ctx context.Context, runKey string) (*WorkspaceRun, error
 
 func (s *store) ListRuns(ctx context.Context, filter ListRunsFilter) ([]WorkspaceRun, error) {
 	rows, err := s.q.ListWorkspaceRuns(ctx, sqlc.ListWorkspaceRunsParams{
-		Column1: filter.Status,
-		Column2: filter.DagKey,
-		Limit:   filter.Limit,
+		StatusFilter: filter.Status,
+		DagKeyFilter: filter.DagKey,
+		LimitCount:   int64(filter.Limit),
 	})
 	if err != nil {
 		return nil, wrapWorkspaceError(err, "list", "workspace_run")
@@ -68,9 +68,9 @@ func (s *store) ListRuns(ctx context.Context, filter ListRunsFilter) ([]Workspac
 
 func (s *store) UpdateRunStatus(ctx context.Context, input UpdateRunStatusInput) (*WorkspaceRun, error) {
 	row, err := s.q.UpdateWorkspaceRunStatus(ctx, sqlc.UpdateWorkspaceRunStatusParams{
-		Status:    input.Status,
+		NewStatus: input.Status,
 		UpdatedBy: input.UpdatedBy,
-		Column3:   input.Metadata,
+		Metadata:  input.Metadata,
 		RunKey:    input.RunKey,
 	})
 	if err != nil {
@@ -82,11 +82,11 @@ func (s *store) UpdateRunStatus(ctx context.Context, input UpdateRunStatusInput)
 
 func (s *store) TransitionRunStatus(ctx context.Context, input TransitionRunStatusInput) (*WorkspaceRun, error) {
 	row, err := s.q.TransitionWorkspaceRunStatus(ctx, sqlc.TransitionWorkspaceRunStatusParams{
-		Status:    input.Status,
-		UpdatedBy: input.UpdatedBy,
-		Column3:   input.Metadata,
-		RunKey:    input.RunKey,
-		Status_2:  input.FromStatus,
+		NewStatus:      input.Status,
+		UpdatedBy:      input.UpdatedBy,
+		Metadata:       input.Metadata,
+		RunKey:         input.RunKey,
+		ExpectedStatus: input.FromStatus,
 	})
 	if err != nil {
 		return nil, wrapWorkspaceError(err, "transition_status", "workspace_run")
@@ -127,9 +127,9 @@ func (s *store) GetFile(ctx context.Context, runKey, relativePath string) (*Work
 
 func (s *store) ListFiles(ctx context.Context, filter ListFilesFilter) ([]WorkspaceRunFile, error) {
 	rows, err := s.q.ListWorkspaceRunFiles(ctx, sqlc.ListWorkspaceRunFilesParams{
-		Column1: filter.RunKey,
-		Column2: filter.State,
-		Limit:   filter.Limit,
+		RunKeyFilter: filter.RunKey,
+		StateFilter:  filter.State,
+		LimitCount:   int64(filter.Limit),
 	})
 	if err != nil {
 		return nil, wrapWorkspaceError(err, "list", "workspace_run_file")
