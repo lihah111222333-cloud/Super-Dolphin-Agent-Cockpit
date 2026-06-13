@@ -104,6 +104,14 @@ function createActiveThreadStore(messages, overrides = {}) {
   });
 }
 
+function getThreadCardByName(name) {
+  const card = screen.getAllByText(name)
+    .map((node) => node.closest('.thread-card'))
+    .find(Boolean);
+  if (!card) throw new Error(`Thread card not found: ${name}`);
+  return card;
+}
+
 function TestChatPageWrapper({ store, projectPath, rightPanelOpen: initialOpen = false }) {
   const [open, setOpen] = React.useState(initialOpen);
 
@@ -150,6 +158,33 @@ describe('ChatPage module', () => {
     expect(ChatPage).toBeTypeOf('function');
   });
 
+  it('uses the active thread name as the chat detail title', () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '已连接后端线程', time: '2026-06-02T08:00:00Z' },
+    ], {
+      threads: [{ id: 'thread-1', name: '介绍功能与能力', provider: 'codex', status: 'idle', updatedAt: '2026-06-02T08:00:00Z' }],
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    expect(screen.getByRole('heading', { name: '介绍功能与能力' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '聊天页面' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the generic title when active thread metadata is missing', () => {
+    const store = createFakeStore({
+      activeThreadId: 'missing-thread',
+      threads: [],
+      threadTimelineReadyByThread: { 'missing-thread': true },
+      timelinesByThread: { 'missing-thread': [] },
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    expect(screen.getByRole('heading', { name: '聊天页面' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '新对话' })).not.toBeInTheDocument();
+  });
+
   it('disables project actions when the backend is not ready or no project cwd is selected', () => {
     const store = createFakeStore({
       activeProject: '',
@@ -189,8 +224,8 @@ describe('ChatPage module', () => {
 
     const { container } = render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
 
-    expect(screen.getByText('聊天页面')).toBeInTheDocument();
-    expect(screen.getByText('修复会话')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '修复会话' })).toBeInTheDocument();
+    expect(getThreadCardByName('修复会话')).toBeInTheDocument();
     expect(screen.getByText('哪里失败了？')).toBeInTheDocument();
     expect(screen.getByText('测试在聊天页缺少覆盖。')).toBeInTheDocument();
     expect(container.querySelector('.work-status')).toBeNull();
@@ -705,7 +740,7 @@ describe('ChatPage module', () => {
 
     render(<ChatPage store={store} projectPath="/repo/app" />);
 
-    const card = screen.getByText('启动中间态会话').closest('.thread-card');
+    const card = getThreadCardByName('启动中间态会话');
     expect(card).toHaveTextContent('codex');
     expect(card).not.toHaveTextContent('created');
     expect(card.querySelector('.thread-status-label')).toBeNull();
@@ -721,7 +756,7 @@ describe('ChatPage module', () => {
 
     render(<ChatPage store={store} projectPath="/repo/app" />);
 
-    const card = screen.getByText('AI 设计流程').closest('.thread-card');
+    const card = getThreadCardByName('AI 设计流程');
     const actions = card.querySelector('.thread-card-actions');
 
     expect(actions).not.toBeNull();

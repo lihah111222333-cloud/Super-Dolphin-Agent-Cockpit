@@ -8559,7 +8559,7 @@ textarea:disabled {
 }
 
 /* 2. 扁平化 AI 消息气泡，移除背景、边框、阴影和左右 padding，让内容完全贴左 */
-.message.assistant.no-avatar .bubble {
+.message.assistant.no-avatar:not(.approval-message) .bubble {
   padding: 0 0 16px 0;
   max-width: min(760px, 100%);
   background: transparent;
@@ -8631,6 +8631,8 @@ textarea:disabled {
   --border: rgba(60, 55, 46, 0.14);
   --border-strong: rgba(60, 55, 46, 0.2);
   --workbench-ink: #171b22;
+  --message-user-bg: #ece8df;
+  --message-user-text: #171b22;
   --sidebar-logo-shadow: none;
   --composer-shadow: 0 22px 42px rgba(48, 43, 34, 0.08);
 }
@@ -9143,23 +9145,23 @@ textarea:disabled {
   margin-left: auto;
   border: 0;
   border-radius: 20px 0 20px 20px;
-  background: var(--workbench-ink, var(--accent-2));
-  color: var(--on-accent);
+  background: var(--message-user-bg, var(--workbench-ink, var(--accent-2)));
+  color: var(--message-user-text, var(--on-accent));
   box-shadow: none;
 }
 
 .message.user .bubble header {
   justify-content: flex-end;
-  color: var(--on-accent-muted);
+  color: color-mix(in srgb, var(--message-user-text, var(--on-accent)) 58%, transparent);
 }
 
-.message.assistant.no-avatar .bubble,
-.message.assistant .bubble {
+.message.assistant:not(.approval-message).no-avatar .bubble,
+.message.assistant:not(.approval-message) .bubble {
   max-width: min(1080px, 100%);
-  padding: 30px;
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  background: var(--assistant-card-bg);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   box-shadow: none;
 }
 
@@ -9181,7 +9183,7 @@ textarea:disabled {
 }
 
 .composer {
-  width: min(1060px, calc(100% - 112px));
+  width: min(940px, calc(100% - 112px));
   max-width: 100%;
   margin-right: auto;
   margin-left: auto;
