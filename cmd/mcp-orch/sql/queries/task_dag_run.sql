@@ -18,7 +18,7 @@ FROM task_dag_runs
 WHERE run_key = ?;
 
 -- name: ListTaskDagRunsByKey :many
-SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at
+SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, budget_used, budget_limit, created_at, updated_at
 FROM task_dag_runs
 WHERE dag_key = ?
   AND (sqlc.arg(status_filter) = '' OR status = sqlc.arg(status_filter))
@@ -128,18 +128,24 @@ UPDATE task_dag_runs
 SET status = 'cancelled',
     finished_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
-    events = json_insert(COALESCE(events, '[]'), '$[#]', json(sqlc.arg(event)))
+    events = sqlc.arg(events)
 WHERE dag_key = sqlc.arg(dag_key)
   AND id = sqlc.arg(run_id)
   AND run_key = sqlc.arg(run_key)
   AND status = 'running'
 RETURNING id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at;
 
--- name: AppendTaskDagRunEvent :one
+-- name: LoadTaskDagRunEventsForAppend :one
+SELECT run_key, CAST(events AS BLOB) AS events
+FROM task_dag_runs
+WHERE dag_key = sqlc.arg(dag_key)
+  AND status = 'running'
+  AND id = sqlc.arg(run_id);
+
+-- name: UpdateTaskDagRunEventsAfterAppend :execrows
 UPDATE task_dag_runs
-SET events = json_insert(COALESCE(events, '[]'), '$[#]', json(sqlc.arg(event))),
+SET events = sqlc.arg(events),
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE dag_key = sqlc.arg(dag_key)
   AND status = 'running'
-  AND id = sqlc.arg(run_id)
-RETURNING run_key;
+  AND id = sqlc.arg(run_id);

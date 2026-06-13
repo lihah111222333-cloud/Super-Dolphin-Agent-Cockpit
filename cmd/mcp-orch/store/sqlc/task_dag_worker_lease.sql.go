@@ -34,7 +34,7 @@ func (q *Queries) AcquireTaskDagWorkerLease(ctx context.Context, arg AcquireTask
 	return result.RowsAffected()
 }
 
-const releaseTaskDagWorkerLease = `-- name: ReleaseTaskDagWorkerLease :exec
+const releaseTaskDagWorkerLease = `-- name: ReleaseTaskDagWorkerLease :execrows
 DELETE FROM task_dag_worker_leases
 WHERE target_agent_id = ? AND owner_id = ?
 `
@@ -44,9 +44,12 @@ type ReleaseTaskDagWorkerLeaseParams struct {
 	OwnerID       string `db:"owner_id" json:"owner_id"`
 }
 
-func (q *Queries) ReleaseTaskDagWorkerLease(ctx context.Context, arg ReleaseTaskDagWorkerLeaseParams) error {
-	_, err := q.db.ExecContext(ctx, releaseTaskDagWorkerLease, arg.TargetAgentID, arg.OwnerID)
-	return err
+func (q *Queries) ReleaseTaskDagWorkerLease(ctx context.Context, arg ReleaseTaskDagWorkerLeaseParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, releaseTaskDagWorkerLease, arg.TargetAgentID, arg.OwnerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const renewTaskDagWorkerLease = `-- name: RenewTaskDagWorkerLease :execrows

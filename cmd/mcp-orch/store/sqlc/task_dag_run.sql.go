@@ -10,35 +10,12 @@ import (
 	"encoding/json"
 )
 
-const appendTaskDagRunEvent = `-- name: AppendTaskDagRunEvent :one
-UPDATE task_dag_runs
-SET events = json_insert(COALESCE(events, '[]'), '$[#]', json(?1)),
-    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE dag_key = ?2
-  AND status = 'running'
-  AND id = ?3
-RETURNING run_key
-`
-
-type AppendTaskDagRunEventParams struct {
-	Event  interface{} `db:"event" json:"event"`
-	DagKey string      `db:"dag_key" json:"dag_key"`
-	RunID  int64       `db:"run_id" json:"run_id"`
-}
-
-func (q *Queries) AppendTaskDagRunEvent(ctx context.Context, arg AppendTaskDagRunEventParams) (string, error) {
-	row := q.db.QueryRowContext(ctx, appendTaskDagRunEvent, arg.Event, arg.DagKey, arg.RunID)
-	var run_key string
-	err := row.Scan(&run_key)
-	return run_key, err
-}
-
 const cancelTaskDagRun = `-- name: CancelTaskDagRun :one
 UPDATE task_dag_runs
 SET status = 'cancelled',
     finished_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
-    events = json_insert(COALESCE(events, '[]'), '$[#]', json(?1))
+    events = ?1
 WHERE dag_key = ?2
   AND id = ?3
   AND run_key = ?4
@@ -47,15 +24,15 @@ RETURNING id, run_key, dag_key, dag_version_snapshot, trigger_source, status, st
 `
 
 type CancelTaskDagRunParams struct {
-	Event  interface{} `db:"event" json:"event"`
-	DagKey string      `db:"dag_key" json:"dag_key"`
-	RunID  int64       `db:"run_id" json:"run_id"`
-	RunKey string      `db:"run_key" json:"run_key"`
+	Events json.RawMessage `db:"events" json:"events"`
+	DagKey string          `db:"dag_key" json:"dag_key"`
+	RunID  int64           `db:"run_id" json:"run_id"`
+	RunKey string          `db:"run_key" json:"run_key"`
 }
 
 func (q *Queries) CancelTaskDagRun(ctx context.Context, arg CancelTaskDagRunParams) (TaskDagRun, error) {
 	row := q.db.QueryRowContext(ctx, cancelTaskDagRun,
-		arg.Event,
+		arg.Events,
 		arg.DagKey,
 		arg.RunID,
 		arg.RunKey,
@@ -353,7 +330,7 @@ func (q *Queries) GetTaskDagRun(ctx context.Context, arg GetTaskDagRunParams) (T
 }
 
 const listTaskDagRunsByKey = `-- name: ListTaskDagRunsByKey :many
-SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at
+SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, budget_used, budget_limit, created_at, updated_at
 FROM task_dag_runs
 WHERE dag_key = ?
   AND (?2 = '' OR status = ?2)
@@ -367,15 +344,30 @@ type ListTaskDagRunsByKeyParams struct {
 	LimitCount   int64       `db:"limit_count" json:"limit_count"`
 }
 
-func (q *Queries) ListTaskDagRunsByKey(ctx context.Context, arg ListTaskDagRunsByKeyParams) ([]TaskDagRun, error) {
+type ListTaskDagRunsByKeyRow struct {
+	ID                 int64  `db:"id" json:"id"`
+	RunKey             string `db:"run_key" json:"run_key"`
+	DagKey             string `db:"dag_key" json:"dag_key"`
+	DagVersionSnapshot int64  `db:"dag_version_snapshot" json:"dag_version_snapshot"`
+	TriggerSource      string `db:"trigger_source" json:"trigger_source"`
+	Status             string `db:"status" json:"status"`
+	StartedAt          int64  `db:"started_at" json:"started_at"`
+	FinishedAt         *int64 `db:"finished_at" json:"finished_at"`
+	BudgetUsed         int64  `db:"budget_used" json:"budget_used"`
+	BudgetLimit        *int64 `db:"budget_limit" json:"budget_limit"`
+	CreatedAt          int64  `db:"created_at" json:"created_at"`
+	UpdatedAt          int64  `db:"updated_at" json:"updated_at"`
+}
+
+func (q *Queries) ListTaskDagRunsByKey(ctx context.Context, arg ListTaskDagRunsByKeyParams) ([]ListTaskDagRunsByKeyRow, error) {
 	rows, err := q.db.QueryContext(ctx, listTaskDagRunsByKey, arg.DagKey, arg.StatusFilter, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []TaskDagRun{}
+	items := []ListTaskDagRunsByKeyRow{}
 	for rows.Next() {
-		var i TaskDagRun
+		var i ListTaskDagRunsByKeyRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.RunKey,
@@ -385,10 +377,8 @@ func (q *Queries) ListTaskDagRunsByKey(ctx context.Context, arg ListTaskDagRunsB
 			&i.Status,
 			&i.StartedAt,
 			&i.FinishedAt,
-			&i.Events,
 			&i.BudgetUsed,
 			&i.BudgetLimit,
-			&i.Metadata,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -403,6 +393,31 @@ func (q *Queries) ListTaskDagRunsByKey(ctx context.Context, arg ListTaskDagRunsB
 		return nil, err
 	}
 	return items, nil
+}
+
+const loadTaskDagRunEventsForAppend = `-- name: LoadTaskDagRunEventsForAppend :one
+SELECT run_key, CAST(events AS BLOB) AS events
+FROM task_dag_runs
+WHERE dag_key = ?1
+  AND status = 'running'
+  AND id = ?2
+`
+
+type LoadTaskDagRunEventsForAppendParams struct {
+	DagKey string `db:"dag_key" json:"dag_key"`
+	RunID  int64  `db:"run_id" json:"run_id"`
+}
+
+type LoadTaskDagRunEventsForAppendRow struct {
+	RunKey string `db:"run_key" json:"run_key"`
+	Events []byte `db:"events" json:"events"`
+}
+
+func (q *Queries) LoadTaskDagRunEventsForAppend(ctx context.Context, arg LoadTaskDagRunEventsForAppendParams) (LoadTaskDagRunEventsForAppendRow, error) {
+	row := q.db.QueryRowContext(ctx, loadTaskDagRunEventsForAppend, arg.DagKey, arg.RunID)
+	var i LoadTaskDagRunEventsForAppendRow
+	err := row.Scan(&i.RunKey, &i.Events)
+	return i, err
 }
 
 const lockTaskDagRunForCompletionForUpdate = `-- name: LockTaskDagRunForCompletionForUpdate :one
@@ -442,6 +457,29 @@ type PromoteRootNodesToReadyParams struct {
 
 func (q *Queries) PromoteRootNodesToReady(ctx context.Context, arg PromoteRootNodesToReadyParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, promoteRootNodesToReady, arg.DagKey, arg.RunID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateTaskDagRunEventsAfterAppend = `-- name: UpdateTaskDagRunEventsAfterAppend :execrows
+UPDATE task_dag_runs
+SET events = ?1,
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE dag_key = ?2
+  AND status = 'running'
+  AND id = ?3
+`
+
+type UpdateTaskDagRunEventsAfterAppendParams struct {
+	Events json.RawMessage `db:"events" json:"events"`
+	DagKey string          `db:"dag_key" json:"dag_key"`
+	RunID  int64           `db:"run_id" json:"run_id"`
+}
+
+func (q *Queries) UpdateTaskDagRunEventsAfterAppend(ctx context.Context, arg UpdateTaskDagRunEventsAfterAppendParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateTaskDagRunEventsAfterAppend, arg.Events, arg.DagKey, arg.RunID)
 	if err != nil {
 		return 0, err
 	}

@@ -100,7 +100,7 @@ type fakeLocker struct {
 	err         error
 }
 
-func (l *fakeLocker) TryLock(ctx context.Context) (AdvisoryLockHandle, bool, error) {
+func (l *fakeLocker) TryLock(ctx context.Context) (RuntimeLockHandle, bool, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.tryCalls++
@@ -126,6 +126,8 @@ func (h *fakeLockHandle) Unlock(ctx context.Context) error {
 	return nil
 }
 
+func (h *fakeLockHandle) Renew(ctx context.Context) error { return nil }
+
 type contextCheckingLockHandle struct {
 	errOnCanceled bool
 	unlockCalls   int
@@ -138,6 +140,8 @@ func (h *contextCheckingLockHandle) Unlock(ctx context.Context) error {
 	}
 	return nil
 }
+
+func (h *contextCheckingLockHandle) Renew(ctx context.Context) error { return nil }
 
 type blockingTicker struct {
 	entered chan struct{}
@@ -506,11 +510,9 @@ func TestScheduledDAGTicker_ReleaseOnExit(t *testing.T) {
 
 func TestScheduledDAGTicker_UnlockUsesFreshCleanupContext(t *testing.T) {
 	handle := &contextCheckingLockHandle{errOnCanceled: true}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
 	var result error
 
-	(&ScheduledDAGTicker{}).releaseAdvisoryLock(ctx, handle, &result)
+	(&ScheduledDAGTicker{}).releaseRuntimeLock(handle, &result)
 
 	if result != nil {
 		t.Fatalf("release result = %v, want nil from fresh cleanup context", result)

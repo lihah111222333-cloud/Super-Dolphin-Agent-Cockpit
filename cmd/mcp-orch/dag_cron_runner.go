@@ -61,7 +61,7 @@ func provideSQLDAGScheduleStore(q *sqlc.Queries) (orchcron.DAGScheduleStore, err
 	return fxadapter.NewSQLDAGScheduleStore(q)
 }
 
-func provideSQLiteRuntimeLocker(db *sql.DB) (orchcron.AdvisoryLocker, error) {
+func provideSQLiteRuntimeLocker(db *sql.DB) (orchcron.RuntimeLocker, error) {
 	if db == nil {
 		return nil, errors.New("mcp-orch: scheduled dag cron runtime lock requires db")
 	}
@@ -70,7 +70,7 @@ func provideSQLiteRuntimeLocker(db *sql.DB) (orchcron.AdvisoryLocker, error) {
 
 func provideScheduledDAGCronRunner(
 	store orchcron.DAGScheduleStore,
-	locker orchcron.AdvisoryLocker,
+	locker orchcron.RuntimeLocker,
 	svc orchestration.ScheduledDAGStartService,
 	logger *slog.Logger,
 ) (platformrunner.Runner, error) {
