@@ -157,8 +157,7 @@ type Querier interface {
 	ListWorkspaceRunFiles(ctx context.Context, arg ListWorkspaceRunFilesParams) ([]WorkspaceRunFile, error)
 	ListWorkspaceRuns(ctx context.Context, arg ListWorkspaceRunsParams) ([]WorkspaceRun, error)
 	LoadAgentThreadPromptSnapshot(ctx context.Context, arg LoadAgentThreadPromptSnapshotParams) (json.RawMessage, error)
-	// SQLite has no advisory locks; no-op placeholder replaced by Task09.
-	LockRecallTopicInCWD(ctx context.Context) error
+	LockRecallTopicInCWD(ctx context.Context, arg LockRecallTopicInCWDParams) error
 	MarkCronJobFailed(ctx context.Context, arg MarkCronJobFailedParams) (int64, error)
 	// MarkCronJobFinished releases the claim, records the successful run's
 	// turn id and advances scheduling fields. Conditional on claim_token so
@@ -219,6 +218,7 @@ type Querier interface {
 	UpsertAgentThread(ctx context.Context, arg UpsertAgentThreadParams) error
 	UpsertCommandCard(ctx context.Context, arg UpsertCommandCardParams) (UpsertCommandCardRow, error)
 	UpsertPromptIntentDraft(ctx context.Context, arg UpsertPromptIntentDraftParams) (UpsertPromptIntentDraftRow, error)
+	UpsertPromptRecallTopicTargetInCWD(ctx context.Context, arg UpsertPromptRecallTopicTargetInCWDParams) error
 	UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemplateParams) (UpsertPromptTemplateRow, error)
 	// Upsert by (template_id, section_key). Touches updated_at on conflict so
 	// operators see when they last edited a row. Empty enable_when stays as-is

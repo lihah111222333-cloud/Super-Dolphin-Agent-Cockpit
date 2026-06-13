@@ -8,43 +8,53 @@ import (
 func TestPromptTemplateSectionsSQLIncludesTriggerTypeAndRecallTopic(t *testing.T) {
 	t.Parallel()
 
-	listChecks := []string{
+	assertSQLContainsAll(t, "listPromptTemplateSectionsByTemplate", listPromptTemplateSectionsByTemplate, []string{
 		"created_at, updated_at, trigger_type, recall_topic",
-	}
-	for _, check := range listChecks {
-		if !strings.Contains(listPromptTemplateSectionsByTemplate, check) {
-			t.Fatalf("listPromptTemplateSectionsByTemplate SQL missing %q:\n%s", check, listPromptTemplateSectionsByTemplate)
-		}
-	}
-	if strings.Contains(listPromptTemplateSectionsByTemplate, "enabled = TRUE") {
-		t.Fatalf("listPromptTemplateSectionsByTemplate must return disabled rows for the UI editor:\n%s", listPromptTemplateSectionsByTemplate)
-	}
+	})
+	assertSQLNotContains(t, "listPromptTemplateSectionsByTemplate", listPromptTemplateSectionsByTemplate, "enabled = TRUE")
 
-	batchChecks := []string{
+	assertSQLContainsAll(t, "listPromptTemplateSectionsByTemplates", listPromptTemplateSectionsByTemplates, []string{
 		"WHERE template_id IN (/*SLICE:template_ids*/?)",
 		"ORDER BY template_id, region, ordinal, id",
 		"created_at, updated_at, trigger_type, recall_topic",
-	}
-	for _, check := range batchChecks {
-		if !strings.Contains(listPromptTemplateSectionsByTemplates, check) {
-			t.Fatalf("listPromptTemplateSectionsByTemplates SQL missing %q:\n%s", check, listPromptTemplateSectionsByTemplates)
-		}
-	}
-	if strings.Contains(listPromptTemplateSectionsByTemplates, "enabled = TRUE") {
-		t.Fatalf("listPromptTemplateSectionsByTemplates must return disabled rows for the UI editor:\n%s", listPromptTemplateSectionsByTemplates)
-	}
+	})
+	assertSQLNotContains(t, "listPromptTemplateSectionsByTemplates", listPromptTemplateSectionsByTemplates, "enabled = TRUE")
 
-	upsertChecks := []string{
-		"template_id, section_key, region, ordinal, body, enable_when, enabled, trigger_type, recall_topic",
-		"VALUES\n    (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	assertSQLContainsAll(t, "upsertPromptTemplateSection", upsertPromptTemplateSection, []string{
+		"template_id, section_key, region, ordinal, body, enable_when, enabled, trigger_type, recall_topic, created_at, updated_at",
+		"VALUES\n    (?, ?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))",
 		"trigger_type = EXCLUDED.trigger_type",
 		"recall_topic = EXCLUDED.recall_topic",
 		"updated_at   = (CAST(strftime('%s','now') AS INTEGER) * 1000)",
 		"created_at, updated_at, trigger_type, recall_topic",
-	}
-	for _, check := range upsertChecks {
-		if !strings.Contains(upsertPromptTemplateSection, check) {
-			t.Fatalf("upsertPromptTemplateSection SQL missing %q:\n%s", check, upsertPromptTemplateSection)
+	})
+
+	assertSQLContainsAll(t, "lockRecallTopicInCWD", lockRecallTopicInCWD, []string{
+		"INSERT INTO prompt_recall_topics (cwd, topic, template_id, section_key)",
+		"VALUES (?, ?, 0, '')",
+		"ON CONFLICT (cwd, topic) DO UPDATE SET",
+	})
+
+	assertSQLContainsAll(t, "upsertPromptRecallTopicTargetInCWD", upsertPromptRecallTopicTargetInCWD, []string{
+		"INSERT INTO prompt_recall_topics (cwd, topic, template_id, section_key)",
+		"VALUES (?, ?, ?, ?)",
+		"template_id = EXCLUDED.template_id",
+		"section_key = EXCLUDED.section_key",
+	})
+}
+
+func assertSQLContainsAll(t *testing.T, name, sql string, checks []string) {
+	t.Helper()
+	for _, check := range checks {
+		if !strings.Contains(sql, check) {
+			t.Fatalf("%s SQL missing %q:\n%s", name, check, sql)
 		}
+	}
+}
+
+func assertSQLNotContains(t *testing.T, name, sql, check string) {
+	t.Helper()
+	if strings.Contains(sql, check) {
+		t.Fatalf("%s must return disabled rows for the UI editor:\n%s", name, sql)
 	}
 }

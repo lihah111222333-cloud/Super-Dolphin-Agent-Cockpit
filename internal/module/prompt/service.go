@@ -271,47 +271,6 @@ func (s *promptService) WriteSection(ctx context.Context, cwd string, req Prompt
 	return saved, nil
 }
 
-func writePromptSectionInTx(
-	ctx context.Context,
-	store promptstore.Store,
-	requestScope, promptKey string,
-	req PromptSectionWriteRequest,
-) (*promptstore.PromptTemplateSection, error) {
-	var saved *promptstore.PromptTemplateSection
-	err := store.WithTx(ctx, func(txStore promptstore.Store) error {
-		template, gerr := txStore.Get(ctx, promptKey)
-		if gerr != nil {
-			return gerr
-		}
-		if err := validatePromptMutationScope(template, requestScope, req.Scope, req.ScopeSet); err != nil {
-			return err
-		}
-		if strings.TrimSpace(strings.ToLower(req.TriggerType)) == "recall" {
-			targetScope := promptRecallDuplicateTargetScope(template, requestScope, req.Scope, req.ScopeSet)
-			if err := rejectDuplicateRecallTopicInCWD(ctx, txStore, requestScope, req.RecallTopic, targetScope, template.ID, req.SectionKey); err != nil {
-				return err
-			}
-		}
-		section, uerr := txStore.UpsertSection(ctx, promptstore.PromptTemplateSection{
-			TemplateID:  template.ID,
-			SectionKey:  req.SectionKey,
-			Region:      req.Region,
-			Ordinal:     req.Ordinal,
-			Body:        req.Body,
-			EnableWhen:  req.EnableWhen,
-			Enabled:     req.Enabled,
-			TriggerType: req.TriggerType,
-			RecallTopic: req.RecallTopic,
-		})
-		if uerr != nil {
-			return uerr
-		}
-		saved = section
-		return nil
-	})
-	return saved, err
-}
-
 func (s *promptService) DeleteSection(ctx context.Context, cwd, promptKey, sectionKey string, scope ...string) error {
 	if s.store == nil {
 		return errPromptStoreRequired

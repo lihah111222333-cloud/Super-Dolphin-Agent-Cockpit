@@ -41,6 +41,7 @@ type Store interface {
 	// DeleteSection removes a section by (template_id, section_key). Returns
 	// platformdb.ErrNotFound when the pair does not match a row.
 	DeleteSection(ctx context.Context, templateID int64, sectionKey string) error
+	UpsertRecallTopicTargetInCWD(ctx context.Context, cwd, topic string, templateID int64, sectionKey string) error
 	UpsertIntentDraft(ctx context.Context, draft PromptIntentDraft) (*PromptIntentDraft, error)
 	GetIntentDraft(ctx context.Context, cwd, draftKey string) (*PromptIntentDraft, error)
 	ListIntentDrafts(ctx context.Context, filter PromptIntentDraftListFilter) ([]PromptIntentDraft, error)

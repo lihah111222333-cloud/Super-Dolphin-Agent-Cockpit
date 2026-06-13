@@ -86,17 +86,27 @@ HAVING id = MIN(id)
 ORDER BY priority DESC, template_prompt_key, ordinal, id;
 
 -- name: LockRecallTopicInCWD :exec
--- SQLite has no advisory locks; no-op placeholder replaced by Task09.
-SELECT 1 WHERE FALSE;
+INSERT INTO prompt_recall_topics (cwd, topic, template_id, section_key)
+VALUES (?, ?, 0, '')
+ON CONFLICT (cwd, topic) DO UPDATE SET
+    cwd = EXCLUDED.cwd,
+    topic = EXCLUDED.topic;
+
+-- name: UpsertPromptRecallTopicTargetInCWD :exec
+INSERT INTO prompt_recall_topics (cwd, topic, template_id, section_key)
+VALUES (?, ?, ?, ?)
+ON CONFLICT (cwd, topic) DO UPDATE SET
+    template_id = EXCLUDED.template_id,
+    section_key = EXCLUDED.section_key;
 
 -- name: UpsertPromptTemplateSection :one
 -- Upsert by (template_id, section_key). Touches updated_at on conflict so
 -- operators see when they last edited a row. Empty enable_when stays as-is
 -- (NULL or '{}' both mean "always inject" per EvaluateEnableWhen).
 INSERT INTO prompt_template_sections
-    (template_id, section_key, region, ordinal, body, enable_when, enabled, trigger_type, recall_topic)
+    (template_id, section_key, region, ordinal, body, enable_when, enabled, trigger_type, recall_topic, created_at, updated_at)
 VALUES
-    (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (?, ?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 ON CONFLICT (template_id, section_key) DO UPDATE SET
     region       = EXCLUDED.region,
     ordinal      = EXCLUDED.ordinal,

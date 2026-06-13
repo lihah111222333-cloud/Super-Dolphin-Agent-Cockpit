@@ -17,22 +17,23 @@ import (
 )
 
 type promptQuerierStub struct {
-	listFn              func(context.Context, sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error)
-	getFn               func(context.Context, sqlc.GetPromptTemplateParams) (sqlc.GetPromptTemplateRow, error)
-	deleteFn            func(context.Context, sqlc.DeletePromptTemplateParams) (int64, error)
-	insertVersionFn     func(context.Context, sqlc.InsertPromptVersionParams) (int64, error)
-	createFn            func(context.Context, sqlc.CreatePromptTemplateParams) (sqlc.CreatePromptTemplateRow, error)
-	upsertFn            func(context.Context, sqlc.UpsertPromptTemplateParams) (sqlc.UpsertPromptTemplateRow, error)
-	listSectionsFn      func(context.Context, sqlc.ListPromptTemplateSectionsByTemplateParams) ([]sqlc.PromptTemplateSection, error)
-	listSectionsBatchFn func(context.Context, sqlc.ListPromptTemplateSectionsByTemplatesParams) ([]sqlc.PromptTemplateSection, error)
-	listRecallFn        func(context.Context, sqlc.ListRecallSectionsParams) ([]sqlc.ListRecallSectionsRow, error)
-	listDefaultRulesFn  func(context.Context, sqlc.ListDefaultRuleSectionsParams) ([]sqlc.ListDefaultRuleSectionsRow, error)
-	upsertSectionFn     func(context.Context, sqlc.UpsertPromptTemplateSectionParams) (sqlc.PromptTemplateSection, error)
-	lockRecallFn        func(context.Context) error
-	upsertDraftFn       func(context.Context, sqlc.UpsertPromptIntentDraftParams) (sqlc.UpsertPromptIntentDraftRow, error)
-	getDraftFn          func(context.Context, sqlc.GetPromptIntentDraftParams) (sqlc.GetPromptIntentDraftRow, error)
-	listDraftsFn        func(context.Context, sqlc.ListPromptIntentDraftsParams) ([]sqlc.ListPromptIntentDraftsRow, error)
-	updateDraftStatusFn func(context.Context, sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.UpdatePromptIntentDraftStatusRow, error)
+	listFn               func(context.Context, sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error)
+	getFn                func(context.Context, sqlc.GetPromptTemplateParams) (sqlc.GetPromptTemplateRow, error)
+	deleteFn             func(context.Context, sqlc.DeletePromptTemplateParams) (int64, error)
+	insertVersionFn      func(context.Context, sqlc.InsertPromptVersionParams) (int64, error)
+	createFn             func(context.Context, sqlc.CreatePromptTemplateParams) (sqlc.CreatePromptTemplateRow, error)
+	upsertFn             func(context.Context, sqlc.UpsertPromptTemplateParams) (sqlc.UpsertPromptTemplateRow, error)
+	listSectionsFn       func(context.Context, sqlc.ListPromptTemplateSectionsByTemplateParams) ([]sqlc.PromptTemplateSection, error)
+	listSectionsBatchFn  func(context.Context, sqlc.ListPromptTemplateSectionsByTemplatesParams) ([]sqlc.PromptTemplateSection, error)
+	listRecallFn         func(context.Context, sqlc.ListRecallSectionsParams) ([]sqlc.ListRecallSectionsRow, error)
+	listDefaultRulesFn   func(context.Context, sqlc.ListDefaultRuleSectionsParams) ([]sqlc.ListDefaultRuleSectionsRow, error)
+	upsertSectionFn      func(context.Context, sqlc.UpsertPromptTemplateSectionParams) (sqlc.PromptTemplateSection, error)
+	lockRecallFn         func(context.Context, sqlc.LockRecallTopicInCWDParams) error
+	upsertRecallTargetFn func(context.Context, sqlc.UpsertPromptRecallTopicTargetInCWDParams) error
+	upsertDraftFn        func(context.Context, sqlc.UpsertPromptIntentDraftParams) (sqlc.UpsertPromptIntentDraftRow, error)
+	getDraftFn           func(context.Context, sqlc.GetPromptIntentDraftParams) (sqlc.GetPromptIntentDraftRow, error)
+	listDraftsFn         func(context.Context, sqlc.ListPromptIntentDraftsParams) ([]sqlc.ListPromptIntentDraftsRow, error)
+	updateDraftStatusFn  func(context.Context, sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.UpdatePromptIntentDraftStatusRow, error)
 }
 
 func (s *promptQuerierStub) ListPromptTemplates(ctx context.Context, arg sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error) {
@@ -112,9 +113,16 @@ func (s *promptQuerierStub) UpsertPromptTemplateSection(ctx context.Context, arg
 	return sqlc.PromptTemplateSection{}, nil
 }
 
-func (s *promptQuerierStub) LockRecallTopicInCWD(ctx context.Context) error {
+func (s *promptQuerierStub) LockRecallTopicInCWD(ctx context.Context, arg sqlc.LockRecallTopicInCWDParams) error {
 	if s.lockRecallFn != nil {
-		return s.lockRecallFn(ctx)
+		return s.lockRecallFn(ctx, arg)
+	}
+	return nil
+}
+
+func (s *promptQuerierStub) UpsertPromptRecallTopicTargetInCWD(ctx context.Context, arg sqlc.UpsertPromptRecallTopicTargetInCWDParams) error {
+	if s.upsertRecallTargetFn != nil {
+		return s.upsertRecallTargetFn(ctx, arg)
 	}
 	return nil
 }
