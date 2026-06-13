@@ -6,13 +6,15 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
-func TestUploadFileCopiesPDFAndTXTToProjectUploadDir(t *testing.T) {
+func TestUploadFileCopiesPDFAndTXTToWorkingDirUploadDir(t *testing.T) {
 	svc := NewService()
 	project := t.TempDir()
+	t.Chdir(project)
 	sourceDir := t.TempDir()
 
 	tests := []struct {
@@ -32,7 +34,6 @@ func TestUploadFileCopiesPDFAndTXTToProjectUploadDir(t *testing.T) {
 			}
 
 			got, err := svc.UploadFile(context.Background(), UploadFileRequest{
-				CWD:        project,
 				SourcePath: source,
 			})
 			if err != nil {
@@ -67,13 +68,14 @@ func TestUploadFileCopiesPDFAndTXTToProjectUploadDir(t *testing.T) {
 func TestUploadFileRejectsUnsupportedExtension(t *testing.T) {
 	svc := NewService()
 	project := t.TempDir()
-	source := filepath.Join(t.TempDir(), "notes.md")
+	t.Chdir(project)
+	sourceDir := t.TempDir()
+	source := filepath.Join(sourceDir, "notes.md")
 	if err := os.WriteFile(source, []byte("markdown"), 0o600); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
 
 	_, err := svc.UploadFile(context.Background(), UploadFileRequest{
-		CWD:        project,
 		SourcePath: source,
 	})
 	if !errors.Is(err, errUnsupportedFileExtension) {
@@ -84,15 +86,50 @@ func TestUploadFileRejectsUnsupportedExtension(t *testing.T) {
 	}
 }
 
-func TestUploadFileRequiresCWDAndSourcePath(t *testing.T) {
+func TestUploadFileRequiresSourcePath(t *testing.T) {
 	svc := NewService()
-	_, err := svc.UploadFile(context.Background(), UploadFileRequest{SourcePath: filepath.Join(t.TempDir(), "a.txt")})
-	if err == nil || !strings.Contains(err.Error(), "cwd is required") {
-		t.Fatalf("missing cwd error = %v", err)
-	}
-
-	_, err = svc.UploadFile(context.Background(), UploadFileRequest{CWD: t.TempDir()})
+	_, err := svc.UploadFile(context.Background(), UploadFileRequest{})
 	if err == nil || !strings.Contains(err.Error(), "sourcePath is required") {
 		t.Fatalf("missing source path error = %v", err)
+	}
+}
+
+func TestListFilesReturnsSortedFileNamesFromUploadDir(t *testing.T) {
+	svc := NewService()
+	project := t.TempDir()
+	t.Chdir(project)
+	uploadDir := filepath.Join(project, ".agent", "datasources", "uploads")
+	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
+		t.Fatalf("create upload dir: %v", err)
+	}
+	for _, name := range []string{"zeta.txt", "alpha.pdf"} {
+		if err := os.WriteFile(filepath.Join(uploadDir, name), []byte(name), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(uploadDir, "nested"), 0o755); err != nil {
+		t.Fatalf("create nested dir: %v", err)
+	}
+
+	got, err := svc.ListFiles(context.Background())
+	if err != nil {
+		t.Fatalf("ListFiles() error = %v", err)
+	}
+	want := []string{"alpha.pdf", "zeta.txt"}
+	if !slices.Equal(got.FileNames, want) {
+		t.Fatalf("FileNames = %#v, want %#v", got.FileNames, want)
+	}
+}
+
+func TestListFilesReturnsEmptyWhenUploadDirDoesNotExist(t *testing.T) {
+	svc := NewService()
+	t.Chdir(t.TempDir())
+
+	got, err := svc.ListFiles(context.Background())
+	if err != nil {
+		t.Fatalf("ListFiles() error = %v", err)
+	}
+	if len(got.FileNames) != 0 {
+		t.Fatalf("FileNames = %#v, want empty", got.FileNames)
 	}
 }
