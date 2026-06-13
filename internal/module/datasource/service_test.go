@@ -133,3 +133,74 @@ func TestListFilesReturnsEmptyWhenUploadDirDoesNotExist(t *testing.T) {
 		t.Fatalf("FileNames = %#v, want empty", got.FileNames)
 	}
 }
+
+func TestDeleteFileRemovesOnlyNamedDatasourceFile(t *testing.T) {
+	svc := NewService()
+	project := t.TempDir()
+	t.Chdir(project)
+	uploadDir := filepath.Join(project, ".agent", "datasources", "uploads")
+	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
+		t.Fatalf("create upload dir: %v", err)
+	}
+	removedPath := filepath.Join(uploadDir, "remove.txt")
+	keptPath := filepath.Join(uploadDir, "keep.pdf")
+	if err := os.WriteFile(removedPath, []byte("remove me"), 0o600); err != nil {
+		t.Fatalf("write removed file: %v", err)
+	}
+	if err := os.WriteFile(keptPath, []byte("keep me"), 0o600); err != nil {
+		t.Fatalf("write kept file: %v", err)
+	}
+
+	got, err := svc.DeleteFile(context.Background(), DeleteFileRequest{FileName: "remove.txt"})
+	if err != nil {
+		t.Fatalf("DeleteFile() error = %v", err)
+	}
+	if !got.Deleted {
+		t.Fatalf("Deleted = false, want true")
+	}
+	if got.Name != "remove.txt" {
+		t.Fatalf("Name = %q, want remove.txt", got.Name)
+	}
+	if _, err := os.Stat(removedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("removed file stat error = %v, want not exist", err)
+	}
+	if _, err := os.Stat(keptPath); err != nil {
+		t.Fatalf("kept file stat error = %v", err)
+	}
+}
+
+func TestDeleteFileRejectsUnsafeFileName(t *testing.T) {
+	svc := NewService()
+	project := t.TempDir()
+	t.Chdir(project)
+	outsidePath := filepath.Join(project, ".agent", "datasources", "outside.txt")
+	if err := os.MkdirAll(filepath.Dir(outsidePath), 0o755); err != nil {
+		t.Fatalf("create outside dir: %v", err)
+	}
+	if err := os.WriteFile(outsidePath, []byte("outside"), 0o600); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+
+	tests := []string{"", "../outside.txt", "nested/file.txt", "nested\\file.txt", "."}
+	for _, name := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := svc.DeleteFile(context.Background(), DeleteFileRequest{FileName: name})
+			if !errors.Is(err, errInvalidDatasourceFileName) {
+				t.Fatalf("DeleteFile() error = %v, want errInvalidDatasourceFileName", err)
+			}
+			if _, statErr := os.Stat(outsidePath); statErr != nil {
+				t.Fatalf("outside file stat error = %v", statErr)
+			}
+		})
+	}
+}
+
+func TestDeleteFileReturnsNotFoundForMissingDatasourceFile(t *testing.T) {
+	svc := NewService()
+	t.Chdir(t.TempDir())
+
+	_, err := svc.DeleteFile(context.Background(), DeleteFileRequest{FileName: "missing.txt"})
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("DeleteFile() error = %v, want os.ErrNotExist", err)
+	}
+}

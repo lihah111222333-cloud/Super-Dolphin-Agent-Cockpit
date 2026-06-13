@@ -14,6 +14,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/datasource"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/feedback"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/insight"
+	mcpserver "github.com/anthropic-ai/super-agent-v3/internal/module/mcp_server"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/notify"
 	moduleobservability "github.com/anthropic-ai/super-agent-v3/internal/module/observability"
@@ -63,6 +64,7 @@ var Module = fx.Options(
 	dashboard.Module,
 	datasource.Module,
 	feedback.Module,
+	mcpserver.Module,
 	memory.Module,
 	prompt.Module,
 	moduleobservability.Module,
