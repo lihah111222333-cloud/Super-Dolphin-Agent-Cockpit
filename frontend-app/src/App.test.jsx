@@ -986,17 +986,17 @@ async function toggleInlineTraceFromRecentLogs(table) {
     const workflowButton = await screen.findByRole('button', { name: '自动化' });
     await waitFor(() => expect(workflowButton).toHaveClass('active'));
 
-    fireEvent.click(screen.getByRole('button', { name: '插件市场' }));
+    fireEvent.click(screen.getByRole('button', { name: '插件与技能' }));
 
-    await waitFor(() => expect(screen.getByRole('button', { name: '插件市场' })).toHaveClass('active'));
-    expect(screen.getByText('当前页面：插件市场')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: '插件与技能' })).toHaveClass('active'));
+    expect(screen.getByText('当前页面：插件与技能')).toBeInTheDocument();
     expect(window.location.pathname).toBe('/skills');
   });
 
   it('writes page navigation to browser history and restores it on popstate', async () => {
     render(<App skipBootstrap />);
 
-    fireEvent.click(screen.getByRole('button', { name: '插件市场' }));
+    fireEvent.click(screen.getByRole('button', { name: '插件与技能' }));
     await waitFor(() => expect(window.location.pathname).toBe('/skills'));
 
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
@@ -1007,8 +1007,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
       window.dispatchEvent(new PopStateEvent('popstate', { state: { activePage: 'skills' } }));
     });
 
-    await waitFor(() => expect(screen.getByRole('button', { name: '插件市场' })).toHaveClass('active'));
-    expect(screen.getByText('当前页面：插件市场')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: '插件与技能' })).toHaveClass('active'));
+    expect(screen.getByText('当前页面：插件与技能')).toBeInTheDocument();
   });
 
   it('hides idle status noise while keeping the provider badge in thread cards', async () => {
@@ -4622,13 +4622,13 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('navigates to screenshot-style secondary pages', async () => {
     render(<App />);
-    await waitForBackendThreadHeading();
+    await screen.findByLabelText('插件与技能');
 
     expect(screen.queryByLabelText('命令')).not.toBeInTheDocument();
     expect(screen.getByLabelText('任务')).toHaveTextContent('待后端接入');
 
-    fireEvent.click(screen.getByLabelText('插件市场'));
-    expect(await screen.findByText('技能管理')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('插件与技能'));
+    expect(await screen.findByText('插件与技能')).toBeInTheDocument();
     expect(await screen.findByText('后端')).toBeInTheDocument();
     expect(screen.getByText('/repo/app/.agent/skills/backend')).toBeInTheDocument();
     expect(screen.getByText('私人使用 1')).toBeInTheDocument();
@@ -7393,7 +7393,7 @@ async function designWorkflowWithAi() {
   it('refreshes skills page from backend when skills changed event arrives', async () => {
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
     expect(await screen.findByText('后端')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
 
@@ -7439,7 +7439,7 @@ async function designWorkflowWithAi() {
   it('does not repeat a skill description when summary is empty', async () => {
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
     const personalCard = (await screen.findByRole('heading', { name: 'personal-review' })).closest('article');
 
     expect(within(personalCard).getAllByText('当你需要私人代码审查偏好时使用。')).toHaveLength(1);
@@ -7448,7 +7448,7 @@ async function designWorkflowWithAi() {
   it('shows skills filter counts and an empty search state', async () => {
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
 
     expect(await screen.findByText('共 2 个技能')).toBeInTheDocument();
 
@@ -7470,9 +7470,9 @@ async function designWorkflowWithAi() {
     backend.readConfig.mockReturnValueOnce(config.promise);
 
     render(<App />);
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
 
-    expect(await screen.findByRole('heading', { name: '技能管理' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '插件与技能' })).toBeInTheDocument();
     expect(await screen.findByText('正在连接本地项目...')).toBeInTheDocument();
     expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '未选择项目', page: 'skills' });
 
@@ -7488,7 +7488,7 @@ async function designWorkflowWithAi() {
   it('keeps skills visible and exposes retry when a background sync fails', async () => {
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
     expect(await screen.findByText('后端')).toBeInTheDocument();
 
     backend.getDashboardPage.mockRejectedValueOnce(new Error('backend offline'));
@@ -7521,7 +7521,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
 
     expect(await screen.findByText('后端')).toBeInTheDocument();
     expect(await screen.findByRole('alert')).toHaveTextContent('读取技能冲突失败：skill resolutions response items must be an array');
@@ -7538,7 +7538,7 @@ async function designWorkflowWithAi() {
   it('keeps cached skills visible when navigating back and refreshes silently', async () => {
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
     expect(await screen.findByText('后端')).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText('新对话'));
@@ -7552,7 +7552,7 @@ async function designWorkflowWithAi() {
         scope: 'project',
       }],
     });
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
 
     expect(screen.queryByText('加载技能中...')).not.toBeInTheDocument();
     expect(screen.getByText('后端')).toBeInTheDocument();
@@ -7576,7 +7576,7 @@ async function designWorkflowWithAi() {
 
     vi.useFakeTimers();
     try {
-      fireEvent.click(screen.getByLabelText('插件市场'));
+      fireEvent.click(screen.getByLabelText('插件与技能'));
       expect(screen.getByText('加载技能中...')).toBeInTheDocument();
 
       await act(async () => {
@@ -7633,7 +7633,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('skills backend offline');
@@ -7666,7 +7666,7 @@ async function designWorkflowWithAi() {
   it('deletes a skill through the legacy scoped API and refreshes the list', async () => {
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
     expect(await screen.findByText('后端')).toBeInTheDocument();
 
     backend.getDashboardPage.mockResolvedValueOnce({ skills: [] });
@@ -7700,7 +7700,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
     await screen.findByText('后端');
 
     fireEvent.click(screen.getByRole('button', { name: '新建技能' }));
@@ -7751,7 +7751,7 @@ async function designWorkflowWithAi() {
   it('opens an existing skill, loads related files, and saves edits', async () => {
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
     await screen.findByText('后端');
 
     const backendCard = screen.getByText('后端').closest('article');
@@ -7817,7 +7817,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
     await screen.findByText('后端');
 
     const backendCard = screen.getByText('后端').closest('article');
@@ -7853,7 +7853,7 @@ async function designWorkflowWithAi() {
   it('imports skill directories with selected scope through skills/local/importDir', async () => {
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
     await screen.findByText('后端');
 
     fireEvent.click(screen.getByRole('button', { name: '批量导入技能目录' }));
@@ -7881,7 +7881,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
     await screen.findByText('后端');
 
     fireEvent.click(screen.getByRole('button', { name: '批量导入技能目录' }));
@@ -7920,7 +7920,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
     await screen.findByText('后端');
 
     fireEvent.click(screen.getByRole('button', { name: '批量导入技能目录' }));
@@ -7973,7 +7973,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
 
     expect(await screen.findByText(/发现 1 个技能冲突/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '用本项目内容覆盖外部版本' }));
@@ -8013,7 +8013,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
 
     expect(await screen.findByText('检测到同名技能同时存在于私人使用和项目共享。请选择使用项目共享版本、继续私人使用，或另存为新私人技能。')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '查看两个版本' }));
@@ -8036,7 +8036,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
 
     expect(await screen.findByText('要保留项目共享：编辑或删除同名私人技能。')).toBeInTheDocument();
     expect(screen.getByText('要保留私人使用：编辑项目共享技能改名，或删除项目共享技能。')).toBeInTheDocument();
@@ -8061,7 +8061,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
 
     expect(await screen.findByText(/发现 1 个技能冲突/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '另存为新技能' }));
@@ -8109,7 +8109,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    fireEvent.click(screen.getByLabelText('插件与技能'));
 
     expect(await screen.findByText(/发现 1 个技能冲突/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '用项目共享版本，删除其他版本' }));
