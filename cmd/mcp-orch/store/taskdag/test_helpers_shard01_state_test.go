@@ -1,3 +1,5 @@
+//go:build legacy_pg_fake
+
 package taskdag
 
 import (
@@ -59,7 +61,7 @@ func (db *fakeTaskDAGDB) completeNode(args ...any) ([]any, error) {
 	}
 	key := dagNodeLookupKey(dagKey, nodeKey, runID)
 	row, ok := db.nodes[key]
-	// ADR-017 v1.2 §2.3 白名单扩 'ready'。
+	// ADR-017 v1.2 搂2.3 鐧藉悕鍗曟墿 'ready'銆?
 	if !ok || !isFakeCompletableStatus(row.Status) {
 		return nil, pgx.ErrNoRows
 	}

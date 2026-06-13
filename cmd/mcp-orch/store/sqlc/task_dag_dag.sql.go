@@ -99,7 +99,7 @@ func (q *Queries) DeleteTaskDagWakeupsByDAG(ctx context.Context, arg DeleteTaskD
 }
 
 const getTaskDag = `-- name: GetTaskDag :one
-SELECT id, dag_key, title, description, status, created_by, metadata,
+SELECT id, dag_key, title, description, status, created_by, CAST(metadata AS BLOB) AS metadata,
        started_at, finished_at, created_at, updated_at,
        trigger, owner_id, cron_expr, next_run_at, version
 FROM task_dags
@@ -110,9 +110,28 @@ type GetTaskDagParams struct {
 	DagKey string `db:"dag_key" json:"dag_key"`
 }
 
-func (q *Queries) GetTaskDag(ctx context.Context, arg GetTaskDagParams) (TaskDag, error) {
+type GetTaskDagRow struct {
+	ID          int64  `db:"id" json:"id"`
+	DagKey      string `db:"dag_key" json:"dag_key"`
+	Title       string `db:"title" json:"title"`
+	Description string `db:"description" json:"description"`
+	Status      string `db:"status" json:"status"`
+	CreatedBy   string `db:"created_by" json:"created_by"`
+	Metadata    []byte `db:"metadata" json:"metadata"`
+	StartedAt   *int64 `db:"started_at" json:"started_at"`
+	FinishedAt  *int64 `db:"finished_at" json:"finished_at"`
+	CreatedAt   int64  `db:"created_at" json:"created_at"`
+	UpdatedAt   int64  `db:"updated_at" json:"updated_at"`
+	Trigger     string `db:"trigger" json:"trigger"`
+	OwnerID     string `db:"owner_id" json:"owner_id"`
+	CronExpr    string `db:"cron_expr" json:"cron_expr"`
+	NextRunAt   *int64 `db:"next_run_at" json:"next_run_at"`
+	Version     int64  `db:"version" json:"version"`
+}
+
+func (q *Queries) GetTaskDag(ctx context.Context, arg GetTaskDagParams) (GetTaskDagRow, error) {
 	row := q.db.QueryRowContext(ctx, getTaskDag, arg.DagKey)
-	var i TaskDag
+	var i GetTaskDagRow
 	err := row.Scan(
 		&i.ID,
 		&i.DagKey,
@@ -135,7 +154,7 @@ func (q *Queries) GetTaskDag(ctx context.Context, arg GetTaskDagParams) (TaskDag
 }
 
 const getTaskDagForUpdate = `-- name: GetTaskDagForUpdate :one
-SELECT id, dag_key, title, description, status, created_by, metadata,
+SELECT id, dag_key, title, description, status, created_by, CAST(metadata AS BLOB) AS metadata,
        started_at, finished_at, created_at, updated_at,
        trigger, owner_id, cron_expr, next_run_at, version
 FROM task_dags
@@ -146,9 +165,28 @@ type GetTaskDagForUpdateParams struct {
 	DagKey string `db:"dag_key" json:"dag_key"`
 }
 
-func (q *Queries) GetTaskDagForUpdate(ctx context.Context, arg GetTaskDagForUpdateParams) (TaskDag, error) {
+type GetTaskDagForUpdateRow struct {
+	ID          int64  `db:"id" json:"id"`
+	DagKey      string `db:"dag_key" json:"dag_key"`
+	Title       string `db:"title" json:"title"`
+	Description string `db:"description" json:"description"`
+	Status      string `db:"status" json:"status"`
+	CreatedBy   string `db:"created_by" json:"created_by"`
+	Metadata    []byte `db:"metadata" json:"metadata"`
+	StartedAt   *int64 `db:"started_at" json:"started_at"`
+	FinishedAt  *int64 `db:"finished_at" json:"finished_at"`
+	CreatedAt   int64  `db:"created_at" json:"created_at"`
+	UpdatedAt   int64  `db:"updated_at" json:"updated_at"`
+	Trigger     string `db:"trigger" json:"trigger"`
+	OwnerID     string `db:"owner_id" json:"owner_id"`
+	CronExpr    string `db:"cron_expr" json:"cron_expr"`
+	NextRunAt   *int64 `db:"next_run_at" json:"next_run_at"`
+	Version     int64  `db:"version" json:"version"`
+}
+
+func (q *Queries) GetTaskDagForUpdate(ctx context.Context, arg GetTaskDagForUpdateParams) (GetTaskDagForUpdateRow, error) {
 	row := q.db.QueryRowContext(ctx, getTaskDagForUpdate, arg.DagKey)
-	var i TaskDag
+	var i GetTaskDagForUpdateRow
 	err := row.Scan(
 		&i.ID,
 		&i.DagKey,
@@ -270,7 +308,7 @@ func (q *Queries) ListDueScheduledTaskDags(ctx context.Context, arg ListDueSched
 }
 
 const listTaskDags = `-- name: ListTaskDags :many
-SELECT id, dag_key, title, description, status, created_by, metadata,
+SELECT id, dag_key, title, description, status, created_by, CAST('{}' AS BLOB) AS metadata,
        started_at, finished_at, created_at, updated_at,
        trigger, owner_id, cron_expr, next_run_at, version
 FROM task_dags
@@ -289,15 +327,34 @@ type ListTaskDagsParams struct {
 	LimitCount   int64       `db:"limit_count" json:"limit_count"`
 }
 
-func (q *Queries) ListTaskDags(ctx context.Context, arg ListTaskDagsParams) ([]TaskDag, error) {
+type ListTaskDagsRow struct {
+	ID          int64  `db:"id" json:"id"`
+	DagKey      string `db:"dag_key" json:"dag_key"`
+	Title       string `db:"title" json:"title"`
+	Description string `db:"description" json:"description"`
+	Status      string `db:"status" json:"status"`
+	CreatedBy   string `db:"created_by" json:"created_by"`
+	Metadata    []byte `db:"metadata" json:"metadata"`
+	StartedAt   *int64 `db:"started_at" json:"started_at"`
+	FinishedAt  *int64 `db:"finished_at" json:"finished_at"`
+	CreatedAt   int64  `db:"created_at" json:"created_at"`
+	UpdatedAt   int64  `db:"updated_at" json:"updated_at"`
+	Trigger     string `db:"trigger" json:"trigger"`
+	OwnerID     string `db:"owner_id" json:"owner_id"`
+	CronExpr    string `db:"cron_expr" json:"cron_expr"`
+	NextRunAt   *int64 `db:"next_run_at" json:"next_run_at"`
+	Version     int64  `db:"version" json:"version"`
+}
+
+func (q *Queries) ListTaskDags(ctx context.Context, arg ListTaskDagsParams) ([]ListTaskDagsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listTaskDags, arg.StatusFilter, arg.Keyword, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []TaskDag{}
+	items := []ListTaskDagsRow{}
 	for rows.Next() {
-		var i TaskDag
+		var i ListTaskDagsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.DagKey,
@@ -427,7 +484,7 @@ func (q *Queries) UpdateTaskDagPatch(ctx context.Context, arg UpdateTaskDagPatch
 const upsertTaskDag = `-- name: UpsertTaskDag :one
 INSERT INTO task_dags (dag_key, title, description, status, created_by, metadata, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
-RETURNING id, dag_key, title, description, status, created_by, metadata,
+RETURNING id, dag_key, title, description, status, created_by, CAST(metadata AS BLOB) AS metadata,
           started_at, finished_at, created_at, updated_at,
           trigger, owner_id, cron_expr, next_run_at, version
 `
@@ -441,7 +498,26 @@ type UpsertTaskDagParams struct {
 	Metadata    json.RawMessage `db:"metadata" json:"metadata"`
 }
 
-func (q *Queries) UpsertTaskDag(ctx context.Context, arg UpsertTaskDagParams) (TaskDag, error) {
+type UpsertTaskDagRow struct {
+	ID          int64  `db:"id" json:"id"`
+	DagKey      string `db:"dag_key" json:"dag_key"`
+	Title       string `db:"title" json:"title"`
+	Description string `db:"description" json:"description"`
+	Status      string `db:"status" json:"status"`
+	CreatedBy   string `db:"created_by" json:"created_by"`
+	Metadata    []byte `db:"metadata" json:"metadata"`
+	StartedAt   *int64 `db:"started_at" json:"started_at"`
+	FinishedAt  *int64 `db:"finished_at" json:"finished_at"`
+	CreatedAt   int64  `db:"created_at" json:"created_at"`
+	UpdatedAt   int64  `db:"updated_at" json:"updated_at"`
+	Trigger     string `db:"trigger" json:"trigger"`
+	OwnerID     string `db:"owner_id" json:"owner_id"`
+	CronExpr    string `db:"cron_expr" json:"cron_expr"`
+	NextRunAt   *int64 `db:"next_run_at" json:"next_run_at"`
+	Version     int64  `db:"version" json:"version"`
+}
+
+func (q *Queries) UpsertTaskDag(ctx context.Context, arg UpsertTaskDagParams) (UpsertTaskDagRow, error) {
 	row := q.db.QueryRowContext(ctx, upsertTaskDag,
 		arg.DagKey,
 		arg.Title,
@@ -450,7 +526,7 @@ func (q *Queries) UpsertTaskDag(ctx context.Context, arg UpsertTaskDagParams) (T
 		arg.CreatedBy,
 		arg.Metadata,
 	)
-	var i TaskDag
+	var i UpsertTaskDagRow
 	err := row.Scan(
 		&i.ID,
 		&i.DagKey,

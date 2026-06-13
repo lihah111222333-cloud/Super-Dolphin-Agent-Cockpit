@@ -1,3 +1,5 @@
+//go:build legacy_pg_fake
+
 package taskdag
 
 import (
@@ -12,7 +14,7 @@ import (
 // fence relax (cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql).
 //
 // Before the fix, UpdateRunningTaskDagNodeStatus' WHERE clause was
-// `status IN ('pending')` — so once F6.3 promote_single_node_pending_to_ready
+// `status IN ('pending')` 鈥?so once F6.3 promote_single_node_pending_to_ready
 // flipped a root node to 'ready', the dispatcher's subsequent attempt to push
 // it into 'running' silently matched 0 rows and the node was wedged forever.
 //

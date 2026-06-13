@@ -32,7 +32,7 @@ func (s *store) CompleteNodeAndScheduleDownstream(ctx context.Context, input Com
 		return nil, err
 	}
 	var result CompleteNodeWithDownstreamResult
-	err := sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
+	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
 		txStore := &store{db: txdb, q: txq}
 		if err := lockRunForCompletionTx(ctx, txStore, input.DagKey, input.RunID); err != nil {
 			return err

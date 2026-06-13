@@ -1,12 +1,12 @@
 -- name: UpsertTaskDag :one
 INSERT INTO task_dags (dag_key, title, description, status, created_by, metadata, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
-RETURNING id, dag_key, title, description, status, created_by, metadata,
+RETURNING id, dag_key, title, description, status, created_by, CAST(metadata AS BLOB) AS metadata,
           started_at, finished_at, created_at, updated_at,
           trigger, owner_id, cron_expr, next_run_at, version;
 
 -- name: ListTaskDags :many
-SELECT id, dag_key, title, description, status, created_by, metadata,
+SELECT id, dag_key, title, description, status, created_by, CAST('{}' AS BLOB) AS metadata,
        started_at, finished_at, created_at, updated_at,
        trigger, owner_id, cron_expr, next_run_at, version
 FROM task_dags
@@ -19,14 +19,14 @@ ORDER BY updated_at DESC, id DESC
 LIMIT sqlc.arg(limit_count);
 
 -- name: GetTaskDag :one
-SELECT id, dag_key, title, description, status, created_by, metadata,
+SELECT id, dag_key, title, description, status, created_by, CAST(metadata AS BLOB) AS metadata,
        started_at, finished_at, created_at, updated_at,
        trigger, owner_id, cron_expr, next_run_at, version
 FROM task_dags
 WHERE dag_key = ?;
 
 -- name: GetTaskDagForUpdate :one
-SELECT id, dag_key, title, description, status, created_by, metadata,
+SELECT id, dag_key, title, description, status, created_by, CAST(metadata AS BLOB) AS metadata,
        started_at, finished_at, created_at, updated_at,
        trigger, owner_id, cron_expr, next_run_at, version
 FROM task_dags

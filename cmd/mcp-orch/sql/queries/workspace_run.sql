@@ -12,15 +12,15 @@ SET dag_key = EXCLUDED.dag_key,
     metadata = EXCLUDED.metadata,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     finished_at = EXCLUDED.finished_at
-RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, metadata, created_at, updated_at, finished_at;
+RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, CAST(metadata AS BLOB) AS metadata, created_at, updated_at, finished_at;
 
 -- name: GetWorkspaceRun :one
-SELECT id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, metadata, created_at, updated_at, finished_at
+SELECT id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, CAST(metadata AS BLOB) AS metadata, created_at, updated_at, finished_at
 FROM workspace_runs
 WHERE run_key = ?;
 
 -- name: ListWorkspaceRuns :many
-SELECT id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, metadata, created_at, updated_at, finished_at
+SELECT id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, CAST('{}' AS BLOB) AS metadata, created_at, updated_at, finished_at
 FROM workspace_runs
 WHERE (sqlc.arg(status_filter) = '' OR status = sqlc.arg(status_filter))
   AND (sqlc.arg(dag_key_filter) = '' OR dag_key = sqlc.arg(dag_key_filter))
@@ -34,12 +34,14 @@ SET status = sqlc.arg(new_status),
     metadata = sqlc.arg(metadata),
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     finished_at = CASE
-        WHEN ?1 IN ('merged', 'aborted', 'failed') THEN (CAST(strftime('%s','now') AS INTEGER) * 1000)
-        WHEN ?1 = 'active' THEN NULL
+        WHEN sqlc.arg(new_status) = 'merged'
+          OR sqlc.arg(new_status) = 'aborted'
+          OR sqlc.arg(new_status) = 'failed' THEN (CAST(strftime('%s','now') AS INTEGER) * 1000)
+        WHEN sqlc.arg(new_status) = 'active' THEN NULL
         ELSE finished_at
     END
 WHERE run_key = sqlc.arg(run_key)
-RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, metadata, created_at, updated_at, finished_at;
+RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, CAST(metadata AS BLOB) AS metadata, created_at, updated_at, finished_at;
 
 -- name: TransitionWorkspaceRunStatus :one
 UPDATE workspace_runs
@@ -48,12 +50,14 @@ SET status = sqlc.arg(new_status),
     metadata = sqlc.arg(metadata),
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     finished_at = CASE
-        WHEN ?1 IN ('merged', 'aborted', 'failed') THEN (CAST(strftime('%s','now') AS INTEGER) * 1000)
-        WHEN ?1 = 'active' THEN NULL
+        WHEN sqlc.arg(new_status) = 'merged'
+          OR sqlc.arg(new_status) = 'aborted'
+          OR sqlc.arg(new_status) = 'failed' THEN (CAST(strftime('%s','now') AS INTEGER) * 1000)
+        WHEN sqlc.arg(new_status) = 'active' THEN NULL
         ELSE finished_at
     END
 WHERE run_key = sqlc.arg(run_key) AND status = sqlc.arg(expected_status)
-RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, metadata, created_at, updated_at, finished_at;
+RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, CAST(metadata AS BLOB) AS metadata, created_at, updated_at, finished_at;
 
 -- name: UpsertWorkspaceRunFile :one
 INSERT INTO workspace_run_files (
