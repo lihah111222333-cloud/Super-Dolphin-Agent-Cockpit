@@ -35,6 +35,12 @@ function renderSkillsPage(projectPath = '/repo/app') {
   );
 }
 
+function getOverviewMetric(overview, label) {
+  const metric = within(overview).getByText(label).closest('div');
+  if (!metric) throw new Error(`Missing overview metric: ${label}`);
+  return metric;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   backend.getDashboardPage.mockResolvedValue({
@@ -79,6 +85,51 @@ describe('SkillsPage module', () => {
 });
 
 describe('SkillsPage backend migration', () => {
+  it('frames the plugin entry around the current local skills surface', async () => {
+    renderSkillsPage();
+
+    expect(await screen.findByRole('heading', { name: '插件与技能' })).toBeInTheDocument();
+    expect(screen.getByText('本地运行时')).toBeInTheDocument();
+    expect(screen.getByText('本地技能库')).toBeInTheDocument();
+
+    const overview = screen.getByRole('region', { name: '插件与技能状态' });
+    expect(within(overview).getByRole('heading', { name: '本地技能、个人技能和运行时冲突处理' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '后端' })).toBeInTheDocument();
+    expect(within(overview).getByText('本地技能')).toBeInTheDocument();
+    expect(within(overview).getByText('项目共享')).toBeInTheDocument();
+    expect(within(overview).getByText('私人使用')).toBeInTheDocument();
+    expect(within(overview).getByText('待处理冲突')).toBeInTheDocument();
+    expect(within(getOverviewMetric(overview, '本地技能')).getByText('1')).toBeInTheDocument();
+    expect(within(getOverviewMetric(overview, '项目共享')).getByText('1')).toBeInTheDocument();
+    expect(within(getOverviewMetric(overview, '私人使用')).getByText('0')).toBeInTheDocument();
+    expect(within(getOverviewMetric(overview, '待处理冲突')).getByText('0')).toBeInTheDocument();
+  });
+
+  it('does not report zero conflicts when conflict sync has not succeeded', async () => {
+    backend.listSkillResolutions.mockRejectedValueOnce(new Error('resolver offline'));
+    renderSkillsPage();
+
+    expect(await screen.findByRole('heading', { name: '后端' })).toBeInTheDocument();
+    const overview = screen.getByRole('region', { name: '插件与技能状态' });
+    const conflictMetric = getOverviewMetric(overview, '待处理冲突');
+    expect(within(conflictMetric).getByText('待确认')).toBeInTheDocument();
+    expect(within(conflictMetric).queryByText('0')).not.toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('读取技能冲突失败：resolver offline');
+  });
+
+  it('keeps conflict status unresolved while project context is pending', async () => {
+    renderSkillsPage('');
+
+    expect(await screen.findByRole('heading', { name: '插件与技能' })).toBeInTheDocument();
+    const overview = screen.getByRole('region', { name: '插件与技能状态' });
+    const conflictMetric = getOverviewMetric(overview, '待处理冲突');
+    expect(within(conflictMetric).getByText('待确认')).toBeInTheDocument();
+    expect(within(conflictMetric).queryByText('0')).not.toBeInTheDocument();
+    expect(screen.getByText('正在连接本地项目...')).toBeInTheDocument();
+    expect(backend.getDashboardPage).not.toHaveBeenCalled();
+    expect(backend.listSkillResolutions).not.toHaveBeenCalled();
+  });
+
   it('loads skills from dashboard and saves an edited skill through skills/local RPCs', async () => {
     renderSkillsPage();
 

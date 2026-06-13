@@ -1041,12 +1041,16 @@ function useSkillsDashboard(projectCwd, refreshKey) {
 
 function skillsDashboardState({ items, projectCwd, resolutionConflicts, resolutionsQuery, retrySkillSurface, refreshSkillSurface, skillsQuery }) {
   const hasSnapshot = Array.isArray(skillsQuery.data);
+  const hasResolutionSnapshot = Array.isArray(resolutionsQuery.data);
+  const resolutionSyncErrorText = resolutionsQuery.error ? '读取技能冲突失败：' + errorMessage(resolutionsQuery.error) : '';
   const syncErrorText = skillsSyncErrorText(skillsQuery, resolutionsQuery);
   return {
     items,
     isInitialLoading: Boolean(projectCwd) && skillsQuery.isPending && !hasSnapshot && !syncErrorText,
+    isResolutionPending: Boolean(projectCwd) && resolutionsQuery.isPending && !hasResolutionSnapshot && !resolutionSyncErrorText,
     refreshSkillSurface,
     resolutionConflicts,
+    resolutionSyncErrorText,
     retrySkillSurface,
     showBlockingSyncError: Boolean(syncErrorText && !hasSnapshot),
     showCachedSyncError: Boolean(syncErrorText && hasSnapshot),
@@ -1532,8 +1536,9 @@ async function confirmResolutionPreview(ctx) {
 function SkillsPageView({ model }) {
   return (
     <section className="console-page">
-      <PageHeader icon={Sparkles} title="技能管理" />
-      <div className="subhead">技能列表</div>
+      <PageHeader icon={Sparkles} title="插件与技能" subtitle="本地运行时" />
+      <SkillsOverview model={model} />
+      <div className="subhead">本地技能库</div>
       <SkillsToolbar model={model} />
       <SkillFilter filters={model.filters} scopeFilter={model.scopeFilter} setScopeFilter={model.setScopeFilter} />
       <SkillsStatus model={model} />
@@ -1541,6 +1546,27 @@ function SkillsPageView({ model }) {
       <SkillResolutionPanel model={model} />
       <SkillGrid model={model} />
       <SkillModals model={model} />
+    </section>
+  );
+}
+
+function SkillsOverview({ model }) {
+  const counts = model.filters.counts;
+  const conflictValue = model.isProjectPending || model.dashboard.isResolutionPending || model.dashboard.resolutionSyncErrorText
+    ? '待确认'
+    : model.dashboard.resolutionConflicts.length;
+  return (
+    <section className="skills-overview" aria-label="插件与技能状态">
+      <div className="skills-overview-copy">
+        <span>当前连接</span>
+        <h2>本地技能、个人技能和运行时冲突处理</h2>
+      </div>
+      <dl>
+        <div><dt>本地技能</dt><dd>{counts.all}</dd></div>
+        <div><dt>项目共享</dt><dd>{counts.project}</dd></div>
+        <div><dt>私人使用</dt><dd>{counts.personal}</dd></div>
+        <div><dt>待处理冲突</dt><dd>{conflictValue}</dd></div>
+      </dl>
     </section>
   );
 }

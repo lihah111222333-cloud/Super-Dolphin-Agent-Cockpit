@@ -21,7 +21,7 @@ const SkillsPage = lazyNamedPage(() => import('./pages/skills/SkillsPage.jsx'), 
 const WorkflowPage = lazyNamedPage(() => import('./pages/workflows/WorkflowPage.jsx'), 'WorkflowPage');
 
 const primaryNavItems = [
-  { id: 'skills', label: '插件市场', displayLabel: '插件', icon: Zap },
+  { id: 'skills', label: '插件与技能', displayLabel: '插件', icon: Zap },
   { id: 'workflows', label: '自动化', icon: Workflow },
   { id: 'prompts', label: '提示词', displayLabel: '定制角色', icon: SquareTerminal },
   { id: 'files', label: '共享文件', icon: FolderOpen },
@@ -34,7 +34,7 @@ const secondaryNavItems = [
 
 const pageLabels = Object.freeze({
   chat: '聊天页面',
-  skills: '插件市场',
+  skills: '插件与技能',
   prompts: '提示词',
   workflows: '自动化',
   memory: '记忆中心',
