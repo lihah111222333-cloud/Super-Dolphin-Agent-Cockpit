@@ -236,6 +236,9 @@ describe('composer layout styles', () => {
   it('keeps the composer textarea in the screenshot-height input area', () => {
     const textarea = declarationsFor('.composer textarea');
     const floatingTextarea = declarationsFor('.composer--floating textarea');
+    const activeTimelineShell = declarationsFor('.conversation:not(.conversation--intro) .timeline-shell');
+    const activeTimeline = declarationsFor('.conversation:not(.conversation--intro) .timeline');
+    const activeComposer = declarationsFor('.conversation:not(.conversation--intro) .composer--docked');
 
     expect(textarea['line-height']).toBe('1.5');
     expect(textarea.height).toBe('104px');
@@ -244,6 +247,9 @@ describe('composer layout styles', () => {
     expect(floatingTextarea['min-height']).toBe('136px');
     expect(textarea['max-height']).toBe('calc(1.5em * 8 + 34px)');
     expect(textarea['overflow-y']).toBe('auto');
+    expect(activeTimelineShell['grid-row']).toBe('2');
+    expect(activeTimeline['padding-bottom']).toBe('clamp(112px, 16vh, 172px)');
+    expect(activeComposer['grid-row']).toBe('3');
   });
 
   it('keeps composer send controls aligned with the shell theme', () => {
@@ -264,6 +270,7 @@ describe('composer layout styles', () => {
   it('keeps app workbench navigation and agent list icons on consistent fixed sizes', () => {
     const nav = declarationsFor('.app-sidebar-nav');
     const navButton = declarationsFor('.app-sidebar-nav button');
+    const newChat = declarationsFor('.sidebar-new-chat');
     const navIcon = declarationsFor('.app-sidebar-nav button svg');
     const navActive = declarationsFor('.app-sidebar-nav button.active');
     const threadToolIcon = declarationsFor('.thread-tools svg');
@@ -279,6 +286,9 @@ describe('composer layout styles', () => {
     expect(navButton.width).toBe('100%');
     expect(navButton['border-left']).toBeUndefined();
     expect(navActive.background).toBe('var(--sidebar-active)');
+    expect(newChat.height).toBe('auto');
+    expect(newChat['min-height']).toBe('38px');
+    expect(newChat.padding).toBe('8px 10px');
     expect(navIcon.width).toBe('20px');
     expect(navIcon.height).toBe('20px');
     expect(navIcon['flex-shrink']).toBe('0');
@@ -879,7 +889,7 @@ describe('workbench shell styles', () => {
     expect(resizer.width).toBe('10px');
     expect(resizer.height).toBe('100%');
     expect(brand.display).toBe('inline-flex');
-    expect(newChat.height).toBe('50px');
+    expect(newChat['min-height']).toContain('38px');
     expect(newChat.background).toBe('var(--sidebar-active)');
     expect(projectTree.flex).toBe('1 1 auto');
     expect(projectTree['min-height']).toBe('0');
@@ -898,6 +908,8 @@ describe('workbench shell styles', () => {
     const chatThread = declarationsFor('.app-sidebar--chat .sidebar-project-thread');
     const chatProjectAdd = declarationsFor('.app-sidebar--chat .sidebar-icon-action');
     const chatTreeActions = declarationsFor('.app-sidebar--chat .sidebar-tree-actions');
+    const taskList = declarationsFor('.sidebar-task-list');
+    const taskThread = declarationsFor('.sidebar-task-thread');
 
     expect(root.display).toBe('grid');
     expect(root['min-width']).toBe('0');
@@ -912,6 +924,9 @@ describe('workbench shell styles', () => {
     expect(chatProjectAdd.position).toBeUndefined();
     expect(chatTreeActions.position).toBe('absolute');
     expect(chatTreeActions.left).toBe('-10000px');
+    expect(taskList.display).toBe('grid');
+    expect(taskThread['min-height']).toBe('28px');
+    expect(taskThread['font-size']).toBe('13px');
   });
 
   it('exposes a mobile workbench drawer so settings remains reachable', () => {
