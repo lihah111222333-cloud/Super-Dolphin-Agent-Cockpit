@@ -301,10 +301,12 @@ func cloneMCPSnapshot(snapshot contract.MCPSnapshot) contract.MCPSnapshot {
 }
 
 func mergeMCPSnapshot(base, extra contract.MCPSnapshot) contract.MCPSnapshot {
+	serverConfigs := mergeTurnMCPServerConfigMaps(base.ServerConfigs, extra.ServerConfigs)
 	return contract.MCPSnapshot{
-		Servers:                  configutil.NormalizeConfigStringSlice(append(append([]string(nil), base.Servers...), extra.Servers...)),
+		Servers:                  uniqueTurnMCPServerNames(base.Servers, extra.Servers, turnMCPServerConfigNames(serverConfigs)),
 		Tools:                    configutil.NormalizeConfigStringSlice(append(append([]string(nil), base.Tools...), extra.Tools...)),
 		Instructions:             mergeMCPInstructions(base.Instructions, extra.Instructions),
+		ServerConfigs:            serverConfigs,
 		InstructionsDeltaEnabled: base.InstructionsDeltaEnabled || extra.InstructionsDeltaEnabled,
 		InstructionAttachments:   append(append([]contract.MCPAttachmentRef(nil), base.InstructionAttachments...), extra.InstructionAttachments...),
 	}
