@@ -213,6 +213,8 @@ function createComposerSendActions(runtime, deps) {
     createSendDraftRequest,
     createdThreadIdForSendRollback,
     deleteProvisionalThreadAfterSendFailure,
+    freshThreadRetryRequest,
+    isCodexIdentityAutoResumeError,
     optimisticSendDraftState,
     promotedDraftThreadState,
     resolveLaunchPreferences,
@@ -229,29 +231,49 @@ function createComposerSendActions(runtime, deps) {
 
       runtime.set((state) => optimisticSendDraftState(state, request));
 
-      let threadId = request.previousThreadId;
+      let activeRequest = request;
+      let threadId = activeRequest.previousThreadId;
       try {
         if (!threadId) {
-          const started = await startNewDraftThread(request, resolveLaunchPreferences);
+          const started = await startNewDraftThread(activeRequest, resolveLaunchPreferences);
           threadId = started.threadId;
-          runtime.set((state) => promotedDraftThreadState(state, request, started));
+          runtime.set((state) => promotedDraftThreadState(state, activeRequest, started));
         }
 
-        await startTurnWithStoppedThreadRecovery({
-          cwd: request.cwd,
-          threadId,
-          input: request.input,
-          manualSkillSelection: false,
-        });
-        runtime.clearComposerDraft({ ...runtime.get(), activeThreadId: request.previousActiveThreadId }, request.previousActiveThreadId);
-        runtime.clearComposerDraft(runtime.get(), request.provisionalThreadId);
+        try {
+          await startTurnWithStoppedThreadRecovery({
+            cwd: activeRequest.cwd,
+            threadId,
+            input: activeRequest.input,
+            manualSkillSelection: false,
+          });
+        }
+        catch (error) {
+          if (!activeRequest.previousThreadId || !isCodexIdentityAutoResumeError(error)) throw error;
+          runtime.set((state) => rollbackSendDraftState(state, activeRequest, error));
+          activeRequest = freshThreadRetryRequest(activeRequest);
+          threadId = '';
+          runtime.set((state) => optimisticSendDraftState(state, activeRequest));
+          const started = await startNewDraftThread(activeRequest, resolveLaunchPreferences);
+          threadId = started.threadId;
+          runtime.set((state) => promotedDraftThreadState(state, activeRequest, started));
+          await startTurnWithStoppedThreadRecovery({
+            cwd: activeRequest.cwd,
+            threadId,
+            input: activeRequest.input,
+            manualSkillSelection: false,
+          });
+        }
+
+        runtime.clearComposerDraft({ ...runtime.get(), activeThreadId: activeRequest.previousActiveThreadId }, activeRequest.previousActiveThreadId);
+        runtime.clearComposerDraft(runtime.get(), activeRequest.provisionalThreadId);
         runtime.clearComposerDraft(runtime.get(), threadId);
         runtime.set({ sending: false });
         return true;
       }
       catch (error) {
-        const createdThreadId = createdThreadIdForSendRollback(runtime.get(), request, threadId);
-        runtime.set((state) => rollbackSendDraftState(state, request, error));
+        const createdThreadId = createdThreadIdForSendRollback(runtime.get(), activeRequest, threadId);
+        runtime.set((state) => rollbackSendDraftState(state, activeRequest, error));
         await deleteProvisionalThreadAfterSendFailure(createdThreadId, runtime.addWarning);
         runtime.addWarning('error', 'thread.send.failed', { error: error.message });
         throw error;

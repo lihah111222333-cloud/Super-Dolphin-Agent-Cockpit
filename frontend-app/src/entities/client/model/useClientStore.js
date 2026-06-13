@@ -57,9 +57,6 @@ const PROVIDER_ACTIVE_PREF_KEY = 'settings.provider.active';
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
 const THREAD_PINS_CHAT_PREF_KEY = 'threadPins.chat';
 const objectPrototype = Object.prototype;
-const DEFAULT_CODEX_HOME = '~/.codex';
-const DEFAULT_CODEX_INSTANCE_KEY = 'default';
-const DEFAULT_CODEX_MODEL_PROVIDERS = new Set(['openai', 'super-dolphin-relay']);
 const PROVIDER_DISPLAY_DEFAULT_CONFIGS = Object.freeze({
   codex: Object.freeze({ model: 'gpt-5.5', effort: 'xhigh' }),
   claude: Object.freeze({ model: 'sonnet', effort: 'high' }),
@@ -266,26 +263,11 @@ function normalizeCodexIdentityValue(value) {
   return normalizeProviderConfigValue(value);
 }
 
-function codexHomeLooksDefault(value) {
-  const home = normalizeProviderConfigValue(value);
-  if (!home) return false;
-  const normalized = home.replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase();
-  return normalized === DEFAULT_CODEX_HOME ||
-    /^[a-z]:\/users\/[^/]+\/\.codex$/i.test(normalized) ||
-    /^\/users\/[^/]+\/\.codex$/i.test(normalized) ||
-    /^\/home\/[^/]+\/\.codex$/i.test(normalized);
-}
-
 function codexLaunchConfigFromPreferences({ codexHome, codexInstanceKey, codexModelProvider }) {
   const home = normalizeProviderConfigValue(codexHome);
   const instanceKey = normalizeCodexIdentityValue(codexInstanceKey);
   const modelProvider = normalizeCodexIdentityValue(codexModelProvider);
   if (!home && !instanceKey && !modelProvider) return null;
-
-  const defaultLikeIdentity = (!home || codexHomeLooksDefault(home)) &&
-    (!instanceKey || instanceKey === DEFAULT_CODEX_INSTANCE_KEY) &&
-    (!modelProvider || DEFAULT_CODEX_MODEL_PROVIDERS.has(modelProvider));
-  if (defaultLikeIdentity) return null;
 
   if (!home || !instanceKey || !modelProvider) {
     throw new Error('startThread: complete Codex identity requires codexHome, codexInstanceKey, and codexModelProvider');
@@ -2434,6 +2416,8 @@ const composerActionDeps = {
     createSendDraftRequest,
     createdThreadIdForSendRollback,
     deleteProvisionalThreadAfterSendFailure,
+    freshThreadRetryRequest,
+    isCodexIdentityAutoResumeError,
     optimisticSendDraftState,
     promotedDraftThreadState,
     resolveLaunchPreferences,
@@ -2505,6 +2489,20 @@ function createSendDraftRequest(state, cwd) {
       time: new Date().toISOString(),
       done: true,
       optimistic: true,
+    },
+  };
+}
+
+function freshThreadRetryRequest(request) {
+  const launchIntentId = createLaunchIntentId();
+  return {
+    ...request,
+    previousThreadId: '',
+    launchIntentId,
+    provisionalThreadId: launchIntentId,
+    optimisticItem: {
+      ...request.optimisticItem,
+      id: `user-${launchIntentId}`,
     },
   };
 }
@@ -2804,6 +2802,12 @@ async function deleteProvisionalThreadAfterSendFailure(threadId, addWarning) {
 function isStoppedThreadTurnStartError(error) {
   const message = normalizeString(error?.message || error?.cause?.message || String(error || '')).toLowerCase();
   return message.includes('resolve session: thread') && message.includes(' is stopped');
+}
+
+function isCodexIdentityAutoResumeError(error) {
+  const message = normalizeString(error?.message || error?.cause?.message || String(error || '')).toLowerCase();
+  return message.includes('resolve session: auto-resume failed') &&
+    message.includes('codex identity required for resume');
 }
 
 async function startTurnWithStoppedThreadRecovery(params) {
