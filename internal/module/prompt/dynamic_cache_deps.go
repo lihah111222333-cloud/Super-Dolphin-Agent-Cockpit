@@ -8,6 +8,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// inputScopedSectionDependency 处理inputscopedsectiondependency。
 func inputScopedSectionDependency(section PromptSection, input SectionContext) any {
 	switch section.Name {
 	case DynamicSectionSessionGuidance:
@@ -93,6 +94,7 @@ func cwdScopedSectionDependency(section PromptSection, input SectionContext) any
 	}
 }
 
+// memorySectionDependency 处理记忆sectiondependency。
 func memorySectionDependency(section PromptSection, input SectionContext) any {
 	isChild, agentType := childAgentCacheDependency(input)
 	return struct {
@@ -142,6 +144,7 @@ func memoryEntrypointSectionDependency(section PromptSection, input SectionConte
 	return memorySectionDependency(section, input)
 }
 
+// envInfoSimpleSectionDependency 处理envinfosimplesectiondependency。
 func envInfoSimpleSectionDependency(section PromptSection, input SectionContext) any {
 	return struct {
 		Section                      string   `json:"section"`
@@ -180,6 +183,7 @@ func envInfoSimpleSectionDependency(section PromptSection, input SectionContext)
 	}
 }
 
+// cacheByNameSectionDependency 按名称sectiondependency处理缓存。
 func cacheByNameSectionDependency(section PromptSection, input SectionContext) any {
 	switch section.Name {
 	case DynamicSectionOutputStyle:
@@ -244,6 +248,7 @@ func cacheByNameSectionDependency(section PromptSection, input SectionContext) a
 	}
 }
 
+// childAgentCacheDependency 处理child代理缓存dependency。
 func childAgentCacheDependency(input SectionContext) (bool, string) {
 	if input.Start == nil || input.Turn != nil || strings.TrimSpace(input.Start.ParentAgentID) == "" {
 		return false, ""

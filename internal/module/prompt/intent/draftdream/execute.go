@@ -9,10 +9,12 @@ import (
 
 type ParseFunc[T any] func(string) (T, error)
 
+// Execute 执行prompt。
 func Execute[T any](ctx context.Context, dream contract.DreamExecutor, prompt string, parse ParseFunc[T]) (T, error) {
 	return ExecuteWithOptions(ctx, dream, prompt, contract.DreamOptions{}, parse)
 }
 
+// ExecuteWithOptions 执行带选项的prompt。
 func ExecuteWithOptions[T any](ctx context.Context, dream contract.DreamExecutor, prompt string, options contract.DreamOptions, parse ParseFunc[T]) (T, error) {
 	ctx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.PromptIntentDraftTimeout)
 	defer cancel()

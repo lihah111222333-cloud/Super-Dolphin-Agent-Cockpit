@@ -24,6 +24,7 @@ func renderReadContent(content string, offset, limit int, _ bool) string {
 	return renderLineWindow("file", content, req, lineWindowReasonExplicit)
 }
 
+// renderLineWindow 渲染行window。
 func renderLineWindow(displayPath, content string, req readFileRequest, reason string) string {
 	lines := splitNormalizedLines(content)
 	if content == "" {
@@ -58,6 +59,7 @@ func renderLineWindow(displayPath, content string, req readFileRequest, reason s
 	return fmt.Sprintf("TEXT\n%s\n\n%s", rendered, footer)
 }
 
+// renderLineWindowFooter 渲染行windowfooter。
 func renderLineWindowFooter(displayPath string, requestedStart, start, end, total, limit int, reason string) string {
 	parts := []string{fmt.Sprintf("scope=lines L%d-L%d of %d total", start, end, total)}
 	if limit > 0 {
@@ -81,6 +83,7 @@ func renderLineWindowFooter(displayPath string, requestedStart, start, end, tota
 	return "[" + strings.Join(parts, "; ") + "]"
 }
 
+// renderFunctionWindow 渲染函数window。
 func renderFunctionWindow(content, name string, startLine, endLine, limit int) string {
 	lines := splitNormalizedLines(content)
 	if content == "" || len(lines) == 0 {
@@ -129,6 +132,7 @@ func enclosingFunctionName(symbols []protocol.DocumentSymbol, zeroBasedLine int)
 	return name
 }
 
+// findFunctionName 查找函数名称。
 func findFunctionName(symbols []protocol.DocumentSymbol, zeroBasedLine int) (string, bool) {
 	for _, symbol := range symbols {
 		start, end, ok := symbolBounds(symbol)
@@ -145,6 +149,7 @@ func findFunctionName(symbols []protocol.DocumentSymbol, zeroBasedLine int) (str
 	return "", false
 }
 
+// symbolBounds 处理符号边界。
 func symbolBounds(symbol protocol.DocumentSymbol) (startLine, endLine int, ok bool) {
 	startLine = symbol.Range.Start.Line
 	endLine = symbol.Range.End.Line
@@ -162,6 +167,7 @@ func symbolBounds(symbol protocol.DocumentSymbol) (startLine, endLine int, ok bo
 
 var singleLineCommentPrefixes = []string{"//", "#", "--"}
 
+// isCommentLine 判断comment行是否可用。
 func isCommentLine(line string) bool {
 	trimmed := strings.TrimSpace(line)
 	if trimmed == "" {
@@ -180,6 +186,7 @@ func isCommentLine(line string) bool {
 	return false
 }
 
+// isBlockCommentMarkerMatch 判断blockcommentmarkermatch是否可用。
 func isBlockCommentMarkerMatch(trimmed, prefix, suffix string) bool {
 	firstIdx := strings.Index(trimmed, prefix)
 	lastIdx := strings.LastIndex(trimmed, suffix)
@@ -193,6 +200,7 @@ func isBlockCommentMarkerMatch(trimmed, prefix, suffix string) bool {
 	return strings.HasPrefix(trimmed, prefix) || strings.HasSuffix(trimmed, suffix)
 }
 
+// isLicenseLine 判断license行是否可用。
 func isLicenseLine(line string) bool {
 	lower := strings.ToLower(line)
 	if strings.Contains(lower, "copyright") && (strings.Contains(lower, "(c)") || strings.Contains(lower, "202") || strings.Contains(lower, "201")) {
@@ -213,6 +221,7 @@ var blockCommentSuffixes = []struct {
 	{"'''", "'''"},
 }
 
+// checkBlockCommentMarker 处理checkblockcommentmarker。
 func checkBlockCommentMarker(line string) (isBlock bool, marker string, singleLine bool) {
 	trimmed := strings.TrimSpace(line)
 	for _, item := range blockCommentSuffixes {
@@ -246,6 +255,7 @@ func shouldStopOnNonComment(line string) bool {
 	return !isCommentLine(line) || isLicenseLine(line)
 }
 
+// expandStartToIncludeComments 把expand起点处理为includecomments。
 func expandStartToIncludeComments(lines []string, startLine int) int {
 	const maxCommentExpandLines = 20
 	current := startLine

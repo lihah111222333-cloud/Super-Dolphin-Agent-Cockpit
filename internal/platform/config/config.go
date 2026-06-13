@@ -21,6 +21,7 @@ type (
 	LSPConfig    = contract.LSPConfig
 )
 
+// New 创建平台配置。
 func New() (*Config, error) {
 	projectRoot, err := PrimeProcessEnvironment()
 	if err != nil {
@@ -62,6 +63,7 @@ func New() (*Config, error) {
 	return cfg, nil
 }
 
+// PrimeProcessEnvironment 处理prime进程environment。
 func PrimeProcessEnvironment() (string, error) {
 	projectRoot := resolveProjectRoot()
 	if err := validateTrustedDevRuntimeMode(projectRoot); err != nil {
@@ -116,6 +118,7 @@ func loadDotEnv(projectRoot string) error {
 	return applyDotEnv(os.Setenv, path, string(content), packaged)
 }
 
+// applyDotEnv 应用dotenv。
 func applyDotEnv(setenv func(string, string) error, path, content string, strict bool) error {
 	for i, line := range strings.Split(content, "\n") {
 		key, value, ok, err := parseDotEnvLineStrict(line, i+1)
@@ -143,6 +146,7 @@ func parseDotEnvLine(line string) (string, string, bool) {
 	return key, value, ok
 }
 
+// parseDotEnvLineStrict 解析dotenv行strict。
 func parseDotEnvLineStrict(line string, lineNumber int) (string, string, bool, error) {
 	line = strings.TrimSpace(line)
 	if line == "" || strings.HasPrefix(line, "#") {
@@ -213,6 +217,7 @@ func exportDatabaseURLIfMissing(setenv func(string, string) error, databaseURL s
 	return nil
 }
 
+// resolveProjectRoot 解析项目根目录。
 func resolveProjectRoot() string {
 	if root := strings.TrimSpace(os.Getenv("PROJECT_ROOT")); root != "" {
 		return root
@@ -231,6 +236,7 @@ func resolveProjectRoot() string {
 	return dir
 }
 
+// SharedFileRoot 处理shared文件根目录。
 func SharedFileRoot(cfg *Config) (string, error) {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_RUNTIME_MODE")), "packaged") {
 		root := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_HOME"))

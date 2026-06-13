@@ -442,6 +442,10 @@ function mergeThreadScopedTimelineItems(items = []) {
 }
 
 function threadScopedTimelineValue(map = {}, activeThreadId, activeThread, fallback = []) {
+  /*
+   * 同一会话可能有 threadId、agentId、sessionId 等多个名字。
+   * 这里把这些名字下的 timeline 合成当前页面要显示的消息。
+   */
   const ids = activeThreadIdentifiers(activeThreadId, activeThread);
   const items = [];
   for (const id of ids) {
@@ -626,6 +630,10 @@ function handleTimelineCitationAction(payload, { store, openFileRef }) {
 }
 
 function useChatThreadData(store, activeThreadId) {
+  /*
+   * ChatPage 在这里从 store 取当前线程数据。
+   * timeline、diff、token、活动日志都按当前线程名字集合读取。
+   */
   const activeThread = activeThreadForStore(store);
   const timelineBlocked = Boolean(activeThreadId && threadScopedBooleanValue(store.threadStateLoadingByThread, activeThreadId, activeThread, false));
   const cachedTimeline = threadScopedTimelineValue(store.timelinesByThread, activeThreadId, activeThread, []);
@@ -811,6 +819,10 @@ function useRuntimePanelWidthSync({ maxWidth, open, resizedRef, setOpen, store, 
 
 function useRuntimeDiffSync({ activeThreadId, open, store }) {
   useEffect(() => {
+    /*
+     * 右侧面板打开时才补 diff。
+     * loadMessages:false 表示复用当前 timeline，不重新拉历史消息。
+     */
     if (!open || !activeThreadId) return;
     if (store.threadDiffReadyByThread?.[activeThreadId]) return;
     if (store.threadStateLoadingByThread?.[activeThreadId]) return;
@@ -3188,6 +3200,10 @@ function useComposerInteractions({
   projectActionBlocked,
   canUseProjectActions,
 }) {
+  /*
+   * composer 交互层只管浏览器本地状态：预览、拖拽深度、IME 输入。
+   * 附件保存、去重和发送 input 都在 store 里完成。
+   */
   const [previewAttachment, setPreviewAttachment] = useState(null);
   const [dropActive, setDropActive] = useState(false);
   const dropDepthRef = useRef(0);
@@ -3228,6 +3244,10 @@ function useComposerInteractions({
 }
 
 function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, canUseProjectActions, dropDepthRef, projectActionBlocked, setDropActive }) {
+  /*
+   * 拖拽/粘贴可能来自 File、Wails 原生事件或 file:// 文本。
+   * 项目还没准备好时，只处理 UI 事件，不把路径写进 composer。
+   */
   const resetDropState = useCallback(() => {
     dropDepthRef.current = 0;
     setDropActive(false);
@@ -3571,6 +3591,10 @@ function ConversationTimeline({
   timelineRef,
   smoothStreaming,
 }) {
+  /*
+   * Timeline 只负责显示当前窗口和触发“加载更早”。
+   * 更早的后端消息先写入 store，再从 messages 回到这里。
+   */
   const {
     hiddenOlderCount,
     revealOlder,

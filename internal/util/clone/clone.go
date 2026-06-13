@@ -8,6 +8,7 @@ import (
 )
 
 // RawMessage returns a deep copy of a json.RawMessage.
+// RawMessage 处理原始消息。
 func RawMessage(message json.RawMessage) json.RawMessage {
 	if len(message) == 0 {
 		return nil
@@ -16,6 +17,7 @@ func RawMessage(message json.RawMessage) json.RawMessage {
 }
 
 // Strings returns a deep copy of a string slice.
+// Strings 处理strings。
 func Strings(input []string) []string {
 	if len(input) == 0 {
 		return nil
@@ -24,6 +26,7 @@ func Strings(input []string) []string {
 }
 
 // StringMap returns a deep copy of a string-to-string map.
+// StringMap 处理stringmap。
 func StringMap(input map[string]string) map[string]string {
 	if len(input) == 0 {
 		return nil
@@ -36,6 +39,7 @@ func StringMap(input map[string]string) map[string]string {
 }
 
 // JSONMap returns a deep copy of a JSON-like map.
+// JSONMap 处理JSONmap。
 func JSONMap(input map[string]any) map[string]any {
 	if len(input) == 0 {
 		return map[string]any{}
@@ -48,6 +52,7 @@ func JSONMap(input map[string]any) map[string]any {
 }
 
 // RuntimeConfigMap returns a deep copy of a runtime configuration map.
+// RuntimeConfigMap 处理运行时配置map。
 func RuntimeConfigMap(cfg map[string]any) map[string]any {
 	if len(cfg) == 0 {
 		return nil
@@ -64,6 +69,7 @@ func RuntimeConfigMap(cfg map[string]any) map[string]any {
 }
 
 // Time returns a deep copy of a *time.Time pointer.
+// Time 处理时间。
 func Time(value *time.Time) *time.Time {
 	if value == nil {
 		return nil

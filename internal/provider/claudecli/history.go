@@ -22,6 +22,7 @@ type historyBackend struct {
 	sessionDir string
 }
 
+// ReadHistory 读取history。
 func (h *historyBackend) ReadHistory(ctx context.Context, threadID string) ([]Message, error) {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return nil, err
@@ -53,6 +54,7 @@ func (h *historyBackend) ReadHistory(ctx context.Context, threadID string) ([]Me
 	return out, nil
 }
 
+// ReadMessagesPage 读取消息page。
 func (h *historyBackend) ReadMessagesPage(ctx context.Context, threadID string, req dto.MessagePageRequest) (historyjsonl.JSONLPageResult[Message], error) {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return historyjsonl.JSONLPageResult[Message]{}, err
@@ -71,6 +73,7 @@ func (h *historyBackend) ReadMessagesPage(ctx context.Context, threadID string, 
 	return page, nil
 }
 
+// sessionPath 处理会话路径。
 func (h *historyBackend) sessionPath(threadID string) (string, error) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -110,6 +113,7 @@ func (h *historyBackend) rootDir() (string, error) {
 	return filepath.Join(home, ".claude"), nil
 }
 
+// parseHistoryLine 解析history行。
 func parseHistoryLine(raw []byte) (Message, bool) {
 	var line historyLine
 	if err := json.Unmarshal(raw, &line); err != nil {
@@ -161,6 +165,7 @@ func normalizeHistoryUserContent(text string) (string, json.RawMessage) {
 // filesystem path is not preserved by claude CLI's history (only the inline
 // base64), so we emit a `data:` URL the frontend can render directly via
 // AttachmentPreview without going through the /clipboard asset route.
+// extractImageContentBlocksMetadata 提取image内容blocks元数据。
 func extractImageContentBlocksMetadata(items []historyContentItem) json.RawMessage {
 	inputs := make([]map[string]any, 0)
 	for _, item := range items {
@@ -183,6 +188,7 @@ func extractImageContentBlocksMetadata(items []historyContentItem) json.RawMessa
 	return raw
 }
 
+// historyImageInputFromSource 从source处理historyimageinput。
 func historyImageInputFromSource(source *historyImageSource) map[string]any {
 	if source == nil {
 		return nil
@@ -227,6 +233,7 @@ func sha256OfBase64Data(data string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// extractInjectedAttachmentMetadata 提取injectedattachment元数据。
 func extractInjectedAttachmentMetadata(text string) (string, json.RawMessage) {
 	trimmed := strings.TrimLeft(text, "\ufeff \t\r\n")
 	if !strings.HasPrefix(trimmed, injectedFileHintsHeader) {

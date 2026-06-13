@@ -42,12 +42,14 @@ type DefaultEvaluator struct {
 // NewDefaultEvaluator returns the recommended defaults (MinToolCalls=2,
 // MaxToolCalls unbounded). Wired via fx into the downstream Step 4
 // extractor.
+// NewDefaultEvaluator 创建defaultevaluator。
 func NewDefaultEvaluator() *DefaultEvaluator {
 	return &DefaultEvaluator{MinToolCalls: 2}
 }
 
 // Evaluate implements the Evaluator interface. It does not mutate the input
 // Trajectory (ToolCalls are not reordered, Cwd is not backfilled, etc.).
+// Evaluate 处理evaluate。
 func (e *DefaultEvaluator) Evaluate(t Trajectory) EvaluationVerdict {
 	if reason := terminalRejectionReason(t); reason != "" {
 		return EvaluationVerdict{Eligible: false, Reason: reason}

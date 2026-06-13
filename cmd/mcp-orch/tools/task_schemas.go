@@ -33,6 +33,7 @@ func applyOpsOpSchema() Schema {
 	}, "op")
 }
 
+// createDAGSchema 创建DAGschema。
 func createDAGSchema() Schema {
 	return ObjectSchema(map[string]Schema{
 		"agent_id":            StringSchema("Creator orchestration agent ID."),
@@ -78,6 +79,7 @@ func createDAGSchema() Schema {
 	}, "dag_key", "title")
 }
 
+// createDAGRequestFromInput 从input创建DAG请求。
 func createDAGRequestFromInput(in CreateDAGInput, trustedAgentID string) (contract.CreateDAGRequest, error) {
 	agentID, err := resolveCreateDAGAgentID(in.AgentID, trustedAgentID)
 	if err != nil {
@@ -178,6 +180,7 @@ func validateRootAgentAssignees(nodes []contract.CreateDAGNodeRequest) error {
 	return nil
 }
 
+// validateAgentNodeLaunchConfigs 校验代理节点启动配置。
 func validateAgentNodeLaunchConfigs(nodes []contract.CreateDAGNodeRequest) error {
 	for i, node := range nodes {
 		if !isAgentNodeType(node.NodeType) || !hasNodeExecConfig(node.Config) {
@@ -240,6 +243,7 @@ func hasNodeExecConfig(raw json.RawMessage) bool {
 	return ok && hasExplicitRawJSON(exec)
 }
 
+// createDAGNodesFromInput 从input创建DAG节点。
 func createDAGNodesFromInput(nodes []CreateDAGNodeInput) ([]contract.CreateDAGNodeRequest, error) {
 	mapped := make([]contract.CreateDAGNodeRequest, 0, len(nodes))
 	for i, node := range nodes {
@@ -326,6 +330,7 @@ func normalizeFinalNodeKey(raw string, nodes []contract.CreateDAGNodeRequest) (s
 	return "", fmt.Errorf("final_node_key %s does not match any node_key", finalNodeKey)
 }
 
+// createDAGNodeConfig 创建DAG节点配置。
 func createDAGNodeConfig(node CreateDAGNodeInput) (json.RawMessage, error) {
 	commandRef := strings.TrimSpace(node.CommandRef)
 	isAutomation := strings.TrimSpace(node.NodeType) == "automation"
@@ -362,6 +367,7 @@ func mergeAutomationCommandRef(raw json.RawMessage, commandRef string) (json.Raw
 	return encodeJSONRaw(config)
 }
 
+// upsertAutomationCommandRef 处理upsertautomation命令引用。
 func upsertAutomationCommandRef(config map[string]any, commandRef string) (map[string]any, error) {
 	if config == nil {
 		config = make(map[string]any)
@@ -402,6 +408,7 @@ func hasExplicitRawJSON(raw json.RawMessage) bool {
 	return trimmed != "" && trimmed != "null"
 }
 
+// createDAGEffectiveSchedule 创建DAGeffective计划。
 func createDAGEffectiveSchedule(in CreateDAGInput) (DAGScheduleInput, error) {
 	schedule := in.Schedule
 	if err := mergeScheduleString(&schedule.Trigger, in.Trigger, "trigger"); err != nil {
@@ -425,6 +432,7 @@ func createDAGEffectiveSchedule(in CreateDAGInput) (DAGScheduleInput, error) {
 	return schedule, nil
 }
 
+// createDAGEffectiveExecution 创建DAGeffectiveexecution。
 func createDAGEffectiveExecution(node CreateDAGNodeInput) (*DAGExecutionInput, error) {
 	if node.Execution == nil {
 		if !hasFlatExecutionFields(node) {
@@ -509,6 +517,7 @@ func nodeConfig(execution *DAGExecutionInput) map[string]any {
 	return map[string]any{"execution": executionMap(*execution)}
 }
 
+// scheduleMap 安排map。
 func scheduleMap(in DAGScheduleInput) map[string]any {
 	payload := make(map[string]any)
 	if in.Trigger != "" {
@@ -532,6 +541,7 @@ func scheduleMap(in DAGScheduleInput) map[string]any {
 	return payload
 }
 
+// executionMap 处理executionmap。
 func executionMap(in DAGExecutionInput) map[string]any {
 	payload := make(map[string]any)
 	if in.OnFailure != "" {

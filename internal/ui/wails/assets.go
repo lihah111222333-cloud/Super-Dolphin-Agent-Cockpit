@@ -31,6 +31,7 @@ var placeholderAssets embed.FS
 // When the VITE_DEV_URL environment variable is set (e.g. "http://localhost:5173"),
 // all requests are reverse-proxied to the Vite dev server, enabling HMR
 // (hot module replacement) and instant frontend updates without vite build.
+// AssetHandlerFrom 从桌面 UI 桥接处理asset处理器。
 func AssetHandlerFrom(injected FrontendFS) http.Handler {
 	if devURL := strings.TrimSpace(os.Getenv("VITE_DEV_URL")); devURL != "" {
 		return viteDevProxy(devURL)

@@ -7,6 +7,7 @@ const DefaultTruncateLen = 512
 
 // TruncateForLog truncates s to maxLen, appending a length indicator.
 // Returns s unchanged if within limit or if debug logging is enabled.
+// TruncateForLog 为日志截断日志。
 func TruncateForLog(s string, maxLen int) string {
 	if maxLen <= 0 {
 		maxLen = DefaultTruncateLen

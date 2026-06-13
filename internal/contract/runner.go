@@ -28,6 +28,7 @@ type workerRunner struct {
 
 // AsRunner wraps a Worker into a Runner whose Run blocks on ctx, calling
 // Start immediately and Stop when the context fires.
+// AsRunner 把跨模块契约处理为runner。
 func AsRunner(worker Worker, opts ...WorkerRunnerOption) Runner {
 	r := &workerRunner{worker: worker, ready: make(chan struct{})}
 	for _, opt := range opts {
@@ -39,6 +40,7 @@ func AsRunner(worker Worker, opts ...WorkerRunnerOption) Runner {
 }
 
 // WithStartedSignal returns an option that closes ch after Start returns.
+// WithStartedSignal 设置startedsignal。
 func WithStartedSignal(ch chan struct{}) WorkerRunnerOption {
 	return func(r *workerRunner) {
 		if ch != nil {
@@ -47,6 +49,7 @@ func WithStartedSignal(ch chan struct{}) WorkerRunnerOption {
 	}
 }
 
+// Run 启动跨模块契约后台流程。
 func (r *workerRunner) Run(ctx context.Context) error {
 	if r == nil || r.worker == nil {
 		return errors.New("runner worker is nil")

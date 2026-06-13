@@ -82,25 +82,30 @@ func newTeamSyncRemoteFromEnv() teamSyncRemote {
 	}
 }
 
+// OAuthReady 处理o认证ready。
 func (r *teamSyncHTTPRemote) OAuthReady(context.Context) bool {
 	return r != nil && strings.TrimSpace(r.baseURL) != "" && strings.TrimSpace(r.token) != ""
 }
 
+// PullHashes 处理pullhashes。
 func (r *teamSyncHTTPRemote) PullHashes(ctx context.Context, repoSlug, ifNoneMatch string) (TeamSyncHashesResponse, error) {
 	payload := TeamSyncHashesResponse{}
 	return payload, r.doJSON(ctx, http.MethodGet, teamSyncRemoteURL(r.baseURL, repoSlug, "hashes"), ifNoneMatch, nil, &payload)
 }
 
+// PullFiles 处理pull文件。
 func (r *teamSyncHTTPRemote) PullFiles(ctx context.Context, repoSlug, _ string) (TeamSyncPullResponse, error) {
 	payload := TeamSyncPullResponse{}
 	return payload, r.doJSON(ctx, http.MethodGet, teamSyncRemoteURL(r.baseURL, repoSlug, ""), "", nil, &payload)
 }
 
+// PushFiles 处理push文件。
 func (r *teamSyncHTTPRemote) PushFiles(ctx context.Context, request TeamSyncPushRequest) (TeamSyncPushResponse, error) {
 	payload := TeamSyncPushResponse{}
 	return payload, r.doJSON(ctx, http.MethodPost, teamSyncRemoteURL(r.baseURL, request.RepoSlug, ""), request.IfMatch, request, &payload)
 }
 
+// doJSON 处理doJSON。
 func (r *teamSyncHTTPRemote) doJSON(ctx context.Context, method, rawURL, match string, body any, out any) error {
 	if !r.OAuthReady(ctx) {
 		return ErrTeamSyncOAuthRequired
@@ -162,6 +167,7 @@ func applyTeamSyncMatchHeader(req *http.Request, method, match string) {
 	req.Header.Set("If-Match", match)
 }
 
+// handleTeamSyncJSONResponse 处理teamsyncJSON响应。
 func handleTeamSyncJSONResponse(method, rawURL string, statusCode int, status string, data []byte, out any) error {
 	switch statusCode {
 	case http.StatusOK, http.StatusCreated, http.StatusAccepted, http.StatusMultiStatus:

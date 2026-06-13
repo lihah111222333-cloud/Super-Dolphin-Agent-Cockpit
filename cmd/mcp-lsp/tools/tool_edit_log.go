@@ -36,6 +36,7 @@ func (l *editStageLogger) setFilePath(path string) {
 	l.filePath = strings.TrimSpace(path)
 }
 
+// Started 记录阶段开始并返回开始时间。
 func (l *editStageLogger) Started(stage string, attrs ...any) time.Time {
 	stageStarted := time.Now()
 	if l == nil {
@@ -45,6 +46,7 @@ func (l *editStageLogger) Started(stage string, attrs ...any) time.Time {
 	return stageStarted
 }
 
+// Completed 记录阶段完成和耗时。
 func (l *editStageLogger) Completed(stage string, stageStarted time.Time, attrs ...any) {
 	if l == nil {
 		return
@@ -52,6 +54,7 @@ func (l *editStageLogger) Completed(stage string, stageStarted time.Time, attrs 
 	pkglogger.Info(editLogMessageStageCompleted, l.attrs(stage, "completed", stageStarted, attrs...)...)
 }
 
+// Failed 记录阶段失败原因和耗时。
 func (l *editStageLogger) Failed(stage string, stageStarted time.Time, err error, attrs ...any) {
 	if l == nil {
 		return
@@ -62,6 +65,7 @@ func (l *editStageLogger) Failed(stage string, stageStarted time.Time, err error
 	pkglogger.Warn(editLogMessageStageFailed, l.attrs(stage, "failed", stageStarted, attrs...)...)
 }
 
+// Skipped 记录阶段跳过原因。
 func (l *editStageLogger) Skipped(stage string, reason string, attrs ...any) {
 	if l == nil {
 		return

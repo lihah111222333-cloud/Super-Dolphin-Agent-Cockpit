@@ -27,6 +27,7 @@ func encodeAttachmentHint(input dto.InputItem) string {
 	return "[" + label + ": " + target + "]"
 }
 
+// decodeAttachmentHint 解码attachmenthint。
 func decodeAttachmentHint(line string) (map[string]any, bool) {
 	trimmed := strings.TrimSpace(line)
 	lower := strings.ToLower(trimmed)
@@ -147,6 +148,7 @@ func decodeMessageBlock(role string, rawBlock json.RawMessage, data map[string]a
 	}
 }
 
+// decodeAssistantMessageBlock 解码assistant消息block。
 func decodeAssistantMessageBlock(rawBlock json.RawMessage, data map[string]any) ([]dto.RawProviderEvent, error) {
 	var block contentBlock
 	if err := json.Unmarshal(rawBlock, &block); err != nil {
@@ -170,6 +172,7 @@ func decodeAssistantMessageBlock(rawBlock json.RawMessage, data map[string]any) 
 	return nil, nil
 }
 
+// decodeUserMessageBlock 解码user消息block。
 func decodeUserMessageBlock(rawBlock json.RawMessage, data map[string]any) ([]dto.RawProviderEvent, error) {
 	var block map[string]any
 	if err := json.Unmarshal(rawBlock, &block); err != nil {
@@ -195,6 +198,7 @@ func decodeUserMessageBlock(rawBlock json.RawMessage, data map[string]any) ([]dt
 	return []dto.RawProviderEvent{{EventType: "tool:use_end", Data: data}}, nil
 }
 
+// toolResultContent 处理工具结果内容。
 func toolResultContent(raw any) string {
 	switch value := raw.(type) {
 	case string:
@@ -270,6 +274,7 @@ func cleanupOnError(err error, cleanups ...func()) error {
 	return err
 }
 
+// waitThreadReady 等待线程进入可用状态。
 func waitThreadReady(ctx context.Context, ready <-chan struct{}, tr *transport) error {
 	if ready == nil {
 		return nil
@@ -296,6 +301,7 @@ func threadReadyContextErr(err error) error {
 	return fmt.Errorf("claudecli: waiting for real thread id: %w", err)
 }
 
+// ensureProcessAlive 确保进程alive。
 func (t *transport) ensureProcessAlive() (int, error) {
 	if t == nil || t.cmd == nil || t.cmd.Process == nil {
 		return 0, nil

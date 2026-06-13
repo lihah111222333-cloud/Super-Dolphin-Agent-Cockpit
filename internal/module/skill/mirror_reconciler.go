@@ -40,6 +40,8 @@ type SkillMirrorConflict struct {
 	Actions       []SkillMirrorResolutionAction
 }
 
+// SkillMirrorConflictSource 指向冲突背后的真实 skill。
+// 排查时顺着 canonical_id 找 .agent/skills 或 active personal，不看 mirror 副本。
 type SkillMirrorConflictSource struct {
 	Scope         string
 	PersonalType  string
@@ -48,11 +50,15 @@ type SkillMirrorConflictSource struct {
 	CanonicalHash string
 }
 
+// SkillMirrorResolutionAction 是 UI 里可选的处理动作。
+// 新动作必须有 preview 校验，不能直接改目录。
 type SkillMirrorResolutionAction struct {
 	Action      string
 	PreviewHash string
 }
 
+// SkillMirrorResolutionRequest 只接受用户刚确认过的 preview。
+// PreviewHash 不匹配时直接报错，不要重算后继续。
 type SkillMirrorResolutionRequest struct {
 	Action      string
 	Name        string
@@ -62,6 +68,8 @@ type SkillMirrorResolutionRequest struct {
 	PreviewHash string
 }
 
+// SkillMirrorResolutionReport 会告诉前端是否还有后续重试动作。
+// 清理或审计失败不能吞掉，要让用户知道下一步。
 type SkillMirrorResolutionReport struct {
 	Action         string
 	Name           string
@@ -82,6 +90,8 @@ type skillMirrorMutationAuditRecord struct {
 	Timestamp    string `json:"timestamp"`
 }
 
+// DetectSkillMirrorConflicts 只检查 mirror 和真实 skill 是否不一致。
+// 这里不修复目录；发现漂移、未知目录或根 symlink 就报告。
 func DetectSkillMirrorConflicts(records []canonicalSkillRecord, targets []SkillMirrorTarget) ([]SkillMirrorConflict, error) {
 	var conflicts []SkillMirrorConflict
 	driftCount := map[string]int{}
@@ -110,6 +120,7 @@ func DetectSkillMirrorConflicts(records []canonicalSkillRecord, targets []SkillM
 	return conflicts, nil
 }
 
+// MirrorConflictsFromCanonical 从 canonical skill 计算 mirror 冲突。
 func MirrorConflictsFromCanonical(conflicts []canonicalSkillConflict) []SkillMirrorConflict {
 	out := make([]SkillMirrorConflict, 0, len(conflicts))
 	for _, conflict := range conflicts {
@@ -127,6 +138,7 @@ func MirrorConflictsFromCanonical(conflicts []canonicalSkillConflict) []SkillMir
 	return out
 }
 
+// detectSkillMirrorTargetConflicts 检查目标 mirror 中的命名冲突。
 func detectSkillMirrorTargetConflicts(allRecords []canonicalSkillRecord, records map[string]canonicalSkillRecord, target SkillMirrorTarget) ([]SkillMirrorConflict, error) {
 	conflict, ok, err := validateMirrorRootOrConflict(target)
 	if err != nil {
@@ -269,6 +281,7 @@ func detectSkillMirrorNameConflict(records map[string]canonicalSkillRecord, targ
 	return conflict, conflict.Kind != "", nil
 }
 
+// unmanagedMirrorNameConflict 构造未托管 mirror 同名冲突。
 func unmanagedMirrorNameConflict(target SkillMirrorTarget, record canonicalSkillRecord, name, mirrorDir, mirrorHash string, canonicalExists, manifestTargetMismatch bool) (SkillMirrorConflict, bool, error) {
 	if target.Scope == skillScopePersonal && !canonicalExists {
 		return SkillMirrorConflict{}, false, nil
@@ -286,6 +299,7 @@ func unmanagedMirrorNameConflict(target SkillMirrorTarget, record canonicalSkill
 	return unmanagedProviderSkillConflict(target, record, name, mirrorDir, mirrorHash, canonicalExists, manifestTargetMismatch), true, nil
 }
 
+// mirrorCanonicalRecord 把 canonical 记录转换成 mirror 记录。
 func mirrorCanonicalRecord(records map[string]canonicalSkillRecord, target SkillMirrorTarget, entry SkillMirrorEntry, name string) (canonicalSkillRecord, bool) {
 	if record, ok := records[mirrorRecordKey(target.Scope, entry.PersonalType, name)]; ok {
 		return record, true
@@ -304,6 +318,7 @@ func mirrorCanonicalRecord(records map[string]canonicalSkillRecord, target Skill
 	return canonicalSkillRecord{}, false
 }
 
+// unmanagedProjectSameNameConflict 构造项目 skill 同名冲突。
 func unmanagedProjectSameNameConflict(target SkillMirrorTarget, record canonicalSkillRecord, name, mirrorDir, mirrorHash string, manifestTargetMismatch bool) (SkillMirrorConflict, bool, error) {
 	canonicalHash, err := stableMirrorDirectoryHash(record.Dir)
 	if err != nil {
@@ -328,6 +343,7 @@ func unmanagedProjectSameNameConflict(target SkillMirrorTarget, record canonical
 	return conflict, true, nil
 }
 
+// unmanagedProviderSkillConflict 构造 provider skill 同名冲突。
 func unmanagedProviderSkillConflict(target SkillMirrorTarget, record canonicalSkillRecord, name, mirrorDir, mirrorHash string, canonicalExists, manifestTargetMismatch bool) SkillMirrorConflict {
 	canonicalID := ""
 	if canonicalExists {
@@ -421,6 +437,7 @@ func targetPersonalConflictType(target SkillMirrorTarget, record canonicalSkillR
 	return personalSkillTypeUser
 }
 
+// managedMirrorConflict 构造已托管 mirror 的冲突信息。
 func managedMirrorConflict(target SkillMirrorTarget, entry SkillMirrorEntry, record canonicalSkillRecord, name, mirrorDir, mirrorHash string, canonicalExists bool) (SkillMirrorConflict, error) {
 	canonicalHash := entry.CanonicalHash
 	if canonicalExists {
@@ -476,6 +493,7 @@ func readTargetManifest(target SkillMirrorTarget) (SkillMirrorManifest, error) {
 	return loadSkillMirrorManifest(filepath.Join(target.Root, skillMirrorManifestFile), target)
 }
 
+// skillMirrorNames 列出 mirror 中已有的 skill 名称。
 func skillMirrorNames(root string) ([]string, error) {
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -525,6 +543,7 @@ func replaceSkillDirFromMirror(sourceDir, targetDir string) error {
 	return replaceSkillDirFromMirrorWithCopy(sourceDir, targetDir, copySkillDir)
 }
 
+// replaceSkillDirFromMirrorWithCopy 用 mirror 副本替换目标 skill 目录。
 func replaceSkillDirFromMirrorWithCopy(sourceDir, targetDir string, copyDir func(string, string) (int, int64, error)) error {
 	if err := os.MkdirAll(filepath.Dir(targetDir), 0o755); err != nil {
 		return err
@@ -579,6 +598,7 @@ func mirrorBackupPathForTargetDir(targetDir, leaf string) string {
 	return filepath.Join(filepath.Dir(root), skillMirrorBackupDirName, filepath.Base(root), leaf)
 }
 
+// validateExistingMirrorRoot 校验已有 mirror 根目录可被当前项目使用。
 func validateExistingMirrorRoot(target SkillMirrorTarget) error {
 	if err := validateSkillMirrorTarget(target); err != nil {
 		return err

@@ -22,6 +22,7 @@ type inspectParams struct {
 	filePositionParams
 }
 
+// NewInspectHandler 创建inspect处理器。
 func NewInspectHandler(registry lspmanager.Registry) ToolHandler {
 	return newManagerTool("inspect", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req inspectParams) (any, error) {
 		filePath, position, err := resolveFilePositionRequest(ctx, req.filePositionParams)
@@ -142,6 +143,7 @@ func extractHoverValue(value any) string {
 	return extractHoverFallbackValue(value)
 }
 
+// extractHoverDirectValue 提取悬停direct值。
 func extractHoverDirectValue(value any) (string, bool) {
 	switch typed := value.(type) {
 	case nil:

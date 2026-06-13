@@ -4,6 +4,11 @@ const DEFAULT_SUMMARY_LIMIT = 4000;
 const PER_ITEM_FIELD_LIMIT = 280;
 const LONG_FIELD_LIMIT = 600;
 
+/*
+ * 这里生成继承会话的背景说明，不生成用户可见消息。
+ * 摘要取首条、plan 和最近消息，shared files 另外附上。
+ */
+
 function textValue(value) {
   return (value || '').toString().trim();
 }

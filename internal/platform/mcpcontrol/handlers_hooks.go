@@ -58,6 +58,7 @@ func handleHookPending(
 	)
 }
 
+// resolveHookPendingAgentID 解析hook待处理代理ID。
 func resolveHookPendingAgentID(instance *ToolInstance, req dto.HookPendingRequest) (string, error) {
 	instanceAgentID := ""
 	if instance != nil {
@@ -96,6 +97,7 @@ func resolveCurrentRegisteredInstance(ctx context.Context, registry *ToolRegistr
 	return resolveRegisteredInstance(registry, lease, false)
 }
 
+// lookupLeaseByServer 按服务端处理lookup租约。
 func (r *ToolRegistry) lookupLeaseByServer(server *jrpc2.Server) (LeaseKey, bool) {
 	if r == nil || server == nil {
 		return LeaseKey{}, false

@@ -21,6 +21,7 @@ var defaultCapabilityRoots = []string{
 
 const capabilityManifestPath = "docs/doc/codemap/capability-contract/capability_manifest.json"
 
+// main 解析参数并执行命令行入口流程。
 func main() {
 	check := flag.Bool("check", false, "verify generated capability manifest without modifying the worktree")
 	rootsFlag := flag.String("roots", strings.Join(defaultCapabilityRoots, ","), "comma-separated roots to scan")
@@ -106,6 +107,7 @@ func existingCapabilityGeneratedAt(path string) (string, bool) {
 	return strings.TrimSpace(manifest.GeneratedAt), true
 }
 
+// findRepoRoot 查找仓库根目录。
 func findRepoRoot(start string) (string, error) {
 	dir, err := filepath.Abs(start)
 	if err != nil {

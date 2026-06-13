@@ -34,6 +34,7 @@ func parseGoWorkModuleRoots(goWorkPath string) ([]string, error) {
 	return parseGoWorkModuleRootsFallback(goWorkPath)
 }
 
+// parseGoWorkModuleRootsWithGoCommand 解析带go命令的gowork模块根目录。
 func parseGoWorkModuleRootsWithGoCommand(goWorkPath string) ([]string, error) {
 	cmd := hiddenexec.Command("go", "work", "edit", "-json", goWorkPath)
 	cmd.Dir = filepath.Dir(goWorkPath)
@@ -95,6 +96,7 @@ func goWorkFields(rawLine string) []string {
 	return tokenizeGoWorkLine(rawLine)
 }
 
+// tokenizeGoWorkLine 处理tokenizegowork行。
 func tokenizeGoWorkLine(rawLine string) []string {
 	line := strings.TrimSpace(rawLine)
 	tokens := make([]string, 0, 4)
@@ -200,6 +202,7 @@ func splitGoWorkUseToken(field string) []string {
 	return tokens
 }
 
+// appendGoWorkUseRoot 追加goworkuse根目录。
 func appendGoWorkUseRoot(roots []string, workDir, raw string) []string {
 	entry := strings.TrimSpace(raw)
 	if unquoted, err := strconv.Unquote(entry); err == nil {
@@ -219,6 +222,7 @@ func appendGoWorkUseRoot(roots []string, workDir, raw string) []string {
 	return roots
 }
 
+// resolveStartDir 解析起点目录。
 func resolveStartDir(absPath string) (string, error) {
 	if strings.EqualFold(filepath.Base(absPath), "go.mod") {
 		return filepath.Dir(absPath), nil
@@ -236,6 +240,7 @@ func resolveStartDir(absPath string) (string, error) {
 	}
 }
 
+// absolutePathFromURI 从URI处理absolute路径。
 func absolutePathFromURI(uri string) (string, error) {
 	if strings.TrimSpace(uri) == "" {
 		return "", ErrDocumentTargetEmpty

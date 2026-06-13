@@ -37,6 +37,7 @@ type manifestEntry struct {
 	PackageSHA256 string `json:"package_sha256"`
 }
 
+// WriteManaged 写入managed。
 func WriteManaged(target, version, assetName, sourceSHA256, codexPath, executableName string) error {
 	sourceSHA256, err := normalizeSHA256(sourceSHA256)
 	if err != nil {
@@ -72,6 +73,7 @@ func WriteManaged(target, version, assetName, sourceSHA256, codexPath, executabl
 	return nil
 }
 
+// VerifyManaged 验证managed。
 func VerifyManaged(ctx context.Context, target, expectedSourceSHA256, executableName string, verifier Verifier) (string, error) {
 	manifest, expectedSourceSHA256, err := readExpected(target, expectedSourceSHA256)
 	if err != nil {
@@ -88,6 +90,7 @@ func VerifyManaged(ctx context.Context, target, expectedSourceSHA256, executable
 	return binaryPath, nil
 }
 
+// VerifyBundled 验证bundled。
 func VerifyBundled(ctx context.Context, binaryPath string, verifier Verifier) error {
 	manifestPath, relPath, err := bundledInfo(binaryPath)
 	if err != nil {
@@ -157,6 +160,7 @@ func validateBundled(manifest File, expectedRelPath string) (string, error) {
 	return packageSHA256, nil
 }
 
+// verifyBinary 验证二进制。
 func verifyBinary(ctx context.Context, kind, binaryPath, packageSHA256 string, verifier Verifier) error {
 	if verifier == nil {
 		return fmt.Errorf("%s Codex verifier is required", kind)
@@ -190,6 +194,7 @@ func read(path, kind string) (File, error) {
 	return manifest, nil
 }
 
+// ManagedBinaryPath 处理managed二进制路径。
 func ManagedBinaryPath(executableName string) string {
 	return filepath.ToSlash(filepath.Join("codex_cli_bin", "bin", executableName))
 }

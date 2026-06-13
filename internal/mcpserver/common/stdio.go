@@ -30,6 +30,7 @@ type StdioTransport struct {
 	writeMu sync.Mutex
 }
 
+// NewStdioTransport 创建stdio传输。
 func NewStdioTransport(stdin io.Reader, stdout io.Writer) *StdioTransport {
 	transport := &StdioTransport{
 		reader: bufio.NewReader(stdin),
@@ -41,6 +42,7 @@ func NewStdioTransport(stdin io.Reader, stdout io.Writer) *StdioTransport {
 	return transport
 }
 
+// Close 关闭MCP 服务资源。
 func (t *StdioTransport) Close() error {
 	if t == nil || t.closer == nil {
 		return nil
@@ -48,6 +50,7 @@ func (t *StdioTransport) Close() error {
 	return t.closer.Close()
 }
 
+// ReadMessage 读取消息。
 func (t *StdioTransport) ReadMessage() (json.RawMessage, error) {
 	if err := t.ensureMode(); err != nil {
 		pkglogger.Warn("mcp stdio: read mode detection failed", "error", err)
@@ -67,6 +70,7 @@ func (t *StdioTransport) ReadMessage() (json.RawMessage, error) {
 	return msg, err
 }
 
+// WriteMessage 写入消息。
 func (t *StdioTransport) WriteMessage(payload any) error {
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -94,6 +98,7 @@ func (t *StdioTransport) WriteMessage(payload any) error {
 	return flushWriter(t.writer)
 }
 
+// ensureMode 确保模式。
 func (t *StdioTransport) ensureMode() error {
 	if t.mode != modeUnknown {
 		return nil
@@ -127,6 +132,7 @@ func (t *StdioTransport) readRaw() (json.RawMessage, error) {
 	return append(json.RawMessage(nil), raw...), nil
 }
 
+// readFramed 读取framed。
 func (t *StdioTransport) readFramed() (json.RawMessage, error) {
 	length := -1
 	for {

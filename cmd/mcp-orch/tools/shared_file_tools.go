@@ -33,12 +33,14 @@ type sharedFileDTO struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// HandleSharedFileRead 处理shared文件read。
 func HandleSharedFileRead(store sharedfilestore.Store) ToolHandler {
 	return makeHandler(store, "shared file store", func(ctx context.Context, in sharedFileReadInput) (sharedFileDTO, error) {
 		return readSharedFile(ctx, store, in)
 	})
 }
 
+// HandleSharedFileWrite 处理shared文件write。
 func HandleSharedFileWrite(store sharedfilestore.Store) ToolHandler {
 	return makeHandler(store, "shared file store", func(ctx context.Context, in sharedFileWriteInput) (sharedFileDTO, error) {
 		return writeSharedFile(ctx, store, in)
@@ -78,6 +80,7 @@ func readSharedFile(ctx context.Context, store sharedfilestore.Store, input shar
 	return sharedFileFromStore(*file), nil
 }
 
+// writeSharedFile 写入shared文件。
 func writeSharedFile(ctx context.Context, store sharedfilestore.Store, input sharedFileWriteInput) (sharedFileDTO, error) {
 	if err := requireDependency(store, "shared file store"); err != nil {
 		return sharedFileDTO{}, err

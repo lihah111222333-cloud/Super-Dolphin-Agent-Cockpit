@@ -13,10 +13,12 @@ const DefaultManifestFileLimit = 200
 
 type ManifestBuilder struct{ MaxFiles int }
 
+// NewManifestBuilder 创建manifest构建器。
 func NewManifestBuilder() *ManifestBuilder {
 	return &ManifestBuilder{MaxFiles: DefaultManifestFileLimit}
 }
 
+// BuildManifest 构建manifest。
 func (b *ManifestBuilder) BuildManifest(memoryRoot string) ([]MemoryEntry, error) {
 	entries, err := ScanHeadersSafe(memoryRoot)
 	if err != nil {
@@ -35,6 +37,7 @@ func (b *ManifestBuilder) maxFiles() int {
 	return b.MaxFiles
 }
 
+// ScanHeadersSafe 扫描头部safe。
 func ScanHeadersSafe(memoryRoot string) ([]MemoryEntry, error) {
 	root := strings.TrimSpace(memoryRoot)
 	if root == "" {
@@ -69,6 +72,7 @@ func ScanHeadersSafe(memoryRoot string) ([]MemoryEntry, error) {
 	return entries, nil
 }
 
+// manifestEntryFromPathSafe 从路径safe处理manifest条目。
 func manifestEntryFromPathSafe(root, path string, d fs.DirEntry, walkErr error) (MemoryEntry, bool) {
 	if walkErr != nil || d == nil || d.IsDir() || filepath.Ext(path) != ".md" || filepath.Base(path) == memoryIndexFileName {
 		return MemoryEntry{}, false

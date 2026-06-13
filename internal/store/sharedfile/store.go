@@ -33,16 +33,20 @@ type store struct {
 	emitSharedFilesChanged func(uidto.UISharedFilesChanged)
 }
 
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
+// NewStoreWithConfig 创建带配置的存储。
 func NewStoreWithConfig(q *sqlc.Queries, cfg sharedfilefs.Config) Store {
 	return &store{q: q, cfg: cfg}
 }
 
+// NewStoreWithConfigAndEmitter 创建带配置emitter的存储。
 func NewStoreWithConfigAndEmitter(q *sqlc.Queries, cfg sharedfilefs.Config, emit func(uidto.UISharedFilesChanged)) Store {
 	return &store{q: q, cfg: cfg, emitSharedFilesChanged: emit}
 }
 
+// Get 读取sharedfile存储。
 func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 	cleaned, err := sharedfilepath.ValidateReadPath(path)
 	if err != nil {
@@ -81,6 +85,7 @@ func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 	return &mapped, nil
 }
 
+// Upsert 新增或更新记录。
 func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, error) {
 	cleaned, err := sharedfilepath.ValidateWritePath(params.Path)
 	if err != nil {
@@ -106,6 +111,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, e
 	return &mapped, nil
 }
 
+// Delete 删除sharedfile存储。
 func (s *store) Delete(ctx context.Context, path string) (int64, error) {
 	cleaned, err := sharedfilepath.ValidateReadPath(path)
 	if err != nil {
@@ -130,6 +136,7 @@ func (s *store) Delete(ctx context.Context, path string) (int64, error) {
 	return count, nil
 }
 
+// List 列出sharedfile存储。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, error) {
 	rows, err := s.q.ListSharedFiles(ctx, sqlc.ListSharedFilesParams{
 		Column1: filter.Prefix,

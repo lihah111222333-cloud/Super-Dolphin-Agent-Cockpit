@@ -32,17 +32,20 @@ type MemoryEntrypointProvider struct {
 // NewEntrypointProvider returns a MemoryEntrypointProvider wired to the
 // shared memory config and (optionally) the team memory manager. Either may
 // be nil; the provider is fully nil-safe and degrades to "no entrypoint".
+// NewEntrypointProvider 创建entrypointprovider。
 func NewEntrypointProvider(cfg *Config, team *TeamMemoryManager, logger *slog.Logger) *MemoryEntrypointProvider {
 	return &MemoryEntrypointProvider{cfg: memoryConfig(cfg), team: team, logger: logger}
 }
 
 // SectionName implements contract.DynamicSectionProvider.
+// SectionName 处理section名称。
 func (p *MemoryEntrypointProvider) SectionName() string {
 	return contract.DynamicSectionMemoryEntrypoint
 }
 
 // Resolve implements contract.DynamicSectionProvider. It runs only at
 // session start. Child agents use the prompt system for role-specific context.
+// Resolve 解析记忆。
 func (p *MemoryEntrypointProvider) Resolve(_ context.Context, input contract.SectionContext) (*string, error) {
 	if p == nil || input.Start == nil || input.Turn != nil {
 		return nil, nil
@@ -79,6 +82,7 @@ const (
 //
 // Rendering uses the relative file name "MEMORY.md" instead of the full
 // absolute path so the OS user / home prefix is not leaked into the prompt.
+// loadEntrypointBlock 加载entrypointblock。
 func (p *MemoryEntrypointProvider) loadEntrypointBlock(root, source string) string {
 	root = strings.TrimSpace(root)
 	if root == "" {

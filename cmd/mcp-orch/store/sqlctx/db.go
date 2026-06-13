@@ -16,6 +16,7 @@ type txBeginner interface {
 }
 
 // WithTx rebinds the current query set onto a pool-backed transaction.
+// WithTx 设置tx。
 func WithTx(ctx context.Context, db sqlc.DBTX, q *sqlc.Queries, fn func(txq *sqlc.Queries, txdb sqlc.DBTX) error) error {
 	if db == nil || q == nil {
 		return errors.New("sqlc queries are not initialized")
@@ -30,6 +31,7 @@ func WithTx(ctx context.Context, db sqlc.DBTX, q *sqlc.Queries, fn func(txq *sql
 }
 
 // WithTxOrReuse runs fn in the current transaction when one is already bound.
+// WithTxOrReuse 设置txreuse。
 func WithTxOrReuse(ctx context.Context, db sqlc.DBTX, q *sqlc.Queries, fn func(txq *sqlc.Queries, txdb sqlc.DBTX) error) error {
 	if db == nil || q == nil {
 		return errors.New("sqlc queries are not initialized")

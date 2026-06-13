@@ -34,6 +34,7 @@ type tracedSession struct {
 	tracer   *observability.Service
 }
 
+// StartTurn 启动turn。
 func (s *tracedSession) StartTurn(ctx context.Context, req dto.TurnRequest) (handle contract.TurnHandle, err error) {
 	started := time.Now()
 	defer func() {

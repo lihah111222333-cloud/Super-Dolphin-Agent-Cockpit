@@ -12,11 +12,13 @@ import (
 	"strings"
 )
 
+// Content 处理内容。
 func Content(content string) string {
 	sum := sha256.Sum256([]byte(content))
 	return hex.EncodeToString(sum[:])
 }
 
+// Dir 处理目录。
 func Dir(root string) (string, error) {
 	var parts []string
 	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
@@ -43,6 +45,7 @@ func Dir(root string) (string, error) {
 	return Content(strings.Join(parts, "\x00")), nil
 }
 
+// ExistingDir 处理existing目录。
 func ExistingDir(root string) (string, error) {
 	hash, err := Dir(root)
 	switch {

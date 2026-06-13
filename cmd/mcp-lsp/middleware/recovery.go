@@ -11,6 +11,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// Recovery 捕获 panic 并转成工具错误。
 func Recovery(logger *slog.Logger, toolName ...string) Middleware {
 	if logger == nil {
 		logger = pkglogger.Get()

@@ -4,6 +4,7 @@ import "strings"
 
 // EnsureLoopbackNoProxy preserves outbound proxy env while forcing local
 // app-server and MCP traffic to bypass that proxy.
+// EnsureLoopbackNoProxy 确保loopbacknoproxy。
 func EnsureLoopbackNoProxy(env []string) []string {
 	const loopbacks = "127.0.0.1,localhost,::1"
 	var existing []string
@@ -40,6 +41,7 @@ func splitEnv(kv string) (string, string, bool) {
 	return strings.TrimSpace(kv[:idx]), kv[idx+1:], true
 }
 
+// mergeCSV 合并csv。
 func mergeCSV(parts ...string) string {
 	seen := make(map[string]struct{}, 8)
 	out := make([]string, 0, 8)

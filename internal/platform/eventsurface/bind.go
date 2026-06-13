@@ -79,6 +79,7 @@ const (
 
 type PublishFunc func(method string, payload any)
 
+// Bind 绑定平台eventsurface。
 func Bind(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish PublishFunc) []context.CancelFunc {
 	if dispatcher == nil || publish == nil {
 		if logger != nil {
@@ -129,6 +130,7 @@ func taskNodeStatusChangedPayload(ev taskdto.TaskNodeStatusChanged) map[string]a
 	return payload
 }
 
+// bindCore 绑定core。
 func bindCore(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish PublishFunc) []context.CancelFunc {
 	return []context.CancelFunc{
 		bus.ResilientSubscribe(dispatcher, func(ev agentdto.StateChanged) {

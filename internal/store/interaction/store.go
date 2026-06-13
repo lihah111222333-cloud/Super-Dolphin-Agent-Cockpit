@@ -21,8 +21,10 @@ type store struct {
 	q querier
 }
 
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
+// Create 创建interaction存储。
 func (s *store) Create(ctx context.Context, interaction Interaction) (*Interaction, error) {
 	row, err := s.q.CreateInteraction(ctx, sqlc.CreateInteractionParams{
 		ThreadID:       interaction.ThreadID,
@@ -41,6 +43,7 @@ func (s *store) Create(ctx context.Context, interaction Interaction) (*Interacti
 	return &mapped, nil
 }
 
+// Get 读取interaction存储。
 func (s *store) Get(ctx context.Context, id int64) (*Interaction, error) {
 	row, err := s.q.GetInteraction(ctx, sqlc.GetInteractionParams{ID: id})
 	if err != nil {
@@ -50,6 +53,7 @@ func (s *store) Get(ctx context.Context, id int64) (*Interaction, error) {
 	return &mapped, nil
 }
 
+// List 列出interaction存储。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]Interaction, error) {
 	rows, err := s.q.ListInteractions(ctx, sqlc.ListInteractionsParams{Column1: filter.ThreadID, Column2: filter.Keyword, Limit: filter.Limit})
 	if err != nil {
@@ -62,6 +66,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]Interaction, err
 	return interactions, nil
 }
 
+// Review 记录交互评审结果。
 func (s *store) Review(ctx context.Context, input ReviewInput) (*Interaction, error) {
 	row, err := s.q.ReviewInteraction(ctx, sqlc.ReviewInteractionParams{Status: input.Status, ReviewedBy: input.ReviewedBy, ReviewNote: input.ReviewNote, ID: input.ID})
 	if err != nil {

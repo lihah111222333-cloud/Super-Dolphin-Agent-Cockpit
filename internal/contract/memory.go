@@ -23,6 +23,7 @@ const (
 	MemoryScopeLocal   MemoryScope = "local"
 )
 
+// ParseMemoryScope 解析记忆作用域。
 func ParseMemoryScope(raw string) MemoryScope {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "", string(MemoryScopeUser):
@@ -38,6 +39,7 @@ func ParseMemoryScope(raw string) MemoryScope {
 	}
 }
 
+// Valid 判断跨模块契约是否可用。
 func (s MemoryScope) Valid() bool {
 	switch s {
 	case MemoryScopeUser, MemoryScopeTeam, MemoryScopeProject, MemoryScopeLocal:
@@ -57,6 +59,7 @@ const (
 	MemoryTypeReference MemoryType = "reference"
 )
 
+// ParseMemoryType 解析记忆type。
 func ParseMemoryType(raw string) MemoryType {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "user":
@@ -74,6 +77,7 @@ func ParseMemoryType(raw string) MemoryType {
 	}
 }
 
+// IsKnown 判断known是否可用。
 func (t MemoryType) IsKnown() bool {
 	switch ParseMemoryType(string(t)) {
 	case MemoryTypeUser, MemoryTypeFeedback, MemoryTypeProject, MemoryTypeReference:
@@ -156,6 +160,7 @@ type AgentMemoryError struct {
 	Err  error
 }
 
+// Error 返回错误文本。
 func (e AgentMemoryError) Error() string {
 	if e.Err != nil {
 		return e.Err.Error()
@@ -163,12 +168,15 @@ func (e AgentMemoryError) Error() string {
 	return e.Code
 }
 
+// Unwrap 返回底层错误。
 func (e AgentMemoryError) Unwrap() error { return e.Err }
 
+// NewAgentMemoryError 创建代理记忆错误。
 func NewAgentMemoryError(code string, err error) error {
 	return AgentMemoryError{Code: strings.TrimSpace(code), Err: err}
 }
 
+// AgentMemoryErrorCode 处理代理记忆错误代码。
 func AgentMemoryErrorCode(err error) string {
 	if err == nil {
 		return ""

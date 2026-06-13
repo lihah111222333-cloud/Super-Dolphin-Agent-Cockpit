@@ -32,6 +32,7 @@ func teamSyncTargetPath(root, rel string) (string, string, error) {
 	return normalized, validated, nil
 }
 
+// scanTeamMarkdownFiles 扫描teammarkdown文件。
 func scanTeamMarkdownFiles(root string) (map[string]teamSyncLocalFile, error) {
 	root, ok, err := validateTeamSyncScanRoot(root)
 	if err != nil {
@@ -77,6 +78,7 @@ func validateTeamSyncScanRoot(root string) (string, bool, error) {
 	return root, true, nil
 }
 
+// readTeamSyncMarkdownFile 读取teamsyncmarkdown文件。
 func readTeamSyncMarkdownFile(root, path string, d fs.DirEntry, walkErr error) (string, teamSyncLocalFile, bool, error) {
 	if walkErr != nil {
 		return "", teamSyncLocalFile{}, false, walkErr
@@ -110,6 +112,7 @@ func readTeamSyncMarkdownFile(root, path string, d fs.DirEntry, walkErr error) (
 	}, true, nil
 }
 
+// shouldIgnoreTeamSyncPath 判断ignoreteamsync路径是否可用。
 func shouldIgnoreTeamSyncPath(path string) bool {
 	path = strings.TrimSpace(filepath.ToSlash(path))
 	if path == "" {
@@ -141,6 +144,7 @@ func writeTeamSyncFile(path, content string) error {
 	return os.Rename(stagePath, path)
 }
 
+// pruneEmptyTeamDirs 裁剪emptyteam目录。
 func pruneEmptyTeamDirs(root string) error {
 	var dirs []string
 	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -164,6 +168,7 @@ func pruneEmptyTeamDirs(root string) error {
 	return nil
 }
 
+// diffServerChecksums 处理diff服务端checksums。
 func diffServerChecksums(local map[string]teamSyncLocalFile, server map[string]string) (map[string]string, []string) {
 	uploads := map[string]string{}
 	for path, file := range local {
@@ -231,6 +236,7 @@ func checksumContent(content []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// normalizeRemoteChecksums 规范化remotechecksums。
 func normalizeRemoteChecksums(checksums map[string]string, files map[string]TeamSyncFile) map[string]string {
 	normalized := cloneChecksumMap(checksums)
 	if len(files) == 0 {

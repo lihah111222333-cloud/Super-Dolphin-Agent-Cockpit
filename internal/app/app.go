@@ -45,6 +45,7 @@ const (
 	codexRelayPrivilegedAPIKeyEnv = "SUPER_DOLPHIN_CODEX_RELAY_API_KEY"
 )
 
+// NewLogger 创建日志器。
 func NewLogger() *slog.Logger {
 	info := currentBuildInfo()
 	pkglogger.ConfigureServiceFromEnv(info.Version)
@@ -94,6 +95,7 @@ func currentBuildInfo() buildInfo {
 	return info
 }
 
+// applyBuildSetting 应用buildsetting。
 func applyBuildSetting(info *buildInfo, key, value string) {
 	if info == nil {
 		return
@@ -114,11 +116,13 @@ func applyBuildSetting(info *buildInfo, key, value string) {
 	}
 }
 
+// NewApp 创建app。
 func NewApp() *fx.App {
 	owner := newAppOwnerContext(context.Background())
 	return newFXApp(fx.Supply(fx.Annotate(owner, fx.As(new(RootCtxProvider)))))
 }
 
+// Run 启动应用装配后台流程。
 func Run() error {
 	owner := newAppOwnerContext(context.Background())
 	defer owner.Cancel()
@@ -127,6 +131,7 @@ func Run() error {
 
 // RunDesktop starts the desktop application with the given frontend filesystem.
 // When frontendFS is nil the wails module falls back to a built-in placeholder.
+// RunDesktop 运行desktop。
 func RunDesktop(frontendFS fs.FS) error {
 	owner := newAppOwnerContext(context.Background())
 	defer owner.Cancel()
@@ -176,6 +181,7 @@ func runDesktopPreflight(ctx context.Context) error {
 	return nil
 }
 
+// ensurePackagedCodexBootstrap 确保packagedcodex启动。
 func ensurePackagedCodexBootstrap(ctx context.Context, projectRoot string, d appDeps) error {
 	required, err := packagedCodexRelayRequired(projectRoot)
 	if err != nil {
@@ -217,6 +223,7 @@ func packagedCodexRelayRequired(projectRoot string) (bool, error) {
 	return false, fmt.Errorf("inspect packaged runtime manifest: %w", err)
 }
 
+// codexRelayBootstrapEnv 处理codexrelay启动env。
 func codexRelayBootstrapEnv() (baseURL string, bootstrapToken string, configured bool, err error) {
 	if strings.TrimSpace(os.Getenv(codexRelayPrivilegedAPIKeyEnv)) != "" {
 		return "", "", false, fmt.Errorf("%s is a privileged relay API key env and must not be packaged; use %s", codexRelayPrivilegedAPIKeyEnv, codexRelayBootstrapTokenEnv)
@@ -304,6 +311,7 @@ type shutdownWatcher struct {
 	once sync.Once
 }
 
+// StopAndWait 停止wait。
 func (w *shutdownWatcher) StopAndWait() {
 	if w == nil {
 		return
@@ -327,6 +335,7 @@ func newDesktopFXStopper(parent context.Context, app *fx.App) *desktopFXStopper 
 	}
 }
 
+// Stop 停止应用装配流程。
 func (s *desktopFXStopper) Stop() error {
 	if s == nil {
 		return nil
@@ -353,6 +362,7 @@ func watchFXShutdown(ctx context.Context, app *fx.App, lifecycle *uiwails.WailsL
 	return watcher
 }
 
+// runShutdownWatcher 运行shutdownwatcher。
 func runShutdownWatcher(ctx context.Context, done <-chan os.Signal, stop <-chan struct{}, stopBackend func() error, onStopped func(error)) {
 	select {
 	case <-done:

@@ -78,6 +78,7 @@ func promptIntentNormalizeSourceProfile(value string) string {
 	}
 }
 
+// promptIntentInferSourceProfile 处理promptintentinfersourceprofile。
 func promptIntentInferSourceProfile(rawText string) string {
 	switch {
 	case promptIntentLooksLikeExternalSystemPrompt(rawText):
@@ -99,6 +100,7 @@ func promptIntentInferSourceProfile(rawText string) string {
 	}
 }
 
+// promptIntentSourceFactCategories 处理promptintentsourcefactcategories。
 func promptIntentSourceFactCategories(facts []SourceFact) map[string]bool {
 	categories := map[string]bool{}
 	for _, fact := range facts {
@@ -126,6 +128,7 @@ func missingPromptIntentSourceFactCategories(
 	return missing
 }
 
+// promptIntentRequiredSourceFactCategories 处理promptintent必需sourcefactcategories。
 func promptIntentRequiredSourceFactCategories(profile, rawText string) []promptIntentSourceFactRequirement {
 	switch profile {
 	case promptIntentSourceProfileExternalPrompt:
@@ -350,6 +353,7 @@ func promptIntentNormalizeSourceFactCategory(value string) string {
 	return category
 }
 
+// promptIntentSourceFactApplicationIssues 处理promptintentsourcefactapplicationissues。
 func promptIntentSourceFactApplicationIssues(card Card) []Issue {
 	target := promptIntentSourceFactTargetText(card)
 	missing := make([]string, 0, len(card.SourceFacts))
@@ -402,6 +406,7 @@ func promptIntentSourceFactTargetText(card Card) string {
 	}, "\n")
 }
 
+// promptIntentSourceFactApplied 处理promptintentsourcefactapplied。
 func promptIntentSourceFactApplied(summary, target string) bool {
 	summary = normalizePromptIntentText(summary)
 	target = normalizePromptIntentText(target)
@@ -430,6 +435,7 @@ func promptIntentSourceFactApplied(summary, target string) bool {
 	return matches >= 2
 }
 
+// promptIntentSourceFactApplicationTerms 处理promptintentsourcefactapplicationterms。
 func promptIntentSourceFactApplicationTerms(text string) map[string]bool {
 	terms := map[string]bool{}
 	var ascii strings.Builder
@@ -493,6 +499,7 @@ func promptIntentSourceFactTermUseful(term string) bool {
 	return !ignored[term]
 }
 
+// promptIntentSourceFactCategoryAliases 处理promptintentsourcefactcategoryaliases。
 func promptIntentSourceFactCategoryAliases(category string) []string {
 	aliases := map[string][]string{
 		"column":         {"fields"},
@@ -539,6 +546,7 @@ func promptIntentSourceFactCategoryAliases(category string) []string {
 	return aliases[category]
 }
 
+// promptIntentSourceFactReadableCategory 处理promptintentsourcefactreadablecategory。
 func promptIntentSourceFactReadableCategory(category string) string {
 	labels := map[string]string{
 		"identity":        "外部身份",
@@ -591,6 +599,7 @@ func promptIntentSourceFactReadableCategory(category string) string {
 	return strings.TrimSpace(category)
 }
 
+// promptIntentSourceProfileLabel 处理promptintentsourceprofilelabel。
 func promptIntentSourceProfileLabel(profile string) string {
 	switch profile {
 	case promptIntentSourceProfileExternalPrompt:

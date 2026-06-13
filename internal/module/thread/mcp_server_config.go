@@ -10,6 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// mergeConfiguredMCPServers 合并configuredMCPservers。
 func mergeConfiguredMCPServers(ctx context.Context, snapshot contract.MCPSnapshot, provider contract.MCPServerConfigProvider, cwd string) (contract.MCPSnapshot, error) {
 	if provider == nil {
 		return snapshot, nil
@@ -40,6 +41,7 @@ func mcpServerConfigLookupRoot(buildCtx contract.BuildCtx) string {
 	return strings.TrimSpace(buildCtx.CWD)
 }
 
+// normalizePromptMCPServerConfigs 规范化promptMCP服务端配置。
 func normalizePromptMCPServerConfigs(input map[string]contract.MCPServerConfig) (map[string]contract.MCPServerConfig, []string, error) {
 	if len(input) == 0 {
 		return nil, nil, nil
@@ -111,6 +113,7 @@ func normalizePromptMCPHeaders(serverName string, input map[string]string) (map[
 	return out, nil
 }
 
+// firstMCPServerNameConflict 处理firstMCP服务端名称conflict。
 func firstMCPServerNameConflict(existing, additions []string) string {
 	if len(existing) == 0 || len(additions) == 0 {
 		return ""
@@ -143,6 +146,7 @@ func mergeMCPServerConfigMaps(base, extra map[string]contract.MCPServerConfig) m
 	return out
 }
 
+// copyMCPServerConfigs 复制MCP服务端配置。
 func copyMCPServerConfigs(out map[string]contract.MCPServerConfig, input map[string]contract.MCPServerConfig) {
 	for name, config := range input {
 		name = strings.TrimSpace(name)

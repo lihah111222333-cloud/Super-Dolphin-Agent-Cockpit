@@ -108,6 +108,7 @@ func publishPreparedWriteTimeMirrors(ctx context.Context, report SkillMirrorRepo
 	return report
 }
 
+// cleanupProjectSuppressedPersonalMirrors 处理cleanup项目suppressedpersonalmirrors。
 func (s *service) cleanupProjectSuppressedPersonalMirrors(cwd string, targets []SkillMirrorTarget, store *canonicalStore) (SkillMirrorReport, error) {
 	var report SkillMirrorReport
 	personalTargets := mirrorTargetsForScope(targets, skillScopePersonal)
@@ -132,6 +133,7 @@ func (s *service) cleanupProjectSuppressedPersonalMirrors(cwd string, targets []
 	return report, nil
 }
 
+// projectSuppressedPersonalRecords 处理项目suppressedpersonal记录。
 func projectSuppressedPersonalRecords(cwd string, records []canonicalSkillRecord) ([]canonicalSkillRecord, error) {
 	policy, err := readProjectSkillPolicy(cwd)
 	if err != nil {
@@ -153,6 +155,7 @@ func projectSuppressedPersonalRecords(cwd string, records []canonicalSkillRecord
 	return out, nil
 }
 
+// projectSuppressedPersonalSourceIDs 处理项目suppressedpersonalsourceids。
 func projectSuppressedPersonalSourceIDs(policy projectSkillPolicy) (map[string]struct{}, error) {
 	out := map[string]struct{}{}
 	for _, item := range policy.DisablePersonalForProject {
@@ -202,6 +205,7 @@ func cleanupSuppressedPersonalMirrorTarget(target SkillMirrorTarget, records []c
 	return report, nil
 }
 
+// cleanupSuppressedPersonalMirrorRecord 处理cleanupsuppressedpersonal镜像记录。
 func cleanupSuppressedPersonalMirrorRecord(target SkillMirrorTarget, record canonicalSkillRecord) (SkillMirrorReportItem, bool, error) {
 	mirrorDir := filepath.Join(target.Root, record.Name)
 	mirrorHash, exists, err := existingMirrorHash(mirrorDir)

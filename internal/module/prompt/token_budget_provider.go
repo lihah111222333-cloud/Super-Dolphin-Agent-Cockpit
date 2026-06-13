@@ -43,10 +43,12 @@ type TokenBudgetDecision struct {
 	Nudge              string
 }
 
+// SectionName 处理section名称。
 func (TokenBudgetProvider) SectionName() string {
 	return DynamicSectionTokenBudget
 }
 
+// Resolve 解析prompt。
 func (TokenBudgetProvider) Resolve(_ context.Context, input SectionContext) (*string, error) {
 	if !tokenBudgetEnabled(input.BuildCtx) {
 		return nil, nil
@@ -55,10 +57,12 @@ func (TokenBudgetProvider) Resolve(_ context.Context, input SectionContext) (*st
 	return &text, nil
 }
 
+// EvaluateTokenBudget 处理evaluate令牌budget。
 func (DefaultTokenBudgetBackstop) EvaluateTokenBudget(tracker *TokenBudgetTracker, budget, totalTokens int, childAgent bool) TokenBudgetDecision {
 	return evaluateTokenBudgetBackstop(tracker, budget, totalTokens, childAgent)
 }
 
+// evaluateTokenBudgetBackstop 处理evaluate令牌budgetbackstop。
 func evaluateTokenBudgetBackstop(tracker *TokenBudgetTracker, budget, totalTokens int, childAgent bool) TokenBudgetDecision {
 	if tracker == nil || childAgent || budget <= 0 {
 		return TokenBudgetDecision{}

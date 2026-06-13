@@ -35,6 +35,7 @@ type Flusher struct {
 
 // NewFlusher wires a Flusher with its collector and dependencies. now is
 // overridable for deterministic tests; defaults to time.Now.
+// NewFlusher 创建flusher。
 func NewFlusher(logger *slog.Logger, obs observation.Contract, store insightstore.Store, col *collector) *Flusher {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -55,6 +56,7 @@ var _ contract.Runner = (*Flusher)(nil)
 // before returning so a slow terminal is never lost silently on a normal
 // shutdown. A shutdown that blows past drainTimeout logs the leftover
 // count and returns ctx.Err().
+// Run 启动insight后台流程。
 func (f *Flusher) Run(ctx context.Context) error {
 	if f.collector == nil || f.collector.queue == nil {
 		// Nothing to drain; mirror the platformrunner.Runner contract and
@@ -80,6 +82,7 @@ func (f *Flusher) Run(ctx context.Context) error {
 // and flushes each to the store. Uses context.Background inside the
 // deadline so the per-signal DB call is not pre-cancelled by the parent
 // ctx that triggered shutdown.
+// drain 处理drain。
 func (f *Flusher) drain() {
 	if f.drainTimeout <= 0 {
 		return
@@ -147,6 +150,7 @@ func (f *Flusher) handle(ctx context.Context, sig flushSignal) {
 // handle (see handle for requeue semantics). Timestamps missing from
 // observation fall back to the signal.Timestamp so we never send
 // zero-valued timestamps through to the DB.
+// buildParams 构建params。
 func (f *Flusher) buildParams(sig flushSignal) (insightstore.UpsertParams, bool) {
 	term, termOk := f.obs.Terminal(sig.LocalTurnID)
 	if !termOk {

@@ -46,6 +46,7 @@ func (s *service) effectiveDAGRuntime() contract.DAGRuntime {
 	return s.orchestration
 }
 
+// ListDAGs 列出dags。
 func (s *service) ListDAGs(ctx context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error) {
 	filter.Status = strings.TrimSpace(filter.Status)
 	filter.Keyword = strings.TrimSpace(filter.Keyword)
@@ -60,6 +61,7 @@ func (s *service) ListDAGs(ctx context.Context, filter contract.ListDAGsFilter) 
 	return runtime.ListDAGs(ctx, filter)
 }
 
+// GetDAGDetail 读取 DAG 详情。
 func (s *service) GetDAGDetail(ctx context.Context, dagKey string) (*contract.DAGDetail, error) {
 	key := strings.TrimSpace(dagKey)
 	if key == "" {
@@ -79,6 +81,7 @@ func (s *service) GetDAGDetail(ctx context.Context, dagKey string) (*contract.DA
 	return &detail, nil
 }
 
+// ListDAGRuns 列出DAG运行记录。
 func (s *service) ListDAGRuns(ctx context.Context, dagKey, status string, limit int32) ([]contract.Run, error) {
 	key := strings.TrimSpace(dagKey)
 	if key == "" {
@@ -107,6 +110,7 @@ func (s *service) ListDAGRuns(ctx context.Context, dagKey, status string, limit 
 	return resp.Runs, nil
 }
 
+// GetDAGRun 读取DAG运行记录。
 func (s *service) GetDAGRun(ctx context.Context, runKey string) (contract.GetRunResponse, error) {
 	key := strings.TrimSpace(runKey)
 	if key == "" {
@@ -129,6 +133,7 @@ func (s *service) GetDAGRun(ctx context.Context, runKey string) (contract.GetRun
 	return resp, nil
 }
 
+// StartDAG 启动DAG。
 func (s *service) StartDAG(ctx context.Context, dagKey, triggerSource, idempotencyKey string) (contract.StartDAGResponse, error) {
 	runtime := s.effectiveDAGRuntime()
 	if runtime == nil {
@@ -152,6 +157,7 @@ func (s *service) StartDAG(ctx context.Context, dagKey, triggerSource, idempoten
 	})
 }
 
+// DispatchDAGNode 派发DAG节点。
 func (s *service) DispatchDAGNode(ctx context.Context, req contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {
 	runtime := s.effectiveDAGRuntime()
 	if runtime == nil {
@@ -184,6 +190,7 @@ func (s *service) DispatchDAGNode(ctx context.Context, req contract.DispatchNode
 	return dispatcher.DispatchNode(ctx, request)
 }
 
+// TerminateDAG 处理terminateDAG。
 func (s *service) TerminateDAG(ctx context.Context, dagKey, runKey, reason string) error {
 	runtime := s.effectiveDAGRuntime()
 	if runtime == nil {
@@ -208,6 +215,7 @@ func (s *service) TerminateDAG(ctx context.Context, dagKey, runKey, reason strin
 	})
 }
 
+// DeleteDAG 删除DAG。
 func (s *service) DeleteDAG(ctx context.Context, dagKey string) error {
 	runtime := s.effectiveDAGRuntime()
 	if runtime == nil {
@@ -224,6 +232,7 @@ func (s *service) DeleteDAG(ctx context.Context, dagKey string) error {
 	return deleter.DeleteDAG(ctx, contract.DeleteDAGRequest{DagKey: key})
 }
 
+// ApplyDAGOps 应用DAGops。
 func (s *service) ApplyDAGOps(ctx context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
 	runtime := s.effectiveDAGRuntime()
 	if runtime == nil {

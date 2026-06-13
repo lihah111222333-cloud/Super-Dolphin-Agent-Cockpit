@@ -17,6 +17,7 @@ import (
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 )
 
+// BindSessionGeneration 绑定线程会话代际，避免旧进程事件误写新会话。
 func (s *service) BindSessionGeneration(ctx context.Context, agentID string, generation uint64) error {
 	if generation == 0 {
 		return errors.New("session generation is required")
@@ -39,6 +40,8 @@ func (s *service) removeSession(agent *agentRuntime) {
 	agent.sessionGeneration = 0
 }
 
+// 这里从队列取 turn，并在锁内先推进 agent 状态。
+// 如果状态推进失败，要把 turn 放回去，避免丢任务。
 func (s *service) claimTurnWork(ctx context.Context) []turnWork {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -74,6 +77,7 @@ func (s *service) claimTurnWork(ctx context.Context) []turnWork {
 	return work
 }
 
+// 本地进程退出只处理一次；launchSeq 用来识别旧进程和重复事件。
 func (s *service) handleProcessExit(ctx context.Context, agentID string, launchSeq uint64, err error) {
 	s.mu.Lock()
 
@@ -146,6 +150,7 @@ func (s *service) handleProcessExitTransition(ctx context.Context, agent *agentR
 	}
 }
 
+// waitForProcessExit 等待子进程退出并处理超时。
 func (s *service) waitForProcessExit(ctx context.Context, agentID string, launchSeq uint64) error {
 	if launchSeq == 0 {
 		return nil
@@ -174,6 +179,7 @@ func (s *service) waitForProcessExit(ctx context.Context, agentID string, launch
 	}
 }
 
+// forceKillProcess 在温和停止失败后强制结束进程。
 func (s *service) forceKillProcess(agentID string, launchSeq uint64) error {
 	var (
 		cmd   *exec.Cmd
@@ -202,12 +208,15 @@ type runnerActor struct {
 	service *service
 }
 
+// NewRunnerActor 创建托管代理进程生命周期的 runner actor。
 func NewRunnerActor(logger *slog.Logger, service *service) platformrunner.Runner {
 	return &runnerActor{logger: logger, service: service}
 }
 
 const runnerShutdownDrainGrace = 30 * time.Second
 
+// 本地模式用这个 loop 消费 turn、处理进程退出、检查卡住的 agent。
+// remote 模式不注册它，turn 事件会从 launcher notify/hooks 回来。
 func (a *runnerActor) Run(ctx context.Context) error {
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
@@ -232,6 +241,8 @@ func (a *runnerActor) Run(ctx context.Context) error {
 	}
 }
 
+// stop 时先停 agent，再把已经在路上的退出事件处理完。
+// 否则 agentRuntime 可能卡在 stopping/provisioning。
 func (a *runnerActor) drainOnStop(exitEvents <-chan exitmonitor.Event) {
 	stopDone := make(chan struct{})
 	go func() {
@@ -279,6 +290,7 @@ func (a *runnerActor) drainOnStop(exitEvents <-chan exitmonitor.Event) {
 	a.flushRemainingExitEvents(exitEvents)
 }
 
+// flushRemainingExitEvents 在退出前补处理队列里的进程退出事件。
 func (a *runnerActor) flushRemainingExitEvents(exitEvents <-chan exitmonitor.Event) {
 	for {
 		select {
@@ -299,6 +311,7 @@ func (a *runnerActor) processTurnQueues(ctx context.Context) {
 	}
 }
 
+// recoverStalledAgents 恢复启动中断后卡住的代理状态。
 func (a *runnerActor) recoverStalledAgents(ctx context.Context, stallDetector *StallDetector) {
 	for _, agent := range a.service.listAgents() {
 		if !stallDetector.CheckStall(&agent) {

@@ -21,6 +21,7 @@ type Budget struct {
 	MaxBytes int
 }
 
+// ToolBudget 处理工具budget。
 func ToolBudget(toolName string) int {
 	if v, ok := defaultToolBudgets[toolName]; ok {
 		return v
@@ -28,6 +29,7 @@ func ToolBudget(toolName string) int {
 	return defaultOutputBudget
 }
 
+// WithOutputBudget 设置outputbudget。
 func WithOutputBudget(toolName string, next Handler, budget Budget) Handler {
 	if next == nil {
 		return nil
@@ -93,6 +95,7 @@ func structuredOverflow(toolName string, payload map[string]any, actualBytes, bu
 	}
 }
 
+// editOverflowEnvelope 处理编辑overflow包装。
 func editOverflowEnvelope(toolName string, payload map[string]any, actualBytes, budgetBytes int) map[string]any {
 	hint := lookupHint(toolName)
 	envelope := map[string]any{

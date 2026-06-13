@@ -340,6 +340,7 @@ func (g *errorPronePatternGuard) guardDSLTypeCoercionPattern() {
 // guardRetiredPromptClassifierPattern locks the PromptClassifier removal. The
 // router now relies on template match_when + harness dynamic sections; the old
 // forked Claude classifier must not re-enter the Go runtime surface.
+// guardRetiredPromptClassifierPattern 检查retiredpromptclassifierpattern。
 func (g *errorPronePatternGuard) guardRetiredPromptClassifierPattern() {
 	classifierFiles, err := filepath.Glob(filepath.Join(g.repoRoot, "internal", "module", "prompt", "classifier", "*.go"))
 	if err != nil {
@@ -436,6 +437,7 @@ func (g *errorPronePatternGuard) requireOrderInFunction(rel, name, note, before,
 	}
 }
 
+// functionBody 处理函数正文。
 func (g *errorPronePatternGuard) functionBody(rel, name string) (string, bool) {
 	content, ok := g.read(rel)
 	if !ok {

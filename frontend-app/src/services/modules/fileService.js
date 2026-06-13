@@ -8,6 +8,11 @@ import {
 import { adaptSharedFileDetail, adaptSharedFilesDashboard } from '../../adapters/fileAdapter.js';
 import { DEFAULT_REQUEST_TIMEOUT_MS, runServiceRequest, withRequestTimeout } from '../apiClient.js';
 
+/*
+ * file service 把 shared file 响应整理给页面用。
+ * 打开、删除、保存只转发后端结果。
+ */
+
 async function listSharedFilesDashboard() {
   return runServiceRequest(async () => {
     const response = await withRequestTimeout(

@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 )
 
+// Definition 处理定义。
 func (m *manager) Definition(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
 	return m.locationQuery(ctx, uri, protocol.MethodDefinition, protocol.DefinitionParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
@@ -16,6 +17,7 @@ func (m *manager) Definition(ctx context.Context, uri string, position protocol.
 	})
 }
 
+// Implementation 处理实现。
 func (m *manager) Implementation(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
 	return m.locationQuery(ctx, uri, protocol.MethodImplementation, protocol.ImplementationParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
@@ -23,6 +25,7 @@ func (m *manager) Implementation(ctx context.Context, uri string, position proto
 	})
 }
 
+// TypeDefinition 查找符号的类型定义。
 func (m *manager) TypeDefinition(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
 	return m.locationQuery(ctx, uri, protocol.MethodTypeDefinition, protocol.TypeDefinitionParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
@@ -30,6 +33,7 @@ func (m *manager) TypeDefinition(ctx context.Context, uri string, position proto
 	})
 }
 
+// Hover 处理悬停。
 func (m *manager) Hover(ctx context.Context, uri string, position protocol.Position) (*protocol.HoverResult, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodHover,
 		func(ref documentRef) any {
@@ -49,6 +53,7 @@ func (m *manager) Hover(ctx context.Context, uri string, position protocol.Posit
 	)
 }
 
+// SignatureHelp 处理签名帮助。
 func (m *manager) SignatureHelp(ctx context.Context, uri string, position protocol.Position) (*protocol.SignatureHelpResult, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodSignatureHelp,
 		func(ref documentRef) any {
@@ -68,6 +73,7 @@ func (m *manager) SignatureHelp(ctx context.Context, uri string, position protoc
 	)
 }
 
+// References 处理引用。
 func (m *manager) References(ctx context.Context, uri string, position protocol.Position, includeDeclaration bool) ([]protocol.LocationResult, error) {
 	return m.locationQuery(ctx, uri, protocol.MethodReferences, protocol.ReferenceParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
@@ -78,6 +84,7 @@ func (m *manager) References(ctx context.Context, uri string, position protocol.
 	})
 }
 
+// CallHierarchy 调用层级。
 func (m *manager) CallHierarchy(ctx context.Context, uri string, position protocol.Position, direction string) ([]protocol.CallHierarchyResult, error) {
 	return queryHierarchy(ctx, m, uri, protocol.MethodPrepareCallHierarchy, position, direction,
 		func(ctx context.Context, client Client, item protocol.CallHierarchyItem, direction string) (protocol.CallHierarchyResult, error) {
@@ -119,6 +126,7 @@ func wantCallDirection(direction, target string) bool {
 	return direction == "" || direction == target || direction == "both"
 }
 
+// TypeHierarchy 查询符号的类型层级。
 func (m *manager) TypeHierarchy(ctx context.Context, uri string, position protocol.Position, direction string) ([]protocol.TypeHierarchyResult, error) {
 	return queryHierarchy(ctx, m, uri, protocol.MethodPrepareTypeHierarchy, position, direction,
 		func(ctx context.Context, client Client, item protocol.TypeHierarchyItem, direction string) (protocol.TypeHierarchyResult, error) {
@@ -152,6 +160,7 @@ func (m *manager) resolveTypeDirections(ctx context.Context, client Client, item
 	})
 }
 
+// DocumentSymbol 读取文档符号列表。
 func (m *manager) DocumentSymbol(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error) {
 	ref, err := m.resolveDocumentRef(ctx, uri, "")
 	if err != nil {
@@ -171,6 +180,7 @@ func (m *manager) DocumentSymbol(ctx context.Context, uri string) ([]protocol.Do
 	)
 }
 
+// DocumentSymbolBestEffort 尽量读取文档符号，允许返回降级结果。
 func (m *manager) DocumentSymbolBestEffort(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error) {
 	ref, err := m.resolveDocumentRef(ctx, uri, "")
 	if err != nil {
@@ -195,6 +205,7 @@ func (m *manager) DocumentSymbolBestEffort(ctx context.Context, uri string) ([]p
 	return decodeDocumentSymbols(raw)
 }
 
+// WorkspaceSymbol 处理工作区符号。
 func (m *manager) WorkspaceSymbol(ctx context.Context, query string, languageID string) ([]protocol.WorkspaceSymbolResult, error) {
 	languageID = normalizeLanguageID(languageID)
 	if languageID == "" {
@@ -211,6 +222,7 @@ func (m *manager) WorkspaceSymbol(ctx context.Context, query string, languageID 
 	return decodeWorkspaceSymbols(raw)
 }
 
+// workspaceSymbolClient 处理工作区符号客户端。
 func (m *manager) workspaceSymbolClient(ctx context.Context, languageID string) (Client, error) {
 	if resolved, ok := resolvedLSPToolScopeFromContext(ctx); ok {
 		cfg, err := m.workspaceSymbolConfigFromResolvedScope(resolved, languageID)
@@ -240,6 +252,7 @@ func workspaceSymbolResolvedScopeNeedsBootstrap(resolved ResolvedLSPToolScope) b
 		target == resolved.ProjectRoot
 }
 
+// workspaceSymbolConfigFromResolvedScope 从已解析作用域处理工作区符号配置。
 func (m *manager) workspaceSymbolConfigFromResolvedScope(resolved ResolvedLSPToolScope, languageID string) (workspaceConfig, error) {
 	resolvedLanguageID := normalizeLanguageID(resolved.LanguageID)
 	if resolvedLanguageID == "" {
@@ -272,6 +285,7 @@ func (m *manager) workspaceSymbolConfigFromResolvedScope(resolved ResolvedLSPToo
 	return cfg, nil
 }
 
+// FoldingRange 处理折叠范围。
 func (m *manager) FoldingRange(ctx context.Context, uri string) ([]protocol.FoldingRange, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodFoldingRange,
 		func(ref documentRef) any {
@@ -290,6 +304,7 @@ func (m *manager) FoldingRange(ctx context.Context, uri string) ([]protocol.Fold
 	)
 }
 
+// SemanticTokens 处理语义令牌。
 func (m *manager) SemanticTokens(ctx context.Context, uri string) (*protocol.SemanticTokensResult, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodSemanticTokensFull,
 		func(ref documentRef) any {
@@ -311,6 +326,7 @@ func (m *manager) SemanticTokens(ctx context.Context, uri string) (*protocol.Sem
 	)
 }
 
+// Completion 处理补全。
 func (m *manager) Completion(ctx context.Context, uri string, position protocol.Position) (*protocol.CompletionList, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodCompletion,
 		func(ref documentRef) any {
@@ -324,6 +340,7 @@ func (m *manager) Completion(ctx context.Context, uri string, position protocol.
 	)
 }
 
+// Rename 处理重命名。
 func (m *manager) Rename(ctx context.Context, uri string, position protocol.Position, newName string) (*protocol.WorkspaceEdit, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodRename,
 		func(ref documentRef) any {
@@ -344,6 +361,7 @@ func (m *manager) Rename(ctx context.Context, uri string, position protocol.Posi
 	)
 }
 
+// CodeAction 请求当前范围内的代码动作。
 func (m *manager) CodeAction(ctx context.Context, uri string, rng protocol.Range, only []string) ([]protocol.CodeActionResult, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodCodeAction,
 		func(ref documentRef) any {
@@ -361,6 +379,7 @@ func (m *manager) CodeAction(ctx context.Context, uri string, rng protocol.Range
 	)
 }
 
+// Format 请求 LSP 格式化指定文档。
 func (m *manager) Format(ctx context.Context, uri string, options protocol.FormattingOptions) ([]protocol.TextEdit, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodFormatting,
 		func(ref documentRef) any {
@@ -380,6 +399,7 @@ func (m *manager) Format(ctx context.Context, uri string, options protocol.Forma
 	)
 }
 
+// Symbols 处理符号。
 func (m *manager) Symbols(absPath string) ([]protocol.DocumentSymbol, error) {
 	return m.DocumentSymbol(context.Background(), fileURIFromPath(absPath))
 }

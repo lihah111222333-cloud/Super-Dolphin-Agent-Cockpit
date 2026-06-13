@@ -27,6 +27,7 @@ type ApprovalCleanupRunner struct {
 //
 // The ApprovalManager may be nil (some test / partial-wiring configs); the
 // Run loop handles that by blocking on ctx.Done without doing any work.
+// NewApprovalCleanupRunner 创建审批cleanuprunner。
 func NewApprovalCleanupRunner(approvals *ApprovalManager, logger *pkglogger.Logger) platformrunner.Runner {
 	return newApprovalCleanupRunnerWithConfig(approvals, logger, defaultApprovalCleanupInterval, DefaultApprovalTimeout)
 }
@@ -46,6 +47,7 @@ func newApprovalCleanupRunnerWithConfig(approvals *ApprovalManager, logger *pkgl
 // Run implements platformrunner.Runner. Blocks on the cleanup ticker until
 // ctx.Done; returns ctx.Err(). The timeout is captured on the runner instance
 // at construction time so parallel tests do not race on package-level defaults.
+// Run 启动平台RPC后台流程。
 func (r *ApprovalCleanupRunner) Run(ctx context.Context) error {
 	if r == nil || r.approvals == nil || r.interval <= 0 {
 		<-ctx.Done()

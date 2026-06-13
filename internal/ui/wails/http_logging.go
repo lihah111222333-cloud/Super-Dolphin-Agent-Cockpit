@@ -15,6 +15,7 @@ import (
 
 const requestIDHeader = "X-Request-ID"
 
+// withHTTPLogging 设置HTTPlogging。
 func withHTTPLogging(logger *slog.Logger, next http.Handler) http.Handler {
 	if next == nil {
 		next = http.NotFoundHandler()
@@ -58,6 +59,7 @@ func withHTTPLogging(logger *slog.Logger, next http.Handler) http.Handler {
 	})
 }
 
+// httpTraceContext 处理HTTPtrace上下文。
 func httpTraceContext(ctx context.Context, r *http.Request) (context.Context, string, string, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -91,6 +93,7 @@ func httpTraceContext(ctx context.Context, r *http.Request) (context.Context, st
 	return pkglogger.WithTraceContext(ctx, traceID, spanID, ""), traceID, requestID, nil
 }
 
+// parseHTTPTraceparent 解析HTTPtraceparent。
 func parseHTTPTraceparent(raw string) (string, string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -147,6 +150,7 @@ type httpLoggingResponseWriter struct {
 	bytesWritten int64
 }
 
+// WriteHeader 写入头部。
 func (w *httpLoggingResponseWriter) WriteHeader(status int) {
 	if w.status != 0 {
 		return
@@ -155,6 +159,7 @@ func (w *httpLoggingResponseWriter) WriteHeader(status int) {
 	w.ResponseWriter.WriteHeader(status)
 }
 
+// Write 写入桌面 UI 桥接。
 func (w *httpLoggingResponseWriter) Write(data []byte) (int, error) {
 	if w.status == 0 {
 		w.status = http.StatusOK
@@ -171,12 +176,14 @@ func (w *httpLoggingResponseWriter) statusCode() int {
 	return w.status
 }
 
+// Flush 刷出缓存的响应数据。
 func (w *httpLoggingResponseWriter) Flush() {
 	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
 	}
 }
 
+// Hijack 接管底层 HTTP 连接。
 func (w *httpLoggingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	hijacker, ok := w.ResponseWriter.(http.Hijacker)
 	if !ok {
@@ -188,6 +195,7 @@ func (w *httpLoggingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error
 	return hijacker.Hijack()
 }
 
+// Push 发送 HTTP/2 push 响应。
 func (w *httpLoggingResponseWriter) Push(target string, opts *http.PushOptions) error {
 	pusher, ok := w.ResponseWriter.(http.Pusher)
 	if !ok {

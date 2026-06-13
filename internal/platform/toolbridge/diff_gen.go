@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 )
 
+// beginToolDiffSnapshot 处理begin工具diff快照。
 func (h *Handler) beginToolDiffSnapshot(ctx context.Context, req ToolCallRequest) *difftracker.Snapshot {
 	if h == nil {
 		return nil
@@ -34,6 +35,7 @@ func (h *Handler) beginToolDiffSnapshot(ctx context.Context, req ToolCallRequest
 	return snapshot
 }
 
+// emitToolDiff 处理emit工具diff。
 func (h *Handler) emitToolDiff(ctx context.Context, req ToolCallRequest, snapshot *difftracker.Snapshot) {
 	if h == nil || snapshot == nil || h.emitter == nil {
 		return

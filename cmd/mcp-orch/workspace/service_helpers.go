@@ -64,6 +64,7 @@ func recordMergeItem(result *MergeRunResult, item MergeFileResult) {
 	countMergeItem(result, item)
 }
 
+// countMergeItem 统计mergeitem。
 func countMergeItem(result *MergeRunResult, item MergeFileResult) {
 	switch item.Action {
 	case "merged":
@@ -189,6 +190,7 @@ func (s *service) emitRunMergeErrorEvent(run *Run, result *MergeRunResult, updat
 	})
 }
 
+// mergeIssueMessage 合并issue消息。
 func mergeIssueMessage(result *MergeRunResult, fallback string) string {
 	if text := strings.TrimSpace(fallback); text != "" {
 		return text

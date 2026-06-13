@@ -56,6 +56,7 @@ type execParamsWire struct {
 	Env     map[string]string `json:"env,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *execParams) UnmarshalJSON(data []byte) error {
 	var wire execParamsWire
 	if err := json.Unmarshal(data, &wire); err != nil {
@@ -92,6 +93,7 @@ func cloneExecEnv(input map[string]string) map[string]string {
 	return out
 }
 
+// ExecCommand 处理exec命令。
 func (s *service) ExecCommand(ctx context.Context, command string, args []string, cwd string, env map[string]string) (ExecResult, error) {
 	return s.execCommand(ctx, command, args, cwd, env, false)
 }
@@ -110,6 +112,7 @@ func (s *service) execCommand(ctx context.Context, command string, args []string
 	return runExecCommand(execCtx, name, base, args, dir, buildExecEnv(dir, env))
 }
 
+// validateExecCommand 校验exec命令。
 func validateExecCommand(command string, allowShell bool) (string, string, error) {
 	name := strings.TrimSpace(command)
 	base := normalizeExecToken(name)
@@ -125,6 +128,7 @@ func validateExecCommand(command string, allowShell bool) (string, string, error
 	}
 }
 
+// validateExecPayload 校验exec载荷。
 func validateExecPayload(base string, args []string, allowShell bool) error {
 	if !allowShell {
 		if err := validateExecArgs(args); err != nil {
@@ -214,6 +218,7 @@ func allowedPrefixedExecEnv() []string {
 	return env
 }
 
+// mergeExecEnv 合并execenv。
 func mergeExecEnv(base []string, overlay map[string]string) []string {
 	if len(overlay) == 0 {
 		return base
@@ -266,6 +271,7 @@ type limitedBuffer struct {
 	limit int
 }
 
+// Write 写入技能。
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	if b.limit <= b.buf.Len() {
 		return len(p), nil
@@ -278,4 +284,5 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// String 返回字符串表示。
 func (b *limitedBuffer) String() string { return b.buf.String() }

@@ -20,10 +20,12 @@ var _ DynamicSectionProvider = SummarizeToolResultsProvider{}
 type BriefProvider struct{}
 type SummarizeToolResultsProvider struct{}
 
+// SectionName 处理section名称。
 func (BriefProvider) SectionName() string {
 	return DynamicSectionBrief
 }
 
+// Resolve 解析prompt。
 func (BriefProvider) Resolve(_ context.Context, input SectionContext) (*string, error) {
 	if !briefEnabled(input.BuildCtx) {
 		return nil, nil
@@ -32,10 +34,12 @@ func (BriefProvider) Resolve(_ context.Context, input SectionContext) (*string, 
 	return &text, nil
 }
 
+// SectionName 处理section名称。
 func (SummarizeToolResultsProvider) SectionName() string {
 	return DynamicSectionSummarizeToolResults
 }
 
+// Resolve 解析prompt。
 func (SummarizeToolResultsProvider) Resolve(context.Context, SectionContext) (*string, error) {
 	text := summarizeToolResultsSectionText
 	return &text, nil
@@ -73,10 +77,12 @@ const languageDefaultSectionText = `# Language
 - Keep one single language consistent across the entire reply, including narration, headings, and lists. Do not mix languages or drift between them mid-response.
 - Technical terms, code identifiers, file paths, and command names stay in their original form.`
 
+// SectionName 处理section名称。
 func (LanguageProvider) SectionName() string {
 	return DynamicSectionLanguage
 }
 
+// Resolve 解析prompt。
 func (LanguageProvider) Resolve(_ context.Context, input SectionContext) (*string, error) {
 	language := strings.TrimSpace(input.BuildCtx.Language)
 	if language == "" {

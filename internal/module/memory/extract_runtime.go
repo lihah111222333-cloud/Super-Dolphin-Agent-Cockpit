@@ -52,6 +52,7 @@ func (h *MemoryLifecycleHooks) onTurnCompleted(ctx context.Context, evt turndto.
 // rememberTurnInput call is in-memory only; handleExplicitUserMemoryIntent
 // performs disk I/O. This method is invoked on the memoryHookWorker
 // goroutine, NOT the bus dispatcher callback.
+// onTurnInputReceived 处理onturninputreceived。
 func (h *MemoryLifecycleHooks) onTurnInputReceived(ctx context.Context, ev turndto.TurnInputReceived) {
 	if h == nil || !h.enabled {
 		return
@@ -190,6 +191,7 @@ func (h *MemoryLifecycleHooks) onToolCallBegin(ev tooldto.ToolCallBegin) {
 	h.stateMu.Unlock()
 }
 
+// onToolDiffUpdated 处理on工具diffupdated。
 func (h *MemoryLifecycleHooks) onToolDiffUpdated(ev tooldto.ToolDiffUpdated) {
 	if h == nil {
 		return
@@ -216,6 +218,7 @@ func (h *MemoryLifecycleHooks) onToolDiffUpdated(ev tooldto.ToolDiffUpdated) {
 	h.stateMu.Unlock()
 }
 
+// DrainPendingExtraction 处理drain待处理extraction。
 func (h *MemoryLifecycleHooks) DrainPendingExtraction(ctx context.Context) error {
 	if h == nil {
 		return nil
@@ -242,6 +245,7 @@ func (h *MemoryLifecycleHooks) DrainPendingExtraction(ctx context.Context) error
 	}
 }
 
+// ExtractAndSave 提取save。
 func (h *MemoryLifecycleHooks) ExtractAndSave(
 	ctx context.Context,
 	transcript []providerdto.Message,
@@ -250,6 +254,7 @@ func (h *MemoryLifecycleHooks) ExtractAndSave(
 	return h.extractAndSave(ctx, transcript, manifest, h.writeOptions(ctx, ""))
 }
 
+// extractAndSave 提取save。
 func (h *MemoryLifecycleHooks) extractAndSave(
 	ctx context.Context,
 	transcript []providerdto.Message,
@@ -273,6 +278,7 @@ func (h *MemoryLifecycleHooks) extractAndSave(
 	return nil
 }
 
+// enqueueBackgroundExtraction 处理enqueue后台extraction。
 func (h *MemoryLifecycleHooks) enqueueBackgroundExtraction(threadID string, handled bool) {
 	if h == nil || threadID == "" {
 		return
@@ -334,6 +340,7 @@ func (h *MemoryLifecycleHooks) runBackgroundExtraction(threadID string, state *E
 	}
 }
 
+// executeBackgroundExtraction 执行后台extraction。
 func (h *MemoryLifecycleHooks) executeBackgroundExtraction(
 	threadID string,
 	cursor int64,
@@ -388,6 +395,7 @@ func (h *MemoryLifecycleHooks) buildManifest(ctx context.Context) ([]MemoryEntry
 	return h.manifestBuilderOrDefault().BuildManifest(store.Root())
 }
 
+// saveExtractedMemories 保存extractedmemories。
 func (h *MemoryLifecycleHooks) saveExtractedMemories(items []ExtractedMemory, options WriteOptions) error {
 	store, err := h.diskStore()
 	if err != nil {
@@ -440,6 +448,7 @@ func (h *MemoryLifecycleHooks) extractionState(threadID string) *ExtractionState
 	return state
 }
 
+// consumeTurnTracking 处理consumeturntracking。
 func (h *MemoryLifecycleHooks) consumeTurnTracking(threadID, turnID string) bool {
 	threadID = strings.TrimSpace(threadID)
 	turnID = strings.TrimSpace(turnID)

@@ -38,6 +38,7 @@ type CompactWorkspaceSymbol struct {
 	Container string `json:"container,omitempty"`
 }
 
+// NormalizeVerbosity 规范化详细度。
 func NormalizeVerbosity(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case VerbosityFull:
@@ -47,6 +48,7 @@ func NormalizeVerbosity(raw string) string {
 	}
 }
 
+// ResolveResultLimit 解析结果limit。
 func ResolveResultLimit(requested int, verbosity string, compactDefault int) int {
 	if requested > protocol.XRefResultLimit {
 		requested = protocol.XRefResultLimit
@@ -60,18 +62,22 @@ func ResolveResultLimit(requested int, verbosity string, compactDefault int) int
 	return compactDefault
 }
 
+// ReferencesLimit 返回引用limit。
 func ReferencesLimit(requested int, verbosity string) int {
 	return ResolveResultLimit(requested, verbosity, lspReferencesCompactLimit)
 }
 
+// CompletionLimit 返回补全limit。
 func CompletionLimit(requested int, verbosity string) int {
 	return ResolveResultLimit(requested, verbosity, lspCompletionCompactLimit)
 }
 
+// WorkspaceSymbolLimit 返回工作区符号limit。
 func WorkspaceSymbolLimit(requested int, verbosity string) int {
 	return ResolveResultLimit(requested, verbosity, lspWorkspaceSymbolCompactLimit)
 }
 
+// NewCompactList 创建紧凑列表list。
 func NewCompactList[T any](items []T, total int, hints ...string) CompactList[T] {
 	if total < len(items) {
 		total = len(items)
@@ -96,6 +102,7 @@ func NewCompactList[T any](items []T, total int, hints ...string) CompactList[T]
 	}
 }
 
+// CompactCompletionItems 转换紧凑列表补全items用于展示。
 func CompactCompletionItems(items []protocol.CompletionItem) []CompactCompletionItem {
 	out := make([]CompactCompletionItem, 0, len(items))
 	for i := range items {
@@ -108,6 +115,7 @@ func CompactCompletionItems(items []protocol.CompletionItem) []CompactCompletion
 	return out
 }
 
+// CompactWorkspaceSymbols 转换紧凑列表工作区符号用于展示。
 func CompactWorkspaceSymbols(items []protocol.WorkspaceSymbolResult) []CompactWorkspaceSymbol {
 	out := make([]CompactWorkspaceSymbol, 0, len(items))
 	for i := range items {
@@ -139,6 +147,7 @@ func CompactWorkspaceSymbols(items []protocol.WorkspaceSymbolResult) []CompactWo
 	return out
 }
 
+// LocationFromAny 从任意值处理位置。
 func LocationFromAny(location any) (file string, line int, column int, ok bool) {
 	switch value := location.(type) {
 	case nil:
@@ -201,6 +210,7 @@ func mapStartPosition(value map[string]any) (int, int) {
 	return intFromAny(startMap["line"]), intFromAny(startMap["character"])
 }
 
+// GroupLocationsByFile 按文件处理group位置。
 func GroupLocationsByFile(items []protocol.LocationResult, total int) protocol.GroupedLocationResult {
 	if total < len(items) {
 		total = len(items)
@@ -239,6 +249,7 @@ func GroupLocationsByFile(items []protocol.LocationResult, total int) protocol.G
 	return grouped
 }
 
+// intFromAny 从任意值处理int。
 func intFromAny(value any) int {
 	switch v := value.(type) {
 	case int:

@@ -23,6 +23,7 @@ type querier interface {
 type store struct{ q querier }
 
 // NewStore returns the production Store backed by sqlc queries.
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
 // ----- helpers -----
@@ -63,6 +64,7 @@ func wrap(err error, op string) error {
 
 // ----- Store impl -----
 
+// Upsert 新增或更新记录。
 func (s *store) Upsert(ctx context.Context, p UpsertParams) (Insight, error) {
 	now := p.UpdatedAt
 	if now.IsZero() {
@@ -107,6 +109,7 @@ func (s *store) Upsert(ctx context.Context, p UpsertParams) (Insight, error) {
 	return fromRow(row), nil
 }
 
+// GetByLocalTurn 按localturn读取insight存储。
 func (s *store) GetByLocalTurn(ctx context.Context, threadID, localTurnID string) (Insight, error) {
 	threadID = strings.TrimSpace(threadID)
 	localTurnID = strings.TrimSpace(localTurnID)
@@ -126,6 +129,7 @@ func (s *store) GetByLocalTurn(ctx context.Context, threadID, localTurnID string
 	return fromRow(row), nil
 }
 
+// ListByThread 按线程列出insight存储。
 func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) ([]Insight, error) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -148,6 +152,7 @@ func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) 
 	return out, nil
 }
 
+// ListRecent 列出recent。
 func (s *store) ListRecent(ctx context.Context, limit int32) ([]Insight, error) {
 	if limit <= 0 {
 		limit = 100
@@ -163,6 +168,7 @@ func (s *store) ListRecent(ctx context.Context, limit int32) ([]Insight, error) 
 	return out, nil
 }
 
+// ListObservedApprovalRequests 列出observed审批请求。
 func (s *store) ListObservedApprovalRequests(ctx context.Context, threadID string, limit int32) ([]ApprovalRow, error) {
 	if limit <= 0 {
 		limit = 100
@@ -189,6 +195,7 @@ func (s *store) ListObservedApprovalRequests(ctx context.Context, threadID strin
 	return out, nil
 }
 
+// ListObservedTokenTurns 列出observed令牌turn。
 func (s *store) ListObservedTokenTurns(ctx context.Context, threadID string, limit int32) ([]TokenRow, error) {
 	if limit <= 0 {
 		limit = 100
@@ -221,6 +228,7 @@ func (s *store) ListObservedTokenTurns(ctx context.Context, threadID string, lim
 // fromRow maps a sqlc SessionInsight row into the domain Insight. Time
 // fields follow the same "zero value = NULL" convention used across this
 // project's stores.
+// fromRow 从row处理insight存储。
 func fromRow(r sqlc.SessionInsight) Insight {
 	return Insight{
 		ID:                       r.ID,

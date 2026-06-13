@@ -46,6 +46,7 @@ type codexInstallState struct {
 
 var codexInstall = &codexInstallState{maxFileBytes: defaultCodexExtractLimit, maxTotalBytes: defaultCodexExtractLimit}
 
+// EnsureCLIAvailable 确认 CLI 可执行文件可用。
 func EnsureCLIAvailable(ctx context.Context) error {
 	return ensureCodexCLIAvailable(ctx)
 }
@@ -57,6 +58,7 @@ type CodexBootstrapConfig struct {
 	ModelProvider       string
 }
 
+// EnsureCodexBootstrap 确保codex启动。
 func EnsureCodexBootstrap(ctx context.Context, cfg CodexBootstrapConfig) error {
 	home := strings.TrimSpace(cfg.Home)
 	baseURL := strings.TrimSpace(cfg.RelayBaseURL)
@@ -132,6 +134,7 @@ type codexGitHubAsset struct {
 	DownloadURL string `json:"browser_download_url"`
 }
 
+// ensureCodexCLIAvailable 确认 Codex CLI 可用。
 func ensureCodexCLIAvailable(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -179,6 +182,7 @@ func bundledCodexPeerBinDirs() []string {
 	return dirs
 }
 
+// ensureManagedCodexCLI 确保managedcodexCLI。
 func ensureManagedCodexCLI(ctx context.Context) error {
 	root, err := codexManagedInstallRoot()
 	if err != nil {
@@ -208,6 +212,7 @@ func ensureManagedCodexCLI(ctx context.Context) error {
 	return nil
 }
 
+// bundledCodexCLI 处理bundledcodexCLI。
 func bundledCodexCLI(ctx context.Context) (string, error) {
 	for _, dir := range bundledCodexPeerBinDirs() {
 		dir = strings.TrimSpace(dir)
@@ -266,6 +271,7 @@ func codexManagedInstallRoot() (string, error) {
 	return filepath.Join(home, "runtime", "openai-codex"), nil
 }
 
+// findManagedCodexBinary 查找managedcodex二进制。
 func findManagedCodexBinary(ctx context.Context, root, sourceSHA256 string) (string, error) {
 	entries, err := readManagedCodexInstallRoot(root)
 	if err != nil {
@@ -310,6 +316,8 @@ func readManagedCodexInstallRoot(root string) ([]os.DirEntry, error) {
 	}
 	return entries, nil
 }
+
+// installManagedCodexCLI 处理安装managedcodexCLI。
 func installManagedCodexCLI(ctx context.Context, root, checksum string) (string, error) {
 	release, err := fetchCodexRelease(ctx)
 	if err != nil {
@@ -426,6 +434,7 @@ func installCodexTarGz(ctx context.Context, downloadURL, checksum, workDir, targ
 	return promoteCodexInstall(extractDir, target, codexPath)
 }
 
+// promoteCodexInstall 处理promotecodex安装。
 func promoteCodexInstall(extractDir, target, codexPath string) error {
 	if isExecutable(codexPath) {
 		return nil
@@ -443,6 +452,7 @@ func promoteCodexInstall(extractDir, target, codexPath string) error {
 	return nil
 }
 
+// fetchCodexRelease 处理fetchcodexrelease。
 func fetchCodexRelease(ctx context.Context) (codexGitHubRelease, error) {
 	releaseURL, err := codexReleaseAPIRequestURL()
 	if err != nil {
@@ -469,6 +479,7 @@ func fetchCodexRelease(ctx context.Context) (codexGitHubRelease, error) {
 	return release, nil
 }
 
+// selectCodexReleaseAsset 选择codexreleaseasset。
 func selectCodexReleaseAsset(assets []codexGitHubAsset) (codexGitHubAsset, error) {
 	candidates := codexReleaseAssetCandidates()
 	if len(candidates) == 0 {
@@ -488,6 +499,7 @@ func codexReleasePlatform() (string, error) {
 	return codexWheelReleasePlatform()
 }
 
+// codexReleaseAssetCandidates 处理codexreleaseasset候选项。
 func codexReleaseAssetCandidates() []func(string) bool {
 	var out []func(string) bool
 	if target, err := codexRustReleaseTarget(); err == nil {
@@ -509,6 +521,7 @@ func codexReleaseAssetCandidates() []func(string) bool {
 	return out
 }
 
+// codexRustReleaseTarget 处理codexrustreleasetarget。
 func codexRustReleaseTarget() (string, error) {
 	switch runtime.GOOS {
 	case "darwin":
@@ -536,6 +549,7 @@ func codexRustReleaseTarget() (string, error) {
 	return "", fmt.Errorf("unsupported Codex auto-install platform %s/%s", runtime.GOOS, runtime.GOARCH)
 }
 
+// codexWheelReleasePlatform 处理codexwheelrelease平台。
 func codexWheelReleasePlatform() (string, error) {
 	switch runtime.GOOS {
 	case "darwin":
@@ -563,6 +577,7 @@ func codexWheelReleasePlatform() (string, error) {
 	return "", fmt.Errorf("unsupported Codex auto-install platform %s/%s", runtime.GOOS, runtime.GOARCH)
 }
 
+// isExecutable 判断可执行文件是否可用。
 func isExecutable(path string) bool {
 	info, err := os.Stat(filepath.Clean(path))
 	if err != nil || info.IsDir() {
@@ -625,6 +640,7 @@ func sanitizeCodexReleaseTag(tag string) string {
 	return b.String()
 }
 
+// isCodexReleaseTagRune 判断codexreleasetagrune是否可用。
 func isCodexReleaseTagRune(r rune) bool {
 	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-' || r == '_'
 }

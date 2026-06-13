@@ -73,6 +73,7 @@ type store struct {
 
 var recallTopicNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store {
 	return newStore(q, nil)
 }
@@ -81,6 +82,7 @@ func newStore(q *sqlc.Queries, runInTx txRunner) Store {
 	return &store{q: q, queries: q, runInTx: runInTx}
 }
 
+// Get 读取prompt存储。
 func (s *store) Get(ctx context.Context, promptKey string) (*PromptTemplate, error) {
 	q, ok := s.q.(getQuerier)
 	if !ok {
@@ -94,6 +96,7 @@ func (s *store) Get(ctx context.Context, promptKey string) (*PromptTemplate, err
 	return &mapped, nil
 }
 
+// List 列出prompt存储。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error) {
 	cwd := strings.TrimSpace(filter.CWD)
 	if cwd == "" {
@@ -115,6 +118,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]PromptTemplate, 
 	return templates, nil
 }
 
+// WithTx 设置tx。
 func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error {
 	if s.runInTx == nil || s.queries == nil {
 		return wrapPromptError(fn(s), "with_tx", "prompt_template")
@@ -125,6 +129,7 @@ func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error 
 	return wrapPromptError(err, "with_tx", "prompt_template")
 }
 
+// Delete 删除prompt存储。
 func (s *store) Delete(ctx context.Context, promptKey string) error {
 	q, ok := s.q.(deleteQuerier)
 	if !ok {
@@ -140,6 +145,7 @@ func (s *store) Delete(ctx context.Context, promptKey string) error {
 	return nil
 }
 
+// ListSectionsByTemplateID 按templateID列出sections。
 func (s *store) ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]PromptTemplateSection, error) {
 	q, ok := s.q.(listSectionsQuerier)
 	if !ok {
@@ -158,6 +164,7 @@ func (s *store) ListSectionsByTemplateID(ctx context.Context, templateID int64) 
 	return sections, nil
 }
 
+// ListSectionsByTemplateIDs 按templateids列出sections。
 func (s *store) ListSectionsByTemplateIDs(ctx context.Context, templateIDs []int64) ([]PromptTemplateSection, error) {
 	if len(templateIDs) == 0 {
 		return []PromptTemplateSection{}, nil
@@ -179,6 +186,7 @@ func (s *store) ListSectionsByTemplateIDs(ctx context.Context, templateIDs []int
 	return sections, nil
 }
 
+// ListRecallSections 列出recallsections。
 func (s *store) ListRecallSections(ctx context.Context, cwd string) ([]PromptTemplateSection, error) {
 	cwd, err := requirePromptSectionCWD(cwd)
 	if err != nil {
@@ -199,6 +207,7 @@ func (s *store) ListRecallSections(ctx context.Context, cwd string) ([]PromptTem
 	return sections, nil
 }
 
+// ListDefaultRuleSections 列出defaultrulesections。
 func (s *store) ListDefaultRuleSections(ctx context.Context, cwd string) ([]PromptTemplateSection, error) {
 	cwd, err := requirePromptSectionCWD(cwd)
 	if err != nil {
@@ -219,6 +228,7 @@ func (s *store) ListDefaultRuleSections(ctx context.Context, cwd string) ([]Prom
 	return sections, nil
 }
 
+// InsertVersion 插入版本。
 func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion) (int64, error) {
 	q, ok := s.q.(insertVersionQuerier)
 	if !ok {
@@ -244,6 +254,7 @@ func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion
 	return id, nil
 }
 
+// CreatePromptTemplate 创建prompttemplate。
 func (s *store) CreatePromptTemplate(ctx context.Context, template PromptTemplate) (*PromptTemplate, error) {
 	q, ok := s.q.(createPromptTemplateQuerier)
 	if !ok {
@@ -276,6 +287,7 @@ func (s *store) CreatePromptTemplate(ctx context.Context, template PromptTemplat
 	return &mapped, nil
 }
 
+// Upsert 新增或更新记录。
 func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTemplate, error) {
 	q, ok := s.q.(upsertQuerier)
 	if !ok {
@@ -397,6 +409,7 @@ func fromUpsertTemplate(row sqlc.UpsertPromptTemplateRow) PromptTemplate {
 	}
 }
 
+// UpsertSection 处理upsertsection。
 func (s *store) UpsertSection(ctx context.Context, section PromptTemplateSection) (*PromptTemplateSection, error) {
 	q, ok := s.q.(upsertSectionQuerier)
 	if !ok {
@@ -475,6 +488,7 @@ func requirePromptSectionCWD(cwd string) (string, error) {
 	return cwd, nil
 }
 
+// LockRecallTopicInCWD 在工作目录处理锁recalltopic。
 func (s *store) LockRecallTopicInCWD(ctx context.Context, cwd, topic string) error {
 	cwd, err := requirePromptSectionCWD(cwd)
 	if err != nil {
@@ -495,6 +509,7 @@ func validRecallTopicName(topic string) bool {
 	return len(topic) < 64 && recallTopicNamePattern.MatchString(topic)
 }
 
+// DeleteSection 删除section。
 func (s *store) DeleteSection(ctx context.Context, templateID int64, sectionKey string) error {
 	q, ok := s.q.(deleteSectionQuerier)
 	if !ok {

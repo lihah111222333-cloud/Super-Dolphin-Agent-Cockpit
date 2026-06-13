@@ -10,6 +10,7 @@ import (
 
 var traceSpanSeq atomic.Uint64
 
+// RecordTrace 记录trace。
 func RecordTrace(ctx context.Context, tracer *observability.Service, event observability.TraceEvent, provider string, code observability.CodeAnchor) {
 	if tracer == nil {
 		return
@@ -34,6 +35,7 @@ func fillTraceEvent(ctx context.Context, event *observability.TraceEvent, provid
 	}
 }
 
+// fillTraceDefaults 处理filltracedefaults。
 func fillTraceDefaults(event *observability.TraceEvent, provider string, code observability.CodeAnchor) {
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now()
@@ -59,6 +61,7 @@ func captureTraceStack(status observability.Status) bool {
 	return status == observability.StatusError || status == observability.StatusSlow || status == observability.StatusPanic
 }
 
+// ErrorSummary 处理错误摘要。
 func ErrorSummary(status observability.Status) string {
 	if status == observability.StatusError {
 		return "provider operation failed"
@@ -66,6 +69,7 @@ func ErrorSummary(status observability.Status) string {
 	return ""
 }
 
+// TraceStatus 处理trace状态。
 func TraceStatus(err error) observability.Status {
 	if err != nil {
 		return observability.StatusError

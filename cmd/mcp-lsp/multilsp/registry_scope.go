@@ -17,6 +17,7 @@ type registryScopedResolver struct {
 // package's small resolver interface. Keeping the adapter here avoids a
 // manager -> multilsp import cycle while ensuring production registry calls
 // route through ManagerPool.ForScope.
+// NewRegistryScopedResolver 创建注册表scoped解析器。
 func NewRegistryScopedResolver(m Manager) lspmanager.ScopedManagerResolver {
 	concrete, ok := m.(*manager)
 	if !ok || concrete == nil || concrete.pool == nil {
@@ -25,6 +26,7 @@ func NewRegistryScopedResolver(m Manager) lspmanager.ScopedManagerResolver {
 	return registryScopedResolver{pool: concrete.pool}
 }
 
+// ForToolScope 为工具作用域处理LSP。
 func (r registryScopedResolver) ForToolScope(scope lspmanager.ToolScope) (lspmanager.ScopedManager, error) {
 	if r.pool == nil {
 		return lspmanager.ScopedManager{}, errors.New("LSP manager pool is nil")
@@ -40,6 +42,7 @@ func (r registryScopedResolver) ForToolScope(scope lspmanager.ToolScope) (lspman
 	return managerScopedManager(scoped), nil
 }
 
+// CurrentManagersForToolScope 为工具作用域处理当前managers。
 func (r registryScopedResolver) CurrentManagersForToolScope(scope lspmanager.ToolScope) ([]lspmanager.ScopedManager, error) {
 	if r.pool == nil {
 		return nil, errors.New("LSP manager pool is nil")
@@ -120,6 +123,7 @@ func (r registryScopedResolver) adapterForLanguage(languageID string) (LanguageA
 	return adapter, nil
 }
 
+// registryBaseScope 处理注册表base作用域。
 func (r registryScopedResolver) registryBaseScope(scope lspmanager.ToolScope) (LSPToolScope, error) {
 	cwd := canonicalScopePath(scope.CWD, "")
 	if cwd == "" && r.pool != nil && r.pool.primary != nil {

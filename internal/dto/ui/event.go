@@ -133,12 +133,29 @@ type UIThreadPatch struct {
 	Partial           bool                   `json:"partial,omitempty"`
 }
 
-func (UIProjectionUpdated) Type() uint32  { return shared.EventTypeUIProjectionUpdated }
-func (UITimelineAppended) Type() uint32   { return shared.EventTypeUITimelineAppended }
-func (UITokensUpdated) Type() uint32      { return shared.EventTypeUITokensUpdated }
-func (SkillsChanged) Type() uint32        { return shared.EventTypeUISkillsChanged }
-func (UIThreadPatch) Type() uint32        { return shared.EventTypeUIThreadPatch }
+// Type 返回事件分发用的类型编号。
+func (UIProjectionUpdated) Type() uint32 { return shared.EventTypeUIProjectionUpdated }
+
+// Type 返回事件分发用的类型编号。
+func (UITimelineAppended) Type() uint32 { return shared.EventTypeUITimelineAppended }
+
+// Type 返回事件分发用的类型编号。
+func (UITokensUpdated) Type() uint32 { return shared.EventTypeUITokensUpdated }
+
+// Type 返回事件分发用的类型编号。
+func (SkillsChanged) Type() uint32 { return shared.EventTypeUISkillsChanged }
+
+// Type 返回事件分发用的类型编号。
+func (UIThreadPatch) Type() uint32 { return shared.EventTypeUIThreadPatch }
+
+// Type 返回事件分发用的类型编号。
 func (UIPreferencesChanged) Type() uint32 { return shared.EventTypeUIPreferencesChanged }
+
+// Type 返回事件分发用的类型编号。
 func (UISharedFilesChanged) Type() uint32 { return shared.EventTypeUISharedFilesChanged }
-func (UIMemoryChanged) Type() uint32      { return shared.EventTypeUIMemoryChanged }
-func (UIPromptsChanged) Type() uint32     { return shared.EventTypeUIPromptsChanged }
+
+// Type 返回事件分发用的类型编号。
+func (UIMemoryChanged) Type() uint32 { return shared.EventTypeUIMemoryChanged }
+
+// Type 返回事件分发用的类型编号。
+func (UIPromptsChanged) Type() uint32 { return shared.EventTypeUIPromptsChanged }

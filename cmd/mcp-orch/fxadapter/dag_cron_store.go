@@ -19,6 +19,7 @@ type sqlDAGScheduleStore struct {
 	q *sqlc.Queries
 }
 
+// NewSQLDAGScheduleStore 创建sqldag计划存储。
 func NewSQLDAGScheduleStore(q *sqlc.Queries) (orchcron.DAGScheduleStore, error) {
 	if q == nil {
 		return nil, orchcron.ErrNilScheduleStore
@@ -26,6 +27,7 @@ func NewSQLDAGScheduleStore(q *sqlc.Queries) (orchcron.DAGScheduleStore, error) 
 	return &sqlDAGScheduleStore{q: q}, nil
 }
 
+// DueDAGs 处理duedags。
 func (s *sqlDAGScheduleStore) DueDAGs(ctx context.Context, now time.Time) ([]orchcron.DueDAG, error) {
 	rows, err := s.q.ListDueScheduledTaskDags(ctx, pgtype.Timestamptz{Time: now, Valid: true})
 	if err != nil {
@@ -50,6 +52,7 @@ type pgAdvisoryLocker struct {
 	lockID int64
 }
 
+// NewPGAdvisoryLocker 创建pgadvisorylocker。
 func NewPGAdvisoryLocker(pool *pgxpool.Pool, lockID int64) (orchcron.AdvisoryLocker, error) {
 	if pool == nil {
 		return nil, orchcron.ErrNilLockPool
@@ -57,6 +60,7 @@ func NewPGAdvisoryLocker(pool *pgxpool.Pool, lockID int64) (orchcron.AdvisoryLoc
 	return &pgAdvisoryLocker{pool: pool, lockID: lockID}, nil
 }
 
+// TryLock 处理try锁。
 func (l *pgAdvisoryLocker) TryLock(ctx context.Context) (orchcron.AdvisoryLockHandle, bool, error) {
 	conn, err := l.pool.Acquire(ctx)
 	if err != nil {
@@ -113,6 +117,7 @@ func (c pgxpoolAdvisoryLockConn) hijackAndClose(ctx context.Context) error {
 	return raw.Close(ctx)
 }
 
+// Unlock 释放写锁。
 func (h *pgAdvisoryLockHandle) Unlock(ctx context.Context) error {
 	release := true
 	defer func() {

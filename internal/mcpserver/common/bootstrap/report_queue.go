@@ -55,6 +55,7 @@ func (c *Client) flushQueuedReports(ctx context.Context) {
 	c.flushQueuedReportsWithConn(ctx, conn, c.currentLease())
 }
 
+// flushQueuedReportsWithConn 处理带conn的flushqueuedreports。
 func (c *Client) flushQueuedReportsWithConn(ctx context.Context, conn *jrpc2.Client, lease mcp.LeaseKey) {
 	queued := c.snapshotQueuedReports()
 	if len(queued) == 0 {
@@ -88,6 +89,7 @@ func (c *Client) flushQueuedReportsWithConn(ctx context.Context, conn *jrpc2.Cli
 	}
 }
 
+// sendReportWithConn 处理带conn的sendreport。
 func (c *Client) sendReportWithConn(ctx context.Context, conn *jrpc2.Client, lease mcp.LeaseKey, req mcp.ReportRequest) (*mcp.ReportResponse, error) {
 	if conn == nil {
 		return nil, errors.New("bootstrap: nil rpc client")
@@ -130,6 +132,7 @@ func queuedReportResponse(req mcp.ReportRequest) *mcp.ReportResponse {
 	}
 }
 
+// guessReportVariant 处理guessreportvariant。
 func guessReportVariant(req mcp.ReportRequest) string {
 	if strings.TrimSpace(req.Report.Type) != "" {
 		return strings.TrimSpace(req.Report.Type)

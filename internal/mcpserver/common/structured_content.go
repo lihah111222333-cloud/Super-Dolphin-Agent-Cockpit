@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 )
 
+// StructuredContentForToolResult 为工具结果生成structured内容。
 func StructuredContentForToolResult(value any) (json.RawMessage, error) {
 	raw, err := json.Marshal(value)
 	if err != nil {
@@ -13,6 +14,7 @@ func StructuredContentForToolResult(value any) (json.RawMessage, error) {
 	return StructuredContentFromRaw(raw)
 }
 
+// StructuredContentFromRaw 从原始处理structured内容。
 func StructuredContentFromRaw(raw json.RawMessage) (json.RawMessage, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {

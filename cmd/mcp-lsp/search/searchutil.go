@@ -69,6 +69,7 @@ type sgStreamMatch struct {
 	} `json:"range"`
 }
 
+// SearchText 搜索文本。
 func SearchText(ctx context.Context, opts TextSearchOptions) ([]SearchMatch, error) {
 	caseSensitive := strings.ToLower(opts.Query) != opts.Query
 	if opts.CaseSensitive != nil {
@@ -122,6 +123,7 @@ func SearchText(ctx context.Context, opts TextSearchOptions) ([]SearchMatch, err
 	return results, nil
 }
 
+// SearchAST 搜索ast。
 func SearchAST(ctx context.Context, opts ASTSearchOptions) ([]SearchMatch, error) {
 	query := strings.TrimSpace(opts.Query)
 	if query == "" {
@@ -158,6 +160,7 @@ func SearchAST(ctx context.Context, opts ASTSearchOptions) ([]SearchMatch, error
 	return results, nil
 }
 
+// FilterAndCapSearchMatches 判断过滤条件capsearch是否匹配。
 func FilterAndCapSearchMatches(matches []SearchMatch, maxResults int) ([]SearchMatch, int, bool) {
 	filtered := make([]SearchMatch, 0, len(matches))
 	seen := make(map[string]struct{}, len(matches))
@@ -200,6 +203,7 @@ func shouldExcludeSearchMatch(match SearchMatch) bool {
 	return shouldExcludePath(filterPath)
 }
 
+// relativeSearchMatchPath 处理相对searchmatch路径。
 func relativeSearchMatchPath(root, absPath string) string {
 	if strings.TrimSpace(root) == "" || strings.TrimSpace(absPath) == "" {
 		return ""
@@ -234,6 +238,7 @@ type searchPathStat struct {
 	Info os.FileInfo
 }
 
+// statSearchPaths 处理statsearch路径。
 func statSearchPaths(root string, roots []string, rawPath string, explicitPaths []string) ([]searchPathStat, error) {
 	if len(explicitPaths) > 0 {
 		return statExplicitSearchPaths(root, roots, explicitPaths)
@@ -275,6 +280,7 @@ func splitSearchPathList(rawPath string) []string {
 	})
 }
 
+// walkSearchEntry 处理walksearch条目。
 func walkSearchEntry(
 	ctx context.Context,
 	root, candidate, searchRoot, glob string,
@@ -359,6 +365,7 @@ func shouldSearchFile(root, candidate, glob string, maxFileBytes int) (bool, err
 	return shouldSearchPath(root, candidate, glob, maxFileBytes, selected)
 }
 
+// shouldSearchPath 判断search路径是否可用。
 func shouldSearchPath(root, candidate, glob string, maxFileBytes int, entry os.DirEntry) (bool, error) {
 	matched, err := matchesPathGlob(root, candidate, glob)
 	if err != nil || !matched {
@@ -421,6 +428,7 @@ func runSGPatternSearch(ctx context.Context, query, language, absPath, root, glo
 // isLikelyNodeType returns true when the query looks like a tree-sitter node
 // type name (e.g. "function_declaration", "type_spec") rather than an ast-grep
 // code pattern. Node types are strictly lowercase letters and underscores.
+// isLikelyNodeType 判断likely节点type是否可用。
 func isLikelyNodeType(query string) bool {
 	if len(query) < 4 || !strings.Contains(query, "_") {
 		return false
@@ -435,6 +443,7 @@ func isLikelyNodeType(query string) bool {
 
 // runSGKindSearch executes `sg scan --rule <tmpfile>` to find AST nodes by
 // their tree-sitter kind (e.g. function_declaration, type_spec).
+// runSGKindSearch 运行sgkindsearch。
 func runSGKindSearch(ctx context.Context, kind, language, absPath, root, glob string) ([]SearchMatch, error) {
 	rule := fmt.Sprintf("id: kind-search\nlanguage: %s\nrule:\n  kind: %s\n", astGrepLanguageID(language), kind)
 
@@ -498,6 +507,7 @@ func decodeSGScanMatches(output []byte, root string) ([]SearchMatch, error) {
 	return results, nil
 }
 
+// decodeSGMatches 解码sgmatches。
 func decodeSGMatches(output []byte, root string) ([]SearchMatch, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(output))
 	scanner.Buffer(make([]byte, 0, 64*1024), 2<<20)
@@ -542,6 +552,7 @@ func validateSearchGlob(rawGlob string) error {
 	return nil
 }
 
+// matchesPathGlob 判断路径glob是否匹配。
 func matchesPathGlob(root, candidate, rawGlob string) (bool, error) {
 	glob := filepath.ToSlash(strings.TrimSpace(rawGlob))
 	if glob == "" {
@@ -573,6 +584,7 @@ func matchesCompiledGlob(pattern, candidate string) (bool, error) {
 	return ok, nil
 }
 
+// matchesGlobSegments 判断globsegments是否匹配。
 func matchesGlobSegments(patterns, candidates []string) (bool, error) {
 	for len(patterns) > 0 {
 		if patterns[0] == "**" {

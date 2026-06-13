@@ -5,6 +5,7 @@ import (
 	"strings"
 )
 
+// collectCTEInfo 收集cteinfo。
 func collectCTEInfo(query string) (map[string]struct{}, string, error) {
 	names := make(map[string]struct{})
 	trimmed := strings.TrimSpace(query)
@@ -54,6 +55,7 @@ func readCTEName(value string, index int) (string, int, error) {
 	return normalizeIdentifier(name), next, nil
 }
 
+// skipCTEColumnsAndBody 处理skipctecolumns正文。
 func skipCTEColumnsAndBody(value string, index int) (int, error) {
 	index = skipSpaces(value, index)
 	if index < len(value) && value[index] == '(' {
@@ -120,6 +122,7 @@ func skipMaterialized(value string, index int) int {
 	}
 }
 
+// readIdentifier 读取identifier。
 func readIdentifier(value string, index int) (string, int, bool) {
 	if index >= len(value) {
 		return "", index, false
@@ -161,6 +164,7 @@ func skipBalanced(value string, index int) (int, error) {
 	return 0, errors.New("dbquery query has unbalanced parentheses")
 }
 
+// advanceBalancedQuote 处理advancebalancedquote。
 func advanceBalancedQuote(value string, index int, inSingleQuote, inDoubleQuote *bool) (int, bool) {
 	ch := value[index]
 	switch {

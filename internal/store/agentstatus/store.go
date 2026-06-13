@@ -20,12 +20,14 @@ type store struct {
 	q querier
 }
 
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store {
 	return &store{q: q}
 }
 
 func newStoreForTest(q querier) Store { return &store{q: q} }
 
+// Upsert 新增或更新记录。
 func (s *store) Upsert(ctx context.Context, params UpsertParams) (*AgentStatus, error) {
 	row, err := s.q.UpsertAgentStatus(ctx, sqlc.UpsertAgentStatusParams{
 		AgentID:     params.AgentID,
@@ -43,6 +45,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*AgentStatus, 
 	return &result, nil
 }
 
+// Get 读取agentstatus存储。
 func (s *store) Get(ctx context.Context, agentID string) (*AgentStatus, error) {
 	row, err := s.q.GetAgentStatus(ctx, sqlc.GetAgentStatusParams{AgentID: agentID})
 	if err != nil {
@@ -52,6 +55,7 @@ func (s *store) Get(ctx context.Context, agentID string) (*AgentStatus, error) {
 	return &result, nil
 }
 
+// List 列出agentstatus存储。
 func (s *store) List(ctx context.Context, status string) ([]AgentStatus, error) {
 	rows, err := s.q.ListAgentStatuses(ctx, sqlc.ListAgentStatusesParams{Column1: status})
 	if err != nil {

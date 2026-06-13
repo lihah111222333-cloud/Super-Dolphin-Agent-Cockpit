@@ -21,8 +21,10 @@ type store struct {
 	q querier
 }
 
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
+// Create 创建topologyapproval存储。
 func (s *store) Create(ctx context.Context, approval TopologyApproval) (*TopologyApproval, error) {
 	row, err := s.q.CreateTopologyApproval(ctx, sqlc.CreateTopologyApprovalParams{
 		ID:          approval.ID,
@@ -40,6 +42,7 @@ func (s *store) Create(ctx context.Context, approval TopologyApproval) (*Topolog
 	return &mapped, nil
 }
 
+// Approve 记录审批通过结果。
 func (s *store) Approve(ctx context.Context, reviewer, id string) (int64, error) {
 	count, err := s.q.ApproveTopologyApproval(ctx, sqlc.ApproveTopologyApprovalParams{Reviewer: reviewer, ID: id})
 	if err != nil {
@@ -48,6 +51,7 @@ func (s *store) Approve(ctx context.Context, reviewer, id string) (int64, error)
 	return count, nil
 }
 
+// Reject 记录审批拒绝结果。
 func (s *store) Reject(ctx context.Context, reviewer, id string) (int64, error) {
 	count, err := s.q.RejectTopologyApproval(ctx, sqlc.RejectTopologyApprovalParams{Reviewer: reviewer, ID: id})
 	if err != nil {
@@ -56,6 +60,7 @@ func (s *store) Reject(ctx context.Context, reviewer, id string) (int64, error) 
 	return count, nil
 }
 
+// ListPending 列出待处理。
 func (s *store) ListPending(ctx context.Context) ([]TopologyApproval, error) {
 	rows, err := s.q.ListPendingTopologyApprovals(ctx)
 	if err != nil {

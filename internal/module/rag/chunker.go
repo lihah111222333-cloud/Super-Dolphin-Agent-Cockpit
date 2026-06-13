@@ -26,6 +26,7 @@ type Chunk struct {
 	EndToken   int
 }
 
+// DefaultChunkOptions 处理defaultchunk选项。
 func DefaultChunkOptions() ChunkOptions {
 	return ChunkOptions{
 		TargetTokens: 500,
@@ -34,6 +35,7 @@ func DefaultChunkOptions() ChunkOptions {
 	}
 }
 
+// SplitText 拆分文本。
 func SplitText(text string, opts ChunkOptions) ([]Chunk, error) {
 	if err := validateOptions(opts); err != nil {
 		return nil, err
@@ -90,6 +92,7 @@ func targetBoundary(text string, tokens []chunkToken, startToken int, opts Chunk
 	}
 }
 
+// validateOptions 校验选项。
 func validateOptions(opts ChunkOptions) error {
 	if opts.TargetTokens <= 0 || opts.MinTokens <= 0 || opts.MaxTokens <= 0 {
 		return fmt.Errorf("%w: token limits must be positive", ErrInvalidOptions)
@@ -108,6 +111,7 @@ type chunkToken struct {
 	endByte   int
 }
 
+// tokenizeText 处理tokenize文本。
 func tokenizeText(text string) ([]chunkToken, error) {
 	if !utf8.ValidString(text) {
 		return nil, fmt.Errorf("%w: input is not valid UTF-8", ErrInvalidText)
@@ -163,6 +167,7 @@ type boundaryCandidate struct {
 	distance int
 }
 
+// bestBoundary 处理最佳boundary。
 func bestBoundary(text string, tokens []chunkToken, startToken int, opts ChunkOptions) (boundaryCandidate, bool) {
 	left := startToken + opts.MinTokens
 	right := startToken + opts.MaxTokens
@@ -202,6 +207,7 @@ func betterBoundary(candidate, best boundaryCandidate) bool {
 	return candidate.endToken < best.endToken
 }
 
+// boundaryAt 处理boundaryat。
 func boundaryAt(text string, tokens []chunkToken, endToken int) (int, int, bool) {
 	if endToken <= 0 || endToken > len(tokens) {
 		return 0, 0, false

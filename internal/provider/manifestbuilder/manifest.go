@@ -6,6 +6,7 @@ import (
 )
 
 // BuildManifest returns declarative MCP binary metadata for external executors.
+// BuildManifest 构建manifest。
 func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 	return contract.BuildManifest(ctx)
 }

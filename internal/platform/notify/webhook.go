@@ -59,6 +59,7 @@ type WebhookClient struct {
 
 // NewWebhookClient constructs a WebhookClient with the given config.
 // AllowPrivateCIDR=false is the production default.
+// NewWebhookClient 创建webhook客户端。
 func NewWebhookClient(cfg WebhookClientConfig) *WebhookClient {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
@@ -106,6 +107,7 @@ func NewWebhookClient(cfg WebhookClientConfig) *WebhookClient {
 // HTTPClient exposes the underlying *http.Client so tests can tune
 // transport-level knobs (for example TLSClientConfig when hitting an
 // httptest.NewTLSServer). Production callers should not need this.
+// HTTPClient 处理HTTP客户端。
 func (c *WebhookClient) HTTPClient() *http.Client { return c.http }
 
 // Post issues POST <target> with the given body and content type. The
@@ -117,6 +119,7 @@ func (c *WebhookClient) HTTPClient() *http.Client { return c.http }
 // otherwise. The response body is read and discarded up to
 // maxResponseBytes so TCP teardown is clean and no memory is wasted
 // on chatty webhook servers.
+// Post 处理post。
 func (c *WebhookClient) Post(ctx context.Context, target, contentType string, body []byte) error {
 	u, err := url.Parse(target)
 	if err != nil {
@@ -163,6 +166,7 @@ func validateHTTPSURL(u *url.URL) error {
 	return nil
 }
 
+// validateRedirectTarget 校验redirecttarget。
 func validateRedirectTarget(ctx context.Context, u *url.URL, allowPrivateCIDR bool) error {
 	if err := validateHTTPSURL(u); err != nil {
 		return err
@@ -199,6 +203,7 @@ type ssrfGuardedDialer struct {
 	allowPrivateCIDR bool
 }
 
+// DialContext 处理dial上下文。
 func (d *ssrfGuardedDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	if d.Dialer == nil {
 		d.Dialer = &net.Dialer{Timeout: DefaultTimeout}
@@ -253,6 +258,7 @@ func isBlockedIP(ip net.IP) bool {
 	return isBlockedByStdlib(ip) || isBlockedByRange(ip)
 }
 
+// isBlockedByStdlib 按stdlib判断blocked。
 func isBlockedByStdlib(ip net.IP) bool {
 	return ip.IsUnspecified() ||
 		ip.IsLoopback() ||

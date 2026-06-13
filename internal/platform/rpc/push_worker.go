@@ -94,6 +94,7 @@ func newPushNotificationWorker(server pushBroadcaster, bridge *PushBridge, logge
 // Start spawns the worker goroutine. Idempotent. When server/bridge is nil
 // the worker short-circuits: doneCh closes immediately so Stop is a no-op
 // and Enqueue stays a cheap silent drop.
+// Start 启动平台RPC流程。
 func (w *pushNotificationWorker) Start() {
 	if w == nil {
 		return
@@ -117,6 +118,7 @@ func (w *pushNotificationWorker) Start() {
 // Enqueue queues a pre-expanded batch of notifications for delivery. Safe
 // to call from bus callbacks: O(1) slice append + non-blocking wake; no
 // NotifyAll or RPC transport work runs on the callback goroutine.
+// Enqueue 把项目追加到队尾。
 func (w *pushNotificationWorker) Enqueue(notifications []eventsurface.Notification) {
 	if w == nil || len(notifications) == 0 {
 		return
@@ -151,6 +153,7 @@ func (w *pushNotificationWorker) Enqueue(notifications []eventsurface.Notificati
 
 // PushCtx returns the cancellable ctx the worker passes to NotifyAll.
 // Exposed for tests to assert the no-context.Background() contract.
+// PushCtx 处理pushctx。
 func (w *pushNotificationWorker) PushCtx() context.Context {
 	if w == nil {
 		return context.Background()
@@ -160,6 +163,7 @@ func (w *pushNotificationWorker) PushCtx() context.Context {
 
 // Stop closes the gate, cancels pushCtx, drains pending batches, and
 // waits bounded by ctx for the worker to exit. Idempotent.
+// Stop 停止平台RPC流程。
 func (w *pushNotificationWorker) Stop(ctx context.Context) error {
 	if w == nil {
 		return nil
@@ -189,8 +193,13 @@ func (w *pushNotificationWorker) Stop(ctx context.Context) error {
 
 // EnqueuedTotal / ProcessedTotal / NotifySentTotal expose observability
 // counters for tests and future metric hookup.
-func (w *pushNotificationWorker) EnqueuedTotal() int64   { return w.enqueuedTotal.Load() }
-func (w *pushNotificationWorker) ProcessedTotal() int64  { return w.processedTotal.Load() }
+// EnqueuedTotal 处理enqueuedtotal。
+func (w *pushNotificationWorker) EnqueuedTotal() int64 { return w.enqueuedTotal.Load() }
+
+// ProcessedTotal 处理processedtotal。
+func (w *pushNotificationWorker) ProcessedTotal() int64 { return w.processedTotal.Load() }
+
+// NotifySentTotal 处理notifysenttotal。
 func (w *pushNotificationWorker) NotifySentTotal() int64 { return w.notifySentTotal.Load() }
 
 func (w *pushNotificationWorker) runWorker() {

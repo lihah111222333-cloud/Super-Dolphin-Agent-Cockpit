@@ -14,6 +14,7 @@ type sessionBindingAdapter struct {
 
 // NewSessionBindingLookup adapts the concrete binding Store to the narrow
 // contract.SessionBindingLookup interface consumed by the session resolver.
+// NewSessionBindingLookup 创建会话bindinglookup。
 func NewSessionBindingLookup(store Store) contract.SessionBindingLookup {
 	if store == nil {
 		return nil
@@ -21,6 +22,7 @@ func NewSessionBindingLookup(store Store) contract.SessionBindingLookup {
 	return &sessionBindingAdapter{store: store}
 }
 
+// GetByProviderThread 按provider线程读取binding存储。
 func (a *sessionBindingAdapter) GetByProviderThread(ctx context.Context, provider, providerThreadID string) (*contract.SessionBinding, error) {
 	binding, err := a.store.GetByProviderThread(ctx, provider, providerThreadID)
 	if err != nil || binding == nil {
@@ -29,6 +31,7 @@ func (a *sessionBindingAdapter) GetByProviderThread(ctx context.Context, provide
 	return mapSessionBinding(binding), nil
 }
 
+// GetByAgentID 按代理ID读取binding存储。
 func (a *sessionBindingAdapter) GetByAgentID(ctx context.Context, agentID string) (*contract.SessionBinding, error) {
 	binding, err := a.store.GetByAgentID(ctx, agentID)
 	if err != nil || binding == nil {

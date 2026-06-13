@@ -37,10 +37,12 @@ type store struct {
 	q querier
 }
 
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store {
 	return &store{q: q}
 }
 
+// GetByThreadID 按线程ID读取线程存储。
 func (s *store) GetByThreadID(ctx context.Context, threadID string) (*Thread, error) {
 	row, err := s.q.GetAgentThreadByID(ctx, sqlc.GetAgentThreadByIDParams{ThreadID: threadID})
 	if err != nil {
@@ -50,6 +52,7 @@ func (s *store) GetByThreadID(ctx context.Context, threadID string) (*Thread, er
 	return &result, nil
 }
 
+// GetByPort 按port读取线程存储。
 func (s *store) GetByPort(ctx context.Context, port int32) (*Thread, error) {
 	row, err := s.q.GetAgentThreadByPort(ctx, sqlc.GetAgentThreadByPortParams{Port: port})
 	if err != nil {
@@ -59,6 +62,7 @@ func (s *store) GetByPort(ctx context.Context, port int32) (*Thread, error) {
 	return &result, nil
 }
 
+// ListAll 列出all。
 func (s *store) ListAll(ctx context.Context) ([]Thread, error) {
 	rows, err := s.q.ListAgentThreads(ctx)
 	if err != nil {
@@ -66,6 +70,8 @@ func (s *store) ListAll(ctx context.Context) ([]Thread, error) {
 	}
 	return mapThreadList(rows), nil
 }
+
+// ListConfigsByIDs 按ids列出配置。
 func (s *store) ListConfigsByIDs(ctx context.Context, threadIDs []string) ([]Thread, error) {
 	rows, err := s.q.ListAgentThreadConfigsByIDs(ctx, sqlc.ListAgentThreadConfigsByIDsParams{ThreadIds: threadIDs})
 	if err != nil {
@@ -74,6 +80,7 @@ func (s *store) ListConfigsByIDs(ctx context.Context, threadIDs []string) ([]Thr
 	return mapConfigList(rows), nil
 }
 
+// ListRunning 列出running。
 func (s *store) ListRunning(ctx context.Context) ([]Thread, error) {
 	rows, err := s.q.ListRunningAgentThreads(ctx)
 	if err != nil {
@@ -82,6 +89,7 @@ func (s *store) ListRunning(ctx context.Context) ([]Thread, error) {
 	return mapRunningThreadList(rows), nil
 }
 
+// ListRecoverable 列出recoverable。
 func (s *store) ListRecoverable(ctx context.Context) ([]Thread, error) {
 	rows, err := s.q.ListRecoverableAgentThreads(ctx)
 	if err != nil {
@@ -90,6 +98,7 @@ func (s *store) ListRecoverable(ctx context.Context) ([]Thread, error) {
 	return mapRecoverableThreadList(rows), nil
 }
 
+// ListRunningAgents 列出running代理。
 func (s *store) ListRunningAgents(ctx context.Context) ([]RunningAgent, error) {
 	rows, err := s.q.ListRunningAgents(ctx)
 	if err != nil {
@@ -107,6 +116,7 @@ func (s *store) ListRunningAgents(ctx context.Context) ([]RunningAgent, error) {
 	return result, nil
 }
 
+// Upsert 新增或更新记录。
 func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 	return wrapThreadError(s.q.UpsertAgentThread(ctx, sqlc.UpsertAgentThreadParams{
 		ThreadID:         params.ThreadID,
@@ -131,6 +141,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 	}), "upsert")
 }
 
+// SavePromptSnapshot 保存prompt快照。
 func (s *store) SavePromptSnapshot(ctx context.Context, threadID string, snapshot PromptSnapshot) error {
 	if snapshot.SectionSnapshot == nil {
 		snapshot.SectionSnapshot = map[string]string{}
@@ -152,6 +163,7 @@ func (s *store) SavePromptSnapshot(ctx context.Context, threadID string, snapsho
 	return nil
 }
 
+// LoadPromptSnapshot 加载prompt快照。
 func (s *store) LoadPromptSnapshot(ctx context.Context, threadID string) (*PromptSnapshot, error) {
 	payload, err := s.q.LoadAgentThreadPromptSnapshot(ctx, sqlc.LoadAgentThreadPromptSnapshotParams{ThreadID: threadID})
 	if err != nil {
@@ -173,6 +185,7 @@ func (s *store) LoadPromptSnapshot(ctx context.Context, threadID string) (*Promp
 	return snapshot, nil
 }
 
+// UpdateStatus 更新状态。
 func (s *store) UpdateStatus(ctx context.Context, params UpdateStatusParams) error {
 	return wrapThreadError(s.q.UpdateAgentThreadStatus(ctx, sqlc.UpdateAgentThreadStatusParams{
 		ThreadID:  params.ThreadID,
@@ -181,6 +194,7 @@ func (s *store) UpdateStatus(ctx context.Context, params UpdateStatusParams) err
 	}), "update_status")
 }
 
+// UpdateLaunchResult 更新启动结果。
 func (s *store) UpdateLaunchResult(ctx context.Context, params UpdateLaunchResultParams) error {
 	return wrapThreadError(s.q.UpdateAgentThreadLaunchResult(ctx, sqlc.UpdateAgentThreadLaunchResultParams{
 		ThreadID:        params.ThreadID,
@@ -190,14 +204,17 @@ func (s *store) UpdateLaunchResult(ctx context.Context, params UpdateLaunchResul
 	}), "update_launch_result")
 }
 
+// DeleteByThreadID 按线程ID删除线程存储。
 func (s *store) DeleteByThreadID(ctx context.Context, threadID string) error {
 	return wrapThreadError(s.q.DeleteAgentThreadByID(ctx, sqlc.DeleteAgentThreadByIDParams{ThreadID: threadID}), "delete_by_thread_id")
 }
 
+// ResetRunning 重置running。
 func (s *store) ResetRunning(ctx context.Context) error {
 	return wrapThreadError(s.q.ResetRunningAgentThreads(ctx), "reset_running")
 }
 
+// ExpireStale 处理expirestale。
 func (s *store) ExpireStale(ctx context.Context, params ExpireStaleParams) (int64, error) {
 	count, err := s.q.ExpireStaleAgentThreads(ctx, sqlc.ExpireStaleAgentThreadsParams{
 		UpdatedAt:   params.UpdatedAt,
@@ -209,6 +226,7 @@ func (s *store) ExpireStale(ctx context.Context, params ExpireStaleParams) (int6
 	return count, nil
 }
 
+// RunningExists 处理runningexists。
 func (s *store) RunningExists(ctx context.Context, threadID string) (bool, error) {
 	exists, err := s.q.AgentThreadRunningExists(ctx, sqlc.AgentThreadRunningExistsParams{ThreadID: threadID})
 	if err != nil {
@@ -217,6 +235,7 @@ func (s *store) RunningExists(ctx context.Context, threadID string) (bool, error
 	return exists, nil
 }
 
+// ListCwds 列出cwds。
 func (s *store) ListCwds(ctx context.Context) ([]ThreadCwd, error) {
 	rows, err := s.q.ListAgentThreadCwds(ctx)
 	if err != nil {
@@ -225,6 +244,7 @@ func (s *store) ListCwds(ctx context.Context) ([]ThreadCwd, error) {
 	return mapThreadCwds(rows), nil
 }
 
+// ListCwdsByPrefix 按prefix列出cwds。
 func (s *store) ListCwdsByPrefix(ctx context.Context, prefix string) ([]ThreadCwd, error) {
 	rows, err := s.q.ListAgentThreadCwdsByPrefix(ctx, sqlc.ListAgentThreadCwdsByPrefixParams{Column1: &prefix})
 	if err != nil {
@@ -233,6 +253,7 @@ func (s *store) ListCwdsByPrefix(ctx context.Context, prefix string) ([]ThreadCw
 	return mapThreadCwdsByPrefix(rows), nil
 }
 
+// CountChildren 统计children。
 func (s *store) CountChildren(ctx context.Context, parentAgentID string) (int64, error) {
 	count, err := s.q.CountChildAgentThreads(ctx, sqlc.CountChildAgentThreadsParams{ParentAgentID: parentAgentID})
 	if err != nil {
@@ -241,6 +262,7 @@ func (s *store) CountChildren(ctx context.Context, parentAgentID string) (int64,
 	return count, nil
 }
 
+// Exists 判断线程存储是否可用。
 func (s *store) Exists(ctx context.Context, threadID string) (bool, error) {
 	exists, err := s.q.AgentThreadExists(ctx, sqlc.AgentThreadExistsParams{ThreadID: threadID})
 	if err != nil {
@@ -249,6 +271,7 @@ func (s *store) Exists(ctx context.Context, threadID string) (bool, error) {
 	return exists, nil
 }
 
+// CountAll 统计all。
 func (s *store) CountAll(ctx context.Context) (int64, error) {
 	count, err := s.q.CountAllThreads(ctx)
 	if err != nil {
@@ -331,6 +354,7 @@ func mapConfigList(rows []sqlc.ListAgentThreadConfigsByIDsRow) []Thread {
 	return result
 }
 
+// mapThreadList 映射线程list。
 func mapThreadList(rows []sqlc.ListAgentThreadsRow) []Thread {
 
 	result := make([]Thread, len(rows))
@@ -365,6 +389,7 @@ func mapThreadList(rows []sqlc.ListAgentThreadsRow) []Thread {
 	return result
 }
 
+// mapRunningThreadList 映射running线程list。
 func mapRunningThreadList(rows []sqlc.ListRunningAgentThreadsRow) []Thread {
 	result := make([]Thread, len(rows))
 	for i, row := range rows {
@@ -398,6 +423,7 @@ func mapRunningThreadList(rows []sqlc.ListRunningAgentThreadsRow) []Thread {
 	return result
 }
 
+// mapRecoverableThreadList 映射recoverable线程list。
 func mapRecoverableThreadList(rows []sqlc.ListRecoverableAgentThreadsRow) []Thread {
 	result := make([]Thread, len(rows))
 	for i, row := range rows {

@@ -131,6 +131,7 @@ func FreezeTestBaseline(opts CheckOptions) Baseline {
 	return freezeBaselineFiltered(opts, true)
 }
 
+// freezeBaselineFiltered 处理freezebaselinefiltered。
 func freezeBaselineFiltered(opts CheckOptions, testsOnly bool) Baseline {
 	repoRoot := opts.RepoRoot
 	if repoRoot == "" {
@@ -164,6 +165,7 @@ func collectGoFiles(repoRoot string, scanRoots []string, skipDirs map[string]boo
 	return files
 }
 
+// collectGoFilesFiltered 收集go文件filtered。
 func collectGoFilesFiltered(repoRoot string, scanRoots []string, skipDirs map[string]bool, testsOnly bool) ([]string, error) {
 	var files []string
 	for _, root := range scanRoots {

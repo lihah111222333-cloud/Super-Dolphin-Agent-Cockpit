@@ -26,6 +26,7 @@ type binaryDirResolver struct {
 	lookPath       func(string) (string, error)
 }
 
+// ResolveBinaryDir 解析二进制目录。
 func ResolveBinaryDir(cwd string, cfg map[string]any) string {
 	return defaultBinaryDirResolver().ResolveBinaryDir(cwd, cfg)
 }
@@ -37,6 +38,7 @@ func defaultBinaryDirResolver() binaryDirResolver {
 	}
 }
 
+// ResolveBinaryDir 解析二进制目录。
 func (r binaryDirResolver) ResolveBinaryDir(cwd string, cfg map[string]any) string {
 	if dir := r.packagedBinaryDir(); dir != "" {
 		return dir
@@ -143,45 +145,54 @@ func hasManagedBinary(dir string) bool {
 }
 
 // ConfigString delegates to configutil.ConfigString.
+// ConfigString 处理配置string。
 func ConfigString(cfg map[string]any, keys ...string) string {
 	return configutil.ConfigString(cfg, keys...)
 }
 
 // SanitizeConfigString delegates to configutil.SanitizeConfigString.
+// SanitizeConfigString 清理配置string。
 func SanitizeConfigString(value string) string {
 	return configutil.SanitizeConfigString(value)
 }
 
 // StringMap delegates to configutil.StringMap.
+// StringMap 处理stringmap。
 func StringMap(raw any) map[string]string {
 	return configutil.StringMap(raw)
 }
 
 // ConfigStringSlice delegates to configutil.ConfigStringSlice.
+// ConfigStringSlice 处理配置stringslice。
 func ConfigStringSlice(cfg map[string]any, keys ...string) []string {
 	return configutil.ConfigStringSlice(cfg, keys...)
 }
 
 // NormalizeConfigStringSlice delegates to configutil.NormalizeConfigStringSlice.
+// NormalizeConfigStringSlice 规范化配置stringslice。
 func NormalizeConfigStringSlice(values any) []string {
 	return configutil.NormalizeConfigStringSlice(values)
 }
 
 // TrimConfigStringValues delegates to configutil.TrimConfigStringValues.
+// TrimConfigStringValues 处理裁剪配置string值。
 func TrimConfigStringValues(values []any) []string {
 	return configutil.TrimConfigStringValues(values)
 }
 
 // SplitConfigStringSlice delegates to configutil.SplitConfigStringSlice.
+// SplitConfigStringSlice 拆分配置stringslice。
 func SplitConfigStringSlice(value string) []string {
 	return configutil.SplitConfigStringSlice(value)
 }
 
 // TrimStrings delegates to configutil.TrimStrings.
+// TrimStrings 处理裁剪strings。
 func TrimStrings(values []string) []string {
 	return configutil.TrimStrings(values)
 }
 
+// ConfigMCPBinaries 处理配置MCP二进制。
 func ConfigMCPBinaries(cfg map[string]any, keys ...string) ([]dto.MCPBinary, error) {
 	raw, ok := firstConfigValue(cfg, keys...)
 	if !ok {
@@ -247,6 +258,7 @@ func sortedMCPConfigServerNames(servers map[string]any) ([]string, map[string]st
 	return names, rawNames, nil
 }
 
+// mcpBinaryFromServerObject 从服务端object处理MCP二进制。
 func mcpBinaryFromServerObject(name string, raw any) (dto.MCPBinary, error) {
 	label := "mcpConfig.mcpServers." + name
 	server, err := configObject(raw, label)
@@ -288,6 +300,7 @@ func firstConfigValue(cfg map[string]any, keys ...string) (any, bool) {
 	return nil, false
 }
 
+// configObject 处理配置object。
 func configObject(raw any, label string) (map[string]any, error) {
 	switch value := raw.(type) {
 	case map[string]any:
@@ -343,6 +356,7 @@ func requiredConfigString(obj map[string]any, label string, keys ...string) (str
 	return "", fmt.Errorf("%s.%s is required", label, keys[0])
 }
 
+// configStringHeaderMap 处理配置string头部map。
 func configStringHeaderMap(raw any, label string) (map[string]string, error) {
 	if raw == nil {
 		return nil, nil

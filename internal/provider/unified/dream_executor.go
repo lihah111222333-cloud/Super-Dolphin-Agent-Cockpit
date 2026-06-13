@@ -42,6 +42,7 @@ type dreamExecutor struct {
 	maxPromptBytes int
 }
 
+// NewDreamExecutor 创建dreamexecutor。
 func NewDreamExecutor(providers []contract.DreamExecutorProvider, logger *slog.Logger) contract.DreamExecutor {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -107,10 +108,12 @@ func resolveProviderOrder(registered []string, override string) []string {
 	return append(ordered, rest...)
 }
 
+// ExecuteDream 执行dream。
 func (e *dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string, error) {
 	return e.ExecuteDreamWithOptions(ctx, prompt, contract.DreamOptions{})
 }
 
+// ExecuteDreamWithOptions 执行带选项的dream。
 func (e *dreamExecutor) ExecuteDreamWithOptions(ctx context.Context, prompt string, options contract.DreamOptions) (string, error) {
 	if err := e.preflight(prompt); err != nil {
 		return "", err

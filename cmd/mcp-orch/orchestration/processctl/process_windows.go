@@ -23,6 +23,7 @@ const (
 	createNewProcessGroup = 0x00000200
 )
 
+// Configure 应用运行时配置。
 func Configure(cmd *exec.Cmd) {
 	if cmd == nil {
 		return
@@ -30,6 +31,7 @@ func Configure(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNewProcessGroup}
 }
 
+// Attach 处理attach。
 func Attach(cmd *exec.Cmd, logger *slog.Logger) *Guard {
 	if cmd == nil || cmd.Process == nil {
 		return nil
@@ -69,6 +71,7 @@ func logGuardWarning(logger *slog.Logger, msg string, cmd *exec.Cmd, err error) 
 	logger.Warn(msg, "pid", pid, "error", err)
 }
 
+// Close 关闭编排资源。
 func (g *Guard) Close() {
 	if g == nil || g.handle == 0 {
 		return
@@ -77,6 +80,7 @@ func (g *Guard) Close() {
 	g.handle = 0
 }
 
+// RequestStop 处理请求stop。
 func RequestStop(cmd *exec.Cmd, guard *Guard) error {
 	if err := interruptProcessGroup(cmd); err == nil || isProcessGoneErr(err) {
 		return nil
@@ -95,6 +99,7 @@ func interruptProcessGroup(cmd *exec.Cmd) error {
 	return windows.GenerateConsoleCtrlEvent(ctrlBreakEvent, uint32(pid))
 }
 
+// ForceStop 处理强制stop。
 func ForceStop(cmd *exec.Cmd, guard *Guard) error {
 	var jobErr error
 	if guard != nil && guard.handle != 0 {

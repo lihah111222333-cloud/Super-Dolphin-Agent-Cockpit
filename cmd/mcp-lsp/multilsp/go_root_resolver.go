@@ -60,6 +60,7 @@ type goWorkspaceKeyParts struct {
 	LanguageSpecific      map[string]string
 }
 
+// ResolveGoRoot 解析go根目录。
 func ResolveGoRoot(req GoRootRequest) (GoRootInfo, error) {
 	target, projectRoot, err := resolveGoRootRequestPaths(req)
 	if err != nil {
@@ -85,6 +86,7 @@ func ResolveGoRoot(req GoRootRequest) (GoRootInfo, error) {
 	return withGoToolchain(info, env, err)
 }
 
+// resolveGoRootRequestPaths 解析go根目录请求路径。
 func resolveGoRootRequestPaths(req GoRootRequest) (string, string, error) {
 	projectRoot, err := normalizeOptionalPath(req.CWD, "")
 	if err != nil {
@@ -113,6 +115,7 @@ func goRootRequestEnv(req GoRootRequest) []string {
 	return os.Environ()
 }
 
+// resolveGoRootFromGOWORK 从gowork解析go根目录。
 func resolveGoRootFromGOWORK(target, projectRoot string, env []string, noiseDirNames []string) (GoRootInfo, bool, error) {
 	gowork, ok := envValue(env, "GOWORK")
 	if !ok {
@@ -141,6 +144,7 @@ func resolveGoRootFromGOWORK(target, projectRoot string, env []string, noiseDirN
 	return info, true, err
 }
 
+// resolveGoRootWithoutGoWork 解析go根目录withoutgowork。
 func resolveGoRootWithoutGoWork(target, projectRoot, mode string, noiseDirNames []string) (GoRootInfo, error) {
 	if goModPath, err := findGoModPath(target); err != nil {
 		return GoRootInfo{}, err
@@ -239,6 +243,7 @@ func goWorkRootContainsTarget(info GoRootInfo, target string) bool {
 	return false
 }
 
+// goWorkRootContainsSpecialTarget 判断目标是否正好落在 go.work 或 workspace 根上。
 func goWorkRootContainsSpecialTarget(info GoRootInfo, target string) bool {
 	normalized, err := platformshared.NormalizeAbsolutePath(target)
 	if err != nil || normalized == "" {
@@ -256,6 +261,7 @@ func findGoWorkPath(path string) (string, error) {
 	return findUpwardFile(path, "go.work")
 }
 
+// findUpwardFile 查找upward文件。
 func findUpwardFile(path, name string) (string, error) {
 	absPath, err := platformshared.NormalizeAbsolutePath(path)
 	if err != nil {
@@ -277,6 +283,7 @@ func findUpwardFile(path, name string) (string, error) {
 	return "", nil
 }
 
+// findFirstLevelGoModRoots 查找firstlevelgomod根目录。
 func findFirstLevelGoModRoots(root string, noiseDirNames []string) ([]string, error) {
 	root, err := normalizeOptionalPath(root, "")
 	if err != nil {
@@ -367,6 +374,7 @@ func fallbackProjectRootValue(projectRoot, fallback string) string {
 	return fallback
 }
 
+// longestContainingRoot 从候选根目录里选出最深的包含路径。
 func longestContainingRoot(path string, roots []string) string {
 	if len(roots) == 0 || strings.TrimSpace(path) == "" {
 		return ""
@@ -384,6 +392,7 @@ func longestContainingRoot(path string, roots []string) string {
 	return best
 }
 
+// pathWithinRoot 处理路径within根目录。
 func pathWithinRoot(path, root string) bool {
 	if path == root {
 		return true
@@ -414,6 +423,7 @@ func (root GoRootInfo) workspaceFolderPaths() []string {
 	return cleanUniqueFolderPaths(paths, root.WorkspaceRoot)
 }
 
+// cleanUniqueFolderPaths 处理cleanuniquefolder路径。
 func cleanUniqueFolderPaths(paths []string, first string) []string {
 	normalized := cleanSortedUniquePaths(paths)
 	if first == "" {
@@ -450,6 +460,7 @@ func cleanSortedUniquePaths(paths []string) []string {
 	return out
 }
 
+// goRootEnv 处理go根目录env。
 func goRootEnv(root GoRootInfo) []string {
 	env := make([]string, 0, 3)
 	switch root.GOWORKMode {

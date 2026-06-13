@@ -35,6 +35,7 @@ type ScopeReleaser interface {
 	ReleaseScope(req ReleaseScopeRequest) (ReleaseScopeResult, error)
 }
 
+// ReleaseScope 处理release作用域。
 func (m *manager) ReleaseScope(req ReleaseScopeRequest) (ReleaseScopeResult, error) {
 	if m == nil || m.pool == nil {
 		return ReleaseScopeResult{}, errors.New("LSP manager pool is nil")
@@ -42,6 +43,7 @@ func (m *manager) ReleaseScope(req ReleaseScopeRequest) (ReleaseScopeResult, err
 	return m.pool.ReleaseScope(req)
 }
 
+// ReleaseScope 处理release作用域。
 func (p *ManagerPool) ReleaseScope(req ReleaseScopeRequest) (ReleaseScopeResult, error) {
 	if p == nil {
 		return ReleaseScopeResult{}, errors.New("LSP manager pool is nil")
@@ -60,6 +62,7 @@ func (p *ManagerPool) ReleaseScope(req ReleaseScopeRequest) (ReleaseScopeResult,
 	return result, firstErr
 }
 
+// ReleaseManagerKey 处理releasemanager键。
 func (p *ManagerPool) ReleaseManagerKey(managerKey string) error {
 	_, err := p.ReleaseScope(ReleaseScopeRequest{
 		ScopeKind:  ReleaseScopeManagerKey,
@@ -82,6 +85,7 @@ func (p *ManagerPool) detachReleaseScopeManagers(req ReleaseScopeRequest) (Relea
 	return result, toClose
 }
 
+// detachReleaseScopeManagersFromShard 从shard处理detachrelease作用域managers。
 func (p *ManagerPool) detachReleaseScopeManagersFromShard(shard *managerShard, req ReleaseScopeRequest, seen map[*manager]struct{}) (ReleaseScopeResult, []*manager) {
 	if shard == nil {
 		return ReleaseScopeResult{}, nil
@@ -137,6 +141,7 @@ func mergeReleaseScopeResult(dst *ReleaseScopeResult, src ReleaseScopeResult) {
 	}
 }
 
+// closeReleaseScopeManagers 关闭release作用域managers。
 func closeReleaseScopeManagers(req ReleaseScopeRequest, managers []*manager) (int, error) {
 	var firstErr error
 	closed := 0
@@ -174,6 +179,7 @@ func normalizeReleaseScopeRequest(req ReleaseScopeRequest) ReleaseScopeRequest {
 	return req
 }
 
+// validateReleaseScopeRequest 校验release作用域请求。
 func validateReleaseScopeRequest(req ReleaseScopeRequest) error {
 	switch req.ScopeKind {
 	case ReleaseScopeAgentThread:
@@ -207,6 +213,7 @@ func releaseScopeMatches(req ReleaseScopeRequest, scope ResolvedLSPToolScope) bo
 	}
 }
 
+// activeLeasesForManager 为manager处理activeleases。
 func (p *ManagerPool) activeLeasesForManager(mgr *manager) int {
 	if p == nil || mgr == nil {
 		return 0

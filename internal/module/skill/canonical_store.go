@@ -16,6 +16,8 @@ const (
 	personalSkillPolicyFile = ".super-dolphin-personal-skill-policy.json"
 )
 
+// canonicalStore 只读真正的 skill 来源：项目 .agent/skills 和 active personal。
+// 不要把 .claude/.agents 加进来，它们只是生成结果。
 type canonicalStore struct {
 	superDolphinHome string
 	osUID            string
@@ -49,6 +51,8 @@ type canonicalSkillConflictSource struct {
 	DirHash      string
 }
 
+// canonicalScanRoot 是一次扫描会进入的真实目录。
+// personal/hub 只放 catalog 数据，不能参与运行时匹配或 provider mirror。
 type canonicalScanRoot struct {
 	path         string
 	scope        string
@@ -94,6 +98,7 @@ type projectSkillPolicySource struct {
 	ContentHash  string `json:"content_hash,omitempty"`
 }
 
+// Error 返回错误的可读文本。
 func (e skillSameNameConflictError) Error() string {
 	names := make([]string, 0, len(e.Conflicts))
 	for _, conflict := range e.Conflicts {
@@ -106,6 +111,7 @@ func (e skillSameNameConflictError) Error() string {
 	return ErrSkillSameNameConflict.Error() + ": " + strings.Join(names, ", ")
 }
 
+// Unwrap 暴露底层错误，方便 errors.Is 或 errors.As 判断。
 func (e skillSameNameConflictError) Unwrap() error { return ErrSkillSameNameConflict }
 
 func newCanonicalStore(superDolphinHome string) *canonicalStore {
@@ -120,6 +126,8 @@ func newCanonicalStoreForOwner(superDolphinHome, osUID, appProfile string) *cano
 	}
 }
 
+// EffectiveSet 给运行时和 provider mirror 提供可用 skill。
+// 同名冲突会直接返回 conflicts；不要在这里偷偷按优先级选一个。
 func (s *canonicalStore) EffectiveSet(_ context.Context, cwd string) ([]canonicalSkillRecord, []canonicalSkillConflict, error) {
 	records, err := s.scan(cwd)
 	if err != nil {
@@ -158,6 +166,8 @@ func (s *canonicalStore) scan(cwd string) ([]canonicalSkillRecord, error) {
 	return records, nil
 }
 
+// scanRoots 只列运行时真正会读的目录：项目 skill 和 user/agent/imported。
+// hub 是 catalog，provider mirror 是生成物，都不要放进扫描列表。
 func (s *canonicalStore) scanRoots(cwd string) []canonicalScanRoot {
 	projectRoot := projectRootForCWD(cwd, "")
 	roots := []canonicalScanRoot{
@@ -178,6 +188,7 @@ func (s *canonicalStore) scanRoots(cwd string) []canonicalScanRoot {
 	return roots
 }
 
+// scanCanonicalRoot 扫描 canonical skill 根目录。
 func scanCanonicalRoot(root canonicalScanRoot) ([]canonicalSkillRecord, error) {
 	if strings.TrimSpace(root.path) == "" {
 		return nil, nil
@@ -202,6 +213,7 @@ func scanCanonicalRoot(root canonicalScanRoot) ([]canonicalSkillRecord, error) {
 	return records, nil
 }
 
+// visitCanonicalSkillFile 读取单个 canonical skill 文件并生成记录。
 func visitCanonicalSkillFile(root canonicalScanRoot, path string, entry os.DirEntry, walkErr error) (*canonicalSkillRecord, error) {
 	if walkErr != nil || entry == nil {
 		return nil, walkErr
@@ -453,6 +465,7 @@ func writeProjectDisablePersonalPolicy(cwd, name, personalType string) (string, 
 	return writeSkillPolicyJSON(filepath.Join(defaultProjectSkillsRoot(projectRootForCWD(cwd, "")), projectSkillPolicyFile), policy, 0o644)
 }
 
+// projectPolicyKeepsExternalProviderSkill 判断项目策略是否保留外部 provider skill。
 func projectPolicyKeepsExternalProviderSkill(policy projectSkillPolicy, name string, provider SkillProvider, sourceHash string) bool {
 	name = strings.TrimSpace(name)
 	providerValue := strings.TrimSpace(string(provider))
@@ -508,6 +521,7 @@ func readJSONFileIfExists(path string, dst any) error {
 	return json.Unmarshal(data, dst)
 }
 
+// writeSkillPolicyJSON 写入 skill 策略文件。
 func writeSkillPolicyJSON(path string, value any, mode os.FileMode) (string, error) {
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {

@@ -80,6 +80,8 @@ func currentTurnID(handle *turnHandle) string {
 	}
 	return handle.LocalID()
 }
+
+// applyRaw 应用原始。
 func (s *session) applyRaw(tr *transport, raw dto.RawProviderEvent) {
 	s.handleSystemInitRaw(tr, raw)
 	if !s.isCurrentTransport(tr) {
@@ -128,6 +130,7 @@ func isKeepaliveTurnEvent(raw dto.RawProviderEvent) bool {
 	return strings.HasPrefix(dataString(raw.Data, "turn_id"), keepaliveTurnIDPrefix)
 }
 
+// handleSystemInitRaw 处理systeminit原始。
 func (s *session) handleSystemInitRaw(tr *transport, raw dto.RawProviderEvent) {
 	if raw.EventType != "system:init" {
 		return
@@ -244,6 +247,8 @@ func (s *session) takeActiveToolInterruptEvents(turnID, reason string) []dto.Raw
 	defer s.mu.Unlock()
 	return s.takeActiveToolInterruptEventsLocked(turnID, reason)
 }
+
+// takeActiveToolInterruptEventsLocked 处理takeactive工具interrupt事件locked。
 func (s *session) takeActiveToolInterruptEventsLocked(turnID, reason string) []dto.RawProviderEvent {
 	if len(s.activeToolCalls) == 0 {
 		return nil
@@ -305,6 +310,7 @@ type contentBlock struct {
 	Input    json.RawMessage `json:"input"`
 }
 
+// decodeClaudeLine 解码claude行。
 func decodeClaudeLine(line []byte, base rawBase) ([]dto.RawProviderEvent, error) {
 	var raw streamEvent
 	if err := json.Unmarshal(line, &raw); err != nil {
@@ -347,6 +353,7 @@ func joinErrorsArray(errs []string) string {
 	return strings.Join(cleaned, "; ")
 }
 
+// decodeResultEvent 解码结果事件。
 func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 	data := baseData(base, raw.SessionID, raw.Timestamp)
 	success := !raw.IsError && !strings.EqualFold(strings.TrimSpace(raw.Subtype), "error")
@@ -384,6 +391,8 @@ func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 func baseData(base rawBase, sessionID, timestamp string) map[string]any {
 	return buildEventData(base, sessionID, timestamp, nil)
 }
+
+// dataString 处理数据string。
 func dataString(data any, keys ...string) string {
 	if m, ok := data.(map[string]any); ok {
 		for _, key := range keys {
@@ -413,6 +422,8 @@ func dataBool(data any, key string) bool {
 	}
 	return value
 }
+
+// dataInt 处理数据int。
 func dataInt(data any, keys ...string) (int, bool) {
 	m, _ := data.(map[string]any)
 	for _, key := range keys {

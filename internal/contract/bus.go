@@ -31,6 +31,7 @@ type UISharedFilesChangedEmitter func(uidto.UISharedFilesChanged)
 // ---------------------------------------------------------------------------
 // ResilientSubscribe subscribes to events with panic recovery.
 // ---------------------------------------------------------------------------
+// ResilientSubscribe 处理resilientsubscribe。
 func ResilientSubscribe[T event.Event](dispatcher *event.Dispatcher, fn func(T), logger *slog.Logger) context.CancelFunc {
 	if dispatcher == nil || fn == nil {
 		return func() {}
@@ -63,6 +64,7 @@ func eventTypeName(ev any) string {
 // NewEmitter returns a typed publish function without hand-writing per-event
 // wrappers.
 // ---------------------------------------------------------------------------
+// NewEmitter 创建emitter。
 func NewEmitter[T event.Event](dispatcher *event.Dispatcher) func(T) {
 	return func(ev T) {
 		if dispatcher == nil {

@@ -61,6 +61,7 @@ func (s *service) drainBusWorker(ctx context.Context, name string, stop func(con
 	}
 }
 
+// onAgentLaunched 处理on代理launched。
 func (s *service) onAgentLaunched(ev agentdto.AgentLaunched) {
 	if s == nil || s.agentLaunchedWorker == nil || s.bindingStore == nil {
 		return
@@ -77,6 +78,7 @@ func (s *service) onAgentLaunched(ev agentdto.AgentLaunched) {
 	s.agentLaunchedWorker.Enqueue(key, ev)
 }
 
+// processAgentLaunched 处理进程代理launched。
 func (s *service) processAgentLaunched(ev agentdto.AgentLaunched) {
 	if s == nil || s.bindingStore == nil {
 		return
@@ -115,6 +117,7 @@ func (s *service) recordAgentLaunchSessionUUID(ctx context.Context, binding *bin
 	s.logger.Info("thread: updated session_uuid from agent event", "thread_id", threadID, "agent_id", agentID, "session_uuid", sessionID)
 }
 
+// recordAgentLaunchProviderThreadID 记录代理启动provider线程ID。
 func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding *bindingstore.Binding, threadID, agentID, sessionID string) {
 	providerThreadID := normalizeProviderThreadID(binding.Provider, sessionID)
 	if providerThreadID == "" {
@@ -149,6 +152,7 @@ func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding
 	s.logger.Info("thread: updated provider_thread_id from agent event", "thread_id", threadID, "agent_id", agentID, "provider_thread_id", providerThreadID)
 }
 
+// syncAgentLaunchCWD 同步代理启动工作目录。
 func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *bindingstore.Binding, threadID, nextCWD string) {
 	agentID, nextCWD, ok := normalizedAgentLaunchCWD(s, binding, nextCWD)
 	if !ok {
@@ -183,6 +187,7 @@ func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *bindingstore.
 	}
 }
 
+// normalizedAgentLaunchCWD 处理normalized代理启动工作目录。
 func normalizedAgentLaunchCWD(s *service, binding *bindingstore.Binding, nextCWD string) (string, string, bool) {
 	if s == nil || s.bindingStore == nil || binding == nil {
 		return "", "", false
@@ -216,6 +221,7 @@ func (s *service) onAgentFailed(ev agentdto.AgentFailed) {
 	s.sessionRecoveryWorker.Enqueue(target, ev)
 }
 
+// processSessionRecovery 处理进程会话recovery。
 func (s *service) processSessionRecovery(ctx context.Context, ev agentdto.AgentFailed) {
 	if s == nil {
 		return

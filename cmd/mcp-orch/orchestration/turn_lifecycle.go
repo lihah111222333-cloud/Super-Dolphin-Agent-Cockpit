@@ -21,6 +21,7 @@ func handleTurnCompletedEvent(svc *service, logger *slog.Logger, ev turndto.Turn
 	handleTurnCompletedEventWithCtx(svc, logger, ev, context.Background())
 }
 
+// handleTurnCompletedEventWithCtx 处理带ctx的turncompleted事件。
 func handleTurnCompletedEventWithCtx(svc *service, logger *slog.Logger, ev turndto.TurnCompleted, parent context.Context) {
 	if svc == nil {
 		return
@@ -57,6 +58,7 @@ func handleTurnInterruptedEvent(svc *service, logger *slog.Logger, ev turndto.Tu
 	handleTurnInterruptedEventWithCtx(svc, logger, ev, context.Background())
 }
 
+// handleTurnInterruptedEventWithCtx 处理带ctx的turninterrupted事件。
 func handleTurnInterruptedEventWithCtx(svc *service, logger *slog.Logger, ev turndto.TurnInterrupted, parent context.Context) {
 	if svc == nil {
 		return
@@ -104,6 +106,7 @@ func (s *service) markAwaitingUserInput(ctx context.Context, agentID, turnID str
 	})
 }
 
+// resolveAwaitingUserInput 解析awaitinguserinput。
 func (s *service) resolveAwaitingUserInput(ctx context.Context, agentID, turnID, reason string) error {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
@@ -308,6 +311,7 @@ func completionRecoveryTrigger(success bool) agentdto.AgentTrigger {
 	return agentdto.TriggerTurnAborted
 }
 
+// canForceIdleAfterTurnTerminal 判断强制idle后置turnterminal是否可用。
 func canForceIdleAfterTurnTerminal(agent *agentRuntime, turnID string) bool {
 	if agent == nil {
 		return false
@@ -409,6 +413,7 @@ func logTurnTerminalProgress(
 	logger.Info(message, attrs...)
 }
 
+// logTurnCompletionFailure 处理日志turn补全failure。
 func logTurnCompletionFailure(
 	logger *slog.Logger,
 	ev turndto.TurnCompleted,
@@ -435,6 +440,7 @@ func logTurnCompletionFailure(
 	logger.Warn("orchestration: failed to handle turn completion", attrs...)
 }
 
+// logTurnInterruptedFailure 处理日志turninterruptedfailure。
 func logTurnInterruptedFailure(
 	logger *slog.Logger,
 	ev turndto.TurnInterrupted,

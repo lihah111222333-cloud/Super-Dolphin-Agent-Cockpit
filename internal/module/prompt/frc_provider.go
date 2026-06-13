@@ -9,10 +9,12 @@ var _ DynamicSectionProvider = FRCProvider{}
 
 type FRCProvider struct{}
 
+// SectionName 处理section名称。
 func (FRCProvider) SectionName() string {
 	return DynamicSectionFRC
 }
 
+// Resolve 解析prompt。
 func (FRCProvider) Resolve(_ context.Context, input SectionContext) (*string, error) {
 	cfg := input.BuildCtx.FRCConfig
 	if !cfg.EnabledForModel(input.BuildCtx.Model) {

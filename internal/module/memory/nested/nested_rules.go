@@ -16,6 +16,7 @@ import (
 
 var _ contract.TurnAttachmentProvider = (*ClaudeMdSourcesProvider)(nil)
 
+// ResolveTurnAttachments 解析turnattachments。
 func (p *ClaudeMdSourcesProvider) ResolveTurnAttachments(
 	ctx context.Context,
 	buildCtx contract.BuildCtx,
@@ -44,6 +45,7 @@ func (p *ClaudeMdSourcesProvider) ResolveTurnAttachments(
 	return p.GetNestedMemoryAttachments(ctx, buildCtx, turn.ThreadID, triggers, baseSources)
 }
 
+// GetNestedMemoryAttachments 读取nested记忆attachments。
 func (p *ClaudeMdSourcesProvider) GetNestedMemoryAttachments(
 	ctx context.Context,
 	buildCtx contract.BuildCtx,
@@ -156,6 +158,7 @@ func nestedMemoryHeader(source ClaudeMdSource) string {
 	return header + " (" + description + "):"
 }
 
+// parseFrontmatterPaths 解析frontmatter路径。
 func parseFrontmatterPaths(frontmatter string) []string {
 	paths := make([]string, 0, 4)
 	activeList := false
@@ -182,6 +185,7 @@ func parseFrontmatterPaths(frontmatter string) []string {
 	return normalizeStringSlice(paths)
 }
 
+// MatchTargetPath 判断target路径是否匹配。
 func MatchTargetPath(target string, globs []string, baseDir string) bool {
 	if strings.TrimSpace(target) == "" || len(globs) == 0 {
 		return false
@@ -219,6 +223,7 @@ func targetGlobVariants(glob string) []string {
 	return normalizeStringSlice(variants)
 }
 
+// resolveNestedConditionalSources 解析nestedconditionalsources。
 func resolveNestedConditionalSources(
 	ctx context.Context,
 	buildCtx contract.BuildCtx,
@@ -276,6 +281,7 @@ func cwdLevelDirs(root, cwd string) []string {
 	return ancestorWalkDirs(root, cwd)
 }
 
+// nestedDirs 处理nested目录。
 func nestedDirs(cwd, target string) []string {
 	cwd = cleanClaudeMdPath(cwd)
 	targetDir := cleanClaudeMdPath(filepath.Dir(strings.TrimSpace(target)))
@@ -299,6 +305,7 @@ func nestedDirs(cwd, target string) []string {
 	return stack
 }
 
+// filterNestedConditionalDelta 处理过滤条件nestedconditionaldelta。
 func filterNestedConditionalDelta(sources []ClaudeMdSource, target string, baseSources []ClaudeMdSource) []ClaudeMdSource {
 	baseKeys := baseUserContextSourceKeys(baseSources)
 	seen := make(map[string]struct{}, len(sources))
@@ -326,6 +333,7 @@ func filterNestedConditionalDelta(sources []ClaudeMdSource, target string, baseS
 	return filtered
 }
 
+// baseUserContextSourceKeys 处理baseuser上下文source键。
 func baseUserContextSourceKeys(sources []ClaudeMdSource) map[string]struct{} {
 	if len(sources) == 0 {
 		return nil

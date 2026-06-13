@@ -50,6 +50,7 @@ func (s *service) readPromptHintOverride(ctx context.Context, cwd string) string
 	return decodePromptHintRaw(raw)
 }
 
+// readPromptHintDefault 读取prompthintdefault。
 func (s *service) readPromptHintDefault(ctx context.Context) string {
 	if s.sharedFiles == nil {
 		return ""

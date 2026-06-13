@@ -25,6 +25,7 @@ type ToolResultRecord struct {
 	OriginalSize  int
 }
 
+// CaptureToolResult 生成capture工具结果。
 func CaptureToolResult(meta ToolResultMeta, raw string) ToolResultRecord {
 	originalSize := toolResultCharCount(raw)
 	if originalSize == 0 {
@@ -87,6 +88,7 @@ func toolResultFileName(meta ToolResultMeta) string {
 	return strings.Join(parts, "_") + ".txt"
 }
 
+// sanitizeToolResultSegment 清理工具结果segment。
 func sanitizeToolResultSegment(raw string) string {
 	raw = strings.TrimSpace(strings.ToLower(raw))
 	if raw == "" {

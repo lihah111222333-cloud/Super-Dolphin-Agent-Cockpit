@@ -21,6 +21,8 @@ import (
 //	stringToSign := timestamp_sec + "\n" + secret
 //	sign := base64(HMAC-SHA256(stringToSign, "") ... )
 //	      (Go idiom: HMAC key is stringToSign, message is empty)
+//
+// RenderFeishu 渲染feishu。
 func RenderFeishu(cfg ChannelConfig, msg contract.NotifyMessage, timestampSec int64) (postURL string, body []byte, contentType string, err error) {
 	if cfg.Platform != PlatformFeishu {
 		return "", nil, "", fmt.Errorf("feishu: wrong platform %q", cfg.Platform)

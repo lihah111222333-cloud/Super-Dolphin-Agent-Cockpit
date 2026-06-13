@@ -30,6 +30,7 @@ type orchestrationRuntimeReporter struct {
 	svc contract.OrchestrationService
 }
 
+// ReportRuntime 报告运行时。
 func (r orchestrationRuntimeReporter) ReportRuntime(ctx context.Context, report contract.RuntimeReport) error {
 	return r.svc.UpdateRuntime(ctx, report)
 }
@@ -38,6 +39,7 @@ type noopRuntimeReporter struct {
 	logger *slog.Logger
 }
 
+// ReportRuntime 报告运行时。
 func (r noopRuntimeReporter) ReportRuntime(_ context.Context, report contract.RuntimeReport) error {
 	if r.logger != nil {
 		r.logger.Debug("runtime report (noop)", "agent_id", report.AgentID, "provider", report.Provider)

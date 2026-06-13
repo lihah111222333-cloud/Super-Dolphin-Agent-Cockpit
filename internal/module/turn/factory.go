@@ -56,6 +56,7 @@ type runtimeConfigSnapshotReader interface {
 	RuntimeConfigSnapshot() map[string]any
 }
 
+// buildPrepareInput 构建prepareinput。
 func buildPrepareInput(spec prepareInputSpec, skills prepareSkillSpec, session prepareInputSession) PrepareInput {
 	var caps dto.CapabilitySet
 	if session != nil {
@@ -132,6 +133,7 @@ func mergePrepareInputRuntime(input PrepareInput, cfg map[string]any) PrepareInp
 	return input
 }
 
+// providerNativeSkillsDisabled 处理providernativeskillsdisabled。
 func providerNativeSkillsDisabled(cfg map[string]any) bool {
 	for _, key := range []string{"providerNativeSkills", "provider_native_skills"} {
 		raw, ok := cfg[key]
@@ -174,6 +176,7 @@ func configBoolMap(cfg map[string]any, keys ...string) map[string]bool {
 	return nil
 }
 
+// normalizePrepareBoolMap 规范化prepareboolmap。
 func normalizePrepareBoolMap(value any) map[string]bool {
 	switch typed := value.(type) {
 	case map[string]bool:
@@ -252,6 +255,7 @@ func clonePrepareFlags(flags map[string]bool) map[string]bool {
 	return cloned
 }
 
+// applyPersistentSubagentToolPolicy 应用persistentsubagent工具策略。
 func applyPersistentSubagentToolPolicy(enabledTools []string, flags map[string]bool) []string {
 	if !persistentSubagentDefaultEnabled(flags) || len(enabledTools) == 0 {
 		return enabledTools
@@ -350,6 +354,7 @@ func readThreadRuntimeConfig(ctx context.Context, reader ThreadStateConfigReader
 	return clone.RuntimeConfigMap(cfg), nil
 }
 
+// requireTurnContext 处理requireturn上下文。
 func requireTurnContext(
 	ctx context.Context,
 	session contract.Session,
@@ -458,6 +463,7 @@ func normalizePrepareSkillRefs(skills prepareSkillSpec, manualSkillSelection boo
 	)
 }
 
+// dropNameOnlySkillRefsCoveredByExactRefs 按精确refs去掉名称only技能refscovered。
 func dropNameOnlySkillRefsCoveredByExactRefs(names []dto.SkillRef, refs []dto.SkillRef) []dto.SkillRef {
 	if len(names) == 0 || len(refs) == 0 {
 		return names

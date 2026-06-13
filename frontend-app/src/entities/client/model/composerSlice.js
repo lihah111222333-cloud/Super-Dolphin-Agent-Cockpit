@@ -1,3 +1,8 @@
+/*
+ * composer slice 管输入区：草稿、附件、模型选择和发送。
+ * timeline 合并、线程快照不在这里做。
+ */
+
 function createComposerFilePickerActions(runtime, deps) {
   const {
     actionNotice,
@@ -223,6 +228,10 @@ function createComposerSendActions(runtime, deps) {
 
   return {
     sendDraft: async () => {
+      /*
+       * 发送新对话时先建 thread，再 start turn。
+       * 失败要撤回本地乐观消息，必要时删掉刚建的临时 thread。
+       */
       const cwd = runtime.requireCwd('send message');
       const request = createSendDraftRequest(runtime.get(), cwd);
       if (!request) return false;

@@ -51,6 +51,7 @@ type SharedFileRetentionItem struct {
 	FinalOutput      *FinalOutputRef `json:"finalOutput,omitempty"`
 }
 
+// GetDashboardPage 读取dashboardpage。
 func (s *service) GetDashboardPage(ctx context.Context, page string) (*DashboardPage, error) {
 	out := newDashboardPage()
 	if err := s.populateDashboardPage(ctx, out, page); err != nil {
@@ -87,6 +88,7 @@ func (s *service) populateDashboardPage(ctx context.Context, out *DashboardPage,
 	return group.Wait()
 }
 
+// dashboardPageLoaders 处理dashboardpageloaders。
 func (s *service) dashboardPageLoaders(out *DashboardPage, page string) []dashboardPageLoader {
 	switch page {
 	case "agents":
@@ -125,6 +127,7 @@ func (s *service) populateDashboardAgents(ctx context.Context, out *DashboardPag
 	return err
 }
 
+// populateDashboardDAGs 处理populatedashboarddags。
 func (s *service) populateDashboardDAGs(ctx context.Context, out *DashboardPage) error {
 	if !s.hasDAGSnapshotQueries() && s.effectiveDAGRuntime() == nil {
 		return nil
@@ -196,6 +199,7 @@ func (s *service) buildDashboardDAGs(ctx context.Context, items []contract.DAGSu
 	return out, group.Wait()
 }
 
+// runMetadataHasFinalOutput 运行元数据hasfinaloutput。
 func runMetadataHasFinalOutput(raw json.RawMessage) bool {
 	var envelope struct {
 		FinalOutput json.RawMessage `json:"final_output"`
@@ -273,6 +277,7 @@ func (s *service) listDashboardPrompts(ctx context.Context) ([]promptstore.Promp
 	})
 }
 
+// filterDashboardPromptsByCWD 按工作目录处理过滤条件dashboardprompts。
 func filterDashboardPromptsByCWD(items []promptstore.PromptTemplate, cwd string) []promptstore.PromptTemplate {
 	requestScope := strings.TrimSpace(cwd)
 	if requestScope == "" {
@@ -315,6 +320,7 @@ func dashboardPromptTags(raw json.RawMessage) []string {
 	return tags
 }
 
+// dashboardPromptIsSystemManaged 处理dashboardpromptissystemmanaged。
 func dashboardPromptIsSystemManaged(template promptstore.PromptTemplate) bool {
 	for _, tag := range dashboardPromptTags(template.Tags) {
 		if strings.TrimSpace(tag) == "builtin:system" {
@@ -348,6 +354,7 @@ func (s *service) listDashboardMemory(ctx context.Context) ([]sharedfilestore.Sh
 	})
 }
 
+// ListSharedFiles 列出shared文件。
 func (s *service) ListSharedFiles(ctx context.Context) ([]sharedfilestore.SharedFile, error) {
 	items, err := s.listDashboardMemory(ctx)
 	if items == nil {
@@ -356,6 +363,7 @@ func (s *service) ListSharedFiles(ctx context.Context) ([]sharedfilestore.Shared
 	return items, err
 }
 
+// listDashboardFinalOutputRefs 列出dashboardfinaloutputrefs。
 func (s *service) listDashboardFinalOutputRefs(ctx context.Context) ([]FinalOutputRef, error) {
 	if s.effectiveDAGRuntime() == nil {
 		return s.listDashboardFinalOutputRefsFromSnapshot(ctx)
@@ -397,6 +405,7 @@ func (s *service) listDashboardFinalOutputRefs(ctx context.Context) ([]FinalOutp
 	return refs, nil
 }
 
+// listDashboardFinalOutputRefsFromSnapshot 从快照列出dashboardfinaloutputrefs。
 func (s *service) listDashboardFinalOutputRefsFromSnapshot(ctx context.Context) ([]FinalOutputRef, error) {
 	if !s.hasDAGSnapshotQueries() {
 		return []FinalOutputRef{}, nil
@@ -441,6 +450,7 @@ func finalOutputRefFromRun(run contract.Run) (FinalOutputRef, bool) {
 	}, true
 }
 
+// buildSharedFileRetention 构建shared文件retention。
 func buildSharedFileRetention(files []sharedfilestore.SharedFile, refs []FinalOutputRef) SharedFileRetention {
 	refByPath := make(map[string]FinalOutputRef, len(refs))
 	for _, ref := range refs {

@@ -21,6 +21,7 @@ type contentIndex struct {
 	end   []int
 }
 
+// GuardContentAndReplacement 检查内容替换内容。
 func GuardContentAndReplacement(content string, replacement string) error {
 	if len(content) > ReplaceRangeMaxContentBytes {
 		return fmt.Errorf("%w: content exceeds %d bytes", ErrInvalidPatch, ReplaceRangeMaxContentBytes)
@@ -33,11 +34,13 @@ func GuardContentAndReplacement(content string, replacement string) error {
 
 // ShouldForceBypass reports whether callers should enable the internal
 // large-content bypass path for replace_range follow-up operations.
+// ShouldForceBypass 判断强制绕过是否可用。
 func ShouldForceBypass(contentLen int) bool {
 	return contentLen > ReplaceRangeForceBypassMaxBytes
 }
 
 // OffsetToLine converts a byte offset into a 1-based LSP line number.
+// OffsetToLine 把偏移量处理为行。
 func OffsetToLine(content string, offset int) (int, error) {
 	index, err := indexContent(content)
 	if err != nil {
@@ -47,6 +50,7 @@ func OffsetToLine(content string, offset int) (int, error) {
 }
 
 // BuildEditContext renders the surrounding lines and the old/new change block, and returns the affected window bounds.
+// BuildEditContext 构建编辑上下文。
 func BuildEditContext(content string, startOffset int, endOffset int, replacement string) (string, int, int, error) {
 	if err := GuardContentAndReplacement(content, replacement); err != nil {
 		return "", 0, 0, err
@@ -110,6 +114,7 @@ func editContextDisplayWindowEnd(windowEnd int, startOffset int, endOffset int, 
 	return windowEnd
 }
 
+// indexContent 建立索引内容。
 func indexContent(content string) (contentIndex, error) {
 	if err := GuardContentAndReplacement(content, ""); err != nil {
 		return contentIndex{}, err

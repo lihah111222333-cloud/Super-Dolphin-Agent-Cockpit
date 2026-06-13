@@ -36,6 +36,7 @@ type hookContextEnvelope struct {
 //
 // P22 P2 (hooks/event_relay fanout): the bus callback body intentionally
 // contains no `go` / SafeGo / DispatchAfter call — only Enqueue.
+// startEventRelay 启动事件relay。
 func startEventRelay(dispatcher *event.Dispatcher, worker *hookDispatchWorker, logger *pkglogger.Logger) func() {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -131,6 +132,7 @@ func mustMarshalHookEvent(event any) json.RawMessage {
 	return raw
 }
 
+// isFinalAnswerItemCompleted 判断finalansweritemcompleted是否可用。
 func isFinalAnswerItemCompleted(ev turndto.ItemCompleted) bool {
 	if !strings.EqualFold(strings.TrimSpace(ev.ItemType), "agentMessage") {
 		return false

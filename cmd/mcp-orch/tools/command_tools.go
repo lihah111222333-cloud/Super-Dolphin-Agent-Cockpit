@@ -48,6 +48,7 @@ type CommandListOutput struct {
 	Hint      string           `json:"hint,omitempty"`
 }
 
+// HandleCommandList 处理命令list。
 func HandleCommandList(store commandcardstore.Store) ToolHandler {
 	return makeHandler(store, "command card store", func(ctx context.Context, in commandListInput) (any, error) {
 		cards, err := listCommandCards(ctx, store, in)
@@ -61,6 +62,7 @@ func HandleCommandList(store commandcardstore.Store) ToolHandler {
 	})
 }
 
+// HandleCommandGet 处理命令get。
 func HandleCommandGet(store commandcardstore.Store) ToolHandler {
 	return makeHandler(store, "command card store", func(ctx context.Context, in commandGetInput) (commandCardDTO, error) {
 		return getCommandCard(ctx, store, in)

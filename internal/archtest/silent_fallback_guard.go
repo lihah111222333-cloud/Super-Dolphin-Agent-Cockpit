@@ -31,6 +31,7 @@ type silentFallbackReturnGuard struct {
 	violations []Violation
 }
 
+// scanRoot 扫描根目录。
 func (g *silentFallbackReturnGuard) scanRoot(root string) {
 	absRoot := filepath.Join(g.repoRoot, root)
 	if _, err := os.Stat(absRoot); err != nil {
@@ -58,6 +59,7 @@ func (g *silentFallbackReturnGuard) scanRoot(root string) {
 	}
 }
 
+// scanFile 扫描文件。
 func (g *silentFallbackReturnGuard) scanFile(path string) {
 	rel, err := filepath.Rel(g.repoRoot, path)
 	if err != nil {
@@ -124,6 +126,7 @@ func funcReturnsError(fn *ast.FuncType) bool {
 	return ok
 }
 
+// funcErrorResultCount 处理func错误结果count。
 func funcErrorResultCount(fn *ast.FuncType) (int, bool) {
 	if fn == nil || fn.Results == nil || len(fn.Results.List) == 0 {
 		return 0, false
@@ -186,6 +189,7 @@ func errorIdentComparedWithNil(candidate, other ast.Expr) (string, bool) {
 	return ident.Name, true
 }
 
+// looksLikeErrorIdent 处理lookslike错误ident。
 func looksLikeErrorIdent(name string) bool {
 	lower := strings.ToLower(strings.TrimSpace(name))
 	if lower == "e" || lower == "err" {
@@ -214,6 +218,7 @@ type fallbackReturnCandidate struct {
 	explicitAbsence bool
 }
 
+// fallbackReturnCandidates 处理兜底return候选项。
 func fallbackReturnCandidates(block *ast.BlockStmt, errVars map[string]struct{}, explicitAbsence bool) []fallbackReturnCandidate {
 	if block == nil {
 		return nil
@@ -257,6 +262,7 @@ func conditionMentionsAny(expr ast.Expr, names map[string]struct{}) bool {
 	return found
 }
 
+// isExplicitAbsenceCondition 判断explicitabsencecondition是否可用。
 func isExplicitAbsenceCondition(expr ast.Expr) bool {
 	found := false
 	ast.Inspect(expr, func(n ast.Node) bool {
@@ -284,6 +290,7 @@ func exprNameFromNode(n ast.Node) string {
 	return exprName(expr)
 }
 
+// isSilentFallbackReturn 判断silent兜底return是否可用。
 func isSilentFallbackReturn(ret *ast.ReturnStmt, resultCount int, explicitAbsence bool) bool {
 	if resultCount <= 0 || len(ret.Results) == 0 {
 		return false
@@ -310,6 +317,7 @@ func hasExplicitFailureSignal(exprs []ast.Expr) bool {
 	return false
 }
 
+// isFailureComposite 判断failurecomposite是否可用。
 func isFailureComposite(expr ast.Expr) bool {
 	composite, ok := expr.(*ast.CompositeLit)
 	if !ok {

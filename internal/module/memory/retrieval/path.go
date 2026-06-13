@@ -22,6 +22,7 @@ func normalizeStoreRoot(root string) (string, error) {
 	return shared.ValidateMemoryRoot(root)
 }
 
+// validateMemoryReadPath 校验记忆read路径。
 func validateMemoryReadPath(root, file string) (string, error) {
 	validatedRoot, err := shared.ValidateMemoryRoot(root)
 	if err != nil {
@@ -53,6 +54,7 @@ func validateMemoryReadPath(root, file string) (string, error) {
 	return candidateReal, nil
 }
 
+// prepareMemoryPath 准备记忆路径。
 func prepareMemoryPath(validatedRoot, file string) (string, string, error) {
 	file = norm.NFC.String(strings.TrimSpace(file))
 	if file == "" {

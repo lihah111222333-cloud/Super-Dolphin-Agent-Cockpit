@@ -10,6 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
+// NewWorkspaceHandlers 创建工作区处理器。
 func NewWorkspaceHandlers(svc Service) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"workspace/run/create":     rpc.StrictHandler(handleCreateRun(svc)),

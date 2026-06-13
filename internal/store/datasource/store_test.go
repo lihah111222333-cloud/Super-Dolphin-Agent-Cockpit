@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -13,7 +14,7 @@ import (
 func TestDocumentStoreUpsertLazilyCreatesTable(t *testing.T) {
 	db := &recordingDocumentDB{}
 	store := &documentStore{db: db}
-	params := UpsertDatasourceDocumentParams{
+	params := contract.UpsertDatasourceDocumentParams{
 		WorkspaceRoot: "D:\\project",
 		Name:          "notes.txt",
 		Extension:     ".txt",

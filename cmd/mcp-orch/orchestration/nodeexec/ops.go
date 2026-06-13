@@ -47,6 +47,7 @@ type OpUpdateDAG struct {
 	Patch DAGPatch `json:"patch"`
 }
 
+// Kind 返回 DAG patch 操作类型。
 func (OpUpdateDAG) Kind() OpKind { return OpKindUpdateDAG }
 
 // NodeSpec 是创建节点时的完整字段集（与 nodeexec.Node 解耦：
@@ -66,8 +67,10 @@ type OpAddNode struct {
 	Node NodeSpec `json:"node"`
 }
 
+// Kind 返回 DAG patch 操作类型。
 func (OpAddNode) Kind() OpKind { return OpKindAddNode }
 
+// UnmarshalJSON 解码JSON。
 func (op *OpAddNode) UnmarshalJSON(data []byte) error {
 	type addNodeWire struct {
 		Op   OpKind   `json:"op"`
@@ -83,6 +86,7 @@ func (op *OpAddNode) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalJSON 解码JSON。
 func (n *NodeSpec) UnmarshalJSON(data []byte) error {
 	if string(data) == "null" {
 		*n = NodeSpec{}
@@ -231,6 +235,7 @@ func walkConfigForBannedKeys(v any, path []string) error {
 	return nil
 }
 
+// isAllowedConfigAgentKey 判断allowed配置代理键是否可用。
 func isAllowedConfigAgentKey(key string, path []string) bool {
 	if key != "agent_key" || len(path) == 0 {
 		return false
@@ -247,6 +252,7 @@ type OpUpdateNode struct {
 	Patch   NodePatch `json:"patch"`
 }
 
+// Kind 返回 DAG patch 操作类型。
 func (OpUpdateNode) Kind() OpKind { return OpKindUpdateNode }
 
 // OpRemoveNode 删除节点（draft/ready 状态；service 层校验
@@ -255,6 +261,7 @@ type OpRemoveNode struct {
 	NodeKey string `json:"node_key"`
 }
 
+// Kind 返回 DAG patch 操作类型。
 func (OpRemoveNode) Kind() OpKind { return OpKindRemoveNode }
 
 // OpsRequest 是 task_dag_apply_ops 的入参。
@@ -301,7 +308,7 @@ func (ops Ops) MarshalJSON() ([]byte, error) {
 	return json.Marshal(out)
 }
 
-// UnmarshalJSON 按每条 op 的 "op" 字段 dispatch 到 typed struct。
+// UnmarshalJSON 解码JSON。
 func (ops *Ops) UnmarshalJSON(data []byte) error {
 	if string(data) == "null" {
 		*ops = nil
@@ -327,6 +334,7 @@ func (ops *Ops) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// decodeOp 解码op。
 func decodeOp(kind OpKind, item json.RawMessage) (Op, error) {
 	switch kind {
 	case OpKindUpdateDAG:

@@ -22,6 +22,7 @@ import (
 //
 // label must be a short, stable identifier like "skill.scheduleFlush" so
 // operators can grep telemetry.
+// Go 处理go。
 func Go(ctx context.Context, logger *pkglogger.Logger, label string, fn func(context.Context)) {
 	if fn == nil {
 		return

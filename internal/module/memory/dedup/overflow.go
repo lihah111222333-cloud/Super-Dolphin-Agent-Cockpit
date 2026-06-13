@@ -16,6 +16,7 @@ const (
 // Returns the indices i, j and the containment score.
 // If the highest containment < MinMergePairContainment, returns found=false.
 // If entries has 0 or 1 elements, returns found=false.
+// FindMostSimilarPair 找出最相似的一对条目。
 func FindMostSimilarPair(entries []EntrySnapshot) (i, j int, score float64, found bool) {
 	pairs := FindSimilarPairs(entries)
 	if len(pairs) == 0 {
@@ -40,6 +41,7 @@ type SimilarPair struct {
 
 // FindSimilarPairs returns all pairs of entries whose containment score
 // is at least MinMergePairContainment.  Results are sorted by score descending.
+// FindSimilarPairs 查找相似条目配对。
 func FindSimilarPairs(entries []EntrySnapshot) []SimilarPair {
 	var pairs []SimilarPair
 	for a := 0; a < len(entries); a++ {
@@ -82,6 +84,7 @@ func pairSortKey(pair SimilarPair) string {
 // Paragraphs are separated by "\n\n". Paragraphs are removed from the beginning
 // (oldest first) until the total length is <= maxRunes.
 // At least the last paragraph is always kept, even if it alone exceeds maxRunes.
+// TruncateOldestParagraphs 截断oldestparagraphs。
 func TruncateOldestParagraphs(content string, maxRunes int) string {
 	if utf8.RuneCountInString(content) <= maxRunes {
 		return content

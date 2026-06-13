@@ -92,6 +92,7 @@ type Config struct {
 	OnToolsCall          func(ctx context.Context, params json.RawMessage) (any, error) // P15: tools/call callback
 }
 
+// New 创建MCP 服务。
 func New(cfg Config) *Client {
 	cfg, boot := normalizeConfig(cfg)
 	return &Client{
@@ -105,6 +106,7 @@ func New(cfg Config) *Client {
 	}
 }
 
+// Start 启动MCP 服务流程。
 func (c *Client) Start(ctx context.Context) error {
 	if strings.TrimSpace(c.cfg.RPCAddr) == "" {
 		pkglogger.Warn("bootstrap start skipped: GO_AGENT_CTL_RPC_ADDR missing",
@@ -153,6 +155,7 @@ func (c *Client) Start(ctx context.Context) error {
 	return nil
 }
 
+// Context 处理上下文。
 func (c *Client) Context(ctx context.Context, scope string, keys []string) (*mcp.ContextResponse, error) {
 	conn, degraded := c.currentConn()
 	if conn == nil || degraded {
@@ -180,6 +183,7 @@ func (c *Client) Context(ctx context.Context, scope string, keys []string) (*mcp
 	return normalizeContextResponse(scope, &resp), nil
 }
 
+// EmitEvent 处理emit事件。
 func (c *Client) EmitEvent(ctx context.Context, eventType string, payload any) error {
 	raw, err := marshalRaw(payload)
 	if err != nil {
@@ -211,6 +215,7 @@ func (c *Client) EmitEvent(ctx context.Context, eventType string, payload any) e
 	return nil
 }
 
+// RequestApproval 处理请求审批。
 func (c *Client) RequestApproval(ctx context.Context, req mcp.ApprovalRequest) (*mcp.ApprovalResponse, error) {
 	conn, degraded := c.currentConn()
 	if conn == nil || degraded {
@@ -230,6 +235,7 @@ func (c *Client) RequestApproval(ctx context.Context, req mcp.ApprovalRequest) (
 	return &resp, nil
 }
 
+// Report 报告MCP 服务。
 func (c *Client) Report(ctx context.Context, req mcp.ReportRequest) (*mcp.ReportResponse, error) {
 	normalized := c.normalizeReportRequest(req)
 	conn, degraded := c.currentConn()
@@ -252,6 +258,7 @@ func (c *Client) Report(ctx context.Context, req mcp.ReportRequest) (*mcp.Report
 	return queuedReportResponse(normalized), nil
 }
 
+// Close 关闭MCP 服务资源。
 func (c *Client) Close() error {
 	c.mu.Lock()
 	if c.closed {

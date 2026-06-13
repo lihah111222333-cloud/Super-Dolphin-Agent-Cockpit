@@ -122,6 +122,7 @@ func rootBridgeAllowlistIntegrityViolations(repoRoot string) []string {
 // validateRootBridgeEntry runs every per-entry integrity check and returns the
 // list of problems. Split out from the outer loop so each check stays small
 // enough for the CC guard (P0 baseline ≤ 10 per function).
+// validateRootBridgeEntry 校验根目录桥接条目。
 func validateRootBridgeEntry(entry rootBridgeException, seen map[string]struct{}, repoRoot string) []string {
 	key := entry.DefinitionPath + "#" + entry.Symbol
 	if _, dup := seen[key]; dup {
@@ -145,6 +146,7 @@ func validateRootBridgeEntry(entry rootBridgeException, seen map[string]struct{}
 	return problems
 }
 
+// rootBridgeEntryHasMetadata 处理根目录桥接条目has元数据。
 func rootBridgeEntryHasMetadata(entry rootBridgeException) bool {
 	return entry.DefinitionPath != "" && entry.CallSitePath != "" && entry.Symbol != "" &&
 		entry.Reason != "" && entry.RemoveWhen != "" &&

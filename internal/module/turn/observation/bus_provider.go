@@ -11,6 +11,7 @@ import (
 )
 
 // NewObservationSubscribers declares the observation bus subscriptions for BusModule.
+// NewObservationSubscribers 创建observationsubscribers。
 func NewObservationSubscribers(contract Contract, logger *pkglogger.Logger) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: buscontract.SubscriberSpec{

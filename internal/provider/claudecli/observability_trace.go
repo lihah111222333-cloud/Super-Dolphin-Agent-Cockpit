@@ -34,6 +34,7 @@ func (s *session) recordProviderTrace(ctx context.Context, event observability.T
 	}
 }
 
+// fillClaudeTrace 处理fillclaudetrace。
 func fillClaudeTrace(ctx context.Context, event *observability.TraceEvent) {
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now()

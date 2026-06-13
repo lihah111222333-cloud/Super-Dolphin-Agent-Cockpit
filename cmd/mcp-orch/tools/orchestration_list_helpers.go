@@ -11,6 +11,7 @@ import (
 	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
+// filterListAgentSnapshots 处理过滤条件list代理snapshots。
 func filterListAgentSnapshots(agents []contract.AgentSnapshot, in ListAgentsInput, cwdFilter string) []contract.AgentSnapshot {
 	states := parseAgentStateFilter(in.State)
 	limit := in.Limit
@@ -46,6 +47,7 @@ func includeAgentSnapshotInList(agent contract.AgentSnapshot, states map[string]
 	return includeInactive || !inactiveAgentListState(state)
 }
 
+// listAgentsCWDFilter 列出代理工作目录过滤条件。
 func listAgentsCWDFilter(ctx context.Context, inputCWD string) (string, error) {
 	if scope, ok := mcpcommon.ToolScopeFromContext(ctx); ok && scope.CWD != "" {
 		return normalizeListAgentCWD(scope.CWD), nil
@@ -84,6 +86,7 @@ func normalizeListAgentCWD(cwd string) string {
 	return cwd
 }
 
+// parseAgentStateFilter 解析代理状态过滤条件。
 func parseAgentStateFilter(raw string) map[string]struct{} {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

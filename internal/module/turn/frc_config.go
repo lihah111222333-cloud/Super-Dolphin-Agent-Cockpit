@@ -20,6 +20,7 @@ func configFRCConfig(cfg map[string]any, keys ...string) *contract.FRCConfig {
 	return nil
 }
 
+// normalizeFRCConfig 规范化frc配置。
 func normalizeFRCConfig(value any) *contract.FRCConfig {
 	switch typed := value.(type) {
 	case contract.FRCConfig:
@@ -45,6 +46,7 @@ func normalizeFRCConfig(value any) *contract.FRCConfig {
 	}
 }
 
+// configInt 处理配置int。
 func configInt(cfg map[string]any, keys ...string) int {
 	for _, key := range keys {
 		switch value := cfg[key].(type) {

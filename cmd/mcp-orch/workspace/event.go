@@ -78,8 +78,17 @@ type WorkspaceRunMergeError struct {
 	UpdatedBy     string `json:"updated_by,omitempty"`
 }
 
-func (WorkspaceRunCreated) Type() uint32       { return shared.EventTypeWorkspaceRunCreated }
+// Type 返回事件分发用的类型编号。
+func (WorkspaceRunCreated) Type() uint32 { return shared.EventTypeWorkspaceRunCreated }
+
+// Type 返回事件分发用的类型编号。
 func (WorkspaceRunStatusChanged) Type() uint32 { return shared.EventTypeWorkspaceRunStatusChanged }
-func (WorkspaceRunMerged) Type() uint32        { return shared.EventTypeWorkspaceRunMerged }
-func (WorkspaceRunAborted) Type() uint32       { return shared.EventTypeWorkspaceRunAborted }
-func (WorkspaceRunMergeError) Type() uint32    { return shared.EventTypeWorkspaceRunMergeError }
+
+// Type 返回事件分发用的类型编号。
+func (WorkspaceRunMerged) Type() uint32 { return shared.EventTypeWorkspaceRunMerged }
+
+// Type 返回事件分发用的类型编号。
+func (WorkspaceRunAborted) Type() uint32 { return shared.EventTypeWorkspaceRunAborted }
+
+// Type 返回事件分发用的类型编号。
+func (WorkspaceRunMergeError) Type() uint32 { return shared.EventTypeWorkspaceRunMergeError }

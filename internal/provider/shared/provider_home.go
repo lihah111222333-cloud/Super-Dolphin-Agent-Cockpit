@@ -21,6 +21,8 @@ const (
 	ProviderCodex  = "codex"
 )
 
+// AppManagedProviderHome 返回 Super Dolphin 自己管理的 provider home。
+// 没有 SUPER_DOLPHIN_HOME 就报错，不要回退到用户全局目录。
 func AppManagedProviderHome(provider string) (string, error) {
 	provider, err := normalizeAppManagedProvider(provider)
 	if err != nil {
@@ -41,6 +43,8 @@ func AppManagedProviderHome(provider string) (string, error) {
 	return "", fmt.Errorf("resolve app-managed provider home realpath: %w", err)
 }
 
+// AppManagedProviderSkillsRoot 是应用管理的 provider skills mirror。
+// 写到这里的是生成物，不是真实 skill 来源。
 func AppManagedProviderSkillsRoot(provider string) (string, error) {
 	home, err := AppManagedProviderHome(provider)
 	if err != nil {
@@ -49,6 +53,7 @@ func AppManagedProviderSkillsRoot(provider string) (string, error) {
 	return filepath.Join(home, "skills"), nil
 }
 
+// EnsureAppManagedProviderHome 确保应用托管的 provider home 已准备好。
 func EnsureAppManagedProviderHome(provider string) (string, error) {
 	home, err := AppManagedProviderHome(provider)
 	if err != nil {
@@ -70,6 +75,8 @@ func EnsureAppManagedProviderHome(provider string) (string, error) {
 	return filepath.Clean(real), nil
 }
 
+// EnsureProviderHome 确保 provider home 存在。
+// 只有显式传入 homeRoot 时，才创建它下面的 skills mirror。
 func EnsureProviderHome(provider, homeRoot string) (string, error) {
 	normalizedProvider, err := normalizeAppManagedProvider(provider)
 	if err != nil {
@@ -97,6 +104,8 @@ func EnsureProviderHome(provider, homeRoot string) (string, error) {
 	return filepath.Clean(real), nil
 }
 
+// ProviderMirrorTargets 返回 provider 会读取的 personal 和 project mirror。
+// Codex 的 personal mirror 是 ~/.agents/skills，不是 ~/.codex。
 func ProviderMirrorTargets(provider, cwd string, homeRoot ...string) ([]contract.SkillProviderMirrorTarget, error) {
 	provider, err := normalizeAppManagedProvider(provider)
 	if err != nil {
@@ -167,6 +176,8 @@ func defaultProviderCLIHome(provider string) (string, error) {
 	}
 }
 
+// providerPersonalMirrorRoot 找到 personal mirror 的位置。
+// 显式 homeRoot 用 homeRoot/skills；默认 Codex 用 ~/.agents/skills。
 func providerPersonalMirrorRoot(provider, homeRoot string) (string, string, error) {
 	if strings.TrimSpace(homeRoot) != "" {
 		home, err := providerHomeRoot(provider, homeRoot)
@@ -208,6 +219,8 @@ func providerProjectSkillsRoot(provider, projectRoot string) string {
 	}
 }
 
+// providerProjectMirrorRoot 找到项目 mirror 的位置。
+// 普通项目写 .claude/.agents；packaged 场景写到应用管理目录。
 func providerProjectMirrorRoot(provider, projectRoot string) (string, error) {
 	enabled, err := packagedProjectMirrorEnabled(projectRoot)
 	if err != nil {
@@ -223,6 +236,7 @@ func providerProjectMirrorRoot(provider, projectRoot string) (string, error) {
 	return providerProjectSkillsRoot(provider, projectRoot), nil
 }
 
+// packagedProjectMirrorEnabled 判断打包运行时是否启用项目 mirror。
 func packagedProjectMirrorEnabled(projectRoot string) (bool, error) {
 	packaged, err := PackagedRuntimeFromEnv()
 	if err != nil {
@@ -244,6 +258,7 @@ func packagedProjectMirrorEnabled(projectRoot string) (bool, error) {
 
 // PackagedRuntimeFromEnv consumes the runtime-mode contract produced by the
 // runtime resolver. Empty means no packaged capability has been advertised.
+// PackagedRuntimeFromEnv 从环境变量识别当前是否为打包运行时。
 func PackagedRuntimeFromEnv() (bool, error) {
 	mode := strings.TrimSpace(os.Getenv(RuntimeModeEnv))
 	switch mode {
@@ -258,6 +273,7 @@ func PackagedRuntimeFromEnv() (bool, error) {
 	}
 }
 
+// isPackagedAppBundlePath 判断路径是否位于打包应用 bundle 内。
 func isPackagedAppBundlePath(path string) bool {
 	cleaned := filepath.Clean(strings.TrimSpace(path))
 	if cleaned == "." || cleaned == string(filepath.Separator) {
@@ -308,6 +324,8 @@ func appManagedSuperDolphinHome() (string, error) {
 	return absCleanPath(override)
 }
 
+// providerProjectRoot 把 cwd 解析成真实项目根。
+// cwd 不明确就报错，不能猜一个目录去写 mirror。
 func providerProjectRoot(cwd string) (string, error) {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
@@ -347,6 +365,7 @@ func nearestGitRoot(dir string) (string, error) {
 	}
 }
 
+// isValidGitRootMarker 判断目录是否是可信的 git 根标记。
 func isValidGitRootMarker(path string) (bool, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -376,6 +395,8 @@ func isValidGitRootMarker(path string) (bool, error) {
 	return strings.HasPrefix(strings.ToLower(marker), "gitdir:"), nil
 }
 
+// EnsureNoSkillMirrorConflicts 在 provider 启动前检查 mirror 是否能用。
+// 普通内容漂移交给 UI；根目录不安全或发布失败要阻断启动。
 func EnsureNoSkillMirrorConflicts(report contract.SkillMirrorReport) error {
 	blocking := blockingSkillMirrorConflicts(report.Conflicts)
 	if len(blocking) == 0 {
@@ -432,6 +453,7 @@ func absCleanPath(path string) (string, error) {
 	return absCleanPathExpanded(path)
 }
 
+// absCleanPathExpanded 展开并清理路径为绝对路径。
 func absCleanPathExpanded(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {

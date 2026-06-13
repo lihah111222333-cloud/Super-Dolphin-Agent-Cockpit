@@ -12,6 +12,7 @@ import (
 
 type Guard struct{}
 
+// Configure 应用运行时配置。
 func Configure(cmd *exec.Cmd) {
 	if cmd == nil {
 		return
@@ -19,22 +20,27 @@ func Configure(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
+// Attach 处理attach。
 func Attach(_ *exec.Cmd, _ *slog.Logger) *Guard {
 	return &Guard{}
 }
 
+// Close 关闭编排资源。
 func (g *Guard) Close() {
 	_ = g
 }
 
+// RequestStop 处理请求stop。
 func RequestStop(cmd *exec.Cmd, guard *Guard) error {
 	return signalProcess(cmd, guard, syscall.SIGTERM)
 }
 
+// ForceStop 处理强制stop。
 func ForceStop(cmd *exec.Cmd, guard *Guard) error {
 	return signalProcess(cmd, guard, syscall.SIGKILL)
 }
 
+// signalProcess 处理signal进程。
 func signalProcess(cmd *exec.Cmd, _ *Guard, sig syscall.Signal) error {
 	if cmd == nil || cmd.Process == nil {
 		return nil

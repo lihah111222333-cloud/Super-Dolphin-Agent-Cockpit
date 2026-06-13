@@ -63,14 +63,17 @@ type memoryWriteStore interface {
 
 var _ contract.AgentMemoryReader = (*MemoryLifecycleHooks)(nil)
 
+// MemoryReadEnabled 处理记忆readenabled。
 func (h *MemoryLifecycleHooks) MemoryReadEnabled() bool {
 	return h != nil && h.cfg != nil && h.cfg.Enabled
 }
 
+// MemoryReadToolsEnabled 处理记忆read工具enabled。
 func (h *MemoryLifecycleHooks) MemoryReadToolsEnabled() bool {
 	return h != nil && h.cfg != nil && h.cfg.EnableTools
 }
 
+// ReadAgentMemory 读取代理记忆。
 func (h *MemoryLifecycleHooks) ReadAgentMemory(ctx context.Context, req contract.MemoryReadRequest) (contract.MemoryReadResult, error) {
 	root, prepared, err := h.prepareAgentMemoryRead(ctx, req)
 	if err != nil {
@@ -86,6 +89,7 @@ func (h *MemoryLifecycleHooks) ReadAgentMemory(ctx context.Context, req contract
 	return agentMemoryReadResult(root, entry, indexHit), nil
 }
 
+// prepareAgentMemoryRead 准备代理记忆read。
 func (h *MemoryLifecycleHooks) prepareAgentMemoryRead(ctx context.Context, req contract.MemoryReadRequest) (string, contract.MemoryReadRequest, error) {
 	if h == nil || h.cfg == nil {
 		return "", contract.MemoryReadRequest{}, agentMemoryError("reader_unavailable", fmt.Errorf("memory reader is not configured"))
@@ -111,6 +115,7 @@ func (h *MemoryLifecycleHooks) prepareAgentMemoryRead(ctx context.Context, req c
 	return root, prepared, nil
 }
 
+// resolvedAgentMemoryRoot 处理已解析代理记忆根目录。
 func resolvedAgentMemoryRoot(ctx context.Context, cfg *Config, projectRoot string) (string, error) {
 	if cfg == nil {
 		return "", fmt.Errorf("memory config is not configured")
@@ -138,6 +143,7 @@ func parseAgentMemoryReadScope(scope contract.MemoryScope) contract.MemoryScope 
 	return contract.ParseMemoryScope(string(scope))
 }
 
+// agentMemoryReadRoot 处理代理记忆read根目录。
 func (h *MemoryLifecycleHooks) agentMemoryReadRoot(ctx context.Context, req contract.MemoryReadRequest) (string, error) {
 	switch req.Scope {
 	case contract.MemoryScopeUser:
@@ -176,6 +182,7 @@ func agentMemoryReadProjectRoot(req contract.MemoryReadRequest, cfg *Config) str
 	return filepath.Dir(filepath.Dir(strings.TrimSuffix(strings.TrimSpace(cfg.RootDir), string(os.PathSeparator))))
 }
 
+// readAgentMemoryEntry 读取代理记忆条目。
 func readAgentMemoryEntry(root string, req contract.MemoryReadRequest) (MemoryEntry, bool, error) {
 	if strings.TrimSpace(req.Path) != "" {
 		path, err := ValidateMemoryReadPath(root, req.Path)
@@ -256,6 +263,7 @@ func agentMemoryReadResult(root string, entry MemoryEntry, indexHit bool) contra
 }
 
 // NewMemorySubscribers declares memory lifecycle bus subscriptions for BusModule.
+// NewMemorySubscribers 创建记忆subscribers。
 func NewMemorySubscribers(scheduler *autoDreamScheduler, nested *nestedIngestWorker, teamSync *teamSyncCoordinator, p memorySubscriberParams) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: contract.SubscriberSpec{

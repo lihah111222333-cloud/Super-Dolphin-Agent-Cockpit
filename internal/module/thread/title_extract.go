@@ -8,6 +8,7 @@ import (
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
+// ExtractTitle 提取title。
 func ExtractTitle(prompt string) string {
 	return titleextract.Extract(prompt)
 }

@@ -35,6 +35,7 @@ func videoWithAudioToolDefinitions() []ToolDefinition {
 	)
 }
 
+// handleVideoWithAudio 处理带audio的video。
 func handleVideoWithAudio() ToolHandler {
 	return func(ctx context.Context, input json.RawMessage) (any, error) {
 		var in videoWithAudioInput
@@ -89,6 +90,7 @@ func handleVideoWithAudio() ToolHandler {
 	}
 }
 
+// generateTTS 处理generatetts。
 func generateTTS(ctx context.Context, apiKey, text, voice string) (string, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {

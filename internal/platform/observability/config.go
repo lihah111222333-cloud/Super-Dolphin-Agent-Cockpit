@@ -44,10 +44,12 @@ type intBound struct {
 	set          func(*Config, int)
 }
 
+// ParseConfigFromEnv 从env解析配置。
 func ParseConfigFromEnv() (Config, error) {
 	return ParseConfig(osEnv{})
 }
 
+// ParseConfig 解析配置。
 func ParseConfig(env interface{ LookupEnv(string) (string, bool) }) (Config, error) {
 	cfg := defaultConfig(false)
 	enabled, present, err := parseOptionalBool(env, "OBS_TRACING_ENABLED")
@@ -77,6 +79,7 @@ func ParseConfig(env interface{ LookupEnv(string) (string, bool) }) (Config, err
 	return cfg, nil
 }
 
+// LookupEnv 处理lookupenv。
 func (env EnvMap) LookupEnv(key string) (string, bool) {
 	value, ok := env[key]
 	return value, ok
@@ -84,10 +87,12 @@ func (env EnvMap) LookupEnv(key string) (string, bool) {
 
 type osEnv struct{}
 
+// LookupEnv 处理lookupenv。
 func (osEnv) LookupEnv(key string) (string, bool) {
 	return os.LookupEnv(key)
 }
 
+// CaptureStackFor 为平台observability处理capturestack。
 func (cfg Config) CaptureStackFor(status Status) bool {
 	return cfg.TraceStacks[status]
 }
@@ -133,6 +138,7 @@ func parseOptionalBool(env interface{ LookupEnv(string) (string, bool) }, key st
 	return value, true, nil
 }
 
+// parseBoundedInt 解析boundedint。
 func parseBoundedInt(env interface{ LookupEnv(string) (string, bool) }, bound intBound) (int, error) {
 	raw, ok := env.LookupEnv(bound.key)
 	if !ok || strings.TrimSpace(raw) == "" {
@@ -192,6 +198,7 @@ func deriveStringMaxBytes(eventMaxBytes int) int {
 	return limit
 }
 
+// bounds 处理边界。
 func bounds(debug bool) []intBound {
 	indexMaxEvents := 5000
 	indexMaxTraceEvents := 128

@@ -30,6 +30,7 @@ type nestedSessionState struct {
 	BuildCtx        contract.BuildCtx
 }
 
+// NewNestedRuntime 创建nested运行时。
 func NewNestedRuntime(deps Dependencies) *NestedRuntime {
 	return &NestedRuntime{
 		deps:     deps,
@@ -52,6 +53,7 @@ func (r *NestedRuntime) SetToolReadCacheRoot(root string) {
 	r.toolReadCacheRoot = strings.TrimSpace(root)
 }
 
+// OnThreadStart 处理on线程起点。
 func (r *NestedRuntime) OnThreadStart(threadID string) {
 	if r == nil {
 		return
@@ -61,6 +63,7 @@ func (r *NestedRuntime) OnThreadStart(threadID string) {
 	r.sessions[nestedThreadKey(threadID)] = newNestedSessionState(1)
 }
 
+// OnPromptInvalidate 处理onpromptinvalidate。
 func (r *NestedRuntime) OnPromptInvalidate(reason contract.InvalidateReason) {
 	if r == nil || !shouldResetNestedRuntime(reason) {
 		return
@@ -72,6 +75,7 @@ func (r *NestedRuntime) OnPromptInvalidate(reason contract.InvalidateReason) {
 	}
 }
 
+// ObserveBuildContext 处理observebuild上下文。
 func (r *NestedRuntime) ObserveBuildContext(threadID string, buildCtx contract.BuildCtx) {
 	if r == nil {
 		return
@@ -83,6 +87,7 @@ func (r *NestedRuntime) ObserveBuildContext(threadID string, buildCtx contract.B
 	state.BuildCtx = cloneNestedBuildCtx(buildCtx)
 }
 
+// AddTriggers 添加triggers。
 func (r *NestedRuntime) AddTriggers(threadID string, buildCtx contract.BuildCtx, triggers []string) {
 	if r == nil {
 		return
@@ -100,6 +105,7 @@ func (r *NestedRuntime) AddTriggers(threadID string, buildCtx contract.BuildCtx,
 	}
 }
 
+// ConsumePending 处理consume待处理。
 func (r *NestedRuntime) ConsumePending(threadID string, buildCtx contract.BuildCtx) []string {
 	if r == nil {
 		return nil
@@ -114,6 +120,7 @@ func (r *NestedRuntime) ConsumePending(threadID string, buildCtx contract.BuildC
 	return pending
 }
 
+// MarkLoaded 标记loaded。
 func (r *NestedRuntime) MarkLoaded(threadID string, buildCtx contract.BuildCtx, source ClaudeMdSource) bool {
 	if r == nil {
 		return false
@@ -134,6 +141,7 @@ func (r *NestedRuntime) MarkLoaded(threadID string, buildCtx contract.BuildCtx, 
 	return true
 }
 
+// AddToolReadResult 添加工具read结果。
 func (r *NestedRuntime) AddToolReadResult(threadID, toolName, result, persistedPath string) {
 	if r == nil {
 		return
@@ -196,6 +204,7 @@ func (r *NestedRuntime) ensureMatcherRootLocked(state *nestedSessionState, build
 	resetNestedSessionState(state)
 }
 
+// normalizeTrigger 规范化trigger。
 func (r *NestedRuntime) normalizeTrigger(buildCtx contract.BuildCtx, raw string) (string, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || util.IsRemoteTurnInput(raw) {

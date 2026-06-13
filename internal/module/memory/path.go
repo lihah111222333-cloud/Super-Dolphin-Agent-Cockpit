@@ -36,6 +36,7 @@ type consolidationStamp struct {
 	LastSuccessAt string `json:"last_success_at,omitempty"`
 }
 
+// GetAutoMemPath 读取automem路径。
 func GetAutoMemPath(baseRoot, projectRoot string) (string, error) {
 	validatedRoot, err := shared.ValidateMemoryRoot(baseRoot)
 	if err != nil || validatedRoot == "" {
@@ -52,10 +53,12 @@ func GetAutoMemPath(baseRoot, projectRoot string) (string, error) {
 	return filepath.Join(root, memoryProjectsDir, SanitizePath(canonicalRoot), memoryProjectDirName), nil
 }
 
+// GetAutoMemDailyLogPath 读取automemdaily日志路径。
 func GetAutoMemDailyLogPath(baseRoot, projectRoot string, now time.Time) (string, error) {
 	return getAutoMemDailyLogPath(baseRoot, projectRoot, now)
 }
 
+// FindCanonicalGitRoot 查找canonicalgit根目录。
 func FindCanonicalGitRoot(ctx context.Context, projectRoot string) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -95,10 +98,12 @@ func FindCanonicalGitRoot(ctx context.Context, projectRoot string) (string, erro
 	return gitRoot, nil
 }
 
+// SanitizePath 清理路径。
 func SanitizePath(raw string) string {
 	return pathutil.SanitizeMemoryProjectKey(raw)
 }
 
+// ValidateMemoryWritePath 校验记忆write路径。
 func ValidateMemoryWritePath(root, file string) (string, error) {
 	validatedRoot, err := shared.ValidateMemoryRoot(root)
 	if err != nil {
@@ -125,6 +130,7 @@ func ValidateMemoryWritePath(root, file string) (string, error) {
 	return candidate, nil
 }
 
+// ValidateMemoryReadPath 校验记忆read路径。
 func ValidateMemoryReadPath(root, file string) (string, error) {
 	validatedRoot, err := shared.ValidateMemoryRoot(root)
 	if err != nil {
@@ -156,6 +162,7 @@ func ValidateMemoryReadPath(root, file string) (string, error) {
 	return candidateReal, nil
 }
 
+// prepareMemoryPath 准备记忆路径。
 func prepareMemoryPath(validatedRoot, file string, wrap func(string) error) (string, string, error) {
 	file = norm.NFC.String(strings.TrimSpace(file))
 	if file == "" {
@@ -220,6 +227,7 @@ func memoryTypeDir(root string, memoryType MemoryType) string {
 	return filepath.Join(root, string(ParseMemoryType(string(memoryType))))
 }
 
+// writeAtomicFile 写入atomic文件。
 func writeAtomicFile(path string, data []byte, perm os.FileMode) error {
 	if perm == 0 {
 		perm = 0o644
@@ -261,6 +269,7 @@ func writeAtomicFile(path string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
+// loadConsolidationStamp 加载consolidationstamp。
 func loadConsolidationStamp(root string) (consolidationStamp, error) {
 	path, err := consolidationStampPath(root)
 	if err != nil {
@@ -359,6 +368,7 @@ func consolidationCandidates(entries []MemoryEntry) []MemoryEntry {
 	return selected
 }
 
+// staleMemoryPaths 处理stale记忆路径。
 func staleMemoryPaths(entries []MemoryEntry) []string {
 	selected := make(map[string]MemoryEntry, len(entries))
 	stale := make([]string, 0, len(entries))
@@ -434,6 +444,7 @@ func writeConsolidatedMemories(root string, items []ExtractedMemory) error {
 	return nil
 }
 
+// prepareConsolidatedMemoryEntries 准备consolidated记忆条目。
 func prepareConsolidatedMemoryEntries(root string, items []ExtractedMemory) ([]MemoryEntry, error) {
 	if len(items) == 0 {
 		return nil, nil
@@ -502,8 +513,11 @@ var diskMemoryTypes = []MemoryType{
 	MemoryTypeReference,
 }
 
+// ParseMemoryType 解析记忆type。
 func ParseMemoryType(raw string) MemoryType { return shared.ParseMemoryType(raw) }
-func CanonicalName(raw string) string       { return shared.CanonicalName(raw) }
+
+// CanonicalName 处理canonical名称。
+func CanonicalName(raw string) string { return shared.CanonicalName(raw) }
 
 type MemoryScope string
 

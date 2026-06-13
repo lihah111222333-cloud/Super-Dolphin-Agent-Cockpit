@@ -20,6 +20,7 @@ type PushBridge struct {
 	logger     *pkglogger.Logger
 }
 
+// NewPushBridge 创建push桥接。
 func NewPushBridge(dispatcher *event.Dispatcher, logger *pkglogger.Logger) *PushBridge {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -27,6 +28,7 @@ func NewPushBridge(dispatcher *event.Dispatcher, logger *pkglogger.Logger) *Push
 	return &PushBridge{dispatcher: dispatcher, logger: logger}
 }
 
+// NotifyClient 处理notify客户端。
 func (b *PushBridge) NotifyClient(ctx context.Context, server *jrpc2.Server, method string, params any) error {
 	if server == nil {
 		return ErrInvalidState("rpc push server is nil")
@@ -34,6 +36,7 @@ func (b *PushBridge) NotifyClient(ctx context.Context, server *jrpc2.Server, met
 	return server.Notify(ctx, method, params)
 }
 
+// CallbackClient 处理callback客户端。
 func (b *PushBridge) CallbackClient(ctx context.Context, server *jrpc2.Server, method string, params any) (json.RawMessage, error) {
 	if server == nil {
 		return nil, ErrInvalidState("rpc push server is nil")
@@ -236,6 +239,7 @@ func normalizeRawProviderPushMethod(method string) string {
 	return approvalMethodCatalog.normalize(method)
 }
 
+// shouldPushRawProviderMethod 判断push原始providermethod是否可用。
 func shouldPushRawProviderMethod(method string) bool {
 	method = strings.TrimSpace(method)
 	if method == "" {

@@ -78,6 +78,7 @@ const (
 
 var diagnosticSeverityNames = [...]string{"", "error", "warning", "info", "hint"}
 
+// String 返回字符串表示。
 func (s DiagnosticSeverity) String() string {
 	i := int(s)
 	if i > 0 && i < len(diagnosticSeverityNames) {

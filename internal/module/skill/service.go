@@ -51,6 +51,7 @@ var _ contract.SkillMirrorReconciler = (*service)(nil)
 
 type SkillApprovalRequiredError = contract.SkillApprovalRequiredError
 
+// resolutionPreviewHash 处理resolutionpreviewhash。
 func resolutionPreviewHash(item skillResolutionItem, preview skillResolutionPreviewItem, p skillResolutionPreviewParams) string {
 	type previewEnvelope struct {
 		ConflictID          string `json:"conflict_id"`
@@ -98,6 +99,7 @@ func hashResolutionEnvelope(v any) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// LookupArtifactApproval 处理lookup产物审批。
 func (s *service) LookupArtifactApproval(_ context.Context, req contract.ArtifactApprovalRequest) (bool, error) {
 	if s.approval == nil {
 		return false, nil
@@ -112,6 +114,7 @@ func (s *service) LookupArtifactApproval(_ context.Context, req contract.Artifac
 	return ok, nil
 }
 
+// ApprovalRevision 处理审批revision。
 func (s *service) ApprovalRevision() uint64 {
 	if s.approval == nil {
 		return 0
@@ -119,12 +122,15 @@ func (s *service) ApprovalRevision() uint64 {
 	return s.approval.Revision()
 }
 
+// SkillRevision 处理技能revision。
 func (s *service) SkillRevision() uint64 {
 	return atomic.LoadUint64(&s.skillsChangedSeq)
 }
 
+// TrustRevision 处理trustrevision。
 func (s *service) TrustRevision() uint64 { return s.SkillRevision() }
 
+// NewService 创建服务。
 func NewService(projectRoot string) Service {
 	pr := strings.TrimSpace(projectRoot)
 	if pr != "" {
@@ -204,6 +210,7 @@ func (s *service) personalSkillsRoot(personalType string) string {
 	return filepath.Join(s.resolvedSuperDolphinHome(), "skills", "personal", personalType)
 }
 
+// canonicalRootForTarget 为target处理canonical根目录。
 func (s *service) canonicalRootForTarget(cwd, scope, personalType string) (string, string, string, error) {
 	normalizedScope, normalizedType, err := normalizeSkillTarget(scope, personalType)
 	if err != nil {
@@ -274,6 +281,7 @@ func resolveRequestedSkillTarget(scopeAndType ...string) (string, string) {
 	}
 }
 
+// writableSkillFileMode 处理writable技能文件模式。
 func writableSkillFileMode(path string) (os.FileMode, error) {
 	info, err := os.Lstat(path)
 	switch {
@@ -310,6 +318,7 @@ func (s *service) resolveSkillPath(target, cwd, scope string, personalType ...st
 	return s.resolveScopedSkillPath(cwd, target, scope, personalType...)
 }
 
+// resolveScopedSkillPath 解析scoped技能路径。
 func (s *service) resolveScopedSkillPath(cwd, target, scope string, personalType ...string) (string, error) {
 	root, err := s.resolveScopeRoot(cwd, scope, personalType...)
 	if err != nil {

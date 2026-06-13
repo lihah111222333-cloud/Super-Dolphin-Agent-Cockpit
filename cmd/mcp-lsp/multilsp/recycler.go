@@ -56,6 +56,7 @@ func newPoolRecycler(pool *ManagerPool) *poolRecycler {
 	}
 }
 
+// TouchShard 处理touchshard。
 func (r *poolRecycler) TouchShard(index int) {
 	if r == nil {
 		return
@@ -68,6 +69,7 @@ func (r *poolRecycler) TouchShard(index int) {
 // Run drives the recycler check loop until ctx is cancelled. A nil
 // receiver is accepted as a no-op so callers that rely on
 // ManagerPool.RecyclerRunner() without a pool still wire cleanly.
+// Run 启动LSP后台流程。
 func (r *poolRecycler) Run(ctx context.Context) error {
 	if r == nil {
 		<-ctx.Done()
@@ -108,6 +110,7 @@ func (r *poolRecycler) checkManager(index int, mgr *manager, scope ResolvedLSPTo
 	}
 }
 
+// recycleIfNeeded 处理recycleifneeded。
 func (r *poolRecycler) recycleIfNeeded(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) {
 	rssBytes, pid, err := clientRSSBytesForRecycler(workspace.client)
 	if err != nil || pid <= 0 {
@@ -174,6 +177,7 @@ func (r *poolRecycler) shouldCheck(index int) bool {
 // checkIdleWorkspaces shuts down workspace clients that have not received
 // any request within idleTimeout. The next request will trigger a lazy
 // restart via ensureClient.
+// checkIdleWorkspaces 处理checkidleworkspaces。
 func (r *poolRecycler) checkIdleWorkspaces(mgr *manager, scope ResolvedLSPToolScope) {
 	if mgr == nil || managerIsClosed(mgr) {
 		return
@@ -279,6 +283,7 @@ func appendRecyclerRSSProbeArgs(args []any, client Client) []any {
 	return append(args, "pid", pid, "rss_bytes", rssBytes)
 }
 
+// recycleWorkspaceClient 处理recycle工作区客户端。
 func recycleWorkspaceClient(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) (bool, error) {
 	detached := detachWorkspaceClientIfIdle(mgr, workspace.key, workspace.client)
 	if detached == nil || detached.client == nil {
@@ -320,6 +325,7 @@ func recycleRestoreContext(scope ResolvedLSPToolScope, cfg workspaceConfig) cont
 	return WithResolvedLSPToolScope(ctx, scope)
 }
 
+// recycleResolvedScope 处理recycle已解析作用域。
 func recycleResolvedScope(scope ResolvedLSPToolScope, cfg workspaceConfig) ResolvedLSPToolScope {
 	if scope.WorkspaceKey != "" || scope.ManagerKey != "" {
 		return scope
@@ -374,6 +380,7 @@ func snapshotWorkspaceClients(mgr *manager) []workspaceClient {
 	return items
 }
 
+// detachWorkspaceClientIfIdle 处理detach工作区客户端ifidle。
 func detachWorkspaceClientIfIdle(mgr *manager, key string, expected Client) *workspaceClient {
 	if mgr == nil {
 		return nil
@@ -457,6 +464,7 @@ func psRSSBytes(pid int) (uint64, error) {
 	return kilobytes * 1024, nil
 }
 
+// rssLimitBytesForLanguage 为语言处理rsslimitbytes。
 func rssLimitBytesForLanguage(languageID string) uint64 {
 	lang := normalizeLanguageID(languageID)
 	if lang == "go" || lang == "gomod" || lang == "gosum" || lang == "gowork" {

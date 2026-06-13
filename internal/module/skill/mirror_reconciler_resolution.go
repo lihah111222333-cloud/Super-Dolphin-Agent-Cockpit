@@ -12,6 +12,7 @@ import (
 	skillidentity "github.com/anthropic-ai/super-agent-v3/internal/module/skill/identity"
 )
 
+// resolutionRecordAndMirrorDir 处理resolution记录镜像目录。
 func resolutionRecordAndMirrorDir(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (canonicalSkillRecord, string, error) {
 	if svc == nil {
 		return canonicalSkillRecord{}, "", fmt.Errorf("skill service is required")
@@ -105,6 +106,7 @@ func deletedCanonicalRecord(svc *service, cwd, name, scope, personalType, canoni
 	return record
 }
 
+// resolutionRequestPersonalType 处理resolution请求personaltype。
 func resolutionRequestPersonalType(req SkillMirrorResolutionRequest) (string, error) {
 	if req.Target.Scope != skillScopePersonal {
 		return "", nil
@@ -180,6 +182,7 @@ func (s *service) lookupResolutionPreviewForConflict(previewID, conflictID, acti
 	return preview, nil
 }
 
+// lookupResolutionPreviewStored 处理lookupresolutionpreviewstored。
 func (s *service) lookupResolutionPreviewStored(previewID, action, previewHash string) (skillResolutionPreviewItem, skillResolutionStoredPreview, error) {
 	if s == nil {
 		return skillResolutionPreviewItem{}, skillResolutionStoredPreview{}, fmt.Errorf("skill service is required")
@@ -205,6 +208,7 @@ func (s *service) lookupResolutionPreviewStored(previewID, action, previewHash s
 	return stored.Item, stored, nil
 }
 
+// verifyResolutionPreviewMirrorBinding 验证resolutionpreview镜像binding。
 func verifyResolutionPreviewMirrorBinding(preview skillResolutionPreviewItem, mirrorDir string) (string, error) {
 	if err := ensureProviderSkillDirSafe(mirrorDir); err != nil {
 		return "", err
@@ -305,6 +309,7 @@ func unmanagedProviderSource(svc *service, req SkillMirrorResolutionRequest) (st
 	return "", "", skillResolutionPreviewItem{}, lastErr
 }
 
+// importCanonicalTargetDir 导入canonicaltarget目录。
 func importCanonicalTargetDir(svc *service, req SkillMirrorResolutionRequest) (string, string, string, error) {
 	name, _, err := normalizeSkillIdentityName(req.Name, "")
 	if err != nil {
@@ -330,6 +335,7 @@ func importCanonicalTargetDir(svc *service, req SkillMirrorResolutionRequest) (s
 	}
 }
 
+// projectRootFromMirrorTarget 从镜像target处理项目根目录。
 func projectRootFromMirrorTarget(target SkillMirrorTarget) (string, error) {
 	if target.Scope != skillScopeProject {
 		return "", fmt.Errorf("project mirror target is required")
@@ -349,6 +355,7 @@ func projectRootFromMirrorTarget(target SkillMirrorTarget) (string, error) {
 	return filepath.Dir(filepath.Dir(root)), nil
 }
 
+// confirmDeleteDriftedMirror 处理confirmdeletedrifted镜像。
 func confirmDeleteDriftedMirror(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
 	report := SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}
 	if svc == nil {
@@ -390,6 +397,7 @@ type confirmDeleteMirrorDetails struct {
 	manifest     SkillMirrorManifest
 }
 
+// confirmDeleteMirrorTarget 处理confirmdelete镜像target。
 func confirmDeleteMirrorTarget(req SkillMirrorResolutionRequest) (confirmDeleteMirrorDetails, error) {
 	if err := validateExistingMirrorRoot(req.Target); err != nil {
 		return confirmDeleteMirrorDetails{}, err
@@ -436,6 +444,7 @@ func removeManagedMirror(target SkillMirrorTarget, details confirmDeleteMirrorDe
 	return writeSkillMirrorManifest(filepath.Join(target.Root, skillMirrorManifestFile), details.manifest)
 }
 
+// buildResolutionPreviewItems 构建resolutionpreviewitems。
 func buildResolutionPreviewItems(item skillResolutionItem, p skillResolutionPreviewParams, superHome string) ([]skillResolutionPreviewItem, error) {
 	if len(item.ProviderEntries) > 1 && previewAllProviders(item, p) {
 		out := make([]skillResolutionPreviewItem, 0, len(item.ProviderEntries))
@@ -457,11 +466,13 @@ func buildResolutionPreviewItems(item skillResolutionItem, p skillResolutionPrev
 	return []skillResolutionPreviewItem{preview}, nil
 }
 
+// previewAllProviders 处理previewallproviders。
 func previewAllProviders(item skillResolutionItem, p skillResolutionPreviewParams) bool {
 	return p.Provider == "" && p.SourceProvider == "" && p.SourcePathID == "" &&
 		(p.Action == ResolutionViewDiff || p.Action == ResolutionViewUnmanaged || overwriteResolutionAction(p.Action) || (syncBackResolutionAction(p.Action) && sameResolutionSourceHashes(item.ProviderEntries)))
 }
 
+// buildResolutionPreviewItem 构建resolutionpreviewitem。
 func buildResolutionPreviewItem(item skillResolutionItem, p skillResolutionPreviewParams, superHome string) (skillResolutionPreviewItem, error) {
 	if len(item.ProviderEntries) == 0 {
 		return canonicalResolutionPreviewItem(item, p)
@@ -489,6 +500,7 @@ func buildResolutionPreviewItem(item skillResolutionItem, p skillResolutionPrevi
 	return preview, nil
 }
 
+// selectedResolutionPreviewProvider 处理selectedresolutionpreviewprovider。
 func selectedResolutionPreviewProvider(item skillResolutionItem, p skillResolutionPreviewParams) (string, error) {
 	provider := strings.TrimSpace(p.Provider)
 	if p.SourceProvider != "" {
@@ -507,6 +519,7 @@ func selectedResolutionPreviewProvider(item skillResolutionItem, p skillResoluti
 	return provider, nil
 }
 
+// selectResolutionProviderEntry 选择resolutionprovider条目。
 func selectResolutionProviderEntry(item skillResolutionItem, provider string) (skillResolutionProviderEntry, error) {
 	if len(item.ProviderEntries) == 0 {
 		return skillResolutionProviderEntry{}, fmt.Errorf("resolution conflict has no provider entry")
@@ -531,6 +544,7 @@ func resolutionPreviewTargetPath(entry skillResolutionProviderEntry, p skillReso
 	return filepath.ToSlash(filepath.Join(filepath.Dir(entry.TargetPath), name))
 }
 
+// validateMutatingResolutionPreview 校验mutatingresolutionpreview。
 func validateMutatingResolutionPreview(item skillResolutionItem, preview skillResolutionPreviewItem, p skillResolutionPreviewParams) error {
 	if p.Action == ResolutionReplaceProviderRootSymlink {
 		return validateRootResolutionPreview(item, preview, p.Action)

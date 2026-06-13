@@ -18,6 +18,7 @@ type service struct {
 
 var _ Service = (*service)(nil)
 
+// NewService 创建服务。
 func NewService(logger *slog.Logger, store feedbackstore.Store) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -27,6 +28,7 @@ func NewService(logger *slog.Logger, store feedbackstore.Store) Service {
 
 var errServiceDisabled = errors.New("feedback: service not wired (store is nil)")
 
+// Record 记录feedback。
 func (s *service) Record(ctx context.Context, req RecordRequest) (RecordResult, error) {
 	ctx = util.NonNilContext(ctx)
 	if s.store == nil {

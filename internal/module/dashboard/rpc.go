@@ -114,6 +114,7 @@ type dagDispatchNodeParams struct {
 	AssignedTo string `json:"assignedTo,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *dagDispatchNodeParams) UnmarshalJSON(data []byte) error {
 	type raw dagDispatchNodeParams
 	var payload map[string]json.RawMessage
@@ -233,6 +234,7 @@ type aiLogStatsResponse struct {
 	Stats []ailogstore.StatusCount `json:"stats"`
 }
 
+// NewDashboardHandlers 创建dashboard处理器。
 func NewDashboardHandlers(svc Service) platformrpc.HandlerMapResult {
 	m := handler.Map{}
 	registerDashboardCoreHandlers(m, svc)
@@ -241,6 +243,7 @@ func NewDashboardHandlers(svc Service) platformrpc.HandlerMapResult {
 }
 
 // registerDashboardCoreHandlers registers page-level, agent, system and query handlers.
+// registerDashboardCoreHandlers 注册dashboardcore处理器。
 func registerDashboardCoreHandlers(m handler.Map, svc Service) {
 	m["ui/dashboard/get"] = platformrpc.StrictHandler(func(ctx context.Context, p uiDashboardGetParams) (any, error) {
 		ctx = withDashboardPromptScopeCWD(ctx, p.Cwd)
@@ -310,6 +313,7 @@ func registerDashboardCoreHandlers(m handler.Map, svc Service) {
 }
 
 // registerDashboardDataHandlers registers log, audit, bus, DAG and AI-log handlers.
+// registerDashboardDataHandlers 注册dashboard数据处理器。
 func registerDashboardDataHandlers(m handler.Map, svc Service) {
 	m["dashboard/aiLogs"] = platformrpc.StrictHandler(func(ctx context.Context, p logsParams) (any, error) {
 		logs, err := svc.GetAILogsByCategory(ctx, p.Category, p.Keyword, p.Limit)
@@ -356,6 +360,7 @@ func registerDashboardDataHandlers(m handler.Map, svc Service) {
 	})
 }
 
+// registerDashboardDAGHandlers 注册dashboardDAG处理器。
 func registerDashboardDAGHandlers(m handler.Map, svc Service) {
 	m["dashboard/dags"] = platformrpc.StrictHandler(func(ctx context.Context, p dagsParams) (any, error) {
 		dags, err := svc.ListDAGs(ctx, p.ToFilter())

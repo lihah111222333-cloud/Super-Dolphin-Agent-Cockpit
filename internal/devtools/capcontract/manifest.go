@@ -81,10 +81,12 @@ type DiffResult struct {
 	Changed []string `json:"changed,omitempty"`
 }
 
+// IsClean 判断clean是否可用。
 func (d DiffResult) IsClean() bool {
 	return len(d.Added) == 0 && len(d.Removed) == 0 && len(d.Changed) == 0
 }
 
+// SaveManifest 保存manifest。
 func SaveManifest(manifest *Manifest, path string) error {
 	if err := ValidateManifest(manifest); err != nil {
 		return err
@@ -100,6 +102,7 @@ func SaveManifest(manifest *Manifest, path string) error {
 	return nil
 }
 
+// LoadManifest 加载manifest。
 func LoadManifest(path string) (*Manifest, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -115,6 +118,7 @@ func LoadManifest(path string) (*Manifest, error) {
 	return &manifest, nil
 }
 
+// MarshalManifest 编码manifest。
 func MarshalManifest(manifest *Manifest) ([]byte, error) {
 	if err := ValidateManifest(manifest); err != nil {
 		return nil, err
@@ -126,6 +130,7 @@ func MarshalManifest(manifest *Manifest) ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
+// ValidateManifest 校验manifest。
 func ValidateManifest(manifest *Manifest) error {
 	if manifest == nil {
 		return fmt.Errorf("capability manifest is nil")
@@ -150,6 +155,7 @@ func ValidateManifest(manifest *Manifest) error {
 	return nil
 }
 
+// DiffManifests 处理diffmanifests。
 func DiffManifests(committed, live *Manifest) DiffResult {
 	oldSymbols := manifestSymbols(committed)
 	newSymbols := manifestSymbols(live)
@@ -175,6 +181,7 @@ func DiffManifests(committed, live *Manifest) DiffResult {
 	return diff
 }
 
+// manifestSymbols 处理manifest符号。
 func manifestSymbols(manifest *Manifest) map[string]string {
 	symbols := map[string]string{}
 	if manifest == nil {

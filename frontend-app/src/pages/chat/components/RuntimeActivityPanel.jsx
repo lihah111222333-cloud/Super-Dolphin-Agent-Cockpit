@@ -17,6 +17,10 @@ function RuntimeActivityPanel({
   onResizeKeyDown,
   onResizeStart,
 }) {
+  /*
+   * 活动面板只展示传入的 runtime 视图。
+   * tooltip、popover 是本地交互状态，不要写回 store。
+   */
   const [activeStat, setActiveStat] = useState(null);
   const [activeWarning, setActiveWarning] = useState(null);
   const panelRef = useRef(null);

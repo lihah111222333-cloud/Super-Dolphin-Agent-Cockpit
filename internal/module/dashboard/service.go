@@ -51,6 +51,7 @@ type dashboardPromptScopeCWDKey struct{}
 
 var _ Service = (*service)(nil)
 
+// NewService 创建服务。
 func NewService(
 	orchestrationSvc contract.OrchestrationService,
 	agentStatuses agentstatusstore.Store,
@@ -82,6 +83,7 @@ func NewService(
 	}
 }
 
+// newServiceWithDAGRuntime 创建带DAG运行时的服务。
 func newServiceWithDAGRuntime(
 	orchestrationSvc contract.OrchestrationService,
 	dagRuntime contract.DAGRuntime,
@@ -135,6 +137,7 @@ func dashboardPromptScopeCWDFromContext(ctx context.Context) string {
 	return strings.TrimSpace(value)
 }
 
+// GetDashboard 读取dashboard。
 func (s *service) GetDashboard(ctx context.Context) (*Dashboard, error) {
 	agents, err := s.listAgents(ctx)
 	if err != nil {
@@ -148,6 +151,7 @@ func (s *service) GetDashboard(ctx context.Context) (*Dashboard, error) {
 	}, nil
 }
 
+// GetAgentDetail 读取代理detail。
 func (s *service) GetAgentDetail(ctx context.Context, agentID string) (*AgentDetail, error) {
 	if s.orchestration == nil {
 		return nil, errors.New("dashboard: orchestration service is not configured")
@@ -194,6 +198,7 @@ func (s *service) GetAgentDetail(ctx context.Context, agentID string) (*AgentDet
 	}, nil
 }
 
+// GetSystemInfo 读取systeminfo。
 func (s *service) GetSystemInfo(ctx context.Context) (*SystemInfo, error) {
 	agentCount := 0
 	if s.orchestration != nil {
@@ -207,6 +212,7 @@ func (s *service) GetSystemInfo(ctx context.Context) (*SystemInfo, error) {
 	return &info, nil
 }
 
+// GetLogs 读取logs。
 func (s *service) GetLogs(ctx context.Context, filter LogFilter) ([]LogEntry, error) {
 	mode, err := resolveLogSource(filter.Source)
 	if err != nil {
@@ -237,6 +243,7 @@ func (s *service) GetLogs(ctx context.Context, filter LogFilter) ([]LogEntry, er
 	return mergeLogEntries(systemEntries, aiEntries, limit), nil
 }
 
+// mergeLogEntries 合并日志条目。
 func mergeLogEntries(a, b []LogEntry, limit int) []LogEntry {
 	out := make([]LogEntry, 0, limit)
 	i, j := 0, 0
@@ -252,6 +259,7 @@ func mergeLogEntries(a, b []LogEntry, limit int) []LogEntry {
 	return out
 }
 
+// Query 处理查询。
 func (s *service) Query(ctx context.Context, query string, args ...any) ([]map[string]any, error) {
 	if s.dbQueries == nil {
 		return nil, errors.New("dashboard: dbquery store is not configured")
@@ -293,6 +301,7 @@ func (s *service) buildSystemInfo(agentCount int) SystemInfo {
 	}
 }
 
+// loadBuildMetadata 加载build元数据。
 func loadBuildMetadata() buildMetadata {
 	meta := buildMetadata{
 		version:   "dev",
@@ -316,6 +325,7 @@ func loadBuildMetadata() buildMetadata {
 	return meta
 }
 
+// applyBuildSetting 应用buildsetting。
 func applyBuildSetting(meta *buildMetadata, key, value string) {
 	if meta == nil {
 		return

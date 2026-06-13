@@ -15,6 +15,7 @@ func normalizeArgs(args []any) []any {
 	return out
 }
 
+// normalizeArg 规范化arg。
 func normalizeArg(arg any) any {
 	switch value := arg.(type) {
 	case float64:

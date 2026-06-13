@@ -29,6 +29,7 @@ type MemoryIndexEntry struct {
 	CanonicalName string
 }
 
+// ParseMemoryIndex 解析记忆索引。
 func ParseMemoryIndex(content string) ([]MemoryIndexEntry, error) {
 	content = parse.StripUTF8BOM(content)
 	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
@@ -47,6 +48,7 @@ func ParseMemoryIndex(content string) ([]MemoryIndexEntry, error) {
 	return entries, nil
 }
 
+// ReadMemoryIndex 读取记忆索引。
 func ReadMemoryIndex(path string) ([]MemoryIndexEntry, error) {
 	validatedPath, err := ValidateMemoryReadPath(filepath.Dir(path), path)
 	if err != nil {
@@ -59,6 +61,7 @@ func ReadMemoryIndex(path string) ([]MemoryIndexEntry, error) {
 	return ParseMemoryIndex(string(content))
 }
 
+// WriteMemoryIndex 写入记忆索引。
 func WriteMemoryIndex(root string, entries []MemoryEntry) error {
 	indexEntries, err := buildMemoryIndex(root, entries)
 	if err != nil {
@@ -67,6 +70,7 @@ func WriteMemoryIndex(root string, entries []MemoryEntry) error {
 	return writeAtomicFile(memoryIndexPath(root), []byte(formatMemoryIndex(indexEntries)), 0o644)
 }
 
+// UpdateMemoryIndex 更新记忆索引。
 func UpdateMemoryIndex(root string) ([]MemoryIndexEntry, error) {
 	entries, err := scanMemoryEntries(root)
 	if err != nil {
@@ -78,10 +82,12 @@ func UpdateMemoryIndex(root string) ([]MemoryIndexEntry, error) {
 	return buildMemoryIndex(root, entries)
 }
 
+// RebuildMemoryIndex 处理rebuild记忆索引。
 func RebuildMemoryIndex(root string) ([]MemoryIndexEntry, error) {
 	return UpdateMemoryIndex(root)
 }
 
+// scanMemoryEntries 扫描记忆条目。
 func scanMemoryEntries(root string) ([]MemoryEntry, error) {
 	exists, err := memoryEntriesRootExists(root)
 	if err != nil {
@@ -120,6 +126,7 @@ func memoryEntriesRootExists(root string) (bool, error) {
 	return true, nil
 }
 
+// scannedMemoryEntry 处理scanned记忆条目。
 func scannedMemoryEntry(root, path string, d fs.DirEntry, walkErr error) (MemoryEntry, bool, bool, error) {
 	if walkErr != nil {
 		return MemoryEntry{}, false, false, walkErr
@@ -198,6 +205,7 @@ func formatMemoryIndex(entries []MemoryIndexEntry) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
+// formatMemoryEntry 格式化记忆条目。
 func formatMemoryEntry(entry MemoryEntry) string {
 	frontmatter := entry.Frontmatter
 	lines := []string{
@@ -245,6 +253,7 @@ func parseIndexLine(line string) (MemoryIndexEntry, error) {
 	return entry, nil
 }
 
+// parseMemoryFrontmatter 解析记忆frontmatter。
 func parseMemoryFrontmatter(frontmatter string) MemoryFrontmatter {
 	parsed := MemoryFrontmatter{}
 	for line := range strings.SplitSeq(frontmatter, "\n") {
@@ -309,6 +318,7 @@ func parseScalar(raw string) string {
 	return strings.Trim(strings.TrimSpace(raw), "\"'")
 }
 
+// parseStringList 解析stringlist。
 func parseStringList(raw string) []string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -371,6 +381,7 @@ func fallbackEntryName(path string) string {
 	return strings.Join(strings.Fields(base), " ")
 }
 
+// uniqueEntriesByCanonicalName 按canonical名称处理unique条目。
 func uniqueEntriesByCanonicalName(entries []MemoryEntry) []MemoryEntry {
 	if len(entries) == 0 {
 		return nil
@@ -430,6 +441,7 @@ func memoryFileBase(name string) string {
 	return memoryFileSlug(name)
 }
 
+// memoryFileSlug 处理记忆文件slug。
 func memoryFileSlug(raw string) string {
 	normalized := norm.NFC.String(strings.TrimSpace(raw))
 	var builder strings.Builder
@@ -459,6 +471,7 @@ func memoryFileSlug(raw string) string {
 	return prefix + "-" + shared.ShortHash(normalized)
 }
 
+// truncateUTF8Bytes 截断utf8bytes。
 func truncateUTF8Bytes(text string, maxBytes int) string {
 	if maxBytes <= 0 || strings.TrimSpace(text) == "" {
 		return ""

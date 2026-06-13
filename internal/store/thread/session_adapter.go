@@ -15,6 +15,7 @@ type sessionThreadAdapter struct {
 
 // NewSessionThreadLookup adapts the concrete thread Store to the narrow
 // contract.SessionThreadLookup interface consumed by the session resolver.
+// NewSessionThreadLookup 创建会话线程lookup。
 func NewSessionThreadLookup(store Store) contract.SessionThreadLookup {
 	if store == nil {
 		return nil
@@ -22,6 +23,7 @@ func NewSessionThreadLookup(store Store) contract.SessionThreadLookup {
 	return &sessionThreadAdapter{store: store}
 }
 
+// GetByThreadID 按线程ID读取线程存储。
 func (a *sessionThreadAdapter) GetByThreadID(ctx context.Context, threadID string) (*contract.SessionThreadRef, error) {
 	thread, err := a.store.GetByThreadID(ctx, threadID)
 	if err != nil || thread == nil {

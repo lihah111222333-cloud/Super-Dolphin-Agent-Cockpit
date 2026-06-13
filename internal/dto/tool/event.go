@@ -54,8 +54,17 @@ type ToolDiffUpdated struct {
 	Revision  int64     `json:"revision,omitempty"`
 }
 
-func (ToolCallBegin) Type() uint32         { return shared.EventTypeToolCallBegin }
-func (ToolCallEnd) Type() uint32           { return shared.EventTypeToolCallEnd }
+// Type 返回事件分发用的类型编号。
+func (ToolCallBegin) Type() uint32 { return shared.EventTypeToolCallBegin }
+
+// Type 返回事件分发用的类型编号。
+func (ToolCallEnd) Type() uint32 { return shared.EventTypeToolCallEnd }
+
+// Type 返回事件分发用的类型编号。
 func (ToolApprovalRequested) Type() uint32 { return shared.EventTypeToolApprovalRequested }
-func (ToolApprovalResolved) Type() uint32  { return shared.EventTypeToolApprovalResolved }
-func (ToolDiffUpdated) Type() uint32       { return shared.EventTypeToolDiffUpdated }
+
+// Type 返回事件分发用的类型编号。
+func (ToolApprovalResolved) Type() uint32 { return shared.EventTypeToolApprovalResolved }
+
+// Type 返回事件分发用的类型编号。
+func (ToolDiffUpdated) Type() uint32 { return shared.EventTypeToolDiffUpdated }

@@ -89,6 +89,7 @@ func claudeLaunchEnv(cfg cliLaunchConfig) []string {
 	return []string{"CLAUDE_CONFIG_DIR=" + home}
 }
 
+// logManifestLaunch 处理日志manifest启动。
 func logManifestLaunch(binary, cwd, model, mcpPath string, manifest dto.MCPManifest) {
 	servers := make([]map[string]any, 0, len(manifest.Binaries))
 	for _, bin := range manifest.Binaries {
@@ -139,6 +140,7 @@ func logManifestLaunch(binary, cwd, model, mcpPath string, manifest dto.MCPManif
 // preview, and also write the full content to a timestamped file under the
 // OS temp dir so the operator can grep for known markers (e.g. to check
 // whether a router-injected PromptTemplate actually made it through).
+// logSystemPromptArgs 处理日志systempromptargs。
 func logSystemPromptArgs(args []string) {
 	blocks := make([]map[string]any, 0, 4)
 	idx := 0
@@ -186,6 +188,7 @@ func writeSystemPromptDump(index int, content string) string {
 	return path
 }
 
+// buildCLIArgs 构建CLIargs。
 func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig) []string {
 	model = sanitizeClaudeModel(model)
 	args := []string{
@@ -228,6 +231,7 @@ func defaultDisallowedBuiltinTools() []string {
 	return defaultDisabledLaunchToolIDs(factory.NativeTools)
 }
 
+// defaultDisabledLaunchToolIDs 处理defaultdisabled启动工具ids。
 func defaultDisabledLaunchToolIDs(tools []contract.NativeToolDescriptor) []string {
 	ids := make([]string, 0, len(tools))
 	for _, tool := range tools {
@@ -278,6 +282,7 @@ func additionalDisallowedTools(cfg cliLaunchConfig) []string {
 // resolveDisallowedToolsFlag turns the configured lists into the --disallowedTools
 // flag value. nil override means legacy defaults; a non-nil empty override skips
 // defaults unless additional items are present.
+// resolveDisallowedToolsFlag 解析disallowed工具flag。
 func resolveDisallowedToolsFlag(override []string, additional ...[]string) string {
 	source := override
 	if source == nil {
@@ -370,6 +375,7 @@ func promptDeveloperInstructions(cfg cliLaunchConfig) string {
 	return strings.TrimSpace(cfg.DeveloperInstructions)
 }
 
+// promptSnapshotBlank 处理prompt快照blank。
 func promptSnapshotBlank(snapshot contract.PromptAssemblySnapshot) bool {
 	return strings.TrimSpace(snapshot.DisplayName) == "" &&
 		strings.TrimSpace(snapshot.BaseInstructions) == "" &&
@@ -414,6 +420,7 @@ func resolvePermissionMode(approvalPolicy, sandbox string) string {
 	}
 }
 
+// permissionModeFromSandbox 从沙箱处理permission模式。
 func permissionModeFromSandbox(sandbox string) string {
 	raw := strings.TrimSpace(sandbox)
 	if raw == "" {
@@ -441,6 +448,7 @@ func permissionModeFromSandbox(sandbox string) string {
 	}
 }
 
+// normalizeEffort 规范化兜底。
 func normalizeEffort(model, effort string) string {
 	normalizedModel := strings.ToLower(strings.TrimSpace(model))
 	if normalizedModel == "best" {
@@ -465,6 +473,7 @@ func normalizeEffort(model, effort string) string {
 	}
 }
 
+// writeManifestConfig 写入manifest配置。
 func writeManifestConfig(manifest dto.MCPManifest, cwd string) (string, func(), error) {
 	servers := manifestServers(manifest, cwd)
 	if len(servers) == 0 {
@@ -530,6 +539,7 @@ func manifestServer(bin dto.MCPBinary, cwd string) (string, map[string]any, bool
 	return name, server, true
 }
 
+// buildStdioServer 构建stdio服务端。
 func buildStdioServer(bin dto.MCPBinary, cwd string) (map[string]any, bool) {
 	if len(bin.Command) == 0 {
 		return nil, false
@@ -564,6 +574,7 @@ func applyAutoApprove(server map[string]any, autoApprove []string) {
 	}
 }
 
+// applyHeaders 应用头部。
 func applyHeaders(server map[string]any, headers map[string]string) {
 	if len(headers) == 0 {
 		return

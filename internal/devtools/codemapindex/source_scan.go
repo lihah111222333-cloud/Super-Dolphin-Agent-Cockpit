@@ -28,6 +28,7 @@ var indexedSourceSkipDirs = map[string]bool{
 	"test-results":      true,
 }
 
+// ScanSourceFiles 扫描source文件。
 func ScanSourceFiles(root string) ([]string, error) {
 	var r []string
 	for _, dir := range indexedSourceDirs(root) {
@@ -51,6 +52,7 @@ func indexedSourceDirs(root string) []string {
 	return dirs
 }
 
+// collectSourceFilesFromDir 从目录收集source文件。
 func collectSourceFilesFromDir(root, dir string) ([]string, error) {
 	var files []string
 	if err := filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {

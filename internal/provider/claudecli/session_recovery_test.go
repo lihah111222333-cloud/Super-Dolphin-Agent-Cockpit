@@ -20,14 +20,14 @@ func TestStartTurnRestartsUnavailableTransportWithoutSettingsChange(t *testing.T
 
 	oldReady := make(chan struct{})
 	close(oldReady)
-	s := &session{
+	s := assumeSessionLaunchOverride(&session{
 		threadID:        "11111111-2222-3333-4444-555555555555",
 		sessionID:       "11111111-2222-3333-4444-555555555555",
 		threadReady:     oldReady,
 		transport:       closedTransport(),
 		suppressedTurns: map[string]struct{}{},
 		model:           "claude-same",
-	}
+	})
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	results := startTurnAsync(ctx, s, "claude-same")

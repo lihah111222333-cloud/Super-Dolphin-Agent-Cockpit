@@ -11,6 +11,7 @@ import (
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
 
+// translateCodexRolloutToolEvent 处理translatecodexrollout工具事件。
 func translateCodexRolloutToolEvent(eventType string, payload map[string]any) (any, bool) {
 	switch strings.TrimSpace(eventType) {
 	case "response_item", "item/started", "item_started", "agent/event/item_started":
@@ -130,6 +131,7 @@ func buildCodexRolloutToolCallHeader(payload, item map[string]any) shareddto.Too
 	}
 }
 
+// codexRolloutToolName 处理codexrollout工具名称。
 func codexRolloutToolName(item map[string]any) string {
 	if toolName := stringValue(item, "toolName", "tool_name"); toolName != "" {
 		return toolName
@@ -152,6 +154,7 @@ func codexRolloutToolName(item map[string]any) string {
 	return name
 }
 
+// codexFunctionCallArgumentsPreview 处理codex函数callargumentspreview。
 func codexFunctionCallArgumentsPreview(item map[string]any) string {
 	for _, key := range []string{"arguments", "args"} {
 		if value, ok := item[key]; ok && value != nil {
@@ -164,6 +167,7 @@ func codexFunctionCallArgumentsPreview(item map[string]any) string {
 	return ""
 }
 
+// codexMCPToolResultOutcome 处理codexMCP工具结果outcome。
 func codexMCPToolResultOutcome(item map[string]any) (bool, string) {
 	result := nestedValue(item, "result")
 	if len(result) == 0 {
@@ -188,6 +192,7 @@ func codexMCPToolResultOutcome(item map[string]any) (bool, string) {
 	return false, shared.FirstNonEmpty(codexMCPToolResultContentText(resultPayload), "tool call failed")
 }
 
+// codexMCPToolErrorText 处理codexMCP工具错误文本。
 func codexMCPToolErrorText(result map[string]any) string {
 	for _, key := range []string{"Err", "err", "Error", "error"} {
 		value := result[key]

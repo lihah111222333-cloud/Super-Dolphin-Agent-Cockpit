@@ -25,6 +25,7 @@ type RuntimeListFilter = promptstore.RuntimeListFilter
 
 type RuntimePromptCatalog = promptstore.RuntimePromptCatalog
 
+// NewRuntimeCatalog 创建运行时catalog。
 func NewRuntimeCatalog(store promptstore.Store, builtin contract.BuiltinPromptRegistry) promptstore.RuntimePromptCatalog {
 	if store == nil && builtin == nil {
 		return nil
@@ -37,6 +38,7 @@ type runtimePromptCatalog struct {
 	builtin contract.BuiltinPromptRegistry
 }
 
+// ListTemplates 列出templates。
 func (c *runtimePromptCatalog) ListTemplates(ctx context.Context, filter RuntimeListFilter) ([]promptstore.PromptTemplate, error) {
 	out, builtinKeys := c.listBuiltinTemplates(filter)
 	storeTemplates, err := c.listStoreTemplates(ctx, filter, builtinKeys)
@@ -48,6 +50,7 @@ func (c *runtimePromptCatalog) ListTemplates(ctx context.Context, filter Runtime
 	return limitRuntimeTemplates(out, filter.Limit), nil
 }
 
+// GetTemplate 读取template。
 func (c *runtimePromptCatalog) GetTemplate(ctx context.Context, promptKey, cwd string) (*promptstore.PromptTemplate, error) {
 	promptKey = strings.TrimSpace(promptKey)
 	cwd = strings.TrimSpace(cwd)
@@ -63,6 +66,7 @@ func (c *runtimePromptCatalog) GetTemplate(ctx context.Context, promptKey, cwd s
 	return cloneRuntimeTemplate(picked), nil
 }
 
+// ListSectionsByTemplateID 按templateID列出sections。
 func (c *runtimePromptCatalog) ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]promptstore.PromptTemplateSection, error) {
 	if templateID < 0 {
 		if c.builtin == nil {
@@ -80,6 +84,7 @@ func (c *runtimePromptCatalog) ListSectionsByTemplateID(ctx context.Context, tem
 	return c.store.ListSectionsByTemplateID(ctx, templateID)
 }
 
+// ListRecallSections 列出recallsections。
 func (c *runtimePromptCatalog) ListRecallSections(ctx context.Context, cwd string) ([]promptstore.PromptTemplateSection, error) {
 	cwd = strings.TrimSpace(cwd)
 	var out []promptstore.PromptTemplateSection
@@ -106,6 +111,7 @@ func (c *runtimePromptCatalog) ListRecallSections(ctx context.Context, cwd strin
 	return effectiveRecallSections(out), nil
 }
 
+// ListDefaultRuleSections 列出defaultrulesections。
 func (c *runtimePromptCatalog) ListDefaultRuleSections(ctx context.Context, cwd string) ([]promptstore.PromptTemplateSection, error) {
 	cwd = strings.TrimSpace(cwd)
 	out := c.builtinDefaultRuleSections(cwd)
@@ -117,6 +123,7 @@ func (c *runtimePromptCatalog) ListDefaultRuleSections(ctx context.Context, cwd 
 	return effectiveDefaultRuleSections(out), nil
 }
 
+// InsertVersion 插入版本。
 func (c *runtimePromptCatalog) InsertVersion(ctx context.Context, version promptstore.PromptTemplateVersion) (int64, error) {
 	if c.store == nil {
 		return 0, fmt.Errorf("runtime prompt catalog: prompt store is required for insert_version")
@@ -124,6 +131,7 @@ func (c *runtimePromptCatalog) InsertVersion(ctx context.Context, version prompt
 	return c.store.InsertVersion(ctx, version)
 }
 
+// CanInsertPromptVersion 判断insertprompt版本是否可用。
 func (c *runtimePromptCatalog) CanInsertPromptVersion() bool {
 	return c != nil && c.store != nil
 }
@@ -147,6 +155,7 @@ func (c *runtimePromptCatalog) listBuiltinTemplates(filter RuntimeListFilter) ([
 	return out, keys
 }
 
+// listStoreTemplates 列出存储templates。
 func (c *runtimePromptCatalog) listStoreTemplates(
 	ctx context.Context,
 	filter RuntimeListFilter,
@@ -186,6 +195,7 @@ func (c *runtimePromptCatalog) storeListKeyword(filter RuntimeListFilter) string
 	return strings.TrimSpace(filter.Keyword)
 }
 
+// storeListLimit 保存listlimit。
 func (c *runtimePromptCatalog) storeListLimit(filter RuntimeListFilter) int32 {
 	if filter.Limit <= 0 {
 		return maxRuntimeCatalogStoreLimit
@@ -229,6 +239,7 @@ func (c *runtimePromptCatalog) builtinTemplateForKey(promptKey, cwd string) *pro
 	return &mapped
 }
 
+// storeTemplateForKey 为键保存template。
 func (c *runtimePromptCatalog) storeTemplateForKey(ctx context.Context, promptKey, cwd string) (*promptstore.PromptTemplate, bool, error) {
 	if c.store == nil {
 		return nil, false, nil
@@ -285,6 +296,7 @@ func (c *runtimePromptCatalog) builtinTemplateByID(templateID int64) (contract.B
 	return contract.BuiltinPromptTemplate{}, false
 }
 
+// builtinSectionsForTemplate 为template处理builtinsections。
 func (c *runtimePromptCatalog) builtinSectionsForTemplate(
 	template contract.BuiltinPromptTemplate,
 	recallDefaultsGlobal bool,
@@ -418,6 +430,7 @@ func runtimeEnsureGlobalScopeWhenUnscoped(raw json.RawMessage) json.RawMessage {
 	return runtimeEncodeTags(runtimeAppendTagIfMissing(tags, runtimeScopeGlobalTag))
 }
 
+// runtimeTemplateMatchesFilter 处理运行时templatematches过滤条件。
 func runtimeTemplateMatchesFilter(template promptstore.PromptTemplate, filter RuntimeListFilter) bool {
 	if !runtimeTemplateVisibleForRead(template, filter.CWD) {
 		return false
@@ -461,6 +474,7 @@ func runtimeDefaultRuleSections(sections []promptstore.PromptTemplateSection) []
 	return out
 }
 
+// runtimeTemplateVisibleForRead 为read处理运行时templatevisible。
 func runtimeTemplateVisibleForRead(template promptstore.PromptTemplate, cwd string) bool {
 	if !template.Enabled {
 		return false
@@ -497,6 +511,7 @@ func sortRuntimeTemplates(templates []promptstore.PromptTemplate) {
 	})
 }
 
+// limitRuntimeTemplates 处理limit运行时templates。
 func limitRuntimeTemplates(templates []promptstore.PromptTemplate, limit int32) []promptstore.PromptTemplate {
 	if limit <= 0 || int(limit) >= len(templates) {
 		return templates

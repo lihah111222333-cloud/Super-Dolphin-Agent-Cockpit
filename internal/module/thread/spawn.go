@@ -36,6 +36,7 @@ func isPendingLaunchIntent(req StartRequest) bool {
 	return true
 }
 
+// startPendingThread 启动待处理线程。
 func (s *service) startPendingThread(ctx context.Context, req StartRequest, agentID string) (StartResult, error) {
 	if s == nil || s.threadStore == nil {
 		return StartResult{}, errors.New("thread store is not configured")
@@ -111,6 +112,7 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 	}, nil
 }
 
+// isThreadPendingLaunch 判断线程待处理启动是否可用。
 func (s *service) isThreadPendingLaunch(ctx context.Context, threadID string) (bool, error) {
 	if s == nil || s.threadStore == nil {
 		return false, nil
@@ -137,6 +139,7 @@ func (s *service) acquirePendingLaunchLock(threadID string) *sync.Mutex {
 	return m.(*sync.Mutex)
 }
 
+// SpawnIfNeeded 处理spawnifneeded。
 func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter, requestCWD string) (launched bool, routing SpawnRouting, err error) {
 	ctx = util.NonNilContext(ctx)
 	threadID = strings.TrimSpace(threadID)
@@ -190,6 +193,7 @@ func validateSpawnIfNeededInputs(s *service, threadID string) error {
 	return nil
 }
 
+// loadPendingLaunchRow 加载待处理启动row。
 func (s *service) loadPendingLaunchRow(ctx context.Context, threadID string) (*threadstore.Thread, bool, error) {
 	row, err := s.threadStore.GetByThreadID(ctx, threadID)
 	if err != nil {
@@ -207,6 +211,7 @@ func (s *service) loadPendingLaunchRow(ctx context.Context, threadID string) (*t
 	return row, true, nil
 }
 
+// buildPendingSpawnRequest 构建待处理spawn请求。
 func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRouter, requestCWD string) (StartRequest, error) {
 	cwd, err := resolvePendingLaunchCWD(row.Cwd, requestCWD)
 	if err != nil {
@@ -245,6 +250,7 @@ func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRout
 	return normalized, nil
 }
 
+// cleanupFailedPendingLaunch 处理cleanupfailed待处理启动。
 func (s *service) cleanupFailedPendingLaunch(ctx context.Context, threadID, agentID string, cause error) error {
 	if cause == nil || s == nil || s.threadStore == nil {
 		return cause
@@ -290,6 +296,7 @@ func resolvePendingLaunchCWD(storedCWD, requestCWD string) (string, error) {
 	return stored, nil
 }
 
+// runPendingSpawn 运行待处理spawn。
 func (s *service) runPendingSpawn(
 	ctx context.Context,
 	req *StartRequest,
@@ -380,6 +387,7 @@ func prependAgentBadge(displayName, agentTitle, agentKey string) string {
 	return prefix + displayName
 }
 
+// cleanupPendingSpawn 处理cleanup待处理spawn。
 func cleanupPendingSpawn(
 	ctx context.Context,
 	s *service,
@@ -400,6 +408,7 @@ func cleanupPendingSpawn(
 }
 
 // publishPendingSpawnLaunched emits thread.launched after pending spawn commit.
+// publishPendingSpawnLaunched 发布待处理spawnlaunched。
 func publishPendingSpawnLaunched(
 	s *service,
 	req *StartRequest,
@@ -453,6 +462,7 @@ func persistentSubagentDefaultEnabled(flags map[string]bool) bool {
 	return false
 }
 
+// applyPersistentSubagentToolPolicy 应用persistentsubagent工具策略。
 func applyPersistentSubagentToolPolicy(enabledTools []string, flags map[string]bool) []string {
 	if !persistentSubagentDefaultEnabled(flags) || len(enabledTools) == 0 {
 		return enabledTools

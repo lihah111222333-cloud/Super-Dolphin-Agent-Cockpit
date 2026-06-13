@@ -134,6 +134,7 @@ type ProvideWakeupReclaimerRunnerIn struct {
 // Wired with fx.Provide + group:"runners" from cmd/mcp-orch/fx.go so
 // run.Group manages the goroutine lifecycle. taskdag.Store is optional:
 // when missing the reclaimer is replaced by a no-op runner.
+// ProvideWakeupReclaimerRunner 暴露 wakeup reclaim 后台 runner。
 func ProvideWakeupReclaimerRunner(in ProvideWakeupReclaimerRunnerIn) (platformrunner.Runner, error) {
 	logger := in.Logger
 	if logger == nil {

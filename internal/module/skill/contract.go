@@ -42,6 +42,7 @@ const (
 
 // WithCWD delegates to contract.WithSkillCWD. Kept for backward compatibility
 // so existing callers (e.g. dashboard) that import skill.WithCWD keep compiling.
+// WithCWD 设置技能查询使用的工作目录。
 func WithCWD(ctx context.Context, cwd string) context.Context {
 	return contract.WithSkillCWD(ctx, cwd)
 }
@@ -143,6 +144,8 @@ type skillPreviewer interface {
 	MatchPreview(ctx context.Context, agentID, threadID, text string, input []UserInput) (any, error)
 }
 
+// ReconcileProviderMirrors 在 provider 启动前刷新 mirror。
+// 它从真实 skill 目录生成 .claude/.agents 等 mirror，不反过来读取 mirror。
 func (s *service) ReconcileProviderMirrors(ctx context.Context, cwd string, targets []contract.SkillProviderMirrorTarget) (contract.SkillMirrorReport, error) {
 	var report SkillMirrorReport
 	if s == nil {
@@ -184,6 +187,8 @@ func (s *service) reconcileMirrorProjectRoot(ctx context.Context, cwd string) (s
 	return reconcileProjectRoot(cwd, s.projectRoot), nil
 }
 
+// reconcileProviderMirrorScope 分开处理 project 和 personal。
+// 这样清理 mirror 时不会误删另一个来源的内容。
 func reconcileProviderMirrorScope(ctx context.Context, report *SkillMirrorReport, store *canonicalStore, projectRoot string, targets []SkillMirrorTarget, scope string) error {
 	group := mirrorTargetsForScope(targets, scope)
 	records, conflicts, err := mirrorRecordsForScope(ctx, store, projectRoot, scope)
@@ -231,6 +236,7 @@ func reconcileProjectRoot(cwd, configured string) string {
 	return resolved
 }
 
+// nearestProjectRoot 从路径向上查找最近的项目根目录。
 func nearestProjectRoot(dir string) (string, error) {
 	original := dir
 	for {
@@ -251,6 +257,7 @@ func nearestProjectRoot(dir string) (string, error) {
 	}
 }
 
+// providerMirrorTargets 计算需要发布的 provider mirror 目标。
 func (s *service) providerMirrorTargets(cwd string, targets []contract.SkillProviderMirrorTarget) ([]SkillMirrorTarget, error) {
 	out := make([]SkillMirrorTarget, 0, len(targets))
 	for _, target := range targets {
@@ -349,6 +356,7 @@ func sameCleanPath(a, b string) bool {
 	return aa == bb
 }
 
+// realpathAwareCleanPath 清理路径并尽量保留真实路径语义。
 func realpathAwareCleanPath(path string) (string, error) {
 	abs, err := filepath.Abs(strings.TrimSpace(path))
 	if err != nil {

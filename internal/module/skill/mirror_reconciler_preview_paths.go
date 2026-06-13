@@ -5,6 +5,7 @@ import (
 	"strings"
 )
 
+// resolutionPreviewPaths 处理resolutionpreview路径。
 func resolutionPreviewPaths(item skillResolutionItem, entry skillResolutionProviderEntry, p skillResolutionPreviewParams, superHome string) skillResolutionPreviewItem {
 	preview := skillResolutionPreviewItem{Action: p.Action, Provider: entry.Provider, SourceProvider: entry.Provider, SourcePathID: entry.SourcePathID}
 	switch p.Action {

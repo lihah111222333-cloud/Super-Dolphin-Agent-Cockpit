@@ -101,6 +101,11 @@ const BRIDGE_REVISION_EVENTS = Object.freeze([
   Object.freeze({ key: 'workflowRevision', events: new Set(['task/node/statuschanged', 'cron/job/runstatechanged', 'task/dag/changed', 'dags/changed']) }),
 ]);
 
+/*
+ * 这个 store 把后端快照、历史消息和实时事件整理成 UI 状态。
+ * 草稿、分页标记、delta 缓冲只是前端本地状态，不能当成后端真实状态。
+ */
+
 function emptyForkDraft() {
   return {
     open: false,
@@ -1264,6 +1269,10 @@ function normalizeUserTimelineText(text) {
 }
 
 function normalizeTimelineItem(item) {
+  /*
+   * timeline 原始数据来自快照、历史页和实时 patch。
+   * 这里只整理成 UI 字段，展示过滤和去重在后面统一做。
+   */
   const rawKind = normalizeString(firstFieldValue(item, TIMELINE_KIND_KEYS)).toLowerCase();
   const rawRole = normalizeString(firstFieldValue(item, TIMELINE_ROLE_KEYS)).toLowerCase();
   const normalizedRole = rawRole.includes('user') ? 'user' : 'assistant';
@@ -1782,20 +1791,24 @@ function areTimelineItemsEquivalent(left, right) {
 }
 
 function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}) {
+  /*
+   * 这里把旧消息、历史页、实时 patch 合成最终 timeline。
+   * 本地乐观消息和图片附件要保留，assistant/tool 的重复内容要合并。
+   */
   const preserveExistingVisible = options?.preserveExistingVisible === true;
   const visibleIncomingItems = incomingItems.filter(isVisibleTimelineItem);
   const incomingById = new Map(visibleIncomingItems.map((item) => [item.id, item]));
   const uniqueIncomingItems = visibleIncomingItems.filter((item) => incomingById.get(item.id) === item);
   const incomingIds = new Set(incomingById.keys());
   
-  // Maps to associate duplicate existing items and preserve their attachments
+  // 内容重复但 id 不同时，用旧 item 保住图片等前端字段。
   const duplicateExistingByIncomingId = new Map();
   const duplicateExistingIds = new Set();
   
   for (const existingItem of existingItems) {
     if (incomingIds.has(existingItem.id)) continue;
     
-    // Find if this existing item is a duplicate of any incoming item
+    // 查找旧 item 是否和某个新 item 内容相同。
     const duplicateIncoming = uniqueIncomingItems.find((incomingItem) => 
       sameTimelineDuplicateContent(existingItem, incomingItem)
     );
@@ -1810,7 +1823,7 @@ function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}
   const merged = [];
 
   for (const existingItem of existingItems) {
-    // If it was marked as a duplicate of a different-ID incoming item, skip it
+    // 不同 id 的重复项后面会合并到新 item，这里跳过旧副本。
     if (duplicateExistingIds.has(existingItem.id)) {
       continue;
     }
@@ -1820,7 +1833,7 @@ function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}
       if (areTimelineItemsEquivalent(existingItem, replacement)) {
         merged.push(existingItem);
       } else {
-        // Keep attachments from existingItem if replacement doesn't have them
+        // 新 item 没带附件时，沿用旧 item 的附件。
         merged.push({
           ...replacement,
           attachments: replacement.attachments || existingItem.attachments,
@@ -1840,7 +1853,7 @@ function mergeTimelineItems(existingItems = [], incomingItems = [], options = {}
 
   for (const incomingItem of uniqueIncomingItems) {
     if (!consumedIncomingIds.has(incomingItem.id)) {
-      // If there was a duplicate existing item with attachments, preserve them!
+      // 新 id 但内容相同，也继续保留旧附件。
       const duplicateExisting = duplicateExistingByIncomingId.get(incomingItem.id);
       const mergedIncoming = duplicateExisting && duplicateExisting.attachments
         ? { ...incomingItem, attachments: incomingItem.attachments || duplicateExisting.attachments }
@@ -1961,6 +1974,10 @@ function mergeSnapshotTimelineItems(existingTimeline, ready, items = []) {
 }
 
 function snapshotTimelines(state, payload, nextThreads) {
+  /*
+   * 快照只补充后端看到的消息，不清空前端正在显示的 timeline。
+   * thread id 变成真实 id 时，也要保住已加载历史和乐观消息。
+   */
   const next = snapshotTimelineBase(state, nextThreads);
   const runtimeResultEntries = [];
   for (const [threadId, items] of Object.entries(objectRecord(payload.timelinesByThread || payload.timelines_by_thread))) {
@@ -2039,6 +2056,10 @@ function snapshotActiveTurnByThread(state, payload, nextThreads) {
 }
 
 function buildSnapshotState(state, payload = {}, options = {}) {
+  /*
+   * 线程快照用来刷新列表、状态、指标和 diff。
+   * 空 timeline 不代表后端要求清空消息，要继续走合并逻辑。
+   */
   const maps = {
     archivedAtById: snapshotArchiveMap(state, payload),
     pinnedAtById: snapshotPinMap(state, payload),
@@ -3144,6 +3165,10 @@ function stateWithPatch(patch = {}) {
 }
 
 function createClientStoreRuntime(set, get) {
+  /*
+   * runtime 放前端临时工具：sequence、分页 generation、delta buffer、sidebar cache。
+   * 这些不是可持久化状态，destroy/reset 时要一起清掉。
+   */
   const runtime = {
     set,
     get,
@@ -3603,6 +3628,10 @@ function extractHistoryMetadata(message) {
 }
 
 function buildHistoryMessageAttachments(message) {
+  /*
+   * 历史图片来自已保存的 provider input，不是当前输入框附件。
+   * 这里只重建预览，发送时仍由 composer slice 生成 input。
+   */
   const meta = extractHistoryMetadata(message);
   const inputs = Array.isArray(meta?.input) ? meta.input : [];
   const attachments = [];
@@ -3635,6 +3664,10 @@ function stripHistoryImagePlaceholders(text, hasAttachments) {
 }
 
 function normalizeThreadMessageItems(allMessages) {
+  /*
+   * thread/messages 是已保存的历史页，也要变成同一种 timeline item。
+   * 它和实时 patch 共用合并逻辑，分页不会覆盖正在流式输出的内容。
+   */
   return sortTimelineChronologically(allMessages.map((message) => {
     const rawText = message.content || message.text || message.message || message.delta || message.output || message.result || message.answer || message.response;
     const historyAttachments = message.role === 'user' ? buildHistoryMessageAttachments(message) : [];
@@ -3781,6 +3814,10 @@ function applyThreadMessageItems(set, id, pageItems, pageMeta = {}) {
 }
 
 function attachThreadMessagesRuntime(runtime) {
+  /*
+   * 历史分页用 generation 防止慢请求写回到新线程。
+   * 初始页和“更早消息”都会追加到同一条 timeline。
+   */
   const { set, get, addWarning } = runtime;
   const { threadMessageGenerations } = runtime;
 
@@ -3953,6 +3990,10 @@ function attachBridgeIdentityRuntime(runtime) {
 }
 
 function attachAssistantEventRuntime(runtime) {
+  /*
+   * assistant、reasoning、命令输出的 delta 先攒一下再写 timeline。
+   * 最终完成事件会和流式片段合并，避免同一段回复出现两次。
+   */
   const { set, get, bridgeThreadIdForPayload } = runtime;
   const { assistantDeltaBuffers } = runtime;
 
@@ -4172,6 +4213,10 @@ function attachAssistantEventRuntime(runtime) {
 }
 
 function attachBridgePatchRuntime(runtime) {
+  /*
+   * ui/thread/patch 是实时线程状态入口。
+   * 先确认 thread/cwd 属于当前页面，再按 sequence 跳过旧事件。
+   */
   const { set, bridgeThreadIdForPayload } = runtime;
   const { sequencesByThread } = runtime;
 
@@ -4217,6 +4262,10 @@ function attachBridgePatchRuntime(runtime) {
 }
 
 function attachBridgeEventRuntime(runtime) {
+  /*
+   * bridge event handler 只负责分流：刷新标记、thread patch、delta、结束事件。
+   * 结束事件先刷完 delta，再把未完成的 timeline item 标记完成。
+   */
   const {
     set,
     addWarning,
@@ -5083,6 +5132,10 @@ function createThreadDeleteActions(runtime) {
 }
 
 function createClientStore(set, get) {
+  /*
+   * 公开 store 由多个 slice 拼起来。
+   * 页面可见状态放 baseState 和 slice；临时 helper 才放 runtime。
+   */
   const runtime = createClientStoreRuntime(set, get);
   return {
     ...baseState,

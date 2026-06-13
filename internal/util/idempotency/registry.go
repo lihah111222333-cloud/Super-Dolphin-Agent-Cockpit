@@ -27,8 +27,10 @@ type result[T any] struct {
 
 type retainedError struct{ error }
 
+// Unwrap 返回底层错误。
 func (e retainedError) Unwrap() error { return e.error }
 
+// Retain 保留本次幂等结果。
 func Retain(err error) error {
 	if err == nil {
 		return nil
@@ -41,8 +43,10 @@ func shouldRetain(err error) bool {
 	return errors.As(err, &retained)
 }
 
+// IsRetained 判断指定 key 是否仍被保留。
 func IsRetained(err error) bool { return shouldRetain(err) }
 
+// RetainOnError 在错误满足条件时保留结果。
 func RetainOnError(cause, cleanupErr error) error {
 	if cleanupErr != nil {
 		return Retain(errors.Join(cause, cleanupErr))
@@ -50,6 +54,7 @@ func RetainOnError(cause, cleanupErr error) error {
 	return cause
 }
 
+// RetainMappedError 保留映射后的错误结果。
 func RetainMappedError[T any](mapping *sync.Map, registry *Registry[T], key string, err error) bool {
 	if !IsRetained(err) {
 		return false
@@ -60,6 +65,7 @@ func RetainMappedError[T any](mapping *sync.Map, registry *Registry[T], key stri
 	return true
 }
 
+// MappedError 返回已记录的映射错误。
 func MappedError[T any](mapping *sync.Map, registry *Registry[T], key string) (error, bool) {
 	if intentID, ok := mapping.Load(strings.TrimSpace(key)); ok {
 		return registry.Error(intentID.(string))
@@ -67,6 +73,7 @@ func MappedError[T any](mapping *sync.Map, registry *Registry[T], key string) (e
 	return nil, false
 }
 
+// ForgetMappedUnlessError 处理forgetmappedunless错误。
 func ForgetMappedUnlessError[T any](mapping *sync.Map, registry *Registry[T], key string) {
 	key = strings.TrimSpace(key)
 	intentID, ok := mapping.Load(key)
@@ -83,6 +90,7 @@ func ForgetMappedUnlessError[T any](mapping *sync.Map, registry *Registry[T], ke
 
 // Do runs fn once per key while concurrent callers wait for the same result.
 // The same key with a different fingerprint is rejected after success.
+// Do 保证同一个 key 只执行一次函数。
 func (r *Registry[T]) Do(key, fingerprint string, fn func() (T, error)) (T, error) {
 	if err := r.reserveFingerprint(key, fingerprint); err != nil {
 		var zero T
@@ -115,6 +123,7 @@ func (r *Registry[T]) Do(key, fingerprint string, fn func() (T, error)) (T, erro
 	return value.(T), nil
 }
 
+// DoJSON 用 JSON 指纹参与幂等执行。
 func (r *Registry[T]) DoJSON(key string, fingerprint any, fn func() (T, error)) (T, error) {
 	payload, err := JSONFingerprint(fingerprint)
 	if err != nil {
@@ -124,6 +133,7 @@ func (r *Registry[T]) DoJSON(key string, fingerprint any, fn func() (T, error)) 
 	return r.Do(key, payload, fn)
 }
 
+// JSONFingerprint 生成稳定的 JSON 指纹。
 func JSONFingerprint(value any) (string, error) {
 	payload, err := json.Marshal(value)
 	if err != nil {
@@ -155,12 +165,14 @@ func replayCached[T any](cached any, key, fingerprint string) (T, error) {
 
 // Forget drops cached state for a key once the owning workflow has completed
 // or has cleaned up a failed partial launch.
+// Forget 删除指定 key 的幂等记录。
 func (r *Registry[T]) Forget(key string) {
 	r.flight.Forget(key)
 	r.fingerprints.Delete(key)
 	r.results.Delete(key)
 }
 
+// RetainError 保留失败结果供后续读取。
 func (r *Registry[T]) RetainError(key string, err error) {
 	if err == nil {
 		return
@@ -173,6 +185,7 @@ func (r *Registry[T]) RetainError(key string, err error) {
 	}
 }
 
+// Error 返回错误文本。
 func (r *Registry[T]) Error(key string) (error, bool) {
 	if cached, ok := r.results.Load(key); ok {
 		err := cached.(result[T]).err
@@ -181,6 +194,7 @@ func (r *Registry[T]) Error(key string) (error, bool) {
 	return nil, false
 }
 
+// NormalizeKey 规范化键。
 func NormalizeKey(field, raw string) (string, error) {
 	id := strings.TrimSpace(raw)
 	if len(id) < 16 || len(id) > 128 {

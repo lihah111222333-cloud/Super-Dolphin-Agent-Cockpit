@@ -28,6 +28,7 @@ type Config struct {
 	EnableSystemContextCacheBreaker bool
 }
 
+// NewConfig 创建配置。
 func NewConfig(_ *contract.Config) *Config {
 	return &Config{
 		EnableRegistry:                  parseBoolEnv(envEnablePromptRegistry, false),

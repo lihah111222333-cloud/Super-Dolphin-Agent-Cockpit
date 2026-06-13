@@ -87,10 +87,12 @@ func provideHostToolRegistry(in hostToolRegistryIn) HostToolRegistry {
 	)
 }
 
+// ProvideHostToolRegistryForTesting 为testing提供host工具注册表。
 func ProvideHostToolRegistryForTesting(in hostToolRegistryIn) HostToolRegistry {
 	return provideHostToolRegistry(in)
 }
 
+// NewHandlerForTesting 为testing创建处理器。
 func NewHandlerForTesting(registry activePeerRegistry, hostTools HostToolRegistry) *Handler {
 	return &Handler{registry: registry, hostTools: hostTools, logger: pkglogger.Get()}
 }
@@ -133,6 +135,7 @@ func provideDiffEmitter(dispatcher *event.Dispatcher) difftracker.DiffEmitter {
 // internal/app/toolbridge_adapters.go.
 type resolverFunc func(context.Context, string) (string, error)
 
+// ResolveAgentCWD 解析代理工作目录。
 func (fn resolverFunc) ResolveAgentCWD(ctx context.Context, agentID string) (string, error) {
 	return fn(ctx, agentID)
 }
@@ -150,6 +153,7 @@ func provideProxyAddrFn() func() string {
 // owned by ProxyRunner.Run after P22 P2 Finding 9, so this hook is now a
 // pure wiring step with no OnStop concerns besides clearing the published
 // address.
+// registerProxyLifecycle 注册proxy生命周期。
 func registerProxyLifecycle(lifecycle fx.Lifecycle, h *Handler, runner *ProxyRunner) {
 	if lifecycle == nil || h == nil || runner == nil {
 		return

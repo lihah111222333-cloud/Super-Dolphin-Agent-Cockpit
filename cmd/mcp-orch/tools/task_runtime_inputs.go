@@ -6,6 +6,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// pos 可以补 dag/node/run，但最终必须有明确 run_id。
+// 没有 run_id 就拒绝，避免把 task_update_node 写到模板节点上。
 func updateNodeRequestFromInput(in UpdateNodeInput) (contract.UpdateNodeStatusRequest, error) {
 	dagKey, err := resolveDAGKeyInput(in.DagKey, in.Pos)
 	if err != nil {
@@ -36,6 +38,8 @@ func updateNodeRequestFromInput(in UpdateNodeInput) (contract.UpdateNodeStatusRe
 	}, nil
 }
 
+// dispatch 也必须带 run_id；它不改 status，只补 assigned_to 并入队。
+// assigned_to 为空要立即拒绝，否则 dispatcher 会把“没人可派”当运行失败。
 func dispatchNodeRequestFromInput(in DispatchNodeInput) (contract.DispatchNodeRequest, error) {
 	dagKey, err := resolveDAGKeyInput(in.DagKey, in.Pos)
 	if err != nil {

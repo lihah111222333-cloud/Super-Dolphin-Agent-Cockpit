@@ -13,6 +13,11 @@ import {
   terminateDagRun as terminateDagRunBackend,
 } from '../../../shared/api/backendApi.js';
 
+/*
+ * workflow page service 只是把页面动作转给 backendApi。
+ * 数据整理、缓存刷新和错误文案都留在 WorkflowPage。
+ */
+
 export function applyDagOps(payload) {
   return applyDagOpsBackend(payload);
 }

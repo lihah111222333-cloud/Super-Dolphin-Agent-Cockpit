@@ -17,6 +17,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// RegisterTranslators 注册translators。
 func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 	if dispatcher != nil {
 		dispatcher.Register(translateCodexEvent)
@@ -43,6 +44,7 @@ func buildToolApprovalHeader(payload map[string]any) shareddto.ToolApprovalHeade
 	return shareddto.ToolApprovalHeader{ToolCallHeader: buildToolCallHeader(payload), ApprovalID: stringValue(payload, "approvalId", "approval_id")}
 }
 
+// translateCodexEvent 处理translatecodex事件。
 func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 	eventType := strings.TrimSpace(raw.EventType)
 	payload := decodeAnyPayload(raw.Data)
@@ -102,6 +104,7 @@ func isCodexMCPStartupFailureStatus(status string) bool {
 	}
 }
 
+// shouldWarnUnknownRawEvent 判断warnunknown原始事件是否可用。
 func shouldWarnUnknownRawEvent(eventType string, payload map[string]any) bool {
 	switch strings.TrimSpace(eventType) {
 	case "item/started", "item_started", "agent/event/item_started",
@@ -134,6 +137,7 @@ func shouldWarnUnknownRawEvent(eventType string, payload map[string]any) bool {
 	)
 }
 
+// translateAgentEvent 处理translate代理事件。
 func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 	switch eventType {
 	case "thread/started", "session.configured", "agent:launched":
@@ -168,6 +172,7 @@ func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 	}
 }
 
+// translateTurnEvent 处理translateturn事件。
 func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 	if isTurnTerminalEvent(eventType) {
 		header := buildTurnHeader(payload)
@@ -238,6 +243,7 @@ func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 	}
 }
 
+// validatedStateChangedEvent 处理validated状态changed事件。
 func validatedStateChangedEvent(payload map[string]any) (any, bool) {
 	newState := stringValue(payload, "newState", "new_state", "status")
 	if newState == "" {
@@ -286,6 +292,7 @@ func isKnownAgentState(state string) bool {
 	return false
 }
 
+// translateToolEvent 处理translate工具事件。
 func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 	if isApprovalBridgeMethod(eventType) {
 		return tooldto.ToolApprovalRequested{
@@ -389,6 +396,7 @@ func nestedValue(payload map[string]any, key string) map[string]any {
 	return value
 }
 
+// stringValue 处理string值。
 func stringValue(payload map[string]any, keys ...string) string {
 	for _, key := range keys {
 		switch value := payload[key].(type) {
@@ -403,6 +411,7 @@ func stringValue(payload map[string]any, keys ...string) string {
 	return ""
 }
 
+// int64Value 处理int64值。
 func int64Value(payload map[string]any, keys ...string) int64 {
 	for _, key := range keys {
 		switch value := payload[key].(type) {
@@ -423,6 +432,7 @@ func int64Value(payload map[string]any, keys ...string) int64 {
 	return 0
 }
 
+// boolValue 处理bool值。
 func boolValue(payload map[string]any, keys ...string) bool {
 	for _, key := range keys {
 		switch value := payload[key].(type) {
@@ -437,6 +447,7 @@ func boolValue(payload map[string]any, keys ...string) bool {
 	return false
 }
 
+// jsonPreview 处理JSONpreview。
 func jsonPreview(payload map[string]any, keys ...string) string {
 	for _, key := range keys {
 		if value, ok := payload[key]; ok && value != nil {

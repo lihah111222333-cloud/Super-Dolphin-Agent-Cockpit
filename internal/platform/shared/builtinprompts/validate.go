@@ -54,6 +54,7 @@ type identityPattern struct {
 	compact string
 }
 
+// validateManifest 校验manifest。
 func validateManifest(manifest manifestConfig) error {
 	if manifest.Version != 1 {
 		return fmt.Errorf("builtin prompts: manifest version must be 1")
@@ -87,6 +88,7 @@ func validateTemplateConfig(path string, cfg templateConfig) error {
 	return validateSectionConfigs(path, cfg)
 }
 
+// validateTemplateRequired 校验template必需。
 func validateTemplateRequired(path string, cfg templateConfig) error {
 	switch {
 	case cfg.ID != nil && *cfg.ID >= 0:
@@ -153,6 +155,7 @@ func validateSectionConfigs(path string, cfg templateConfig) error {
 	return nil
 }
 
+// validateSectionConfig 校验section配置。
 func validateSectionConfig(path, kind string, section sectionConfig) error {
 	if err := validateSectionRequired(path, section); err != nil {
 		return err
@@ -187,6 +190,7 @@ func validateSectionRequired(path string, section sectionConfig) error {
 	}
 }
 
+// validateLoadedTemplates 校验loadedtemplates。
 func validateLoadedTemplates(templates []loadedTemplate) error {
 	seenKeys := map[string]struct{}{}
 	for _, template := range templates {
@@ -252,6 +256,7 @@ func phraseMatchesIdentityPattern(text, pattern string, compact bool) bool {
 	return false
 }
 
+// hasDirectIdentityNegation 判断direct身份negation是否可用。
 func hasDirectIdentityNegation(text string, idx int, pattern string, compact bool) bool {
 	for _, negation := range directIdentityNegationPatterns {
 		negationText := negation.phrase
