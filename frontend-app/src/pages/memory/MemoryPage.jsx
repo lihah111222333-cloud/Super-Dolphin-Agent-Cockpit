@@ -484,7 +484,7 @@ function memoryConsolidationStartPayload(cwd, launchPreferences) {
     cwd,
     provider: textValue(launchPreferences?.modelProvider || launchPreferences?.provider),
     model: textValue(launchPreferences?.model),
-    codexModelProvider: textValue(launchPreferences?.config?.codexModelProvider),
+    codexModelProvider: textValue(launchPreferences?.codexModelProvider || launchPreferences?.config?.codexModelProvider),
   };
 }
 

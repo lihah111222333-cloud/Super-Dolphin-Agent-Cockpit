@@ -57,6 +57,9 @@ const PROVIDER_ACTIVE_PREF_KEY = 'settings.provider.active';
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
 const THREAD_PINS_CHAT_PREF_KEY = 'threadPins.chat';
 const objectPrototype = Object.prototype;
+const DEFAULT_CODEX_HOME = '~/.codex';
+const DEFAULT_CODEX_INSTANCE_KEY = 'default';
+const DEFAULT_CODEX_MODEL_PROVIDERS = new Set(['openai', 'super-dolphin-relay']);
 const PROVIDER_DISPLAY_DEFAULT_CONFIGS = Object.freeze({
   codex: Object.freeze({ model: 'gpt-5.5', effort: 'xhigh' }),
   claude: Object.freeze({ model: 'sonnet', effort: 'high' }),
@@ -263,6 +266,34 @@ function normalizeCodexIdentityValue(value) {
   return normalizeProviderConfigValue(value);
 }
 
+function codexHomeLooksDefault(value) {
+  const home = normalizeProviderConfigValue(value);
+  if (!home) return false;
+  const normalized = home.replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase();
+  return normalized === DEFAULT_CODEX_HOME ||
+    /^[a-z]:\/users\/[^/]+\/\.codex$/i.test(normalized) ||
+    /^\/users\/[^/]+\/\.codex$/i.test(normalized) ||
+    /^\/home\/[^/]+\/\.codex$/i.test(normalized);
+}
+
+function codexLaunchConfigFromPreferences({ codexHome, codexInstanceKey, codexModelProvider }) {
+  const home = normalizeProviderConfigValue(codexHome);
+  const instanceKey = normalizeCodexIdentityValue(codexInstanceKey);
+  const modelProvider = normalizeCodexIdentityValue(codexModelProvider);
+  if (!home && !instanceKey && !modelProvider) return null;
+
+  const defaultLikeIdentity = (!home || codexHomeLooksDefault(home)) &&
+    (!instanceKey || instanceKey === DEFAULT_CODEX_INSTANCE_KEY) &&
+    (!modelProvider || DEFAULT_CODEX_MODEL_PROVIDERS.has(modelProvider));
+  if (defaultLikeIdentity) return null;
+
+  if (!home || !instanceKey || !modelProvider) {
+    throw new Error('startThread: complete Codex identity requires codexHome, codexInstanceKey, and codexModelProvider');
+  }
+
+  return { codexHome: home, codexInstanceKey: instanceKey, codexModelProvider: modelProvider };
+}
+
 function providerDisplayDefaultConfig(provider) {
   return PROVIDER_DISPLAY_DEFAULT_CONFIGS[provider] || PROVIDER_DISPLAY_DEFAULT_CONFIGS[DEFAULT_PROVIDER];
 }
@@ -355,11 +386,14 @@ async function resolveLaunchPreferences(cwd) {
     prompt_key: normalizeProviderConfigValue(activePromptKey),
   });
   if (providerScope === 'codex') {
-    launch.config = cleanObject({
-      codexHome: normalizeProviderConfigValue(codexHome),
-      codexInstanceKey: normalizeProviderConfigValue(codexInstanceKey),
-      codexModelProvider: normalizeCodexIdentityValue(codexModelProvider),
+    const normalizedCodexModelProvider = normalizeCodexIdentityValue(codexModelProvider);
+    if (normalizedCodexModelProvider) launch.codexModelProvider = normalizedCodexModelProvider;
+    const codexConfig = codexLaunchConfigFromPreferences({
+      codexHome,
+      codexInstanceKey,
+      codexModelProvider,
     });
+    if (codexConfig) launch.config = codexConfig;
   }
   return launch;
 }

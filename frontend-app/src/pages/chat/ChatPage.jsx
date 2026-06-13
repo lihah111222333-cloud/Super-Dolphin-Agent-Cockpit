@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Brain, CheckCircle2, ChevronDown, CircleStop, Copy, File, GitBranch, MoreHorizontal, PanelTopOpen, RefreshCw, Sparkles, Terminal, Wrench, X } from 'lucide-react';
+import { Brain, CheckCircle2, ChevronDown, CircleStop, Copy, File, Filter, GitBranch, List, MoreHorizontal, PanelRight, PanelTopOpen, RefreshCw, Sparkles, Terminal, Wrench, X } from 'lucide-react';
 import { textValue } from '../shared/pageShared.js';
 import {
   codeOpenDisplayPath,
@@ -916,7 +916,8 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
   const threadData = useChatThreadData(store, activeThreadId);
   const introMode = !activeThreadId && !threadData.timelineBlocked && threadData.messages.length === 0;
   const headerFeedback = chatHeaderFeedbackForStore(store);
-  const showHeader = !introMode || Boolean(headerFeedback?.message);
+  const showHeader = !introMode || headerFeedback?.tone === 'error';
+  const showIntroFeedback = introMode && !showHeader && Boolean(headerFeedback?.message);
   const canUseProjectActions = canUseProjectActionsForStore(store);
   const runtimeProject = runtimeProjectPath(store.activeProject, projectPath);
   const codePreview = useCodePreviewController({ projectPath: runtimeProject, projects: store.projects });
@@ -999,6 +1000,11 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
           width={rightPanelWidth}
         />
       </div>
+      {showIntroFeedback ? (
+        <output className="sr-only" data-testid="chat-action-feedback">
+          {headerFeedback.message}
+        </output>
+      ) : null}
       {codePreview.dialogs}
     </section>
   );
@@ -1065,6 +1071,24 @@ function ChatPageHeader({ store, projectPath, rightPanelOpen, setRightPanelOpen 
           store={store}
         />
       ) : null}
+      <div className="chat-header-tools" aria-label="聊天视图工具">
+        <button type="button" className="chat-header-tool" aria-label="筛选消息" title="筛选消息" disabled>
+          <Filter size={22} aria-hidden="true" />
+        </button>
+        <button type="button" className="chat-header-tool" aria-label="消息列表" title="消息列表" disabled>
+          <List size={22} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="chat-header-tool"
+          aria-label="布局视图"
+          title={rightPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}
+          aria-pressed={rightPanelOpen}
+          onClick={() => setRightPanelOpen?.((prev) => !prev)}
+        >
+          <PanelRight size={22} aria-hidden="true" />
+        </button>
+      </div>
       <button
         type="button"
         className="chat-sidepanel-shortcut"

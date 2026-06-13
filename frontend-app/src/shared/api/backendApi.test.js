@@ -87,6 +87,7 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
       agentKey: 'assistant',
       toolSurfaceMode: 'chat',
       deferSpawn: true,
+      codexModelProvider: 'openai',
       launchIntentId: 'launch_018f00e0-39fc-72ac-a47a-2a858c75d111',
       optimisticUserMessage: 'Hello',
       skipInitialRuntimeSync: true,

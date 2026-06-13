@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Brain, ChevronDown, FileText, Folder, FolderOpen, Menu, Moon, PanelLeftClose, Plus, Search, Settings as SettingsIcon, SquareTerminal, Sun, Workflow, X, Zap } from 'lucide-react';
+import { Brain, ChevronDown, CircleUserRound, Folder, FolderOpen, Menu, MessageSquare, Moon, PanelLeftClose, Plus, Puzzle, RefreshCw, Search, Settings as SettingsIcon, SquarePlus, Sun, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.js';
@@ -22,9 +22,9 @@ const SkillsPage = lazyNamedPage(() => import('./pages/skills/SkillsPage.jsx'), 
 const WorkflowPage = lazyNamedPage(() => import('./pages/workflows/WorkflowPage.jsx'), 'WorkflowPage');
 
 const primaryNavItems = [
-  { id: 'skills', label: '插件与技能', displayLabel: '插件', icon: Zap },
-  { id: 'workflows', label: '自动化', icon: Workflow },
-  { id: 'prompts', label: '提示词', displayLabel: '定制角色', icon: SquareTerminal },
+  { id: 'skills', label: '插件与技能', displayLabel: '插件', icon: Puzzle },
+  { id: 'workflows', label: '自动化', icon: RefreshCw },
+  { id: 'prompts', label: '提示词', displayLabel: '定制角色', icon: CircleUserRound },
   { id: 'files', label: '共享文件', icon: FolderOpen },
 ];
 
@@ -560,6 +560,7 @@ function selectAppShellStore(state) {
     sending: state.sending,
     setActivePage: state.setActivePage,
     setActiveProjectPath: state.setActiveProjectPath,
+    setActiveThread: state.setActiveThread,
     setDraft: state.setDraft,
     setRightPanelWidth: state.setRightPanelWidth,
     skillRevision: state.skillRevision,
@@ -615,6 +616,29 @@ function projectDirectoryItems(projectPath, projects = [], activeProject = '') {
   return items.length ? items : [{ path: '', name: 'Super-Dolphin' }];
 }
 
+function projectTreeKey(value) {
+  return textValue(value).replace(/\\/g, '/').replace(/\/+$/g, '').toLowerCase();
+}
+
+function projectThreadItems(threads = [], projectPath = '', activeProjectPath = '') {
+  const targetProjectKey = projectTreeKey(projectPath);
+  const activeProjectKey = projectTreeKey(activeProjectPath);
+  if (!targetProjectKey) return [];
+  return (threads || []).filter((thread) => {
+    if (!thread || thread.archived || thread.archivedAt) return false;
+    const threadProjectKey = projectTreeKey(thread.cwd);
+    if (threadProjectKey) return threadProjectKey === targetProjectKey;
+    return targetProjectKey === activeProjectKey;
+  });
+}
+
+function projectThreadLabel(thread = {}) {
+  const id = textValue(thread.id);
+  const label = textValue(thread.name || thread.title);
+  if (!label || (id && label === id)) return '新对话';
+  return label;
+}
+
 function SidebarNavList({ items, activePage, setActivePage, memoryBadgeCount = 0, testId, className }) {
   return (
     <nav className={`app-sidebar-nav ${className || ''}`} data-testid={testId}>
@@ -643,14 +667,14 @@ function SidebarProjectTree({ projectPath, setActivePage, store }) {
   const projectItems = projectDirectoryItems(projectPath, store?.projects, store?.activeProject);
   const activeProjectPath = textValue(store?.activeProject || projectPath);
   const addProject = () => runUIAction(() => store?.addProjectFromPicker?.());
-  const addFilesToChat = () => {
-    setActivePage('chat');
-    runUIAction(() => store?.selectFilesForComposer?.());
-  };
-  const openSharedFiles = () => setActivePage('files');
   const selectProject = (path) => {
     if (!path) return;
     runUIAction(() => store?.setActiveProjectPath?.(path));
+  };
+  const selectThread = (threadId) => {
+    if (!threadId) return;
+    setActivePage('chat');
+    runUIAction(() => store?.setActiveThread?.(threadId));
   };
   return (
     <section className="sidebar-project-tree" aria-label="项目">
@@ -664,33 +688,46 @@ function SidebarProjectTree({ projectPath, setActivePage, store }) {
         </button>
       </div>
       <div className="sidebar-tree-root">
-        {projectItems.map((item) => (
-          <button
-            key={item.path || item.name}
-            type="button"
-            className={`sidebar-tree-folder${item.path && item.path === activeProjectPath ? ' active' : ''}`}
-            onClick={() => selectProject(item.path)}
-            aria-label={`选择项目 ${item.name}`}
-          >
-            <ChevronDown size={14} aria-hidden="true" />
-            <Folder size={18} aria-hidden="true" />
-            <span>{item.name}</span>
-          </button>
-        ))}
-        <ul className="sidebar-tree-actions">
-          <li>
-            <button type="button" className="sidebar-tree-item" onClick={addFilesToChat}>
-              <FileText size={15} aria-hidden="true" />
-              <span>添加文件到会话</span>
-            </button>
-          </li>
-          <li>
-            <button type="button" className="sidebar-tree-item" onClick={openSharedFiles}>
-              <FolderOpen size={15} aria-hidden="true" />
-              <span>打开共享文件</span>
-            </button>
-          </li>
-        </ul>
+        {projectItems.map((item) => {
+          const isActiveProject = item.path && item.path === activeProjectPath;
+          const projectThreads = projectThreadItems(store?.threads, item.path, activeProjectPath);
+          return (
+            <div className="sidebar-tree-project" key={item.path || item.name}>
+              <button
+                type="button"
+                className={`sidebar-tree-folder${isActiveProject ? ' active' : ''}`}
+                onClick={() => selectProject(item.path)}
+                aria-label={`选择项目 ${item.name}`}
+              >
+                <ChevronDown size={14} aria-hidden="true" />
+                <Folder size={18} aria-hidden="true" />
+                <span>{item.name}</span>
+              </button>
+              <ul className="sidebar-project-thread-list" aria-label={`${item.name} 聊天记录`}>
+                {projectThreads.length > 0 ? projectThreads.map((thread) => {
+                  const label = projectThreadLabel(thread);
+                  const active = thread.id === store?.activeThreadId;
+                  return (
+                    <li key={thread.id || label}>
+                      <button
+                        type="button"
+                        className={`sidebar-project-thread${active ? ' active' : ''}`}
+                        onClick={() => selectThread(thread.id)}
+                        aria-label="打开项目聊天"
+                        title={label}
+                      >
+                        <MessageSquare size={14} aria-hidden="true" />
+                        <span data-label={label} aria-hidden="true" />
+                      </button>
+                    </li>
+                  );
+                }) : (
+                  <li className="sidebar-project-thread-empty">暂无聊天记录</li>
+                )}
+              </ul>
+            </div>
+          );
+        })}
       </div>
     </section>
   );
@@ -734,7 +771,7 @@ function WorkbenchSidebar({ activePage, isOpen = false, setActivePage, store, pr
         aria-label="新对话"
         onClick={startNewChat}
       >
-        <Plus size={22} aria-hidden="true" />
+        <SquarePlus size={22} aria-hidden="true" />
         <span>新对话</span>
       </button>
       <SidebarNavList
