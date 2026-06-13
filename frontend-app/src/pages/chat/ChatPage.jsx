@@ -3691,7 +3691,7 @@ function IntroChatStage({ composer, projectPath: _projectPath }) {
   return (
     <div className="intro-chat-stage">
       <div className="empty-chat">
-        <h2>让我们从 Super-Dolphin 开始!</h2>
+        <h2>我们应该在 Super-Dolphin 中构建什么？</h2>
       </div>
       {composer}
     </div>

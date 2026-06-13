@@ -162,7 +162,7 @@ describe('ChatPage module', () => {
     render(<TestChatPageWrapper store={store} projectPath="未选择项目" />);
 
     expect(screen.getByText('连接后端失败：backend unavailable')).toBeInTheDocument();
-    expect(screen.getByText('让我们从 Super-Dolphin 开始!')).toBeInTheDocument();
+    expect(screen.getByText('我们应该在 Super-Dolphin 中构建什么？')).toBeInTheDocument();
     expect(screen.getByText('暂无会话，点击「新建对话」开始草稿')).toBeInTheDocument();
     expect(screen.getByTestId('composer-input')).toHaveValue('请修复测试');
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
