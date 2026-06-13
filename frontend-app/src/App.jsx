@@ -681,16 +681,49 @@ function projectTreeKey(value) {
   return textValue(value).replace(/\\/g, '/').replace(/\/+$/g, '').toLowerCase();
 }
 
+const AUTOMATION_THREAD_MARKERS = Object.freeze(['automation', 'workflow', 'dag', 'cron', 'task']);
+
+function threadFieldValue(thread = {}, keys = []) {
+  for (const key of keys) {
+    const value = textValue(thread[key]);
+    if (value) return value;
+  }
+  return '';
+}
+
+function isAutomationThread(thread = {}) {
+  const metadata = [
+    threadFieldValue(thread, ['agentKey', 'agent_key']),
+    threadFieldValue(thread, ['dagKey', 'dag_key']),
+    threadFieldValue(thread, ['workflowKey', 'workflow_key']),
+    threadFieldValue(thread, ['runKey', 'run_key']),
+    threadFieldValue(thread, ['taskId', 'task_id']),
+    threadFieldValue(thread, ['source', 'origin']),
+    threadFieldValue(thread, ['kind', 'type']),
+  ].map((value) => value.toLowerCase()).filter(Boolean);
+  if (metadata.some((value) => AUTOMATION_THREAD_MARKERS.some((marker) => value.includes(marker)))) return true;
+
+  const label = textValue(thread.name || thread.title);
+  return label === 'AI 设计流程' ||
+    /^\[AI\s*流程设计师\]/.test(label) ||
+    /^\[AI\s*Workflow Designer\]/i.test(label);
+}
+
 function projectThreadItems(threads = [], projectPath = '', activeProjectPath = '') {
   const targetProjectKey = projectTreeKey(projectPath);
   const activeProjectKey = projectTreeKey(activeProjectPath);
   if (!targetProjectKey) return [];
   return (threads || []).filter((thread) => {
     if (!thread || thread.archived || thread.archivedAt) return false;
+    if (isAutomationThread(thread)) return false;
     const threadProjectKey = projectTreeKey(thread.cwd);
     if (threadProjectKey) return threadProjectKey === targetProjectKey;
     return targetProjectKey === activeProjectKey;
   });
+}
+
+function taskThreadItems(threads = []) {
+  return (threads || []).filter((thread) => thread && !thread.archived && !thread.archivedAt && isAutomationThread(thread));
 }
 
 function projectThreadLabel(thread = {}) {
@@ -866,7 +899,7 @@ function WorkbenchSidebar({
         testId="sidebar-secondary-nav"
         className="sidebar-secondary-nav"
       />
-      <SidebarTaskSummary />
+      <SidebarTaskSummary store={store} setActivePage={setActivePage} />
       <button
         type="button"
         className="sidebar-theme-toggle"
@@ -902,11 +935,38 @@ function WorkbenchSidebar({
   );
 }
 
-function SidebarTaskSummary() {
+function SidebarTaskSummary({ store, setActivePage }) {
+  const tasks = taskThreadItems(store?.threads);
+  const selectThread = (threadId) => {
+    if (!threadId) return;
+    setActivePage('chat');
+    runUIAction(() => store?.setActiveThread?.(threadId));
+  };
   return (
     <section className="sidebar-task-summary" aria-label="任务">
       <h2>任务</h2>
-      <p>暂无任务</p>
+      {tasks.length > 0 ? (
+        <ul className="sidebar-task-list" aria-label="任务对话">
+          {tasks.map((thread) => {
+            const label = projectThreadLabel(thread);
+            const active = thread.id === store?.activeThreadId;
+            return (
+              <li key={thread.id || label}>
+                <button
+                  type="button"
+                  className={`sidebar-task-thread${active ? ' active' : ''}`}
+                  onClick={() => selectThread(thread.id)}
+                  aria-label="打开任务对话"
+                  title={label}
+                >
+                  <MessageSquare size={14} aria-hidden="true" />
+                  <span>{label}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : <p>暂无任务</p>}
     </section>
   );
 }

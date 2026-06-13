@@ -734,6 +734,41 @@ async function showAllTraceDashboardEvents() {
     expect(await screen.findByTestId('chat-page')).toBeInTheDocument();
   });
 
+  it('moves automation threads from project chats into the sidebar task list', async () => {
+    const threads = [
+      { id: 'thread-project', name: '项目普通对话', provider: 'codex', status: 'idle', cwd: '/repo/app' },
+      { id: 'thread-design', name: '[AI 流程设计师] AI 设计流程', provider: 'codex', status: 'created', cwd: '/repo/app', agentKey: 'dag_designer' },
+      { id: 'thread-legacy-design', name: 'AI 设计流程', provider: 'codex', status: 'idle', cwd: '/repo/app' },
+    ];
+    backend.getSidebarState.mockResolvedValue({
+      activeThreadId: 'thread-project',
+      threads,
+    });
+    backend.getThreadState.mockImplementation(({ threadId }) => Promise.resolve({
+      activeThreadId: threadId,
+      threads,
+      timelinesByThread: {
+        [threadId]: [{ id: `message-${threadId}`, kind: 'assistant', text: `${threadId} message`, ts: '2026-05-30T00:00:00Z' }],
+      },
+    }));
+
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    const appChats = await within(sidebar).findByRole('list', { name: 'app 聊天记录' });
+    expect(within(appChats).getByTitle('项目普通对话')).toBeInTheDocument();
+    expect(within(appChats).queryByTitle('[AI 流程设计师] AI 设计流程')).not.toBeInTheDocument();
+    expect(within(appChats).queryByTitle('AI 设计流程')).not.toBeInTheDocument();
+
+    const tasks = within(sidebar).getByRole('list', { name: '任务对话' });
+    const taskThread = within(tasks).getByTitle('[AI 流程设计师] AI 设计流程');
+    expect(taskThread).toBeInTheDocument();
+    expect(within(tasks).getByTitle('AI 设计流程')).toBeInTheDocument();
+
+    fireEvent.click(taskThread);
+    await waitFor(() => expect(useClientStore.getState().activeThreadId).toBe('thread-design'));
+  });
+
   it('starts a new empty draft from the screenshot sidebar new chat button', async () => {
     render(<App />);
 

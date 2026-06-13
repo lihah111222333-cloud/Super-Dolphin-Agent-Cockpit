@@ -579,6 +579,7 @@ function registerBridgeEventHandlersForTest() {
       id: 'thread-design',
       name: 'AI 设计流程',
       provider: 'codex',
+      agentKey: 'dag_designer',
     }));
   });
 
