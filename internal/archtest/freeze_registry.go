@@ -18,6 +18,7 @@ type explicitFreeze struct {
 
 var explicitFreezeRegistry = []explicitFreeze{}
 
+// freezeRegistryIntegrityViolations 检查 freeze 表本身是否完整且没有重复项。
 func freezeRegistryIntegrityViolations() []Violation {
 	seen := make(map[string]struct{}, len(explicitFreezeRegistry))
 	violations := make([]Violation, 0)
@@ -65,6 +66,7 @@ func freezeRegistryIntegrityViolations() []Violation {
 	return violations
 }
 
+// deadKeyViolations 找出已经失效或可以删除的 freeze 条目。
 func deadKeyViolations(repoRoot string, scanRoots []string, stats map[string]*packageStat) []Violation {
 	violations := make([]Violation, 0)
 	for _, entry := range explicitFreezeRegistry {
@@ -107,6 +109,7 @@ func frozenLimit(path string, kind ViolationKind) (int, bool) {
 	return 0, false
 }
 
+// observedFreezeMetric 读取 freeze 条目当前实际对应的指标值。
 func observedFreezeMetric(repoRoot string, entry explicitFreeze, stats map[string]*packageStat) (int, bool) {
 	if _, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(entry.Path))); err != nil {
 		return 0, false
@@ -127,6 +130,7 @@ func observedFreezeMetric(repoRoot string, entry explicitFreeze, stats map[strin
 	}
 }
 
+// freezeAppliesToScanRoots 判断 freeze 条目是否落在本次扫描范围内。
 func freezeAppliesToScanRoots(path string, scanRoots []string) bool {
 	if len(scanRoots) == 0 {
 		return true
@@ -166,6 +170,7 @@ func freezeRegistryKey(path string, kind ViolationKind) string {
 	return fmt.Sprintf("%s#%d", path, kind)
 }
 
+// violationKindLabel 输出 freeze 和报告里使用的稳定 kind 名称。
 func violationKindLabel(kind ViolationKind) string {
 	switch kind {
 	case ViolationFile:
@@ -184,6 +189,8 @@ func violationKindLabel(kind ViolationKind) string {
 		return "package_lines"
 	case ViolationDeadKey:
 		return "dead_key"
+	case ViolationFuncComment:
+		return "func_comment"
 	default:
 		return fmt.Sprintf("kind_%d", kind)
 	}
