@@ -16,7 +16,6 @@ var (
 	errSourcePathMustBeAbsolute  = errors.New("datasource: sourcePath must be absolute")
 	errSourcePathMustBeFile      = errors.New("datasource: sourcePath must be a file")
 	errUnsupportedFileExtension  = errors.New("datasource: unsupported file extension")
-	errUploadTargetAlreadyExists = errors.New("datasource: upload target already exists")
 	errInvalidDatasourceFileName = errors.New("datasource: fileName must be a file name")
 	errDeleteTargetMustBeFile    = errors.New("datasource: delete target must be a file")
 )
@@ -228,37 +227,78 @@ func copyUploadFile(ctx context.Context, sourcePath, targetPath string) (err err
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	tempPath, err := copySourceToUploadTemp(sourcePath, filepath.Dir(targetPath))
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.Remove(tempPath)
+		}
+	}()
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := replaceUploadFile(tempPath, targetPath); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+func copySourceToUploadTemp(sourcePath, targetDir string) (tempPath string, err error) {
 	source, err := os.Open(sourcePath)
 	if err != nil {
-		return fmt.Errorf("open source file: %w", err)
+		return "", fmt.Errorf("open source file: %w", err)
 	}
 	defer func() {
 		if closeErr := source.Close(); closeErr != nil && err == nil {
 			err = fmt.Errorf("close source file: %w", closeErr)
 		}
+		if err != nil && tempPath != "" {
+			_ = os.Remove(tempPath)
+		}
 	}()
 
-	target, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	target, err := os.CreateTemp(targetDir, ".upload-*")
 	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("%w: %s", errUploadTargetAlreadyExists, filepath.Base(targetPath))
-		}
-		return fmt.Errorf("create upload file: %w", err)
+		return "", fmt.Errorf("create upload temp file: %w", err)
 	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = os.Remove(targetPath)
-		}
-	}()
+	tempPath = target.Name()
 
-	if _, err := io.Copy(target, source); err != nil {
+	if _, copyErr := io.Copy(target, source); copyErr != nil {
 		_ = target.Close()
-		return fmt.Errorf("copy upload file: %w", err)
+		err = fmt.Errorf("copy upload file: %w", copyErr)
+		return
 	}
-	if err := target.Close(); err != nil {
-		return fmt.Errorf("close upload file: %w", err)
+	if closeErr := target.Close(); closeErr != nil {
+		err = fmt.Errorf("close upload file: %w", closeErr)
+		return
 	}
-	committed = true
+	return tempPath, nil
+}
+
+func replaceUploadFile(tempPath, targetPath string) error {
+	if err := os.Rename(tempPath, targetPath); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrExist) && !errors.Is(err, os.ErrPermission) {
+		return fmt.Errorf("replace upload file: %w", err)
+	}
+
+	info, err := os.Stat(targetPath)
+	if err != nil {
+		return fmt.Errorf("stat upload target: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("replace upload file: target is not a regular file: %s", filepath.Base(targetPath))
+	}
+	if err := os.Remove(targetPath); err != nil {
+		return fmt.Errorf("remove existing upload file: %w", err)
+	}
+	if err := os.Rename(tempPath, targetPath); err != nil {
+		return fmt.Errorf("replace upload file: %w", err)
+	}
 	return nil
 }
