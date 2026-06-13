@@ -334,20 +334,53 @@ func (q *Queries) ListRecallSections(ctx context.Context, arg ListRecallSections
 }
 
 const lockRecallTopicInCWD = `-- name: LockRecallTopicInCWD :exec
-SELECT 1 WHERE FALSE
+INSERT INTO prompt_recall_topics (cwd, topic, template_id, section_key)
+VALUES (?, ?, 0, '')
+ON CONFLICT (cwd, topic) DO UPDATE SET
+    cwd = EXCLUDED.cwd,
+    topic = EXCLUDED.topic
 `
 
-// SQLite has no advisory locks; no-op placeholder replaced by Task09.
-func (q *Queries) LockRecallTopicInCWD(ctx context.Context) error {
-	_, err := q.db.ExecContext(ctx, lockRecallTopicInCWD)
+type LockRecallTopicInCWDParams struct {
+	CWD   string `db:"cwd" json:"cwd"`
+	Topic string `db:"topic" json:"topic"`
+}
+
+func (q *Queries) LockRecallTopicInCWD(ctx context.Context, arg LockRecallTopicInCWDParams) error {
+	_, err := q.db.ExecContext(ctx, lockRecallTopicInCWD, arg.CWD, arg.Topic)
+	return err
+}
+
+const upsertPromptRecallTopicTargetInCWD = `-- name: UpsertPromptRecallTopicTargetInCWD :exec
+INSERT INTO prompt_recall_topics (cwd, topic, template_id, section_key)
+VALUES (?, ?, ?, ?)
+ON CONFLICT (cwd, topic) DO UPDATE SET
+    template_id = EXCLUDED.template_id,
+    section_key = EXCLUDED.section_key
+`
+
+type UpsertPromptRecallTopicTargetInCWDParams struct {
+	CWD        string `db:"cwd" json:"cwd"`
+	Topic      string `db:"topic" json:"topic"`
+	TemplateID int64  `db:"template_id" json:"template_id"`
+	SectionKey string `db:"section_key" json:"section_key"`
+}
+
+func (q *Queries) UpsertPromptRecallTopicTargetInCWD(ctx context.Context, arg UpsertPromptRecallTopicTargetInCWDParams) error {
+	_, err := q.db.ExecContext(ctx, upsertPromptRecallTopicTargetInCWD,
+		arg.CWD,
+		arg.Topic,
+		arg.TemplateID,
+		arg.SectionKey,
+	)
 	return err
 }
 
 const upsertPromptTemplateSection = `-- name: UpsertPromptTemplateSection :one
 INSERT INTO prompt_template_sections
-    (template_id, section_key, region, ordinal, body, enable_when, enabled, trigger_type, recall_topic)
+    (template_id, section_key, region, ordinal, body, enable_when, enabled, trigger_type, recall_topic, created_at, updated_at)
 VALUES
-    (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (?, ?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 ON CONFLICT (template_id, section_key) DO UPDATE SET
     region       = EXCLUDED.region,
     ordinal      = EXCLUDED.ordinal,

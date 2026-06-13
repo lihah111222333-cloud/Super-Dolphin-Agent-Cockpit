@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const boundedWriteRetryDelay = 50 * time.Millisecond
+
 // Millis は time.Time を UTC epoch milliseconds に変換する。
 // store 層の全時間カラム書き込みはこれを使う。
 func Millis(t time.Time) int64 {
@@ -64,7 +66,23 @@ func BoundedWriteRetry(ctx context.Context, maxAttempts int, fn func() error) er
 		if !IsSQLiteBusyLocked(lastErr) {
 			return lastErr
 		}
-		_ = i // busyリトライ: 即時再試行（busy_timeout=5000ms が先に効く）
+		if i == maxAttempts-1 {
+			break
+		}
+		if err := waitBoundedWriteRetry(ctx); err != nil {
+			return err
+		}
 	}
 	return lastErr
+}
+
+func waitBoundedWriteRetry(ctx context.Context) error {
+	timer := time.NewTimer(boundedWriteRetryDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }

@@ -77,6 +77,12 @@ type inMemoryPromptStore struct {
 		cwd   string
 		topic string
 	}
+	upsertRecallTargetCalls []struct {
+		cwd        string
+		topic      string
+		templateID int64
+		sectionKey string
+	}
 }
 
 func newInMemoryPromptStore() *inMemoryPromptStore {
@@ -310,6 +316,21 @@ func (s *inMemoryPromptStore) LockRecallTopicInCWD(_ context.Context, cwd, topic
 		cwd   string
 		topic string
 	}{cwd: strings.TrimSpace(cwd), topic: strings.TrimSpace(topic)})
+	return nil
+}
+
+func (s *inMemoryPromptStore) UpsertRecallTopicTargetInCWD(_ context.Context, cwd, topic string, templateID int64, sectionKey string) error {
+	s.upsertRecallTargetCalls = append(s.upsertRecallTargetCalls, struct {
+		cwd        string
+		topic      string
+		templateID int64
+		sectionKey string
+	}{
+		cwd:        strings.TrimSpace(cwd),
+		topic:      strings.TrimSpace(topic),
+		templateID: templateID,
+		sectionKey: strings.TrimSpace(sectionKey),
+	})
 	return nil
 }
 

@@ -31,7 +31,7 @@ func NewDB(cfg *config.Config) (*sql.DB, error) {
 
 // MinRequiredSchemaVersion is the lower bound this binary needs in
 // schema_migrations.version to operate correctly.
-const MinRequiredSchemaVersion = 103
+const MinRequiredSchemaVersion = 104
 
 var requiredBaselineTables = []string{
 	// agent_codex_binding: 历史遗留表，数据合并至 agent_provider_binding.codex_thread_id，无活跃 sqlc query
@@ -46,6 +46,7 @@ var requiredBaselineTables = []string{
 	"prompt_template_versions",
 	"prompt_versions",
 	"prompt_template_sections",
+	"prompt_recall_topics",
 	"prompt_routing_tests",
 	"prompt_intent_drafts",
 	"command_cards",

@@ -53,7 +53,11 @@ type listDefaultRuleSectionsQuerier interface {
 }
 
 type lockRecallTopicQuerier interface {
-	LockRecallTopicInCWD(ctx context.Context) error
+	LockRecallTopicInCWD(ctx context.Context, arg sqlc.LockRecallTopicInCWDParams) error
+}
+
+type upsertRecallTopicTargetQuerier interface {
+	UpsertPromptRecallTopicTargetInCWD(ctx context.Context, arg sqlc.UpsertPromptRecallTopicTargetInCWDParams) error
 }
 
 type upsertSectionQuerier interface {
@@ -459,14 +463,45 @@ func (s *store) LockRecallTopicInCWD(ctx context.Context, cwd, topic string) err
 		return wrapPromptError(err, "lock_recall_topic", "prompt_template_sections")
 	}
 	topic = strings.TrimSpace(topic)
-	if topic == "" {
-		return wrapPromptError(errors.New("recall topic is required"), "lock_recall_topic", "prompt_template_sections")
+	if !validRecallTopicName(topic) {
+		return wrapPromptError(errors.New("recall topic must be lowercase dash-separated and shorter than 64 characters"), "lock_recall_topic", "prompt_template_sections")
 	}
 	q, ok := s.q.(lockRecallTopicQuerier)
 	if !ok {
 		return wrapPromptError(errors.New("prompt store does not support lock_recall_topic"), "lock_recall_topic", "prompt_template_sections")
 	}
-	return wrapPromptError(q.LockRecallTopicInCWD(ctx), "lock_recall_topic", "prompt_template_sections")
+	return wrapPromptError(q.LockRecallTopicInCWD(ctx, sqlc.LockRecallTopicInCWDParams{
+		CWD:   cwd,
+		Topic: topic,
+	}), "lock_recall_topic", "prompt_template_sections")
+}
+
+func (s *store) UpsertRecallTopicTargetInCWD(ctx context.Context, cwd, topic string, templateID int64, sectionKey string) error {
+	cwd, err := requirePromptSectionCWD(cwd)
+	if err != nil {
+		return wrapPromptError(err, "upsert_recall_topic_target", "prompt_recall_topics")
+	}
+	topic = strings.TrimSpace(topic)
+	if !validRecallTopicName(topic) {
+		return wrapPromptError(errors.New("recall topic must be lowercase dash-separated and shorter than 64 characters"), "upsert_recall_topic_target", "prompt_recall_topics")
+	}
+	if templateID <= 0 {
+		return wrapPromptError(errors.New("prompt recall topic template_id is required"), "upsert_recall_topic_target", "prompt_recall_topics")
+	}
+	sectionKey = strings.TrimSpace(sectionKey)
+	if sectionKey == "" {
+		return wrapPromptError(errors.New("prompt recall topic section_key is required"), "upsert_recall_topic_target", "prompt_recall_topics")
+	}
+	q, ok := s.q.(upsertRecallTopicTargetQuerier)
+	if !ok {
+		return wrapPromptError(errors.New("prompt store does not support upsert_recall_topic_target"), "upsert_recall_topic_target", "prompt_recall_topics")
+	}
+	return wrapPromptError(q.UpsertPromptRecallTopicTargetInCWD(ctx, sqlc.UpsertPromptRecallTopicTargetInCWDParams{
+		CWD:        cwd,
+		Topic:      topic,
+		TemplateID: templateID,
+		SectionKey: sectionKey,
+	}), "upsert_recall_topic_target", "prompt_recall_topics")
 }
 
 func validRecallTopicName(topic string) bool {
