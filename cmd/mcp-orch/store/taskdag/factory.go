@@ -64,7 +64,7 @@ func updateNodeStatus(call func() (sqlc.TaskDagNode, error), operation string) (
 func parseLeaseDuration(value, operation, entity string) (sqlc.Interval, error) {
 	interval, err := intervalValue(value)
 	if err != nil {
-		return sqlc.Interval{}, wrapTaskDAGError(err, operation, entity)
+		return 0, wrapTaskDAGError(err, operation, entity)
 	}
 	return interval, nil
 }

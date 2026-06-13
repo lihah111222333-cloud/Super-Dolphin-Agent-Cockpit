@@ -7,17 +7,16 @@ package sqlc
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"encoding/json"
 )
 
 const assignTaskDagNode = `-- name: AssignTaskDagNode :one
 UPDATE task_dag_nodes
-SET assigned_to = $1,
-    updated_at = NOW()
-WHERE dag_key = $2
-  AND node_key = $3
-  AND run_id = $4
+SET assigned_to = ?,
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE dag_key = ?
+  AND node_key = ?
+  AND run_id = ?
   AND status IN ('pending', 'ready')
 RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
           status, command_ref, config, result, started_at, finished_at,
@@ -26,16 +25,14 @@ RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
 `
 
 type AssignTaskDagNodeParams struct {
-	AssignedTo string      `json:"assigned_to"`
-	DagKey     string      `json:"dag_key"`
-	NodeKey    string      `json:"node_key"`
-	RunID      pgtype.Int8 `json:"run_id"`
+	AssignedTo string `db:"assigned_to" json:"assigned_to"`
+	DagKey     string `db:"dag_key" json:"dag_key"`
+	NodeKey    string `db:"node_key" json:"node_key"`
+	RunID      *int64 `db:"run_id" json:"run_id"`
 }
 
-// task_dispatch_node runs against runtime rows only after F6.5. Template
-// assigned_to changes still flow through UpsertTaskDagNode / ApplyOps.
 func (q *Queries) AssignTaskDagNode(ctx context.Context, arg AssignTaskDagNodeParams) (TaskDagNode, error) {
-	row := q.db.QueryRow(ctx, assignTaskDagNode,
+	row := q.db.QueryRowContext(ctx, assignTaskDagNode,
 		arg.AssignedTo,
 		arg.DagKey,
 		arg.NodeKey,
@@ -71,25 +68,23 @@ func (q *Queries) AssignTaskDagNode(ctx context.Context, arg AssignTaskDagNodePa
 
 const cascadeFailPendingTaskDagNode = `-- name: CascadeFailPendingTaskDagNode :execrows
 UPDATE task_dag_nodes
-SET status = 'failed', result = $1::jsonb, updated_at = NOW()
-WHERE dag_key = $2
-  AND node_key = $3
-  AND run_id = $4
-  AND $4::bigint > 0
+SET status = 'failed', result = ?1, updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE dag_key = ?2
+  AND node_key = ?3
+  AND run_id = ?4
+  AND ?4 > 0
   AND status = 'pending'
 `
 
 type CascadeFailPendingTaskDagNodeParams struct {
-	Result  []byte      `json:"result"`
-	DagKey  string      `json:"dag_key"`
-	NodeKey string      `json:"node_key"`
-	RunID   pgtype.Int8 `json:"run_id"`
+	Result  json.RawMessage `db:"result" json:"result"`
+	DagKey  string          `db:"dag_key" json:"dag_key"`
+	NodeKey string          `db:"node_key" json:"node_key"`
+	RunID   *int64          `db:"run_id" json:"run_id"`
 }
 
-// fail_fast cascade 只认领仍处 pending 的下游。若并发路径已把下游推进到
-// done/failed/cancelled/skipped/running，本语句返回 0 rows，由调用方当作幂等 skip。
 func (q *Queries) CascadeFailPendingTaskDagNode(ctx context.Context, arg CascadeFailPendingTaskDagNodeParams) (int64, error) {
-	result, err := q.db.Exec(ctx, cascadeFailPendingTaskDagNode,
+	result, err := q.db.ExecContext(ctx, cascadeFailPendingTaskDagNode,
 		arg.Result,
 		arg.DagKey,
 		arg.NodeKey,
@@ -98,16 +93,16 @@ func (q *Queries) CascadeFailPendingTaskDagNode(ctx context.Context, arg Cascade
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }
 
 const claimTaskDagNodeOutputMaterialization = `-- name: ClaimTaskDagNodeOutputMaterialization :one
 UPDATE task_dag_nodes
-SET status = 'awaiting_verify', result = $1::jsonb, updated_at = NOW()
-WHERE dag_key = $2
-  AND node_key = $3
-  AND run_id = $4
-  AND $4::bigint > 0
+SET status = 'awaiting_verify', result = ?1, updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE dag_key = ?2
+  AND node_key = ?3
+  AND run_id = ?4
+  AND ?4 > 0
   AND status IN ('ready', 'running', 'awaiting_verify')
 RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
           status, command_ref, config, result, started_at, finished_at,
@@ -116,19 +111,14 @@ RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
 `
 
 type ClaimTaskDagNodeOutputMaterializationParams struct {
-	Result  []byte      `json:"result"`
-	DagKey  string      `json:"dag_key"`
-	NodeKey string      `json:"node_key"`
-	RunID   pgtype.Int8 `json:"run_id"`
+	Result  json.RawMessage `db:"result" json:"result"`
+	DagKey  string          `db:"dag_key" json:"dag_key"`
+	NodeKey string          `db:"node_key" json:"node_key"`
+	RunID   *int64          `db:"run_id" json:"run_id"`
 }
 
-// A2 turn.completed sharedfile writes have an external side effect. Claim the
-// node through a SQL status fence before writing sharedfile so stale duplicate
-// completions cannot write after another path already reached a terminal state.
-// awaiting_verify is accepted so a redelivered turn.completed can recover if
-// the prior attempt wrote sharedfile but hit a transient CompleteNode failure.
 func (q *Queries) ClaimTaskDagNodeOutputMaterialization(ctx context.Context, arg ClaimTaskDagNodeOutputMaterializationParams) (TaskDagNode, error) {
-	row := q.db.QueryRow(ctx, claimTaskDagNodeOutputMaterialization,
+	row := q.db.QueryRowContext(ctx, claimTaskDagNodeOutputMaterialization,
 		arg.Result,
 		arg.DagKey,
 		arg.NodeKey,
@@ -164,32 +154,32 @@ func (q *Queries) ClaimTaskDagNodeOutputMaterialization(ctx context.Context, arg
 
 const deleteTaskDagNode = `-- name: DeleteTaskDagNode :execrows
 DELETE FROM task_dag_nodes
-WHERE dag_key = $1
-  AND node_key = $2
+WHERE dag_key = ?
+  AND node_key = ?
   AND run_id IS NULL
   AND status IN ('pending', 'ready')
 `
 
 type DeleteTaskDagNodeParams struct {
-	DagKey  string `json:"dag_key"`
-	NodeKey string `json:"node_key"`
+	DagKey  string `db:"dag_key" json:"dag_key"`
+	NodeKey string `db:"node_key" json:"node_key"`
 }
 
 func (q *Queries) DeleteTaskDagNode(ctx context.Context, arg DeleteTaskDagNodeParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteTaskDagNode, arg.DagKey, arg.NodeKey)
+	result, err := q.db.ExecContext(ctx, deleteTaskDagNode, arg.DagKey, arg.NodeKey)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }
 
 const failTaskDagNodeIfNonTerminal = `-- name: FailTaskDagNodeIfNonTerminal :one
 UPDATE task_dag_nodes
-SET status = $1, result = $2::jsonb, updated_at = NOW()
-WHERE dag_key = $3
-  AND node_key = $4
-  AND run_id = $5
-  AND $5::bigint > 0
+SET status = ?1, result = ?2, updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE dag_key = ?3
+  AND node_key = ?4
+  AND run_id = ?5
+  AND ?5 > 0
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
 RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
           status, command_ref, config, result, started_at, finished_at,
@@ -198,18 +188,15 @@ RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
 `
 
 type FailTaskDagNodeIfNonTerminalParams struct {
-	Status  string      `json:"status"`
-	Result  []byte      `json:"result"`
-	DagKey  string      `json:"dag_key"`
-	NodeKey string      `json:"node_key"`
-	RunID   pgtype.Int8 `json:"run_id"`
+	Status  string          `db:"status" json:"status"`
+	Result  json.RawMessage `db:"result" json:"result"`
+	DagKey  string          `db:"dag_key" json:"dag_key"`
+	NodeKey string          `db:"node_key" json:"node_key"`
+	RunID   *int64          `db:"run_id" json:"run_id"`
 }
 
-// FailNodeAndCancelDownstream 的 primary-node fence：只允许非终态节点被改成 failed。
-// subscriber / dispatcher 都可能在 lookup 或 retry 决策后遇到并发终态推进；此处用
-// status 谓词作为最后一道原子护栏，避免 done/failed/cancelled/skipped 被迟到失败覆盖。
 func (q *Queries) FailTaskDagNodeIfNonTerminal(ctx context.Context, arg FailTaskDagNodeIfNonTerminalParams) (TaskDagNode, error) {
-	row := q.db.QueryRow(ctx, failTaskDagNodeIfNonTerminal,
+	row := q.db.QueryRowContext(ctx, failTaskDagNodeIfNonTerminal,
 		arg.Status,
 		arg.Result,
 		arg.DagKey,
@@ -246,12 +233,12 @@ func (q *Queries) FailTaskDagNodeIfNonTerminal(ctx context.Context, arg FailTask
 
 const patchTaskDagNodeConfigIfUnchanged = `-- name: PatchTaskDagNodeConfigIfUnchanged :one
 UPDATE task_dag_nodes
-SET config = $1::jsonb, updated_at = NOW()
-WHERE dag_key = $2
-  AND node_key = $3
-  AND run_id = $4
-  AND $4::bigint > 0
-  AND config = $5::jsonb
+SET config = ?1, updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE dag_key = ?2
+  AND node_key = ?3
+  AND run_id = ?4
+  AND ?4 > 0
+  AND config = ?5
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
 RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
           status, command_ref, config, result, started_at, finished_at,
@@ -260,19 +247,15 @@ RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
 `
 
 type PatchTaskDagNodeConfigIfUnchangedParams struct {
-	Config         []byte      `json:"config"`
-	DagKey         string      `json:"dag_key"`
-	NodeKey        string      `json:"node_key"`
-	RunID          pgtype.Int8 `json:"run_id"`
-	PreviousConfig []byte      `json:"previous_config"`
+	Config         json.RawMessage `db:"config" json:"config"`
+	DagKey         string          `db:"dag_key" json:"dag_key"`
+	NodeKey        string          `db:"node_key" json:"node_key"`
+	RunID          *int64          `db:"run_id" json:"run_id"`
+	PreviousConfig json.RawMessage `db:"previous_config" json:"previous_config"`
 }
 
-// Smart retry mutates only node.config after RetryWakeup's wakeup fence has
-// succeeded. Keep this as a narrow, compare-and-swap style patch so stale
-// dispatcher attempts cannot overwrite apply_ops changes to assignment,
-// dependencies, or config.
 func (q *Queries) PatchTaskDagNodeConfigIfUnchanged(ctx context.Context, arg PatchTaskDagNodeConfigIfUnchangedParams) (TaskDagNode, error) {
-	row := q.db.QueryRow(ctx, patchTaskDagNodeConfigIfUnchanged,
+	row := q.db.QueryRowContext(ctx, patchTaskDagNodeConfigIfUnchanged,
 		arg.Config,
 		arg.DagKey,
 		arg.NodeKey,
@@ -310,43 +293,34 @@ func (q *Queries) PatchTaskDagNodeConfigIfUnchanged(ctx context.Context, arg Pat
 const promoteSingleNodePendingToReady = `-- name: PromoteSingleNodePendingToReady :execrows
 UPDATE task_dag_nodes
 SET status = 'ready',
-    updated_at = NOW()
-WHERE dag_key = $1
-  AND node_key = $2
-  AND run_id = $3
-  AND $3::bigint > 0
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE dag_key = ?
+  AND node_key = ?
+  AND run_id = ?3
+  AND ?3 > 0
   AND status = 'pending'
 `
 
 type PromoteSingleNodePendingToReadyParams struct {
-	DagKey  string      `json:"dag_key"`
-	NodeKey string      `json:"node_key"`
-	RunID   pgtype.Int8 `json:"run_id"`
+	DagKey  string `db:"dag_key" json:"dag_key"`
+	NodeKey string `db:"node_key" json:"node_key"`
+	RunID   *int64 `db:"run_id" json:"run_id"`
 }
 
-// F6.3: 节点完成后自动 promote 单个下游 pending 节点到 ready。
-// 调用方（store_complete_downstream.scheduleDownstreamWakeupsTx）已在 Go 侧
-// 计算过依赖满足条件（dependsOnIncludes + allDependenciesSatisfied）；本 SQL
-// 用 status='pending' 作为最后一道幂等护栏，避免并发场景下重复 promote
-// 或对已经 running/done 的节点误改。
-//
-// 状态机：pending → ready 合法（见 nodeexec/status.go legalTransitions）。
-// 与 PromoteRootNodesToReady 的区别：那条是 StartDAG 时按 depends_on=[] 批量
-// promote 根节点；本条是 CompleteNode 后按 (dag_key, node_key) 精准 promote。
 func (q *Queries) PromoteSingleNodePendingToReady(ctx context.Context, arg PromoteSingleNodePendingToReadyParams) (int64, error) {
-	result, err := q.db.Exec(ctx, promoteSingleNodePendingToReady, arg.DagKey, arg.NodeKey, arg.RunID)
+	result, err := q.db.ExecContext(ctx, promoteSingleNodePendingToReady, arg.DagKey, arg.NodeKey, arg.RunID)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }
 
 const updateTaskDagNodeStatusFlexible = `-- name: UpdateTaskDagNodeStatusFlexible :one
 UPDATE task_dag_nodes
-SET status = $1, result = $2::jsonb, updated_at = NOW()
-WHERE dag_key = $3 AND node_key = $4
-  AND run_id = $5
-  AND $5::bigint > 0
+SET status = ?1, result = ?2, updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE dag_key = ?3 AND node_key = ?4
+  AND run_id = ?5
+  AND ?5 > 0
 RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
           status, command_ref, config, result, started_at, finished_at,
           created_at, updated_at, active_turn_id, active_wakeup_id,
@@ -354,19 +328,15 @@ RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
 `
 
 type UpdateTaskDagNodeStatusFlexibleParams struct {
-	Status  string      `json:"status"`
-	Result  []byte      `json:"result"`
-	DagKey  string      `json:"dag_key"`
-	NodeKey string      `json:"node_key"`
-	RunID   pgtype.Int8 `json:"run_id"`
+	Status  string          `db:"status" json:"status"`
+	Result  json.RawMessage `db:"result" json:"result"`
+	DagKey  string          `db:"dag_key" json:"dag_key"`
+	NodeKey string          `db:"node_key" json:"node_key"`
+	RunID   *int64          `db:"run_id" json:"run_id"`
 }
 
-// 名字 "Flexible" 表示不附带 status 前置约束——调用方负责检查状态机合法转移。
-// 历史上曾与 UpdateTaskDagNodeStatus 两份 SQL 并存，但后者在 F4.2 / F6 后变成
-// 与本查询逻辑上完全重复的 dead code。R1 dead code 清理：仅保留 Flexible
-// 一项权威版本，store.UpdateNodeStatus 同样外调本 query。
 func (q *Queries) UpdateTaskDagNodeStatusFlexible(ctx context.Context, arg UpdateTaskDagNodeStatusFlexibleParams) (TaskDagNode, error) {
-	row := q.db.QueryRow(ctx, updateTaskDagNodeStatusFlexible,
+	row := q.db.QueryRowContext(ctx, updateTaskDagNodeStatusFlexible,
 		arg.Status,
 		arg.Result,
 		arg.DagKey,
@@ -402,8 +372,8 @@ func (q *Queries) UpdateTaskDagNodeStatusFlexible(ctx context.Context, arg Updat
 }
 
 const upsertTaskDagNode = `-- name: UpsertTaskDagNode :one
-INSERT INTO task_dag_nodes (dag_key, node_key, title, node_type, assigned_to, depends_on, command_ref, config)
-VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb)
+INSERT INTO task_dag_nodes (dag_key, node_key, title, node_type, assigned_to, depends_on, command_ref, config, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 ON CONFLICT (dag_key, node_key) WHERE run_id IS NULL DO UPDATE
 SET title = EXCLUDED.title,
     node_type = EXCLUDED.node_type,
@@ -411,7 +381,7 @@ SET title = EXCLUDED.title,
     depends_on = EXCLUDED.depends_on,
     command_ref = EXCLUDED.command_ref,
     config = EXCLUDED.config,
-    updated_at = NOW()
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
           status, command_ref, config, result, started_at, finished_at,
           created_at, updated_at, active_turn_id, active_wakeup_id,
@@ -419,26 +389,26 @@ RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
 `
 
 type UpsertTaskDagNodeParams struct {
-	DagKey     string `json:"dag_key"`
-	NodeKey    string `json:"node_key"`
-	Title      string `json:"title"`
-	NodeType   string `json:"node_type"`
-	AssignedTo string `json:"assigned_to"`
-	Column6    []byte `json:"column_6"`
-	CommandRef string `json:"command_ref"`
-	Column8    []byte `json:"column_8"`
+	DagKey     string          `db:"dag_key" json:"dag_key"`
+	NodeKey    string          `db:"node_key" json:"node_key"`
+	Title      string          `db:"title" json:"title"`
+	NodeType   string          `db:"node_type" json:"node_type"`
+	AssignedTo string          `db:"assigned_to" json:"assigned_to"`
+	DependsOn  json.RawMessage `db:"depends_on" json:"depends_on"`
+	CommandRef string          `db:"command_ref" json:"command_ref"`
+	Config     json.RawMessage `db:"config" json:"config"`
 }
 
 func (q *Queries) UpsertTaskDagNode(ctx context.Context, arg UpsertTaskDagNodeParams) (TaskDagNode, error) {
-	row := q.db.QueryRow(ctx, upsertTaskDagNode,
+	row := q.db.QueryRowContext(ctx, upsertTaskDagNode,
 		arg.DagKey,
 		arg.NodeKey,
 		arg.Title,
 		arg.NodeType,
 		arg.AssignedTo,
-		arg.Column6,
+		arg.DependsOn,
 		arg.CommandRef,
-		arg.Column8,
+		arg.Config,
 	)
 	var i TaskDagNode
 	err := row.Scan(

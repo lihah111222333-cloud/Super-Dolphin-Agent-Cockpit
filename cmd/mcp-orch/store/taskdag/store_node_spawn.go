@@ -2,14 +2,12 @@ package taskdag
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
@@ -77,7 +75,7 @@ func (s *store) RecordNodeSpawn(ctx context.Context, input RecordNodeSpawnInput)
 // complexity guard (10).
 func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey string, runID int64, threadID string, result *RecordNodeSpawnResult) error {
 	row, err := txq.UpdateTaskDagNodeSpawningThread(ctx, sqlc.UpdateTaskDagNodeSpawningThreadParams{
-		SpawningThreadID: pgtype.Text{String: threadID, Valid: true},
+		SpawningThreadID: sqlc.TextValuePtr(&threadID),
 		DagKey:           dagKey,
 		NodeKey:          nodeKey,
 		RunID:            int64Ptr(runID),
@@ -86,9 +84,7 @@ func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey s
 		return err
 	}
 	result.Node = nodeFromSpawnRow(row)
-	if row.PreviousSpawningThreadID.Valid {
-		result.PreviousThreadID = row.PreviousSpawningThreadID.String
-	}
+	result.PreviousThreadID = strings.TrimSpace(row.Column21)
 	// First spawn (prev empty) or idempotent retry (prev == new) keeps events lean.
 	if result.PreviousThreadID == "" || result.PreviousThreadID == threadID {
 		return nil
@@ -97,7 +93,7 @@ func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey s
 }
 
 // appendNodeSpawnEvent 封装「构造 payload + AppendTaskDagRunEvent」。
-// pgx.ErrNoRows（dag_key 下无 running run）必须传错上去。
+// sql.ErrNoRows（dag_key 下无 running run）必须传错上去。
 //
 // appendNodeSpawnEvent wraps the marshal + append path so
 // recordNodeSpawnTx stays linear and under the complexity ceiling.
@@ -113,12 +109,12 @@ func appendNodeSpawnEvent(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKe
 		return fmt.Errorf("marshal node_spawn event: %w", err)
 	}
 	runKey, err := txq.AppendTaskDagRunEvent(ctx, sqlc.AppendTaskDagRunEventParams{
-		DagKey:  dagKey,
-		Column2: payload,
-		ID:      runID,
+		Event:  payload,
+		DagKey: dagKey,
+		RunID:  runID,
 	})
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("append node_spawn event: running run not found for dag %q run %d: %w", dagKey, runID, err)
 		}
 		return err

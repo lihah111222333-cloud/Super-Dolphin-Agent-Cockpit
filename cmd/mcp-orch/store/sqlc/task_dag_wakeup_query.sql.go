@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 )
 
 const getTaskDagWakeup = `-- name: GetTaskDagWakeup :one
@@ -15,12 +16,39 @@ SELECT id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload,
        claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
        last_error, created_at, updated_at, run_id
 FROM task_dag_wakeups
-WHERE id = $1
+WHERE id = ?
 `
 
-func (q *Queries) GetTaskDagWakeup(ctx context.Context, id int64) (TaskDagWakeup, error) {
-	row := q.db.QueryRow(ctx, getTaskDagWakeup, id)
-	var i TaskDagWakeup
+type GetTaskDagWakeupParams struct {
+	ID int64 `db:"id" json:"id"`
+}
+
+type GetTaskDagWakeupRow struct {
+	ID             int64           `db:"id" json:"id"`
+	DagKey         string          `db:"dag_key" json:"dag_key"`
+	NodeKey        string          `db:"node_key" json:"node_key"`
+	WakeupKind     string          `db:"wakeup_kind" json:"wakeup_kind"`
+	TargetAgentID  string          `db:"target_agent_id" json:"target_agent_id"`
+	PromptPayload  json.RawMessage `db:"prompt_payload" json:"prompt_payload"`
+	IdempotencyKey string          `db:"idempotency_key" json:"idempotency_key"`
+	Status         string          `db:"status" json:"status"`
+	AttemptCount   int64           `db:"attempt_count" json:"attempt_count"`
+	NextRetryAt    int64           `db:"next_retry_at" json:"next_retry_at"`
+	ClaimedAt      *int64          `db:"claimed_at" json:"claimed_at"`
+	ClaimedBy      string          `db:"claimed_by" json:"claimed_by"`
+	LeaseExpiresAt *int64          `db:"lease_expires_at" json:"lease_expires_at"`
+	SentAt         *int64          `db:"sent_at" json:"sent_at"`
+	BoundTurnID    *string         `db:"bound_turn_id" json:"bound_turn_id"`
+	TurnBoundAt    *int64          `db:"turn_bound_at" json:"turn_bound_at"`
+	LastError      string          `db:"last_error" json:"last_error"`
+	CreatedAt      int64           `db:"created_at" json:"created_at"`
+	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
+	RunID          *int64          `db:"run_id" json:"run_id"`
+}
+
+func (q *Queries) GetTaskDagWakeup(ctx context.Context, arg GetTaskDagWakeupParams) (GetTaskDagWakeupRow, error) {
+	row := q.db.QueryRowContext(ctx, getTaskDagWakeup, arg.ID)
+	var i GetTaskDagWakeupRow
 	err := row.Scan(
 		&i.ID,
 		&i.DagKey,
@@ -56,15 +84,38 @@ WHERE status IN ('pending', 'dispatching')
 ORDER BY next_retry_at, id
 `
 
-func (q *Queries) ListPendingOrDispatchingTaskDagWakeups(ctx context.Context) ([]TaskDagWakeup, error) {
-	rows, err := q.db.Query(ctx, listPendingOrDispatchingTaskDagWakeups)
+type ListPendingOrDispatchingTaskDagWakeupsRow struct {
+	ID             int64           `db:"id" json:"id"`
+	DagKey         string          `db:"dag_key" json:"dag_key"`
+	NodeKey        string          `db:"node_key" json:"node_key"`
+	WakeupKind     string          `db:"wakeup_kind" json:"wakeup_kind"`
+	TargetAgentID  string          `db:"target_agent_id" json:"target_agent_id"`
+	PromptPayload  json.RawMessage `db:"prompt_payload" json:"prompt_payload"`
+	IdempotencyKey string          `db:"idempotency_key" json:"idempotency_key"`
+	Status         string          `db:"status" json:"status"`
+	AttemptCount   int64           `db:"attempt_count" json:"attempt_count"`
+	NextRetryAt    int64           `db:"next_retry_at" json:"next_retry_at"`
+	ClaimedAt      *int64          `db:"claimed_at" json:"claimed_at"`
+	ClaimedBy      string          `db:"claimed_by" json:"claimed_by"`
+	LeaseExpiresAt *int64          `db:"lease_expires_at" json:"lease_expires_at"`
+	SentAt         *int64          `db:"sent_at" json:"sent_at"`
+	BoundTurnID    *string         `db:"bound_turn_id" json:"bound_turn_id"`
+	TurnBoundAt    *int64          `db:"turn_bound_at" json:"turn_bound_at"`
+	LastError      string          `db:"last_error" json:"last_error"`
+	CreatedAt      int64           `db:"created_at" json:"created_at"`
+	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
+	RunID          *int64          `db:"run_id" json:"run_id"`
+}
+
+func (q *Queries) ListPendingOrDispatchingTaskDagWakeups(ctx context.Context) ([]ListPendingOrDispatchingTaskDagWakeupsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPendingOrDispatchingTaskDagWakeups)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []TaskDagWakeup{}
+	items := []ListPendingOrDispatchingTaskDagWakeupsRow{}
 	for rows.Next() {
-		var i TaskDagWakeup
+		var i ListPendingOrDispatchingTaskDagWakeupsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.DagKey,
@@ -90,6 +141,9 @@ func (q *Queries) ListPendingOrDispatchingTaskDagWakeups(ctx context.Context) ([
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -103,19 +157,46 @@ SELECT id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload,
        claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
        last_error, created_at, updated_at, run_id
 FROM task_dag_wakeups
-WHERE target_agent_id = $1 AND status = 'sent' AND sent_at IS NOT NULL AND bound_turn_id IS NULL
+WHERE target_agent_id = ? AND status = 'sent' AND sent_at IS NOT NULL AND bound_turn_id IS NULL
 ORDER BY sent_at DESC, id DESC
 `
 
-func (q *Queries) ListSentUnboundTaskDagWakeups(ctx context.Context, targetAgentID string) ([]TaskDagWakeup, error) {
-	rows, err := q.db.Query(ctx, listSentUnboundTaskDagWakeups, targetAgentID)
+type ListSentUnboundTaskDagWakeupsParams struct {
+	TargetAgentID string `db:"target_agent_id" json:"target_agent_id"`
+}
+
+type ListSentUnboundTaskDagWakeupsRow struct {
+	ID             int64           `db:"id" json:"id"`
+	DagKey         string          `db:"dag_key" json:"dag_key"`
+	NodeKey        string          `db:"node_key" json:"node_key"`
+	WakeupKind     string          `db:"wakeup_kind" json:"wakeup_kind"`
+	TargetAgentID  string          `db:"target_agent_id" json:"target_agent_id"`
+	PromptPayload  json.RawMessage `db:"prompt_payload" json:"prompt_payload"`
+	IdempotencyKey string          `db:"idempotency_key" json:"idempotency_key"`
+	Status         string          `db:"status" json:"status"`
+	AttemptCount   int64           `db:"attempt_count" json:"attempt_count"`
+	NextRetryAt    int64           `db:"next_retry_at" json:"next_retry_at"`
+	ClaimedAt      *int64          `db:"claimed_at" json:"claimed_at"`
+	ClaimedBy      string          `db:"claimed_by" json:"claimed_by"`
+	LeaseExpiresAt *int64          `db:"lease_expires_at" json:"lease_expires_at"`
+	SentAt         *int64          `db:"sent_at" json:"sent_at"`
+	BoundTurnID    *string         `db:"bound_turn_id" json:"bound_turn_id"`
+	TurnBoundAt    *int64          `db:"turn_bound_at" json:"turn_bound_at"`
+	LastError      string          `db:"last_error" json:"last_error"`
+	CreatedAt      int64           `db:"created_at" json:"created_at"`
+	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
+	RunID          *int64          `db:"run_id" json:"run_id"`
+}
+
+func (q *Queries) ListSentUnboundTaskDagWakeups(ctx context.Context, arg ListSentUnboundTaskDagWakeupsParams) ([]ListSentUnboundTaskDagWakeupsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSentUnboundTaskDagWakeups, arg.TargetAgentID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []TaskDagWakeup{}
+	items := []ListSentUnboundTaskDagWakeupsRow{}
 	for rows.Next() {
-		var i TaskDagWakeup
+		var i ListSentUnboundTaskDagWakeupsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.DagKey,
@@ -142,6 +223,9 @@ func (q *Queries) ListSentUnboundTaskDagWakeups(ctx context.Context, targetAgent
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -150,14 +234,14 @@ func (q *Queries) ListSentUnboundTaskDagWakeups(ctx context.Context, targetAgent
 
 const reclaimStaleDispatchingTaskDagWakeups = `-- name: ReclaimStaleDispatchingTaskDagWakeups :execrows
 UPDATE task_dag_wakeups
-SET status = 'pending', claimed_at = NULL, claimed_by = '', lease_expires_at = NULL, updated_at = NOW()
-WHERE status = 'dispatching' AND lease_expires_at < NOW()
+SET status = 'pending', claimed_at = NULL, claimed_by = '', lease_expires_at = NULL, updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE status = 'dispatching' AND lease_expires_at < (CAST(strftime('%s','now') AS INTEGER) * 1000)
 `
 
 func (q *Queries) ReclaimStaleDispatchingTaskDagWakeups(ctx context.Context) (int64, error) {
-	result, err := q.db.Exec(ctx, reclaimStaleDispatchingTaskDagWakeups)
+	result, err := q.db.ExecContext(ctx, reclaimStaleDispatchingTaskDagWakeups)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }

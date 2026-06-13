@@ -6,7 +6,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // DAGOpsStore 的 *store 实现 —— task_dag_apply_ops 业务的 OCC 版本号 helper。
@@ -17,7 +16,7 @@ import (
 // 调用方应在事务内调用，让 OCC 序列化生效。dag_key 不存在返回 sql ErrNoRows
 // 经 wrapTaskDAGError 翻成 platformdb.IsNotFound。
 func (s *store) GetDAGVersionForUpdate(ctx context.Context, dagKey string) (int64, error) {
-	version, err := s.q.GetTaskDagVersionForUpdate(ctx, dagKey)
+	version, err := s.q.GetTaskDagVersionForUpdate(ctx, sqlc.GetTaskDagVersionForUpdateParams{DagKey: dagKey})
 	if err != nil {
 		return 0, wrapTaskDAGError(err, "get_version_for_update", "task_dag")
 	}
@@ -28,7 +27,7 @@ func (s *store) GetDAGVersionForUpdate(ctx context.Context, dagKey string) (int6
 // 专为「空 ops 短路」场景设计：调用方面拿当前版本号判定 base_version 是否同庄，
 // 但没有后续写操作，不需要 FOR UPDATE 的序列化代价（R3 P2 #3）。
 func (s *store) GetDAGVersion(ctx context.Context, dagKey string) (int64, error) {
-	version, err := s.q.GetTaskDagVersion(ctx, dagKey)
+	version, err := s.q.GetTaskDagVersion(ctx, sqlc.GetTaskDagVersionParams{DagKey: dagKey})
 	if err != nil {
 		return 0, wrapTaskDAGError(err, "get_version", "task_dag")
 	}
@@ -40,14 +39,14 @@ func (s *store) GetDAGVersion(ctx context.Context, dagKey string) (int64, error)
 // template mutation transaction that protects running executions.
 func (s *store) CountRunningRunsByDagKey(ctx context.Context, dagKey string) (int64, error) {
 	return queryValue(func() (int64, error) {
-		return s.q.CountActiveTaskDagRunsByKey(ctx, dagKey)
+		return s.q.CountActiveTaskDagRunsByKey(ctx, sqlc.CountActiveTaskDagRunsByKeyParams{DagKey: dagKey})
 	}, "count_running", "task_dag_run")
 }
 
 // GetDAGSchedule reads the scheduling columns. ApplyOps calls this after
 // GetDAGVersionForUpdate has locked the row in the same transaction.
 func (s *store) GetDAGSchedule(ctx context.Context, dagKey string) (DAGSchedule, error) {
-	row, err := s.q.GetTaskDagSchedule(ctx, dagKey)
+	row, err := s.q.GetTaskDagSchedule(ctx, sqlc.GetTaskDagScheduleParams{DagKey: dagKey})
 	if err != nil {
 		return DAGSchedule{}, wrapTaskDAGError(err, "get_schedule", "task_dag")
 	}
@@ -74,25 +73,22 @@ func (s *store) UpdateDAGPatch(ctx context.Context, input UpdateDAGPatchInput) (
 	return rows, nil
 }
 
-func nullableBoolArg(value *bool) pgtype.Bool {
+func nullableBoolArg(value *bool) interface{} {
 	if value == nil {
-		return pgtype.Bool{}
+		return nil
 	}
-	return pgtype.Bool{Bool: *value, Valid: true}
+	if *value {
+		return int64(1)
+	}
+	return int64(0)
 }
 
-func nullableTextArg(value *string) pgtype.Text {
-	if value == nil {
-		return pgtype.Text{}
-	}
-	return pgtype.Text{String: *value, Valid: true}
+func nullableTextArg(value *string) *string {
+	return value
 }
 
-func nullableTimeArg(value *time.Time) pgtype.Timestamptz {
-	if value == nil {
-		return pgtype.Timestamptz{}
-	}
-	return pgtype.Timestamptz{Time: *value, Valid: true}
+func nullableTimeArg(value *time.Time) *int64 {
+	return sqlc.TimeValuePtr(value)
 }
 
 // BumpDAGVersion 把 task_dags.version 从 expectedVersion 推到 expectedVersion+1。

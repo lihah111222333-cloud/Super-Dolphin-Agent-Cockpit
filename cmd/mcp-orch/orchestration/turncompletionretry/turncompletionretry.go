@@ -2,6 +2,7 @@ package turncompletionretry
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -95,7 +95,7 @@ func Complete(ctx context.Context, store any, w *taskdag.Wakeup) CompleteResult 
 	switch {
 	case err == nil:
 		return CompleteResult{Outcome: CompleteSucceeded, Result: res}
-	case errors.Is(err, pgx.ErrNoRows) || platformdb.IsNotFound(err):
+	case errors.Is(err, sql.ErrNoRows) || platformdb.IsNotFound(err):
 		return CompleteResult{Outcome: CompleteAlreadyTerminal}
 	default:
 		return CompleteResult{Outcome: CompleteRetry, Err: err}

@@ -1,64 +1,67 @@
 package sqlc
 
-import (
-	"time"
+import "time"
 
-	"github.com/jackc/pgx/v5/pgtype"
-)
+type Timestamptz = int64
+type Interval = int64
+type Text = *string
+type Int8 = *int64
 
-type Timestamptz = pgtype.Timestamptz
-type Interval = pgtype.Interval
-type Text = pgtype.Text
-type Int8 = pgtype.Int8
-
-func TimeValue(value Timestamptz) time.Time {
-	if !value.Valid {
+func TimeValue(value int64) time.Time {
+	if value == 0 {
 		return time.Time{}
 	}
-	return value.Time
+	return time.UnixMilli(value).UTC()
 }
 
-func TimePtr(value Timestamptz) *time.Time {
-	if !value.Valid {
+func TimePtr(value *int64) *time.Time {
+	if value == nil || *value == 0 {
 		return nil
 	}
-	copy := value.Time
+	copy := time.UnixMilli(*value).UTC()
 	return &copy
 }
 
-func TimeValuePtr(value *time.Time) Timestamptz {
-	if value == nil {
-		return Timestamptz{}
-	}
-	return Timestamptz{Time: *value, Valid: true}
-}
-
-func TextPtr(value Text) *string {
-	if !value.Valid {
+func TimeValuePtr(value *time.Time) *int64 {
+	if value == nil || value.IsZero() {
 		return nil
 	}
-	copy := value.String
+	millis := value.UTC().UnixMilli()
+	return &millis
+}
+
+func TextPtr(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	copy := *value
 	return &copy
 }
 
-func TextValuePtr(value *string) Text {
+func TextValuePtr(value *string) *string {
 	if value == nil {
-		return Text{}
-	}
-	return Text{String: *value, Valid: true}
-}
-
-func Int8Ptr(value Int8) *int64 {
-	if !value.Valid {
 		return nil
 	}
-	copy := value.Int64
+	copy := *value
 	return &copy
 }
 
-func Int8ValuePtr(value *int64) Int8 {
+func Int8Ptr(value *int64) *int64 {
 	if value == nil {
-		return Int8{}
+		return nil
 	}
-	return Int8{Int64: *value, Valid: true}
+	copy := *value
+	return &copy
+}
+
+func Int8ValuePtr(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func IntervalMillis(value time.Duration) int64 {
+	return value.Milliseconds()
 }

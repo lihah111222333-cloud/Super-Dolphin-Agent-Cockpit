@@ -2,15 +2,13 @@ package taskdag
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
@@ -33,17 +31,17 @@ func (s *store) CreateRun(ctx context.Context, input CreateRunInput) (*Run, erro
 			DagKey:             input.DagKey,
 			DagVersionSnapshot: input.DagVersionSnapshot,
 			TriggerSource:      input.TriggerSource,
-			Column5:            metadata,
+			Metadata:           metadata,
 			BudgetLimit:        budgetLimitToInt8(input.BudgetLimit),
 		})
 	}, "create", "task_dag_run", fromTaskDagRun)
 }
 
-// GetRun 按 run_key 查 1 行；未找到返回 wrapTaskDAGError 包装的 pgx
+// GetRun 按 run_key 查 1 行；未找到返回 wrapTaskDAGError 包装的 database/sql
 // ErrNoRows（统一域错误，service 层用 errors.Is 判断）。
 func (s *store) GetRun(ctx context.Context, runKey string) (*Run, error) {
 	return queryOne(func() (sqlc.TaskDagRun, error) {
-		return s.q.GetTaskDagRun(ctx, runKey)
+		return s.q.GetTaskDagRun(ctx, sqlc.GetTaskDagRunParams{RunKey: runKey})
 	}, "get", "task_dag_run", fromTaskDagRun)
 }
 
@@ -56,9 +54,9 @@ func (s *store) ListRuns(ctx context.Context, filter ListRunsFilter) ([]Run, err
 	}
 	return queryMany(func() ([]sqlc.TaskDagRun, error) {
 		return s.q.ListTaskDagRunsByKey(ctx, sqlc.ListTaskDagRunsByKeyParams{
-			DagKey:  filter.DagKey,
-			Column2: filter.Status,
-			Limit:   limit,
+			DagKey:       filter.DagKey,
+			StatusFilter: filter.Status,
+			LimitCount:   int64(limit),
 		})
 	}, "list", "task_dag_run", fromTaskDagRun)
 }
@@ -78,8 +76,8 @@ func (s *store) CloneNodesForRun(ctx context.Context, dagKey string, runID int64
 func (s *store) PromoteRootNodesToReady(ctx context.Context, dagKey string, runID int64) (int64, error) {
 	return queryValue(func() (int64, error) {
 		return s.q.PromoteRootNodesToReady(ctx, sqlc.PromoteRootNodesToReadyParams{
-			DagKey:  dagKey,
-			Column2: runID,
+			DagKey: dagKey,
+			RunID:  int64Ptr(runID),
 		})
 	}, "promote_root_nodes_to_ready", "task_dag_node")
 }
@@ -116,24 +114,24 @@ func (s *store) TerminateRun(ctx context.Context, input TerminateRunInput) (Term
 
 func terminateRunTx(ctx context.Context, txq *sqlc.Queries, input TerminateRunInput, reason string, event []byte) ([]string, error) {
 	if _, err := txq.CancelTaskDagRunNodes(ctx, sqlc.CancelTaskDagRunNodesParams{
-		DagKey:  input.DagKey,
-		Column2: input.RunID,
-		Column3: reason,
+		Reason: reason,
+		DagKey: input.DagKey,
+		RunID:  int64Ptr(input.RunID),
 	}); err != nil {
 		return nil, fmt.Errorf("cancel run nodes: %w", err)
 	}
 	if _, err := txq.CancelTaskDagRunWakeups(ctx, sqlc.CancelTaskDagRunWakeupsParams{
-		DagKey:    input.DagKey,
-		RunID:     int64Ptr(input.RunID),
-		LastError: "run_cancelled: " + reason,
+		Reason: "run_cancelled: " + reason,
+		DagKey: input.DagKey,
+		RunID:  int64Ptr(input.RunID),
 	}); err != nil {
 		return nil, fmt.Errorf("cancel run wakeups: %w", err)
 	}
 	if _, err := txq.CancelTaskDagRun(ctx, sqlc.CancelTaskDagRunParams{
-		DagKey:  input.DagKey,
-		ID:      input.RunID,
-		RunKey:  input.RunKey,
-		Column4: event,
+		Event:  event,
+		DagKey: input.DagKey,
+		RunID:  input.RunID,
+		RunKey: input.RunKey,
 	}); err != nil {
 		return terminateRunAlreadyCancelled(ctx, txq, input, err)
 	}
@@ -141,7 +139,7 @@ func terminateRunTx(ctx context.Context, txq *sqlc.Queries, input TerminateRunIn
 }
 
 func terminateRunAlreadyCancelled(ctx context.Context, txq *sqlc.Queries, input TerminateRunInput, cancelErr error) ([]string, error) {
-	if errors.Is(cancelErr, pgx.ErrNoRows) {
+	if errors.Is(cancelErr, sql.ErrNoRows) {
 		threadIDs, loadErr := cancelledRunSpawnedThreadIDs(ctx, txq, input)
 		if loadErr == nil {
 			return threadIDs, nil
@@ -151,12 +149,12 @@ func terminateRunAlreadyCancelled(ctx context.Context, txq *sqlc.Queries, input 
 }
 
 func cancelledRunSpawnedThreadIDs(ctx context.Context, q *sqlc.Queries, input TerminateRunInput) ([]string, error) {
-	run, err := q.GetTaskDagRun(ctx, input.RunKey)
+	run, err := q.GetTaskDagRun(ctx, sqlc.GetTaskDagRunParams{RunKey: input.RunKey})
 	if err != nil {
 		return nil, err
 	}
 	if run.ID != input.RunID || run.DagKey != input.DagKey || run.Status != "cancelled" {
-		return nil, pgx.ErrNoRows
+		return nil, sql.ErrNoRows
 	}
 	return runSpawnedThreadIDs(ctx, q, input.DagKey, input.RunID)
 }
@@ -166,20 +164,20 @@ func runSpawnedThreadIDs(ctx context.Context, q *sqlc.Queries, dagKey string, ru
 	if err != nil {
 		return nil, err
 	}
-	values := make([]pgtype.Text, 0, len(nodes))
+	values := make([]*string, 0, len(nodes))
 	for _, node := range nodes {
 		values = append(values, node.SpawningThreadID)
 	}
 	return nonEmptyTextValues(values), nil
 }
 
-func nonEmptyTextValues(values []pgtype.Text) []string {
+func nonEmptyTextValues(values []*string) []string {
 	out := make([]string, 0, len(values))
 	for _, value := range values {
-		if !value.Valid {
+		if value == nil {
 			continue
 		}
-		if text := strings.TrimSpace(value.String); text != "" {
+		if text := strings.TrimSpace(*value); text != "" {
 			out = append(out, text)
 		}
 	}
@@ -188,9 +186,7 @@ func nonEmptyTextValues(values []pgtype.Text) []string {
 }
 
 // fromTaskDagRun 把 sqlc 生成的行结构体转成 contract 层 Run。
-// pgtype.Timestamptz → time.Time：直接取 .Time（PG 列 NOT NULL DEFAULT NOW()
-// 保证有效）；FinishedAt 列 nullable，无值时返回 nil。
-// pgtype.Int8 → *int64：用 nullableInt64 helper。
+// SQLite epoch milliseconds map to time.Time; nullable columns map to nil.
 func fromTaskDagRun(row sqlc.TaskDagRun) Run {
 	return Run{
 		ID:                 row.ID,
@@ -199,38 +195,27 @@ func fromTaskDagRun(row sqlc.TaskDagRun) Run {
 		DagVersionSnapshot: row.DagVersionSnapshot,
 		TriggerSource:      row.TriggerSource,
 		Status:             row.Status,
-		StartedAt:          row.StartedAt.Time,
+		StartedAt:          timeValue(row.StartedAt),
 		FinishedAt:         nullableTime(row.FinishedAt),
 		Events:             json.RawMessage(row.Events),
 		BudgetUsed:         row.BudgetUsed,
 		BudgetLimit:        nullableInt64(row.BudgetLimit),
 		Metadata:           json.RawMessage(row.Metadata),
-		CreatedAt:          row.CreatedAt.Time,
-		UpdatedAt:          row.UpdatedAt.Time,
+		CreatedAt:          timeValue(row.CreatedAt),
+		UpdatedAt:          timeValue(row.UpdatedAt),
 	}
 }
 
-func budgetLimitToInt8(v *int64) pgtype.Int8 {
-	if v == nil {
-		return pgtype.Int8{}
-	}
-	return pgtype.Int8{Int64: *v, Valid: true}
+func budgetLimitToInt8(v *int64) *int64 {
+	return v
 }
 
-func nullableTime(v pgtype.Timestamptz) *time.Time {
-	if !v.Valid {
-		return nil
-	}
-	t := v.Time
-	return &t
+func nullableTime(v *int64) *time.Time {
+	return timestampPtr(v)
 }
 
-func nullableInt64(v pgtype.Int8) *int64 {
-	if !v.Valid {
-		return nil
-	}
-	n := v.Int64
-	return &n
+func nullableInt64(v *int64) *int64 {
+	return v
 }
 
 // WithRunTx 起单一 PG 事务，fn 拿到的 tx RunStore 是
@@ -254,8 +239,8 @@ func (s *store) WithScheduledStartTx(ctx context.Context, fn func(tx ScheduledSt
 
 func (s *store) UpdateScheduledDAGNextRun(ctx context.Context, dagKey string, dueAt, nextRunAt time.Time) (int64, error) {
 	return s.q.UpdateTaskDagNextRun(ctx, sqlc.UpdateTaskDagNextRunParams{
-		NextRunAt: pgtype.Timestamptz{Time: nextRunAt, Valid: true},
+		NextRunAt: sqlc.TimeValuePtr(&nextRunAt),
 		DagKey:    dagKey,
-		DueAt:     pgtype.Timestamptz{Time: dueAt, Valid: true},
+		DueAt:     sqlc.TimeValuePtr(&dueAt),
 	})
 }
