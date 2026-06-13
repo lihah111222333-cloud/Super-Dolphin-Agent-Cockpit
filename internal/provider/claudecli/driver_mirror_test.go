@@ -42,7 +42,7 @@ func TestStartSessionReconcilesMirrorsBeforeLaunchWithUserClaudeHome(t *testing.
 		events: &events,
 	}
 	next := newBufferedTransport(t, "claude-session-1")
-	overrideLaunchCLI(t, func(_, cwd, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, mirror, func(_, cwd, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
 		events = append(events, "launch")
 		if cwd != workDir {
 			t.Fatalf("launch cwd = %q, want %q", cwd, workDir)
@@ -52,7 +52,6 @@ func TestStartSessionReconcilesMirrorsBeforeLaunchWithUserClaudeHome(t *testing.
 		}
 		return next.tr, func() { next.finish() }, nil
 	})
-	d := newDriver(nil, nil, nil, nil, nil, mirror, nil).(*driver)
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude",
@@ -89,14 +88,13 @@ func TestStartSessionReconcilesProjectMirrorsFromGitRootBeforeLaunch(t *testing.
 	events := []string{}
 	mirror := &recordingMirrorReconciler{events: &events}
 	next := newBufferedTransport(t, "claude-session-subdir")
-	overrideLaunchCLI(t, func(_, cwd, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, mirror, func(_, cwd, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
 		events = append(events, "launch")
 		if cwd != subdir {
 			t.Fatalf("launch cwd = %q, want request cwd %q", cwd, subdir)
 		}
 		return next.tr, func() { next.finish() }, nil
 	})
-	d := newDriver(nil, nil, nil, nil, nil, mirror, nil).(*driver)
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude-subdir",
@@ -118,15 +116,14 @@ func TestStartSessionMirrorContentConflictAllowsClaudeLaunch(t *testing.T) {
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
 	launched := false
 	next := newBufferedTransport(t, "claude-session-mirror-conflict")
-	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
-		launched = true
-		return next.tr, func() { next.finish() }, nil
-	})
-	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{report: contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
+	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{report: contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
 		TargetID:     "claude:project:conflict",
 		Scope:        "project",
 		ConflictKind: "drift",
-	}}}}, nil).(*driver)
+	}}}}, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+		launched = true
+		return next.tr, func() { next.finish() }, nil
+	})
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude-conflict",
@@ -147,14 +144,13 @@ func TestStartSessionMirrorSafetyConflictBlocksClaudeLaunch(t *testing.T) {
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
 	launched := false
 	next := newBufferedTransport(t, "claude-session-mirror-safety-conflict")
-	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{report: contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
+		TargetID:     "claude:project:conflict",
+		ConflictKind: "mirror_root_symlink",
+	}}}}, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		launched = true
 		return next.tr, func() { next.finish() }, nil
 	})
-	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{report: contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
-		TargetID:     "claude:project:conflict",
-		ConflictKind: "mirror_root_symlink",
-	}}}}, nil).(*driver)
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude-safety-conflict",
@@ -173,11 +169,10 @@ func TestStartSessionMirrorSafetyConflictBlocksClaudeLaunch(t *testing.T) {
 
 func TestStartSessionRequiresSkillMirrorReconciler(t *testing.T) {
 	t.Setenv(providershared.SuperDolphinHomeEnv, filepath.Join(t.TempDir(), "sd-home"))
-	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, nil, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		t.Fatal("launchCLI called without skill mirror reconciler")
 		return nil, nil, nil
 	})
-	d := newDriver(nil, nil, nil, nil, nil, nil, nil).(*driver)
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude-no-mirror",
@@ -202,13 +197,12 @@ func TestStartSessionKeepsExplicitClaudeHome(t *testing.T) {
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
 	mirror := &recordingMirrorReconciler{}
 	next := newBufferedTransport(t, "claude-session-explicit")
-	overrideLaunchCLI(t, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, mirror, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
 		if cfg.ClaudeHome != wantHome {
 			t.Fatalf("ClaudeHome = %q, want explicit %q", cfg.ClaudeHome, wantHome)
 		}
 		return next.tr, func() { next.finish() }, nil
 	})
-	d := newDriver(nil, nil, nil, nil, nil, mirror, nil).(*driver)
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude-explicit",
@@ -248,13 +242,12 @@ func TestStartSessionAcceptsCamelCaseClaudeHomeAndPreservesSettings(t *testing.T
 	}
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
 	next := newBufferedTransport(t, "claude-session-camel-home")
-	overrideLaunchCLI(t, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
 		if cfg.ClaudeHome != wantHome {
 			t.Fatalf("ClaudeHome = %q, want explicit %q", cfg.ClaudeHome, wantHome)
 		}
 		return next.tr, func() { next.finish() }, nil
 	})
-	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude-camel-home",
@@ -277,13 +270,12 @@ func TestStartSessionOmitsClaudeHomeFromRuntimeSnapshotByDefault(t *testing.T) {
 	t.Setenv("USERPROFILE", userHome)
 	workDir := t.TempDir()
 	next := newBufferedTransport(t, "claude-session-runtime-home")
-	overrideLaunchCLI(t, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
 		if cfg.ClaudeHome != "" {
 			t.Fatalf("ClaudeHome = %q, want empty default so Claude uses user CLI identity", cfg.ClaudeHome)
 		}
 		return next.tr, func() { next.finish() }, nil
 	})
-	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-runtime-home",
@@ -317,13 +309,12 @@ func TestStartSessionNormalizesExplicitClaudeHomeBeforeLaunchAndMirror(t *testin
 	workDir := t.TempDir()
 	mirror := &recordingMirrorReconciler{}
 	next := newBufferedTransport(t, "claude-session-normalized")
-	overrideLaunchCLI(t, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, mirror, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
 		if cfg.ClaudeHome != wantHome {
 			t.Fatalf("ClaudeHome = %q, want normalized %q", cfg.ClaudeHome, wantHome)
 		}
 		return next.tr, func() { next.finish() }, nil
 	})
-	d := newDriver(nil, nil, nil, nil, nil, mirror, nil).(*driver)
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude-normalized",
@@ -354,13 +345,12 @@ func TestResumeSessionKeepsExplicitClaudeHomeBeforeLaunchAndMirror(t *testing.T)
 	workDir := t.TempDir()
 	mirror := &recordingMirrorReconciler{}
 	next := newBufferedTransport(t, "claude-session-resumed")
-	overrideLaunchCLI(t, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, mirror, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
 		if cfg.ClaudeHome != wantHome {
 			t.Fatalf("ClaudeHome = %q, want explicit %q", cfg.ClaudeHome, wantHome)
 		}
 		return next.tr, func() { next.finish() }, nil
 	})
-	d := newDriver(nil, nil, nil, nil, nil, mirror, nil).(*driver)
 
 	got, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		AgentID:    "agent-claude-resume",
@@ -388,10 +378,9 @@ func TestResumeSessionKeepsExplicitClaudeHomeBeforeLaunchAndMirror(t *testing.T)
 func TestResumeSessionRuntimeConfigSnapshotIncludesCWDAndRequestConfig(t *testing.T) {
 	workDir := t.TempDir()
 	next := newBufferedTransport(t, "claude-session-runtime-cwd")
-	overrideLaunchCLI(t, func(_, _, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(_, _, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
 		return next.tr, func() { next.finish() }, nil
 	})
-	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
 
 	got, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		AgentID:          "agent-claude-runtime",
@@ -437,11 +426,10 @@ func TestStartSessionMirrorFailureBlocksClaudeLaunch(t *testing.T) {
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
 	launched := false
 	next := newBufferedTransport(t, "claude-session-mirror-failure")
-	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{err: errors.New("mirror unavailable")}, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		launched = true
 		return next.tr, func() { next.finish() }, nil
 	})
-	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{err: errors.New("mirror unavailable")}, nil).(*driver)
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude-blocked",

@@ -61,7 +61,7 @@ func ResolveConfig(input ResolveInput) (contract.EmbeddedPostgresConfig, string)
 		return contract.EmbeddedPostgresConfig{}, ""
 	}
 	packagedRuntime, packaged := resolveInputPackagedRuntime(input, env, goos, goarch)
-	if !packaged && !embeddedPostgresRequested(env) {
+	if !embeddedPostgresRequested(env) {
 		return contract.EmbeddedPostgresConfig{}, ""
 	}
 	base, resolveErr := appDataRoot(goos, env, input.UserHome)
@@ -171,7 +171,7 @@ func resolveBinDir(input ResolveInput, goos, goarch string, packagedRuntime runt
 	}
 	platform := goos + "-" + goarch
 	if packaged {
-		return filepath.Join(packagedRuntime.PostgresRoot, platform, "bin")
+		return filepath.Join(packagedRuntime.ResourcesDir, "postgres", platform, "bin")
 	}
 	if root := strings.TrimSpace(input.ProjectRoot); root != "" {
 		return filepath.Join(root, "third_party", "postgres", platform, "bin")
@@ -196,15 +196,7 @@ func isSidecar(env map[string]string) bool {
 }
 
 func embeddedPostgresRequested(env map[string]string) bool {
-	if strings.EqualFold(strings.TrimSpace(env[EnvEmbeddedPostgres]), "true") {
-		return true
-	}
-	for _, key := range []string{EnvPostgresBinDir, EnvPostgresShareDir, EnvPostgresPort} {
-		if strings.TrimSpace(env[key]) != "" {
-			return true
-		}
-	}
-	return false
+	return strings.EqualFold(strings.TrimSpace(env[EnvEmbeddedPostgres]), "true")
 }
 
 func resolveShareDir(env map[string]string, binDir string) string {

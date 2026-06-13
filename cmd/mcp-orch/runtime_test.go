@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools/modelregistry"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	sqliteruntime "github.com/anthropic-ai/super-agent-v3/internal/platform/db/sqlite"
 	_ "modernc.org/sqlite"
@@ -122,6 +124,39 @@ func TestVerifyMCPOrchDatabaseSchemaReadySucceeds(t *testing.T) {
 
 	if err := verifyMCPOrchDatabaseReady(context.Background(), db); err != nil {
 		t.Fatalf("verifyMCPOrchDatabaseReady() error = %v, want nil", err)
+	}
+}
+
+func TestMCPOrchConfigOpensSQLiteWithoutDatabaseURL(t *testing.T) {
+	projectRoot := t.TempDir()
+	sqlitePath := filepath.Join(t.TempDir(), "state", "orch.db")
+	t.Setenv("PROJECT_ROOT", projectRoot)
+	t.Setenv("SUPER_DOLPHIN_SQLITE_PATH", sqlitePath)
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("POSTGRES_CONNECTION_STRING", "")
+	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "127.0.0.1:0")
+	t.Setenv("SUPER_DOLPHIN_HOME", "")
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "")
+	t.Setenv("LOG_LEVEL", "")
+
+	cfg, err := platformconfig.New()
+	if err != nil {
+		t.Fatalf("platformconfig.New() error = %v", err)
+	}
+	if cfg.SQLitePath != sqlitePath {
+		t.Fatalf("SQLitePath = %q, want %q", cfg.SQLitePath, sqlitePath)
+	}
+	if cfg.DatabaseURL != "" {
+		t.Fatalf("DatabaseURL = %q, want empty", cfg.DatabaseURL)
+	}
+
+	db, err := platformdb.NewDB(cfg)
+	if err != nil {
+		t.Fatalf("platformdb.NewDB() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := os.Stat(sqlitePath); err != nil {
+		t.Fatalf("sqlite DB was not created at configured path: %v", err)
 	}
 }
 

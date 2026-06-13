@@ -1,3 +1,5 @@
+//go:build legacy_embeddedpg
+
 package embeddedpg
 
 import (

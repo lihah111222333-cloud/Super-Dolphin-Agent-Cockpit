@@ -90,8 +90,8 @@ export ENABLE_MEMORY_TOOLS
 export MULTI_AGENT_MEMORY_FEATURE_TEAMMEM
 DEV_CONTROL_SESSION_TOKEN ?= dev-local-$(shell date +%s)-$(shell echo $$$$)
 
-DEV_DATABASE_URL ?= postgres://postgres:123@127.0.0.1:5432/go_agent_v2?sslmode=disable
-run-agent-terminal-debug run-agent-terminal-debug-plain: export DATABASE_URL ?= $(DEV_DATABASE_URL)
+DEV_SQLITE_PATH ?= $(HOME)/.super-dolphin/super-dolphin.db
+run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_SQLITE_PATH ?= $(DEV_SQLITE_PATH)
 run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_RUNTIME_MODE := dev
 run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR := $(CURDIR)
 run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_DEV_ENTRYPOINT := make run-agent-terminal-debug

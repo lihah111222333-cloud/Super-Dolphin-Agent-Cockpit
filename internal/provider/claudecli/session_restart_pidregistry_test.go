@@ -19,7 +19,7 @@ func TestRestartIfNeededLockedReRegistersPIDRegistry(t *testing.T) {
 	oldTransport := newInterruptTestTransport(t, "while :; do sleep 1; done")
 	nextTransport := newInterruptTestTransport(t, "while :; do sleep 1; done")
 	registerTransportPID(reg, oldTransport, "agent-1")
-	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		return nextTransport, nil, nil
 	})
 
@@ -34,6 +34,7 @@ func TestRestartIfNeededLockedReRegistersPIDRegistry(t *testing.T) {
 		transport:       oldTransport,
 		cleanup:         func() {},
 		pidRegistry:     reg,
+		launchCLI:       launchFn,
 		suppressedTurns: map[string]struct{}{},
 		model:           "claude-old",
 	}

@@ -281,110 +281,6 @@ function Ensure-DevControlSessionToken {
     Write-Host '  -> GO_AGENT_CTL_SESSION_TOKEN 已为本地调试生成'
 }
 
-function Get-EffectiveDatabaseUrl {
-    $databaseUrl = if ($null -ne $env:DATABASE_URL) { $env:DATABASE_URL.Trim() } else { '' }
-    if ($databaseUrl) { return $databaseUrl }
-
-    $legacy = if ($null -ne $env:POSTGRES_CONNECTION_STRING) { $env:POSTGRES_CONNECTION_STRING.Trim() } else { '' }
-    if ($legacy) {
-        $env:DATABASE_URL = $legacy
-        Write-Host '  -> POSTGRES_CONNECTION_STRING 已兼容提升为 DATABASE_URL'
-        return $legacy
-    }
-    return ''
-}
-
-function Format-DatabaseUrlForLog {
-    param([Parameter(Mandatory)][string]$DatabaseUrl)
-    try {
-        $uri = [Uri]$DatabaseUrl
-        $builder = [UriBuilder]::new($uri)
-        if ($builder.UserName) { $builder.UserName = '***' }
-        if ($builder.Password) { $builder.Password = '***' }
-        return $builder.Uri.AbsoluteUri
-    } catch {
-        return '<DATABASE_URL 已设置，但无法解析为 URL>'
-    }
-}
-
-function Get-DatabaseEndpoint {
-    param([Parameter(Mandatory)][string]$DatabaseUrl)
-    try {
-        $uri = [Uri]$DatabaseUrl
-        if ($uri.Scheme -notin @('postgres', 'postgresql')) { return $null }
-        $port = if ($uri.IsDefaultPort -or $uri.Port -le 0) { 5432 } else { $uri.Port }
-        [pscustomobject]@{
-            Host = $uri.Host
-            Port = $port
-        }
-    } catch {
-        return $null
-    }
-}
-
-function Test-TcpPort {
-    param(
-        [Parameter(Mandatory)][string]$HostName,
-        [Parameter(Mandatory)][int]$Port,
-        [int]$TimeoutMs = 1500
-    )
-    $client = [Net.Sockets.TcpClient]::new()
-    try {
-        $async = $client.BeginConnect($HostName, $Port, $null, $null)
-        if (-not $async.AsyncWaitHandle.WaitOne($TimeoutMs, $false)) {
-            return $false
-        }
-        $client.EndConnect($async)
-        return $true
-    } catch {
-        return $false
-    } finally {
-        $client.Close()
-    }
-}
-
-function Find-PsqlCommand {
-    $cmd = Get-Command psql -ErrorAction SilentlyContinue
-    if ($cmd) { return $cmd.Source }
-
-    $roots = @()
-    $programFiles = [Environment]::GetFolderPath('ProgramFiles')
-    if ($programFiles) { $roots += (Join-Path $programFiles 'PostgreSQL') }
-    if (${env:ProgramFiles}) { $roots += (Join-Path ${env:ProgramFiles} 'PostgreSQL') }
-    if (${env:ProgramFiles(x86)}) { $roots += (Join-Path ${env:ProgramFiles(x86)} 'PostgreSQL') }
-
-    foreach ($root in ($roots | Sort-Object -Unique)) {
-        if (-not (Test-Path -LiteralPath $root -PathType Container)) { continue }
-        $candidate = Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
-            Sort-Object Name -Descending |
-            ForEach-Object { Join-Path $_.FullName 'bin\psql.exe' } |
-            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
-            Select-Object -First 1
-        if ($candidate) { return $candidate }
-    }
-    return $null
-}
-
-function Get-PostgresPortHint {
-    param(
-        [Parameter(Mandatory)][string]$HostName,
-        [Parameter(Mandatory)][int]$FailedPort
-    )
-    foreach ($port in @(5432, 54320)) {
-        if ($port -eq $FailedPort) { continue }
-        if (Test-TcpPort -HostName $HostName -Port $port -TimeoutMs 500) {
-            return "检测到 $HostName`:$port 可达；请确认 DATABASE_URL 端口是否应改为 $port。"
-        }
-    }
-    $services = @(Get-Service '*postgres*' -ErrorAction SilentlyContinue |
-        Where-Object { $_.Status -eq 'Running' } |
-        Select-Object -ExpandProperty Name)
-    if ($services.Count -gt 0) {
-        return "检测到 PostgreSQL 服务正在运行：$($services -join ', ')；但未监听 DATABASE_URL 指定端口。"
-    }
-    return ''
-}
-
 function Get-CurrentUserSid {
     $rows = whoami /user /fo csv | ConvertFrom-Csv
     if ($rows -and $rows[0].SID) { return $rows[0].SID }
@@ -416,121 +312,6 @@ function Protect-OwnerIdentitySalt {
         throw "修复 owner identity salt ACL 失败: icacls /grant:r $salt"
     }
     Write-Host "  -> owner identity salt ACL 已加固: $salt"
-}
-
-function Get-MaintenanceDatabaseUrl {
-    param([Parameter(Mandatory)][string]$DatabaseUrl)
-    $uri = [Uri]$DatabaseUrl
-    $builder = [UriBuilder]::new($uri)
-    $builder.Path = 'postgres'
-    return $builder.Uri.AbsoluteUri
-}
-
-function Test-PsqlDatabaseConnect {
-    param(
-        [Parameter(Mandatory)][string]$Psql,
-        [Parameter(Mandatory)][string]$DatabaseUrl
-    )
-    $previousErrorAction = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try {
-        $output = & $Psql $DatabaseUrl -tAc 'SELECT 1' 2>&1
-        [pscustomobject]@{
-            Success = ($LASTEXITCODE -eq 0)
-            Output  = (($output | Out-String).Trim())
-        }
-    } finally {
-        $ErrorActionPreference = $previousErrorAction
-    }
-}
-
-function Test-PsqlCanCreateDatabase {
-    param(
-        [Parameter(Mandatory)][string]$Psql,
-        [Parameter(Mandatory)][string]$DatabaseUrl
-    )
-    $previousErrorAction = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try {
-        $output = & $Psql $DatabaseUrl -tAc "SELECT COALESCE((SELECT rolsuper OR rolcreatedb FROM pg_roles WHERE rolname = current_user), false)" 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            return [pscustomobject]@{
-                Success   = $false
-                CanCreate = $false
-                Output    = (($output | Out-String).Trim())
-            }
-        }
-        $value = (($output | Out-String).Trim()).ToLowerInvariant()
-        [pscustomobject]@{
-            Success   = $true
-            CanCreate = ($value -eq 't' -or $value -eq 'true' -or $value -eq '1')
-            Output    = $value
-        }
-    } finally {
-        $ErrorActionPreference = $previousErrorAction
-    }
-}
-
-function Assert-DatabaseConfigured {
-    $databaseUrl = Get-EffectiveDatabaseUrl
-    if (-not $databaseUrl) {
-        Write-Host '  XX DATABASE_URL 未配置，run-debug 无法确定要连接哪个 PostgreSQL 数据库。'
-        Write-Host '     在 PowerShell 当前窗口临时设置：'
-        Write-Host '       $env:DATABASE_URL = "postgres://USER:PASS@127.0.0.1:5432/super_agent_v3?sslmode=disable"'
-        Write-Host '     或写入项目根目录 .env：'
-        Write-Host '       DATABASE_URL=postgres://USER:PASS@127.0.0.1:5432/super_agent_v3?sslmode=disable'
-        Write-Host '     若本机还没装库，可先运行：'
-        Write-Host '       .\scripts\install-postgres.ps1'
-        throw 'DATABASE_URL missing'
-    }
-
-    Write-Host ("  -> DATABASE_URL: {0}" -f (Format-DatabaseUrlForLog -DatabaseUrl $databaseUrl))
-
-    $endpoint = Get-DatabaseEndpoint -DatabaseUrl $databaseUrl
-    if ($null -eq $endpoint) {
-        throw 'DATABASE_URL 不是可解析的 postgres/postgresql URL；请检查 .env 或 $env:DATABASE_URL'
-    }
-    if (-not (Test-TcpPort -HostName $endpoint.Host -Port $endpoint.Port)) {
-        $hint = Get-PostgresPortHint -HostName $endpoint.Host -FailedPort $endpoint.Port
-        if ($hint) {
-            throw "PostgreSQL TCP 连接失败: $($endpoint.Host):$($endpoint.Port)。$hint"
-        }
-        throw "PostgreSQL TCP 连接失败: $($endpoint.Host):$($endpoint.Port)"
-    }
-
-    $psql = Find-PsqlCommand
-    if ($psql) {
-        $oldTimeout = [Environment]::GetEnvironmentVariable('PGCONNECT_TIMEOUT', 'Process')
-        $env:PGCONNECT_TIMEOUT = '2'
-        try {
-            $targetCheck = Test-PsqlDatabaseConnect -Psql $psql -DatabaseUrl $databaseUrl
-            if ($targetCheck.Success) {
-                Write-Host '  -> DB 连接预检通过 (psql SELECT 1)'
-                return
-            }
-
-            $maintenanceUrl = Get-MaintenanceDatabaseUrl -DatabaseUrl $databaseUrl
-            $maintenanceCheck = Test-PsqlDatabaseConnect -Psql $psql -DatabaseUrl $maintenanceUrl
-            if ($maintenanceCheck.Success) {
-                $createCheck = Test-PsqlCanCreateDatabase -Psql $psql -DatabaseUrl $maintenanceUrl
-                if ($createCheck.Success -and $createCheck.CanCreate) {
-                    Write-Host '  -> PostgreSQL 可登录；目标数据库不存在时后端会自动创建'
-                    return
-                }
-                throw "目标数据库暂不可连接，且当前账号没有 CREATEDB 权限: $($targetCheck.Output)"
-            }
-
-            throw "psql 连接检查失败: $($targetCheck.Output)"
-        } finally {
-            if ($null -eq $oldTimeout) {
-                Remove-Item Env:PGCONNECT_TIMEOUT -ErrorAction SilentlyContinue
-            } else {
-                $env:PGCONNECT_TIMEOUT = $oldTimeout
-            }
-        }
-    }
-
-    Write-Host "  -> DB 端口可达 ($($endpoint.Host):$($endpoint.Port)); 未安装 psql，认证和库名将在后端启动时校验"
 }
 
 function Start-ViteDev {
@@ -714,15 +495,17 @@ Write-Host "> 模式: $Label"
 Write-Host "> 目录: $BuildDir"
 Write-Host '------------------------------------'
 
-$DevDatabaseUrl = 'postgres://postgres:123@127.0.0.1:5432/go_agent_v2?sslmode=disable'
-if (-not $env:DATABASE_URL) { $env:DATABASE_URL = $DevDatabaseUrl }
-$DbUrl = $env:DATABASE_URL
 $env:SUPER_DOLPHIN_RUNTIME_MODE = 'dev'
 $env:SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR = $BuildDir
 $env:SUPER_DOLPHIN_DEV_ENTRYPOINT = 'run-debug.ps1'
-Write-Host "> Dev DB DSN: $DbUrl"
+if (-not $env:SUPER_DOLPHIN_SQLITE_PATH) {
+    $env:SUPER_DOLPHIN_SQLITE_PATH = Join-Path (Get-SuperDolphinHome) 'super-dolphin.db'
+}
+$sqliteParent = Split-Path -Parent $env:SUPER_DOLPHIN_SQLITE_PATH
+if (-not $sqliteParent) { throw "SUPER_DOLPHIN_SQLITE_PATH must include a parent directory: $($env:SUPER_DOLPHIN_SQLITE_PATH)" }
+New-Item -ItemType Directory -Force -Path $sqliteParent | Out-Null
+Write-Host "> SQLite DB: $($env:SUPER_DOLPHIN_SQLITE_PATH)"
 Write-Host '[0/4] Pre-flight 守卫...'
-Assert-DatabaseConfigured
 Protect-OwnerIdentitySalt
 
 # memory 子系统默认开关（与 sh 一致，避免内存中心 UI 显示 "system off" 横幅）
@@ -775,7 +558,7 @@ try {
         # 与 sh 对齐：子进程 CWD 必须是 BuildDir，否则 `resolveProjectRoot`
         # 用的是用户 shell 的 CWD，会导致 autoMigrate 找不到 migrations/
         # 并且 applyBaselineIfMissing 会静默跳过（bug：只在 ReadFile 成功时
-        # 执 SQL，但 INSERT schema_migrations 是无条件的），把库留成
+        # 执 SQL，但 migration bookkeeping 是无条件的），把库留成
         # "baseline 已 applied 但没有表" 的坏状态。
         Set-Location -LiteralPath $BuildDir
         $env:PROJECT_ROOT = $BuildDir

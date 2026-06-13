@@ -366,15 +366,10 @@ verify_macho_macos_compatibility() {
 
 verify_startup_macos_compatibility() {
   local max_version="$1"
-  local postgres_root="$2"
   verify_macho_macos_compatibility "startup binary" "$max_version" \
     "$macos/agent-terminal" \
     "$resources/bin/mcp-orch" \
-    "$resources/bin/mcp-lsp" \
-    "$postgres_root/bin/postgres" \
-    "$postgres_root/bin/initdb" \
-    "$postgres_root/bin/pg_ctl" \
-    "$postgres_root/bin/pg_config"
+    "$resources/bin/mcp-lsp"
 }
 
 validate_release_relay_url() {
@@ -1054,8 +1049,7 @@ write_runtime_manifest() {
   "bundled_gopls_path": "bin/gopls",
   "lsp_bundle_path": "lsp",
   "lsp_manifest_path": "lsp/lsp-manifest.json",
-  "model_registry_path": "models.yaml",
-  "embedded_postgres_resource_path": "postgres/$platform"
+  "model_registry_path": "models.yaml"
 }
 JSON
 }
@@ -1227,13 +1221,6 @@ add_rpath_if_missing() {
   install_name_tool -add_rpath "$rpath" "$file"
 }
 
-add_postgres_rpaths() {
-  local file="$1"
-  add_rpath_if_missing "$file" "@loader_path/../lib"
-  add_rpath_if_missing "$file" "@loader_path"
-  add_rpath_if_missing "$file" "@loader_path/.."
-}
-
 add_git_rpaths() {
   local resources="$1"
   local file="$2"
@@ -1285,9 +1272,6 @@ add_bundle_rpaths() {
   local bundle_root="$2"
   local file="$3"
   case "$kind" in
-    postgres)
-      add_postgres_rpaths "$file"
-      ;;
     git)
       add_git_rpaths "$bundle_root" "$file"
       ;;
@@ -1416,6 +1400,23 @@ copy_model_registry() {
   cp -f "$src" "$resources/models.yaml"
 }
 
+copy_sqlite_migrations() {
+  local bundle_root="$1"
+  local src="$root/internal/platform/db/sqlite/migrations"
+  local dest="$bundle_root/internal/platform/db/sqlite/migrations"
+  if [[ ! -d "$src" ]]; then
+    echo "missing SQLite migrations directory: $src" >&2
+    exit 1
+  fi
+  if [[ -z "$(find "$src" -type f -print -quit)" ]]; then
+    echo "missing SQLite migration files under $src" >&2
+    exit 1
+  fi
+  rm -rf "$dest"
+  mkdir -p "$(dirname "$dest")"
+  cp -R "$src" "$dest"
+}
+
 check_loader_path_deps() {
   local pg_bundle="$1"
   local missing=0
@@ -1536,16 +1537,6 @@ verify_no_homebrew_dylib_refs() {
   fi
 }
 
-bundle_homebrew_dylibs() {
-  local pg_bundle="$1"
-  bundle_macho_dylibs "$pg_bundle/lib" postgres "$pg_bundle" "$pg_bundle/bin" "$pg_bundle/lib"
-
-  if ! check_loader_path_deps "$pg_bundle"; then
-    exit 1
-  fi
-  verify_no_homebrew_dylib_refs "PostgreSQL" "$pg_bundle/bin" "$pg_bundle/lib"
-}
-
 bundle_git_dylibs() {
   local resources="$1"
   bundle_macho_dylibs "$resources/lib" git "$resources" "$resources/bin" "$resources/libexec/git-core"
@@ -1568,61 +1559,6 @@ bundle_lsp_dylibs() {
   done
   bundle_macho_dylibs "$lsp_root/lib" lsp "$lsp_root" "${macho_roots[@]}"
   verify_no_homebrew_dylib_refs "LSP" "${macho_roots[@]}" "$lsp_root/lib"
-}
-
-verify_postgres_share_dir() {
-  local pg_bundle="$1"
-  local share
-  for share in \
-    "$pg_bundle/share" \
-    "$pg_bundle/share/postgresql@16" \
-    "$pg_bundle/share/postgresql"; do
-    if [[ -f "$share/postgres.bki" ]]; then
-      return
-    fi
-  done
-  echo "packaged PostgreSQL share files missing: expected postgres.bki under $pg_bundle/share, $pg_bundle/share/postgresql@16, or $pg_bundle/share/postgresql" >&2
-  exit 1
-}
-
-verify_postgres_relocatable_layout() {
-  local pg_prefix="$1"
-  local compiled_bindir compiled_sharedir compiled_prefix
-  compiled_bindir="$("$pg_prefix/bin/pg_config" --bindir)"
-  compiled_sharedir="$("$pg_prefix/bin/pg_config" --sharedir)"
-
-  case "$compiled_bindir" in
-    */bin)
-      compiled_prefix="${compiled_bindir%/bin}"
-      ;;
-    *)
-      echo "PostgreSQL runtime is not relocatable enough for the macOS app bundle." >&2
-      echo "pg_config --bindir: $compiled_bindir" >&2
-      echo "Expected pg_config --bindir to end in /bin." >&2
-      exit 1
-      ;;
-  esac
-
-  case "$compiled_sharedir" in
-    "$compiled_prefix/share"|"$compiled_prefix/share/"*)
-      return
-      ;;
-  esac
-
-  echo "PostgreSQL runtime is not relocatable enough for the macOS app bundle." >&2
-  echo "pg_config --bindir: $compiled_bindir" >&2
-  echo "pg_config --sharedir: $compiled_sharedir" >&2
-  echo "Homebrew PostgreSQL cannot be copied directly because its bindir and sharedir use different prefixes." >&2
-  echo "Build a self-contained runtime with scripts/build_relocatable_postgres_macos.sh and pass SUPER_DOLPHIN_POSTGRES_DIST to the emitted path." >&2
-  exit 1
-}
-
-verify_postgres_runtime() {
-  local pg_bundle="$1"
-  run_packaged_smoke_check "PostgreSQL initdb" "$pg_bundle/bin/initdb" --version
-  run_packaged_smoke_check "PostgreSQL postgres" "$pg_bundle/bin/postgres" --version
-  run_packaged_smoke_check "PostgreSQL pg_ctl" "$pg_bundle/bin/pg_ctl" --version
-  verify_postgres_share_dir "$pg_bundle"
 }
 
 verify_packaged_git() {
@@ -1664,15 +1600,6 @@ sign_macho_tree() {
   done
 }
 
-pg_src="${SUPER_DOLPHIN_POSTGRES_DIST:-$root/third_party/postgres/$platform}"
-for bin in postgres initdb pg_ctl pg_config; do
-  if [[ ! -x "$pg_src/bin/$bin" ]]; then
-    echo "missing PostgreSQL binary: $pg_src/bin/$bin" >&2
-    echo "Set SUPER_DOLPHIN_POSTGRES_DIST to a PostgreSQL runtime containing bin/postgres, bin/initdb, bin/pg_ctl, and bin/pg_config." >&2
-    exit 1
-  fi
-done
-verify_postgres_relocatable_layout "$pg_src"
 resolve_release_profile
 resolve_update_config
 resolve_packaged_relay_env
@@ -1690,7 +1617,7 @@ macos="$contents/MacOS"
 resources="$contents/Resources"
 
 rm -rf "$app" "$dmg_path" "$dmg_path.sha256"
-mkdir -p "$macos" "$resources/bin" "$resources/postgres/$platform"
+mkdir -p "$macos" "$resources/bin"
 
 phase_start "frontend build"
 if [[ "${SUPER_DOLPHIN_SKIP_FRONTEND_BUILD:-}" != "1" ]]; then
@@ -1733,7 +1660,7 @@ cp "$root/bin/agent-terminal" "$macos/agent-terminal"
 cp "$root/bin/mcp-orch" "$resources/bin/mcp-orch"
 cp "$root/bin/mcp-lsp" "$resources/bin/mcp-lsp"
 cp "$root/bin/mcp-ida" "$resources/bin/mcp-ida"
-cp -R "$root/migrations" "$resources/migrations"
+copy_sqlite_migrations "$resources"
 copy_model_registry "$resources"
 write_packaged_relay_env "$resources"
 write_packaged_video_env "$resources"
@@ -1753,17 +1680,8 @@ phase_start "bundle lsp dylibs"
 bundle_lsp_dylibs "$resources"
 phase_end
 
-phase_start "copy postgres"
-rsync -aL --delete "$pg_src"/ "$resources/postgres/$platform"/ || { rc=$?; [ $rc -eq 23 ] || [ $rc -eq 24 ] || exit $rc; }
-phase_end
-
-phase_start "bundle postgres dylibs"
-bundle_homebrew_dylibs "$resources/postgres/$platform"
-verify_no_broken_symlinks "$app"
-phase_end
-
 phase_start "macos startup compatibility"
-verify_startup_macos_compatibility "$macos_min_version" "$resources/postgres/$platform"
+verify_startup_macos_compatibility "$macos_min_version"
 phase_end
 
 phase_start "write plist"
@@ -1799,12 +1717,11 @@ PLIST
 phase_end
 
 phase_start "codesign macho tree"
-sign_macho_tree "$codesign_identity" "$macos" "$resources/bin" "$resources/lib" "$resources/libexec" "$resources/postgres/$platform" "$resources/lsp"
+sign_macho_tree "$codesign_identity" "$macos" "$resources/bin" "$resources/lib" "$resources/libexec" "$resources/lsp"
 restore_git_core_hardlinks "$resources"
 phase_end
 
 phase_start "runtime smoke checks"
-verify_postgres_runtime "$resources/postgres/$platform"
 verify_packaged_git "$resources"
 write_codex_manifest "$resources"
 write_lsp_manifest "$resources"

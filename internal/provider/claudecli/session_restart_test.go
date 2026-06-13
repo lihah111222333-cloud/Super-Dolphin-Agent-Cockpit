@@ -116,6 +116,8 @@ var launchCLIOverrideMu sync.Mutex
 
 const restartTestTimeout = 15 * time.Second
 
+type testLaunchCLI func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error)
+
 func overrideLaunchCLI(t *testing.T, fn func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error)) func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 	t.Helper()
 	launchCLIOverrideMu.Lock()
@@ -123,6 +125,18 @@ func overrideLaunchCLI(t *testing.T, fn func(string, string, string, string, cli
 		launchCLIOverrideMu.Unlock()
 	})
 	return fn
+}
+
+func loggedInClaudeAuthStatus(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error) {
+	return claudeAuthStatus{LoggedIn: true, AuthMethod: "oauth_token", APIProvider: "firstParty"}, `{"loggedIn":true}`, nil
+}
+
+func newTestDriverWithLaunch(t *testing.T, mirror contract.SkillMirrorReconciler, fn testLaunchCLI) *driver {
+	t.Helper()
+	d := newDriver(nil, nil, nil, nil, nil, mirror, nil).(*driver)
+	d.launchCLI = overrideLaunchCLI(t, fn)
+	d.authStatus = loggedInClaudeAuthStatus
+	return d
 }
 
 func snapshotSessionState(s *session) (string, string, chan struct{}) {
