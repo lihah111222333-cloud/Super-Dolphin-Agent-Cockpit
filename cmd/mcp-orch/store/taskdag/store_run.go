@@ -21,8 +21,8 @@ import (
 func (s *store) CreateRun(ctx context.Context, input CreateRunInput) (*Run, error) {
 	metadata := input.Metadata
 	if metadata == nil {
-		// 与 migration 0077 task_dag_runs.metadata NOT NULL DEFAULT '{}'::jsonb 对齐：
-		// 用 jsonb 空对象兜底，避免读路径 fromTaskDagRun 拿到 jsonb null 时与对象语义错位。
+		// 与 task_dag_runs.metadata NOT NULL DEFAULT '{}' 对齐：
+		// 用 JSON 空对象兜底，避免读路径拿到 null 时与对象语义错位。
 		metadata = json.RawMessage("{}")
 	}
 	return queryOneWrite(ctx, func() (taskDagRunRow, error) {
@@ -57,11 +57,11 @@ func (s *store) ListRuns(ctx context.Context, filter ListRunsFilter) ([]Run, err
 		return nil, wrapTaskDAGError(err, "list", "task_dag_run")
 	}
 	defer rows.Close()
-	runs, err := scanTaskDagRunRows(rows)
+	runs, err := scanTaskDagRunListRows(rows)
 	if err != nil {
 		return nil, wrapTaskDAGError(err, "list", "task_dag_run")
 	}
-	return mapRows(runs, fromTaskDagRunRow), nil
+	return mapRows(runs, fromTaskDagRunListRow), nil
 }
 
 // PromoteRootNodesToReady 把 dag_key 下所有 depends_on=[] 且 status='pending'
@@ -203,19 +203,27 @@ FROM task_dag_runs
 WHERE run_key = ?`
 
 const listTaskDagRunsByKeySQL = `
-SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at
+SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, budget_used, budget_limit, created_at, updated_at
 FROM task_dag_runs
 WHERE dag_key = ?
   AND (?2 = '' OR status = ?2)
 ORDER BY started_at DESC, id DESC
 LIMIT ?3`
 
+const loadTaskDagRunEventsForCancelSQL = `
+SELECT CAST(events AS BLOB)
+FROM task_dag_runs
+WHERE dag_key = ?1
+  AND id = ?2
+  AND run_key = ?3
+  AND status = 'running'`
+
 const cancelTaskDagRunSQL = `
 UPDATE task_dag_runs
 SET status = 'cancelled',
     finished_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
-    events = json_insert(COALESCE(events, '[]'), '$[#]', json(?1))
+    events = ?1
 WHERE dag_key = ?2
   AND id = ?3
   AND run_key = ?4
@@ -243,13 +251,36 @@ type taskDagRunRow struct {
 	UpdatedAt          int64
 }
 
+type taskDagRunListRow struct {
+	ID                 int64
+	RunKey             string
+	DagKey             string
+	DagVersionSnapshot int64
+	TriggerSource      string
+	Status             string
+	StartedAt          int64
+	FinishedAt         *int64
+	BudgetUsed         int64
+	BudgetLimit        *int64
+	CreatedAt          int64
+	UpdatedAt          int64
+}
+
 func getTaskDagRunRow(ctx context.Context, db sqlc.DBTX, runKey string) (taskDagRunRow, error) {
 	return scanTaskDagRunRow(db.QueryRowContext(ctx, getTaskDagRunSQL, runKey))
 }
 
 func cancelTaskDagRunRow(ctx context.Context, db sqlc.DBTX, input TerminateRunInput, event []byte) error {
+	var currentEvents json.RawMessage
+	if err := db.QueryRowContext(ctx, loadTaskDagRunEventsForCancelSQL, input.DagKey, input.RunID, input.RunKey).Scan(&currentEvents); err != nil {
+		return err
+	}
+	nextEvents, err := appendRunEventJSON(currentEvents, event)
+	if err != nil {
+		return err
+	}
 	var id int64
-	return db.QueryRowContext(ctx, cancelTaskDagRunSQL, event, input.DagKey, input.RunID, input.RunKey).Scan(&id)
+	return db.QueryRowContext(ctx, cancelTaskDagRunSQL, nextEvents, input.DagKey, input.RunID, input.RunKey).Scan(&id)
 }
 
 func scanTaskDagRunRows(rows *sql.Rows) ([]taskDagRunRow, error) {
@@ -257,6 +288,31 @@ func scanTaskDagRunRows(rows *sql.Rows) ([]taskDagRunRow, error) {
 	for rows.Next() {
 		row, err := scanTaskDagRunRow(rows)
 		if err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func scanTaskDagRunListRows(rows *sql.Rows) ([]taskDagRunListRow, error) {
+	out := make([]taskDagRunListRow, 0)
+	for rows.Next() {
+		var row taskDagRunListRow
+		if err := rows.Scan(
+			&row.ID,
+			&row.RunKey,
+			&row.DagKey,
+			&row.DagVersionSnapshot,
+			&row.TriggerSource,
+			&row.Status,
+			&row.StartedAt,
+			&row.FinishedAt,
+			&row.BudgetUsed,
+			&row.BudgetLimit,
+			&row.CreatedAt,
+			&row.UpdatedAt,
+		); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -295,6 +351,10 @@ func fromTaskDagRunRow(row taskDagRunRow) Run {
 	return fromTaskDagRunRaw(row.ID, row.RunKey, row.DagKey, row.DagVersionSnapshot, row.TriggerSource, row.Status, row.StartedAt, row.FinishedAt, row.Events, row.BudgetUsed, row.BudgetLimit, row.Metadata, row.CreatedAt, row.UpdatedAt)
 }
 
+func fromTaskDagRunListRow(row taskDagRunListRow) Run {
+	return fromTaskDagRunRaw(row.ID, row.RunKey, row.DagKey, row.DagVersionSnapshot, row.TriggerSource, row.Status, row.StartedAt, row.FinishedAt, nil, row.BudgetUsed, row.BudgetLimit, nil, row.CreatedAt, row.UpdatedAt)
+}
+
 func fromTaskDagRunRaw(id int64, runKey, dagKey string, dagVersionSnapshot int64, triggerSource, status string, startedAt int64, finishedAt *int64, events []byte, budgetUsed int64, budgetLimit *int64, metadata []byte, createdAt, updatedAt int64) Run {
 	return Run{
 		ID:                 id,
@@ -326,13 +386,12 @@ func nullableInt64(v *int64) *int64 {
 	return v
 }
 
-// WithRunTx 起单一 PG 事务，fn 拿到的 tx RunStore 是
+// WithRunTx 起单一 SQLite BEGIN IMMEDIATE 事务，fn 拿到的 tx RunStore 是
 // 事务绑定的 *store 运行时实例，所有 RunStore 方法调用都在同事务内。
 //
 // 主要调用点：service.StartDAG 使用 WithRunTx 原子化 CreateRun +
 // PromoteRootNodesToReady，任一失败都会回滚事务、避免“run 已建却
-// 根节点未 ready”脱状态。 PG 事务跨 task_dag_runs / task_dag_nodes 两
-// 表不是问题。
+// 根节点未 ready”脱状态。
 func (s *store) WithRunTx(ctx context.Context, fn func(tx RunStore) error) error {
 	return wrapTaskDAGError(sqlctx.WithImmediateTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
 		return fn(&store{db: tx, q: txq})
