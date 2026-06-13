@@ -23,7 +23,7 @@ func TestUploadFileCopiesPDFAndTXTToWorkingDirUploadDir(t *testing.T) {
 		ext     string
 	}{
 		{name: "notes.txt", content: []byte("plain text source"), ext: ".txt"},
-		{name: "manual.PDF", content: []byte("%PDF-1.7\nsource"), ext: ".pdf"},
+		{name: "manual.PDF", content: minimalPDFWithText("pdf source"), ext: ".pdf"},
 	}
 
 	for _, tt := range tests {
@@ -98,6 +98,64 @@ func TestUploadFileOverwritesExistingTargetWithSameName(t *testing.T) {
 	}
 	if !bytes.Equal(written, []byte("new datasource content")) {
 		t.Fatalf("stored content = %q, want overwritten content", written)
+	}
+}
+
+func TestUploadFilePersistsExtractedTextContent(t *testing.T) {
+	store := &recordingDatasourceStore{}
+	svc := NewServiceWithStore(store)
+	project := t.TempDir()
+	t.Chdir(project)
+	sourceDir := t.TempDir()
+	source := filepath.Join(sourceDir, "notes.txt")
+	if err := os.WriteFile(source, []byte("plain text source"), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	got, err := svc.UploadFile(context.Background(), UploadFileRequest{
+		SourcePath: source,
+	})
+	if err != nil {
+		t.Fatalf("UploadFile() error = %v", err)
+	}
+
+	if store.upsertCalls != 1 {
+		t.Fatalf("store upsert calls = %d, want 1", store.upsertCalls)
+	}
+	if store.upserted.WorkspaceRoot != project {
+		t.Fatalf("WorkspaceRoot = %q, want %q", store.upserted.WorkspaceRoot, project)
+	}
+	if store.upserted.Name != "notes.txt" || store.upserted.Extension != ".txt" {
+		t.Fatalf("upserted identity = %+v", store.upserted)
+	}
+	if store.upserted.Content != "plain text source" {
+		t.Fatalf("Content = %q, want extracted text", store.upserted.Content)
+	}
+	if store.upserted.StoredPath != got.StoredPath {
+		t.Fatalf("StoredPath = %q, want %q", store.upserted.StoredPath, got.StoredPath)
+	}
+}
+
+func TestUploadFilePersistsExtractedPDFTextContent(t *testing.T) {
+	store := &recordingDatasourceStore{}
+	svc := NewServiceWithStore(store)
+	project := t.TempDir()
+	t.Chdir(project)
+	sourceDir := t.TempDir()
+	source := filepath.Join(sourceDir, "manual.pdf")
+	if err := os.WriteFile(source, minimalPDFWithText("Hello PDF datasource"), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	_, err := svc.UploadFile(context.Background(), UploadFileRequest{
+		SourcePath: source,
+	})
+	if err != nil {
+		t.Fatalf("UploadFile() error = %v", err)
+	}
+
+	if store.upserted.Content != "Hello PDF datasource" {
+		t.Fatalf("Content = %q, want extracted PDF text", store.upserted.Content)
 	}
 }
 
@@ -239,4 +297,35 @@ func TestDeleteFileReturnsNotFoundForMissingDatasourceFile(t *testing.T) {
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("DeleteFile() error = %v, want os.ErrNotExist", err)
 	}
+}
+
+type recordingDatasourceStore struct {
+	upsertCalls int
+	upserted    UpsertDatasourceDocumentParams
+	documents   []DatasourceDocument
+}
+
+func (s *recordingDatasourceStore) UpsertDocument(_ context.Context, params UpsertDatasourceDocumentParams) error {
+	s.upsertCalls++
+	s.upserted = params
+	return nil
+}
+
+func (s *recordingDatasourceStore) ListDocuments(context.Context, string) ([]DatasourceDocument, error) {
+	return s.documents, nil
+}
+
+func (s *recordingDatasourceStore) DeleteDocument(context.Context, string, string) error {
+	return nil
+}
+
+func minimalPDFWithText(text string) []byte {
+	body := "BT /F1 12 Tf 72 720 Td (" + text + ") Tj ET"
+	return []byte("%PDF-1.4\n" +
+		"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n" +
+		"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n" +
+		"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj\n" +
+		"4 0 obj << /Length 0 >> stream\n" + body + "\nendstream endobj\n" +
+		"5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n" +
+		"trailer << /Root 1 0 R >>\n%%EOF\n")
 }
