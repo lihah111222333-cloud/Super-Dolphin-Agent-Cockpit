@@ -85,6 +85,24 @@ describe('SkillsPage module', () => {
 });
 
 describe('SkillsPage backend migration', () => {
+  it('renders the plugins marketplace tab with connected apps and searchable recommendations', async () => {
+    renderSkillsPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'MCP工具' }));
+
+    expect(await screen.findByRole('heading', { name: '插件' })).toBeInTheDocument();
+    expect(screen.getByText('在你常用的工具中使用 Super-Dolphin')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '已连接' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '推荐' })).toBeInTheDocument();
+    expect(screen.getByText('Creative Production')).toBeInTheDocument();
+    expect(screen.getByText('Slack')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('搜索插件和技能'), { target: { value: 'slack' } });
+
+    expect(screen.getByText('Slack')).toBeInTheDocument();
+    expect(screen.queryByText('Creative Production')).not.toBeInTheDocument();
+  });
+
   it('frames the plugin entry around the current local skills surface', async () => {
     renderSkillsPage();
 
