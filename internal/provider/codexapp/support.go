@@ -282,6 +282,7 @@ func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) threadStart
 		Summary:               supportutil.ConfigString(req.Config, "summary"),
 		Effort:                normalizeCodexAppEffort(supportutil.ConfigString(req.Config, "effort")),
 		Sandbox:               codexSandboxWireJSON(supportutil.ConfigJSON(req.Config, "sandbox")),
+		MCPConfig:             supportutil.ConfigJSON(req.Config, "mcpConfig"),
 	}
 	codexNativeToolPolicyFromConfig(req.Config).ApplyThreadStartParams(&params)
 	return params

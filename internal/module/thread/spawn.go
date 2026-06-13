@@ -309,7 +309,7 @@ func (s *service) runPendingSpawn(
 	g.Go(func() error { return s.resolveRoutedPrompt(gCtx, req) })
 	g.Go(func() error {
 		var aerr error
-		assemblyInput, cleanupScratchpad, aerr = s.buildStartAssemblyInput(snapshot, agentID)
+		assemblyInput, cleanupScratchpad, aerr = s.buildStartAssemblyInput(gCtx, snapshot, agentID)
 		return aerr
 	})
 	if err := g.Wait(); err != nil {

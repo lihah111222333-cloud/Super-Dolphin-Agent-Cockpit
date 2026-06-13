@@ -57,6 +57,7 @@ type service struct {
 	promptAssembly contract.PromptAssemblyService
 	cfg            *contract.Config
 	toolRegistry   contract.ToolRegistry
+	mcpServers     contract.MCPServerConfigProvider
 	turns          contract.TurnThreadCleaner
 	orchestration  OrchestrationFacade
 	tracing        *platformobs.Service

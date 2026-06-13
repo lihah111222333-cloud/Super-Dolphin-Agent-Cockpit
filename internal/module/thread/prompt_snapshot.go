@@ -272,7 +272,7 @@ func (s *service) rebuildResumePromptSnapshot(
 		Name:              strings.TrimSpace(state.Prompt),
 		PromptAssemblyRef: s.promptAssembly,
 	}
-	input, cleanupScratchpad, err := s.buildStartAssemblyInput(req, state.PublicThreadID)
+	input, cleanupScratchpad, err := s.buildStartAssemblyInput(ctx, req, state.PublicThreadID)
 	if cleanupScratchpad != nil {
 		defer cleanupScratchpad()
 	}
