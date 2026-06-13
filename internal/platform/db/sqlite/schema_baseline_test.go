@@ -33,6 +33,7 @@ var allPersistentTables = []string{
 	"cwd_instance_locks",
 	"hook_pending_reviews",
 	"prompt_intent_drafts",
+	"prompt_recall_topics",
 	"prompt_routing_tests",
 	"prompt_template_sections",
 	"prompt_template_versions",

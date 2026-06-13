@@ -184,6 +184,17 @@ CREATE TABLE IF NOT EXISTS prompt_template_sections (
     UNIQUE(template_id, section_key)
 );
 
+CREATE TABLE IF NOT EXISTS prompt_recall_topics (
+    cwd TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    template_id INTEGER NOT NULL,
+    section_key TEXT NOT NULL,
+    PRIMARY KEY(cwd, topic),
+    CHECK(trim(cwd) <> ''),
+    CHECK(trim(topic) <> ''),
+    CHECK(template_id >= 0)
+);
+
 CREATE TABLE IF NOT EXISTS prompt_routing_tests (
     id INTEGER PRIMARY KEY,
     input TEXT NOT NULL UNIQUE,
