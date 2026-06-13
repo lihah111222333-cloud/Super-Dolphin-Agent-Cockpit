@@ -82,12 +82,9 @@ func (s *service) UploadFile(ctx context.Context, req UploadFileRequest) (Upload
 		return UploadFileResult{}, fmt.Errorf("%w: %s", errUnsupportedFileExtension, ext)
 	}
 
-	targetDir, err := currentDatasourceUploadDir()
+	targetDir, err := ensureCurrentDatasourceUploadDir()
 	if err != nil {
 		return UploadFileResult{}, err
-	}
-	if err := os.MkdirAll(targetDir, 0o755); err != nil {
-		return UploadFileResult{}, fmt.Errorf("create datasource upload dir: %w", err)
 	}
 	targetPath := filepath.Join(targetDir, filepath.Base(sourcePath))
 	if err := copyUploadFile(ctx, sourcePath, targetPath); err != nil {
@@ -110,15 +107,12 @@ func (s *service) ListFiles(ctx context.Context) (ListFilesResult, error) {
 		return ListFilesResult{}, err
 	}
 
-	uploadDir, err := currentDatasourceUploadDir()
+	uploadDir, err := ensureCurrentDatasourceUploadDir()
 	if err != nil {
 		return ListFilesResult{}, err
 	}
 	entries, err := os.ReadDir(uploadDir)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return ListFilesResult{FileNames: []string{}}, nil
-		}
 		return ListFilesResult{}, fmt.Errorf("read datasource upload dir: %w", err)
 	}
 
@@ -140,6 +134,17 @@ func (s *service) ListFiles(ctx context.Context) (ListFilesResult, error) {
 	}
 	sort.Strings(fileNames)
 	return ListFilesResult{FileNames: fileNames}, nil
+}
+
+func ensureCurrentDatasourceUploadDir() (string, error) {
+	uploadDir, err := currentDatasourceUploadDir()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
+		return "", fmt.Errorf("create datasource upload dir: %w", err)
+	}
+	return uploadDir, nil
 }
 
 func (s *service) DeleteFile(ctx context.Context, req DeleteFileRequest) (DeleteFileResult, error) {

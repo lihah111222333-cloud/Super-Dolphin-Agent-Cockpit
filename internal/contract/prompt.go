@@ -23,8 +23,19 @@ type MCPSnapshot struct {
 	Servers                  []string
 	Tools                    []string
 	Instructions             map[string]string
+	ServerConfigs            map[string]MCPServerConfig
 	InstructionsDeltaEnabled bool
 	InstructionAttachments   []MCPAttachmentRef
+}
+
+type MCPServerConfig struct {
+	Transport string            `json:"transport,omitempty"`
+	URL       string            `json:"url,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
+}
+
+type MCPServerConfigProvider interface {
+	ListMCPServerConfigs(ctx context.Context, cwd string) (map[string]MCPServerConfig, error)
 }
 
 type MCPAttachmentRef struct {
@@ -109,6 +120,7 @@ const (
 	DynamicSectionMemoryContext        = "memory_context"
 	DynamicSectionMemoryEntrypoint     = "memory_entrypoint"
 	DynamicSectionEnvInfoSimple        = "env_info_simple"
+	DynamicSectionDatasource           = "datasource"
 	DynamicSectionLanguage             = "language"
 	DynamicSectionMCPInstructions      = "mcp_instructions"
 	DynamicSectionOutputStyle          = "output_style"

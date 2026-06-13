@@ -103,6 +103,31 @@ func TestAssembleStartIncludesBuiltinsAndDynamicSections(t *testing.T) {
 	assertStartAssemblyBoundary(t, assembly, identityContent)
 }
 
+func TestAssembleStartIncludesDatasourceDynamicSection(t *testing.T) {
+	svc := NewService(&Config{}, nil)
+	datasourceText := "# Data sources\n- alpha.pdf\n- zeta.txt"
+	if err := svc.RegisterDynamicProvider(DynamicTextProvider{
+		Name: DynamicSectionDatasource,
+		ResolveFunc: func(context.Context, SectionContext) (*string, error) {
+			return &datasourceText, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterDynamicProvider() error = %v", err)
+	}
+
+	assembly, err := svc.AssembleStart(context.Background(), StartInput{CWD: "/repo"})
+	if err != nil {
+		t.Fatalf("AssembleStart() error = %v", err)
+	}
+	content := requireResolvedPromptSectionContent(t, assembly.ResolvedSections, DynamicSectionDatasource)
+	if content != datasourceText {
+		t.Fatalf("datasource section content = %q, want %q", content, datasourceText)
+	}
+	if !strings.Contains(assembly.BaseInstructions, datasourceText) {
+		t.Fatalf("BaseInstructions missing datasource section:\n%s", assembly.BaseInstructions)
+	}
+}
+
 func TestAssembleStartKeepsStaticSectionsAheadOfDynamicSections(t *testing.T) {
 	svc := NewService(&Config{}, nil)
 	lateStatic := "late static sentinel"

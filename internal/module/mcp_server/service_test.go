@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 func TestAddServersWritesProjectAgentConfig(t *testing.T) {
@@ -207,6 +209,47 @@ func TestListServersReturnsEmptyWhenConfigDoesNotExist(t *testing.T) {
 	}
 	if len(got.MCPServers) != 0 {
 		t.Fatalf("MCPServers = %#v, want empty", got.MCPServers)
+	}
+}
+
+func TestMCPServerConfigProviderReadsProjectConfigForNestedCWD(t *testing.T) {
+	svc := NewService()
+	project := t.TempDir()
+	nested := filepath.Join(project, "pkg", "api")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("create nested cwd: %v", err)
+	}
+	configPath := filepath.Join(project, ".agent", "mcp_server", "config.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("create config dir: %v", err)
+	}
+	existing := []byte(`{
+  "mcpServers": {
+    "my-search": {
+      "transport": "http",
+      "url": "https://your-domain.com/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_KEY"
+      }
+    }
+  }
+}`)
+	if err := os.WriteFile(configPath, existing, 0o600); err != nil {
+		t.Fatalf("write existing config: %v", err)
+	}
+
+	provider := AsMCPServerConfigProvider(svc)
+	got, err := provider.ListMCPServerConfigs(context.Background(), nested)
+	if err != nil {
+		t.Fatalf("ListMCPServerConfigs() error = %v", err)
+	}
+	want := contract.MCPServerConfig{
+		Transport: "http",
+		URL:       "https://your-domain.com/mcp",
+		Headers:   map[string]string{"Authorization": "Bearer YOUR_API_KEY"},
+	}
+	if got["my-search"].Transport != want.Transport || got["my-search"].URL != want.URL || got["my-search"].Headers["Authorization"] != want.Headers["Authorization"] {
+		t.Fatalf("ListMCPServerConfigs() = %#v, want my-search %#v", got, want)
 	}
 }
 

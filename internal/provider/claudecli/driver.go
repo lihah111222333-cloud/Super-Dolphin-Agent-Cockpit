@@ -128,6 +128,10 @@ func (d *driver) Name() string { return "claude" }
 
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
 	launchConfig := configFromMap(req.Config)
+	extraBinaries, err := providershared.ConfigMCPBinaries(req.Config, "mcpConfig", "mcp_config")
+	if err != nil {
+		return nil, fmt.Errorf("claudecli: mcp config: %w", err)
+	}
 	manifest := manifestbuilder.BuildManifest(dto.ManifestContext{
 		AgentID:  strings.TrimSpace(req.AgentID),
 		ThreadID: strings.TrimSpace(req.AgentID),
@@ -138,6 +142,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		BinaryDir:     providershared.ResolveBinaryDir(req.CWD, req.Config),
 		Env:           providershared.StringMap(req.Config["env"]),
 		AutoApprove:   providershared.ConfigStringSlice(req.Config, "auto_approve", "autoApprove"),
+		ExtraBinaries: extraBinaries,
 		ProxyHTTPAddr: d.proxyHTTPAddr(),
 		TransportMode: dto.ManifestTransportStdioOnly,
 	})
@@ -161,6 +166,10 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	launchConfig := configFromMap(rawConfig)
 	launchConfig.Effort = strings.TrimSpace(req.Effort)
 	launchConfig.PromptSnapshot = snapshot
+	extraBinaries, err := providershared.ConfigMCPBinaries(rawConfig, "mcpConfig", "mcp_config")
+	if err != nil {
+		return nil, fmt.Errorf("claudecli: mcp config: %w", err)
+	}
 	manifest := manifestbuilder.BuildManifest(dto.ManifestContext{
 		AgentID:  strings.TrimSpace(req.AgentID),
 		ThreadID: strings.TrimSpace(req.ThreadID),
@@ -171,6 +180,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		BinaryDir:     providershared.ResolveBinaryDir(req.CWD, rawConfig),
 		Env:           providershared.StringMap(rawConfig["env"]),
 		AutoApprove:   providershared.ConfigStringSlice(rawConfig, "auto_approve", "autoApprove"),
+		ExtraBinaries: extraBinaries,
 		ProxyHTTPAddr: d.proxyHTTPAddr(),
 		TransportMode: dto.ManifestTransportStdioOnly,
 	})

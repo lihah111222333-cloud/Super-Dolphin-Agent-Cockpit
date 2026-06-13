@@ -25,7 +25,7 @@ func NewService(
 	orchestration OrchestrationFacade,
 	threadEvents *bus.ThreadEmitters,
 ) Service {
-	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil, nil, nil, nil, nil, nil)
+	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 func NewServiceWithPromptAssembly(
@@ -41,7 +41,7 @@ func NewServiceWithPromptAssembly(
 	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
 ) Service {
-	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, nil, nil, nil, nil, nil)
+	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, nil, nil, nil, nil, nil, nil)
 }
 
 func NewServiceWithPromptAssemblyAndSharedFiles(
@@ -57,6 +57,7 @@ func NewServiceWithPromptAssemblyAndSharedFiles(
 	promptAssembly contract.PromptAssemblyService,
 	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
+	mcpServers contract.MCPServerConfigProvider,
 	promptStore promptstore.Store,
 	promptCatalog promptstore.RuntimePromptCatalog,
 	matchWhenEval contract.MatchWhenEvaluator,
@@ -67,7 +68,7 @@ func NewServiceWithPromptAssemblyAndSharedFiles(
 	if len(tracingOpt) > 0 {
 		tracing = tracingOpt[0]
 	}
-	return newService(logger, threadStore, bindingStore, sharedFiles, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, promptStore, promptCatalog, matchWhenEval, enableWhenEval, tracing)
+	return newService(logger, threadStore, bindingStore, sharedFiles, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, mcpServers, promptStore, promptCatalog, matchWhenEval, enableWhenEval, tracing)
 }
 
 func newService(
@@ -83,6 +84,7 @@ func newService(
 	promptAssembly contract.PromptAssemblyService,
 	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
+	mcpServers contract.MCPServerConfigProvider,
 	promptStore promptstore.Store,
 	promptCatalog promptstore.RuntimePromptCatalog,
 	matchWhenEval contract.MatchWhenEvaluator,
@@ -106,6 +108,7 @@ func newService(
 		promptAssembly:   promptAssembly,
 		cfg:              cfg,
 		toolRegistry:     toolRegistry,
+		mcpServers:       mcpServers,
 		turns:            turns,
 		orchestration:    orchestration,
 		tracing:          tracing,
