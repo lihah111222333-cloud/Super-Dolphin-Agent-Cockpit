@@ -442,13 +442,71 @@ function useAppShellState(store, skipBootstrap) {
   return { activeLabel, memoryBadge, projectPath, theme, toggleTheme, rightPanelOpen, setRightPanelOpen, updateBanner };
 }
 
+const WORKBENCH_SIDEBAR_MIN_WIDTH = 280;
+const WORKBENCH_SIDEBAR_DEFAULT_WIDTH = 340;
+const WORKBENCH_SIDEBAR_MAX_WIDTH = 460;
+const WORKBENCH_SIDEBAR_KEY_STEP = 16;
+
+function clampWorkbenchSidebarWidth(value) {
+  const numeric = Number(value);
+  const width = Number.isFinite(numeric) ? numeric : WORKBENCH_SIDEBAR_DEFAULT_WIDTH;
+  return Math.max(WORKBENCH_SIDEBAR_MIN_WIDTH, Math.min(WORKBENCH_SIDEBAR_MAX_WIDTH, Math.round(width)));
+}
+
+function workbenchSidebarNextKeyboardWidth(event, currentWidth) {
+  const nextWidthByKey = {
+    ArrowLeft: currentWidth - WORKBENCH_SIDEBAR_KEY_STEP,
+    PageDown: currentWidth - WORKBENCH_SIDEBAR_KEY_STEP,
+    ArrowRight: currentWidth + WORKBENCH_SIDEBAR_KEY_STEP,
+    PageUp: currentWidth + WORKBENCH_SIDEBAR_KEY_STEP,
+    Home: WORKBENCH_SIDEBAR_MIN_WIDTH,
+    End: WORKBENCH_SIDEBAR_MAX_WIDTH,
+  };
+  return nextWidthByKey[event.key] ?? null;
+}
+
 function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggleTheme, rightPanelOpen, setRightPanelOpen, updateBanner }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [workbenchSidebarWidth, setWorkbenchSidebarWidth] = useState(WORKBENCH_SIDEBAR_DEFAULT_WIDTH);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const setActivePageFromSidebar = useCallback((page) => {
     store.setActivePage(page);
     setSidebarOpen(false);
   }, [store]);
+  const beginWorkbenchSidebarResize = useCallback((event) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = workbenchSidebarWidth;
+    const bodyEl = event.currentTarget?.closest?.('.sa-body');
+    let latestWidth = startWidth;
+    const move = (moveEvent) => {
+      if (moveEvent.buttons === 0) return;
+      const nextWidth = clampWorkbenchSidebarWidth(startWidth + (moveEvent.clientX - startX));
+      latestWidth = nextWidth;
+      bodyEl?.style.setProperty('--workbench-sidebar-width', `${nextWidth}px`);
+    };
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      setWorkbenchSidebarWidth(latestWidth);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+    try {
+      event.currentTarget?.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Synthetic and older browser pointer events can fail capture; window listeners still drive resizing.
+    }
+  }, [workbenchSidebarWidth]);
+  const handleWorkbenchSidebarResizeKeyDown = useCallback((event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    const nextWidth = workbenchSidebarNextKeyboardWidth(event, workbenchSidebarWidth);
+    if (nextWidth === null) return;
+    event.preventDefault();
+    setWorkbenchSidebarWidth(clampWorkbenchSidebarWidth(nextWidth));
+  }, [workbenchSidebarWidth]);
   const SidebarToggleIcon = sidebarOpen ? X : Menu;
   return (
     <div className={`sa-window${sidebarOpen ? ' sidebar-open' : ''}`} data-theme={theme} data-testid="frontend-app">
@@ -463,10 +521,13 @@ function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggle
         <SidebarToggleIcon size={22} aria-hidden="true" />
       </button>
       {sidebarOpen ? <button type="button" className="sidebar-scrim" aria-label="关闭工作台" onClick={closeSidebar} /> : null}
-      <div className="sa-body">
+      <div className="sa-body" style={{ '--workbench-sidebar-width': `${workbenchSidebarWidth}px` }}>
         <WorkbenchSidebar
           activePage={store.activePage}
           isOpen={sidebarOpen}
+          sidebarWidth={workbenchSidebarWidth}
+          onSidebarResizeKeyDown={handleWorkbenchSidebarResizeKeyDown}
+          onSidebarResizeStart={beginWorkbenchSidebarResize}
           setActivePage={setActivePageFromSidebar}
           store={store}
           projectPath={projectPath}
@@ -733,7 +794,19 @@ function SidebarProjectTree({ projectPath, setActivePage, store }) {
   );
 }
 
-function WorkbenchSidebar({ activePage, isOpen = false, setActivePage, store, projectPath, theme, toggleTheme, memorySimilarCount = 0 }) {
+function WorkbenchSidebar({
+  activePage,
+  isOpen = false,
+  sidebarWidth = WORKBENCH_SIDEBAR_DEFAULT_WIDTH,
+  onSidebarResizeKeyDown,
+  onSidebarResizeStart,
+  setActivePage,
+  store,
+  projectPath,
+  theme,
+  toggleTheme,
+  memorySimilarCount = 0,
+}) {
   const memoryBadgeCount = Math.max(0, Number(memorySimilarCount) || 0);
   const isDark = theme === COLOR_THEMES.dark;
   const ThemeIcon = isDark ? Sun : Moon;
@@ -812,6 +885,19 @@ function WorkbenchSidebar({ activePage, isOpen = false, setActivePage, store, pr
         <SettingsIcon size={25} aria-hidden="true" />
         <span>设置</span>
       </button>
+      <button
+        type="button"
+        className="workbench-sidebar-resizer"
+        data-testid="workbench-sidebar-resizer"
+        role="separator"
+        aria-label="调整工作台侧栏宽度"
+        aria-orientation="vertical"
+        aria-valuemin={WORKBENCH_SIDEBAR_MIN_WIDTH}
+        aria-valuemax={WORKBENCH_SIDEBAR_MAX_WIDTH}
+        aria-valuenow={sidebarWidth}
+        onKeyDown={onSidebarResizeKeyDown}
+        onPointerDown={onSidebarResizeStart}
+      />
     </aside>
   );
 }

@@ -654,6 +654,20 @@ async function showAllTraceDashboardEvents() {
     expect(within(sidebar).getByText('Super-Dolphin')).toBeInTheDocument();
     expect(within(sidebar).getByRole('button', { name: '新对话' })).toBeInTheDocument();
     expect(within(sidebar).getByRole('button', { name: '设置' })).toBeInTheDocument();
+    const sidebarResizer = within(sidebar).getByRole('separator', { name: '调整工作台侧栏宽度' });
+    expect(sidebarResizer).toHaveAttribute('aria-valuenow', '340');
+
+    fireEvent.keyDown(sidebarResizer, { key: 'ArrowLeft' });
+
+    expect(sidebarResizer).toHaveAttribute('aria-valuenow', '324');
+    expect(sidebar.parentElement).toHaveStyle({ '--workbench-sidebar-width': '324px' });
+
+    dispatchPointer(sidebarResizer, 'pointerdown', 324);
+    dispatchPointer(window, 'pointermove', 374);
+    dispatchPointer(window, 'pointerup', 374);
+
+    expect(sidebarResizer).toHaveAttribute('aria-valuenow', '374');
+    expect(sidebar.parentElement).toHaveStyle({ '--workbench-sidebar-width': '374px' });
   });
 
   it('keeps settings reachable from the collapsible workbench control', async () => {
@@ -729,6 +743,7 @@ async function showAllTraceDashboardEvents() {
     fireEvent.click(screen.getByRole('button', { name: '新对话' }));
 
     await screen.findByText('我们应该在 Super-Dolphin 中构建什么？');
+    expect(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '添加项目目录' })).toBeVisible();
     expect(screen.getByTestId('composer-input')).toHaveValue('');
   });
 
