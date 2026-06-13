@@ -5000,6 +5000,60 @@ details {
   flex-wrap: wrap;
 }
 
+.shared-files-overview {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  gap: 20px;
+  align-items: center;
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-2) 66%, var(--surface));
+}
+
+.shared-files-overview-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.shared-files-overview-copy span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.shared-files-overview-copy h2 {
+  margin: 0;
+  color: var(--text-pri);
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.shared-files-overview dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(88px, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.shared-files-overview dl div {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 10px 12px;
+}
+
+.shared-files-overview dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.shared-files-overview dd {
+  margin: 4px 0 0;
+  color: var(--text-pri);
+  font-size: 18px;
+  font-weight: 650;
+}
+
 .shared-files-search {
   min-width: min(280px, 100%);
   display: inline-flex;
@@ -9417,6 +9471,14 @@ textarea:disabled {
   .sa-window .composer-attach {
     min-width: 0;
     padding: 0 14px;
+  }
+
+  .shared-files-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .shared-files-overview dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
