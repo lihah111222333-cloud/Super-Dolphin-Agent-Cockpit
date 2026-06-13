@@ -404,7 +404,7 @@ func runPackageWriteLSPManifest(t *testing.T, scriptPath, goos, bundleRoot strin
 func writeMinimalPackagedMacOSApp(t *testing.T) string {
 	t.Helper()
 
-	app := filepath.Join(t.TempDir(), "Super Dolphin.app")
+	app := filepath.Join(t.TempDir(), "Super Dolphin TestApp")
 	macos := filepath.Join(app, "Contents", "MacOS")
 	resources := filepath.Join(app, "Contents", "Resources")
 	platform := bashVerifierPlatform()

@@ -30,6 +30,9 @@ const (
 	MaxCorePackageFiles     = 30
 	MaxPackageLines         = 10000
 	MaxCorePackageLines     = 10000
+	FuncCommentMinLines     = 30
+	FuncCommentMinDepth     = 3
+	FuncCommentMinCC        = 6
 )
 
 type ViolationKind int
@@ -43,6 +46,7 @@ const (
 	ViolationPackageCount
 	ViolationPackageLines
 	ViolationDeadKey
+	ViolationFuncComment
 )
 
 type Violation struct {
@@ -55,6 +59,7 @@ type Violation struct {
 	Message string
 }
 
+// String 输出守卫违规的可读文本。
 func (v Violation) String() string {
 	if v.Message != "" {
 		return v.Message
@@ -63,9 +68,10 @@ func (v Violation) String() string {
 }
 
 type CheckOptions struct {
-	RepoRoot  string
-	ScanRoots []string
-	SkipDirs  map[string]bool
+	RepoRoot            string
+	ScanRoots           []string
+	SkipDirs            map[string]bool
+	EnforceFuncComments bool
 }
 
 type packageStat struct {
@@ -74,10 +80,12 @@ type packageStat struct {
 	MaxFileLines int
 }
 
+// DefaultScanRoots 返回代码守卫默认扫描的源码入口。
 func DefaultScanRoots() []string {
 	return []string{"internal", "cmd", "scripts"}
 }
 
+// DefaultSkipDirs 返回扫描时固定跳过的目录。
 func DefaultSkipDirs() map[string]bool {
 	return map[string]bool{
 		".git":         true,
@@ -86,6 +94,7 @@ func DefaultSkipDirs() map[string]bool {
 	}
 }
 
+// CheckAll 按仓库维度运行完整代码守卫。
 func CheckAll(opts CheckOptions) []Violation {
 	repoRoot := opts.RepoRoot
 	if repoRoot == "" {
@@ -95,7 +104,7 @@ func CheckAll(opts CheckOptions) []Violation {
 	stats := map[string]*packageStat{}
 	violations := freezeRegistryIntegrityViolations()
 	for _, root := range scanRoots {
-		violations = append(violations, scanRoot(repoRoot, root, opts.skipDirs(), stats)...)
+		violations = append(violations, scanRoot(repoRoot, root, opts.skipDirs(), stats, opts.EnforceFuncComments)...)
 	}
 	violations = append(violations, packageViolations(stats)...)
 	violations = append(violations, postScanViolations(repoRoot, scanRoots, stats)...)
@@ -103,6 +112,7 @@ func CheckAll(opts CheckOptions) []Violation {
 	return violations
 }
 
+// CheckFiles 只检查传入的 Go 文件，供单文件守卫快速反馈。
 func CheckFiles(opts CheckOptions, paths []string) []Violation {
 	repoRoot := opts.RepoRoot
 	if repoRoot == "" {
@@ -124,12 +134,13 @@ func CheckFiles(opts CheckOptions, paths []string) []Violation {
 			})
 			continue
 		}
-		violations = append(violations, checkSingleFile(absPath, relPath, stats)...)
+		violations = append(violations, checkSingleFile(absPath, relPath, stats, opts.EnforceFuncComments)...)
 	}
 	sortViolations(violations)
 	return violations
 }
 
+// displayGuardPath 把绝对路径整理成守卫报告里稳定的仓库相对路径。
 func displayGuardPath(repoRoot, absPath string) string {
 	absRoot, err := filepath.Abs(repoRoot)
 	if err != nil {
@@ -164,6 +175,7 @@ func sortViolations(violations []Violation) {
 	})
 }
 
+// SplitLines 把文件内容拆成原始行，保留后续行号计算需要的形态。
 func SplitLines(data []byte) []string {
 	var out []string
 	sc := bufio.NewScanner(bytes.NewReader(data))
@@ -173,10 +185,12 @@ func SplitLines(data []byte) []string {
 	return out
 }
 
+// CountEffectiveLines 统计去掉空行和注释后的有效行数。
 func CountEffectiveLines(data []byte) int {
 	return EffectiveLinesInRange(SplitLines(data), 1, -1)
 }
 
+// EffectiveLinesInRange 统计指定行段内真正参与代码预算的行数。
 func EffectiveLinesInRange(rawLines []string, start, end int) int {
 	if len(rawLines) == 0 || start > len(rawLines) {
 		return 0
@@ -196,6 +210,7 @@ func EffectiveLinesInRange(rawLines []string, start, end int) int {
 	return count
 }
 
+// MeasureMaxNesting 计算控制流块的最大嵌套深度。
 func MeasureMaxNesting(node ast.Node, depth int) int {
 	maxDepth := depth
 	ast.Inspect(node, func(n ast.Node) bool {
@@ -214,6 +229,7 @@ func MeasureMaxNesting(node ast.Node, depth int) int {
 	return maxDepth
 }
 
+// MeasureCyclomaticComplexity 计算函数的圈复杂度。
 func MeasureCyclomaticComplexity(fd *ast.FuncDecl) int {
 	cc := 1
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
@@ -252,7 +268,8 @@ func (o CheckOptions) skipDirs() map[string]bool {
 	return DefaultSkipDirs()
 }
 
-func scanRoot(repoRoot, root string, skip map[string]bool, stats map[string]*packageStat) []Violation {
+// scanRoot 遍历一个源码根目录，并把文件级结果累加到包统计里。
+func scanRoot(repoRoot, root string, skip map[string]bool, stats map[string]*packageStat, enforceFuncComments bool) []Violation {
 	absRoot := filepath.Join(repoRoot, root)
 	if _, err := os.Stat(absRoot); os.IsNotExist(err) {
 		return nil
@@ -276,7 +293,7 @@ func scanRoot(repoRoot, root string, skip map[string]bool, stats map[string]*pac
 		if err != nil {
 			relPath = path
 		}
-		violations = append(violations, checkSingleFile(path, filepath.ToSlash(relPath), stats)...)
+		violations = append(violations, checkSingleFile(path, filepath.ToSlash(relPath), stats, enforceFuncComments)...)
 		return nil
 	}); err != nil {
 		violations = append(violations, Violation{Kind: ViolationFile, File: filepath.ToSlash(root), Message: fmt.Sprintf("%s: walk root error: %v", root, err)})
@@ -284,7 +301,8 @@ func scanRoot(repoRoot, root string, skip map[string]bool, stats map[string]*pac
 	return violations
 }
 
-func checkSingleFile(path, relPath string, stats map[string]*packageStat) []Violation {
+// checkSingleFile 检查单个 Go 文件，同时维护所在包的行数和文件数统计。
+func checkSingleFile(path, relPath string, stats map[string]*packageStat, enforceFuncComments bool) []Violation {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return []Violation{{Kind: ViolationFile, File: relPath, Message: fmt.Sprintf("%s: read error: %v", relPath, err)}}
@@ -312,11 +330,11 @@ func checkSingleFile(path, relPath string, stats map[string]*packageStat) []Viol
 
 	violations := fileLengthViolationsForFile(relPath, fileLines, factory)
 	fset := token.NewFileSet()
-	fileNode, parseErr := parser.ParseFile(fset, path, data, parser.SkipObjectResolution)
+	fileNode, parseErr := parser.ParseFile(fset, path, data, parser.ParseComments|parser.SkipObjectResolution)
 	if parseErr != nil {
 		return append(violations, Violation{Kind: ViolationFile, File: relPath, Message: fmt.Sprintf("%s: parse error: %v", relPath, parseErr)})
 	}
-	violations = append(violations, functionViolations(relPath, rawLines, fset, fileNode)...)
+	violations = append(violations, functionViolations(relPath, rawLines, fset, fileNode, enforceFuncComments && !isTest)...)
 	violations = append(violations, identifierViolations(relPath, fset, fileNode)...)
 	return violations
 }
@@ -350,28 +368,113 @@ func fileLineLimit(relPath string, factory bool) int {
 	return MaxFileLines
 }
 
-func functionViolations(relPath string, rawLines []string, fset *token.FileSet, fileNode *ast.File) []Violation {
+// functionViolations 汇总函数长度、嵌套、复杂度和中文说明的违规项。
+func functionViolations(relPath string, rawLines []string, fset *token.FileSet, fileNode *ast.File, enforceFuncComments bool) []Violation {
 	var violations []Violation
+	ignores := collectArchGuardIgnores(fset, fileNode)
 	for _, decl := range fileNode.Decls {
 		fd, ok := decl.(*ast.FuncDecl)
 		if !ok || fd.Body == nil || fd.Name == nil {
 			continue
 		}
-		startLine := fset.Position(fd.Pos()).Line
-		endLine := fset.Position(fd.End()).Line
-		funcName := fd.Name.Name
-		funcLines := EffectiveLinesInRange(rawLines, startLine, endLine)
-		if funcLines > MaxFuncLines {
-			violations = append(violations, Violation{Kind: ViolationFunc, File: relPath, Func: funcName, Line: startLine, Got: funcLines, Limit: MaxFuncLines, Message: fmt.Sprintf("函数  %s:%d  %s(): %d 行 > 上限 %d", relPath, startLine, funcName, funcLines, MaxFuncLines)})
+		metrics := measureGuardFuncMetrics(rawLines, fset, fd)
+		if violation, ok := funcCommentViolation(relPath, fd, metrics, enforceFuncComments, ignores); ok {
+			violations = append(violations, violation)
 		}
-		if depth := MeasureMaxNesting(fd.Body, 0); depth > MaxNestingDepth {
-			violations = append(violations, Violation{Kind: ViolationNesting, File: relPath, Func: funcName, Line: startLine, Got: depth, Limit: MaxNestingDepth, Message: fmt.Sprintf("嵌套  %s:%d  %s(): 深度 %d > 上限 %d", relPath, startLine, funcName, depth, MaxNestingDepth)})
+		if metrics.lines > MaxFuncLines {
+			violations = append(violations, Violation{Kind: ViolationFunc, File: relPath, Func: metrics.name, Line: metrics.startLine, Got: metrics.lines, Limit: MaxFuncLines, Message: fmt.Sprintf("函数  %s:%d  %s(): %d 行 > 上限 %d", relPath, metrics.startLine, metrics.name, metrics.lines, MaxFuncLines)})
 		}
-		if cc := MeasureCyclomaticComplexity(fd); cc > MaxCCComplexity {
-			violations = append(violations, Violation{Kind: ViolationCC, File: relPath, Func: funcName, Line: startLine, Got: cc, Limit: MaxCCComplexity, Message: fmt.Sprintf("复杂度 %s:%d  %s(): CC %d > 上限 %d", relPath, startLine, funcName, cc, MaxCCComplexity)})
+		if metrics.depth > MaxNestingDepth {
+			violations = append(violations, Violation{Kind: ViolationNesting, File: relPath, Func: metrics.name, Line: metrics.startLine, Got: metrics.depth, Limit: MaxNestingDepth, Message: fmt.Sprintf("嵌套  %s:%d  %s(): 深度 %d > 上限 %d", relPath, metrics.startLine, metrics.name, metrics.depth, MaxNestingDepth)})
+		}
+		if metrics.cc > MaxCCComplexity {
+			violations = append(violations, Violation{Kind: ViolationCC, File: relPath, Func: metrics.name, Line: metrics.startLine, Got: metrics.cc, Limit: MaxCCComplexity, Message: fmt.Sprintf("复杂度 %s:%d  %s(): CC %d > 上限 %d", relPath, metrics.startLine, metrics.name, metrics.cc, MaxCCComplexity)})
 		}
 	}
 	return violations
+}
+
+type funcMetrics struct {
+	name      string
+	startLine int
+	lines     int
+	depth     int
+	cc        int
+}
+
+func measureGuardFuncMetrics(rawLines []string, fset *token.FileSet, fd *ast.FuncDecl) funcMetrics {
+	startLine := fset.Position(fd.Pos()).Line
+	endLine := fset.Position(fd.End()).Line
+	return funcMetrics{
+		name:      fd.Name.Name,
+		startLine: startLine,
+		lines:     EffectiveLinesInRange(rawLines, startLine, endLine),
+		depth:     MeasureMaxNesting(fd.Body, 0),
+		cc:        MeasureCyclomaticComplexity(fd),
+	}
+}
+
+func funcCommentViolation(relPath string, fd *ast.FuncDecl, metrics funcMetrics, enforce bool, ignores archGuardIgnores) (Violation, bool) {
+	if !enforce {
+		return Violation{}, false
+	}
+	if !requiresFuncComment(fd, metrics.lines, metrics.depth, metrics.cc) {
+		return Violation{}, false
+	}
+	if hasUsefulChineseFuncDoc(fd) {
+		return Violation{}, false
+	}
+	if ignores.has(metrics.startLine, "func_comment") {
+		return Violation{}, false
+	}
+	return Violation{Kind: ViolationFuncComment, File: relPath, Func: metrics.name, Line: metrics.startLine, Message: fmt.Sprintf("注释  %s:%d  %s(): 导出或复杂函数需要中文函数级说明", relPath, metrics.startLine, metrics.name)}, true
+}
+
+// requiresFuncComment 判断函数是否到了需要给维护者留一句说明的程度。
+func requiresFuncComment(fd *ast.FuncDecl, lines, depth, cc int) bool {
+	if fd.Name == nil {
+		return false
+	}
+	if fd.Name.Name == "init" {
+		return false
+	}
+	if ast.IsExported(fd.Name.Name) {
+		return true
+	}
+	if lines >= FuncCommentMinLines {
+		return true
+	}
+	if depth >= FuncCommentMinDepth {
+		return true
+	}
+	return cc >= FuncCommentMinCC
+}
+
+// hasUsefulChineseFuncDoc 判断函数前置注释里是否有面向维护者的中文说明。
+func hasUsefulChineseFuncDoc(fd *ast.FuncDecl) bool {
+	if fd.Doc == nil {
+		return false
+	}
+	for _, comment := range fd.Doc.List {
+		text := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(comment.Text, "//"), "/*"))
+		text = strings.TrimSpace(strings.TrimSuffix(text, "*/"))
+		if text == "" || strings.Contains(text, archGuardIgnorePrefix) {
+			continue
+		}
+		if containsChineseRune(text) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsChineseRune(text string) bool {
+	for _, r := range text {
+		if r >= '\u4e00' && r <= '\u9fff' {
+			return true
+		}
+	}
+	return false
 }
 
 func identifierViolations(relPath string, fset *token.FileSet, fileNode *ast.File) []Violation {
@@ -390,6 +493,7 @@ func identifierViolations(relPath string, fset *token.FileSet, fileNode *ast.Fil
 	return violations
 }
 
+// packageViolations 根据前面累积的包统计生成包级预算违规。
 func packageViolations(stats map[string]*packageStat) []Violation {
 	keys := make([]string, 0, len(stats))
 	for key := range stats {
@@ -427,6 +531,7 @@ func packageLineLimit(pkgDir string) int {
 
 const sqlcGeneratedPrefixStr = "// Code generated by sqlc. DO NOT EDIT."
 
+// IsGeneratedSQLCFile 判断文件是否是 sqlc 生成代码。
 func IsGeneratedSQLCFile(relPath string, data []byte) bool {
 	if !isSQLCPackageDir(filepath.ToSlash(filepath.Dir(relPath))) {
 		return false

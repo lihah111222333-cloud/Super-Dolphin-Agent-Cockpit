@@ -18,11 +18,7 @@ func TestPromptProviderRendersUploadedDatasourceFiles(t *testing.T) {
 	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
 		t.Fatalf("create upload dir: %v", err)
 	}
-	for _, name := range []string{"zeta.txt", "alpha.pdf"} {
-		if err := os.WriteFile(filepath.Join(uploadDir, name), []byte(name), 0o600); err != nil {
-			t.Fatalf("write %s: %v", name, err)
-		}
-	}
+	writeDatasourceUploads(t, uploadDir, "zeta.txt", "alpha.pdf")
 
 	provider := NewPromptProvider(svc)
 	got, err := provider.Resolve(context.Background(), contract.SectionContext{
@@ -35,20 +31,7 @@ func TestPromptProviderRendersUploadedDatasourceFiles(t *testing.T) {
 	if got == nil {
 		t.Fatal("Resolve() = nil, want datasource prompt text")
 	}
-	if !strings.HasPrefix(*got, "## "+contract.DynamicSectionDatasource) {
-		t.Fatalf("Resolve() prefix = %q, want datasource section header", firstDatasourcePromptLine(*got))
-	}
-	alphaIndex := strings.Index(*got, "- alpha.pdf")
-	zetaIndex := strings.Index(*got, "- zeta.txt")
-	if alphaIndex == -1 || zetaIndex == -1 {
-		t.Fatalf("Resolve() missing datasource file names:\n%s", *got)
-	}
-	if alphaIndex > zetaIndex {
-		t.Fatalf("Resolve() did not preserve sorted datasource names:\n%s", *got)
-	}
-	if strings.Contains(*got, project) {
-		t.Fatalf("Resolve() leaked absolute project path:\n%s", *got)
-	}
+	assertDatasourcePrompt(t, *got, project)
 }
 
 func TestPromptProviderReturnsNilWithoutDatasourceFiles(t *testing.T) {
@@ -74,4 +57,31 @@ func firstDatasourcePromptLine(text string) string {
 		return text[:idx]
 	}
 	return text
+}
+
+func writeDatasourceUploads(t *testing.T, uploadDir string, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(uploadDir, name), []byte(name), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+}
+
+func assertDatasourcePrompt(t *testing.T, prompt, project string) {
+	t.Helper()
+	if !strings.HasPrefix(prompt, "## "+contract.DynamicSectionDatasource) {
+		t.Fatalf("Resolve() prefix = %q, want datasource section header", firstDatasourcePromptLine(prompt))
+	}
+	alphaIndex := strings.Index(prompt, "- alpha.pdf")
+	zetaIndex := strings.Index(prompt, "- zeta.txt")
+	if alphaIndex == -1 || zetaIndex == -1 {
+		t.Fatalf("Resolve() missing datasource file names:\n%s", prompt)
+	}
+	if alphaIndex > zetaIndex {
+		t.Fatalf("Resolve() did not preserve sorted datasource names:\n%s", prompt)
+	}
+	if strings.Contains(prompt, project) {
+		t.Fatalf("Resolve() leaked absolute project path:\n%s", prompt)
+	}
 }
