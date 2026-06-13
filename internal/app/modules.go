@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/appupdate"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/cron"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/datasource"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/feedback"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/insight"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory"
@@ -60,6 +61,7 @@ var Module = fx.Options(
 	fx.Provide(provideBusTraceRecorder, provideRPCTraceRecorder),
 	store.Module,
 	dashboard.Module,
+	datasource.Module,
 	feedback.Module,
 	memory.Module,
 	prompt.Module,
