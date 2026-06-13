@@ -85,6 +85,58 @@ func TestListRPCReturnsDatasourceFileNames(t *testing.T) {
 	}
 }
 
+func TestDeleteRPCRemovesDatasourceFile(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	uploadDir := filepath.Join(project, ".agent", "datasources", "uploads")
+	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
+		t.Fatalf("create upload dir: %v", err)
+	}
+	targetPath := filepath.Join(uploadDir, "source.txt")
+	if err := os.WriteFile(targetPath, []byte("source data"), 0o600); err != nil {
+		t.Fatalf("write datasource file: %v", err)
+	}
+	server := newDatasourceTestServer()
+	payload, err := json.Marshal(map[string]string{
+		"fileName": "source.txt",
+	})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	raw, err := server.Dispatch(context.Background(), "datasource/delete", payload)
+	if err != nil {
+		t.Fatalf("Dispatch datasource/delete: %v", err)
+	}
+	var got DeleteFileResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if !got.Deleted {
+		t.Fatalf("Deleted = false, want true")
+	}
+	if got.Name != "source.txt" {
+		t.Fatalf("Name = %q, want source.txt", got.Name)
+	}
+	if _, err := os.Stat(targetPath); !os.IsNotExist(err) {
+		t.Fatalf("deleted file stat error = %v, want not exist", err)
+	}
+}
+
+func TestDeleteRPCRejectsUnsafeFileName(t *testing.T) {
+	server := newDatasourceTestServer()
+	payload, err := json.Marshal(map[string]string{
+		"fileName": "../outside.txt",
+	})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	if _, err := server.Dispatch(context.Background(), "datasource/delete", payload); err == nil {
+		t.Fatalf("Dispatch datasource/delete accepted unsafe fileName")
+	}
+}
+
 func newDatasourceTestServer() *platformrpc.Server {
 	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewHandlers(NewService()).Handlers)
