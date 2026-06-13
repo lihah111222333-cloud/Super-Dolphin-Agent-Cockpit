@@ -624,7 +624,7 @@ async function showAllTraceDashboardEvents() {
     expect(document.querySelector('.titlebar')).not.toBeInTheDocument();
     expect(within(sidebar).getByText('Super-Dolphin')).toBeInTheDocument();
     expect(within(sidebar).getByRole('button', { name: '新对话' })).toBeInTheDocument();
-    expect(within(sidebar).getByRole('button', { name: 'Settings' })).toBeInTheDocument();
+    expect(within(sidebar).getByRole('button', { name: '设置' })).toBeInTheDocument();
   });
 
   it('keeps settings reachable from the collapsible workbench control', async () => {
@@ -640,7 +640,7 @@ async function showAllTraceDashboardEvents() {
     expect(screen.getByTestId('app-sidebar')).toHaveClass('is-open');
     expect(screen.getByTestId('app-sidebar')).toHaveStyle({ marginLeft: '0px' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(screen.getByRole('button', { name: '设置' }));
     await screen.findByTestId('settings-page');
     expect(shell).not.toHaveClass('sidebar-open');
   });
@@ -999,7 +999,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(screen.getByRole('button', { name: '插件与技能' }));
     await waitFor(() => expect(window.location.pathname).toBe('/skills'));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(screen.getByRole('button', { name: '设置' }));
     await waitFor(() => expect(window.location.pathname).toBe('/settings'));
 
     await act(async () => {
@@ -2765,7 +2765,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
     render(<App />);
 
     await screen.findByText('阶段结论：先迁移 fork draft 链路');
-    fireEvent.click(screen.getByLabelText('继承当前对话'));
+    fireEvent.click(screen.getByRole('button', { name: '聊天操作' }));
+    fireEvent.click(await screen.findByRole('button', { name: '继承当前对话' }));
 
     const card = await screen.findByTestId('fork-draft-card');
     expect(card).toHaveTextContent('继承自会话：后端线程');
@@ -3497,7 +3498,9 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByLabelText('压缩当前线程')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('选择附件')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('权限')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('请先选择会话')).toBeDisabled();
+    expect(screen.queryByLabelText('请先选择会话')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '自定义配置' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '语音输入' })).toBeDisabled();
     expect(screen.getByLabelText('添加文件')).toBeInTheDocument();
     expect(screen.queryByLabelText('发送权限')).not.toBeInTheDocument();
     expect(screen.getByLabelText('会话列表')).toBeInTheDocument();
@@ -3520,7 +3523,9 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByLabelText('线程状态')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('停止')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('强制完成')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('请先选择会话')).toBeDisabled();
+    expect(screen.queryByLabelText('请先选择会话')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '自定义配置' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '语音输入' })).toBeDisabled();
     expect(screen.queryByText('作文Agent-15')).not.toBeInTheDocument();
     expect(backend.getThreadState).not.toHaveBeenCalledWith(expect.objectContaining({ threadId: 'essay_agent_15' }));
   });
@@ -3948,7 +3953,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: '选择模型' })).toHaveTextContent('GPT-5.4 · 中');
+      expect(screen.getByRole('button', { name: '选择模型' })).toHaveTextContent('5.4 中');
     });
     expect(screen.queryByLabelText('切换 Claude / Codex provider')).not.toBeInTheDocument();
   });
@@ -4220,7 +4225,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     await waitForBackendThreadHeading();
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: '选择模型' })).toHaveTextContent('GPT-5.4 · 中');
+      expect(screen.getByRole('button', { name: '选择模型' })).toHaveTextContent('5.4 中');
     });
 
     fireEvent.click(screen.getByRole('button', { name: '选择模型' }));
@@ -4238,7 +4243,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
         model: 'gpt-5.5',
         effort: '',
       });
-      expect(screen.getByRole('button', { name: '选择模型' })).toHaveTextContent('GPT-5.5 · 中');
+      expect(screen.getByRole('button', { name: '选择模型' })).toHaveTextContent('5.5 中');
       expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('线程配置已保存');
     });
   });
@@ -4625,7 +4630,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     await screen.findByLabelText('插件与技能');
 
     expect(screen.queryByLabelText('命令')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('任务')).toHaveTextContent('待后端接入');
+    expect(screen.getByLabelText('任务')).toHaveTextContent('暂无任务');
 
     fireEvent.click(screen.getByLabelText('插件与技能'));
     expect(await screen.findByText('插件与技能')).toBeInTheDocument();

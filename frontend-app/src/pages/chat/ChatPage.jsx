@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Brain, CheckCircle2, ChevronDown, CircleStop, Copy, File, MoreHorizontal, PanelTopOpen, RefreshCw, Sparkles, Terminal, Wrench, X } from 'lucide-react';
+import { Brain, CheckCircle2, ChevronDown, CircleStop, Copy, File, GitBranch, MoreHorizontal, PanelTopOpen, RefreshCw, Sparkles, Terminal, Wrench, X } from 'lucide-react';
 import { textValue } from '../shared/pageShared.js';
 import {
   codeOpenDisplayPath,
@@ -902,10 +902,21 @@ function finishRightPanelDrag({ event, setOpen, state, store, drag }) {
   store.setRightPanelWidth?.(state.latestWidth);
 }
 
+function chatHeaderFeedbackForStore(store) {
+  const bootstrapFailureMessage = store?.bootstrapStatus === 'failed' && textValue(store?.error)
+    ? `连接后端失败：${textValue(store?.error)}`
+    : '';
+  if (store?.actionNotice?.message) return store.actionNotice;
+  return bootstrapFailureMessage ? { message: bootstrapFailureMessage, tone: 'error' } : null;
+}
+
 function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpen = () => {} }) {
   const activeThreadId = store.activeThreadId;
   const modelThreadId = composerConfigThreadId(store, activeThreadId);
   const threadData = useChatThreadData(store, activeThreadId);
+  const introMode = !activeThreadId && !threadData.timelineBlocked && threadData.messages.length === 0;
+  const headerFeedback = chatHeaderFeedbackForStore(store);
+  const showHeader = !introMode || Boolean(headerFeedback?.message);
   const canUseProjectActions = canUseProjectActionsForStore(store);
   const runtimeProject = runtimeProjectPath(store.activeProject, projectPath);
   const codePreview = useCodePreviewController({ projectPath: runtimeProject, projects: store.projects });
@@ -943,8 +954,10 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
     : 'minmax(0, 1fr)';
 
   return (
-    <section className="chat-page" data-testid="chat-page">
-      <ChatPageHeader store={store} projectPath={projectPath} rightPanelOpen={rightPanelOpen} setRightPanelOpen={setRightPanelOpen} />
+    <section className={`chat-page${introMode ? ' chat-page--intro' : ''}`} data-testid="chat-page">
+      {showHeader ? (
+        <ChatPageHeader store={store} projectPath={projectPath} rightPanelOpen={rightPanelOpen} setRightPanelOpen={setRightPanelOpen} />
+      ) : null}
       <div ref={chatLayoutRef} className="chat-layout" data-testid="chat-layout" style={{ gridTemplateColumns: layoutColumns }}>
         <ThreadRail store={store} />
         <ThreadRailResizer rail={rail} />
@@ -997,12 +1010,7 @@ function ChatPageHeader({ store, projectPath, rightPanelOpen, setRightPanelOpen 
   const actionsMenuRef = useRef(null);
   const canUseThreadActions = Boolean(store?.hasActiveThreadActions?.());
   const canInterruptThread = Boolean(store?.hasInterruptibleThreadAction?.());
-  const bootstrapFailureMessage = store?.bootstrapStatus === 'failed' && textValue(store?.error)
-    ? `连接后端失败：${textValue(store?.error)}`
-    : '';
-  const feedback = store?.actionNotice?.message
-    ? store.actionNotice
-    : (bootstrapFailureMessage ? { message: bootstrapFailureMessage, tone: 'error' } : null);
+  const feedback = chatHeaderFeedbackForStore(store);
   const activeThread = activeThreadForStore(store);
   const title = store?.activeThreadId && activeThread ? displayThreadName(activeThread) : '聊天页面';
   useEffect(() => {
@@ -1066,7 +1074,6 @@ function ChatPageHeader({ store, projectPath, rightPanelOpen, setRightPanelOpen 
         onClick={() => setRightPanelOpen?.((prev) => !prev)}
       />
       <div className="chat-legacy-actions" aria-label="聊天操作">
-        {store?.activeThreadId ? <ProjectSelector store={store} projectPath={projectPath} /> : null}
         <button
           type="button"
           className="icon-btn"
@@ -1154,6 +1161,12 @@ function ChatActionsMenu({
         label={canUseThreadActions ? '复制当前线程' : '复制当前线程（不可用）'}
         disabled={!canUseThreadActions}
         onClick={() => runMenuAction(() => store.copyActiveThreadInfo?.())}
+      />
+      <ChatActionMenuButton
+        icon={GitBranch}
+        label={canUseThreadActions ? '继承当前对话' : '继承当前对话（不可用）'}
+        disabled={!canUseThreadActions}
+        onClick={() => runMenuAction(() => store.openForkDraft?.())}
       />
       <ChatActionMenuButton
         icon={CircleStop}
@@ -3550,7 +3563,7 @@ function ConversationComposer({
       projectPath={projectPath}
       modelThreadId={modelThreadId}
       showProviderToggle={showProviderToggle}
-      showProjectSelector={floating}
+      showProjectSelector={false}
       composer={composer}
       canUseProjectActions={canUseProjectActions}
     />

@@ -227,11 +227,15 @@ describe('composer layout styles', () => {
     expect(textarea['border-bottom']).toBe('1px solid var(--border)');
   });
 
-  it('keeps the composer textarea within a three-to-eight-row range', () => {
+  it('keeps the composer textarea in the screenshot-height input area', () => {
     const textarea = declarationsFor('.composer textarea');
+    const floatingTextarea = declarationsFor('.composer--floating textarea');
 
     expect(textarea['line-height']).toBe('1.5');
-    expect(textarea['min-height']).toBe('calc(1.5em * 3 + 34px)');
+    expect(textarea.height).toBe('116px');
+    expect(textarea['min-height']).toBe('116px');
+    expect(floatingTextarea.height).toBe('160px');
+    expect(floatingTextarea['min-height']).toBe('160px');
     expect(textarea['max-height']).toBe('calc(1.5em * 8 + 34px)');
     expect(textarea['overflow-y']).toBe('auto');
   });
@@ -733,11 +737,11 @@ describe('conversation content column styles', () => {
     const dockedComposerCard = declarationsFor('.composer--docked .composer-card');
     const scrollButton = declarationsFor('.chat-scroll-bottom-btn');
 
-    expect(conversation['--conversation-content-width']).toBe('min(1080px, calc(100% - 128px))');
+    expect(conversation['--conversation-content-width']).toBe('min(940px, calc(100% - 128px))');
     expect(timeline.display).toBe('flex');
     expect(timeline['flex-direction']).toBe('column');
     expect(timeline['align-items']).toBe('flex-start');
-    expect(message.width).toBe('min(1080px, calc(100% - 128px))');
+    expect(message.width).toBe('var(--conversation-content-width)');
     expect(message.margin).toBe('18px auto');
     expect(userMessage['margin-left']).toBeUndefined();
     expect(userMessage.width).toBe('var(--conversation-content-width)');
@@ -748,8 +752,8 @@ describe('conversation content column styles', () => {
     expect(dockedComposer.padding).toBe('0');
     expect(dockedComposerCard.width).toBe('100%');
     expect(dockedComposerCard.margin).toBe('0 auto');
-    expect(dockedComposerCard.border).toBe('1px solid var(--border-strong)');
-    expect(dockedComposerCard['border-radius']).toBe('18px');
+    expect(dockedComposerCard.border).toBe('1px solid color-mix(in srgb, var(--border) 88%, var(--surface))');
+    expect(dockedComposerCard['border-radius']).toBe('36px');
     expect(dockedComposerCard['box-shadow']).toBe('var(--composer-shadow)');
     expect(scrollButton.position).toBe('absolute');
     expect(scrollButton.right).toBe('max(18px, var(--conversation-content-right-gutter))');
@@ -758,19 +762,28 @@ describe('conversation content column styles', () => {
     expect(scrollButton.height).toBe('32px');
   });
 
-  it('keeps the new-chat intro stage centered and full width', () => {
+  it('keeps the new-chat intro stage positioned and full width', () => {
     const introConversation = declarationsFor('.conversation--intro');
     const introTimeline = declarationsFor('.conversation--intro .timeline');
     const introStage = declarationsFor('.intro-chat-stage');
+    const introTitle = topLevelDeclarationsFor('.empty-chat h2');
+    const introCopy = topLevelDeclarationsFor('.empty-chat p');
     const floatingComposer = declarationsFor('.conversation--intro .composer--floating');
     const floatingCard = declarationsFor('.composer--floating .composer-card');
 
-    expect(introConversation['--conversation-intro-width']).toBe('min(884px, calc(100% - 120px))');
+    expect(introConversation['--conversation-intro-width']).toBe('min(1040px, calc(100% - 104px))');
+    expect(introConversation['--conversation-composer-width']).toBe('min(884px, 100%)');
     expect(introConversation['--conversation-content-width']).toBe('var(--conversation-intro-width)');
     expect(introConversation['--conversation-content-left-nudge']).toBe('0px');
     expect(introTimeline['align-items']).toBe('center');
     expect(introStage.width).toBe('var(--conversation-intro-width)');
-    expect(floatingComposer.width).toBe('100%');
+    expect(introStage['justify-content']).toBe('flex-start');
+    expect(introStage['padding-top']).toBe('clamp(280px, 36vh, 450px)');
+    expect(introTitle['font-size']).toBe('50px');
+    expect(introTitle['font-weight']).toBe('800');
+    expect(introTitle['white-space']).toBe('nowrap');
+    expect(introCopy.display).toBe('none');
+    expect(floatingComposer.width).toBe('var(--conversation-composer-width)');
     expect(floatingComposer['max-width']).toBe('100%');
     expect(floatingCard.width).toBe('100%');
     expect(floatingCard.margin).toBe('0 auto');
@@ -781,10 +794,10 @@ describe('conversation content column styles', () => {
     const attach = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-attach');
     const track = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer--floating .provider-track');
 
-    expect(floatingCard.background).toContain('var(--surface)');
-    expect(floatingCard['border-color']).toContain('var(--border-strong)');
-    expect(floatingCard['box-shadow']).toContain('var(--shadow)');
-    expect(attach.background).toBe('color-mix(in srgb, var(--surface-2) 86%, var(--surface))');
+    expect(floatingCard.background).toBe('var(--composer-floating-bg, var(--surface))');
+    expect(floatingCard['border-color']).toContain('var(--border)');
+    expect(floatingCard['box-shadow']).toBe('0 18px 46px color-mix(in srgb, var(--text-pri) 8%, transparent)');
+    expect(attach.background).toBe('transparent');
     expect(track.background).toBe('color-mix(in srgb, var(--surface-3) 72%, var(--border))');
   });
 });
@@ -796,11 +809,11 @@ describe('workbench shell styles', () => {
     const brand = declarationsFor('.sidebar-brand');
     const newChat = declarationsFor('.sidebar-new-chat');
 
-    expect(sidebar.width).toBe('340px');
+    expect(sidebar.width).toBe('350px');
     expect(sidebar.background).toBe('var(--sidebar-bg)');
     expect(sidebar['border-right']).toBe('1px solid var(--sidebar-border)');
     expect(body.height).toBe('100vh');
-    expect(body['grid-template-columns']).toBe('340px minmax(0, 1fr)');
+    expect(body['grid-template-columns']).toBe('350px minmax(0, 1fr)');
     expect(brand.display).toBe('inline-flex');
     expect(newChat.height).toBe('56px');
     expect(newChat.background).toBe('var(--sidebar-active)');

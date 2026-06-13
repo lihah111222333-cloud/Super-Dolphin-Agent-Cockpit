@@ -51,6 +51,7 @@ function createFakeStore(overrides = {}) {
     loadThreadConfig: vi.fn(),
     newThread: vi.fn(),
     openNewWindow: vi.fn(),
+    openForkDraft: vi.fn(),
     pendingActiveThreadId: '',
     pinnedThreadAtById: {},
     provider: 'codex',
@@ -171,6 +172,21 @@ describe('ChatPage module', () => {
     expect(screen.queryByRole('heading', { name: '聊天页面' })).not.toBeInTheDocument();
   });
 
+  it('keeps the empty new-chat intro free of the generic page title bar', () => {
+    const store = createFakeStore();
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    expect(screen.getByRole('heading', { name: '我们应该在 Super-Dolphin 中构建什么？' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '聊天页面' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('chat-page')).toHaveClass('chat-page--intro');
+    expect(screen.getByTestId('conversation-drop-zone')).toHaveClass('conversation--intro');
+    expect(screen.getByTestId('composer-dock')).toHaveClass('composer--floating');
+    expect(screen.getByTestId('composer-dock')).not.toHaveClass('composer--docked');
+    expect(screen.queryByRole('button', { name: '聊天操作' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '滚动到底部' })).not.toBeInTheDocument();
+  });
+
   it('keeps the generic title when active thread metadata is missing', () => {
     const store = createFakeStore({
       activeThreadId: 'missing-thread',
@@ -225,9 +241,17 @@ describe('ChatPage module', () => {
     const { container } = render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
 
     expect(screen.getByRole('heading', { name: '修复会话' })).toBeInTheDocument();
+    expect(screen.getByTestId('chat-page')).not.toHaveClass('chat-page--intro');
+    expect(screen.getByTestId('conversation-drop-zone')).not.toHaveClass('conversation--intro');
+    expect(screen.getByTestId('composer-dock')).toHaveClass('composer--docked');
+    expect(screen.getByTestId('composer-dock')).not.toHaveClass('composer--floating');
     expect(getThreadCardByName('修复会话')).toBeInTheDocument();
     expect(screen.getByText('哪里失败了？')).toBeInTheDocument();
     expect(screen.getByText('测试在聊天页缺少覆盖。')).toBeInTheDocument();
+    expect(container.querySelector('.message.user.no-avatar')).not.toBeNull();
+    expect(container.querySelector('.message.assistant.no-avatar')).not.toBeNull();
+    expect(container.querySelector('.message.assistant .assistant-footer')).not.toBeNull();
+    expect(container.querySelector('.avatar')).toBeNull();
     expect(container.querySelector('.work-status')).toBeNull();
 
     const timeline = screen.getByTestId('chat-timeline');
@@ -291,6 +315,10 @@ describe('ChatPage module', () => {
     menu = openMenu();
     fireEvent.click(within(menu).getByRole('button', { name: '复制当前线程' }));
     expect(store.copyActiveThreadInfo).toHaveBeenCalledTimes(1);
+
+    menu = openMenu();
+    fireEvent.click(within(menu).getByRole('button', { name: '继承当前对话' }));
+    expect(store.openForkDraft).toHaveBeenCalledTimes(1);
 
     menu = openMenu();
     fireEvent.click(within(menu).getByRole('button', { name: '停止' }));

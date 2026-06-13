@@ -52,23 +52,38 @@ const baseProps = {
 };
 
 describe('ComposerDock', () => {
-  it('routes primary, attach, fork, paste, and enter actions through props', () => {
+  it('routes primary, attach, paste, and enter actions through props while showing reserved controls', () => {
     const composer = createComposer();
     const store = createStore();
     const props = { ...baseProps, composer, store, selectFiles: vi.fn(), sendMessage: vi.fn(), setDraft: vi.fn() };
 
-    render(<ComposerDock {...props} />);
+    const { container } = render(<ComposerDock {...props} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '添加文件' }));
-    fireEvent.click(screen.getByRole('button', { name: '继承当前对话' }));
+    const addFileButton = screen.getByRole('button', { name: '添加文件' });
+    fireEvent.click(addFileButton);
     fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
     fireEvent.paste(screen.getByRole('textbox', { name: '输入给 Agent 的内容' }));
     fireEvent.keyDown(screen.getByRole('textbox', { name: '输入给 Agent 的内容' }), { key: 'Enter' });
 
+    expect(screen.getByTestId('composer-dock')).toHaveClass('composer--docked');
+    expect(screen.getByTestId('composer-dock')).not.toHaveClass('composer--floating');
+    expect(addFileButton).toHaveClass('composer-icon-action', 'composer-attach');
+    expect(screen.queryByText('添加附件')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '继承当前对话' })).not.toBeInTheDocument();
+    expect(container.querySelector('.project-select')).toBeNull();
     expect(props.selectFiles).toHaveBeenCalledTimes(1);
-    expect(store.openForkDraft).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: '自定义配置' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '语音输入' })).toBeDisabled();
+    expect(store.openForkDraft).not.toHaveBeenCalled();
     expect(props.sendMessage).toHaveBeenCalledTimes(2);
     expect(composer.handlePaste).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the floating class for the new-chat intro composer', () => {
+    render(<ComposerDock {...baseProps} floating composer={createComposer()} store={createStore()} />);
+
+    expect(screen.getByTestId('composer-dock')).toHaveClass('composer--floating');
+    expect(screen.getByTestId('composer-dock')).not.toHaveClass('composer--docked');
   });
 
   it('switches the primary action to interrupt when the active thread is interruptible', () => {
