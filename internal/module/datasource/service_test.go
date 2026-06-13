@@ -65,6 +65,42 @@ func TestUploadFileCopiesPDFAndTXTToWorkingDirUploadDir(t *testing.T) {
 	}
 }
 
+func TestUploadFileOverwritesExistingTargetWithSameName(t *testing.T) {
+	svc := NewService()
+	project := t.TempDir()
+	t.Chdir(project)
+	sourceDir := t.TempDir()
+	source := filepath.Join(sourceDir, "测试.txt")
+	if err := os.WriteFile(source, []byte("new datasource content"), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	uploadDir := filepath.Join(project, ".agent", "datasources", "uploads")
+	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
+		t.Fatalf("create upload dir: %v", err)
+	}
+	targetPath := filepath.Join(uploadDir, "测试.txt")
+	if err := os.WriteFile(targetPath, []byte("stale datasource content"), 0o600); err != nil {
+		t.Fatalf("write existing target: %v", err)
+	}
+
+	got, err := svc.UploadFile(context.Background(), UploadFileRequest{
+		SourcePath: source,
+	})
+	if err != nil {
+		t.Fatalf("UploadFile() error = %v", err)
+	}
+	if got.StoredPath != targetPath {
+		t.Fatalf("StoredPath = %q, want %q", got.StoredPath, targetPath)
+	}
+	written, err := os.ReadFile(targetPath)
+	if err != nil {
+		t.Fatalf("read stored file: %v", err)
+	}
+	if !bytes.Equal(written, []byte("new datasource content")) {
+		t.Fatalf("stored content = %q, want overwritten content", written)
+	}
+}
+
 func TestUploadFileRejectsUnsupportedExtension(t *testing.T) {
 	svc := NewService()
 	project := t.TempDir()

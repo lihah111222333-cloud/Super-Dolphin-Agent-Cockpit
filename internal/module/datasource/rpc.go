@@ -68,8 +68,6 @@ func datasourceRPCError(err error) error {
 		return platformrpc.ErrInvalidParams(err.Error())
 	case errors.Is(err, os.ErrNotExist):
 		return platformrpc.ErrNotFound(err.Error())
-	case errors.Is(err, errUploadTargetAlreadyExists):
-		return platformrpc.ErrConflict(err.Error())
 	default:
 		return err
 	}
