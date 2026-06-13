@@ -7,14 +7,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
 var (
-	errMissingCWD                = errors.New("datasource: cwd is required")
 	errMissingSourcePath         = errors.New("datasource: sourcePath is required")
-	errCWDMustBeAbsolute         = errors.New("datasource: cwd must be absolute")
-	errCWDMustBeDirectory        = errors.New("datasource: cwd must be a directory")
 	errSourcePathMustBeAbsolute  = errors.New("datasource: sourcePath must be absolute")
 	errSourcePathMustBeFile      = errors.New("datasource: sourcePath must be a file")
 	errUnsupportedFileExtension  = errors.New("datasource: unsupported file extension")
@@ -23,10 +21,10 @@ var (
 
 type Service interface {
 	UploadFile(context.Context, UploadFileRequest) (UploadFileResult, error)
+	ListFiles(context.Context) (ListFilesResult, error)
 }
 
 type UploadFileRequest struct {
-	CWD        string `json:"cwd"`
 	SourcePath string `json:"sourcePath"`
 }
 
@@ -35,6 +33,10 @@ type UploadFileResult struct {
 	Extension  string `json:"extension"`
 	Size       int64  `json:"size"`
 	StoredPath string `json:"storedPath"`
+}
+
+type ListFilesResult struct {
+	FileNames []string `json:"fileNames"`
 }
 
 type service struct{}
@@ -47,7 +49,7 @@ func (s *service) UploadFile(ctx context.Context, req UploadFileRequest) (Upload
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	projectRoot, sourcePath, err := validateUploadRequest(req)
+	sourcePath, err := validateUploadRequest(req)
 	if err != nil {
 		return UploadFileResult{}, err
 	}
@@ -68,7 +70,10 @@ func (s *service) UploadFile(ctx context.Context, req UploadFileRequest) (Upload
 		return UploadFileResult{}, fmt.Errorf("%w: %s", errUnsupportedFileExtension, ext)
 	}
 
-	targetDir := datasourceUploadDir(projectRoot)
+	targetDir, err := currentDatasourceUploadDir()
+	if err != nil {
+		return UploadFileResult{}, err
+	}
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		return UploadFileResult{}, fmt.Errorf("create datasource upload dir: %w", err)
 	}
@@ -85,36 +90,68 @@ func (s *service) UploadFile(ctx context.Context, req UploadFileRequest) (Upload
 	}, nil
 }
 
-func validateUploadRequest(req UploadFileRequest) (string, string, error) {
-	projectRoot := strings.TrimSpace(req.CWD)
-	if projectRoot == "" {
-		return "", "", errMissingCWD
+func (s *service) ListFiles(ctx context.Context) (ListFilesResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	projectRoot = filepath.Clean(projectRoot)
-	if !filepath.IsAbs(projectRoot) {
-		return "", "", errCWDMustBeAbsolute
-	}
-	projectInfo, err := os.Stat(projectRoot)
-	if err != nil {
-		return "", "", fmt.Errorf("stat cwd: %w", err)
-	}
-	if !projectInfo.IsDir() {
-		return "", "", errCWDMustBeDirectory
+	if err := ctx.Err(); err != nil {
+		return ListFilesResult{}, err
 	}
 
+	uploadDir, err := currentDatasourceUploadDir()
+	if err != nil {
+		return ListFilesResult{}, err
+	}
+	entries, err := os.ReadDir(uploadDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return ListFilesResult{FileNames: []string{}}, nil
+		}
+		return ListFilesResult{}, fmt.Errorf("read datasource upload dir: %w", err)
+	}
+
+	fileNames := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return ListFilesResult{}, err
+		}
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return ListFilesResult{}, fmt.Errorf("stat datasource upload entry %s: %w", entry.Name(), err)
+		}
+		if info.Mode().IsRegular() {
+			fileNames = append(fileNames, entry.Name())
+		}
+	}
+	sort.Strings(fileNames)
+	return ListFilesResult{FileNames: fileNames}, nil
+}
+
+func validateUploadRequest(req UploadFileRequest) (string, error) {
 	sourcePath := strings.TrimSpace(req.SourcePath)
 	if sourcePath == "" {
-		return "", "", errMissingSourcePath
+		return "", errMissingSourcePath
 	}
 	sourcePath = filepath.Clean(sourcePath)
 	if !filepath.IsAbs(sourcePath) {
-		return "", "", errSourcePathMustBeAbsolute
+		return "", errSourcePathMustBeAbsolute
 	}
-	return projectRoot, sourcePath, nil
+	return sourcePath, nil
 }
 
-func datasourceUploadDir(projectRoot string) string {
-	return filepath.Join(projectRoot, ".agent", "datasources", "uploads")
+func currentDatasourceUploadDir() (string, error) {
+	baseDir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("get working directory: %w", err)
+	}
+	return datasourceUploadDir(baseDir), nil
+}
+
+func datasourceUploadDir(sourceDir string) string {
+	return filepath.Join(sourceDir, ".agent", "datasources", "uploads")
 }
 
 func isAllowedUploadExtension(ext string) bool {
