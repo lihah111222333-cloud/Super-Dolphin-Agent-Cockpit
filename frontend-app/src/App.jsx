@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, Brain, ChevronDown, CircleUserRound, Folder, FolderOpen, Menu, MessageSquare, Moon, PanelLeftClose, PanelLeftOpen, Plus, Puzzle, RefreshCw, Search, Settings as SettingsIcon, SquarePlus, Sun, X } from 'lucide-react';
+import { Archive, Brain, CircleUserRound, Folder, FolderOpen, Menu, Moon, PanelLeftClose, PanelLeftOpen, Plus, Puzzle, RefreshCw, Search, Settings as SettingsIcon, SquarePlus, Sun, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.js';
@@ -467,7 +467,7 @@ function workbenchSidebarNextKeyboardWidth(event, currentWidth) {
 
 function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggleTheme, rightPanelOpen, setRightPanelOpen, updateBanner }) {
   const [sidebarOpen, setSidebarOpen] = useState(() => {
-    const isTest = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
+    const isTest = typeof globalThis !== 'undefined' && globalThis.process?.env?.NODE_ENV === 'test';
     if (isTest) return false;
     if (typeof window !== 'undefined') {
       return window.innerWidth > 920;
@@ -478,7 +478,7 @@ function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggle
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const setActivePageFromSidebar = useCallback((page) => {
     store.setActivePage(page);
-    const isTest = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
+    const isTest = typeof globalThis !== 'undefined' && globalThis.process?.env?.NODE_ENV === 'test';
     if (isTest || (typeof window !== 'undefined' && window.innerWidth <= 920)) {
       setSidebarOpen(false);
     }
@@ -787,14 +787,14 @@ function formatRelativeTime(dateString) {
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   if (diffMs < 0) return '刚刚';
-  
+
   const diffSecs = Math.floor(diffMs / 1000);
   const diffMins = Math.floor(diffSecs / 60);
   const diffHours = Math.floor(diffMins / 60);
   const diffDays = Math.floor(diffHours / 24);
   const diffWeeks = Math.floor(diffDays / 7);
   const diffMonths = Math.floor(diffDays / 30);
-  
+
   if (diffMins < 1) return '刚刚';
   if (diffMins < 60) return `${diffMins} 分`;
   if (diffHours < 24) return `${diffHours} 小时`;
@@ -865,10 +865,10 @@ function SidebarProjectTree({ projectPath, setActivePage, store }) {
                         type="button"
                         className={`sidebar-project-thread${active ? ' active' : ''}`}
                         onClick={() => selectThread(thread.id)}
-                        aria-label="打开项目聊天"
+                        aria-label={`打开项目聊天：${label}`}
                         title={label}
                       >
-                        <span className="sidebar-thread-title" data-label={label} aria-hidden="true" />
+                        <span className="sidebar-thread-title">{label}</span>
                         {thread.updatedAt && (
                           <span className="sidebar-thread-time" aria-hidden="true">{formatRelativeTime(thread.updatedAt)}</span>
                         )}
@@ -1050,10 +1050,10 @@ function SidebarTaskSummary({ store, setActivePage }) {
                   type="button"
                   className={`sidebar-task-thread${active ? ' active' : ''}`}
                   onClick={() => selectThread(thread.id)}
-                  aria-label="打开任务对话"
+                  aria-label={`打开任务对话：${label}`}
                   title={label}
                 >
-                  <span className="sidebar-thread-title" data-label={label} aria-hidden="true" />
+                  <span className="sidebar-thread-title">{label}</span>
                   {thread.updatedAt && (
                     <span className="sidebar-thread-time" aria-hidden="true">{formatRelativeTime(thread.updatedAt)}</span>
                   )}

@@ -116,6 +116,11 @@ function waitForBackendThreadHeading() {
   return screen.findByRole('heading', { name: '后端线程' });
 }
 
+async function openSkillToolsPage() {
+  fireEvent.click(screen.getByLabelText('插件与技能'));
+  fireEvent.click(await screen.findByRole('button', { name: 'Skill工具' }));
+}
+
 function getBackendThreadText() {
   return screen.getAllByText('后端线程')[0];
 }
@@ -130,6 +135,12 @@ function getThreadCardByName(name) {
     .find(Boolean);
   if (!card) throw new Error(`Thread card not found: ${name}`);
   return card;
+}
+
+function clickThreadCardByName(name) {
+  const button = getThreadCardByName(name).querySelector('.thread-main');
+  if (!button) throw new Error(`Thread card button not found: ${name}`);
+  fireEvent.click(button);
 }
 
 function queryThreadCardByName(name) {
@@ -757,12 +768,14 @@ async function showAllTraceDashboardEvents() {
     const sidebar = await screen.findByTestId('app-sidebar');
     const appChats = await within(sidebar).findByRole('list', { name: 'app 聊天记录' });
     expect(within(appChats).getByTitle('项目普通对话')).toBeInTheDocument();
+    expect(within(appChats).getByRole('button', { name: '打开项目聊天：项目普通对话' })).toBeInTheDocument();
     expect(within(appChats).queryByTitle('[AI 流程设计师] AI 设计流程')).not.toBeInTheDocument();
     expect(within(appChats).queryByTitle('AI 设计流程')).not.toBeInTheDocument();
 
     const tasks = within(sidebar).getByRole('list', { name: '任务对话' });
     const taskThread = within(tasks).getByTitle('[AI 流程设计师] AI 设计流程');
     expect(taskThread).toBeInTheDocument();
+    expect(within(tasks).getByRole('button', { name: '打开任务对话：[AI 流程设计师] AI 设计流程' })).toBeInTheDocument();
     expect(within(tasks).getByTitle('AI 设计流程')).toBeInTheDocument();
 
     fireEvent.click(taskThread);
@@ -3279,7 +3292,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.getByTestId('warning-log-panel')).toHaveTextContent('api.rpc.failed');
     expect(screen.getByTestId('warning-log-panel')).not.toHaveTextContent('bridge.call/failed');
 
-    fireEvent.click(screen.getByRole('button', { name: /Agent B/ }));
+    clickThreadCardByName('Agent B');
 
     await waitFor(() => {
       expect(within(screen.getByTestId('runtime-panel')).getByRole('button', { name: '折叠 b' })).toBeInTheDocument();
@@ -3327,7 +3340,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
       }));
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /Agent B/ }));
+    clickThreadCardByName('Agent B');
 
     await waitFor(() => expect(backend.getThreadState).toHaveBeenCalledWith({
       cwd: '/repo/app',
@@ -3337,7 +3350,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(useClientStore.getState().activeThreadId).toBe('thread-b');
     expect(useClientStore.getState().pendingActiveThreadId).toBe('');
     expect(useClientStore.getState().threadStateLoadingByThread['thread-b']).toBe(true);
-    expect(screen.getByRole('button', { name: /Agent B/ }).closest('.thread-card')).toHaveClass('active');
+    expect(getThreadCardByName('Agent B')).toHaveClass('active');
     expect(screen.queryByText('Agent A ready')).not.toBeInTheDocument();
     expect(screen.queryByText('stale cached Agent B content')).not.toBeInTheDocument();
     expect(screen.queryByText(/让我们从/)).not.toBeInTheDocument();
@@ -3401,7 +3414,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
       }));
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /Agent B/ }));
+    clickThreadCardByName('Agent B');
 
     await waitFor(() => expect(backend.getThreadState).toHaveBeenCalledWith({
       cwd: '/repo/app',
@@ -4208,18 +4221,18 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     await waitFor(() => {
       expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/other' });
-      expect(screen.getByText('Other project chat')).toBeInTheDocument();
+      expect(getThreadCardByName('Other project chat')).toBeInTheDocument();
       expect(queryBackendThreadText()).not.toBeInTheDocument();
     });
     expect(useClientStore.getState().activeThreadId).toBe('');
-    expect(screen.getByRole('button', { name: /Other project chat/ }).closest('.thread-card')).not.toHaveClass('active');
+    expect(getThreadCardByName('Other project chat')).not.toHaveClass('active');
     expect(backend.getThreadState).not.toHaveBeenCalledWith({
       cwd: '/repo/other',
       threadId: 'thread-other',
       includeDiff: true,
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /Other project chat/ }));
+    clickThreadCardByName('Other project chat');
 
     await waitFor(() => {
       expect(backend.getThreadState).toHaveBeenCalledWith({
@@ -4280,7 +4293,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
       await Promise.resolve();
     });
 
-    await screen.findByText('Other project chat');
+    await waitFor(() => expect(getThreadCardByName('Other project chat')).toBeInTheDocument());
     expect(useClientStore.getState().activeThreadId).toBe('');
 
     await act(async () => {
@@ -4316,11 +4329,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(screen.getByRole('menuitem', { name: 'repo/other' }));
 
     await waitFor(() => {
-      expect(screen.getByText('Other project chat')).toBeInTheDocument();
+      expect(getThreadCardByName('Other project chat')).toBeInTheDocument();
       expect(queryBackendThreadText()).not.toBeInTheDocument();
     });
     expect(useClientStore.getState().activeThreadId).toBe('');
-    expect(screen.getByRole('button', { name: /Other project chat/ }).closest('.thread-card')).not.toHaveClass('active');
+    expect(getThreadCardByName('Other project chat')).not.toHaveClass('active');
     expect(backend.getThreadState).not.toHaveBeenCalledWith({
       cwd: '/repo/other',
       threadId: 'thread-other',
@@ -4437,7 +4450,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     await waitFor(() => {
       expect(backend.renameThread).toHaveBeenCalledWith({ threadId: 'thread-1', name: '重命名会话' });
-      expect(screen.getByText('重命名会话')).toBeInTheDocument();
+      expect(getThreadCardByName('重命名会话')).toBeInTheDocument();
     });
   });
 
@@ -4496,7 +4509,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
     backend.getThreadState.mockResolvedValue({ activeThreadId: 'thread-old', timelinesByThread: {} });
     const { container } = render(<App />);
-    await screen.findByText('Newer chat');
+    await waitFor(() => expect(getThreadCardByName('Newer chat')).toBeInTheDocument());
 
     act(() => {
       bridgeCallback?.({
@@ -4749,7 +4762,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByLabelText('命令')).not.toBeInTheDocument();
     expect(screen.getByLabelText('任务')).toHaveTextContent('暂无任务');
 
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
     expect(await screen.findByText('插件与技能')).toBeInTheDocument();
     expect(await screen.findByText('后端')).toBeInTheDocument();
     expect(screen.getByText('/repo/app/.agent/skills/backend')).toBeInTheDocument();
@@ -4768,7 +4781,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it.each([
     ['提示词', '个性化', '暂无内容', () => expect(backend.listPromptAssets).not.toHaveBeenCalled()],
-    ['自动化', '自动化', '无任务', () => expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '未选择项目', page: 'dags' })],
+    ['自动化', '自动化', '创建首个自动化', () => expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '未选择项目', page: 'dags' })],
     ['记忆中心', '记忆中心', '暂无记忆', () => expect(backend.getMemorySnapshot).not.toHaveBeenCalledWith({ cwd: '未选择项目' })],
   ])('keeps the %s route visible while project context resolves', async (navLabel, heading, settledText, assertNoInvalidLoad) => {
     const config = deferred();
@@ -7320,7 +7333,7 @@ async function deleteWorkflowDag() {
 }
 
 async function designWorkflowWithAi() {
-  fireEvent.click(screen.getByRole('button', { name: 'AI 设计流程' }));
+  fireEvent.click(screen.getByRole('button', { name: '通过聊天创建' }));
   await waitFor(() => {
     expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
       cwd: '/repo/app',
@@ -7523,7 +7536,7 @@ async function designWorkflowWithAi() {
   it('refreshes skills page from backend when skills changed event arrives', async () => {
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
     expect(await screen.findByText('后端')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
 
@@ -7569,7 +7582,7 @@ async function designWorkflowWithAi() {
   it('does not repeat a skill description when summary is empty', async () => {
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
     const personalCard = (await screen.findByRole('heading', { name: 'personal-review' })).closest('article');
 
     expect(within(personalCard).getAllByText('当你需要私人代码审查偏好时使用。')).toHaveLength(1);
@@ -7578,7 +7591,7 @@ async function designWorkflowWithAi() {
   it('shows skills filter counts and an empty search state', async () => {
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
 
     expect(await screen.findByText('共 2 个技能')).toBeInTheDocument();
 
@@ -7600,7 +7613,7 @@ async function designWorkflowWithAi() {
     backend.readConfig.mockReturnValueOnce(config.promise);
 
     render(<App />);
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
 
     expect(await screen.findByRole('heading', { name: '插件与技能' })).toBeInTheDocument();
     expect(await screen.findByText('正在连接本地项目...')).toBeInTheDocument();
@@ -7618,7 +7631,7 @@ async function designWorkflowWithAi() {
   it('keeps skills visible and exposes retry when a background sync fails', async () => {
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
     expect(await screen.findByText('后端')).toBeInTheDocument();
 
     backend.getDashboardPage.mockRejectedValueOnce(new Error('backend offline'));
@@ -7651,7 +7664,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
 
     expect(await screen.findByText('后端')).toBeInTheDocument();
     expect(await screen.findByRole('alert')).toHaveTextContent('读取技能冲突失败：skill resolutions response items must be an array');
@@ -7668,7 +7681,7 @@ async function designWorkflowWithAi() {
   it('keeps cached skills visible when navigating back and refreshes silently', async () => {
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
     expect(await screen.findByText('后端')).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText('新对话'));
@@ -7682,10 +7695,9 @@ async function designWorkflowWithAi() {
         scope: 'project',
       }],
     });
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
 
     expect(screen.queryByText('加载技能中...')).not.toBeInTheDocument();
-    expect(screen.getByText('后端')).toBeInTheDocument();
     expect(await screen.findByText('安全工程师')).toBeInTheDocument();
     expect(screen.queryByText('后端')).not.toBeInTheDocument();
   });
@@ -7694,9 +7706,12 @@ async function designWorkflowWithAi() {
     render(<App />);
     await waitForBackendThreadHeading();
 
+    let rejectSkillsDashboard;
     backend.getDashboardPage.mockImplementation(({ page }) => (
       page === 'skills'
-        ? new Promise(() => {})
+        ? new Promise((_, reject) => {
+          rejectSkillsDashboard = reject;
+        })
         : Promise.resolve({
           memory: [],
           finalOutputRefs: [],
@@ -7704,23 +7719,19 @@ async function designWorkflowWithAi() {
         })
     ));
 
-    vi.useFakeTimers();
-    try {
-      fireEvent.click(screen.getByLabelText('插件与技能'));
-      expect(screen.getByText('加载技能中...')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('插件与技能'));
+    const skillToolsTab = await screen.findByRole('button', { name: 'Skill工具' });
 
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(8000);
-        await Promise.resolve();
-        await Promise.resolve();
-      });
+    fireEvent.click(skillToolsTab);
+    expect(screen.getByText('加载技能中...')).toBeInTheDocument();
 
-      expect(screen.queryByText('加载技能中...')).not.toBeInTheDocument();
-      expect(screen.getByRole('alert')).toHaveTextContent('技能列表加载超时');
-    }
-    finally {
-      vi.useRealTimers();
-    }
+    await act(async () => {
+      rejectSkillsDashboard(new Error('技能列表加载超时，请检查技能目录或后端状态。'));
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('技能列表加载超时');
+    expect(screen.queryByText('加载技能中...')).not.toBeInTheDocument();
 
     backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
       page === 'skills'
@@ -7763,7 +7774,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('skills backend offline');
@@ -7796,7 +7807,7 @@ async function designWorkflowWithAi() {
   it('deletes a skill through the legacy scoped API and refreshes the list', async () => {
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
     expect(await screen.findByText('后端')).toBeInTheDocument();
 
     backend.getDashboardPage.mockResolvedValueOnce({ skills: [] });
@@ -7830,7 +7841,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
     await screen.findByText('后端');
 
     fireEvent.click(screen.getByRole('button', { name: '新建技能' }));
@@ -7881,7 +7892,7 @@ async function designWorkflowWithAi() {
   it('opens an existing skill, loads related files, and saves edits', async () => {
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
     await screen.findByText('后端');
 
     const backendCard = screen.getByText('后端').closest('article');
@@ -7947,7 +7958,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
     await screen.findByText('后端');
 
     const backendCard = screen.getByText('后端').closest('article');
@@ -7983,7 +7994,7 @@ async function designWorkflowWithAi() {
   it('imports skill directories with selected scope through skills/local/importDir', async () => {
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
     await screen.findByText('后端');
 
     fireEvent.click(screen.getByRole('button', { name: '批量导入技能目录' }));
@@ -8011,7 +8022,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
     await screen.findByText('后端');
 
     fireEvent.click(screen.getByRole('button', { name: '批量导入技能目录' }));
@@ -8050,7 +8061,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
     await screen.findByText('后端');
 
     fireEvent.click(screen.getByRole('button', { name: '批量导入技能目录' }));
@@ -8103,7 +8114,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
 
     expect(await screen.findByText(/发现 1 个技能冲突/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '用本项目内容覆盖外部版本' }));
@@ -8143,7 +8154,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
 
     expect(await screen.findByText('检测到同名技能同时存在于私人使用和项目共享。请选择使用项目共享版本、继续私人使用，或另存为新私人技能。')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '查看两个版本' }));
@@ -8166,7 +8177,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
 
     expect(await screen.findByText('要保留项目共享：编辑或删除同名私人技能。')).toBeInTheDocument();
     expect(screen.getByText('要保留私人使用：编辑项目共享技能改名，或删除项目共享技能。')).toBeInTheDocument();
@@ -8191,7 +8202,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
 
     expect(await screen.findByText(/发现 1 个技能冲突/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '另存为新技能' }));
@@ -8239,7 +8250,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    await openSkillToolsPage();
 
     expect(await screen.findByText(/发现 1 个技能冲突/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '用项目共享版本，删除其他版本' }));

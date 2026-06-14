@@ -14,7 +14,7 @@ const backend = vi.hoisted(() => ({
 
 vi.mock('../../services/modules/fileService.js', () => backend);
 
-function renderFilesPage() {
+function renderFilesPage(store = {}) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -23,7 +23,7 @@ function renderFilesPage() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <FilesPage projectPath="/repo/app" store={{}} />
+      <FilesPage projectPath="/repo/app" store={store} />
     </QueryClientProvider>,
   );
 }
@@ -94,5 +94,27 @@ describe('FilesPage module', () => {
 
     await waitFor(() => expect(backend.openSharedFile).toHaveBeenCalledWith({ path: finalPath }));
     expect(backend.readSharedFile).not.toHaveBeenCalled();
+  });
+
+  it('continues with a shared file through a button instead of a checkbox', async () => {
+    const finalPath = 'reports/final.md';
+    const store = { continueWithSharedFile: vi.fn() };
+    backend.listSharedFilesDashboard.mockResolvedValue({
+      files: [{ id: `${finalPath}:0`, path: finalPath, content: 'final report', updatedAt: '2026-06-06T08:00:00Z' }],
+      finalOutputRefs: [{ path: finalPath, runKey: 'run-1', dagKey: 'daily-brief' }],
+      retention: {
+        items: [{ path: finalPath, protected: true, cleanupCandidate: false, reason: 'final_output' }],
+        protectedCount: 1,
+        cleanupCandidateCount: 0,
+      },
+    });
+
+    renderFilesPage(store);
+
+    expect(await screen.findByText('final.md')).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: '用此文件继续对话' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '用此文件继续对话' }));
+
+    expect(store.continueWithSharedFile).toHaveBeenCalledWith(finalPath);
   });
 });
