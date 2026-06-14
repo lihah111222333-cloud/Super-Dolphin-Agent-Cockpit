@@ -268,7 +268,7 @@ copy_model_registry ` + bashQuote(bashArg("", stage)) + `
 		t.Fatalf("copy_model_registry exit code = 0, want non-zero; output=%s", out)
 	}
 	want := "missing model registry: " + bashArg("", filepath.Join(root, "cmd/mcp-orch/tools/modelregistry/models.yaml"))
-	if got := strings.TrimSpace(string(out)); got != want {
+	if got := stripWSLInteropBanner(string(out)); got != want {
 		t.Fatalf("copy_model_registry output = %q, want %q", got, want)
 	}
 	if _, err := os.Stat(filepath.Join(stage, "models.yaml")); !errors.Is(err, os.ErrNotExist) {
