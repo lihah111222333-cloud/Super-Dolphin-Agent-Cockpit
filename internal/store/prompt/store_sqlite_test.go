@@ -7,8 +7,46 @@ import (
 	"testing"
 	"time"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
+
+func TestPromptTemplateCreateAndUpsertWriteSQLiteRequiredTimestamps(t *testing.T) {
+	t.Parallel()
+
+	db := openPromptSQLite(t)
+	createPromptTemplateTable(t, db)
+	s := &store{q: sqlc.New(db)}
+
+	createInput := promptUpsertInput()
+	createInput.PromptKey = "main/create-required-timestamps"
+	created, err := s.CreatePromptTemplate(context.Background(), createInput)
+	if err != nil {
+		t.Fatalf("CreatePromptTemplate() unexpected error: %v", err)
+	}
+	assertPromptTemplateTimestamps(t, created)
+
+	upsertInput := promptUpsertInput()
+	upsertInput.PromptKey = "main/upsert-required-timestamps"
+	inserted, err := s.Upsert(context.Background(), upsertInput)
+	if err != nil {
+		t.Fatalf("Upsert(insert) unexpected error: %v", err)
+	}
+	assertPromptTemplateTimestamps(t, inserted)
+
+	originalCreatedAt := platformdb.Millis(promptStoreTestTime())
+	originalUpdatedAt := originalCreatedAt + 1000
+	execPromptSQL(t, db, `UPDATE prompt_templates SET created_at = ?, updated_at = ? WHERE prompt_key = ?`,
+		originalCreatedAt, originalUpdatedAt, upsertInput.PromptKey)
+
+	upsertInput.Title = "Updated scoped prompt"
+	updated, err := s.Upsert(context.Background(), upsertInput)
+	if err != nil {
+		t.Fatalf("Upsert(update) unexpected error: %v", err)
+	}
+	assertPromptTemplatePreservedCreatedAt(t, updated, originalCreatedAt)
+	assertStoredPromptTemplateUpdate(t, db, upsertInput.PromptKey, originalCreatedAt, originalUpdatedAt)
+}
 
 func TestCreateAndUpsertPromptTemplateNormalizeEmptyMatchWhenForSQLite(t *testing.T) {
 	t.Parallel()
@@ -80,6 +118,38 @@ func TestInsertPromptVersionWritesSQLiteRequiredTimestamps(t *testing.T) {
 	}
 	if createdAt <= 0 || archivedAt <= 0 {
 		t.Fatalf("timestamps created_at=%d archived_at=%d, want both > 0", createdAt, archivedAt)
+	}
+}
+
+func assertPromptTemplateTimestamps(t *testing.T, template *PromptTemplate) {
+	t.Helper()
+	if template.CreatedAt.IsZero() || template.UpdatedAt.IsZero() {
+		t.Fatalf("PromptTemplate timestamps were not populated: %+v", template)
+	}
+}
+
+func assertPromptTemplatePreservedCreatedAt(t *testing.T, template *PromptTemplate, wantCreatedAt int64) {
+	t.Helper()
+	want := platformdb.TimeFromMillis(wantCreatedAt)
+	if !template.CreatedAt.Equal(want) {
+		t.Fatalf("PromptTemplate created_at = %s, want preserved %s", template.CreatedAt, want)
+	}
+	if !template.UpdatedAt.After(template.CreatedAt) {
+		t.Fatalf("PromptTemplate updated_at = %s, want after created_at %s", template.UpdatedAt, template.CreatedAt)
+	}
+}
+
+func assertStoredPromptTemplateUpdate(t *testing.T, db *sql.DB, promptKey string, wantCreatedAt, previousUpdatedAt int64) {
+	t.Helper()
+	var title string
+	var createdAt, updatedAt int64
+	if err := db.QueryRow(`SELECT title, created_at, updated_at FROM prompt_templates WHERE prompt_key = ?`, promptKey).
+		Scan(&title, &createdAt, &updatedAt); err != nil {
+		t.Fatalf("read prompt_templates row: %v", err)
+	}
+	if title != "Updated scoped prompt" || createdAt != wantCreatedAt || updatedAt <= previousUpdatedAt {
+		t.Fatalf("stored prompt title=%q created_at=%d updated_at=%d, want updated title, preserved created_at=%d, newer updated_at>%d",
+			title, createdAt, updatedAt, wantCreatedAt, previousUpdatedAt)
 	}
 }
 
