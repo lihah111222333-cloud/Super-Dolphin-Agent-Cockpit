@@ -236,6 +236,39 @@ func TestGetDAG_RejectsVersionChangedDuringDetailLoad(t *testing.T) {
 	}
 }
 
+func TestDAGSummaryDTO_ExposesExplicitScheduleEnabled(t *testing.T) {
+	nextRunAt := time.Date(2026, 6, 16, 0, 0, 0, 0, time.UTC)
+
+	active := dagSummaryDTO(taskdag.DAG{
+		DagKey:    "daily-ai-essay",
+		Trigger:   "scheduled",
+		CronExpr:  "CRON_TZ=Asia/Shanghai 0 8 * * *",
+		NextRunAt: &nextRunAt,
+	})
+	if !active.ScheduleEnabled {
+		t.Fatalf("active.ScheduleEnabled = false, want true")
+	}
+
+	paused := dagSummaryDTO(taskdag.DAG{
+		DagKey:   "daily-ai-essay",
+		Trigger:  "scheduled",
+		CronExpr: "CRON_TZ=Asia/Shanghai 0 8 * * *",
+	})
+	if paused.ScheduleEnabled {
+		t.Fatalf("paused.ScheduleEnabled = true, want false")
+	}
+	wire, err := json.Marshal(paused)
+	if err != nil {
+		t.Fatalf("json.Marshal(paused) error = %v", err)
+	}
+	if !strings.Contains(string(wire), `"schedule_enabled":false`) {
+		t.Fatalf("paused DAG JSON = %s, want explicit schedule_enabled=false", wire)
+	}
+	if strings.Contains(string(wire), `"next_run_at"`) {
+		t.Fatalf("paused DAG JSON = %s, want next_run_at omitted when nil", wire)
+	}
+}
+
 func TestUpdateNodeParams_UnmarshalLegacyRunIDAlias(t *testing.T) {
 	var params updateNodeParams
 	if err := json.Unmarshal(testRawConfig(t, `{"dagKey":"dag-1","nodeKey":"n1","runId":77,"status":"done"}`), &params); err != nil {
