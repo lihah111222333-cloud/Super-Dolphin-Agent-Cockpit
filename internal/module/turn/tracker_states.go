@@ -38,6 +38,7 @@ func permit(trigger TurnTrigger, dest TurnState) statemachine.Permit {
 	return statemachine.Permit{Trigger: string(trigger), Dest: string(dest)}
 }
 
+// newTurnStateMachineConfig 创建turn状态machine配置。
 func newTurnStateMachineConfig() statemachine.Config {
 	return statemachine.Config{
 		Initial: string(StatePreparing),

@@ -13,6 +13,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
+// Fork 从当前 provider 历史分出一个新 thread。
+// 它复用旧 thread 的 prompt snapshot，再接上新的 provider session；不要重新跑 start 路由。
 func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error) {
 	ctx = util.NonNilContext(ctx)
 	session, binding, err := s.resolveSession(ctx, threadID)
@@ -93,6 +95,8 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 	}, nil
 }
 
+// resolveForkContext 只从 thread meta 和 binding 取 provider/cwd。
+// fork 不猜默认 provider；cwd 冲突时直接返回错误。
 func (s *service) resolveForkContext(ctx context.Context, threadID, bindingProvider, bindingCWD string) (threadMeta, string, string, error) {
 	meta := s.lookupThreadMeta(ctx, threadID)
 	cwd, err := resolveForkCWD(meta.CWD, bindingCWD)
@@ -106,6 +110,8 @@ func (s *service) resolveForkContext(ctx context.Context, threadID, bindingProvi
 	return meta, provider, cwd, nil
 }
 
+// Recover 重新接上 binding 指向的 provider session。
+// 它复用 thread meta、runtime config 和已有 snapshot，只刷新 binding/thread 状态。
 func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, error) {
 	ctx = util.NonNilContext(ctx)
 	binding, err := s.resolveBinding(ctx, threadID)
@@ -221,6 +227,7 @@ func resolveRecoverCWD(metaCWD, bindingCWD string) (string, error) {
 	return resolveLifecycleCWD("recover", metaCWD, bindingCWD)
 }
 
+// resolveLifecycleCWD 解析生命周期操作使用的工作目录。
 func resolveLifecycleCWD(action, metaCWD, bindingCWD string) (string, error) {
 	meta := strings.TrimSpace(metaCWD)
 	binding := strings.TrimSpace(bindingCWD)

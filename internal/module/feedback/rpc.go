@@ -28,6 +28,7 @@ type recordParams struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
+// NewHandlers 创建处理器。
 func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		"feedback/record": newRecordHandler(svc),

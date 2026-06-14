@@ -33,6 +33,8 @@ type AgentInput = contract.AgentInput
 //   - Otherwise AssembleStart is invoked as usual, then Explore/Plan agents
 //     get claudeMd / gitStatus scrubbed, and the agent env-details block is
 //     appended to BaseInstructions (mapping §7.2).
+//
+// AssembleAgent 处理assemble代理。
 func (s *service) AssembleAgent(ctx context.Context, in AgentInput) (StartAssembly, error) {
 	if override := strings.TrimSpace(in.OverrideSystemPrompt); override != "" {
 		return s.overrideAgentAssembly(in.StartInput, override), nil

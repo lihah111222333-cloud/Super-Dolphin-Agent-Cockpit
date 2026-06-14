@@ -61,6 +61,7 @@ type editCollector func(path string, src []byte) ([]edit, []replacement, error)
 
 type editApplier func(src []byte, edits []edit) []byte
 
+// main 解析参数并执行命令行入口流程。
 func main() {
 	var (
 		dryRun    = flag.Bool("dry-run", false, "scan and report replacements without writing files")
@@ -147,6 +148,7 @@ func skipRenameDir(name string) error {
 	return nil
 }
 
+// processRenameFile 处理进程重命名文件。
 func processRenameFile(rootAbs, path string, apply bool, collect editCollector, applyEditSet editApplier, fileReports *[]fileReport, totalReplacements *int) error {
 	rel, err := filepath.Rel(rootAbs, path)
 	if err != nil {
@@ -193,6 +195,7 @@ func printReportSummary(rep report, reportOut string) {
 	}
 }
 
+// collectEdits 收集编辑。
 func collectEdits(path string, src []byte) ([]edit, []replacement, error) {
 	fset := token.NewFileSet()
 	fileAST, err := parser.ParseFile(fset, path, src, parser.ImportsOnly)

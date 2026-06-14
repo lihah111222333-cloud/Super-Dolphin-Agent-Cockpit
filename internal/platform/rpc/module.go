@@ -56,6 +56,7 @@ type approvalRequester struct {
 var _ contract.ApprovalRequester = approvalRequester{}
 var _ contract.RPCDispatcher = (*Server)(nil)
 
+// RequestApproval 处理请求审批。
 func (r approvalRequester) RequestApproval(ctx context.Context, req contract.ApprovalRequest) (contract.ApprovalDecision, error) {
 	if r.manager == nil {
 		return contract.ApprovalDecision{}, ErrInvalidState("approval manager is nil")
@@ -219,6 +220,7 @@ func shutdownPendingApprovals(ctx context.Context, approvals *ApprovalManager, l
 	return nil
 }
 
+// waitPendingApprovals 等待待处理approvals。
 func waitPendingApprovals(ctx context.Context, approvals *ApprovalManager, grace time.Duration) {
 	if approvals == nil || grace <= 0 {
 		return

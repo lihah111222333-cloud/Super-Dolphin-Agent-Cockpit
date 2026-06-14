@@ -29,6 +29,7 @@ const (
 )
 
 // Valid reports whether the scope is a known trust tier.
+// Valid 判断跨模块契约是否可用。
 func (t TrustScope) Valid() bool {
 	switch t {
 	case TrustUser, TrustProject, TrustSigned:
@@ -39,6 +40,7 @@ func (t TrustScope) Valid() bool {
 
 // Trusted reports whether the scope can skip per-invocation approval
 // (user / signed are considered trusted).
+// Trusted 处理trusted。
 func (t TrustScope) Trusted() bool {
 	return t == TrustUser || t == TrustSigned
 }
@@ -103,6 +105,7 @@ type SkillCWDContextKey struct{}
 
 // WithSkillCWD attaches a working-directory scope to ctx for skill requests.
 // Empty cwd is a no-op so downstream callers can detect the missing scope.
+// WithSkillCWD 设置技能工作目录。
 func WithSkillCWD(ctx context.Context, cwd string) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -115,6 +118,7 @@ func WithSkillCWD(ctx context.Context, cwd string) context.Context {
 }
 
 // SkillCWDFromContext extracts the skill working-directory scope from ctx.
+// SkillCWDFromContext 从上下文处理技能工作目录。
 func SkillCWDFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
@@ -125,6 +129,7 @@ func SkillCWDFromContext(ctx context.Context) string {
 
 // RequireSkillCWD extracts the skill CWD from ctx, returning
 // ErrSkillMissingCWD when absent.
+// RequireSkillCWD 处理require技能工作目录。
 func RequireSkillCWD(ctx context.Context) (string, error) {
 	cwd := SkillCWDFromContext(ctx)
 	if cwd == "" {
@@ -151,6 +156,7 @@ const (
 )
 
 // IsValidArtifactKind reports whether kind is one of the known artifact kinds.
+// IsValidArtifactKind 判断valid产物kind是否可用。
 func IsValidArtifactKind(kind string) bool {
 	switch kind {
 	case ArtifactKindMetadata, ArtifactKindBody, ArtifactKindResource:

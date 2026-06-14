@@ -49,6 +49,7 @@ func resolveGoToolchainForModule(goModPath string, env []string) (GoToolchainInf
 	return toolchain, nil
 }
 
+// requiredGoVersionFromMod 从mod处理必需go版本。
 func requiredGoVersionFromMod(goModPath string) (string, error) {
 	data, err := os.ReadFile(goModPath)
 	if err != nil {
@@ -171,6 +172,7 @@ func goToolchainCandidateForDir(dir string, seenDirs map[string]struct{}) (goToo
 	return goToolchainCandidate{binDir: normalized, path: candidate}, true
 }
 
+// goExecutableVersion 处理go可执行文件版本。
 func goExecutableVersion(path string) (goVersion, error) {
 	ctx, cancel := platformconfig.WithTimeout(context.Background(), goVersionProbeTimeout)
 	defer cancel()
@@ -268,6 +270,7 @@ func (v goVersion) compare(other goVersion) int {
 	return v.patch - other.patch
 }
 
+// String 返回字符串表示。
 func (v goVersion) String() string {
 	return fmt.Sprintf("%d.%d.%d", v.major, v.minor, v.patch)
 }

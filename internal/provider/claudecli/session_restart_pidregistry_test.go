@@ -25,7 +25,7 @@ func TestRestartIfNeededLockedReRegistersPIDRegistry(t *testing.T) {
 
 	oldReady := make(chan struct{})
 	close(oldReady)
-	s := &session{
+	s := assumeSessionLaunchOverride(&session{
 		agentID:         "agent-1",
 		threadID:        "11111111-2222-3333-4444-555555555555",
 		sessionID:       "11111111-2222-3333-4444-555555555555",
@@ -36,7 +36,7 @@ func TestRestartIfNeededLockedReRegistersPIDRegistry(t *testing.T) {
 		pidRegistry:     reg,
 		suppressedTurns: map[string]struct{}{},
 		model:           "claude-old",
-	}
+	})
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	s.mu.Lock()

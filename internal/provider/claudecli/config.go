@@ -14,6 +14,7 @@ import (
 )
 
 // resolveAbsCWD ensures caller-provided CWD is absolute without inventing one.
+// resolveAbsCWD 解析abs工作目录。
 func resolveAbsCWD(cwd string) string {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" || cwd == "." {
@@ -102,6 +103,7 @@ func additionalDisallowedToolsFromMap(cfg map[string]any) []string {
 	return nil
 }
 
+// providerNativeSkillsDisabledFromMap 从map处理providernativeskillsdisabled。
 func providerNativeSkillsDisabledFromMap(cfg map[string]any) bool {
 	for _, key := range []string{"providerNativeSkills", "provider_native_skills"} {
 		raw, ok := cfg[key]

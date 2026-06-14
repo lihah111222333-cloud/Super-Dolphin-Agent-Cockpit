@@ -25,6 +25,7 @@ var knownModelDescriptors = map[string]ModelDescriptor{
 	},
 }
 
+// LookupModelDescriptor 处理lookup模型descriptor。
 func LookupModelDescriptor(model string) ModelDescriptor {
 	model = strings.TrimSpace(model)
 	if model == "" {
@@ -39,10 +40,12 @@ func LookupModelDescriptor(model string) ModelDescriptor {
 	return ModelDescriptor{ID: model}
 }
 
+// IsZero 判断zero是否可用。
 func (d ModelDescriptor) IsZero() bool {
 	return strings.TrimSpace(d.ID) == "" && strings.TrimSpace(d.MarketingName) == ""
 }
 
+// MetadataText 处理元数据文本。
 func (d ModelDescriptor) MetadataText() string {
 	id := strings.TrimSpace(d.ID)
 	marketingName := strings.TrimSpace(d.MarketingName)
@@ -58,6 +61,7 @@ func (d ModelDescriptor) MetadataText() string {
 	}
 }
 
+// KnowledgeCutoffText 处理knowledgecutoff文本。
 func (d ModelDescriptor) KnowledgeCutoffText() string {
 	if d.IsZero() {
 		return ""
@@ -68,6 +72,7 @@ func (d ModelDescriptor) KnowledgeCutoffText() string {
 	return "not published by the provider"
 }
 
+// LatestModelFamilyText 处理latest模型family文本。
 func (d ModelDescriptor) LatestModelFamilyText() string {
 	return strings.TrimSpace(d.LatestModelFamily)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -103,6 +104,7 @@ func (s *service) commitLaunchSuccessLocked(ctx context.Context, agent *agentSta
 	return nil
 }
 
+// finalizeActiveTurnLocked 结束当前活跃 turn，并按结果清理错误状态。
 func (s *service) finalizeActiveTurnLocked(
 	ctx context.Context,
 	agent *agentState,
@@ -132,6 +134,7 @@ func (s *service) finalizeActiveTurnLocked(
 	return nil
 }
 
+// forceIdleAfterTurnTerminalLocked 在终态事件到达后强制回到可继续处理的空闲状态。
 func (s *service) forceIdleAfterTurnTerminalLocked(
 	ctx context.Context,
 	agent *agentState,
@@ -203,6 +206,7 @@ func shouldAutoRecoverProcessExitLocked(s *service, agent *agentRuntime, err err
 	return true
 }
 
+// processExitAutoRecoverable 判断进程退出后是否还能由本地命令或 launcher 恢复。
 func processExitAutoRecoverable(s *service, agent *agentRuntime, err error) bool {
 	return s != nil && agent != nil && err != nil && !agent.stopRequested &&
 		(len(agent.command) > 0 || s.launcher != nil && agent.cmd == nil && strings.TrimSpace(agent.remoteThreadID) != "")
@@ -267,6 +271,36 @@ func recoveryLaunchRequest(agent *agentRuntime) LaunchRequest {
 	}
 }
 
+// agentIdentityKind separates persisted-id API lookups from hook-only reverse lookups.
+type agentIdentityKind int
+
+const (
+	agentIdentityLocalOnly agentIdentityKind = iota
+	agentIdentityAny
+)
+
+// lookupAgentByIDLocked keeps reverse-capable lookup for trusted hook/event ingestion paths.
+func lookupAgentByIDLocked(agents map[string]*agentState, agentID string) (*agentState, error) {
+	return lookupAgentByIdentityLocked(agents, agentID, agentIdentityAny)
+}
+
+// lookupAgentByIdentityLocked 按调用方声明的信任范围查找 agent。
+func lookupAgentByIdentityLocked(agents map[string]*agentState, agentID string, kind agentIdentityKind) (*agentState, error) {
+	agentID = strings.TrimSpace(agentID)
+	if agent, ok := agents[agentID]; ok {
+		return agent, nil
+	}
+	if kind == agentIdentityLocalOnly {
+		return nil, fmt.Errorf("%w: %s", errAgentNotFound, agentID)
+	}
+	for _, candidate := range agents {
+		if candidate.remoteAgentID == agentID || candidate.remoteThreadID == agentID {
+			return candidate, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: %s", errAgentNotFound, agentID)
+}
+
 func applyLaunchRequestLocked(agent *agentRuntime, req LaunchRequest) {
 	agent.requestedAgentID, agent.name = req.AgentID, managedAgentLaunchDisplayName(req.Name)
 	agent.prompt, agent.instructions, agent.parentID = req.Prompt, req.Instructions, req.ParentID
@@ -294,6 +328,7 @@ func (s *service) setNoReportFallbackLocked(ctx context.Context, agent *agentRun
 	return nil
 }
 
+// applyReportEventLocked 应用 report 事件，并在终态缺报告时生成兜底说明。
 func (s *service) applyReportEventLocked(ctx context.Context, agent *agentRuntime, eventType string, data json.RawMessage, report string) (ReportEventResult, error) {
 	terminal := isTerminalReportEvent(eventType, data)
 	if report == "" && terminal && strings.TrimSpace(agent.lastReport) == "" {
@@ -424,6 +459,7 @@ func bindStateChangedHookThreadLocked(agent *agentRuntime, threadID, nextState s
 	return bindHookThreadLocked(agent, threadID)
 }
 
+// recoveringNewTerminalThreadHook 判断恢复中的新线程终态是否属于本次 pending launch。
 func recoveringNewTerminalThreadHook(agent *agentRuntime, threadID, nextState string) bool {
 	return agent != nil && agent.state == agentdto.StateRecovering &&
 		strings.TrimSpace(threadID) != "" && strings.TrimSpace(threadID) != strings.TrimSpace(agent.remoteThreadID) &&
@@ -436,6 +472,7 @@ func recoveringOldThreadHook(agent *agentRuntime, threadID string) bool {
 		strings.TrimSpace(threadID) != "" && strings.TrimSpace(threadID) == strings.TrimSpace(agent.remoteThreadID)
 }
 
+// bindStoppedHookThreadLocked 处理 stopped hook 的线程绑定，避免覆盖已停止 agent。
 func bindStoppedHookThreadLocked(agent *agentRuntime, threadID string) bool {
 	threadID = strings.TrimSpace(threadID)
 	if agent != nil && agent.state == agentdto.StateStopped {
@@ -448,6 +485,7 @@ func bindStoppedHookThreadLocked(agent *agentRuntime, threadID string) bool {
 	return bindHookThreadLocked(agent, threadID)
 }
 
+// recordPendingLaunchThreadLocked 记录启动阶段看到的新远端线程，供恢复判定使用。
 func recordPendingLaunchThreadLocked(agent *agentRuntime, threadID string, eventTime time.Time) {
 	threadID = strings.TrimSpace(threadID)
 	if agent == nil || threadID == "" || !launchOwnsHookThreadBinding(agent.state) ||

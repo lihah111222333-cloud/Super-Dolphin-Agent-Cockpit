@@ -11,6 +11,7 @@ import (
 
 // ConfigString returns the first non-empty string value found under any of
 // the given keys. Values are sanitized via SanitizeConfigString.
+// ConfigString 处理配置string。
 func ConfigString(cfg map[string]any, keys ...string) string {
 	for _, key := range keys {
 		if value, ok := cfg[key].(string); ok {
@@ -24,6 +25,7 @@ func ConfigString(cfg map[string]any, keys ...string) string {
 
 // StrictString returns the trimmed string for the first present key and errors
 // when that key exists with a non-string value.
+// StrictString 处理strictstring。
 func StrictString(cfg map[string]any, label string, keys ...string) (string, error) {
 	value, key, ok := StrictValue(cfg, keys...)
 	if !ok {
@@ -38,6 +40,7 @@ func StrictString(cfg map[string]any, label string, keys ...string) (string, err
 
 // StrictBool returns the bool for the first present key and errors when that
 // key exists with a non-bool value.
+// StrictBool 处理strictbool。
 func StrictBool(cfg map[string]any, label string, keys ...string) (bool, error) {
 	value, key, ok := StrictValue(cfg, keys...)
 	if !ok {
@@ -50,6 +53,7 @@ func StrictBool(cfg map[string]any, label string, keys ...string) (bool, error) 
 	return flag, nil
 }
 
+// StrictValue 处理strict值。
 func StrictValue(cfg map[string]any, keys ...string) (any, string, bool) {
 	for _, key := range keys {
 		if value, ok := cfg[key]; ok {
@@ -61,6 +65,7 @@ func StrictValue(cfg map[string]any, keys ...string) (any, string, bool) {
 
 // SanitizeConfigString trims whitespace and rejects common JS/JSON
 // sentinel strings such as "undefined", "null", and "[object Object]".
+// SanitizeConfigString 清理配置string。
 func SanitizeConfigString(value string) string {
 	value = strings.TrimSpace(value)
 	switch strings.ToLower(value) {
@@ -74,6 +79,7 @@ func SanitizeConfigString(value string) string {
 // StringMap converts a map[string]any (typically from JSON) to a
 // map[string]string, keeping only entries where both key and value are
 // non-empty trimmed strings.
+// StringMap 处理stringmap。
 func StringMap(raw any) map[string]string {
 	input, _ := raw.(map[string]any)
 	if len(input) == 0 {
@@ -102,6 +108,7 @@ func StringMap(raw any) map[string]string {
 // ConfigStringSlice returns the first non-empty string slice found under
 // any of the given keys, normalizing the raw value via
 // NormalizeConfigStringSlice.
+// ConfigStringSlice 处理配置stringslice。
 func ConfigStringSlice(cfg map[string]any, keys ...string) []string {
 	for _, key := range keys {
 		values, ok := cfg[key]
@@ -118,6 +125,7 @@ func ConfigStringSlice(cfg map[string]any, keys ...string) []string {
 // NormalizeConfigStringSlice coerces a value to []string. It accepts
 // []string, []any (extracting string elements), and a single
 // comma-separated string.
+// NormalizeConfigStringSlice 规范化配置stringslice。
 func NormalizeConfigStringSlice(values any) []string {
 	switch typed := values.(type) {
 	case []string:
@@ -133,6 +141,7 @@ func NormalizeConfigStringSlice(values any) []string {
 
 // TrimConfigStringValues extracts non-empty trimmed strings from a []any
 // slice, discarding non-string elements.
+// TrimConfigStringValues 处理裁剪配置string值。
 func TrimConfigStringValues(values []any) []string {
 	out := make([]string, 0, len(values))
 	for _, value := range values {
@@ -152,6 +161,7 @@ func TrimConfigStringValues(values []any) []string {
 
 // SplitConfigStringSlice splits a comma-separated string into trimmed,
 // non-empty segments.
+// SplitConfigStringSlice 拆分配置stringslice。
 func SplitConfigStringSlice(value string) []string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -161,6 +171,7 @@ func SplitConfigStringSlice(value string) []string {
 }
 
 // TrimStrings trims whitespace from each string and discards empty entries.
+// TrimStrings 处理裁剪strings。
 func TrimStrings(values []string) []string {
 	out := make([]string, 0, len(values))
 	for _, value := range values {

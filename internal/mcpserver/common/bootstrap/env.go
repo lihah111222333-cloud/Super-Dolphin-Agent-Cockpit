@@ -36,6 +36,7 @@ type bootSnapshot struct {
 	Subscriptions   []string `json:"subscriptions"`
 }
 
+// ReadBootConfig 读取boot配置。
 func ReadBootConfig() Config {
 	return Config{
 		RPCAddr:      firstEnv("GO_AGENT_CTL_RPC_ADDR", "RPC_ADDR"),
@@ -50,6 +51,7 @@ func ReadBootConfig() Config {
 	}
 }
 
+// SessionTokenFromEnv 从env处理会话令牌。
 func SessionTokenFromEnv() string {
 	return firstEnv("GO_AGENT_CTL_SESSION_TOKEN", "GO_AGENT_MCP_SESSION_TOKEN")
 }
@@ -106,6 +108,7 @@ func (c *Client) envContext(scope string, keys []string) (*mcp.ContextResponse, 
 	return resp, nil
 }
 
+// contextPayloadFromSnapshot 从快照处理上下文载荷。
 func contextPayloadFromSnapshot(c *Client, scope string) map[string]any {
 	clientKind := shared.FirstNonEmpty(c.boot.ClientKind, c.cfg.ClientKind)
 	binaryName := shared.FirstNonEmpty(c.boot.BinaryName, c.cfg.BinaryName)
@@ -153,6 +156,7 @@ func contextPayloadFromSnapshot(c *Client, scope string) map[string]any {
 	}
 }
 
+// normalizeContextResponse 规范化上下文响应。
 func normalizeContextResponse(scope string, resp *mcp.ContextResponse) *mcp.ContextResponse {
 	if resp == nil {
 		return nil
@@ -173,6 +177,7 @@ func normalizeContextResponse(scope string, resp *mcp.ContextResponse) *mcp.Cont
 	return &out
 }
 
+// normalizeRegisterResponse 规范化register响应。
 func normalizeRegisterResponse(resp *mcp.RegisterResponse, instanceID string) (*mcp.RegisterResponse, error) {
 	if resp == nil {
 		return nil, errors.New("bootstrap: register response is nil")

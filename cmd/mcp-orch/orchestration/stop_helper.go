@@ -36,6 +36,7 @@ type stopSpawnedAgentSink interface {
 	Inc(result StopResult)
 }
 
+// StopSpawnedAgent 停止spawned代理。
 func StopSpawnedAgent(ctx context.Context, threads AgentThreadLookup, svc StopAgentService, threadID string) (StopResult, error) {
 	threadID = strings.TrimSpace(threadID)
 	logger := pkglogger.Get()
@@ -82,6 +83,7 @@ type stopSpawnedAgentCounter struct {
 	failed                 atomic.Int64
 }
 
+// Inc 累加编排。
 func (c *stopSpawnedAgentCounter) Inc(result StopResult) {
 	if c == nil {
 		return
@@ -104,6 +106,7 @@ func (c *stopSpawnedAgentCounter) Inc(result StopResult) {
 	}
 }
 
+// Snapshot 处理快照。
 func (c *stopSpawnedAgentCounter) Snapshot() StopSpawnedAgentMetrics {
 	if c == nil {
 		return StopSpawnedAgentMetrics{}
@@ -125,10 +128,12 @@ func recordStopSpawnedAgentMetric(result StopResult) {
 	defaultStopSpawnedAgentCounter.Inc(result)
 }
 
+// StopSpawnedAgentCounters 停止spawned代理counters。
 func StopSpawnedAgentCounters() StopSpawnedAgentMetrics {
 	return defaultStopSpawnedAgentCounter.Snapshot()
 }
 
+// resolveAgentIDForStop 为stop解析代理ID。
 func resolveAgentIDForStop(ctx context.Context, logger logHandle, threads AgentThreadLookup, svc StopAgentService, threadID string) (string, *PersistedThread, StopResult, error) {
 	if threadID == "" {
 		recordStopSpawnedAgentMetric(StopResultSkippedNoThreadID)

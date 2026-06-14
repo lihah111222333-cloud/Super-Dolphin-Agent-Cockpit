@@ -45,6 +45,7 @@ func serveClipboardAsset(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, full)
 }
 
+// isValidClipboardAssetName 判断validclipboardasset名称是否可用。
 func isValidClipboardAssetName(name string) bool {
 	if name == "" {
 		return false
@@ -68,6 +69,7 @@ func isValidClipboardAssetName(name string) bool {
 // real paths and confirms the candidate is still nested inside the temp dir.
 // Falls back to a lexical containment check when the file does not yet exist
 // (so unit tests can stage missing files without false positives).
+// isUnderTempDir 判断undertemp目录是否可用。
 func isUnderTempDir(full string) bool {
 	cleanFull := filepath.Clean(full)
 	tempDir := filepath.Clean(os.TempDir())

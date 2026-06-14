@@ -302,7 +302,7 @@ func runRenameHarnessGoTest(t *testing.T, testFileName, testSource string) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("harness go test failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+		t.Fatalf("harness test command failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
 	}
 }
 

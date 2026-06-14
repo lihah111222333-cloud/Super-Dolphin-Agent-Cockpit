@@ -123,6 +123,7 @@ func startAssemblyBoundary(resolved []ResolvedPromptSection, baseTail string) *d
 	}
 }
 
+// resolvedSectionSnapshot 处理已解析section快照。
 func resolvedSectionSnapshot(sections []ResolvedPromptSection) map[string]string {
 	if len(sections) == 0 {
 		return nil

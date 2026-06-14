@@ -118,6 +118,7 @@ func warnFileReadFailure(action, root, rawPath string, err error) {
 	)
 }
 
+// NewFileHandler 创建文件处理器。
 func NewFileHandler(cfg Config) Handler {
 	handler := handlerBase{
 		root:     resolveRoot(cfg.WorkspaceRoot),
@@ -126,6 +127,7 @@ func NewFileHandler(cfg Config) Handler {
 	return Handler(wrapToolHandler("file", middleware.TierNormal, handler.handleFile))
 }
 
+// handleFile 处理文件。
 func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (any, error) {
 	input, err := decodeToolParams[fileToolInput](params, decodeLenient)
 	if err != nil {
@@ -197,6 +199,7 @@ func normalizeFileInputFromPos(input *fileToolInput) (int, error) {
 	return line, nil
 }
 
+// openFile 打开文件。
 func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID string) (openFileResult, error) {
 	if h.registry == nil {
 		return openFileResult{}, errManagerUnavailable
@@ -265,6 +268,7 @@ func (h handlerBase) renderFunctionOrFallback(ctx context.Context, path search.P
 // line window instead. The fallbackReason is a tag from
 // lineWindowReason* so renderLineWindow can produce a footer that
 // distinguishes "no symbol provider" from "outside any function".
+// tryFunctionWindow 处理try函数window。
 func (h handlerBase) tryFunctionWindow(ctx context.Context, path search.PathInfo, content string, req readFileRequest) (string, bool) {
 	if h.registry == nil {
 		return lineWindowReasonNoLSP, false
@@ -292,6 +296,7 @@ func readFileDocumentSymbols(ctx context.Context, manager lspmanager.Manager, ur
 	return manager.DocumentSymbol(ctx, uri)
 }
 
+// readBatch 读取batch。
 func (h handlerBase) readBatch(ctx context.Context, req readFileRequest) (batchReadResponse, error) {
 	paths, meta := trimBatchPaths(req.rawPaths)
 	results := make(chan indexedBatchItem, len(paths))
@@ -387,6 +392,7 @@ func trimBatchPaths(rawPaths []string) ([]string, batchReadMeta) {
 	return trimmed[:lspReadFileBatchMax], meta
 }
 
+// encodeBatchReadPayload 编码batchread载荷。
 func encodeBatchReadPayload(resp batchReadResponse) batchReadResponse {
 	finalizeBatchMeta(&resp)
 	if fitsBatchPayload(resp) {
@@ -417,6 +423,7 @@ func encodeBatchReadPayload(resp batchReadResponse) batchReadResponse {
 	return resp
 }
 
+// finalizeBatchMeta 处理finalizebatchmeta。
 func finalizeBatchMeta(resp *batchReadResponse) {
 	resp.Showing = len(resp.Data)
 	if resp.Total < len(resp.Data) {
@@ -515,6 +522,7 @@ func minInt(left, right int) int {
 	return right
 }
 
+// ToPlainText 渲染为纯文本。
 func (r openFileResult) ToPlainText() string {
 	if r.Success {
 		return fmt.Sprintf("Successfully opened file: %s (%d bytes).", r.FilePath, r.Bytes)
@@ -522,6 +530,7 @@ func (r openFileResult) ToPlainText() string {
 	return fmt.Sprintf("Failed to open file: %s. Message: %s", r.FilePath, r.Message)
 }
 
+// ToPlainText 渲染为纯文本。
 func (r batchReadResponse) ToPlainText() string {
 	var sb strings.Builder
 	successCount := r.Showing - r.Meta.ErrorCount

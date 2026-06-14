@@ -16,6 +16,7 @@ var Module = fx.Module("store.prompt",
 	),
 )
 
+// AsReader 把prompt存储处理为读取器。
 func AsReader(store Store) Reader {
 	return store
 }

@@ -48,6 +48,14 @@ func initializeParams() map[string]any {
 	}
 }
 
+func normalizeCodexAppEffort(effort string) string {
+	effort = strings.TrimSpace(effort)
+	if strings.EqualFold(effort, "minimal") {
+		return "low"
+	}
+	return effort
+}
+
 func newTurnHandle(localID, providerID string) *turnHandle {
 	return &turnHandle{
 		localID:    strings.TrimSpace(localID),
@@ -56,15 +64,20 @@ func newTurnHandle(localID, providerID string) *turnHandle {
 	}
 }
 
-func (h *turnHandle) LocalID() string       { return h.localID }
+// LocalID 返回宿主侧用于追踪本轮 turn 的本地 ID。
+func (h *turnHandle) LocalID() string { return h.localID }
+
+// Done 在 turn 完成或失败时关闭，调用方用它等待结果落定。
 func (h *turnHandle) Done() <-chan struct{} { return h.done }
 
+// ProviderID 返回 Codex app-server 分配的 turn ID，读取时保持锁保护。
 func (h *turnHandle) ProviderID() string {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.providerID
 }
 
+// Err 返回 turn 结束时记录的错误，必须和完成信号使用同一把锁读取。
 func (h *turnHandle) Err() error {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -92,6 +105,7 @@ func cloneCaps(src dto.CapabilitySet) dto.CapabilitySet {
 	return out
 }
 
+// ThreadID 返回当前 session 绑定的 Codex provider thread ID。
 func (s *session) ThreadID() string {
 	if s == nil {
 		return ""
@@ -100,6 +114,7 @@ func (s *session) ThreadID() string {
 	return strings.TrimSpace(threadID)
 }
 
+// RolloutPath 根据当前 thread ID 找到 Codex 本地 rollout 文件路径。
 func (s *session) RolloutPath() string {
 	tid := s.ThreadID()
 	if tid == "" {
@@ -240,6 +255,7 @@ func resolveDefaultCodexModel(ctx context.Context, t *transport) (string, error)
 	return model, err
 }
 
+// resolveSupportedCodexModel 查询 app-server 支持的模型，并在需要时选一个可用默认值。
 func resolveSupportedCodexModel(ctx context.Context, t *transport, requested string) (string, bool, error) {
 	requested = strings.TrimSpace(requested)
 	raw, err := callWithTimeout(ctx, t, 10*time.Second, "model/list", map[string]any{})
@@ -282,6 +298,7 @@ func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) threadStart
 		Summary:               supportutil.ConfigString(req.Config, "summary"),
 		Effort:                normalizeCodexAppEffort(supportutil.ConfigString(req.Config, "effort")),
 		Sandbox:               codexSandboxWireJSON(supportutil.ConfigJSON(req.Config, "sandbox")),
+		MCPConfig:             supportutil.ConfigJSON(req.Config, "mcpConfig"),
 	}
 	codexNativeToolPolicyFromConfig(req.Config).ApplyThreadStartParams(&params)
 	return params
@@ -306,6 +323,7 @@ func (d *driver) startDynamicSession(ctx context.Context, s *session, req dto.St
 	return d.finishStartedSession(s, req, result), nil
 }
 
+// prepareStartDynamicTools 为 thread/start 准备需要交给 Codex 的动态工具声明。
 func (d *driver) prepareStartDynamicTools(ctx context.Context, s *session, req dto.StartSessionRequest) ([]codexprotocol.DynamicToolSchema, error) {
 	if !contract.ToolSurfaceModeUsesDynamicTools(req.ToolSurfaceMode) {
 		return nil, nil
@@ -328,6 +346,7 @@ func (d *driver) prepareStartDynamicTools(ctx context.Context, s *session, req d
 	return tools, nil
 }
 
+// bindStartedToolSurface 把已启动的 provider thread 绑定到本地工具面。
 func (d *driver) bindStartedToolSurface(s *session, req dto.StartSessionRequest, providerThreadID string) error {
 	if d == nil || d.prepareTools == nil {
 		return nil
@@ -424,6 +443,7 @@ func primeResumeToolScope(s *session, req dto.ResumeSessionRequest) {
 	}
 }
 
+// finishResumedSession 恢复 resume 后本地 session 需要继续使用的运行配置。
 func (d *driver) finishResumedSession(ctx context.Context, s *session, req dto.ResumeSessionRequest, threadID string) contract.Session {
 	s.setThreadID(threadID)
 	s.ensureRuntimeCodexHomeFromInitialize("resume")
@@ -459,6 +479,7 @@ func (d *driver) startRemoteThreadWithDynamicTools(ctx context.Context, t *trans
 	return startRemoteThreadWithParams(ctx, t, req, params)
 }
 
+// startRemoteThreadWithParams 发送 thread/start，并在发送前补齐模型选择和诊断日志。
 func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.StartSessionRequest, params threadStartParams) (startResult, error) {
 	configKeys := supportutil.SortedConfigKeys(req.Config)
 	if supportutil.CodexModelNeedsListResolution(params.Model) {
@@ -528,6 +549,7 @@ func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.Star
 	return decodeStartResult(raw)
 }
 
+// logThreadStartIdentityTrace 输出身份路由相关字段，方便排查 provider 选错的问题。
 func logThreadStartIdentityTrace(msg, serverURL string, req dto.StartSessionRequest, params threadStartParams, err error) {
 	provider := strings.TrimSpace(req.Provider)
 	configModelProvider := supportutil.ConfigString(req.Config, "modelProvider")
@@ -557,6 +579,7 @@ func logThreadStartIdentityTrace(msg, serverURL string, req dto.StartSessionRequ
 	pkglogger.Warn(msg, fields...)
 }
 
+// restoreApprovalPolicy 从远端线程配置恢复审批策略，失败时保留本地已有状态。
 func (d *driver) restoreApprovalPolicy(ctx context.Context, s *session, threadID string) {
 	if d == nil || s == nil {
 		return

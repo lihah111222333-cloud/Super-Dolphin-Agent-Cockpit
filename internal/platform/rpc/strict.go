@@ -8,6 +8,7 @@ import (
 )
 
 // StrictHandler wraps a typed handler with object-only strict decoding.
+// StrictHandler 处理strict处理器。
 func StrictHandler[Req, Resp any](fn func(context.Context, Req) (Resp, error)) handler.Func {
 	info, err := handler.Check(fn)
 	if err != nil {
@@ -18,6 +19,7 @@ func StrictHandler[Req, Resp any](fn func(context.Context, Req) (Resp, error)) h
 }
 
 // RawHandler passes the raw request through unchanged.
+// RawHandler 处理原始处理器。
 func RawHandler(fn func(context.Context, *jrpc2.Request) (any, error)) handler.Func {
 	return handler.Func(fn)
 }

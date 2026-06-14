@@ -19,6 +19,7 @@ const defaultClipboardRetention = 7 * 24 * time.Hour
 // cleanupStaleClipboardImages walks dir and removes "clipboard-*.png" files
 // whose modification time is older than retention. Errors on individual
 // files are logged and skipped — cleanup is best-effort.
+// cleanupStaleClipboardImages 处理cleanupstaleclipboardimages。
 func cleanupStaleClipboardImages(logger *slog.Logger, dir string, retention time.Duration) (removed, kept int) {
 	if retention <= 0 || strings.TrimSpace(dir) == "" {
 		return 0, 0

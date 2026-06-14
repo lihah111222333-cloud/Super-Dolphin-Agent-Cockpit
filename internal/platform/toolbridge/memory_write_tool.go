@@ -37,6 +37,7 @@ type memoryWriteToolInput struct {
 	Private      any    `json:"private,omitempty"`
 }
 
+// NewMemoryWriteHostToolRegistry 创建记忆writehost工具注册表。
 func NewMemoryWriteHostToolRegistry(writer contract.AgentMemoryWriter, opts MemoryWriteHostToolOptions) *MemoryWriteHostToolRegistry {
 	if writer == nil {
 		return nil
@@ -44,6 +45,7 @@ func NewMemoryWriteHostToolRegistry(writer contract.AgentMemoryWriter, opts Memo
 	return &MemoryWriteHostToolRegistry{writer: writer, opts: opts}
 }
 
+// ListHostTools 列出host工具。
 func (r *MemoryWriteHostToolRegistry) ListHostTools() []mcpdto.MCPTool {
 	if r == nil || r.writer == nil || !r.opts.Enabled || !r.opts.ToolsEnabled {
 		return nil
@@ -52,10 +54,12 @@ func (r *MemoryWriteHostToolRegistry) ListHostTools() []mcpdto.MCPTool {
 	return []mcpdto.MCPTool{{Name: ToolNameMemoryWrite, Description: descriptionMemoryWrite, InputSchema: schema}}
 }
 
+// HasTool 判断工具是否可用。
 func (r *MemoryWriteHostToolRegistry) HasTool(name string) bool {
 	return r != nil && name == ToolNameMemoryWrite
 }
 
+// CallHostTool 调用host工具。
 func (r *MemoryWriteHostToolRegistry) CallHostTool(ctx context.Context, call HostToolCall) (any, error) {
 	if r == nil || r.writer == nil {
 		return nil, contract.NewAgentMemoryError("writer_unavailable", fmt.Errorf("memory_write writer is not configured"))
@@ -101,6 +105,7 @@ func buildAgentMemoryWriteRequest(input memoryWriteToolInput, call HostToolCall)
 	}, nil
 }
 
+// rejectMemoryWriteTargetFields 处理reject记忆writetarget字段。
 func rejectMemoryWriteTargetFields(input memoryWriteToolInput) error {
 	if input.Path != nil || input.Target != nil || input.ActualTarget != nil || input.Team != nil || input.Private != nil {
 		return contract.NewAgentMemoryError("invalid_input", fmt.Errorf("memory_write does not accept path or target fields"))
@@ -159,6 +164,7 @@ type CompositeHostToolRegistry struct {
 	registries []HostToolRegistry
 }
 
+// NewCompositeHostToolRegistry 创建compositehost工具注册表。
 func NewCompositeHostToolRegistry(registries ...HostToolRegistry) *CompositeHostToolRegistry {
 	out := &CompositeHostToolRegistry{}
 	for _, reg := range registries {
@@ -172,6 +178,7 @@ func NewCompositeHostToolRegistry(registries ...HostToolRegistry) *CompositeHost
 	return out
 }
 
+// ListHostTools 列出host工具。
 func (r *CompositeHostToolRegistry) ListHostTools() []mcpdto.MCPTool {
 	if r == nil {
 		return nil
@@ -194,6 +201,7 @@ func (r *CompositeHostToolRegistry) ListHostTools() []mcpdto.MCPTool {
 	return out
 }
 
+// HasTool 判断工具是否可用。
 func (r *CompositeHostToolRegistry) HasTool(name string) bool {
 	if r == nil {
 		return false
@@ -206,6 +214,7 @@ func (r *CompositeHostToolRegistry) HasTool(name string) bool {
 	return false
 }
 
+// RequiresCWD 处理requires工作目录。
 func (r *CompositeHostToolRegistry) RequiresCWD(name string) bool {
 	if r != nil {
 		for _, reg := range r.registries {
@@ -217,6 +226,7 @@ func (r *CompositeHostToolRegistry) RequiresCWD(name string) bool {
 	return true
 }
 
+// CallHostTool 调用host工具。
 func (r *CompositeHostToolRegistry) CallHostTool(ctx context.Context, call HostToolCall) (any, error) {
 	if r != nil {
 		for _, reg := range r.registries {

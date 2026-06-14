@@ -7,14 +7,18 @@ import (
 )
 
 // FirstNonEmpty delegates to util.FirstNonEmpty.
+// FirstNonEmpty 处理firstnonempty。
 func FirstNonEmpty(values ...string) string { return util.FirstNonEmpty(values...) }
 
 // FirstTrimmed delegates to util.FirstTrimmed.
+// FirstTrimmed 处理firsttrimmed。
 func FirstTrimmed(values ...string) string { return util.FirstTrimmed(values...) }
 
 // ClampLimit delegates to util.ClampLimit.
+// ClampLimit 返回clamplimit。
 func ClampLimit(val, min, max, defaultVal int) int { return util.ClampLimit(val, min, max, defaultVal) }
 
+// FirstPayloadString 处理first载荷string。
 func FirstPayloadString(payload map[string]any, keys ...string) string {
 	for _, key := range keys {
 		if value, ok := payload[key]; ok {

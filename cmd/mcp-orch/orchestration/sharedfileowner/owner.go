@@ -30,6 +30,7 @@ type marker struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+// HasCurrent 判断当前是否可用。
 func HasCurrent(ctx context.Context, reader nodeexec.SharedFileReader, path string, owner Owner) (bool, error) {
 	if reader == nil {
 		return false, errors.New("SharedFileReader not wired")
@@ -47,6 +48,7 @@ func HasCurrent(ctx context.Context, reader nodeexec.SharedFileReader, path stri
 	return matches(raw, owner), nil
 }
 
+// Write 写入编排。
 func Write(ctx context.Context, writer nodeexec.SharedFileWriter, path, content string, owner Owner) error {
 	if writer == nil {
 		return errors.New("SharedFileWriter not wired")
@@ -64,12 +66,15 @@ func Write(ctx context.Context, writer nodeexec.SharedFileWriter, path, content 
 	return nil
 }
 
+// MarkerPath 处理marker路径。
 func MarkerPath(path string) string {
 	return "_internal/dag-output-ownership/" + strings.TrimSpace(path) + ".metadata.json"
 }
 
+// IsValidation 判断validation是否可用。
 func IsValidation(err error) bool { return errors.Is(err, ErrInvalidOwner) }
 
+// validate 校验编排。
 func validate(owner Owner) error {
 	switch {
 	case strings.TrimSpace(owner.DagKey) == "":
@@ -98,6 +103,7 @@ func encode(owner Owner) string {
 	return string(raw)
 }
 
+// matches 判断编排是否匹配。
 func matches(raw string, owner Owner) bool {
 	var got marker
 	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &got); err != nil {

@@ -53,6 +53,7 @@ func validateTeamMemWritePathBasic(file string) error {
 	return err
 }
 
+// validateTeamMemCandidate 校验teammem候选项。
 func validateTeamMemCandidate(root, file string, wrap teamPathError) (string, error) {
 	rootDir, err := validateTeamMemRoot(root, wrap)
 	if err != nil {
@@ -96,6 +97,7 @@ func validateTeamMemRoot(root string, wrap teamPathError) (string, error) {
 	return strings.TrimSuffix(cleaned, string(os.PathSeparator)), nil
 }
 
+// prepareTeamMemCandidate 准备teammem候选项。
 func prepareTeamMemCandidate(root, file string, wrap teamPathError) (string, error) {
 	normalized, absolute, err := normalizeTeamWriteInput(file, wrap)
 	if err != nil {
@@ -122,6 +124,7 @@ func prepareTeamMemCandidate(root, file string, wrap teamPathError) (string, err
 	return candidate, nil
 }
 
+// normalizeTeamWriteInput 规范化teamwriteinput。
 func normalizeTeamWriteInput(raw string, wrap teamPathError) (string, bool, error) {
 	normalized, err := normalizeTeamPathInput(raw, wrap)
 	if err != nil {
@@ -143,6 +146,7 @@ func normalizeTeamWriteInput(raw string, wrap teamPathError) (string, bool, erro
 	return cleaned, true, nil
 }
 
+// sanitizePathKeyWithWrap 清理带wrap的路径键。
 func sanitizePathKeyWithWrap(raw string, wrap teamPathError) (string, error) {
 	normalized, err := normalizeTeamPathInput(raw, wrap)
 	if err != nil {
@@ -164,6 +168,7 @@ func sanitizePathKeyWithWrap(raw string, wrap teamPathError) (string, error) {
 	return cleaned, nil
 }
 
+// normalizeTeamPathInput 规范化team路径input。
 func normalizeTeamPathInput(raw string, wrap teamPathError) (string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {

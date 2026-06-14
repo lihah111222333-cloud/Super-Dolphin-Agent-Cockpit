@@ -16,6 +16,8 @@ import (
 // publishes JobRunStateChanged events on. Passing nil silently disables
 // event publishing — production wiring goes through fx (provideScheduler);
 // tests typically leave the dispatcher unset.
+//
+// dispatcher 只是通知 UI/订阅者；状态真值仍在数据库里。
 func (s *Scheduler) WithDispatcher(dispatcher *event.Dispatcher) *Scheduler {
 	if s != nil {
 		s.dispatcher = dispatcher
@@ -25,6 +27,8 @@ func (s *Scheduler) WithDispatcher(dispatcher *event.Dispatcher) *Scheduler {
 
 // publishRunState emits a JobRunStateChanged onto the dispatcher. It is
 // fire-and-forget: subscriber failures are owned by their own handlers.
+//
+// 发布失败不影响调度状态，订阅侧需要自己补偿或轮询。
 func (s *Scheduler) publishRunState(jobID, runID, status, turnID, errStr string, scheduledAt time.Time) {
 	if s == nil || s.dispatcher == nil {
 		return
@@ -45,6 +49,8 @@ func (s *Scheduler) publishRunState(jobID, runID, status, turnID, errStr string,
 // the inline finalize sites had before consolidation), on success it
 // publishes a JobRunStateChanged. The transition arg is e.g.
 // "submitting->failed".
+//
+// 这个 helper 只做 run 行的可见状态更新；失败时仍让调用方继续释放 job claim。
 func (s *Scheduler) casLogPublish(
 	ctx context.Context,
 	params cronstore.CASRunStatusParams,

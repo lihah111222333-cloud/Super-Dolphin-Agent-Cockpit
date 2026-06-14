@@ -47,6 +47,7 @@ var (
 	errInvalidCTESyntax          = errors.New("dbquery query has invalid CTE syntax")
 )
 
+// executeQuery 执行查询。
 func executeQuery(ctx context.Context, queryer platformdb.Queryable, timeout time.Duration, query string, args ...any) (_ []map[string]any, err error) {
 	ctx, err = prepareQueryContext(ctx, queryer, query, len(args))
 	if err != nil {
@@ -131,6 +132,7 @@ func validateQuery(query string, argCount int) error {
 	return validateAllowedTables(trimmed)
 }
 
+// validateQueryText 校验查询文本。
 func validateQueryText(query string) error {
 	masked := strings.ToLower(maskQuotedStrings(query))
 	switch {
@@ -147,6 +149,7 @@ func validateQueryText(query string) error {
 	}
 }
 
+// validatePlaceholders 校验placeholders。
 func validatePlaceholders(query string, argCount int) error {
 	matches := placeholderPattern.FindAllStringSubmatch(query, -1)
 	if len(matches) == 0 {
@@ -178,6 +181,7 @@ func validatePlaceholders(query string, argCount int) error {
 	return nil
 }
 
+// validateAllowedTables 校验allowedtables。
 func validateAllowedTables(query string) error {
 	masked := strings.ToLower(maskQuotedStrings(query))
 	if name := disallowedFunctionName(masked); name != "" {
@@ -215,6 +219,7 @@ func disallowedFunctionName(query string) string {
 	return strings.ToLower(strings.TrimSpace(match[0]))
 }
 
+// tableReferences 处理table引用。
 func tableReferences(query string, cteNames map[string]struct{}) (int, []string) {
 	matches := tableReferencePattern.FindAllStringSubmatch(query, -1)
 	allowedRefs := 0
@@ -242,6 +247,7 @@ func hasTableReference(query string) bool {
 	return tableReferencePattern.MatchString(strings.ToLower(query))
 }
 
+// maskQuotedStrings 处理maskquotedstrings。
 func maskQuotedStrings(query string) string {
 	var builder strings.Builder
 	builder.Grow(len(query))

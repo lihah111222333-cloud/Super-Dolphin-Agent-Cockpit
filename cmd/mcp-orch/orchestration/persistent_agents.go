@@ -63,6 +63,7 @@ type AgentBindingStore interface {
 	SetArchived(ctx context.Context, params PersistedBindingArchiveUpdate) error
 }
 
+// listPersistedAgentSnapshots 列出persisted代理snapshots。
 func (s *service) listPersistedAgentSnapshots(ctx context.Context) ([]AgentSnapshot, error) {
 	if s == nil || s.agentThreads == nil {
 		return nil, nil
@@ -87,6 +88,7 @@ func (s *service) listPersistedAgentSnapshots(ctx context.Context) ([]AgentSnaps
 	return snapshots, nil
 }
 
+// persistedAgentSnapshot 处理persisted代理快照。
 func (s *service) persistedAgentSnapshot(ctx context.Context, agentID string) (AgentSnapshot, error) {
 	agentID = strings.TrimSpace(agentID)
 	if s == nil || s.agentThreads == nil || agentID == "" {
@@ -105,6 +107,7 @@ func (s *service) persistedAgentSnapshot(ctx context.Context, agentID string) (A
 	return AgentSnapshot{}, fmt.Errorf("%w: %s", errAgentNotFound, agentID)
 }
 
+// persistedAgentSnapshotByThreadID 按线程ID处理persisted代理快照。
 func (s *service) persistedAgentSnapshotByThreadID(ctx context.Context, agentID string) (AgentSnapshot, bool, error) {
 	thread, err := s.agentThreads.GetByThreadID(ctx, agentID)
 	if err != nil {
@@ -171,6 +174,7 @@ func persistedThreadAgentState(thread PersistedThread) string {
 	}
 }
 
+// mergeAgentSnapshots 合并代理snapshots。
 func mergeAgentSnapshots(persisted, runtime []AgentSnapshot) []AgentSnapshot {
 	merged := make([]AgentSnapshot, 0, len(persisted)+len(runtime))
 	index := make(map[string]int, len(persisted)+len(runtime))
@@ -197,6 +201,7 @@ func mergeAgentSnapshots(persisted, runtime []AgentSnapshot) []AgentSnapshot {
 	return merged
 }
 
+// overlayRuntimeSnapshot 处理overlay运行时快照。
 func overlayRuntimeSnapshot(persisted, runtime AgentSnapshot) AgentSnapshot {
 	if persisted.Name != "" {
 		runtime.Name = persisted.Name

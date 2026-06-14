@@ -18,6 +18,7 @@ type ScanOptions struct {
 	GeneratedAt string
 }
 
+// Scan 扫描模块。
 func Scan(opts ScanOptions) (*Manifest, error) {
 	repoRoot := opts.RepoRoot
 	if repoRoot == "" {
@@ -81,6 +82,7 @@ func scanRoot(repoRoot, root string) ([]PackageManifest, error) {
 	return packages, nil
 }
 
+// findGoPackages 查找gopackages。
 func findGoPackages(root string) ([]string, error) {
 	var dirs []string
 	seen := map[string]bool{}
@@ -120,6 +122,7 @@ func shouldSkipDir(name string) bool {
 	}[name]
 }
 
+// scanPackage 扫描包。
 func scanPackage(repoRoot, dir string) (*PackageManifest, error) {
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
@@ -158,6 +161,7 @@ func scanPackage(repoRoot, dir string) (*PackageManifest, error) {
 	return manifest, nil
 }
 
+// extractFile 提取文件。
 func extractFile(file *ast.File, manifest *PackageManifest) {
 	for _, decl := range file.Decls {
 		switch d := decl.(type) {
@@ -200,6 +204,7 @@ func extractMethod(fn *ast.FuncDecl) MethodManifest {
 	return MethodManifest{Name: fn.Name.Name, Exported: isExported(fn.Name.Name), Receiver: typeToString(fn.Recv.List[0].Type), Params: params, Returns: returns}
 }
 
+// extractInterface 提取interface。
 func extractInterface(ts *ast.TypeSpec, iface *ast.InterfaceType) InterfaceManifest {
 	out := InterfaceManifest{Name: ts.Name.Name, Exported: isExported(ts.Name.Name)}
 	if iface.Methods == nil {
@@ -265,6 +270,7 @@ func extractReturnTypes(fields *ast.FieldList) []string {
 	return returns
 }
 
+// typeToString 把type处理为string。
 func typeToString(expr ast.Expr) string {
 	switch t := expr.(type) {
 	case *ast.Ident:
@@ -282,6 +288,7 @@ func typeToString(expr ast.Expr) string {
 	}
 }
 
+// compositeTypeToString 把compositetype处理为string。
 func compositeTypeToString(expr ast.Expr) string {
 	switch t := expr.(type) {
 	case *ast.StructType:
@@ -318,6 +325,7 @@ func channelTypeToString(t *ast.ChanType) string {
 	}
 }
 
+// interfaceTypeToString 把interfacetype处理为string。
 func interfaceTypeToString(iface *ast.InterfaceType) string {
 	if iface.Methods == nil || len(iface.Methods.List) == 0 {
 		return "interface{}"
@@ -351,6 +359,7 @@ func funcSignatureSuffix(fn *ast.FuncType) string {
 	return "(" + params + ") " + returns
 }
 
+// fieldListToString 把字段list处理为string。
 func fieldListToString(fields *ast.FieldList, separator string) string {
 	if fields == nil || len(fields.List) == 0 {
 		return ""
@@ -403,6 +412,7 @@ func isExported(name string) bool {
 	return name != "" && unicode.IsUpper(rune(name[0]))
 }
 
+// computeSummary 计算摘要。
 func computeSummary(packages []PackageManifest) ManifestSummary {
 	summary := ManifestSummary{TotalPackages: len(packages)}
 	for _, pkg := range packages {

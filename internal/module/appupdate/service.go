@@ -109,6 +109,7 @@ type service struct {
 	requestQuit RequestQuit
 }
 
+// ProvideConfig 提供配置。
 func ProvideConfig(_ *platformconfig.Config) (Config, error) {
 	enabled := envTruthy(os.Getenv(envUpdateEnabled))
 	if !enabled {
@@ -154,6 +155,7 @@ func ProvideConfig(_ *platformconfig.Config) (Config, error) {
 	return cfg, nil
 }
 
+// applyPackagedDefaults 应用packageddefaults。
 func applyPackagedDefaults(cfg *Config) {
 	if cfg == nil || !cfg.Enabled {
 		return
@@ -191,6 +193,7 @@ func appPathFromResourcesDir(resources string) string {
 	return app
 }
 
+// NewService 创建服务。
 func NewService(p serviceParams) Service {
 	return newService(p.Config, http.DefaultClient, p.RequestQuit)
 }
@@ -202,6 +205,7 @@ func newService(cfg Config, client *http.Client, requestQuit RequestQuit) *servi
 	return &service{cfg: cfg, httpClient: client, requestQuit: requestQuit}
 }
 
+// Check 处理check。
 func (s *service) Check(ctx context.Context) (CheckResult, error) {
 	if !s.cfg.Enabled {
 		return CheckResult{Enabled: false, Available: false}, nil
@@ -221,6 +225,7 @@ func (s *service) Check(ctx context.Context) (CheckResult, error) {
 	}, nil
 }
 
+// Download 处理download。
 func (s *service) Download(ctx context.Context) (DownloadResult, error) {
 	payload, artifact, err := s.fetchManifest(ctx)
 	if err != nil {
@@ -259,6 +264,7 @@ func (s *service) Download(ctx context.Context) (DownloadResult, error) {
 	}, nil
 }
 
+// Install 处理安装。
 func (s *service) Install(ctx context.Context) (InstallResult, error) {
 	_ = ctx
 	if s.requestQuit == nil {
@@ -288,6 +294,7 @@ func (s *service) Install(ctx context.Context) (InstallResult, error) {
 	return InstallResult{Started: true, Helper: helper}, nil
 }
 
+// InstallLatest 处理安装latest。
 func (s *service) InstallLatest(ctx context.Context) (InstallResult, error) {
 	if _, err := s.Download(ctx); err != nil {
 		return InstallResult{}, err
@@ -304,6 +311,7 @@ func (s *service) scheduleRequestQuit() {
 	})
 }
 
+// fetchManifest 处理fetchmanifest。
 func (s *service) fetchManifest(ctx context.Context) (ManifestPayload, UpdateArtifact, error) {
 	if !s.cfg.Enabled {
 		return ManifestPayload{}, UpdateArtifact{}, ErrNoUpdate
@@ -336,6 +344,7 @@ func (s *service) fetchManifest(ctx context.Context) (ManifestPayload, UpdateArt
 	})
 }
 
+// downloadArtifact 处理download产物。
 func (s *service) downloadArtifact(ctx context.Context, artifact UpdateArtifact, targetPath string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, artifact.URL, nil)
 	if err != nil {
@@ -368,6 +377,7 @@ func requireSuccessStatus(operation string, resp *http.Response) error {
 	return nil
 }
 
+// writeVerifiedArtifact 写入verified产物。
 func writeVerifiedArtifact(tmpPath string, body io.Reader, artifact UpdateArtifact) error {
 	out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
@@ -593,6 +603,7 @@ func currentVersionFromInfoPlist(targetAppPath string) (string, error) {
 	return version, nil
 }
 
+// plistStringValue 处理pliststring值。
 func plistStringValue(raw, key string) (string, error) {
 	keyToken := "<key>" + key + "</key>"
 	keyIndex := strings.Index(raw, keyToken)

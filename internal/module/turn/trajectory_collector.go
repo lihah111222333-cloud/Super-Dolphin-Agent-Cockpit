@@ -108,6 +108,7 @@ type partialTrajectory struct {
 // when observation is not wired in the deployment; in that case the
 // collector still accepts events but materialized trajectories carry no
 // terminal / token / skills data.
+// NewTrajectoryCollector 创建trajectory收集器。
 func NewTrajectoryCollector(contract observation.ObservationReader, logger *pkglogger.Logger) *Collector {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -123,6 +124,7 @@ func NewTrajectoryCollector(contract observation.ObservationReader, logger *pkgl
 // Snapshot returns the current partial trajectory for a turn. terminal
 // fields are pulled live from the contract. Returns ok=false when the turn
 // is unknown to the collector (no events yet, or already drained).
+// Snapshot 处理快照。
 func (c *Collector) Snapshot(turnID string) (Trajectory, bool) {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
@@ -140,6 +142,7 @@ func (c *Collector) Snapshot(turnID string) (Trajectory, bool) {
 // Drain returns every trajectory whose turn has reached terminal since the
 // previous Drain call. It is safe for concurrent use; a turn is returned
 // at most once across the full lifetime of the collector.
+// Drain 等待队列里已接收的任务收尾。
 func (c *Collector) Drain() []Trajectory {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -151,6 +154,7 @@ func (c *Collector) Drain() []Trajectory {
 	return out
 }
 
+// onTurnStarted 处理onturnstarted。
 func (c *Collector) onTurnStarted(ev turndto.TurnStarted) {
 	turnID := strings.TrimSpace(ev.TurnID)
 	if turnID == "" {
@@ -244,6 +248,7 @@ func (c *Collector) onToolCallBegin(ev tooldto.ToolCallBegin) {
 	p.callOrder = append(p.callOrder, callID)
 }
 
+// onToolCallEnd 处理on工具callend。
 func (c *Collector) onToolCallEnd(ev tooldto.ToolCallEnd) {
 	callID := strings.TrimSpace(ev.CallID)
 	if callID == "" {
@@ -294,6 +299,7 @@ func (c *Collector) toolCallEndTurnID(callID, rawTurnID string) string {
 	return ""
 }
 
+// onToolDiffUpdated 处理on工具diffupdated。
 func (c *Collector) onToolDiffUpdated(ev tooldto.ToolDiffUpdated) {
 	callID := strings.TrimSpace(ev.CallID)
 	if callID == "" || c.contract == nil {
@@ -344,6 +350,7 @@ func (c *Collector) materializeLocked(p *partialTrajectory) Trajectory {
 	return tj
 }
 
+// applyContractSnapshot 应用contract快照。
 func (c *Collector) applyContractSnapshot(tj *Trajectory, turnID string) {
 	if t, ok := c.contract.Terminal(turnID); ok {
 		tj.TerminalState = string(t.Kind)
@@ -394,6 +401,7 @@ func (c *Collector) ensurePartialLocked(turnID string) *partialTrajectory {
 // SubscribeTrajectory mounts every collector handler onto dispatcher and
 // returns a single cancel that tears them all down. dispatcher==nil or
 // c==nil yields a no-op cancel.
+// SubscribeTrajectory 处理subscribetrajectory。
 func SubscribeTrajectory(dispatcher *event.Dispatcher, c *Collector, contract observation.ObservationReader, logger *pkglogger.Logger) context.CancelFunc {
 	if dispatcher == nil || c == nil {
 		return func() {}
@@ -419,6 +427,7 @@ func SubscribeTrajectory(dispatcher *event.Dispatcher, c *Collector, contract ob
 // NewTrajectorySubscribers is the fx provider that exposes the collector's
 // bus subscriptions through the platform SubscriberGroup. It mirrors
 // observation.NewObservationSubscribers; BusModule owns lifecycle.
+// NewTrajectorySubscribers 创建trajectorysubscribers。
 func NewTrajectorySubscribers(c *Collector, contract observation.ObservationReader, logger *pkglogger.Logger) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: buscontract.SubscriberSpec{

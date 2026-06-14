@@ -61,6 +61,7 @@ func (h EditHandler) startReplaceConfirmations(ctx context.Context, manager lspm
 	return syncC, diffC, cancelSync
 }
 
+// waitReplaceConfirmation 等待用户确认 replace 操作。
 func waitReplaceConfirmation(ctx context.Context, path string, syncC <-chan replaceSyncResult, diffC <-chan editDiskConfirmResult, cancelSync context.CancelFunc, log *editStageLogger) replaceUpdateDecision {
 	stage := log.Started("wait_confirmation")
 	var syncErr error

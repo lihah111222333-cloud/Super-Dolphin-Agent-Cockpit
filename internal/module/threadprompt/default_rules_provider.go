@@ -12,10 +12,12 @@ import (
 
 type ProjectDefaultRulesProvider struct{ catalog RuntimePromptCatalog }
 
+// SectionName 处理section名称。
 func (ProjectDefaultRulesProvider) SectionName() string {
 	return contract.DynamicSectionProjectDefaultRules
 }
 
+// Resolve 解析threadprompt。
 func (p ProjectDefaultRulesProvider) Resolve(ctx context.Context, input contract.SectionContext) (*string, error) {
 	start := time.Now()
 	if p.catalog == nil {
@@ -59,6 +61,7 @@ func renderProjectDefaultRules(sections []promptstore.PromptTemplateSection) str
 	return strings.Join(lines, "\n")
 }
 
+// effectiveDefaultRuleSections 处理effectivedefaultrulesections。
 func effectiveDefaultRuleSections(sections []promptstore.PromptTemplateSection) []promptstore.PromptTemplateSection {
 	byKey := map[string]promptstore.PromptTemplateSection{}
 	order := make([]string, 0, len(sections))
@@ -83,6 +86,7 @@ func effectiveDefaultRuleSections(sections []promptstore.PromptTemplateSection) 
 	return out
 }
 
+// defaultRuleIdentity 处理defaultrule身份。
 func defaultRuleIdentity(section promptstore.PromptTemplateSection) string {
 	sectionKey := strings.ToLower(strings.TrimSpace(section.SectionKey))
 	if title := strings.ToLower(strings.TrimSpace(section.TemplateTitle)); title != "" {

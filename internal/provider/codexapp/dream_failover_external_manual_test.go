@@ -1,6 +1,6 @@
 //go:build manual
 
-// Package codexapp_test 端到端 manual test：验证 dispatcher 真 failover。
+// Package codexapp 端到端 manual test：验证 dispatcher 真 failover。
 //
 // 跑法：
 //
@@ -11,10 +11,7 @@
 //   - codexapp 走真实 codex binary
 //   - unified.NewDreamExecutor 字母序 first-wins (claude 先于 codex)
 //   - 期望：dispatcher 试 claude → NotConfigured → 跳过 → 试 codex → 成功
-//
-// 用外部 test package (codexapp_test) 同时 import claudecli + codexapp + unified
-// 避免内部包导入成环。
-package codexapp_test
+package codexapp
 
 import (
 	"context"
@@ -25,7 +22,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/claudecli"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/anthropic-ai/super-agent-v3/pkg/dreammetrics"
 )
@@ -92,12 +88,11 @@ func TestManualDispatcherFailover(t *testing.T) {
 }
 
 // buildLiveProviders 构造与生产 fx 等价的 provider 列表。
-// 走两个包的 manual_helper.go 导出的 ForManualTest helper。
 func buildLiveProviders(t *testing.T) []contract.DreamExecutorProvider {
 	t.Helper()
 	return []contract.DreamExecutorProvider{
 		claudecli.NewDreamExecutorProviderForManualTest(),
-		codexapp.NewDreamExecutorProviderForManualTest(),
+		provideDreamExecutorProvider(),
 	}
 }
 

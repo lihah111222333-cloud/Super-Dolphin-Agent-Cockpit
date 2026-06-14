@@ -37,6 +37,7 @@ type DefaultRedactor struct {
 
 // NewDefaultRedactor compiles the fixed pattern set. A compile failure
 // panics so the fault is caught at process start, not deep inside a turn.
+// NewDefaultRedactor 创建defaultredactor。
 func NewDefaultRedactor() *DefaultRedactor {
 	specs := []struct {
 		name, expr string
@@ -81,6 +82,7 @@ func NewDefaultRedactor() *DefaultRedactor {
 // Redact applies every pattern in declaration order. The same text may be
 // rewritten by multiple patterns. nil receiver is a documented no-op so
 // callers can plug a zero value for tests / partial wiring.
+// Redact 脱敏turn。
 func (r *DefaultRedactor) Redact(input string) (string, []string, error) {
 	if r == nil || len(r.patterns) == 0 {
 		return input, nil, nil
@@ -101,6 +103,7 @@ func (r *DefaultRedactor) Redact(input string) (string, []string, error) {
 // RepoFingerprint derives the canonical 128-bit repo scope key. It delegates
 // to internal/util/repofingerprint so turn, skill, cron, and insight code
 // share one implementation. Empty / whitespace cwd returns the empty string.
+// RepoFingerprint 处理仓库fingerprint。
 func RepoFingerprint(cwd string) string {
 	return repofingerprint.MustCompute(cwd)
 }

@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// ValidateOwnerIdentitySaltPermissions 校验owner身份saltpermissions。
 func ValidateOwnerIdentitySaltPermissions(path string, info os.FileInfo) error {
 	if info.Size() == 0 {
 		return fmt.Errorf("owner identity salt is empty")
@@ -19,10 +20,12 @@ func ValidateOwnerIdentitySaltPermissions(path string, info os.FileInfo) error {
 	return ValidateOwnerOnlyFilePermissions(path, info, "owner identity salt")
 }
 
+// SecureOwnerIdentitySaltPermissions 处理secureowner身份saltpermissions。
 func SecureOwnerIdentitySaltPermissions(path string) error {
 	return SecureOwnerOnlyFilePermissions(path)
 }
 
+// ValidateOwnerOnlyFilePermissions 校验owneronly文件permissions。
 func ValidateOwnerOnlyFilePermissions(path string, info os.FileInfo, label string) error {
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("%s is not a regular file", label)
@@ -44,6 +47,7 @@ func ValidateOwnerOnlyFilePermissions(path string, info os.FileInfo, label strin
 	return nil
 }
 
+// SecureOwnerOnlyFilePermissions 处理secureowneronly文件permissions。
 func SecureOwnerOnlyFilePermissions(path string) error {
 	currentSID, err := currentProcessUserSID()
 	if err != nil {

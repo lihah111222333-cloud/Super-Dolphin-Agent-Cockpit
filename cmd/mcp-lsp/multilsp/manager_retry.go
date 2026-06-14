@@ -15,6 +15,7 @@ const (
 	transientLSPRequestMaxRetries = 3
 )
 
+// request 处理请求。
 func (m *manager) request(ctx context.Context, client Client, method string, params any) (json.RawMessage, error) {
 	if client == nil {
 		return nil, fmt.Errorf("request %s: client is nil", method)
@@ -144,6 +145,7 @@ func (m *manager) rebuildClientAfterNonReplayableFailure(ctx context.Context, cl
 	return nil
 }
 
+// rebuildClientAfterFailure 处理rebuild客户端后置failure。
 func (m *manager) rebuildClientAfterFailure(ctx context.Context, client Client, restore bool) (Client, error) {
 	detached := m.detachClient(client)
 	if detached == nil || detached.client == nil {

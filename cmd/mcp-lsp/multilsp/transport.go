@@ -80,6 +80,8 @@ func newTransport(options transportOptions) (*transport, error) {
 	go t.readLoop()
 	return t, nil
 }
+
+// request 处理请求。
 func (t *transport) request(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	ctx = platformshared.NonNilContext(ctx)
 	ctx, cancel := platformconfig.WithTimeoutIfNone(ctx, defaultRequestTimeout)

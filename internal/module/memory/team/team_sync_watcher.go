@@ -37,6 +37,7 @@ type teamSyncWatcher struct {
 	loopCancel      context.CancelFunc
 }
 
+// newTeamSyncWatcher 创建teamsyncwatcher。
 func newTeamSyncWatcher(service *TeamSyncService, root string, logger *slog.Logger) (*teamSyncWatcher, error) {
 	canonicalRoot, err := resolveTeamMemRealPath(root, invalidTeamMemWritePath)
 	if err != nil {
@@ -69,6 +70,7 @@ func newTeamSyncWatcher(service *TeamSyncService, root string, logger *slog.Logg
 	return w, nil
 }
 
+// Start 启动记忆流程。
 func (w *teamSyncWatcher) Start() {
 	if w == nil {
 		return
@@ -78,6 +80,7 @@ func (w *teamSyncWatcher) Start() {
 	})
 }
 
+// Close 关闭记忆资源。
 func (w *teamSyncWatcher) Close(ctx context.Context, flush bool) error {
 	if w == nil {
 		return nil
@@ -104,6 +107,7 @@ func (w *teamSyncWatcher) Close(ctx context.Context, flush bool) error {
 	return nil
 }
 
+// Suppress 处理suppress。
 func (w *teamSyncWatcher) Suppress(paths ...string) {
 	if w == nil || len(paths) == 0 {
 		return
@@ -199,6 +203,7 @@ func (w *teamSyncWatcher) flushWatcherLoopPush(dirty *bool) {
 	}
 }
 
+// handleEvent 处理事件。
 func (w *teamSyncWatcher) handleEvent(event fsnotify.Event) (bool, error) {
 	if w == nil || w.service == nil {
 		return false, nil
@@ -225,6 +230,7 @@ func (w *teamSyncWatcher) handleEvent(event fsnotify.Event) (bool, error) {
 	return true, nil
 }
 
+// eventPath 处理事件路径。
 func (w *teamSyncWatcher) eventPath(path string) (string, bool, error) {
 	cleaned := cleanWatchPath(path)
 	if cleaned == "" {

@@ -89,6 +89,7 @@ func knownScopeRoot(raw, defaultRoot string) (string, bool) {
 	return root, true
 }
 
+// resolveScopePath 解析作用域路径。
 func resolveScopePath(raw, defaultRoot string) (string, error) {
 	value := strings.TrimSpace(raw)
 	switch {
@@ -108,6 +109,7 @@ func resolveScopePath(raw, defaultRoot string) (string, error) {
 	}
 }
 
+// resolve 解析桌面 UI 桥接。
 func (c scopeCatalog) resolve(raw string) (string, error) {
 	root, err := resolveScopePath(raw, c.defaultRoot)
 	if err != nil {

@@ -35,7 +35,14 @@ type TaskWakeupCompleted struct {
 	BoundTurnID   string `json:"bound_turn_id,omitempty"`
 }
 
-func (TaskDagCreated) Type() uint32        { return shared.EventTypeTaskDagCreated }
+// Type 返回事件分发用的类型编号。
+func (TaskDagCreated) Type() uint32 { return shared.EventTypeTaskDagCreated }
+
+// Type 返回事件分发用的类型编号。
 func (TaskNodeStatusChanged) Type() uint32 { return shared.EventTypeTaskNodeStatusChanged }
-func (TaskWakeupDispatched) Type() uint32  { return shared.EventTypeTaskWakeupDispatched }
-func (TaskWakeupCompleted) Type() uint32   { return shared.EventTypeTaskWakeupCompleted }
+
+// Type 返回事件分发用的类型编号。
+func (TaskWakeupDispatched) Type() uint32 { return shared.EventTypeTaskWakeupDispatched }
+
+// Type 返回事件分发用的类型编号。
+func (TaskWakeupCompleted) Type() uint32 { return shared.EventTypeTaskWakeupCompleted }

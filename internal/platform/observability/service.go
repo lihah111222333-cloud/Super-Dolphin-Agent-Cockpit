@@ -27,6 +27,7 @@ type queryTailReader interface {
 
 type QueryTailReaderFunc func(context.Context, Query) (QueryResult, error)
 
+// QueryTraceEvents 处理查询trace事件。
 func (f QueryTailReaderFunc) QueryTraceEvents(ctx context.Context, query Query) (QueryResult, error) {
 	return f(ctx, query)
 }
@@ -53,6 +54,7 @@ type tailCall struct {
 	err    error
 }
 
+// NewService 创建服务。
 func NewService(cfg Config, options ...ServiceOption) *Service {
 	cfg = normalizeServiceConfig(cfg)
 	svc := &Service{enabled: true, index: NewIndex(cfg), sampler: NewSampler(), sanitizer: NewSanitizer(cfg), tailSem: make(chan struct{}, cfg.QueryTailMaxConcurrency), tailTimeoutMS: cfg.QueryTailTimeoutMS, inflight: map[Query]*tailCall{}}
@@ -62,6 +64,7 @@ func NewService(cfg Config, options ...ServiceOption) *Service {
 	return svc
 }
 
+// NewDisabledService 创建disabled服务。
 func NewDisabledService(cfg Config) *Service {
 	cfg = normalizeServiceConfig(cfg)
 	reason := cfg.DisabledReason
@@ -71,10 +74,15 @@ func NewDisabledService(cfg Config) *Service {
 	return &Service{enabled: false, disabledReason: reason, index: NewIndex(cfg), sampler: NewSampler(), sanitizer: NewSanitizer(cfg), tailSem: make(chan struct{}, cfg.QueryTailMaxConcurrency), tailTimeoutMS: cfg.QueryTailTimeoutMS, inflight: map[Query]*tailCall{}}
 }
 
+// WithSink 设置sink。
 func WithSink(sink serviceSink) ServiceOption { return func(s *Service) { s.sink = sink } }
+
+// WithTailReader 设置tail读取器。
 func WithTailReader(reader queryTailReader) ServiceOption {
 	return func(s *Service) { s.tail = reader }
 }
+
+// WithSampler 设置sampler。
 func WithSampler(sampler *Sampler) ServiceOption {
 	return func(s *Service) {
 		if sampler != nil {
@@ -92,6 +100,7 @@ type ServiceStatus struct {
 	SinkWriteErrors   int64  `json:"sink_write_errors"`
 }
 
+// Status 处理状态。
 func (s *Service) Status() ServiceStatus {
 	status := ServiceStatus{Enabled: s.enabled, DisabledReason: s.disabledReason, SchemaVersion: SchemaVersion}
 	if s.index != nil {
@@ -105,8 +114,10 @@ func (s *Service) Status() ServiceStatus {
 	return status
 }
 
+// Enabled 判断平台observability是否启用。
 func (s *Service) Enabled() bool { return s.enabled }
 
+// Record 记录平台observability。
 func (s *Service) Record(ctx context.Context, event TraceEvent) error {
 	if !s.enabled {
 		return nil
@@ -133,6 +144,7 @@ func (s *Service) Record(ctx context.Context, event TraceEvent) error {
 	return nil
 }
 
+// correlateTraceByThread 按线程处理correlatetrace。
 func (s *Service) correlateTraceByThread(event TraceEvent) TraceEvent {
 	if event.TraceID != "" || event.ThreadID == "" || s == nil || s.index == nil {
 		return event
@@ -151,6 +163,7 @@ func (s *Service) correlateTraceByThread(event TraceEvent) TraceEvent {
 	return event
 }
 
+// Query 处理查询。
 func (s *Service) Query(ctx context.Context, query Query) QueryResult {
 	if !s.enabled {
 		return QueryResult{Source: QuerySourceMemory}
@@ -170,6 +183,7 @@ func (s *Service) Query(ctx context.Context, query Query) QueryResult {
 	return mergeQueryResults(memory, tail, query.Limit)
 }
 
+// mergeQueryResults 合并查询结果。
 func mergeQueryResults(memory QueryResult, tail QueryResult, limit int) QueryResult {
 	combined := make([]TraceEvent, 0, len(memory.Events)+len(tail.Events))
 	seen := make(map[string]struct{}, len(memory.Events)+len(tail.Events))
@@ -208,6 +222,7 @@ func appendUniqueTraceEvent(events []TraceEvent, seen map[string]struct{}, event
 	return append(events, event)
 }
 
+// traceEventDedupeKey 处理trace事件去重键。
 func traceEventDedupeKey(event TraceEvent) string {
 	if event.TraceID == "" && event.SpanID == "" && event.CallID == "" && event.TurnID == "" && event.Method == "" {
 		return ""

@@ -24,6 +24,7 @@ var workerDeniedTools = []string{
 // 1. Subscribe agent scope with HookRegistry.Subscribe("agent.tool.before", agentScope).
 // 2. Return ReviewerDecision() from the peer callback handler.
 // 3. Hook merge then intersects AllowedTools and unions DeniedTools automatically.
+// ReviewerDecision 处理reviewerdecision。
 func ReviewerDecision() mcp.BeforeDecision {
 	return mcp.BeforeDecision{
 		Decision:     mcp.HookDecisionAllow,
@@ -33,6 +34,7 @@ func ReviewerDecision() mcp.BeforeDecision {
 }
 
 // WorkerDecision returns a preset that blocks orchestration tools for worker agents.
+// WorkerDecision 处理workerdecision。
 func WorkerDecision() mcp.BeforeDecision {
 	return mcp.BeforeDecision{
 		Decision:    mcp.HookDecisionAllow,
@@ -41,6 +43,7 @@ func WorkerDecision() mcp.BeforeDecision {
 }
 
 // FullAccessDecision returns an unrestricted preset.
+// FullAccessDecision 处理fullaccessdecision。
 func FullAccessDecision() mcp.BeforeDecision {
 	return mcp.BeforeDecision{Decision: mcp.HookDecisionAllow}
 }

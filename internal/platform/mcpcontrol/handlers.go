@@ -52,8 +52,10 @@ type controlEvent struct {
 
 const controlEventType uint32 = 0xC7100001
 
+// Type 返回事件分发用的类型编号。
 func (controlEvent) Type() uint32 { return controlEventType }
 
+// NewHandlers 创建处理器。
 func NewHandlers(p HandlerDeps) rpc.HandlerMapResult {
 	contextProvider := p.Context
 	if contextProvider == nil {
@@ -124,6 +126,7 @@ func NewHandlers(p HandlerDeps) rpc.HandlerMapResult {
 	}}
 }
 
+// requestApproval 处理请求审批。
 func requestApproval(
 	ctx context.Context,
 	registry *ToolRegistry,
@@ -184,6 +187,7 @@ type registryContextProvider struct {
 	agents AgentContextSource
 }
 
+// GetContext 读取上下文。
 func (p registryContextProvider) GetContext(_ context.Context, instance *ToolInstance, req dto.ContextRequest) (dto.ContextResponse, error) {
 	snapshot, err := p.lookupAgentSnapshot(req.AgentID)
 	if err != nil {
@@ -227,6 +231,7 @@ type defaultEventSink struct {
 	logger     *pkglogger.Logger
 }
 
+// HandleEvent 处理事件。
 func (s defaultEventSink) HandleEvent(_ context.Context, instance *ToolInstance, req dto.EventNotify) error {
 	if strings.TrimSpace(req.EventType) == "" {
 		return errInvalidParams("mcp event_type is required")
@@ -250,6 +255,7 @@ type defaultLogSink struct {
 	logger *pkglogger.Logger
 }
 
+// HandleLog 处理日志。
 func (s defaultLogSink) HandleLog(ctx context.Context, instance *ToolInstance, req dto.LogNotify) error {
 	message := strings.TrimSpace(req.Message)
 	if message == "" {
@@ -275,6 +281,7 @@ func controlLogLevel(level string) slog.Level {
 	}
 }
 
+// controlLogArgs 处理control日志args。
 func controlLogArgs(instance *ToolInstance, req dto.LogNotify) []any {
 	if instance == nil {
 		instance = &ToolInstance{}

@@ -11,6 +11,7 @@ import (
 
 // DefaultLSPConfig returns the built-in language-service configuration used
 // when no project config overrides are present.
+// DefaultLSPConfig 处理defaultLSP配置。
 func DefaultLSPConfig() contract.LSPConfig {
 	return contract.LSPConfig{
 		NoiseDirNames: []string{

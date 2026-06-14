@@ -22,6 +22,7 @@ import (
 // would otherwise still start with a BOM after one trim, the leading `---`
 // fence would not be detected, and frontmatter (including the cleanup it
 // triggers) would be silently skipped.
+// StripUTF8BOM 处理striputf8bom。
 func StripUTF8BOM(content string) string {
 	for strings.HasPrefix(content, "\ufeff") {
 		content = strings.TrimPrefix(content, "\ufeff")
@@ -35,6 +36,7 @@ func StripUTF8BOM(content string) string {
 // pipelines occasionally append a stray space; without this tolerance the
 // parser would silently treat such files as having no frontmatter and leak
 // the YAML into prompts.
+// IsFence 判断fence是否可用。
 func IsFence(line string) bool {
 	return strings.TrimRight(line, " \t") == "---"
 }
@@ -60,6 +62,7 @@ func IsFence(line string) bool {
 // having no frontmatter. If only one (or zero) fences appear within the
 // limit, every byte read is returned and SplitFrontmatter will then report
 // no frontmatter.
+// ScanFrontmatterHeader 扫描frontmatter头部。
 func ScanFrontmatterHeader(r io.Reader, limit int) (string, error) {
 	scanner := bufio.NewScanner(io.LimitReader(r, int64(limit)))
 	scanner.Buffer(make([]byte, 0, 4096), limit)
@@ -87,6 +90,7 @@ func ScanFrontmatterHeader(r io.Reader, limit int) (string, error) {
 	return builder.String(), nil
 }
 
+// SplitFrontmatter 拆分frontmatter。
 func SplitFrontmatter(content string) (string, string, bool) {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	lines := strings.SplitN(content, "\n", 2)
@@ -139,6 +143,8 @@ func SplitFrontmatter(content string) (string, string, bool) {
 //     (not silently dropped) so a malformed file cannot smuggle hidden
 //     directives into the prompt by pretending the rest of the file is
 //     one giant comment.
+//
+// StripHTMLComments 处理striphtmlcomments。
 func StripHTMLComments(content string) string {
 	// Iterate to a fixed point. A single pass can produce a string whose
 	// removed-then-rejoined neighbour bytes accidentally compose a new
@@ -192,6 +198,7 @@ type htmlCommentStripState struct {
 	inCDATA        bool
 }
 
+// processLine 处理进程行。
 func (s *htmlCommentStripState) processLine(line string) {
 	// CDATA dominates: while inside a CDATA span no comment scanning
 	// runs, so a `<!--` token between `<![CDATA[` and `]]>` survives.
@@ -369,6 +376,7 @@ func markdownFenceMarker(line string) (byte, bool) {
 // The memory module uses this to mirror the truncation budgets enforced by
 // the Claude Code UI, which speaks in UTF-16 units rather than Go runes or
 // raw bytes.
+// JSStringLength 处理jsstringlength。
 func JSStringLength(content string) int {
 	count := 0
 	for bytePos := 0; bytePos < len(content); {
@@ -381,6 +389,7 @@ func JSStringLength(content string) int {
 
 // UTF16CodeUnits returns 2 for runes outside the Basic Multilingual Plane
 // (which JavaScript represents as a surrogate pair) and 1 otherwise.
+// UTF16CodeUnits 处理utf16代码units。
 func UTF16CodeUnits(r rune) int {
 	if r > 0xFFFF {
 		return 2
@@ -393,6 +402,7 @@ func UTF16CodeUnits(r rune) int {
 // falls inside the very first line the result is byte-truncated instead of
 // returned empty, so callers always make forward progress when they intend
 // to append a warning footer.
+// TruncateAtCodeUnitLimit 截断at代码unitlimit。
 func TruncateAtCodeUnitLimit(content string, limit int) string {
 	if limit <= 0 {
 		return ""

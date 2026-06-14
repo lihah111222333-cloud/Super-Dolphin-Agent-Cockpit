@@ -19,6 +19,9 @@ import (
 // ErrSubmitterNotWired until phase 2b-integrate provides a real
 // contract.CronTurnExecutor-backed implementation. Overriding the submitter
 // in a parent Fx module is a single fx.Decorate replacing the Noop.
+//
+// cron.Module 可以在没有 turn stack 的进程里启动，但真正触发会明确失败。
+// 不要把 Noop 的 StartTurn 错误吞掉。
 var Module = fx.Module("cron",
 	fx.Provide(provideStore),
 	fx.Provide(NewService),
@@ -56,6 +59,8 @@ func provideSchedulerConfig() SchedulerConfig { return SchedulerConfig{} }
 // attaches it to the adapter so a job with an empty thread_id mints
 // its thread on the fly instead of failing with
 // ErrJobNotBootstrapped.
+//
+// Service 和 Resolver 必须一起接入；缺一半时回到 Noop，避免半初始化后才在调度中出错。
 type turnSubmitterParams struct {
 	fx.In
 

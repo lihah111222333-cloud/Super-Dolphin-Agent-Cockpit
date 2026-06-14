@@ -10,6 +10,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
 )
 
+// replaceProviderRootSymlink 把 provider mirror 根目录从 symlink 接管成真实目录。
+// 只有 preview 仍匹配当前 symlink 时才能做，避免写到外部路径。
 func replaceProviderRootSymlink(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
 	report := SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}
 	if svc == nil {
@@ -45,6 +47,8 @@ func replaceProviderRootSymlink(ctx context.Context, svc *service, req SkillMirr
 	return report, nil
 }
 
+// verifyProviderRootSymlinkPreview 确认 UI 看到的 symlink 还是当前 symlink。
+// 不匹配就报错，不重新读取后继续。
 func verifyProviderRootSymlinkPreview(svc *service, req SkillMirrorResolutionRequest) (string, string, error) {
 	preview, err := svc.lookupResolutionPreview(req.PreviewID, req.Action, req.PreviewHash)
 	if err != nil {
@@ -67,6 +71,8 @@ func verifyProviderRootSymlinkPreview(svc *service, req SkillMirrorResolutionReq
 	return linkTarget, hash, nil
 }
 
+// replaceSymlinkWithMirrorRoot 只把 symlink 换成本系统可管理的空目录。
+// 创建失败时恢复原 symlink。
 func replaceSymlinkWithMirrorRoot(root, linkTarget string) error {
 	if err := os.Remove(root); err != nil {
 		return err

@@ -71,16 +71,19 @@ type ClientFactoryWithEnv interface {
 
 type ClientFactoryFunc func(rootDir string, handler protocol.NotificationHandler) (Client, error)
 
+// NewClient 创建客户端。
 func (fn ClientFactoryFunc) NewClient(rootDir string, handler protocol.NotificationHandler) (Client, error) {
 	return fn(rootDir, handler)
 }
 
 type ClientFactoryWithEnvFunc func(rootDir string, env []string, handler protocol.NotificationHandler) (Client, error)
 
+// NewClient 创建客户端。
 func (fn ClientFactoryWithEnvFunc) NewClient(rootDir string, handler protocol.NotificationHandler) (Client, error) {
 	return fn(rootDir, nil, handler)
 }
 
+// NewClientWithEnv 创建带env的客户端。
 func (fn ClientFactoryWithEnvFunc) NewClientWithEnv(rootDir string, env []string, handler protocol.NotificationHandler) (Client, error) {
 	return fn(rootDir, env, handler)
 }
@@ -173,6 +176,7 @@ var (
 	_ protocol.NotificationHandler = (*manager)(nil)
 )
 
+// NewManager 创建manager。
 func NewManager(cfg Config) Manager {
 	root, err := platformshared.NormalizeAbsolutePath(cfg.WorkspaceRoot)
 	if err != nil {
@@ -205,6 +209,7 @@ func NewManager(cfg Config) Manager {
 	return mgr
 }
 
+// cloneForWorkspace 为工作区复制LSP。
 func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
 	root := strings.TrimSpace(workspaceRoot)
 	if root == "" && m != nil {
@@ -239,6 +244,7 @@ func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
 // instead of the build-time m.workspaceRoot, otherwise an agent bound
 // to a project other than the mcp-lsp startup directory ends up looking
 // up symbols / opening files in the wrong project.
+// effectiveWorkspaceRoot 处理effective工作区根目录。
 func (m *manager) effectiveWorkspaceRoot(ctx context.Context) (string, error) {
 	if ctx != nil {
 		root, err := common.WorkspaceRootFromContextStrict(ctx)
@@ -282,6 +288,7 @@ func (m *manager) shouldUseClientForLanguage(languageID string) bool {
 	return m.capabilityPolicy(languageID).RequiresLSPClient
 }
 
+// resolveDocumentRef 解析document引用。
 func (m *manager) resolveDocumentRef(ctx context.Context, target, languageID string) (documentRef, error) {
 	trimmed := strings.TrimSpace(target)
 	if trimmed == "" {
@@ -348,6 +355,7 @@ func (m *manager) resolveLanguageScope(ctx context.Context, languageID, targetPa
 	return resolved, adapter, nil
 }
 
+// adapterToolScope 处理适配器工具作用域。
 func (m *manager) adapterToolScope(ctx context.Context, languageID, targetPath, targetURI string) (LSPToolScope, error) {
 	scope := lspToolScopeFromContext(ctx)
 	if scope.CWD == "" {
@@ -375,6 +383,7 @@ func (m *manager) adapterToolScope(ctx context.Context, languageID, targetPath, 
 	return scope, nil
 }
 
+// completeResolvedLanguageScope 完成已解析语言作用域。
 func completeResolvedLanguageScope(resolved ResolvedLanguageScope, scope LSPToolScope) ResolvedLanguageScope {
 	if resolved.LanguageID == "" {
 		resolved.LanguageID = scope.LanguageID
@@ -461,6 +470,7 @@ func decodeWorkspaceSymbols(raw json.RawMessage) ([]protocol.WorkspaceSymbolResu
 	return decodeUnionList(raw, decodeWorkspaceSymbolUnion)
 }
 
+// decodeCompletionList 解码补全list。
 func decodeCompletionList(raw json.RawMessage) (*protocol.CompletionList, error) {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {

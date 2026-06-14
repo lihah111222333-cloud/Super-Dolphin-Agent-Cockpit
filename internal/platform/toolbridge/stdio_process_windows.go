@@ -33,6 +33,7 @@ func stdioConfigureCommand(cmd *exec.Cmd) {
 	}
 }
 
+// stdioAttachProcessGuard 处理stdioattach进程守卫。
 func stdioAttachProcessGuard(cmd *exec.Cmd) *stdioProcessGuard {
 	if cmd == nil || cmd.Process == nil {
 		return nil
@@ -61,6 +62,7 @@ func stdioAttachProcessGuard(cmd *exec.Cmd) *stdioProcessGuard {
 	return &stdioProcessGuard{handle: handle}
 }
 
+// stdioTerminateProcessTree 处理stdioterminate进程tree。
 func stdioTerminateProcessTree(cmd *exec.Cmd, guard *stdioProcessGuard) error {
 	var jobErr error
 	if guard != nil && guard.handle != 0 {

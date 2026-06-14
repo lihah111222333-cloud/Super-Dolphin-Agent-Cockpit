@@ -73,6 +73,7 @@ func (s *session) startLogWatcherIfCurrent(tr *transport) {
 	watcher.stopAndWait()
 }
 
+// prepareLogWatcherStart 准备日志watcher起点。
 func (s *session) prepareLogWatcherStart(tr *transport) (logWatcherStartState, bool) {
 	if s == nil || tr == nil || s.history == nil {
 		return logWatcherStartState{}, false
@@ -127,6 +128,7 @@ func (s *session) logWatcherMatchesLocked(tr *transport, state logWatcherStartSt
 		strings.TrimSpace(s.threadID) == state.identity.threadID
 }
 
+// dispatchTokenUsageIfCurrent 派发令牌usageif当前。
 func (s *session) dispatchTokenUsageIfCurrent(tr *transport, identity logWatcherIdentity, generation uint64, usage sessionLogUsage) {
 	usageSessionID := strings.TrimSpace(usage.SessionID)
 	if usageSessionID != "" && !strings.EqualFold(usageSessionID, identity.sessionID) {
@@ -304,6 +306,7 @@ func (s *session) awaitSessionRestartLocked(prepared preparedSessionRestart, nex
 	return nil
 }
 
+// rollbackSessionRestartLocked 处理rollback会话restartlocked。
 func (s *session) rollbackSessionRestartLocked(prepared preparedSessionRestart, err error) error {
 	stagedCurrent := s.transport == prepared.transport
 	var failurePatch dto.RawProviderEvent
@@ -327,6 +330,7 @@ func (s *session) rollbackSessionRestartLocked(prepared preparedSessionRestart, 
 	return err
 }
 
+// stagedTurnSettingsLocked 处理stagedturnsettingslocked。
 func (s *session) stagedTurnSettingsLocked(req dto.TurnRequest) stagedSessionState {
 	currentModel := strings.TrimSpace(s.model)
 	currentDisplayModel := claudeLaunchDisplayModel(currentModel, s.history)
@@ -382,6 +386,7 @@ func (s *session) applyPendingStagedSettingsLocked(next *stagedSessionState) {
 	}
 }
 
+// consumeNoopPendingLocked 处理consumenoop待处理locked。
 func (s *session) consumeNoopPendingLocked(next stagedSessionState) {
 	if next.appliedPendingModel {
 		s.overrideModel = next.appliedPendingModelText

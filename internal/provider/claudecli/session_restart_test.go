@@ -115,15 +115,37 @@ func closedTransport() *transport {
 // archguard:ignore global_vars -- serializes process-wide CLI launch override used by parallel restart tests.
 var launchCLIOverrideMu sync.Mutex
 
+// archguard:ignore global_vars -- protected by launchCLIOverrideMu for test-only CLI launch replacement.
+var currentLaunchCLIOverride func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error)
+
 const restartTestTimeout = 15 * time.Second
 
 func overrideLaunchCLI(t *testing.T, fn func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error)) func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 	t.Helper()
 	launchCLIOverrideMu.Lock()
+	currentLaunchCLIOverride = fn
 	t.Cleanup(func() {
+		currentLaunchCLIOverride = nil
 		launchCLIOverrideMu.Unlock()
 	})
 	return fn
+}
+
+func assumeClaudeAuthLoggedIn(d *driver) *driver {
+	d.authStatus = func(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error) {
+		return claudeAuthStatus{LoggedIn: true, AuthMethod: "oauth_token", APIProvider: "firstParty"}, `{"loggedIn":true}`, nil
+	}
+	if currentLaunchCLIOverride != nil {
+		d.launchCLI = currentLaunchCLIOverride
+	}
+	return d
+}
+
+func assumeSessionLaunchOverride(s *session) *session {
+	if currentLaunchCLIOverride != nil {
+		s.launchCLI = currentLaunchCLIOverride
+	}
+	return s
 }
 
 func snapshotSessionState(s *session) (string, string, chan struct{}) {

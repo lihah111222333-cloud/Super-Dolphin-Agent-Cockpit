@@ -24,6 +24,7 @@ import (
 //
 // The rendered body is a Dingtalk markdown card so colour / icon
 // follows NotifyLevel.
+// RenderDingtalk 渲染dingtalk。
 func RenderDingtalk(cfg ChannelConfig, msg contract.NotifyMessage, timestampMS int64) (signedURL string, body []byte, contentType string, err error) {
 	if cfg.Platform != PlatformDingtalk {
 		return "", nil, "", fmt.Errorf("dingtalk: wrong platform %q", cfg.Platform)

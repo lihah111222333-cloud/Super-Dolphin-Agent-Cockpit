@@ -36,6 +36,7 @@ func newMCPOrchDAGRuntime(handler *toolbridge.Handler) *mcpOrchDAGRuntime {
 	return &mcpOrchDAGRuntime{tools: handler}
 }
 
+// ListDAGs 列出dags。
 func (r *mcpOrchDAGRuntime) ListDAGs(ctx context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error) {
 	var out struct {
 		DAGs []contract.DAGSummary `json:"dags"`
@@ -54,6 +55,7 @@ func (r *mcpOrchDAGRuntime) ListDAGs(ctx context.Context, filter contract.ListDA
 	return out.DAGs, nil
 }
 
+// GetDAG 读取DAG。
 func (r *mcpOrchDAGRuntime) GetDAG(ctx context.Context, dagKey string) (contract.DAGDetail, error) {
 	var out contract.DAGDetail
 	err := r.call(ctx, "task_get_dag", map[string]any{
@@ -62,6 +64,7 @@ func (r *mcpOrchDAGRuntime) GetDAG(ctx context.Context, dagKey string) (contract
 	return out, err
 }
 
+// StartDAG 启动DAG。
 func (r *mcpOrchDAGRuntime) StartDAG(ctx context.Context, req contract.StartDAGRequest) (contract.StartDAGResponse, error) {
 	var out contract.StartDAGResponse
 	err := r.call(ctx, "task_start_dag", map[string]any{
@@ -72,6 +75,7 @@ func (r *mcpOrchDAGRuntime) StartDAG(ctx context.Context, req contract.StartDAGR
 	return out, err
 }
 
+// TerminateDAG 处理terminateDAG。
 func (r *mcpOrchDAGRuntime) TerminateDAG(ctx context.Context, req contract.TerminateDAGRequest) error {
 	return r.call(ctx, "task_terminate_dag", map[string]any{
 		"dag_key": strings.TrimSpace(req.DagKey),
@@ -80,12 +84,14 @@ func (r *mcpOrchDAGRuntime) TerminateDAG(ctx context.Context, req contract.Termi
 	}, nil)
 }
 
+// DeleteDAG 删除DAG。
 func (r *mcpOrchDAGRuntime) DeleteDAG(ctx context.Context, req contract.DeleteDAGRequest) error {
 	return r.call(ctx, "task_delete_dag", map[string]any{
 		"dag_key": strings.TrimSpace(req.DagKey),
 	}, nil)
 }
 
+// ApplyOps 应用ops。
 func (r *mcpOrchDAGRuntime) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
 	var out contract.ApplyOpsResponse
 	err := r.call(ctx, "task_dag_apply_ops", map[string]any{
@@ -96,6 +102,7 @@ func (r *mcpOrchDAGRuntime) ApplyOps(ctx context.Context, req contract.ApplyOpsR
 	return out, err
 }
 
+// DispatchNode 派发节点。
 func (r *mcpOrchDAGRuntime) DispatchNode(ctx context.Context, req contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {
 	var out contract.DispatchNodeResponse
 	err := r.call(ctx, "task_dispatch_node", map[string]any{
@@ -107,6 +114,7 @@ func (r *mcpOrchDAGRuntime) DispatchNode(ctx context.Context, req contract.Dispa
 	return out, err
 }
 
+// ListRuns 列出运行记录。
 func (r *mcpOrchDAGRuntime) ListRuns(ctx context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
 	var out contract.ListRunsResponse
 	err := r.call(ctx, "task_list_runs", map[string]any{
@@ -120,6 +128,7 @@ func (r *mcpOrchDAGRuntime) ListRuns(ctx context.Context, req contract.ListRunsR
 	return out, err
 }
 
+// GetRun 读取运行记录。
 func (r *mcpOrchDAGRuntime) GetRun(ctx context.Context, req contract.GetRunRequest) (contract.GetRunResponse, error) {
 	var out contract.GetRunResponse
 	err := r.call(ctx, "task_get_run", map[string]any{
@@ -166,6 +175,7 @@ func encodeDAGToolCall(toolName string, args any) (contract.ToolCallRawMessage, 
 	}, nil
 }
 
+// runDAGToolCall 运行DAG工具call。
 func (r *mcpOrchDAGRuntime) runDAGToolCall(ctx context.Context, toolName string, msg contract.ToolCallRawMessage) (*toolbridge.ToolCallResult, error) {
 	now := r.clock()
 	timeout := r.peerTimeout()
@@ -230,6 +240,7 @@ func (r *mcpOrchDAGRuntime) runDAGToolCallOnce(ctx context.Context, toolName str
 	return result, nil
 }
 
+// decodeDAGToolResult 解码DAG工具结果。
 func decodeDAGToolResult(toolName string, result *toolbridge.ToolCallResult, out any) error {
 	if !result.Success {
 		return fmt.Errorf("app: call mcp-orch %s failed: %s", toolName, toolCallResultMessage(result))

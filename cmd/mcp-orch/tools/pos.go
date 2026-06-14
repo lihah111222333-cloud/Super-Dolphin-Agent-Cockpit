@@ -34,6 +34,7 @@ type orchPos struct {
 	WorkspaceRunKey string
 }
 
+// parseOrchPos 解析orchpos。
 func parseOrchPos(raw string) (orchPos, error) {
 	pos := orchPos{Raw: strings.TrimSpace(raw)}
 	if pos.Raw == "" {
@@ -84,6 +85,7 @@ func assignSinglePayloadPos(pos orchPos, kind, value string) (orchPos, error) {
 	return pos, nil
 }
 
+// parseOrchPosSegment 解析orchpossegment。
 func parseOrchPosSegment(segment string) (string, string, error) {
 	if strings.TrimSpace(segment) != segment || segment == "" {
 		return "", "", errors.New("empty pos segment")
@@ -100,6 +102,7 @@ func parseOrchPosSegment(segment string) (string, string, error) {
 	return key, value, nil
 }
 
+// assignOrchPosSegment 处理assignorchpossegment。
 func assignOrchPosSegment(pos *orchPos, key, value string) error {
 	switch key {
 	case orchPosAgent:
@@ -139,6 +142,7 @@ func assignUniqueInt64(dst *int64, value, hint string) error {
 	return nil
 }
 
+// validateOrchPosShape 校验orchposshape。
 func validateOrchPosShape(pos orchPos) error {
 	nonEmpty := countOrchPosFields(pos)
 	if nonEmpty == 0 {
@@ -245,6 +249,7 @@ func resolveNodeKeyInput(nodeKey, pos string) (string, error) {
 	})
 }
 
+// resolveRunIDInput 解析运行记录IDinput。
 func resolveRunIDInput(runID int64, pos string) (int64, error) {
 	parsed, err := parseOrchPos(pos)
 	if err != nil {
@@ -309,6 +314,7 @@ func resolveOptionalDAGKeyInput(dagKey, pos string) (string, error) {
 	return resolved, nil
 }
 
+// resolveLegacyFieldWithPos 解析带pos的legacy字段。
 func resolveLegacyFieldWithPos(
 	legacyValue string,
 	legacyField string,

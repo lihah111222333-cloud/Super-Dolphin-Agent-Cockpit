@@ -8,6 +8,7 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
+// lookupFunctionContextWithLog 处理带日志的lookup函数上下文。
 func (h EditHandler) lookupFunctionContextWithLog(ctx context.Context, manager lspmanager.Manager, path string, line int, content string, log *editStageLogger) functionContext {
 	if manager == nil {
 		log.Skipped("function_lookup", "manager_nil")

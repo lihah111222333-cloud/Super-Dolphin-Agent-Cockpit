@@ -98,6 +98,7 @@ func (s *bootstrapStateStore) reset(workspace string, uris []string) {
 	}
 }
 
+// prepare 准备LSP。
 func (s *bootstrapStateStore) prepare(workspace, uri, fingerprint string) bootstrapDecision {
 	s.mu.Lock()
 	defer s.mu.Unlock()

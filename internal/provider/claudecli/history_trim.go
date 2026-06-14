@@ -28,6 +28,7 @@ func normalizeClaudeHistory(messages []Message) []Message {
 	return out
 }
 
+// normalizeClaudeHistoryMessage 规范化claudehistory消息。
 func normalizeClaudeHistoryMessage(msg Message) (Message, bool) {
 	if !strings.EqualFold(strings.TrimSpace(msg.Role), "user") {
 		msg.Content = strings.TrimSpace(msg.Content)
@@ -108,6 +109,7 @@ func stripClaudeTagBlock(text, closeTag string) string {
 	return ""
 }
 
+// stripClaudeAgentsMDBlock 处理stripclaude代理mdblock。
 func stripClaudeAgentsMDBlock(text string) string {
 	const closeInstructions = "</instructions>"
 	lower := strings.ToLower(text)

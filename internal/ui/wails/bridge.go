@@ -21,6 +21,7 @@ type EventBridge struct {
 	cancels []context.CancelFunc
 }
 
+// NewEventBridge 创建事件桥接。
 func NewEventBridge(dispatcher *event.Dispatcher, lifecycle *WailsLifecycle, slogLogger *slog.Logger) *EventBridge {
 	if slogLogger == nil {
 		slogLogger = pkglogger.Get()
@@ -32,6 +33,7 @@ func NewEventBridge(dispatcher *event.Dispatcher, lifecycle *WailsLifecycle, slo
 	}
 }
 
+// Start 启动桌面 UI 桥接流程。
 func (b *EventBridge) Start() {
 	if b == nil {
 		return
@@ -51,6 +53,7 @@ func (b *EventBridge) Start() {
 	b.logger.Info("bridge: started", "subscriptions", len(b.cancels))
 }
 
+// Stop 停止桌面 UI 桥接流程。
 func (b *EventBridge) Stop() {
 	if b == nil {
 		return

@@ -12,6 +12,7 @@ const (
 	CapTurnOverride   = "turn_override"
 )
 
+// Has 判断DTO是否可用。
 func (caps CapabilitySet) Has(cap string) bool {
 	if caps == nil {
 		return false
@@ -19,6 +20,7 @@ func (caps CapabilitySet) Has(cap string) bool {
 	return caps[cap]
 }
 
+// All 处理all。
 func (caps CapabilitySet) All() map[string]bool {
 	if len(caps) == 0 {
 		return map[string]bool{}

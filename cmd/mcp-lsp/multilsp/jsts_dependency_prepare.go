@@ -24,6 +24,7 @@ const (
 	jstsPnpmInstallOutputMaxSize = 8 * 1024
 )
 
+// findJSTSPnpmInstallRoot 查找jstspnpm安装根目录。
 func findJSTSPnpmInstallRoot(projectRoot, boundaryRoot string) (string, error) {
 	root, err := normalizeJSTSDependencyPath(projectRoot)
 	if err != nil {
@@ -71,6 +72,7 @@ func prepareWorkspaceDependencies(ctx context.Context, cfg workspaceConfig) erro
 	return nil
 }
 
+// ensureJSTSPnpmDependencies 确保jstspnpmdependencies。
 func ensureJSTSPnpmDependencies(ctx context.Context, projectRoot, installRoot string) error {
 	hasNodeModules, err := hasJSTSNodeModulesInResolutionChain(projectRoot, installRoot)
 	if err != nil {
@@ -95,6 +97,7 @@ func ensureJSTSPnpmDependencies(ctx context.Context, projectRoot, installRoot st
 	return nil
 }
 
+// hasJSTSNodeModulesInResolutionChain 判断解析链上是否已有 JS/TS node_modules。
 func hasJSTSNodeModulesInResolutionChain(projectRoot, installRoot string) (bool, error) {
 	root, err := normalizeJSTSDependencyPath(projectRoot)
 	if err != nil {

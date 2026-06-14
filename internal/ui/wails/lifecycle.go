@@ -31,6 +31,7 @@ type ActiveAgentCounter interface {
 
 type ActiveAgentCounterFunc func(context.Context) (int, error)
 
+// ActiveAgentCount 处理active代理count。
 func (f ActiveAgentCounterFunc) ActiveAgentCount(ctx context.Context) (int, error) {
 	return f(ctx)
 }
@@ -53,6 +54,7 @@ type WailsLifecycle struct {
 	pendingQuit     atomic.Bool
 }
 
+// NewWailsLifecycle 创建wails生命周期。
 func NewWailsLifecycle(counter ActiveAgentCounter, slogLogger *slog.Logger) *WailsLifecycle {
 	if slogLogger == nil {
 		slogLogger = pkglogger.Get()
@@ -64,6 +66,7 @@ func NewWailsLifecycle(counter ActiveAgentCounter, slogLogger *slog.Logger) *Wai
 	}
 }
 
+// SetQuitFunc 设置quitfunc。
 func (l *WailsLifecycle) SetQuitFunc(fn func()) {
 	l.mu.Lock()
 	l.quitFunc = fn
@@ -72,6 +75,7 @@ func (l *WailsLifecycle) SetQuitFunc(fn func()) {
 	l.flushPendingQuit()
 }
 
+// SetShutdownerFunc 设置shutdownerfunc。
 func (l *WailsLifecycle) SetShutdownerFunc(fn func()) {
 	l.mu.Lock()
 	l.shutdownerFunc = fn
@@ -82,17 +86,20 @@ func (l *WailsLifecycle) SetShutdownerFunc(fn func()) {
 	}
 }
 
+// SetEventEmitter 设置事件emitter。
 func (l *WailsLifecycle) SetEventEmitter(fn func(string, any)) {
 	l.mu.Lock()
 	l.emitFunc = fn
 	l.mu.Unlock()
 }
 
+// MarkFrontendReady 标记前端ready。
 func (l *WailsLifecycle) MarkFrontendReady() {
 	l.frontendReady.Store(true)
 	l.flushPendingQuit()
 }
 
+// ShouldQuit 判断quit是否可用。
 func (l *WailsLifecycle) ShouldQuit() bool {
 	if l.quitAllowed.Load() {
 		return true
@@ -117,14 +124,17 @@ func (l *WailsLifecycle) ShouldQuit() bool {
 	return false
 }
 
+// OnShutdown 处理onshutdown。
 func (l *WailsLifecycle) OnShutdown() {
 	l.requestBackendShutdown()
 }
 
+// NotifyBackendStopped 处理notifybackendstopped。
 func (l *WailsLifecycle) NotifyBackendStopped() {
 	l.allowQuitAfterBackendShutdown()
 }
 
+// RequestQuit 处理请求quit。
 func (l *WailsLifecycle) RequestQuit() {
 	if l == nil {
 		return
@@ -137,6 +147,7 @@ func (l *WailsLifecycle) RequestQuit() {
 	l.invokeQuit()
 }
 
+// NotifyBackendFailed 通知前端后端启动失败。
 func (l *WailsLifecycle) NotifyBackendFailed() {
 	l.allowQuitAfterBackendShutdown()
 }
@@ -151,6 +162,7 @@ func (l *WailsLifecycle) allowQuitAfterBackendShutdown() {
 	l.invokeQuit()
 }
 
+// EmitEvent 处理emit事件。
 func (l *WailsLifecycle) EmitEvent(name string, payload any) {
 	if l == nil {
 		return
@@ -289,6 +301,7 @@ func (l *WailsLifecycle) stopShutdownTimer() {
 	l.shutdownTimer = nil
 }
 
+// ShutdownHardDeadline 处理shutdownhard截止时间。
 func ShutdownHardDeadline() time.Duration {
 	return shutdownHardDeadline
 }

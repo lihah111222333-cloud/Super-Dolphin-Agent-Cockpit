@@ -23,6 +23,7 @@ type readOnlyTxBeginner interface {
 	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
 }
 
+// WithTx 设置tx。
 func WithTx(ctx context.Context, pool *pgxpool.Pool, fn func(tx pgx.Tx) error) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -54,6 +55,7 @@ func runWithTx(ctx context.Context, tx pgx.Tx, fn func(tx pgx.Tx) error) (retErr
 	return tx.Commit(ctx)
 }
 
+// OpenReadOnlyRows 打开readonlyrows。
 func OpenReadOnlyRows(ctx context.Context, queryer Queryable, query string, args ...any) (pgx.Rows, QueryFinish, error) {
 	beginner, ok := queryer.(readOnlyTxBeginner)
 	if !ok {
@@ -82,6 +84,7 @@ func OpenReadOnlyRows(ctx context.Context, queryer Queryable, query string, args
 	}, nil
 }
 
+// RowsFieldNames 处理rows字段名称。
 func RowsFieldNames(rows pgx.Rows) []string {
 	if rows == nil {
 		return nil

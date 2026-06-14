@@ -19,6 +19,7 @@ var (
 	ErrLaunchCWDInvalid  = errors.New("launch cwd is invalid")
 )
 
+// ValidateLaunchCWD 校验启动工作目录。
 func ValidateLaunchCWD(cwd, parentID string) error {
 	trimmedCWD := strings.TrimSpace(cwd)
 	parentID = strings.TrimSpace(parentID)
@@ -238,6 +239,7 @@ type AgentSnapshot struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
+// NormalizeUnixTime 规范化Unix时间。
 func NormalizeUnixTime(values ...int64) time.Time {
 	for _, value := range values {
 		if value <= 0 {
@@ -352,6 +354,7 @@ type StartDAGResponse struct {
 	Warning          string `json:"warning,omitempty"`
 }
 
+// NewStartDAGResponse 创建起点DAG响应。
 func NewStartDAGResponse(runID int64, runKey string, version, readyRootNodes, scheduledWakeups int64) StartDAGResponse {
 	state, warning := StartDAGExecutionDiagnostics(readyRootNodes, scheduledWakeups)
 	return StartDAGResponse{
@@ -365,6 +368,7 @@ func NewStartDAGResponse(runID int64, runKey string, version, readyRootNodes, sc
 	}
 }
 
+// NewExistingStartDAGResponse 创建existing起点DAG响应。
 func NewExistingStartDAGResponse(runID int64, runKey string, version int64, status string, scheduledWakeups int64) StartDAGResponse {
 	state := StartDAGExecutionRunning
 	if scheduledWakeups > 0 {
@@ -376,6 +380,7 @@ func NewExistingStartDAGResponse(runID int64, runKey string, version int64, stat
 	return StartDAGResponse{RunID: runID, RunKey: runKey, Version: version, ScheduledWakeups: scheduledWakeups, ExecutionState: state}
 }
 
+// StartDAGExecutionDiagnostics 启动DAGexecution诊断。
 func StartDAGExecutionDiagnostics(readyRootNodes, scheduledWakeups int64) (string, string) {
 	if scheduledWakeups > 0 {
 		return StartDAGExecutionQueued, ""
@@ -464,6 +469,7 @@ type finalOutputFilePayload struct {
 	} `json:"sharedfile"`
 }
 
+// FinalOutputFileFromRunMetadata 从运行记录元数据处理finaloutput文件。
 func FinalOutputFileFromRunMetadata(metadataJSON json.RawMessage) (FinalOutputFileRef, bool) {
 	if isEmptyJSON(metadataJSON) {
 		return FinalOutputFileRef{}, false

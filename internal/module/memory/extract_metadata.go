@@ -30,6 +30,7 @@ func (h *MemoryLifecycleHooks) shouldExtractThread(ctx context.Context, evt turn
 	return h.resolveThreadRuntimeMetadata(ctx, strings.TrimSpace(evt.ThreadID)).isAutoMemoryRootThread()
 }
 
+// resolveThreadRuntimeMetadata 解析线程运行时元数据。
 func (h *MemoryLifecycleHooks) resolveThreadRuntimeMetadata(ctx context.Context, threadID string) threadRuntimeMetadata {
 	if h == nil || h.threadStore == nil || threadID == "" {
 		return threadRuntimeMetadata{}
@@ -41,6 +42,7 @@ func (h *MemoryLifecycleHooks) resolveThreadRuntimeMetadata(ctx context.Context,
 	return resolveThreadRuntimeMetadataFromThread(thread)
 }
 
+// resolveThreadRuntimeMetadataFromThread 从线程解析线程运行时元数据。
 func resolveThreadRuntimeMetadataFromThread(thread *contract.ThreadMetadata) threadRuntimeMetadata {
 	if thread == nil {
 		return threadRuntimeMetadata{}
@@ -105,6 +107,7 @@ func runtimeFlagEnabled(runtime map[string]any, keys ...string) bool {
 	return false
 }
 
+// runtimeBoolMap 处理运行时boolmap。
 func runtimeBoolMap(runtime map[string]any, keys ...string) map[string]bool {
 	for _, key := range keys {
 		raw, _ := runtime[key].(map[string]any)

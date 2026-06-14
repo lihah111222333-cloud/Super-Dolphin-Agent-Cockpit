@@ -88,6 +88,7 @@ func (s *service) listDAGsFromSnapshot(ctx context.Context, filter contract.List
 	return dashboardDAGSummariesFromRows(rows)
 }
 
+// getDAGDetailFromSnapshot 从快照整理 DAG 详情。
 func (s *service) getDAGDetailFromSnapshot(ctx context.Context, dagKey string) (*contract.DAGDetail, error) {
 	rows, err := s.dbQueries.Query(ctx, dashboardGetDAGSnapshotQuery, dagKey)
 	if err != nil {
@@ -119,6 +120,7 @@ func (s *service) listDAGRunsFromSnapshot(ctx context.Context, dagKey, status st
 	return dashboardRunsFromRows(rows)
 }
 
+// listLatestDAGRunsByDAGFromSnapshot 按DAG快照列出latestDAG运行记录。
 func (s *service) listLatestDAGRunsByDAGFromSnapshot(ctx context.Context, dagKeys []string) (map[string]contract.Run, error) {
 	if len(dagKeys) == 0 {
 		return map[string]contract.Run{}, nil
@@ -140,6 +142,7 @@ func (s *service) listLatestDAGRunsByDAGFromSnapshot(ctx context.Context, dagKey
 	return out, nil
 }
 
+// getDAGRunFromSnapshot 从快照读取DAG运行记录。
 func (s *service) getDAGRunFromSnapshot(ctx context.Context, runKey string) (contract.GetRunResponse, error) {
 	rows, err := s.dbQueries.Query(ctx, dashboardGetRunSnapshotQuery, runKey)
 	if err != nil {
@@ -175,6 +178,7 @@ func dashboardDAGSummariesFromRows(rows []map[string]any) ([]contract.DAGSummary
 	return out, nil
 }
 
+// dashboardDAGSummaryFromRow 从row处理dashboardDAG摘要。
 func dashboardDAGSummaryFromRow(row map[string]any) (contract.DAGSummary, error) {
 	id, err := dashboardRowInt64(row, "id", true)
 	if err != nil {
@@ -227,6 +231,7 @@ func dashboardDAGNodesFromRows(rows []map[string]any) ([]contract.DAGNode, error
 	return out, nil
 }
 
+// dashboardDAGNodeFromRow 从row处理dashboardDAG节点。
 func dashboardDAGNodeFromRow(row map[string]any) (contract.DAGNode, error) {
 	id, err := dashboardRowInt64(row, "id", true)
 	if err != nil {
@@ -291,6 +296,7 @@ func dashboardRunsFromRows(rows []map[string]any) ([]contract.Run, error) {
 	return out, nil
 }
 
+// dashboardRunFromRow 从row处理dashboard运行记录。
 func dashboardRunFromRow(row map[string]any) (contract.Run, error) {
 	id, err := dashboardRowInt64(row, "id", true)
 	if err != nil {
@@ -380,6 +386,7 @@ func dashboardJSON(row map[string]any, key string) json.RawMessage {
 	return dashboardJSONOrDefault(row, key, nil)
 }
 
+// dashboardJSONOrDefault 处理dashboardJSONdefault。
 func dashboardJSONOrDefault(row map[string]any, key string, fallback json.RawMessage) json.RawMessage {
 	value, ok := row[key]
 	if !ok || value == nil {
@@ -442,6 +449,7 @@ func dashboardRowInt64(row map[string]any, key string, required bool) (int64, er
 	return dashboardInt64Value(key, value)
 }
 
+// dashboardInt64Value 处理dashboardint64值。
 func dashboardInt64Value(key string, value any) (int64, error) {
 	switch typed := value.(type) {
 	case int:
@@ -502,6 +510,7 @@ func dashboardOptionalTime(row map[string]any, key string) *time.Time {
 	return value
 }
 
+// dashboardRowTimePtr 处理dashboardrow时间指针。
 func dashboardRowTimePtr(row map[string]any, key string, required bool) (*time.Time, error) {
 	value, ok := row[key]
 	if !ok || value == nil {

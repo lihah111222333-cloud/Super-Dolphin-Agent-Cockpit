@@ -31,6 +31,7 @@ type documentSymbolListResponse struct {
 	Hint      string                    `json:"hint,omitempty"`
 }
 
+// NewStructureHandler 创建structure处理器。
 func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
 	return newManagerTool("structure", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req structureParams) (any, error) {
 		req.FilePath = firstNonEmpty(req.FilePath, req.Path)
@@ -84,6 +85,7 @@ func firstNonEmpty(values ...string) string {
 
 // resolveWorkspaceSymbolManager picks the right manager based on language or
 // file_path and returns the language that WorkspaceSymbol should use.
+// resolveWorkspaceSymbolManager 解析工作区符号manager。
 func resolveWorkspaceSymbolManager(ctx context.Context, registry lspmanager.Registry, filePath, language string) (lspmanager.Manager, string, error) {
 	language = normalizeWorkspaceSymbolLanguage(language)
 	filePath = strings.TrimSpace(filePath)
@@ -117,6 +119,7 @@ func resolveWorkspaceSymbolManager(ctx context.Context, registry lspmanager.Regi
 	return manager, language, nil
 }
 
+// runDocumentSymbols 运行document符号。
 func runDocumentSymbols(
 	ctx context.Context,
 	manager lspmanager.Manager,
@@ -153,6 +156,7 @@ func runDocumentSymbols(
 	return resp, nil
 }
 
+// runWorkspaceSymbols 运行工作区符号。
 func runWorkspaceSymbols(
 	ctx context.Context,
 	manager lspmanager.Manager,
@@ -225,6 +229,7 @@ func runFoldingRanges(
 	})
 }
 
+// runSemanticTokens 运行语义令牌。
 func runSemanticTokens(
 	ctx context.Context,
 	manager lspmanager.Manager,
@@ -283,6 +288,7 @@ func limitDocumentSymbols(symbols []protocol.DocumentSymbol, limit int) []protoc
 	return limitDocumentSymbolNodes(symbols, &remaining)
 }
 
+// limitDocumentSymbolNodes 处理limitdocument符号节点。
 func limitDocumentSymbolNodes(
 	symbols []protocol.DocumentSymbol,
 	remaining *int,

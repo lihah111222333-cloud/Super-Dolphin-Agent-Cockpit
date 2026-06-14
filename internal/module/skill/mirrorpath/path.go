@@ -10,6 +10,7 @@ import (
 	"strings"
 )
 
+// ResolveValidRootSymlink 解析valid根目录symlink。
 func ResolveValidRootSymlink(root string) string {
 	if resolved := resolveSymlinkPath(root); filepath.Base(resolved) == "skills" {
 		return resolved
@@ -17,6 +18,7 @@ func ResolveValidRootSymlink(root string) string {
 	return root
 }
 
+// resolveSymlinkPath 解析symlink路径。
 func resolveSymlinkPath(path string) string {
 	if realPath, err := filepath.EvalSymlinks(path); err == nil {
 		return realPath
@@ -38,6 +40,7 @@ func resolveSymlinkPath(path string) string {
 	return path
 }
 
+// RejectSymlinkAncestors 处理rejectsymlinkancestors。
 func RejectSymlinkAncestors(root string) error {
 	path, err := filepath.Abs(root)
 	if err != nil {
@@ -64,6 +67,7 @@ func allowedRootSymlinkAncestor(path string) bool {
 	return runtime.GOOS == "darwin" && (path == "/var" || path == "/tmp" || path == "/etc")
 }
 
+// SafeFileInfo 处理safe文件info。
 func SafeFileInfo(path string, entry fs.DirEntry) (fs.FileInfo, error) {
 	info, err := entry.Info()
 	if err != nil {
@@ -75,6 +79,7 @@ func SafeFileInfo(path string, entry fs.DirEntry) (fs.FileInfo, error) {
 	return info, nil
 }
 
+// SafeRelative 处理safe相对。
 func SafeRelative(root, path string) (string, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
@@ -91,6 +96,7 @@ func SafeRelative(root, path string) (string, error) {
 	return rel, nil
 }
 
+// ForExistingSkillDirs 为existing技能目录处理技能。
 func ForExistingSkillDirs(roots []string, name, selected string, fn func(string) error) error {
 	if err := fn(selected); err != nil {
 		return err
@@ -112,6 +118,7 @@ func ForExistingSkillDirs(roots []string, name, selected string, fn func(string)
 	return nil
 }
 
+// UnsafeRelative 处理unsafe相对。
 func UnsafeRelative(rel string) bool {
 	if unsafeRelativeValue(rel) {
 		return true
@@ -124,6 +131,7 @@ func UnsafeRelative(rel string) bool {
 	return false
 }
 
+// unsafeRelativeValue 处理unsafe相对值。
 func unsafeRelativeValue(rel string) bool {
 	return rel == "" || rel == "." || rel == ".." ||
 		filepath.IsAbs(rel) || strings.Contains(rel, "\x00") ||

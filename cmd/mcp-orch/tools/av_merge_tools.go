@@ -32,6 +32,7 @@ func avMergeToolDefinitions() []ToolDefinition {
 	)
 }
 
+// handleAVMerge 处理avmerge。
 func handleAVMerge() ToolHandler {
 	return func(ctx context.Context, input json.RawMessage) (any, error) {
 		var in avMergeInput

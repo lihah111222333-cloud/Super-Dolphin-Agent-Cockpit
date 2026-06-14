@@ -78,6 +78,7 @@ func newBindingAdapter(store bindingstore.Store) bindingLookup {
 	return &bindingAdapter{store: store}
 }
 
+// ListAgentThreadBindings 列出代理线程bindings。
 func (a *bindingAdapter) ListAgentThreadBindings(ctx context.Context) ([]bindingEntry, error) {
 	rows, err := a.store.ListAgentThreadBindings(ctx)
 	if err != nil {
@@ -99,6 +100,7 @@ func (a *bindingAdapter) ListAgentThreadBindings(ctx context.Context) ([]binding
 	return out, nil
 }
 
+// loadBatchConfigs 加载batch配置。
 func (s *service) loadBatchConfigs(ctx context.Context, threads []ThreadSummary) (map[string]map[string]any, bool) {
 	if s.runtimeConfig == nil {
 		return nil, false
@@ -124,6 +126,7 @@ func (s *service) loadBatchConfigs(ctx context.Context, threads []ThreadSummary)
 	return batchConfigs, true
 }
 
+// enrichFromDB 从数据库补充uistate。
 func (s *service) enrichFromDB(ctx context.Context, agents []AgentSummary, threads []ThreadSummary, runtimeMap map[string]map[string]any) {
 	var byAgent map[string]bindingEntry
 	if s.bindings != nil {
@@ -163,6 +166,7 @@ func (s *service) enrichFromDB(ctx context.Context, agents []AgentSummary, threa
 	}
 }
 
+// applyBindingToThreadRuntime 把binding应用为线程运行时。
 func applyBindingToThreadRuntime(thread ThreadSummary, idx map[string]bindingEntry, runtimeMap map[string]map[string]any) {
 	if thread.AgentID == "" {
 		return

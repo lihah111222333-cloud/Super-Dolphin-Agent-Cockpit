@@ -8,6 +8,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// Normalize 规范化技能。
 func Normalize(name, displayName string) (string, string, bool) {
 	displayName, ok := normalizeDisplayName(displayName)
 	if !ok {
@@ -30,6 +31,7 @@ func Normalize(name, displayName string) (string, string, bool) {
 	return name, legacyDisplay, true
 }
 
+// ValidateName 校验名称。
 func ValidateName(name string) (string, bool) {
 	name = strings.TrimSpace(name)
 	if name == "" || utf8.RuneCountInString(name) > 64 {
@@ -48,6 +50,7 @@ func ValidateName(name string) (string, bool) {
 	return name, true
 }
 
+// RewriteFrontmatter 处理rewritefrontmatter。
 func RewriteFrontmatter(content, name, displayName string) (string, bool) {
 	name, ok := ValidateName(name)
 	if !ok {
@@ -116,6 +119,7 @@ func displayNameKey(key string) bool {
 	return key == "display_name" || key == "display-name" || key == "displayname" || key == "title"
 }
 
+// Slug 处理slug。
 func Slug(name string) string {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -157,6 +161,7 @@ func normalizeDisplayName(displayName string) (string, bool) {
 	return displayName, true
 }
 
+// safeLegacyDisplayName 处理safelegacy显示名称。
 func safeLegacyDisplayName(name string) bool {
 	name = strings.TrimSpace(name)
 	if name == "" || utf8.RuneCountInString(name) > 120 {
@@ -178,6 +183,7 @@ func legacyDisplayRune(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == ' ' || r == '-' || r == '_'
 }
 
+// CanonicalNameForAlias 为alias处理canonical名称。
 func CanonicalNameForAlias(name string, skills []contract.SkillInfo) (string, bool) {
 	key := AliasKey(name)
 	if key == "" {
@@ -193,6 +199,7 @@ func CanonicalNameForAlias(name string, skills []contract.SkillInfo) (string, bo
 	return "", false
 }
 
+// MatchesSkillCandidate 判断技能候选项是否匹配。
 func MatchesSkillCandidate(skill contract.SkillInfo, raw, canonical string) bool {
 	rawKey, canonicalKey := AliasKey(raw), AliasKey(canonical)
 	for _, alias := range Aliases(skill.Name, skill.DisplayName) {
@@ -204,10 +211,12 @@ func MatchesSkillCandidate(skill contract.SkillInfo, raw, canonical string) bool
 	return false
 }
 
+// Aliases 处理aliases。
 func Aliases(name, displayName string) []string {
 	return uniqStrings([]string{strings.TrimSpace(name), strings.TrimSpace(displayName)})
 }
 
+// AliasKey 处理alias键。
 func AliasKey(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
 }

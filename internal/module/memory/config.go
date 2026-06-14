@@ -99,6 +99,7 @@ const (
 	MemoryPathClassAuto  MemoryPathClass = "auto"
 )
 
+// NewConfig 创建配置。
 func NewConfig(platformCfg *contract.Config) *Config {
 	kairosEnabled := parseBoolEnv(envFeatureKairos, false)
 	envOverride := firstNonEmptyEnv(envMemoryPathOverride, envClaudeMemoryPathOverride)
@@ -130,38 +131,47 @@ func NewConfig(platformCfg *contract.Config) *Config {
 	return cfg
 }
 
+// IsMemoryEnabled 判断记忆enabled是否可用。
 func (c *Config) IsMemoryEnabled() bool {
 	return memoryProductEnabled(c) && ResolveMemoryGate(contract.BuildCtx{}, c).AutoEnabled
 }
 
+// HasAutoMemPathOverride 判断automem路径override是否可用。
 func (c *Config) HasAutoMemPathOverride() bool {
 	return configuredAutoMemPathOverride(c) != ""
 }
 
+// ResolvedAutoMemPathOverride 处理已解析automem路径override。
 func (c *Config) ResolvedAutoMemPathOverride() string {
 	return configuredAutoMemPathOverride(c)
 }
 
+// TrustedAutoMemPathSource 处理trustedautomem路径source。
 func (c *Config) TrustedAutoMemPathSource() TrustedPathSettingSource {
 	return resolveTrustedAutoMemPathSource(c)
 }
 
+// IsAutoMemPath 判断automem路径是否可用。
 func (c *Config) IsAutoMemPath(path string) bool {
 	return ClassifyMemoryPath(c, path) == MemoryPathClassAuto
 }
 
+// ClassifyMemoryPath 分类记忆路径。
 func (c *Config) ClassifyMemoryPath(path string) MemoryPathClass {
 	return ClassifyMemoryPath(c, path)
 }
 
+// ResolveMemoryGate 解析记忆gate。
 func ResolveMemoryGate(buildCtx contract.BuildCtx, cfg *Config) MemoryGateSnapshot {
 	return resolveMemoryGate(buildCtx, cfg)
 }
 
+// ShouldStartRelevantMemoryPrefetch 判断起点relevant记忆prefetch是否可用。
 func ShouldStartRelevantMemoryPrefetch(snapshot MemoryGateSnapshot, turnInput contract.TurnInput, surfacedState RelevantPrefetchSurfacedState) bool {
 	return shouldStartRelevantMemoryPrefetch(snapshot, turnInput, surfacedState)
 }
 
+// ClassifyMemoryPath 分类记忆路径。
 func ClassifyMemoryPath(cfg *Config, path string) MemoryPathClass {
 	switch {
 	case isAutoMemPath(cfg, path):
@@ -171,6 +181,7 @@ func ClassifyMemoryPath(cfg *Config, path string) MemoryPathClass {
 	}
 }
 
+// IsAutoMemoryPath 判断auto记忆路径是否可用。
 func IsAutoMemoryPath(cfg *Config, path string) bool {
 	return ClassifyMemoryPath(cfg, path) == MemoryPathClassAuto
 }
@@ -234,11 +245,13 @@ func hasPersistentMemoryStorage(cfg *Config) bool {
 	return configuredAutoMemPathOverride(cfg) != ""
 }
 
+// HandleDateChange 处理datechange。
 func HandleDateChange() {
 	// Date-change hooks are currently handled by callers that rebuild Config.
 	_ = struct{}{}
 }
 
+// LoadNestedMemoryPaths 加载nested记忆路径。
 func LoadNestedMemoryPaths() []string {
 	return []string{}
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// HandleGetRun 处理get运行记录。
 func HandleGetRun(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in GetRunInput) (any, error) {
 		runKey, err := resolveRunKeyInput(in.RunKey, in.Pos)

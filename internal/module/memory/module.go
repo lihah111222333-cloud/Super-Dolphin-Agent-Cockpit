@@ -121,6 +121,7 @@ type dreamExtractParams struct {
 	Executor contract.DreamExecutor `optional:"true"`
 }
 
+// NewMemoryLifecycleHooks 创建线程生命周期里的记忆 hook。
 func NewMemoryLifecycleHooks(p memoryLifecycleHookParams) *MemoryLifecycleHooks {
 	hooks := newMemoryLifecycleHooksWithTeam(
 		p.Config,
@@ -164,6 +165,7 @@ func buildDedupFilter(hooks *MemoryLifecycleHooks) *dedup.Filter {
 	return dedup.NewFilter(scanPrivate, scanTeam)
 }
 
+// scanEntriesAsSnapshots 把扫描到的记忆条目转换成快照。
 func scanEntriesAsSnapshots(root, typeFilter, scope string) ([]dedup.EntrySnapshot, error) {
 	entries, err := scanMemoryEntries(root)
 	if err != nil {
@@ -207,6 +209,7 @@ func newMemoryLifecycleHooks(
 	return newMemoryLifecycleHooksWithTeam(cfg, nil, consolidator, logger, threads, threadStore, sections, extractor, manifestBuilder)
 }
 
+// newMemoryLifecycleHooksWithTeam 创建带团队记忆能力的生命周期 hook。
 func newMemoryLifecycleHooksWithTeam(
 	cfg *Config,
 	team *TeamMemoryManager,
@@ -259,6 +262,7 @@ func newMemoryLifecycleHooksWithTeam(
 
 func asTeamSyncLifecycle(svc *teampkg.TeamSyncService) teampkg.Lifecycle { return svc }
 
+// provideNestedDependencies 为记忆模块组装内部依赖。
 func provideNestedDependencies(cfg *Config) nestedpkg.Dependencies {
 	cfg = memoryConfig(cfg)
 	return nestedpkg.Dependencies{
@@ -308,6 +312,8 @@ func provideTeamMemoryManagerContract(manager *TeamMemoryManager) contract.TeamM
 	return manager
 }
 
+// Module 把 memory 接到 prompt、thread 事件和 provider 工具。
+// 记忆文件怎么写、prompt 怎么看到、provider 怎么读写，分别从这里接出去。
 var Module = fx.Module("memory",
 	fx.Provide(
 		NewConfig,
@@ -344,10 +350,12 @@ var Module = fx.Module("memory",
 	fx.Invoke(registerTeamMemoryRuntime, registerLifecycle, registerPromptProviders, bindMemoryDrainShutdown),
 )
 
+// NewRootManager 创建记忆根目录管理器。
 func NewRootManager(svc Service) *RootManager {
 	return &RootManager{svc: svc}
 }
 
+// RootDir 返回当前服务使用的根目录。
 func (m *RootManager) RootDir() string {
 	if m == nil || m.svc == nil {
 		return ""
@@ -355,6 +363,7 @@ func (m *RootManager) RootDir() string {
 	return m.svc.RootDir()
 }
 
+// EnsureRoot 确保记忆根目录存在且可用。
 func (m *RootManager) EnsureRoot(ctx context.Context) error {
 	if m == nil || m.svc == nil {
 		return errors.New("memory service is nil")
@@ -362,6 +371,7 @@ func (m *RootManager) EnsureRoot(ctx context.Context) error {
 	return m.svc.EnsureRoot(ctx)
 }
 
+// NewAutoDreamConsolidator 创建自动 dream 记忆整理器。
 func NewAutoDreamConsolidator(extractor *MemoryExtractor) *AutoDreamConsolidator {
 	return newAutoDreamConsolidator(extractor, nil)
 }
@@ -397,14 +407,19 @@ func provideMemoryService(p provideMemoryServiceParams) Service {
 	return NewService(p.Cfg, p.Logger, p.Consolidator, p.Hooks)
 }
 
+// provideAgentMemoryReader 把 memory_read 接到统一的 reader。
+// provider 只拿这个接口，不需要知道 memory 文件怎么存。
 func provideAgentMemoryReader(hooks *MemoryLifecycleHooks) contract.AgentMemoryReader {
 	return hooks
 }
 
+// provideAgentMemoryWriter 把 memory_write 接到统一的 writer。
+// 写入后的去重、MEMORY.md 刷新和 prompt 更新都还在 hooks 里做。
 func provideAgentMemoryWriter(hooks *MemoryLifecycleHooks) contract.AgentMemoryWriter {
 	return hooks
 }
 
+// NewMemoryHandlers 创建记忆 RPC 和工具处理器。
 func NewMemoryHandlers(p memoryHandlerDeps) platformrpc.HandlerMapResult {
 	handlers := handler.Map{
 		"memory/consolidate": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
@@ -497,6 +512,8 @@ func bindMemoryDrainShutdown(p memoryDrainShutdownParams) {
 	})
 }
 
+// registerTeamMemoryRuntime 只标记 team memory 是否已可用。
+// combined memory prompt 会看这个状态；这里不要启动同步或写文件。
 func registerTeamMemoryRuntime(lc fx.Lifecycle) {
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {

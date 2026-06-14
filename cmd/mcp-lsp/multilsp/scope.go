@@ -63,6 +63,7 @@ type ScopedManager struct {
 // ResolveLSPToolScope canonicalizes a trusted scope and derives all ManagerPool
 // keys. It deliberately excludes turn/call identity from ScopeKey/ManagerKey so
 // repeated tool calls in the same agent/thread/workspace reuse a manager.
+// ResolveLSPToolScope 解析LSP工具作用域。
 func ResolveLSPToolScope(scope LSPToolScope) (ResolvedLSPToolScope, error) {
 	canonical, err := canonicalizeLSPToolScope(scope)
 	if err != nil {
@@ -90,6 +91,7 @@ func ResolveLSPToolScope(scope LSPToolScope) (ResolvedLSPToolScope, error) {
 	}, nil
 }
 
+// canonicalizeLSPToolScope 处理canonicalizeLSP工具作用域。
 func canonicalizeLSPToolScope(scope LSPToolScope) (LSPToolScope, error) {
 	canonical := LSPToolScope{
 		AgentID:          strings.TrimSpace(scope.AgentID),
@@ -194,6 +196,7 @@ func canonicalScopeURI(uri string) string {
 	return fileURIFromPath(path)
 }
 
+// canonicalScopePath 处理canonical作用域路径。
 func canonicalScopePath(value, base string) string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -213,6 +216,7 @@ func canonicalScopePath(value, base string) string {
 	return filepath.Clean(trimmed)
 }
 
+// normalizeScopeWorkspaceRoots 规范化作用域工作区根目录。
 func normalizeScopeWorkspaceRoots(cwd string, roots []string) []string {
 	out := make([]string, 0, len(roots)+1)
 	seen := map[string]struct{}{}
@@ -237,6 +241,7 @@ func normalizeScopeWorkspaceRoots(cwd string, roots []string) []string {
 	return out
 }
 
+// selectWorkspaceRootForTarget 为target选择工作区根目录。
 func selectWorkspaceRootForTarget(roots []string, target string) (string, error) {
 	targetPath, err := absoluteWorkspaceTargetPath(target)
 	if err != nil {
@@ -317,6 +322,7 @@ func absoluteWorkspaceTargetPath(target string) (string, error) {
 	return canonicalAbsoluteTargetPath(trimmed), nil
 }
 
+// canonicalAbsoluteTargetPath 处理canonicalabsolutetarget路径。
 func canonicalAbsoluteTargetPath(path string) string {
 	cleaned := filepath.Clean(strings.TrimSpace(path))
 	if cleaned == "" {

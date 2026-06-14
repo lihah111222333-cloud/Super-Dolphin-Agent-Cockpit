@@ -14,6 +14,7 @@ type Handler func(context.Context, json.RawMessage) (any, error)
 
 type Middleware func(Handler) Handler
 
+// Chain 把多个中间件按顺序串起来。
 func Chain(handler Handler, middlewares ...Middleware) Handler {
 	wrapped := handler
 	for idx := len(middlewares) - 1; idx >= 0; idx-- {
@@ -25,6 +26,7 @@ func Chain(handler Handler, middlewares ...Middleware) Handler {
 	return wrapped
 }
 
+// Logging 记录请求耗时和错误。
 func Logging(logger *slog.Logger, toolName ...string) Middleware {
 	if logger == nil {
 		logger = pkglogger.Get()

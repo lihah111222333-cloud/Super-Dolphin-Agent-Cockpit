@@ -19,6 +19,7 @@ type store struct {
 	q  *sqlc.Queries
 }
 
+// NewStore 创建存储。
 func NewStore(db sqlc.DBTX) Store { return &store{db: db, q: sqlc.New(db)} }
 
 func requireRuntimeRunID(op string, runID int64) error {
@@ -32,12 +33,14 @@ func requireRuntimeRunID(op string, runID int64) error {
 // Unlike V2's DAG-specific WithDAGTx helper, it does not pre-lock the DAG row
 // or node rows with FOR UPDATE; callers must explicitly use the *_ForUpdate
 // accessors inside the transaction when they need serialized DAG mutation.
+// WithTx 设置tx。
 func (s *store) WithTx(ctx context.Context, fn func(txStore DAGMutationStore) error) error {
 	return wrapTaskDAGError(sqlctx.WithTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
 		return fn(&store{db: tx, q: txq})
 	}), "with_tx", "task_dag")
 }
 
+// UpsertDAG 处理upsertDAG。
 func (s *store) UpsertDAG(ctx context.Context, dag DAG) (*DAG, error) {
 	return queryOne(func() (sqlc.TaskDag, error) {
 		return s.q.UpsertTaskDag(ctx, sqlc.UpsertTaskDagParams{
@@ -51,6 +54,7 @@ func (s *store) UpsertDAG(ctx context.Context, dag DAG) (*DAG, error) {
 	}, "upsert", "task_dag", fromDAG)
 }
 
+// ListDAGs 列出dags。
 func (s *store) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAG, error) {
 	return queryMany(func() ([]sqlc.TaskDag, error) {
 		return s.q.ListTaskDags(ctx, sqlc.ListTaskDagsParams{
@@ -61,12 +65,14 @@ func (s *store) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAG, err
 	}, "list", "task_dag", fromDAG)
 }
 
+// GetDAG 读取DAG。
 func (s *store) GetDAG(ctx context.Context, dagKey string) (*DAG, error) {
 	return queryOne(func() (sqlc.TaskDag, error) {
 		return s.q.GetTaskDag(ctx, dagKey)
 	}, "get", "task_dag", fromDAG)
 }
 
+// DeleteDAG 删除DAG。
 func (s *store) DeleteDAG(ctx context.Context, dagKey string) (int64, error) {
 	key := strings.TrimSpace(dagKey)
 	if key == "" {
@@ -98,6 +104,7 @@ func (s *store) DeleteDAG(ctx context.Context, dagKey string) (int64, error) {
 	return rows, wrapTaskDAGError(err, "delete", "task_dag")
 }
 
+// UpsertNode 处理upsert节点。
 func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error) {
 	return queryOne(func() (sqlc.TaskDagNode, error) {
 		return s.q.UpsertTaskDagNode(ctx, sqlc.UpsertTaskDagNodeParams{
@@ -113,6 +120,7 @@ func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error) {
 	}, "upsert", "task_dag_node", fromNode)
 }
 
+// PatchNodeConfigIfUnchanged 处理补丁节点配置ifunchanged。
 func (s *store) PatchNodeConfigIfUnchanged(ctx context.Context, input NodeConfigPatchInput) (*Node, error) {
 	if err := requireRuntimeRunID("patch_config", input.RunID); err != nil {
 		return nil, err
@@ -128,6 +136,7 @@ func (s *store) PatchNodeConfigIfUnchanged(ctx context.Context, input NodeConfig
 	}, "patch_config", "task_dag_node", fromNode)
 }
 
+// DeleteNode 删除节点。
 func (s *store) DeleteNode(ctx context.Context, dagKey, nodeKey string) (int64, error) {
 	rows, err := s.q.DeleteTaskDagNode(ctx, sqlc.DeleteTaskDagNodeParams{
 		DagKey:  dagKey,
@@ -136,6 +145,7 @@ func (s *store) DeleteNode(ctx context.Context, dagKey, nodeKey string) (int64, 
 	return rows, wrapTaskDAGError(err, "delete", "task_dag_node")
 }
 
+// UpdateNodeStatus 更新节点状态。
 func (s *store) UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*Node, error) {
 	if err := requireRuntimeRunID("update_status", input.RunID); err != nil {
 		return nil, err
@@ -154,12 +164,14 @@ func (s *store) UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*
 	}, "update_status")
 }
 
+// ListNodes 列出节点。
 func (s *store) ListNodes(ctx context.Context, dagKey string) ([]Node, error) {
 	return queryMany(func() ([]sqlc.TaskDagNode, error) {
 		return s.q.ListTaskDagNodes(ctx, dagKey)
 	}, "list", "task_dag_node", fromNode)
 }
 
+// AssignNode 处理assign节点。
 func (s *store) AssignNode(ctx context.Context, input AssignNodeInput) (*Node, error) {
 	if err := requireRuntimeRunID("assign", input.RunID); err != nil {
 		return nil, err
@@ -174,6 +186,7 @@ func (s *store) AssignNode(ctx context.Context, input AssignNodeInput) (*Node, e
 	}, "assign", "task_dag_node", fromNode)
 }
 
+// ListRunNodes 列出运行记录节点。
 func (s *store) ListRunNodes(ctx context.Context, dagKey string, runID int64) ([]Node, error) {
 	return queryMany(func() ([]sqlc.TaskDagNode, error) {
 		return s.q.ListTaskDagRunNodes(ctx, sqlc.ListTaskDagRunNodesParams{
@@ -191,30 +204,35 @@ func (s *store) ListRunNodes(ctx context.Context, dagKey string, runID int64) ([
 // (migration 0083 partial index has no UNIQUE clause + F1.5 write entry-point
 // is not single-writer); the caller iterates and applies idempotent
 // advancement on every row.
+// LookupNodesBySpawningThread 按spawning线程处理lookup节点。
 func (s *store) LookupNodesBySpawningThread(ctx context.Context, threadID string) ([]Node, error) {
 	return queryMany(func() ([]sqlc.TaskDagNode, error) {
 		return s.q.LookupNodesBySpawningThread(ctx, sqlc.TextValuePtr(&threadID))
 	}, "lookup_by_spawning_thread", "task_dag_node", fromNode)
 }
 
+// ListRunningNodesByAssignee 按assignee列出running节点。
 func (s *store) ListRunningNodesByAssignee(ctx context.Context, assignee string) ([]Node, error) {
 	return queryMany(func() ([]sqlc.TaskDagNode, error) {
 		return s.q.ListRunningTaskDagNodesByAssignee(ctx, assignee)
 	}, "list_running_by_assignee", "task_dag_node", fromNode)
 }
 
+// GetDAGForUpdate 为更新读取DAG。
 func (s *store) GetDAGForUpdate(ctx context.Context, dagKey string) (*DAG, error) {
 	return queryOne(func() (sqlc.TaskDag, error) {
 		return s.q.GetTaskDagForUpdate(ctx, dagKey)
 	}, "get_for_update", "task_dag", fromDAG)
 }
 
+// GetNodesForUpdate 为更新读取节点。
 func (s *store) GetNodesForUpdate(ctx context.Context, dagKey string) ([]Node, error) {
 	return queryMany(func() ([]sqlc.TaskDagNode, error) {
 		return s.q.GetTaskDagNodesForUpdate(ctx, dagKey)
 	}, "get_for_update", "task_dag_node", fromNode)
 }
 
+// BindRunningNodeTurn 绑定running节点turn。
 func (s *store) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTurnInput) (*Node, error) {
 	if err := requireRuntimeRunID("bind_running_turn", input.RunID); err != nil {
 		return nil, err
@@ -247,6 +265,7 @@ func (s *store) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTu
 	return &mapped, nil
 }
 
+// TouchRunningNodeEvent 处理touchrunning节点事件。
 func (s *store) TouchRunningNodeEvent(ctx context.Context, input TouchRunningNodeEventInput) (*Node, error) {
 	if err := requireRuntimeRunID("touch_running_event", input.RunID); err != nil {
 		return nil, err
@@ -262,6 +281,7 @@ func (s *store) TouchRunningNodeEvent(ctx context.Context, input TouchRunningNod
 	}, "touch_running_event", "task_dag_node", fromNode)
 }
 
+// UpdateRunningNodeStatus 更新running节点状态。
 func (s *store) UpdateRunningNodeStatus(ctx context.Context, input RunningNodeStatusUpdate) (*Node, error) {
 	if err := requireRuntimeRunID("update_running_status", input.RunID); err != nil {
 		return nil, err
@@ -278,6 +298,7 @@ func (s *store) UpdateRunningNodeStatus(ctx context.Context, input RunningNodeSt
 	}, "update_running_status")
 }
 
+// UpdateAwaitingVerifyNodeStatus 更新awaitingverify节点状态。
 func (s *store) UpdateAwaitingVerifyNodeStatus(ctx context.Context, input AwaitingVerifyNodeStatusUpdate) (*Node, error) {
 	if err := requireRuntimeRunID("update_awaiting_verify_status", input.RunID); err != nil {
 		return nil, err
@@ -293,6 +314,7 @@ func (s *store) UpdateAwaitingVerifyNodeStatus(ctx context.Context, input Awaiti
 	}, "update_awaiting_verify_status")
 }
 
+// CompleteNode 完成节点。
 func (s *store) CompleteNode(ctx context.Context, input CompleteNodeInput) (*Node, error) {
 	if err := requireRuntimeRunID("complete", input.RunID); err != nil {
 		return nil, err
@@ -308,6 +330,7 @@ func (s *store) CompleteNode(ctx context.Context, input CompleteNodeInput) (*Nod
 	}, "complete")
 }
 
+// UpdateNodeStatusFlexible 更新节点状态flexible。
 func (s *store) UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNodeStatusUpdate) (*Node, error) {
 	if err := requireRuntimeRunID("update_status_flexible", input.RunID); err != nil {
 		return nil, err
@@ -323,6 +346,7 @@ func (s *store) UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNode
 	}, "update_status_flexible")
 }
 
+// ClaimNodeOutputMaterialization 领取节点输出物化任务。
 func (s *store) ClaimNodeOutputMaterialization(ctx context.Context, input OutputMaterializationClaimInput) (*Node, error) {
 	if err := requireRuntimeRunID("claim_output_materialization", input.RunID); err != nil {
 		return nil, err

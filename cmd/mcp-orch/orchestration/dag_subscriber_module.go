@@ -24,6 +24,7 @@ import (
 // We mirror taskdag.ProvideDispatchNodeStore pattern (also a narrow-port
 // adapter via type assertion). No new fx wrapper struct — direct interface
 // return so fx can resolve `DAGSubscriberDeps.FlowStore`.
+// ProvideDAGSubscriberNodeFlowStore 提供DAG订阅器节点flow存储。
 func ProvideDAGSubscriberNodeFlowStore(store taskdag.Store) taskdag.NodeFlowStore {
 	return store
 }
@@ -34,6 +35,7 @@ func ProvideDAGSubscriberNodeFlowStore(store taskdag.Store) taskdag.NodeFlowStor
 // because fx resolves interfaces by their declared types — passing *service
 // directly would shadow other StopAgentService consumers (none today, but
 // the indirection keeps the contract narrow).
+// ProvideDAGSubscriberStopAgentService 提供DAG订阅器stop代理服务。
 func ProvideDAGSubscriberStopAgentService(s *service) StopAgentService {
 	return s
 }
@@ -75,47 +77,66 @@ type dagSubscriberCounter struct {
 
 var dagSubscriberMetrics = &dagSubscriberCounter{}
 
+// DAGSubscriberCounters 处理DAG订阅器counters。
 func DAGSubscriberCounters() DAGSubscriberMetrics { return dagSubscriberMetrics.Snapshot() }
+
+// IncCompleteDone 累加completedone。
 func (c *dagSubscriberCounter) IncCompleteDone() {
 	if c != nil {
 		c.completeDone.Add(1)
 	}
 }
+
+// IncCompleteFailed 累加完成事件处理失败次数。
 func (c *dagSubscriberCounter) IncCompleteFailed() {
 	if c != nil {
 		c.completeFailed.Add(1)
 	}
 }
+
+// IncIdempotentSkipped 累加idempotentskipped。
 func (c *dagSubscriberCounter) IncIdempotentSkipped() {
 	if c != nil {
 		c.idempotentSkipped.Add(1)
 	}
 }
+
+// IncLookupNoNode 累加lookupno节点。
 func (c *dagSubscriberCounter) IncLookupNoNode() {
 	if c != nil {
 		c.lookupNoNode.Add(1)
 	}
 }
+
+// IncLookupDirtyData 累加lookupdirty数据。
 func (c *dagSubscriberCounter) IncLookupDirtyData() {
 	if c != nil {
 		c.lookupDirtyData.Add(1)
 	}
 }
+
+// IncLookupFailed 累加节点查询失败次数。
 func (c *dagSubscriberCounter) IncLookupFailed() {
 	if c != nil {
 		c.lookupFailed.Add(1)
 	}
 }
+
+// IncCompleteSizeCapExceeded 累加completesizecapexceeded。
 func (c *dagSubscriberCounter) IncCompleteSizeCapExceeded() {
 	if c != nil {
 		c.completeSizeCapExceeded.Add(1)
 	}
 }
+
+// IncCompleteResultEmpty 累加complete结果empty。
 func (c *dagSubscriberCounter) IncCompleteResultEmpty() {
 	if c != nil {
 		c.completeResultEmpty.Add(1)
 	}
 }
+
+// Snapshot 处理快照。
 func (c *dagSubscriberCounter) Snapshot() DAGSubscriberMetrics {
 	if c == nil {
 		return DAGSubscriberMetrics{}
@@ -172,6 +193,7 @@ func encodeTurnResultForNodeUpdate(raw string) json.RawMessage {
 	return json.RawMessage(wrapped)
 }
 
+// prepareTurnCompletedResult 准备turncompleted结果。
 func prepareTurnCompletedResult(node *taskdag.Node, rawResult string) (turnOutputMaterialization, *turnOutputMaterializationFailure) {
 	if node == nil || strings.TrimSpace(node.NodeType) != "agent" {
 		return turnOutputMaterialization{Result: encodeTurnResultForNodeUpdate(rawResult)}, nil

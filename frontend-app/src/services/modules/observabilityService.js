@@ -6,6 +6,11 @@ import {
 import { adaptObservabilityResult } from '../../adapters/observabilityAdapter.js';
 import { runServiceRequest } from '../apiClient.js';
 
+/*
+ * observability service 只整理 trace 和 recent 查询结果。
+ * 复制文本也走 backendApi，避免前端处理桌面权限差异。
+ */
+
 async function listObservabilityRecent(params = {}) {
   return runServiceRequest(async () => {
     const response = await listObservabilityRecentBackend(params);

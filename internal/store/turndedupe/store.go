@@ -29,12 +29,14 @@ type store struct {
 
 // NewStore wires the production sqlc-backed Store. Pool injection
 // happens at the fx layer via *sqlc.Queries.
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
 // newStoreForTest exists so tests can plug in a fake querier without
 // exporting the internal struct.
 func newStoreForTest(q querier) Store { return &store{q: q} }
 
+// Upsert 新增或更新记录。
 func (s *store) Upsert(ctx context.Context, p UpsertParams) error {
 	key := strings.TrimSpace(p.DedupeKey)
 	if key == "" {
@@ -51,6 +53,7 @@ func (s *store) Upsert(ctx context.Context, p UpsertParams) error {
 	})
 }
 
+// BindProviderTurnID 绑定providerturnID。
 func (s *store) BindProviderTurnID(ctx context.Context, p BindProviderTurnIDParams) error {
 	key := strings.TrimSpace(p.DedupeKey)
 	if key == "" {
@@ -63,6 +66,7 @@ func (s *store) BindProviderTurnID(ctx context.Context, p BindProviderTurnIDPara
 	})
 }
 
+// MarkTerminal 标记terminal。
 func (s *store) MarkTerminal(ctx context.Context, dedupeKey string, now time.Time) error {
 	key := strings.TrimSpace(dedupeKey)
 	if key == "" {
@@ -74,6 +78,7 @@ func (s *store) MarkTerminal(ctx context.Context, dedupeKey string, now time.Tim
 	})
 }
 
+// GetLive 读取live。
 func (s *store) GetLive(ctx context.Context, dedupeKey string) (Entry, error) {
 	key := strings.TrimSpace(dedupeKey)
 	if key == "" {
@@ -97,6 +102,7 @@ func (s *store) GetLive(ctx context.Context, dedupeKey string) (Entry, error) {
 	}, nil
 }
 
+// Sweep 清理过期记录。
 func (s *store) Sweep(ctx context.Context, cutoff time.Time) error {
 	if cutoff.IsZero() {
 		return errors.New("turndedupe: sweep cutoff must be non-zero")

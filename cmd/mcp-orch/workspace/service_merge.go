@@ -10,6 +10,7 @@ import (
 	storeworkspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/workspace"
 )
 
+// executeMerge 执行merge。
 func (s *service) executeMerge(
 	ctx context.Context,
 	run *Run,

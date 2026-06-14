@@ -20,6 +20,7 @@ type BatchUpsertingNodeStore interface {
 // generate the prior jsonb[] UNNEST batch statement reliably; using the
 // generated single-row query preserves the SQLC boundary and avoids raw SQL in
 // hand-authored Go.
+// BatchUpsertNodes 处理batchupsert节点。
 func (s *store) BatchUpsertNodes(ctx context.Context, nodes []Node) (int64, error) {
 	var rows int64
 	for _, node := range nodes {

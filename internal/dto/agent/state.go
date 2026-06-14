@@ -112,6 +112,7 @@ var TransitionDefinitions = []TransitionDefinition{
 	{From: StateFailed, Trigger: TriggerStopRequested, To: StateStopping},
 }
 
+// AllowedTriggers 处理allowedtriggers。
 func AllowedTriggers(state AgentState) []AgentTrigger {
 	triggers := make([]AgentTrigger, 0, 4)
 	for _, transition := range TransitionDefinitions {
@@ -125,6 +126,7 @@ func AllowedTriggers(state AgentState) []AgentTrigger {
 // AllowedTriggersStr is a convenience wrapper that accepts a plain string
 // state and returns trigger names as plain strings, suitable for
 // diagnostics and error messages at the statemachine boundary.
+// AllowedTriggersStr 处理allowedtriggersstr。
 func AllowedTriggersStr(state string) []string {
 	triggers := AllowedTriggers(AgentState(state))
 	result := make([]string, len(triggers))

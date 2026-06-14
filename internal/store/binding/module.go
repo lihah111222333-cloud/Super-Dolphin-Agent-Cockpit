@@ -11,6 +11,7 @@ var Module = fx.Module("store.binding",
 	fx.Provide(NewSessionBindingLookup),
 )
 
+// NewStoreFromPool 从pool创建存储。
 func NewStoreFromPool(pool *pgxpool.Pool) Store {
 	return NewStore(sqlc.New(pool))
 }

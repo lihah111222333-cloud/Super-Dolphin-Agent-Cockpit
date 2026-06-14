@@ -15,6 +15,7 @@ import (
 type ManifestBuildFunc func(ctx dto.ManifestContext) dto.MCPManifest
 
 // BuildManifest returns declarative MCP binary metadata for external executors.
+// BuildManifest 构建manifest。
 func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 	families := []dto.ToolFamily{dto.FamilyLSP, dto.FamilyOrch}
 
@@ -62,7 +63,38 @@ func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 			AutoApprove: append([]string(nil), autoApprove...),
 		})
 	}
-	return dto.MCPManifest{Binaries: bins}
+	return dto.MCPManifest{Binaries: appendExtraManifestBinaries(bins, ctx.ExtraBinaries)}
+}
+
+// appendExtraManifestBinaries 追加extramanifest二进制。
+func appendExtraManifestBinaries(bins []dto.MCPBinary, extras []dto.MCPBinary) []dto.MCPBinary {
+	if len(extras) == 0 {
+		return bins
+	}
+	seen := make(map[string]struct{}, len(bins))
+	for _, bin := range bins {
+		if name := strings.TrimSpace(bin.Name); name != "" {
+			seen[name] = struct{}{}
+		}
+	}
+	for _, extra := range extras {
+		extra.Name = strings.TrimSpace(extra.Name)
+		if extra.Name == "" {
+			continue
+		}
+		if _, exists := seen[extra.Name]; exists {
+			continue
+		}
+		extra.Type = strings.TrimSpace(extra.Type)
+		extra.URL = strings.TrimSpace(extra.URL)
+		extra.Headers = cloneManifestEnv(extra.Headers)
+		extra.Env = cloneManifestEnv(extra.Env)
+		extra.Command = append([]string(nil), extra.Command...)
+		extra.AutoApprove = append([]string(nil), extra.AutoApprove...)
+		bins = append(bins, extra)
+		seen[extra.Name] = struct{}{}
+	}
+	return bins
 }
 
 const manifestProjectRootEnvKey = "PROJECT_ROOT"
@@ -134,6 +166,7 @@ func addLSPWorkspaceRootEnv(env map[string]string, ctx dto.ManifestContext) {
 	env["GO_AGENT_LSP_ROOTS"] = string(raw)
 }
 
+// normalizeManifestWorkspaceRoots 规范化manifest工作区根目录。
 func normalizeManifestWorkspaceRoots(cwd string, dirs []string) []string {
 	out := make([]string, 0, len(dirs)+1)
 	seen := map[string]struct{}{}
@@ -162,6 +195,7 @@ func normalizeManifestWorkspaceRoots(cwd string, dirs []string) []string {
 	return out
 }
 
+// normalizeManifestWorkspaceRoot 规范化manifest工作区根目录。
 func normalizeManifestWorkspaceRoot(base, path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -218,6 +252,7 @@ var mcpLegacyEnvAliases = map[string][]string{
 	"GO_AGENT_CTL_BOOTSTRAP_JSON": {"GO_AGENT_MCP_BOOT_CONTEXT"},
 }
 
+// normalizeManifestEnv 规范化manifestenv。
 func normalizeManifestEnv(in map[string]string) map[string]string {
 	out := cloneManifestEnv(in)
 	for key, aliases := range mcpLegacyEnvAliases {
@@ -249,6 +284,7 @@ func normalizeManifestEnv(in map[string]string) map[string]string {
 	return out
 }
 
+// promoteManifestEnv 处理promotemanifestenv。
 func promoteManifestEnv(env map[string]string, canonical string, aliases ...string) {
 	if value := strings.TrimSpace(env[canonical]); value != "" {
 		env[canonical] = value

@@ -69,6 +69,8 @@ func parseLeaseDuration(value, operation, entity string) (sqlc.Interval, error) 
 	return interval, nil
 }
 
+// 把 sent wakeup 和 turn_id 绑起来。
+// requireBound=true 时，绑不上就报错，避免节点指向没有 wakeup 的 turn。
 func bindWakeupTurnTx(
 	ctx context.Context,
 	txq *sqlc.Queries,
@@ -88,6 +90,8 @@ func bindWakeupTurnTx(
 	return count, nil
 }
 
+// 这里只统一错误包装；真正防并发靠 SQL 同时匹配 claim 字段。
+// rows=0 只是这次 claim 失效，不要在 helper 里变成错误。
 func fencedWakeupMutation(
 	operation string,
 	fence wakeupFence,

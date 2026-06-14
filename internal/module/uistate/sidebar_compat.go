@@ -162,6 +162,7 @@ func normalizeSidebarAgent(agent *AgentSummary) {
 	}
 }
 
+// buildAgentRuntimeEntry 构建代理运行时条目。
 func buildAgentRuntimeEntry(agent *AgentSummary, agentID, threadID string) map[string]any {
 	// providerThreadId: prefer codex UUID, fall back to public threadID
 	providerTID := agent.ProviderThreadID
@@ -206,6 +207,7 @@ func buildAgentRuntimeEntry(agent *AgentSummary, agentID, threadID string) map[s
 
 // buildLogPath derives the conventional log directory from the project CWD.
 // Matches the frontend's buildCwdLogPath in thread-copy-utils.js.
+// buildLogPath 构建日志路径。
 func buildLogPath(cwd string) string {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" || cwd == "." {
@@ -218,6 +220,7 @@ func buildLogPath(cwd string) string {
 	return "~/.multi-agent/log/" + name + "/"
 }
 
+// deriveThreadStatuses 处理derive线程statuses。
 func deriveThreadStatuses(sidebar *Sidebar, agents sidebarAgentLookup, recentByThread map[string]TurnSummary) {
 	for i := range sidebar.Threads {
 		thread := &sidebar.Threads[i]
@@ -256,6 +259,7 @@ func resolveSidebarAgent(thread *ThreadSummary, agents sidebarAgentLookup) *Agen
 	return agents.byID[agentID]
 }
 
+// deriveInterruptible 处理deriveinterruptible。
 func deriveInterruptible(sidebar *Sidebar) {
 	// Sidebar snapshot gate only: patch payload interruptibility and frontend
 	// controls are separate chains and must not infer coverage from this map.
@@ -297,6 +301,7 @@ func sidebarThreadOverlay(thread *ThreadSummary) (string, string, string, bool) 
 	return status, overlayHeaderText(thread.OverlayType, thread.OverlayText), overlayDetails(thread.OverlayType), true
 }
 
+// latestTurnsByThread 按线程处理latestturn。
 func latestTurnsByThread(active *TurnSummary, items []TurnSummary) map[string]TurnSummary {
 	out := make(map[string]TurnSummary, len(items)+1)
 	if active != nil && strings.TrimSpace(active.ThreadID) != "" {
@@ -315,6 +320,7 @@ func latestTurnsByThread(active *TurnSummary, items []TurnSummary) map[string]Tu
 	return out
 }
 
+// sidebarThreadStatus 处理sidebar线程状态。
 func sidebarThreadStatus(thread *ThreadSummary, agent *AgentSummary, active *TurnSummary) string {
 	if thread != nil {
 		if status, ok := lifecycleSidebarStatus(thread.LifecycleStatus); ok {
@@ -360,6 +366,7 @@ func terminalSidebarStatus(raw string) (string, bool) {
 	}
 }
 
+// normalizeSidebarStatus 规范化sidebar状态。
 func normalizeSidebarStatus(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "starting":
@@ -394,6 +401,7 @@ func sidebarInterruptible(status string) bool {
 	}
 }
 
+// sidebarStatusText 处理sidebar状态文本。
 func sidebarStatusText(status, lastMessage string) (string, string) {
 	switch normalizeSidebarStatus(status) {
 	case "starting":

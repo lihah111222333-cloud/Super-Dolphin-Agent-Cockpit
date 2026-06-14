@@ -39,6 +39,7 @@ type QueryResult struct {
 	TailTruncated    bool
 }
 
+// matchesQuery 判断查询是否匹配。
 func matchesQuery(event TraceEvent, query Query) bool {
 	return matchesTraceID(event, query) &&
 		matchesThreadID(event, query) &&
@@ -93,6 +94,7 @@ func matchesAgentID(event TraceEvent, query Query) bool {
 	return matchesText(event.AgentID, query.AgentID)
 }
 
+// matchesKeyword 判断keyword是否匹配。
 func matchesKeyword(event TraceEvent, query Query) bool {
 	keyword := normalizedQueryText(query.Keyword)
 	if keyword == "" {

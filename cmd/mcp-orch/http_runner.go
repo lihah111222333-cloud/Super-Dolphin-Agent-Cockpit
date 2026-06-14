@@ -41,11 +41,13 @@ func newHTTPRunner(registry tools.Registry) platformrunner.Runner {
 // blockRunner is a no-op runner that blocks until its context is cancelled.
 type blockRunner struct{}
 
+// Run 启动编排后台流程。
 func (blockRunner) Run(ctx context.Context) error {
 	<-ctx.Done()
 	return nil
 }
 
+// Run 启动编排后台流程。
 func (r *httpRunner) Run(ctx context.Context) error {
 	if strings.TrimSpace(r.bearerToken) == "" {
 		return errOrchHTTPSessionTokenRequired

@@ -57,6 +57,7 @@ type service struct {
 	promptAssembly contract.PromptAssemblyService
 	cfg            *contract.Config
 	toolRegistry   contract.ToolRegistry
+	mcpServers     contract.MCPServerConfigProvider
 	turns          contract.TurnThreadCleaner
 	orchestration  OrchestrationFacade
 	tracing        *platformobs.Service
@@ -135,10 +136,12 @@ func (s *service) invalidatePromptAssembly(ctx context.Context, reason contract.
 	return s.promptAssembly.Invalidate(ctx, reason)
 }
 
+// List 列出线程。
 func (s *service) List(ctx context.Context) ([]Ref, error) {
 	return s.listThreads(ctx, nil)
 }
 
+// Get 读取线程。
 func (s *service) Get(ctx context.Context, id string) (*Ref, error) {
 	thread, err := s.getThread(ctx, id)
 	if err != nil {
@@ -149,6 +152,7 @@ func (s *service) Get(ctx context.Context, id string) (*Ref, error) {
 	return &ref, nil
 }
 
+// ListByStatus 按状态列出线程。
 func (s *service) ListByStatus(ctx context.Context, status string) ([]Ref, error) {
 	want := strings.TrimSpace(status)
 	if want == "" {
@@ -159,6 +163,7 @@ func (s *service) ListByStatus(ctx context.Context, status string) ([]Ref, error
 	})
 }
 
+// ListByCWD 按工作目录列出线程。
 func (s *service) ListByCWD(ctx context.Context, cwdPrefix string) ([]Ref, error) {
 	prefix := strings.TrimSpace(cwdPrefix)
 	return s.listThreads(ctx, func(thread threadstore.Thread) bool {
@@ -166,6 +171,7 @@ func (s *service) ListByCWD(ctx context.Context, cwdPrefix string) ([]Ref, error
 	})
 }
 
+// SetName 设置名称。
 func (s *service) SetName(ctx context.Context, threadID, name string) error {
 	thread, err := s.getThread(ctx, threadID)
 	if err != nil {
@@ -205,6 +211,7 @@ func (s *service) SetName(ctx context.Context, threadID, name string) error {
 	return nil
 }
 
+// Delete 删除线程。
 func (s *service) Delete(ctx context.Context, threadID string) error {
 	ctx = util.NonNilContext(ctx)
 	id, err := normalizeThreadID(threadID)
@@ -246,6 +253,7 @@ func (s *service) resolveDeleteBinding(
 	return binding, false, err
 }
 
+// deletePendingLaunchThread 删除待处理启动线程。
 func (s *service) deletePendingLaunchThread(
 	ctx context.Context,
 	threadID string,
@@ -322,6 +330,7 @@ func (s *service) forgetThreadAgents(threadIDs ...string) {
 	}
 }
 
+// listThreads 列出线程。
 func (s *service) listThreads(ctx context.Context, filter func(threadstore.Thread) bool) ([]Ref, error) {
 	if s.threadStore == nil {
 		return nil, errors.New("thread store is not configured")
@@ -399,6 +408,7 @@ func (s *service) resolveSession(ctx context.Context, threadID string) (contract
 	return session, binding, nil
 }
 
+// enrichRefIdentity 补充引用身份。
 func (s *service) enrichRefIdentity(ctx context.Context, ref *Ref) {
 	if s == nil || s.bindingStore == nil || ref == nil {
 		return
@@ -441,6 +451,7 @@ func resolvedSessionID(binding *bindingstore.Binding) string {
 // session. RemoveSession triggers session.Close → shutdownSession →
 // poolRelease, which reclaims the old CLI process. It also clears the
 // resumeInFlight guard to allow backgroundResumeIfNeeded to proceed.
+// evictZombieSession 处理evict僵尸会话。
 func (s *service) evictZombieSession(ctx context.Context, threadID string) {
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil || binding == nil {
@@ -497,6 +508,7 @@ func (s *service) backgroundResumeIfNeeded(ctx context.Context, threadID string)
 	})
 }
 
+// backgroundResumeCandidate 处理后台恢复候选项。
 func (s *service) backgroundResumeCandidate(ctx context.Context, threadID string) (string, bool) {
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil || binding == nil {
@@ -527,6 +539,7 @@ func (s *service) backgroundResumeCandidate(ctx context.Context, threadID string
 	return agentID, true
 }
 
+// closeSessionForAgent 为代理关闭会话。
 func (s *service) closeSessionForAgent(ctx context.Context, agentID string) error {
 	if s.sessions == nil {
 		return nil

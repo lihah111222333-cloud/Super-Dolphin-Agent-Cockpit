@@ -107,6 +107,7 @@ func (s *service) flushSkillsChanged(seq uint64) {
 	}
 }
 
+// skillsChangedLocation 处理skillschanged位置。
 func (s *service) skillsChangedLocation(ctx context.Context, scope string) (string, string) {
 	if scope != skillScopeProject {
 		return "", ""
@@ -190,6 +191,7 @@ func skillsChangedMergeable(current, next uidto.SkillsChanged) bool {
 		current.RelativePath == next.RelativePath
 }
 
+// mergeSkillsChangedMetadata 合并skillschanged元数据。
 func mergeSkillsChangedMetadata(current, next uidto.SkillsChanged) uidto.SkillsChanged {
 	if next.Timestamp.After(current.Timestamp) {
 		current.EventHeader = next.EventHeader

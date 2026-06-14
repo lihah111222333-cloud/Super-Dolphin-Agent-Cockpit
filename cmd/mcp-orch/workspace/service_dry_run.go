@@ -7,6 +7,7 @@ import (
 	storeworkspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/workspace"
 )
 
+// dryRunMerge 处理dry运行记录merge。
 func (s *service) dryRunMerge(
 	ctx context.Context,
 	run *Run,

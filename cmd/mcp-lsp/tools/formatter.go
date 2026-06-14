@@ -47,6 +47,7 @@ func symbolKindName(kind protocol.SymbolKind) string {
 
 // FormatToPlainText checks if the result is a complex structured type
 // that requires specialized plain-text / Markdown formatting for the LLM.
+// FormatToPlainText 把LSP格式化为纯文本。
 func FormatToPlainText(result any) (string, bool) {
 	if result == nil {
 		return "", false
@@ -120,6 +121,7 @@ func appendBudgetNextAction(sb *strings.Builder, value any) {
 	}
 }
 
+// formatXrefAndOutline 格式化xrefoutline。
 func formatXrefAndOutline(result any) (string, bool) {
 	switch val := result.(type) {
 	case protocol.GroupedLocationResult:
@@ -136,6 +138,7 @@ func formatXrefAndOutline(result any) (string, bool) {
 	return "", false
 }
 
+// formatOtherStructures 格式化otherstructures。
 func formatOtherStructures(result any) (string, bool) {
 	switch val := result.(type) {
 	case []protocol.WorkspaceSymbolResult:
@@ -296,6 +299,7 @@ func formatDocumentOutline(val []protocol.DocumentSymbol) string {
 	return strings.TrimSpace(sb.String())
 }
 
+// formatWorkspaceSymbols 格式化工作区符号。
 func formatWorkspaceSymbols(val []protocol.WorkspaceSymbolResult) string {
 	if len(val) == 0 {
 		return "No workspace symbol search results found."
@@ -356,6 +360,7 @@ func formatSemanticTokens(val *protocol.SemanticTokensResult) string {
 	return strings.TrimSpace(sb.String())
 }
 
+// formatSignatureHelp 格式化签名帮助。
 func formatSignatureHelp(val *protocol.SignatureHelpResult) string {
 	if val == nil || len(val.Signatures) == 0 {
 		return "No signature help information."
@@ -376,6 +381,7 @@ func formatSignatureHelp(val *protocol.SignatureHelpResult) string {
 	return strings.TrimSpace(sb.String())
 }
 
+// formatParams 格式化params。
 func formatParams(sb *strings.Builder, params []protocol.ParameterInformationResult, isActiveSig bool, activeParam *int) {
 	if len(params) == 0 {
 		return
@@ -402,6 +408,7 @@ func formatCompletionItems(val []protocol.CompletionItem) string {
 	return strings.TrimSpace(sb.String())
 }
 
+// formatCompactList 格式化紧凑列表list。
 func formatCompactList(result any) (string, bool) {
 	rv := reflect.ValueOf(result)
 	if rv.Kind() != reflect.Struct {
@@ -459,6 +466,7 @@ func compactListTitle(dataField reflect.Value) string {
 	}
 }
 
+// formatCompactListElem 格式化紧凑列表listelem。
 func formatCompactListElem(sb *strings.Builder, elem any) {
 	elemVal := reflect.ValueOf(elem)
 	if elemVal.Kind() != reflect.Struct {

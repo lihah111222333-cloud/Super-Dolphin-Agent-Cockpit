@@ -21,10 +21,12 @@ type Sanitizer struct {
 	metadataMaxBytes int
 }
 
+// NewSanitizer 创建sanitizer。
 func NewSanitizer(cfg Config) Sanitizer {
 	return Sanitizer{stringMaxBytes: cfg.StringMaxBytes, metadataMaxBytes: cfg.MetadataMaxBytes}
 }
 
+// SanitizeEvent 清理事件。
 func (s Sanitizer) SanitizeEvent(event TraceEvent) TraceEvent {
 	event.SchemaVersion = SchemaVersion
 	event.TraceID = s.String(event.TraceID)
@@ -47,6 +49,7 @@ func (s Sanitizer) SanitizeEvent(event TraceEvent) TraceEvent {
 	return event
 }
 
+// String 返回字符串表示。
 func (s Sanitizer) String(value string) string {
 	value = normalizeMultiline(value)
 	for _, pattern := range secretPatterns {
@@ -55,12 +58,14 @@ func (s Sanitizer) String(value string) string {
 	return truncateUTF8(value, s.stringMaxBytes)
 }
 
+// CodeAnchor 处理代码锚点。
 func (s Sanitizer) CodeAnchor(anchor CodeAnchor) CodeAnchor {
 	anchor.File = s.String(anchor.File)
 	anchor.Function = s.String(anchor.Function)
 	return anchor
 }
 
+// Stack 处理stack。
 func (s Sanitizer) Stack(frames []StackFrame) []StackFrame {
 	out := make([]StackFrame, 0, len(frames))
 	for _, frame := range frames {
@@ -69,6 +74,7 @@ func (s Sanitizer) Stack(frames []StackFrame) []StackFrame {
 	return out
 }
 
+// SanitizeMetadata 清理元数据。
 func (s Sanitizer) SanitizeMetadata(metadata map[string]any) map[string]any {
 	if len(metadata) == 0 {
 		return nil
@@ -87,6 +93,7 @@ func (s Sanitizer) SanitizeMetadata(metadata map[string]any) map[string]any {
 	return s.enforceMetadataLimit(out, dropped)
 }
 
+// metadataValueForKey 为键处理元数据值。
 func (s Sanitizer) metadataValueForKey(key string, value any) (any, bool) {
 	switch typed := value.(type) {
 	case string:
@@ -176,6 +183,7 @@ func metadataJSONSize(metadata map[string]any) int {
 	return len(data)
 }
 
+// MarshalSanitizedJSON 编码sanitizedJSON。
 func MarshalSanitizedJSON(event TraceEvent) ([]byte, error) {
 	return json.Marshal(event)
 }

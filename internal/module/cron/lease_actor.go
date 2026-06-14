@@ -14,6 +14,9 @@ import (
 // two independent actors so a slow tick never starves heartbeats, and
 // vice versa; both live in runner.actors and share only the read-only
 // scheduler reference.
+//
+// lease 只说明当前 scheduler 还在负责这个 job，不代表 turn 已完成。
+// 心跳独立运行，可减少长任务被误判为丢失。
 type LeaseActor struct {
 	logger    *slog.Logger
 	scheduler *Scheduler
@@ -22,6 +25,7 @@ type LeaseActor struct {
 
 var _ contract.Runner = (*LeaseActor)(nil)
 
+// NewLeaseActor 创建 cron 租约续期 actor。
 func NewLeaseActor(logger *slog.Logger, scheduler *Scheduler) *LeaseActor {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -30,6 +34,7 @@ func NewLeaseActor(logger *slog.Logger, scheduler *Scheduler) *LeaseActor {
 	return &LeaseActor{logger: logger, scheduler: scheduler, interval: interval}
 }
 
+// Run 启动后台循环，并在上下文取消时退出。
 func (a *LeaseActor) Run(ctx context.Context) error {
 	t := time.NewTimer(timerDelayWithJitter(a.interval))
 	defer t.Stop()
@@ -38,6 +43,7 @@ func (a *LeaseActor) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-t.C:
+			// 续租失败只记录，下一轮 claim 或 recovery 会处理。
 			if err := a.scheduler.RenewLeases(ctx); err != nil {
 				a.logger.Debug("cron: renew leases failed", slog.String("error", err.Error()))
 			}

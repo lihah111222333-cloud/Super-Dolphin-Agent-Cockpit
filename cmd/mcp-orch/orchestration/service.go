@@ -139,6 +139,7 @@ type turnWork struct {
 	submission TurnSubmission
 }
 
+// NewService 创建服务。
 func NewService(
 	logger *slog.Logger,
 	eventBus *event.Dispatcher,
@@ -177,6 +178,7 @@ func NewService(
 	return svc
 }
 
+// ProvideService 提供服务。
 func ProvideService(p serviceParams) *service {
 	svc := NewService(p.Logger, p.EventBus, p.Launcher, p.SessionCleaner, p.TurnStarter, p.DAGStore)
 	svc.runStore = p.RunStore
@@ -187,8 +189,10 @@ func ProvideService(p serviceParams) *service {
 	return svc
 }
 
+// ProvideServiceInterface 提供服务interface。
 func ProvideServiceInterface(s *service) Service { return s }
 
+// RegisterTurnLifecycle 注册turn生命周期。
 func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service, logger *slog.Logger) {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -245,6 +249,7 @@ func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *s
 // RegisterApprovalLifecycle was `registerApprovalLifecycle` pre-P22 P4
 // S4c1. Exported so cmd/mcp-orch/fx.go can fx.Invoke it during root
 // assembly.
+// RegisterApprovalLifecycle 注册审批生命周期。
 func RegisterApprovalLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service, logger *slog.Logger) {
 	requestedCancel := func() {}
 	resolvedCancel := func() {}
@@ -291,6 +296,7 @@ type ProvideWakeupDispatcherRunnerIn struct {
 
 // ProvideWakeupDispatcher creates the shared dispatcher used by the runner
 // adapter and router wiring; nil Store disables it for standalone tests.
+// ProvideWakeupDispatcher 提供wakeup调度器。
 func ProvideWakeupDispatcher(in ProvideWakeupDispatcherRunnerIn) (*WakeupDispatcher, error) {
 	logger := in.Logger
 	if logger == nil {
@@ -305,6 +311,7 @@ func ProvideWakeupDispatcher(in ProvideWakeupDispatcherRunnerIn) (*WakeupDispatc
 
 // ProvideWakeupDispatcherRunner adapts the optional shared wakeup dispatcher
 // into a run.Group runner, falling back to a no-op when the store is absent.
+// ProvideWakeupDispatcherRunner 提供wakeup调度器runner。
 func ProvideWakeupDispatcherRunner(dispatcher *WakeupDispatcher) platformrunner.Runner {
 	if dispatcher == nil {
 		return platformrunner.NoopRunner{}
@@ -338,6 +345,7 @@ type WireWakeupDispatcherRetryAlertSinkIn struct {
 	Sink       DispatchRetryAlertSink `optional:"true"`
 }
 
+// WireWakeupDispatcherRetryAlertSink 处理wirewakeup调度器重试alertsink。
 func WireWakeupDispatcherRetryAlertSink(in WireWakeupDispatcherRetryAlertSinkIn) {
 	if in.Dispatcher == nil {
 		return
@@ -353,14 +361,17 @@ func resolveEventTime(ctx context.Context, fallbacks ...time.Time) time.Time {
 	return platformshared.ResolveEventTime(ctx, nil, fallbacks...)
 }
 
+// LaunchAgent 启动代理。
 func (s *service) LaunchAgent(ctx context.Context, req LaunchRequest) error {
 	return s.launchAgentViaLauncher(ctx, req)
 }
 
+// StopAgent 停止代理。
 func (s *service) StopAgent(ctx context.Context, agentID string) error {
 	return s.stopAgentViaLauncher(ctx, agentID, "user_requested")
 }
 
+// StopAllAgents 停止all代理。
 func (s *service) StopAllAgents() {
 	s.mu.RLock()
 	ids := make([]string, 0, len(s.agents))
@@ -382,6 +393,7 @@ func (s *service) StopAllAgents() {
 // fire-and-forget goroutines tracked by asyncWg to finish. Safe to
 // call multiple times; the second+ invocations are no-ops because
 // asyncCancel is idempotent and asyncWg is already at zero.
+// DrainAsync 异步等待服务收尾。
 func (s *service) DrainAsync() {
 	if s.asyncCancel != nil {
 		s.asyncCancel()
@@ -389,10 +401,12 @@ func (s *service) DrainAsync() {
 	s.asyncWg.Wait()
 }
 
+// SubmitTurn 提交turn。
 func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error {
 	return s.submitTurnViaLauncher(ctx, req)
 }
 
+// ListAgents 列出代理。
 func (s *service) ListAgents(ctx context.Context) ([]AgentSnapshot, error) {
 	snapshots, err := s.runtimeAgentSnapshots(ctx)
 	if err != nil {
@@ -409,6 +423,7 @@ func (s *service) ListAgents(ctx context.Context) ([]AgentSnapshot, error) {
 	return snapshots, nil
 }
 
+// Snapshot 处理快照。
 func (s *service) Snapshot(ctx context.Context, agentID string) (AgentSnapshot, error) {
 	var snapshot AgentSnapshot
 	err := s.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
@@ -421,6 +436,7 @@ func (s *service) Snapshot(ctx context.Context, agentID string) (AgentSnapshot, 
 	return snapshot, err
 }
 
+// GetAgentSnapshot 读取代理快照。
 func (s *service) GetAgentSnapshot(agentID string) (*AgentSnapshot, error) {
 	snapshot, err := s.Snapshot(context.Background(), strings.TrimSpace(agentID))
 	if err != nil {
@@ -429,6 +445,7 @@ func (s *service) GetAgentSnapshot(agentID string) (*AgentSnapshot, error) {
 	return &snapshot, nil
 }
 
+// CompleteTurn 完成turn。
 func (s *service) CompleteTurn(ctx context.Context, agentID, turnID string, success bool, errMsg string) error {
 	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		kind := activeTurnFinalizationKind{

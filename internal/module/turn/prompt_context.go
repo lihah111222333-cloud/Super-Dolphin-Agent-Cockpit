@@ -20,6 +20,7 @@ func configOutputStyle(cfg map[string]any, keys ...string) *contract.OutputStyle
 	return nil
 }
 
+// normalizeOutputStyleConfig 规范化outputstyle配置。
 func normalizeOutputStyleConfig(value any) *contract.OutputStyleConfig {
 	switch typed := value.(type) {
 	case contract.OutputStyleConfig:
@@ -50,6 +51,7 @@ func normalizeOutputStyleConfig(value any) *contract.OutputStyleConfig {
 	}
 }
 
+// cloneOutputStyleConfig 复制outputstyle配置。
 func cloneOutputStyleConfig(style contract.OutputStyleConfig) *contract.OutputStyleConfig {
 	cloned := style
 	cloned.KeepCodingInstructions = clonePrepareOptionalBool(style.KeepCodingInstructions)

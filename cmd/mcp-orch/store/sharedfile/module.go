@@ -33,12 +33,14 @@ func provideConcreteStore(q *sqlc.Queries, cfg *platformconfig.Config) (*store, 
 	return newStoreWithConfig(q, fsCfg), nil
 }
 
+// ProvideStore 提供存储。
 func ProvideStore(store *store) Store { return store }
 
 // ProvideReader 从聚合 Store 拆出 Reader。Store interface 显式嵌入 Reader
 // （见 contract.go:26-29），所以该转换编译期安全。
 func ProvideReader(store Store) Reader { return store }
 
+// ProvideImporter 提供importer。
 func ProvideImporter(store *store) Importer { return store }
 
 func sharedfileFSConfigFrom(cfg *platformconfig.Config) (sharedfilefs.Config, error) {

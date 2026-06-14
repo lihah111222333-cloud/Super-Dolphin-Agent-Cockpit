@@ -28,6 +28,7 @@ type consolidationPromptInput struct {
 	LogDocuments   []consolidationDocument
 }
 
+// loadConsolidationPromptInput 加载consolidationpromptinput。
 func loadConsolidationPromptInput(root string, cfg *Config) (consolidationPromptInput, error) {
 	normalizedRoot, err := normalizeStoreRoot(root)
 	if err != nil {
@@ -67,6 +68,7 @@ func loadConsolidationPromptInput(root string, cfg *Config) (consolidationPrompt
 	}, nil
 }
 
+// buildConsolidationPrompt 构建consolidationprompt。
 func buildConsolidationPrompt(input consolidationPromptInput) string {
 	limit := extractLimit(input.Limit, defaultExtractMaxItems)
 	parts := []string{
@@ -98,6 +100,7 @@ func buildConsolidationPrompt(input consolidationPromptInput) string {
 	return strings.Join(nonEmpty(parts), "\n\n")
 }
 
+// loadConsolidationIndexDocument 加载consolidation索引document。
 func loadConsolidationIndexDocument(root string, cfg *Config) (consolidationDocument, error) {
 	path := memoryIndexPath(root)
 	if err := rejectConsolidationPath(cfg, path); err != nil {
@@ -124,6 +127,7 @@ func loadConsolidationIndexDocument(root string, cfg *Config) (consolidationDocu
 	return consolidationDocument{Path: memoryIndexFileName, Content: content}, nil
 }
 
+// scanConsolidationLogDocuments 扫描consolidation日志documents。
 func scanConsolidationLogDocuments(root string, cfg *Config) ([]consolidationDocument, error) {
 	logRoot := filepath.Join(root, "logs")
 	if err := rejectConsolidationPath(cfg, logRoot); err != nil {
@@ -163,6 +167,7 @@ func consolidationLogRootExists(logRoot string) (bool, error) {
 	return true, nil
 }
 
+// readConsolidationLogDocument 读取consolidation日志document。
 func readConsolidationLogDocument(root string, cfg *Config, path string, d os.DirEntry, walkErr error) (consolidationDocument, bool, error) {
 	if walkErr != nil {
 		return consolidationDocument{}, false, walkErr

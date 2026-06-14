@@ -34,6 +34,7 @@ type Subscription struct {
 }
 
 // Used by T1-5 manager.go.
+// NewHookRegistry 创建hook注册表。
 func NewHookRegistry() *HookRegistry {
 	return &HookRegistry{
 		byTopic:       make(map[string]map[mcp.LeaseKey]struct{}),
@@ -41,6 +42,7 @@ func NewHookRegistry() *HookRegistry {
 	}
 }
 
+// Subscribe 注册事件订阅。
 func (r *HookRegistry) Subscribe(lease mcp.LeaseKey, req mcp.HookSubscribeRequest) (mcp.HookSubscribeResponse, error) {
 	var err error
 	lease, err = validateLease(lease, hookSubscriptionLeaseValidation)
@@ -107,6 +109,7 @@ func (r *HookRegistry) Subscribe(lease mcp.LeaseKey, req mcp.HookSubscribeReques
 	}, nil
 }
 
+// Unsubscribe 处理unsubscribe。
 func (r *HookRegistry) Unsubscribe(lease mcp.LeaseKey) {
 	lease = trimLease(lease)
 
@@ -120,10 +123,12 @@ func (r *HookRegistry) Unsubscribe(lease mcp.LeaseKey) {
 	r.unsubscribeLocked(lease, subscription)
 }
 
+// GetSubscribers 读取subscribers。
 func (r *HookRegistry) GetSubscribers(topic string) []mcp.LeaseKey {
 	return r.GetSubscribersBySelector(mcp.Selector{Subscription: topic})
 }
 
+// GetSubscribersBySelector 按selector读取subscribers。
 func (r *HookRegistry) GetSubscribersBySelector(sel mcp.Selector) []mcp.LeaseKey {
 	normalized := strings.TrimSpace(sel.Subscription)
 	if normalized == "" {
@@ -150,6 +155,7 @@ func (r *HookRegistry) GetSubscribersBySelector(sel mcp.Selector) []mcp.LeaseKey
 
 // GetSubscription returns a copy of the stored subscription for a lease.
 // Used by T1-5 manager.go.
+// GetSubscription 读取subscription。
 func (r *HookRegistry) GetSubscription(lease mcp.LeaseKey) (*Subscription, bool) {
 	lease = trimLease(lease)
 
@@ -211,6 +217,7 @@ func subscriptionMatchesSelectorScope(subscription *Subscription, requested mcp.
 	return scopeMatches(requested, shared.NormalizeSelectorScope(subscription.Scope.Scope))
 }
 
+// normalizeTopics 规范化topics。
 func normalizeTopics(topics []string) []string {
 	normalized := make([]string, 0, len(topics))
 	for _, topic := range topics {

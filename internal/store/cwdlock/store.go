@@ -22,10 +22,12 @@ type store struct {
 	q querier
 }
 
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store {
 	return &store{q: q}
 }
 
+// Acquire 获取锁或租约。
 func (s *store) Acquire(ctx context.Context, params AcquireParams) (int64, error) {
 	count, err := s.q.AcquireCwdLock(ctx, sqlc.AcquireCwdLockParams{
 		CWD:        params.Cwd,
@@ -38,6 +40,7 @@ func (s *store) Acquire(ctx context.Context, params AcquireParams) (int64, error
 	return count, nil
 }
 
+// ForceAcquire 处理强制acquire。
 func (s *store) ForceAcquire(ctx context.Context, params ForceAcquireParams) (int64, error) {
 	count, err := s.q.ForceAcquireCwdLock(ctx, sqlc.ForceAcquireCwdLockParams{
 		CWD:        params.Cwd,
@@ -51,6 +54,7 @@ func (s *store) ForceAcquire(ctx context.Context, params ForceAcquireParams) (in
 	return count, nil
 }
 
+// Release 释放锁、租约或资源。
 func (s *store) Release(ctx context.Context, params ReleaseParams) (int64, error) {
 	count, err := s.q.ReleaseCwdLock(ctx, sqlc.ReleaseCwdLockParams{
 		CWD:        params.Cwd,
@@ -62,6 +66,7 @@ func (s *store) Release(ctx context.Context, params ReleaseParams) (int64, error
 	return count, nil
 }
 
+// Heartbeat 刷新锁或租约的存活时间。
 func (s *store) Heartbeat(ctx context.Context, params HeartbeatParams) error {
 	return wrapCwdLockError(s.q.HeartbeatCwdLock(ctx, sqlc.HeartbeatCwdLockParams{
 		CWD:        params.Cwd,
@@ -70,6 +75,7 @@ func (s *store) Heartbeat(ctx context.Context, params HeartbeatParams) error {
 	}), "heartbeat", "cwd_lock")
 }
 
+// DeleteStale 删除stale。
 func (s *store) DeleteStale(ctx context.Context) (int64, error) {
 	count, err := s.q.DeleteStaleCwdLocks(ctx)
 	if err != nil {
@@ -78,6 +84,7 @@ func (s *store) DeleteStale(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
+// GetHolder 读取holder。
 func (s *store) GetHolder(ctx context.Context, cwd string) (*LockHolder, error) {
 	row, err := s.q.GetCwdLockHolder(ctx, sqlc.GetCwdLockHolderParams{CWD: cwd})
 	if err != nil {

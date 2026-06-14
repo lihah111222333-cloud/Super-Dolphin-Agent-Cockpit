@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// pullLocked 处理pulllocked。
 func (s *TeamSyncService) pullLocked(ctx context.Context, trigger TeamSyncTrigger) (TeamSyncPullResult, error) {
 	result := TeamSyncPullResult{}
 	if !s.runtimeReadyLocked() {
@@ -95,6 +96,7 @@ func (s *TeamSyncService) applyPulledFilesLocked(
 
 // invalidateLocked reuses the same PromptAssemblyService.Invalidate primitive that
 // thread RunPostCompactCleanup currently delegates to for Phase I-1 cleanup.
+// invalidateLocked 处理invalidatelocked。
 func (s *TeamSyncService) invalidateLocked(ctx context.Context, trigger TeamSyncTrigger) {
 	if s == nil || s.invalidator == nil {
 		return
@@ -152,6 +154,7 @@ func (s *TeamSyncService) applyRemoteFilesLocked(remoteFiles map[string]TeamSync
 	return sortedStringSet(changed), updated, nil
 }
 
+// normalizeRemoteTeamSyncFiles 规范化remoteteamsync文件。
 func normalizeRemoteTeamSyncFiles(remoteFiles map[string]TeamSyncFile) map[string]TeamSyncFile {
 	if len(remoteFiles) == 0 {
 		return nil
@@ -186,6 +189,7 @@ func (s *TeamSyncService) syncRemoteTeamFilesLocked(
 	return append(suppress, removed...), nil
 }
 
+// writeRemoteTeamFilesLocked 写入remoteteam文件locked。
 func (s *TeamSyncService) writeRemoteTeamFilesLocked(
 	current map[string]teamSyncLocalFile,
 	remoteFiles map[string]TeamSyncFile,
@@ -228,6 +232,7 @@ func (s *TeamSyncService) removeMissingRemoteTeamFilesLocked(
 	return suppress, nil
 }
 
+// clearLocalTeamRootLocked 清理localteam根目录locked。
 func (s *TeamSyncService) clearLocalTeamRootLocked() (bool, error) {
 	files, err := scanTeamMarkdownFiles(s.root)
 	if err != nil {

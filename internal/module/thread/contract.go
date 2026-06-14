@@ -14,6 +14,8 @@ import (
 // lives in internal/dto/thread/event.go to avoid a thread↔turn import cycle.
 type SpawnRouting = threaddto.SpawnRouting
 
+// Service 是 thread 模块对外的入口。
+// Start/Resume/Fork/Recover 负责 provider session 和 thread 记录；turn、memory、prompt 各做自己的事。
 type Service interface {
 	Start(ctx context.Context, req StartRequest) (StartResult, error)
 	Stop(ctx context.Context, threadID string) error
@@ -50,6 +52,8 @@ type Service interface {
 	Delete(ctx context.Context, threadID string) error
 }
 
+// StartRequest 是新 thread 的启动输入。
+// provider、cwd 和 config 会一路进入 prompt 组装和 provider 启动；snapshot 也从这里开始生成。
 type StartRequest struct {
 	Provider, AgentID, ParentAgentID, AgentType, AgentMemoryScope string
 	CWD, Model, ModelProvider, Name                               string
@@ -157,6 +161,8 @@ type StartResult struct {
 	PendingLaunch bool `json:"pending_launch,omitempty"`
 }
 
+// ResumeRequest 是恢复旧 thread 的输入。
+// 调用方可以传覆盖项，但 thread/binding/config 里的状态才是准绳；PromptSnapshot 不要随便伪造。
 type ResumeRequest struct {
 	Provider                 string
 	AgentID                  string

@@ -11,6 +11,7 @@ var (
 	fileWatchInterval = 30 * time.Second
 )
 
+// watchLogFile 监听日志文件。
 func watchLogFile(path string, stop chan struct{}) {
 	ticker := time.NewTicker(fileWatchInterval)
 	defer ticker.Stop()
@@ -52,6 +53,7 @@ func closeLogFileLocked() {
 	}
 }
 
+// ShutdownFileHandler 处理shutdown文件处理器。
 func ShutdownFileHandler() {
 	closeAllAgentLoggers()
 	logFileMu.Lock()

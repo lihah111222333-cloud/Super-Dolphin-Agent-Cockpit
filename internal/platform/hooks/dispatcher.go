@@ -40,6 +40,7 @@ type HookDispatcher struct {
 
 type DispatcherOption func(*HookDispatcher)
 
+// WithDispatcherParallelism 设置调度器parallelism。
 func WithDispatcherParallelism(n int) DispatcherOption {
 	return func(d *HookDispatcher) {
 		if d != nil && n > 0 {
@@ -48,6 +49,7 @@ func WithDispatcherParallelism(n int) DispatcherOption {
 	}
 }
 
+// WithPeerTimeout 设置peer超时。
 func WithPeerTimeout(timeout time.Duration) DispatcherOption {
 	return func(d *HookDispatcher) {
 		if d != nil && timeout > 0 {
@@ -56,6 +58,7 @@ func WithPeerTimeout(timeout time.Duration) DispatcherOption {
 	}
 }
 
+// NewHookDispatcher 创建hook调度器。
 func NewHookDispatcher(registry *HookRegistry, cb contract.PeerCallback, opts ...DispatcherOption) (*HookDispatcher, error) {
 	if registry == nil {
 		return nil, errNilHookRegistry
@@ -79,6 +82,7 @@ func NewHookDispatcher(registry *HookRegistry, cb contract.PeerCallback, opts ..
 	return dispatcher, nil
 }
 
+// DispatchBefore 派发before。
 func (d *HookDispatcher) DispatchBefore(ctx context.Context, topic string, payload mcp.HookPayload) ([]peerDecision[mcp.BeforeDecision], error) {
 	return d.dispatchBeforeBySelector(ctx, mcp.Selector{Subscription: topic}, payload)
 }
@@ -87,6 +91,7 @@ func (d *HookDispatcher) dispatchBeforeBySelector(ctx context.Context, sel mcp.S
 	return dispatchBySelector(d, ctx, sel, payload, d.peerCallback.CallbackBefore)
 }
 
+// DispatchCheck 派发check。
 func (d *HookDispatcher) DispatchCheck(ctx context.Context, topic string, payload mcp.HookPayload) ([]peerDecision[mcp.CheckDecision], error) {
 	return d.dispatchCheckBySelector(ctx, mcp.Selector{Subscription: topic}, payload)
 }
@@ -95,6 +100,7 @@ func (d *HookDispatcher) dispatchCheckBySelector(ctx context.Context, sel mcp.Se
 	return dispatchBySelector(d, ctx, sel, payload, d.peerCallback.CallbackCheck)
 }
 
+// DispatchAfter 派发后置。
 func (d *HookDispatcher) DispatchAfter(ctx context.Context, topic string, payload mcp.HookPayload) ([]peerDecision[mcp.AfterDecision], error) {
 	return d.dispatchAfterBySelector(ctx, mcp.Selector{Subscription: topic}, payload)
 }
@@ -164,6 +170,7 @@ type dispatchWorkerState struct {
 	hasCurrent bool
 }
 
+// dispatchDecisions 派发decisions。
 func dispatchDecisions[T any](
 	d *HookDispatcher,
 	ctx context.Context,
@@ -214,6 +221,7 @@ func (d *HookDispatcher) recordPeerResult(lease mcp.LeaseKey, err error) int {
 }
 
 // ForgetLease clears failure tracking for a lease after unsubscribe to avoid leaks.
+// ForgetLease 处理forget租约。
 func (d *HookDispatcher) ForgetLease(lease mcp.LeaseKey) {
 	d.failMu.Lock()
 	delete(d.failCounts, lease)

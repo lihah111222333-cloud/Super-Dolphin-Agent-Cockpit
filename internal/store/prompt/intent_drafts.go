@@ -25,6 +25,7 @@ type updateIntentDraftStatusQuerier interface {
 	UpdatePromptIntentDraftStatus(ctx context.Context, arg sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.PromptIntentDraft, error)
 }
 
+// UpsertIntentDraft 处理upsertintentdraft。
 func (s *store) UpsertIntentDraft(ctx context.Context, draft PromptIntentDraft) (*PromptIntentDraft, error) {
 	if err := validatePromptIntentDraft(draft); err != nil {
 		return nil, wrapPromptError(err, "upsert", "prompt_intent_drafts")
@@ -63,6 +64,7 @@ func (s *store) UpsertIntentDraft(ctx context.Context, draft PromptIntentDraft) 
 	return &mapped, nil
 }
 
+// GetIntentDraft 读取intentdraft。
 func (s *store) GetIntentDraft(ctx context.Context, cwd, draftKey string) (*PromptIntentDraft, error) {
 	cwd, draftKey, err := requireIntentDraftScope(cwd, draftKey)
 	if err != nil {
@@ -80,6 +82,7 @@ func (s *store) GetIntentDraft(ctx context.Context, cwd, draftKey string) (*Prom
 	return &mapped, nil
 }
 
+// ListIntentDrafts 列出intentdrafts。
 func (s *store) ListIntentDrafts(ctx context.Context, filter PromptIntentDraftListFilter) ([]PromptIntentDraft, error) {
 	cwd := strings.TrimSpace(filter.CWD)
 	if cwd == "" {
@@ -113,6 +116,7 @@ func (s *store) ListIntentDrafts(ctx context.Context, filter PromptIntentDraftLi
 	return drafts, nil
 }
 
+// UpdateIntentDraftStatus 更新intentdraft状态。
 func (s *store) UpdateIntentDraftStatus(ctx context.Context, cwd, draftKey, status string) (*PromptIntentDraft, error) {
 	cwd, draftKey, err := requireIntentDraftScope(cwd, draftKey)
 	if err != nil {
@@ -138,6 +142,7 @@ func (s *store) UpdateIntentDraftStatus(ctx context.Context, cwd, draftKey, stat
 	return &mapped, nil
 }
 
+// validatePromptIntentDraft 校验promptintentdraft。
 func validatePromptIntentDraft(d PromptIntentDraft) error {
 	if strings.TrimSpace(d.DraftKey) == "" {
 		return errors.New("prompt intent draft_key is required")

@@ -87,6 +87,7 @@ func copyPreserveMode(sourcePath, targetPath string, opts copyOptions) error {
 	return copyPreserveModeDirect(sourceFile, targetPath, perm)
 }
 
+// copyPreserveModeAtomic 复制preserve模式atomic。
 func copyPreserveModeAtomic(source *os.File, targetPath string, perm os.FileMode) error {
 	if err := ensureCopyTarget(targetPath, true); err != nil {
 		return err
@@ -240,6 +241,7 @@ func evaluateRemovedMergeFileState(
 	return file, MergeFileResult{Path: snapshot.RelativePath, Action: action}
 }
 
+// evaluateTrackedMergeFileState 处理evaluatetrackedmerge文件状态。
 func evaluateTrackedMergeFileState(
 	file storeworkspace.WorkspaceRunFile,
 	snapshot mergeFileSnapshot,
@@ -322,6 +324,7 @@ func publicRunStatusError(runKey string, err error) error {
 	return err
 }
 
+// updateRunStatusAndEmit 更新运行记录状态emit。
 func (s *service) updateRunStatusAndEmit(
 	ctx context.Context,
 	input storeworkspace.UpdateRunStatusInput,

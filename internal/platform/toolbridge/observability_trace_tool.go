@@ -26,6 +26,7 @@ type observabilityTraceToolInput struct {
 	IncludeStack bool   `json:"include_stack,omitempty"`
 }
 
+// NewObservabilityTraceHostToolRegistry 创建observabilitytracehost工具注册表。
 func NewObservabilityTraceHostToolRegistry(svc *observability.Service) *ObservabilityTraceHostToolRegistry {
 	if svc == nil {
 		return nil
@@ -33,6 +34,7 @@ func NewObservabilityTraceHostToolRegistry(svc *observability.Service) *Observab
 	return &ObservabilityTraceHostToolRegistry{svc: svc}
 }
 
+// ListHostTools 列出host工具。
 func (r *ObservabilityTraceHostToolRegistry) ListHostTools() []mcpdto.MCPTool {
 	if r == nil || r.svc == nil || !r.svc.Enabled() {
 		return nil
@@ -41,14 +43,17 @@ func (r *ObservabilityTraceHostToolRegistry) ListHostTools() []mcpdto.MCPTool {
 	return []mcpdto.MCPTool{{Name: ToolNameObservabilityTraceGet, Description: descriptionObservabilityTraceGet, InputSchema: schema}}
 }
 
+// HasTool 判断工具是否可用。
 func (r *ObservabilityTraceHostToolRegistry) HasTool(name string) bool {
 	return r != nil && strings.TrimSpace(name) == ToolNameObservabilityTraceGet
 }
 
+// RequiresCWD 处理requires工作目录。
 func (r *ObservabilityTraceHostToolRegistry) RequiresCWD(name string) bool {
 	return strings.TrimSpace(name) != ToolNameObservabilityTraceGet
 }
 
+// CallHostTool 调用host工具。
 func (r *ObservabilityTraceHostToolRegistry) CallHostTool(ctx context.Context, call HostToolCall) (any, error) {
 	if r == nil || r.svc == nil {
 		return nil, contract.NewAgentMemoryError("trace_unavailable", fmt.Errorf("observability trace service is not configured"))

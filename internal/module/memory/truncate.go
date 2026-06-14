@@ -23,6 +23,7 @@ type EntrypointTruncation struct {
 	Warning          string
 }
 
+// TruncateEntrypointContent 截断entrypoint内容。
 func TruncateEntrypointContent(raw string) EntrypointTruncation {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -120,10 +121,12 @@ var forbiddenMemoryContentPatterns = []memoryContentPattern{
 
 var defaultMemoryContentValidator = NewMemoryContentValidator()
 
+// NewMemoryContentValidator 创建记忆内容校验器。
 func NewMemoryContentValidator() *MemoryContentValidator {
 	return &MemoryContentValidator{}
 }
 
+// Error 返回错误文本。
 func (e *MemoryContentValidationError) Error() string {
 	if e == nil || strings.TrimSpace(e.Reason) == "" {
 		return ErrForbiddenMemoryContent.Error()
@@ -131,14 +134,17 @@ func (e *MemoryContentValidationError) Error() string {
 	return fmt.Sprintf("%s: %s", ErrForbiddenMemoryContent, strings.TrimSpace(e.Reason))
 }
 
+// Unwrap 返回底层错误。
 func (e *MemoryContentValidationError) Unwrap() error {
 	return ErrForbiddenMemoryContent
 }
 
+// ValidateMemoryEntryContent 校验记忆条目内容。
 func ValidateMemoryEntryContent(entry MemoryEntry) error {
 	return defaultMemoryContentValidator.Validate(entry)
 }
 
+// Validate 校验记忆。
 func (v *MemoryContentValidator) Validate(entry MemoryEntry) error {
 	if err := validateMemorySecrets(entry); err != nil {
 		return err

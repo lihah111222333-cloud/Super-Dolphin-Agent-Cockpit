@@ -180,6 +180,7 @@ type SemanticTokensResult struct {
 	Decoded  []DecodedSemanticToken `json:"decoded,omitempty"`
 }
 
+// PrimaryLocation 处理primary位置。
 func (r LocationResult) PrimaryLocation() *Location {
 	if r.Location != nil {
 		return r.Location
@@ -200,6 +201,7 @@ func (r LocationResult) PrimaryLocation() *Location {
 	return &location
 }
 
+// MarshalJSON 编码JSON。
 func (r LocationResult) MarshalJSON() ([]byte, error) {
 	loc := r.PrimaryLocation()
 	flat := map[string]any{}
@@ -221,6 +223,7 @@ func (r LocationResult) MarshalJSON() ([]byte, error) {
 	return json.Marshal(flat)
 }
 
+// HasFuncRange 判断func范围是否可用。
 func (r LocationResult) HasFuncRange() bool {
 	return r.FuncStart > 0 && r.FuncEnd >= r.FuncStart
 }

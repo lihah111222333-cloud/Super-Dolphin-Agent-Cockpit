@@ -83,6 +83,7 @@ type DefaultExtractor struct {
 // be nil. The second parameter is ignored to preserve stale call sites while
 // the live old candidate writer remains disabled. redactor / evaluator / logger fall back to
 // package defaults when nil so tests and partial wiring stay simple.
+// NewDefaultExtractor 创建defaultextractor。
 func NewDefaultExtractor(
 	dream contract.DreamExecutor,
 	_ any,
@@ -118,6 +119,7 @@ func NewDefaultExtractor(
 // Redact -> residual scan -> content_hash -> repo_fingerprint ->
 // return the redacted artifact. The removed old candidate backend is not
 // called.
+// Extract 提取turn。
 func (e *DefaultExtractor) Extract(ctx context.Context, t Trajectory) (*ExtractedSkill, error) {
 	if e == nil {
 		return nil, errors.New("extractor: nil receiver")
@@ -248,6 +250,7 @@ func truncateRedactedSample(sample string) string {
 // and runs the redactor over the result before handing it to the LLM.
 // The exact prompt template is intentionally simple at this step; the
 // security boundary is what we are defending here.
+// buildRedactedPrompt 构建redactedprompt。
 func (e *DefaultExtractor) buildRedactedPrompt(t Trajectory) (string, error) {
 	var b strings.Builder
 	b.WriteString("You are summarizing a successful agent turn into a reusable Skill.\n")
@@ -322,6 +325,7 @@ type ExtractorRunner struct {
 // NewExtractorRunner builds the runner. collector or extractor == nil is
 // tolerated (Run blocks on ctx.Done with no work) so deployments that
 // have not enabled P0b can still satisfy the runner group constraint.
+// NewExtractorRunner 创建extractorrunner。
 func NewExtractorRunner(collector *Collector, extractor Extractor, logger *pkglogger.Logger) *ExtractorRunner {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -335,6 +339,7 @@ func NewExtractorRunner(collector *Collector, extractor Extractor, logger *pkglo
 }
 
 // Run implements platformrunner.Runner.
+// Run 启动turn后台流程。
 func (r *ExtractorRunner) Run(ctx context.Context) error {
 	if r == nil || r.collector == nil || r.extractor == nil {
 		<-ctx.Done()

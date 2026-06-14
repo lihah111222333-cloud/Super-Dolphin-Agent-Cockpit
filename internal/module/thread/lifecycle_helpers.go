@@ -34,6 +34,7 @@ func runScratchpadCleanup(active *bool, cleanup func()) {
 	}
 }
 
+// enrichFromSessionConfig 从会话配置补充线程。
 func enrichFromSessionConfig(session contract.Session, reqModel, reqCWD string) (model, cwd string, port int) {
 	model, cwd = reqModel, reqCWD
 	rc, ok := session.(interface{ RuntimeConfigSnapshot() map[string]any })
@@ -71,6 +72,7 @@ func sessionRuntimeConfigString(session contract.Session, key string) string {
 	return strings.TrimSpace(value)
 }
 
+// injectParentCodexIdentityForStart 为起点处理injectparentcodex身份。
 func (s *service) injectParentCodexIdentityForStart(ctx context.Context, req StartRequest) StartRequest {
 	parentID := strings.TrimSpace(req.ParentAgentID)
 	if parentID == "" || s.bindingStore == nil {
@@ -100,6 +102,7 @@ func (s *service) injectParentCodexIdentityForStart(ctx context.Context, req Sta
 	return req
 }
 
+// injectDefaultCodexIdentityForStart 为起点处理injectdefaultcodex身份。
 func (s *service) injectDefaultCodexIdentityForStart(req StartRequest) (StartRequest, error) {
 	if strings.TrimSpace(req.Provider) != "codex" {
 		return req, nil
@@ -130,6 +133,7 @@ func (s *service) injectDefaultCodexIdentityForStart(req StartRequest) (StartReq
 	return req, nil
 }
 
+// injectDefaultCodexIdentityForResume 为恢复处理injectdefaultcodex身份。
 func (s *service) injectDefaultCodexIdentityForResume(req ResumeRequest) (ResumeRequest, error) {
 	if strings.TrimSpace(req.Provider) != "codex" {
 		return req, nil
@@ -157,6 +161,7 @@ func (s *service) injectDefaultCodexIdentityForResume(req ResumeRequest) (Resume
 	return req, nil
 }
 
+// injectParentCodexIdentity 处理injectparentcodex身份。
 func injectParentCodexIdentity(cfg map[string]any, parent *bindingstore.Binding) (map[string]any, bool) {
 	home := strings.TrimSpace(parent.CodexHome)
 	instanceKey := strings.TrimSpace(parent.CodexInstanceKey)
@@ -257,6 +262,7 @@ func (s *service) lookupBindingCWD(ctx context.Context, agentID string) string {
 	return strings.TrimSpace(binding.Cwd)
 }
 
+// ReadThreadStateRuntimeConfig 读取线程状态运行时配置。
 func (s *service) ReadThreadStateRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error) {
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil {
@@ -391,6 +397,7 @@ func (s *service) persistStartedThread(
 	return nil
 }
 
+// upsertPublicThread 处理upsertpublic线程。
 func (s *service) upsertPublicThread(
 	ctx context.Context,
 	state threadState,
@@ -459,6 +466,7 @@ func recoverableProviderThreadID(provider, providerUUID, publicThreadID, rollout
 	return providerThreadID
 }
 
+// recoverableBindingProviderThreadID 处理recoverablebindingprovider线程ID。
 func recoverableBindingProviderThreadID(binding *bindingstore.Binding) string {
 	if binding == nil {
 		return ""
@@ -558,6 +566,7 @@ func (s *service) readMessagesPageSource(ctx context.Context, threadID string, b
 	return historyjsonl.ReadProviderMessagesPageOrError(historyReq, req, err)
 }
 
+// readMessagesPageFromSession 从会话读取消息page。
 func (s *service) readMessagesPageFromSession(ctx context.Context, threadID string, binding *bindingstore.Binding, session contract.Session, req dto.MessagePageRequest) (dto.MessagePageResult, error) {
 	targetID := historyTargetID(binding, threadID)
 	if pager, ok := session.(messagePageReaderSession); ok {
@@ -578,6 +587,7 @@ func (s *service) readMessagesPageFromSession(ctx context.Context, threadID stri
 	return dto.MessagePageResult{Messages: messages}, nil
 }
 
+// readMessagesSource 读取消息source。
 func (s *service) readMessagesSource(ctx context.Context, threadID string, binding *bindingstore.Binding) ([]dto.Message, error) {
 	session, err := s.sessionForBinding(binding)
 	if err == nil && session != nil {

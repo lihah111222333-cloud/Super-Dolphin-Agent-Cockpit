@@ -115,6 +115,7 @@ type poolEntry struct {
 // NewServerPool constructs a pool. spawner is required; a nil spawner
 // produces a pool that always fails Get with ErrInvalidIdentity so
 // the mistake is loud.
+// NewServerPool 创建服务端pool。
 func NewServerPool(logger *slog.Logger, spawner Spawner, cfg PoolConfig) *ServerPool {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -142,6 +143,7 @@ func NewServerPool(logger *slog.Logger, spawner Spawner, cfg PoolConfig) *Server
 //
 // A nil server + non-nil error is always returned together; the
 // release callback is a safe no-op in that case.
+// Acquire 获取锁或租约。
 func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexIdentity, ownerKey string) (SpawnedServer, func(), error) {
 	home, key, provider, err := normalizePoolIdentity(identity)
 	if err != nil {
@@ -197,6 +199,7 @@ type acquireFastPathResult struct {
 	done    bool
 }
 
+// acquireFastPathLocked 处理acquirefast路径locked。
 func (p *ServerPool) acquireFastPathLocked(entryKey poolEntryKey) acquireFastPathResult {
 	result := acquireFastPathResult{release: newNoopRelease()}
 	if p.closed {
@@ -277,6 +280,7 @@ func newPoolEntry(entryKey poolEntryKey) *poolEntry {
 // and its MCP/LSP sidecars without waiting for the periodic idle runner.
 // The callback is idempotent on the "already released" branch: an extra call
 // after deletion is a no-op.
+// releaser 处理releaser。
 func (p *ServerPool) releaser(entryKey poolEntryKey) func() {
 	return func() {
 		var server SpawnedServer
@@ -305,6 +309,7 @@ func (p *ServerPool) releaser(entryKey poolEntryKey) func() {
 // IdleTimeout. Intended to be invoked periodically by a Runner in
 // production; returns the number of entries evicted so callers can
 // emit a metric.
+// EvictIdle 处理evictidle。
 func (p *ServerPool) EvictIdle() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -331,6 +336,7 @@ func (p *ServerPool) EvictIdle() int {
 
 // Close tears the pool down. Subsequent Acquire returns ErrPoolClosed.
 // Close is safe to call multiple times.
+// Close 关闭codexapp provider资源。
 func (p *ServerPool) Close(ctx context.Context) error {
 	p.mu.Lock()
 	entries, alreadyClosed := p.snapshotCloseEntriesLocked()
@@ -365,6 +371,7 @@ func (p *ServerPool) snapshotCloseEntriesLocked() ([]*poolEntry, bool) {
 
 // Size returns the current number of pool entries. Useful for tests
 // and metrics.
+// Size 返回池内 manager 数量。
 func (p *ServerPool) Size() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -432,6 +439,7 @@ func newPoolEvictRunner(logger *slog.Logger, pool *ServerPool) *poolEvictRunner 
 
 var _ platformrunner.Runner = (*poolEvictRunner)(nil)
 
+// Run 启动codexapp provider后台流程。
 func (r *poolEvictRunner) Run(ctx context.Context) error {
 	if r.pool == nil {
 		<-ctx.Done()
@@ -461,6 +469,7 @@ func poolEvictRunnerAsRunner(r *poolEvictRunner) platformrunner.Runner { return 
 
 // cleanPeerDiscoveryFiles removes HTTP discovery files for peer MCP processes.
 // Called during ServerManager shutdown as a safety net.
+// cleanPeerDiscoveryFiles 处理cleanpeerdiscovery文件。
 func cleanPeerDiscoveryFiles() {
 	myPID := os.Getpid()
 	for _, binary := range []string{"mcp-orch", "mcp-lsp"} {

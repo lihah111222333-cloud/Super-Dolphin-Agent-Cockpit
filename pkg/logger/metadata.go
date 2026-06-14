@@ -15,6 +15,7 @@ const (
 	updateVersionEnv  = "SUPER_DOLPHIN_UPDATE_VERSION"
 )
 
+// ConfigureServiceFromEnv 从env处理configure服务。
 func ConfigureServiceFromEnv(defaultVersion string) {
 	SetServiceMetadata(
 		firstLogValue(os.Getenv(serviceNameEnv), "super-dolphin"),
@@ -23,6 +24,7 @@ func ConfigureServiceFromEnv(defaultVersion string) {
 	)
 }
 
+// SetServiceMetadata 设置服务元数据。
 func SetServiceMetadata(name, version, env string) {
 	name = firstLogValue(name, "super-dolphin")
 	version = firstLogValue(version, "dev")

@@ -34,6 +34,7 @@ type ResolveInput struct {
 	UserHome       string
 }
 
+// ResolveFromEnvironment 从environment解析平台embeddedpg。
 func ResolveFromEnvironment(projectRoot string) (contract.EmbeddedPostgresConfig, string) {
 	home, _ := os.UserHomeDir()
 	exe, _ := os.Executable()
@@ -47,6 +48,7 @@ func ResolveFromEnvironment(projectRoot string) (contract.EmbeddedPostgresConfig
 	})
 }
 
+// ResolveConfig 解析配置。
 func ResolveConfig(input ResolveInput) (contract.EmbeddedPostgresConfig, string) {
 	goos := firstNonEmpty(input.GOOS, runtime.GOOS)
 	goarch := firstNonEmpty(input.GOARCH, runtime.GOARCH)
@@ -144,6 +146,7 @@ func databaseURLFor(cfg contract.EmbeddedPostgresConfig, goos string) string {
 	return u.String()
 }
 
+// appDataRoot 处理app数据根目录。
 func appDataRoot(goos string, env map[string]string, userHome string) (string, string) {
 	if home := strings.TrimSpace(env[EnvHome]); home != "" {
 		return filepath.Clean(home), ""
@@ -165,6 +168,7 @@ func appDataRoot(goos string, env map[string]string, userHome string) (string, s
 	}
 }
 
+// resolveBinDir 解析bin目录。
 func resolveBinDir(input ResolveInput, goos, goarch string, packagedRuntime runtimeenv.PackagedRuntime, packaged bool) string {
 	if explicit := strings.TrimSpace(input.Env[EnvPostgresBinDir]); explicit != "" {
 		return filepath.Clean(explicit)

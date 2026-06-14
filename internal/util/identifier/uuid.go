@@ -21,6 +21,7 @@ import (
 //
 // It rejects agent-id placeholders such as "agent_17782..." which are not
 // valid provider UUIDs.
+// LooksLikeUUID 处理lookslikeUUID。
 func LooksLikeUUID(s string) bool {
 	s = strings.TrimSpace(s)
 	if len(s) < 32 {
@@ -48,6 +49,7 @@ var claudeCLIUUIDRE = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{
 
 // IsClaudeCLISessionUUID reports whether s is a canonical v4 UUID acceptable
 // as the Claude CLI --resume argument.
+// IsClaudeCLISessionUUID 判断claudeCLI会话UUID是否可用。
 func IsClaudeCLISessionUUID(s string) bool {
 	return claudeCLIUUIDRE.MatchString(strings.TrimSpace(s))
 }

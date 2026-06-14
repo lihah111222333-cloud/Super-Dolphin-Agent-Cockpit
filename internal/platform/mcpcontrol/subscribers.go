@@ -10,6 +10,7 @@ import (
 )
 
 // NewMCPConfigChangeSubscribers declares config-change bus subscriptions for BusModule.
+// NewMCPConfigChangeSubscribers 创建MCP配置changesubscribers。
 func NewMCPConfigChangeSubscribers(worker *configFanoutWorker, logger *pkglogger.Logger) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: platformbus.SubscriberSpec{

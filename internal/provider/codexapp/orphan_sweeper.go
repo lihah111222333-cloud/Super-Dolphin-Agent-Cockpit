@@ -46,6 +46,7 @@ func filterOrphanAppServers(procs []appServerProcessInfo, myTree map[int]struct{
 	return orphans
 }
 
+// sigtermAppServers 处理sigtermappservers。
 func sigtermAppServers(orphans []appServerProcessInfo) []appServerProcessInfo {
 	sigtermed := make([]appServerProcessInfo, 0, len(orphans))
 	for _, proc := range orphans {
@@ -61,6 +62,7 @@ func sigtermAppServers(orphans []appServerProcessInfo) []appServerProcessInfo {
 	return sigtermed
 }
 
+// waitForAppServerExit 为app服务端exit等待codexapp provider。
 func waitForAppServerExit(sigtermed []appServerProcessInfo) {
 	deadline := time.Now().Add(appServerKillGracePeriod)
 	for time.Now().Before(deadline) {
@@ -78,6 +80,7 @@ func waitForAppServerExit(sigtermed []appServerProcessInfo) {
 	}
 }
 
+// sigkillAppServerSurvivors 处理sigkillapp服务端survivors。
 func sigkillAppServerSurvivors(sigtermed []appServerProcessInfo, allProcs map[int]int) int {
 	killed := 0
 	for _, proc := range sigtermed {
@@ -115,6 +118,7 @@ func snapshotProcessDescendants(rootPID int) map[int]struct{} {
 	return tree
 }
 
+// killProcessDescendants 处理kill进程descendants。
 func killProcessDescendants(rootPID int, descendants map[int]struct{}) int {
 	if rootPID <= 1 || len(descendants) == 0 {
 		return 0
@@ -138,6 +142,7 @@ func killProcessDescendants(rootPID int, descendants map[int]struct{}) int {
 
 // killDescendants kills remaining descendant processes of an app-server
 // (mcp-server-postgres, exa-mcp-server, etc.) that survived the parent shutdown.
+// killDescendants 处理killdescendants。
 func killDescendants(proc appServerProcessInfo, allProcs map[int]int) int {
 	killed := 0
 	descendants := buildProcessTree(proc.pid, allProcs)

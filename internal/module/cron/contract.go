@@ -1,8 +1,8 @@
-// Package cron exposes the host-side CRUD surface for scheduled agent
-// tasks (P21 P1b). The scheduler / runner actors that actually fire jobs
-// live in Track C phase 2b; this package is deliberately limited to the
-// validation + persistence layer so the RPC surface can land independently
-// of the process-lifecycle changes.
+// Package cron exposes the host-side CRUD surface and the scheduler runtime
+// for scheduled agent tasks.
+//
+// 这里有两件事：service 先把坏配置挡住；scheduler 只跑已入库的 job，
+// 靠 CAS 和 claim_token 防止重复推进。
 package cron
 
 import (
@@ -135,6 +135,9 @@ type Run struct {
 
 // Store is the subset of the cron store surface consumed by this
 // module. Kept narrow so tests can stub only what the service exercises.
+//
+// 这个窄接口只给 CRUD service 用。scheduler 的恢复和续租直接用
+// cronstore.Store，别塞到这里。
 type Store interface {
 	CreateJob(ctx context.Context, params cronstore.CreateJobParams) (cronstore.Job, error)
 	GetJobByID(ctx context.Context, id string) (cronstore.Job, error)

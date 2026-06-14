@@ -50,6 +50,7 @@ type service struct {
 
 // NewService creates a workspace service that uses the given store and event
 // dispatcher. Events are published directly via kelindar/event generics.
+// NewService 创建服务。
 func NewService(store storeworkspace.Store, dispatcher *event.Dispatcher) Service {
 	return &service{
 		store:            store,
@@ -61,6 +62,7 @@ func NewService(store storeworkspace.Store, dispatcher *event.Dispatcher) Servic
 	}
 }
 
+// CreateRun 创建运行记录。
 func (s *service) CreateRun(ctx context.Context, req CreateRunRequest) (*Run, error) {
 	run, err := buildRun(req)
 	if err != nil {
@@ -81,6 +83,7 @@ func (s *service) CreateRun(ctx context.Context, req CreateRunRequest) (*Run, er
 	return saved, nil
 }
 
+// buildRun 构建运行记录。
 func buildRun(req CreateRunRequest) (storeworkspace.WorkspaceRun, error) {
 	if len(req.Metadata) == 0 {
 		req.Metadata = json.RawMessage("{}")
@@ -150,6 +153,7 @@ func resolveSourceRoot(raw, cwd string) (string, error) {
 	return sourceRoot, nil
 }
 
+// resolveWorkspacePath 解析工作区路径。
 func resolveWorkspacePath(req CreateRunRequest, runKey, sourceRoot string) (string, error) {
 	workspacePath, err := resolveAbsolutePath(req.WorkspacePath, req.CWD)
 	if err != nil {
@@ -196,10 +200,12 @@ func bootstrapFiles(run storeworkspace.WorkspaceRun, files []string) ([]string, 
 	return relativeFiles, nil
 }
 
+// GetRun 读取运行记录。
 func (s *service) GetRun(ctx context.Context, runKey string) (*Run, error) {
 	return s.store.GetRun(ctx, strings.TrimSpace(runKey))
 }
 
+// ListRuns 列出运行记录。
 func (s *service) ListRuns(ctx context.Context, status, dagKey string, limit int) ([]Run, error) {
 	if limit <= 0 {
 		limit = defaultListLimit
@@ -211,10 +217,12 @@ func (s *service) ListRuns(ctx context.Context, status, dagKey string, limit int
 	})
 }
 
+// UpdateRunStatus 更新运行记录状态。
 func (s *service) UpdateRunStatus(ctx context.Context, input storeworkspace.UpdateRunStatusInput) (*Run, error) {
 	return s.updateRunStatusAndEmit(ctx, input, passthroughRunStatusError)
 }
 
+// MergeRun 合并运行记录。
 func (s *service) MergeRun(ctx context.Context, req MergeRunRequest) (*MergeRunResult, error) {
 	run, err := s.requireRun(ctx, req.RunKey, statusActive)
 	if err != nil {
@@ -231,6 +239,7 @@ func (s *service) MergeRun(ctx context.Context, req MergeRunRequest) (*MergeRunR
 	return s.executeMerge(ctx, mergingRun, req, updatedBy)
 }
 
+// AbortRun 处理abort运行记录。
 func (s *service) AbortRun(ctx context.Context, runKey, updatedBy, reason string) error {
 	run, err := s.updateRunStatusAndEmit(ctx, storeworkspace.UpdateRunStatusInput{
 		RunKey:    runKey,
@@ -245,6 +254,7 @@ func (s *service) AbortRun(ctx context.Context, runKey, updatedBy, reason string
 	return nil
 }
 
+// ListRunFiles 列出运行记录文件。
 func (s *service) ListRunFiles(ctx context.Context, runKey, state string) ([]RunFile, error) {
 	return s.store.ListFiles(ctx, storeworkspace.ListFilesFilter{
 		RunKey: strings.TrimSpace(runKey),
@@ -253,6 +263,7 @@ func (s *service) ListRunFiles(ctx context.Context, runKey, state string) ([]Run
 	})
 }
 
+// GetRunFile 读取运行记录文件。
 func (s *service) GetRunFile(ctx context.Context, runKey, path string) (*RunFile, error) {
 	return s.store.GetFile(ctx, strings.TrimSpace(runKey), strings.TrimSpace(path))
 }
@@ -275,6 +286,7 @@ func (s *service) requireRun(ctx context.Context, runKey, expectedStatus string)
 	return run, nil
 }
 
+// transitionRunStatus 处理transition运行记录状态。
 func (s *service) transitionRunStatus(ctx context.Context, input storeworkspace.TransitionRunStatusInput) (*Run, error) {
 	input.RunKey = strings.TrimSpace(input.RunKey)
 	input.FromStatus = strings.TrimSpace(input.FromStatus)

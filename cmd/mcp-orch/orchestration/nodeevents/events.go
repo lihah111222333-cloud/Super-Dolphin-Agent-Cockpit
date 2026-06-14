@@ -10,6 +10,7 @@ import (
 	"github.com/kelindar/event"
 )
 
+// Publish 发布编排。
 func Publish(bus *event.Dispatcher, oldStatus string, node *taskdag.Node) {
 	if bus == nil || node == nil {
 		return
@@ -21,6 +22,7 @@ func Publish(bus *event.Dispatcher, oldStatus string, node *taskdag.Node) {
 	event.Publish(bus, ev)
 }
 
+// PublishFields 发布字段。
 func PublishFields(bus *event.Dispatcher, oldStatus, newStatus, dagKey, nodeKey string, runID int64) {
 	if bus == nil {
 		return
@@ -28,6 +30,7 @@ func PublishFields(bus *event.Dispatcher, oldStatus, newStatus, dagKey, nodeKey 
 	Publish(bus, oldStatus, &taskdag.Node{DagKey: dagKey, NodeKey: nodeKey, RunID: &runID, Status: newStatus})
 }
 
+// PublishComplete 发布complete。
 func PublishComplete(bus *event.Dispatcher, oldStatus string, res *taskdag.CompleteNodeWithDownstreamResult) {
 	if res == nil {
 		return
@@ -38,6 +41,7 @@ func PublishComplete(bus *event.Dispatcher, oldStatus string, res *taskdag.Compl
 	}
 }
 
+// PublishFail 发布fail。
 func PublishFail(bus *event.Dispatcher, oldStatus string, res *taskdag.FailNodeResult) {
 	if res == nil {
 		return
@@ -51,6 +55,7 @@ func PublishFail(bus *event.Dispatcher, oldStatus string, res *taskdag.FailNodeR
 	}
 }
 
+// build 构建编排。
 func build(oldStatus string, node *taskdag.Node) (taskdto.TaskNodeStatusChanged, bool) {
 	dagKey, nodeKey, newStatus := strings.TrimSpace(node.DagKey), strings.TrimSpace(node.NodeKey), strings.TrimSpace(node.Status)
 	runID := int64(0)

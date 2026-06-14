@@ -14,6 +14,7 @@ import (
 
 var ErrRunStoreUnset = errors.New("scheduled start: run store unset")
 
+// Start 启动编排流程。
 func Start(ctx context.Context, runStore taskdag.ScheduledStartStore, req orchcron.ScheduledDAGStartRequest) error {
 	dagKey, dueAt, nextRunAt, idempotencyKey, err := normalizeRequest(req)
 	if err != nil {
@@ -62,6 +63,7 @@ func rejectBlockedScheduledStart(dagKey string, readyRootNodes, scheduledWakeups
 	return nil
 }
 
+// normalizeRequest 规范化请求。
 func normalizeRequest(req orchcron.ScheduledDAGStartRequest) (string, time.Time, time.Time, string, error) {
 	dagKey := strings.TrimSpace(req.DagKey)
 	if dagKey == "" {
@@ -83,6 +85,7 @@ func normalizeRequest(req orchcron.ScheduledDAGStartRequest) (string, time.Time,
 	return dagKey, req.DueAt, req.NextRunAt, idempotencyKey, nil
 }
 
+// lockDAGForRunStart 为运行记录起点处理锁DAG。
 func lockDAGForRunStart(ctx context.Context, tx taskdag.ScheduledStartTxStore, dagKey string, dueAt time.Time) (*taskdag.DAG, error) {
 	dag, err := tx.GetDAGForUpdate(ctx, dagKey)
 	if err != nil {
@@ -114,6 +117,7 @@ func advanceNextRunTx(ctx context.Context, tx taskdag.ScheduledStartTxStore, dag
 	return nil
 }
 
+// advanceConsumedRun 处理advanceconsumed运行记录。
 func advanceConsumedRun(ctx context.Context, runStore taskdag.ScheduledStartStore, dagKey, runKey string, dueAt, nextRunAt time.Time, txErr error) error {
 	existing, getErr := runStore.GetRun(ctx, runKey)
 	if getErr != nil {

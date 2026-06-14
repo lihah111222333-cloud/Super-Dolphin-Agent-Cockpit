@@ -30,6 +30,7 @@ type rolloutContentItem struct {
 	ImageURL string `json:"image_url,omitempty"`
 }
 
+// readLocalRollout 读取localrollout。
 func readLocalRollout(threadID, codexHome string, limit int) ([]Message, error) {
 	path, err := findRolloutPath(threadID, codexHome)
 	if err != nil {
@@ -54,6 +55,7 @@ func readLocalRollout(threadID, codexHome string, limit int) ([]Message, error) 
 	return trimMessages(messages, limit), nil
 }
 
+// parseRolloutLine 解析rollout行。
 func parseRolloutLine(raw []byte) (Message, bool) {
 	var line rolloutLine
 	if err := json.Unmarshal(raw, &line); err != nil || line.Type != "response_item" {
@@ -214,6 +216,7 @@ func stripTagBlock(text, closeTag string) string {
 	return ""
 }
 
+// stripAgentsMDBlock 处理strip代理mdblock。
 func stripAgentsMDBlock(text string) string {
 	const closeInstructions = "</instructions>"
 	lower := strings.ToLower(text)

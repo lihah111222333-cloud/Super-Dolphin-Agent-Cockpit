@@ -19,6 +19,7 @@ type Client struct {
 	tracer   *observability.Service
 }
 
+// NewClient 创建客户端。
 func NewClient(registry *Registry, sessions *SessionManager, logger *slog.Logger) *Client {
 	return newClient(registry, sessions, logger, nil)
 }
@@ -30,6 +31,7 @@ func newClient(registry *Registry, sessions *SessionManager, logger *slog.Logger
 	return &Client{registry: registry, sessions: sessions, logger: logger, tracer: tracer}
 }
 
+// StartSession 启动会话。
 func (c *Client) StartSession(
 	ctx context.Context,
 	req dto.StartSessionRequest,
@@ -39,6 +41,7 @@ func (c *Client) StartSession(
 	})
 }
 
+// ResumeSession 处理恢复会话。
 func (c *Client) ResumeSession(
 	ctx context.Context,
 	req dto.ResumeSessionRequest,

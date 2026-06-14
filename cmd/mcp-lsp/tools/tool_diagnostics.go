@@ -48,6 +48,7 @@ type diagnosticsWaitResult struct {
 	message                    string
 }
 
+// fetchDiagnosticsWithRetry 处理带重试的fetch诊断。
 func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, string, string, error) {
 	existingURIs := existingDiagnosticURIs(uris)
 	source, err := h.bootstrapDiagnostics(ctx, existingURIs)
@@ -78,6 +79,7 @@ func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, uris []strin
 	return items, source, message, nil
 }
 
+// bootstrapDiagnostics 处理启动诊断。
 func (h handlerBase) bootstrapDiagnostics(ctx context.Context, existingURIs []string) (string, error) {
 	if len(existingURIs) == 0 {
 		return "manager", nil
@@ -109,6 +111,7 @@ func (h handlerBase) waitDiagnosticsWithStartupRecovery(ctx context.Context, uri
 	return diagnosticsWaitResult{}, nil
 }
 
+// recoverDiagnosticsStartupWait 把诊断启动等待中的 panic 转成错误。
 func (h handlerBase) recoverDiagnosticsStartupWait(ctx context.Context, uris, existingURIs []string, waitErr error) (diagnosticsWaitResult, error) {
 	if !errors.Is(waitErr, lspmanager.ErrDiagnosticsNotReady) || len(existingURIs) == 0 {
 		return diagnosticsWaitResult{}, waitErr
@@ -133,6 +136,7 @@ func (h handlerBase) recoverDiagnosticsStartupWait(ctx context.Context, uris, ex
 	return diagnosticsWaitResult{recovered: true}, nil
 }
 
+// recoverPartialDiagnosticsWait 恢复partial诊断wait。
 func (h handlerBase) recoverPartialDiagnosticsWait(ctx context.Context, uris []string, batchErr error) (diagnosticsWaitResult, error) {
 	if !errors.Is(batchErr, lspmanager.ErrDiagnosticsNotReady) || len(uris) <= 1 {
 		return diagnosticsWaitResult{}, batchErr
@@ -154,6 +158,7 @@ func (h handlerBase) recoverPartialDiagnosticsWait(ctx context.Context, uris []s
 	}, nil
 }
 
+// waitDiagnosticsTargetsIndividually 分别等待每个目标的诊断结果稳定。
 func (h handlerBase) waitDiagnosticsTargetsIndividually(ctx context.Context, uris []string) (int, []string, error) {
 	ready := 0
 	missing := make([]string, 0)
@@ -179,6 +184,7 @@ func (h handlerBase) waitDiagnosticsTargetsIndividually(ctx context.Context, uri
 	return ready, missing, nil
 }
 
+// handleDiagnostics 处理诊断。
 func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput) (any, error) {
 	if h.registry == nil {
 		return nil, errManagerUnavailable
@@ -218,6 +224,7 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 	}, nil
 }
 
+// collectDiagnosticURIs 收集诊断uris。
 func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolInput) ([]string, map[string]string, error) {
 	targets := collectDiagnosticTargets(input)
 	if len(targets) == 0 {
@@ -267,6 +274,7 @@ func collectDiagnosticTargets(input fileToolInput) []string {
 	return targets
 }
 
+// existingDiagnosticURIs 处理existing诊断uris。
 func existingDiagnosticURIs(uris []string) []string {
 	if len(uris) == 0 {
 		return nil
@@ -322,6 +330,7 @@ func (h handlerBase) waitDiagnosticsStable(ctx context.Context, uris []string) (
 	return currentGeneration, nil
 }
 
+// openDiagnosticDocuments 打开诊断documents。
 func (h handlerBase) openDiagnosticDocuments(ctx context.Context, uris []string) (int, error) {
 	count := 0
 	seen := make(map[string]struct{}, len(uris))
@@ -347,6 +356,7 @@ func (h handlerBase) openDiagnosticDocuments(ctx context.Context, uris []string)
 	return count, nil
 }
 
+// openDiagnosticDocument 打开诊断document。
 func (h handlerBase) openDiagnosticDocument(ctx context.Context, uri string) error {
 	path := format.URIToPath(uri)
 	info, err := os.Lstat(path)
@@ -373,6 +383,7 @@ func (h handlerBase) openDiagnosticDocument(ctx context.Context, uri string) err
 	return manager.DidOpen(ctx, uri, lspmanager.DetectLanguageID(path), 1, string(content))
 }
 
+// appManagedDiagnosticsOutsideWorkspace 处理appmanaged诊断outside工作区。
 func appManagedDiagnosticsOutsideWorkspace(ctx context.Context, uris []string) (bool, string, error) {
 	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
@@ -411,6 +422,7 @@ func emptyDiagnosticsForURIs(uris []string) []protocol.PublishDiagnosticsParams 
 	return items
 }
 
+// reactiveBootstrap 处理reactive启动。
 func (h handlerBase) reactiveBootstrap(ctx context.Context, uris []string) (int, error) {
 	count := 0
 	seen := make(map[string]struct{}, len(uris))
@@ -458,6 +470,7 @@ func diagnosticMessageSummary(message string) string {
 	return string(runes[:maxDiagnosticSummaryRunes]) + "…"
 }
 
+// buildDiagnosticsTables 构建诊断tables。
 func buildDiagnosticsTables(items []protocol.PublishDiagnosticsParams, displayPaths map[string]string) []diagnosticsTable {
 	if len(items) == 0 {
 		return nil
@@ -503,6 +516,7 @@ func buildDiagnosticsTables(items []protocol.PublishDiagnosticsParams, displayPa
 	return tables
 }
 
+// diagnosticsMessageAfterFetch 处理诊断消息后置fetch。
 func diagnosticsMessageAfterFetch(message string, uris []string, items []protocol.PublishDiagnosticsParams) string {
 	if !strings.Contains(message, "partial diagnostics") || len(uris) == 0 {
 		return message
@@ -556,6 +570,7 @@ func diagnosticSeverity(diag protocol.Diagnostic) string {
 	return diag.Severity.String()
 }
 
+// ToPlainText 渲染为纯文本。
 func (r diagnosticsResponse) ToPlainText() string {
 	if !r.Success {
 		return "Diagnostics retrieval failed."
@@ -578,6 +593,7 @@ func (r diagnosticsResponse) ToPlainText() string {
 	return strings.TrimSpace(sb.String())
 }
 
+// formatDiagnosticRow 格式化诊断row。
 func (r diagnosticsResponse) formatDiagnosticRow(sb *strings.Builder, file string, row []any) {
 	if len(row) < 4 {
 		return

@@ -25,6 +25,7 @@ var Module = fx.Module(
 	fx.Invoke(registerLifecycle),
 )
 
+// NewPool 创建pool。
 func NewPool(cfg *config.Config) (*pgxpool.Pool, error) {
 	databaseURL, err := requireDatabaseURL(cfg.DatabaseURL)
 	if err != nil {
@@ -62,6 +63,7 @@ func createDatabaseSQL(targetDB string) (string, error) {
 	return "CREATE DATABASE " + pgx.Identifier{targetDB}.Sanitize(), nil
 }
 
+// ensureDatabaseExists 确保databaseexists。
 func ensureDatabaseExists(targetDB, databaseURL string) error {
 	createSQL, err := createDatabaseSQL(targetDB)
 	if err != nil {
@@ -247,6 +249,7 @@ func applyBaselineIfMissingWithBegin(ctx context.Context, begin baselineBeginFun
 	return nil
 }
 
+// applyBaselineInTx 在tx应用baseline。
 func applyBaselineInTx(ctx context.Context, tx baselineTx, dir string, readFile baselineReadFileFunc) error {
 	var hasBaseline bool
 	err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE filename = '001_baseline.sql')").Scan(&hasBaseline)
@@ -314,6 +317,7 @@ func getAppliedMigrations(ctx context.Context, pool *pgxpool.Pool) (map[string]b
 	return applied, nil
 }
 
+// applyPendingMigrations 应用待处理migrations。
 func applyPendingMigrations(ctx context.Context, pool *pgxpool.Pool, dir string) error {
 	files, err := os.ReadDir(dir)
 	if err != nil {
@@ -345,6 +349,7 @@ func applyPendingMigrations(ctx context.Context, pool *pgxpool.Pool, dir string)
 	return nil
 }
 
+// shouldApplyMigration 判断应用migration是否可用。
 func shouldApplyMigration(f os.DirEntry, applied map[string]bool) bool {
 	n := f.Name()
 	if f.IsDir() || !strings.HasSuffix(n, ".sql") || n == "001_baseline.sql" {
@@ -419,6 +424,7 @@ func splitMigrationBody(body string) []string {
 	return out
 }
 
+// registerLifecycle 注册生命周期。
 func registerLifecycle(lc fx.Lifecycle, logger *pkglogger.Logger, pool *pgxpool.Pool, cfg *config.Config) {
 	embeddedPostgres := newEmbeddedPostgresResource(cfg)
 	lc.Append(fx.Hook{
@@ -467,6 +473,7 @@ func newEmbeddedPostgresResource(cfg *config.Config) *embeddedPostgresResource {
 	return &embeddedPostgresResource{cfg: cfg}
 }
 
+// Open 打开平台数据库。
 func (r *embeddedPostgresResource) Open(ctx context.Context) error {
 	if err := embeddedpg.Start(ctx, r.cfg.EmbeddedPostgres); err != nil {
 		return err
@@ -475,6 +482,7 @@ func (r *embeddedPostgresResource) Open(ctx context.Context) error {
 	return nil
 }
 
+// Close 关闭平台数据库资源。
 func (r *embeddedPostgresResource) Close(ctx context.Context) error {
 	if !r.owned {
 		return nil

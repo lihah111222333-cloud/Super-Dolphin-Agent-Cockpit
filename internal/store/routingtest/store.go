@@ -35,10 +35,12 @@ type store struct {
 // NewStore returns the sqlc-backed Reader. Pass a *sqlc.Queries (or a real
 // pgx-wrapped queries instance); returns a Reader so downstream code can
 // swap in fakes for tests.
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Reader {
 	return &store{q: q}
 }
 
+// ListEnabled 列出enabled。
 func (s *store) ListEnabled(ctx context.Context) ([]RoutingTest, error) {
 	rows, err := s.q.ListEnabledPromptRoutingTests(ctx)
 	if err != nil {

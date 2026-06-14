@@ -43,6 +43,7 @@ type transport struct {
 	writeMu sync.Mutex
 }
 
+// newTransport 创建传输。
 func newTransport(binary string, args []string, cwd string, env []string) (*transport, error) {
 	if binary == "" {
 		binary = defaultClaudeCLIBin
@@ -118,6 +119,7 @@ func ensureLoopbackNoProxy(env []string) []string {
 	return append(filtered, "NO_PROXY="+merged, "no_proxy="+merged)
 }
 
+// mergeCSV 合并csv。
 func mergeCSV(parts ...string) string {
 	seen := make(map[string]struct{}, 8)
 	out := make([]string, 0, 8)
@@ -138,6 +140,7 @@ func mergeCSV(parts ...string) string {
 	return strings.Join(out, ",")
 }
 
+// Send 向底层传输写入请求。
 func (t *transport) Send(msg []byte) error {
 	if t == nil {
 		return errors.New("transport is nil")
@@ -155,6 +158,7 @@ func (t *transport) Send(msg []byte) error {
 	return err
 }
 
+// Receive 从底层传输读取事件。
 func (t *transport) Receive() ([]byte, error) {
 	if t == nil || t.stdout == nil {
 		return nil, io.EOF
@@ -171,6 +175,7 @@ func (t *transport) Receive() ([]byte, error) {
 	return nil, io.EOF
 }
 
+// Close 关闭claudecli provider资源。
 func (t *transport) Close() error {
 	if t == nil {
 		return nil
@@ -185,6 +190,7 @@ func (t *transport) Close() error {
 	return normalizeSignalError(err)
 }
 
+// Kill 终止底层进程或连接。
 func (t *transport) Kill() error {
 	if t == nil {
 		return nil
@@ -195,6 +201,7 @@ func (t *transport) Kill() error {
 	return normalizeSignalError(err)
 }
 
+// Running 返回底层进程是否仍在运行。
 func (t *transport) Running() bool {
 	if t == nil {
 		return false
@@ -208,6 +215,7 @@ func (t *transport) Running() bool {
 	return err == nil && pid > 0
 }
 
+// readyForSend 为send判断claudecli provider。
 func (t *transport) readyForSend() bool {
 	if t == nil {
 		return false
@@ -306,6 +314,7 @@ func newLimitedBuffer(limit int) *limitedBuffer {
 	return &limitedBuffer{limit: limit}
 }
 
+// String 返回字符串表示。
 func (b *limitedBuffer) String() string {
 	if b == nil {
 		return ""
@@ -315,6 +324,7 @@ func (b *limitedBuffer) String() string {
 	return b.buf.String()
 }
 
+// Write 写入claudecli provider。
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

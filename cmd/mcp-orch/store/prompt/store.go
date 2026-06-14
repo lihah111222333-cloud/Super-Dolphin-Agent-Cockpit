@@ -17,8 +17,10 @@ type store struct {
 	q  *sqlc.Queries
 }
 
+// NewStore 创建存储。
 func NewStore(db sqlc.DBTX) Store { return &store{db: db, q: sqlc.New(db)} }
 
+// Get 读取编排。
 func (s *store) Get(ctx context.Context, promptKey string) (*PromptTemplate, error) {
 	row, err := s.q.GetPromptTemplate(ctx, promptKey)
 	if err != nil {
@@ -28,6 +30,7 @@ func (s *store) Get(ctx context.Context, promptKey string) (*PromptTemplate, err
 	return &mapped, nil
 }
 
+// GetSectionByRecallTopic 按recalltopic读取section。
 func (s *store) GetSectionByRecallTopic(ctx context.Context, cwd, topic string) (string, error) {
 	cwd = strings.TrimSpace(cwd)
 	topic = strings.TrimSpace(topic)
@@ -55,6 +58,7 @@ func (s *store) GetSectionByRecallTopic(ctx context.Context, cwd, topic string) 
 	return "", wrapped
 }
 
+// builtinRecallSectionBody 处理builtinrecallsection正文。
 func builtinRecallSectionBody(topic string) (string, bool, error) {
 	registry, err := builtinprompts.NewDefaultRegistry()
 	if err != nil {
@@ -81,6 +85,7 @@ func builtinTemplateScopeVisibleForRecall(scope string) bool {
 	return scope == "" || scope == "global"
 }
 
+// ListSectionsByTemplateID 按templateID列出sections。
 func (s *store) ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]PromptTemplateSection, error) {
 	rows, err := s.q.ListPromptTemplateSectionsByTemplate(ctx, templateID)
 	if err != nil {
@@ -93,6 +98,7 @@ func (s *store) ListSectionsByTemplateID(ctx context.Context, templateID int64) 
 	return sections, nil
 }
 
+// List 列出编排。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error) {
 	cwd := strings.TrimSpace(filter.CWD)
 	if filter.RuntimeVisible && cwd == "" {
@@ -115,17 +121,20 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]PromptTemplate, 
 	return templates, nil
 }
 
+// WithTx 设置tx。
 func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error {
 	return wrapPromptError(sqlctx.WithTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
 		return fn(&store{db: tx, q: txq})
 	}), "with_tx", "prompt_template")
 }
 
+// Delete 删除编排。
 func (s *store) Delete(ctx context.Context, promptKey string) error {
 	_, err := s.q.DeletePromptTemplate(ctx, promptKey)
 	return wrapPromptError(err, "delete", "prompt_template")
 }
 
+// InsertVersion 插入版本。
 func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion) (int64, error) {
 	id, err := s.q.InsertPromptVersion(ctx, sqlc.InsertPromptVersionParams{
 		PromptKey:       version.PromptKey,
@@ -147,6 +156,7 @@ func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion
 	return id, nil
 }
 
+// Upsert 新增或更新记录。
 func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTemplate, error) {
 	row, err := s.q.UpsertPromptTemplate(ctx, sqlc.UpsertPromptTemplateParams{
 		PromptKey:      template.PromptKey,

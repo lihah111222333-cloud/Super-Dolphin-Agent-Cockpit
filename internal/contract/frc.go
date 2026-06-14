@@ -14,6 +14,7 @@ type FRCConfig struct {
 	KeepRecent                   int
 }
 
+// Normalize 规范化跨模块契约。
 func (c *FRCConfig) Normalize() *FRCConfig {
 	if c == nil {
 		return nil
@@ -44,6 +45,7 @@ func (c *FRCConfig) Normalize() *FRCConfig {
 	return out
 }
 
+// EnabledForModel 为模型判断跨模块契约。
 func (c *FRCConfig) EnabledForModel(model string) bool {
 	normalized := c.Normalize()
 	if normalized == nil || !normalized.Enabled {
@@ -57,6 +59,7 @@ func (c *FRCConfig) EnabledForModel(model string) bool {
 	return index < len(normalized.SupportedModels) && normalized.SupportedModels[index] == model
 }
 
+// KeepRecentCount 处理keeprecentcount。
 func (c *FRCConfig) KeepRecentCount() int {
 	normalized := c.Normalize()
 	if normalized == nil {

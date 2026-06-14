@@ -31,6 +31,7 @@ func selectedSkillSlugs(skills []dto.SkillRef) []string {
 	return slugs
 }
 
+// mapObservationTurn 映射observationturn。
 func (s *service) mapObservationTurn(localID, providerID string) {
 	if s == nil || s.observation == nil {
 		return
@@ -48,6 +49,7 @@ func (s *service) mapObservationTurn(localID, providerID string) {
 	}
 }
 
+// turnAttachmentRefs 处理turnattachmentrefs。
 func turnAttachmentRefs(inputs []dto.InputItem) []string {
 	refs := make([]string, 0, len(inputs))
 	for _, item := range inputs {

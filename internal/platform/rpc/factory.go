@@ -95,6 +95,7 @@ func (c approvalMethodCatalogSpec) isPushMethod(method string) bool {
 	return ok
 }
 
+// isExpectedCloseErr 判断expectedcloseerr是否可用。
 func isExpectedCloseErr(err error) bool {
 	if err == nil {
 		return false

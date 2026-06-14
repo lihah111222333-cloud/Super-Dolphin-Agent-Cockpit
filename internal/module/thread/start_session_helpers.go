@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -29,8 +30,13 @@ func normalizeStartDisplayName(value string) string {
 	return string(runes[:startDisplayNameMaxRunes])
 }
 
-func (s *service) buildStartAssemblyInput(req StartRequest, threadID string) (contract.StartInput, func(), error) {
+func (s *service) buildStartAssemblyInput(ctx context.Context, req StartRequest, threadID string) (contract.StartInput, func(), error) {
 	buildCtx := buildStartCtx(req, s.cfg, s.toolRegistry)
+	var err error
+	buildCtx.MCPSnapshot, err = mergeConfiguredMCPServers(ctx, buildCtx.MCPSnapshot, s.mcpServers, mcpServerConfigLookupRoot(buildCtx))
+	if err != nil {
+		return contract.StartInput{}, nil, err
+	}
 	buildCtx, cleanup, err := s.prepareScratchpadBuildCtx(req, threadID, buildCtx)
 	if err != nil {
 		return contract.StartInput{}, nil, err
@@ -38,6 +44,8 @@ func (s *service) buildStartAssemblyInput(req StartRequest, threadID string) (co
 	return buildStartAssemblyInput(req, threadID, buildCtx), cleanup, nil
 }
 
+// buildStartAssemblyInput 把 thread/start 的选择交给 prompt。
+// memory、MCP、scratchpad、FRC 和 provider 信息都从 BuildCtx 传进去；这里不碰 session。
 func buildStartAssemblyInput(req StartRequest, threadID string, buildCtx contract.BuildCtx) contract.StartInput {
 	return contract.StartInput{
 		ThreadID:                     strings.TrimSpace(threadID),
@@ -75,6 +83,8 @@ func buildStartAssemblyInput(req StartRequest, threadID string, buildCtx contrac
 	}
 }
 
+// buildStartAssembly 是没有 PromptAssemblyService 时的最小备用路径。
+// 生产路径应走 resolveStartPromptAssembly，才能带上 memory/prompt 动态内容和 snapshot。
 func buildStartAssembly(req StartRequest) contract.StartAssembly {
 	return ensureStartAssemblySnapshot(contract.StartAssembly{
 		DisplayName:           normalizeStartDisplayName(req.Name),
@@ -83,6 +93,8 @@ func buildStartAssembly(req StartRequest) contract.StartAssembly {
 	}, req.Provider)
 }
 
+// resolveStartPromptAssembly 是 thread 调 prompt 的地方。
+// 它补齐 snapshot，让 provider 和 thread store 看到同一份 start 提示。
 func resolveStartPromptAssembly(ctx context.Context, req StartRequest, input contract.StartInput) (contract.StartAssembly, error) {
 	if req.PromptAssemblyRef == nil {
 		return buildStartAssembly(req), nil
@@ -117,6 +129,8 @@ func resolveAuthoritativeResumeCWD(req ResumeRequest, state resumeState) (string
 	return cwd, nil
 }
 
+// hydrateResumeSessionRequest 从 thread、binding、config 和 snapshot 还原 resume 输入。
+// 它不重新选 prompt，也不创建新 thread；cwd 或 snapshot 不可靠就报错。
 func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeRequest) (ResumeRequest, error) {
 	req, err := trimResumeRequest(req)
 	if err != nil {
@@ -161,6 +175,8 @@ func hydrateResumeIDs(req ResumeRequest, state resumeState) ResumeRequest {
 	return req
 }
 
+// validateHydratedResumeRequest 是 resume 交给 provider 前的最后检查。
+// provider 和 agent id 必须来自请求、thread row 或 binding，不能临时编一个。
 func validateHydratedResumeRequest(req ResumeRequest) error {
 	if req.Provider == "" {
 		return errors.New("provider is required")
@@ -171,6 +187,7 @@ func validateHydratedResumeRequest(req ResumeRequest) error {
 	return nil
 }
 
+// hydrateResumeRuntimeSelection 从历史线程状态还原 runtime 选择。
 func hydrateResumeRuntimeSelection(req ResumeRequest, state resumeState) ResumeRequest {
 	if req.ConfigOverride.Model == nil {
 		if value := sanitizeConfigStringArtifact(state.ConfigOverride.Model); value != "" {
@@ -318,6 +335,7 @@ func toProviderResolvedSections(sections []contract.ResolvedPromptSection) []dto
 	return out
 }
 
+// buildStartSessionConfig 构建 provider 启动会话所需的配置。
 func buildStartSessionConfig(req StartRequest, input contract.StartInput, assembly contract.StartAssembly) map[string]any {
 	cfg := map[string]any{}
 	modelProvider := strings.TrimSpace(req.ModelProvider)
@@ -362,6 +380,7 @@ func buildStartSessionConfig(req StartRequest, input contract.StartInput, assemb
 	putConfigStrings(cfg, "mcpServers", input.MCPSnapshot.Servers)
 	putConfigStrings(cfg, "mcpTools", input.MCPSnapshot.Tools)
 	putConfigStringMap(cfg, "mcpInstructions", input.MCPSnapshot.Instructions)
+	putConfigMCPServerConfigs(cfg, "mcpConfig", input.MCPSnapshot.ServerConfigs)
 	for _, key := range []string{"mcpInstructionsDeltaEnabled", "mcp_instructions_delta_enabled"} {
 		putConfigBool(cfg, key, input.MCPSnapshot.InstructionsDeltaEnabled)
 	}
@@ -472,6 +491,7 @@ func putConfigStrings(cfg map[string]any, key string, values []string) {
 	}
 }
 
+// putConfigStringMap 把字符串 map 写入 provider 配置。
 func putConfigStringMap(cfg map[string]any, key string, values map[string]string) {
 	if len(values) == 0 {
 		return
@@ -487,6 +507,67 @@ func putConfigStringMap(cfg map[string]any, key string, values map[string]string
 	if len(out) > 0 {
 		cfg[key] = out
 	}
+}
+
+func putConfigMCPServerConfigs(cfg map[string]any, key string, values map[string]contract.MCPServerConfig) {
+	servers := renderMCPServerConfigMap(values)
+	if len(servers) == 0 {
+		return
+	}
+	cfg[key] = map[string]any{"mcpServers": servers}
+}
+
+// renderMCPServerConfigMap 渲染 MCP server 配置 map。
+func renderMCPServerConfigMap(values map[string]contract.MCPServerConfig) map[string]any {
+	if len(values) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(values))
+	rawNames := make(map[string]string, len(values))
+	for rawName := range values {
+		name := strings.TrimSpace(rawName)
+		if name != "" {
+			names = append(names, name)
+			rawNames[name] = rawName
+		}
+	}
+	sort.Strings(names)
+	out := make(map[string]any, len(names))
+	for _, name := range names {
+		config := values[rawNames[name]]
+		server := map[string]any{}
+		putConfigString(server, "transport", config.Transport)
+		putConfigString(server, "url", config.URL)
+		if headers := renderMCPServerHeaderMap(config.Headers); len(headers) > 0 {
+			server["headers"] = headers
+		}
+		if len(server) > 0 {
+			out[name] = server
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// renderMCPServerHeaderMap 渲染 MCP server header map。
+func renderMCPServerHeaderMap(headers map[string]string) map[string]any {
+	if len(headers) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(headers))
+	for name, value := range headers {
+		name = strings.TrimSpace(name)
+		value = strings.TrimSpace(value)
+		if name != "" && value != "" {
+			out[name] = value
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func putConfigBoolMap(cfg map[string]any, key string, values map[string]bool) {

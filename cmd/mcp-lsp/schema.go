@@ -34,6 +34,7 @@ func stringOrArrayOfStringsProp(desc string) schema {
 	}
 }
 
+// NewObjectSchema 创建objectschema。
 func NewObjectSchema(props map[string]schema, required ...string) schema {
 	s := schema{"type": "object", "additionalProperties": false}
 	if len(props) > 0 {

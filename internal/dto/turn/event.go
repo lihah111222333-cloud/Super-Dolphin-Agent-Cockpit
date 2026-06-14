@@ -55,10 +55,23 @@ type TurnOutputDelta struct {
 	Delta  string `json:"delta"`
 }
 
-func (TurnStarted) Type() uint32       { return shared.EventTypeTurnStarted }
-func (TurnCompleted) Type() uint32     { return shared.EventTypeTurnCompleted }
-func (TurnInterrupted) Type() uint32   { return shared.EventTypeTurnInterrupted }
-func (TurnStalled) Type() uint32       { return shared.EventTypeTurnStalled }
-func (TurnResumed) Type() uint32       { return shared.EventTypeTurnResumed }
+// Type 返回事件分发用的类型编号。
+func (TurnStarted) Type() uint32 { return shared.EventTypeTurnStarted }
+
+// Type 返回事件分发用的类型编号。
+func (TurnCompleted) Type() uint32 { return shared.EventTypeTurnCompleted }
+
+// Type 返回事件分发用的类型编号。
+func (TurnInterrupted) Type() uint32 { return shared.EventTypeTurnInterrupted }
+
+// Type 返回事件分发用的类型编号。
+func (TurnStalled) Type() uint32 { return shared.EventTypeTurnStalled }
+
+// Type 返回事件分发用的类型编号。
+func (TurnResumed) Type() uint32 { return shared.EventTypeTurnResumed }
+
+// Type 返回事件分发用的类型编号。
 func (TurnInputReceived) Type() uint32 { return shared.EventTypeTurnInputReceived }
-func (TurnOutputDelta) Type() uint32   { return shared.EventTypeTurnOutputDelta }
+
+// Type 返回事件分发用的类型编号。
+func (TurnOutputDelta) Type() uint32 { return shared.EventTypeTurnOutputDelta }

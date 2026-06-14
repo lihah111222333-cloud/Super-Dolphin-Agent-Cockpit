@@ -6,6 +6,7 @@ import "github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 // List / Claim queries because they all project the same 32 columns) into
 // the domain Job. pgtype.Timestamptz values become zero-value time.Time
 // when the column was NULL.
+// fromCronJob 从cron任务处理cron存储。
 func fromCronJob(r sqlc.CronJob) Job {
 	return Job{
 		ID:              r.ID,

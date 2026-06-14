@@ -30,10 +30,12 @@ func init() {
 	relayHookState.Store(relayHookHolder{})
 }
 
+// SetRelayHook 设置relayhook。
 func SetRelayHook(h RelayHook) {
 	relayHookState.Store(relayHookHolder{hook: h})
 }
 
+// ClearRelayHook 清理relayhook。
 func ClearRelayHook() {
 	relayHookState.Store(relayHookHolder{})
 }
@@ -43,6 +45,7 @@ func currentRelayHook() RelayHook {
 	return holder.hook
 }
 
+// WithRelayDisabled 设置relaydisabled。
 func WithRelayDisabled(ctx context.Context) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -71,10 +74,12 @@ func wrapRelayHandler(next slog.Handler) slog.Handler {
 	return &relayHandler{next: next}
 }
 
+// Enabled 判断日志是否启用。
 func (h *relayHandler) Enabled(ctx context.Context, level slog.Level) bool {
 	return h.next.Enabled(ctx, level)
 }
 
+// Handle 处理日志请求。
 func (h *relayHandler) Handle(ctx context.Context, rec slog.Record) error {
 	err := h.next.Handle(ctx, rec)
 	if relayDisabled(ctx) {
@@ -93,6 +98,7 @@ func (h *relayHandler) Handle(ctx context.Context, rec slog.Record) error {
 	return err
 }
 
+// WithAttrs 设置attrs。
 func (h *relayHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	cloned := append([]slog.Attr{}, h.attrs...)
 	cloned = append(cloned, attrs...)
@@ -100,6 +106,7 @@ func (h *relayHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return &relayHandler{next: h.next.WithAttrs(attrs), attrs: cloned, groups: groups}
 }
 
+// WithGroup 设置group。
 func (h *relayHandler) WithGroup(name string) slog.Handler {
 	groups := append([]string{}, h.groups...)
 	if trimmed := strings.TrimSpace(name); trimmed != "" {
@@ -141,6 +148,7 @@ func relayRecordFields(groups []string, attrs []slog.Attr, rec slog.Record) map[
 	return fields
 }
 
+// relayAppendAttr 处理relayappendattr。
 func relayAppendAttr(dst map[string]any, prefix string, attr slog.Attr) {
 	attr.Value = attr.Value.Resolve()
 	if attr.Equal(slog.Attr{}) {
@@ -169,6 +177,7 @@ func relayAppendAttr(dst map[string]any, prefix string, attr slog.Attr) {
 	dst[key] = relayValueAny(attr.Value)
 }
 
+// relayValueAny 处理relay值任意值。
 func relayValueAny(value slog.Value) any {
 	switch value.Kind() {
 	case slog.KindString:

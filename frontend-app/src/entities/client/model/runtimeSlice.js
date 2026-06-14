@@ -1,3 +1,8 @@
+/*
+ * runtime slice 管启动、bridge 订阅和线程同步。
+ * React 组件只调用这里的动作，不直接碰 bridge 或 generation。
+ */
+
 export function createRuntimeSlice(runtime, deps) {
   return {
     ...createLifecycleActions(runtime, deps),
@@ -21,6 +26,10 @@ function createLifecycleActions(runtime, deps) {
 
   return {
     initializeEvents: () => {
+      /*
+       * bridge event 只注册一次。
+       * 重连后 ready 只同步当前线程，其他状态重新 bootstrap。
+       */
       if (runtime.bridgeUnsubscribe) return;
       runtime.bridgeUnsubscribe = onBridgeEvent(runtime.handleBridgeEvent, {
         escalateCallbackError: (_error, evt) => isDagNodeStatusBridgeEvent(evt),
@@ -79,6 +88,10 @@ function createBootstrapActions(runtime, deps) {
 
   return {
     bootstrap: async () => {
+      /*
+       * bootstrap 会拿 cwd、窗口快照、项目列表和 provider。
+       * cwd/provider 缺失就报错，后续页面都依赖它们。
+       */
       runtime.set({ bootstrapStatus: 'loading', error: '' });
       void runtime.get().initializeEvents();
       try {
@@ -160,6 +173,10 @@ function createThreadSyncActions(runtime, deps) {
 
   return {
     syncThreadState: async (threadId, options = {}) => {
+      /*
+       * 同步线程时会并行拉快照和历史消息。
+       * generation 防止旧请求写回，includeDiff 决定是否补右侧 diff。
+       */
       const syncOptions = options && typeof options === 'object' ? options : {};
       const id = backendThreadIdForState(runtime.get(), threadId, { includeArchived: syncOptions.includeArchived === true });
       if (!id) return false;

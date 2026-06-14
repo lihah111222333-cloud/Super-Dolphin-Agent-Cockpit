@@ -20,10 +20,12 @@ type orchestrationTurnStarter struct {
 
 const sessionReadyPollInterval = 50 * time.Millisecond
 
+// NewOrchestrationTurnStarter 创建orchestrationturnstarter。
 func NewOrchestrationTurnStarter(turns Service, sessions SessionProvider, runtimeReader ThreadStateConfigReader) contract.OrchestrationTurnStarter {
 	return orchestrationTurnStarter{turns: turns, sessions: sessions, runtimeReader: runtimeReader}
 }
 
+// WaitForSessionReady 为会话ready等待turn。
 func (s orchestrationTurnStarter) WaitForSessionReady(ctx context.Context, agentID string, timeout time.Duration) error {
 	if s.sessions == nil {
 		return errors.New("turn session provider is not configured")
@@ -58,6 +60,7 @@ func (s orchestrationTurnStarter) WaitForSessionReady(ctx context.Context, agent
 	}
 }
 
+// StartTurn 启动turn。
 func (s orchestrationTurnStarter) StartTurn(ctx context.Context, submission contract.TurnSubmission) (string, error) {
 	if s.turns == nil {
 		return "", errors.New("turn service is not configured")

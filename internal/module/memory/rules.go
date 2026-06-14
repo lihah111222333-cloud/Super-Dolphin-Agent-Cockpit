@@ -177,6 +177,7 @@ var standardSearchingPastContextRules = []string{
 
 var defaultMemoryRuleEngine = sync.OnceValue(NewMemoryRuleEngine)
 
+// NewMemoryRuleEngine 创建记忆ruleengine。
 func NewMemoryRuleEngine() *MemoryRuleEngine {
 	engine := &MemoryRuleEngine{
 		order: append([]MemoryType(nil), diskMemoryTypes...),
@@ -188,6 +189,7 @@ func NewMemoryRuleEngine() *MemoryRuleEngine {
 	return engine
 }
 
+// BuildMemoryLines 构建记忆行。
 func BuildMemoryLines(skipIndex, searchPastContextEnabled bool, extraGuidelines []string) string {
 	return defaultMemoryRuleEngine().BuildMemoryLines(MemoryRuleOptions{
 		SkipIndex:                skipIndex,
@@ -196,6 +198,7 @@ func BuildMemoryLines(skipIndex, searchPastContextEnabled bool, extraGuidelines 
 	})
 }
 
+// LoadMemoryPrompt 加载记忆prompt。
 func LoadMemoryPrompt(mode MemoryMode, autoEnabled, skipIndex, searchPastContextEnabled bool, extraGuidelines []string) *string {
 	return defaultMemoryRuleEngine().LoadMemoryPrompt(mode, autoEnabled, MemoryRuleOptions{
 		SkipIndex:                skipIndex,
@@ -204,6 +207,7 @@ func LoadMemoryPrompt(mode MemoryMode, autoEnabled, skipIndex, searchPastContext
 	})
 }
 
+// RulesForType 为type处理rules。
 func (e *MemoryRuleEngine) RulesForType(memoryType MemoryType) (MemoryTypeBehavior, bool) {
 	behavior, ok := resolvedRuleEngine(e).rules[ParseMemoryType(string(memoryType))]
 	if !ok {
@@ -212,6 +216,7 @@ func (e *MemoryRuleEngine) RulesForType(memoryType MemoryType) (MemoryTypeBehavi
 	return cloneBehavior(behavior), true
 }
 
+// LoadMemoryPrompt 加载记忆prompt。
 func (e *MemoryRuleEngine) LoadMemoryPrompt(mode MemoryMode, autoEnabled bool, opts MemoryRuleOptions) *string {
 	if !autoEnabled {
 		return nil
@@ -252,6 +257,7 @@ func (e *MemoryRuleEngine) loadKairosMemoryPrompt(opts MemoryRuleOptions) *strin
 	return &text
 }
 
+// BuildMemoryLines 构建记忆行。
 func (e *MemoryRuleEngine) BuildMemoryLines(opts MemoryRuleOptions) string {
 	engine := resolvedRuleEngine(e)
 	sections := make([]string, 0, 9)
@@ -277,6 +283,7 @@ func (e *MemoryRuleEngine) BuildMemoryLines(opts MemoryRuleOptions) string {
 	return strings.Join(sections, "\n\n")
 }
 
+// buildCombinedMemoryPrompt 构建combined记忆prompt。
 func buildCombinedMemoryPrompt(engine *MemoryRuleEngine, opts MemoryRuleOptions) string {
 	engine = resolvedRuleEngine(engine)
 	autoDir := strings.TrimSpace(opts.AutoMemPath)

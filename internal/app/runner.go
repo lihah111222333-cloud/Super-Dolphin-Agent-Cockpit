@@ -60,6 +60,7 @@ func newAppOwnerContext(parent context.Context) *appOwnerContext {
 	}
 }
 
+// RootContext 处理根目录上下文。
 func (o *appOwnerContext) RootContext() context.Context {
 	if o == nil || o.ctx == nil {
 		return context.Background()
@@ -67,12 +68,14 @@ func (o *appOwnerContext) RootContext() context.Context {
 	return o.ctx
 }
 
+// Cancel 取消当前运行。
 func (o *appOwnerContext) Cancel() {
 	if o != nil && o.cancel != nil {
 		o.cancel()
 	}
 }
 
+// MarkRuntimeDone 标记运行时done。
 func (o *appOwnerContext) MarkRuntimeDone() {
 	if o == nil {
 		return
@@ -80,6 +83,7 @@ func (o *appOwnerContext) MarkRuntimeDone() {
 	o.runtimeDoneOnce.Do(func() { close(o.runtimeDone) })
 }
 
+// RegisterRuntimePreDrain 注册运行时predrain。
 func (o *appOwnerContext) RegisterRuntimePreDrain(fn func(context.Context) error) {
 	if o == nil || fn == nil {
 		return
@@ -89,6 +93,7 @@ func (o *appOwnerContext) RegisterRuntimePreDrain(fn func(context.Context) error
 	o.mu.Unlock()
 }
 
+// DrainRuntime 等待运行时收尾。
 func (o *appOwnerContext) DrainRuntime(ctx context.Context) error {
 	if o == nil {
 		return nil
@@ -104,6 +109,7 @@ func (o *appOwnerContext) DrainRuntime(ctx context.Context) error {
 	return o.preDrainErr
 }
 
+// WaitRuntimeDone 等待运行时完全退出。
 func (o *appOwnerContext) WaitRuntimeDone(ctx context.Context) error {
 	if o == nil || o.runtimeDone == nil {
 		return nil
@@ -119,6 +125,7 @@ func (o *appOwnerContext) WaitRuntimeDone(ctx context.Context) error {
 	}
 }
 
+// BindRuntime 绑定运行时。
 func BindRuntime(lc fx.Lifecycle, p runtimeParams) {
 	var (
 		cancel       context.CancelFunc

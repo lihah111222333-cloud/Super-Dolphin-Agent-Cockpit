@@ -8,6 +8,7 @@ import (
 // Contract is a zero-state marker installed by RunnerModule.
 type Contract struct{}
 
+// NewContract 创建contract。
 func NewContract() Contract { return Contract{} }
 
 type Worker interface {
@@ -22,6 +23,7 @@ type workerRunner struct {
 	ready  chan struct{}
 }
 
+// AsRunner 把平台runner处理为runner。
 func AsRunner(worker Worker, opts ...WorkerRunnerOption) Runner {
 	r := &workerRunner{worker: worker, ready: make(chan struct{})}
 	for _, opt := range opts {
@@ -32,6 +34,7 @@ func AsRunner(worker Worker, opts ...WorkerRunnerOption) Runner {
 	return r
 }
 
+// WithStartedSignal 设置startedsignal。
 func WithStartedSignal(ch chan struct{}) WorkerRunnerOption {
 	return func(r *workerRunner) {
 		if ch != nil {
@@ -40,6 +43,7 @@ func WithStartedSignal(ch chan struct{}) WorkerRunnerOption {
 	}
 }
 
+// Run 启动平台runner后台流程。
 func (r *workerRunner) Run(ctx context.Context) error {
 	if r == nil || r.worker == nil {
 		return errors.New("runner worker is nil")

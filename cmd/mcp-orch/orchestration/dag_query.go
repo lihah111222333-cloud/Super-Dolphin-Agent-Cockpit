@@ -19,6 +19,7 @@ import (
 
 var ErrRunNotFound = errors.New("orchestration: run_key not found")
 
+// GetRun 读取运行记录。
 func (s *service) GetRun(ctx context.Context, req contract.GetRunRequest) (contract.GetRunResponse, error) {
 	if s == nil || s.runStore == nil {
 		return contract.GetRunResponse{}, ErrRunStoreUnset
@@ -37,6 +38,7 @@ func (s *service) GetRun(ctx context.Context, req contract.GetRunRequest) (contr
 	return getRunResponse(ctx, s.runStore, runKey, run)
 }
 
+// ListRuns 列出运行记录。
 func (s *service) ListRuns(ctx context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
 	if s == nil || s.runStore == nil {
 		return contract.ListRunsResponse{}, ErrRunStoreUnset
@@ -53,6 +55,7 @@ func (s *service) ListRuns(ctx context.Context, req contract.ListRunsRequest) (c
 	return contract.ListRunsResponse{Runs: mapRuns(rows)}, nil
 }
 
+// TerminateDAG 处理terminateDAG。
 func (s *service) TerminateDAG(ctx context.Context, req TerminateDAGRequest) error {
 	dagKey, runKey, run, err := s.terminableRun(ctx, req)
 	if err != nil || run == nil {
@@ -72,6 +75,7 @@ func (s *service) TerminateDAG(ctx context.Context, req TerminateDAGRequest) err
 	return s.stopSpawnedAgentThreads(ctx, dagKey, run.ID, result.SpawnedThreadIDs)
 }
 
+// terminableRun 处理terminable运行记录。
 func (s *service) terminableRun(ctx context.Context, req TerminateDAGRequest) (string, string, *taskdag.Run, error) {
 	dagKey, runKey := strings.TrimSpace(req.DagKey), strings.TrimSpace(req.RunKey)
 	if s == nil || s.runStore == nil {
@@ -104,6 +108,7 @@ func (s *service) terminableRun(ctx context.Context, req TerminateDAGRequest) (s
 	}
 }
 
+// stopSpawnedAgentThreads 停止spawned代理线程。
 func (s *service) stopSpawnedAgentThreads(ctx context.Context, dagKey string, runID int64, threadIDs []string) error {
 	var stopErrs []error
 	for _, threadID := range threadIDs {
@@ -168,6 +173,7 @@ func partitionOps(ops nodeexec.Ops) (partitionedOps, error) {
 	return p, nil
 }
 
+// appendPartitionedOp 追加partitionedop。
 func appendPartitionedOp(p *partitionedOps, seenNodeOps map[string]seenNodeOp, index int, op nodeexec.Op) error {
 	switch v := op.(type) {
 	case nodeexec.OpUpdateDAG:
@@ -216,6 +222,7 @@ func rememberNodeOp(seen map[string]seenNodeOp, nodeKey string, index int, kind 
 
 // runOpsBatch executes partitioned ApplyOps in one transaction with OCC and
 // running-DAG mutation guards before planning, persisting, and bumping version.
+// runOpsBatch 运行opsbatch。
 func runOpsBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, baseVersion int64, parts partitionedOps) (contract.ApplyOpsResponse, error) {
 	current, existing, schedule, err := preflightOpsBatch(ctx, tx, dagKey, baseVersion, parts)
 	if err != nil {
@@ -421,6 +428,7 @@ func normalizeDAGPatch(patch nodeexec.DAGPatch) nodeexec.DAGPatch {
 	return nodeexec.DAGPatch{Title: trimStringPtr(patch.Title), Description: trimStringPtr(patch.Description), Trigger: trimStringPtr(patch.Trigger), CronExpr: trimStringPtr(patch.CronExpr), OwnerID: trimStringPtr(patch.OwnerID), ScheduleEnabled: patch.ScheduleEnabled}
 }
 
+// validateDAGPatch 校验DAG补丁。
 func validateDAGPatch(patch nodeexec.DAGPatch, current taskdag.DAGSchedule) (taskdag.DAGSchedule, error) {
 	if isEmptyDAGPatch(patch) {
 		return taskdag.DAGSchedule{}, fmt.Errorf("%w: update_dag patch must set at least one field", ErrApplyOpsInvalid)
@@ -454,6 +462,7 @@ func finalDAGSchedule(current taskdag.DAGSchedule, patch nodeexec.DAGPatch) task
 	return schedule
 }
 
+// validateDAGPatchFinalSchedule 校验DAG补丁final计划。
 func validateDAGPatchFinalSchedule(patch nodeexec.DAGPatch, final taskdag.DAGSchedule) error {
 	if patch.Trigger == nil && patch.CronExpr == nil && patch.ScheduleEnabled == nil {
 		return nil
@@ -473,6 +482,7 @@ func validateDAGPatchFinalSchedule(patch nodeexec.DAGPatch, final taskdag.DAGSch
 	return nil
 }
 
+// isEmptyDAGPatch 判断emptyDAG补丁是否可用。
 func isEmptyDAGPatch(patch nodeexec.DAGPatch) bool {
 	return patch.Title == nil && patch.Description == nil && patch.Trigger == nil && patch.CronExpr == nil && patch.OwnerID == nil && patch.ScheduleEnabled == nil
 }
@@ -571,6 +581,7 @@ func dagPatchInput(dagKey string, planned plannedDAGPatch) taskdag.UpdateDAGPatc
 	}
 }
 
+// nextRunAtForFinalSchedule 为final计划处理next运行记录at。
 func nextRunAtForFinalSchedule(patch nodeexec.DAGPatch, schedule taskdag.DAGSchedule) *time.Time {
 	if patch.Trigger == nil && patch.CronExpr == nil && patch.ScheduleEnabled == nil {
 		return nil

@@ -94,12 +94,14 @@ type CronExecutorAdapter struct {
 }
 
 // NewCronExecutorAdapter creates an adapter. svc must not be nil.
+// NewCronExecutorAdapter 创建cronexecutor适配器。
 func NewCronExecutorAdapter(svc Service) *CronExecutorAdapter {
 	return &CronExecutorAdapter{svc: svc}
 }
 
 var _ contract.CronTurnExecutor = (*CronExecutorAdapter)(nil)
 
+// CronPrepareTurn 处理cronprepareturn。
 func (a *CronExecutorAdapter) CronPrepareTurn(ctx context.Context, session contract.Session, input contract.CronPrepareInput) (dto.TurnRequest, error) {
 	return a.svc.PrepareTurn(ctx, session, PrepareInput{
 		Prompt:              input.Prompt,
@@ -113,10 +115,12 @@ func (a *CronExecutorAdapter) CronPrepareTurn(ctx context.Context, session contr
 	})
 }
 
+// CronStartTurn 处理cron起点turn。
 func (a *CronExecutorAdapter) CronStartTurn(ctx context.Context, session contract.Session, req dto.TurnRequest) (contract.TurnHandle, error) {
 	return a.svc.StartTurn(ctx, session, req)
 }
 
+// CronTrackTurn 处理crontrackturn。
 func (a *CronExecutorAdapter) CronTrackTurn(ctx context.Context, localID string) (contract.CronTurnStatus, error) {
 	st, err := a.svc.TrackTurn(ctx, localID)
 	if err != nil {
@@ -129,6 +133,7 @@ func (a *CronExecutorAdapter) CronTrackTurn(ctx context.Context, localID string)
 	}, nil
 }
 
+// CronLookupByDedupeKey 按去重键处理cronlookup。
 func (a *CronExecutorAdapter) CronLookupByDedupeKey(ctx context.Context, dedupeKey string) (contract.CronTurnStatus, bool, error) {
 	st, found, err := a.svc.LookupByDedupeKey(ctx, dedupeKey)
 	if err != nil {
