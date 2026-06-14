@@ -13,6 +13,7 @@ import (
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
@@ -379,7 +380,7 @@ func (d *driver) codexToolSurfaceScope(agentID, localThreadID, providerThreadID,
 		WorkspaceRoots:   append([]string(nil), workspaceRoots...),
 		Manifest: contract.BuildManifest(dto.ManifestContext{
 			AgentID:                      strings.TrimSpace(agentID),
-			ThreadID:                     strings.TrimSpace(sharedFirstNonEmpty(providerThreadID, localThreadID, agentID)),
+			ThreadID:                     strings.TrimSpace(shared.FirstNonEmpty(providerThreadID, localThreadID, agentID)),
 			CWD:                          cwd,
 			AdditionalWorkingDirectories: additionalRoots,
 			ThreadCaps:                   cloneCaps(codexCapabilities),
@@ -389,15 +390,6 @@ func (d *driver) codexToolSurfaceScope(agentID, localThreadID, providerThreadID,
 			TransportMode:                dto.ManifestTransportStdioOnly,
 		}),
 	}
-}
-
-func sharedFirstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func (d *driver) finishStartedSession(s *session, req dto.StartSessionRequest, result startResult) contract.Session {
@@ -416,7 +408,7 @@ func (d *driver) finishStartedSession(s *session, req dto.StartSessionRequest, r
 }
 
 func primeResumeToolScope(s *session, req dto.ResumeSessionRequest) {
-	if resumeID := sharedFirstNonEmpty(req.ProviderThreadID, req.ThreadID); resumeID != "" {
+	if resumeID := shared.FirstNonEmpty(req.ProviderThreadID, req.ThreadID); resumeID != "" {
 		s.setThreadID(resumeID)
 	}
 	if cwd := strings.TrimSpace(req.CWD); cwd != "" {

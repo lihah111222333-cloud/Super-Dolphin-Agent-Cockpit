@@ -82,20 +82,12 @@ func logCodexMCPStartupStatus(eventType string, payload map[string]any) bool {
 			"status", status,
 			"error", errMsg,
 		}
-		if isCodexMCPStartupFailureStatus(status) || strings.TrimSpace(errMsg) != "" {
+		statusKind := strings.ToLower(strings.TrimSpace(status))
+		if statusKind == "error" || statusKind == "failed" || statusKind == "failure" || strings.TrimSpace(errMsg) != "" {
 			pkglogger.Get().Warn("codexapp: mcp server startup status", attrs...)
 		} else {
 			pkglogger.Get().Debug("codexapp: mcp server startup status", attrs...)
 		}
-		return true
-	default:
-		return false
-	}
-}
-
-func isCodexMCPStartupFailureStatus(status string) bool {
-	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "error", "failed", "failure":
 		return true
 	default:
 		return false
