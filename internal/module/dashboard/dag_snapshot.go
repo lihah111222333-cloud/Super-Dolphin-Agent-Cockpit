@@ -257,22 +257,26 @@ func dashboardDAGSummaryFromRow(row map[string]any) (contract.DAGSummary, error)
 	if err != nil {
 		return contract.DAGSummary{}, err
 	}
+	scheduleEnabled := strings.TrimSpace(dashboardString(row, "trigger")) == "scheduled" &&
+		strings.TrimSpace(dashboardString(row, "cron_expr")) != "" &&
+		times.nextRunAt != nil
 	return contract.DAGSummary{
-		ID:          id,
-		DagKey:      dagKey,
-		Version:     version,
-		Title:       dashboardString(row, "title"),
-		Description: dashboardString(row, "description"),
-		Status:      dashboardString(row, "status"),
-		CreatedBy:   dashboardString(row, "created_by"),
-		Metadata:    dashboardJSON(row, "metadata"),
-		Trigger:     dashboardString(row, "trigger"),
-		CronExpr:    dashboardString(row, "cron_expr"),
-		NextRunAt:   times.nextRunAt,
-		StartedAt:   times.startedAt,
-		FinishedAt:  times.finishedAt,
-		CreatedAt:   times.createdAt,
-		UpdatedAt:   times.updatedAt,
+		ID:              id,
+		DagKey:          dagKey,
+		Version:         version,
+		Title:           dashboardString(row, "title"),
+		Description:     dashboardString(row, "description"),
+		Status:          dashboardString(row, "status"),
+		CreatedBy:       dashboardString(row, "created_by"),
+		Metadata:        dashboardJSON(row, "metadata"),
+		Trigger:         dashboardString(row, "trigger"),
+		CronExpr:        dashboardString(row, "cron_expr"),
+		NextRunAt:       times.nextRunAt,
+		ScheduleEnabled: scheduleEnabled,
+		StartedAt:       times.startedAt,
+		FinishedAt:      times.finishedAt,
+		CreatedAt:       times.createdAt,
+		UpdatedAt:       times.updatedAt,
 	}, nil
 }
 
