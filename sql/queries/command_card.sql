@@ -10,8 +10,9 @@ WHERE card_key = ?;
 -- name: InsertCommandCardVersion :exec
 INSERT INTO command_card_versions (
     card_key, title, description, command_template, args_schema,
-    risk_level, enabled, created_by, updated_by, source_updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    risk_level, enabled, created_by, updated_by, source_updated_at,
+    created_at, archived_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000));
 
 -- name: ListCommandCardVersions :many
 SELECT id, card_key, title, description, command_template, CAST(args_schema AS BLOB) AS args_schema, risk_level, enabled,

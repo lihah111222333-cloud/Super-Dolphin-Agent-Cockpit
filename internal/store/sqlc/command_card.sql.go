@@ -75,8 +75,9 @@ func (q *Queries) GetCommandCard(ctx context.Context, arg GetCommandCardParams) 
 const insertCommandCardVersion = `-- name: InsertCommandCardVersion :exec
 INSERT INTO command_card_versions (
     card_key, title, description, command_template, args_schema,
-    risk_level, enabled, created_by, updated_by, source_updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    risk_level, enabled, created_by, updated_by, source_updated_at,
+    created_at, archived_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 `
 
 type InsertCommandCardVersionParams struct {

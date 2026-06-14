@@ -13,8 +13,9 @@ WHERE prompt_key = ?;
 -- name: InsertPromptVersion :one
 INSERT INTO prompt_versions (
     prompt_key, title, agent_key, tool_name, prompt_text,
-    variables, tags, description, enabled, created_by, updated_by, source_updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    variables, tags, description, enabled, created_by, updated_by, source_updated_at,
+    created_at, archived_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 RETURNING id;
 
 -- name: UpsertPromptTemplate :one
