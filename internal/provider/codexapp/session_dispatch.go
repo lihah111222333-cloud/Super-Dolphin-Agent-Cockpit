@@ -122,17 +122,20 @@ func (s *session) forceCompleteTargetTurnID(providerID string) (string, bool) {
 }
 
 func (s *session) forceCompleteTurn(turnID string) {
+	s.completeSyntheticTurn(turnID, "force_complete", "")
+}
+
+func (s *session) completeSyntheticTurn(turnID, reason, result string) {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
 		return
 	}
 	s.suppressTurn(turnID)
-	s.dispatch(dto.RawProviderEvent{EventType: "turn/completed", Data: map[string]any{
-		"turnId":  turnID,
-		"success": true,
-		"status":  "completed",
-		"reason":  "force_complete",
-	}})
+	payload := map[string]any{"turnId": turnID, "success": true, "status": "completed", "reason": strings.TrimSpace(reason)}
+	if result = strings.TrimSpace(result); result != "" {
+		payload["result"] = result
+	}
+	s.dispatch(dto.RawProviderEvent{EventType: "turn/completed", Data: payload})
 	if h := s.takeTurn(turnID); h != nil {
 		h.complete(nil)
 	}
