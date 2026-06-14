@@ -104,6 +104,49 @@ func TestPromptIntentCommitRecallWritesScopedRecallSection(t *testing.T) {
 	require.Equal(t, []string{contract.DynamicSectionRecallCatalog}, rec.names)
 }
 
+func TestPromptIntentCommitRecallNormalizesUnderscoreTopicBeforeLock(t *testing.T) {
+	t.Parallel()
+
+	store := newInMemoryPromptStore()
+	card := readyRecallIntentCard()
+	card.Title = "SQLite Prompt Intent Draft Acceptance Token"
+	card.Summary = "SQLite prompt intent acceptance token notes."
+	card.RecallTopic = "sqlite_prompt_intent_draft_acceptance_token"
+	card.RecallBody = "The acceptance token must survive recall draft save."
+	cardJSON, err := json.Marshal(card)
+	require.NoError(t, err)
+	store.drafts["intent/recall/1"] = promptIntentDraftForTest("intent/recall/1", "/repo/a", "recall", "ready_to_save", cardJSON, nil)
+
+	got, err := promptintent.HandleCommit(context.Background(), store, nil, nil, promptintent.CommitParams{
+		DraftKey: "intent/recall/1",
+		Cwd:      "/repo/a",
+	})
+	require.NoError(t, err)
+
+	raw, _ := json.Marshal(got)
+	var result promptintent.CommitResult
+	require.NoError(t, json.Unmarshal(raw, &result))
+	require.Equal(t, "main/knowledge/sqlite-prompt-intent-draft-acceptance-token", result.PromptKey)
+	saved := store.templates[result.PromptKey]
+	section := store.sections[saved.ID]["recall_sqlite_prompt_intent_draft_acceptance_token"]
+	require.Equal(t, "sqlite-prompt-intent-draft-acceptance-token", section.RecallTopic)
+	require.Equal(t, []struct {
+		cwd   string
+		topic string
+	}{{cwd: "/repo/a", topic: "sqlite-prompt-intent-draft-acceptance-token"}}, store.lockRecallCalls)
+	require.Equal(t, []struct {
+		cwd        string
+		topic      string
+		templateID int64
+		sectionKey string
+	}{{
+		cwd:        "/repo/a",
+		topic:      "sqlite-prompt-intent-draft-acceptance-token",
+		templateID: saved.ID,
+		sectionKey: "recall_sqlite_prompt_intent_draft_acceptance_token",
+	}}, store.upsertRecallTargetCalls)
+}
+
 func TestPromptIntentCommitRejectsSiblingReadyDrafts(t *testing.T) {
 	t.Parallel()
 
