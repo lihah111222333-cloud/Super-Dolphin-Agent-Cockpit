@@ -1,9 +1,9 @@
 -- name: UpsertPromptIntentDraft :one
 INSERT INTO prompt_intent_drafts (
     draft_key, cwd, kind, raw_input, source_type, source_url,
-    origin_hash, license_hint, generated_card, confidence, status, scope, issues, updated_at
+    origin_hash, license_hint, generated_card, confidence, status, scope, issues, created_at, updated_at
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000)
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000)
 )
 ON CONFLICT (draft_key) DO UPDATE SET
     cwd = EXCLUDED.cwd,
