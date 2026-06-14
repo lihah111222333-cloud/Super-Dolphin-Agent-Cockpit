@@ -2,13 +2,19 @@ package prompt
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
+	platformsqlite "github.com/anthropic-ai/super-agent-v3/internal/platform/db/sqlite"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
 )
 
 func TestPromptIntentCommitExpertWritesTemplateAndSections(t *testing.T) {
@@ -102,6 +108,39 @@ func TestPromptIntentCommitRecallWritesScopedRecallSection(t *testing.T) {
 		topic string
 	}{{cwd: "/repo/a", topic: "sqlc-workflow"}}, store.lockRecallCalls)
 	require.Equal(t, []string{contract.DynamicSectionRecallCatalog}, rec.names)
+}
+
+func TestPromptIntentCommitRecallSQLiteSavesOldDraftWithoutEnableWhen(t *testing.T) {
+	t.Parallel()
+
+	db := openPromptIntentCommitSQLite(t)
+	store := promptstore.NewStore(sqlc.New(db))
+	card := readyRecallIntentCard()
+	cardJSON, err := json.Marshal(card)
+	require.NoError(t, err)
+	_, err = store.UpsertIntentDraft(context.Background(), promptstore.PromptIntentDraft{
+		DraftKey:      "intent/recall/sqlite",
+		CWD:           "/repo/a",
+		Kind:          "recall",
+		RawInput:      "Remember this sqlc workflow as project knowledge.",
+		GeneratedCard: cardJSON,
+		Confidence:    0.85,
+		Status:        "ready_to_save",
+		Scope:         "project",
+		Issues:        json.RawMessage(`[]`),
+	})
+	require.NoError(t, err)
+
+	_, err = promptintent.HandleCommit(context.Background(), store, nil, nil, promptintent.CommitParams{
+		DraftKey: "intent/recall/sqlite",
+		Cwd:      "/repo/a",
+	})
+	require.NoError(t, err)
+
+	var enableWhen string
+	err = db.QueryRowContext(context.Background(), `SELECT enable_when FROM prompt_template_sections WHERE section_key = ?`, "recall_sqlc_workflow").Scan(&enableWhen)
+	require.NoError(t, err)
+	require.JSONEq(t, `{}`, enableWhen)
 }
 
 func TestPromptIntentCommitRecallNormalizesUnderscoreTopicBeforeLock(t *testing.T) {
@@ -546,5 +585,34 @@ func readyDefaultRuleIntentCard() promptintent.Card {
 		DefaultRuleBody: "Run focused tests before reporting completion.",
 		HitExamples:     []string{"Finish backend prompt changes"},
 		MissExamples:    []string{"Brainstorm product ideas"},
+	}
+}
+
+func openPromptIntentCommitSQLite(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", ":memory:")
+	require.NoError(t, err)
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+	migrationsDir := filepath.Join(promptIntentCommitRepoRoot(t), "internal", "platform", "db", "sqlite", "migrations")
+	require.NoError(t, platformsqlite.RunMigrations(context.Background(), db, migrationsDir))
+	return db
+}
+
+func promptIntentCommitRepoRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	require.NoError(t, err)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatalf("go.mod not found walking up from %s", dir)
+		}
+		dir = parent
 	}
 }

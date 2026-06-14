@@ -3,6 +3,8 @@ package prompt
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -122,6 +124,79 @@ func TestStoreUpsertSectionDefaultsEmptyTriggerTypeToAlways(t *testing.T) {
 	}
 	if captured.TriggerType != "always" || got.TriggerType != "always" {
 		t.Fatalf("UpsertSection() trigger_type = captured %q got %q, want always", captured.TriggerType, got.TriggerType)
+	}
+}
+
+func TestStoreUpsertSectionDefaultsEmptyEnableWhenToJSON(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		enableWhen json.RawMessage
+	}{
+		{name: "nil", enableWhen: nil},
+		{name: "empty", enableWhen: json.RawMessage("")},
+		{name: "whitespace", enableWhen: json.RawMessage(" \t\r\n ")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var captured sqlc.UpsertPromptTemplateSectionParams
+			s := &store{q: &promptQuerierStub{
+				upsertSectionFn: func(_ context.Context, arg sqlc.UpsertPromptTemplateSectionParams) (sqlc.PromptTemplateSection, error) {
+					captured = arg
+					return promptSectionRowFromUpsert(arg), nil
+				},
+			}}
+
+			got, err := s.UpsertSection(context.Background(), PromptTemplateSection{
+				TemplateID:  7,
+				SectionKey:  "identity",
+				Region:      "static",
+				Body:        "body",
+				EnableWhen:  tt.enableWhen,
+				Enabled:     true,
+				TriggerType: "always",
+			})
+			if err != nil {
+				t.Fatalf("UpsertSection() unexpected error: %v", err)
+			}
+			if captured.EnableWhen != "{}" {
+				t.Fatalf("UpsertSection() enable_when = %q, want {}", captured.EnableWhen)
+			}
+			if got == nil || string(got.EnableWhen) != "{}" || !json.Valid(got.EnableWhen) {
+				t.Fatalf("UpsertSection() mapped enable_when = %s, want valid empty object", got.EnableWhen)
+			}
+		})
+	}
+}
+
+func TestStoreUpsertSectionRejectsInvalidEnableWhen(t *testing.T) {
+	t.Parallel()
+	called := false
+	s := &store{q: &promptQuerierStub{
+		upsertSectionFn: func(context.Context, sqlc.UpsertPromptTemplateSectionParams) (sqlc.PromptTemplateSection, error) {
+			called = true
+			return sqlc.PromptTemplateSection{}, nil
+		},
+	}}
+
+	_, err := s.UpsertSection(context.Background(), PromptTemplateSection{
+		TemplateID:  7,
+		SectionKey:  "identity",
+		Region:      "static",
+		Body:        "body",
+		EnableWhen:  json.RawMessage(`{"language":`),
+		Enabled:     true,
+		TriggerType: "always",
+	})
+	if err == nil {
+		t.Fatal("UpsertSection() expected invalid enable_when error, got nil")
+	}
+	if !strings.Contains(err.Error(), "enable_when") || !strings.Contains(err.Error(), "valid JSON") {
+		t.Fatalf("UpsertSection() error = %v, want clear enable_when JSON validation error", err)
+	}
+	if called {
+		t.Fatal("UpsertSection() called sqlc despite invalid enable_when")
 	}
 }
 
