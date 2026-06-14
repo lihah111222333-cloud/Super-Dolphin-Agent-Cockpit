@@ -122,6 +122,7 @@ func commitPromptIntentDraft(ctx context.Context, store promptstore.Store, built
 	if err != nil {
 		return CommitResult{}, err
 	}
+	card = NormalizeGeneratedCard(string(kind), draft.RawInput, card)
 	if err := validatePromptIntentCommitCard(kind, draft.RawInput, card); err != nil {
 		return CommitResult{}, err
 	}
