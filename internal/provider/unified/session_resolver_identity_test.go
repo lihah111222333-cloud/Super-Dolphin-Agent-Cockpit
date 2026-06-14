@@ -31,6 +31,37 @@ func (d *resumeCaptureDriver) ResumeSession(_ context.Context, req dto.ResumeSes
 	return d.session, nil
 }
 
+type resolvingResumeCaptureDriver struct {
+	*resumeCaptureDriver
+	resolveReq dto.ResumeSessionRequest
+}
+
+func (d *resolvingResumeCaptureDriver) ResolveResumeSessionIdentity(_ context.Context, req dto.ResumeSessionRequest) (dto.ResumeSessionRequest, error) {
+	d.resolveReq = req
+	if req.Config == nil {
+		req.Config = map[string]any{}
+	}
+	req.CodexHome = "/Users/test/.codex"
+	req.CodexInstanceKey = "default"
+	req.CodexModelProvider = "openai"
+	req.Config["codexHome"] = req.CodexHome
+	req.Config["codexInstanceKey"] = req.CodexInstanceKey
+	req.Config["codexModelProvider"] = req.CodexModelProvider
+	return req, nil
+}
+
+type recordingSessionBindingUpserter struct {
+	calls   int
+	binding contract.SessionBinding
+	err     error
+}
+
+func (w *recordingSessionBindingUpserter) UpsertSessionBinding(_ context.Context, binding contract.SessionBinding) error {
+	w.calls++
+	w.binding = binding
+	return w.err
+}
+
 func TestSessionResolverAutoResumePassesCodexIdentityGolden(t *testing.T) {
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111111"}}
@@ -160,6 +191,64 @@ func TestSessionResolverAutoResumeBackfillsCodexIdentityFromRuntimeConfig(t *tes
 					driver.resumeReq.CodexModelProvider)
 			}
 		})
+	}
+}
+
+func TestSessionResolverAutoResumeResolvesAndBackfillsLegacyCodexIdentity(t *testing.T) {
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	writer := &recordingSessionBindingUpserter{}
+	driver := &resolvingResumeCaptureDriver{resumeCaptureDriver: &resumeCaptureDriver{
+		name:    "codex",
+		session: &generationTestSession{threadID: "99999999-aaaa-bbbb-cccc-999999999999"},
+	}}
+	resolver := &sessionResolver{
+		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
+			ThreadID: "public-thread-legacy",
+			AgentID:  "agent-legacy",
+			RuntimeConfig: map[string]any{
+				"provider": "codex",
+				"cwd":      "/repo",
+			},
+		}},
+		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+			"codex:provider-thread-legacy": {
+				Provider:         "codex",
+				AgentID:          "agent-legacy",
+				ProviderThreadID: "99999999-aaaa-bbbb-cccc-999999999999",
+				CodexThreadID:    "public-thread-legacy",
+				RolloutPath:      rolloutPath,
+				Cwd:              "/repo",
+				CreatedAt:        123,
+			},
+		}},
+		bindingWriter: writer,
+		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+			{Name: "codex", Create: func() contract.Driver { return driver }},
+		}}),
+		sessions: NewSessionManager(nil),
+	}
+
+	if _, err := resolver.ResolveSession(context.Background(), "public-thread-legacy"); err != nil {
+		t.Fatalf("ResolveSession() error = %v", err)
+	}
+	if driver.resumeReq.CodexHome != "/Users/test/.codex" ||
+		driver.resumeReq.CodexInstanceKey != "default" ||
+		driver.resumeReq.CodexModelProvider != "openai" {
+		t.Fatalf("ResumeSession codex identity = %q/%q/%q, want resolved default identity",
+			driver.resumeReq.CodexHome,
+			driver.resumeReq.CodexInstanceKey,
+			driver.resumeReq.CodexModelProvider)
+	}
+	if writer.calls != 1 {
+		t.Fatalf("binding backfill calls = %d, want 1", writer.calls)
+	}
+	if writer.binding.CodexHome != "/Users/test/.codex" ||
+		writer.binding.CodexInstanceKey != "default" ||
+		writer.binding.CodexModelProvider != "openai" {
+		t.Fatalf("backfilled codex identity = %q/%q/%q, want resolved default identity",
+			writer.binding.CodexHome,
+			writer.binding.CodexInstanceKey,
+			writer.binding.CodexModelProvider)
 	}
 }
 

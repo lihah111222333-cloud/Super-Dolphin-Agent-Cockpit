@@ -7,4 +7,5 @@ import (
 var Module = fx.Module("store.binding",
 	fx.Provide(NewStore),
 	fx.Provide(NewSessionBindingLookup),
+	fx.Provide(NewSessionBindingUpserter),
 )

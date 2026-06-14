@@ -34,6 +34,14 @@ type tracedSession struct {
 	tracer   *observability.Service
 }
 
+func (s *tracedSession) RuntimeConfigSnapshot() map[string]any {
+	reader, ok := s.Session.(interface{ RuntimeConfigSnapshot() map[string]any })
+	if !ok {
+		return nil
+	}
+	return reader.RuntimeConfigSnapshot()
+}
+
 func (s *tracedSession) StartTurn(ctx context.Context, req dto.TurnRequest) (handle contract.TurnHandle, err error) {
 	started := time.Now()
 	defer func() {
