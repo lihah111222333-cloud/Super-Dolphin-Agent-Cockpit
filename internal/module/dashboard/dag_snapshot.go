@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"math"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
@@ -255,11 +253,7 @@ func dashboardDAGSummaryFromRow(row map[string]any) (contract.DAGSummary, error)
 	if err != nil {
 		return contract.DAGSummary{}, err
 	}
-	createdAt, err := dashboardRowTime(row, "created_at", true)
-	if err != nil {
-		return contract.DAGSummary{}, err
-	}
-	updatedAt, err := dashboardRowTime(row, "updated_at", true)
+	times, err := dashboardDAGSummaryTimesFromRow(row)
 	if err != nil {
 		return contract.DAGSummary{}, err
 	}
@@ -274,11 +268,11 @@ func dashboardDAGSummaryFromRow(row map[string]any) (contract.DAGSummary, error)
 		Metadata:    dashboardJSON(row, "metadata"),
 		Trigger:     dashboardString(row, "trigger"),
 		CronExpr:    dashboardString(row, "cron_expr"),
-		NextRunAt:   dashboardOptionalTime(row, "next_run_at"),
-		StartedAt:   dashboardOptionalTime(row, "started_at"),
-		FinishedAt:  dashboardOptionalTime(row, "finished_at"),
-		CreatedAt:   createdAt,
-		UpdatedAt:   updatedAt,
+		NextRunAt:   times.nextRunAt,
+		StartedAt:   times.startedAt,
+		FinishedAt:  times.finishedAt,
+		CreatedAt:   times.createdAt,
+		UpdatedAt:   times.updatedAt,
 	}, nil
 }
 
@@ -311,11 +305,7 @@ func dashboardDAGNodeFromRow(row map[string]any) (contract.DAGNode, error) {
 	if err != nil {
 		return contract.DAGNode{}, err
 	}
-	createdAt, err := dashboardRowTime(row, "created_at", true)
-	if err != nil {
-		return contract.DAGNode{}, err
-	}
-	updatedAt, err := dashboardRowTime(row, "updated_at", true)
+	times, err := dashboardDAGNodeTimesFromRow(row)
 	if err != nil {
 		return contract.DAGNode{}, err
 	}
@@ -335,13 +325,13 @@ func dashboardDAGNodeFromRow(row map[string]any) (contract.DAGNode, error) {
 		CommandRef:       dashboardString(row, "command_ref"),
 		Config:           dashboardJSON(row, "config"),
 		Result:           dashboardJSON(row, "result"),
-		StartedAt:        dashboardOptionalTime(row, "started_at"),
-		FinishedAt:       dashboardOptionalTime(row, "finished_at"),
-		CreatedAt:        createdAt,
-		UpdatedAt:        updatedAt,
+		StartedAt:        times.startedAt,
+		FinishedAt:       times.finishedAt,
+		CreatedAt:        times.createdAt,
+		UpdatedAt:        times.updatedAt,
 		ActiveTurnID:     dashboardStringPtr(row, "active_turn_id"),
 		ActiveWakeupID:   activeWakeupID,
-		LastEventAt:      dashboardOptionalTime(row, "last_event_at"),
+		LastEventAt:      times.lastEventAt,
 		SpawningThreadID: dashboardStringPtr(row, "spawning_thread_id"),
 	}, nil
 }
@@ -379,15 +369,7 @@ func dashboardRunFromRow(row map[string]any) (contract.Run, error) {
 	if err != nil {
 		return contract.Run{}, err
 	}
-	startedAt, err := dashboardRowTime(row, "started_at", true)
-	if err != nil {
-		return contract.Run{}, err
-	}
-	createdAt, err := dashboardRowTime(row, "created_at", true)
-	if err != nil {
-		return contract.Run{}, err
-	}
-	updatedAt, err := dashboardRowTime(row, "updated_at", true)
+	times, err := dashboardRunTimesFromRow(row)
 	if err != nil {
 		return contract.Run{}, err
 	}
@@ -402,14 +384,14 @@ func dashboardRunFromRow(row map[string]any) (contract.Run, error) {
 		DagVersionSnapshot: version,
 		TriggerSource:      dashboardString(row, "trigger_source"),
 		Status:             dashboardString(row, "status"),
-		StartedAt:          startedAt,
-		FinishedAt:         dashboardOptionalTime(row, "finished_at"),
+		StartedAt:          times.startedAt,
+		FinishedAt:         times.finishedAt,
 		Events:             dashboardJSONOrDefault(row, "events", json.RawMessage("[]")),
 		BudgetUsed:         budgetUsed,
 		BudgetLimit:        budgetLimit,
 		Metadata:           dashboardJSONOrDefault(row, "metadata", json.RawMessage("{}")),
-		CreatedAt:          createdAt,
-		UpdatedAt:          updatedAt,
+		CreatedAt:          times.createdAt,
+		UpdatedAt:          times.updatedAt,
 	}, nil
 }
 
@@ -547,48 +529,4 @@ func dashboardOptionalInt64Ptr(row map[string]any, key string) (*int64, error) {
 		return nil, err
 	}
 	return &value, nil
-}
-
-func dashboardRowTime(row map[string]any, key string, required bool) (time.Time, error) {
-	ptr, err := dashboardRowTimePtr(row, key, required)
-	if err != nil {
-		return time.Time{}, err
-	}
-	if ptr == nil {
-		return time.Time{}, nil
-	}
-	return *ptr, nil
-}
-
-func dashboardOptionalTime(row map[string]any, key string) *time.Time {
-	value, err := dashboardRowTimePtr(row, key, false)
-	if err != nil {
-		slog.Warn("dashboard: dashboardOptionalTime parse failed", "key", key, "error", err)
-		return nil
-	}
-	return value
-}
-
-func dashboardRowTimePtr(row map[string]any, key string, required bool) (*time.Time, error) {
-	value, ok := row[key]
-	if !ok || value == nil {
-		if required {
-			return nil, fmt.Errorf("%s is required", key)
-		}
-		return nil, nil
-	}
-	switch typed := value.(type) {
-	case time.Time:
-		return &typed, nil
-	case *time.Time:
-		return typed, nil
-	case string:
-		parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(typed))
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", key, err)
-		}
-		return &parsed, nil
-	default:
-		return nil, fmt.Errorf("%s has unsupported type %T", key, value)
-	}
 }
