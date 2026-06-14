@@ -402,13 +402,17 @@ func (s *store) UpsertSection(ctx context.Context, section PromptTemplateSection
 	if err := validatePromptSectionRecallTopic(triggerType, section.RecallTopic); err != nil {
 		return nil, wrapPromptError(err, "upsert_section", "prompt_template_sections")
 	}
+	enableWhen, err := normalizePromptSectionEnableWhen(section.EnableWhen)
+	if err != nil {
+		return nil, wrapPromptError(err, "upsert_section", "prompt_template_sections")
+	}
 	row, err := q.UpsertPromptTemplateSection(ctx, sqlc.UpsertPromptTemplateSectionParams{
 		TemplateID:  section.TemplateID,
 		SectionKey:  sectionKey,
 		Region:      region,
 		Ordinal:     int64(section.Ordinal),
 		Body:        section.Body,
-		EnableWhen:  string(section.EnableWhen),
+		EnableWhen:  enableWhen,
 		Enabled:     boolToInt64(section.Enabled),
 		TriggerType: triggerType,
 		RecallTopic: normalizePromptSectionRecallTopic(triggerType, section.RecallTopic),
@@ -418,6 +422,17 @@ func (s *store) UpsertSection(ctx context.Context, section PromptTemplateSection
 	}
 	mapped := fromListSectionRow(row)
 	return &mapped, nil
+}
+
+func normalizePromptSectionEnableWhen(enableWhen json.RawMessage) (string, error) {
+	trimmed := strings.TrimSpace(string(enableWhen))
+	if trimmed == "" {
+		return "{}", nil
+	}
+	if !json.Valid([]byte(trimmed)) {
+		return "", errors.New("prompt section enable_when must be valid JSON")
+	}
+	return trimmed, nil
 }
 
 func normalizePromptSectionRecallTopic(triggerType, value string) string {
