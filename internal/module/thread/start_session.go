@@ -427,9 +427,7 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 		return ResumeRequest{}, resumeState{}, err
 	}
 	req.ClaudeHome = util.FirstNonEmpty(req.ClaudeHome, state.ClaudeHome, resumeRuntimeConfigString(state.ConfigOverride.Runtime, "claudeHome", "claude_home", "history_dir"))
-	req.CodexHome = util.FirstNonEmpty(req.CodexHome, state.CodexHome)
-	req.CodexInstanceKey = util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
-	req.CodexModelProvider = util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
+	req = hydrateResumeCodexIdentity(req, state)
 	req.CodexDisabledNativeTools = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
 	req.Config = mergeRuntimeConfig(clone.RuntimeConfigMap(state.ConfigOverride.Runtime), req.Config)
 	req, err = s.injectDefaultCodexIdentityForResume(req)
@@ -454,6 +452,29 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	state.CodexInstanceKey = util.FirstNonEmpty(state.CodexInstanceKey, req.CodexInstanceKey)
 	state.CodexModelProvider = util.FirstNonEmpty(state.CodexModelProvider, req.CodexModelProvider)
 	return req, state, nil
+}
+
+func hydrateResumeCodexIdentity(req ResumeRequest, state resumeState) ResumeRequest {
+	if !strings.EqualFold(strings.TrimSpace(req.Provider), "codex") {
+		return req
+	}
+	runtime := state.ConfigOverride.Runtime
+	req.CodexHome = util.FirstNonEmpty(
+		req.CodexHome,
+		state.CodexHome,
+		resumeRuntimeConfigString(runtime, contract.CodexHomeKey, "codex_home"),
+	)
+	req.CodexInstanceKey = util.FirstNonEmpty(
+		req.CodexInstanceKey,
+		state.CodexInstanceKey,
+		resumeRuntimeConfigString(runtime, contract.CodexInstanceKeyKey, "codex_instance_key"),
+	)
+	req.CodexModelProvider = util.FirstNonEmpty(
+		req.CodexModelProvider,
+		state.CodexModelProvider,
+		resumeRuntimeConfigString(runtime, contract.CodexModelProviderKey, "codex_model_provider"),
+	)
+	return req
 }
 
 func trimResumeRequest(req ResumeRequest) (ResumeRequest, error) {
