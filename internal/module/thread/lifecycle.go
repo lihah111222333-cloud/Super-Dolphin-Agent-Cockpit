@@ -372,8 +372,8 @@ func (s *service) persistResumedSession(
 ) (ResumeResult, error) {
 	model := util.FirstNonEmpty(req.Model, state.Model)
 	codexHome := util.FirstNonEmpty(req.CodexHome, state.CodexHome, sessionRuntimeConfigString(session, "codexHome"))
-	codexInstanceKey := util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
-	codexModelProvider := util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
+	codexInstanceKey := util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey, sessionRuntimeConfigString(session, "codexInstanceKey"))
+	codexModelProvider := util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider, sessionRuntimeConfigString(session, "codexModelProvider"))
 	if s.logger != nil {
 		s.logger.Warn("thread: persist resumed session codex identity",
 			"agent_id", req.AgentID,
