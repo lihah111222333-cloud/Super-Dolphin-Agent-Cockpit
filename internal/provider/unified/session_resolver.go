@@ -213,6 +213,7 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 	// passing it as req.ThreadID let placeholders cross provider boundaries
 	// into claude driver, where it caused the 5s system:init deadlock.
 	// req.ThreadID may be empty; the driver derives a synthetic ID itself.
+	codexHome, codexInstanceKey, codexModelProvider := autoResumeCodexIdentityFields(binding, runtimeConfig)
 
 	req := dto.ResumeSessionRequest{
 		Provider:           provider,
@@ -221,9 +222,9 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 		ProviderThreadID:   providerThreadID,
 		CWD:                cwd,
 		Config:             clone.RuntimeConfigMap(runtimeConfig),
-		CodexHome:          binding.CodexHome,
-		CodexInstanceKey:   binding.CodexInstanceKey,
-		CodexModelProvider: binding.CodexModelProvider,
+		CodexHome:          codexHome,
+		CodexInstanceKey:   codexInstanceKey,
+		CodexModelProvider: codexModelProvider,
 	}
 	pkglogger.Warn("resolve session: auto-resume binding snapshot from DB",
 		"agent_id", binding.AgentID,
@@ -252,6 +253,35 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 		"thread_id", session.ThreadID(),
 	)
 	return session, nil
+}
+
+func autoResumeCodexIdentityFields(binding *contract.SessionBinding, runtimeConfig map[string]any) (string, string, string) {
+	if binding == nil {
+		return "", "", ""
+	}
+	return firstAutoResumeString(binding.CodexHome, runtimeConfig, contract.CodexHomeKey, "codex_home"),
+		firstAutoResumeString(binding.CodexInstanceKey, runtimeConfig, contract.CodexInstanceKeyKey, "codex_instance_key"),
+		firstAutoResumeString(binding.CodexModelProvider, runtimeConfig, contract.CodexModelProviderKey, "codex_model_provider")
+}
+
+func firstAutoResumeString(bindingValue string, runtimeConfig map[string]any, runtimeKeys ...string) string {
+	if text := strings.TrimSpace(bindingValue); text != "" {
+		return text
+	}
+	for _, key := range runtimeKeys {
+		raw, ok := runtimeConfig[strings.TrimSpace(key)]
+		if !ok {
+			continue
+		}
+		text, ok := raw.(string)
+		if !ok {
+			continue
+		}
+		if text = strings.TrimSpace(text); text != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 func (r *sessionResolver) lookupAutoResumeRuntimeConfig(ctx context.Context, binding *contract.SessionBinding) map[string]any {
