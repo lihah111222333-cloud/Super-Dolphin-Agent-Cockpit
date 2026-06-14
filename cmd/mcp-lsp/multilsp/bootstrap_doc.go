@@ -43,6 +43,7 @@ func (m *manager) deleteStaleDiagnosticsForSnapshot(scope ResolvedLSPToolScope, 
 	})
 }
 
+// matchingStaleDiagnosticsForSnapshot 为快照处理matchingstale诊断。
 func (m *manager) matchingStaleDiagnosticsForSnapshot(scope ResolvedLSPToolScope, doc documentSnapshot, visit func(string)) bool {
 	if m == nil || strings.TrimSpace(doc.ref.uri) == "" {
 		return false
@@ -73,6 +74,7 @@ func diagnosticSnapshotMatchesRefreshScope(snapshot diagnosticSnapshot, scope Re
 	return snapshot.scopeKey == scope.ScopeKey && snapshot.workspaceKey == scope.WorkspaceKey
 }
 
+// diagnosticSnapshotStaleForDocument 为document处理诊断快照stale。
 func diagnosticSnapshotStaleForDocument(snapshot diagnosticSnapshot, doc documentSnapshot) bool {
 	if snapshot.fingerprint != "" && doc.fingerprint != "" {
 		return snapshot.fingerprint != doc.fingerprint
@@ -181,6 +183,7 @@ func (m *manager) bootstrapTarget(ctx context.Context, uri string) (documentRef,
 	return ref, cfg, nil
 }
 
+// syncDocument 同步document。
 func (c *bootstrapCoordinator) syncDocument(ctx context.Context, m *manager, cfg workspaceConfig, ref documentRef) error {
 	if ref.uri == "" || !m.shouldUseClientForLanguage(ref.languageID) {
 		return nil
@@ -201,6 +204,7 @@ func (c *bootstrapCoordinator) syncDocument(ctx context.Context, m *manager, cfg
 	return c.syncSnapshot(ctx, m, cfg, snapshot)
 }
 
+// syncSnapshot 同步快照。
 func (c *bootstrapCoordinator) syncSnapshot(ctx context.Context, m *manager, cfg workspaceConfig, snapshot documentSnapshot) error {
 	scope, err := m.resolvedScopeForConfig(ctx, cfg)
 	if err != nil {
@@ -235,6 +239,7 @@ func (c *bootstrapCoordinator) syncSnapshot(ctx context.Context, m *manager, cfg
 	return nil
 }
 
+// openSnapshotIfNeeded 打开快照ifneeded。
 func (c *bootstrapCoordinator) openSnapshotIfNeeded(ctx context.Context, m *manager, cfg workspaceConfig, snapshot documentSnapshot) error {
 	scope, err := m.resolvedScopeForConfig(ctx, cfg)
 	if err != nil {
@@ -262,6 +267,7 @@ func (c *bootstrapCoordinator) openSnapshotIfNeeded(ctx context.Context, m *mana
 	return nil
 }
 
+// openSnapshotVersion 打开快照版本。
 func (c *bootstrapCoordinator) openSnapshotVersion(key lspCacheKey, snapshot documentSnapshot) (int, error) {
 	version := 1
 	if record, cached := c.cache.Load(key); cached && cacheValueMatchesSnapshot(record, snapshot) {
@@ -285,6 +291,7 @@ func applyBootstrapUpdate(ctx context.Context, client Client, snapshot documentS
 	return client.DidOpen(ctx, snapshot.ref.uri, snapshot.ref.languageID, req.version, snapshot.text)
 }
 
+// refreshWorkspace 刷新工作区。
 func (c *bootstrapCoordinator) refreshWorkspace(ctx context.Context, m *manager, cfg workspaceConfig, excludeURI string) {
 	scope, err := m.resolvedScopeForConfig(ctx, cfg)
 	if err != nil {
@@ -379,6 +386,7 @@ func readDocumentSnapshot(ref documentRef) (documentSnapshot, error) {
 	}, nil
 }
 
+// siblingDocumentRefs 处理siblingdocumentrefs。
 func siblingDocumentRefs(target documentRef, extensions []string) ([]documentRef, error) {
 	entries, err := os.ReadDir(filepath.Dir(target.absPath))
 	if err != nil {
@@ -412,6 +420,7 @@ func siblingDocumentRefs(target documentRef, extensions []string) ([]documentRef
 	return refs, nil
 }
 
+// runRefreshTasks 运行refresh任务。
 func runRefreshTasks(ctx context.Context, width, count int, fn func(int)) {
 	if count == 0 {
 		return

@@ -87,6 +87,7 @@ func parseLevel(raw string) (slog.Level, bool) {
 	}
 }
 
+// resolveInitModeAndLevel 解析init模式level。
 func resolveInitModeAndLevel(raw string) (Mode, slog.Level) {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	buildMode := modeFromBuildMode()
@@ -129,6 +130,7 @@ func replaceLogAttr(_ []string, a slog.Attr) slog.Attr {
 	return mapECSLogAttr(a)
 }
 
+// mapECSLogAttr 映射ecs日志attr。
 func mapECSLogAttr(a slog.Attr) slog.Attr {
 	switch a.Key {
 	case slog.TimeKey:
@@ -177,15 +179,18 @@ func newLoggerWithWriter(mode Mode, level slog.Level, out io.Writer) *slog.Logge
 	return applyGlobalAttrs(slog.New(newHandler(mode, level, out)))
 }
 
+// Init 处理init。
 func Init(env string) {
 	mode, level := resolveInitModeAndLevel(env)
 	InitModeWithLevel(mode, level)
 }
 
+// InitMode 处理init模式。
 func InitMode(mode Mode) {
 	InitModeWithLevel(mode, defaultLevelForMode(mode))
 }
 
+// InitModeWithLevel 处理带level的init模式。
 func InitModeWithLevel(mode Mode, level slog.Level) {
 	mode = normalizeMode(mode)
 	logFileMu.Lock()
@@ -218,10 +223,12 @@ func nextRunNumber(logDir, date, prefix string) int {
 	return maxN + 1
 }
 
+// InitWithFile 处理带文件的init。
 func InitWithFile(logDir string) error {
 	return InitWithFileOptions(logDir, FileOptions{})
 }
 
+// InitWithFileOptions 处理带文件选项的init。
 func InitWithFileOptions(logDir string, opts FileOptions) error {
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return fmt.Errorf("logger init create log dir: %w", err)
@@ -260,6 +267,7 @@ func InitWithFileOptions(logDir string, opts FileOptions) error {
 	return nil
 }
 
+// InitWithConsoleWriter 处理带console写入器的init。
 func InitWithConsoleWriter(out io.Writer) {
 	if out == nil {
 		out = os.Stderr
@@ -294,6 +302,7 @@ func rebuildLoggerWithFile(f *os.File) {
 	storeLogger(newLoggerWithWriter(mode, level, writer))
 }
 
+// SetProject 设置项目。
 func SetProject(name string) {
 	logFileMu.Lock()
 	globalProject = strings.TrimSpace(name)
@@ -301,6 +310,7 @@ func SetProject(name string) {
 	rebuildActiveLogger()
 }
 
+// resolveProjectLogDir 解析项目日志目录。
 func resolveProjectLogDir(homeDir, cwd string) (string, string) {
 	logDir := "logs"
 	if home := strings.TrimSpace(homeDir); home != "" {

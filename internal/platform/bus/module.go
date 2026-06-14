@@ -51,6 +51,7 @@ func provideLogSink(p logSinkParams) *LogSink {
 	})
 }
 
+// NewSubscriberGroup 创建订阅器group。
 func NewSubscriberGroup(in subscriberGroupIn) *SubscriberGroup {
 	return &SubscriberGroup{dispatcher: in.Dispatcher, specs: append([]SubscriberSpec(nil), in.Specs...), intake: true}
 }

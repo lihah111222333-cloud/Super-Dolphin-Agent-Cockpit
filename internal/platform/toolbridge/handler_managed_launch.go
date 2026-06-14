@@ -21,6 +21,7 @@ func (h *Handler) injectManagedLaunchContext(ctx context.Context, req ToolCallRe
 	}
 }
 
+// injectManagedLaunchToolContext 处理injectmanaged启动工具上下文。
 func (h *Handler) injectManagedLaunchToolContext(ctx context.Context, req ToolCallRequest) ToolCallRequest {
 	binding, ok := h.resolveCurrentToolCallBinding(ctx, req)
 	if !ok || strings.TrimSpace(binding.AgentID) == "" {
@@ -136,6 +137,7 @@ func preferenceString(values map[string]any, key string) string {
 	return strings.TrimSpace(text)
 }
 
+// normalizeProviderPreferenceScope 规范化providerpreference作用域。
 func normalizeProviderPreferenceScope(provider string) string {
 	normalized := strings.ToLower(strings.TrimSpace(provider))
 	switch {
@@ -168,6 +170,7 @@ func compatibleManagedLaunchModelEffort(provider, model, effort string) (string,
 	return model, effort
 }
 
+// managedLaunchModelCompatible 处理managed启动模型compatible。
 func managedLaunchModelCompatible(provider, model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
 	if model == "" {
@@ -225,6 +228,7 @@ func (h *Handler) warnManagedLaunchConfigTrace(ctx context.Context, req ToolCall
 	)
 }
 
+// readStoredThreadRuntime 读取stored线程运行时。
 func (h *Handler) readStoredThreadRuntime(ctx context.Context, threadID string) (storedThreadRuntime, bool) {
 	if h == nil || h.threadStore == nil || strings.TrimSpace(threadID) == "" {
 		return storedThreadRuntime{}, false

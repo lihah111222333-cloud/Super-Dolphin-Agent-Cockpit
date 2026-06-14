@@ -110,6 +110,7 @@ func writeToolPayloadSnapshot(snapshot toolPayloadSnapshot) toolPayloadLogRef {
 	return toolPayloadLogRef{Path: path, Bytes: len(line)}
 }
 
+// toolPayloadLogDir 处理工具载荷日志目录。
 func toolPayloadLogDir() (string, error) {
 	if dir := strings.TrimSpace(os.Getenv(toolPayloadLogDirEnv)); dir != "" {
 		return filepath.Abs(dir)

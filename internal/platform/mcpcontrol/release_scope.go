@@ -13,6 +13,7 @@ type lspReleaseScopeDispatcher interface {
 	DispatchLSPReleaseScope(ctx context.Context, req dto.LSPReleaseScopeRequest) (dto.LSPReleaseScopeResult, error)
 }
 
+// releaseScopeRequestFromConfigPayload 从配置载荷处理release作用域请求。
 func releaseScopeRequestFromConfigPayload(payload map[string]any) (dto.LSPReleaseScopeRequest, bool) {
 	if payload == nil {
 		return dto.LSPReleaseScopeRequest{}, false
@@ -60,6 +61,7 @@ func firstNonEmptyString(values ...string) string {
 // DispatchLSPReleaseScope sends the mcp-lsp admin callback to the exact
 // trusted LSP peer for the scope, the same agent's LSP peer, or an explicit
 // shared LSP peer. It never falls back to an unrelated agent-bound peer.
+// DispatchLSPReleaseScope 派发LSPrelease作用域。
 func (r *ToolRegistry) DispatchLSPReleaseScope(ctx context.Context, req dto.LSPReleaseScopeRequest) (dto.LSPReleaseScopeResult, error) {
 	if r == nil {
 		return dto.LSPReleaseScopeResult{}, errPeerUnavailable("mcp registry is nil")
@@ -111,6 +113,7 @@ func normalizeLSPReleaseScopeRequest(req dto.LSPReleaseScopeRequest) dto.LSPRele
 	return req
 }
 
+// validateLSPReleaseScopeRequest 校验LSPrelease作用域请求。
 func validateLSPReleaseScopeRequest(req dto.LSPReleaseScopeRequest) error {
 	switch req.ScopeKind {
 	case dto.LSPReleaseScopeAgentThread:

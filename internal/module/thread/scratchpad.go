@@ -94,6 +94,7 @@ func configProjectRoot(cfg *contract.Config) string {
 	return strings.TrimSpace(cfg.ProjectRoot)
 }
 
+// sanitizeScratchpadPath 清理scratchpad路径。
 func sanitizeScratchpadPath(raw string) string {
 	normalized := filepath.ToSlash(strings.TrimSpace(raw))
 	var builder strings.Builder
@@ -124,6 +125,7 @@ func cleanupManagedScratchpadDir(dir string) error {
 	return os.RemoveAll(filepath.Dir(filepath.Clean(dir)))
 }
 
+// isManagedScratchpadDir 判断managedscratchpad目录是否可用。
 func isManagedScratchpadDir(dir string) bool {
 	cleaned := filepath.Clean(strings.TrimSpace(dir))
 	if cleaned == "." || cleaned == string(filepath.Separator) {

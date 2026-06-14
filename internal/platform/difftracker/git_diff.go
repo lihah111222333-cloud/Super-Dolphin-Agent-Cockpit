@@ -11,6 +11,7 @@ import (
 	"github.com/pmezard/go-difflib/difflib"
 )
 
+// BeginSnapshot 处理begin快照。
 func BeginSnapshot(ctx context.Context, path string) (*Snapshot, error) {
 	root, err := findGitRoot(ctx, path)
 	if err != nil {
@@ -32,6 +33,7 @@ func BeginSnapshot(ctx context.Context, path string) (*Snapshot, error) {
 
 // EmitCurrentGitDiff emits the current working-tree diff against HEAD.
 // It is intended for post-tool-call fallback paths where no before snapshot exists.
+// EmitCurrentGitDiff 处理emit当前gitdiff。
 func EmitCurrentGitDiff(ctx context.Context, path string) (string, []string, error) {
 	root, err := findGitRoot(ctx, path)
 	if err != nil {
@@ -41,6 +43,7 @@ func EmitCurrentGitDiff(ctx context.Context, path string) (string, []string, err
 	return EmitGitDiff(ctx, snapshot)
 }
 
+// EmitGitDiff 处理emitgitdiff。
 func EmitGitDiff(ctx context.Context, snapshot *Snapshot) (string, []string, error) {
 	if snapshot == nil || strings.TrimSpace(snapshot.root) == "" {
 		return "", nil, nil
@@ -126,6 +129,7 @@ func captureBeforeFile(ctx context.Context, repoRoot, relPath string) (beforeFil
 	return beforeFileState{path: relPath, head: head, before: before, tracked: tracked, existedBefore: existedBefore}, true, nil
 }
 
+// emitDiffBlock 处理emitdiffblock。
 func emitDiffBlock(ctx context.Context, snapshot *Snapshot, relPath string) (string, bool, error) {
 	state, hadBefore, err := snapshotState(ctx, snapshot, relPath)
 	if err != nil {
@@ -212,6 +216,7 @@ func looksBinary(data []byte) bool {
 	return slices.Contains(data, byte(0))
 }
 
+// buildUnifiedDiffBlockWithState 构建带状态的unifieddiffblock。
 func buildUnifiedDiffBlockWithState(path string, tracked bool, before string, afterExists bool, after string) string {
 	clean := normalizeDiffPath(path)
 	if clean == "" || (tracked == afterExists && before == after) {

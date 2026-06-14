@@ -65,6 +65,7 @@ func resolveTurnRPCCWD(requestCWD string, threadRuntimeConfig map[string]any) (s
 	return authoritativeCWD, nil
 }
 
+// sameTurnRPCCWD 处理sameturnrpccwd。
 func sameTurnRPCCWD(requestCWD, authoritativeCWD string) bool {
 	if requestCWD == authoritativeCWD {
 		return true
@@ -165,6 +166,7 @@ func readyTurnWaitContext(ctx context.Context) (context.Context, context.CancelF
 	return ctxutil.WithTimeoutIfNone(ctx, ctxutil.LaunchTimeout)
 }
 
+// waitForReadyTurnSession 等待会话 ready 后再提交 turn。
 func waitForReadyTurnSession(
 	waitCtx context.Context,
 	resolver contract.SessionResolver,
@@ -225,6 +227,7 @@ func collectTurnStartUserInput(p turnStartParams) string {
 	return ""
 }
 
+// turnStartHandler 处理turn起点处理器。
 func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner contract.PendingLaunchSpawner, capResolver contract.CapabilityResolver, runtimeReader ThreadStateConfigReader) handler.Func {
 	_ = capResolver
 	return platformrpc.ThreadHandler(func(ctx context.Context, p turnStartParams) (any, error) {
@@ -320,6 +323,7 @@ func completeLaunchIntentIfAvailable(ctx context.Context, spawner contract.Pendi
 	completer.CompleteLaunchIntent(ctx, contract.ThreadIDFrom(ctx))
 }
 
+// turnSteerHandler 处理turnsteer处理器。
 func turnSteerHandler(svc Service, resolver contract.SessionResolver, capResolver contract.CapabilityResolver, runtimeReader ThreadStateConfigReader) handler.Func {
 	_ = capResolver
 	return platformrpc.ThreadHandler(func(ctx context.Context, p turnSteerParams) (any, error) {
@@ -412,6 +416,7 @@ func (p turnInputItemParams) skillName() string {
 	return util.FirstTrimmed(p.Name, p.Text, p.Content, p.Path)
 }
 
+// inputItem 处理inputitem。
 func (p turnInputItemParams) inputItem() (InputItem, bool) {
 	item := InputItem{
 		Type:    util.FirstTrimmed(p.Type),

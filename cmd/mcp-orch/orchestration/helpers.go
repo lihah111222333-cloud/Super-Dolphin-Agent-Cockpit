@@ -52,6 +52,7 @@ func buildStatesFromDefinitions(defs []agentdto.TransitionDefinition) []platform
 	return states
 }
 
+// BindActiveTurnID 把当前活跃 turn 绑定到 provider 返回的真实 turn ID。
 func (s *service) BindActiveTurnID(ctx context.Context, agentID, turnID string) error {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
@@ -75,6 +76,7 @@ func (s *service) BindActiveTurnID(ctx context.Context, agentID, turnID string) 
 // launches) via exitmonitor.Monitor.Arm; the runnerActor is a pure consumer
 // of monitor.ExitEvents() and no longer polls for unmonitored cmds.
 
+// reconcileReadyStateLocked 在进程已就绪时修正本地状态和队列状态。
 func (s *service) reconcileReadyStateLocked(ctx context.Context, agent *agentRuntime) {
 	if agent.cmd == nil || agent.stopRequested {
 		return
@@ -96,6 +98,7 @@ func (s *service) reconcileReadyStateLocked(ctx context.Context, agent *agentRun
 	}
 }
 
+// startTurnExecution 等待 session 可提交后，把排队的 turn 交给 provider 执行。
 func (s *service) startTurnExecution(ctx context.Context, work turnWork) {
 	startedAt := time.Now()
 	logger := pkglogger.FromContext(ctx)
@@ -136,6 +139,7 @@ func (s *service) startTurnExecution(ctx context.Context, work turnWork) {
 	s.finishTurnStartSuccess(ctx, work, startedTurnID)
 }
 
+// finishTurnStartSuccess 记录 provider 接受的 turn ID，并把状态推进到运行中。
 func (s *service) finishTurnStartSuccess(ctx context.Context, work turnWork, startedTurnID string) {
 	currentTurnID := strings.TrimSpace(startedTurnID)
 	if currentTurnID == "" {
@@ -235,6 +239,7 @@ func (s *service) submitAgentReadyState(ctx context.Context, agentID string) (bo
 	return ready, err
 }
 
+// waitForSubmitSessionReady 在提交 turn 前等待 provider session 完成启动。
 func (s *service) waitForSubmitSessionReady(ctx context.Context, agentID string) error {
 	if s == nil || s.turnStarter == nil {
 		return nil
@@ -268,6 +273,7 @@ func (s *service) waitForSubmitSessionReady(ctx context.Context, agentID string)
 	return nil
 }
 
+// startProcessLocked 启动本地 agent 进程，并在启动成功后立即接入退出监控。
 func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) error {
 	cmd := exec.Command(agent.command[0], agent.command[1:]...)
 	cmd.Dir = agent.cwd
@@ -313,6 +319,7 @@ func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) e
 	return nil
 }
 
+// fireOrForceLocked 触发状态机，并把非法迁移包装成带上下文的错误。
 func (s *service) fireOrForceLocked(ctx context.Context, agent *agentRuntime, trigger agentdto.AgentTrigger) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -342,6 +349,7 @@ func formatIllegalTransitionError(ctx context.Context, agent *agentRuntime, befo
 	return fmt.Errorf("%w for agent %q: state=%s trigger=%s allowed=%v: %w", errIllegalStateTransition, agentID, before, trigger, allowed, err)
 }
 
+// allowedTriggersForState 返回当前状态允许的触发器，供错误消息说明可选路径。
 func allowedTriggersForState(ctx context.Context, agent *agentRuntime, state string) ([]string, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -462,36 +470,6 @@ func (s *service) runtimeAgentSnapshots(ctx context.Context) ([]AgentSnapshot, e
 		snapshots = append(snapshots, s.snapshotLocked(ctx, agent))
 	}
 	return snapshots, nil
-}
-
-// agentIdentityKind separates persisted-id API lookups from hook-only reverse lookups.
-type agentIdentityKind int
-
-const (
-	agentIdentityLocalOnly agentIdentityKind = iota
-	agentIdentityAny
-)
-
-// lookupAgentByIDLocked keeps reverse-capable lookup for trusted hook/event ingestion paths.
-func lookupAgentByIDLocked(agents map[string]*agentState, agentID string) (*agentState, error) {
-	return lookupAgentByIdentityLocked(agents, agentID, agentIdentityAny)
-}
-
-// lookupAgentByIdentityLocked resolves an agent handle under the declared trust domain.
-func lookupAgentByIdentityLocked(agents map[string]*agentState, agentID string, kind agentIdentityKind) (*agentState, error) {
-	agentID = strings.TrimSpace(agentID)
-	if agent, ok := agents[agentID]; ok {
-		return agent, nil
-	}
-	if kind == agentIdentityLocalOnly {
-		return nil, fmt.Errorf("%w: %s", errAgentNotFound, agentID)
-	}
-	for _, candidate := range agents {
-		if candidate.remoteAgentID == agentID || candidate.remoteThreadID == agentID {
-			return candidate, nil
-		}
-	}
-	return nil, fmt.Errorf("%w: %s", errAgentNotFound, agentID)
 }
 
 func agentSessionFenceOK(agent *agentState, evSessionID string) bool {

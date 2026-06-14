@@ -82,12 +82,16 @@ func newTurnHandle(localID, providerID string) *turnHandle {
 	}
 }
 
+// LocalID 处理localID。
 func (h *turnHandle) LocalID() string { return h.localID }
 
+// ProviderID 处理providerID。
 func (h *turnHandle) ProviderID() string { return h.providerID }
 
+// Done 处理done。
 func (h *turnHandle) Done() <-chan struct{} { return h.done }
 
+// Err 处理err。
 func (h *turnHandle) Err() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -103,12 +107,14 @@ func (h *turnHandle) finish(err error) {
 	})
 }
 
+// ThreadID 处理线程ID。
 func (s *session) ThreadID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.threadID
 }
 
+// RolloutPath 处理rollout路径。
 func (s *session) RolloutPath() string {
 	if s == nil || s.history == nil {
 		return ""
@@ -124,16 +130,19 @@ func (s *session) RolloutPath() string {
 	return path
 }
 
+// EventThreadID 处理事件线程ID。
 func (s *session) EventThreadID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.eventThreadIDLocked()
 }
 
+// Capabilities 处理capabilities。
 func (s *session) Capabilities() dto.CapabilitySet {
 	return copyCapabilities(s.caps)
 }
 
+// RuntimeConfigSnapshot 处理运行时配置快照。
 func (s *session) RuntimeConfigSnapshot() map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -190,6 +199,7 @@ func putRuntimeConfigStringIfMissing(out map[string]any, key, value string) {
 	putRuntimeConfigString(out, key, value)
 }
 
+// StartTurn 启动turn。
 func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (out contract.TurnHandle, err error) {
 	traceStarted := time.Now()
 	var providerID string
@@ -236,6 +246,7 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (out contr
 	return handle, nil
 }
 
+// Steer 处理steer。
 func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
@@ -255,6 +266,7 @@ func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 	return nil
 }
 
+// Interrupt 处理interrupt。
 func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
@@ -313,22 +325,28 @@ func (s *session) resolveSettleTransport() func(*transport) error {
 	}
 	return defaultSettleInterruptedTransport
 }
+
+// ListThreads 列出线程。
 func (s *session) ListThreads(context.Context) ([]dto.ThreadRef, error) {
 	return nil, contract.NewCapabilityError(dto.CapThreadList, "claude")
 }
 
+// ForkThread 处理fork线程。
 func (s *session) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
 	return dto.ForkResult{}, contract.NewCapabilityError(dto.CapThreadFork, "claude")
 }
 
+// Close 关闭claudecli provider资源。
 func (s *session) Close(context.Context) error {
 	return s.stop(false)
 }
 
+// ForceStop 处理强制stop。
 func (s *session) ForceStop() error {
 	return s.stop(true)
 }
 
+// stop 停止claudecli provider。
 func (s *session) stop(force bool) error {
 	s.mu.Lock()
 	tr := s.transport
@@ -362,6 +380,7 @@ func (s *session) stop(force bool) error {
 	return err
 }
 
+// buildStopEvent 构建stop事件。
 func (s *session) buildStopEvent(tr *transport, force bool) dto.RawProviderEvent {
 	eventType := "agent:stopped"
 	data := map[string]any{
@@ -412,6 +431,7 @@ func manifestChanged(next, current dto.MCPManifest) bool {
 	return !isProxyManifest(current)
 }
 
+// isProxyManifest 判断proxymanifest是否可用。
 func isProxyManifest(m dto.MCPManifest) bool {
 	if len(m.Binaries) == 0 {
 		return false

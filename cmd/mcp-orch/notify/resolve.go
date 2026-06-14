@@ -62,6 +62,7 @@ func resolveNodeAlias(node *taskdag.Node, dag *taskdag.DAG) string {
 // produce empty. Kept permissive (tolerates trailing whitespace,
 // mixed-case keys) because both node.Config and dag.Metadata are
 // user-authored in practice.
+// extractNotifyChannel 提取notifychannel。
 func extractNotifyChannel(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""

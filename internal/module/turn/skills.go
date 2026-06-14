@@ -11,6 +11,7 @@ import (
 
 type skillResolver struct{}
 
+// Resolve 解析turn。
 func (r *skillResolver) Resolve(selected []dto.SkillRef, candidates []dto.SkillRef, prompt string) []dto.SkillRef {
 	explicit := normalizeSkillRefs(selected)
 	autoCandidates := normalizeSkillRefs(candidates)
@@ -109,6 +110,7 @@ func skillDedupKey(ref dto.SkillRef) string {
 	return name + "@" + strings.TrimSpace(ref.Version)
 }
 
+// autoMatch 判断auto是否匹配。
 func (r *skillResolver) autoMatch(prompt string, refs []dto.SkillRef, seen map[string]bool) []dto.SkillRef {
 	prompt = strings.ToLower(strings.TrimSpace(prompt))
 	if prompt == "" || len(refs) == 0 {
@@ -130,6 +132,7 @@ func (r *skillResolver) autoMatch(prompt string, refs []dto.SkillRef, seen map[s
 	return matches
 }
 
+// mergeSkillRefMetadata 合并技能引用元数据。
 func mergeSkillRefMetadata(existing, next dto.SkillRef) dto.SkillRef {
 	if strings.TrimSpace(existing.Summary) == "" {
 		existing.Summary = strings.TrimSpace(next.Summary)

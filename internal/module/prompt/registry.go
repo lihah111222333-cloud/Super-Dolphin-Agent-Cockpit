@@ -12,10 +12,12 @@ type SectionRegistry struct {
 	sections map[string]PromptSection
 }
 
+// NewSectionRegistry 创建section注册表。
 func NewSectionRegistry() *SectionRegistry {
 	return &SectionRegistry{sections: map[string]PromptSection{}}
 }
 
+// Register 注册prompt。
 func (r *SectionRegistry) Register(section PromptSection) error {
 	name := strings.TrimSpace(section.Name)
 	if name == "" {
@@ -32,6 +34,7 @@ func (r *SectionRegistry) Register(section PromptSection) error {
 	return nil
 }
 
+// Sections 处理sections。
 func (r *SectionRegistry) Sections() []PromptSection {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

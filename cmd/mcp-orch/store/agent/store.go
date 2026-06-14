@@ -23,6 +23,7 @@ import (
 type threadStore struct{ pool *pgxpool.Pool }
 
 // NewThreadStore returns an orchestration.AgentThreadStore backed by pool.
+// NewThreadStore 创建线程存储。
 func NewThreadStore(pool *pgxpool.Pool) orchestration.AgentThreadStore {
 	return &threadStore{pool: pool}
 }
@@ -45,6 +46,7 @@ FROM agent_threads t
 ORDER BY t.created_at DESC
 `
 
+// ListAll 列出all。
 func (s *threadStore) ListAll(ctx context.Context) ([]orchestration.PersistedThread, error) {
 	rows, err := s.pool.Query(ctx, listSQL)
 	if err != nil {
@@ -85,6 +87,7 @@ WHERE t.thread_id = $1
 LIMIT 1
 `
 
+// GetByThreadID 按线程ID读取编排。
 func (s *threadStore) GetByThreadID(ctx context.Context, threadID string) (*orchestration.PersistedThread, error) {
 	row := s.pool.QueryRow(ctx, getByIDSQL, threadID)
 	var t orchestration.PersistedThread
@@ -110,6 +113,7 @@ SET status = $2, updated_at = $3
 WHERE thread_id = $1
 `
 
+// UpdateStatus 更新状态。
 func (s *threadStore) UpdateStatus(ctx context.Context, params orchestration.PersistedThreadStatusUpdate) error {
 	_, err := s.pool.Exec(ctx, updateStatusSQL, params.ThreadID, params.Status, params.UpdatedAt)
 	return wrapThread(err, "update_status")
@@ -122,6 +126,7 @@ func (s *threadStore) UpdateStatus(ctx context.Context, params orchestration.Per
 type bindingStore struct{ pool *pgxpool.Pool }
 
 // NewBindingStore returns an orchestration.AgentBindingStore backed by pool.
+// NewBindingStore 创建binding存储。
 func NewBindingStore(pool *pgxpool.Pool) orchestration.AgentBindingStore {
 	return &bindingStore{pool: pool}
 }
@@ -133,6 +138,7 @@ FROM agent_provider_binding
 WHERE agent_id = $1
 `
 
+// GetByAgentID 按代理ID读取编排。
 func (s *bindingStore) GetByAgentID(ctx context.Context, agentID string) (*orchestration.PersistedBinding, error) {
 	row := s.pool.QueryRow(ctx, getBindingSQL, agentID)
 	var b orchestration.PersistedBinding
@@ -156,6 +162,7 @@ SET archived = $1, updated_at = $2
 WHERE agent_id = $3
 `
 
+// SetArchived 设置archived。
 func (s *bindingStore) SetArchived(ctx context.Context, params orchestration.PersistedBindingArchiveUpdate) error {
 	_, err := s.pool.Exec(ctx, setArchivedSQL, params.Archived, params.UpdatedAt, params.AgentID)
 	return wrapBinding(err, "set_archived")

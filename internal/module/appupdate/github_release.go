@@ -30,6 +30,7 @@ type githubPlatformAssets struct {
 	manifest githubReleaseAsset
 }
 
+// fetchGitHubLatestManifest 处理fetchgithublatestmanifest。
 func (s *service) fetchGitHubLatestManifest(ctx context.Context) (ManifestPayload, UpdateArtifact, error) {
 	release, err := s.fetchGitHubLatestRelease(ctx)
 	if err != nil {
@@ -59,6 +60,7 @@ func (s *service) fetchGitHubLatestManifest(ctx context.Context) (ManifestPayloa
 	return payload, artifact, nil
 }
 
+// fetchGitHubLatestRelease 处理fetchgithublatestrelease。
 func (s *service) fetchGitHubLatestRelease(ctx context.Context) (githubRelease, error) {
 	apiURL, err := githubLatestReleaseURL(s.cfg.GitHubRepo)
 	if err != nil {
@@ -95,6 +97,7 @@ func (s *service) fetchGitHubLatestRelease(ctx context.Context) (githubRelease, 
 	return release, nil
 }
 
+// fetchGitHubManifestAsset 处理fetchgithubmanifestasset。
 func (s *service) fetchGitHubManifestAsset(ctx context.Context, asset githubReleaseAsset) ([]byte, error) {
 	if err := validateGitHubAssetDownloadURL(asset); err != nil {
 		return nil, err
@@ -187,6 +190,7 @@ func githubAssetByName(assets []githubReleaseAsset, name string) (githubReleaseA
 	return githubReleaseAsset{}, false
 }
 
+// validateManifestArtifactMatchesGitHubAsset 校验manifest产物matchesgithubasset。
 func validateManifestArtifactMatchesGitHubAsset(artifact UpdateArtifact, asset githubReleaseAsset) error {
 	if err := validateGitHubAssetDownloadURL(asset); err != nil {
 		return err
@@ -207,6 +211,7 @@ func validateManifestArtifactMatchesGitHubAsset(artifact UpdateArtifact, asset g
 	return nil
 }
 
+// validateGitHubAssetDownloadURL 校验githubassetdownloadURL。
 func validateGitHubAssetDownloadURL(asset githubReleaseAsset) error {
 	if strings.TrimSpace(asset.Name) == "" {
 		return errors.New("GitHub release asset name is required")

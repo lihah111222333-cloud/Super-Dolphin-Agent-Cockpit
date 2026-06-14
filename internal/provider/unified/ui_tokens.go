@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// PublishUITokensUpdated 发布UI令牌updated。
 func PublishUITokensUpdated(data any, publish func(ev any)) {
 	if publish == nil {
 		return
@@ -26,6 +27,7 @@ func PublishUITokensUpdated(data any, publish func(ev any)) {
 	publish(ev)
 }
 
+// tokensUpdatedEvent 处理令牌updated事件。
 func tokensUpdatedEvent(payload map[string]any) (uidto.UITokensUpdated, bool) {
 	usage := nestedMap(payload, "usage")
 	tokenUsage := nestedMap(payload, "tokenUsage")
@@ -75,6 +77,7 @@ func tokensUpdatedEvent(payload map[string]any) (uidto.UITokensUpdated, bool) {
 	}, true
 }
 
+// payloadMap 处理载荷map。
 func payloadMap(data any) map[string]any {
 	switch typed := data.(type) {
 	case map[string]any:
@@ -122,6 +125,7 @@ func contextWindowValue(payload, usage map[string]any) (int, bool) {
 	return 0, false
 }
 
+// intFromMap 从map处理int。
 func intFromMap(payload map[string]any, keys ...string) (int, bool) {
 	for _, key := range keys {
 		value, ok := payload[key]
@@ -146,6 +150,7 @@ func intFromMap(payload map[string]any, keys ...string) (int, bool) {
 	return 0, false
 }
 
+// stringValue 处理string值。
 func stringValue(payload map[string]any, keys ...string) string {
 	for _, key := range keys {
 		value, ok := payload[key]

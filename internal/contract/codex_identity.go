@@ -59,6 +59,7 @@ var (
 // Home is canonicalized via CanonicalizeCodexHome. The directory must already
 // exist; missing directories return ErrCodexHomeNotFound. This function does
 // not create directories and does not fall back to a default home.
+// ResolveCodexIdentity 解析codex身份。
 func ResolveCodexIdentity(config map[string]any) (CodexIdentity, error) {
 	home, err := requireCodexString(config, CodexHomeKey, ErrCodexHomeRequired)
 	if err != nil {
@@ -87,6 +88,7 @@ func ResolveCodexIdentity(config map[string]any) (CodexIdentity, error) {
 // ~ expansion, $ENV expansion, filepath.Clean, filepath.EvalSymlinks. The
 // resulting path must be absolute and must exist. Callers should persist this
 // realpath to binding rather than the raw user input.
+// CanonicalizeCodexHome 处理canonicalizecodexhome。
 func CanonicalizeCodexHome(raw string) (string, error) {
 	expanded, err := expandCodexHome(raw)
 	if err != nil {
@@ -121,6 +123,7 @@ func requireCodexString(config map[string]any, key string, missingErr error) (st
 	return s, nil
 }
 
+// expandCodexHome 处理expandcodexhome。
 func expandCodexHome(raw string) (string, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
@@ -151,6 +154,7 @@ func expandCodexHome(raw string) (string, error) {
 
 // RuntimeModeFromEnv consumes the runtime-mode contract produced by the runtime
 // resolver. Empty means no packaged capability has been advertised.
+// RuntimeModeFromEnv 从env处理运行时模式。
 func RuntimeModeFromEnv() (string, error) {
 	mode := strings.TrimSpace(os.Getenv(RuntimeModeEnv))
 	switch mode {
@@ -163,6 +167,7 @@ func RuntimeModeFromEnv() (string, error) {
 	}
 }
 
+// PackagedRuntimeFromEnv 从env处理packaged运行时。
 func PackagedRuntimeFromEnv() (bool, error) {
 	mode, err := RuntimeModeFromEnv()
 	if err != nil {
@@ -171,6 +176,7 @@ func PackagedRuntimeFromEnv() (bool, error) {
 	return mode == RuntimeModePackaged, nil
 }
 
+// CanonicalAppManagedCodexHome 处理canonicalappmanagedcodexhome。
 func CanonicalAppManagedCodexHome() (string, error) {
 	raw, err := AppManagedCodexHome()
 	if err != nil {
@@ -179,6 +185,7 @@ func CanonicalAppManagedCodexHome() (string, error) {
 	return CanonicalizeCodexHome(raw)
 }
 
+// AppManagedCodexHome 处理appmanagedcodexhome。
 func AppManagedCodexHome() (string, error) {
 	base := strings.TrimSpace(os.Getenv(SuperDolphinHomeEnv))
 	if base == "" {

@@ -119,6 +119,7 @@ type TraceDiagnosisRelatedIDs struct {
 	ToolNames []string `json:"tool_names,omitempty"`
 }
 
+// DiagnoseTrace 按 trace ID 生成诊断结果。
 func (s *Service) DiagnoseTrace(ctx context.Context, req TraceDiagnosisRequest) (TraceDiagnosis, error) {
 	rawTraceID := strings.TrimSpace(req.TraceID)
 	if rawTraceID == "" {
@@ -249,6 +250,7 @@ func traceDiagnosisSourceFromQuery(result QueryResult) TraceDiagnosisSource {
 	}
 }
 
+// addEventSummary 添加事件摘要。
 func (d *TraceDiagnosis) addEventSummary(event TraceEvent, includeStack bool, projector traceDiagnosisProjector) {
 	d.Timeline = append(d.Timeline, timelineItemFromEvent(event, projector))
 	d.RelatedIDs.addEvent(event, projector)
@@ -334,6 +336,7 @@ func (p traceDiagnosisProjector) string(value string) string {
 	return truncateUTF8(value, TraceDiagnosisMaxStringBytes)
 }
 
+// path 处理路径。
 func (p traceDiagnosisProjector) path(value string) string {
 	value = strings.TrimSpace(normalizeMultiline(value))
 	if value == "" {
@@ -370,6 +373,7 @@ func diagnosisForeignPathLike(value string) bool {
 	return diagnosisWinPathPattern.MatchString(value) || diagnosisUNCPathPattern.MatchString(value) || diagnosisHomePathPattern.MatchString(value) || strings.HasPrefix(value, "/")
 }
 
+// diagnosisRoots 处理诊断根目录。
 func diagnosisRoots(values ...string) []string {
 	roots := make([]string, 0, len(values))
 	for _, value := range values {
@@ -394,6 +398,7 @@ func diagnosisSlashAbs(value string) bool {
 	return strings.HasPrefix(value, "/")
 }
 
+// diagnosisSlashRelativePath 处理诊断斜杠相对路径。
 func diagnosisSlashRelativePath(root string, candidate string) (string, bool) {
 	if !diagnosisSlashAbs(root) || !diagnosisSlashAbs(candidate) {
 		return "", false
@@ -414,6 +419,7 @@ func diagnosisSlashRelativePath(root string, candidate string) (string, bool) {
 	return rel, true
 }
 
+// diagnosisRelativePath 处理诊断相对路径。
 func diagnosisRelativePath(root string, candidate string) (string, bool) {
 	rel, err := filepath.Rel(root, candidate)
 	if err != nil || rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
@@ -465,6 +471,7 @@ func traceDiagnosisPayloadSize(diagnosis TraceDiagnosis) int {
 	return len(data)
 }
 
+// trimTraceDiagnosisPayload 处理裁剪trace诊断载荷。
 func trimTraceDiagnosisPayload(diagnosis *TraceDiagnosis) bool {
 	switch {
 	case len(diagnosis.Timeline) > 0:
@@ -484,6 +491,7 @@ func trimTraceDiagnosisPayload(diagnosis *TraceDiagnosis) bool {
 	return true
 }
 
+// trim 处理裁剪。
 func (ids *TraceDiagnosisRelatedIDs) trim() bool {
 	switch {
 	case len(ids.ThreadIDs) > 0:

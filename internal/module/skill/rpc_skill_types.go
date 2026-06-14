@@ -310,6 +310,7 @@ func sameNameResolutionActions(sources []skillResolutionSource) []string {
 	return actions
 }
 
+// mirrorResolutionActions 处理镜像resolutionactions。
 func mirrorResolutionActions(conflict SkillMirrorConflict) []string {
 	switch conflict.Kind {
 	case skillConflictExternalPersonalProjectSameName:
@@ -367,6 +368,7 @@ func resolutionConflictID(item skillResolutionItem) string {
 	})
 }
 
+// previewSkillResolution 处理preview技能resolution。
 func (s *service) previewSkillResolution(p skillResolutionPreviewParams) (skillResolutionPreviewResult, error) {
 	p.Action = normalizeResolutionAction(p.Action)
 	list, err := s.listSkillResolutions(p.CWD)
@@ -390,6 +392,7 @@ func (s *service) previewSkillResolution(p skillResolutionPreviewParams) (skillR
 	return skillResolutionPreviewResult{ConflictID: item.ConflictID, Kind: item.Kind, Items: previews}, nil
 }
 
+// storeResolutionPreview 保存resolutionpreview。
 func (s *service) storeResolutionPreview(conflictID string, preview skillResolutionPreviewItem) skillResolutionPreviewItem {
 	if s == nil || preview.PreviewHash == "" {
 		return preview
@@ -432,6 +435,7 @@ func canonicalResolutionPreviewItem(item skillResolutionItem, p skillResolutionP
 	return preview, nil
 }
 
+// canonicalResolutionPreviewSources 处理canonicalresolutionpreviewsources。
 func canonicalResolutionPreviewSources(item skillResolutionItem, p skillResolutionPreviewParams) (skillResolutionSource, skillResolutionSource, error) {
 	if len(item.Sources) < 2 {
 		return skillResolutionSource{}, skillResolutionSource{}, fmt.Errorf("canonical resolution preview requires at least two sources")

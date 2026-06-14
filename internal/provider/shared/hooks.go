@@ -37,6 +37,7 @@ var captureToolResultHook atomic.Pointer[CaptureToolResultFunc]
 var resetToolResultScopeHook atomic.Pointer[ResetToolResultScopeFunc]
 
 // SetCaptureToolResultHook sets the global capture hook. Called by module/turn at fx init.
+// SetCaptureToolResultHook 设置capture工具结果hook。
 func SetCaptureToolResultHook(fn CaptureToolResultFunc) {
 	if fn == nil {
 		captureToolResultHook.Store(nil)
@@ -46,6 +47,7 @@ func SetCaptureToolResultHook(fn CaptureToolResultFunc) {
 }
 
 // SetResetToolResultScopeHook sets the global reset hook. Called by module/turn at fx init.
+// SetResetToolResultScopeHook 设置reset工具结果作用域hook。
 func SetResetToolResultScopeHook(fn ResetToolResultScopeFunc) {
 	if fn == nil {
 		resetToolResultScopeHook.Store(nil)
@@ -55,6 +57,7 @@ func SetResetToolResultScopeHook(fn ResetToolResultScopeFunc) {
 }
 
 // CaptureToolResult calls the registered hook. Returns zero record if no hook is set.
+// CaptureToolResult 生成capture工具结果。
 func CaptureToolResult(meta ToolResultMeta, raw string) ToolResultRecord {
 	ptr := captureToolResultHook.Load()
 	if ptr == nil {
@@ -64,6 +67,7 @@ func CaptureToolResult(meta ToolResultMeta, raw string) ToolResultRecord {
 }
 
 // ResetToolResultScope calls the registered hook. No-op if no hook is set.
+// ResetToolResultScope 重置工具结果作用域。
 func ResetToolResultScope(threadID, turnID string) {
 	ptr := resetToolResultScopeHook.Load()
 	if ptr == nil {
@@ -83,6 +87,7 @@ var trimSkillBlocksHook atomic.Pointer[TrimInjectedSkillBlocksFunc]
 
 // SetTrimSkillBlocksHook sets the global skill-block trim hook.
 // Called by module/skill at fx init.
+// SetTrimSkillBlocksHook 设置裁剪技能blockshook。
 func SetTrimSkillBlocksHook(fn TrimInjectedSkillBlocksFunc) {
 	if fn == nil {
 		trimSkillBlocksHook.Store(nil)
@@ -93,6 +98,7 @@ func SetTrimSkillBlocksHook(fn TrimInjectedSkillBlocksFunc) {
 
 // TrimInjectedSkillBlocks calls the registered hook.
 // Returns the original text if no hook is set.
+// TrimInjectedSkillBlocks 处理裁剪injected技能blocks。
 func TrimInjectedSkillBlocks(text string) string {
 	ptr := trimSkillBlocksHook.Load()
 	if ptr == nil {

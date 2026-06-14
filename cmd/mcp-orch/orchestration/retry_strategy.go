@@ -45,6 +45,8 @@ func nonRetryableValidationFailure(outcome nodeexec.NodeOutcome) bool {
 	return outcome.FailureClass == nodeexec.FailureClassValidation && !strings.HasPrefix(outcome.ErrorSummary, "launch agent:")
 }
 
+// DAG wakeup 最终失败时，wakeup 和节点要一起写失败。
+// 不要拆开写，否则崩溃后可能只失败了 wakeup，节点还在跑。
 func (d *WakeupDispatcher) markPermanentDAGFailure(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, lastErr string, launchErr error, failFast bool, outcome nodeexec.NodeOutcome) bool {
 	runID := routeRunID(w)
 	if runID <= 0 {
@@ -77,6 +79,8 @@ func (d *WakeupDispatcher) markPermanentDAGFailure(ctx context.Context, w *taskd
 	return true
 }
 
+// 只有 DB 写成功后才发事件和 hook。
+// hook 失败不能把已经终态的节点拉回 retry。
 func (d *WakeupDispatcher) publishDAGNodeFailure(ctx context.Context, w *taskdag.Wakeup, lastErr string, failFast bool, outcome nodeexec.NodeOutcome, res *taskdag.FailNodeResult) {
 	d.logger.Warn("wakeup dispatcher: DAG node failed", "wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey, "attempt_count", w.AttemptCount, "fail_fast", failFast, "canceled_downstream", len(res.CanceledDownstream))
 	if d.nodeRouter != nil {
@@ -111,6 +115,8 @@ func (d *WakeupDispatcher) handleRetryHardCap(ctx context.Context, w *taskdag.Wa
 	return handled
 }
 
+// executor 已经返回失败 outcome 时走这里。
+// 按 FailureClass 和 on_failure 决定重试、智能修复，还是直接失败。
 func (d *WakeupDispatcher) handleFailedRouterOutcome(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, outcome nodeexec.NodeOutcome) bool {
 	synthErr := fmt.Errorf("%s: %s", outcome.FailureClass, outcome.ErrorSummary)
 	lastErr := truncateWakeupError(synthErr.Error())
@@ -155,6 +161,8 @@ func (d *WakeupDispatcher) retryPolicyFailFast(ctx context.Context, w *taskdag.W
 	return false, truncateWakeupError("retry policy invalid: " + err.Error() + ": " + lastErr)
 }
 
+// 这里只判断 on_failure 是否要接管。
+// 真正写 retry/fail 仍交给后面的 store 路径，别在这里直接改 DB。
 func (d *WakeupDispatcher) trySmartDAGRetry(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) (bool, bool) {
 	if !canSmartRetry(d, w) {
 		return false, false
@@ -196,6 +204,7 @@ type smartRetryStrategyResolution struct {
 	byClass    bool
 }
 
+// configuredOnFailureStrategy 解析节点失败后的重试或终止策略。
 func configuredOnFailureStrategy(cfg *nodeexec.OnFailureConfig, class nodeexec.FailureClass) smartRetryStrategyResolution {
 	if cfg == nil {
 		return smartRetryStrategyResolution{}
@@ -295,6 +304,7 @@ func (d *WakeupDispatcher) dispatchSmartRetryAction(
 	}
 }
 
+// resolveDAGRetryContext 读取 DAG 重试所需的节点、运行和唤醒上下文。
 func (d *WakeupDispatcher) resolveDAGRetryContext(ctx context.Context, dagKey, nodeKey string, runID int64) (dagRetryContext, bool, error) {
 	if runID <= 0 {
 		return dagRetryContext{}, false, nil
@@ -344,6 +354,7 @@ func findRetryNode(nodes []taskdag.Node, nodeKey string) (*taskdag.Node, json.Ra
 	return nil, nil
 }
 
+// nodeOnFailureConfig 提取节点级失败处理配置。
 func nodeOnFailureConfig(node *taskdag.Node) *nodeexec.OnFailureConfig {
 	if node == nil {
 		return nil
@@ -409,6 +420,7 @@ func (d *WakeupDispatcher) appendValidationErrorAndRetry(
 	return d.retryWakeupWithSmartRetryConfig(ctx, w, fence, failure, node, updated, failFast)
 }
 
+// retryWakeupWithSmartRetryConfig 按智能重试配置重新投递唤醒任务。
 func (d *WakeupDispatcher) retryWakeupWithSmartRetryConfig(
 	ctx context.Context,
 	w *taskdag.Wakeup,
@@ -418,6 +430,8 @@ func (d *WakeupDispatcher) retryWakeupWithSmartRetryConfig(
 	config json.RawMessage,
 	failFast bool,
 ) bool {
+	// wakeup retry 和 node.config patch 必须一起成功。
+	// 任一步失败都要显式失败，别让下一轮用旧配置重跑。
 	if d == nil {
 		return false
 	}

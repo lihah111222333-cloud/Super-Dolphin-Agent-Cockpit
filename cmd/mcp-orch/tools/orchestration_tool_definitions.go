@@ -2,6 +2,7 @@ package tools
 
 import "github.com/anthropic-ai/super-agent-v3/internal/contract"
 
+// orchestrationToolDefinitions 处理orchestration工具definitions。
 func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 	return buildToolDefinitions(
 		defineTool("launch_agent", "Launch a managed orchestration agent.", ObjectSchema(map[string]Schema{

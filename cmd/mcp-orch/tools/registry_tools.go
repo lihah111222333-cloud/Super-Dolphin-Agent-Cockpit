@@ -49,6 +49,7 @@ type listModelsConfig struct {
 	registry modelregistry.Registry
 }
 
+// WithModelRegistry 设置模型注册表。
 func WithModelRegistry(registry modelregistry.Registry) ListModelsOption {
 	return func(cfg *listModelsConfig) {
 		cfg.registry = registry

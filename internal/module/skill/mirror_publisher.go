@@ -19,11 +19,15 @@ type mirrorLockRegistry struct{ m sync.Map }
 
 var skillMirrorRootLocks = &mirrorLockRegistry{}
 
+// SkillMirrorTarget 指向 provider 会读取的 skills 目录。
+// 这里的内容是生成物，不是真实 skill 来源。
 type SkillMirrorTarget struct {
 	TargetID, Scope, Root, CanonicalRootID string
 	Provider                               SkillProvider
 }
 
+// PublishSkillMirrors 把真实 skill 目录复制到 provider mirror。
+// 只做“真实来源 -> mirror”；遇到人工改动或未知目录要报告，不要自动覆盖。
 func PublishSkillMirrors(ctx context.Context, records []canonicalSkillRecord, targets []SkillMirrorTarget) (SkillMirrorReport, error) {
 	var report SkillMirrorReport
 	for i := range targets {
@@ -56,6 +60,9 @@ func recordsForMirrorTarget(records []canonicalSkillRecord, target SkillMirrorTa
 	}
 	return filtered
 }
+
+// publishSkillMirrorTarget 刷新一个 provider skills 根。
+// 只有本系统创建、且内容没被改过的目录，才会自动替换或删除。
 func publishSkillMirrorTarget(records []canonicalSkillRecord, target SkillMirrorTarget) (SkillMirrorReport, error) {
 	if err := validateSkillMirrorTarget(target); err != nil {
 		return SkillMirrorReport{}, err
@@ -109,6 +116,7 @@ func loadPublishTargetManifest(records []canonicalSkillRecord, target SkillMirro
 	return manifest, SkillMirrorReport{}, false, err
 }
 
+// projectMismatchedManifestPublishReport 生成项目 manifest 不匹配的发布报告。
 func projectMismatchedManifestPublishReport(records []canonicalSkillRecord, target SkillMirrorTarget) (SkillMirrorReport, error) {
 	var report SkillMirrorReport
 	names, err := skillMirrorNames(target.Root)
@@ -153,6 +161,8 @@ func lockSkillMirrorRoot(root string) func() {
 	mu.Lock()
 	return mu.Unlock
 }
+
+// unmanagedProviderMirrorReport 生成未托管 provider mirror 的报告。
 func unmanagedProviderMirrorReport(target SkillMirrorTarget, manifest SkillMirrorManifest, records []canonicalSkillRecord) (SkillMirrorReport, error) {
 	var report SkillMirrorReport
 	names, err := skillMirrorNames(target.Root)
@@ -182,6 +192,8 @@ func unmanagedProviderMirrorReport(target SkillMirrorTarget, manifest SkillMirro
 	}
 	return report, nil
 }
+
+// validateSkillMirrorTarget 校验 skill mirror 目标路径。
 func validateSkillMirrorTarget(target SkillMirrorTarget) error {
 	if strings.TrimSpace(target.TargetID) == "" {
 		return fmt.Errorf("skill mirror target_id is required")
@@ -200,6 +212,8 @@ func validateSkillMirrorTarget(target SkillMirrorTarget) error {
 	}
 	return nil
 }
+
+// validateMirrorRoot 校验 mirror 根目录是否可写且安全。
 func validateMirrorRoot(root string) error {
 	if strings.TrimSpace(root) == "" || !filepath.IsAbs(strings.TrimSpace(root)) || filepath.Base(filepath.Clean(strings.TrimSpace(root))) != "skills" {
 		return fmt.Errorf("skill mirror target root must be absolute")
@@ -209,6 +223,8 @@ func validateMirrorRoot(root string) error {
 	}
 	return nil
 }
+
+// prepareMirrorRoot 准备 mirror 根目录并处理旧内容。
 func prepareMirrorRoot(root string) error {
 	if err := mirrorpath.RejectSymlinkAncestors(root); err != nil {
 		return err
@@ -228,6 +244,9 @@ func prepareMirrorRoot(root string) error {
 	}
 	return nil
 }
+
+// deleteMissingMirrorEntries 删除已不存在的旧 mirror。
+// 如果 mirror 被人改过，就报告出来，不直接删。
 func deleteMissingMirrorEntries(manifest *SkillMirrorManifest, target SkillMirrorTarget, records []canonicalSkillRecord) (SkillMirrorReport, error) {
 	var report SkillMirrorReport
 	present := canonicalRecordsByName(records)
@@ -269,6 +288,8 @@ func deleteMissingMirrorEntry(target SkillMirrorTarget, name string, entry Skill
 	}
 	return item, true, os.RemoveAll(finalDir)
 }
+
+// publishCanonicalRecords 把 canonical skill 记录发布到 provider mirror。
 func publishCanonicalRecords(manifest *SkillMirrorManifest, target SkillMirrorTarget, records []canonicalSkillRecord) (SkillMirrorReport, error) {
 	var report SkillMirrorReport
 	sort.SliceStable(records, func(i, j int) bool { return records[i].Name < records[j].Name })
@@ -293,6 +314,9 @@ func publishCanonicalRecords(manifest *SkillMirrorManifest, target SkillMirrorTa
 	}
 	return report, nil
 }
+
+// publishCanonicalRecord 更新单个 skill 的 mirror。
+// 遇到未知的同名目录要停下来报告，不能把它当作自动导入。
 func publishCanonicalRecord(manifest *SkillMirrorManifest, target SkillMirrorTarget, record canonicalSkillRecord) (SkillMirrorReportItem, bool, error) {
 	name := record.Name
 	entry, managed := manifest.Skills[name]
@@ -336,6 +360,7 @@ func publishUnmanagedMirrorRecord(manifest *SkillMirrorManifest, target SkillMir
 	return item, false, nil
 }
 
+// adoptIdenticalUnmanagedMirror 接管内容一致的未托管 mirror。
 func adoptIdenticalUnmanagedMirror(manifest *SkillMirrorManifest, target SkillMirrorTarget, record canonicalSkillRecord, oldHash string, item *SkillMirrorReportItem, canonicalHash *string) (bool, error) {
 	hash, err := stableMirrorDirectoryHash(record.Dir)
 	if err != nil {
@@ -362,6 +387,8 @@ func adoptIdenticalUnmanagedMirror(manifest *SkillMirrorManifest, target SkillMi
 func driftedManagedMirror(managed, exists bool, entry SkillMirrorEntry, oldHash string) bool {
 	return managed && exists && (!entry.Owned || oldHash != entry.MirrorHash)
 }
+
+// unchangedOwnedMirror 判断已托管 mirror 是否无需更新。
 func unchangedOwnedMirror(managed, exists bool, entry SkillMirrorEntry, oldHash, canonicalHash, scope, dir string) (bool, error) {
 	if !(managed && exists && entry.Owned && oldHash == entry.MirrorHash && entry.CanonicalHash == canonicalHash) {
 		return false, nil
@@ -409,6 +436,9 @@ func existingMirrorHash(dir string) (string, bool, error) {
 	hash, err := stableMirrorDirectoryHash(dir)
 	return hash, true, err
 }
+
+// replaceMirrorSkillDir 用临时目录重建单个 mirror。
+// 这里只复制真实来源目录，不从旧 mirror 里补内容。
 func replaceMirrorSkillDir(root, name, canonicalDir, scope string, displayName ...string) (string, error) {
 	tempDir, err := os.MkdirTemp(root, ".skill-mirror-"+name+"-*")
 	if err != nil {
@@ -432,6 +462,9 @@ func replaceMirrorSkillDir(root, name, canonicalDir, scope string, displayName .
 	}
 	return hash, os.Rename(tempDir, finalDir)
 }
+
+// copyCanonicalSkillDir 把真实 skill 复制到 mirror。
+// symlink、越界路径和非常规文件都要拒绝。
 func copyCanonicalSkillDir(src, dst, scope string, identity ...skillMirrorIdentity) error {
 	err := filepath.WalkDir(src, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -472,6 +505,8 @@ func safeCanonicalCopyRelativePath(root, path string) (string, error) {
 	}
 	return rel, nil
 }
+
+// copyCanonicalSkillEntry 复制一个 canonical skill 到 mirror 目录。
 func copyCanonicalSkillEntry(src, dst, rel, scope string, entry fs.DirEntry) error {
 	info, err := entry.Info()
 	if err != nil {
@@ -498,6 +533,8 @@ func copyCanonicalSkillEntry(src, dst, rel, scope string, entry fs.DirEntry) err
 	}
 	return os.WriteFile(dst, data, mirrorFileMode(rel, info.Mode(), data))
 }
+
+// capProjectMirrorTrustFrontmatter 限制项目 mirror frontmatter 的信任范围。
 func capProjectMirrorTrustFrontmatter(content string) string {
 	frontmatter, body, ok := splitFrontmatter(content)
 	if !ok {

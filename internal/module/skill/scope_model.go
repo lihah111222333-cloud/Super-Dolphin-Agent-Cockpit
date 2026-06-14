@@ -25,8 +25,10 @@ const (
 	personalSkillTypeUser     = "user"
 	personalSkillTypeAgent    = "agent"
 	personalSkillTypeImported = "imported"
-	personalSkillTypeHub      = "hub"
-	ownerIdentitySaltFile     = "owner_identity.salt"
+	// hub 只放 catalog/marketplace 数据。
+	// 运行时 skill 来源只看 activePersonalSkillTypes，不能把 hub 同步给 provider。
+	personalSkillTypeHub  = "hub"
+	ownerIdentitySaltFile = "owner_identity.salt"
 )
 
 type canonicalRoots struct {
@@ -51,6 +53,8 @@ type resolvedSkillPathTarget struct {
 	underSkill   bool
 }
 
+// resolveCanonicalRoots 返回运行时真正读取的 skill 目录。
+// .claude/.agents 这类 provider mirror 是生成物，不在这里。
 func resolveCanonicalRoots(projectRoot, home string) canonicalRoots {
 	superDolphinHome := filepath.Join(strings.TrimSpace(home), ".super-dolphin")
 	personal := make(map[string]string, len(activePersonalSkillTypes()))
@@ -63,6 +67,8 @@ func resolveCanonicalRoots(projectRoot, home string) canonicalRoots {
 	}
 }
 
+// activePersonalSkillTypes 是运行时会读取的 personal 类型。
+// hub 不在这里；新增类型前要先想清楚怎么同步和清理 mirror。
 func activePersonalSkillTypes() []string {
 	return []string{personalSkillTypeUser, personalSkillTypeAgent, personalSkillTypeImported}
 }
@@ -189,6 +195,8 @@ func deriveOwnerKey(salt []byte, normalizedHome, osUID, appProfile string) strin
 	_, _ = mac.Write([]byte(payload))
 	return "sd_owner:" + hex.EncodeToString(mac.Sum(nil))
 }
+
+// normalizeSkillTarget 规范化用户传入的 skill 目标路径。
 func normalizeSkillTarget(scope, personalType string) (string, string, error) {
 	switch strings.ToLower(strings.TrimSpace(scope)) {
 	case "", skillScopeProject:
@@ -207,6 +215,8 @@ func normalizeSkillTarget(scope, personalType string) (string, string, error) {
 		return "", "", fmt.Errorf("%w: %s", ErrInvalidSkillScope, scope)
 	}
 }
+
+// listSkillFiles 列出 skill 目录下可编辑的文件。
 func listSkillFiles(dir string, entries []os.DirEntry) []map[string]any {
 	files := make([]map[string]any, 0, len(entries))
 	for _, entry := range entries {
@@ -247,6 +257,8 @@ func resolveExistingPath(path string) (string, error) {
 func pathEscapesRoot(rootPath, targetPath string) (bool, error) {
 	return !pathutil.ContainsPath(rootPath, targetPath), nil
 }
+
+// ensureWritableSkillPathInsideRoot 确认待写路径仍在允许的 skill 根目录内。
 func ensureWritableSkillPathInsideRoot(root, target string) error {
 	rootAbs, targetAbs, err := cleanWritableRootAndTarget(root, target)
 	if err != nil {
@@ -280,6 +292,7 @@ func cleanWritableRootAndTarget(root, target string) (string, string, error) {
 	return filepath.Clean(rootAbs), filepath.Clean(targetAbs), nil
 }
 
+// rejectWritableSymlinkPath 拒绝会穿出根目录的符号链接路径。
 func rejectWritableSymlinkPath(rootAbs, rel string) error {
 	if err := rejectWritableSymlinkComponentIfExists(rootAbs); err != nil {
 		return err
@@ -353,6 +366,7 @@ func (s *service) allSkillRootTargets(cwd string) []skillRootTarget {
 	return targets
 }
 
+// resolveExistingSkillPathTarget 解析已存在 skill 路径的真实目标。
 func (s *service) resolveExistingSkillPathTarget(target, cwd string) (resolvedSkillPathTarget, error) {
 	roots := s.allSkillRootTargets(cwd)
 	if len(roots) == 0 {
@@ -389,6 +403,7 @@ func (s *service) resolveExistingSkillPathTarget(target, cwd string) (resolvedSk
 	return resolvedSkillPathTarget{}, fmt.Errorf("path escapes skills root: %s", target)
 }
 
+// skillDirForResolvedPath 根据解析后的路径找到所属 skill 目录。
 func skillDirForResolvedPath(rootPath, targetPath string) (string, bool, error) {
 	rel, err := filepath.Rel(rootPath, targetPath)
 	if err != nil {
@@ -405,6 +420,7 @@ func skillDirForResolvedPath(rootPath, targetPath string) (string, bool, error) 
 	return filepath.Join(rootPath, parts[0]), true, nil
 }
 
+// ensurePathInEffectiveSet 确认路径属于当前有效 skill 集合。
 func (s *service) ensurePathInEffectiveSet(ctx context.Context, cwd, path string) error {
 	resolved, err := s.resolveExistingSkillPathTarget(path, cwd)
 	if err != nil {
@@ -428,6 +444,7 @@ func (s *service) ensurePathInEffectiveSet(ctx context.Context, cwd, path string
 	return fmt.Errorf("skill path is not in effective skill set: %s", path)
 }
 
+// conflictForSkillDir 构造指定 skill 目录的冲突描述。
 func conflictForSkillDir(conflicts []canonicalSkillConflict, skillDir string) (canonicalSkillConflict, bool) {
 	for _, conflict := range conflicts {
 		for _, source := range conflict.Sources {

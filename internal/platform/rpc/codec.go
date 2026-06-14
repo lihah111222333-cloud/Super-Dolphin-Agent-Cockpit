@@ -3,6 +3,7 @@ package rpc
 // PayloadEncoder standardizes application-level RPC payload wrappers.
 type PayloadEncoder struct{}
 
+// WrapSuccess 包装success。
 func (e *PayloadEncoder) WrapSuccess(data any) map[string]any {
 	payload := map[string]any{"success": true}
 	if data != nil {
@@ -11,6 +12,7 @@ func (e *PayloadEncoder) WrapSuccess(data any) map[string]any {
 	return payload
 }
 
+// WrapError 包装错误。
 func (e *PayloadEncoder) WrapError(code int, msg string) map[string]any {
 	return map[string]any{
 		"success": false,

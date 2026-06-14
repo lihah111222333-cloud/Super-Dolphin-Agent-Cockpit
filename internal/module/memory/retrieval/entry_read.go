@@ -65,6 +65,7 @@ func parseMemoryHeader(path, header string) MemoryEntry {
 	return MemoryEntry{Frontmatter: parseMemoryFrontmatter(frontmatter), FilePath: path}
 }
 
+// parseMemoryFrontmatter 解析记忆frontmatter。
 func parseMemoryFrontmatter(frontmatter string) MemoryFrontmatter {
 	parsed := MemoryFrontmatter{}
 	for _, line := range strings.Split(frontmatter, "\n") {
@@ -129,6 +130,7 @@ func parseScalar(raw string) string {
 	return strings.Trim(strings.TrimSpace(raw), "\"'")
 }
 
+// parseStringList 解析stringlist。
 func parseStringList(raw string) []string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

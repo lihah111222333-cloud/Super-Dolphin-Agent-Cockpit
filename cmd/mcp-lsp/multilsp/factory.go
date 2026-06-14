@@ -47,6 +47,7 @@ type snapshotSyncRequest struct {
 	scope                   ResolvedLSPToolScope
 }
 
+// requestDocument 处理请求document。
 func requestDocument[T any](
 	ctx context.Context,
 	m *manager,
@@ -135,6 +136,7 @@ func (m *manager) withPooledClient(client Client, fn func() error) error {
 	return fn()
 }
 
+// queryHierarchy 处理查询层级。
 func queryHierarchy[I any, R any](
 	ctx context.Context,
 	m *manager,
@@ -183,6 +185,7 @@ func (m *manager) shouldRetryEmptyHierarchyPrepare(languageID, method string) bo
 	return m.capabilityPolicy(languageID).RetryEmptyCallHierarchyPrepare
 }
 
+// retryEmptyHierarchyPrepare 重试empty层级prepare。
 func retryEmptyHierarchyPrepare[T any](
 	ctx context.Context,
 	m *manager,
@@ -235,6 +238,7 @@ func unsupportedHierarchy[R any](operation string) hierarchyMissingFunc[R] {
 	}
 }
 
+// resolveHierarchyDirections 解析层级directions。
 func resolveHierarchyDirections[I any, R any](
 	ctx context.Context,
 	m *manager,
@@ -293,6 +297,7 @@ func decodeUnionListWithMode[T any](raw json.RawMessage, allowSingle bool, decod
 	return results, nil
 }
 
+// decodeRawMessages 解码原始消息。
 func decodeRawMessages(raw json.RawMessage, allowSingle bool) ([]json.RawMessage, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
@@ -330,6 +335,7 @@ func (s *lspCacheStore) persistOnMutation(changed bool) error {
 	return nil
 }
 
+// syncSnapshotToClient 把快照同步为客户端。
 func (c *bootstrapCoordinator) syncSnapshotToClient(
 	ctx context.Context,
 	m *manager,
@@ -366,6 +372,7 @@ func (c *bootstrapCoordinator) syncSnapshotToClient(
 	return nil
 }
 
+// applySnapshotUpdate 应用快照更新。
 func (c *bootstrapCoordinator) applySnapshotUpdate(
 	ctx context.Context,
 	m *manager,
@@ -406,6 +413,7 @@ func reopenSnapshot(ctx context.Context, client Client, snapshot documentSnapsho
 	return client.DidOpen(ctx, snapshot.ref.uri, snapshot.ref.languageID, version, snapshot.text)
 }
 
+// cacheValueMatchesSnapshot 处理缓存值matches快照。
 func cacheValueMatchesSnapshot(value lspCacheValue, snapshot documentSnapshot) bool {
 	if value.Fingerprint != "" && snapshot.fingerprint != "" && value.Fingerprint != snapshot.fingerprint {
 		return false
@@ -484,6 +492,7 @@ func decodeWorkspaceSymbolUnion(payload json.RawMessage) (protocol.WorkspaceSymb
 	return protocol.WorkspaceSymbolResult{SymbolInformation: &info}, true, nil
 }
 
+// decodeCodeActionUnion 解码代码动作union。
 func decodeCodeActionUnion(payload json.RawMessage) (protocol.CodeActionResult, bool, error) {
 	var keys map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &keys); err != nil {

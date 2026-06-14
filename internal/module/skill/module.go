@@ -60,9 +60,16 @@ func newService(deps serviceDeps) *service {
 	return svc
 }
 
-func ProvideSkillLister(svc Service) SkillLister                   { return svc }
+// ProvideSkillLister 提供技能lister。
+func ProvideSkillLister(svc Service) SkillLister { return svc }
+
+// ProvideSkillInventoryLister 提供技能inventorylister。
 func ProvideSkillInventoryLister(svc Service) SkillInventoryLister { return svc }
-func ProvideSkillCatalogSource(svc Service) SkillCatalogSource     { return svc }
+
+// ProvideSkillCatalogSource 提供技能catalogsource。
+func ProvideSkillCatalogSource(svc Service) SkillCatalogSource { return svc }
+
+// ProvideSkillHydrationSource 提供技能hydrationsource。
 func ProvideSkillHydrationSource(svc Service) SkillHydrationSource { return svc }
 
 const builtInSkillRoot = "embedded_skills"
@@ -105,6 +112,7 @@ func builtInSkillExists(name string) bool {
 	return err == nil
 }
 
+// seedOneBuiltInSkill 在技能处理seedonebuilt。
 func seedOneBuiltInSkill(hubRoot, name string) (bool, error) {
 	if strings.TrimSpace(name) == "" || strings.ContainsAny(name, `/\`) || strings.HasPrefix(name, ".") {
 		return false, fmt.Errorf("skill builtins: invalid embedded skill name %q", name)
@@ -145,6 +153,7 @@ func copyBuiltInSkillEntry(sourceRoot, targetRoot, path string, entry fs.DirEntr
 	return writeBuiltInSkillFileIfMissing(path, target)
 }
 
+// writeBuiltInSkillFileIfMissing 在技能文件ifmissing写入built。
 func writeBuiltInSkillFileIfMissing(source, target string) (bool, error) {
 	data, err := builtInSkillFS.ReadFile(source)
 	if err != nil {

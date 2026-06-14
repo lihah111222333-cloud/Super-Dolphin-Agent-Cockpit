@@ -125,10 +125,12 @@ func newLSPCacheStore(cfg lspCacheConfig) (*lspCacheStore, error) {
 	return store, nil
 }
 
+// Enabled 判断LSP是否启用。
 func (s *lspCacheStore) Enabled() bool {
 	return s != nil
 }
 
+// Load 加载LSP。
 func (s *lspCacheStore) Load(key lspCacheKey) (lspCacheValue, bool) {
 	if s == nil {
 		return lspCacheValue{}, false
@@ -159,6 +161,7 @@ func (s *lspCacheStore) Load(key lspCacheKey) (lspCacheValue, bool) {
 	return result.value, result.ok
 }
 
+// Upsert 新增或更新记录。
 func (s *lspCacheStore) Upsert(value lspCacheValue) error {
 	if s == nil {
 		return nil
@@ -172,6 +175,7 @@ func (s *lspCacheStore) Upsert(value lspCacheValue) error {
 	})
 }
 
+// Delete 删除LSP。
 func (s *lspCacheStore) Delete(key lspCacheKey) error {
 	if s == nil {
 		return nil
@@ -183,6 +187,7 @@ func (s *lspCacheStore) Delete(key lspCacheKey) error {
 	})
 }
 
+// Tombstone 标记记录已删除。
 func (s *lspCacheStore) Tombstone(key lspCacheKey) error {
 	if s == nil {
 		return nil
@@ -196,6 +201,7 @@ func (s *lspCacheStore) Tombstone(key lspCacheKey) error {
 	})
 }
 
+// WorkspaceDocuments 处理工作区documents。
 func (s *lspCacheStore) WorkspaceDocuments(workspace string) []lspCacheValue {
 	if s == nil {
 		return nil
@@ -223,6 +229,7 @@ func (s *lspCacheStore) WorkspaceDocuments(workspace string) []lspCacheValue {
 	})
 }
 
+// ScopeDocuments 处理作用域documents。
 func (s *lspCacheStore) ScopeDocuments(scope ResolvedLSPToolScope) []lspCacheValue {
 	if s == nil {
 		return nil
@@ -250,6 +257,7 @@ func (s *lspCacheStore) ScopeDocuments(scope ResolvedLSPToolScope) []lspCacheVal
 	})
 }
 
+// WorkspaceURIs 处理工作区uris。
 func (s *lspCacheStore) WorkspaceURIs(workspace string) []string {
 	values := s.WorkspaceDocuments(workspace)
 	uris := make([]string, 0, len(values))
@@ -259,6 +267,7 @@ func (s *lspCacheStore) WorkspaceURIs(workspace string) []string {
 	return uris
 }
 
+// ScopeURIs 处理作用域uris。
 func (s *lspCacheStore) ScopeURIs(scope ResolvedLSPToolScope) []string {
 	values := s.ScopeDocuments(scope)
 	uris := make([]string, 0, len(values))
@@ -268,6 +277,7 @@ func (s *lspCacheStore) ScopeURIs(scope ResolvedLSPToolScope) []string {
 	return uris
 }
 
+// RememberDocumentScope 处理rememberdocument作用域。
 func (s *lspCacheStore) RememberDocumentScope(uri string, scope ResolvedLSPToolScope, fingerprint string) error {
 	if s == nil || strings.TrimSpace(uri) == "" {
 		return nil
@@ -283,6 +293,7 @@ func (s *lspCacheStore) RememberDocumentScope(uri string, scope ResolvedLSPToolS
 	return nil
 }
 
+// LastResolvedScope 处理last已解析作用域。
 func (s *lspCacheStore) LastResolvedScope(uri string) (lspDocumentIndexValue, bool) {
 	if s == nil || strings.TrimSpace(uri) == "" {
 		return lspDocumentIndexValue{}, false
@@ -322,12 +333,14 @@ func (s *lspCacheStore) cachePath() string {
 // closeBootstrapCoordinator don't need to change and a future persistent
 // flush-on-close can hang off the same entry point without another
 // refactor.
+// Close 关闭 LSP 管理器资源。
 func (s *lspCacheStore) Close() {
 	if s == nil {
 		return
 	}
 }
 
+// maybeCleanup 处理maybecleanup。
 func (s *lspCacheStore) maybeCleanup() {
 	if s == nil {
 		return
@@ -462,6 +475,7 @@ func (s *lspCacheStore) persistLocked() error {
 	return s.writePersistentPayloadLocked(payload)
 }
 
+// persistentDiskStateLocked 处理persistentdisk状态locked。
 func (s *lspCacheStore) persistentDiskStateLocked() lspCacheDiskState {
 	disk := lspCacheDiskState{
 		Documents:  make([]lspCacheValue, 0, len(s.memory)),
@@ -481,6 +495,7 @@ func (s *lspCacheStore) persistentDiskStateLocked() lspCacheDiskState {
 	return disk
 }
 
+// writePersistentPayloadLocked 写入persistent载荷locked。
 func (s *lspCacheStore) writePersistentPayloadLocked(payload []byte) error {
 	path := s.cachePath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -514,6 +529,7 @@ func (s *lspCacheStore) expired(value lspCacheValue, now time.Time) bool {
 	return now.Sub(value.UpdatedAt) > s.config.TTL
 }
 
+// String 返回字符串表示。
 func (k lspCacheKey) String() string {
 	return cacheKeyScope(k) + "\x00" +
 		cacheKeyWorkspace(k) + "\x00" +

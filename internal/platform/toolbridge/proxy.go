@@ -54,6 +54,7 @@ type proxyToolCallParams struct {
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
+// ServeProxy 处理serveproxy。
 func (h *Handler) ServeProxy(ln net.Listener) error {
 	if h == nil {
 		return errors.New("toolbridge: nil handler")
@@ -71,6 +72,7 @@ func (h *Handler) ServeProxy(ln net.Listener) error {
 	return err
 }
 
+// handleProxyRequest 处理proxy请求。
 func (h *Handler) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 	h.debug("proxy: incoming request", "method", r.Method, "path", r.URL.Path, "remote", r.RemoteAddr)
 	if r.Method != http.MethodPost {
@@ -135,6 +137,7 @@ func proxyDecodeErrorCode(err error) int {
 	return jsonRPCCodeParseError
 }
 
+// decodeProxyToolCallParams 解码proxy工具callparams。
 func decodeProxyToolCallParams(raw json.RawMessage) (proxyToolCallParams, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
@@ -219,6 +222,7 @@ func (h *Handler) handleProxyOrchToolsList(w http.ResponseWriter, ctx context.Co
 	writeJSONRPCResult(w, id, map[string]any{"tools": tools})
 }
 
+// handleProxyToolCall 处理proxy工具call。
 func (h *Handler) handleProxyToolCall(w http.ResponseWriter, ctx context.Context, req proxyJSONRPCRequest, family, agentID string) {
 	params, err := decodeProxyToolCallParams(req.Params)
 	if err != nil {
@@ -281,6 +285,7 @@ func (h *Handler) publishProxyToolCallBegin(req ToolCallRequest, started time.Ti
 	})
 }
 
+// publishProxyToolCallEnd 发布proxy工具callend。
 func (h *Handler) publishProxyToolCallEnd(req ToolCallRequest, started time.Time, result *ToolCallResult, callErr error) {
 	if h == nil || h.dispatcher == nil {
 		return
@@ -343,6 +348,7 @@ func proxyToolCallErrorCode(err error) int {
 	}
 }
 
+// resolveProxyThreadID 解析proxy线程ID。
 func (h *Handler) resolveProxyThreadID(ctx context.Context, agentID, family string) (string, error) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {

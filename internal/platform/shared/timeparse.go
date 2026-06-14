@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
+// ParseRFC3339Loose 解析rfc3339loose。
 func ParseRFC3339Loose(s string) time.Time {
 	raw := strings.TrimSpace(s)
 	if raw == "" {
@@ -21,6 +22,7 @@ func ParseRFC3339Loose(s string) time.Time {
 	return parsed
 }
 
+// DecodeHistoryMetadata 解码history元数据。
 func DecodeHistoryMetadata(raw json.RawMessage) map[string]any {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
@@ -33,8 +35,10 @@ func DecodeHistoryMetadata(raw json.RawMessage) map[string]any {
 }
 
 // CloneTime delegates to clone.Time.
+// CloneTime 复制时间。
 func CloneTime(value *time.Time) *time.Time { return clone.Time(value) }
 
+// CloneInt64 复制int64。
 func CloneInt64(value *int64) *int64 {
 	if value == nil {
 		return nil
@@ -45,6 +49,7 @@ func CloneInt64(value *int64) *int64 {
 
 type eventTimeKey struct{}
 
+// WithEventTime 设置事件时间。
 func WithEventTime(ctx context.Context, timestamp time.Time) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -55,6 +60,7 @@ func WithEventTime(ctx context.Context, timestamp time.Time) context.Context {
 	return context.WithValue(ctx, eventTimeKey{}, timestamp)
 }
 
+// ResolveEventTime 解析事件时间。
 func ResolveEventTime(ctx context.Context, payload map[string]any, fallbacks ...time.Time) time.Time {
 	if timestamp := eventTimeFromContext(ctx); !timestamp.IsZero() {
 		return timestamp
@@ -65,6 +71,7 @@ func ResolveEventTime(ctx context.Context, payload map[string]any, fallbacks ...
 	return FirstEventTime(fallbacks...)
 }
 
+// FirstEventTime 处理first事件时间。
 func FirstEventTime(fallbacks ...time.Time) time.Time {
 	for _, timestamp := range fallbacks {
 		if !timestamp.IsZero() {
@@ -74,6 +81,7 @@ func FirstEventTime(fallbacks ...time.Time) time.Time {
 	return time.Now()
 }
 
+// EventTimeFromPayload 从载荷处理事件时间。
 func EventTimeFromPayload(payload map[string]any) time.Time {
 	if len(payload) == 0 {
 		return time.Time{}
@@ -89,6 +97,7 @@ func EventTimeFromPayload(payload map[string]any) time.Time {
 	)))
 }
 
+// ParseEventTime 解析事件时间。
 func ParseEventTime(raw string) time.Time {
 	return ParseRFC3339Loose(raw)
 }

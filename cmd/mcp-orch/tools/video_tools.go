@@ -42,6 +42,7 @@ func siliconFlowAPIKey() (string, error) {
 	return apiKey, nil
 }
 
+// sfPost 处理sfpost。
 func sfPost(ctx context.Context, apiKey, url string, body any) ([]byte, error) {
 	b, err := json.Marshal(body)
 	if err != nil {
@@ -91,6 +92,7 @@ func sfSubmit(ctx context.Context, apiKey string, in videoGenerateInput) (string
 }
 
 // sfPoll polls until Succeed/Failed (max 15 minutes).
+// sfPoll 处理sfpoll。
 func sfPoll(ctx context.Context, apiKey, requestID string) (string, error) {
 	deadline := time.Now().Add(15 * time.Minute)
 	for time.Now().Before(deadline) {
@@ -128,6 +130,7 @@ func sfPoll(ctx context.Context, apiKey, requestID string) (string, error) {
 	return "", fmt.Errorf("siliconflow: request %s timed out", requestID)
 }
 
+// downloadVideoToDesktop 把downloadvideo处理为desktop。
 func downloadVideoToDesktop(ctx context.Context, videoURL, requestID string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {

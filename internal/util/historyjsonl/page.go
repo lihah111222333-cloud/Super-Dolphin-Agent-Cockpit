@@ -26,6 +26,7 @@ type offsetCursor struct {
 	Offset int64 `json:"offset"`
 }
 
+// ReadProviderMessagesPage 读取provider消息page。
 func ReadProviderMessagesPage(req ReadRequest, pageReq dto.MessagePageRequest) (dto.MessagePageResult, error) {
 	path, provider, err := resolvePath(req)
 	if err != nil {
@@ -44,6 +45,7 @@ func ReadProviderMessagesPage(req ReadRequest, pageReq dto.MessagePageRequest) (
 	}, nil
 }
 
+// ReadProviderMessagesPageOrError 读取provider消息page错误。
 func ReadProviderMessagesPageOrError(req ReadRequest, pageReq dto.MessagePageRequest, missingErr error) (dto.MessagePageResult, error) {
 	path, provider, err := resolvePath(req)
 	if err != nil {
@@ -78,6 +80,7 @@ func messagesWithPageOffsets(messages []dto.Message, offsets []int64) []dto.Mess
 	return out
 }
 
+// ReadJSONLPage 读取JSONLpage。
 func ReadJSONLPage[T any](path string, limit int, before string, parse func([]byte) (T, bool)) (JSONLPageResult[T], error) {
 	if err := validateJSONLPageRequest(limit, parse); err != nil {
 		return JSONLPageResult[T]{}, err
@@ -154,6 +157,7 @@ type jsonlRecord[T any] struct {
 	offset int64
 }
 
+// readJSONLRecordsBackward 读取JSONL记录backward。
 func readJSONLRecordsBackward[T any](
 	reader io.ReaderAt,
 	beforeOffset int64,

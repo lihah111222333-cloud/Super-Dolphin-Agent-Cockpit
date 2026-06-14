@@ -36,14 +36,17 @@ const (
 	prefetchStateDiscarded           = retrievalpkg.PrefetchStateDiscarded
 )
 
+// NewManifestBuilder 创建记忆规则 manifest 构建器。
 func NewManifestBuilder() *ManifestBuilder {
 	return retrievalpkg.NewManifestBuilder()
 }
 
+// ScanHeadersSafe 安全扫描记忆文件头部信息。
 func ScanHeadersSafe(memoryRoot string) ([]MemoryEntry, error) {
 	return retrievalpkg.ScanHeadersSafe(memoryRoot)
 }
 
+// NewPrefetchManager 创建记忆预取管理器。
 func NewPrefetchManager(memoryRoot string) *PrefetchManager {
 	return retrievalpkg.NewPrefetchManager(memoryRoot)
 }
@@ -121,6 +124,8 @@ type MemoryRulesProvider struct {
 	team   *TeamMemoryManager
 }
 
+// NewRulesProvider 创建 start 时用的 memory 规则 provider。
+// 它只告诉 AI 怎么用 memory，不读取 topic 正文，也不写文件。
 func NewRulesProvider(cfg *Config, engine *MemoryRuleEngine, team *TeamMemoryManager) *MemoryRulesProvider {
 	cfg = memoryConfig(cfg)
 	if engine == nil {
@@ -129,10 +134,13 @@ func NewRulesProvider(cfg *Config, engine *MemoryRuleEngine, team *TeamMemoryMan
 	return &MemoryRulesProvider{cfg: cfg, engine: engine, team: team}
 }
 
+// SectionName 返回该上下文提供器写入的 prompt section 名称。
 func (p *MemoryRulesProvider) SectionName() string {
 	return contract.DynamicSectionMemory
 }
 
+// Resolve 只在 thread/start 时产出 memory 规则。
+// 每轮相关记忆、历史片段和真实写入都不在这里做。
 func (p *MemoryRulesProvider) Resolve(_ context.Context, input contract.SectionContext) (*string, error) {
 	if p == nil || input.Start == nil || input.Turn != nil {
 		return nil, nil
@@ -168,6 +176,7 @@ func (p *MemoryRulesProvider) resolvedExtraGuidelines() []string {
 	return guidelines
 }
 
+// promptMode 解析当前 prompt 的记忆加载模式。
 func (p *MemoryRulesProvider) promptMode(buildCtx contract.BuildCtx, gate MemoryGateSnapshot, opts *MemoryRuleOptions) MemoryMode {
 	if !gate.AutoEnabled {
 		return ""
@@ -239,6 +248,8 @@ type prefetchTurnState struct {
 
 type TurnContextPayload = contract.TurnContextPayload
 
+// NewContextProvider 创建 turn 时读取 memory 的 provider。
+// 这里只记住检索根；目录准备、权限和写入仍由 Service/Hooks 处理。
 func NewContextProvider(cfg *Config) *MemoryContextProvider {
 	cfg = memoryConfig(cfg)
 	root, _ := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, configuredAutoMemPathOverride(cfg))
@@ -250,10 +261,12 @@ func NewContextProvider(cfg *Config) *MemoryContextProvider {
 	}
 }
 
+// AsTurnContextProvider 把记忆规则提供器暴露为 turn 上下文提供器。
 func AsTurnContextProvider(provider *MemoryContextProvider) contract.TurnContextProvider {
 	return provider
 }
 
+// SectionName 返回该上下文提供器写入的 prompt section 名称。
 func (p *MemoryContextProvider) SectionName() string {
 	return contract.DynamicSectionMemoryContext
 }
@@ -264,10 +277,12 @@ func (p *MemoryContextProvider) SectionName() string {
 // are surfaced via PrepareTurnContext, not the dynamic-section pipeline. The
 // provider is still registered so future per-turn dynamic sections can attach
 // here without re-plumbing the section list.
+// Resolve 解析当前请求需要注入的 prompt 内容。
 func (p *MemoryContextProvider) Resolve(_ context.Context, _ contract.SectionContext) (*string, error) {
 	return nil, nil
 }
 
+// PrepareTurnInputs 为本轮 turn 准备记忆相关输入。
 func (p *MemoryContextProvider) PrepareTurnInputs(
 	ctx context.Context,
 	session contract.Session,
@@ -277,6 +292,8 @@ func (p *MemoryContextProvider) PrepareTurnInputs(
 	return p.PrepareTurnContext(ctx, session, buildCtx, threadID, query).Inputs
 }
 
+// PrepareTurnContext 给本轮 turn 准备 memory 附件和历史片段。
+// 它只返回上下文给 turn，不改 memory 文件，也不直接改 prompt 缓存。
 func (p *MemoryContextProvider) PrepareTurnContext(
 	ctx context.Context,
 	session contract.Session,
@@ -326,6 +343,7 @@ func (p *MemoryContextProvider) shouldAttemptTurnPrefetch(
 	return ShouldStartRelevantMemoryPrefetch(gate, contract.TurnInput{UserText: query}, surfacedState)
 }
 
+// searchPastContextInputs 搜索可复用的历史上下文输入。
 func (p *MemoryContextProvider) searchPastContextInputs(
 	ctx context.Context,
 	session contract.Session,
@@ -350,6 +368,7 @@ func invalidTurnContextRequest(p *MemoryContextProvider, threadID, query string)
 	return p == nil || threadID == "" || query == ""
 }
 
+// OnPromptInvalidate 在 prompt 失效时清理相关缓存。
 func (p *MemoryContextProvider) OnPromptInvalidate(reason contract.InvalidateReason) {
 	if p == nil {
 		return
@@ -419,6 +438,8 @@ func (p *MemoryContextProvider) consumePrefetchEntries(
 	return filtered, true
 }
 
+// startRelevantPrefetch 记住每个 thread 当前 query 的预取任务。
+// 这个 map 只是短期缓存，不代表 memory 或 prompt snapshot 的长期状态。
 func (p *MemoryContextProvider) startRelevantPrefetch(
 	ctx context.Context,
 	threadID, query string,
@@ -532,6 +553,8 @@ func (p *MemoryContextProvider) now() time.Time {
 	return time.Now()
 }
 
+// registerPromptProviders 把 memory 的几种提示内容注册到 prompt。
+// 新的 memory 可见内容优先从这里接入，不要让 prompt 直接读 memory 内部实现。
 func registerPromptProviders(p promptProviderParams) error {
 	if p.ClaudeMdRegistrar == nil {
 		if registrar, ok := p.Registry.(contract.ClaudeMdSourceProviderRegistrar); ok {

@@ -175,6 +175,7 @@ func agentHeader(agent *agentState) shareddto.AgentHeader {
 	}
 }
 
+// agentEventTime 处理代理事件时间。
 func agentEventTime(agent *agentState) time.Time {
 	if agent == nil {
 		return shared.FirstEventTime()

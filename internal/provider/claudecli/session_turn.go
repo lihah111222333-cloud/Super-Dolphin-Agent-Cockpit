@@ -57,6 +57,7 @@ func isTransientTurnError(raw dto.RawProviderEvent) bool {
 	return isTransientErrorText(dataString(raw.Data, "error"))
 }
 
+// shouldRetryTransientError 判断重试transient错误是否可用。
 func (s *session) shouldRetryTransientError(raw dto.RawProviderEvent) bool {
 	if raw.EventType != "turn:complete" || dataBool(raw.Data, "success") {
 		return false
@@ -103,6 +104,7 @@ func (s *session) shouldRetryTransientError(raw dto.RawProviderEvent) bool {
 	return true
 }
 
+// executeRetry 执行重试。
 func (s *session) executeRetry(retryCtx context.Context, retry *turnRetryState, handle *turnHandle, payload []byte) {
 	if retryCtx == nil || retry == nil || handle == nil {
 		return
@@ -131,6 +133,7 @@ func waitRetryDelay(retryCtx context.Context, handle *turnHandle, delay time.Dur
 	return false
 }
 
+// sendRetryLocked 处理send重试locked。
 func (s *session) sendRetryLocked(retry *turnRetryState, handle *turnHandle, payload []byte) error {
 	if s.pendingRetry != retry || s.activeTurn != handle || s.transport == nil || !s.transport.readyForSend() {
 		s.takeActiveTurnLocked()
@@ -167,6 +170,7 @@ func errorMessageFromTerminalReason(reason string) string {
 	}
 }
 
+// prepareTurnLocked 准备turnlocked。
 func (s *session) prepareTurnLocked(ctx context.Context, req dto.TurnRequest) ([]byte, string, *turnHandle, error) {
 	blocks := composeTurnContent(req, s.imageTracker)
 	if len(blocks) == 0 {
@@ -287,6 +291,7 @@ func marshalTurnContentPayload(blocks []map[string]any) ([]byte, error) {
 // When tracker is non-nil, identical images sent earlier in the same session
 // (matched by sha256 of the raw bytes) are replaced with a small text
 // placeholder so the API does not re-process the same vision payload.
+// composeTurnContent 处理composeturn内容。
 func composeTurnContent(req dto.TurnRequest, tracker *imageHashTracker) []map[string]any {
 	blocks := make([]map[string]any, 0, len(req.Inputs)+1)
 	passthrough := make([]dto.InputItem, 0, len(req.Inputs))

@@ -14,4 +14,5 @@ type AgentRuntimeReported struct {
 	Provider string `json:"provider,omitempty"`
 }
 
+// Type 返回事件分发用的类型编号。
 func (AgentRuntimeReported) Type() uint32 { return shared.EventTypeAgentRuntimeReported }

@@ -48,10 +48,12 @@ type DreamTaskSnapshot struct {
 
 var ErrDreamTaskNotRunning = errors.New("dream task is not running")
 
+// GetDreamTaskStatus 读取dream任务状态。
 func (h *MemoryLifecycleHooks) GetDreamTaskStatus() DreamTaskSnapshot {
 	return h.dreamTaskSnapshot()
 }
 
+// KillDreamTask 处理killdream任务。
 func (h *MemoryLifecycleHooks) KillDreamTask() error {
 	if !h.killDreamTask() {
 		return ErrDreamTaskNotRunning
@@ -143,6 +145,7 @@ func (h *MemoryLifecycleHooks) killDreamTask() bool {
 	return true
 }
 
+// waitDreamTask 等待dream任务。
 func (h *MemoryLifecycleHooks) waitDreamTask(ctx context.Context) error {
 	if h == nil {
 		return nil
@@ -214,6 +217,7 @@ func (h *MemoryLifecycleHooks) autoDreamAllowed(meta threadRuntimeMetadata) bool
 	return meta.isAutoMemoryRootThread() && !meta.hasAgentMemoryScope() && h.isGateOpen(meta)
 }
 
+// prepareAutoDreamExecution 准备autodreamexecution。
 func (h *MemoryLifecycleHooks) prepareAutoDreamExecution(ctx context.Context, threadID string) (autoDreamExecutionPlan, bool, error) {
 	root, err := h.autoDreamRoot()
 	if err != nil {
@@ -253,6 +257,7 @@ func (h *MemoryLifecycleHooks) autoDreamRoot() (string, error) {
 	return root, nil
 }
 
+// prepareAutoDreamWindow 准备autodreamwindow。
 func (h *MemoryLifecycleHooks) prepareAutoDreamWindow(root string) (time.Time, bool, error) {
 	stamp, err := loadConsolidationStamp(root)
 	if err != nil {
@@ -321,6 +326,7 @@ func (h *MemoryLifecycleHooks) isGateOpen(meta threadRuntimeMetadata) bool {
 	return gate.AutoEnabled
 }
 
+// autoDreamSessionCount 处理autodream会话count。
 func (h *MemoryLifecycleHooks) autoDreamSessionCount(ctx context.Context, currentThreadID string, since time.Time) (int, error) {
 	if h == nil || h.threadStore == nil {
 		return 0, nil
@@ -339,6 +345,7 @@ func (h *MemoryLifecycleHooks) autoDreamSessionCount(ctx context.Context, curren
 	return count, nil
 }
 
+// shouldCountAutoDreamThread 判断countautodream线程是否可用。
 func shouldCountAutoDreamThread(thread contract.ThreadMetadata, currentThreadID, projectKey string, since time.Time) bool {
 	threadID := strings.TrimSpace(thread.ThreadID)
 	if threadID == "" || threadID == currentThreadID {
@@ -566,6 +573,7 @@ func (s *uiMemoryConsolidationJobStore) snapshotLocked(job *uiMemoryConsolidatio
 	return out
 }
 
+// pruneLocked 裁剪locked。
 func (s *uiMemoryConsolidationJobStore) pruneLocked(now time.Time) {
 	if s.ttl <= 0 {
 		return

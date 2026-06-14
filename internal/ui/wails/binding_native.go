@@ -35,6 +35,7 @@ func (a *App) SaveClipboardImage(base64Payload string) (string, error) {
 	return path, nil
 }
 
+// decodeClipboardImagePayload 解码clipboardimage载荷。
 func decodeClipboardImagePayload(payload string) ([]byte, error) {
 	payload = strings.TrimSpace(payload)
 	if payload == "" {
@@ -76,6 +77,7 @@ func decodeBase64Flexible(payload string) ([]byte, error) {
 	return base64.RawStdEncoding.DecodeString(payload)
 }
 
+// SelectProjectDir 选择项目目录。
 func (a *App) SelectProjectDir() (string, error) {
 	return a.selectProjectDir("")
 }
@@ -101,6 +103,7 @@ func (a *App) selectProjectDir(defaultPath string) (string, error) {
 	return path, err
 }
 
+// SelectProjectDirs 选择项目目录。
 func (a *App) SelectProjectDirs(defaultPath string) ([]string, error) {
 	dialog, err := a.newDialog()
 	if err != nil {
@@ -122,6 +125,7 @@ func (a *App) SelectProjectDirs(defaultPath string) ([]string, error) {
 	return paths, err
 }
 
+// SelectFiles 选择文件。
 func (a *App) SelectFiles() ([]string, error) {
 	return a.selectFiles("")
 }
@@ -146,6 +150,7 @@ func (a *App) selectFiles(defaultPath string) ([]string, error) {
 	return paths, err
 }
 
+// saveTextFile 保存文本文件。
 func (a *App) saveTextFile(defaultPath, defaultFilename, content string) (string, error) {
 	filename := normalizeSaveFilename(defaultFilename)
 	if filename == "" {
@@ -180,6 +185,7 @@ func (a *App) saveTextFile(defaultPath, defaultFilename, content string) (string
 	return path, nil
 }
 
+// promptExportDirectory 处理promptexportdirectory。
 func (a *App) promptExportDirectory(defaultPath string) (string, error) {
 	if a != nil && a.saveDirectoryInvoker != nil {
 		return a.saveDirectoryInvoker(defaultPath)
@@ -277,6 +283,7 @@ func isDialogCancelError(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "cancel")
 }
 
+// CopyText 复制文本。
 func (a *App) CopyText(text string) (bool, error) {
 	app, err := a.requireWailsApp()
 	if err != nil {

@@ -36,6 +36,7 @@ var markdownEscapeReplacer = strings.NewReplacer(
 // MarkdownEscape applies the shared escape set. Callers should run
 // this on every user-supplied field before wrapping it in a platform
 // template so a rogue backtick or pipe can't inject formatting.
+// MarkdownEscape 处理markdown转义。
 func MarkdownEscape(s string) string {
 	return markdownEscapeReplacer.Replace(s)
 }
@@ -59,6 +60,7 @@ var (
 // StripMentions removes every broadcast-style mention token. Channel
 // templates wanting a targeted mention are expected to render it from
 // a safe constant, not from user text.
+// StripMentions 处理stripmentions。
 func StripMentions(s string) string {
 	s = slackMentionRE.ReplaceAllString(s, "")
 	s = feishuMentionRE.ReplaceAllString(s, "")
@@ -68,6 +70,7 @@ func StripMentions(s string) string {
 
 // Truncate clamps the rendered body to maxBytes. When maxBytes <= 0
 // the DefaultMaxBodyBytes guard applies.
+// Truncate 截断平台notify。
 func Truncate(s string, maxBytes int) string {
 	if maxBytes <= 0 {
 		maxBytes = DefaultMaxBodyBytes
@@ -88,12 +91,14 @@ func Truncate(s string, maxBytes int) string {
 // escape markdown, then clamp length. Mention stripping must run before
 // markdown escaping because escaping '>' would turn Slack tokens such as
 // <!channel> into <!channel\>, which no longer match the mention regex.
+// NormalizeBody 规范化正文。
 func NormalizeBody(s string, maxBytes int) string {
 	return Truncate(MarkdownEscape(StripMentions(s)), maxBytes)
 }
 
 // NormalizeTitle is the same pipeline with a tighter default cap — a
 // title in a Dingtalk card has much less real estate than the body.
+// NormalizeTitle 规范化title。
 func NormalizeTitle(s string) string {
 	return Truncate(MarkdownEscape(StripMentions(s)), 256)
 }
@@ -101,6 +106,7 @@ func NormalizeTitle(s string) string {
 // RedactURL strips secrets from a webhook URL so logs never leak bearer
 // tokens. Query / fragment are always removed, and Slack's bearer-style
 // path secret is collapsed to /services/[redacted].
+// RedactURL 脱敏URL。
 func RedactURL(u string) string {
 	return redactURLString(u)
 }

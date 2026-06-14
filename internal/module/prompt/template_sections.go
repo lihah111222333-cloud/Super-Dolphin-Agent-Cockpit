@@ -28,6 +28,8 @@ import (
 //     of having both copies concatenated.
 //   - A block with a novel Key is appended as "tpl:<key>" so it cannot collide
 //     with a future built-in addition.
+//
+// mergeTemplateSections 合并templatesections。
 func mergeTemplateSections(
 	resolved []contract.ResolvedPromptSection,
 	blocks []contract.BaseInstructionBlock,
@@ -89,6 +91,7 @@ func requirePromptCWD(cwd string) (string, error) {
 	return requestScope, nil
 }
 
+// validatePromptScope 校验prompt作用域。
 func validatePromptScope(current *promptstore.PromptTemplate, cwd string) error {
 	requestScope, err := requirePromptCWD(cwd)
 	if err != nil {
@@ -109,6 +112,7 @@ func validatePromptScope(current *promptstore.PromptTemplate, cwd string) error 
 	return fmt.Errorf("dashboard: prompt %q is outside cwd scope", current.PromptKey)
 }
 
+// validatePromptWriteScope 校验promptwrite作用域。
 func validatePromptWriteScope(current *promptstore.PromptTemplate, cwd, scope string, scopeSet bool) error {
 	requestScope, err := requirePromptCWD(cwd)
 	if err != nil {
@@ -138,6 +142,7 @@ func validatePromptWriteScope(current *promptstore.PromptTemplate, cwd, scope st
 	return fmt.Errorf("dashboard: prompt %q is outside cwd scope", current.PromptKey)
 }
 
+// validatePromptMutationScope 校验promptmutation作用域。
 func validatePromptMutationScope(current *promptstore.PromptTemplate, cwd, scope string, scopeSet bool) error {
 	requestScope, err := requirePromptCWD(cwd)
 	if err != nil {
@@ -173,6 +178,7 @@ func promptVisibleForCWD(template promptstore.PromptTemplate, cwd string) bool {
 	return storedScope == "" || storedScope == requestScope
 }
 
+// promptScopeForWrite 为write处理prompt作用域。
 func promptScopeForWrite(current *promptstore.PromptTemplate, cwd, scope string, scopeSet bool) string {
 	if scopeSet {
 		if normalized := normalizePromptScope(scope); normalized != "" {
@@ -222,6 +228,7 @@ func withPromptScopeTag(raw json.RawMessage, cwd string) json.RawMessage {
 	return withPromptScopeKindTag(raw, cwd, "project")
 }
 
+// withPromptScopeKindTag 设置prompt作用域kindtag。
 func withPromptScopeKindTag(raw json.RawMessage, cwd, scope string) json.RawMessage {
 	tags := promptTags(raw)
 	next := make([]string, 0, len(tags)+1)
@@ -242,6 +249,7 @@ func withPromptScopeKindTag(raw json.RawMessage, cwd, scope string) json.RawMess
 	return json.RawMessage(encoded)
 }
 
+// rejectDuplicateRecallTopicInCWD 在工作目录处理rejectduplicaterecalltopic。
 func rejectDuplicateRecallTopicInCWD(
 	ctx context.Context,
 	store promptstore.Store,
@@ -273,6 +281,7 @@ func rejectDuplicateRecallTopicInCWD(
 	return nil
 }
 
+// promptRecallDuplicateExists 处理promptrecallduplicateexists。
 func promptRecallDuplicateExists(
 	templates []promptstore.PromptTemplate,
 	sectionsByID map[int64][]promptstore.PromptTemplateSection,
@@ -296,6 +305,7 @@ func promptRecallDuplicateExists(
 	return false
 }
 
+// promptRecallDuplicateTargetScope 处理promptrecallduplicatetarget作用域。
 func promptRecallDuplicateTargetScope(current *promptstore.PromptTemplate, cwd, scope string, scopeSet bool) string {
 	if current != nil {
 		hasProject := promptHasScopeCWD(current.Tags, cwd)
@@ -363,6 +373,7 @@ type promptAssetRPCItem struct {
 	Issues      any    `json:"issues,omitempty"`
 }
 
+// handlePromptAssetList 处理promptassetlist。
 func handlePromptAssetList(ctx context.Context, store promptstore.Store, p promptAssetListParams) (any, error) {
 	if store == nil {
 		return nil, errPromptStoreRequired
@@ -411,6 +422,7 @@ func promptAssetVisibleForCWD(template promptstore.PromptTemplate, cwd string) b
 	return promptHasGlobalScope(template.Tags) || promptHasScopeCWD(template.Tags, requestScope)
 }
 
+// effectivePromptAssetTemplates 处理effectivepromptassettemplates。
 func effectivePromptAssetTemplates(templates []promptstore.PromptTemplate, cwd string) []promptstore.PromptTemplate {
 	type pickedAsset struct {
 		template promptstore.PromptTemplate

@@ -15,6 +15,7 @@ const (
 	RateLimitBackoff = 60 * time.Second
 )
 
+// ComputeRetryBackoff 计算重试backoff。
 func ComputeRetryBackoff(attempt int, prevErr error) time.Duration {
 	if IsRateLimited(prevErr) {
 		return RateLimitBackoff
@@ -22,6 +23,7 @@ func ComputeRetryBackoff(attempt int, prevErr error) time.Duration {
 	return time.Duration(attempt) * launchRetryBase
 }
 
+// WaitRetryBackoff 等待重试backoff。
 func WaitRetryBackoff(ctx context.Context, attempt int, agentID string, prevErr error) error {
 	delay := ComputeRetryBackoff(attempt, prevErr)
 	startedAt := time.Now()
@@ -58,6 +60,7 @@ var permanentLaunchPatterns = []string{"401", "unauthoriz", "authentication fail
 
 var transientLaunchPatterns = []string{"deadline exceeded", "connection refused", "transport unavailable", "empty thread id", "timed out", "i/o timeout"}
 
+// Classify 分类编排。
 func Classify(err error) Class {
 	if err == nil {
 		return ClassTransient
@@ -79,6 +82,7 @@ func Classify(err error) Class {
 	return ClassUnknown
 }
 
+// IsRateLimited 判断ratelimited是否可用。
 func IsRateLimited(err error) bool {
 	if err == nil {
 		return false

@@ -8,6 +8,7 @@ import (
 	"strings"
 )
 
+// SanitizeSandbox 清理沙箱。
 func SanitizeSandbox(raw json.RawMessage) (json.RawMessage, error) {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 {
@@ -19,6 +20,7 @@ func SanitizeSandbox(raw json.RawMessage) (json.RawMessage, error) {
 	return raw, nil
 }
 
+// IsDangerFullAccessSandbox 判断dangerfullaccess沙箱是否可用。
 func IsDangerFullAccessSandbox(raw json.RawMessage) (bool, error) {
 	raw, err := SanitizeSandbox(raw)
 	if err != nil || len(raw) == 0 {

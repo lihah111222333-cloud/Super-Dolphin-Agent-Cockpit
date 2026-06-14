@@ -29,6 +29,7 @@ type ToolErrorEnvelope struct {
 // callers to interpret raw JSON. The format groups the most actionable
 // signals (error → hint → retry) at the top and surfaces useful meta
 // fields like suggested_columns / line_text without dumping every key.
+// ToPlainText 渲染为纯文本。
 func (e ToolErrorEnvelope) ToPlainText() string {
 	var sb strings.Builder
 	header := "Tool error"
@@ -127,6 +128,7 @@ func numericMetaInt(value any) (int, bool) {
 	}
 }
 
+// ToolResultIsError 处理工具结果is错误。
 func ToolResultIsError(value any) bool {
 	switch envelope := value.(type) {
 	case ToolErrorEnvelope:
@@ -161,6 +163,7 @@ type CodedToolError struct {
 	Meta      map[string]any
 }
 
+// Error 返回错误文本。
 func (e *CodedToolError) Error() string {
 	if e == nil || e.Err == nil {
 		return ""
@@ -168,6 +171,7 @@ func (e *CodedToolError) Error() string {
 	return e.Err.Error()
 }
 
+// Unwrap 返回底层错误。
 func (e *CodedToolError) Unwrap() error {
 	if e == nil {
 		return nil
@@ -175,6 +179,7 @@ func (e *CodedToolError) Unwrap() error {
 	return e.Err
 }
 
+// NewCodedToolError 创建coded工具错误。
 func NewCodedToolError(code string, err error, retryable bool, hint string) error {
 	if err == nil {
 		err = errors.New(strings.TrimSpace(code))
@@ -182,6 +187,7 @@ func NewCodedToolError(code string, err error, retryable bool, hint string) erro
 	return &CodedToolError{Err: err, Code: strings.TrimSpace(code), Retryable: retryable, Hint: strings.TrimSpace(hint)}
 }
 
+// NewPanicToolError 创建panic工具错误。
 func NewPanicToolError(recovered any) error {
 	return &CodedToolError{
 		Err:       fmt.Errorf("panic recovered: %v", recovered),
@@ -191,10 +197,12 @@ func NewPanicToolError(recovered any) error {
 	}
 }
 
+// NewToolErrorEnvelope 创建工具错误包装。
 func NewToolErrorEnvelope(toolName string, err error) ToolErrorEnvelope {
 	return NewToolErrorEnvelopeWithMeta(toolName, "", err, nil)
 }
 
+// NewToolErrorEnvelopeWithMeta 创建带meta的工具错误包装。
 func NewToolErrorEnvelopeWithMeta(toolName, languageID string, err error, extraMeta map[string]any) ToolErrorEnvelope {
 	code, retryable, hint, codedMeta := ClassifyToolError(toolName, err)
 	meta := map[string]any{"tool": strings.TrimSpace(toolName)}
@@ -221,6 +229,7 @@ func NewToolErrorEnvelopeWithMeta(toolName, languageID string, err error, extraM
 	}
 }
 
+// ClassifyToolError 分类工具错误。
 func ClassifyToolError(toolName string, err error) (code string, retryable bool, hint string, meta map[string]any) {
 	if err == nil {
 		return "unknown", false, "next: inspect tool call arguments and retry with a concrete error", nil

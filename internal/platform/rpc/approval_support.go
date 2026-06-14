@@ -41,6 +41,7 @@ func normalizeApprovalRequest(req ApprovalRequest) (ApprovalRequest, error) {
 
 // WithApprovalDeadline applies the default approval timeout when the caller did
 // not already provide an explicit deadline.
+// WithApprovalDeadline 设置审批截止时间。
 func WithApprovalDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
 	ctx = shared.NonNilContext(ctx)
 	if DefaultApprovalTimeout <= 0 {
@@ -49,6 +50,7 @@ func WithApprovalDeadline(ctx context.Context) (context.Context, context.CancelF
 	return platformconfig.WithTimeoutIfNone(ctx, DefaultApprovalTimeout)
 }
 
+// WithApprovalAutoDeclineOnCancel 设置审批autodeclineoncancel。
 func WithApprovalAutoDeclineOnCancel(ctx context.Context) context.Context {
 	return context.WithValue(shared.NonNilContext(ctx), approvalAutoDeclineOnCancelKey, true)
 }
@@ -66,6 +68,7 @@ func waitForApproval(ctx context.Context, pending *pendingApproval) (contract.Ap
 	}
 }
 
+// decodeApprovalDecision 解码审批decision。
 func decodeApprovalDecision(raw json.RawMessage) (contract.ApprovalDecision, error) {
 	raw = shared.CloneRawMessage(raw)
 	var approved bool
@@ -117,6 +120,7 @@ func mapApprovalWaitErr(err error, callID string) error {
 	}
 }
 
+// dispatchApprovalDecision 派发审批decision。
 func dispatchApprovalDecision(req ApprovalRequest, bridge *PushBridge, server *jrpc2.Server) (contract.ApprovalDecision, string, bool) {
 	switch {
 	case shouldAutoApproveUserInput(req):
@@ -152,6 +156,7 @@ func isRecoverableDispatchErr(err error) bool {
 	return isExpectedCloseErr(err)
 }
 
+// decisionReason 处理decisionreason。
 func decisionReason(decision contract.ApprovalDecision, err error) string {
 	if decision.Reason != "" {
 		return decision.Reason

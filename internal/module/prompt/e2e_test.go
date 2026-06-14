@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	datasource "github.com/anthropic-ai/super-agent-v3/internal/module/datasource"
 	memory "github.com/anthropic-ai/super-agent-v3/internal/module/memory"
 	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	thread "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
@@ -103,6 +104,22 @@ func TestAssembleTurnProducesUserContext(t *testing.T) {
 	mustContain(t, turn.UserContext["terminalFocus"], "The terminal is unfocused")
 	mustContain(t, sectionContent(turn.ResolvedSections, promptpkg.DynamicSectionSessionGuidance), "please verify the cache")
 	mustContain(t, sectionContent(turn.ResolvedSections, promptpkg.DynamicSectionSessionGuidance), h.projectRoot)
+}
+
+func TestDatasourceInjectsIntoTurnPrompt(t *testing.T) {
+	h := newFxHarness(t)
+
+	turn, err := h.assembly.AssembleTurn(context.Background(), promptpkg.TurnInput{
+		UserText: "use the uploaded datasource",
+		CWD:      h.projectRoot,
+	})
+	if err != nil {
+		t.Fatalf("AssembleTurn() error = %v", err)
+	}
+
+	datasourceSection := sectionContent(turn.ResolvedSections, promptpkg.DynamicSectionDatasource)
+	mustContain(t, datasourceSection, "### launch-notes.txt")
+	mustContain(t, datasourceSection, "datasource text from FX wiring")
 }
 
 func TestMemoryRulesInjectIntoPrompt(t *testing.T) {
@@ -250,10 +267,19 @@ func newFxHarness(t *testing.T) *fxHarness {
 	h.threadStore = &capturingThreadStore{}
 	h.bindingStore = &capturingBindingStore{}
 	h.orchestration = &capturingOrchestration{}
+	datasourceStore := &fxDatasourceStore{documents: []datasource.DatasourceDocument{
+		{
+			WorkspaceRoot: h.projectRoot,
+			Name:          "launch-notes.txt",
+			Extension:     ".txt",
+			Content:       "datasource text from FX wiring",
+		},
+	}}
 	app := fx.New(
 		fx.NopLogger,
 		fx.Supply(&contract.Config{ProjectRoot: h.projectRoot}),
 		fx.Supply(slog.New(slog.NewTextHandler(io.Discard, nil))),
+		fx.Supply(fx.Annotate(datasourceStore, fx.As(new(datasource.DatasourceDocumentStore)))),
 		fx.Provide(
 			func() thread.SessionStarter { return h.bridge },
 			func() thread.SessionProvider { return h.bridge },
@@ -262,7 +288,13 @@ func newFxHarness(t *testing.T) *fxHarness {
 			newE2EPromptStore,
 			func() turnpkg.Service { return &noopTurnService{} },
 			func() thread.OrchestrationFacade { return h.orchestration },
+			func(store datasource.DatasourceDocumentStore) *datasource.PromptProvider {
+				return datasource.NewPromptProvider(datasource.NewServiceWithStore(store))
+			},
 		),
+		fx.Invoke(func(reg contract.DynamicSectionRegistrar, provider *datasource.PromptProvider) error {
+			return reg.RegisterDynamicProvider(provider)
+		}),
 		promptpkg.Module,
 		memory.Module,
 		thread.Module,
@@ -333,4 +365,26 @@ func configString(cfg map[string]any, key string) string {
 
 func containsString(values []string, want string) bool {
 	return slices.Contains(values, want)
+}
+
+type fxDatasourceStore struct {
+	documents []datasource.DatasourceDocument
+}
+
+func (s *fxDatasourceStore) UpsertDocument(context.Context, datasource.UpsertDatasourceDocumentParams) error {
+	return nil
+}
+
+func (s *fxDatasourceStore) ListDocuments(_ context.Context, workspaceRoot string) ([]datasource.DatasourceDocument, error) {
+	out := make([]datasource.DatasourceDocument, 0, len(s.documents))
+	for _, document := range s.documents {
+		if strings.TrimSpace(document.WorkspaceRoot) == strings.TrimSpace(workspaceRoot) {
+			out = append(out, document)
+		}
+	}
+	return out, nil
+}
+
+func (s *fxDatasourceStore) DeleteDocument(context.Context, string, string) error {
+	return nil
 }

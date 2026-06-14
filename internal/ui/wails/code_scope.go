@@ -64,6 +64,7 @@ func scopeEntries(project string, projects []string) []string {
 	return entries
 }
 
+// resolveSaveTarget 解析savetarget。
 func resolveSaveTarget(raw string, roots []string, _ bool) (scopedPath, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -85,6 +86,7 @@ func resolveSaveTarget(raw string, roots []string, _ bool) (scopedPath, error) {
 	return scopedPath{}, errCodeSaveFileMustExist
 }
 
+// resolveOpenTarget 解析打开target。
 func resolveOpenTarget(ctx context.Context, raw string, roots []string) (scopedPath, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -136,6 +138,7 @@ func firstExistingRelativeTarget(raw string, roots []string) (scopedPath, bool) 
 	return scopedPath{}, false
 }
 
+// findScopedFiles 查找scoped文件。
 func findScopedFiles(ctx context.Context, raw string, roots []string, limit int) ([]scopedPath, bool, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -175,6 +178,7 @@ func walkScopedMatches(ctx context.Context, raw string, roots []string, limit in
 	return matches, truncated, nil
 }
 
+// collectRootMatches 收集根目录matches。
 func collectRootMatches(
 	ctx context.Context,
 	root, target, base string,
@@ -225,6 +229,7 @@ func shouldSkipCodeSearchDir(name string) bool {
 	}
 }
 
+// exceedsSearchDepth 处理exceedssearchdepth。
 func exceedsSearchDepth(root, candidate string) bool {
 	rel, err := filepath.Rel(root, candidate)
 	if err != nil {
@@ -284,6 +289,7 @@ func sortScopedPaths(items []scopedPath) {
 	})
 }
 
+// scopedCandidate 处理scoped候选项。
 func scopedCandidate(root, candidate string, allowCreate bool) (scopedPath, error) {
 	absPath, err := filepath.Abs(candidate)
 	if err != nil {
@@ -308,6 +314,7 @@ func scopedCandidate(root, candidate string, allowCreate bool) (scopedPath, erro
 	}, nil
 }
 
+// secureRelativeToRoot 把secure相对处理为根目录。
 func secureRelativeToRoot(root, candidate string) (string, error) {
 	// 守卫规则：secureRelativeToRoot 拒绝 "."、".." 和 root 外路径。
 	rootReal, err := realPathForCheck(root)
@@ -328,6 +335,7 @@ func secureRelativeToRoot(root, candidate string) (string, error) {
 	return filepath.ToSlash(rel), nil
 }
 
+// realPathForCheck 为check处理real路径。
 func realPathForCheck(path string) (string, error) {
 	clean := filepath.Clean(path)
 	if _, err := os.Stat(clean); err == nil {

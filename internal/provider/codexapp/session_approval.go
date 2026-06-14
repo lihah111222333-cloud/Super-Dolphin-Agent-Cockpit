@@ -100,6 +100,7 @@ func (s *session) approvalPolicyValue() string {
 	return strings.TrimSpace(value)
 }
 
+// beginProcessedApproval 处理beginprocessed审批。
 func (s *session) beginProcessedApproval(key string) (*processedApprovalEntry, bool) {
 	if s == nil || key == "" {
 		return nil, true
@@ -128,6 +129,7 @@ func (s *session) purgeCompletedProcessedApprovalsLocked() {
 	}
 }
 
+// finishProcessedApproval 处理finishprocessed审批。
 func (s *session) finishProcessedApproval(key string, entry *processedApprovalEntry, decision contract.ApprovalDecision, err error) {
 	if s == nil || entry == nil {
 		return
@@ -182,6 +184,7 @@ func (s *session) buildApprovalRequest(method string, payload map[string]any) (r
 	}, requestID, callID != ""
 }
 
+// sendApprovalDecision 处理send审批decision。
 func (s *session) sendApprovalDecision(requestID int64, decision contract.ApprovalDecision) error {
 	if requestID <= 0 {
 		return errors.New("codexapp: approval request id is required")
@@ -276,6 +279,7 @@ func normalizeApprovalFingerprintValue(value any) any {
 	}
 }
 
+// waitProcessedApproval 等待审批请求处理完成。
 func (s *session) waitProcessedApproval(ctx context.Context, entry *processedApprovalEntry) (contract.ApprovalDecision, error) {
 	if entry == nil {
 		return contract.ApprovalDecision{}, nil
@@ -303,6 +307,7 @@ func isRequestUserInputMethod(method string) bool {
 	return hasMethod(method, requestUserInputMethods)
 }
 
+// onNotification 处理onnotification。
 func (s *session) onNotification(method string, params json.RawMessage) {
 	s.noteReadActivity()
 	if eventThread, ok := s.alienThreadEventThread(params); ok {
@@ -373,6 +378,7 @@ func (s *session) absorbMessageDelta(params json.RawMessage) {
 // the TurnCompleted payload under "result" (and "truncated" when the 1 MiB
 // cap latched). Returns the rewritten params, falling back to the original
 // when no buffer or marshal fails.
+// injectAccumulatedResult 生成injectaccumulated结果。
 func (s *session) injectAccumulatedResult(params json.RawMessage) json.RawMessage {
 	payload := decodeEventPayload(params)
 	turnID := payloadTurnID(payload)

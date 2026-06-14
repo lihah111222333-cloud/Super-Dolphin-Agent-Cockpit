@@ -56,10 +56,12 @@ var promptEnvXMLEscaper = strings.NewReplacer(
 	"'", "&apos;",
 )
 
+// SectionName 处理section名称。
 func (EnvInfoProvider) SectionName() string {
 	return DynamicSectionEnvInfoSimple
 }
 
+// Resolve 解析prompt。
 func (EnvInfoProvider) Resolve(_ context.Context, input SectionContext) (*string, error) {
 	snapshot := buildPromptEnvSnapshot(input)
 	text := renderSimpleEnvInfo(snapshot)
@@ -76,6 +78,7 @@ func promptEnvRenderModeForInput(input SectionContext) promptEnvRenderMode {
 	return promptEnvRenderSimple
 }
 
+// String 返回字符串表示。
 func (m promptEnvRenderMode) String() string {
 	if m == promptEnvRenderSubagent {
 		return "subagent"
@@ -107,6 +110,7 @@ func buildPromptEnvSnapshot(input SectionContext) promptEnvSnapshot {
 	}
 }
 
+// renderSimpleEnvInfo 渲染simpleenvinfo。
 func renderSimpleEnvInfo(snapshot promptEnvSnapshot) string {
 	lines := []string{
 		"# Environment",
@@ -219,6 +223,7 @@ func promptPlatform() string {
 	return runtime.GOOS
 }
 
+// promptShellName 处理promptshell名称。
 func promptShellName() string {
 	shell := strings.TrimSpace(os.Getenv("SHELL"))
 	if shell == "" {
@@ -250,6 +255,7 @@ func promptUnameSR() string {
 	return promptUnameSRValue()
 }
 
+// loadPromptUnameSR 加载promptunamesr。
 func loadPromptUnameSR() string {
 	if runtime.GOOS == "windows" {
 		return "windows"

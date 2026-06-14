@@ -18,6 +18,7 @@ type DispatchRetryAlertNotifier struct {
 	store    taskdag.Store
 }
 
+// NewDispatchRetryAlertNotifier 创建dispatch重试alertnotifier。
 func NewDispatchRetryAlertNotifier(logger *slog.Logger, notifier contract.MessageNotifier, store taskdag.Store) *DispatchRetryAlertNotifier {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -29,6 +30,7 @@ func provideDispatchRetryAlertSink(logger *slog.Logger, notifier contract.Messag
 	return NewDispatchRetryAlertNotifier(logger, notifier, store)
 }
 
+// AlertDispatchRetry 处理alertdispatch重试。
 func (n *DispatchRetryAlertNotifier) AlertDispatchRetry(ctx context.Context, alert orchestration.DispatchRetryAlert) error {
 	if n == nil || n.notifier == nil {
 		return nil
@@ -95,6 +97,7 @@ func (n *DispatchRetryAlertNotifier) getDAG(ctx context.Context, dagKey string) 
 	return dag
 }
 
+// buildDispatchRetryAlertBody 构建dispatch重试alert正文。
 func buildDispatchRetryAlertBody(alert orchestration.DispatchRetryAlert, node *taskdag.Node, dag *taskdag.DAG) string {
 	var b strings.Builder
 	b.WriteString("DAG: ")

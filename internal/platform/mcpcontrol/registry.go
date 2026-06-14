@@ -91,10 +91,12 @@ var (
 	_ contract.ToolControlPlane = (*ToolRegistry)(nil)
 )
 
+// NewRegistry 创建注册表。
 func NewRegistry() *ToolRegistry {
 	return NewToolRegistry(RegistryOptions{})
 }
 
+// NewToolRegistry 创建工具注册表。
 func NewToolRegistry(opts RegistryOptions) *ToolRegistry {
 	return &ToolRegistry{
 		instances:            make(map[LeaseKey]*ToolInstance),
@@ -115,6 +117,7 @@ func NewToolRegistry(opts RegistryOptions) *ToolRegistry {
 	}
 }
 
+// Register 注册平台mcpcontrol。
 func (r *ToolRegistry) Register(ctx context.Context, req dto.RegisterRequest) (dto.RegisterResponse, error) {
 	normalized, err := normalizeRegisterRequest(req)
 	if err != nil {
@@ -182,6 +185,7 @@ func (r *ToolRegistry) Register(ctx context.Context, req dto.RegisterRequest) (d
 	}, nil
 }
 
+// Heartbeat 刷新锁或租约的存活时间。
 func (r *ToolRegistry) Heartbeat(ctx context.Context, req dto.HeartbeatRequest) (dto.HeartbeatResponse, error) {
 	key, err := normalizeLeaseKey(dto.LeaseKey{InstanceID: req.InstanceID, Generation: req.Generation})
 	if err != nil {
@@ -225,6 +229,7 @@ func (r *ToolRegistry) Heartbeat(ctx context.Context, req dto.HeartbeatRequest) 
 	}, nil
 }
 
+// GetInstance 读取instance。
 func (r *ToolRegistry) GetInstance(key dto.LeaseKey) (contract.ToolInstance, bool) {
 	internal, ok := r.lookupInstance(key)
 	if !ok {
@@ -233,6 +238,7 @@ func (r *ToolRegistry) GetInstance(key dto.LeaseKey) (contract.ToolInstance, boo
 	return toContractInstance(internal), true
 }
 
+// ListInstances 列出instances。
 func (r *ToolRegistry) ListInstances() []contract.ToolInstance {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -245,14 +251,17 @@ func (r *ToolRegistry) ListInstances() []contract.ToolInstance {
 	return items
 }
 
+// NotifyBySubscription 按subscription处理notify。
 func (r *ToolRegistry) NotifyBySubscription(ctx context.Context, topic, method string, params any) error {
 	return r.notifyTargets(ctx, r.snapshotTargets(r.bySubscription, topic), method, params)
 }
 
+// NotifyByCapability 按capability处理notify。
 func (r *ToolRegistry) NotifyByCapability(ctx context.Context, capability, method string, params any) error {
 	return r.notifyTargets(ctx, r.snapshotTargets(r.byCapability, capability), method, params)
 }
 
+// ShutdownInstance 处理shutdowninstance。
 func (r *ToolRegistry) ShutdownInstance(ctx context.Context, key dto.LeaseKey, req dto.ShutdownRequest) error {
 	instance, err := r.resolveLease(key, key, true)
 	if err != nil {
@@ -293,6 +302,7 @@ func (r *ToolRegistry) ShutdownInstance(ctx context.Context, key dto.LeaseKey, r
 	return cleanupErr
 }
 
+// OnDisconnect 处理ondisconnect。
 func (r *ToolRegistry) OnDisconnect(key LeaseKey) {
 	r.mu.Lock()
 	instance := r.instances[key]

@@ -66,6 +66,7 @@ type runtimeManifest struct {
 	EmbeddedPostgresResourcePath string `json:"embedded_postgres_resource_path"`
 }
 
+// ResolveRuntime 解析运行时。
 func ResolveRuntime(input RuntimeResolveInput) (ResolvedRuntime, error) {
 	env := input.Env
 	if env == nil {
@@ -125,6 +126,7 @@ func requireSidecarResourceContract(mode RuntimeMode, env map[string]string) err
 	return nil
 }
 
+// resolveOwnerRuntime 解析owner运行时。
 func resolveOwnerRuntime(input RuntimeResolveInput, env map[string]string) (ResolvedRuntime, error) {
 	goos := firstNonEmpty(input.GOOS, runtime.GOOS)
 	goarch := firstNonEmpty(input.GOARCH, runtime.GOARCH)
@@ -213,6 +215,7 @@ func parseRuntimeMode(value string) (RuntimeMode, error) {
 	}
 }
 
+// verifyRuntimeManifest 验证运行时manifest。
 func verifyRuntimeManifest(resources, goos, goarch string) (string, error) {
 	manifestPath := filepath.Join(resources, runtimeManifestName)
 	raw, err := os.ReadFile(manifestPath)
@@ -263,6 +266,7 @@ func verifyManifestResource(resources, label, value, want, kind string) error {
 	return requireManifestPathKind(fullPath, kind)
 }
 
+// cleanManifestRelativePath 处理cleanmanifest相对路径。
 func cleanManifestRelativePath(label, value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" || filepath.IsAbs(value) {
@@ -275,6 +279,7 @@ func cleanManifestRelativePath(label, value string) (string, error) {
 	return clean, nil
 }
 
+// requirePathInsideRoot 处理require路径inside根目录。
 func requirePathInsideRoot(root, path string) error {
 	rootReal, err := filepath.EvalSymlinks(root)
 	if err != nil {
@@ -294,6 +299,7 @@ func requirePathInsideRoot(root, path string) error {
 	return nil
 }
 
+// requireManifestPathKind 处理requiremanifest路径kind。
 func requireManifestPathKind(path, kind string) error {
 	info, err := os.Stat(path)
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// injectManagedDAGLaunchContext 处理injectmanagedDAG启动上下文。
 func (h *Handler) injectManagedDAGLaunchContext(ctx context.Context, req ToolCallRequest) ToolCallRequest {
 	binding, ok := h.resolveCurrentToolCallBinding(ctx, req)
 	if !ok || strings.TrimSpace(binding.AgentID) == "" {
@@ -53,6 +54,7 @@ func managedDAGLaunchProvider(binding toolCallBinding) string {
 	return normalizeProviderPreferenceScope(provider)
 }
 
+// injectManagedDAGLaunchArgs 处理injectmanagedDAG启动args。
 func injectManagedDAGLaunchArgs(args map[string]any, binding toolCallBinding, provider string) bool {
 	nodes, ok := args["nodes"].([]any)
 	if !ok {

@@ -40,6 +40,9 @@ type cronProgressRequest struct {
 // Scheduler DB calls previously done synchronously in bus callbacks.
 // Bus callbacks only perform O(1) enqueue; the worker drains and
 // dispatches to the appropriate Scheduler method.
+//
+// bus 回调只入队，真正写库放到单 worker 里做。这样慢 DB 不会拖住事件分发，
+// 也能保持本进程内顺序。
 type cronProgressWorker struct {
 	scheduler *Scheduler
 	logger    *slog.Logger
@@ -72,6 +75,7 @@ func newCronProgressWorker(scheduler *Scheduler, logger *slog.Logger) *cronProgr
 }
 
 // Start spawns the worker goroutine. Idempotent.
+// Start 启动订阅或后台处理流程。
 func (w *cronProgressWorker) Start() {
 	if w == nil {
 		return
@@ -90,6 +94,7 @@ func (w *cronProgressWorker) Start() {
 
 // Stop closes the gate, drains pending requests, and waits bounded by
 // ctx for the worker to exit. Idempotent.
+// Stop 停止运行中的代理会话。
 func (w *cronProgressWorker) Stop(ctx context.Context) error {
 	if w == nil {
 		return nil
@@ -171,6 +176,7 @@ func (w *cronProgressWorker) dispatch(req cronProgressRequest) {
 	ctx := context.Background()
 	switch req.kind {
 	case cronExtendClaim:
+		// 进度事件只续租，不改 run 状态。
 		if err := w.scheduler.ExtendClaimForTurnProgress(ctx, req.turnID); err != nil {
 			w.logger.Debug("cron: extend claim for turn progress failed",
 				slog.String("turn_id", req.turnID),
@@ -178,6 +184,7 @@ func (w *cronProgressWorker) dispatch(req cronProgressRequest) {
 			)
 		}
 	case cronCompleteTurn:
+		// 终态事件才把 running run 结束；找不到 run 时让 CompleteTurn 暴露问题。
 		if err := w.scheduler.CompleteTurn(ctx, req.turnID, req.success, req.terminalErr); err != nil {
 			w.logger.Debug("cron: complete turn from terminal event failed",
 				slog.String("turn_id", req.turnID),

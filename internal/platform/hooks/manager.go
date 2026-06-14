@@ -29,6 +29,7 @@ type Manager struct {
 
 type ManagerOption func(*Manager)
 
+// WithMaxHookDepth 设置maxhookdepth。
 func WithMaxHookDepth(n int) ManagerOption {
 	return func(m *Manager) {
 		if m != nil && n > 0 {
@@ -37,6 +38,7 @@ func WithMaxHookDepth(n int) ManagerOption {
 	}
 }
 
+// WithManagerLogger 设置manager日志器。
 func WithManagerLogger(logger *pkglogger.Logger) ManagerOption {
 	return func(m *Manager) {
 		if m != nil && logger != nil {
@@ -49,6 +51,7 @@ func WithManagerLogger(logger *pkglogger.Logger) ManagerOption {
 var _ contract.HookManager = (*Manager)(nil)
 var _ contract.HookLifecycle = (*Manager)(nil)
 
+// NewManager 创建manager。
 func NewManager(registry *HookRegistry, dispatcher *HookDispatcher, resolver *HookResolver, opts ...ManagerOption) (*Manager, error) {
 	manager := &Manager{
 		registry:     registry,
@@ -68,6 +71,7 @@ func NewManager(registry *HookRegistry, dispatcher *HookDispatcher, resolver *Ho
 	return manager, nil
 }
 
+// Subscribe 注册事件订阅。
 func (m *Manager) Subscribe(_ context.Context, lease mcp.LeaseKey, req mcp.HookSubscribeRequest) (mcp.HookSubscribeResponse, error) {
 	if err := m.validate(); err != nil {
 		return mcp.HookSubscribeResponse{}, err
@@ -75,6 +79,7 @@ func (m *Manager) Subscribe(_ context.Context, lease mcp.LeaseKey, req mcp.HookS
 	return m.registry.Subscribe(lease, req)
 }
 
+// DispatchBefore 派发before。
 func (m *Manager) DispatchBefore(ctx context.Context, topic string, payload mcp.HookPayload) (mcp.BeforeDecision, error) {
 	return runPhase(ctx, m, topic, payload, phaseSpec[mcp.BeforeDecision]{
 		defaultDecision: mcp.BeforeDecision{Decision: mcp.HookDecisionDeny},
@@ -95,6 +100,7 @@ func (m *Manager) DispatchBefore(ctx context.Context, topic string, payload mcp.
 	})
 }
 
+// DispatchCheck 派发check。
 func (m *Manager) DispatchCheck(ctx context.Context, topic string, payload mcp.HookPayload) (mcp.CheckDecision, error) {
 	return runPhase(ctx, m, topic, payload, phaseSpec[mcp.CheckDecision]{
 		defaultDecision: mcp.CheckDecision{Decision: mcp.HookDecisionContinue},
@@ -106,6 +112,7 @@ func (m *Manager) DispatchCheck(ctx context.Context, topic string, payload mcp.H
 	})
 }
 
+// DispatchAfter 派发后置。
 func (m *Manager) DispatchAfter(ctx context.Context, topic string, payload mcp.HookPayload) (mcp.AfterDecision, error) {
 	return runPhase(ctx, m, topic, payload, phaseSpec[mcp.AfterDecision]{
 		defaultDecision: mcp.AfterDecision{Decision: mcp.HookDecisionReject},
@@ -155,6 +162,7 @@ func (m *Manager) DispatchAfter(ctx context.Context, topic string, payload mcp.H
 	})
 }
 
+// Resolve 解析平台hooks。
 func (m *Manager) Resolve(ctx context.Context, callerLease mcp.LeaseKey, req mcp.HookResolveRequest) (mcp.HookResolveResponse, error) {
 	if err := m.validate(); err != nil {
 		return mcp.HookResolveResponse{}, err
@@ -162,6 +170,7 @@ func (m *Manager) Resolve(ctx context.Context, callerLease mcp.LeaseKey, req mcp
 	return m.resolver.Resolve(ctx, callerLease, req)
 }
 
+// GetPendingReviews 读取待处理reviews。
 func (m *Manager) GetPendingReviews(ctx context.Context, agentID string) ([]mcp.PendingHookReview, error) {
 	if err := m.validate(); err != nil {
 		return nil, err
@@ -169,6 +178,7 @@ func (m *Manager) GetPendingReviews(ctx context.Context, agentID string) ([]mcp.
 	return m.resolver.ListPendingReviews(ctx, agentID)
 }
 
+// ShutdownHooks 处理shutdownhooks。
 func (m *Manager) ShutdownHooks(ctx context.Context, lease mcp.LeaseKey) error {
 	if err := m.validate(); err != nil {
 		return err

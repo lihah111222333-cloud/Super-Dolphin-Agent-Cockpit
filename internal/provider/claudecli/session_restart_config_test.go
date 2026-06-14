@@ -36,7 +36,7 @@ func TestRestartIfNeededLockedCommitsPendingConfigAfterReady(t *testing.T) {
 }
 
 func newPendingConfigRestartSession(oldReady chan struct{}, pendingModel, pendingEffort *string) *session {
-	return &session{
+	return assumeSessionLaunchOverride(&session{
 		threadID:        "pending",
 		sessionID:       "pending",
 		threadReady:     oldReady,
@@ -48,10 +48,11 @@ func newPendingConfigRestartSession(oldReady chan struct{}, pendingModel, pendin
 		pendingEffort:   pendingEffort,
 		configDirty:     true,
 		suppressedTurns: map[string]struct{}{},
-	}
+	})
 }
 
 func restartLockedAsync(s *session, ctx context.Context) <-chan error {
+	assumeSessionLaunchOverride(s)
 	result := make(chan error, 1)
 	go func() {
 		s.mu.Lock()
@@ -160,7 +161,7 @@ func TestRestartIfNeededLockedPreservesPendingConfigOnWaitError(t *testing.T) {
 	old := newBufferedTransport(t, "thread-1")
 	oldReady := make(chan struct{})
 	close(oldReady)
-	s := &session{
+	s := assumeSessionLaunchOverride(&session{
 		threadID:        "pending",
 		sessionID:       "pending",
 		threadReady:     oldReady,
@@ -172,7 +173,7 @@ func TestRestartIfNeededLockedPreservesPendingConfigOnWaitError(t *testing.T) {
 		pendingEffort:   &pendingEffort,
 		configDirty:     true,
 		suppressedTurns: map[string]struct{}{},
-	}
+	})
 	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
 	defer cancel()
 
@@ -212,7 +213,7 @@ func TestRestartIfNeededLockedUsesPromptSnapshot(t *testing.T) {
 		BaseInstructions:      "assembled base",
 		DeveloperInstructions: "assembled developer",
 	}
-	s := &session{
+	s := assumeSessionLaunchOverride(&session{
 		threadID:        "pending",
 		sessionID:       "pending",
 		threadReady:     oldReady,
@@ -223,7 +224,7 @@ func TestRestartIfNeededLockedUsesPromptSnapshot(t *testing.T) {
 		config:          cliLaunchConfig{PromptSnapshot: snapshot},
 		transportConfig: cliLaunchConfig{PromptSnapshot: snapshot},
 		suppressedTurns: map[string]struct{}{},
-	}
+	})
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	result := make(chan error, 1)

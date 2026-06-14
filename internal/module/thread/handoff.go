@@ -15,6 +15,7 @@ var (
 	errHandoffMissingAgentKey = errors.New("thread/handoff: target agent_key is required")
 )
 
+// Handoff 处理交接。
 func (s *service) Handoff(ctx context.Context, req HandoffRequest) (HandoffResult, error) {
 	ctx = util.NonNilContext(ctx)
 
@@ -59,6 +60,7 @@ func (s *service) Handoff(ctx context.Context, req HandoffRequest) (HandoffResul
 	return HandoffResult{sourceID, result.ThreadID, result.AgentID, result.AgentKey, result.PromptKey, result.PromptVersionID, result.Status}, nil
 }
 
+// loadThreadForHandoff 为交接加载线程。
 func (s *service) loadThreadForHandoff(ctx context.Context, threadID string) (handoffSource, error) {
 	if s == nil || s.threadStore == nil {
 		return handoffSource{}, errors.New("thread/handoff: thread store unavailable")

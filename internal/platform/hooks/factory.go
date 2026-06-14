@@ -154,6 +154,7 @@ func scopeFieldMatches(subscriptionField, requestedField string) bool {
 	return subscriptionField == "" || requestedField == subscriptionField
 }
 
+// normalizePeerDecisions 规范化peerdecisions。
 func normalizePeerDecisions[In any, Out any](
 	decisions []peerDecision[In],
 	normalize func(In) Out,

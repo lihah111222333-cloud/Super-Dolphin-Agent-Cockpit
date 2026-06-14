@@ -31,6 +31,7 @@ func newTeamSyncStateStore(root string) (*teamSyncStateStore, error) {
 	return &teamSyncStateStore{path: filepath.Join(cleaned, teamSyncStateFileName)}, nil
 }
 
+// Load 加载记忆。
 func (s *teamSyncStateStore) Load() (SyncState, error) {
 	if s == nil || strings.TrimSpace(s.path) == "" {
 		return SyncState{}, nil
@@ -50,6 +51,7 @@ func (s *teamSyncStateStore) Load() (SyncState, error) {
 	return normalizeSyncState(state), nil
 }
 
+// Save 保存记忆。
 func (s *teamSyncStateStore) Save(state SyncState) error {
 	if s == nil || strings.TrimSpace(s.path) == "" {
 		return nil
@@ -72,6 +74,7 @@ func (s *teamSyncStateStore) Save(state SyncState) error {
 	return os.Rename(tmpPath, s.path)
 }
 
+// Clear 清理记忆。
 func (s *teamSyncStateStore) Clear() error {
 	if s == nil || strings.TrimSpace(s.path) == "" {
 		return nil
@@ -106,6 +109,7 @@ func normalizeSyncState(state SyncState) SyncState {
 	return state
 }
 
+// cloneChecksumMap 复制checksummap。
 func cloneChecksumMap(values map[string]string) map[string]string {
 	if len(values) == 0 {
 		return nil

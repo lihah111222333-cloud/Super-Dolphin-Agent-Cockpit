@@ -15,6 +15,7 @@ var ErrDAGPatchUnknownField = errors.New("dag patch: unknown field")
 
 var ErrUpdateDAGPayloadInvalid = errors.New("update_dag: invalid payload")
 
+// UnmarshalJSON 解码JSON。
 func (op *OpUpdateDAG) UnmarshalJSON(data []byte) error {
 	type updateDAGWire struct {
 		Op    OpKind    `json:"op"`
@@ -40,6 +41,7 @@ func (op *OpUpdateDAG) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *DAGPatch) UnmarshalJSON(data []byte) error {
 	if string(data) == "null" {
 		*p = DAGPatch{}

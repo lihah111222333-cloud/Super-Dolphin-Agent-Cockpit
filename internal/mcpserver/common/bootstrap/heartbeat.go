@@ -35,6 +35,7 @@ func (c *Client) startHeartbeatLocked() {
 	}()
 }
 
+// runHeartbeat 运行heartbeat。
 func (c *Client) runHeartbeat(ctx context.Context) {
 	failures := 0
 	for {
@@ -102,6 +103,7 @@ func waitForHeartbeat(ctx context.Context, interval time.Duration) bool {
 	}
 }
 
+// sendHeartbeat 处理sendheartbeat。
 func (c *Client) sendHeartbeat(ctx context.Context, timeout time.Duration) (bool, time.Duration, error) {
 	conn, lease := c.callTarget()
 	if conn == nil || lease.Generation == 0 {

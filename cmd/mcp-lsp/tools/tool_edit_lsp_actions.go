@@ -18,6 +18,7 @@ type codeActionResult struct {
 	Actions       []string           `json:"actions,omitempty"`
 }
 
+// handleCodeAction 处理代码动作。
 func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any, error) {
 	if strings.TrimSpace(req.Pos) == "" {
 		return nil, fmt.Errorf("code_action requires pos (file_path:line:column)")
@@ -41,6 +42,7 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 	return h.applyCodeActions(ctx, actions, normalizeEditVersion(req.Version), manager)
 }
 
+// applyCodeActions 应用代码actions。
 func (h EditHandler) applyCodeActions(ctx context.Context, actions []protocol.CodeActionResult, version int, manager lspmanager.Manager) (any, error) {
 	if len(actions) == 0 {
 		return emptyListEnvelope{Success: true, Data: []any{}, Meta: resultMeta{Count: 0, Message: "no code actions found"}}, nil
@@ -73,6 +75,7 @@ func (h EditHandler) applyCodeActions(ctx context.Context, actions []protocol.Co
 	}, nil
 }
 
+// handleFormat 处理格式化。
 func (h EditHandler) handleFormat(ctx context.Context, req EditRequest) (any, error) {
 	if strings.TrimSpace(req.FilePath) == "" {
 		return nil, fmt.Errorf("format requires file_path")
@@ -171,6 +174,7 @@ func codeActionsWithWorkspaceEdit(actions []protocol.CodeActionResult) []editabl
 	return editable
 }
 
+// codeActionTitles 处理代码动作titles。
 func codeActionTitles(actions []protocol.CodeActionResult) []string {
 	titles := make([]string, 0, len(actions))
 	for _, action := range actions {
@@ -199,6 +203,7 @@ func codeActionApplyMessage(title string, totalEdits int) string {
 	return fmt.Sprintf("applied code action %q", title)
 }
 
+// applyTextEditsToPath 把文本编辑应用为路径。
 func (h EditHandler) applyTextEditsToPath(ctx context.Context, absPath string, edits []protocol.TextEdit, version int, manager lspmanager.Manager) (*fileEditResult, error) {
 	info, err := os.Stat(absPath)
 	if err != nil {

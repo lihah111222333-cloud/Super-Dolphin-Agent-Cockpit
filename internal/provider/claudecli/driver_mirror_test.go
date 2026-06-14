@@ -53,6 +53,7 @@ func TestStartSessionReconcilesMirrorsBeforeLaunchWithUserClaudeHome(t *testing.
 		return next.tr, func() { next.finish() }, nil
 	})
 	d := newDriver(nil, nil, nil, nil, nil, mirror, nil).(*driver)
+	assumeClaudeAuthLoggedIn(d)
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude",
@@ -97,6 +98,7 @@ func TestStartSessionReconcilesProjectMirrorsFromGitRootBeforeLaunch(t *testing.
 		return next.tr, func() { next.finish() }, nil
 	})
 	d := newDriver(nil, nil, nil, nil, nil, mirror, nil).(*driver)
+	assumeClaudeAuthLoggedIn(d)
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude-subdir",
@@ -127,6 +129,7 @@ func TestStartSessionMirrorContentConflictAllowsClaudeLaunch(t *testing.T) {
 		Scope:        "project",
 		ConflictKind: "drift",
 	}}}}, nil).(*driver)
+	assumeClaudeAuthLoggedIn(d)
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude-conflict",
@@ -155,6 +158,7 @@ func TestStartSessionMirrorSafetyConflictBlocksClaudeLaunch(t *testing.T) {
 		TargetID:     "claude:project:conflict",
 		ConflictKind: "mirror_root_symlink",
 	}}}}, nil).(*driver)
+	assumeClaudeAuthLoggedIn(d)
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude-safety-conflict",
@@ -209,6 +213,7 @@ func TestStartSessionKeepsExplicitClaudeHome(t *testing.T) {
 		return next.tr, func() { next.finish() }, nil
 	})
 	d := newDriver(nil, nil, nil, nil, nil, mirror, nil).(*driver)
+	assumeClaudeAuthLoggedIn(d)
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude-explicit",
@@ -255,6 +260,7 @@ func TestStartSessionAcceptsCamelCaseClaudeHomeAndPreservesSettings(t *testing.T
 		return next.tr, func() { next.finish() }, nil
 	})
 	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
+	assumeClaudeAuthLoggedIn(d)
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude-camel-home",
@@ -284,6 +290,7 @@ func TestStartSessionOmitsClaudeHomeFromRuntimeSnapshotByDefault(t *testing.T) {
 		return next.tr, func() { next.finish() }, nil
 	})
 	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
+	assumeClaudeAuthLoggedIn(d)
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-runtime-home",
@@ -324,6 +331,7 @@ func TestStartSessionNormalizesExplicitClaudeHomeBeforeLaunchAndMirror(t *testin
 		return next.tr, func() { next.finish() }, nil
 	})
 	d := newDriver(nil, nil, nil, nil, nil, mirror, nil).(*driver)
+	assumeClaudeAuthLoggedIn(d)
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude-normalized",
@@ -361,6 +369,7 @@ func TestResumeSessionKeepsExplicitClaudeHomeBeforeLaunchAndMirror(t *testing.T)
 		return next.tr, func() { next.finish() }, nil
 	})
 	d := newDriver(nil, nil, nil, nil, nil, mirror, nil).(*driver)
+	assumeClaudeAuthLoggedIn(d)
 
 	got, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		AgentID:    "agent-claude-resume",
@@ -392,6 +401,7 @@ func TestResumeSessionRuntimeConfigSnapshotIncludesCWDAndRequestConfig(t *testin
 		return next.tr, func() { next.finish() }, nil
 	})
 	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
+	assumeClaudeAuthLoggedIn(d)
 
 	got, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		AgentID:          "agent-claude-runtime",
@@ -442,6 +452,7 @@ func TestStartSessionMirrorFailureBlocksClaudeLaunch(t *testing.T) {
 		return next.tr, func() { next.finish() }, nil
 	})
 	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{err: errors.New("mirror unavailable")}, nil).(*driver)
+	assumeClaudeAuthLoggedIn(d)
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude-blocked",

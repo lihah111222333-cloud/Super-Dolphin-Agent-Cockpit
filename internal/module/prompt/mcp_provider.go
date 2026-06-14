@@ -37,10 +37,12 @@ func newMCPInstructionsTracker() *mcpInstructionsTracker {
 	return &mcpInstructionsTracker{threads: map[string]map[string]string{}}
 }
 
+// SectionName 处理section名称。
 func (p MCPInstructionsProvider) SectionName() string {
 	return DynamicSectionMCPInstructions
 }
 
+// Resolve 解析prompt。
 func (p MCPInstructionsProvider) Resolve(_ context.Context, input SectionContext) (*string, error) {
 	snapshot := input.BuildCtx.MCPSnapshot
 	if snapshot.InstructionsDeltaEnabled {
@@ -61,6 +63,7 @@ func (p MCPInstructionsProvider) Resolve(_ context.Context, input SectionContext
 	return &text, nil
 }
 
+// ResolveTurnAttachments 解析turnattachments。
 func (p MCPInstructionsProvider) ResolveTurnAttachments(_ context.Context, input SectionContext) []dto.AttachmentEnvelope {
 	if input.Turn == nil {
 		return nil
@@ -90,6 +93,7 @@ func (p MCPInstructionsProvider) trackerOrDefault() *mcpInstructionsTracker {
 	return defaultMCPInstructionsTracker()
 }
 
+// Update 更新prompt。
 func (t *mcpInstructionsTracker) Update(threadID string, current map[string]string) mcpInstructionsDiff {
 	threadID = strings.TrimSpace(threadID)
 	if t == nil || threadID == "" {
@@ -107,6 +111,7 @@ func (t *mcpInstructionsTracker) Update(threadID string, current map[string]stri
 	return diffMCPInstructions(previous, current)
 }
 
+// Reset 重置prompt。
 func (t *mcpInstructionsTracker) Reset(threadID string) {
 	threadID = strings.TrimSpace(threadID)
 	if t == nil || threadID == "" {
@@ -117,6 +122,7 @@ func (t *mcpInstructionsTracker) Reset(threadID string) {
 	t.mu.Unlock()
 }
 
+// diffMCPInstructions 处理diffMCPinstructions。
 func diffMCPInstructions(previous, current map[string]string) mcpInstructionsDiff {
 	diff := mcpInstructionsDiff{added: map[string]string{}}
 	for server, instructions := range current {
@@ -139,6 +145,7 @@ func diffMCPInstructions(previous, current map[string]string) mcpInstructionsDif
 	return diff
 }
 
+// Attachment 处理attachment。
 func (d mcpInstructionsDiff) Attachment() (dto.AttachmentEnvelope, bool) {
 	if len(d.added) == 0 && len(d.removed) == 0 {
 		return dto.AttachmentEnvelope{}, false
@@ -171,6 +178,7 @@ func renderMCPInstructionsDelta(diff mcpInstructionsDiff) string {
 	return strings.Join(blocks, "\n\n")
 }
 
+// liveMCPInstructions 处理liveMCPinstructions。
 func liveMCPInstructions(snapshot MCPSnapshot) map[string]string {
 	instructions := normalizedMCPInstructions(snapshot.Instructions)
 	if len(snapshot.Servers) == 0 || len(instructions) == 0 {
@@ -188,6 +196,7 @@ func liveMCPInstructions(snapshot MCPSnapshot) map[string]string {
 	return live
 }
 
+// normalizedMCPInstructions 处理normalizedMCPinstructions。
 func normalizedMCPInstructions(raw map[string]string) map[string]string {
 	if len(raw) == 0 {
 		return nil
@@ -223,6 +232,7 @@ func sortedMCPInstructionServers(instructions map[string]string) []string {
 	return sortedPromptValues(servers)
 }
 
+// cloneMCPInstructionMap 复制MCPinstructionmap。
 func cloneMCPInstructionMap(raw map[string]string) map[string]string {
 	if len(raw) == 0 {
 		return nil

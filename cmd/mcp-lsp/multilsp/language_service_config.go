@@ -12,6 +12,7 @@ func defaultLanguageServiceNoiseDirSet() map[string]struct{} {
 	return stringSetFromList(platformconfig.DefaultLSPConfig().NoiseDirNames)
 }
 
+// NewLanguageAdapterRegistryFromConfig 从配置创建语言适配器注册表。
 func NewLanguageAdapterRegistryFromConfig(cfg contract.LSPConfig) *LanguageAdapterRegistry {
 	cfg = lspConfigWithDefaults(cfg)
 	return NewLanguageAdapterRegistry(

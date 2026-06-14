@@ -91,6 +91,7 @@ func newSessionRecoveryWorker(recoverer sessionRecoverer, logger *slog.Logger) *
 // Start spawns the worker dispatcher goroutine. Idempotent. When
 // recoverer is nil the worker short-circuits: doneCh closes so Stop is
 // immediate and Enqueue is a cheap no-op.
+// Start 启动线程流程。
 func (w *sessionRecoveryWorker) Start() {
 	if w == nil {
 		return
@@ -115,6 +116,7 @@ func (w *sessionRecoveryWorker) Start() {
 // call from bus callbacks: O(1) map write + non-blocking wake. The key
 // is target (threadID preferred, agentID fallback) to match
 // processSessionRecovery's shared.FirstNonEmpty semantics.
+// Enqueue 把项目追加到队尾。
 func (w *sessionRecoveryWorker) Enqueue(target string, ev agentdto.AgentFailed) {
 	if w == nil {
 		return
@@ -144,6 +146,7 @@ func (w *sessionRecoveryWorker) Enqueue(target string, ev agentdto.AgentFailed) 
 // Stop closes the gate, cancels the worker context (short-circuiting
 // the 3s reconnect delay and any in-flight Resume), and waits bounded
 // by ctx for the dispatcher + every recovery goroutine to exit.
+// Stop 停止线程流程。
 func (w *sessionRecoveryWorker) Stop(ctx context.Context) error {
 	if w == nil {
 		return nil
@@ -173,8 +176,13 @@ func (w *sessionRecoveryWorker) Stop(ctx context.Context) error {
 
 // EnqueuedTotal / CoalescedTotal / ProcessedTotal expose observability
 // counters for tests and future metric hookup.
-func (w *sessionRecoveryWorker) EnqueuedTotal() int64  { return w.enqueuedTotal.Load() }
+// EnqueuedTotal 处理enqueuedtotal。
+func (w *sessionRecoveryWorker) EnqueuedTotal() int64 { return w.enqueuedTotal.Load() }
+
+// CoalescedTotal 处理coalescedtotal。
 func (w *sessionRecoveryWorker) CoalescedTotal() int64 { return w.coalescedTotal.Load() }
+
+// ProcessedTotal 处理processedtotal。
 func (w *sessionRecoveryWorker) ProcessedTotal() int64 { return w.processedTotal.Load() }
 
 func (w *sessionRecoveryWorker) runWorker() {

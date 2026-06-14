@@ -39,11 +39,13 @@ func newHTTPRunner(handlers ToolHandlers) platformrunner.Runner {
 // lspBlockRunner is a no-op runner that blocks until its context is cancelled.
 type lspBlockRunner struct{}
 
+// Run 启动LSP后台流程。
 func (lspBlockRunner) Run(ctx context.Context) error {
 	<-ctx.Done()
 	return nil
 }
 
+// Run 启动LSP后台流程。
 func (r *httpRunner) Run(ctx context.Context) error {
 	if strings.TrimSpace(r.bearerToken) == "" {
 		return errLSPHTTPSessionTokenRequired

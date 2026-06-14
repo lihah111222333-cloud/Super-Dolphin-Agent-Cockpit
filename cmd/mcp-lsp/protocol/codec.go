@@ -53,6 +53,7 @@ type Envelope struct {
 	Error   *ResponseError  `json:"error,omitempty"`
 }
 
+// BuildRequest 构建请求。
 func BuildRequest(method string, id any, params any) (Request, error) {
 	method = strings.TrimSpace(method)
 	if method == "" {
@@ -77,6 +78,7 @@ func BuildRequest(method string, id any, params any) (Request, error) {
 	}, nil
 }
 
+// BuildNotification 构建notification。
 func BuildNotification(method string, params any) (Notification, error) {
 	method = strings.TrimSpace(method)
 	if method == "" {
@@ -93,6 +95,7 @@ func BuildNotification(method string, params any) (Notification, error) {
 	}, nil
 }
 
+// BuildSuccessResponse 构建success响应。
 func BuildSuccessResponse(id json.RawMessage, result any) (Response, error) {
 	rawResult, err := marshalPayload(result)
 	if err != nil {
@@ -105,6 +108,7 @@ func BuildSuccessResponse(id json.RawMessage, result any) (Response, error) {
 	}, nil
 }
 
+// BuildErrorResponse 构建错误响应。
 func BuildErrorResponse(id json.RawMessage, code int, message string, data any) (Response, error) {
 	rawData, err := marshalPayload(data)
 	if err != nil {
@@ -121,6 +125,7 @@ func BuildErrorResponse(id json.RawMessage, code int, message string, data any) 
 	}, nil
 }
 
+// EncodeMessage 编码消息。
 func EncodeMessage(message any) ([]byte, error) {
 	payload, err := json.Marshal(message)
 	if err != nil {
@@ -129,6 +134,7 @@ func EncodeMessage(message any) ([]byte, error) {
 	return payload, nil
 }
 
+// DecodeEnvelope 解码包装。
 func DecodeEnvelope(payload []byte) (Envelope, error) {
 	var env Envelope
 	if err := json.Unmarshal(payload, &env); err != nil {
@@ -140,6 +146,7 @@ func DecodeEnvelope(payload []byte) (Envelope, error) {
 	return env, nil
 }
 
+// DecodeRequest 解码请求。
 func DecodeRequest(payload []byte) (Request, error) {
 	env, err := DecodeEnvelope(payload)
 	if err != nil {
@@ -156,6 +163,7 @@ func DecodeRequest(payload []byte) (Request, error) {
 	}, nil
 }
 
+// DecodeNotification 解码notification。
 func DecodeNotification(payload []byte) (Notification, error) {
 	env, err := DecodeEnvelope(payload)
 	if err != nil {
@@ -171,6 +179,7 @@ func DecodeNotification(payload []byte) (Notification, error) {
 	}, nil
 }
 
+// DecodeResponse 解码响应。
 func DecodeResponse(payload []byte) (Response, error) {
 	env, err := DecodeEnvelope(payload)
 	if err != nil {
@@ -202,6 +211,7 @@ func hasRequestID(raw json.RawMessage) bool {
 	return len(trimmed) > 0 && string(trimmed) != "null"
 }
 
+// marshalPayload 编码载荷。
 func marshalPayload(value any) (json.RawMessage, error) {
 	switch raw := value.(type) {
 	case nil:

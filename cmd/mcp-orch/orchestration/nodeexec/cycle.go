@@ -49,6 +49,7 @@ type CycleError struct {
 	Components [][]string
 }
 
+// Error 返回错误文本。
 func (e *CycleError) Error() string {
 	if len(e.Components) <= 1 {
 		return fmt.Sprintf("%s: nodes %v form a cycle", ErrDAGCyclic.Error(), e.Nodes)
@@ -56,6 +57,7 @@ func (e *CycleError) Error() string {
 	return fmt.Sprintf("%s: %d independent cycles %v", ErrDAGCyclic.Error(), len(e.Components), e.Components)
 }
 
+// Unwrap 返回底层错误。
 func (e *CycleError) Unwrap() error { return ErrDAGCyclic }
 
 // DetectCycle 接受一张以 node_key 为索引的依赖图（adjacency = 当前节点 ←
@@ -229,6 +231,7 @@ func newTarjanState(graph map[string][]string) *tarjanState {
 	}
 }
 
+// strongConnect 处理strongconnect。
 func (t *tarjanState) strongConnect(v string) {
 	t.indices[v] = t.index
 	t.lowlink[v] = t.index

@@ -59,6 +59,7 @@ func runtimeTemplateNeedsSectionIntentInference(template promptstore.PromptTempl
 	return template.ID > 0 && runtimeTemplateIntentKind(template) == ""
 }
 
+// runtimeTemplateIntentKind 处理运行时templateintentkind。
 func runtimeTemplateIntentKind(template promptstore.PromptTemplate) string {
 	if strings.TrimSpace(template.AgentKey) == "default_rule" {
 		return "default_rule"
@@ -100,6 +101,7 @@ func runtimeTemplateWithInferredSectionIntent(
 	return template
 }
 
+// runtimeSectionsInferredIntentKind 处理运行时sectionsinferredintentkind。
 func runtimeSectionsInferredIntentKind(sections []promptstore.PromptTemplateSection) string {
 	hasRecallContent := false
 	for _, section := range sections {

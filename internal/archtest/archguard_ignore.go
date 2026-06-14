@@ -10,6 +10,7 @@ const archGuardIgnorePrefix = "archguard:ignore"
 
 type archGuardIgnores map[int]map[string]struct{}
 
+// collectArchGuardIgnores 收集arch守卫ignores。
 func collectArchGuardIgnores(fset *token.FileSet, node *ast.File) archGuardIgnores {
 	ignores := archGuardIgnores{}
 	for _, group := range node.Comments {
@@ -26,6 +27,7 @@ func collectArchGuardIgnores(fset *token.FileSet, node *ast.File) archGuardIgnor
 	return ignores
 }
 
+// parseArchGuardIgnoreMetrics 解析arch守卫ignore指标。
 func parseArchGuardIgnoreMetrics(text string) []string {
 	text = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(text, "//"), "/*"))
 	text = strings.TrimSpace(strings.TrimSuffix(text, "*/"))

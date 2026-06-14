@@ -13,6 +13,7 @@ type metadataStoreAdapter struct {
 	store Store
 }
 
+// NewMetadataStore 创建元数据存储。
 func NewMetadataStore(store Store) contract.ThreadMetadataStore {
 	if store == nil {
 		return nil
@@ -20,6 +21,7 @@ func NewMetadataStore(store Store) contract.ThreadMetadataStore {
 	return &metadataStoreAdapter{store: store}
 }
 
+// GetByThreadID 按线程ID读取线程存储。
 func (a *metadataStoreAdapter) GetByThreadID(ctx context.Context, threadID string) (*contract.ThreadMetadata, error) {
 	thread, err := a.store.GetByThreadID(ctx, threadID)
 	if err != nil || thread == nil {
@@ -28,6 +30,7 @@ func (a *metadataStoreAdapter) GetByThreadID(ctx context.Context, threadID strin
 	return mapThreadMetadata(thread), nil
 }
 
+// ListAll 列出all。
 func (a *metadataStoreAdapter) ListAll(ctx context.Context) ([]contract.ThreadMetadata, error) {
 	threads, err := a.store.ListAll(ctx)
 	if err != nil {

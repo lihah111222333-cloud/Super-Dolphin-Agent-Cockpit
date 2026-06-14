@@ -8,6 +8,7 @@ import (
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
+// NewHandlers 创建处理器。
 func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		"app/update/check":         platformrpc.StrictHandler(checkHandler(svc)),

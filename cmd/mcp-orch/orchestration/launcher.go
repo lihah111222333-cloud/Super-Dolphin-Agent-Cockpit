@@ -22,6 +22,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// AgentLauncher 负责真正启动、停止和提交 turn。
+// service 只管状态；本地进程还是控制面 thread/start，由 launcher 决定。
 type AgentLauncher interface {
 	Launch(ctx context.Context, agent *agentRuntime, req LaunchRequest) (LaunchResult, error)
 	Stop(ctx context.Context, agent *agentRuntime) error
@@ -35,15 +37,18 @@ type LaunchResult struct {
 }
 
 // localLauncher handles the local process mode while leaving runtime fields on agentRuntime.
+// 本地模式直接拉子进程，没有 remote thread id。
 type localLauncher struct {
 	turnStarter TurnStarter
 	logger      *slog.Logger
 }
 
+// NewLocalLauncher 创建本地代理启动器。
 func NewLocalLauncher(turnStarter TurnStarter, logger *slog.Logger) AgentLauncher {
 	return &localLauncher{turnStarter: turnStarter, logger: logger}
 }
 
+// Launch 启动代理会话并记录运行句柄。
 func (l *localLauncher) Launch(ctx context.Context, agent *agentRuntime, _ LaunchRequest) (LaunchResult, error) {
 	if agent == nil {
 		return LaunchResult{}, errors.New("agent is required")
@@ -73,6 +78,7 @@ func (l *localLauncher) Launch(ctx context.Context, agent *agentRuntime, _ Launc
 	return LaunchResult{}, nil
 }
 
+// Stop 停止运行中的代理会话。
 func (l *localLauncher) Stop(_ context.Context, agent *agentRuntime) error {
 	if agent == nil {
 		return nil
@@ -80,10 +86,12 @@ func (l *localLauncher) Stop(_ context.Context, agent *agentRuntime) error {
 	return processctl.RequestStop(agent.cmd, agent.processGuard)
 }
 
+// Archive 归档代理线程并释放运行态。
 func (l *localLauncher) Archive(ctx context.Context, agent *agentRuntime) error {
 	return l.Stop(ctx, agent)
 }
 
+// SubmitTurn 向已启动的代理会话提交一轮输入。
 func (l *localLauncher) SubmitTurn(ctx context.Context, _ *agentRuntime, submission TurnSubmission) (string, error) {
 	if l == nil || l.turnStarter == nil {
 		return "", errors.New("turn starter is not configured")
@@ -91,6 +99,7 @@ func (l *localLauncher) SubmitTurn(ctx context.Context, _ *agentRuntime, submiss
 	return l.turnStarter.StartTurn(ctx, submission)
 }
 
+// IsRunning 检查指定代理会话是否仍在运行。
 func (l *localLauncher) IsRunning(_ context.Context, agent *agentRuntime) bool {
 	return agent != nil && agent.cmd != nil
 }
@@ -102,10 +111,14 @@ type remoteLauncher struct {
 	eventSink remoteLauncherEventSink
 }
 
+// remoteLauncher 通过 GO_AGENT_CTL_RPC_ADDR 调主控的 thread/* RPC。
+// 它不直接执行 agent，只拿回 thread_id 再交给 service 记录。
 func NewRemoteLauncher(addr string) AgentLauncher {
 	return &remoteLauncher{addr: strings.TrimSpace(addr)}
 }
 
+// 复用到主控的 jrpc2 连接；并发重连时只保留一个 client。
+// OnNotify 会把 remote turn 事件送回 service。
 func (r *remoteLauncher) ensureClient(ctx context.Context) (*jrpc2.Client, error) {
 	if r == nil || strings.TrimSpace(r.addr) == "" {
 		return nil, errors.New("remote launcher rpc addr is required")
@@ -157,6 +170,7 @@ func managedAgentLaunchDisplayName(name string) string {
 	return strings.TrimSpace(name)
 }
 
+// Launch 启动代理会话并记录运行句柄。
 func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req LaunchRequest) (LaunchResult, error) {
 	if agent == nil {
 		return LaunchResult{}, errors.New("agent is required")
@@ -166,6 +180,7 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 	// thread/start treats `prompt` and `name` as legacy aliases for the same
 	// display-name slot. Name is intentionally sourced only from req.Name; the
 	// launch prompt is submitted as a first turn after thread/start.
+	// 不要把 req.Prompt 塞进 thread/start；任务正文会在启动后作为第一轮 turn 提交。
 	displayName := managedAgentLaunchDisplayName(req.Name)
 	model := shared.FirstTrimmed(envValue(req.Env, "AGENT_MODEL"), commandFlagValue(launchCommandArgs(req.Command), "--model"))
 	effort := shared.FirstTrimmed(envValue(req.Env, "AGENT_EFFORT"), commandFlagValue(launchCommandArgs(req.Command), "--effort"))
@@ -238,6 +253,7 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 	return result, nil
 }
 
+// Stop 停止运行中的代理会话。
 func (r *remoteLauncher) Stop(ctx context.Context, agent *agentRuntime) error {
 	if agent == nil || agent.remoteThreadID == "" {
 		return nil
@@ -246,8 +262,10 @@ func (r *remoteLauncher) Stop(ctx context.Context, agent *agentRuntime) error {
 	return err
 }
 
+// StopSettlesAgent 说明 Stop 是否会把代理状态收敛到终态。
 func (r *remoteLauncher) StopSettlesAgent() bool { return true }
 
+// Archive 归档代理线程并释放运行态。
 func (r *remoteLauncher) Archive(ctx context.Context, agent *agentRuntime) error {
 	if agent == nil || agent.remoteThreadID == "" {
 		return nil
@@ -257,6 +275,7 @@ func (r *remoteLauncher) Archive(ctx context.Context, agent *agentRuntime) error
 	return err
 }
 
+// SubmitTurn 向已启动的代理会话提交一轮输入。
 func (r *remoteLauncher) SubmitTurn(ctx context.Context, agent *agentRuntime, submission TurnSubmission) (string, error) {
 	if agent == nil || agent.remoteThreadID == "" {
 		return "", errors.New("remote thread id is required")
@@ -281,14 +300,17 @@ func (r *remoteLauncher) SubmitTurn(ctx context.Context, agent *agentRuntime, su
 	return turnID, nil
 }
 
+// IsRunning 检查指定代理会话是否仍在运行。
 func (r *remoteLauncher) IsRunning(_ context.Context, agent *agentRuntime) bool {
 	return agent != nil && agent.remoteThreadID != ""
 }
 
+// SupportsPersistedRuntimeRehydrate 说明启动器是否支持从持久化状态恢复 runtime。
 func (r *remoteLauncher) SupportsPersistedRuntimeRehydrate() bool {
 	return true
 }
 
+// Close 关闭启动器并释放后台资源。
 func (r *remoteLauncher) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -329,6 +351,8 @@ func (r *remoteLauncher) currentEventSink() remoteLauncherEventSink {
 	return r.eventSink
 }
 
+// 主控推送 turn.completed / turn.interrupted 时，这里只解码并交给 service。
+// launcher 不直接改 agentRuntime。
 func (r *remoteLauncher) handleNotify(req *jrpc2.Request) {
 	if r == nil || req == nil {
 		return
@@ -363,6 +387,7 @@ func logRemoteLauncherNotifyDecodeError(method string, err error) bool {
 	return true
 }
 
+// handleRemoteTurnCompleted 处理远端 turn 完成事件并同步本地运行态。
 func (s *service) handleRemoteTurnCompleted(ctx context.Context, ev turndto.TurnCompleted) {
 	if s == nil || !s.hasRuntimeAgent(ev.AgentID) {
 		return
@@ -385,6 +410,7 @@ func (s *service) handleRemoteTurnCompleted(ctx context.Context, ev turndto.Turn
 	handleTurnCompletedEventWithCtx(s, s.logger, lifecycle, eventCtx)
 }
 
+// handleRemoteTurnInterrupted 处理远端 turn 中断事件并同步本地运行态。
 func (s *service) handleRemoteTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted) {
 	if s == nil || !s.hasRuntimeAgent(ev.AgentID) {
 		return

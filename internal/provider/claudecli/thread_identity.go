@@ -138,6 +138,7 @@ func withThreadIDTimeout(ctx context.Context) (context.Context, context.CancelFu
 	return platformconfig.WithTimeoutIfNone(ctx, platformconfig.InitialThreadIDTimeout)
 }
 
+// waitForThreadReadyOrExit 等待 Claude 线程 ready，或在进程退出时返回错误。
 func waitForThreadReadyOrExit(ctx context.Context, ready <-chan struct{}, tr *transport) error {
 	select {
 	case <-ready:

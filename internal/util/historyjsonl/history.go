@@ -30,6 +30,7 @@ type textItem struct {
 	Text string `json:"text,omitempty"`
 }
 
+// ReadProviderMessages 读取provider消息。
 func ReadProviderMessages(req ReadRequest) ([]dto.Message, error) {
 	path, provider, err := resolvePath(req)
 	if err != nil {
@@ -55,6 +56,7 @@ func ReadProviderMessages(req ReadRequest) ([]dto.Message, error) {
 	return out, nil
 }
 
+// ReadProviderMessagesIfExists 读取provider消息ifexists。
 func ReadProviderMessagesIfExists(req ReadRequest) ([]dto.Message, bool, error) {
 	if _, err := ExistingProviderPath(req); err == nil {
 		messages, readErr := ReadProviderMessages(req)
@@ -68,6 +70,7 @@ func ReadProviderMessagesIfExists(req ReadRequest) ([]dto.Message, bool, error) 
 	return nil, false, nil
 }
 
+// ReadProviderMessagesOrError 读取provider消息错误。
 func ReadProviderMessagesOrError(req ReadRequest, missingErr error) ([]dto.Message, error) {
 	messages, ok, err := ReadProviderMessagesIfExists(req)
 	if err != nil {
@@ -79,10 +82,12 @@ func ReadProviderMessagesOrError(req ReadRequest, missingErr error) ([]dto.Messa
 	return messages, nil
 }
 
+// IsMissingProviderHistory 判断missingproviderhistory是否可用。
 func IsMissingProviderHistory(err error) bool {
 	return errors.Is(err, os.ErrNotExist) || errors.Is(err, errProviderHistoryNotFound)
 }
 
+// ExistingProviderPath 处理existingprovider路径。
 func ExistingProviderPath(req ReadRequest) (string, error) {
 	path, _, err := resolvePath(req)
 	if err != nil {
@@ -238,6 +243,7 @@ func parseClaudeLine(raw []byte) (dto.Message, bool) {
 	return buildMessage(shared.FirstNonEmpty(line.Message.Role, line.Type), collectText(line.Message.Content), line.Timestamp)
 }
 
+// buildMessage 构建消息。
 func buildMessage(role, content, rawTime string) (dto.Message, bool) {
 	role = strings.ToLower(strings.TrimSpace(role))
 	if role != "user" && role != "assistant" {
@@ -309,6 +315,7 @@ func stripTagBlock(text, closeTag string) string {
 	return ""
 }
 
+// stripAgentsMDBlock 处理strip代理mdblock。
 func stripAgentsMDBlock(text string) string {
 	const closeInstructions = "</instructions>"
 	lower := strings.ToLower(text)

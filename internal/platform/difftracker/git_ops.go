@@ -73,6 +73,7 @@ func readHEADContent(ctx context.Context, root, relPath string) ([]byte, error) 
 	return nil, err
 }
 
+// execGitCommand 处理execgit命令。
 func execGitCommand(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	var lastErr error
 	for attempt := 0; attempt <= gitRetryAttempts; attempt++ {
@@ -92,6 +93,7 @@ func execGitCommand(ctx context.Context, dir string, args ...string) ([]byte, er
 	return nil, lastErr
 }
 
+// execGitCommandOnce 处理execgit命令once。
 func execGitCommandOnce(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	if ctx == nil {
 		ctx = context.Background()

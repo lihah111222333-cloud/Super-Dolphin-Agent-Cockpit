@@ -17,12 +17,14 @@ type store struct {
 	q querier
 }
 
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store {
 	return &store{q: q}
 }
 
 func newStoreForTest(q querier) Store { return &store{q: q} }
 
+// List 列出buslog存储。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]BusExceptionLog, error) {
 	rows, err := s.q.ListBusExceptionLogs(ctx, sqlc.ListBusExceptionLogsParams{
 		Column1: filter.Category,

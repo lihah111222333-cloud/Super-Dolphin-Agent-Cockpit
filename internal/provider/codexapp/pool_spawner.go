@@ -31,6 +31,7 @@ import (
 //
 // On failure the caller gets an error already enriched with the stderr
 // tail, which the pool caches in the identity+owner backoff slot.
+// runPoolSpawn 运行poolspawn。
 func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pidregistry.Registry, logger *slog.Logger) (*transport, error) {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -214,6 +215,7 @@ func poolSpawnContextErr(ctx context.Context) error {
 	return ctx.Err()
 }
 
+// normalizePoolSpawnWorkDir 规范化poolspawnwork目录。
 func normalizePoolSpawnWorkDir(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -258,6 +260,7 @@ func normalizePoolSpawnWorkspaceRoots(roots []string) []string {
 	return out
 }
 
+// normalizePoolSpawnWorkspaceRoot 规范化poolspawn工作区根目录。
 func normalizePoolSpawnWorkspaceRoot(base, root string) string {
 	root = strings.TrimSpace(root)
 	if root == "" {
@@ -313,6 +316,7 @@ var codexSpawnEnvAllowlist = []string{
 	codexRelayBootstrapTokenEnv,
 }
 
+// buildAllowlistedSpawnEnv 构建allowlistedspawnenv。
 func buildAllowlistedSpawnEnv(parent []string, overrides map[string]string) []string {
 	allowed := make(map[string]struct{}, len(codexSpawnEnvAllowlist))
 	for _, key := range codexSpawnEnvAllowlist {
@@ -358,6 +362,7 @@ func splitEnv(kv string) (string, string, bool) {
 //
 // The returned Spawner does not itself enforce concurrency or deduplication;
 // the pool owns those decisions per identity+owner entry.
+// NewTransportSpawner 创建传输spawner。
 func NewTransportSpawner(registry *pidregistry.Registry, logger *slog.Logger) Spawner {
 	if logger == nil {
 		logger = pkglogger.Get()

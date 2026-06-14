@@ -52,6 +52,7 @@ type UIMemoryEntryDetail struct {
 	UpdatedAt   time.Time `json:"updatedAt,omitempty"`
 }
 
+// registerUIMemoryMutationHandlers 注册UI记忆mutation处理器。
 func registerUIMemoryMutationHandlers(p memoryHandlerDeps) handler.Map {
 	out := handler.Map{
 		"ui/memory/entry/get": platformrpc.StrictHandler(func(ctx context.Context, req uiMemoryEntryGetParams) (UIMemoryEntryDetail, error) {
@@ -145,6 +146,7 @@ func getUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemoryE
 	return toUIMemoryEntryDetail(target, root, relPath, entry), nil
 }
 
+// upsertUIMemoryEntry 处理upsertUI记忆条目。
 func upsertUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemoryEntryUpsertParams) (UIMemoryEntryDetail, error) {
 	root, target, err := resolveUIMemoryTargetRoot(ctx, deps.Service, req.CWD, req.Target)
 	if err != nil {
@@ -252,6 +254,7 @@ func rollbackMergedEntry(svc Service, root, target, path string, entry MemoryEnt
 	return err
 }
 
+// resolveUIMemoryTargetRoot 解析UI记忆target根目录。
 func resolveUIMemoryTargetRoot(ctx context.Context, svc Service, cwd, rawTarget string) (string, string, error) {
 	if svc == nil {
 		return "", "", publicValidationErr("memory service is not configured")
@@ -315,6 +318,7 @@ func buildUIWriteRequest(name, description, rawType, content, title string) (Mem
 	return req, nil
 }
 
+// readUIMemoryEntryByPath 按路径读取UI记忆条目。
 func readUIMemoryEntryByPath(root, target, relPath string) (MemoryEntry, string, error) {
 	relPath = strings.TrimSpace(relPath)
 	if relPath == "" {
@@ -435,6 +439,7 @@ func resolveUIMemoryMergeEntries(ctx context.Context, deps memoryHandlerDeps, re
 	return uiMemoryMergeResolved{rootA: rootA, rootB: rootB, targetA: targetA, targetB: targetB, entryA: entryA, entryB: entryB}, nil
 }
 
+// mergeUIMemoryEntries 合并UI记忆条目。
 func mergeUIMemoryEntries(ctx context.Context, deps memoryHandlerDeps, req uiMemoryEntryMergeParams) (UIMemoryEntryDetail, error) {
 	resolved, err := resolveUIMemoryMergeEntries(ctx, deps, req)
 	if err != nil {

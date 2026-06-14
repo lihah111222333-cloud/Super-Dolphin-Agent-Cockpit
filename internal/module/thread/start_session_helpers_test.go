@@ -92,6 +92,41 @@ func TestBuildStartSessionConfigCarriesTurnContextFields(t *testing.T) {
 	requireSessionConfigValue(t, cfg, "threadKind", "child_agent")
 }
 
+func TestBuildStartSessionConfigCarriesConfiguredMCPServers(t *testing.T) {
+	cfg := buildStartSessionConfig(StartRequest{}, contract.StartInput{
+		MCPSnapshot: contract.MCPSnapshot{
+			Servers: []string{"my-search"},
+			ServerConfigs: map[string]contract.MCPServerConfig{
+				"my-search": {
+					Transport: "http",
+					URL:       "https://your-domain.com/mcp",
+					Headers:   map[string]string{"Authorization": "Bearer YOUR_API_KEY"},
+				},
+			},
+		},
+	}, contract.StartAssembly{})
+
+	mcpConfig, ok := cfg["mcpConfig"].(map[string]any)
+	if !ok {
+		t.Fatalf("mcpConfig = %#v, want map", cfg["mcpConfig"])
+	}
+	servers, ok := mcpConfig["mcpServers"].(map[string]any)
+	if !ok {
+		t.Fatalf("mcpConfig.mcpServers = %#v, want map", mcpConfig["mcpServers"])
+	}
+	server, ok := servers["my-search"].(map[string]any)
+	if !ok {
+		t.Fatalf("mcpConfig.mcpServers.my-search = %#v, want map", servers["my-search"])
+	}
+	if server["transport"] != "http" || server["url"] != "https://your-domain.com/mcp" {
+		t.Fatalf("mcpConfig server = %#v, want HTTP URL", server)
+	}
+	headers, ok := server["headers"].(map[string]any)
+	if !ok || headers["Authorization"] != "Bearer YOUR_API_KEY" {
+		t.Fatalf("mcpConfig server headers = %#v, want Authorization", server["headers"])
+	}
+}
+
 func TestBuildStartSessionConfigDoesNotTreatProviderAsModelProvider(t *testing.T) {
 	cfg := buildStartSessionConfig(StartRequest{
 		Provider:      "codex",

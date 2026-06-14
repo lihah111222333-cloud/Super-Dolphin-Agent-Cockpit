@@ -16,10 +16,12 @@ type jrpcPeer struct {
 	server *jrpc2.Server
 }
 
+// Notify 发送通知消息。
 func (p jrpcPeer) Notify(ctx context.Context, method string, params any) error {
 	return p.server.Notify(ctx, method, params)
 }
 
+// Callback 发送回调消息。
 func (p jrpcPeer) Callback(ctx context.Context, method string, params any, result any) error {
 	resp, err := p.server.Callback(ctx, method, params)
 	if err != nil {
@@ -34,6 +36,7 @@ func (p jrpcPeer) Callback(ctx context.Context, method string, params any, resul
 	return resp.UnmarshalResult(result)
 }
 
+// Close 关闭平台mcpcontrol资源。
 func (p jrpcPeer) Close() error {
 	if p.server != nil {
 		p.server.Stop()

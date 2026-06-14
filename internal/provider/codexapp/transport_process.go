@@ -42,6 +42,7 @@ type limitedBuffer struct {
 
 func newLimitedBuffer(limit int) *limitedBuffer { return &limitedBuffer{limit: limit} }
 
+// Write 写入codexapp provider。
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -55,6 +56,7 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// String 返回字符串表示。
 func (b *limitedBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -149,6 +151,7 @@ func (p *localProcess) listenResult() (string, error, bool) {
 	return p.listenURL, p.listenErr, p.listenSet
 }
 
+// waitForListenURL 等待 Codex app 暴露监听地址。
 func (p *localProcess) waitForListenURL(ctx context.Context) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -219,6 +222,7 @@ func enrichSpawnError(err error, proc *localProcess) error {
 	return fmt.Errorf("%w: %s", err, stderr)
 }
 
+// spawnLocal 处理spawnlocal。
 func (t *transport) spawnLocal(ctx context.Context) error {
 	if t.processRunning() {
 		return nil
@@ -286,6 +290,7 @@ func (t *transport) spawnLocal(ctx context.Context) error {
 	return nil
 }
 
+// collectProcessStderr 收集进程stderr。
 func (t *transport) collectProcessStderr(proc *localProcess, stderr io.ReadCloser) {
 	defer close(proc.stderrDone)
 	if stderr == nil {
@@ -369,6 +374,7 @@ func (t *transport) localProcessReady() error {
 	return errors.New("codexapp: local process not running")
 }
 
+// stopProcess 停止进程。
 func (t *transport) stopProcess(graceful bool) error {
 	t.stateMu.Lock()
 	proc := t.process

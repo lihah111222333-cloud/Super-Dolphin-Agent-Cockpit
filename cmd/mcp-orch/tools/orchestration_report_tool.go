@@ -26,6 +26,7 @@ type GetAgentReportInput struct {
 	TimeoutMS   int    `json:"timeout_ms,omitempty"`
 }
 
+// HandleGetAgentReport 处理get代理report。
 func HandleGetAgentReport(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in GetAgentReportInput) (any, error) {
 		agentID, err := resolveAgentIDInput(in.AgentID, in.Pos)
@@ -43,6 +44,7 @@ func agentReportShouldWait(in GetAgentReportInput) bool {
 	return in.Wait != nil && *in.Wait
 }
 
+// waitForAgentReport 等待编排侧产出代理报告。
 func waitForAgentReport(ctx context.Context, svc contract.OrchestrationService, in GetAgentReportInput, agentID string) (any, error) {
 	timeout, requesterID, err := validateAgentReportWait(ctx, in, agentID)
 	if err != nil {
@@ -84,6 +86,7 @@ func reportWaitRequester(ctx context.Context, requesterID string) string {
 	return ""
 }
 
+// pollAgentReport 处理poll代理report。
 func pollAgentReport(ctx context.Context, svc contract.OrchestrationService, agentID string, timeout time.Duration) (contract.AgentReportResult, error) {
 	waitCtx, cancel := platformconfig.WithTimeout(ctx, timeout)
 	defer cancel()

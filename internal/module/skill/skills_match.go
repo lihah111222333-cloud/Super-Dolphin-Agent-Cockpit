@@ -13,6 +13,7 @@ type matchItem struct {
 	MatchedTerms []string `json:"matched_terms,omitempty"`
 }
 
+// MatchPreview 判断preview是否匹配。
 func (s *service) MatchPreview(ctx context.Context, agentID, threadID, text string, input []UserInput) (any, error) {
 	resolvedThreadID := resolveSkillMatchPreviewThreadID(agentID, threadID)
 	matches, err := s.newSkillsAutoMatchCollector(ctx)(resolvedThreadID, text, input)
@@ -89,6 +90,7 @@ func (s *service) readConfiguredSkillState(ctx context.Context, resolvedID strin
 	return s.ReadConfig(ctx, resolvedID)
 }
 
+// configuredSkillNames 处理configured技能名称。
 func configuredSkillNames(config any) []string {
 	payload, ok := config.(map[string]any)
 	if !ok {
@@ -124,6 +126,7 @@ func collectLocalAutoMatchedSkills(prompt string, skills []SkillInfo) []autoMatc
 	return matches
 }
 
+// dedupeAutoMatchedSkills 去重automatchedskills。
 func dedupeAutoMatchedSkills(matches []autoMatchedSkill) []autoMatchedSkill {
 	uniq := make([]autoMatchedSkill, 0, len(matches))
 	seen := make(map[string]struct{}, len(matches))
@@ -140,6 +143,7 @@ func dedupeAutoMatchedSkills(matches []autoMatchedSkill) []autoMatchedSkill {
 	return uniq
 }
 
+// joinMatchText 处理joinmatch文本。
 func joinMatchText(text string, input []UserInput) string {
 	parts := []string{strings.TrimSpace(text)}
 	for _, item := range input {
@@ -152,6 +156,7 @@ func joinMatchText(text string, input []UserInput) string {
 	return strings.Join(parts, "\n")
 }
 
+// classifySkillMatch 分类技能match。
 func classifySkillMatch(prompt string, skill SkillInfo) (string, []string) {
 	if terms := matchedTerms(prompt, skill.ForceWords); len(terms) > 0 {
 		return "force", terms

@@ -26,6 +26,7 @@ var englishStopWords = map[string]struct{}{
 }
 
 // isCJK reports whether r is a CJK (Chinese/Japanese/Korean) character.
+// isCJK 判断cjk是否可用。
 func isCJK(r rune) bool {
 	return (r >= 0x4E00 && r <= 0x9FFF) || // CJK Unified Ideographs
 		(r >= 0x3400 && r <= 0x4DBF) || // CJK Extension A
@@ -48,6 +49,7 @@ func toHalfwidth(r rune) rune {
 }
 
 // stripFrontmatter removes YAML frontmatter enclosed in --- delimiters.
+// stripFrontmatter 处理stripfrontmatter。
 func stripFrontmatter(s string) string {
 	if !strings.HasPrefix(s, "---") {
 		return s
@@ -98,6 +100,7 @@ func convertFullwidth(s string) string {
 // Normalize normalizes raw memory content into comparable text.
 // Steps: strip frontmatter (--- ... ---) → strip Markdown formatting (#*->`) →
 // fullwidth to halfwidth → remove Chinese/English stop words → collapse whitespace.
+// Normalize 规范化记忆。
 func Normalize(raw string) string {
 	s := stripFrontmatter(raw)
 	s = stripMarkdown(s)
@@ -106,6 +109,7 @@ func Normalize(raw string) string {
 }
 
 // tokenizeAndFilter splits text into words/CJK runs, filters stop words, and reassembles.
+// tokenizeAndFilter 处理tokenize过滤条件。
 func tokenizeAndFilter(s string) string {
 	var tokens []string
 	var word strings.Builder
@@ -164,6 +168,7 @@ func collectCJKRun(runes []rune, start, n int) (string, int) {
 // CJK characters are processed as adjacent pairs (bigrams).
 // English words (sequences of ASCII letters/digits) are kept as whole tokens.
 // Returns a deduplicated map[string]struct{}.
+// Bigrams 处理bigrams。
 func Bigrams(normalized string) map[string]struct{} {
 	result := make(map[string]struct{})
 	if normalized == "" {
@@ -211,6 +216,7 @@ func addASCIIWord(runes []rune, start, n int, result map[string]struct{}) int {
 
 // Containment computes the containment coefficient = |A∩B| / |shorter set|.
 // Returns 0 if either set is empty.
+// Containment 返回两段文本的包含关系。
 func Containment(a, b map[string]struct{}) float64 {
 	if len(a) == 0 || len(b) == 0 {
 		return 0
@@ -234,6 +240,7 @@ func Containment(a, b map[string]struct{}) float64 {
 
 // Jaccard computes Jaccard similarity = |A∩B| / |A∪B|.
 // Returns 0 if both sets are empty.
+// Jaccard 处理jaccard。
 func Jaccard(a, b map[string]struct{}) float64 {
 	if len(a) == 0 && len(b) == 0 {
 		return 0

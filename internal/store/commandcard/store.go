@@ -23,8 +23,10 @@ type store struct {
 	q querier
 }
 
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Reader { return &store{q: q} }
 
+// List 列出commandcard存储。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]CommandCard, error) {
 	rows, err := s.q.ListCommandCards(ctx, sqlc.ListCommandCardsParams{
 		Column1: filter.Keyword,

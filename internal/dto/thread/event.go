@@ -90,9 +90,20 @@ type SpawnRouting struct {
 	PromptKeyStale  bool   `json:"prompt_key_stale,omitempty"`
 }
 
-func (Started) Type() uint32      { return shared.EventTypeThreadStarted }
-func (Stopped) Type() uint32      { return shared.EventTypeThreadStopped }
+// Type 返回事件分发用的类型编号。
+func (Started) Type() uint32 { return shared.EventTypeThreadStarted }
+
+// Type 返回事件分发用的类型编号。
+func (Stopped) Type() uint32 { return shared.EventTypeThreadStopped }
+
+// Type 返回事件分发用的类型编号。
 func (MessagesPage) Type() uint32 { return shared.EventTypeThreadMessagesPage }
-func (Compacted) Type() uint32    { return shared.EventTypeThreadCompacted }
-func (Updated) Type() uint32      { return shared.EventTypeThreadUpdated }
-func (Launched) Type() uint32     { return shared.EventTypeThreadLaunched }
+
+// Type 返回事件分发用的类型编号。
+func (Compacted) Type() uint32 { return shared.EventTypeThreadCompacted }
+
+// Type 返回事件分发用的类型编号。
+func (Updated) Type() uint32 { return shared.EventTypeThreadUpdated }
+
+// Type 返回事件分发用的类型编号。
+func (Launched) Type() uint32 { return shared.EventTypeThreadLaunched }

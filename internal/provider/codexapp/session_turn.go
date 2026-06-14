@@ -143,6 +143,7 @@ func turnInputsFromRequest(inputs []dto.InputItem, skills []dto.SkillRef, assemb
 	return items
 }
 
+// mapTurnInput 映射turninput。
 func mapTurnInput(item dto.InputItem) turnInputItem {
 	switch strings.ToLower(strings.TrimSpace(item.Type)) {
 	case "", "text":
@@ -207,6 +208,7 @@ type turnOutputBuffer struct {
 	truncated bool
 }
 
+// appendTurnOutputDelta 追加turnoutputdelta。
 func (s *session) appendTurnOutputDelta(turnID, delta string) {
 	if s == nil || turnID == "" || delta == "" {
 		return

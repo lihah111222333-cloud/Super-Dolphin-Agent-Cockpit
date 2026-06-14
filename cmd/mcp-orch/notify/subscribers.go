@@ -31,6 +31,7 @@ const dagNotifyProcessTimeout = 5 * time.Second
 
 type DAGNotifierOption func(*DAGNotifier)
 
+// WithDAGNotifyQueueCapacity 设置DAGnotifyqueuecapacity。
 func WithDAGNotifyQueueCapacity(capacity int) (DAGNotifierOption, error) {
 	if capacity <= 0 {
 		return nil, fmt.Errorf("notify(orch): dag notifier queue capacity must be positive, got %d", capacity)
@@ -74,6 +75,7 @@ type DAGNotifier struct {
 // NewDAGNotifier wires the orch-side DAG notifier. A nil store is
 // tolerated (the subscribers then log + drop every event) so the app
 // still boots when the workspace setup doesn't include taskdag.
+// NewDAGNotifier 创建DAGnotifier。
 func NewDAGNotifier(logger *slog.Logger, notifier contract.MessageNotifier, store taskdag.Store, opts ...DAGNotifierOption) *DAGNotifier {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -96,6 +98,7 @@ func NewDAGNotifier(logger *slog.Logger, notifier contract.MessageNotifier, stor
 }
 
 // Start spawns the worker goroutine. Idempotent.
+// Start 启动编排流程。
 func (n *DAGNotifier) Start() {
 	if n == nil {
 		return
@@ -114,6 +117,7 @@ func (n *DAGNotifier) Start() {
 
 // Stop closes the gate, drains pending requests through the worker, and
 // waits bounded by ctx for the worker to exit. Idempotent.
+// Stop 停止编排流程。
 func (n *DAGNotifier) Stop(ctx context.Context) error {
 	if n == nil {
 		return nil
@@ -144,6 +148,7 @@ func (n *DAGNotifier) Stop(ctx context.Context) error {
 // blocks until ctx is cancelled, then drains and stops the worker.
 // This allows DAGNotifier to be managed by run.Group instead of manual
 // goroutine management in fx.Lifecycle hooks.
+// Run 启动编排后台流程。
 func (n *DAGNotifier) Run(ctx context.Context) error {
 	if n == nil {
 		<-ctx.Done()
@@ -163,6 +168,7 @@ func (n *DAGNotifier) Run(ctx context.Context) error {
 // This method deliberately does NOT subscribe for core turn terminal
 // events — those arrive via the hook_consumer processing chain, not
 // the orch dispatcher, and will be wired in a follow-up tap PR.
+// Subscribe 注册事件订阅。
 func (n *DAGNotifier) Subscribe(dispatcher *event.Dispatcher, logger *pkglogger.Logger) context.CancelFunc {
 	if n == nil || dispatcher == nil || n.notifier == nil {
 		return func() {}
@@ -181,6 +187,7 @@ func (n *DAGNotifier) Subscribe(dispatcher *event.Dispatcher, logger *pkglogger.
 // It performs only cheap checks (terminal status, empty key) and then
 // enqueues the event for the worker goroutine to process. No DB queries
 // or blocking I/O happen on the bus dispatcher's callback goroutine.
+// onNodeStatusChanged 处理on节点状态changed。
 func (n *DAGNotifier) onNodeStatusChanged(ev taskdto.TaskNodeStatusChanged) {
 	if !isTerminalNodeStatus(ev.NewStatus) {
 		return
@@ -213,6 +220,7 @@ func (n *DAGNotifier) onNodeStatusChanged(ev taskdto.TaskNodeStatusChanged) {
 
 // processEvent runs on the worker goroutine and performs the DB lookups
 // + TryEnqueue that were previously done synchronously in the callback.
+// processEvent 处理进程事件。
 func (n *DAGNotifier) processEvent(ev taskdto.TaskNodeStatusChanged) {
 	dagKey := strings.TrimSpace(ev.DagKey)
 	nodeKey := strings.TrimSpace(ev.NodeKey)
@@ -325,6 +333,7 @@ func (n *DAGNotifier) getDAG(ctx context.Context, dagKey string) *taskdag.DAG {
 // dag.Metadata in full because those may contain user / customer data;
 // platform.NormalizeBody in the flusher will re-escape anyway but
 // keeping the surface small reduces accidental exposure.
+// buildNodeBody 构建节点正文。
 func buildNodeBody(ev taskdto.TaskNodeStatusChanged, node *taskdag.Node, dag *taskdag.DAG) string {
 	var b strings.Builder
 	b.WriteString("DAG: ")
@@ -377,6 +386,7 @@ type Metrics struct {
 }
 
 // Metrics returns a snapshot of subscriber counters.
+// Metrics 处理指标。
 func (n *DAGNotifier) Metrics() Metrics {
 	if n == nil {
 		return Metrics{}

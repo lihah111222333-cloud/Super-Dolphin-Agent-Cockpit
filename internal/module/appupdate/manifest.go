@@ -44,6 +44,7 @@ type VerifyOptions struct {
 	CurrentVersion string
 }
 
+// VerifySignedManifest 验证signedmanifest。
 func VerifySignedManifest(raw []byte, opts VerifyOptions) (ManifestPayload, UpdateArtifact, error) {
 	if len(opts.PublicKey) != ed25519.PublicKeySize {
 		return ManifestPayload{}, UpdateArtifact{}, fmt.Errorf("app update public key length = %d, want %d", len(opts.PublicKey), ed25519.PublicKeySize)
@@ -112,6 +113,7 @@ func validatePayloadTarget(payload ManifestPayload, opts VerifyOptions) error {
 	return nil
 }
 
+// validateVersionWindow 校验版本window。
 func validateVersionWindow(payload ManifestPayload, current string) error {
 	updateVersion, err := parseManifestVersion(payload.Version)
 	if err != nil {
@@ -152,6 +154,7 @@ func artifactForPlatform(artifacts []UpdateArtifact, platform string) (UpdateArt
 	return UpdateArtifact{}, fmt.Errorf("app update artifact for platform %q not found", platform)
 }
 
+// validateArtifact 校验产物。
 func validateArtifact(artifact UpdateArtifact) error {
 	artifactURL, err := url.Parse(artifact.URL)
 	if err != nil {

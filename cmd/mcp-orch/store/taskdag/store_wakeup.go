@@ -8,6 +8,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 )
 
+// EnqueueWakeup 只接受 run-scoped wakeup。run_id 是 dispatcher 之后定位
+// runtime node 的硬要求，不能为了兼容模板节点而放空；幂等由调用方传入的
+// idempotency_key 和 SQL ON CONFLICT 共同保证。
 func (s *store) EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (int64, error) {
 	if input.RunID <= 0 {
 		return 0, fmt.Errorf("enqueue task dag wakeup: run_id required")
@@ -25,6 +28,9 @@ func (s *store) EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (in
 	}, "enqueue", "task_dag_wakeup")
 }
 
+// ClaimDueWakeups 把 due pending wakeup 抢成 dispatching，并写入 claimed_by /
+// claimed_at / lease_expires_at。返回行里的这些 fence 字段必须原样带到
+// MarkWakeupSent/RetryWakeup/FailWakeup，过期被 reclaim 后旧副本会 rows=0。
 func (s *store) ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput) ([]Wakeup, error) {
 	leaseInterval, err := parseLeaseDuration(input.LeaseInterval, "claim_due", "task_dag_wakeup")
 	if err != nil {
@@ -39,6 +45,7 @@ func (s *store) ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput)
 	}, "claim_due", "task_dag_wakeup", fromWakeup)
 }
 
+// MarkWakeupSent 标记 wakeup 已发送给目标线程。
 func (s *store) MarkWakeupSent(ctx context.Context, input MarkWakeupSentInput) (int64, error) {
 	fence := wakeupFenceFromMark(input)
 	return fencedWakeupMutation("mark_sent", fence, func(fence wakeupFence) (int64, error) {
@@ -51,10 +58,12 @@ func (s *store) MarkWakeupSent(ctx context.Context, input MarkWakeupSentInput) (
 	})
 }
 
+// BindWakeupTurn 把 wakeup 和实际 turn 绑定起来。
 func (s *store) BindWakeupTurn(ctx context.Context, input BindWakeupTurnInput) (int64, error) {
 	return bindWakeupTurnTx(ctx, s.q, input, false)
 }
 
+// RetryWakeup 重新排队失败或超时的 wakeup。
 func (s *store) RetryWakeup(ctx context.Context, input RetryWakeupInput) (int64, error) {
 	retryInterval, err := parseLeaseDuration(input.RetryInterval, "retry", "task_dag_wakeup")
 	if err != nil {
@@ -73,6 +82,10 @@ func (s *store) RetryWakeup(ctx context.Context, input RetryWakeupInput) (int64,
 	})
 }
 
+// RetryWakeupWithNodeConfigPatch 是智能重试的原子准备步骤：同一事务内先把
+// 当前 claimed wakeup 退回 pending/next_retry_at，再用 previous_config fence
+// patch runtime node config。patch miss 必须回滚 retry，避免 wakeup 已重试但
+// 节点仍是旧配置的半提交状态。
 func (s *store) RetryWakeupWithNodeConfigPatch(ctx context.Context, input RetryWakeupWithNodeConfigPatchInput) (int64, error) {
 	retryInterval, err := parseLeaseDuration(input.RetryWakeup.RetryInterval, "retry_with_config_patch", "task_dag_wakeup")
 	if err != nil {
@@ -114,6 +127,7 @@ func (s *store) RetryWakeupWithNodeConfigPatch(ctx context.Context, input RetryW
 	return rows, nil
 }
 
+// FailWakeup 把 wakeup 标记为失败并记录原因。
 func (s *store) FailWakeup(ctx context.Context, input FailWakeupInput) (int64, error) {
 	fence := wakeupFenceFromFail(input)
 	return fencedWakeupMutation("fail", fence, func(fence wakeupFence) (int64, error) {
@@ -127,6 +141,10 @@ func (s *store) FailWakeup(ctx context.Context, input FailWakeupInput) (int64, e
 	})
 }
 
+// FailWakeupAndFailNodeAndCancelDownstream 把“wakeup 永久失败”和“节点失败 /
+// 失败级联”绑定成一个事务。若 wakeup fence miss（rows=0），说明这条
+// claimed 副本已经被 sent/retry/reclaim，不再触碰节点，防止迟到 dispatcher
+// 改写新一轮调度的状态。
 func (s *store) FailWakeupAndFailNodeAndCancelDownstream(ctx context.Context, wakeup FailWakeupInput, node FailNodeInput) (int64, *FailNodeResult, error) {
 	if err := requireRuntimeRunID("fail_wakeup_and_fail_node", node.RunID); err != nil {
 		return 0, nil, err
@@ -163,24 +181,30 @@ func (s *store) FailWakeupAndFailNodeAndCancelDownstream(ctx context.Context, wa
 	return failRows, result, nil
 }
 
+// ReclaimStaleDispatchingWakeups 回收 lease 过期且仍处 dispatching 的 wakeup。
+// 它不判断 dispatcher 是否存活，只依赖 lease_expires_at；被回收后旧 claim 的
+// fence 全部失效，下一轮 dispatcher 会重新 claim。
 func (s *store) ReclaimStaleDispatchingWakeups(ctx context.Context) (int64, error) {
 	return queryValue(func() (int64, error) {
 		return s.q.ReclaimStaleDispatchingTaskDagWakeups(ctx)
 	}, "reclaim_stale_dispatching", "task_dag_wakeup")
 }
 
+// ListSentUnboundWakeups 列出已发送但还没绑定 turn 的 wakeup。
 func (s *store) ListSentUnboundWakeups(ctx context.Context, targetAgentID string) ([]Wakeup, error) {
 	return queryMany(func() ([]sqlc.TaskDagWakeup, error) {
 		return s.q.ListSentUnboundTaskDagWakeups(ctx, targetAgentID)
 	}, "list_sent_unbound", "task_dag_wakeup", fromWakeup)
 }
 
+// ListPendingOrDispatchingWakeups 列出等待或正在派发的 wakeup。
 func (s *store) ListPendingOrDispatchingWakeups(ctx context.Context) ([]Wakeup, error) {
 	return queryMany(func() ([]sqlc.TaskDagWakeup, error) {
 		return s.q.ListPendingOrDispatchingTaskDagWakeups(ctx)
 	}, "list_pending_or_dispatching", "task_dag_wakeup", fromWakeup)
 }
 
+// GetWakeup 读取单个 wakeup 的当前状态。
 func (s *store) GetWakeup(ctx context.Context, id int64) (*Wakeup, error) {
 	return queryOne(func() (sqlc.TaskDagWakeup, error) {
 		return s.q.GetTaskDagWakeup(ctx, id)

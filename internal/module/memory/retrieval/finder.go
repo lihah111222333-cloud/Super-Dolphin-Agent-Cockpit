@@ -22,6 +22,7 @@ type RelevantMemoryFinder struct {
 	readEntry      func(string) (MemoryEntry, error)
 }
 
+// NewRelevantMemoryFinder 创建relevant记忆finder。
 func NewRelevantMemoryFinder() *RelevantMemoryFinder {
 	return &RelevantMemoryFinder{
 		BudgetBytes:    DefaultRelevantMemoryBudgetBytes,
@@ -31,10 +32,12 @@ func NewRelevantMemoryFinder() *RelevantMemoryFinder {
 	}
 }
 
+// FindRelevantMemories 查找relevantmemories。
 func (f *RelevantMemoryFinder) FindRelevantMemories(ctx context.Context, query string, manifest []MemoryEntry) ([]MemoryEntry, error) {
 	return f.FindRelevantMemoriesWithAlreadySurfaced(ctx, query, manifest, nil)
 }
 
+// FindRelevantMemoriesWithAlreadySurfaced 查找带alreadysurfaced的relevantmemories。
 func (f *RelevantMemoryFinder) FindRelevantMemoriesWithAlreadySurfaced(
 	ctx context.Context,
 	query string,
@@ -55,10 +58,12 @@ func (f *RelevantMemoryFinder) FindRelevantMemoriesWithAlreadySurfaced(
 	return f.SelectRelevantMemoriesWithAlreadySurfaced(hydrated, f.budget(), alreadySurfaced), nil
 }
 
+// SelectRelevantMemories 选择relevantmemories。
 func (f *RelevantMemoryFinder) SelectRelevantMemories(entries []MemoryEntry, budget int) []MemoryEntry {
 	return f.SelectRelevantMemoriesWithAlreadySurfaced(entries, budget, nil)
 }
 
+// SelectRelevantMemoriesWithAlreadySurfaced 选择带alreadysurfaced的relevantmemories。
 func (f *RelevantMemoryFinder) SelectRelevantMemoriesWithAlreadySurfaced(
 	entries []MemoryEntry,
 	budget int,
@@ -94,6 +99,7 @@ func (f *RelevantMemoryFinder) SelectRelevantMemoriesWithAlreadySurfaced(
 	return selected
 }
 
+// rankEntries 处理rank条目。
 func (f *RelevantMemoryFinder) rankEntries(query string, manifest []MemoryEntry) []MemoryEntry {
 	normalizedQuery, terms := searchTerms(query)
 	if normalizedQuery == "" || len(terms) == 0 || len(manifest) == 0 {

@@ -48,7 +48,14 @@ type ItemCompleted struct {
 	Payload  json.RawMessage `json:"payload,omitempty"`
 }
 
-func (PlanDelta) Type() uint32     { return shared.EventTypeTurnPlanDelta }
-func (PlanUpdated) Type() uint32   { return shared.EventTypeTurnPlanUpdated }
-func (ItemStarted) Type() uint32   { return shared.EventTypeTurnItemStarted }
+// Type 返回事件分发用的类型编号。
+func (PlanDelta) Type() uint32 { return shared.EventTypeTurnPlanDelta }
+
+// Type 返回事件分发用的类型编号。
+func (PlanUpdated) Type() uint32 { return shared.EventTypeTurnPlanUpdated }
+
+// Type 返回事件分发用的类型编号。
+func (ItemStarted) Type() uint32 { return shared.EventTypeTurnItemStarted }
+
+// Type 返回事件分发用的类型编号。
 func (ItemCompleted) Type() uint32 { return shared.EventTypeTurnItemCompleted }

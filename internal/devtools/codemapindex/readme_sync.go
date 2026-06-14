@@ -15,6 +15,7 @@ type ReadmeCodemap struct {
 
 var readmeTableRowRe = regexp.MustCompile(`^\|\s*(\d{2})\s*\|\s*\[([^\]]+)\]\([^)]+\)\s*\|\s*(.+?)\s*\|$`)
 
+// SyncREADME 同步readme。
 func SyncREADME(readmePath string, codemaps []ReadmeCodemap, generatedAt string) error {
 	lines, err := readLines(readmePath)
 	if err != nil || len(lines) == 0 {

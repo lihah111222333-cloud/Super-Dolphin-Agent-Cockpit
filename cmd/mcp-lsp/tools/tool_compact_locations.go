@@ -130,6 +130,7 @@ func compactToolFilePath(ctx context.Context, raw string) string {
 	return relativeToScope(scope.CWD, file)
 }
 
+// relativeToScope 把相对处理为作用域。
 func relativeToScope(root string, file string) string {
 	cleanFile := canonicalClean(file)
 	if !filepath.IsAbs(cleanFile) {

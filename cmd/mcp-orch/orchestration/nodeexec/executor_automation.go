@@ -59,8 +59,10 @@ const (
 
 type ShellCommandRunner struct{}
 
+// NewShellCommandRunner 创建shell命令runner。
 func NewShellCommandRunner() *ShellCommandRunner { return &ShellCommandRunner{} }
 
+// RunCommandCard 运行命令card。
 func (ShellCommandRunner) RunCommandCard(ctx context.Context, card AutomationCommandCard, args json.RawMessage) (AutomationCommandResult, error) {
 	command, normalizedArgs, err := renderCommandTemplate(card.CommandTemplate, args)
 	if err != nil {
@@ -105,6 +107,7 @@ func newCommandOutputBuffer(label string, limit int) *commandOutputBuffer {
 	return &commandOutputBuffer{label: label, limit: limit}
 }
 
+// Write 写入编排。
 func (b *commandOutputBuffer) Write(p []byte) (int, error) {
 	b.total += len(p)
 	remaining := b.limit - b.buf.Len()
@@ -122,6 +125,7 @@ func (b *commandOutputBuffer) Write(p []byte) (int, error) {
 	return b.buf.Write(p)
 }
 
+// String 返回字符串表示。
 func (b *commandOutputBuffer) String() string {
 	out := b.buf.String()
 	if !b.truncated {
@@ -144,19 +148,23 @@ type CommandExitError struct {
 	Err      error
 }
 
+// Error 返回错误文本。
 func (e CommandExitError) Error() string {
 	return fmt.Sprintf("command exited with code %d: %v", e.ExitCode, e.Err)
 }
 
+// Unwrap 返回底层错误。
 func (e CommandExitError) Unwrap() error { return e.Err }
 
 type AutomationOption func(*AutomationExecutor)
 
 // WithAutomationHooks registers lifecycle hooks for automation nodes.
+// WithAutomationHooks 设置automationhooks。
 func WithAutomationHooks(hooks map[HookPoint]HookHandler) AutomationOption {
 	return func(e *AutomationExecutor) { e.hooks = cloneHookHandlers(hooks) }
 }
 
+// NewAutomationExecutor 创建automationexecutor。
 func NewAutomationExecutor(getter AutomationCommandGetter, runner AutomationCommandRunner, opts ...AutomationOption) *AutomationExecutor {
 	e := &AutomationExecutor{commandGetter: getter, runner: runner}
 	for _, opt := range opts {
@@ -167,6 +175,7 @@ func NewAutomationExecutor(getter AutomationCommandGetter, runner AutomationComm
 	return e
 }
 
+// Execute 执行编排。
 func (e *AutomationExecutor) Execute(ctx context.Context, node Node, runCtx RunContext) (NodeOutcome, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -291,6 +300,7 @@ func automationSharedfilePath(out OutputsConfig) string {
 	return strings.TrimSpace(out.ToSharedfile.Path)
 }
 
+// buildAutomationSharedfileEnvelope 构建automationsharedfile包装。
 func buildAutomationSharedfileEnvelope(out OutputsConfig, node Node, runCtx RunContext) (json.RawMessage, *NodeOutcome) {
 	path := automationSharedfilePath(out)
 	if path == "" {
@@ -389,6 +399,7 @@ func (e *AutomationExecutor) loadCommandCard(ctx context.Context, cfg *Automatio
 	return card, nil
 }
 
+// Hooks 处理hooks。
 func (e *AutomationExecutor) Hooks() map[HookPoint]HookHandler {
 	if e == nil {
 		return nil
@@ -404,6 +415,7 @@ func failedAutomationOutcome(class FailureClass, summary string) NodeOutcome {
 	}
 }
 
+// classifyAutomationError 分类automation错误。
 func classifyAutomationError(err error) FailureClass {
 	if err == nil {
 		return FailureClassTransient
@@ -453,6 +465,7 @@ func containsAny(msg string, keywords []string) bool {
 	return false
 }
 
+// renderCommandTemplate 渲染命令template。
 func renderCommandTemplate(commandTemplate string, args json.RawMessage) (string, json.RawMessage, error) {
 	if strings.TrimSpace(commandTemplate) == "" {
 		return "", nil, errors.New("command_template is required")
@@ -517,6 +530,7 @@ func validateAutomationOutputs(raw json.RawMessage, _ *AutomationNodeConfig) *No
 	})
 }
 
+// validateOutputsForbiddenKeys 校验outputsforbidden键。
 func validateOutputsForbiddenKeys(raw json.RawMessage, forbiddenKeys []string, buildOutcome func(string) NodeOutcome) *NodeOutcome {
 	if len(raw) == 0 {
 		return nil
@@ -613,6 +627,7 @@ func buildInputsPayload(ctx context.Context, in InputsConfig, runCtx RunContext)
 	return injected, nil
 }
 
+// collectPrevResults 收集prev结果。
 func collectPrevResults(fromNodes []string, prev map[string]json.RawMessage) (map[string]any, *NodeOutcome) {
 	if len(fromNodes) == 0 {
 		return nil, nil
@@ -641,6 +656,7 @@ func collectPrevResults(fromNodes []string, prev map[string]json.RawMessage) (ma
 	return out, nil
 }
 
+// collectSharedfileInputs 收集sharedfileinputs。
 func collectSharedfileInputs(ctx context.Context, paths []string, reader SharedFileReader) (map[string]string, *NodeOutcome) {
 	if len(paths) == 0 {
 		return nil, nil

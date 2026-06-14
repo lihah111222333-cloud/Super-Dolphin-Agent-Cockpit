@@ -10,6 +10,7 @@ type RelayFailureThrottle struct {
 }
 
 // ShouldReport returns true if this failure occurrence should be logged.
+// ShouldReport 判断report是否可用。
 func (t *RelayFailureThrottle) ShouldReport() bool {
 	n := t.count.Add(1)
 	return n <= 3 || n%20 == 0

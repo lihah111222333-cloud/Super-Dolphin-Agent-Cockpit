@@ -41,6 +41,7 @@ func resetToolResultLifecycle(threadID string) {
 	defaultToolResultLifecycleRegistry.Reset(threadID)
 }
 
+// Register 注册turn。
 func (r *toolResultLifecycleRegistry) Register(meta ToolResultMeta, record ToolResultRecord) {
 	threadID := strings.TrimSpace(meta.ThreadID)
 	if r == nil || threadID == "" || record.OriginalSize == 0 {
@@ -51,6 +52,7 @@ func (r *toolResultLifecycleRegistry) Register(meta ToolResultMeta, record ToolR
 	r.threads[threadID] = append(r.threads[threadID], toolResultLifecycleEntry{meta: meta, record: record})
 }
 
+// Cleanup 处理cleanup。
 func (r *toolResultLifecycleRegistry) Cleanup(threadID, model string, cfg *contract.FRCConfig) ToolResultCleanupResult {
 	threadID = strings.TrimSpace(threadID)
 	if r == nil || threadID == "" || cfg == nil || !cfg.EnabledForModel(model) {
@@ -85,6 +87,7 @@ func (r *toolResultLifecycleRegistry) Cleanup(threadID, model string, cfg *contr
 	return result
 }
 
+// Reset 重置turn。
 func (r *toolResultLifecycleRegistry) Reset(threadID string) {
 	threadID = strings.TrimSpace(threadID)
 	if r == nil || threadID == "" {
@@ -111,6 +114,7 @@ func deleteToolResultFile(path string) bool {
 	return true
 }
 
+// pruneToolResultDir 裁剪工具结果目录。
 func pruneToolResultDir(dir string) {
 	for _, stop := range toolResultCleanupRoots() {
 		for current := filepath.Clean(strings.TrimSpace(dir)); current != "." && current != string(filepath.Separator); current = filepath.Dir(current) {

@@ -168,6 +168,7 @@ func normalizeListLimit(limit, defaultLimit, maxLimit int) int {
 	return limit
 }
 
+// marshalRawJSON 编码原始JSON。
 func marshalRawJSON(value any, opts rawJSONOptions) (json.RawMessage, error) {
 	switch current := value.(type) {
 	case string:

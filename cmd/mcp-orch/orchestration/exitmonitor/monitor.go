@@ -56,6 +56,7 @@ type Event struct {
 	Err       error
 }
 
+// New 创建编排。
 func New(logger *slog.Logger) *Monitor {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -72,6 +73,7 @@ func New(logger *slog.Logger) *Monitor {
 // has already been closed by Drain — callers in that window must NOT assume
 // the process will emit an exit event via the monitor; they are responsible
 // for synchronous cleanup.
+// Arm 开始监听进程退出。
 func (m *Monitor) Arm(target Target) bool {
 	if target.Cmd == nil {
 		return false
@@ -94,17 +96,20 @@ func (m *Monitor) Arm(target Target) bool {
 // Emit is the synthetic-exit path for launcher-driven stops that do NOT have
 // a local cmd to Wait on (e.g. remote launcher.Stop succeeded). Shares the
 // exactly-once fence with Arm so accidental double-emit is a no-op.
+// Emit 发布进程退出事件。
 func (m *Monitor) Emit(agentID string, launchSeq uint64, err error) {
 	m.publishExit(agentID, launchSeq, err)
 }
 
 // ExitEvents returns the read-only event stream. runnerActor.Run is the
 // only production consumer.
+// ExitEvents 返回进程退出事件通道。
 func (m *Monitor) ExitEvents() <-chan Event { return m.events }
 
 // Drain closes the gate (no more Arm) and blocks until every in-flight
 // cmd.Wait goroutine has finished. Callers pass a bounded ctx for the
 // shutdown budget.
+// Drain 等待队列里已接收的任务收尾。
 func (m *Monitor) Drain(ctx context.Context) error {
 	m.mu.Lock()
 	m.closed = true
@@ -122,6 +127,7 @@ func (m *Monitor) Drain(ctx context.Context) error {
 // publishExit enforces the exactly-once-per-(agentID, launchSeq) fence and
 // pushes the event onto the buffered channel. It is safe for concurrent use;
 // Arm goroutines, Emit callers, and tests all route through here.
+// publishExit 发布exit。
 func (m *Monitor) publishExit(agentID string, seq uint64, err error) {
 	if agentID == "" || seq == 0 {
 		return

@@ -7,6 +7,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// MergeAfter 合并后置。
 func MergeAfter(decisions []peerDecision[mcp.AfterDecision]) MergeResult[mcp.AfterDecision] {
 	normalized, failed, lost := normalizeAfterDecisions(decisions)
 	return MergeResult[mcp.AfterDecision]{
@@ -30,6 +31,7 @@ func normalizeAfterDecisions(decisions []peerDecision[mcp.AfterDecision]) ([]mcp
 	})
 }
 
+// mergeAfterDecision 合并后置decision。
 func mergeAfterDecision(decisions []mcp.AfterDecision) mcp.AfterDecision {
 	if len(decisions) == 0 {
 		return mcp.AfterDecision{Decision: mcp.HookDecisionReject}

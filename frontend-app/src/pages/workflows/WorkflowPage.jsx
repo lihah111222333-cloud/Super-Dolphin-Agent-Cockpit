@@ -47,6 +47,11 @@ const RUNNING_RUN_STATUSES = new Set(['running', 'pending', 'dispatching', 'wait
 
 const WORKFLOW_ACTION_TIMEOUT_MESSAGE = '自动化操作超时，请检查任务数据或后端状态。';
 
+/*
+ * WorkflowPage 把后端 DAG 数据整理成页面 model。
+ * 列表、详情、运行记录先归一化，组件只读整理后的字段。
+ */
+
 function withWorkflowActionTimeout(promise) {
   return withTimeout(promise, SKILLS_REQUEST_TIMEOUT_MS, WORKFLOW_ACTION_TIMEOUT_MESSAGE);
 }
@@ -114,6 +119,9 @@ function dagVersionOf(item) {
 }
 
 function normalizeDagRun(raw = {}, index = 0) {
+  /*
+   * runKey 用来选中运行记录；数字 runId 只在派发节点时用。
+   */
   const runKey = runKeyOf(raw);
   return {
     id: runKey || `run:${index}`,
@@ -135,6 +143,9 @@ function normalizedDagNodeDependencies(raw = {}) {
 }
 
 function normalizeDagNode(raw = {}, index = 0) {
+  /*
+   * node 展示读整理后的字段，raw/config/result 留给高级设置和保存。
+   */
   const nodeKey = nodeKeyOf(raw);
   const config = objectValue(raw.config);
   const dependsOn = normalizedDagNodeDependencies(raw);
@@ -155,6 +166,10 @@ function normalizeDagNode(raw = {}, index = 0) {
 }
 
 function normalizeDashboardDag(raw = {}, index = 0) {
+  /*
+   * 列表里的 DAG 只有摘要和最近运行。
+   * 节点详情和完整历史要从详情接口取。
+   */
   const dagKey = dagKeyOf(raw);
   const latestRun = raw.latest_run || raw.latestRun || null;
   const cronExpr = cronExprFromDagItem(raw);
@@ -816,6 +831,10 @@ function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
 }
 
 function useWorkflowPageController({ projectPath, refreshKey, store }) {
+  /*
+   * controller 把项目 cwd、查询结果、选择态和按钮动作放进 model。
+   * 子组件只用 model，不直接调用后端。
+   */
   const workflowCwd = optionalSettingsCwd(projectPath);
   const isProjectPending = !workflowCwd;
   const list = useWorkflowListQuery(workflowCwd);
@@ -839,6 +858,10 @@ function useWorkflowPageController({ projectPath, refreshKey, store }) {
 }
 
 function useWorkflowListQuery(workflowCwd) {
+  /*
+   * 列表刷新失败时保留上次成功数据。
+   * syncFailure 只提示同步失败，不把页面清空。
+   */
   const queryClient = useQueryClient();
   const refreshPromiseRef = useRef(null);
   const [workflowSyncFailure, setWorkflowSyncFailure] = useState('');
@@ -970,6 +993,10 @@ function workflowActiveRunFromResponse(response) {
 }
 
 function useWorkflowDetailQuery({ items, selectedDag, selectedDagKey, workflowCwd }) {
+  /*
+   * 详情加载中时先用列表项兜底。
+   * 这样右侧标题和状态不会闪成空白。
+   */
   const dagDetailQuery = useQuery({
     queryKey: dashboardQueryKey(workflowCwd, 'dag-detail', selectedDagKey),
     queryFn: () => fetchWorkflowDagDetail(selectedDagKey, items),
@@ -991,6 +1018,10 @@ function useWorkflowDetailQuery({ items, selectedDag, selectedDagKey, workflowCw
 }
 
 function useWorkflowRunDetail({ activeRun, runs, workflowCwd }) {
+  /*
+   * 运行详情优先看正在运行的 run，其次看最近历史。
+   * run 的节点回来得晚时，诊断会先用 DAG 详情里的节点。
+   */
   const queryClient = useQueryClient();
   const [selectedRunKey, setSelectedRunKey] = useState('');
   const fallbackRunKey = activeRun?.runKey || runs[0]?.runKey || '';
@@ -1076,6 +1107,10 @@ function useWorkflowActionState(activeDetailDag) {
 }
 
 function useWorkflowDerivedState({ detail, list, run, selection }) {
+  /*
+   * derived 统一算按钮禁用原因、诊断、最终输出和可编辑节点。
+   * 展示组件不要重复猜这些状态。
+   */
   const missingRootAssigneeWarning = useMemo(() => rootAssigneeWarning(detail.nodes), [detail.nodes]);
   const activeDetailDag = detail.activeDetailDag;
   const activeRunKey = detail.activeRun?.runKey || '';
@@ -1136,6 +1171,10 @@ function workflowLoadMessages(listErrorState, syncFailure, detailErrorState) {
 }
 
 function useWorkflowActions({ actionState, derived, list, notices, refresh, selection, store, workflowCwd }) {
+  /*
+   * workflow actions 只提交操作并刷新数据。
+   * DAG 的真实状态以后端刷新结果为准，本地只放按钮和提示状态。
+   */
   const runSelectedDag = useRunSelectedDagAction({ actionState, derived, list, notices, refresh });
   const stopSelectedDag = useStopSelectedDagAction({ actionState, derived, list, notices, refresh });
   const confirmDeleteDAG = useDeleteDagAction({ actionState, derived, list, notices, selection });

@@ -49,10 +49,12 @@ var teamSecretRules = []teamSecretRule{
 	{id: "quoted_secret_assignment", pattern: regexp.MustCompile(`(?im)\b(?:api[_-]?key|access[_-]?token|secret[_-]?key|auth[_-]?token)\b\s*[:=]\s*['"][A-Za-z0-9/_+=.-]{16,}['"]`)},
 }
 
+// NewTeamMemoryGuard 创建team记忆守卫。
 func NewTeamMemoryGuard(manager *TeamMemoryManager) *TeamMemoryGuard {
 	return &TeamMemoryGuard{manager: manager}
 }
 
+// Error 返回错误文本。
 func (e *TeamMemSecretError) Error() string {
 	if len(e.Findings) == 0 {
 		return ErrTeamMemSecretDetected.Error()
@@ -61,10 +63,12 @@ func (e *TeamMemSecretError) Error() string {
 	return fmt.Sprintf("%s: %s line %d matched %s", ErrTeamMemSecretDetected, e.Path, first.Line, first.RuleID)
 }
 
+// Unwrap 返回底层错误。
 func (e *TeamMemSecretError) Unwrap() error {
 	return ErrTeamMemSecretDetected
 }
 
+// ValidateWrite 校验write。
 func (g *TeamMemoryGuard) ValidateWrite(path, content string) (string, error) {
 	root, err := g.root()
 	if err != nil {
@@ -81,6 +85,7 @@ func (g *TeamMemoryGuard) ValidateWrite(path, content string) (string, error) {
 	return validatedPath, nil
 }
 
+// FilterPushFiles 处理过滤条件push文件。
 func (g *TeamMemoryGuard) FilterPushFiles(files map[string]string) TeamMemPrePushScanResult {
 	result := TeamMemPrePushScanResult{Allowed: make(map[string]string, len(files))}
 	paths := make([]string, 0, len(files))
@@ -103,6 +108,7 @@ func (g *TeamMemoryGuard) FilterPushFiles(files map[string]string) TeamMemPrePus
 	return result
 }
 
+// ScanTeamMemContent 扫描teammem内容。
 func ScanTeamMemContent(content string) []TeamMemSecretFinding {
 	normalized := strings.ReplaceAll(content, "\r\n", "\n")
 	findings := make([]TeamMemSecretFinding, 0, len(teamSecretRules))

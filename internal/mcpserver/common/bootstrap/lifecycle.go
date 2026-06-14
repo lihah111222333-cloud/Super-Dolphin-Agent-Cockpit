@@ -105,6 +105,7 @@ func (c *Client) handleNotify(req *jrpc2.Request) {
 // shutdown/config_changed, and handleCallback returns a JSON-RPC
 // MethodNotFound error for anything else unless a handler is
 // explicitly registered.
+// handleCallback 处理callback。
 func (c *Client) handleCallback(ctx context.Context, req *jrpc2.Request) (any, error) {
 	if resp, handled, err := c.dispatchToolCallback(ctx, req); handled {
 		return resp, err

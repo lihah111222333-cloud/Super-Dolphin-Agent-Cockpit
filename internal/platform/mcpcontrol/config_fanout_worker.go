@@ -93,6 +93,7 @@ func newConfigFanoutWorker(notifier configFanoutNotifier, versions configVersion
 // Start spawns the worker goroutine. Idempotent. When notifier/versions is
 // nil the worker short-circuits: doneCh closes immediately so Stop is a
 // no-op and Enqueue remains a cheap silent drop.
+// Start 启动平台mcpcontrol流程。
 func (w *configFanoutWorker) Start() {
 	if w == nil {
 		return
@@ -116,6 +117,7 @@ func (w *configFanoutWorker) Start() {
 // Enqueue queues a config-change fanout request. Safe to call from bus
 // callbacks: O(1) slice append + non-blocking wake signal, no Notify call
 // on the callback goroutine. Post-Stop calls are silently dropped.
+// Enqueue 把项目追加到队尾。
 func (w *configFanoutWorker) Enqueue(topic string, payload map[string]any) {
 	if w == nil {
 		return
@@ -141,6 +143,7 @@ func (w *configFanoutWorker) Enqueue(topic string, payload map[string]any) {
 // FanoutCtx returns the cancellable ctx the worker passes to
 // NotifyConfigChanged. Exposed for tests that need to observe the
 // cancellation plumbing without poking internal fields.
+// FanoutCtx 处理fanoutctx。
 func (w *configFanoutWorker) FanoutCtx() context.Context {
 	if w == nil {
 		return context.Background()
@@ -150,6 +153,7 @@ func (w *configFanoutWorker) FanoutCtx() context.Context {
 
 // Stop closes the gate, cancels fanoutCtx, drains pending requests, and
 // waits bounded by ctx for the worker to exit. Idempotent.
+// Stop 停止平台mcpcontrol流程。
 func (w *configFanoutWorker) Stop(ctx context.Context) error {
 	if w == nil {
 		return nil
@@ -179,7 +183,10 @@ func (w *configFanoutWorker) Stop(ctx context.Context) error {
 
 // EnqueuedTotal / ProcessedTotal expose the observability counters for
 // tests and future metric hookup (P22 observability lane).
-func (w *configFanoutWorker) EnqueuedTotal() int64  { return w.enqueuedTotal.Load() }
+// EnqueuedTotal 处理enqueuedtotal。
+func (w *configFanoutWorker) EnqueuedTotal() int64 { return w.enqueuedTotal.Load() }
+
+// ProcessedTotal 处理processedtotal。
 func (w *configFanoutWorker) ProcessedTotal() int64 { return w.processedTotal.Load() }
 
 func (w *configFanoutWorker) runWorker() {
@@ -217,6 +224,7 @@ func (w *configFanoutWorker) drainPending() {
 	}
 }
 
+// dispatch 派发平台mcpcontrol。
 func (w *configFanoutWorker) dispatch(req configFanoutRequest) {
 	raw, err := json.Marshal(req.payload)
 	if err != nil {

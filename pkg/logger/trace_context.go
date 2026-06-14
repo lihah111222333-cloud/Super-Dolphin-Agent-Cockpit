@@ -5,6 +5,7 @@ import (
 	"log/slog"
 )
 
+// withTraceAttrs 设置traceattrs。
 func withTraceAttrs(ctx context.Context, base *slog.Logger) *slog.Logger {
 	if base == nil {
 		base = getLogger()

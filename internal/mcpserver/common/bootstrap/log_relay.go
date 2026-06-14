@@ -33,6 +33,7 @@ type localLogFallbackRecord struct {
 // InstallLogRelay bridges all pkg/logger records emitted by this peer process
 // back to the control plane. The relay is deliberately installed at the logger
 // layer rather than at individual call sites so diagnostic logs stay complete.
+// InstallLogRelay 处理安装日志relay。
 func (c *Client) InstallLogRelay() {
 	if c == nil {
 		return
@@ -42,6 +43,7 @@ func (c *Client) InstallLogRelay() {
 	})
 }
 
+// relayLog 处理relay日志。
 func (c *Client) relayLog(ctx context.Context, payload pkglogger.RelayPayload) error {
 	message := strings.TrimSpace(payload.Msg)
 	if message == "" {
@@ -71,10 +73,12 @@ func (c *Client) relayLog(ctx context.Context, payload pkglogger.RelayPayload) e
 	return c.LogFields(pkglogger.WithRelayDisabled(ctx), payload.Level, message, fields)
 }
 
+// Log 处理日志。
 func (c *Client) Log(ctx context.Context, level, message string, fields map[string]string) error {
 	return c.LogFields(ctx, level, message, cloneStringMapAny(fields))
 }
 
+// LogFields 处理日志字段。
 func (c *Client) LogFields(ctx context.Context, level, message string, fields map[string]any) error {
 	lease := c.currentLease()
 	entry := mcp.LogNotify{
@@ -132,6 +136,7 @@ func (c *Client) localLogFallback(entry mcp.LogNotify, sendErr error) {
 	}
 }
 
+// writeLocalLogFallback 写入local日志兜底。
 func (c *Client) writeLocalLogFallback(entry mcp.LogNotify, sendErr error) error {
 	dir := c.localLogFallbackDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {

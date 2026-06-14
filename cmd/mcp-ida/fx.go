@@ -62,6 +62,7 @@ func run() error {
 	return app.Stop(stopCtx)
 }
 
+// buildBootstrapConfig 构建启动配置。
 func buildBootstrapConfig(shutdowner fx.Shutdowner) (bootstrap.Config, error) {
 	cfg := bootstrap.ReadBootConfig()
 	cfg.AgentID = ""
@@ -123,6 +124,7 @@ func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, server *
 	return bootstrapRunner{cfg: cfg, client: client, stdioReady: server.Ready()}
 }
 
+// Run 启动IDA后台流程。
 func (r bootstrapRunner) Run(ctx context.Context) error {
 	r.client.InstallLogRelay()
 	// Dual-channel startup ordering: wait for the local stdio MCP server
@@ -152,10 +154,12 @@ func (r bootstrapRunner) Run(ctx context.Context) error {
 // will be added here once migrated from V2 (see docs/plans/迁移/audit-mcp-ida-tools.md).
 type emptyToolProvider struct{}
 
+// ListTools 返回当前 peer 暴露的工具列表。
 func (emptyToolProvider) ListTools(context.Context) ([]mcp.MCPTool, error) {
 	return []mcp.MCPTool{}, nil
 }
 
+// CallTool 调用当前 peer 暴露的工具。
 func (emptyToolProvider) CallTool(_ context.Context, name string, _ json.RawMessage) (any, error) {
 	return nil, errors.New("unknown tool: " + name)
 }
@@ -174,6 +178,7 @@ func newStdioRunner(server *common.Server) platformrunner.Runner {
 	return server
 }
 
+// bindRuntime 绑定运行时。
 func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
 	log := pkglogger.Get()
 	var (

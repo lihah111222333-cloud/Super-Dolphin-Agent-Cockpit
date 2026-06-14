@@ -22,6 +22,7 @@ func (s *service) buildMergePlan(
 	return result, updates, nil
 }
 
+// collectRemovedWorkspaceFiles 收集removed工作区文件。
 func (s *service) collectRemovedWorkspaceFiles(
 	run *Run,
 	files []RunFile,

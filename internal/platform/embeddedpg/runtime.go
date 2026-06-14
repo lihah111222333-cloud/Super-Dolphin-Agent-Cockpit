@@ -30,6 +30,7 @@ type embeddedPGDeps struct{ goos func() string }
 
 var pgDeps = embeddedPGDeps{goos: func() string { return runtime.GOOS }}
 
+// Start 启动平台embeddedpg流程。
 func Start(ctx context.Context, cfg contract.EmbeddedPostgresConfig) error {
 	binaries, enabled, err := prepareStartRuntime(cfg)
 	if err != nil || !enabled {
@@ -38,6 +39,7 @@ func Start(ctx context.Context, cfg contract.EmbeddedPostgresConfig) error {
 	return startPreparedRuntime(ctx, cfg, binaries)
 }
 
+// startPreparedRuntime 启动prepared运行时。
 func startPreparedRuntime(ctx context.Context, cfg contract.EmbeddedPostgresConfig, binaries postgresBinaries) error {
 	alreadyOwned, err := ensureStartableDataDir(ctx, cfg, binaries)
 	if err != nil || alreadyOwned {
@@ -56,6 +58,7 @@ func startPreparedRuntime(ctx context.Context, cfg contract.EmbeddedPostgresConf
 	return nil
 }
 
+// ensureStartableDataDir 确保startable数据目录。
 func ensureStartableDataDir(ctx context.Context, cfg contract.EmbeddedPostgresConfig, binaries postgresBinaries) (bool, error) {
 	if err := ensureStartedDataDir(ctx, cfg, binaries); err != nil {
 		return false, err
@@ -94,6 +97,7 @@ func recoverRunningDataDir(ctx context.Context, cfg contract.EmbeddedPostgresCon
 	return nil
 }
 
+// prepareStartRuntime 准备起点运行时。
 func prepareStartRuntime(cfg contract.EmbeddedPostgresConfig) (postgresBinaries, bool, error) {
 	if !cfg.Enabled || !cfg.Owner {
 		return postgresBinaries{}, false, nil
@@ -129,6 +133,7 @@ func ensureStartedDataDir(ctx context.Context, cfg contract.EmbeddedPostgresConf
 	return nil
 }
 
+// Stop 停止平台embeddedpg流程。
 func Stop(ctx context.Context, cfg contract.EmbeddedPostgresConfig) error {
 	if !cfg.Enabled || !cfg.Owner {
 		return nil
@@ -265,6 +270,7 @@ func ensureInitializedDataDir(ctx context.Context, cfg contract.EmbeddedPostgres
 	return initDataDirAtomic(ctx, cfg, binaries)
 }
 
+// quarantinePartialDataDir 处理quarantinepartial数据目录。
 func quarantinePartialDataDir(dataDir string) error {
 	entries, err := os.ReadDir(dataDir)
 	if os.IsNotExist(err) {
@@ -376,6 +382,7 @@ func forgetPostgresDataDirOwned(dataDir string) {
 	ownedPGDirs.m.Delete(filepath.Clean(dataDir))
 }
 
+// removeStalePostmasterPID 移除stalepostmaster进程 ID。
 func removeStalePostmasterPID(dataDir string) error {
 	pidPath := filepath.Join(dataDir, "postmaster.pid")
 	raw, err := os.ReadFile(pidPath)

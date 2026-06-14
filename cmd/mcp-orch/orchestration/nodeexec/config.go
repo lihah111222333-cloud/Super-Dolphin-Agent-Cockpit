@@ -79,6 +79,7 @@ type ArtifactTarget struct {
 }
 
 // Validate enforces the fail-fast contract for outputs.to_artifact.
+// Validate 校验编排。
 func (t *ArtifactTarget) Validate() error {
 	if t == nil {
 		return nil
@@ -116,6 +117,7 @@ type ArtifactImportPlan struct {
 	Overwrite          string
 }
 
+// BuildArtifactImportPlan 构建产物importplan。
 func BuildArtifactImportPlan(target *ArtifactTarget, rawResult string, runID int64) (ArtifactImportPlan, error) {
 	if target == nil {
 		return ArtifactImportPlan{}, errors.New("outputs.to_artifact is required")
@@ -169,6 +171,7 @@ func extractArtifactSourcePath(rawResult, sourceTool, pathField string) (string,
 	return strings.TrimSpace(path), nil
 }
 
+// artifactPathFromValue 从值处理产物路径。
 func artifactPathFromValue(value any, sourceTool, pathField string, requireTool bool) (string, bool) {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -183,6 +186,7 @@ func artifactPathFromValue(value any, sourceTool, pathField string, requireTool 
 	return "", false
 }
 
+// artifactPathFromObject 从object处理产物路径。
 func artifactPathFromObject(obj map[string]any, sourceTool, pathField string, requireTool bool) (string, bool) {
 	if path, ok := artifactPathFromDirectObject(obj, sourceTool, pathField, requireTool); ok {
 		return path, true
@@ -362,6 +366,7 @@ func ParseNodeConfig(nodeType string, raw json.RawMessage) (*ParsedNodeConfig, e
 	}
 }
 
+// ValidateLaunchCWDForNodeConfig 为节点配置校验启动工作目录。
 func ValidateLaunchCWDForNodeConfig(nodeType string, raw json.RawMessage) (string, error) {
 	parsed, err := ParseNodeConfig(nodeType, raw)
 	if err != nil {

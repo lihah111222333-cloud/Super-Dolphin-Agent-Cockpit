@@ -9,6 +9,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
+// NewRelevantMemoryAttachment 创建relevant记忆attachment。
 func NewRelevantMemoryAttachment(
 	path, header, content string,
 	updatedAt time.Time,
@@ -33,6 +34,7 @@ func NewRelevantMemoryAttachment(
 	return NormalizeAttachmentEnvelope(envelope)
 }
 
+// NormalizeAttachmentEnvelope 规范化attachment包装。
 func NormalizeAttachmentEnvelope(attachment dto.AttachmentEnvelope) dto.AttachmentEnvelope {
 	attachment.Kind = strings.TrimSpace(attachment.Kind)
 	attachment.Path = normalizeAttachmentPath(attachment.Path)
@@ -48,6 +50,7 @@ func NormalizeAttachmentEnvelope(attachment dto.AttachmentEnvelope) dto.Attachme
 	return attachment
 }
 
+// IsValidAttachmentEnvelope 判断validattachment包装是否可用。
 func IsValidAttachmentEnvelope(attachment dto.AttachmentEnvelope) bool {
 	attachment = NormalizeAttachmentEnvelope(attachment)
 	if attachment.Path == "" || attachment.Header == "" || attachment.Content == "" {
@@ -56,6 +59,7 @@ func IsValidAttachmentEnvelope(attachment dto.AttachmentEnvelope) bool {
 	return attachment.MtimeMs > 0 || attachment.UpdatedAt != ""
 }
 
+// AttachmentDisplayName 处理attachment显示名称。
 func AttachmentDisplayName(attachment dto.AttachmentEnvelope) string {
 	attachment = NormalizeAttachmentEnvelope(attachment)
 	if attachment.Path == "" {
@@ -67,6 +71,7 @@ func AttachmentDisplayName(attachment dto.AttachmentEnvelope) string {
 	return attachment.Path
 }
 
+// RenderAttachmentText 渲染attachment文本。
 func RenderAttachmentText(attachment dto.AttachmentEnvelope) string {
 	attachment = NormalizeAttachmentEnvelope(attachment)
 	if !IsValidAttachmentEnvelope(attachment) {

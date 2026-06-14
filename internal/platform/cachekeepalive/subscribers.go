@@ -10,6 +10,7 @@ import (
 )
 
 // NewCacheKeepaliveSubscribers declares cachekeepalive relay subscriptions for BusModule.
+// NewCacheKeepaliveSubscribers 创建缓存keepalivesubscribers。
 func NewCacheKeepaliveSubscribers(manager *Manager, logger *pkglogger.Logger) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: platformbus.SubscriberSpec{

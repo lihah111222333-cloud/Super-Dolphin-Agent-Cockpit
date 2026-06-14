@@ -7,6 +7,7 @@ import (
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
+// NewTurnHandlers 创建turn处理器。
 func NewTurnHandlers(
 	svc Service,
 	resolver contract.SessionResolver,

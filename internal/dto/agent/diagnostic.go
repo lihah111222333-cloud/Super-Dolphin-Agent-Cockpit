@@ -25,5 +25,8 @@ type AgentError struct {
 	Payload     json.RawMessage `json:"payload,omitempty"`
 }
 
+// Type 返回事件分发用的类型编号。
 func (AgentWarning) Type() uint32 { return shared.EventTypeAgentWarning }
-func (AgentError) Type() uint32   { return shared.EventTypeAgentError }
+
+// Type 返回事件分发用的类型编号。
+func (AgentError) Type() uint32 { return shared.EventTypeAgentError }

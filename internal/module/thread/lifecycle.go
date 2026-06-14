@@ -87,6 +87,8 @@ func (s *service) prepareStartRequest(ctx context.Context, req StartRequest) (St
 	return req, agentID, releaseAgentID, nil
 }
 
+// completeStart 串起 thread/start 的主流程：先选 prompt，再组 start 提示。
+// provider 启动后再保存 thread 和 prompt snapshot，这个顺序不要调换。
 func (s *service) completeStart(ctx context.Context, req StartRequest, agentID string) (StartResult, error) {
 	// Router resolution runs before prompt assembly so its output (BaseInstructions)
 	// is visible to the assembly step, and its sidecar metadata (AgentKey,
@@ -97,7 +99,7 @@ func (s *service) completeStart(ctx context.Context, req StartRequest, agentID s
 	if req.PromptAssemblyRef == nil {
 		req.PromptAssemblyRef = s.promptAssembly
 	}
-	assemblyInput, cleanupScratchpad, err := s.buildStartAssemblyInput(req, agentID)
+	assemblyInput, cleanupScratchpad, err := s.buildStartAssemblyInput(ctx, req, agentID)
 	if err != nil {
 		return StartResult{}, err
 	}
@@ -124,6 +126,8 @@ func (s *service) completeStart(ctx context.Context, req StartRequest, agentID s
 	return result, nil
 }
 
+// Start 创建新的 public thread，并启动对应 provider。
+// provider 和 cwd 必须明确给出，缺了就报错，不猜默认值。
 func (s *service) Start(ctx context.Context, req StartRequest) (result StartResult, err error) {
 	ctx = util.NonNilContext(ctx)
 	span := s.beginThreadTraceSpan(ctx, "thread.start", req.AgentID, req.AgentID, platformobs.NewCodeAnchor("internal/module/thread/lifecycle.go", "thread.(*service).Start", 126), map[string]any{"provider": strings.TrimSpace(req.Provider)})
@@ -154,6 +158,7 @@ func (s *service) Start(ctx context.Context, req StartRequest) (result StartResu
 	return result, err
 }
 
+// CompleteLaunchIntent 完成启动意图并写入最终线程标识。
 func (s *service) CompleteLaunchIntent(_ context.Context, threadID string) {
 	threadID = strings.TrimSpace(threadID)
 	s.pendingLaunchMu.Delete(threadID)
@@ -176,6 +181,8 @@ func (s *service) startOnce(ctx context.Context, req StartRequest) (StartResult,
 	return s.completeStart(ctx, req, agentID)
 }
 
+// Resume 只把已有 thread 接回 provider。
+// 它复用保存过的 thread、binding 和 snapshot，不重新走 thread/start。
 func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, error) {
 	ctx = util.NonNilContext(ctx)
 	req, state, err := s.resolveResumeRequest(ctx, req)
@@ -216,6 +223,8 @@ func (s *service) establishStartedSession(
 	return session, nil
 }
 
+// persistStartedSession 保存 start 成功后的 thread、binding 和 prompt snapshot。
+// snapshot 保存失败会清理已写记录，避免留下不能 resume/fork 的半成品线程。
 func (s *service) persistStartedSession(
 	ctx context.Context,
 	req StartRequest,
@@ -304,6 +313,7 @@ func startConfigHasCodexIdentity(config map[string]any) bool {
 	return false
 }
 
+// establishResumedSession 恢复已有线程会话并绑定 provider session。
 func (s *service) establishResumedSession(
 	ctx context.Context,
 	req ResumeRequest,
@@ -345,6 +355,8 @@ func (s *service) establishResumedSession(
 	return session, nil
 }
 
+// persistResumedSession 刷新 resume 后的 binding/thread 记录。
+// binding 冲突时要停掉旧 session，避免后续 provider 事件写到错误线程。
 func (s *service) persistResumedSession(
 	ctx context.Context,
 	req ResumeRequest,
@@ -437,6 +449,8 @@ func (s *service) logResumePersistFailure(agentID, threadID, providerThreadID st
 		"provider_thread_id", providerThreadID,
 	)
 }
+
+// persistThreadState 持久化线程状态和运行时标识。
 func (s *service) persistThreadState(ctx context.Context, state threadState, updateBinding bool) error {
 	state, err := normalizeThreadState(state)
 	if err != nil {

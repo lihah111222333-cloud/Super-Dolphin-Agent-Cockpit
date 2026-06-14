@@ -10,6 +10,7 @@ import (
 // process stderr and routes them through the global logger. Empty lines are
 // skipped; lines containing error/panic/fatal keywords are logged at Error
 // level, everything else at Info. Aligned with V2 stderr_collector.go.
+// NewStderrCollector 创建stderr收集器。
 func NewStderrCollector(prefix string) io.WriteCloser {
 	pr, pw := io.Pipe()
 	safeGo("logger.collectStderr", func() { collectStderr(prefix, pr) })

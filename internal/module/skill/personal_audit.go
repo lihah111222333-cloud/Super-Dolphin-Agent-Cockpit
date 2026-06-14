@@ -68,6 +68,7 @@ type personalSkillPolicySource struct {
 	Path         string `json:"path,omitempty"`
 }
 
+// applyPersonalSkillPolicy 应用personal技能策略。
 func (s *canonicalStore) applyPersonalSkillPolicy(records []canonicalSkillRecord) ([]canonicalSkillRecord, error) {
 	if strings.TrimSpace(s.superDolphinHome) == "" || strings.TrimSpace(s.osUID) == "" {
 		return records, nil
@@ -102,6 +103,7 @@ func personalSelectionByName(selections []personalSkillKeepSelected) (map[string
 	return selectionByName, nil
 }
 
+// keepCanonicalRecordForPersonalSelection 为personalselection处理keepcanonical记录。
 func keepCanonicalRecordForPersonalSelection(record canonicalSkillRecord, selectionByName map[string]personalSkillKeepSelected, sourceIDsByName map[string]map[string]struct{}) bool {
 	selection, ok := selectionByName[strings.ToLower(record.Name)]
 	if !ok {
@@ -127,6 +129,7 @@ func selectedCanonicalRecord(record canonicalSkillRecord, selection personalSkil
 		record.ContentHash == strings.TrimSpace(selection.SelectedContentHash)
 }
 
+// personalSelectionSourceMatchesRecord 处理personalselectionsourcematches记录。
 func personalSelectionSourceMatchesRecord(selection personalSkillKeepSelected, record canonicalSkillRecord, sourceID string) bool {
 	for _, source := range selection.Sources {
 		if strings.TrimSpace(source.CanonicalID) != sourceID {
@@ -147,6 +150,7 @@ func cleanSlashPath(path string) string {
 	return filepath.ToSlash(filepath.Clean(strings.TrimSpace(path)))
 }
 
+// readPersonalSkillPolicy 读取personal技能策略。
 func (s *canonicalStore) readPersonalSkillPolicy() (personalSkillPolicy, error) {
 	var policy personalSkillPolicy
 	path := filepath.Join(s.superDolphinHome, "skills", personalSkillPolicyFile)
@@ -355,6 +359,7 @@ func skillMutationAuditResult(action string) string {
 	return "intent"
 }
 
+// copySkillDirContents 复制技能目录contents。
 func copySkillDirContents(source, target string) (int, int64, error) {
 	files, total := 0, int64(0)
 	err := filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
