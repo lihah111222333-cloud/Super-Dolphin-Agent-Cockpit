@@ -771,23 +771,23 @@ INSERT INTO agent_threads (
 )
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?15, '{}'), ?16, ?17, ?18, ?19)
 ON CONFLICT (thread_id) DO UPDATE
-SET name = ?,
-    prompt = ?,
-    model = ?,
-    cwd = ?,
-    status = ?,
-    port = ?,
-    pid = ?,
-    updated_at = ?,
-    owner_thread_id = ?,
-    parent_agent_id = ?,
-    agent_type = ?,
-    agent_memory_scope = ?,
-    config_override = COALESCE(sqlc.arg(config_override), '{}'),
-    agent_key = sqlc.arg(agent_key),
-    prompt_version_id = sqlc.narg(prompt_version_id),
-    pending_launch = sqlc.arg(pending_launch),
-    manually_renamed = sqlc.arg(manually_renamed)
+SET name = excluded.name,
+    prompt = excluded.prompt,
+    model = excluded.model,
+    cwd = excluded.cwd,
+    status = excluded.status,
+    port = excluded.port,
+    pid = excluded.pid,
+    updated_at = excluded.updated_at,
+    owner_thread_id = excluded.owner_thread_id,
+    parent_agent_id = excluded.parent_agent_id,
+    agent_type = excluded.agent_type,
+    agent_memory_scope = excluded.agent_memory_scope,
+    config_override = excluded.config_override,
+    agent_key = excluded.agent_key,
+    prompt_version_id = excluded.prompt_version_id,
+    pending_launch = excluded.pending_launch,
+    manually_renamed = excluded.manually_renamed
 `
 
 type UpsertAgentThreadParams struct {

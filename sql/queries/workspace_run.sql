@@ -34,7 +34,9 @@ SET status = sqlc.arg(new_status),
     metadata = sqlc.arg(metadata),
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     finished_at = CASE
-        WHEN sqlc.arg(new_status) IN ('merged', 'aborted', 'failed') THEN (CAST(strftime('%s','now') AS INTEGER) * 1000)
+        WHEN sqlc.arg(new_status) = 'merged'
+          OR sqlc.arg(new_status) = 'aborted'
+          OR sqlc.arg(new_status) = 'failed' THEN (CAST(strftime('%s','now') AS INTEGER) * 1000)
         WHEN sqlc.arg(new_status) = 'active' THEN NULL
         ELSE finished_at
     END
@@ -48,7 +50,9 @@ SET status = sqlc.arg(new_status),
     metadata = sqlc.arg(metadata),
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     finished_at = CASE
-        WHEN sqlc.arg(new_status) IN ('merged', 'aborted', 'failed') THEN (CAST(strftime('%s','now') AS INTEGER) * 1000)
+        WHEN sqlc.arg(new_status) = 'merged'
+          OR sqlc.arg(new_status) = 'aborted'
+          OR sqlc.arg(new_status) = 'failed' THEN (CAST(strftime('%s','now') AS INTEGER) * 1000)
         WHEN sqlc.arg(new_status) = 'active' THEN NULL
         ELSE finished_at
     END

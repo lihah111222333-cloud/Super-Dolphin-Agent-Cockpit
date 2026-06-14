@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -370,6 +371,9 @@ func intervalValue(value string) (sqlc.Interval, error) {
 	if duration, err := time.ParseDuration(trimmed); err == nil {
 		return sqlc.IntervalMillis(duration), nil
 	}
+	if duration, ok := parseClockInterval(trimmed); ok {
+		return sqlc.IntervalMillis(duration), nil
+	}
 	fields := strings.Fields(strings.ToLower(trimmed))
 	if len(fields) != 2 {
 		return 0, fmt.Errorf("invalid interval %q", value)
@@ -379,6 +383,40 @@ func intervalValue(value string) (sqlc.Interval, error) {
 		return 0, fmt.Errorf("invalid interval %q: %w", value, err)
 	}
 	return sqlc.IntervalMillis(amount), nil
+}
+
+func parseClockInterval(value string) (time.Duration, bool) {
+	parts := strings.Split(value, ":")
+	if len(parts) != 3 {
+		return 0, false
+	}
+	hours, ok := parseClockIntervalPart(parts[0], false)
+	if !ok {
+		return 0, false
+	}
+	minutes, ok := parseClockIntervalPart(parts[1], true)
+	if !ok {
+		return 0, false
+	}
+	seconds, ok := parseClockIntervalPart(parts[2], true)
+	if !ok {
+		return 0, false
+	}
+	return time.Duration(hours)*time.Hour + time.Duration(minutes)*time.Minute + time.Duration(seconds)*time.Second, true
+}
+
+func parseClockIntervalPart(value string, bounded bool) (int64, bool) {
+	if value == "" {
+		return 0, false
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed < 0 {
+		return 0, false
+	}
+	if bounded && parsed >= 60 {
+		return 0, false
+	}
+	return parsed, true
 }
 
 func intervalUnitSuffix(unit string) string {
