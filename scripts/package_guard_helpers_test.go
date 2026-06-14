@@ -95,7 +95,7 @@ func packageScriptValidationEnv(t *testing.T, goos string, values map[string]str
 		env = append(env, key+"="+value)
 	}
 	env = append(env, "PATH="+bashArg("", writePackageFakeGoBin(t, goos, "amd64"))+":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
-	return appendWSLEnvKeys(env,
+	return appendWSLEnvKeysWithGitWorktree(t, env,
 		"PATH",
 		"GOOS",
 		"GOARCH",
