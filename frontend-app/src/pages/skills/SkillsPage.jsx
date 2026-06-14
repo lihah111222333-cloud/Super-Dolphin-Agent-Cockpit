@@ -1034,9 +1034,55 @@ const RECOMMENDED_PLUGINS = [
   },
 ];
 
+const DATA_SOURCE_ITEMS = [
+  {
+    id: 'knowledge',
+    title: '本地知识库',
+    description: '包含已导入的文档、参考资料及个人笔记，用于增强 AI 的上下文检索能力。',
+    type: '文档向量库',
+    status: '已连接',
+    size: '1.2 GB',
+    icon: Folder,
+    bg: '#e8f0fe',
+    color: '#1a73e8',
+  },
+  {
+    id: 'postgres',
+    title: 'PostgreSQL 结构化数据',
+    description: '本地 PostgreSQL 数据库，存储系统核心元数据与分析表结构。',
+    type: '关系型数据库',
+    status: '运行中',
+    size: '124 表',
+    icon: Database,
+    bg: '#e2f7f9',
+    color: '#007b83',
+  },
+  {
+    id: 'shared_files',
+    title: '共享文件存储',
+    description: '保存项目共享的最终产物和工作文件目录，支持多项目隔离管理。',
+    type: '本地文件目录',
+    status: '已连接',
+    size: '2.4 GB',
+    icon: FileText,
+    bg: '#e6f4ea',
+    color: '#137333',
+  },
+  {
+    id: 'memory_store',
+    title: '记忆检索库',
+    description: '自动整合的长期记忆与事实提取结果，辅助生成更精准的对话提示词。',
+    type: '向量数据库',
+    status: '活跃中',
+    size: '482 条记忆',
+    icon: Sparkles,
+    bg: '#f3e8fd',
+    color: '#8430d9',
+  },
+];
+
 function SkillsPage({ projectPath, refreshKey = 0, resolveLaunchPreferences }) {
-  const isTest = typeof import.meta !== 'undefined' && import.meta.env?.MODE === 'test';
-  const [subTab, setSubTab] = useState(isTest ? 'skills' : 'plugins');
+  const [subTab, setSubTab] = useState('plugins');
   const model = useSkillsPageModel({ projectPath, refreshKey, resolveLaunchPreferences });
   return (
     <div className="skills-tabbed-container">
@@ -1079,54 +1125,7 @@ function SkillsPage({ projectPath, refreshKey = 0, resolveLaunchPreferences }) {
 function DataSourceView() {
   const [search, setSearch] = useState('');
 
-  const sources = [
-    {
-      id: 'knowledge',
-      title: '本地知识库',
-      description: '包含已导入的文档、参考资料及个人笔记，用于增强 AI 的上下文检索能力。',
-      type: '文档向量库',
-      status: '已连接',
-      size: '1.2 GB',
-      icon: Folder,
-      bg: '#e8f0fe',
-      color: '#1a73e8',
-    },
-    {
-      id: 'postgres',
-      title: 'PostgreSQL 结构化数据',
-      description: '本地 PostgreSQL 数据库，存储系统核心元数据与分析表结构。',
-      type: '关系型数据库',
-      status: '运行中',
-      size: '124 表',
-      icon: Database,
-      bg: '#e2f7f9',
-      color: '#007b83',
-    },
-    {
-      id: 'shared_files',
-      title: '共享文件存储',
-      description: '保存项目共享的最终产物和工作文件目录，支持多项目隔离管理。',
-      type: '本地文件目录',
-      status: '已连接',
-      size: '2.4 GB',
-      icon: FileText,
-      bg: '#e6f4ea',
-      color: '#137333',
-    },
-    {
-      id: 'memory_store',
-      title: '记忆检索库',
-      description: '自动整合的长期记忆与事实提取结果，辅助生成更精准的对话提示词。',
-      type: '向量数据库',
-      status: '活跃中',
-      size: '482 条记忆',
-      icon: Sparkles,
-      bg: '#f3e8fd',
-      color: '#8430d9',
-    },
-  ];
-
-  const filtered = sources.filter(s =>
+  const filtered = DATA_SOURCE_ITEMS.filter(s =>
     s.title.toLowerCase().includes(search.toLowerCase()) ||
     s.description.toLowerCase().includes(search.toLowerCase())
   );

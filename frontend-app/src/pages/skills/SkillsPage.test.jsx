@@ -35,6 +35,10 @@ function renderSkillsPage(projectPath = '/repo/app') {
   );
 }
 
+function openSkillTools() {
+  fireEvent.click(screen.getByRole('button', { name: /Skill/ }));
+}
+
 function getOverviewMetric(overview, label) {
   const metric = within(overview).getByText(label).closest('div');
   if (!metric) throw new Error(`Missing overview metric: ${label}`);
@@ -106,6 +110,8 @@ describe('SkillsPage backend migration', () => {
   it('frames the plugin entry around the current local skills surface', async () => {
     renderSkillsPage();
 
+    fireEvent.click(screen.getByRole('button', { name: 'Skill工具' }));
+
     expect(await screen.findByRole('heading', { name: '插件与技能' })).toBeInTheDocument();
     expect(screen.getByText('本地运行时')).toBeInTheDocument();
     expect(screen.getByText('本地技能库')).toBeInTheDocument();
@@ -126,6 +132,7 @@ describe('SkillsPage backend migration', () => {
   it('does not report zero conflicts when conflict sync has not succeeded', async () => {
     backend.listSkillResolutions.mockRejectedValueOnce(new Error('resolver offline'));
     renderSkillsPage();
+    openSkillTools();
 
     expect(await screen.findByRole('heading', { name: '后端' })).toBeInTheDocument();
     const overview = screen.getByRole('region', { name: '插件与技能状态' });
@@ -137,6 +144,7 @@ describe('SkillsPage backend migration', () => {
 
   it('keeps conflict status unresolved while project context is pending', async () => {
     renderSkillsPage('');
+    openSkillTools();
 
     expect(await screen.findByRole('heading', { name: '插件与技能' })).toBeInTheDocument();
     const overview = screen.getByRole('region', { name: '插件与技能状态' });
@@ -150,6 +158,7 @@ describe('SkillsPage backend migration', () => {
 
   it('loads skills from dashboard and saves an edited skill through skills/local RPCs', async () => {
     renderSkillsPage();
+    openSkillTools();
 
     expect(await screen.findByRole('heading', { name: '后端' })).toBeInTheDocument();
     expect(backend.getDashboardPage).toHaveBeenCalledWith({ cwd: '/repo/app', page: 'skills' });
@@ -236,6 +245,7 @@ describe('SkillsPage backend migration', () => {
     }));
 
     renderSkillsPage();
+    openSkillTools();
 
     const card = (await screen.findByRole('heading', { name: '后端' })).closest('article');
     fireEvent.click(within(card).getByRole('button', { name: '编辑详情' }));
@@ -262,6 +272,7 @@ describe('SkillsPage backend migration', () => {
 
   it('creates project skills through the internal skills/create RPC', async () => {
     renderSkillsPage();
+    openSkillTools();
 
     await screen.findByRole('heading', { name: '后端' });
     fireEvent.click(screen.getByRole('button', { name: '新建技能' }));
@@ -286,6 +297,7 @@ describe('SkillsPage backend migration', () => {
 
   it('keeps new personal skills on the skills/local write RPC with user personal type', async () => {
     renderSkillsPage();
+    openSkillTools();
 
     await screen.findByRole('heading', { name: '后端' });
     fireEvent.click(screen.getByRole('button', { name: '新建技能' }));

@@ -10719,26 +10719,6 @@ textarea:disabled {
   flex-wrap: wrap;
 }
 
-.continue-checkbox-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-sec);
-  cursor: pointer;
-  user-select: none;
-}
-
-.continue-checkbox-label input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  border: 1px solid var(--border-strong);
-  accent-color: var(--text-pri);
-  cursor: pointer;
-}
-
 .file-row-actions {
   display: flex;
   gap: 8px;
@@ -11696,9 +11676,4 @@ textarea:disabled {
   .sidebar-expand-trigger {
     display: none !important;
   }
-}
-
-.sidebar-project-thread span::before,
-.sidebar-task-thread span::before {
-  content: attr(data-label);
 }

@@ -836,9 +836,9 @@ describe('WorkflowPage module', () => {
 
     renderWorkflowPage(store);
 
-    expect(await screen.findByRole('button', { name: 'AI 设计流程' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '通过聊天创建' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '抖音 5 点模板' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'AI 设计流程' }));
+    fireEvent.click(screen.getByRole('button', { name: '通过聊天创建' }));
 
     await waitFor(() => {
       expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({

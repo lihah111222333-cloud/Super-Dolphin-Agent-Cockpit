@@ -480,10 +480,10 @@ function FilesPage({ projectPath, store }) {
     store,
     protectionFor: filters.protectionFor,
   });
-  return <SharedFilesPageView actions={actions} dashboard={dashboard} filters={filters} store={store} />;
+  return <SharedFilesPageView actions={actions} dashboard={dashboard} filters={filters} />;
 }
 
-function SharedFilesPageView({ actions, dashboard, filters, store }) {
+function SharedFilesPageView({ actions, dashboard, filters }) {
   return (
     <section className="console-page shared-files-page">
       <SharedFilesHeader dashboard={dashboard} filters={filters} />
@@ -491,7 +491,7 @@ function SharedFilesPageView({ actions, dashboard, filters, store }) {
       <SharedFilesIntro />
       <SharedFilesTabs category={filters.category} categoryCounts={filters.categoryCounts} onCategory={filters.setCategory} />
       <SharedFilesStatus actions={actions} dashboard={dashboard} />
-      <SharedFilesContent actions={actions} dashboard={dashboard} filters={filters} store={store} />
+      <SharedFilesContent actions={actions} dashboard={dashboard} filters={filters} />
       <SharedFilesModals actions={actions} />
     </section>
   );
@@ -573,12 +573,12 @@ function SharedFilesStatus({ actions, dashboard }) {
   );
 }
 
-function SharedFilesContent({ actions, dashboard, filters, store }) {
+function SharedFilesContent({ actions, dashboard, filters }) {
   if (!dashboard.error && dashboard.loading && dashboard.files.length === 0) return <p className="console-message">正在加载共享文件...</p>;
   if (!dashboard.error && !dashboard.loading && dashboard.files.length === 0) return <SharedFilesEmptyState kind="none" />;
   if (!dashboard.error && dashboard.files.length > 0 && filters.visibleFiles.length === 0) return <SharedFilesEmptyState kind="search" />;
   if (dashboard.error || filters.visibleFiles.length === 0) return null;
-  return <SharedFilesList actions={actions} filters={filters} store={store} />;
+  return <SharedFilesList actions={actions} filters={filters} />;
 }
 
 function SharedFilesEmptyState({ kind }) {
@@ -592,7 +592,7 @@ function SharedFilesEmptyState({ kind }) {
   );
 }
 
-function SharedFilesList({ actions, filters, store }) {
+function SharedFilesList({ actions, filters }) {
   return (
     <div className="file-list" data-testid="shared-files-list">
       {filters.visibleFiles.map((file) => (
@@ -608,7 +608,6 @@ function SharedFilesList({ actions, filters, store }) {
           onExport={actions.exportFile}
           onDelete={actions.askDelete}
           onContinue={actions.continueWithFile}
-          store={store}
         />
       ))}
     </div>
@@ -651,7 +650,6 @@ function SharedFileRow({
   onExport,
   onDelete,
   onContinue,
-  store,
 }) {
   const path = splitSharedFilePath(file.path);
   const role = finalOutputRef ? '最终产物' : '工作文件';
@@ -676,20 +674,9 @@ function SharedFileRow({
       ) : null}
       <pre className="shared-file-summary">{sharedFileSummary(file)}</pre>
       <footer>
-        {import.meta.env?.MODE === 'test' ? (
-          <button type="button" className="ghost" onClick={() => onContinue(file)}>
-            <MessageCircle size={14} /> 用此文件继续对话
-          </button>
-        ) : (
-          <label className="continue-checkbox-label">
-            <input
-              type="checkbox"
-              checked={store?.attachments?.some((item) => item.path === file.path) || false}
-              onChange={() => onContinue(file)}
-            />
-            <span>用此文件继续对话</span>
-          </label>
-        )}
+        <button type="button" className="ghost continue-with-file" onClick={() => onContinue(file)}>
+          <MessageCircle size={14} /> 用此文件继续对话
+        </button>
         <div className="file-row-actions">
           <button type="button" onClick={() => { void onOpen(file); }} disabled={busy}>
             <Eye size={14} /> {busy ? '加载中...' : '打开'}

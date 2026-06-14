@@ -1383,14 +1383,13 @@ function AutomationEmptyState({ onStartChat }) {
 
 function WorkflowPageView({ model }) {
   const { derived, isProjectPending, list, actions } = model;
-  const isTestMode = import.meta.env?.MODE === 'test';
   const isEmpty = !isProjectPending && !derived.blockingLoadError && !list.loading && derived.overviewStats.total === 0;
 
   return (
     <section className="workflow-page">
       <WorkflowHeader model={model} />
       <WorkflowMessages model={model} />
-      {(isEmpty && !isTestMode) ? (
+      {isEmpty ? (
         <AutomationEmptyState onStartChat={() => { void actions.startDesignFlow(); }} />
       ) : (
         <WorkflowGrid model={model} />
@@ -1401,45 +1400,34 @@ function WorkflowPageView({ model }) {
 }
 
 function WorkflowHeader({ model }) {
-  const { actionState, actions, isProjectPending, workflowCwd } = model;
-  const isTestMode = import.meta.env?.MODE === 'test';
+  const { actionState, actions, isProjectPending } = model;
   return (
     <PageHeader
       icon={Workflow}
       title="自动化"
       subtitle={
-        isTestMode ? (
-          workflowCwd ? '当前项目：' + workflowCwd : '正在连接本地项目...'
-        ) : (
-          isProjectPending ? '正在连接本地项目...' : (
-            <span>
-              按计划或按需运行聊天。 <button type="button" className="learn-more-link">了解更多</button>
-            </span>
-          )
+        isProjectPending ? '正在连接本地项目...' : (
+          <span>
+            按计划或按需运行聊天。 <button type="button" className="learn-more-link">了解更多</button>
+          </span>
         )
       }
-      actions={
-        isTestMode ? (
-          <button type="button" onClick={() => { void actions.startDesignFlow(); }} disabled={isProjectPending || actionState.actioning === 'design'}>
-            {actionState.actioning === 'design' ? '启动中...' : 'AI 设计流程'}
+      actions={(
+        <div className="automation-header-actions">
+          <button type="button" className="btn-outline">
+            查看模板
           </button>
-        ) : (
-          <div className="automation-header-actions">
-            <button type="button" className="btn-outline">
-              查看模板
-            </button>
-            <button
-              type="button"
-              className="btn-dark"
-              onClick={() => { void actions.startDesignFlow(); }}
-              disabled={isProjectPending || actionState.actioning === 'design'}
-            >
-              <span>通过聊天创建</span>
-              <ChevronDown size={14} className="dropdown-arrow-icon" />
-            </button>
-          </div>
-        )
-      }
+          <button
+            type="button"
+            className="btn-dark"
+            onClick={() => { void actions.startDesignFlow(); }}
+            disabled={isProjectPending || actionState.actioning === 'design'}
+          >
+            <span>通过聊天创建</span>
+            <ChevronDown size={14} className="dropdown-arrow-icon" />
+          </button>
+        </div>
+      )}
     />
   );
 }

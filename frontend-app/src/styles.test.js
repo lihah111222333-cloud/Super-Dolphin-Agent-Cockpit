@@ -902,7 +902,7 @@ describe('workbench shell styles', () => {
     const root = declarationsFor('.sidebar-tree-root');
     const list = declarationsFor('.sidebar-project-thread-list');
     const thread = declarationsFor('.sidebar-project-thread');
-    const threadLabel = declarationsFor('.sidebar-project-thread span::before');
+    const threadTitle = declarationsFor('.sidebar-thread-title');
     const empty = declarationsFor('.sidebar-project-thread-empty');
     const chatList = declarationsFor('.app-sidebar--chat .sidebar-project-thread-list');
     const chatThread = declarationsFor('.app-sidebar--chat .sidebar-project-thread');
@@ -917,7 +917,8 @@ describe('workbench shell styles', () => {
     expect(list.display).toBe('grid');
     expect(thread['min-height']).toBe('28px');
     expect(thread['font-size']).toBe('13px');
-    expect(threadLabel.content).toBe('attr(data-label)');
+    expect(threadTitle['text-overflow']).toBe('ellipsis');
+    expect(threadTitle['white-space']).toBe('nowrap');
     expect(empty['font-style']).toBe('italic');
     expect(chatList['margin-left']).toBe('14px');
     expect(chatThread['min-height']).toBe('28px');
