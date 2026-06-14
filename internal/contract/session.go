@@ -54,6 +54,9 @@ type SessionBinding struct {
 	RolloutPath        string
 	SessionUUID        string
 	Cwd                string
+	ParentAgentID      string
+	AgentType          string
+	AgentMemoryScope   string
 	CreatedAt          int64
 	CodexHome          string
 	CodexInstanceKey   string
@@ -71,6 +74,12 @@ type SessionThreadLookup interface {
 type SessionBindingLookup interface {
 	GetByProviderThread(ctx context.Context, provider, providerThreadID string) (*SessionBinding, error)
 	GetByAgentID(ctx context.Context, agentID string) (*SessionBinding, error)
+}
+
+// SessionBindingUpserter repairs durable binding projections after provider
+// auto-resume has recovered missing legacy identity columns.
+type SessionBindingUpserter interface {
+	UpsertSessionBinding(ctx context.Context, binding SessionBinding) error
 }
 
 // ---------------------------------------------------------------------------

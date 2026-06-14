@@ -87,38 +87,64 @@ func TestResumeRoutingExplicitlyDisabledFailsClosedWithCodexIdentity(t *testing.
 	}
 }
 
-func TestResumeSessionFailsClosedBeforePreparingDefaultIdentity(t *testing.T) {
-	t.Setenv(poolRoutingEnvVar, "")
-	superHome := filepath.Join(t.TempDir(), "sd-home")
-	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
-	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
+func TestPrepareResumeSessionRequestDefaultsMissingLegacyIdentity(t *testing.T) {
+	userHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(userHome, ".codex"), 0o700); err != nil {
+		t.Fatalf("MkdirAll default codex home: %v", err)
+	}
+	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
+	t.Setenv(providershared.SuperDolphinHomeEnv, filepath.Join(t.TempDir(), "sd-home"))
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "dev")
 	workDir := t.TempDir()
-	spawnCalls := atomic.Int32{}
-	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
-		spawnCalls.Add(1)
-		return newFakeServer("ws://should-not-be-called"), nil
-	}, PoolConfig{})
-	defer pool.Close(context.Background())
 	mirror := &recordingSkillMirrorReconciler{}
-	d := &driver{logger: slog.Default(), pool: pool, mirror: mirror}
+	d := &driver{logger: slog.Default(), mirror: mirror}
 
-	resumed, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
+	got, err := d.prepareResumeSessionRequest(context.Background(), dto.ResumeSessionRequest{
 		Provider: "codex",
 		AgentID:  "agent-resume",
 		ThreadID: "thread-1",
 		CWD:      workDir,
+		Config: map[string]any{
+			"provider": "codex",
+			"cwd":      workDir,
+		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "codex identity required for resume") {
-		t.Fatalf("ResumeSession() err = %v, want identity-required failure", err)
+	if err != nil {
+		t.Fatalf("prepareResumeSessionRequest() error = %v", err)
 	}
-	if resumed != nil {
-		t.Fatalf("ResumeSession() session = %#v, want nil on missing identity", resumed)
+	wantHome, err := filepath.EvalSymlinks(filepath.Join(userHome, ".codex"))
+	if err != nil {
+		t.Fatalf("EvalSymlinks default codex home: %v", err)
 	}
-	if mirror.calls != 0 {
-		t.Fatalf("mirror reconcile calls = %d, want 0", mirror.calls)
+	assertDefaultResumeIdentity(t, got, wantHome)
+	assertDefaultResumeConfigIdentity(t, got.Config, wantHome)
+	if mirror.calls != 1 {
+		t.Fatalf("mirror reconcile calls = %d, want 1 after default identity resolution", mirror.calls)
 	}
-	if spawnCalls.Load() != 0 {
-		t.Fatalf("spawner should not fire on missing resume identity, called %d times", spawnCalls.Load())
+}
+
+func assertDefaultResumeIdentity(t *testing.T, got dto.ResumeSessionRequest, wantHome string) {
+	t.Helper()
+	if got.CodexHome != wantHome ||
+		got.CodexInstanceKey != defaultCodexInstanceKey ||
+		got.CodexModelProvider != localCodexModelProvider {
+		t.Fatalf("resume identity = (%q,%q,%q), want default local CLI identity (%q,%q,%q)",
+			got.CodexHome,
+			got.CodexInstanceKey,
+			got.CodexModelProvider,
+			wantHome,
+			defaultCodexInstanceKey,
+			localCodexModelProvider)
+	}
+}
+
+func assertDefaultResumeConfigIdentity(t *testing.T, config map[string]any, wantHome string) {
+	t.Helper()
+	if config["codexHome"] != wantHome ||
+		config["codexInstanceKey"] != defaultCodexInstanceKey ||
+		config["codexModelProvider"] != localCodexModelProvider {
+		t.Fatalf("resume config identity = %#v, want canonical identity in config", config)
 	}
 }
 
