@@ -12,6 +12,7 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/resultguard"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
@@ -131,8 +132,8 @@ type preparedToolCall struct {
 // prepareToolCall 准备工具call。
 func (s *session) prepareToolCall(msg RawMessage) (preparedToolCall, error) {
 	started := time.Now()
-	callID := firstNonEmptyToolString(jsonRPCIDString(msg.ID), toolCallParamStringAny(msg.Params, "callId", "call_id"), nestedToolCallString(msg.Params, "item", "callId", "call_id"))
-	toolName := firstNonEmptyToolString(toolCallParamStringAny(msg.Params, "name", "toolName", "tool_name", "tool"), nestedToolCallString(msg.Params, "item", "name", "toolName", "tool"))
+	callID := util.FirstNonEmpty(jsonRPCIDString(msg.ID), toolCallParamStringAny(msg.Params, "callId", "call_id"), nestedToolCallString(msg.Params, "item", "callId", "call_id"))
+	toolName := util.FirstNonEmpty(toolCallParamStringAny(msg.Params, "name", "toolName", "tool_name", "tool"), nestedToolCallString(msg.Params, "item", "name", "toolName", "tool"))
 	if callID == "" {
 		return preparedToolCall{}, fmt.Errorf("codexapp: tool call id is required")
 	}
@@ -149,7 +150,7 @@ func (s *session) prepareToolCall(msg RawMessage) (preparedToolCall, error) {
 		return preparedToolCall{}, fmt.Errorf("codexapp: tool call cwd is required")
 	}
 	workspaceRoots := trustedWorkspaceRoots(cwd, s.runtimeConfigStringSlice("additionalWorkingDirectories", "additional_working_directories"))
-	turnID := firstNonEmptyToolString(toolCallParamStringAny(msg.Params, "turnId", "turn_id"), nestedToolCallString(msg.Params, "item", "turnId", "turn_id"), s.activeTurnSnapshot())
+	turnID := util.FirstNonEmpty(toolCallParamStringAny(msg.Params, "turnId", "turn_id"), nestedToolCallString(msg.Params, "item", "turnId", "turn_id"), s.activeTurnSnapshot())
 	header := toolCallHeader(agentID, turnID, callID, toolName, started)
 	enriched, err := enrichToolCallParamsStrict(msg, agentID, providerThreadID, callID, cwd, workspaceRoots)
 	if err != nil {
@@ -259,7 +260,7 @@ func (e toolCallResultEnvelope) explicitFailure() bool {
 
 // failureText 提取失败说明文本。
 func (e toolCallResultEnvelope) failureText(result any) string {
-	if text := firstNonEmptyToolString(e.Error, e.Message, e.Reason); text != "" {
+	if text := util.FirstNonEmpty(e.Error, e.Message, e.Reason); text != "" {
 		return text
 	}
 	for _, item := range e.ContentItems {
@@ -422,15 +423,6 @@ func jsonRPCIDString(raw json.RawMessage) string {
 	default:
 		return strings.TrimSpace(fmt.Sprint(typed))
 	}
-}
-
-func firstNonEmptyToolString(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func jsonPreviewFromRaw(raw json.RawMessage, keys ...string) string {

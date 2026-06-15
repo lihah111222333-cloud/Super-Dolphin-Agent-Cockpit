@@ -13,7 +13,10 @@ import (
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
 
-const mcpHTTPMaxResponseBytes = 10 * 1024 * 1024
+const (
+	mcpHTTPMaxResponseBytes = 10 * 1024 * 1024
+	mcpHTTPAcceptHeader     = "application/json, text/event-stream"
+)
 
 var defaultMCPHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
@@ -114,7 +117,7 @@ func buildMCPHTTPJSONRPCRequest(
 	if err != nil {
 		return nil, fmt.Errorf("%w: build %s request: %v", errMCPServerToolsRequestFailed, method, err)
 	}
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", mcpHTTPAcceptHeader)
 	req.Header.Set("Content-Type", "application/json")
 	if err := applyMCPHTTPHeaders(req, config.Headers); err != nil {
 		return nil, err

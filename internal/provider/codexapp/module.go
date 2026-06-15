@@ -85,10 +85,6 @@ func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory
 	return factory.DriverFactory
 }
 
-// ---------------------------------------------------------------------------
-// ServerManager: shared codex app-server process (one process, N sessions)
-// ---------------------------------------------------------------------------
-
 // ServerManager owns a single codex app-server process. Each agent
 // session creates its own independent WebSocket connection to
 // ServerURL(), providing natural isolation: one broken WS only affects
