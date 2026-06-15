@@ -409,28 +409,111 @@ function Ensure-NodeDeps {
     }
 }
 
-function Ensure-PeerBinaries {
-    $missing = $false
-    foreach ($name in @('mcp-orch', 'mcp-lsp')) {
-        if (-not (Test-Path -LiteralPath (Join-Path $ProjectDir "$name.exe") -PathType Leaf) -and
-            -not (Test-Path -LiteralPath (Join-Path $ProjectDir $name) -PathType Leaf)) {
-            $missing = $true
-            break
+function Test-PeerBinaryStale {
+    param(
+        [Parameter(Mandatory)][string]$BinaryPath,
+        [Parameter(Mandatory)][string[]]$SourcePaths
+    )
+
+    if (-not (Test-Path -LiteralPath $BinaryPath -PathType Leaf)) {
+        return $true
+    }
+
+    $binaryWriteTime = (Get-Item -LiteralPath $BinaryPath).LastWriteTimeUtc
+    foreach ($relativeSourcePath in $SourcePaths) {
+        $sourcePath = Join-Path $ProjectDir $relativeSourcePath
+        if (-not (Test-Path -LiteralPath $sourcePath)) {
+            continue
+        }
+
+        $sourceItem = Get-Item -LiteralPath $sourcePath
+        if (-not $sourceItem.PSIsContainer) {
+            if ($sourceItem.LastWriteTimeUtc -gt $binaryWriteTime) {
+                return $true
+            }
+            continue
+        }
+
+        $newerSource = Get-ChildItem -LiteralPath $sourcePath -Recurse -File |
+            Where-Object {
+                $_.LastWriteTimeUtc -gt $binaryWriteTime -and
+                ($_.Name -eq 'go.mod' -or $_.Name -eq 'go.sum' -or $_.Extension -in @('.go', '.yaml', '.yml'))
+            } |
+            Select-Object -First 1
+        if ($newerSource) {
+            return $true
         }
     }
 
-    if (-not $missing) { return }
+    return $false
+}
 
-    Write-Host '  -> building peer binaries for new UI desktop'
+function Resolve-PeerBinDir {
+    $rawPeerBinDir = [Environment]::GetEnvironmentVariable('GO_AGENT_PEER_BIN_DIR', 'Process')
+    if ($null -eq $rawPeerBinDir -or $rawPeerBinDir.Trim() -eq '') {
+        $env:GO_AGENT_PEER_BIN_DIR = $ProjectDir
+        $rawPeerBinDir = $ProjectDir
+    }
+
+    $peerBinDirCandidates = @($rawPeerBinDir -split [regex]::Escape([string][IO.Path]::PathSeparator) |
+        Where-Object { $_.Trim() -ne '' } |
+        Select-Object -First 1)
+    if ($peerBinDirCandidates.Count -eq 0) {
+        throw 'GO_AGENT_PEER_BIN_DIR must not be empty'
+    }
+
+    $peerBinDir = $peerBinDirCandidates[0]
+    if ($null -eq $peerBinDir -or $peerBinDir.Trim() -eq '') {
+        throw 'GO_AGENT_PEER_BIN_DIR must not be empty'
+    }
+
+    return $peerBinDir.Trim()
+}
+
+function Build-PeerBinaries {
+    param([Parameter(Mandatory)][string]$PeerBinDir)
+
+    if (-not $PeerBinDir -or $PeerBinDir.Trim() -eq '') {
+        throw 'PeerBinDir must not be empty'
+    }
+    $PeerBinDir = $PeerBinDir.Trim()
+    Write-Host "  -> building peer binaries for new UI desktop: $PeerBinDir"
     Push-Location -LiteralPath $ProjectDir
     try {
-        & go build -o (Join-Path $ProjectDir 'mcp-orch.exe') './cmd/mcp-orch/'
+        New-Item -ItemType Directory -Force -Path $PeerBinDir | Out-Null
+        $peerBinDirItem = Get-Item -LiteralPath $PeerBinDir
+        if (-not $peerBinDirItem.PSIsContainer) {
+            throw "PeerBinDir must be a directory: $PeerBinDir"
+        }
+
+        & go build -o (Join-Path $PeerBinDir 'mcp-orch.exe') './cmd/mcp-orch/'
         if ($LASTEXITCODE -ne 0) { throw 'go build mcp-orch failed' }
-        & go build -o (Join-Path $ProjectDir 'mcp-lsp.exe') './cmd/mcp-lsp/'
+        & go build -o (Join-Path $PeerBinDir 'mcp-lsp.exe') './cmd/mcp-lsp/'
         if ($LASTEXITCODE -ne 0) { throw 'go build mcp-lsp failed' }
     } finally {
         Pop-Location
     }
+}
+
+function Ensure-PeerBinaries {
+    $peerSourcePaths = @{
+        'mcp-orch' = @('cmd\mcp-orch', 'internal', 'pkg', 'go.mod', 'go.sum')
+        'mcp-lsp' = @('cmd\mcp-lsp', 'internal', 'pkg', 'go.mod', 'go.sum')
+    }
+
+    $peerBinDir = Resolve-PeerBinDir
+    $needsBuild = $false
+    foreach ($name in @('mcp-orch', 'mcp-lsp')) {
+        $binaryPath = Join-Path $peerBinDir "$name.exe"
+        if (Test-PeerBinaryStale -BinaryPath $binaryPath -SourcePaths $peerSourcePaths[$name]) {
+            $needsBuild = $true
+            break
+        }
+    }
+
+    if (-not $needsBuild) { return }
+
+    Build-PeerBinaries -PeerBinDir $peerBinDir
 }
 
 function Ensure-SqliteRuntime {
