@@ -435,6 +435,52 @@ func TestNewUIDesktopPowerShellScriptUsesSQLiteWithoutPostgresRuntime(t *testing
 	assertTextOrderAfter(t, text, "$script:DesktopProcess = Start-Process", "Wait-ForBackend", "Wait-ForAnyProcessExit")
 }
 
+func TestNewUIDesktopPowerShellScriptRebuildsStalePeerBinaries(t *testing.T) {
+	text := readRootScript(t, "../../run-new-ui-desktop.ps1")
+
+	required := []string{
+		`Set-DefaultEnv -Name 'GO_AGENT_PEER_BIN_DIR' -Value $ProjectDir`,
+		`function Resolve-PeerBinDir`,
+		`[Environment]::GetEnvironmentVariable('GO_AGENT_PEER_BIN_DIR', 'Process')`,
+		`$env:GO_AGENT_PEER_BIN_DIR = $ProjectDir`,
+		`$rawPeerBinDir -split [regex]::Escape([string][IO.Path]::PathSeparator)`,
+		`function Test-PeerBinaryStale`,
+		`function Build-PeerBinaries`,
+		`param([Parameter(Mandatory)][string]$PeerBinDir)`,
+		`New-Item -ItemType Directory -Force -Path $PeerBinDir | Out-Null`,
+		`& go build -o (Join-Path $PeerBinDir 'mcp-orch.exe') './cmd/mcp-orch/'`,
+		`& go build -o (Join-Path $PeerBinDir 'mcp-lsp.exe') './cmd/mcp-lsp/'`,
+		`$peerSourcePaths = @{`,
+		`'mcp-orch' = @('cmd\mcp-orch', 'internal', 'pkg', 'go.mod', 'go.sum')`,
+		`'mcp-lsp' = @('cmd\mcp-lsp', 'internal', 'pkg', 'go.mod', 'go.sum')`,
+		`$peerBinDir = Resolve-PeerBinDir`,
+		`Get-ChildItem -LiteralPath $sourcePath -Recurse -File`,
+		`$binaryPath = Join-Path $peerBinDir "$name.exe"`,
+		`Test-PeerBinaryStale -BinaryPath $binaryPath -SourcePaths $peerSourcePaths[$name]`,
+		`Build-PeerBinaries -PeerBinDir $peerBinDir`,
+	}
+	for _, want := range required {
+		if !strings.Contains(text, want) {
+			t.Fatalf("run-new-ui-desktop.ps1 missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		`$binaryPath = Join-Path $ProjectDir "$name.exe"`,
+		`Join-Path $ProjectDir 'mcp-orch.exe'`,
+		`Join-Path $ProjectDir 'mcp-lsp.exe'`,
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("run-new-ui-desktop.ps1 must use GO_AGENT_PEER_BIN_DIR for peer binaries, found %q", forbidden)
+		}
+	}
+	assertTextOrderAfter(t, text, `Import-DotEnvFile -Path (Join-Path $ProjectDir '.env')`, `Set-DefaultEnv -Name 'GO_AGENT_PEER_BIN_DIR' -Value $ProjectDir`, `Ensure-PeerBinaries`)
+	assertTextOrder(t, text, `function Test-PeerBinaryStale`, `function Ensure-PeerBinaries`)
+	assertTextOrderAfter(t, text, `function Build-PeerBinaries`, `Push-Location -LiteralPath $ProjectDir`, `New-Item -ItemType Directory -Force -Path $PeerBinDir`)
+	assertTextOrder(t, text, `$peerBinDir = Resolve-PeerBinDir`, `$binaryPath = Join-Path $peerBinDir "$name.exe"`)
+	assertTextOrder(t, text, `$peerSourcePaths = @{`, `Test-PeerBinaryStale -BinaryPath $binaryPath -SourcePaths $peerSourcePaths[$name]`)
+	assertTextOrderAfter(t, text, `function Ensure-PeerBinaries`, `Test-PeerBinaryStale -BinaryPath $binaryPath -SourcePaths $peerSourcePaths[$name]`, `Build-PeerBinaries -PeerBinDir $peerBinDir`)
+}
+
 func TestNewUIDesktopPowerShellScriptSkipsInvalidPathEntries(t *testing.T) {
 	text := readRootScript(t, "../../run-new-ui-desktop.ps1")
 
