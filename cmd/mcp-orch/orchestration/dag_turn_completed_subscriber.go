@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -17,7 +18,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
-	"github.com/jackc/pgx/v5"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 )
@@ -187,7 +187,7 @@ func advanceNodeDone(ctx context.Context, flow taskdag.NodeFlowStore, eventBus *
 		nodeevents.PublishComplete(eventBus, node.Status, res)
 		dagSubscriberMetrics.IncCompleteDone()
 		return true
-	case errors.Is(err, pgx.ErrNoRows) || platformdb.IsNotFound(err):
+	case errors.Is(err, sql.ErrNoRows) || platformdb.IsNotFound(err):
 		dagSubscriberMetrics.IncIdempotentSkipped()
 		logger.Debug("dag subscriber: complete fence rejected, node already terminal", "dag_key", node.DagKey, "node_key", node.NodeKey)
 	default:
@@ -229,7 +229,7 @@ func advanceNodeFailedWithReason(ctx context.Context, flow taskdag.NodeFlowStore
 		nodeevents.PublishFail(eventBus, node.Status, res)
 		dagSubscriberMetrics.IncCompleteFailed()
 		return true
-	case errors.Is(err, pgx.ErrNoRows) || platformdb.IsNotFound(err):
+	case errors.Is(err, sql.ErrNoRows) || platformdb.IsNotFound(err):
 		dagSubscriberMetrics.IncIdempotentSkipped()
 		logger.Debug("dag subscriber: fail fence rejected, node already terminal", "dag_key", node.DagKey, "node_key", node.NodeKey)
 	}
@@ -290,7 +290,7 @@ func claimNodeOutputMaterialization(ctx context.Context, flow taskdag.NodeFlowSt
 	case err == nil:
 		nodeevents.Publish(eventBus, node.Status, updated)
 		return true
-	case errors.Is(err, pgx.ErrNoRows) || platformdb.IsNotFound(err):
+	case errors.Is(err, sql.ErrNoRows) || platformdb.IsNotFound(err):
 		dagSubscriberMetrics.IncIdempotentSkipped()
 		logger.Debug("dag subscriber: output materialization claim rejected, node already claimed or terminal", "dag_key", node.DagKey, "node_key", node.NodeKey)
 		return false

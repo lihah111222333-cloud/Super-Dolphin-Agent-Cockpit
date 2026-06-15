@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -31,7 +32,6 @@ import (
 //
 // On failure the caller gets an error already enriched with the stderr
 // tail, which the pool caches in the identity+owner backoff slot.
-// runPoolSpawn 运行poolspawn。
 func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pidregistry.Registry, logger *slog.Logger) (*transport, error) {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -107,9 +107,7 @@ type poolSpawnWorkspaceRootsContextKey struct{}
 type poolSpawnMCPBinaryDirContextKey struct{}
 
 func withPoolSpawnWorkDir(ctx context.Context, raw string) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ctx
@@ -118,17 +116,11 @@ func withPoolSpawnWorkDir(ctx context.Context, raw string) context.Context {
 }
 
 func poolSpawnWorkDir(ctx context.Context) string {
-	if ctx == nil {
-		return ""
-	}
-	value, _ := ctx.Value(poolSpawnWorkDirContextKey{}).(string)
-	return strings.TrimSpace(value)
+	return strings.TrimSpace(poolSpawnContextValue[string](ctx, poolSpawnWorkDirContextKey{}))
 }
 
 func withPoolSpawnNativeToolPolicy(ctx context.Context, policy codexNativeToolPolicy) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	args := policy.AppServerArgs()
 	if len(args) == 0 {
 		return ctx
@@ -138,9 +130,7 @@ func withPoolSpawnNativeToolPolicy(ctx context.Context, policy codexNativeToolPo
 }
 
 func withPoolSpawnLSPConfig(ctx context.Context, roots []string, binaryDir string) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	if normalized := normalizePoolSpawnWorkspaceRoots(roots); len(normalized) > 0 {
 		ctx = context.WithValue(ctx, poolSpawnWorkspaceRootsContextKey{}, normalized)
 	}
@@ -151,35 +141,38 @@ func withPoolSpawnLSPConfig(ctx context.Context, roots []string, binaryDir strin
 }
 
 func poolSpawnAppServerArgs(ctx context.Context) []string {
-	if ctx == nil {
-		return nil
-	}
-	value, _ := ctx.Value(poolSpawnAppServerArgsContextKey{}).([]string)
+	value := poolSpawnContextValue[[]string](ctx, poolSpawnAppServerArgsContextKey{})
 	return append([]string(nil), value...)
 }
 
 func poolSpawnPolicySignature(ctx context.Context) string {
-	if ctx == nil {
-		return ""
+	value := strings.TrimSpace(poolSpawnContextValue[string](ctx, poolSpawnPolicySignatureContextKey{}))
+	lsp := poolSpawnLSPConfigSignature(ctx)
+	if value == "" {
+		return lsp
 	}
-	value, _ := ctx.Value(poolSpawnPolicySignatureContextKey{}).(string)
-	return joinPoolSpawnSignatureParts(strings.TrimSpace(value), poolSpawnLSPConfigSignature(ctx))
+	if lsp == "" {
+		return value
+	}
+	return value + "\n" + lsp
 }
 
 func poolSpawnWorkspaceRoots(ctx context.Context) []string {
-	if ctx == nil {
-		return nil
-	}
-	value, _ := ctx.Value(poolSpawnWorkspaceRootsContextKey{}).([]string)
+	value := poolSpawnContextValue[[]string](ctx, poolSpawnWorkspaceRootsContextKey{})
 	return append([]string(nil), value...)
 }
 
 func poolSpawnMCPBinaryDir(ctx context.Context) string {
+	return strings.TrimSpace(poolSpawnContextValue[string](ctx, poolSpawnMCPBinaryDirContextKey{}))
+}
+
+func poolSpawnContextValue[T any](ctx context.Context, key any) T {
+	var zero T
 	if ctx == nil {
-		return ""
+		return zero
 	}
-	value, _ := ctx.Value(poolSpawnMCPBinaryDirContextKey{}).(string)
-	return strings.TrimSpace(value)
+	value, _ := ctx.Value(key).(T)
+	return value
 }
 
 func poolSpawnLSPConfigSignature(ctx context.Context) string {
@@ -191,31 +184,15 @@ func poolSpawnLSPConfigSignature(ctx context.Context) string {
 	return "lsp_roots=" + strings.Join(roots, "\x1f") + "\nlsp_binary_dir=" + binaryDir
 }
 
-func joinPoolSpawnSignatureParts(parts ...string) string {
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if part = strings.TrimSpace(part); part != "" {
-			out = append(out, part)
-		}
-	}
-	return strings.Join(out, "\n")
-}
-
 func poolSpawnNormalizedWorkDir(ctx context.Context) (string, error) {
-	if err := poolSpawnContextErr(ctx); err != nil {
-		return "", err
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 	}
 	return normalizePoolSpawnWorkDir(poolSpawnWorkDir(ctx))
 }
 
-func poolSpawnContextErr(ctx context.Context) error {
-	if ctx == nil {
-		return nil
-	}
-	return ctx.Err()
-}
-
-// normalizePoolSpawnWorkDir 规范化poolspawnwork目录。
 func normalizePoolSpawnWorkDir(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -260,7 +237,6 @@ func normalizePoolSpawnWorkspaceRoots(roots []string) []string {
 	return out
 }
 
-// normalizePoolSpawnWorkspaceRoot 规范化poolspawn工作区根目录。
 func normalizePoolSpawnWorkspaceRoot(base, root string) string {
 	root = strings.TrimSpace(root)
 	if root == "" {
@@ -316,14 +292,13 @@ var codexSpawnEnvAllowlist = []string{
 	codexRelayBootstrapTokenEnv,
 }
 
-// buildAllowlistedSpawnEnv 构建allowlistedspawnenv。
 func buildAllowlistedSpawnEnv(parent []string, overrides map[string]string) []string {
 	allowed := make(map[string]struct{}, len(codexSpawnEnvAllowlist))
 	for _, key := range codexSpawnEnvAllowlist {
 		allowed[strings.ToUpper(key)] = struct{}{}
 	}
 	merged := make(map[string]string, len(allowed)+len(overrides))
-	for _, kv := range parent {
+	for _, kv := range contract.ScrubDatabaseEnv(parent) {
 		key, val, ok := splitEnv(kv)
 		if !ok {
 			continue
@@ -335,7 +310,7 @@ func buildAllowlistedSpawnEnv(parent []string, overrides map[string]string) []st
 	}
 	for key, val := range overrides {
 		key = strings.TrimSpace(key)
-		if key == "" {
+		if key == "" || contract.IsForbiddenDatabaseEnvKey(key) {
 			continue
 		}
 		merged[key] = val
@@ -362,7 +337,6 @@ func splitEnv(kv string) (string, string, bool) {
 //
 // The returned Spawner does not itself enforce concurrency or deduplication;
 // the pool owns those decisions per identity+owner entry.
-// NewTransportSpawner 创建传输spawner。
 func NewTransportSpawner(registry *pidregistry.Registry, logger *slog.Logger) Spawner {
 	if logger == nil {
 		logger = pkglogger.Get()

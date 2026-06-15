@@ -32,10 +32,36 @@ type MCPServerConfig struct {
 	Transport string            `json:"transport,omitempty"`
 	URL       string            `json:"url,omitempty"`
 	Headers   map[string]string `json:"headers,omitempty"`
+	Command   string            `json:"command,omitempty"`
+	Args      []string          `json:"args,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
 }
 
 type MCPServerConfigProvider interface {
 	ListMCPServerConfigs(ctx context.Context, cwd string) (map[string]MCPServerConfig, error)
+}
+
+// MCPServerAddRequest 是跨模块写入 MCP server 配置的输入，避免业务模块互相依赖具体实现。
+type MCPServerAddRequest struct {
+	MCPServers map[string]MCPServerConfig `json:"mcpServers"`
+}
+
+// MCPServerAddResult 返回 MCP server 配置写入位置和本次写入的服务名。
+type MCPServerAddResult struct {
+	ConfigPath  string   `json:"configPath"`
+	ServerNames []string `json:"serverNames"`
+}
+
+// MCPServerListResult 返回当前工作区解析到的 MCP server 配置集合。
+type MCPServerListResult struct {
+	ConfigPath string                     `json:"configPath"`
+	MCPServers map[string]MCPServerConfig `json:"mcpServers"`
+}
+
+// MCPServerConfigWriter 暴露默认 MCP server 启动入口需要的最小配置读写能力。
+type MCPServerConfigWriter interface {
+	AddServers(context.Context, MCPServerAddRequest) (MCPServerAddResult, error)
+	ListServers(context.Context) (MCPServerListResult, error)
 }
 
 // StoreMCPServerConfigParams 是写入 MCP server 配置表的最小输入。

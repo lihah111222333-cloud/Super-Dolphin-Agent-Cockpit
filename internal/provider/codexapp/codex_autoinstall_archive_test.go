@@ -99,7 +99,7 @@ func fakeCodexBodyForTest(t *testing.T) []byte {
 
 func codexReleaseAssetNameForTest(t *testing.T) string {
 	t.Helper()
-	platform, err := codexReleasePlatform()
+	platform, err := codexWheelReleasePlatform()
 	if err != nil {
 		t.Skip(err)
 	}

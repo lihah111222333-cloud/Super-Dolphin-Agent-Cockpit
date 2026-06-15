@@ -23,6 +23,8 @@ const (
 	codexTrustedReleaseMirrorEnvForTest = "SUPER_DOLPHIN_CODEX_TRUSTED_RELEASE_MIRROR"
 	codexFakeHelperEnv                  = "SUPER_DOLPHIN_CODEX_FAKE_HELPER"
 	codexFakeSupportsAppServerEnv       = "SUPER_DOLPHIN_CODEX_FAKE_SUPPORTS_APP_SERVER"
+	codexFakeProbeEnvFileEnv            = "SUPER_DOLPHIN_CODEX_FAKE_PROBE_ENV_FILE"
+	codexFakeAppServerEnvFileEnv        = "SUPER_DOLPHIN_CODEX_FAKE_APP_SERVER_ENV_FILE"
 )
 
 type codexReleaseTestOptions struct {
@@ -41,13 +43,38 @@ func runFakeCodexProcess() {
 	if marker := strings.TrimSpace(os.Getenv("CODEX_FAKE_MARKER")); marker != "" {
 		_ = os.WriteFile(marker, []byte("ran"), 0o600)
 	}
-	if len(os.Args) >= 3 && os.Args[1] == "app-server" && os.Args[2] == "--help" {
+	if hasArgPair(os.Args[1:], "app-server", "--help") {
+		writeFakeCodexEnvFile(codexFakeProbeEnvFileEnv)
 		if os.Getenv(codexFakeSupportsAppServerEnv) == "1" {
 			os.Exit(0)
 		}
 		os.Exit(42)
 	}
+	if hasArgPair(os.Args[1:], "app-server", "--listen") {
+		writeFakeCodexEnvFile(codexFakeAppServerEnvFileEnv)
+		_, _ = fmt.Fprintln(os.Stderr, "listening on: http://127.0.0.1:49231")
+		select {}
+	}
 	os.Exit(0)
+}
+
+func hasArgPair(args []string, first, second string) bool {
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == first && args[i+1] == second {
+			return true
+		}
+	}
+	return false
+}
+
+func writeFakeCodexEnvFile(envKey string) {
+	path := strings.TrimSpace(os.Getenv(envKey))
+	if path == "" {
+		return
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(os.Environ(), "\n")), 0o600); err != nil {
+		os.Exit(2)
+	}
 }
 
 func TestEnsureCodexCLIAvailableAutoInstallsOfficialReleaseWhenMissing(t *testing.T) {
@@ -492,7 +519,7 @@ func writeBundledCodexManifestForTest(t *testing.T, resourcesRoot, packageSHA256
 func writeFakeCodex(t *testing.T, path string, supportsAppServer bool) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
-		writeFakeCodexWindows(t, path, supportsAppServer)
+		writeFakeCodexExecutableHelper(t, path, supportsAppServer)
 		return
 	}
 	body := "#!/bin/sh\n"
@@ -509,7 +536,7 @@ func writeFakeCodex(t *testing.T, path string, supportsAppServer bool) {
 func writeFakeCodexWithMarker(t *testing.T, path string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
-		writeFakeCodexWindows(t, path, true)
+		writeFakeCodexExecutableHelper(t, path, true)
 		return
 	}
 	body := "#!/bin/sh\n" +
@@ -521,7 +548,7 @@ func writeFakeCodexWithMarker(t *testing.T, path string) {
 	}
 }
 
-func writeFakeCodexWindows(t *testing.T, path string, supportsAppServer bool) {
+func writeFakeCodexExecutableHelper(t *testing.T, path string, supportsAppServer bool) {
 	t.Helper()
 	exe, err := os.Executable()
 	if err != nil {

@@ -7,25 +7,23 @@ package sqlc
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const bindTurnDedupeProviderID = `-- name: BindTurnDedupeProviderID :exec
 UPDATE turn_dedupe_registry
-   SET provider_turn_id = $1,
-       updated_at       = $2
- WHERE dedupe_key = $3
+   SET provider_turn_id = ?1,
+       updated_at       = ?2
+ WHERE dedupe_key = ?3
 `
 
 type BindTurnDedupeProviderIDParams struct {
-	ProviderTurnID string             `db:"provider_turn_id" json:"provider_turn_id"`
-	Now            pgtype.Timestamptz `db:"now" json:"now"`
-	DedupeKey      string             `db:"dedupe_key" json:"dedupe_key"`
+	ProviderTurnID string `db:"provider_turn_id" json:"provider_turn_id"`
+	Now            int64  `db:"now" json:"now"`
+	DedupeKey      string `db:"dedupe_key" json:"dedupe_key"`
 }
 
 func (q *Queries) BindTurnDedupeProviderID(ctx context.Context, arg BindTurnDedupeProviderIDParams) error {
-	_, err := q.db.Exec(ctx, bindTurnDedupeProviderID, arg.ProviderTurnID, arg.Now, arg.DedupeKey)
+	_, err := q.db.ExecContext(ctx, bindTurnDedupeProviderID, arg.ProviderTurnID, arg.Now, arg.DedupeKey)
 	return err
 }
 
@@ -33,7 +31,7 @@ const getLiveTurnDedupe = `-- name: GetLiveTurnDedupe :one
 SELECT dedupe_key, local_turn_id, provider_turn_id, thread_id, created_at,
        updated_at, terminal_at
   FROM turn_dedupe_registry
- WHERE dedupe_key = $1
+ WHERE dedupe_key = ?1
    AND terminal_at IS NULL
  LIMIT 1
 `
@@ -47,7 +45,7 @@ type GetLiveTurnDedupeParams struct {
 // scheduler's caller checks local_turn_id == "" to distinguish miss
 // from hit.
 func (q *Queries) GetLiveTurnDedupe(ctx context.Context, arg GetLiveTurnDedupeParams) (TurnDedupeRegistry, error) {
-	row := q.db.QueryRow(ctx, getLiveTurnDedupe, arg.DedupeKey)
+	row := q.db.QueryRowContext(ctx, getLiveTurnDedupe, arg.DedupeKey)
 	var i TurnDedupeRegistry
 	err := row.Scan(
 		&i.DedupeKey,
@@ -63,36 +61,36 @@ func (q *Queries) GetLiveTurnDedupe(ctx context.Context, arg GetLiveTurnDedupePa
 
 const markTurnDedupeTerminal = `-- name: MarkTurnDedupeTerminal :exec
 UPDATE turn_dedupe_registry
-   SET terminal_at = $1,
-       updated_at  = $1
- WHERE dedupe_key = $2
+   SET terminal_at = ?1,
+       updated_at  = ?1
+ WHERE dedupe_key = ?2
    AND terminal_at IS NULL
 `
 
 type MarkTurnDedupeTerminalParams struct {
-	Now       pgtype.Timestamptz `db:"now" json:"now"`
-	DedupeKey string             `db:"dedupe_key" json:"dedupe_key"`
+	Now       *int64 `db:"now" json:"now"`
+	DedupeKey string `db:"dedupe_key" json:"dedupe_key"`
 }
 
 func (q *Queries) MarkTurnDedupeTerminal(ctx context.Context, arg MarkTurnDedupeTerminalParams) error {
-	_, err := q.db.Exec(ctx, markTurnDedupeTerminal, arg.Now, arg.DedupeKey)
+	_, err := q.db.ExecContext(ctx, markTurnDedupeTerminal, arg.Now, arg.DedupeKey)
 	return err
 }
 
 const sweepTurnDedupeRegistry = `-- name: SweepTurnDedupeRegistry :exec
 DELETE FROM turn_dedupe_registry
- WHERE updated_at < $1
+ WHERE updated_at < ?1
 `
 
 type SweepTurnDedupeRegistryParams struct {
-	Cutoff pgtype.Timestamptz `db:"cutoff" json:"cutoff"`
+	Cutoff int64 `db:"cutoff" json:"cutoff"`
 }
 
 // Deletes every row whose updated_at is older than cutoff. Run on a
 // coarse interval by the scheduler so the table can never outgrow
 // the tracker TTL window.
 func (q *Queries) SweepTurnDedupeRegistry(ctx context.Context, arg SweepTurnDedupeRegistryParams) error {
-	_, err := q.db.Exec(ctx, sweepTurnDedupeRegistry, arg.Cutoff)
+	_, err := q.db.ExecContext(ctx, sweepTurnDedupeRegistry, arg.Cutoff)
 	return err
 }
 
@@ -101,11 +99,11 @@ const upsertTurnDedupeRegistry = `-- name: UpsertTurnDedupeRegistry :exec
 INSERT INTO turn_dedupe_registry (
     dedupe_key, local_turn_id, thread_id, created_at, updated_at, terminal_at
 ) VALUES (
-    $1,
-    $2,
-    $3,
-    $4,
-    $4,
+    ?1,
+    ?2,
+    ?3,
+    ?4,
+    ?4,
     NULL
 )
 ON CONFLICT (dedupe_key) DO UPDATE SET
@@ -120,16 +118,16 @@ ON CONFLICT (dedupe_key) DO UPDATE SET
 `
 
 type UpsertTurnDedupeRegistryParams struct {
-	DedupeKey   string             `db:"dedupe_key" json:"dedupe_key"`
-	LocalTurnID string             `db:"local_turn_id" json:"local_turn_id"`
-	ThreadID    string             `db:"thread_id" json:"thread_id"`
-	Now         pgtype.Timestamptz `db:"now" json:"now"`
+	DedupeKey   string `db:"dedupe_key" json:"dedupe_key"`
+	LocalTurnID string `db:"local_turn_id" json:"local_turn_id"`
+	ThreadID    string `db:"thread_id" json:"thread_id"`
+	Now         int64  `db:"now" json:"now"`
 }
 
 // Queries for turn_dedupe_registry. See migration 0060 for the table
 // layout + lifetime contract.
 func (q *Queries) UpsertTurnDedupeRegistry(ctx context.Context, arg UpsertTurnDedupeRegistryParams) error {
-	_, err := q.db.Exec(ctx, upsertTurnDedupeRegistry,
+	_, err := q.db.ExecContext(ctx, upsertTurnDedupeRegistry,
 		arg.DedupeKey,
 		arg.LocalTurnID,
 		arg.ThreadID,

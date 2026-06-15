@@ -53,14 +53,14 @@ func TestUpsertForwardsCodexIdentity(t *testing.T) {
 func TestGetByAgentIDSurfacesCodexIdentity(t *testing.T) {
 	t.Parallel()
 
-	row := sqlc.GetAgentProviderBindingByAgentIDRow{
+	row := sqlc.AgentProviderBinding{
 		AgentID:            "agent-read",
 		Provider:           "codex",
 		ProviderThreadID:   "pt-read",
 		CodexThreadID:      "ct-read",
 		RolloutPath:        "/tmp/r",
 		CWD:                "/repo",
-		Archived:           false,
+		Archived:           0,
 		CreatedAt:          5,
 		UpdatedAt:          6,
 		SessionUUID:        "sess",
@@ -69,7 +69,7 @@ func TestGetByAgentIDSurfacesCodexIdentity(t *testing.T) {
 		CodexModelProvider: "glm-compat",
 	}
 	s := &store{q: &bindingQuerierStub{
-		getAgentProviderBindingByAgentIDFn: func(_ context.Context, _ string) (sqlc.GetAgentProviderBindingByAgentIDRow, error) {
+		getAgentProviderBindingByAgentIDFn: func(_ context.Context, _ string) (sqlc.AgentProviderBinding, error) {
 			return row, nil
 		},
 	}}
@@ -89,7 +89,7 @@ func TestGetByAgentIDSurfacesCodexIdentity(t *testing.T) {
 func TestGetByProviderThreadSurfacesCodexIdentity(t *testing.T) {
 	t.Parallel()
 
-	row := sqlc.GetAgentProviderBindingByProviderThreadRow{
+	row := sqlc.AgentProviderBinding{
 		AgentID:            "agent-pt",
 		Provider:           "codex",
 		ProviderThreadID:   "pt",
@@ -98,7 +98,7 @@ func TestGetByProviderThreadSurfacesCodexIdentity(t *testing.T) {
 		CodexModelProvider: "qwen-compat",
 	}
 	s := &store{q: &bindingQuerierStub{
-		getByProviderThreadFn: func(_ context.Context, _ sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.GetAgentProviderBindingByProviderThreadRow, error) {
+		getByProviderThreadFn: func(_ context.Context, _ sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.AgentProviderBinding, error) {
 			return row, nil
 		},
 	}}
@@ -118,8 +118,8 @@ func TestListAgentThreadBindingsSurfacesCodexIdentity(t *testing.T) {
 	t.Parallel()
 
 	s := &store{q: &bindingQuerierStub{
-		listAgentThreadBindingsFn: func(context.Context) ([]sqlc.ListAgentThreadBindingsRow, error) {
-			return []sqlc.ListAgentThreadBindingsRow{{
+		listAgentThreadBindingsFn: func(context.Context) ([]sqlc.AgentProviderBinding, error) {
+			return []sqlc.AgentProviderBinding{{
 				AgentID:            "agent-list",
 				Provider:           "codex",
 				ProviderThreadID:   "pt-list",

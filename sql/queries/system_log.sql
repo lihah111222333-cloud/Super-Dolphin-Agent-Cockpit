@@ -1,24 +1,24 @@
 -- name: InsertSystemLog :exec
 INSERT INTO system_logs (ts, level, logger, message, raw)
-VALUES (NOW(), $1, $2, $3, $4);
+VALUES (sqlc.arg(ts), sqlc.arg(level), sqlc.arg(logger), sqlc.arg(message), sqlc.arg(raw));
 
 -- name: ListSystemLogs :many
-SELECT id, ts, level, logger, message, raw, source, component, agent_id, thread_id, trace_id, event_type, tool_name, duration_ms, extra
+SELECT id, ts, level, logger, message, '' AS raw, source, component, agent_id, thread_id, trace_id, event_type, tool_name, duration_ms, '{}' AS extra
 FROM system_logs
-WHERE ($1::text = '' OR level = $1)
-  AND ($2::text = '' OR logger = $2)
-  AND ($3::text = '' OR source = $3)
-  AND ($4::text = '' OR component = $4)
-  AND ($5::text = '' OR agent_id = $5)
-  AND ($6::text = '' OR thread_id = $6)
-  AND ($7::text = '' OR event_type = $7)
-  AND ($8::text = '' OR tool_name = $8)
-  AND ($9::text = ''
-    OR level ILIKE '%' || $9 || '%'
-    OR logger ILIKE '%' || $9 || '%'
-    OR message ILIKE '%' || $9 || '%'
-    OR raw ILIKE '%' || $9 || '%'
-    OR source ILIKE '%' || $9 || '%'
-    OR component ILIKE '%' || $9 || '%')
+WHERE (sqlc.arg(level_filter) = '' OR level = sqlc.arg(level_filter))
+  AND (sqlc.arg(logger_filter) = '' OR logger = sqlc.arg(logger_filter))
+  AND (sqlc.arg(source_filter) = '' OR source = sqlc.arg(source_filter))
+  AND (sqlc.arg(component_filter) = '' OR component = sqlc.arg(component_filter))
+  AND (sqlc.arg(agent_id_filter) = '' OR agent_id = sqlc.arg(agent_id_filter))
+  AND (sqlc.arg(thread_id_filter) = '' OR thread_id = sqlc.arg(thread_id_filter))
+  AND (sqlc.arg(event_type_filter) = '' OR event_type = sqlc.arg(event_type_filter))
+  AND (sqlc.arg(tool_name_filter) = '' OR tool_name = sqlc.arg(tool_name_filter))
+  AND (sqlc.arg(keyword) = ''
+    OR lower(level) LIKE lower(sqlc.arg(keyword_pattern))
+    OR lower(logger) LIKE lower(sqlc.arg(keyword_pattern))
+    OR lower(message) LIKE lower(sqlc.arg(keyword_pattern))
+    OR lower(raw) LIKE lower(sqlc.arg(keyword_pattern))
+    OR lower(source) LIKE lower(sqlc.arg(keyword_pattern))
+    OR lower(component) LIKE lower(sqlc.arg(keyword_pattern)))
 ORDER BY ts DESC, id DESC
-LIMIT $10;
+LIMIT sqlc.arg(limit_count);

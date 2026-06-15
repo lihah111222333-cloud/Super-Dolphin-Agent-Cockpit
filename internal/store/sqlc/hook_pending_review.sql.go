@@ -7,70 +7,69 @@ package sqlc
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const cancelExpiredHookReviews = `-- name: CancelExpiredHookReviews :execrows
 UPDATE hook_pending_reviews
-SET status = 'expired', decision = default_action, resolved_at = $1
-WHERE status = 'pending' AND deadline_at <= $1
+SET status = 'expired', decision = default_action, resolved_at = ?
+WHERE status = 'pending' AND deadline_at <= ?
 `
 
 type CancelExpiredHookReviewsParams struct {
-	ResolvedAt pgtype.Timestamptz `db:"resolved_at" json:"resolved_at"`
+	ResolvedAt *int64 `db:"resolved_at" json:"resolved_at"`
+	DeadlineAt int64  `db:"deadline_at" json:"deadline_at"`
 }
 
 func (q *Queries) CancelExpiredHookReviews(ctx context.Context, arg CancelExpiredHookReviewsParams) (int64, error) {
-	result, err := q.db.Exec(ctx, cancelExpiredHookReviews, arg.ResolvedAt)
+	result, err := q.db.ExecContext(ctx, cancelExpiredHookReviews, arg.ResolvedAt, arg.DeadlineAt)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }
 
 const cancelHookPendingReviewsByAgent = `-- name: CancelHookPendingReviewsByAgent :execrows
 UPDATE hook_pending_reviews
-SET status = 'cancelled', resolved_at = $2
-WHERE agent_id = $1 AND status = 'pending'
+SET status = 'cancelled', resolved_at = ?
+WHERE agent_id = ? AND status = 'pending'
 `
 
 type CancelHookPendingReviewsByAgentParams struct {
-	AgentID    string             `db:"agent_id" json:"agent_id"`
-	ResolvedAt pgtype.Timestamptz `db:"resolved_at" json:"resolved_at"`
+	ResolvedAt *int64 `db:"resolved_at" json:"resolved_at"`
+	AgentID    string `db:"agent_id" json:"agent_id"`
 }
 
 func (q *Queries) CancelHookPendingReviewsByAgent(ctx context.Context, arg CancelHookPendingReviewsByAgentParams) (int64, error) {
-	result, err := q.db.Exec(ctx, cancelHookPendingReviewsByAgent, arg.AgentID, arg.ResolvedAt)
+	result, err := q.db.ExecContext(ctx, cancelHookPendingReviewsByAgent, arg.ResolvedAt, arg.AgentID)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }
 
 const cancelHookPendingReviewsByLease = `-- name: CancelHookPendingReviewsByLease :execrows
 UPDATE hook_pending_reviews
-SET status = 'cancelled', resolved_at = $2
-WHERE subscriber_lease = $1 AND status = 'pending'
+SET status = 'cancelled', resolved_at = ?
+WHERE subscriber_lease = ? AND status = 'pending'
 `
 
 type CancelHookPendingReviewsByLeaseParams struct {
-	SubscriberLease string             `db:"subscriber_lease" json:"subscriber_lease"`
-	ResolvedAt      pgtype.Timestamptz `db:"resolved_at" json:"resolved_at"`
+	ResolvedAt      *int64 `db:"resolved_at" json:"resolved_at"`
+	SubscriberLease string `db:"subscriber_lease" json:"subscriber_lease"`
 }
 
 func (q *Queries) CancelHookPendingReviewsByLease(ctx context.Context, arg CancelHookPendingReviewsByLeaseParams) (int64, error) {
-	result, err := q.db.Exec(ctx, cancelHookPendingReviewsByLease, arg.SubscriberLease, arg.ResolvedAt)
+	result, err := q.db.ExecContext(ctx, cancelHookPendingReviewsByLease, arg.ResolvedAt, arg.SubscriberLease)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }
 
 const checkHookReviewIdempotency = `-- name: CheckHookReviewIdempotency :one
-SELECT 1::int AS already_resolved
+SELECT 1 AS already_resolved
 FROM hook_pending_reviews
-WHERE hook_call_id = $1 AND status = 'resolved' AND idempotency_key = $2
+WHERE hook_call_id = ? AND status = 'resolved' AND idempotency_key = ?
 `
 
 type CheckHookReviewIdempotencyParams struct {
@@ -79,9 +78,9 @@ type CheckHookReviewIdempotencyParams struct {
 }
 
 // Returns 1 if a review is already resolved with the given idempotency key.
-func (q *Queries) CheckHookReviewIdempotency(ctx context.Context, arg CheckHookReviewIdempotencyParams) (int32, error) {
-	row := q.db.QueryRow(ctx, checkHookReviewIdempotency, arg.HookCallID, arg.IdempotencyKey)
-	var already_resolved int32
+func (q *Queries) CheckHookReviewIdempotency(ctx context.Context, arg CheckHookReviewIdempotencyParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, checkHookReviewIdempotency, arg.HookCallID, arg.IdempotencyKey)
+	var already_resolved int64
 	err := row.Scan(&already_resolved)
 	return already_resolved, err
 }
@@ -90,7 +89,7 @@ const getHookPendingReview = `-- name: GetHookPendingReview :one
 SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action,
        status, created_at, deadline_at
 FROM hook_pending_reviews
-WHERE hook_call_id = $1 AND status = 'pending'
+WHERE hook_call_id = ? AND status = 'pending'
 `
 
 type GetHookPendingReviewParams struct {
@@ -98,18 +97,18 @@ type GetHookPendingReviewParams struct {
 }
 
 type GetHookPendingReviewRow struct {
-	HookCallID      string             `db:"hook_call_id" json:"hook_call_id"`
-	Topic           string             `db:"topic" json:"topic"`
-	AgentID         string             `db:"agent_id" json:"agent_id"`
-	SubscriberLease string             `db:"subscriber_lease" json:"subscriber_lease"`
-	DefaultAction   string             `db:"default_action" json:"default_action"`
-	Status          string             `db:"status" json:"status"`
-	CreatedAt       pgtype.Timestamptz `db:"created_at" json:"created_at"`
-	DeadlineAt      pgtype.Timestamptz `db:"deadline_at" json:"deadline_at"`
+	HookCallID      string `db:"hook_call_id" json:"hook_call_id"`
+	Topic           string `db:"topic" json:"topic"`
+	AgentID         string `db:"agent_id" json:"agent_id"`
+	SubscriberLease string `db:"subscriber_lease" json:"subscriber_lease"`
+	DefaultAction   string `db:"default_action" json:"default_action"`
+	Status          string `db:"status" json:"status"`
+	CreatedAt       int64  `db:"created_at" json:"created_at"`
+	DeadlineAt      int64  `db:"deadline_at" json:"deadline_at"`
 }
 
 func (q *Queries) GetHookPendingReview(ctx context.Context, arg GetHookPendingReviewParams) (GetHookPendingReviewRow, error) {
-	row := q.db.QueryRow(ctx, getHookPendingReview, arg.HookCallID)
+	row := q.db.QueryRowContext(ctx, getHookPendingReview, arg.HookCallID)
 	var i GetHookPendingReviewRow
 	err := row.Scan(
 		&i.HookCallID,
@@ -127,7 +126,7 @@ func (q *Queries) GetHookPendingReview(ctx context.Context, arg GetHookPendingRe
 const getHookResolvedReview = `-- name: GetHookResolvedReview :one
 SELECT decision, resolved_at, subscriber_lease
 FROM hook_pending_reviews
-WHERE hook_call_id = $1 AND status = 'resolved'
+WHERE hook_call_id = ? AND status = 'resolved'
 `
 
 type GetHookResolvedReviewParams struct {
@@ -135,13 +134,13 @@ type GetHookResolvedReviewParams struct {
 }
 
 type GetHookResolvedReviewRow struct {
-	Decision        string             `db:"decision" json:"decision"`
-	ResolvedAt      pgtype.Timestamptz `db:"resolved_at" json:"resolved_at"`
-	SubscriberLease string             `db:"subscriber_lease" json:"subscriber_lease"`
+	Decision        string `db:"decision" json:"decision"`
+	ResolvedAt      *int64 `db:"resolved_at" json:"resolved_at"`
+	SubscriberLease string `db:"subscriber_lease" json:"subscriber_lease"`
 }
 
 func (q *Queries) GetHookResolvedReview(ctx context.Context, arg GetHookResolvedReviewParams) (GetHookResolvedReviewRow, error) {
-	row := q.db.QueryRow(ctx, getHookResolvedReview, arg.HookCallID)
+	row := q.db.QueryRowContext(ctx, getHookResolvedReview, arg.HookCallID)
 	var i GetHookResolvedReviewRow
 	err := row.Scan(&i.Decision, &i.ResolvedAt, &i.SubscriberLease)
 	return i, err
@@ -151,7 +150,7 @@ const listHookPendingReviewsByAgent = `-- name: ListHookPendingReviewsByAgent :m
 SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action,
        status, created_at, deadline_at
 FROM hook_pending_reviews
-WHERE agent_id = $1 AND status = 'pending'
+WHERE agent_id = ? AND status = 'pending'
 ORDER BY created_at ASC
 `
 
@@ -160,18 +159,18 @@ type ListHookPendingReviewsByAgentParams struct {
 }
 
 type ListHookPendingReviewsByAgentRow struct {
-	HookCallID      string             `db:"hook_call_id" json:"hook_call_id"`
-	Topic           string             `db:"topic" json:"topic"`
-	AgentID         string             `db:"agent_id" json:"agent_id"`
-	SubscriberLease string             `db:"subscriber_lease" json:"subscriber_lease"`
-	DefaultAction   string             `db:"default_action" json:"default_action"`
-	Status          string             `db:"status" json:"status"`
-	CreatedAt       pgtype.Timestamptz `db:"created_at" json:"created_at"`
-	DeadlineAt      pgtype.Timestamptz `db:"deadline_at" json:"deadline_at"`
+	HookCallID      string `db:"hook_call_id" json:"hook_call_id"`
+	Topic           string `db:"topic" json:"topic"`
+	AgentID         string `db:"agent_id" json:"agent_id"`
+	SubscriberLease string `db:"subscriber_lease" json:"subscriber_lease"`
+	DefaultAction   string `db:"default_action" json:"default_action"`
+	Status          string `db:"status" json:"status"`
+	CreatedAt       int64  `db:"created_at" json:"created_at"`
+	DeadlineAt      int64  `db:"deadline_at" json:"deadline_at"`
 }
 
 func (q *Queries) ListHookPendingReviewsByAgent(ctx context.Context, arg ListHookPendingReviewsByAgentParams) ([]ListHookPendingReviewsByAgentRow, error) {
-	rows, err := q.db.Query(ctx, listHookPendingReviewsByAgent, arg.AgentID)
+	rows, err := q.db.QueryContext(ctx, listHookPendingReviewsByAgent, arg.AgentID)
 	if err != nil {
 		return nil, err
 	}
@@ -193,6 +192,9 @@ func (q *Queries) ListHookPendingReviewsByAgent(ctx context.Context, arg ListHoo
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -208,18 +210,18 @@ ORDER BY deadline_at ASC
 `
 
 type RecoverHookPendingReviewsRow struct {
-	HookCallID      string             `db:"hook_call_id" json:"hook_call_id"`
-	Topic           string             `db:"topic" json:"topic"`
-	AgentID         string             `db:"agent_id" json:"agent_id"`
-	SubscriberLease string             `db:"subscriber_lease" json:"subscriber_lease"`
-	DefaultAction   string             `db:"default_action" json:"default_action"`
-	Status          string             `db:"status" json:"status"`
-	CreatedAt       pgtype.Timestamptz `db:"created_at" json:"created_at"`
-	DeadlineAt      pgtype.Timestamptz `db:"deadline_at" json:"deadline_at"`
+	HookCallID      string `db:"hook_call_id" json:"hook_call_id"`
+	Topic           string `db:"topic" json:"topic"`
+	AgentID         string `db:"agent_id" json:"agent_id"`
+	SubscriberLease string `db:"subscriber_lease" json:"subscriber_lease"`
+	DefaultAction   string `db:"default_action" json:"default_action"`
+	Status          string `db:"status" json:"status"`
+	CreatedAt       int64  `db:"created_at" json:"created_at"`
+	DeadlineAt      int64  `db:"deadline_at" json:"deadline_at"`
 }
 
 func (q *Queries) RecoverHookPendingReviews(ctx context.Context) ([]RecoverHookPendingReviewsRow, error) {
-	rows, err := q.db.Query(ctx, recoverHookPendingReviews)
+	rows, err := q.db.QueryContext(ctx, recoverHookPendingReviews)
 	if err != nil {
 		return nil, err
 	}
@@ -241,6 +243,9 @@ func (q *Queries) RecoverHookPendingReviews(ctx context.Context) ([]RecoverHookP
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -249,32 +254,32 @@ func (q *Queries) RecoverHookPendingReviews(ctx context.Context) ([]RecoverHookP
 
 const resolveHookPendingReview = `-- name: ResolveHookPendingReview :execrows
 UPDATE hook_pending_reviews
-SET status = 'resolved', decision = $2, reason = $3, idempotency_key = $4, resolved_by = $5, resolved_at = $6
-WHERE hook_call_id = $1 AND status = 'pending'
+SET status = 'resolved', decision = ?, reason = ?, idempotency_key = ?, resolved_by = ?, resolved_at = ?
+WHERE hook_call_id = ? AND status = 'pending'
 `
 
 type ResolveHookPendingReviewParams struct {
-	HookCallID     string             `db:"hook_call_id" json:"hook_call_id"`
-	Decision       string             `db:"decision" json:"decision"`
-	Reason         string             `db:"reason" json:"reason"`
-	IdempotencyKey string             `db:"idempotency_key" json:"idempotency_key"`
-	ResolvedBy     string             `db:"resolved_by" json:"resolved_by"`
-	ResolvedAt     pgtype.Timestamptz `db:"resolved_at" json:"resolved_at"`
+	Decision       string `db:"decision" json:"decision"`
+	Reason         string `db:"reason" json:"reason"`
+	IdempotencyKey string `db:"idempotency_key" json:"idempotency_key"`
+	ResolvedBy     string `db:"resolved_by" json:"resolved_by"`
+	ResolvedAt     *int64 `db:"resolved_at" json:"resolved_at"`
+	HookCallID     string `db:"hook_call_id" json:"hook_call_id"`
 }
 
 func (q *Queries) ResolveHookPendingReview(ctx context.Context, arg ResolveHookPendingReviewParams) (int64, error) {
-	result, err := q.db.Exec(ctx, resolveHookPendingReview,
-		arg.HookCallID,
+	result, err := q.db.ExecContext(ctx, resolveHookPendingReview,
 		arg.Decision,
 		arg.Reason,
 		arg.IdempotencyKey,
 		arg.ResolvedBy,
 		arg.ResolvedAt,
+		arg.HookCallID,
 	)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }
 
 const saveHookPendingReview = `-- name: SaveHookPendingReview :exec
@@ -282,24 +287,24 @@ const saveHookPendingReview = `-- name: SaveHookPendingReview :exec
 INSERT INTO hook_pending_reviews (
     hook_call_id, topic, agent_id, subscriber_lease, default_action,
     status, created_at, deadline_at
-) VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7)
+) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
 ON CONFLICT (hook_call_id) DO NOTHING
 `
 
 type SaveHookPendingReviewParams struct {
-	HookCallID      string             `db:"hook_call_id" json:"hook_call_id"`
-	Topic           string             `db:"topic" json:"topic"`
-	AgentID         string             `db:"agent_id" json:"agent_id"`
-	SubscriberLease string             `db:"subscriber_lease" json:"subscriber_lease"`
-	DefaultAction   string             `db:"default_action" json:"default_action"`
-	CreatedAt       pgtype.Timestamptz `db:"created_at" json:"created_at"`
-	DeadlineAt      pgtype.Timestamptz `db:"deadline_at" json:"deadline_at"`
+	HookCallID      string `db:"hook_call_id" json:"hook_call_id"`
+	Topic           string `db:"topic" json:"topic"`
+	AgentID         string `db:"agent_id" json:"agent_id"`
+	SubscriberLease string `db:"subscriber_lease" json:"subscriber_lease"`
+	DefaultAction   string `db:"default_action" json:"default_action"`
+	CreatedAt       int64  `db:"created_at" json:"created_at"`
+	DeadlineAt      int64  `db:"deadline_at" json:"deadline_at"`
 }
 
-// hook_pending_review.sql — sqlc queries for hook_pending_reviews table.
+// hook_pending_review.sql - sqlc queries for hook_pending_reviews table.
 // Migrated from internal/store/hookstore/hookstore.go raw SQL.
 func (q *Queries) SaveHookPendingReview(ctx context.Context, arg SaveHookPendingReviewParams) error {
-	_, err := q.db.Exec(ctx, saveHookPendingReview,
+	_, err := q.db.ExecContext(ctx, saveHookPendingReview,
 		arg.HookCallID,
 		arg.Topic,
 		arg.AgentID,

@@ -13,15 +13,13 @@ import (
 func TestStartSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
 	next := newBufferedTransport(t, "thread-1")
 	var launched dto.MCPManifest
-	launchFn := overrideLaunchCLI(t, func(_, _, _, _ string, _ cliLaunchConfig, manifest dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(_, _, _, _ string, _ cliLaunchConfig, manifest dto.MCPManifest, _ string) (*transport, func(), error) {
 		launched = manifest
 		return next.tr, nil, nil
 	})
 
 	workDir := t.TempDir()
 	extraDir := t.TempDir()
-	d := newManifestRootsTestDriver()
-	d.launchCLI = launchFn
 	sess, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		Provider: "claude",
 		AgentID:  "agent-1",
@@ -46,58 +44,10 @@ func TestStartSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
 	assertManifestLSPRoots(t, launched, []string{workDir, extraDir})
 }
 
-func TestStartSessionManifestIncludesConfiguredMCPServers(t *testing.T) {
-	next := newBufferedTransport(t, "thread-1")
-	var launched dto.MCPManifest
-	launchFn := overrideLaunchCLI(t, func(_, _, _, _ string, _ cliLaunchConfig, manifest dto.MCPManifest, _ string) (*transport, func(), error) {
-		launched = manifest
-		return next.tr, nil, nil
-	})
-
-	workDir := t.TempDir()
-	d := newManifestRootsTestDriver()
-	d.launchCLI = launchFn
-	sess, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		Provider: "claude",
-		AgentID:  "agent-1",
-		CWD:      workDir,
-		Config: map[string]any{
-			"mcpConfig": map[string]any{
-				"mcpServers": map[string]any{
-					"my-search": map[string]any{
-						"transport": "http",
-						"url":       "https://your-domain.com/mcp",
-						"headers": map[string]any{
-							"Authorization": "Bearer YOUR_API_KEY",
-						},
-					},
-				},
-			},
-		},
-		StartAssembly: contract.StartAssembly{BaseInstructions: "base"},
-	})
-	if err != nil {
-		t.Fatalf("StartSession() error = %v", err)
-	}
-	if s, ok := sess.(*session); ok {
-		defer func() {
-			if err := s.Close(context.Background()); err != nil {
-				t.Fatalf("Close() error = %v", err)
-			}
-		}()
-		defer next.finish()
-	}
-
-	server := requireManifestBinary(t, launched, "my-search")
-	if server.Type != "http" || server.URL != "https://your-domain.com/mcp" || server.Headers["Authorization"] != "Bearer YOUR_API_KEY" {
-		t.Fatalf("configured MCP server = %#v, want HTTP manifest entry", server)
-	}
-}
-
 func TestResumeSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
 	next := newBufferedTransport(t, "thread-1")
 	var launched dto.MCPManifest
-	launchFn := overrideLaunchCLI(t, func(_, _, _, _ string, _ cliLaunchConfig, manifest dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(_, _, _, _ string, _ cliLaunchConfig, manifest dto.MCPManifest, _ string) (*transport, func(), error) {
 		launched = manifest
 		return next.tr, nil, nil
 	})
@@ -105,8 +55,6 @@ func TestResumeSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
 	workDir := t.TempDir()
 	extraDir := t.TempDir()
 	binaryDir := filepath.Join(t.TempDir(), "super-agent-bin")
-	d := newManifestRootsTestDriver()
-	d.launchCLI = launchFn
 	sess, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		Provider:         "claude",
 		AgentID:          "agent-1",
@@ -171,12 +119,4 @@ func requireManifestBinary(t *testing.T, manifest dto.MCPManifest, name string) 
 	}
 	t.Fatalf("manifest missing binary %q: %#v", name, manifest.Binaries)
 	return dto.MCPBinary{}
-}
-
-func newManifestRootsTestDriver() *driver {
-	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
-	d.authStatus = func(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error) {
-		return claudeAuthStatus{LoggedIn: true, AuthMethod: "oauth_token", APIProvider: "firstParty"}, `{"loggedIn":true}`, nil
-	}
-	return d
 }

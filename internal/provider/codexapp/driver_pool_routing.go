@@ -72,10 +72,12 @@ func validateStartCodexIdentityShape(config map[string]any) error {
 
 // prepareResumeSessionRequest 准备恢复会话请求。
 func (d *driver) prepareResumeSessionRequest(ctx context.Context, req dto.ResumeSessionRequest) (dto.ResumeSessionRequest, error) {
-	requestedHome := req.CodexHome
-	if _, ok := resumeIdentity(req); !ok {
-		return req, errors.New("codex identity required for resume")
+	var err error
+	req, err = d.ResolveResumeSessionIdentity(ctx, req)
+	if err != nil {
+		return req, err
 	}
+	requestedHome := req.CodexHome
 	providerHome, err := selectCodexProviderHome(requestedHome)
 	if err != nil {
 		return req, err

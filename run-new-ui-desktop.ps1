@@ -438,278 +438,124 @@ function Ensure-NodeDeps {
     }
 }
 
-function Ensure-PeerBinaries {
-    $missing = $false
-    foreach ($name in @('mcp-orch', 'mcp-lsp')) {
-        if (-not (Test-Path -LiteralPath (Join-Path $ProjectDir "$name.exe") -PathType Leaf) -and
-            -not (Test-Path -LiteralPath (Join-Path $ProjectDir $name) -PathType Leaf)) {
-            $missing = $true
-            break
+function Test-PeerBinaryStale {
+    param(
+        [Parameter(Mandatory)][string]$BinaryPath,
+        [Parameter(Mandatory)][string[]]$SourcePaths
+    )
+
+    if (-not (Test-Path -LiteralPath $BinaryPath -PathType Leaf)) {
+        return $true
+    }
+
+    $binaryWriteTime = (Get-Item -LiteralPath $BinaryPath).LastWriteTimeUtc
+    foreach ($relativeSourcePath in $SourcePaths) {
+        $sourcePath = Join-Path $ProjectDir $relativeSourcePath
+        if (-not (Test-Path -LiteralPath $sourcePath)) {
+            continue
+        }
+
+        $sourceItem = Get-Item -LiteralPath $sourcePath
+        if (-not $sourceItem.PSIsContainer) {
+            if ($sourceItem.LastWriteTimeUtc -gt $binaryWriteTime) {
+                return $true
+            }
+            continue
+        }
+
+        $newerSource = Get-ChildItem -LiteralPath $sourcePath -Recurse -File |
+            Where-Object {
+                $_.LastWriteTimeUtc -gt $binaryWriteTime -and
+                ($_.Name -eq 'go.mod' -or $_.Name -eq 'go.sum' -or $_.Extension -in @('.go', '.yaml', '.yml'))
+            } |
+            Select-Object -First 1
+        if ($newerSource) {
+            return $true
         }
     }
 
-    if (-not $missing) { return }
+    return $false
+}
 
-    Write-Host '  -> building peer binaries for new UI desktop'
+function Resolve-PeerBinDir {
+    $rawPeerBinDir = [Environment]::GetEnvironmentVariable('GO_AGENT_PEER_BIN_DIR', 'Process')
+    if ($null -eq $rawPeerBinDir -or $rawPeerBinDir.Trim() -eq '') {
+        $env:GO_AGENT_PEER_BIN_DIR = $ProjectDir
+        $rawPeerBinDir = $ProjectDir
+    }
+
+    $peerBinDirCandidates = @($rawPeerBinDir -split [regex]::Escape([string][IO.Path]::PathSeparator) |
+        Where-Object { $_.Trim() -ne '' } |
+        Select-Object -First 1)
+    if ($peerBinDirCandidates.Count -eq 0) {
+        throw 'GO_AGENT_PEER_BIN_DIR must not be empty'
+    }
+
+    $peerBinDir = $peerBinDirCandidates[0]
+    if ($null -eq $peerBinDir -or $peerBinDir.Trim() -eq '') {
+        throw 'GO_AGENT_PEER_BIN_DIR must not be empty'
+    }
+
+    return $peerBinDir.Trim()
+}
+
+function Build-PeerBinaries {
+    param([Parameter(Mandatory)][string]$PeerBinDir)
+
+    if (-not $PeerBinDir -or $PeerBinDir.Trim() -eq '') {
+        throw 'PeerBinDir must not be empty'
+    }
+    $PeerBinDir = $PeerBinDir.Trim()
+    Write-Host "  -> building peer binaries for new UI desktop: $PeerBinDir"
     Push-Location -LiteralPath $ProjectDir
     try {
-        & go build -o (Join-Path $ProjectDir 'mcp-orch.exe') './cmd/mcp-orch/'
+        New-Item -ItemType Directory -Force -Path $PeerBinDir | Out-Null
+        $peerBinDirItem = Get-Item -LiteralPath $PeerBinDir
+        if (-not $peerBinDirItem.PSIsContainer) {
+            throw "PeerBinDir must be a directory: $PeerBinDir"
+        }
+
+        & go build -o (Join-Path $PeerBinDir 'mcp-orch.exe') './cmd/mcp-orch/'
         if ($LASTEXITCODE -ne 0) { throw 'go build mcp-orch failed' }
-        & go build -o (Join-Path $ProjectDir 'mcp-lsp.exe') './cmd/mcp-lsp/'
+        & go build -o (Join-Path $PeerBinDir 'mcp-lsp.exe') './cmd/mcp-lsp/'
         if ($LASTEXITCODE -ne 0) { throw 'go build mcp-lsp failed' }
     } finally {
         Pop-Location
     }
 }
 
-function Get-PostgresPlatformId {
-    $arch = $env:PROCESSOR_ARCHITECTURE
-    switch -Regex ($arch) {
-        'ARM64' { return 'windows-arm64' }
-        default { return 'windows-amd64' }
+function Ensure-PeerBinaries {
+    $peerSourcePaths = @{
+        'mcp-orch' = @('cmd\mcp-orch', 'internal', 'pkg', 'go.mod', 'go.sum')
+        'mcp-lsp' = @('cmd\mcp-lsp', 'internal', 'pkg', 'go.mod', 'go.sum')
     }
-}
 
-function Get-PostgresExecutablePath {
-    param(
-        [Parameter(Mandatory)][string]$BinDir,
-        [Parameter(Mandatory)][string]$Name
-    )
-
-    foreach ($leaf in @($Name, "$Name.exe")) {
-        $candidate = Join-Path $BinDir $leaf
-        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
-    }
-    return $null
-}
-
-function Test-PostgresBinDir {
-    param([Parameter(Mandatory)][string]$BinDir)
-
-    foreach ($name in @('postgres', 'initdb', 'pg_ctl', 'pg_config')) {
-        if (-not (Get-PostgresExecutablePath -BinDir $BinDir -Name $name)) { return $false }
-    }
-    return $true
-}
-
-function Resolve-PostgresBinDir {
-    $platform = Get-PostgresPlatformId
-    $candidates = New-Object System.Collections.Generic.List[string]
-
-    if ($env:SUPER_DOLPHIN_POSTGRES_BIN_DIR) { $candidates.Add($env:SUPER_DOLPHIN_POSTGRES_BIN_DIR) }
-    if ($env:SUPER_DOLPHIN_POSTGRES_DIST) { $candidates.Add((Join-Path $env:SUPER_DOLPHIN_POSTGRES_DIST 'bin')) }
-    $candidates.Add((Join-Path $ProjectDir "third_party\postgres\$platform\bin"))
-    $candidates.Add((Join-Path $ProjectDir ".build-cache\postgres\16.14\$platform\bin"))
-
-    foreach ($root in @(${env:ProgramFiles}, ${env:ProgramFiles(x86)})) {
-        if (-not $root) { continue }
-        foreach ($version in @('16', '15', '14')) {
-            $candidates.Add((Join-Path $root "PostgreSQL\$version\bin"))
+    $peerBinDir = Resolve-PeerBinDir
+    $needsBuild = $false
+    foreach ($name in @('mcp-orch', 'mcp-lsp')) {
+        $binaryPath = Join-Path $peerBinDir "$name.exe"
+        if (Test-PeerBinaryStale -BinaryPath $binaryPath -SourcePaths $peerSourcePaths[$name]) {
+            $needsBuild = $true
+            break
         }
     }
 
-    $pgCtl = Get-Command pg_ctl.exe -ErrorAction SilentlyContinue
-    if ($pgCtl) { $candidates.Add((Split-Path -Parent $pgCtl.Source)) }
+    if (-not $needsBuild) { return }
 
-    foreach ($candidate in ($candidates | Select-Object -Unique)) {
-        if ($candidate -and (Test-PostgresBinDir -BinDir $candidate)) { return $candidate }
-    }
-
-    throw 'missing PostgreSQL runtime; set SUPER_DOLPHIN_POSTGRES_DIST or SUPER_DOLPHIN_POSTGRES_BIN_DIR'
+    Build-PeerBinaries -PeerBinDir $peerBinDir
 }
 
-function Resolve-PostgresShareDir {
-    param([Parameter(Mandatory)][string]$BinDir)
-
-    if ($env:SUPER_DOLPHIN_POSTGRES_SHARE_DIR) {
-        if (Test-Path -LiteralPath (Join-Path $env:SUPER_DOLPHIN_POSTGRES_SHARE_DIR 'postgres.bki') -PathType Leaf) {
-            return $env:SUPER_DOLPHIN_POSTGRES_SHARE_DIR
-        }
-        throw "SUPER_DOLPHIN_POSTGRES_SHARE_DIR missing postgres.bki: $($env:SUPER_DOLPHIN_POSTGRES_SHARE_DIR)"
-    }
-
-    $candidates = New-Object System.Collections.Generic.List[string]
-    $pgConfig = Get-PostgresExecutablePath -BinDir $BinDir -Name 'pg_config'
-    if ($pgConfig) {
-        $sharedir = (& $pgConfig --sharedir 2>$null | Select-Object -First 1)
-        if ($sharedir) { $candidates.Add($sharedir) }
-    }
-
-    $root = Split-Path -Parent $BinDir
-    $distRoot = Split-Path -Parent $root
-    foreach ($candidate in @(
-        (Join-Path $root 'share'),
-        (Join-Path $root 'share\postgresql'),
-        (Join-Path $distRoot 'share'),
-        (Join-Path $distRoot 'share\postgresql'),
-        (Join-Path $distRoot 'share\postgresql\16'),
-        (Join-Path $distRoot 'share\postgresql\14')
-    )) {
-        $candidates.Add($candidate)
-    }
-
-    foreach ($candidate in ($candidates | Select-Object -Unique)) {
-        if ($candidate -and (Test-Path -LiteralPath (Join-Path $candidate 'postgres.bki') -PathType Leaf)) {
-            return $candidate
-        }
-    }
-
-    throw 'missing PostgreSQL share dir with postgres.bki; set SUPER_DOLPHIN_POSTGRES_SHARE_DIR'
-}
-
-function Get-LocalPostgresEndpoint {
-    param([Parameter(Mandatory)][string]$DatabaseUrl)
-
-    try {
-        $uri = [Uri]$DatabaseUrl
-        if ($uri.Scheme -notin @('postgres', 'postgresql')) { return $null }
-        $hostName = $uri.Host.ToLowerInvariant()
-        if ($hostName -notin @('localhost', '127.0.0.1')) { return $null }
-        $port = if ($uri.IsDefaultPort -or $uri.Port -le 0) { 5432 } else { $uri.Port }
-        return [pscustomobject]@{ Host = $uri.Host; Port = $port }
-    } catch {
-        return $null
-    }
-}
-
-function Configure-DevPostgresRuntime {
+function Ensure-SqliteRuntime {
     Set-DefaultEnv -Name 'SUPER_DOLPHIN_PROCESS_ROLE' -Value 'desktop'
-
-    $databaseUrl = if ($env:DATABASE_URL) { $env:DATABASE_URL } else { $env:POSTGRES_CONNECTION_STRING }
-    if ($databaseUrl) {
-        $endpoint = Get-LocalPostgresEndpoint -DatabaseUrl $databaseUrl
-        if ($null -eq $endpoint) { return }
-        if (Test-PortListening -Port $endpoint.Port) {
-            Write-Host "  -> using already-running local PostgreSQL at $($endpoint.Host):$($endpoint.Port)"
-            return
-        }
+    Set-DefaultEnv -Name 'SUPER_DOLPHIN_SQLITE_PATH' -Value (Join-Path $env:SUPER_DOLPHIN_HOME 'super-dolphin.db')
+    if (-not $env:SUPER_DOLPHIN_SQLITE_PATH -or $env:SUPER_DOLPHIN_SQLITE_PATH.Trim() -eq '') {
+        throw 'SUPER_DOLPHIN_SQLITE_PATH must not be empty'
     }
-
-    $binDir = Resolve-PostgresBinDir
-    Set-DefaultEnv -Name 'SUPER_DOLPHIN_POSTGRES_BIN_DIR' -Value $binDir
-    $shareDir = Resolve-PostgresShareDir -BinDir $env:SUPER_DOLPHIN_POSTGRES_BIN_DIR
-    Set-DefaultEnv -Name 'SUPER_DOLPHIN_POSTGRES_SHARE_DIR' -Value $shareDir
-
-    if (-not $databaseUrl) {
-        Set-DefaultEnv -Name 'DATABASE_URL' -Value "postgres://super_dolphin@127.0.0.1:$($env:SUPER_DOLPHIN_LOCAL_POSTGRES_PORT)/super_dolphin?sslmode=disable"
-        Set-DefaultEnv -Name 'DEV_LOCAL_POSTGRES_MANAGED' -Value '1'
-        Write-Host '  -> local PostgreSQL enabled for dev runtime'
+    $parent = Split-Path -Parent $env:SUPER_DOLPHIN_SQLITE_PATH
+    if (-not $parent) {
+        throw "SUPER_DOLPHIN_SQLITE_PATH must include a parent directory: $($env:SUPER_DOLPHIN_SQLITE_PATH)"
     }
-}
-
-function Initialize-LocalPostgresDataDir {
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $env:SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR) | Out-Null
-    Write-Host "  -> initializing local PostgreSQL data dir: $($env:SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR)"
-
-    $initdb = Get-PostgresExecutablePath -BinDir $env:SUPER_DOLPHIN_POSTGRES_BIN_DIR -Name 'initdb'
-    if (-not $initdb) { throw 'initdb was not found' }
-
-    & $initdb -D $env:SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR `
-        -U super_dolphin `
-        -L $env:SUPER_DOLPHIN_POSTGRES_SHARE_DIR `
-        '--locale=C' `
-        '--auth=trust' `
-        '--encoding=UTF8' *> $null
-    if ($LASTEXITCODE -ne 0) { throw 'failed to initialize local PostgreSQL data dir' }
-}
-
-function Ensure-LocalPostgres {
-    $databaseUrl = if ($env:DATABASE_URL) { $env:DATABASE_URL } else { $env:POSTGRES_CONNECTION_STRING }
-    if (-not $databaseUrl) { return }
-
-    $endpoint = Get-LocalPostgresEndpoint -DatabaseUrl $databaseUrl
-    if ($null -eq $endpoint) { return }
-
-    if (Test-PortListening -Port $endpoint.Port) {
-        Write-Host "  -> local PostgreSQL already listening on $($endpoint.Host):$($endpoint.Port)"
-        return
-    }
-
-    if (-not (Test-Path -LiteralPath (Join-Path $env:SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR 'PG_VERSION') -PathType Leaf)) {
-        if ($env:DEV_LOCAL_POSTGRES_MANAGED -eq '1') {
-            Initialize-LocalPostgresDataDir
-        } else {
-            throw "DATABASE_URL points to local PostgreSQL ($($endpoint.Host):$($endpoint.Port)), but data dir is not initialized: $($env:SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR)"
-        }
-    }
-
-    New-Item -ItemType Directory -Force -Path $env:SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR | Out-Null
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $env:SUPER_DOLPHIN_LOCAL_POSTGRES_LOG) | Out-Null
-
-    $pgCtl = Get-PostgresExecutablePath -BinDir $env:SUPER_DOLPHIN_POSTGRES_BIN_DIR -Name 'pg_ctl'
-    if (-not $pgCtl) { throw 'pg_ctl was not found' }
-
-    Write-Host "  -> starting local PostgreSQL: $($endpoint.Host):$($endpoint.Port)"
-    & $pgCtl -D $env:SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR `
-        -l $env:SUPER_DOLPHIN_LOCAL_POSTGRES_LOG `
-        -o "-h $($endpoint.Host) -p $($endpoint.Port)" `
-        -w -t 30 start
-    if ($LASTEXITCODE -ne 0) { throw 'failed to start local PostgreSQL' }
-    $script:LocalPostgresStarted = $true
-}
-
-function Seed-DevPreferences {
-    $seedPreference = if ($env:SUPER_DOLPHIN_SEED_DEV_PREFERENCES) { $env:SUPER_DOLPHIN_SEED_DEV_PREFERENCES } else { '1' }
-    switch ($seedPreference) {
-        { $_ -in @('0', 'false', 'FALSE', 'no', 'NO') } {
-            Write-Host '  -> dev provider preference seed skipped'
-            return
-        }
-    }
-
-    if ($env:DEV_LOCAL_POSTGRES_MANAGED -ne '1') { return }
-
-    foreach ($name in @(
-        'SUPER_DOLPHIN_DEV_PROVIDER',
-        'SUPER_DOLPHIN_DEV_CODEX_MODEL',
-        'SUPER_DOLPHIN_DEV_CODEX_EFFORT',
-        'SUPER_DOLPHIN_DEV_CODEX_HOME',
-        'SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY',
-        'SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER'
-    )) {
-        if (-not [Environment]::GetEnvironmentVariable($name, 'Process')) {
-            throw 'dev provider preferences require non-empty SUPER_DOLPHIN_DEV_PROVIDER, SUPER_DOLPHIN_DEV_CODEX_MODEL, SUPER_DOLPHIN_DEV_CODEX_EFFORT, SUPER_DOLPHIN_DEV_CODEX_HOME, SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY, and SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER'
-        }
-    }
-
-    if ($env:SUPER_DOLPHIN_DEV_PROVIDER -ne 'codex') {
-        throw "run-new-ui-desktop.ps1 only seeds codex dev provider preferences; got SUPER_DOLPHIN_DEV_PROVIDER=$($env:SUPER_DOLPHIN_DEV_PROVIDER)"
-    }
-
-    $psql = Get-PostgresExecutablePath -BinDir $env:SUPER_DOLPHIN_POSTGRES_BIN_DIR -Name 'psql'
-    if (-not $psql) { throw "missing PostgreSQL psql binary: $($env:SUPER_DOLPHIN_POSTGRES_BIN_DIR)\psql.exe" }
-
-    $sql = @"
-INSERT INTO ui_preferences (cwd, key, value)
-VALUES
-  ('', 'settings.provider.active', to_jsonb(:'active_provider'::text)),
-  ('', 'settings.provider.codex.model', to_jsonb(:'codex_model'::text)),
-  ('', 'settings.provider.codex.effort', to_jsonb(:'codex_effort'::text)),
-  ('', 'settings.provider.codex.codexHome', to_jsonb(:'codex_home'::text)),
-  ('', 'settings.provider.codex.codexInstanceKey', to_jsonb(:'codex_instance_key'::text)),
-  ('', 'settings.provider.codex.codexModelProvider', to_jsonb(:'codex_model_provider'::text))
-ON CONFLICT (cwd, key) DO NOTHING;
-"@
-
-    $sqlFile = Join-Path $script:RunLogDir 'seed-dev-preferences.sql'
-    New-Item -ItemType Directory -Force -Path $script:RunLogDir | Out-Null
-    Set-Content -LiteralPath $sqlFile -Value $sql -Encoding UTF8
-    $psqlArgs = @(
-        '--set=ON_ERROR_STOP=1',
-        "--set=active_provider=$($env:SUPER_DOLPHIN_DEV_PROVIDER)",
-        "--set=codex_model=$($env:SUPER_DOLPHIN_DEV_CODEX_MODEL)",
-        "--set=codex_effort=$($env:SUPER_DOLPHIN_DEV_CODEX_EFFORT)",
-        "--set=codex_home=$($env:SUPER_DOLPHIN_DEV_CODEX_HOME)",
-        "--set=codex_instance_key=$($env:SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY)",
-        "--set=codex_model_provider=$($env:SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER)",
-        '-d',
-        $env:DATABASE_URL,
-        '-f',
-        $sqlFile
-    )
-    & $psql @psqlArgs *> $null
-    if ($LASTEXITCODE -ne 0) { throw 'failed to seed dev provider preferences' }
-    Write-Host '  -> dev provider preferences ready'
+    New-Item -ItemType Directory -Force -Path $parent | Out-Null
 }
 
 function Stop-StartedProcesses {
@@ -724,13 +570,6 @@ function Stop-StartedProcesses {
         Stop-ProcessTree -Label 'new UI desktop backend' -ProcessId $script:DesktopProcess.Id
     }
 
-    if ($script:LocalPostgresStarted) {
-        $pgCtl = Get-PostgresExecutablePath -BinDir $env:SUPER_DOLPHIN_POSTGRES_BIN_DIR -Name 'pg_ctl'
-        if ($pgCtl) {
-            Write-Host '  -> stopping local PostgreSQL'
-            & $pgCtl -D $env:SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR -w -t 30 stop -m fast *> $null
-        }
-    }
 }
 
 Import-DotEnvFile -Path (Join-Path $ProjectDir '.env')
@@ -767,13 +606,9 @@ Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_CODEX_EFFORT' -Value 'xhigh'
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_CODEX_HOME' -Value $env:CODEX_HOME
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY' -Value 'default'
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER' -Value 'openai'
-Set-DefaultEnv -Name 'SUPER_DOLPHIN_LOCAL_POSTGRES_PORT' -Value '55433'
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS' -Value '300'
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS' -Value '300'
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS' -Value '0.2'
-Set-DefaultEnv -Name 'SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR' -Value (Join-Path $ProjectDir '.tmp\pgdata')
-Set-DefaultEnv -Name 'SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR' -Value (Join-Path $ProjectDir '.tmp\pgsocket')
-Set-DefaultEnv -Name 'SUPER_DOLPHIN_LOCAL_POSTGRES_LOG' -Value (Join-Path $ProjectDir '.tmp\postgres.log')
 Set-DefaultEnv -Name 'LOG_LEVEL' -Value 'debug'
 Set-DefaultEnv -Name 'ENABLE_MEMORY_SYSTEM' -Value '1'
 Set-DefaultEnv -Name 'ENABLE_MEMORY_TOOLS' -Value '1'
@@ -783,12 +618,11 @@ Set-DefaultEnv -Name 'CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME' -Value '1'
 try {
     Add-CodexCliToPath
     Ensure-DevControlSessionToken
-    Configure-DevPostgresRuntime
+    Ensure-SqliteRuntime
     Stop-StaleViteForPort -Port $ViteDevPort
     Assert-PortFree -Address "$ViteDevHost`:$ViteDevPort"
     Assert-PortFree -Address $env:SUPER_DOLPHIN_HTTP_ADDR
     Assert-PortFree -Address $env:GO_AGENT_CTL_RPC_ADDR
-    Ensure-LocalPostgres
     Ensure-NodeDeps -Dir $FrontendAppDir
     Ensure-PeerBinaries
 
@@ -801,6 +635,7 @@ try {
     Write-Host "  peer bin dir: $($env:GO_AGENT_PEER_BIN_DIR)"
     Write-Host "  runtime:      $($env:SUPER_DOLPHIN_RUNTIME_MODE) ($($env:SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR))"
     Write-Host "  home:         $($env:SUPER_DOLPHIN_HOME)"
+    Write-Host "  sqlite:       $($env:SUPER_DOLPHIN_SQLITE_PATH)"
     Write-Host "  logs:         $($env:SUPER_DOLPHIN_BACKEND_LOG)"
 
     New-Item -ItemType Directory -Force -Path $script:RunLogDir | Out-Null
@@ -828,7 +663,6 @@ try {
         -RedirectStandardError $env:SUPER_DOLPHIN_BACKEND_ERR_LOG
 
     Wait-ForBackend
-    Seed-DevPreferences
 
     Wait-ForAnyProcessExit
 } finally {

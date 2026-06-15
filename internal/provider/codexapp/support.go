@@ -16,6 +16,7 @@ import (
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -332,7 +333,10 @@ func (d *driver) prepareStartDynamicTools(ctx context.Context, s *session, req d
 		return nil, errors.New("codexapp: dynamic tools provider is not configured")
 	}
 	if d.prepareTools != nil {
-		scope := d.codexToolSurfaceScope(req.AgentID, "", "", req.CWD, req.Config)
+		scope, err := d.codexToolSurfaceScope(req.AgentID, "", "", req.CWD, req.Config)
+		if err != nil {
+			return nil, err
+		}
 		scope.SurfaceID = s.ensureToolSurfaceID()
 		return d.prepareTools(ctx, scope)
 	}
@@ -360,10 +364,12 @@ func (d *driver) bindStartedToolSurface(s *session, req dto.StartSessionRequest,
 	if strings.TrimSpace(providerThreadID) == "" {
 		return errors.New("codexapp: provider thread id is required for tool surface bind")
 	}
-	scope := d.codexToolSurfaceScope(req.AgentID, "", providerThreadID, req.CWD, req.Config)
-	scope.SurfaceID = s.currentToolSurfaceID()
-	err := d.bindTools(scope)
+	scope, err := d.codexToolSurfaceScope(req.AgentID, "", providerThreadID, req.CWD, req.Config)
 	if err != nil {
+		return err
+	}
+	scope.SurfaceID = s.currentToolSurfaceID()
+	if err = d.bindTools(scope); err != nil {
 		return fmt.Errorf("dynamic tools start surface bind: %w", err)
 	}
 	return nil
@@ -373,21 +379,25 @@ func (d *driver) rebuildResumeToolSurface(ctx context.Context, s *session, req d
 	if d == nil || d.prepareTools == nil {
 		return nil
 	}
-	scope := d.codexToolSurfaceScope(req.AgentID, req.ThreadID, providerThreadID, req.CWD, req.Config)
-	scope.SurfaceID = s.ensureToolSurfaceID()
-	_, err := d.prepareTools(ctx, scope)
+	scope, err := d.codexToolSurfaceScope(req.AgentID, req.ThreadID, providerThreadID, req.CWD, req.Config)
 	if err != nil {
+		return err
+	}
+	scope.SurfaceID = s.ensureToolSurfaceID()
+	if _, err = d.prepareTools(ctx, scope); err != nil {
 		return fmt.Errorf("dynamic tools resume surface: %w", err)
 	}
 	return nil
 }
 
-func (d *driver) codexToolSurfaceScope(agentID, localThreadID, providerThreadID, cwd string, cfg map[string]any) contract.CodexToolSurfaceScope {
+// codexToolSurfaceScope 组装 Codex 动态工具面所需的可信上下文，并把 mcpConfig 转成可拉取 tools 的 manifest。
+func (d *driver) codexToolSurfaceScope(agentID, localThreadID, providerThreadID, cwd string, cfg map[string]any) (contract.CodexToolSurfaceScope, error) {
 	cwd = strings.TrimSpace(cwd)
 	workspaceRoots := trustedWorkspaceRoots(cwd, providershared.ConfigStringSlice(cfg, "additionalWorkingDirectories", "additional_working_directories"))
-	additionalRoots := []string(nil)
-	if len(workspaceRoots) > 1 {
-		additionalRoots = workspaceRoots[1:]
+	additionalRoots := workspaceRoots[min(len(workspaceRoots), 1):]
+	extraBinaries, err := providershared.ConfigMCPBinaries(cfg, "mcpConfig", "mcp_config")
+	if err != nil {
+		return contract.CodexToolSurfaceScope{}, fmt.Errorf("codexapp: dynamic tools mcpConfig: %w", err)
 	}
 	return contract.CodexToolSurfaceScope{
 		AgentID:          strings.TrimSpace(agentID),
@@ -398,25 +408,17 @@ func (d *driver) codexToolSurfaceScope(agentID, localThreadID, providerThreadID,
 		WorkspaceRoots:   append([]string(nil), workspaceRoots...),
 		Manifest: contract.BuildManifest(dto.ManifestContext{
 			AgentID:                      strings.TrimSpace(agentID),
-			ThreadID:                     strings.TrimSpace(sharedFirstNonEmpty(providerThreadID, localThreadID, agentID)),
+			ThreadID:                     strings.TrimSpace(util.FirstNonEmpty(providerThreadID, localThreadID, agentID)),
 			CWD:                          cwd,
 			AdditionalWorkingDirectories: additionalRoots,
 			ThreadCaps:                   cloneCaps(codexCapabilities),
 			BinaryDir:                    providershared.ResolveBinaryDir(cwd, cfg),
 			Env:                          providershared.StringMap(cfg["env"]),
 			AutoApprove:                  providershared.ConfigStringSlice(cfg, "auto_approve", "autoApprove"),
+			ExtraBinaries:                extraBinaries,
 			TransportMode:                dto.ManifestTransportStdioOnly,
 		}),
-	}
-}
-
-func sharedFirstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
+	}, nil
 }
 
 func (d *driver) finishStartedSession(s *session, req dto.StartSessionRequest, result startResult) contract.Session {
@@ -435,7 +437,7 @@ func (d *driver) finishStartedSession(s *session, req dto.StartSessionRequest, r
 }
 
 func primeResumeToolScope(s *session, req dto.ResumeSessionRequest) {
-	if resumeID := sharedFirstNonEmpty(req.ProviderThreadID, req.ThreadID); resumeID != "" {
+	if resumeID := util.FirstNonEmpty(req.ProviderThreadID, req.ThreadID); resumeID != "" {
 		s.setThreadID(resumeID)
 	}
 	if cwd := strings.TrimSpace(req.CWD); cwd != "" {

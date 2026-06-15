@@ -1,19 +1,29 @@
 -- name: InsertAuditEvent :exec
 INSERT INTO audit_events (ts, event_type, action, result, actor, target, detail, level, extra)
-VALUES (NOW(), $1, $2, $3, $4, $5, $6, $7, $8::jsonb);
+VALUES (
+    sqlc.arg(ts),
+    sqlc.arg(event_type),
+    sqlc.arg(action),
+    sqlc.arg(result),
+    sqlc.arg(actor),
+    sqlc.arg(target),
+    sqlc.arg(detail),
+    sqlc.arg(level),
+    sqlc.arg(extra)
+);
 
 -- name: ListAuditEvents :many
-SELECT ts, event_type, action, result, actor, target, detail, level, extra
+SELECT id, ts, event_type, action, result, actor, target, detail, level, '{}' AS extra
 FROM audit_events
-WHERE ($1::text = '' OR event_type = $1)
-  AND ($2::text = '' OR action = $2)
-  AND ($3::text = '' OR actor = $3)
-  AND ($4::text = ''
-    OR event_type ILIKE '%' || $4 || '%'
-    OR action ILIKE '%' || $4 || '%'
-    OR result ILIKE '%' || $4 || '%'
-    OR actor ILIKE '%' || $4 || '%'
-    OR target ILIKE '%' || $4 || '%'
-    OR detail ILIKE '%' || $4 || '%')
+WHERE (sqlc.arg(event_type_filter) = '' OR event_type = sqlc.arg(event_type_filter))
+  AND (sqlc.arg(action_filter) = '' OR action = sqlc.arg(action_filter))
+  AND (sqlc.arg(actor_filter) = '' OR actor = sqlc.arg(actor_filter))
+  AND (sqlc.arg(keyword) = ''
+    OR lower(event_type) LIKE lower(sqlc.arg(keyword_pattern))
+    OR lower(action) LIKE lower(sqlc.arg(keyword_pattern))
+    OR lower(result) LIKE lower(sqlc.arg(keyword_pattern))
+    OR lower(actor) LIKE lower(sqlc.arg(keyword_pattern))
+    OR lower(target) LIKE lower(sqlc.arg(keyword_pattern))
+    OR lower(detail) LIKE lower(sqlc.arg(keyword_pattern)))
 ORDER BY ts DESC, id DESC
-LIMIT $5;
+LIMIT sqlc.arg(limit_count);

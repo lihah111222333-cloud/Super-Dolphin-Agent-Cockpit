@@ -11,8 +11,7 @@ func packagedRuntimeFromResourcesForOS(goos, resources, userHome string) Package
 	return PackagedRuntime{
 		ResourcesDir:  resources,
 		BinDir:        filepath.Join(resources, "bin"),
-		MigrationsDir: filepath.Join(resources, "migrations"),
-		PostgresRoot:  filepath.Join(resources, "postgres"),
+		MigrationsDir: filepath.Join(resources, "internal", "platform", "db", "sqlite", "migrations"),
 		AppDataDir:    packagedAppDataDirForOS(goos, userHome),
 	}
 }

@@ -50,7 +50,6 @@ type PackagedRuntime struct {
 	ResourcesDir  string
 	BinDir        string
 	MigrationsDir string
-	PostgresRoot  string
 	AppDataDir    string
 }
 

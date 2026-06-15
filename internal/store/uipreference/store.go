@@ -3,15 +3,15 @@ package uipreference
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
 // querier is the narrow subset of sqlc.Queries this store depends on.
-// NewStore still accepts the concrete *sqlc.Queries for fx wiring.
 type querier interface {
-	GetUIPreferenceValue(ctx context.Context, arg sqlc.GetUIPreferenceValueParams) ([]byte, error)
+	GetUIPreferenceValue(ctx context.Context, arg sqlc.GetUIPreferenceValueParams) (json.RawMessage, error)
 	UpsertUIPreference(ctx context.Context, arg sqlc.UpsertUIPreferenceParams) error
 	ListUIPreferences(ctx context.Context, arg sqlc.ListUIPreferencesParams) ([]sqlc.ListUIPreferencesRow, error)
 }
@@ -39,16 +39,20 @@ func (s *store) GetValue(ctx context.Context, cwd, key string) (json.RawMessage,
 
 // Upsert 新增或更新记录。
 func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
+	if err := platformdb.ValidateJSONRaw(params.Value); err != nil {
+		return wrapUIPreferenceError(err, "upsert")
+	}
 	return wrapUIPreferenceError(s.q.UpsertUIPreference(ctx, sqlc.UpsertUIPreferenceParams{
-		CWD:   params.Cwd,
-		Key:   params.Key,
-		Value: params.Value,
+		CWD:       params.Cwd,
+		Key:       params.Key,
+		Value:     params.Value,
+		UpdatedAt: platformdb.Millis(time.Now().UTC()),
 	}), "upsert")
 }
 
 // List 列出uipreference存储。
 func (s *store) List(ctx context.Context, cwd string) ([]UIPreference, error) {
-	rows, err := s.q.ListUIPreferences(ctx, sqlc.ListUIPreferencesParams{Column1: cwd})
+	rows, err := s.q.ListUIPreferences(ctx, sqlc.ListUIPreferencesParams{CWDFilter: cwd})
 	if err != nil {
 		return nil, wrapUIPreferenceError(err, "list")
 	}
@@ -57,7 +61,7 @@ func (s *store) List(ctx context.Context, cwd string) ([]UIPreference, error) {
 		result[i] = UIPreference{
 			Key:       row.Key,
 			Value:     row.Value,
-			UpdatedAt: row.UpdatedAt,
+			UpdatedAt: platformdb.TimeFromMillis(row.UpdatedAt),
 			Cwd:       row.CWD,
 		}
 	}

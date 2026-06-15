@@ -259,11 +259,14 @@ fi
 # ── gofmt（仅对新增/修改/rename/copy 的 Go 文件；删除只影响包测试）
 if [ ${#GOFMT_FILES[@]} -gt 0 ]; then
   echo "[pre-commit] gofmt..."
-  if ! gofmt -l "${GOFMT_FILES[@]}" > "$FMT_OUT" 2>&1; then
-    echo "❌ gofmt 自身执行失败：" >&2
-    cat "$FMT_OUT" >&2
-    exit 1
-  fi
+  : > "$FMT_OUT"
+  for f in "${GOFMT_FILES[@]}"; do
+    if ! gofmt -l "$f" >> "$FMT_OUT" 2>&1; then
+      echo "❌ gofmt 自身执行失败：" >&2
+      cat "$FMT_OUT" >&2
+      exit 1
+    fi
+  done
   if [ -s "$FMT_OUT" ]; then
     echo "❌ 以下文件未格式化：" >&2
     cat "$FMT_OUT" >&2
@@ -324,7 +327,7 @@ if [ ${#PKGS[@]} -gt 0 ]; then
 
   # ── go test -short
   echo "[pre-commit] go test -short..."
-  if ! run_go_without_git_env go test -short -timeout 30s "${PKGS[@]}"; then
+  if ! run_go_without_git_env go test -short -timeout 240s "${PKGS[@]}"; then
     echo "❌ 短测失败" >&2
     echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
     exit 1

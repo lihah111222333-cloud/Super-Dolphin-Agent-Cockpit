@@ -138,14 +138,18 @@ func TestDriverResumeSessionDoesNotWaitForSystemInit(t *testing.T) {
 	resumedUUID := "11111111-2222-3333-4444-555555555555"
 	next := newScriptedTransport()
 	defer next.finish()
-	overrideLaunchCLI(t, func(_, _, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(_, _, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
 		if resumeID != resumedUUID {
 			t.Fatalf("resumeID = %q, want %s", resumeID, resumedUUID)
 		}
 		return next.tr, nil, nil
 	})
 
-	d := assumeClaudeAuthLoggedIn(&driver{mirror: &recordingMirrorReconciler{}})
+	d := &driver{
+		mirror:     &recordingMirrorReconciler{},
+		launchCLI:  launchFn,
+		authStatus: loggedInClaudeAuthStatus,
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	resumed, err := d.ResumeSession(ctx, dto.ResumeSessionRequest{
@@ -174,12 +178,17 @@ func TestDriverResumeSessionPublishesPublicThreadID(t *testing.T) {
 	defer cancel()
 
 	next := newBufferedTransport(t, "provider-thread-1")
-	overrideLaunchCLI(t, func(_, _, _, instructions string, cfg cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(_, _, _, instructions string, cfg cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
 		assertPublicResumeLaunchConfig(t, instructions, cfg, resumeID)
 		return next.tr, nil, nil
 	})
 
-	d := assumeClaudeAuthLoggedIn(&driver{eventDispatcher: dispatcher, mirror: &recordingMirrorReconciler{}})
+	d := &driver{
+		eventDispatcher: dispatcher,
+		mirror:          &recordingMirrorReconciler{},
+		launchCLI:       launchFn,
+		authStatus:      loggedInClaudeAuthStatus,
+	}
 	resumed, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		Provider:         "claude",
 		AgentID:          "agent-1",
@@ -205,12 +214,16 @@ func TestDriverResumeSessionPublishesPublicThreadID(t *testing.T) {
 func TestDriverResumeSessionAppliesRuntimeToolSafetyConfig(t *testing.T) {
 	next := newBufferedTransport(t, "provider-thread-tools")
 	var launchedConfig cliLaunchConfig
-	overrideLaunchCLI(t, func(_, _, _ string, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(_, _, _ string, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
 		launchedConfig = cfg
 		return next.tr, nil, nil
 	})
 
-	d := assumeClaudeAuthLoggedIn(&driver{mirror: &recordingMirrorReconciler{}})
+	d := &driver{
+		mirror:     &recordingMirrorReconciler{},
+		launchCLI:  launchFn,
+		authStatus: loggedInClaudeAuthStatus,
+	}
 	_, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		Provider:         "claude",
 		AgentID:          "agent-1",
@@ -255,12 +268,16 @@ func TestDriverResumeSessionRehydratesClaudeOverrideState(t *testing.T) {
 	model := "claude-sonnet-4-20250514[1m]"
 	effectiveEffort := "high"
 	overrideEffort := "max"
-	overrideLaunchCLI(t, func(_, _, passedModel, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(_, _, passedModel, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
 		assertClaudeOverrideLaunchConfig(t, passedModel, cfg, resumeID, model, effectiveEffort, "provider-thread-override")
 		return next.tr, nil, nil
 	})
 
-	d := assumeClaudeAuthLoggedIn(&driver{mirror: &recordingMirrorReconciler{}})
+	d := &driver{
+		mirror:     &recordingMirrorReconciler{},
+		launchCLI:  launchFn,
+		authStatus: loggedInClaudeAuthStatus,
+	}
 	resumed, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		Provider:         "claude",
 		AgentID:          "agent-1",
@@ -288,12 +305,16 @@ func TestDriverResumeSessionPreservesExplicitClearOverrideState(t *testing.T) {
 	empty := ""
 	effectiveModel := "sonnet"
 	effectiveEffort := "high"
-	overrideLaunchCLI(t, func(_, _, passedModel, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(_, _, passedModel, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
 		assertClaudeOverrideLaunchConfig(t, passedModel, cfg, resumeID, effectiveModel, effectiveEffort, "provider-thread-clear")
 		return next.tr, nil, nil
 	})
 
-	d := assumeClaudeAuthLoggedIn(&driver{mirror: &recordingMirrorReconciler{}})
+	d := &driver{
+		mirror:     &recordingMirrorReconciler{},
+		launchCLI:  launchFn,
+		authStatus: loggedInClaudeAuthStatus,
+	}
 	resumed, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		Provider:         "claude",
 		AgentID:          "agent-1",

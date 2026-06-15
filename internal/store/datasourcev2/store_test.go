@@ -3,10 +3,8 @@ package datasourcev2
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type datasourceV2QuerierStub struct {
@@ -47,7 +45,7 @@ func (s *datasourceV2QuerierStub) MarkDatasourceV2DocumentReady(
 func TestUpsertImportingForwardsDocumentMetadata(t *testing.T) {
 	t.Parallel()
 
-	now := pgtype.Timestamptz{Time: time.Unix(1_000, 0).UTC(), Valid: true}
+	now := int64(1_000_000)
 	var captured sqlc.UpsertDatasourceV2DocumentImportingParams
 	s := &store{q: &datasourceV2QuerierStub{
 		upsertImportingFn: func(_ context.Context, arg sqlc.UpsertDatasourceV2DocumentImportingParams) (sqlc.DatasourceV2Document, error) {

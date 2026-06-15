@@ -17,6 +17,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -358,6 +359,52 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		return nil, err
 	}
 	return d.finishResumedSession(ctx, s, req, threadID), nil
+}
+
+func (d *driver) ResolveResumeSessionIdentity(_ context.Context, req dto.ResumeSessionRequest) (dto.ResumeSessionRequest, error) {
+	if err := validateStartCodexIdentityShape(req.Config); err != nil {
+		return req, err
+	}
+	config := resumeCodexIdentityConfig(req)
+	requestedHome := supportutil.ConfigString(config, contract.CodexHomeKey)
+	providerHome, err := selectCodexProviderHome(requestedHome)
+	if err != nil {
+		return req, err
+	}
+	home, _, err := ensureResolvedCodexProviderHome(providerHome)
+	if err != nil {
+		return req, err
+	}
+	config, err = withDefaultCodexIdentity(config, home, defaultCodexModelProviderForHome(providerHome))
+	if err != nil {
+		return req, err
+	}
+	identity, err := providershared.ResolveCodexIdentity(config)
+	if err != nil {
+		return req, err
+	}
+	req.CodexHome = identity.Home
+	req.CodexInstanceKey = identity.InstanceKey
+	req.CodexModelProvider = identity.ModelProvider
+	req.Config = config
+	return req, nil
+}
+
+func resumeCodexIdentityConfig(req dto.ResumeSessionRequest) map[string]any {
+	config := cloneCodexConfigMap(req.Config)
+	if config == nil {
+		config = make(map[string]any, 3)
+	}
+	if value := strings.TrimSpace(req.CodexHome); value != "" {
+		config[contract.CodexHomeKey] = value
+	}
+	if value := strings.TrimSpace(req.CodexInstanceKey); value != "" {
+		config[contract.CodexInstanceKeyKey] = value
+	}
+	if value := strings.TrimSpace(req.CodexModelProvider); value != "" {
+		config[contract.CodexModelProviderKey] = value
+	}
+	return config
 }
 
 func (d *driver) clearStaleProviderThreadID(agentID, message string) {

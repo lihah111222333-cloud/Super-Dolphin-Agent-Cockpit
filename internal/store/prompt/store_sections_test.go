@@ -2,12 +2,14 @@ package prompt
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
-	"github.com/jackc/pgx/v5"
 )
 
 func TestCreatePromptTemplateConflictMapsToConflict(t *testing.T) {
@@ -15,7 +17,7 @@ func TestCreatePromptTemplateConflictMapsToConflict(t *testing.T) {
 
 	s := &store{q: &promptQuerierStub{
 		createFn: func(context.Context, sqlc.CreatePromptTemplateParams) (sqlc.CreatePromptTemplateRow, error) {
-			return sqlc.CreatePromptTemplateRow{}, pgx.ErrNoRows
+			return sqlc.CreatePromptTemplateRow{}, sql.ErrNoRows
 		},
 	}}
 	_, err := s.CreatePromptTemplate(context.Background(), promptUpsertInput())
@@ -55,15 +57,15 @@ func promptCreateRow(arg sqlc.CreatePromptTemplateParams, now time.Time) sqlc.Cr
 		AgentKey:       arg.AgentKey,
 		ToolName:       arg.ToolName,
 		PromptText:     arg.PromptText,
-		Variables:      arg.Column6,
-		Tags:           arg.Column7,
+		Variables:      arg.Variables,
+		Tags:           arg.Tags,
 		Description:    arg.Description,
 		Enabled:        arg.Enabled,
 		ManuallyEdited: arg.ManuallyEdited,
 		CreatedBy:      arg.CreatedBy,
 		UpdatedBy:      arg.UpdatedBy,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		CreatedAt:      platformdb.Millis(now),
+		UpdatedAt:      platformdb.Millis(now),
 		WhenToUse:      arg.WhenToUse,
 	}
 }
@@ -122,6 +124,79 @@ func TestStoreUpsertSectionDefaultsEmptyTriggerTypeToAlways(t *testing.T) {
 	}
 	if captured.TriggerType != "always" || got.TriggerType != "always" {
 		t.Fatalf("UpsertSection() trigger_type = captured %q got %q, want always", captured.TriggerType, got.TriggerType)
+	}
+}
+
+func TestStoreUpsertSectionDefaultsEmptyEnableWhenToJSON(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		enableWhen json.RawMessage
+	}{
+		{name: "nil", enableWhen: nil},
+		{name: "empty", enableWhen: json.RawMessage("")},
+		{name: "whitespace", enableWhen: json.RawMessage(" \t\r\n ")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var captured sqlc.UpsertPromptTemplateSectionParams
+			s := &store{q: &promptQuerierStub{
+				upsertSectionFn: func(_ context.Context, arg sqlc.UpsertPromptTemplateSectionParams) (sqlc.PromptTemplateSection, error) {
+					captured = arg
+					return promptSectionRowFromUpsert(arg), nil
+				},
+			}}
+
+			got, err := s.UpsertSection(context.Background(), PromptTemplateSection{
+				TemplateID:  7,
+				SectionKey:  "identity",
+				Region:      "static",
+				Body:        "body",
+				EnableWhen:  tt.enableWhen,
+				Enabled:     true,
+				TriggerType: "always",
+			})
+			if err != nil {
+				t.Fatalf("UpsertSection() unexpected error: %v", err)
+			}
+			if captured.EnableWhen != "{}" {
+				t.Fatalf("UpsertSection() enable_when = %q, want {}", captured.EnableWhen)
+			}
+			if got == nil || string(got.EnableWhen) != "{}" || !json.Valid(got.EnableWhen) {
+				t.Fatalf("UpsertSection() mapped enable_when = %s, want valid empty object", got.EnableWhen)
+			}
+		})
+	}
+}
+
+func TestStoreUpsertSectionRejectsInvalidEnableWhen(t *testing.T) {
+	t.Parallel()
+	called := false
+	s := &store{q: &promptQuerierStub{
+		upsertSectionFn: func(context.Context, sqlc.UpsertPromptTemplateSectionParams) (sqlc.PromptTemplateSection, error) {
+			called = true
+			return sqlc.PromptTemplateSection{}, nil
+		},
+	}}
+
+	_, err := s.UpsertSection(context.Background(), PromptTemplateSection{
+		TemplateID:  7,
+		SectionKey:  "identity",
+		Region:      "static",
+		Body:        "body",
+		EnableWhen:  json.RawMessage(`{"language":`),
+		Enabled:     true,
+		TriggerType: "always",
+	})
+	if err == nil {
+		t.Fatal("UpsertSection() expected invalid enable_when error, got nil")
+	}
+	if !strings.Contains(err.Error(), "enable_when") || !strings.Contains(err.Error(), "valid JSON") {
+		t.Fatalf("UpsertSection() error = %v, want clear enable_when JSON validation error", err)
+	}
+	if called {
+		t.Fatal("UpsertSection() called sqlc despite invalid enable_when")
 	}
 }
 
@@ -191,7 +266,7 @@ func TestStoreListSectionsMapsTriggerTypeAndRecallTopic(t *testing.T) {
 				SectionKey:  "project_memory",
 				Region:      "dynamic",
 				Body:        "body",
-				Enabled:     true,
+				Enabled:     int64(1),
 				TriggerType: "recall",
 				RecallTopic: "project-memory",
 			}}, nil
@@ -215,8 +290,8 @@ func TestStoreListSectionsByTemplateIDsForwardsBatchIDsAndMapsRows(t *testing.T)
 		listSectionsBatchFn: func(_ context.Context, arg sqlc.ListPromptTemplateSectionsByTemplatesParams) ([]sqlc.PromptTemplateSection, error) {
 			captured = arg
 			return []sqlc.PromptTemplateSection{
-				{ID: 11, TemplateID: 7, SectionKey: "identity", Region: "static", Body: "identity", Enabled: true, TriggerType: "always"},
-				{ID: 12, TemplateID: 8, SectionKey: "workflow", Region: "dynamic", Body: "workflow", Enabled: true, TriggerType: "keyword"},
+				{ID: 11, TemplateID: 7, SectionKey: "identity", Region: "static", Body: "identity", Enabled: int64(1), TriggerType: "always"},
+				{ID: 12, TemplateID: 8, SectionKey: "workflow", Region: "dynamic", Body: "workflow", Enabled: int64(1), TriggerType: "keyword"},
 			}, nil
 		},
 	}}

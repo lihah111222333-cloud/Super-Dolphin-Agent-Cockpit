@@ -205,10 +205,6 @@ func (r *SessionRuntime) RecoveryCoalescedTotal() int64 { return r.recoveryCoale
 // DroppedSignalsTotal 处理droppedsignalstotal。
 func (r *SessionRuntime) DroppedSignalsTotal() int64 { return r.droppedSignalTotal.Load() }
 
-// -----------------------------------------------------------------------------
-// Health loop
-// -----------------------------------------------------------------------------
-
 func (r *SessionRuntime) safeRunHealthLoop() {
 	defer r.wg.Done()
 	defer func() { r.recoverWorkerPanic("session_runtime.healthLoop", recover()) }()
@@ -258,10 +254,6 @@ func (r *SessionRuntime) tickHealth() {
 	r.NotifyRecovery("health-failure", err.Error())
 }
 
-// -----------------------------------------------------------------------------
-// Recovery worker
-// -----------------------------------------------------------------------------
-
 func (r *SessionRuntime) safeRunRecoveryWorker() {
 	defer r.wg.Done()
 	defer func() { r.recoverWorkerPanic("session_runtime.recoveryWorker", recover()) }()
@@ -283,10 +275,6 @@ func (r *SessionRuntime) runRecoveryWorker() {
 		}
 	}
 }
-
-// -----------------------------------------------------------------------------
-// Reader management
-// -----------------------------------------------------------------------------
 
 // spawnReader starts a new reader goroutine if the stop gate is open and no
 // reader is currently tracked. Returns true when a goroutine was spawned.

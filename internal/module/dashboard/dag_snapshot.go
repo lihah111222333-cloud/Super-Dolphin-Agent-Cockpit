@@ -4,25 +4,44 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"math"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 const (
-	dashboardListDAGsSnapshotQuery = `
+	dashboardListDAGsSnapshotAllQuery = `
 SELECT id, dag_key, version, title, description, status, created_by, metadata,
        trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
 FROM task_dags
-WHERE ($1::text = '' OR status = $1)
-  AND ($2::text = ''
-    OR dag_key ILIKE '%' || $2 || '%'
-    OR title ILIKE '%' || $2 || '%'
-    OR description ILIKE '%' || $2 || '%')
+ORDER BY updated_at DESC, id DESC
+LIMIT $1`
+	dashboardListDAGsSnapshotStatusQuery = `
+SELECT id, dag_key, version, title, description, status, created_by, metadata,
+       trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
+FROM task_dags
+WHERE status = $1
+ORDER BY updated_at DESC, id DESC
+LIMIT $2`
+	dashboardListDAGsSnapshotKeywordQuery = `
+SELECT id, dag_key, version, title, description, status, created_by, metadata,
+       trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
+FROM task_dags
+WHERE LOWER(dag_key) LIKE '%' || LOWER($1) || '%'
+   OR LOWER(title) LIKE '%' || LOWER($1) || '%'
+   OR LOWER(description) LIKE '%' || LOWER($1) || '%'
+ORDER BY updated_at DESC, id DESC
+LIMIT $2`
+	dashboardListDAGsSnapshotStatusKeywordQuery = `
+SELECT id, dag_key, version, title, description, status, created_by, metadata,
+       trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
+FROM task_dags
+WHERE status = $1
+  AND (LOWER(dag_key) LIKE '%' || LOWER($2) || '%'
+    OR LOWER(title) LIKE '%' || LOWER($2) || '%'
+    OR LOWER(description) LIKE '%' || LOWER($2) || '%')
 ORDER BY updated_at DESC, id DESC
 LIMIT $3`
 	dashboardGetDAGSnapshotQuery = `
@@ -45,28 +64,36 @@ SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on, status,
 FROM task_dag_nodes
 WHERE dag_key = $1 AND run_id = $2
 ORDER BY id ASC`
-	dashboardListRunsSnapshotQuery = `
+	dashboardListRunsSnapshotAllQuery = `
 SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
-       started_at, finished_at, events, budget_used, budget_limit, metadata,
+       started_at, finished_at, budget_used, budget_limit, metadata,
        created_at, updated_at
 FROM task_dag_runs
-WHERE dag_key = $1 AND ($2::text = '' OR status = $2)
+WHERE dag_key = $1
+ORDER BY started_at DESC, id DESC
+LIMIT $2`
+	dashboardListRunsSnapshotStatusQuery = `
+SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
+       started_at, finished_at, budget_used, budget_limit, metadata,
+       created_at, updated_at
+FROM task_dag_runs
+WHERE dag_key = $1 AND status = $2
 ORDER BY started_at DESC, id DESC
 LIMIT $3`
-	dashboardListLatestRunsByDAGSnapshotQuery = `
+	dashboardListLatestRunsByDAGSnapshotQueryTemplate = `
 SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
-       started_at, finished_at, events, budget_used, budget_limit, metadata,
+       started_at, finished_at, budget_used, budget_limit, metadata,
        created_at, updated_at
 FROM (
     SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
-           started_at, finished_at, events, budget_used, budget_limit, metadata,
+           started_at, finished_at, budget_used, budget_limit, metadata,
            created_at, updated_at,
            ROW_NUMBER() OVER (PARTITION BY dag_key ORDER BY started_at DESC, id DESC) AS run_rank
     FROM task_dag_runs
-    WHERE dag_key = ANY($1::text[])
+    WHERE dag_key IN (%s)
 ) latest_runs
 WHERE run_rank = 1
-LIMIT $2`
+LIMIT $%d`
 	dashboardGetRunSnapshotQuery = `
 SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
        started_at, finished_at, events, budget_used, budget_limit, metadata,
@@ -81,14 +108,29 @@ func (s *service) hasDAGSnapshotQueries() bool {
 }
 
 func (s *service) listDAGsFromSnapshot(ctx context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error) {
-	rows, err := s.dbQueries.Query(ctx, dashboardListDAGsSnapshotQuery, filter.Status, filter.Keyword, filter.Limit)
+	query, args := dashboardListDAGsSnapshotQuery(filter)
+	rows, err := s.dbQueries.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	return dashboardDAGSummariesFromRows(rows)
 }
 
-// getDAGDetailFromSnapshot 从快照整理 DAG 详情。
+func dashboardListDAGsSnapshotQuery(filter contract.ListDAGsFilter) (string, []any) {
+	status := strings.TrimSpace(filter.Status)
+	keyword := strings.TrimSpace(filter.Keyword)
+	if status != "" && keyword != "" {
+		return dashboardListDAGsSnapshotStatusKeywordQuery, []any{status, keyword, filter.Limit}
+	}
+	if status != "" {
+		return dashboardListDAGsSnapshotStatusQuery, []any{status, filter.Limit}
+	}
+	if keyword != "" {
+		return dashboardListDAGsSnapshotKeywordQuery, []any{keyword, filter.Limit}
+	}
+	return dashboardListDAGsSnapshotAllQuery, []any{filter.Limit}
+}
+
 func (s *service) getDAGDetailFromSnapshot(ctx context.Context, dagKey string) (*contract.DAGDetail, error) {
 	rows, err := s.dbQueries.Query(ctx, dashboardGetDAGSnapshotQuery, dagKey)
 	if err != nil {
@@ -113,19 +155,28 @@ func (s *service) getDAGDetailFromSnapshot(ctx context.Context, dagKey string) (
 }
 
 func (s *service) listDAGRunsFromSnapshot(ctx context.Context, dagKey, status string, limit int32) ([]contract.Run, error) {
-	rows, err := s.dbQueries.Query(ctx, dashboardListRunsSnapshotQuery, dagKey, status, limit)
+	query, args := dashboardListRunsSnapshotQuery(dagKey, status, limit)
+	rows, err := s.dbQueries.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	return dashboardRunsFromRows(rows)
 }
 
-// listLatestDAGRunsByDAGFromSnapshot 按DAG快照列出latestDAG运行记录。
+func dashboardListRunsSnapshotQuery(dagKey, status string, limit int32) (string, []any) {
+	status = strings.TrimSpace(status)
+	if status != "" {
+		return dashboardListRunsSnapshotStatusQuery, []any{dagKey, status, limit}
+	}
+	return dashboardListRunsSnapshotAllQuery, []any{dagKey, limit}
+}
+
 func (s *service) listLatestDAGRunsByDAGFromSnapshot(ctx context.Context, dagKeys []string) (map[string]contract.Run, error) {
 	if len(dagKeys) == 0 {
 		return map[string]contract.Run{}, nil
 	}
-	rows, err := s.dbQueries.Query(ctx, dashboardListLatestRunsByDAGSnapshotQuery, dagKeys, int32(len(dagKeys)))
+	query, args := dashboardLatestRunsByDAGQuery(dagKeys)
+	rows, err := s.dbQueries.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +193,18 @@ func (s *service) listLatestDAGRunsByDAGFromSnapshot(ctx context.Context, dagKey
 	return out, nil
 }
 
-// getDAGRunFromSnapshot 从快照读取DAG运行记录。
+func dashboardLatestRunsByDAGQuery(dagKeys []string) (string, []any) {
+	placeholders := make([]string, len(dagKeys))
+	args := make([]any, 0, len(dagKeys)+1)
+	for index, dagKey := range dagKeys {
+		placeholders[index] = fmt.Sprintf("$%d", index+1)
+		args = append(args, dagKey)
+	}
+	limitPlaceholder := len(dagKeys) + 1
+	args = append(args, int32(len(dagKeys)))
+	return fmt.Sprintf(dashboardListLatestRunsByDAGSnapshotQueryTemplate, strings.Join(placeholders, ", "), limitPlaceholder), args
+}
+
 func (s *service) getDAGRunFromSnapshot(ctx context.Context, runKey string) (contract.GetRunResponse, error) {
 	rows, err := s.dbQueries.Query(ctx, dashboardGetRunSnapshotQuery, runKey)
 	if err != nil {
@@ -178,7 +240,6 @@ func dashboardDAGSummariesFromRows(rows []map[string]any) ([]contract.DAGSummary
 	return out, nil
 }
 
-// dashboardDAGSummaryFromRow 从row处理dashboardDAG摘要。
 func dashboardDAGSummaryFromRow(row map[string]any) (contract.DAGSummary, error) {
 	id, err := dashboardRowInt64(row, "id", true)
 	if err != nil {
@@ -192,30 +253,30 @@ func dashboardDAGSummaryFromRow(row map[string]any) (contract.DAGSummary, error)
 	if err != nil {
 		return contract.DAGSummary{}, err
 	}
-	createdAt, err := dashboardRowTime(row, "created_at", true)
+	times, err := dashboardDAGSummaryTimesFromRow(row)
 	if err != nil {
 		return contract.DAGSummary{}, err
 	}
-	updatedAt, err := dashboardRowTime(row, "updated_at", true)
-	if err != nil {
-		return contract.DAGSummary{}, err
-	}
+	scheduleEnabled := strings.TrimSpace(dashboardString(row, "trigger")) == "scheduled" &&
+		strings.TrimSpace(dashboardString(row, "cron_expr")) != "" &&
+		times.nextRunAt != nil
 	return contract.DAGSummary{
-		ID:          id,
-		DagKey:      dagKey,
-		Version:     version,
-		Title:       dashboardString(row, "title"),
-		Description: dashboardString(row, "description"),
-		Status:      dashboardString(row, "status"),
-		CreatedBy:   dashboardString(row, "created_by"),
-		Metadata:    dashboardJSON(row, "metadata"),
-		Trigger:     dashboardString(row, "trigger"),
-		CronExpr:    dashboardString(row, "cron_expr"),
-		NextRunAt:   dashboardOptionalTime(row, "next_run_at"),
-		StartedAt:   dashboardOptionalTime(row, "started_at"),
-		FinishedAt:  dashboardOptionalTime(row, "finished_at"),
-		CreatedAt:   createdAt,
-		UpdatedAt:   updatedAt,
+		ID:              id,
+		DagKey:          dagKey,
+		Version:         version,
+		Title:           dashboardString(row, "title"),
+		Description:     dashboardString(row, "description"),
+		Status:          dashboardString(row, "status"),
+		CreatedBy:       dashboardString(row, "created_by"),
+		Metadata:        dashboardJSON(row, "metadata"),
+		Trigger:         dashboardString(row, "trigger"),
+		CronExpr:        dashboardString(row, "cron_expr"),
+		NextRunAt:       times.nextRunAt,
+		ScheduleEnabled: scheduleEnabled,
+		StartedAt:       times.startedAt,
+		FinishedAt:      times.finishedAt,
+		CreatedAt:       times.createdAt,
+		UpdatedAt:       times.updatedAt,
 	}, nil
 }
 
@@ -231,7 +292,6 @@ func dashboardDAGNodesFromRows(rows []map[string]any) ([]contract.DAGNode, error
 	return out, nil
 }
 
-// dashboardDAGNodeFromRow 从row处理dashboardDAG节点。
 func dashboardDAGNodeFromRow(row map[string]any) (contract.DAGNode, error) {
 	id, err := dashboardRowInt64(row, "id", true)
 	if err != nil {
@@ -249,11 +309,7 @@ func dashboardDAGNodeFromRow(row map[string]any) (contract.DAGNode, error) {
 	if err != nil {
 		return contract.DAGNode{}, err
 	}
-	createdAt, err := dashboardRowTime(row, "created_at", true)
-	if err != nil {
-		return contract.DAGNode{}, err
-	}
-	updatedAt, err := dashboardRowTime(row, "updated_at", true)
+	times, err := dashboardDAGNodeTimesFromRow(row)
 	if err != nil {
 		return contract.DAGNode{}, err
 	}
@@ -273,13 +329,13 @@ func dashboardDAGNodeFromRow(row map[string]any) (contract.DAGNode, error) {
 		CommandRef:       dashboardString(row, "command_ref"),
 		Config:           dashboardJSON(row, "config"),
 		Result:           dashboardJSON(row, "result"),
-		StartedAt:        dashboardOptionalTime(row, "started_at"),
-		FinishedAt:       dashboardOptionalTime(row, "finished_at"),
-		CreatedAt:        createdAt,
-		UpdatedAt:        updatedAt,
+		StartedAt:        times.startedAt,
+		FinishedAt:       times.finishedAt,
+		CreatedAt:        times.createdAt,
+		UpdatedAt:        times.updatedAt,
 		ActiveTurnID:     dashboardStringPtr(row, "active_turn_id"),
 		ActiveWakeupID:   activeWakeupID,
-		LastEventAt:      dashboardOptionalTime(row, "last_event_at"),
+		LastEventAt:      times.lastEventAt,
 		SpawningThreadID: dashboardStringPtr(row, "spawning_thread_id"),
 	}, nil
 }
@@ -296,7 +352,6 @@ func dashboardRunsFromRows(rows []map[string]any) ([]contract.Run, error) {
 	return out, nil
 }
 
-// dashboardRunFromRow 从row处理dashboard运行记录。
 func dashboardRunFromRow(row map[string]any) (contract.Run, error) {
 	id, err := dashboardRowInt64(row, "id", true)
 	if err != nil {
@@ -318,15 +373,7 @@ func dashboardRunFromRow(row map[string]any) (contract.Run, error) {
 	if err != nil {
 		return contract.Run{}, err
 	}
-	startedAt, err := dashboardRowTime(row, "started_at", true)
-	if err != nil {
-		return contract.Run{}, err
-	}
-	createdAt, err := dashboardRowTime(row, "created_at", true)
-	if err != nil {
-		return contract.Run{}, err
-	}
-	updatedAt, err := dashboardRowTime(row, "updated_at", true)
+	times, err := dashboardRunTimesFromRow(row)
 	if err != nil {
 		return contract.Run{}, err
 	}
@@ -341,14 +388,14 @@ func dashboardRunFromRow(row map[string]any) (contract.Run, error) {
 		DagVersionSnapshot: version,
 		TriggerSource:      dashboardString(row, "trigger_source"),
 		Status:             dashboardString(row, "status"),
-		StartedAt:          startedAt,
-		FinishedAt:         dashboardOptionalTime(row, "finished_at"),
+		StartedAt:          times.startedAt,
+		FinishedAt:         times.finishedAt,
 		Events:             dashboardJSONOrDefault(row, "events", json.RawMessage("[]")),
 		BudgetUsed:         budgetUsed,
 		BudgetLimit:        budgetLimit,
 		Metadata:           dashboardJSONOrDefault(row, "metadata", json.RawMessage("{}")),
-		CreatedAt:          createdAt,
-		UpdatedAt:          updatedAt,
+		CreatedAt:          times.createdAt,
+		UpdatedAt:          times.updatedAt,
 	}, nil
 }
 
@@ -386,7 +433,6 @@ func dashboardJSON(row map[string]any, key string) json.RawMessage {
 	return dashboardJSONOrDefault(row, key, nil)
 }
 
-// dashboardJSONOrDefault 处理dashboardJSONdefault。
 func dashboardJSONOrDefault(row map[string]any, key string, fallback json.RawMessage) json.RawMessage {
 	value, ok := row[key]
 	if !ok || value == nil {
@@ -449,7 +495,6 @@ func dashboardRowInt64(row map[string]any, key string, required bool) (int64, er
 	return dashboardInt64Value(key, value)
 }
 
-// dashboardInt64Value 处理dashboardint64值。
 func dashboardInt64Value(key string, value any) (int64, error) {
 	switch typed := value.(type) {
 	case int:
@@ -488,49 +533,4 @@ func dashboardOptionalInt64Ptr(row map[string]any, key string) (*int64, error) {
 		return nil, err
 	}
 	return &value, nil
-}
-
-func dashboardRowTime(row map[string]any, key string, required bool) (time.Time, error) {
-	ptr, err := dashboardRowTimePtr(row, key, required)
-	if err != nil {
-		return time.Time{}, err
-	}
-	if ptr == nil {
-		return time.Time{}, nil
-	}
-	return *ptr, nil
-}
-
-func dashboardOptionalTime(row map[string]any, key string) *time.Time {
-	value, err := dashboardRowTimePtr(row, key, false)
-	if err != nil {
-		slog.Warn("dashboard: dashboardOptionalTime parse failed", "key", key, "error", err)
-		return nil
-	}
-	return value
-}
-
-// dashboardRowTimePtr 处理dashboardrow时间指针。
-func dashboardRowTimePtr(row map[string]any, key string, required bool) (*time.Time, error) {
-	value, ok := row[key]
-	if !ok || value == nil {
-		if required {
-			return nil, fmt.Errorf("%s is required", key)
-		}
-		return nil, nil
-	}
-	switch typed := value.(type) {
-	case time.Time:
-		return &typed, nil
-	case *time.Time:
-		return typed, nil
-	case string:
-		parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(typed))
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", key, err)
-		}
-		return &parsed, nil
-	default:
-		return nil, fmt.Errorf("%s has unsupported type %T", key, value)
-	}
 }

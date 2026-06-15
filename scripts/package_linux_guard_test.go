@@ -145,6 +145,20 @@ func TestPackageLinuxScriptBundlesModelRegistry(t *testing.T) {
 	assertScriptOrder(t, script, "export SUPER_DOLPHIN_MODEL_REGISTRY=\"$here/models.yaml\"", "exec \"$here/bin/agent-terminal\"")
 }
 
+func TestPackageLinuxScriptCopiesSQLiteRuntimeMigrations(t *testing.T) {
+	script := readScript(t, "package_linux.sh")
+
+	assertScriptContains(t, script, "copy_sqlite_migrations()")
+	assertScriptContains(t, script, "local src=\"$root/internal/platform/db/sqlite/migrations\"")
+	assertScriptContains(t, script, "local dest=\"$bundle_root/internal/platform/db/sqlite/migrations\"")
+	assertScriptContains(t, script, "missing SQLite migrations directory: $src")
+	assertScriptContains(t, script, "missing SQLite migration files under $src")
+	assertScriptContains(t, script, "copy_sqlite_migrations \"$stage\"")
+	assertScriptDoesNotContain(t, script, "cp -R \"$root/migrations\" \"$stage/migrations\"")
+	assertScriptOrder(t, script, "copy_sqlite_migrations \"$stage\"", "write_runtime_manifest \"$stage\"")
+	assertPackageScriptCopySQLiteMigrationsFailsFast(t, "package_linux.sh", "linux")
+}
+
 func TestPackageLinuxScriptEmbedsNewFrontendApp(t *testing.T) {
 	script := readScript(t, "package_linux.sh")
 
@@ -203,12 +217,11 @@ write_runtime_manifest ` + bashQuote(bashArg("", stage)) + `
 		t.Fatalf("runtime-manifest.json is not JSON: %v\n%s", err, raw)
 	}
 	wants := map[string]string{
-		"bundled_codex_path":              "bin/codex",
-		"bundled_gopls_path":              "bin/gopls",
-		"lsp_bundle_path":                 "lsp",
-		"lsp_manifest_path":               "lsp/lsp-manifest.json",
-		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/linux-amd64",
+		"bundled_codex_path":  "bin/codex",
+		"bundled_gopls_path":  "bin/gopls",
+		"lsp_bundle_path":     "lsp",
+		"lsp_manifest_path":   "lsp/lsp-manifest.json",
+		"model_registry_path": "models.yaml",
 	}
 	for key, want := range wants {
 		got := manifest[key]
@@ -218,6 +231,9 @@ write_runtime_manifest ` + bashQuote(bashArg("", stage)) + `
 		if filepath.IsAbs(got) {
 			t.Fatalf("runtime manifest %s = %q, want relocatable relative path", key, got)
 		}
+	}
+	if _, ok := manifest["embedded_postgres_resource_path"]; ok {
+		t.Fatal("runtime manifest must not include embedded_postgres_resource_path")
 	}
 }
 
@@ -252,7 +268,7 @@ copy_model_registry ` + bashQuote(bashArg("", stage)) + `
 		t.Fatalf("copy_model_registry exit code = 0, want non-zero; output=%s", out)
 	}
 	want := "missing model registry: " + bashArg("", filepath.Join(root, "cmd/mcp-orch/tools/modelregistry/models.yaml"))
-	if got := strings.TrimSpace(string(out)); got != want {
+	if got := stripWSLInteropBanner(string(out)); got != want {
 		t.Fatalf("copy_model_registry output = %q, want %q", got, want)
 	}
 	if _, err := os.Stat(filepath.Join(stage, "models.yaml")); !errors.Is(err, os.ErrNotExist) {
@@ -271,12 +287,17 @@ func TestPackageLinuxVerifierScriptContracts(t *testing.T) {
 		"verify_lsp_manifest",
 		"broken symlinks",
 		"package root contains escaped symlink",
-		"postgres.bki",
 		"sha256_file",
 		"tar -xzf",
+		"sqlite_migrations_dir=\"$package_root/internal/platform/db/sqlite/migrations\"",
+		"missing SQLite migration files under $sqlite_migrations_dir",
 	} {
 		assertScriptContains(t, script, want)
 	}
+	assertScriptDoesNotContain(t, script, "embedded_postgres_resource_path")
+	assertScriptDoesNotContain(t, script, "postgres.bki")
+	assertScriptDoesNotContain(t, script, "$pg/bin/")
+	assertScriptDoesNotContain(t, script, "$package_root/migrations")
 }
 
 func TestVerifyPackagedAppLinuxChecksBundledBashLanguageServer(t *testing.T) {
@@ -311,15 +332,37 @@ func TestVerifyPackagedAppLinuxRequiresRuntimeManifest(t *testing.T) {
 	}
 }
 
+func TestVerifyPackagedAppLinuxRejectsOnlyLegacyTopLevelMigrations(t *testing.T) {
+	stage := writeMinimalPackagedLinuxStage(t)
+	writeRuntimeManifest(t, stage, map[string]string{
+		"bundled_codex_path":  "bin/codex",
+		"bundled_gopls_path":  "bin/gopls",
+		"lsp_bundle_path":     "lsp",
+		"lsp_manifest_path":   "lsp/lsp-manifest.json",
+		"model_registry_path": "models.yaml",
+	})
+	if err := os.RemoveAll(sqliteMigrationsPath(stage)); err != nil {
+		t.Fatalf("remove SQLite migrations: %v", err)
+	}
+	writeFile(t, filepath.Join(stage, "migrations", "0001.sql"), "select 1;\n", 0o644)
+
+	output, err := runVerifyPackagedAppLinux(t, stage)
+	if err == nil {
+		t.Fatalf("expected Linux verifier to reject legacy-only migrations, got success:\n%s", output)
+	}
+	if !strings.Contains(output, "missing SQLite migration files under") {
+		t.Fatalf("expected missing SQLite migrations error, got:\n%s", output)
+	}
+}
+
 func TestVerifyPackagedAppLinuxAcceptsStageAndRejectsLSPDigestMismatch(t *testing.T) {
 	stage := writeMinimalPackagedLinuxStage(t)
 	writeRuntimeManifest(t, stage, map[string]string{
-		"bundled_codex_path":              "bin/codex",
-		"bundled_gopls_path":              "bin/gopls",
-		"lsp_bundle_path":                 "lsp",
-		"lsp_manifest_path":               "lsp/lsp-manifest.json",
-		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/linux-amd64",
+		"bundled_codex_path":  "bin/codex",
+		"bundled_gopls_path":  "bin/gopls",
+		"lsp_bundle_path":     "lsp",
+		"lsp_manifest_path":   "lsp/lsp-manifest.json",
+		"model_registry_path": "models.yaml",
 	})
 	output, err := runVerifyPackagedAppLinux(t, stage)
 	if err != nil {

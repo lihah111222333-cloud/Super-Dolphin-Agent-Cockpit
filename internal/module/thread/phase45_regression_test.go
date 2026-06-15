@@ -43,7 +43,11 @@ func (startSnapshotPromptAssembly) Invalidate(context.Context, contract.Invalida
 }
 
 func (s phase45StartOnlySessionStarter) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
-	return s.onStart(ctx, req)
+	session, err := s.onStart(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return attachStartedCodexRuntimeIdentityForTest(req, session), nil
 }
 
 func (phase45StartOnlySessionStarter) ResumeSession(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {

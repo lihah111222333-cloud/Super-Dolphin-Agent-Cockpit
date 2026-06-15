@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"testing"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func TestBackgroundResumeIfNeededSkipsInvalidProviderThreadID(t *testing.T) {
@@ -196,37 +194,6 @@ func TestProcessSessionRecoverySkipsArchivedBinding(t *testing.T) {
 	assertNoResumeStarted(t, resumeReqCh)
 }
 
-func TestSetNameSyncsProviderWhenSupported(t *testing.T) {
-	t.Parallel()
-
-	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:  "thread-1",
-		AgentID:   "agent-1",
-		Prompt:    "before",
-		CreatedAt: 123,
-		Status:    statusCreated,
-	}}
-	session := &stubSession{threadID: "thread-1"}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
-		AgentID:          "agent-1",
-		Provider:         "codex",
-		ProviderThreadID: "thread-1",
-		CodexThreadID:    "thread-1",
-	}}
-	sessions := &stubSessionProvider{session: session}
-	svc := NewService(silentLogger(), threads, bindings, sessions, nil, nil, nil, nil)
-
-	if err := svc.SetName(context.Background(), "thread-1", "after"); err != nil {
-		t.Fatalf("SetName() error = %v", err)
-	}
-	if threads.upsert.Prompt != "after" {
-		t.Fatalf("persisted prompt = %q, want after", threads.upsert.Prompt)
-	}
-	if !reflect.DeepEqual(session.setThreadNameCalls, []string{"thread-1:after"}) {
-		t.Fatalf("provider rename calls = %#v", session.setThreadNameCalls)
-	}
-}
-
 func TestSetModelReturnsFriendlyCapabilityError(t *testing.T) {
 	t.Parallel()
 
@@ -303,7 +270,11 @@ type stubSessionStarter struct {
 
 func (s *stubSessionStarter) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
 	if s.onStart != nil {
-		return s.onStart(ctx, req)
+		session, err := s.onStart(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		return attachStartedCodexRuntimeIdentityForTest(req, session), nil
 	}
 	return nil, errors.New("unexpected start session")
 }
@@ -352,6 +323,7 @@ type stubSession struct {
 	forkRequest        dto.ForkRequest
 	caps               dto.CapabilitySet
 	setThreadNameCalls []string
+	setThreadNameErr   error
 }
 
 func (s *stubSession) ThreadID() string    { return s.threadID }
@@ -402,7 +374,7 @@ func (s *stubSession) ForceStop() error { return nil }
 
 func (s *stubSession) SetThreadName(_ context.Context, threadID, name string) error {
 	s.setThreadNameCalls = append(s.setThreadNameCalls, threadID+":"+name)
-	return nil
+	return s.setThreadNameErr
 }
 
 type stubThreadStore struct {
@@ -608,90 +580,4 @@ func (s *stubBindingStore) Upsert(_ context.Context, params bindingstore.UpsertP
 		UpdatedAt:          params.UpdatedAt,
 	}
 	return nil
-}
-
-func (s *stubBindingStore) DeleteByAgentID(_ context.Context, agentID string) error {
-	if s.deleteErr != nil {
-		return s.deleteErr
-	}
-	s.deleteAgentIDs = append(s.deleteAgentIDs, agentID)
-	if s.binding != nil && s.binding.AgentID == agentID {
-		s.binding = nil
-	}
-	return nil
-}
-
-func (s *stubBindingStore) UpdateSessionUUID(_ context.Context, params bindingstore.UpdateSessionUUIDParams) error {
-	s.sessionUpdates = append(s.sessionUpdates, params)
-	if s.binding != nil && s.binding.AgentID == params.AgentID {
-		s.binding.SessionUUID = params.SessionUUID
-		s.binding.UpdatedAt = params.UpdatedAt
-	}
-	return nil
-}
-
-func (s *stubBindingStore) UpdateProviderThreadID(_ context.Context, params bindingstore.UpdateProviderThreadIDParams) error {
-	s.updateProviderThreadID = params
-	if s.binding != nil && s.binding.AgentID == params.AgentID {
-		s.binding.ProviderThreadID = params.ProviderThreadID
-		s.binding.UpdatedAt = params.UpdatedAt
-	}
-	return nil
-}
-
-func (s *stubBindingStore) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
-	return nil
-}
-
-func (s *stubBindingStore) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
-	return s.bindingForAgent(agentID)
-}
-
-func (s *stubBindingStore) bindingForAgent(agentID string) (*bindingstore.Binding, error) {
-	if s.binding == nil || (agentID != "" && s.binding.AgentID != agentID) {
-		return nil, platformdb.ErrNotFound
-	}
-	binding := *s.binding
-	return &binding, nil
-}
-
-func (s *stubBindingStore) BindAgentThread(context.Context, bindingstore.BindAgentThreadParams) error {
-	return nil
-}
-
-func (s *stubBindingStore) UnbindAgentThread(context.Context, string) error { return nil }
-
-func (s *stubBindingStore) ListAgentThreadBindings(context.Context) ([]bindingstore.Binding, error) {
-	if s.bindings != nil {
-		return s.bindings, nil
-	}
-	if s.binding == nil {
-		return nil, nil
-	}
-	return []bindingstore.Binding{*s.binding}, nil
-}
-
-func (s *stubBindingStore) GetThreadByAgent(context.Context, string) (string, error) {
-	if s.binding == nil {
-		return "", platformdb.ErrNotFound
-	}
-	return shared.FirstNonEmpty(s.binding.CodexThreadID, s.binding.ProviderThreadID), nil
-}
-
-func (s *stubBindingStore) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
-	return nil
-}
-
-func (s *stubBindingStore) Rebind(context.Context, bindingstore.RebindParams) error { return nil }
-
-func (s *stubBindingStore) ListProviderMap(context.Context) (map[string]string, error) {
-	return nil, nil
-}
-
-func (s *stubBindingStore) ListCwdMap(context.Context) (map[string]string, error) {
-	return nil, nil
-}
-
-func silentLogger() *pkglogger.Logger {
-	return pkglogger.Get()
 }

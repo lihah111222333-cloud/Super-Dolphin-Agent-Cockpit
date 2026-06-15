@@ -5,17 +5,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
 type querier interface {
-	UpsertSessionInsight(ctx context.Context, arg sqlc.UpsertSessionInsightParams) (sqlc.SessionInsight, error)
-	GetSessionInsightByLocalTurn(ctx context.Context, arg sqlc.GetSessionInsightByLocalTurnParams) (sqlc.SessionInsight, error)
-	ListSessionInsightsByThread(ctx context.Context, arg sqlc.ListSessionInsightsByThreadParams) ([]sqlc.SessionInsight, error)
-	ListRecentSessionInsights(ctx context.Context, arg sqlc.ListRecentSessionInsightsParams) ([]sqlc.SessionInsight, error)
+	UpsertSessionInsight(ctx context.Context, arg sqlc.UpsertSessionInsightParams) (sqlc.UpsertSessionInsightRow, error)
+	GetSessionInsightByLocalTurn(ctx context.Context, arg sqlc.GetSessionInsightByLocalTurnParams) (sqlc.GetSessionInsightByLocalTurnRow, error)
+	ListSessionInsightsByThread(ctx context.Context, arg sqlc.ListSessionInsightsByThreadParams) ([]sqlc.ListSessionInsightsByThreadRow, error)
+	ListRecentSessionInsights(ctx context.Context, arg sqlc.ListRecentSessionInsightsParams) ([]sqlc.ListRecentSessionInsightsRow, error)
 	ListObservedApprovalRequests(ctx context.Context, arg sqlc.ListObservedApprovalRequestsParams) ([]sqlc.ListObservedApprovalRequestsRow, error)
 	ListObservedTokenTurns(ctx context.Context, arg sqlc.ListObservedTokenTurnsParams) ([]sqlc.ListObservedTokenTurnsRow, error)
 }
@@ -23,23 +21,63 @@ type querier interface {
 type store struct{ q querier }
 
 // NewStore returns the production Store backed by sqlc queries.
-// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
 // ----- helpers -----
 
-func ts(t time.Time) pgtype.Timestamptz {
+func ts(t time.Time) int64 {
 	if t.IsZero() {
-		return pgtype.Timestamptz{Valid: false}
+		return 0
 	}
-	return pgtype.Timestamptz{Time: t, Valid: true}
+	return platformdb.Millis(t)
 }
 
-func fromTS(p pgtype.Timestamptz) time.Time {
-	if !p.Valid {
+func tsPtr(t time.Time) *int64 {
+	if t.IsZero() {
+		return nil
+	}
+	ms := platformdb.Millis(t)
+	return &ms
+}
+
+func fromTS(ms int64) time.Time {
+	if ms == 0 {
 		return time.Time{}
 	}
-	return p.Time
+	return platformdb.TimeFromMillis(ms)
+}
+
+func fromTSPtr(ms *int64) time.Time {
+	if ms == nil {
+		return time.Time{}
+	}
+	return fromTS(*ms)
+}
+
+func boolToInt64(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func boolToIntPtr(b *bool) *int64 {
+	if b == nil {
+		return nil
+	}
+	var v int64
+	if *b {
+		v = 1
+	}
+	return &v
+}
+
+func intPtrToBoolPtr(v *int64) *bool {
+	if v == nil {
+		return nil
+	}
+	b := *v != 0
+	return &b
 }
 
 func bytesOrDefault(b []byte, def string) []byte {
@@ -64,7 +102,6 @@ func wrap(err error, op string) error {
 
 // ----- Store impl -----
 
-// Upsert 新增或更新记录。
 func (s *store) Upsert(ctx context.Context, p UpsertParams) (Insight, error) {
 	now := p.UpdatedAt
 	if now.IsZero() {
@@ -81,23 +118,23 @@ func (s *store) Upsert(ctx context.Context, p UpsertParams) (Insight, error) {
 		Provider:                 strings.TrimSpace(p.Provider),
 		LocalTurnID:              strings.TrimSpace(p.LocalTurnID),
 		ProviderTurnID:           strings.TrimSpace(p.ProviderTurnID),
-		StartedAt:                ts(p.StartedAt),
-		CompletedAt:              ts(p.CompletedAt),
-		DurationMs:               p.DurationMS,
-		Success:                  p.Success,
+		StartedAt:                tsPtr(p.StartedAt),
+		CompletedAt:              tsPtr(p.CompletedAt),
+		DurationMs:               int64(p.DurationMS),
+		Success:                  boolToIntPtr(p.Success),
 		Status:                   firstNonEmpty(p.Status, StatusUnknown),
 		StopReason:               p.StopReason,
-		ToolCalls:                p.ToolCalls,
-		ToolCallsObserved:        p.ToolCallsObserved,
-		ToolFailures:             p.ToolFailures,
-		ToolFailuresObserved:     p.ToolFailuresObserved,
-		ApprovalRequests:         p.ApprovalRequests,
-		ApprovalRequestsObserved: p.ApprovalRequestsObserved,
-		TokenInput:               p.TokenInput,
-		TokenOutput:              p.TokenOutput,
-		TokenTotal:               p.TokenTotal,
-		TokenSnapshotObserved:    p.TokenSnapshotObserved,
-		ContextWindowTokens:      p.ContextWindowTokens,
+		ToolCalls:                int64(p.ToolCalls),
+		ToolCallsObserved:        boolToInt64(p.ToolCallsObserved),
+		ToolFailures:             int64(p.ToolFailures),
+		ToolFailuresObserved:     boolToInt64(p.ToolFailuresObserved),
+		ApprovalRequests:         int64(p.ApprovalRequests),
+		ApprovalRequestsObserved: boolToInt64(p.ApprovalRequestsObserved),
+		TokenInput:               int64(p.TokenInput),
+		TokenOutput:              int64(p.TokenOutput),
+		TokenTotal:               int64(p.TokenTotal),
+		TokenSnapshotObserved:    boolToInt64(p.TokenSnapshotObserved),
+		ContextWindowTokens:      int64(p.ContextWindowTokens),
 		UIProjection:             p.UIProjection,
 		SkillsSelected:           bytesOrDefault(p.SkillsSelected, "[]"),
 		CreatedAt:                ts(createdAt),
@@ -109,7 +146,6 @@ func (s *store) Upsert(ctx context.Context, p UpsertParams) (Insight, error) {
 	return fromRow(row), nil
 }
 
-// GetByLocalTurn 按localturn读取insight存储。
 func (s *store) GetByLocalTurn(ctx context.Context, threadID, localTurnID string) (Insight, error) {
 	threadID = strings.TrimSpace(threadID)
 	localTurnID = strings.TrimSpace(localTurnID)
@@ -129,7 +165,6 @@ func (s *store) GetByLocalTurn(ctx context.Context, threadID, localTurnID string
 	return fromRow(row), nil
 }
 
-// ListByThread 按线程列出insight存储。
 func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) ([]Insight, error) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -140,7 +175,7 @@ func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) 
 	}
 	rows, err := s.q.ListSessionInsightsByThread(ctx, sqlc.ListSessionInsightsByThreadParams{
 		ThreadID: threadID,
-		Limit:    limit,
+		Limit:    int64(limit),
 	})
 	if err != nil {
 		return nil, wrap(err, "list_by_thread")
@@ -152,12 +187,11 @@ func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) 
 	return out, nil
 }
 
-// ListRecent 列出recent。
 func (s *store) ListRecent(ctx context.Context, limit int32) ([]Insight, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := s.q.ListRecentSessionInsights(ctx, sqlc.ListRecentSessionInsightsParams{Limit: limit})
+	rows, err := s.q.ListRecentSessionInsights(ctx, sqlc.ListRecentSessionInsightsParams{Limit: int64(limit)})
 	if err != nil {
 		return nil, wrap(err, "list_recent")
 	}
@@ -168,14 +202,13 @@ func (s *store) ListRecent(ctx context.Context, limit int32) ([]Insight, error) 
 	return out, nil
 }
 
-// ListObservedApprovalRequests 列出observed审批请求。
 func (s *store) ListObservedApprovalRequests(ctx context.Context, threadID string, limit int32) ([]ApprovalRow, error) {
 	if limit <= 0 {
 		limit = 100
 	}
 	rows, err := s.q.ListObservedApprovalRequests(ctx, sqlc.ListObservedApprovalRequestsParams{
 		Column1: strings.TrimSpace(threadID),
-		Limit:   limit,
+		Limit:   int64(limit),
 	})
 	if err != nil {
 		return nil, wrap(err, "list_observed_approval_requests")
@@ -188,21 +221,20 @@ func (s *store) ListObservedApprovalRequests(ctx context.Context, threadID strin
 			AgentID:          r.AgentID,
 			LocalTurnID:      r.LocalTurnID,
 			ProviderTurnID:   r.ProviderTurnID,
-			ApprovalRequests: r.ApprovalRequests,
+			ApprovalRequests: int32(r.ApprovalRequests),
 			CreatedAt:        fromTS(r.CreatedAt),
 		}
 	}
 	return out, nil
 }
 
-// ListObservedTokenTurns 列出observed令牌turn。
 func (s *store) ListObservedTokenTurns(ctx context.Context, threadID string, limit int32) ([]TokenRow, error) {
 	if limit <= 0 {
 		limit = 100
 	}
 	rows, err := s.q.ListObservedTokenTurns(ctx, sqlc.ListObservedTokenTurnsParams{
 		Column1: strings.TrimSpace(threadID),
-		Limit:   limit,
+		Limit:   int64(limit),
 	})
 	if err != nil {
 		return nil, wrap(err, "list_observed_token_turns")
@@ -215,59 +247,95 @@ func (s *store) ListObservedTokenTurns(ctx context.Context, threadID string, lim
 			AgentID:             r.AgentID,
 			LocalTurnID:         r.LocalTurnID,
 			ProviderTurnID:      r.ProviderTurnID,
-			TokenInput:          r.TokenInput,
-			TokenOutput:         r.TokenOutput,
-			TokenTotal:          r.TokenTotal,
-			ContextWindowTokens: r.ContextWindowTokens,
+			TokenInput:          int32(r.TokenInput),
+			TokenOutput:         int32(r.TokenOutput),
+			TokenTotal:          int32(r.TokenTotal),
+			ContextWindowTokens: int32(r.ContextWindowTokens),
 			CreatedAt:           fromTS(r.CreatedAt),
 		}
 	}
 	return out, nil
 }
 
-// fromRow maps a sqlc SessionInsight row into the domain Insight. Time
+// fromRow maps a sqlc session insight row into the domain Insight. Time
 // fields follow the same "zero value = NULL" convention used across this
 // project's stores.
-// fromRow 从row处理insight存储。
-func fromRow(r sqlc.SessionInsight) Insight {
-	return Insight{
-		ID:                       r.ID,
-		ThreadID:                 r.ThreadID,
-		AgentID:                  r.AgentID,
-		SessionID:                r.SessionID,
-		Provider:                 r.Provider,
-		LocalTurnID:              r.LocalTurnID,
-		ProviderTurnID:           r.ProviderTurnID,
-		StartedAt:                fromTS(r.StartedAt),
-		CompletedAt:              fromTS(r.CompletedAt),
-		DurationMS:               r.DurationMs,
-		Success:                  cloneBoolPtr(r.Success),
-		Status:                   r.Status,
-		StopReason:               r.StopReason,
-		ToolCalls:                r.ToolCalls,
-		ToolCallsObserved:        r.ToolCallsObserved,
-		ToolFailures:             r.ToolFailures,
-		ToolFailuresObserved:     r.ToolFailuresObserved,
-		ApprovalRequests:         r.ApprovalRequests,
-		ApprovalRequestsObserved: r.ApprovalRequestsObserved,
-		TokenInput:               r.TokenInput,
-		TokenOutput:              r.TokenOutput,
-		TokenTotal:               r.TokenTotal,
-		TokenSnapshotObserved:    r.TokenSnapshotObserved,
-		ContextWindowTokens:      r.ContextWindowTokens,
-		UIProjection:             r.UIProjection,
-		SkillsSelected:           cloneBytes(r.SkillsSelected),
-		CreatedAt:                fromTS(r.CreatedAt),
-		UpdatedAt:                fromTS(r.UpdatedAt),
+func fromRow(row any) Insight {
+	switch r := row.(type) {
+	case sqlc.UpsertSessionInsightRow:
+		return insightFromFields(r.ID, r.ThreadID, r.AgentID, r.SessionID, r.Provider, r.LocalTurnID,
+			r.ProviderTurnID, r.StartedAt, r.CompletedAt, r.DurationMs, r.Success, r.Status, r.StopReason,
+			r.ToolCalls, r.ToolCallsObserved, r.ToolFailures, r.ToolFailuresObserved, r.ApprovalRequests,
+			r.ApprovalRequestsObserved, r.TokenInput, r.TokenOutput, r.TokenTotal, r.TokenSnapshotObserved,
+			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt)
+	case sqlc.GetSessionInsightByLocalTurnRow:
+		return insightFromFields(r.ID, r.ThreadID, r.AgentID, r.SessionID, r.Provider, r.LocalTurnID,
+			r.ProviderTurnID, r.StartedAt, r.CompletedAt, r.DurationMs, r.Success, r.Status, r.StopReason,
+			r.ToolCalls, r.ToolCallsObserved, r.ToolFailures, r.ToolFailuresObserved, r.ApprovalRequests,
+			r.ApprovalRequestsObserved, r.TokenInput, r.TokenOutput, r.TokenTotal, r.TokenSnapshotObserved,
+			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt)
+	case sqlc.ListSessionInsightsByThreadRow:
+		return insightFromFields(r.ID, r.ThreadID, r.AgentID, r.SessionID, r.Provider, r.LocalTurnID,
+			r.ProviderTurnID, r.StartedAt, r.CompletedAt, r.DurationMs, r.Success, r.Status, r.StopReason,
+			r.ToolCalls, r.ToolCallsObserved, r.ToolFailures, r.ToolFailuresObserved, r.ApprovalRequests,
+			r.ApprovalRequestsObserved, r.TokenInput, r.TokenOutput, r.TokenTotal, r.TokenSnapshotObserved,
+			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt)
+	case sqlc.ListRecentSessionInsightsRow:
+		return insightFromFields(r.ID, r.ThreadID, r.AgentID, r.SessionID, r.Provider, r.LocalTurnID,
+			r.ProviderTurnID, r.StartedAt, r.CompletedAt, r.DurationMs, r.Success, r.Status, r.StopReason,
+			r.ToolCalls, r.ToolCallsObserved, r.ToolFailures, r.ToolFailuresObserved, r.ApprovalRequests,
+			r.ApprovalRequestsObserved, r.TokenInput, r.TokenOutput, r.TokenTotal, r.TokenSnapshotObserved,
+			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt)
+	default:
+		panic("unsupported session insight row type")
 	}
 }
 
-func cloneBoolPtr(v *bool) *bool {
-	if v == nil {
-		return nil
+func insightFromFields(
+	id int64,
+	threadID, agentID, sessionID, provider, localTurnID, providerTurnID string,
+	startedAt, completedAt *int64,
+	durationMs int64,
+	success *int64,
+	status, stopReason string,
+	toolCalls, toolCallsObserved, toolFailures, toolFailuresObserved int64,
+	approvalRequests, approvalRequestsObserved int64,
+	tokenInput, tokenOutput, tokenTotal, tokenSnapshotObserved int64,
+	contextWindowTokens int64,
+	uiProjection string,
+	skillsSelected []byte,
+	createdAt, updatedAt int64,
+) Insight {
+	return Insight{
+		ID:                       id,
+		ThreadID:                 threadID,
+		AgentID:                  agentID,
+		SessionID:                sessionID,
+		Provider:                 provider,
+		LocalTurnID:              localTurnID,
+		ProviderTurnID:           providerTurnID,
+		StartedAt:                fromTSPtr(startedAt),
+		CompletedAt:              fromTSPtr(completedAt),
+		DurationMS:               int32(durationMs),
+		Success:                  intPtrToBoolPtr(success),
+		Status:                   status,
+		StopReason:               stopReason,
+		ToolCalls:                int32(toolCalls),
+		ToolCallsObserved:        toolCallsObserved != 0,
+		ToolFailures:             int32(toolFailures),
+		ToolFailuresObserved:     toolFailuresObserved != 0,
+		ApprovalRequests:         int32(approvalRequests),
+		ApprovalRequestsObserved: approvalRequestsObserved != 0,
+		TokenInput:               int32(tokenInput),
+		TokenOutput:              int32(tokenOutput),
+		TokenTotal:               int32(tokenTotal),
+		TokenSnapshotObserved:    tokenSnapshotObserved != 0,
+		ContextWindowTokens:      int32(contextWindowTokens),
+		UIProjection:             uiProjection,
+		SkillsSelected:           cloneBytes(skillsSelected),
+		CreatedAt:                fromTS(createdAt),
+		UpdatedAt:                fromTS(updatedAt),
 	}
-	out := *v
-	return &out
 }
 
 func firstNonEmpty(a, b string) string {

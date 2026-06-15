@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 )
 
 type wakeupFence struct {
@@ -40,11 +41,65 @@ func queryMany[Row any, Out any](
 	return mapRows(rows, mapper), nil
 }
 
+func queryManyWrite[Row any, Out any](
+	ctx context.Context,
+	call func() ([]Row, error),
+	operation, entity string,
+	mapper func(Row) Out,
+) ([]Out, error) {
+	var mapped []Out
+	err := sqlctx.WithWriteRetry(ctx, func() error {
+		rows, err := call()
+		if err != nil {
+			return wrapTaskDAGError(err, operation, entity)
+		}
+		mapped = mapRows(rows, mapper)
+		return nil
+	})
+	return mapped, err
+}
+
 func queryValue[T any](call func() (T, error), operation, entity string) (T, error) {
 	value, err := call()
 	if err != nil {
 		var zero T
 		return zero, wrapTaskDAGError(err, operation, entity)
+	}
+	return value, nil
+}
+
+func queryOneWrite[Row any, Out any](
+	ctx context.Context,
+	call func() (Row, error),
+	operation, entity string,
+	mapper func(Row) Out,
+) (*Out, error) {
+	var mapped *Out
+	err := sqlctx.WithWriteRetry(ctx, func() error {
+		row, err := call()
+		if err != nil {
+			return wrapTaskDAGError(err, operation, entity)
+		}
+		out := mapper(row)
+		mapped = &out
+		return nil
+	})
+	return mapped, err
+}
+
+func queryValueWrite[T any](ctx context.Context, call func() (T, error), operation, entity string) (T, error) {
+	var value T
+	err := sqlctx.WithWriteRetry(ctx, func() error {
+		next, err := call()
+		if err != nil {
+			return wrapTaskDAGError(err, operation, entity)
+		}
+		value = next
+		return nil
+	})
+	if err != nil {
+		var zero T
+		return zero, err
 	}
 	return value, nil
 }
@@ -57,14 +112,18 @@ func mapRows[In any, Out any](rows []In, mapper func(In) Out) []Out {
 	return out
 }
 
-func updateNodeStatus(call func() (sqlc.TaskDagNode, error), operation string) (*Node, error) {
-	return queryOne(call, operation, "task_dag_node", fromNode)
+func updateNodeStatus[Row any](call func() (Row, error), operation string, mapper func(Row) Node) (*Node, error) {
+	return queryOne(call, operation, "task_dag_node", mapper)
+}
+
+func updateNodeStatusWrite[Row any](ctx context.Context, call func() (Row, error), operation string, mapper func(Row) Node) (*Node, error) {
+	return queryOneWrite(ctx, call, operation, "task_dag_node", mapper)
 }
 
 func parseLeaseDuration(value, operation, entity string) (sqlc.Interval, error) {
 	interval, err := intervalValue(value)
 	if err != nil {
-		return sqlc.Interval{}, wrapTaskDAGError(err, operation, entity)
+		return 0, wrapTaskDAGError(err, operation, entity)
 	}
 	return interval, nil
 }
@@ -98,6 +157,17 @@ func fencedWakeupMutation(
 	call func(wakeupFence) (int64, error),
 ) (int64, error) {
 	return queryValue(func() (int64, error) {
+		return call(fence)
+	}, operation, "task_dag_wakeup")
+}
+
+func fencedWakeupMutationWrite(
+	ctx context.Context,
+	operation string,
+	fence wakeupFence,
+	call func(wakeupFence) (int64, error),
+) (int64, error) {
+	return queryValueWrite(ctx, func() (int64, error) {
 		return call(fence)
 	}, operation, "task_dag_wakeup")
 }

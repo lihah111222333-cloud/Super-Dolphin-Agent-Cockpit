@@ -523,7 +523,7 @@ func TestWaitDiagnosticsStableFailsWhenTargetNeverPublishes(t *testing.T) {
 		DiagnosticsPollInterval: time.Millisecond,
 		DiagnosticsMaxWait:      time.Millisecond,
 	})
-	ctx, cancel := context.WithTimeout(common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}), time.Second)
 	defer cancel()
 	uri := fileURIFromPath(target)
 
@@ -544,11 +544,12 @@ func TestWaitDiagnosticsStableFailsWhenAnyRequestedTargetNeverPublishes(t *testi
 		DiagnosticsPollInterval: time.Millisecond,
 		DiagnosticsMaxWait:      time.Millisecond,
 	})
-	ctx, cancel := context.WithTimeout(common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}}), time.Second)
 	defer cancel()
 	firstURI := fileURIFromPath(first)
 	secondURI := fileURIFromPath(second)
 	resolveDiagnosticsScopeForTarget(t, mgr, ctx, first, "first")
+	resolveDiagnosticsScopeForTarget(t, mgr, ctx, second, "second")
 	if err := mgr.PublishDiagnostics(protocol.PublishDiagnosticsParams{URI: firstURI}); err != nil {
 		t.Fatalf("PublishDiagnostics(first) error = %v", err)
 	}

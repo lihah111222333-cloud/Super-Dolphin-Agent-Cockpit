@@ -183,7 +183,7 @@
   - `CancelExpiredReviews`：把过期 `pending` 置为 `expired`，同时把 `decision = default_action` 并写 `resolved_at`。
 - **表**：`hook_pending_reviews`
 - **备注**：
-  - 明确是 **sqlc 例外**：`NewStore(platformdb.Queryable)` 直接对 `Exec/Query/QueryRow` 发手写 SQL；`module.go` 里实际把 `*pgxpool.Pool` 作为 `Queryable` 注入。
+  - 明确是 **sqlc 例外**：`NewStore(platformdb.Queryable)` 直接对 `Exec/Query/QueryRow` 发手写 SQL；Task13 后产品运行时通过 SQLite `*sql.DB` / queryable 注入。
   - schema 已有 `thread_id/turn_id/payload/resolved_by` 等列；当前 contract 只暴露其中一部分，`GetResolvedReview` 也尚未把 `resolved_by` 暴露出来。
 
 ### 2.10 `interaction`
@@ -281,7 +281,7 @@
   - `Upsert`：写 `agent_threads` 主运行信息与 `config_override`。
   - `SavePromptSnapshot`：把 `PromptSnapshot{displayName, baseInstructions, boundary, developerInstructions, provider, version, hash, sectionSnapshot, generation}` 序列化为 JSON，写回 `agent_threads.prompt_snapshot`；若 `SectionSnapshot=nil` 会先归一化为空 map，避免落成 `null`。
   - `LoadPromptSnapshot`：走独立 SQL 只取 `prompt_snapshot` 列；空 payload 或字面量 `null` 视为“没有快照”，反序列化后再次保证 `SectionSnapshot` 非 nil；`UnmarshalJSON` 会同时兼容 modern camelCase 与 legacy snake_case 字段。
-  - `Save/LoadPromptSnapshot` 的 not-found 语义来自两条不同路径：`Save` 依赖 `UPDATE ... :execrows` 的 `RowsAffected==0` 主动返回 `ErrNotFound`，`Load` 则因为 `SELECT ... :one` 在缺行时产生 `pgx.ErrNoRows`，再经 `WrapStoreError` 统一归类为 `ErrNotFound`。
+  - `Save/LoadPromptSnapshot` 的 not-found 语义来自两条不同路径：`Save` 依赖 `UPDATE ... :execrows` 的 `RowsAffected==0` 主动返回 `ErrNotFound`，`Load` 则因为 `SELECT ... :one` 在缺行时产生 driver not-found error，再经 `WrapStoreError` 统一归类为 `ErrNotFound`。
   - `GetByThreadID / GetByPort / List*`：SQL 会回查 `agent_provider_binding`，按 `provider_thread_id/codex_thread_id`，必要时还会利用 `owner_thread_id` 派生 `AgentID`。
   - `GetByPort`：只看 `status='running'`，按 `updated_at DESC` 取最新。
   - `ListRecoverable`：只返回 `status='created'`。
@@ -338,8 +338,7 @@
 - `queries: sql/queries/`
 - `out: internal/store/sqlc`
 - `package: sqlc`
-- `sql_package: pgx/v5`
-- `sql_driver: github.com/jackc/pgx/v5`
+- `sql_package` / `sql_driver` 名称仍保留部分 pgx 历史痕迹；Task13 产品运行时实际入口为 SQLite `database/sql`
 - 打开了：
   - `emit_json_tags`
   - `emit_db_tags`
@@ -375,7 +374,7 @@
 `internal/store/sqlc/` 可以分成 4 类：
 
 1. **基础生成类型**
-   - `db.go`：sqlc 生成的 `DBTX`、`Queries`、`Queries.WithTx(tx pgx.Tx)`
+   - `db.go`：sqlc 生成的 `DBTX`、`Queries`、`Queries.WithTx(...)`（事务句柄由当前 SQLite runtime 提供）
 
 2. **全量接口**
    - `querier.go`：sqlc 生成的总接口 `Querier`
@@ -669,7 +668,7 @@ flowchart LR
 ### 5.2 只读事务策略
 `internal/platform/db/tx.go` 提供了统一封装：
 
-- 若底层 `Queryable` 支持 `BeginTx`（例如 `*pgxpool.Pool`），则以 `pgx.TxOptions{AccessMode: pgx.ReadOnly}` 打开只读事务。
+- 若底层 `Queryable` 支持 `BeginTx`（例如 SQLite `*sql.DB`），则打开只读事务。
 - 若底层不支持 `BeginTx`，则回退为 `openDirectRows(...)` 直接查询，不强行造事务。
 - 成功路径 commit，失败路径 rollback。
 - 清理阶段使用 `context.WithoutCancel(ctx)` + `1s` 超时，避免上游取消把提交 / 回滚也中断。
@@ -757,7 +756,7 @@ flowchart LR
 
 ```go
 var Module = fx.Module("store",
-    fx.Provide(func(pool *pgxpool.Pool) *sqlc.Queries { return sqlc.New(pool) }),
+    fx.Provide(func(db *sql.DB) *sqlc.Queries { return sqlc.New(db) }),
     agentstatus.Module,
     ailog.Module,
     auditlog.Module,
@@ -810,7 +809,7 @@ var Module = fx.Module("store",
 - `dbquery.NewStore(*sqlc.Queries, time.Duration) Store`；fx 实际通过 `newDefaultStore(*sqlc.Queries) Store` 注入默认 `10s` 超时
 - `hookstore.NewStore(platformdb.Queryable) contract.HookReviewStore`
 - `interaction.NewStore(*sqlc.Queries) Store`
-- `prompt.newStoreWithPool(*pgxpool.Pool, *sqlc.Queries) Store`；同时 `prompt.AsReader(Store) Reader`
+- `prompt.newStoreWithDB(*sql.DB, *sqlc.Queries) Store`；同时 `prompt.AsReader(Store) Reader`
 - `sharedfile.NewStoreWithConfig(*sqlc.Queries, sharedfilefs.Config) Store`；fx 实际通过 `provideStore(*sqlc.Queries, *platformconfig.Config) Store`，再分别 `fx.Provide(func(s Store) Reader/Deleter/Upserter)`
 - `systemlog.NewStore(*sqlc.Queries) Store`
 - `tasktrace.NewStore(*sqlc.Queries) Store`
@@ -905,7 +904,7 @@ var Module = fx.Module("store",
 - `sqlc.yaml:16`：生成输出目录是 `internal/store/sqlc`。
 - `internal/store/sqlc/querier.go:11`：`Querier` 是跨所有 query 文件的总接口。
 - `internal/store/sqlc/db.go:24`：`Queries` 持有底层 `DBTX`。
-- `internal/store/sqlc/db.go:28-32`：`Queries.WithTx(tx pgx.Tx)` 负责把同一组 query 方法重绑到事务句柄上。
+- `internal/store/sqlc/db.go:28-32`：`Queries.WithTx(...)` 负责把同一组 query 方法重绑到事务句柄上。
 - `sqlc.yaml:12`：当前 sqlc schema 输入已包含 `migrations/0032_agent_memory_identity.sql`；因此“sqlc 只读到 0031”为旧结论，不再成立。
 
 ## 6. 最近 5 条 migrations

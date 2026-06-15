@@ -1,3 +1,5 @@
+//go:build legacy_pg_fake
+
 package taskdag
 
 import (
@@ -20,7 +22,7 @@ type fakeTaskDAGDB struct {
 	nodes   map[string]sqlc.TaskDagNode
 	ops     []string
 	locks   map[string]bool
-	// F6.2: runs 用于模拟 task_dag_runs 一行，键是 run_key；finalize SQL 拦截会读写它。
+	// F6.2: runs 鐢ㄤ簬妯℃嫙 task_dag_runs 涓€琛岋紝閿槸 run_key锛沠inalize SQL 鎷︽埅浼氳鍐欏畠銆?
 	// F6.2: runs simulates task_dag_runs rows keyed by run_key so the finalize
 	// SQL interceptor can mutate run.status when all nodes reach terminal.
 	runs                  map[string]sqlc.TaskDagRun
@@ -201,8 +203,8 @@ func (db *fakeTaskDAGDB) Exec(_ context.Context, sql string, args ...any) (pgcon
 	return db.execCommandLocked(sql, args...)
 }
 
-// promoteSingleNodePendingToReady 复现 F6.3 PromoteSingleNodePendingToReady SQL
-// 的语义：仅当 node 还在 pending 时才推进到 ready，并返回受影响行数。
+// promoteSingleNodePendingToReady 澶嶇幇 F6.3 PromoteSingleNodePendingToReady SQL
+// 鐨勮涔夛細浠呭綋 node 杩樺湪 pending 鏃舵墠鎺ㄨ繘鍒?ready锛屽苟杩斿洖鍙楀奖鍝嶈鏁般€?
 // promoteSingleNodePendingToReady mirrors the F6.3 SQL: only flip when the
 // node row is still in 'pending', otherwise return 0 affected rows.
 func (db *fakeTaskDAGDB) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
@@ -215,9 +217,9 @@ func (db *fakeTaskDAGDB) Query(_ context.Context, sql string, args ...any) (pgx.
 	return &stubTaskDAGRows{rows: rows}, nil
 }
 
-// finalizeRunIfAllNodesTerminal 复现 F6.2 SQL 的语义：在同一个 fake DB 上扫
-// dag_key 下节点状态，按优先级 (failed > cancelled > succeeded) 决定
-// final_status；节点还有非终态或 dag_key 下无 running run 时返回 0 行。
+// finalizeRunIfAllNodesTerminal 澶嶇幇 F6.2 SQL 鐨勮涔夛細鍦ㄥ悓涓€涓?fake DB 涓婃壂
+// dag_key 涓嬭妭鐐圭姸鎬侊紝鎸変紭鍏堢骇 (failed > cancelled > succeeded) 鍐冲畾
+// final_status锛涜妭鐐硅繕鏈夐潪缁堟€佹垨 dag_key 涓嬫棤 running run 鏃惰繑鍥?0 琛屻€?
 //
 // finalizeRunIfAllNodesTerminal mirrors the F6.2 finalize SQL semantics inside
 // the fake DB. Empty result rows mean either some nodes are still non-terminal
@@ -229,7 +231,7 @@ func (db *fakeTaskDAGDB) QueryRow(_ context.Context, sql string, args ...any) pg
 	return stubTaskDAGRow{values: values, err: err}
 }
 
-// lookupNodesBySpawningThread mirrors the ADR-017 §2.2 reverse-lookup query:
+// lookupNodesBySpawningThread mirrors the ADR-017 搂2.2 reverse-lookup query:
 // SELECT * FROM task_dag_nodes WHERE spawning_thread_id = $1 AND
 // spawning_thread_id IS NOT NULL ORDER BY updated_at DESC, id DESC.
 // updateRunningNodeStatus mirrors the W4-fence UpdateRunningTaskDagNodeStatus

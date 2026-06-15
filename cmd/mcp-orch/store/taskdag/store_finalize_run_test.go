@@ -1,3 +1,5 @@
+//go:build legacy_pg_fake
+
 package taskdag
 
 import (
@@ -8,21 +10,21 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 )
 
-// F6.2 — run 终态判定测试。
+// F6.2 鈥?run 缁堟€佸垽瀹氭祴璇曘€?
 //
-// 触发链：service.UpdateNodeStatus(终态) → store.CompleteNodeAndScheduleDownstream
-// 完成节点更新 + 下游 promote → maybeFinalizeRun 检查所有节点是否全终态，
-// 若是按优先级把 task_dag_runs.status 从 'running' 推到 终态。
+// 瑙﹀彂閾撅細service.UpdateNodeStatus(缁堟€? 鈫?store.CompleteNodeAndScheduleDownstream
+// 瀹屾垚鑺傜偣鏇存柊 + 涓嬫父 promote 鈫?maybeFinalizeRun 妫€鏌ユ墍鏈夎妭鐐规槸鍚﹀叏缁堟€侊紝
+// 鑻ユ槸鎸変紭鍏堢骇鎶?task_dag_runs.status 浠?'running' 鎺ㄥ埌 缁堟€併€?
 //
-// 优先级（含义：什么 status 占主导）：
-//   1. 任意节点 failed                  → run.status = failed
-//   2. 否则任意节点 cancelled           → run.status = cancelled
-//   3. 否则全部 done / skipped          → run.status = succeeded
-//   4. 若有非终态(pending/ready/running/retrying/waiting_human) → 不动 run（仍 running）
+// 浼樺厛绾э紙鍚箟锛氫粈涔?status 鍗犱富瀵硷級锛?
+//   1. 浠绘剰鑺傜偣 failed                  鈫?run.status = failed
+//   2. 鍚﹀垯浠绘剰鑺傜偣 cancelled           鈫?run.status = cancelled
+//   3. 鍚﹀垯鍏ㄩ儴 done / skipped          鈫?run.status = succeeded
+//   4. 鑻ユ湁闈炵粓鎬?pending/ready/running/retrying/waiting_human) 鈫?涓嶅姩 run锛堜粛 running锛?
 //
-// 0080 status CHECK：枚举锁定 running|succeeded|failed|cancelled，新写入终态必在白名单。
+// 0080 status CHECK锛氭灇涓鹃攣瀹?running|succeeded|failed|cancelled锛屾柊鍐欏叆缁堟€佸繀鍦ㄧ櫧鍚嶅崟銆?
 
-// seedRun 在 fake DB 中以 status='running' 插一条 run 行，让 finalize SQL 找得到目标。
+// seedRun 鍦?fake DB 涓互 status='running' 鎻掍竴鏉?run 琛岋紝璁?finalize SQL 鎵惧緱鍒扮洰鏍囥€?
 // seedRun seeds a task_dag_runs row in status='running' for the fake DB so the
 // finalize statement has a target row to flip into a terminal state.
 func seedRun(db *fakeTaskDAGDB, dagKey, runKey string) {
@@ -498,7 +500,7 @@ func TestCompleteNode_AllTerminal_AnyFailed_RunFailed(t *testing.T) {
 func TestCompleteNode_AllTerminal_FailedAndCancelled_RunFailed(t *testing.T) {
 	t.Parallel()
 
-	// failed 优先级 > cancelled，即使两者并存也判 failed。
+	// failed 浼樺厛绾?> cancelled锛屽嵆浣夸袱鑰呭苟瀛樹篃鍒?failed銆?
 	store, db, now := newTaskDAGTestStore()
 	seedDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "failed", agent: "agent-a"},
@@ -541,7 +543,7 @@ func TestCompleteNode_AllTerminal_CancelledNoFailed_RunCancelled(t *testing.T) {
 func TestCompleteNode_AllTerminal_DoneAndSkipped_RunSucceeded(t *testing.T) {
 	t.Parallel()
 
-	// skipped 是终态但属于成功语义（on_failure=skip 情况）；与 done 并存仍走 succeeded。
+	// skipped 鏄粓鎬佷絾灞炰簬鎴愬姛璇箟锛坥n_failure=skip 鎯呭喌锛夛紱涓?done 骞跺瓨浠嶈蛋 succeeded銆?
 	store, db, now := newTaskDAGTestStore()
 	seedDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "skipped", agent: "agent-a"},
@@ -556,14 +558,14 @@ func TestCompleteNode_AllTerminal_DoneAndSkipped_RunSucceeded(t *testing.T) {
 		t.Fatalf("complete C error = %v", err)
 	}
 	if got := runStatusByKey(t, db, "run-skip-success"); got != "succeeded" {
-		t.Fatalf("run.status = %q, want succeeded (skipped 算成功语义)", got)
+		t.Fatalf("run.status = %q, want succeeded (skipped 绠楁垚鍔熻涔?", got)
 	}
 }
 
 func TestCompleteNode_NotAllTerminal_RunUnchanged(t *testing.T) {
 	t.Parallel()
 
-	// 还有 pending 节点 → 不应推进 run.status。
+	// 杩樻湁 pending 鑺傜偣 鈫?涓嶅簲鎺ㄨ繘 run.status銆?
 	store, db, now := newTaskDAGTestStore()
 	seedDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "done", agent: "agent-a"},

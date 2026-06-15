@@ -1,6 +1,11 @@
 package intent
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
+
+var promptIntentRecallTopicPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 // NormalizeGeneratedCard 规范化generatedcard。
 func NormalizeGeneratedCard(requestedKind string, rawInput string, card Card) Card {
@@ -18,7 +23,12 @@ func promptIntentNormalizeGeneratedCards(requestedKind Kind, rawInput string, ca
 	out := make([]Card, 0, len(cards))
 	normalizePairProgramming := strings.Contains(normalizePromptIntentText(rawInput), "pair programming")
 	for _, card := range cards {
+		cardKind := requestedKind
+		if inferredKind, err := normalizeKind(card.Kind); err == nil {
+			cardKind = inferredKind
+		}
 		card = promptIntentNormalizeSuggestedAlternative(requestedKind, card)
+		card = promptIntentNormalizeRecallTopic(cardKind, card)
 		card = promptIntentNormalizeCommunicationFact(card)
 		if normalizePairProgramming {
 			card = promptIntentNormalizePairProgrammingCopy(card)
@@ -38,7 +48,36 @@ func promptIntentNormalizeSuggestedAlternative(requestedKind Kind, card Card) Ca
 	return card
 }
 
-// promptIntentNormalizeCommunicationFact 处理promptintentnormalizecommunicationfact。
+// promptIntentNormalizeRecallTopic 规范化 recall 卡片的 topic 标识。
+func promptIntentNormalizeRecallTopic(kind Kind, card Card) Card {
+	if kind != KindRecall {
+		return card
+	}
+	topic := strings.TrimSpace(card.RecallTopic)
+	if topic == "" {
+		card.RecallTopic = ""
+		return card
+	}
+	slug := promptIntentRecallTopicSlug(topic)
+	if validPromptIntentRecallTopic(slug) {
+		card.RecallTopic = slug
+		return card
+	}
+	card.RecallTopic = ""
+	return card
+}
+
+func promptIntentRecallTopicSlug(topic string) string {
+	slug := promptSlugPattern.ReplaceAllString(strings.ToLower(strings.TrimSpace(topic)), "-")
+	return strings.Trim(slug, "-")
+}
+
+func validPromptIntentRecallTopic(topic string) bool {
+	topic = strings.TrimSpace(topic)
+	return len(topic) < 64 && promptIntentRecallTopicPattern.MatchString(topic)
+}
+
+// promptIntentNormalizeCommunicationFact 将 communication 事实落实为生成约束。
 func promptIntentNormalizeCommunicationFact(card Card) Card {
 	if strings.TrimSpace(card.Kind) != string(KindExpert) || len(card.SourceFacts) == 0 {
 		return card

@@ -42,7 +42,7 @@ func TestPackageMacOSLocalScriptChecksHostFFmpegDependency(t *testing.T) {
 	} {
 		assertScriptContains(t, script, want)
 	}
-	assertScriptOrder(t, script, "test -d \"$postgres_dist\"", "resolve_or_install_host_ffmpeg\n\npackage_one()")
+	assertScriptDoesNotContain(t, script, "postgres_dist")
 	assertScriptOrder(t, script, "SUPER_DOLPHIN_FFMPEG_BIN=\"$ffmpeg_bin\"", "\"$root/scripts/package_macos.sh\"")
 }
 
@@ -50,12 +50,11 @@ func TestVerifyPackagedAppMacOSRejectsMissingBundledFFmpeg(t *testing.T) {
 	app := writeMinimalPackagedMacOSApp(t)
 	resources := filepath.Join(app, "Contents", "Resources")
 	writeRuntimeManifest(t, resources, map[string]string{
-		"bundled_codex_path":              "bin/codex",
-		"bundled_gopls_path":              "bin/gopls",
-		"lsp_bundle_path":                 "lsp",
-		"lsp_manifest_path":               "lsp/lsp-manifest.json",
-		"model_registry_path":             "models.yaml",
-		"embedded_postgres_resource_path": "postgres/" + bashVerifierPlatform(),
+		"bundled_codex_path":  "bin/codex",
+		"bundled_gopls_path":  "bin/gopls",
+		"lsp_bundle_path":     "lsp",
+		"lsp_manifest_path":   "lsp/lsp-manifest.json",
+		"model_registry_path": "models.yaml",
 	})
 	if err := os.Remove(filepath.Join(resources, "bin", "ffmpeg")); err != nil {
 		t.Fatalf("remove bundled ffmpeg: %v", err)

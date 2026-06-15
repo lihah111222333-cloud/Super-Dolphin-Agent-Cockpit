@@ -1,15 +1,16 @@
 package prompt
 
 import (
-	"github.com/jackc/pgx/v5/pgxpool"
+	"database/sql"
+
 	"go.uber.org/fx"
 )
 
 var Module = fx.Module("store.prompt",
-	fx.Provide(NewStoreFromPool),
+	fx.Provide(NewStoreFromDB),
 )
 
-// NewStoreFromPool 从pool创建存储。
-func NewStoreFromPool(pool *pgxpool.Pool) Store {
-	return NewStore(pool)
+// NewStoreFromDB 从 SQLite 连接创建 prompt 存储。
+func NewStoreFromDB(db *sql.DB) Store {
+	return NewStore(db)
 }

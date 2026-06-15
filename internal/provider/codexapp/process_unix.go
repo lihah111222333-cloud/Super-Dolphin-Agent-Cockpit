@@ -114,9 +114,7 @@ func signalCodexProcess(cmd *exec.Cmd, guard *processGuard, sig processSig) erro
 	return err
 }
 
-func sendSignalToPID(pid int, sig processSig) error {
-	return syscall.Kill(pid, toUnixSignal(sig))
-}
+func sendSignalToPID(pid int, sig processSig) error { return syscall.Kill(pid, toUnixSignal(sig)) }
 
 func isProcessAlive(pid int) bool {
 	if pid <= 1 {
@@ -125,9 +123,7 @@ func isProcessAlive(pid int) bool {
 	return syscall.Kill(pid, 0) == nil
 }
 
-func isProcessGoneErr(err error) bool {
-	return errors.Is(err, syscall.ESRCH)
-}
+func isProcessGoneErr(err error) bool { return errors.Is(err, syscall.ESRCH) }
 
 // killMCPProcess terminates an MCP sidecar process and, when possible, its
 // entire process group. Returns nil when the process has already exited.
@@ -173,9 +169,7 @@ func discoverAllProcesses() (map[int]int, []mcpProcessInfo) {
 // isAppServerArgs checks whether the process arguments match
 // "codex app-server --listen ws://...".
 // We look for the pattern in the args slice: [..., "app-server", "--listen", ws://...]
-func isAppServerArgs(args []string) bool {
-	return isCodexAppServerListenArgs(args)
-}
+func isAppServerArgs(args []string) bool { return isCodexAppServerListenArgs(args) }
 
 // discoverAppServerProcessList returns (allProcs, appServerProcs) where the
 // latter is the filtered "codex app-server --listen ..." subset. On Unix this

@@ -2,15 +2,13 @@ package taskdag
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
@@ -23,28 +21,28 @@ import (
 func (s *store) CreateRun(ctx context.Context, input CreateRunInput) (*Run, error) {
 	metadata := input.Metadata
 	if metadata == nil {
-		// 与 migration 0077 task_dag_runs.metadata NOT NULL DEFAULT '{}'::jsonb 对齐：
-		// 用 jsonb 空对象兜底，避免读路径 fromTaskDagRun 拿到 jsonb null 时与对象规则错位。
+		// 与 task_dag_runs.metadata NOT NULL DEFAULT '{}' 对齐：
+		// 用 JSON 空对象兜底，避免读路径拿到 null 时与对象语义错位。
 		metadata = json.RawMessage("{}")
 	}
-	return queryOne(func() (sqlc.TaskDagRun, error) {
-		return s.q.CreateTaskDagRun(ctx, sqlc.CreateTaskDagRunParams{
-			RunKey:             input.RunKey,
-			DagKey:             input.DagKey,
-			DagVersionSnapshot: input.DagVersionSnapshot,
-			TriggerSource:      input.TriggerSource,
-			Column5:            metadata,
-			BudgetLimit:        budgetLimitToInt8(input.BudgetLimit),
-		})
-	}, "create", "task_dag_run", fromTaskDagRun)
+	return queryOneWrite(ctx, func() (taskDagRunRow, error) {
+		return scanTaskDagRunRow(s.db.QueryRowContext(ctx, createTaskDagRunSQL,
+			input.RunKey,
+			input.DagKey,
+			input.DagVersionSnapshot,
+			input.TriggerSource,
+			metadata,
+			budgetLimitToInt8(input.BudgetLimit),
+		))
+	}, "create", "task_dag_run", fromTaskDagRunRow)
 }
 
-// GetRun 按 run_key 查 1 行；未找到返回 wrapTaskDAGError 包装的 pgx
+// GetRun 按 run_key 查 1 行；未找到返回 wrapTaskDAGError 包装的 database/sql
 // ErrNoRows（统一域错误，service 层用 errors.Is 判断）。
 func (s *store) GetRun(ctx context.Context, runKey string) (*Run, error) {
-	return queryOne(func() (sqlc.TaskDagRun, error) {
-		return s.q.GetTaskDagRun(ctx, runKey)
-	}, "get", "task_dag_run", fromTaskDagRun)
+	return queryOne(func() (taskDagRunRow, error) {
+		return getTaskDagRunRow(ctx, s.db, runKey)
+	}, "get", "task_dag_run", fromTaskDagRunRow)
 }
 
 // ListRuns 按 dag_key 列出所有 run；可选 status 过滤；ORDER BY started_at DESC。
@@ -54,20 +52,23 @@ func (s *store) ListRuns(ctx context.Context, filter ListRunsFilter) ([]Run, err
 	if limit <= 0 {
 		limit = 50
 	}
-	return queryMany(func() ([]sqlc.TaskDagRun, error) {
-		return s.q.ListTaskDagRunsByKey(ctx, sqlc.ListTaskDagRunsByKeyParams{
-			DagKey:  filter.DagKey,
-			Column2: filter.Status,
-			Limit:   limit,
-		})
-	}, "list", "task_dag_run", fromTaskDagRun)
+	rows, err := s.db.QueryContext(ctx, listTaskDagRunsByKeySQL, filter.DagKey, filter.Status, int64(limit))
+	if err != nil {
+		return nil, wrapTaskDAGError(err, "list", "task_dag_run")
+	}
+	defer rows.Close()
+	runs, err := scanTaskDagRunListRows(rows)
+	if err != nil {
+		return nil, wrapTaskDAGError(err, "list", "task_dag_run")
+	}
+	return mapRows(runs, fromTaskDagRunListRow), nil
 }
 
 // CloneNodesForRun 把模板节点复制成 run-scoped runtime nodes。后续所有
 // task_update_node / dispatcher 写入都必须带 run_id 命中这些副本，模板节点
 // 只由 create/apply_ops 路径维护。
 func (s *store) CloneNodesForRun(ctx context.Context, dagKey string, runID int64) (int64, error) {
-	return queryValue(func() (int64, error) {
+	return queryValueWrite(ctx, func() (int64, error) {
 		return s.q.CloneTaskDagNodesForRun(ctx, sqlc.CloneTaskDagNodesForRunParams{
 			DagKey: dagKey,
 			RunID:  int64Ptr(runID),
@@ -79,10 +80,10 @@ func (s *store) CloneNodesForRun(ctx context.Context, dagKey string, runID int64
 // 的根 runtime node 提升为 ready；它只做状态流程推进，不负责入队 wakeup，
 // root dispatch 路由由 ScheduleRootWakeups 再按 assigned_to/config 决定。
 func (s *store) PromoteRootNodesToReady(ctx context.Context, dagKey string, runID int64) (int64, error) {
-	return queryValue(func() (int64, error) {
+	return queryValueWrite(ctx, func() (int64, error) {
 		return s.q.PromoteRootNodesToReady(ctx, sqlc.PromoteRootNodesToReadyParams{
-			DagKey:  dagKey,
-			Column2: runID,
+			DagKey: dagKey,
+			RunID:  int64Ptr(runID),
 		})
 	}, "promote_root_nodes_to_ready", "task_dag_node")
 }
@@ -106,8 +107,8 @@ func (s *store) TerminateRun(ctx context.Context, input TerminateRunInput) (Term
 		return TerminateRunResult{}, fmt.Errorf("marshal run cancel event: %w", err)
 	}
 	var result TerminateRunResult
-	err = sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
-		threadIDs, err := terminateRunTx(ctx, txq, input, reason, event)
+	err = sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
+		threadIDs, err := terminateRunTx(ctx, txq, txdb, input, reason, event)
 		if err != nil {
 			return err
 		}
@@ -123,35 +124,30 @@ func (s *store) TerminateRun(ctx context.Context, input TerminateRunInput) (Term
 // terminateRunTx 的顺序不能随意调整：先停节点，再停 wakeup，最后翻 run
 // status。这样即使最后一步发现 run 已被其它路径取消，也可以安全读取已有
 // spawned_thread_id 返回给上层做 agent lifecycle 清理。
-func terminateRunTx(ctx context.Context, txq *sqlc.Queries, input TerminateRunInput, reason string, event []byte) ([]string, error) {
+func terminateRunTx(ctx context.Context, txq *sqlc.Queries, txdb sqlc.DBTX, input TerminateRunInput, reason string, event []byte) ([]string, error) {
 	if _, err := txq.CancelTaskDagRunNodes(ctx, sqlc.CancelTaskDagRunNodesParams{
-		DagKey:  input.DagKey,
-		Column2: input.RunID,
-		Column3: reason,
+		Reason: reason,
+		DagKey: input.DagKey,
+		RunID:  int64Ptr(input.RunID),
 	}); err != nil {
 		return nil, fmt.Errorf("cancel run nodes: %w", err)
 	}
 	if _, err := txq.CancelTaskDagRunWakeups(ctx, sqlc.CancelTaskDagRunWakeupsParams{
-		DagKey:    input.DagKey,
-		RunID:     int64Ptr(input.RunID),
-		LastError: "run_cancelled: " + reason,
+		Reason: "run_cancelled: " + reason,
+		DagKey: input.DagKey,
+		RunID:  int64Ptr(input.RunID),
 	}); err != nil {
 		return nil, fmt.Errorf("cancel run wakeups: %w", err)
 	}
-	if _, err := txq.CancelTaskDagRun(ctx, sqlc.CancelTaskDagRunParams{
-		DagKey:  input.DagKey,
-		ID:      input.RunID,
-		RunKey:  input.RunKey,
-		Column4: event,
-	}); err != nil {
-		return terminateRunAlreadyCancelled(ctx, txq, input, err)
+	if err := cancelTaskDagRunRow(ctx, txdb, input, event); err != nil {
+		return terminateRunAlreadyCancelled(ctx, txq, txdb, input, err)
 	}
 	return runSpawnedThreadIDs(ctx, txq, input.DagKey, input.RunID)
 }
 
-func terminateRunAlreadyCancelled(ctx context.Context, txq *sqlc.Queries, input TerminateRunInput, cancelErr error) ([]string, error) {
-	if errors.Is(cancelErr, pgx.ErrNoRows) {
-		threadIDs, loadErr := cancelledRunSpawnedThreadIDs(ctx, txq, input)
+func terminateRunAlreadyCancelled(ctx context.Context, txq *sqlc.Queries, txdb sqlc.DBTX, input TerminateRunInput, cancelErr error) ([]string, error) {
+	if errors.Is(cancelErr, sql.ErrNoRows) {
+		threadIDs, loadErr := cancelledRunSpawnedThreadIDs(ctx, txq, txdb, input)
 		if loadErr == nil {
 			return threadIDs, nil
 		}
@@ -159,13 +155,13 @@ func terminateRunAlreadyCancelled(ctx context.Context, txq *sqlc.Queries, input 
 	return nil, fmt.Errorf("cancel run: %w", cancelErr)
 }
 
-func cancelledRunSpawnedThreadIDs(ctx context.Context, q *sqlc.Queries, input TerminateRunInput) ([]string, error) {
-	run, err := q.GetTaskDagRun(ctx, input.RunKey)
+func cancelledRunSpawnedThreadIDs(ctx context.Context, q *sqlc.Queries, db sqlc.DBTX, input TerminateRunInput) ([]string, error) {
+	run, err := getTaskDagRunRow(ctx, db, input.RunKey)
 	if err != nil {
 		return nil, err
 	}
 	if run.ID != input.RunID || run.DagKey != input.DagKey || run.Status != "cancelled" {
-		return nil, pgx.ErrNoRows
+		return nil, sql.ErrNoRows
 	}
 	return runSpawnedThreadIDs(ctx, q, input.DagKey, input.RunID)
 }
@@ -175,20 +171,20 @@ func runSpawnedThreadIDs(ctx context.Context, q *sqlc.Queries, dagKey string, ru
 	if err != nil {
 		return nil, err
 	}
-	values := make([]pgtype.Text, 0, len(nodes))
+	values := make([]*string, 0, len(nodes))
 	for _, node := range nodes {
 		values = append(values, node.SpawningThreadID)
 	}
 	return nonEmptyTextValues(values), nil
 }
 
-func nonEmptyTextValues(values []pgtype.Text) []string {
+func nonEmptyTextValues(values []*string) []string {
 	out := make([]string, 0, len(values))
 	for _, value := range values {
-		if !value.Valid {
+		if value == nil {
 			continue
 		}
-		if text := strings.TrimSpace(value.String); text != "" {
+		if text := strings.TrimSpace(*value); text != "" {
 			out = append(out, text)
 		}
 	}
@@ -196,77 +192,235 @@ func nonEmptyTextValues(values []pgtype.Text) []string {
 	return out
 }
 
+const createTaskDagRunSQL = `
+INSERT INTO task_dag_runs (
+    run_key, dag_key, dag_version_snapshot, trigger_source, status,
+    started_at, metadata, budget_limit, created_at, updated_at
+)
+VALUES (
+    ?, ?, ?, ?, 'running',
+    (CAST(strftime('%s','now') AS INTEGER) * 1000),
+    ?, ?,
+    (CAST(strftime('%s','now') AS INTEGER) * 1000),
+    (CAST(strftime('%s','now') AS INTEGER) * 1000)
+)
+RETURNING id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at`
+
+const getTaskDagRunSQL = `
+SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at
+FROM task_dag_runs
+WHERE run_key = ?`
+
+const listTaskDagRunsByKeySQL = `
+SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, budget_used, budget_limit, created_at, updated_at
+FROM task_dag_runs
+WHERE dag_key = ?
+  AND (?2 = '' OR status = ?2)
+ORDER BY started_at DESC, id DESC
+LIMIT ?3`
+
+const loadTaskDagRunEventsForCancelSQL = `
+SELECT CAST(events AS BLOB)
+FROM task_dag_runs
+WHERE dag_key = ?1
+  AND id = ?2
+  AND run_key = ?3
+  AND status = 'running'`
+
+const cancelTaskDagRunSQL = `
+UPDATE task_dag_runs
+SET status = 'cancelled',
+    finished_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
+    events = ?1
+WHERE dag_key = ?2
+  AND id = ?3
+  AND run_key = ?4
+  AND status = 'running'
+RETURNING id`
+
+type taskDagRunScanner interface {
+	Scan(dest ...any) error
+}
+
+type taskDagRunRow struct {
+	ID                 int64
+	RunKey             string
+	DagKey             string
+	DagVersionSnapshot int64
+	TriggerSource      string
+	Status             string
+	StartedAt          int64
+	FinishedAt         *int64
+	Events             []byte
+	BudgetUsed         int64
+	BudgetLimit        *int64
+	Metadata           []byte
+	CreatedAt          int64
+	UpdatedAt          int64
+}
+
+type taskDagRunListRow struct {
+	ID                 int64
+	RunKey             string
+	DagKey             string
+	DagVersionSnapshot int64
+	TriggerSource      string
+	Status             string
+	StartedAt          int64
+	FinishedAt         *int64
+	BudgetUsed         int64
+	BudgetLimit        *int64
+	CreatedAt          int64
+	UpdatedAt          int64
+}
+
+func getTaskDagRunRow(ctx context.Context, db sqlc.DBTX, runKey string) (taskDagRunRow, error) {
+	return scanTaskDagRunRow(db.QueryRowContext(ctx, getTaskDagRunSQL, runKey))
+}
+
+func cancelTaskDagRunRow(ctx context.Context, db sqlc.DBTX, input TerminateRunInput, event []byte) error {
+	var currentEvents json.RawMessage
+	if err := db.QueryRowContext(ctx, loadTaskDagRunEventsForCancelSQL, input.DagKey, input.RunID, input.RunKey).Scan(&currentEvents); err != nil {
+		return err
+	}
+	nextEvents, err := appendRunEventJSON(currentEvents, event)
+	if err != nil {
+		return err
+	}
+	var id int64
+	return db.QueryRowContext(ctx, cancelTaskDagRunSQL, nextEvents, input.DagKey, input.RunID, input.RunKey).Scan(&id)
+}
+
+func scanTaskDagRunRows(rows *sql.Rows) ([]taskDagRunRow, error) {
+	out := make([]taskDagRunRow, 0)
+	for rows.Next() {
+		row, err := scanTaskDagRunRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func scanTaskDagRunListRows(rows *sql.Rows) ([]taskDagRunListRow, error) {
+	out := make([]taskDagRunListRow, 0)
+	for rows.Next() {
+		var row taskDagRunListRow
+		if err := rows.Scan(
+			&row.ID,
+			&row.RunKey,
+			&row.DagKey,
+			&row.DagVersionSnapshot,
+			&row.TriggerSource,
+			&row.Status,
+			&row.StartedAt,
+			&row.FinishedAt,
+			&row.BudgetUsed,
+			&row.BudgetLimit,
+			&row.CreatedAt,
+			&row.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func scanTaskDagRunRow(scanner taskDagRunScanner) (taskDagRunRow, error) {
+	var row taskDagRunRow
+	err := scanner.Scan(
+		&row.ID,
+		&row.RunKey,
+		&row.DagKey,
+		&row.DagVersionSnapshot,
+		&row.TriggerSource,
+		&row.Status,
+		&row.StartedAt,
+		&row.FinishedAt,
+		&row.Events,
+		&row.BudgetUsed,
+		&row.BudgetLimit,
+		&row.Metadata,
+		&row.CreatedAt,
+		&row.UpdatedAt,
+	)
+	return row, err
+}
+
 // fromTaskDagRun 把 sqlc 生成的行结构体转成 contract 层 Run。
-// pgtype.Timestamptz → time.Time：直接取 .Time（PG 列 NOT NULL DEFAULT NOW()
-// 保证有效）；FinishedAt 列 nullable，无值时返回 nil。
-// pgtype.Int8 → *int64：用 nullableInt64 helper。
+// SQLite epoch milliseconds map to time.Time; nullable columns map to nil.
 func fromTaskDagRun(row sqlc.TaskDagRun) Run {
+	return fromTaskDagRunRaw(row.ID, row.RunKey, row.DagKey, row.DagVersionSnapshot, row.TriggerSource, row.Status, row.StartedAt, row.FinishedAt, row.Events, row.BudgetUsed, row.BudgetLimit, row.Metadata, row.CreatedAt, row.UpdatedAt)
+}
+
+func fromTaskDagRunRow(row taskDagRunRow) Run {
+	return fromTaskDagRunRaw(row.ID, row.RunKey, row.DagKey, row.DagVersionSnapshot, row.TriggerSource, row.Status, row.StartedAt, row.FinishedAt, row.Events, row.BudgetUsed, row.BudgetLimit, row.Metadata, row.CreatedAt, row.UpdatedAt)
+}
+
+func fromTaskDagRunListRow(row taskDagRunListRow) Run {
+	return fromTaskDagRunRaw(row.ID, row.RunKey, row.DagKey, row.DagVersionSnapshot, row.TriggerSource, row.Status, row.StartedAt, row.FinishedAt, nil, row.BudgetUsed, row.BudgetLimit, nil, row.CreatedAt, row.UpdatedAt)
+}
+
+func fromTaskDagRunRaw(id int64, runKey, dagKey string, dagVersionSnapshot int64, triggerSource, status string, startedAt int64, finishedAt *int64, events []byte, budgetUsed int64, budgetLimit *int64, metadata []byte, createdAt, updatedAt int64) Run {
 	return Run{
-		ID:                 row.ID,
-		RunKey:             row.RunKey,
-		DagKey:             row.DagKey,
-		DagVersionSnapshot: row.DagVersionSnapshot,
-		TriggerSource:      row.TriggerSource,
-		Status:             row.Status,
-		StartedAt:          row.StartedAt.Time,
-		FinishedAt:         nullableTime(row.FinishedAt),
-		Events:             json.RawMessage(row.Events),
-		BudgetUsed:         row.BudgetUsed,
-		BudgetLimit:        nullableInt64(row.BudgetLimit),
-		Metadata:           json.RawMessage(row.Metadata),
-		CreatedAt:          row.CreatedAt.Time,
-		UpdatedAt:          row.UpdatedAt.Time,
+		ID:                 id,
+		RunKey:             runKey,
+		DagKey:             dagKey,
+		DagVersionSnapshot: dagVersionSnapshot,
+		TriggerSource:      triggerSource,
+		Status:             status,
+		StartedAt:          timeValue(startedAt),
+		FinishedAt:         nullableTime(finishedAt),
+		Events:             json.RawMessage(events),
+		BudgetUsed:         budgetUsed,
+		BudgetLimit:        nullableInt64(budgetLimit),
+		Metadata:           json.RawMessage(metadata),
+		CreatedAt:          timeValue(createdAt),
+		UpdatedAt:          timeValue(updatedAt),
 	}
 }
 
-func budgetLimitToInt8(v *int64) pgtype.Int8 {
-	if v == nil {
-		return pgtype.Int8{}
-	}
-	return pgtype.Int8{Int64: *v, Valid: true}
+func budgetLimitToInt8(v *int64) *int64 {
+	return v
 }
 
-func nullableTime(v pgtype.Timestamptz) *time.Time {
-	if !v.Valid {
-		return nil
-	}
-	t := v.Time
-	return &t
+func nullableTime(v *int64) *time.Time {
+	return timestampPtr(v)
 }
 
-func nullableInt64(v pgtype.Int8) *int64 {
-	if !v.Valid {
-		return nil
-	}
-	n := v.Int64
-	return &n
+func nullableInt64(v *int64) *int64 {
+	return v
 }
 
-// WithRunTx 起单一 PG 事务，fn 拿到的 tx RunStore 是
-// 事务绑定的 *store runtime实例，所有 RunStore 方法调用都在同事务内。
+// WithRunTx 起单一 SQLite BEGIN IMMEDIATE 事务，fn 拿到的 tx RunStore 是
+// 事务绑定的 *store 运行时实例，所有 RunStore 方法调用都在同事务内。
 //
 // 主要调用点：service.StartDAG 使用 WithRunTx 原子化 CreateRun +
 // PromoteRootNodesToReady，任一失败都会回滚事务、避免“run 已建却
-// 根节点未 ready”脱状态。 PG 事务跨 task_dag_runs / task_dag_nodes 两
-// 表不是问题。
+// 根节点未 ready”脱状态。
 func (s *store) WithRunTx(ctx context.Context, fn func(tx RunStore) error) error {
-	return wrapTaskDAGError(sqlctx.WithTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
+	return wrapTaskDAGError(sqlctx.WithImmediateTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
 		return fn(&store{db: tx, q: txq})
 	}), "with_run_tx", "task_dag_run")
 }
 
 // WithScheduledStartTx 在事务中绑定计划启动上下文。
 func (s *store) WithScheduledStartTx(ctx context.Context, fn func(tx ScheduledStartTxStore) error) error {
-	return wrapTaskDAGError(sqlctx.WithTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
+	return wrapTaskDAGError(sqlctx.WithImmediateTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
 		return fn(&store{db: tx, q: txq})
 	}), "with_scheduled_start_tx", "task_dag_run")
 }
 
 // UpdateScheduledDAGNextRun 更新计划 DAG 的下一次运行时间。
 func (s *store) UpdateScheduledDAGNextRun(ctx context.Context, dagKey string, dueAt, nextRunAt time.Time) (int64, error) {
-	return s.q.UpdateTaskDagNextRun(ctx, sqlc.UpdateTaskDagNextRunParams{
-		NextRunAt: pgtype.Timestamptz{Time: nextRunAt, Valid: true},
-		DagKey:    dagKey,
-		DueAt:     pgtype.Timestamptz{Time: dueAt, Valid: true},
-	})
+	return queryValueWrite(ctx, func() (int64, error) {
+		return s.q.UpdateTaskDagNextRun(ctx, sqlc.UpdateTaskDagNextRunParams{
+			NextRunAt: sqlc.TimeValuePtr(&nextRunAt),
+			DagKey:    dagKey,
+			DueAt:     sqlc.TimeValuePtr(&dueAt),
+		})
+	}, "update_next_run", "task_dag")
 }

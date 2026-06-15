@@ -11,7 +11,7 @@
   - `rpc` 封装 `github.com/creachadair/jrpc2`
   - `statemachine` 封装 `github.com/qmuntal/stateless`
   - `runner` 封装 `github.com/oklog/run`
-  - `db` 封装 `pgxpool`
+  - `db` 封装 SQLite `*sql.DB`、迁移、schema 校验与连接生命周期
 - **统一生命周期**：大量通过 `fx.Module` 暴露，并在 `OnStart/OnStop` 中做清理、恢复、扫尾。
 - **事件优先**：业务状态变化先进入 `bus`，再由 `eventsurface`、`hooks`、`rpc.PushBridge`、`mcpcontrol` 等模块消费。
 - **强上下文语义**：超时、取消、线程上下文、审批上下文、Hook 深度、差异追踪上下文都以 `context.Context` 传递。
@@ -94,20 +94,20 @@
 
 **文件导览**
 
-- `config.go`：读取 `DATABASE_URL`、`GO_AGENT_CTL_RPC_ADDR`（兼容旧名 `RPC_ADDR`）、`LOG_LEVEL`、`PROJECT_ROOT`，并把解析出的 RPC/DB 值按需回写到进程环境
+- `config.go`：读取 `SUPER_DOLPHIN_SQLITE_PATH`、`GO_AGENT_CTL_RPC_ADDR`（兼容旧名 `RPC_ADDR`）、`LOG_LEVEL`、`PROJECT_ROOT`，并把解析出的 RPC 地址按需回写到进程环境；`DATABASE_URL` / `POSTGRES_CONNECTION_STRING` 不再作为产品 DB 配置源
 - `timeouts.go`：统一平台 timeout 常量与 context 包装器
 - `module.go`：fx 提供 `*Config`
 
 **实现要点**
 
 - 环境变量完整列表：
-  - `DATABASE_URL`：默认 `postgres://mima0000@127.0.0.1:54320/super_agent_v3?sslmode=disable`
+  - `SUPER_DOLPHIN_SQLITE_PATH`：显式 SQLite 数据库文件路径；为空时默认 `<SUPER_DOLPHIN_HOME>/super-dolphin.db`
   - `GO_AGENT_CTL_RPC_ADDR`：RPC 地址，默认 `127.0.0.1:8090`
   - `RPC_ADDR`：仅作为 `GO_AGENT_CTL_RPC_ADDR` 为空时的兼容旧名，会打印“2026-06-30 前迁移”的弃用警告
   - `LOG_LEVEL`：默认 `info`
   - `PROJECT_ROOT`：默认 `os.Getwd()`
-- `exportRPCAddrIfMissing()` 只有在 `GO_AGENT_CTL_RPC_ADDR` 与 `RPC_ADDR` 都为空时写回 canonical `GO_AGENT_CTL_RPC_ADDR`；`exportDatabaseURLIfMissing()` 只有在 `DATABASE_URL` 为空且解析值非空时写回
-- 这些回写用来保证派生出来的 MCP 子进程能继承解析后的配置
+- `exportRPCAddrIfMissing()` 只有在 `GO_AGENT_CTL_RPC_ADDR` 与 `RPC_ADDR` 都为空时写回 canonical `GO_AGENT_CTL_RPC_ADDR`
+- SQLite 路径只通过受信任的内部配置传入主进程 / mcp-orch，不透传给普通 provider/tool 环境
 - `WithTimeoutIfNone` 很重要：避免重复覆盖已有 deadline
 - 多个子系统（RPC、Hook peer callback、DB、Provider 会话、MCP bootstrap）都复用这里的 timeout 语义
 
@@ -117,14 +117,14 @@
 
 **职责**
 
-- 提供 pgx pool
+- 提供 SQLite `*sql.DB`
 - 统一 store 错误分类
 - 提供事务包装器
 
 **核心类型**
 
 - `StoreError`
-- `Pool`（对 `pgxpool.Pool` 的类型别名）
+- `*sql.DB`（产品运行时 SQLite 连接）
 
 **关键 API**
 
@@ -137,7 +137,7 @@
 
 - `errors.go`：把底层 pg/ctx 错误归一化成 `ErrNotFound/ErrConflict/ErrTimeout`
 - `module.go`：创建 pool、启动时 ping、停止时 close
-- `pool.go`：`type Pool = pgxpool.Pool`
+- `pool.go`：保留历史定位说明；产品运行时不再暴露 `pgxpool.Pool`
 - `tx.go`：事务模板
 
 **实现要点**

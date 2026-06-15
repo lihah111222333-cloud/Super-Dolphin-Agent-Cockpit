@@ -20,8 +20,11 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // ErrBinaryNotAvailable 是 dispatcher 识别 binary 未安装 / 路径不存在的哨兵 error。
@@ -65,6 +68,7 @@ func (realCommander) Run(ctx context.Context, binary string, args []string, inpu
 	}
 
 	cmd := exec.CommandContext(ctx, binary, args...)
+	cmd.Env = contract.ScrubDatabaseEnv(os.Environ())
 	cmd.Stdin = strings.NewReader(input)
 
 	var stdoutBuf, stderrBuf bytes.Buffer

@@ -7,22 +7,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 const (
 	sidecarRuntimeModeEnv      = "SUPER_DOLPHIN_RUNTIME_MODE"
 	sidecarRuntimeResourcesEnv = "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR"
 )
-
-func ensureSidecarRuntimeContract(env []string) ([]string, error) {
-	if _, ok := lookupTrimmedEnvValue(env, sidecarRuntimeModeEnv); !ok {
-		return nil, errors.New("peer process requires parent sidecar runtime contract: missing SUPER_DOLPHIN_RUNTIME_MODE")
-	}
-	if _, ok := lookupTrimmedEnvValue(env, sidecarRuntimeResourcesEnv); !ok {
-		return nil, errors.New("peer process requires parent sidecar runtime contract: missing SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR")
-	}
-	return env, nil
-}
 
 func lookupEnvValue(env []string, key string) (string, bool) {
 	prefix := key + "="
@@ -50,21 +42,33 @@ func (l *execPeerLauncher) peerEnvForTest(name string, parent []string) ([]strin
 
 // peerProcessEnv 处理peer进程env。
 func peerProcessEnv(name string, parent []string, configuredRoots []string) ([]string, error) {
-	env := append([]string(nil), parent...)
+	orchSQLitePath, hasOrchSQLitePath, err := trustedOrchSQLitePath(parent, name)
+	if err != nil {
+		return nil, err
+	}
+	env := contract.ScrubDatabaseEnv(parent)
+	if hasOrchSQLitePath {
+		env = append(env, contract.InternalSQLitePathEnvKey+"="+orchSQLitePath)
+	}
 	env = append(env, peerModeEnv+"=1")
-	var err error
 	env, err = ensurePeerSessionToken(env)
 	if err != nil {
 		return nil, err
 	}
-	env, err = ensureSidecarRuntimeContract(env)
-	if err != nil {
-		return nil, err
+	if _, ok := lookupTrimmedEnvValue(env, sidecarRuntimeModeEnv); !ok {
+		return nil, errors.New("peer process requires parent sidecar runtime contract: missing SUPER_DOLPHIN_RUNTIME_MODE")
+	}
+	if _, ok := lookupTrimmedEnvValue(env, sidecarRuntimeResourcesEnv); !ok {
+		return nil, errors.New("peer process requires parent sidecar runtime contract: missing SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR")
 	}
 	env, err = injectPeerBootstrapIdentity(env, name)
 	if err != nil {
 		return nil, err
 	}
+	return applyMcpLSPPeerWorkspaceEnv(env, name, configuredRoots)
+}
+
+func applyMcpLSPPeerWorkspaceEnv(env []string, name string, configuredRoots []string) ([]string, error) {
 	if strings.TrimSpace(name) != "mcp-lsp" {
 		return env, nil
 	}
@@ -88,11 +92,23 @@ func peerProcessEnv(name string, parent []string, configuredRoots []string) ([]s
 	return nil, errors.New("mcp-lsp peer requires configured workspace root")
 }
 
+func trustedOrchSQLitePath(parent []string, name string) (string, bool, error) {
+	publicSQLitePath, hasPublicSQLitePath := lookupTrimmedEnvValue(parent, contract.SQLitePathEnvKey)
+	internalSQLitePath, hasInternalSQLitePath := lookupTrimmedEnvValue(parent, contract.InternalSQLitePathEnvKey)
+	if hasPublicSQLitePath && hasInternalSQLitePath && publicSQLitePath != internalSQLitePath {
+		return "", false, errors.New("peer process has conflicting SQLite path env: " + contract.SQLitePathEnvKey + " and " + contract.InternalSQLitePathEnvKey)
+	}
+	if strings.TrimSpace(name) != "mcp-orch" || !hasPublicSQLitePath {
+		return "", false, nil
+	}
+	return publicSQLitePath, true, nil
+}
+
 func injectPeerBootstrapIdentity(env []string, name string) ([]string, error) {
 	name = strings.TrimSpace(name)
-	clientKind, err := managedPeerClientKind(name)
-	if err != nil {
-		return nil, err
+	clientKind := map[string]string{"mcp-orch": "orch", "mcp-lsp": "lsp"}[name]
+	if clientKind == "" {
+		return nil, errors.New("peer process client kind is not configured for " + name)
 	}
 	env = removeEnvKeys(env,
 		"GO_AGENT_CTL_INSTANCE_ID", "GO_AGENT_MCP_INSTANCE_ID",
@@ -115,17 +131,6 @@ func injectPeerBootstrapIdentity(env []string, name string) ([]string, error) {
 		peerClientKindEnv+"="+clientKind,
 		peerBootstrapJSONEnv+"="+string(boot),
 	), nil
-}
-
-func managedPeerClientKind(name string) (string, error) {
-	switch strings.TrimSpace(name) {
-	case "mcp-orch":
-		return "orch", nil
-	case "mcp-lsp":
-		return "lsp", nil
-	default:
-		return "", errors.New("peer process client kind is not configured for " + name)
-	}
 }
 
 func removeEnvKeys(env []string, keys ...string) []string {

@@ -2,11 +2,12 @@ package prompt
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"testing"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func TestPromptIntentDraftUpsertForwardsParamsAndMapsRow(t *testing.T) {
@@ -14,7 +15,7 @@ func TestPromptIntentDraftUpsertForwardsParamsAndMapsRow(t *testing.T) {
 
 	var captured sqlc.UpsertPromptIntentDraftParams
 	s := &store{q: &promptQuerierStub{
-		upsertDraftFn: func(_ context.Context, arg sqlc.UpsertPromptIntentDraftParams) (sqlc.PromptIntentDraft, error) {
+		upsertDraftFn: func(_ context.Context, arg sqlc.UpsertPromptIntentDraftParams) (sqlc.UpsertPromptIntentDraftRow, error) {
 			captured = arg
 			row := promptIntentDraftRow(arg.DraftKey, arg.CWD, arg.Kind, arg.Status)
 			row.Scope = arg.Scope
@@ -29,10 +30,70 @@ func TestPromptIntentDraftUpsertForwardsParamsAndMapsRow(t *testing.T) {
 	if captured.DraftKey != "draft-1" || captured.CWD != "/repo/a" || captured.Kind != "recall" || captured.Status != "ready_to_save" || captured.Scope != "global" {
 		t.Fatalf("UpsertIntentDraft() params = %+v, want scoped ready recall", captured)
 	}
-	if string(captured.Column9) != `{"title":"SQLC"}` || string(captured.Column13) != `[]` {
-		t.Fatalf("UpsertIntentDraft() json params card=%s issues=%s", captured.Column9, captured.Column13)
+	if string(captured.GeneratedCard) != `{"title":"SQLC"}` || string(captured.Issues) != `[]` {
+		t.Fatalf("UpsertIntentDraft() json params card=%s issues=%s", captured.GeneratedCard, captured.Issues)
 	}
 	assertPromptIntentDraft(t, got, "draft-1", "/repo/a", "recall", "ready_to_save", "global")
+}
+
+func TestPromptIntentDraftUpsertWritesSQLiteTimestampsAndPreservesCreatedAt(t *testing.T) {
+	t.Parallel()
+
+	db := openPromptSQLite(t)
+	createPromptIntentDraftTable(t, db)
+	s := &store{q: sqlc.New(db)}
+
+	draft := promptIntentDraftInput()
+	created, err := s.UpsertIntentDraft(context.Background(), draft)
+	if err != nil {
+		t.Fatalf("UpsertIntentDraft(insert) unexpected error: %v", err)
+	}
+	assertPromptIntentDraftTimestamps(t, created)
+
+	originalCreatedAt := platformdb.Millis(promptStoreTestTime())
+	originalUpdatedAt := originalCreatedAt + 1000
+	execPromptSQL(t, db, `UPDATE prompt_intent_drafts SET created_at = ?, updated_at = ? WHERE draft_key = ?`,
+		originalCreatedAt, originalUpdatedAt, "draft-1")
+
+	draft.RawInput = "Save the updated SQLC workflow as recall."
+	updated, err := s.UpsertIntentDraft(context.Background(), draft)
+	if err != nil {
+		t.Fatalf("UpsertIntentDraft(update) unexpected error: %v", err)
+	}
+	assertPromptIntentDraftPreservedCreatedAt(t, updated, originalCreatedAt)
+	assertStoredPromptIntentDraftUpdate(t, db, originalCreatedAt, originalUpdatedAt)
+}
+
+func assertPromptIntentDraftTimestamps(t *testing.T, draft *PromptIntentDraft) {
+	t.Helper()
+	if draft.CreatedAt.IsZero() || draft.UpdatedAt.IsZero() {
+		t.Fatalf("PromptIntentDraft timestamps were not populated: %+v", draft)
+	}
+}
+
+func assertPromptIntentDraftPreservedCreatedAt(t *testing.T, draft *PromptIntentDraft, wantCreatedAt int64) {
+	t.Helper()
+	want := platformdb.TimeFromMillis(wantCreatedAt)
+	if !draft.CreatedAt.Equal(want) {
+		t.Fatalf("PromptIntentDraft created_at = %s, want preserved %s", draft.CreatedAt, want)
+	}
+	if !draft.UpdatedAt.After(draft.CreatedAt) {
+		t.Fatalf("PromptIntentDraft updated_at = %s, want after created_at %s", draft.UpdatedAt, draft.CreatedAt)
+	}
+}
+
+func assertStoredPromptIntentDraftUpdate(t *testing.T, db *sql.DB, wantCreatedAt, previousUpdatedAt int64) {
+	t.Helper()
+	var rawInput string
+	var createdAt, updatedAt int64
+	if err := db.QueryRow(`SELECT raw_input, created_at, updated_at FROM prompt_intent_drafts WHERE draft_key = ?`, "draft-1").
+		Scan(&rawInput, &createdAt, &updatedAt); err != nil {
+		t.Fatalf("read prompt_intent_drafts row: %v", err)
+	}
+	if rawInput != "Save the updated SQLC workflow as recall." || createdAt != wantCreatedAt || updatedAt <= previousUpdatedAt {
+		t.Fatalf("stored draft raw_input=%q created_at=%d updated_at=%d, want updated body, preserved created_at=%d, newer updated_at>%d",
+			rawInput, createdAt, updatedAt, wantCreatedAt, previousUpdatedAt)
+	}
 }
 
 func TestPromptIntentDraftUpsertRejectsInvalidInput(t *testing.T) {
@@ -40,9 +101,9 @@ func TestPromptIntentDraftUpsertRejectsInvalidInput(t *testing.T) {
 
 	called := false
 	s := &store{q: &promptQuerierStub{
-		upsertDraftFn: func(context.Context, sqlc.UpsertPromptIntentDraftParams) (sqlc.PromptIntentDraft, error) {
+		upsertDraftFn: func(context.Context, sqlc.UpsertPromptIntentDraftParams) (sqlc.UpsertPromptIntentDraftRow, error) {
 			called = true
-			return sqlc.PromptIntentDraft{}, nil
+			return sqlc.UpsertPromptIntentDraftRow{}, nil
 		},
 	}}
 	draft := promptIntentDraftInput()
@@ -61,9 +122,9 @@ func TestPromptIntentDraftGetRequiresCWD(t *testing.T) {
 
 	called := false
 	s := &store{q: &promptQuerierStub{
-		getDraftFn: func(context.Context, sqlc.GetPromptIntentDraftParams) (sqlc.PromptIntentDraft, error) {
+		getDraftFn: func(context.Context, sqlc.GetPromptIntentDraftParams) (sqlc.GetPromptIntentDraftRow, error) {
 			called = true
-			return sqlc.PromptIntentDraft{}, nil
+			return sqlc.GetPromptIntentDraftRow{}, nil
 		},
 	}}
 	_, err := s.GetIntentDraft(context.Background(), "", "draft-1")
@@ -80,9 +141,9 @@ func TestPromptIntentDraftGetForwardsCWDAndDraftKey(t *testing.T) {
 
 	var captured sqlc.GetPromptIntentDraftParams
 	s := &store{q: &promptQuerierStub{
-		getDraftFn: func(_ context.Context, arg sqlc.GetPromptIntentDraftParams) (sqlc.PromptIntentDraft, error) {
+		getDraftFn: func(_ context.Context, arg sqlc.GetPromptIntentDraftParams) (sqlc.GetPromptIntentDraftRow, error) {
 			captured = arg
-			return promptIntentDraftRow(arg.DraftKey, arg.CWD, "expert", "draft"), nil
+			return sqlc.GetPromptIntentDraftRow(promptIntentDraftRow(arg.DraftKey, arg.CWD, "expert", "draft")), nil
 		},
 	}}
 	got, err := s.GetIntentDraft(context.Background(), " /repo/a ", " draft-1 ")
@@ -100,10 +161,10 @@ func TestPromptIntentDraftListFiltersByCWDAndStatus(t *testing.T) {
 
 	var captured sqlc.ListPromptIntentDraftsParams
 	s := &store{q: &promptQuerierStub{
-		listDraftsFn: func(_ context.Context, arg sqlc.ListPromptIntentDraftsParams) ([]sqlc.PromptIntentDraft, error) {
+		listDraftsFn: func(_ context.Context, arg sqlc.ListPromptIntentDraftsParams) ([]sqlc.ListPromptIntentDraftsRow, error) {
 			captured = arg
-			return []sqlc.PromptIntentDraft{
-				promptIntentDraftRow("draft-1", arg.CWD, "recall", arg.Status),
+			return []sqlc.ListPromptIntentDraftsRow{
+				sqlc.ListPromptIntentDraftsRow(promptIntentDraftRow("draft-1", arg.CWD, "recall", arg.Status.(string))),
 			}, nil
 		},
 	}}
@@ -135,9 +196,9 @@ func TestPromptIntentDraftUpdateStatusRequiresCWD(t *testing.T) {
 
 	called := false
 	s := &store{q: &promptQuerierStub{
-		updateDraftStatusFn: func(context.Context, sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.PromptIntentDraft, error) {
+		updateDraftStatusFn: func(context.Context, sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.UpdatePromptIntentDraftStatusRow, error) {
 			called = true
-			return sqlc.PromptIntentDraft{}, nil
+			return sqlc.UpdatePromptIntentDraftStatusRow{}, nil
 		},
 	}}
 	_, err := s.UpdateIntentDraftStatus(context.Background(), "", "draft-1", "enabled")
@@ -154,9 +215,9 @@ func TestPromptIntentDraftUpdateStatusForwardsScope(t *testing.T) {
 
 	var captured sqlc.UpdatePromptIntentDraftStatusParams
 	s := &store{q: &promptQuerierStub{
-		updateDraftStatusFn: func(_ context.Context, arg sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.PromptIntentDraft, error) {
+		updateDraftStatusFn: func(_ context.Context, arg sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.UpdatePromptIntentDraftStatusRow, error) {
 			captured = arg
-			return promptIntentDraftRow(arg.DraftKey, arg.CWD, "default_rule", arg.Status), nil
+			return sqlc.UpdatePromptIntentDraftStatusRow(promptIntentDraftRow(arg.DraftKey, arg.CWD, "default_rule", arg.Status)), nil
 		},
 	}}
 	got, err := s.UpdateIntentDraftStatus(context.Background(), " /repo/a ", " draft-1 ", " enabled ")
@@ -182,9 +243,9 @@ func promptIntentDraftInput() PromptIntentDraft {
 	}
 }
 
-func promptIntentDraftRow(draftKey, cwd, kind, status string) sqlc.PromptIntentDraft {
-	now := pgtype.Timestamptz{Time: promptStoreTestTime(), Valid: true}
-	return sqlc.PromptIntentDraft{
+func promptIntentDraftRow(draftKey, cwd, kind, status string) sqlc.UpsertPromptIntentDraftRow {
+	now := platformdb.Millis(promptStoreTestTime())
+	return sqlc.UpsertPromptIntentDraftRow{
 		ID:            42,
 		DraftKey:      draftKey,
 		CWD:           cwd,
@@ -199,6 +260,28 @@ func promptIntentDraftRow(draftKey, cwd, kind, status string) sqlc.PromptIntentD
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
+}
+
+func createPromptIntentDraftTable(t *testing.T, db *sql.DB) {
+	t.Helper()
+	execPromptSQL(t, db, `CREATE TABLE prompt_intent_drafts (
+		id INTEGER PRIMARY KEY,
+		draft_key TEXT NOT NULL UNIQUE,
+		cwd TEXT NOT NULL DEFAULT '',
+		kind TEXT NOT NULL CHECK(kind IN ('expert', 'recall', 'default_rule')),
+		raw_input TEXT NOT NULL,
+		source_type TEXT NOT NULL DEFAULT 'user_input',
+		source_url TEXT NOT NULL DEFAULT '',
+		origin_hash TEXT NOT NULL DEFAULT '',
+		license_hint TEXT NOT NULL DEFAULT '',
+		generated_card TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(generated_card)),
+		confidence REAL NOT NULL DEFAULT 0,
+		status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'ready_to_save', 'enabled', 'rejected')),
+		scope TEXT NOT NULL DEFAULT 'project' CHECK(scope IN ('project', 'global')),
+		issues TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(issues)),
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	);`)
 }
 
 func assertPromptIntentDraft(t *testing.T, got *PromptIntentDraft, draftKey, cwd, kind, status, scope string) {
