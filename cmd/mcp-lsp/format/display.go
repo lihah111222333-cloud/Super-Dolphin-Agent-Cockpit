@@ -8,6 +8,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 )
 
+// FromLSP 从LSP处理LSP。
 func FromLSP(v int) int {
 	if v < 0 {
 		return v
@@ -15,6 +16,7 @@ func FromLSP(v int) int {
 	return v + 1
 }
 
+// FromLSPPtr 从LSP指针处理LSP。
 func FromLSPPtr(v *int) *int {
 	if v == nil {
 		return nil
@@ -23,18 +25,21 @@ func FromLSPPtr(v *int) *int {
 	return &value
 }
 
+// Position 转换位置用于展示。
 func Position(pos protocol.Position) protocol.Position {
 	pos.Line = FromLSP(pos.Line)
 	pos.Character = FromLSP(pos.Character)
 	return pos
 }
 
+// Range 转换范围用于展示。
 func Range(r protocol.Range) protocol.Range {
 	r.Start = Position(r.Start)
 	r.End = Position(r.End)
 	return r
 }
 
+// Ranges 转换范围用于展示。
 func Ranges(items []protocol.Range) []protocol.Range {
 	if len(items) == 0 {
 		return items
@@ -46,12 +51,14 @@ func Ranges(items []protocol.Range) []protocol.Range {
 	return out
 }
 
+// Location 转换位置用于展示。
 func Location(loc protocol.Location) protocol.Location {
 	loc.URI = URIToPath(loc.URI)
 	loc.Range = Range(loc.Range)
 	return loc
 }
 
+// LocationPtr 转换位置指针用于展示。
 func LocationPtr(loc *protocol.Location) *protocol.Location {
 	if loc == nil {
 		return nil
@@ -60,6 +67,7 @@ func LocationPtr(loc *protocol.Location) *protocol.Location {
 	return &converted
 }
 
+// LocationLinkPtr 转换位置链接指针用于展示。
 func LocationLinkPtr(link *protocol.LocationLink) *protocol.LocationLink {
 	if link == nil {
 		return nil
@@ -75,6 +83,7 @@ func LocationLinkPtr(link *protocol.LocationLink) *protocol.LocationLink {
 	return &converted
 }
 
+// LocationResults 生成位置结果。
 func LocationResults(items []protocol.LocationResult) []protocol.LocationResult {
 	if len(items) == 0 {
 		return items
@@ -90,6 +99,7 @@ func LocationResults(items []protocol.LocationResult) []protocol.LocationResult 
 	return out
 }
 
+// DocumentSymbol 转换document符号用于展示。
 func DocumentSymbol(symbol protocol.DocumentSymbol) protocol.DocumentSymbol {
 	symbol.Range = Range(symbol.Range)
 	symbol.SelectionRange = Range(symbol.SelectionRange)
@@ -104,6 +114,7 @@ func DocumentSymbol(symbol protocol.DocumentSymbol) protocol.DocumentSymbol {
 	return symbol
 }
 
+// DocumentSymbols 转换document符号用于展示。
 func DocumentSymbols(items []protocol.DocumentSymbol) []protocol.DocumentSymbol {
 	if len(items) == 0 {
 		return items
@@ -115,11 +126,13 @@ func DocumentSymbols(items []protocol.DocumentSymbol) []protocol.DocumentSymbol 
 	return out
 }
 
+// TextEdit 转换文本编辑用于展示。
 func TextEdit(edit protocol.TextEdit) protocol.TextEdit {
 	edit.Range = Range(edit.Range)
 	return edit
 }
 
+// TextEdits 转换文本编辑用于展示。
 func TextEdits(items []protocol.TextEdit) []protocol.TextEdit {
 	if len(items) == 0 {
 		return items
@@ -131,6 +144,7 @@ func TextEdits(items []protocol.TextEdit) []protocol.TextEdit {
 	return out
 }
 
+// WorkspaceEdit 转换工作区编辑用于展示。
 func WorkspaceEdit(edit *protocol.WorkspaceEdit) *protocol.WorkspaceEdit {
 	if edit == nil {
 		return nil
@@ -154,6 +168,7 @@ func WorkspaceEdit(edit *protocol.WorkspaceEdit) *protocol.WorkspaceEdit {
 	return out
 }
 
+// Diagnostic 转换诊断用于展示。
 func Diagnostic(diag protocol.Diagnostic) protocol.Diagnostic {
 	diag.Range = Range(diag.Range)
 	for i := range diag.RelatedInformation {
@@ -162,6 +177,7 @@ func Diagnostic(diag protocol.Diagnostic) protocol.Diagnostic {
 	return diag
 }
 
+// Diagnostics 转换诊断用于展示。
 func Diagnostics(items []protocol.Diagnostic) []protocol.Diagnostic {
 	if len(items) == 0 {
 		return items
@@ -173,6 +189,7 @@ func Diagnostics(items []protocol.Diagnostic) []protocol.Diagnostic {
 	return out
 }
 
+// HoverResult 生成悬停结果。
 func HoverResult(result protocol.HoverResult) protocol.HoverResult {
 	if result.Range == nil {
 		return result
@@ -182,6 +199,7 @@ func HoverResult(result protocol.HoverResult) protocol.HoverResult {
 	return result
 }
 
+// CodeActionResults 生成代码动作结果。
 func CodeActionResults(items []protocol.CodeActionResult) []protocol.CodeActionResult {
 	if len(items) == 0 {
 		return items
@@ -200,6 +218,7 @@ func CodeActionResults(items []protocol.CodeActionResult) []protocol.CodeActionR
 	return out
 }
 
+// WorkspaceSymbolResults 生成工作区符号结果。
 func WorkspaceSymbolResults(items []protocol.WorkspaceSymbolResult) []protocol.WorkspaceSymbolResult {
 	if len(items) == 0 {
 		return items
@@ -222,6 +241,7 @@ func WorkspaceSymbolResults(items []protocol.WorkspaceSymbolResult) []protocol.W
 	return out
 }
 
+// CallHierarchyResults 调用层级结果。
 func CallHierarchyResults(items []protocol.CallHierarchyResult) []protocol.CallHierarchyResult {
 	if len(items) == 0 {
 		return items
@@ -243,6 +263,7 @@ func CallHierarchyResults(items []protocol.CallHierarchyResult) []protocol.CallH
 	return out
 }
 
+// TypeHierarchyResults 生成type层级结果。
 func TypeHierarchyResults(items []protocol.TypeHierarchyResult) []protocol.TypeHierarchyResult {
 	if len(items) == 0 {
 		return items
@@ -262,6 +283,7 @@ func TypeHierarchyResults(items []protocol.TypeHierarchyResult) []protocol.TypeH
 	return out
 }
 
+// SemanticTokensResult 生成语义令牌结果。
 func SemanticTokensResult(result *protocol.SemanticTokensResult) *protocol.SemanticTokensResult {
 	if result == nil {
 		return nil
@@ -279,6 +301,7 @@ func SemanticTokensResult(result *protocol.SemanticTokensResult) *protocol.Seman
 	return &out
 }
 
+// FoldingRange 转换折叠范围用于展示。
 func FoldingRange(item protocol.FoldingRange) protocol.FoldingRange {
 	item.StartLine = FromLSP(item.StartLine)
 	item.StartCharacter = FromLSPPtr(item.StartCharacter)
@@ -287,6 +310,7 @@ func FoldingRange(item protocol.FoldingRange) protocol.FoldingRange {
 	return item
 }
 
+// FoldingRanges 转换折叠范围用于展示。
 func FoldingRanges(items []protocol.FoldingRange) []protocol.FoldingRange {
 	if len(items) == 0 {
 		return items
@@ -304,6 +328,7 @@ func FoldingRanges(items []protocol.FoldingRange) []protocol.FoldingRange {
 // version called tryMakeRelative using mcp-lsp's startup os.Getwd(),
 // which produced misleading ../../other-project/foo.go output when the
 // caller's binding cwd differed from the manager startup directory.
+// URIToPath 把URI处理为路径。
 func URIToPath(uri string) string {
 	trimmed := strings.TrimSpace(uri)
 	if trimmed == "" {
@@ -317,6 +342,7 @@ func URIToPath(uri string) string {
 	return filepath.ToSlash(path)
 }
 
+// parseFileURI 解析文件URI。
 func parseFileURI(raw string) string {
 	parsed, err := url.Parse(raw)
 	if err != nil || !strings.EqualFold(parsed.Scheme, "file") {

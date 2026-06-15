@@ -73,6 +73,7 @@ type teamSyncRuntime struct {
 	store    *teamSyncStateStore
 }
 
+// NewTeamSyncService 创建teamsync服务。
 func NewTeamSyncService(
 	cfg Config,
 	manager *TeamMemoryManager,
@@ -103,6 +104,7 @@ func (s *TeamSyncService) canReuseWatcherLocked(runtime teamSyncRuntime) bool {
 	return s.watcher != nil && s.root == runtime.root && s.repoSlug == runtime.repoSlug
 }
 
+// StartSession 启动会话。
 func (s *TeamSyncService) StartSession(ctx context.Context, threadID string, buildCtx contract.BuildCtx) error {
 	threadID = strings.TrimSpace(threadID)
 	if s.startSessionDisabled(threadID) {
@@ -154,6 +156,7 @@ func (s *TeamSyncService) StartSession(ctx context.Context, threadID string, bui
 	return nil
 }
 
+// StopSession 停止会话。
 func (s *TeamSyncService) StopSession(ctx context.Context, threadID string) error {
 	threadID = strings.TrimSpace(threadID)
 	if s == nil || threadID == "" {
@@ -173,6 +176,7 @@ func (s *TeamSyncService) StopSession(ctx context.Context, threadID string) erro
 	return nil
 }
 
+// Shutdown 发送 LSP 关闭请求。
 func (s *TeamSyncService) Shutdown(ctx context.Context) error {
 	if s == nil {
 		return nil
@@ -214,6 +218,7 @@ func (s *TeamSyncService) projectRootForRuntime(buildCtx contract.BuildCtx, root
 	return projectRoot
 }
 
+// resolveRuntime 解析运行时。
 func (s *TeamSyncService) resolveRuntime(ctx context.Context, buildCtx contract.BuildCtx) (teamSyncRuntime, bool, error) {
 	if s.runtimeUnavailable() {
 		return teamSyncRuntime{}, false, nil
@@ -303,6 +308,7 @@ func resolveTeamRepoSlug(ctx context.Context, projectRoot string) (string, error
 	return repoSlug, nil
 }
 
+// parseTeamRepoSlug 解析team仓库slug。
 func parseTeamRepoSlug(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

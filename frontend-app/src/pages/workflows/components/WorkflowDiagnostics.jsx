@@ -4,6 +4,10 @@ import { Panel } from '../../shared/pageComponents.jsx';
 import { workflowSharedFileRows, workflowTopologyRows } from '../adapters/workflowDisplayAdapter.js';
 
 function WorkflowDiagnostics({ model }) {
+  /*
+   * 诊断面板只显示 WorkflowPage 算好的 diagnostics。
+   * ready-no-wakeup、blocked、failed 不在子组件里再猜一遍。
+   */
   const { derived } = model;
   return (
     <div className="workflow-diagnostics">

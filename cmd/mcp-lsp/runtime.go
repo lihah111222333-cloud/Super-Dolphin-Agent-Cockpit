@@ -41,6 +41,7 @@ func (m *Manager) BackgroundRunners() []platformrunner.Runner {
 	return m.backgroundRunners
 }
 
+// newManager 创建manager。
 func newManager(cfg *platformconfig.Config) (*Manager, error) {
 	if cfg == nil {
 		return nil, errors.New("platform config is required")
@@ -108,6 +109,7 @@ func runtimeWorkspaceRoots() ([]string, error) {
 	return nil, errors.New("runtime workspace roots env is required")
 }
 
+// runtimeWorkspaceRootsFromEnv 从env处理运行时工作区根目录。
 func runtimeWorkspaceRootsFromEnv() ([]string, bool, error) {
 	if rawRoots, ok := os.LookupEnv("GO_AGENT_LSP_ROOTS"); ok {
 		rawRoots = strings.TrimSpace(rawRoots)
@@ -133,6 +135,7 @@ func runtimeWorkspaceRootsFromEnv() ([]string, bool, error) {
 	return nil, false, nil
 }
 
+// normalizeRuntimeWorkspaceRoots 规范化运行时工作区根目录。
 func normalizeRuntimeWorkspaceRoots(roots []string) ([]string, error) {
 	if len(roots) == 0 {
 		return nil, nil
@@ -182,6 +185,7 @@ func runtimePrimaryLanguageIDs() []string {
 	return []string{"go", "javascript", "python", "css", "rust", "java", "markdown", "shellscript"}
 }
 
+// runtimePrimaryLanguageIDsForBundle 为包体处理运行时primary语言ids。
 func runtimePrimaryLanguageIDsForBundle(adapters *multilsp.LanguageAdapterRegistry, bundle runtimeenv.LSPBundle, packaged bool) ([]string, error) {
 	if !packaged {
 		return runtimePrimaryLanguageIDs(), nil
@@ -219,6 +223,7 @@ func appendBackgroundRunner(runners []platformrunner.Runner, runner platformrunn
 	return append(runners, runner)
 }
 
+// registerRuntimeAdapter 注册运行时适配器。
 func registerRuntimeAdapter(
 	registry interface {
 		Register(string, manager.Manager, ...manager.ScopedManagerResolver)
@@ -257,6 +262,7 @@ func registerRuntimeAdapter(
 	return mgr.BackgroundRunner(), scopeReleaserFromManager(mgr), nil
 }
 
+// bundledAdapterServer 处理bundled适配器服务端。
 func bundledAdapterServer(adapter multilsp.LanguageAdapter, bundle runtimeenv.LSPBundle) (runtimeenv.LSPServer, error) {
 	var selected runtimeenv.LSPServer
 	for _, languageID := range adapter.LanguageIDs() {
@@ -353,6 +359,7 @@ func runtimeScopedResolver(mgr multilsp.Manager) manager.ScopedManagerResolver {
 	return multilsp.NewRegistryScopedResolver(mgr)
 }
 
+// setupInstaller 处理setupinstaller。
 func setupInstaller() *installer.Provider {
 	inst := installer.NewProvider()
 
@@ -429,6 +436,7 @@ func createFallbackManager(adapters *multilsp.LanguageAdapterRegistry, root stri
 	})
 }
 
+// createGenericManagerWithBinary 创建带二进制的genericmanager。
 func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger, binaryOverride string, packagedLSP bool) (multilsp.Manager, error) {
 	command, err := adapter.ServerCommand(context.Background(), multilsp.ResolvedLanguageScope{})
 	if err != nil {
@@ -471,6 +479,7 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 
 const packagedPyrightNoSystemPythonPath = "/__super_dolphin_no_system_python__/python"
 
+// runtimeAdapterInitOptions 处理运行时适配器init选项。
 func runtimeAdapterInitOptions(adapter multilsp.LanguageAdapter, packagedLSP bool) map[string]any {
 	initOptions := adapter.InitOptions(multilsp.ResolvedLanguageScope{})
 	if !packagedLSP || !adapterSupportsLanguage(adapter, "python") {
@@ -514,6 +523,7 @@ type runtimeBinaryOverride struct {
 	value string
 }
 
+// Set 设置LSP。
 func (b *runtimeBinaryOverride) Set(path string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -522,6 +532,7 @@ func (b *runtimeBinaryOverride) Set(path string) {
 	}
 }
 
+// Get 读取LSP。
 func (b *runtimeBinaryOverride) Get() string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -533,6 +544,7 @@ type runtimeBinaryManager struct {
 	binary *runtimeBinaryOverride
 }
 
+// RegistryScopedResolver 处理注册表scoped解析器。
 func (m *runtimeBinaryManager) RegistryScopedResolver() manager.ScopedManagerResolver {
 	if m == nil {
 		return nil
@@ -540,6 +552,7 @@ func (m *runtimeBinaryManager) RegistryScopedResolver() manager.ScopedManagerRes
 	return multilsp.NewRegistryScopedResolver(m.Manager)
 }
 
+// ReleaseScope 处理release作用域。
 func (m *runtimeBinaryManager) ReleaseScope(req multilsp.ReleaseScopeRequest) (multilsp.ReleaseScopeResult, error) {
 	if m == nil {
 		return multilsp.ReleaseScopeResult{}, nil
@@ -551,12 +564,14 @@ func (m *runtimeBinaryManager) ReleaseScope(req multilsp.ReleaseScopeRequest) (m
 	return releaser.ReleaseScope(req)
 }
 
+// SetBinaryPath 设置二进制路径。
 func (m *runtimeBinaryManager) SetBinaryPath(path string) {
 	if m != nil && m.binary != nil {
 		m.binary.Set(path)
 	}
 }
 
+// Close 关闭 LSP 管理器资源。
 func (m *Manager) Close() error {
 	if m.registry != nil {
 		return m.registry.Close()
@@ -564,6 +579,7 @@ func (m *Manager) Close() error {
 	return nil
 }
 
+// ReleaseScope 处理release作用域。
 func (m *Manager) ReleaseScope(req mcpdto.LSPReleaseScopeRequest) (mcpdto.LSPReleaseScopeResult, error) {
 	if m == nil {
 		return mcpdto.LSPReleaseScopeResult{}, nil
@@ -624,6 +640,7 @@ func newStdioRunner(server *common.Server, manager *Manager) platformrunner.Runn
 	return stdioRunner{server: server, manager: manager}
 }
 
+// Run 启动LSP后台流程。
 func (r stdioRunner) Run(ctx context.Context) error {
 	if r.server == nil {
 		return errors.New("mcp-lsp server is not configured")

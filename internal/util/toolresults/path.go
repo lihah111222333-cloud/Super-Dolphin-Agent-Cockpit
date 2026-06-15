@@ -23,6 +23,7 @@ import (
 // CacheDir does not create the directory. Writers should MkdirAll after
 // retrieving the path; readers go through SafeReadEntrypoint, which
 // fails closed when the directory is missing.
+// CacheDir 处理缓存目录。
 func CacheDir() string {
 	base, err := os.UserCacheDir()
 	if err != nil || strings.TrimSpace(base) == "" {

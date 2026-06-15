@@ -25,6 +25,7 @@ import (
 // observation fans in from bus subscribers and fans out via Contract reads
 // to consumers (P3 collector, P0b extractor). turn/tracker must not import
 // this package.
+// Subscribe 注册事件订阅。
 func Subscribe(dispatcher *event.Dispatcher, contract Contract, logger *pkglogger.Logger) context.CancelFunc {
 	if dispatcher == nil || contract == nil {
 		return func() {}
@@ -53,6 +54,7 @@ func Subscribe(dispatcher *event.Dispatcher, contract Contract, logger *pkglogge
 // other explicit Status we encode the failure/interrupt/abort/stall kind
 // and leave Success nil to avoid the "default true" trap the P0b plan
 // explicitly flagged.
+// mapTerminalFromCompleted 从completed映射terminal。
 func mapTerminalFromCompleted(ev turndto.TurnCompleted) Terminal {
 	status := strings.ToLower(strings.TrimSpace(ev.Status))
 	reason := platformPickReason(ev.Reason, ev.StopReason, ev.Error)

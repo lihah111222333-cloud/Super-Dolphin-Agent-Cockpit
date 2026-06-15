@@ -14,10 +14,12 @@ import (
 
 type SectionInvalidator = contract.SectionInvalidator
 
+// AsSectionInvalidator 把prompt处理为sectioninvalidator。
 func AsSectionInvalidator(svc Service) SectionInvalidator {
 	return svc
 }
 
+// InvalidateSections 处理invalidatesections。
 func (s *service) InvalidateSections(reason InvalidateReason, names ...string) uint64 {
 	generation := s.cache.InvalidateSections(names...)
 	s.notifySectionInvalidationProviders(reason, names)
@@ -27,6 +29,7 @@ func (s *service) InvalidateSections(reason InvalidateReason, names ...string) u
 	return generation
 }
 
+// notifySectionInvalidationProviders 处理notifysectioninvalidationproviders。
 func (s *service) notifySectionInvalidationProviders(reason InvalidateReason, names []string) {
 	if len(names) == 0 {
 		return
@@ -51,6 +54,7 @@ func (s *service) notifySectionInvalidationProviders(reason InvalidateReason, na
 	}
 }
 
+// compactSectionNames 处理紧凑列表section名称。
 func compactSectionNames(names []string) []string {
 	if len(names) == 0 {
 		return nil
@@ -124,6 +128,7 @@ func publishUIPromptsChanged(
 	})
 }
 
+// publishUIPromptIntentChanged 发布UIpromptintentchanged。
 func publishUIPromptIntentChanged(
 	emit func(uidto.UIPromptsChanged),
 	cwd string,

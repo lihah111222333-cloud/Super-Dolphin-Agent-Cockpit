@@ -54,10 +54,12 @@ type Item struct {
 	Deleted          bool      `json:"deleted,omitempty"`
 }
 
+// Preview 处理preview。
 func Preview(ctx context.Context, deps Deps, params Params) (Result, error) {
 	return buildPlan(ctx, deps, params)
 }
 
+// Apply 应用记忆。
 func Apply(ctx context.Context, deps Deps, params Params) (Result, error) {
 	if deps.Deleter == nil {
 		return Result{}, errors.New("shared file store is not configured for cleanup deletion")
@@ -85,6 +87,7 @@ func Apply(ctx context.Context, deps Deps, params Params) (Result, error) {
 	return result, nil
 }
 
+// buildPlan 构建plan。
 func buildPlan(ctx context.Context, deps Deps, params Params) (Result, error) {
 	if deps.Reader == nil {
 		return Result{}, errors.New("shared file store is not configured")
@@ -118,6 +121,7 @@ func listSharedFiles(ctx context.Context, reader sharedfilestore.Reader, limit i
 	return files, nil
 }
 
+// buildResult 构建结果。
 func buildResult(
 	files []sharedfilestore.SharedFile,
 	protectedPaths map[string]string,
@@ -150,6 +154,7 @@ func buildResult(
 	return result
 }
 
+// normalizeParams 规范化params。
 func normalizeParams(params Params) (Params, error) {
 	if params.WorkTTLDays < 0 {
 		return Params{}, errors.New("workTtlDays must be non-negative")
@@ -169,6 +174,7 @@ func normalizeParams(params Params) (Params, error) {
 	return params, nil
 }
 
+// classifyFile 分类文件。
 func classifyFile(
 	now time.Time,
 	file sharedfilestore.SharedFile,
@@ -227,6 +233,7 @@ func collectProtectedPaths(ctx context.Context, dagRuntime contract.DAGRuntime) 
 	return protected, nil
 }
 
+// collectDAGProtectedPaths 收集DAGprotected路径。
 func collectDAGProtectedPaths(ctx context.Context, dagRuntime contract.DAGRuntime, dagKey string, protected map[string]string) error {
 	dagKey = strings.TrimSpace(dagKey)
 	if dagKey == "" {
@@ -285,6 +292,7 @@ func addProtectedPath(protected map[string]string, path, reason string) {
 	protected[path] = reason
 }
 
+// sharedfileOutputPathFromNodeConfig 从节点配置处理sharedfileoutput路径。
 func sharedfileOutputPathFromNodeConfig(raw json.RawMessage) (string, error) {
 	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "null" {
 		return "", nil

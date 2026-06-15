@@ -11,6 +11,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
+// CreateMainWindow 创建桌面主窗口。
 func CreateMainWindow(app *application.App, title string, debug bool) {
 	if app == nil {
 		return
@@ -56,6 +57,7 @@ func firstAppBinding(bindings []*App) *App {
 	return bindings[0]
 }
 
+// bindFileDrop 绑定文件drop。
 func bindFileDrop(window *application.WebviewWindow, app *application.App, binding *App) {
 	if window == nil || app == nil {
 		return
@@ -115,6 +117,7 @@ func fileDropDetails(details *application.DropTargetDetails) map[string]any {
 	}
 }
 
+// windowURL 处理windowURL。
 func windowURL(uiBootstrap, cwd string) string {
 	base := strings.TrimSpace(os.Getenv("FRONTEND_DEVSERVER_URL"))
 	if base == "" {

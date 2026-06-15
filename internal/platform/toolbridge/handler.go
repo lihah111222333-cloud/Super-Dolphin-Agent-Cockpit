@@ -66,6 +66,7 @@ type storedThreadRuntime struct {
 	Runtime map[string]any `json:"runtime,omitempty"`
 }
 
+// NewHandler 创建处理器。
 func NewHandler(in handlerIn) *Handler {
 	logger := in.Logger
 	if logger == nil {
@@ -90,6 +91,7 @@ func NewHandler(in handlerIn) *Handler {
 	return handler
 }
 
+// HandleToolCall 处理工具call。
 func (h *Handler) HandleToolCall(ctx context.Context, msg contract.ToolCallRawMessage) (result any, err error) {
 	req, err := decodeToolCallRequest(msg.Params)
 	if err != nil {
@@ -113,6 +115,7 @@ func (h *Handler) HandleToolCall(ctx context.Context, msg contract.ToolCallRawMe
 	return h.routeToolCall(ctx, req)
 }
 
+// routeToolCall 处理route工具call。
 func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, error) {
 	req = normalizeToolCallRequest(req)
 	if result, handled, err := h.routeReservedHostOnlyToolCall(ctx, req); handled || err != nil {
@@ -257,6 +260,7 @@ func toolCallErrorResult(text string) *ToolCallResult {
 
 // Managed launch context injection helpers live in handler_managed_launch.go.
 
+// resolveCurrentToolCallBinding 解析当前工具callbinding。
 func (h *Handler) resolveCurrentToolCallBinding(ctx context.Context, req ToolCallRequest) (toolCallBinding, bool) {
 	if h == nil || h.bindingStore == nil {
 		return toolCallBinding{}, false
@@ -313,6 +317,7 @@ func (h *Handler) spawnAgentPolicyMessage(ctx context.Context, req ToolCallReque
 	return "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `orchestration_launch_agent` 创建持续化 UI 子 agent。", nil
 }
 
+// persistentSubagentRequired 处理persistentsubagent必需。
 func (h *Handler) persistentSubagentRequired(ctx context.Context, req ToolCallRequest) (bool, error) {
 	runtime, err := h.requireToolCallRuntimeConfig(ctx, req)
 	if err != nil {
@@ -384,6 +389,7 @@ func resolveToolCallThreadIDFromRequest(req ToolCallRequest) (string, bool) {
 	return threadID, true
 }
 
+// resolveToolCallThreadIDFromAgent 从代理解析工具call线程ID。
 func (h *Handler) resolveToolCallThreadIDFromAgent(ctx context.Context, req ToolCallRequest) (string, bool) {
 	if h == nil || h.bindingStore == nil {
 		return "", false
@@ -460,6 +466,7 @@ func persistentSubagentDefaultFallbackCount() uint64 {
 	return persistentSubagentDefaultFallbackTotal.Load()
 }
 
+// persistentSubagentFlagFromRuntime 从运行时处理persistentsubagentflag。
 func persistentSubagentFlagFromRuntime(runtime map[string]any) (bool, bool) {
 	for _, key := range []string{"sessionFlags", "session_flags"} {
 		raw, ok := runtime[key]
@@ -483,6 +490,7 @@ func persistentSubagentFlagFromRuntime(runtime map[string]any) (bool, bool) {
 	return false, false
 }
 
+// runtimeHasTool 处理运行时has工具。
 func runtimeHasTool(runtime map[string]any, want string) (bool, bool) {
 	for _, key := range []string{"enabledTools", "enabled_tools", "tools"} {
 		raw, ok := runtime[key]

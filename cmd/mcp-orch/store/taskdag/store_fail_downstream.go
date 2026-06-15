@@ -26,6 +26,7 @@ const (
 	failNodeKindCascade          = "cascade"
 )
 
+// FailNodeAndCancelDownstream 标记节点失败，并取消下游节点。
 func (s *store) FailNodeAndCancelDownstream(ctx context.Context, input FailNodeInput) (*FailNodeResult, error) {
 	if err := requireRuntimeRunID("fail_and_cancel_downstream", input.RunID); err != nil {
 		return nil, err
@@ -46,6 +47,7 @@ func (s *store) FailNodeAndCancelDownstream(ctx context.Context, input FailNodeI
 	return &result, nil
 }
 
+// failNodeAndCancelDownstreamTx 在事务内标记节点失败并取消下游节点。
 func failNodeAndCancelDownstreamTx(ctx context.Context, txStore *store, input FailNodeInput) (*FailNodeResult, error) {
 	oldStatus, oldErr := lockedNodeStatusBeforeFailTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID)
 	if oldErr != nil {
@@ -110,6 +112,7 @@ func failNodeTx(ctx context.Context, txStore *store, dagKey, nodeKey string, run
 // and marks every transitively-dependent pending node as failed (cascade).
 // Nodes already in non-pending states are left alone — once a node has
 // started running or reached terminal we don't rewrite history.
+// cancelDownstreamTx 处理canceldownstreamtx。
 func cancelDownstreamTx(ctx context.Context, txStore *store, dagKey, failedNodeKey string, runID int64, reason string) ([]CanceledDownstreamNode, error) {
 	if err := requireRuntimeRunID("cancel_downstream", runID); err != nil {
 		return nil, err

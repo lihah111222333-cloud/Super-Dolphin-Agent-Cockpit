@@ -1,3 +1,8 @@
+/*
+ * project slice 管当前窗口选中的项目。
+ * 切换项目会保存草稿、刷新聊天列表；失败要回到原来的项目。
+ */
+
 function createActiveProjectActions(runtime, deps) {
   const {
     addProject,
@@ -67,6 +72,10 @@ function createProjectPickerActions(runtime, deps) {
 
   return {
     addProjectFromPicker: async () => {
+      /*
+       * 选择器只给路径。
+       * 真正注册项目和修正 activeProject 由后端 addProject 完成。
+       */
       const scopeCwd = runtime.requireProjectScopeCwd('project.add');
       const activeProject = normalizePath(runtime.get().activeProject);
       const seed = activeProject && activeProject !== '.' ? activeProject : scopeCwd;

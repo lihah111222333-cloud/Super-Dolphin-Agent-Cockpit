@@ -78,6 +78,7 @@ func install(req installRequest) error {
 	return errors.Join(installErr, detachErr, removeErr)
 }
 
+// installFromMount 从mount处理安装。
 func installFromMount(req installRequest, mountPoint string) error {
 	stagedApp, err := findMountedApp(mountPoint)
 	if err != nil {
@@ -146,6 +147,7 @@ func shouldDropRestartEnv(entry string) bool {
 	return false
 }
 
+// validateInstallRequest 校验安装请求。
 func validateInstallRequest(req installRequest) error {
 	dmgPath := strings.TrimSpace(req.DMGPath)
 	targetPath := strings.TrimSpace(req.TargetAppPath)
@@ -231,6 +233,7 @@ func verifyWritableDir(dir string) error {
 	return errors.Join(closeErr, removeErr)
 }
 
+// validateMountedApp 校验mountedapp。
 func validateMountedApp(appPath string) error {
 	if !strings.EqualFold(filepath.Ext(appPath), ".app") {
 		return fmt.Errorf("mounted app must end with .app: %s", appPath)
@@ -275,6 +278,7 @@ func readBundleID(path string) (string, error) {
 	return value, nil
 }
 
+// plistStringValue 处理pliststring值。
 func plistStringValue(decoder *xml.Decoder, key string) (string, error) {
 	for {
 		token, err := decoder.Token()
@@ -299,6 +303,7 @@ func plistStringValue(decoder *xml.Decoder, key string) (string, error) {
 	}
 }
 
+// nextPlistString 处理nextpliststring。
 func nextPlistString(decoder *xml.Decoder) (string, error) {
 	for {
 		token, err := decoder.Token()
@@ -370,6 +375,7 @@ func expectedTeamID(targetApp string) (string, error) {
 	return teamID, nil
 }
 
+// verifyAppSignature 验证app签名。
 func verifyAppSignature(appPath string, expectedTeamID string, allowUnsigned bool) error {
 	if allowUnsigned {
 		if _, err := runCommand("codesign", "--verify", "--deep", "--strict", "--verbose=4", appPath); err != nil {
@@ -434,6 +440,7 @@ func parseSigningValue(details string, key string) string {
 	return ""
 }
 
+// replaceTargetApp 替换targetapp。
 func replaceTargetApp(stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool) error {
 	backupApp := backupPath(targetApp)
 	backupCreated := false
@@ -477,6 +484,7 @@ func copyApp(stagedApp string, targetApp string) error {
 	return nil
 }
 
+// clearQuarantine 清理quarantine。
 func clearQuarantine(appPath string) error {
 	result, err := runCommand("xattr", "-dr", "com.apple.quarantine", appPath)
 	if err == nil {

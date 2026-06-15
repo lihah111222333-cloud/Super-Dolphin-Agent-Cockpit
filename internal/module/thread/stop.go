@@ -91,6 +91,7 @@ func (s *service) resolveResumeLifecycleBinding(
 	return resolved
 }
 
+// resumeAgentLifecycleBlock 处理恢复代理生命周期block。
 func (s *service) resumeAgentLifecycleBlock(threadID string, binding *bindingstore.Binding) (string, bool) {
 	if s == nil {
 		return "", false
@@ -119,6 +120,7 @@ func resumeLifecycleStatusBlock(status string) (string, bool) {
 	}
 }
 
+// resumeLifecycleThreadStatus 处理恢复生命周期线程状态。
 func (s *service) resumeLifecycleThreadStatus(
 	ctx context.Context,
 	threadID string,
@@ -168,6 +170,7 @@ func resumeLifecycleError(threadID, reason string) error {
 	return fmt.Errorf("%w: %s for %q", errResumeLifecycleBlocked, reason, strings.TrimSpace(threadID))
 }
 
+// Stop 停止线程流程。
 func (s *service) Stop(ctx context.Context, threadID string) error {
 	ctx = util.NonNilContext(ctx)
 	stopState, err := s.resolveThreadStopState(ctx, threadID)
@@ -195,6 +198,7 @@ func (s *service) Stop(ctx context.Context, threadID string) error {
 	return nil
 }
 
+// stopPendingLaunchThread 停止待处理启动线程。
 func (s *service) stopPendingLaunchThread(ctx context.Context, threadID string) (bool, error) {
 	if s.threadStore == nil {
 		return false, nil
@@ -238,6 +242,7 @@ func newThreadStopState(binding *bindingstore.Binding, threadID string) threadSt
 	}
 }
 
+// stopThreadRuntime 停止线程运行时。
 func (s *service) stopThreadRuntime(
 	ctx context.Context,
 	stopState threadStopState,
@@ -278,6 +283,7 @@ func (s *service) stopThreadRuntime(
 	return err
 }
 
+// interruptStoppingThread 处理interruptstopping线程。
 func (s *service) interruptStoppingThread(ctx context.Context, agentID, source string) {
 	if s.turns == nil {
 		return
@@ -298,6 +304,7 @@ func bindingAgentID(binding *bindingstore.Binding) string {
 	return binding.AgentID
 }
 
+// stopManagedAgent 停止managed代理。
 func (s *service) stopManagedAgent(ctx context.Context, agentID string, allowMissingAgent bool) error {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {

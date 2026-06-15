@@ -79,6 +79,7 @@ func terminateByPID(pid int) error {
 // collectDescendants returns PIDs whose ancestry chain leads back to root.
 // We snapshot Toolhelp32 once, build a children index, then BFS from root.
 // Duplicates and the root itself are excluded from the returned slice.
+// collectDescendants 收集descendants。
 func collectDescendants(root int) []int {
 	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {

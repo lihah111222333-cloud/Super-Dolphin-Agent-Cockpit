@@ -34,6 +34,8 @@ import (
 	"go.uber.org/fx"
 )
 
+// stdio、HTTP 和 bootstrap toolbridge 都从同一个 registry 暴露工具。
+// 别为不同传输复制一套 handler。
 type registryToolProvider struct {
 	registry tools.Registry
 }
@@ -103,10 +105,12 @@ func verifyMCPOrchDatabaseReady(ctx context.Context, probe mcpOrchDBReadyProbe) 
 // RemoveSession, which in this noop case is also a no-op).
 type noopSessionCleaner struct{}
 
+// RemoveSession 移除 runtime 中的会话记录。
 func (noopSessionCleaner) RemoveSession(sessionID string) {
 	_ = sessionID
 }
 
+// RemoveSessionGeneration 移除会话代际记录。
 func (noopSessionCleaner) RemoveSessionGeneration(sessionID string, generation uint64) {
 	_ = sessionID
 	_ = generation
@@ -126,10 +130,12 @@ func newNoopSessionCleaner() contract.OrchestrationSessionCleaner {
 // type-assertion would have failed and the helper returned nil.
 type noopTurnStarter struct{}
 
+// StartTurn 把 cron 运行转换成一次线程 turn。
 func (noopTurnStarter) StartTurn(context.Context, contract.TurnSubmission) (string, error) {
 	return "", errors.New("turn starter not available in mcp-orch standalone mode")
 }
 
+// WaitForSessionReady 等待会话进入可接收 turn 的状态。
 func (noopTurnStarter) WaitForSessionReady(context.Context, string, time.Duration) error {
 	return nil
 }
@@ -186,6 +192,8 @@ func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, server *
 	return bootstrapRunner{cfg: cfg, client: client, stdioReady: server.Ready()}
 }
 
+// 这里只转 registry，不解释 scope。
+// scope 已经由上游放进 ctx，别在这里让 stdio/bootstrap 分叉。
 func (p registryToolProvider) ListTools(context.Context) ([]mcpdto.MCPTool, error) {
 	defs := p.registry.List()
 	toolsList := make([]mcpdto.MCPTool, 0, len(defs))
@@ -203,6 +211,7 @@ func (p registryToolProvider) ListTools(context.Context) ([]mcpdto.MCPTool, erro
 	return toolsList, nil
 }
 
+// CallTool 调用已注册工具并返回标准工具结果。
 func (p registryToolProvider) CallTool(ctx context.Context, name string, args json.RawMessage) (any, error) {
 	return handleToolCall(ctx, p.registry, name, args)
 }
@@ -229,6 +238,8 @@ func handleToolCall(ctx context.Context, registry tools.Registry, name string, a
 	return def.Handler(ctx, args)
 }
 
+// 只有 peer 模式才向主控注册，让 toolbridge 能代理 tools/list 和 tools/call。
+// 普通 stdio sidecar 不能注册，否则可能被主控当独立 peer 清理掉。
 func (r bootstrapRunner) Run(ctx context.Context) error {
 	r.client.InstallLogRelay()
 	if r.stdioReady != nil {
@@ -279,6 +290,7 @@ func (r bootstrapRunner) Run(ctx context.Context) error {
 	return r.client.Close()
 }
 
+// bindRuntime 把 runtime 能力绑定到 mcp-orch RPC 服务。
 func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
 	logger := params.Logger
 	if logger == nil {

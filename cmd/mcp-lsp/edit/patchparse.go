@@ -35,6 +35,7 @@ type patchBodyLine struct {
 }
 
 // Parse accepts either an implicit single hunk or a single explicit "@@ " hunk.
+// Parse 解析LSP。
 func Parse(patch string) (Hunk, error) {
 	lines, err := normalizePatchLines(patch)
 	if err != nil {
@@ -62,6 +63,7 @@ func Parse(patch string) (Hunk, error) {
 
 // ParseMulti accepts a single implicit hunk, a leading implicit hunk followed
 // by explicit hunks, or multiple explicit "@@ " hunks.
+// ParseMulti 解析multi。
 func ParseMulti(patch string) ([]Hunk, error) {
 	lines, err := normalizePatchLines(patch)
 	if err != nil {
@@ -96,6 +98,7 @@ func ParseMulti(patch string) ([]Hunk, error) {
 // parseImplicitHunk handles a patch with no leading "@@ " header. Lines before
 // the first header form an implicit first hunk; any later header starts an
 // explicit hunk.
+// parseImplicitHunk 解析隐式hunk。
 func parseImplicitHunk(lines []string) ([]Hunk, error) {
 	headerIndex := slices.IndexFunc(lines[1:], isPatchHeader)
 	if headerIndex < 0 {
@@ -135,6 +138,7 @@ func normalizeLLMPatchEnvelope(lines []string) []string {
 	return dropUnifiedDiffFileHeaders(trimmed)
 }
 
+// dropApplyPatchEnvelope 去掉应用补丁包装。
 func dropApplyPatchEnvelope(lines []string) []string {
 	if len(lines) == 0 || lines[0] != "*** Begin Patch" {
 		return lines
@@ -164,6 +168,7 @@ func containsPatchHeader(lines []string) bool {
 	return slices.ContainsFunc(lines, isPatchHeader)
 }
 
+// normalizePatchLines 规范化补丁行。
 func normalizePatchLines(patch string) ([]string, error) {
 	if patch == "" {
 		return nil, ErrEmptyPatch
@@ -182,6 +187,7 @@ func normalizePatchLines(patch string) ([]string, error) {
 	return lines, nil
 }
 
+// splitPatchHeaders 拆分补丁头部。
 func splitPatchHeaders(lines []string) ([][]string, error) {
 	var blocks [][]string
 	var current []string
@@ -207,6 +213,7 @@ func splitPatchHeaders(lines []string) ([][]string, error) {
 	return blocks, nil
 }
 
+// parseHunkBody 解析hunk正文。
 func parseHunkBody(lines []string) (Hunk, error) {
 	if len(lines) == 0 {
 		return Hunk{}, fmt.Errorf("%w: patch hunk body is empty", ErrInvalidPatch)
@@ -244,6 +251,7 @@ func parseHunkBody(lines []string) (Hunk, error) {
 
 // classifyBodyLines parses each body line, returning the classified lines and
 // the indices of the first and last changed (non-context) lines.
+// classifyBodyLines 分类正文行。
 func classifyBodyLines(body []string, startOffset int) ([]patchBodyLine, int, int, error) {
 	parsed := make([]patchBodyLine, 0, len(body))
 	firstChange, lastChange := -1, -1

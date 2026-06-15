@@ -42,6 +42,7 @@ type agentThreadLookupAdapter struct {
 	inner bindingstore.Store
 }
 
+// GetThreadByAgent 按代理读取线程。
 func (a agentThreadLookupAdapter) GetThreadByAgent(ctx context.Context, agentID string) (string, error) {
 	if a.inner == nil {
 		return "", nil
@@ -49,6 +50,7 @@ func (a agentThreadLookupAdapter) GetThreadByAgent(ctx context.Context, agentID 
 	return a.inner.GetThreadByAgent(ctx, agentID)
 }
 
+// GetBindingByAgent 按代理读取binding。
 func (a agentThreadLookupAdapter) GetBindingByAgent(ctx context.Context, agentID string) (toolbridge.ToolCallBinding, error) {
 	if a.inner == nil {
 		return toolbridge.ToolCallBinding{}, nil
@@ -60,6 +62,7 @@ func (a agentThreadLookupAdapter) GetBindingByAgent(ctx context.Context, agentID
 	return toolCallBindingFromStore(binding), nil
 }
 
+// GetBindingByProviderThread 按provider线程读取binding。
 func (a agentThreadLookupAdapter) GetBindingByProviderThread(ctx context.Context, provider, providerThreadID string) (toolbridge.ToolCallBinding, error) {
 	if a.inner == nil {
 		return toolbridge.ToolCallBinding{}, nil
@@ -102,6 +105,7 @@ type threadConfigOverrideAdapter struct {
 	inner threadstore.Store
 }
 
+// GetConfigOverride 读取配置override。
 func (a threadConfigOverrideAdapter) GetConfigOverride(ctx context.Context, threadID string) (json.RawMessage, error) {
 	if a.inner == nil {
 		return nil, nil
@@ -128,6 +132,7 @@ type uiPreferenceReaderAdapter struct {
 	inner uipreferencestore.Store
 }
 
+// GetMergedPreferences 读取mergedpreferences。
 func (a uiPreferenceReaderAdapter) GetMergedPreferences(ctx context.Context, cwd string) (map[string]any, error) {
 	if a.inner == nil {
 		return nil, nil
@@ -168,6 +173,7 @@ func provideToolbridgeUIPreferenceReader(store uipreferencestore.Store) toolbrid
 
 type toolbridgeResolverFunc func(context.Context, string) (string, error)
 
+// ResolveAgentCWD 解析代理工作目录。
 func (fn toolbridgeResolverFunc) ResolveAgentCWD(ctx context.Context, agentID string) (string, error) {
 	return fn(ctx, agentID)
 }
@@ -200,6 +206,7 @@ type codexBindingParams struct {
 	Handler *toolbridge.Handler     `optional:"true"`
 }
 
+// bindToolbridgeCodexHandlers 绑定toolbridgecodex处理器。
 func bindToolbridgeCodexHandlers(p codexBindingParams) {
 	if p.Manager == nil || p.Factory == nil || p.Handler == nil {
 		return

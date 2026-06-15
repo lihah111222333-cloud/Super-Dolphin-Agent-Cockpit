@@ -11,6 +11,7 @@ import (
 
 type RemoteParamDecoder func(any) error
 
+// DecodeRemoteTurnCompleted 解码remoteturncompleted。
 func DecodeRemoteTurnCompleted(decode RemoteParamDecoder) (turndto.TurnCompleted, error) {
 	var ev turndto.TurnCompleted
 	if err := decode(&ev); err != nil {
@@ -22,6 +23,7 @@ func DecodeRemoteTurnCompleted(decode RemoteParamDecoder) (turndto.TurnCompleted
 	return ev, nil
 }
 
+// DecodeRemoteTurnInterrupted 解码remoteturninterrupted。
 func DecodeRemoteTurnInterrupted(decode RemoteParamDecoder) (turndto.TurnInterrupted, error) {
 	var ev turndto.TurnInterrupted
 	if err := decode(&ev); err == nil && strings.TrimSpace(ev.AgentID) != "" {

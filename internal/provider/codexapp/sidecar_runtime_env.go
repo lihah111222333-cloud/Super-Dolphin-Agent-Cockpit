@@ -40,6 +40,7 @@ func (l *execPeerLauncher) peerEnvForTest(name string, parent []string) ([]strin
 	return peerProcessEnv(name, parent, l.workspaceRoots())
 }
 
+// peerProcessEnv 处理peer进程env。
 func peerProcessEnv(name string, parent []string, configuredRoots []string) ([]string, error) {
 	orchSQLitePath, hasOrchSQLitePath, err := trustedOrchSQLitePath(parent, name)
 	if err != nil {
@@ -173,6 +174,7 @@ func validateMcpLSPPeerWorkspaceRoot(root string) error {
 	return nil
 }
 
+// validateMcpLSPPeerWorkspaceRoots 校验MCPLSPpeer工作区根目录。
 func validateMcpLSPPeerWorkspaceRoots(raw string) error {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -191,6 +193,7 @@ func validateMcpLSPPeerWorkspaceRoots(raw string) error {
 	return nil
 }
 
+// normalizePeerWorkspaceRoots 规范化peer工作区根目录。
 func normalizePeerWorkspaceRoots(roots []string) ([]string, error) {
 	out := make([]string, 0, len(roots))
 	seen := make(map[string]struct{}, len(roots))
@@ -217,6 +220,7 @@ func normalizePeerWorkspaceRoots(roots []string) ([]string, error) {
 
 // resolvePeerBinDirs returns the ordered list of directories to probe for peer
 // binaries. GO_AGENT_PEER_BIN_DIR (path-list) wins over os.Executable()'s dir.
+// resolvePeerBinDirs 解析peerbin目录。
 func resolvePeerBinDirs() ([]string, error) {
 	var dirs []string
 	if override := strings.TrimSpace(os.Getenv(peerBinDirEnv)); override != "" {
@@ -234,6 +238,7 @@ func resolvePeerBinDirs() ([]string, error) {
 	return dirs, nil
 }
 
+// findPeerBinary 查找peer二进制。
 func findPeerBinary(dirs []string, name string) (string, bool) {
 	// On Windows the binaries are mcp-orch.exe / mcp-lsp.exe but
 	// defaultPeerNames returns the unsuffixed names (Unix convention).

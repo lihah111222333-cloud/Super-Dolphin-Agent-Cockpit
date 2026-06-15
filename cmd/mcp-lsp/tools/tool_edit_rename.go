@@ -24,6 +24,7 @@ type renameFileChange struct {
 	EditCount int    `json:"edit_count"`
 }
 
+// handleRename 处理重命名。
 func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, error) {
 	if strings.TrimSpace(req.NewName) == "" {
 		return nil, fmt.Errorf("rename requires new_name")
@@ -59,6 +60,7 @@ func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, er
 	}, nil
 }
 
+// applyWorkspaceEdit 应用工作区编辑。
 func (h EditHandler) applyWorkspaceEdit(ctx context.Context, edit *protocol.WorkspaceEdit, version int) ([]renameFileChange, int, string, error) {
 	changes := mergeWorkspaceEditChanges(edit)
 	if len(changes) == 0 {
@@ -195,6 +197,7 @@ func buildTextEditApplication(lines []string, edit protocol.TextEdit) (textEditA
 	}, nil
 }
 
+// validateTextEditRange 校验文本编辑范围。
 func validateTextEditRange(lines []string, rng protocol.Range) error {
 	if rng.Start.Line < 0 || rng.End.Line < 0 {
 		return fmt.Errorf("edit range line must be non-negative: L%d-L%d", rng.Start.Line, rng.End.Line)

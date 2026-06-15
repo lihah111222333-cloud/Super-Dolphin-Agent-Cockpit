@@ -87,6 +87,7 @@ type lspServerManifest struct {
 	Languages []string `json:"languages"`
 }
 
+// ConfigurePackagedApp 处理configurepackagedapp。
 func ConfigurePackagedApp() error {
 	exe, err := deps.executable()
 	if err != nil {
@@ -116,6 +117,7 @@ func ConfigurePackagedApp() error {
 	return nil
 }
 
+// ConfigureSidecarRuntime 处理configuresidecar运行时。
 func ConfigureSidecarRuntime() error {
 	contract, err := ResolveSidecarRuntimeContract(SidecarRuntimeInput{
 		Env: environmentMap(os.Environ()),
@@ -126,6 +128,7 @@ func ConfigureSidecarRuntime() error {
 	return applySidecarRuntimeContract(contract)
 }
 
+// ResolveSidecarRuntimeContract 解析sidecar运行时contract。
 func ResolveSidecarRuntimeContract(input SidecarRuntimeInput) (SidecarRuntimeContract, error) {
 	mode := strings.TrimSpace(input.Env[runtimeModeEnv])
 	resources := strings.TrimSpace(input.Env[runtimeResourcesEnv])
@@ -147,6 +150,7 @@ func ResolveSidecarRuntimeContract(input SidecarRuntimeInput) (SidecarRuntimeCon
 // PackagedRuntimeFromExecutable resolves the packaged runtime for callers that
 // still need the legacy PackagedRuntime shape. It delegates packaged/dev
 // classification to ResolveRuntime so path shape alone cannot select packaged.
+// PackagedRuntimeFromExecutable 从可执行文件处理packaged运行时。
 func PackagedRuntimeFromExecutable(executablePath, userHome string) (PackagedRuntime, bool) {
 	executablePath = strings.TrimSpace(executablePath)
 	userHome = strings.TrimSpace(userHome)
@@ -181,6 +185,7 @@ func applyPackagedEnv(resources, userHome string) error {
 	return applyPackagedRuntimeEnv(packagedRuntimeFromResources(resources, userHome))
 }
 
+// LoadLSPBundleFromEnv 从env加载LSP包体。
 func LoadLSPBundleFromEnv() (LSPBundle, bool, error) {
 	bundleDir := strings.TrimSpace(os.Getenv(lspBundleDirEnv))
 	manifestPath := strings.TrimSpace(os.Getenv(lspManifestEnv))
@@ -194,6 +199,7 @@ func LoadLSPBundleFromEnv() (LSPBundle, bool, error) {
 	return bundle, true, err
 }
 
+// LoadLSPBundle 加载LSP包体。
 func LoadLSPBundle(bundleDir, manifestPath string) (LSPBundle, error) {
 	bundleDir = strings.TrimSpace(bundleDir)
 	manifestPath = strings.TrimSpace(manifestPath)
@@ -217,6 +223,7 @@ func LoadLSPBundle(bundleDir, manifestPath string) (LSPBundle, error) {
 	return normalizeLSPBundle(bundleDir, manifestPath, manifest)
 }
 
+// normalizeLSPBundle 规范化LSP包体。
 func normalizeLSPBundle(bundleDir, manifestPath string, manifest lspBundleManifest) (LSPBundle, error) {
 	bundle := LSPBundle{
 		BundleDir:    bundleDir,
@@ -255,6 +262,7 @@ func normalizeLSPBundle(bundleDir, manifestPath string, manifest lspBundleManife
 	return bundle, nil
 }
 
+// resolveLSPBundlePath 解析LSP包体路径。
 func resolveLSPBundlePath(bundleDir, relativePath string) (string, error) {
 	relativePath = strings.TrimSpace(relativePath)
 	if relativePath == "" {
@@ -274,6 +282,7 @@ func resolveLSPBundlePath(bundleDir, relativePath string) (string, error) {
 	return filepath.Join(bundleDir, clean), nil
 }
 
+// defaultLSPLanguages 处理defaultLSPlanguages。
 func defaultLSPLanguages(serverID string) []string {
 	switch normalizeLSPKey(serverID) {
 	case "gopls":
@@ -316,11 +325,13 @@ func normalizeLSPKey(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
 
+// ServerForLanguage 为语言处理服务端。
 func (b LSPBundle) ServerForLanguage(languageID string) (LSPServer, bool) {
 	server, ok := b.Languages[normalizeLSPKey(languageID)]
 	return server, ok
 }
 
+// SemanticLanguages 处理语义languages。
 func (b LSPBundle) SemanticLanguages() []string {
 	languages := make([]string, 0, len(b.Languages))
 	for languageID := range b.Languages {
@@ -330,6 +341,7 @@ func (b LSPBundle) SemanticLanguages() []string {
 	return languages
 }
 
+// applyPackagedRuntimeEnv 应用packaged运行时env。
 func applyPackagedRuntimeEnv(runtime PackagedRuntime) error {
 	if err := requireBundledSidecars(runtime.BinDir); err != nil {
 		return err
@@ -369,6 +381,7 @@ func applyPackagedRuntimeEnv(runtime PackagedRuntime) error {
 
 // LoadVideoEnv reads $SUPER_DOLPHIN_HOME/video.env and sets any KEY=VALUE
 // pairs it finds as environment variables. Missing file is silently ignored.
+// LoadVideoEnv 加载videoenv。
 func LoadVideoEnv() error {
 	path, err := videoEnvPath()
 	if err != nil {
@@ -397,6 +410,7 @@ func LoadVideoEnv() error {
 	return nil
 }
 
+// WriteVideoEnv 写入videoenv。
 func WriteVideoEnv(apiKey string) error {
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
@@ -475,6 +489,7 @@ func requireExecutableFile(path string) error {
 func newSessionToken() string {
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {
+		// archguard:ignore panic_count -- cryptographic entropy failure is unrecoverable for session-token generation.
 		panic("generate packaged control-plane session token: " + err.Error())
 	}
 	return "sd-" + hex.EncodeToString(raw[:])

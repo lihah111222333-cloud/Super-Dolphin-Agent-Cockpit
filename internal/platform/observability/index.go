@@ -19,11 +19,13 @@ type seqRing struct {
 	seqs []uint64
 }
 
+// NewIndex 创建索引。
 func NewIndex(cfg Config) *Index {
 	cfg = normalizeIndexConfig(cfg)
 	return &Index{cfg: cfg, events: make(map[uint64]TraceEvent, cfg.IndexMaxEvents), traceRefs: map[string]*seqRing{}, threadRefs: map[string]*seqRing{}, slowRefs: seqRing{cap: cfg.IndexMaxSlowEvents}, errorRefs: seqRing{cap: cfg.IndexMaxErrorEvents}}
 }
 
+// Add 添加平台observability。
 func (i *Index) Add(event TraceEvent) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -49,6 +51,7 @@ func (i *Index) Add(event TraceEvent) {
 	}
 }
 
+// Query 处理查询。
 func (i *Index) Query(query Query) QueryResult {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -58,12 +61,14 @@ func (i *Index) Query(query Query) QueryResult {
 	return QueryResult{Source: QuerySourceMemory, Events: events, Truncated: truncated}
 }
 
+// TraceKeyCount 处理trace键count。
 func (i *Index) TraceKeyCount() int {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	return len(i.traceRefs)
 }
 
+// LatestTraceContextByThread 按线程处理latesttrace上下文。
 func (i *Index) LatestTraceContextByThread(threadID string) (TraceContext, bool) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -202,6 +207,7 @@ func (r *seqRing) prune(events map[uint64]TraceEvent) {
 	r.seqs = out
 }
 
+// normalizeIndexConfig 规范化索引配置。
 func normalizeIndexConfig(cfg Config) Config {
 	if cfg.IndexMaxEvents <= 0 {
 		cfg.IndexMaxEvents = 5000

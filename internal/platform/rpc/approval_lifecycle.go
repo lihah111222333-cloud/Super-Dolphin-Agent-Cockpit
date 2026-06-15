@@ -9,6 +9,7 @@ import (
 
 const defaultApprovalCleanupInterval = time.Minute
 
+// Cleanup 处理cleanup。
 func (m *ApprovalManager) Cleanup(timeout time.Duration) {
 	if m == nil || timeout <= 0 {
 		return
@@ -28,6 +29,7 @@ func (m *ApprovalManager) Cleanup(timeout time.Duration) {
 // is owned by ApprovalCleanupRunner (approval_cleanup_runner.go) and joined
 // via the root `group:"runners"` aggregation.
 
+// RestorePending 处理restore待处理。
 func (m *ApprovalManager) RestorePending(ctx context.Context, bridge *PushBridge, server *jrpc2.Server) error {
 	if m == nil {
 		return nil
@@ -64,6 +66,7 @@ func (m *ApprovalManager) refreshPendingTTL(pending *pendingApproval) {
 	}
 }
 
+// PendingSnapshot 处理待处理快照。
 func (m *ApprovalManager) PendingSnapshot() []ApprovalRequest {
 	pending := m.snapshotPending()
 	out := make([]ApprovalRequest, 0, len(pending))

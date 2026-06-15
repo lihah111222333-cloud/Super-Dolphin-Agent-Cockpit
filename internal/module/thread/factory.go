@@ -33,6 +33,7 @@ type threadStateFields struct {
 	PendingLaunch                                                      bool
 }
 
+// newThreadState 创建线程状态。
 func newThreadState(kind threadStateKind, fields threadStateFields) threadState {
 	displayName := strings.TrimSpace(util.FirstNonEmpty(fields.Name, fields.Prompt))
 	state := threadState{
@@ -155,6 +156,7 @@ type threadEventFields struct {
 	Compacted, Estimated             bool
 }
 
+// newThreadEvent 创建线程事件。
 func newThreadEvent(kind threadEventKind, threadID string, fields threadEventFields) any {
 	header := shareddto.EventHeader{Timestamp: time.Now()}
 	threadID = strings.TrimSpace(threadID)

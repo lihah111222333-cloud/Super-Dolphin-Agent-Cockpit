@@ -22,6 +22,7 @@ func sqlTemplateWithMatchWhen(promptKey, agentKey, text string, matchWhen []byte
 func matchWhenCWDPrefix(cwd string) []byte {
 	raw, err := json.Marshal(map[string]string{"cwd_prefix": resolvePromptCWD(cwd)})
 	if err != nil {
+		// archguard:ignore panic_count -- static map[string]string test fixture must always marshal.
 		panic(err)
 	}
 	return raw

@@ -25,6 +25,7 @@ type serviceFromConfigParams struct {
 	Config    Config
 }
 
+// NewServiceFromConfig 从配置创建服务。
 func NewServiceFromConfig(p serviceFromConfigParams) (*Service, error) {
 	if !p.Config.Enabled {
 		return NewDisabledService(p.Config), nil
@@ -46,6 +47,7 @@ func NewServiceFromConfig(p serviceFromConfigParams) (*Service, error) {
 	return NewService(p.Config, WithSink(sink), WithTailReader(NewTailReader(dir, p.Config))), nil
 }
 
+// traceProjectFromAppConfig 从app配置处理trace项目。
 func traceProjectFromAppConfig(cfg *config.Config) (string, error) {
 	if cfg == nil {
 		return "", fmt.Errorf("observability tracing requires platform config")

@@ -14,6 +14,7 @@ type Policy struct {
 	OnRetry     func(attempt int, err error, delay time.Duration)
 }
 
+// Retry 重试平台shared。
 func Retry(ctx context.Context, maxAttempts int, base time.Duration, fn func() error) error {
 	return RetryWithPolicy(ctx, Policy{
 		MaxAttempts: maxAttempts,
@@ -21,6 +22,7 @@ func Retry(ctx context.Context, maxAttempts int, base time.Duration, fn func() e
 	}, fn)
 }
 
+// RetryWithPolicy 重试带策略的平台shared。
 func RetryWithPolicy(ctx context.Context, policy Policy, fn func() error) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -51,6 +53,7 @@ func RetryWithPolicy(ctx context.Context, policy Policy, fn func() error) error 
 	return lastErr
 }
 
+// normalizeRetryPolicy 规范化重试策略。
 func normalizeRetryPolicy(policy Policy) Policy {
 	if policy.MaxAttempts < 0 {
 		policy.MaxAttempts = 0
@@ -97,6 +100,7 @@ func exponentialDelay(base time.Duration, attempt int) time.Duration {
 	return delay
 }
 
+// applyJitter 应用jitter。
 func applyJitter(delay time.Duration, jitter, rnd float64) time.Duration {
 	if delay <= 0 || jitter <= 0 {
 		return delay

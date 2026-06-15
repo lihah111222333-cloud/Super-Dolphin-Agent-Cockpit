@@ -10,6 +10,7 @@ import (
 )
 
 // NewHooksRelaySubscribers declares hook relay bus subscriptions for BusModule.
+// NewHooksRelaySubscribers 创建hooksrelaysubscribers。
 func NewHooksRelaySubscribers(worker *hookDispatchWorker, logger *pkglogger.Logger) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: platformbus.SubscriberSpec{

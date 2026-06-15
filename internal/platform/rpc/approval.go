@@ -63,6 +63,7 @@ type ApprovalRequest struct {
 	Payload        map[string]any `json:"payload,omitempty"`
 }
 
+// NewApprovalManager 创建审批manager。
 func NewApprovalManager(logger *pkglogger.Logger, dispatcher *event.Dispatcher) *ApprovalManager {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -82,6 +83,7 @@ func bridgeDispatcher(bridge *PushBridge) *event.Dispatcher {
 	return bridge.dispatcher
 }
 
+// RequestApproval 处理请求审批。
 func (m *ApprovalManager) RequestApproval(ctx context.Context, bridge *PushBridge, server *jrpc2.Server, req ApprovalRequest) (contract.ApprovalDecision, error) {
 	ctx, cancel := WithApprovalDeadline(ctx)
 	defer cancel()
@@ -117,6 +119,7 @@ func (m *ApprovalManager) RequestApproval(ctx context.Context, bridge *PushBridg
 	return contract.ApprovalDecision{}, err
 }
 
+// RequestUserInput 处理请求userinput。
 func (m *ApprovalManager) RequestUserInput(ctx context.Context, bridge *PushBridge, server *jrpc2.Server, req ApprovalRequest) (contract.ApprovalDecision, error) {
 	if strings.TrimSpace(req.Kind) == "" {
 		req.Kind = "request_user_input"
@@ -124,6 +127,7 @@ func (m *ApprovalManager) RequestUserInput(ctx context.Context, bridge *PushBrid
 	return m.RequestApproval(ctx, bridge, server, req)
 }
 
+// Respond 写入审批响应。
 func (m *ApprovalManager) Respond(callID string, requestID *int64, decision contract.ApprovalDecision) error {
 	pending := m.lookupPending(callID, requestID)
 	if pending == nil {
@@ -136,10 +140,12 @@ func (m *ApprovalManager) Respond(callID string, requestID *int64, decision cont
 	return nil
 }
 
+// AutoApprove 按规则尝试自动批准请求。
 func (m *ApprovalManager) AutoApprove(callID string) error {
 	return m.Respond(callID, nil, approvedDecision())
 }
 
+// registerPending 注册待处理。
 func (m *ApprovalManager) registerPending(req ApprovalRequest, dispatcher *event.Dispatcher) (*pendingApproval, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -171,6 +177,7 @@ func (m *ApprovalManager) registerPending(req ApprovalRequest, dispatcher *event
 	return pending, true
 }
 
+// ensureDispatch 确保dispatch。
 func (m *ApprovalManager) ensureDispatch(bridge *PushBridge, server *jrpc2.Server, pending *pendingApproval) (bool, error) {
 	if pending == nil {
 		return false, ErrInvalidState("approval pending state is nil")
@@ -205,6 +212,7 @@ func (m *ApprovalManager) ensureDispatch(bridge *PushBridge, server *jrpc2.Serve
 	return true, nil
 }
 
+// beginDispatch 处理begindispatch。
 func (m *ApprovalManager) beginDispatch(bridge *PushBridge, server *jrpc2.Server, pending *pendingApproval) (context.Context, string, map[string]any, error) {
 	if pending == nil {
 		return nil, "", nil, ErrInvalidState("approval pending state is nil")
@@ -271,6 +279,7 @@ func (m *ApprovalManager) resetDispatch(pending *pendingApproval) {
 	pending.dispatching = false
 }
 
+// finishPending 处理finish待处理。
 func (m *ApprovalManager) finishPending(pending *pendingApproval, decision contract.ApprovalDecision, err error) {
 	if pending == nil {
 		return
@@ -305,6 +314,7 @@ func (m *ApprovalManager) failPending(pending *pendingApproval, err error) {
 	m.finishPending(pending, errorDecision(err), err)
 }
 
+// lookupPending 处理lookup待处理。
 func (m *ApprovalManager) lookupPending(callID string, requestID *int64) *pendingApproval {
 	callID = strings.TrimSpace(callID)
 	if callID == "" && int64Value(requestID) <= 0 {
@@ -328,6 +338,7 @@ func (m *ApprovalManager) lookupPending(callID string, requestID *int64) *pendin
 	return m.pending[pendingStorageKey(callID, nil)]
 }
 
+// lookupPendingByRequestIDLocked 按请求IDlocked处理lookup待处理。
 func (m *ApprovalManager) lookupPendingByRequestIDLocked(requestID int64, callID string) *pendingApproval {
 	entries := m.pendingByRequestID[requestID]
 	if len(entries) == 0 {

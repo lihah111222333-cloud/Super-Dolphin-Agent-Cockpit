@@ -45,18 +45,22 @@ type editEnvelope struct {
 	DiagnosticGeneration uint64 `json:"diagnostic_generation,omitempty"`
 }
 
+// NewEditHandler 创建编辑处理器。
 func NewEditHandler(registry lspmanager.Registry) middleware.Handler {
 	return wrapToolHandler("edit", middleware.TierNormal, EditHandler{registry: registry}.Handle)
 }
 
+// NewEditHandlerWithRoot 创建带根目录的编辑处理器。
 func NewEditHandlerWithRoot(root string, registry lspmanager.Registry) middleware.Handler {
 	return wrapToolHandler("edit", middleware.TierNormal, EditHandler{registry: registry, root: resolveRoot(root)}.Handle)
 }
 
+// HandleEdit 处理编辑。
 func HandleEdit(ctx context.Context, registry lspmanager.Registry, params json.RawMessage) (any, error) {
 	return EditHandler{registry: registry}.Handle(ctx, params)
 }
 
+// Handle 执行 LSP 工具请求。
 func (h EditHandler) Handle(ctx context.Context, params json.RawMessage) (any, error) {
 	if h.registry == nil {
 		return nil, errEditManagerNil
@@ -96,6 +100,7 @@ func normalizeEditVersion(version int) int {
 	return version
 }
 
+// ToPlainText 渲染为纯文本。
 func (e editEnvelope) ToPlainText() string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Edit Status: %s\n", editStatusText(e)))
@@ -122,6 +127,7 @@ func editStatusText(e editEnvelope) string {
 	}
 }
 
+// appendEditApplyStatus 追加编辑应用状态。
 func appendEditApplyStatus(sb *strings.Builder, e editEnvelope) {
 	switch strings.ToLower(strings.TrimSpace(e.Status)) {
 	case "applied":

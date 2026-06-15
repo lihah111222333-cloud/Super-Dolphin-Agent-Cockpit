@@ -49,6 +49,7 @@ func wrapWithFDLimit(argv []string) *exec.Cmd {
 // rationale; short version: Go's exec on Windows routes .cmd/.bat children
 // through cmd.exe, which has an 8191-char command-line limit and mangles
 // args containing newlines or shell metacharacters.
+// resolveCodexBinary 解析codex二进制。
 func resolveCodexBinary(binary string) string {
 	if binary == "" {
 		return binary
@@ -105,6 +106,7 @@ type processGuard struct {
 	handle windows.Handle
 }
 
+// attachProcessGuard 处理attach进程守卫。
 func attachProcessGuard(cmd *exec.Cmd) *processGuard {
 	if cmd == nil || cmd.Process == nil {
 		return nil
@@ -146,6 +148,7 @@ func (g *processGuard) close() {
 	g.handle = 0
 }
 
+// signalCodexProcess 处理signalcodex进程。
 func signalCodexProcess(cmd *exec.Cmd, guard *processGuard, sig processSig) error {
 	_ = sig
 	if guard != nil && guard.handle != 0 {
@@ -223,6 +226,7 @@ func killMCPProcess(pid int) error {
 	return terminatePID(pid)
 }
 
+// terminatePID 处理terminate进程 ID。
 func terminatePID(pid int) error {
 	if pid <= 0 {
 		return errors.New("invalid codex pid")
@@ -249,6 +253,7 @@ func terminatePID(pid int) error {
 // managedMCPBinaries set. ExeFile is the image file name, so an incoming
 // "mcp-orch.exe" is matched against the "mcp-orch" table entry — we strip
 // the .exe suffix before lookup.
+// discoverAllProcesses 处理discoverall进程。
 func discoverAllProcesses() (map[int]int, []mcpProcessInfo) {
 	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {

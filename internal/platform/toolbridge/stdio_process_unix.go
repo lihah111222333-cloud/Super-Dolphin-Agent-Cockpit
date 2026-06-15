@@ -22,6 +22,7 @@ func stdioAttachProcessGuard(_ *exec.Cmd) *stdioProcessGuard {
 	return &stdioProcessGuard{}
 }
 
+// stdioTerminateProcessTree 处理stdioterminate进程tree。
 func stdioTerminateProcessTree(cmd *exec.Cmd, _ *stdioProcessGuard) error {
 	if cmd == nil || cmd.Process == nil {
 		return nil
@@ -40,6 +41,7 @@ func stdioTerminateProcessTree(cmd *exec.Cmd, _ *stdioProcessGuard) error {
 	return err
 }
 
+// stdioExpectedCloseWaitError 把预期内的 stdio 关闭错误归一化。
 func stdioExpectedCloseWaitError(err error) error {
 	if err == nil {
 		return nil
@@ -56,6 +58,7 @@ func stdioExpectedCloseWaitError(err error) error {
 	return err
 }
 
+// stdioCleanupProcessTree 处理stdiocleanup进程tree。
 func stdioCleanupProcessTree(cmd *exec.Cmd, _ *stdioProcessGuard) error {
 	if cmd == nil || cmd.Process == nil {
 		return nil

@@ -44,6 +44,18 @@ func TestBuildTurnStartParams(t *testing.T) {
 	}
 }
 
+func TestBuildTurnStartParamsNormalizesMinimalEffortToLow(t *testing.T) {
+	t.Parallel()
+
+	got := buildTurnStartParams("thread-1", dto.TurnRequest{
+		Inputs:    []dto.InputItem{{Type: "text", Content: "hello"}},
+		Overrides: dto.TurnOverrides{Effort: " minimal "},
+	})
+	if got.Effort != "low" {
+		t.Fatalf("Effort = %q, want low", got.Effort)
+	}
+}
+
 func TestBuildThreadStartParamsNormalizesSandboxModeForAppServer(t *testing.T) {
 	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
 		CWD: t.TempDir(),

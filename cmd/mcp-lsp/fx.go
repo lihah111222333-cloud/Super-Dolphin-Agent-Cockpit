@@ -43,6 +43,7 @@ type registryToolProvider struct {
 
 // run boots the MCP binary itself. The core process only exposes ctl/* endpoints
 // and manifest metadata; external executors decide when and how this binary starts.
+// run 运行LSP。
 func run() error {
 	// MCP stdio transport uses stdout for JSON-RPC messages.
 	// Force all logging to stderr so it does not pollute the MCP channel.
@@ -137,6 +138,7 @@ func provideLSPBackgroundRunners(m *Manager) []platformrunner.Runner {
 	return m.BackgroundRunners()
 }
 
+// ListTools 返回当前 peer 暴露的工具列表。
 func (p registryToolProvider) ListTools(ctx context.Context) ([]mcp.MCPTool, error) {
 	semanticAvailable, err := p.semanticLSPAvailable(ctx)
 	if err != nil {
@@ -211,6 +213,7 @@ func runtimeSemanticLSPServerBinaries() []string {
 	}
 }
 
+// CallTool 调用当前 peer 暴露的工具。
 func (p registryToolProvider) CallTool(ctx context.Context, name string, args json.RawMessage) (any, error) {
 	var err error
 	ctx, err = withRuntimeWorkspaceScopeFallback(ctx)
@@ -220,6 +223,7 @@ func (p registryToolProvider) CallTool(ctx context.Context, name string, args js
 	return handleToolCall(ctx, p.defs, name, args)
 }
 
+// withRuntimeWorkspaceScopeFallback 设置运行时工作区作用域兜底。
 func withRuntimeWorkspaceScopeFallback(ctx context.Context) (context.Context, error) {
 	scope, ok := common.ToolScopeFromContext(ctx)
 	if ok && len(scope.WorkspaceRoots) > 0 {
@@ -334,6 +338,7 @@ func handleToolCall(ctx context.Context, defs []toolDefinition, name string, arg
 	return nil, errors.New("unknown tool: " + strings.TrimSpace(name))
 }
 
+// Run 启动LSP后台流程。
 func (r bootstrapRunner) Run(ctx context.Context) error {
 	r.client.InstallLogRelay()
 	// Dual-channel startup ordering: wait for the local stdio MCP server
@@ -385,6 +390,7 @@ func (r bootstrapRunner) Run(ctx context.Context) error {
 	return r.client.Close()
 }
 
+// bindRuntime 绑定运行时。
 func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
 	log := pkglogger.Get()
 	var (

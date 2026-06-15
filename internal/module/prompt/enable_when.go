@@ -39,6 +39,7 @@ import (
 // schema. All other mismatches or lookup misses still drop the section
 // (fail-closed). Unknown keys (not listed above and not under sessionFlags.)
 // are treated as a mismatch.
+// EvaluateEnableWhen 处理evaluateenablewhen。
 func EvaluateEnableWhen(raw []byte, buildCtx contract.BuildCtx, userPrompt string) bool {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" || trimmed == "null" {
@@ -86,6 +87,7 @@ func sectionEnableKeyMatches(key string, want any, buildCtx contract.BuildCtx, u
 // string element. Comparison is exact (case-sensitive) against canonical short
 // tool names in BuildCtx.EnabledTools (e.g. "grep", "exec_command"). Legacy
 // "lsp_*" names are accepted as aliases during the tool rename migration.
+// matchEnabledToolsHas 判断enabled工具has是否匹配。
 func matchEnabledToolsHas(want any, enabled []string) bool {
 	if len(enabled) == 0 {
 		return false
@@ -109,6 +111,7 @@ func matchEnabledToolsHas(want any, enabled []string) bool {
 	}
 }
 
+// matchEnabledToolsAll 判断enabled工具all是否匹配。
 func matchEnabledToolsAll(want any, enabled []string) bool {
 	if len(enabled) == 0 {
 		return false
@@ -139,6 +142,7 @@ func containsExact(values []string, want string) bool {
 	return false
 }
 
+// canonicalPromptToolName 处理canonicalprompt工具名称。
 func canonicalPromptToolName(name string) string {
 	switch strings.TrimSpace(name) {
 	case "lsp_file":
@@ -189,6 +193,7 @@ func isPromptLSPToolName(name string) bool {
 // matchSectionTagsHas implements tags_has for section-level enable_when:
 // string value is a single case-insensitive substring probe; array value is
 // OR across each string element.
+// matchSectionTagsHas 判断sectiontagshas是否匹配。
 func matchSectionTagsHas(want any, userPrompt string) bool {
 	if strings.TrimSpace(userPrompt) == "" {
 		return false
@@ -215,6 +220,7 @@ func matchSectionTagsHas(want any, userPrompt string) bool {
 // resolveEnableWhenField returns the runtime value of the requested BuildCtx
 // field. The second return is false when the key is unrecognized; callers
 // treat that as a mismatch (fail-closed for unknown gates).
+// resolveEnableWhenField 解析enablewhen字段。
 func resolveEnableWhenField(key string, c contract.BuildCtx) (any, bool) {
 	if strings.HasPrefix(key, "sessionFlags.") {
 		name := strings.TrimPrefix(key, "sessionFlags.")
@@ -246,6 +252,7 @@ func resolveEnableWhenField(key string, c contract.BuildCtx) (any, bool) {
 // string-string and bool-bool and coerce map-missing SessionFlags (nil) to a
 // zero-value bool so {"sessionFlags.debug":false} can match when the flag is
 // absent.
+// enableWhenValueEquals 处理enablewhen值equals。
 func enableWhenValueEquals(got, want any) bool {
 	if got == nil {
 		// Absent SessionFlags entry resolves to the zero value of its type;

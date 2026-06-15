@@ -69,10 +69,12 @@ var _ Service = (*service)(nil)
 
 type ServiceOption func(*service)
 
+// WithObservability 设置observability。
 func WithObservability(trace *observability.Service) ServiceOption {
 	return func(s *service) { s.trace = trace }
 }
 
+// NewService 创建服务。
 func NewService(
 	logger *slog.Logger,
 	threads contract.ThreadLister,
@@ -125,6 +127,7 @@ func (s *service) loadInitialState(ctx context.Context) error {
 	return nil
 }
 
+// buildInitialState 构建initial状态。
 func buildInitialState(ctx context.Context, threads contract.ThreadLister, agents contract.OrchestrationService) (UIState, error) {
 	state := UIState{}
 	if threads != nil {
@@ -190,6 +193,8 @@ func summarizeAgents(items []contract.AgentSnapshot) []AgentSummary {
 	}
 	return out
 }
+
+// GetState 读取状态。
 func (s *service) GetState(ctx context.Context) (*UIState, error) {
 	prefs, err := s.GetPreferences(ctx)
 	if err != nil {
@@ -210,6 +215,8 @@ func (s *service) GetState(ctx context.Context) (*UIState, error) {
 	s.enrichFromDB(ctx, snapshot.Agents, snapshot.Threads, snapshot.AgentRuntimeByID)
 	return snapshot, nil
 }
+
+// GetSidebar 读取sidebar。
 func (s *service) GetSidebar(ctx context.Context) (*Sidebar, error) {
 	t0 := time.Now()
 	prefs, err := s.GetPreferences(ctx)
@@ -232,6 +239,8 @@ func (s *service) GetSidebar(ctx context.Context) (*Sidebar, error) {
 
 	return snapshot, nil
 }
+
+// GetPreferences 读取preferences。
 func (s *service) GetPreferences(ctx context.Context) (*Preferences, error) {
 	scope := preferenceScopeFromContext(ctx)
 	var (
@@ -250,6 +259,8 @@ func (s *service) GetPreferences(ctx context.Context) (*Preferences, error) {
 	}
 	return clonePreferences(buildPreferences(scope, values)), nil
 }
+
+// SetPreference 设置preference。
 func (s *service) SetPreference(ctx context.Context, key string, value any) error {
 	key = normalizePreferenceKey(key)
 	if key == "" {
@@ -306,6 +317,8 @@ func (s *service) workspaceRunsLocked() []WorkspaceRunSummary {
 	sortWorkspaceRuns(items)
 	return cloneWorkspaceRuns(items)
 }
+
+// fallbackPreferencesLocked 处理兜底preferenceslocked。
 func (s *service) fallbackPreferencesLocked(scope string) map[string]any {
 	values := map[string]any{}
 	for rawKey, value := range s.fallbackPrefs {
@@ -359,6 +372,8 @@ func decodePreferenceValue(raw json.RawMessage) any {
 }
 
 func marshalPreferenceValue(value any) (json.RawMessage, error) { return json.Marshal(value) }
+
+// stateSnapshot 处理状态快照。
 func (s *service) stateSnapshot(ctx context.Context) *UIState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -411,6 +426,7 @@ func (s *service) applyThreadOverlaysLocked(threads []ThreadSummary, now time.Ti
 	}
 }
 
+// overlayActiveLocked 处理overlayactivelocked。
 func (s *service) overlayActiveLocked(thread ThreadSummary, now time.Time) bool {
 	threadID := strings.TrimSpace(thread.ID)
 	if threadID == "" {
@@ -436,6 +452,7 @@ func (s *service) effectiveThreadSummaryLocked(thread ThreadSummary, now time.Ti
 	return thread
 }
 
+// setThreadOverlayLocked 设置线程overlaylocked。
 func (s *service) setThreadOverlayLocked(threadID, overlayType, text string, priority int, ttl time.Duration) {
 	threadID = strings.TrimSpace(threadID)
 	overlayType = strings.TrimSpace(overlayType)
@@ -462,6 +479,7 @@ func (s *service) setThreadOverlayLocked(threadID, overlayType, text string, pri
 	s.overlayExpiryByThread[threadID] = now.Add(ttl)
 }
 
+// clearThreadOverlayLocked 清理线程overlaylocked。
 func (s *service) clearThreadOverlayLocked(threadID, overlayType string) {
 	threadID = strings.TrimSpace(threadID)
 	overlayType = strings.TrimSpace(overlayType)

@@ -2,10 +2,12 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/exitmonitor"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -50,6 +53,7 @@ func buildStatesFromDefinitions(defs []agentdto.TransitionDefinition) []platform
 	return states
 }
 
+// BindActiveTurnID 把当前活跃 turn 绑定到 provider 返回的真实 turn ID。
 func (s *service) BindActiveTurnID(ctx context.Context, agentID, turnID string) error {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
@@ -73,6 +77,7 @@ func (s *service) BindActiveTurnID(ctx context.Context, agentID, turnID string) 
 // launches) via exitmonitor.Monitor.Arm; the runnerActor is a pure consumer
 // of monitor.ExitEvents() and no longer polls for unmonitored cmds.
 
+// reconcileReadyStateLocked 在进程已就绪时修正本地状态和队列状态。
 func (s *service) reconcileReadyStateLocked(ctx context.Context, agent *agentRuntime) {
 	if agent.cmd == nil || agent.stopRequested {
 		return
@@ -94,6 +99,7 @@ func (s *service) reconcileReadyStateLocked(ctx context.Context, agent *agentRun
 	}
 }
 
+// startTurnExecution 等待 session 可提交后，把排队的 turn 交给 provider 执行。
 func (s *service) startTurnExecution(ctx context.Context, work turnWork) {
 	startedAt := time.Now()
 	logger := pkglogger.FromContext(ctx)
@@ -134,6 +140,7 @@ func (s *service) startTurnExecution(ctx context.Context, work turnWork) {
 	s.finishTurnStartSuccess(ctx, work, startedTurnID)
 }
 
+// finishTurnStartSuccess 记录 provider 接受的 turn ID，并把状态推进到运行中。
 func (s *service) finishTurnStartSuccess(ctx context.Context, work turnWork, startedTurnID string) {
 	currentTurnID := strings.TrimSpace(startedTurnID)
 	if currentTurnID == "" {
@@ -233,6 +240,7 @@ func (s *service) submitAgentReadyState(ctx context.Context, agentID string) (bo
 	return ready, err
 }
 
+// waitForSubmitSessionReady 在提交 turn 前等待 provider session 完成启动。
 func (s *service) waitForSubmitSessionReady(ctx context.Context, agentID string) error {
 	if s == nil || s.turnStarter == nil {
 		return nil
@@ -266,6 +274,7 @@ func (s *service) waitForSubmitSessionReady(ctx context.Context, agentID string)
 	return nil
 }
 
+// startProcessLocked 启动本地 agent 进程，并在启动成功后立即接入退出监控。
 func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) error {
 	cmd := exec.Command(agent.command[0], agent.command[1:]...)
 	cmd.Dir = agent.cwd
@@ -311,6 +320,7 @@ func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) e
 	return nil
 }
 
+// fireOrForceLocked 触发状态机，并把非法迁移包装成带上下文的错误。
 func (s *service) fireOrForceLocked(ctx context.Context, agent *agentRuntime, trigger agentdto.AgentTrigger) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -340,6 +350,7 @@ func formatIllegalTransitionError(ctx context.Context, agent *agentRuntime, befo
 	return fmt.Errorf("%w for agent %q: state=%s trigger=%s allowed=%v: %w", errIllegalStateTransition, agentID, before, trigger, allowed, err)
 }
 
+// allowedTriggersForState 返回当前状态允许的触发器，供错误消息说明可选路径。
 func allowedTriggersForState(ctx context.Context, agent *agentRuntime, state string) ([]string, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -389,4 +400,142 @@ func (s *service) listAgents() []agentRuntime {
 		agents = append(agents, snapshot)
 	}
 	return agents
+}
+
+// Agent lookup and shared decode helpers moved from factory.go to keep orchestration factory focused.
+func (s *service) discardStaleSuccessfulLaunch(ctx context.Context, launching *agentRuntime, staleErr error) error {
+	if stopErr := s.launcher.Stop(ctx, launching); stopErr != nil {
+		s.logger.Warn("orchestration: discard stale successful launch stop failed", "agent_id", launching.id, "error", stopErr)
+	}
+	return staleErr
+}
+
+func (s *service) withAgentLocked(agentID string, fn func(*agentState) error) error {
+	if s == nil {
+		return fmt.Errorf("%w: %s", errAgentNotFound, strings.TrimSpace(agentID))
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	agent, err := lookupAgentByIDLocked(s.agents, agentID)
+	if err != nil {
+		return err
+	}
+	return fn(agent)
+}
+
+func (s *service) withAgentReadLocked(agentID string, fn func(*agentState) error) error {
+	if s == nil {
+		return fmt.Errorf("%w: %s", errAgentNotFound, strings.TrimSpace(agentID))
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	agent, err := lookupAgentByIDLocked(s.agents, agentID)
+	if err != nil {
+		return err
+	}
+	return fn(agent)
+}
+
+func (s *service) withAgentReadLockedByAgentID(ctx context.Context, agentID string, fn func(*agentState) error) error {
+	if s == nil {
+		return fmt.Errorf("%w: %s", errAgentNotFound, strings.TrimSpace(agentID))
+	}
+	if err := s.lockRead(ctx); err != nil {
+		return err
+	}
+	defer s.mu.RUnlock()
+
+	agent, err := lookupAgentByIdentityLocked(s.agents, agentID, agentIdentityLocalOnly)
+	if err != nil {
+		return err
+	}
+	return fn(agent)
+}
+
+func (s *service) lockRead(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return s.mu.RLockCtx(ctx)
+}
+
+func (s *service) runtimeAgentSnapshots(ctx context.Context) ([]AgentSnapshot, error) {
+	if err := s.lockRead(ctx); err != nil {
+		return nil, err
+	}
+	defer s.mu.RUnlock()
+	snapshots := make([]AgentSnapshot, 0, len(s.agents))
+	for _, agent := range s.agents {
+		snapshots = append(snapshots, s.snapshotLocked(ctx, agent))
+	}
+	return snapshots, nil
+}
+
+func agentSessionFenceOK(agent *agentState, evSessionID string) bool {
+	if agent == nil {
+		return false
+	}
+	ev := strings.TrimSpace(evSessionID)
+	if ev == "" {
+		return true
+	}
+	return ev == agentSessionID(agent)
+}
+
+func lookupAgentBySeqLocked(
+	agents map[string]*agentState,
+	agentID string,
+	launchSeq uint64,
+) (*agentState, error) {
+	agent, err := lookupAgentByIDLocked(agents, agentID)
+	if err != nil {
+		return nil, err
+	}
+	if agent.launchSeq != launchSeq {
+		return nil, fmt.Errorf("%w: %s/%d", errAgentNotFound, strings.TrimSpace(agentID), launchSeq)
+	}
+	return agent, nil
+}
+
+func (s *service) withDAGStore(fn func(taskdag.OrchestrationStore) error) error {
+	if s == nil || s.dagStore == nil {
+		return errors.New("dag store is not configured")
+	}
+	return fn(s.dagStore)
+}
+
+func decodeLegacyAlias[C any, L any](
+	raw []byte,
+	current *C,
+	aliasFn func(*C, *L) error,
+) error {
+	return decodeLegacyAliasWith(raw, current, aliasFn, json.Unmarshal)
+}
+
+func decodeLegacyAliasWith[C any, L any](
+	raw []byte,
+	current *C,
+	aliasFn func(*C, *L) error,
+	decode func([]byte, any) error,
+) error {
+	if decode == nil {
+		decode = json.Unmarshal
+	}
+	if err := decode(raw, current); err != nil {
+		return err
+	}
+	var legacy L
+	if err := decode(raw, &legacy); err != nil {
+		return err
+	}
+	return aliasFn(current, &legacy)
+}
+
+func agentSessionID(agent *agentState) string {
+	if agent == nil || agent.launchSeq == 0 {
+		return ""
+	}
+	return strconv.FormatUint(agent.launchSeq, 10)
 }

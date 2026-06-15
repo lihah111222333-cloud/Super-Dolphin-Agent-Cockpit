@@ -125,6 +125,7 @@ type legacyPromptSnapshot struct {
 	Generation            int64             `json:"generation,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *PromptSnapshot) UnmarshalJSON(data []byte) error {
 	snapshot, err := unmarshalPromptSnapshot(data)
 	if err != nil {
@@ -147,6 +148,7 @@ func unmarshalPromptSnapshot(data []byte) (PromptSnapshot, error) {
 	return mergeLegacyPromptSnapshot(PromptSnapshot(current), old), nil
 }
 
+// mergeLegacyPromptSnapshot 合并legacyprompt快照。
 func mergeLegacyPromptSnapshot(snapshot PromptSnapshot, old legacyPromptSnapshot) PromptSnapshot {
 	if snapshot.DisplayName == "" {
 		snapshot.DisplayName = strings.TrimSpace(old.DisplayName)
@@ -180,6 +182,7 @@ func resolvePromptSnapshotSections(current, legacy map[string]string) map[string
 	return clonePromptSnapshotSectionMap(current)
 }
 
+// clonePromptSnapshotSectionMap 复制prompt快照sectionmap。
 func clonePromptSnapshotSectionMap(src map[string]string) map[string]string {
 	if len(src) == 0 {
 		return nil

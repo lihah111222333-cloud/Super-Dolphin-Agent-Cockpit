@@ -7,6 +7,7 @@ import (
 
 var promptIntentRecallTopicPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
+// NormalizeGeneratedCard 规范化generatedcard。
 func NormalizeGeneratedCard(requestedKind string, rawInput string, card Card) Card {
 	kind, err := normalizeKind(requestedKind)
 	if err != nil {
@@ -47,6 +48,7 @@ func promptIntentNormalizeSuggestedAlternative(requestedKind Kind, card Card) Ca
 	return card
 }
 
+// promptIntentNormalizeRecallTopic 规范化 recall 卡片的 topic 标识。
 func promptIntentNormalizeRecallTopic(kind Kind, card Card) Card {
 	if kind != KindRecall {
 		return card
@@ -75,6 +77,7 @@ func validPromptIntentRecallTopic(topic string) bool {
 	return len(topic) < 64 && promptIntentRecallTopicPattern.MatchString(topic)
 }
 
+// promptIntentNormalizeCommunicationFact 将 communication 事实落实为生成约束。
 func promptIntentNormalizeCommunicationFact(card Card) Card {
 	if strings.TrimSpace(card.Kind) != string(KindExpert) || len(card.SourceFacts) == 0 {
 		return card

@@ -124,10 +124,16 @@ func firstClaudeTracer(tracers []*observability.Service) *observability.Service 
 	return tracers[0]
 }
 
+// Name 处理名称。
 func (d *driver) Name() string { return "claude" }
 
+// StartSession 启动会话。
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
 	launchConfig := configFromMap(req.Config)
+	extraBinaries, err := providershared.ConfigMCPBinaries(req.Config, "mcpConfig", "mcp_config")
+	if err != nil {
+		return nil, fmt.Errorf("claudecli: mcp config: %w", err)
+	}
 	manifest := manifestbuilder.BuildManifest(dto.ManifestContext{
 		AgentID:  strings.TrimSpace(req.AgentID),
 		ThreadID: strings.TrimSpace(req.AgentID),
@@ -138,6 +144,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		BinaryDir:     providershared.ResolveBinaryDir(req.CWD, req.Config),
 		Env:           providershared.StringMap(req.Config["env"]),
 		AutoApprove:   providershared.ConfigStringSlice(req.Config, "auto_approve", "autoApprove"),
+		ExtraBinaries: extraBinaries,
 		ProxyHTTPAddr: d.proxyHTTPAddr(),
 		TransportMode: dto.ManifestTransportStdioOnly,
 	})
@@ -155,12 +162,17 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	})
 }
 
+// ResumeSession 处理恢复会话。
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 	snapshot := req.PromptSnapshot
 	rawConfig := resumeSessionRuntimeConfig(req)
 	launchConfig := configFromMap(rawConfig)
 	launchConfig.Effort = strings.TrimSpace(req.Effort)
 	launchConfig.PromptSnapshot = snapshot
+	extraBinaries, err := providershared.ConfigMCPBinaries(rawConfig, "mcpConfig", "mcp_config")
+	if err != nil {
+		return nil, fmt.Errorf("claudecli: mcp config: %w", err)
+	}
 	manifest := manifestbuilder.BuildManifest(dto.ManifestContext{
 		AgentID:  strings.TrimSpace(req.AgentID),
 		ThreadID: strings.TrimSpace(req.ThreadID),
@@ -171,6 +183,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		BinaryDir:     providershared.ResolveBinaryDir(req.CWD, rawConfig),
 		Env:           providershared.StringMap(rawConfig["env"]),
 		AutoApprove:   providershared.ConfigStringSlice(rawConfig, "auto_approve", "autoApprove"),
+		ExtraBinaries: extraBinaries,
 		ProxyHTTPAddr: d.proxyHTTPAddr(),
 		TransportMode: dto.ManifestTransportStdioOnly,
 	})
@@ -206,6 +219,7 @@ func resumeSessionRuntimeConfig(req dto.ResumeSessionRequest) map[string]any {
 	return cfg
 }
 
+// start 启动claudecli provider。
 func (d *driver) start(ctx context.Context, spec startSpec) (session contract.Session, err error) {
 	traceStarted := time.Now()
 	defer func() {
@@ -237,6 +251,7 @@ func (d *driver) start(ctx context.Context, spec startSpec) (session contract.Se
 	return s, nil
 }
 
+// prepareSessionStart 准备会话起点。
 func (d *driver) prepareSessionStart(ctx context.Context, spec startSpec) (preparedStartSession, error) {
 	if err := validateStartCWD(spec.cwd); err != nil {
 		return preparedStartSession{}, err
@@ -278,6 +293,7 @@ func (d *driver) prepareSessionStart(ctx context.Context, spec startSpec) (prepa
 	}, nil
 }
 
+// prepareProviderHomeAndMirrors 准备providerhomemirrors。
 func (d *driver) prepareProviderHomeAndMirrors(ctx context.Context, spec startSpec) (startSpec, error) {
 	requestedHome := strings.TrimSpace(spec.historyDir)
 	mirrorHome := ""
@@ -339,6 +355,7 @@ func resolveRequestedStartConfig(spec startSpec) (string, cliLaunchConfig) {
 	return requestedModel, requestedConfig
 }
 
+// newStartedSession 创建started会话。
 func (d *driver) newStartedSession(spec startSpec, started preparedStartSession) *session {
 	initialThreadID := fallbackThreadID(spec.agentID, spec.threadID)
 	publicThreadID := shared.FirstNonEmpty(spec.publicThread, spec.agentID, initialThreadID)
@@ -488,6 +505,7 @@ func (s *session) restoreRestartSnapshotLocked(snapshot restartSnapshot) {
 	s.threadReady = snapshot.ready
 }
 
+// commitRestartSuccessLocked 处理commitrestartsuccesslocked。
 func (s *session) commitRestartSuccessLocked(next stagedSessionState) {
 	s.model = next.model
 	s.config = next.config

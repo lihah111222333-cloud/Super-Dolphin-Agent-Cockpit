@@ -38,6 +38,7 @@ type WakeupDispatcherConfig struct {
 	RetryInterval string
 }
 
+// ConfigOrDefaults 合并唤醒调度配置和默认值。
 func (c WakeupDispatcherConfig) ConfigOrDefaults() WakeupDispatcherConfig {
 	out := c
 	if out.ClaimedBy == "" {
@@ -76,6 +77,7 @@ type WakeupDispatcher struct {
 	retryAlertSink DispatchRetryAlertSink
 }
 
+// NewWakeupDispatcher 创建负责投递 DAG wakeup 的调度器。
 func NewWakeupDispatcher(store taskdag.Store, launcher WakeupLauncher, logger *slog.Logger, cfg WakeupDispatcherConfig) (*WakeupDispatcher, error) {
 	if store == nil {
 		return nil, errors.New("wakeup dispatcher: store required")
@@ -91,6 +93,7 @@ func NewWakeupDispatcher(store taskdag.Store, launcher WakeupLauncher, logger *s
 	}, nil
 }
 
+// WithNodeRouter 设置 wakeup 调度器使用的节点路由器。
 func (d *WakeupDispatcher) WithNodeRouter(router *NodeExecutorRouter) *WakeupDispatcher {
 	if d != nil {
 		d.nodeRouter = router
@@ -98,6 +101,7 @@ func (d *WakeupDispatcher) WithNodeRouter(router *NodeExecutorRouter) *WakeupDis
 	return d
 }
 
+// WithDispatchRetryAlertSink 设置调度重试告警输出。
 func (d *WakeupDispatcher) WithDispatchRetryAlertSink(sink DispatchRetryAlertSink) *WakeupDispatcher {
 	if d != nil {
 		d.retryAlertSink = sink
@@ -105,6 +109,7 @@ func (d *WakeupDispatcher) WithDispatchRetryAlertSink(sink DispatchRetryAlertSin
 	return d
 }
 
+// ClaimedBy 返回 wakeup 当前领取者标识。
 func (d *WakeupDispatcher) ClaimedBy() string { return d.cfg.ClaimedBy }
 
 // Run 是 Phase 3.2 dispatcher 主循环。每 cfg.TickInterval（默认 10s）调
@@ -112,7 +117,7 @@ func (d *WakeupDispatcher) ClaimedBy() string { return d.cfg.ClaimedBy }
 //
 // 单 tick 失败不退出循环（claim 失败可能是瞬态 DB 抖动；下一 tick 重试），
 // ctx canceled 才停。Run 不开 goroutine —— 调用方负责 go d.Run(ctx)，让
-// 调用方能 wait/cancel 该 goroutine 的生命周期。
+// 调用方能 wait/cancel 该 goroutine 的启动和停止过程。
 func (d *WakeupDispatcher) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -211,6 +216,8 @@ func (d *WakeupDispatcher) handleClaimed(ctx context.Context, w *taskdag.Wakeup)
 	return d.handleClaimedViaLegacyLauncher(ctx, w)
 }
 
+// 这是 turn.completed 的修复 wakeup，不会启动 agent。
+// 它只重放“完成节点 + 调度下游”，失败再按普通 retry/fail 处理。
 func (d *WakeupDispatcher) handleTurnCompletionRetryWakeup(ctx context.Context, w *taskdag.Wakeup) bool {
 	fence := extractFence(w)
 	res := turncompletionretry.Complete(ctx, d.store, w)
@@ -249,6 +256,8 @@ func (d *WakeupDispatcher) handleClaimedViaLegacyLauncher(ctx context.Context, w
 	return d.markTransientRetry(ctx, w, fence, dispatchFailure{lastErr: lastErr, launchErr: launchErr, outcome: failedWakeupOutcome(lastErr)})
 }
 
+// 这里只把 wakeup 标成 sent，不决定节点是 running 还是 done。
+// rows=0 说明这次 claim 已过期或已被别人处理。
 func (d *WakeupDispatcher) markLaunched(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence) bool {
 	rows, err := d.store.MarkWakeupSent(ctx, taskdag.MarkWakeupSentInput{
 		ID:             w.ID,
@@ -301,6 +310,8 @@ func (d *WakeupDispatcher) markPermanentFail(ctx context.Context, w *taskdag.Wak
 	return true
 }
 
+// DAG wakeup 重试前先看 DAG/node 配置；到上限就失败并处理下游。
+// 非 DAG wakeup 保留旧的 SQL hard cap。
 func (d *WakeupDispatcher) markTransientRetry(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) bool {
 	// DAG-driven wakeup 走 metadata/node config 决策。
 	// 当前 attempt_count >= MaxAttempts 直接 fail + cascade 下游（按
@@ -314,6 +325,8 @@ func (d *WakeupDispatcher) markTransientRetry(ctx context.Context, w *taskdag.Wa
 	return d.retryWakeup(ctx, w, fence, failure)
 }
 
+// 重试就是把 wakeup 放回 pending，并设置 next_retry_at。
+// rows=0 可能是到达上限，也可能是这次 claim 已失效。
 func (d *WakeupDispatcher) retryWakeup(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) bool {
 	rows, err := d.store.RetryWakeup(ctx, taskdag.RetryWakeupInput{
 		ID:             w.ID,
@@ -336,6 +349,8 @@ func (d *WakeupDispatcher) retryWakeup(ctx context.Context, w *taskdag.Wakeup, f
 	return true
 }
 
+// 告警异步发，不阻塞 dispatcher。
+// 通知失败也不能改变 wakeup 已经做出的 retry/fail 决定。
 func (d *WakeupDispatcher) emitDispatchRetryAlert(ctx context.Context, alert DispatchRetryAlert) {
 	if d == nil || d.retryAlertSink == nil {
 		return
@@ -451,7 +466,7 @@ func (d *WakeupDispatcher) Tick(ctx context.Context) (int, error) {
 // It returns decided=false when the normal retry path may still run.
 //
 // DAG metadata / runtime node config 读取失败时显式失败，保留
-// node-level retry/on_failure 契约可见性。
+// node-level retry/on_failure 约定可见性。
 func (d *WakeupDispatcher) tryDAGFailWithCascade(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) (bool, bool) {
 	policy, ok, err := d.resolveDAGRetryPolicy(ctx, w.DagKey, w.NodeKey, routeRunID(w))
 	if err != nil {
@@ -475,7 +490,7 @@ func (d *WakeupDispatcher) tryDAGFailWithCascade(ctx context.Context, w *taskdag
 
 // resolveDAGRetryPolicy 拉取 DAG metadata + node config 派生 retry policy。
 // metadata/listNodes 任一报错返 error，让调用方显式失败而不是忽略
-// node-level retry/on_failure 契约；node 不存在时仍仅基于 DAG 默认派生。
+// node-level retry/on_failure 约定；node 不存在时仍仅基于 DAG 默认派生。
 func (d *WakeupDispatcher) resolveDAGRetryPolicy(ctx context.Context, dagKey, nodeKey string, runID int64) (retrypolicy.RetryPolicy, bool, error) {
 	retryCtx, ok, err := d.resolveDAGRetryContext(ctx, dagKey, nodeKey, runID)
 	if err != nil || !ok {

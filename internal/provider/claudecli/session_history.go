@@ -9,6 +9,7 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// ReadHistory 读取history。
 func (s *session) ReadHistory(ctx context.Context, threadID string, limit int) ([]dto.Message, error) {
 	if s.history == nil {
 		return nil, errors.New("claudecli: history backend is not configured")
@@ -35,6 +36,7 @@ func (s *session) ReadHistory(ctx context.Context, threadID string, limit int) (
 	return toProviderHistory(messages), nil
 }
 
+// ReadMessagesPage 读取消息page。
 func (s *session) ReadMessagesPage(ctx context.Context, threadID string, req dto.MessagePageRequest) (dto.MessagePageResult, error) {
 	if s.history == nil {
 		return dto.MessagePageResult{}, errors.New("claudecli: history backend is not configured")

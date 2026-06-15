@@ -84,6 +84,7 @@ type HookAfterHandlerParams struct {
 	EventBus          *event.Dispatcher                `optional:"true"`
 }
 
+// ProvideHookAfterHandler 提供hook后置处理器。
 func ProvideHookAfterHandler(p HookAfterHandlerParams) contract.BootstrapHookAfterHandler {
 	return newHookConsumerInternal(
 		p.Service,
@@ -136,6 +137,7 @@ func newHookConsumerInternal(
 	return c
 }
 
+// After 处理后置。
 func (c *hookConsumer) After(ctx context.Context, payload mcp.HookPayload) (mcp.AfterDecision, error) {
 	decision := mcp.AfterDecision{Decision: mcp.HookDecisionApprove}
 	if c == nil || c.svc == nil {
@@ -150,6 +152,7 @@ func (c *hookConsumer) After(ctx context.Context, payload mcp.HookPayload) (mcp.
 	return decision, nil
 }
 
+// dispatchAfterTopic 派发后置topic。
 func (c *hookConsumer) dispatchAfterTopic(ctx context.Context, topic string, envelope hookContextEnvelope) {
 	switch topic {
 	case hookTopicSessionStart:
@@ -203,6 +206,7 @@ func (c *hookConsumer) handleProcessExitTopic(ctx context.Context, envelope hook
 	}
 }
 
+// handleThreadStarted 处理线程started。
 func (c *hookConsumer) handleThreadStarted(ctx context.Context, ev threaddto.Started) {
 	provider := normalizeRuntimeProvider(ev.Provider)
 	err := c.svc.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
@@ -233,6 +237,7 @@ func shouldDeferIdleHook(nextState string, agentState agentdto.AgentState) bool 
 	return agentState == agentdto.StateProvisioning || agentState == agentdto.StateRecovering
 }
 
+// handleStateChanged 处理状态changed。
 func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.StateChanged) {
 	nextState := strings.TrimSpace(ev.NewState)
 	if !isKnownMirroredState(nextState) {
@@ -289,6 +294,7 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 	c.logUnexpectedHookError("state change", ev.AgentID, ev.ThreadID, err)
 }
 
+// handleThreadStopped 处理线程stopped。
 func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Stopped) {
 	stoppedAccepted := true
 	err := c.svc.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
@@ -436,6 +442,7 @@ func mustMarshalHookReportEvent(event any) json.RawMessage {
 	return raw
 }
 
+// isFinalAnswerItem 判断finalansweritem是否可用。
 func isFinalAnswerItem(ev turndto.ItemCompleted) bool {
 	if !strings.EqualFold(strings.TrimSpace(ev.ItemType), "agentMessage") || len(ev.Payload) == 0 {
 		return false
@@ -492,6 +499,7 @@ func isKnownMirroredState(state string) bool {
 // the shortest sequence of triggers that drives the state machine from
 // `from` to `to`. Returns nil if no path exists. The returned slice
 // contains trigger names in firing order.
+// resolveTransitionPath 解析transition路径。
 func resolveTransitionPath(from, to string) []string {
 	if from == to {
 		return nil
@@ -549,6 +557,7 @@ func resolveTransitionPath(from, to string) []string {
 //
 // If no path exists in the transition table, the helper returns an error
 // — callers must not fall back to direct assignment.
+// hookSyncFireLocked 处理hooksyncfirelocked。
 func (s *service) hookSyncFireLocked(ctx context.Context, agent *agentRuntime, targetState string) error {
 	if agent == nil || agent.sm == nil {
 		return errors.New("state machine is not initialized")

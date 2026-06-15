@@ -56,6 +56,7 @@ type Manager struct {
 	drainClosed  chan struct{}
 }
 
+// NewManager 创建manager。
 func NewManager(
 	resolver contract.SessionResolver,
 	bindingStore bindingstore.Store,
@@ -78,6 +79,7 @@ func NewManager(
 	}
 }
 
+// HandleAgentLaunched 处理代理launched。
 func (m *Manager) HandleAgentLaunched(ev agentdto.AgentLaunched) {
 	if m == nil {
 		return
@@ -103,6 +105,7 @@ func (m *Manager) HandleAgentLaunched(ev agentdto.AgentLaunched) {
 	}
 }
 
+// resolveLaunchAgentID 解析启动代理ID。
 func (m *Manager) resolveLaunchAgentID(ctx context.Context, agentID, threadID string) (string, bool) {
 	if agentID != "" && m.hasBinding(ctx, agentID) {
 		return agentID, false
@@ -121,6 +124,7 @@ func (m *Manager) resolveLaunchAgentID(ctx context.Context, agentID, threadID st
 	return resolvedAgentID, true
 }
 
+// ResetTimerByAgent 按代理重置timer。
 func (m *Manager) ResetTimerByAgent(agentID string) {
 	if m == nil {
 		return
@@ -140,6 +144,7 @@ func (m *Manager) ResetTimerByAgent(agentID string) {
 	m.scheduleLocked(timerRef)
 }
 
+// StopTimerByAgent 按代理停止timer。
 func (m *Manager) StopTimerByAgent(agentID string) {
 	if m == nil {
 		return
@@ -163,6 +168,7 @@ func (m *Manager) StopTimerByAgent(agentID string) {
 // Shutdown closes the drain gate, cancels pingCtx (so any in-flight
 // SendKeepalive sees ctx.Err()), stops every scheduled timer, and waits
 // bounded by ctx for in-flight ping goroutines to unwind. Idempotent.
+// Shutdown 发送 LSP 关闭请求。
 func (m *Manager) Shutdown(ctx context.Context) error {
 	if m == nil {
 		return nil
@@ -296,6 +302,7 @@ func (m *Manager) resolvePingPeer(ctx context.Context, sessionUUID string, fired
 // so the loop must be self-sustaining here. A dead agent does not loop
 // forever: the next fire's resolvePingPeer re-checks the binding and drops
 // the timer once no live peer remains.
+// deliverPing 处理deliverping。
 func (m *Manager) deliverPing(ctx context.Context, sessionUUID string, timerRef *agentTimer, kc KeepaliveCapable) {
 	err := kc.SendKeepalive(ctx)
 	if err != nil && m.logger != nil {
@@ -317,6 +324,7 @@ func (m *Manager) canPing(ctx context.Context, t *agentTimer) bool {
 	return m.keepaliveSession(ctx, t.threadID) != nil
 }
 
+// hasLiveBinding 判断livebinding是否可用。
 func (m *Manager) hasLiveBinding(ctx context.Context, t *agentTimer) bool {
 	if m == nil || t == nil || m.bindingStore == nil {
 		return false
@@ -328,6 +336,7 @@ func (m *Manager) hasLiveBinding(ctx context.Context, t *agentTimer) bool {
 	return !bindingRef.Archived
 }
 
+// keepaliveSession 处理keepalive会话。
 func (m *Manager) keepaliveSession(ctx context.Context, threadID string) KeepaliveCapable {
 	if m == nil || m.resolver == nil {
 		return nil

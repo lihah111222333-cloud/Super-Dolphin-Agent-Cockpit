@@ -13,6 +13,7 @@ type threadTimelinePatchState struct {
 	order []string
 }
 
+// applyThreadTimelineLocked 应用线程timelinelocked。
 func (s *service) applyThreadTimelineLocked(patch *uidto.UIThreadPatch, threadID string) {
 	if patch == nil || s.timeline == nil {
 		return
@@ -73,6 +74,7 @@ func buildTimelinePatchState(items []timeline.Item) threadTimelinePatchState {
 	return state
 }
 
+// diffTimelinePatch 处理difftimeline补丁。
 func diffTimelinePatch(previous, current threadTimelinePatchState) ([]uidto.PatchTimelineItem, []string, []string) {
 	changed := make([]uidto.PatchTimelineItem, 0, len(current.order))
 	for _, itemID := range current.order {

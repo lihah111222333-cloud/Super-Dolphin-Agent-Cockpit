@@ -24,6 +24,7 @@ var _ Service = (*service)(nil)
 
 // NewService constructs the Service. A nil logger falls back to the
 // package default.
+// NewService 创建服务。
 func NewService(logger *slog.Logger, store insightstore.Store) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -31,6 +32,7 @@ func NewService(logger *slog.Logger, store insightstore.Store) Service {
 	return &service{logger: logger, store: store}
 }
 
+// ListRecent 列出recent。
 func (s *service) ListRecent(ctx context.Context, limit int32) ([]Snapshot, error) {
 	if limit < 0 {
 		return nil, ErrInvalidLimit
@@ -42,6 +44,7 @@ func (s *service) ListRecent(ctx context.Context, limit int32) ([]Snapshot, erro
 	return toSnapshots(rows), nil
 }
 
+// ListByThread 按线程列出insight。
 func (s *service) ListByThread(ctx context.Context, threadID string, limit int32) ([]Snapshot, error) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -57,6 +60,7 @@ func (s *service) ListByThread(ctx context.Context, threadID string, limit int32
 	return toSnapshots(rows), nil
 }
 
+// ListObservedApprovalRequests 列出observed审批请求。
 func (s *service) ListObservedApprovalRequests(ctx context.Context, threadID string, limit int32) ([]ApprovalSnapshot, error) {
 	if limit < 0 {
 		return nil, ErrInvalidLimit
@@ -91,6 +95,7 @@ func toSnapshots(rows []insightstore.Insight) []Snapshot {
 	return out
 }
 
+// toSnapshot 把insight处理为快照。
 func toSnapshot(r insightstore.Insight) Snapshot {
 	var skills []string
 	if len(r.SkillsSelected) > 0 {

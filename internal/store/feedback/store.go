@@ -20,6 +20,7 @@ type store struct {
 	q querier
 }
 
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store {
 	return &store{q: q}
 }
@@ -27,6 +28,7 @@ func NewStore(q *sqlc.Queries) Store {
 var errEmptyThreadID = errors.New("feedback.Insert: thread_id is required")
 var errEmptyEventType = errors.New("feedback.Insert: event_type is required")
 
+// Insert 插入feedback存储。
 func (s *store) Insert(ctx context.Context, ev Event) (Event, error) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	if threadID == "" {
@@ -55,6 +57,7 @@ func (s *store) Insert(ctx context.Context, ev Event) (Event, error) {
 	return fromRow(row), nil
 }
 
+// ListByThread 按线程列出feedback存储。
 func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) ([]Event, error) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -73,6 +76,7 @@ func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) 
 	return mapRows(rows), nil
 }
 
+// ListByAgentKey 按代理键列出feedback存储。
 func (s *store) ListByAgentKey(ctx context.Context, agentKey string, limit int32) ([]Event, error) {
 	agentKey = strings.TrimSpace(agentKey)
 	if agentKey == "" {

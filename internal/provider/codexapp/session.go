@@ -317,7 +317,7 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 		params.Model = s.runtimeConfigString("model")
 	}
 	if params.Effort == "" {
-		params.Effort = s.runtimeConfigString("effort")
+		params.Effort = normalizeCodexAppEffort(s.runtimeConfigString("effort"))
 	}
 	if supportutil.CodexModelNeedsListResolution(params.Model) {
 		params.Model = s.resolveTurnStartModel(ctx, params.Model)
@@ -522,6 +522,7 @@ func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) er
 	return s.configureThread(ctx, patch)
 }
 
+// ReadConfig 读取 Codex 会话当前线程配置。
 func (s *session) ReadConfig(ctx context.Context, _ string) (dto.ThreadConfig, error) {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return dto.ThreadConfig{}, err
@@ -548,10 +549,13 @@ func (s *session) ReadConfig(ctx context.Context, _ string) (dto.ThreadConfig, e
 	}, nil
 }
 
+// Close 关闭 Codex app 会话并执行优雅清理。
 func (s *session) Close(context.Context) error { return s.shutdownSession(true) }
 
+// ForceStop 强制停止 Codex app 会话。
 func (s *session) ForceStop() error { return s.shutdownSession(false) }
 
+// SessionRuntime 返回会话运行时状态。
 func (s *session) SessionRuntime() *SessionRuntime { return s.runtime }
 
 func (s *session) shutdownSessionCleanup() error {

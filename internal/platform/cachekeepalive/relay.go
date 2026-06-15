@@ -11,6 +11,7 @@ import (
 	"github.com/kelindar/event"
 )
 
+// startKeepaliveRelay 启动keepaliverelay。
 func startKeepaliveRelay(dispatcher *event.Dispatcher, manager *Manager, logger *pkglogger.Logger) func() {
 	if dispatcher == nil || manager == nil {
 		return func() {}

@@ -16,6 +16,7 @@ func logGrepCallDecoded(input grepToolInput, limit int) {
 	)...)
 }
 
+// runGrepTextSearch 运行grep文本search。
 func (handlerBase) runGrepTextSearch(ctx context.Context, input grepToolInput, limit int) ([]search.SearchMatch, error) {
 	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {

@@ -22,8 +22,10 @@ type store struct {
 	cfg sharedfilefs.Config
 }
 
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store { return newStoreWithConfig(q, sharedfilefs.Config{}) }
 
+// NewStoreWithConfig 创建带配置的存储。
 func NewStoreWithConfig(q *sqlc.Queries, cfg sharedfilefs.Config) Store {
 	return newStoreWithConfig(q, cfg)
 }
@@ -32,6 +34,7 @@ func newStoreWithConfig(q *sqlc.Queries, cfg sharedfilefs.Config) *store {
 	return &store{q: q, cfg: cfg}
 }
 
+// Upsert 新增或更新记录。
 func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, error) {
 	cleaned, err := sharedfilepath.ValidateWritePath(params.Path)
 	if err != nil {
@@ -59,6 +62,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, e
 	return &mapped, nil
 }
 
+// Get 读取编排。
 func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 	cleaned, err := sharedfilepath.ValidateReadPath(path)
 	if err != nil {
@@ -97,6 +101,7 @@ func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 	return &mapped, nil
 }
 
+// List 列出编排。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, error) {
 	rows, err := s.q.ListSharedFiles(ctx, sqlc.ListSharedFilesParams{
 		Prefix:     filter.Prefix,
@@ -112,6 +117,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, erro
 	return result, nil
 }
 
+// Delete 删除编排。
 func (s *store) Delete(ctx context.Context, path string) (int64, error) {
 	cleaned, err := sharedfilepath.ValidateReadPath(path)
 	if err != nil {

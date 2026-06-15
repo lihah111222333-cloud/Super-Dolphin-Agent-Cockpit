@@ -12,6 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
+// planDeltaHandler 处理plandelta处理器。
 func planDeltaHandler(svc Service, onUpdated func(string)) func(turndto.PlanDelta) {
 	return func(ev turndto.PlanDelta) {
 		threadID, text := strings.TrimSpace(ev.ThreadID), planText(ev.Delta, ev.Payload)
@@ -40,6 +41,7 @@ func planDeltaHandler(svc Service, onUpdated func(string)) func(turndto.PlanDelt
 	}
 }
 
+// planUpdatedHandler 处理planupdated处理器。
 func planUpdatedHandler(svc Service, onUpdated func(string)) func(turndto.PlanUpdated) {
 	return func(ev turndto.PlanUpdated) {
 		content := planContent("", ev.Payload)
@@ -116,6 +118,7 @@ func itemCompletedStatus(kind string, success bool, exitCode int, errText string
 	return "completed"
 }
 
+// itemCompletedHandler 处理itemcompleted处理器。
 func itemCompletedHandler(svc Service, onUpdated func(string)) func(turndto.ItemCompleted) {
 	return func(ev turndto.ItemCompleted) {
 		threadID := strings.TrimSpace(ev.ThreadID)
@@ -139,6 +142,7 @@ func itemCompletedHandler(svc Service, onUpdated func(string)) func(turndto.Item
 	}
 }
 
+// applyItemCompleted 应用itemcompleted。
 func applyItemCompleted(it *Item, ev turndto.ItemCompleted, success bool) {
 	it.Kind = itemKind(
 		util.FirstNonEmpty(strings.TrimSpace(ev.ItemType), it.ItemType),
@@ -204,6 +208,7 @@ func appendCompletedItemFallback(svc Service, threadID string, ev turndto.ItemCo
 	return true
 }
 
+// shouldAppendCompletedItemFallback 判断appendcompleteditem兜底是否可用。
 func shouldAppendCompletedItemFallback(ev turndto.ItemCompleted) bool {
 	itemType := strings.TrimSpace(ev.ItemType)
 	command := strings.TrimSpace(ev.Command)
@@ -249,6 +254,7 @@ func applyToolCallCompleted(it *Item, ev tooldto.ToolCallEnd, success bool) {
 	}
 }
 
+// appendCompletedToolFallback 追加completed工具兜底。
 func appendCompletedToolFallback(svc Service, threadID string, ev tooldto.ToolCallEnd, updateKey string, success bool) bool {
 	tool := strings.TrimSpace(ev.ToolName)
 	// Without a tool name the fallback row would render as “未知工具”, which
@@ -302,6 +308,7 @@ func planText(delta string, payload []byte) string {
 	return planContent(delta, payload).Text
 }
 
+// planContent 处理plan内容。
 func planContent(delta string, payload []byte) parsedPlanContent {
 	if text := strings.TrimSpace(delta); text != "" {
 		// If delta looks like serialized JSON, try structured extraction first.
@@ -341,6 +348,7 @@ func parseStructuredPlanContent(data []byte) parsedPlanContent {
 	}
 }
 
+// parseStructuredPlanObject 解析structuredplanobject。
 func parseStructuredPlanObject(data []byte) parsedPlanContent {
 	var obj map[string]json.RawMessage
 	if json.Unmarshal(data, &obj) != nil {
@@ -366,6 +374,7 @@ func parseStructuredPlanObject(data []byte) parsedPlanContent {
 	return parsedPlanContent{}
 }
 
+// parsePlanSteps 解析plansteps。
 func parsePlanSteps(data []byte) (string, bool, bool) {
 	var steps []map[string]any
 	if json.Unmarshal(data, &steps) != nil || len(steps) == 0 {
@@ -426,6 +435,7 @@ func previewText(text string) string {
 
 const maxPreviewRunes = 200
 
+// compactToolResultPreview 处理紧凑列表工具结果preview。
 func compactToolResultPreview(text string) string {
 	text = strings.TrimSpace(text)
 	if len([]rune(text)) <= maxPreviewRunes || text == "" {
@@ -452,6 +462,7 @@ func compactToolResultPreview(text string) string {
 	return marshalLimitedPreview(compact)
 }
 
+// compactArrayPreview 处理紧凑列表arraypreview。
 func compactArrayPreview(raw []byte) string {
 	var items []json.RawMessage
 	if json.Unmarshal(raw, &items) != nil {
@@ -504,6 +515,7 @@ func decodeStructuredPreview(raw json.RawMessage) map[string]json.RawMessage {
 	return obj
 }
 
+// marshalLimitedPreview 编码limitedpreview。
 func marshalLimitedPreview(fields map[string]json.RawMessage) string {
 	compact := clonePreviewFields(fields)
 	if out := marshalPreviewIfWithinLimit(compact); out != "" {
@@ -563,6 +575,7 @@ func marshalPreviewIfWithinLimit(fields map[string]json.RawMessage) string {
 	return string(raw)
 }
 
+// toolCallEndPreview 处理工具callendpreview。
 func toolCallEndPreview(result, errText string, success bool) string {
 	result = strings.TrimSpace(result)
 	errText = strings.TrimSpace(errText)

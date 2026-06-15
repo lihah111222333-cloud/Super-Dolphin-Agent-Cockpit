@@ -6,6 +6,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// InterruptActiveTurn 处理interruptactiveturn。
 func (s *service) InterruptActiveTurn(ctx context.Context, session contract.Session, source string) error {
 	ctx, threadID, err := requireTurnContext(ctx, session)
 	if err != nil {
@@ -21,6 +22,7 @@ func (s *service) InterruptActiveTurn(ctx context.Context, session contract.Sess
 	return err
 }
 
+// CleanupThread 处理cleanup线程。
 func (s *service) CleanupThread(_ context.Context, threadID, reason string) error {
 	s.tracker.AbortThread(threadID, reason)
 	resetToolResultLifecycle(threadID)

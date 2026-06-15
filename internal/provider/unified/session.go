@@ -26,6 +26,7 @@ type sessionEntry struct {
 	session    contract.Session
 }
 
+// NewSessionManager 创建会话manager。
 func NewSessionManager(logger *slog.Logger) *SessionManager {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -36,6 +37,7 @@ func NewSessionManager(logger *slog.Logger) *SessionManager {
 	}
 }
 
+// Register 注册unified provider。
 func (m *SessionManager) Register(agentID string, session contract.Session) uint64 {
 	id := normalizeAgentID(agentID)
 	if id == "" || session == nil {
@@ -56,6 +58,7 @@ func (m *SessionManager) Register(agentID string, session contract.Session) uint
 	return generation
 }
 
+// Get 读取unified provider。
 func (m *SessionManager) Get(agentID string) (contract.Session, error) {
 	id := normalizeAgentID(agentID)
 	m.mu.RLock()
@@ -67,6 +70,7 @@ func (m *SessionManager) Get(agentID string) (contract.Session, error) {
 	return nil, fmt.Errorf("%w for agent %q", contract.ErrSessionNotFound, agentID)
 }
 
+// SessionGeneration 处理会话代际。
 func (m *SessionManager) SessionGeneration(agentID string) uint64 {
 	id := normalizeAgentID(agentID)
 	if id == "" {
@@ -77,6 +81,7 @@ func (m *SessionManager) SessionGeneration(agentID string) uint64 {
 	return m.sessions[id].generation
 }
 
+// Remove 移除unified provider。
 func (m *SessionManager) Remove(agentID string, generation uint64) {
 	if m == nil {
 		return
@@ -92,6 +97,7 @@ func (m *SessionManager) Remove(agentID string, generation uint64) {
 	m.closeRemovedSession(id, session)
 }
 
+// RemoveCurrent 移除当前。
 func (m *SessionManager) RemoveCurrent(agentID string) {
 	if m == nil {
 		return
@@ -107,6 +113,7 @@ func (m *SessionManager) RemoveCurrent(agentID string) {
 	m.closeRemovedSession(id, session)
 }
 
+// CloseAll 关闭all。
 func (m *SessionManager) CloseAll(ctx context.Context) {
 	if m == nil {
 		return

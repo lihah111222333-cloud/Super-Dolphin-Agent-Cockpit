@@ -187,6 +187,7 @@ func (s *service) recordUITrace(method, threadID, agentID, turnID, callID, toolN
 	})
 }
 
+// threadPatchLocked 处理线程补丁locked。
 func (s *service) threadPatchLocked(threadID, source string) uidto.UIThreadPatch {
 	id := strings.TrimSpace(threadID)
 	if id == "" {
@@ -296,6 +297,7 @@ func (s *service) nextPatchSequenceLocked(threadID string) int64 {
 
 const threadPatchMaxPayloadBytes = 64 * 1024
 
+// applyThreadDiffLocked 应用线程difflocked。
 func (s *service) applyThreadDiffLocked(patch *uidto.UIThreadPatch, threadID, source string) {
 	if patch == nil {
 		return
@@ -357,6 +359,7 @@ func (s *service) threadSummaryLocked(threadID string) (ThreadSummary, bool) {
 	return ThreadSummary{}, false
 }
 
+// eventThreadActivityLocked 处理事件线程activitylocked。
 func (s *service) eventThreadActivityLocked(threadID, agentID, source string) (string, *threadActivity, bool) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -391,6 +394,7 @@ func (s *service) mainAgentIDLocked() string {
 	return strings.TrimSpace(deriveMainAgentID(s.state.Agents, ""))
 }
 
+// mainAgentStateLocked 处理main代理状态locked。
 func (s *service) mainAgentStateLocked() string {
 	mainAgentID := s.mainAgentIDLocked()
 	if mainAgentID == "" {
@@ -413,6 +417,7 @@ func (s *service) mainAgentStateLocked() string {
 	return ""
 }
 
+// applyRuntimePreferenceLocked 应用运行时preferencelocked。
 func (s *service) applyRuntimePreferenceLocked(key string, value any) {
 	switch normalizePreferenceKey(key) {
 	case preferenceActiveThreadID:

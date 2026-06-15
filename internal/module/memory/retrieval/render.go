@@ -75,6 +75,7 @@ type scoredTranscriptSnippet struct {
 	score   int
 }
 
+// FreezeRelevantMemoryAttachments 处理freezerelevant记忆attachments。
 func FreezeRelevantMemoryAttachments(entries []MemoryEntry, now time.Time) []dto.AttachmentEnvelope {
 	attachments := make([]dto.AttachmentEnvelope, 0, len(entries))
 	for _, entry := range entries {
@@ -89,6 +90,7 @@ func FreezeRelevantMemoryAttachments(entries []MemoryEntry, now time.Time) []dto
 	return attachments
 }
 
+// FreezeTranscriptInputs 处理freezetranscriptinputs。
 func FreezeTranscriptInputs(snippets []TranscriptSnippet) []shareddto.InputItem {
 	items := make([]shareddto.InputItem, 0, len(snippets))
 	for idx, snippet := range snippets {
@@ -168,6 +170,7 @@ func memoryFreshnessText(now, updatedAt time.Time) string {
 	return "This memory was saved " + age + ", so it may not reflect live state. File or line references may be outdated; verify the current code before relying on it."
 }
 
+// MemoryHeader 处理记忆头部。
 func MemoryHeader(now time.Time, entry MemoryEntry) string {
 	path := memoryDisplayPath(entry)
 	switch memoryAgeDays(now, entry.UpdatedAt) {
@@ -183,6 +186,7 @@ func MemoryHeader(now time.Time, entry MemoryEntry) string {
 	return warning + "\n\nMemory: " + path + ":"
 }
 
+// memoryDisplayPath 处理记忆显示路径。
 func memoryDisplayPath(entry MemoryEntry) string {
 	path := strings.TrimSpace(filepath.ToSlash(entry.FilePath))
 	if path == "" {
@@ -199,6 +203,7 @@ func memoryDisplayPath(entry MemoryEntry) string {
 	return path
 }
 
+// MemoryRenderBody 处理记忆render正文。
 func MemoryRenderBody(entry MemoryEntry) string {
 	frontmatter := relevantMemoryFrontmatter(entry)
 	body := strings.TrimSpace(entry.Content)
@@ -212,6 +217,7 @@ func MemoryRenderBody(entry MemoryEntry) string {
 	}
 }
 
+// relevantMemoryFrontmatter 处理relevant记忆frontmatter。
 func relevantMemoryFrontmatter(entry MemoryEntry) string {
 	lines := make([]string, 0, 5)
 	if name := strings.TrimSpace(entry.Frontmatter.Name); name != "" {
@@ -260,11 +266,13 @@ func transcriptLabel(snippet TranscriptSnippet, idx int) string {
 	return role + "-past-context-" + string(rune('a'+idx)) + ".txt"
 }
 
+// ShouldSearchPastContextQuery 判断searchpast上下文查询是否可用。
 func ShouldSearchPastContextQuery(query string) bool {
 	normalized, _ := searchTerms(query)
 	return len([]rune(normalized)) >= 4
 }
 
+// MemoryRetrievalLowConfidence 处理记忆retrievallowconfidence。
 func MemoryRetrievalLowConfidence(query string, entries []MemoryEntry) bool {
 	if len(entries) == 0 {
 		return true
@@ -282,6 +290,7 @@ func MemoryRetrievalLowConfidence(query string, entries []MemoryEntry) bool {
 	return best < 18
 }
 
+// SearchTranscriptSnippets 搜索transcriptsnippets。
 func SearchTranscriptSnippets(query string, messages []dto.Message, budget int) []TranscriptSnippet {
 	normalized, terms := searchTerms(query)
 	if normalized == "" || len(messages) == 0 {
@@ -319,6 +328,7 @@ func rankTranscriptSnippets(normalized string, terms []string, messages []dto.Me
 	return ranked
 }
 
+// selectTranscriptSnippets 选择transcriptsnippets。
 func selectTranscriptSnippets(ranked []scoredTranscriptSnippet, budget int) []TranscriptSnippet {
 	if budget <= 0 {
 		budget = DefaultRelevantMemoryBudgetBytes / 2

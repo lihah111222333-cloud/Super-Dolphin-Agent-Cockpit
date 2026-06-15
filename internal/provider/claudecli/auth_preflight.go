@@ -23,6 +23,7 @@ type claudeAuthStatus struct {
 	APIKeySource string `json:"apiKeySource"`
 }
 
+// preflightClaudeAuth 处理preflightclaude认证。
 func (d *driver) preflightClaudeAuth(ctx context.Context, binary, cwd string, cfg cliLaunchConfig) error {
 	checkCtx, cancel := ctxutil.WithTimeout(ctx, claudeAuthPreflightTimeout)
 	defer cancel()
@@ -55,6 +56,7 @@ func claudeAuthStatusReportsLoggedOut(raw string) bool {
 	return !*payload.LoggedIn
 }
 
+// runClaudeAuthStatus 运行claude认证状态。
 func runClaudeAuthStatus(ctx context.Context, binary, cwd string, cfg cliLaunchConfig) (claudeAuthStatus, string, error) {
 	if strings.TrimSpace(binary) == "" {
 		binary = defaultClaudeCLIBin

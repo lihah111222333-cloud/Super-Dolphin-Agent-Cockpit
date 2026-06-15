@@ -21,7 +21,7 @@ var Module = fx.Module(
 	fx.Invoke(registerLifecycle),
 )
 
-// NewDB opens the SQLite database for the product runtime.
+// NewDB 打开产品运行时使用的 SQLite 数据库。
 func NewDB(cfg *config.Config) (*sql.DB, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("SQLite DB config is nil")
@@ -29,8 +29,7 @@ func NewDB(cfg *config.Config) (*sql.DB, error) {
 	return sqliteruntime.Open(context.Background(), sqliteruntime.OpenOptions{Path: cfg.SQLitePath})
 }
 
-// MinRequiredSchemaVersion is the lower bound this binary needs in
-// schema_migrations.version to operate correctly.
+// MinRequiredSchemaVersion 是当前二进制正常运行所需的 schema_migrations.version 下限。
 const MinRequiredSchemaVersion = 104
 
 var requiredBaselineTables = []string{
@@ -76,6 +75,7 @@ var requiredBaselineTables = []string{
 	"runtime_locks",
 }
 
+// VerifyMinSchemaVersion 校验 SQLite schema 版本和基线表完整性。
 func VerifyMinSchemaVersion(ctx context.Context, q any) error {
 	return verifyMinSchemaVersion(ctx, q)
 }
@@ -109,6 +109,7 @@ func querySchemaVersion(ctx context.Context, q any, dest *int) error {
 	return v.QueryRowContext(ctx, query).Scan(dest)
 }
 
+// verifySQLiteBaselineTables 拒绝只有 migration marker 或缺表的 SQLite 基线库。
 func verifySQLiteBaselineTables(ctx context.Context, q any) error {
 	v, ok := q.(sqlContextQueryRow)
 	if !ok {
@@ -142,6 +143,7 @@ func missingSQLiteBaselineTables(ctx context.Context, q sqlContextQueryRow) ([]s
 	return missing, nil
 }
 
+// registerLifecycle 在应用生命周期中执行 SQLite 迁移、schema gate 和关闭逻辑。
 func registerLifecycle(lc fx.Lifecycle, logger *pkglogger.Logger, database *sql.DB, cfg *config.Config) {
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {

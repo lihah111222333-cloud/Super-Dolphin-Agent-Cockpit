@@ -60,6 +60,7 @@ type lspPromptHintResult struct {
 	UsingDefault bool   `json:"usingDefault"`
 }
 
+// NewConfigHandlers 创建配置处理器。
 func NewConfigHandlers(
 	cfg *contract.Config,
 	prefs uipreference.Store,
@@ -88,6 +89,7 @@ func NewConfigHandlers(
 	}}
 }
 
+// readRuntimeConfig 读取运行时配置。
 func readRuntimeConfig(
 	ctx context.Context,
 	cfg *contract.Config,
@@ -126,6 +128,7 @@ func applyRuntimeConfigOverrides(result *runtimeConfigResult, cfg map[string]any
 	applyRuntimeObjectOverrides(result, cfg)
 }
 
+// applyRuntimeStringOverrides 应用运行时stringoverrides。
 func applyRuntimeStringOverrides(result *runtimeConfigResult, cfg map[string]any) {
 	if value := runtimeConfigString(cfg, "modelProvider"); value != "" {
 		result.ModelProvider = value
@@ -217,6 +220,7 @@ func runtimeConfigString(cfg map[string]any, keys ...string) string {
 	return ""
 }
 
+// runtimeToolRouting 处理运行时工具routing。
 func runtimeToolRouting(base runtimeConfigToolRouting, raw any) (runtimeConfigToolRouting, bool) {
 	values, ok := raw.(map[string]any)
 	if !ok {
@@ -302,6 +306,7 @@ func configCWD(cfg *contract.Config) string {
 	return clean
 }
 
+// packagedAppHomeCWD 处理packagedapphome工作目录。
 func packagedAppHomeCWD() string {
 	value := strings.TrimSpace(os.Getenv(packagedAppHomeEnvKey))
 	if value == "" {
@@ -381,6 +386,7 @@ func readDefaultLSPPromptHint(ctx context.Context, sharedFiles sharedfilestore.R
 	}
 }
 
+// readLSPPromptOverride 读取LSPpromptoverride。
 func readLSPPromptOverride(ctx context.Context, prefs uipreference.Store, cwd string) (string, error) {
 	if prefs == nil {
 		return "", nil

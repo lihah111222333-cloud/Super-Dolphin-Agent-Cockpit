@@ -93,6 +93,7 @@ func newNestedIngestWorker(runtime nestedIngestRuntime, logger *slog.Logger) *ne
 // Start spawns the worker goroutine. Idempotent. When runtime is nil the
 // worker short-circuits: doneCh closes so Stop is immediate and Enqueue
 // remains a cheap no-op.
+// Start 启动记忆流程。
 func (w *nestedIngestWorker) Start() {
 	if w == nil {
 		return
@@ -124,6 +125,7 @@ func (w *nestedIngestWorker) Start() {
 // callbacks: O(1) map write + non-blocking wake signal, no file I/O, no
 // AddToolReadResult call on the callback goroutine. Repeated events for
 // the same (thread, tool, persistedPath) coalesce into the latest payload.
+// Enqueue 把项目追加到队尾。
 func (w *nestedIngestWorker) Enqueue(threadID, toolName, result, persistedPath string) {
 	if w == nil {
 		return
@@ -169,6 +171,7 @@ func (w *nestedIngestWorker) Enqueue(threadID, toolName, result, persistedPath s
 // silently dropped (gate closed) — this is the only drop path in the
 // lossless contract and is necessary because post-Stop delivery would race
 // with cancelled subscriptions.
+// Stop 停止记忆流程。
 func (w *nestedIngestWorker) Stop(ctx context.Context) error {
 	if w == nil {
 		return nil
@@ -202,8 +205,13 @@ func (w *nestedIngestWorker) Stop(ctx context.Context) error {
 
 // EnqueuedTotal / CoalescedTotal / ProcessedTotal expose the observability
 // counters for tests and future metric hookup (P22 observability lane).
-func (w *nestedIngestWorker) EnqueuedTotal() int64  { return w.enqueuedTotal.Load() }
+// EnqueuedTotal 处理enqueuedtotal。
+func (w *nestedIngestWorker) EnqueuedTotal() int64 { return w.enqueuedTotal.Load() }
+
+// CoalescedTotal 处理coalescedtotal。
 func (w *nestedIngestWorker) CoalescedTotal() int64 { return w.coalescedTotal.Load() }
+
+// ProcessedTotal 处理processedtotal。
 func (w *nestedIngestWorker) ProcessedTotal() int64 { return w.processedTotal.Load() }
 
 func (w *nestedIngestWorker) runWorker() {

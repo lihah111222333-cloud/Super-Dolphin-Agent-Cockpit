@@ -8,6 +8,7 @@ import (
 	"strings"
 )
 
+// DecodeAllowedModels 解码allowed模型。
 func DecodeAllowedModels(raw []byte) ([]string, error) {
 	var top map[string]any
 	if err := json.Unmarshal(raw, &top); err == nil {
@@ -27,6 +28,7 @@ func DecodeAllowedModels(raw []byte) ([]string, error) {
 	return nil, errors.New("codexapp: invalid model/list response")
 }
 
+// PreferredCodexModel 处理preferredcodex模型。
 func PreferredCodexModel(models []string) string {
 	for _, preferred := range []string{"gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5", "codex-auto-review"} {
 		for _, model := range models {
@@ -43,6 +45,7 @@ func PreferredCodexModel(models []string) string {
 	return ""
 }
 
+// CodexModelListContains 判断 Codex 模型列表是否包含目标模型。
 func CodexModelListContains(models []string, requested string) bool {
 	requested = strings.TrimSpace(requested)
 	if requested == "" {
@@ -56,6 +59,7 @@ func CodexModelListContains(models []string, requested string) bool {
 	return false
 }
 
+// CodexModelNeedsListResolution 处理codex模型needslistresolution。
 func CodexModelNeedsListResolution(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
 	switch model {
@@ -65,15 +69,18 @@ func CodexModelNeedsListResolution(model string) bool {
 	return model == ""
 }
 
+// CodexModelIsGenericGPT 处理codex模型isgenericgpt。
 func CodexModelIsGenericGPT(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
 	return strings.HasPrefix(model, "gpt-") && !CodexModelIsCodexFamily(model)
 }
 
+// CodexModelIsCodexFamily 处理codex模型iscodexfamily。
 func CodexModelIsCodexFamily(model string) bool {
 	return strings.Contains(strings.ToLower(strings.TrimSpace(model)), "codex")
 }
 
+// WrapCodexModelUnsupportedError 包装codex模型unsupported错误。
 func WrapCodexModelUnsupportedError(err error, model string) error {
 	if err == nil {
 		return nil
@@ -85,6 +92,7 @@ func WrapCodexModelUnsupportedError(err error, model string) error {
 	return fmt.Errorf("%s: %w", notice, err)
 }
 
+// CodexModelUnsupportedNotice 处理codex模型unsupportednotice。
 func CodexModelUnsupportedNotice(err error, model string) string {
 	if err == nil {
 		return ""
@@ -107,6 +115,7 @@ func CodexModelUnsupportedNotice(err error, model string) string {
 	return "The selected Codex model is not supported by the current ChatGPT account. Choose a supported Codex model in Settings or clear the model override, then retry"
 }
 
+// ConfigString 处理配置string。
 func ConfigString(cfg map[string]any, keys ...string) string {
 	if cfg == nil {
 		return ""
@@ -120,6 +129,7 @@ func ConfigString(cfg map[string]any, keys ...string) string {
 	return ""
 }
 
+// FirstConfigString 处理first配置string。
 func FirstConfigString(cfg map[string]any, keys ...string) string {
 	for _, key := range keys {
 		if value := ConfigString(cfg, key); value != "" {
@@ -129,6 +139,7 @@ func FirstConfigString(cfg map[string]any, keys ...string) string {
 	return ""
 }
 
+// SanitizeConfigStringArtifact 清理配置string产物。
 func SanitizeConfigStringArtifact(value string) string {
 	value = strings.TrimSpace(value)
 	switch strings.ToLower(value) {
@@ -139,6 +150,7 @@ func SanitizeConfigStringArtifact(value string) string {
 	}
 }
 
+// ResolveApprovalPolicy 解析审批策略。
 func ResolveApprovalPolicy(cfg map[string]any) string {
 	for _, key := range []string{"approvalPolicy", "approval_policy"} {
 		if value := ConfigString(cfg, key); value != "" {
@@ -148,6 +160,7 @@ func ResolveApprovalPolicy(cfg map[string]any) string {
 	return "never"
 }
 
+// ConfigJSON 处理配置JSON。
 func ConfigJSON(cfg map[string]any, key string) json.RawMessage {
 	if cfg == nil || cfg[key] == nil {
 		return nil
@@ -159,6 +172,7 @@ func ConfigJSON(cfg map[string]any, key string) json.RawMessage {
 	return raw
 }
 
+// SortedConfigKeys 处理sorted配置键。
 func SortedConfigKeys(cfg map[string]any) []string {
 	if len(cfg) == 0 {
 		return nil

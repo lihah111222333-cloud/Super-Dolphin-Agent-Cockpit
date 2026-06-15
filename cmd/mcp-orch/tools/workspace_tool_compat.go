@@ -123,6 +123,7 @@ func convertMergeResult(r *workspace.MergeRunResult, deleteRemoved bool) *Worksp
 	}
 }
 
+// listWorkspaceRunFiles 列出工作区运行记录文件。
 func listWorkspaceRunFiles(ctx context.Context, svc workspace.Service, runKey string) ([]string, error) {
 	if svc == nil || strings.TrimSpace(runKey) == "" {
 		return []string{}, nil

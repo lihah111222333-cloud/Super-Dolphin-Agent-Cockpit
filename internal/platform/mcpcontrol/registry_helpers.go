@@ -70,6 +70,7 @@ func (r *ToolRegistry) cleanupLease(ctx context.Context, key LeaseKey) {
 	}
 }
 
+// activeLeaseKeys 处理active租约键。
 func (r *ToolRegistry) activeLeaseKeys() []LeaseKey {
 	if r == nil {
 		return nil

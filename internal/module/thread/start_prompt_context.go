@@ -1,6 +1,7 @@
 package thread
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/thread/titleextract"
+	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
 )
@@ -21,6 +24,7 @@ type toolInstanceLister interface {
 	ListInstances() []contract.ToolInstance
 }
 
+// buildStartCtx 构建起点ctx。
 func buildStartCtx(req StartRequest, cfg *contract.Config, registry contract.ToolRegistry) contract.BuildCtx {
 	cwd := resolvePromptCWD(req.CWD)
 	outputStyleConfig := configOutputStyle(req.Config, "outputStyleConfig", "output_style_config")
@@ -80,6 +84,7 @@ func applyConfiguredSessionFlagDefaults(flags map[string]bool, cfg *contract.Con
 	return out
 }
 
+// hasConfiguredSessionFlag 判断configured会话flag是否可用。
 func hasConfiguredSessionFlag(flags map[string]bool, names ...string) bool {
 	if len(flags) == 0 || len(names) == 0 {
 		return false
@@ -133,6 +138,7 @@ func resolvePromptGitContext(cwd, hintRoot string, cfg *contract.Config) promptG
 	return promptGitContext{Root: projectRoot}
 }
 
+// discoverPromptGitContext 处理discoverpromptgit上下文。
 func discoverPromptGitContext(path string) promptGitContext {
 	for dir := resolvePromptCWD(path); dir != ""; dir = filepath.Dir(dir) {
 		gitPath := filepath.Join(dir, ".git")
@@ -151,6 +157,7 @@ func discoverPromptGitContext(path string) promptGitContext {
 	return promptGitContext{}
 }
 
+// parsePromptGitFile 解析promptgit文件。
 func parsePromptGitFile(dir, gitPath string) promptGitContext {
 	raw, err := os.ReadFile(gitPath)
 	if err != nil {
@@ -226,6 +233,7 @@ func configBoolMap(cfg map[string]any, keys ...string) map[string]bool {
 	return nil
 }
 
+// normalizeBoolMap 规范化boolmap。
 func normalizeBoolMap(value any) map[string]bool {
 	switch typed := value.(type) {
 	case map[string]bool:
@@ -320,10 +328,12 @@ func mcpServerName(instance contract.ToolInstance) string {
 	return strings.TrimPrefix(name, "mcp-")
 }
 
+// mergeMCPSnapshot 合并MCP快照。
 func mergeMCPSnapshot(base, extra contract.MCPSnapshot) contract.MCPSnapshot {
 	out := contract.MCPSnapshot{
 		Servers:                  uniquePromptStrings(base.Servers, extra.Servers),
 		Tools:                    uniquePromptStrings(base.Tools, extra.Tools),
+		ServerConfigs:            mergeMCPServerConfigMaps(base.ServerConfigs, extra.ServerConfigs),
 		InstructionsDeltaEnabled: base.InstructionsDeltaEnabled || extra.InstructionsDeltaEnabled,
 		InstructionAttachments:   append(append([]contract.MCPAttachmentRef(nil), base.InstructionAttachments...), extra.InstructionAttachments...),
 	}
@@ -409,6 +419,7 @@ func configOutputStyle(cfg map[string]any, keys ...string) *contract.OutputStyle
 	return nil
 }
 
+// normalizeOutputStyleConfig 规范化outputstyle配置。
 func normalizeOutputStyleConfig(value any) *contract.OutputStyleConfig {
 	switch typed := value.(type) {
 	case contract.OutputStyleConfig:
@@ -439,6 +450,7 @@ func normalizeOutputStyleConfig(value any) *contract.OutputStyleConfig {
 	}
 }
 
+// cloneOutputStyleConfig 复制outputstyle配置。
 func cloneOutputStyleConfig(style contract.OutputStyleConfig) *contract.OutputStyleConfig {
 	cloned := style
 	cloned.KeepCodingInstructions = cloneOptionalBool(style.KeepCodingInstructions)
@@ -474,6 +486,7 @@ func configFRCConfig(cfg map[string]any, keys ...string) *contract.FRCConfig {
 	return nil
 }
 
+// normalizeFRCConfig 规范化frc配置。
 func normalizeFRCConfig(value any) *contract.FRCConfig {
 	switch typed := value.(type) {
 	case contract.FRCConfig:
@@ -499,6 +512,7 @@ func normalizeFRCConfig(value any) *contract.FRCConfig {
 	}
 }
 
+// configInt 处理配置int。
 func configInt(cfg map[string]any, keys ...string) int {
 	for _, key := range keys {
 		switch value := cfg[key].(type) {
@@ -517,4 +531,35 @@ func configInt(cfg map[string]any, keys ...string) int {
 		}
 	}
 	return 0
+}
+
+// ExtractTitle 提取 title。
+func ExtractTitle(prompt string) string {
+	return titleextract.Extract(prompt)
+}
+
+func countDisplayUnits(s string) int {
+	return titleextract.CountDisplayUnits(s)
+}
+
+func resolveDisplayName(ctx context.Context, store threadstore.Store, agentID, _ string, currentName string) string {
+	name := strings.TrimSpace(currentName)
+	if name == defaultThreadName() {
+		name = ""
+	}
+	if store != nil {
+		existing, err := store.GetByThreadID(ctx, agentID)
+		if err == nil && existing.ManuallyRenamed {
+			return strings.TrimSpace(existing.Name)
+		}
+	}
+	return name
+}
+
+func defaultThreadName() string {
+	return "新对话"
+}
+
+func continuationName(parentName string) string {
+	return titleextract.ContinuationName(parentName)
 }

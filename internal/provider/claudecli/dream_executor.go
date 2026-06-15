@@ -50,10 +50,12 @@ func provideDreamExecutorProvider() contract.DreamExecutorProvider {
 	}
 }
 
+// ExecuteDream 执行dream。
 func (e dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string, error) {
 	return e.ExecuteDreamWithOptions(ctx, prompt, contract.DreamOptions{})
 }
 
+// ExecuteDreamWithOptions 执行带选项的dream。
 func (e dreamExecutor) ExecuteDreamWithOptions(ctx context.Context, prompt string, options contract.DreamOptions) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err

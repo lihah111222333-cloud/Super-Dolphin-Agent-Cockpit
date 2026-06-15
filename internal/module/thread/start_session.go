@@ -34,6 +34,7 @@ func normalizeStartRequest(req StartRequest) (StartRequest, string, error) {
 	return req, req.AgentID, nil
 }
 
+// reserveUniqueStartAgentID 为新会话预留唯一 agent id。
 func (s *service) reserveUniqueStartAgentID(
 	ctx context.Context,
 	req StartRequest,
@@ -66,6 +67,7 @@ func (s *service) reserveUniqueStartAgentID(
 	return s.reserveGeneratedRootAgentIDLocked(ctx)
 }
 
+// reserveNextChildAgentIDLocked 在锁内为子代理分配下一个 id。
 func (s *service) reserveNextChildAgentIDLocked(ctx context.Context, parentID string) (string, func(), error) {
 	base := int64(0)
 	if s.threadStore != nil {
@@ -127,6 +129,7 @@ func (s *service) reserveAgentIDLocked(agentID string) func() {
 	}
 }
 
+// agentIDInUseLocked 在锁内判断 agent id 是否已被占用。
 func (s *service) agentIDInUseLocked(ctx context.Context, agentID string) (bool, error) {
 	if _, ok := s.agentIDReservations[agentID]; ok {
 		return true, nil
@@ -177,6 +180,7 @@ func trimStartRequest(req StartRequest) StartRequest {
 	return req
 }
 
+// resolveStartConfig 解析启动会话需要的 provider、模型和工作目录配置。
 func resolveStartConfig(req StartRequest) (StartRequest, error) {
 	// ModelProvider from frontend (e.g. "claude") should drive provider selection
 	// when Provider is not explicitly set.
@@ -257,6 +261,8 @@ func resolveStartApprovalPolicy(policy string, sandbox json.RawMessage) (string,
 	}
 }
 
+// startSession 把 start 结果交给 provider。
+// prompt 已经组好，snapshot 也在 assembly 里；这里只检查 cwd/starter 并启动 session。
 func (s *service) startSession(ctx context.Context, req StartRequest, input contract.StartInput, assembly contract.StartAssembly, agentID string) (contract.Session, error) {
 	if s.starter == nil {
 		return nil, errors.New("session starter is not configured")
@@ -303,6 +309,7 @@ func cloneProviderSkillRefs(refs []dto.SkillRef) []dto.SkillRef {
 	return out
 }
 
+// logStartProviderSessionIdentity 记录启动后的 provider session 身份。
 func logStartProviderSessionIdentity(agentID string, req StartRequest, config map[string]any) {
 	if !strings.EqualFold(strings.TrimSpace(req.Provider), "codex") &&
 		strings.TrimSpace(req.ModelProvider) == "" &&
@@ -325,6 +332,8 @@ func logStartProviderSessionIdentity(agentID string, req StartRequest, config ma
 	)
 }
 
+// resumeSession 恢复用户已有的 thread。
+// 它先从 store/binding 取回 config 和 prompt snapshot，再交给 provider。
 func (s *service) resumeSession(ctx context.Context, req ResumeRequest) (contract.Session, error) {
 	resolvedReq, err := s.hydrateResumeSessionRequest(ctx, req)
 	if err != nil {
@@ -333,6 +342,8 @@ func (s *service) resumeSession(ctx context.Context, req ResumeRequest) (contrac
 	return s.resumeResolvedSession(ctx, resolvedReq)
 }
 
+// resumeForkSession 用在 fork 后的新 provider thread。
+// 调用方已经给了 snapshot、provider 和 agent id，这里只做必要检查。
 func (s *service) resumeForkSession(ctx context.Context, req ResumeRequest) (contract.Session, error) {
 	resolvedReq, err := trimResumeRequest(req)
 	if err != nil {
@@ -347,6 +358,8 @@ func (s *service) resumeForkSession(ctx context.Context, req ResumeRequest) (con
 	return s.resumeResolvedSession(ctx, resolvedReq)
 }
 
+// resumeResolvedSession 把已整理好的 resume 请求发给 provider。
+// 这里不再查 store，只确认 starter 和 cwd 能用。
 func (s *service) resumeResolvedSession(ctx context.Context, resolvedReq ResumeRequest) (contract.Session, error) {
 	if s.starter == nil {
 		return nil, errors.New("session starter is not configured")
@@ -407,6 +420,8 @@ type resumeState struct {
 	CreatedAt          int64
 }
 
+// resolveResumeRequest 整理 service.Resume 要用的状态。
+// thread row、binding 和 runtime config 会合并到这里，UI 传来的旧值不能覆盖它们。
 func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (ResumeRequest, resumeState, error) {
 	req, err := trimResumeRequest(req)
 	if err != nil {
@@ -499,6 +514,7 @@ func trimResumeRequest(req ResumeRequest) (ResumeRequest, error) {
 	return req, nil
 }
 
+// resolveResumeConfigOverride 解析恢复会话时允许覆盖的配置。
 func resolveResumeConfigOverride(req ResumeRequest, state resumeState) dto.ThreadConfigPatch {
 	patch := dto.ThreadConfigPatch{
 		Model:       trimThreadConfigPatchValue(req.ConfigOverride.Model),
@@ -523,6 +539,7 @@ func resolveResumeConfigOverride(req ResumeRequest, state resumeState) dto.Threa
 	return patch
 }
 
+// resolveResumeModel 解析恢复会话时使用的模型。
 func resolveResumeModel(req ResumeRequest, state resumeState) string {
 	if req.ConfigOverride.Model != nil {
 		if value := threadConfigPatchValue(req.ConfigOverride.Model); value != "" {

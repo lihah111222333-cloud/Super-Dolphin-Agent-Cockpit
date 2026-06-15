@@ -37,6 +37,7 @@ const (
 // whether to log-warn or surface. Logger may be nil; pass a real *slog.Logger
 // from the caller to record a single-line "appended" event the first time
 // per cwd.
+// Ensure 确保平台sharedfilegitignore。
 func Ensure(cwd string, logger *slog.Logger) error {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
@@ -56,6 +57,7 @@ func Ensure(cwd string, logger *slog.Logger) error {
 // ResetForTests clears the per-cwd memoization so unit tests can drive the
 // helper repeatedly inside a single process. Production callers must not use
 // this.
+// ResetForTests 为tests重置平台sharedfilegitignore。
 func ResetForTests() {
 	state.mu.Lock()
 	defer state.mu.Unlock()
@@ -92,6 +94,7 @@ func loadOrCreateState(cwd string) *ensureState {
 	return s
 }
 
+// ensureOnce 确保once。
 func ensureOnce(cwd string, logger *slog.Logger) error {
 	gitignorePath := filepath.Join(cwd, ".gitignore")
 	existing, readErr := os.ReadFile(gitignorePath)
@@ -153,6 +156,7 @@ func hasMatchingRule(content []byte) bool {
 // but stays in this package to avoid depending on sharedfilefs (which would
 // pull DB / SQL deps into a leaf gitignore helper). Crash-safe enough for a
 // single config file: tmp + fsync + rename.
+// writeFileAtomic 写入文件atomic。
 func writeFileAtomic(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".gitignore.tmp-")

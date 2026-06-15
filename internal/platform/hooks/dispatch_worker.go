@@ -77,6 +77,7 @@ func newHookDispatchWorker(fanout hookDispatchFanout, logger *pkglogger.Logger) 
 
 // Start spawns the worker goroutine. Idempotent. When the fanout is nil
 // the worker short-circuits: doneCh closes immediately so Stop is a no-op.
+// Start 启动平台hooks流程。
 func (w *hookDispatchWorker) Start() {
 	if w == nil {
 		return
@@ -101,6 +102,7 @@ func (w *hookDispatchWorker) Start() {
 // O(1) slice append + non-blocking wake signal, no DispatchAfter call on
 // the callback goroutine. Post-Stop calls are silently dropped because the
 // relay subscriptions are about to be cancelled anyway.
+// Enqueue 把项目追加到队尾。
 func (w *hookDispatchWorker) Enqueue(topic string, eventTime time.Time, payload mcp.HookPayload) {
 	if w == nil {
 		return
@@ -126,6 +128,7 @@ func (w *hookDispatchWorker) Enqueue(topic string, eventTime time.Time, payload 
 
 // Stop closes the gate, drains pending requests through the worker, and
 // waits bounded by ctx for the worker to exit. Idempotent.
+// Stop 停止平台hooks流程。
 func (w *hookDispatchWorker) Stop(ctx context.Context) error {
 	if w == nil {
 		return nil
@@ -154,7 +157,10 @@ func (w *hookDispatchWorker) Stop(ctx context.Context) error {
 
 // EnqueuedTotal / ProcessedTotal expose the observability counters for
 // tests and future metric hookup (P22 observability lane).
-func (w *hookDispatchWorker) EnqueuedTotal() int64  { return w.enqueuedTotal.Load() }
+// EnqueuedTotal 处理enqueuedtotal。
+func (w *hookDispatchWorker) EnqueuedTotal() int64 { return w.enqueuedTotal.Load() }
+
+// ProcessedTotal 处理processedtotal。
 func (w *hookDispatchWorker) ProcessedTotal() int64 { return w.processedTotal.Load() }
 
 func (w *hookDispatchWorker) runWorker() {

@@ -23,8 +23,60 @@ type MCPSnapshot struct {
 	Servers                  []string
 	Tools                    []string
 	Instructions             map[string]string
+	ServerConfigs            map[string]MCPServerConfig
 	InstructionsDeltaEnabled bool
 	InstructionAttachments   []MCPAttachmentRef
+}
+
+type MCPServerConfig struct {
+	Transport string            `json:"transport,omitempty"`
+	URL       string            `json:"url,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
+}
+
+type MCPServerConfigProvider interface {
+	ListMCPServerConfigs(ctx context.Context, cwd string) (map[string]MCPServerConfig, error)
+}
+
+// StoreMCPServerConfigParams 是写入 MCP server 配置表的最小输入。
+type StoreMCPServerConfigParams struct {
+	WorkspaceRoot string
+	Name          string
+	Config        MCPServerConfig
+}
+
+// MCPServerConfigStore 只暴露 MCP server 服务需要的配置持久化能力。
+type MCPServerConfigStore interface {
+	InsertServer(context.Context, StoreMCPServerConfigParams) (bool, error)
+	ListServers(context.Context, string) (map[string]MCPServerConfig, error)
+	DeleteServer(context.Context, string, string) (bool, error)
+}
+
+// DatasourceDocument 是数据源文件落库后的可检索内容。
+type DatasourceDocument struct {
+	WorkspaceRoot string `json:"workspaceRoot"`
+	Name          string `json:"name"`
+	Extension     string `json:"extension"`
+	Size          int64  `json:"size"`
+	StoredPath    string `json:"storedPath"`
+	Content       string `json:"content"`
+}
+
+// UpsertDatasourceDocumentParams 是新增或覆盖数据源文档时需要的字段。
+type UpsertDatasourceDocumentParams struct {
+	WorkspaceRoot string
+	Name          string
+	Extension     string
+	Size          int64
+	StoredPath    string
+	Content       string
+}
+
+// DatasourceDocumentStore 只暴露数据源服务需要的文档持久化能力。
+type DatasourceDocumentStore interface {
+	UpsertDocument(context.Context, UpsertDatasourceDocumentParams) error
+	ListDocuments(context.Context, string) ([]DatasourceDocument, error)
+	DeleteDocument(context.Context, string, string) error
 }
 
 type MCPAttachmentRef struct {
@@ -109,6 +161,7 @@ const (
 	DynamicSectionMemoryContext        = "memory_context"
 	DynamicSectionMemoryEntrypoint     = "memory_entrypoint"
 	DynamicSectionEnvInfoSimple        = "env_info_simple"
+	DynamicSectionDatasource           = "datasource"
 	DynamicSectionLanguage             = "language"
 	DynamicSectionMCPInstructions      = "mcp_instructions"
 	DynamicSectionOutputStyle          = "output_style"
@@ -198,6 +251,7 @@ type SectionContext struct {
 	Turn     *TurnInput
 }
 
+// SectionContextCWD 处理section上下文工作目录。
 func SectionContextCWD(input SectionContext) string {
 	if cwd := strings.TrimSpace(input.BuildCtx.CWD); cwd != "" {
 		return cwd
@@ -292,6 +346,7 @@ type CriticalPromptSectionError struct {
 	Err     error
 }
 
+// NewCriticalPromptSectionError 创建criticalpromptsection错误。
 func NewCriticalPromptSectionError(section string, err error) error {
 	if err == nil {
 		return nil
@@ -299,6 +354,7 @@ func NewCriticalPromptSectionError(section string, err error) error {
 	return CriticalPromptSectionError{Section: strings.TrimSpace(section), Err: err}
 }
 
+// Error 返回错误文本。
 func (e CriticalPromptSectionError) Error() string {
 	if e.Section == "" {
 		return fmt.Sprintf("critical prompt section failed: %v", e.Err)
@@ -306,16 +362,19 @@ func (e CriticalPromptSectionError) Error() string {
 	return fmt.Sprintf("critical prompt section %q failed: %v", e.Section, e.Err)
 }
 
+// Unwrap 返回底层错误。
 func (e CriticalPromptSectionError) Unwrap() error {
 	return e.Err
 }
 
+// IsCriticalPromptSectionError 判断criticalpromptsection错误是否可用。
 func IsCriticalPromptSectionError(err error) bool {
 	var target CriticalPromptSectionError
 	return errors.As(err, &target)
 }
 
 // PrepareBaseInstructionBlocks applies the assembler's ordering, trimming, and gates.
+// PrepareBaseInstructionBlocks 准备baseinstructionblocks。
 func PrepareBaseInstructionBlocks(blocks []BaseInstructionBlock, buildCtx BuildCtx, userPrompt string, enableWhenEval EnableWhenEvaluator) []BaseInstructionBlock {
 	sorted := make([]BaseInstructionBlock, len(blocks))
 	copy(sorted, blocks)
@@ -339,6 +398,7 @@ func PrepareBaseInstructionBlocks(blocks []BaseInstructionBlock, buildCtx BuildC
 }
 
 // TextFromBaseInstructionBlocks renders the section-only text snapshot.
+// TextFromBaseInstructionBlocks 从baseinstructionblocks处理文本。
 func TextFromBaseInstructionBlocks(blocks []BaseInstructionBlock) string {
 	parts := make([]string, 0, len(blocks))
 	for _, block := range blocks {
@@ -407,6 +467,7 @@ var preferredUserContextKeys = []string{
 	"runtimeExtras",
 }
 
+// FormatUserContextText 格式化user上下文文本。
 func FormatUserContextText(payload map[string]string) string {
 	normalized := normalizeUserContext(payload)
 	if len(normalized) == 0 {
@@ -421,6 +482,7 @@ func FormatUserContextText(payload map[string]string) string {
 	return strings.TrimSpace(strings.Join(blocks, "\n\n"))
 }
 
+// RenderUserContextMessage 渲染user上下文消息。
 func RenderUserContextMessage(assembly TurnAssembly) string {
 	if text := FormatUserContextText(assembly.UserContext); text != "" {
 		return WrapSystemReminder(text)
@@ -428,6 +490,7 @@ func RenderUserContextMessage(assembly TurnAssembly) string {
 	return WrapSystemReminder(assembly.UserContextText)
 }
 
+// RenderStartRuntimeContext 渲染起点运行时上下文。
 func RenderStartRuntimeContext(assembly StartAssembly) string {
 	payload := assembly.UserContext
 	userContextText := assembly.UserContextText
@@ -469,6 +532,7 @@ func cloneUserContextWithout(in map[string]string, dropKey string) map[string]st
 	return out
 }
 
+// AppendStartRuntimeContext 追加起点运行时上下文。
 func AppendStartRuntimeContext(base string, assembly StartAssembly) string {
 	return appendPromptBlock(base, RenderStartRuntimeContext(assembly))
 }
@@ -508,6 +572,7 @@ func orderedUserContextKeys(payload map[string]string) []string {
 	return append(ordered, extra...)
 }
 
+// normalizeUserContext 规范化user上下文。
 func normalizeUserContext(payload map[string]string) map[string]string {
 	if len(payload) == 0 {
 		return nil
@@ -538,6 +603,7 @@ func renderUserContextSection(key, body string) string {
 
 // WrapSystemReminder wraps the given text in <system-reminder> tags.
 // Exported so the prompt assembler can embed system context into baseInstructions.
+// WrapSystemReminder 包装systemreminder。
 func WrapSystemReminder(text string) string {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -549,6 +615,7 @@ func WrapSystemReminder(text string) string {
 	return strings.Join([]string{"<system-reminder>", text, "</system-reminder>"}, "\n\n")
 }
 
+// AppendSystemContextTail 追加system上下文tail。
 func AppendSystemContextTail(base string, ctx SystemContext) string {
 	block := FormatSystemContextBlock(ctx)
 	base = strings.TrimSpace(base)
@@ -561,6 +628,7 @@ func AppendSystemContextTail(base string, ctx SystemContext) string {
 	return base + "\n\n" + block
 }
 
+// FormatSystemContextBlock 格式化system上下文block。
 func FormatSystemContextBlock(ctx SystemContext) string {
 	if len(ctx) == 0 {
 		return ""
@@ -586,6 +654,7 @@ func FormatSystemContextBlock(ctx SystemContext) string {
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
+// orderedSystemContextKeys 处理orderedsystem上下文键。
 func orderedSystemContextKeys(ctx SystemContext) []string {
 	keys := make([]string, 0, len(ctx))
 	for _, key := range []string{"gitStatus", "cacheBreaker"} {

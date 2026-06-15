@@ -42,6 +42,7 @@ type projectPathParams struct {
 	Cwd  string `json:"cwd,omitempty"`
 }
 
+// NewUIStateHandlers 创建UI状态处理器。
 func NewUIStateHandlers(svc Service) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		"ui/state/get": platformrpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
@@ -138,6 +139,7 @@ func shouldTraceProviderPreference(key string) bool {
 		strings.HasSuffix(key, ".codexModelProvider")
 }
 
+// providerPreferenceTraceValue 处理providerpreferencetrace值。
 func providerPreferenceTraceValue(value any) (string, string) {
 	switch v := value.(type) {
 	case nil:

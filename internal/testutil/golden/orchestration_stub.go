@@ -34,6 +34,7 @@ type OrchestrationStub struct {
 	DispatchNodeFunc          func(context.Context, contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error)
 }
 
+// LaunchAgent 启动代理。
 func (s *OrchestrationStub) LaunchAgent(ctx context.Context, req contract.LaunchRequest) error {
 	if s.LaunchAgentFunc != nil {
 		return s.LaunchAgentFunc(ctx, req)
@@ -41,6 +42,7 @@ func (s *OrchestrationStub) LaunchAgent(ctx context.Context, req contract.Launch
 	return nil
 }
 
+// LaunchAgentSnapshot 启动代理快照。
 func (s *OrchestrationStub) LaunchAgentSnapshot(ctx context.Context, req contract.LaunchRequest) (contract.AgentSnapshot, error) {
 	if s.LaunchAgentSnapshotFunc != nil {
 		return s.LaunchAgentSnapshotFunc(ctx, req)
@@ -54,6 +56,7 @@ func (s *OrchestrationStub) LaunchAgentSnapshot(ctx context.Context, req contrac
 	return contract.AgentSnapshot{ID: req.AgentID, AgentID: req.AgentID, State: "launching"}, nil
 }
 
+// ListAgents 列出代理。
 func (s *OrchestrationStub) ListAgents(ctx context.Context) ([]contract.AgentSnapshot, error) {
 	if s.ListAgentsFunc != nil {
 		return s.ListAgentsFunc(ctx)
@@ -61,6 +64,7 @@ func (s *OrchestrationStub) ListAgents(ctx context.Context) ([]contract.AgentSna
 	return nil, nil
 }
 
+// StopAgent 停止代理。
 func (s *OrchestrationStub) StopAgent(ctx context.Context, agentID string) error {
 	if s.StopAgentFunc != nil {
 		return s.StopAgentFunc(ctx, agentID)
@@ -68,6 +72,7 @@ func (s *OrchestrationStub) StopAgent(ctx context.Context, agentID string) error
 	return nil
 }
 
+// SubmitTurn 提交turn。
 func (s *OrchestrationStub) SubmitTurn(ctx context.Context, req contract.TurnSubmission) error {
 	if s.SubmitTurnFunc != nil {
 		return s.SubmitTurnFunc(ctx, req)
@@ -75,6 +80,7 @@ func (s *OrchestrationStub) SubmitTurn(ctx context.Context, req contract.TurnSub
 	return nil
 }
 
+// CompleteTurn 完成turn。
 func (s *OrchestrationStub) CompleteTurn(ctx context.Context, agentID, turnID string, success bool, errMsg string) error {
 	if s.CompleteTurnFunc != nil {
 		return s.CompleteTurnFunc(ctx, agentID, turnID, success, errMsg)
@@ -82,6 +88,7 @@ func (s *OrchestrationStub) CompleteTurn(ctx context.Context, agentID, turnID st
 	return nil
 }
 
+// Recover 恢复模块。
 func (s *OrchestrationStub) Recover(ctx context.Context, agentID string) error {
 	if s.RecoverFunc != nil {
 		return s.RecoverFunc(ctx, agentID)
@@ -89,6 +96,7 @@ func (s *OrchestrationStub) Recover(ctx context.Context, agentID string) error {
 	return nil
 }
 
+// BindSessionGeneration 绑定会话代际。
 func (s *OrchestrationStub) BindSessionGeneration(ctx context.Context, agentID string, generation uint64) error {
 	if s.BindSessionGenerationFunc != nil {
 		return s.BindSessionGenerationFunc(ctx, agentID, generation)
@@ -96,6 +104,7 @@ func (s *OrchestrationStub) BindSessionGeneration(ctx context.Context, agentID s
 	return nil
 }
 
+// Snapshot 处理快照。
 func (s *OrchestrationStub) Snapshot(ctx context.Context, agentID string) (contract.AgentSnapshot, error) {
 	if s.SnapshotFunc != nil {
 		return s.SnapshotFunc(ctx, agentID)
@@ -103,6 +112,7 @@ func (s *OrchestrationStub) Snapshot(ctx context.Context, agentID string) (contr
 	return contract.AgentSnapshot{}, nil
 }
 
+// UpdateRuntime 更新运行时。
 func (s *OrchestrationStub) UpdateRuntime(ctx context.Context, report contract.RuntimeReport) error {
 	if s.UpdateRuntimeFunc != nil {
 		return s.UpdateRuntimeFunc(ctx, report)
@@ -110,6 +120,7 @@ func (s *OrchestrationStub) UpdateRuntime(ctx context.Context, report contract.R
 	return nil
 }
 
+// GetState 读取状态。
 func (s *OrchestrationStub) GetState(ctx context.Context, agentID string) (contract.AgentStateResult, error) {
 	if s.GetStateFunc != nil {
 		return s.GetStateFunc(ctx, agentID)
@@ -117,6 +128,7 @@ func (s *OrchestrationStub) GetState(ctx context.Context, agentID string) (contr
 	return contract.AgentStateResult{}, nil
 }
 
+// GetReport 读取report。
 func (s *OrchestrationStub) GetReport(ctx context.Context, agentID string) (contract.AgentReportResult, error) {
 	if s.GetReportFunc != nil {
 		return s.GetReportFunc(ctx, agentID)
@@ -124,6 +136,7 @@ func (s *OrchestrationStub) GetReport(ctx context.Context, agentID string) (cont
 	return contract.AgentReportResult{}, nil
 }
 
+// RememberReportRequest 处理rememberreport请求。
 func (s *OrchestrationStub) RememberReportRequest(ctx context.Context, req contract.RememberReportRequest) (contract.RememberReportRequestResult, error) {
 	if s.RememberReportRequestFunc != nil {
 		return s.RememberReportRequestFunc(ctx, req)
@@ -131,6 +144,7 @@ func (s *OrchestrationStub) RememberReportRequest(ctx context.Context, req contr
 	return contract.RememberReportRequestResult{}, nil
 }
 
+// HandleReportEvent 处理report事件。
 func (s *OrchestrationStub) HandleReportEvent(ctx context.Context, event contract.ReportEvent) (contract.ReportEventResult, error) {
 	if s.HandleReportEventFunc != nil {
 		return s.HandleReportEventFunc(ctx, event)
@@ -138,6 +152,7 @@ func (s *OrchestrationStub) HandleReportEvent(ctx context.Context, event contrac
 	return contract.ReportEventResult{}, nil
 }
 
+// CreateDAG 创建DAG。
 func (s *OrchestrationStub) CreateDAG(ctx context.Context, req contract.CreateDAGRequest) (contract.DAGDetail, error) {
 	if s.CreateDAGFunc != nil {
 		return s.CreateDAGFunc(ctx, req)
@@ -145,6 +160,7 @@ func (s *OrchestrationStub) CreateDAG(ctx context.Context, req contract.CreateDA
 	return contract.DAGDetail{}, nil
 }
 
+// GetDAG 读取DAG。
 func (s *OrchestrationStub) GetDAG(ctx context.Context, dagKey string) (contract.DAGDetail, error) {
 	if s.GetDAGFunc != nil {
 		return s.GetDAGFunc(ctx, dagKey)
@@ -152,6 +168,7 @@ func (s *OrchestrationStub) GetDAG(ctx context.Context, dagKey string) (contract
 	return contract.DAGDetail{}, nil
 }
 
+// ListDAGs 列出dags。
 func (s *OrchestrationStub) ListDAGs(ctx context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error) {
 	if s.ListDAGsFunc != nil {
 		return s.ListDAGsFunc(ctx, filter)
@@ -159,6 +176,7 @@ func (s *OrchestrationStub) ListDAGs(ctx context.Context, filter contract.ListDA
 	return nil, nil
 }
 
+// UpdateNodeStatus 更新节点状态。
 func (s *OrchestrationStub) UpdateNodeStatus(ctx context.Context, req contract.UpdateNodeStatusRequest) (contract.DAGNode, error) {
 	if s.UpdateNodeStatusFunc != nil {
 		return s.UpdateNodeStatusFunc(ctx, req)
@@ -174,6 +192,7 @@ func (s *OrchestrationStub) StartDAG(ctx context.Context, req contract.StartDAGR
 	return contract.StartDAGResponse{}, nil
 }
 
+// TerminateDAG 处理terminateDAG。
 func (s *OrchestrationStub) TerminateDAG(ctx context.Context, req contract.TerminateDAGRequest) error {
 	if s.TerminateDAGFunc != nil {
 		return s.TerminateDAGFunc(ctx, req)
@@ -181,6 +200,7 @@ func (s *OrchestrationStub) TerminateDAG(ctx context.Context, req contract.Termi
 	return nil
 }
 
+// DeleteDAG 删除DAG。
 func (s *OrchestrationStub) DeleteDAG(ctx context.Context, req contract.DeleteDAGRequest) error {
 	if s.DeleteDAGFunc != nil {
 		return s.DeleteDAGFunc(ctx, req)

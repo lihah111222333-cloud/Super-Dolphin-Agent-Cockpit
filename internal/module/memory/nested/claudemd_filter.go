@@ -67,6 +67,7 @@ func resolveProjectSourceFilter(buildCtx contract.BuildCtx, gate GateSnapshot) p
 	}
 }
 
+// shouldSkipProjectSource 判断skip项目source是否可用。
 func shouldSkipProjectSource(source ClaudeMdSource, filter projectSourceFilter) bool {
 	if !filter.enabled || !isCheckedInProjectClaudeMdSource(source) {
 		return false
@@ -105,6 +106,7 @@ func matchClaudeMdExclude(pattern, target string) bool {
 	return err == nil && matched
 }
 
+// globPatternToRegexp 把globpattern处理为regexp。
 func globPatternToRegexp(pattern string) string {
 	var builder strings.Builder
 	builder.WriteString("^")

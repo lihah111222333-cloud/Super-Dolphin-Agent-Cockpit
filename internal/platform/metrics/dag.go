@@ -51,10 +51,12 @@ func registerDAGRetryCountPerNodeCollector() bool {
 
 type dagRetryCountPerNodeCollector struct{}
 
+// Describe 处理describe。
 func (dagRetryCountPerNodeCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- dagRetryCountPerNodeDesc
 }
 
+// Collect 收集平台指标。
 func (dagRetryCountPerNodeCollector) Collect(ch chan<- prometheus.Metric) {
 	for _, count := range dagmetrics.Read().RetryCountPerNode {
 		ch <- prometheus.MustNewConstMetric(

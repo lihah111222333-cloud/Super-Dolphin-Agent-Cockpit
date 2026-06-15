@@ -91,6 +91,7 @@ type windowBootstrapGetParams struct {
 // bridge. P22 P4 S1b: the uiState parameter is the narrow
 // contract.UIProjectStateFacade — ui/wails no longer depends on
 // internal/module/uistate's fat Service interface.
+// NewRPCHandlers 创建RPC处理器。
 func NewRPCHandlers(app *App, cfg *config.Config, uiState contract.UIProjectStateFacade) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"ui/code/save": rpc.StrictHandler(func(ctx context.Context, p codeSaveParams) (any, error) {
@@ -214,6 +215,7 @@ func handleCopyText(app *App, text string) (map[string]any, error) {
 	return map[string]any{"ok": ok}, nil
 }
 
+// handleUILog 处理UI日志。
 func handleUILog(ctx context.Context, app *App, params map[string]any) (map[string]any, error) {
 	clientKind := extractFirstString(params, "_aoClientKind")
 	clientRoute := extractFirstString(params, "_aoClientRoute")
@@ -275,6 +277,7 @@ func normalizeFrontendLogLevel(level, scope, event string) string {
 	return level
 }
 
+// frontendLogEntries 处理前端日志条目。
 func frontendLogEntries(params map[string]any) []map[string]any {
 	entries := make([]map[string]any, 0, 1)
 	switch typed := params["entries"].(type) {
@@ -318,6 +321,7 @@ func frontendLogIDs(entry map[string]any) (string, string) {
 	return threadID, agentID
 }
 
+// buildFrontendLogArgs 构建前端日志args。
 func buildFrontendLogArgs(
 	entry map[string]any,
 	clientKind string,

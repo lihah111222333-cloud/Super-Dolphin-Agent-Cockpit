@@ -46,6 +46,7 @@ type recoveryLifecycleIn struct {
 	Logger   *pkglogger.Logger `optional:"true"`
 }
 
+// registerRecoveryLifecycle 注册recovery生命周期。
 func registerRecoveryLifecycle(lc fx.Lifecycle, in recoveryLifecycleIn) {
 	if in.Resolver == nil || in.Manager == nil {
 		return

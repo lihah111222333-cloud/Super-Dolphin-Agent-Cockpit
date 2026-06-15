@@ -11,6 +11,7 @@ import (
 // particular, net/url.Error includes the target URL in Error(); webhook
 // URLs are credentials for Slack and carry signed query params for
 // Dingtalk / Feishu, so we strip those secrets before logging.
+// RedactError 脱敏错误。
 func RedactError(err error) string {
 	if err == nil {
 		return ""
@@ -25,6 +26,7 @@ func RedactError(err error) string {
 	return err.Error()
 }
 
+// redactURLString 脱敏URLstring。
 func redactURLString(raw string) string {
 	u := strings.TrimSpace(raw)
 	if u == "" {

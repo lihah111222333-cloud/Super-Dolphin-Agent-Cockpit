@@ -62,6 +62,7 @@ type LanguageAdapterRegistry struct {
 	adapters map[string]LanguageAdapter
 }
 
+// NewLanguageAdapterRegistry 创建语言适配器注册表。
 func NewLanguageAdapterRegistry(adapters ...LanguageAdapter) *LanguageAdapterRegistry {
 	registry := &LanguageAdapterRegistry{adapters: map[string]LanguageAdapter{}}
 	for _, adapter := range adapters {
@@ -70,10 +71,12 @@ func NewLanguageAdapterRegistry(adapters ...LanguageAdapter) *LanguageAdapterReg
 	return registry
 }
 
+// NewDefaultLanguageAdapterRegistry 创建default语言适配器注册表。
 func NewDefaultLanguageAdapterRegistry() *LanguageAdapterRegistry {
 	return NewLanguageAdapterRegistryFromConfig(platformconfig.DefaultLSPConfig())
 }
 
+// Register 注册LSP。
 func (r *LanguageAdapterRegistry) Register(adapter LanguageAdapter) {
 	if r == nil || adapter == nil {
 		return
@@ -90,6 +93,7 @@ func (r *LanguageAdapterRegistry) Register(adapter LanguageAdapter) {
 	}
 }
 
+// AdapterForLanguage 为语言处理适配器。
 func (r *LanguageAdapterRegistry) AdapterForLanguage(languageID string) (LanguageAdapter, bool) {
 	if r == nil {
 		return nil, false
@@ -100,6 +104,7 @@ func (r *LanguageAdapterRegistry) AdapterForLanguage(languageID string) (Languag
 	return adapter, ok
 }
 
+// LanguageIDs 处理语言ids。
 func (r *LanguageAdapterRegistry) LanguageIDs() []string {
 	if r == nil {
 		return nil
@@ -119,8 +124,10 @@ type goLanguageAdapter struct {
 	noiseDirNames    []string
 }
 
+// LanguageIDs 处理语言ids。
 func (goLanguageAdapter) LanguageIDs() []string { return []string{"go", "gomod", "gosum", "gowork"} }
 
+// ResolveRoot 解析根目录。
 func (a goLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScope, target string) (ResolvedLanguageScope, error) {
 	languageID := normalizeLanguageID(scope.LanguageID)
 	if languageID == "" {
@@ -147,10 +154,12 @@ func (a goLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScope, ta
 	}, nil
 }
 
+// ServerCommand 处理服务端命令。
 func (goLanguageAdapter) ServerCommand(context.Context, ResolvedLanguageScope) (ServerCommand, error) {
 	return ServerCommand{Executable: "gopls"}, nil
 }
 
+// InitOptions 处理init选项。
 func (a goLanguageAdapter) InitOptions(ResolvedLanguageScope) map[string]any {
 	return map[string]any{
 		"semanticTokens":   true,
@@ -166,6 +175,7 @@ func (a goLanguageAdapter) resolvedDirectoryFilters() []string {
 	return slices.Clone(filters)
 }
 
+// EnvPolicy 处理env策略。
 func (goLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
 	env := make([]string, 0, 3)
 	mode := scope.LanguageSpecific["goworkMode"]
@@ -186,16 +196,19 @@ func (goLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
 	return env
 }
 
+// BootstrapPolicy 处理启动策略。
 func (goLanguageAdapter) BootstrapPolicy(ResolvedLanguageScope) BootstrapPolicy {
 	return BootstrapPolicy{
 		OpenTarget: true,
 	}
 }
 
+// CacheKeyParts 处理缓存键parts。
 func (goLanguageAdapter) CacheKeyParts(scope ResolvedLanguageScope) map[string]string {
 	return copyLanguageSpecific(scope.LanguageSpecific)
 }
 
+// CapabilityPolicy 处理capability策略。
 func (goLanguageAdapter) CapabilityPolicy() ToolCapabilityPolicy {
 	return ToolCapabilityPolicy{RequiresLSPClient: true}
 }
@@ -211,10 +224,12 @@ type projectLanguageAdapter struct {
 	retryEmptyCallHierarchyPrepare bool
 }
 
+// LanguageIDs 处理语言ids。
 func (a projectLanguageAdapter) LanguageIDs() []string {
 	return append([]string(nil), a.languageIDs...)
 }
 
+// ResolveRoot 解析根目录。
 func (a projectLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScope, target string) (ResolvedLanguageScope, error) {
 	languageID := normalizeLanguageID(scope.LanguageID)
 	if languageID == "" {
@@ -278,6 +293,7 @@ func (a projectLanguageAdapter) usesJSTSWorkspace() bool {
 	return slices.ContainsFunc(a.languageIDs, shouldUseJSTSWorkspace)
 }
 
+// shouldSearchNestedProjectRoot 判断searchnested项目根目录是否可用。
 func (a projectLanguageAdapter) shouldSearchNestedProjectRoot(root, target string) bool {
 	target = strings.TrimSpace(target)
 	if target == "" {
@@ -311,16 +327,20 @@ func (a projectLanguageAdapter) targetUsesSourceExtension(target string) bool {
 	return false
 }
 
+// ServerCommand 处理服务端命令。
 func (a projectLanguageAdapter) ServerCommand(context.Context, ResolvedLanguageScope) (ServerCommand, error) {
 	return ServerCommand{Executable: a.command.Executable, Args: append([]string(nil), a.command.Args...)}, nil
 }
 
+// InitOptions 处理init选项。
 func (a projectLanguageAdapter) InitOptions(ResolvedLanguageScope) map[string]any {
 	return cloneAnyMap(a.initOptions)
 }
 
+// EnvPolicy 处理env策略。
 func (a projectLanguageAdapter) EnvPolicy(ResolvedLanguageScope) []string { return nil }
 
+// BootstrapPolicy 处理启动策略。
 func (a projectLanguageAdapter) BootstrapPolicy(ResolvedLanguageScope) BootstrapPolicy {
 	return BootstrapPolicy{
 		OpenTarget:            true,
@@ -329,6 +349,7 @@ func (a projectLanguageAdapter) BootstrapPolicy(ResolvedLanguageScope) Bootstrap
 	}
 }
 
+// CacheKeyParts 处理缓存键parts。
 func (a projectLanguageAdapter) CacheKeyParts(scope ResolvedLanguageScope) map[string]string {
 	return map[string]string{
 		"adapterRootKind": scope.RootKind,
@@ -336,6 +357,7 @@ func (a projectLanguageAdapter) CacheKeyParts(scope ResolvedLanguageScope) map[s
 	}
 }
 
+// CapabilityPolicy 处理capability策略。
 func (a projectLanguageAdapter) CapabilityPolicy() ToolCapabilityPolicy {
 	return ToolCapabilityPolicy{
 		RequiresLSPClient:              true,
@@ -347,10 +369,12 @@ type documentFallbackAdapter struct {
 	languageIDs []string
 }
 
+// LanguageIDs 处理语言ids。
 func (a documentFallbackAdapter) LanguageIDs() []string {
 	return append([]string(nil), a.languageIDs...)
 }
 
+// ResolveRoot 解析根目录。
 func (a documentFallbackAdapter) ResolveRoot(_ context.Context, scope LSPToolScope, target string) (ResolvedLanguageScope, error) {
 	root := firstNonEmpty(scope.CWD, filepath.Dir(firstNonEmpty(target, scope.TargetPath)))
 	normalized, err := normalizeRegistryWorkspaceRoot(root)
@@ -366,19 +390,31 @@ func (a documentFallbackAdapter) ResolveRoot(_ context.Context, scope LSPToolSco
 	}, nil
 }
 
+// ServerCommand 处理服务端命令。
 func (documentFallbackAdapter) ServerCommand(context.Context, ResolvedLanguageScope) (ServerCommand, error) {
 	return ServerCommand{}, nil
 }
+
+// InitOptions 处理init选项。
 func (documentFallbackAdapter) InitOptions(ResolvedLanguageScope) map[string]any { return nil }
-func (documentFallbackAdapter) EnvPolicy(ResolvedLanguageScope) []string         { return nil }
+
+// EnvPolicy 处理env策略。
+func (documentFallbackAdapter) EnvPolicy(ResolvedLanguageScope) []string { return nil }
+
+// BootstrapPolicy 处理启动策略。
 func (documentFallbackAdapter) BootstrapPolicy(ResolvedLanguageScope) BootstrapPolicy {
 	return BootstrapPolicy{}
 }
+
+// CacheKeyParts 处理缓存键parts。
 func (documentFallbackAdapter) CacheKeyParts(ResolvedLanguageScope) map[string]string { return nil }
+
+// CapabilityPolicy 处理capability策略。
 func (documentFallbackAdapter) CapabilityPolicy() ToolCapabilityPolicy {
 	return ToolCapabilityPolicy{DocumentSymbolFallback: true}
 }
 
+// findProjectRoot 查找项目根目录。
 func findProjectRoot(path string, markers []string) (string, error) {
 	absPath, err := platformNormalize(path)
 	if err != nil {

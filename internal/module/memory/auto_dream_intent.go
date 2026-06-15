@@ -21,6 +21,7 @@ type autoDreamIntentFile struct {
 
 // ReadAutoDreamIntent returns the user's persisted auto-dream toggle.
 // (nil, nil) means "no manual override" — env defaults still apply.
+// ReadAutoDreamIntent 读取autodreamintent。
 func ReadAutoDreamIntent(rootDir string) (*bool, error) {
 	path := autoDreamIntentPath(rootDir)
 	if path == "" {
@@ -42,6 +43,7 @@ func ReadAutoDreamIntent(rootDir string) (*bool, error) {
 }
 
 // WriteAutoDreamIntent persists the user's auto-dream toggle atomically.
+// WriteAutoDreamIntent 写入autodreamintent。
 func WriteAutoDreamIntent(rootDir string, enabled bool) error {
 	path := autoDreamIntentPath(rootDir)
 	if path == "" {
@@ -79,6 +81,7 @@ func autoDreamIntentPath(rootDir string) string {
 	return filepath.Join(rootDir, autoDreamIntentFileName)
 }
 
+// DetectSaveIntent 处理detectsaveintent。
 func DetectSaveIntent(userText string) SaveIntent {
 	response := normalizeIntentText(userText)
 	if response == "" {
@@ -98,6 +101,7 @@ func DetectSaveIntent(userText string) SaveIntent {
 	return SaveIntent{}
 }
 
+// DetectForgetIntent 处理detectforgetintent。
 func DetectForgetIntent(userText string) ForgetIntent {
 	response := normalizeIntentText(userText)
 	if response == "" {
@@ -117,6 +121,7 @@ func DetectForgetIntent(userText string) ForgetIntent {
 	return ForgetIntent{}
 }
 
+// inferMemoryType 处理infer记忆type。
 func inferMemoryType(text string) MemoryType {
 	normalized := CanonicalName(strings.ToLower(strings.ReplaceAll(text, "\n", " ")))
 	if normalized == "" {
@@ -186,6 +191,7 @@ func (h *MemoryLifecycleHooks) teamDiskStore(ctx context.Context, threadID strin
 
 }
 
+// selectExplicitWriteStore 选择explicitwrite存储。
 func selectExplicitWriteStore(name string, primary, secondary memoryStructuredStore) (memoryStructuredStore, error) {
 	for _, store := range []memoryStructuredStore{primary, secondary} {
 		if store == nil {
@@ -216,6 +222,7 @@ func upsertStructuredMemory(store memoryStructuredStore, entry MemoryWriteReques
 	return err
 }
 
+// deleteMemoryAcrossStores 删除记忆acrossstores。
 func deleteMemoryAcrossStores(name string, options WriteOptions, stores ...memoryStructuredStore) error {
 	deleted := false
 	for _, store := range stores {

@@ -23,6 +23,7 @@ const (
 // contains no NotifyConfigChanged call and no `context.Background()` —
 // only a worker Enqueue. Marshal + advanceConfigVersion + Notify all run
 // on the configFanoutWorker goroutine under its own cancellable ctx.
+// registerConfigChangeSubscriptions 注册配置changesubscriptions。
 func registerConfigChangeSubscriptions(
 	dispatcher *event.Dispatcher,
 	worker *configFanoutWorker,

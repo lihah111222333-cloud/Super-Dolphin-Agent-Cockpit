@@ -16,6 +16,7 @@ type cliConfig struct {
 	goFiles []string
 }
 
+// main 解析守卫参数，并按单文件、strict、freeze 或默认棘轮模式执行。
 func main() {
 	cfg, err := parseArgs(os.Args[1:])
 	if err != nil {
@@ -50,6 +51,7 @@ func main() {
 	}
 }
 
+// parseArgs 把命令行参数收束成守卫运行模式和待检查文件。
 func parseArgs(args []string) (cliConfig, error) {
 	cfg := cliConfig{mode: "check"}
 	for _, arg := range args {
@@ -119,6 +121,7 @@ func runStrict(opts archtest.CheckOptions) {
 }
 
 func runSingleFileCheck(opts archtest.CheckOptions, goFiles []string) {
+	opts.EnforceFuncComments = true
 	violations := archtest.CheckFiles(opts, goFiles)
 	if len(violations) == 0 {
 		return
@@ -256,6 +259,7 @@ func buildFileSet(root string, opts archtest.CheckOptions, testsOnly bool) (map[
 	return out, nil
 }
 
+// walkCollect 收集 baseline 棘轮需要比对的生产或测试文件集合。
 func walkCollect(absRoot, repoRoot string, skip map[string]bool, testsOnly bool, out map[string]bool) error {
 	return filepath.Walk(absRoot, func(p string, info os.FileInfo, err error) error {
 		if err != nil {

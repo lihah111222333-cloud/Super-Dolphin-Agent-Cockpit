@@ -153,6 +153,7 @@ func ExtractClaudeEnvelope(raw []byte) (string, TokenUsage, error) {
 	return env.Result, usage, nil
 }
 
+// modelUnavailableErrorFromOutput 从输出中识别模型不可用错误。
 func modelUnavailableErrorFromOutput(parts ...[]byte) error {
 	for _, raw := range parts {
 		if !looksLikeClaudeEnvelope(raw) {
@@ -169,6 +170,7 @@ func modelUnavailableErrorFromOutput(parts ...[]byte) error {
 	return nil
 }
 
+// isModelUnavailableMessage 判断模型unavailable消息是否可用。
 func isModelUnavailableMessage(status int, message string) bool {
 	lower := strings.ToLower(message)
 	hasModelContext := strings.Contains(lower, "model")

@@ -12,22 +12,11 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/historyjsonl"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
-	"go.uber.org/fx"
 )
 
 type driverRegistry interface {
 	Resolve(provider string) (contract.Driver, error)
 	Names() []string
-}
-
-type sessionResolverParams struct {
-	fx.In
-
-	ThreadStore   contract.SessionThreadLookup    `optional:"true"`
-	BindingStore  contract.SessionBindingLookup   `optional:"true"`
-	BindingWriter contract.SessionBindingUpserter `optional:"true"`
-	Registry      *Registry
-	Sessions      *SessionManager
 }
 
 type sessionResolver struct {
@@ -40,6 +29,7 @@ type sessionResolver struct {
 
 var _ contract.SessionResolver = (*sessionResolver)(nil)
 
+// NewSessionResolver 创建会话解析器。
 func NewSessionResolver(p sessionResolverParams) contract.SessionResolver {
 	return &sessionResolver{
 		threadStore:   p.ThreadStore,

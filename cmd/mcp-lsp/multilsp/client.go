@@ -76,6 +76,7 @@ type responseError struct {
 	Data    json.RawMessage
 }
 
+// NewClient 创建客户端。
 func NewClient(binary string, handler protocol.NotificationHandler) (Client, error) {
 	return NewClientWithOptions(Options{
 		Binary:              binary,
@@ -83,6 +84,7 @@ func NewClient(binary string, handler protocol.NotificationHandler) (Client, err
 	})
 }
 
+// NewClientWithOptions 创建带选项的客户端。
 func NewClientWithOptions(options Options) (Client, error) {
 	binary := strings.TrimSpace(options.Binary)
 	if binary == "" {
@@ -110,6 +112,7 @@ func NewClientWithOptions(options Options) (Client, error) {
 	}, nil
 }
 
+// Initialize 发送 LSP 初始化请求。
 func (c *client) Initialize(ctx context.Context, rootURI string) error {
 	c.lifecycleMu.Lock()
 	defer c.lifecycleMu.Unlock()
@@ -146,6 +149,7 @@ func (c *client) Initialize(ctx context.Context, rootURI string) error {
 	return nil
 }
 
+// Shutdown 发送 LSP 关闭请求。
 func (c *client) Shutdown(ctx context.Context) error {
 	c.lifecycleMu.Lock()
 	defer c.lifecycleMu.Unlock()
@@ -166,6 +170,7 @@ func (c *client) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+// Request 发送 LSP 请求并等待响应。
 func (c *client) Request(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	if err := c.ensureOpen(); err != nil {
 		return nil, err
@@ -178,6 +183,7 @@ func (c *client) Request(ctx context.Context, method string, params any) (json.R
 	return result, nil
 }
 
+// Notify 发送通知消息。
 func (c *client) Notify(ctx context.Context, method string, params any) error {
 	if err := c.ensureOpen(); err != nil {
 		return err
@@ -189,6 +195,7 @@ func (c *client) Notify(ctx context.Context, method string, params any) error {
 	return nil
 }
 
+// DidOpen 把文档打开事件转给 LSP。
 func (c *client) DidOpen(ctx context.Context, uri, languageID string, version int, text string) error {
 	params := protocol.DidOpenTextDocumentParams{
 		TextDocument: protocol.TextDocumentItem{
@@ -201,6 +208,7 @@ func (c *client) DidOpen(ctx context.Context, uri, languageID string, version in
 	return c.notifyTextDocument(ctx, protocol.MethodDidOpen, params)
 }
 
+// DidChange 把文档变更事件转给 LSP。
 func (c *client) DidChange(ctx context.Context, uri string, version int, changes []protocol.TextDocumentContentChangeEvent) error {
 	params := protocol.DidChangeTextDocumentParams{
 		TextDocument: protocol.VersionedTextDocumentIdentifier{
@@ -212,6 +220,7 @@ func (c *client) DidChange(ctx context.Context, uri string, version int, changes
 	return c.notifyTextDocument(ctx, protocol.MethodDidChange, params)
 }
 
+// DidClose 把文档关闭事件转给 LSP。
 func (c *client) DidClose(ctx context.Context, uri string) error {
 	params := protocol.DidCloseTextDocumentParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
@@ -219,11 +228,13 @@ func (c *client) DidClose(ctx context.Context, uri string) error {
 	return c.notifyTextDocument(ctx, protocol.MethodDidClose, params)
 }
 
+// Close 关闭 LSP 管理器资源。
 func (c *client) Close() error {
 	c.markShutdown()
 	return c.transport.Close()
 }
 
+// Healthy 处理healthy。
 func (c *client) Healthy() bool {
 	if c == nil {
 		return false
@@ -296,6 +307,7 @@ func decodeInitializeResult(result json.RawMessage) error {
 	return nil
 }
 
+// clientCapabilities 处理客户端capabilities。
 func clientCapabilities() protocol.ClientCapabilities {
 	return protocol.ClientCapabilities{
 		Workspace: &protocol.WorkspaceClientCapability{
@@ -441,6 +453,7 @@ func (t *transport) joinWaitError(err error) error {
 	return err
 }
 
+// Write 写入LSP。
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -454,12 +467,14 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// String 返回字符串表示。
 func (b *limitedBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.String()
 }
 
+// Error 返回错误文本。
 func (e *responseError) Error() string {
 	return fmt.Sprintf("json-rpc error %d: %s", e.Code, e.Message)
 }

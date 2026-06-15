@@ -18,6 +18,7 @@ func (h *Handler) storeCodexToolSurface(surface *codexToolSurface) error {
 	return nil
 }
 
+// replaceCodexToolSurface 替换codex工具surface。
 func (h *Handler) replaceCodexToolSurface(surface *codexToolSurface) []*codexToolSurface {
 	h.surfaceMu.Lock()
 	defer h.surfaceMu.Unlock()
@@ -60,6 +61,7 @@ func (h *Handler) removeCodexToolSurface(surface *codexToolSurface) {
 	}
 }
 
+// BindCodexToolSurface 绑定codex工具surface。
 func (h *Handler) BindCodexToolSurface(scope contract.CodexToolSurfaceScope) error {
 	sourceKey := firstNonEmptySurfaceKey(surfaceIDKey(scope.SurfaceID), scope.AgentID)
 	if sourceKey == "" {
@@ -72,6 +74,7 @@ func (h *Handler) BindCodexToolSurface(scope contract.CodexToolSurfaceScope) err
 	return h.bindCodexToolSurface(sourceKey, keys)
 }
 
+// bindCodexToolSurface 绑定codex工具surface。
 func (h *Handler) bindCodexToolSurface(sourceKey string, keys []string) error {
 	h.surfaceMu.Lock()
 	defer h.surfaceMu.Unlock()
@@ -102,6 +105,7 @@ func firstNonEmptySurfaceKey(values ...string) string {
 	return ""
 }
 
+// ReleaseCodexToolSurface 处理releasecodex工具surface。
 func (h *Handler) ReleaseCodexToolSurface(scope contract.CodexToolSurfaceScope) error {
 	keys := codexSurfaceKeys(scope)
 	if len(keys) == 0 {
@@ -115,6 +119,7 @@ func (h *Handler) ReleaseCodexToolSurface(scope contract.CodexToolSurfaceScope) 
 	return err
 }
 
+// takeCodexToolSurfaces 处理takecodex工具surfaces。
 func (h *Handler) takeCodexToolSurfaces(keys []string) []*codexToolSurface {
 	h.surfaceMu.Lock()
 	defer h.surfaceMu.Unlock()

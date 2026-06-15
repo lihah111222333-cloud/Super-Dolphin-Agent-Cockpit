@@ -28,6 +28,7 @@ const (
 var _ channel.Channel = (*wsChannel)(nil)
 
 // WSHandler bridges a websocket connection into a jrpc2 channel.
+// WSHandler 处理ws处理器。
 func WSHandler(server *Server, opts *jrpc2.ServerOptions) http.Handler {
 	var mux jrpc2.Assigner = handler.Map{}
 	if server != nil && server.methods != nil {
@@ -87,6 +88,7 @@ type wsDispatchAssigner struct {
 	server *Server
 }
 
+// Assign 处理assign。
 func (a wsDispatchAssigner) Assign(_ context.Context, method string) jrpc2.Handler {
 	if a.server == nil || a.server.methods == nil || a.server.methods[method] == nil {
 		return nil
@@ -131,6 +133,7 @@ func stripWSFrontendMeta(method string, raw json.RawMessage) json.RawMessage {
 	})
 }
 
+// stripWSJSONFields 处理stripwsjson字段。
 func stripWSJSONFields(raw json.RawMessage, shouldStrip func(string) bool) json.RawMessage {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &obj); err != nil {
@@ -153,6 +156,7 @@ func stripWSJSONFields(raw json.RawMessage, shouldStrip func(string) bool) json.
 	return cleaned
 }
 
+// wsFrontendTraceContext 处理ws前端trace上下文。
 func wsFrontendTraceContext(ctx context.Context, raw json.RawMessage) (context.Context, error) {
 	if !wsIsJSONObject(raw) {
 		return ctx, nil
@@ -190,6 +194,7 @@ func wsDecodeFrontendMetaObject(raw json.RawMessage) (map[string]json.RawMessage
 	return obj, nil
 }
 
+// wsValidateFrontendTraceMetadata 处理wsvalidate前端trace元数据。
 func wsValidateFrontendTraceMetadata(obj map[string]json.RawMessage, traceID, spanID string) error {
 	if metadataTraceID, ok, err := wsFrontendStringField(obj, "_aoTraceId"); err != nil {
 		return err
@@ -216,6 +221,7 @@ func wsFrontendStringField(obj map[string]json.RawMessage, key string) (string, 
 	return value, true, nil
 }
 
+// wsParseFrontendTraceparent 处理wsparse前端traceparent。
 func wsParseFrontendTraceparent(value string) (string, string, error) {
 	parts := strings.Split(value, "-")
 	if len(parts) != 4 {
@@ -258,6 +264,7 @@ func wsValidateTraceFlags(value string) error {
 	return nil
 }
 
+// wsIsLowerHex 处理wsislowerhex。
 func wsIsLowerHex(value string) bool {
 	for _, ch := range value {
 		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
@@ -292,6 +299,7 @@ func newWSChannelWithReadLimit(conn *websocket.Conn, readLimitBytes int64) *wsCh
 	return &wsChannel{conn: conn, readLimitBytes: readLimitBytes}
 }
 
+// Send 向底层传输写入请求。
 func (c *wsChannel) Send(msg []byte) error {
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()
@@ -301,6 +309,7 @@ func (c *wsChannel) Send(msg []byte) error {
 	return nil
 }
 
+// Recv 处理recv。
 func (c *wsChannel) Recv() ([]byte, error) {
 	for {
 		msgType, msg, err := c.conn.ReadMessage()
@@ -313,6 +322,7 @@ func (c *wsChannel) Recv() ([]byte, error) {
 	}
 }
 
+// Close 关闭平台RPC资源。
 func (c *wsChannel) Close() error {
 	var err error
 	c.closeOnce.Do(func() {

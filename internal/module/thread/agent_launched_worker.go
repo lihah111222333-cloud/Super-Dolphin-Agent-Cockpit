@@ -67,6 +67,7 @@ func newAgentLaunchedWorker(processor agentLaunchedProcessor, logger *slog.Logge
 // Start spawns the worker goroutine. Idempotent. When processor is nil
 // the worker short-circuits: doneCh closes so Stop is immediate and
 // Enqueue remains a cheap no-op.
+// Start 启动线程流程。
 func (w *agentLaunchedWorker) Start() {
 	if w == nil {
 		return
@@ -92,6 +93,7 @@ func (w *agentLaunchedWorker) Start() {
 // I/O, no invalidation on the callback goroutine. The key is the
 // event's agentID; callers pass threadID as a fallback when agentID is
 // empty (Claude system:init omits agent_id on first turn).
+// Enqueue 把项目追加到队尾。
 func (w *agentLaunchedWorker) Enqueue(key string, ev agentdto.AgentLaunched) {
 	if w == nil {
 		return
@@ -123,6 +125,7 @@ func (w *agentLaunchedWorker) Enqueue(key string, ev agentdto.AgentLaunched) {
 // silently dropped (gate closed); this is the only drop path and is
 // necessary because post-Stop delivery would race with cancelled
 // subscriptions.
+// Stop 停止线程流程。
 func (w *agentLaunchedWorker) Stop(ctx context.Context) error {
 	if w == nil {
 		return nil
@@ -151,8 +154,13 @@ func (w *agentLaunchedWorker) Stop(ctx context.Context) error {
 
 // EnqueuedTotal / CoalescedTotal / ProcessedTotal expose observability
 // counters for tests and future metric hookup (P22 observability lane).
-func (w *agentLaunchedWorker) EnqueuedTotal() int64  { return w.enqueuedTotal.Load() }
+// EnqueuedTotal 处理enqueuedtotal。
+func (w *agentLaunchedWorker) EnqueuedTotal() int64 { return w.enqueuedTotal.Load() }
+
+// CoalescedTotal 处理coalescedtotal。
 func (w *agentLaunchedWorker) CoalescedTotal() int64 { return w.coalescedTotal.Load() }
+
+// ProcessedTotal 处理processedtotal。
 func (w *agentLaunchedWorker) ProcessedTotal() int64 { return w.processedTotal.Load() }
 
 func (w *agentLaunchedWorker) runWorker() {

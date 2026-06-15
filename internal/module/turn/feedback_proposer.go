@@ -26,11 +26,13 @@ type FeedbackProposer struct {
 
 // NewFeedbackProposer keeps the old constructor shape so stale callers compile
 // while the live candidate writer remains disabled.
+// NewFeedbackProposer 创建feedbackproposer。
 func NewFeedbackProposer(dream contract.DreamExecutor, _ any, logger *slog.Logger) *FeedbackProposer {
 	return &FeedbackProposer{dream: dream, logger: logger}
 }
 
 // Propose no-ops because the live old candidate pipeline is removed.
+// Propose 处理propose。
 func (fp *FeedbackProposer) Propose(ctx context.Context, topicKey string, feedbacks []FeedbackItem, repoFingerprint string) error {
 	if fp.logger != nil {
 		fp.logger.Info("feedback skill candidate pipeline disabled",

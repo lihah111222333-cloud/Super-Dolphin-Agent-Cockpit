@@ -61,6 +61,7 @@ func (r *ToolRegistry) resolveLease(key dto.LeaseKey, expected LeaseKey, allowSt
 	})
 }
 
+// reserveReport 处理reservereport。
 func (r *ToolRegistry) reserveReport(key LeaseKey, req dto.ReportRequest) (*dto.ReportResponse, string, error) {
 	reportID := strings.TrimSpace(req.ReportID)
 	if reportID == "" {

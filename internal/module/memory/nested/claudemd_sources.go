@@ -114,6 +114,7 @@ type claudeMdCandidate struct {
 	Digest    string
 }
 
+// NewClaudeMdSourcesProvider 创建claudemdsourcesprovider。
 func NewClaudeMdSourcesProvider(deps Dependencies, team contract.TeamMemoryManager, nested *NestedRuntime) *ClaudeMdSourcesProvider {
 	if nested == nil {
 		nested = NewNestedRuntime(deps)
@@ -126,6 +127,7 @@ func NewClaudeMdSourcesProvider(deps Dependencies, team contract.TeamMemoryManag
 	}
 }
 
+// ResolveClaudeMdSources 解析claudemdsources。
 func (p *ClaudeMdSourcesProvider) ResolveClaudeMdSources(ctx context.Context, buildCtx contract.BuildCtx) ([]contract.ClaudeMdSource, error) {
 	gate := p.deps.resolveGate(buildCtx)
 	if shouldDisableClaudeMdSources(gate) {
@@ -157,6 +159,7 @@ func (p *ClaudeMdSourcesProvider) ResolveClaudeMdSources(ctx context.Context, bu
 	return cloneClaudeMdSources(sources), nil
 }
 
+// OnPromptInvalidate 处理onpromptinvalidate。
 func (p *ClaudeMdSourcesProvider) OnPromptInvalidate(reason contract.InvalidateReason) {
 	if p == nil {
 		return
@@ -169,6 +172,7 @@ func (p *ClaudeMdSourcesProvider) OnPromptInvalidate(reason contract.InvalidateR
 	}
 }
 
+// ResolveClaudeMdSources 解析claudemdsources。
 func ResolveClaudeMdSources(ctx context.Context, cfg ClaudeMdResolveConfig) ([]ClaudeMdSource, error) {
 	gate := cfg.Dependencies.resolveGate(cfg.BuildCtx)
 	if shouldDisableClaudeMdSources(gate) {
@@ -185,6 +189,7 @@ func shouldDisableClaudeMdSources(gate GateSnapshot) bool {
 	return gate.SuppressForOverlay || gate.DisableClaudeMds || (gate.BareMode && !gate.HasAdditionalDirsForBare)
 }
 
+// FilterInjectedMemoryFiles 处理过滤条件injected记忆文件。
 func FilterInjectedMemoryFiles(sources []ClaudeMdSource, buildCtx contract.BuildCtx, gate GateSnapshot, excludes []string) []ClaudeMdSource {
 	patterns := normalizeClaudeMdExcludePatterns(excludes)
 	projectFilter := resolveProjectSourceFilter(buildCtx, gate)
@@ -244,6 +249,7 @@ func claudeMdSourceCacheKey(buildCtx contract.BuildCtx, gate GateSnapshot, manif
 	return hex.EncodeToString(digest[:])
 }
 
+// loadClaudeMdSources 加载claudemdsources。
 func loadClaudeMdSources(ctx context.Context, candidates []claudeMdCandidate) ([]ClaudeMdSource, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -277,6 +283,7 @@ func loadClaudeMdSource(candidate claudeMdCandidate) (ClaudeMdSource, bool, erro
 	return loadStandardClaudeMdSource(candidate)
 }
 
+// loadStandardClaudeMdSource 加载standardclaudemdsource。
 func loadStandardClaudeMdSource(candidate claudeMdCandidate) (ClaudeMdSource, bool, error) {
 	// Phase 2.1.A: defense-in-depth read. Even though appendClaudeMdCandidate
 	// already verified the candidate path stays under BaseDir post-EvalSymlinks,

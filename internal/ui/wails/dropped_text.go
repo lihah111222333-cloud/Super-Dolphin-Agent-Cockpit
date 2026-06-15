@@ -49,6 +49,7 @@ type readDroppedTextFilesResult struct {
 	Files []droppedTextFile `json:"files"`
 }
 
+// recordDroppedFiles 记录dropped文件。
 func (a *App) recordDroppedFiles(files []string, details *application.DropTargetDetails) {
 	if a == nil || len(files) == 0 {
 		return
@@ -77,6 +78,7 @@ func (a *App) recordDroppedFiles(files []string, details *application.DropTarget
 	}
 }
 
+// hasRecentDroppedFile 判断recentdropped文件是否可用。
 func (a *App) hasRecentDroppedFile(raw, targetID string) bool {
 	if a == nil {
 		return false
@@ -172,6 +174,7 @@ func readOneDroppedTextFile(app *App, rawPath, targetID string) (droppedTextFile
 	}, nil
 }
 
+// readDroppedFileBytes 读取dropped文件bytes。
 func readDroppedFileBytes(path string) (os.FileInfo, []byte, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -200,6 +203,7 @@ func maxDroppedImportFileBytes(path string) (int64, string) {
 	return maxDroppedTextFileBytes, "text"
 }
 
+// droppedFileImportText 处理dropped文件import文本。
 func droppedFileImportText(path string, data []byte) (string, error) {
 	if isDroppedXLSXPath(path) {
 		text, err := droppedXLSXText(data)
@@ -262,6 +266,7 @@ func droppedXLSXText(data []byte) (string, error) {
 	return renderXLSXWorkbook(reader, sheets, rels, shared)
 }
 
+// renderXLSXWorkbook 渲染xlsxworkbook。
 func renderXLSXWorkbook(reader *zip.Reader, sheets []xlsxWorkbookSheet, rels map[string]string, shared []string) (string, error) {
 	sections := make([]string, 0, len(sheets))
 	for index, sheet := range sheets {
@@ -287,6 +292,7 @@ func renderXLSXWorkbook(reader *zip.Reader, sheets []xlsxWorkbookSheet, rels map
 	return strings.Join(sections, "\n\n"), nil
 }
 
+// parseXLSXWorkbookSheets 解析xlsxworkbooksheets。
 func parseXLSXWorkbookSheets(reader *zip.Reader) ([]xlsxWorkbookSheet, error) {
 	data, err := readXLSXZipEntry(reader, "xl/workbook.xml", true)
 	if err != nil {
@@ -321,6 +327,7 @@ func parseXLSXWorkbookSheets(reader *zip.Reader) ([]xlsxWorkbookSheet, error) {
 	return sheets, nil
 }
 
+// parseXLSXWorkbookRelationships 解析xlsxworkbookrelationships。
 func parseXLSXWorkbookRelationships(reader *zip.Reader) (map[string]string, error) {
 	data, err := readXLSXZipEntry(reader, "xl/_rels/workbook.xml.rels", true)
 	if err != nil {
@@ -349,6 +356,7 @@ func parseXLSXWorkbookRelationships(reader *zip.Reader) (map[string]string, erro
 	return rels, nil
 }
 
+// parseXLSXSharedStrings 解析xlsxsharedstrings。
 func parseXLSXSharedStrings(reader *zip.Reader) ([]string, error) {
 	data, err := readXLSXZipEntry(reader, "xl/sharedStrings.xml", false)
 	if err != nil || data == nil {
@@ -376,6 +384,7 @@ func parseXLSXSharedStrings(reader *zip.Reader) ([]string, error) {
 	}
 }
 
+// parseXLSXSharedString 解析xlsxsharedstring。
 func parseXLSXSharedString(decoder *xml.Decoder) (string, error) {
 	var parts []string
 	for {
@@ -400,6 +409,7 @@ func parseXLSXSharedString(decoder *xml.Decoder) (string, error) {
 	}
 }
 
+// parseXLSXWorksheet 解析xlsxworksheet。
 func parseXLSXWorksheet(reader *zip.Reader, entry string, shared []string) ([][]string, bool, bool, error) {
 	data, err := readXLSXZipEntry(reader, entry, true)
 	if err != nil {
@@ -429,6 +439,7 @@ func parseXLSXWorksheet(reader *zip.Reader, entry string, shared []string) ([][]
 	}
 }
 
+// nextXLSXWorksheetRow 处理nextxlsxworksheetrow。
 func nextXLSXWorksheetRow(decoder *xml.Decoder, shared []string) ([]string, bool, bool, error) {
 	for {
 		token, err := decoder.Token()
@@ -447,6 +458,7 @@ func nextXLSXWorksheetRow(decoder *xml.Decoder, shared []string) ([]string, bool
 	}
 }
 
+// parseXLSXRow 解析xlsxrow。
 func parseXLSXRow(decoder *xml.Decoder, shared []string) ([]string, bool, error) {
 	cells := map[int]string{}
 	maxCol := 0
@@ -484,6 +496,7 @@ func parseXLSXRow(decoder *xml.Decoder, shared []string) ([]string, bool, error)
 	}
 }
 
+// parseXLSXCell 解析xlsxcell。
 func parseXLSXCell(decoder *xml.Decoder, start xml.StartElement, shared []string) (string, error) {
 	cellType := strings.TrimSpace(xmlLocalAttr(start, "t"))
 	rawValue := ""
@@ -516,6 +529,7 @@ func parseXLSXCell(decoder *xml.Decoder, start xml.StartElement, shared []string
 	}
 }
 
+// xlsxCellText 处理xlsxcell文本。
 func xlsxCellText(cellType, rawValue, inlineValue string, shared []string) (string, error) {
 	switch cellType {
 	case "s":
@@ -546,6 +560,7 @@ func xlsxCellColumn(start xml.StartElement, fallback int) int {
 	return fallback
 }
 
+// xlsxColumnIndex 处理xlsxcolumn索引。
 func xlsxColumnIndex(ref string) int {
 	col := 0
 	for _, r := range ref {

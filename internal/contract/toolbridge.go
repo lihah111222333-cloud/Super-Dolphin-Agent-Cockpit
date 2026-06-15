@@ -31,6 +31,7 @@ const (
 	ToolSurfaceModeAgent = "agent"
 )
 
+// NormalizeToolSurfaceMode 规范化工具surface模式。
 func NormalizeToolSurfaceMode(value string) (string, error) {
 	mode := strings.ToLower(strings.TrimSpace(value))
 	if mode == "" {
@@ -44,6 +45,7 @@ func NormalizeToolSurfaceMode(value string) (string, error) {
 	}
 }
 
+// ToolSurfaceModeUsesDynamicTools 处理工具surface模式usesdynamic工具。
 func ToolSurfaceModeUsesDynamicTools(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "", ToolSurfaceModeAgent:
@@ -93,10 +95,12 @@ type CodexToolSurfaceScope struct {
 
 type toolLifecycleAlreadyPublishedKey struct{}
 
+// WithToolLifecycleAlreadyPublished 设置工具生命周期alreadypublished。
 func WithToolLifecycleAlreadyPublished(ctx context.Context) context.Context {
 	return context.WithValue(ctx, toolLifecycleAlreadyPublishedKey{}, true)
 }
 
+// ToolLifecycleAlreadyPublished 处理工具生命周期alreadypublished。
 func ToolLifecycleAlreadyPublished(ctx context.Context) bool {
 	value, _ := ctx.Value(toolLifecycleAlreadyPublishedKey{}).(bool)
 	return value

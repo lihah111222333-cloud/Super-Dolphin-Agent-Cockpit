@@ -27,6 +27,7 @@ type runtimeReportParams struct {
 	Provider string `json:"provider,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *runtimeReportParams) UnmarshalJSON(data []byte) error {
 	type payload struct {
 		AgentID       string `json:"agent_id"`
@@ -183,6 +184,7 @@ func submissionFromParams(ctx context.Context, svc Service, p submitParams) (Tur
 	}, nil
 }
 
+// inputItemsFromSubmitParams 从submitparams处理inputitems。
 func inputItemsFromSubmitParams(p submitParams) ([]shareddto.InputItem, error) {
 	if len(p.legacyInput) > 0 && strings.TrimSpace(p.Prompt) == "" && len(p.Images) == 0 && len(p.Files) == 0 {
 		return decodeInputItems(p.legacyInput)
@@ -334,6 +336,7 @@ type launchConfigParams struct {
 	AgentScopeAlt  string `json:"agentMemoryScope,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *launchParams) UnmarshalJSON(data []byte) error {
 	type current launchParams
 	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
@@ -398,6 +401,7 @@ type agentIDParams struct {
 	AgentID string `json:"agent_id"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *agentIDParams) UnmarshalJSON(data []byte) error {
 	type current agentIDParams
 	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
@@ -415,6 +419,7 @@ type dagKeyParams struct {
 	DagKey string `json:"dag_key"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *dagKeyParams) UnmarshalJSON(data []byte) error {
 	type current dagKeyParams
 	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
@@ -433,6 +438,7 @@ type dagNodeParams struct {
 	NodeKey string `json:"node_key"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *dagNodeParams) UnmarshalJSON(data []byte) error {
 	type current dagNodeParams
 	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
@@ -465,6 +471,7 @@ type submitParams struct {
 
 type submitPromptParams = submitParams
 
+// UnmarshalJSON 解码JSON。
 func (p *submitParams) UnmarshalJSON(data []byte) error {
 	type current submitParams
 	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
@@ -497,6 +504,7 @@ type reportParams struct {
 	Report  string `json:"report,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *reportParams) UnmarshalJSON(data []byte) error {
 	type current reportParams
 	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
@@ -515,6 +523,7 @@ type rememberReportRequestParams struct {
 	RequesterID string `json:"sender_id"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *rememberReportRequestParams) UnmarshalJSON(data []byte) error {
 	type current rememberReportRequestParams
 	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
@@ -541,6 +550,7 @@ type reportEventParams struct {
 	EventData json.RawMessage `json:"event_data,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (p *reportEventParams) UnmarshalJSON(data []byte) error {
 	type current reportEventParams
 	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {

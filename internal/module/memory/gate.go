@@ -67,6 +67,7 @@ type MemoryGateSnapshot struct {
 // pipeline. Today this fires only when the harness is identified as
 // claude_code; the dimension is shaped so additional overlay-capable
 // harnesses can be added without re-plumbing call sites.
+// SuppressForOverlay 为overlay处理suppress。
 func (s MemoryGateSnapshot) SuppressForOverlay() bool {
 	return s.Harness == MemoryHarnessClaudeCode
 }
@@ -75,6 +76,7 @@ type RelevantPrefetchSurfacedState struct {
 	TotalBytes int
 }
 
+// resolveMemoryGate 解析记忆gate。
 func resolveMemoryGate(buildCtx contract.BuildCtx, cfg *Config) MemoryGateSnapshot {
 	cfg = memoryConfig(cfg)
 	snapshot := baseMemoryGateSnapshot(buildCtx, cfg)
@@ -202,6 +204,7 @@ func hasAutoMemPathOverride(cfg *Config) bool {
 	return configuredAutoMemPathOverride(cfg) != ""
 }
 
+// isAutoMemPath 判断automem路径是否可用。
 func isAutoMemPath(cfg *Config, path string) bool {
 	if cfg == nil || strings.TrimSpace(path) == "" {
 		return false
@@ -221,6 +224,7 @@ func isAutoMemPath(cfg *Config, path string) bool {
 	return pathutil.ContainsPath(root, candidate)
 }
 
+// resolveAutoEnabled 解析autoenabled。
 func resolveAutoEnabled(snapshot MemoryGateSnapshot, _ *Config) bool {
 	switch {
 	case snapshot.DisabledByEnvTruthy:

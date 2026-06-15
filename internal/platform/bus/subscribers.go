@@ -24,6 +24,7 @@ type SubscriberGroup struct {
 
 var ErrSubscriberIntakeStopped = errors.New("bus subscriber intake stopped")
 
+// Specs 处理specs。
 func (g *SubscriberGroup) Specs() []SubscriberSpec {
 	if g == nil {
 		return nil
@@ -33,6 +34,7 @@ func (g *SubscriberGroup) Specs() []SubscriberSpec {
 	return append([]SubscriberSpec(nil), g.specs...)
 }
 
+// Start 启动平台bus流程。
 func (g *SubscriberGroup) Start() error {
 	if g == nil {
 		return nil
@@ -54,6 +56,7 @@ func (g *SubscriberGroup) Start() error {
 	return nil
 }
 
+// StopIntake 停止intake。
 func (g *SubscriberGroup) StopIntake() {
 	if g == nil {
 		return
@@ -63,6 +66,7 @@ func (g *SubscriberGroup) StopIntake() {
 	g.intake = false
 }
 
+// Cancel 取消当前运行。
 func (g *SubscriberGroup) Cancel() {
 	if g == nil {
 		return
@@ -78,6 +82,7 @@ func (g *SubscriberGroup) Cancel() {
 	}
 }
 
+// CancelCount 处理cancelcount。
 func (g *SubscriberGroup) CancelCount() int {
 	if g == nil {
 		return 0

@@ -54,6 +54,10 @@ function activityPanelNextKeyboardHeight(event, currentHeight, maxHeight) {
 }
 
 function useRuntimePanelLayout() {
+  /*
+   * 右侧 runtime panel 的高度只跟窗口和活动面板高度有关。
+   * 拖拽时先写 CSS 变量，松手后再更新 React state。
+   */
   const [viewportHeight, setViewportHeight] = useState(currentViewportHeight);
   const [activityPanelHeight, setActivityPanelHeight] = useState(() => clampActivityPanelHeight(ACTIVITY_PANEL_DEFAULT_HEIGHT));
   const activityPanelMax = activityPanelMaxHeight(viewportHeight);

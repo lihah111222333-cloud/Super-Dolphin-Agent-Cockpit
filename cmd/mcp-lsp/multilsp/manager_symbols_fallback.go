@@ -34,6 +34,7 @@ type fallbackNode struct {
 	symbol   protocol.DocumentSymbol
 }
 
+// fallbackDocumentSymbols 处理兜底document符号。
 func (m *manager) fallbackDocumentSymbols(ref documentRef) ([]protocol.DocumentSymbol, bool, error) {
 	switch ref.languageID {
 	case "markdown", "json", "yaml", "python":
@@ -171,6 +172,7 @@ func pythonLineInTripleQuotedString(line string, active *string) bool {
 	return strings.HasPrefix(trimmed, quote)
 }
 
+// firstPythonTripleQuote 处理firstpythontriplequote。
 func firstPythonTripleQuote(line string) (string, bool) {
 	doubleIndex := strings.Index(line, `"""`)
 	singleIndex := strings.Index(line, `'''`)
@@ -234,6 +236,7 @@ func pythonNamedSymbol(lineNo int, line, indent, name string, kind protocol.Symb
 	}
 }
 
+// buildLevelSymbols 构建level符号。
 func buildLevelSymbols(lines []string, items []fallbackSymbol) []protocol.DocumentSymbol {
 	if len(items) == 0 {
 		return nil

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
@@ -49,6 +50,7 @@ var (
 	errInvalidCTESyntax          = errors.New("dbquery query has invalid CTE syntax")
 )
 
+// executeQuery 执行查询。
 func executeQuery(ctx context.Context, queryer platformdb.Queryable, timeout time.Duration, query string, args ...any) (_ []map[string]any, err error) {
 	ctx, err = prepareQueryContext(ctx, queryer, query, len(args))
 	if err != nil {
@@ -144,7 +146,7 @@ func cleanupSQLiteReadOnlyQuery(ctx context.Context, conn *sql.Conn, tx *sql.Tx,
 			cleanupErr = errors.Join(cleanupErr, err)
 		}
 	}
-	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), queryOnlyCleanupTimeout)
+	cleanupCtx, cancel := platformconfig.WithTimeout(context.WithoutCancel(ctx), queryOnlyCleanupTimeout)
 	defer cancel()
 	if conn != nil {
 		if _, err := conn.ExecContext(cleanupCtx, "PRAGMA query_only = OFF"); err != nil {
@@ -209,6 +211,7 @@ func validateQuery(query string, argCount int) error {
 	return validateAllowedTables(trimmed)
 }
 
+// validateQueryText 校验查询文本。
 func validateQueryText(query string) error {
 	masked := strings.ToLower(maskQuotedStrings(query))
 	switch {
@@ -225,6 +228,7 @@ func validateQueryText(query string) error {
 	}
 }
 
+// validatePlaceholders 校验placeholders。
 func validatePlaceholders(query string, argCount int) error {
 	masked := maskQuotedStrings(query)
 	dollarMatches := placeholderPattern.FindAllStringSubmatch(masked, -1)
@@ -279,6 +283,7 @@ func validateDollarPlaceholders(matches [][]string, argCount int) error {
 	return nil
 }
 
+// validateAllowedTables 校验allowedtables。
 func validateAllowedTables(query string) error {
 	masked := strings.ToLower(maskQuotedStrings(query))
 	if name := disallowedFunctionName(masked); name != "" {
@@ -319,6 +324,7 @@ func disallowedFunctionName(query string) string {
 	return strings.ToLower(strings.TrimSpace(match[0]))
 }
 
+// tableReferences 处理table引用。
 func tableReferences(query string, cteNames map[string]struct{}) (int, []string) {
 	refs := tableReferenceScan{}
 	for index := 0; index < len(query); index++ {
@@ -575,6 +581,7 @@ func skipQuotedIdentifier(value string, index int) (int, bool) {
 	return len(value), false
 }
 
+// maskQuotedStrings 处理maskquotedstrings。
 func maskQuotedStrings(query string) string {
 	var builder strings.Builder
 	builder.Grow(len(query))

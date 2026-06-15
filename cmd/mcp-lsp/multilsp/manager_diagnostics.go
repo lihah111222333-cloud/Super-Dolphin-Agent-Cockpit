@@ -51,6 +51,7 @@ type resolvedLSPToolScopeContextKey struct{}
 // WithResolvedLSPToolScope attaches the ManagerPool canonical scope to a
 // context so diagnostics/cache/bootstrap code can consume ScopedManager's
 // ResolvedScope directly without reassembling canonical keys.
+// WithResolvedLSPToolScope 设置已解析LSP工具作用域。
 func WithResolvedLSPToolScope(ctx context.Context, scope ResolvedLSPToolScope) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -61,14 +62,17 @@ func WithResolvedLSPToolScope(ctx context.Context, scope ResolvedLSPToolScope) c
 	return context.WithValue(ctx, resolvedLSPToolScopeContextKey{}, scope)
 }
 
+// PublishDiagnostics 发布诊断。
 func (h managerNotificationHandler) PublishDiagnostics(params protocol.PublishDiagnosticsParams) error {
 	return h.publishDiagnostics(params)
 }
 
+// LogMessage 处理日志消息。
 func (h managerNotificationHandler) LogMessage(params protocol.LogMessageParams) error {
 	return h.logMessage(params)
 }
 
+// Diagnostics 汇总匹配 manager 返回的诊断。
 func (m *manager) Diagnostics(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
 	filter, err := m.normalizeDiagnosticFilter(ctx, uris)
 	if err != nil {
@@ -88,6 +92,7 @@ func (m *manager) Diagnostics(ctx context.Context, uris []string) ([]protocol.Pu
 	return items, nil
 }
 
+// refreshExistingDiagnosticTargets 刷新existing诊断targets。
 func (m *manager) refreshExistingDiagnosticTargets(ctx context.Context, uris []string, filter diagnosticFilter) error {
 	if m.factory == nil {
 		return nil
@@ -114,6 +119,7 @@ func (m *manager) refreshExistingDiagnosticTargets(ctx context.Context, uris []s
 	return nil
 }
 
+// WaitDiagnosticsStable 等待诊断稳定状态。
 func (m *manager) WaitDiagnosticsStable(ctx context.Context, uris []string) error {
 	if err := sleepContext(ctx, m.diagInitial); err != nil {
 		return err
@@ -132,10 +138,12 @@ func (m *manager) WaitDiagnosticsStable(ctx context.Context, uris []string) erro
 	return waiter.wait()
 }
 
+// CurrentDiagnosticGeneration 处理当前诊断代际。
 func (m *manager) CurrentDiagnosticGeneration() uint64 {
 	return m.diagGeneration.Load()
 }
 
+// AdvanceDiagnosticGeneration 推进诊断代际，防止旧结果覆盖新结果。
 func (m *manager) AdvanceDiagnosticGeneration() uint64 {
 	next := m.diagGeneration.Add(1)
 	m.diagMu.Lock()
@@ -144,10 +152,12 @@ func (m *manager) AdvanceDiagnosticGeneration() uint64 {
 	return next
 }
 
+// PublishDiagnostics 发布诊断。
 func (m *manager) PublishDiagnostics(params protocol.PublishDiagnosticsParams) error {
 	return m.publishDiagnosticsForGeneration(params, m.CurrentDiagnosticGeneration())
 }
 
+// publishDiagnosticsForGeneration 为代际发布诊断。
 func (m *manager) publishDiagnosticsForGeneration(params protocol.PublishDiagnosticsParams, capturedGen uint64) error {
 	m.diagMu.Lock()
 	defer m.diagMu.Unlock()
@@ -191,6 +201,7 @@ func (m *manager) latestDiagnosticUpdate(filter diagnosticFilter) time.Time {
 	return latest
 }
 
+// normalizeDiagnosticFilter 规范化诊断过滤条件。
 func (m *manager) normalizeDiagnosticFilter(ctx context.Context, uris []string) (diagnosticFilter, error) {
 	if len(uris) == 0 {
 		if resolved, ok := resolvedLSPToolScopeFromContext(ctx); ok {
@@ -236,6 +247,7 @@ func (m *manager) currentDiagnostics(filter diagnosticFilter) []protocol.Publish
 	return items
 }
 
+// forEachCurrentDiagnosticSnapshot 为each当前诊断快照处理LSP。
 func (m *manager) forEachCurrentDiagnosticSnapshot(filter diagnosticFilter, fn func(diagnosticSnapshot)) {
 	if m == nil || fn == nil {
 		return
@@ -252,6 +264,7 @@ func (m *manager) forEachCurrentDiagnosticSnapshot(filter diagnosticFilter, fn f
 	})
 }
 
+// matches 判断LSP是否匹配。
 func (f diagnosticFilter) matches(key string, snapshot diagnosticSnapshot) bool {
 	if len(f.keys) > 0 {
 		_, ok := f.keys[key]
@@ -276,6 +289,7 @@ func (f diagnosticFilter) matches(key string, snapshot diagnosticSnapshot) bool 
 	return platformshared.ContainsPath(f.workspaceRoot, path)
 }
 
+// cleanupDeletedDiagnostics 处理cleanupdeleted诊断。
 func (m *manager) cleanupDeletedDiagnostics(ctx context.Context, filter diagnosticFilter) error {
 	snapshots := make([]diagnosticSnapshot, 0)
 	m.forEachCurrentDiagnosticSnapshot(filter, func(snapshot diagnosticSnapshot) {
@@ -306,6 +320,7 @@ func (m *manager) cleanupDeletedDiagnostics(ctx context.Context, filter diagnost
 	return errors.Join(errs...)
 }
 
+// cleanupDeletedDocument 处理cleanupdeleteddocument。
 func (m *manager) cleanupDeletedDocument(ref documentRef, current ResolvedLSPToolScope) error {
 	coordinator, err := bootstrapCoordinatorFor(m)
 	if err != nil {
@@ -347,6 +362,7 @@ func (m *manager) cleanupDocumentForScopes(uri string, scopes ...ResolvedLSPTool
 	return m.cleanupDocumentForScopesWithCoordinator(coordinator, uri, scopes...)
 }
 
+// cleanupDocumentForScopesWithCoordinator 处理带coordinator的cleanupdocumentscopes。
 func (m *manager) cleanupDocumentForScopesWithCoordinator(coordinator *bootstrapCoordinator, uri string, scopes ...ResolvedLSPToolScope) error {
 	seen := map[string]struct{}{}
 	var errs []error
@@ -440,6 +456,7 @@ func lspScopeKeyFromContext(ctx context.Context) string {
 	return buildScopeKey(lspToolScopeFromContext(ctx))
 }
 
+// resolvedLSPToolScopeFromContext 从上下文处理已解析LSP工具作用域。
 func resolvedLSPToolScopeFromContext(ctx context.Context) (ResolvedLSPToolScope, bool) {
 	if ctx == nil {
 		return ResolvedLSPToolScope{}, false
@@ -538,6 +555,7 @@ func lspScopeWorkspacePartsFromConfig(cfg workspaceConfig) (LSPToolScope, bool) 
 	}, true
 }
 
+// parseLanguageSpecificParts 解析语言specificparts。
 func parseLanguageSpecificParts(encoded string) map[string]string {
 	encoded = strings.TrimSpace(encoded)
 	if encoded == "" {
@@ -566,6 +584,7 @@ func diagnosticStoreKeyFor(scope ResolvedLSPToolScope, uri string) diagnosticSto
 	return diagnosticStoreKey{scopeKey: scope.ScopeKey, workspaceKey: scope.WorkspaceKey, uri: uri}
 }
 
+// String 返回字符串表示。
 func (k diagnosticStoreKey) String() string {
 	return k.scopeKey + "\x00" + k.workspaceKey + "\x00" + k.uri
 }

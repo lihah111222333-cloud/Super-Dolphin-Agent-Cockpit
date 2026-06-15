@@ -93,6 +93,7 @@ func launchState(current string) string {
 	return current
 }
 
+// normalizeAgentLifecycleState 规范化代理生命周期状态。
 func normalizeAgentLifecycleState(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "provisioning", "turn_queued":

@@ -6,6 +6,7 @@ import (
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
 
+// MergeDuring 合并during。
 func MergeDuring(decisions []peerDecision[mcp.CheckDecision]) MergeResult[mcp.CheckDecision] {
 	normalized, failed, lost := normalizeCheckDecisions(decisions)
 	return MergeResult[mcp.CheckDecision]{
@@ -26,6 +27,7 @@ func normalizeCheckDecisions(decisions []peerDecision[mcp.CheckDecision]) ([]mcp
 	})
 }
 
+// mergeCheckDecision 合并checkdecision。
 func mergeCheckDecision(decisions []mcp.CheckDecision) mcp.CheckDecision {
 	if len(decisions) == 0 {
 		return mcp.CheckDecision{Decision: mcp.HookDecisionContinue}

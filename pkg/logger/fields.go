@@ -32,6 +32,7 @@ type traceIDKey struct{}
 type spanIDKey struct{}
 type parentSpanIDKey struct{}
 
+// WithContext 把日志器写入 context。
 func WithContext(ctx context.Context, l *slog.Logger) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -39,6 +40,7 @@ func WithContext(ctx context.Context, l *slog.Logger) context.Context {
 	return context.WithValue(ctx, ctxKey{}, l)
 }
 
+// WithTraceID 把 trace ID 写入 context。
 func WithTraceID(ctx context.Context, traceID string) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -46,6 +48,7 @@ func WithTraceID(ctx context.Context, traceID string) context.Context {
 	return context.WithValue(ctx, traceIDKey{}, traceID)
 }
 
+// WithSpanID 把 span ID 写入 context。
 func WithSpanID(ctx context.Context, spanID string) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -53,6 +56,7 @@ func WithSpanID(ctx context.Context, spanID string) context.Context {
 	return context.WithValue(ctx, spanIDKey{}, spanID)
 }
 
+// WithParentSpanID 把 parent span ID 写入 context。
 func WithParentSpanID(ctx context.Context, parentSpanID string) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -60,16 +64,19 @@ func WithParentSpanID(ctx context.Context, parentSpanID string) context.Context 
 	return context.WithValue(ctx, parentSpanIDKey{}, parentSpanID)
 }
 
+// WithTraceIDs 把 trace/span ID 写入 context。
 func WithTraceIDs(ctx context.Context, traceID, spanID string) context.Context {
 	ctx = WithTraceID(ctx, traceID)
 	return WithSpanID(ctx, spanID)
 }
 
+// WithTraceContext 把完整 trace 上下文写入 context。
 func WithTraceContext(ctx context.Context, traceID, spanID, parentSpanID string) context.Context {
 	ctx = WithTraceIDs(ctx, traceID, spanID)
 	return WithParentSpanID(ctx, parentSpanID)
 }
 
+// NewTraceID 创建traceID。
 func NewTraceID() (string, error) {
 	var data [16]byte
 	if _, err := rand.Read(data[:]); err != nil {
@@ -78,6 +85,7 @@ func NewTraceID() (string, error) {
 	return hex.EncodeToString(data[:]), nil
 }
 
+// NewSpanID 创建spanID。
 func NewSpanID() (string, error) {
 	var data [8]byte
 	if _, err := rand.Read(data[:]); err != nil {
@@ -86,6 +94,7 @@ func NewSpanID() (string, error) {
 	return hex.EncodeToString(data[:]), nil
 }
 
+// WithChildTraceSpan 设置childtracespan。
 func WithChildTraceSpan(ctx context.Context) (context.Context, string, error) {
 	traceID := TraceIDFromContext(ctx)
 	if traceID == "" {
@@ -99,6 +108,7 @@ func WithChildTraceSpan(ctx context.Context) (context.Context, string, error) {
 	return WithTraceContext(ctx, traceID, spanID, parentSpanID), spanID, nil
 }
 
+// TraceIDFromContext 从 context 读取 trace ID。
 func TraceIDFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
@@ -107,6 +117,7 @@ func TraceIDFromContext(ctx context.Context) string {
 	return traceID
 }
 
+// SpanIDFromContext 从 context 读取 span ID。
 func SpanIDFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
@@ -115,6 +126,7 @@ func SpanIDFromContext(ctx context.Context) string {
 	return spanID
 }
 
+// ParentSpanIDFromContext 从 context 读取 parent span ID。
 func ParentSpanIDFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
@@ -123,6 +135,7 @@ func ParentSpanIDFromContext(ctx context.Context) string {
 	return parentSpanID
 }
 
+// FromContext 从 context 读取日志器，没有时返回全局日志器。
 func FromContext(ctx context.Context) *slog.Logger {
 	base := getLogger()
 	if ctx == nil {
@@ -134,20 +147,37 @@ func FromContext(ctx context.Context) *slog.Logger {
 	return withTraceAttrs(ctx, base)
 }
 
+// Get 返回全局日志器。
 func Get() *slog.Logger { return getLogger() }
 
+// With 返回带固定字段的日志器。
 func With(args ...any) *slog.Logger { return getLogger().With(args...) }
 
-func Info(msg string, args ...any)  { getLogger().Info(msg, args...) }
+// Info 写入 info 日志。
+func Info(msg string, args ...any) { getLogger().Info(msg, args...) }
+
+// Error 写入 error 日志。
 func Error(msg string, args ...any) { getLogger().Error(msg, args...) }
-func Warn(msg string, args ...any)  { getLogger().Warn(msg, args...) }
+
+// Warn 写入 warn 日志。
+func Warn(msg string, args ...any) { getLogger().Warn(msg, args...) }
+
+// Debug 写入 debug 日志。
 func Debug(msg string, args ...any) { getLogger().Debug(msg, args...) }
 
-func Infof(format string, args ...any)  { getLogger().Info(fmt.Sprintf(format, args...)) }
+// Infof 按格式写入 info 日志。
+func Infof(format string, args ...any) { getLogger().Info(fmt.Sprintf(format, args...)) }
+
+// Errorf 按格式写入 error 日志。
 func Errorf(format string, args ...any) { getLogger().Error(fmt.Sprintf(format, args...)) }
-func Warnf(format string, args ...any)  { getLogger().Warn(fmt.Sprintf(format, args...)) }
+
+// Warnf 按格式写入 warn 日志。
+func Warnf(format string, args ...any) { getLogger().Warn(fmt.Sprintf(format, args...)) }
+
+// Debugf 按格式写入 debug 日志。
 func Debugf(format string, args ...any) { getLogger().Debug(fmt.Sprintf(format, args...)) }
 
+// Fatal 写入 fatal 日志后退出。
 func Fatal(msg string, args ...any) {
 	getLogger().Error(msg, args...)
 	shutdownDBHandler()
@@ -155,42 +185,66 @@ func Fatal(msg string, args ...any) {
 	exitFunc(1)
 }
 
-func Infow(msg string, keysAndValues ...any)  { getLogger().Info(msg, keysAndValues...) }
-func Warnw(msg string, keysAndValues ...any)  { getLogger().Warn(msg, keysAndValues...) }
+// Infow 按键值字段写入 info 日志。
+func Infow(msg string, keysAndValues ...any) { getLogger().Info(msg, keysAndValues...) }
+
+// Warnw 按键值字段写入 warn 日志。
+func Warnw(msg string, keysAndValues ...any) { getLogger().Warn(msg, keysAndValues...) }
+
+// Errorw 按键值字段写入 error 日志。
 func Errorw(msg string, keysAndValues ...any) { getLogger().Error(msg, keysAndValues...) }
+
+// Debugw 按键值字段写入 debug 日志。
 func Debugw(msg string, keysAndValues ...any) { getLogger().Debug(msg, keysAndValues...) }
 
-func InfoLevel() slog.Level  { return slog.LevelInfo }
-func WarnLevel() slog.Level  { return slog.LevelWarn }
+// InfoLevel 返回 info 级别。
+func InfoLevel() slog.Level { return slog.LevelInfo }
+
+// WarnLevel 返回 warn 级别。
+func WarnLevel() slog.Level { return slog.LevelWarn }
+
+// ErrorLevel 返回 error 级别。
 func ErrorLevel() slog.Level { return slog.LevelError }
+
+// DebugLevel 返回 debug 级别。
 func DebugLevel() slog.Level { return slog.LevelDebug }
 
+// CurrentLogFilePath 返回当前日志文件路径。
 func CurrentLogFilePath() string {
 	logFileMu.Lock()
 	defer logFileMu.Unlock()
 	return logFilePath
 }
 
+// IsDebugEnabled 判断 debug 日志是否启用。
 func IsDebugEnabled() bool {
 	return getLogger().Enabled(context.Background(), slog.LevelDebug)
 }
 
+// SetForTest 在测试中替换全局日志器。
 func SetForTest(l *slog.Logger) { storeLogger(l) }
 
+// New 创建 slog 日志器。
 func New(handler slog.Handler) *slog.Logger { return slog.New(handler) }
 
+// NewTextHandler 创建文本格式 slog handler。
 func NewTextHandler(out io.Writer, opts *slog.HandlerOptions) slog.Handler {
 	return slog.NewTextHandler(out, opts)
 }
 
+// Any 创建任意值日志字段。
 func Any(key string, value any) Attr { return slog.Any(key, value) }
 
+// String 创建字符串日志字段。
 func String(key, value string) Attr { return slog.String(key, value) }
 
+// Int 创建 int 日志字段。
 func Int(key string, value int) Attr { return slog.Int(key, value) }
 
+// Int64 创建 int64 日志字段。
 func Int64(key string, value int64) Attr { return slog.Int64(key, value) }
 
+// ResolveProjectLogDir 解析项目日志目录。
 func ResolveProjectLogDir(homeDir, cwd string) (string, string) {
 	return resolveProjectLogDir(homeDir, cwd)
 }

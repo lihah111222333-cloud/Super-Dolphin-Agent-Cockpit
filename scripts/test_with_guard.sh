@@ -55,6 +55,7 @@ run_single_file_guard() {
   for arg in "$@"; do
     case "$arg" in
       /*) go_files+=("$arg") ;;
+      [A-Za-z]:/*|[A-Za-z]:\\*) go_files+=("$arg") ;;
       *) go_files+=("$PWD/$arg") ;;
     esac
   done

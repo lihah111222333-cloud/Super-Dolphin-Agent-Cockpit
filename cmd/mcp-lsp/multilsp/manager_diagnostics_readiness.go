@@ -39,6 +39,7 @@ func (m *manager) newDiagnosticStableWait(ctx context.Context, filter diagnostic
 	}, nil
 }
 
+// wait 等待LSP。
 func (w *diagnosticStableWait) wait() error {
 	for {
 		if err := w.contextError(w.ctx.Err()); err != nil {
@@ -69,6 +70,7 @@ func (w *diagnosticStableWait) contextError(err error) error {
 	return fmt.Errorf("%w: diagnostics did not stabilize before context finished: %w", lspmanager.ErrDiagnosticsNotReady, err)
 }
 
+// refresh 刷新LSP。
 func (w *diagnosticStableWait) refresh(resetLast bool) error {
 	waitFor := w.manager.diagPoll
 	if deadline, ok := w.ctx.Deadline(); ok {

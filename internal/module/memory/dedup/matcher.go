@@ -31,6 +31,7 @@ type MatchResult struct {
 
 // NormalizeName lower-cases name, strips punctuation, collapses runs of
 // whitespace, and trims leading/trailing space.
+// NormalizeName 规范化名称。
 func NormalizeName(name string) string {
 	var b strings.Builder
 	prevSpace := false
@@ -70,6 +71,7 @@ func sliceToSet(ss []string) map[string]struct{} {
 // Only entries with the same Type as candidate are considered. When the
 // candidate has a Scope, same-scope entries are searched before cross-scope
 // entries so a current-scope duplicate is not shadowed by another scope.
+// FindDuplicate 查找duplicate。
 func FindDuplicate(candidate EntrySnapshot, existing []EntrySnapshot) MatchResult {
 	sameType := filterSameType(candidate.Type, existing)
 	if len(sameType) == 0 {

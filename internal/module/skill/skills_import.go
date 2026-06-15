@@ -124,6 +124,7 @@ func (s *service) importSources(sources []string, singleName, cwd, scope, person
 	return results, failures
 }
 
+// importSource 导入source。
 func (s *service) importSource(source, name, cwd, scope, personalType, mode string) ([]map[string]any, []map[string]any) {
 	resolvedSource, err := validateImportSource(source)
 	if err != nil {
@@ -146,6 +147,7 @@ func (s *service) importSource(source, name, cwd, scope, personalType, mode stri
 	return s.importBatchSource(resolvedSource, cwd, scope, personalType)
 }
 
+// detectImportMode 处理detectimport模式。
 func detectImportMode(resolvedSource, requestedMode string) (string, error) {
 	switch requestedMode {
 	case importModeSingle, importModeBatch:
@@ -167,6 +169,7 @@ func detectImportMode(resolvedSource, requestedMode string) (string, error) {
 	}
 }
 
+// importBatchSource 导入batchsource。
 func (s *service) importBatchSource(container, cwd, scope, personalType string) ([]map[string]any, []map[string]any) {
 	skillDirs, failures, err := collectBatchSkillDirs(container)
 	if err != nil {
@@ -229,6 +232,7 @@ func skillMainFileExists(dir string) bool {
 	return err == nil && !info.IsDir()
 }
 
+// importSkillUnit 导入技能unit。
 func (s *service) importSkillUnit(resolvedSource, name, cwd, scope, personalType, originalSource string) (map[string]any, error) {
 	normalizedScope, normalizedPersonalType, err := normalizeSkillTarget(scope, personalType)
 	if err != nil {
@@ -378,6 +382,7 @@ func ensureSkillDirAbsent(targetDir, targetName string) error {
 	return nil
 }
 
+// copySkillDir 复制技能目录。
 func copySkillDir(source, target string) (int, int64, error) {
 	files, total := 0, int64(0)
 	err := filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {

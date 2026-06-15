@@ -17,6 +17,7 @@ type Notification struct {
 	Payload any
 }
 
+// ExpandNotifications 处理expandnotifications。
 func ExpandNotifications(method string, payload any) []Notification {
 	method = strings.TrimSpace(method)
 	if method == "" {

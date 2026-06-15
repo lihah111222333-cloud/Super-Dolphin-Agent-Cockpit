@@ -18,6 +18,7 @@ const (
 	MemoryTypeReference MemoryType = "reference"
 )
 
+// ParseMemoryType 解析记忆type。
 func ParseMemoryType(raw string) MemoryType {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "user":
@@ -33,6 +34,7 @@ func ParseMemoryType(raw string) MemoryType {
 	}
 }
 
+// IsKnown 判断known是否可用。
 func (t MemoryType) IsKnown() bool {
 	switch ParseMemoryType(string(t)) {
 	case MemoryTypeUser, MemoryTypeFeedback, MemoryTypeProject, MemoryTypeReference:
@@ -70,6 +72,7 @@ type ParsedMemory struct {
 	ContentDiffersFromDisk bool
 }
 
+// Type 返回事件分发用的类型编号。
 func (e MemoryEntry) Type() MemoryType {
 	if e.Frontmatter.Type == nil {
 		return MemoryTypeUnknown
@@ -77,16 +80,19 @@ func (e MemoryEntry) Type() MemoryType {
 	return ParseMemoryType(string(*e.Frontmatter.Type))
 }
 
+// CanonicalName 处理canonical名称。
 func CanonicalName(raw string) string {
 	folded := cases.Fold().String(norm.NFC.String(strings.TrimSpace(raw)))
 	return strings.Join(strings.Fields(folded), " ")
 }
 
+// CloneMemoryType 复制记忆type。
 func CloneMemoryType(t MemoryType) *MemoryType {
 	parsed := ParseMemoryType(string(t))
 	return &parsed
 }
 
+// NormalizeStringSlice 规范化stringslice。
 func NormalizeStringSlice(values []string) []string {
 	if len(values) == 0 {
 		return nil

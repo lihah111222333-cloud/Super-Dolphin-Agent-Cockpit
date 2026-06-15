@@ -49,6 +49,7 @@ type DAGSubscriberDeps struct {
 
 // RegisterDAGTurnCompletedSubscriber advances DAG node state independently
 // from the agent-runtime TurnCompleted subscribers.
+// RegisterDAGTurnCompletedSubscriber 注册DAGturncompleted订阅器。
 func RegisterDAGTurnCompletedSubscriber(lc fx.Lifecycle, dispatcher *event.Dispatcher, deps DAGSubscriberDeps, logger *slog.Logger) {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -79,6 +80,7 @@ func RegisterDAGTurnCompletedSubscriber(lc fx.Lifecycle, dispatcher *event.Dispa
 	})
 }
 
+// handleDAGTurnCompleted 处理DAGturncompleted。
 func handleDAGTurnCompleted(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, ev turndto.TurnCompleted) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	if threadID == "" {
@@ -114,6 +116,7 @@ func handleDAGTurnCompleted(ctx context.Context, deps DAGSubscriberDeps, logger 
 	stopSpawnedAgentForSubscriber(ctx, deps, logger, threadID)
 }
 
+// advanceNodeForTurnCompleted 为turncompleted处理advance节点。
 func advanceNodeForTurnCompleted(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, node *taskdag.Node, ev turndto.TurnCompleted) {
 	if isTerminalNodeStatus(node.Status) {
 		dagSubscriberMetrics.IncIdempotentSkipped()
@@ -234,6 +237,7 @@ func advanceNodeFailedWithReason(ctx context.Context, flow taskdag.NodeFlowStore
 	return false
 }
 
+// materializeSharedfileAfterClaim 在领取输出后写入 shared file。
 func materializeSharedfileAfterClaim(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, node *taskdag.Node, materialized turnOutputMaterialization, owner sharedfileowner.Owner) (json.RawMessage, bool) {
 	result := materialized.Result
 	if materialized.SharedfilePath == "" {

@@ -12,6 +12,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/skillhash"
 )
 
+// ResolveSkillMirrorDrift 处理用户选择的 mirror 修复动作。
+// 会改目录的动作都要先校验 preview、做备份并写审计。
 func ResolveSkillMirrorDrift(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
 	req.Action = normalizeResolutionAction(req.Action)
 	switch req.Action {
@@ -113,6 +115,8 @@ func resolutionApplyName(p skillResolutionApplyParams, item skillResolutionItem)
 	return name
 }
 
+// syncBackMirrorToCanonical 会把 mirror 写回真实 skill。
+// 只有用户确认冲突处理时才能走，日常 mirror 刷新不能调用它。
 func syncBackMirrorToCanonical(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
 	report := SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}
 	prepared, err := prepareCanonicalMirrorResolution(ctx, svc, req)
@@ -151,6 +155,8 @@ func syncBackMirrorToCanonical(ctx context.Context, svc *service, req SkillMirro
 	return report, nil
 }
 
+// overwriteMirrorFromCanonical 用真实 skill 重建 mirror。
+// 只有用户选择“用真实来源覆盖 mirror”时才能走。
 func overwriteMirrorFromCanonical(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
 	report := SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}
 	record, mirrorDir, err := resolutionRecordAndMirrorDir(ctx, svc, req)
@@ -192,6 +198,8 @@ func overwriteMirrorFromCanonical(ctx context.Context, svc *service, req SkillMi
 	return report, nil
 }
 
+// saveMirrorAsNewCanonical 把改过的 mirror 另存成新的真实 skill。
+// 目标目录必须不存在，保存后还要处理原 mirror 记录。
 func saveMirrorAsNewCanonical(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
 	report := SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}
 	prepared, err := prepareCanonicalMirrorResolution(ctx, svc, req)
@@ -263,6 +271,8 @@ type canonicalMirrorResolution struct {
 	mirrorHash string
 }
 
+// prepareCanonicalMirrorResolution 做修复前的共同检查。
+// 它确认真实目录、mirror 目录和 preview 都还对得上。
 func prepareCanonicalMirrorResolution(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (canonicalMirrorResolution, error) {
 	record, mirrorDir, err := resolutionRecordAndMirrorDir(ctx, svc, req)
 	if err != nil {
@@ -296,6 +306,7 @@ func setMirrorResolutionResultHash(report *SkillMirrorResolutionReport, targetDi
 	return nil
 }
 
+// ImportUnmanagedProviderSkill 把未托管 provider skill 导入 canonical 存储。
 func ImportUnmanagedProviderSkill(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
 	report := SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}
 	prepared, err := prepareUnmanagedProviderImport(svc, req)
@@ -331,6 +342,7 @@ type unmanagedProviderImport struct {
 	scope, personalType  string
 }
 
+// prepareUnmanagedProviderImport 准备导入未托管 provider skill 的源和目标。
 func prepareUnmanagedProviderImport(svc *service, req SkillMirrorResolutionRequest) (unmanagedProviderImport, error) {
 	name, displayName, err := normalizeSkillIdentityName(req.Name, "")
 	if err != nil {
@@ -378,6 +390,7 @@ func markImportMirrorPublish(ctx context.Context, svc *service, req SkillMirrorR
 	}
 }
 
+// TakeoverProviderSkill 接管 provider skill 并写入 canonical 存储。
 func TakeoverProviderSkill(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
 	report := SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}
 	prepared, err := prepareProviderSkillTakeover(ctx, svc, req)
@@ -473,6 +486,7 @@ func replaceProviderTakeoverMirror(req SkillMirrorResolutionRequest, record cano
 	return mirrorHash, nil
 }
 
+// markResolutionMirrorPublish 记录冲突解决后需要重新发布 mirror。
 func markResolutionMirrorPublish(ctx context.Context, svc *service, req SkillMirrorResolutionRequest, scope, personalType, name string, report *SkillMirrorResolutionReport) {
 	if svc == nil || report == nil {
 		return
@@ -490,6 +504,7 @@ func markResolutionMirrorPublish(ctx context.Context, svc *service, req SkillMir
 	}
 }
 
+// takeoverCanonicalRecord 生成接管后的 canonical skill 记录。
 func takeoverCanonicalRecord(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (canonicalSkillRecord, error) {
 	if svc == nil {
 		return canonicalSkillRecord{}, fmt.Errorf("skill service is required")
@@ -522,6 +537,7 @@ func replaceCanonicalSkillDirFromMirror(sourceDir, targetDir string) error {
 	return replaceSkillDirFromMirrorWithCopy(sourceDir, targetDir, copyMirrorSkillDir)
 }
 
+// copyMirrorSkillDir 复制 mirror skill 目录到目标位置。
 func copyMirrorSkillDir(source, target string) (int, int64, error) {
 	files, total := 0, int64(0)
 	err := filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {

@@ -30,10 +30,12 @@ var defaultToolResultBudgetRegistry = &toolResultBudgetRegistry{
 	budgets: map[string]*toolResultBudget{},
 }
 
+// ResetToolResultScope 重置工具结果作用域。
 func ResetToolResultScope(threadID, turnID string) {
 	defaultToolResultBudgetRegistry.Reset(toolResultScope(threadID, turnID))
 }
 
+// Reset 重置turn。
 func (r *toolResultBudgetRegistry) Reset(scope string) {
 	scope = strings.TrimSpace(scope)
 	if r == nil || scope == "" {
@@ -48,6 +50,7 @@ func takeToolResultPreview(threadID, turnID, raw string) (string, bool) {
 	return defaultToolResultBudgetRegistry.Take(toolResultScope(threadID, turnID), raw)
 }
 
+// Take 处理take。
 func (r *toolResultBudgetRegistry) Take(scope, raw string) (string, bool) {
 	chars := toolResultCharCount(raw)
 	if chars == 0 {
@@ -153,6 +156,7 @@ func (s *jsonRepairScanner) record(pos int) {
 	s.bestStack = append([]rune(nil), s.stack...)
 }
 
+// advanceString 处理advancestring。
 func (s *jsonRepairScanner) advanceString(runes []rune, i int) int {
 	for i < len(runes) {
 		ch := runes[i]
@@ -186,6 +190,7 @@ func (s *jsonRepairScanner) handleCloseBracket(ch rune, i int) {
 	s.record(i + 1)
 }
 
+// processToken 处理进程令牌。
 func (s *jsonRepairScanner) processToken(ch rune, i int) {
 	switch ch {
 	case '"':
@@ -210,6 +215,7 @@ func (s *jsonRepairScanner) processToken(ch rune, i int) {
 	}
 }
 
+// closeJSONBrackets 关闭JSONbrackets。
 func closeJSONBrackets(prefix []rune, stack []rune) string {
 	result := append([]rune(nil), prefix...)
 	for len(result) > 0 {

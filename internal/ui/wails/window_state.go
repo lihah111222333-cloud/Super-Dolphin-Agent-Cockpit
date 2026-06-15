@@ -43,6 +43,7 @@ func normalizeWindowGroup(group, fallback string) string {
 	return strings.TrimSpace(fallback)
 }
 
+// registerWindowState 注册window状态。
 func (a *App) registerWindowState(name, group string, snapshot map[string]any) {
 	if a == nil {
 		return
@@ -87,6 +88,7 @@ func cloneWindowBootstrapSnapshot(snapshot map[string]any) map[string]any {
 	return cloned
 }
 
+// consumeWindowBootstrapSnapshot 处理consumewindow启动快照。
 func (a *App) consumeWindowBootstrapSnapshot() map[string]any {
 	if a == nil {
 		return nil

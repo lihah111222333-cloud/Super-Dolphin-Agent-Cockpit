@@ -22,6 +22,7 @@ type (
 	LSPConfig    = contract.LSPConfig
 )
 
+// New 创建平台配置并解析 SQLite 运行时路径。
 func New() (*Config, error) {
 	projectRoot, err := PrimeProcessEnvironment()
 	if err != nil {
@@ -59,6 +60,7 @@ func New() (*Config, error) {
 	return cfg, nil
 }
 
+// PrimeProcessEnvironment 加载进程环境并返回项目根目录。
 func PrimeProcessEnvironment() (string, error) {
 	projectRoot := resolveProjectRoot()
 	if err := validateTrustedDevRuntimeMode(projectRoot); err != nil {
@@ -197,6 +199,7 @@ func exportRPCAddrIfMissing(setenv func(string, string) error, addr string) erro
 	return nil
 }
 
+// resolveProjectRoot 解析项目根目录。
 func resolveProjectRoot() string {
 	if root := strings.TrimSpace(os.Getenv("PROJECT_ROOT")); root != "" {
 		return root
@@ -220,6 +223,7 @@ func hasPackagedProjectRootMigrationsDir(root string) bool {
 	return err == nil && info.IsDir()
 }
 
+// resolveSQLitePath 解析当前运行时使用的 SQLite 数据库路径。
 func resolveSQLitePath(projectRoot string) (string, error) {
 	publicRaw, hasPublic := os.LookupEnv(contract.SQLitePathEnvKey)
 	internalRaw, hasInternal := os.LookupEnv(contract.InternalSQLitePathEnvKey)
@@ -345,6 +349,7 @@ func redactPath(path string) string {
 	return securefs.RedactPath(path)
 }
 
+// SharedFileRoot 返回 shared file 存储根目录。
 func SharedFileRoot(cfg *Config) (string, error) {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_RUNTIME_MODE")), "packaged") {
 		root := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_HOME"))

@@ -21,6 +21,7 @@ type Memory struct {
 }
 
 // NewMemory returns an empty Memory contract.
+// NewMemory 创建记忆。
 func NewMemory() *Memory {
 	return &Memory{
 		localToProv: map[string]string{},
@@ -35,6 +36,7 @@ func NewMemory() *Memory {
 	}
 }
 
+// MapTurn 映射turn。
 func (m *Memory) MapTurn(local, provider string) bool {
 	if local == "" || provider == "" {
 		return false
@@ -52,6 +54,7 @@ func (m *Memory) MapTurn(local, provider string) bool {
 	return true
 }
 
+// ResolveLocalTurn 解析localturn。
 func (m *Memory) ResolveLocalTurn(provider string) (string, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -59,6 +62,7 @@ func (m *Memory) ResolveLocalTurn(provider string) (string, bool) {
 	return id, ok
 }
 
+// ResolveProviderTurn 解析providerturn。
 func (m *Memory) ResolveProviderTurn(local string) (string, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -66,6 +70,7 @@ func (m *Memory) ResolveProviderTurn(local string) (string, bool) {
 	return id, ok
 }
 
+// AttributeCall 处理attributecall。
 func (m *Memory) AttributeCall(callID, localTurnID string) bool {
 	if callID == "" || localTurnID == "" {
 		return false
@@ -76,6 +81,7 @@ func (m *Memory) AttributeCall(callID, localTurnID string) bool {
 	return true
 }
 
+// LookupCall 处理lookupcall。
 func (m *Memory) LookupCall(callID string) (string, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -83,6 +89,7 @@ func (m *Memory) LookupCall(callID string) (string, bool) {
 	return id, ok
 }
 
+// RecordTokens 记录令牌。
 func (m *Memory) RecordTokens(turnID string, snap TokenSnapshot) TokenSnapshot {
 	if turnID == "" {
 		return snap
@@ -94,6 +101,7 @@ func (m *Memory) RecordTokens(turnID string, snap TokenSnapshot) TokenSnapshot {
 	return merged
 }
 
+// Tokens 处理令牌。
 func (m *Memory) Tokens(turnID string) (TokenSnapshot, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -101,6 +109,7 @@ func (m *Memory) Tokens(turnID string) (TokenSnapshot, bool) {
 	return t, ok
 }
 
+// mergeTokens 合并令牌。
 func mergeTokens(prev, next TokenSnapshot) TokenSnapshot {
 	out := prev
 	if next.Input != 0 {
@@ -124,6 +133,7 @@ func mergeTokens(prev, next TokenSnapshot) TokenSnapshot {
 	return out
 }
 
+// RecordTerminal 记录terminal。
 func (m *Memory) RecordTerminal(turnID string, t Terminal) Terminal {
 	if turnID == "" {
 		return t
@@ -153,6 +163,7 @@ func (m *Memory) RecordTerminal(turnID string, t Terminal) Terminal {
 	return prev
 }
 
+// Terminal 处理terminal。
 func (m *Memory) Terminal(turnID string) (Terminal, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -160,6 +171,7 @@ func (m *Memory) Terminal(turnID string) (Terminal, bool) {
 	return t, ok
 }
 
+// SetSkillsSelected 设置skillsselected。
 func (m *Memory) SetSkillsSelected(turnID string, slugs []string) {
 	if turnID == "" {
 		return
@@ -170,12 +182,14 @@ func (m *Memory) SetSkillsSelected(turnID string, slugs []string) {
 	m.mu.Unlock()
 }
 
+// SkillsSelected 处理skillsselected。
 func (m *Memory) SkillsSelected(turnID string) []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return append([]string(nil), m.skills[turnID]...)
 }
 
+// Dedupe 去重turn。
 func (m *Memory) Dedupe(key DedupeKey) bool {
 	if key == (DedupeKey{}) {
 		// No identifier — treat as unique. Observation must not silently
@@ -191,6 +205,7 @@ func (m *Memory) Dedupe(key DedupeKey) bool {
 	return true
 }
 
+// IncrementToolCalls 累加工具calls。
 func (m *Memory) IncrementToolCalls(turnID string) int32 {
 	return m.bumpCounter(turnID, func(c *Counts) {
 		c.ToolCalls++
@@ -198,6 +213,7 @@ func (m *Memory) IncrementToolCalls(turnID string) int32 {
 	}).ToolCalls
 }
 
+// IncrementToolFailures 累加工具failures。
 func (m *Memory) IncrementToolFailures(turnID string) int32 {
 	return m.bumpCounter(turnID, func(c *Counts) {
 		c.ToolFailures++
@@ -205,6 +221,7 @@ func (m *Memory) IncrementToolFailures(turnID string) int32 {
 	}).ToolFailures
 }
 
+// IncrementApprovalRequests 累加审批请求。
 func (m *Memory) IncrementApprovalRequests(turnID string) int32 {
 	return m.bumpCounter(turnID, func(c *Counts) {
 		c.ApprovalRequests++
@@ -226,6 +243,7 @@ func (m *Memory) bumpCounter(turnID string, apply func(*Counts)) Counts {
 	return c
 }
 
+// Counts 处理counts。
 func (m *Memory) Counts(turnID string) (Counts, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -233,6 +251,7 @@ func (m *Memory) Counts(turnID string) (Counts, bool) {
 	return c, ok
 }
 
+// RecordStartedAt 记录startedat。
 func (m *Memory) RecordStartedAt(turnID string, at time.Time) {
 	if turnID == "" || at.IsZero() {
 		return
@@ -246,6 +265,7 @@ func (m *Memory) RecordStartedAt(turnID string, at time.Time) {
 	}
 }
 
+// RecordCompletedAt 记录completedat。
 func (m *Memory) RecordCompletedAt(turnID string, at time.Time) {
 	if turnID == "" || at.IsZero() {
 		return
@@ -259,6 +279,7 @@ func (m *Memory) RecordCompletedAt(turnID string, at time.Time) {
 	}
 }
 
+// Timestamps 处理timestamps。
 func (m *Memory) Timestamps(turnID string) (Timestamps, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

@@ -27,6 +27,7 @@ func MeasureFileMetrics(path string) FileMetrics {
 // measureFileMetricsFromAST 在已解析的 AST 上执行全量指标采集。
 func measureFileMetricsFromAST(rawLines []string, fset *token.FileSet, node *ast.File) FileMetrics {
 	var m FileMetrics
+	ignores := collectArchGuardIgnores(fset, node)
 
 	// 代码生成文件豁免：如果包含标准的 "Code generated ... DO NOT EDIT." 注释，直接当做无违规处理。
 	if ast.IsGenerated(node) {
@@ -34,9 +35,9 @@ func measureFileMetricsFromAST(rawLines []string, fset *token.FileSet, node *ast
 	}
 
 	m.Lines = countEffectiveLinesFromRaw(rawLines)
-	m.GlobalVars = countGlobalVarsV3(node)
+	m.GlobalVars = countGlobalVarsV3(fset, node, ignores)
 	m.HasInit = hasInitFunc(node)
-	m.PanicCount = countPanicCalls(node)
+	m.PanicCount = countPanicCalls(fset, node, ignores)
 	m.TodoCount = countTodoComments(node)
 	m.MaxStructFields = measureMaxStructFields(node)
 	for _, decl := range node.Decls {
@@ -44,14 +45,14 @@ func measureFileMetricsFromAST(rawLines []string, fset *token.FileSet, node *ast
 		if !ok || fd.Body == nil || fd.Name == nil {
 			continue
 		}
-		measureFuncMetrics(rawLines, fset, fd, &m)
+		measureFuncMetrics(rawLines, fset, fd, ignores, &m)
 	}
 	m.MaxUnderscore = measureMaxUnderscore(node)
 	return m
 }
 
 // measureFuncMetrics 采集单个函数的指标并更新 FileMetrics 中的 max 值。
-func measureFuncMetrics(rawLines []string, fset *token.FileSet, fd *ast.FuncDecl, m *FileMetrics) {
+func measureFuncMetrics(rawLines []string, fset *token.FileSet, fd *ast.FuncDecl, ignores archGuardIgnores, m *FileMetrics) {
 	startLine := fset.Position(fd.Pos()).Line
 	endLine := fset.Position(fd.End()).Line
 	if funcLen := EffectiveLinesInRange(rawLines, startLine, endLine); funcLen > m.MaxFuncLen {
@@ -70,7 +71,7 @@ func measureFuncMetrics(rawLines []string, fset *token.FileSet, fd *ast.FuncDecl
 		m.MaxReturns = r
 	}
 	if hasNamedResults(fd) {
-		m.NakedReturns += countNakedReturnsInFunc(fd.Body)
+		m.NakedReturns += countNakedReturnsInFunc(fset, fd.Body, ignores)
 	}
 	if len(fd.Body.List) == 0 && fd.Name.Name != "init" {
 		m.EmptyFuncs++
@@ -87,7 +88,7 @@ func countEffectiveLinesFromRaw(rawLines []string) int {
 //   - var _ Interface = (*impl)(nil) 接口合规检查
 //   - var ErrExample / var errExample 哨兵错误
 //   - regexp.MustCompile / event.New 不可变全局
-func countGlobalVarsV3(node *ast.File) int {
+func countGlobalVarsV3(fset *token.FileSet, node *ast.File, ignores archGuardIgnores) int {
 	count := 0
 	for _, decl := range node.Decls {
 		gd, ok := decl.(*ast.GenDecl)
@@ -101,6 +102,9 @@ func countGlobalVarsV3(node *ast.File) int {
 			}
 			for _, name := range vs.Names {
 				if name.Name == "_" {
+					continue
+				}
+				if ignores.has(fset.Position(name.Pos()).Line, "global_vars") {
 					continue
 				}
 				if isExemptGlobalVar(name.Name, vs) {
@@ -208,6 +212,7 @@ func isImmutableFuncCall(call *ast.CallExpr) bool {
 	return false
 }
 
+// isImmutableSelectorCall 判断immutableselectorcall是否可用。
 func isImmutableSelectorCall(sel *ast.SelectorExpr) bool {
 	pkg, ok := sel.X.(*ast.Ident)
 	if !ok {
@@ -237,7 +242,7 @@ func hasInitFunc(node *ast.File) bool {
 }
 
 // countPanicCalls 计算文件中 panic() 调用次数。
-func countPanicCalls(node *ast.File) int {
+func countPanicCalls(fset *token.FileSet, node *ast.File, ignores archGuardIgnores) int {
 	count := 0
 	ast.Inspect(node, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -245,6 +250,9 @@ func countPanicCalls(node *ast.File) int {
 			return true
 		}
 		if ident, ok := call.Fun.(*ast.Ident); ok && ident.Name == "panic" {
+			if ignores.has(fset.Position(call.Pos()).Line, "panic_count") {
+				return true
+			}
 			count++
 		}
 		return true
@@ -354,11 +362,11 @@ func hasNamedResults(fd *ast.FuncDecl) bool {
 }
 
 // countNakedReturnsInFunc 计算函数体内 naked return 语句数量。
-func countNakedReturnsInFunc(body *ast.BlockStmt) int {
+func countNakedReturnsInFunc(fset *token.FileSet, body *ast.BlockStmt, ignores archGuardIgnores) int {
 	count := 0
 	ast.Inspect(body, func(n ast.Node) bool {
 		ret, ok := n.(*ast.ReturnStmt)
-		if ok && len(ret.Results) == 0 {
+		if ok && len(ret.Results) == 0 && !ignores.has(fset.Position(ret.Pos()).Line, "naked_returns") {
 			count++
 		}
 		return true

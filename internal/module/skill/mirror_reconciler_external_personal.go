@@ -10,6 +10,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
 )
 
+// ResolveExternalPersonalProjectSameName 处理外部 personal mirror 和项目 skill 同名。
+// 这些动作必须由用户选择，不能被日常刷新自动触发。
 func ResolveExternalPersonalProjectSameName(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
 	req.Action = normalizeResolutionAction(req.Action)
 	switch req.Action {
@@ -24,6 +26,8 @@ func ResolveExternalPersonalProjectSameName(ctx context.Context, svc *service, r
 	}
 }
 
+// useProjectSharedForExternalPersonal 保留项目 skill。
+// 只清理 preview 指向的同名外部 mirror 副本。
 func useProjectSharedForExternalPersonal(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
 	report := SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}
 	record, err := externalPersonalProjectCanonicalRecord(ctx, svc, req)
@@ -55,6 +59,8 @@ func useProjectSharedForExternalPersonal(ctx context.Context, svc *service, req 
 	return report, nil
 }
 
+// useExternalForExternalPersonalProject 把外部 mirror 提升为项目 skill。
+// 替换前要确认 preview 仍指向当前项目目录。
 func useExternalForExternalPersonalProject(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
 	report := SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}
 	record, err := externalPersonalProjectCanonicalRecord(ctx, svc, req)
@@ -100,6 +106,7 @@ func replaceProjectSkillWithExternalPersonal(sourceDir, targetDir string) (strin
 	return skillDirContentHash(targetDir)
 }
 
+// prepareProjectReplacementDirs 准备替换项目 skill 所需的临时目录。
 func prepareProjectReplacementDirs(sourceDir, targetDir string) (string, error) {
 	if err := ensureProviderSkillDirSafe(sourceDir); err != nil {
 		return "", err
@@ -143,6 +150,8 @@ func moveExternalPersonalIntoProject(sourceDir, targetDir, tempDir string) error
 	return nil
 }
 
+// saveExternalPersonalProjectSameNameAsPersonal 把外部同名 skill 另存到 personal/imported。
+// 保存成功后才删除原 mirror；删除失败要告诉前端后续重试。
 func saveExternalPersonalProjectSameNameAsPersonal(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
 	report := SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}
 	sourceDir, _, preview, err := externalPersonalProjectSource(svc, req)
@@ -195,6 +204,7 @@ func externalPersonalProjectSource(svc *service, req SkillMirrorResolutionReques
 	return unmanagedProviderSource(svc, req)
 }
 
+// externalPersonalProjectCanonicalRecord 为外部个人项目 skill 生成 canonical 记录。
 func externalPersonalProjectCanonicalRecord(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (canonicalSkillRecord, error) {
 	if svc == nil {
 		return canonicalSkillRecord{}, fmt.Errorf("skill service is required")

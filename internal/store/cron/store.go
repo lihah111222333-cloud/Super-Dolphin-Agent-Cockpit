@@ -9,7 +9,6 @@ import (
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
-	"github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type querier interface {
@@ -256,7 +255,6 @@ func (s *store) ClaimDueJobsForUpdate(ctx context.Context, p ClaimDueJobsForUpda
 }
 
 func (s *store) claimDueJobsWithRetry(ctx context.Context, arg sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
-	log := logger.FromContext(ctx)
 	var lastErr error
 	for attempt := 1; attempt <= cronClaimBusyRetryAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
@@ -271,21 +269,8 @@ func (s *store) claimDueJobsWithRetry(ctx context.Context, arg sqlc.ClaimDueJobs
 			return nil, err
 		}
 		if attempt == cronClaimBusyRetryAttempts {
-			log.ErrorContext(ctx, "cron claim sqlite busy retry exhausted",
-				logger.FieldComponent, "cron_store",
-				logger.FieldAction, "claim_due_jobs",
-				logger.FieldCount, attempt,
-				logger.FieldError, err,
-			)
 			return nil, fmt.Errorf("sqlite claim busy after %d attempts: %w", attempt, err)
 		}
-		log.WarnContext(ctx, "cron claim sqlite busy; retrying",
-			logger.FieldComponent, "cron_store",
-			logger.FieldAction, "claim_due_jobs",
-			logger.FieldCount, attempt,
-			logger.FieldMax, cronClaimBusyRetryAttempts,
-			logger.FieldError, err,
-		)
 	}
 	return nil, lastErr
 }

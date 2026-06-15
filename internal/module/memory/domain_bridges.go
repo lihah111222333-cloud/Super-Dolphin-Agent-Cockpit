@@ -40,10 +40,12 @@ func provideTeamConfig(cfg *Config) teampkg.Config {
 	return teamConfigAdapter{cfg: memoryConfig(cfg)}
 }
 
+// NewTeamMemoryManager 创建团队记忆管理器适配器。
 func NewTeamMemoryManager(cfg *Config) *TeamMemoryManager {
 	return teampkg.NewTeamMemoryManager(provideTeamConfig(cfg))
 }
 
+// NewTeamMemoryGuard 创建团队记忆写入守卫。
 func NewTeamMemoryGuard(manager *TeamMemoryManager) *TeamMemoryGuard {
 	return teampkg.NewTeamMemoryGuard(manager)
 }
@@ -71,6 +73,7 @@ func setTeamMemoryRuntimeReady(ready bool) {
 	teampkg.SetRuntimeReady(ready)
 }
 
+// ScanTeamMemContent 扫描团队记忆内容并提取结构化条目。
 func ScanTeamMemContent(content string) []TeamMemSecretFinding {
 	return teampkg.ScanTeamMemContent(content)
 }
@@ -79,6 +82,7 @@ type teamConfigAdapter struct {
 	cfg *Config
 }
 
+// Gate 判断团队记忆写入是否允许通过。
 func (a teamConfigAdapter) Gate(buildCtx contract.BuildCtx) teampkg.GateSnapshot {
 	gate := ResolveMemoryGate(buildCtx, a.cfg)
 	return teampkg.GateSnapshot{
@@ -88,6 +92,7 @@ func (a teamConfigAdapter) Gate(buildCtx contract.BuildCtx) teampkg.GateSnapshot
 	}
 }
 
+// TeamRoot 返回团队记忆根目录。
 func (a teamConfigAdapter) TeamRoot(buildCtx contract.BuildCtx) (string, error) {
 	cfg := memoryConfig(a.cfg)
 	projectRoot := a.ProjectRoot(buildCtx)
@@ -105,6 +110,7 @@ func (a teamConfigAdapter) TeamRoot(buildCtx contract.BuildCtx) (string, error) 
 	return filepath.Join(cleaned, teampkg.RootDirName), nil
 }
 
+// ProjectRoot 返回项目记忆根目录。
 func (a teamConfigAdapter) ProjectRoot(buildCtx contract.BuildCtx) string {
 	if buildCtx.GitRoot != "" {
 		return strings.TrimSpace(buildCtx.GitRoot)
@@ -139,14 +145,18 @@ var (
 	}
 )
 
+// MemoryWriteEnabled 判断记忆写入是否启用。
 func (h *MemoryLifecycleHooks) MemoryWriteEnabled() bool {
 	return h != nil && h.cfg != nil && h.cfg.Enabled
 }
 
+// MemoryWriteToolsEnabled 判断记忆写入工具是否启用。
 func (h *MemoryLifecycleHooks) MemoryWriteToolsEnabled() bool {
 	return h != nil && h.cfg != nil && h.cfg.EnableTools
 }
 
+// WriteAgentMemory 接住 provider 发来的 memory_write。
+// 先检查开关、输入和敏感内容，再写入 memory；写完要让 prompt 下次读到新内容。
 func (h *MemoryLifecycleHooks) WriteAgentMemory(ctx context.Context, req contract.AgentMemoryWriteRequest) (contract.AgentMemoryWriteResult, error) {
 
 	if h == nil {
@@ -174,6 +184,8 @@ func (h *MemoryLifecycleHooks) WriteAgentMemory(ctx context.Context, req contrac
 	return agentMemoryWriteResult(outcome, entry.Type, scope), nil
 }
 
+// agentMemoryWriteOutcome 记录这次写入最终去了哪里。
+// 请求里的 scope 只是意图，actualTarget 才是 private/team 路由和合并后的结果。
 type agentMemoryWriteOutcome struct {
 	store        memoryStructuredStore
 	path         string
@@ -182,6 +194,8 @@ type agentMemoryWriteOutcome struct {
 	merged       bool
 }
 
+// writeStructuredAgentMemory 只把已检查的内容写进 private/team memory。
+// 它不组 prompt；调用方写完后要通知 prompt 重新读取。
 func (h *MemoryLifecycleHooks) writeStructuredAgentMemory(ctx context.Context, threadID string, entry MemoryWriteRequest, options WriteOptions) (agentMemoryWriteOutcome, error) {
 	primary, secondary, err := h.intentDiskStores(ctx, threadID, entry.Type)
 	if err != nil {
@@ -211,6 +225,8 @@ func (h *MemoryLifecycleHooks) writeStructuredAgentMemory(ctx context.Context, t
 	return agentMemoryWriteOutcome{store: store, path: relativeAgentMemoryPath(store, written.FilePath), actualTarget: actual}, nil
 }
 
+// buildAgentMemoryEntry 把 tool 参数变成 memory 条目。
+// 缺 name/description/content、未知 type/scope、疑似 secret 都直接报错。
 func buildAgentMemoryEntry(req contract.AgentMemoryWriteRequest) (MemoryWriteRequest, contract.MemoryScope, error) {
 	name, description, content, err := normalizeAgentMemoryInput(req)
 	if err != nil {
@@ -351,6 +367,7 @@ func containsHighEntropyAssignment(text string) bool {
 	return false
 }
 
+// looksHighEntropy 判断文本是否像高熵密钥，避免写入敏感内容。
 func looksHighEntropy(s string) bool {
 	classes := 0
 	checks := []func(rune) bool{unicode.IsLower, unicode.IsUpper, unicode.IsDigit, func(r rune) bool { return strings.ContainsRune("/_+=.-", r) }}
@@ -402,6 +419,7 @@ func buildExplicitMemoryDescription(content string) string {
 	return description
 }
 
+// buildExplicitMemoryBody 把显式记忆条目整理成写入正文。
 func buildExplicitMemoryBody(memoryType MemoryType, content string) string {
 	content = strings.TrimSpace(content)
 	switch memoryType {
@@ -428,6 +446,7 @@ func buildExplicitMemoryBody(memoryType MemoryType, content string) string {
 	}
 }
 
+// buildExplicitMemoryName 为显式记忆条目生成稳定名称。
 func buildExplicitMemoryName(memoryType MemoryType, description string) string {
 	prefix := "Saved memory"
 	switch memoryType {
@@ -490,6 +509,7 @@ func mergeAndWriteMemory(store memoryWriteStore, targetPath string, merged Memor
 	})
 }
 
+// overflowMergeAndDelete 合并溢出的记忆条目并删除旧记录。
 func overflowMergeAndDelete(store memoryWriteStore, keepPath string, merged MemoryEntry, deletePath string, options WriteOptions, locks *diskLockCoordinator) error {
 	if err := ValidateMemoryEntryContent(merged); err != nil {
 		return err

@@ -25,6 +25,7 @@ type driverFactoryParams struct {
 	Tracer      *observability.Service           `optional:"true"`
 }
 
+// NewDriverFactory 创建driver工厂。
 func NewDriverFactory(p driverFactoryParams) contract.DriverFactory {
 	return contract.DriverFactory{
 		Name: "claude",

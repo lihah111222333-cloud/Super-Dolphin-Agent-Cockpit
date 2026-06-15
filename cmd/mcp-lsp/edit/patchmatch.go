@@ -44,10 +44,12 @@ type CandidateLocation struct {
 
 const ambiguousCandidateCap = 5
 
+// Error 返回错误文本。
 func (e *AmbiguousMatchError) Error() string {
 	return fmt.Sprintf("%s: hunk %d matched %d locations", ErrAmbiguousMatch.Error(), e.HunkIndex+1, len(e.Candidates))
 }
 
+// Unwrap 返回底层错误。
 func (e *AmbiguousMatchError) Unwrap() error { return ErrAmbiguousMatch }
 
 func newAmbiguousMatchError(hunkIndex int, candidates []matchCandidate) *AmbiguousMatchError {
@@ -73,6 +75,7 @@ func newAmbiguousMatchError(hunkIndex int, candidates []matchCandidate) *Ambiguo
 // MatchContext resolves patch hunks against content using line-sequence matching
 // first, then a raw substring fallback. Later hunks are matched against the
 // working content produced by earlier matches.
+// MatchContext 判断上下文是否匹配。
 func MatchContext(content string, hunks []Hunk) ([]Match, error) {
 	if err := GuardContentAndReplacement(content, ""); err != nil {
 		return nil, err
@@ -126,6 +129,7 @@ func resolveContextMatch(content string, hunk Hunk, hunkIndex int) (matchCandida
 	return candidates[0], nil
 }
 
+// resolveContextAnchorStarts 解析上下文锚点起点。
 func resolveContextAnchorStarts(lines []string, before []string) map[int]struct{} {
 	if len(before) == 0 {
 		return nil
@@ -145,6 +149,7 @@ func resolveContextAnchorStarts(lines []string, before []string) map[int]struct{
 	return anchors
 }
 
+// collectLineSequenceCandidates 收集行序列候选项。
 func collectLineSequenceCandidates(index contentIndex, hunk Hunk, anchors map[int]struct{}) []matchCandidate {
 	oldLines := splitPatchText(hunk.OldText)
 	if len(oldLines) == 0 {
@@ -204,6 +209,7 @@ func resolveInsertionLines(index contentIndex, hunk Hunk, anchors map[int]struct
 	return findAfterContextInsertions(index.lines, hunk.AfterContext)
 }
 
+// findAfterContextInsertions 查找后置上下文插入点。
 func findAfterContextInsertions(lines []string, afterCtx []string) []int {
 	if len(afterCtx) == 0 {
 		return nil
@@ -297,6 +303,7 @@ func filterContextCandidates(lines []string, hunk Hunk, candidates []matchCandid
 	return dedupeCandidates(filtered)
 }
 
+// contextMatches 判断上下文是否匹配。
 func contextMatches(lines []string, context []string, start int) bool {
 	if len(context) == 0 {
 		return true
@@ -312,6 +319,7 @@ func contextMatches(lines []string, context []string, start int) bool {
 	return false
 }
 
+// dedupeCandidates 去重候选项。
 func dedupeCandidates(candidates []matchCandidate) []matchCandidate {
 	if len(candidates) < 2 {
 		return candidates

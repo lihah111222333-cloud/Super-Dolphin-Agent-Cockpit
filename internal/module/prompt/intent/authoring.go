@@ -46,6 +46,7 @@ type DryRunResult struct {
 	Disclaimer string   `json:"disclaimer"`
 }
 
+// HandleDraft 处理draft。
 func HandleDraft(
 	ctx context.Context,
 	promptStore promptstore.Store,
@@ -135,6 +136,7 @@ func upsertPromptIntentDrafts(ctx context.Context, promptStore promptstore.Store
 	})
 }
 
+// validatePromptIntentDraftRequest 校验promptintentdraft请求。
 func validatePromptIntentDraftRequest(
 	promptStore promptstore.Store,
 	dream contract.DreamExecutor,
@@ -169,6 +171,7 @@ func newPromptIntentDraftKeyFromEntropy(kind Kind) (string, error) {
 	return newPromptIntentDraftKey(kind, time.Now(), random)
 }
 
+// buildPromptIntentDraftResult 构建promptintentdraft结果。
 func buildPromptIntentDraftResult(
 	draftKey, cwd string,
 	requestedKind, inferredKind Kind,
@@ -255,6 +258,7 @@ func promptIntentDraftConfidenceAndStatus(issues []Issue) (float64, string) {
 	return 0.85, "ready_to_save"
 }
 
+// HandleDryRun 处理dry运行记录。
 func HandleDryRun(
 	ctx context.Context,
 	promptStore promptstore.Store,
@@ -306,6 +310,7 @@ func HandleDryRun(
 	return result, nil
 }
 
+// HandleE2EHealth 处理e2ehealth。
 func HandleE2EHealth(ctx context.Context, dream contract.DreamExecutor, _ E2EHealthParams) (E2EHealthResult, error) {
 	if dream == nil {
 		return E2EHealthResult{}, contract.ErrDreamExecutorNotConfigured
@@ -334,6 +339,7 @@ func newPromptIntentDraftKey(kind Kind, now time.Time, random []byte) (string, e
 	return fmt.Sprintf("intent/%s/%d-%s", kind, now.UnixNano(), hex.EncodeToString(random[:8])), nil
 }
 
+// buildPromptIntentDraftPrompt 构建promptintentdraftprompt。
 func buildPromptIntentDraftPrompt(ctx context.Context, store promptstore.Store, cwd string, kind Kind, rawInput string) (string, error) {
 	var existingRules []string
 	if kind == KindDefaultRule {
@@ -439,6 +445,7 @@ func promptIntentDraftIssues(kind Kind, rawInput string, card Card) []Issue {
 	return issues
 }
 
+// promptIntentQualityIssues 处理promptintentqualityissues。
 func promptIntentQualityIssues(kind Kind, rawInput string, card Card) []Issue {
 	issues := promptIntentRequiredFieldIssues(kind, card)
 	if kind == KindExpert {
@@ -579,6 +586,7 @@ func normalizePromptIntentComparableText(text string) string {
 	return strings.Trim(normalizePromptIntentText(text), "。.!！ ")
 }
 
+// promptIntentDryRunCard 处理promptintentdry运行记录card。
 func promptIntentDryRunCard(ctx context.Context, promptStore promptstore.Store, p DryRunParams) (Card, error) {
 	if draftKey := strings.TrimSpace(p.DraftKey); draftKey != "" {
 		if promptStore == nil {

@@ -49,6 +49,7 @@ func provideAppUpdateRequestQuit(lifecycle *WailsLifecycle) appupdate.RequestQui
 	return lifecycle.RequestQuit
 }
 
+// NewApp 创建app。
 func NewApp(p appParams) *App {
 	return &App{
 		dispatch: p.Dispatcher.Dispatch,
@@ -62,6 +63,7 @@ func NewApp(p appParams) *App {
 	}
 }
 
+// NewService 创建服务。
 func NewService(app *App) application.Service {
 	return application.NewService(app)
 }
@@ -72,6 +74,7 @@ type activeAgentCounterParams struct {
 	Threads contract.ThreadLister
 }
 
+// NewActiveAgentCounter 创建active代理counter。
 func NewActiveAgentCounter(p activeAgentCounterParams) ActiveAgentCounter {
 	if p.Threads != nil {
 		return ActiveAgentCounterFunc(func(ctx context.Context) (int, error) {
@@ -118,6 +121,7 @@ type httpAssetServerParams struct {
 	Server   *rpc.Server
 }
 
+// NewWailsApplication 创建 Wails 桌面应用。
 func NewWailsApplication(p applicationParams) *application.App {
 	title := applicationTitle()
 	debug := false

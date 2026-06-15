@@ -41,10 +41,12 @@ type TailDecodeError struct {
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
+// NewTailReader 创建tail读取器。
 func NewTailReader(dir string, cfg Config) JSONLTailReader {
 	return JSONLTailReader{Dir: dir, MaxBytes: int64(cfg.JSONLQueryTailMB) * bytesPerMB}
 }
 
+// QueryTraceEvents 处理查询trace事件。
 func (r JSONLTailReader) QueryTraceEvents(ctx context.Context, query Query) (QueryResult, error) {
 	startedAt := time.Now()
 	result, err := r.Read(ctx)
@@ -59,6 +61,7 @@ func (r JSONLTailReader) QueryTraceEvents(ctx context.Context, query Query) (Que
 	return queryResult, nil
 }
 
+// Read 读取平台observability。
 func (r JSONLTailReader) Read(ctx context.Context) (TailReadResult, error) {
 	if err := r.validate(ctx); err != nil {
 		return TailReadResult{}, err
@@ -156,6 +159,7 @@ func listTraceJSONLFiles(dir string) ([]traceTailFile, error) {
 	return files, nil
 }
 
+// readTraceFileCandidates 读取trace文件候选项。
 func readTraceFileCandidates(file *os.File, dir string) ([]traceTailFile, error) {
 	files := make([]traceTailFile, 0, maxTailCandidateFiles)
 	entriesRead := 0
@@ -212,6 +216,7 @@ type traceTailFile struct {
 	readBytes int64
 }
 
+// readTailFile 读取tail文件。
 func readTailFile(ctx context.Context, file traceTailFile, result *TailReadResult) error {
 	f, err := os.Open(file.path)
 	if err != nil {
@@ -240,6 +245,7 @@ func readTailFile(ctx context.Context, file traceTailFile, result *TailReadResul
 	return parseTailLines(ctx, file.path, data, result)
 }
 
+// readTailFileBytes 读取tail文件bytes。
 func readTailFileBytes(ctx context.Context, reader io.Reader, limit int64) ([]byte, error) {
 	var out bytes.Buffer
 	out.Grow(int(min(limit, int64(1024*1024))))
@@ -267,6 +273,7 @@ func readTailFileBytes(ctx context.Context, reader io.Reader, limit int64) ([]by
 	return out.Bytes(), ctx.Err()
 }
 
+// parseTailLines 解析tail行。
 func parseTailLines(ctx context.Context, path string, data []byte, result *TailReadResult) error {
 	if err := ctx.Err(); err != nil {
 		return err

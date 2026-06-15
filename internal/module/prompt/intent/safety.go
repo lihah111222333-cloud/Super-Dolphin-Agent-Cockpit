@@ -63,6 +63,7 @@ var overbroadScopeTerms = []string{
 	"总是",
 }
 
+// SafetyIssues 处理safetyissues。
 func SafetyIssues(kind Kind, rawInput string, card Card) []Issue {
 	rawText := normalizePromptIntentText(rawInput)
 	cardText := normalizePromptIntentText(strings.Join([]string{

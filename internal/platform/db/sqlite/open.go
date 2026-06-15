@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/securefs"
 
 	_ "modernc.org/sqlite"
@@ -248,7 +249,7 @@ func redactPath(path string) string {
 }
 
 func OpenTest(ctx context.Context, path string) (*sql.DB, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := platformconfig.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	return Open(ctx, OpenOptions{Path: path})
 }

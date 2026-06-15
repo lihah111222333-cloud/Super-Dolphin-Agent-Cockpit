@@ -104,6 +104,7 @@ func requireRequestCWD(cwd string) error {
 	return nil
 }
 
+// NewSkillHandlers 创建技能处理器。
 func NewSkillHandlers(deps skillHandlerDeps) platformrpc.HandlerMapResult {
 	return newSkillHandlers(deps.Service, deps.DreamExecutor)
 }

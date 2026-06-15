@@ -64,6 +64,7 @@ type runtimeManifest struct {
 	ModelRegistryPath string `json:"model_registry_path"`
 }
 
+// ResolveRuntime 根据进程角色、运行模式和包资源解析当前运行时。
 func ResolveRuntime(input RuntimeResolveInput) (ResolvedRuntime, error) {
 	env := input.Env
 	if env == nil {
@@ -259,6 +260,7 @@ func verifyManifestResource(resources, label, value, want, kind, goos string) er
 	return requireManifestPathKind(fullPath, kind, goos)
 }
 
+// cleanManifestRelativePath 校验并清理 runtime manifest 中的相对路径。
 func cleanManifestRelativePath(label, value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" || filepath.IsAbs(value) {
@@ -290,6 +292,7 @@ func requirePathInsideRoot(root, path string) error {
 	return nil
 }
 
+// requireManifestPathKind 校验 manifest 资源的文件类型和可执行权限。
 func requireManifestPathKind(path, kind, goos string) error {
 	info, err := os.Stat(path)
 	if err != nil {

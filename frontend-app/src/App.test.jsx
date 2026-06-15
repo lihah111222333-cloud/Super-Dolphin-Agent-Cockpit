@@ -583,16 +583,69 @@ async function showAllTraceDashboardEvents() {
   expect(screen.getAllByText('bus.event.lifecycle').length).toBeGreaterThan(0);
 }
 
-  it('renders the app shell toolbar with the local product title and defaults to light theme', async () => {
+  it('renders the screenshot-style workbench sidebar and defaults to light theme', async () => {
     render(<App />);
 
     const shell = await screen.findByTestId('frontend-app');
-    const titlebar = document.querySelector('.titlebar');
+    const sidebar = screen.getByTestId('app-sidebar');
     expect(shell).toHaveAttribute('data-theme', 'light');
     expect(document.querySelector('.traffic-lights')).not.toBeInTheDocument();
-    expect(titlebar).toBeInTheDocument();
-    expect(within(titlebar).getByText('Super Dolphin')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '切换到黑夜模式' })).toBeInTheDocument();
+    expect(document.querySelector('.titlebar')).not.toBeInTheDocument();
+    expect(within(sidebar).getByText('Super Dolphin')).toBeInTheDocument();
+    expect(within(sidebar).getByRole('button', { name: '新会话' })).toBeInTheDocument();
+    expect(within(sidebar).getByRole('button', { name: 'Settings' })).toBeInTheDocument();
+  });
+
+  it('keeps settings reachable from the collapsible workbench control', async () => {
+    render(<App />);
+
+    const shell = await screen.findByTestId('frontend-app');
+    const toggle = screen.getByRole('button', { name: '打开工作台' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(toggle);
+    expect(shell).toHaveClass('sidebar-open');
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('app-sidebar')).toHaveClass('is-open');
+    expect(screen.getByTestId('app-sidebar')).toHaveStyle({ marginLeft: '0px' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await screen.findByTestId('settings-page');
+    expect(shell).not.toHaveClass('sidebar-open');
+  });
+
+  it('wires the sidebar project directory to project and file picker actions', async () => {
+    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
+    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    backend.addProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other', '/repo/new'], active: '/repo/other' });
+    backend.selectProjectDir.mockResolvedValue('/repo/new');
+    backend.selectFiles.mockResolvedValue(['/repo/app/src/main.go']);
+
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    fireEvent.click(await within(sidebar).findByRole('button', { name: '选择项目 other' }));
+    await waitFor(() => expect(backend.setActiveProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/other' }));
+
+    fireEvent.click(within(sidebar).getByRole('button', { name: '添加项目目录' }));
+    await waitFor(() => expect(backend.selectProjectDir).toHaveBeenCalledWith('/repo/other'));
+    expect(backend.addProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
+
+    fireEvent.click(within(sidebar).getByRole('button', { name: '添加文件到会话' }));
+    await waitFor(() => expect(backend.selectFiles).toHaveBeenCalled());
+    expect(await screen.findByTestId('chat-page')).toBeInTheDocument();
+  });
+
+  it('starts a new empty draft from the screenshot sidebar new chat button', async () => {
+    render(<App />);
+
+    await screen.findByText('后端线程');
+    expect(screen.queryByText('让我们从 Super-Dolphin 开始!')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '新会话' }));
+
+    await screen.findByText('让我们从 Super-Dolphin 开始!');
+    expect(screen.getByTestId('composer-input')).toHaveValue('');
   });
 
   it('shows an app update banner after the background check finds a new version', async () => {
@@ -850,33 +903,23 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(sidebarToggle).not.toHaveTextContent('侧边栏');
   });
 
-  it('renders the app sidebar in user-to-developer navigation order', () => {
+  it('renders the screenshot sidebar primary navigation order', () => {
     render(<App skipBootstrap />);
 
     expect(within(screen.getByTestId('sidebar-nav')).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
-      'Chat',
-      '技能',
+      '插件市场',
       '提示词',
       '自动化',
-      '记忆中心',
-      '共享文件',
-      '链路追踪',
-      '设置',
     ]);
   });
 
-  it('renders the app sidebar in user-to-developer navigation order', () => {
+  it('keeps secondary navigation outside the screenshot primary rail', () => {
     render(<App skipBootstrap />);
 
-    expect(within(screen.getByTestId('sidebar-nav')).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
-      'Chat',
-      '技能',
-      '提示词',
-      '自动化',
+    expect(within(screen.getByTestId('sidebar-secondary-nav')).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
       '记忆中心',
       '共享文件',
       '链路追踪',
-      '设置',
     ]);
   });
 
@@ -897,11 +940,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    const chatButton = await screen.findByRole('button', { name: 'Chat' });
+    const chatButton = await screen.findByRole('button', { name: '新会话' });
     await waitFor(() => expect(chatButton).toHaveClass('active'));
     expect(screen.queryByRole('button', { name: '任务' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '命令' })).not.toBeInTheDocument();
-    expect(screen.getByText('当前页面：Chat')).toBeInTheDocument();
+    expect(screen.getByText('当前页面：聊天页面')).toBeInTheDocument();
   });
 
   it('lets user navigation override the explicit boot URL after initial route sync', async () => {
@@ -912,20 +955,20 @@ async function toggleInlineTraceFromRecentLogs(table) {
     const workflowButton = await screen.findByRole('button', { name: '自动化' });
     await waitFor(() => expect(workflowButton).toHaveClass('active'));
 
-    fireEvent.click(screen.getByRole('button', { name: '技能' }));
+    fireEvent.click(screen.getByRole('button', { name: '插件市场' }));
 
-    await waitFor(() => expect(screen.getByRole('button', { name: '技能' })).toHaveClass('active'));
-    expect(screen.getByText('当前页面：技能')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: '插件市场' })).toHaveClass('active'));
+    expect(screen.getByText('当前页面：插件市场')).toBeInTheDocument();
     expect(window.location.pathname).toBe('/skills');
   });
 
   it('writes page navigation to browser history and restores it on popstate', async () => {
     render(<App skipBootstrap />);
 
-    fireEvent.click(screen.getByRole('button', { name: '技能' }));
+    fireEvent.click(screen.getByRole('button', { name: '插件市场' }));
     await waitFor(() => expect(window.location.pathname).toBe('/skills'));
 
-    fireEvent.click(screen.getByRole('button', { name: '设置' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     await waitFor(() => expect(window.location.pathname).toBe('/settings'));
 
     await act(async () => {
@@ -933,8 +976,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
       window.dispatchEvent(new PopStateEvent('popstate', { state: { activePage: 'skills' } }));
     });
 
-    await waitFor(() => expect(screen.getByRole('button', { name: '技能' })).toHaveClass('active'));
-    expect(screen.getByText('当前页面：技能')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: '插件市场' })).toHaveClass('active'));
+    expect(screen.getByText('当前页面：插件市场')).toBeInTheDocument();
   });
 
   it('hides idle status noise while keeping the provider badge in thread cards', async () => {
@@ -2627,13 +2670,13 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(composer).toHaveAttribute('rows', '3');
   });
 
-  it('does not render a duplicate desktop titlebar inside the app shell', async () => {
+  it('does not render a desktop titlebar inside the workbench shell', async () => {
     const { container } = render(<App />);
 
     expect(await screen.findByText('后端线程')).toBeInTheDocument();
     expect(container.querySelector('.traffic-lights')).toBeNull();
-    expect(container.querySelectorAll('.titlebar')).toHaveLength(1);
-    expect(within(container.querySelector('.titlebar')).getByText('Super Dolphin')).toBeInTheDocument();
+    expect(container.querySelectorAll('.titlebar')).toHaveLength(0);
+    expect(within(screen.getByTestId('app-sidebar')).getByText('Super Dolphin')).toBeInTheDocument();
   });
 
   it('keeps the user message visible and calls thread/start before turn/start for a new chat', async () => {
@@ -2644,7 +2687,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    await screen.findByText('我们应该在 app 中构建什么？');
+    await screen.findByText('让我们从 Super-Dolphin 开始!');
     expect(screen.queryByTestId('composer-project')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('发送权限')).not.toBeInTheDocument();
     fireEvent.change(screen.getByTestId('composer-input'), {
@@ -2804,7 +2847,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const { container } = render(<App />);
 
-    await screen.findByText('我们应该在 app 中构建什么？');
+    await screen.findByText('让我们从 Super-Dolphin 开始!');
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer', 'composer--floating');
     expect(screen.getByTestId('chat-timeline')).toContainElement(screen.getByTestId('composer-dock'));
     expect(container.querySelector('.work-status')).toBeNull();
@@ -2831,7 +2874,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
     expect(screen.queryByTestId('right-panel-resizer')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '显示侧边栏' })).toBeInTheDocument();
-    expect(layout).toHaveStyle({ gridTemplateColumns: '240px 6px minmax(0, 1fr)' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
 
@@ -2842,7 +2885,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(container.querySelector('.runtime-panel')).not.toHaveTextContent('diff --git a/file b/file');
     expect(screen.getByRole('list', { name: '工具调用统计' })).toBeInTheDocument();
     expect(screen.queryByTestId('warning-log-panel')).not.toBeInTheDocument();
-    expect(layout).toHaveStyle({ gridTemplateColumns: '240px 6px minmax(0, 1fr) 6px 189px' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 189px' });
   });
 
   it('supports keyboard resizing for chat and activity resizer controls', async () => {
@@ -2861,7 +2904,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.keyDown(leftResizer, { key: 'ArrowLeft' });
 
     expect(leftResizer).toHaveAttribute('aria-valuenow', '248');
-    expect(layout).toHaveStyle({ gridTemplateColumns: '248px 6px minmax(0, 1fr)' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     const rightResizer = screen.getByRole('separator', { name: '调整侧边栏宽度' });
@@ -2872,7 +2915,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.keyDown(rightResizer, { key: 'ArrowLeft' });
 
     expect(rightResizer).toHaveAttribute('aria-valuenow', '280');
-    expect(layout).toHaveStyle({ gridTemplateColumns: '248px 6px minmax(0, 1fr) 6px 280px' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 280px' });
 
     const activityResizer = screen.getByRole('separator', { name: '调整工具使用面板高度' });
     expect(activityResizer.tagName).toBe('BUTTON');
@@ -2893,11 +2936,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const layout = screen.getByTestId('chat-layout');
 
-    expect(layout).toHaveStyle({ gridTemplateColumns: '380px 6px minmax(0, 1fr)' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
 
-    expect(layout).toHaveStyle({ gridTemplateColumns: '380px 6px minmax(0, 1fr) 6px 380px' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 380px' });
   });
 
   it('keeps default chat columns proportional when the window is resized', async () => {
@@ -2907,7 +2950,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     const layout = screen.getByTestId('chat-layout');
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
-    expect(layout).toHaveStyle({ gridTemplateColumns: '240px 6px minmax(0, 1fr) 6px 189px' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 189px' });
 
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
     act(() => {
@@ -2915,7 +2958,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     await waitFor(() => {
-      expect(layout).toHaveStyle({ gridTemplateColumns: '380px 6px minmax(0, 1fr) 6px 380px' });
+      expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 380px' });
     });
   });
 
@@ -2935,7 +2978,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     dispatchPointer(window, 'pointerup', 500);
 
     await waitFor(() => {
-      expect(layout).toHaveStyle({ gridTemplateColumns: '380px 6px minmax(0, 1fr) 6px 751px' });
+      expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 751px' });
     });
   });
 
@@ -2955,7 +2998,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     dispatchPointer(rightResizer, 'pointerdown', 1100);
     dispatchPointer(window, 'pointermove', 700);
 
-    expect(layout).toHaveStyle({ gridTemplateColumns: '380px 6px minmax(0, 1fr) 6px 751px' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 751px' });
     expect(useClientStore.getState().rightPanelWidth).toBe(380);
 
     dispatchPointer(window, 'pointerup', 700);
@@ -2978,14 +3021,14 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     dispatchPointer(rightResizer, 'pointerdown', 1100);
     dispatchPointer(window, 'pointermove', 1000);
-    expect(layout).toHaveStyle({ gridTemplateColumns: '380px 6px minmax(0, 1fr) 6px 480px' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 480px' });
 
     dispatchPointer(window, 'pointermove', 700, { buttons: 0 });
-    expect(layout).toHaveStyle({ gridTemplateColumns: '380px 6px minmax(0, 1fr) 6px 480px' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 480px' });
     expect(useClientStore.getState().rightPanelWidth).toBe(480);
 
     dispatchPointer(window, 'pointermove', 500, { buttons: 0 });
-    expect(layout).toHaveStyle({ gridTemplateColumns: '380px 6px minmax(0, 1fr) 6px 480px' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 480px' });
   });
 
   it('keeps the right sidebar draggable past the previous early close width', async () => {
@@ -3004,7 +3047,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     expect(screen.getByTestId('runtime-panel')).toBeInTheDocument();
     expect(screen.getByTestId('right-panel-resizer')).toBeInTheDocument();
-    expect(layout).toHaveStyle({ gridTemplateColumns: '380px 6px minmax(0, 1fr) 6px 150px' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 150px' });
 
     dispatchPointer(window, 'pointerup', 1330);
 
@@ -3030,7 +3073,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     await waitFor(() => {
       expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
       expect(screen.queryByTestId('right-panel-resizer')).not.toBeInTheDocument();
-      expect(layout).toHaveStyle({ gridTemplateColumns: '380px 6px minmax(0, 1fr)' });
+      expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
       expect(useClientStore.getState().rightPanelWidth).toBe(0);
     });
   });
@@ -3147,7 +3190,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.getByRole('button', { name: /Agent B/ }).closest('.thread-card')).toHaveClass('active');
     expect(screen.queryByText('Agent A ready')).not.toBeInTheDocument();
     expect(screen.queryByText('stale cached Agent B content')).not.toBeInTheDocument();
-    expect(screen.queryByText(/我们应该在/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/让我们从/)).not.toBeInTheDocument();
     expect(screen.getByTestId('timeline-loading-placeholder')).toHaveTextContent('正在同步会话历史');
 
     act(() => {
@@ -3231,7 +3274,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     dispatchPointer(window, 'pointermove', 40);
     dispatchPointer(window, 'pointerup', 40);
 
-    expect(layout).toHaveStyle({ gridTemplateColumns: '240px 6px minmax(0, 1fr)' });
+    expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     const rightResizer = screen.getByTestId('right-panel-resizer');
@@ -3242,7 +3285,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     await waitFor(() => {
       expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
-      expect(layout).toHaveStyle({ gridTemplateColumns: '240px 6px minmax(0, 1fr)' });
+      expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr)' });
     });
   });
 
@@ -3415,7 +3458,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    await screen.findByText('我们应该在 app 中构建什么？');
+    await screen.findByText('让我们从 Super-Dolphin 开始!');
     expect(screen.queryByLabelText('复制当前线程')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('停止')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('线程状态')).not.toBeInTheDocument();
@@ -3440,7 +3483,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    await screen.findByText('我们应该在 app 中构建什么？');
+    await screen.findByText('让我们从 Super-Dolphin 开始!');
     expect(screen.queryByLabelText('复制当前线程')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('线程状态')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('停止')).not.toBeInTheDocument();
@@ -3830,7 +3873,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     backend.getThreadState.mockResolvedValue({ timelinesByThread: {} });
 
     render(<App />);
-    await screen.findByText('我们应该在 app 中构建什么？');
+    await screen.findByText('让我们从 Super-Dolphin 开始!');
 
     const providerToggle = screen.getByLabelText('切换 Claude / Codex provider');
     expect(providerToggle).not.toBeDisabled();
@@ -4407,7 +4450,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     await waitFor(() => expect(useClientStore.getState().activeThreadId).toBe('thread-archived'));
     expect(await screen.findByText('归档线程历史内容')).toBeInTheDocument();
-    expect(screen.queryByText(/我们应该在/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/让我们从/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText('复制当前线程')).not.toBeInTheDocument();
   });
 
@@ -4437,7 +4480,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(await screen.findByRole('button', { name: /空归档线程/ }));
 
     await waitFor(() => expect(useClientStore.getState().activeThreadId).toBe('thread-archived'));
-    expect(screen.queryByText(/我们应该在/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/让我们从/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /空归档线程/ }).closest('.thread-card')).toHaveClass('active');
     expect(screen.queryByLabelText('复制当前线程')).not.toBeInTheDocument();
   });
@@ -4474,7 +4517,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     expect(await screen.findByText('来自 thread/messages 的归档内容')).toBeInTheDocument();
     expect(backend.getThreadMessages).toHaveBeenCalledWith({ threadId: 'thread-archived', limit: 300 });
-    expect(screen.queryByText(/我们应该在/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/让我们从/)).not.toBeInTheDocument();
   });
 
   it('cleans stale archived threads through the legacy delete RPC', async () => {
@@ -4552,7 +4595,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByLabelText('命令')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('任务')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
     expect(await screen.findByText('技能管理')).toBeInTheDocument();
     expect(await screen.findByText('后端')).toBeInTheDocument();
     expect(screen.getByText('/repo/app/.agent/skills/backend')).toBeInTheDocument();
@@ -5038,7 +5081,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(screen.getByLabelText('提示词'));
     expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('Chat'));
+    fireEvent.click(screen.getByLabelText('新会话'));
     prompts = [{
       id: 'main/deploy',
       name: '部署助手',
@@ -5640,7 +5683,7 @@ async function createGeneratedPromptIntent() {
     fireEvent.click(screen.getByLabelText('记忆中心'));
     expect(await screen.findByText('遵守 TDD')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('Chat'));
+    fireEvent.click(screen.getByLabelText('新会话'));
     entries = [{
       name: 'reply-language',
       title: '默认中文',
@@ -6269,7 +6312,7 @@ async function continueChatFromFinalSharedFile() {
     fireEvent.click(screen.getByLabelText('共享文件'));
     expect(await screen.findByText('final.md')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('Chat'));
+    fireEvent.click(screen.getByLabelText('新会话'));
     memoryFiles = [{
       path: 'scratch/notes.md',
       content: 'fresh notes',
@@ -6875,7 +6918,7 @@ async function continueChatFromFinalSharedFile() {
     fireEvent.click(screen.getByLabelText('自动化'));
     expect((await screen.findAllByText('流程 A')).length).toBeGreaterThanOrEqual(1);
 
-    fireEvent.click(screen.getByLabelText('Chat'));
+    fireEvent.click(screen.getByLabelText('新会话'));
     dags = [{
       dag_key: 'flow-b',
       title: '流程 B',
@@ -7316,7 +7359,7 @@ async function designWorkflowWithAi() {
   it('refreshes skills page from backend when skills changed event arrives', async () => {
     render(<App />);
     await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
     expect(await screen.findByText('后端')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
 
@@ -7362,7 +7405,7 @@ async function designWorkflowWithAi() {
   it('does not repeat a skill description when summary is empty', async () => {
     render(<App />);
     await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
     const personalCard = (await screen.findByRole('heading', { name: 'personal-review' })).closest('article');
 
     expect(within(personalCard).getAllByText('当你需要私人代码审查偏好时使用。')).toHaveLength(1);
@@ -7371,7 +7414,7 @@ async function designWorkflowWithAi() {
   it('shows skills filter counts and an empty search state', async () => {
     render(<App />);
     await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
 
     expect(await screen.findByText('共 2 个技能')).toBeInTheDocument();
 
@@ -7393,7 +7436,7 @@ async function designWorkflowWithAi() {
     backend.readConfig.mockReturnValueOnce(config.promise);
 
     render(<App />);
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
 
     expect(await screen.findByRole('heading', { name: '技能管理' })).toBeInTheDocument();
     expect(await screen.findByText('正在连接本地项目...')).toBeInTheDocument();
@@ -7411,7 +7454,7 @@ async function designWorkflowWithAi() {
   it('keeps skills visible and exposes retry when a background sync fails', async () => {
     render(<App />);
     await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
     expect(await screen.findByText('后端')).toBeInTheDocument();
 
     backend.getDashboardPage.mockRejectedValueOnce(new Error('backend offline'));
@@ -7444,7 +7487,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
 
     expect(await screen.findByText('后端')).toBeInTheDocument();
     expect(await screen.findByRole('alert')).toHaveTextContent('读取技能冲突失败：skill resolutions response items must be an array');
@@ -7461,10 +7504,10 @@ async function designWorkflowWithAi() {
   it('keeps cached skills visible when navigating back and refreshes silently', async () => {
     render(<App />);
     await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
     expect(await screen.findByText('后端')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('Chat'));
+    fireEvent.click(screen.getByLabelText('新会话'));
     backend.getDashboardPage.mockResolvedValueOnce({
       skills: [{
         name: 'security',
@@ -7475,7 +7518,7 @@ async function designWorkflowWithAi() {
         scope: 'project',
       }],
     });
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
 
     expect(screen.queryByText('加载技能中...')).not.toBeInTheDocument();
     expect(screen.getByText('后端')).toBeInTheDocument();
@@ -7499,7 +7542,7 @@ async function designWorkflowWithAi() {
 
     vi.useFakeTimers();
     try {
-      fireEvent.click(screen.getByLabelText('技能'));
+      fireEvent.click(screen.getByLabelText('插件市场'));
       expect(screen.getByText('加载技能中...')).toBeInTheDocument();
 
       await act(async () => {
@@ -7556,7 +7599,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('skills backend offline');
@@ -7589,7 +7632,7 @@ async function designWorkflowWithAi() {
   it('deletes a skill through the legacy scoped API and refreshes the list', async () => {
     render(<App />);
     await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
     expect(await screen.findByText('后端')).toBeInTheDocument();
 
     backend.getDashboardPage.mockResolvedValueOnce({ skills: [] });
@@ -7623,7 +7666,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
     await screen.findByText('后端');
 
     fireEvent.click(screen.getByRole('button', { name: '新建技能' }));
@@ -7674,7 +7717,7 @@ async function designWorkflowWithAi() {
   it('opens an existing skill, loads related files, and saves edits', async () => {
     render(<App />);
     await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
     await screen.findByText('后端');
 
     const backendCard = screen.getByText('后端').closest('article');
@@ -7740,7 +7783,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
     await screen.findByText('后端');
 
     const backendCard = screen.getByText('后端').closest('article');
@@ -7776,7 +7819,7 @@ async function designWorkflowWithAi() {
   it('imports skill directories with selected scope through skills/local/importDir', async () => {
     render(<App />);
     await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
     await screen.findByText('后端');
 
     fireEvent.click(screen.getByRole('button', { name: '批量导入技能目录' }));
@@ -7804,7 +7847,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
     await screen.findByText('后端');
 
     fireEvent.click(screen.getByRole('button', { name: '批量导入技能目录' }));
@@ -7843,7 +7886,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
     await screen.findByText('后端');
 
     fireEvent.click(screen.getByRole('button', { name: '批量导入技能目录' }));
@@ -7896,7 +7939,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
 
     expect(await screen.findByText(/发现 1 个技能冲突/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '用本项目内容覆盖外部版本' }));
@@ -7936,7 +7979,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
 
     expect(await screen.findByText('检测到同名技能同时存在于私人使用和项目共享。请选择使用项目共享版本、继续私人使用，或另存为新私人技能。')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '查看两个版本' }));
@@ -7959,7 +8002,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
 
     expect(await screen.findByText('要保留项目共享：编辑或删除同名私人技能。')).toBeInTheDocument();
     expect(screen.getByText('要保留私人使用：编辑项目共享技能改名，或删除项目共享技能。')).toBeInTheDocument();
@@ -7984,7 +8027,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
 
     expect(await screen.findByText(/发现 1 个技能冲突/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '另存为新技能' }));
@@ -8032,7 +8075,7 @@ async function designWorkflowWithAi() {
 
     render(<App />);
     await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('技能'));
+    fireEvent.click(screen.getByLabelText('插件市场'));
 
     expect(await screen.findByText(/发现 1 个技能冲突/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '用项目共享版本，删除其他版本' }));

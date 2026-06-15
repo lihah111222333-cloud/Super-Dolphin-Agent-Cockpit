@@ -110,6 +110,7 @@ func validateSkillSummarySuggestionQuality(description string) error {
 	return fmt.Errorf("skill summary suggestion quality: %s", issue)
 }
 
+// skillSummarySuggestionQualityIssue 处理技能摘要suggestionqualityissue。
 func skillSummarySuggestionQualityIssue(description string) string {
 	description = strings.TrimSpace(description)
 	if description == "" {
@@ -166,6 +167,7 @@ func skillSummaryLooksTooGeneric(description string) bool {
 	return false
 }
 
+// skillSummaryLooksLikeWorkflow 处理技能摘要lookslikeworkflow。
 func skillSummaryLooksLikeWorkflow(description string) bool {
 	if strings.Contains(description, "先") && (strings.Contains(description, "然后") || strings.Contains(description, "再") || strings.Contains(description, "最后")) {
 		return true
@@ -325,6 +327,7 @@ func sameNameApplyAction(action string) bool {
 	return action == ResolutionKeepSelected || action == ResolutionRenamePersonal
 }
 
+// applySkillResolution 应用技能resolution。
 func (s *service) applySkillResolution(ctx context.Context, p skillResolutionApplyParams) (SkillMirrorResolutionReport, error) {
 	p.Action = normalizeResolutionAction(p.Action)
 	if err := validateResolutionApplyProof(p); err != nil {
@@ -399,6 +402,7 @@ func (s *service) applyKeepSelectedResolution(ctx context.Context, report SkillM
 	return report, nil
 }
 
+// removeSameNameDuplicateSources 移除same名称duplicatesources。
 func (s *service) removeSameNameDuplicateSources(cwd string, item skillResolutionItem, selected skillResolutionSource) (string, error) {
 	if selected.Scope != skillScopeProject && selected.Scope != skillScopePersonal {
 		return "", fmt.Errorf("keep selected requires a project or personal skill")
@@ -485,6 +489,7 @@ func (s *service) applyRenameSameNameResolution(ctx context.Context, report Skil
 	return report, nil
 }
 
+// renameSameNameSource 处理重命名same名称source。
 func renameSameNameSource(source skillResolutionSource, targetDir, newName string) (string, error) {
 	if source.Scope != skillScopeProject && source.Scope != skillScopePersonal {
 		return "", fmt.Errorf("rename same-name source requires a project or personal skill")
@@ -549,6 +554,7 @@ func (s *service) resolutionApplyItem(p skillResolutionApplyParams) (skillResolu
 	return item, nil
 }
 
+// validateResolutionApplyAction 校验resolution应用动作。
 func validateResolutionApplyAction(item skillResolutionItem, action string) error {
 	switch {
 	case item.Kind == skillConflictSameName:
@@ -586,6 +592,7 @@ func validateExternalPersonalProjectResolutionApplyAction(item skillResolutionIt
 	return fmt.Errorf("resolution apply does not support external personal project action %q", action)
 }
 
+// validateMirrorResolutionApplyAction 校验镜像resolution应用动作。
 func validateMirrorResolutionApplyAction(item skillResolutionItem, action string) error {
 	if !resolutionActionAllowed(item.AvailableActions, action) {
 		return fmt.Errorf("resolution action %q is not available for %s", action, item.Kind)

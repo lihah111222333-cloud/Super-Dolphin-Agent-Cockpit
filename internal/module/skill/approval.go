@@ -339,6 +339,7 @@ func (c *ApprovalCache) Revoke(name string) (int, error) {
 }
 
 // Revision returns a monotonic in-memory approval revision.
+// Revision 处理revision。
 func (c *ApprovalCache) Revision() uint64 {
 	if c == nil {
 		return 0

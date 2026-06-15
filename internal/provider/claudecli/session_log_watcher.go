@@ -108,6 +108,7 @@ func (w *sessionLogWatcher) stopAndWait() {
 	<-w.doneCh
 }
 
+// pollLoop 处理pollloop。
 func (w *sessionLogWatcher) pollLoop() {
 	defer close(w.doneCh)
 	ticker := time.NewTicker(w.pollInterval)
@@ -132,6 +133,7 @@ func (w *sessionLogWatcher) pollOnce() error {
 	return w.pollTargetFile(target)
 }
 
+// pollTarget 处理polltarget。
 func (w *sessionLogWatcher) pollTarget() (sessionLogPollTarget, bool, error) {
 	if w == nil || w.resolvePath == nil {
 		return sessionLogPollTarget{}, false, nil
@@ -207,6 +209,7 @@ func (w *sessionLogWatcher) scanPollFile(file *os.File) (int64, error) {
 	return file.Seek(0, io.SeekCurrent)
 }
 
+// dispatchScannedUsage 派发scannedusage。
 func (w *sessionLogWatcher) dispatchScannedUsage(raw []byte) error {
 	if w.stopped() {
 		return errSessionLogWatcherStopped
@@ -222,6 +225,7 @@ func (w *sessionLogWatcher) dispatchScannedUsage(raw []byte) error {
 	return nil
 }
 
+// syncFileState 同步文件状态。
 func (w *sessionLogWatcher) syncFileState(path string, size int64, modTime time.Time) int64 {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -275,6 +279,7 @@ func (w *sessionLogWatcher) stopped() bool {
 	}
 }
 
+// parseLogLineUsage 解析日志行usage。
 func parseLogLineUsage(raw []byte) (sessionLogUsage, bool) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
@@ -315,6 +320,7 @@ func parseLogLineUsage(raw []byte) (sessionLogUsage, bool) {
 	}, true
 }
 
+// logString 处理日志string。
 func logString(payload map[string]any, keys ...string) string {
 	for _, key := range keys {
 		value, ok := payload[key]
@@ -335,6 +341,7 @@ func logString(payload map[string]any, keys ...string) string {
 	return ""
 }
 
+// logInt 处理日志int。
 func logInt(payload map[string]any, keys ...string) (int, bool) {
 	for _, key := range keys {
 		value, ok := payload[key]

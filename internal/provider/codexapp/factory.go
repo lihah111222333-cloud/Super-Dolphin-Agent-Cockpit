@@ -25,6 +25,7 @@ type callTarget interface {
 
 type callTargetFunc func(context.Context, string, any) (json.RawMessage, error)
 
+// Call 调用codexapp provider。
 func (fn callTargetFunc) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	return fn(ctx, method, params)
 }
@@ -179,6 +180,7 @@ func isMessageStreamDeltaEvent(method string) bool {
 	}
 }
 
+// turnTerminalSuccess 处理turnterminalsuccess。
 func turnTerminalSuccess(method string, payload map[string]any) bool {
 	normalizedMethod := strings.ToLower(strings.TrimSpace(method))
 	if strings.Contains(normalizedMethod, "aborted") ||
@@ -217,6 +219,7 @@ func (t *transport) currentWSOrErr() (*websocket.Conn, error) {
 	return ws, nil
 }
 
+// shutdownTransport 处理shutdown传输。
 func (t *transport) shutdownTransport(graceful bool) error {
 	if t == nil {
 		return nil
@@ -236,6 +239,7 @@ func (t *transport) shutdownTransport(graceful bool) error {
 	return err
 }
 
+// shutdownSession 处理shutdown会话。
 func (s *session) shutdownSession(graceful bool) error {
 	if s == nil {
 		return nil
@@ -279,6 +283,7 @@ func (s *session) shutdownSession(graceful bool) error {
 	return errors.Join(cleanupErr, s.transport.shutdownTransport(graceful))
 }
 
+// failRecovery 标记失败recovery。
 func (s *session) failRecovery(reason string, err error) error {
 	if s == nil {
 		return err
@@ -315,6 +320,7 @@ func (s *session) failRecovery(reason string, err error) error {
 	return err
 }
 
+// recoveryShutdownErr 处理recoveryshutdownerr。
 func (s *session) recoveryShutdownErr() error {
 	if s == nil {
 		return nil
@@ -334,6 +340,7 @@ func (s *session) recoveryShutdownErr() error {
 }
 
 // codexCallerStack returns a compact caller stack for debugging.
+// codexCallerStack 处理codexcallerstack。
 func codexCallerStack() string {
 	var pcs [8]uintptr
 	n := runtime.Callers(3, pcs[:])

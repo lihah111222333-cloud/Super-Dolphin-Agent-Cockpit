@@ -7,6 +7,8 @@
 | Start time | 2026-06-15T05:00:50Z |
 | End time | 2026-06-15T05:07:43Z |
 
+Result values: PASS / FAIL.
+
 | Gate | Priority | Title | Command | CWD | Start time | End time | Exit code | Raw log artifact | Result | Blocker owner |
 |---|---|---|---|---|---|---:|---:|---|---|---|
 | G1 | P0 | SQLite runtime startup | go test ./internal/platform/db/... -run TestSQLiteRuntimeStartupSmoke\|TestNewDBCreatesSQLiteWithPragmasAndRestrictiveFiles -count=1 | . | 2026-06-15T05:00:50Z | 2026-06-15T05:00:54Z | 0 | .tmp/final-release-logs/G1.log | PASS |  |

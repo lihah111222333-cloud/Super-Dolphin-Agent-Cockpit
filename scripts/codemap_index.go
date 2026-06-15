@@ -71,6 +71,7 @@ type rawRef struct {
 
 const maxRefsPerFile = 20
 
+// main 解析参数并执行命令行入口流程。
 func main() {
 	check := flag.Bool("check", false, "verify docs/doc/codemap generated files without modifying the worktree")
 	flag.Parse()
@@ -221,6 +222,7 @@ func countRefs(files map[string]*FileEntry) int {
 	return totalRefs
 }
 
+// loadCodemaps 加载codemaps。
 func loadCodemaps(codemapDir string) ([]parsedMD, error) {
 	mdFiles, err := scanMDFiles(codemapDir)
 	if err != nil {
@@ -249,6 +251,7 @@ func loadCodemaps(codemapDir string) ([]parsedMD, error) {
 	return mds, nil
 }
 
+// buildRawFilesIndex 构建原始文件索引。
 func buildRawFilesIndex(root string, mds []parsedMD) (map[string][]rawRef, error) {
 	srcFiles, err := codemapindex.ScanSourceFiles(root)
 	if err != nil {
@@ -283,6 +286,7 @@ func buildRawFilesIndex(root string, mds []parsedMD) (map[string][]rawRef, error
 	return filesIndex, nil
 }
 
+// buildCompactFilesIndex 构建紧凑列表文件索引。
 func buildCompactFilesIndex(rawFilesIndex map[string][]rawRef) (map[string]*FileEntry, []string) {
 	secSet := map[string]int{}
 	var secIndex []string
@@ -318,6 +322,7 @@ func buildCompactFilesIndex(rawFilesIndex map[string][]rawRef) (map[string]*File
 	return filesIndex, secIndex
 }
 
+// buildOutputCodemaps 构建outputcodemaps。
 func buildOutputCodemaps(mds []parsedMD) ([]Codemap, []codemapindex.ReadmeCodemap) {
 	var codemaps []Codemap
 	readmeCodemaps := make([]codemapindex.ReadmeCodemap, 0, len(mds))
@@ -370,6 +375,7 @@ func extractTitle(lines []string) string {
 
 var headingRe = regexp.MustCompile(`^(#{1,4})\s+(.+)`)
 
+// parseSections 解析sections。
 func parseSections(lines []string) []Section {
 	type raw struct {
 		title        string
@@ -408,6 +414,7 @@ func parseSections(lines []string) []Section {
 	return out
 }
 
+// findRefs 查找refs。
 func findRefs(cmID string, lines []string, secs []Section, terms []string) (refs []rawRef) {
 	matched := map[string]bool{}
 	for i, line := range lines {
@@ -433,6 +440,7 @@ func findRefs(cmID string, lines []string, secs []Section, terms []string) (refs
 	return refs
 }
 
+// blockRange 处理block范围。
 func blockRange(lines []string, ln int, secs []Section) (string, int, int) {
 	sec := ""
 	for _, s := range secs {
@@ -454,6 +462,7 @@ func blockRange(lines []string, ln int, secs []Section) (string, int, int) {
 	return sec, s, e
 }
 
+// tableRange 处理table范围。
 func tableRange(lines []string, idx int) (int, int, bool) {
 	if idx < 0 || idx >= len(lines) {
 		return 0, 0, false
@@ -477,6 +486,7 @@ func tableRange(lines []string, idx int) (int, int, bool) {
 	return start, end, true
 }
 
+// codeBlockRange 处理代码block范围。
 func codeBlockRange(lines []string, idx int) (int, int, bool) {
 	inCode, start := false, 0
 	for i, line := range lines {
@@ -495,6 +505,7 @@ func codeBlockRange(lines []string, idx int) (int, int, bool) {
 	return 0, 0, false
 }
 
+// listItemRange 列出item范围。
 func listItemRange(lines []string, idx int) (int, int, bool) {
 	if idx < 0 || idx >= len(lines) {
 		return 0, 0, false

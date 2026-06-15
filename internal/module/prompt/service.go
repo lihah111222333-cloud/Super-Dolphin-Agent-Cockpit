@@ -69,6 +69,7 @@ type ServiceOption func(*service)
 // WithPromptHintSources injects the preference store and shared-file reader
 // used to resolve the user-configurable LSP prompt hint that is prepended to
 // the start system prompt.
+// WithPromptHintSources 设置prompthintsources。
 func WithPromptHintSources(prefs uipreference.Store, sharedFiles sharedfilestore.Reader) ServiceOption {
 	return func(s *service) {
 		s.prefs = prefs
@@ -81,6 +82,7 @@ func WithPromptHintSources(prefs uipreference.Store, sharedFiles sharedfilestore
 // uistate resolution helpers, avoiding a direct import cycle between the prompt
 // package and the uistate package.
 
+// WithDisabledBuiltinToolsFn 设置disabledbuiltin工具fn。
 func WithDisabledBuiltinToolsFn(fn DisabledBuiltinToolsFn) ServiceOption {
 	return func(s *service) {
 		s.disabledToolsFn = fn
@@ -101,6 +103,7 @@ var (
 	promptSlugPattern      = regexp.MustCompile(`[^a-z0-9]+`)
 )
 
+// Config 处理配置。
 func (s *service) Config() Config {
 	if s.cfg == nil {
 		return Config{}
@@ -108,10 +111,12 @@ func (s *service) Config() Config {
 	return *s.cfg
 }
 
+// RegisterSection 注册section。
 func (s *service) RegisterSection(section PromptSection) error {
 	return s.registry.Register(section)
 }
 
+// RegisterClaudeMdSourceProvider 注册claudemdsourceprovider。
 func (s *service) RegisterClaudeMdSourceProvider(provider contract.ClaudeMdSourceProvider) error {
 	s.claudeMdProvider = provider
 	if s.userContextCache != nil {
@@ -120,10 +125,12 @@ func (s *service) RegisterClaudeMdSourceProvider(provider contract.ClaudeMdSourc
 	return nil
 }
 
+// Sections 处理sections。
 func (s *service) Sections() []PromptSection {
 	return s.registry.Sections()
 }
 
+// ListPrompts 列出prompts。
 func (s *promptService) ListPrompts(
 	ctx context.Context,
 	cwd, keyword string,
@@ -146,6 +153,7 @@ func (s *promptService) ListPrompts(
 	return filterVisiblePrompts(templates, requestScope), nil
 }
 
+// ListPromptSectionsByTemplates 按templates列出promptsections。
 func (s *promptService) ListPromptSectionsByTemplates(
 	ctx context.Context,
 	cwd string,
@@ -181,6 +189,7 @@ func (s *promptService) ListPromptSectionsByTemplates(
 	return sectionsByTemplateID, nil
 }
 
+// GetPrompt 读取prompt。
 func (s *promptService) GetPrompt(
 	ctx context.Context,
 	cwd, key string,
@@ -206,6 +215,7 @@ func (s *promptService) GetPrompt(
 	return template, nil
 }
 
+// WritePrompt 写入prompt。
 func (s *promptService) WritePrompt(
 	ctx context.Context,
 	cwd string,
@@ -237,6 +247,7 @@ func (s *promptService) WritePrompt(
 	return template, nil
 }
 
+// ListSections 列出sections。
 func (s *promptService) ListSections(ctx context.Context, cwd, promptKey string) ([]promptstore.PromptTemplateSection, error) {
 	template, err := s.GetPrompt(ctx, cwd, promptKey)
 	if err != nil {
@@ -245,6 +256,7 @@ func (s *promptService) ListSections(ctx context.Context, cwd, promptKey string)
 	return s.store.ListSectionsByTemplateID(ctx, template.ID)
 }
 
+// WriteSection 写入section。
 func (s *promptService) WriteSection(ctx context.Context, cwd string, req PromptSectionWriteRequest) (*promptstore.PromptTemplateSection, error) {
 	if s.store == nil {
 		return nil, errPromptStoreRequired
@@ -271,6 +283,7 @@ func (s *promptService) WriteSection(ctx context.Context, cwd string, req Prompt
 	return saved, nil
 }
 
+// DeleteSection 删除section。
 func (s *promptService) DeleteSection(ctx context.Context, cwd, promptKey, sectionKey string, scope ...string) error {
 	if s.store == nil {
 		return errPromptStoreRequired
@@ -304,6 +317,7 @@ func (s *promptService) DeleteSection(ctx context.Context, cwd, promptKey, secti
 	return nil
 }
 
+// DeletePrompt 删除prompt。
 func (s *promptService) DeletePrompt(ctx context.Context, cwd, key string, scope ...string) error {
 	if s.store == nil {
 		return errPromptStoreRequired
@@ -359,12 +373,14 @@ func (s *service) registerBuiltInSections() {
 
 func mustRegisterSection(registry *SectionRegistry, section PromptSection) {
 	if err := registry.Register(section); err != nil {
+		// archguard:ignore panic_count -- builtin prompt section registration is a startup invariant.
 		panic(err)
 	}
 }
 
 func mustRegisterDynamicProvider(svc *service, provider DynamicSectionProvider) {
 	if err := svc.RegisterDynamicProvider(provider); err != nil {
+		// archguard:ignore panic_count -- builtin dynamic provider registration is a startup invariant.
 		panic(err)
 	}
 }
@@ -386,6 +402,7 @@ func promptVisibleForRead(template promptstore.PromptTemplate, cwd string) bool 
 	return promptVisibleForCWD(template, cwd)
 }
 
+// upsertPrompt 处理upsertprompt。
 func upsertPrompt(
 	ctx context.Context,
 	store promptstore.Store,
@@ -479,6 +496,7 @@ func builtinPromptExists(builtin contract.BuiltinPromptRegistry, promptKey strin
 	return ok
 }
 
+// buildPromptTemplate 构建prompttemplate。
 func buildPromptTemplate(
 	p PromptWriteRequest,
 	cwd, key string,
@@ -544,6 +562,7 @@ func promptTextForWrite(p PromptWriteRequest, current *promptstore.PromptTemplat
 	return p.Content
 }
 
+// sanitizeTemplateMatchWhen 清理templatematchwhen。
 func sanitizeTemplateMatchWhen(raw json.RawMessage) json.RawMessage {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" || trimmed == "null" {
@@ -605,6 +624,7 @@ func promptAgentType(raw string) string {
 	}
 }
 
+// validatePromptWrite 校验promptwrite。
 func validatePromptWrite(p PromptWriteRequest) error {
 	name := strings.TrimSpace(p.Name)
 	switch {

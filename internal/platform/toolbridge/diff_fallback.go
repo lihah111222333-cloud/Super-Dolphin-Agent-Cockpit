@@ -32,6 +32,7 @@ func newDiffFallbackTracker(
 }
 
 // MarkSeen is called by Phase 1 emitToolDiff after it emits a call diff.
+// MarkSeen 标记seen。
 func (t *diffFallbackTracker) MarkSeen(callID string) {
 	if t == nil {
 		return
@@ -42,6 +43,7 @@ func (t *diffFallbackTracker) MarkSeen(callID string) {
 }
 
 // handleToolCallEnd handles ToolCallEnd events not already covered by Phase 1.
+// handleToolCallEnd 处理工具callend。
 func (t *diffFallbackTracker) handleToolCallEnd(ev tooldto.ToolCallEnd) {
 	if t == nil || t.emitter == nil {
 		return

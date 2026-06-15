@@ -16,6 +16,7 @@ type SampleDecision struct {
 	Summary *TraceEvent
 }
 
+// NewSampler 创建sampler。
 func NewSampler(configs ...SamplerConfig) *Sampler {
 	keepEvery := 10
 	if len(configs) > 0 && configs[0].HighFrequencyKeepEvery > 0 {
@@ -24,6 +25,7 @@ func NewSampler(configs ...SamplerConfig) *Sampler {
 	return &Sampler{keepEvery: keepEvery}
 }
 
+// Decide 处理decide。
 func (s *Sampler) Decide(event TraceEvent) SampleDecision {
 	if mustKeep(event) || !highFrequency(event) {
 		return SampleDecision{Keep: true}

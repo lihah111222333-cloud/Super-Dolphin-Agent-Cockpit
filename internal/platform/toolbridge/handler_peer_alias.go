@@ -11,6 +11,7 @@ func legacyLSPName(canonical string) string {
 	return ""
 }
 
+// legacyOrchName 处理legacyorch名称。
 func legacyOrchName(canonical string) string {
 	switch strings.TrimSpace(canonical) {
 	case "launch_agent":

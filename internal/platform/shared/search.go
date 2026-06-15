@@ -13,6 +13,7 @@ type LineMatcher struct {
 	caseSensitive bool
 }
 
+// NewLineMatcher 创建行matcher。
 func NewLineMatcher(query string, regexMode, caseSensitive bool) (LineMatcher, error) {
 	needle := strings.TrimSpace(query)
 	if needle == "" {
@@ -34,6 +35,7 @@ func NewLineMatcher(query string, regexMode, caseSensitive bool) (LineMatcher, e
 	return LineMatcher{needle: strings.ToLower(needle)}, nil
 }
 
+// Find 查找平台shared。
 func (m LineMatcher) Find(line string) (int, bool) {
 	if m.regex != nil {
 		loc := m.regex.FindStringIndex(line)

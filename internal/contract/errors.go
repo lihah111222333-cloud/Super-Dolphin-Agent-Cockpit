@@ -31,10 +31,12 @@ type SkillApprovalRequiredError struct {
 
 var errSkillApprovalRequired = errors.New("skill artifact approval required")
 
+// Error 返回错误文本。
 func (e SkillApprovalRequiredError) Error() string {
 	return errSkillApprovalRequired.Error()
 }
 
+// Unwrap 返回底层错误。
 func (e SkillApprovalRequiredError) Unwrap() error { return errSkillApprovalRequired }
 
 // ---------------------------------------------------------------------------
@@ -51,6 +53,7 @@ var (
 
 // IsNotFound reports whether err (or any error in its chain) matches
 // the store-not-found sentinel.
+// IsNotFound 判断notfound是否可用。
 func IsNotFound(err error) bool {
 	return errors.Is(err, ErrNotFound)
 }

@@ -6,6 +6,7 @@ import (
 )
 
 // LogIgnoredError delegates to util.LogIgnoredError.
+// LogIgnoredError 处理日志ignored错误。
 func LogIgnoredError(logger *pkglogger.Logger, msg string, err error) {
 	util.LogIgnoredError(logger, msg, err)
 }

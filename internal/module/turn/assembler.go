@@ -45,6 +45,7 @@ var (
 
 type inputAssembler struct{}
 
+// Assemble 处理assemble。
 func (a *inputAssembler) Assemble(input PrepareInput) []shareddto.InputItem {
 	raw := a.collect(input)
 	if len(raw) > maxTurnInputItems {
@@ -70,6 +71,7 @@ func (a *inputAssembler) Assemble(input PrepareInput) []shareddto.InputItem {
 	return items
 }
 
+// PromptText 处理prompt文本。
 func (a *inputAssembler) PromptText(input PrepareInput) string {
 	parts := make([]string, 0, len(input.Inputs)+1)
 	if prompt := strings.TrimSpace(input.Prompt); prompt != "" {
@@ -101,6 +103,7 @@ func (a *inputAssembler) collect(input PrepareInput) []shareddto.InputItem {
 	return items
 }
 
+// normalize 规范化turn。
 func (a *inputAssembler) normalize(item shareddto.InputItem) (shareddto.InputItem, bool) {
 	switch normalizeInputType(item.Type) {
 	case "text":
@@ -138,6 +141,7 @@ func normalizeFileContentItem(item shareddto.InputItem) (shareddto.InputItem, bo
 	return out, true
 }
 
+// normalizeImageItem 规范化imageitem。
 func normalizeImageItem(item shareddto.InputItem) (shareddto.InputItem, bool) {
 	target := normalizeInputTarget(item.URL, item.Path, item.Content)
 	if target == "" {
@@ -189,6 +193,7 @@ func normalizeFallbackItem(item shareddto.InputItem) (shareddto.InputItem, bool)
 	return normalizeMentionItem(item)
 }
 
+// normalizeInputType 规范化inputtype。
 func normalizeInputType(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "text":

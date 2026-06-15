@@ -32,7 +32,7 @@ func (tx *immediateConnTx) QueryRowContext(ctx context.Context, query string, ar
 	return tx.conn.QueryRowContext(ctx, query, args...)
 }
 
-// WithTx rebinds the current query set onto a database/sql transaction.
+// WithTx 将当前 sqlc 查询集绑定到 database/sql 事务。
 func WithTx(ctx context.Context, db sqlc.DBTX, q *sqlc.Queries, fn func(txq *sqlc.Queries, txdb sqlc.DBTX) error) error {
 	if db == nil || q == nil {
 		return errors.New("sqlc queries are not initialized")
@@ -46,7 +46,7 @@ func WithTx(ctx context.Context, db sqlc.DBTX, q *sqlc.Queries, fn func(txq *sql
 	})
 }
 
-// WithTxOrReuse runs fn in the current transaction when one is already bound.
+// WithTxOrReuse 复用已绑定事务；没有事务时为 SQLite 连接开启普通事务。
 func WithTxOrReuse(ctx context.Context, db sqlc.DBTX, q *sqlc.Queries, fn func(txq *sqlc.Queries, txdb sqlc.DBTX) error) error {
 	if db == nil || q == nil {
 		return errors.New("sqlc queries are not initialized")
@@ -63,9 +63,8 @@ func WithTxOrReuse(ctx context.Context, db sqlc.DBTX, q *sqlc.Queries, fn func(t
 	return errors.New("sqlc queries requires transaction-capable DBTX")
 }
 
-// WithImmediateTx opens a SQLite write transaction under the shared bounded
-// retry loop. Callers use this anywhere PostgreSQL row locks used to serialize
-// a read-modify-write path.
+// WithImmediateTx 在共享有界重试策略下开启 SQLite BEGIN IMMEDIATE 写事务。
+// 读改写路径需要串行化时，用它替代旧 PostgreSQL 行锁。
 func WithImmediateTx(ctx context.Context, db sqlc.DBTX, q *sqlc.Queries, fn func(txq *sqlc.Queries, txdb sqlc.DBTX) error) error {
 	if db == nil || q == nil {
 		return errors.New("sqlc queries are not initialized")
@@ -81,8 +80,7 @@ func WithImmediateTx(ctx context.Context, db sqlc.DBTX, q *sqlc.Queries, fn func
 	})
 }
 
-// WithImmediateTxOrReuse keeps an existing transaction when the caller already
-// owns one; otherwise it opens a bounded-retry immediate transaction.
+// WithImmediateTxOrReuse 复用调用方已有事务；否则开启带有界重试的 IMMEDIATE 事务。
 func WithImmediateTxOrReuse(ctx context.Context, db sqlc.DBTX, q *sqlc.Queries, fn func(txq *sqlc.Queries, txdb sqlc.DBTX) error) error {
 	if db == nil || q == nil {
 		return errors.New("sqlc queries are not initialized")
@@ -96,9 +94,7 @@ func WithImmediateTxOrReuse(ctx context.Context, db sqlc.DBTX, q *sqlc.Queries, 
 	return WithImmediateTx(ctx, db, q, fn)
 }
 
-// WithWriteRetry applies the shared SQLite busy/locked retry policy to a single
-// write statement or CAS update that is intentionally not wrapped in a wider
-// transaction.
+// WithWriteRetry 为单条写入或 CAS 更新应用共享 SQLite busy/locked 有界重试策略。
 func WithWriteRetry(ctx context.Context, fn func() error) error {
 	return platformdb.BoundedWriteRetry(ctx, defaultWriteRetryAttempts, fn)
 }

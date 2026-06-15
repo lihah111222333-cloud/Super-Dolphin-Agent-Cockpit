@@ -18,6 +18,7 @@ func provideBusTraceRecorder(svc *platformobservability.Service) bus.TraceRecord
 	return busTraceRecorder{svc: svc}
 }
 
+// RecordTrace 记录trace。
 func (r busTraceRecorder) RecordTrace(ctx context.Context, record bus.TraceRecord) error {
 	if r.svc == nil {
 		return nil
@@ -55,10 +56,12 @@ func provideRPCTraceRecorder(svc *platformobservability.Service) rpc.TraceRecord
 	return rpcTraceRecorder{svc: svc}
 }
 
+// Enabled 判断应用装配是否启用。
 func (r rpcTraceRecorder) Enabled() bool {
 	return r.svc != nil && r.svc.Enabled()
 }
 
+// RecordTrace 记录trace。
 func (r rpcTraceRecorder) RecordTrace(ctx context.Context, record rpc.TraceRecord) error {
 	if r.svc == nil {
 		return nil

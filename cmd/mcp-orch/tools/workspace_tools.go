@@ -63,18 +63,21 @@ type workspaceAbortRunInput struct {
 	Reason    string `json:"reason,omitempty"`
 }
 
+// HandleWorkspaceCreateRun 处理工作区create运行记录。
 func HandleWorkspaceCreateRun(svc workspace.Service) ToolHandler {
 	return makeHandler(svc, "workspace service", func(ctx context.Context, in WorkspaceCreateRunRequest) (*workspaceRunDTO, error) {
 		return createWorkspaceRun(ctx, svc, in)
 	})
 }
 
+// HandleWorkspaceGetRun 处理工作区get运行记录。
 func HandleWorkspaceGetRun(svc workspace.Service) ToolHandler {
 	return makeHandler(svc, "workspace service", func(ctx context.Context, in workspaceGetRunInput) (*workspaceRunDTO, error) {
 		return getWorkspaceRun(ctx, svc, in)
 	})
 }
 
+// HandleWorkspaceListRuns 处理工作区list运行记录。
 func HandleWorkspaceListRuns(svc workspace.Service) ToolHandler {
 	return makeHandler(svc, "workspace service", func(ctx context.Context, in workspaceListRunsInput) (any, error) {
 		runs, err := listWorkspaceRuns(ctx, svc, in)
@@ -88,18 +91,21 @@ func HandleWorkspaceListRuns(svc workspace.Service) ToolHandler {
 	})
 }
 
+// HandleWorkspaceMergeRun 处理工作区merge运行记录。
 func HandleWorkspaceMergeRun(svc workspace.Service) ToolHandler {
 	return makeHandler(svc, "workspace service", func(ctx context.Context, in WorkspaceMergeRunRequest) (*WorkspaceMergeRunResult, error) {
 		return mergeWorkspaceRun(ctx, svc, in)
 	})
 }
 
+// HandleWorkspaceAbortRun 处理工作区abort运行记录。
 func HandleWorkspaceAbortRun(svc workspace.Service) ToolHandler {
 	return makeHandler(svc, "workspace service", func(ctx context.Context, in workspaceAbortRunInput) (*workspaceRunDTO, error) {
 		return abortWorkspaceRun(ctx, svc, in)
 	})
 }
 
+// workspaceToolDefinitions 处理工作区工具definitions。
 func workspaceToolDefinitions(svc workspace.Service) []ToolDefinition {
 	return buildToolDefinitions(
 		defineTool("workspace_create_run", "Create a virtual workspace run. Filesystem workspace is used for edits; run status and file states are stored in persistent state.", ObjectSchema(map[string]Schema{
@@ -206,6 +212,7 @@ func newWorkspaceListRunsOutput(runs []workspaceRunDTO, limit int) WorkspaceList
 	}
 }
 
+// mergeWorkspaceRun 合并工作区运行记录。
 func mergeWorkspaceRun(ctx context.Context, svc workspace.Service, input WorkspaceMergeRunRequest) (*WorkspaceMergeRunResult, error) {
 	if err := requireDependency(svc, "workspace service"); err != nil {
 		return nil, err

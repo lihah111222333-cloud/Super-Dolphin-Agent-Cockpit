@@ -46,6 +46,7 @@ var kairosAckPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?is)^\s*(?:记住了|已记住|我会记住|已经记住|已保存到记忆|保存到记忆了|帮你记住了)\s*(?:这个|这点|了)?\s*(?:[:：\-—,，]\s*|\s+)?(.+?)\s*$`),
 }
 
+// BuildDailyLogPrompt 构建daily日志prompt。
 func BuildDailyLogPrompt(skipIndex, searchPastContextEnabled bool, extraGuidelines []string) string {
 	sections := []string{
 		renderSection("### 1. KAIROS daily log mode", kairosOverviewLines),
@@ -99,6 +100,7 @@ func autoMemDailyLogRelativePath(now time.Time) string {
 	return filepath.ToSlash(filepath.Join("logs", now.Format("2006"), now.Format("01"), now.Format("2006-01-02")+".md"))
 }
 
+// DetectKairosWriteIntent 处理detectkairoswriteintent。
 func DetectKairosWriteIntent(evt turndto.TurnCompleted) SaveIntent {
 	for _, text := range kairosIntentTexts(evt) {
 		if intent := detectKairosAcknowledgement(text); intent.Detected {
@@ -161,6 +163,7 @@ func (h *MemoryLifecycleHooks) writeDetectedIntent(ctx context.Context, evt turn
 	return nil
 }
 
+// tryAppendKairosDailyLog 处理tryappendkairosdaily日志。
 func (h *MemoryLifecycleHooks) tryAppendKairosDailyLog(ctx context.Context, evt turndto.TurnCompleted, intent SaveIntent) (bool, error) {
 	threadID := strings.TrimSpace(evt.ThreadID)
 	if h == nil || threadID == "" {
@@ -186,6 +189,7 @@ func (m threadRuntimeMetadata) buildCtx() contract.BuildCtx {
 	return contract.BuildCtx{SessionFlags: cloneBoolMap(m.sessionFlags)}
 }
 
+// isAutoMemoryRootThread 判断auto记忆根目录线程是否可用。
 func (m threadRuntimeMetadata) isAutoMemoryRootThread() bool {
 	if !m.resolved || m.bareMode || strings.TrimSpace(m.parentAgentID) != "" || strings.TrimSpace(m.ownerThreadID) != "" {
 		return false
@@ -225,6 +229,7 @@ func (h *MemoryLifecycleHooks) now() time.Time {
 	return h.timeNow()
 }
 
+// appendDailyLogEntry 追加daily日志条目。
 func appendDailyLogEntry(root, path string, now time.Time, content string) error {
 	entry := formatDailyLogEntry(now, content)
 	if entry == "" {
@@ -266,6 +271,7 @@ func normalizeDailyLogContent(text string) string {
 	return strings.Join(strings.Fields(replacer.Replace(strings.TrimSpace(text))), " ")
 }
 
+// dailyLogSeparator 生成 daily log 条目分隔线。
 func dailyLogSeparator(path string) (string, error) {
 	info, err := os.Stat(path)
 	switch {
@@ -358,6 +364,7 @@ type FeedbackTracker struct {
 	groups    map[string][]ExtractedMemory
 }
 
+// NewFeedbackTracker 创建feedbacktracker。
 func NewFeedbackTracker(threshold int) *FeedbackTracker {
 	if threshold < 2 {
 		threshold = 2
@@ -368,12 +375,14 @@ func NewFeedbackTracker(threshold int) *FeedbackTracker {
 	}
 }
 
+// Record 记录记忆。
 func (ft *FeedbackTracker) Record(topicKey string, mem ExtractedMemory) {
 	ft.mu.Lock()
 	defer ft.mu.Unlock()
 	ft.groups[topicKey] = append(ft.groups[topicKey], mem)
 }
 
+// Count 统计记忆。
 func (ft *FeedbackTracker) Count(topicKey string) int {
 	ft.mu.Lock()
 	defer ft.mu.Unlock()
@@ -382,11 +391,13 @@ func (ft *FeedbackTracker) Count(topicKey string) int {
 
 // ThresholdReached reports whether the topic has accumulated enough
 // feedback to trigger a skill proposal.
+// ThresholdReached 处理thresholdreached。
 func (ft *FeedbackTracker) ThresholdReached(topicKey string) bool {
 	return ft.Count(topicKey) >= ft.threshold
 }
 
 // GetGroup returns a snapshot of the feedback entries for a topic.
+// GetGroup 读取group。
 func (ft *FeedbackTracker) GetGroup(topicKey string) []ExtractedMemory {
 	ft.mu.Lock()
 	defer ft.mu.Unlock()
@@ -398,6 +409,7 @@ func (ft *FeedbackTracker) GetGroup(topicKey string) []ExtractedMemory {
 
 // MarkProposed clears the group for a topic after a proposal has been
 // generated, preventing duplicate proposals.
+// MarkProposed 标记proposed。
 func (ft *FeedbackTracker) MarkProposed(topicKey string) {
 	ft.mu.Lock()
 	defer ft.mu.Unlock()
@@ -406,6 +418,7 @@ func (ft *FeedbackTracker) MarkProposed(topicKey string) {
 
 // FeedbackTopicSlug normalises a feedback memory name into a short,
 // stable topic key used for grouping related feedback.
+// FeedbackTopicSlug 处理feedbacktopicslug。
 func FeedbackTopicSlug(name string) string {
 	lower := strings.ToLower(name)
 	var parts []string
@@ -446,6 +459,7 @@ func filterFeedbackStopWords(words []string) []string {
 	return out
 }
 
+// LoadFromDir 从目录加载记忆。
 func (ft *FeedbackTracker) LoadFromDir(rootDir string) int {
 	if rootDir == "" {
 		return 0
@@ -461,6 +475,7 @@ func (ft *FeedbackTracker) LoadFromDir(rootDir string) int {
 	return loaded
 }
 
+// scanDirForFeedback 为feedback扫描目录。
 func (ft *FeedbackTracker) scanDirForFeedback(dir string) int {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -479,6 +494,7 @@ func (ft *FeedbackTracker) scanDirForFeedback(dir string) int {
 	return loaded
 }
 
+// parseFeedbackFile 解析feedback文件。
 func parseFeedbackFile(path string) (ExtractedMemory, bool) {
 	parsed, err := ParseMemoryFile(path)
 	if err != nil || parsed == nil {
@@ -496,6 +512,7 @@ func parseFeedbackFile(path string) (ExtractedMemory, bool) {
 
 // trackFeedbackIfApplicable is called after a successful memory write.
 // It records feedback-type intents and fires the threshold callback.
+// trackFeedbackIfApplicable 跟踪feedbackifapplicable。
 func trackFeedbackIfApplicable(h *MemoryLifecycleHooks, intent SaveIntent) {
 	if h == nil || h.feedbackTracker == nil || intent.Type != MemoryTypeFeedback {
 		return

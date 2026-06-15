@@ -18,6 +18,7 @@ type threadActivity struct {
 	collabDepth        int
 }
 
+// pushRecentTurn 处理pushrecentturn。
 func pushRecentTurn(items []TurnSummary, next TurnSummary, limit int) []TurnSummary {
 	next.ID = strings.TrimSpace(next.ID)
 	if next.ID == "" {
@@ -47,6 +48,8 @@ func pushRecentTurn(items []TurnSummary, next TurnSummary, limit int) []TurnSumm
 	}
 	return items
 }
+
+// markThreadStopped 标记线程stopped。
 func markThreadStopped(items []ThreadSummary, threadID, status string) []ThreadSummary {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -185,6 +188,7 @@ func normalizeToolName(name string) string {
 	return canonicalLSPToolName(s)
 }
 
+// canonicalLSPToolName 处理canonicalLSP工具名称。
 func canonicalLSPToolName(name string) string {
 	switch strings.TrimSpace(name) {
 	case "lsp_file":
@@ -309,6 +313,7 @@ func shouldPreserveIdleAgentState(rawAgentState string) bool {
 	}
 }
 
+// shouldPreserveIdleThreadStatusLocked 判断preserveidle线程状态locked是否可用。
 func (s *service) shouldPreserveIdleThreadStatusLocked(threadID, currentStatus, rawAgentState string) bool {
 	if currentStatus != "idle" || s.hasActiveTurnForThreadLocked(threadID) || s.hasLocalThreadActivityLocked(threadID) {
 		return false

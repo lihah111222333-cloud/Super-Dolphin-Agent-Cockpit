@@ -70,6 +70,7 @@ func newMemoryHookWorker(hooks *MemoryLifecycleHooks, logger *pkglogger.Logger) 
 }
 
 // Start spawns the worker goroutine. Idempotent.
+// Start 启动记忆流程。
 func (w *memoryHookWorker) Start() {
 	if w == nil {
 		return
@@ -92,6 +93,7 @@ func (w *memoryHookWorker) Start() {
 
 // Stop closes the gate, drains pending requests, and waits bounded by
 // ctx for the worker to exit. Idempotent.
+// Stop 停止记忆流程。
 func (w *memoryHookWorker) Stop(ctx context.Context) error {
 	if w == nil {
 		return nil
@@ -120,6 +122,7 @@ func (w *memoryHookWorker) Stop(ctx context.Context) error {
 
 // Enqueue records a hook request. Safe to call from bus callbacks: O(1)
 // slice append + non-blocking wake signal.
+// Enqueue 把项目追加到队尾。
 func (w *memoryHookWorker) Enqueue(req memoryHookRequest) {
 	if w == nil {
 		return

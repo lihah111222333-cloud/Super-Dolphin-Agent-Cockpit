@@ -116,6 +116,7 @@ func openScopedFile(ctx context.Context, rawPath string, line, column int, roots
 	return result, nil
 }
 
+// buildCodeOpenResult 构建代码打开结果。
 func buildCodeOpenResult(target scopedPath, line int) (codeOpenResult, error) {
 	info, err := os.Stat(target.Abs)
 	if err != nil {
@@ -244,6 +245,7 @@ func normalizeFileText(text string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
 }
 
+// snippetRange 处理snippet范围。
 func snippetRange(line, total int) (int, int) {
 	if total <= 0 {
 		return 0, 0
@@ -281,6 +283,7 @@ func isFullTextPreviewPath(path string) bool {
 	}
 }
 
+// previewMediaType 处理previewmediatype。
 func previewMediaType(path string) string {
 	switch strings.ToLower(filepath.Ext(strings.TrimSpace(path))) {
 	case ".png":
@@ -441,6 +444,7 @@ func resolveXLSXRelationshipTarget(target string) string {
 	return path.Clean(path.Join("xl", value))
 }
 
+// readXLSXZipEntry 读取xlsxzip条目。
 func readXLSXZipEntry(reader *zip.Reader, name string, required bool) ([]byte, error) {
 	file := findXLSXZipEntry(reader, name)
 	if file == nil {

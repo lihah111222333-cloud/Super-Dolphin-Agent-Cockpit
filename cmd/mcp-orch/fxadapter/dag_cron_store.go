@@ -23,6 +23,7 @@ type sqlDAGScheduleStore struct {
 	q *sqlc.Queries
 }
 
+// NewSQLDAGScheduleStore 创建基于 SQLite 查询集的 DAG 计划存储适配器。
 func NewSQLDAGScheduleStore(q *sqlc.Queries) (orchcron.DAGScheduleStore, error) {
 	if q == nil {
 		return nil, orchcron.ErrNilScheduleStore
@@ -30,6 +31,7 @@ func NewSQLDAGScheduleStore(q *sqlc.Queries) (orchcron.DAGScheduleStore, error) 
 	return &sqlDAGScheduleStore{q: q}, nil
 }
 
+// DueDAGs 查询已到期的 DAG 计划并转换为编排层 DTO。
 func (s *sqlDAGScheduleStore) DueDAGs(ctx context.Context, now time.Time) ([]orchcron.DueDAG, error) {
 	nowMillis := now.UTC().UnixMilli()
 	rows, err := s.q.ListDueScheduledTaskDags(ctx, sqlc.ListDueScheduledTaskDagsParams{NextRunAt: &nowMillis})
@@ -57,6 +59,7 @@ type sqliteRuntimeLocker struct {
 	lease   time.Duration
 }
 
+// NewSQLiteRuntimeLocker 创建基于 SQLite runtime_locks 表的运行时租约锁。
 func NewSQLiteRuntimeLocker(db *sql.DB, lockKey string) (orchcron.RuntimeLocker, error) {
 	if db == nil {
 		return nil, orchcron.ErrNilLockPool
@@ -76,6 +79,7 @@ func NewSQLiteRuntimeLocker(db *sql.DB, lockKey string) (orchcron.RuntimeLocker,
 	}, nil
 }
 
+// TryLock 通过 SQLite 条件写入获取运行时租约锁。
 func (l *sqliteRuntimeLocker) TryLock(ctx context.Context) (orchcron.RuntimeLockHandle, bool, error) {
 	nowMillis := time.Now().UTC().UnixMilli()
 	leaseExpiresAt := time.UnixMilli(nowMillis).UTC().Add(l.lease).UnixMilli()
@@ -110,6 +114,7 @@ type sqliteRuntimeLockHandle struct {
 	lease   time.Duration
 }
 
+// Renew 续租当前 holder 持有的运行时锁。
 func (h sqliteRuntimeLockHandle) Renew(ctx context.Context) error {
 	nowMillis := time.Now().UTC().UnixMilli()
 	leaseExpiresAt := time.UnixMilli(nowMillis).UTC().Add(h.lease).UnixMilli()
@@ -131,6 +136,7 @@ func (h sqliteRuntimeLockHandle) Renew(ctx context.Context) error {
 	return nil
 }
 
+// Unlock 释放当前 holder 持有的运行时锁。
 func (h sqliteRuntimeLockHandle) Unlock(ctx context.Context) error {
 	var rows int64
 	err := sqlctx.WithWriteRetry(ctx, func() error {
@@ -150,6 +156,7 @@ func (h sqliteRuntimeLockHandle) Unlock(ctx context.Context) error {
 	return nil
 }
 
+// runtimeLockHolder 构造进程级唯一的运行时锁 holder 标识。
 func runtimeLockHolder() (string, error) {
 	host, err := os.Hostname()
 	if err != nil {

@@ -51,6 +51,7 @@ type Querier interface {
 	DeleteAgentThreadByID(ctx context.Context, arg DeleteAgentThreadByIDParams) error
 	DeleteCommandCard(ctx context.Context, arg DeleteCommandCardParams) (int64, error)
 	DeleteCronJob(ctx context.Context, arg DeleteCronJobParams) error
+	DeleteDatasourceV2ChunksByDocumentID(ctx context.Context, arg DeleteDatasourceV2ChunksByDocumentIDParams) (int64, error)
 	DeletePromptTemplate(ctx context.Context, arg DeletePromptTemplateParams) (int64, error)
 	DeletePromptTemplateSection(ctx context.Context, arg DeletePromptTemplateSectionParams) (int64, error)
 	DeleteSharedFile(ctx context.Context, arg DeleteSharedFileParams) (int64, error)
@@ -68,6 +69,7 @@ type Querier interface {
 	GetCronJobRunByDedupeKey(ctx context.Context, arg GetCronJobRunByDedupeKeyParams) (CronJobRun, error)
 	GetCronJobRunByID(ctx context.Context, arg GetCronJobRunByIDParams) (CronJobRun, error)
 	GetCwdLockHolder(ctx context.Context, arg GetCwdLockHolderParams) (GetCwdLockHolderRow, error)
+	GetDatasourceV2Document(ctx context.Context, arg GetDatasourceV2DocumentParams) (DatasourceV2Document, error)
 	GetHookPendingReview(ctx context.Context, arg GetHookPendingReviewParams) (GetHookPendingReviewRow, error)
 	GetHookResolvedReview(ctx context.Context, arg GetHookResolvedReviewParams) (GetHookResolvedReviewRow, error)
 	GetInteraction(ctx context.Context, arg GetInteractionParams) (AgentInteraction, error)
@@ -95,6 +97,7 @@ type Querier interface {
 	InsertCommandCardVersion(ctx context.Context, arg InsertCommandCardVersionParams) error
 	// cron_job_runs -----------------------------------------------------
 	InsertCronJobRun(ctx context.Context, arg InsertCronJobRunParams) (CronJobRun, error)
+	InsertDatasourceV2Chunk(ctx context.Context, arg InsertDatasourceV2ChunkParams) error
 	InsertPromptVersion(ctx context.Context, arg InsertPromptVersionParams) (int64, error)
 	InsertSystemLog(ctx context.Context, arg InsertSystemLogParams) error
 	ListAILogSystemLogs(ctx context.Context, arg ListAILogSystemLogsParams) ([]ListAILogSystemLogsRow, error)
@@ -116,6 +119,7 @@ type Querier interface {
 	// Used by RenewLeases / ExtendClaimForTurnProgress to fetch only the jobs
 	// owned by this scheduler instance, avoiding a full-table scan of cron_jobs.
 	ListCronJobsClaimedBy(ctx context.Context, arg ListCronJobsClaimedByParams) ([]CronJob, error)
+	ListDatasourceV2Chunks(ctx context.Context, arg ListDatasourceV2ChunksParams) ([]DatasourceV2TextChunk, error)
 	ListDefaultRuleSections(ctx context.Context, arg ListDefaultRuleSectionsParams) ([]ListDefaultRuleSectionsRow, error)
 	ListEnabledPromptRoutingTests(ctx context.Context) ([]PromptRoutingTest, error)
 	ListHookPendingReviewsByAgent(ctx context.Context, arg ListHookPendingReviewsByAgentParams) ([]ListHookPendingReviewsByAgentRow, error)
@@ -164,6 +168,7 @@ type Querier interface {
 	// a late worker cannot overwrite terminal state after being preempted.
 	//
 	MarkCronJobFinished(ctx context.Context, arg MarkCronJobFinishedParams) (int64, error)
+	MarkDatasourceV2DocumentReady(ctx context.Context, arg MarkDatasourceV2DocumentReadyParams) (DatasourceV2Document, error)
 	MarkTurnDedupeTerminal(ctx context.Context, arg MarkTurnDedupeTerminalParams) error
 	// Narrow update used by RunOnce: only touches next_run_at + updated_at
 	// without overwriting any other field, avoiding a read-modify-write race.
@@ -217,6 +222,7 @@ type Querier interface {
 	UpsertAgentStatus(ctx context.Context, arg UpsertAgentStatusParams) (AgentStatus, error)
 	UpsertAgentThread(ctx context.Context, arg UpsertAgentThreadParams) error
 	UpsertCommandCard(ctx context.Context, arg UpsertCommandCardParams) (UpsertCommandCardRow, error)
+	UpsertDatasourceV2DocumentImporting(ctx context.Context, arg UpsertDatasourceV2DocumentImportingParams) (DatasourceV2Document, error)
 	UpsertPromptIntentDraft(ctx context.Context, arg UpsertPromptIntentDraftParams) (UpsertPromptIntentDraftRow, error)
 	UpsertPromptRecallTopicTargetInCWD(ctx context.Context, arg UpsertPromptRecallTopicTargetInCWDParams) error
 	UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemplateParams) (UpsertPromptTemplateRow, error)

@@ -33,6 +33,7 @@ func packagedAppDataDirForOS(goos, userHome string) string {
 	return filepath.Join(userHome, ".config", "Super Dolphin")
 }
 
+// packagedResourcesDirForOS 为系统处理packagedresources目录。
 func packagedResourcesDirForOS(goos, executablePath string) string {
 	executablePath = strings.TrimSpace(executablePath)
 	if executablePath == "" {
@@ -93,6 +94,7 @@ func executableNamesForOS(goos string, names []string) []string {
 	return out
 }
 
+// requireExecutableFileForOS 为系统处理require可执行文件文件。
 func requireExecutableFileForOS(goos, path string) error {
 	info, err := os.Stat(path)
 	if err != nil {

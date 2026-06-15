@@ -71,11 +71,9 @@ var codexCapabilities = dto.CapabilitySet{
 
 type threadRPCResult struct {
 	Thread struct {
-		ID  string `json:"id"`
-		Cwd string `json:"cwd"`
+		ID string `json:"id"`
 	} `json:"thread"`
-	Model         string `json:"model"`
-	ModelProvider string `json:"modelProvider"`
+	Model string `json:"model"`
 }
 
 type threadStartParams struct {
@@ -89,6 +87,7 @@ type threadStartParams struct {
 	Summary               string                            `json:"summary,omitempty"`
 	Effort                string                            `json:"effort,omitempty"`
 	Sandbox               json.RawMessage                   `json:"sandbox,omitempty"`
+	MCPConfig             json.RawMessage                   `json:"mcpConfig,omitempty"`
 	DynamicTools          []codexprotocol.DynamicToolSchema `json:"dynamicTools,omitempty"`
 }
 
@@ -105,6 +104,7 @@ type threadResumeParams struct {
 	Personality           string `json:"personality,omitempty"`
 }
 
+// NewDriverFactory 创建driver工厂。
 func NewDriverFactory(
 	logger *slog.Logger,
 	dispatcher *unified.EventDispatcher,
@@ -173,6 +173,7 @@ func NewDriverFactory(
 	return factory
 }
 
+// SetListTools 设置list工具。
 func (f *DriverFactory) SetListTools(fn func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) {
 	if f == nil {
 		return
@@ -182,6 +183,7 @@ func (f *DriverFactory) SetListTools(fn func(context.Context) ([]codexprotocol.D
 	f.listTools = fn
 }
 
+// SetPrepareTools 设置prepare工具。
 func (f *DriverFactory) SetPrepareTools(fn func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error)) {
 	if f == nil {
 		return
@@ -191,6 +193,7 @@ func (f *DriverFactory) SetPrepareTools(fn func(context.Context, contract.CodexT
 	f.prepareTools = fn
 }
 
+// SetReleaseTools 设置release工具。
 func (f *DriverFactory) SetReleaseTools(fn func(contract.CodexToolSurfaceScope) error) {
 	if f == nil {
 		return
@@ -200,6 +203,7 @@ func (f *DriverFactory) SetReleaseTools(fn func(contract.CodexToolSurfaceScope) 
 	f.releaseTools = fn
 }
 
+// SetBindTools 设置bind工具。
 func (f *DriverFactory) SetBindTools(fn func(contract.CodexToolSurfaceScope) error) {
 	if f == nil {
 		return
@@ -245,6 +249,7 @@ func (f *DriverFactory) currentReleaseTools() func(contract.CodexToolSurfaceScop
 	return f.releaseTools
 }
 
+// newDriver 创建driver。
 func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, pool *ServerPool, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -271,8 +276,10 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, ap
 	}
 }
 
+// Name 处理名称。
 func (d *driver) Name() string { return "codex" }
 
+// StartSession 启动会话。
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
 	var err error
 	req, err = d.prepareStartSessionRequest(ctx, req)
@@ -316,6 +323,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	return d.startDynamicSession(ctx, s, req)
 }
 
+// ResumeSession 处理恢复会话。
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 	var err error
 	req, err = d.prepareResumeSessionRequest(ctx, req)
@@ -410,6 +418,7 @@ func (d *driver) clearStaleProviderThreadID(agentID, message string) {
 	}
 }
 
+// AllowedModels 处理allowed模型。
 func (s *session) AllowedModels(ctx context.Context) ([]string, error) {
 	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "model/list", map[string]any{})
 	if err != nil {
@@ -474,6 +483,7 @@ func buildThreadResumeParams(req dto.ResumeSessionRequest) threadResumeParams {
 	return params
 }
 
+// codexSandboxWireJSON 处理codex沙箱wireJSON。
 func codexSandboxWireJSON(raw json.RawMessage) json.RawMessage {
 	raw = json.RawMessage(strings.TrimSpace(string(raw)))
 	if len(raw) == 0 {

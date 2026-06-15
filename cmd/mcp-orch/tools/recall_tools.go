@@ -45,6 +45,7 @@ func newPromptRecallTracker() *promptRecallTracker {
 	return &promptRecallTracker{seen: map[string]map[string]struct{}{}}
 }
 
+// mark 标记编排。
 func (t *promptRecallTracker) mark(threadID, topic string) bool {
 	if t == nil || threadID == "" || topic == "" {
 		return false
@@ -63,6 +64,7 @@ func (t *promptRecallTracker) mark(threadID, topic string) bool {
 	return false
 }
 
+// HandlePromptRecall 处理promptrecall。
 func HandlePromptRecall(store promptRecallStore) ToolHandler {
 	return handlePromptRecall(store, newPromptRecallTracker())
 }
@@ -81,6 +83,7 @@ func recallToolDefinitions(store promptRecallStore) []ToolDefinition {
 	)
 }
 
+// recallPromptSection 处理recallpromptsection。
 func recallPromptSection(ctx context.Context, store promptRecallStore, input promptRecallInput, tracker *promptRecallTracker) (promptRecallResult, error) {
 	if err := requireDependency(store, "prompt store"); err != nil {
 		return promptRecallResult{}, err

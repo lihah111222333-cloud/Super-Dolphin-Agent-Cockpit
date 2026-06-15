@@ -78,6 +78,7 @@ type EventDispatcher struct {
 	logger      *slog.Logger
 }
 
+// NewEventDispatcher 创建事件调度器。
 func NewEventDispatcher(bus *event.Dispatcher, logger *slog.Logger) *EventDispatcher {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -90,6 +91,7 @@ func NewEventDispatcher(bus *event.Dispatcher, logger *slog.Logger) *EventDispat
 }
 
 // Register registers one event translator from a driver.
+// Register 注册unified provider。
 func (d *EventDispatcher) Register(t EventTranslator) {
 	if t == nil {
 		return
@@ -102,6 +104,7 @@ func (d *EventDispatcher) Register(t EventTranslator) {
 }
 
 // Publish sends an already-normalized typed event to the shared event bus.
+// Publish 发布unified provider。
 func (d *EventDispatcher) Publish(ev any) {
 	if d == nil {
 		return
@@ -112,6 +115,7 @@ func (d *EventDispatcher) Publish(ev any) {
 }
 
 // Dispatch sends one raw driver event through all registered translators.
+// Dispatch 派发unified provider。
 func (d *EventDispatcher) Dispatch(raw dto.RawProviderEvent) {
 	d.mu.RLock()
 	translators := make([]EventTranslator, len(d.translators))
@@ -160,6 +164,7 @@ func publishEvent[T event.Event](bus *event.Dispatcher, ev any) bool {
 	return true
 }
 
+// translateCommonRawEvent 处理translatecommon原始事件。
 func translateCommonRawEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 	if publish == nil {
 		return

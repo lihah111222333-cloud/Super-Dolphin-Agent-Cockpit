@@ -117,6 +117,7 @@ var forgetIntentPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?is)^\s*把\s+(.+?)\s*(?:从记忆里删除|从记忆中删除|从记忆删除|从记忆里移除)\s*$`),
 }
 
+// NewService 创建模块服务并注入存储和运行依赖。
 func NewService(cfg *Config, logger *slog.Logger, consolidator *AutoDreamConsolidator, hooks *MemoryLifecycleHooks) Service {
 	return newServiceWithConsolidator(cfg, logger, consolidator, hooks)
 }
@@ -132,6 +133,7 @@ func newServiceWithConsolidator(cfg *Config, logger *slog.Logger, consolidator *
 	return &service{cfg: cfg, logger: logger, consolidator: consolidator, dreamHooks: hooks}
 }
 
+// MemoryCoordinator 返回底层记忆协调器。
 func (s *service) MemoryCoordinator() *diskLockCoordinator {
 	if s == nil || s.dreamHooks == nil {
 		return nil
@@ -139,6 +141,7 @@ func (s *service) MemoryCoordinator() *diskLockCoordinator {
 	return s.dreamHooks.memoryCoordinator()
 }
 
+// Config 返回服务当前配置。
 func (s *service) Config() Config {
 	if s == nil || s.cfg == nil {
 
@@ -147,10 +150,12 @@ func (s *service) Config() Config {
 	return *s.cfg
 }
 
+// RootDir 返回当前服务使用的根目录。
 func (s *service) RootDir() string {
 	return strings.TrimSpace(s.Config().RootDir)
 }
 
+// EnsureRoot 确保记忆根目录存在且可用。
 func (s *service) EnsureRoot(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
@@ -184,6 +189,7 @@ func (s *service) EnsureRoot(ctx context.Context) error {
 	return nil
 }
 
+// RunConsolidation 启动一次手动记忆整理任务。
 func (s *service) RunConsolidation(ctx context.Context) error {
 	if s == nil || s.consolidator == nil {
 		return ErrConsolidationExtractFuncRequired
@@ -205,6 +211,7 @@ func (s *service) RunConsolidation(ctx context.Context) error {
 	return nil
 }
 
+// GetDreamTaskStatus 读取 dream 整理任务状态。
 func (s *service) GetDreamTaskStatus() DreamTaskSnapshot {
 	if s == nil || s.dreamHooks == nil {
 		return DreamTaskSnapshot{}
@@ -212,6 +219,7 @@ func (s *service) GetDreamTaskStatus() DreamTaskSnapshot {
 	return s.dreamHooks.GetDreamTaskStatus()
 }
 
+// KillDreamTask 终止正在运行的 dream 整理任务。
 func (s *service) KillDreamTask() error {
 	if s == nil || s.dreamHooks == nil {
 		return ErrDreamTaskNotRunning
@@ -226,6 +234,7 @@ func (s *service) consolidationRunOptions(ctx context.Context, root string) cons
 	}
 }
 
+// manualConsolidationRuntimeContext 构建手动整理任务所需的 runtime 上下文。
 func (s *service) manualConsolidationRuntimeContext(ctx context.Context, root string) string {
 	if s == nil || s.dreamHooks == nil {
 		return ""
@@ -261,6 +270,8 @@ func (h *MemoryLifecycleHooks) onTurnEnd(ctx context.Context, evt turndto.TurnCo
 	h.writeDetectedTurnIntent(ctx, evt)
 }
 
+// shouldSkipTurnEnd 决定这一轮结束后要不要碰 memory。
+// 失败、取消或 memory 关闭时直接跳过，避免把不完整内容记住。
 func (h *MemoryLifecycleHooks) shouldSkipTurnEnd(ctx context.Context, evt turndto.TurnCompleted) bool {
 	if h == nil || !h.enabled || !evt.Success {
 		return true
@@ -268,6 +279,8 @@ func (h *MemoryLifecycleHooks) shouldSkipTurnEnd(ctx context.Context, evt turndt
 	return contextErr(ctx) != nil
 }
 
+// handleTrackedTurnIntent 处理用户明确说 remember/forget 的输入。
+// 明确输入优先，避免同一轮又被自动探测处理一次。
 func (h *MemoryLifecycleHooks) handleTrackedTurnIntent(ctx context.Context, evt turndto.TurnCompleted) bool {
 	key := turnTrackingKey(evt.ThreadID, evt.TurnID)
 	if h.consumeHandledTurnInput(key) {
@@ -283,6 +296,8 @@ func (h *MemoryLifecycleHooks) handleTrackedTurnIntent(ctx context.Context, evt 
 	return handled || err != nil
 }
 
+// writeDetectedTurnIntent 只写 runtime 明确识别出的保存意图。
+// 普通 turn 不会因为文本像记忆就自动写入。
 func (h *MemoryLifecycleHooks) writeDetectedTurnIntent(ctx context.Context, evt turndto.TurnCompleted) {
 	intent := h.detectTurnIntent(ctx, evt)
 	if !intent.Detected || strings.TrimSpace(intent.Content) == "" {
@@ -304,6 +319,8 @@ func (h *MemoryLifecycleHooks) detectTurnIntent(ctx context.Context, evt turndto
 	return SaveIntent{}
 }
 
+// writeIntent 把确认要保存的内容写进 private/team memory。
+// 写完后要让 prompt 重新读，否则后续 start/turn 可能还看到旧内容。
 func (h *MemoryLifecycleHooks) writeIntent(ctx context.Context, threadID string, intent SaveIntent) error {
 	trackFeedbackIfApplicable(h, intent)
 
@@ -341,6 +358,7 @@ func (h *MemoryLifecycleHooks) writeIntent(ctx context.Context, threadID string,
 
 // checkDedupAndHandle runs the dedup filter check and handles Skip/Merge.
 // Returns true if the write was fully handled (caller should not proceed).
+// checkDedupAndHandle 检查记忆去重并执行对应处理。
 func (h *MemoryLifecycleHooks) checkDedupAndHandle(entry MemoryWriteRequest, store memoryStructuredStore, scope string, options WriteOptions) (bool, error) {
 	if h.dedupFilter == nil {
 		return false, nil
@@ -391,6 +409,7 @@ func (h *MemoryLifecycleHooks) maybeOverflowMerge(store memoryStructuredStore, m
 // write store only. The global dedup filter scans cross-scope for duplicate
 // detection, but overflow control must never use private-scope instructions
 // to mutate a team store or vice versa.
+// handleDedupOverflow 处理去重队列超过上限的情况。
 func (h *MemoryLifecycleHooks) handleDedupOverflow(store memoryWriteStore, memType MemoryType, options WriteOptions) {
 	if store == nil {
 		return
@@ -412,6 +431,7 @@ func (h *MemoryLifecycleHooks) handleDedupOverflow(store memoryWriteStore, memTy
 	}
 }
 
+// storeScopeName 返回记忆存储 scope 的显示名称。
 func storeScopeName(store memoryWriteStore, h *MemoryLifecycleHooks) string {
 	if store == nil {
 		return ""
@@ -536,6 +556,7 @@ func (h *MemoryLifecycleHooks) handleExplicitIntentError(threadID string, handle
 	h.logger.Warn("memory explicit intent failed", "thread_id", strings.TrimSpace(threadID), "error", err)
 }
 
+// resolvedStoreRoot 解析当前记忆存储根目录。
 func resolvedStoreRoot(baseRoot, projectRoot, autoMemPathOverride string) (string, error) {
 	if override := strings.TrimSpace(autoMemPathOverride); override != "" {
 		validatedOverride, err := shared.ValidateMemoryRoot(override)

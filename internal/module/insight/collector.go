@@ -103,12 +103,14 @@ func (c *collector) enqueueTerminal(turnID, threadID, agentID, provider string, 
 
 // Dropped returns the total number of signals that were dropped because
 // the queue was full. Useful for dashboards and tests.
+// Dropped 处理dropped。
 func (c *collector) Dropped() int64 { return c.dropped.Load() }
 
 // eventProvider reads an optional Provider field from turn DTOs. Current
 // turn DTOs may not carry provider yet; keeping this reflective adapter
 // lets the collector preserve the field as soon as the wire shape adds it
 // without changing the subscriber contract again.
+// eventProvider 处理事件provider。
 func eventProvider(ev any) string {
 	v := reflect.ValueOf(ev)
 	if v.Kind() == reflect.Pointer {

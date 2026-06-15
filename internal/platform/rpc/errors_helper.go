@@ -9,6 +9,7 @@ import (
 
 const CodeNotImplemented = contract.CodeNotImplemented
 
+// ErrNotImplemented 处理errnotimplemented。
 func ErrNotImplemented(msg string) error {
 	return rpcError(CodeNotImplemented, msg)
 }
@@ -23,6 +24,7 @@ func ErrNotImplemented(msg string) error {
 //
 // The RPC error message uses err.Error() (not the unwrapped CapabilityError)
 // to preserve user-friendly messages from wrapper types.
+// MapCapabilityError 映射capability错误。
 func MapCapabilityError(err error) *jrpc2.Error {
 	var capErr *contract.CapabilityError
 	if errors.As(err, &capErr) {
@@ -33,6 +35,7 @@ func MapCapabilityError(err error) *jrpc2.Error {
 
 // MapInvalidParamsError maps a jrpc2.InvalidParams error to the standard RPC gate
 // code CodeInvalidParams. Returns nil if err does not contain a jrpc2.InvalidParams error.
+// MapInvalidParamsError 映射invalidparams错误。
 func MapInvalidParamsError(err error) *jrpc2.Error {
 	var rpcErr *jrpc2.Error
 	if errors.As(err, &rpcErr) && rpcErr.Code == jrpc2.InvalidParams {

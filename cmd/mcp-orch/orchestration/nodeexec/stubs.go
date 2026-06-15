@@ -14,8 +14,10 @@ import "context"
 // （真实实现先跑 automation，再用 agent verifier 验证输出）。
 type HybridExecutor struct{}
 
+// Execute 执行编排。
 func (HybridExecutor) Execute(_ context.Context, _ Node, _ RunContext) (NodeOutcome, error) {
 	return NodeOutcome{Status: NodeStatusDone}, nil
 }
 
+// Hooks 处理hooks。
 func (HybridExecutor) Hooks() map[HookPoint]HookHandler { return nil }
