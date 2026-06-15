@@ -268,6 +268,26 @@ function normalizeCodexIdentityValue(value) {
   return normalizeProviderConfigValue(value);
 }
 
+function isPreferenceTombstone(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value) && value.cleared === true);
+}
+
+function isPreferenceAbsent(value) {
+  return value === null || value === undefined || (typeof value === 'string' && value.trim() === '');
+}
+
+async function getScopedPreference(cwd, key) {
+  const scope = normalizeString(cwd);
+  if (scope) {
+    const scoped = await getPreference({ cwd: scope, key });
+    if (isPreferenceTombstone(scoped)) return '';
+    if (!isPreferenceAbsent(scoped)) return scoped;
+  }
+  const globalValue = await getPreference({ key });
+  if (isPreferenceTombstone(globalValue)) return '';
+  return isPreferenceAbsent(globalValue) ? null : globalValue;
+}
+
 function codexLaunchConfigFromPreferences({ codexHome, codexInstanceKey, codexModelProvider }) {
   const home = normalizeProviderConfigValue(codexHome);
   const instanceKey = normalizeCodexIdentityValue(codexInstanceKey);
@@ -362,9 +382,9 @@ async function resolveLaunchPreferences(cwd) {
     getPreference({ cwd, key: providerPreferenceKey(providerScope, 'model') }),
     getPreference({ cwd, key: providerPreferenceKey(providerScope, 'effort') }),
     getPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY }),
-    providerScope === 'codex' ? getPreference({ cwd, key: providerPreferenceKey('codex', 'codexHome') }) : Promise.resolve(null),
-    providerScope === 'codex' ? getPreference({ cwd, key: providerPreferenceKey('codex', 'codexInstanceKey') }) : Promise.resolve(null),
-    providerScope === 'codex' ? getPreference({ cwd, key: providerPreferenceKey('codex', 'codexModelProvider') }) : Promise.resolve(null),
+    providerScope === 'codex' ? getScopedPreference(cwd, providerPreferenceKey('codex', 'codexHome')) : Promise.resolve(null),
+    providerScope === 'codex' ? getScopedPreference(cwd, providerPreferenceKey('codex', 'codexInstanceKey')) : Promise.resolve(null),
+    providerScope === 'codex' ? getScopedPreference(cwd, providerPreferenceKey('codex', 'codexModelProvider')) : Promise.resolve(null),
   ]);
   const launch = cleanObject({
     modelProvider: provider,

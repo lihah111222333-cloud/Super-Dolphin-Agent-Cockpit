@@ -88,6 +88,11 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
       toolSurfaceMode: 'chat',
       deferSpawn: true,
       codexModelProvider: 'openai',
+      config: {
+        codexHome: 'C:\\Users\\ai01\\.codex',
+        codexInstanceKey: 'default',
+        codexModelProvider: 'openai',
+      },
       launchIntentId: 'launch_018f00e0-39fc-72ac-a47a-2a858c75d111',
       optimisticUserMessage: 'Hello',
       skipInitialRuntimeSync: true,
@@ -101,6 +106,11 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
       agent_key: 'assistant',
       toolSurfaceMode: 'chat',
       defer_spawn: true,
+      config: {
+        codexHome: 'C:\\Users\\ai01\\.codex',
+        codexInstanceKey: 'default',
+        codexModelProvider: 'openai',
+      },
       launchIntentId: 'launch_018f00e0-39fc-72ac-a47a-2a858c75d111',
     });
   });

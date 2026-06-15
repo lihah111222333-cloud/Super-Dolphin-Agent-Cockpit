@@ -2169,6 +2169,50 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
+  it('falls back to global Codex identity preferences for thread/start launch payload', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Use global Codex identity',
+      attachments: [],
+    });
+    backend.getPreference.mockImplementation(({ cwd, key }) => {
+      if (!cwd) {
+        return Promise.resolve({
+          'settings.provider.codex.codexHome': 'C:\\Users\\ai01\\.codex',
+          'settings.provider.codex.codexInstanceKey': 'default',
+          'settings.provider.codex.codexModelProvider': 'openai',
+        }[key] ?? null);
+      }
+      return Promise.resolve({
+        'settings.provider.active': 'codex',
+        'settings.provider.codex.model': 'gpt-5.5',
+        'settings.provider.codex.effort': 'low',
+      }[key] ?? null);
+    });
+    backend.startThread.mockResolvedValue({ threadId: 'thread-global-codex' });
+    backend.startTurn.mockResolvedValue({ ok: true });
+
+    await useClientStore.getState().sendDraft();
+
+    expect(backend.getPreference).toHaveBeenCalledWith({ key: 'settings.provider.codex.codexHome' });
+    expect(backend.getPreference).toHaveBeenCalledWith({ key: 'settings.provider.codex.codexInstanceKey' });
+    expect(backend.getPreference).toHaveBeenCalledWith({ key: 'settings.provider.codex.codexModelProvider' });
+    expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/repo/app',
+      modelProvider: 'codex',
+      model: 'gpt-5.5',
+      effort: 'low',
+      codexModelProvider: 'openai',
+      config: {
+        codexHome: 'C:\\Users\\ai01\\.codex',
+        codexInstanceKey: 'default',
+        codexModelProvider: 'openai',
+      },
+    }));
+  });
+
   it('includes expanded local Codex home defaults in thread/start launch payload', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
