@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestFromContextAddsTraceFields(t *testing.T) {
@@ -102,6 +103,19 @@ func TestProductionLogUsesECSCoreFields(t *testing.T) {
 	}
 	if got := payload["message"]; got != "ok" {
 		t.Fatalf("message = %#v, want ok", got)
+	}
+}
+
+func TestReplaceLogAttrFormatsTimestampAsUTCPlus8DateTime(t *testing.T) {
+	stamp := time.Date(2026, 6, 15, 1, 2, 3, 456_000_000, time.UTC)
+
+	got := replaceLogAttr(nil, slog.Time(slog.TimeKey, stamp))
+
+	if got.Key != FieldTimestamp {
+		t.Fatalf("timestamp key = %q, want %q", got.Key, FieldTimestamp)
+	}
+	if got.Value.String() != "2026-06-15 09:02:03" {
+		t.Fatalf("timestamp = %q, want UTC+8 yyyy-MM-dd HH:mm:ss", got.Value.String())
 	}
 }
 

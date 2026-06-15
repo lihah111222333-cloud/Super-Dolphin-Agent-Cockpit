@@ -121,6 +121,8 @@ func turnMCPSnapshot(snapshot contract.MCPSnapshot, manifest dto.MCPManifest) co
 	return cloned
 }
 
+// hydrateMCPServerConfigs 把项目级 MCP server 配置合并到本次 turn 的快照里。
+// 它先规范化调用方快照，再读取持久化配置，确保后续 manifest 只看到已校验配置。
 func (s *service) hydrateMCPServerConfigs(ctx context.Context, input PrepareInput) (PrepareInput, error) {
 	snapshot, err := normalizeTurnMCPSnapshot(input.MCPSnapshot)
 	if err != nil {
@@ -173,6 +175,8 @@ func mergeTurnConfiguredMCPServers(
 	return snapshot, nil
 }
 
+// normalizeTurnMCPServerConfigs 校验 turn 快照里的 MCP server 配置并生成稳定名称列表。
+// 这里同时接受 HTTP 和显式 stdio 配置，后续 manifest 构建会按 transport 分流。
 func normalizeTurnMCPServerConfigs(input map[string]contract.MCPServerConfig) (map[string]contract.MCPServerConfig, []string, error) {
 	if len(input) == 0 {
 		return nil, nil, nil
@@ -210,9 +214,17 @@ func normalizeTurnMCPServerConfig(name string, config contract.MCPServerConfig) 
 	if transport == "" {
 		return contract.MCPServerConfig{}, fmt.Errorf("configured mcp server transport is required: %s", name)
 	}
-	if !strings.EqualFold(transport, "http") {
+	switch strings.ToLower(transport) {
+	case "http":
+		return normalizeTurnHTTPMCPServerConfig(name, config)
+	case "stdio":
+		return normalizeTurnStdioMCPServerConfig(name, config)
+	default:
 		return contract.MCPServerConfig{}, fmt.Errorf("configured mcp server transport is unsupported: %s", transport)
 	}
+}
+
+func normalizeTurnHTTPMCPServerConfig(name string, config contract.MCPServerConfig) (contract.MCPServerConfig, error) {
 	rawURL := strings.TrimSpace(config.URL)
 	if rawURL == "" {
 		return contract.MCPServerConfig{}, fmt.Errorf("configured mcp server url is required: %s", name)
@@ -225,6 +237,27 @@ func normalizeTurnMCPServerConfig(name string, config contract.MCPServerConfig) 
 		Transport: "http",
 		URL:       rawURL,
 		Headers:   headers,
+	}, nil
+}
+
+func normalizeTurnStdioMCPServerConfig(name string, config contract.MCPServerConfig) (contract.MCPServerConfig, error) {
+	command := strings.TrimSpace(config.Command)
+	if command == "" {
+		return contract.MCPServerConfig{}, fmt.Errorf("configured mcp server command is required: %s", name)
+	}
+	args, err := normalizeTurnMCPServerArgs(name, config.Args)
+	if err != nil {
+		return contract.MCPServerConfig{}, err
+	}
+	env, err := normalizeTurnMCPServerEnv(name, config.Env)
+	if err != nil {
+		return contract.MCPServerConfig{}, err
+	}
+	return contract.MCPServerConfig{
+		Transport: "stdio",
+		Command:   command,
+		Args:      args,
+		Env:       env,
 	}, nil
 }
 
@@ -241,6 +274,40 @@ func normalizeTurnMCPServerHeaders(serverName string, input map[string]string) (
 		value := strings.TrimSpace(rawValue)
 		if value == "" {
 			return nil, fmt.Errorf("configured mcp server header value is required: %s.%s", serverName, name)
+		}
+		out[name] = value
+	}
+	return out, nil
+}
+
+func normalizeTurnMCPServerArgs(serverName string, input []string) ([]string, error) {
+	if len(input) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(input))
+	for _, rawValue := range input {
+		value := strings.TrimSpace(rawValue)
+		if value == "" {
+			return nil, fmt.Errorf("configured mcp server arg is required: %s", serverName)
+		}
+		out = append(out, value)
+	}
+	return out, nil
+}
+
+func normalizeTurnMCPServerEnv(serverName string, input map[string]string) (map[string]string, error) {
+	if len(input) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(input))
+	for rawName, rawValue := range input {
+		name := strings.TrimSpace(rawName)
+		if name == "" {
+			return nil, fmt.Errorf("configured mcp server env name is required: %s", serverName)
+		}
+		value := strings.TrimSpace(rawValue)
+		if value == "" {
+			return nil, fmt.Errorf("configured mcp server env value is required: %s.%s", serverName, name)
 		}
 		out[name] = value
 	}
@@ -316,6 +383,8 @@ func isManagedTurnMCPServerName(name string) bool {
 	}
 }
 
+// uniqueTurnMCPServerNames 合并多个 MCP server 名称列表并保持首次出现顺序。
+// 这能避免配置和运行态快照重复声明同一个 server。
 func uniqueTurnMCPServerNames(groups ...[]string) []string {
 	seen := map[string]struct{}{}
 	out := make([]string, 0)
@@ -370,23 +439,42 @@ func copyTurnMCPServerConfigs(out map[string]contract.MCPServerConfig, input map
 		if name == "" {
 			continue
 		}
-		headers := make(map[string]string, len(config.Headers))
-		for header, value := range config.Headers {
-			header = strings.TrimSpace(header)
-			value = strings.TrimSpace(value)
-			if header != "" && value != "" {
-				headers[header] = value
-			}
-		}
-		if len(headers) == 0 {
-			headers = nil
-		}
 		out[name] = contract.MCPServerConfig{
 			Transport: strings.TrimSpace(config.Transport),
 			URL:       strings.TrimSpace(config.URL),
-			Headers:   headers,
+			Headers:   cloneTurnStringMap(config.Headers),
+			Command:   strings.TrimSpace(config.Command),
+			Args:      cloneTurnStringList(config.Args),
+			Env:       cloneTurnStringMap(config.Env),
 		}
 	}
+}
+
+func cloneTurnStringList(input []string) []string {
+	if len(input) == 0 {
+		return nil
+	}
+	return append([]string(nil), input...)
+}
+
+// cloneTurnStringMap 复制并清理 turn 快照里的 MCP 字符串 map。
+// 空 key/value 会被丢弃，避免 stdio env 或 HTTP header 带入无效配置。
+func cloneTurnStringMap(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(input))
+	for key, value := range input {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key != "" && value != "" {
+			out[key] = value
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------------
