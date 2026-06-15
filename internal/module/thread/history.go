@@ -97,6 +97,13 @@ func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, 
 func (s *service) ReadRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
+		runtimeConfig, handled, offlineErr := s.offlineRuntimeConfigForMissingSession(ctx, threadID, binding, err)
+		if offlineErr != nil {
+			return nil, offlineErr
+		}
+		if handled {
+			return runtimeConfig, nil
+		}
 		return nil, err
 	}
 	offline, offlineErr := s.buildOfflineConfig(ctx, threadID, binding)
@@ -253,7 +260,10 @@ func (s *service) resolveBatchRuntime(
 	baseRuntime := buildOfflineRuntimeConfig(offlineCfg, thread, binding)
 	sessionCfg, err := s.resolveBatchSessionCfg(binding)
 	if err != nil {
-		return nil, err
+		if !errors.Is(err, contract.ErrSessionNotFound) {
+			return nil, err
+		}
+		sessionCfg = nil
 	}
 
 	if sessionCfg != nil {
