@@ -10,7 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// mergeConfiguredMCPServers 合并configuredMCPservers。
+// mergeConfiguredMCPServers 把项目持久化 MCP server 配置合并进 prompt 快照。
 func mergeConfiguredMCPServers(ctx context.Context, snapshot contract.MCPSnapshot, provider contract.MCPServerConfigProvider, cwd string) (contract.MCPSnapshot, error) {
 	if provider == nil {
 		return snapshot, nil
@@ -26,8 +26,9 @@ func mergeConfiguredMCPServers(ctx context.Context, snapshot contract.MCPSnapsho
 	if len(configs) == 0 {
 		return snapshot, nil
 	}
-	if conflict := firstMCPServerNameConflict(snapshot.Servers, names); conflict != "" {
-		return contract.MCPSnapshot{}, fmt.Errorf("configured mcp server conflicts with active server: %s", conflict)
+	configs, names = skipPromptConfiguredMCPServersWithActiveNames(snapshot.Servers, configs, names)
+	if len(configs) == 0 {
+		return snapshot, nil
 	}
 	snapshot.Servers = uniquePromptStrings(snapshot.Servers, names)
 	snapshot.ServerConfigs = mergeMCPServerConfigMaps(snapshot.ServerConfigs, configs)
@@ -41,7 +42,7 @@ func mcpServerConfigLookupRoot(buildCtx contract.BuildCtx) string {
 	return strings.TrimSpace(buildCtx.CWD)
 }
 
-// normalizePromptMCPServerConfigs 规范化promptMCP服务端配置。
+// normalizePromptMCPServerConfigs 规范化 prompt MCP server 配置并返回稳定排序后的名称。
 func normalizePromptMCPServerConfigs(input map[string]contract.MCPServerConfig) (map[string]contract.MCPServerConfig, []string, error) {
 	if len(input) == 0 {
 		return nil, nil, nil
@@ -113,24 +114,57 @@ func normalizePromptMCPHeaders(serverName string, input map[string]string) (map[
 	return out, nil
 }
 
-// firstMCPServerNameConflict 处理firstMCP服务端名称conflict。
-func firstMCPServerNameConflict(existing, additions []string) string {
-	if len(existing) == 0 || len(additions) == 0 {
-		return ""
+// skipPromptConfiguredMCPServersWithActiveNames 跳过已经在线的 MCP server。
+// 在线实例由运行态注册表负责，项目配置只补充尚未在线的 HTTP server。
+func skipPromptConfiguredMCPServersWithActiveNames(existing []string, configs map[string]contract.MCPServerConfig, names []string) (map[string]contract.MCPServerConfig, []string) {
+	if len(configs) == 0 || len(names) == 0 {
+		return configs, names
 	}
-	seen := make(map[string]struct{}, len(existing))
-	for _, name := range existing {
+	active := promptMCPServerNameSet(existing)
+	if len(active) == 0 {
+		return configs, names
+	}
+	filteredConfigs := make(map[string]contract.MCPServerConfig, len(configs))
+	filteredNames := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if promptMCPServerNameIsActive(active, name) {
+			continue
+		}
+		filteredConfigs[name] = configs[name]
+		filteredNames = append(filteredNames, name)
+	}
+	return promptConfiguredMCPFilterResult(filteredConfigs, filteredNames)
+}
+
+func promptMCPServerNameSet(names []string) map[string]struct{} {
+	if len(names) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(names))
+	for _, name := range names {
 		name = strings.TrimSpace(name)
 		if name != "" {
-			seen[name] = struct{}{}
+			out[name] = struct{}{}
 		}
 	}
-	for _, name := range additions {
-		if _, ok := seen[strings.TrimSpace(name)]; ok {
-			return strings.TrimSpace(name)
-		}
+	return out
+}
+
+func promptMCPServerNameIsActive(active map[string]struct{}, name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return true
 	}
-	return ""
+	_, ok := active[name]
+	return ok
+}
+
+func promptConfiguredMCPFilterResult(configs map[string]contract.MCPServerConfig, names []string) (map[string]contract.MCPServerConfig, []string) {
+	if len(configs) == 0 {
+		return nil, nil
+	}
+	return configs, names
 }
 
 func mergeMCPServerConfigMaps(base, extra map[string]contract.MCPServerConfig) map[string]contract.MCPServerConfig {
@@ -146,7 +180,7 @@ func mergeMCPServerConfigMaps(base, extra map[string]contract.MCPServerConfig) m
 	return out
 }
 
-// copyMCPServerConfigs 复制MCP服务端配置。
+// copyMCPServerConfigs 复制 MCP server 配置，顺手清理空白名称和空 header。
 func copyMCPServerConfigs(out map[string]contract.MCPServerConfig, input map[string]contract.MCPServerConfig) {
 	for name, config := range input {
 		name = strings.TrimSpace(name)

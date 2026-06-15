@@ -12,6 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/cron"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/datasource"
+	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/feedback"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/insight"
 	mcpserver "github.com/anthropic-ai/super-agent-v3/internal/module/mcp_server"
@@ -63,6 +64,7 @@ var Module = fx.Options(
 	store.Module,
 	dashboard.Module,
 	datasource.Module,
+	datasourcev2.Module,
 	feedback.Module,
 	mcpserver.Module,
 	memory.Module,

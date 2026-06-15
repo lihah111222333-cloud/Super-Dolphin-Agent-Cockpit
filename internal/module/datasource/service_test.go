@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf16"
 )
 
 func TestUploadFileCopiesPDFAndTXTToWorkingDirUploadDir(t *testing.T) {
@@ -136,6 +137,50 @@ func TestUploadFilePersistsExtractedTextContent(t *testing.T) {
 	}
 }
 
+func TestUploadFilePersistsDecodedUTF16TextContent(t *testing.T) {
+	store := &recordingDatasourceStore{}
+	svc := NewServiceWithStore(store)
+	project := t.TempDir()
+	t.Chdir(project)
+	sourceDir := t.TempDir()
+	source := filepath.Join(sourceDir, "notes.txt")
+	if err := os.WriteFile(source, utf16LEWithBOM("hello text datasource"), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	_, err := svc.UploadFile(context.Background(), UploadFileRequest{
+		SourcePath: source,
+	})
+	if err != nil {
+		t.Fatalf("UploadFile() error = %v", err)
+	}
+
+	if store.upserted.Content != "hello text datasource" {
+		t.Fatalf("Content = %q, want decoded UTF-16 text", store.upserted.Content)
+	}
+}
+
+func TestUploadFileRejectsUnsupportedTextEncoding(t *testing.T) {
+	svc := NewService()
+	project := t.TempDir()
+	t.Chdir(project)
+	sourceDir := t.TempDir()
+	source := filepath.Join(sourceDir, "bad.txt")
+	if err := os.WriteFile(source, []byte{0xff, 0xfe, 0xfd}, 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	_, err := svc.UploadFile(context.Background(), UploadFileRequest{
+		SourcePath: source,
+	})
+	if !errors.Is(err, errUnsupportedTextEncoding) {
+		t.Fatalf("UploadFile() error = %v, want errUnsupportedTextEncoding", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(project, ".agent", "datasources", "uploads")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("upload dir stat error = %v, want not exist", statErr)
+	}
+}
+
 func TestUploadFilePersistsExtractedPDFTextContent(t *testing.T) {
 	store := &recordingDatasourceStore{}
 	svc := NewServiceWithStore(store)
@@ -164,8 +209,8 @@ func TestUploadFileRejectsUnsupportedExtension(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
 	sourceDir := t.TempDir()
-	source := filepath.Join(sourceDir, "notes.md")
-	if err := os.WriteFile(source, []byte("markdown"), 0o600); err != nil {
+	source := filepath.Join(sourceDir, "image.png")
+	if err := os.WriteFile(source, []byte{0x89, 'P', 'N', 'G'}, 0o600); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
 
@@ -328,4 +373,13 @@ func minimalPDFWithText(text string) []byte {
 		"4 0 obj << /Length 0 >> stream\n" + body + "\nendstream endobj\n" +
 		"5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n" +
 		"trailer << /Root 1 0 R >>\n%%EOF\n")
+}
+
+func utf16LEWithBOM(text string) []byte {
+	codeUnits := utf16.Encode([]rune(text))
+	out := []byte{0xFF, 0xFE}
+	for _, codeUnit := range codeUnits {
+		out = append(out, byte(codeUnit), byte(codeUnit>>8))
+	}
+	return out
 }
