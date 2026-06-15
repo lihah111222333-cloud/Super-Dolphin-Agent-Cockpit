@@ -66,6 +66,35 @@ func TestMergeConfiguredMCPServersAddsProjectServersToSnapshot(t *testing.T) {
 	}
 }
 
+func TestMergeConfiguredMCPServersSkipsActiveServerNames(t *testing.T) {
+	t.Parallel()
+
+	got, err := mergeConfiguredMCPServers(context.Background(), contract.MCPSnapshot{
+		Servers: []string{"deepwiki"},
+	}, staticMCPServerConfigProvider{servers: map[string]contract.MCPServerConfig{
+		"deepwiki": {
+			Transport: "http",
+			URL:       "https://mcp.deepwiki.com/mcp",
+		},
+		"my-search": {
+			Transport: "http",
+			URL:       "https://your-domain.com/mcp",
+		},
+	}}, "/repo")
+	if err != nil {
+		t.Fatalf("mergeConfiguredMCPServers() error = %v", err)
+	}
+	if want := []string{"deepwiki", "my-search"}; !slices.Equal(mcpLiveSortedStrings(got.Servers), want) {
+		t.Fatalf("MCPSnapshot.Servers = %#v, want %#v", got.Servers, want)
+	}
+	if _, ok := got.ServerConfigs["deepwiki"]; ok {
+		t.Fatalf("ServerConfigs = %#v, want active deepwiki config skipped", got.ServerConfigs)
+	}
+	if got.ServerConfigs["my-search"].URL != "https://your-domain.com/mcp" {
+		t.Fatalf("ServerConfigs = %#v, want my-search config retained", got.ServerConfigs)
+	}
+}
+
 func newMCPPromptGitFixture(t *testing.T) (string, string) {
 	t.Helper()
 	repoRoot := t.TempDir()

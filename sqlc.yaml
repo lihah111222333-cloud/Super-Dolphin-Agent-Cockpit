@@ -38,6 +38,7 @@ sql:
       - "migrations/0086_prompt_template_manually_edited.sql"
       - "migrations/0094_add_when_to_use_column.sql"
       - "migrations/0096_add_section_recall_columns.sql"
+      - "migrations/0110_datasource_v2_documents.sql"
       - "sql/schema/prompt_intent_drafts.sql"
     strict_order_by: true
     gen:
