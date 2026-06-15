@@ -59,7 +59,6 @@ func newTransport(ctx context.Context, serverURL string) (*transport, error) {
 	return t, nil
 }
 
-// Call 调用codexapp provider。
 func (t *transport) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	if err := t.ensureOpen(); err != nil {
 		return nil, err
@@ -82,7 +81,6 @@ func (t *transport) Call(ctx context.Context, method string, params any) (json.R
 	}
 }
 
-// Notify 发送通知消息。
 func (t *transport) Notify(method string, params any) error {
 	if err := t.ensureOpen(); err != nil {
 		return err
@@ -96,7 +94,6 @@ func (t *transport) Notify(method string, params any) error {
 
 // sanitizeProviderPayload filters out internal-only Go side tracking fields
 // before the payload is dispatched to the python proxy, satisfying strict Pydantic extra='forbid' validation.
-// sanitizeProviderPayload 清理provider载荷。
 func sanitizeProviderPayload(method string, payload any) any {
 	if payload == nil {
 		return nil
@@ -130,7 +127,6 @@ func sanitizeProviderPayload(method string, payload any) any {
 	return safe
 }
 
-// ReadLoop 读取loop。
 func (t *transport) ReadLoop(ctx context.Context, handler any) {
 	if !t.looping.CompareAndSwap(false, true) {
 		return
@@ -140,17 +136,13 @@ func (t *transport) ReadLoop(ctx context.Context, handler any) {
 	}
 }
 
-// Close 关闭codexapp provider资源。
-func (t *transport) Close() error {
-	return t.shutdownTransport(true)
-}
+// Close 关闭 Codex app transport 并执行优雅清理。
+func (t *transport) Close() error { return t.shutdownTransport(true) }
 
-// Kill 终止底层进程或连接。
-func (t *transport) Kill() error {
-	return t.shutdownTransport(false)
-}
+// Kill 强制终止底层进程或连接。
+func (t *transport) Kill() error { return t.shutdownTransport(false) }
 
-// Running 返回底层进程是否仍在运行。
+// Running 返回底层进程或连接是否仍在运行。
 func (t *transport) Running() bool {
 	if t.closed.Load() || t.currentWS() == nil {
 		return false
@@ -158,7 +150,6 @@ func (t *transport) Running() bool {
 	return !t.local || t.processRunning()
 }
 
-// CheckHealth 检查底层服务健康状态。
 func (t *transport) CheckHealth(ctx context.Context) error {
 	if t == nil {
 		return errors.New("codexapp: transport unavailable")
@@ -190,7 +181,6 @@ func (t *transport) CheckHealth(ctx context.Context) error {
 	return shared.CheckCtx(pingCtx)
 }
 
-// InitializeCodexHome 处理initializecodexhome。
 func (t *transport) InitializeCodexHome() string {
 	if t == nil {
 		return ""
@@ -199,7 +189,6 @@ func (t *transport) InitializeCodexHome() string {
 	return strings.TrimSpace(value)
 }
 
-// reconnect 处理reconnect。
 func (t *transport) reconnect(ctx context.Context) error {
 	if t == nil {
 		return errors.New("codexapp: transport unavailable")
@@ -229,7 +218,6 @@ func (t *transport) establish(ctx context.Context) error {
 	return t.initialize(ctx)
 }
 
-// connect 处理connect。
 func (t *transport) connect(ctx context.Context) error {
 	retryDelay := transportConnectRetryDelay
 	for {
@@ -247,7 +235,6 @@ func (t *transport) connect(ctx context.Context) error {
 	}
 }
 
-// connectAttempt 处理connectattempt。
 func (t *transport) connectAttempt(ctx context.Context) (bool, error) {
 	if err := t.localProcessReady(); err != nil {
 		if procErr := t.localProcessFailure(); procErr != nil {
@@ -321,11 +308,9 @@ type transportServer struct {
 	t *transport
 }
 
-func wrapTransport(t *transport) SpawnedServer {
-	return &transportServer{t: t}
-}
+func wrapTransport(t *transport) SpawnedServer { return &transportServer{t: t} }
 
-// ServerURL 处理服务端URL。
+// ServerURL 返回已启动 Codex app 服务地址。
 func (s *transportServer) ServerURL() string {
 	if s == nil || s.t == nil {
 		return ""
@@ -335,7 +320,6 @@ func (s *transportServer) ServerURL() string {
 	return s.t.serverURL
 }
 
-// Close 关闭codexapp provider资源。
 func (s *transportServer) Close(_ context.Context) error {
 	if s == nil || s.t == nil {
 		return nil
@@ -343,7 +327,6 @@ func (s *transportServer) Close(_ context.Context) error {
 	return s.t.shutdownTransport(true)
 }
 
-// Alive 返回连接是否仍可用。
 func (s *transportServer) Alive() bool {
 	if s == nil || s.t == nil {
 		return false
@@ -351,7 +334,6 @@ func (s *transportServer) Alive() bool {
 	return s.t.processRunning()
 }
 
-// DiagnoseExit 处理诊断exit。
 func (s *transportServer) DiagnoseExit() (string, error) {
 	if s == nil || s.t == nil {
 		return "", nil

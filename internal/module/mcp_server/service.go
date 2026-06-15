@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
 
 var (
@@ -22,6 +23,10 @@ var (
 	errUnsupportedTransport        = errors.New("mcp_server: unsupported transport")
 	errMissingServerURL            = errors.New("mcp_server: url is required")
 	errInvalidServerURL            = errors.New("mcp_server: invalid url")
+	errMissingServerCommand        = errors.New("mcp_server: command is required")
+	errMissingServerArg            = errors.New("mcp_server: arg is required")
+	errMissingServerEnvName        = errors.New("mcp_server: env name is required")
+	errMissingServerEnvValue       = errors.New("mcp_server: env value is required")
 	errMissingHeaderName           = errors.New("mcp_server: header name is required")
 	errMissingHeaderValue          = errors.New("mcp_server: header value is required")
 	errInvalidConfigDocument       = errors.New("mcp_server: invalid config document")
@@ -29,12 +34,16 @@ var (
 	errServerNotFound              = errors.New("mcp_server: server not found")
 	errMissingWorkspaceRoot        = errors.New("mcp_server: workspaceRoot is required")
 	errMCPServerStoreNotConfigured = errors.New("mcp_server: config store is not configured")
+	errMCPServerToolsRequestFailed = errors.New("mcp_server: tools request failed")
+	errInvalidToolsResponse        = errors.New("mcp_server: invalid tools response")
 )
 
 type Service interface {
 	AddServers(context.Context, AddServersRequest) (AddServersResult, error)
 	ListServers(context.Context) (ListServersResult, error)
 	ListServersForCWD(context.Context, string) (ListServersResult, error)
+	ListServerTools(context.Context, ListServerToolsRequest) (ListServerToolsResult, error)
+	StartPostgresServer(context.Context, StartPostgresServerRequest) (StartPostgresServerResult, error)
 	DeleteServer(context.Context, DeleteServerRequest) (DeleteServerResult, error)
 }
 
@@ -42,9 +51,7 @@ type ConfigDocument struct {
 	MCPServers map[string]ServerConfig `json:"mcpServers"`
 }
 
-type AddServersRequest struct {
-	MCPServers map[string]ServerConfig `json:"mcpServers"`
-}
+type AddServersRequest = contract.MCPServerAddRequest
 
 type DeleteServerRequest struct {
 	ServerName string `json:"serverName"`
@@ -52,14 +59,20 @@ type DeleteServerRequest struct {
 
 type ServerConfig = contract.MCPServerConfig
 
-type AddServersResult struct {
-	ConfigPath  string   `json:"configPath"`
-	ServerNames []string `json:"serverNames"`
+type AddServersResult = contract.MCPServerAddResult
+
+type ListServersResult = contract.MCPServerListResult
+
+// ListServerToolsRequest 指定要通过 HTTP MCP tools/list 拉取工具的服务端名称。
+type ListServerToolsRequest struct {
+	ServerName string `json:"serverName"`
 }
 
-type ListServersResult struct {
-	ConfigPath string                  `json:"configPath"`
-	MCPServers map[string]ServerConfig `json:"mcpServers"`
+// ListServerToolsResult 返回远端 MCP server 暴露的工具列表。
+type ListServerToolsResult struct {
+	ConfigPath string           `json:"configPath"`
+	ServerName string           `json:"serverName"`
+	Tools      []mcpdto.MCPTool `json:"tools"`
 }
 
 type DeleteServerResult struct {
@@ -69,7 +82,8 @@ type DeleteServerResult struct {
 }
 
 type service struct {
-	store MCPServerConfigStore
+	store      MCPServerConfigStore
+	httpClient mcpHTTPDoer
 }
 
 // NewService 创建服务。
@@ -79,7 +93,7 @@ func NewService() Service {
 
 // NewServiceWithStore 创建带配置存储的 MCP server 服务。
 func NewServiceWithStore(store MCPServerConfigStore) Service {
-	return &service{store: store}
+	return &service{store: store, httpClient: defaultMCPHTTPClient}
 }
 
 // AddServers 添加servers。
@@ -146,7 +160,46 @@ func (s *service) ListServersForCWD(ctx context.Context, cwd string) (ListServer
 	}, nil
 }
 
-// DeleteServer 从当前工作区的 MCP server 配置中删除指定条目。
+// ListServerTools 通过已保存的 HTTP MCP server 配置执行 tools/list。
+func (s *service) ListServerTools(ctx context.Context, req ListServerToolsRequest) (ListServerToolsResult, error) {
+	ctx = mcpServerContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return ListServerToolsResult{}, err
+	}
+	name, err := normalizeListServerToolsName(req)
+	if err != nil {
+		return ListServerToolsResult{}, err
+	}
+	workspaceRoot, servers, err := s.resolveWorkspaceServers(ctx, "")
+	if err != nil {
+		return ListServerToolsResult{}, err
+	}
+	config, ok := servers[name]
+	if !ok {
+		return ListServerToolsResult{}, fmt.Errorf("%w: %s", errServerNotFound, name)
+	}
+	config, err = normalizeServerConfig(name, config)
+	if err != nil {
+		return ListServerToolsResult{}, err
+	}
+	if !strings.EqualFold(config.Transport, "http") {
+		return ListServerToolsResult{}, fmt.Errorf("%w: %s", errUnsupportedTransport, config.Transport)
+	}
+	tools, err := requestMCPServerHTTPTools(ctx, s.mcpHTTPClient(), config)
+	if err != nil {
+		return ListServerToolsResult{}, err
+	}
+	if tools == nil {
+		tools = []mcpdto.MCPTool{}
+	}
+	return ListServerToolsResult{
+		ConfigPath: mcpServerConfigPath(workspaceRoot),
+		ServerName: name,
+		Tools:      tools,
+	}, nil
+}
+
+// DeleteServer 从当前工作区配置中删除指定 MCP server，名称不存在时直接返回错误避免静默成功。
 func (s *service) DeleteServer(ctx context.Context, req DeleteServerRequest) (DeleteServerResult, error) {
 	ctx = mcpServerContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -211,6 +264,14 @@ func rejectExistingMCPServers(existing map[string]ServerConfig, names []string) 
 	return nil
 }
 
+func normalizeListServerToolsName(req ListServerToolsRequest) (string, error) {
+	name := strings.TrimSpace(req.ServerName)
+	if name == "" || name != req.ServerName {
+		return "", errMissingServerName
+	}
+	return name, nil
+}
+
 func insertMCPServerConfigs(
 	ctx context.Context,
 	store MCPServerConfigStore,
@@ -232,6 +293,13 @@ func insertMCPServerConfigs(
 		}
 	}
 	return nil
+}
+
+func (s *service) mcpHTTPClient() mcpHTTPDoer {
+	if s != nil && s.httpClient != nil {
+		return s.httpClient
+	}
+	return defaultMCPHTTPClient
 }
 
 func (s *service) requireStore() (MCPServerConfigStore, error) {
@@ -311,15 +379,23 @@ func normalizeMCPServers(input map[string]ServerConfig) (map[string]ServerConfig
 	return servers, names, nil
 }
 
-// normalizeServerConfig 规范化服务端配置。
+// normalizeServerConfig 规范化 MCP server 配置，按 transport 分别校验 HTTP 与 stdio 字段。
 func normalizeServerConfig(name string, config ServerConfig) (ServerConfig, error) {
 	transport := strings.TrimSpace(config.Transport)
 	if transport == "" {
 		return ServerConfig{}, fmt.Errorf("%w: %s", errMissingServerTransport, name)
 	}
-	if transport != "http" {
+	switch strings.ToLower(transport) {
+	case "http":
+		return normalizeHTTPServerConfig(name, config)
+	case "stdio":
+		return normalizeStdioServerConfig(name, config)
+	default:
 		return ServerConfig{}, fmt.Errorf("%w: %s", errUnsupportedTransport, transport)
 	}
+}
+
+func normalizeHTTPServerConfig(name string, config ServerConfig) (ServerConfig, error) {
 	rawURL := strings.TrimSpace(config.URL)
 	if rawURL == "" {
 		return ServerConfig{}, fmt.Errorf("%w: %s", errMissingServerURL, name)
@@ -333,9 +409,30 @@ func normalizeServerConfig(name string, config ServerConfig) (ServerConfig, erro
 		return ServerConfig{}, err
 	}
 	return ServerConfig{
-		Transport: transport,
+		Transport: "http",
 		URL:       rawURL,
 		Headers:   headers,
+	}, nil
+}
+
+func normalizeStdioServerConfig(name string, config ServerConfig) (ServerConfig, error) {
+	command := strings.TrimSpace(config.Command)
+	if command == "" {
+		return ServerConfig{}, fmt.Errorf("%w: %s", errMissingServerCommand, name)
+	}
+	args, err := normalizeStringList(config.Args, errMissingServerArg, name)
+	if err != nil {
+		return ServerConfig{}, err
+	}
+	env, err := normalizeStringMap(config.Env, errMissingServerEnvName, errMissingServerEnvValue, name)
+	if err != nil {
+		return ServerConfig{}, err
+	}
+	return ServerConfig{
+		Transport: "stdio",
+		Command:   command,
+		Args:      args,
+		Env:       env,
 	}, nil
 }
 
@@ -343,19 +440,41 @@ func normalizeHeaders(serverName string, input map[string]string) (map[string]st
 	if len(input) == 0 {
 		return nil, nil
 	}
-	headers := make(map[string]string, len(input))
+	return normalizeStringMap(input, errMissingHeaderName, errMissingHeaderValue, serverName)
+}
+
+func normalizeStringList(input []string, emptyErr error, label string) ([]string, error) {
+	if len(input) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(input))
+	for _, rawValue := range input {
+		value := strings.TrimSpace(rawValue)
+		if value == "" {
+			return nil, fmt.Errorf("%w: %s", emptyErr, label)
+		}
+		out = append(out, value)
+	}
+	return out, nil
+}
+
+func normalizeStringMap(input map[string]string, emptyKeyErr, emptyValueErr error, label string) (map[string]string, error) {
+	if len(input) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(input))
 	for rawName, rawValue := range input {
 		name := strings.TrimSpace(rawName)
 		if name == "" {
-			return nil, fmt.Errorf("%w: %s", errMissingHeaderName, serverName)
+			return nil, fmt.Errorf("%w: %s", emptyKeyErr, label)
 		}
 		value := strings.TrimSpace(rawValue)
 		if value == "" {
-			return nil, fmt.Errorf("%w: %s.%s", errMissingHeaderValue, serverName, name)
+			return nil, fmt.Errorf("%w: %s.%s", emptyValueErr, label, name)
 		}
-		headers[name] = value
+		out[name] = value
 	}
-	return headers, nil
+	return out, nil
 }
 
 func validateHTTPURL(rawURL string) error {
@@ -416,15 +535,28 @@ func writeMCPServerConfig(configPath string, doc ConfigDocument) error {
 func cloneMCPServers(input map[string]ServerConfig) map[string]ServerConfig {
 	out := make(map[string]ServerConfig, len(input))
 	for name, config := range input {
-		headers := make(map[string]string, len(config.Headers))
-		for header, value := range config.Headers {
-			headers[header] = value
-		}
-		if len(headers) == 0 {
-			headers = nil
-		}
-		config.Headers = headers
+		config.Headers = cloneStringMap(config.Headers)
+		config.Args = cloneStringList(config.Args)
+		config.Env = cloneStringMap(config.Env)
 		out[name] = config
+	}
+	return out
+}
+
+func cloneStringList(input []string) []string {
+	if len(input) == 0 {
+		return nil
+	}
+	return append([]string(nil), input...)
+}
+
+func cloneStringMap(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(input))
+	for key, value := range input {
+		out[key] = value
 	}
 	return out
 }
@@ -437,17 +569,13 @@ func mcpServersToContract(input map[string]ServerConfig) map[string]contract.MCP
 		if name == "" {
 			continue
 		}
-		headers := make(map[string]string, len(config.Headers))
-		for header, value := range config.Headers {
-			headers[header] = value
-		}
-		if len(headers) == 0 {
-			headers = nil
-		}
 		out[name] = contract.MCPServerConfig{
 			Transport: strings.TrimSpace(config.Transport),
 			URL:       strings.TrimSpace(config.URL),
-			Headers:   headers,
+			Headers:   cloneStringMap(config.Headers),
+			Command:   strings.TrimSpace(config.Command),
+			Args:      cloneStringList(config.Args),
+			Env:       cloneStringMap(config.Env),
 		}
 	}
 	if len(out) == 0 {

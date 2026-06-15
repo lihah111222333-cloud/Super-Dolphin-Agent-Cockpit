@@ -131,8 +131,13 @@ func runCodeSizeGuardCLI(t *testing.T, goFile string) codeSizeGuardCLIResult {
 
 func runTestWithGuardCLI(t *testing.T, goFile string) codeSizeGuardCLIResult {
 	t.Helper()
-	cmd := exec.Command("bash", "scripts/test_with_guard.sh", goFile)
+	cmd := exec.Command("bash", "scripts/test_with_guard.sh", filepath.ToSlash(goFile))
 	cmd.Dir = ".."
+	if realGo, err := exec.LookPath("go"); err == nil {
+		env := upsertEnv(os.Environ(), "REAL_GO_BIN", bashAbsolutePath(realGo))
+		env = upsertEnv(env, "PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+		cmd.Env = appendWSLEnvKeysWithGitWorktree(t, env, "REAL_GO_BIN", "PATH")
+	}
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

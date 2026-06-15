@@ -21,7 +21,7 @@ VALUES (
     NULL,
     0,
     0,
-    NOW()
+    (CAST(strftime('%s','now') AS INTEGER) * 1000)
 )
 ON CONFLICT (source_path) DO UPDATE
 SET file_name = EXCLUDED.file_name,
@@ -32,7 +32,7 @@ SET file_name = EXCLUDED.file_name,
     content_hash = NULL,
     chunk_count = 0,
     total_chars = 0,
-    updated_at = NOW()
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 RETURNING id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at;
 
 -- name: DeleteDatasourceV2ChunksByDocumentID :execrows
@@ -62,7 +62,7 @@ SET content_hash = sqlc.arg(content_hash),
     total_chars = sqlc.arg(total_chars),
     status = 'ready',
     error_message = NULL,
-    updated_at = NOW()
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE id = sqlc.arg(id)
 RETURNING id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at;
 

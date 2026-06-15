@@ -42,7 +42,18 @@ function Resolve-WindowsPackageArch() {
         return $platformArch
     }
     if ($configuredArch -ne '') { return $configuredArch }
-    throw 'unable to infer Windows package architecture; set SUPER_DOLPHIN_WINDOWS_ARCH or use postgres/windows-amd64|windows-arm64 in runtime-manifest.json'
+    throw 'unable to infer Windows package architecture; set SUPER_DOLPHIN_WINDOWS_ARCH or use a package root name ending in windows-amd64 or windows-arm64'
+}
+
+function Infer-WindowsPackagePlatform() {
+    param([Parameter(Mandatory)][string]$PackageRoot)
+    if ($script:WindowsPackagePlatform -match '^windows-(amd64|arm64)$') {
+        return
+    }
+    $leaf = Split-Path -Leaf $PackageRoot
+    if ($leaf -match 'windows-(amd64|arm64)$') {
+        $script:WindowsPackagePlatform = $Matches[0]
+    }
 }
 
 function Get-PEMachineType() {
@@ -312,15 +323,6 @@ function Verify-RuntimeManifest() {
     Require-ManifestPath -PackageRoot $PackageRoot -Label 'lsp_bundle_path' -RelPath ([string]$manifest.lsp_bundle_path) -Expected 'lsp' -Kind 'dir'
     Require-ManifestPath -PackageRoot $PackageRoot -Label 'lsp_manifest_path' -RelPath ([string]$manifest.lsp_manifest_path) -Expected 'lsp/lsp-manifest.json' -Kind 'file'
     Require-ManifestPath -PackageRoot $PackageRoot -Label 'model_registry_path' -RelPath ([string]$manifest.model_registry_path) -Expected 'models.yaml' -Kind 'file'
-    $postgresRel = [string]$manifest.embedded_postgres_resource_path
-    if ($script:WindowsPackagePlatform.Trim() -eq '') {
-        $normalizedPostgresRel = Normalize-RelPath $postgresRel
-        if ($normalizedPostgresRel -notmatch '^postgres/(windows-(amd64|arm64))$') {
-            throw "runtime manifest embedded_postgres_resource_path must be postgres/windows-amd64 or postgres/windows-arm64, got $postgresRel"
-        }
-        $script:WindowsPackagePlatform = $Matches[1]
-    }
-    Require-ManifestPath -PackageRoot $PackageRoot -Label 'embedded_postgres_resource_path' -RelPath $postgresRel -Expected "postgres/$WindowsPackagePlatform" -Kind 'dir'
     Write-Host 'runtime manifest verified'
 }
 
@@ -449,22 +451,6 @@ function Verify-LSPManifest() {
     Write-Host 'LSP manifest verified'
 }
 
-function Verify-PostgresRuntime() {
-    param([Parameter(Mandatory)][string]$PackageRoot)
-    $pg = Join-Path $PackageRoot "postgres/$WindowsPackagePlatform"
-    foreach ($bin in @('postgres.exe', 'initdb.exe', 'pg_ctl.exe', 'pg_config.exe')) {
-        $path = Join-Path $pg "bin/$bin"
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-            throw "missing PostgreSQL binary: $path"
-        }
-    }
-    $bki = Get-ChildItem -LiteralPath (Join-Path $pg 'share') -Filter 'postgres.bki' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($null -eq $bki) {
-        throw "missing PostgreSQL postgres.bki under $(Join-Path $pg 'share')"
-    }
-    Write-Host 'PostgreSQL runtime verified'
-}
-
 function Verify-FFmpeg() {
     param([Parameter(Mandatory)][string]$PackageRoot)
     $path = Join-Path $PackageRoot 'bin/ffmpeg.exe'
@@ -501,8 +487,13 @@ function Verify-RequiredFiles() {
             throw "missing packaged file: $path"
         }
     }
-    if (-not (Test-Path -LiteralPath (Join-Path $PackageRoot 'migrations') -PathType Container)) {
-        throw "missing packaged migrations directory"
+    $sqliteMigrationsDir = Join-Path $PackageRoot 'internal/platform/db/sqlite/migrations'
+    if (-not (Test-Path -LiteralPath $sqliteMigrationsDir -PathType Container)) {
+        throw "missing SQLite migration files under $sqliteMigrationsDir"
+    }
+    $firstMigration = Get-ChildItem -LiteralPath $sqliteMigrationsDir -Recurse -File -Force | Select-Object -First 1
+    if ($null -eq $firstMigration) {
+        throw "missing SQLite migration files under $sqliteMigrationsDir"
     }
 }
 
@@ -539,13 +530,13 @@ function Resolve-PackageRoot() {
 $script:CleanupDir = ''
 try {
     $packageRoot = Resolve-PackageRoot -InputPath $Target
+    Infer-WindowsPackagePlatform -PackageRoot $packageRoot
     Verify-RequiredFiles -PackageRoot $packageRoot
     Verify-UpdateEnv -PackageRoot $packageRoot
     Verify-RuntimeManifest -PackageRoot $packageRoot
     Assert-PackageNativeArchitecture -PackageRoot $packageRoot
     Verify-CodexManifest -PackageRoot $packageRoot
     Verify-LSPManifest -PackageRoot $packageRoot
-    Verify-PostgresRuntime -PackageRoot $packageRoot
     Verify-FFmpeg -PackageRoot $packageRoot
     Write-Host "Windows package verified: $packageRoot"
 } finally {

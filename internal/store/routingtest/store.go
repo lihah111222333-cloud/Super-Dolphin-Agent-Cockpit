@@ -8,6 +8,7 @@ import (
 	"context"
 	"time"
 
+	db "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	sqlc "github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
@@ -32,15 +33,12 @@ type store struct {
 	q *sqlc.Queries
 }
 
-// NewStore returns the sqlc-backed Reader. Pass a *sqlc.Queries (or a real
-// pgx-wrapped queries instance); returns a Reader so downstream code can
-// swap in fakes for tests.
-// NewStore 创建存储。
+// NewStore returns the sqlc-backed Reader. Pass a *sqlc.Queries backed by
+// database/sql; returns a Reader so downstream code can swap in fakes for tests.
 func NewStore(q *sqlc.Queries) Reader {
 	return &store{q: q}
 }
 
-// ListEnabled 列出enabled。
 func (s *store) ListEnabled(ctx context.Context) ([]RoutingTest, error) {
 	rows, err := s.q.ListEnabledPromptRoutingTests(ctx)
 	if err != nil {
@@ -53,13 +51,9 @@ func (s *store) ListEnabled(ctx context.Context) ([]RoutingTest, error) {
 			Input:             row.Input,
 			ExpectedPromptKey: row.ExpectedPromptKey,
 			Note:              row.Note,
-			Enabled:           row.Enabled,
-			// sqlc emits pgtype.Timestamptz for this table's created_at /
-			// updated_at (it bypassed the pg_catalog.timestamptz -> time.Time
-			// override for reasons we haven't tracked down). Convert here so
-			// consumers see time.Time like every other store in the project.
-			CreatedAt: row.CreatedAt.Time,
-			UpdatedAt: row.UpdatedAt.Time,
+			Enabled:           row.Enabled != 0,
+			CreatedAt:         db.TimeFromMillis(row.CreatedAt),
+			UpdatedAt:         db.TimeFromMillis(row.UpdatedAt),
 		}
 	}
 	return out, nil

@@ -463,10 +463,6 @@ func (r *poolEvictRunner) Run(ctx context.Context) error {
 
 func poolEvictRunnerAsRunner(r *poolEvictRunner) platformrunner.Runner { return r }
 
-// ---------------------------------------------------------------------------
-// Peer discovery cleanup (was peer_discovery_cleanup.go)
-// ---------------------------------------------------------------------------
-
 // cleanPeerDiscoveryFiles removes HTTP discovery files for peer MCP processes.
 // Called during ServerManager shutdown as a safety net.
 // cleanPeerDiscoveryFiles 处理cleanpeerdiscovery文件。

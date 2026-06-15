@@ -3,10 +3,9 @@ package cron
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgtype"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
@@ -40,8 +39,9 @@ type querier interface {
 
 type store struct{ q querier }
 
+const cronClaimBusyRetryAttempts = 3
+
 // NewStore returns the production Store backed by the sqlc queries.
-// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
 // ----- validation helpers -----
@@ -65,18 +65,19 @@ func requireClaim(id, token string) (string, string, error) {
 	return id, token, nil
 }
 
-func ts(t time.Time) pgtype.Timestamptz {
+func ts(t time.Time) int64 {
 	if t.IsZero() {
-		return pgtype.Timestamptz{Valid: false}
+		return 0
 	}
-	return pgtype.Timestamptz{Time: t, Valid: true}
+	return platformdb.Millis(t)
 }
 
-func fromTS(p pgtype.Timestamptz) time.Time {
-	if !p.Valid {
-		return time.Time{}
+func tsPtr(t time.Time) *int64 {
+	if t.IsZero() {
+		return nil
 	}
-	return p.Time
+	ms := platformdb.Millis(t)
+	return &ms
 }
 
 func bytesOrDefault(b []byte, def string) []byte {
@@ -88,7 +89,6 @@ func bytesOrDefault(b []byte, def string) []byte {
 
 // ----- jobs -----
 
-// CreateJob 创建任务。
 func (s *store) CreateJob(ctx context.Context, p CreateJobParams) (Job, error) {
 	if _, err := requireID(p.ID); err != nil {
 		return Job{}, wrap(err, "create_job")
@@ -119,9 +119,9 @@ func (s *store) CreateJob(ctx context.Context, p CreateJobParams) (Job, error) {
 		Config:        bytesOrDefault(p.Config, "{}"),
 		Skills:        bytesOrDefault(p.Skills, "[]"),
 		NotifyChannel: p.NotifyChannel,
-		Enabled:       p.Enabled,
+		Enabled:       boolToInt(p.Enabled),
 		NextRunAt:     ts(p.NextRunAt),
-		MaxAttempts:   p.MaxAttempts,
+		MaxAttempts:   int64(p.MaxAttempts),
 		CreatedAt:     ts(p.CreatedAt),
 		UpdatedAt:     ts(p.UpdatedAt),
 	})
@@ -131,7 +131,6 @@ func (s *store) CreateJob(ctx context.Context, p CreateJobParams) (Job, error) {
 	return fromCronJob(row), nil
 }
 
-// GetJobByID 按ID读取任务。
 func (s *store) GetJobByID(ctx context.Context, id string) (Job, error) {
 	id, err := requireID(id)
 	if err != nil {
@@ -147,7 +146,6 @@ func (s *store) GetJobByID(ctx context.Context, id string) (Job, error) {
 	return fromCronJob(row), nil
 }
 
-// ListJobs 列出任务。
 func (s *store) ListJobs(ctx context.Context) ([]Job, error) {
 	rows, err := s.q.ListCronJobs(ctx)
 	if err != nil {
@@ -160,7 +158,6 @@ func (s *store) ListJobs(ctx context.Context) ([]Job, error) {
 	return out, nil
 }
 
-// DeleteJob 删除任务。
 func (s *store) DeleteJob(ctx context.Context, id string) error {
 	id, err := requireID(id)
 	if err != nil {
@@ -169,7 +166,6 @@ func (s *store) DeleteJob(ctx context.Context, id string) error {
 	return wrap(s.q.DeleteCronJob(ctx, sqlc.DeleteCronJobParams{ID: id}), "delete_job")
 }
 
-// UpdateJobSchedule 更新任务计划。
 func (s *store) UpdateJobSchedule(ctx context.Context, p UpdateJobScheduleParams) error {
 	if _, err := requireID(p.ID); err != nil {
 		return wrap(err, "update_job_schedule")
@@ -195,28 +191,26 @@ func (s *store) UpdateJobSchedule(ctx context.Context, p UpdateJobScheduleParams
 		Config:        p.Config,
 		Skills:        p.Skills,
 		NotifyChannel: p.NotifyChannel,
-		Enabled:       p.Enabled,
+		Enabled:       boolToInt(p.Enabled),
 		NextRunAt:     ts(p.NextRunAt),
-		MaxAttempts:   p.MaxAttempts,
+		MaxAttempts:   int64(p.MaxAttempts),
 		UpdatedAt:     ts(p.UpdatedAt),
 		ID:            p.ID,
 	}), "update_job_schedule")
 }
 
-// SetJobEnabled 设置任务enabled。
 func (s *store) SetJobEnabled(ctx context.Context, id string, enabled bool, now time.Time) error {
 	id, err := requireID(id)
 	if err != nil {
 		return wrap(err, "set_job_enabled")
 	}
 	return wrap(s.q.SetCronJobEnabled(ctx, sqlc.SetCronJobEnabledParams{
-		Enabled:   enabled,
+		Enabled:   boolToInt(enabled),
 		UpdatedAt: ts(now),
 		ID:        id,
 	}), "set_job_enabled")
 }
 
-// PatchNextRunAt 处理补丁next运行记录at。
 func (s *store) PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Time, now time.Time) error {
 	id, err := requireID(id)
 	if err != nil {
@@ -231,7 +225,6 @@ func (s *store) PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Ti
 
 // ----- claim / lease -----
 
-// ClaimDueJobsForUpdate 领取到期的更新任务。
 func (s *store) ClaimDueJobsForUpdate(ctx context.Context, p ClaimDueJobsForUpdateParams) ([]Job, error) {
 	if strings.TrimSpace(p.ClaimToken) == "" {
 		return nil, wrap(ErrEmptyClaimToken, "claim_due_jobs")
@@ -243,13 +236,14 @@ func (s *store) ClaimDueJobsForUpdate(ctx context.Context, p ClaimDueJobsForUpda
 	if maxClaim <= 0 {
 		maxClaim = 16
 	}
-	rows, err := s.q.ClaimDueJobsForUpdate(ctx, sqlc.ClaimDueJobsForUpdateParams{
+	arg := sqlc.ClaimDueJobsForUpdateParams{
 		ClaimedBy:      p.ClaimedBy,
-		Now:            ts(p.Now),
-		LeaseExpiresAt: ts(p.LeaseExpiresAt),
+		Now:            tsPtr(p.Now),
+		LeaseExpiresAt: tsPtr(p.LeaseExpiresAt),
 		ClaimToken:     p.ClaimToken,
-		MaxClaim:       maxClaim,
-	})
+		MaxClaim:       int64(maxClaim),
+	}
+	rows, err := s.claimDueJobsWithRetry(ctx, arg)
 	if err != nil {
 		return nil, wrap(err, "claim_due_jobs")
 	}
@@ -260,14 +254,34 @@ func (s *store) ClaimDueJobsForUpdate(ctx context.Context, p ClaimDueJobsForUpda
 	return out, nil
 }
 
-// RenewLease 处理renew租约。
+func (s *store) claimDueJobsWithRetry(ctx context.Context, arg sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
+	var lastErr error
+	for attempt := 1; attempt <= cronClaimBusyRetryAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		rows, err := s.q.ClaimDueJobsForUpdate(ctx, arg)
+		if err == nil {
+			return rows, nil
+		}
+		lastErr = err
+		if !platformdb.IsSQLiteBusyLocked(err) {
+			return nil, err
+		}
+		if attempt == cronClaimBusyRetryAttempts {
+			return nil, fmt.Errorf("sqlite claim busy after %d attempts: %w", attempt, err)
+		}
+	}
+	return nil, lastErr
+}
+
 func (s *store) RenewLease(ctx context.Context, p LeaseParams) error {
 	id, token, err := requireClaim(p.ID, p.ClaimToken)
 	if err != nil {
 		return wrap(err, "renew_lease")
 	}
 	rows, err := s.q.RenewLease(ctx, sqlc.RenewLeaseParams{
-		LeaseExpiresAt: ts(p.LeaseExpiresAt),
+		LeaseExpiresAt: tsPtr(p.LeaseExpiresAt),
 		Now:            ts(p.Now),
 		ID:             id,
 		ClaimToken:     token,
@@ -281,14 +295,13 @@ func (s *store) RenewLease(ctx context.Context, p LeaseParams) error {
 	return nil
 }
 
-// ExtendClaim 延长当前任务领取租约。
 func (s *store) ExtendClaim(ctx context.Context, p LeaseParams) error {
 	id, token, err := requireClaim(p.ID, p.ClaimToken)
 	if err != nil {
 		return wrap(err, "extend_claim")
 	}
 	rows, err := s.q.ExtendClaim(ctx, sqlc.ExtendClaimParams{
-		LeaseExpiresAt: ts(p.LeaseExpiresAt),
+		LeaseExpiresAt: tsPtr(p.LeaseExpiresAt),
 		Now:            ts(p.Now),
 		ID:             id,
 		ClaimToken:     token,
@@ -306,7 +319,6 @@ func (s *store) ExtendClaim(ctx context.Context, p LeaseParams) error {
 	return nil
 }
 
-// ReleaseClaim 释放当前任务领取租约。
 func (s *store) ReleaseClaim(ctx context.Context, id, claimToken string, now time.Time) error {
 	id, token, err := requireClaim(id, claimToken)
 	if err != nil {
@@ -326,14 +338,13 @@ func (s *store) ReleaseClaim(ctx context.Context, id, claimToken string, now tim
 	return nil
 }
 
-// MarkFinished 标记finished。
 func (s *store) MarkFinished(ctx context.Context, p MarkFinishedParams) error {
 	id, token, err := requireClaim(p.ID, p.ClaimToken)
 	if err != nil {
 		return wrap(err, "mark_finished")
 	}
 	rows, err := s.q.MarkCronJobFinished(ctx, sqlc.MarkCronJobFinishedParams{
-		LastRunAt:  ts(p.LastRunAt),
+		LastRunAt:  tsPtr(p.LastRunAt),
 		LastTurnID: p.LastTurnID,
 		NextRunAt:  ts(p.NextRunAt),
 		Now:        ts(p.Now),
@@ -349,7 +360,6 @@ func (s *store) MarkFinished(ctx context.Context, p MarkFinishedParams) error {
 	return nil
 }
 
-// MarkFailed 标记任务失败。
 func (s *store) MarkFailed(ctx context.Context, p MarkFailedParams) error {
 	id, token, err := requireClaim(p.ID, p.ClaimToken)
 	if err != nil {
@@ -360,12 +370,12 @@ func (s *store) MarkFailed(ctx context.Context, p MarkFailedParams) error {
 		status = StatusFailed
 	}
 	rows, err := s.q.MarkCronJobFailed(ctx, sqlc.MarkCronJobFailedParams{
-		LastRunAt:   ts(p.LastRunAt),
+		LastRunAt:   tsPtr(p.LastRunAt),
 		LastTurnID:  p.LastTurnID,
 		LastStatus:  status,
-		LastErrorAt: ts(p.LastErrorAt),
+		LastErrorAt: tsPtr(p.LastErrorAt),
 		LastError:   p.LastError,
-		NextRetryAt: ts(p.NextRetryAt),
+		NextRetryAt: tsPtr(p.NextRetryAt),
 		Now:         ts(p.Now),
 		ID:          id,
 		ClaimToken:  token,
@@ -379,7 +389,6 @@ func (s *store) MarkFailed(ctx context.Context, p MarkFailedParams) error {
 	return nil
 }
 
-// SetActiveTurn 设置activeturn。
 func (s *store) SetActiveTurn(ctx context.Context, p SetActiveTurnParams) error {
 	id, token, err := requireClaim(p.ID, p.ClaimToken)
 	if err != nil {
@@ -404,7 +413,6 @@ func (s *store) SetActiveTurn(ctx context.Context, p SetActiveTurnParams) error 
 
 // ----- runs -----
 
-// InsertRun 插入运行记录。
 func (s *store) InsertRun(ctx context.Context, p InsertRunParams) (Run, error) {
 	if _, err := requireID(p.ID); err != nil {
 		return Run{}, wrap(err, "insert_run")
@@ -432,7 +440,6 @@ func (s *store) InsertRun(ctx context.Context, p InsertRunParams) (Run, error) {
 	return fromCronJobRun(row), nil
 }
 
-// CASRunStatus 处理cas运行记录状态。
 func (s *store) CASRunStatus(ctx context.Context, p CASRunStatusParams) error {
 	if _, err := requireID(p.ID); err != nil {
 		return wrap(err, "cas_run_status")
@@ -453,7 +460,6 @@ func (s *store) CASRunStatus(ctx context.Context, p CASRunStatusParams) error {
 	return nil
 }
 
-// SetRunTurn 设置运行记录turn。
 func (s *store) SetRunTurn(ctx context.Context, p SetRunTurnParams) error {
 	if _, err := requireID(p.ID); err != nil {
 		return wrap(err, "set_run_turn")
@@ -462,7 +468,7 @@ func (s *store) SetRunTurn(ctx context.Context, p SetRunTurnParams) error {
 		TurnID:      p.TurnID,
 		ThreadID:    p.ThreadID,
 		AgentID:     p.AgentID,
-		SubmittedAt: ts(p.SubmittedAt),
+		SubmittedAt: tsPtr(p.SubmittedAt),
 		UpdatedAt:   ts(p.UpdatedAt),
 		ID:          p.ID,
 	})
@@ -475,7 +481,6 @@ func (s *store) SetRunTurn(ctx context.Context, p SetRunTurnParams) error {
 	return nil
 }
 
-// GetRunByID 按ID读取运行记录。
 func (s *store) GetRunByID(ctx context.Context, id string) (Run, error) {
 	id, err := requireID(id)
 	if err != nil {
@@ -491,7 +496,6 @@ func (s *store) GetRunByID(ctx context.Context, id string) (Run, error) {
 	return fromCronJobRun(row), nil
 }
 
-// GetRunByDedupeKey 按去重键读取运行记录。
 func (s *store) GetRunByDedupeKey(ctx context.Context, dedupeKey string) (Run, error) {
 	key := strings.TrimSpace(dedupeKey)
 	if key == "" {
@@ -507,7 +511,6 @@ func (s *store) GetRunByDedupeKey(ctx context.Context, dedupeKey string) (Run, e
 	return fromCronJobRun(row), nil
 }
 
-// ListRunsByJob 按任务列出运行记录。
 func (s *store) ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]Run, error) {
 	jobID, err := requireID(jobID)
 	if err != nil {
@@ -518,7 +521,7 @@ func (s *store) ListRunsByJob(ctx context.Context, jobID string, limit int32) ([
 	}
 	rows, err := s.q.ListCronJobRunsByJob(ctx, sqlc.ListCronJobRunsByJobParams{
 		JobID: jobID,
-		Limit: limit,
+		Limit: int64(limit),
 	})
 	if err != nil {
 		return nil, wrap(err, "list_runs_by_job")
@@ -530,7 +533,6 @@ func (s *store) ListRunsByJob(ctx context.Context, jobID string, limit int32) ([
 	return out, nil
 }
 
-// ListUnresolvedRuns 列出unresolved运行记录。
 func (s *store) ListUnresolvedRuns(ctx context.Context) ([]Run, error) {
 	rows, err := s.q.ListUnresolvedCronJobRuns(ctx)
 	if err != nil {
@@ -550,7 +552,6 @@ func firstNonEmpty(a, b string) string {
 	return b
 }
 
-// GetRunningRunByTurnID 按turnID读取running运行记录。
 func (s *store) GetRunningRunByTurnID(ctx context.Context, turnID string) (Run, error) {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
@@ -566,7 +567,6 @@ func (s *store) GetRunningRunByTurnID(ctx context.Context, turnID string) (Run, 
 	return fromCronJobRun(row), nil
 }
 
-// ListJobsClaimedBy 列出指定执行者已领取的 cron 任务。
 func (s *store) ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]Job, error) {
 	claimedBy = strings.TrimSpace(claimedBy)
 	if claimedBy == "" {
@@ -581,6 +581,13 @@ func (s *store) ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]Job,
 		out[i] = fromCronJob(r)
 	}
 	return out, nil
+}
+
+func boolToInt(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func wrap(err error, operation string) error {

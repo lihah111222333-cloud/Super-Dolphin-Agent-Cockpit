@@ -268,6 +268,27 @@ func TestPersistThreadConfigFailsFastOnMalformedConfigOverride(t *testing.T) {
 	}
 }
 
+func TestConfigReadsFailFastWithoutSessionProvider(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID: "thread-1",
+		AgentID:  "agent-1",
+		Model:    "gpt-5.5",
+	}}
+	svc := NewService(silentLogger(), threads, testCodexBindingStore(), nil, nil, nil, nil, nil).(*service)
+
+	_, err := svc.GetConfig(context.Background(), "thread-1")
+	if err == nil || !strings.Contains(err.Error(), "session provider is not configured") {
+		t.Fatalf("GetConfig() error = %v, want session provider not configured", err)
+	}
+
+	_, err = svc.ReadRuntimeConfig(context.Background(), "thread-1")
+	if err == nil || !strings.Contains(err.Error(), "session provider is not configured") {
+		t.Fatalf("ReadRuntimeConfig() error = %v, want session provider not configured", err)
+	}
+}
+
 func TestReadRuntimeConfigsFailsFastOnMalformedConfigOverride(t *testing.T) {
 	t.Parallel()
 
@@ -306,7 +327,16 @@ func TestReadMessagesFailsFastOnPendingLaunchLookupError(t *testing.T) {
 func TestReadRuntimeConfigsFailsFastOnMissingSessionForBinding(t *testing.T) {
 	t.Parallel()
 
-	thread := threadstore.Thread{ThreadID: "thread-1", AgentID: "agent-1"}
+	thread := threadstore.Thread{
+		ThreadID: "thread-1",
+		AgentID:  "agent-1",
+		Model:    "gpt-5.5",
+		Cwd:      "/tmp/demo",
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
+			Approvals:   "never",
+			Personality: "balanced",
+		}),
+	}
 	svc := &service{
 		threadStore: &stubThreadStore{thread: &thread},
 		bindingStore: &stubBindingStore{binding: &bindingstore.Binding{
@@ -317,9 +347,13 @@ func TestReadRuntimeConfigsFailsFastOnMissingSessionForBinding(t *testing.T) {
 		sessions: &stubSessionProvider{},
 	}
 
-	_, err := svc.ReadRuntimeConfigs(context.Background(), []string{"thread-1"})
-	if !errors.Is(err, contract.ErrSessionNotFound) {
-		t.Fatalf("ReadRuntimeConfigs() error = %v, want session not found", err)
+	got, err := svc.ReadRuntimeConfigs(context.Background(), []string{"thread-1"})
+	if err != nil {
+		t.Fatalf("ReadRuntimeConfigs() error = %v, want offline runtime config", err)
+	}
+	runtime := got["thread-1"]
+	if runtime["approvalPolicy"] != "never" || runtime["personality"] != "balanced" || runtime["model"] != "gpt-5.5" || runtime["cwd"] != "/tmp/demo" {
+		t.Fatalf("ReadRuntimeConfigs()[thread-1] = %#v", runtime)
 	}
 }
 

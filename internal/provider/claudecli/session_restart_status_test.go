@@ -29,13 +29,13 @@ func TestRestartIfNeededLockedPublishesRestartStatusPatch(t *testing.T) {
 
 	next := newScriptedTransport()
 	defer next.finish()
-	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		return next.tr, nil, nil
 	})
 
 	oldReady := make(chan struct{})
 	close(oldReady)
-	s := assumeSessionLaunchOverride(&session{
+	s := &session{
 		agentID:         "agent-1",
 		threadID:        "pending",
 		publicThreadID:  "thread-public",
@@ -46,8 +46,9 @@ func TestRestartIfNeededLockedPublishesRestartStatusPatch(t *testing.T) {
 		transportModel:  "sonnet",
 		config:          cliLaunchConfig{Effort: "high"},
 		eventDispatcher: dispatcher,
+		launchCLI:       launchFn,
 		suppressedTurns: map[string]struct{}{},
-	})
+	}
 	ctx, cancelCtx := context.WithTimeout(context.Background(), time.Second)
 	defer cancelCtx()
 	result := restartLockedAsync(s, ctx)
@@ -83,13 +84,17 @@ func TestDriverStartCanonicalizesEffectiveEffort(t *testing.T) {
 	next := newBufferedTransport(t, "thread-1")
 	var launchedInstructions string
 	var launchedConfig cliLaunchConfig
-	overrideLaunchCLI(t, func(_, _, _, instructions string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(_, _, _, instructions string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
 		launchedInstructions = instructions
 		launchedConfig = cfg
 		return next.tr, nil, nil
 	})
 
-	d := assumeClaudeAuthLoggedIn(&driver{mirror: &recordingMirrorReconciler{}})
+	d := &driver{
+		mirror:     &recordingMirrorReconciler{},
+		launchCLI:  launchFn,
+		authStatus: loggedInClaudeAuthStatus,
+	}
 	sess, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		Provider:     "claude",
 		AgentID:      "agent-1",

@@ -1,8 +1,9 @@
 package datasource
 
 import (
+	"database/sql"
+
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/fx"
 )
 
@@ -12,6 +13,6 @@ var Module = fx.Module("store.datasource",
 )
 
 // newDocumentStore 从数据库池创建数据源文档存储，避免业务模块直接接触数据库类型。
-func newDocumentStore(pool *pgxpool.Pool) contract.DatasourceDocumentStore {
-	return NewDocumentStore(pool)
+func newDocumentStore(db *sql.DB) contract.DatasourceDocumentStore {
+	return NewDocumentStore(db)
 }

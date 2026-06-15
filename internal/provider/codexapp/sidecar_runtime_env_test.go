@@ -2,9 +2,12 @@ package codexapp
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+const testInternalSQLitePathEnvKey = "SUPER_DOLPHIN_INTERNAL_SQLITE_PATH"
 
 func TestPeerProcessEnvRequiresParentSidecarRuntimeContract(t *testing.T) {
 	_, err := peerProcessEnv("mcp-orch", []string{"PATH=/bin", "GO_AGENT_CTL_SESSION_TOKEN=test-peer-token"}, nil)
@@ -38,12 +41,20 @@ func TestPeerProcessEnvRejectsProjectRootFallbackWhenResourcesMissing(t *testing
 }
 
 func TestPeerProcessEnvConsumesDevSidecarRuntimeContract(t *testing.T) {
-	env, err := peerProcessEnv("mcp-orch", testPeerParentEnv(), nil)
+	env, err := peerProcessEnv("mcp-orch", append(testPeerParentEnv(),
+		"DATABASE_URL=postgres://parent@localhost/super_dolphin",
+		"POSTGRES_CONNECTION_STRING=postgres://compat@localhost/super_dolphin",
+		"NON_DB_PARENT=keep",
+	), nil)
 	if err != nil {
 		t.Fatalf("peerProcessEnv() error = %v", err)
 	}
 	requireEnvValue(t, env, "SUPER_DOLPHIN_RUNTIME_MODE", "dev")
 	requireEnvValue(t, env, "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR", "/work/repo")
+	for _, key := range []string{"DATABASE_URL", "POSTGRES_CONNECTION_STRING"} {
+		requireEnvKeyAbsent(t, env, key)
+	}
+	requireEnvValue(t, env, "NON_DB_PARENT", "keep")
 }
 
 func TestPeerProcessEnvPreservesPackagedSidecarRuntimeContract(t *testing.T) {
@@ -58,6 +69,25 @@ func TestPeerProcessEnvPreservesPackagedSidecarRuntimeContract(t *testing.T) {
 	}
 	requireEffectiveEnvValue(t, env, "SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	requireEffectiveEnvValue(t, env, "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR", "/Applications/Super Dolphin.app/Contents/Resources")
+}
+
+func TestPeerProcessEnvPassesExplicitSQLitePathToTrustedOrchOnly(t *testing.T) {
+	sqlitePath := filepath.Join(t.TempDir(), "super-dolphin.db")
+	parent := append(testPeerParentEnv(), "SUPER_DOLPHIN_SQLITE_PATH="+sqlitePath)
+
+	orchEnv, err := peerProcessEnv("mcp-orch", parent, nil)
+	if err != nil {
+		t.Fatalf("peerProcessEnv(mcp-orch) error = %v", err)
+	}
+	requireEnvKeyAbsent(t, orchEnv, "SUPER_DOLPHIN_SQLITE_PATH")
+	requireEnvValue(t, orchEnv, testInternalSQLitePathEnvKey, sqlitePath)
+
+	lspEnv, err := peerProcessEnv("mcp-lsp", parent, []string{t.TempDir()})
+	if err != nil {
+		t.Fatalf("peerProcessEnv(mcp-lsp) error = %v", err)
+	}
+	requireEnvKeyAbsent(t, lspEnv, "SUPER_DOLPHIN_SQLITE_PATH")
+	requireEnvKeyAbsent(t, lspEnv, testInternalSQLitePathEnvKey)
 }
 
 func TestPeerProcessEnvConfiguredMcpLSPWorkspaceRootsOverrideStaleParentEnv(t *testing.T) {
@@ -104,6 +134,16 @@ func requireEnvItemAbsent(t *testing.T, env []string, item string) {
 	for _, candidate := range env {
 		if candidate == item {
 			t.Fatalf("env unexpectedly contains %q: %#v", item, env)
+		}
+	}
+}
+
+func requireEnvKeyAbsent(t *testing.T, env []string, key string) {
+	t.Helper()
+	prefix := key + "="
+	for _, candidate := range env {
+		if strings.HasPrefix(candidate, prefix) {
+			t.Fatalf("env unexpectedly contains key %s: %#v", key, env)
 		}
 	}
 }

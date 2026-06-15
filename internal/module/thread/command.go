@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
 // NOTE(P8): 这里仍处在过渡态；provider-neutral Session 只暴露 Configure /
@@ -189,6 +190,13 @@ func (s *service) GetConfig(ctx context.Context, threadID string) (dto.ThreadCon
 		if handled {
 			return cfg, nil
 		}
+		cfg, handled, offlineErr = s.offlineConfigForMissingSession(ctx, threadID, binding, err)
+		if offlineErr != nil {
+			return dto.ThreadConfig{}, offlineErr
+		}
+		if handled {
+			return cfg, nil
+		}
 		return dto.ThreadConfig{}, err
 	}
 	reader, ok := session.(configReaderSession)
@@ -200,6 +208,52 @@ func (s *service) GetConfig(ctx context.Context, threadID string) (dto.ThreadCon
 		return dto.ThreadConfig{}, err
 	}
 	return s.normalizeThreadConfig(ctx, threadID, binding, cfg), nil
+}
+
+func (s *service) offlineConfigForMissingSession(
+	ctx context.Context,
+	threadID string,
+	binding *bindingstore.Binding,
+	resolveErr error,
+) (dto.ThreadConfig, bool, error) {
+	if !errors.Is(resolveErr, contract.ErrSessionNotFound) {
+		return dto.ThreadConfig{}, false, nil
+	}
+	if binding == nil {
+		resolvedBinding, err := s.resolveBinding(ctx, threadID)
+		if err != nil {
+			return dto.ThreadConfig{}, false, err
+		}
+		binding = resolvedBinding
+	}
+	offline, err := s.buildOfflineConfig(ctx, threadID, binding)
+	if err != nil {
+		return dto.ThreadConfig{}, false, err
+	}
+	return offline.Config, true, nil
+}
+
+func (s *service) offlineRuntimeConfigForMissingSession(
+	ctx context.Context,
+	threadID string,
+	binding *bindingstore.Binding,
+	resolveErr error,
+) (map[string]any, bool, error) {
+	if !errors.Is(resolveErr, contract.ErrSessionNotFound) {
+		return nil, false, nil
+	}
+	if binding == nil {
+		resolvedBinding, err := s.resolveBinding(ctx, threadID)
+		if err != nil {
+			return nil, false, err
+		}
+		binding = resolvedBinding
+	}
+	offline, err := s.buildOfflineConfig(ctx, threadID, binding)
+	if err != nil {
+		return nil, false, err
+	}
+	return clone.RuntimeConfigMap(offline.Runtime), true, nil
 }
 
 func (s *service) pendingLaunchOfflineConfig(

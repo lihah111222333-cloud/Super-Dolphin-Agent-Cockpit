@@ -125,6 +125,7 @@ func commitPromptIntentDraft(ctx context.Context, store promptstore.Store, built
 	if err != nil {
 		return CommitResult{}, err
 	}
+	card = NormalizeGeneratedCard(string(kind), draft.RawInput, card)
 	if err := validatePromptIntentCommitCard(kind, draft.RawInput, card); err != nil {
 		return CommitResult{}, err
 	}
@@ -257,7 +258,7 @@ func commitPromptIntentRecall(ctx context.Context, store promptstore.Store, buil
 	if err := rejectDuplicateRecallTopicInCWD(ctx, store, cwd, card.RecallTopic, global, saved.ID, sectionKey); err != nil {
 		return nil, err
 	}
-	if _, err := store.UpsertSection(ctx, promptstore.PromptTemplateSection{
+	section, err := store.UpsertSection(ctx, promptstore.PromptTemplateSection{
 		TemplateID:  saved.ID,
 		SectionKey:  sectionKey,
 		Region:      "dynamic",
@@ -266,7 +267,11 @@ func commitPromptIntentRecall(ctx context.Context, store promptstore.Store, buil
 		Enabled:     true,
 		TriggerType: "recall",
 		RecallTopic: strings.TrimSpace(card.RecallTopic),
-	}); err != nil {
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := store.UpsertRecallTopicTargetInCWD(ctx, cwd, section.RecallTopic, section.TemplateID, section.SectionKey); err != nil {
 		return nil, err
 	}
 	return saved, nil

@@ -100,7 +100,7 @@ func TestGet_DiskHit_OverridesDBContent(t *testing.T) {
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	rows.byPath["dag/dag-1/output.json"] = sqlc.SharedFile{
 		Path: "dag/dag-1/output.json", Content: "", UpdatedBy: "agent",
-		CreatedAt: now, UpdatedAt: now,
+		CreatedAt: now.UnixMilli(), UpdatedAt: now.UnixMilli(),
 	}
 	abs := filepath.Join(cfg.CWD, sharedfilefs.SandboxDir, "dag/dag-1/output.json")
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
@@ -130,7 +130,7 @@ func TestGet_DiskMiss_FallsBackToDB(t *testing.T) {
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	rows.byPath["handoff/legacy/note.md"] = sqlc.SharedFile{
 		Path: "handoff/legacy/note.md", Content: "from-db-only", UpdatedBy: "system",
-		CreatedAt: now, UpdatedAt: now,
+		CreatedAt: now.UnixMilli(), UpdatedAt: now.UnixMilli(),
 	}
 
 	got, err := s.Get(context.Background(), "handoff/legacy/note.md")
@@ -253,7 +253,7 @@ func (f *fakeRowQuerier) DeleteSharedFile(_ context.Context, arg sqlc.DeleteShar
 func (f *fakeRowQuerier) UpsertSharedFile(_ context.Context, arg sqlc.UpsertSharedFileParams) (sqlc.SharedFile, error) {
 	row := sqlc.SharedFile{
 		Path: arg.Path, Content: arg.Content, UpdatedBy: arg.UpdatedBy,
-		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		CreatedAt: time.Now().UnixMilli(), UpdatedAt: time.Now().UnixMilli(),
 	}
 	f.rows.byPath[arg.Path] = row
 	return row, nil

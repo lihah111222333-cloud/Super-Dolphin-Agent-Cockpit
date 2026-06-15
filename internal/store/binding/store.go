@@ -11,10 +11,10 @@ import (
 type querier interface {
 	BindAgentThread(ctx context.Context, arg sqlc.BindAgentThreadParams) error
 	DeleteAgentProviderBindingByAgentID(ctx context.Context, arg sqlc.DeleteAgentProviderBindingByAgentIDParams) error
-	GetAgentProviderBindingByAgentID(ctx context.Context, arg sqlc.GetAgentProviderBindingByAgentIDParams) (sqlc.GetAgentProviderBindingByAgentIDRow, error)
-	GetAgentProviderBindingByProviderThread(ctx context.Context, arg sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.GetAgentProviderBindingByProviderThreadRow, error)
+	GetAgentProviderBindingByAgentID(ctx context.Context, arg sqlc.GetAgentProviderBindingByAgentIDParams) (sqlc.AgentProviderBinding, error)
+	GetAgentProviderBindingByProviderThread(ctx context.Context, arg sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.AgentProviderBinding, error)
 	GetThreadByAgent(ctx context.Context, arg sqlc.GetThreadByAgentParams) (string, error)
-	ListAgentThreadBindings(ctx context.Context) ([]sqlc.ListAgentThreadBindingsRow, error)
+	ListAgentThreadBindings(ctx context.Context) ([]sqlc.AgentProviderBinding, error)
 	UnbindAgentThread(ctx context.Context, arg sqlc.UnbindAgentThreadParams) error
 	UpdateAgentCwd(ctx context.Context, arg sqlc.UpdateAgentCwdParams) error
 	UpdateAgentProviderBindingArchived(ctx context.Context, arg sqlc.UpdateAgentProviderBindingArchivedParams) error
@@ -52,7 +52,7 @@ func (s *store) GetByProviderThread(ctx context.Context, provider, providerThrea
 		ParentAgentID:      row.ParentAgentID,
 		AgentType:          row.AgentType,
 		AgentMemoryScope:   row.AgentMemoryScope,
-		Archived:           row.Archived,
+		Archived:           row.Archived != 0,
 		CreatedAt:          row.CreatedAt,
 		UpdatedAt:          row.UpdatedAt,
 		SessionUUID:        row.SessionUUID,
@@ -126,8 +126,12 @@ func (s *store) UpdateProviderThreadID(ctx context.Context, params UpdateProvide
 
 // SetArchived 设置archived。
 func (s *store) SetArchived(ctx context.Context, params SetArchivedParams) error {
+	archived := int64(0)
+	if params.Archived {
+		archived = 1
+	}
 	return wrapBindingError(s.q.UpdateAgentProviderBindingArchived(ctx, sqlc.UpdateAgentProviderBindingArchivedParams{
-		Archived:  params.Archived,
+		Archived:  archived,
 		UpdatedAt: params.UpdatedAt,
 		AgentID:   params.AgentID,
 	}), "set_archived")
@@ -149,7 +153,7 @@ func (s *store) GetByAgentID(ctx context.Context, agentID string) (*Binding, err
 		ParentAgentID:      row.ParentAgentID,
 		AgentType:          row.AgentType,
 		AgentMemoryScope:   row.AgentMemoryScope,
-		Archived:           row.Archived,
+		Archived:           row.Archived != 0,
 		CreatedAt:          row.CreatedAt,
 		UpdatedAt:          row.UpdatedAt,
 		SessionUUID:        row.SessionUUID,
@@ -201,7 +205,7 @@ func (s *store) ListAgentThreadBindings(ctx context.Context) ([]Binding, error) 
 			ParentAgentID:      row.ParentAgentID,
 			AgentType:          row.AgentType,
 			AgentMemoryScope:   row.AgentMemoryScope,
-			Archived:           row.Archived,
+			Archived:           row.Archived != 0,
 			CreatedAt:          row.CreatedAt,
 			UpdatedAt:          row.UpdatedAt,
 			SessionUUID:        row.SessionUUID,

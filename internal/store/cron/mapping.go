@@ -1,12 +1,28 @@
 package cron
 
-import "github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+import (
+	"time"
 
-// fromCronJob projects a sqlc.CronJob row (shared across Create / Get /
-// List / Claim queries because they all project the same 32 columns) into
-// the domain Job. pgtype.Timestamptz values become zero-value time.Time
-// when the column was NULL.
-// fromCronJob 从cron任务处理cron存储。
+	db "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+)
+
+func milliToTime(ms int64) time.Time {
+	if ms == 0 {
+		return time.Time{}
+	}
+	return db.TimeFromMillis(ms)
+}
+
+func milliPtrToTime(ms *int64) time.Time {
+	if ms == nil || *ms == 0 {
+		return time.Time{}
+	}
+	return db.TimeFromMillis(*ms)
+}
+
+// fromCronJob projects a sqlc.CronJob row into the domain Job.
+// int64 epoch-ms values become time.Time (zero when NULL/0).
 func fromCronJob(r sqlc.CronJob) Job {
 	return Job{
 		ID:              r.ID,
@@ -21,26 +37,26 @@ func fromCronJob(r sqlc.CronJob) Job {
 		Config:          cloneBytes(r.Config),
 		Skills:          cloneBytes(r.Skills),
 		NotifyChannel:   r.NotifyChannel,
-		Enabled:         r.Enabled,
-		NextRunAt:       fromTS(r.NextRunAt),
-		LastScheduledAt: fromTS(r.LastScheduledAt),
-		LastRunAt:       fromTS(r.LastRunAt),
-		ClaimedAt:       fromTS(r.ClaimedAt),
+		Enabled:         r.Enabled != 0,
+		NextRunAt:       milliToTime(r.NextRunAt),
+		LastScheduledAt: milliPtrToTime(r.LastScheduledAt),
+		LastRunAt:       milliPtrToTime(r.LastRunAt),
+		ClaimedAt:       milliPtrToTime(r.ClaimedAt),
 		ClaimedBy:       r.ClaimedBy,
-		LeaseExpiresAt:  fromTS(r.LeaseExpiresAt),
+		LeaseExpiresAt:  milliPtrToTime(r.LeaseExpiresAt),
 		ClaimToken:      r.ClaimToken,
 		ThreadID:        r.ThreadID,
 		AgentID:         r.AgentID,
 		ActiveTurnID:    r.ActiveTurnID,
 		LastTurnID:      r.LastTurnID,
-		FailureCount:    r.FailureCount,
-		MaxAttempts:     r.MaxAttempts,
-		NextRetryAt:     fromTS(r.NextRetryAt),
+		FailureCount:    int32(r.FailureCount),
+		MaxAttempts:     int32(r.MaxAttempts),
+		NextRetryAt:     milliPtrToTime(r.NextRetryAt),
 		LastStatus:      r.LastStatus,
-		LastErrorAt:     fromTS(r.LastErrorAt),
+		LastErrorAt:     milliPtrToTime(r.LastErrorAt),
 		LastError:       r.LastError,
-		CreatedAt:       fromTS(r.CreatedAt),
-		UpdatedAt:       fromTS(r.UpdatedAt),
+		CreatedAt:       milliToTime(r.CreatedAt),
+		UpdatedAt:       milliToTime(r.UpdatedAt),
 	}
 }
 
@@ -48,17 +64,17 @@ func fromCronJobRun(r sqlc.CronJobRun) Run {
 	return Run{
 		ID:             r.ID,
 		JobID:          r.JobID,
-		ScheduledAt:    fromTS(r.ScheduledAt),
+		ScheduledAt:    milliToTime(r.ScheduledAt),
 		IdempotencyKey: r.IdempotencyKey,
 		DedupeKey:      r.DedupeKey,
 		ThreadID:       r.ThreadID,
 		AgentID:        r.AgentID,
 		TurnID:         r.TurnID,
-		SubmittedAt:    fromTS(r.SubmittedAt),
+		SubmittedAt:    milliPtrToTime(r.SubmittedAt),
 		Status:         r.Status,
 		Error:          r.Error,
-		CreatedAt:      fromTS(r.CreatedAt),
-		UpdatedAt:      fromTS(r.UpdatedAt),
+		CreatedAt:      milliToTime(r.CreatedAt),
+		UpdatedAt:      milliToTime(r.UpdatedAt),
 	}
 }
 

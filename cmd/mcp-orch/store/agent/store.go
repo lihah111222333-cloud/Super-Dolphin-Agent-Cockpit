@@ -1,6 +1,6 @@
 // Package agent provides lightweight store implementations for
 // orchestration.AgentThreadStore and orchestration.AgentBindingStore
-// that query the shared PostgreSQL tables directly via pgxpool.Pool.
+// that query the shared SQLite tables directly via database/sql.
 //
 // This avoids importing internal/store/thread and internal/store/binding,
 // which would violate mcp-service-convention.md S3.1.
@@ -8,24 +8,22 @@ package agent
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ──────────────────────────────────────────────────────────────────────
 // AgentThreadStore
 // ──────────────────────────────────────────────────────────────────────
 
-type threadStore struct{ pool *pgxpool.Pool }
+type threadStore struct{ db *sql.DB }
 
-// NewThreadStore returns an orchestration.AgentThreadStore backed by pool.
-// NewThreadStore 创建线程存储。
-func NewThreadStore(pool *pgxpool.Pool) orchestration.AgentThreadStore {
-	return &threadStore{pool: pool}
+// NewThreadStore 创建基于 SQLite 连接的编排线程存储。
+func NewThreadStore(db *sql.DB) orchestration.AgentThreadStore {
+	return &threadStore{db: db}
 }
 
 // listSQL is the same query as internal/store/sqlc ListAgentThreads but
@@ -46,9 +44,9 @@ FROM agent_threads t
 ORDER BY t.created_at DESC
 `
 
-// ListAll 列出all。
+// ListAll 返回所有已持久化线程及其最新 provider 绑定。
 func (s *threadStore) ListAll(ctx context.Context) ([]orchestration.PersistedThread, error) {
-	rows, err := s.pool.Query(ctx, listSQL)
+	rows, err := s.db.QueryContext(ctx, listSQL)
 	if err != nil {
 		return nil, wrapThread(err, "list_all")
 	}
@@ -83,13 +81,13 @@ SELECT
         LIMIT 1
     ), '') AS agent_id
 FROM agent_threads t
-WHERE t.thread_id = $1
+WHERE t.thread_id = ?
 LIMIT 1
 `
 
-// GetByThreadID 按线程ID读取编排。
+// GetByThreadID 按线程 ID 读取持久化线程及其最新 provider 绑定。
 func (s *threadStore) GetByThreadID(ctx context.Context, threadID string) (*orchestration.PersistedThread, error) {
-	row := s.pool.QueryRow(ctx, getByIDSQL, threadID)
+	row := s.db.QueryRowContext(ctx, getByIDSQL, threadID)
 	var t orchestration.PersistedThread
 	var agentID any
 	err := row.Scan(
@@ -98,7 +96,7 @@ func (s *threadStore) GetByThreadID(ctx context.Context, threadID string) (*orch
 		&t.PendingLaunch, &t.ParentAgentID, &agentID,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if err == sql.ErrNoRows {
 			return nil, wrapThread(err, "get_by_thread_id")
 		}
 		return nil, wrapThread(err, "get_by_thread_id")
@@ -109,13 +107,13 @@ func (s *threadStore) GetByThreadID(ctx context.Context, threadID string) (*orch
 
 const updateStatusSQL = `
 UPDATE agent_threads
-SET status = $2, updated_at = $3
-WHERE thread_id = $1
+SET status = ?, updated_at = ?
+WHERE thread_id = ?
 `
 
-// UpdateStatus 更新状态。
+// UpdateStatus 更新持久化线程的运行状态和更新时间。
 func (s *threadStore) UpdateStatus(ctx context.Context, params orchestration.PersistedThreadStatusUpdate) error {
-	_, err := s.pool.Exec(ctx, updateStatusSQL, params.ThreadID, params.Status, params.UpdatedAt)
+	_, err := s.db.ExecContext(ctx, updateStatusSQL, params.Status, params.UpdatedAt, params.ThreadID)
 	return wrapThread(err, "update_status")
 }
 
@@ -123,24 +121,23 @@ func (s *threadStore) UpdateStatus(ctx context.Context, params orchestration.Per
 // AgentBindingStore
 // ──────────────────────────────────────────────────────────────────────
 
-type bindingStore struct{ pool *pgxpool.Pool }
+type bindingStore struct{ db *sql.DB }
 
-// NewBindingStore returns an orchestration.AgentBindingStore backed by pool.
-// NewBindingStore 创建binding存储。
-func NewBindingStore(pool *pgxpool.Pool) orchestration.AgentBindingStore {
-	return &bindingStore{pool: pool}
+// NewBindingStore 创建基于 SQLite 连接的 provider 绑定存储。
+func NewBindingStore(db *sql.DB) orchestration.AgentBindingStore {
+	return &bindingStore{db: db}
 }
 
 const getBindingSQL = `
 SELECT agent_id, provider, provider_thread_id, codex_thread_id, cwd,
        archived, created_at, updated_at
 FROM agent_provider_binding
-WHERE agent_id = $1
+WHERE agent_id = ?
 `
 
-// GetByAgentID 按代理ID读取编排。
+// GetByAgentID 按 agent ID 读取 provider 绑定。
 func (s *bindingStore) GetByAgentID(ctx context.Context, agentID string) (*orchestration.PersistedBinding, error) {
-	row := s.pool.QueryRow(ctx, getBindingSQL, agentID)
+	row := s.db.QueryRowContext(ctx, getBindingSQL, agentID)
 	var b orchestration.PersistedBinding
 	err := row.Scan(
 		&b.AgentID, &b.Provider, &b.ProviderThreadID,
@@ -148,7 +145,7 @@ func (s *bindingStore) GetByAgentID(ctx context.Context, agentID string) (*orche
 		&b.CreatedAt, &b.UpdatedAt,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if err == sql.ErrNoRows {
 			return nil, wrapBinding(err, "get_by_agent_id")
 		}
 		return nil, wrapBinding(err, "get_by_agent_id")
@@ -158,13 +155,13 @@ func (s *bindingStore) GetByAgentID(ctx context.Context, agentID string) (*orche
 
 const setArchivedSQL = `
 UPDATE agent_provider_binding
-SET archived = $1, updated_at = $2
-WHERE agent_id = $3
+SET archived = ?, updated_at = ?
+WHERE agent_id = ?
 `
 
-// SetArchived 设置archived。
+// SetArchived 更新 provider 绑定的归档状态。
 func (s *bindingStore) SetArchived(ctx context.Context, params orchestration.PersistedBindingArchiveUpdate) error {
-	_, err := s.pool.Exec(ctx, setArchivedSQL, params.Archived, params.UpdatedAt, params.AgentID)
+	_, err := s.db.ExecContext(ctx, setArchivedSQL, params.Archived, params.UpdatedAt, params.AgentID)
 	return wrapBinding(err, "set_archived")
 }
 

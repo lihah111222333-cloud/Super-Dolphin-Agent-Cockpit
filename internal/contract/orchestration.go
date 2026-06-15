@@ -504,21 +504,22 @@ func isEmptyJSON(raw json.RawMessage) bool {
 }
 
 type DAGSummary struct {
-	ID          int64           `json:"id"`
-	DagKey      string          `json:"dag_key"`
-	Version     int64           `json:"version"`
-	Title       string          `json:"title"`
-	Description string          `json:"description,omitempty"`
-	Status      string          `json:"status"`
-	CreatedBy   string          `json:"created_by,omitempty"`
-	Metadata    json.RawMessage `json:"metadata,omitempty"`
-	Trigger     string          `json:"trigger,omitempty"`
-	CronExpr    string          `json:"cron_expr,omitempty"`
-	NextRunAt   *time.Time      `json:"next_run_at,omitempty"`
-	StartedAt   *time.Time      `json:"started_at,omitempty"`
-	FinishedAt  *time.Time      `json:"finished_at,omitempty"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
+	ID              int64           `json:"id"`
+	DagKey          string          `json:"dag_key"`
+	Version         int64           `json:"version"`
+	Title           string          `json:"title"`
+	Description     string          `json:"description,omitempty"`
+	Status          string          `json:"status"`
+	CreatedBy       string          `json:"created_by,omitempty"`
+	Metadata        json.RawMessage `json:"metadata,omitempty"`
+	Trigger         string          `json:"trigger,omitempty"`
+	CronExpr        string          `json:"cron_expr,omitempty"`
+	NextRunAt       *time.Time      `json:"next_run_at,omitempty"`
+	ScheduleEnabled bool            `json:"schedule_enabled"`
+	StartedAt       *time.Time      `json:"started_at,omitempty"`
+	FinishedAt      *time.Time      `json:"finished_at,omitempty"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
 }
 
 type DAGNode struct {

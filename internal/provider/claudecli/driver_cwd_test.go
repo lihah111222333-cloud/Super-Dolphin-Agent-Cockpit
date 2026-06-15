@@ -16,12 +16,14 @@ func TestDriverStartSessionRejectsMissingCWDBeforeWorkspaceSideEffects(t *testin
 	missingCWD := filepath.Join(parent, "missing-worktree")
 	launchCalled := false
 	mirror := &recordingMirrorReconciler{}
-	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		launchCalled = true
 		return nil, nil, errors.New("launch should not be reached")
 	})
 	d := &driver{
-		mirror: mirror,
+		mirror:     mirror,
+		launchCLI:  launchFn,
+		authStatus: loggedInClaudeAuthStatus,
 	}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{

@@ -5,11 +5,67 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/kelindar/event"
 )
+
+func TestOnNotification_CodexRolloutAssistantMessageCompletesActiveTurn(t *testing.T) {
+	bus := event.NewDispatcher()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+	completedCh := make(chan turndto.TurnCompleted, 1)
+	cancelCompleted := event.Subscribe(bus, func(ev turndto.TurnCompleted) { completedCh <- ev })
+	defer cancelCompleted()
+
+	fixture := newCountingForceCompleteFixture(t)
+	defer fixture.close()
+	s := newForceCompleteTestSession(t, fixture.url())
+	defer closeCodexTestSession(t, s)
+	s.dispatcher = dispatcher
+	active := configureSingleForceCompleteTurn(s, "turn-1")
+
+	s.onNotification("response_item", json.RawMessage(`{
+		"type":"message",
+		"role":"assistant",
+		"content":[{"type":"output_text","text":"done from resumed rollout"}]
+	}`))
+
+	completed := waitRolloutTurnCompleted(t, completedCh)
+	if completed.TurnID != "turn-1" || !completed.Success || completed.Status != "completed" {
+		t.Fatalf("TurnCompleted = %+v, want successful completed turn-1", completed)
+	}
+	if completed.Result != "done from resumed rollout" {
+		t.Fatalf("TurnCompleted.Result = %q, want assistant message text", completed.Result)
+	}
+	assertTurnDone(t, active, "rollout assistant message did not complete active turn")
+	s.mu.Lock()
+	activeTurnID := s.activeTurnID
+	_, stillTracked := s.turns["turn-1"]
+	s.mu.Unlock()
+	if activeTurnID != "" || stillTracked {
+		t.Fatalf("active turn state = id:%q tracked:%v, want cleared", activeTurnID, stillTracked)
+	}
+	if err := s.ForceComplete(context.Background(), dto.ForceCompleteRequest{ThreadID: "thread-1"}); err != nil {
+		t.Fatalf("ForceComplete() after rollout completion error = %v", err)
+	}
+	fixture.assertNoForceComplete(t)
+}
+
+func waitRolloutTurnCompleted(t *testing.T, ch <-chan turndto.TurnCompleted) turndto.TurnCompleted {
+	t.Helper()
+	select {
+	case ev := <-ch:
+		return ev
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for TurnCompleted")
+		return turndto.TurnCompleted{}
+	}
+}
 
 func TestOnNotification_CodexRolloutMCPToolEventsDispatchToolLifecycle(t *testing.T) {
 	bus := event.NewDispatcher()

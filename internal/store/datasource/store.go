@@ -35,16 +35,16 @@ func (s *documentStore) UpsertDocument(ctx context.Context, params contract.Upse
 	if err := s.ensureTable(ctx); err != nil {
 		return err
 	}
-	_, err := s.db.Exec(ctx, `
-		INSERT INTO public.datasource_documents (
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO datasource_documents (
 			workspace_root, name, extension, size_bytes, stored_path, content, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, now())
+		) VALUES (?, ?, ?, ?, ?, ?, CAST(strftime('%s','now') AS INTEGER) * 1000)
 		ON CONFLICT (workspace_root, name) DO UPDATE SET
 			extension = EXCLUDED.extension,
 			size_bytes = EXCLUDED.size_bytes,
 			stored_path = EXCLUDED.stored_path,
 			content = EXCLUDED.content,
-			updated_at = now()
+			updated_at = CAST(strftime('%s','now') AS INTEGER) * 1000
 	`, params.WorkspaceRoot, params.Name, params.Extension, params.Size, params.StoredPath, params.Content)
 	return wrapDatasourceStoreError(err, "upsert")
 }
@@ -58,10 +58,10 @@ func (s *documentStore) ListDocuments(ctx context.Context, workspaceRoot string)
 	if err := s.ensureTable(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(ctx, `
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT workspace_root, name, extension, size_bytes, stored_path, content
-		FROM public.datasource_documents
-		WHERE workspace_root = $1
+		FROM datasource_documents
+		WHERE workspace_root = ?
 		ORDER BY name ASC
 	`, workspaceRoot)
 	if err != nil {
@@ -96,9 +96,9 @@ func (s *documentStore) DeleteDocument(ctx context.Context, workspaceRoot, name 
 	if err := s.ensureTable(ctx); err != nil {
 		return err
 	}
-	_, err := s.db.Exec(ctx, `
-		DELETE FROM public.datasource_documents
-		WHERE workspace_root = $1 AND name = $2
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM datasource_documents
+		WHERE workspace_root = ? AND name = ?
 	`, workspaceRoot, name)
 	return wrapDatasourceStoreError(err, "delete")
 }
@@ -113,7 +113,7 @@ func (s *documentStore) ensureTable(ctx context.Context) error {
 	if s.ensured {
 		return nil
 	}
-	if _, err := s.db.Exec(ctx, createDatasourceDocumentsTableSQL); err != nil {
+	if _, err := s.db.ExecContext(ctx, createDatasourceDocumentsTableSQL); err != nil {
 		return wrapDatasourceStoreError(err, "ensure_table")
 	}
 	s.ensured = true
@@ -144,15 +144,15 @@ func wrapDatasourceStoreError(err error, operation string) error {
 }
 
 const createDatasourceDocumentsTableSQL = `
-CREATE TABLE IF NOT EXISTS public.datasource_documents (
-	workspace_root text NOT NULL,
-	name text NOT NULL,
-	extension text NOT NULL,
-	size_bytes bigint NOT NULL,
-	stored_path text NOT NULL,
-	content text NOT NULL,
-	created_at timestamp with time zone DEFAULT now() NOT NULL,
-	updated_at timestamp with time zone DEFAULT now() NOT NULL,
+CREATE TABLE IF NOT EXISTS datasource_documents (
+	workspace_root TEXT NOT NULL,
+	name TEXT NOT NULL,
+	extension TEXT NOT NULL,
+	size_bytes INTEGER NOT NULL,
+	stored_path TEXT NOT NULL,
+	content TEXT NOT NULL,
+	created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+	updated_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
 	PRIMARY KEY (workspace_root, name),
 	CHECK (workspace_root <> ''),
 	CHECK (name <> ''),

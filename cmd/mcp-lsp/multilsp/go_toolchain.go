@@ -165,11 +165,13 @@ func goToolchainCandidateForDir(dir string, seenDirs map[string]struct{}) (goToo
 		return goToolchainCandidate{}, false
 	}
 	seenDirs[normalized] = struct{}{}
-	candidate := filepath.Join(normalized, goExecutableName())
-	if !isExecutableFile(candidate) {
-		return goToolchainCandidate{}, false
+	for _, name := range goExecutableNames() {
+		candidate := filepath.Join(normalized, name)
+		if isExecutableFile(candidate) {
+			return goToolchainCandidate{binDir: normalized, path: candidate}, true
+		}
 	}
-	return goToolchainCandidate{binDir: normalized, path: candidate}, true
+	return goToolchainCandidate{}, false
 }
 
 // goExecutableVersion 处理go可执行文件版本。
@@ -205,11 +207,11 @@ func prependPATHDir(dir, pathValue string) string {
 	return strings.Join(parts, string(os.PathListSeparator))
 }
 
-func goExecutableName() string {
+func goExecutableNames() []string {
 	if os.PathSeparator == '\\' {
-		return "go.exe"
+		return []string{"go.exe", "go.cmd", "go.bat"}
 	}
-	return "go"
+	return []string{"go"}
 }
 
 func isExecutableFile(path string) bool {

@@ -2,12 +2,10 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"testing"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestWrapStoreError_NilReturnsNil(t *testing.T) {
@@ -28,7 +26,7 @@ func TestWrapStoreError_AlreadyWrappedPassesThrough(t *testing.T) {
 
 func TestWrapStoreError_ClassifiesNotFound(t *testing.T) {
 	t.Parallel()
-	wrapped := WrapStoreError(pgx.ErrNoRows, "get", "user")
+	wrapped := WrapStoreError(sql.ErrNoRows, "get", "user")
 	if !errors.Is(wrapped, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", wrapped)
 	}
@@ -36,8 +34,8 @@ func TestWrapStoreError_ClassifiesNotFound(t *testing.T) {
 
 func TestWrapStoreError_ClassifiesConflict(t *testing.T) {
 	t.Parallel()
-	pgErr := &pgconn.PgError{Code: "23505"}
-	wrapped := WrapStoreError(pgErr, "insert", "user")
+	sqliteErr := errors.New("UNIQUE constraint failed: users.email")
+	wrapped := WrapStoreError(sqliteErr, "insert", "user")
 	if !errors.Is(wrapped, ErrConflict) {
 		t.Fatalf("expected ErrConflict, got %v", wrapped)
 	}
@@ -51,12 +49,12 @@ func TestWrapStoreError_ClassifiesTimeout(t *testing.T) {
 	}
 }
 
-func TestWrapStoreError_ClassifiesPgTimeout(t *testing.T) {
+func TestWrapStoreError_ClassifiesSQLiteBusy(t *testing.T) {
 	t.Parallel()
-	pgErr := &pgconn.PgError{Code: "57014"}
-	wrapped := WrapStoreError(pgErr, "list", "order")
+	busyErr := errors.New("database is locked")
+	wrapped := WrapStoreError(busyErr, "list", "order")
 	if !errors.Is(wrapped, ErrTimeout) {
-		t.Fatalf("expected ErrTimeout for PG 57014, got %v", wrapped)
+		t.Fatalf("expected ErrTimeout for SQLite busy, got %v", wrapped)
 	}
 }
 
@@ -123,7 +121,7 @@ func TestIsNotFound(t *testing.T) {
 		want bool
 	}{
 		{ErrNotFound, true},
-		{pgx.ErrNoRows, true},
+		{sql.ErrNoRows, true},
 		{fmt.Errorf("wrapped: %w", ErrNotFound), true},
 		{errors.New("random"), false},
 		{nil, false},
@@ -140,8 +138,8 @@ func TestIsConflict(t *testing.T) {
 	if !IsConflict(ErrConflict) {
 		t.Fatal("IsConflict(ErrConflict) should be true")
 	}
-	if !IsConflict(&pgconn.PgError{Code: "23505"}) {
-		t.Fatal("IsConflict(23505) should be true")
+	if !IsConflict(errors.New("UNIQUE constraint failed: users.email")) {
+		t.Fatal("IsConflict(UNIQUE constraint failed) should be true")
 	}
 	if IsConflict(errors.New("random")) {
 		t.Fatal("IsConflict(random) should be false")
@@ -156,8 +154,8 @@ func TestIsTimeout(t *testing.T) {
 	if !IsTimeout(context.DeadlineExceeded) {
 		t.Fatal("IsTimeout(DeadlineExceeded) should be true")
 	}
-	if !IsTimeout(&pgconn.PgError{Code: "57014"}) {
-		t.Fatal("IsTimeout(57014) should be true")
+	if !IsTimeout(errors.New("database is locked")) {
+		t.Fatal("IsTimeout(SQLITE_BUSY) should be true")
 	}
 	if IsTimeout(errors.New("random")) {
 		t.Fatal("IsTimeout(random) should be false")
@@ -166,7 +164,7 @@ func TestIsTimeout(t *testing.T) {
 
 func BenchmarkWrapStoreError_NotFound(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		WrapStoreError(pgx.ErrNoRows, "get", "user")
+		WrapStoreError(sql.ErrNoRows, "get", "user")
 	}
 }
 

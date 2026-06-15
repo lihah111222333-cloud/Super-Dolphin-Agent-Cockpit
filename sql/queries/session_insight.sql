@@ -7,7 +7,7 @@
 --    likewise frozen once the locked terminal is set.
 --  * token no-regression: counters only advance. A context-window-only
 --    event with zero counts cannot regress token_input / token_output /
---    token_total. Scalar GREATEST is per-field so a legitimate zero
+--    token_total. Each CASE guard is per-field so a legitimate zero
 --    event for one dimension does not zero out a sibling.
 --
 -- The *_observed flags go sticky: once TRUE, no later event can flip
@@ -35,7 +35,7 @@ INSERT INTO session_insights (
     sqlc.arg(tool_failures), sqlc.arg(tool_failures_observed),
     sqlc.arg(approval_requests), sqlc.arg(approval_requests_observed),
     sqlc.arg(token_input), sqlc.arg(token_output), sqlc.arg(token_total), sqlc.arg(token_snapshot_observed),
-    sqlc.arg(context_window_tokens), sqlc.arg(ui_projection), sqlc.arg(skills_selected)::jsonb,
+    sqlc.arg(context_window_tokens), sqlc.arg(ui_projection), sqlc.arg(skills_selected),
     sqlc.arg(created_at), sqlc.arg(updated_at)
 )
 ON CONFLICT (thread_id, local_turn_id)
@@ -47,7 +47,7 @@ DO UPDATE SET
     provider_turn_id = COALESCE(NULLIF(EXCLUDED.provider_turn_id, ''), session_insights.provider_turn_id),
     started_at       = COALESCE(session_insights.started_at, EXCLUDED.started_at),
     completed_at     = COALESCE(EXCLUDED.completed_at, session_insights.completed_at),
-    duration_ms      = GREATEST(session_insights.duration_ms, EXCLUDED.duration_ms),
+    duration_ms      = (CASE WHEN (session_insights.duration_ms) > (EXCLUDED.duration_ms) THEN (session_insights.duration_ms) ELSE (EXCLUDED.duration_ms) END),
     status = CASE
         WHEN session_insights.status IN ('interrupted', 'aborted') THEN session_insights.status
         ELSE EXCLUDED.status
@@ -61,20 +61,20 @@ DO UPDATE SET
         WHEN EXCLUDED.stop_reason <> '' THEN EXCLUDED.stop_reason
         ELSE session_insights.stop_reason
     END,
-    tool_calls               = GREATEST(session_insights.tool_calls, EXCLUDED.tool_calls),
+    tool_calls               = (CASE WHEN (session_insights.tool_calls) > (EXCLUDED.tool_calls) THEN (session_insights.tool_calls) ELSE (EXCLUDED.tool_calls) END),
     tool_calls_observed      = session_insights.tool_calls_observed OR EXCLUDED.tool_calls_observed,
-    tool_failures            = GREATEST(session_insights.tool_failures, EXCLUDED.tool_failures),
+    tool_failures            = (CASE WHEN (session_insights.tool_failures) > (EXCLUDED.tool_failures) THEN (session_insights.tool_failures) ELSE (EXCLUDED.tool_failures) END),
     tool_failures_observed   = session_insights.tool_failures_observed OR EXCLUDED.tool_failures_observed,
-    approval_requests        = GREATEST(session_insights.approval_requests, EXCLUDED.approval_requests),
+    approval_requests        = (CASE WHEN (session_insights.approval_requests) > (EXCLUDED.approval_requests) THEN (session_insights.approval_requests) ELSE (EXCLUDED.approval_requests) END),
     approval_requests_observed = session_insights.approval_requests_observed OR EXCLUDED.approval_requests_observed,
-    token_input              = GREATEST(session_insights.token_input, EXCLUDED.token_input),
-    token_output             = GREATEST(session_insights.token_output, EXCLUDED.token_output),
-    token_total              = GREATEST(session_insights.token_total, EXCLUDED.token_total),
+    token_input              = (CASE WHEN (session_insights.token_input) > (EXCLUDED.token_input) THEN (session_insights.token_input) ELSE (EXCLUDED.token_input) END),
+    token_output             = (CASE WHEN (session_insights.token_output) > (EXCLUDED.token_output) THEN (session_insights.token_output) ELSE (EXCLUDED.token_output) END),
+    token_total              = (CASE WHEN (session_insights.token_total) > (EXCLUDED.token_total) THEN (session_insights.token_total) ELSE (EXCLUDED.token_total) END),
     token_snapshot_observed  = session_insights.token_snapshot_observed OR EXCLUDED.token_snapshot_observed,
-    context_window_tokens    = GREATEST(session_insights.context_window_tokens, EXCLUDED.context_window_tokens),
+    context_window_tokens    = (CASE WHEN (session_insights.context_window_tokens) > (EXCLUDED.context_window_tokens) THEN (session_insights.context_window_tokens) ELSE (EXCLUDED.context_window_tokens) END),
     ui_projection            = COALESCE(NULLIF(EXCLUDED.ui_projection, ''), session_insights.ui_projection),
     skills_selected = CASE
-        WHEN EXCLUDED.skills_selected IS NULL OR EXCLUDED.skills_selected = '[]'::jsonb
+        WHEN EXCLUDED.skills_selected IS NULL OR EXCLUDED.skills_selected = '[]'
             THEN session_insights.skills_selected
         ELSE EXCLUDED.skills_selected
     END,
@@ -86,7 +86,7 @@ RETURNING id, thread_id, agent_id, session_id, provider, local_turn_id,
           tool_failures, tool_failures_observed,
           approval_requests, approval_requests_observed,
           token_input, token_output, token_total, token_snapshot_observed,
-          context_window_tokens, ui_projection, skills_selected,
+          context_window_tokens, ui_projection, CAST(skills_selected AS BLOB) AS skills_selected,
           created_at, updated_at;
 
 -- name: GetSessionInsightByLocalTurn :one
@@ -97,10 +97,10 @@ SELECT id, thread_id, agent_id, session_id, provider, local_turn_id,
        tool_failures, tool_failures_observed,
        approval_requests, approval_requests_observed,
        token_input, token_output, token_total, token_snapshot_observed,
-       context_window_tokens, ui_projection, skills_selected,
+       context_window_tokens, ui_projection, CAST(skills_selected AS BLOB) AS skills_selected,
        created_at, updated_at
 FROM session_insights
-WHERE thread_id = $1 AND local_turn_id = $2;
+WHERE thread_id = ? AND local_turn_id = ?;
 
 -- name: ListSessionInsightsByThread :many
 SELECT id, thread_id, agent_id, session_id, provider, local_turn_id,
@@ -110,12 +110,12 @@ SELECT id, thread_id, agent_id, session_id, provider, local_turn_id,
        tool_failures, tool_failures_observed,
        approval_requests, approval_requests_observed,
        token_input, token_output, token_total, token_snapshot_observed,
-       context_window_tokens, ui_projection, skills_selected,
+       context_window_tokens, ui_projection, CAST(skills_selected AS BLOB) AS skills_selected,
        created_at, updated_at
 FROM session_insights
-WHERE thread_id = $1
+WHERE thread_id = ?
 ORDER BY created_at DESC, id DESC
-LIMIT $2;
+LIMIT ?;
 
 -- ListRecentSessionInsights is used by the dashboard API to return the
 -- N most recent turns across all threads.
@@ -128,11 +128,11 @@ SELECT id, thread_id, agent_id, session_id, provider, local_turn_id,
        tool_failures, tool_failures_observed,
        approval_requests, approval_requests_observed,
        token_input, token_output, token_total, token_snapshot_observed,
-       context_window_tokens, ui_projection, skills_selected,
+       context_window_tokens, ui_projection, CAST(skills_selected AS BLOB) AS skills_selected,
        created_at, updated_at
 FROM session_insights
 ORDER BY created_at DESC, id DESC
-LIMIT $1;
+LIMIT ?;
 
 -- ListObservedApprovalRequests returns the per-thread approval_requests
 -- window but only for turns where approval_requests_observed = TRUE.
@@ -145,9 +145,9 @@ SELECT id, thread_id, agent_id, local_turn_id, provider_turn_id,
        approval_requests, created_at
 FROM session_insights
 WHERE approval_requests_observed = TRUE
-  AND ($1 = '' OR thread_id = $1)
+  AND (? = '' OR thread_id = ?)
 ORDER BY created_at DESC, id DESC
-LIMIT $2;
+LIMIT ?;
 
 -- ListObservedTokenTurns returns turns where token_snapshot_observed =
 -- TRUE. Used by dashboards that want to average token costs without
@@ -159,6 +159,6 @@ SELECT id, thread_id, agent_id, local_turn_id, provider_turn_id,
        created_at
 FROM session_insights
 WHERE token_snapshot_observed = TRUE
-  AND ($1 = '' OR thread_id = $1)
+  AND (? = '' OR thread_id = ?)
 ORDER BY created_at DESC, id DESC
-LIMIT $2;
+LIMIT ?;

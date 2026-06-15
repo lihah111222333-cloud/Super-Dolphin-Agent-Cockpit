@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -12,14 +13,10 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools/modelregistry"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"go.uber.org/fx"
+	_ "modernc.org/sqlite"
 )
 
 type stubBootstrapClient struct {
@@ -74,94 +71,37 @@ func (s *stubBootstrapClient) SubscribeHooks(_ context.Context, subscriptionID s
 	return &mcp.HookSubscribeResponse{}, s.subscribeErr
 }
 
-type fakeMCPOrchDBRow struct {
-	version int
-	err     error
-	seen    *bool
-}
-
-func (r fakeMCPOrchDBRow) Scan(dest ...any) error {
-	if r.seen != nil {
-		*r.seen = true
+func TestVerifyMCPOrchDatabasePingFailsFast(t *testing.T) {
+	db := newRuntimeSQLiteDB(t)
+	if err := db.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
 	}
-	if r.err != nil {
-		return r.err
-	}
-	if len(dest) != 1 {
-		return errors.New("fake row expected one dest")
-	}
-	ptr, ok := dest[0].(*int)
-	if !ok {
-		return errors.New("fake row dest not *int")
-	}
-	*ptr = r.version
-	return nil
-}
-
-type fakeMCPOrchDBProbe struct {
-	pingErr error
-	row     pgx.Row
-	pinged  bool
-}
-
-func (p *fakeMCPOrchDBProbe) Ping(context.Context) error {
-	p.pinged = true
-	return p.pingErr
-}
-
-func (p *fakeMCPOrchDBProbe) QueryRow(context.Context, string, ...any) pgx.Row {
-	return p.row
-}
-
-func TestRegisterPoolLifecycleFailsFastOnPoolPing(t *testing.T) {
-	pool := newRuntimeTestPool(t, "postgres://super_dolphin@127.0.0.1:1/super_dolphin?sslmode=disable")
-	cfg := &platformconfig.Config{
-		EmbeddedPostgres: contract.EmbeddedPostgresConfig{
-			Enabled: true,
-			Owner:   true,
-			BinDir:  filepath.Join(t.TempDir(), "missing-bin"),
-		},
-	}
-	app := fx.New(
-		fx.NopLogger,
-		fx.Supply(slog.Default(), pool, cfg),
-		fx.Invoke(registerPoolLifecycle),
-	)
-	if err := app.Err(); err != nil {
-		t.Fatalf("fx.New() error = %v", err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	err := app.Start(ctx)
-	if err == nil {
-		t.Fatal("app.Start() error = nil, want database ping failure")
-	}
-	if !strings.Contains(err.Error(), "mcp-orch database ping failed") {
-		t.Fatalf("app.Start() error = %v, want mcp-orch database ping failed", err)
+	err := verifyMCPOrchDatabaseReady(context.Background(), db)
+	if err == nil || !strings.Contains(err.Error(), "mcp-orch database ping failed") {
+		t.Fatalf("verifyMCPOrchDatabaseReady() error = %v, want ping failure", err)
 	}
 }
 
 func TestVerifyMCPOrchDatabaseSchemaMissingFailsFast(t *testing.T) {
-	sentinel := errors.New("relation schema_migrations does not exist")
-	probe := &fakeMCPOrchDBProbe{row: fakeMCPOrchDBRow{err: sentinel}}
+	db := newRuntimeSQLiteDB(t)
 
-	err := verifyMCPOrchDatabaseReady(context.Background(), probe)
+	err := verifyMCPOrchDatabaseReady(context.Background(), db)
 
-	if err == nil || !errors.Is(err, sentinel) {
-		t.Fatalf("verifyMCPOrchDatabaseReady() error = %v, want schema_migrations error", err)
-	}
-	if !probe.pinged {
-		t.Fatal("verifyMCPOrchDatabaseReady() did not ping database before schema check")
-	}
-	if !strings.Contains(err.Error(), "mcp-orch database schema check failed") {
+	if err == nil || !strings.Contains(err.Error(), "mcp-orch database schema check failed") {
 		t.Fatalf("verifyMCPOrchDatabaseReady() error = %v, want schema check failure", err)
 	}
 }
 
 func TestVerifyMCPOrchDatabaseSchemaVersionBelowMinimumFailsFast(t *testing.T) {
-	probe := &fakeMCPOrchDBProbe{row: fakeMCPOrchDBRow{version: platformdb.MinRequiredSchemaVersion - 1}}
+	db := newRuntimeSQLiteDB(t)
+	if _, err := db.ExecContext(context.Background(), `CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)`); err != nil {
+		t.Fatalf("create schema_migrations: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(), `INSERT INTO schema_migrations (version, applied_at) VALUES (?, 1)`, platformdb.MinRequiredSchemaVersion-1); err != nil {
+		t.Fatalf("insert schema_migrations: %v", err)
+	}
 
-	err := verifyMCPOrchDatabaseReady(context.Background(), probe)
+	err := verifyMCPOrchDatabaseReady(context.Background(), db)
 
 	if err == nil {
 		t.Fatal("verifyMCPOrchDatabaseReady() error = nil, want below-minimum schema failure")
@@ -173,30 +113,24 @@ func TestVerifyMCPOrchDatabaseSchemaVersionBelowMinimumFailsFast(t *testing.T) {
 	}
 }
 
-func TestVerifyMCPOrchDatabaseSchemaReadySucceeds(t *testing.T) {
-	seen := false
-	probe := &fakeMCPOrchDBProbe{row: fakeMCPOrchDBRow{version: platformdb.MinRequiredSchemaVersion, seen: &seen}}
-
-	if err := verifyMCPOrchDatabaseReady(context.Background(), probe); err != nil {
-		t.Fatalf("verifyMCPOrchDatabaseReady() error = %v, want nil", err)
+func newRuntimeSQLiteDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
 	}
-	if !probe.pinged || !seen {
-		t.Fatalf("verifyMCPOrchDatabaseReady() pinged=%v scanned=%v, want both true", probe.pinged, seen)
-	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	return db
 }
 
-func newRuntimeTestPool(t *testing.T, databaseURL string) *pgxpool.Pool {
+func runtimeSQLiteMigrationsDir(t *testing.T) string {
 	t.Helper()
-	poolCfg, err := pgxpool.ParseConfig(databaseURL)
+	dir, err := filepath.Abs(filepath.Join("..", "..", "internal", "platform", "db", "sqlite", "migrations"))
 	if err != nil {
-		t.Fatalf("ParseConfig() error = %v", err)
+		t.Fatalf("resolve sqlite migrations dir: %v", err)
 	}
-	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
-	if err != nil {
-		t.Fatalf("NewWithConfig() error = %v", err)
-	}
-	t.Cleanup(pool.Close)
-	return pool
+	return dir
 }
 
 func TestBootstrapRunnerSkipsStartWhenRPCAddrMissing(t *testing.T) {

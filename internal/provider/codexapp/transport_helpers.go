@@ -92,9 +92,7 @@ func normalizeServerURL(raw string) string {
 	return "ws://" + raw
 }
 
-func localSpawnListenURL() string {
-	return "ws://127.0.0.1:0"
-}
+func localSpawnListenURL() string { return "ws://127.0.0.1:0" }
 
 func reserveServerURL() (string, func(), error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -537,7 +535,7 @@ func selectCodexProviderHome(rawHome string) (codexProviderHomeSelection, error)
 		return codexProviderHomeSelection{}, err
 	}
 	if strings.TrimSpace(rawHome) == "" {
-		return selectEmptyCodexProviderHome(packaged), nil
+		return codexProviderHomeSelection{useAppManagedHome: packaged, explicitAppManagedHome: packaged}, nil
 	}
 	requested, err := comparableCodexHomePath(rawHome)
 	if err != nil {
@@ -554,13 +552,6 @@ func selectCodexProviderHome(rawHome string) (codexProviderHomeSelection, error)
 		return codexProviderHomeSelection{}, nil
 	}
 	return codexProviderHomeSelection{homeRequest: rawHome, mirrorHomeRequest: rawHome}, nil
-}
-
-func selectEmptyCodexProviderHome(packaged bool) codexProviderHomeSelection {
-	if packaged {
-		return codexProviderHomeSelection{useAppManagedHome: true, explicitAppManagedHome: true}
-	}
-	return codexProviderHomeSelection{}
 }
 
 func requestedCodexHomeIsAppManaged(packaged bool, requested string) (bool, error) {

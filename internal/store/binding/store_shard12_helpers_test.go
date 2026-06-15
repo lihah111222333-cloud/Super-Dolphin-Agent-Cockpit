@@ -9,10 +9,10 @@ import (
 type bindingQuerierStub struct {
 	bindAgentThreadFn                  func(context.Context, sqlc.BindAgentThreadParams) error
 	deleteAgentProviderBindingByIDFn   func(context.Context, string) error
-	getAgentProviderBindingByAgentIDFn func(context.Context, string) (sqlc.GetAgentProviderBindingByAgentIDRow, error)
-	getByProviderThreadFn              func(context.Context, sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.GetAgentProviderBindingByProviderThreadRow, error)
+	getAgentProviderBindingByAgentIDFn func(context.Context, string) (sqlc.AgentProviderBinding, error)
+	getByProviderThreadFn              func(context.Context, sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.AgentProviderBinding, error)
 	getThreadByAgentFn                 func(context.Context, string) (string, error)
-	listAgentThreadBindingsFn          func(context.Context) ([]sqlc.ListAgentThreadBindingsRow, error)
+	listAgentThreadBindingsFn          func(context.Context) ([]sqlc.AgentProviderBinding, error)
 	unbindAgentThreadFn                func(context.Context, string) error
 	updateAgentCwdFn                   func(context.Context, sqlc.UpdateAgentCwdParams) error
 	updateArchivedFn                   func(context.Context, sqlc.UpdateAgentProviderBindingArchivedParams) error
@@ -43,18 +43,18 @@ func (s *bindingQuerierStub) DeleteAgentProviderBindingByAgentID(ctx context.Con
 	return nil
 }
 
-func (s *bindingQuerierStub) GetAgentProviderBindingByAgentID(ctx context.Context, arg sqlc.GetAgentProviderBindingByAgentIDParams) (sqlc.GetAgentProviderBindingByAgentIDRow, error) {
+func (s *bindingQuerierStub) GetAgentProviderBindingByAgentID(ctx context.Context, arg sqlc.GetAgentProviderBindingByAgentIDParams) (sqlc.AgentProviderBinding, error) {
 	if s.getAgentProviderBindingByAgentIDFn != nil {
 		return s.getAgentProviderBindingByAgentIDFn(ctx, arg.AgentID)
 	}
-	return sqlc.GetAgentProviderBindingByAgentIDRow{}, nil
+	return sqlc.AgentProviderBinding{}, nil
 }
 
-func (s *bindingQuerierStub) GetAgentProviderBindingByProviderThread(ctx context.Context, arg sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.GetAgentProviderBindingByProviderThreadRow, error) {
+func (s *bindingQuerierStub) GetAgentProviderBindingByProviderThread(ctx context.Context, arg sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.AgentProviderBinding, error) {
 	if s.getByProviderThreadFn != nil {
 		return s.getByProviderThreadFn(ctx, arg)
 	}
-	return sqlc.GetAgentProviderBindingByProviderThreadRow{}, nil
+	return sqlc.AgentProviderBinding{}, nil
 }
 
 func (s *bindingQuerierStub) GetThreadByAgent(ctx context.Context, arg sqlc.GetThreadByAgentParams) (string, error) {
@@ -64,7 +64,7 @@ func (s *bindingQuerierStub) GetThreadByAgent(ctx context.Context, arg sqlc.GetT
 	return "", nil
 }
 
-func (s *bindingQuerierStub) ListAgentThreadBindings(ctx context.Context) ([]sqlc.ListAgentThreadBindingsRow, error) {
+func (s *bindingQuerierStub) ListAgentThreadBindings(ctx context.Context) ([]sqlc.AgentProviderBinding, error) {
 	if s.listAgentThreadBindingsFn != nil {
 		return s.listAgentThreadBindingsFn(ctx)
 	}

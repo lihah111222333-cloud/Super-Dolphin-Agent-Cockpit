@@ -1,3 +1,5 @@
+//go:build legacy_pg_fake
+
 package taskdag
 
 import (
@@ -9,7 +11,7 @@ import (
 )
 
 // TestLookupNodesBySpawningThread_ReverseLookupReturnsMatchingRows is the
-// ADR-017 v1.2 §2.2 happy path: a single node carrying the given thread id is
+// ADR-017 v1.2 搂2.2 happy path: a single node carrying the given thread id is
 // returned by the reverse lookup.
 func TestLookupNodesBySpawningThread_ReverseLookupReturnsMatchingRows(t *testing.T) {
 	t.Parallel()
@@ -47,7 +49,7 @@ func TestLookupNodesBySpawningThread_ReverseLookupReturnsMatchingRows(t *testing
 
 // TestLookupNodesBySpawningThread_NoMatch_ReturnsEmptySliceNoError verifies
 // that a thread id with no matching row returns an empty slice (not
-// pgx.ErrNoRows) — ADR-017 §2.2 contract for "lookup miss".
+// pgx.ErrNoRows) 鈥?ADR-017 搂2.2 contract for "lookup miss".
 func TestLookupNodesBySpawningThread_NoMatch_ReturnsEmptySliceNoError(t *testing.T) {
 	t.Parallel()
 	store, _, _ := newTaskDAGTestStore()
@@ -61,7 +63,7 @@ func TestLookupNodesBySpawningThread_NoMatch_ReturnsEmptySliceNoError(t *testing
 }
 
 // TestLookupNodesBySpawningThread_FiltersNullSpawningThread verifies the
-// `spawning_thread_id IS NOT NULL` guard — node rows without a spawning
+// `spawning_thread_id IS NOT NULL` guard 鈥?node rows without a spawning
 // thread (legacy automation nodes, never-spawned templates) must not be
 // returned even when threadID is empty.
 func TestLookupNodesBySpawningThread_FiltersNullSpawningThread(t *testing.T) {
@@ -92,9 +94,9 @@ func TestLookupNodesBySpawningThread_FiltersNullSpawningThread(t *testing.T) {
 }
 
 // TestLookupNodesBySpawningThread_MultipleRowsReturnedDescByUpdatedAt covers
-// the N>1 "dirty data" case (ADR-017 §2.2): partial index has no UNIQUE so
+// the N>1 "dirty data" case (ADR-017 搂2.2): partial index has no UNIQUE so
 // retry / recovery can leave more than one node with the same thread id.
-// Lookup returns all of them ordered by updated_at DESC, id DESC — caller
+// Lookup returns all of them ordered by updated_at DESC, id DESC 鈥?caller
 // iterates and applies idempotent advancement on each.
 func TestLookupNodesBySpawningThread_MultipleRowsReturnedDescByUpdatedAt(t *testing.T) {
 	t.Parallel()

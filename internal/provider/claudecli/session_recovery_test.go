@@ -13,7 +13,7 @@ func TestStartTurnRestartsUnavailableTransportWithoutSettingsChange(t *testing.T
 	next := newScriptedTransport()
 	defer next.finish()
 	resumeIDs := make(chan string, 1)
-	overrideLaunchCLI(t, func(_, _, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(_, _, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
 		resumeIDs <- resumeID
 		return next.tr, nil, nil
 	})
@@ -25,6 +25,7 @@ func TestStartTurnRestartsUnavailableTransportWithoutSettingsChange(t *testing.T
 		sessionID:       "11111111-2222-3333-4444-555555555555",
 		threadReady:     oldReady,
 		transport:       closedTransport(),
+		launchCLI:       launchFn,
 		suppressedTurns: map[string]struct{}{},
 		model:           "claude-same",
 	})

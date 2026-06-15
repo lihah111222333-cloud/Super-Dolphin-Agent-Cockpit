@@ -7,67 +7,70 @@ package sqlc
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const acquireTaskDagWorkerLease = `-- name: AcquireTaskDagWorkerLease :execrows
 INSERT INTO task_dag_worker_leases (target_agent_id, owner_id, lease_expires_at, updated_at)
-VALUES ($1, $2, NOW() + $3::interval, NOW())
+VALUES (?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000) + ?3, (CAST(strftime('%s','now') AS INTEGER) * 1000))
 ON CONFLICT (target_agent_id) DO UPDATE
 SET owner_id = EXCLUDED.owner_id,
     lease_expires_at = EXCLUDED.lease_expires_at,
-    updated_at = NOW()
-WHERE task_dag_worker_leases.lease_expires_at < NOW()
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE task_dag_worker_leases.lease_expires_at < (CAST(strftime('%s','now') AS INTEGER) * 1000)
    OR task_dag_worker_leases.owner_id = EXCLUDED.owner_id
 `
 
 type AcquireTaskDagWorkerLeaseParams struct {
-	TargetAgentID string          `json:"target_agent_id"`
-	OwnerID       string          `json:"owner_id"`
-	Column3       pgtype.Interval `json:"column_3"`
+	TargetAgentID string      `db:"target_agent_id" json:"target_agent_id"`
+	OwnerID       string      `db:"owner_id" json:"owner_id"`
+	LeaseMs       interface{} `db:"lease_ms" json:"lease_ms"`
 }
 
 func (q *Queries) AcquireTaskDagWorkerLease(ctx context.Context, arg AcquireTaskDagWorkerLeaseParams) (int64, error) {
-	result, err := q.db.Exec(ctx, acquireTaskDagWorkerLease, arg.TargetAgentID, arg.OwnerID, arg.Column3)
+	result, err := q.db.ExecContext(ctx, acquireTaskDagWorkerLease, arg.TargetAgentID, arg.OwnerID, arg.LeaseMs)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }
 
-const releaseTaskDagWorkerLease = `-- name: ReleaseTaskDagWorkerLease :exec
+const releaseTaskDagWorkerLease = `-- name: ReleaseTaskDagWorkerLease :execrows
 DELETE FROM task_dag_worker_leases
-WHERE target_agent_id = $1 AND owner_id = $2
+WHERE target_agent_id = ? AND owner_id = ?
 `
 
 type ReleaseTaskDagWorkerLeaseParams struct {
-	TargetAgentID string `json:"target_agent_id"`
-	OwnerID       string `json:"owner_id"`
+	TargetAgentID string `db:"target_agent_id" json:"target_agent_id"`
+	OwnerID       string `db:"owner_id" json:"owner_id"`
 }
 
-func (q *Queries) ReleaseTaskDagWorkerLease(ctx context.Context, arg ReleaseTaskDagWorkerLeaseParams) error {
-	_, err := q.db.Exec(ctx, releaseTaskDagWorkerLease, arg.TargetAgentID, arg.OwnerID)
-	return err
+func (q *Queries) ReleaseTaskDagWorkerLease(ctx context.Context, arg ReleaseTaskDagWorkerLeaseParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, releaseTaskDagWorkerLease, arg.TargetAgentID, arg.OwnerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const renewTaskDagWorkerLease = `-- name: RenewTaskDagWorkerLease :execrows
 UPDATE task_dag_worker_leases
-SET lease_expires_at = NOW() + $1::interval,
-    updated_at = NOW()
-WHERE target_agent_id = $2 AND owner_id = $3 AND lease_expires_at >= NOW()
+SET lease_expires_at = (CAST(strftime('%s','now') AS INTEGER) * 1000) + ?1,
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE target_agent_id = ?2
+  AND owner_id = ?3
+  AND lease_expires_at >= (CAST(strftime('%s','now') AS INTEGER) * 1000)
 `
 
 type RenewTaskDagWorkerLeaseParams struct {
-	Column1       pgtype.Interval `json:"column_1"`
-	TargetAgentID string          `json:"target_agent_id"`
-	OwnerID       string          `json:"owner_id"`
+	LeaseMs       interface{} `db:"lease_ms" json:"lease_ms"`
+	TargetAgentID string      `db:"target_agent_id" json:"target_agent_id"`
+	OwnerID       string      `db:"owner_id" json:"owner_id"`
 }
 
 func (q *Queries) RenewTaskDagWorkerLease(ctx context.Context, arg RenewTaskDagWorkerLeaseParams) (int64, error) {
-	result, err := q.db.Exec(ctx, renewTaskDagWorkerLease, arg.Column1, arg.TargetAgentID, arg.OwnerID)
+	result, err := q.db.ExecContext(ctx, renewTaskDagWorkerLease, arg.LeaseMs, arg.TargetAgentID, arg.OwnerID)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }

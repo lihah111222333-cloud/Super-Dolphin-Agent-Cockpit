@@ -2,9 +2,13 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -183,6 +187,131 @@ func TestListServersReturnsEmptyWhenProjectHasNoTableRows(t *testing.T) {
 	}
 }
 
+func TestListServerToolsRequestsHTTPMCPServer(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
+	project := t.TempDir()
+	t.Chdir(project)
+	toolsServer, methods := newToolsListHTTPMCPTestServer(t, "Bearer YOUR_API_KEY")
+	defer toolsServer.Close()
+	store.seed(project, "my-search", ServerConfig{
+		Transport: "http",
+		URL:       toolsServer.URL,
+		Headers:   map[string]string{"Authorization": "Bearer YOUR_API_KEY"},
+	})
+
+	got, err := svc.ListServerTools(context.Background(), ListServerToolsRequest{ServerName: "my-search"})
+	if err != nil {
+		t.Fatalf("ListServerTools() error = %v", err)
+	}
+
+	if got.ConfigPath != filepath.Join(project, ".agent", "mcp_server", "config.json") {
+		t.Fatalf("ConfigPath = %q", got.ConfigPath)
+	}
+	if got.ServerName != "my-search" {
+		t.Fatalf("ServerName = %q, want my-search", got.ServerName)
+	}
+	if len(got.Tools) != 1 || got.Tools[0].Name != "remote_search" {
+		t.Fatalf("Tools = %#v, want remote_search", got.Tools)
+	}
+	if !slices.Equal(*methods, []string{"initialize", "notifications/initialized", "tools/list"}) {
+		t.Fatalf("methods = %#v", *methods)
+	}
+}
+
+func TestListServerToolsReturnsNotFoundForMissingServer(t *testing.T) {
+	svc := NewServiceWithStore(newMemoryMCPServerStore())
+	t.Chdir(t.TempDir())
+
+	_, err := svc.ListServerTools(context.Background(), ListServerToolsRequest{ServerName: "missing"})
+	if !errors.Is(err, errServerNotFound) {
+		t.Fatalf("ListServerTools() error = %v, want errServerNotFound", err)
+	}
+}
+
+func TestListServerToolsReturnsRPCErrorFromHTTPMCPServer(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
+	project := t.TempDir()
+	t.Chdir(project)
+	toolsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     json.RawMessage `json:"id,omitempty"`
+			Method string          `json:"method"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if req.Method == "tools/list" {
+			writeMCPTestResponse(w, req.ID, map[string]any{
+				"code":    -32603,
+				"message": "boom",
+			}, true)
+			return
+		}
+		if req.Method == "notifications/initialized" {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		writeMCPTestResponse(w, req.ID, map[string]any{}, false)
+	}))
+	defer toolsServer.Close()
+	store.seed(project, "my-search", ServerConfig{
+		Transport: "http",
+		URL:       toolsServer.URL,
+	})
+
+	_, err := svc.ListServerTools(context.Background(), ListServerToolsRequest{ServerName: "my-search"})
+	if !errors.Is(err, errMCPServerToolsRequestFailed) {
+		t.Fatalf("ListServerTools() error = %v, want errMCPServerToolsRequestFailed", err)
+	}
+}
+
+func TestStartPostgresServerAddsDefaultStdioConfigOnExplicitCall(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
+	project := t.TempDir()
+	t.Chdir(project)
+
+	got, err := svc.StartPostgresServer(context.Background(), StartPostgresServerRequest{})
+	if err != nil {
+		t.Fatalf("StartPostgresServer() error = %v", err)
+	}
+	if !got.Added || got.ServerName != DefaultPostgresServerName {
+		t.Fatalf("StartPostgresServer() = %#v, want added postgres", got)
+	}
+	server := store.servers[project][DefaultPostgresServerName]
+	if server.Transport != "stdio" || server.Command != "npx" {
+		t.Fatalf("stored postgres server = %#v, want stdio npx", server)
+	}
+	if len(server.Args) != 3 || server.Args[1] != "@modelcontextprotocol/server-postgres" {
+		t.Fatalf("stored postgres args = %#v, want postgres npx args", server.Args)
+	}
+}
+
+func TestStartPostgresServerDoesNotOverrideExistingConfig(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
+	project := t.TempDir()
+	t.Chdir(project)
+	store.seed(project, DefaultPostgresServerName, ServerConfig{
+		Transport: "stdio",
+		Command:   "custom-postgres-mcp",
+	})
+
+	got, err := svc.StartPostgresServer(context.Background(), StartPostgresServerRequest{})
+	if err != nil {
+		t.Fatalf("StartPostgresServer() error = %v", err)
+	}
+	if got.Added {
+		t.Fatalf("StartPostgresServer() Added = true, want false for existing config")
+	}
+	if got.Config.Command != "custom-postgres-mcp" {
+		t.Fatalf("Config = %#v, want existing custom command", got.Config)
+	}
+}
+
 func TestDeleteServerRemovesProjectTableRow(t *testing.T) {
 	store := newMemoryMCPServerStore()
 	svc := NewServiceWithStore(store)
@@ -243,6 +372,70 @@ func TestMCPServerConfigProviderReadsProjectTableRowsForNestedCWD(t *testing.T) 
 		got["my-search"].Headers["Authorization"] != want.Headers["Authorization"] {
 		t.Fatalf("ListMCPServerConfigs() = %#v, want my-search %#v", got, want)
 	}
+}
+
+func newToolsListHTTPMCPTestServer(t *testing.T, wantAuth string) (*httptest.Server, *[]string) {
+	t.Helper()
+	methods := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if wantAuth != "" && r.Header.Get("Authorization") != wantAuth {
+			http.Error(w, "missing authorization", http.StatusUnauthorized)
+			return
+		}
+		accept := r.Header.Get("Accept")
+		if !strings.Contains(accept, "application/json") || !strings.Contains(accept, "text/event-stream") {
+			http.Error(w, "missing streamable HTTP accept", http.StatusNotAcceptable)
+			return
+		}
+		var req struct {
+			ID     json.RawMessage `json:"id,omitempty"`
+			Method string          `json:"method"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		methods = append(methods, req.Method)
+		switch req.Method {
+		case "initialize":
+			writeMCPTestResponse(w, req.ID, map[string]any{
+				"protocolVersion": "2024-11-05",
+				"capabilities":    map[string]any{"tools": map[string]any{}},
+				"serverInfo":      map[string]any{"name": "test-mcp", "version": "dev"},
+			}, false)
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+		case "tools/list":
+			writeMCPTestResponse(w, req.ID, map[string]any{
+				"tools": []map[string]any{{
+					"name":        "remote_search",
+					"description": "search remote docs",
+					"inputSchema": map[string]any{"type": "object"},
+				}},
+			}, false)
+		default:
+			http.Error(w, "unknown method", http.StatusBadRequest)
+		}
+	}))
+	return server, &methods
+}
+
+func writeMCPTestResponse(w http.ResponseWriter, id json.RawMessage, payload map[string]any, isError bool) {
+	w.Header().Set("Content-Type", "application/json")
+	resp := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+	}
+	if isError {
+		resp["error"] = payload
+	} else {
+		resp["result"] = payload
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 type memoryMCPServerStore struct {

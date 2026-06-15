@@ -12,9 +12,11 @@ import (
 // NewHandlers 创建处理器。
 func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
-		"mcpServer/add":    platformrpc.StrictHandler(addServersHandler(svc)),
-		"mcpServer/list":   platformrpc.StrictHandler(listServersHandler(svc)),
-		"mcpServer/delete": platformrpc.StrictHandler(deleteServerHandler(svc)),
+		"mcpServer/add":            platformrpc.StrictHandler(addServersHandler(svc)),
+		"mcpServer/list":           platformrpc.StrictHandler(listServersHandler(svc)),
+		"mcpServer/tools":          platformrpc.StrictHandler(listServerToolsHandler(svc)),
+		"mcpServer/postgres/start": platformrpc.StrictHandler(startPostgresServerHandler(svc)),
+		"mcpServer/delete":         platformrpc.StrictHandler(deleteServerHandler(svc)),
 	}}
 }
 
@@ -44,6 +46,32 @@ func listServersHandler(svc Service) func(context.Context, struct{}) (ListServer
 	}
 }
 
+func listServerToolsHandler(svc Service) func(context.Context, ListServerToolsRequest) (ListServerToolsResult, error) {
+	return func(ctx context.Context, req ListServerToolsRequest) (ListServerToolsResult, error) {
+		if svc == nil {
+			return ListServerToolsResult{}, platformrpc.ErrInvalidState("mcp server service is not configured")
+		}
+		result, err := svc.ListServerTools(ctx, req)
+		if err != nil {
+			return ListServerToolsResult{}, mcpServerRPCError(err)
+		}
+		return result, nil
+	}
+}
+
+func startPostgresServerHandler(svc Service) func(context.Context, StartPostgresServerRequest) (StartPostgresServerResult, error) {
+	return func(ctx context.Context, req StartPostgresServerRequest) (StartPostgresServerResult, error) {
+		if svc == nil {
+			return StartPostgresServerResult{}, platformrpc.ErrInvalidState("mcp server service is not configured")
+		}
+		result, err := svc.StartPostgresServer(ctx, req)
+		if err != nil {
+			return StartPostgresServerResult{}, mcpServerRPCError(err)
+		}
+		return result, nil
+	}
+}
+
 func deleteServerHandler(svc Service) func(context.Context, DeleteServerRequest) (DeleteServerResult, error) {
 	return func(ctx context.Context, req DeleteServerRequest) (DeleteServerResult, error) {
 		if svc == nil {
@@ -57,6 +85,7 @@ func deleteServerHandler(svc Service) func(context.Context, DeleteServerRequest)
 	}
 }
 
+// mcpServerRPCError 把模块内错误转换为 RPC 错误类型，保证参数问题和远端状态问题不会混在一起。
 func mcpServerRPCError(err error) error {
 	switch {
 	case errors.Is(err, errMissingMCPServers),
@@ -66,11 +95,18 @@ func mcpServerRPCError(err error) error {
 		errors.Is(err, errUnsupportedTransport),
 		errors.Is(err, errMissingServerURL),
 		errors.Is(err, errInvalidServerURL),
+		errors.Is(err, errMissingServerCommand),
+		errors.Is(err, errMissingServerArg),
+		errors.Is(err, errMissingServerEnvName),
+		errors.Is(err, errMissingServerEnvValue),
 		errors.Is(err, errMissingHeaderName),
 		errors.Is(err, errMissingHeaderValue),
 		errors.Is(err, errInvalidConfigDocument):
 		return platformrpc.ErrInvalidParams(err.Error())
 	case errors.Is(err, errMCPServerStoreNotConfigured):
+		return platformrpc.ErrInvalidState(err.Error())
+	case errors.Is(err, errMCPServerToolsRequestFailed),
+		errors.Is(err, errInvalidToolsResponse):
 		return platformrpc.ErrInvalidState(err.Error())
 	case errors.Is(err, errServerNotFound):
 		return platformrpc.ErrNotFound(err.Error())

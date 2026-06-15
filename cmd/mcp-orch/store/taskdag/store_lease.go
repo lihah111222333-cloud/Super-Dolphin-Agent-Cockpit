@@ -2,6 +2,7 @@ package taskdag
 
 import (
 	"context"
+	"errors"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 )
@@ -14,11 +15,11 @@ func (s *store) AcquireWorkerLease(ctx context.Context, input AcquireWorkerLease
 	if err != nil {
 		return 0, err
 	}
-	return queryValue(func() (int64, error) {
+	return queryValueWrite(ctx, func() (int64, error) {
 		return s.q.AcquireTaskDagWorkerLease(ctx, sqlc.AcquireTaskDagWorkerLeaseParams{
 			TargetAgentID: input.TargetAgentID,
 			OwnerID:       input.OwnerID,
-			Column3:       leaseInterval,
+			LeaseMs:       leaseInterval,
 		})
 	}, "acquire", "task_dag_worker_lease")
 }
@@ -30,9 +31,9 @@ func (s *store) RenewWorkerLease(ctx context.Context, input RenewWorkerLeaseInpu
 	if err != nil {
 		return 0, err
 	}
-	return queryValue(func() (int64, error) {
+	return queryValueWrite(ctx, func() (int64, error) {
 		return s.q.RenewTaskDagWorkerLease(ctx, sqlc.RenewTaskDagWorkerLeaseParams{
-			Column1:       leaseInterval,
+			LeaseMs:       leaseInterval,
 			TargetAgentID: input.TargetAgentID,
 			OwnerID:       input.OwnerID,
 		})
@@ -43,11 +44,17 @@ func (s *store) RenewWorkerLease(ctx context.Context, input RenewWorkerLeaseInpu
 // 释放失败或 rows=0 不应被上层解释成“可继续工作”；lease 的并发正确性由
 // acquire/renew 的 owner fence 保证。
 func (s *store) ReleaseWorkerLease(ctx context.Context, input ReleaseWorkerLeaseInput) error {
-	_, err := queryValue(func() (struct{}, error) {
-		return struct{}{}, s.q.ReleaseTaskDagWorkerLease(ctx, sqlc.ReleaseTaskDagWorkerLeaseParams{
+	rows, err := queryValueWrite(ctx, func() (int64, error) {
+		return s.q.ReleaseTaskDagWorkerLease(ctx, sqlc.ReleaseTaskDagWorkerLeaseParams{
 			TargetAgentID: input.TargetAgentID,
 			OwnerID:       input.OwnerID,
 		})
 	}, "release", "task_dag_worker_lease")
-	return err
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return wrapTaskDAGError(errors.New("worker lease was not held by owner"), "release", "task_dag_worker_lease")
+	}
+	return nil
 }

@@ -95,7 +95,7 @@ func packageScriptValidationEnv(t *testing.T, goos string, values map[string]str
 		env = append(env, key+"="+value)
 	}
 	env = append(env, "PATH="+bashArg("", writePackageFakeGoBin(t, goos, "amd64"))+":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
-	return appendWSLEnvKeys(env,
+	return appendWSLEnvKeysWithGitWorktree(t, env,
 		"PATH",
 		"GOOS",
 		"GOARCH",
@@ -407,8 +407,6 @@ func writeMinimalPackagedMacOSApp(t *testing.T) string {
 	app := filepath.Join(t.TempDir(), "Super Dolphin TestApp")
 	macos := filepath.Join(app, "Contents", "MacOS")
 	resources := filepath.Join(app, "Contents", "Resources")
-	platform := bashVerifierPlatform()
-	pg := filepath.Join(resources, "postgres", platform)
 
 	for _, path := range []string{
 		filepath.Join(macos, "agent-terminal"),
@@ -439,19 +437,14 @@ func writeMinimalPackagedMacOSApp(t *testing.T) string {
 		filepath.Join(resources, "lsp", "bin", "python3"),
 		filepath.Join(resources, "lsp", "bin", "go"),
 		filepath.Join(resources, "bin", "git"),
-		filepath.Join(pg, "bin", "postgres"),
-		filepath.Join(pg, "bin", "initdb"),
-		filepath.Join(pg, "bin", "pg_ctl"),
-		filepath.Join(pg, "bin", "pg_config"),
 	} {
 		writeExecutable(t, path)
 	}
 	pythonShadow := "#!/bin/sh\necho Packaged Super Dolphin does not bundle a Python interpreter e62\nexit 1\n"
 	writeFile(t, filepath.Join(resources, "lsp", "bin", "python"), pythonShadow, 0o755)
 	writeFile(t, filepath.Join(resources, "lsp", "bin", "python3"), pythonShadow, 0o755)
-	writeFile(t, filepath.Join(resources, "migrations", "0001.sql"), "select 1;\n", 0o644)
+	writeFile(t, sqliteMigrationsPath(resources, "0001.sql"), "select 1;\n", 0o644)
 	writeFile(t, filepath.Join(resources, "models.yaml"), "models: []\n", 0o644)
-	writeFile(t, filepath.Join(pg, "share", "postgres.bki"), "postgres bki\n", 0o644)
 	writeCodexManifest(t, resources)
 	writeLSPManifest(t, resources)
 	return app
@@ -536,7 +529,7 @@ func writeLSPManifest(t *testing.T, resources string) {
 
 func writeRuntimeManifest(t *testing.T, resources string, fields map[string]string) {
 	t.Helper()
-	keys := []string{"bundled_codex_path", "bundled_gopls_path", "lsp_bundle_path", "lsp_manifest_path", "model_registry_path", "embedded_postgres_resource_path"}
+	keys := []string{"bundled_codex_path", "bundled_gopls_path", "lsp_bundle_path", "lsp_manifest_path", "model_registry_path"}
 	var builder strings.Builder
 	builder.WriteString("{\n")
 	first := true
@@ -593,8 +586,6 @@ func writeMinimalPackagedLinuxStage(t *testing.T) string {
 	t.Helper()
 
 	stage := filepath.Join(t.TempDir(), "super-dolphin-0.1.0-linux-amd64")
-	platform := "linux-amd64"
-	pg := filepath.Join(stage, "postgres", platform)
 	for _, path := range []string{
 		filepath.Join(stage, "bin", "agent-terminal"),
 		filepath.Join(stage, "bin", "mcp-orch"),
@@ -622,19 +613,14 @@ func writeMinimalPackagedLinuxStage(t *testing.T) string {
 		filepath.Join(stage, "lsp", "bin", "python"),
 		filepath.Join(stage, "lsp", "bin", "python3"),
 		filepath.Join(stage, "lsp", "bin", "go"),
-		filepath.Join(pg, "bin", "postgres"),
-		filepath.Join(pg, "bin", "initdb"),
-		filepath.Join(pg, "bin", "pg_ctl"),
-		filepath.Join(pg, "bin", "pg_config"),
 	} {
 		writeExecutable(t, path)
 	}
 	pythonShadow := "#!/bin/sh\necho Packaged Super Dolphin does not bundle a Python interpreter >&2\nexit 1\n"
 	writeFile(t, filepath.Join(stage, "lsp", "bin", "python"), pythonShadow, 0o755)
 	writeFile(t, filepath.Join(stage, "lsp", "bin", "python3"), pythonShadow, 0o755)
-	writeFile(t, filepath.Join(stage, "migrations", "0001.sql"), "select 1;\n", 0o644)
+	writeFile(t, sqliteMigrationsPath(stage, "0001.sql"), "select 1;\n", 0o644)
 	writeFile(t, filepath.Join(stage, "models.yaml"), "models: []\n", 0o644)
-	writeFile(t, filepath.Join(pg, "share", "postgres.bki"), "postgres bki\n", 0o644)
 	writeCodexManifest(t, stage)
 	writeLSPManifest(t, stage)
 	return stage

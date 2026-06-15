@@ -6,7 +6,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strings"
 	"testing"
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
@@ -286,14 +288,9 @@ func TestRuntimePrimaryLanguageIDsIncludeShellscript(t *testing.T) {
 
 func TestSetupInstallerRegistersShellLanguageServer(t *testing.T) {
 	binDir := t.TempDir()
-	fakeServer := filepath.Join(binDir, "bash-language-server")
-	if err := os.WriteFile(fakeServer, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write fake bash-language-server: %v", err)
-	}
-	fakeShellcheck := filepath.Join(binDir, "shellcheck")
-	if err := os.WriteFile(fakeShellcheck, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write fake shellcheck: %v", err)
-	}
+	writeMcpLSPExecutable(t, binDir, "bash-language-server")
+	fakeServer := filepath.Join(binDir, mcpLSPExecutableFileName("bash-language-server"))
+	writeMcpLSPExecutable(t, binDir, "shellcheck")
 	t.Setenv("PATH", binDir)
 
 	result, err := setupInstaller().EnsureInstalledDetailed(context.Background(), "shellscript")
@@ -310,11 +307,9 @@ func TestSetupInstallerRegistersShellLanguageServer(t *testing.T) {
 
 func TestSetupInstallerInstallsShellcheckWhenShellServerAlreadyExists(t *testing.T) {
 	binDir := t.TempDir()
-	fakeServer := filepath.Join(binDir, "bash-language-server")
-	if err := os.WriteFile(fakeServer, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write fake bash-language-server: %v", err)
-	}
-	fakeNPM := filepath.Join(binDir, "npm")
+	writeMcpLSPExecutable(t, binDir, "bash-language-server")
+	fakeServer := filepath.Join(binDir, mcpLSPExecutableFileName("bash-language-server"))
+	fakeNPM := filepath.Join(binDir, mcpLSPExecutableFileName("npm"))
 	marker := filepath.Join(binDir, "npm-called")
 	script := `#!/bin/sh
 set -eu
@@ -326,6 +321,20 @@ printf '%s\n' "$*" > "$FAKE_NPM_MARKER"
 printf '#!/bin/sh\nexit 0\n' > "$FAKE_INSTALL_BIN/shellcheck"
 /bin/chmod +x "$FAKE_INSTALL_BIN/shellcheck"
 `
+	if runtime.GOOS == "windows" {
+		script = "@echo off\r\n" +
+			"set \"ARGS=%*\"\r\n" +
+			"if \"%ARGS:shellcheck=%\"==\"%ARGS%\" (\r\n" +
+			"  echo missing shellcheck install arg: %* 1>&2\r\n" +
+			"  exit /b 1\r\n" +
+			")\r\n" +
+			"echo %*>\"%FAKE_NPM_MARKER%\"\r\n" +
+			"(\r\n" +
+			"  echo @echo off\r\n" +
+			"  echo exit /b 0\r\n" +
+			") > \"%FAKE_INSTALL_BIN%\\shellcheck.cmd\"\r\n" +
+			"exit /b 0\r\n"
+	}
 	if err := os.WriteFile(fakeNPM, []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake npm: %v", err)
 	}
@@ -340,7 +349,7 @@ printf '#!/bin/sh\nexit 0\n' > "$FAKE_INSTALL_BIN/shellcheck"
 	if result.Path != fakeServer {
 		t.Fatalf("shell installer path = %q, want %q", result.Path, fakeServer)
 	}
-	if _, err := os.Stat(filepath.Join(binDir, "shellcheck")); err != nil {
+	if _, err := os.Stat(filepath.Join(binDir, mcpLSPExecutableFileName("shellcheck"))); err != nil {
 		t.Fatalf("shellcheck dependency was not installed: %v", err)
 	}
 	if _, err := os.Stat(marker); err != nil {
@@ -499,7 +508,7 @@ func writeMcpLSPBundleManifest(t *testing.T, bundle, body string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
 	}
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(normalizeMcpLSPBundleManifestForTest(body)), 0o644); err != nil {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
 	}
 }
@@ -509,8 +518,37 @@ func writeMcpLSPExecutable(t *testing.T, dir, name string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q) error = %v", dir, err)
 	}
-	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+	path := filepath.Join(dir, mcpLSPExecutableFileName(name))
+	body := "#!/bin/sh\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		body = "@echo off\r\nexit /b 0\r\n"
+	}
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
 	}
+}
+
+func mcpLSPExecutableFileName(name string) string {
+	if runtime.GOOS == "windows" && filepath.Ext(name) == "" {
+		return name + ".cmd"
+	}
+	return name
+}
+
+func normalizeMcpLSPBundleManifestForTest(body string) string {
+	if runtime.GOOS != "windows" {
+		return body
+	}
+	for _, path := range []string{
+		"bin/gopls",
+		"bin/typescript-language-server",
+		"node_modules/.bin/typescript-language-server",
+		"bin/vscode-css-language-server",
+		"bin/pyright-langserver",
+		"bin/rust-analyzer",
+		"bin/bash-language-server",
+	} {
+		body = strings.ReplaceAll(body, `"`+path+`"`, `"`+path+`.cmd"`)
+	}
+	return body
 }

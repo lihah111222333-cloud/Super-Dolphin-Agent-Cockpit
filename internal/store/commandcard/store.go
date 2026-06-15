@@ -29,8 +29,8 @@ func NewStore(q *sqlc.Queries) Reader { return &store{q: q} }
 // List 列出commandcard存储。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]CommandCard, error) {
 	rows, err := s.q.ListCommandCards(ctx, sqlc.ListCommandCardsParams{
-		Column1: filter.Keyword,
-		Limit:   filter.Limit,
+		Keyword:    filter.Keyword,
+		LimitCount: int64(filter.Limit),
 	})
 	if err != nil {
 		return nil, platformdb.WrapStoreError(err, "list", "command_card")
@@ -51,11 +51,11 @@ func fromSQLCRow(row sqlc.ListCommandCardsRow) CommandCard {
 		CommandTemplate: row.CommandTemplate,
 		ArgsSchema:      json.RawMessage(row.ArgsSchema),
 		RiskLevel:       row.RiskLevel,
-		Enabled:         row.Enabled,
+		Enabled:         row.Enabled != 0,
 		CreatedBy:       row.CreatedBy,
 		UpdatedBy:       row.UpdatedBy,
-		CreatedAt:       row.CreatedAt,
-		UpdatedAt:       row.UpdatedAt,
+		CreatedAt:       platformdb.TimeFromMillis(row.CreatedAt),
+		UpdatedAt:       platformdb.TimeFromMillis(row.UpdatedAt),
 		LastRunAt:       timePtr(row.LastRunAt),
 		RunCount:        row.RunCount,
 	}
@@ -69,6 +69,9 @@ func timePtr(value any) *time.Time {
 		return &ts
 	case *time.Time:
 		return ts
+	case int64:
+		t := platformdb.TimeFromMillis(ts)
+		return &t
 	default:
 		slog.Warn("commandcard: timePtr received unexpected type, returning nil",
 			slog.String("value_type", fmt.Sprintf("%T", value)),

@@ -29,7 +29,9 @@ pkg/                     # Reusable public libraries
 ### Prerequisites
 
 - Go 1.25.7
-- PostgreSQL (for store layer; provide a reachable instance and `DATABASE_URL`)
+- SQLite is used by the store layer automatically. By default the database is
+  created under `SUPER_DOLPHIN_HOME/super-dolphin.db`; set
+  `SUPER_DOLPHIN_SQLITE_PATH` to use a different local file.
 - Node.js 20+ (for frontend)
 - OpenAI Codex CLI (`codex`) installed + authenticated — required for the current new UI desktop provider flow
 - Claude Code CLI (`claude`) installed + authenticated — only required for legacy/provider-integration work that explicitly targets Claude
@@ -40,8 +42,9 @@ pkg/                     # Reusable public libraries
 git clone <repo-url> && cd super-agent-v3
 make install-hooks   # Required: enables pre-commit & pre-push checks
 
-# Provision PostgreSQL and export DATABASE_URL (required for store layer):
-export DATABASE_URL="postgres://USER:PASS@127.0.0.1:5432/super_dolphin?sslmode=disable"
+# Optional: override the SQLite database path. PostgreSQL env vars are ignored
+# for product DB configuration and should not be used for new local setup.
+export SUPER_DOLPHIN_SQLITE_PATH="$PWD/.super-dolphin/super-dolphin.db"
 
 # For the current new UI desktop dev flow:
 ( cd frontend-app && npm install )
@@ -59,6 +62,11 @@ export DATABASE_URL="postgres://USER:PASS@127.0.0.1:5432/super_dolphin?sslmode=d
 
 First-run side effects (auto, no manual step):
 - DB migrations run via `internal/platform/db/module.go:autoMigrate` on startup.
+- Old local PostgreSQL data directories are ignored and are not migrated into
+  SQLite. To reset local SQLite dev state, stop the app and sidecars, optionally
+  back up the database, then remove the `.db`, `.db-wal`, and `.db-shm` files
+  together. This discards local dev data and is not a PostgreSQL-to-SQLite
+  migration path.
 - Runtime canonical skills are managed under project and personal roots:
   `<workspace>/.agent/skills/` for project skills, and
   `~/.super-dolphin/skills/personal/{user,agent,imported}/` for active personal

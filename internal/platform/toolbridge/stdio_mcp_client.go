@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
@@ -46,8 +47,8 @@ type stdioRPCResponse struct {
 }
 
 func (h *Handler) defaultStdioClientFactory(ctx context.Context, binary providerdto.MCPBinary) (mcpClient, error) {
-	if strings.TrimSpace(binary.Type) == "http" || strings.TrimSpace(binary.URL) != "" {
-		return nil, fmt.Errorf("toolbridge: codex surface requires stdio MCP for %q", binary.Name)
+	if strings.EqualFold(strings.TrimSpace(binary.Type), "http") || strings.TrimSpace(binary.URL) != "" {
+		return newHTTPMCPClient(ctx, binary)
 	}
 	if len(binary.Command) == 0 || strings.TrimSpace(binary.Command[0]) == "" {
 		return nil, fmt.Errorf("toolbridge: missing stdio command for %q", binary.Name)
@@ -58,7 +59,7 @@ func (h *Handler) defaultStdioClientFactory(ctx context.Context, binary provider
 // newStdioMCPClient 创建stdioMCP客户端。
 func newStdioMCPClient(ctx context.Context, binary providerdto.MCPBinary) (*stdioMCPClient, error) {
 	cmd := exec.Command(strings.TrimSpace(binary.Command[0]), binary.Command[1:]...)
-	cmd.Env = append(os.Environ(), manifestEnv(binary.Env)...)
+	cmd.Env = append(contract.ScrubDatabaseEnv(os.Environ()), manifestEnv(binary.Env)...)
 	stdioConfigureCommand(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -90,6 +91,9 @@ func newStdioMCPClient(ctx context.Context, binary providerdto.MCPBinary) (*stdi
 func manifestEnv(env map[string]string) []string {
 	out := make([]string, 0, len(env))
 	for key, value := range env {
+		if contract.IsForbiddenDatabaseEnvKey(key) {
+			continue
+		}
 		out = append(out, key+"="+value)
 	}
 	return out

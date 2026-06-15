@@ -100,7 +100,6 @@ func newSession(
 	)
 }
 
-// newSessionWithOptions 创建带选项的会话。
 func newSessionWithOptions(
 	transportCtx context.Context,
 	logger *slog.Logger,
@@ -159,7 +158,6 @@ func newSessionWithOptions(
 	return s, nil
 }
 
-// resolveSessionTransportURL 解析会话传输URL。
 func resolveSessionTransportURL(
 	ctx context.Context,
 	serverURL string,
@@ -201,7 +199,6 @@ func withPoolServer(url string, release func()) sessionOption {
 	}
 }
 
-// onInboundMessage 处理oninbound消息。
 func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawMessage) {
 	s.noteReadActivity()
 	if toolHandler := s.manager.getToolHandler(); len(msg.ID) != 0 && toolHandler != nil && isToolCallMethod(msg.Method) {
@@ -269,8 +266,6 @@ func isToolCallMethod(method string) bool {
 	}
 	return false
 }
-
-// Capabilities 处理capabilities。
 func (s *session) Capabilities() dto.CapabilitySet { return cloneCaps(s.caps) }
 
 func (s *session) setRuntimeConfig(cfg map[string]any) {
@@ -279,7 +274,6 @@ func (s *session) setRuntimeConfig(cfg map[string]any) {
 	s.runtimeConfig = shared.CloneRuntimeConfigMap(cfg)
 }
 
-// RuntimeConfigSnapshot 处理运行时配置快照。
 func (s *session) RuntimeConfigSnapshot() map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -308,7 +302,6 @@ func (s *session) RuntimeConfigSnapshot() map[string]any {
 	return out
 }
 
-// StartTurn 启动turn。
 func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
 	threadID, err := requireThreadID(s, req.ThreadID)
 	if err != nil {
@@ -367,7 +360,6 @@ func (s *session) contextWithTurnTrace(ctx context.Context, providerTurnID strin
 	return observability.ContextWithTrace(ctx, h.trace)
 }
 
-// resolveTurnStartModel 解析turn起点模型。
 func (s *session) resolveTurnStartModel(ctx context.Context, requested string) string {
 	requested = strings.TrimSpace(requested)
 	if s == nil || s.transport == nil {
@@ -396,7 +388,6 @@ func (s *session) resolveTurnStartModel(ctx context.Context, requested string) s
 	return model
 }
 
-// Steer 处理steer。
 func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 	threadID, err := requireThreadID(s, req.ThreadID)
 	if err != nil {
@@ -410,7 +401,6 @@ func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 	return err
 }
 
-// Interrupt 处理interrupt。
 func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error {
 	threadID, err := requireThreadID(s, req.ThreadID)
 	if err != nil {
@@ -427,7 +417,6 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 	return err
 }
 
-// ForceComplete 处理强制complete。
 func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteRequest) error {
 	threadID, err := requireThreadID(s, req.ThreadID)
 	if err != nil {
@@ -444,7 +433,6 @@ func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteReques
 	return nil
 }
 
-// callForceComplete 调用强制complete。
 func (s *session) callForceComplete(ctx context.Context, threadID, turnID string) error {
 	_, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "turn/forceComplete", forceCompleteParams(threadID, turnID, true))
 	if err == nil {
@@ -471,7 +459,6 @@ func forceCompleteParams(threadID, turnID string, includeTurnID bool) map[string
 	return params
 }
 
-// forceCompleteTurnIDFallbackEligible 处理强制completeturnID兜底eligible。
 func forceCompleteTurnIDFallbackEligible(err error) bool {
 	if err == nil {
 		return false
@@ -491,7 +478,6 @@ func forceCompleteTurnIDFallbackEligible(err error) bool {
 	return false
 }
 
-// ListThreads 列出线程。
 func (s *session) ListThreads(ctx context.Context) ([]dto.ThreadRef, error) {
 	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "thread/list", map[string]any{})
 	if err != nil {
@@ -516,7 +502,6 @@ func (s *session) ListThreads(ctx context.Context) ([]dto.ThreadRef, error) {
 	return threads, nil
 }
 
-// ForkThread 处理fork线程。
 func (s *session) ForkThread(ctx context.Context, req dto.ForkRequest) (dto.ForkResult, error) {
 	threadID, err := requireThreadID(s, req.ThreadID)
 	if err != nil {
@@ -533,22 +518,44 @@ func (s *session) ForkThread(ctx context.Context, req dto.ForkRequest) (dto.Fork
 	return dto.ForkResult{NewThreadID: id}, nil
 }
 
-// Configure 应用运行时配置。
 func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) error {
 	return s.configureThread(ctx, patch)
 }
 
-// Close 关闭codexapp provider资源。
-func (s *session) Close(context.Context) error {
-	return s.shutdownSession(true)
+// ReadConfig 读取 Codex 会话当前线程配置。
+func (s *session) ReadConfig(ctx context.Context, _ string) (dto.ThreadConfig, error) {
+	if err := shared.CheckCtx(ctx); err != nil {
+		return dto.ThreadConfig{}, err
+	}
+	threadID := s.ThreadID()
+	if threadID == "" {
+		return dto.ThreadConfig{}, errors.New("codexapp: thread id is required")
+	}
+	runtimeConfig := s.RuntimeConfigSnapshot()
+	values := dto.ThreadConfigValues{
+		Model:     supportutil.ConfigString(runtimeConfig, "model"),
+		Effort:    supportutil.ConfigString(runtimeConfig, "effort"),
+		Approvals: supportutil.ConfigString(runtimeConfig, "approvals", "approvalPolicy", "approval_policy"),
+	}
+	if values.Approvals == "" {
+		values.Approvals = supportutil.SanitizeConfigStringArtifact(s.approvalPolicyValue())
+	}
+	return dto.ThreadConfig{
+		ThreadID:               threadID,
+		Provider:               "codex",
+		SupportsThreadOverride: true,
+		Override:               values,
+		Effective:              values,
+	}, nil
 }
 
-// ForceStop 处理强制stop。
-func (s *session) ForceStop() error {
-	return s.shutdownSession(false)
-}
+// Close 关闭 Codex app 会话并执行优雅清理。
+func (s *session) Close(context.Context) error { return s.shutdownSession(true) }
 
-// SessionRuntime 处理会话运行时。
+// ForceStop 强制停止 Codex app 会话。
+func (s *session) ForceStop() error { return s.shutdownSession(false) }
+
+// SessionRuntime 返回会话运行时状态。
 func (s *session) SessionRuntime() *SessionRuntime { return s.runtime }
 
 func (s *session) shutdownSessionCleanup() error {

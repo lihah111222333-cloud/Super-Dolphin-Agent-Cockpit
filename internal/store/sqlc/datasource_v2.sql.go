@@ -11,7 +11,7 @@ import (
 
 const deleteDatasourceV2ChunksByDocumentID = `-- name: DeleteDatasourceV2ChunksByDocumentID :execrows
 DELETE FROM datasource_v2_text_chunks
-WHERE document_id = $1
+WHERE document_id = ?1
 `
 
 type DeleteDatasourceV2ChunksByDocumentIDParams struct {
@@ -19,17 +19,17 @@ type DeleteDatasourceV2ChunksByDocumentIDParams struct {
 }
 
 func (q *Queries) DeleteDatasourceV2ChunksByDocumentID(ctx context.Context, arg DeleteDatasourceV2ChunksByDocumentIDParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteDatasourceV2ChunksByDocumentID, arg.DocumentID)
+	result, err := q.db.ExecContext(ctx, deleteDatasourceV2ChunksByDocumentID, arg.DocumentID)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }
 
 const getDatasourceV2Document = `-- name: GetDatasourceV2Document :one
 SELECT id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at
 FROM datasource_v2_documents
-WHERE id = $1
+WHERE id = ?1
 `
 
 type GetDatasourceV2DocumentParams struct {
@@ -37,7 +37,7 @@ type GetDatasourceV2DocumentParams struct {
 }
 
 func (q *Queries) GetDatasourceV2Document(ctx context.Context, arg GetDatasourceV2DocumentParams) (DatasourceV2Document, error) {
-	row := q.db.QueryRow(ctx, getDatasourceV2Document, arg.ID)
+	row := q.db.QueryRowContext(ctx, getDatasourceV2Document, arg.ID)
 	var i DatasourceV2Document
 	err := row.Scan(
 		&i.ID,
@@ -65,11 +65,11 @@ INSERT INTO datasource_v2_text_chunks (
     byte_count
 )
 VALUES (
-    $1,
-    $2,
-    $3,
-    $4,
-    $5
+    ?1,
+    ?2,
+    ?3,
+    ?4,
+    ?5
 )
 `
 
@@ -82,7 +82,7 @@ type InsertDatasourceV2ChunkParams struct {
 }
 
 func (q *Queries) InsertDatasourceV2Chunk(ctx context.Context, arg InsertDatasourceV2ChunkParams) error {
-	_, err := q.db.Exec(ctx, insertDatasourceV2Chunk,
+	_, err := q.db.ExecContext(ctx, insertDatasourceV2Chunk,
 		arg.DocumentID,
 		arg.ChunkIndex,
 		arg.Content,
@@ -95,7 +95,7 @@ func (q *Queries) InsertDatasourceV2Chunk(ctx context.Context, arg InsertDatasou
 const listDatasourceV2Chunks = `-- name: ListDatasourceV2Chunks :many
 SELECT id, document_id, chunk_index, content, char_count, byte_count, created_at
 FROM datasource_v2_text_chunks
-WHERE document_id = $1
+WHERE document_id = ?1
 ORDER BY chunk_index ASC
 `
 
@@ -104,7 +104,7 @@ type ListDatasourceV2ChunksParams struct {
 }
 
 func (q *Queries) ListDatasourceV2Chunks(ctx context.Context, arg ListDatasourceV2ChunksParams) ([]DatasourceV2TextChunk, error) {
-	rows, err := q.db.Query(ctx, listDatasourceV2Chunks, arg.DocumentID)
+	rows, err := q.db.QueryContext(ctx, listDatasourceV2Chunks, arg.DocumentID)
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +125,9 @@ func (q *Queries) ListDatasourceV2Chunks(ctx context.Context, arg ListDatasource
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -133,13 +136,13 @@ func (q *Queries) ListDatasourceV2Chunks(ctx context.Context, arg ListDatasource
 
 const markDatasourceV2DocumentReady = `-- name: MarkDatasourceV2DocumentReady :one
 UPDATE datasource_v2_documents
-SET content_hash = $1,
-    chunk_count = $2,
-    total_chars = $3,
+SET content_hash = ?1,
+    chunk_count = ?2,
+    total_chars = ?3,
     status = 'ready',
     error_message = NULL,
-    updated_at = NOW()
-WHERE id = $4
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE id = ?4
 RETURNING id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at
 `
 
@@ -151,7 +154,7 @@ type MarkDatasourceV2DocumentReadyParams struct {
 }
 
 func (q *Queries) MarkDatasourceV2DocumentReady(ctx context.Context, arg MarkDatasourceV2DocumentReadyParams) (DatasourceV2Document, error) {
-	row := q.db.QueryRow(ctx, markDatasourceV2DocumentReady,
+	row := q.db.QueryRowContext(ctx, markDatasourceV2DocumentReady,
 		arg.ContentHash,
 		arg.ChunkCount,
 		arg.TotalChars,
@@ -189,16 +192,16 @@ INSERT INTO datasource_v2_documents (
     updated_at
 )
 VALUES (
-    $1,
-    $2,
-    $3,
-    $4,
+    ?1,
+    ?2,
+    ?3,
+    ?4,
     'importing',
     NULL,
     NULL,
     0,
     0,
-    NOW()
+    (CAST(strftime('%s','now') AS INTEGER) * 1000)
 )
 ON CONFLICT (source_path) DO UPDATE
 SET file_name = EXCLUDED.file_name,
@@ -209,7 +212,7 @@ SET file_name = EXCLUDED.file_name,
     content_hash = NULL,
     chunk_count = 0,
     total_chars = 0,
-    updated_at = NOW()
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 RETURNING id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at
 `
 
@@ -221,7 +224,7 @@ type UpsertDatasourceV2DocumentImportingParams struct {
 }
 
 func (q *Queries) UpsertDatasourceV2DocumentImporting(ctx context.Context, arg UpsertDatasourceV2DocumentImportingParams) (DatasourceV2Document, error) {
-	row := q.db.QueryRow(ctx, upsertDatasourceV2DocumentImporting,
+	row := q.db.QueryRowContext(ctx, upsertDatasourceV2DocumentImporting,
 		arg.SourcePath,
 		arg.FileName,
 		arg.Extension,

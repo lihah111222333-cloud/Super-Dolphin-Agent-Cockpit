@@ -2,18 +2,16 @@ package sharedfile
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	sharedfilefs "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilefs"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
+	_ "modernc.org/sqlite"
 )
 
 func TestImportLocalFile_CopiesBinaryToSharedfileAndKeepsDBContentEmpty(t *testing.T) {
@@ -24,7 +22,7 @@ func TestImportLocalFile_CopiesBinaryToSharedfileAndKeepsDBContentEmpty(t *testi
 	if err := os.WriteFile(sourcePath, wantBytes, 0o644); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
-	db := &fakeImportDB{}
+	db := newFakeImportDB(t)
 	sfStore := newStoreWithConfig(sqlc.New(db), sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1})
 
 	got, err := sfStore.ImportLocalFile(context.Background(), ImportLocalFileParams{
@@ -51,12 +49,7 @@ func TestImportLocalFile_CopiesBinaryToSharedfileAndKeepsDBContentEmpty(t *testi
 	if string(gotBytes) != string(wantBytes) {
 		t.Fatalf("target bytes = %v, want %v", gotBytes, wantBytes)
 	}
-	if db.lastUpsert.Content != "" {
-		t.Fatalf("DB content = %q, want empty string for binary artifact index", db.lastUpsert.Content)
-	}
-	if db.lastUpsert.UpdatedBy != "dag-artifact" {
-		t.Fatalf("UpdatedBy = %q", db.lastUpsert.UpdatedBy)
-	}
+	assertSharedFileMetadata(t, db, got.Path, "", "dag-artifact")
 }
 
 func TestImportLocalFile_RejectsUnsafeInputs(t *testing.T) {
@@ -71,12 +64,16 @@ func TestImportLocalFile_RejectsUnsafeInputs(t *testing.T) {
 		t.Fatalf("mkdir source dir: %v", err)
 	}
 	symlinkPath := filepath.Join(sourceRoot, "link.mp4")
+	symlinkSupported := true
 	if err := os.Symlink(sourcePath, symlinkPath); err != nil {
-		t.Fatalf("symlink: %v", err)
+		symlinkSupported = false
 	}
 	for _, tc := range unsafeImportCases(sourcePath, sourceDir, symlinkPath, t.TempDir()) {
 		t.Run(tc.name, func(t *testing.T) {
-			sfStore := newStoreWithConfig(sqlc.New(&fakeImportDB{}), sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1})
+			if tc.name == "source_symlink" && !symlinkSupported {
+				t.Skip("symlink unsupported by current Windows privilege")
+			}
+			sfStore := newStoreWithConfig(sqlc.New(newFakeImportDB(t)), sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1})
 			_, err := sfStore.ImportLocalFile(context.Background(), tc.params)
 			if err == nil {
 				t.Fatalf("ImportLocalFile() error = nil, want rejection")
@@ -102,10 +99,10 @@ func TestImportLocalFile_RejectsAllowedRootSymlinkedParentEscape(t *testing.T) {
 	}
 	symlinkedParent := filepath.Join(allowedRoot, "linked-parent")
 	if err := os.Symlink(outsideParent, symlinkedParent); err != nil {
-		t.Fatalf("symlink parent: %v", err)
+		t.Skipf("symlink unsupported: %v", err)
 	}
 
-	sfStore := newStoreWithConfig(sqlc.New(&fakeImportDB{}), sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1})
+	sfStore := newStoreWithConfig(sqlc.New(newFakeImportDB(t)), sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1})
 	_, err := sfStore.ImportLocalFile(context.Background(), ImportLocalFileParams{
 		SourcePath:         filepath.Join(symlinkedParent, "final.mp4"),
 		TargetPath:         "dag/run-1/final.mp4",
@@ -145,7 +142,7 @@ func TestImportLocalFile_OverwriteFailRejectsExistingTarget(t *testing.T) {
 	if err := os.WriteFile(sourcePath, []byte("new"), 0o644); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
-	sfStore := newStoreWithConfig(sqlc.New(&fakeImportDB{}), sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1})
+	sfStore := newStoreWithConfig(sqlc.New(newFakeImportDB(t)), sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1})
 	targetRel := "dag/run-1/final.mp4"
 	targetAbs, err := sfStore.cfg.ResolveAbs(targetRel)
 	if err != nil {
@@ -192,7 +189,7 @@ func TestImportLocalFile_RejectsAllowedRootParentSymlinkEscape(t *testing.T) {
 		t.Skipf("symlink unsupported: %v", err)
 	}
 
-	sfStore := newStoreWithConfig(sqlc.New(&fakeImportDB{}), sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1})
+	sfStore := newStoreWithConfig(sqlc.New(newFakeImportDB(t)), sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1})
 	_, err := sfStore.ImportLocalFile(context.Background(), ImportLocalFileParams{
 		SourcePath:         filepath.Join(linkDir, "final.mp4"),
 		TargetPath:         "dag/run-1/final.mp4",
@@ -208,47 +205,40 @@ func TestImportLocalFile_RejectsAllowedRootParentSymlinkEscape(t *testing.T) {
 }
 
 type fakeImportDB struct {
-	lastUpsert sqlc.UpsertSharedFileParams
-	err        error
+	*sql.DB
 }
 
-func (f *fakeImportDB) Exec(context.Context, string, ...interface{}) (pgconn.CommandTag, error) {
-	return pgconn.CommandTag{}, errors.New("unexpected Exec call")
-}
-
-func (f *fakeImportDB) Query(context.Context, string, ...interface{}) (pgx.Rows, error) {
-	return nil, errors.New("unexpected Query call")
-}
-
-func (f *fakeImportDB) QueryRow(_ context.Context, _ string, args ...interface{}) pgx.Row {
-	f.lastUpsert = sqlc.UpsertSharedFileParams{
-		Path:      args[0].(string),
-		Content:   args[1].(string),
-		UpdatedBy: args[2].(string),
+func newFakeImportDB(t *testing.T) *fakeImportDB {
+	t.Helper()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
 	}
-	return fakeImportRow{params: f.lastUpsert, err: f.err}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.ExecContext(context.Background(), `
+CREATE TABLE shared_files (
+  path TEXT PRIMARY KEY,
+  content TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);`); err != nil {
+		t.Fatalf("create shared_files table: %v", err)
+	}
+	return &fakeImportDB{DB: db}
 }
 
-type fakeImportRow struct {
-	params sqlc.UpsertSharedFileParams
-	err    error
-}
-
-func (r fakeImportRow) Scan(dest ...any) error {
-	if r.err != nil {
-		return r.err
+func assertSharedFileMetadata(t *testing.T, db *fakeImportDB, path, wantContent, wantUpdatedBy string) {
+	t.Helper()
+	var gotContent, gotUpdatedBy string
+	if err := db.QueryRowContext(context.Background(), `SELECT content, updated_by FROM shared_files WHERE path = ?`, path).Scan(&gotContent, &gotUpdatedBy); err != nil {
+		t.Fatalf("query shared file metadata: %v", err)
 	}
-	now := pgtype.Timestamptz{Time: time.Unix(1, 0).UTC(), Valid: true}
-	values := []any{r.params.Path, r.params.Content, r.params.UpdatedBy, now, now}
-	for i, value := range values {
-		switch out := dest[i].(type) {
-		case *string:
-			*out = value.(string)
-		case *pgtype.Timestamptz:
-			*out = value.(pgtype.Timestamptz)
-		default:
-			return errors.New("unsupported scan target")
-		}
+	if gotContent != wantContent {
+		t.Fatalf("DB content = %q, want %q", gotContent, wantContent)
 	}
-	return nil
+	if gotUpdatedBy != wantUpdatedBy {
+		t.Fatalf("UpdatedBy = %q, want %q", gotUpdatedBy, wantUpdatedBy)
+	}
 }

@@ -7,27 +7,28 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 )
 
 const createInteraction = `-- name: CreateInteraction :one
-INSERT INTO agent_interactions (thread_id, parent_id, sender, receiver, msg_type, status, requires_review, payload, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, NOW())
+INSERT INTO agent_interactions (thread_id, parent_id, sender, receiver, msg_type, status, requires_review, payload, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 RETURNING id, thread_id, parent_id, sender, receiver, msg_type, status, requires_review, reviewed_by, review_note, reviewed_at, payload, created_at, updated_at
 `
 
 type CreateInteractionParams struct {
-	ThreadID       string `db:"thread_id" json:"thread_id"`
-	ParentID       *int64 `db:"parent_id" json:"parent_id"`
-	Sender         string `db:"sender" json:"sender"`
-	Receiver       string `db:"receiver" json:"receiver"`
-	MsgType        string `db:"msg_type" json:"msg_type"`
-	Status         string `db:"status" json:"status"`
-	RequiresReview bool   `db:"requires_review" json:"requires_review"`
-	Column8        []byte `db:"column_8" json:"column_8"`
+	ThreadID       string          `db:"thread_id" json:"thread_id"`
+	ParentID       *int64          `db:"parent_id" json:"parent_id"`
+	Sender         string          `db:"sender" json:"sender"`
+	Receiver       string          `db:"receiver" json:"receiver"`
+	MsgType        string          `db:"msg_type" json:"msg_type"`
+	Status         string          `db:"status" json:"status"`
+	RequiresReview int64           `db:"requires_review" json:"requires_review"`
+	Payload        json.RawMessage `db:"payload" json:"payload"`
 }
 
 func (q *Queries) CreateInteraction(ctx context.Context, arg CreateInteractionParams) (AgentInteraction, error) {
-	row := q.db.QueryRow(ctx, createInteraction,
+	row := q.db.QueryRowContext(ctx, createInteraction,
 		arg.ThreadID,
 		arg.ParentID,
 		arg.Sender,
@@ -35,7 +36,7 @@ func (q *Queries) CreateInteraction(ctx context.Context, arg CreateInteractionPa
 		arg.MsgType,
 		arg.Status,
 		arg.RequiresReview,
-		arg.Column8,
+		arg.Payload,
 	)
 	var i AgentInteraction
 	err := row.Scan(
@@ -60,7 +61,7 @@ func (q *Queries) CreateInteraction(ctx context.Context, arg CreateInteractionPa
 const getInteraction = `-- name: GetInteraction :one
 SELECT id, thread_id, parent_id, sender, receiver, msg_type, status, requires_review, reviewed_by, review_note, reviewed_at, payload, created_at, updated_at
 FROM agent_interactions
-WHERE id = $1
+WHERE id = ?
 `
 
 type GetInteractionParams struct {
@@ -68,7 +69,7 @@ type GetInteractionParams struct {
 }
 
 func (q *Queries) GetInteraction(ctx context.Context, arg GetInteractionParams) (AgentInteraction, error) {
-	row := q.db.QueryRow(ctx, getInteraction, arg.ID)
+	row := q.db.QueryRowContext(ctx, getInteraction, arg.ID)
 	var i AgentInteraction
 	err := row.Scan(
 		&i.ID,
@@ -92,23 +93,35 @@ func (q *Queries) GetInteraction(ctx context.Context, arg GetInteractionParams) 
 const listInteractions = `-- name: ListInteractions :many
 SELECT id, thread_id, parent_id, sender, receiver, msg_type, status, requires_review, reviewed_by, review_note, reviewed_at, payload, created_at, updated_at
 FROM agent_interactions
-WHERE ($1::text = '' OR thread_id = $1)
-  AND ($2::text = ''
-    OR sender ILIKE '%' || $2 || '%'
-    OR receiver ILIKE '%' || $2 || '%'
-    OR msg_type ILIKE '%' || $2 || '%')
+WHERE (? = '' OR thread_id = ?)
+  AND (? = ''
+    OR sender LIKE '%' || ? || '%'
+    OR receiver LIKE '%' || ? || '%'
+    OR msg_type LIKE '%' || ? || '%')
 ORDER BY created_at DESC, id DESC
-LIMIT $3
+LIMIT ?
 `
 
 type ListInteractionsParams struct {
-	Column1 string `db:"column_1" json:"column_1"`
-	Column2 string `db:"column_2" json:"column_2"`
-	Limit   int32  `db:"limit" json:"limit"`
+	Column1  interface{} `db:"column_1" json:"column_1"`
+	ThreadID string      `db:"thread_id" json:"thread_id"`
+	Column3  interface{} `db:"column_3" json:"column_3"`
+	Column4  *string     `db:"column_4" json:"column_4"`
+	Column5  *string     `db:"column_5" json:"column_5"`
+	Column6  *string     `db:"column_6" json:"column_6"`
+	Limit    int64       `db:"limit" json:"limit"`
 }
 
 func (q *Queries) ListInteractions(ctx context.Context, arg ListInteractionsParams) ([]AgentInteraction, error) {
-	rows, err := q.db.Query(ctx, listInteractions, arg.Column1, arg.Column2, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listInteractions,
+		arg.Column1,
+		arg.ThreadID,
+		arg.Column3,
+		arg.Column4,
+		arg.Column5,
+		arg.Column6,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -136,6 +149,9 @@ func (q *Queries) ListInteractions(ctx context.Context, arg ListInteractionsPara
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -144,12 +160,12 @@ func (q *Queries) ListInteractions(ctx context.Context, arg ListInteractionsPara
 
 const reviewInteraction = `-- name: ReviewInteraction :one
 UPDATE agent_interactions
-SET status = $1,
-    reviewed_by = $2,
-    review_note = $3,
-    reviewed_at = NOW(),
-    updated_at = NOW()
-WHERE id = $4
+SET status = ?,
+    reviewed_by = ?,
+    review_note = ?,
+    reviewed_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE id = ? AND status = 'pending' AND requires_review = 1
 RETURNING id, thread_id, parent_id, sender, receiver, msg_type, status, requires_review, reviewed_by, review_note, reviewed_at, payload, created_at, updated_at
 `
 
@@ -161,7 +177,7 @@ type ReviewInteractionParams struct {
 }
 
 func (q *Queries) ReviewInteraction(ctx context.Context, arg ReviewInteractionParams) (AgentInteraction, error) {
-	row := q.db.QueryRow(ctx, reviewInteraction,
+	row := q.db.QueryRowContext(ctx, reviewInteraction,
 		arg.Status,
 		arg.ReviewedBy,
 		arg.ReviewNote,

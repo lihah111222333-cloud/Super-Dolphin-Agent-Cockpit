@@ -9,7 +9,7 @@
 1. **Agent 编排**：维护 agent 生命周期、状态机、turn 队列、停止 / 恢复、report 请求者等内存态。
 2. **MCP 工具出口**：把 orchestration / task DAG / workspace / prompt / command card / shared file 能力注册进 `tools.Registry`，再通过 stdio / HTTP MCP 与 bootstrap `OnToolsList` / `OnToolsCall` 暴露给 Claude 或主控代理；当前 registry 不含 memory tools。
 3. **包级 JSON-RPC handler 映射**：定义 `agent.*`、`task/dag/*`、`workspace/run/*` 等 handler map；它们不是 Claude 侧 MCP tools，是否暴露取决于外层 Fx / RPC 组合。
-4. **持久化层**：维护 DAG / wakeup / worker lease / workspace run / shared file / prompt / command card 等 PostgreSQL 数据。
+4. **持久化层**：维护 DAG / wakeup / worker lease / workspace run / shared file / prompt / command card 等 SQLite 数据；SQLite 路径由主进程解析后通过内部配置传入，`DATABASE_URL` / `POSTGRES_CONNECTION_STRING` 不作为 mcp-orch DB 配置。
 5. **peer / bootstrap 桥接**：在 peer 模式下注册到主控、订阅 hooks，并把远端 thread/state/turn/runtime 事件回灌到本地编排内存态；`tools/list` / `tools/call` 也会经 bootstrap 回调代理到同一份 registry。
 
 ### 作为 MCP server 暴露给 Claude 的方式
@@ -24,7 +24,7 @@
   - 根据 `GO_AGENT_CTL_RPC_ADDR` 选择 `localLauncher` 或 `remoteLauncher`。
 - `runtime.go`
   - `newLogger(cfg *platformconfig.Config)`：默认写 `/tmp/mcp-orch-<pid>.log`。
-  - `newPool(cfg *platformconfig.Config)` / `newQueries(pool *pgxpool.Pool)`：初始化 pgx pool 与 sqlc 查询器。
+  - `newQueries(db *sql.DB)`：使用主进程提供的 SQLite `*sql.DB` 初始化 sqlc 查询器；不从 PostgreSQL DSN 创建连接池。
   - `newRegistry(orchestration, ws, prompt, command, sharedFile)`：构造运行时 `tools.Registry`；`tools.NewRegistry()` 汇总 orchestration / task / workspace / prompt / command / shared_file，当前 registry 不含 memory tools。
   - `registryToolProvider`：把 `tools.Registry` 适配为 `common.ToolProvider`；stdio MCP、HTTP MCP、bootstrap `OnToolsList` / `OnToolsCall` 都复用这层 `ListTools` / `CallTool` 出口。
   - `newStdioRunner()`：基于 `common.NewServer("mcp-orch", "dev", transport, provider)` 启动 stdio MCP。
@@ -73,7 +73,7 @@
 
 - `cmd/mcp-orch/main.go`：保护 stdout 的 MCP 通道，限制 `GOMAXPROCS`。
 - `cmd/mcp-orch/fx.go`：Fx 装配入口；拼装 store、workspace、orchestration、launcher、bootstrap、runner。
-- `cmd/mcp-orch/runtime.go`：logger / pgx pool / sqlc queries / registry / stdio runner / bootstrap runner / runtime 绑定。
+- `cmd/mcp-orch/runtime.go`：logger / SQLite sqlc queries / registry / stdio runner / bootstrap runner / runtime 绑定。
 - `cmd/mcp-orch/memory/`：旧 standalone memory read 包；当前不被 runtime/registry 装配，不注册 memory tools。
 - `cmd/mcp-orch/http_runner.go`：peer 模式 HTTP MCP server、peer discovery file、非 peer 模式阻塞 runner。
 - `cmd/mcp-orch/hook_subscription.go`：hook topic 常量与 `subscribeOrchestrationHooks()` 辅助函数；主启动路径未直接调用，主要被测试覆盖。
@@ -538,7 +538,7 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 | `internal/platform/bus` | resilient 事件订阅。 |
 | `internal/platform/statemachine` | 基于 `dto/agent` 构建状态机。 |
 | `internal/platform/shared` | 输入解码、路径标准化、raw JSON/time clone、payload 取值。 |
-| `internal/platform/db` | pgx pool 创建、事务、store 错误包装。 |
+| `internal/platform/db` | SQLite 连接、迁移、最小 schema 校验、事务与 store 错误包装。 |
 | `internal/platform/rpc` | JSON-RPC handler map 注册类型。 |
 | `internal/store` / `internal/store/{prompt,commandcard,sharedfile}` | prompt/command/sharedfile 的共享 reader 模型与 Fx module。 |
 | `pkg/logger` | 统一日志输出；`mcp-orch` 默认写 `/tmp/mcp-orch-<pid>.log`。 |
@@ -553,7 +553,7 @@ main/fx/runtime
   -> orchestration.Service
   -> workspace.Service
   -> store.{taskdag,workspace,prompt,commandcard,sharedfile}
-  -> sqlc.Queries -> PostgreSQL
+  -> sqlc.Queries -> SQLite
 
 transport
   -> stdio runner (always)
@@ -736,7 +736,7 @@ flowchart LR
     E --> F2[workspace.service]
     E --> F3[prompt/command/sharedfile stores]
     E --> F4[taskdag/workspace stores]
-    F3 --> G[(PostgreSQL)]
+    F3 --> G[(SQLite)]
     F4 --> G
 ```
 
