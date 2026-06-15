@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
 
 var (
@@ -29,12 +30,15 @@ var (
 	errServerNotFound              = errors.New("mcp_server: server not found")
 	errMissingWorkspaceRoot        = errors.New("mcp_server: workspaceRoot is required")
 	errMCPServerStoreNotConfigured = errors.New("mcp_server: config store is not configured")
+	errMCPServerToolsRequestFailed = errors.New("mcp_server: tools request failed")
+	errInvalidToolsResponse        = errors.New("mcp_server: invalid tools response")
 )
 
 type Service interface {
 	AddServers(context.Context, AddServersRequest) (AddServersResult, error)
 	ListServers(context.Context) (ListServersResult, error)
 	ListServersForCWD(context.Context, string) (ListServersResult, error)
+	ListServerTools(context.Context, ListServerToolsRequest) (ListServerToolsResult, error)
 	DeleteServer(context.Context, DeleteServerRequest) (DeleteServerResult, error)
 }
 
@@ -62,6 +66,18 @@ type ListServersResult struct {
 	MCPServers map[string]ServerConfig `json:"mcpServers"`
 }
 
+// ListServerToolsRequest 指定要通过 HTTP MCP tools/list 拉取工具的服务端名称。
+type ListServerToolsRequest struct {
+	ServerName string `json:"serverName"`
+}
+
+// ListServerToolsResult 返回远端 MCP server 暴露的工具列表。
+type ListServerToolsResult struct {
+	ConfigPath string           `json:"configPath"`
+	ServerName string           `json:"serverName"`
+	Tools      []mcpdto.MCPTool `json:"tools"`
+}
+
 type DeleteServerResult struct {
 	ConfigPath string `json:"configPath"`
 	ServerName string `json:"serverName"`
@@ -69,7 +85,8 @@ type DeleteServerResult struct {
 }
 
 type service struct {
-	store MCPServerConfigStore
+	store      MCPServerConfigStore
+	httpClient mcpHTTPDoer
 }
 
 // NewService 创建服务。
@@ -79,7 +96,7 @@ func NewService() Service {
 
 // NewServiceWithStore 创建带配置存储的 MCP server 服务。
 func NewServiceWithStore(store MCPServerConfigStore) Service {
-	return &service{store: store}
+	return &service{store: store, httpClient: defaultMCPHTTPClient}
 }
 
 // AddServers 添加servers。
@@ -146,7 +163,43 @@ func (s *service) ListServersForCWD(ctx context.Context, cwd string) (ListServer
 	}, nil
 }
 
-// DeleteServer 从当前工作区的 MCP server 配置中删除指定条目。
+// ListServerTools 通过已保存的 HTTP MCP server 配置执行 tools/list。
+func (s *service) ListServerTools(ctx context.Context, req ListServerToolsRequest) (ListServerToolsResult, error) {
+	ctx = mcpServerContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return ListServerToolsResult{}, err
+	}
+	name, err := normalizeListServerToolsName(req)
+	if err != nil {
+		return ListServerToolsResult{}, err
+	}
+	workspaceRoot, servers, err := s.resolveWorkspaceServers(ctx, "")
+	if err != nil {
+		return ListServerToolsResult{}, err
+	}
+	config, ok := servers[name]
+	if !ok {
+		return ListServerToolsResult{}, fmt.Errorf("%w: %s", errServerNotFound, name)
+	}
+	config, err = normalizeServerConfig(name, config)
+	if err != nil {
+		return ListServerToolsResult{}, err
+	}
+	tools, err := requestMCPServerHTTPTools(ctx, s.mcpHTTPClient(), config)
+	if err != nil {
+		return ListServerToolsResult{}, err
+	}
+	if tools == nil {
+		tools = []mcpdto.MCPTool{}
+	}
+	return ListServerToolsResult{
+		ConfigPath: mcpServerConfigPath(workspaceRoot),
+		ServerName: name,
+		Tools:      tools,
+	}, nil
+}
+
+// DeleteServer 从当前工作区配置中删除指定 MCP server，名称不存在时直接返回错误避免静默成功。
 func (s *service) DeleteServer(ctx context.Context, req DeleteServerRequest) (DeleteServerResult, error) {
 	ctx = mcpServerContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -211,6 +264,14 @@ func rejectExistingMCPServers(existing map[string]ServerConfig, names []string) 
 	return nil
 }
 
+func normalizeListServerToolsName(req ListServerToolsRequest) (string, error) {
+	name := strings.TrimSpace(req.ServerName)
+	if name == "" || name != req.ServerName {
+		return "", errMissingServerName
+	}
+	return name, nil
+}
+
 func insertMCPServerConfigs(
 	ctx context.Context,
 	store MCPServerConfigStore,
@@ -232,6 +293,13 @@ func insertMCPServerConfigs(
 		}
 	}
 	return nil
+}
+
+func (s *service) mcpHTTPClient() mcpHTTPDoer {
+	if s != nil && s.httpClient != nil {
+		return s.httpClient
+	}
+	return defaultMCPHTTPClient
 }
 
 func (s *service) requireStore() (MCPServerConfigStore, error) {
