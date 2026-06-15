@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestClassifyToolErrorLaunchCWDRequired(t *testing.T) {
@@ -87,10 +86,10 @@ func TestClassifyToolErrorDAGNoRowsDoesNotUseLSP(t *testing.T) {
 	}
 }
 
-func TestClassifyToolErrorPostgresUndefinedTableDoesNotUseLSP(t *testing.T) {
+func TestClassifyToolErrorDatabaseUndefinedTableDoesNotUseLSP(t *testing.T) {
 	env := NewToolErrorEnvelope(
 		"task_list_dags",
-		&pgconn.PgError{Code: "42P01", Message: `relation "task_dags" does not exist`},
+		errors.New(`ERROR: relation "task_dags" does not exist (SQLSTATE 42P01)`),
 	)
 	if env.Code != "database_schema_missing" {
 		t.Fatalf("Code = %q, want database_schema_missing", env.Code)

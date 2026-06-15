@@ -201,21 +201,3 @@ func TestMacOSReleaseSmokeScriptFailFastContracts(t *testing.T) {
 	assertScriptContains(t, script, "startup")
 	assertScriptDoesNotContain(t, script, " RETURN")
 }
-
-func TestBuildRelocatablePostgresScriptDoesNotRequireCompiledShareDir(t *testing.T) {
-	script := readScript(t, "build_relocatable_postgres_macos.sh")
-
-	assertScriptContains(t, script, "postgres.bki")
-	assertScriptDoesNotContain(t, script, "pg_config\" --sharedir")
-}
-
-func TestBuildRelocatablePostgresScriptSetsMacOSDeploymentTarget(t *testing.T) {
-	script := readScript(t, "build_relocatable_postgres_macos.sh")
-
-	assertScriptContains(t, script, "postgres_macos_min_version=\"${SUPER_DOLPHIN_MACOS_MIN_VERSION:-13.0}\"")
-	assertScriptContains(t, script, "SUPER_DOLPHIN_MACOS_MIN_VERSION must be a dotted numeric version such as 13.0")
-	assertScriptContains(t, script, "MACOSX_DEPLOYMENT_TARGET=\"$postgres_macos_min_version\"")
-	assertScriptContains(t, script, "-mmacosx-version-min=$postgres_macos_min_version")
-	assertScriptContains(t, script, "deployment_ldflags=\"${deployment_ldflags:+$deployment_ldflags }-mmacosx-version-min=$postgres_macos_min_version -Wl,-headerpad_max_install_names\"")
-	assertScriptOrder(t, script, "MACOSX_DEPLOYMENT_TARGET=\"$postgres_macos_min_version\"", "./configure")
-}
