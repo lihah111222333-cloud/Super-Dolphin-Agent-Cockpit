@@ -522,6 +522,32 @@ func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) er
 	return s.configureThread(ctx, patch)
 }
 
+func (s *session) ReadConfig(ctx context.Context, _ string) (dto.ThreadConfig, error) {
+	if err := shared.CheckCtx(ctx); err != nil {
+		return dto.ThreadConfig{}, err
+	}
+	threadID := s.ThreadID()
+	if threadID == "" {
+		return dto.ThreadConfig{}, errors.New("codexapp: thread id is required")
+	}
+	runtimeConfig := s.RuntimeConfigSnapshot()
+	values := dto.ThreadConfigValues{
+		Model:     supportutil.ConfigString(runtimeConfig, "model"),
+		Effort:    supportutil.ConfigString(runtimeConfig, "effort"),
+		Approvals: supportutil.ConfigString(runtimeConfig, "approvals", "approvalPolicy", "approval_policy"),
+	}
+	if values.Approvals == "" {
+		values.Approvals = supportutil.SanitizeConfigStringArtifact(s.approvalPolicyValue())
+	}
+	return dto.ThreadConfig{
+		ThreadID:               threadID,
+		Provider:               "codex",
+		SupportsThreadOverride: true,
+		Override:               values,
+		Effective:              values,
+	}, nil
+}
+
 func (s *session) Close(context.Context) error {
 	return s.shutdownSession(true)
 }
