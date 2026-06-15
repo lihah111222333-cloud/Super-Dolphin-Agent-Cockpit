@@ -198,6 +198,34 @@ func TestServiceReadRuntimeConfigsMergesBatch(t *testing.T) {
 	assertBatchRuntimeConfigResults(t, gotMap)
 }
 
+func TestServiceReadRuntimeConfigsUsesOfflineWhenBindingSessionMissing(t *testing.T) {
+	t.Parallel()
+
+	session1, _ := batchRuntimeSessions()
+	svc := newConfigTestService(
+		t,
+		batchRuntimeThreadStore(t),
+		&stubBindingStore{bindings: batchRuntimeBindings()},
+		&stubSessionProvider{sessions: map[string]contract.Session{
+			"agent-1": session1,
+		}},
+	)
+
+	gotMap, err := svc.ReadRuntimeConfigs(context.Background(), []string{"thread-1", "thread-2", "thread-3"})
+	if err != nil {
+		t.Fatalf("ReadRuntimeConfigs() error = %v, want offline fallback for missing agent-2 session", err)
+	}
+	if len(gotMap) != 3 {
+		t.Fatalf("ReadRuntimeConfigs() expected 3 results, got %d", len(gotMap))
+	}
+	assertRuntimeConfigFields(t, gotMap["thread-1"], "thread-1", "on-request", "balanced")
+	assertRuntimeConfigFields(t, gotMap["thread-2"], "thread-2", "on-failure", "creative")
+	if gotMap["thread-2"]["model"] != "claude-opus" {
+		t.Fatalf("ReadRuntimeConfigs()[thread-2] = %#v", gotMap["thread-2"])
+	}
+	assertRuntimeConfigFields(t, gotMap["thread-3"], "thread-3", "on-failure", nil)
+}
+
 func newBatchRuntimeConfigService(t *testing.T) *service {
 	t.Helper()
 	session1, session2 := batchRuntimeSessions()
