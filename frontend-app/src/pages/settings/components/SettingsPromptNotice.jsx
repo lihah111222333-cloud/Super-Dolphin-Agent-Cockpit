@@ -1,4 +1,5 @@
 import React from 'react';
+import './SettingsPromptNotice.css';
 
 function SettingsPromptNotice({ className = '', notice, testId = '' }) {
   return (

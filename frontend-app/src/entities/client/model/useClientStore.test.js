@@ -33,6 +33,7 @@ const backend = vi.hoisted(() => ({
   setPreference: vi.fn(),
   selectProjectDir: vi.fn(),
   selectFiles: vi.fn(),
+  saveClipboardImage: vi.fn(),
   beginTextClipboardWrite: vi.fn(),
   copyTextToClipboard: vi.fn(),
   emitFrontendTraceEvent: vi.fn(),
@@ -339,25 +340,30 @@ function registerBridgeEventHandlersForTest() {
     });
   });
 
-  it('toggles the active provider preference for the top toolbar', async () => {
+  it('keeps the desktop active provider locked to Codex', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
       provider: 'codex',
     });
 
-    await expect(useClientStore.getState().toggleProviderMode()).resolves.toBe(true);
+    await expect(useClientStore.getState().toggleProviderMode()).resolves.toBe(false);
 
-    expect(backend.setPreference).toHaveBeenCalledWith({
-      cwd: '/repo/app',
+    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
       key: 'settings.provider.active',
-      value: 'claude',
-    });
-    expect(useClientStore.getState().provider).toBe('claude');
-    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
-      message: '已切换为 Claude',
-      tone: 'success',
     }));
+    expect(useClientStore.getState().provider).toBe('codex');
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '当前桌面仅支持 Codex provider',
+      tone: 'warning',
+    }));
+    expect(useClientStore.getState().warningEntries).toEqual([
+      expect.objectContaining({
+        level: 'warn',
+        event: 'provider.toggle.unsupported',
+        fields: { requestedProvider: 'claude' },
+      }),
+    ]);
   });
 
   it('does not change the active provider while an opened chat is selected', async () => {
@@ -381,20 +387,19 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
-  it('keeps provider toggle fail-fast when cwd is missing', async () => {
+  it('keeps provider toggle disabled without requiring cwd', async () => {
     resetClientStoreForTests({
       cwd: '',
       activeProject: '',
       provider: 'codex',
     });
 
-    await expect(useClientStore.getState().toggleProviderMode()).rejects.toThrow(
-      'frontend-app: cwd is required for provider.toggle',
-    );
+    await expect(useClientStore.getState().toggleProviderMode()).resolves.toBe(false);
 
     expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
       key: 'settings.provider.active',
     }));
+    expect(useClientStore.getState().provider).toBe('codex');
   });
 
   it('routes project selector actions through the project RPC contract', async () => {
@@ -2132,6 +2137,36 @@ function registerBridgeEventHandlersForTest() {
         codexModelProvider: 'openrouter',
       },
     }));
+  });
+
+  it('rejects a Claude active provider preference before thread/start', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Do not silently remap provider',
+      attachments: [],
+    });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'claude',
+      'settings.provider.claude.model': 'sonnet',
+      'settings.provider.claude.effort': 'high',
+    }[key] ?? null));
+    backend.startThread.mockResolvedValue({ threadId: 'thread-should-not-start' });
+
+    await expect(useClientStore.getState().sendDraft()).rejects.toThrow(
+      'startThread: unsupported provider preference "claude"; current desktop UI supports codex only',
+    );
+
+    expect(backend.startThread).not.toHaveBeenCalled();
+    expect(backend.startTurn).not.toHaveBeenCalled();
+    expect(useClientStore.getState().warningEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        level: 'error',
+        event: 'provider.unsupported',
+        fields: { provider: 'claude', reason: 'startThread' },
+      }),
+    ]));
   });
 
   it('includes default Codex identity preferences in thread/start launch payload', async () => {

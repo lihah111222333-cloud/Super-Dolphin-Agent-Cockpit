@@ -4,7 +4,45 @@ import { cwd } from 'node:process';
 import postcss from 'postcss';
 import { describe, expect, it } from 'vitest';
 
-const css = readFileSync(path.join(cwd(), 'src/styles.css'), 'utf8');
+const cssFiles = [
+  'src/styles.css',
+  'src/AppChrome.css',
+  'src/AppShell.css',
+  'src/pages/chat/ChatPage.css',
+  'src/pages/chat/ChatMessages.css',
+  'src/pages/chat/ChatReasoning.css',
+  'src/pages/chat/components/ComposerDock.css',
+  'src/pages/chat/components/RuntimePanel.css',
+  'src/shared/styles/PagePrimitives.css',
+  'src/pages/workflows/WorkflowPage.css',
+  'src/pages/skills/SkillsPage.css',
+  'src/pages/files/FilesPage.css',
+  'src/pages/memory/MemoryPage.css',
+  'src/pages/settings/SettingsPage.css',
+  'src/pages/observability/ObservabilityPage.css',
+  'src/shared/styles/PagePrimitivesLate.css',
+  'src/features/prompts/PromptPageView.css',
+  'src/pages/settings/components/SettingsPageComponents.css',
+  'src/shared/styles/ThemePolish.css',
+  'src/shared/styles/PagePrimitivesPolish.css',
+  'src/AppShellWorkbench.css',
+  'src/pages/chat/ChatPageWorkbench.css',
+  'src/pages/workflows/WorkflowEmptyState.css',
+  'src/pages/files/FilesPageWorkbench.css',
+  'src/features/prompts/PromptPagePolish.css',
+  'src/pages/skills/SkillsPageHub.css',
+  'src/features/prompts/Personalization.css',
+  'src/AppShellSidebarPolish.css',
+  'src/pages/workflows/WorkflowPolish.css',
+  'src/pages/chat/components/RuntimePanelPolish.css',
+  'src/pages/skills/DatasourcePage.css',
+  'src/AppShellSidebarThreadActions.css',
+  'src/shared/styles/MarkdownReferences.css',
+];
+
+const mainSource = readFileSync(path.join(cwd(), 'src/main.jsx'), 'utf8');
+const mainCssImports = [...mainSource.matchAll(/^import '\.\/([^']+\.css)';$/gm)].map((match) => `src/${match[1]}`);
+const css = cssFiles.map((file) => readFileSync(path.join(cwd(), file), 'utf8')).join('\n');
 const root = postcss.parse(css);
 
 function splitSelectors(selector) {
@@ -81,6 +119,18 @@ function mediaDeclarationsFor(mediaParams, selector) {
   });
   return matches;
 }
+
+describe('css import order', () => {
+  it('keeps the test stylesheet list aligned with the app cascade order', () => {
+    expect(mainCssImports).toEqual(cssFiles);
+  });
+
+  it('documents the cascade groups in the main entrypoint', () => {
+    expect(mainSource).toContain('Base layers load first');
+    expect(mainSource).toContain('Route and feature styles stay in navigation order');
+    expect(mainSource).toContain('Late polish layers intentionally override');
+  });
+});
 
 function mediaDeclarationFor(mediaParams, selector, property) {
   return mediaDeclarationsFor(mediaParams, selector).find((declarations) => (

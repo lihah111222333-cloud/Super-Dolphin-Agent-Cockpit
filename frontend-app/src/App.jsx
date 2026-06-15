@@ -6,7 +6,10 @@ import { useClientStore } from './entities/client/model/useClientStore.js';
 import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.js';
 import { dashboardQueryKey, errorMessage, fetchMemoryDashboard, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, useDashboardFocusInvalidation, textValue } from './pages/shared/pageShared.js';
 import { ProjectSelector } from './pages/chat/components/ProjectSelector.jsx';
+import { runUIAction } from './shared/ui/runUIAction.js';
 import superDolphinLogo from './assets/super-dolphin-logo.png';
+import './AppChrome.css';
+import './AppShell.css';
 
 function lazyNamedPage(loader, exportName) {
   return lazy(() => loader().then((module) => ({ default: module[exportName] })));
@@ -267,16 +270,12 @@ function useMemoryBadgeState(store, projectPath) {
   };
 }
 
-function runUIAction(action) {
-  try {
-    const result = typeof action === 'function' ? action() : action;
-    if (result && typeof result.catch === 'function') {
-      void result.catch(() => {});
-    }
-  }
-  catch (error) {
-    void error;
-  }
+function uiActionOptions(store) {
+  return {
+    onError: (error) => {
+      store?.addWarning?.('error', 'ui.action.failed', { error: errorMessage(error) });
+    },
+  };
 }
 
 function PageLoadingFallback() {
@@ -805,6 +804,7 @@ function formatRelativeTime(dateString) {
 
 function SidebarProjectTree({ projectPath, setActivePage, store }) {
   const [expandedProjects, setExpandedProjects] = useState({});
+  const actionOptions = uiActionOptions(store);
   const toggleExpandProject = (path) => {
     setExpandedProjects((current) => ({
       ...current,
@@ -813,20 +813,20 @@ function SidebarProjectTree({ projectPath, setActivePage, store }) {
   };
   const projectItems = projectDirectoryItems(projectPath, store?.projects, store?.activeProject);
   const activeProjectPath = textValue(store?.activeProject || projectPath);
-  const addProject = () => runUIAction(() => store?.addProjectFromPicker?.());
+  const addProject = () => runUIAction(() => store?.addProjectFromPicker?.(), actionOptions);
   const selectProject = (path) => {
     if (!path) return;
-    runUIAction(() => store?.setActiveProjectPath?.(path));
+    runUIAction(() => store?.setActiveProjectPath?.(path), actionOptions);
   };
   const selectThread = (threadId) => {
     if (!threadId) return;
     setActivePage('chat');
-    runUIAction(() => store?.setActiveThread?.(threadId));
+    runUIAction(() => store?.setActiveThread?.(threadId), actionOptions);
   };
   const archiveThread = (threadId, event) => {
     event.stopPropagation();
     if (!threadId) return;
-    runUIAction(() => store?.archiveThread?.(threadId, true));
+    runUIAction(() => store?.archiveThread?.(threadId, true), actionOptions);
   };
   return (
     <section className="sidebar-project-tree" aria-label="项目">
@@ -921,13 +921,14 @@ function WorkbenchSidebar({
   memorySimilarCount = 0,
   onCloseSidebar,
 }) {
+  const actionOptions = uiActionOptions(store);
   const memoryBadgeCount = Math.max(0, Number(memorySimilarCount) || 0);
   const isDark = theme === COLOR_THEMES.dark;
   const ThemeIcon = isDark ? Sun : Moon;
   const themeLabel = isDark ? '白天模式' : '黑夜模式';
   const startNewChat = () => {
     setActivePage('chat');
-    runUIAction(() => store?.newThread?.());
+    runUIAction(() => store?.newThread?.(), actionOptions);
   };
 
   return (
@@ -1026,15 +1027,16 @@ function WorkbenchSidebar({
 
 function SidebarTaskSummary({ store, setActivePage }) {
   const tasks = taskThreadItems(store?.threads);
+  const actionOptions = uiActionOptions(store);
   const selectThread = (threadId) => {
     if (!threadId) return;
     setActivePage('chat');
-    runUIAction(() => store?.setActiveThread?.(threadId));
+    runUIAction(() => store?.setActiveThread?.(threadId), actionOptions);
   };
   const archiveThread = (threadId, event) => {
     event.stopPropagation();
     if (!threadId) return;
-    runUIAction(() => store?.archiveThread?.(threadId, true));
+    runUIAction(() => store?.archiveThread?.(threadId, true), actionOptions);
   };
   return (
     <section className="sidebar-task-summary" aria-label="任务">

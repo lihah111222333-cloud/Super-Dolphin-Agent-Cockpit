@@ -1,0 +1,749 @@
+body {
+  color: var(--text-pri);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
+:where(button, input, textarea, select) {
+  border-color: var(--border);
+  border-radius: var(--radius-sm);
+}
+
+:where(input, textarea, select) {
+  background: var(--surface-2);
+  color: var(--text-pri);
+}
+
+:where(button, input, textarea, select):focus-visible,
+:where(a):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+button:disabled,
+select:disabled,
+input:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
+}
+
+.top-command,
+.page-header,
+.prompt-header {
+  background: var(--bg-elevated);
+  backdrop-filter: none;
+}
+
+.top-command button,
+.top-command select,
+.page-actions button,
+.page-actions select,
+.action-row button,
+.skills-toolbar button,
+.file-intro button,
+.file-row button,
+.settings-page button,
+.memory-page button,
+.workflow-page button,
+.prompt-page button,
+.prompt-editor-modal button,
+.prompt-wizard-modal button,
+.btn {
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-pri);
+  box-shadow: none;
+}
+
+.top-command button:hover,
+.page-actions button:hover,
+.action-row button:hover,
+.skills-toolbar button:hover,
+.file-intro button:hover,
+.file-row button:hover,
+.settings-page button:hover,
+.memory-page button:hover,
+.workflow-page button:hover,
+.prompt-page button:hover,
+.prompt-editor-modal button:hover,
+.prompt-wizard-modal button:hover,
+.btn:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-3);
+  transform: none;
+}
+
+.btn-primary,
+.light,
+.composer .send {
+  border-color: var(--primary-action-border);
+  background: var(--primary-action-bg) !important;
+  color: var(--primary-action-text) !important;
+  box-shadow: var(--primary-action-shadow);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.btn-primary:hover,
+.light:hover,
+.composer .send:hover {
+  border-color: var(--border-strong);
+  background: var(--primary-action-bg-hover) !important;
+  color: var(--primary-action-text) !important;
+}
+
+.btn-primary:disabled,
+.light:disabled,
+.composer .send:disabled {
+  border-color: var(--border);
+  background: var(--surface-3) !important;
+  color: var(--text-muted) !important;
+  box-shadow: none;
+}
+
+.composer .send--interrupt {
+  border-color: color-mix(in srgb, var(--error) 48%, var(--border));
+  background: color-mix(in srgb, var(--error) 88%, var(--surface)) !important;
+  color: var(--primary-action-text) !important;
+}
+
+.composer .send--interrupt:hover {
+  border-color: color-mix(in srgb, var(--error) 64%, var(--border-strong));
+  background: color-mix(in srgb, var(--error) 76%, var(--surface)) !important;
+  color: var(--primary-action-text) !important;
+}
+
+.btn-secondary,
+.ghost {
+  background: transparent !important;
+}
+
+.danger,
+.text-danger {
+  color: var(--error) !important;
+  border-color: color-mix(in srgb, var(--error) 58%, var(--border)) !important;
+}
+
+.sa-body {
+  height: calc(100vh - 48px);
+  flex: 1;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.nav-rail {
+  background: var(--bg-elevated);
+}
+
+.sa-window[data-theme="light"] .nav-rail {
+  background: var(--bg-elevated);
+}
+
+.nav-rail nav {
+  gap: 0;
+  padding-top: 0;
+}
+
+.nav-rail button {
+  min-height: 62px;
+  border-radius: 0;
+  color: var(--text-muted);
+}
+
+.nav-rail button.active {
+  background: color-mix(in srgb, var(--accent-2) 13%, transparent);
+  color: var(--text-pri);
+}
+
+.nav-rail button span {
+  font-size: 11px;
+}
+
+.top-command {
+  height: 60px;
+  padding-inline: 16px;
+}
+
+.top-command .project-select,
+.top-command .project-pill,
+.top-command .provider {
+  min-height: 34px;
+}
+
+.top-command .project-dropdown,
+.model-dropdown,
+.memory-create-menu {
+  border-color: var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.top-command .project-dropdown-row.selected,
+.top-command .project-dropdown-item:hover,
+.top-command .project-dropdown-remove:hover {
+  background: var(--surface-3);
+}
+
+.top-command .provider span {
+  width: 22px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  box-shadow: inset -10px 0 0 var(--text-subtle);
+}
+
+.top-command .provider.active {
+  border-color: color-mix(in srgb, var(--accent-2) 62%, var(--border));
+  color: var(--accent-2);
+}
+
+.top-command .provider.active span {
+  box-shadow: inset 10px 0 0 var(--accent-2);
+}
+
+.top-command .launch-agent,
+.round.add {
+  border-color: color-mix(in srgb, var(--accent-2) 58%, var(--border));
+  color: var(--accent-2);
+}
+
+.top-command .action-feedback,
+.settings-status,
+.memory-notice,
+.prompt-notice,
+.prompt-loading {
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-sec);
+}
+
+.sa-window[data-theme="light"] .top-command .action-feedback.success {
+  border-color: color-mix(in srgb, var(--success) 36%, var(--border));
+  background: color-mix(in srgb, var(--success) 11%, var(--surface));
+  color: var(--success);
+}
+
+.sa-window[data-theme="light"] .top-command .action-feedback.warning {
+  border-color: color-mix(in srgb, var(--warning) 38%, var(--border));
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+  color: var(--warning);
+}
+
+.sa-window[data-theme="light"] .top-command .action-feedback.error {
+  border-color: color-mix(in srgb, var(--error) 38%, var(--border));
+  background: color-mix(in srgb, var(--error) 10%, var(--surface));
+  color: var(--error);
+}
+
+.top-command .project-pill {
+  opacity: 1;
+  color: var(--text-muted);
+}
+
+.chat-layout {
+  height: calc(100% - 60px);
+}
+
+.thread-rail,
+.conversation,
+.runtime-panel {
+  background: var(--bg);
+}
+
+.thread-tools,
+.runtime-toolbar {
+  height: 60px;
+  background: var(--surface);
+}
+
+.runtime-toolbar {
+  height: var(--runtime-toolbar-height);
+}
+
+.round,
+.count,
+.thread-clean-confirm,
+.thread-clean-cancel,
+.composer button,
+.composer-model,
+.runtime-toolbar button,
+.score,
+.thread-card b,
+.thread-stale-badge,
+.skill-card header span,
+.memory-card header span,
+.file-row header span,
+.prompt-badges span,
+.prompt-tag-row span,
+.tags span {
+  border-radius: 999px;
+}
+
+.thread-list {
+  gap: 8px;
+  padding: 10px;
+}
+
+.thread-card {
+  min-height: 78px;
+  border-color: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.thread-card.active {
+  border-color: color-mix(in srgb, var(--accent-2) 62%, var(--border));
+  background: color-mix(in srgb, var(--accent-2) 10%, var(--surface));
+  box-shadow: inset 3px 0 0 var(--accent-2);
+}
+
+.thread-pin,
+.avatar,
+.empty-state span {
+  border-radius: var(--radius-sm);
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+.sa-window[data-theme="light"] .avatar {
+  border-color: var(--border-strong);
+  color: var(--text-muted);
+  background: var(--surface);
+}
+
+.sa-window[data-theme="light"] .avatar--assistant {
+  border-color: color-mix(in srgb, var(--accent-2) 38%, var(--border-strong));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-2) 10%, var(--surface)), var(--surface));
+  color: color-mix(in srgb, var(--accent-2) 72%, var(--text-sec));
+}
+
+.sa-window[data-theme="light"] .avatar--user {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border-strong));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 10%, var(--surface)), var(--surface));
+  color: color-mix(in srgb, var(--accent) 72%, var(--text-sec));
+}
+
+.thread-name {
+  font-size: 14px;
+}
+
+.conversation {
+  border-right-color: var(--border);
+}
+
+.timeline {
+  padding: 10px 0 28px;
+}
+
+.empty-chat {
+  min-height: 100%;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+  color: var(--text-sec);
+}
+
+.empty-chat h2 {
+  max-width: 720px;
+  font-size: clamp(22px, 2.4vw, 30px);
+  font-weight: 650;
+}
+
+.message {
+  width: var(--conversation-content-width);
+  max-width: var(--conversation-content-width);
+  margin: 18px var(--conversation-content-right-gutter) 18px var(--conversation-content-left-gutter);
+}
+
+.message.user {
+  width: var(--conversation-content-width);
+  max-width: var(--conversation-content-width);
+}
+
+.message.user .bubble {
+  max-width: min(760px, 78%);
+  margin-left: auto;
+}
+
+.bubble {
+  border-color: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.message.user .bubble {
+  background: color-mix(in srgb, var(--accent-2) 12%, var(--surface));
+}
+
+.message.assistant .bubble {
+  border-color: transparent;
+  background: transparent;
+}
+
+.bubble header {
+  color: var(--text-muted);
+}
+
+.bubble pre {
+  color: var(--text-sec);
+  font-size: 14px;
+}
+
+.sa-window[data-theme="light"] .message-markdown,
+.sa-window[data-theme="light"] .message.assistant .message-markdown,
+.sa-window[data-theme="light"] .message-output,
+.sa-window[data-theme="light"] .message.assistant .message-output {
+  color: var(--text-sec);
+}
+
+.sa-window[data-theme="light"] .message-markdown h1,
+.sa-window[data-theme="light"] .message-markdown h2,
+.sa-window[data-theme="light"] .message-markdown h3,
+.sa-window[data-theme="light"] .message-markdown h4,
+.sa-window[data-theme="light"] .message-markdown h5,
+.sa-window[data-theme="light"] .message-markdown h6 {
+  color: var(--text-pri);
+}
+
+.sa-window[data-theme="light"] .message-markdown code {
+  border-color: var(--border-strong);
+  background: var(--surface-3);
+  color: var(--text-pri);
+}
+
+.sa-window[data-theme="light"] .message-markdown pre,
+.sa-window[data-theme="light"] .message-output pre {
+  border-color: var(--border-strong);
+  background: var(--surface-code);
+  color: var(--text-pri);
+}
+
+.sa-window[data-theme="light"] .message-markdown pre code,
+.sa-window[data-theme="light"] .message-output code {
+  color: var(--text-pri);
+}
+
+.composer {
+  padding: 14px 0;
+  background: var(--bg);
+}
+
+.composer-card {
+  width: var(--conversation-content-width);
+  border-color: var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow: visible;
+}
+
+.composer textarea {
+  min-height: calc(1.5em * 3 + 34px);
+  max-height: calc(1.5em * 8 + 34px);
+  color: var(--text-pri);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-y: auto;
+}
+
+.composer textarea::placeholder,
+.prompt-editor-grid input::placeholder,
+.prompt-editor-grid textarea::placeholder,
+.memory-form-grid input::placeholder,
+.form-grid textarea::placeholder {
+  color: var(--text-subtle);
+}
+
+.composer-meta {
+  min-height: 44px;
+}
+
+.tool-surface-mode button:hover,
+.tool-surface-mode button:focus-visible {
+  color: var(--text-pri);
+}
+
+.composer .send svg {
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
+.composer .send--interrupt svg {
+  transform: none;
+}
+
+.composer-project,
+.composer-model {
+  color: var(--text-muted);
+}
+
+.model-dropdown select,
+.model-inherit {
+  background: var(--surface-2);
+}
+
+.sa-window[data-theme="light"] .composer button,
+.sa-window[data-theme="light"] .tool-surface-mode,
+.sa-window[data-theme="light"] .composer-model {
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--text-sec);
+}
+
+.sa-window[data-theme="light"] .composer button:hover,
+.sa-window[data-theme="light"] .tool-surface-mode button:hover,
+.sa-window[data-theme="light"] .tool-surface-mode button:focus-visible,
+.sa-window[data-theme="light"] .composer-model:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-3);
+  color: var(--text-pri);
+}
+
+.sa-window[data-theme="light"] .tool-surface-mode button {
+  border-color: transparent;
+  background: transparent;
+}
+
+.sa-window[data-theme="light"] .tool-surface-mode button.active {
+  background: var(--surface-3);
+}
+
+.sa-window[data-theme="light"] .composer .send {
+  border-color: var(--primary-action-border);
+  background: var(--primary-action-bg) !important;
+  color: var(--primary-action-text) !important;
+}
+
+.sa-window[data-theme="light"] .composer .send:disabled {
+  border-color: var(--border);
+  background: var(--surface-3) !important;
+  color: var(--text-muted) !important;
+}
+
+.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-card {
+  border-color: color-mix(in srgb, var(--border) 82%, var(--surface));
+  background: var(--composer-floating-bg, var(--surface));
+  box-shadow: 0 18px 46px color-mix(in srgb, var(--text-pri) 8%, transparent);
+}
+
+.sa-window[data-theme="light"] .conversation--intro .composer--floating textarea {
+  color: var(--text-pri);
+}
+
+.sa-window[data-theme="light"] .conversation--intro .composer--floating textarea::placeholder {
+  color: var(--text-muted);
+}
+
+.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-attach,
+.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-custom,
+.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-voice,
+.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-model {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--surface-2) 86%, var(--surface));
+  color: var(--text-sec);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--surface) 72%, transparent) inset;
+}
+
+.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-attach,
+.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-voice {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.sa-window[data-theme="light"] .conversation--intro .composer--floating .provider {
+  color: var(--text-sec);
+}
+
+.sa-window[data-theme="light"] .conversation--intro .composer--floating .provider-track {
+  background: color-mix(in srgb, var(--surface-3) 72%, var(--border));
+  box-shadow: inset 0 1px 3px color-mix(in srgb, var(--text-muted) 18%, transparent);
+}
+
+.sa-window[data-theme="light"] .conversation--intro .composer--floating .provider.active .provider-track {
+  background: color-mix(in srgb, var(--accent) 70%, var(--surface-3));
+}
+
+.sa-window[data-theme="light"] .conversation--intro .composer--floating .provider-thumb {
+  background: var(--surface);
+  box-shadow: 0 1px 5px color-mix(in srgb, var(--text-muted) 20%, transparent);
+}
+
+.splitter {
+  background: var(--surface);
+}
+
+.splitter:hover,
+.splitter:focus-visible {
+  background: var(--surface-3);
+}
+
+.runtime-panel {
+  grid-template-rows:
+    var(--runtime-toolbar-height)
+    minmax(0, 1fr)
+    minmax(var(--activity-panel-min-height), var(--activity-panel-height));
+}
+
+.sa-window[data-theme="light"] .runtime-panel {
+  background: var(--bg);
+}
+
+.sa-window[data-theme="light"] .runtime-toolbar {
+  border-bottom-color: var(--border);
+  background: var(--surface);
+}
+
+.sa-window[data-theme="light"] .runtime-toolbar button,
+.sa-window[data-theme="light"] .score {
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--text-sec);
+}
+
+.sa-window[data-theme="light"] .runtime-toolbar button:hover,
+.sa-window[data-theme="light"] .runtime-toolbar button:focus-visible {
+  border-color: var(--border-strong);
+  background: var(--surface-3);
+  color: var(--text-pri);
+}
+
+.sa-window[data-theme="light"] .score.good {
+  border-color: color-mix(in srgb, var(--success) 34%, var(--border));
+  background: color-mix(in srgb, var(--success) 9%, var(--surface));
+  color: var(--success);
+}
+
+.sa-window[data-theme="light"] .score.bad {
+  border-color: color-mix(in srgb, var(--error) 34%, var(--border));
+  background: color-mix(in srgb, var(--error) 8%, var(--surface));
+  color: var(--error);
+}
+
+.sa-window[data-theme="light"] .runtime-activity-panel {
+  border-top-color: var(--border);
+  background: var(--surface);
+  color: var(--text-sec);
+}
+
+.sa-window[data-theme="light"] .activity-panel-resizer::after {
+  background: color-mix(in srgb, var(--text-muted) 24%, transparent);
+}
+
+.sa-window[data-theme="light"] .runtime-icons {
+  border-bottom-color: var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.sa-window[data-theme="light"] .log-lines {
+  background: var(--surface-code);
+  color: var(--text-sec);
+}
+
+.sa-window[data-theme="light"] .warning-log-line {
+  color: var(--text-sec);
+}
+
+.sa-window[data-theme="light"] .log-lines b {
+  color: var(--warning);
+}
+
+.sa-window[data-theme="light"] .runtime-log-line--result b {
+  color: var(--success);
+}
+
+.sa-window[data-theme="light"] .runtime-stat-tooltip,
+.sa-window[data-theme="light"] .warning-log-popover {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  color: var(--text-pri);
+  box-shadow: var(--shadow);
+}
+
+.sa-window[data-theme="light"] .warning-log-popover code {
+  color: var(--text-sec);
+}
+
+.sa-window[data-theme="light"] .diff-view {
+  color: var(--text-sec);
+}
+
+.sa-window[data-theme="light"] .diff-file-group {
+  background: var(--surface);
+}
+
+.sa-window[data-theme="light"] .diff-file-header {
+  background: var(--surface-2);
+}
+
+.sa-window[data-theme="light"] .diff-file-lines {
+  background: var(--surface-code);
+}
+
+.sa-window[data-theme="light"] .diff-line {
+  border-top-color: color-mix(in srgb, var(--border) 62%, transparent);
+}
+
+.sa-window[data-theme="light"] .diff-line.meta {
+  background: var(--surface-2);
+}
+
+.sa-window[data-theme="light"] .diff-line.hunk {
+  background: color-mix(in srgb, var(--info) 10%, var(--surface));
+}
+
+.sa-window[data-theme="light"] .diff-line.hunk .diff-line-content {
+  color: var(--info);
+}
+
+.diff-empty {
+  margin: 14px;
+  border-color: var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-subtle);
+  font-size: 14px;
+}
+
+.diff-empty pre,
+.shared-file-content-preview,
+.settings-log-list,
+.log-lines,
+.skills-body-preview,
+.prompt-draft-review pre {
+  scrollbar-color: var(--surface-3) transparent;
+}
+
+.runtime-icons,
+.log-lines {
+  color: var(--text-muted);
+}
+
+.page-header {
+  min-height: 64px;
+  padding-inline: 24px;
+}
+
+.page-header h1 {
+  font-size: 19px;
+  font-weight: 780;
+  letter-spacing: -0.03em;
+  color: var(--text-pri);
+}
+
+.page-header h1::before {
+  display: none;
+}
+
+.page-header p {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;

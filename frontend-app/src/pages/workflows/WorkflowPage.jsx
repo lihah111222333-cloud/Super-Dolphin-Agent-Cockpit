@@ -8,6 +8,7 @@ import { finalOutputPath, workflowOrderedNodes } from './adapters/workflowDispla
 import { WorkflowDiagnostics } from './components/WorkflowDiagnostics.jsx';
 import { WorkflowFinalOutputPanel } from './components/WorkflowFinalOutputPanel.jsx';
 import { applyDagOps, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, openSharedFile, readSharedFile, startDag, startThread, terminateDagRun } from './services/workflowPageService.js';
+import './WorkflowPage.css';
 
 const DAG_RECENT_RUN_LIMIT = 30;
 const DAG_RUN_HISTORY_VISIBLE_LIMIT = 10;

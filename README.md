@@ -28,11 +28,11 @@ pkg/                     # Reusable public libraries
 
 ### Prerequisites
 
-- Go 1.23+
+- Go 1.25.7
 - PostgreSQL (for store layer; provide a reachable instance and `DATABASE_URL`)
 - Node.js 20+ (for frontend)
-- Claude Code CLI (`claude`) installed + authenticated — required if using Claude provider
-- OpenAI Codex CLI (`codex`) installed + authenticated — required if using Codex provider
+- OpenAI Codex CLI (`codex`) installed + authenticated — required for the current new UI desktop provider flow
+- Claude Code CLI (`claude`) installed + authenticated — only required for legacy/provider-integration work that explicitly targets Claude
 
 ### Clone & Setup
 
@@ -46,6 +46,8 @@ export DATABASE_URL="postgres://USER:PASS@127.0.0.1:5432/super_dolphin?sslmode=d
 # For the current new UI desktop dev flow:
 ( cd frontend-app && npm install )
 ./run-new-ui-desktop.sh
+# Windows PowerShell:
+.\run-new-ui-desktop.ps1
 
 # For frontend HMR plus Go backend restart-on-change:
 ./run-new-ui-desktop-hot.sh
@@ -96,6 +98,7 @@ Notes:
 
 ```bash
 ./run-new-ui-desktop.sh      # Run current React/Vite new UI in the desktop host
+.\run-new-ui-desktop.ps1     # Windows PowerShell equivalent
 ./run-new-ui-desktop-hot.sh  # Same, with Vite HMR plus Go backend restart-on-change
 make build-plain           # Build all Go binaries (without Frida)
 make run-plain             # Run the cmd/server entry

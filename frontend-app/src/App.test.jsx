@@ -4060,9 +4060,9 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('uses the opened thread provider model selector without showing the global provider toggle', async () => {
     backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
-      'settings.provider.active': 'claude',
-      'settings.provider.claude.model': 'sonnet',
-      'settings.provider.claude.effort': 'high',
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
     }[key] ?? null));
     backend.getSidebarState.mockResolvedValue({
       activeThreadId: 'thread-failed',

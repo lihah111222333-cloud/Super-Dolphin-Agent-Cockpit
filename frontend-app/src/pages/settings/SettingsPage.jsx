@@ -9,6 +9,7 @@ import { AboutPanel, RuntimeSettingsPanels } from './components/SettingsSystemPa
 import { UILogCard } from './components/UILogCard.jsx';
 import { VideoSettingsCard } from './components/VideoSettingsCard.jsx';
 import { checkAppUpdate, copyTextToClipboard, getBuildInfo, getPreference, getVideoApiKey, installLatestAppUpdate, listDashboardLogs, readBuiltinTools, readConfig, readLspPromptHint, setPreference, setVideoApiKey, writeBuiltinTool, writeLspPromptHint } from './services/settingsPageService.js';
+import './SettingsPage.css';
 
 const PROVIDER_LABELS = Object.freeze({
   claude: 'Claude',

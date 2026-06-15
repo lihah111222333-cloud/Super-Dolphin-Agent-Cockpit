@@ -4,7 +4,7 @@
 
 ## 阅读边界提示
 
-- **01 / frontend**：当前新 UI 代码在 `frontend-app/`；`cmd/agent-terminal/frontend/vue-app/` 是 legacy/package-embed Vue 前端。除非任务明确要求旧 Vue 或打包嵌入路径，前端页面修改优先看 `frontend-app` 与 `01-terminal-ui-react.md`。
+- **01 / frontend**：当前新 UI 代码在 `frontend-app/`；`cmd/agent-terminal/frontend/` 是 legacy/package-embed Vue 前端。除非任务明确要求旧 Vue 或打包嵌入路径，前端页面修改优先看 `frontend-app` 与 `01-terminal-ui-react.md`。
 - **02**：先看 sidecar / registry / bootstrap / tools 暴露；不展开 `internal/module/{memory,prompt,thread}` 的内部组装链。
 - **03**：`cmd/mcp-lsp` 是 generic multi-language LSP peer；阅读时按通用多语言 LSP peer 入口处理，不把它收窄成单一语言服务。
 - **07**：先看 `internal/module` 的职责切面、消费面与入口边界；07 已拆成读侧/写侧两份子卷。

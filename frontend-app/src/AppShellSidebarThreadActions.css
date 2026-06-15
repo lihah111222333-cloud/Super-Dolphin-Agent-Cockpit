@@ -1,0 +1,97 @@
+.sidebar-project-thread-list li,
+.sidebar-task-list li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.sidebar-project-thread,
+.sidebar-task-thread {
+  flex: 1;
+  min-width: 0;
+  padding-right: 28px !important;
+}
+
+.thread-archive-btn {
+  position: absolute;
+  right: 6px;
+  opacity: 0;
+  transition: opacity var(--transition);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+}
+
+.thread-archive-btn:hover {
+  background: var(--surface-3);
+  color: var(--text-pri);
+}
+
+.sidebar-project-thread-list li:hover .thread-archive-btn,
+.sidebar-task-list li:hover .thread-archive-btn {
+  opacity: 1;
+}
+
+.sidebar-expand-trigger {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 40;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--text-sec);
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  transition: background var(--transition), color var(--transition);
+}
+
+.sidebar-expand-trigger:hover {
+  background: var(--surface-3);
+  color: var(--text-pri);
+}
+
+.sa-body {
+  transition: grid-template-columns 200ms ease;
+}
+
+.app-sidebar {
+  transition: width 200ms ease, padding 200ms ease, opacity 200ms ease, border-right 200ms ease;
+}
+
+@media (min-width: 921px) {
+  .sa-window.sidebar-collapsed .sa-body {
+    grid-template-columns: 0px minmax(0, 1fr) !important;
+  }
+
+  .sa-window.sidebar-collapsed .app-sidebar {
+    width: 0 !important;
+    padding: 0 !important;
+    border-right: 0 !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+
+  .sa-window.sidebar-collapsed .workbench-sidebar-resizer {
+    display: none;
+  }
+}
+
+@media (max-width: 920px) {
+  .sidebar-expand-trigger {
+    display: none !important;
+  }
+}

@@ -1,0 +1,85 @@
+.settings-page {
+  padding: 20px 28px 40px;
+}
+
+.settings-page .page-header {
+  margin: -20px -28px 20px;
+}
+
+.settings-page .panel {
+  background: var(--surface);
+}
+
+dl {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 8px 18px;
+}
+
+dt {
+  color: var(--muted);
+}
+
+dd {
+  margin: 0;
+}
+
+.form-line,
+.form-grid {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(240px, 1fr));
+}
+
+.form-line label,
+.form-grid label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+}
+
+.form-grid label {
+  align-items: stretch;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.form-grid label.wide {
+  grid-column: 1 / -1;
+}
+
+.form-grid label.checkbox-line {
+  align-items: center;
+  flex-direction: row;
+  justify-content: flex-start;
+}
+
+.form-line input,
+.form-grid input,
+.form-grid select,
+.form-grid textarea {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--text-pri);
+  padding: 0 10px;
+}
+
+.form-grid textarea {
+  min-height: 74px;
+  padding: 10px;
+  resize: vertical;
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 14px;
+}

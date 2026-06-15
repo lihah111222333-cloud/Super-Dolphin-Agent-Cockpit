@@ -244,13 +244,15 @@ function Wait-ForHttp {
         [Parameter(Mandatory)][string]$Label
     )
 
-    for ($i = 0; $i -lt 50; $i++) {
+    $attempts = Get-PositiveIntegerEnv -Name 'SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS' -DefaultValue 300
+    $pollMilliseconds = Get-PositivePollMilliseconds
+    for ($i = 0; $i -lt $attempts; $i++) {
         try {
             $null = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 1 -ErrorAction Stop
             Write-Host "  -> $Label ready: $Url"
             return
         } catch {
-            Start-Sleep -Milliseconds 200
+            Start-Sleep -Milliseconds $pollMilliseconds
         }
     }
 
@@ -259,7 +261,9 @@ function Wait-ForHttp {
 
 function Wait-ForBackend {
     $url = "http://$($env:SUPER_DOLPHIN_HTTP_ADDR)/metrics"
-    for ($i = 0; $i -lt 100; $i++) {
+    $attempts = Get-PositiveIntegerEnv -Name 'SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS' -DefaultValue 300
+    $pollMilliseconds = Get-PositivePollMilliseconds
+    for ($i = 0; $i -lt $attempts; $i++) {
         try {
             $null = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 1 -ErrorAction Stop
             Write-Host "  -> desktop backend ready: $url"
@@ -270,13 +274,38 @@ function Wait-ForBackend {
                 Get-BackendLogTail
                 throw 'desktop backend exited before readiness'
             }
-            Start-Sleep -Milliseconds 200
+            Start-Sleep -Milliseconds $pollMilliseconds
         }
     }
 
     Write-Host "XX timed out waiting for desktop backend: $url"
     Get-BackendLogTail
     throw "timed out waiting for desktop backend: $url"
+}
+
+function Get-PositiveIntegerEnv {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][int]$DefaultValue
+    )
+
+    $raw = [Environment]::GetEnvironmentVariable($Name, 'Process')
+    if ($null -eq $raw -or $raw.Trim() -eq '') { return $DefaultValue }
+    $value = 0
+    if (-not [int]::TryParse($raw, [ref]$value) -or $value -le 0) {
+        throw "$Name must be a positive integer, got: $raw"
+    }
+    return $value
+}
+
+function Get-PositivePollMilliseconds {
+    $raw = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS', 'Process')
+    if ($null -eq $raw -or $raw.Trim() -eq '') { return 200 }
+    $value = 0.0
+    if (-not [double]::TryParse($raw, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$value) -or $value -le 0) {
+        throw "SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS must be a positive number, got: $raw"
+    }
+    return [Math]::Max(1, [int]($value * 1000))
 }
 
 function Wait-ForAnyProcessExit {
@@ -711,6 +740,9 @@ Set-DefaultEnv -Name 'SUPER_DOLPHIN_HTTP_ADDR' -Value '127.0.0.1:4512'
 Set-DefaultEnv -Name 'GO_AGENT_CTL_RPC_ADDR' -Value '127.0.0.1:8092'
 Set-DefaultEnv -Name 'VITE_DEV_URL' -Value 'http://127.0.0.1:5175'
 Set-DefaultEnv -Name 'FRONTEND_DEVSERVER_URL' -Value $env:VITE_DEV_URL
+if ($env:FRONTEND_DEVSERVER_URL -ne $env:VITE_DEV_URL) {
+    throw "FRONTEND_DEVSERVER_URL must match VITE_DEV_URL for Wails readiness, got FRONTEND_DEVSERVER_URL=$($env:FRONTEND_DEVSERVER_URL) VITE_DEV_URL=$($env:VITE_DEV_URL)"
+}
 
 $viteUri = [Uri]$env:VITE_DEV_URL
 if (-not $viteUri.Host -or $viteUri.Port -le 0 -or $viteUri.Authority -notmatch ':\d+$') {
@@ -736,6 +768,9 @@ Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_CODEX_HOME' -Value $env:CODEX_HOME
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY' -Value 'default'
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER' -Value 'openai'
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_LOCAL_POSTGRES_PORT' -Value '55433'
+Set-DefaultEnv -Name 'SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS' -Value '300'
+Set-DefaultEnv -Name 'SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS' -Value '300'
+Set-DefaultEnv -Name 'SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS' -Value '0.2'
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR' -Value (Join-Path $ProjectDir '.tmp\pgdata')
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR' -Value (Join-Path $ProjectDir '.tmp\pgsocket')
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_LOCAL_POSTGRES_LOG' -Value (Join-Path $ProjectDir '.tmp\postgres.log')
@@ -774,6 +809,16 @@ try {
     New-Item -ItemType Directory -Force -Path $env:SUPER_DOLPHIN_HOME | Out-Null
     Remove-Item -LiteralPath $env:SUPER_DOLPHIN_BACKEND_LOG, $env:SUPER_DOLPHIN_BACKEND_ERR_LOG, $env:SUPER_DOLPHIN_FRONTEND_LOG, $env:SUPER_DOLPHIN_FRONTEND_ERR_LOG -Force -ErrorAction SilentlyContinue
 
+    $npm = Resolve-NpmCommand
+    $script:ViteProcess = Start-Process -FilePath $npm `
+        -ArgumentList @('run', 'dev', '--', '--host', $ViteDevHost, '--port', "$ViteDevPort", '--strictPort') `
+        -WorkingDirectory $FrontendAppDir `
+        -PassThru `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput $env:SUPER_DOLPHIN_FRONTEND_LOG `
+        -RedirectStandardError $env:SUPER_DOLPHIN_FRONTEND_ERR_LOG
+    Wait-ForHttp -Url $env:FRONTEND_DEVSERVER_URL -Label 'frontend-app vite'
+
     $script:DesktopProcess = Start-Process -FilePath 'go' `
         -ArgumentList @('run', './cmd/agent-terminal') `
         -WorkingDirectory $ProjectDir `
@@ -784,16 +829,6 @@ try {
 
     Wait-ForBackend
     Seed-DevPreferences
-
-    $npm = Resolve-NpmCommand
-    $script:ViteProcess = Start-Process -FilePath $npm `
-        -ArgumentList @('run', 'dev', '--', '--host', $ViteDevHost, '--port', "$ViteDevPort", '--strictPort') `
-        -WorkingDirectory $FrontendAppDir `
-        -PassThru `
-        -WindowStyle Hidden `
-        -RedirectStandardOutput $env:SUPER_DOLPHIN_FRONTEND_LOG `
-        -RedirectStandardError $env:SUPER_DOLPHIN_FRONTEND_ERR_LOG
-    Wait-ForHttp -Url $env:VITE_DEV_URL -Label 'frontend-app vite'
 
     Wait-ForAnyProcessExit
 } finally {

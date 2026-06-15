@@ -126,6 +126,17 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     }), 'toolSurfaceMode must be chat, auto, or agent');
   });
 
+  it('rejects unknown thread/start payload fields before calling the backend', () => {
+    const callAPI = vi.fn().mockResolvedValue({ threadId: 'thread-123' });
+    const api = createBackendApi({ callAPI });
+
+    expectInvalidInputDoesNotCall(callAPI, () => api.startThread({
+      cwd: '/repo/app',
+      modelProvider: 'codex',
+      unexpectedUiField: true,
+    }), 'thread/start: unsupported payload field unexpectedUiField');
+  });
+
   it('does not opt into pending launch unless deferSpawn is explicitly requested', async () => {
     const callAPI = vi.fn().mockResolvedValue({ threadId: 'thread-123' });
     const api = createBackendApi({ callAPI });
