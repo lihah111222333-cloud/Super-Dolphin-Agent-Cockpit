@@ -5,6 +5,7 @@ import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { applySkillResolution, createSkill, deleteSkill, getDashboardPage, importSkillDirectories, listSkillFiles, listSkillResolutions, previewSkillResolution, readSkill, selectProjectDirs, suggestSkillSummary, writeSkill } from '../../shared/api/backendApi.js';
 import { cleanScalar, dashboardQueryKey, errorMessage, listToText, optionalSettingsCwd, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx';
+import './SkillsPage.css';
 
 const SKILLS_DASHBOARD_TIMEOUT_MS = Math.max(1, SKILLS_REQUEST_TIMEOUT_MS - 250);
 

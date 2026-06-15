@@ -1,0 +1,93 @@
+.settings-status {
+  display: block;
+  color: var(--green);
+}
+
+.danger-text {
+  color: var(--red) !important;
+}
+
+.light {
+  background: var(--primary-action-bg) !important;
+  color: var(--primary-action-text) !important;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 1280px) {
+  .skill-grid,
+  .memory-cards {
+    grid-template-columns: repeat(2, minmax(260px, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .sa-body {
+    grid-template-columns: 62px minmax(0, 1fr);
+  }
+
+  .nav-rail button {
+    width: 100%;
+  }
+
+  .workflow-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .composer {
+    padding: 12px;
+  }
+
+  .composer--floating {
+    width: 100%;
+    padding: 0;
+  }
+
+  .composer--floating textarea {
+    height: 96px;
+    padding: 18px 18px 10px;
+  }
+
+  .composer-meta {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .composer-actions {
+    width: 100%;
+    padding-left: 0;
+  }
+
+  .composer-model-wrap {
+    margin-left: 0;
+    max-width: 100%;
+  }
+
+  .tool-surface-mode {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .tool-surface-mode button {
+    flex: 1 1 0;
+  }
+
+  .skill-grid,
+  .memory-cards,
+  .memory-stats,
+  .stat-grid,
+  .dag-node-editor,
+  .dag-node-row {
+    grid-template-columns: 1fr;
+  }
+}

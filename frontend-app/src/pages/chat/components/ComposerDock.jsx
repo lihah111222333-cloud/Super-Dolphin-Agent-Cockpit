@@ -6,6 +6,7 @@ import { ComposerMeta } from './ComposerMeta.jsx';
 import { ComposerTextarea } from './ComposerTextarea.jsx';
 import { ForkDraftCard } from './ForkDraftCard.jsx';
 import { runUIAction } from './chatUiActions.js';
+import './ComposerDock.css';
 
 function useComposerDropTarget(ref, composer) {
   /*

@@ -1,0 +1,18 @@
+.log-lines {
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  margin: 16px !important;
+  padding: 14px 18px !important;
+  background: var(--surface-code) !important;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--text-pri) 2%, transparent) !important;
+  transition: all 0.3s ease;
+}
+
+.log-lines:hover {
+  border-color: var(--border-strong) !important;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--text-pri) 4%, transparent) !important;
+}
+
+/* ==========================================================================
+   Figure 5: Data Sources View Styles
+   ========================================================================== */

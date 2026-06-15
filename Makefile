@@ -9,6 +9,13 @@ FRIDA_LDFLAGS ?= -X github.com/multi-agent/go-agent-v2/pkg/idamcp.defaultFridaVe
 AGENT_TERMINAL_DEBUG_PORT ?= 4501
 FRONTEND_APP_DIR := frontend-app
 LEGACY_FRONTEND_DIR := cmd/agent-terminal/frontend
+ifeq ($(OS),Windows_NT)
+NPM ?= npm.cmd
+NPM_INSTALL ?= install --no-audit --no-fund
+else
+NPM ?= npm
+NPM_INSTALL ?= ci
+endif
 
 # NOTE: Do NOT use 'export CGO_*FLAGS' here — it causes cache thrashing between
 #       make and IDE/terminal builds (Go caches key on CGO flags).
@@ -45,27 +52,27 @@ frontend-build: frontend-app-build
 frontend-app-deps:
 	cd $(FRONTEND_APP_DIR) && \
 	if [ ! -d node_modules ] || [ package-lock.json -nt node_modules ] || [ package.json -nt node_modules ]; then \
-		npm ci; \
+		$(NPM) $(NPM_INSTALL); \
 	else \
 		echo "frontend-app dependencies are up to date"; \
 	fi
 
 frontend-app-build: frontend-app-deps
-	cd $(FRONTEND_APP_DIR) && npm run build
+	cd $(FRONTEND_APP_DIR) && $(NPM) run build
 	test -f $(FRONTEND_APP_DIR)/dist/index.html
-	rsync -a --delete $(FRONTEND_APP_DIR)/dist/ $(LEGACY_FRONTEND_DIR)/dist/
+	node $(FRONTEND_APP_DIR)/scripts/sync-frontend-dist.mjs
 	test -f $(LEGACY_FRONTEND_DIR)/dist/index.html
 
 frontend-legacy-deps:
 	cd $(LEGACY_FRONTEND_DIR) && \
 	if [ ! -d node_modules ] || [ package-lock.json -nt node_modules ] || [ package.json -nt node_modules ]; then \
-		npm ci; \
+		$(NPM) $(NPM_INSTALL); \
 	else \
 		echo "legacy frontend dependencies are up to date"; \
 	fi
 
 frontend-legacy-build: frontend-legacy-deps
-	cd $(LEGACY_FRONTEND_DIR) && npm run build
+	cd $(LEGACY_FRONTEND_DIR) && $(NPM) run build
 
 # 推荐用 ./run-debug.sh：会跑 npm install/build、pre-flight 守卫
 # 这两个 target 只覆盖最小启动路径，前端 dist 必须先 build 过，否则 UI 是空的。

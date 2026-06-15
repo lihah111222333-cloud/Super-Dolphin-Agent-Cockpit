@@ -1,3 +1,5 @@
+// @ts-check
+
 import {
   callAPI as callWailsAPI,
   getBuildInfo as getWailsBuildInfo,
@@ -137,6 +139,39 @@ export const RPC_METHODS = Object.freeze({
 
 const objectPrototype = Object.prototype;
 const TOOL_SURFACE_MODES = new Set(['chat', 'auto', 'agent']);
+/**
+ * Fields accepted by the React thread/start facade before canonicalization.
+ * Keep this list intentionally narrower than arbitrary objects so Go-side
+ * strict decoders are not the first layer that catches UI payload drift.
+ */
+const THREAD_START_ALLOWED_KEYS = new Set([
+  'cwd',
+  'name',
+  'provider',
+  'modelProvider',
+  'model_provider',
+  'model',
+  'effort',
+  'promptKey',
+  'prompt_key',
+  'agentKey',
+  'agent_key',
+  'toolSurfaceMode',
+  'tool_surface_mode',
+  'deferSpawn',
+  'defer_spawn',
+  'codexModelProvider',
+  'codex_model_provider',
+  'config',
+  'launchIntentId',
+  'launch_intent_id',
+  'baseInstructions',
+  'base_instructions',
+  'optimisticUserMessage',
+  'optimistic_user_message',
+  'skipInitialRuntimeSync',
+  'skip_initial_runtime_sync',
+]);
 const DEFAULT_PROMPT_INTENT_KIND = 'expert';
 const DEFAULT_PROMPT_SOURCE_TYPE = 'user_input';
 
@@ -147,6 +182,14 @@ function assertPlainObject(method, params) {
     throw new TypeError(`${method} params must be an object`);
   }
   return value;
+}
+
+function assertAllowedPayloadFields(method, payload, allowedKeys) {
+  for (const key of Object.keys(payload)) {
+    if (!allowedKeys.has(key)) {
+      throw new Error(`${method}: unsupported payload field ${key}`);
+    }
+  }
 }
 
 function normalizeString(value) {
@@ -756,6 +799,7 @@ function hasOwn(value, key) {
   return objectPrototype.hasOwnProperty.call(value, key);
 }
 
+/** @type {ReadonlyArray<readonly [string, (...args: any[]) => any]>} */
 const NATIVE_DEP_FALLBACKS = Object.freeze([
   ['getBuildInfo', getWailsBuildInfo],
   ['onAgentEvent', subscribeAgentEvent],
@@ -773,6 +817,7 @@ const NATIVE_DEP_FALLBACKS = Object.freeze([
   ['selectProjectDirs', selectProjectDirsViaBridge],
 ]);
 
+/** @param {Record<string, any>} deps */
 function resolveNativeDeps(deps) {
   return Object.fromEntries(NATIVE_DEP_FALLBACKS.map(([key, fallback]) => [key, deps[key] || fallback]));
 }
@@ -1101,6 +1146,7 @@ function threadConfigPayload(params) {
 
 function threadStartPayload(params) {
   const payload = requireCwd(RPC_METHODS.THREAD_START, params);
+  assertAllowedPayloadFields(RPC_METHODS.THREAD_START, payload, THREAD_START_ALLOWED_KEYS);
   const provider = normalizeProvider(payload);
   if (!provider) throw new Error(`${RPC_METHODS.THREAD_START}: provider is required`);
   const rest = { ...payload };

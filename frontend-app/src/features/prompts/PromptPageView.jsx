@@ -16,6 +16,7 @@ import {
   writePrompt,
 } from '../../shared/api/backendApi.js';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
+import './PromptPageView.css';
 
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
 const PROMPTS_REQUEST_TIMEOUT_MS = 8000;

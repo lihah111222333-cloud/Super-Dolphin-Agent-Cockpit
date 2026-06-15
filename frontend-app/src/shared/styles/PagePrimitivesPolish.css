@@ -1,0 +1,1056 @@
+  color: var(--text-subtle);
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
+.page-actions {
+  gap: 10px;
+}
+
+.page-actions label,
+.skills-toolbar label,
+.shared-files-search {
+  min-height: 38px;
+  border-color: var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.console-page,
+.memory-page,
+.settings-page,
+.workflow-page,
+.prompt-page {
+  background: var(--bg);
+}
+
+.toolbar-line,
+.action-row,
+.skills-toolbar,
+.skill-filter,
+.memory-tabs {
+  gap: 10px;
+}
+
+.tabs,
+.segment,
+.skill-filter,
+.shared-files-tabs,
+.memory-tabs,
+.prompt-tabs,
+.prompt-segment,
+.prompt-kind-tabs,
+.prompt-scope-choice {
+  border-radius: var(--radius-md);
+}
+
+.segment,
+.skill-filter,
+.shared-files-tabs {
+  background: var(--surface);
+}
+
+.segment button,
+.memory-tabs button,
+.tabs button,
+.shared-files-tabs button,
+.prompt-tabs button,
+.prompt-kind-tabs button,
+.prompt-scope-choice button,
+.prompt-segment button {
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.segment .active,
+.skill-filter .active,
+.memory-tabs .active,
+.tabs .active,
+.shared-files-tabs .active,
+.prompt-tabs button.active,
+.prompt-tabs button[aria-selected="true"],
+.prompt-kind-tabs button.active,
+.prompt-scope-choice button.active,
+.prompt-segment button.active {
+  background: color-mix(in srgb, var(--accent-2) 16%, var(--surface-3));
+  color: var(--text-pri);
+}
+
+.console-message {
+  color: var(--text-muted);
+}
+
+.empty-state {
+  min-height: 42vh;
+  color: var(--text-muted);
+}
+
+.empty-state span {
+  width: 54px;
+  height: 54px;
+  border: 1px solid var(--border);
+  color: var(--accent-2);
+}
+
+.empty-state h2,
+.empty-state h3 {
+  margin: 0;
+  color: var(--text-sec);
+  font-size: 17px;
+}
+
+.empty-state p {
+  color: var(--text-muted);
+}
+
+.workflow-grid {
+  height: calc(100% - 64px);
+  grid-template-columns: minmax(320px, 430px) minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+}
+
+.workflow-list,
+.workflow-detail {
+  border-color: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.workflow-list > button {
+  min-height: 84px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+
+.workflow-list > button:hover {
+  background: color-mix(in srgb, var(--accent-2) 6%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--accent-2) 30%, var(--border));
+}
+
+.workflow-list > button.active,
+.run-row.active {
+  border-color: color-mix(in srgb, var(--accent-2) 58%, var(--border));
+  background: color-mix(in srgb, var(--accent-2) 10%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-2) 20%, transparent);
+}
+
+.workflow-list strong {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  color: var(--text-pri);
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-top h2 {
+  font-size: 18px;
+  font-weight: 780;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  color: var(--text-pri);
+}
+
+.detail-top {
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.workflow-overview {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-2) 70%, var(--surface));
+}
+
+.workflow-overview-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.workflow-overview-copy span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.workflow-overview-copy h2 {
+  margin: 0;
+  color: var(--text-pri);
+  font-size: 17px;
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.workflow-overview dl {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(74px, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.workflow-overview dl div {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 9px 10px;
+}
+
+.workflow-overview dt {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.workflow-overview dd {
+  margin: 4px 0 0;
+  color: var(--text-pri);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+@media (max-width: 1180px) {
+  .workflow-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-overview dl {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .workflow-overview dl {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel {
+  border-color: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.panel h3,
+.section-header,
+.subhead {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.panel p,
+.panel dd {
+  color: var(--text-sec);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.run-row,
+.dag-node-row,
+.skills-resolution-panel,
+.skills-resolution-preview,
+.modal-box,
+.skill-card,
+.memory-card,
+.file-row,
+.prompt-card,
+.data-card-vue,
+.settings-builtin-tool-group,
+.settings-prompt-toggle,
+.prompt-scope-copy,
+.prompt-advanced-debug,
+.prompt-draft-review,
+.shared-file-viewer-meta,
+.shared-file-content-preview {
+  border-color: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.dag-node-row,
+.run-row {
+  color: var(--text-sec);
+  font-size: 13px;
+}
+
+.run-row span {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text-pri);
+}
+
+.run-row em {
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
+.run-row time {
+  font-size: 12px;
+  letter-spacing: 0;
+  color: var(--text-muted);
+}
+
+.dag-node-editor label,
+.skills-field,
+.skills-subfiles-wrap,
+.skills-body-field,
+.memory-form-grid label,
+.memory-content-label,
+.form-line label,
+.form-grid label,
+.prompt-editor-grid label,
+.prompt-wizard-input {
+  color: var(--text-muted);
+}
+
+.dag-node-editor input,
+.dag-node-editor select,
+.dag-node-editor textarea,
+.skills-resolution-name-field input,
+.skills-body-field textarea,
+.memory-form-grid input,
+.memory-form-grid select,
+.memory-content-label textarea,
+.form-line input,
+.form-grid input,
+.form-grid select,
+.form-grid textarea,
+.settings-stall-input,
+.settings-prompt-textarea,
+.prompt-editor-grid input,
+.prompt-editor-grid textarea,
+.prompt-wizard-input textarea {
+  border-color: var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-pri);
+}
+
+.skills-toolbar {
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.skills-toolbar label {
+  flex: 1 1 320px;
+}
+
+.skill-filter {
+  display: inline-flex;
+  width: auto;
+  max-width: calc(100% - 56px);
+  margin-block: 14px;
+}
+
+.skill-filter button {
+  border-radius: var(--radius-sm);
+}
+
+.skill-grid,
+.memory-cards,
+.prompt-card-grid {
+  gap: 12px;
+}
+
+.skill-card,
+.memory-card,
+.file-row,
+.prompt-card {
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.skill-card:hover,
+.memory-card:hover,
+.file-row:hover,
+.prompt-card:hover {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--surface-2) 58%, var(--surface));
+}
+
+.skill-card h3,
+.memory-card h3,
+.file-row h3,
+.prompt-card h3 {
+  color: var(--text-pri);
+  font-size: 16px;
+}
+
+.skill-card p,
+.skill-card .quote,
+.memory-card p,
+.file-row p,
+.file-row code,
+.prompt-card-desc,
+.prompt-card-preview {
+  color: var(--text-sec);
+}
+
+.skill-card .quote,
+.memory-card code {
+  border-color: var(--border);
+  background: var(--surface-2);
+}
+
+.sa-window[data-theme="light"] .skill-card button,
+.sa-window[data-theme="light"] .memory-card button {
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--text-pri);
+}
+
+.sa-window[data-theme="light"] .skill-card button:hover,
+.sa-window[data-theme="light"] .memory-card button:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-3);
+}
+
+.sa-window[data-theme="light"] .skill-card button.text-danger,
+.sa-window[data-theme="light"] .memory-card button.text-danger {
+  background: color-mix(in srgb, var(--error) 8%, var(--surface));
+  color: var(--error) !important;
+}
+
+.sa-window[data-theme="light"] .skills-editor-modal button {
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--text-pri);
+  box-shadow: none;
+}
+
+.sa-window[data-theme="light"] .skills-editor-modal button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-3);
+}
+
+.sa-window[data-theme="light"] .skills-editor-modal button.ghost {
+  background: transparent;
+  color: var(--text-sec);
+}
+
+.sa-window[data-theme="light"] .skills-scope-segmented button {
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--text-sec);
+}
+
+.sa-window[data-theme="light"] .skills-scope-segmented button.active {
+  border-color: color-mix(in srgb, var(--success) 46%, var(--border));
+  background: color-mix(in srgb, var(--success) 12%, var(--surface));
+  color: var(--success);
+}
+
+.sa-window[data-theme="light"] .skills-body-preview {
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--text-sec);
+}
+
+.sa-window[data-theme="light"] .skills-body-preview h3,
+.sa-window[data-theme="light"] .skills-body-preview h4 {
+  color: var(--text-pri);
+}
+
+.tags span,
+.prompt-badges span,
+.prompt-tag-row span {
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+.skills-resolution-panel {
+  background: color-mix(in srgb, var(--orange) 11%, var(--surface));
+}
+
+.modal-overlay {
+  inset: 48px 0 0;
+  background: var(--overlay);
+}
+
+.modal-box {
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.modal-box header {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+
+.modal-box footer {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.file-intro {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 12px;
+  padding-top: 18px;
+}
+
+.file-intro svg {
+  grid-row: span 2;
+  color: var(--accent-2);
+}
+
+.file-intro h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.file-intro p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.shared-files-tabs {
+  margin-top: 14px;
+}
+
+.file-row pre {
+  color: var(--text-sec);
+  font-size: 13px;
+}
+
+.shared-file-viewer-meta {
+  display: grid;
+  background: var(--surface-2);
+}
+
+.shared-file-content-preview {
+  background: var(--surface-2);
+  color: var(--text-sec);
+}
+
+.memory-stats,
+.similar-alert,
+.memory-cards {
+  margin: 20px 24px;
+}
+
+.big {
+  font-size: 32px;
+}
+
+.similar-alert {
+  min-height: 50px;
+  border-color: color-mix(in srgb, var(--orange) 46%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--orange) 10%, var(--surface));
+  color: var(--text-sec);
+  font-size: 14px;
+}
+
+.memory-similar-item {
+  background: color-mix(in srgb, var(--orange) 8%, var(--surface));
+}
+
+.memory-tabs {
+  padding-top: 0;
+}
+
+.memory-card {
+  border-left: 3px solid var(--border-strong);
+}
+
+.memory-card.type-project {
+  border-left-color: var(--primary);
+}
+
+.memory-health-track {
+  background: var(--surface-2);
+}
+
+.memory-notice.is-warning,
+.prompt-notice.warn {
+  border-color: color-mix(in srgb, var(--warning) 52%, var(--border));
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+}
+
+.memory-notice.is-error,
+.prompt-notice.error,
+.danger-text {
+  border-color: color-mix(in srgb, var(--error) 52%, var(--border));
+  background: color-mix(in srgb, var(--error) 10%, var(--surface));
+  color: var(--error) !important;
+}
+
+.settings-page {
+  padding: 0 0 32px;
+}
+
+.settings-page .page-header {
+  margin: 0;
+}
+
+.settings-page .panel-body {
+  padding: 16px 24px 32px;
+  gap: 10px;
+}
+
+.settings-mobile-account {
+  display: none;
+}
+
+.settings-page-notice {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  margin: 12px 24px 0;
+  padding: 8px 10px;
+  color: var(--text-sec);
+  font-size: 12px;
+}
+
+.settings-status {
+  display: block;
+  border-color: color-mix(in srgb, var(--success) 42%, var(--border));
+  background: color-mix(in srgb, var(--success) 9%, var(--surface));
+  color: var(--success);
+}
+
+.settings-page .panel,
+.settings-page .data-card-vue {
+  background: var(--surface);
+}
+
+.settings-actions,
+.settings-action-row,
+.settings-action-inline {
+  justify-content: flex-start;
+}
+
+.section-header {
+  height: 28px;
+  padding-inline: 0;
+  background: transparent;
+}
+
+.settings-prompt-toggle,
+.settings-builtin-tool-group,
+.settings-log-item {
+  background: var(--surface-2);
+}
+
+.settings-builtin-tool-group-head:hover {
+  background: var(--surface-3);
+}
+
+.settings-prompt-textarea-readonly {
+  background: color-mix(in srgb, var(--surface-2) 72%, var(--bg)) !important;
+}
+
+.settings-log-item {
+  color: var(--text-sec);
+}
+
+.prompt-page {
+  padding: 16px 24px 36px;
+}
+
+.prompt-header {
+  min-height: 62px;
+  margin: -16px -24px 16px;
+  padding-inline: 24px;
+}
+
+.prompt-header h1 {
+  font-size: 20px;
+}
+
+.prompt-header strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-sec);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.personalization-overview {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-2) 70%, var(--surface));
+}
+
+.personalization-overview-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.personalization-overview-copy span,
+.personalization-profile-card header span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.personalization-overview-copy h2,
+.personalization-profile-card h3 {
+  margin: 0;
+  color: var(--text-pri);
+  font-size: 17px;
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.personalization-overview-copy p,
+.personalization-profile-card p {
+  margin: 0;
+  color: var(--text-sec);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.personalization-overview dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(82px, 1fr));
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+}
+
+.personalization-overview dl div,
+.personalization-profile-card {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 10px;
+}
+
+.personalization-overview dt {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.personalization-overview dd {
+  margin: 4px 0 0;
+  color: var(--text-pri);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.personalization-profile-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(220px, 0.75fr);
+  gap: 10px;
+}
+
+.personalization-profile-card {
+  display: grid;
+  gap: 10px;
+}
+
+@media (max-width: 1100px) {
+  .personalization-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .personalization-overview dl {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.personalization-profile-card header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.personalization-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.personalization-form-grid label {
+  display: grid;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.personalization-form-grid input,
+.personalization-form-grid textarea {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-pri);
+  padding: 9px 10px;
+}
+
+.prompt-toolbar {
+  margin-bottom: 12px;
+}
+
+.prompt-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.prompt-card.pending {
+  border-color: color-mix(in srgb, var(--orange) 56%, var(--border));
+}
+
+.prompt-card.disabled {
+  opacity: 0.68;
+}
+
+.prompt-card-preview {
+  min-height: 48px;
+  margin: 0;
+}
+
+.prompt-card-actions {
+  margin-top: 2px;
+}
+
+.prompt-editor-modal header,
+.prompt-wizard-modal header {
+  align-items: flex-start;
+}
+
+.prompt-scope-copy,
+.prompt-advanced-debug,
+.prompt-draft-review {
+  background: var(--surface-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+@media (max-width: 920px) {
+  .titlebar {
+    gap: 8px;
+  }
+
+  .skills-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .skills-overview dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .theme-toggle span,
+  .top-command .project-pill,
+  .nav-rail button span {
+    display: none;
+  }
+
+  .top-command {
+    gap: 8px;
+    overflow-x: auto;
+  }
+
+  .top-command .provider {
+    width: 44px;
+    justify-content: center;
+    padding: 0;
+    font-size: 0;
+  }
+
+  .top-command .sidebar-toggle {
+    width: 38px;
+    min-width: 38px;
+    padding: 0;
+  }
+
+  .top-command .sidebar-toggle-label {
+    display: none;
+  }
+
+  .top-command .provider span {
+    margin: 0;
+  }
+
+  .workflow-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .timeline {
+    padding-inline: 14px;
+  }
+
+  .message.user {
+    max-width: 92%;
+  }
+
+  .composer-meta,
+  .page-actions,
+  .detail-top,
+  .file-row footer {
+    align-items: stretch;
+  }
+
+  .composer-model {
+    width: 100%;
+  }
+
+  .workflow-detail,
+  .workflow-list {
+    max-height: none;
+  }
+
+  .page-header,
+  .prompt-header {
+    align-items: flex-start;
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+    padding-block: 10px;
+  }
+
+  .page-actions {
+    margin-left: 0;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .skill-grid,
+  .memory-cards,
+  .prompt-card-grid,
+  .memory-stats,
+  .stat-grid,
+  .form-grid,
+  .memory-form-grid,
+  .prompt-editor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .file-intro {
+    grid-template-columns: 1fr;
+  }
+
+  dl {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .settings-mobile-account {
+    display: grid;
+    gap: 10px;
+    margin: 12px 14px 0;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+  }
+
+  .settings-mobile-account header {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr) 42px;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .settings-mobile-account header button,
+  .settings-mobile-tabs button,
+  .settings-mobile-card button {
+    min-height: 38px;
+    border-radius: var(--radius-sm);
+  }
+
+  .settings-mobile-account h2 {
+    margin: 0;
+    color: var(--text-pri);
+    font-size: 20px;
+    font-weight: 760;
+  }
+
+  .settings-mobile-avatar {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--accent-2) 15%, var(--surface-3));
+    color: var(--text-pri);
+    font-weight: 760;
+  }
+
+  .settings-mobile-card {
+    display: grid;
+    gap: 4px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    padding: 10px;
+  }
+
+  .settings-mobile-card span,
+  .settings-mobile-card small {
+    color: var(--text-muted);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .settings-mobile-card strong {
+    color: var(--text-pri);
+    font-size: 16px;
+    overflow-wrap: anywhere;
+  }
+
+  .settings-mobile-card.is-disabled {
+    opacity: 0.82;
+  }
+
+  .settings-mobile-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .personalization-overview,
+  .personalization-profile-grid,
+  .personalization-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .personalization-overview dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

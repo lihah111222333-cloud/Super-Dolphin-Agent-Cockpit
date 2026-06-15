@@ -1,0 +1,323 @@
+# P0/P1/P2 Remediation Record
+
+Audit target: `codex/ui-refactor-integration-20260613`
+
+Worktree: `D:\project\Super-Dolphin-worktrees\ui-refactor-integration-20260613`
+
+Date: 2026-06-15
+
+Last updated: 2026-06-16
+
+## P0 Implemented
+
+- Added a progressive frontend contract type boundary:
+  - `frontend-app/jsconfig.json`
+  - `frontend-app/tsconfig.contracts.json`
+  - `frontend-app/package.json` script `typecheck:contracts`
+- Enabled explicit `// @ts-check` on the current contract boundary files:
+  - `frontend-app/src/shared/api/backendApi.js`
+  - `frontend-app/src/shared/api/backendApi.contractMatrix.js`
+  - `frontend-app/src/entities/client/model/providerPreferences.js`
+- Added a read-only RPC reconciliation audit:
+  - `frontend-app/scripts/rpc-contract-audit.mjs`
+  - `frontend-app/scripts/rpc-contract-audit.test.mjs`
+  - `frontend-app/package.json` script `audit:rpc-contracts`
+- The RPC audit checks that:
+  - every `RPC_METHODS` key has a contract registry entry
+  - every contract registry entry maps back to `RPC_METHODS`
+  - every P0 wire method has a Go backend handler registration
+- Provider stance remains Codex-first for the current desktop runtime:
+  - `providerPreferences.js` keeps `RUNTIME_PROVIDER = 'codex'`
+  - non-Codex runtime provider selection fails fast through `normalizeRuntimeProviderName`
+- Verified the current desktop runtime is serving this worktree:
+  - Vite listens on `127.0.0.1:5175` from `D:\project\Super-Dolphin-worktrees\ui-refactor-integration-20260613\frontend-app`
+  - desktop asset host listens on `127.0.0.1:4512`
+  - startup logs show `project:"ui-refactor-integration-20260613"`, `providers:["codex"]`, and proxy target `http://127.0.0.1:5175`
+
+## P1 Implemented
+
+- Added CSS cascade order documentation in `frontend-app/src/main.jsx`.
+- Added a CSS import order test in `frontend-app/src/styles.test.js` so the test stylesheet list must match the real app import order.
+- Added the RPC audit script as the first backend/frontend reconciliation guard for `backendApi.contractMatrix.js`.
+- Split bridge event revision routing out of `useClientStore.js`:
+  - `frontend-app/src/entities/client/model/bridgeRevision.js`
+  - `frontend-app/src/entities/client/model/bridgeRevision.test.js`
+- Split warning sink and trace emission out of `useClientStore.js`:
+  - `frontend-app/src/entities/client/model/warningRuntime.js`
+  - `frontend-app/src/entities/client/model/warningRuntime.test.js`
+- Split runtime result buffering out of `useClientStore.js`:
+  - `frontend-app/src/entities/client/model/runtimeResults.js`
+  - `frontend-app/src/entities/client/model/runtimeResults.test.js`
+- Split active thread RPC lifecycle wrapping out of `useClientStore.js`:
+  - `frontend-app/src/entities/client/model/threadLifecycleRuntime.js`
+  - `frontend-app/src/entities/client/model/threadLifecycleRuntime.test.js`
+- Split thread rename/archive list state transitions out of `useClientStore.js`:
+  - `frontend-app/src/entities/client/model/threadListMutations.js`
+  - `frontend-app/src/entities/client/model/threadListMutations.test.js`
+- Split provider runtime config normalization and Codex launch identity validation out of `useClientStore.js`:
+  - `frontend-app/src/entities/client/model/providerRuntimeConfig.js`
+  - `frontend-app/src/entities/client/model/providerRuntimeConfig.test.js`
+- Split timeline normalization, visibility filtering, assistant de-duplication, and merge rules out of `useClientStore.js`:
+  - `frontend-app/src/entities/client/model/timelineRuntime.js`
+  - `frontend-app/src/entities/client/model/timelineRuntime.test.js`
+- Split thread message pagination params, page meta normalization, and pagination state patching out of `useClientStore.js`:
+  - `frontend-app/src/entities/client/model/threadMessagesPagination.js`
+  - `frontend-app/src/entities/client/model/threadMessagesPagination.test.js`
+- Split runtime assistant delta/completion classification and completion merge rules out of `useClientStore.js`:
+  - `frontend-app/src/entities/client/model/runtimeAssistantTimeline.js`
+  - `frontend-app/src/entities/client/model/runtimeAssistantTimeline.test.js`
+- Split thread/backend/agent identity normalization out of `useClientStore.js`:
+  - `frontend-app/src/entities/client/model/threadIdentity.js`
+  - `frontend-app/src/entities/client/model/threadIdentity.test.js`
+- Split active turn, token usage, and activity stats normalization out of `useClientStore.js`:
+  - `frontend-app/src/entities/client/model/threadActivityMetrics.js`
+  - `frontend-app/src/entities/client/model/threadActivityMetrics.test.js`
+- Split composer attachment, draft snapshot, and turn input construction helpers out of `useClientStore.js`:
+  - `frontend-app/src/entities/client/model/composerAttachments.js`
+  - `frontend-app/src/entities/client/model/composerAttachments.test.js`
+- Split saved thread history and DAG node fallback timeline conversion out of `useClientStore.js`:
+  - `frontend-app/src/entities/client/model/threadHistoryTimeline.js`
+  - `frontend-app/src/entities/client/model/threadHistoryTimeline.test.js`
+- Split fork shared-file selection and fork thread local state helpers out of `useClientStore.js`:
+  - `frontend-app/src/entities/client/model/threadForkState.js`
+  - `frontend-app/src/entities/client/model/threadForkState.test.js`
+- Split thread message page loading, fallback application, and pagination runtime wiring out of `useClientStore.js`:
+  - `frontend-app/src/entities/client/model/threadMessagesRuntime.js`
+  - `frontend-app/src/entities/client/model/threadMessagesRuntime.test.js`
+- Split active thread copy payload construction out of `useClientStore.js`:
+  - `frontend-app/src/entities/client/model/threadCopyPayload.js`
+  - `frontend-app/src/entities/client/model/threadCopyPayload.test.js`
+- Split bridge patch payload parsing and state transition rules out of `useClientStore.js`:
+  - `frontend-app/src/entities/client/model/bridgePatchState.js`
+  - `frontend-app/src/entities/client/model/bridgePatchState.test.js`
+- Split smooth streaming text reveal state out of `ChatPage.jsx`:
+  - `frontend-app/src/pages/chat/hooks/useSmoothStreamingText.js`
+- Split active chat thread data derivation out of `ChatPage.jsx`:
+  - `frontend-app/src/pages/chat/hooks/useChatThreadData.js`
+  - `frontend-app/src/pages/chat/hooks/useChatThreadData.test.js`
+- Split composer local interaction and file-transfer handling out of `ChatPage.jsx`:
+  - `frontend-app/src/pages/chat/hooks/useComposerInteractions.js`
+  - `frontend-app/src/pages/chat/hooks/useComposerInteractions.test.js`
+- Split runtime panel shell composition out of `ChatPage.jsx`:
+  - `frontend-app/src/pages/chat/components/RuntimePanelSlot.jsx`
+  - `frontend-app/src/pages/chat/components/RuntimePanelSlot.test.jsx`
+- Split chat workbench rail/right-panel layout state and resize geometry out of `ChatPage.jsx`:
+  - `frontend-app/src/pages/chat/hooks/useChatWorkbenchLayout.js`
+  - `frontend-app/src/pages/chat/hooks/useChatWorkbenchLayout.test.js`
+- Split timeline bottom-stickiness and scroll request helpers out of `ChatPage.jsx`:
+  - `frontend-app/src/pages/chat/hooks/timelineScroll.js`
+  - `frontend-app/src/pages/chat/hooks/timelineScroll.test.js`
+- Split Markdown message rendering, image preview, Mermaid rendering, and code-preview Markdown rendering out of `ChatPage.jsx`:
+  - `frontend-app/src/pages/chat/components/MarkdownMessage.jsx`
+  - `frontend-app/src/pages/chat/components/markdownMessageModel.js`
+  - `frontend-app/src/pages/chat/components/MarkdownMessage.test.jsx`
+- Split reasoning trace, execution-plan rendering, assistant copy action, and synthetic active reasoning model out of `ChatPage.jsx`:
+  - `frontend-app/src/pages/chat/components/ChatReasoningTrace.jsx`
+  - `frontend-app/src/pages/chat/components/chatReasoningModel.js`
+  - `frontend-app/src/pages/chat/components/ChatReasoningTrace.test.jsx`
+- Split approval timeline message model and approval card rendering out of `ChatPage.jsx`:
+  - `frontend-app/src/pages/chat/components/ChatApprovalMessage.jsx`
+  - `frontend-app/src/pages/chat/components/chatApprovalModel.js`
+  - `frontend-app/src/pages/chat/components/ChatApprovalMessage.test.jsx`
+- Split timeline message rendering, user attachment rendering, and timeline loading placeholder out of `ChatPage.jsx`:
+  - `frontend-app/src/pages/chat/components/TimelineMessage.jsx`
+  - `frontend-app/src/pages/chat/components/timelineMessageModel.js`
+  - `frontend-app/src/pages/chat/components/TimelineMessage.test.jsx`
+- Split chat page header, action menu, and header feedback normalization out of `ChatPage.jsx`:
+  - `frontend-app/src/pages/chat/components/ChatPageHeader.jsx`
+  - `frontend-app/src/pages/chat/components/chatHeaderModel.js`
+  - `frontend-app/src/pages/chat/components/ChatPageHeader.test.jsx`
+  - `frontend-app/src/pages/chat/components/chatHeaderModel.test.js`
+- Split Mermaid diagram rendering and the shared image lightbox out of `MarkdownMessage.jsx`:
+  - `frontend-app/src/pages/chat/components/MermaidDiagram.jsx`
+  - `frontend-app/src/pages/chat/components/markdownMermaidModel.js`
+  - `frontend-app/src/pages/chat/components/ImageLightbox.jsx`
+  - `frontend-app/src/pages/chat/components/MermaidDiagram.test.jsx`
+- Split image preview/lightbox trigger state out of `MarkdownMessage.jsx`:
+  - `frontend-app/src/pages/chat/components/MarkdownImagePreview.jsx`
+- Split Codex directive chip parsing, payload normalization, and chip shell rendering out of `MarkdownMessage.jsx`:
+  - `frontend-app/src/pages/chat/components/MarkdownDirectiveChip.jsx`
+  - `frontend-app/src/pages/chat/components/markdownDirectiveModel.js`
+  - `frontend-app/src/pages/chat/components/MarkdownDirectiveChip.test.jsx`
+- Split inline Markdown token rendering out of `MarkdownMessage.jsx`:
+  - `frontend-app/src/pages/chat/components/MarkdownInline.jsx`
+- Reduced current large-file pressure:
+  - `frontend-app/src/entities/client/model/useClientStore.js`: 3,130 lines after runtime, thread list mutation, provider runtime config, timeline runtime, thread message pagination, runtime assistant timeline, thread identity, thread activity metrics, composer attachment, history timeline, fork state, thread messages runtime, thread copy payload, and bridge patch state splits
+  - `frontend-app/src/entities/client/model/timelineRuntime.js`: 452 lines of focused pure timeline rules with regression tests
+  - `frontend-app/src/entities/client/model/threadMessagesPagination.js`: 63 lines of focused pagination rules with regression tests
+  - `frontend-app/src/entities/client/model/runtimeAssistantTimeline.js`: 186 lines of focused runtime assistant stream/completion rules with regression tests
+  - `frontend-app/src/entities/client/model/threadIdentity.js`: 74 lines of focused thread identity normalization with regression tests
+  - `frontend-app/src/entities/client/model/threadActivityMetrics.js`: 198 lines of focused activity/usage normalization with regression tests
+  - `frontend-app/src/entities/client/model/composerAttachments.js`: 171 lines of focused composer attachment/input helpers with regression tests
+  - `frontend-app/src/entities/client/model/threadHistoryTimeline.js`: 180 lines of focused saved-history timeline conversion with regression tests
+  - `frontend-app/src/entities/client/model/threadForkState.js`: 141 lines of focused fork state/shared-file helpers with regression tests
+  - `frontend-app/src/entities/client/model/threadMessagesRuntime.js`: 237 lines of focused thread message pagination runtime with regression tests
+  - `frontend-app/src/entities/client/model/threadCopyPayload.js`: 127 lines of focused active-thread clipboard payload construction with regression tests
+  - `frontend-app/src/entities/client/model/bridgePatchState.js`: 227 lines of focused bridge patch parsing and state transition rules with regression tests
+  - `frontend-app/src/pages/chat/ChatPage.jsx`: 933 lines after moving streaming reveal logic, active thread data derivation, composer file-transfer handling, runtime panel shell composition, workbench layout state, timeline scroll helpers, Markdown rendering, reasoning trace rendering, approval message rendering, timeline message rendering, and chat header/action menu rendering
+  - `frontend-app/src/pages/chat/components/ChatPageHeader.jsx`: 226 lines of focused chat title/action-menu/header-tool rendering
+  - `frontend-app/src/pages/chat/components/chatHeaderModel.js`: 13 lines of focused header feedback normalization
+  - `frontend-app/src/pages/chat/components/ChatApprovalMessage.jsx`: 73 lines of focused approval card rendering
+  - `frontend-app/src/pages/chat/components/chatApprovalModel.js`: 25 lines of focused approval request/status normalization
+  - `frontend-app/src/pages/chat/components/TimelineMessage.jsx`: 118 lines of focused timeline message/user attachment/loading placeholder rendering
+  - `frontend-app/src/pages/chat/components/timelineMessageModel.js`: 21 lines of focused attachment image source normalization
+  - `frontend-app/src/pages/chat/components/ChatReasoningTrace.jsx`: 157 lines of focused reasoning trace/execution-plan rendering
+  - `frontend-app/src/pages/chat/components/chatReasoningModel.js`: 121 lines of focused reasoning classification, plan parsing, duration, and synthetic pending-reasoning rules
+  - `frontend-app/src/pages/chat/components/MarkdownMessage.jsx`: 828 lines of focused block-level Markdown/message rendering after Mermaid, image preview, directive chip, and inline token extraction
+  - `frontend-app/src/pages/chat/components/MarkdownInline.jsx`: 164 lines of focused inline link/image/code/style/directive rendering
+  - `frontend-app/src/pages/chat/components/markdownMessageModel.js`: 46 lines of shared Markdown path/text helpers used by chat page attachments and Markdown rendering
+  - `frontend-app/src/pages/chat/components/MermaidDiagram.jsx`: 97 lines of focused Mermaid rendering
+  - `frontend-app/src/pages/chat/components/markdownMermaidModel.js`: 77 lines of focused Mermaid detection and SVG sanitization rules
+  - `frontend-app/src/pages/chat/components/ImageLightbox.jsx`: 28 lines of shared image lightbox shell
+  - `frontend-app/src/pages/chat/components/MarkdownImagePreview.jsx`: 59 lines of focused Markdown image preview state
+  - `frontend-app/src/pages/chat/components/MarkdownDirectiveChip.jsx`: 41 lines of directive/citation chip rendering
+  - `frontend-app/src/pages/chat/components/markdownDirectiveModel.js`: 192 lines of directive parsing and payload normalization rules
+  - `frontend-app/src/styles.css`: 145 lines after the stylesheet split
+
+## P2 Implemented
+
+- Added Windows PowerShell startup command to `README.md` for the current React/Vite desktop flow.
+- Added `cmd/agent-terminal/frontend/README.md` to document that the directory is legacy/package-embed only.
+- Updated `docs/doc/codemap/README.md` so the legacy frontend path points to `cmd/agent-terminal/frontend/`, not the stale `cmd/agent-terminal/frontend/vue-app/`.
+- Updated `Makefile` frontend build targets for Windows:
+  - `NPM ?= npm.cmd` on Windows
+  - Windows dependency refresh uses `npm install --no-audit --no-fund` instead of deleting live `node_modules` with `npm ci`
+  - frontend dist sync uses `frontend-app/scripts/sync-frontend-dist.mjs` instead of requiring `rsync`
+
+## Verification Completed
+
+- `npm test`
+  - 68 test files passed
+  - 849 tests passed
+  - 10 skipped
+- `npm test -- src/entities/client/model/bridgePatchState.test.js src/entities/client/model/threadCopyPayload.test.js src/entities/client/model/useClientStore.test.js`
+  - 3 test files passed
+  - 170 tests passed
+  - 2 skipped
+- `npm test -- ChatPageHeader.test.jsx chatHeaderModel.test.js TimelineMessage.test.jsx ChatApprovalMessage.test.jsx ChatReasoningTrace.test.jsx ChatPage.test.jsx App.test.jsx`
+  - 7 test files passed
+  - 279 tests passed
+  - 3 skipped
+- `npm test -- ChatReasoningTrace.test.jsx ChatPage.test.jsx MarkdownMessage.test.jsx App.test.jsx`
+  - 4 test files passed
+  - 269 tests passed
+  - 3 skipped
+- `npm test -- MarkdownMessage.test.jsx ChatPage.test.jsx`
+  - 2 test files passed
+  - 55 tests passed
+- `npm test -- MarkdownMessage.test.jsx ChatPage.test.jsx App.test.jsx`
+  - 3 test files passed
+  - 264 tests passed
+  - 3 skipped
+- `npm test -- MermaidDiagram.test.jsx MarkdownMessage.test.jsx ChatPage.test.jsx App.test.jsx`
+  - 4 test files passed
+  - 268 tests passed
+  - 3 skipped
+- `npm test -- MarkdownDirectiveChip.test.jsx MarkdownMessage.test.jsx MermaidDiagram.test.jsx ChatPage.test.jsx App.test.jsx`
+  - 5 test files passed
+  - 271 tests passed
+  - 3 skipped
+- `npm test -- src/pages/chat/components/MarkdownMessage.test.jsx src/pages/chat/components/MarkdownDirectiveChip.test.jsx src/pages/chat/ChatPage.test.jsx src/App.test.jsx`
+  - 4 test files passed
+  - 267 tests passed
+  - 3 skipped
+- `npm test -- src/entities/client/model/threadMessagesRuntime.test.js src/entities/client/model/threadForkState.test.js src/entities/client/model/useClientStore.test.js`
+  - 3 test files passed
+  - 175 tests passed
+  - 2 skipped
+- `npm test -- src/entities/client/model/threadForkState.test.js src/entities/client/model/useClientStore.test.js`
+  - 2 test files passed
+  - 170 tests passed
+  - 2 skipped
+- `npm test -- src/entities/client/model/threadActivityMetrics.test.js src/entities/client/model/composerAttachments.test.js src/entities/client/model/threadHistoryTimeline.test.js src/entities/client/model/useClientStore.test.js`
+  - 4 test files passed
+  - 182 tests passed
+  - 2 skipped
+- `npm test -- src/entities/client/model/threadActivityMetrics.test.js src/entities/client/model/useClientStore.test.js`
+  - 2 test files passed
+  - 170 tests passed
+  - 2 skipped
+- `npm test -- src/entities/client/model/composerAttachments.test.js src/entities/client/model/useClientStore.test.js`
+  - 2 test files passed
+  - 170 tests passed
+  - 2 skipped
+- `npm test -- src/entities/client/model/threadHistoryTimeline.test.js src/entities/client/model/useClientStore.test.js`
+  - 2 test files passed
+  - 168 tests passed
+  - 2 skipped
+- `npm test -- src/entities/client/model/threadIdentity.test.js src/entities/client/model/useClientStore.test.js`
+  - 2 test files passed
+  - 167 tests passed
+  - 2 skipped
+- `npm test -- src/entities/client/model/runtimeAssistantTimeline.test.js src/entities/client/model/useClientStore.test.js`
+  - 2 test files passed
+  - 170 tests passed
+  - 2 skipped
+- `npm test -- src/entities/client/model/threadMessagesPagination.test.js src/entities/client/model/useClientStore.test.js`
+  - 2 test files passed
+  - 168 tests passed
+  - 2 skipped
+- `npm test -- src/entities/client/model/timelineRuntime.test.js src/entities/client/model/useClientStore.test.js`
+  - 2 test files passed
+  - 169 tests passed
+  - 2 skipped
+- `npm test -- src/entities/client/model/providerRuntimeConfig.test.js src/entities/client/model/useClientStore.test.js`
+  - 2 test files passed
+  - 168 tests passed
+  - 2 skipped
+- `npm test -- src/pages/chat/hooks/useChatWorkbenchLayout.test.js src/pages/chat/ChatPage.test.jsx`
+  - 2 test files passed
+  - 55 tests passed
+- `npm test -- src/pages/chat/hooks/timelineScroll.test.js src/pages/chat/ChatPage.test.jsx`
+  - 2 test files passed
+  - 55 tests passed
+- `npm test -- src/pages/chat/hooks/useComposerInteractions.test.js src/pages/chat/ChatPage.test.jsx`
+  - 2 test files passed
+  - 56 tests passed
+- `npm test -- src/entities/client/model/threadListMutations.test.js src/entities/client/model/useClientStore.test.js`
+  - 2 test files passed
+  - 167 tests passed
+  - 2 skipped
+- `npm test -- src/pages/chat/components/RuntimePanelSlot.test.jsx src/pages/chat/ChatPage.test.jsx`
+  - 2 test files passed
+  - 54 tests passed
+- `npm run lint`
+- `npm run typecheck:contracts`
+- `npm run audit:rpc-contracts`
+  - 102 RPC methods
+  - 102 contract registry entries
+  - 236 Go backend handlers
+  - 0 missing registry keys
+  - 0 registry entries without `RPC_METHODS`
+  - 0 mismatched registry methods
+  - 0 P0 methods missing Go handlers
+- `make frontend-app-build`
+  - dependency check used `npm.cmd`
+  - Vite production build passed
+  - frontend dist copied into the embedded frontend directory through `sync-frontend-dist.mjs`
+  - Vite still reports the existing large-chunk warning after minification
+- `npx react-doctor@latest --verbose --scope changed`
+  - no specific React issues found
+  - latest run reported `56 / 100 Critical`; this remains a secondary quality signal rather than a pass/fail gate
+- `npx react-doctor@latest --verbose --diff`
+  - no specific React issues found
+  - tool reported `--diff` is deprecated and recommends `--scope changed`
+- Runtime HTTP checks:
+  - `http://127.0.0.1:5175/` returned 200
+  - `http://127.0.0.1:4512/` returned 200
+- Browser smoke:
+  - in-app Browser opened a fresh tab at `http://127.0.0.1:5175/`
+  - page title was `Super-Dolphin`
+  - DOM showed the React root, app sidebar, chat timeline, and a visible `textarea` input with placeholder `随心输入`
+  - DOM showed `.message-markdown` content and inline/code-rendered Markdown nodes after `MarkdownInline.jsx` extraction
+  - visible project text included `ui-refactor-integration-20260613`
+  - fresh browser error log count was 0
+- `git diff --check`
+  - no whitespace errors
+  - Git reported Windows LF-to-CRLF working-copy warnings only
+
+## Still Deferred
+
+- `useClientStore.js` and `ChatPage.jsx` are smaller but still large; continue splitting remaining broad store flows and chat subviews in separate behavior-preserving changes with focused tests.
+- `MarkdownMessage.jsx` is intentionally focused but still large after extraction; a follow-up can split block parsing and structured output detection into separate tested modules without changing chat page behavior.
+- Full human UX acceptance is still required across chat, workflow, files, skills, memory, settings, and prompt pages. Machine checks confirm the runtime is live, but they do not replace a manual visual route sweep.

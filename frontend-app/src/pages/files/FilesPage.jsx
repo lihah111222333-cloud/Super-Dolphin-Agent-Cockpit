@@ -5,6 +5,7 @@ import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { deleteSharedFile, listSharedFilesDashboard, openSharedFile, readSharedFile, saveTextFile } from '../../services/modules/fileService.js';
 import { dashboardQueryErrorState, optionalSettingsCwd, queryHasSnapshot, sharedFileTimestamp, textValue, useDashboardQueryFocusInvalidation } from '../shared/pageShared.js';
 import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx';
+import './FilesPage.css';
 
 const SHARED_FILE_CATEGORIES = Object.freeze([
   { key: 'all', label: '全部' },

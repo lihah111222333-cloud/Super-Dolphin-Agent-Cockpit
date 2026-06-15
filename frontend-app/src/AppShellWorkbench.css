@@ -1,0 +1,720 @@
+.chat-layout {
+  height: 100% !important;
+}
+
+.sa-window[data-theme="light"] .thread-card.active {
+  border-color: color-mix(in srgb, var(--blue) 15%, transparent) !important;
+  background: color-mix(in srgb, var(--blue) 6%, transparent) !important;
+  box-shadow: none !important;
+}
+
+.message-markdown .chat-md-citation,
+.message-markdown .chat-md-file-ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin: 0 3px 3px 0;
+  font: inherit;
+  line-height: 1.45;
+  vertical-align: baseline;
+}
+
+.message-markdown .chat-md-citation:hover,
+.message-markdown .chat-md-file-ref:hover {
+  border-color: color-mix(in srgb, var(--blue) 42%, var(--border));
+}
+
+.chat-md-citation__icon {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* ==========================================================================
+   Codex Style Flat Chat UI Modifications (No Avatar & Flat Document Flow)
+   ========================================================================== */
+
+/* 1. 扁平化消息外框，移除 gap 并调整贴左 */
+.message.no-avatar {
+  gap: 0;
+}
+
+/* 2. 扁平化 AI 消息气泡，移除背景、边框、阴影和左右 padding，让内容完全贴左 */
+.message.assistant.no-avatar:not(.approval-message) .bubble {
+  padding: 0 0 16px 0;
+  max-width: min(760px, 100%);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* 3. 用户气泡由于移除了头像，需要微调最大宽度 */
+.message.user.no-avatar .bubble {
+  max-width: min(720px, 86%);
+  margin-left: auto;
+}
+
+/* 4. AI 消息底部的扁平 footer 样式（包括时间与操作动作） */
+.assistant-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* 5. 扁平化 AI 思考条，移除左侧 padding，使整体贴左 */
+.reasoning-message.no-avatar {
+  padding-left: 0;
+  width: min(760px, var(--conversation-content-width));
+  max-width: min(760px, var(--conversation-content-width));
+  margin: 4px var(--conversation-content-right-gutter) 4px var(--conversation-content-left-gutter);
+}
+
+/* 6. 移除思考条中 summary 的 em 下划线与修饰，因为我们只渲染简洁的 statusLabel */
+.reasoning-message.no-avatar .reasoning-trace summary {
+  gap: 4px;
+}
+
+/* 7. 扁平化思考区展开后的列表，移除带底色边框的面板 */
+.reasoning-message.no-avatar .reasoning-trace[open] .reasoning-step-list {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 8px 0;
+  max-height: none;
+  overflow: visible;
+  box-shadow: none;
+}
+
+/* 8. 移除展开后子步骤中的 grid icon 占位 */
+.reasoning-message.no-avatar .reasoning-step {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+/* ==========================================================================
+   Screenshot Workbench Shell
+   ========================================================================== */
+
+.sa-window[data-theme="light"] {
+  --sidebar-bg: #dedbd3;
+  --sidebar-border: #cbc7bd;
+  --sidebar-active: #eee8d9;
+  --workbench-bg: #fcfaf4;
+  --assistant-card-bg: #f4f0e7;
+  --code-block-bg: #fbf8f0;
+  --composer-docked-bg: #ffffff;
+  --composer-floating-bg: #f7f3ec;
+  --on-accent: #ffffff;
+  --on-accent-muted: rgba(255, 255, 255, 0.72);
+  --surface: #fcfaf4;
+  --surface-2: #f5f1e8;
+  --border: rgba(60, 55, 46, 0.14);
+  --border-strong: rgba(60, 55, 46, 0.2);
+  --workbench-ink: #171b22;
+  --message-user-bg: #ece8df;
+  --message-user-text: #171b22;
+  --sidebar-logo-shadow: none;
+  --composer-shadow: 0 22px 42px rgba(48, 43, 34, 0.08);
+}
+
+.sa-window {
+  --workbench-sidebar-width: clamp(300px, 21vw, 340px);
+  background: var(--bg);
+}
+
+.sa-body {
+  display: grid;
+  grid-template-columns: var(--workbench-sidebar-width) minmax(0, 1fr);
+  height: 100vh;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.sa-main {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--workbench-bg);
+}
+
+.workbench-toggle,
+.sidebar-scrim {
+  display: none;
+}
+
+.app-sidebar {
+  position: relative;
+  width: var(--workbench-sidebar-width);
+  height: 100vh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 1.8vh, 16px);
+  padding: clamp(16px, 2vh, 24px) 12px 12px;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-border);
+  color: var(--text-sec);
+  overflow: hidden;
+}
+
+.workbench-sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 3;
+  width: 10px;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: col-resize;
+  padding: 0;
+}
+
+.workbench-sidebar-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 2px;
+  height: 100%;
+  background: transparent;
+}
+
+.workbench-sidebar-resizer:hover::after,
+.workbench-sidebar-resizer:focus-visible::after {
+  background: color-mix(in srgb, var(--workbench-ink) 22%, transparent);
+}
+
+.sidebar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 50px;
+  color: var(--text-pri);
+}
+
+.sidebar-brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px;
+}
+
+.sidebar-brand-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sidebar-brand-actions button {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--workbench-ink);
+  cursor: pointer;
+}
+
+.sidebar-brand-actions button:disabled {
+  opacity: 0.8;
+}
+
+.sidebar-brand img {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  box-shadow: var(--sidebar-logo-shadow);
+}
+
+.sidebar-brand strong {
+  color: var(--text-pri);
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.sidebar-new-chat {
+  width: 100%;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 18px;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--sidebar-active);
+  color: var(--text-pri);
+  font-size: 16px;
+  font-weight: 700;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.app-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 0;
+}
+
+.app-sidebar-nav button,
+.sidebar-settings {
+  width: 100%;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--text-sec);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.app-sidebar-nav button:hover,
+.app-sidebar-nav button:focus-visible,
+.sidebar-settings:hover,
+.sidebar-settings:focus-visible {
+  background: color-mix(in srgb, var(--sidebar-active) 72%, transparent);
+  color: var(--text-pri);
+}
+
+.app-sidebar-nav button.active,
+.sidebar-settings.active {
+  background: var(--sidebar-active);
+  color: var(--workbench-ink, var(--accent-2));
+}
+
+.app-sidebar-nav button svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.app-sidebar-nav i {
+  width: 8px;
+  height: 8px;
+  margin-left: auto;
+  border-radius: 999px;
+  background: var(--workbench-ink, var(--accent-2));
+}
+
+.sidebar-project-selector {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+}
+
+.sidebar-scrollable-content {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(12px, 1.8vh, 20px);
+}
+
+.sidebar-project-tree {
+  padding-top: 20px;
+  border-top: 1px solid var(--sidebar-border);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.sidebar-scrollable-content .sidebar-project-tree {
+  flex: 0 0 auto;
+  overflow: visible;
+  overflow-y: visible;
+}
+
+.sidebar-tree-root {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sidebar-tree-project {
+  min-width: 0;
+}
+
+.sidebar-project-thread-list {
+  display: grid;
+  gap: 3px;
+  margin: 2px 0 6px 20px;
+  padding: 0 0 0 10px;
+  border-left: 1px solid var(--sidebar-border);
+  list-style: none;
+}
+
+.sidebar-project-thread-list li {
+  min-width: 0;
+}
+
+.sidebar-project-thread {
+  width: 100%;
+  min-height: 28px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--text-sec);
+  font-size: 13px;
+  font-weight: 560;
+  text-align: left;
+}
+
+.sidebar-thread-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-thread-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.sidebar-project-thread:hover,
+.sidebar-project-thread:focus-visible,
+.sidebar-project-thread.active {
+  background: var(--sidebar-active);
+  color: var(--workbench-ink, var(--accent-2));
+}
+
+.thread-expand-item {
+  list-style: none;
+  padding: 2px 8px;
+}
+
+.thread-expand-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.thread-expand-btn:hover {
+  color: var(--text-sec);
+}
+
+.sidebar-project-thread-empty {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.sidebar-section-heading,
+.sidebar-tree-folder {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  color: var(--text-sec);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.sidebar-section-heading {
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.sidebar-icon-action {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-sec);
+  cursor: pointer;
+}
+
+.sidebar-icon-action:hover,
+.sidebar-icon-action:focus-visible {
+  background: var(--sidebar-active);
+  color: var(--workbench-ink, var(--accent-2));
+}
+
+.sidebar-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sidebar-tree-folder {
+  width: 100%;
+  border: 0;
+  border-radius: 7px;
+  padding: 0 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-tree-folder:hover,
+.sidebar-tree-folder:focus-visible,
+.sidebar-tree-folder.active {
+  background: var(--sidebar-active);
+  color: var(--workbench-ink, var(--accent-2));
+}
+
+.sidebar-tree-folder span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-tree-root .sidebar-tree-actions {
+  margin: 8px 0 8px 35px;
+  padding: 4px 0 4px 20px;
+  border-left: 1px solid var(--sidebar-border);
+  list-style: none;
+}
+
+.sidebar-tree-root .sidebar-tree-actions li {
+  min-width: 0;
+}
+
+.sidebar-tree-item {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--text-sec);
+  font-size: 15px;
+  font-weight: 560;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.sidebar-tree-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-tree-item:hover,
+.sidebar-tree-item:focus-visible {
+  background: var(--sidebar-active);
+  color: var(--workbench-ink, var(--accent-2));
+}
+
+.sidebar-tree-folder--collapsed svg:first-child {
+  transform: rotate(-90deg);
+}
+
+.sidebar-nav-divider {
+  border-top: 1px solid var(--sidebar-border);
+  margin: 4px 10px;
+}
+
+.sidebar-secondary-nav {
+  gap: 10px;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.sidebar-settings {
+  margin-top: auto;
+  min-height: 42px;
+  flex-shrink: 0;
+}
+
+.sidebar-theme-toggle {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.sidebar-task-summary {
+  margin-top: 6px;
+  padding: 0 8px;
+  color: var(--text-sec);
+  flex: 0 0 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+
+.sidebar-task-summary h2 {
+  margin: 0 0 18px;
+  color: var(--text-sec);
+  font-size: 16px;
+  line-height: 1.2;
+  font-weight: 650;
+  flex-shrink: 0;
+}
+
+.sidebar-task-summary p {
+  margin: 0 0 0 12px;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 520;
+  opacity: 0.68;
+}
+
+.sidebar-task-list {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  list-style: none;
+}
+
+.sidebar-task-thread {
+  width: 100%;
+  min-height: 28px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--text-sec);
+  font-size: 13px;
+  font-weight: 560;
+  text-align: left;
+}
+
+.sidebar-task-thread:hover,
+.sidebar-task-thread:focus-visible,
+.sidebar-task-thread.active {
+  background: var(--sidebar-active);
+  color: var(--text-pri);
+}
+
+.sidebar-task-thread span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-sidebar--chat .sidebar-brand {
+  gap: 12px;
+}
+
+.app-sidebar--chat .sidebar-brand img {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+}
+
+/* secondary nav remains visible under primary nav in chat mode */
+
+.app-sidebar--chat .sidebar-project-tree {
+  padding-top: 16px;
+}
+
+.app-sidebar--chat .sidebar-project-thread-list {
+  margin-left: 14px;
+}
+
+.app-sidebar--chat .sidebar-project-thread {
+  min-height: 28px;
+}
+
+.app-sidebar--chat .sidebar-tree-actions {
+  position: absolute;
+  left: -10000px;
+}
+
+.app-sidebar--chat .sidebar-section-heading {
+  margin-bottom: 14px;
+  min-height: 24px;
+}
+
+.app-sidebar--chat .sidebar-section-title {
+  gap: 0;
+  color: var(--text-muted);
+  font-size: 16px;
+  font-weight: 560;
+}
+
+.app-sidebar--chat .sidebar-section-title svg,
+.app-sidebar--chat .sidebar-tree-folder svg {
+  display: none;
+}
+
+.app-sidebar--chat .sidebar-tree-folder {
+  min-height: 34px;
+  padding: 0 14px;
+  color: var(--text-sec);
+  font-size: 15px;
+  font-weight: 560;
+}
+
+.app-sidebar--chat .sidebar-tree-folder:hover,
+.app-sidebar--chat .sidebar-tree-folder:focus-visible,
+.app-sidebar--chat .sidebar-tree-folder.active {
+  background: transparent;
+  color: var(--text-sec);
+}
+
+.chat-page {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--workbench-bg);
+}

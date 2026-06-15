@@ -1,3 +1,5 @@
+// @ts-check
+
 import { RPC_METHODS } from './backendApi.js';
 
 export const RPC_CONTRACT_LEVELS = Object.freeze({

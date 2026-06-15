@@ -1,0 +1,14 @@
+{
+  "extends": "./jsconfig.json",
+  "compilerOptions": {
+    "checkJs": false,
+    "strict": false,
+    "noImplicitAny": false,
+    "maxNodeModuleJsDepth": 0
+  },
+  "include": [
+    "src/shared/api/backendApi.js",
+    "src/shared/api/backendApi.contractMatrix.js",
+    "src/entities/client/model/providerPreferences.js"
+  ]
+}
