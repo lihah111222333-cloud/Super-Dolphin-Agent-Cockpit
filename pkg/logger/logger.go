@@ -21,6 +21,11 @@ const (
 	ModeDebug   Mode = "debug"
 )
 
+const (
+	logTimeFormat        = "2006-01-02 15:04:05"
+	logTimeOffsetSeconds = 8 * 60 * 60
+)
+
 type FileOptions struct {
 	Prefix        string
 	ConsoleWriter io.Writer
@@ -41,6 +46,7 @@ var (
 	activeMode           = modeFromBuildMode()
 	activeLevel          = defaultLevelForMode(activeMode)
 	defaultLogFilePrefix = "agent-terminal"
+	logTimeLocation      = time.FixedZone("UTC+8", logTimeOffsetSeconds)
 )
 
 func init() { storeLogger(newLogger(activeMode, activeLevel)) }
@@ -121,7 +127,7 @@ func replaceLogAttr(_ []string, a slog.Attr) slog.Attr {
 	switch a.Key {
 	case slog.TimeKey:
 		if t, ok := a.Value.Any().(time.Time); ok {
-			a.Value = slog.StringValue(t.UTC().Format(time.RFC3339Nano))
+			a.Value = slog.StringValue(t.In(logTimeLocation).Format(logTimeFormat))
 		}
 	case slog.LevelKey:
 		a.Value = slog.StringValue(strings.ToLower(a.Value.String()))

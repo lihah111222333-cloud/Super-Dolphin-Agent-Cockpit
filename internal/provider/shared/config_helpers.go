@@ -269,9 +269,17 @@ func mcpBinaryFromServerObject(name string, raw any) (dto.MCPBinary, error) {
 	if err != nil {
 		return dto.MCPBinary{}, err
 	}
-	if !strings.EqualFold(transport, "http") {
+	switch strings.ToLower(strings.TrimSpace(transport)) {
+	case "http":
+		return httpMCPBinaryFromServerObject(name, server, label)
+	case "stdio":
+		return stdioMCPBinaryFromServerObject(name, server, label)
+	default:
 		return dto.MCPBinary{}, fmt.Errorf("%s.transport unsupported: %s", label, transport)
 	}
+}
+
+func httpMCPBinaryFromServerObject(name string, server map[string]any, label string) (dto.MCPBinary, error) {
 	url, err := requiredConfigString(server, label, "url")
 	if err != nil {
 		return dto.MCPBinary{}, err
@@ -285,6 +293,26 @@ func mcpBinaryFromServerObject(name string, raw any) (dto.MCPBinary, error) {
 		Type:    "http",
 		URL:     url,
 		Headers: headers,
+	}, nil
+}
+
+func stdioMCPBinaryFromServerObject(name string, server map[string]any, label string) (dto.MCPBinary, error) {
+	command, err := requiredConfigString(server, label, "command")
+	if err != nil {
+		return dto.MCPBinary{}, err
+	}
+	args, err := configStringSlice(server["args"], label+".args")
+	if err != nil {
+		return dto.MCPBinary{}, err
+	}
+	env, err := configStringMap(server["env"], label+".env")
+	if err != nil {
+		return dto.MCPBinary{}, err
+	}
+	return dto.MCPBinary{
+		Name:    name,
+		Command: append([]string{command}, args...),
+		Env:     env,
 	}, nil
 }
 
@@ -385,6 +413,74 @@ func configStringHeaderMap(raw any, label string) (map[string]string, error) {
 		return nil, nil
 	}
 	return headers, nil
+}
+
+// configStringSlice 解析配置里的字符串数组，遇到非字符串或空值直接报错。
+// stdio MCP args 依赖这个校验，避免 provider 拉起半有效命令。
+func configStringSlice(raw any, label string) ([]string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	var values []any
+	switch current := raw.(type) {
+	case []any:
+		values = current
+	case []string:
+		values = make([]any, 0, len(current))
+		for _, value := range current {
+			values = append(values, value)
+		}
+	default:
+		return nil, fmt.Errorf("%s must be an array", label)
+	}
+	out := make([]string, 0, len(values))
+	for i, rawValue := range values {
+		value, ok := rawValue.(string)
+		if !ok {
+			return nil, fmt.Errorf("%s[%d] must be a string", label, i)
+		}
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return nil, fmt.Errorf("%s[%d] is required", label, i)
+		}
+		out = append(out, value)
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+// configStringMap 解析配置里的字符串 map，空 key/value 会被视为配置错误。
+// 它用于 stdio env 等必须精确传给子进程的字段。
+func configStringMap(raw any, label string) (map[string]string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	obj, err := configObject(raw, label)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(obj))
+	for rawName, rawValue := range obj {
+		name := strings.TrimSpace(rawName)
+		if name == "" {
+			return nil, fmt.Errorf("%s name is required", label)
+		}
+		value, ok := rawValue.(string)
+		if !ok {
+			return nil, fmt.Errorf("%s.%s must be a string", label, name)
+		}
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return nil, fmt.Errorf("%s.%s is required", label, name)
+		}
+		out[name] = value
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
 }
 
 func isManagedManifestServerName(name string) bool {

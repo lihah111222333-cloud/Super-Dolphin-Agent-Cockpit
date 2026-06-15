@@ -531,7 +531,8 @@ func manifestServer(bin dto.MCPBinary, cwd string) (string, map[string]any, bool
 		return name, server, true
 	}
 
-	// stdio mode: validate command and ensure it's a managed MCP binary.
+	// stdio mode: validate command and ensure it is either a managed sidecar
+	// or the explicitly supported postgres npm MCP package.
 	server, ok := buildStdioServer(bin, cwd)
 	if !ok {
 		return "", nil, false
@@ -548,10 +549,7 @@ func buildStdioServer(bin dto.MCPBinary, cwd string) (map[string]any, bool) {
 	if command == "" {
 		return nil, false
 	}
-	// Accept both short family names ("lsp", "orch") produced by
-	// BuildManifest since P14, and legacy prefixed names ("mcp-lsp").
-	// The binary on disk always keeps the "mcp-" prefix.
-	if !strings.HasPrefix(filepath.Base(command), managedMCPPrefix) {
+	if !allowedStdioMCPCommand(command, bin.Command[1:]) {
 		return nil, false
 	}
 	server := map[string]any{"command": command}
@@ -566,6 +564,25 @@ func buildStdioServer(bin dto.MCPBinary, cwd string) (map[string]any, bool) {
 		server["cwd"] = cwd
 	}
 	return server, true
+}
+
+// allowedStdioMCPCommand 控制 Claude MCP 配置里可被拉起的 stdio 命令范围。
+// managed sidecar 继续按 mcp-* 放行；npx 只允许 postgres MCP 包，避免任意 npm 包被配置启动。
+func allowedStdioMCPCommand(command string, args []string) bool {
+	base := strings.ToLower(strings.TrimSpace(filepath.Base(command)))
+	base = strings.TrimSuffix(strings.TrimSuffix(base, ".exe"), ".cmd")
+	if strings.HasPrefix(base, managedMCPPrefix) {
+		return true
+	}
+	if base != "npx" {
+		return false
+	}
+	for _, arg := range args {
+		if strings.TrimSpace(arg) == "@modelcontextprotocol/server-postgres" {
+			return true
+		}
+	}
+	return false
 }
 
 func applyAutoApprove(server map[string]any, autoApprove []string) {

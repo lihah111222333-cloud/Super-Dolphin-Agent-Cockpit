@@ -77,9 +77,17 @@ func normalizePromptMCPServerConfig(name string, config contract.MCPServerConfig
 	if transport == "" {
 		return contract.MCPServerConfig{}, fmt.Errorf("configured mcp server transport is required: %s", name)
 	}
-	if !strings.EqualFold(transport, "http") {
+	switch strings.ToLower(transport) {
+	case "http":
+		return normalizePromptHTTPMCPServerConfig(name, config)
+	case "stdio":
+		return normalizePromptStdioMCPServerConfig(name, config)
+	default:
 		return contract.MCPServerConfig{}, fmt.Errorf("configured mcp server transport is unsupported: %s", transport)
 	}
+}
+
+func normalizePromptHTTPMCPServerConfig(name string, config contract.MCPServerConfig) (contract.MCPServerConfig, error) {
 	rawURL := strings.TrimSpace(config.URL)
 	if rawURL == "" {
 		return contract.MCPServerConfig{}, fmt.Errorf("configured mcp server url is required: %s", name)
@@ -92,6 +100,27 @@ func normalizePromptMCPServerConfig(name string, config contract.MCPServerConfig
 		Transport: "http",
 		URL:       rawURL,
 		Headers:   headers,
+	}, nil
+}
+
+func normalizePromptStdioMCPServerConfig(name string, config contract.MCPServerConfig) (contract.MCPServerConfig, error) {
+	command := strings.TrimSpace(config.Command)
+	if command == "" {
+		return contract.MCPServerConfig{}, fmt.Errorf("configured mcp server command is required: %s", name)
+	}
+	args, err := normalizePromptMCPArgs(name, config.Args)
+	if err != nil {
+		return contract.MCPServerConfig{}, err
+	}
+	env, err := normalizePromptMCPEnv(name, config.Env)
+	if err != nil {
+		return contract.MCPServerConfig{}, err
+	}
+	return contract.MCPServerConfig{
+		Transport: "stdio",
+		Command:   command,
+		Args:      args,
+		Env:       env,
 	}, nil
 }
 
@@ -108,6 +137,40 @@ func normalizePromptMCPHeaders(serverName string, input map[string]string) (map[
 		value := strings.TrimSpace(rawValue)
 		if value == "" {
 			return nil, fmt.Errorf("configured mcp server header value is required: %s.%s", serverName, name)
+		}
+		out[name] = value
+	}
+	return out, nil
+}
+
+func normalizePromptMCPArgs(serverName string, input []string) ([]string, error) {
+	if len(input) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(input))
+	for _, rawValue := range input {
+		value := strings.TrimSpace(rawValue)
+		if value == "" {
+			return nil, fmt.Errorf("configured mcp server arg is required: %s", serverName)
+		}
+		out = append(out, value)
+	}
+	return out, nil
+}
+
+func normalizePromptMCPEnv(serverName string, input map[string]string) (map[string]string, error) {
+	if len(input) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(input))
+	for rawName, rawValue := range input {
+		name := strings.TrimSpace(rawName)
+		if name == "" {
+			return nil, fmt.Errorf("configured mcp server env name is required: %s", serverName)
+		}
+		value := strings.TrimSpace(rawValue)
+		if value == "" {
+			return nil, fmt.Errorf("configured mcp server env value is required: %s.%s", serverName, name)
 		}
 		out[name] = value
 	}
@@ -187,21 +250,49 @@ func copyMCPServerConfigs(out map[string]contract.MCPServerConfig, input map[str
 		if name == "" {
 			continue
 		}
-		headers := make(map[string]string, len(config.Headers))
-		for header, value := range config.Headers {
-			header = strings.TrimSpace(header)
-			value = strings.TrimSpace(value)
-			if header != "" && value != "" {
-				headers[header] = value
-			}
-		}
-		if len(headers) == 0 {
-			headers = nil
-		}
 		out[name] = contract.MCPServerConfig{
 			Transport: strings.TrimSpace(config.Transport),
 			URL:       strings.TrimSpace(config.URL),
-			Headers:   headers,
+			Headers:   clonePromptMCPStringMap(config.Headers),
+			Command:   strings.TrimSpace(config.Command),
+			Args:      clonePromptMCPStringList(config.Args),
+			Env:       clonePromptMCPStringMap(config.Env),
 		}
 	}
+}
+
+func clonePromptMCPStringList(input []string) []string {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(input))
+	for _, value := range input {
+		if value = strings.TrimSpace(value); value != "" {
+			out = append(out, value)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// clonePromptMCPStringMap 复制并清理 prompt 快照里的 MCP 字符串 map。
+// 空 key/value 会被丢弃，避免 provider 侧收到不可用配置。
+func clonePromptMCPStringMap(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(input))
+	for key, value := range input {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key != "" && value != "" {
+			out[key] = value
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

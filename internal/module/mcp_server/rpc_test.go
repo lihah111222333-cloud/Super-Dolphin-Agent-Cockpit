@@ -114,6 +114,28 @@ func TestToolsRPCReturnsMCPServerTools(t *testing.T) {
 	}
 }
 
+func TestStartPostgresRPCCreatesDefaultStdioConfig(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	store := newMemoryMCPServerStore()
+	server := newMCPServerTestServer(store)
+
+	raw, err := server.Dispatch(context.Background(), "mcpServer/postgres/start", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Dispatch mcpServer/postgres/start: %v", err)
+	}
+	var got StartPostgresServerResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if !got.Added || got.Config.Command != "npx" {
+		t.Fatalf("StartPostgresServerResult = %#v, want added npx config", got)
+	}
+	if store.servers[project][DefaultPostgresServerName].Command != "npx" {
+		t.Fatalf("stored servers = %#v, want postgres npx config", store.servers[project])
+	}
+}
+
 func TestDeleteRPCRemovesMCPServerConfig(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
