@@ -20,23 +20,6 @@ type NotifyConfig struct {
 	DrainSeconds     int
 }
 
-// EmbeddedPostgresConfig is the legacy app-managed PostgreSQL runtime shape.
-// Product startup now uses SQLite configuration and leaves this disabled.
-type EmbeddedPostgresConfig struct {
-	Enabled               bool
-	Owner                 bool
-	RecoverRunningDataDir bool
-	BinDir                string
-	ShareDir              string
-	DataDir               string
-	RuntimeDir            string
-	LogPath               string
-	DatabaseName          string
-	UserName              string
-	Port                  int
-	ResolveError          string
-}
-
 const (
 	LSPServiceJSTS   = "jsts"
 	LSPServicePython = "python"
@@ -67,14 +50,12 @@ type LSPProjectAdapterConfig struct {
 // file only hosts the type definitions so that lower layers (module, store)
 // can depend on them without importing a platform package.
 type Config struct {
-	DatabaseURL      string
-	SQLitePath       string
-	RPCAddr          string
-	LogLevel         string
-	ProjectRoot      string
-	EmbeddedPostgres EmbeddedPostgresConfig
-	Skill            SkillConfig
-	Agent            AgentConfig
-	Notify           NotifyConfig
-	LSP              LSPConfig
+	SQLitePath  string
+	RPCAddr     string
+	LogLevel    string
+	ProjectRoot string
+	Skill       SkillConfig
+	Agent       AgentConfig
+	Notify      NotifyConfig
+	LSP         LSPConfig
 }

@@ -111,9 +111,6 @@ func resolveSmokeConfig(env smokeEnv) (*platformconfig.Config, error) {
 	if !samePath(cfg.SQLitePath, wantSQLitePath) {
 		return nil, fmt.Errorf("SQLitePath = %q, want clean packaged home path %q", cfg.SQLitePath, wantSQLitePath)
 	}
-	if cfg.DatabaseURL != "" {
-		return nil, fmt.Errorf("DatabaseURL = %q, want empty while PostgreSQL env remains set", cfg.DatabaseURL)
-	}
 	return cfg, nil
 }
 

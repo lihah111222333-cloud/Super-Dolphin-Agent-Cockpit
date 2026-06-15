@@ -10,7 +10,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // ToolErrorEnvelope is the machine-readable tool error payload returned from
@@ -267,16 +266,9 @@ var toolErrorClassifiers = []toolErrorClassifier{
 		},
 	},
 	{
-		code: "database_schema_missing",
-		hint: staticToolHint("next: run database migrations or start the service with migration lifecycle enabled"),
-		match: func(err error, message string, _ string) bool {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) {
-				return pgErr.Code == "42P01" || pgErr.Code == "42703"
-			}
-			return strings.Contains(message, "relation ") && strings.Contains(message, "does not exist") ||
-				strings.Contains(message, "column ") && strings.Contains(message, "does not exist")
-		},
+		code:  "database_schema_missing",
+		hint:  staticToolHint("next: run database migrations or verify the embedded database schema"),
+		match: func(_ error, message string, _ string) bool { return isDatabaseSchemaMissingMessage(message) },
 	},
 	{
 		code: "internal_panic",
@@ -350,15 +342,6 @@ var toolErrorClassifiers = []toolErrorClassifier{
 		hint: staticToolHint("next: fix launch_agent arguments and retry with non-empty required fields and supported enum values"),
 		match: func(_ error, message string, toolName string) bool {
 			return isLaunchAgentTool(toolName) && isLaunchRequestInvalidMessage(message)
-		},
-	},
-	{
-		code: "database_schema_missing",
-		hint: staticToolHint("next: run database migrations or verify the embedded database schema"),
-		match: func(_ error, message string, _ string) bool {
-			return (strings.Contains(message, "relation ") && strings.Contains(message, " does not exist")) ||
-				strings.Contains(message, "no such table") ||
-				strings.Contains(message, "missing database schema")
 		},
 	},
 	{
@@ -476,6 +459,15 @@ var toolErrorClassifiers = []toolErrorClassifier{
 				strings.Contains(message, "could not resolve scope")
 		},
 	},
+}
+
+func isDatabaseSchemaMissingMessage(message string) bool {
+	return (strings.Contains(message, "relation ") && strings.Contains(message, "does not exist")) ||
+		(strings.Contains(message, "column ") && strings.Contains(message, "does not exist")) ||
+		strings.Contains(message, "no such table") ||
+		strings.Contains(message, "missing database schema") ||
+		strings.Contains(message, "sqlstate 42p01") ||
+		strings.Contains(message, "sqlstate 42703")
 }
 
 func isLaunchRequestInvalidMessage(message string) bool {

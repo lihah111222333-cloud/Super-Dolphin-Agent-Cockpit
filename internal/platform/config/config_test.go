@@ -56,12 +56,6 @@ func TestNew_DefaultsSQLitePathUnderProjectHomeInDev(t *testing.T) {
 	isolateConfigTestEnv(t)
 
 	cfg := mustNewConfig(t)
-	if got := strings.TrimSpace(cfg.DatabaseURL); got != "" {
-		t.Fatalf("DatabaseURL = %q, want empty after SQLite switch", got)
-	}
-	if cfg.EmbeddedPostgres.Enabled {
-		t.Fatal("EmbeddedPostgres.Enabled = true, want disabled after SQLite switch")
-	}
 	want := filepath.Join(cfg.ProjectRoot, ".super-dolphin", "super-dolphin.db")
 	if cfg.SQLitePath != want {
 		t.Fatalf("SQLitePath = %q, want %q", cfg.SQLitePath, want)
@@ -123,14 +117,8 @@ func TestNew_IgnoresPostgresEnvForDatabaseConfig(t *testing.T) {
 	restoreConfigLogger(t, &buf)
 
 	cfg := mustNewConfig(t)
-	if cfg.DatabaseURL != "" {
-		t.Fatalf("DatabaseURL = %q, want empty after SQLite switch", cfg.DatabaseURL)
-	}
 	if cfg.SQLitePath == "" {
 		t.Fatal("SQLitePath is empty")
-	}
-	if cfg.EmbeddedPostgres.Enabled {
-		t.Fatal("EmbeddedPostgres.Enabled = true, want disabled")
 	}
 	if got := os.Getenv("DATABASE_URL"); got != "postgres://tester@127.0.0.1:54320/custom_db?sslmode=disable" {
 		t.Fatalf("DATABASE_URL = %q, want preserved but ignored", got)
@@ -165,12 +153,6 @@ func TestNew_PostgresEnvAndOldDataDirDoNotOverrideSQLitePath(t *testing.T) {
 	cfg := mustNewConfig(t)
 	if cfg.SQLitePath != explicitSQLite {
 		t.Fatalf("SQLitePath = %q, want explicit SQLite path %q", cfg.SQLitePath, explicitSQLite)
-	}
-	if cfg.DatabaseURL != "" {
-		t.Fatalf("DatabaseURL = %q, want empty", cfg.DatabaseURL)
-	}
-	if cfg.EmbeddedPostgres.Enabled {
-		t.Fatal("EmbeddedPostgres.Enabled = true, want disabled")
 	}
 	after, err := os.Stat(pgVersion)
 	if err != nil {
