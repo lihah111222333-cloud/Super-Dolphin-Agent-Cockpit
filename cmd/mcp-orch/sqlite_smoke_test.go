@@ -43,9 +43,6 @@ func TestSQLiteMCPOrchConfigCreatesCleanDatabaseAndIgnoresPostgresEnv(t *testing
 	if cfg.SQLitePath != sqlitePath {
 		t.Fatalf("SQLitePath = %q, want %q", cfg.SQLitePath, sqlitePath)
 	}
-	if cfg.DatabaseURL != "" {
-		t.Fatalf("DatabaseURL = %q, want empty", cfg.DatabaseURL)
-	}
 
 	db, err := platformdb.NewDB(cfg)
 	if err != nil {

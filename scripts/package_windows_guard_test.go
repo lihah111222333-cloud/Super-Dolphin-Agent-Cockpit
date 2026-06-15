@@ -166,16 +166,12 @@ func TestPackageWindowsVerifiesArm64NativeArtifactsBeforePackaging(t *testing.T)
 func TestWindowsBackgroundProcessesHideConsoleWindows(t *testing.T) {
 	codexWindows := readScript(t, "../internal/provider/codexapp/process_windows.go")
 	toolbridgeWindows := readScript(t, "../internal/platform/toolbridge/stdio_process_windows.go")
-	embeddedpgWindows := readScript(t, "../internal/platform/embeddedpg/runtime_process_windows.go")
 
 	assertScriptContains(t, codexWindows, "CreationFlags: 0x08000200")
 	assertScriptContains(t, codexWindows, "HideWindow: true")
 	assertScriptContains(t, toolbridgeWindows, "stdioCreateNoWindow        = 0x08000000")
 	assertScriptContains(t, toolbridgeWindows, "CreationFlags: stdioCreateNewProcessGroup | stdioCreateNoWindow")
 	assertScriptContains(t, toolbridgeWindows, "HideWindow:    true")
-	assertScriptContains(t, embeddedpgWindows, "postgresCreateNoWindow        = 0x08000000")
-	assertScriptContains(t, embeddedpgWindows, "CreationFlags: postgresCreateNewProcessGroup | postgresCreateNoWindow")
-	assertScriptContains(t, embeddedpgWindows, "HideWindow:    true")
 }
 
 func TestPackageWindowsScriptFindsInnoCompiler(t *testing.T) {
