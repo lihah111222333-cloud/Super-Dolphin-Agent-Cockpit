@@ -136,13 +136,9 @@ func (t *transport) ReadLoop(ctx context.Context, handler any) {
 	}
 }
 
-func (t *transport) Close() error {
-	return t.shutdownTransport(true)
-}
+func (t *transport) Close() error { return t.shutdownTransport(true) }
 
-func (t *transport) Kill() error {
-	return t.shutdownTransport(false)
-}
+func (t *transport) Kill() error { return t.shutdownTransport(false) }
 
 func (t *transport) Running() bool {
 	if t.closed.Load() || t.currentWS() == nil {
@@ -309,9 +305,7 @@ type transportServer struct {
 	t *transport
 }
 
-func wrapTransport(t *transport) SpawnedServer {
-	return &transportServer{t: t}
-}
+func wrapTransport(t *transport) SpawnedServer { return &transportServer{t: t} }
 
 func (s *transportServer) ServerURL() string {
 	if s == nil || s.t == nil {
