@@ -548,13 +548,9 @@ func (s *session) ReadConfig(ctx context.Context, _ string) (dto.ThreadConfig, e
 	}, nil
 }
 
-func (s *session) Close(context.Context) error {
-	return s.shutdownSession(true)
-}
+func (s *session) Close(context.Context) error { return s.shutdownSession(true) }
 
-func (s *session) ForceStop() error {
-	return s.shutdownSession(false)
-}
+func (s *session) ForceStop() error { return s.shutdownSession(false) }
 
 func (s *session) SessionRuntime() *SessionRuntime { return s.runtime }
 

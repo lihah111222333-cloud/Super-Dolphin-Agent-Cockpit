@@ -542,9 +542,7 @@ func isExecutable(path string) bool {
 	return info.Mode().Perm()&0o111 != 0
 }
 
-func codexExecutableFileName() string {
-	return codexExecutableFileNameFor(codexBinaryName)
-}
+func codexExecutableFileName() string { return codexExecutableFileNameFor(codexBinaryName) }
 
 func codexExecutableFileNameFor(name string) string {
 	if runtime.GOOS == "windows" {
@@ -588,6 +586,4 @@ func isCodexReleaseTagRune(r rune) bool {
 	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-' || r == '_'
 }
 
-func codexHTTPClient() *http.Client {
-	return &http.Client{Timeout: 10 * time.Minute}
-}
+func codexHTTPClient() *http.Client { return &http.Client{Timeout: 10 * time.Minute} }

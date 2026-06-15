@@ -352,9 +352,7 @@ func decodeAnyPayload(data any) map[string]any {
 	}
 }
 
-func decodeEventPayload(raw []byte) map[string]any {
-	return decodeJSONMap(raw)
-}
+func decodeEventPayload(raw []byte) map[string]any { return decodeJSONMap(raw) }
 
 // encodeEventPayload re-serializes a payload map back into json.RawMessage so
 // onNotification can mutate the payload (e.g. inject merged TurnOutputDelta

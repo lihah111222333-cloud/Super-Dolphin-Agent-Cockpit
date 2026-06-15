@@ -10,9 +10,7 @@ const codexManagedManifestName = codexmanifest.Name
 
 type codexManifestVerifier struct{}
 
-func (codexManifestVerifier) IsExecutable(path string) bool {
-	return isExecutable(path)
-}
+func (codexManifestVerifier) IsExecutable(path string) bool { return isExecutable(path) }
 
 func (codexManifestVerifier) ValidCLI(ctx context.Context, path string) bool {
 	return validCodexCLI(ctx, path)

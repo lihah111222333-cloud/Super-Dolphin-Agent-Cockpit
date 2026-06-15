@@ -91,9 +91,7 @@ func normalizeServerURL(raw string) string {
 	return "ws://" + raw
 }
 
-func localSpawnListenURL() string {
-	return "ws://127.0.0.1:0"
-}
+func localSpawnListenURL() string { return "ws://127.0.0.1:0" }
 
 func reserveServerURL() (string, func(), error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
