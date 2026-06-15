@@ -268,6 +268,50 @@ func TestListServerToolsReturnsRPCErrorFromHTTPMCPServer(t *testing.T) {
 	}
 }
 
+func TestStartPostgresServerAddsDefaultStdioConfigOnExplicitCall(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
+	project := t.TempDir()
+	t.Chdir(project)
+
+	got, err := svc.StartPostgresServer(context.Background(), StartPostgresServerRequest{})
+	if err != nil {
+		t.Fatalf("StartPostgresServer() error = %v", err)
+	}
+	if !got.Added || got.ServerName != DefaultPostgresServerName {
+		t.Fatalf("StartPostgresServer() = %#v, want added postgres", got)
+	}
+	server := store.servers[project][DefaultPostgresServerName]
+	if server.Transport != "stdio" || server.Command != "npx" {
+		t.Fatalf("stored postgres server = %#v, want stdio npx", server)
+	}
+	if len(server.Args) != 3 || server.Args[1] != "@modelcontextprotocol/server-postgres" {
+		t.Fatalf("stored postgres args = %#v, want postgres npx args", server.Args)
+	}
+}
+
+func TestStartPostgresServerDoesNotOverrideExistingConfig(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
+	project := t.TempDir()
+	t.Chdir(project)
+	store.seed(project, DefaultPostgresServerName, ServerConfig{
+		Transport: "stdio",
+		Command:   "custom-postgres-mcp",
+	})
+
+	got, err := svc.StartPostgresServer(context.Background(), StartPostgresServerRequest{})
+	if err != nil {
+		t.Fatalf("StartPostgresServer() error = %v", err)
+	}
+	if got.Added {
+		t.Fatalf("StartPostgresServer() Added = true, want false for existing config")
+	}
+	if got.Config.Command != "custom-postgres-mcp" {
+		t.Fatalf("Config = %#v, want existing custom command", got.Config)
+	}
+}
+
 func TestDeleteServerRemovesProjectTableRow(t *testing.T) {
 	store := newMemoryMCPServerStore()
 	svc := NewServiceWithStore(store)

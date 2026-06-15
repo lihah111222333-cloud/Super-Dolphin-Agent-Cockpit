@@ -541,8 +541,31 @@ func renderMCPServerConfigMap(values map[string]contract.MCPServerConfig) map[st
 		if headers := renderMCPServerHeaderMap(config.Headers); len(headers) > 0 {
 			server["headers"] = headers
 		}
+		putConfigString(server, "command", config.Command)
+		if args := renderMCPServerStringList(config.Args); len(args) > 0 {
+			server["args"] = args
+		}
+		if env := renderMCPServerHeaderMap(config.Env); len(env) > 0 {
+			server["env"] = env
+		}
 		if len(server) > 0 {
 			out[name] = server
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func renderMCPServerStringList(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			out = append(out, value)
 		}
 	}
 	if len(out) == 0 {
