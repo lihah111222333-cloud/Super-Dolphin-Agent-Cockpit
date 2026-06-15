@@ -46,8 +46,8 @@ type stdioRPCResponse struct {
 }
 
 func (h *Handler) defaultStdioClientFactory(ctx context.Context, binary providerdto.MCPBinary) (mcpClient, error) {
-	if strings.TrimSpace(binary.Type) == "http" || strings.TrimSpace(binary.URL) != "" {
-		return nil, fmt.Errorf("toolbridge: codex surface requires stdio MCP for %q", binary.Name)
+	if strings.EqualFold(strings.TrimSpace(binary.Type), "http") || strings.TrimSpace(binary.URL) != "" {
+		return newHTTPMCPClient(ctx, binary)
 	}
 	if len(binary.Command) == 0 || strings.TrimSpace(binary.Command[0]) == "" {
 		return nil, fmt.Errorf("toolbridge: missing stdio command for %q", binary.Name)

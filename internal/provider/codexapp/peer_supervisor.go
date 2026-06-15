@@ -473,10 +473,6 @@ func (s *PeerSupervisor) snapshotPeers() []peerHandle {
 	return out
 }
 
-// ---------------------------------------------------------------------------
-// Production launcher + handle (exec.Cmd + stdin pipe).
-// ---------------------------------------------------------------------------
-
 // execPeerLauncher is the production peerLauncher. It resolves the peer
 // binary, starts it with GO_AGENT_PEER_MODE=1 in its own process group, and
 // returns a handle wrapping the exec.Cmd + stdin write-pipe. The supervisor
