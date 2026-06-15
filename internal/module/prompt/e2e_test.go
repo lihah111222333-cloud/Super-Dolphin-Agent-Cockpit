@@ -33,6 +33,7 @@ type fxHarness struct {
 	bindingStore  *capturingBindingStore
 	orchestration *capturingOrchestration
 	projectRoot   string
+	codexHome     string
 }
 
 func TestFxMemoryPromptIntegration(t *testing.T) {
@@ -190,6 +191,11 @@ func TestFullChainFromThreadToProvider(t *testing.T) {
 		AdditionalWorkingDirectories: append([]string(nil), in.AdditionalWorkingDirectories...),
 		MCPSnapshot:                  in.MCPSnapshot,
 		SessionFlags:                 maps.Clone(in.SessionFlags),
+		Config: map[string]any{
+			contract.CodexHomeKey:          h.codexHome,
+			contract.CodexInstanceKeyKey:   "default",
+			contract.CodexModelProviderKey: "openai",
+		},
 	})
 	if err != nil {
 		t.Fatalf("thread.Start() error = %v", err)
@@ -209,8 +215,31 @@ func TestFullChainFromThreadToProvider(t *testing.T) {
 	if got := configString(h.bridge.startReq.Config, "developerInstructions"); got != "be concise" {
 		t.Fatalf("developerInstructions = %q, want developer tail only", got)
 	}
+	assertFullChainCodexIdentity(t, h, h.codexHome)
 	assertFullChainStartResult(t, result)
 	assertFullChainSideEffects(t, h, start.DisplayName)
+}
+
+func assertFullChainCodexIdentity(t *testing.T, h *fxHarness, wantHome string) {
+	t.Helper()
+	if got := configString(h.bridge.startReq.Config, contract.CodexHomeKey); got != wantHome {
+		t.Fatalf("provider codexHome = %q, want %q", got, wantHome)
+	}
+	if got := configString(h.bridge.startReq.Config, contract.CodexInstanceKeyKey); got != "default" {
+		t.Fatalf("provider codexInstanceKey = %q, want default", got)
+	}
+	if got := configString(h.bridge.startReq.Config, contract.CodexModelProviderKey); got != "openai" {
+		t.Fatalf("provider codexModelProvider = %q, want openai", got)
+	}
+	if h.bindingStore.upsert.CodexHome != wantHome ||
+		h.bindingStore.upsert.CodexInstanceKey != "default" ||
+		h.bindingStore.upsert.CodexModelProvider != "openai" {
+		t.Fatalf("binding codex identity = (%q,%q,%q), want (%q,default,openai)",
+			h.bindingStore.upsert.CodexHome,
+			h.bindingStore.upsert.CodexInstanceKey,
+			h.bindingStore.upsert.CodexModelProvider,
+			wantHome)
+	}
 }
 
 func assertFullChainStartResult(t *testing.T, result thread.StartResult) {
@@ -239,6 +268,15 @@ func assertFullChainSideEffects(t *testing.T, h *fxHarness, wantDisplayName stri
 func newFxHarness(t *testing.T) *fxHarness {
 	t.Helper()
 	h := &fxHarness{projectRoot: t.TempDir()}
+	codexHome := filepath.Join(h.projectRoot, "codex-home")
+	if err := os.MkdirAll(codexHome, 0o700); err != nil {
+		t.Fatalf("create codex home fixture: %v", err)
+	}
+	canonicalCodexHome, err := contract.CanonicalizeCodexHome(codexHome)
+	if err != nil {
+		t.Fatalf("canonicalize codex home fixture: %v", err)
+	}
+	h.codexHome = canonicalCodexHome
 	t.Setenv("ENABLE_MEMORY_SYSTEM", "1")
 	t.Setenv("MULTI_AGENT_MEMORY_FEATURE_TEAMMEM", "1")
 	t.Setenv("MULTI_AGENT_MEMORY_DIR", filepath.Join(h.projectRoot, "memory"))
