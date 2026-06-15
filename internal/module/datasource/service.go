@@ -16,6 +16,7 @@ var (
 	errSourcePathMustBeAbsolute  = errors.New("datasource: sourcePath must be absolute")
 	errSourcePathMustBeFile      = errors.New("datasource: sourcePath must be a file")
 	errUnsupportedFileExtension  = errors.New("datasource: unsupported file extension")
+	errUnsupportedTextEncoding   = errors.New("datasource: unsupported text encoding")
 	errInvalidDatasourceFileName = errors.New("datasource: fileName must be a file name")
 	errDeleteTargetMustBeFile    = errors.New("datasource: delete target must be a file")
 	errDatasourceContentEmpty    = errors.New("datasource: extracted content is empty")
@@ -348,12 +349,8 @@ func datasourceUploadDir(sourceDir string) string {
 }
 
 func isAllowedUploadExtension(ext string) bool {
-	switch strings.ToLower(strings.TrimSpace(ext)) {
-	case ".pdf", ".txt":
-		return true
-	default:
-		return false
-	}
+	ext = strings.ToLower(strings.TrimSpace(ext))
+	return ext == ".pdf" || isTextUploadExtension(ext)
 }
 
 // copyUploadFile 复制upload文件。

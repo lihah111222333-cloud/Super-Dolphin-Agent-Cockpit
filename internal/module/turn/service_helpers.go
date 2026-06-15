@@ -163,8 +163,9 @@ func mergeTurnConfiguredMCPServers(
 	if len(configs) == 0 {
 		return snapshot, nil
 	}
-	if conflict := firstTurnMCPServerNameConflict(snapshot.Servers, names, snapshot.ServerConfigs); conflict != "" {
-		return contract.MCPSnapshot{}, fmt.Errorf("configured mcp server conflicts with active server: %s", conflict)
+	configs, names = skipTurnConfiguredMCPServersWithActiveNames(snapshot.Servers, configs, names)
+	if len(configs) == 0 {
+		return snapshot, nil
 	}
 	snapshot = cloneMCPSnapshot(snapshot)
 	snapshot.Servers = uniqueTurnMCPServerNames(snapshot.Servers, names)
@@ -246,27 +247,57 @@ func normalizeTurnMCPServerHeaders(serverName string, input map[string]string) (
 	return out, nil
 }
 
-func firstTurnMCPServerNameConflict(existing, additions []string, configured map[string]contract.MCPServerConfig) string {
-	seen := make(map[string]struct{}, len(existing))
-	for _, name := range existing {
+// skipTurnConfiguredMCPServersWithActiveNames 跳过已经在线的 MCP server。
+// 在线实例由运行态注册表负责，项目配置只补充尚未在线的 HTTP server。
+func skipTurnConfiguredMCPServersWithActiveNames(existing []string, configs map[string]contract.MCPServerConfig, names []string) (map[string]contract.MCPServerConfig, []string) {
+	if len(configs) == 0 || len(names) == 0 {
+		return configs, names
+	}
+	active := turnMCPServerNameSet(existing)
+	if len(active) == 0 {
+		return configs, names
+	}
+	filteredConfigs := make(map[string]contract.MCPServerConfig, len(configs))
+	filteredNames := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if turnMCPServerNameIsActive(active, name) {
+			continue
+		}
+		filteredConfigs[name] = configs[name]
+		filteredNames = append(filteredNames, name)
+	}
+	return turnConfiguredMCPFilterResult(filteredConfigs, filteredNames)
+}
+
+func turnMCPServerNameSet(names []string) map[string]struct{} {
+	if len(names) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(names))
+	for _, name := range names {
 		name = strings.TrimSpace(name)
 		if name != "" {
-			seen[name] = struct{}{}
+			out[name] = struct{}{}
 		}
 	}
-	for _, name := range additions {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-		if _, ok := seen[name]; !ok {
-			continue
-		}
-		if _, ok := configured[name]; !ok {
-			return name
-		}
+	return out
+}
+
+func turnMCPServerNameIsActive(active map[string]struct{}, name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return true
 	}
-	return ""
+	_, ok := active[name]
+	return ok
+}
+
+func turnConfiguredMCPFilterResult(configs map[string]contract.MCPServerConfig, names []string) (map[string]contract.MCPServerConfig, []string) {
+	if len(configs) == 0 {
+		return nil, nil
+	}
+	return configs, names
 }
 
 func turnMCPServerConfigLookupRoot(input PrepareInput) string {

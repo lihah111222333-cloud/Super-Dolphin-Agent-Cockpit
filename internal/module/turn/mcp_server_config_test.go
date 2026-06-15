@@ -49,6 +49,28 @@ func TestPrepareTurnMergesConfiguredMCPServersIntoAssemblyInput(t *testing.T) {
 	requireMCPBinary(t, req.MCP, "my-search")
 }
 
+func TestMergeTurnConfiguredMCPServersSkipsActiveServerNames(t *testing.T) {
+	t.Parallel()
+
+	got, err := mergeTurnConfiguredMCPServers(contract.MCPSnapshot{
+		Servers: []string{"deepwiki"},
+	}, map[string]contract.MCPServerConfig{
+		"deepwiki": {
+			Transport: "http",
+			URL:       "https://mcp.deepwiki.com/mcp",
+		},
+		"my-search": {
+			Transport: "http",
+			URL:       "https://your-domain.com/mcp",
+		},
+	})
+	require.NoError(t, err)
+
+	require.ElementsMatch(t, []string{"deepwiki", "my-search"}, got.Servers)
+	require.NotContains(t, got.ServerConfigs, "deepwiki")
+	require.Equal(t, "https://your-domain.com/mcp", got.ServerConfigs["my-search"].URL)
+}
+
 type staticTurnMCPServerConfigProvider struct {
 	servers map[string]contract.MCPServerConfig
 	err     error

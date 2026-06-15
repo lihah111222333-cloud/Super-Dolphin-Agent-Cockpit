@@ -12,6 +12,7 @@ import (
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/cwdlock"
 	datasourcestore "github.com/anthropic-ai/super-agent-v3/internal/store/datasource"
+	datasourcev2store "github.com/anthropic-ai/super-agent-v3/internal/store/datasourcev2"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/dbquery"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/feedback"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/hookstore"
@@ -46,6 +47,7 @@ var Module = fx.Module("store",
 	cronstore.Module,
 	cwdlock.Module,
 	datasourcestore.Module,
+	datasourcev2store.Module,
 	dbquery.Module,
 	feedback.Module,
 	hookstore.Module,

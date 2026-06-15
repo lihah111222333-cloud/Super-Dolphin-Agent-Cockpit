@@ -64,6 +64,7 @@ func datasourceRPCError(err error) error {
 		errors.Is(err, errSourcePathMustBeAbsolute),
 		errors.Is(err, errSourcePathMustBeFile),
 		errors.Is(err, errUnsupportedFileExtension),
+		errors.Is(err, errUnsupportedTextEncoding),
 		errors.Is(err, errInvalidDatasourceFileName),
 		errors.Is(err, errDeleteTargetMustBeFile),
 		errors.Is(err, errDatasourceContentEmpty),
