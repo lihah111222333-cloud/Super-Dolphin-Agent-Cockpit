@@ -136,10 +136,13 @@ func (t *transport) ReadLoop(ctx context.Context, handler any) {
 	}
 }
 
+// Close 关闭 Codex app transport 并执行优雅清理。
 func (t *transport) Close() error { return t.shutdownTransport(true) }
 
+// Kill 强制终止底层进程或连接。
 func (t *transport) Kill() error { return t.shutdownTransport(false) }
 
+// Running 返回底层进程或连接是否仍在运行。
 func (t *transport) Running() bool {
 	if t.closed.Load() || t.currentWS() == nil {
 		return false
@@ -307,6 +310,7 @@ type transportServer struct {
 
 func wrapTransport(t *transport) SpawnedServer { return &transportServer{t: t} }
 
+// ServerURL 返回已启动 Codex app 服务地址。
 func (s *transportServer) ServerURL() string {
 	if s == nil || s.t == nil {
 		return ""

@@ -11,6 +11,7 @@ import (
 )
 
 // NewID generates a prefixed, timestamped, random ID.
+// NewID 创建ID。
 func NewID(prefix string) string {
 	buf := make([]byte, 8)
 	_, _ = rand.Read(buf)
@@ -22,6 +23,7 @@ var lastAgentIDValue atomic.Uint64
 // NewAgentID generates a root agent ID: agent_{monotonicNumericTimestamp}.
 // Concurrent launches can happen inside the same clock tick, so the value is
 // process-local monotonic instead of relying on wall-clock uniqueness alone.
+// NewAgentID 创建代理ID。
 func NewAgentID() string {
 	return fmt.Sprintf("agent_%d", nextAgentIDValue())
 }
@@ -44,6 +46,7 @@ func nextAgentIDValue() uint64 {
 // suffix to the parent's ID: {parentID}-{seq}.
 // The caller is responsible for determining the correct sequence number
 // (typically via a COUNT query on existing children in the database).
+// NewChildAgentID 创建child代理ID。
 func NewChildAgentID(parentID string, seq int) string {
 	return fmt.Sprintf("%s-%d", parentID, seq)
 }

@@ -23,6 +23,7 @@ func embedThreadPatchRequests(reqs []pushRequest) []pushRequest {
 	return out
 }
 
+// embedThreadPatchRequest 处理embed线程补丁请求。
 func embedThreadPatchRequest(req pushRequest, previous []pushRequest) pushRequest {
 	next := req
 	next.notifications = make([]eventsurface.Notification, 0, len(req.notifications))
@@ -60,6 +61,7 @@ type threadPatchTarget struct {
 	payload      map[string]any
 }
 
+// uniqueThreadPatchTarget 处理unique线程补丁target。
 func uniqueThreadPatchTarget(previous []pushRequest, current []eventsurface.Notification, identities payloadIdentities, source string) (threadPatchTarget, bool) {
 	var target threadPatchTarget
 	found := false
@@ -102,6 +104,7 @@ func visitThreadPatchTargets(notifications []eventsurface.Notification, visit fu
 	return true
 }
 
+// matchingThreadPatchTarget 处理matching线程补丁target。
 func matchingThreadPatchTarget(notification *eventsurface.Notification, identities payloadIdentities, source string) (threadPatchTarget, bool, bool) {
 	if notification == nil || !isThreadPatchEmbedTarget(notification.Method) {
 		return threadPatchTarget{}, false, false
@@ -132,6 +135,7 @@ func isThreadPatchEmbedTarget(method string) bool {
 	}
 }
 
+// threadPatchSourceMatchesMethod 处理线程补丁sourcematchesmethod。
 func threadPatchSourceMatchesMethod(source, method string) bool {
 	sourceKey := normalizedPatchSourceKey(source)
 	methodKey := normalizedPatchSourceKey(method)
@@ -247,6 +251,7 @@ func payloadIdentitiesMatch(source, patch payloadIdentities) bool {
 		payloadIdentitySetsIntersect(source.agentIDs, patch.agentIDs)
 }
 
+// payloadIdentitySetsIntersect 处理载荷身份setsintersect。
 func payloadIdentitySetsIntersect(left, right map[string]struct{}) bool {
 	if len(left) == 0 || len(right) == 0 {
 		return false

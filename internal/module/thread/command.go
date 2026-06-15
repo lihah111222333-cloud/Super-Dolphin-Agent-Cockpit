@@ -98,8 +98,10 @@ const (
 	errContextCompactUnsupported     = "当前 provider 不支持上下文压缩（context_compact）"
 )
 
+// Error 返回错误文本。
 func (e *friendlyCapabilityError) Error() string { return e.message }
 
+// Unwrap 返回底层错误。
 func (e *friendlyCapabilityError) Unwrap() error { return e.cause }
 
 func newThreadCommandResult(command, threadID string) threadCommandResult {
@@ -177,6 +179,7 @@ func bindingProvider(binding *bindingstore.Binding) string {
 	return providerLabel(binding.Provider)
 }
 
+// GetConfig 读取配置。
 func (s *service) GetConfig(ctx context.Context, threadID string) (dto.ThreadConfig, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
@@ -275,6 +278,7 @@ func (s *service) pendingLaunchOfflineConfig(
 	return offline.Config, true, nil
 }
 
+// SetConfig 设置配置。
 func (s *service) SetConfig(ctx context.Context, threadID string, patch dto.ThreadConfigPatch) (dto.ThreadConfig, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
@@ -306,6 +310,7 @@ func (s *service) SetConfig(ctx context.Context, threadID string, patch dto.Thre
 	return applyThreadConfigReturnPatch(cfg, patch), nil
 }
 
+// SetModel 设置模型。
 func (s *service) SetModel(ctx context.Context, threadID, rawModel string) (dto.ThreadConfig, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
@@ -362,6 +367,7 @@ func normalizeThreadConfigPatchOffline(provider string, patch dto.ThreadConfigPa
 	return normalizeThreadConfigPatchBase(provider, patch, nil)
 }
 
+// normalizeThreadConfigPatchBase 规范化线程配置补丁base。
 func normalizeThreadConfigPatchBase(
 	provider string,
 	patch dto.ThreadConfigPatch,
@@ -387,6 +393,7 @@ func normalizeThreadConfigPatchBase(
 	return patch, nil
 }
 
+// ensureAllowedModel 确保allowed模型。
 func ensureAllowedModel(
 	ctx context.Context,
 	session contract.Session,
@@ -454,6 +461,7 @@ func validateThreadConfigEffort(provider, value string) error {
 	return fmt.Errorf("invalid effort %q", value)
 }
 
+// isModelRuneAllowed 判断模型runeallowed是否可用。
 func isModelRuneAllowed(r rune) bool {
 	return r >= 'a' && r <= 'z' ||
 		r >= 'A' && r <= 'Z' ||

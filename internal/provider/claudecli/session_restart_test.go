@@ -112,7 +112,11 @@ func closedTransport() *transport {
 	return &transport{done: done}
 }
 
+// archguard:ignore global_vars -- 测试内串行化进程级 CLI launch override。
 var launchCLIOverrideMu sync.Mutex
+
+// archguard:ignore global_vars -- 仅测试使用，并由 launchCLIOverrideMu 保护。
+var currentLaunchCLIOverride func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error)
 
 const restartTestTimeout = 15 * time.Second
 
@@ -121,7 +125,9 @@ type testLaunchCLI func(string, string, string, string, cliLaunchConfig, dto.MCP
 func overrideLaunchCLI(t *testing.T, fn func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error)) func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 	t.Helper()
 	launchCLIOverrideMu.Lock()
+	currentLaunchCLIOverride = fn
 	t.Cleanup(func() {
+		currentLaunchCLIOverride = nil
 		launchCLIOverrideMu.Unlock()
 	})
 	return fn
@@ -137,6 +143,21 @@ func newTestDriverWithLaunch(t *testing.T, mirror contract.SkillMirrorReconciler
 	d.launchCLI = overrideLaunchCLI(t, fn)
 	d.authStatus = loggedInClaudeAuthStatus
 	return d
+}
+
+func assumeClaudeAuthLoggedIn(d *driver) *driver {
+	d.authStatus = loggedInClaudeAuthStatus
+	if currentLaunchCLIOverride != nil {
+		d.launchCLI = currentLaunchCLIOverride
+	}
+	return d
+}
+
+func assumeSessionLaunchOverride(s *session) *session {
+	if currentLaunchCLIOverride != nil {
+		s.launchCLI = currentLaunchCLIOverride
+	}
+	return s
 }
 
 func snapshotSessionState(s *session) (string, string, chan struct{}) {

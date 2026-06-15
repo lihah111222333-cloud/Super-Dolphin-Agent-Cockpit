@@ -37,6 +37,7 @@ type turnReplayState struct {
 	handle     *turnHandle
 }
 
+// CheckHealth 检查底层服务健康状态。
 func (r *recoveryManager) CheckHealth(ctx context.Context) error {
 	if r.transport == nil {
 		return errors.New("codexapp: transport not running")
@@ -47,6 +48,7 @@ func (r *recoveryManager) CheckHealth(ctx context.Context) error {
 	return r.transport.CheckHealth(ctx)
 }
 
+// Reconnect 处理reconnect。
 func (r *recoveryManager) Reconnect(ctx context.Context) error {
 	if r.transport == nil {
 		return errors.New("codexapp: transport not configured")
@@ -108,6 +110,7 @@ func (s *session) callTransport(ctx context.Context, method string, params any) 
 	return s.transport.Call(ctx, method, params)
 }
 
+// handleConnectionDead 处理connectiondead。
 func (s *session) handleConnectionDead(params json.RawMessage) {
 	reason := shared.FirstNonEmpty(stringValue(decodeEventPayload(params), "error", "message"), "connection lost")
 	pkglogger.Warn("codexapp: CONNECTION DEAD (passive)",
@@ -146,6 +149,7 @@ func (s *session) handleConnectionDead(params json.RawMessage) {
 	s.runtime.NotifyRecovery("connection-dead", reason)
 }
 
+// isNonRecoverableAuthErrorText 判断nonrecoverable认证错误文本是否可用。
 func isNonRecoverableAuthErrorText(reason string) bool {
 	text := strings.ToLower(strings.TrimSpace(reason))
 	if text == "" {
@@ -189,6 +193,7 @@ func (s *session) failNonRecoverableConnection(reason string) {
 	})
 }
 
+// attemptRecovery 处理attemptrecovery。
 func (s *session) attemptRecovery(reason string) error {
 	if err := s.recoveryShutdownErr(); err != nil {
 		return err
@@ -276,6 +281,7 @@ func (s *session) completeRecoveryReplay(reason string) error {
 	return nil
 }
 
+// resumeThreadAfterRecovery 处理恢复线程后置recovery。
 func (s *session) resumeThreadAfterRecovery(ctx context.Context) error {
 	threadID := s.ThreadID()
 	if threadID == "" {
@@ -301,6 +307,7 @@ func (s *session) resumeThreadAfterRecovery(ctx context.Context) error {
 	return nil
 }
 
+// recoveryResumeCWD 处理recovery恢复工作目录。
 func (s *session) recoveryResumeCWD() (string, error) {
 	if s == nil {
 		return "", errors.New("codexapp: recovery cwd is required")
@@ -319,6 +326,7 @@ func (s *session) recoveryResumeCWD() (string, error) {
 	return cwd, nil
 }
 
+// replayPendingTurn 处理replay待处理turn。
 func (s *session) replayPendingTurn(ctx context.Context) error {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
@@ -433,6 +441,7 @@ func (s *session) logReplayedTurn(snapshot *turnReplayState, newProviderID strin
 	)
 }
 
+// shouldReconnect 判断reconnect是否可用。
 func shouldReconnect(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false

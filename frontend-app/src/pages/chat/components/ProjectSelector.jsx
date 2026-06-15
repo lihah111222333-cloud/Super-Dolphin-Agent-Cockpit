@@ -45,6 +45,10 @@ function ProjectDropdown({ options, selectedValue, onSelect, onRemove, onAdd }) 
 }
 
 export function ProjectSelector({ store, projectPath }) {
+  /*
+   * ProjectSelector 只管菜单开关和点击。
+   * 选择、添加、移除项目都交给 store，不在组件里改项目状态。
+   */
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
   const activeProject = store.activeProject || projectPath;

@@ -22,7 +22,7 @@ const ComposerTextarea = React.forwardRef(function ComposerTextarea({
       onCompositionStart={onCompositionStart}
       onCompositionEnd={onCompositionEnd}
       onKeyDown={onKeyDown}
-      placeholder="输入给 Agent 的内容，Enter 发送，Shift+Enter 换行"
+      placeholder="输入指令、上传文件或询问任何事情..."
     />
   );
 });

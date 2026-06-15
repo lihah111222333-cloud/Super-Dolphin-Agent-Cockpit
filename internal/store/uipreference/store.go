@@ -20,10 +20,12 @@ type store struct {
 	q querier
 }
 
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store {
 	return &store{q: q}
 }
 
+// GetValue 读取值。
 func (s *store) GetValue(ctx context.Context, cwd, key string) (json.RawMessage, error) {
 	value, err := s.q.GetUIPreferenceValue(ctx, sqlc.GetUIPreferenceValueParams{
 		CWD: cwd,
@@ -35,6 +37,7 @@ func (s *store) GetValue(ctx context.Context, cwd, key string) (json.RawMessage,
 	return value, nil
 }
 
+// Upsert 新增或更新记录。
 func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 	if err := platformdb.ValidateJSONRaw(params.Value); err != nil {
 		return wrapUIPreferenceError(err, "upsert")
@@ -47,6 +50,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 	}), "upsert")
 }
 
+// List 列出uipreference存储。
 func (s *store) List(ctx context.Context, cwd string) ([]UIPreference, error) {
 	rows, err := s.q.ListUIPreferences(ctx, sqlc.ListUIPreferencesParams{CWDFilter: cwd})
 	if err != nil {

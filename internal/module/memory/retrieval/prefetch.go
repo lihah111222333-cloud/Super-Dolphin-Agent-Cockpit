@@ -48,6 +48,7 @@ type PrefetchManager struct {
 	alreadySurfaced map[string]struct{}
 }
 
+// NewPrefetchManager 创建prefetchmanager。
 func NewPrefetchManager(memoryRoot string) *PrefetchManager {
 	finder := NewRelevantMemoryFinder()
 	builder := NewManifestBuilder()
@@ -65,24 +66,28 @@ func NewPrefetchManager(memoryRoot string) *PrefetchManager {
 	return manager
 }
 
+// SetBuildManifestFunc 设置buildmanifestfunc。
 func (m *PrefetchManager) SetBuildManifestFunc(fn func(string) ([]MemoryEntry, error)) {
 	if m != nil {
 		m.buildManifest = fn
 	}
 }
 
+// SetFindRelevantFunc 设置findrelevantfunc。
 func (m *PrefetchManager) SetFindRelevantFunc(fn func(context.Context, string, []MemoryEntry) ([]MemoryEntry, error)) {
 	if m != nil {
 		m.findRelevant = fn
 	}
 }
 
+// SetTimeNowFunc 设置时间nowfunc。
 func (m *PrefetchManager) SetTimeNowFunc(fn func() time.Time) {
 	if m != nil {
 		m.timeNow = fn
 	}
 }
 
+// StartRelevantMemoryPrefetch 启动relevant记忆prefetch。
 func (m *PrefetchManager) StartRelevantMemoryPrefetch(ctx context.Context, query string) *PrefetchHandle {
 	if m == nil {
 		return nil
@@ -113,6 +118,7 @@ func (m *PrefetchManager) StartRelevantMemoryPrefetch(ctx context.Context, query
 	return handle
 }
 
+// ConsumeIfReady 处理consumeifready。
 func (m *PrefetchManager) ConsumeIfReady(handle *PrefetchHandle) ([]MemoryEntry, bool) {
 	if m == nil || handle == nil || handle.state.Load() != PrefetchStateReady {
 		return nil, false
@@ -128,6 +134,7 @@ func (m *PrefetchManager) ConsumeIfReady(handle *PrefetchHandle) ([]MemoryEntry,
 	return handle.snapshot(), true
 }
 
+// FilterAlreadySurfaced 处理过滤条件alreadysurfaced。
 func (m *PrefetchManager) FilterAlreadySurfaced(entries []MemoryEntry) []MemoryEntry {
 	if m == nil || len(entries) == 0 {
 		return entries
@@ -135,6 +142,7 @@ func (m *PrefetchManager) FilterAlreadySurfaced(entries []MemoryEntry) []MemoryE
 	return filterAlreadySurfacedEntries(entries, m.surfacedSnapshot())
 }
 
+// MarkSurfaced 标记surfaced。
 func (m *PrefetchManager) MarkSurfaced(entries []MemoryEntry) {
 	if m == nil || len(entries) == 0 {
 		return
@@ -147,6 +155,7 @@ func (m *PrefetchManager) MarkSurfaced(entries []MemoryEntry) {
 	rememberSurfacedEntries(m.alreadySurfaced, entries)
 }
 
+// Reset 重置记忆。
 func (m *PrefetchManager) Reset(reason string) {
 	if m == nil {
 		return
@@ -163,6 +172,7 @@ func (m *PrefetchManager) Reset(reason string) {
 	}
 }
 
+// ResetSurfaced 重置surfaced。
 func (m *PrefetchManager) ResetSurfaced(reason string) {
 	if m == nil {
 		return
@@ -173,6 +183,7 @@ func (m *PrefetchManager) ResetSurfaced(reason string) {
 	m.mu.Unlock()
 }
 
+// runPrefetch 运行prefetch。
 func (m *PrefetchManager) runPrefetch(ctx context.Context, handle *PrefetchHandle) {
 	manifest, err := m.buildManifestFn()(m.memoryRoot)
 	if err != nil {
@@ -258,6 +269,7 @@ func (h *PrefetchHandle) snapshot() []MemoryEntry {
 	return cloneEntries(h.result)
 }
 
+// Query 处理查询。
 func (h *PrefetchHandle) Query() string {
 	if h == nil {
 		return ""
@@ -265,6 +277,7 @@ func (h *PrefetchHandle) Query() string {
 	return h.query
 }
 
+// State 处理状态。
 func (h *PrefetchHandle) State() int32 {
 	if h == nil {
 		return PrefetchStateDiscarded
@@ -272,6 +285,7 @@ func (h *PrefetchHandle) State() int32 {
 	return h.state.Load()
 }
 
+// Done 处理done。
 func (h *PrefetchHandle) Done() <-chan struct{} {
 	if h == nil {
 		return nil
@@ -279,12 +293,14 @@ func (h *PrefetchHandle) Done() <-chan struct{} {
 	return h.done
 }
 
+// Cancel 取消当前运行。
 func (h *PrefetchHandle) Cancel() {
 	if h != nil && h.cancel != nil {
 		h.cancel()
 	}
 }
 
+// Err 处理err。
 func (h *PrefetchHandle) Err() error {
 	if h == nil {
 		return nil

@@ -55,6 +55,7 @@ func (s *service) applyToolDiffUpdated(ev tooldto.ToolDiffUpdated) {
 	})
 }
 
+// applyToolDiffUpdatedLocked 应用工具diffupdatedlocked。
 func (s *service) applyToolDiffUpdatedLocked(agentID, threadID, diffText string, revision int64) bool {
 	agentID = strings.TrimSpace(agentID)
 	threadID = strings.TrimSpace(threadID)
@@ -104,6 +105,7 @@ func (s *service) diffStateSnapshot(ctx context.Context) diffStateSnapshot {
 	}
 }
 
+// applyDiffStateSnapshot 应用diff状态快照。
 func applyDiffStateSnapshot(ctx context.Context, snapshot *UIState, current diffStateSnapshot) {
 	if snapshot == nil || current.threadID == "" {
 		return
@@ -141,6 +143,7 @@ func (s *service) currentDiffRevisionLocked(threadID string) int64 {
 	return s.state.DiffRevisionByAgent[agentID]
 }
 
+// diffAgentIDLocked 处理diff代理IDlocked。
 func (s *service) diffAgentIDLocked(threadID string) string {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -162,6 +165,7 @@ func (s *service) diffAgentIDLocked(threadID string) string {
 	return ""
 }
 
+// activeDiffAgentIDLocked 处理activediff代理IDlocked。
 func (s *service) activeDiffAgentIDLocked(threadID string) string {
 	if threadID != strings.TrimSpace(s.state.ActiveThreadID) && threadID != strings.TrimSpace(s.state.ActiveCmdThreadID) {
 		return ""

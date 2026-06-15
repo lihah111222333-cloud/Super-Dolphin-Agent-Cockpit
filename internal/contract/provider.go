@@ -124,10 +124,12 @@ var codexMultiAgentNativeToolIDs = []string{
 	CodexNativeToolCloseAgent,
 }
 
+// KnownCodexNativeToolIDs 处理knowncodexnative工具ids。
 func KnownCodexNativeToolIDs() []string {
 	return append([]string(nil), knownCodexNativeToolIDs...)
 }
 
+// IsKnownCodexNativeTool 判断knowncodexnative工具是否可用。
 func IsKnownCodexNativeTool(id string) bool {
 	switch strings.TrimSpace(id) {
 	case CodexNativeToolShell, CodexNativeToolApplyPatch, CodexNativeToolWriteNewFile,
@@ -153,6 +155,7 @@ type CodexNativeToolPolicy struct {
 	appServerFeatures []string
 }
 
+// NewCodexNativeToolPolicy 创建codexnative工具策略。
 func NewCodexNativeToolPolicy(disabled []string) CodexNativeToolPolicy {
 	policy := CodexNativeToolPolicy{
 		disabled: make(map[string]struct{}),
@@ -286,18 +289,22 @@ func (p *CodexNativeToolPolicy) addFeature(feature string) {
 	sort.Strings(p.appServerFeatures)
 }
 
+// Tier 处理tier。
 func (p CodexNativeToolPolicy) Tier(id string) NativeToolEnforcement {
 	return p.tiers[strings.TrimSpace(id)]
 }
 
+// HasProcessFlags 判断进程flags是否可用。
 func (p CodexNativeToolPolicy) HasProcessFlags() bool {
 	return len(p.appServerFeatures) != 0
 }
 
+// ProcessSignature 处理进程签名。
 func (p CodexNativeToolPolicy) ProcessSignature() string {
 	return strings.Join(p.appServerFeatures, ",")
 }
 
+// AppServerArgs 处理app服务端args。
 func (p CodexNativeToolPolicy) AppServerArgs() []string {
 	args := make([]string, 0, len(p.appServerFeatures)*2)
 	for _, feature := range p.appServerFeatures {
@@ -306,6 +313,7 @@ func (p CodexNativeToolPolicy) AppServerArgs() []string {
 	return args
 }
 
+// RequiresReadOnlySandbox 处理requiresreadonly沙箱。
 func (p CodexNativeToolPolicy) RequiresReadOnlySandbox() bool {
 	for _, tier := range p.tiers {
 		if tier == NativeToolEnforcementEffectHard {
@@ -365,14 +373,17 @@ type CapabilityError struct {
 	Driver     string
 }
 
+// Error 返回错误文本。
 func (e *CapabilityError) Error() string {
 	return fmt.Sprintf("capability %q is not supported by %s driver", e.Capability, e.Driver)
 }
 
+// NewCapabilityError 创建capability错误。
 func NewCapabilityError(cap, driver string) error {
 	return &CapabilityError{Capability: cap, Driver: driver}
 }
 
+// HasCapability 判断capability是否可用。
 func HasCapability(caps dto.CapabilitySet, cap string) bool {
 	if caps == nil {
 		return false
@@ -380,6 +391,7 @@ func HasCapability(caps dto.CapabilitySet, cap string) bool {
 	return caps[cap]
 }
 
+// HasAllCapabilities 判断allcapabilities是否可用。
 func HasAllCapabilities(caps dto.CapabilitySet, want ...string) bool {
 	for _, cap := range want {
 		if !HasCapability(caps, cap) {

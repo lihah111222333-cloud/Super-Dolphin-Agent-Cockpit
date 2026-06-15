@@ -9,9 +9,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
@@ -363,15 +365,19 @@ func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
 	if err := os.WriteFile(path, []byte("package main\n\nfunc f() { old() }\n"), 0o600); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
+	var hookOnce sync.Once
+	var hookErr error
 	manager := &editFailureManager{
 		didChangeErr: errors.New("lsp sync boom"),
 		didChangeHook: func(uri string) {
-			if err := os.Remove(uri); err != nil {
-				t.Fatalf("remove updated file before rollback: %v", err)
-			}
-			if err := os.Mkdir(uri, 0o700); err != nil {
-				t.Fatalf("replace file with directory before rollback: %v", err)
-			}
+			hookOnce.Do(func() {
+				diskPath, err := format.AbsolutePathFromURI(uri)
+				if err != nil {
+					hookErr = err
+					return
+				}
+				hookErr = replaceFileWithDirectoryForRollbackTest(diskPath)
+			})
 		},
 	}
 	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
@@ -389,6 +395,9 @@ func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
 	}
 
 	got, err := handler(testToolContext(root), input)
+	if hookErr != nil {
+		t.Fatalf("arrange rollback failure fixture: %v", hookErr)
+	}
 	requireSyncRollbackFailure(t, err)
 	if got == nil {
 		t.Fatalf("result = nil, want replaceRangeFailure envelope")
@@ -402,6 +411,20 @@ func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
 	}
 }
 
+func replaceFileWithDirectoryForRollbackTest(path string) (lastErr error) {
+	for i := 0; i < 200; i++ {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			lastErr = err
+		} else if err := os.Mkdir(path, 0o700); err != nil && !os.IsExist(err) {
+			lastErr = err
+		} else {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return lastErr
+}
+
 type editBlockingSyncManager struct {
 	structureTestManager
 	started chan struct{}
@@ -411,6 +434,20 @@ func (m *editBlockingSyncManager) DidChange(ctx context.Context, _ string, _ int
 	close(m.started)
 	<-ctx.Done()
 	return ctx.Err()
+}
+
+type editBlockingFunctionLookupManager struct {
+	structureTestManager
+	started chan struct{}
+	once    sync.Once
+}
+
+func (m *editBlockingFunctionLookupManager) DocumentSymbol(ctx context.Context, _ string) ([]protocol.DocumentSymbol, error) {
+	m.once.Do(func() {
+		close(m.started)
+	})
+	<-ctx.Done()
+	return nil, ctx.Err()
 }
 
 func TestReplaceRangeConfirmsDiskWriteWithGitDiffBeforeSlowLSPSync(t *testing.T) {
@@ -454,6 +491,49 @@ func TestReplaceRangeConfirmsDiskWriteWithGitDiffBeforeSlowLSPSync(t *testing.T)
 	}
 	assertFileContent(t, path, "package main\n\nfunc f() { new() }\n")
 	assertEditRecoveryLog(t, logDir, path)
+}
+
+func TestReplaceRangeReturnsAppliedWhenFunctionLookupBlocksAfterSync(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sample.go")
+	if err := os.WriteFile(path, []byte("package main\n\nfunc f() { old() }\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	manager := &editBlockingFunctionLookupManager{started: make(chan struct{})}
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
+	input, err := json.Marshal(EditRequest{
+		FilePath: path,
+		Patch: strings.Join([]string{
+			"@@",
+			"-func f() { old() }",
+			"+func f() { new() }",
+			"",
+		}, "\n"),
+	})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(testToolContext(root), 2*time.Second)
+	defer cancel()
+
+	startedAt := time.Now()
+	got, err := handler(ctx, input)
+	if err != nil {
+		t.Fatalf("edit returned error after disk write and LSP sync: %v", err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > time.Second {
+		t.Fatalf("edit elapsed = %s, want bounded best-effort function lookup", elapsed)
+	}
+	result := requireSyncedReplaceRangeResult(t, got)
+	if result.FuncStart != 0 || result.FuncEnd != 0 || result.FuncBody != "" {
+		t.Fatalf("function context = %#v, want empty when lookup times out", result)
+	}
+	assertFileContent(t, path, "package main\n\nfunc f() { new() }\n")
+	select {
+	case <-manager.started:
+	default:
+		t.Fatalf("DocumentSymbol was not called; test did not exercise blocking function lookup")
+	}
 }
 
 func requireSyncRollbackFailure(t *testing.T, err error) {
@@ -501,8 +581,8 @@ func assertEditRecoveryLog(t *testing.T, logDir string, path string) {
 	if err != nil {
 		t.Fatalf("read edit recovery log: %v", err)
 	}
-	text := string(raw)
-	if !strings.Contains(text, path) || !strings.Contains(text, "git_diff_confirmed") {
+	path = strings.ReplaceAll(path, "\\", "\\\\")
+	if text := string(raw); !strings.Contains(text, path) || !strings.Contains(text, "git_diff_confirmed") {
 		t.Fatalf("edit recovery log = %q, want file path and git_diff_confirmed", text)
 	}
 }

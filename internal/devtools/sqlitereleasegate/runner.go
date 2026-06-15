@@ -11,7 +11,11 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
+
+var nowFunc = time.Now
 
 type RunOptions struct {
 	RepoRoot     string
@@ -45,13 +49,13 @@ func Run(ctx context.Context, opts RunOptions) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	reportStarted := time.Now().UTC()
+	reportStarted := nowFunc().UTC()
 	results := make([]Result, 0, len(selected))
 	for _, gate := range selected {
 		result := runGate(ctx, repoRoot, logDir, gate, opts.Timeout)
 		results = append(results, result)
 	}
-	reportEnded := time.Now().UTC()
+	reportEnded := nowFunc().UTC()
 	report := Report{
 		CommitSHA: commitSHA,
 		OS:        runtime.GOOS,
@@ -81,7 +85,7 @@ func WriteReport(path string, report Report) error {
 }
 
 func runGate(parent context.Context, repoRoot, logDir string, gate Gate, timeout time.Duration) Result {
-	started := time.Now().UTC()
+	started := nowFunc().UTC()
 	rawLogPath := filepath.Join(logDir, gate.ID+".log")
 	result := Result{
 		Gate:       gate,
@@ -95,11 +99,11 @@ func runGate(parent context.Context, repoRoot, logDir string, gate Gate, timeout
 	var log bytes.Buffer
 	if len(gate.Command) == 0 {
 		log.WriteString("gate command is empty\n")
-		result.EndedAt = time.Now().UTC()
+		result.EndedAt = nowFunc().UTC()
 		writeGateLog(rawLogPath, log.Bytes())
 		return result
 	}
-	ctx, cancel := context.WithTimeout(parent, timeout)
+	ctx, cancel := platformconfig.WithTimeout(parent, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, gate.Command[0], gate.Command[1:]...)
 	cmd.Dir = filepath.Join(repoRoot, filepath.FromSlash(gate.CWD))
@@ -111,7 +115,7 @@ func runGate(parent context.Context, repoRoot, logDir string, gate Gate, timeout
 	} else if err != nil {
 		log.WriteString("\nrelease gate failed: " + err.Error() + "\n")
 	}
-	result.EndedAt = time.Now().UTC()
+	result.EndedAt = nowFunc().UTC()
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		result.ExitCode = exitErr.ExitCode()
 	} else if err == nil {

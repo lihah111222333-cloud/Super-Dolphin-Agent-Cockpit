@@ -1,29 +1,22 @@
 package tools
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
 	editpkg "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/edit"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const (
-	editDiskConfirmTimeout = 750 * time.Millisecond
-	editLSPSyncTimeout     = 2 * time.Second
-	editRecoveryLogFile    = "mcp-lsp-edit-recovery.jsonl"
+	editDiskConfirmTimeout    = 750 * time.Millisecond
+	editFunctionLookupTimeout = 500 * time.Millisecond
+	editLSPSyncTimeout        = 2 * time.Second
+	editRecoveryLogFile       = "mcp-lsp-edit-recovery.jsonl"
 )
 
 type replacePlan struct {
@@ -98,19 +91,11 @@ type replaceUpdateDecision struct {
 	err     error
 }
 
-type editRecoveryLogEntry struct {
-	CreatedAt string `json:"created_at"`
-	Event     string `json:"event"`
-	FilePath  string `json:"file_path"`
-	Confirmed string `json:"confirmed_by"`
-	DiffBytes int    `json:"diff_bytes"`
-	SyncError string `json:"sync_error,omitempty"`
-}
-
 // ToPlainText extends editEnvelope.ToPlainText with the edit-context
 // window and (only for relaxed match modes) a verification nudge. The
 // raw replaced/replacement bodies stay in structuredContent for any
 // diff-aware UI but no longer bloat the LLM-facing channel.
+// ToPlainText 渲染为纯文本。
 func (r replaceRangeResult) ToPlainText() string {
 	base := r.editEnvelope.ToPlainText()
 	if !strings.EqualFold(strings.TrimSpace(r.Status), "applied") {
@@ -131,6 +116,7 @@ func (r replaceRangeResult) ToPlainText() string {
 	return strings.TrimSpace(sb.String()) + "\n\nEdit context:\n" + context
 }
 
+// ToPlainText 渲染为纯文本。
 func (r replaceRangeFailure) ToPlainText() string {
 	var sb strings.Builder
 	header := "Tool error in \"edit\""
@@ -178,43 +164,84 @@ func appendFailureNextStep(sb *strings.Builder, r replaceRangeFailure) {
 	fmt.Fprintf(sb, "next: file action=read_file pos=%s\n", r.FilePath)
 }
 
+// handleReplaceRange 处理replace范围。
 func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (any, error) {
+	log := newEditStageLogger("replace_range", req.FilePath)
+	stage := log.Started("workspace_roots")
 	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
+		log.Failed("workspace_roots", stage, err)
 		return nil, err
 	}
+	log.Completed("workspace_roots", stage, "root", root, "roots_count", len(roots))
+
+	stage = log.Started("resolve_path")
 	path, err := resolveWorkspacePathInRoots(root, roots, req.FilePath)
 	if err != nil {
+		log.Failed("resolve_path", stage, err)
 		return nil, err
 	}
+	log.setFilePath(path)
+	log.Completed("resolve_path", stage)
+
+	stage = log.Started("file_lock")
 	unlock := lockEditFile(path)
-	defer unlock()
+	log.Completed("file_lock", stage)
+	defer func() {
+		unlock()
+		log.Completed("file_unlock", time.Now())
+	}()
+
+	stage = log.Started("read_file")
 	file, err := readFileWithMode(path)
 	if err != nil {
+		log.Failed("read_file", stage, err)
 		return nil, err
 	}
+	log.Completed("read_file", stage, "content_bytes", len(file.content), "raw_bytes", len(file.raw))
+
+	stage = log.Started("manager_lookup", "language_id", req.LanguageID)
 	manager, managerWarning, err := h.replaceRangeManager(ctx, path, req.LanguageID)
 	if err != nil {
+		log.Failed("manager_lookup", stage, err)
 		return nil, err
 	}
+	log.Completed("manager_lookup", stage, "manager_available", manager != nil, "warning", managerWarning != "")
+
 	content := file.content
+	stage = log.Started("build_plan", "content_bytes", len(content), "patch_bytes", len(req.Patch))
 	plan, err := buildReplacePlan(content, req)
 	if err != nil {
-		return h.replaceFailure(ctx, manager, path, content, 0, err), err
+		log.Failed("build_plan", stage, err)
+		return h.replaceFailure(ctx, manager, path, content, 0, err, log), err
 	}
+	log.Completed("build_plan", stage,
+		"matched_by", plan.matchedBy,
+		"resolved_lsp_line", plan.resolvedLSPLine,
+		"affected_start_line", plan.affectedStartLine,
+		"affected_end_line", plan.affectedEndLine,
+		"replaced_bytes", len(plan.replaced),
+		"replacement_bytes", len(plan.replacement),
+	)
 	if plan.updatedContent == content {
+		log.Skipped("apply_update", "no_change")
 		return h.buildNoChangeResult(manager, path, managerWarning), nil
 	}
 	updatedContent := file.diskContent(plan.updatedContent)
 	warning := managerWarning
-	lspSync, syncWarning, err := h.applyReplaceRangeUpdate(ctx, manager, path, file, updatedContent, normalizeEditVersion(req.Version))
+	version := normalizeEditVersion(req.Version)
+	stage = log.Started("apply_update", "version", version, "updated_bytes", len(updatedContent))
+	lspSync, syncWarning, err := h.applyReplaceRangeUpdate(ctx, manager, path, file, updatedContent, version, log)
 	if err != nil {
-		return h.replaceFailure(ctx, manager, path, content, plan.functionLookupLine, err), err
+		log.Failed("apply_update", stage, err)
+		return h.replaceFailure(ctx, manager, path, content, plan.functionLookupLine, err, log), err
 	}
+	log.Completed("apply_update", stage, "lsp_sync", lspSync, "sync_warning", syncWarning != "")
 	if syncWarning != "" {
 		warning = syncWarning
 	}
-	functionCtx := h.lookupFunctionContext(ctx, manager, path, plan.functionLookupLine, plan.updatedContent)
+	functionCtx := h.lookupFunctionContextWithLog(ctx, manager, path, plan.functionLookupLine, plan.updatedContent, log)
+	log.Completed("replace_range", log.started, "result_status", "applied")
 	return h.buildAppliedResult(path, plan, lspSync, warning, functionCtx), nil
 }
 
@@ -260,195 +287,6 @@ func (h EditHandler) buildAppliedResult(path string, plan replacePlan, lspSync b
 	}
 }
 
-func (h EditHandler) applyReplaceRangeUpdate(ctx context.Context, manager lspmanager.Manager, path string, file editableFile, updatedContent string, version int) (bool, string, error) {
-	if err := os.WriteFile(path, []byte(updatedContent), file.mode); err != nil {
-		return false, "", err
-	}
-	if manager == nil {
-		return false, "", nil
-	}
-	syncC, diffC, cancelSync := h.startReplaceConfirmations(ctx, manager, path, updatedContent, version)
-	defer cancelSync()
-	decision := waitReplaceConfirmation(ctx, path, syncC, diffC, cancelSync)
-	if decision.err == nil {
-		return decision.lspSync, decision.warning, nil
-	}
-	return h.rollbackReplaceRangeUpdate(ctx, manager, path, file, version, decision.err)
-}
-
-func (h EditHandler) startReplaceConfirmations(ctx context.Context, manager lspmanager.Manager, path string, updatedContent string, version int) (<-chan replaceSyncResult, <-chan editDiskConfirmResult, context.CancelFunc) {
-	syncCtx, cancelSync := platformconfig.WithTimeout(ctx, editLSPSyncTimeout)
-	syncC := make(chan replaceSyncResult, 1)
-	diffC := make(chan editDiskConfirmResult, 1)
-	go func() {
-		lspSync, warning, err := h.syncDocument(syncCtx, manager, path, updatedContent, version)
-		syncC <- replaceSyncResult{lspSync: lspSync, warning: warning, err: err}
-	}()
-	go func() {
-		diffC <- confirmEditDiskWriteWithGitDiff(path, updatedContent)
-	}()
-	return syncC, diffC, cancelSync
-}
-
-func waitReplaceConfirmation(ctx context.Context, path string, syncC <-chan replaceSyncResult, diffC <-chan editDiskConfirmResult, cancelSync context.CancelFunc) replaceUpdateDecision {
-	var syncErr error
-	var diffErr error
-	for pending := 2; pending > 0; pending-- {
-		select {
-		case result := <-syncC:
-			if result.err == nil {
-				return replaceUpdateDecision{lspSync: result.lspSync, warning: result.warning}
-			}
-			syncErr = result.err
-		case result := <-diffC:
-			if result.confirmed {
-				cancelSync()
-				logEditDiskConfirmation(path, result.diffBytes, syncErr)
-				return replaceUpdateDecision{warning: result.warning}
-			}
-			diffErr = result.err
-		case <-ctx.Done():
-			return replaceUpdateDecision{err: ctx.Err()}
-		}
-	}
-	return replaceUpdateDecision{err: firstReplaceConfirmationError(syncErr, diffErr)}
-}
-
-func firstReplaceConfirmationError(syncErr error, diffErr error) error {
-	if syncErr == nil {
-		syncErr = diffErr
-	}
-	if syncErr == nil {
-		syncErr = errors.New("LSP sync failed and git diff did not confirm disk write")
-	}
-	return syncErr
-}
-
-func (h EditHandler) rollbackReplaceRangeUpdate(ctx context.Context, manager lspmanager.Manager, path string, file editableFile, version int, syncErr error) (bool, string, error) {
-	rollbackErr := os.WriteFile(path, []byte(file.raw), file.mode)
-	if rollbackErr == nil {
-		rollbackErr = h.syncRollbackDocument(ctx, manager, path, file.raw, version)
-	}
-	return false, "", withRollbackError(syncErr, rollbackErr)
-}
-
-func confirmEditDiskWriteWithGitDiff(path string, updatedContent string) editDiskConfirmResult {
-	ctx, cancel := platformconfig.WithTimeout(context.Background(), editDiskConfirmTimeout)
-	defer cancel()
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return editDiskConfirmResult{err: err}
-	}
-	if string(raw) != updatedContent {
-		return editDiskConfirmResult{err: errors.New("disk content does not match requested edit")}
-	}
-	diff, err := gitDiffForFile(ctx, path)
-	if err != nil {
-		return editDiskConfirmResult{err: err}
-	}
-	if strings.TrimSpace(diff) == "" {
-		return editDiskConfirmResult{err: errors.New("git diff is empty after edit")}
-	}
-	return editDiskConfirmResult{
-		confirmed: true,
-		warning:   fmt.Sprintf("LSP sync is still pending; disk write confirmed by git diff (%d bytes)", len(diff)),
-		diffBytes: len(diff),
-	}
-}
-
-func gitDiffForFile(ctx context.Context, path string) (string, error) {
-	dir := filepath.Dir(path)
-	rootRaw, err := runEditGitCommand(ctx, dir, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return "", err
-	}
-	root := filepath.Clean(strings.TrimSpace(rootRaw))
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		return "", err
-	}
-	return runEditGitCommand(ctx, root, "diff", "--", filepath.ToSlash(rel))
-}
-
-func runEditGitCommand(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return "", fmt.Errorf("git %s timed out after %s", strings.Join(args, " "), editDiskConfirmTimeout)
-		}
-		message := strings.TrimSpace(stderr.String())
-		if message == "" {
-			message = err.Error()
-		}
-		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), message)
-	}
-	return stdout.String(), nil
-}
-
-func logEditDiskConfirmation(path string, diffBytes int, syncErr error) {
-	var syncError string
-	if syncErr != nil {
-		syncError = syncErr.Error()
-	}
-	entry := editRecoveryLogEntry{
-		CreatedAt: time.Now().Format(time.RFC3339Nano),
-		Event:     "git_diff_confirmed",
-		FilePath:  path,
-		Confirmed: "git diff",
-		DiffBytes: diffBytes,
-		SyncError: syncError,
-	}
-	pkglogger.Warn("mcp-lsp edit disk write confirmed before LSP sync returned",
-		"file_path", path,
-		"diff_bytes", diffBytes,
-		"sync_error", syncError,
-	)
-	if err := appendEditRecoveryLog(entry); err != nil {
-		pkglogger.Warn("mcp-lsp edit recovery log write failed", "error", err)
-	}
-}
-
-func appendEditRecoveryLog(entry editRecoveryLogEntry) error {
-	dir, ok := editRecoveryLogDir()
-	if !ok {
-		return nil
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	line, err := json.Marshal(entry)
-	if err != nil {
-		return err
-	}
-	line = append(line, '\n')
-	file, err := os.OpenFile(filepath.Join(dir, editRecoveryLogFile), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	_, err = file.Write(line)
-	return err
-}
-
-func editRecoveryLogDir() (string, bool) {
-	if dir := strings.TrimSpace(os.Getenv("GO_AGENT_LOG_FALLBACK_DIR")); dir != "" {
-		abs, err := filepath.Abs(dir)
-		if err != nil {
-			return "", false
-		}
-		return abs, true
-	}
-	if logPath := strings.TrimSpace(pkglogger.CurrentLogFilePath()); logPath != "" {
-		return filepath.Dir(logPath), true
-	}
-	return "", false
-}
-
 func (h EditHandler) replaceRangeManager(ctx context.Context, path string, languageID string) (lspmanager.Manager, string, error) {
 	manager, err := managerForFile(ctx, h.registry, path, languageID)
 	if err == nil {
@@ -460,8 +298,8 @@ func (h EditHandler) replaceRangeManager(ctx context.Context, path string, langu
 	return nil, "", err
 }
 
-func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Manager, path string, content string, line int, err error) replaceRangeFailure {
-	functionCtx := h.lookupFunctionContext(ctx, manager, path, line, content)
+func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Manager, path string, content string, line int, err error, log *editStageLogger) replaceRangeFailure {
+	functionCtx := h.lookupFunctionContextWithLog(ctx, manager, path, line, content, log)
 	envelope := newToolErrorEnvelope("edit", "", err)
 	meta := envelope.Meta
 	if meta == nil {
@@ -551,25 +389,6 @@ func nextEditVersion(version int) int {
 	return version + 1
 }
 
-func (h EditHandler) lookupFunctionContext(ctx context.Context, manager lspmanager.Manager, path string, line int, content string) functionContext {
-	if manager == nil {
-		return functionContext{}
-	}
-	if line <= 0 {
-		return functionContext{}
-	}
-	symbols, err := manager.DocumentSymbol(ctx, path)
-	if err != nil {
-		return functionContext{}
-	}
-	start, end, ok := format.FindEnclosingFunction(symbols, line-1)
-	if !ok {
-		return functionContext{}
-	}
-	body := functionBody(content, start, end)
-	return functionContext{Start: start, End: end, Body: body}
-}
-
 func managerDiagnosticGeneration(manager lspmanager.Manager) uint64 {
 	if manager == nil {
 		return 0
@@ -592,6 +411,7 @@ func buildPatchReplacePlan(content string, patch string) (replacePlan, error) {
 	return buildHunksReplacePlan(content, hunks)
 }
 
+// buildHunksReplacePlan 构建hunksreplaceplan。
 func buildHunksReplacePlan(content string, hunks []editpkg.Hunk) (replacePlan, error) {
 	matches, err := editpkg.MatchContext(content, hunks)
 	if err != nil {

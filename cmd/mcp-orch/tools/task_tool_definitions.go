@@ -2,6 +2,7 @@ package tools
 
 import "github.com/anthropic-ai/super-agent-v3/internal/contract"
 
+// taskToolDefinitions 处理任务工具definitions。
 func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 	return buildToolDefinitions(
 		defineTool("task_create_dag", "Create a new DAG template and its nodes in the orchestration store. Existing dag_key values are not replaced; scheduled triggers must be enabled later via task_dag_apply_ops with base_version and cron_expr. This does not start execution; if the user asked to run/execute now, call task_start_dag after create succeeds.", createDAGSchema(), HandleCreateDAG(svc)),

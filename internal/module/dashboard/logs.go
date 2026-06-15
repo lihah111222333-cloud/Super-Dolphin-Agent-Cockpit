@@ -80,6 +80,7 @@ func sortLogEntries(entries []LogEntry) {
 	})
 }
 
+// GetAuditLogs 读取auditlogs。
 func (s *service) GetAuditLogs(ctx context.Context, filter auditlogstore.ListFilter) ([]auditlogstore.AuditEvent, error) {
 	return safeList(s.auditLogs != nil, func() ([]auditlogstore.AuditEvent, error) {
 		filter.EventType = strings.TrimSpace(filter.EventType)
@@ -91,6 +92,7 @@ func (s *service) GetAuditLogs(ctx context.Context, filter auditlogstore.ListFil
 	})
 }
 
+// GetBusLogs 读取buslogs。
 func (s *service) GetBusLogs(ctx context.Context, filter buslogstore.ListFilter) ([]buslogstore.BusExceptionLog, error) {
 	return safeList(s.busLogs != nil, func() ([]buslogstore.BusExceptionLog, error) {
 		filter.Category = strings.TrimSpace(filter.Category)

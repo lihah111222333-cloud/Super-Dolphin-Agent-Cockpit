@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,8 +10,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
+// archguard:ignore global_vars -- caches expensive bash drive-mount probing across tests.
 var bashDriveMountCache sync.Map
 
 func bashPath(parts ...string) string {
@@ -43,23 +46,37 @@ func bashAbsolutePath(path string) string {
 	if len(volume) == 2 && volume[1] == ':' {
 		drive := strings.ToLower(volume[:1])
 		rest := strings.TrimLeft(filepath.ToSlash(strings.TrimPrefix(path, volume)), "/")
-		if bashDriveMountAvailable(drive) {
-			return "/mnt/" + drive + "/" + rest
+		if root := bashDriveRoot(drive); root != "" {
+			return root + "/" + rest
 		}
 	}
 	return slashed
 }
 
 func bashDriveMountAvailable(drive string) bool {
+	return bashDriveRoot(drive) != ""
+}
+
+func bashDriveRoot(drive string) string {
 	if runtime.GOOS != "windows" {
-		return false
+		return ""
 	}
-	if cached, ok := bashDriveMountCache.Load(drive); ok {
+	for _, root := range []string{"/mnt/" + drive, "/" + drive} {
+		if bashDirectoryAvailable(root) {
+			return root
+		}
+	}
+	return ""
+}
+
+func bashDirectoryAvailable(path string) bool {
+	cacheKey := "dir:" + path
+	if cached, ok := bashDriveMountCache.Load(cacheKey); ok {
 		return cached.(bool)
 	}
-	err := exec.Command("bash", "-lc", "test -d /mnt/"+drive).Run()
+	err := exec.Command("bash", "-lc", "test -d "+bashQuote(path)).Run()
 	available := err == nil
-	bashDriveMountCache.Store(drive, available)
+	bashDriveMountCache.Store(cacheKey, available)
 	return available
 }
 
@@ -76,6 +93,7 @@ func bashVerifierPlatform() string {
 
 func appendWSLEnvKeys(env []string, keys ...string) []string {
 	keySet := wslEnvKeySet(keys...)
+	mergeWSLEnvParts(keySet, wslEnvKeysFromEnv(env))
 	mergeWSLEnvParts(keySet, wslEnvValue(env))
 	parts := make([]string, 0, len(keySet))
 	for key := range keySet {
@@ -93,6 +111,17 @@ func wslEnvKeySet(keys ...string) map[string]struct{} {
 		}
 	}
 	return keySet
+}
+
+func wslEnvKeysFromEnv(env []string) string {
+	parts := make([]string, 0, len(env))
+	for _, entry := range env {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok && key != "" && key != "WSLENV" {
+			parts = append(parts, key)
+		}
+	}
+	return strings.Join(parts, ":")
 }
 
 func wslEnvValue(env []string) string {
@@ -127,11 +156,103 @@ func wslEnvPartName(part string) string {
 func appendWSLEnvKeysWithGitWorktree(t testing.TB, env []string, keys ...string) []string {
 	t.Helper()
 	if runtime.GOOS == "windows" {
-		env = upsertEnv(env, "GIT_DIR", gitRevParseRequired(t, "--absolute-git-dir"))
-		env = upsertEnv(env, "GIT_WORK_TREE", gitRevParseRequired(t, "--show-toplevel"))
-		keys = append(keys, "GIT_DIR/p", "GIT_WORK_TREE/p")
+		env = upsertEnv(env, "GIT_DIR", bashAbsolutePath(gitRevParseRequired(t, "--absolute-git-dir")))
+		env = upsertEnv(env, "GIT_WORK_TREE", bashAbsolutePath(gitRevParseRequired(t, "--show-toplevel")))
+		keys = append(keys, "GIT_DIR", "GIT_WORK_TREE")
 	}
+	env, keys = appendBashGitPathForWindows(env, keys...)
 	return appendWSLEnvKeys(env, keys...)
+}
+
+func appendWSLEnvKeysWithGitPath(t testing.TB, env []string, keys ...string) []string {
+	t.Helper()
+	env, keys = appendBashGitPathForWindows(env, keys...)
+	return appendWSLEnvKeys(env, keys...)
+}
+
+func appendBashGitPathForWindows(env []string, keys ...string) ([]string, []string) {
+	if runtime.GOOS != "windows" {
+		return env, keys
+	}
+	for _, entry := range []string{"/cmd", "/c/Program Files/Git/cmd", "/c/Program Files/Git/mingw64/bin", "/mnt/c/Program Files/Git/cmd", "/mnt/c/Program Files/Git/mingw64/bin"} {
+		env = appendBashPathEntry(env, entry)
+	}
+	keys = append(keys, "PATH")
+	if gitDir := bashCommandDirWithEnv(env, "git"); gitDir != "" {
+		env = appendBashPathEntry(env, gitDir)
+		return env, keys
+	}
+	if gitDir := bashCommandDirWithEnv(nil, "git"); gitDir != "" {
+		env = appendBashPathEntry(env, gitDir)
+		return env, keys
+	}
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		return env, keys
+	}
+	env = appendBashPathDir(env, filepath.Dir(gitPath))
+	return env, keys
+}
+
+func bashCommandAvailable(name string) bool {
+	return bashCommandAvailableWithEnv(nil, name)
+}
+
+func bashCommandAvailableWithEnv(env []string, name string) bool {
+	return bashCommandPathWithEnv(env, name) != ""
+}
+
+func bashCommandDirWithEnv(env []string, name string) string {
+	commandPath := bashCommandPathWithEnv(env, name)
+	if commandPath == "" {
+		return ""
+	}
+	if idx := strings.LastIndexByte(commandPath, '/'); idx > 0 {
+		return commandPath[:idx]
+	}
+	return ""
+}
+
+func bashCommandPathWithEnv(env []string, name string) string {
+	if runtime.GOOS != "windows" {
+		return name
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", "-lc", "command -v "+bashQuote(name))
+	if env != nil {
+		cmd.Env = env
+	}
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(stripWSLInteropBanner(string(output)))
+}
+
+func appendBashPathDir(env []string, dir string) []string {
+	if strings.TrimSpace(dir) == "" {
+		return env
+	}
+	return appendBashPathEntry(env, bashAbsolutePath(dir))
+}
+
+func appendBashPathEntry(env []string, entry string) []string {
+	if strings.TrimSpace(entry) == "" {
+		return env
+	}
+	found := false
+	for i, item := range env {
+		key, value, ok := strings.Cut(item, "=")
+		if ok && key == "PATH" {
+			found = true
+			env[i] = "PATH=" + value + ":" + entry
+		}
+	}
+	if found {
+		return env
+	}
+	return append(env, "PATH="+entry)
 }
 
 func gitRevParseRequired(t testing.TB, arg string) string {
@@ -198,8 +319,10 @@ func TestPackageScriptValidationEnvLetsWSLGitResolveWindowsWorktree(t *testing.T
 		t.Fatalf("WSL git rev-parse failed: %v\n%s", err, output)
 	}
 
-	want := bashArg("", scriptRepoRoot(t))
-	if !strings.Contains(string(output), want) {
-		t.Fatalf("WSL git rev-parse output = %q, want repository root %q", output, want)
+	got := stripWSLInteropBanner(string(output))
+	wantBash := bashArg("", scriptRepoRoot(t))
+	wantWindowsGit := filepath.ToSlash(scriptRepoRoot(t))
+	if !strings.Contains(got, wantBash) && !strings.Contains(got, wantWindowsGit) {
+		t.Fatalf("WSL git rev-parse output = %q, want repository root %q or %q", output, wantBash, wantWindowsGit)
 	}
 }

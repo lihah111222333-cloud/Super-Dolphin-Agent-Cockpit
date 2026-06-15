@@ -229,6 +229,17 @@ func TestBuildThreadStartParamsUsesStartAssemblyInstructions(t *testing.T) {
 	}
 }
 
+func TestBuildThreadStartParamsNormalizesMinimalEffortToLow(t *testing.T) {
+	t.Parallel()
+
+	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
+		Config: map[string]any{"effort": " minimal "},
+	})
+	if params.Effort != "low" {
+		t.Fatalf("Effort = %q, want low", params.Effort)
+	}
+}
+
 func TestBuildThreadStartParamsPrefersCanonicalCodexModelProvider(t *testing.T) {
 	t.Parallel()
 
@@ -268,7 +279,6 @@ func TestBuildThreadStartParamsKeepsLegacyModelProviderKeys(t *testing.T) {
 
 func TestBuildThreadStartParamsUsesCodexModelProviderForCLI(t *testing.T) {
 	t.Parallel()
-
 	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
 		Provider: "codex",
 		CWD:      "/repo",
@@ -277,17 +287,20 @@ func TestBuildThreadStartParamsUsesCodexModelProviderForCLI(t *testing.T) {
 			"provider":           "codex",
 			"modelProvider":      "codex",
 			"codexModelProvider": "openai",
+			"mcpConfig":          map[string]any{"mcpServers": map[string]any{"my-search": map[string]any{"transport": "http", "url": "https://your-domain.com/mcp"}}},
 		},
 	})
 
 	if params.ModelProvider != "openai" {
 		t.Fatalf("ModelProvider = %q, want codexModelProvider value openai", params.ModelProvider)
 	}
+	if !strings.Contains(string(params.MCPConfig), `"my-search"`) {
+		t.Fatalf("MCPConfig = %s, want my-search server", string(params.MCPConfig))
+	}
 }
 
 func TestBuildThreadStartParamsIncludesStartRuntimeContext(t *testing.T) {
 	t.Parallel()
-
 	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
 		StartAssembly: dto.StartAssembly{
 			BaseInstructions: "assembled base",

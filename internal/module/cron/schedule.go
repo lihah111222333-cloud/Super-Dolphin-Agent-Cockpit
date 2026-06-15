@@ -31,6 +31,9 @@ var ErrInvalidScheduleExpr = errors.New("cron: invalid schedule_expr")
 // ParseSchedule returns a NextRunAt computer for the given schedule_expr
 // and timezone. Timezone defaults to UTC when empty or invalid. The
 // returned func is pure and safe for concurrent use.
+//
+// 空或非法 timezone 目前按 UTC 处理，这是历史兼容行为。
+// 若要改成失败，Create/Update 校验也要一起改。
 func ParseSchedule(scheduleExpr, timezone string) (func(after time.Time) time.Time, error) {
 	expr := strings.TrimSpace(scheduleExpr)
 	if expr == "" {
@@ -56,6 +59,7 @@ func ParseSchedule(scheduleExpr, timezone string) (func(after time.Time) time.Ti
 
 // ComputeNextRunAt is the one-shot version of ParseSchedule — parses the
 // expression, computes next_run_at, and returns both for convenience.
+// ComputeNextRunAt 根据 cron 配置计算下一次运行时间。
 func ComputeNextRunAt(scheduleExpr, timezone string, after time.Time) (time.Time, error) {
 	next, err := ParseSchedule(scheduleExpr, timezone)
 	if err != nil {
@@ -88,6 +92,8 @@ var DefaultBackoff = BackoffConfig{
 // is skipped by returning time.Time{}; the scheduler then marks the
 // current run failed and waits for the schedule's own tick so we don't
 // spin retries past the daily cron window.
+//
+// 返回零值表示本轮不再重试，等下一次正常 schedule。不要把它当成计算失败。
 func NextRetryAt(cfg BackoffConfig, now, nextRunAt time.Time, failureCount int32) time.Time {
 	if failureCount <= 0 {
 		return time.Time{}
@@ -128,6 +134,9 @@ func NextRetryAt(cfg BackoffConfig, now, nextRunAt time.Time, failureCount int32
 // across crash/restart windows. scheduled_at is serialized as RFC3339
 // UTC so two schedulers running on clocks with different zones produce
 // the same key for the same logical trigger.
+//
+// idempotencyKey 要来自 run 本身；只用 jobID+scheduledAt 会让 retry 和 RunOnce
+// 互相去重，造成漏跑。
 func DedupeKey(jobID string, scheduledAt time.Time, idempotencyKey string) string {
 	h := sha256.New()
 	h.Write([]byte(jobID))

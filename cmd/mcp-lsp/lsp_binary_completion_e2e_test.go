@@ -104,7 +104,7 @@ func (r mcpLSPBinaryToolResult) ContentText() string {
 func buildMcpLSPBinaryForTest(t *testing.T) string {
 	t.Helper()
 	repoRoot := repoRootForMcpLSPBinaryTest(t)
-	output := filepath.Join(t.TempDir(), "mcp-lsp")
+	output := filepath.Join(t.TempDir(), lspBinaryExecutableNameForTest())
 	cmd := exec.Command("go", "build", "-o", output, "./cmd/mcp-lsp")
 	cmd.Dir = repoRoot
 	if out, err := cmd.CombinedOutput(); err != nil {

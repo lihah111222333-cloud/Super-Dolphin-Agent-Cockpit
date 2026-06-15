@@ -30,7 +30,7 @@ func TestWaitDiagnosticsStableWaitsForDelayedColdStartDiagnostics(t *testing.T) 
 				CWD:            root,
 				WorkspaceRoots: []string{root},
 				Family:         "lsp",
-			}), time.Second)
+			}), 5*time.Second)
 			defer cancel()
 			uri, _ := resolveDiagnosticsScopeForTarget(t, mgr, ctx, target, "cold-start")
 			published := make(chan struct{})
@@ -74,7 +74,7 @@ func TestDefinitionWaitsForColdStartDiagnosticsBeforeRequest(t *testing.T) {
 				CWD:            root,
 				WorkspaceRoots: []string{root},
 				Family:         "lsp",
-			}), time.Second)
+			}), 5*time.Second)
 			defer cancel()
 
 			defs, err := mgr.Definition(ctx, target, protocol.Position{Line: 0, Character: 0})

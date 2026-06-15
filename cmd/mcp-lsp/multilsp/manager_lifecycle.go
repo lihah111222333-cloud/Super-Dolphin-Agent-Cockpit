@@ -21,6 +21,7 @@ const managerShutdownTimeout = 5 * time.Second
 // platformrunner.Runner. A nil receiver or nil pool yields nil so the
 // root collector can safely drop it from `group:"runners"`. P22 P2
 // LSP-S1.
+// BackgroundRunner 处理后台runner。
 func (m *manager) BackgroundRunner() platformrunner.Runner {
 	if m == nil || m.pool == nil {
 		return nil
@@ -28,6 +29,7 @@ func (m *manager) BackgroundRunner() platformrunner.Runner {
 	return m.pool.RecyclerRunner()
 }
 
+// EnsureClient 确保客户端。
 func (m *manager) EnsureClient(ctx context.Context, filePath, languageID string) (Client, error) {
 	if strings.TrimSpace(filePath) != "" {
 		ref, err := m.resolveDocumentRef(ctx, filePath, languageID)
@@ -39,6 +41,7 @@ func (m *manager) EnsureClient(ctx context.Context, filePath, languageID string)
 	return m.ensureClientForLanguage(ctx, languageID)
 }
 
+// Close 关闭 LSP 管理器资源。
 func (m *manager) Close() error {
 	return m.close(true)
 }
@@ -89,6 +92,7 @@ func (m *manager) collectAndClearClients() []Client {
 	return clients
 }
 
+// shutdownClients 处理shutdownclients。
 func shutdownClients(clients []Client) error {
 	var firstErr error
 	for _, client := range clients {
@@ -116,6 +120,7 @@ type leasedClient struct {
 	release func()
 }
 
+// Release 释放锁、租约或资源。
 func (l leasedClient) Release() {
 	if l.release != nil {
 		l.release()
@@ -168,6 +173,7 @@ func (m *manager) resolveLanguageWorkspace(ctx context.Context, languageID strin
 	return workspaceConfigForLanguageScope(scope, adapter)
 }
 
+// bootstrapLanguageClient 处理启动语言客户端。
 func (m *manager) bootstrapLanguageClient(ctx context.Context, client Client, root, languageID string) error {
 	if m != nil && m.disableInitialWorkspaceBootstrap {
 		return nil
@@ -218,6 +224,7 @@ func (m *manager) ensureClient(ctx context.Context, cfg workspaceConfig) (Client
 	return m.createAndRegisterClient(ctx, cfg)
 }
 
+// leaseBoundClient 处理租约bound客户端。
 func (m *manager) leaseBoundClient(client Client) (leasedClient, bool, error) {
 	if client == nil {
 		return leasedClient{client: client}, true, nil
@@ -249,6 +256,7 @@ func (m *manager) leaseClientLocked(client Client) leasedClient {
 	return leased
 }
 
+// lookupExistingClient 处理lookupexisting客户端。
 func (m *manager) lookupExistingClient(key string) (Client, error) {
 	m.mu.RLock()
 	if m.closed {
@@ -273,6 +281,7 @@ func (m *manager) lookupExistingClient(key string) (Client, error) {
 	return nil, nil
 }
 
+// createAndRegisterClient 创建register客户端。
 func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConfig) (Client, error) {
 	if m.factory == nil {
 		return nil, ErrClientFactoryNil
@@ -341,6 +350,7 @@ func configureClientWorkspace(client Client, cfg workspaceConfig) {
 	}
 }
 
+// DidOpen 把文档打开事件转给 LSP。
 func (m *manager) DidOpen(ctx context.Context, uri, languageID string, version int, text string) error {
 	openedURI := ""
 	err := m.notifyDocument(ctx, uri, languageID, func(ctx context.Context, client Client, ref documentRef) error {
@@ -353,6 +363,7 @@ func (m *manager) DidOpen(ctx context.Context, uri, languageID string, version i
 	return err
 }
 
+// DidChange 把文档变更事件转给 LSP。
 func (m *manager) DidChange(ctx context.Context, uri string, version int, changes []protocol.TextDocumentContentChangeEvent) error {
 	ref, err := m.resolveDocumentRef(ctx, uri, "")
 	if err != nil {
@@ -392,6 +403,7 @@ func (m *manager) handleDidChangeFailure(ctx context.Context, client Client, ref
 	return err
 }
 
+// DidClose 把文档关闭事件转给 LSP。
 func (m *manager) DidClose(ctx context.Context, uri string) error {
 	if err := m.notifyDocument(ctx, uri, "", func(ctx context.Context, client Client, ref documentRef) error {
 		return client.DidClose(ctx, ref.uri)
@@ -419,6 +431,7 @@ func fullDocumentChangeText(changes []protocol.TextDocumentContentChangeEvent) (
 	return change.Text, true
 }
 
+// recoverFullDocumentDidChange 恢复fulldocumentdidchange。
 func (m *manager) recoverFullDocumentDidChange(ctx context.Context, client Client, ref documentRef, version int, text string, originalErr error) error {
 	reopenErr := m.withPooledClient(client, func() error {
 		if err := client.DidClose(ctx, ref.uri); err != nil {
@@ -444,6 +457,7 @@ func (m *manager) recoverFullDocumentDidChange(ctx context.Context, client Clien
 	return nil
 }
 
+// recordFullDocumentDidChange 记录fulldocumentdidchange。
 func (m *manager) recordFullDocumentDidChange(ctx context.Context, ref documentRef, version int, text string) error {
 	_, _, scope, err := m.resolvedScopeForURI(ctx, ref.uri, ref.languageID)
 	if err != nil {
@@ -474,14 +488,17 @@ func (m *manager) recordFullDocumentDidChange(ctx context.Context, ref documentR
 	return nil
 }
 
+// BootstrapDocument 确保文档已打开并完成启动检查。
 func (m *manager) BootstrapDocument(ctx context.Context, uri string) error {
 	return m.bootstrapDocument(ctx, uri)
 }
 
+// BootstrapDocumentOpenOnly 处理启动document打开only。
 func (m *manager) BootstrapDocumentOpenOnly(ctx context.Context, uri string) error {
 	return m.bootstrapDocumentOpenOnly(ctx, uri)
 }
 
+// LogMessage 处理日志消息。
 func (m *manager) LogMessage(params protocol.LogMessageParams) error {
 	if m.logger == nil {
 		return nil
@@ -509,6 +526,7 @@ func (m *manager) documentClientWithoutDiagnosticsWait(ctx context.Context, uri 
 	return m.documentClientWithOptions(ctx, uri, documentClientOptions{})
 }
 
+// documentClientWithOptions 处理带选项的document客户端。
 func (m *manager) documentClientWithOptions(ctx context.Context, uri string, opts documentClientOptions) (Client, documentRef, error) {
 	ref, err := m.resolveDocumentRef(ctx, uri, "")
 	if err != nil {
@@ -532,6 +550,7 @@ func (m *manager) documentClientWithOptions(ctx context.Context, uri string, opt
 	return client, ref, nil
 }
 
+// waitDocumentDiagnosticsReady 等待document诊断ready。
 func (m *manager) waitDocumentDiagnosticsReady(ctx context.Context, ref documentRef) error {
 	if _, ok := ctx.Deadline(); !ok {
 		return nil
@@ -589,6 +608,7 @@ func clientHealthy(client Client) bool {
 // touchWorkspaceActivity updates the lastActivity timestamp for the
 // workspace that owns the given client. This is called on every request
 // and notification to track idle time for automatic shutdown.
+// touchWorkspaceActivity 处理touch工作区activity。
 func (m *manager) touchWorkspaceActivity(client Client) {
 	if m == nil || client == nil {
 		return
@@ -604,6 +624,7 @@ func (m *manager) touchWorkspaceActivity(client Client) {
 	}
 }
 
+// isClientDeadError 判断客户端dead错误是否可用。
 func isClientDeadError(err error) bool {
 	if err == nil {
 		return false
@@ -620,6 +641,7 @@ func isClientDeadError(err error) bool {
 		strings.Contains(message, "use of closed")
 }
 
+// detachWorkspaceClient 处理detach工作区客户端。
 func (m *manager) detachWorkspaceClient(key string, expected Client) *workspaceClient {
 	if m == nil {
 		return nil
@@ -637,6 +659,7 @@ func (m *manager) detachWorkspaceClient(key string, expected Client) *workspaceC
 	return workspace
 }
 
+// detachClient 处理detach客户端。
 func (m *manager) detachClient(client Client) *workspaceClient {
 	if m == nil || client == nil {
 		return nil

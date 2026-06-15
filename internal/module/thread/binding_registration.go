@@ -79,6 +79,7 @@ func validateProviderThreadID(provider, id string) error {
 	return fmt.Errorf("claude provider_thread_id must be a session UUID")
 }
 
+// ensurePublicThreadAvailable 确保public线程available。
 func (s *service) ensurePublicThreadAvailable(ctx context.Context, state threadState) error {
 	if s == nil || s.threadStore == nil {
 		return nil
@@ -106,6 +107,7 @@ func (s *service) ensurePublicThreadAvailable(ctx context.Context, state threadS
 	return nil
 }
 
+// registerThreadBinding 注册线程binding。
 func (s *service) registerThreadBinding(ctx context.Context, state threadState) (bindingWriteOutcome, error) {
 	if s == nil || s.bindingStore == nil {
 		s.logBindingSkipped(state.AgentID, "no binding store")
@@ -164,6 +166,7 @@ func (s *service) logBindingPersisted(r bindingRegistration) {
 		"provider_thread_id", r.ProviderThreadID, "public_thread_id", r.PublicThreadID, "rollout_path", r.RolloutPath, "session_uuid", r.SessionUUID)
 }
 
+// ensureProviderThreadAvailable 确保provider线程available。
 func (s *service) ensureProviderThreadAvailable(ctx context.Context, registration bindingRegistration) error {
 	if s == nil || s.bindingStore == nil {
 		return nil
@@ -245,6 +248,7 @@ func shouldPersistBinding(existing *bindingstore.Binding, registration bindingRe
 		bindingNeedsCodexIdentityUpdate(existing, registration)
 }
 
+// verifyThreadBinding 验证线程binding。
 func (s *service) verifyThreadBinding(ctx context.Context, registration bindingRegistration) error {
 	if s == nil || s.bindingStore == nil {
 		return nil
@@ -403,6 +407,7 @@ func bindingRequiresSessionUUID(existing *bindingstore.Binding, registration bin
 	return providerThreadID == "" || providerThreadID == strings.TrimSpace(existing.AgentID)
 }
 
+// bindingNeedsThreadMetadataUpdate 处理bindingneeds线程元数据更新。
 func bindingNeedsThreadMetadataUpdate(existing *bindingstore.Binding, registration bindingRegistration) bool {
 	return bindingNeedsInitialValue(strings.TrimSpace(existing.CodexThreadID), registration.PublicThreadID) ||
 		bindingNeedsSessionUUIDUpdate(existing, registration) ||
@@ -449,6 +454,7 @@ func validateBindingMemoryScope(existing *bindingstore.Binding, registration bin
 	return nil
 }
 
+// rollbackThreadBinding 处理rollback线程binding。
 func (s *service) rollbackThreadBinding(ctx context.Context, outcome bindingWriteOutcome) error {
 	if s == nil || s.bindingStore == nil || !outcome.Persisted {
 		return nil
@@ -482,6 +488,7 @@ func cloneBinding(binding *bindingstore.Binding) *bindingstore.Binding {
 	return &copy
 }
 
+// lookupPersistedAgentID 处理lookuppersisted代理ID。
 func (s *service) lookupPersistedAgentID(ctx context.Context, threadID string) (string, bool, error) {
 	if s == nil || s.threadStore == nil {
 		return "", false, nil
@@ -504,10 +511,12 @@ type bindingRecoveryReporter struct {
 	logger *slog.Logger
 }
 
+// NewBindingRecoveryReporter 创建bindingrecoveryreporter。
 func NewBindingRecoveryReporter(store bindingstore.Store, logger *slog.Logger) contract.SessionRecoveryReporter {
 	return &bindingRecoveryReporter{store: store, logger: logger}
 }
 
+// ClearStaleProviderThreadID 清理staleprovider线程ID。
 func (r *bindingRecoveryReporter) ClearStaleProviderThreadID(ctx context.Context, agentID string) error {
 	if r == nil || r.store == nil {
 		return nil
@@ -537,6 +546,7 @@ func (r *bindingRecoveryReporter) ClearStaleProviderThreadID(ctx context.Context
 	return nil
 }
 
+// RecordProviderSessionUUID 记录provider会话UUID。
 func (r *bindingRecoveryReporter) RecordProviderSessionUUID(ctx context.Context, agentID, sessionUUID string) error {
 	if r == nil || r.store == nil {
 		return nil
@@ -571,6 +581,7 @@ func (r *bindingRecoveryReporter) recordSessionUUID(ctx context.Context, agentID
 	})
 }
 
+// recordProviderThreadID 记录provider线程ID。
 func (r *bindingRecoveryReporter) recordProviderThreadID(ctx context.Context, binding *bindingstore.Binding, agentID, sessionUUID string, updatedAt int64) error {
 	current := strings.TrimSpace(binding.ProviderThreadID)
 	if current != "" && current != agentID && identifier.LooksLikeUUID(current) {

@@ -24,6 +24,7 @@ type rolloutReader struct {
 	transport *transport
 }
 
+// ReadHistory 读取history。
 func (r *rolloutReader) ReadHistory(ctx context.Context, threadID, codexHome string, limit int) ([]Message, error) {
 	if messages, err := readLocalRollout(threadID, codexHome, limit); err == nil && len(messages) > 0 {
 		return messages, nil
@@ -36,6 +37,7 @@ func (r *rolloutReader) ReadHistory(ctx context.Context, threadID, codexHome str
 	return []Message{}, nil
 }
 
+// ReadHistory 读取history。
 func (s *session) ReadHistory(ctx context.Context, threadID string, limit int) ([]dto.Message, error) {
 	if s.history == nil {
 		return nil, errors.New("codexapp: history backend is not configured")
@@ -62,6 +64,7 @@ func (s *session) ReadHistory(ctx context.Context, threadID string, limit int) (
 // primary threadID failed to find rollout history. This handles the case where
 // the binding's provider_thread_id wasn't updated (e.g. due to a prior binding
 // conflict) but the session knows the correct UUID from the live codex process.
+// readHistoryFallback 读取history兜底。
 func (s *session) readHistoryFallback(ctx context.Context, primaryTarget, codexHome string, limit int) []Message {
 	codexThreadID := strings.TrimSpace(s.ThreadID())
 	if codexThreadID == "" || codexThreadID == primaryTarget {
@@ -91,6 +94,7 @@ func toProviderHistory(messages []Message) []dto.Message {
 	return out
 }
 
+// CompactThread 处理紧凑列表线程。
 func (s *session) CompactThread(ctx context.Context, threadID, args string) error {
 	target, err := requireThreadID(s, threadID)
 	if err != nil {

@@ -14,6 +14,7 @@ import (
 	"strings"
 )
 
+// main 解析参数并执行命令行入口流程。
 func main() {
 	roots := []string{
 		"internal/module/thread",
@@ -83,6 +84,7 @@ func collectExtractedMethods(n ast.Node, consts map[string]string, methods map[s
 	}
 }
 
+// collectCompositeLiteralMethods 收集compositeliteralmethods。
 func collectCompositeLiteralMethods(lit *ast.CompositeLit, consts map[string]string, methods map[string]struct{}) {
 	if !isMethodMapLiteral(lit) {
 		return
@@ -98,6 +100,7 @@ func collectCompositeLiteralMethods(lit *ast.CompositeLit, consts map[string]str
 	}
 }
 
+// collectBindMethods 收集bindmethods。
 func collectBindMethods(call *ast.CallExpr, consts map[string]string, methods map[string]struct{}) {
 	if !isBindMethodsCall(call) || len(call.Args) == 0 {
 		return
@@ -117,6 +120,7 @@ func collectBindMethods(call *ast.CallExpr, consts map[string]string, methods ma
 	}
 }
 
+// extractedMethod 处理extractedmethod。
 func extractedMethod(n ast.Node, consts map[string]string) string {
 	switch x := n.(type) {
 	case *ast.IndexExpr:
@@ -148,6 +152,7 @@ func isMethodMapLiteral(lit *ast.CompositeLit) bool {
 	return ok && pkg.Name == "handler"
 }
 
+// collectStringConsts 收集stringconsts。
 func collectStringConsts(file *ast.File, out map[string]string) {
 	for _, decl := range file.Decls {
 		gen, ok := decl.(*ast.GenDecl)
@@ -171,6 +176,7 @@ func collectStringConsts(file *ast.File, out map[string]string) {
 	}
 }
 
+// methodFromMethodsIndex 从methods索引处理method。
 func methodFromMethodsIndex(idx *ast.IndexExpr, consts map[string]string) (string, bool) {
 	sel, ok := idx.X.(*ast.SelectorExpr)
 	if !ok || sel.Sel == nil || sel.Sel.Name != "methods" {
@@ -211,6 +217,8 @@ func methodFromExpr(expr ast.Expr, consts map[string]string) (string, bool) {
 		return "", false
 	}
 }
+
+// validMethod 判断method是否可用。
 func validMethod(s string) bool {
 	s = strings.TrimSpace(s)
 	if s == "" {

@@ -14,7 +14,7 @@ var Module = fx.Module("turn",
 			NewServiceWithPromptAssemblyAndTurnContext,
 			// p20.2 step 1: Skill.Service is optional, contract.Contract is also optional, etc.
 			// (Original tag rationale preserved below.)
-			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
+			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
 			// Publish under both turn.Service (consumed by orchestration,
 			// etc.) and contract.TurnThreadCleaner (narrow interface consumed
 			// by the thread module to avoid a thread→turn import).

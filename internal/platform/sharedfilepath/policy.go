@@ -53,6 +53,7 @@ func WritePrefixes() []string {
 
 // ValidateWritePath enforces the full schema (whitelist + traversal +
 // absolute) and returns the canonical-cleaned relative path.
+// ValidateWritePath 校验write路径。
 func ValidateWritePath(raw string) (string, error) {
 	cleaned, err := cleanRelative(raw)
 	if err != nil {
@@ -64,6 +65,7 @@ func ValidateWritePath(raw string) (string, error) {
 	return cleaned, nil
 }
 
+// ValidateAgentWritePath 校验代理write路径。
 func ValidateAgentWritePath(raw string) (string, error) {
 	return ValidateWritePath(raw)
 }
@@ -72,6 +74,7 @@ func ValidateAgentWritePath(raw string) (string, error) {
 // absolute path). Skipping the prefix whitelist on read keeps existing rows
 // that pre-date the schema readable; their content still passes through
 // downstream defenses (size guards / sandbox path resolution in 3.6).
+// ValidateReadPath 校验read路径。
 func ValidateReadPath(raw string) (string, error) {
 	return cleanRelative(raw)
 }
@@ -80,6 +83,7 @@ func ValidateReadPath(raw string) (string, error) {
 // and rejects any traversal escape after path.Clean. The returned cleaned
 // value is what callers should hand off to disk / DB layers — never reuse
 // the raw input.
+// cleanRelative 处理clean相对。
 func cleanRelative(raw string) (string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {

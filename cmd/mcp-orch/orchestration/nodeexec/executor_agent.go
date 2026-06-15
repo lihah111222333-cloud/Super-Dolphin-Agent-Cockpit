@@ -128,6 +128,7 @@ func WithRecorder(recorder NodeSpawnRecorder) Option {
 // WithHooks registers lifecycle hooks for this executor. Hooks are best-effort:
 // router-level dispatch invokes and logs hook errors without changing the node
 // execution outcome.
+// WithHooks 设置hooks。
 func WithHooks(hooks map[HookPoint]HookHandler) Option {
 	return func(e *AgentExecutor) { e.hooks = cloneHookHandlers(hooks) }
 }
@@ -274,6 +275,7 @@ func (e *AgentExecutor) Hooks() map[HookPoint]HookHandler {
 	return cloneHookHandlers(e.hooks)
 }
 
+// HasSpawnRecorder 判断spawnrecorder是否可用。
 func (e *AgentExecutor) HasSpawnRecorder() bool {
 	return e != nil && e.recorder != nil
 }
@@ -322,6 +324,7 @@ func validateAgentLaunchIdentity(cfg *AgentNodeConfig) *NodeOutcome {
 	}
 }
 
+// validateCodexIdentityOverride 校验codex身份override。
 func validateCodexIdentityOverride(exec AgentExecConfig) *NodeOutcome {
 	home := strings.TrimSpace(exec.CodexHome)
 	instanceKey := strings.TrimSpace(exec.CodexInstanceKey)
@@ -434,6 +437,7 @@ func (e *AgentExecutor) spawnWriteback(ctx context.Context, node Node, runCtx Ru
 	return summary
 }
 
+// recordSpawn 记录spawn。
 func (e *AgentExecutor) recordSpawn(ctx context.Context, node Node, runCtx RunContext, threadID string) (string, error) {
 	if e.recorder == nil {
 		return "", nil
@@ -525,6 +529,7 @@ func validateAgentLaunchProvider(raw string) (string, error) {
 	}
 }
 
+// agentLaunchEnv 处理代理启动env。
 func agentLaunchEnv(exec AgentExecConfig) []string {
 	env := make([]string, 0, 7)
 	if provider := strings.ToLower(strings.TrimSpace(exec.Provider)); provider != "" {

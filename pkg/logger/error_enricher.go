@@ -20,10 +20,12 @@ func wrapErrorEnricherHandler(next slog.Handler, mode Mode) slog.Handler {
 	return &errorEnricherHandler{next: next}
 }
 
+// Enabled 判断日志是否启用。
 func (h *errorEnricherHandler) Enabled(ctx context.Context, level slog.Level) bool {
 	return h.next.Enabled(ctx, level)
 }
 
+// Handle 处理日志请求。
 func (h *errorEnricherHandler) Handle(ctx context.Context, rec slog.Record) error {
 	if rec.Level >= slog.LevelError {
 		rec = enrichErrorRecord(rec)
@@ -31,14 +33,17 @@ func (h *errorEnricherHandler) Handle(ctx context.Context, rec slog.Record) erro
 	return h.next.Handle(ctx, rec)
 }
 
+// WithAttrs 设置attrs。
 func (h *errorEnricherHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return &errorEnricherHandler{next: h.next.WithAttrs(attrs)}
 }
 
+// WithGroup 设置group。
 func (h *errorEnricherHandler) WithGroup(name string) slog.Handler {
 	return &errorEnricherHandler{next: h.next.WithGroup(name)}
 }
 
+// enrichErrorRecord 补充错误记录。
 func enrichErrorRecord(rec slog.Record) slog.Record {
 	if source, function := callerInfo(); source != "" || function != "" {
 		if source != "" {
@@ -54,6 +59,7 @@ func enrichErrorRecord(rec slog.Record) slog.Record {
 	return rec
 }
 
+// callerInfo 处理callerinfo。
 func callerInfo() (string, string) {
 	pcs := make([]uintptr, 16)
 	n := runtime.Callers(4, pcs)

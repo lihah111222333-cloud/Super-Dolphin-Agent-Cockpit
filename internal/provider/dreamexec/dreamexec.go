@@ -58,6 +58,7 @@ type realCommander struct{}
 // NewRealCommander 生产用 commander。
 func NewRealCommander() Commander { return realCommander{} }
 
+// Run 启动dreamexec provider后台流程。
 func (realCommander) Run(ctx context.Context, binary string, args []string, input string, maxStdoutBytes int64) ([]byte, error) {
 	if strings.TrimSpace(binary) == "" {
 		return nil, errors.New("dreamexec: binary is empty")
@@ -122,6 +123,7 @@ type limitedWriter struct {
 	n   int64
 }
 
+// Write 写入dreamexec provider。
 func (lw *limitedWriter) Write(p []byte) (int, error) {
 	remaining := lw.max - lw.n
 	if remaining <= 0 {
@@ -236,7 +238,10 @@ type parseAttemptError struct {
 	err error
 }
 
+// Error 返回错误文本。
 func (e parseAttemptError) Error() string { return e.err.Error() }
+
+// Unwrap 返回底层错误。
 func (e parseAttemptError) Unwrap() error { return e.err }
 
 func isParseFailure(err error) bool {

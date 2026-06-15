@@ -56,6 +56,7 @@ func (h *Handler) defaultStdioClientFactory(ctx context.Context, binary provider
 	return newStdioMCPClient(ctx, binary)
 }
 
+// newStdioMCPClient 创建stdioMCP客户端。
 func newStdioMCPClient(ctx context.Context, binary providerdto.MCPBinary) (*stdioMCPClient, error) {
 	cmd := exec.Command(strings.TrimSpace(binary.Command[0]), binary.Command[1:]...)
 	cmd.Env = append(contract.ScrubDatabaseEnv(os.Environ()), manifestEnv(binary.Env)...)
@@ -98,6 +99,7 @@ func manifestEnv(env map[string]string) []string {
 	return out
 }
 
+// ListTools 返回当前 peer 暴露的工具列表。
 func (c *stdioMCPClient) ListTools(ctx context.Context) ([]mcpdto.MCPTool, error) {
 	raw, err := c.request(ctx, "tools/list", map[string]any{})
 	if err != nil {
@@ -110,6 +112,7 @@ func (c *stdioMCPClient) ListTools(ctx context.Context) ([]mcpdto.MCPTool, error
 	return decoded.Tools, nil
 }
 
+// CallTool 调用当前 peer 暴露的工具。
 func (c *stdioMCPClient) CallTool(ctx context.Context, name string, args json.RawMessage, req ToolCallRequest) (*ToolCallResult, error) {
 	raw, err := c.request(ctx, ProxyMethodToolsCall, map[string]any{
 		"name":                    name,
@@ -130,6 +133,7 @@ func (c *stdioMCPClient) CallTool(ctx context.Context, name string, args json.Ra
 	return adaptMCPResponse(decoded)
 }
 
+// request 处理请求。
 func (c *stdioMCPClient) request(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -186,6 +190,7 @@ func (c *stdioMCPClient) readMessage(ctx context.Context) (json.RawMessage, erro
 	}
 }
 
+// Close 关闭平台toolbridge资源。
 func (c *stdioMCPClient) Close() error {
 	if c == nil {
 		return nil
@@ -201,6 +206,7 @@ func (c *stdioMCPClient) Close() error {
 	return c.closeErr
 }
 
+// close 关闭平台toolbridge。
 func (c *stdioMCPClient) close() error {
 	if c.stdin != nil {
 		_ = c.stdin.Close()

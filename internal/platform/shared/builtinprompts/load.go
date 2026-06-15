@@ -13,10 +13,12 @@ type readFileAdapter struct {
 	fsys iofs.FS
 }
 
+// ReadFile 读取文件。
 func (a readFileAdapter) ReadFile(name string) ([]byte, error) {
 	return iofs.ReadFile(a.fsys, name)
 }
 
+// NewDefaultRegistry 创建default注册表。
 func NewDefaultRegistry() (contract.BuiltinPromptRegistry, error) {
 	sub, err := iofs.Sub(embeddedAssets, "assets")
 	if err != nil {
@@ -25,6 +27,7 @@ func NewDefaultRegistry() (contract.BuiltinPromptRegistry, error) {
 	return LoadRegistryFromFS(readFileAdapter{fsys: sub})
 }
 
+// LoadRegistryFromFS 从fs加载注册表。
 func LoadRegistryFromFS(source readFileFS) (*Registry, error) {
 	manifest, err := loadManifest(source)
 	if err != nil {

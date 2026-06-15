@@ -31,6 +31,7 @@ var _ contract.MessageNotifier = (*Notifier)(nil)
 // package default; a nil resolver is treated as "no channels" — every
 // TryEnqueue for an alias then fails with ErrNotifyAliasNotFound, which
 // is preferable to a silent drop.
+// NewNotifier 创建notifier。
 func NewNotifier(logger *slog.Logger, resolver Resolver, capacity int) *Notifier {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -52,6 +53,8 @@ func NewNotifier(logger *slog.Logger, resolver Resolver, capacity int) *Notifier
 //     a transient failure.
 //   - contract.ErrNotifyQueueFull when the bounded channel is full —
 //     the flusher is behind or stuck; caller drops the signal.
+//
+// TryEnqueue 处理tryenqueue。
 func (n *Notifier) TryEnqueue(ctx context.Context, req contract.NotifyRequest) error {
 	if n == nil {
 		return contract.ErrNotifyAliasNotFound
@@ -83,6 +86,7 @@ func (n *Notifier) TryEnqueue(ctx context.Context, req contract.NotifyRequest) e
 
 // Dropped exposes the total number of TryEnqueue rejections because
 // the queue was full. Useful for metrics scraping.
+// Dropped 处理dropped。
 func (n *Notifier) Dropped() int64 { return n.dropped.Load() }
 
 // queueForFlusher exposes the channel to the flusher package-private

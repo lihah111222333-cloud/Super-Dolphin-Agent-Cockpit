@@ -29,6 +29,7 @@ const defaultMessagesPageLimit = 300
 // misbehaviour on them) never reach the UI timeline.
 const keepaliveSentinelPrefix = "[CACHE-KEEPALIVE]"
 
+// ReadHistory 读取history。
 func (s *service) ReadHistory(ctx context.Context, threadID string, limit int) ([]dto.Message, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
@@ -50,6 +51,7 @@ type runtimeConfigReaderSession interface {
 	RuntimeConfigSnapshot() map[string]any
 }
 
+// ReadMessages 读取消息。
 func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, before string) (dto.ThreadMessagesResult, error) {
 	// C1 fast-path: pending_launch threads have no binding yet, so resolveBinding
 	// would fail with "no rows in result set". Return an empty result so the
@@ -94,6 +96,7 @@ func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, 
 	}, nil
 }
 
+// ReadRuntimeConfig 读取运行时配置。
 func (s *service) ReadRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
@@ -126,6 +129,7 @@ func newThreadReadHandler(svc Service) handler.Func {
 	})
 }
 
+// ReadThreadHistory 读取线程history。
 func (s *service) ReadThreadHistory(ctx context.Context, threadID string) (*ReadHistoryResult, error) {
 	ref, err := s.Get(ctx, threadID)
 	if err != nil {
@@ -143,6 +147,7 @@ func (s *service) ReadThreadHistory(ctx context.Context, threadID string) (*Read
 	return buildReadHistoryResultFromThreads(threads, fallbackID), nil
 }
 
+// resolveBatchBinding 解析batchbinding。
 func resolveBatchBinding(threadID string, thread *threadstore.Thread, allBindings []bindingstore.Binding, bindingByAgent map[string]*bindingstore.Binding) *bindingstore.Binding {
 	if b, ok := bindingByAgent[threadID]; ok {
 		return b
@@ -161,6 +166,7 @@ func resolveBatchBinding(threadID string, thread *threadstore.Thread, allBinding
 	return nil
 }
 
+// resolveBatchSessionCfg 解析batch会话cfg。
 func (s *service) resolveBatchSessionCfg(binding *bindingstore.Binding) (map[string]any, error) {
 	if binding == nil {
 		return nil, nil
@@ -181,6 +187,7 @@ func (s *service) resolveBatchSessionCfg(binding *bindingstore.Binding) (map[str
 	return nil, errors.New("thread runtime config reader is not available")
 }
 
+// ReadRuntimeConfigs 读取运行时配置。
 func (s *service) ReadRuntimeConfigs(ctx context.Context, threadIDs []string) (map[string]map[string]any, error) {
 	allBindings, bindingByAgent, err := s.loadBatchBindingIndex(ctx)
 	if err != nil {
@@ -236,6 +243,7 @@ func (s *service) loadBatchThreadIndex(ctx context.Context, threadIDs []string) 
 	return idx, nil
 }
 
+// resolveBatchRuntime 解析batch运行时。
 func (s *service) resolveBatchRuntime(
 	threadID string,
 	thread *threadstore.Thread,
@@ -360,6 +368,7 @@ func decorateThreadMessages(agentID string, messages []dto.Message) []dto.Messag
 // slice: the sentinel user message plus the assistant reply belonging to the
 // same turn. Applied before decorateThreadMessages so survivors keep
 // contiguous positional IDs and pagination cursors stay stable.
+// dropKeepaliveTurns 去掉keepaliveturn。
 func dropKeepaliveTurns(messages []dto.Message) []dto.Message {
 	if len(messages) == 0 {
 		return messages
@@ -418,6 +427,7 @@ func clampBeforeID(raw string) int64 {
 	return value
 }
 
+// parseBeforeCursor 解析beforecursor。
 func parseBeforeCursor(raw string) (time.Time, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -455,6 +465,7 @@ func paginateMessagesBeforeTime(messages []dto.Message, limit int, cutoff time.T
 	return paginateMessagesByID(filtered, limit, 0)
 }
 
+// paginateMessagesByID 按ID处理paginate消息。
 func paginateMessagesByID(messages []dto.Message, limit int, before int64) []dto.Message {
 	if len(messages) == 0 {
 		return []dto.Message{}
@@ -479,6 +490,7 @@ func defaultEventTypeForRole(role string) string {
 	return ""
 }
 
+// Compact 处理紧凑列表。
 func (s *service) Compact(ctx context.Context, threadID, args string) (dto.ThreadCompactResult, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
@@ -533,6 +545,7 @@ func estimateThreadTokens(ctx context.Context, session contract.Session, threadI
 	return estimateHistoryTokens(messages), nil
 }
 
+// compactAfterTokens 处理紧凑列表后置令牌。
 func compactAfterTokens(ctx context.Context, session contract.Session, threadID string, before int) (int, error) {
 	last := before
 	for i := 0; i < 3; i++ {
@@ -623,6 +636,7 @@ func (s *service) publishThreadCompacted(result dto.ThreadCompactResult) {
 
 type transientInvalidator func(context.Context, contract.InvalidateReason) error
 
+// RunPostCompactCleanup 运行post紧凑列表cleanup。
 func (s *service) RunPostCompactCleanup(ctx context.Context, reason contract.InvalidateReason) error {
 	return runTransientInvalidators(ctx, reason, s.invalidatePromptAssembly)
 }

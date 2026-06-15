@@ -12,6 +12,11 @@ import {
 import { normalizeMemorySnapshot } from '../../adapters/memoryAdapter.js';
 import { DEFAULT_REQUEST_TIMEOUT_MS, runServiceRequest, withRequestTimeout } from '../apiClient.js';
 
+/*
+ * memory service 只封装记忆中心页面用到的请求。
+ * 自动沉淀、相似记忆等操作失败时直接交给页面显示错误。
+ */
+
 async function fetchMemoryDashboard(cwd) {
   return runServiceRequest(async () => {
     const response = await withRequestTimeout(

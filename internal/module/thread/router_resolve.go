@@ -35,6 +35,7 @@ func (s *service) runtimePromptCatalog() promptstore.RuntimePromptCatalog {
 	return s.promptCatalog
 }
 
+// resolveRoutedPrompt 解析routedprompt。
 func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) error {
 	if shouldSkipRoutedPrompt(s, req) {
 		return nil
@@ -76,6 +77,7 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) er
 	return s.applyPickedRoutedTemplate(ctx, req, picked)
 }
 
+// applyPickedRoutedTemplate 应用pickedroutedtemplate。
 func (s *service) applyPickedRoutedTemplate(
 	ctx context.Context,
 	req *StartRequest,
@@ -137,6 +139,7 @@ func promptCatalogCanInsertVersion(catalog promptstore.RuntimePromptCatalog) boo
 	return !ok || checker.CanInsertPromptVersion()
 }
 
+// routedTemplateInstructions 处理routedtemplateinstructions。
 func (s *service) routedTemplateInstructions(ctx context.Context, req *StartRequest, picked *promptstore.PromptTemplate) (string, []contract.BaseInstructionBlock, error) {
 	catalog := s.runtimePromptCatalog()
 	sections, serr := catalog.ListSectionsByTemplateID(ctx, picked.ID)
@@ -184,6 +187,7 @@ const defaultPromptKey = "main/default"
 // — upstream CLIs (Claude Code / Codex) perform their own in-session intent
 // handling; duplicating it at the harness layer created the "user-created
 // prompt is permanently shadowed by main/default fallback" footgun.
+// pickRoutedTemplate 处理pickroutedtemplate。
 func (s *service) pickRoutedTemplate(
 	_ context.Context,
 	req *StartRequest,
@@ -246,6 +250,7 @@ func findEnabledByPromptKey(templates []promptstore.PromptTemplate, promptKey st
 // the contract-layer BaseInstructionBlock shape consumed by assembler.go.
 // Unknown region strings degrade to Dynamic (safer: blocks end up in the
 // uncached tail rather than accidentally claiming cached-prefix slots).
+// convertStoreSectionsToBlocks 把存储sections转换为blocks。
 func convertStoreSectionsToBlocks(sections []promptstore.PromptTemplateSection) []contract.BaseInstructionBlock {
 	if len(sections) == 0 {
 		return nil
@@ -323,6 +328,7 @@ func findByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *
 // structured match_when prompts — the production bug that motivated this split.
 // All failure modes leave req.PromptKey untouched so the main/default
 // fallback still applies.
+// maybeAutoRouteByMatchWhen 按matchwhen处理maybeautoroute。
 func (s *service) maybeAutoRouteByMatchWhen(req *StartRequest, templates []promptstore.PromptTemplate) {
 	if req == nil {
 		return
@@ -397,6 +403,7 @@ func (s *service) evaluateMatchWhenPool(
 // Each pool is sorted by Priority DESC (stable). The caller evaluates
 // specific first, then fallback, so a low-priority prompt with real structured
 // match rules wins over a high-priority `{}` row.
+// autoRouteCandidates 处理autoroute候选项。
 func autoRouteCandidates(templates []promptstore.PromptTemplate) (specific, fallback []promptstore.PromptTemplate) {
 	specific = make([]promptstore.PromptTemplate, 0, len(templates))
 	fallback = make([]promptstore.PromptTemplate, 0, len(templates))

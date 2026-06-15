@@ -21,6 +21,7 @@ type FreezeRegistryAutoFix struct {
 	DefaultLimit int
 }
 
+// String 输出 freeze 自动修复的操作说明。
 func (f FreezeRegistryAutoFix) String() string {
 	switch f.Action {
 	case "delete":
@@ -32,6 +33,7 @@ func (f FreezeRegistryAutoFix) String() string {
 	}
 }
 
+// AutoRepairFreezeRegistry 收缩或删除已经不再需要的 freeze 条目。
 func AutoRepairFreezeRegistry(opts CheckOptions) ([]FreezeRegistryAutoFix, error) {
 	repoRoot := opts.RepoRoot
 	if repoRoot == "" {
@@ -40,7 +42,7 @@ func AutoRepairFreezeRegistry(opts CheckOptions) ([]FreezeRegistryAutoFix, error
 	scanRoots := opts.scanRoots()
 	stats := make(map[string]*packageStat)
 	for _, root := range scanRoots {
-		scanRoot(repoRoot, root, opts.skipDirs(), stats)
+		scanRoot(repoRoot, root, opts.skipDirs(), stats, false)
 	}
 	planned, entries := planFreezeRegistryAutoFixes(repoRoot, scanRoots, stats)
 	if len(planned) == 0 {
@@ -72,6 +74,7 @@ func planFreezeRegistryAutoFixesForEntries(repoRoot string, scanRoots []string, 
 	return fixes, next
 }
 
+// planFreezeRegistryAutoFix 决定单个 freeze 条目应该保留、收缩还是删除。
 func planFreezeRegistryAutoFix(repoRoot string, scanRoots []string, stats map[string]*packageStat, entry explicitFreeze) (FreezeRegistryAutoFix, bool, explicitFreeze) {
 	if !freezeAppliesToScanRoots(entry.Path, scanRoots) {
 		return FreezeRegistryAutoFix{}, true, entry
@@ -129,6 +132,7 @@ func rewriteFreezeRegistrySource(repoRoot string, entries []explicitFreeze) erro
 	return os.WriteFile(path, formatted, 0o644)
 }
 
+// findExplicitFreezeRegistryOffsets 定位 freeze registry 字面量在源码里的范围。
 func findExplicitFreezeRegistryOffsets(path string, src []byte) (int, int, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, src, parser.SkipObjectResolution)
@@ -169,6 +173,7 @@ func renderExplicitFreezeRegistry(entries []explicitFreeze) []byte {
 	return buf.Bytes()
 }
 
+// violationKindConst 输出重写 freeze registry 时需要写回源码的常量名。
 func violationKindConst(kind ViolationKind) string {
 	switch kind {
 	case ViolationFile:
@@ -187,6 +192,8 @@ func violationKindConst(kind ViolationKind) string {
 		return "ViolationPackageLines"
 	case ViolationDeadKey:
 		return "ViolationDeadKey"
+	case ViolationFuncComment:
+		return "ViolationFuncComment"
 	default:
 		return fmt.Sprintf("ViolationKind(%d)", kind)
 	}

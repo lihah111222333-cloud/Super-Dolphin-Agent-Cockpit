@@ -227,12 +227,13 @@ func ctxWithCWD(cwd, agentID, threadID string) context.Context {
 
 func setupWorktreeProject(t *testing.T, root string, modules []string) {
 	t.Helper()
+	useGoWorkFallbackParser(t)
 	goWorkBody := "go 1.25.0\n\n"
 	for _, mod := range modules {
 		goWorkBody += fmt.Sprintf("use ./%s\n", mod)
 		modDir := filepath.Join(root, mod)
 		writeGenericTestFile(t, filepath.Join(modDir, "go.mod"),
-			fmt.Sprintf("module example.test/%s\n\ngo 1.25.0\n", mod))
+			fmt.Sprintf("module example.test/%s\n", mod))
 		writeGenericTestFile(t, filepath.Join(modDir, "main.go"),
 			fmt.Sprintf("package main\n\nfunc %sMain() {}\n", mod))
 	}
@@ -241,8 +242,14 @@ func setupWorktreeProject(t *testing.T, root string, modules []string) {
 
 func setupStandaloneGoProject(t *testing.T, root, modName string) {
 	t.Helper()
+	useGoWorkFallbackParser(t)
 	writeGenericTestFile(t, filepath.Join(root, "go.mod"),
-		fmt.Sprintf("module example.test/%s\n\ngo 1.25.0\n", modName))
+		fmt.Sprintf("module example.test/%s\n", modName))
 	writeGenericTestFile(t, filepath.Join(root, "main.go"),
 		fmt.Sprintf("package main\n\nfunc %sMain() {}\n", modName))
+}
+
+func useGoWorkFallbackParser(t *testing.T) {
+	t.Helper()
+	t.Setenv("PATH", t.TempDir())
 }

@@ -13,8 +13,10 @@ type store struct {
 	q  *sqlc.Queries
 }
 
+// NewStore 创建存储。
 func NewStore(db sqlc.DBTX) Store { return &store{db: db, q: sqlc.New(db)} }
 
+// WithTx 设置tx。
 func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error {
 	err := sqlctx.WithImmediateTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
 		return fn(&store{db: tx, q: txq})
@@ -22,6 +24,7 @@ func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error 
 	return wrapWorkspaceError(err, "with_tx", "workspace")
 }
 
+// UpsertRun 处理upsert运行记录。
 func (s *store) UpsertRun(ctx context.Context, run WorkspaceRun) (*WorkspaceRun, error) {
 	var mapped WorkspaceRun
 	err := sqlctx.WithWriteRetry(ctx, func() error {
@@ -48,6 +51,7 @@ func (s *store) UpsertRun(ctx context.Context, run WorkspaceRun) (*WorkspaceRun,
 	return &mapped, nil
 }
 
+// GetRun 读取运行记录。
 func (s *store) GetRun(ctx context.Context, runKey string) (*WorkspaceRun, error) {
 	row, err := s.q.GetWorkspaceRun(ctx, sqlc.GetWorkspaceRunParams{RunKey: runKey})
 	if err != nil {
@@ -57,6 +61,7 @@ func (s *store) GetRun(ctx context.Context, runKey string) (*WorkspaceRun, error
 	return &mapped, nil
 }
 
+// ListRuns 列出运行记录。
 func (s *store) ListRuns(ctx context.Context, filter ListRunsFilter) ([]WorkspaceRun, error) {
 	rows, err := s.q.ListWorkspaceRuns(ctx, sqlc.ListWorkspaceRunsParams{
 		StatusFilter: filter.Status,
@@ -73,6 +78,7 @@ func (s *store) ListRuns(ctx context.Context, filter ListRunsFilter) ([]Workspac
 	return runs, nil
 }
 
+// UpdateRunStatus 更新运行记录状态。
 func (s *store) UpdateRunStatus(ctx context.Context, input UpdateRunStatusInput) (*WorkspaceRun, error) {
 	var mapped WorkspaceRun
 	err := sqlctx.WithWriteRetry(ctx, func() error {
@@ -94,6 +100,7 @@ func (s *store) UpdateRunStatus(ctx context.Context, input UpdateRunStatusInput)
 	return &mapped, nil
 }
 
+// TransitionRunStatus 处理transition运行记录状态。
 func (s *store) TransitionRunStatus(ctx context.Context, input TransitionRunStatusInput) (*WorkspaceRun, error) {
 	var mapped WorkspaceRun
 	err := sqlctx.WithWriteRetry(ctx, func() error {
@@ -116,6 +123,7 @@ func (s *store) TransitionRunStatus(ctx context.Context, input TransitionRunStat
 	return &mapped, nil
 }
 
+// UpsertFile 处理upsert文件。
 func (s *store) UpsertFile(ctx context.Context, file WorkspaceRunFile) (*WorkspaceRunFile, error) {
 	var row sqlc.WorkspaceRunFile
 	err := sqlctx.WithWriteRetry(ctx, func() error {
@@ -142,6 +150,7 @@ func (s *store) UpsertFile(ctx context.Context, file WorkspaceRunFile) (*Workspa
 	return &mapped, nil
 }
 
+// GetFile 读取文件。
 func (s *store) GetFile(ctx context.Context, runKey, relativePath string) (*WorkspaceRunFile, error) {
 	row, err := s.q.GetWorkspaceRunFile(ctx, sqlc.GetWorkspaceRunFileParams{
 		RunKey:       runKey,
@@ -154,6 +163,7 @@ func (s *store) GetFile(ctx context.Context, runKey, relativePath string) (*Work
 	return &mapped, nil
 }
 
+// ListFiles 列出文件。
 func (s *store) ListFiles(ctx context.Context, filter ListFilesFilter) ([]WorkspaceRunFile, error) {
 	rows, err := s.q.ListWorkspaceRunFiles(ctx, sqlc.ListWorkspaceRunFilesParams{
 		RunKeyFilter: filter.RunKey,

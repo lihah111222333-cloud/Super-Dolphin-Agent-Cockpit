@@ -21,6 +21,7 @@ type xrefParams struct {
 	MaxResults         int    `json:"max_results"`
 }
 
+// NewXRefHandler 创建x引用处理器。
 func NewXRefHandler(registry lspmanager.Registry) ToolHandler {
 	return newManagerTool("xref", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req xrefParams) (any, error) {
 		filePath, position, err := resolveFilePositionRequest(ctx, filePositionParams{
@@ -76,6 +77,7 @@ func runReferences(
 	return grouped, nil
 }
 
+// runCallHierarchy 运行call层级。
 func runCallHierarchy(
 	ctx context.Context,
 	manager lspmanager.Manager,

@@ -42,6 +42,7 @@ type SkillMirrorEntry struct {
 	Owned         bool   `json:"owned"`
 }
 
+// loadSkillMirrorManifest 加载技能镜像manifest。
 func loadSkillMirrorManifest(path string, target SkillMirrorTarget) (SkillMirrorManifest, error) {
 	manifest, err := readSkillMirrorManifest(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -73,6 +74,7 @@ func repairMismatchedSkillMirrorManifest(records []canonicalSkillRecord, target 
 	return manifest, nil
 }
 
+// rebuiltSkillMirrorManifest 处理rebuilt技能镜像manifest。
 func rebuiltSkillMirrorManifest(records []canonicalSkillRecord, target SkillMirrorTarget) (SkillMirrorManifest, error) {
 	manifest := newSkillMirrorManifest(target)
 	for _, record := range recordsForMirrorTarget(records, target) {
@@ -145,6 +147,7 @@ func mirrorManifestEntry(record canonicalSkillRecord, canonicalHash, mirrorHash 
 	}
 }
 
+// writeSkillMirrorManifest 写入技能镜像manifest。
 func writeSkillMirrorManifest(path string, manifest SkillMirrorManifest) error {
 	if filepath.Base(path) != skillMirrorManifestFile {
 		return fmt.Errorf("skill mirror manifest path must end with %s", skillMirrorManifestFile)
@@ -165,6 +168,7 @@ func writeSkillMirrorManifest(path string, manifest SkillMirrorManifest) error {
 	return writeFileAtomic(path, append(data, '\n'), 0o644)
 }
 
+// writeFileAtomic 写入文件atomic。
 func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
@@ -218,6 +222,7 @@ func readSkillMirrorManifest(path string) (SkillMirrorManifest, error) {
 	return manifest, validateSkillMirrorManifest(manifest)
 }
 
+// ensureMirrorManifestRegularPath 确保镜像manifestregular路径。
 func ensureMirrorManifestRegularPath(path string, allowMissing bool) error {
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) && allowMissing {
@@ -235,6 +240,7 @@ func ensureMirrorManifestRegularPath(path string, allowMissing bool) error {
 	return nil
 }
 
+// validateSkillMirrorManifest 校验技能镜像manifest。
 func validateSkillMirrorManifest(manifest SkillMirrorManifest) error {
 	for name, entry := range manifest.Skills {
 		if _, err := validateSkillName(name); err != nil {
@@ -274,6 +280,7 @@ func validatePersonalMirrorEntry(name string, entry SkillMirrorEntry) error {
 	return nil
 }
 
+// validatePersonalMirrorCanonicalID 校验personal镜像canonicalID。
 func validatePersonalMirrorCanonicalID(name, canonicalID string) (string, error) {
 	parts := strings.Split(canonicalID, "/")
 	if len(parts) < 3 || parts[0] != skillScopePersonal {
@@ -320,6 +327,7 @@ func collectMirrorHashFiles(root string) ([]mirrorHashFile, error) {
 	return files, err
 }
 
+// readMirrorHashFile 读取镜像hash文件。
 func readMirrorHashFile(root, path string, entry fs.DirEntry, walkErr error) (*mirrorHashFile, error) {
 	if walkErr != nil || entry == nil || entry.IsDir() {
 		return nil, walkErr

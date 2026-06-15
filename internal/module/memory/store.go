@@ -31,6 +31,7 @@ func newDiskStoreWithGuard(root string, guard memoryWriteGuard, locks *diskLockC
 	return &diskStore{root: normalizedRoot, guard: guard, locks: locks}, nil
 }
 
+// Root 处理根目录。
 func (s *diskStore) Root() string {
 	if s == nil {
 		return ""
@@ -38,14 +39,17 @@ func (s *diskStore) Root() string {
 	return s.root
 }
 
+// CreateStructured 创建structured。
 func (s *diskStore) CreateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error) {
 	return s.Create(buildMemoryEntryFromWriteRequest(req), opts...)
 }
 
+// Create 创建记忆。
 func (s *diskStore) Create(entry MemoryEntry, opts ...WriteOptions) (MemoryEntry, error) {
 	return s.write(entry, false, resolveWriteOptions(opts))
 }
 
+// Read 读取记忆。
 func (s *diskStore) Read(name string) (MemoryEntry, error) {
 	root, err := s.rootOrError()
 	if err != nil {
@@ -65,14 +69,17 @@ func (s *diskStore) Read(name string) (MemoryEntry, error) {
 	return entry, nil
 }
 
+// Update 更新记忆。
 func (s *diskStore) Update(entry MemoryEntry, opts ...WriteOptions) (MemoryEntry, error) {
 	return s.write(entry, true, resolveWriteOptions(opts))
 }
 
+// UpdateStructured 更新structured。
 func (s *diskStore) UpdateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error) {
 	return s.Update(buildMemoryEntryFromWriteRequest(req), opts...)
 }
 
+// UpdateStructuredPath 更新structured路径。
 func (s *diskStore) UpdateStructuredPath(path string, req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error) {
 	return s.updatePath(path, buildMemoryEntryFromWriteRequest(req), resolveWriteOptions(opts))
 }
@@ -111,6 +118,7 @@ func (s *diskStore) upsertWrite(entry MemoryEntry, options WriteOptions) (Memory
 	return written, err
 }
 
+// Delete 删除记忆。
 func (s *diskStore) Delete(name string, opts ...WriteOptions) error {
 	root, err := s.rootOrError()
 	if err != nil {
@@ -125,6 +133,7 @@ func (s *diskStore) Delete(name string, opts ...WriteOptions) error {
 	})
 }
 
+// DeletePath 删除路径。
 func (s *diskStore) DeletePath(path string, opts ...WriteOptions) error {
 	root, err := s.rootOrError()
 	if err != nil {
@@ -139,6 +148,7 @@ func (s *diskStore) DeletePath(path string, opts ...WriteOptions) error {
 	})
 }
 
+// RebuildIndex 处理rebuild索引。
 func (s *diskStore) RebuildIndex() ([]MemoryIndexEntry, error) {
 	root, err := s.rootOrError()
 	if err != nil {
@@ -147,6 +157,7 @@ func (s *diskStore) RebuildIndex() ([]MemoryIndexEntry, error) {
 	return RebuildMemoryIndex(root)
 }
 
+// write 写入记忆。
 func (s *diskStore) write(entry MemoryEntry, requireExisting bool, options WriteOptions) (MemoryEntry, error) {
 	root, err := s.rootOrError()
 	if err != nil {
@@ -174,6 +185,7 @@ func (s *diskStore) write(entry MemoryEntry, requireExisting bool, options Write
 	return written, err
 }
 
+// updatePath 更新路径。
 func (s *diskStore) updatePath(path string, entry MemoryEntry, options WriteOptions) (MemoryEntry, error) {
 	root, err := s.rootOrError()
 	if err != nil {
@@ -211,6 +223,7 @@ func (s *diskStore) updatePath(path string, entry MemoryEntry, options WriteOpti
 	return written, err
 }
 
+// WriteMemoryFile 写入记忆文件。
 func WriteMemoryFile(root string, entry MemoryEntry) (MemoryEntry, error) {
 	prepared, err := prepareWritableEntry(entry, false)
 	if err != nil {
@@ -231,6 +244,7 @@ func writePreparedMemoryFile(root string, prepared MemoryEntry, guard memoryWrit
 	return writePreparedMemoryFilePath(normalizedRoot, targetPath, prepared, guard)
 }
 
+// writePreparedMemoryFilePath 写入prepared记忆文件路径。
 func writePreparedMemoryFilePath(root, targetPath string, prepared MemoryEntry, guard memoryWriteGuard) (MemoryEntry, error) {
 	normalizedRoot, err := normalizeStoreRoot(root)
 	if err != nil {
@@ -257,6 +271,7 @@ func writePreparedMemoryFilePath(root, targetPath string, prepared MemoryEntry, 
 	return readMemoryEntryFile(targetPath)
 }
 
+// DeleteMemory 删除记忆。
 func DeleteMemory(root, name string) error {
 	normalizedRoot, err := normalizeStoreRoot(root)
 	if err != nil {
@@ -272,6 +287,7 @@ func DeleteMemory(root, name string) error {
 	return removeMemoryFile(normalizedRoot, entry.FilePath)
 }
 
+// DeleteMemoryPath 删除记忆路径。
 func DeleteMemoryPath(root, path string) error {
 	normalizedRoot, err := normalizeStoreRoot(root)
 	if err != nil {
@@ -309,6 +325,7 @@ func normalizeStoreRoot(root string) (string, error) {
 	return strings.TrimSuffix(validatedRoot, string(os.PathSeparator)), nil
 }
 
+// prepareWritableEntry 准备writable条目。
 func prepareWritableEntry(entry MemoryEntry, validateContent bool) (MemoryEntry, error) {
 	entry = normalizeLoadedEntry(entry)
 	if strings.TrimSpace(entry.Content) == "" {
@@ -424,6 +441,7 @@ func findMemoryEntryForDelete(root, name string) (MemoryEntry, bool, error) {
 	return findMatchingMemoryEntry(root, name)
 }
 
+// findMatchingMemoryEntry 查找matching记忆条目。
 func findMatchingMemoryEntry(root, query string) (MemoryEntry, bool, error) {
 	entries, err := scanMemoryEntries(root)
 	if err != nil {
@@ -450,6 +468,7 @@ func findMatchingMemoryEntry(root, query string) (MemoryEntry, bool, error) {
 	return best, found, nil
 }
 
+// memoryDeleteMatchScore 处理记忆deletematchscore。
 func memoryDeleteMatchScore(query string, entry MemoryEntry) int {
 	fields := []struct {
 		text  string
@@ -496,6 +515,7 @@ func resolveMemoryFilePath(root string, entry MemoryEntry) (string, error) {
 	return reserveMemoryFilePath(root, dir, base, entry.CanonicalName)
 }
 
+// reserveMemoryFilePath 处理reserve记忆文件路径。
 func reserveMemoryFilePath(root, dir, base, canonicalName string) (string, error) {
 	candidates := []string{filepath.Join(dir, base+".md")}
 	hash := shared.ShortHash(canonicalName)

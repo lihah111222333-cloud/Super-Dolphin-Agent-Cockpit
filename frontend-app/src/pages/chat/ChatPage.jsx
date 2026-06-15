@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Brain, CheckCircle2, ChevronDown, Copy, File, Sparkles, Terminal, Wrench, X } from 'lucide-react';
+import { Brain, CheckCircle2, ChevronDown, CircleStop, Copy, File, MoreHorizontal, PanelTopOpen, RefreshCw, Sparkles, Terminal, Wrench, X } from 'lucide-react';
 import { textValue } from '../shared/pageShared.js';
 import {
   codeOpenDisplayPath,
@@ -29,10 +29,10 @@ import { CodePreviewDialog } from './components/CodePreviewDialog.jsx';
 import { PathChoiceDialog } from './components/PathChoiceDialog.jsx';
 import { RuntimePanel } from './components/RuntimePanel.jsx';
 import { ThreadRail } from './components/ThreadRail.jsx';
+import { ProjectSelector } from './components/ProjectSelector.jsx';
 import { runUIAction } from './components/chatUiActions.js';
 import {
   canUseProjectActionsForStore,
-  projectDisplayName,
   runtimeProjectPath,
 } from './components/projectSelectorModel.js';
 import { useTimelineMaterialization } from './hooks/useTimelineMaterialization.js';
@@ -442,6 +442,10 @@ function mergeThreadScopedTimelineItems(items = []) {
 }
 
 function threadScopedTimelineValue(map = {}, activeThreadId, activeThread, fallback = []) {
+  /*
+   * 同一会话可能有 threadId、agentId、sessionId 等多个名字。
+   * 这里把这些名字下的 timeline 合成当前页面要显示的消息。
+   */
   const ids = activeThreadIdentifiers(activeThreadId, activeThread);
   const items = [];
   for (const id of ids) {
@@ -626,6 +630,10 @@ function handleTimelineCitationAction(payload, { store, openFileRef }) {
 }
 
 function useChatThreadData(store, activeThreadId) {
+  /*
+   * ChatPage 在这里从 store 取当前线程数据。
+   * timeline、diff、token、活动日志都按当前线程名字集合读取。
+   */
   const activeThread = activeThreadForStore(store);
   const timelineBlocked = Boolean(activeThreadId && threadScopedBooleanValue(store.threadStateLoadingByThread, activeThreadId, activeThread, false));
   const cachedTimeline = threadScopedTimelineValue(store.timelinesByThread, activeThreadId, activeThread, []);
@@ -698,8 +706,8 @@ function useThreadRailLayout({ viewportWidth, rightPanelOpen, store, layoutRef }
     const layoutColumnsForWidth = (nextWidth) => {
       const rightWidth = clampWidth(store.rightPanelWidth, 0, rightPanelMaxWidth(viewportWidth, nextWidth));
       return rightPanelOpen
-        ? `${nextWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr) ${SPLITTER_WIDTH}px ${rightWidth}px`
-        : `${nextWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr)`;
+        ? `minmax(0, 1fr) ${SPLITTER_WIDTH}px ${rightWidth}px`
+        : 'minmax(0, 1fr)';
     };
 
     const move = (moveEvent) => {
@@ -811,6 +819,10 @@ function useRuntimePanelWidthSync({ maxWidth, open, resizedRef, setOpen, store, 
 
 function useRuntimeDiffSync({ activeThreadId, open, store }) {
   useEffect(() => {
+    /*
+     * 右侧面板打开时才补 diff。
+     * loadMessages:false 表示复用当前 timeline，不重新拉历史消息。
+     */
     if (!open || !activeThreadId) return;
     if (store.threadDiffReadyByThread?.[activeThreadId]) return;
     if (store.threadStateLoadingByThread?.[activeThreadId]) return;
@@ -845,20 +857,20 @@ function toggleRuntimePanel({ maxWidth, open, resizedRef, setOpen, store, viewpo
   setOpen(next);
 }
 
-function beginRightPanelDrag({ event, layoutRef, maxWidth, railWidth, setOpen, store, width }) {
+function beginRightPanelDrag({ event, layoutRef, maxWidth, setOpen, store, width }) {
   event.preventDefault();
   event.currentTarget?.setPointerCapture?.(event.pointerId);
-  const drag = rightPanelDragState({ event, layoutRef, maxWidth, railWidth, setOpen, store, width });
+  const drag = rightPanelDragState({ event, layoutRef, maxWidth, setOpen, store, width });
   window.addEventListener('pointermove', drag.move);
   window.addEventListener('pointerup', drag.finish);
   window.addEventListener('pointercancel', drag.finish);
   window.addEventListener('blur', drag.finish);
 }
 
-function rightPanelDragState({ event, layoutRef, maxWidth, railWidth, setOpen, store, width }) {
+function rightPanelDragState({ event, layoutRef, maxWidth, setOpen, store, width }) {
   const startX = event.clientX;
   const startWidth = width;
-  const layoutColumnsForWidth = (nextWidth) => `${railWidth}px ${SPLITTER_WIDTH}px minmax(0, 1fr) ${SPLITTER_WIDTH}px ${nextWidth}px`;
+  const layoutColumnsForWidth = (nextWidth) => `minmax(0, 1fr) ${SPLITTER_WIDTH}px ${nextWidth}px`;
   const state = { latestWidth: startWidth, stopped: false };
   const applyDragWidth = (nextWidth) => {
     if (layoutRef.current) layoutRef.current.style.gridTemplateColumns = layoutColumnsForWidth(nextWidth);
@@ -938,11 +950,12 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
   useActiveChatThreadSync(store, activeThreadId);
   useChatInterruptShortcut(store, activeThreadId);
   const layoutColumns = rightPanelOpen
-    ? `${rail.width}px ${SPLITTER_WIDTH}px minmax(0, 1fr) ${SPLITTER_WIDTH}px ${rightPanelWidth}px`
-    : `${rail.width}px ${SPLITTER_WIDTH}px minmax(0, 1fr)`;
+    ? `minmax(0, 1fr) ${SPLITTER_WIDTH}px ${rightPanelWidth}px`
+    : 'minmax(0, 1fr)';
 
   return (
     <section className="chat-page" data-testid="chat-page">
+      <ChatPageHeader store={store} projectPath={projectPath} rightPanelOpen={rightPanelOpen} setRightPanelOpen={setRightPanelOpen} />
       <div ref={chatLayoutRef} className="chat-layout" data-testid="chat-layout" style={{ gridTemplateColumns: layoutColumns }}>
         <ThreadRail store={store} />
         <ThreadRailResizer rail={rail} />
@@ -986,6 +999,204 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
       </div>
       {codePreview.dialogs}
     </section>
+  );
+}
+
+function ChatPageHeader({ store, projectPath, rightPanelOpen, setRightPanelOpen }) {
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsButtonRef = useRef(null);
+  const actionsMenuRef = useRef(null);
+  const canUseThreadActions = Boolean(store?.hasActiveThreadActions?.());
+  const canInterruptThread = Boolean(store?.hasInterruptibleThreadAction?.());
+  const bootstrapFailureMessage = store?.bootstrapStatus === 'failed' && textValue(store?.error)
+    ? `连接后端失败：${textValue(store?.error)}`
+    : '';
+  const feedback = store?.actionNotice?.message
+    ? store.actionNotice
+    : (bootstrapFailureMessage ? { message: bootstrapFailureMessage, tone: 'error' } : null);
+  useEffect(() => {
+    if (!actionsOpen) return undefined;
+    const closeOnPointerDown = (event) => {
+      if (actionsMenuRef.current?.contains(event.target)) return;
+      if (actionsButtonRef.current?.contains(event.target)) return;
+      setActionsOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      setActionsOpen(false);
+      actionsButtonRef.current?.focus?.();
+    };
+    window.addEventListener('pointerdown', closeOnPointerDown);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      window.removeEventListener('pointerdown', closeOnPointerDown);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [actionsOpen]);
+  const runMenuAction = useCallback((action, { close = true } = {}) => {
+    if (close) setActionsOpen(false);
+    runUIAction(action);
+  }, []);
+  return (
+    <header className="chat-page-header">
+      <div className="chat-page-title">
+        <h1>聊天页面</h1>
+        <button
+          ref={actionsButtonRef}
+          type="button"
+          className={`chat-more-button ${actionsOpen ? 'active' : ''}`}
+          aria-label="聊天操作"
+          title="聊天操作"
+          aria-haspopup="menu"
+          aria-expanded={actionsOpen}
+          onClick={() => setActionsOpen((current) => !current)}
+        >
+          <MoreHorizontal size={24} aria-hidden="true" />
+        </button>
+      </div>
+      {actionsOpen ? (
+        <ChatActionsMenu
+          canInterruptThread={canInterruptThread}
+          canUseThreadActions={canUseThreadActions}
+          menuRef={actionsMenuRef}
+          projectPath={projectPath}
+          rightPanelOpen={rightPanelOpen}
+          runMenuAction={runMenuAction}
+          setRightPanelOpen={setRightPanelOpen}
+          store={store}
+        />
+      ) : null}
+      <button
+        type="button"
+        className="chat-sidepanel-shortcut"
+        aria-label={rightPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}
+        title={rightPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}
+        aria-pressed={rightPanelOpen}
+        onClick={() => setRightPanelOpen?.((prev) => !prev)}
+      />
+      <div className="chat-legacy-actions" aria-label="聊天操作">
+        {store?.activeThreadId ? <ProjectSelector store={store} projectPath={projectPath} /> : null}
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label="新窗口（独立进程）"
+          title="新窗口（独立进程）"
+          onClick={() => runUIAction(() => store.openNewWindow?.())}
+        >
+          <PanelTopOpen size={14} />
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label={canUseThreadActions ? '复制当前线程' : '复制当前线程（不可用）'}
+          title={canUseThreadActions ? '复制当前线程' : '请先选择会话'}
+          disabled={!canUseThreadActions}
+          onClick={() => runUIAction(() => store.copyActiveThreadInfo?.())}
+        >
+          <Copy size={14} />
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label={canInterruptThread ? '停止' : '停止（不可用）'}
+          title={canInterruptThread ? '中断当前执行' : '无运行中任务'}
+          disabled={!canInterruptThread}
+          onClick={() => runUIAction(() => store.interruptActiveThread?.())}
+        >
+          <CircleStop size={14} />
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label={canUseThreadActions ? '强制完成' : '强制完成（不可用）'}
+          title={canUseThreadActions ? '强制完成当前执行' : '请先选择会话'}
+          disabled={!canUseThreadActions}
+          onClick={() => runUIAction(() => store.forceCompleteActiveThread?.())}
+        >
+          <CheckCircle2 size={14} />
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label={canUseThreadActions ? '进程恢复' : '请先选择会话'}
+          title={canUseThreadActions ? '手动杀进程并恢复连接' : '请先选择会话'}
+          disabled={!canUseThreadActions}
+          onClick={() => runUIAction(() => store.recoverActiveThread?.())}
+        >
+          <RefreshCw size={14} />
+        </button>
+      </div>
+      {feedback?.message ? (
+        <output className={`action-feedback ${feedback.tone || 'info'}`} data-testid="chat-action-feedback">
+          {feedback.message}
+        </output>
+      ) : null}
+    </header>
+  );
+}
+
+function ChatActionsMenu({
+  canInterruptThread,
+  canUseThreadActions,
+  menuRef,
+  projectPath,
+  rightPanelOpen,
+  runMenuAction,
+  setRightPanelOpen,
+  store,
+}) {
+  const toggleRuntimePanel = () => setRightPanelOpen?.((prev) => !prev);
+  return (
+    <div ref={menuRef} className="chat-actions-menu" data-testid="chat-actions-menu" role="menu" aria-label="聊天操作">
+      {store?.activeThreadId ? (
+        <div className="chat-actions-project">
+          <ProjectSelector store={store} projectPath={projectPath} />
+        </div>
+      ) : null}
+      <ChatActionMenuButton
+        icon={PanelTopOpen}
+        label="新窗口（独立进程）"
+        onClick={() => runMenuAction(() => store.openNewWindow?.())}
+      />
+      <ChatActionMenuButton
+        icon={Copy}
+        label={canUseThreadActions ? '复制当前线程' : '复制当前线程（不可用）'}
+        disabled={!canUseThreadActions}
+        onClick={() => runMenuAction(() => store.copyActiveThreadInfo?.())}
+      />
+      <ChatActionMenuButton
+        icon={CircleStop}
+        label={canInterruptThread ? '停止' : '停止（不可用）'}
+        disabled={!canInterruptThread}
+        onClick={() => runMenuAction(() => store.interruptActiveThread?.())}
+      />
+      <ChatActionMenuButton
+        icon={CheckCircle2}
+        label={canUseThreadActions ? '强制完成' : '强制完成（不可用）'}
+        disabled={!canUseThreadActions}
+        onClick={() => runMenuAction(() => store.forceCompleteActiveThread?.())}
+      />
+      <ChatActionMenuButton
+        icon={RefreshCw}
+        label={canUseThreadActions ? '进程恢复' : '请先选择会话'}
+        disabled={!canUseThreadActions}
+        onClick={() => runMenuAction(() => store.recoverActiveThread?.())}
+      />
+      <ChatActionMenuButton
+        icon={PanelTopOpen}
+        label={rightPanelOpen ? '隐藏侧边栏' : '显示侧边栏'}
+        onClick={() => runMenuAction(toggleRuntimePanel)}
+      />
+    </div>
+  );
+}
+
+function ChatActionMenuButton({ disabled = false, icon: Icon, label, onClick }) {
+  return (
+    <button type="button" className="chat-action-menu-item" disabled={disabled} onClick={onClick}>
+      <Icon size={16} aria-hidden="true" />
+      <span>{label}</span>
+    </button>
   );
 }
 
@@ -2989,6 +3200,10 @@ function useComposerInteractions({
   projectActionBlocked,
   canUseProjectActions,
 }) {
+  /*
+   * composer 交互层只管浏览器本地状态：预览、拖拽深度、IME 输入。
+   * 附件保存、去重和发送 input 都在 store 里完成。
+   */
   const [previewAttachment, setPreviewAttachment] = useState(null);
   const [dropActive, setDropActive] = useState(false);
   const dropDepthRef = useRef(0);
@@ -3029,6 +3244,10 @@ function useComposerInteractions({
 }
 
 function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, canUseProjectActions, dropDepthRef, projectActionBlocked, setDropActive }) {
+  /*
+   * 拖拽/粘贴可能来自 File、Wails 原生事件或 file:// 文本。
+   * 项目还没准备好时，只处理 UI 事件，不把路径写进 composer。
+   */
   const resetDropState = useCallback(() => {
     dropDepthRef.current = 0;
     setDropActive(false);
@@ -3329,6 +3548,7 @@ function ConversationComposer({
   selectFiles,
   sending,
   store,
+  projectPath,
   modelThreadId,
   showProviderToggle,
   composer,
@@ -3344,8 +3564,10 @@ function ConversationComposer({
       selectFiles={selectFiles}
       sending={sending}
       store={store}
+      projectPath={projectPath}
       modelThreadId={modelThreadId}
       showProviderToggle={showProviderToggle}
+      showProjectSelector={floating}
       composer={composer}
       canUseProjectActions={canUseProjectActions}
     />
@@ -3369,6 +3591,10 @@ function ConversationTimeline({
   timelineRef,
   smoothStreaming,
 }) {
+  /*
+   * Timeline 只负责显示当前窗口和触发“加载更早”。
+   * 更早的后端消息先写入 store，再从 messages 回到这里。
+   */
   const {
     hiddenOlderCount,
     revealOlder,
@@ -3485,12 +3711,11 @@ function TimelineOlderMessagesMarker({ hiddenCount, loading, onReveal }) {
   );
 }
 
-function IntroChatStage({ composer, projectPath }) {
+function IntroChatStage({ composer, projectPath: _projectPath }) {
   return (
     <div className="intro-chat-stage">
       <div className="empty-chat">
-        <h2>我们应该在 {projectDisplayName(projectPath)} 中构建什么？</h2>
-        <p>{projectPath}</p>
+        <h2>让我们从 Super-Dolphin 开始!</h2>
       </div>
       {composer}
     </div>

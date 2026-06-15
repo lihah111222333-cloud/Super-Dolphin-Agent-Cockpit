@@ -21,6 +21,8 @@ const (
 	envPromptStartCurrentDate = "PROMPT_START_CURRENT_DATE"
 )
 
+// AssembleStart 组出 thread/start 要交给 provider 的初始提示。
+// 这里会带上 memory 规则、系统上下文和 snapshot，provider 侧不要再重拼一份。
 func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssembly, error) {
 	if err := ctx.Err(); err != nil {
 		return StartAssembly{}, err
@@ -114,6 +116,8 @@ func (s *service) simpleStartAssembly(ctx context.Context, in StartInput) StartA
 	}
 }
 
+// AssembleTurn 只准备这一轮需要的新上下文和附件。
+// start 时的系统提示不会在这里重复；要改 start-only 内容，需要重建 start snapshot。
 func (s *service) AssembleTurn(ctx context.Context, in TurnInput) (TurnAssembly, error) {
 	if err := ctx.Err(); err != nil {
 		return TurnAssembly{}, err
@@ -153,6 +157,7 @@ func (s *service) AssembleTurn(ctx context.Context, in TurnInput) (TurnAssembly,
 	}, nil
 }
 
+// Invalidate 使已缓存的 prompt 组装结果失效。
 func (s *service) Invalidate(ctx context.Context, reason InvalidateReason) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -168,6 +173,7 @@ func (s *service) Invalidate(ctx context.Context, reason InvalidateReason) error
 	return nil
 }
 
+// resolveSections 解析一组 prompt section。
 func (s *service) resolveSections(ctx context.Context, sections []PromptSection, input SectionContext) ([]ResolvedPromptSection, error) {
 	if len(sections) == 0 {
 		return nil, nil
@@ -199,6 +205,7 @@ func (s *service) resolveSections(ctx context.Context, sections []PromptSection,
 	return resolved, nil
 }
 
+// resolveSection 解析单个 prompt section。
 func (s *service) resolveSection(ctx context.Context, section PromptSection, input SectionContext) (*ResolvedPromptSection, error) {
 	if section.StartOnly && input.Start == nil {
 		return nil, nil
@@ -217,6 +224,7 @@ func (s *service) resolveSection(ctx context.Context, section PromptSection, inp
 	return resolvedSection(section, value), nil
 }
 
+// computeSection 计算动态或静态 prompt section 内容。
 func (s *service) computeSection(ctx context.Context, generation uint64, section PromptSection, cacheKey string, cacheable bool, input SectionContext) (*string, error) {
 	if section.Compute == nil {
 		return nil, nil
@@ -338,6 +346,8 @@ func startPromptCurrentDate() string {
 	return time.Now().Format("2006-01-02")
 }
 
+// newSnapshot 保存 start 提示的可恢复版本。
+// resume/fork/recover 会复用它，所以不要把 provider 私有状态混进来。
 func (s *service) newSnapshot(
 	displayName, base, dev, provider string,
 	boundary *dto.PromptAssemblyBoundary,

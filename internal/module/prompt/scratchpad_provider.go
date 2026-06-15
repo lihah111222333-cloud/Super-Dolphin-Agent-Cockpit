@@ -10,10 +10,12 @@ var _ DynamicSectionProvider = ScratchpadProvider{}
 
 type ScratchpadProvider struct{}
 
+// SectionName 处理section名称。
 func (ScratchpadProvider) SectionName() string {
 	return DynamicSectionScratchpad
 }
 
+// Resolve 解析prompt。
 func (ScratchpadProvider) Resolve(_ context.Context, input SectionContext) (*string, error) {
 	dir := strings.TrimSpace(input.BuildCtx.ScratchpadDir)
 	if dir == "" {

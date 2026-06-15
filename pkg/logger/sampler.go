@@ -16,6 +16,7 @@ type Sampler struct {
 
 // NewSampler creates a sampler that emits the first firstN hits per key,
 // then every everyM-th hit thereafter.
+// NewSampler 创建sampler。
 func NewSampler(firstN, everyM int) *Sampler {
 	if firstN < 1 {
 		firstN = 3
@@ -27,6 +28,7 @@ func NewSampler(firstN, everyM int) *Sampler {
 }
 
 // NewEverySampler creates a sampler that emits only every everyM-th hit per key.
+// NewEverySampler 创建everysampler。
 func NewEverySampler(everyM int) *Sampler {
 	if everyM < 1 {
 		everyM = 20
@@ -35,6 +37,7 @@ func NewEverySampler(everyM int) *Sampler {
 }
 
 // ShouldLog returns true if this occurrence of key should be logged.
+// ShouldLog 判断日志是否可用。
 func (s *Sampler) ShouldLog(key string) bool {
 	actual, _ := s.counts.LoadOrStore(key, &atomic.Int64{})
 	counter := actual.(*atomic.Int64)

@@ -246,17 +246,22 @@ func TestStructureWorkspaceSymbolUsesLanguageManager(t *testing.T) {
 }
 
 func TestStructureDocumentSymbolAcceptsLegacyPathAlias(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "sample.go")
+	if err := os.WriteFile(target, []byte("package sample\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
 	registry := &structureTestRegistry{fileManager: &structureTestManager{}}
 	handler := NewStructureHandler(registry)
-	input, err := json.Marshal(structureParams{Action: "document_symbol", Path: "/tmp/sample.go"})
+	input, err := json.Marshal(structureParams{Action: "document_symbol", Path: target})
 	if err != nil {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input); err != nil {
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input); err != nil {
 		t.Fatalf("document_symbol with path alias returned error: %v", err)
 	}
-	if registry.gotFilePath != "/tmp/sample.go" {
+	if registry.gotFilePath != target {
 		t.Fatalf("GetManagerForFile path = %q, want legacy path alias", registry.gotFilePath)
 	}
 }

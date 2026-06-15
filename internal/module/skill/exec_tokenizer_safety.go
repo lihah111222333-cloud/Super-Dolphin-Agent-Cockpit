@@ -17,6 +17,7 @@ func isDangerousWrapper(tokens []shellToken, idx, depth int, name string) string
 	return isDangerousChain(tokens, wrappedCommandIndex(tokens, idx, name), depth)
 }
 
+// wrappedCommandIndex 处理wrapped命令索引。
 func wrappedCommandIndex(tokens []shellToken, idx int, name string) int {
 	switch name {
 	case "env":
@@ -54,6 +55,7 @@ func nextCommandIndex(tokens []shellToken, start int) int {
 	return -1
 }
 
+// nextEnvCommandIndex 处理nextenv命令索引。
 func nextEnvCommandIndex(tokens []shellToken, start int) int {
 	for i := start; i < len(tokens); i++ {
 		text := strings.TrimSpace(tokens[i].text)
@@ -88,6 +90,7 @@ func nextOptionCommandIndex(tokens []shellToken, start int) int {
 	return -1
 }
 
+// nextNiceCommandIndex 处理nextnice命令索引。
 func nextNiceCommandIndex(tokens []shellToken, start int) int {
 	for i := start; i < len(tokens); i++ {
 		text := strings.TrimSpace(tokens[i].text)
@@ -109,6 +112,7 @@ func nextNiceCommandIndex(tokens []shellToken, start int) int {
 	return -1
 }
 
+// nextTimeoutCommandIndex 处理next超时命令索引。
 func nextTimeoutCommandIndex(tokens []shellToken, start int) int {
 	for i := start; i < len(tokens); i++ {
 		text := strings.TrimSpace(tokens[i].text)
@@ -193,6 +197,7 @@ func isASCIIDigit(ch byte) bool {
 	return ch >= '0' && ch <= '9'
 }
 
+// looksLikeSignedInteger 处理lookslikesignedinteger。
 func looksLikeSignedInteger(value string) bool {
 	if value == "" {
 		return false

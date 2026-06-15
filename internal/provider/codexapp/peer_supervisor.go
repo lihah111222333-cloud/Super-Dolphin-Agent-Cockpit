@@ -106,10 +106,12 @@ type PeerSupervisor struct {
 // bare NewPeerSupervisor; tests inject overrides via NewPeerSupervisorWithOptions.
 type PeerSupervisorOption func(*PeerSupervisor)
 
+// WithPeerLauncher 设置peer启动器。
 func WithPeerLauncher(l peerLauncher) PeerSupervisorOption {
 	return func(s *PeerSupervisor) { s.launcher = l }
 }
 
+// WithPeerNames 设置peer名称。
 func WithPeerNames(names []string) PeerSupervisorOption {
 	return func(s *PeerSupervisor) {
 		out := make([]string, 0, len(names))
@@ -123,10 +125,12 @@ func WithPeerNames(names []string) PeerSupervisorOption {
 	}
 }
 
+// WithPeerRestartBackoff 设置peerrestartbackoff。
 func WithPeerRestartBackoff(d time.Duration) PeerSupervisorOption {
 	return func(s *PeerSupervisor) { s.restartBackoff = d }
 }
 
+// WithPeerStopGrace 设置peerstopgrace。
 func WithPeerStopGrace(stop, kill time.Duration) PeerSupervisorOption {
 	return func(s *PeerSupervisor) {
 		s.stopGrace = stop
@@ -134,6 +138,7 @@ func WithPeerStopGrace(stop, kill time.Duration) PeerSupervisorOption {
 	}
 }
 
+// WithPeerControlProbe 设置peercontrolprobe。
 func WithPeerControlProbe(addr string, every time.Duration, attempts int) PeerSupervisorOption {
 	return func(s *PeerSupervisor) {
 		if addr != "" {
@@ -148,25 +153,30 @@ func WithPeerControlProbe(addr string, every time.Duration, attempts int) PeerSu
 	}
 }
 
+// WithPeerCleanupHook 设置peercleanuphook。
 func WithPeerCleanupHook(fn func()) PeerSupervisorOption {
 	return func(s *PeerSupervisor) { s.cleanupHook = fn }
 }
 
 // WithPeerPIDTracker replaces the default pid registry.
+// WithPeerPIDTracker 设置peer进程 IDtracker。
 func WithPeerPIDTracker(t peerPIDTracker) PeerSupervisorOption {
 	return func(s *PeerSupervisor) { s.pidRegistry = t }
 }
 
+// WithPeerWorkspaceRoots 设置peer工作区根目录。
 func WithPeerWorkspaceRoots(fn func() []string) PeerSupervisorOption {
 	return func(s *PeerSupervisor) { s.workspaceRoots = fn }
 }
 
 // NewPeerSupervisor is the production constructor.
+// NewPeerSupervisor 创建peersupervisor。
 func NewPeerSupervisor(mgr *ServerManager, logger *slog.Logger, opts ...PeerSupervisorOption) *PeerSupervisor {
 	return NewPeerSupervisorWithOptions(mgr, logger, opts...)
 }
 
 // NewPeerSupervisorWithOptions is the test-friendly constructor. mgr may be nil.
+// NewPeerSupervisorWithOptions 创建带选项的peersupervisor。
 func NewPeerSupervisorWithOptions(mgr *ServerManager, logger *slog.Logger, opts ...PeerSupervisorOption) *PeerSupervisor {
 	var reg peerPIDTracker
 	if mgr != nil && mgr.pidRegistry != nil {
@@ -205,6 +215,7 @@ func NewPeerSupervisorWithOptions(mgr *ServerManager, logger *slog.Logger, opts 
 var _ platformrunner.Runner = (*PeerSupervisor)(nil)
 
 // Run implements platformrunner.Runner.
+// Run 启动codexapp provider后台流程。
 func (s *PeerSupervisor) Run(ctx context.Context) error {
 	s.probeControlPlane(ctx)
 
@@ -286,6 +297,7 @@ func (s *PeerSupervisor) currentControlAddr() string {
 	return strings.TrimSpace(s.controlAddr)
 }
 
+// superviseOne 处理superviseone。
 func (s *PeerSupervisor) superviseOne(ctx context.Context, name string, initial peerHandle, wg *sync.WaitGroup) {
 	defer wg.Done()
 	current := initial
@@ -351,6 +363,7 @@ func (s *PeerSupervisor) trackPeer(h peerHandle) {
 }
 
 // replacePeer swaps the current handle.
+// replacePeer 替换peer。
 func (s *PeerSupervisor) replacePeer(old, next peerHandle) {
 	s.mu.Lock()
 	for i, h := range s.peers {
@@ -404,6 +417,7 @@ func (s *PeerSupervisor) closePeerPipe(h peerHandle) {
 }
 
 // drainOrEscalate sends EOF, SIGTERM, then SIGKILL, returning a timeout if peers still do not drain.
+// drainOrEscalate 先等待正常退出，超时后升级终止。
 func (s *PeerSupervisor) drainOrEscalate(peers []peerHandle, wg *sync.WaitGroup) error {
 	done := make(chan struct{})
 	go func() {
@@ -479,6 +493,7 @@ func newExecPeerLauncher(logger *slog.Logger) *execPeerLauncher {
 	return &execPeerLauncher{logger: logger}
 }
 
+// Launch 启动codexapp provider。
 func (l *execPeerLauncher) Launch(_ context.Context, name string) (peerHandle, error) {
 	binDirs, err := resolvePeerBinDirs()
 	if err != nil {
@@ -521,6 +536,7 @@ type peerBinaryMissingError struct {
 	Dirs []string
 }
 
+// Error 返回错误文本。
 func (e *peerBinaryMissingError) Error() string {
 	return "peer binary not found: " + e.Name + " in " + strings.Join(e.Dirs, string(os.PathListSeparator))
 }
@@ -534,8 +550,10 @@ type execPeerHandle struct {
 	pipeClosed bool
 }
 
+// Name 处理名称。
 func (h *execPeerHandle) Name() string { return h.name }
 
+// PID 处理进程 ID。
 func (h *execPeerHandle) PID() int {
 	if h.cmd != nil && h.cmd.Process != nil {
 		return h.cmd.Process.Pid
@@ -543,6 +561,7 @@ func (h *execPeerHandle) PID() int {
 	return 0
 }
 
+// Wait 等待codexapp provider。
 func (h *execPeerHandle) Wait() error {
 	if h.cmd == nil {
 		return errors.New("peer_supervisor: execPeerHandle with nil cmd")
@@ -552,6 +571,7 @@ func (h *execPeerHandle) Wait() error {
 	return err
 }
 
+// ClosePipe 关闭pipe。
 func (h *execPeerHandle) ClosePipe() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -562,6 +582,7 @@ func (h *execPeerHandle) ClosePipe() error {
 	return h.stdin.Close()
 }
 
+// Signal 向底层进程发送信号。
 func (h *execPeerHandle) Signal(sig processSig) error {
 	if h.cmd != nil && h.cmd.Process != nil {
 		return signalCodexProcess(h.cmd, h.guard, sig)

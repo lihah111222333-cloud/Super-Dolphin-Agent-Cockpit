@@ -52,6 +52,7 @@ type PromptListOutput struct {
 	Hint      string              `json:"hint,omitempty"`
 }
 
+// HandlePromptList 处理promptlist。
 func HandlePromptList(store promptstore.Store) ToolHandler {
 	return makeHandler(store, "prompt store", func(ctx context.Context, in promptListInput) (any, error) {
 		templates, err := listPromptTemplates(ctx, store, in)
@@ -65,6 +66,7 @@ func HandlePromptList(store promptstore.Store) ToolHandler {
 	})
 }
 
+// HandlePromptGet 处理promptget。
 func HandlePromptGet(store promptstore.Store) ToolHandler {
 	return makeHandler(store, "prompt store", func(ctx context.Context, in promptGetInput) (promptTemplateDTO, error) {
 		return getPromptTemplate(ctx, store, in)
@@ -117,6 +119,7 @@ func newPromptListOutput(templates []promptTemplateDTO) PromptListOutput {
 	}
 }
 
+// getPromptTemplate 读取prompttemplate。
 func getPromptTemplate(ctx context.Context, store promptstore.Store, input promptGetInput) (promptTemplateDTO, error) {
 	if err := requireDependency(store, "prompt store"); err != nil {
 		return promptTemplateDTO{}, err
@@ -163,6 +166,7 @@ func promptTemplateRuntimeVisible(template promptstore.PromptTemplate, cwd strin
 	return promptTagsContainScope(template.Tags, strings.TrimSpace(cwd))
 }
 
+// promptTagsContainScope 判断 prompt tags 是否包含指定 scope。
 func promptTagsContainScope(raw json.RawMessage, cwd string) bool {
 	if cwd == "" {
 		return false
@@ -208,6 +212,7 @@ func promptTemplateFromStore(template promptstore.PromptTemplate) promptTemplate
 	}
 }
 
+// promptSectionsPreview 处理promptsectionspreview。
 func promptSectionsPreview(sections []promptstore.PromptTemplateSection) string {
 	sorted := make([]promptstore.PromptTemplateSection, len(sections))
 	copy(sorted, sections)

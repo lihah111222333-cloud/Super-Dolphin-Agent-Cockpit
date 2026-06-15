@@ -12,6 +12,7 @@ import (
 )
 
 // NewCronProgressSubscribers declares cron progress subscriptions for BusModule.
+// NewCronProgressSubscribers 创建cronprogresssubscribers。
 func NewCronProgressSubscribers(scheduler *Scheduler, logger *pkglogger.Logger) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: contract.SubscriberSpec{

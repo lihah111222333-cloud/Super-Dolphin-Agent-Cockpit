@@ -45,6 +45,7 @@ var englishFillerWords = map[string]bool{
 	"this": true, "that": true, "with": true,
 }
 
+// Extract 提取线程。
 func Extract(prompt string) string {
 	if prompt == "" {
 		return ""
@@ -74,6 +75,7 @@ func Extract(prompt string) string {
 	return sentence
 }
 
+// ContinuationName 处理continuation名称。
 func ContinuationName(parentName string) string {
 	if m := continuationRe.FindStringSubmatch(parentName); m != nil {
 		base := m[1]
@@ -132,6 +134,7 @@ func containsChinese(s string) bool {
 	return false
 }
 
+// CountDisplayUnits 统计显示units。
 func CountDisplayUnits(s string) int {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -179,6 +182,7 @@ func classifyRune(r rune) runeKind {
 	return runeKindOther
 }
 
+// truncateToUnits 把线程截断为units。
 func truncateToUnits(s string, maxUnits int) string {
 	s = strings.TrimSpace(s)
 	if s == "" {

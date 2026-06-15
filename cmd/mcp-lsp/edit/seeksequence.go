@@ -19,6 +19,7 @@ const (
 
 // SeekSequence finds the first occurrence of pattern in lines using the 4-pass
 // relaxed matching strategy mandated by the migration plan.
+// SeekSequence 查找序列。
 func SeekSequence(lines []string, pattern []string, start int) (int, MatchMode, error) {
 	if len(pattern) == 0 {
 		return -1, "", fmt.Errorf("%w: empty pattern", ErrSequenceNotFound)
@@ -57,6 +58,7 @@ func seekSequenceMode(lines []string, pattern []string, start int, end int, mode
 	return -1
 }
 
+// collectSequenceMatches 收集序列matches。
 func collectSequenceMatches(lines []string, pattern []string) ([]int, MatchMode) {
 	if len(pattern) == 0 || len(pattern) > len(lines) {
 		return nil, ""
@@ -85,6 +87,7 @@ func sequenceMatchAt(lines []string, pattern []string, start int, mode MatchMode
 	return true
 }
 
+// lineMatch 判断行是否匹配。
 func lineMatch(have string, want string, mode MatchMode) bool {
 	switch mode {
 	case seekMatchExact:
@@ -119,6 +122,7 @@ func trimRightSpace(value string) string {
 // normalizeUnicode maps common Unicode punctuation variants to their ASCII
 // equivalents. Ported from V2's hand-written replacement table which matches
 // codex-rs apply-patch seek_sequence.rs:76-94.
+// normalizeUnicode 规范化Unicode。
 func normalizeUnicode(s string) string {
 	var b strings.Builder
 	for _, r := range s {
@@ -152,6 +156,7 @@ func normalizeUnicode(s string) string {
 //
 // This is intentionally a last-resort fallback; earlier passes (exact,
 // trim_right, trim_both, unicode_normalized) take priority.
+// normalizeEscape 规范化转义。
 func normalizeEscape(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))

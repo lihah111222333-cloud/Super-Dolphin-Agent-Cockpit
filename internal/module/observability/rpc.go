@@ -108,6 +108,7 @@ type frontendTraceEvent struct {
 	Metadata     platformobs.Metadata `json:"metadata,omitempty"`
 }
 
+// NewHandlers 创建处理器。
 func NewHandlers(svc *platformobs.Service) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		"observability/trace/get":       platformrpc.StrictHandler(traceGetHandler(svc)),
@@ -201,6 +202,7 @@ func errorListHandler(svc *platformobs.Service) func(context.Context, eventListP
 	}
 }
 
+// frontendIngestHandler 处理前端ingest处理器。
 func frontendIngestHandler(svc *platformobs.Service) func(context.Context, frontendIngestParams) (frontendIngestResponse, error) {
 	return func(ctx context.Context, p frontendIngestParams) (frontendIngestResponse, error) {
 		if svc == nil {
@@ -266,6 +268,7 @@ func filterRecentEvents(events []platformobs.TraceEvent, params recentListParams
 	return out
 }
 
+// recentEventMatches 判断recent事件是否匹配。
 func recentEventMatches(event platformobs.TraceEvent, params recentListParams) bool {
 	if internalRecentNoise(event) && !explicitInternalRecentSearch(params) {
 		return false
@@ -279,6 +282,7 @@ func recentEventMatches(event platformobs.TraceEvent, params recentListParams) b
 		eventMatchesKeyword(event, params.Keyword)
 }
 
+// internalRecentNoise 处理internalrecentnoise。
 func internalRecentNoise(event platformobs.TraceEvent) bool {
 	values := []string{event.Kind, event.Phase, event.Method, event.ClientKind}
 	for _, value := range values {
@@ -301,6 +305,7 @@ func internalRecentNoise(event platformobs.TraceEvent) bool {
 	return false
 }
 
+// explicitInternalRecentSearch 处理explicitinternalrecentsearch。
 func explicitInternalRecentSearch(params recentListParams) bool {
 	values := []string{params.Component, params.Method, params.Keyword}
 	for _, value := range values {
@@ -358,6 +363,7 @@ func eventMatchesText(value, query string) bool {
 	return strings.Contains(strings.ToLower(strings.TrimSpace(value)), query)
 }
 
+// eventMatchesKeyword 处理事件matcheskeyword。
 func eventMatchesKeyword(event platformobs.TraceEvent, keyword string) bool {
 	keyword = strings.ToLower(strings.TrimSpace(keyword))
 	if keyword == "" {
@@ -434,6 +440,7 @@ func latestTraceEventsFirst(events []platformobs.TraceEvent, limit int) []platfo
 	return out
 }
 
+// selectRecentRows 选择recentrows。
 func selectRecentRows(events []platformobs.TraceEvent, limit int) recentRowSelection {
 	selected := recentRowSelection{traceIDs: make(map[string]struct{}, limit), eventIndexes: make(map[int]struct{}, limit)}
 	rows := 0
@@ -479,6 +486,7 @@ func recentRawQueryLimit(displayLimit int) int {
 	return rawLimit
 }
 
+// totalDurationMS 处理totaldurationms。
 func totalDurationMS(events []platformobs.TraceEvent) int64 {
 	var minStart time.Time
 	var maxEnd time.Time
@@ -532,6 +540,7 @@ func normalizeLimit(limit int, defaultLimit int) int {
 	return limit
 }
 
+// frontendEventFromRaw 从原始处理前端事件。
 func frontendEventFromRaw(raw json.RawMessage) (platformobs.TraceEvent, error) {
 	if len(raw) == 0 {
 		return platformobs.TraceEvent{}, fmt.Errorf("event must be an object")

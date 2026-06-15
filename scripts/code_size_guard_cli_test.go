@@ -68,6 +68,36 @@ func bad_identifier_with_too_many_underscores() {}
 	}
 }
 
+func TestTestWithGuardPowerShellWrapperMatchesBashContract(t *testing.T) {
+	script := readScript(t, "test_with_guard.ps1")
+
+	for _, want := range []string{
+		"param(",
+		"[Parameter(ValueFromRemainingArguments = $true)]",
+		"[string[]]$GuardArgs",
+		"$ErrorActionPreference = 'Stop'",
+		"Set-StrictMode -Version Latest",
+		"function Resolve-RealGo",
+		"$env:REAL_GO_BIN",
+		"Get-Command go -All",
+		"function Invoke-RawGoTestGuard",
+		"Makefile",
+		".github/workflows",
+		"go\\s+test",
+		"function Invoke-Guard",
+		"code_size_guard.go",
+		"TestCodeSizeGuard",
+		"function Test-AllArgsAreGoFiles",
+		"function Invoke-SingleFileGuard",
+		"[System.IO.Path]::GetFullPath",
+		"exit $status",
+		"if (Test-AllArgsAreGoFiles -Args $GuardArgs)",
+		"& $realGo test @GuardArgs",
+	} {
+		assertScriptContains(t, script, want)
+	}
+}
+
 type codeSizeGuardCLIResult struct {
 	exitCode int
 	stdout   string
@@ -101,8 +131,13 @@ func runCodeSizeGuardCLI(t *testing.T, goFile string) codeSizeGuardCLIResult {
 
 func runTestWithGuardCLI(t *testing.T, goFile string) codeSizeGuardCLIResult {
 	t.Helper()
-	cmd := exec.Command("bash", "scripts/test_with_guard.sh", goFile)
+	cmd := exec.Command("bash", "scripts/test_with_guard.sh", filepath.ToSlash(goFile))
 	cmd.Dir = ".."
+	if realGo, err := exec.LookPath("go"); err == nil {
+		env := upsertEnv(os.Environ(), "REAL_GO_BIN", bashAbsolutePath(realGo))
+		env = upsertEnv(env, "PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+		cmd.Env = appendWSLEnvKeysWithGitWorktree(t, env, "REAL_GO_BIN", "PATH")
+	}
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -142,5 +177,20 @@ func TestAgentDocsRequireSingleFileGuardAfterGoEdits(t *testing.T) {
 			assertScriptContains(t, body, "0 表示无违规")
 			assertScriptContains(t, body, "1 表示有违规")
 		})
+	}
+}
+
+func TestAgentDocsSelectGuardCommandByDevice(t *testing.T) {
+	body := readRepoFile(t, "../AGENTS.md")
+
+	for _, want := range []string{
+		"根据当前设备和 shell 选择守卫入口",
+		"macOS / Linux / Git Bash / WSL",
+		"./scripts/test_with_guard.sh <file.go>",
+		"Windows 原生 PowerShell",
+		"pwsh -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\test_with_guard.ps1 <file.go>",
+		"不要在 Windows PowerShell 中直接运行 `.sh`",
+	} {
+		assertScriptContains(t, body, want)
 	}
 }

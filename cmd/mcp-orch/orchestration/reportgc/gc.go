@@ -15,6 +15,7 @@ type Logger interface {
 	Info(msg string, args ...any)
 }
 
+// Collect 收集编排。
 func Collect[T any](cwd string, threads []T, fields func(T) (agentID, threadCwd, status string), now time.Time, logger Logger) error {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
@@ -50,6 +51,7 @@ func Collect[T any](cwd string, threads []T, fields func(T) (agentID, threadCwd,
 	return nil
 }
 
+// eligibleIDs 处理eligibleids。
 func eligibleIDs[T any](cwd string, threads []T, fields func(T) (agentID, threadCwd, status string)) map[string]struct{} {
 	eligible, protected := map[string]struct{}{}, map[string]struct{}{}
 	for _, thread := range threads {
@@ -70,6 +72,7 @@ func eligibleIDs[T any](cwd string, threads []T, fields func(T) (agentID, thread
 	return eligible
 }
 
+// shouldRemove 判断remove是否可用。
 func shouldRemove(entry os.DirEntry, eligible map[string]struct{}, cutoff time.Time) (bool, error) {
 	if entry.IsDir() {
 		return false, nil
@@ -102,6 +105,7 @@ func sameCwd(left, right string) bool {
 	return left != "" && right != "" && filepath.Clean(left) == filepath.Clean(right)
 }
 
+// Sanitize 清理编排。
 func Sanitize(value string) string {
 	value = strings.TrimSpace(value)
 	var builder strings.Builder

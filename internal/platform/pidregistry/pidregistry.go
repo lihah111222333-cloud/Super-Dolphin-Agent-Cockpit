@@ -51,6 +51,7 @@ type Registry struct {
 }
 
 // New creates a new PID registry for the current process.
+// New 创建平台pidregistry。
 func New() *Registry {
 	pid := os.Getpid()
 	return &Registry{
@@ -61,6 +62,7 @@ func New() *Registry {
 }
 
 // Register adds a child process to the registry and persists to disk.
+// Register 注册平台pidregistry。
 func (r *Registry) Register(pid int, kind string, meta map[string]string) {
 	if r == nil || pid <= 1 {
 		return
@@ -77,6 +79,7 @@ func (r *Registry) Register(pid int, kind string, meta map[string]string) {
 }
 
 // Unregister removes a child process from the registry (normal exit).
+// Unregister 注销平台pidregistry。
 func (r *Registry) Unregister(pid int) {
 	if r == nil {
 		return
@@ -88,6 +91,7 @@ func (r *Registry) Unregister(pid int) {
 }
 
 // Close removes the registry file. Called during normal shutdown.
+// Close 关闭平台pidregistry资源。
 func (r *Registry) Close() {
 	if r == nil {
 		return
@@ -109,6 +113,7 @@ type staleOrphan struct {
 //
 // All orphaned processes are SIGTERM'd concurrently, then we wait once for
 // the grace period before SIGKILL'ing survivors.
+// CleanupStale 处理cleanupstale。
 func CleanupStale() int {
 	return CleanupStaleWithProtectedPIDs(nil)
 }
@@ -117,6 +122,7 @@ func CleanupStale() int {
 // Callers should pass the current runtime process tree plus its ancestry so a
 // stale registry from a dead parent cannot kill the live runtime that is doing
 // the cleanup.
+// CleanupStaleWithProtectedPIDs 处理带protectedpids的cleanupstale。
 func CleanupStaleWithProtectedPIDs(protectedPIDs map[int]struct{}) int {
 	staleFiles := findStaleRegistryFiles()
 	if len(staleFiles) == 0 {
@@ -141,6 +147,7 @@ func CleanupStaleWithProtectedPIDs(protectedPIDs map[int]struct{}) int {
 }
 
 // collectStaleOrphans gathers alive PIDs from stale registry files.
+// collectStaleOrphans 收集staleorphans。
 func collectStaleOrphans(staleFiles []staleFile, protectedPIDs map[int]struct{}) []staleOrphan {
 	var orphans []staleOrphan
 	for _, sf := range staleFiles {
@@ -159,6 +166,7 @@ func collectStaleOrphans(staleFiles []staleFile, protectedPIDs map[int]struct{})
 
 // sigtermOrphans sends SIGTERM (or the platform equivalent) to all orphans
 // and returns those successfully signalled.
+// sigtermOrphans 处理sigtermorphans。
 func sigtermOrphans(orphans []staleOrphan) []staleOrphan {
 	sigtermed := make([]staleOrphan, 0, len(orphans))
 	for _, o := range orphans {
@@ -250,6 +258,7 @@ type staleFile struct {
 	registryFile
 }
 
+// findStaleRegistryFiles 查找stale注册表文件。
 func findStaleRegistryFiles() []staleFile {
 	pattern := filepath.Join(registryDir(), filePrefix+"*"+fileSuffix)
 	matches, err := filepath.Glob(pattern)
@@ -292,6 +301,7 @@ func cleanupStaleFiles(files []staleFile) {
 // RegistryFilesMatchingKind reads all stale files and returns PIDs of a given kind.
 // This is used as a fallback by the orphan sweeper for backwards compatibility
 // with codex app-server processes that weren't tracked by the registry.
+// RegistryFilesMatchingKind 处理注册表文件matchingkind。
 func RegistryFilesMatchingKind(kind string) []int {
 	staleFiles := findStaleRegistryFiles()
 	var pids []int
@@ -308,11 +318,13 @@ func RegistryFilesMatchingKind(kind string) []int {
 // HasStaleFiles returns true if there are PID registry files from dead
 // app instances. Used to decide whether to use registry-based cleanup or
 // fall back to the legacy ps-scan approach.
+// HasStaleFiles 判断stale文件是否可用。
 func HasStaleFiles() bool {
 	return len(findStaleRegistryFiles()) > 0
 }
 
 // StaleChildCount counts total alive children across all stale registry files.
+// StaleChildCount 处理stalechildcount。
 func StaleChildCount() int {
 	staleFiles := findStaleRegistryFiles()
 	count := 0
@@ -327,6 +339,7 @@ func StaleChildCount() int {
 }
 
 // StaleAppPIDs returns the app PIDs of dead registry files (for logging).
+// StaleAppPIDs 处理staleapppids。
 func StaleAppPIDs() []int {
 	staleFiles := findStaleRegistryFiles()
 	pids := make([]int, 0, len(staleFiles))
@@ -337,6 +350,7 @@ func StaleAppPIDs() []int {
 }
 
 // ParsePIDFromFilename extracts the app PID from a registry filename.
+// ParsePIDFromFilename 从filename解析进程 ID。
 func ParsePIDFromFilename(name string) (int, bool) {
 	name = filepath.Base(name)
 	if !strings.HasPrefix(name, filePrefix) || !strings.HasSuffix(name, fileSuffix) {

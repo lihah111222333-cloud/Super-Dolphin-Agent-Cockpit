@@ -10,6 +10,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
 )
@@ -39,6 +40,16 @@ func TestAppModuleGraphProvidesTurnThreadStateConfigReader(t *testing.T) {
 	opts := append(appGraphValidationOptions(), fx.Populate(&reader))
 	if err := fx.ValidateApp(opts...); err != nil {
 		t.Fatalf("fx.ValidateApp missing turn thread runtime reader: %v", err)
+	}
+}
+
+func TestAppModuleGraphProvidesDatasourceV2Service(t *testing.T) {
+	t.Parallel()
+
+	var svc datasourcev2.Service
+	opts := append(appGraphValidationOptions(), fx.Populate(&svc))
+	if err := fx.ValidateApp(opts...); err != nil {
+		t.Fatalf("fx.ValidateApp missing datasource_v2 service: %v", err)
 	}
 }
 

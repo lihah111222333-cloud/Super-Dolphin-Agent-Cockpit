@@ -41,6 +41,7 @@ func main() {
 	}
 }
 
+// run 运行发布 manifest。
 func run(args []string) error {
 	cfg, err := parseFlags(args)
 	if err != nil {
@@ -110,6 +111,7 @@ func parseFlags(args []string) (manifestFlags, error) {
 	return cfg, nil
 }
 
+// requireFlagValues 处理requireflag值。
 func requireFlagValues(cfg manifestFlags) error {
 	if cfg.checkKey {
 		return requireNamedValues(map[string]string{
@@ -222,6 +224,7 @@ func decodePublicKey(value string) (ed25519.PublicKey, error) {
 	return ed25519.PublicKey(raw), nil
 }
 
+// verifyExistingManifest 验证existingmanifest。
 func verifyExistingManifest(cfg manifestFlags) error {
 	artifact, err := inspectArtifact(cfg.artifact)
 	if err != nil {

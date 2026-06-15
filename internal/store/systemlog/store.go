@@ -18,10 +18,12 @@ type store struct {
 	q querier
 }
 
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store {
 	return &store{q: q}
 }
 
+// List 列出systemlog存储。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]SystemLog, error) {
 	rows, err := s.q.ListSystemLogs(ctx, sqlc.ListSystemLogsParams{
 		LevelFilter:     filter.Level,
@@ -46,6 +48,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]SystemLog, error
 	return result, nil
 }
 
+// Insert 插入systemlog存储。
 func (s *store) Insert(ctx context.Context, params InsertParams) error {
 	return wrapSystemLogError(s.q.InsertSystemLog(ctx, sqlc.InsertSystemLogParams{
 		Ts:      platformdb.Millis(time.Now().UTC()),

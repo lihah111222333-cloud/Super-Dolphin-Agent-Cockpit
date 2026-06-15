@@ -36,6 +36,7 @@ func registerHTTPAssetRoutes(mux *http.ServeMux, server *rpc.Server, assetHandle
 // NewHTTPAssetServer creates a Runner that serves the embedded frontend
 // assets and a WebSocket-based JRPC bridge on an HTTP port so that
 // the application is accessible from a regular web browser.
+// NewHTTPAssetServer 创建HTTPasset服务端。
 func NewHTTPAssetServer(p httpAssetServerParams) httpAssetRunnerResult {
 	handler := withClipboardAssets(AssetHandlerFrom(p.Frontend))
 	return httpAssetRunnerResult{
@@ -55,6 +56,7 @@ func resolveHTTPAssetAddr() string {
 	return defaultHTTPAddr
 }
 
+// Run 启动桌面 UI 桥接后台流程。
 func (s *httpAssetServer) Run(ctx context.Context) error {
 	// 误判防护：validateHTTPAssetAddr 是 Go HTTP asset server 直连绑定的 loopback 守卫。
 	if err := validateHTTPAssetAddr(s.addr); err != nil {

@@ -32,6 +32,7 @@ type store struct {
 }
 
 // NewStore creates a new HookReviewStore backed by generated sqlc queries.
+// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) contract.HookReviewStore {
 	if q == nil {
 		return &store{}
@@ -44,6 +45,7 @@ func newStoreForTest(q querier) *store {
 }
 
 // SavePendingReview inserts a new pending hook review row.
+// SavePendingReview 保存待处理review。
 func (s *store) SavePendingReview(ctx context.Context, review mcp.PendingHookReview) error {
 	err := s.q.SaveHookPendingReview(ctx, sqlc.SaveHookPendingReviewParams{
 		HookCallID:      review.HookCallID,
@@ -58,6 +60,7 @@ func (s *store) SavePendingReview(ctx context.Context, review mcp.PendingHookRev
 }
 
 // GetPendingReview retrieves a single pending hook review by its call ID.
+// GetPendingReview 读取待处理review。
 func (s *store) GetPendingReview(ctx context.Context, hookCallID string) (mcp.PendingHookReview, error) {
 	row, err := s.q.GetHookPendingReview(ctx, sqlc.GetHookPendingReviewParams{HookCallID: hookCallID})
 	if err != nil {
@@ -70,6 +73,7 @@ func (s *store) GetPendingReview(ctx context.Context, hookCallID string) (mcp.Pe
 }
 
 // ListPendingReviews returns all pending reviews for a given agent.
+// ListPendingReviews 列出待处理reviews。
 func (s *store) ListPendingReviews(ctx context.Context, agentID string) ([]mcp.PendingHookReview, error) {
 	rows, err := s.q.ListHookPendingReviewsByAgent(ctx, sqlc.ListHookPendingReviewsByAgentParams{AgentID: agentID})
 	if err != nil {
@@ -83,6 +87,7 @@ func (s *store) ListPendingReviews(ctx context.Context, agentID string) ([]mcp.P
 }
 
 // ResolvePendingReview marks a pending review as resolved with the given decision.
+// ResolvePendingReview 解析待处理review。
 func (s *store) ResolvePendingReview(ctx context.Context, hookCallID, decision, reason, idempotencyKey, resolvedBy string) error {
 	if _, err := s.q.CheckHookReviewIdempotency(ctx, sqlc.CheckHookReviewIdempotencyParams{
 		HookCallID:     hookCallID,
@@ -111,6 +116,7 @@ func (s *store) ResolvePendingReview(ctx context.Context, hookCallID, decision, 
 }
 
 // GetResolvedReview returns the canonical decision metadata plus subscriber lease for a resolved review.
+// GetResolvedReview 读取已解析review。
 func (s *store) GetResolvedReview(ctx context.Context, hookCallID string) (string, time.Time, string, error) {
 	row, err := s.q.GetHookResolvedReview(ctx, sqlc.GetHookResolvedReviewParams{HookCallID: hookCallID})
 	if err != nil {
@@ -123,6 +129,7 @@ func (s *store) GetResolvedReview(ctx context.Context, hookCallID string) (strin
 }
 
 // CancelPendingReviewsByLease marks all pending reviews for the given subscriber lease as cancelled.
+// CancelPendingReviewsByLease 按租约处理cancel待处理reviews。
 func (s *store) CancelPendingReviewsByLease(ctx context.Context, subscriberLease string) (int, error) {
 	rows, err := s.q.CancelHookPendingReviewsByLease(ctx, sqlc.CancelHookPendingReviewsByLeaseParams{
 		SubscriberLease: subscriberLease,
@@ -135,6 +142,7 @@ func (s *store) CancelPendingReviewsByLease(ctx context.Context, subscriberLease
 }
 
 // CancelPendingReviewsByAgent marks all pending reviews for the given agent as cancelled.
+// CancelPendingReviewsByAgent 按代理处理cancel待处理reviews。
 func (s *store) CancelPendingReviewsByAgent(ctx context.Context, agentID string) (int, error) {
 	rows, err := s.q.CancelHookPendingReviewsByAgent(ctx, sqlc.CancelHookPendingReviewsByAgentParams{
 		AgentID:    agentID,
@@ -148,6 +156,7 @@ func (s *store) CancelPendingReviewsByAgent(ctx context.Context, agentID string)
 
 // CancelExpiredReviews transitions all expired pending reviews to their default action.
 // Returns the number of reviews cancelled.
+// CancelExpiredReviews 处理cancelexpiredreviews。
 func (s *store) CancelExpiredReviews(ctx context.Context) (int, error) {
 	now := time.Now().UTC()
 	rows, err := s.q.CancelExpiredHookReviews(ctx, sqlc.CancelExpiredHookReviewsParams{
@@ -161,6 +170,7 @@ func (s *store) CancelExpiredReviews(ctx context.Context) (int, error) {
 }
 
 // RecoverOnStartup returns all reviews that are still pending (used at process start).
+// RecoverOnStartup 恢复onstartup。
 func (s *store) RecoverOnStartup(ctx context.Context) ([]mcp.PendingHookReview, error) {
 	rows, err := s.q.RecoverHookPendingReviews(ctx)
 	if err != nil {

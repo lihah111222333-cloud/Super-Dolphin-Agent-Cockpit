@@ -39,6 +39,7 @@ type ManifestContext struct {
 	ProjectRoot                  string
 	Env                          map[string]string
 	AutoApprove                  []string
+	ExtraBinaries                []MCPBinary
 	ProxyHTTPAddr                string
 	PeerHTTPAddrs                map[ToolFamily]string // e.g. {FamilyOrch: "127.0.0.1:9091"}
 	PeerHTTPTokens               map[ToolFamily]string

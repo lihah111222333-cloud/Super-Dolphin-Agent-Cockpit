@@ -11,8 +11,11 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/appupdate"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/cron"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/datasource"
+	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/feedback"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/insight"
+	mcpserver "github.com/anthropic-ai/super-agent-v3/internal/module/mcp_server"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/notify"
 	moduleobservability "github.com/anthropic-ai/super-agent-v3/internal/module/observability"
@@ -60,7 +63,10 @@ var Module = fx.Options(
 	fx.Provide(provideBusTraceRecorder, provideRPCTraceRecorder),
 	store.Module,
 	dashboard.Module,
+	datasource.Module,
+	datasourcev2.Module,
 	feedback.Module,
+	mcpserver.Module,
 	memory.Module,
 	prompt.Module,
 	moduleobservability.Module,
@@ -128,6 +134,7 @@ func provideDisabledBuiltinToolsFn(prefs uipreference.Store, tools []contract.Na
 	}
 }
 
+// AsRPCRunner 把应用装配处理为RPCrunner。
 func AsRPCRunner(server *rpc.Server) RunnerResult {
 	return RunnerResult{Runner: server}
 }

@@ -47,6 +47,7 @@ func literalExecTokens(base string, args []string) []shellToken {
 	return tokens
 }
 
+// shellCommandArg 处理shell命令arg。
 func shellCommandArg(base string, args []string) (string, bool) {
 	if !isShellInterpreter(normalizeExecToken(base)) {
 		if len(args) == 0 {
@@ -110,6 +111,7 @@ func (t *shellTokenizer) handleQuotedToken(input string, idx int) int {
 	return t.handleDoubleQuotedToken(input, idx)
 }
 
+// handleDoubleQuotedToken 处理doublequoted令牌。
 func (t *shellTokenizer) handleDoubleQuotedToken(input string, idx int) int {
 	switch input[idx] {
 	case '"':
@@ -140,6 +142,7 @@ func (t *shellTokenizer) handleQuotedEscape(input string, idx int) int {
 	return idx + 1
 }
 
+// handleUnquotedToken 处理unquoted令牌。
 func (t *shellTokenizer) handleUnquotedToken(input string, idx int) int {
 	switch input[idx] {
 	case '\\':
@@ -207,6 +210,7 @@ func (t *shellTokenizer) appendCommandSubstitution(command string) {
 	t.nextCommandStart = false
 }
 
+// findCommandSubstitutionEnd 查找命令substitutionend。
 func findCommandSubstitutionEnd(input string, start int) int {
 	depth := 1
 	state := shellScanState{}

@@ -9,6 +9,7 @@ import (
 	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 )
 
+// InterruptTurn 处理interruptturn。
 func (s *service) InterruptTurn(ctx context.Context, session contract.Session, source string) (status TurnStatus, err error) {
 	ctx, threadID, err := requireTurnContext(ctx, session)
 	if err != nil {
@@ -44,6 +45,7 @@ func (s *service) interruptBaseStatus(active activeTurn, tracked bool) TurnStatu
 	}
 }
 
+// finishInterrupt 处理finishinterrupt。
 func (s *service) finishInterrupt(
 	ctx context.Context,
 	active activeTurn,

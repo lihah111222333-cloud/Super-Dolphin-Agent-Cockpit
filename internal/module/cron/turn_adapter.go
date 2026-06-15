@@ -37,6 +37,9 @@ import (
 //   - Observe: delegates to CronTurnExecutor.CronTrackTurn; a not-found
 //     error maps to ErrTurnNotFound so the scheduler marks the run
 //     observe_lost per the P1b plan.
+//
+// 这个适配器只把 cron 请求翻译给 turn 层。run/job 的保存、重试和
+// observe_lost 都留给 Scheduler。
 type TurnServiceAdapter struct {
 	svc      contract.CronTurnExecutor
 	resolver contract.SessionResolver
@@ -54,6 +57,7 @@ var _ TurnSubmitter = (*TurnServiceAdapter)(nil)
 // NewTurnServiceAdapter wires the adapter. Either dependency being nil
 // is a programmer error; callers should fall back to NoopTurnSubmitter
 // before reaching this constructor.
+// NewTurnServiceAdapter 创建 cron 到 turn service 的适配器。
 func NewTurnServiceAdapter(logger *slog.Logger, svc contract.CronTurnExecutor, resolver contract.SessionResolver) *TurnServiceAdapter {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -65,6 +69,7 @@ func NewTurnServiceAdapter(logger *slog.Logger, svc contract.CronTurnExecutor, r
 // jobs. The method is wired from the fx factory (provideTurnSubmitter)
 // so the public constructor surface stays backwards-compatible; tests
 // can call it directly.
+// WithBootstrapper 设置 turn 适配器使用的线程引导器。
 func (a *TurnServiceAdapter) WithBootstrapper(b ThreadBootstrapper) *TurnServiceAdapter {
 	if a == nil {
 		return nil
@@ -84,6 +89,9 @@ var ErrJobNotBootstrapped = errors.New("cron: job thread_id is empty (agent/thre
 // LookupByDedupeKey can resolve the submission within the same process;
 // cross-process crash recovery still relies on the phase-1 store
 // CAS(pending->submitting) gate until the dedupe_key SQL column lands.
+//
+// StartTurn 只负责准备并启动 turn，返回本地 turn_id。
+// 它不写 cron_runs，也不处理终态事件。
 func (a *TurnServiceAdapter) StartTurn(ctx context.Context, req StartTurnRequest) (StartTurnResult, error) {
 	if a == nil || a.svc == nil || a.resolver == nil {
 		return StartTurnResult{}, errors.New("cron: turn adapter not wired")
@@ -124,6 +132,8 @@ func (a *TurnServiceAdapter) resolveThreadAgent(ctx context.Context, req StartTu
 	if err != nil {
 		return nil, "", fmt.Errorf("cron: resolve session: %w", err)
 	}
+	// agent_id 可来自 job 或 bootstrap；真正落库的 thread_id 以
+	// session.ThreadID() 为准。
 	return session, agentID, nil
 }
 
@@ -141,6 +151,7 @@ func (a *TurnServiceAdapter) executeTurn(ctx context.Context, session contract.S
 		// A CronStartTurn that returns without a local id is a
 		// contract violation. Fail loudly so the scheduler marks the
 		// run failed instead of persisting a phantom turn_id.
+		// 这里必须返回错误，不能造临时 id；否则恢复时无法重新 Observe。
 		return "", errors.New("cron: CronStartTurn returned empty local id")
 	}
 	return turnID, nil
@@ -154,6 +165,9 @@ func (a *TurnServiceAdapter) executeTurn(ctx context.Context, session contract.S
 // is required — an empty result is treated as a bootstrap failure
 // because we cannot proceed to CronPrepareTurn / CronStartTurn without
 // a thread.
+//
+// bootstrap 只用于首次触发且 job.thread_id 为空。
+// 返回的 ID 只有在 StartTurn 成功后才会被保存。
 func (a *TurnServiceAdapter) bootstrapFirstRun(ctx context.Context, req StartTurnRequest) (BootstrapResult, error) {
 	if a == nil || a.bootstrapper == nil {
 		return BootstrapResult{}, ErrJobNotBootstrapped
@@ -183,6 +197,8 @@ func (a *TurnServiceAdapter) bootstrapFirstRun(ctx context.Context, req StartTur
 // Empty dedupeKey short-circuits to Found=false without hitting the
 // service so callers that haven't opted into dedupe see a cheap
 // deterministic answer.
+//
+// Lookup 只给恢复查重用。它不能启动 provider；查不到时怎么处理交给 Scheduler。
 func (a *TurnServiceAdapter) LookupByDedupeKey(ctx context.Context, dedupeKey string) (ObservedTurn, error) {
 	if a == nil || a.svc == nil {
 		return ObservedTurn{Found: false}, errors.New("cron: turn adapter not wired")
@@ -212,6 +228,8 @@ func (a *TurnServiceAdapter) LookupByDedupeKey(ctx context.Context, dedupeKey st
 // A tracker miss ("turn not found") maps to ErrTurnNotFound so the
 // scheduler marks the run observe_lost per the P1b plan; every other
 // error surfaces wrapped so the scheduler can log it.
+//
+// Observe 只接管已提交的 turn。找不到或无权追踪时，上层应转成 observe_lost。
 func (a *TurnServiceAdapter) Observe(ctx context.Context, turnID string) error {
 	if a == nil || a.svc == nil {
 		return errors.New("cron: turn adapter not wired")
@@ -235,6 +253,8 @@ func (a *TurnServiceAdapter) Observe(ctx context.Context, turnID string) error {
 // contract.CronPrepareInput. Fields absent from the cron row (Files /
 // Images / CandidateSkills / MCPSnapshot / ...) default to their zero
 // values; the turn layer's PrepareTurn owns the fallback policy.
+//
+// 这里只做字段投影，不添加 cron 专属默认值。坏配置应该在 Create/Update 时被挡住。
 func (a *TurnServiceAdapter) buildPrepareInput(req StartTurnRequest) contract.CronPrepareInput {
 	skills := make([]providerdto.SkillRef, 0, len(req.Skills))
 	for _, s := range req.Skills {
@@ -261,6 +281,8 @@ func (a *TurnServiceAdapter) buildPrepareInput(req StartTurnRequest) contract.Cr
 // malformed config has already been rejected at cron create time by
 // the service-layer ResolveCodexIdentity check (phase 2a), so reaching
 // this branch implies the row was mutated after validation.
+//
+// 这里不是新的容错层。要改变坏 config 的处理方式，先改 service 校验和存储约束。
 func decodeRuntimeConfig(raw json.RawMessage) map[string]any {
 	if len(raw) == 0 {
 		return nil

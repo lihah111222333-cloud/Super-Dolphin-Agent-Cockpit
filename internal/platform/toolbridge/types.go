@@ -50,6 +50,7 @@ func normalizeToolCallRequest(req ToolCallRequest) ToolCallRequest {
 	return req
 }
 
+// normalizeToolCallWorkspaceRoots 规范化工具call工作区根目录。
 func normalizeToolCallWorkspaceRoots(cwd string, roots []string) []string {
 	out := make([]string, 0, len(roots)+1)
 	seen := map[string]struct{}{}
@@ -92,6 +93,7 @@ func normalizeToolCallWorkspaceRoot(base, root string) string {
 	return ""
 }
 
+// firstStringSlice 处理firststringslice。
 func firstStringSlice(payload map[string]json.RawMessage, keys ...string) []string {
 	for _, key := range keys {
 		raw := bytes.TrimSpace(payload[key])

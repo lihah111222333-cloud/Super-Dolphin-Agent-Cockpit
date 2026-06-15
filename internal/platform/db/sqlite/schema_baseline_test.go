@@ -31,6 +31,8 @@ var allPersistentTables = []string{
 	"cron_job_runs",
 	"cron_jobs",
 	"cwd_instance_locks",
+	"datasource_v2_documents",
+	"datasource_v2_text_chunks",
 	"hook_pending_reviews",
 	"prompt_intent_drafts",
 	"prompt_recall_topics",

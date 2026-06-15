@@ -130,6 +130,7 @@ func validateAutoAutomationExec(exec autoAutomationExec, label string) error {
 	return nil
 }
 
+// validateAutoHybridConfig 校验autohybrid配置。
 func validateAutoHybridConfig(raw json.RawMessage) error {
 	var cfg autoHybridConfig
 	if len(raw) > 0 {

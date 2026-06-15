@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -31,7 +32,7 @@ func TestMcpLspSidecarRuntimeConsumesPackagedParentContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveSidecarRuntimeContract() error = %v", err)
 	}
-	if contract.Mode != "packaged" || contract.ResourcesDir != "/Applications/Super Dolphin.app/Contents/Resources" {
+	if contract.Mode != "packaged" || contract.ResourcesDir != filepath.Clean("/Applications/Super Dolphin.app/Contents/Resources") {
 		t.Fatalf("contract = %#v, want packaged parent resources", contract)
 	}
 }
@@ -49,7 +50,7 @@ func TestMcpLspSidecarRuntimeDevParentIgnoresResidualPackagedEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveSidecarRuntimeContract() error = %v", err)
 	}
-	if contract.Mode != "dev" || contract.ResourcesDir != "/work/repo" {
+	if contract.Mode != "dev" || contract.ResourcesDir != filepath.Clean("/work/repo") {
 		t.Fatalf("contract = %#v, want inherited dev resources", contract)
 	}
 }

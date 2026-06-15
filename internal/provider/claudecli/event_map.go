@@ -15,6 +15,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// RegisterTranslators 注册translators。
 func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 	if dispatcher == nil {
 		return
@@ -57,6 +58,7 @@ func translateStatusPatchEvent(raw dto.RawProviderEvent) (any, bool) {
 	}
 }
 
+// translateAgentEvent 处理translate代理事件。
 func translateAgentEvent(raw dto.RawProviderEvent) (any, bool) {
 	switch raw.EventType {
 	case "agent:launched":
@@ -89,6 +91,7 @@ func translateAgentEvent(raw dto.RawProviderEvent) (any, bool) {
 	}
 }
 
+// translateTurnEvent 处理translateturn事件。
 func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 	switch raw.EventType {
 	case "turn:started":

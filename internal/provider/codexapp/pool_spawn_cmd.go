@@ -101,6 +101,7 @@ func commandLeaf(arg string) string {
 // responsibility. Keeping the function pure makes it straightforward
 // to unit-test the env / argv / SysProcAttr shape without actually
 // spawning a child.
+// BuildPoolSpawnCmd 构建poolspawncmd。
 func BuildPoolSpawnCmd(ctx context.Context, args PoolSpawnArgs) (*exec.Cmd, error) {
 	home := strings.TrimSpace(args.Home)
 	if home == "" {
@@ -128,6 +129,7 @@ func BuildPoolSpawnCmd(ctx context.Context, args PoolSpawnArgs) (*exec.Cmd, erro
 	return cmd, nil
 }
 
+// poolSpawnNativeLSPConfigArgs 处理poolspawnnativeLSP配置args。
 func poolSpawnNativeLSPConfigArgs(ctx context.Context, workDir string) []string {
 	roots := poolSpawnWorkspaceRoots(ctx)
 	if len(roots) == 0 && strings.TrimSpace(workDir) != "" {
@@ -176,6 +178,7 @@ func tomlString(value string) string {
 	return strconv.Quote(strings.TrimSpace(value))
 }
 
+// extractCodexWheel 提取codexwheel。
 func extractCodexWheel(wheelPath, targetDir string) error {
 	reader, err := zip.OpenReader(wheelPath)
 	if err != nil {
@@ -260,6 +263,7 @@ func extractCodexTarGz(archivePath, targetDir string) error {
 	return extractCodexTarStream(tar.NewReader(gzipReader), targetDir)
 }
 
+// extractCodexTarStream 提取codextar流。
 func extractCodexTarStream(reader *tar.Reader, targetDir string) error {
 	var total int64
 	for {
@@ -347,6 +351,7 @@ func addCodexExtractedBytes(total *int64, written int64) error {
 	return nil
 }
 
+// ensureCodexInstallLayout 确保codex安装layout。
 func ensureCodexInstallLayout(targetDir string) error {
 	expected := filepath.Join(targetDir, "codex_cli_bin", "bin", codexExecutableFileName())
 	if _, err := os.Stat(expected); err == nil {
@@ -370,6 +375,7 @@ func ensureCodexInstallLayout(targetDir string) error {
 	return chmodCodexInstallHelpers(targetDir)
 }
 
+// chmodCodexInstallHelpers 处理chmodcodex安装helpers。
 func chmodCodexInstallHelpers(targetDir string) error {
 	for _, path := range []string{
 		filepath.Join(targetDir, "codex_cli_bin", "bin", codexExecutableFileName()),
@@ -384,6 +390,7 @@ func chmodCodexInstallHelpers(targetDir string) error {
 	return nil
 }
 
+// findExtractedCodexExecutable 查找extractedcodex可执行文件。
 func findExtractedCodexExecutable(root string) (string, error) {
 	var found string
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -472,6 +479,7 @@ func codexInstallVersionParts(name string) ([]int, bool) {
 	return out, true
 }
 
+// compareIntParts 处理compareintparts。
 func compareIntParts(a, b []int) int {
 	for i := 0; i < len(a) || i < len(b); i++ {
 		av, bv := 0, 0
@@ -488,6 +496,7 @@ func compareIntParts(a, b []int) int {
 	return 0
 }
 
+// downloadCodexAsset 处理downloadcodexasset。
 func downloadCodexAsset(ctx context.Context, rawURL, checksum, target string) error {
 	if strings.TrimSpace(rawURL) == "" {
 		return errors.New("Codex release asset download URL is empty")
@@ -511,6 +520,7 @@ func downloadCodexAsset(ctx context.Context, rawURL, checksum, target string) er
 	return writeCodexDownloadBody(resp.Body, checksum, target)
 }
 
+// validateCodexAssetDownloadURL 校验codexassetdownloadURL。
 func validateCodexAssetDownloadURL(rawURL string) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
@@ -541,6 +551,7 @@ func validateCodexDownloadResponse(resp *http.Response) error {
 	return nil
 }
 
+// writeCodexDownloadBody 写入codexdownload正文。
 func writeCodexDownloadBody(body io.Reader, checksum, target string) error {
 	out, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {

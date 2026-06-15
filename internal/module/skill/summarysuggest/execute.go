@@ -10,6 +10,7 @@ import (
 
 type ParseFunc func(string) (string, error)
 
+// ExecuteWithOptions 执行带选项的技能。
 func ExecuteWithOptions(ctx context.Context, dream contract.DreamExecutor, prompt string, options contract.DreamOptions, parse ParseFunc) (string, error) {
 	ctx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.RPCRequestTimeout)
 	defer cancel()

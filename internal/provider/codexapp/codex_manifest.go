@@ -10,8 +10,10 @@ const codexManagedManifestName = codexmanifest.Name
 
 type codexManifestVerifier struct{}
 
+// IsExecutable 判断路径是否指向可执行文件。
 func (codexManifestVerifier) IsExecutable(path string) bool { return isExecutable(path) }
 
+// ValidCLI 判断 Codex CLI 是否可用。
 func (codexManifestVerifier) ValidCLI(ctx context.Context, path string) bool {
 	return validCodexCLI(ctx, path)
 }

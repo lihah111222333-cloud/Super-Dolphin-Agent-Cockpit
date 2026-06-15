@@ -51,6 +51,7 @@ type Provider struct {
 	logger  *slog.Logger
 }
 
+// NewProvider 创建provider。
 func NewProvider() *Provider {
 	log := pkglogger.Get()
 	return &Provider{
@@ -60,6 +61,7 @@ func NewProvider() *Provider {
 }
 
 // Register registers an installer config for a specific language
+// Register 注册LSP。
 func (p *Provider) Register(lang string, cfg InstallerConfig) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -68,6 +70,7 @@ func (p *Provider) Register(lang string, cfg InstallerConfig) {
 
 // EnsureInstalled checks if the binary exists, if not it attempts to auto-install it.
 // Returns the resolved binary path.
+// EnsureInstalled 确保安装状态。
 func (p *Provider) EnsureInstalled(ctx context.Context, lang string) (string, error) {
 	result, err := p.EnsureInstalledDetailed(ctx, lang)
 	if err != nil {
@@ -76,6 +79,7 @@ func (p *Provider) EnsureInstalled(ctx context.Context, lang string) (string, er
 	return result.Path, nil
 }
 
+// EnsureInstalledDetailed 确保安装状态详情。
 func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (InstallResult, error) {
 	p.mu.Lock()
 	cfg, ok := p.configs[lang]
@@ -140,6 +144,7 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 	return InstallResult{}, fmt.Errorf("auto-install succeeded but binary %s is still not found in PATH", cfg.BinaryName)
 }
 
+// validateRequiredBinaries 校验必需二进制。
 func validateRequiredBinaries(ctx context.Context, cfg InstallerConfig) error {
 	for _, required := range cfg.RequiredBinaries {
 		name := strings.TrimSpace(required.Name)
@@ -204,6 +209,7 @@ func goInstallBinDir(ctx context.Context, goCmd string) string {
 	return filepath.Join(gopath, "bin")
 }
 
+// executableInDir 在目录处理可执行文件。
 func executableInDir(dir, binaryName string) (string, bool) {
 	binaryName = strings.TrimSpace(binaryName)
 	if strings.TrimSpace(dir) == "" || binaryName == "" {

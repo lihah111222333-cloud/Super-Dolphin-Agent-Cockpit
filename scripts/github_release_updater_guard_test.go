@@ -157,7 +157,7 @@ func TestGitHubReleasePublisherCanVerifyManualUploads(t *testing.T) {
 
 func TestGitHubReleasePublisherVerifyExistingRequiresPreviousPackageProof(t *testing.T) {
 	cmd := exec.Command("bash", "publish_github_release.sh", "--verify-existing")
-	cmd.Env = appendWSLEnvKeys([]string{
+	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, []string{
 		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"VERSION=v9.9.9",
 		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=xiaoxiaotest9527-bit/-",
@@ -228,7 +228,7 @@ func TestGitHubReleasePublisherCanPrintReleaseContext(t *testing.T) {
 	}
 
 	cmd := exec.Command("bash", "publish_github_release.sh", "--print-context")
-	cmd.Env = appendWSLEnvKeys([]string{
+	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, []string{
 		"PATH=" + bashArg("", binDir) + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=xiaoxiaotest9527-bit/-",
 		"SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=super-secret-public-key",
@@ -268,7 +268,7 @@ func TestGitHubReleasePublisherPrintContextShowsCandidateVersionStatus(t *testin
 	}{})
 
 	cmd := exec.Command("bash", "publish_github_release.sh", "--print-context")
-	cmd.Env = appendWSLEnvKeys([]string{
+	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, []string{
 		"PATH=" + bashArg("", binDir) + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"VERSION=v1.0.4",
 		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=xiaoxiaotest9527-bit/-",
@@ -306,8 +306,8 @@ func TestGitHubReleasePublisherDownloadsLatestPreviousDMG(t *testing.T) {
 		t.Fatalf("create output dir: %v", err)
 	}
 
-	cmd := exec.Command("bash", "publish_github_release.sh", "--download-latest-previous-dmg", outputDir)
-	cmd.Env = appendWSLEnvKeys([]string{
+	cmd := exec.Command("bash", "publish_github_release.sh", "--download-latest-previous-dmg", bashArg("", outputDir))
+	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, []string{
 		"PATH=" + bashArg("", binDir) + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=xiaoxiaotest9527-bit/-",
 	}, "PATH")
@@ -319,9 +319,10 @@ func TestGitHubReleasePublisherDownloadsLatestPreviousDMG(t *testing.T) {
 	if got, err := os.ReadFile(target); err != nil || string(got) != string(content) {
 		t.Fatalf("downloaded DMG = %q, %v; want %q", got, err, content)
 	}
+	bashTarget := bashArg("", target)
 	for _, want := range []string{
-		"previous DMG downloaded and verified: " + target,
-		"export SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG=" + strings.ReplaceAll(target, " ", "\\ "),
+		"previous DMG downloaded and verified: " + bashTarget,
+		"export SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG=" + strings.ReplaceAll(bashTarget, " ", "\\ "),
 	} {
 		if !strings.Contains(string(output), want) {
 			t.Fatalf("download output missing %q:\n%s", want, output)
@@ -358,8 +359,8 @@ func TestGitHubReleasePublisherVerifyExistingExecutesDigestCheck(t *testing.T) {
 		t.Fatalf("write previous env: %v", err)
 	}
 
-	cmd := exec.Command("bash", "publish_github_release.sh", "--verify-existing", "--stage-dir", stageDir)
-	cmd.Env = appendWSLEnvKeys([]string{
+	cmd := exec.Command("bash", "publish_github_release.sh", "--verify-existing", "--stage-dir", bashArg("", stageDir))
+	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, []string{
 		"PATH=" + bashArg("", binDir) + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"VERSION=v9.9.9",
 		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=xiaoxiaotest9527-bit/-",
@@ -385,7 +386,7 @@ func TestGitHubReleasePublisherInspectLatestAcceptsMacOSAssets(t *testing.T) {
 	})
 
 	cmd := exec.Command("bash", "publish_github_release.sh", "--inspect-latest")
-	cmd.Env = appendWSLEnvKeys([]string{
+	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, []string{
 		"PATH=" + bashArg("", binDir) + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=xiaoxiaotest9527-bit/-",
 	}, "PATH")
@@ -403,7 +404,7 @@ func TestGitHubReleasePublisherRequiresVersionBeforeGitHubAccess(t *testing.T) {
 	writeFailingGitHubReleaseFakeGH(t, binDir)
 
 	cmd := exec.Command("bash", "publish_github_release.sh", "--dry-run")
-	cmd.Env = appendWSLEnvKeys([]string{
+	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, []string{
 		"PATH=" + bashArg("", binDir) + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=xiaoxiaotest9527-bit/-",
 	}, "PATH")
@@ -524,7 +525,7 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 [[ -n "$out" ]] || { echo "missing -o" >&2; exit 1; }
-cp ` + bashQuote(contentPath) + ` "$out"
+cp ` + bashQuote(bashArg("", contentPath)) + ` "$out"
 `
 	if err := os.WriteFile(filepath.Join(binDir, "curl"), []byte(script), 0o700); err != nil {
 		t.Fatalf("write fake curl: %v", err)

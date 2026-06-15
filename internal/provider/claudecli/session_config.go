@@ -13,6 +13,7 @@ import (
 
 const capThreadConfigure = "thread_configure"
 
+// Configure 应用运行时配置。
 func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) error {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
@@ -44,6 +45,7 @@ func stringPtr(value string) *string {
 	return &value
 }
 
+// applyConfiguredOverridesLocked 应用configuredoverrideslocked。
 func (s *session) applyConfiguredOverridesLocked(patch dto.ThreadConfigPatch, stagePending bool) {
 	if patch.Model != nil {
 		value := strings.TrimSpace(*patch.Model)
@@ -129,6 +131,7 @@ var claudeAllowedModels = []string{
 	"claude-sonnet-4-6[1m]",
 }
 
+// AllowedModels 处理allowed模型。
 func (s *session) AllowedModels(context.Context) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -140,6 +143,7 @@ func (s *session) AllowedModels(context.Context) ([]string, error) {
 	return append(models, current), nil
 }
 
+// ReadConfig 读取配置。
 func (s *session) ReadConfig(context.Context, string) (dto.ThreadConfig, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -175,6 +179,7 @@ func modelAllowed(model string, allowed []string) bool {
 	return false
 }
 
+// ForceComplete 处理强制complete。
 func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteRequest) error {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
@@ -207,6 +212,7 @@ func (s *session) forceCompleteTarget(providerID string) (*transport, *turnHandl
 	return s.transport, handle, turnID
 }
 
+// forceCompleteTurn 处理强制completeturn。
 func (s *session) forceCompleteTurn(target *turnHandle, turnID string) {
 	if target == nil || turnID == "" {
 		return

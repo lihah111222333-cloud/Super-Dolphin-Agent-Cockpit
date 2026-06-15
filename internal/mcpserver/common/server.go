@@ -23,6 +23,7 @@ const CwdContextKey = contextKey("mcp_cwd")
 var ErrMissingContextCWD = errors.New("strict context enforcement: missing tool scope CWD")
 var ErrMissingWorkspaceRoots = errors.New("strict context enforcement: missing workspace roots")
 
+// WorkspaceRootFromContextStrict 从上下文strict处理工作区根目录。
 func WorkspaceRootFromContextStrict(ctx context.Context) (string, error) {
 	if ctx == nil {
 		return "", ErrMissingContextCWD
@@ -36,6 +37,7 @@ func WorkspaceRootFromContextStrict(ctx context.Context) (string, error) {
 	return "", ErrMissingContextCWD
 }
 
+// WorkspaceRootsFromContextStrict 从上下文strict处理工作区根目录。
 func WorkspaceRootsFromContextStrict(ctx context.Context) ([]string, error) {
 	if ctx == nil {
 		return nil, ErrMissingWorkspaceRoots
@@ -52,6 +54,7 @@ func WorkspaceRootsFromContextStrict(ctx context.Context) ([]string, error) {
 	return nil, ErrMissingWorkspaceRoots
 }
 
+// WorkspaceRootForPathFromContextStrict 从上下文strict处理工作区根目录路径。
 func WorkspaceRootForPathFromContextStrict(ctx context.Context, target string) (string, error) {
 	roots, err := WorkspaceRootsFromContextStrict(ctx)
 	if err != nil {
@@ -74,6 +77,7 @@ func WorkspaceRootForPathFromContextStrict(ctx context.Context, target string) (
 	return best, nil
 }
 
+// WorkspaceRootFromContext 从上下文处理工作区根目录。
 func WorkspaceRootFromContext(ctx context.Context, fallback string) string {
 	if scope, ok := ToolScopeFromContext(ctx); ok && scope.CWD != "" {
 		return scope.CWD
@@ -152,6 +156,7 @@ type readResult struct {
 	err     error
 }
 
+// NewServer 创建服务端。
 func NewServer(name, version string, transport *StdioTransport, tools ToolProvider) *Server {
 	if strings.TrimSpace(name) == "" {
 		name = "mcp-server"
@@ -166,8 +171,10 @@ func NewServer(name, version string, transport *StdioTransport, tools ToolProvid
 // its read loop and is ready to accept JSON-RPC messages. Bootstrap runners
 // wait on this channel to guarantee that the local MCP tool-execution
 // surface is available before connecting to the control-plane jrpc2.
+// Ready 判断MCP 服务是否可用。
 func (s *Server) Ready() <-chan struct{} { return s.ready }
 
+// Run 启动MCP 服务后台流程。
 func (s *Server) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -251,6 +258,7 @@ func (s *Server) handleMessage(ctx context.Context, payload json.RawMessage) (bo
 	return exit, s.reply(resp)
 }
 
+// dispatch 派发MCP 服务。
 func (s *Server) dispatch(ctx context.Context, req jsonRPCRequest) (*jsonRPCResponse, bool) {
 	if strings.TrimSpace(req.JSONRPC) != "2.0" {
 		return errorResponse(req.ID, codeInvalidReq, "jsonrpc must be 2.0"), false
@@ -312,6 +320,7 @@ func (s *Server) handleToolsList(ctx context.Context, req jsonRPCRequest) *jsonR
 	return maybeResult(req.ID, map[string]any{"tools": tools})
 }
 
+// handleToolsCall 处理工具call。
 func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {
 	params, err := DecodeToolCallParams(req.Params)
 	if err != nil {

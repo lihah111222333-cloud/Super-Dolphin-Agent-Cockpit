@@ -27,6 +27,7 @@ type dreamExecutor struct {
 	cards    map[string]json.RawMessage
 }
 
+// newDreamExecutor 创建dreamexecutor。
 func newDreamExecutor(path string) (*dreamExecutor, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -65,6 +66,7 @@ func provideDreamExecutorProvider() (contract.DreamExecutorProvider, error) {
 	return contract.DreamExecutorProvider{Name: ProviderName, Executor: executor}, nil
 }
 
+// ExecuteDream 执行dream。
 func (e *dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -91,6 +93,7 @@ func (e *dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string
 	return rendered, nil
 }
 
+// fixtureKey 处理fixture键。
 func (e *dreamExecutor) fixtureKey(prompt string) (string, error) {
 	normalized := strings.ToLower(prompt)
 	switch {

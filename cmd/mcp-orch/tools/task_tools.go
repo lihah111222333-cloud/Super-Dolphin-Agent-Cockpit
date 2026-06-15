@@ -12,7 +12,7 @@ import (
 	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
-// 下列包级 enum 切片是 schema 与 handler requireEnum 的单一真源。
+// 下列包级 enum 切片是 schema 与 handler requireEnum 的单一真正来源。
 // 修改 schema 字面量时必须同步切片，反之亦然 —— 编译期通过类型 + 单测覆盖
 // 防止 drift。命名规约：<tool>_<field>_Enum。
 //
@@ -104,6 +104,8 @@ type ListRunsOutput struct {
 	Hint      string         `json:"hint,omitempty"`
 }
 
+// task_update_node 只改某次 run 的节点，不改 DAG 模板。
+// done/failed 会继续触发下游调度或失败级联，别当普通 status 覆盖用。
 type UpdateNodeInput struct {
 	DagKey  string `json:"dag_key"`
 	NodeKey string `json:"node_key"`
@@ -126,6 +128,7 @@ type DispatchNodeInput struct {
 	AssignedTo string `json:"assigned_to"`
 }
 
+// HandleCreateDAG 处理创建 DAG 的工具调用。
 func HandleCreateDAG(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in CreateDAGInput) (any, error) {
 		req, err := createDAGRequestFromInput(in, trustedAgentID(ctx))
@@ -143,6 +146,7 @@ func trustedAgentID(ctx context.Context) string {
 	return ""
 }
 
+// HandleGetDAG 处理读取 DAG 的工具调用。
 func HandleGetDAG(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in DAGKeyInput) (any, error) {
 		dagKey, err := resolveDAGKeyInput(in.DagKey, in.Pos)
@@ -153,6 +157,7 @@ func HandleGetDAG(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
+// HandleListDAGs 处理列出 DAG 的工具调用。
 func HandleListDAGs(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ListDAGsInput) (any, error) {
 		filter, err := listDAGsFilterFromInput(in)
@@ -167,6 +172,7 @@ func HandleListDAGs(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
+// HandleUpdateNode 处理更新节点状态的工具调用。
 func HandleUpdateNode(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in UpdateNodeInput) (any, error) {
 		req, err := updateNodeRequestFromInput(in)
@@ -178,6 +184,8 @@ func HandleUpdateNode(svc contract.OrchestrationService) ToolHandler {
 }
 
 // HandleDispatchNode 是 task_dispatch_node MCP 工具的 handler（ADR-004 §Open Q1）。
+// 这是“启动某个节点”的入口：先补 assigned_to，再入队 wakeup。
+// 当前没有 task_start_node，别和 task_start_dag 的整图启动混用。
 // 在 service.DispatchNode 返 ErrDispatchStoreUnset / ErrDispatchNodeIneligible
 // 时转中英双语错误，让使用者一眼看出不能继续的原因。
 //
@@ -371,8 +379,8 @@ func listRunsRequestFromInput(in ListRunsInput) (contract.ListRunsRequest, error
 }
 
 // HandleStartDAG 是 task_start_dag MCP 工具的 handler（T1.1）。
-// 骨架阶段：service.StartDAG 返回 ErrLifecycleNotImplemented，
-// MCP 客户端会收到结构化错误；T1.2 接通真实路径后返回 run_key + version。
+// 它创建 run、复制模板节点，并把根节点推到 ready。
+// 未指派的根节点不会自动失败，会等 task_dispatch_node 或人工接管。
 //
 // 错误转译（路线 N）：
 //   - ErrIdempotencyKeyExhausted → 中英双语提示 + 携带旧 RunKey + status，
@@ -399,6 +407,7 @@ func HandleStartDAG(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
+// HandleTerminateDAG 处理终止 DAG 的工具调用。
 func HandleTerminateDAG(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in TerminateDAGInput) (any, error) {
 		req, err := terminateDAGRequestFromInput(in)
@@ -412,6 +421,7 @@ func HandleTerminateDAG(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
+// HandleDeleteDAG 处理删除 DAG 的工具调用。
 func HandleDeleteDAG(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in DeleteDAGInput) (any, error) {
 		dagKey, err := resolveDAGKeyInput(in.DagKey, in.Pos)

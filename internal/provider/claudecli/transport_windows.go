@@ -39,6 +39,7 @@ func setClaudeProcessAttrs(cmd *exec.Cmd) {
 //
 // If we recognise that pattern we return the absolute path to the embedded
 // .exe; otherwise we return the input unchanged (Go's LookPath still runs).
+// resolveClaudeBinary 解析claude二进制。
 func resolveClaudeBinary(binary string) string {
 	if binary == "" {
 		binary = "claude"
@@ -94,6 +95,7 @@ type processGuard struct {
 	handle windows.Handle
 }
 
+// attachProcessGuard 处理attach进程守卫。
 func attachProcessGuard(cmd *exec.Cmd) *processGuard {
 	if cmd == nil || cmd.Process == nil {
 		return nil
@@ -132,6 +134,7 @@ func (g *processGuard) close() {
 	g.handle = 0
 }
 
+// signalClaudeProcess 处理signalclaude进程。
 func signalClaudeProcess(cmd *exec.Cmd, guard *processGuard, sig processSig) error {
 	_ = sig
 	if guard != nil && guard.handle != 0 {
@@ -145,6 +148,7 @@ func signalClaudeProcess(cmd *exec.Cmd, guard *processGuard, sig processSig) err
 	return terminateByPid(cmd.Process.Pid)
 }
 
+// terminateByPid 按进程 ID处理terminate。
 func terminateByPid(pid int) error {
 	if pid <= 0 {
 		return errors.New("invalid claude pid")

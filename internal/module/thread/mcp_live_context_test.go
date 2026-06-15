@@ -42,6 +42,59 @@ func TestBuildStartCtxKeepsOnlyLiveMCPServers(t *testing.T) {
 	}
 }
 
+func TestMergeConfiguredMCPServersAddsProjectServersToSnapshot(t *testing.T) {
+	t.Parallel()
+
+	got, err := mergeConfiguredMCPServers(context.Background(), contract.MCPSnapshot{
+		Servers: []string{"lsp"},
+	}, staticMCPServerConfigProvider{servers: map[string]contract.MCPServerConfig{
+		"my-search": {
+			Transport: "http",
+			URL:       "https://your-domain.com/mcp",
+			Headers:   map[string]string{"Authorization": "Bearer YOUR_API_KEY"},
+		},
+	}}, "/repo")
+	if err != nil {
+		t.Fatalf("mergeConfiguredMCPServers() error = %v", err)
+	}
+	if want := []string{"lsp", "my-search"}; !slices.Equal(mcpLiveSortedStrings(got.Servers), want) {
+		t.Fatalf("MCPSnapshot.Servers = %#v, want %#v", got.Servers, want)
+	}
+	server := got.ServerConfigs["my-search"]
+	if server.Transport != "http" || server.URL != "https://your-domain.com/mcp" || server.Headers["Authorization"] != "Bearer YOUR_API_KEY" {
+		t.Fatalf("ServerConfigs = %#v, want my-search HTTP config", got.ServerConfigs)
+	}
+}
+
+func TestMergeConfiguredMCPServersSkipsActiveServerNames(t *testing.T) {
+	t.Parallel()
+
+	got, err := mergeConfiguredMCPServers(context.Background(), contract.MCPSnapshot{
+		Servers: []string{"deepwiki"},
+	}, staticMCPServerConfigProvider{servers: map[string]contract.MCPServerConfig{
+		"deepwiki": {
+			Transport: "http",
+			URL:       "https://mcp.deepwiki.com/mcp",
+		},
+		"my-search": {
+			Transport: "http",
+			URL:       "https://your-domain.com/mcp",
+		},
+	}}, "/repo")
+	if err != nil {
+		t.Fatalf("mergeConfiguredMCPServers() error = %v", err)
+	}
+	if want := []string{"deepwiki", "my-search"}; !slices.Equal(mcpLiveSortedStrings(got.Servers), want) {
+		t.Fatalf("MCPSnapshot.Servers = %#v, want %#v", got.Servers, want)
+	}
+	if _, ok := got.ServerConfigs["deepwiki"]; ok {
+		t.Fatalf("ServerConfigs = %#v, want active deepwiki config skipped", got.ServerConfigs)
+	}
+	if got.ServerConfigs["my-search"].URL != "https://your-domain.com/mcp" {
+		t.Fatalf("ServerConfigs = %#v, want my-search config retained", got.ServerConfigs)
+	}
+}
+
 func newMCPPromptGitFixture(t *testing.T) (string, string) {
 	t.Helper()
 	repoRoot := t.TempDir()
@@ -61,6 +114,18 @@ func newMCPPromptGitFixture(t *testing.T) (string, string) {
 
 type mcpLiveToolRegistryStub struct {
 	instances []contract.ToolInstance
+}
+
+type staticMCPServerConfigProvider struct {
+	servers map[string]contract.MCPServerConfig
+	err     error
+}
+
+func (p staticMCPServerConfigProvider) ListMCPServerConfigs(context.Context, string) (map[string]contract.MCPServerConfig, error) {
+	if p.err != nil {
+		return nil, p.err
+	}
+	return p.servers, nil
 }
 
 func (s mcpLiveToolRegistryStub) Register(context.Context, mcpdto.RegisterRequest) (mcpdto.RegisterResponse, error) {

@@ -51,6 +51,7 @@ func (s phase45StartOnlySessionStarter) StartSession(ctx context.Context, req dt
 }
 
 func (phase45StartOnlySessionStarter) ResumeSession(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+	// archguard:ignore panic_count -- test stub must fail loudly if resume path is called.
 	panic("unexpected ResumeSession call")
 }
 

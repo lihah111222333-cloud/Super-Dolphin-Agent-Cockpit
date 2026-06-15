@@ -214,6 +214,7 @@ func legacyActionAlias(label string, action string) string {
 	return ""
 }
 
+// legacyActionHint 处理legacy动作hint。
 func legacyActionHint(label string, action string) string {
 	switch label {
 	case "file":
@@ -247,6 +248,7 @@ func closestAction(action string, valid []string) string {
 	return best
 }
 
+// editDistance 处理编辑distance。
 func editDistance(a string, b string) int {
 	ar := []rune(a)
 	br := []rune(b)
@@ -348,6 +350,7 @@ func parsePos(pos string) (string, int, int, error) {
 // Centralising the parser lets the file tool reuse the same syntax (with
 // only file:line) that inspect/xref/completion already accept, so the
 // model can copy positions across tools without adapting the format.
+// parseFilePos 解析文件pos。
 func parseFilePos(pos string, requireCol bool) (string, int, int, bool, error) {
 	pos = strings.TrimSpace(pos)
 	if pos == "" {
@@ -513,6 +516,7 @@ type explicitToolWorkDirParams struct {
 	WorkDir string `json:"work_dir,omitempty"`
 }
 
+// contextWithExplicitToolWorkDir 处理带explicit工具work目录的上下文。
 func contextWithExplicitToolWorkDir(ctx context.Context, params json.RawMessage) (context.Context, error) {
 	trimmed := bytes.TrimSpace(params)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
@@ -547,6 +551,7 @@ func contextWithExplicitWorkDir(ctx context.Context, workDir string) (context.Co
 	return common.WithToolScope(ctx, scope), normalized, nil
 }
 
+// normalizeExplicitWorkDir 规范化explicitwork目录。
 func normalizeExplicitWorkDir(ctx context.Context, workDir string) (string, error) {
 	trimmed := strings.TrimSpace(workDir)
 	if trimmed == "" {
@@ -599,6 +604,7 @@ func newFuncRangeEnricher(ctx context.Context, registry lspmanager.Registry) *fu
 	}
 }
 
+// Symbols 处理符号。
 func (p *funcRangeEnricher) Symbols(absPath string) ([]protocol.DocumentSymbol, error) {
 	if p == nil {
 		return nil, errors.New("funcRangeEnricher is nil")
@@ -618,6 +624,7 @@ func (p *funcRangeEnricher) Symbols(absPath string) ([]protocol.DocumentSymbol, 
 	return symbols, nil
 }
 
+// ToPlainText 渲染为纯文本。
 func (e emptyListEnvelope) ToPlainText() string {
 	if e.Meta.Message != "" {
 		return e.Meta.Message

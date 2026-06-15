@@ -46,6 +46,7 @@ func (t *imageHashTracker) markIfNew(raw []byte) (string, bool) {
 // imageBlockBytes returns the raw bytes referenced by a base64-source image
 // content block, or nil for url-source / non-image blocks. Used by the dedup
 // path to compute a stable hash without re-reading the source file.
+// imageBlockBytes 处理imageblockbytes。
 func imageBlockBytes(block map[string]any) []byte {
 	if block == nil {
 		return nil

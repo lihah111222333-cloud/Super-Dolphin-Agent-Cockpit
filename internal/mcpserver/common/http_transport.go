@@ -26,6 +26,7 @@ type HTTPServerOption func(*HTTPServer)
 //
 // Deprecated: HTTP MCP transport is retained only for legacy callers; use the
 // stdio MCP sidecar Server path for current tool execution.
+// WithBearerToken 设置bearer令牌。
 func WithBearerToken(token string) HTTPServerOption {
 	return func(h *HTTPServer) {
 		h.bearerToken = strings.TrimSpace(token)
@@ -50,6 +51,7 @@ type HTTPServer struct {
 //
 // Deprecated: HTTP MCP transport is retained only for legacy callers; use the
 // stdio MCP sidecar Server path for current tool execution.
+// NewHTTPServer 创建HTTP服务端。
 func NewHTTPServer(name, version string, tools ToolProvider, opts ...HTTPServerOption) *HTTPServer {
 	if strings.TrimSpace(name) == "" {
 		name = "mcp-server"
@@ -71,6 +73,7 @@ func NewHTTPServer(name, version string, tools ToolProvider, opts ...HTTPServerO
 //
 // Deprecated: HTTP MCP transport is retained only for legacy callers; use the
 // stdio MCP sidecar Server path for current tool execution.
+// Start 启动MCP 服务流程。
 func (h *HTTPServer) Start(ctx context.Context, listenAddr string) (string, error) {
 	if listenAddr == "" {
 		listenAddr = "127.0.0.1:0"
@@ -109,6 +112,7 @@ func (h *HTTPServer) Start(ctx context.Context, listenAddr string) (string, erro
 //
 // Deprecated: HTTP MCP transport is retained only for legacy callers; use the
 // stdio MCP sidecar Server path for current tool execution.
+// Stop 停止MCP 服务流程。
 func (h *HTTPServer) Stop(ctx context.Context) error {
 	if h.server == nil {
 		return nil
@@ -117,6 +121,7 @@ func (h *HTTPServer) Stop(ctx context.Context) error {
 	return h.server.Shutdown(ctx)
 }
 
+// handleMCP 处理MCP。
 func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -167,6 +172,7 @@ func (h *HTTPServer) authorized(r *http.Request) bool {
 	return subtle.ConstantTimeCompare([]byte(got), []byte(token)) == 1
 }
 
+// dispatch 派发MCP 服务。
 func (h *HTTPServer) dispatch(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {
 	if strings.TrimSpace(req.JSONRPC) != "2.0" {
 		return errorResponse(req.ID, codeInvalidReq, "jsonrpc must be 2.0")
@@ -223,6 +229,7 @@ func (h *HTTPServer) handleToolsList(ctx context.Context, req jsonRPCRequest) *j
 	return maybeResult(req.ID, map[string]any{"tools": tools})
 }
 
+// handleToolsCall 处理工具call。
 func (h *HTTPServer) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {
 	params, err := DecodeToolCallParams(req.Params)
 	if err != nil {

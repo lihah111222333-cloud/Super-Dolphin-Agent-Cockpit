@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// configurationRequestHandlerFromInitOptions 从init选项处理configuration请求处理器。
 func configurationRequestHandlerFromInitOptions(initOptions map[string]any) ServerRequestHandler {
 	settings, ok := initOptions["settings"].(map[string]any)
 	if !ok || len(settings) == 0 {

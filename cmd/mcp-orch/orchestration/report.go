@@ -15,6 +15,7 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// GetState 读取状态。
 func (s *service) GetState(ctx context.Context, agentID string) (AgentStateResult, error) {
 	var result AgentStateResult
 	err := s.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
@@ -31,6 +32,7 @@ func (s *service) GetState(ctx context.Context, agentID string) (AgentStateResul
 	return result, err
 }
 
+// GetReport 读取report。
 func (s *service) GetReport(ctx context.Context, agentID string) (AgentReportResult, error) {
 	var result AgentReportResult
 	err := s.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
@@ -58,6 +60,7 @@ func (s *service) persistedAgentReport(ctx context.Context, agentID string) (Age
 	return AgentReportResult{AgentID: snapshot.AgentID, Report: normalizeDisplayReportText(report), State: snapshot.State}, nil
 }
 
+// RememberReportRequest 处理rememberreport请求。
 func (s *service) RememberReportRequest(ctx context.Context, req RememberReportRequest) (RememberReportRequestResult, error) {
 	agentID := strings.TrimSpace(req.AgentID)
 	requesterID := strings.TrimSpace(req.RequesterID)
@@ -79,6 +82,7 @@ func (s *service) RememberReportRequest(ctx context.Context, req RememberReportR
 	return result, err
 }
 
+// HandleReportEvent 处理report事件。
 func (s *service) HandleReportEvent(ctx context.Context, event ReportEvent) (ReportEventResult, error) {
 	agentID := strings.TrimSpace(event.AgentID)
 	if agentID == "" {
@@ -122,6 +126,7 @@ func (s *service) reportEventFallbackResult(ctx context.Context, agentID, eventT
 	}, true
 }
 
+// applyReportEventWithoutRuntime 应用report事件without运行时。
 func (s *service) applyReportEventWithoutRuntime(ctx context.Context, agentID, eventType, report string) bool {
 	snapshot, err := s.persistedAgentSnapshot(ctx, agentID)
 	if err != nil {
@@ -151,6 +156,7 @@ func setReportLocked(ctx context.Context, agent *agentRuntime, report string) {
 	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 }
 
+// persistAgentReportFileAndGC 持久化代理report文件gc。
 func (s *service) persistAgentReportFileAndGC(ctx context.Context, record reportstore.Record) error {
 	if err := reportstore.Persist(record); err != nil || strings.TrimSpace(record.Report) == "" || strings.TrimSpace(record.Cwd) == "" || s == nil || s.agentThreads == nil {
 		return err
@@ -185,6 +191,7 @@ func agentReportFileRecordFromSnapshot(snapshot AgentSnapshot) reportstore.Recor
 	}
 }
 
+// normalizeDisplayReportText 规范化显示report文本。
 func normalizeDisplayReportText(raw string) string {
 	text := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(raw, "\r\n", "\n"), "\r", "\n"))
 	if text == "" {
@@ -226,6 +233,7 @@ func shouldCollapseDisplayReportLines(lines []string) bool {
 	return true
 }
 
+// isSimpleDisplayReportToken 判断simple显示report令牌是否可用。
 func isSimpleDisplayReportToken(line string) bool {
 	runes := []rune(strings.TrimSpace(line))
 	if len(runes) == 0 || len(runes) > 24 {
@@ -293,6 +301,7 @@ func extractReportFromEventData(raw json.RawMessage) string {
 	return reportTextFromPayload(payload)
 }
 
+// reportTextFromPayload 从载荷报告文本。
 func reportTextFromPayload(payload map[string]any) string {
 	if len(payload) == 0 {
 		return ""

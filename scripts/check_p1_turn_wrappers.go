@@ -108,6 +108,7 @@ func parseAndCheckP1WrapperFile(fset *token.FileSet, path string, foundTarget *b
 	return checkParsedFileWrappers(fset, path, file, foundTarget)
 }
 
+// checkParsedFileWrappers 处理check已解析文件wrappers。
 func checkParsedFileWrappers(fset *token.FileSet, path string, file *ast.File, foundTarget *bool) []string {
 	var violations []string
 	for _, decl := range file.Decls {

@@ -6,7 +6,6 @@ const EFFORT_OPTIONS_BY_PROVIDER = Object.freeze({
     { value: 'high', label: '高' },
     { value: 'medium', label: '中' },
     { value: 'low', label: '低' },
-    { value: 'minimal', label: '极低' },
     { value: 'none', label: '关闭' },
   ]),
   claude: Object.freeze([

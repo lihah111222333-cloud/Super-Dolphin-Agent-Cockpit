@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -73,7 +74,10 @@ func TestUIPreferencesGetDoesNotSynthesizeScopedActiveProvider(t *testing.T) {
 
 func TestUIVideoSetAPIKeyPersistsWithoutExplicitSuperDolphinHome(t *testing.T) {
 	home := t.TempDir()
+	appData := filepath.Join(home, "AppData", "Roaming")
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("APPDATA", appData)
 	t.Setenv("SUPER_DOLPHIN_HOME", "")
 	t.Setenv("SILICONFLOW_API_KEY", "")
 
@@ -88,7 +92,7 @@ func TestUIVideoSetAPIKeyPersistsWithoutExplicitSuperDolphinHome(t *testing.T) {
 		t.Fatalf("Dispatch(ui/video/setApiKey) error = %v", err)
 	}
 
-	path := filepath.Join(home, "Library", "Application Support", "Super Dolphin", "video.env")
+	path := defaultVideoEnvPathForTest(home, appData)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile(%q) error = %v", path, err)
@@ -96,11 +100,25 @@ func TestUIVideoSetAPIKeyPersistsWithoutExplicitSuperDolphinHome(t *testing.T) {
 	if string(data) != "SILICONFLOW_API_KEY=sk-test-persist\n" {
 		t.Fatalf("video.env = %q, want persisted SiliconFlow key", data)
 	}
+	if runtime.GOOS == "windows" {
+		return
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("Stat(%q) error = %v", path, err)
 	}
 	if mode := info.Mode().Perm(); mode != 0o600 {
 		t.Fatalf("video.env mode = %o, want 600", mode)
+	}
+}
+
+func defaultVideoEnvPathForTest(home, appData string) string {
+	switch runtime.GOOS {
+	case "windows":
+		return filepath.Join(appData, "Super Dolphin", "video.env")
+	case "darwin":
+		return filepath.Join(home, "Library", "Application Support", "Super Dolphin", "video.env")
+	default:
+		return filepath.Join(home, ".config", "Super Dolphin", "video.env")
 	}
 }

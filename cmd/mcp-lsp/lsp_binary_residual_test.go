@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -196,6 +197,7 @@ func TestLSPBinaryXrefIdentifierMissClassifiesCursorError(t *testing.T) {
 
 func TestLSPBinaryRustDetachedFileExplainsLimitedWorkspace(t *testing.T) {
 	skipLSPBinaryResidualE2EInShortMode(t)
+	requireRealRustAnalyzerToolchain(t)
 	root := canonicalToolTestRoot(t, t.TempDir())
 	target := filepath.Join(root, "docs", "li", "lsp_probe_eval.rs")
 	writeLSPBinaryFixture(t, target, strings.Join([]string{
@@ -481,7 +483,7 @@ func (c *lspBinaryClient) recv(t *testing.T) lspBinaryRPCResponse {
 func buildLSPBinary(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	binary := filepath.Join(dir, "mcp-lsp")
+	binary := filepath.Join(dir, lspBinaryExecutableNameForTest())
 	cmd := exec.Command("go", "build", "-o", binary, ".")
 	cmd.Dir = lspBinaryPackageDir(t)
 	output, err := cmd.CombinedOutput()
@@ -489,6 +491,13 @@ func buildLSPBinary(t *testing.T) string {
 		t.Fatalf("build mcp-lsp binary: %v\n%s", err, string(output))
 	}
 	return binary
+}
+
+func lspBinaryExecutableNameForTest() string {
+	if runtime.GOOS == "windows" {
+		return "mcp-lsp.exe"
+	}
+	return "mcp-lsp"
 }
 
 func lspBinaryPackageDir(t *testing.T) string {
@@ -592,6 +601,17 @@ func requireRustEmptyResultMessage(t *testing.T, result lspBinaryToolResult, cap
 		t.Fatalf("%s empty result missing meta.message; structuredContent=%s content=%s", capability, string(result.StructuredContent), result.ContentText())
 	}
 	requireRustDetachedExplanation(t, payload.Meta.Message)
+}
+
+func requireRealRustAnalyzerToolchain(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("rust-analyzer"); err == nil {
+		return
+	}
+	if _, err := exec.LookPath("rustup"); err == nil {
+		return
+	}
+	t.Skip("rust-analyzer or rustup is required for real Rust detached-file e2e")
 }
 
 func requireRustDetachedExplanation(t *testing.T, text string) {

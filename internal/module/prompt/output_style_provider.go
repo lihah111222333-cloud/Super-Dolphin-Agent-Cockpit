@@ -9,6 +9,7 @@ var _ DynamicSectionProvider = OutputStyleProvider{}
 
 type OutputStyleProvider struct{}
 
+// SectionName 处理section名称。
 func (OutputStyleProvider) SectionName() string {
 	return DynamicSectionOutputStyle
 }
@@ -22,6 +23,7 @@ func hasRenderableOutputStyle(cfg *OutputStyleConfig) bool {
 		strings.TrimSpace(cfg.Prompt) != ""
 }
 
+// Resolve 解析prompt。
 func (OutputStyleProvider) Resolve(_ context.Context, input SectionContext) (*string, error) {
 	cfg := input.BuildCtx.OutputStyleConfig
 	if !hasRenderableOutputStyle(cfg) {

@@ -33,7 +33,7 @@ func TestPackagedSharedfileStoreWritesReportsUnderWritableHome(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	t.Setenv("SUPER_DOLPHIN_HOME", appData)
 
-	store, err := provideConcreteStore(sqlc.New(&fakeImportDB{}), &platformconfig.Config{ProjectRoot: resources})
+	store, err := provideConcreteStore(sqlc.New(newFakeImportDB(t)), &platformconfig.Config{ProjectRoot: resources})
 	if err != nil {
 		t.Fatalf("provideConcreteStore() error = %v", err)
 	}
@@ -60,7 +60,7 @@ func TestPackagedSharedfileImporterWritesArtifactsUnderWritableHome(t *testing.T
 		t.Fatalf("write source: %v", err)
 	}
 
-	store, err := provideConcreteStore(sqlc.New(&fakeImportDB{}), &platformconfig.Config{ProjectRoot: resources})
+	store, err := provideConcreteStore(sqlc.New(newFakeImportDB(t)), &platformconfig.Config{ProjectRoot: resources})
 	if err != nil {
 		t.Fatalf("provideConcreteStore() error = %v", err)
 	}

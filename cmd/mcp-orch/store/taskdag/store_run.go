@@ -64,9 +64,9 @@ func (s *store) ListRuns(ctx context.Context, filter ListRunsFilter) ([]Run, err
 	return mapRows(runs, fromTaskDagRunListRow), nil
 }
 
-// PromoteRootNodesToReady 把 dag_key 下所有 depends_on=[] 且 status='pending'
-// 的根节点提升为 'ready'。返回受影响行数（service 层用于断言至少一个根节点
-// 被提升，否则视为 DAG 无可执行起点 → 报错 / 警告）。
+// CloneNodesForRun 把模板节点复制成 run-scoped runtime nodes。后续所有
+// task_update_node / dispatcher 写入都必须带 run_id 命中这些副本，模板节点
+// 只由 create/apply_ops 路径维护。
 func (s *store) CloneNodesForRun(ctx context.Context, dagKey string, runID int64) (int64, error) {
 	return queryValueWrite(ctx, func() (int64, error) {
 		return s.q.CloneTaskDagNodesForRun(ctx, sqlc.CloneTaskDagNodesForRunParams{
@@ -76,6 +76,9 @@ func (s *store) CloneNodesForRun(ctx context.Context, dagKey string, runID int64
 	}, "clone_nodes_for_run", "task_dag_node")
 }
 
+// PromoteRootNodesToReady 把当前 run 下 depends_on=[] 且 status='pending'
+// 的根 runtime node 提升为 ready；它只做状态流程推进，不负责入队 wakeup，
+// root dispatch 路由由 ScheduleRootWakeups 再按 assigned_to/config 决定。
 func (s *store) PromoteRootNodesToReady(ctx context.Context, dagKey string, runID int64) (int64, error) {
 	return queryValueWrite(ctx, func() (int64, error) {
 		return s.q.PromoteRootNodesToReady(ctx, sqlc.PromoteRootNodesToReadyParams{
@@ -85,6 +88,9 @@ func (s *store) PromoteRootNodesToReady(ctx context.Context, dagKey string, runI
 	}, "promote_root_nodes_to_ready", "task_dag_node")
 }
 
+// TerminateRun 同事务取消 running run、非终态 runtime nodes 与未完成 wakeups，
+// 并收集本 run 已 spawn 的 child thread ids 供 service 停止外部 agent。
+// 已取消 run 再次终止会走幂等读取分支返回同一组 thread ids。
 func (s *store) TerminateRun(ctx context.Context, input TerminateRunInput) (TerminateRunResult, error) {
 	if err := requireRuntimeRunID("terminate_run", input.RunID); err != nil {
 		return TerminateRunResult{}, err
@@ -115,6 +121,9 @@ func (s *store) TerminateRun(ctx context.Context, input TerminateRunInput) (Term
 	return result, nil
 }
 
+// terminateRunTx 的顺序不能随意调整：先停节点，再停 wakeup，最后翻 run
+// status。这样即使最后一步发现 run 已被其它路径取消，也可以安全读取已有
+// spawned_thread_id 返回给上层做 agent lifecycle 清理。
 func terminateRunTx(ctx context.Context, txq *sqlc.Queries, txdb sqlc.DBTX, input TerminateRunInput, reason string, event []byte) ([]string, error) {
 	if _, err := txq.CancelTaskDagRunNodes(ctx, sqlc.CancelTaskDagRunNodesParams{
 		Reason: reason,
@@ -398,12 +407,14 @@ func (s *store) WithRunTx(ctx context.Context, fn func(tx RunStore) error) error
 	}), "with_run_tx", "task_dag_run")
 }
 
+// WithScheduledStartTx 在事务中绑定计划启动上下文。
 func (s *store) WithScheduledStartTx(ctx context.Context, fn func(tx ScheduledStartTxStore) error) error {
 	return wrapTaskDAGError(sqlctx.WithImmediateTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
 		return fn(&store{db: tx, q: txq})
 	}), "with_scheduled_start_tx", "task_dag_run")
 }
 
+// UpdateScheduledDAGNextRun 更新计划 DAG 的下一次运行时间。
 func (s *store) UpdateScheduledDAGNextRun(ctx context.Context, dagKey string, dueAt, nextRunAt time.Time) (int64, error) {
 	return queryValueWrite(ctx, func() (int64, error) {
 		return s.q.UpdateTaskDagNextRun(ctx, sqlc.UpdateTaskDagNextRunParams{

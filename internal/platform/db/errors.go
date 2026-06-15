@@ -23,6 +23,7 @@ type StoreError struct {
 	Err       error
 }
 
+// Error 返回错误文本。
 func (e *StoreError) Error() string {
 	switch {
 	case e.Operation == "" && e.Entity == "":
@@ -36,8 +37,10 @@ func (e *StoreError) Error() string {
 	}
 }
 
+// Unwrap 返回底层错误。
 func (e *StoreError) Unwrap() error { return e.Err }
 
+// Is 判断平台数据库是否可用。
 func (e *StoreError) Is(target error) bool {
 	if e.Kind != nil && target == e.Kind {
 		return true
@@ -45,6 +48,7 @@ func (e *StoreError) Is(target error) bool {
 	return errors.Is(e.Err, target)
 }
 
+// WrapStoreError 包装存储错误。
 func WrapStoreError(err error, operation, entity string) error {
 	if err == nil {
 		return nil
@@ -61,14 +65,17 @@ func WrapStoreError(err error, operation, entity string) error {
 	}
 }
 
+// IsNotFound 判断notfound是否可用。
 func IsNotFound(err error) bool {
 	return errors.Is(err, ErrNotFound) || errors.Is(err, sql.ErrNoRows)
 }
 
+// IsConflict 判断conflict是否可用。
 func IsConflict(err error) bool {
 	return errors.Is(err, ErrConflict) || IsUniqueViolation(err)
 }
 
+// IsTimeout 判断超时是否可用。
 func IsTimeout(err error) bool {
 	if errors.Is(err, ErrTimeout) || errors.Is(err, context.DeadlineExceeded) {
 		return true
@@ -76,7 +83,7 @@ func IsTimeout(err error) bool {
 	return IsSQLiteBusyLocked(err)
 }
 
-// IsUniqueViolation は SQLite の UNIQUE 制約違反エラーを検出する。
+// IsUniqueViolation 判断 SQLite UNIQUE 约束错误。
 func IsUniqueViolation(err error) bool {
 	if err == nil {
 		return false

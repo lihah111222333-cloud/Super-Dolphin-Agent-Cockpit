@@ -27,11 +27,18 @@ func (c *dispatchAgentRunningCounter) snapshot() DispatchAgentRunningMetrics {
 
 var dispatchAgentRunning = &dispatchAgentRunningCounter{}
 
+// IncDispatchAgentRunningWritten 累加dispatch代理runningwritten。
 func IncDispatchAgentRunningWritten() { dispatchAgentRunning.written.Add(1) }
+
+// IncDispatchAgentRunningSkippedAlreadyTerminal 累加dispatch代理runningskippedalreadyterminal。
 func IncDispatchAgentRunningSkippedAlreadyTerminal() {
 	dispatchAgentRunning.skippedAlreadyTerminal.Add(1)
 }
+
+// IncDispatchAgentRunningWriteFailed 累加运行中代理状态写入失败次数。
 func IncDispatchAgentRunningWriteFailed() { dispatchAgentRunning.writeFailed.Add(1) }
+
+// DispatchAgentRunningCounters 派发代理runningcounters。
 func DispatchAgentRunningCounters() DispatchAgentRunningMetrics {
 	return dispatchAgentRunning.snapshot()
 }

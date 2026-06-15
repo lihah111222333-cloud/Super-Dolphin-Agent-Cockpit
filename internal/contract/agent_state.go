@@ -20,6 +20,7 @@ import (
 // Semantics: a state is active iff it is neither empty, archived, nor a
 // terminal state (StateStopped / StateFailed). Keep it as a pure function
 // — zero allocations, safe to call from tight loops.
+// IsActiveAgentState 判断active代理状态是否可用。
 func IsActiveAgentState(state string) bool {
 	switch agentdto.AgentState(strings.TrimSpace(state)) {
 	case "", agentdto.StateStopped, agentdto.StateFailed, "archived":

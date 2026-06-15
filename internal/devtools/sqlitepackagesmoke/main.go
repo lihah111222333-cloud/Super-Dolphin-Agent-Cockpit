@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,6 +17,8 @@ import (
 	sqliteruntime "github.com/anthropic-ai/super-agent-v3/internal/platform/db/sqlite"
 )
 
+var nowFunc = time.Now
+
 type smokeEnv struct {
 	packageRoot string
 	home        string
@@ -23,10 +26,10 @@ type smokeEnv struct {
 }
 
 func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := platformconfig.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := run(ctx); err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, err)
+		slog.Error("sqlite package smoke failed", "error", err)
 		os.Exit(1)
 	}
 }
@@ -188,7 +191,7 @@ func verifyPragma(ctx context.Context, db *sql.DB, name, want string) error {
 }
 
 func insertSmokeThread(ctx context.Context, db *sql.DB, packageRoot string) error {
-	now := time.Now().UTC().UnixMilli()
+	now := nowFunc().UTC().UnixMilli()
 	_, err := db.ExecContext(ctx, `
 INSERT INTO agent_threads (thread_id, name, prompt, model, cwd, status, created_at, updated_at, config_override, prompt_snapshot, agent_key)
 VALUES (?, 'Package Smoke', 'sqlite package smoke', 'gpt-5', ?, 'running', ?, ?, '{}', '{}', 'package-smoke')`,

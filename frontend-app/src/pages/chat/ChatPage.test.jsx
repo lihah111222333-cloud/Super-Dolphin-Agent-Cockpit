@@ -43,6 +43,7 @@ function createFakeStore(overrides = {}) {
     diffTextByThread: {},
     draft: '',
     error: '',
+    forceCompleteActiveThread: vi.fn(),
     hasActiveThreadActions: vi.fn(() => Boolean(store.activeThreadId)),
     hasInterruptibleThreadAction: vi.fn(() => false),
     interruptActiveThread: vi.fn(),
@@ -105,26 +106,12 @@ function createActiveThreadStore(messages, overrides = {}) {
 
 function TestChatPageWrapper({ store, projectPath, rightPanelOpen: initialOpen = false }) {
   const [open, setOpen] = React.useState(initialOpen);
-  const bootstrapFailureMessage = store.bootstrapStatus === 'failed' && store.error
-    ? `连接后端失败：${store.error}`
-    : '';
-  const feedback = store.actionNotice?.message
-    ? store.actionNotice
-    : (bootstrapFailureMessage ? { message: bootstrapFailureMessage, tone: 'error' } : null);
 
   return (
     <div>
       <button type="button" onClick={() => setOpen((prev) => !prev)}>
-        显示侧边栏
+        测试切换侧边栏
       </button>
-      {feedback?.message ? (
-        <output
-          className={`action-feedback ${feedback.tone || 'info'}`}
-          data-testid="chat-action-feedback"
-        >
-          {feedback.message}
-        </output>
-      ) : null}
       <ChatPage
         store={store}
         projectPath={projectPath}
@@ -175,6 +162,7 @@ describe('ChatPage module', () => {
     render(<TestChatPageWrapper store={store} projectPath="未选择项目" />);
 
     expect(screen.getByText('连接后端失败：backend unavailable')).toBeInTheDocument();
+    expect(screen.getByText('让我们从 Super-Dolphin 开始!')).toBeInTheDocument();
     expect(screen.getByText('暂无会话，点击「新建对话」开始草稿')).toBeInTheDocument();
     expect(screen.getByTestId('composer-input')).toHaveValue('请修复测试');
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
@@ -201,6 +189,7 @@ describe('ChatPage module', () => {
 
     const { container } = render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
 
+    expect(screen.getByText('聊天页面')).toBeInTheDocument();
     expect(screen.getByText('修复会话')).toBeInTheDocument();
     expect(screen.getByText('哪里失败了？')).toBeInTheDocument();
     expect(screen.getByText('测试在聊天页缺少覆盖。')).toBeInTheDocument();
@@ -241,6 +230,48 @@ describe('ChatPage module', () => {
       preserveActiveThreadId: true,
     });
     expect(screen.getByTestId('diff-view')).toBeInTheDocument();
+  });
+
+  it('exposes backend thread actions from the header action menu', async () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '已连接后端线程', time: '2026-06-02T08:00:00Z' },
+    ], {
+      hasInterruptibleThreadAction: vi.fn(() => true),
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    const openMenu = () => {
+      fireEvent.click(screen.getByRole('button', { name: '聊天操作' }));
+      return screen.getByTestId('chat-actions-menu');
+    };
+
+    let menu = openMenu();
+
+    expect(within(menu).getByRole('button', { name: '选择项目' })).toBeInTheDocument();
+
+    fireEvent.click(within(menu).getByRole('button', { name: '新窗口（独立进程）' }));
+    expect(store.openNewWindow).toHaveBeenCalledTimes(1);
+
+    menu = openMenu();
+    fireEvent.click(within(menu).getByRole('button', { name: '复制当前线程' }));
+    expect(store.copyActiveThreadInfo).toHaveBeenCalledTimes(1);
+
+    menu = openMenu();
+    fireEvent.click(within(menu).getByRole('button', { name: '停止' }));
+    expect(store.interruptActiveThread).toHaveBeenCalledTimes(1);
+
+    menu = openMenu();
+    fireEvent.click(within(menu).getByRole('button', { name: '强制完成' }));
+    expect(store.forceCompleteActiveThread).toHaveBeenCalledTimes(1);
+
+    menu = openMenu();
+    fireEvent.click(within(menu).getByRole('button', { name: '进程恢复' }));
+    expect(store.recoverActiveThread).toHaveBeenCalledTimes(1);
+
+    menu = openMenu();
+    fireEvent.click(within(menu).getByRole('button', { name: '显示侧边栏' }));
+    await waitFor(() => expect(screen.getByTestId('runtime-panel')).toBeInTheDocument());
   });
 
   it('turns the composer primary button into an interrupt action while the active thread is running', () => {

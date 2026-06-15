@@ -70,6 +70,7 @@ func resolveFilePath(ctx context.Context, path string) (string, error) {
 	return pathInfo.AbsPath, nil
 }
 
+// normalizeFilePathTarget 规范化文件路径target。
 func normalizeFilePathTarget(raw string) (string, error) {
 	filePath, err := requireFilePath(raw)
 	if err != nil {
@@ -101,6 +102,7 @@ func hasFileURIScheme(path string) bool {
 	return ok && strings.EqualFold(scheme, "file")
 }
 
+// resolveWorkspacePathInRoots 在根目录解析工作区路径。
 func resolveWorkspacePathInRoots(root string, roots []string, uri string) (string, error) {
 	filePath, err := normalizeFilePathTarget(uri)
 	if err != nil {

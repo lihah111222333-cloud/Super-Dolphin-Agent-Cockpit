@@ -51,6 +51,7 @@ type RawMessage struct {
 	Params json.RawMessage
 }
 
+// ThreadID 处理线程ID。
 func (m RawMessage) ThreadID() string {
 	if len(m.Params) == 0 {
 		return ""
@@ -171,6 +172,7 @@ func (t *transport) sendInitializeRequest(id int64) error {
 	})
 }
 
+// awaitInitialize 等待 Codex app 初始化完成。
 func (t *transport) awaitInitialize(ctx context.Context, ws *websocket.Conn, pc *pendingCall) error {
 	defer func() { _ = ws.SetReadDeadline(time.Time{}) }()
 	for {
@@ -215,6 +217,7 @@ func (t *transport) readInitializeMessage(ctx context.Context, ws *websocket.Con
 	return nil
 }
 
+// captureInitializeCodexHome 处理captureinitializecodexhome。
 func (t *transport) captureInitializeCodexHome(data []byte) {
 	if t == nil || len(data) == 0 {
 		return
@@ -270,6 +273,7 @@ func (t *transport) notifyDirect(method string, params any) error {
 	}{JSONRPC: "2.0", Method: method, Params: sanitizeProviderPayload(method, params)})
 }
 
+// endReadLoop 处理endreadloop。
 func (t *transport) endReadLoop(ctx context.Context, handler any, ws *websocket.Conn, err error, message string) bool {
 	superseded := t.readSocketSuperseded(ws)
 	closed := t.closed.Load()
@@ -357,6 +361,7 @@ func invokeReadHandler(ctx context.Context, resp Responder, msg RawMessage, hand
 	}
 }
 
+// RespondWithID 处理带ID的respond。
 func (t *transport) RespondWithID(id json.RawMessage, result any, callErr error) error {
 	if len(id) == 0 {
 		return errors.New("codexapp: response id is required")
@@ -434,6 +439,7 @@ func (t *transport) closeSocket() {
 	t.ws = nil
 }
 
+// codexReleaseAPIRequestURL 处理codexreleaseAPI请求URL。
 func codexReleaseAPIRequestURL() (string, error) {
 	rawURL := strings.TrimSpace(os.Getenv(codexReleaseAPIURLEnv))
 	if rawURL == "" {
@@ -502,6 +508,7 @@ func ensureResolvedCodexProviderHome(selection codexProviderHomeSelection) (home
 	return home, normalizedExplicitProviderHome(selection.mirrorHomeRequest, home), nil
 }
 
+// validateAppManagedRelayLaunchEnv 校验appmanagedrelay启动env。
 func validateAppManagedRelayLaunchEnv() error {
 	if strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_CODEX_RELAY_API_KEY")) != "" {
 		return errors.New("app-managed Codex relay config: SUPER_DOLPHIN_CODEX_RELAY_API_KEY is privileged and must not be inherited by app-managed launches")
@@ -521,6 +528,7 @@ func validateAppManagedRelayLaunchEnv() error {
 	return errors.Join(problems...)
 }
 
+// selectCodexProviderHome 选择codexproviderhome。
 func selectCodexProviderHome(rawHome string) (codexProviderHomeSelection, error) {
 	packaged, err := providershared.PackagedRuntimeFromEnv()
 	if err != nil {

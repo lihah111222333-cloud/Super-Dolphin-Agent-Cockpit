@@ -210,6 +210,7 @@ func (r *recordingTeamLifecycle) snapshot() (starts, stops []string) {
 	defer r.mu.Unlock()
 	starts = append([]string(nil), r.starts...)
 	stops = append([]string(nil), r.stops...)
+	// archguard:ignore naked_returns -- named results document the paired snapshot slices.
 	return
 }
 

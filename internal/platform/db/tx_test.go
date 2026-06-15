@@ -59,9 +59,30 @@ func TestRunWithTxRollsBackOnPanicAndRepanics(t *testing.T) {
 		}
 	}()
 	_ = runWithCommitter(context.Background(), tx, func(sqlTxCommitter) error {
+		// archguard:ignore panic_count -- 本测试验证事务回滚后必须保留调用方 panic。
 		panic(panicVal)
 	})
-	t.Fatal("unreachable")
+	t.Fatal("unreachable: panic should have propagated")
+}
+
+func TestRollbackTxJoinsFunctionAndRollbackErrors(t *testing.T) {
+	t.Parallel()
+	fnErr := errors.New("write failed")
+	rollbackErr := errors.New("rollback failed")
+	tx := &captureTx{rollbackErr: rollbackErr}
+	err := rollbackTx(context.Background(), tx, fnErr)
+	if !errors.Is(err, fnErr) {
+		t.Fatalf("rollbackTx() error = %v, want function error", err)
+	}
+	if !errors.Is(err, rollbackErr) {
+		t.Fatalf("rollbackTx() error = %v, want rollback error", err)
+	}
+	if !tx.rolledBack {
+		t.Fatal("rollbackTx() did not roll back")
+	}
+	if tx.committed {
+		t.Fatal("rollbackTx() committed after function error")
+	}
 }
 
 type captureTx struct {

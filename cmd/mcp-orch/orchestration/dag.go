@@ -26,6 +26,7 @@ type createDAGParams struct {
 	Nodes       []createDAGNodeParams `json:"nodes,omitempty"`
 }
 
+// UnmarshalJSON 解析 JSON 输入，并兼容旧字段或字符串写法。
 func (p *createDAGParams) UnmarshalJSON(data []byte) error {
 	type current createDAGParams
 	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
@@ -53,6 +54,7 @@ type createDAGNodeParams struct {
 	Config     json.RawMessage `json:"config,omitempty"`
 }
 
+// UnmarshalJSON 解析 JSON 输入，并兼容旧字段或字符串写法。
 func (p *createDAGNodeParams) UnmarshalJSON(data []byte) error {
 	type current createDAGNodeParams
 	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
@@ -95,6 +97,7 @@ type updateNodeParams struct {
 	Result json.RawMessage `json:"result,omitempty"`
 }
 
+// UnmarshalJSON 解析 JSON 输入，并兼容旧字段或字符串写法。
 func (p *updateNodeParams) UnmarshalJSON(data []byte) error {
 	type wire struct {
 		DagKey  string          `json:"dag_key"`
@@ -127,6 +130,7 @@ func (p *updateNodeParams) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// CreateDAG 创建 DAG 记录、节点和初始调度状态。
 func (s *service) CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error) {
 	if err := nodeexec.ValidateCreateDAGNodes(req.Nodes); err != nil {
 		return DAGDetail{}, fmt.Errorf("orchestration: create_dag invalid request: nodes topology invalid: %w", err)
@@ -155,6 +159,7 @@ func (s *service) CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetai
 	return detail, nil
 }
 
+// GetDAG 读取 DAG 明细并补齐节点、边和运行状态。
 func (s *service) GetDAG(ctx context.Context, dagKey string) (DAGDetail, error) {
 	var detail DAGDetail
 	err := s.withDAGStore(func(store taskdag.OrchestrationStore) error {
@@ -168,6 +173,7 @@ func (s *service) GetDAG(ctx context.Context, dagKey string) (DAGDetail, error) 
 	return detail, err
 }
 
+// ListDAGs 按查询条件列出 DAG 摘要。
 func (s *service) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSummary, error) {
 	var summaries []DAGSummary
 	err := s.withDAGStore(func(store taskdag.OrchestrationStore) error {
@@ -188,6 +194,8 @@ func (s *service) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSum
 	return summaries, nil
 }
 
+// task_update_node 先按当前 run 的节点状态校验，再决定怎么写。
+// done 要唤醒下游，failed 要处理失败级联；别绕过这些流程直接改 status。
 func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequest) (DAGNode, error) {
 	input, err := nodeStatusUpdateFromRequest(req)
 	if err != nil {
@@ -227,6 +235,8 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 
 // validateNodeTransition checks the run-scoped current status before public
 // task_update_node writes; dispatcher fast paths use SQL fences instead.
+//
+// 这里管公开工具/RPC；dispatcher 热路径靠 SQL 状态白名单挡住并发写。
 func (s *service) validateNodeTransition(ctx context.Context, store taskdag.OrchestrationStore, input taskdag.NodeStatusUpdate) (string, error) {
 	runReader, ok := any(store).(taskdag.RunNodeReadStore)
 	if !ok {
@@ -254,7 +264,8 @@ func (s *service) validateNodeTransition(ctx context.Context, store taskdag.Orch
 	return fromStatus, nil
 }
 
-// completeNodeWithDownstream 走 store NodeFlowStore，3.5w 接通点。
+// 完成节点时让 store 统一处理下游和 run 收尾。
+// service 只发布事件和记日志，不自己重新扫 DAG。
 func (s *service) completeNodeWithDownstream(ctx context.Context, flow taskdag.NodeFlowStore, input taskdag.NodeStatusUpdate, oldStatus string, result *DAGNode) error {
 	res, err := flow.CompleteNodeAndScheduleDownstream(ctx, taskdag.CompleteNodeInput(input))
 	if err != nil {
@@ -273,6 +284,8 @@ func (s *service) completeNodeWithDownstream(ctx context.Context, flow taskdag.N
 	return nil
 }
 
+// 公开调用把节点标 failed 时，下游 pending 节点也要一起处理。
+// 否则它们会一直等一个永远不会 done 的上游。
 func (s *service) failNodeWithDownstream(ctx context.Context, flow taskdag.NodeFlowStore, input taskdag.NodeStatusUpdate, oldStatus string, result *DAGNode) error {
 	reason := string(input.Result)
 	if reason == "" {
@@ -289,6 +302,8 @@ func (s *service) failNodeWithDownstream(ctx context.Context, flow taskdag.NodeF
 	return nil
 }
 
+// task_create_dag 写的是模板，不是正在跑的 run。
+// runtime node只在 StartDAG 时从模板复制出来。
 func upsertDAG(ctx context.Context, store taskdag.DAGMutationStore, req CreateDAGRequest) (*taskdag.DAG, error) {
 	dagKey := strings.TrimSpace(req.DagKey)
 	if dagKey == "" {
@@ -306,6 +321,7 @@ func upsertDAG(ctx context.Context, store taskdag.DAGMutationStore, req CreateDA
 
 // upsertDAGNodes writes template nodes, using the optional batch port when the
 // store exposes it so DAGMutationStore stays within its interface budget.
+// upsertDAGNodes 写入 DAG 节点并同步依赖边。
 func upsertDAGNodes(ctx context.Context, store taskdag.DAGMutationStore, dagKey string, nodes []CreateDAGNodeRequest) error {
 	if len(nodes) == 0 {
 		return nil
@@ -326,6 +342,7 @@ func upsertDAGNodes(ctx context.Context, store taskdag.DAGMutationStore, dagKey 
 	return nil
 }
 
+// loadDAGDetail 加载 DAG 的完整视图供 API 和调度器使用。
 func loadDAGDetail(ctx context.Context, store taskdag.DAGDetailStore, dagKey string) (DAGDetail, error) {
 	trimmedKey := strings.TrimSpace(dagKey)
 	reader, hasVersion := store.(taskdag.DAGVersionReader)
@@ -495,13 +512,13 @@ func decodeDependsOn(raw json.RawMessage) []string {
 }
 
 // =====================================================
-// DAG 生命周期入口（S2.1 骨架接口位 + stub）
+// DAG 启动和停止过程入口（S2.1 骨架接口位 + stub）
 // =====================================================
 //
 // StartDAG / TerminateDAG / ApplyOps 的真实实现在 T1.2 / F4.x / F6.x 落地；
 // 骨架阶段只定签名 + ErrLifecycleNotImplemented，让上层接口稳定。
 //
-// 真实运行时还会创建 task_dag_runs 行 + snapshot dag.version + 写
+// 真正运行时还会创建 task_dag_runs 行 + snapshot dag.version + 写
 // node.run_id 等（见蓝图 v2 §5 决策"DAG 模板 + run 实例"模型 + S3.3 migration）。
 
 // ErrLifecycleNotImplemented 是骨架阶段 stub 方法的 sentinel 错误。
@@ -534,10 +551,12 @@ type IdempotencyKeyExhaustedError struct {
 	Status string
 }
 
+// Error 返回错误的可读文本。
 func (e *IdempotencyKeyExhaustedError) Error() string {
 	return fmt.Sprintf("%s (run_key=%s, status=%s)", ErrIdempotencyKeyExhausted.Error(), e.RunKey, e.Status)
 }
 
+// Unwrap 暴露底层错误，方便 errors.Is 或 errors.As 判断。
 func (e *IdempotencyKeyExhaustedError) Unwrap() error { return ErrIdempotencyKeyExhausted }
 
 // ErrRunStoreUnset 表示 service 未注入 RunStore（测试裸构造路径）不能调
@@ -552,6 +571,7 @@ type StartDAGResponse = contract.StartDAGResponse
 // TerminateDAGRequest 是终止一次 DAG run 的入参。
 type TerminateDAGRequest = contract.TerminateDAGRequest
 
+// DeleteDAG 删除 DAG 及其关联的节点和运行状态。
 func (s *service) DeleteDAG(ctx context.Context, req contract.DeleteDAGRequest) error {
 	dagKey := strings.TrimSpace(req.DagKey)
 	if dagKey == "" {
@@ -640,6 +660,7 @@ func (s *service) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (c
 // applyTypedOps 是 4 个 op_kind 业务实现的容器（F4.1-F4.4）。F4.1 接 add_node、
 // F4.2 接 update_node，F4.3 接 remove_node，F4.4 接 update_dag。空 ops 返 noop。
 
+// applyTypedOps 把节点更新操作转换成状态机可执行的变更。
 func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion int64, ops nodeexec.Ops) (contract.ApplyOpsResponse, error) {
 	if s == nil || s.dagStore == nil {
 		return contract.ApplyOpsResponse{}, ErrApplyOpsStoreNotConfigured

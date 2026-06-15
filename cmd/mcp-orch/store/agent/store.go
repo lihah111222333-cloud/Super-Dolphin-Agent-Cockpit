@@ -21,7 +21,7 @@ import (
 
 type threadStore struct{ db *sql.DB }
 
-// NewThreadStore returns an orchestration.AgentThreadStore backed by db.
+// NewThreadStore 创建基于 SQLite 连接的编排线程存储。
 func NewThreadStore(db *sql.DB) orchestration.AgentThreadStore {
 	return &threadStore{db: db}
 }
@@ -44,6 +44,7 @@ FROM agent_threads t
 ORDER BY t.created_at DESC
 `
 
+// ListAll 返回所有已持久化线程及其最新 provider 绑定。
 func (s *threadStore) ListAll(ctx context.Context) ([]orchestration.PersistedThread, error) {
 	rows, err := s.db.QueryContext(ctx, listSQL)
 	if err != nil {
@@ -84,6 +85,7 @@ WHERE t.thread_id = ?
 LIMIT 1
 `
 
+// GetByThreadID 按线程 ID 读取持久化线程及其最新 provider 绑定。
 func (s *threadStore) GetByThreadID(ctx context.Context, threadID string) (*orchestration.PersistedThread, error) {
 	row := s.db.QueryRowContext(ctx, getByIDSQL, threadID)
 	var t orchestration.PersistedThread
@@ -109,6 +111,7 @@ SET status = ?, updated_at = ?
 WHERE thread_id = ?
 `
 
+// UpdateStatus 更新持久化线程的运行状态和更新时间。
 func (s *threadStore) UpdateStatus(ctx context.Context, params orchestration.PersistedThreadStatusUpdate) error {
 	_, err := s.db.ExecContext(ctx, updateStatusSQL, params.Status, params.UpdatedAt, params.ThreadID)
 	return wrapThread(err, "update_status")
@@ -120,7 +123,7 @@ func (s *threadStore) UpdateStatus(ctx context.Context, params orchestration.Per
 
 type bindingStore struct{ db *sql.DB }
 
-// NewBindingStore returns an orchestration.AgentBindingStore backed by db.
+// NewBindingStore 创建基于 SQLite 连接的 provider 绑定存储。
 func NewBindingStore(db *sql.DB) orchestration.AgentBindingStore {
 	return &bindingStore{db: db}
 }
@@ -132,6 +135,7 @@ FROM agent_provider_binding
 WHERE agent_id = ?
 `
 
+// GetByAgentID 按 agent ID 读取 provider 绑定。
 func (s *bindingStore) GetByAgentID(ctx context.Context, agentID string) (*orchestration.PersistedBinding, error) {
 	row := s.db.QueryRowContext(ctx, getBindingSQL, agentID)
 	var b orchestration.PersistedBinding
@@ -155,6 +159,7 @@ SET archived = ?, updated_at = ?
 WHERE agent_id = ?
 `
 
+// SetArchived 更新 provider 绑定的归档状态。
 func (s *bindingStore) SetArchived(ctx context.Context, params orchestration.PersistedBindingArchiveUpdate) error {
 	_, err := s.db.ExecContext(ctx, setArchivedSQL, params.Archived, params.UpdatedAt, params.AgentID)
 	return wrapBinding(err, "set_archived")

@@ -90,6 +90,7 @@ func (g *processGuard) close() {
 	_ = g
 }
 
+// signalCodexProcess 处理signalcodex进程。
 func signalCodexProcess(cmd *exec.Cmd, guard *processGuard, sig processSig) error {
 	_ = guard
 	if cmd == nil || cmd.Process == nil {
@@ -174,6 +175,7 @@ func isAppServerArgs(args []string) bool { return isCodexAppServerListenArgs(arg
 // latter is the filtered "codex app-server --listen ..." subset. On Unix this
 // runs `ps -eo pid,ppid,args` (note the different ps format from the plain
 // MCP discovery — we need the full argv to spot the --listen flag).
+// discoverAppServerProcessList 处理discoverapp服务端进程list。
 func discoverAppServerProcessList() (map[int]int, []appServerProcessInfo) {
 	out, err := exec.Command("ps", "-eo", "pid,ppid,args").Output()
 	if err != nil {

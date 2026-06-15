@@ -318,6 +318,7 @@ func migrationAddsBuiltinPromptBody(sql string) bool {
 }
 
 func migrationAddsBuiltinPromptBodyForFile(name, sql string) bool {
+	sql = strings.ReplaceAll(sql, "\r\n", "\n")
 	if name == rosterRepairMigrationName {
 		sql = stripAllowedRosterRepairCardInserts(sql)
 		sql = strip0106DAGDesignerPromptTextReplacementLiterals(sql)

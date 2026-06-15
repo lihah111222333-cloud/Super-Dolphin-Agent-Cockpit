@@ -1,5 +1,10 @@
 import { firstText, textValue } from '../../shared/pageShared.js';
 
+/*
+ * workflow display adapter 只把 DAG 节点变成展示用行。
+ * 它不改节点，也不调用后端。
+ */
+
 function parsedWorkflowConfig(value) {
   if (!value) return {};
   if (typeof value === 'object' && !Array.isArray(value)) return value;
@@ -66,6 +71,10 @@ function workflowSharedFileRows(nodes = []) {
 }
 
 function workflowOrderedNodes(nodes = []) {
+  /*
+   * 按 dependsOn 排序，遇到缺失依赖或环也继续展示。
+   * 缺失依赖只在图里标成“外部依赖”。
+   */
   const source = Array.isArray(nodes) ? nodes : [];
   const byKey = new Map(source.filter((node) => textValue(node?.nodeKey)).map((node) => [node.nodeKey, node]));
   const ordered = [];

@@ -54,10 +54,12 @@ type SweeperOptions struct {
 	StaleGrace time.Duration
 }
 
+// NewSweeper 创建sweeper。
 func NewSweeper(registry *ToolRegistry, logger *pkglogger.Logger) *Sweeper {
 	return NewSweeperWithOptions(registry, logger, SweeperOptions{})
 }
 
+// NewSweeperWithOptions 创建带选项的sweeper。
 func NewSweeperWithOptions(registry *ToolRegistry, logger *pkglogger.Logger, opts SweeperOptions) *Sweeper {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -72,6 +74,7 @@ func NewSweeperWithOptions(registry *ToolRegistry, logger *pkglogger.Logger, opt
 	}
 }
 
+// Run 启动平台mcpcontrol后台流程。
 func (s *Sweeper) Run(ctx context.Context) {
 	if s == nil || s.registry == nil {
 		return
@@ -89,6 +92,7 @@ func (s *Sweeper) Run(ctx context.Context) {
 	}
 }
 
+// Sweep 清理过期记录。
 func (s *Sweeper) Sweep(now time.Time) SweepResult {
 	if s == nil || s.registry == nil {
 		return SweepResult{}

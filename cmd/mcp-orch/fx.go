@@ -36,6 +36,7 @@ import (
 
 // run boots the MCP binary itself. The core process only exposes ctl/* endpoints
 // and manifest metadata; external executors decide when and how this binary starts.
+// run 启动 mcp-orch 进程，完成依赖装配、RPC 监听和退出清理。
 func run() error {
 	remoteAddr := strings.TrimSpace(os.Getenv("GO_AGENT_CTL_RPC_ADDR"))
 	app := fx.New(
@@ -85,10 +86,12 @@ func run() error {
 	return app.Stop(stopCtx)
 }
 
+// buildBootstrapConfig 组装 mcp-orch 的启动配置，把工具注册和 scope 注入接到 bootstrap。
 func buildBootstrapConfig(shutdowner fx.Shutdowner, hookAfter contract.BootstrapHookAfterHandler, registry tools.Registry) bootstrap.Config {
 	cfg := bootstrap.ReadBootConfig()
 	cfg.AgentID = ""
 	// P15: register tools/list and tools/call so toolbridge can call this peer.
+	// toolbridge 只转发并注入 scope；真正的工具逻辑仍走同一份 registry。
 	p := registryToolProvider{registry: registry}
 	cfg.OnToolsList = func(ctx context.Context) (any, error) {
 		tools, err := p.ListTools(ctx)
@@ -127,6 +130,8 @@ func handleScopedToolsCall(ctx context.Context, p registryToolProvider, family s
 	return handleScopedToolsCallWithCaller(ctx, family, params, p.CallTool)
 }
 
+// bootstrap tools/call 在这里把 _agentId/_cwd 放进 ctx。
+// 下游工具要信 ctx 里的 scope，不要信模型传来的同名字段。
 func handleScopedToolsCallWithCaller(
 	ctx context.Context,
 	family string,
@@ -146,6 +151,8 @@ func handleScopedToolsCallWithCaller(
 	return wrapScopedToolResult(result)
 }
 
+// error envelope 也作为正常工具结果返回。
+// 这样模型能看到 isError=true，而不是收到一层 JSON-RPC 失败。
 func wrapScopedToolResult(result any) (any, error) {
 	text, err := json.Marshal(result)
 	if err != nil {
@@ -168,6 +175,7 @@ func structuredToolResultIsError(raw []byte) bool {
 	return probe.Success != nil && !*probe.Success
 }
 
+// buildOrchestrationOptions 组装编排模块的 fx 依赖，让 DAG、cron 和 runtime 能一起启动。
 func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 	// P22 P4 S4c1: the orchestration subpackage no longer exports
 	// `var Module`; root assembly wires its providers + lifecycle hooks
@@ -191,7 +199,7 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 			),
 			fx.Invoke(orchestration.RegisterTurnLifecycle),
 			fx.Invoke(orchestration.RegisterApprovalLifecycle),
-			// ADR-017 v1.2 §2.1：第三路 TurnCompleted 订阅 —— 推进 DAG 节点状态机。
+			// ADR-017 v1.2 §2.1：第三路 TurnCompleted 订阅 —— 推进 DAG 节点状态流程。
 			// 与 RegisterTurnLifecycle（推 agent runtime）并列不重叠，
 			// 三路并发安全（v1.2 reviewer A 实证）。
 			fx.Invoke(orchestration.RegisterDAGTurnCompletedSubscriber),
@@ -217,12 +225,12 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 			orchestration.ProvideAutomationExecutor,
 			// dispatcher-wiring closure：sharedfile 端口 adapter —— store/sharedfile.Store
 			// 适配成 nodeexec.SharedFileReader / SharedFileWriter，供 NodeExecutorRouter 预填
-			// RunContext。是 W2 端口收敛后 dispatcher 路径能走 dogfood-grade DAG
+			// RunContext。是 W2 端口结束处理后 dispatcher 路径能走 dogfood-grade DAG
 			// (cfg.Inputs.from_sharedfiles / outputs.to_sharedfile) 的必要 wiring。
 			orchestration.NewStoreSharedFileReader,
 			orchestration.NewStoreSharedFileWriter,
 			// round-3 merge fix: 走 ProvideAgentExecutor 包 WithRecorder option，
-			// 而不是直接 fx-resolve nodeexec NewAgentExecutor —— 后者 W2 端口收敛后
+			// 而不是直接 fx-resolve nodeexec NewAgentExecutor —— 后者 W2 端口结束处理后
 			// 变 variadic Option 形态，fx 直 Provide 只会拿 launcher 丢 recorder。
 			orchestration.ProvideAgentExecutor,
 			orchestration.NewNodeExecutorRouter,
@@ -251,6 +259,7 @@ func newAutomationCommandGetter(store commandcardstore.Store) nodeexec.Automatio
 	return automationCommandGetter{handler: tools.HandleCommandGet(store)}
 }
 
+// GetCommandCard 返回桌面端展示 mcp-orch 命令所需的卡片信息。
 func (g automationCommandGetter) GetCommandCard(ctx context.Context, cardKey string) (nodeexec.AutomationCommandCard, error) {
 	if g.handler == nil {
 		return nodeexec.AutomationCommandCard{}, errors.New("command_get client is not configured")

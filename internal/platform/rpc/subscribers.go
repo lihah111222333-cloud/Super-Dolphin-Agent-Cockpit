@@ -10,6 +10,7 @@ import (
 )
 
 // NewRPCPushSubscribers declares RPC push bus subscriptions for BusModule.
+// NewRPCPushSubscribers 创建RPCpushsubscribers。
 func NewRPCPushSubscribers(worker *pushNotificationWorker, bridge *PushBridge, logger *pkglogger.Logger) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: platformbus.SubscriberSpec{

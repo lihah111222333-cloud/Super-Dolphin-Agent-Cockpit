@@ -26,6 +26,7 @@ var (
 	ErrSafeReadBrokenLink  = errors.New("safe read: broken symlink or unreadable parent")
 )
 
+// ValidateMemoryRoot 校验记忆根目录。
 func ValidateMemoryRoot(raw string) (string, error) {
 	raw = norm.NFC.String(strings.TrimSpace(raw))
 	if raw == "" {
@@ -57,6 +58,7 @@ func ValidateMemoryRoot(raw string) (string, error) {
 	return strings.TrimRight(cleaned, string(os.PathSeparator)) + string(os.PathSeparator), nil
 }
 
+// CleanAbsolutePath 处理cleanabsolute路径。
 func CleanAbsolutePath(raw string) (string, error) {
 	if strings.TrimSpace(raw) == "" {
 		return "", errors.New("path is empty")
@@ -72,6 +74,7 @@ func CleanAbsolutePath(raw string) (string, error) {
 	return cleaned, nil
 }
 
+// RealPathDeepestExisting 处理real路径deepestexisting。
 func RealPathDeepestExisting(path string) (string, error) {
 	cleaned := filepath.Clean(path)
 	if _, err := os.Stat(cleaned); err == nil {
@@ -103,6 +106,7 @@ func RealPathDeepestExisting(path string) (string, error) {
 	}
 }
 
+// EnsureResolvablePath 确保resolvable路径。
 func EnsureResolvablePath(path string) error {
 	for probe := filepath.Clean(path); ; probe = filepath.Dir(probe) {
 		info, err := os.Lstat(probe)
@@ -124,11 +128,13 @@ func EnsureResolvablePath(path string) error {
 	}
 }
 
+// ShortHash 处理shorthash。
 func ShortHash(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:4])
 }
 
+// expandHomePath 处理expandhome路径。
 func expandHomePath(raw string) (string, error) {
 	switch {
 	case raw == "~", raw == "~/", raw == `~\\`:

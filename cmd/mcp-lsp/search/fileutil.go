@@ -91,6 +91,7 @@ type validatedFile struct {
 	Content  []byte
 }
 
+// NormalizeRoot 规范化根目录。
 func NormalizeRoot(root string) (string, error) {
 	trimmed := strings.TrimSpace(root)
 	if trimmed == "" {
@@ -111,10 +112,12 @@ func NormalizeRoot(root string) (string, error) {
 	return cleaned, nil
 }
 
+// ResolvePath 解析路径。
 func ResolvePath(root, target string) (PathInfo, error) {
 	return ResolvePathInRoots(root, nil, target)
 }
 
+// ResolvePathInRoots 在根目录解析路径。
 func ResolvePathInRoots(primaryRoot string, additionalRoots []string, target string) (PathInfo, error) {
 	roots, err := NormalizeRootSet(primaryRoot, additionalRoots)
 	if err != nil {
@@ -139,6 +142,7 @@ func ResolvePathInRoots(primaryRoot string, additionalRoots []string, target str
 	}, nil
 }
 
+// NormalizeRootSet 规范化根目录set。
 func NormalizeRootSet(primaryRoot string, additionalRoots []string) ([]string, error) {
 	primary, err := NormalizeRoot(primaryRoot)
 	if err != nil {
@@ -205,6 +209,7 @@ func resolveAbsoluteCandidateInRoots(roots []string, target string) (string, str
 	return root, resolved, nil
 }
 
+// resolveAppManagedCandidate 解析appmanaged候选项。
 func resolveAppManagedCandidate(target string) (string, string, bool, error) {
 	trimmed := strings.TrimSpace(target)
 	if trimmed == "" || !filepath.IsAbs(trimmed) {
@@ -248,10 +253,12 @@ func outsideWorkspaceRootsError(candidate string, roots []string) error {
 	return fmt.Errorf("path %s is outside workspace roots [%s]", candidate, strings.Join(roots, ", "))
 }
 
+// ReadToolFileContent 读取工具文件内容。
 func ReadToolFileContent(root, target string, maxBytes int) (FileContent, error) {
 	return ReadToolFileContentInRoots(root, nil, target, maxBytes)
 }
 
+// ReadToolFileContentInRoots 在根目录读取工具文件内容。
 func ReadToolFileContentInRoots(root string, roots []string, target string, maxBytes int) (FileContent, error) {
 	file, err := readValidatedFileInRoots(root, roots, target, maxBytes)
 	if err != nil {
@@ -264,6 +271,7 @@ func ReadToolFileContentInRoots(root string, roots []string, target string, maxB
 	}, nil
 }
 
+// readValidatedFileInRoots 在根目录读取validated文件。
 func readValidatedFileInRoots(root string, roots []string, target string, maxBytes int) (validatedFile, error) {
 	pathInfo, err := ResolvePathInRoots(root, roots, target)
 	if err != nil {
@@ -292,6 +300,7 @@ func readValidatedFileInRoots(root string, roots []string, target string, maxByt
 	return validatedFile{PathInfo: pathInfo, Content: content}, nil
 }
 
+// isSearchCandidate 判断search候选项是否可用。
 func isSearchCandidate(path string, entry os.DirEntry, maxBytes int) (bool, error) {
 	if entry == nil {
 		return false, fmt.Errorf("missing dir entry for %s", path)
@@ -436,6 +445,7 @@ func shouldExcludePath(path string) bool {
 	return false
 }
 
+// isLinuxTopLevelTmpSegment 判断Linuxtopleveltmpsegment是否可用。
 func isLinuxTopLevelTmpSegment(index int, segment, cleanedPath string) bool {
 	if segment != "tmp" {
 		return false

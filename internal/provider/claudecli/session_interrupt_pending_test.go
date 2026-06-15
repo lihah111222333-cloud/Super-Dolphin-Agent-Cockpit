@@ -18,7 +18,7 @@ func TestInterruptCancelsPendingRestart(t *testing.T) {
 
 	oldReady := make(chan struct{})
 	close(oldReady)
-	s := &session{
+	s := assumeSessionLaunchOverride(&session{
 		threadID:        "pending",
 		sessionID:       "pending",
 		threadReady:     oldReady,
@@ -26,7 +26,7 @@ func TestInterruptCancelsPendingRestart(t *testing.T) {
 		launchCLI:       launchFn,
 		suppressedTurns: map[string]struct{}{},
 		model:           "claude-old",
-	}
+	})
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	result := make(chan error, 1)

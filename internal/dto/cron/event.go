@@ -30,4 +30,5 @@ type JobRunStateChanged struct {
 }
 
 // Type returns the dispatcher Type tag for JobRunStateChanged.
+// Type 返回事件分发用的类型编号。
 func (JobRunStateChanged) Type() uint32 { return shareddto.EventTypeCronJobRunStateChanged }

@@ -14,6 +14,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
+// Module 把 prompt 的注册表、组装器和 RPC 接起来。
+// prompt 只负责组 start/turn 内容；memory 写入、skill mirror 和 provider 启动在别处做。
 var Module = fx.Module("prompt",
 	fx.Provide(
 		NewConfig,
@@ -71,6 +73,7 @@ type ServiceFxParams struct {
 
 // NewServiceFx is the fx-facing constructor that wires the preference store,
 // shared-file reader, and disabled-tools function into the prompt Service.
+// NewServiceFx 为 fx 创建 prompt service。
 func NewServiceFx(p ServiceFxParams) Service {
 	opts := []ServiceOption{
 		WithPromptHintSources(p.Prefs, p.SharedFiles),

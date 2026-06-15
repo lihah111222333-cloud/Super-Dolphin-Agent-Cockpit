@@ -36,6 +36,10 @@ function RuntimePanel({
   formatTime,
   renderMarkdownPreview,
 }) {
+  /*
+   * RuntimePanel 不直接读 store，数据都由 ChatPage 传进来。
+   * 本组件只管 diff 折叠、文件预览和右侧栏自己的 UI 状态。
+   */
   const [collapsedDiffFiles, setCollapsedDiffFiles] = useState(() => new Set());
   const [diffActionNotice, setDiffActionNotice] = useState('');
   const [codePreview, setCodePreview] = useState(emptyCodePreviewState);

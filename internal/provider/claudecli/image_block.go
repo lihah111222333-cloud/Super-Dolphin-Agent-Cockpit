@@ -46,6 +46,7 @@ func isImageInputType(t string) bool {
 // When the InputItem carries both a local Path and a data: URL preview (the
 // frontend sends both for clipboard pastes), a Path read failure falls back
 // to the data: URL so a missing temp file does not break the turn.
+// imageBlockFromInput 从input处理imageblock。
 func imageBlockFromInput(input dto.InputItem) (map[string]any, error) {
 	if !isImageInputType(input.Type) {
 		return nil, nil

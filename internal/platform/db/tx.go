@@ -9,18 +9,17 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
-// Queryable はメインの DB/Tx を抽象する最小インタフェース。
-// database/sql の *sql.DB と *sql.Tx が両方満たす。
+// Queryable 抽象 *sql.DB 和 *sql.Tx 都满足的最小查询接口。
 type Queryable interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-// QueryFinish はトランザクション or Rows のクリーンアップ関数。
+// QueryFinish 表示查询 rows 的清理函数。
 type QueryFinish func(success bool) error
 
-// WithTx は通常の読み書きトランザクション。panic-safe rollback 付き。
+// WithTx 开启普通 database/sql 事务，并在 panic 时回滚。
 func WithTx(ctx context.Context, db *sql.DB, fn func(tx *sql.Tx) error) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -29,7 +28,7 @@ func WithTx(ctx context.Context, db *sql.DB, fn func(tx *sql.Tx) error) error {
 	return runWithTx(ctx, tx, fn)
 }
 
-// WithImmediateTx は BEGIN IMMEDIATE トランザクション（SQLite 書き込み競合防止用）。
+// WithImmediateTx 开启 SQLite 写入竞争防护用的 IMMEDIATE 事务。
 func WithImmediateTx(ctx context.Context, db *sql.DB, fn func(tx *sql.Tx) error) error {
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
@@ -38,9 +37,13 @@ func WithImmediateTx(ctx context.Context, db *sql.DB, fn func(tx *sql.Tx) error)
 	return runWithTx(ctx, tx, fn)
 }
 
-// sqlTxCommitter abstracts *sql.Tx for unit testing.
+// sqlTxCommitter 抽象 *sql.Tx 以便单元测试覆盖提交和回滚路径。
 type sqlTxCommitter interface {
 	Commit() error
+	Rollback() error
+}
+
+type sqlRollbacker interface {
 	Rollback() error
 }
 
@@ -65,7 +68,7 @@ func runWithCommitter(ctx context.Context, tx sqlTxCommitter, fn func(c sqlTxCom
 	return tx.Commit()
 }
 
-// OpenReadOnlyRows はクエリ専用の rows を開く。finish を必ず呼ぶこと。
+// OpenReadOnlyRows 打开只读查询 rows；调用方必须执行返回的 finish。
 func OpenReadOnlyRows(ctx context.Context, queryer Queryable, query string, args ...any) (*sql.Rows, QueryFinish, error) {
 	rows, err := queryer.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -76,7 +79,7 @@ func OpenReadOnlyRows(ctx context.Context, queryer Queryable, query string, args
 	}, nil
 }
 
-// RowsFieldNames は *sql.Rows のカラム名リストを返す。
+// RowsFieldNames 返回 *sql.Rows 的列名列表。
 func RowsFieldNames(rows *sql.Rows) []string {
 	if rows == nil {
 		return nil
@@ -88,7 +91,7 @@ func RowsFieldNames(rows *sql.Rows) []string {
 	return cols
 }
 
-func rollbackTx(_ context.Context, tx *sql.Tx, queryErr error) error {
+func rollbackTx(_ context.Context, tx sqlRollbacker, queryErr error) error {
 	if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
 		return errors.Join(queryErr, err)
 	}

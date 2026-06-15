@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
+// prepareTurnAssembly 准备turnassembly。
 func (s *service) prepareTurnAssembly(ctx context.Context, threadID string, input PrepareInput, userText string, req dto.TurnRequest) (assembly dto.TurnAssembly, err error) {
 	if s == nil || s.promptAssembly == nil {
 		return dto.TurnAssembly{}, nil

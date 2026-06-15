@@ -48,10 +48,12 @@ type Config struct {
 
 // Enabled reports whether this Config has a usable CWD; store layers can use
 // this to decide between disk-source mode and legacy DB-only mode.
+// Enabled 判断平台sharedfilefs是否启用。
 func (c Config) Enabled() bool { return strings.TrimSpace(c.CWD) != "" }
 
 // ResolvedThreshold returns the effective inline-threshold byte count,
 // substituting the default when caller passed 0.
+// ResolvedThreshold 处理已解析threshold。
 func (c Config) ResolvedThreshold() int {
 	if c.InlineThresholdBytes <= 0 {
 		return DefaultInlineThresholdBytes
@@ -67,6 +69,7 @@ var (
 )
 
 // SandboxRoot returns `<CWD>/.agnet/shared` (or "" if CWD is empty).
+// SandboxRoot 处理沙箱根目录。
 func (c Config) SandboxRoot() string {
 	if !c.Enabled() {
 		return ""
@@ -79,6 +82,7 @@ func (c Config) SandboxRoot() string {
 // path MUST already have been normalized by sharedfilepath.ValidateReadPath
 // or ValidateWritePath; this helper only enforces the post-join sandbox
 // boundary, not lexical traversal.
+// ResolveAbs 解析abs。
 func (c Config) ResolveAbs(cleanedRel string) (string, error) {
 	if !c.Enabled() {
 		return "", ErrDiskDisabled
@@ -102,6 +106,7 @@ func (c Config) ResolveAbs(cleanedRel string) (string, error) {
 // next attempt fsyncs and renames over the same target.
 //
 // `data` may be nil (empty file). Caller must have ResolveAbs'd absPath.
+// WriteAtomic 写入atomic。
 func WriteAtomic(absPath string, data []byte) error {
 	dir := filepath.Dir(absPath)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -144,6 +149,7 @@ func WriteAtomic(absPath string, data []byte) error {
 
 // ReadDisk returns file content along with size and mod time. Missing
 // files surface fs.ErrNotExist so callers can fall back to DB.
+// ReadDisk 读取disk。
 func ReadDisk(absPath string) ([]byte, fs.FileInfo, error) {
 	info, err := os.Stat(absPath)
 	if err != nil {
@@ -161,6 +167,7 @@ func ReadDisk(absPath string) ([]byte, fs.FileInfo, error) {
 
 // RemoveDisk deletes the file; missing files are treated as success since DB
 // is the authoritative existence record.
+// RemoveDisk 移除disk。
 func RemoveDisk(absPath string) error {
 	if err := os.Remove(absPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("sharedfilefs: remove %s: %w", absPath, err)
@@ -171,6 +178,7 @@ func RemoveDisk(absPath string) error {
 // ModTime returns the file's mod time as a regular time.Time, falling back
 // to the zero value when the file is missing. Used by store layers to
 // populate UpdatedAt during disk-fallback paths.
+// ModTime 处理mod时间。
 func ModTime(absPath string) time.Time {
 	info, err := os.Stat(absPath)
 	if err != nil {

@@ -18,6 +18,7 @@ type preparedTeamSyncPush struct {
 	batches        []teamSyncBatch
 }
 
+// pushLocked 处理pushlocked。
 func (s *TeamSyncService) pushLocked(ctx context.Context, trigger TeamSyncTrigger, retried bool) (TeamSyncPushResult, error) {
 	result := TeamSyncPushResult{}
 	plan, ok, err := s.preparePushLocked()
@@ -109,6 +110,7 @@ func (s *TeamSyncService) pushBatchLocked(ctx context.Context, batch teamSyncBat
 	})
 }
 
+// handlePushBatchResponseLocked 处理pushbatch响应locked。
 func (s *TeamSyncService) handlePushBatchResponseLocked(
 	ctx context.Context,
 	trigger TeamSyncTrigger,
@@ -134,6 +136,7 @@ func (s *TeamSyncService) handlePushBatchResponseLocked(
 	return false, updated, nil
 }
 
+// applyPushBatchLimitsLocked 应用pushbatchlimitslocked。
 func (s *TeamSyncService) applyPushBatchLimitsLocked(
 	result TeamSyncPushResult,
 	response TeamSyncPushResponse,
@@ -227,6 +230,7 @@ func appendTeamSyncDeletes(
 	}
 }
 
+// applyPushResponse 应用push响应。
 func applyPushResponse(state *SyncState, response TeamSyncPushResponse) {
 	if state == nil {
 		return

@@ -107,6 +107,20 @@ func baselineContracts() map[string]tableContract {
 		"command_card_versions": {PrimaryKey: []string{"id"}, NotNull: []string{"card_key", "title", "description", "command_template", "args_schema", "risk_level", "enabled", "created_by", "updated_by", "created_at", "archived_at"}, Checks: []string{"json_valid(args_schema)", "enabled IN (0, 1)"}, Indexes: []string{"idx_command_card_versions_key_id"}},
 		"command_card_runs":     {PrimaryKey: []string{"id"}, NotNull: []string{"card_key", "requested_by", "params", "rendered_command", "risk_level", "status", "requires_review", "output", "error", "created_at", "updated_at"}, Checks: []string{"json_valid(params)", "requires_review IN (0, 1)"}, Indexes: []string{"idx_command_card_runs_status_created", "idx_command_card_runs_card_key"}},
 		"shared_files":          {PrimaryKey: []string{"path"}, NotNull: []string{"content", "updated_by", "created_at", "updated_at"}, Indexes: []string{"idx_shared_files_updated_at"}},
+		"datasource_v2_documents": {
+			PrimaryKey: []string{"id"},
+			NotNull:    []string{"source_path", "file_name", "extension", "size_bytes", "chunk_count", "total_chars", "status", "created_at", "updated_at"},
+			Checks:     []string{"status IN ('importing', 'ready', 'failed')", "source_path <> ''", "file_name <> ''", "size_bytes >= 0", "chunk_count >= 0", "total_chars >= 0", "status <> 'ready' OR content_hash IS NOT NULL"},
+		},
+		"datasource_v2_text_chunks": {
+			PrimaryKey: []string{"id"},
+			NotNull:    []string{"document_id", "chunk_index", "content", "char_count", "byte_count", "created_at"},
+			Checks:     []string{"chunk_index >= 0", "content <> ''", "char_count > 0", "byte_count > 0"},
+			Indexes:    []string{"idx_datasource_v2_text_chunks_document_order"},
+			ForeignKey: []foreignKeyContract{
+				{Column: "document_id", Table: "datasource_v2_documents"},
+			},
+		},
 
 		"agent_feedback_events": {PrimaryKey: []string{"id"}, NotNull: []string{"thread_id", "turn_id", "agent_key", "event_type", "actor", "payload", "created_at"}, Checks: []string{"json_valid(payload)"}, Indexes: []string{"idx_agent_feedback_events_thread", "idx_agent_feedback_events_agent_key", "idx_agent_feedback_events_prompt_version", "idx_agent_feedback_events_event_type"}},
 		"session_insights":      {PrimaryKey: []string{"id"}, NotNull: []string{"thread_id", "agent_id", "session_id", "provider", "local_turn_id", "provider_turn_id", "duration_ms", "status", "tool_calls", "tool_calls_observed", "tool_failures", "tool_failures_observed", "approval_requests", "approval_requests_observed", "token_input", "token_output", "token_total", "token_snapshot_observed", "context_window_tokens", "ui_projection", "skills_selected", "created_at", "updated_at"}, Checks: []string{"duration_ms >= 0", "tool_calls >= 0", "tool_failures >= 0", "approval_requests >= 0", "json_valid(skills_selected)"}, Indexes: []string{"idx_session_insights_thread_created", "idx_session_insights_created", "uq_session_insights_local_turn", "uq_session_insights_provider_turn", "idx_session_insights_approval_observed", "idx_session_insights_token_observed"}},

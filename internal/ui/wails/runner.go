@@ -15,10 +15,12 @@ type runner struct {
 	app *application.App
 }
 
+// NewRunner 创建runner。
 func NewRunner(app *application.App) platformrunner.Runner {
 	return &runner{app: app}
 }
 
+// Run 启动桌面 UI 桥接后台流程。
 func (r *runner) Run(ctx context.Context) error {
 	if r == nil || r.app == nil {
 		return errors.New("wails runner: application is not configured")

@@ -32,6 +32,7 @@ func TestSafeGoRecoversPanic(t *testing.T) {
 	done := make(chan struct{})
 	SafeGo(context.Background(), logger, "test.panicking", func(ctx context.Context) {
 		defer close(done)
+		// archguard:ignore panic_count -- this test verifies SafeGo panic recovery logging.
 		panic("boom")
 	})
 

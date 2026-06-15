@@ -67,6 +67,7 @@ func safeList[T any](enabled bool, query func() ([]T, error)) ([]T, error) {
 	return items, err
 }
 
+// ToFilter 把dashboard处理为过滤条件。
 func (p logsParams) ToFilter(source string) LogFilter {
 	return LogFilter{
 		Source:    strings.TrimSpace(source),
@@ -82,6 +83,7 @@ func (p logsParams) ToFilter(source string) LogFilter {
 	}
 }
 
+// ToFilter 把dashboard处理为过滤条件。
 func (p auditLogsParams) ToFilter() auditlogstore.ListFilter {
 	return auditlogstore.ListFilter{
 		EventType: strings.TrimSpace(p.EventType),
@@ -92,6 +94,7 @@ func (p auditLogsParams) ToFilter() auditlogstore.ListFilter {
 	}
 }
 
+// ToFilter 把dashboard处理为过滤条件。
 func (p busLogsParams) ToFilter() buslogstore.ListFilter {
 	return buslogstore.ListFilter{
 		Category: strings.TrimSpace(p.Category),
@@ -101,6 +104,7 @@ func (p busLogsParams) ToFilter() buslogstore.ListFilter {
 	}
 }
 
+// ToFilter 把dashboard处理为过滤条件。
 func (p dagsParams) ToFilter() contract.ListDAGsFilter {
 	return contract.ListDAGsFilter{
 		Status:  strings.TrimSpace(p.Status),
@@ -109,6 +113,7 @@ func (p dagsParams) ToFilter() contract.ListDAGsFilter {
 	}
 }
 
+// logFilterValue 处理日志过滤条件值。
 func logFilterValue(filter LogFilter, field logFilterField) string {
 	switch field {
 	case logFieldLevel:
@@ -130,6 +135,7 @@ func logFilterValue(filter LogFilter, field logFilterField) string {
 	}
 }
 
+// logEntryValue 处理日志条目值。
 func logEntryValue(entry LogEntry, field logFilterField) string {
 	switch field {
 	case logFieldLevel:
@@ -201,6 +207,7 @@ func mapLogEntry[T storedLogRow](row T, source string) LogEntry {
 	}
 }
 
+// readStoredLogFields 读取stored日志字段。
 func readStoredLogFields[T storedLogRow](row T) storedLogFields {
 	switch value := any(row).(type) {
 	case systemlogstore.SystemLog:

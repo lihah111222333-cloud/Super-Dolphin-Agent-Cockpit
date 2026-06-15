@@ -35,6 +35,7 @@ func (c *Client) handleStop(stopped *jrpc2.Client, err error) {
 	}()
 }
 
+// markDisconnected 标记disconnected。
 func (c *Client) markDisconnected(stopped *jrpc2.Client) (context.Context, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -54,6 +55,7 @@ func (c *Client) markDisconnected(stopped *jrpc2.Client) (context.Context, bool)
 	return c.rootCtx, true
 }
 
+// reconnectLoop 处理reconnectloop。
 func (c *Client) reconnectLoop(ctx context.Context) {
 	delay := time.Second
 	for {

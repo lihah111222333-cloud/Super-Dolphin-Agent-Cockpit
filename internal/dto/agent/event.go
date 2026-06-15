@@ -39,8 +39,17 @@ type AgentFailed struct {
 	Recoverable bool   `json:"recoverable,omitempty"`
 }
 
-func (StateChanged) Type() uint32    { return shared.EventTypeAgentStateChanged }
-func (AgentLaunched) Type() uint32   { return shared.EventTypeAgentLaunched }
-func (AgentStopped) Type() uint32    { return shared.EventTypeAgentStopped }
+// Type 返回事件分发用的类型编号。
+func (StateChanged) Type() uint32 { return shared.EventTypeAgentStateChanged }
+
+// Type 返回事件分发用的类型编号。
+func (AgentLaunched) Type() uint32 { return shared.EventTypeAgentLaunched }
+
+// Type 返回事件分发用的类型编号。
+func (AgentStopped) Type() uint32 { return shared.EventTypeAgentStopped }
+
+// Type 返回事件分发用的类型编号。
 func (AgentRecovering) Type() uint32 { return shared.EventTypeAgentRecovering }
-func (AgentFailed) Type() uint32     { return shared.EventTypeAgentFailed }
+
+// Type 返回事件分发用的类型编号。
+func (AgentFailed) Type() uint32 { return shared.EventTypeAgentFailed }

@@ -8,6 +8,7 @@ import (
 	"sync"
 )
 
+// sectionInputCacheKey 处理sectioninput缓存键。
 func sectionInputCacheKey(section PromptSection, input SectionContext) (string, bool) {
 	switch section.CachePolicy {
 	case Uncached:
@@ -51,12 +52,14 @@ func newSectionCache() *sectionCache {
 	return &sectionCache{values: map[string]*string{}}
 }
 
+// Generation 处理代际。
 func (c *sectionCache) Generation() uint64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.generation
 }
 
+// Lookup 按名称查找注册项。
 func (c *sectionCache) Lookup(name string, generation uint64) (*string, bool) {
 	key := strings.TrimSpace(name)
 	if key == "" {
@@ -75,6 +78,7 @@ func (c *sectionCache) Lookup(name string, generation uint64) (*string, bool) {
 	return cloneStringPtr(value), true
 }
 
+// Store 保存prompt。
 func (c *sectionCache) Store(name string, generation uint64, value *string) bool {
 	key := strings.TrimSpace(name)
 	if key == "" {
@@ -90,6 +94,7 @@ func (c *sectionCache) Store(name string, generation uint64, value *string) bool
 	return true
 }
 
+// ObserveVolatile 处理observevolatile。
 func (c *sectionCache) ObserveVolatile(name string, generation uint64, value *string) (*string, bool) {
 	key := strings.TrimSpace(name)
 	if key == "" {
@@ -110,6 +115,7 @@ func (c *sectionCache) ObserveVolatile(name string, generation uint64, value *st
 	return cloneStringPtr(current), changed
 }
 
+// InvalidateAll 处理invalidateall。
 func (c *sectionCache) InvalidateAll(_ InvalidateReason) uint64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -118,6 +124,7 @@ func (c *sectionCache) InvalidateAll(_ InvalidateReason) uint64 {
 	return c.generation
 }
 
+// InvalidateSections 处理invalidatesections。
 func (c *sectionCache) InvalidateSections(names ...string) uint64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()

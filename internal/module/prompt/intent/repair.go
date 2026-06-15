@@ -43,6 +43,7 @@ func executePromptIntentDream(ctx context.Context, dream contract.DreamExecutor,
 	return dream.ExecuteDream(ctx, prompt)
 }
 
+// repairablePromptIntentIssues 处理repairablepromptintentissues。
 func repairablePromptIntentIssues(rawInput string, cards []Card) []Issue {
 	var issues []Issue
 	for _, card := range cards {
@@ -102,6 +103,7 @@ func dedupePromptIntentRepairIssues(issues []Issue) []Issue {
 	return out
 }
 
+// buildPromptIntentRepairPrompt 构建promptintentrepairprompt。
 func buildPromptIntentRepairPrompt(requestedKind Kind, rawInput string, cards []Card, issues []Issue) (string, error) {
 	cardsJSON, err := json.MarshalIndent(cards, "", "  ")
 	if err != nil {

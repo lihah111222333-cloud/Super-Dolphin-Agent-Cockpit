@@ -74,6 +74,7 @@ func normalizeSearchValues(values []string) []string {
 	return normalized
 }
 
+// matchWeight 判断weight是否匹配。
 func matchWeight(fields []string, needle string, weight int) int {
 	if needle == "" || weight <= 0 {
 		return 0

@@ -7,6 +7,9 @@ import (
 	"strings"
 )
 
+// ScheduleRootWakeups 只为当前 run 中已经 ready 且 depends_on=[] 的根节点
+// 入队 wakeup。assigned_to 为空或自动派发配置缺失时只追加 dispatch_blocked
+// 事件，节点保持 ready，等待 task_dispatch_node/人工接管。
 func (s *store) ScheduleRootWakeups(ctx context.Context, dagKey string, runID int64) (int64, error) {
 	if err := requireRuntimeRunID("schedule_root_wakeups", runID); err != nil {
 		return 0, err
@@ -28,6 +31,9 @@ func (s *store) ScheduleRootWakeups(ctx context.Context, dagKey string, runID in
 
 // PromoteAndScheduleRunRoots promotes root runtime nodes to ready and then
 // enqueues wakeups for roots that already have an assignee.
+//
+// 这是 StartDAG 的根节点启动和停止过程入口：promote 和 enqueue 分离，确保未指派
+// 根节点也能从 pending 进入可观察的 ready 态，而不是静默停在 pending。
 func PromoteAndScheduleRunRoots(ctx context.Context, store RunStore, dagKey string, runID int64) (int64, int64, error) {
 	readyRootNodes, err := store.PromoteRootNodesToReady(ctx, dagKey, runID)
 	if err != nil {
@@ -40,6 +46,9 @@ func PromoteAndScheduleRunRoots(ctx context.Context, store RunStore, dagKey stri
 	return readyRootNodes, scheduledWakeups, nil
 }
 
+// scheduleRootWakeup 是根节点自动派发的最终闸口。它不负责 promote 状态，
+// 只检查当前节点是否 ready/root/有 assignee/可自动 dispatch；任何不满足
+// 自动派发的情况都不把节点标失败。
 func (s *store) scheduleRootWakeup(ctx context.Context, node *Node, runID int64) (int64, error) {
 	if node.RunID == nil || *node.RunID != runID {
 		return 0, fmt.Errorf("schedule root wakeup: unexpected run_id for node %s/%s", node.DagKey, node.NodeKey)
@@ -76,6 +85,7 @@ func (s *store) scheduleRootWakeup(ctx context.Context, node *Node, runID int64)
 	})
 }
 
+// ManualDispatchIdempotencyKey 生成手动调度 root wakeup 的幂等键。
 func ManualDispatchIdempotencyKey(dagKey, nodeKey string, runID int64, assignedTo string) string {
 	return fmt.Sprintf("manual_dispatch:%s:%d:%s:%s", dagKey, runID, nodeKey, strings.TrimSpace(assignedTo))
 }

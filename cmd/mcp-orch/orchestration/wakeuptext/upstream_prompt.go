@@ -7,6 +7,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 )
 
+// RenderUpstreamPromptHint 渲染upstreamprompthint。
 func RenderUpstreamPromptHint(refs []taskdag.DownstreamUpstreamRef) string {
 	if len(refs) == 0 {
 		return ""

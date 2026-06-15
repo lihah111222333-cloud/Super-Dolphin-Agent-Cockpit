@@ -12,7 +12,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
@@ -38,6 +37,7 @@ type grepToolInput struct {
 	MaxResults    int      `json:"max_results,omitempty"`
 }
 
+// UnmarshalJSON 解码JSON。
 func (input *grepToolInput) UnmarshalJSON(raw []byte) error {
 	var decoded struct {
 		Action        string          `json:"action"`
@@ -147,6 +147,7 @@ type grepResponse struct {
 	Hint              string                  `json:"hint,omitempty"`
 }
 
+// NewGrepHandler 创建grep处理器。
 func NewGrepHandler(cfg Config) Handler {
 	handler := handlerBase{
 		root:     resolveRoot(cfg.WorkspaceRoot),
@@ -155,6 +156,7 @@ func NewGrepHandler(cfg Config) Handler {
 	return Handler(wrapToolHandler("grep", middleware.TierSlow, handler.handleGrep))
 }
 
+// handleGrep 处理grep。
 func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (any, error) {
 	input, err := decodeToolParams[grepToolInput](params, decodeLenient)
 	if err != nil {
@@ -195,7 +197,6 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 	}
 
 	filtered, total, truncated := filterAndLogGrepMatches(input, matches, limit)
-	h.attachFuncRanges(ctx, filtered)
 	if len(filtered) == 0 {
 		logGrepResponseEmpty(input, len(matches), total)
 		return grepResponse{
@@ -245,6 +246,7 @@ func searchSiblingWorkspaceOnRuntimeFallback(ctx context.Context, opts search.Te
 	return searchUniqueSiblingWorkspaceText(ctx, opts, root, relPath, candidates)
 }
 
+// runtimeSiblingSearchScope 处理运行时siblingsearch作用域。
 func runtimeSiblingSearchScope(ctx context.Context, opts search.TextSearchOptions) (string, string, string, bool) {
 	if !common.RuntimeWorkspaceScopeFallbackFromContext(ctx) {
 		return "", "", "", false
@@ -291,6 +293,7 @@ func collectClaudeWorktreeFileCandidates(root, relPath string, configured map[st
 	return collectWorkspaceFileCandidates(worktreesDir, relPath, configured, "runtime fallback Claude worktree search path")
 }
 
+// collectWorkspaceFileCandidates 收集工作区文件候选项。
 func collectWorkspaceFileCandidates(parent, relPath string, configured map[string]struct{}, errorPrefix string) ([]string, error) {
 	entries, err := os.ReadDir(parent)
 	if err != nil {
@@ -345,6 +348,7 @@ func appendUniqueWorkspaceCandidates(candidates []string, extra ...string) []str
 	return candidates
 }
 
+// searchUniqueSiblingWorkspaceText 搜索uniquesibling工作区文本。
 func searchUniqueSiblingWorkspaceText(ctx context.Context, opts search.TextSearchOptions, root, relPath string, candidates []string) ([]search.SearchMatch, error) {
 	if len(candidates) == 0 {
 		return nil, nil
@@ -378,25 +382,6 @@ func emptyGrepMessage(regexFallback bool) string {
 	return "no matches found"
 }
 
-func (h handlerBase) attachFuncRanges(ctx context.Context, matches []search.SearchMatch) {
-	if h.registry == nil || len(matches) == 0 {
-		return
-	}
-	provider := newFuncRangeEnricher(ctx, h.registry)
-	if provider == nil {
-		return
-	}
-	lastRange := make(map[string][2]int)
-	for index := range matches {
-		start, end, _, ok := format.ResolveEnclosingFunctionRange(provider, fileURI(matches[index].AbsPath), matches[index].Line-1, lastRange)
-		if !ok {
-			continue
-		}
-		matches[index].FuncStart = start
-		matches[index].FuncEnd = end
-	}
-}
-
 func capGrepResponseBytes(resp *grepResponse, maxBytes int) {
 	for {
 		ensureGrepResponseHint(resp)
@@ -413,6 +398,7 @@ func capGrepResponseBytes(resp *grepResponse, maxBytes int) {
 	}
 }
 
+// dropLastGrepRow 去掉lastgreprow。
 func dropLastGrepRow(resp *grepResponse) bool {
 	var maxFile string
 	var maxRows int
@@ -439,6 +425,7 @@ func dropLastGrepRow(resp *grepResponse) bool {
 	return true
 }
 
+// buildGrepResponse 构建grep响应。
 func buildGrepResponse(matches []search.SearchMatch, total int, truncated bool) grepResponse {
 	data := make(map[string]grepFileRows, len(matches))
 	hasFuncRanges := false
@@ -524,6 +511,7 @@ func padGrepRows(rows [][]any, width int) [][]any {
 	return rows
 }
 
+// ToPlainText 渲染为纯文本。
 func (r grepResponse) ToPlainText() string {
 	if r.Total == 0 {
 		return "No matches found."

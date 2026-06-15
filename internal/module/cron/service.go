@@ -27,6 +27,7 @@ var _ Service = (*service)(nil)
 
 // NewService constructs a cron Service backed by the given store. now / newID
 // are overridable for deterministic tests.
+// NewService 创建模块服务并注入存储和运行依赖。
 func NewService(logger *slog.Logger, store Store) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -45,6 +46,7 @@ func NewService(logger *slog.Logger, store Store) Service {
 // the next full-minute tick" default.
 const defaultInitialDelay = time.Minute
 
+// CreateJob 创建定时任务并计算首次运行时间。
 func (s *service) CreateJob(ctx context.Context, req CreateJobRequest) (Job, error) {
 	if err := s.validateCreate(&req); err != nil {
 		return Job{}, err
@@ -92,6 +94,7 @@ func (s *service) CreateJob(ctx context.Context, req CreateJobRequest) (Job, err
 	return toJob(row), nil
 }
 
+// GetJob 读取定时任务详情。
 func (s *service) GetJob(ctx context.Context, id string) (Job, error) {
 	row, err := s.store.GetJobByID(ctx, id)
 	if err != nil {
@@ -103,6 +106,7 @@ func (s *service) GetJob(ctx context.Context, id string) (Job, error) {
 	return toJob(row), nil
 }
 
+// ListJobs 按条件列出定时任务。
 func (s *service) ListJobs(ctx context.Context) ([]Job, error) {
 	rows, err := s.store.ListJobs(ctx)
 	if err != nil {
@@ -115,6 +119,7 @@ func (s *service) ListJobs(ctx context.Context) ([]Job, error) {
 	return out, nil
 }
 
+// UpdateJob 更新定时任务配置并重算调度时间。
 func (s *service) UpdateJob(ctx context.Context, req UpdateJobRequest) (Job, error) {
 	if strings.TrimSpace(req.ID) == "" {
 		return Job{}, errors.New("cron: id is required")
@@ -178,6 +183,7 @@ func (s *service) UpdateJob(ctx context.Context, req UpdateJobRequest) (Job, err
 	return s.GetJob(ctx, req.ID)
 }
 
+// SetJobEnabled 启用或停用定时任务。
 func (s *service) SetJobEnabled(ctx context.Context, id string, enabled bool) error {
 	if strings.TrimSpace(id) == "" {
 		return errors.New("cron: id is required")
@@ -189,6 +195,7 @@ func (s *service) SetJobEnabled(ctx context.Context, id string, enabled bool) er
 	return err
 }
 
+// DeleteJob 删除定时任务。
 func (s *service) DeleteJob(ctx context.Context, id string) error {
 	if strings.TrimSpace(id) == "" {
 		return errors.New("cron: id is required")
@@ -200,6 +207,7 @@ func (s *service) DeleteJob(ctx context.Context, id string) error {
 	return err
 }
 
+// ListJobRuns 列出定时任务运行记录。
 func (s *service) ListJobRuns(ctx context.Context, jobID string, limit int32) ([]Run, error) {
 	rows, err := s.store.ListRunsByJob(ctx, jobID, limit)
 	if err != nil {
@@ -221,6 +229,9 @@ func (s *service) ListJobRuns(ctx context.Context, jobID string, limit int32) ([
 // Note: a job whose next_retry_at is set in the future (i.e. retry
 // pending) will still wait for that delay, since
 // scheduler.claimOneDueJob ranks by COALESCE(next_retry_at, next_run_at).
+//
+// RunOnce 只把 next_run_at 提到现在，不直接建 run 或调用 StartTurn。
+// 这样手动触发仍走同一套幂等流程。
 func (s *service) RunOnce(ctx context.Context, jobID string) (Job, error) {
 	jobID = strings.TrimSpace(jobID)
 	if jobID == "" {
@@ -245,6 +256,7 @@ func (s *service) RunOnce(ctx context.Context, jobID string) (Job, error) {
 
 // ----- validation helpers -----
 
+// validateCreate 校验创建定时任务的输入。
 func (s *service) validateCreate(req *CreateJobRequest) error {
 	if strings.TrimSpace(req.Name) == "" {
 		return ErrMissingName
@@ -272,6 +284,7 @@ func (s *service) validateCreate(req *CreateJobRequest) error {
 	// v1 codex whitelist: identity triple in config must resolve. This
 	// reuses the stage-0 shared helper so cron and thread/start stay on
 	// one canonicalize pipeline.
+	// 这里先挡住错误的 Codex 身份配置，避免定时任务后来跑到错误的 home/instance。
 	configMap, err := decodeConfigMap(req.Config)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
@@ -302,6 +315,7 @@ func normalizeConfig(raw json.RawMessage) ([]byte, error) {
 	}
 	// Re-marshal through a generic map so we land on canonical JSON and
 	// reject obvious garbage before the DB CHECK fires.
+	// JSON 不合法就直接返回错误，不把坏配置写进库再等调度阶段失败。
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
@@ -334,6 +348,7 @@ func marshalSkills(skills []string) ([]byte, error) {
 
 // ----- row -> DTO mappers -----
 
+// toJob 把存储层记录转换成 cron 领域对象。
 func toJob(row cronstore.Job) Job {
 	var skills []string
 	if len(row.Skills) > 0 {

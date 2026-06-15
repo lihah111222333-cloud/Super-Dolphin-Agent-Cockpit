@@ -8,6 +8,10 @@ import { ForkDraftCard } from './ForkDraftCard.jsx';
 import { runUIAction } from './chatUiActions.js';
 
 function useComposerDropTarget(ref, composer) {
+  /*
+   * drop 事件同时挂在 dock 和 textarea 上。
+   * 这里只桥接 DOM 事件，附件解析和写入交给 ChatPage/store。
+   */
   useEffect(() => {
     const target = ref.current;
     if (!target) return undefined;
@@ -51,8 +55,10 @@ function ComposerDock({
   selectFiles,
   sending,
   store,
+  projectPath,
   modelThreadId,
   showProviderToggle = true,
+  showProjectSelector = false,
   composer,
   canUseProjectActions = true,
 }) {
@@ -97,11 +103,13 @@ function ComposerDock({
           canSend={canSend}
           canUseProjectActions={canUseProjectActions}
           modelThreadId={modelThreadId}
+          projectPath={projectPath}
           projectActionBlocked={projectActionBlocked}
           projectActionBlockedTitle={projectActionBlockedTitle}
           selectFiles={selectFiles}
           sendMessage={sendMessage}
           showProviderToggle={showProviderToggle}
+          showProjectSelector={showProjectSelector}
           store={store}
         />
       </div>

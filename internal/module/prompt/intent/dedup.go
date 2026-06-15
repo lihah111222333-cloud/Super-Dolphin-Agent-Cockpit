@@ -34,6 +34,7 @@ func promptIntentDuplicateIssues(
 	return promptIntentUniqueIssues(issues), nil
 }
 
+// promptIntentDuplicateIssuesFromBuiltin 从builtin处理promptintentduplicateissues。
 func promptIntentDuplicateIssuesFromBuiltin(
 	kind Kind,
 	rawInput string,
@@ -87,6 +88,7 @@ func promptIntentBuiltinSections(templateID int64, builtin contract.BuiltinPromp
 	return out
 }
 
+// promptIntentSectionsByTemplateID 按templateID处理promptintentsections。
 func promptIntentSectionsByTemplateID(
 	ctx context.Context,
 	store promptstore.Store,
@@ -112,6 +114,7 @@ func promptIntentSectionsByTemplateID(
 	return out, nil
 }
 
+// promptIntentDuplicateIssuesFromTemplates 从templates处理promptintentduplicateissues。
 func promptIntentDuplicateIssuesFromTemplates(
 	cwd string,
 	kind Kind,
@@ -192,6 +195,7 @@ func promptIntentTemplateComparableText(template promptstore.PromptTemplate, sec
 	return strings.Join(parts, "\n")
 }
 
+// promptIntentTextHighlySimilar 处理promptintent文本highlysimilar。
 func promptIntentTextHighlySimilar(left, right string) bool {
 	left = promptIntentComparableText(left)
 	right = promptIntentComparableText(right)
@@ -208,6 +212,7 @@ func promptIntentTextHighlySimilar(left, right string) bool {
 	return promptIntentTokenOverlap(left, right) >= 0.85
 }
 
+// promptIntentTokenOverlap 处理promptintent令牌overlap。
 func promptIntentTokenOverlap(left, right string) float64 {
 	leftTokens := promptIntentTokenSet(left)
 	rightTokens := promptIntentTokenSet(right)

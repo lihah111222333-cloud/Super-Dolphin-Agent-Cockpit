@@ -15,6 +15,7 @@ import (
 	"github.com/kelindar/event"
 )
 
+// NewService 创建服务。
 func NewService(
 	logger *slog.Logger,
 	threadStore threadstore.Store,
@@ -25,9 +26,10 @@ func NewService(
 	orchestration OrchestrationFacade,
 	threadEvents *bus.ThreadEmitters,
 ) Service {
-	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil, nil, nil, nil, nil, nil)
+	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
+// NewServiceWithPromptAssembly 创建带promptassembly的服务。
 func NewServiceWithPromptAssembly(
 	logger *slog.Logger,
 	threadStore threadstore.Store,
@@ -41,9 +43,10 @@ func NewServiceWithPromptAssembly(
 	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
 ) Service {
-	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, nil, nil, nil, nil, nil)
+	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, nil, nil, nil, nil, nil, nil)
 }
 
+// NewServiceWithPromptAssemblyAndSharedFiles 创建带promptassemblyshared文件的服务。
 func NewServiceWithPromptAssemblyAndSharedFiles(
 	logger *slog.Logger,
 	threadStore threadstore.Store,
@@ -57,6 +60,7 @@ func NewServiceWithPromptAssemblyAndSharedFiles(
 	promptAssembly contract.PromptAssemblyService,
 	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
+	mcpServers contract.MCPServerConfigProvider,
 	promptStore promptstore.Store,
 	promptCatalog promptstore.RuntimePromptCatalog,
 	matchWhenEval contract.MatchWhenEvaluator,
@@ -67,9 +71,10 @@ func NewServiceWithPromptAssemblyAndSharedFiles(
 	if len(tracingOpt) > 0 {
 		tracing = tracingOpt[0]
 	}
-	return newService(logger, threadStore, bindingStore, sharedFiles, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, promptStore, promptCatalog, matchWhenEval, enableWhenEval, tracing)
+	return newService(logger, threadStore, bindingStore, sharedFiles, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, mcpServers, promptStore, promptCatalog, matchWhenEval, enableWhenEval, tracing)
 }
 
+// newService 创建服务。
 func newService(
 	logger *slog.Logger,
 	threadStore threadstore.Store,
@@ -83,6 +88,7 @@ func newService(
 	promptAssembly contract.PromptAssemblyService,
 	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
+	mcpServers contract.MCPServerConfigProvider,
 	promptStore promptstore.Store,
 	promptCatalog promptstore.RuntimePromptCatalog,
 	matchWhenEval contract.MatchWhenEvaluator,
@@ -106,6 +112,7 @@ func newService(
 		promptAssembly:   promptAssembly,
 		cfg:              cfg,
 		toolRegistry:     toolRegistry,
+		mcpServers:       mcpServers,
 		turns:            turns,
 		orchestration:    orchestration,
 		tracing:          tracing,

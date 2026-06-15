@@ -6,6 +6,11 @@ import {
   saveCodeFile as saveCodeFileBackend,
 } from '../../../shared/api/backendApi.js';
 
+/*
+ * chat code service 只是把代码预览动作转给 backendApi。
+ * cwd/project scope 由后端校验，UI 只传 runtimeCodeScopePayload。
+ */
+
 export function copyTextToClipboard(text) {
   return copyTextToClipboardBackend(text);
 }

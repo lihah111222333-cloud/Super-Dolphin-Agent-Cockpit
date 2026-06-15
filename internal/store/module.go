@@ -13,11 +13,14 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/cwdlock"
+	datasourcestore "github.com/anthropic-ai/super-agent-v3/internal/store/datasource"
+	datasourcev2store "github.com/anthropic-ai/super-agent-v3/internal/store/datasourcev2"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/dbquery"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/feedback"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/hookstore"
 	insightstore "github.com/anthropic-ai/super-agent-v3/internal/store/insight"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/interaction"
+	mcpserverstore "github.com/anthropic-ai/super-agent-v3/internal/store/mcpserver"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/routingtest"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
@@ -44,11 +47,14 @@ var Module = fx.Module("store",
 	commandcard.Module,
 	cronstore.Module,
 	cwdlock.Module,
+	datasourcestore.Module,
+	datasourcev2store.Module,
 	dbquery.Module,
 	feedback.Module,
 	hookstore.Module,
 	insightstore.Module,
 	interaction.Module,
+	mcpserverstore.Module,
 	promptstore.Module,
 	routingtest.Module,
 	sharedfile.Module,

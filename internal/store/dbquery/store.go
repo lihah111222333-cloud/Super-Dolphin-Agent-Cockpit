@@ -17,6 +17,7 @@ type store struct {
 	timeout time.Duration
 }
 
+// NewStore 创建存储。
 func NewStore(q sqlc.Querier, db platformdb.Queryable, timeout time.Duration) Store {
 	if timeout <= 0 {
 		timeout = defaultQueryTimeout
@@ -24,6 +25,7 @@ func NewStore(q sqlc.Querier, db platformdb.Queryable, timeout time.Duration) St
 	return &store{q: q, db: db, timeout: timeout}
 }
 
+// NewQueryStore 创建查询存储。
 func NewQueryStore(db platformdb.Queryable, timeout time.Duration) Store {
 	if timeout <= 0 {
 		timeout = defaultQueryTimeout
@@ -31,6 +33,7 @@ func NewQueryStore(db platformdb.Queryable, timeout time.Duration) Store {
 	return &store{db: db, timeout: timeout}
 }
 
+// Query 处理查询。
 func (s *store) Query(ctx context.Context, query string, args ...any) ([]map[string]any, error) {
 	if s == nil || s.db == nil {
 		return nil, wrapDBQueryError(errors.New("dbquery store is not initialized"), "query")
@@ -45,6 +48,7 @@ func (s *store) Query(ctx context.Context, query string, args ...any) ([]map[str
 
 // Placeholder preserves the legacy PlaceholderDBQuery compatibility path until
 // callers migrate to the generic Query contract.
+// Placeholder 处理placeholder。
 func (s *store) Placeholder(ctx context.Context) ([]PlaceholderRow, error) {
 	if s == nil || s.q == nil {
 		return nil, wrapDBQueryError(errors.New("dbquery store is not initialized"), "placeholder")

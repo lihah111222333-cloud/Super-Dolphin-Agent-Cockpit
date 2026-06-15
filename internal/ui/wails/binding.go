@@ -46,6 +46,7 @@ type App struct {
 	currentWindowNameFn  func() string
 }
 
+// CallAPI 调用API。
 func (a *App) CallAPI(method string, params json.RawMessage) (any, error) {
 	method, params, ctx, err := a.prepareCallAPIRequest(method, params)
 	if err != nil {
@@ -70,6 +71,7 @@ func (a *App) CallAPI(method string, params json.RawMessage) (any, error) {
 	return decodeAPIResult(result)
 }
 
+// prepareCallAPIRequest 准备callAPI请求。
 func (a *App) prepareCallAPIRequest(method string, params json.RawMessage) (string, json.RawMessage, context.Context, error) {
 	if a == nil || a.dispatch == nil {
 		return "", nil, nil, errors.New("wails binding: dispatch is not configured")
@@ -109,6 +111,7 @@ func contextWithObservabilityTraceFromLogger(ctx context.Context) context.Contex
 	return observability.ContextWithSpan(ctx, traceID, spanID, pkglogger.ParentSpanIDFromContext(ctx))
 }
 
+// recordCallAPITrace 记录callAPItrace。
 func (a *App) recordCallAPITrace(ctx context.Context, method string, params json.RawMessage, startedAt time.Time, kind string, phase string, duration time.Duration, status observability.Status, callErr error) error {
 	if a == nil || a.observability == nil || !a.observability.Enabled() {
 		return nil
@@ -171,6 +174,7 @@ func wailsSlowThreshold(method string) time.Duration {
 // LaunchAgent preserves the legacy desktop entrypoint while routing creation
 // through the typed V3 thread/start RPC using the V2 baseInstructions field.
 // The legacy name is deferred until a first-class thread naming flow is restored.
+// LaunchAgent 启动代理。
 func (a *App) LaunchAgent(name, prompt, cwd string) (any, error) {
 	_ = name
 	return a.callAPIObject("thread/start", map[string]string{
@@ -180,6 +184,7 @@ func (a *App) LaunchAgent(name, prompt, cwd string) (any, error) {
 }
 
 // StopAgent keeps the V2 method name while delegating execution to thread/stop.
+// StopAgent 停止代理。
 func (a *App) StopAgent(threadID string) error {
 	_, err := a.callAPIObject("thread/stop", map[string]string{
 		"threadId": strings.TrimSpace(threadID),
@@ -187,23 +192,28 @@ func (a *App) StopAgent(threadID string) error {
 	return err
 }
 
+// ListAgents 列出代理。
 func (a *App) ListAgents() (any, error) {
 	return a.callAPIObject("agent/list", struct{}{})
 }
 
+// GetBuildInfo 读取buildinfo。
 func (a *App) GetBuildInfo() map[string]string {
 	return currentBuildInfo()
 }
 
+// GetGroup 读取group。
 func (a *App) GetGroup() string {
 	return a.currentWindowGroup()
 }
 
+// OpenNewWindow 打开newwindow。
 func (a *App) OpenNewWindow(group string, n int, uiBootstrap, cwd string) error {
 	_, err := a.openNewWindow(group, n, uiBootstrap, cwd)
 	return err
 }
 
+// openNewWindow 打开newwindow。
 func (a *App) openNewWindow(group string, n int, uiBootstrap, cwd string) (string, error) {
 	if a != nil && a.openNewWindowInvoker != nil {
 		return a.openNewWindowInvoker(group, n, uiBootstrap, cwd)
@@ -288,6 +298,7 @@ func stripFrontendTraceMeta(raw json.RawMessage) json.RawMessage {
 	})
 }
 
+// stripJSONFields 处理stripJSON字段。
 func stripJSONFields(raw json.RawMessage, shouldStrip func(string) bool) json.RawMessage {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &obj); err != nil {
@@ -310,6 +321,7 @@ func stripJSONFields(raw json.RawMessage, shouldStrip func(string) bool) json.Ra
 	return cleaned
 }
 
+// frontendTraceContext 处理前端trace上下文。
 func frontendTraceContext(ctx context.Context, raw json.RawMessage) (context.Context, error) {
 	if !isJSONObject(raw) {
 		return ctx, nil
@@ -347,6 +359,7 @@ func decodeFrontendMetaObject(raw json.RawMessage) (map[string]json.RawMessage, 
 	return obj, nil
 }
 
+// validateFrontendTraceMetadata 校验前端trace元数据。
 func validateFrontendTraceMetadata(obj map[string]json.RawMessage, traceID, spanID string) error {
 	if metadataTraceID, ok, err := frontendStringField(obj, "_aoTraceId"); err != nil {
 		return err
@@ -373,6 +386,7 @@ func frontendStringField(obj map[string]json.RawMessage, key string) (string, bo
 	return value, true, nil
 }
 
+// parseFrontendTraceparent 解析前端traceparent。
 func parseFrontendTraceparent(value string) (string, string, error) {
 	parts := strings.Split(value, "-")
 	if len(parts) != 4 {
@@ -415,6 +429,7 @@ func validateTraceFlags(value string) error {
 	return nil
 }
 
+// isLowerHex 判断lowerhex是否可用。
 func isLowerHex(value string) bool {
 	for _, ch := range value {
 		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
@@ -444,6 +459,7 @@ func decodeAPIResult(result json.RawMessage) (any, error) {
 	return value, nil
 }
 
+// currentBuildInfo 处理当前buildinfo。
 func currentBuildInfo() map[string]string {
 	info := map[string]string{
 		"version": "dev",
@@ -466,6 +482,7 @@ func currentBuildInfo() map[string]string {
 	return info
 }
 
+// applyBuildSetting 应用buildsetting。
 func applyBuildSetting(info map[string]string, key, value string) {
 	switch key {
 	case "vcs.revision":

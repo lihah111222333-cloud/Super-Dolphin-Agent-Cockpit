@@ -24,12 +24,16 @@ const (
 // NodeLifecycleHooks is the production hook set injected into node executors.
 // Keeping it as a named type lets fx distinguish the lifecycle hook map from
 // ad-hoc map[HookPoint]HookHandler values in tests.
+//
+// hook 只做观察和通知，不能决定节点状态。
+// 节点状态以 store、subscriber 和 dispatcher 写入为准。
 type NodeLifecycleHooks map[nodeexec.HookPoint]nodeexec.HookHandler
 
 type loggingNodeLifecycleHook struct {
 	logger *slog.Logger
 }
 
+// ProvideNodeLifecycleHooks 提供节点生命周期 hook 集合。
 func ProvideNodeLifecycleHooks(logger *slog.Logger) NodeLifecycleHooks {
 	handler := loggingNodeLifecycleHook{logger: logger}
 	return NodeLifecycleHooks{
@@ -40,6 +44,7 @@ func ProvideNodeLifecycleHooks(logger *slog.Logger) NodeLifecycleHooks {
 	}
 }
 
+// ProvideAutomationExecutor 提供自动化节点执行器。
 func ProvideAutomationExecutor(
 	getter nodeexec.AutomationCommandGetter,
 	runner nodeexec.AutomationCommandRunner,
@@ -48,6 +53,7 @@ func ProvideAutomationExecutor(
 	return nodeexec.NewAutomationExecutor(getter, runner, nodeexec.WithAutomationHooks(map[nodeexec.HookPoint]nodeexec.HookHandler(hooks)))
 }
 
+// Handle 处理节点执行请求并回写结果。
 func (h loggingNodeLifecycleHook) Handle(_ context.Context, point nodeexec.HookPoint, node nodeexec.Node, outcome nodeexec.NodeOutcome) error {
 	logger := h.logger
 	if logger == nil {
@@ -76,6 +82,7 @@ func (r *NodeExecutorRouter) executeNodeWithLifecycleHooks(
 	return outcome, err
 }
 
+// invokeLifecycleHook 调用节点生命周期 hook 并保留诊断信息。
 func (r *NodeExecutorRouter) invokeLifecycleHook(
 	ctx context.Context,
 	hooks map[nodeexec.HookPoint]nodeexec.HookHandler,
@@ -83,6 +90,7 @@ func (r *NodeExecutorRouter) invokeLifecycleHook(
 	node nodeexec.Node,
 	outcome nodeexec.NodeOutcome,
 ) {
+	// hook 等一小段时间就放到后台跑，别让通知卡住 dispatcher。
 	handler := hooks[point]
 	if handler == nil {
 		return
@@ -118,6 +126,7 @@ func (r *NodeExecutorRouter) invokeLifecycleHook(
 	}
 }
 
+// invokeTerminalFailureHooksForWakeup 为唤醒失败节点触发终态失败 hook。
 func (r *NodeExecutorRouter) invokeTerminalFailureHooksForWakeup(ctx context.Context, w *taskdag.Wakeup, outcome nodeexec.NodeOutcome) {
 	if r == nil || w == nil {
 		return
@@ -205,6 +214,7 @@ func patchAgentExecModel(raw json.RawMessage, model string) (json.RawMessage, er
 	return json.Marshal(root)
 }
 
+// appendAgentValidationDiagnostic 把代理节点校验错误追加到诊断列表。
 func appendAgentValidationDiagnostic(raw json.RawMessage, summary string) (json.RawMessage, error) {
 	root, err := rawJSONObject(raw)
 	if err != nil {
@@ -257,6 +267,7 @@ func nestedJSONObject(root map[string]json.RawMessage, key string) (map[string]j
 	return obj, nil
 }
 
+// executorForNodeType 根据节点类型选择对应执行器。
 func (r *NodeExecutorRouter) executorForNodeType(nodeType string) nodeexec.NodeExecutor {
 	if r == nil {
 		return nil
@@ -306,6 +317,9 @@ func isDAGWakeup(w *taskdag.Wakeup) bool {
 //   - outcome.Status == failed                → 按 FailureClass 拆分 permanent / retry。
 //   - 其他 (skipped / waiting_human 等暂不纳入 dispatcher 判定)→ markLaunched
 //     (设计上该多状态是 node.status 的事实，wakeup 只负责代推一下)。
+//
+// agent 节点启动后只到 running，等 turn.completed 再收尾。
+// automation 没有外部 agent，所以 router 直接完成节点。
 func (d *WakeupDispatcher) handleClaimedViaRouter(ctx context.Context, w *taskdag.Wakeup) bool {
 	fence := extractFence(w)
 	if routeRunID(w) <= 0 {

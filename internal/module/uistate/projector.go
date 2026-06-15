@@ -15,6 +15,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
+// registerProjectionSubscriptions 注册projectionsubscriptions。
 func registerProjectionSubscriptions(dispatcher *event.Dispatcher, svc *service) []context.CancelFunc {
 	cancels := []context.CancelFunc{
 		contract.ResilientSubscribe(dispatcher, svc.applyAgentStateChanged, svc.logger),
@@ -60,6 +61,7 @@ func registerProjectionSubscriptions(dispatcher *event.Dispatcher, svc *service)
 	return cancels
 }
 
+// applyTokensUpdated 应用令牌updated。
 func (s *service) applyTokensUpdated(ev uidto.UITokensUpdated) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	applyMutation(s, threadID, func() {
@@ -94,6 +96,7 @@ func (s *service) applyTokensUpdated(ev uidto.UITokensUpdated) {
 	})
 }
 
+// applyItemStarted 应用itemstarted。
 func (s *service) applyItemStarted(ev turndto.ItemStarted) {
 	activity := classifyItemActivity(ev.ItemType, ev.RawType, ev.Command, ev.File)
 	if activity == "" {
@@ -127,6 +130,8 @@ func (s *service) applyItemStarted(ev turndto.ItemStarted) {
 		return s.refreshThreadPatchLocked(threadID, agentID, "item/started")
 	})
 }
+
+// applyItemCompleted 应用itemcompleted。
 func (s *service) applyItemCompleted(ev turndto.ItemCompleted) {
 	activity := classifyItemActivity(ev.ItemType, ev.RawType, ev.Command, ev.File)
 	if activity == "" {
@@ -154,6 +159,8 @@ func (s *service) applyItemCompleted(ev turndto.ItemCompleted) {
 		return s.refreshThreadPatchLocked(threadID, agentID, "item/completed")
 	})
 }
+
+// applyToolCallBegin 应用工具callbegin。
 func (s *service) applyToolCallBegin(ev tooldto.ToolCallBegin) {
 	activity := classifyToolActivity(ev.ToolName)
 	if activity == "" {
@@ -275,6 +282,7 @@ func (s *service) applyToolApprovalResolved(ev tooldto.ToolApprovalResolved) {
 	})
 }
 
+// completedTurnSummary 处理completedturn摘要。
 func completedTurnSummary(current *TurnSummary, ev turndto.TurnCompleted) TurnSummary {
 	summary := TurnSummary{
 		ID:          strings.TrimSpace(ev.TurnID),
