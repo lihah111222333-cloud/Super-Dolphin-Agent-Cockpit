@@ -85,6 +85,35 @@ func TestListRPCReturnsMCPServerConfig(t *testing.T) {
 	}
 }
 
+func TestToolsRPCReturnsMCPServerTools(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	store := newMemoryMCPServerStore()
+	toolsServer, _ := newToolsListHTTPMCPTestServer(t, "")
+	defer toolsServer.Close()
+	store.seed(project, "my-search", ServerConfig{
+		Transport: "http",
+		URL:       toolsServer.URL,
+	})
+	server := newMCPServerTestServer(store)
+	payload, err := json.Marshal(ListServerToolsRequest{ServerName: "my-search"})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	raw, err := server.Dispatch(context.Background(), "mcpServer/tools", payload)
+	if err != nil {
+		t.Fatalf("Dispatch mcpServer/tools: %v", err)
+	}
+	var got ListServerToolsResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if got.ServerName != "my-search" || len(got.Tools) != 1 || got.Tools[0].Name != "remote_search" {
+		t.Fatalf("ListServerToolsResult = %#v, want remote_search", got)
+	}
+}
+
 func TestDeleteRPCRemovesMCPServerConfig(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
