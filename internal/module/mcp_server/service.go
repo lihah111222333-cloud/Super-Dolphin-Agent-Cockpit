@@ -23,6 +23,10 @@ var (
 	errUnsupportedTransport        = errors.New("mcp_server: unsupported transport")
 	errMissingServerURL            = errors.New("mcp_server: url is required")
 	errInvalidServerURL            = errors.New("mcp_server: invalid url")
+	errMissingServerCommand        = errors.New("mcp_server: command is required")
+	errMissingServerArg            = errors.New("mcp_server: arg is required")
+	errMissingServerEnvName        = errors.New("mcp_server: env name is required")
+	errMissingServerEnvValue       = errors.New("mcp_server: env value is required")
 	errMissingHeaderName           = errors.New("mcp_server: header name is required")
 	errMissingHeaderValue          = errors.New("mcp_server: header value is required")
 	errInvalidConfigDocument       = errors.New("mcp_server: invalid config document")
@@ -39,6 +43,7 @@ type Service interface {
 	ListServers(context.Context) (ListServersResult, error)
 	ListServersForCWD(context.Context, string) (ListServersResult, error)
 	ListServerTools(context.Context, ListServerToolsRequest) (ListServerToolsResult, error)
+	StartPostgresServer(context.Context, StartPostgresServerRequest) (StartPostgresServerResult, error)
 	DeleteServer(context.Context, DeleteServerRequest) (DeleteServerResult, error)
 }
 
@@ -184,6 +189,9 @@ func (s *service) ListServerTools(ctx context.Context, req ListServerToolsReques
 	config, err = normalizeServerConfig(name, config)
 	if err != nil {
 		return ListServerToolsResult{}, err
+	}
+	if !strings.EqualFold(config.Transport, "http") {
+		return ListServerToolsResult{}, fmt.Errorf("%w: %s", errUnsupportedTransport, config.Transport)
 	}
 	tools, err := requestMCPServerHTTPTools(ctx, s.mcpHTTPClient(), config)
 	if err != nil {
@@ -379,15 +387,23 @@ func normalizeMCPServers(input map[string]ServerConfig) (map[string]ServerConfig
 	return servers, names, nil
 }
 
-// normalizeServerConfig 规范化服务端配置。
+// normalizeServerConfig 规范化 MCP server 配置，按 transport 分别校验 HTTP 与 stdio 字段。
 func normalizeServerConfig(name string, config ServerConfig) (ServerConfig, error) {
 	transport := strings.TrimSpace(config.Transport)
 	if transport == "" {
 		return ServerConfig{}, fmt.Errorf("%w: %s", errMissingServerTransport, name)
 	}
-	if transport != "http" {
+	switch strings.ToLower(transport) {
+	case "http":
+		return normalizeHTTPServerConfig(name, config)
+	case "stdio":
+		return normalizeStdioServerConfig(name, config)
+	default:
 		return ServerConfig{}, fmt.Errorf("%w: %s", errUnsupportedTransport, transport)
 	}
+}
+
+func normalizeHTTPServerConfig(name string, config ServerConfig) (ServerConfig, error) {
 	rawURL := strings.TrimSpace(config.URL)
 	if rawURL == "" {
 		return ServerConfig{}, fmt.Errorf("%w: %s", errMissingServerURL, name)
@@ -401,9 +417,30 @@ func normalizeServerConfig(name string, config ServerConfig) (ServerConfig, erro
 		return ServerConfig{}, err
 	}
 	return ServerConfig{
-		Transport: transport,
+		Transport: "http",
 		URL:       rawURL,
 		Headers:   headers,
+	}, nil
+}
+
+func normalizeStdioServerConfig(name string, config ServerConfig) (ServerConfig, error) {
+	command := strings.TrimSpace(config.Command)
+	if command == "" {
+		return ServerConfig{}, fmt.Errorf("%w: %s", errMissingServerCommand, name)
+	}
+	args, err := normalizeStringList(config.Args, errMissingServerArg, name)
+	if err != nil {
+		return ServerConfig{}, err
+	}
+	env, err := normalizeStringMap(config.Env, errMissingServerEnvName, errMissingServerEnvValue, name)
+	if err != nil {
+		return ServerConfig{}, err
+	}
+	return ServerConfig{
+		Transport: "stdio",
+		Command:   command,
+		Args:      args,
+		Env:       env,
 	}, nil
 }
 
@@ -411,19 +448,41 @@ func normalizeHeaders(serverName string, input map[string]string) (map[string]st
 	if len(input) == 0 {
 		return nil, nil
 	}
-	headers := make(map[string]string, len(input))
+	return normalizeStringMap(input, errMissingHeaderName, errMissingHeaderValue, serverName)
+}
+
+func normalizeStringList(input []string, emptyErr error, label string) ([]string, error) {
+	if len(input) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(input))
+	for _, rawValue := range input {
+		value := strings.TrimSpace(rawValue)
+		if value == "" {
+			return nil, fmt.Errorf("%w: %s", emptyErr, label)
+		}
+		out = append(out, value)
+	}
+	return out, nil
+}
+
+func normalizeStringMap(input map[string]string, emptyKeyErr, emptyValueErr error, label string) (map[string]string, error) {
+	if len(input) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(input))
 	for rawName, rawValue := range input {
 		name := strings.TrimSpace(rawName)
 		if name == "" {
-			return nil, fmt.Errorf("%w: %s", errMissingHeaderName, serverName)
+			return nil, fmt.Errorf("%w: %s", emptyKeyErr, label)
 		}
 		value := strings.TrimSpace(rawValue)
 		if value == "" {
-			return nil, fmt.Errorf("%w: %s.%s", errMissingHeaderValue, serverName, name)
+			return nil, fmt.Errorf("%w: %s.%s", emptyValueErr, label, name)
 		}
-		headers[name] = value
+		out[name] = value
 	}
-	return headers, nil
+	return out, nil
 }
 
 func validateHTTPURL(rawURL string) error {
@@ -484,15 +543,28 @@ func writeMCPServerConfig(configPath string, doc ConfigDocument) error {
 func cloneMCPServers(input map[string]ServerConfig) map[string]ServerConfig {
 	out := make(map[string]ServerConfig, len(input))
 	for name, config := range input {
-		headers := make(map[string]string, len(config.Headers))
-		for header, value := range config.Headers {
-			headers[header] = value
-		}
-		if len(headers) == 0 {
-			headers = nil
-		}
-		config.Headers = headers
+		config.Headers = cloneStringMap(config.Headers)
+		config.Args = cloneStringList(config.Args)
+		config.Env = cloneStringMap(config.Env)
 		out[name] = config
+	}
+	return out
+}
+
+func cloneStringList(input []string) []string {
+	if len(input) == 0 {
+		return nil
+	}
+	return append([]string(nil), input...)
+}
+
+func cloneStringMap(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(input))
+	for key, value := range input {
+		out[key] = value
 	}
 	return out
 }
@@ -505,17 +577,13 @@ func mcpServersToContract(input map[string]ServerConfig) map[string]contract.MCP
 		if name == "" {
 			continue
 		}
-		headers := make(map[string]string, len(config.Headers))
-		for header, value := range config.Headers {
-			headers[header] = value
-		}
-		if len(headers) == 0 {
-			headers = nil
-		}
 		out[name] = contract.MCPServerConfig{
 			Transport: strings.TrimSpace(config.Transport),
 			URL:       strings.TrimSpace(config.URL),
-			Headers:   headers,
+			Headers:   cloneStringMap(config.Headers),
+			Command:   strings.TrimSpace(config.Command),
+			Args:      cloneStringList(config.Args),
+			Env:       cloneStringMap(config.Env),
 		}
 	}
 	if len(out) == 0 {

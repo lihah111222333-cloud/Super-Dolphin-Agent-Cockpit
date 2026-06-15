@@ -55,16 +55,54 @@ func mcpServerConfigBinaries(configs map[string]contract.MCPServerConfig) []dto.
 	binaries := make([]dto.MCPBinary, 0, len(names))
 	for _, name := range names {
 		config := configs[name]
-		binaries = append(binaries, dto.MCPBinary{
-			Name:    name,
-			Type:    "http",
-			URL:     strings.TrimSpace(config.URL),
-			Headers: cloneMCPServerHeaders(config.Headers),
-		})
+		if binary, ok := mcpServerConfigBinary(name, config); ok {
+			binaries = append(binaries, binary)
+		}
 	}
 	return binaries
 }
 
+func mcpServerConfigBinary(name string, config contract.MCPServerConfig) (dto.MCPBinary, bool) {
+	switch strings.ToLower(strings.TrimSpace(config.Transport)) {
+	case "http":
+		return dto.MCPBinary{
+			Name:    name,
+			Type:    "http",
+			URL:     strings.TrimSpace(config.URL),
+			Headers: cloneMCPServerHeaders(config.Headers),
+		}, true
+	case "stdio":
+		command := strings.TrimSpace(config.Command)
+		if command == "" {
+			return dto.MCPBinary{}, false
+		}
+		return dto.MCPBinary{
+			Name:    name,
+			Command: append([]string{command}, cloneMCPServerArgs(config.Args)...),
+			Env:     cloneMCPServerHeaders(config.Env),
+		}, true
+	default:
+		return dto.MCPBinary{}, false
+	}
+}
+
+func cloneMCPServerArgs(args []string) []string {
+	if len(args) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg = strings.TrimSpace(arg); arg != "" {
+			out = append(out, arg)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// cloneMCPServerHeaders 复制 HTTP headers 或 stdio env，并清理空白 key/value。
 func cloneMCPServerHeaders(headers map[string]string) map[string]string {
 	if len(headers) == 0 {
 		return nil

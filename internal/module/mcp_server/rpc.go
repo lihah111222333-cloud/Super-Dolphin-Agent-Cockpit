@@ -12,10 +12,11 @@ import (
 // NewHandlers 创建处理器。
 func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
-		"mcpServer/add":    platformrpc.StrictHandler(addServersHandler(svc)),
-		"mcpServer/list":   platformrpc.StrictHandler(listServersHandler(svc)),
-		"mcpServer/tools":  platformrpc.StrictHandler(listServerToolsHandler(svc)),
-		"mcpServer/delete": platformrpc.StrictHandler(deleteServerHandler(svc)),
+		"mcpServer/add":            platformrpc.StrictHandler(addServersHandler(svc)),
+		"mcpServer/list":           platformrpc.StrictHandler(listServersHandler(svc)),
+		"mcpServer/tools":          platformrpc.StrictHandler(listServerToolsHandler(svc)),
+		"mcpServer/postgres/start": platformrpc.StrictHandler(startPostgresServerHandler(svc)),
+		"mcpServer/delete":         platformrpc.StrictHandler(deleteServerHandler(svc)),
 	}}
 }
 
@@ -58,6 +59,19 @@ func listServerToolsHandler(svc Service) func(context.Context, ListServerToolsRe
 	}
 }
 
+func startPostgresServerHandler(svc Service) func(context.Context, StartPostgresServerRequest) (StartPostgresServerResult, error) {
+	return func(ctx context.Context, req StartPostgresServerRequest) (StartPostgresServerResult, error) {
+		if svc == nil {
+			return StartPostgresServerResult{}, platformrpc.ErrInvalidState("mcp server service is not configured")
+		}
+		result, err := svc.StartPostgresServer(ctx, req)
+		if err != nil {
+			return StartPostgresServerResult{}, mcpServerRPCError(err)
+		}
+		return result, nil
+	}
+}
+
 func deleteServerHandler(svc Service) func(context.Context, DeleteServerRequest) (DeleteServerResult, error) {
 	return func(ctx context.Context, req DeleteServerRequest) (DeleteServerResult, error) {
 		if svc == nil {
@@ -81,6 +95,10 @@ func mcpServerRPCError(err error) error {
 		errors.Is(err, errUnsupportedTransport),
 		errors.Is(err, errMissingServerURL),
 		errors.Is(err, errInvalidServerURL),
+		errors.Is(err, errMissingServerCommand),
+		errors.Is(err, errMissingServerArg),
+		errors.Is(err, errMissingServerEnvName),
+		errors.Is(err, errMissingServerEnvValue),
 		errors.Is(err, errMissingHeaderName),
 		errors.Is(err, errMissingHeaderValue),
 		errors.Is(err, errInvalidConfigDocument):
