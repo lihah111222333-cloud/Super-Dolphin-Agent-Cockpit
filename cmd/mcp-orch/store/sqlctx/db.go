@@ -12,16 +12,9 @@ import (
 
 const defaultWriteRetryAttempts = 32
 
-type immediateTxDBTX interface {
-	sqlc.DBTX
-	sqlctxImmediateTx()
-}
-
 type immediateConnTx struct {
 	conn *sql.Conn
 }
-
-func (*immediateConnTx) sqlctxImmediateTx() {}
 
 func (tx *immediateConnTx) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
 	return tx.conn.ExecContext(ctx, query, args...)
@@ -61,7 +54,7 @@ func WithTxOrReuse(ctx context.Context, db sqlc.DBTX, q *sqlc.Queries, fn func(t
 	if tx, ok := db.(*sql.Tx); ok && tx != nil {
 		return fn(q.WithTx(tx), tx)
 	}
-	if tx, ok := db.(immediateTxDBTX); ok && tx != nil {
+	if tx, ok := db.(*immediateConnTx); ok && tx != nil {
 		return fn(sqlc.New(tx), tx)
 	}
 	if database, ok := db.(*sql.DB); ok && database != nil {
@@ -97,7 +90,7 @@ func WithImmediateTxOrReuse(ctx context.Context, db sqlc.DBTX, q *sqlc.Queries, 
 	if tx, ok := db.(*sql.Tx); ok && tx != nil {
 		return fn(q.WithTx(tx), tx)
 	}
-	if tx, ok := db.(immediateTxDBTX); ok && tx != nil {
+	if tx, ok := db.(*immediateConnTx); ok && tx != nil {
 		return fn(sqlc.New(tx), tx)
 	}
 	return WithImmediateTx(ctx, db, q, fn)
