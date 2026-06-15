@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -52,11 +53,12 @@ func TestToolsHabitsE2E_Inspect(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create mock handler that returns custom mock data
+	locationURI := (&url.URL{Scheme: "file", Path: filepath.ToSlash(filePath)}).String()
 	mockInspectHandler := func(ctx context.Context, args json.RawMessage) (any, error) {
 		return []protocol.LocationResult{
 			{
 				Location: &protocol.Location{
-					URI: "file://" + filePath,
+					URI: locationURI,
 					Range: protocol.Range{
 						Start: protocol.Position{Line: 3, Character: 6},
 						End:   protocol.Position{Line: 3, Character: 10},
@@ -83,7 +85,7 @@ func TestToolsHabitsE2E_Inspect(t *testing.T) {
 	require.True(t, ok)
 	textOutput := contentList[0]["text"]
 	require.Contains(t, textOutput, "Locations Found:")
-	require.Contains(t, textOutput, filePath+":3:6")
+	require.Contains(t, textOutput, filepath.ToSlash(filePath)+":3:6")
 	require.NotContains(t, textOutput, `[{"uri":`)
 
 	// 2. Verify GUI-facing structured JSON follows the shared MCP object contract.
@@ -97,7 +99,7 @@ func TestToolsHabitsE2E_Inspect(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, structuredLocations.Total)
 	require.Len(t, structuredLocations.Items, 1)
-	require.Equal(t, "file://"+filePath, structuredLocations.Items[0]["file"])
+	require.Equal(t, locationURI, structuredLocations.Items[0]["file"])
 }
 
 func TestWrapScopedToolResultWrapsStringStructuredContent(t *testing.T) {

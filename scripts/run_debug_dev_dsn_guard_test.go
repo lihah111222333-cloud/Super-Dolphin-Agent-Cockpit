@@ -6,34 +6,58 @@ import (
 	"testing"
 )
 
-const wantDevDatabaseURL = "postgres://postgres:123@127.0.0.1:5432/go_agent_v2?sslmode=disable"
+const wantDevSQLitePath = "$(HOME)/.super-dolphin/super-dolphin.db"
 
-func TestRunDebugShellExportsDevDSNAndDevMode(t *testing.T) {
+func TestRunDebugShellExportsSQLiteAndDevMode(t *testing.T) {
 	script := readScript(t, "../run-debug.sh")
-	assertScriptContains(t, script, "DEV_DATABASE_URL=\""+wantDevDatabaseURL+"\"")
-	assertScriptContains(t, script, "export DATABASE_URL=\"${DATABASE_URL:-$DEV_DATABASE_URL}\"")
-	assertScriptContains(t, script, "DB_URL=\"$DATABASE_URL\"")
+	assertScriptContains(t, script, "export SUPER_DOLPHIN_SQLITE_PATH=\"${SUPER_DOLPHIN_SQLITE_PATH:-$SUPER_DOLPHIN_HOME/super-dolphin.db}\"")
+	assertScriptContains(t, script, "SQLite DB: $SUPER_DOLPHIN_SQLITE_PATH")
 	assertScriptContains(t, script, "export SUPER_DOLPHIN_RUNTIME_MODE=dev")
 	assertScriptContains(t, script, "export SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=\"$BUILD_DIR\"")
 	assertScriptContains(t, script, "export SUPER_DOLPHIN_DEV_ENTRYPOINT=run-debug.sh")
-	assertScriptOrder(t, script, "export DATABASE_URL=\"${DATABASE_URL:-$DEV_DATABASE_URL}\"", "DB_URL=\"$DATABASE_URL\"")
+	assertScriptDoesNotContain(t, script, "export DATABASE_URL=")
+	for _, stale := range []string{
+		"psql",
+		"DB_URL",
+		"schema_migrations",
+		"PGCONNECT",
+		"PostgreSQL",
+		"postgres",
+	} {
+		assertScriptDoesNotContain(t, script, stale)
+	}
 }
 
-func TestPowerShellRunDebugPreservesUserDSNAndExportsDevMode(t *testing.T) {
+func TestPowerShellRunDebugExportsSQLiteAndDevMode(t *testing.T) {
 	script := readScript(t, "../run-debug.ps1")
-	assertScriptContains(t, script, "$DevDatabaseUrl = '"+wantDevDatabaseURL+"'")
-	assertScriptContains(t, script, "if (-not $env:DATABASE_URL) { $env:DATABASE_URL = $DevDatabaseUrl }")
-	assertScriptContains(t, script, "$DbUrl = $env:DATABASE_URL")
+	assertScriptContains(t, script, "$env:SUPER_DOLPHIN_SQLITE_PATH = Join-Path (Get-SuperDolphinHome) 'super-dolphin.db'")
+	assertScriptContains(t, script, "Write-Host \"> SQLite DB: $($env:SUPER_DOLPHIN_SQLITE_PATH)\"")
 	assertScriptContains(t, script, "$env:SUPER_DOLPHIN_RUNTIME_MODE = 'dev'")
 	assertScriptContains(t, script, "$env:SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR = $BuildDir")
 	assertScriptContains(t, script, "$env:SUPER_DOLPHIN_DEV_ENTRYPOINT = 'run-debug.ps1'")
-	assertScriptOrder(t, script, "if (-not $env:DATABASE_URL) { $env:DATABASE_URL = $DevDatabaseUrl }", "$DbUrl = $env:DATABASE_URL")
+	assertScriptDoesNotContain(t, script, "$DevDatabaseUrl =")
+	for _, stale := range []string{
+		"DATABASE_URL",
+		"POSTGRES_CONNECTION_STRING",
+		"Get-EffectiveDatabaseUrl",
+		"Format-DatabaseUrlForLog",
+		"Get-DatabaseEndpoint",
+		"Find-PsqlCommand",
+		"Get-PostgresPortHint",
+		"Get-MaintenanceDatabaseUrl",
+		"Test-PsqlDatabaseConnect",
+		"Test-PsqlCanCreateDatabase",
+		"Assert-DatabaseConfigured",
+		"PostgreSQL TCP",
+	} {
+		assertScriptDoesNotContain(t, script, stale)
+	}
 }
 
-func TestMakeDebugExportsSameDevDSNAndDevMode(t *testing.T) {
+func TestMakeDebugExportsSQLiteAndDevMode(t *testing.T) {
 	makefile := readRepoFile(t, "../Makefile")
-	assertScriptContains(t, makefile, "DEV_DATABASE_URL ?= "+wantDevDatabaseURL)
-	assertScriptContains(t, makefile, "run-agent-terminal-debug run-agent-terminal-debug-plain: export DATABASE_URL ?= $(DEV_DATABASE_URL)")
+	assertScriptContains(t, makefile, "DEV_SQLITE_PATH ?= "+wantDevSQLitePath)
+	assertScriptContains(t, makefile, "run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_SQLITE_PATH ?= $(DEV_SQLITE_PATH)")
 	assertScriptContains(t, makefile, "run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_RUNTIME_MODE := dev")
 	assertScriptContains(t, makefile, "run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR := $(CURDIR)")
 	assertScriptContains(t, makefile, "run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_DEV_ENTRYPOINT := make run-agent-terminal-debug")
@@ -63,15 +87,15 @@ func readRepoFile(t *testing.T, path string) string {
 	return string(raw)
 }
 
-func TestDevDSNConstantMatchesAcrossEntrypoints(t *testing.T) {
+func TestDebugEntrypointsDoNotExportDatabaseURL(t *testing.T) {
 	sources := map[string]string{
 		"run-debug.sh":  readScript(t, "../run-debug.sh"),
 		"run-debug.ps1": readScript(t, "../run-debug.ps1"),
 		"Makefile":      readRepoFile(t, "../Makefile"),
 	}
 	for name, source := range sources {
-		if count := strings.Count(source, wantDevDatabaseURL); count == 0 {
-			t.Fatalf("%s missing dev DSN %q", name, wantDevDatabaseURL)
+		if strings.Contains(source, "export DATABASE_URL") || strings.Contains(source, "DEV_DATABASE_URL") || strings.Contains(source, "$DevDatabaseUrl") {
+			t.Fatalf("%s still exports PostgreSQL DATABASE_URL", name)
 		}
 	}
 }

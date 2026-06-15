@@ -110,7 +110,6 @@ $RelayUrl = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_CODEX_RELAY_BAS
 $BootstrapToken = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN', 'Process')
 $UpdateManifestURL = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_UPDATE_MANIFEST_URL', 'Process')
 $UpdateGitHubRepo = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_UPDATE_GITHUB_REPO', 'Process')
-$PostgresDist = if ($env:SUPER_DOLPHIN_POSTGRES_DIST) { $env:SUPER_DOLPHIN_POSTGRES_DIST } else { Join-Path $Root "third_party/postgres/$Platform" }
 $CodexBin = if ($env:SUPER_DOLPHIN_CODEX_ARTIFACT) { $env:SUPER_DOLPHIN_CODEX_ARTIFACT } else { Get-CommandSource 'codex.exe' }
 $FFmpegBin = if ($env:SUPER_DOLPHIN_FFMPEG_BIN) { $env:SUPER_DOLPHIN_FFMPEG_BIN } else { Get-CommandSource 'ffmpeg.exe' }
 
@@ -128,9 +127,6 @@ if ([Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_CODEX_RELAY_API_KEY', '
 }
 if (-not (Test-Path -LiteralPath $CodexBin -PathType Leaf)) {
     throw 'missing Codex artifact; set SUPER_DOLPHIN_CODEX_ARTIFACT'
-}
-if (-not (Test-Path -LiteralPath $PostgresDist -PathType Container)) {
-    throw "missing PostgreSQL dist; set SUPER_DOLPHIN_POSTGRES_DIST: $PostgresDist"
 }
 if (-not (Test-Path -LiteralPath $FFmpegBin -PathType Leaf)) {
     throw 'missing ffmpeg.exe; install ffmpeg or set SUPER_DOLPHIN_FFMPEG_BIN'
@@ -229,7 +225,6 @@ function Package-One() {
     }
 
     $env:APP_NAME = $appName
-    $env:SUPER_DOLPHIN_POSTGRES_DIST = $PostgresDist
     $env:SUPER_DOLPHIN_CODEX_ARTIFACT = $CodexBin
     $env:SUPER_DOLPHIN_CODEX_SHA256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $CodexBin).Hash.ToLowerInvariant()
     $env:SUPER_DOLPHIN_CODEX_VERSION = (& $CodexBin --version | Select-Object -First 1)

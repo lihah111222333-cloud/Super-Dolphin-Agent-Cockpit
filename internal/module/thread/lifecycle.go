@@ -238,13 +238,13 @@ func (s *service) persistStartedSession(
 		return StartResult{}, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
 	}
 	effectiveModel, effectiveCWD, _ := enrichFromSessionConfig(session, req.Model, req.CWD)
-	identity, err := resolveStartCodexIdentity(req.Config)
+	identity, err := resolveStartedSessionCodexIdentity(req.Provider, req.Config, session)
 	if err != nil {
 		return StartResult{}, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
 	}
-	codexHome := util.FirstNonEmpty(sessionRuntimeConfigString(session, "codexHome"), identity.Home)
-	codexInstanceKey := util.FirstNonEmpty(sessionRuntimeConfigString(session, "codexInstanceKey"), identity.InstanceKey)
-	codexModelProvider := util.FirstNonEmpty(sessionRuntimeConfigString(session, "codexModelProvider"), identity.ModelProvider)
+	codexHome := identity.Home
+	codexInstanceKey := identity.InstanceKey
+	codexModelProvider := identity.ModelProvider
 	configOverride, err := encodeStoredThreadConfig(buildStartStoredThreadConfig(req, input, assembly, session))
 	if err != nil {
 		return StartResult{}, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
@@ -297,11 +297,29 @@ func (s *service) persistStartedSession(
 	return newStartResult(req, publicThreadID, agentID, providerUUID, providerThreadID, effectiveModel, effectiveCWD), nil
 }
 
-func resolveStartCodexIdentity(config map[string]any) (contract.CodexIdentity, error) {
-	if !startConfigHasCodexIdentity(config) {
+func resolveStartedSessionCodexIdentity(provider string, config map[string]any, session contract.Session) (contract.CodexIdentity, error) {
+	if !strings.EqualFold(strings.TrimSpace(provider), "codex") {
 		return contract.CodexIdentity{}, nil
 	}
-	return contract.ResolveCodexIdentity(config)
+	effective, ok := startedSessionCodexIdentityConfig(config, session)
+	if !ok {
+		return contract.CodexIdentity{}, contract.ErrCodexHomeRequired
+	}
+	return contract.ResolveCodexIdentity(effective)
+}
+
+func startedSessionCodexIdentityConfig(config map[string]any, session contract.Session) (map[string]any, bool) {
+	effective := make(map[string]any, 3)
+	for _, key := range []string{"codexHome", "codexInstanceKey", "codexModelProvider"} {
+		if value := sessionRuntimeConfigString(session, key); value != "" {
+			effective[key] = value
+			continue
+		}
+		if raw, ok := config[key]; ok {
+			effective[key] = raw
+		}
+	}
+	return effective, startConfigHasCodexIdentity(effective)
 }
 
 func startConfigHasCodexIdentity(config map[string]any) bool {
@@ -366,8 +384,8 @@ func (s *service) persistResumedSession(
 ) (ResumeResult, error) {
 	model := util.FirstNonEmpty(req.Model, state.Model)
 	codexHome := util.FirstNonEmpty(req.CodexHome, state.CodexHome, sessionRuntimeConfigString(session, "codexHome"))
-	codexInstanceKey := util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
-	codexModelProvider := util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
+	codexInstanceKey := util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey, sessionRuntimeConfigString(session, "codexInstanceKey"))
+	codexModelProvider := util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider, sessionRuntimeConfigString(session, "codexModelProvider"))
 	if s.logger != nil {
 		s.logger.Warn("thread: persist resumed session codex identity",
 			"agent_id", req.AgentID,

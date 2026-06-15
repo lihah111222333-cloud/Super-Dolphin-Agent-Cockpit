@@ -146,9 +146,7 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 		return ResumeRequest{}, err
 	}
 	req.ClaudeHome = util.FirstNonEmpty(req.ClaudeHome, state.ClaudeHome, resumeRuntimeConfigString(state.ConfigOverride.Runtime, "claudeHome", "claude_home", "history_dir"))
-	req.CodexHome = util.FirstNonEmpty(req.CodexHome, state.CodexHome)
-	req.CodexInstanceKey = util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
-	req.CodexModelProvider = util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
+	req = hydrateResumeCodexIdentity(req, state)
 	req.CodexDisabledNativeTools = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
 	req.Config = mergeRuntimeConfig(clone.RuntimeConfigMap(state.ConfigOverride.Runtime), req.Config)
 	req, err = s.injectDefaultCodexIdentityForResume(req)

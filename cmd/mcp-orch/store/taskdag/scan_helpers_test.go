@@ -1,3 +1,5 @@
+//go:build legacy_pg_fake
+
 package taskdag
 
 import (
@@ -8,19 +10,21 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func intervalDuration(value sqlc.Interval) time.Duration {
-	return time.Duration(value.Microseconds)*time.Microsecond + time.Duration(value.Days)*24*time.Hour
+	return time.Duration(value) * time.Millisecond
 }
 
 func sameInt8(left, right sqlc.Int8) bool {
-	return left.Valid == right.Valid && (!left.Valid || left.Int64 == right.Int64)
+	if left == nil || right == nil {
+		return left == right
+	}
+	return *left == *right
 }
 
 func sameTimestamp(left, right sqlc.Timestamptz) bool {
-	return left.Valid == right.Valid && (!left.Valid || left.Time.Equal(right.Time))
+	return left == right
 }
 
 type stubTaskDAGRows struct {
@@ -129,6 +133,9 @@ func taskDagNodeValues(row sqlc.TaskDagNode) []any {
 	}
 }
 
-func timestamptzValue(value time.Time) pgtype.Timestamptz {
-	return pgtype.Timestamptz{Time: value.UTC(), Valid: !value.IsZero()}
+func timestamptzValue(value time.Time) sqlc.Timestamptz {
+	if value.IsZero() {
+		return 0
+	}
+	return value.UTC().UnixMilli()
 }

@@ -357,6 +357,58 @@ func TestSpawnIfNeededInjectsPackagedCodexIdentity(t *testing.T) {
 	}
 }
 
+func TestSpawnIfNeededUsesRuntimeCodexIdentityWhenPendingConfigIsPartial(t *testing.T) {
+	t.Parallel()
+
+	threadID := "thread-pending-runtime-codex"
+	const providerUUID = "019d5f6b-fb3c-7760-9d6f-54005553f6c3"
+	codexHome := t.TempDir()
+	store := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:      threadID,
+		Status:        statusCreated,
+		PendingLaunch: true,
+		Cwd:           t.TempDir(),
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
+			Provider: "codex",
+			Runtime: map[string]any{
+				"codexHome":        codexHome,
+				"codexInstanceKey": "default",
+			},
+		}),
+	}}
+	sessions := &stubSessionProvider{}
+	bindings := &stubBindingStore{}
+	svc := &service{
+		threadStore:    store,
+		bindingStore:   bindings,
+		sessions:       sessions,
+		orchestration:  &stubThreadOrchestration{},
+		promptAssembly: promptAssemblyStub{},
+		starter: &startOnlySessionStarter{onStart: func(_ context.Context, _ dto.StartSessionRequest) (contract.Session, error) {
+			session := &stubSession{
+				threadID: providerUUID,
+				runtimeConfig: map[string]any{
+					"codexHome":          codexHome,
+					"codexInstanceKey":   "default",
+					"codexModelProvider": "openai",
+				},
+			}
+			sessions.session = session
+			return session, nil
+		}},
+	}
+
+	launched, _, err := svc.SpawnIfNeeded(context.Background(), threadID, "hello", store.thread.Cwd)
+	if err != nil {
+		t.Fatalf("SpawnIfNeeded() error = %v, want runtime codex identity to complete partial pending config", err)
+	}
+	if !launched {
+		t.Fatal("SpawnIfNeeded() launched = false, want true")
+	}
+	assertPersistedCodexIdentity(t, bindings.upsert, codexHome, "default", "openai")
+	assertStoredRuntimeCodexIdentity(t, store.upsert.ConfigOverride, codexHome, "default", "openai")
+}
+
 func TestRunPendingSpawnPropagatesRouterError(t *testing.T) {
 	t.Parallel()
 

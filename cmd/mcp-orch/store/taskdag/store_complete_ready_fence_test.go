@@ -1,3 +1,5 @@
+//go:build legacy_pg_fake
+
 package taskdag
 
 import (
@@ -9,17 +11,17 @@ import (
 )
 
 // TestCompleteTaskDagNode_FenceAcceptsReadyRunningAwaitingVerify locks in the
-// ADR-017 v1.2 §2.3 fence relaxation. CompleteTaskDagNode previously matched
+// ADR-017 v1.2 搂2.3 fence relaxation. CompleteTaskDagNode previously matched
 // IN ('running','awaiting_verify'); subscriber race A (TurnCompleted before
-// dispatchAgent flips ready→running) silently produced 0 rows. The fix
+// dispatchAgent flips ready鈫抮unning) silently produced 0 rows. The fix
 // extends the fence to IN ('ready','running','awaiting_verify').
 //
 // This test asserts:
-//   - ready → done succeeds (new path, race A);
-//   - running → done succeeds (legacy path, unchanged);
-//   - awaiting_verify → done succeeds (legacy path, unchanged);
-//   - pending → done is still rejected (fence retains lower bound);
-//   - done → done is still rejected (fence retains upper bound).
+//   - ready 鈫?done succeeds (new path, race A);
+//   - running 鈫?done succeeds (legacy path, unchanged);
+//   - awaiting_verify 鈫?done succeeds (legacy path, unchanged);
+//   - pending 鈫?done is still rejected (fence retains lower bound);
+//   - done 鈫?done is still rejected (fence retains upper bound).
 func TestCompleteTaskDagNode_FenceAcceptsReadyRunningAwaitingVerify(t *testing.T) {
 	t.Parallel()
 

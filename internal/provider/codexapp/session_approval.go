@@ -409,9 +409,33 @@ func (s *session) handleNotificationAction(method string, params json.RawMessage
 		s.handleApprovalRequest(method, params)
 	case isTurnTerminalEvent(method):
 		s.finishTurn(params, turnTerminalSuccess(method, decodeEventPayload(params)))
+	case s.completeRolloutAssistantMessage(method, params):
 	case method == "connection.dead":
 		s.handleConnectionDead(params)
 	}
+}
+
+func (s *session) completeRolloutAssistantMessage(method string, params json.RawMessage) bool {
+	if strings.TrimSpace(method) != "response_item" {
+		return false
+	}
+	msg, ok := parseRolloutLine(mustJSON(map[string]any{"type": "response_item", "payload": params}))
+	if !ok || msg.Role != "assistant" {
+		return false
+	}
+	payload := decodeEventPayload(params)
+	turnID := shared.FirstNonEmpty(payloadTurnID(payload), payloadTurnID(codexToolItemPayload(payload)))
+	s.mu.Lock()
+	if turnID == "" {
+		turnID = s.activeTurnID
+	}
+	ok = turnID != "" && turnID == s.activeTurnID && s.turns[turnID] != nil
+	s.mu.Unlock()
+	if !ok {
+		return false
+	}
+	s.completeSyntheticTurn(turnID, "rollout_assistant_message", msg.Content)
+	return true
 }
 
 func (s *session) alienThreadEventThread(params json.RawMessage) (string, bool) {

@@ -34,10 +34,9 @@ const (
 )
 
 type RuntimeCapabilities struct {
-	BundledCodex     bool
-	BundledLSP       bool
-	BundledSidecars  bool
-	EmbeddedPostgres bool
+	BundledCodex    bool
+	BundledLSP      bool
+	BundledSidecars bool
 }
 
 type RuntimeResolveInput struct {
@@ -58,15 +57,14 @@ type ResolvedRuntime struct {
 }
 
 type runtimeManifest struct {
-	BundledCodexPath             string `json:"bundled_codex_path"`
-	BundledGoplsPath             string `json:"bundled_gopls_path"`
-	LSPBundlePath                string `json:"lsp_bundle_path"`
-	LSPManifestPath              string `json:"lsp_manifest_path"`
-	ModelRegistryPath            string `json:"model_registry_path"`
-	EmbeddedPostgresResourcePath string `json:"embedded_postgres_resource_path"`
+	BundledCodexPath  string `json:"bundled_codex_path"`
+	BundledGoplsPath  string `json:"bundled_gopls_path"`
+	LSPBundlePath     string `json:"lsp_bundle_path"`
+	LSPManifestPath   string `json:"lsp_manifest_path"`
+	ModelRegistryPath string `json:"model_registry_path"`
 }
 
-// ResolveRuntime 解析运行时。
+// ResolveRuntime 根据进程角色、运行模式和包资源解析当前运行时。
 func ResolveRuntime(input RuntimeResolveInput) (ResolvedRuntime, error) {
 	env := input.Env
 	if env == nil {
@@ -126,7 +124,6 @@ func requireSidecarResourceContract(mode RuntimeMode, env map[string]string) err
 	return nil
 }
 
-// resolveOwnerRuntime 解析owner运行时。
 func resolveOwnerRuntime(input RuntimeResolveInput, env map[string]string) (ResolvedRuntime, error) {
 	goos := firstNonEmpty(input.GOOS, runtime.GOOS)
 	goarch := firstNonEmpty(input.GOARCH, runtime.GOARCH)
@@ -215,7 +212,6 @@ func parseRuntimeMode(value string) (RuntimeMode, error) {
 	}
 }
 
-// verifyRuntimeManifest 验证运行时manifest。
 func verifyRuntimeManifest(resources, goos, goarch string) (string, error) {
 	manifestPath := filepath.Join(resources, runtimeManifestName)
 	raw, err := os.ReadFile(manifestPath)
@@ -226,7 +222,6 @@ func verifyRuntimeManifest(resources, goos, goarch string) (string, error) {
 	if err := json.Unmarshal(raw, &manifest); err != nil {
 		return "", fmt.Errorf("parse runtime manifest %s: %w", manifestPath, err)
 	}
-	platform := firstNonEmpty(goos, runtime.GOOS) + "-" + firstNonEmpty(goarch, runtime.GOARCH)
 	checks := []struct {
 		label string
 		value string
@@ -238,17 +233,16 @@ func verifyRuntimeManifest(resources, goos, goarch string) (string, error) {
 		{"lsp_bundle_path", manifest.LSPBundlePath, lspBundleName, "dir"},
 		{"lsp_manifest_path", manifest.LSPManifestPath, filepath.Join(lspBundleName, lspManifestName), "file"},
 		{"model_registry_path", manifest.ModelRegistryPath, modelRegistryBundle, "file"},
-		{"embedded_postgres_resource_path", manifest.EmbeddedPostgresResourcePath, filepath.Join("postgres", platform), "dir"},
 	}
 	for _, check := range checks {
-		if err := verifyManifestResource(resources, check.label, check.value, check.want, check.kind); err != nil {
+		if err := verifyManifestResource(resources, check.label, check.value, check.want, check.kind, goos); err != nil {
 			return "", err
 		}
 	}
 	return manifestPath, nil
 }
 
-func verifyManifestResource(resources, label, value, want, kind string) error {
+func verifyManifestResource(resources, label, value, want, kind, goos string) error {
 	if strings.TrimSpace(value) == "" {
 		return fmt.Errorf("runtime manifest missing %s", label)
 	}
@@ -263,10 +257,10 @@ func verifyManifestResource(resources, label, value, want, kind string) error {
 	if err := requirePathInsideRoot(resources, fullPath); err != nil {
 		return fmt.Errorf("runtime manifest %s %w", label, err)
 	}
-	return requireManifestPathKind(fullPath, kind)
+	return requireManifestPathKind(fullPath, kind, goos)
 }
 
-// cleanManifestRelativePath 处理cleanmanifest相对路径。
+// cleanManifestRelativePath 校验并清理 runtime manifest 中的相对路径。
 func cleanManifestRelativePath(label, value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" || filepath.IsAbs(value) {
@@ -279,7 +273,6 @@ func cleanManifestRelativePath(label, value string) (string, error) {
 	return clean, nil
 }
 
-// requirePathInsideRoot 处理require路径inside根目录。
 func requirePathInsideRoot(root, path string) error {
 	rootReal, err := filepath.EvalSymlinks(root)
 	if err != nil {
@@ -299,15 +292,15 @@ func requirePathInsideRoot(root, path string) error {
 	return nil
 }
 
-// requireManifestPathKind 处理requiremanifest路径kind。
-func requireManifestPathKind(path, kind string) error {
+// requireManifestPathKind 校验 manifest 资源的文件类型和可执行权限。
+func requireManifestPathKind(path, kind, goos string) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return err
 	}
 	switch kind {
 	case "exec":
-		if err := requireExecutableFile(path); err != nil {
+		if err := requireExecutableFileForOS(goos, path); err != nil {
 			return fmt.Errorf("points to non-executable path: %s", path)
 		}
 	case "file":
@@ -326,10 +319,9 @@ func requireManifestPathKind(path, kind string) error {
 
 func packagedCapabilities() RuntimeCapabilities {
 	return RuntimeCapabilities{
-		BundledCodex:     true,
-		BundledLSP:       true,
-		BundledSidecars:  true,
-		EmbeddedPostgres: true,
+		BundledCodex:    true,
+		BundledLSP:      true,
+		BundledSidecars: true,
 	}
 }
 

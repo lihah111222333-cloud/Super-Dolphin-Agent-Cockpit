@@ -451,22 +451,27 @@ func mapDAGNodes(items []taskdag.Node) []DAGNode {
 
 func dagSummaryDTO(item taskdag.DAG) DAGSummary {
 	return DAGSummary{
-		ID:          item.ID,
-		DagKey:      item.DagKey,
-		Version:     item.Version,
-		Title:       item.Title,
-		Description: item.Description,
-		Status:      item.Status,
-		CreatedBy:   item.CreatedBy,
-		Metadata:    append(json.RawMessage(nil), item.Metadata...),
-		Trigger:     item.Trigger,
-		CronExpr:    item.CronExpr,
-		NextRunAt:   shared.CloneTime(item.NextRunAt),
-		StartedAt:   shared.CloneTime(item.StartedAt),
-		FinishedAt:  shared.CloneTime(item.FinishedAt),
-		CreatedAt:   item.CreatedAt,
-		UpdatedAt:   item.UpdatedAt,
+		ID:              item.ID,
+		DagKey:          item.DagKey,
+		Version:         item.Version,
+		Title:           item.Title,
+		Description:     item.Description,
+		Status:          item.Status,
+		CreatedBy:       item.CreatedBy,
+		Metadata:        append(json.RawMessage(nil), item.Metadata...),
+		Trigger:         item.Trigger,
+		CronExpr:        item.CronExpr,
+		NextRunAt:       shared.CloneTime(item.NextRunAt),
+		ScheduleEnabled: dagScheduleEnabled(item),
+		StartedAt:       shared.CloneTime(item.StartedAt),
+		FinishedAt:      shared.CloneTime(item.FinishedAt),
+		CreatedAt:       item.CreatedAt,
+		UpdatedAt:       item.UpdatedAt,
 	}
+}
+
+func dagScheduleEnabled(item taskdag.DAG) bool {
+	return strings.TrimSpace(item.Trigger) == "scheduled" && strings.TrimSpace(item.CronExpr) != "" && item.NextRunAt != nil
 }
 
 func dagNodeDTO(item taskdag.Node) DAGNode {

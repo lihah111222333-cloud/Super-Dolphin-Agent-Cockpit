@@ -8,7 +8,6 @@ import (
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type querier interface {
@@ -36,7 +35,6 @@ type store struct {
 }
 
 // NewStore 创建不带事务 runner 的 store，主要用于窄接口单元测试。
-// 正式 fx 装配会使用 module.go 里的构造函数注入事务 runner。
 func NewStore(q *sqlc.Queries) Store {
 	return newStore(q, q, nil)
 }
@@ -45,8 +43,7 @@ func newStore(q querier, queries *sqlc.Queries, runInTx txRunner) Store {
 	return &store{q: q, queries: queries, runInTx: runInTx}
 }
 
-// WithTx 在数据库事务中执行 datasource_v2 写入流程。
-// 该 store 没有事务 runner 时直接报错，避免分块重写退化成非原子写入。
+// WithTx 在 SQLite 事务中执行 datasource_v2 写入流程。
 func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error {
 	if fn == nil {
 		return wrapDatasourceV2Error(errors.New("transaction callback is required"), "with_tx")
@@ -61,7 +58,6 @@ func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error 
 }
 
 // UpsertImporting 写入或重置文档元数据为 importing 状态。
-// 同一路径重复导入会复用原 document id，后续 DeleteChunks 会清掉旧正文分块。
 func (s *store) UpsertImporting(ctx context.Context, params UpsertDocumentParams) (*Document, error) {
 	if err := validateUpsertDocumentParams(params); err != nil {
 		return nil, wrapDatasourceV2Error(err, "upsert_importing")
@@ -80,7 +76,6 @@ func (s *store) UpsertImporting(ctx context.Context, params UpsertDocumentParams
 }
 
 // DeleteChunks 删除指定文档的旧正文分块。
-// 调用方应在同一事务里随后插入新分块并标记文档 ready。
 func (s *store) DeleteChunks(ctx context.Context, documentID int64) error {
 	if documentID <= 0 {
 		return wrapDatasourceV2Error(errors.New("document id is required"), "delete_chunks")
@@ -91,8 +86,7 @@ func (s *store) DeleteChunks(ctx context.Context, documentID int64) error {
 	return wrapDatasourceV2Error(err, "delete_chunks")
 }
 
-// InsertChunk 写入一个正文分块。
-// chunk_index 由 service 按读取顺序递增，数据库唯一约束负责阻止重复分块。
+// InsertChunk 写入单个正文分块。
 func (s *store) InsertChunk(ctx context.Context, params InsertChunkParams) error {
 	if err := validateInsertChunkParams(params); err != nil {
 		return wrapDatasourceV2Error(err, "insert_chunk")
@@ -107,7 +101,6 @@ func (s *store) InsertChunk(ctx context.Context, params InsertChunkParams) error
 }
 
 // MarkReady 把文档从 importing 标记为 ready，并记录正文摘要和分块统计。
-// 这一步必须在所有分块写入成功后执行，失败时事务回滚会保留旧版本。
 func (s *store) MarkReady(ctx context.Context, params MarkReadyParams) (*Document, error) {
 	if err := validateMarkReadyParams(params); err != nil {
 		return nil, wrapDatasourceV2Error(err, "mark_ready")
@@ -139,8 +132,6 @@ func validateUpsertDocumentParams(params UpsertDocumentParams) error {
 	}
 }
 
-// validateInsertChunkParams 检查正文分块写入的最小完整性。
-// 分块内容和计数必须先在 service 层算好，这里只阻止零长度内容、坏序号和坏计数入库。
 func validateInsertChunkParams(params InsertChunkParams) error {
 	switch {
 	case params.DocumentID <= 0:
@@ -185,8 +176,8 @@ func documentFromSQLC(row sqlc.DatasourceV2Document) Document {
 		TotalChars:   row.TotalChars,
 		Status:       row.Status,
 		ErrorMessage: stringFromPtr(row.ErrorMessage),
-		CreatedAt:    timeFromPG(row.CreatedAt),
-		UpdatedAt:    timeFromPG(row.UpdatedAt),
+		CreatedAt:    timeFromMillis(row.CreatedAt),
+		UpdatedAt:    timeFromMillis(row.UpdatedAt),
 	}
 }
 
@@ -197,11 +188,11 @@ func stringFromPtr(value *string) string {
 	return *value
 }
 
-func timeFromPG(value pgtype.Timestamptz) time.Time {
-	if !value.Valid {
+func timeFromMillis(value int64) time.Time {
+	if value == 0 {
 		return time.Time{}
 	}
-	return value.Time
+	return platformdb.TimeFromMillis(value)
 }
 
 func wrapDatasourceV2Error(err error, operation string) error {

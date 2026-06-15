@@ -2,13 +2,15 @@ package cwdlock
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
-	"github.com/jackc/pgx/v5"
+	_ "modernc.org/sqlite"
 )
 
 type cwdLockQuerierStub struct {
@@ -16,7 +18,7 @@ type cwdLockQuerierStub struct {
 	forceAcquireFn func(context.Context, sqlc.ForceAcquireCwdLockParams) (int64, error)
 	releaseFn      func(context.Context, sqlc.ReleaseCwdLockParams) (int64, error)
 	heartbeatFn    func(context.Context, sqlc.HeartbeatCwdLockParams) error
-	deleteStaleFn  func(context.Context) (int64, error)
+	deleteStaleFn  func(context.Context, sqlc.DeleteStaleCwdLocksParams) (int64, error)
 	getHolderFn    func(context.Context, string) (sqlc.GetCwdLockHolderRow, error)
 }
 
@@ -48,9 +50,9 @@ func (s *cwdLockQuerierStub) HeartbeatCwdLock(ctx context.Context, arg sqlc.Hear
 	return nil
 }
 
-func (s *cwdLockQuerierStub) DeleteStaleCwdLocks(ctx context.Context) (int64, error) {
+func (s *cwdLockQuerierStub) DeleteStaleCwdLocks(ctx context.Context, arg sqlc.DeleteStaleCwdLocksParams) (int64, error) {
 	if s.deleteStaleFn != nil {
-		return s.deleteStaleFn(ctx)
+		return s.deleteStaleFn(ctx, arg)
 	}
 	return 0, nil
 }
@@ -82,6 +84,10 @@ func TestAcquireForwardsParamsAndReturnsCount(t *testing.T) {
 	}
 	if captured.CWD != "/tmp/work" || captured.InstanceID != "inst-1" || captured.Pid != 1234 {
 		t.Fatalf("Acquire() forwarded wrong params: %+v", captured)
+	}
+	thresholdAge := time.Since(platformdb.TimeFromMillis(captured.StaleThreshold))
+	if thresholdAge < 40*time.Second || thresholdAge > 50*time.Second {
+		t.Fatalf("Acquire() stale threshold age = %s, want about 45s", thresholdAge)
 	}
 }
 
@@ -132,7 +138,7 @@ func TestForceAcquireForwardsParamsAndReturnsCount(t *testing.T) {
 	if count != 2 {
 		t.Fatalf("ForceAcquire() count = %d, want 2", count)
 	}
-	if captured.CWD != "/var" || captured.InstanceID != "inst-2" || captured.Pid != 42 || captured.Pid_2 != 99 {
+	if captured.CWD != "/var" || captured.InstanceID != "inst-2" || captured.Pid != 42 || captured.HolderPid != 99 {
 		t.Fatalf("ForceAcquire() forwarded wrong params: %+v", captured)
 	}
 }
@@ -235,11 +241,15 @@ func TestHeartbeatWrapsQuerierError(t *testing.T) {
 	}
 }
 
-func TestDeleteStaleReturnsCount(t *testing.T) {
+func TestDeleteStaleReturnsCountAndUsesStaleThreshold(t *testing.T) {
 	t.Parallel()
 
+	var captured sqlc.DeleteStaleCwdLocksParams
 	s := &store{q: &cwdLockQuerierStub{
-		deleteStaleFn: func(context.Context) (int64, error) { return 5, nil },
+		deleteStaleFn: func(_ context.Context, arg sqlc.DeleteStaleCwdLocksParams) (int64, error) {
+			captured = arg
+			return 5, nil
+		},
 	}}
 	count, err := s.DeleteStale(context.Background())
 	if err != nil {
@@ -248,6 +258,10 @@ func TestDeleteStaleReturnsCount(t *testing.T) {
 	if count != 5 {
 		t.Fatalf("DeleteStale() count = %d, want 5", count)
 	}
+	thresholdAge := time.Since(platformdb.TimeFromMillis(captured.HeartbeatAt))
+	if thresholdAge < 40*time.Second || thresholdAge > 50*time.Second {
+		t.Fatalf("DeleteStale() threshold age = %s, want about 45s", thresholdAge)
+	}
 }
 
 func TestDeleteStaleWrapsQuerierError(t *testing.T) {
@@ -255,7 +269,7 @@ func TestDeleteStaleWrapsQuerierError(t *testing.T) {
 
 	sentinel := errors.New("db gone")
 	s := &store{q: &cwdLockQuerierStub{
-		deleteStaleFn: func(context.Context) (int64, error) { return 0, sentinel },
+		deleteStaleFn: func(context.Context, sqlc.DeleteStaleCwdLocksParams) (int64, error) { return 0, sentinel },
 	}}
 	_, err := s.DeleteStale(context.Background())
 	if !errors.Is(err, sentinel) {
@@ -271,7 +285,7 @@ func TestGetHolderMapsRow(t *testing.T) {
 	s := &store{q: &cwdLockQuerierStub{
 		getHolderFn: func(_ context.Context, cwd string) (sqlc.GetCwdLockHolderRow, error) {
 			capturedCwd = cwd
-			return sqlc.GetCwdLockHolderRow{InstanceID: "inst-x", Pid: 321, HeartbeatAt: heartbeat}, nil
+			return sqlc.GetCwdLockHolderRow{InstanceID: "inst-x", Pid: 321, HeartbeatAt: heartbeat.UnixMilli()}, nil
 		},
 	}}
 
@@ -290,12 +304,12 @@ func TestGetHolderMapsRow(t *testing.T) {
 	}
 }
 
-func TestGetHolderWrapsPgxErrNoRowsAsNotFound(t *testing.T) {
+func TestGetHolderWrapsSQLErrNoRowsAsNotFound(t *testing.T) {
 	t.Parallel()
 
 	s := &store{q: &cwdLockQuerierStub{
 		getHolderFn: func(context.Context, string) (sqlc.GetCwdLockHolderRow, error) {
-			return sqlc.GetCwdLockHolderRow{}, pgx.ErrNoRows
+			return sqlc.GetCwdLockHolderRow{}, sql.ErrNoRows
 		},
 	}}
 
@@ -312,5 +326,86 @@ func TestGetHolderWrapsPgxErrNoRowsAsNotFound(t *testing.T) {
 	var storeErr *platformdb.StoreError
 	if !errors.As(err, &storeErr) || storeErr.Operation != "get_holder" {
 		t.Fatalf("GetHolder() error metadata = %+v", err)
+	}
+}
+
+func TestSQLiteTwoHandlesAcquireSameCwdLeavesOneHolder(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "cwd-lock.db")
+	db1 := openCwdLockSQLite(t, path)
+	defer db1.Close()
+	db2 := openCwdLockSQLite(t, path)
+	defer db2.Close()
+
+	createCwdLockSchema(t, db1)
+
+	store1 := NewStore(sqlc.New(db1))
+	store2 := NewStore(sqlc.New(db2))
+	cwd := filepath.Join(t.TempDir(), "repo")
+
+	count, err := store1.Acquire(ctx, AcquireParams{Cwd: cwd, InstanceID: "holder-1", PID: 101})
+	if err != nil {
+		t.Fatalf("first Acquire() error = %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("first Acquire() rows = %d, want 1", count)
+	}
+
+	count, err = store2.Acquire(ctx, AcquireParams{Cwd: cwd, InstanceID: "holder-2", PID: 202})
+	if err != nil {
+		t.Fatalf("second Acquire() error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("second Acquire() rows = %d, want 0", count)
+	}
+
+	holder, err := store2.GetHolder(ctx, cwd)
+	if err != nil {
+		t.Fatalf("GetHolder() error = %v", err)
+	}
+	if holder.InstanceID != "holder-1" || holder.PID != 101 {
+		t.Fatalf("holder = %+v, want holder-1 pid 101", holder)
+	}
+
+	var rows int
+	if err := db1.QueryRowContext(ctx, `SELECT COUNT(*) FROM cwd_instance_locks WHERE cwd = ?`, cwd).Scan(&rows); err != nil {
+		t.Fatalf("count cwd locks: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("cwd lock rows = %d, want 1", rows)
+	}
+}
+
+func openCwdLockSQLite(t *testing.T, path string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	if _, err := db.Exec(`PRAGMA busy_timeout = 5000`); err != nil {
+		_ = db.Close()
+		t.Fatalf("set busy_timeout: %v", err)
+	}
+	return db
+}
+
+func createCwdLockSchema(t *testing.T, db *sql.DB) {
+	t.Helper()
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS cwd_instance_locks (
+    cwd           TEXT    NOT NULL PRIMARY KEY,
+    instance_id   TEXT    NOT NULL,
+    pid           INTEGER NOT NULL DEFAULT 0,
+    acquired_at   INTEGER NOT NULL,
+    heartbeat_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cwd_instance_locks_heartbeat ON cwd_instance_locks (heartbeat_at);
+`)
+	if err != nil {
+		t.Fatalf("create cwd lock schema: %v", err)
 	}
 }

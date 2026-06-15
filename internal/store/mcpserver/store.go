@@ -54,16 +54,20 @@ func (s *configStore) InsertServer(ctx context.Context, params contract.StoreMCP
 	if err := s.ensureTable(ctx); err != nil {
 		return false, err
 	}
-	tag, err := s.db.Exec(ctx, `
-		INSERT INTO public.mcp_server_configs (
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO mcp_server_configs (
 			workspace_root, name, transport, url, headers, updated_at
-		) VALUES ($1, $2, $3, $4, $5::jsonb, now())
+		) VALUES (?, ?, ?, ?, ?, CAST(strftime('%s','now') AS INTEGER) * 1000)
 		ON CONFLICT (workspace_root, name) DO NOTHING
 	`, workspaceRoot, name, config.Transport, config.URL, string(headers))
 	if err != nil {
 		return false, wrapMCPServerStoreError(err, "insert")
 	}
-	return tag.RowsAffected() > 0, nil
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, wrapMCPServerStoreError(err, "insert.rows_affected")
+	}
+	return rowsAffected > 0, nil
 }
 
 // ListServers 读取指定工作区的 MCP server 配置，并校验落库内容仍然可用。
@@ -75,10 +79,10 @@ func (s *configStore) ListServers(ctx context.Context, workspaceRoot string) (ma
 	if err := s.ensureTable(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(ctx, `
-		SELECT name, transport, url, headers::text
-		FROM public.mcp_server_configs
-		WHERE workspace_root = $1
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT name, transport, url, headers
+		FROM mcp_server_configs
+		WHERE workspace_root = ?
 		ORDER BY name ASC
 	`, workspaceRoot)
 	if err != nil {
@@ -124,14 +128,18 @@ func (s *configStore) DeleteServer(ctx context.Context, workspaceRoot, name stri
 	if err := s.ensureTable(ctx); err != nil {
 		return false, err
 	}
-	tag, err := s.db.Exec(ctx, `
-		DELETE FROM public.mcp_server_configs
-		WHERE workspace_root = $1 AND name = $2
+	result, err := s.db.ExecContext(ctx, `
+		DELETE FROM mcp_server_configs
+		WHERE workspace_root = ? AND name = ?
 	`, workspaceRoot, name)
 	if err != nil {
 		return false, wrapMCPServerStoreError(err, "delete")
 	}
-	return tag.RowsAffected() > 0, nil
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, wrapMCPServerStoreError(err, "delete.rows_affected")
+	}
+	return rowsAffected > 0, nil
 }
 
 // ensureTable 首次使用时建表，并用锁避免并发请求重复建表。
@@ -144,7 +152,7 @@ func (s *configStore) ensureTable(ctx context.Context) error {
 	if s.ensured {
 		return nil
 	}
-	if _, err := s.db.Exec(ctx, createMCPServerConfigsTableSQL); err != nil {
+	if _, err := s.db.ExecContext(ctx, createMCPServerConfigsTableSQL); err != nil {
 		return wrapMCPServerStoreError(err, "ensure_table")
 	}
 	s.ensured = true
@@ -230,7 +238,7 @@ func validateHTTPURL(rawURL string) error {
 	return nil
 }
 
-// encodeMCPServerHeaders 把 header map 规范化后写成 jsonb 字符串。
+// encodeMCPServerHeaders 把 header map 规范化后写成 JSON 字符串。
 func encodeMCPServerHeaders(headers map[string]string) ([]byte, error) {
 	normalized, err := normalizeHeaders("headers", headers)
 	if err != nil {
@@ -246,7 +254,7 @@ func encodeMCPServerHeaders(headers map[string]string) ([]byte, error) {
 	return raw, nil
 }
 
-// decodeMCPServerHeaders 读取 jsonb 文本并重新校验 header 内容。
+// decodeMCPServerHeaders 读取 JSON 文本并重新校验 header 内容。
 func decodeMCPServerHeaders(raw string) (map[string]string, error) {
 	var headers map[string]string
 	if err := json.Unmarshal([]byte(raw), &headers); err != nil {
@@ -265,20 +273,20 @@ func wrapMCPServerStoreError(err error, operation string) error {
 }
 
 const createMCPServerConfigsTableSQL = `
-CREATE TABLE IF NOT EXISTS public.mcp_server_configs (
-	workspace_root text NOT NULL,
-	name text NOT NULL,
-	transport text NOT NULL,
-	url text NOT NULL,
-	headers jsonb NOT NULL DEFAULT '{}'::jsonb,
-	created_at timestamp with time zone DEFAULT now() NOT NULL,
-	updated_at timestamp with time zone DEFAULT now() NOT NULL,
+CREATE TABLE IF NOT EXISTS mcp_server_configs (
+	workspace_root TEXT NOT NULL,
+	name TEXT NOT NULL,
+	transport TEXT NOT NULL,
+	url TEXT NOT NULL,
+	headers TEXT NOT NULL DEFAULT '{}',
+	created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+	updated_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
 	PRIMARY KEY (workspace_root, name),
 	CHECK (workspace_root <> ''),
 	CHECK (name <> ''),
 	CHECK (transport <> ''),
 	CHECK (url <> ''),
-	CHECK (jsonb_typeof(headers) = 'object')
+	CHECK (headers <> '')
 );
 `
 

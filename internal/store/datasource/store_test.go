@@ -2,13 +2,12 @@ package datasource
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestDocumentStoreUpsertLazilyCreatesTable(t *testing.T) {
@@ -33,7 +32,7 @@ func TestDocumentStoreUpsertLazilyCreatesTable(t *testing.T) {
 	if len(db.execSQL) != 3 {
 		t.Fatalf("Exec calls = %d, want create + two upserts", len(db.execSQL))
 	}
-	if !strings.Contains(db.execSQL[0], "CREATE TABLE IF NOT EXISTS public.datasource_documents") {
+	if !strings.Contains(db.execSQL[0], "CREATE TABLE IF NOT EXISTS datasource_documents") {
 		t.Fatalf("first Exec SQL = %q, want datasource table creation", db.execSQL[0])
 	}
 	if strings.Contains(db.execSQL[1], "CREATE TABLE") || strings.Contains(db.execSQL[2], "CREATE TABLE") {
@@ -45,21 +44,21 @@ type recordingDocumentDB struct {
 	execSQL []string
 }
 
-func (db *recordingDocumentDB) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+func (db *recordingDocumentDB) ExecContext(_ context.Context, sql string, _ ...any) (sql.Result, error) {
 	db.execSQL = append(db.execSQL, sql)
-	return pgconn.CommandTag{}, nil
+	return recordingSQLResult(1), nil
 }
 
-func (db *recordingDocumentDB) Query(context.Context, string, ...any) (pgx.Rows, error) {
+func (db *recordingDocumentDB) QueryContext(context.Context, string, ...any) (*sql.Rows, error) {
 	return nil, errors.New("unexpected Query call")
 }
 
-func (db *recordingDocumentDB) QueryRow(context.Context, string, ...any) pgx.Row {
-	return recordingDocumentRow{}
+func (db *recordingDocumentDB) QueryRowContext(context.Context, string, ...any) *sql.Row {
+	return nil
 }
 
-type recordingDocumentRow struct{}
+type recordingSQLResult int64
 
-func (recordingDocumentRow) Scan(...any) error {
-	return errors.New("unexpected QueryRow call")
-}
+func (r recordingSQLResult) LastInsertId() (int64, error) { return 0, nil }
+
+func (r recordingSQLResult) RowsAffected() (int64, error) { return int64(r), nil }

@@ -1,12 +1,12 @@
 -- name: ListBusExceptionLogs :many
-SELECT ts, category, severity, source, tool_name, message, traceback, extra
+SELECT id, ts, category, severity, source, tool_name, message, '' AS traceback, '{}' AS extra
 FROM bus_exception_logs
-WHERE ($1::text = '' OR category = $1)
-  AND ($2::text = '' OR severity = $2)
-  AND ($3::text = ''
-    OR source ILIKE '%' || $3 || '%'
-    OR tool_name ILIKE '%' || $3 || '%'
-    OR message ILIKE '%' || $3 || '%'
-    OR traceback ILIKE '%' || $3 || '%')
+WHERE (sqlc.arg(category_filter) = '' OR category = sqlc.arg(category_filter))
+  AND (sqlc.arg(severity_filter) = '' OR severity = sqlc.arg(severity_filter))
+  AND (sqlc.arg(keyword) = ''
+    OR lower(source) LIKE lower(sqlc.arg(keyword_pattern))
+    OR lower(tool_name) LIKE lower(sqlc.arg(keyword_pattern))
+    OR lower(message) LIKE lower(sqlc.arg(keyword_pattern))
+    OR lower(traceback) LIKE lower(sqlc.arg(keyword_pattern)))
 ORDER BY ts DESC, id DESC
-LIMIT $4;
+LIMIT sqlc.arg(limit_count);

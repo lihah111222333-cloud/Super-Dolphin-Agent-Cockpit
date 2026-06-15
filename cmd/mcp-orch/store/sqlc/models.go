@@ -5,479 +5,647 @@
 package sqlc
 
 import (
-	"github.com/jackc/pgx/v5/pgtype"
+	"encoding/json"
 )
 
 type AgentCodexBinding struct {
-	AgentID       string `json:"agent_id"`
-	CodexThreadID string `json:"codex_thread_id"`
-	RolloutPath   string `json:"rollout_path"`
-	CreatedAt     int64  `json:"created_at"`
-	UpdatedAt     int64  `json:"updated_at"`
-	Cwd           string `json:"cwd"`
-	Archived      bool   `json:"archived"`
+	AgentID       string `db:"agent_id" json:"agent_id"`
+	CodexThreadID string `db:"codex_thread_id" json:"codex_thread_id"`
+	RolloutPath   string `db:"rollout_path" json:"rollout_path"`
+	CreatedAt     int64  `db:"created_at" json:"created_at"`
+	UpdatedAt     int64  `db:"updated_at" json:"updated_at"`
+	CWD           string `db:"cwd" json:"cwd"`
+	Archived      int64  `db:"archived" json:"archived"`
+}
+
+type AgentFeedbackEvent struct {
+	ID              int64  `db:"id" json:"id"`
+	ThreadID        string `db:"thread_id" json:"thread_id"`
+	TurnID          string `db:"turn_id" json:"turn_id"`
+	AgentKey        string `db:"agent_key" json:"agent_key"`
+	PromptVersionID *int64 `db:"prompt_version_id" json:"prompt_version_id"`
+	EventType       string `db:"event_type" json:"event_type"`
+	Actor           string `db:"actor" json:"actor"`
+	Payload         string `db:"payload" json:"payload"`
+	CreatedAt       int64  `db:"created_at" json:"created_at"`
 }
 
 type AgentInteraction struct {
-	ID             int64              `json:"id"`
-	ThreadID       string             `json:"thread_id"`
-	ParentID       pgtype.Int8        `json:"parent_id"`
-	Sender         string             `json:"sender"`
-	Receiver       string             `json:"receiver"`
-	MsgType        string             `json:"msg_type"`
-	Status         string             `json:"status"`
-	RequiresReview bool               `json:"requires_review"`
-	ReviewedBy     string             `json:"reviewed_by"`
-	ReviewNote     string             `json:"review_note"`
-	ReviewedAt     pgtype.Timestamptz `json:"reviewed_at"`
-	Payload        []byte             `json:"payload"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	ID             int64  `db:"id" json:"id"`
+	ThreadID       string `db:"thread_id" json:"thread_id"`
+	ParentID       *int64 `db:"parent_id" json:"parent_id"`
+	Sender         string `db:"sender" json:"sender"`
+	Receiver       string `db:"receiver" json:"receiver"`
+	MsgType        string `db:"msg_type" json:"msg_type"`
+	Status         string `db:"status" json:"status"`
+	RequiresReview int64  `db:"requires_review" json:"requires_review"`
+	ReviewedBy     string `db:"reviewed_by" json:"reviewed_by"`
+	ReviewNote     string `db:"review_note" json:"review_note"`
+	ReviewedAt     *int64 `db:"reviewed_at" json:"reviewed_at"`
+	Payload        string `db:"payload" json:"payload"`
+	CreatedAt      int64  `db:"created_at" json:"created_at"`
+	UpdatedAt      int64  `db:"updated_at" json:"updated_at"`
 }
 
 type AgentProviderBinding struct {
-	AgentID          string `json:"agent_id"`
-	Provider         string `json:"provider"`
-	ProviderThreadID string `json:"provider_thread_id"`
-	CodexThreadID    string `json:"codex_thread_id"`
-	RolloutPath      string `json:"rollout_path"`
-	Cwd              string `json:"cwd"`
-	Archived         bool   `json:"archived"`
-	CreatedAt        int64  `json:"created_at"`
-	UpdatedAt        int64  `json:"updated_at"`
-	SessionUuid      string `json:"session_uuid"`
-	ParentAgentID    string `json:"parent_agent_id"`
-	AgentType        string `json:"agent_type"`
-	AgentMemoryScope string `json:"agent_memory_scope"`
+	AgentID            string `db:"agent_id" json:"agent_id"`
+	Provider           string `db:"provider" json:"provider"`
+	ProviderThreadID   string `db:"provider_thread_id" json:"provider_thread_id"`
+	CodexThreadID      string `db:"codex_thread_id" json:"codex_thread_id"`
+	RolloutPath        string `db:"rollout_path" json:"rollout_path"`
+	CWD                string `db:"cwd" json:"cwd"`
+	ParentAgentID      string `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType          string `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope   string `db:"agent_memory_scope" json:"agent_memory_scope"`
+	Archived           int64  `db:"archived" json:"archived"`
+	CreatedAt          int64  `db:"created_at" json:"created_at"`
+	UpdatedAt          int64  `db:"updated_at" json:"updated_at"`
+	SessionUUID        string `db:"session_uuid" json:"session_uuid"`
+	CodexHome          string `db:"codex_home" json:"codex_home"`
+	CodexInstanceKey   string `db:"codex_instance_key" json:"codex_instance_key"`
+	CodexModelProvider string `db:"codex_model_provider" json:"codex_model_provider"`
 }
 
 type AgentStatus struct {
-	AgentID     string             `json:"agent_id"`
-	AgentName   string             `json:"agent_name"`
-	SessionID   string             `json:"session_id"`
-	Status      string             `json:"status"`
-	StagnantSec int32              `json:"stagnant_sec"`
-	Error       string             `json:"error"`
-	OutputTail  []byte             `json:"output_tail"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	AgentID     string `db:"agent_id" json:"agent_id"`
+	AgentName   string `db:"agent_name" json:"agent_name"`
+	SessionID   string `db:"session_id" json:"session_id"`
+	Status      string `db:"status" json:"status"`
+	StagnantSec int64  `db:"stagnant_sec" json:"stagnant_sec"`
+	Error       string `db:"error" json:"error"`
+	OutputTail  string `db:"output_tail" json:"output_tail"`
+	CreatedAt   int64  `db:"created_at" json:"created_at"`
+	UpdatedAt   int64  `db:"updated_at" json:"updated_at"`
 }
 
 type AgentThread struct {
-	ThreadID         string      `json:"thread_id"`
-	Prompt           string      `json:"prompt"`
-	Model            string      `json:"model"`
-	Cwd              string      `json:"cwd"`
-	Status           string      `json:"status"`
-	Port             int32       `json:"port"`
-	Pid              int32       `json:"pid"`
-	CreatedAt        int64       `json:"created_at"`
-	UpdatedAt        int64       `json:"updated_at"`
-	FinishedAt       pgtype.Int8 `json:"finished_at"`
-	LastEventType    string      `json:"last_event_type"`
-	ErrorMessage     string      `json:"error_message"`
-	WorkspaceRunKey  string      `json:"workspace_run_key"`
-	OwnerThreadID    string      `json:"owner_thread_id"`
-	ParentAgentID    string      `json:"parent_agent_id"`
-	AgentType        string      `json:"agent_type"`
-	AgentMemoryScope string      `json:"agent_memory_scope"`
+	ThreadID         string `db:"thread_id" json:"thread_id"`
+	Name             string `db:"name" json:"name"`
+	Prompt           string `db:"prompt" json:"prompt"`
+	Model            string `db:"model" json:"model"`
+	CWD              string `db:"cwd" json:"cwd"`
+	Status           string `db:"status" json:"status"`
+	Port             int64  `db:"port" json:"port"`
+	Pid              int64  `db:"pid" json:"pid"`
+	CreatedAt        int64  `db:"created_at" json:"created_at"`
+	UpdatedAt        int64  `db:"updated_at" json:"updated_at"`
+	FinishedAt       *int64 `db:"finished_at" json:"finished_at"`
+	LastEventType    string `db:"last_event_type" json:"last_event_type"`
+	ErrorMessage     string `db:"error_message" json:"error_message"`
+	WorkspaceRunKey  string `db:"workspace_run_key" json:"workspace_run_key"`
+	OwnerThreadID    string `db:"owner_thread_id" json:"owner_thread_id"`
+	ConfigOverride   string `db:"config_override" json:"config_override"`
+	PromptSnapshot   string `db:"prompt_snapshot" json:"prompt_snapshot"`
+	ParentAgentID    string `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType        string `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope string `db:"agent_memory_scope" json:"agent_memory_scope"`
+	AgentKey         string `db:"agent_key" json:"agent_key"`
+	PromptVersionID  *int64 `db:"prompt_version_id" json:"prompt_version_id"`
+	PendingLaunch    int64  `db:"pending_launch" json:"pending_launch"`
+	ManuallyRenamed  int64  `db:"manually_renamed" json:"manually_renamed"`
 }
 
 type AuditEvent struct {
-	ID        int64              `json:"id"`
-	Ts        pgtype.Timestamptz `json:"ts"`
-	EventType string             `json:"event_type"`
-	Action    string             `json:"action"`
-	Result    string             `json:"result"`
-	Actor     string             `json:"actor"`
-	Target    string             `json:"target"`
-	Detail    string             `json:"detail"`
-	Level     string             `json:"level"`
-	Extra     []byte             `json:"extra"`
+	ID        int64  `db:"id" json:"id"`
+	Ts        int64  `db:"ts" json:"ts"`
+	EventType string `db:"event_type" json:"event_type"`
+	Action    string `db:"action" json:"action"`
+	Result    string `db:"result" json:"result"`
+	Actor     string `db:"actor" json:"actor"`
+	Target    string `db:"target" json:"target"`
+	Detail    string `db:"detail" json:"detail"`
+	Level     string `db:"level" json:"level"`
+	Extra     string `db:"extra" json:"extra"`
 }
 
 type BusExceptionLog struct {
-	ID        int64              `json:"id"`
-	Ts        pgtype.Timestamptz `json:"ts"`
-	Category  string             `json:"category"`
-	Severity  string             `json:"severity"`
-	Source    string             `json:"source"`
-	ToolName  string             `json:"tool_name"`
-	Message   string             `json:"message"`
-	Traceback string             `json:"traceback"`
-	Extra     []byte             `json:"extra"`
+	ID        int64  `db:"id" json:"id"`
+	Ts        int64  `db:"ts" json:"ts"`
+	Category  string `db:"category" json:"category"`
+	Severity  string `db:"severity" json:"severity"`
+	Source    string `db:"source" json:"source"`
+	ToolName  string `db:"tool_name" json:"tool_name"`
+	Message   string `db:"message" json:"message"`
+	Traceback string `db:"traceback" json:"traceback"`
+	Extra     string `db:"extra" json:"extra"`
+}
+
+type CWDInstanceLock struct {
+	CWD         string `db:"cwd" json:"cwd"`
+	InstanceID  string `db:"instance_id" json:"instance_id"`
+	Pid         int64  `db:"pid" json:"pid"`
+	AcquiredAt  int64  `db:"acquired_at" json:"acquired_at"`
+	HeartbeatAt int64  `db:"heartbeat_at" json:"heartbeat_at"`
 }
 
 type CommandCard struct {
-	ID              int64              `json:"id"`
-	CardKey         string             `json:"card_key"`
-	Title           string             `json:"title"`
-	Description     string             `json:"description"`
-	CommandTemplate string             `json:"command_template"`
-	ArgsSchema      []byte             `json:"args_schema"`
-	RiskLevel       string             `json:"risk_level"`
-	Enabled         bool               `json:"enabled"`
-	CreatedBy       string             `json:"created_by"`
-	UpdatedBy       string             `json:"updated_by"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	ID              int64           `db:"id" json:"id"`
+	CardKey         string          `db:"card_key" json:"card_key"`
+	Title           string          `db:"title" json:"title"`
+	Description     string          `db:"description" json:"description"`
+	CommandTemplate string          `db:"command_template" json:"command_template"`
+	ArgsSchema      json.RawMessage `db:"args_schema" json:"args_schema"`
+	RiskLevel       string          `db:"risk_level" json:"risk_level"`
+	Enabled         int64           `db:"enabled" json:"enabled"`
+	CreatedBy       string          `db:"created_by" json:"created_by"`
+	UpdatedBy       string          `db:"updated_by" json:"updated_by"`
+	CreatedAt       int64           `db:"created_at" json:"created_at"`
+	UpdatedAt       int64           `db:"updated_at" json:"updated_at"`
 }
 
 type CommandCardRun struct {
-	ID              int64              `json:"id"`
-	CardKey         string             `json:"card_key"`
-	RequestedBy     string             `json:"requested_by"`
-	Params          []byte             `json:"params"`
-	RenderedCommand string             `json:"rendered_command"`
-	RiskLevel       string             `json:"risk_level"`
-	Status          string             `json:"status"`
-	RequiresReview  bool               `json:"requires_review"`
-	InteractionID   pgtype.Int8        `json:"interaction_id"`
-	Output          string             `json:"output"`
-	Error           string             `json:"error"`
-	ExitCode        pgtype.Int4        `json:"exit_code"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-	ExecutedAt      pgtype.Timestamptz `json:"executed_at"`
+	ID              int64  `db:"id" json:"id"`
+	CardKey         string `db:"card_key" json:"card_key"`
+	RequestedBy     string `db:"requested_by" json:"requested_by"`
+	Params          string `db:"params" json:"params"`
+	RenderedCommand string `db:"rendered_command" json:"rendered_command"`
+	RiskLevel       string `db:"risk_level" json:"risk_level"`
+	Status          string `db:"status" json:"status"`
+	RequiresReview  int64  `db:"requires_review" json:"requires_review"`
+	InteractionID   *int64 `db:"interaction_id" json:"interaction_id"`
+	Output          string `db:"output" json:"output"`
+	Error           string `db:"error" json:"error"`
+	ExitCode        *int64 `db:"exit_code" json:"exit_code"`
+	CreatedAt       int64  `db:"created_at" json:"created_at"`
+	UpdatedAt       int64  `db:"updated_at" json:"updated_at"`
+	ExecutedAt      *int64 `db:"executed_at" json:"executed_at"`
 }
 
 type CommandCardVersion struct {
-	ID              int64              `json:"id"`
-	CardKey         string             `json:"card_key"`
-	Title           string             `json:"title"`
-	Description     string             `json:"description"`
-	CommandTemplate string             `json:"command_template"`
-	ArgsSchema      []byte             `json:"args_schema"`
-	RiskLevel       string             `json:"risk_level"`
-	Enabled         bool               `json:"enabled"`
-	CreatedBy       string             `json:"created_by"`
-	UpdatedBy       string             `json:"updated_by"`
-	SourceUpdatedAt pgtype.Timestamptz `json:"source_updated_at"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	ArchivedAt      pgtype.Timestamptz `json:"archived_at"`
+	ID              int64           `db:"id" json:"id"`
+	CardKey         string          `db:"card_key" json:"card_key"`
+	Title           string          `db:"title" json:"title"`
+	Description     string          `db:"description" json:"description"`
+	CommandTemplate string          `db:"command_template" json:"command_template"`
+	ArgsSchema      json.RawMessage `db:"args_schema" json:"args_schema"`
+	RiskLevel       string          `db:"risk_level" json:"risk_level"`
+	Enabled         int64           `db:"enabled" json:"enabled"`
+	CreatedBy       string          `db:"created_by" json:"created_by"`
+	UpdatedBy       string          `db:"updated_by" json:"updated_by"`
+	SourceUpdatedAt *int64          `db:"source_updated_at" json:"source_updated_at"`
+	CreatedAt       int64           `db:"created_at" json:"created_at"`
+	ArchivedAt      int64           `db:"archived_at" json:"archived_at"`
 }
 
-type CwdInstanceLock struct {
-	Cwd         string             `json:"cwd"`
-	InstanceID  string             `json:"instance_id"`
-	Pid         int32              `json:"pid"`
-	AcquiredAt  pgtype.Timestamptz `json:"acquired_at"`
-	HeartbeatAt pgtype.Timestamptz `json:"heartbeat_at"`
+type CronJob struct {
+	ID              string `db:"id" json:"id"`
+	Name            string `db:"name" json:"name"`
+	Prompt          string `db:"prompt" json:"prompt"`
+	ScheduleType    string `db:"schedule_type" json:"schedule_type"`
+	ScheduleExpr    string `db:"schedule_expr" json:"schedule_expr"`
+	Timezone        string `db:"timezone" json:"timezone"`
+	Provider        string `db:"provider" json:"provider"`
+	Model           string `db:"model" json:"model"`
+	CWD             string `db:"cwd" json:"cwd"`
+	Config          string `db:"config" json:"config"`
+	Skills          string `db:"skills" json:"skills"`
+	NotifyChannel   string `db:"notify_channel" json:"notify_channel"`
+	Enabled         int64  `db:"enabled" json:"enabled"`
+	NextRunAt       int64  `db:"next_run_at" json:"next_run_at"`
+	LastScheduledAt *int64 `db:"last_scheduled_at" json:"last_scheduled_at"`
+	LastRunAt       *int64 `db:"last_run_at" json:"last_run_at"`
+	ClaimedAt       *int64 `db:"claimed_at" json:"claimed_at"`
+	ClaimedBy       string `db:"claimed_by" json:"claimed_by"`
+	LeaseExpiresAt  *int64 `db:"lease_expires_at" json:"lease_expires_at"`
+	ClaimToken      string `db:"claim_token" json:"claim_token"`
+	ThreadID        string `db:"thread_id" json:"thread_id"`
+	AgentID         string `db:"agent_id" json:"agent_id"`
+	ActiveTurnID    string `db:"active_turn_id" json:"active_turn_id"`
+	LastTurnID      string `db:"last_turn_id" json:"last_turn_id"`
+	FailureCount    int64  `db:"failure_count" json:"failure_count"`
+	MaxAttempts     int64  `db:"max_attempts" json:"max_attempts"`
+	NextRetryAt     *int64 `db:"next_retry_at" json:"next_retry_at"`
+	LastStatus      string `db:"last_status" json:"last_status"`
+	LastErrorAt     *int64 `db:"last_error_at" json:"last_error_at"`
+	LastError       string `db:"last_error" json:"last_error"`
+	CreatedAt       int64  `db:"created_at" json:"created_at"`
+	UpdatedAt       int64  `db:"updated_at" json:"updated_at"`
 }
 
-type DagV20089GuardActiveRun struct {
-	Violation bool `json:"violation"`
+type CronJobRun struct {
+	ID             string `db:"id" json:"id"`
+	JobID          string `db:"job_id" json:"job_id"`
+	ScheduledAt    int64  `db:"scheduled_at" json:"scheduled_at"`
+	IdempotencyKey string `db:"idempotency_key" json:"idempotency_key"`
+	DedupeKey      string `db:"dedupe_key" json:"dedupe_key"`
+	ThreadID       string `db:"thread_id" json:"thread_id"`
+	AgentID        string `db:"agent_id" json:"agent_id"`
+	TurnID         string `db:"turn_id" json:"turn_id"`
+	SubmittedAt    *int64 `db:"submitted_at" json:"submitted_at"`
+	Status         string `db:"status" json:"status"`
+	Error          string `db:"error" json:"error"`
+	CreatedAt      int64  `db:"created_at" json:"created_at"`
+	UpdatedAt      int64  `db:"updated_at" json:"updated_at"`
 }
 
-type DagV20089GuardActiveWakeup struct {
-	Violation bool `json:"violation"`
+type HookPendingReview struct {
+	HookCallID      string `db:"hook_call_id" json:"hook_call_id"`
+	Topic           string `db:"topic" json:"topic"`
+	AgentID         string `db:"agent_id" json:"agent_id"`
+	ThreadID        string `db:"thread_id" json:"thread_id"`
+	TurnID          string `db:"turn_id" json:"turn_id"`
+	SubscriberLease string `db:"subscriber_lease" json:"subscriber_lease"`
+	Payload         string `db:"payload" json:"payload"`
+	Decision        string `db:"decision" json:"decision"`
+	Reason          string `db:"reason" json:"reason"`
+	DefaultAction   string `db:"default_action" json:"default_action"`
+	Status          string `db:"status" json:"status"`
+	CreatedAt       int64  `db:"created_at" json:"created_at"`
+	DeadlineAt      int64  `db:"deadline_at" json:"deadline_at"`
+	ResolvedAt      *int64 `db:"resolved_at" json:"resolved_at"`
+	IdempotencyKey  string `db:"idempotency_key" json:"idempotency_key"`
+	ResolvedBy      string `db:"resolved_by" json:"resolved_by"`
 }
 
 type Prompt struct {
-	ID         int64              `json:"id"`
-	AgentKey   string             `json:"agent_key"`
-	ToolName   string             `json:"tool_name"`
-	PromptText string             `json:"prompt_text"`
-	IsPinned   bool               `json:"is_pinned"`
-	SortOrder  int32              `json:"sort_order"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+	ID         int64  `db:"id" json:"id"`
+	AgentKey   string `db:"agent_key" json:"agent_key"`
+	ToolName   string `db:"tool_name" json:"tool_name"`
+	PromptText string `db:"prompt_text" json:"prompt_text"`
+	IsPinned   int64  `db:"is_pinned" json:"is_pinned"`
+	SortOrder  int64  `db:"sort_order" json:"sort_order"`
+	CreatedAt  int64  `db:"created_at" json:"created_at"`
+	UpdatedAt  int64  `db:"updated_at" json:"updated_at"`
+}
+
+type PromptIntentDraft struct {
+	ID            int64   `db:"id" json:"id"`
+	DraftKey      string  `db:"draft_key" json:"draft_key"`
+	CWD           string  `db:"cwd" json:"cwd"`
+	Kind          string  `db:"kind" json:"kind"`
+	RawInput      string  `db:"raw_input" json:"raw_input"`
+	SourceType    string  `db:"source_type" json:"source_type"`
+	SourceUrl     string  `db:"source_url" json:"source_url"`
+	OriginHash    string  `db:"origin_hash" json:"origin_hash"`
+	LicenseHint   string  `db:"license_hint" json:"license_hint"`
+	GeneratedCard string  `db:"generated_card" json:"generated_card"`
+	Confidence    float64 `db:"confidence" json:"confidence"`
+	Status        string  `db:"status" json:"status"`
+	Scope         string  `db:"scope" json:"scope"`
+	Issues        string  `db:"issues" json:"issues"`
+	CreatedAt     int64   `db:"created_at" json:"created_at"`
+	UpdatedAt     int64   `db:"updated_at" json:"updated_at"`
+}
+
+type PromptRecallTopic struct {
+	CWD        string `db:"cwd" json:"cwd"`
+	Topic      string `db:"topic" json:"topic"`
+	TemplateID int64  `db:"template_id" json:"template_id"`
+	SectionKey string `db:"section_key" json:"section_key"`
+}
+
+type PromptRoutingTest struct {
+	ID                int64  `db:"id" json:"id"`
+	Input             string `db:"input" json:"input"`
+	ExpectedPromptKey string `db:"expected_prompt_key" json:"expected_prompt_key"`
+	Note              string `db:"note" json:"note"`
+	Enabled           int64  `db:"enabled" json:"enabled"`
+	CreatedAt         int64  `db:"created_at" json:"created_at"`
+	UpdatedAt         int64  `db:"updated_at" json:"updated_at"`
 }
 
 type PromptTemplate struct {
-	ID             int64              `json:"id"`
-	PromptKey      string             `json:"prompt_key"`
-	Title          string             `json:"title"`
-	AgentKey       string             `json:"agent_key"`
-	ToolName       string             `json:"tool_name"`
-	PromptText     string             `json:"prompt_text"`
-	Variables      []byte             `json:"variables"`
-	Tags           []byte             `json:"tags"`
-	Enabled        bool               `json:"enabled"`
-	CreatedBy      string             `json:"created_by"`
-	UpdatedBy      string             `json:"updated_by"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-	Description    string             `json:"description"`
-	MatchWhen      []byte             `json:"match_when"`
-	Priority       int32              `json:"priority"`
-	ManuallyEdited bool               `json:"manually_edited"`
-	WhenToUse      string             `json:"when_to_use"`
+	ID             int64           `db:"id" json:"id"`
+	PromptKey      string          `db:"prompt_key" json:"prompt_key"`
+	Title          string          `db:"title" json:"title"`
+	AgentKey       string          `db:"agent_key" json:"agent_key"`
+	ToolName       string          `db:"tool_name" json:"tool_name"`
+	PromptText     string          `db:"prompt_text" json:"prompt_text"`
+	Variables      json.RawMessage `db:"variables" json:"variables"`
+	Tags           json.RawMessage `db:"tags" json:"tags"`
+	Description    string          `db:"description" json:"description"`
+	WhenToUse      string          `db:"when_to_use" json:"when_to_use"`
+	Enabled        int64           `db:"enabled" json:"enabled"`
+	ManuallyEdited int64           `db:"manually_edited" json:"manually_edited"`
+	MatchWhen      json.RawMessage `db:"match_when" json:"match_when"`
+	Priority       int64           `db:"priority" json:"priority"`
+	CreatedBy      string          `db:"created_by" json:"created_by"`
+	UpdatedBy      string          `db:"updated_by" json:"updated_by"`
+	CreatedAt      int64           `db:"created_at" json:"created_at"`
+	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
 }
 
 type PromptTemplateSection struct {
-	ID          int64              `json:"id"`
-	TemplateID  int64              `json:"template_id"`
-	SectionKey  string             `json:"section_key"`
-	Region      string             `json:"region"`
-	Ordinal     int32              `json:"ordinal"`
-	Body        string             `json:"body"`
-	EnableWhen  []byte             `json:"enable_when"`
-	Enabled     bool               `json:"enabled"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	TriggerType string             `json:"trigger_type"`
-	RecallTopic string             `json:"recall_topic"`
+	ID          int64  `db:"id" json:"id"`
+	TemplateID  int64  `db:"template_id" json:"template_id"`
+	SectionKey  string `db:"section_key" json:"section_key"`
+	Region      string `db:"region" json:"region"`
+	Ordinal     int64  `db:"ordinal" json:"ordinal"`
+	Body        string `db:"body" json:"body"`
+	EnableWhen  string `db:"enable_when" json:"enable_when"`
+	Enabled     int64  `db:"enabled" json:"enabled"`
+	CreatedAt   int64  `db:"created_at" json:"created_at"`
+	UpdatedAt   int64  `db:"updated_at" json:"updated_at"`
+	TriggerType string `db:"trigger_type" json:"trigger_type"`
+	RecallTopic string `db:"recall_topic" json:"recall_topic"`
 }
 
 type PromptTemplateVersion struct {
-	ID              int64              `json:"id"`
-	PromptKey       string             `json:"prompt_key"`
-	Title           string             `json:"title"`
-	AgentKey        string             `json:"agent_key"`
-	ToolName        string             `json:"tool_name"`
-	PromptText      string             `json:"prompt_text"`
-	Variables       []byte             `json:"variables"`
-	Tags            []byte             `json:"tags"`
-	Enabled         bool               `json:"enabled"`
-	CreatedBy       string             `json:"created_by"`
-	UpdatedBy       string             `json:"updated_by"`
-	SourceUpdatedAt pgtype.Timestamptz `json:"source_updated_at"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	ArchivedAt      pgtype.Timestamptz `json:"archived_at"`
+	ID              int64  `db:"id" json:"id"`
+	PromptKey       string `db:"prompt_key" json:"prompt_key"`
+	Title           string `db:"title" json:"title"`
+	AgentKey        string `db:"agent_key" json:"agent_key"`
+	ToolName        string `db:"tool_name" json:"tool_name"`
+	PromptText      string `db:"prompt_text" json:"prompt_text"`
+	Variables       string `db:"variables" json:"variables"`
+	Tags            string `db:"tags" json:"tags"`
+	Enabled         int64  `db:"enabled" json:"enabled"`
+	CreatedBy       string `db:"created_by" json:"created_by"`
+	UpdatedBy       string `db:"updated_by" json:"updated_by"`
+	SourceUpdatedAt *int64 `db:"source_updated_at" json:"source_updated_at"`
+	CreatedAt       int64  `db:"created_at" json:"created_at"`
+	ArchivedAt      int64  `db:"archived_at" json:"archived_at"`
 }
 
 type PromptVersion struct {
-	ID              int64              `json:"id"`
-	PromptKey       string             `json:"prompt_key"`
-	Title           string             `json:"title"`
-	AgentKey        string             `json:"agent_key"`
-	ToolName        string             `json:"tool_name"`
-	PromptText      string             `json:"prompt_text"`
-	Variables       []byte             `json:"variables"`
-	Tags            []byte             `json:"tags"`
-	Enabled         bool               `json:"enabled"`
-	CreatedBy       string             `json:"created_by"`
-	UpdatedBy       string             `json:"updated_by"`
-	SourceUpdatedAt pgtype.Timestamptz `json:"source_updated_at"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	ArchivedAt      pgtype.Timestamptz `json:"archived_at"`
-	Description     string             `json:"description"`
+	ID              int64           `db:"id" json:"id"`
+	PromptKey       string          `db:"prompt_key" json:"prompt_key"`
+	Title           string          `db:"title" json:"title"`
+	AgentKey        string          `db:"agent_key" json:"agent_key"`
+	ToolName        string          `db:"tool_name" json:"tool_name"`
+	PromptText      string          `db:"prompt_text" json:"prompt_text"`
+	Variables       json.RawMessage `db:"variables" json:"variables"`
+	Tags            json.RawMessage `db:"tags" json:"tags"`
+	Description     string          `db:"description" json:"description"`
+	Enabled         int64           `db:"enabled" json:"enabled"`
+	CreatedBy       string          `db:"created_by" json:"created_by"`
+	UpdatedBy       string          `db:"updated_by" json:"updated_by"`
+	SourceUpdatedAt *int64          `db:"source_updated_at" json:"source_updated_at"`
+	CreatedAt       int64           `db:"created_at" json:"created_at"`
+	ArchivedAt      int64           `db:"archived_at" json:"archived_at"`
+}
+
+type RuntimeLock struct {
+	LockKey        string `db:"lock_key" json:"lock_key"`
+	Holder         string `db:"holder" json:"holder"`
+	LeaseExpiresAt int64  `db:"lease_expires_at" json:"lease_expires_at"`
+	UpdatedAt      int64  `db:"updated_at" json:"updated_at"`
 }
 
 type SchemaMigration struct {
-	Version   int32              `json:"version"`
-	Name      string             `json:"name"`
-	Filename  string             `json:"filename"`
-	AppliedAt pgtype.Timestamptz `json:"applied_at"`
+	Version   int64  `db:"version" json:"version"`
+	Name      string `db:"name" json:"name"`
+	Filename  string `db:"filename" json:"filename"`
+	AppliedAt int64  `db:"applied_at" json:"applied_at"`
+}
+
+type SessionInsight struct {
+	ID                       int64  `db:"id" json:"id"`
+	ThreadID                 string `db:"thread_id" json:"thread_id"`
+	AgentID                  string `db:"agent_id" json:"agent_id"`
+	SessionID                string `db:"session_id" json:"session_id"`
+	Provider                 string `db:"provider" json:"provider"`
+	LocalTurnID              string `db:"local_turn_id" json:"local_turn_id"`
+	ProviderTurnID           string `db:"provider_turn_id" json:"provider_turn_id"`
+	StartedAt                *int64 `db:"started_at" json:"started_at"`
+	CompletedAt              *int64 `db:"completed_at" json:"completed_at"`
+	DurationMs               int64  `db:"duration_ms" json:"duration_ms"`
+	Success                  *int64 `db:"success" json:"success"`
+	Status                   string `db:"status" json:"status"`
+	StopReason               string `db:"stop_reason" json:"stop_reason"`
+	ToolCalls                int64  `db:"tool_calls" json:"tool_calls"`
+	ToolCallsObserved        int64  `db:"tool_calls_observed" json:"tool_calls_observed"`
+	ToolFailures             int64  `db:"tool_failures" json:"tool_failures"`
+	ToolFailuresObserved     int64  `db:"tool_failures_observed" json:"tool_failures_observed"`
+	ApprovalRequests         int64  `db:"approval_requests" json:"approval_requests"`
+	ApprovalRequestsObserved int64  `db:"approval_requests_observed" json:"approval_requests_observed"`
+	TokenInput               int64  `db:"token_input" json:"token_input"`
+	TokenOutput              int64  `db:"token_output" json:"token_output"`
+	TokenTotal               int64  `db:"token_total" json:"token_total"`
+	TokenSnapshotObserved    int64  `db:"token_snapshot_observed" json:"token_snapshot_observed"`
+	ContextWindowTokens      int64  `db:"context_window_tokens" json:"context_window_tokens"`
+	UiProjection             string `db:"ui_projection" json:"ui_projection"`
+	SkillsSelected           string `db:"skills_selected" json:"skills_selected"`
+	CreatedAt                int64  `db:"created_at" json:"created_at"`
+	UpdatedAt                int64  `db:"updated_at" json:"updated_at"`
 }
 
 type SharedFile struct {
-	Path      string             `json:"path"`
-	Content   string             `json:"content"`
-	UpdatedBy string             `json:"updated_by"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	Path      string `db:"path" json:"path"`
+	Content   string `db:"content" json:"content"`
+	UpdatedBy string `db:"updated_by" json:"updated_by"`
+	CreatedAt int64  `db:"created_at" json:"created_at"`
+	UpdatedAt int64  `db:"updated_at" json:"updated_at"`
 }
 
 type SystemLog struct {
-	ID         int64              `json:"id"`
-	Ts         pgtype.Timestamptz `json:"ts"`
-	Level      string             `json:"level"`
-	Logger     string             `json:"logger"`
-	Message    string             `json:"message"`
-	Raw        string             `json:"raw"`
-	Source     string             `json:"source"`
-	Component  string             `json:"component"`
-	AgentID    string             `json:"agent_id"`
-	ThreadID   string             `json:"thread_id"`
-	TraceID    string             `json:"trace_id"`
-	EventType  string             `json:"event_type"`
-	ToolName   string             `json:"tool_name"`
-	DurationMs pgtype.Int4        `json:"duration_ms"`
-	Extra      []byte             `json:"extra"`
+	ID         int64  `db:"id" json:"id"`
+	Ts         int64  `db:"ts" json:"ts"`
+	Level      string `db:"level" json:"level"`
+	Logger     string `db:"logger" json:"logger"`
+	Message    string `db:"message" json:"message"`
+	Raw        string `db:"raw" json:"raw"`
+	Source     string `db:"source" json:"source"`
+	Component  string `db:"component" json:"component"`
+	AgentID    string `db:"agent_id" json:"agent_id"`
+	ThreadID   string `db:"thread_id" json:"thread_id"`
+	TraceID    string `db:"trace_id" json:"trace_id"`
+	EventType  string `db:"event_type" json:"event_type"`
+	ToolName   string `db:"tool_name" json:"tool_name"`
+	DurationMs *int64 `db:"duration_ms" json:"duration_ms"`
+	Extra      string `db:"extra" json:"extra"`
 }
 
 type TaskAck struct {
-	ID            int64              `json:"id"`
-	AckKey        string             `json:"ack_key"`
-	Title         string             `json:"title"`
-	Description   string             `json:"description"`
-	AssignedTo    string             `json:"assigned_to"`
-	RequestedBy   string             `json:"requested_by"`
-	Priority      string             `json:"priority"`
-	Status        string             `json:"status"`
-	Progress      int32              `json:"progress"`
-	AckMessage    string             `json:"ack_message"`
-	ResultSummary string             `json:"result_summary"`
-	Metadata      []byte             `json:"metadata"`
-	DueAt         pgtype.Timestamptz `json:"due_at"`
-	AckedAt       pgtype.Timestamptz `json:"acked_at"`
-	StartedAt     pgtype.Timestamptz `json:"started_at"`
-	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	ID            int64           `db:"id" json:"id"`
+	AckKey        string          `db:"ack_key" json:"ack_key"`
+	Title         string          `db:"title" json:"title"`
+	Description   string          `db:"description" json:"description"`
+	AssignedTo    string          `db:"assigned_to" json:"assigned_to"`
+	RequestedBy   string          `db:"requested_by" json:"requested_by"`
+	Priority      string          `db:"priority" json:"priority"`
+	Status        string          `db:"status" json:"status"`
+	Progress      int64           `db:"progress" json:"progress"`
+	AckMessage    string          `db:"ack_message" json:"ack_message"`
+	ResultSummary string          `db:"result_summary" json:"result_summary"`
+	Metadata      json.RawMessage `db:"metadata" json:"metadata"`
+	DueAt         *int64          `db:"due_at" json:"due_at"`
+	AckedAt       *int64          `db:"acked_at" json:"acked_at"`
+	StartedAt     *int64          `db:"started_at" json:"started_at"`
+	FinishedAt    *int64          `db:"finished_at" json:"finished_at"`
+	CreatedAt     int64           `db:"created_at" json:"created_at"`
+	UpdatedAt     int64           `db:"updated_at" json:"updated_at"`
 }
 
 type TaskDag struct {
-	ID          int64              `json:"id"`
-	DagKey      string             `json:"dag_key"`
-	Title       string             `json:"title"`
-	Description string             `json:"description"`
-	Status      string             `json:"status"`
-	CreatedBy   string             `json:"created_by"`
-	Metadata    []byte             `json:"metadata"`
-	StartedAt   pgtype.Timestamptz `json:"started_at"`
-	FinishedAt  pgtype.Timestamptz `json:"finished_at"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	Trigger     string             `json:"trigger"`
-	OwnerID     string             `json:"owner_id"`
-	CronExpr    string             `json:"cron_expr"`
-	NextRunAt   pgtype.Timestamptz `json:"next_run_at"`
-	Version     int64              `json:"version"`
+	ID          int64           `db:"id" json:"id"`
+	DagKey      string          `db:"dag_key" json:"dag_key"`
+	Title       string          `db:"title" json:"title"`
+	Description string          `db:"description" json:"description"`
+	Status      string          `db:"status" json:"status"`
+	CreatedBy   string          `db:"created_by" json:"created_by"`
+	Metadata    json.RawMessage `db:"metadata" json:"metadata"`
+	StartedAt   *int64          `db:"started_at" json:"started_at"`
+	FinishedAt  *int64          `db:"finished_at" json:"finished_at"`
+	CreatedAt   int64           `db:"created_at" json:"created_at"`
+	UpdatedAt   int64           `db:"updated_at" json:"updated_at"`
+	Trigger     string          `db:"trigger" json:"trigger"`
+	OwnerID     string          `db:"owner_id" json:"owner_id"`
+	CronExpr    string          `db:"cron_expr" json:"cron_expr"`
+	NextRunAt   *int64          `db:"next_run_at" json:"next_run_at"`
+	Version     int64           `db:"version" json:"version"`
 }
 
 type TaskDagNode struct {
-	ID               int64              `json:"id"`
-	DagKey           string             `json:"dag_key"`
-	NodeKey          string             `json:"node_key"`
-	Title            string             `json:"title"`
-	NodeType         string             `json:"node_type"`
-	AssignedTo       string             `json:"assigned_to"`
-	DependsOn        []byte             `json:"depends_on"`
-	Status           string             `json:"status"`
-	CommandRef       string             `json:"command_ref"`
-	Config           []byte             `json:"config"`
-	Result           []byte             `json:"result"`
-	StartedAt        pgtype.Timestamptz `json:"started_at"`
-	FinishedAt       pgtype.Timestamptz `json:"finished_at"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
-	ActiveTurnID     pgtype.Text        `json:"active_turn_id"`
-	ActiveWakeupID   pgtype.Int8        `json:"active_wakeup_id"`
-	LastEventAt      pgtype.Timestamptz `json:"last_event_at"`
-	RunID            pgtype.Int8        `json:"run_id"`
-	Reads            []byte             `json:"reads"`
-	Writes           []byte             `json:"writes"`
-	SpawningThreadID pgtype.Text        `json:"spawning_thread_id"`
+	ID               int64           `db:"id" json:"id"`
+	DagKey           string          `db:"dag_key" json:"dag_key"`
+	NodeKey          string          `db:"node_key" json:"node_key"`
+	Title            string          `db:"title" json:"title"`
+	NodeType         string          `db:"node_type" json:"node_type"`
+	AssignedTo       string          `db:"assigned_to" json:"assigned_to"`
+	DependsOn        json.RawMessage `db:"depends_on" json:"depends_on"`
+	Status           string          `db:"status" json:"status"`
+	CommandRef       string          `db:"command_ref" json:"command_ref"`
+	Config           json.RawMessage `db:"config" json:"config"`
+	Result           json.RawMessage `db:"result" json:"result"`
+	StartedAt        *int64          `db:"started_at" json:"started_at"`
+	FinishedAt       *int64          `db:"finished_at" json:"finished_at"`
+	CreatedAt        int64           `db:"created_at" json:"created_at"`
+	UpdatedAt        int64           `db:"updated_at" json:"updated_at"`
+	ActiveTurnID     *string         `db:"active_turn_id" json:"active_turn_id"`
+	ActiveWakeupID   *int64          `db:"active_wakeup_id" json:"active_wakeup_id"`
+	LastEventAt      *int64          `db:"last_event_at" json:"last_event_at"`
+	RunID            *int64          `db:"run_id" json:"run_id"`
+	Reads            json.RawMessage `db:"reads" json:"reads"`
+	Writes           json.RawMessage `db:"writes" json:"writes"`
+	SpawningThreadID *string         `db:"spawning_thread_id" json:"spawning_thread_id"`
 }
 
 type TaskDagRun struct {
-	ID                 int64              `json:"id"`
-	RunKey             string             `json:"run_key"`
-	DagKey             string             `json:"dag_key"`
-	DagVersionSnapshot int64              `json:"dag_version_snapshot"`
-	TriggerSource      string             `json:"trigger_source"`
-	Status             string             `json:"status"`
-	StartedAt          pgtype.Timestamptz `json:"started_at"`
-	FinishedAt         pgtype.Timestamptz `json:"finished_at"`
-	Events             []byte             `json:"events"`
-	BudgetUsed         int64              `json:"budget_used"`
-	BudgetLimit        pgtype.Int8        `json:"budget_limit"`
-	Metadata           []byte             `json:"metadata"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	ID                 int64           `db:"id" json:"id"`
+	RunKey             string          `db:"run_key" json:"run_key"`
+	DagKey             string          `db:"dag_key" json:"dag_key"`
+	DagVersionSnapshot int64           `db:"dag_version_snapshot" json:"dag_version_snapshot"`
+	TriggerSource      string          `db:"trigger_source" json:"trigger_source"`
+	Status             string          `db:"status" json:"status"`
+	StartedAt          int64           `db:"started_at" json:"started_at"`
+	FinishedAt         *int64          `db:"finished_at" json:"finished_at"`
+	Events             json.RawMessage `db:"events" json:"events"`
+	BudgetUsed         int64           `db:"budget_used" json:"budget_used"`
+	BudgetLimit        *int64          `db:"budget_limit" json:"budget_limit"`
+	Metadata           json.RawMessage `db:"metadata" json:"metadata"`
+	CreatedAt          int64           `db:"created_at" json:"created_at"`
+	UpdatedAt          int64           `db:"updated_at" json:"updated_at"`
 }
 
 type TaskDagWakeup struct {
-	ID             int64              `json:"id"`
-	DagKey         string             `json:"dag_key"`
-	NodeKey        string             `json:"node_key"`
-	WakeupKind     string             `json:"wakeup_kind"`
-	TargetAgentID  string             `json:"target_agent_id"`
-	PromptPayload  []byte             `json:"prompt_payload"`
-	IdempotencyKey string             `json:"idempotency_key"`
-	Status         string             `json:"status"`
-	AttemptCount   int32              `json:"attempt_count"`
-	NextRetryAt    pgtype.Timestamptz `json:"next_retry_at"`
-	ClaimedAt      pgtype.Timestamptz `json:"claimed_at"`
-	ClaimedBy      string             `json:"claimed_by"`
-	LeaseExpiresAt pgtype.Timestamptz `json:"lease_expires_at"`
-	SentAt         pgtype.Timestamptz `json:"sent_at"`
-	BoundTurnID    pgtype.Text        `json:"bound_turn_id"`
-	TurnBoundAt    pgtype.Timestamptz `json:"turn_bound_at"`
-	LastError      string             `json:"last_error"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-	RunID          pgtype.Int8        `json:"run_id"`
+	ID             int64           `db:"id" json:"id"`
+	DagKey         string          `db:"dag_key" json:"dag_key"`
+	NodeKey        string          `db:"node_key" json:"node_key"`
+	RunID          *int64          `db:"run_id" json:"run_id"`
+	WakeupKind     string          `db:"wakeup_kind" json:"wakeup_kind"`
+	TargetAgentID  string          `db:"target_agent_id" json:"target_agent_id"`
+	PromptPayload  json.RawMessage `db:"prompt_payload" json:"prompt_payload"`
+	IdempotencyKey string          `db:"idempotency_key" json:"idempotency_key"`
+	Status         string          `db:"status" json:"status"`
+	AttemptCount   int64           `db:"attempt_count" json:"attempt_count"`
+	NextRetryAt    int64           `db:"next_retry_at" json:"next_retry_at"`
+	ClaimedAt      *int64          `db:"claimed_at" json:"claimed_at"`
+	ClaimedBy      string          `db:"claimed_by" json:"claimed_by"`
+	LeaseExpiresAt *int64          `db:"lease_expires_at" json:"lease_expires_at"`
+	SentAt         *int64          `db:"sent_at" json:"sent_at"`
+	BoundTurnID    *string         `db:"bound_turn_id" json:"bound_turn_id"`
+	TurnBoundAt    *int64          `db:"turn_bound_at" json:"turn_bound_at"`
+	LastError      string          `db:"last_error" json:"last_error"`
+	CreatedAt      int64           `db:"created_at" json:"created_at"`
+	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
 }
 
 type TaskDagWorkerLease struct {
-	TargetAgentID  string             `json:"target_agent_id"`
-	OwnerID        string             `json:"owner_id"`
-	LeaseExpiresAt pgtype.Timestamptz `json:"lease_expires_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	TargetAgentID  string `db:"target_agent_id" json:"target_agent_id"`
+	OwnerID        string `db:"owner_id" json:"owner_id"`
+	LeaseExpiresAt int64  `db:"lease_expires_at" json:"lease_expires_at"`
+	UpdatedAt      int64  `db:"updated_at" json:"updated_at"`
 }
 
 type TaskTrace struct {
-	ID            int64              `json:"id"`
-	TraceID       string             `json:"trace_id"`
-	SpanID        string             `json:"span_id"`
-	ParentSpanID  string             `json:"parent_span_id"`
-	SpanName      string             `json:"span_name"`
-	Component     string             `json:"component"`
-	Status        string             `json:"status"`
-	InputPayload  []byte             `json:"input_payload"`
-	OutputPayload []byte             `json:"output_payload"`
-	ErrorText     string             `json:"error_text"`
-	Metadata      []byte             `json:"metadata"`
-	StartedAt     pgtype.Timestamptz `json:"started_at"`
-	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
-	DurationMs    int32              `json:"duration_ms"`
+	ID            int64  `db:"id" json:"id"`
+	TraceID       string `db:"trace_id" json:"trace_id"`
+	SpanID        string `db:"span_id" json:"span_id"`
+	ParentSpanID  string `db:"parent_span_id" json:"parent_span_id"`
+	SpanName      string `db:"span_name" json:"span_name"`
+	Component     string `db:"component" json:"component"`
+	Status        string `db:"status" json:"status"`
+	InputPayload  string `db:"input_payload" json:"input_payload"`
+	OutputPayload string `db:"output_payload" json:"output_payload"`
+	ErrorText     string `db:"error_text" json:"error_text"`
+	Metadata      string `db:"metadata" json:"metadata"`
+	StartedAt     int64  `db:"started_at" json:"started_at"`
+	FinishedAt    *int64 `db:"finished_at" json:"finished_at"`
+	DurationMs    int64  `db:"duration_ms" json:"duration_ms"`
 }
 
 type TopologyApproval struct {
-	ID                   string             `json:"id"`
-	Status               string             `json:"status"`
-	RequestedBy          string             `json:"requested_by"`
-	Reason               string             `json:"reason"`
-	CreatedAt            pgtype.Timestamptz `json:"created_at"`
-	ExpireAt             pgtype.Timestamptz `json:"expire_at"`
-	ReviewedAt           pgtype.Timestamptz `json:"reviewed_at"`
-	Reviewer             string             `json:"reviewer"`
-	ReviewNote           string             `json:"review_note"`
-	ArchHash             string             `json:"arch_hash"`
-	ProposedArchitecture []byte             `json:"proposed_architecture"`
+	ID                   string `db:"id" json:"id"`
+	Status               string `db:"status" json:"status"`
+	RequestedBy          string `db:"requested_by" json:"requested_by"`
+	Reason               string `db:"reason" json:"reason"`
+	CreatedAt            int64  `db:"created_at" json:"created_at"`
+	ExpireAt             int64  `db:"expire_at" json:"expire_at"`
+	ReviewedAt           *int64 `db:"reviewed_at" json:"reviewed_at"`
+	Reviewer             string `db:"reviewer" json:"reviewer"`
+	ReviewNote           string `db:"review_note" json:"review_note"`
+	ArchHash             string `db:"arch_hash" json:"arch_hash"`
+	ProposedArchitecture string `db:"proposed_architecture" json:"proposed_architecture"`
 }
 
 type TopologyApprovalArchive struct {
-	ID                   string             `json:"id"`
-	Status               string             `json:"status"`
-	RequestedBy          string             `json:"requested_by"`
-	Reason               string             `json:"reason"`
-	CreatedAt            pgtype.Timestamptz `json:"created_at"`
-	ExpireAt             pgtype.Timestamptz `json:"expire_at"`
-	ReviewedAt           pgtype.Timestamptz `json:"reviewed_at"`
-	Reviewer             string             `json:"reviewer"`
-	ReviewNote           string             `json:"review_note"`
-	ArchHash             string             `json:"arch_hash"`
-	ProposedArchitecture []byte             `json:"proposed_architecture"`
-	ArchivedAt           pgtype.Timestamptz `json:"archived_at"`
+	ID                   string `db:"id" json:"id"`
+	Status               string `db:"status" json:"status"`
+	RequestedBy          string `db:"requested_by" json:"requested_by"`
+	Reason               string `db:"reason" json:"reason"`
+	CreatedAt            int64  `db:"created_at" json:"created_at"`
+	ExpireAt             int64  `db:"expire_at" json:"expire_at"`
+	ReviewedAt           *int64 `db:"reviewed_at" json:"reviewed_at"`
+	Reviewer             string `db:"reviewer" json:"reviewer"`
+	ReviewNote           string `db:"review_note" json:"review_note"`
+	ArchHash             string `db:"arch_hash" json:"arch_hash"`
+	ProposedArchitecture string `db:"proposed_architecture" json:"proposed_architecture"`
+	ArchivedAt           int64  `db:"archived_at" json:"archived_at"`
+}
+
+type TurnDedupeRegistry struct {
+	DedupeKey      string `db:"dedupe_key" json:"dedupe_key"`
+	LocalTurnID    string `db:"local_turn_id" json:"local_turn_id"`
+	ProviderTurnID string `db:"provider_turn_id" json:"provider_turn_id"`
+	ThreadID       string `db:"thread_id" json:"thread_id"`
+	CreatedAt      int64  `db:"created_at" json:"created_at"`
+	UpdatedAt      int64  `db:"updated_at" json:"updated_at"`
+	TerminalAt     *int64 `db:"terminal_at" json:"terminal_at"`
 }
 
 type UiPreference struct {
-	Key       string             `json:"key"`
-	Value     []byte             `json:"value"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	Cwd       string             `json:"cwd"`
+	CWD       string `db:"cwd" json:"cwd"`
+	Key       string `db:"key" json:"key"`
+	Value     string `db:"value" json:"value"`
+	UpdatedAt int64  `db:"updated_at" json:"updated_at"`
 }
 
 type WorkspaceRun struct {
-	ID            int64              `json:"id"`
-	RunKey        string             `json:"run_key"`
-	DagKey        string             `json:"dag_key"`
-	SourceRoot    string             `json:"source_root"`
-	WorkspacePath string             `json:"workspace_path"`
-	Status        string             `json:"status"`
-	CreatedBy     string             `json:"created_by"`
-	UpdatedBy     string             `json:"updated_by"`
-	Metadata      []byte             `json:"metadata"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
-	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
+	ID            int64           `db:"id" json:"id"`
+	RunKey        string          `db:"run_key" json:"run_key"`
+	DagKey        string          `db:"dag_key" json:"dag_key"`
+	SourceRoot    string          `db:"source_root" json:"source_root"`
+	WorkspacePath string          `db:"workspace_path" json:"workspace_path"`
+	Status        string          `db:"status" json:"status"`
+	CreatedBy     string          `db:"created_by" json:"created_by"`
+	UpdatedBy     string          `db:"updated_by" json:"updated_by"`
+	Metadata      json.RawMessage `db:"metadata" json:"metadata"`
+	CreatedAt     int64           `db:"created_at" json:"created_at"`
+	UpdatedAt     int64           `db:"updated_at" json:"updated_at"`
+	FinishedAt    *int64          `db:"finished_at" json:"finished_at"`
 }
 
 type WorkspaceRunFile struct {
-	ID                 int64              `json:"id"`
-	RunKey             string             `json:"run_key"`
-	RelativePath       string             `json:"relative_path"`
-	BaselineSha256     string             `json:"baseline_sha256"`
-	WorkspaceSha256    string             `json:"workspace_sha256"`
-	SourceSha256Before string             `json:"source_sha256_before"`
-	SourceSha256After  string             `json:"source_sha256_after"`
-	State              string             `json:"state"`
-	LastError          string             `json:"last_error"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	ID                 int64  `db:"id" json:"id"`
+	RunKey             string `db:"run_key" json:"run_key"`
+	RelativePath       string `db:"relative_path" json:"relative_path"`
+	BaselineSha256     string `db:"baseline_sha256" json:"baseline_sha256"`
+	WorkspaceSha256    string `db:"workspace_sha256" json:"workspace_sha256"`
+	SourceSha256Before string `db:"source_sha256_before" json:"source_sha256_before"`
+	SourceSha256After  string `db:"source_sha256_after" json:"source_sha256_after"`
+	State              string `db:"state" json:"state"`
+	LastError          string `db:"last_error" json:"last_error"`
+	CreatedAt          int64  `db:"created_at" json:"created_at"`
+	UpdatedAt          int64  `db:"updated_at" json:"updated_at"`
 }

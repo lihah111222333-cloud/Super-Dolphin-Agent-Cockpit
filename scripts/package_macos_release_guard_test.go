@@ -57,7 +57,6 @@ func TestPackageLinuxScriptRequiresPackagedCodexRelayConfig(t *testing.T) {
 	assertScriptDoesNotContain(t, script, "packaged_relay_api_key=\"${SUPER_DOLPHIN_CODEX_RELAY_API_KEY:-}\"")
 	assertScriptContains(t, script, "$stage/.env")
 	assertScriptOrder(t, script, "resolve_packaged_relay_env", "mkdir -p \"$stage/bin\"")
-	assertScriptOrder(t, script, "rsync -aL --delete \"$pg_src\"/", "write_packaged_relay_env \"$stage\"")
 	assertScriptOrder(t, script, "write_packaged_relay_env \"$stage\"", "tar -C \"$dist\"")
 }
 
@@ -65,28 +64,26 @@ func TestPackageLinuxScriptRejectsWhitespaceOnlyPackagedCodexRelayEnv(t *testing
 	assertPackageScriptRejectsWhitespaceOnlyPackagedCodexRelayEnv(t, "package_linux.sh", "linux")
 }
 
-func TestPackageMacOSScriptRejectsNonRelocatablePostgresLayout(t *testing.T) {
+func TestPackageMacOSScriptDoesNotRequireBundledPostgresRuntime(t *testing.T) {
 	script := readScript(t, "package_macos.sh")
 
-	assertScriptContains(t, script, "verify_postgres_relocatable_layout \"$pg_src\"")
-	assertScriptContains(t, script, "pg_config\" --bindir")
-	assertScriptContains(t, script, "pg_config\" --sharedir")
-	assertScriptContains(t, script, "compiled_prefix=\"${compiled_bindir%/bin}\"")
-	assertScriptContains(t, script, "\"$compiled_prefix/share\"|\"$compiled_prefix/share/\"*")
-	assertScriptContains(t, script, "Homebrew PostgreSQL cannot be copied directly")
-	assertScriptOrder(t, script, "verify_postgres_relocatable_layout \"$pg_src\"", "rsync -aL --delete \"$pg_src\"/")
-}
-
-func TestPackageMacOSScriptVerifiesStagedPostgresFiles(t *testing.T) {
-	script := readScript(t, "package_macos.sh")
-	body := functionBody(t, script, "verify_postgres_runtime")
-
-	assertScriptContains(t, body, "run_packaged_smoke_check \"PostgreSQL initdb\" \"$pg_bundle/bin/initdb\" --version")
-	assertScriptContains(t, body, "run_packaged_smoke_check \"PostgreSQL postgres\" \"$pg_bundle/bin/postgres\" --version")
-	assertScriptContains(t, body, "run_packaged_smoke_check \"PostgreSQL pg_ctl\" \"$pg_bundle/bin/pg_ctl\" --version")
-	assertScriptContains(t, body, "verify_postgres_share_dir \"$pg_bundle\"")
-	assertScriptDoesNotContain(t, body, "pg_config\" --sharedir")
-	assertScriptDoesNotContain(t, body, "compiled_sharedir")
+	for _, forbidden := range []string{
+		"SUPER_DOLPHIN_POSTGRES_DIST",
+		"embedded_postgres_resource_path",
+		"verify_postgres_runtime",
+		"verify_postgres_relocatable_layout",
+		"pg_ctl",
+		"initdb",
+		"rsync -aL --delete \"$pg_src\"/",
+		"add_postgres_rpaths",
+		"postgres)",
+		"embedded_postgres_resource_path",
+		"SUPER_DOLPHIN_POSTGRES_",
+		"packaged postgres",
+		"bundled PostgreSQL",
+	} {
+		assertScriptDoesNotContain(t, script, forbidden)
+	}
 }
 
 func TestPackageMacOSScriptRunsBundleVerifierAfterCodesignBeforeDmg(t *testing.T) {
@@ -164,13 +161,8 @@ func TestVerifyPackagedAppMacOSScriptContracts(t *testing.T) {
 	assertScriptContains(t, script, "bundled_gopls_path")
 	assertScriptContains(t, script, "lsp_manifest_path")
 	assertScriptContains(t, script, "model_registry_path")
-	assertScriptContains(t, script, "embedded_postgres_resource_path")
-	assertScriptContains(t, script, "\"$pg/bin/postgres\"")
-	assertScriptContains(t, script, "\"$pg/bin/initdb\"")
-	assertScriptContains(t, script, "\"$pg/bin/pg_ctl\"")
-	assertScriptContains(t, script, "\"$pg/bin/pg_config\"")
-	assertScriptContains(t, script, "\"$resources/migrations\"")
-	assertScriptContains(t, script, "find \"$pg/share\" -name postgres.bki -type f")
+	assertScriptContains(t, script, "sqlite_migrations_dir=\"$resources/internal/platform/db/sqlite/migrations\"")
+	assertScriptContains(t, script, "missing SQLite migration files under $sqlite_migrations_dir")
 	assertScriptContains(t, script, "-print -quit")
 	assertScriptContains(t, script, "find -L \"$app\" -type l -print")
 	assertScriptContains(t, script, "is_macho()")
@@ -181,6 +173,10 @@ func TestVerifyPackagedAppMacOSScriptContracts(t *testing.T) {
 	assertScriptDoesNotContain(t, script, "vendor_path")
 	assertScriptDoesNotContain(t, script, "vendor_sha256")
 	assertScriptDoesNotContain(t, script, "sha256_tree")
+	assertScriptDoesNotContain(t, script, "embedded_postgres_resource_path")
+	assertScriptDoesNotContain(t, script, "$pg/bin/")
+	assertScriptDoesNotContain(t, script, "postgres.bki")
+	assertScriptDoesNotContain(t, script, "$resources/migrations")
 	assertScriptContains(t, script, "\"$resources/bin/codex\" app-server --help")
 }
 
@@ -204,22 +200,4 @@ func TestMacOSReleaseSmokeScriptFailFastContracts(t *testing.T) {
 	assertScriptContains(t, script, "SUPER_DOLPHIN_CODEX_RELEASE_API_URL")
 	assertScriptContains(t, script, "startup")
 	assertScriptDoesNotContain(t, script, " RETURN")
-}
-
-func TestBuildRelocatablePostgresScriptDoesNotRequireCompiledShareDir(t *testing.T) {
-	script := readScript(t, "build_relocatable_postgres_macos.sh")
-
-	assertScriptContains(t, script, "postgres.bki")
-	assertScriptDoesNotContain(t, script, "pg_config\" --sharedir")
-}
-
-func TestBuildRelocatablePostgresScriptSetsMacOSDeploymentTarget(t *testing.T) {
-	script := readScript(t, "build_relocatable_postgres_macos.sh")
-
-	assertScriptContains(t, script, "postgres_macos_min_version=\"${SUPER_DOLPHIN_MACOS_MIN_VERSION:-13.0}\"")
-	assertScriptContains(t, script, "SUPER_DOLPHIN_MACOS_MIN_VERSION must be a dotted numeric version such as 13.0")
-	assertScriptContains(t, script, "MACOSX_DEPLOYMENT_TARGET=\"$postgres_macos_min_version\"")
-	assertScriptContains(t, script, "-mmacosx-version-min=$postgres_macos_min_version")
-	assertScriptContains(t, script, "deployment_ldflags=\"${deployment_ldflags:+$deployment_ldflags }-mmacosx-version-min=$postgres_macos_min_version -Wl,-headerpad_max_install_names\"")
-	assertScriptOrder(t, script, "MACOSX_DEPLOYMENT_TARGET=\"$postgres_macos_min_version\"", "./configure")
 }

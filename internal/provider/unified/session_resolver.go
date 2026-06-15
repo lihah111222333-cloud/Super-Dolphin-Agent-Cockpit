@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/historyjsonl"
@@ -21,30 +20,26 @@ type driverRegistry interface {
 }
 
 type sessionResolver struct {
-	threadStore  contract.SessionThreadLookup
-	bindingStore contract.SessionBindingLookup
-	registry     driverRegistry
-	sessions     *SessionManager
+	threadStore   contract.SessionThreadLookup
+	bindingStore  contract.SessionBindingLookup
+	bindingWriter contract.SessionBindingUpserter
+	registry      driverRegistry
+	sessions      *SessionManager
 }
 
 var _ contract.SessionResolver = (*sessionResolver)(nil)
 
 // NewSessionResolver 创建会话解析器。
-func NewSessionResolver(
-	threadStore contract.SessionThreadLookup,
-	bindingStore contract.SessionBindingLookup,
-	registry *Registry,
-	sessions *SessionManager,
-) contract.SessionResolver {
+func NewSessionResolver(p sessionResolverParams) contract.SessionResolver {
 	return &sessionResolver{
-		threadStore:  threadStore,
-		bindingStore: bindingStore,
-		registry:     registry,
-		sessions:     sessions,
+		threadStore:   p.ThreadStore,
+		bindingStore:  p.BindingStore,
+		bindingWriter: p.BindingWriter,
+		registry:      p.Registry,
+		sessions:      p.Sessions,
 	}
 }
 
-// ResolveSession 解析会话。
 func (r *sessionResolver) ResolveSession(ctx context.Context, threadID string) (contract.Session, error) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -71,7 +66,6 @@ func (r *sessionResolver) tryExistingSession(threadID string) (contract.Session,
 
 // "Create" here means recovering the active session through durable thread bindings
 // after the direct agent-ID lookup misses; it does not construct a new runtime session.
-// tryCreateSession 处理trycreate会话。
 func (r *sessionResolver) tryCreateSession(ctx context.Context, threadID string) (contract.Session, []error) {
 	errs := make([]error, 0, 2)
 	if session, err := r.resolveThreadSession(ctx, threadID); err == nil {
@@ -97,7 +91,6 @@ func (r *sessionResolver) resolveLookupError(threadID string, errs []error) erro
 	return fmt.Errorf("resolve session: thread %q not found", threadID)
 }
 
-// resolveThreadSession 解析线程会话。
 func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID string) (contract.Session, error) {
 	if r.threadStore == nil {
 		return nil, platformdb.ErrNotFound
@@ -134,7 +127,6 @@ func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID str
 	return r.autoResumeSession(ctx, binding, ref.RuntimeConfig, ref.ThreadID, threadID)
 }
 
-// resolveProviderThreadSession 解析provider线程会话。
 func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, threadID string) (contract.Session, error) {
 	if r.bindingStore == nil {
 		return nil, platformdb.ErrNotFound
@@ -171,86 +163,27 @@ func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, thre
 // autoResumeSession rebuilds a runtime session from a persisted binding.
 // This is the key recovery path after application restart: the DB has the
 // thread UUID but the in-memory SessionManager is empty.
-// autoResumeSession 处理auto恢复会话。
 func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contract.SessionBinding, runtimeConfig map[string]any, publicThreadID ...string) (contract.Session, error) {
-	if binding == nil {
-		return nil, contract.ErrSessionNotFound
-	}
-	provider := strings.TrimSpace(binding.Provider)
-	if provider == "" {
-		return nil, fmt.Errorf("resolve session: binding for %q has no provider", binding.AgentID)
-	}
-	// Reject bindings whose UUID is not backed by a provider CLI history file.
-	// A DB-only UUID can be an unmaterialized placeholder; sending it into the
-	// driver used to end in resume failure/ForceStop and surface as WS 1006.
-	// Returning ErrSessionNotFound lets the caller take the fresh-start path.
-	providerThreadID, err := recoverableAutoResumeProviderThreadID(binding)
-	if err != nil {
-		pkglogger.Warn("resolve session: provider thread is not recoverable",
-			"agent_id", binding.AgentID,
-			"provider", provider,
-			"provider_thread_id", binding.ProviderThreadID,
-			"session_uuid", binding.SessionUUID,
-			"rollout_path", binding.RolloutPath,
-			"error", err)
-		return nil, contract.ErrSessionNotFound
-	}
-	if r.registry == nil {
-		return nil, fmt.Errorf("resolve session: no driver registry available")
-	}
-	driver, err := r.registry.Resolve(provider)
-	if err != nil {
-		return nil, fmt.Errorf("resolve session: %w", err)
-	}
-	cwd, err := autoResumeBindingCWD(binding)
+	plan, err := r.buildAutoResumePlan(binding, runtimeConfig, publicThreadID...)
 	if err != nil {
 		return nil, err
 	}
-
-	threadID := ""
-	for _, candidate := range publicThreadID {
-		if trimmed := strings.TrimSpace(candidate); trimmed != "" {
-			threadID = trimmed
-			break
-		}
+	req, err := resolveAutoResumeSessionIdentity(ctx, plan.driver, plan.req)
+	if err != nil {
+		pkglogger.Warn("resolve session: auto-resume identity resolution failed",
+			"agent_id", binding.AgentID, "error", err)
+		return nil, fmt.Errorf("resolve session: auto-resume failed: %w", err)
 	}
-	// Note: deliberately do NOT fall back to binding.CodexThreadID here.
-	// CodexThreadID is a routing key (often an agent placeholder ID) and
-	// passing it as req.ThreadID let placeholders cross provider boundaries
-	// into claude driver, where it caused the 5s system:init deadlock.
-	// req.ThreadID may be empty; the driver derives a synthetic ID itself.
-
-	req := dto.ResumeSessionRequest{
-		Provider:           provider,
-		AgentID:            binding.AgentID,
-		ThreadID:           threadID,
-		ProviderThreadID:   providerThreadID,
-		CWD:                cwd,
-		Config:             clone.RuntimeConfigMap(runtimeConfig),
-		CodexHome:          binding.CodexHome,
-		CodexInstanceKey:   binding.CodexInstanceKey,
-		CodexModelProvider: binding.CodexModelProvider,
-	}
-	pkglogger.Warn("resolve session: auto-resume binding snapshot from DB",
-		"agent_id", binding.AgentID,
-		"provider", provider,
-		"provider_thread_id", providerThreadID,
-		"codex_thread_id", binding.CodexThreadID,
-		"rollout_path", binding.RolloutPath,
-		"session_uuid", binding.SessionUUID,
-		"cwd", binding.Cwd,
-		"created_at", binding.CreatedAt,
-	)
-	pkglogger.Info("resolve session: auto-resuming after restart",
-		"agent_id", binding.AgentID,
-		"provider", provider,
-		"provider_thread_id", providerThreadID,
-	)
-	session, err := driver.ResumeSession(ctx, req)
+	logAutoResumeStart(binding, req)
+	session, err := plan.driver.ResumeSession(ctx, req)
 	if err != nil {
 		pkglogger.Warn("resolve session: auto-resume failed",
 			"agent_id", binding.AgentID, "error", err)
 		return nil, fmt.Errorf("resolve session: auto-resume failed: %w", err)
+	}
+	if err := r.backfillAutoResumeCodexIdentity(ctx, binding, req, session); err != nil {
+		_ = session.ForceStop()
+		return nil, fmt.Errorf("resolve session: auto-resume backfill codex identity: %w", err)
 	}
 	r.sessions.Register(binding.AgentID, session)
 	pkglogger.Info("resolve session: auto-resume succeeded",
@@ -260,7 +193,6 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 	return session, nil
 }
 
-// lookupAutoResumeRuntimeConfig 处理lookupauto恢复运行时配置。
 func (r *sessionResolver) lookupAutoResumeRuntimeConfig(ctx context.Context, binding *contract.SessionBinding) map[string]any {
 	if r == nil || r.threadStore == nil || binding == nil {
 		return nil
@@ -281,7 +213,6 @@ func (r *sessionResolver) lookupAutoResumeRuntimeConfig(ctx context.Context, bin
 	return nil
 }
 
-// rejectBindingAutoResumeLifecycle 处理rejectbindingauto恢复生命周期。
 func (r *sessionResolver) rejectBindingAutoResumeLifecycle(ctx context.Context, binding *contract.SessionBinding) error {
 	if r == nil || r.threadStore == nil || binding == nil {
 		return nil
@@ -328,7 +259,6 @@ func autoResumeBindingCWD(binding *contract.SessionBinding) (string, error) {
 	return cwd, nil
 }
 
-// recoverableAutoResumeProviderThreadID 处理recoverableauto恢复provider线程ID。
 func recoverableAutoResumeProviderThreadID(binding *contract.SessionBinding) (string, error) {
 	if binding == nil {
 		return "", contract.ErrSessionNotFound
@@ -358,7 +288,6 @@ func recoverableAutoResumeProviderThreadID(binding *contract.SessionBinding) (st
 	return "", contract.ErrSessionNotFound
 }
 
-// providerNames 处理provider名称。
 func (r *sessionResolver) providerNames() []string {
 	names := []string(nil)
 	if r.registry != nil {

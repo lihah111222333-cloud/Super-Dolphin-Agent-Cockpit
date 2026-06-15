@@ -2,12 +2,14 @@ package sharedfile
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
 
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	_ "modernc.org/sqlite"
 )
 
 type sharedFileQuerierStub struct {
@@ -56,8 +58,8 @@ func TestGetMapsRow(t *testing.T) {
 				Path:      "dag/dag-1/readme.md",
 				Content:   "hello",
 				UpdatedBy: "alice",
-				CreatedAt: now,
-				UpdatedAt: now,
+				CreatedAt: now.UnixMilli(),
+				UpdatedAt: now.UnixMilli(),
 			}, nil
 		},
 	}}
@@ -95,8 +97,8 @@ func TestListForwardsPrefixAndLimit(t *testing.T) {
 		listFn: func(_ context.Context, arg sqlc.ListSharedFilesParams) ([]sqlc.SharedFile, error) {
 			captured = arg
 			return []sqlc.SharedFile{
-				{Path: "dag/dag-1/x.md", Content: "a", UpdatedBy: "u", CreatedAt: now, UpdatedAt: now},
-				{Path: "dag/dag-1/y.md", Content: "b", UpdatedBy: "u", CreatedAt: now, UpdatedAt: now},
+				{Path: "dag/dag-1/x.md", Content: "a", UpdatedBy: "u", CreatedAt: now.UnixMilli(), UpdatedAt: now.UnixMilli()},
+				{Path: "dag/dag-1/y.md", Content: "b", UpdatedBy: "u", CreatedAt: now.UnixMilli(), UpdatedAt: now.UnixMilli()},
 			}, nil
 		},
 	}}
@@ -104,7 +106,7 @@ func TestListForwardsPrefixAndLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List() unexpected error: %v", err)
 	}
-	if captured.Column1 != "dag/dag-1/" || captured.Limit != 20 {
+	if captured.Prefix != "dag/dag-1/" || captured.LimitCount != 20 {
 		t.Fatalf("List() forwarded wrong params: %+v", captured)
 	}
 	if len(got) != 2 {
@@ -112,6 +114,32 @@ func TestListForwardsPrefixAndLimit(t *testing.T) {
 	}
 	if got[0].Path != "dag/dag-1/x.md" || got[1].Path != "dag/dag-1/y.md" {
 		t.Fatalf("List() rows mapped out of order: %+v", got)
+	}
+}
+
+func TestListPrefixMatchesRealSQLiteQuery(t *testing.T) {
+	t.Parallel()
+
+	db := openSharedFileSQLite(t)
+	execSharedFileSQL(t, db, `CREATE TABLE shared_files (
+		path TEXT PRIMARY KEY,
+		content TEXT NOT NULL,
+		updated_by TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	);`)
+	now := time.Unix(2_000_000, 0).UTC().UnixMilli()
+	execSharedFileSQL(t, db, `INSERT INTO shared_files (path, content, updated_by, created_at, updated_at) VALUES
+		('dag/dag-1/readme.md', 'a', 'u', ?, ?),
+		('handoff/other.md', 'b', 'u', ?, ?);`, now, now, now-1, now-1)
+
+	s := &store{q: sqlc.New(db)}
+	got, err := s.List(context.Background(), ListFilter{Prefix: "dag/dag-1", Limit: 10})
+	if err != nil {
+		t.Fatalf("List() unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0].Path != "dag/dag-1/readme.md" {
+		t.Fatalf("List() prefix result = %+v, want only dag/dag-1/readme.md", got)
 	}
 }
 
@@ -139,8 +167,8 @@ func TestUpsertForwardsPayloadAndMapsRow(t *testing.T) {
 				Path:      arg.Path,
 				Content:   arg.Content,
 				UpdatedBy: arg.UpdatedBy,
-				CreatedAt: now,
-				UpdatedAt: now,
+				CreatedAt: now.UnixMilli(),
+				UpdatedAt: now.UnixMilli(),
 			}, nil
 		},
 	}, emitSharedFilesChanged: func(ev uidto.UISharedFilesChanged) { emitted = ev }}
@@ -236,5 +264,26 @@ func assertSharedFilesChangedEvent(t *testing.T, got uidto.UISharedFilesChanged,
 	}
 	if got.Timestamp.IsZero() {
 		t.Fatalf("changed event timestamp is zero; event=%+v", got)
+	}
+}
+
+func openSharedFileSQLite(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("close sqlite: %v", err)
+		}
+	})
+	return db
+}
+
+func execSharedFileSQL(t *testing.T, db *sql.DB, query string, args ...any) {
+	t.Helper()
+	if _, err := db.Exec(query, args...); err != nil {
+		t.Fatalf("exec sql: %v\n%s", err, query)
 	}
 }

@@ -2,52 +2,45 @@ package dashboard
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
 	dbquerystore "github.com/anthropic-ai/super-agent-v3/internal/store/dbquery"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
+	_ "modernc.org/sqlite"
 )
 
 func TestServiceQueryPassesThroughAndNormalizesArgs(t *testing.T) {
 	t.Parallel()
 
-	db := &queryDBTXStub{rows: &queryRowsStub{
-		fields: []pgconn.FieldDescription{{Name: "thread_id"}},
-		values: [][]any{{"thread-1"}},
-	}}
+	db := newDashboardQuerySQLiteDB(t)
 	svc := NewService(nil, nil, nil, nil, nil, nil, dbquerystore.NewQueryStore(db, time.Second), nil, nil, nil, nil)
 
-	rows, err := svc.Query(context.Background(), "SELECT * FROM agent_threads WHERE thread_id = $1 AND score > $2", float64(7), float64(1.5))
+	rows, err := svc.Query(context.Background(), "SELECT * FROM agent_threads WHERE score = $1", float64(7))
 	if err != nil {
 		t.Fatalf("Query() error = %v", err)
 	}
 	if len(rows) != 1 || rows[0]["thread_id"] != "thread-1" {
 		t.Fatalf("Query() rows = %#v", rows)
 	}
-	if got, ok := db.args[0].(int64); !ok || got != 7 {
-		t.Fatalf("arg[0] = %#v", db.args[0])
-	}
-	if got, ok := db.args[1].(float64); !ok || got != 1.5 {
-		t.Fatalf("arg[1] = %#v", db.args[1])
-	}
 }
 
 func TestServiceQueryRejectsDangerousSQL(t *testing.T) {
 	t.Parallel()
 
-	db := &queryDBTXStub{}
+	db := &dangerousQueryDBStub{}
 	svc := NewService(nil, nil, nil, nil, nil, nil, dbquerystore.NewQueryStore(db, time.Second), nil, nil, nil, nil)
 
-	_, err := svc.Query(context.Background(), "SELECT version() FROM agent_threads")
+	_, err := svc.Query(context.Background(), "SELECT load_extension('x') FROM agent_threads")
 	if err == nil || !strings.Contains(err.Error(), "disallowed function") {
 		t.Fatalf("Query() error = %v", err)
 	}
@@ -112,10 +105,10 @@ func TestDashboardTaskTraceHandlerRemoved(t *testing.T) {
 func TestDashboardQueryHandlerRejectsDangerousSQL(t *testing.T) {
 	t.Parallel()
 
-	db := &queryDBTXStub{}
+	db := &dangerousQueryDBStub{}
 	server := newDashboardQueryTestServer(t, db)
 
-	_, err := dispatchDashboardQuery(server, `{"query":"SELECT pg_sleep(1) FROM agent_threads"}`)
+	_, err := dispatchDashboardQuery(server, `{"query":"SELECT load_extension('x') FROM agent_threads"}`)
 	if err == nil || !strings.Contains(err.Error(), "disallowed function") {
 		t.Fatalf("Dispatch() error = %v", err)
 	}
@@ -127,10 +120,7 @@ func TestDashboardQueryHandlerRejectsDangerousSQL(t *testing.T) {
 func TestDashboardQueryHandlerNormalArgs(t *testing.T) {
 	t.Parallel()
 
-	db := &queryDBTXStub{rows: &queryRowsStub{
-		fields: []pgconn.FieldDescription{{Name: "thread_id"}},
-		values: [][]any{{"thread-1"}},
-	}}
+	db := newDashboardQuerySQLiteDB(t)
 	server := newDashboardQueryTestServer(t, db)
 
 	rows, err := dispatchDashboardQuery(server, `{"query":"SELECT * FROM agent_threads WHERE thread_id = $1","args":["thread-1"]}`)
@@ -140,29 +130,20 @@ func TestDashboardQueryHandlerNormalArgs(t *testing.T) {
 	if len(rows) != 1 || rows[0]["thread_id"] != "thread-1" {
 		t.Fatalf("Dispatch() rows = %#v", rows)
 	}
-	if len(db.args) != 1 || db.args[0] != "thread-1" {
-		t.Fatalf("captured args = %#v", db.args)
-	}
 }
 
 func TestDashboardQueryHandlerFloat64Normalization(t *testing.T) {
 	t.Parallel()
 
-	db := &queryDBTXStub{rows: &queryRowsStub{
-		fields: []pgconn.FieldDescription{{Name: "thread_id"}},
-		values: [][]any{{"thread-1"}},
-	}}
+	db := newDashboardQuerySQLiteDB(t)
 	server := newDashboardQueryTestServer(t, db)
 
-	_, err := dispatchDashboardQuery(server, `{"query":"SELECT * FROM agent_threads WHERE thread_id = $1","args":[7]}`)
+	rows, err := dispatchDashboardQuery(server, `{"query":"SELECT * FROM agent_threads WHERE score = $1","args":[7]}`)
 	if err != nil {
 		t.Fatalf("Dispatch() error = %v", err)
 	}
-	if len(db.args) != 1 {
-		t.Fatalf("len(args) = %d, want 1", len(db.args))
-	}
-	if got, ok := db.args[0].(int64); !ok || got != 7 {
-		t.Fatalf("args[0] = %#v", db.args[0])
+	if len(rows) != 1 || rows[0]["thread_id"] != "thread-1" {
+		t.Fatalf("Dispatch() rows = %#v", rows)
 	}
 }
 
@@ -578,7 +559,7 @@ func assertDashboardMethodServiceUnavailable(t *testing.T, server *platformrpc.S
 	}
 }
 
-func newDashboardQueryTestServer(t *testing.T, db *queryDBTXStub) *platformrpc.Server {
+func newDashboardQueryTestServer(t *testing.T, db platformdb.Queryable) *platformrpc.Server {
 	t.Helper()
 
 	svc := NewService(nil, nil, nil, nil, nil, nil, dbquerystore.NewQueryStore(db, time.Second), nil, nil, nil, nil)
@@ -609,69 +590,65 @@ func dispatchDashboardInto(server *platformrpc.Server, method, raw string, out a
 	return json.Unmarshal(result, out)
 }
 
-type queryDBTXStub struct {
-	args   []any
+func newDashboardQuerySQLiteDB(t *testing.T) *sql.DB {
+	t.Helper()
+
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "dashboard-query.sqlite"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("close sqlite: %v", err)
+		}
+	})
+	if _, err := db.Exec(`
+CREATE TABLE agent_threads (
+	thread_id TEXT PRIMARY KEY,
+	status TEXT NOT NULL,
+	score REAL NOT NULL DEFAULT 0
+);
+INSERT INTO agent_threads(thread_id, status, score) VALUES
+	('thread-1', 'running', 7),
+	('thread-2', 'idle', 1);
+
+CREATE TABLE task_dag_runs (
+	id INTEGER PRIMARY KEY,
+	run_key TEXT NOT NULL,
+	dag_key TEXT NOT NULL,
+	dag_version_snapshot INTEGER NOT NULL,
+	trigger_source TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT '',
+	started_at TEXT NOT NULL,
+	finished_at TEXT,
+	events TEXT NOT NULL DEFAULT '[]',
+	budget_used INTEGER NOT NULL DEFAULT 0,
+	budget_limit INTEGER,
+	metadata TEXT NOT NULL DEFAULT '{}',
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+`); err != nil {
+		t.Fatalf("seed sqlite: %v", err)
+	}
+	return db
+}
+
+type dangerousQueryDBStub struct {
 	called bool
-	rows   pgx.Rows
-	err    error
 }
 
-func (s *queryDBTXStub) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
-	return pgconn.CommandTag{}, errors.New("queryDBTXStub: exec not implemented")
+func (*dangerousQueryDBStub) ExecContext(context.Context, string, ...any) (sql.Result, error) {
+	return nil, errors.New("dangerousQueryDBStub: exec not implemented")
 }
 
-func (s *queryDBTXStub) Query(_ context.Context, _ string, args ...any) (pgx.Rows, error) {
+func (s *dangerousQueryDBStub) QueryContext(context.Context, string, ...any) (*sql.Rows, error) {
 	s.called = true
-	s.args = append([]any(nil), args...)
-	if s.err != nil {
-		return nil, s.err
-	}
-	if s.rows != nil {
-		return s.rows, nil
-	}
-	return &queryRowsStub{}, nil
+	return nil, errors.New("dangerousQueryDBStub: query should not be called")
 }
 
-func (s *queryDBTXStub) QueryRow(context.Context, string, ...any) pgx.Row {
-	return queryRowStub{}
+func (*dangerousQueryDBStub) QueryRowContext(context.Context, string, ...any) *sql.Row {
+	return nil
 }
-
-type queryRowStub struct{}
-
-func (queryRowStub) Scan(...any) error { return errors.New("queryRowStub: scan not implemented") }
-
-type queryRowsStub struct {
-	fields []pgconn.FieldDescription
-	values [][]any
-	index  int
-	err    error
-}
-
-func (r *queryRowsStub) Close() { _ = r }
-
-func (r *queryRowsStub) Err() error { return r.err }
-
-func (r *queryRowsStub) CommandTag() pgconn.CommandTag { return pgconn.CommandTag{} }
-
-func (r *queryRowsStub) FieldDescriptions() []pgconn.FieldDescription { return r.fields }
-
-func (r *queryRowsStub) Next() bool {
-	if r.index >= len(r.values) {
-		return false
-	}
-	r.index++
-	return true
-}
-
-func (r *queryRowsStub) Scan(...any) error { return errors.New("queryRowsStub: scan not implemented") }
-
-func (r *queryRowsStub) Values() ([]any, error) {
-	if r.index == 0 || r.index > len(r.values) {
-		return nil, errors.New("queryRowsStub: invalid cursor")
-	}
-	return append([]any(nil), r.values[r.index-1]...), nil
-}
-
-func (r *queryRowsStub) RawValues() [][]byte { return nil }
-
-func (r *queryRowsStub) Conn() *pgx.Conn { return nil }

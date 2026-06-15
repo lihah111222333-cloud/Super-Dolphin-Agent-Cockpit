@@ -2,25 +2,27 @@ package dbquery
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
+	_ "modernc.org/sqlite"
 )
 
-func TestValidateQuery(t *testing.T) {
+type validateQueryCase struct {
+	name        string
+	query       string
+	argCount    int
+	wantErrText string
+}
+
+func TestValidateQueryAllowsWhitelistedSelects(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name        string
-		query       string
-		argCount    int
-		wantErrText string
-	}{
+	cases := []validateQueryCase{
 		{
 			name:     "allows whitelisted cte query",
 			query:    "WITH running AS (SELECT thread_id FROM agent_threads WHERE status = $1) SELECT thread_id FROM running",
@@ -31,39 +33,117 @@ func TestValidateQuery(t *testing.T) {
 			query: "SELECT * FROM agent_threads",
 		},
 		{
-			name:        "rejects mutation statement",
+			name:  "allows whitelisted comma join",
+			query: "SELECT agent_threads.thread_id FROM agent_threads, agent_status",
+		},
+		{
+			name:  "allows quoted whitelisted table query",
+			query: `SELECT * FROM "agent_threads"`,
+		},
+		{
+			name:  "allows whitelisted subquery",
+			query: "SELECT * FROM (SELECT thread_id FROM agent_threads) AS threads",
+		},
+		{
+			name:     "allows sqlite positional placeholders",
+			query:    "SELECT * FROM agent_threads WHERE thread_id = ? AND score > ?",
+			argCount: 2,
+		},
+	}
+	runValidateQueryCases(t, cases)
+}
+
+func TestValidateQueryRejectsUnauthorizedTables(t *testing.T) {
+	t.Parallel()
+
+	cases := []validateQueryCase{
+		{
+			name:        "direct disallowed table",
+			query:       "SELECT * FROM sqlite_master",
+			wantErrText: "disallowed",
+		},
+		{
+			name:        "disallowed comma join table",
+			query:       "SELECT sqlite_master.sql FROM agent_threads, sqlite_master",
+			wantErrText: "disallowed",
+		},
+		{
+			name:        "schema qualified table",
+			query:       "SELECT * FROM main.agent_threads",
+			wantErrText: "disallowed",
+		},
+		{
+			name:        "quoted schema qualified table",
+			query:       `SELECT * FROM "main"."agent_threads"`,
+			wantErrText: "disallowed",
+		},
+		{
+			name:        "subquery over disallowed table",
+			query:       "SELECT * FROM (SELECT sql FROM sqlite_master) AS leaked",
+			wantErrText: "disallowed",
+		},
+		{
+			name:        "table valued function",
+			query:       "SELECT * FROM json_each('[1,2]')",
+			wantErrText: "disallowed",
+		},
+		{
+			name:        "table valued function comma join",
+			query:       "SELECT agent_threads.thread_id FROM agent_threads, json_each('[1,2]')",
+			wantErrText: "disallowed",
+		},
+		{
+			name:        "cte over disallowed comma join table",
+			query:       "WITH leaked AS (SELECT sqlite_master.sql FROM agent_threads, sqlite_master) SELECT sql FROM leaked",
+			wantErrText: "disallowed",
+		},
+		{
+			name:        "removed task trace page table",
+			query:       "SELECT * FROM task_traces",
+			wantErrText: "disallowed",
+		},
+	}
+	runValidateQueryCases(t, cases)
+}
+
+func TestValidateQueryRejectsInvalidStatementsAndPlaceholders(t *testing.T) {
+	t.Parallel()
+
+	cases := []validateQueryCase{
+		{
+			name:        "mixed placeholder styles",
+			query:       "SELECT * FROM agent_threads WHERE thread_id = $1 AND score > ?",
+			argCount:    2,
+			wantErrText: "mixes placeholder styles",
+		},
+		{
+			name:        "mutation statement",
 			query:       "UPDATE agent_threads SET status = $1 WHERE thread_id = $2",
 			argCount:    2,
 			wantErrText: "only supports SELECT",
 		},
 		{
-			name:        "rejects dangerous function without table",
-			query:       "SELECT pg_sleep(100)",
+			name:        "dangerous function without table",
+			query:       "SELECT load_extension('anything')",
 			wantErrText: "disallowed function",
 		},
 		{
-			name:        "rejects tableless constant query",
+			name:        "tableless constant query",
 			query:       "SELECT 1",
 			wantErrText: "must reference at least one allowed table",
 		},
 		{
-			name:        "rejects disallowed table",
-			query:       "SELECT * FROM pg_stat_activity",
-			wantErrText: "disallowed",
-		},
-		{
-			name:        "rejects removed task trace page table",
-			query:       "SELECT * FROM task_traces",
-			wantErrText: "disallowed",
-		},
-		{
-			name:        "rejects placeholder mismatch",
+			name:        "placeholder mismatch",
 			query:       "SELECT * FROM agent_threads WHERE status = $2",
 			argCount:    1,
 			wantErrText: "expected 2 args",
 		},
 	}
+	runValidateQueryCases(t, cases)
+}
 
+func runValidateQueryCases(t *testing.T, cases []validateQueryCase) {
+	t.Helper()
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -77,6 +157,40 @@ func TestValidateQuery(t *testing.T) {
 			}
 			if err == nil || !strings.Contains(err.Error(), tc.wantErrText) {
 				t.Fatalf("validateQuery() error = %v, want substring %q", err, tc.wantErrText)
+			}
+		})
+	}
+}
+
+func TestValidateQueryRejectsSQLiteDangerousStatements(t *testing.T) {
+	t.Parallel()
+
+	queries := []string{
+		" pRaGmA table_info(agent_threads)",
+		"ATTACH DATABASE 'x.db' AS extra",
+		"DETACH DATABASE extra",
+		"VACUUM INTO 'copy.db'",
+		"REINDEX agent_threads",
+		"ALTER TABLE agent_threads ADD COLUMN owned TEXT",
+		"CREATE TEMP TABLE temp_owned(id INTEGER)",
+		"DROP TABLE agent_threads",
+		"INSERT INTO agent_threads(thread_id) VALUES ('x')",
+		"UPDATE agent_threads SET status = 'done'",
+		"DELETE FROM agent_threads",
+		"REPLACE INTO agent_threads(thread_id) VALUES ('x')",
+		"WITH deleted AS (DELETE FROM agent_threads RETURNING thread_id) SELECT thread_id FROM deleted",
+		"INSERT INTO agent_threads(thread_id) VALUES ('x') RETURNING thread_id",
+		"SELECT * FROM agent_threads; SELECT * FROM agent_status",
+		"SELECT * FROM agent_threads -- comment smuggling",
+		"SELECT load_extension('x') FROM agent_threads",
+	}
+	for _, query := range queries {
+		query := query
+		t.Run(query, func(t *testing.T) {
+			t.Parallel()
+
+			if err := validateQuery(query, strings.Count(query, "$")); err == nil {
+				t.Fatalf("validateQuery(%q) error = nil, want rejection", query)
 			}
 		})
 	}
@@ -116,17 +230,12 @@ func TestValidateQueryRejectsExpandedDangerousFunctions(t *testing.T) {
 	t.Parallel()
 
 	queries := []string{
-		"SELECT version() FROM agent_threads",
-		"SELECT current_setting('server_version') FROM agent_threads",
+		"SELECT load_extension('x') FROM agent_threads",
+		"SELECT writefile('/tmp/x','x') FROM agent_threads",
 		"SELECT current_user FROM agent_threads",
-		"SELECT inet_server_addr() FROM agent_threads",
-		"SELECT inet_server_port() FROM agent_threads",
-		"SELECT pg_read_file('/etc/passwd') FROM agent_threads",
-		"SELECT pg_read_binary_file('/etc/passwd') FROM agent_threads",
-		"SELECT pg_ls_dir('.') FROM agent_threads",
-		"SELECT pg_stat_get_activity(1) FROM agent_threads",
-		"SELECT lo_import('/tmp/file') FROM agent_threads",
-		"SELECT lo_export(1, '/tmp/file') FROM agent_threads",
+		"SELECT last_insert_rowid() FROM agent_threads",
+		"SELECT changes() FROM agent_threads",
+		"SELECT total_changes() FROM agent_threads",
 	}
 	for _, query := range queries {
 		query := query
@@ -159,278 +268,146 @@ func TestNormalizeArgsFloat64ToInt64(t *testing.T) {
 	}
 }
 
-func TestExecuteQueryNormalizesArgs(t *testing.T) {
+func TestExecuteQueryReturnsRowsFromSQLiteReadOnlyConnection(t *testing.T) {
 	t.Parallel()
 
-	queryer := &captureQueryer{rows: emptyRows()}
-	_, err := executeQuery(context.Background(), queryer, defaultQueryTimeout, "SELECT * FROM agent_threads WHERE thread_id = $1 AND score > $2", float64(7), float64(1.5))
+	db := newDBQuerySQLiteDB(t)
+	rows, err := executeQuery(context.Background(), db, defaultQueryTimeout, "SELECT thread_id, status FROM agent_threads WHERE thread_id = $1", "thread-1")
 	if err != nil {
 		t.Fatalf("executeQuery() error = %v", err)
 	}
-	if got, ok := queryer.args[0].(int64); !ok || got != 7 {
-		t.Fatalf("args[0] = %#v", queryer.args[0])
-	}
-	if got, ok := queryer.args[1].(float64); !ok || got != 1.5 {
-		t.Fatalf("args[1] = %#v", queryer.args[1])
+	if len(rows) != 1 || rows[0]["thread_id"] != "thread-1" || rows[0]["status"] != "running" {
+		t.Fatalf("executeQuery() rows = %#v", rows)
 	}
 }
 
-func TestExecuteQueryAppliesDBQueryTimeout(t *testing.T) {
+func TestExecuteQueryBindsParameters(t *testing.T) {
 	t.Parallel()
 
-	_, err := executeQuery(context.Background(), timeoutQueryer{t: t}, defaultQueryTimeout, "SELECT * FROM agent_threads")
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("executeQuery() error = %v, want %v", err, context.DeadlineExceeded)
-	}
-}
-
-func TestExecuteQueryUsesReadOnlyTransaction(t *testing.T) {
-	t.Parallel()
-
-	tx := &captureTx{rows: emptyRows()}
-	queryer := &beginTxQueryer{tx: tx}
-	_, err := executeQuery(context.Background(), queryer, defaultQueryTimeout, "SELECT * FROM agent_threads WHERE thread_id = $1", "thread-1")
+	db := newDBQuerySQLiteDB(t)
+	rows, err := executeQuery(context.Background(), db, defaultQueryTimeout, "SELECT thread_id FROM agent_threads WHERE thread_id = ?", "thread-1' OR 1=1 --")
 	if err != nil {
 		t.Fatalf("executeQuery() error = %v", err)
 	}
-	if queryer.beginOptions.AccessMode != pgx.ReadOnly {
-		t.Fatalf("BeginTx() access mode = %q, want %q", queryer.beginOptions.AccessMode, pgx.ReadOnly)
-	}
-	if !tx.committed || tx.rolledBack {
-		t.Fatalf("transaction state commit=%v rollback=%v", tx.committed, tx.rolledBack)
-	}
-	if len(tx.execSQLs) != 1 || tx.execSQLs[0] != "SET TRANSACTION READ ONLY" {
-		t.Fatalf("tx.Exec() sqls = %#v, want SET TRANSACTION READ ONLY", tx.execSQLs)
-	}
-	if tx.querySQL != "SELECT * FROM agent_threads WHERE thread_id = $1" {
-		t.Fatalf("tx.Query() sql = %q", tx.querySQL)
+	if len(rows) != 0 {
+		t.Fatalf("executeQuery() rows = %#v, want no SQL injection match", rows)
 	}
 }
 
-func TestExecuteQueryRollsBackReadOnlyTransactionOnError(t *testing.T) {
+func TestExecuteQueryRejectsQueryableWithoutDedicatedConnection(t *testing.T) {
 	t.Parallel()
 
-	wantErr := errors.New("query failed")
-	queryer := &beginTxQueryer{tx: &captureTx{err: wantErr}}
+	queryer := &unsupportedQueryable{}
 	_, err := executeQuery(context.Background(), queryer, defaultQueryTimeout, "SELECT * FROM agent_threads")
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("executeQuery() error = %v, want %v", err, wantErr)
+	if err == nil || !strings.Contains(err.Error(), "dedicated SQLite connection") {
+		t.Fatalf("executeQuery() error = %v, want fail-closed dedicated connection error", err)
 	}
-	if queryer.beginOptions.AccessMode != pgx.ReadOnly {
-		t.Fatalf("BeginTx() access mode = %q, want %q", queryer.beginOptions.AccessMode, pgx.ReadOnly)
-	}
-	if !queryer.tx.rolledBack || queryer.tx.committed {
-		t.Fatalf("transaction state commit=%v rollback=%v", queryer.tx.committed, queryer.tx.rolledBack)
+	if queryer.called {
+		t.Fatal("executeQuery() called QueryContext on unsupported queryer")
 	}
 }
 
-func TestExecuteQueryRollsBackReadOnlyTransactionOnTimeout(t *testing.T) {
+func TestExecuteQueryRejectsParserErrorBeforeRows(t *testing.T) {
 	t.Parallel()
 
-	queryer := &beginTxQueryer{tx: &captureTx{
-		queryFn: func(ctx context.Context, _ string, _ ...any) (pgx.Rows, error) {
-			<-ctx.Done()
-			return nil, ctx.Err()
-		},
-	}}
+	db := newDBQuerySQLiteDB(t)
+	_, err := executeQuery(context.Background(), db, defaultQueryTimeout, "SELECT * FROM agent_threads WHERE")
+	if err == nil || !strings.Contains(err.Error(), "parse dbquery SQL") {
+		t.Fatalf("executeQuery() error = %v, want parser error before rows", err)
+	}
+}
 
-	_, err := executeQuery(context.Background(), queryer, 50*time.Millisecond, "SELECT * FROM agent_threads")
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("executeQuery() error = %v, want %v", err, context.DeadlineExceeded)
+func TestOpenReadOnlyRowsEnforcesSQLiteQueryOnly(t *testing.T) {
+	t.Parallel()
+
+	db := newDBQuerySQLiteDB(t)
+	rows, finish, err := openSQLiteReadOnlyRows(context.Background(), db, "INSERT INTO agent_threads(thread_id, status, score) VALUES ('owned', 'running', 1)")
+	if err == nil {
+		_ = finish(false)
+		rows.Close()
+		t.Fatal("openSQLiteReadOnlyRows() error = nil, want query_only write rejection")
 	}
-	if queryer.beginOptions.AccessMode != pgx.ReadOnly {
-		t.Fatalf("BeginTx() access mode = %q, want %q", queryer.beginOptions.AccessMode, pgx.ReadOnly)
+	if !strings.Contains(strings.ToLower(err.Error()), "readonly") && !strings.Contains(strings.ToLower(err.Error()), "read-only") {
+		t.Fatalf("openSQLiteReadOnlyRows() error = %v, want read-only rejection", err)
 	}
-	if !queryer.tx.rolledBack || queryer.tx.committed {
-		t.Fatalf("transaction state commit=%v rollback=%v", queryer.tx.committed, queryer.tx.rolledBack)
-	}
+	assertCanWriteAfterDBQuery(t, db)
 }
 
 func TestQueryRowLimit(t *testing.T) {
 	t.Parallel()
 
-	rows := make([][]any, maxQueryRows+1)
-	for i := range rows {
-		rows[i] = []any{fmt.Sprintf("thread-%d", i)}
+	db := newDBQuerySQLiteDB(t)
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("Begin() error = %v", err)
 	}
-	_, err := executeQuery(context.Background(), &captureQueryer{rows: &stubRows{fields: defaultFields(), values: rows}}, defaultQueryTimeout, "SELECT * FROM agent_threads")
+	for i := 0; i < maxQueryRows+1; i++ {
+		if _, err := tx.Exec("INSERT INTO agent_threads(thread_id, status, score) VALUES (?, 'bulk', 0)", fmt.Sprintf("bulk-%05d", i)); err != nil {
+			_ = tx.Rollback()
+			t.Fatalf("insert bulk row %d: %v", i, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
+
+	_, err = executeQuery(context.Background(), db, defaultQueryTimeout, fmt.Sprintf("SELECT thread_id FROM agent_threads LIMIT %d", maxQueryRows+1))
 	if err == nil || !strings.Contains(err.Error(), "row limit") {
-		t.Fatalf("executeQuery() error = %v", err)
+		t.Fatalf("executeQuery() error = %v, want row limit", err)
 	}
 }
 
-type timeoutQueryer struct {
-	t *testing.T
-}
+func newDBQuerySQLiteDB(t *testing.T) *sql.DB {
+	t.Helper()
 
-func (q timeoutQueryer) Query(ctx context.Context, _ string, _ ...any) (pgx.Rows, error) {
-	q.t.Helper()
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		q.t.Fatal("Query() context missing deadline")
+	path := filepath.Join(t.TempDir(), "dbquery.sqlite")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
 	}
-	remaining := time.Until(deadline)
-	if remaining <= 0 || remaining > defaultQueryTimeout+time.Second {
-		q.t.Fatalf("Query() deadline = %v, remaining = %v", deadline, remaining)
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("close sqlite: %v", err)
+		}
+	})
+	if _, err := db.Exec(`
+CREATE TABLE agent_threads (
+	thread_id TEXT PRIMARY KEY,
+	status TEXT NOT NULL,
+	score REAL NOT NULL DEFAULT 0
+);
+INSERT INTO agent_threads(thread_id, status, score) VALUES
+	('thread-1', 'running', 7),
+	('thread-2', 'idle', 1);
+`); err != nil {
+		t.Fatalf("seed sqlite: %v", err)
 	}
-	return nil, context.DeadlineExceeded
+	return db
 }
 
-func (timeoutQueryer) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
-	return pgconn.CommandTag{}, errors.New("timeoutQueryer: exec not implemented")
-}
+func assertCanWriteAfterDBQuery(t *testing.T, db *sql.DB) {
+	t.Helper()
 
-func (timeoutQueryer) QueryRow(context.Context, string, ...any) pgx.Row { return nil }
-
-type captureQueryer struct {
-	args []any
-	rows pgx.Rows
-	err  error
-}
-
-func (*captureQueryer) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
-	return pgconn.CommandTag{}, errors.New("captureQueryer: exec not implemented")
-}
-
-func (q *captureQueryer) Query(_ context.Context, _ string, args ...any) (pgx.Rows, error) {
-	q.args = append([]any(nil), args...)
-	if q.err != nil {
-		return nil, q.err
+	if _, err := db.Exec("INSERT INTO agent_threads(thread_id, status, score) VALUES ('after-query-only', 'running', 1)"); err != nil {
+		t.Fatalf("write after dbquery query_only cleanup error = %v", err)
 	}
-	if q.rows != nil {
-		return q.rows, nil
-	}
-	return emptyRows(), nil
 }
 
-func (*captureQueryer) QueryRow(context.Context, string, ...any) pgx.Row { return nil }
-
-type beginTxQueryer struct {
-	tx           *captureTx
-	beginErr     error
-	beginOptions pgx.TxOptions
+type unsupportedQueryable struct {
+	called bool
 }
 
-func (*beginTxQueryer) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
-	return pgconn.CommandTag{}, errors.New("beginTxQueryer: exec not implemented")
+func (*unsupportedQueryable) ExecContext(context.Context, string, ...any) (sql.Result, error) {
+	return nil, errors.New("unsupportedQueryable: exec not implemented")
 }
 
-func (*beginTxQueryer) Query(context.Context, string, ...any) (pgx.Rows, error) {
-	return nil, errors.New("beginTxQueryer: direct query should not be used")
+func (q *unsupportedQueryable) QueryContext(context.Context, string, ...any) (*sql.Rows, error) {
+	q.called = true
+	return nil, errors.New("unsupportedQueryable: query should not be called")
 }
 
-func (*beginTxQueryer) QueryRow(context.Context, string, ...any) pgx.Row { return nil }
-
-func (q *beginTxQueryer) BeginTx(_ context.Context, txOptions pgx.TxOptions) (pgx.Tx, error) {
-	q.beginOptions = txOptions
-	if q.beginErr != nil {
-		return nil, q.beginErr
-	}
-	if q.tx == nil {
-		q.tx = &captureTx{rows: emptyRows()}
-	}
-	return q.tx, nil
-}
-
-type captureTx struct {
-	rows       pgx.Rows
-	err        error
-	execSQLs   []string
-	querySQL   string
-	queryFn    func(context.Context, string, ...any) (pgx.Rows, error)
-	committed  bool
-	rolledBack bool
-}
-
-func (*captureTx) Begin(context.Context) (pgx.Tx, error) {
-	return nil, errors.New("captureTx: begin not implemented")
-}
-
-func (tx *captureTx) Commit(context.Context) error {
-	tx.committed = true
+func (*unsupportedQueryable) QueryRowContext(context.Context, string, ...any) *sql.Row {
 	return nil
-}
-
-func (tx *captureTx) Rollback(context.Context) error {
-	tx.rolledBack = true
-	return nil
-}
-
-func (*captureTx) CopyFrom(context.Context, pgx.Identifier, []string, pgx.CopyFromSource) (int64, error) {
-	return 0, errors.New("captureTx: copyfrom not implemented")
-}
-
-func (*captureTx) SendBatch(context.Context, *pgx.Batch) pgx.BatchResults { return nil }
-
-func (*captureTx) LargeObjects() pgx.LargeObjects { return pgx.LargeObjects{} }
-
-func (*captureTx) Prepare(context.Context, string, string) (*pgconn.StatementDescription, error) {
-	return nil, errors.New("captureTx: prepare not implemented")
-}
-
-func (tx *captureTx) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
-	tx.execSQLs = append(tx.execSQLs, sql)
-	return pgconn.CommandTag{}, nil
-}
-
-func (tx *captureTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
-	tx.querySQL = sql
-	if tx.queryFn != nil {
-		return tx.queryFn(ctx, sql, args...)
-	}
-	if tx.err != nil {
-		return nil, tx.err
-	}
-	if tx.rows != nil {
-		return tx.rows, nil
-	}
-	return emptyRows(), nil
-}
-
-func (*captureTx) QueryRow(context.Context, string, ...any) pgx.Row { return nil }
-
-func (*captureTx) Conn() *pgx.Conn { return nil }
-
-type stubRows struct {
-	fields []pgconn.FieldDescription
-	values [][]any
-	index  int
-	err    error
-}
-
-func (r *stubRows) Close() { _ = r }
-
-func (r *stubRows) Err() error { return r.err }
-
-func (r *stubRows) CommandTag() pgconn.CommandTag { return pgconn.CommandTag{} }
-
-func (r *stubRows) FieldDescriptions() []pgconn.FieldDescription { return r.fields }
-
-func (r *stubRows) Next() bool {
-	if r.index >= len(r.values) {
-		return false
-	}
-	r.index++
-	return true
-}
-
-func (r *stubRows) Scan(...any) error { return errors.New("stubRows: scan not implemented") }
-
-func (r *stubRows) Values() ([]any, error) {
-	if r.index == 0 || r.index > len(r.values) {
-		return nil, errors.New("stubRows: invalid cursor")
-	}
-	return append([]any(nil), r.values[r.index-1]...), nil
-}
-
-func (r *stubRows) RawValues() [][]byte { return nil }
-
-func (r *stubRows) Conn() *pgx.Conn { return nil }
-
-func emptyRows() pgx.Rows {
-	return &stubRows{fields: defaultFields(), values: nil}
-}
-
-func defaultFields() []pgconn.FieldDescription {
-	return []pgconn.FieldDescription{{Name: "thread_id"}}
 }

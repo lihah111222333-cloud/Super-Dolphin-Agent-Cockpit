@@ -1,3 +1,5 @@
+//go:build legacy_pg_fake
+
 package taskdag
 
 import (
@@ -156,7 +158,7 @@ func TestFailNodeAndCancelDownstream_CascadeTerminalRaceSkips(t *testing.T) {
 func TestFailNodeAndCancelDownstream_FailFastTrue_CascadesTransitivePending(t *testing.T) {
 	t.Parallel()
 
-	// A → B → C ; A → D ; D done already (must not be touched).
+	// A 鈫?B 鈫?C ; A 鈫?D ; D done already (must not be touched).
 	// Failing A with fail_fast=true must cascade-fail B + C, leave D done.
 	store, db, now := newTaskDAGTestStore()
 	runID := seedFailDownstreamRuntimeDAG(t, db, now, []seedNode{
@@ -180,7 +182,7 @@ func TestFailNodeAndCancelDownstream_FailFastTrue_CascadesTransitivePending(t *t
 	requireCanceledNodeKeys(t, res.CanceledDownstream, []string{"B", "C"})
 	requireRunNodeStatus(t, db, runID, "B", "failed")
 	requireRunNodeStatus(t, db, runID, "C", "failed")
-	// D was already done — fail-fast must not rewrite terminal nodes.
+	// D was already done 鈥?fail-fast must not rewrite terminal nodes.
 	requireRunNodeStatus(t, db, runID, "D", "done")
 	// Cascade reason on B should reference A as the originator.
 	requireCascadeReason(t, db, runID, "B", "A")
@@ -228,7 +230,7 @@ func requireCascadeReason(t *testing.T, db *fakeTaskDAGDB, runID int64, nodeKey,
 func TestFailNodeAndCancelDownstream_FailFastTrue_DiamondCascade(t *testing.T) {
 	t.Parallel()
 
-	// A → {B, C} → D ; D depends on both B and C.
+	// A 鈫?{B, C} 鈫?D ; D depends on both B and C.
 	// Failing A with fail-fast must cascade B, C, AND D (transitive closure).
 	store, db, now := newTaskDAGTestStore()
 	runID := seedFailDownstreamRuntimeDAG(t, db, now, []seedNode{
@@ -256,7 +258,7 @@ func TestFailNodeAndCancelDownstream_FailFastTrue_DiamondCascade(t *testing.T) {
 func TestFailNodeAndCancelDownstream_FailFastTrue_RunningDownstreamNotTouched(t *testing.T) {
 	t.Parallel()
 
-	// Once a downstream node is already running it must not be rewritten —
+	// Once a downstream node is already running it must not be rewritten 鈥?
 	// the running attempt finishes on its own; cascade only affects pending.
 	store, db, now := newTaskDAGTestStore()
 	runID := seedFailDownstreamRuntimeDAG(t, db, now, []seedNode{

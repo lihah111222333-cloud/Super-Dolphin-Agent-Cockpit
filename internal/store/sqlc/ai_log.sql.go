@@ -7,44 +7,31 @@ package sqlc
 
 import (
 	"context"
-	"time"
 )
 
 const countAILogsByStatus = `-- name: CountAILogsByStatus :many
-WITH derived_statuses AS (
-    SELECT COALESCE(
-        NULLIF(
-            (regexp_match(message, '(?i)HTTP/[0-9]\.[0-9][[:space:]]+([0-9]{3})[[:space:]]*([^[:space:]]*)'))[1],
-            ''
-        ),
-        'unknown'
-    )::text AS status
-    FROM system_logs
-)
-SELECT status, COUNT(*)::bigint AS count
-FROM derived_statuses
-GROUP BY status
-ORDER BY status ASC
+SELECT message
+FROM system_logs
+WHERE lower(message) LIKE '%http/%'
+ORDER BY ts DESC, id DESC
 `
 
-type CountAILogsByStatusRow struct {
-	Status string `db:"status" json:"status"`
-	Count  int64  `db:"count" json:"count"`
-}
-
-func (q *Queries) CountAILogsByStatus(ctx context.Context) ([]CountAILogsByStatusRow, error) {
-	rows, err := q.db.Query(ctx, countAILogsByStatus)
+func (q *Queries) CountAILogsByStatus(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, countAILogsByStatus)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []CountAILogsByStatusRow{}
+	items := []string{}
 	for rows.Next() {
-		var i CountAILogsByStatusRow
-		if err := rows.Scan(&i.Status, &i.Count); err != nil {
+		var message string
+		if err := rows.Scan(&message); err != nil {
 			return nil, err
 		}
-		items = append(items, i)
+		items = append(items, message)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -53,27 +40,46 @@ func (q *Queries) CountAILogsByStatus(ctx context.Context) ([]CountAILogsByStatu
 }
 
 const listAILogSystemLogs = `-- name: ListAILogSystemLogs :many
-SELECT id, ts, level, logger, message, raw, source, component, agent_id, thread_id, trace_id, event_type, tool_name, duration_ms, extra
+SELECT id, ts, level, logger, message, '' AS raw, source, component, agent_id, thread_id, trace_id, event_type, tool_name, duration_ms, '{}' AS extra
 FROM system_logs
-WHERE ($1::text = '' OR message ILIKE '%' || $1::text || '%')
+WHERE (?1 = '' OR lower(message) LIKE lower(?2))
 ORDER BY ts DESC, id DESC
-LIMIT $2
+LIMIT ?3
 `
 
 type ListAILogSystemLogsParams struct {
-	Keyword    string `db:"keyword" json:"keyword"`
-	LimitCount int32  `db:"limit_count" json:"limit_count"`
+	Keyword        interface{} `db:"keyword" json:"keyword"`
+	KeywordPattern string      `db:"keyword_pattern" json:"keyword_pattern"`
+	LimitCount     int64       `db:"limit_count" json:"limit_count"`
 }
 
-func (q *Queries) ListAILogSystemLogs(ctx context.Context, arg ListAILogSystemLogsParams) ([]SystemLog, error) {
-	rows, err := q.db.Query(ctx, listAILogSystemLogs, arg.Keyword, arg.LimitCount)
+type ListAILogSystemLogsRow struct {
+	ID         int64  `db:"id" json:"id"`
+	Ts         int64  `db:"ts" json:"ts"`
+	Level      string `db:"level" json:"level"`
+	Logger     string `db:"logger" json:"logger"`
+	Message    string `db:"message" json:"message"`
+	Raw        string `db:"raw" json:"raw"`
+	Source     string `db:"source" json:"source"`
+	Component  string `db:"component" json:"component"`
+	AgentID    string `db:"agent_id" json:"agent_id"`
+	ThreadID   string `db:"thread_id" json:"thread_id"`
+	TraceID    string `db:"trace_id" json:"trace_id"`
+	EventType  string `db:"event_type" json:"event_type"`
+	ToolName   string `db:"tool_name" json:"tool_name"`
+	DurationMs *int64 `db:"duration_ms" json:"duration_ms"`
+	Extra      string `db:"extra" json:"extra"`
+}
+
+func (q *Queries) ListAILogSystemLogs(ctx context.Context, arg ListAILogSystemLogsParams) ([]ListAILogSystemLogsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAILogSystemLogs, arg.Keyword, arg.KeywordPattern, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []SystemLog{}
+	items := []ListAILogSystemLogsRow{}
 	for rows.Next() {
-		var i SystemLog
+		var i ListAILogSystemLogsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Ts,
@@ -95,6 +101,9 @@ func (q *Queries) ListAILogSystemLogs(ctx context.Context, arg ListAILogSystemLo
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -102,60 +111,13 @@ func (q *Queries) ListAILogSystemLogs(ctx context.Context, arg ListAILogSystemLo
 }
 
 const listAILogsByCategory = `-- name: ListAILogsByCategory :many
-WITH derived_logs AS (
-    SELECT
-        id,
-        ts,
-        level,
-        logger,
-        message,
-        raw,
-        source,
-        component,
-        agent_id,
-        thread_id,
-        trace_id,
-        event_type,
-        tool_name,
-        duration_ms,
-        extra,
-        CASE
-            WHEN message ILIKE '%api request%'
-                OR message ILIKE '%request to%'
-                OR message ILIKE '%http request%' THEN 'api_request'
-            WHEN message ILIKE '%api error%'
-                OR message ILIKE '%api_error%' THEN 'api_error'
-            WHEN message ILIKE '%compat%'
-                OR message ILIKE '%fallback%'
-                OR message ILIKE '%兼容%' THEN 'compat_fallback'
-            WHEN message ILIKE '%runtime%'
-                AND message ILIKE '%config%' THEN 'runtime_config'
-            WHEN message ILIKE '%error%'
-                OR message ILIKE '%exception%' THEN 'error'
-            ELSE 'ai_event'
-        END AS category,
-        COALESCE((regexp_match(message, '(?i)(GET|POST|PUT|DELETE|PATCH|HEAD)[[:space:]]+(https?://[^[:space:]]+)'))[1], '')::text AS method,
-        COALESCE((regexp_match(message, '(?i)(GET|POST|PUT|DELETE|PATCH|HEAD)[[:space:]]+(https?://[^[:space:]]+)'))[2], '')::text AS url,
-        CASE
-            WHEN COALESCE((regexp_match(message, '(?i)(GET|POST|PUT|DELETE|PATCH|HEAD)[[:space:]]+(https?://[^[:space:]]+)'))[2], '') = '' THEN ''
-            ELSE regexp_replace(
-                COALESCE((regexp_match(message, '(?i)(GET|POST|PUT|DELETE|PATCH|HEAD)[[:space:]]+(https?://[^[:space:]]+)'))[2], ''),
-                '^https?://[^/]+',
-                ''
-            )
-        END::text AS endpoint,
-        COALESCE((regexp_match(message, '(?i)HTTP/[0-9]\.[0-9][[:space:]]+([0-9]{3})[[:space:]]*([^[:space:]]*)'))[1], '')::text AS status,
-        COALESCE((regexp_match(message, '(?i)HTTP/[0-9]\.[0-9][[:space:]]+([0-9]{3})[[:space:]]*([^[:space:]]*)'))[2], '')::text AS status_text,
-        COALESCE((regexp_match(message, '(?i)model[=:][[:space:]]*([^[:space:],;"\]]+)'))[1], '')::text AS model
-    FROM system_logs
-)
 SELECT
     id,
     ts,
     level,
     logger,
     message,
-    raw,
+    '' AS raw,
     source,
     component,
     agent_id,
@@ -164,54 +126,65 @@ SELECT
     event_type,
     tool_name,
     duration_ms,
-    extra,
-    category,
-    method,
-    url,
-    endpoint,
-    status,
-    status_text,
-    model
-FROM derived_logs
-WHERE ($1::text = '' OR category = $1::text)
-  AND ($2::text = '' OR message ILIKE '%' || $2::text || '%')
+    '{}' AS extra
+FROM system_logs
+WHERE (? = '' OR lower(message) LIKE lower(?))
+  AND (
+    ? = ''
+    OR (CASE
+        WHEN lower(message) LIKE '%api request%'
+            OR lower(message) LIKE '%request to%'
+            OR lower(message) LIKE '%http request%' THEN 'api_request'
+        WHEN lower(message) LIKE '%api error%'
+            OR lower(message) LIKE '%api_error%' THEN 'api_error'
+        WHEN lower(message) LIKE '%compat%'
+            OR lower(message) LIKE '%fallback%'
+            OR instr(message, char(20860) || char(23481)) > 0 THEN 'compat_fallback'
+        WHEN lower(message) LIKE '%runtime%'
+            AND lower(message) LIKE '%config%' THEN 'runtime_config'
+        WHEN lower(message) LIKE '%error%'
+            OR lower(message) LIKE '%exception%' THEN 'error'
+        ELSE 'ai_event'
+    END) = ?
+  )
 ORDER BY ts DESC, id DESC
-LIMIT $3
+LIMIT ?
 `
 
 type ListAILogsByCategoryParams struct {
-	Category   string `db:"category" json:"category"`
-	Keyword    string `db:"keyword" json:"keyword"`
-	LimitCount int32  `db:"limit_count" json:"limit_count"`
+	Column1 interface{} `db:"column_1" json:"column_1"`
+	LOWER   string      `db:"LOWER" json:"LOWER"`
+	Column3 interface{} `db:"column_3" json:"column_3"`
+	Message string      `db:"message" json:"message"`
+	Limit   int64       `db:"limit" json:"limit"`
 }
 
 type ListAILogsByCategoryRow struct {
-	ID         int64     `db:"id" json:"id"`
-	Ts         time.Time `db:"ts" json:"ts"`
-	Level      string    `db:"level" json:"level"`
-	Logger     string    `db:"logger" json:"logger"`
-	Message    string    `db:"message" json:"message"`
-	Raw        string    `db:"raw" json:"raw"`
-	Source     string    `db:"source" json:"source"`
-	Component  string    `db:"component" json:"component"`
-	AgentID    string    `db:"agent_id" json:"agent_id"`
-	ThreadID   string    `db:"thread_id" json:"thread_id"`
-	TraceID    string    `db:"trace_id" json:"trace_id"`
-	EventType  string    `db:"event_type" json:"event_type"`
-	ToolName   string    `db:"tool_name" json:"tool_name"`
-	DurationMs *int32    `db:"duration_ms" json:"duration_ms"`
-	Extra      []byte    `db:"extra" json:"extra"`
-	Category   string    `db:"category" json:"category"`
-	Method     string    `db:"method" json:"method"`
-	Url        string    `db:"url" json:"url"`
-	Endpoint   string    `db:"endpoint" json:"endpoint"`
-	Status     string    `db:"status" json:"status"`
-	StatusText string    `db:"status_text" json:"status_text"`
-	Model      string    `db:"model" json:"model"`
+	ID         int64  `db:"id" json:"id"`
+	Ts         int64  `db:"ts" json:"ts"`
+	Level      string `db:"level" json:"level"`
+	Logger     string `db:"logger" json:"logger"`
+	Message    string `db:"message" json:"message"`
+	Raw        string `db:"raw" json:"raw"`
+	Source     string `db:"source" json:"source"`
+	Component  string `db:"component" json:"component"`
+	AgentID    string `db:"agent_id" json:"agent_id"`
+	ThreadID   string `db:"thread_id" json:"thread_id"`
+	TraceID    string `db:"trace_id" json:"trace_id"`
+	EventType  string `db:"event_type" json:"event_type"`
+	ToolName   string `db:"tool_name" json:"tool_name"`
+	DurationMs *int64 `db:"duration_ms" json:"duration_ms"`
+	Extra      string `db:"extra" json:"extra"`
 }
 
 func (q *Queries) ListAILogsByCategory(ctx context.Context, arg ListAILogsByCategoryParams) ([]ListAILogsByCategoryRow, error) {
-	rows, err := q.db.Query(ctx, listAILogsByCategory, arg.Category, arg.Keyword, arg.LimitCount)
+	rows, err := q.db.QueryContext(ctx, listAILogsByCategory,
+		arg.Column1,
+		arg.LOWER,
+		arg.Column3,
+		arg.Message,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -235,17 +208,13 @@ func (q *Queries) ListAILogsByCategory(ctx context.Context, arg ListAILogsByCate
 			&i.ToolName,
 			&i.DurationMs,
 			&i.Extra,
-			&i.Category,
-			&i.Method,
-			&i.Url,
-			&i.Endpoint,
-			&i.Status,
-			&i.StatusText,
-			&i.Model,
 		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -254,60 +223,13 @@ func (q *Queries) ListAILogsByCategory(ctx context.Context, arg ListAILogsByCate
 }
 
 const listRecentAILogs = `-- name: ListRecentAILogs :many
-WITH derived_logs AS (
-    SELECT
-        id,
-        ts,
-        level,
-        logger,
-        message,
-        raw,
-        source,
-        component,
-        agent_id,
-        thread_id,
-        trace_id,
-        event_type,
-        tool_name,
-        duration_ms,
-        extra,
-        CASE
-            WHEN message ILIKE '%api request%'
-                OR message ILIKE '%request to%'
-                OR message ILIKE '%http request%' THEN 'api_request'
-            WHEN message ILIKE '%api error%'
-                OR message ILIKE '%api_error%' THEN 'api_error'
-            WHEN message ILIKE '%compat%'
-                OR message ILIKE '%fallback%'
-                OR message ILIKE '%兼容%' THEN 'compat_fallback'
-            WHEN message ILIKE '%runtime%'
-                AND message ILIKE '%config%' THEN 'runtime_config'
-            WHEN message ILIKE '%error%'
-                OR message ILIKE '%exception%' THEN 'error'
-            ELSE 'ai_event'
-        END AS category,
-        COALESCE((regexp_match(message, '(?i)(GET|POST|PUT|DELETE|PATCH|HEAD)[[:space:]]+(https?://[^[:space:]]+)'))[1], '')::text AS method,
-        COALESCE((regexp_match(message, '(?i)(GET|POST|PUT|DELETE|PATCH|HEAD)[[:space:]]+(https?://[^[:space:]]+)'))[2], '')::text AS url,
-        CASE
-            WHEN COALESCE((regexp_match(message, '(?i)(GET|POST|PUT|DELETE|PATCH|HEAD)[[:space:]]+(https?://[^[:space:]]+)'))[2], '') = '' THEN ''
-            ELSE regexp_replace(
-                COALESCE((regexp_match(message, '(?i)(GET|POST|PUT|DELETE|PATCH|HEAD)[[:space:]]+(https?://[^[:space:]]+)'))[2], ''),
-                '^https?://[^/]+',
-                ''
-            )
-        END::text AS endpoint,
-        COALESCE((regexp_match(message, '(?i)HTTP/[0-9]\.[0-9][[:space:]]+([0-9]{3})[[:space:]]*([^[:space:]]*)'))[1], '')::text AS status,
-        COALESCE((regexp_match(message, '(?i)HTTP/[0-9]\.[0-9][[:space:]]+([0-9]{3})[[:space:]]*([^[:space:]]*)'))[2], '')::text AS status_text,
-        COALESCE((regexp_match(message, '(?i)model[=:][[:space:]]*([^[:space:],;"\]]+)'))[1], '')::text AS model
-    FROM system_logs
-)
 SELECT
     id,
     ts,
     level,
     logger,
     message,
-    raw,
+    '' AS raw,
     source,
     component,
     agent_id,
@@ -316,50 +238,36 @@ SELECT
     event_type,
     tool_name,
     duration_ms,
-    extra,
-    category,
-    method,
-    url,
-    endpoint,
-    status,
-    status_text,
-    model
-FROM derived_logs
+    '{}' AS extra
+FROM system_logs
 ORDER BY ts DESC, id DESC
-LIMIT $1
+LIMIT ?1
 `
 
 type ListRecentAILogsParams struct {
-	Limit int32 `db:"limit" json:"limit"`
+	LimitCount int64 `db:"limit_count" json:"limit_count"`
 }
 
 type ListRecentAILogsRow struct {
-	ID         int64     `db:"id" json:"id"`
-	Ts         time.Time `db:"ts" json:"ts"`
-	Level      string    `db:"level" json:"level"`
-	Logger     string    `db:"logger" json:"logger"`
-	Message    string    `db:"message" json:"message"`
-	Raw        string    `db:"raw" json:"raw"`
-	Source     string    `db:"source" json:"source"`
-	Component  string    `db:"component" json:"component"`
-	AgentID    string    `db:"agent_id" json:"agent_id"`
-	ThreadID   string    `db:"thread_id" json:"thread_id"`
-	TraceID    string    `db:"trace_id" json:"trace_id"`
-	EventType  string    `db:"event_type" json:"event_type"`
-	ToolName   string    `db:"tool_name" json:"tool_name"`
-	DurationMs *int32    `db:"duration_ms" json:"duration_ms"`
-	Extra      []byte    `db:"extra" json:"extra"`
-	Category   string    `db:"category" json:"category"`
-	Method     string    `db:"method" json:"method"`
-	Url        string    `db:"url" json:"url"`
-	Endpoint   string    `db:"endpoint" json:"endpoint"`
-	Status     string    `db:"status" json:"status"`
-	StatusText string    `db:"status_text" json:"status_text"`
-	Model      string    `db:"model" json:"model"`
+	ID         int64  `db:"id" json:"id"`
+	Ts         int64  `db:"ts" json:"ts"`
+	Level      string `db:"level" json:"level"`
+	Logger     string `db:"logger" json:"logger"`
+	Message    string `db:"message" json:"message"`
+	Raw        string `db:"raw" json:"raw"`
+	Source     string `db:"source" json:"source"`
+	Component  string `db:"component" json:"component"`
+	AgentID    string `db:"agent_id" json:"agent_id"`
+	ThreadID   string `db:"thread_id" json:"thread_id"`
+	TraceID    string `db:"trace_id" json:"trace_id"`
+	EventType  string `db:"event_type" json:"event_type"`
+	ToolName   string `db:"tool_name" json:"tool_name"`
+	DurationMs *int64 `db:"duration_ms" json:"duration_ms"`
+	Extra      string `db:"extra" json:"extra"`
 }
 
 func (q *Queries) ListRecentAILogs(ctx context.Context, arg ListRecentAILogsParams) ([]ListRecentAILogsRow, error) {
-	rows, err := q.db.Query(ctx, listRecentAILogs, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listRecentAILogs, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
@@ -383,17 +291,13 @@ func (q *Queries) ListRecentAILogs(ctx context.Context, arg ListRecentAILogsPara
 			&i.ToolName,
 			&i.DurationMs,
 			&i.Extra,
-			&i.Category,
-			&i.Method,
-			&i.Url,
-			&i.Endpoint,
-			&i.Status,
-			&i.StatusText,
-			&i.Model,
 		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

@@ -4,8 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -19,7 +17,7 @@ type querier interface {
 	SaveHookPendingReview(ctx context.Context, arg sqlc.SaveHookPendingReviewParams) error
 	GetHookPendingReview(ctx context.Context, arg sqlc.GetHookPendingReviewParams) (sqlc.GetHookPendingReviewRow, error)
 	ListHookPendingReviewsByAgent(ctx context.Context, arg sqlc.ListHookPendingReviewsByAgentParams) ([]sqlc.ListHookPendingReviewsByAgentRow, error)
-	CheckHookReviewIdempotency(ctx context.Context, arg sqlc.CheckHookReviewIdempotencyParams) (int32, error)
+	CheckHookReviewIdempotency(ctx context.Context, arg sqlc.CheckHookReviewIdempotencyParams) (int64, error)
 	ResolveHookPendingReview(ctx context.Context, arg sqlc.ResolveHookPendingReviewParams) (int64, error)
 	GetHookResolvedReview(ctx context.Context, arg sqlc.GetHookResolvedReviewParams) (sqlc.GetHookResolvedReviewRow, error)
 	CancelHookPendingReviewsByLease(ctx context.Context, arg sqlc.CancelHookPendingReviewsByLeaseParams) (int64, error)
@@ -55,8 +53,8 @@ func (s *store) SavePendingReview(ctx context.Context, review mcp.PendingHookRev
 		AgentID:         review.AgentID,
 		SubscriberLease: review.SubscriberLease,
 		DefaultAction:   review.DefaultAction,
-		CreatedAt:       toTS(review.CreatedAt),
-		DeadlineAt:      toTS(review.DeadlineAt),
+		CreatedAt:       toMS(review.CreatedAt),
+		DeadlineAt:      toMS(review.DeadlineAt),
 	})
 	return wrapErr(err, "save")
 }
@@ -106,7 +104,7 @@ func (s *store) ResolvePendingReview(ctx context.Context, hookCallID, decision, 
 		Reason:         reason,
 		IdempotencyKey: idempotencyKey,
 		ResolvedBy:     resolvedBy,
-		ResolvedAt:     toTS(time.Now().UTC()),
+		ResolvedAt:     toMSPtr(time.Now().UTC()),
 	})
 	if err != nil {
 		return wrapErr(err, "resolve")
@@ -127,7 +125,7 @@ func (s *store) GetResolvedReview(ctx context.Context, hookCallID string) (strin
 		}
 		return "", time.Time{}, "", wrapErr(err, "get_resolved")
 	}
-	return row.Decision, fromTS(row.ResolvedAt), row.SubscriberLease, nil
+	return row.Decision, fromMSPtr(row.ResolvedAt), row.SubscriberLease, nil
 }
 
 // CancelPendingReviewsByLease marks all pending reviews for the given subscriber lease as cancelled.
@@ -135,7 +133,7 @@ func (s *store) GetResolvedReview(ctx context.Context, hookCallID string) (strin
 func (s *store) CancelPendingReviewsByLease(ctx context.Context, subscriberLease string) (int, error) {
 	rows, err := s.q.CancelHookPendingReviewsByLease(ctx, sqlc.CancelHookPendingReviewsByLeaseParams{
 		SubscriberLease: subscriberLease,
-		ResolvedAt:      toTS(time.Now().UTC()),
+		ResolvedAt:      toMSPtr(time.Now().UTC()),
 	})
 	if err != nil {
 		return 0, wrapErr(err, "cancel_by_lease")
@@ -148,7 +146,7 @@ func (s *store) CancelPendingReviewsByLease(ctx context.Context, subscriberLease
 func (s *store) CancelPendingReviewsByAgent(ctx context.Context, agentID string) (int, error) {
 	rows, err := s.q.CancelHookPendingReviewsByAgent(ctx, sqlc.CancelHookPendingReviewsByAgentParams{
 		AgentID:    agentID,
-		ResolvedAt: toTS(time.Now().UTC()),
+		ResolvedAt: toMSPtr(time.Now().UTC()),
 	})
 	if err != nil {
 		return 0, wrapErr(err, "cancel_by_agent")
@@ -160,7 +158,11 @@ func (s *store) CancelPendingReviewsByAgent(ctx context.Context, agentID string)
 // Returns the number of reviews cancelled.
 // CancelExpiredReviews 处理cancelexpiredreviews。
 func (s *store) CancelExpiredReviews(ctx context.Context) (int, error) {
-	rows, err := s.q.CancelExpiredHookReviews(ctx, sqlc.CancelExpiredHookReviewsParams{ResolvedAt: toTS(time.Now().UTC())})
+	now := time.Now().UTC()
+	rows, err := s.q.CancelExpiredHookReviews(ctx, sqlc.CancelExpiredHookReviewsParams{
+		ResolvedAt: toMSPtr(now),
+		DeadlineAt: toMS(now),
+	})
 	if err != nil {
 		return 0, wrapErr(err, "cancel_expired")
 	}
@@ -188,8 +190,8 @@ func pendingFromGet(row sqlc.GetHookPendingReviewRow) mcp.PendingHookReview {
 		AgentID:         row.AgentID,
 		SubscriberLease: row.SubscriberLease,
 		DefaultAction:   row.DefaultAction,
-		CreatedAt:       fromTS(row.CreatedAt),
-		DeadlineAt:      fromTS(row.DeadlineAt),
+		CreatedAt:       fromMS(row.CreatedAt),
+		DeadlineAt:      fromMS(row.DeadlineAt),
 	}
 }
 
@@ -200,8 +202,8 @@ func pendingFromList(row sqlc.ListHookPendingReviewsByAgentRow) mcp.PendingHookR
 		AgentID:         row.AgentID,
 		SubscriberLease: row.SubscriberLease,
 		DefaultAction:   row.DefaultAction,
-		CreatedAt:       fromTS(row.CreatedAt),
-		DeadlineAt:      fromTS(row.DeadlineAt),
+		CreatedAt:       fromMS(row.CreatedAt),
+		DeadlineAt:      fromMS(row.DeadlineAt),
 	}
 }
 
@@ -212,23 +214,35 @@ func pendingFromRecover(row sqlc.RecoverHookPendingReviewsRow) mcp.PendingHookRe
 		AgentID:         row.AgentID,
 		SubscriberLease: row.SubscriberLease,
 		DefaultAction:   row.DefaultAction,
-		CreatedAt:       fromTS(row.CreatedAt),
-		DeadlineAt:      fromTS(row.DeadlineAt),
+		CreatedAt:       fromMS(row.CreatedAt),
+		DeadlineAt:      fromMS(row.DeadlineAt),
 	}
 }
 
-func toTS(t time.Time) pgtype.Timestamptz {
+func toMS(t time.Time) int64 {
+	return platformdb.Millis(t)
+}
+
+func toMSPtr(t time.Time) *int64 {
 	if t.IsZero() {
-		return pgtype.Timestamptz{Valid: false}
+		return nil
 	}
-	return pgtype.Timestamptz{Time: t, Valid: true}
+	v := platformdb.Millis(t)
+	return &v
 }
 
-func fromTS(t pgtype.Timestamptz) time.Time {
-	if !t.Valid {
+func fromMS(ms int64) time.Time {
+	if ms == 0 {
 		return time.Time{}
 	}
-	return t.Time
+	return platformdb.TimeFromMillis(ms)
+}
+
+func fromMSPtr(ms *int64) time.Time {
+	if ms == nil {
+		return time.Time{}
+	}
+	return fromMS(*ms)
 }
 
 func wrapErr(err error, op string) error {

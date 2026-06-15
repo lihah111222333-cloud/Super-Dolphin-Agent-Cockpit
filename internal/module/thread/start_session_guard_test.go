@@ -585,7 +585,11 @@ func (s *startOnlySessionStarter) StartSession(ctx context.Context, req dto.Star
 	if s.onStart == nil {
 		return nil, errors.New("unexpected start session")
 	}
-	return s.onStart(ctx, req)
+	session, err := s.onStart(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return attachStartedCodexRuntimeIdentityForTest(req, session), nil
 }
 
 func (s *startOnlySessionStarter) ResumeSession(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {

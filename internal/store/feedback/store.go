@@ -11,9 +11,9 @@ import (
 )
 
 type querier interface {
-	InsertAgentFeedbackEvent(ctx context.Context, arg sqlc.InsertAgentFeedbackEventParams) (sqlc.AgentFeedbackEvent, error)
-	ListAgentFeedbackEventsByThread(ctx context.Context, arg sqlc.ListAgentFeedbackEventsByThreadParams) ([]sqlc.AgentFeedbackEvent, error)
-	ListAgentFeedbackEventsByAgent(ctx context.Context, arg sqlc.ListAgentFeedbackEventsByAgentParams) ([]sqlc.AgentFeedbackEvent, error)
+	InsertAgentFeedbackEvent(ctx context.Context, arg sqlc.InsertAgentFeedbackEventParams) (sqlc.InsertAgentFeedbackEventRow, error)
+	ListAgentFeedbackEventsByThread(ctx context.Context, arg sqlc.ListAgentFeedbackEventsByThreadParams) ([]sqlc.ListAgentFeedbackEventsByThreadRow, error)
+	ListAgentFeedbackEventsByAgent(ctx context.Context, arg sqlc.ListAgentFeedbackEventsByAgentParams) ([]sqlc.ListAgentFeedbackEventsByAgentRow, error)
 }
 
 type store struct {
@@ -68,7 +68,7 @@ func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) 
 	}
 	rows, err := s.q.ListAgentFeedbackEventsByThread(ctx, sqlc.ListAgentFeedbackEventsByThreadParams{
 		ThreadID: threadID,
-		Limit:    limit,
+		Limit:    int64(limit),
 	})
 	if err != nil {
 		return nil, wrapErr(err, "list_by_thread")
@@ -87,7 +87,7 @@ func (s *store) ListByAgentKey(ctx context.Context, agentKey string, limit int32
 	}
 	rows, err := s.q.ListAgentFeedbackEventsByAgent(ctx, sqlc.ListAgentFeedbackEventsByAgentParams{
 		AgentKey: agentKey,
-		Limit:    limit,
+		Limit:    int64(limit),
 	})
 	if err != nil {
 		return nil, wrapErr(err, "list_by_agent_key")
@@ -95,24 +95,44 @@ func (s *store) ListByAgentKey(ctx context.Context, agentKey string, limit int32
 	return mapRows(rows), nil
 }
 
-func fromRow(row sqlc.AgentFeedbackEvent) Event {
-	ev := Event{
-		ID:              row.ID,
-		ThreadID:        row.ThreadID,
-		TurnID:          row.TurnID,
-		AgentKey:        row.AgentKey,
-		PromptVersionID: row.PromptVersionID,
-		EventType:       row.EventType,
-		Actor:           row.Actor,
-		Payload:         append(json.RawMessage(nil), row.Payload...),
+func fromRow(row any) Event {
+	switch r := row.(type) {
+	case sqlc.InsertAgentFeedbackEventRow:
+		return feedbackEventFromFields(r.ID, r.ThreadID, r.TurnID, r.AgentKey, r.PromptVersionID,
+			r.EventType, r.Actor, r.Payload, r.CreatedAt)
+	case sqlc.ListAgentFeedbackEventsByThreadRow:
+		return feedbackEventFromFields(r.ID, r.ThreadID, r.TurnID, r.AgentKey, r.PromptVersionID,
+			r.EventType, r.Actor, r.Payload, r.CreatedAt)
+	case sqlc.ListAgentFeedbackEventsByAgentRow:
+		return feedbackEventFromFields(r.ID, r.ThreadID, r.TurnID, r.AgentKey, r.PromptVersionID,
+			r.EventType, r.Actor, r.Payload, r.CreatedAt)
+	default:
+		panic("unsupported feedback row type")
 	}
-	if row.CreatedAt.Valid {
-		ev.CreatedAt = row.CreatedAt.Time
-	}
-	return ev
 }
 
-func mapRows(rows []sqlc.AgentFeedbackEvent) []Event {
+func feedbackEventFromFields(
+	id int64,
+	threadID, turnID, agentKey string,
+	promptVersionID *int64,
+	eventType, actor string,
+	payload []byte,
+	createdAt int64,
+) Event {
+	return Event{
+		ID:              id,
+		ThreadID:        threadID,
+		TurnID:          turnID,
+		AgentKey:        agentKey,
+		PromptVersionID: promptVersionID,
+		EventType:       eventType,
+		Actor:           actor,
+		Payload:         append(json.RawMessage(nil), payload...),
+		CreatedAt:       platformdb.TimeFromMillis(createdAt),
+	}
+}
+
+func mapRows[T sqlc.ListAgentFeedbackEventsByThreadRow | sqlc.ListAgentFeedbackEventsByAgentRow](rows []T) []Event {
 	out := make([]Event, len(rows))
 	for i, row := range rows {
 		out[i] = fromRow(row)

@@ -17,7 +17,6 @@ esac
 relay_url="${SUPER_DOLPHIN_CODEX_RELAY_BASE_URL:-}"
 relay_api_key_env="SUPER_DOLPHIN_CODEX_RELAY_API_KEY"
 relay_api_key="${SUPER_DOLPHIN_CODEX_RELAY_API_KEY:-}"
-postgres_dist="${SUPER_DOLPHIN_POSTGRES_DIST:-$root/.build-cache/postgres/16.14/$(go env GOOS)-$(go env GOARCH)}"
 codex_bin="${SUPER_DOLPHIN_CODEX_ARTIFACT:-$(command -v codex || true)}"
 ffmpeg_bin_env="SUPER_DOLPHIN_FFMPEG_BIN"
 ffmpeg_bin=""
@@ -175,7 +174,6 @@ if [[ -z "${relay_url//[[:space:]]/}" ]]; then
 fi
 test -x "$codex_bin" || { echo "missing Codex artifact: $codex_bin" >&2; exit 1; }
 codex_artifact="$(resolve_local_codex_binary "$codex_bin")"
-test -d "$postgres_dist" || { echo "missing PostgreSQL dist: $postgres_dist" >&2; exit 1; }
 resolve_or_install_host_ffmpeg
 
 package_one() {
@@ -198,7 +196,6 @@ package_one() {
     "$relay_api_key_env=$relay_api_key" \
     SUPER_DOLPHIN_LSP_PROFILE="$profile" \
     APP_NAME="$app_name" \
-    SUPER_DOLPHIN_POSTGRES_DIST="$postgres_dist" \
     SUPER_DOLPHIN_CODEX_ARTIFACT="$codex_artifact" \
     SUPER_DOLPHIN_CODEX_SHA256="$(shasum -a 256 "$codex_artifact" | awk '{print $1}')" \
     SUPER_DOLPHIN_CODEX_VERSION="${SUPER_DOLPHIN_CODEX_VERSION:-$($codex_artifact --version 2>/dev/null | head -n1)}" \

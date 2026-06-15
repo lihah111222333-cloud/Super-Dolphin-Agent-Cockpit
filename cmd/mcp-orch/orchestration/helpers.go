@@ -17,6 +17,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/exitmonitor"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
@@ -277,7 +278,7 @@ func (s *service) waitForSubmitSessionReady(ctx context.Context, agentID string)
 func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) error {
 	cmd := exec.Command(agent.command[0], agent.command[1:]...)
 	cmd.Dir = agent.cwd
-	cmd.Env = append(os.Environ(), agent.env...)
+	cmd.Env = append(contract.ScrubDatabaseEnv(os.Environ()), contract.ScrubDatabaseEnv(agent.env)...)
 	processctl.Configure(cmd)
 	if err := cmd.Start(); err != nil {
 		return s.commitLaunchFailureLocked(ctx, agent, err)
