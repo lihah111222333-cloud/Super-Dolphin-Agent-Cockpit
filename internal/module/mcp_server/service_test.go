@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -339,6 +340,11 @@ func newToolsListHTTPMCPTestServer(t *testing.T, wantAuth string) (*httptest.Ser
 		}
 		if wantAuth != "" && r.Header.Get("Authorization") != wantAuth {
 			http.Error(w, "missing authorization", http.StatusUnauthorized)
+			return
+		}
+		accept := r.Header.Get("Accept")
+		if !strings.Contains(accept, "application/json") || !strings.Contains(accept, "text/event-stream") {
+			http.Error(w, "missing streamable HTTP accept", http.StatusNotAcceptable)
 			return
 		}
 		var req struct {
