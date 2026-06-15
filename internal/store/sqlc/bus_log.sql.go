@@ -7,47 +7,49 @@ package sqlc
 
 import (
 	"context"
-	"time"
 )
 
 const listBusExceptionLogs = `-- name: ListBusExceptionLogs :many
-SELECT ts, category, severity, source, tool_name, message, traceback, extra
+SELECT id, ts, category, severity, source, tool_name, message, '' AS traceback, '{}' AS extra
 FROM bus_exception_logs
-WHERE ($1::text = '' OR category = $1)
-  AND ($2::text = '' OR severity = $2)
-  AND ($3::text = ''
-    OR source ILIKE '%' || $3 || '%'
-    OR tool_name ILIKE '%' || $3 || '%'
-    OR message ILIKE '%' || $3 || '%'
-    OR traceback ILIKE '%' || $3 || '%')
+WHERE (?1 = '' OR category = ?1)
+  AND (?2 = '' OR severity = ?2)
+  AND (?3 = ''
+    OR lower(source) LIKE lower(?4)
+    OR lower(tool_name) LIKE lower(?4)
+    OR lower(message) LIKE lower(?4)
+    OR lower(traceback) LIKE lower(?4))
 ORDER BY ts DESC, id DESC
-LIMIT $4
+LIMIT ?5
 `
 
 type ListBusExceptionLogsParams struct {
-	Column1 string `db:"column_1" json:"column_1"`
-	Column2 string `db:"column_2" json:"column_2"`
-	Column3 string `db:"column_3" json:"column_3"`
-	Limit   int32  `db:"limit" json:"limit"`
+	CategoryFilter interface{} `db:"category_filter" json:"category_filter"`
+	SeverityFilter interface{} `db:"severity_filter" json:"severity_filter"`
+	Keyword        interface{} `db:"keyword" json:"keyword"`
+	KeywordPattern string      `db:"keyword_pattern" json:"keyword_pattern"`
+	LimitCount     int64       `db:"limit_count" json:"limit_count"`
 }
 
 type ListBusExceptionLogsRow struct {
-	Ts        time.Time `db:"ts" json:"ts"`
-	Category  string    `db:"category" json:"category"`
-	Severity  string    `db:"severity" json:"severity"`
-	Source    string    `db:"source" json:"source"`
-	ToolName  string    `db:"tool_name" json:"tool_name"`
-	Message   string    `db:"message" json:"message"`
-	Traceback string    `db:"traceback" json:"traceback"`
-	Extra     []byte    `db:"extra" json:"extra"`
+	ID        int64  `db:"id" json:"id"`
+	Ts        int64  `db:"ts" json:"ts"`
+	Category  string `db:"category" json:"category"`
+	Severity  string `db:"severity" json:"severity"`
+	Source    string `db:"source" json:"source"`
+	ToolName  string `db:"tool_name" json:"tool_name"`
+	Message   string `db:"message" json:"message"`
+	Traceback string `db:"traceback" json:"traceback"`
+	Extra     string `db:"extra" json:"extra"`
 }
 
 func (q *Queries) ListBusExceptionLogs(ctx context.Context, arg ListBusExceptionLogsParams) ([]ListBusExceptionLogsRow, error) {
-	rows, err := q.db.Query(ctx, listBusExceptionLogs,
-		arg.Column1,
-		arg.Column2,
-		arg.Column3,
-		arg.Limit,
+	rows, err := q.db.QueryContext(ctx, listBusExceptionLogs,
+		arg.CategoryFilter,
+		arg.SeverityFilter,
+		arg.Keyword,
+		arg.KeywordPattern,
+		arg.LimitCount,
 	)
 	if err != nil {
 		return nil, err
@@ -57,6 +59,7 @@ func (q *Queries) ListBusExceptionLogs(ctx context.Context, arg ListBusException
 	for rows.Next() {
 		var i ListBusExceptionLogsRow
 		if err := rows.Scan(
+			&i.ID,
 			&i.Ts,
 			&i.Category,
 			&i.Severity,
@@ -69,6 +72,9 @@ func (q *Queries) ListBusExceptionLogs(ctx context.Context, arg ListBusException
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

@@ -2,41 +2,28 @@ package prompt
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
+	_ "modernc.org/sqlite"
 )
 
 func TestPromptTemplateMappingsIncludeManuallyEdited(t *testing.T) {
-	ts := pgtype.Timestamptz{Time: time.Unix(1, 0).UTC(), Valid: true}
+	ts := time.Unix(1, 0).UTC().UnixMilli()
 
 	tests := []struct {
 		name string
 		got  PromptTemplate
 	}{
-		{
-			name: "get",
-			got:  mappedGetPromptTemplate(ts),
-		},
-		{
-			name: "list",
-			got:  mappedListPromptTemplate(ts),
-		},
-		{
-			name: "upsert",
-			got:  mappedUpsertPromptTemplate(ts),
-		},
+		{name: "get", got: mappedGetPromptTemplate(ts)},
+		{name: "list", got: mappedListPromptTemplate(ts)},
+		{name: "upsert", got: mappedUpsertPromptTemplate(ts)},
 	}
 
 	for _, tt := range tests {
@@ -46,32 +33,32 @@ func TestPromptTemplateMappingsIncludeManuallyEdited(t *testing.T) {
 	}
 }
 
-func mappedGetPromptTemplate(ts pgtype.Timestamptz) PromptTemplate {
+func mappedGetPromptTemplate(ts int64) PromptTemplate {
 	return fromGetTemplate(sqlc.GetPromptTemplateRow{
 		ID: 1, PromptKey: "main/morning_briefer", Title: "Morning Briefer", AgentKey: "morning_briefer",
 		PromptText: "Prepare a briefing.", Variables: []byte(`{}`), Tags: []byte(`["briefing"]`),
-		Description: "Daily briefing prompt.", WhenToUse: "Use for daily briefings.", Enabled: true,
-		ManuallyEdited: true, MatchWhen: []byte(`{"cwd_prefix":"/repo"}`), Priority: 30,
+		Description: "Daily briefing prompt.", WhenToUse: "Use for daily briefings.", Enabled: 1,
+		ManuallyEdited: 1, MatchWhen: []byte(`{"cwd_prefix":"/repo"}`), Priority: 30,
 		CreatedBy: "system.seed", UpdatedBy: "user", CreatedAt: ts, UpdatedAt: ts,
 	})
 }
 
-func mappedListPromptTemplate(ts pgtype.Timestamptz) PromptTemplate {
+func mappedListPromptTemplate(ts int64) PromptTemplate {
 	return fromListTemplate(sqlc.ListPromptTemplatesRow{
 		ID: 2, PromptKey: "main/paper_summarizer", Title: "Paper Summarizer", AgentKey: "paper_summarizer",
 		PromptText: "Summarize a paper.", Variables: []byte(`{}`), Tags: []byte(`["research"]`),
-		Description: "Research summary prompt.", WhenToUse: "Use for paper summaries.", Enabled: true,
-		ManuallyEdited: true, MatchWhen: []byte(`{"language":"en"}`), Priority: 20,
+		Description: "Research summary prompt.", WhenToUse: "Use for paper summaries.", Enabled: 1,
+		ManuallyEdited: 1, MatchWhen: []byte(`{"language":"en"}`), Priority: 20,
 		CreatedBy: "system.seed", UpdatedBy: "user", CreatedAt: ts, UpdatedAt: ts,
 	})
 }
 
-func mappedUpsertPromptTemplate(ts pgtype.Timestamptz) PromptTemplate {
+func mappedUpsertPromptTemplate(ts int64) PromptTemplate {
 	return fromUpsertTemplate(sqlc.UpsertPromptTemplateRow{
 		ID: 3, PromptKey: "main/email_drafter", Title: "Email Drafter", AgentKey: "email_drafter",
 		PromptText: "Draft an email.", Variables: []byte(`{}`), Tags: []byte(`["writing"]`),
-		Description: "Email drafting prompt.", WhenToUse: "Use for email drafts.", Enabled: true,
-		ManuallyEdited: true, MatchWhen: []byte(`{}`), Priority: 10,
+		Description: "Email drafting prompt.", WhenToUse: "Use for email drafts.", Enabled: 1,
+		ManuallyEdited: 1, MatchWhen: []byte(`{}`), Priority: 10,
 		CreatedBy: "system.seed", UpdatedBy: "user", CreatedAt: ts, UpdatedAt: ts,
 	})
 }
@@ -101,15 +88,7 @@ func assertPromptTemplateMapping(t *testing.T, got PromptTemplate) {
 func TestUpsertPromptTemplatePersistsRoutingMetadata(t *testing.T) {
 	t.Parallel()
 
-	db := &capturePromptUpsertDB{row: []any{
-		int64(9), "main/sql", "SQL Expert", "main", "",
-		"SQL body", []byte(`{}`), []byte(`["sql"]`),
-		"SQL description", "Use when SQL workflow guidance is needed.",
-		true, true, []byte(`{"cwd_prefix":"/repo"}`), int32(70),
-		"tester", "tester",
-		pgtype.Timestamptz{Time: time.Unix(1, 0).UTC(), Valid: true},
-		pgtype.Timestamptz{Time: time.Unix(2, 0).UTC(), Valid: true},
-	}}
+	db := newPromptTestDB(t)
 	store := NewStore(db)
 
 	got, err := store.Upsert(context.Background(), PromptTemplate{
@@ -131,11 +110,6 @@ func TestUpsertPromptTemplatePersistsRoutingMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}
-	for _, want := range []string{"when_to_use", "match_when", "priority"} {
-		if !strings.Contains(db.sql, want) {
-			t.Fatalf("upsert SQL missing %q:\n%s", want, db.sql)
-		}
-	}
 	if got.WhenToUse != "Use when SQL workflow guidance is needed." {
 		t.Fatalf("WhenToUse = %q", got.WhenToUse)
 	}
@@ -145,36 +119,56 @@ func TestUpsertPromptTemplatePersistsRoutingMetadata(t *testing.T) {
 	if got.Priority != 70 {
 		t.Fatalf("Priority = %d", got.Priority)
 	}
-	if !upsertArgsContain(db.args, "Use when SQL workflow guidance is needed.", []byte(`{"cwd_prefix":"/repo"}`), int32(70)) {
-		t.Fatalf("upsert args missing routing metadata: %#v", db.args)
+	if !got.Enabled || !got.ManuallyEdited {
+		t.Fatalf("enabled/manually_edited = %v/%v, want true/true", got.Enabled, got.ManuallyEdited)
 	}
 }
 
-func TestGetSectionByRecallTopicUsesGeneratedRecallQuery(t *testing.T) {
+func TestGetSectionByRecallTopicUsesSQLiteScopedRecall(t *testing.T) {
 	t.Parallel()
 
-	db := &captureRecallSectionDB{body: "Recall package body"}
+	db := newPromptTestDB(t)
 	store := NewStore(db)
+	templateID := insertPromptTemplate(t, db, "test/prompt-recall", "Recall Integration", true, []string{"scope.cwd:/repo/a"})
+	disabledTemplateID := insertPromptTemplate(t, db, "test/prompt-recall-disabled", "Disabled Recall Integration", false, []string{"scope.cwd:/repo/a"})
+	insertRecallSection(t, db, templateID, "enabled_recall", "Recall body", true, "recall", "topic_enabled")
+	insertRecallSection(t, db, templateID, "disabled_recall", "Disabled body", false, "recall", "topic_disabled")
+	insertRecallSection(t, db, disabledTemplateID, "disabled_parent_recall", "Disabled parent body", true, "recall", "topic_disabled_parent")
+	insertRecallSection(t, db, templateID, "always_topic", "Always body", true, "always", "topic_always")
 
-	got, err := store.GetSectionByRecallTopic(context.Background(), "/repo/a", "context_budget")
+	got, err := store.GetSectionByRecallTopic(context.Background(), "/repo/a", "topic_enabled")
 	if err != nil {
-		t.Fatalf("GetSectionByRecallTopic() error = %v", err)
+		t.Fatalf("GetSectionByRecallTopic(enabled recall) error = %v", err)
 	}
-	if got != "Recall package body" {
-		t.Fatalf("body = %q, want recall body", got)
+	if got != "Recall body" {
+		t.Fatalf("body = %q, want Recall body", got)
 	}
-	assertRecallSectionSQL(t, db.query)
-	if len(db.args) != 2 || db.args[0] != "context_budget" || db.args[1] != "/repo/a" {
-		t.Fatalf("query args = %#v, want [context_budget /repo/a]", db.args)
+	assertRecallTopicsNotFound(t, store, "/repo/a", "topic_disabled", "topic_disabled_parent", "topic_always", "topic_missing")
+}
+
+func TestGetSectionByRecallTopicPrefersCWDOverGlobal(t *testing.T) {
+	t.Parallel()
+
+	db := newPromptTestDB(t)
+	store := NewStore(db)
+	globalID := insertPromptTemplate(t, db, "test/prompt-global", "Global Recall", true, []string{"scope.global"})
+	cwdID := insertPromptTemplate(t, db, "test/prompt-cwd", "CWD Recall", true, []string{"scope.cwd:/repo/a"})
+	insertRecallSection(t, db, globalID, "global_recall", "Global body", true, "recall", "topic_shared")
+	insertRecallSection(t, db, cwdID, "cwd_recall", "CWD body", true, "recall", "topic_shared")
+
+	got, err := store.GetSectionByRecallTopic(context.Background(), "/repo/a", "topic_shared")
+	if err != nil {
+		t.Fatalf("GetSectionByRecallTopic(shared) error = %v", err)
+	}
+	if got != "CWD body" {
+		t.Fatalf("body = %q, want CWD body", got)
 	}
 }
 
 func TestGetSectionByRecallTopicRequiresCWD(t *testing.T) {
 	t.Parallel()
 
-	db := &captureRecallSectionDB{body: "unused"}
-	store := NewStore(db)
-
+	store := NewStore(newPromptTestDB(t))
 	_, err := store.GetSectionByRecallTopic(context.Background(), " ", "context_budget")
 	if err == nil {
 		t.Fatal("GetSectionByRecallTopic() error = nil, want cwd required")
@@ -182,17 +176,12 @@ func TestGetSectionByRecallTopicRequiresCWD(t *testing.T) {
 	if !strings.Contains(err.Error(), "cwd") {
 		t.Fatalf("error = %v, want cwd required", err)
 	}
-	if db.query != "" {
-		t.Fatalf("query executed despite empty cwd:\n%s", db.query)
-	}
 }
 
 func TestGetSectionByRecallTopicWrapsNoRowsAsNotFound(t *testing.T) {
 	t.Parallel()
 
-	db := &captureRecallSectionDB{err: pgx.ErrNoRows}
-	store := NewStore(db)
-
+	store := NewStore(newPromptTestDB(t))
 	_, err := store.GetSectionByRecallTopic(context.Background(), "/repo/a", "missing")
 	if err == nil {
 		t.Fatal("GetSectionByRecallTopic() error = nil, want wrapped not found")
@@ -200,15 +189,12 @@ func TestGetSectionByRecallTopicWrapsNoRowsAsNotFound(t *testing.T) {
 	if !platformdb.IsNotFound(err) {
 		t.Fatalf("error = %v, want platformdb.IsNotFound", err)
 	}
-	assertRecallSectionSQL(t, db.query)
 }
 
 func TestGetSectionByRecallTopicFallsBackToBuiltinRegistry(t *testing.T) {
 	t.Parallel()
 
-	db := &captureRecallSectionDB{err: pgx.ErrNoRows}
-	store := NewStore(db)
-
+	store := NewStore(newPromptTestDB(t))
 	got, err := store.GetSectionByRecallTopic(context.Background(), "/repo/a", "lsp-basics")
 	if err != nil {
 		t.Fatalf("GetSectionByRecallTopic() error = %v", err)
@@ -216,25 +202,24 @@ func TestGetSectionByRecallTopicFallsBackToBuiltinRegistry(t *testing.T) {
 	if !strings.Contains(got, "LSP") {
 		t.Fatalf("builtin recall body = %q, want LSP guidance", got)
 	}
-	assertRecallSectionSQL(t, db.query)
 }
 
-func TestListSectionsByTemplateIDUsesGeneratedInjectableQuery(t *testing.T) {
+func TestListSectionsByTemplateIDUsesSQLiteQuery(t *testing.T) {
 	t.Parallel()
 
-	db := &captureListSectionsDB{rows: &stubPromptSectionRows{rows: [][]any{
-		{int64(1), int64(42), "identity", "static", int32(0), "Identity body", "always", "", true},
-		{int64(2), int64(42), "workflow", "dynamic", int32(10), "Workflow body", "keyword", "", true},
-	}}}
+	db := newPromptTestDB(t)
 	store := NewStore(db)
+	templateID := insertPromptTemplate(t, db, "test/sections", "Sections", true, []string{"scope.global"})
+	insertPromptSection(t, db, templateID, "workflow", "dynamic", 10, "Workflow body", true, "keyword", "")
+	insertPromptSection(t, db, templateID, "identity", "static", 0, "Identity body", true, "always", "")
+	insertPromptSection(t, db, templateID, "disabled", "static", 1, "Disabled body", false, "always", "")
+	insertPromptSection(t, db, templateID, "recall", "dynamic", 2, "Recall body", true, "recall", "topic")
 
-	got, err := store.ListSectionsByTemplateID(context.Background(), 42)
+	got, err := store.ListSectionsByTemplateID(context.Background(), templateID)
 	if err != nil {
 		t.Fatalf("ListSectionsByTemplateID() error = %v", err)
 	}
 	assertListSectionsResult(t, got)
-	assertListSectionsSQL(t, db.query)
-	assertListSectionsArgs(t, db.args)
 }
 
 func assertListSectionsResult(t *testing.T, got []PromptTemplateSection) {
@@ -250,17 +235,13 @@ func assertListSectionsResult(t *testing.T, got []PromptTemplateSection) {
 	}
 }
 
-func assertListSectionsArgs(t *testing.T, args []any) {
-	t.Helper()
-	if len(args) != 1 || args[0] != int64(42) {
-		t.Fatalf("query args = %#v, want [42]", args)
-	}
-}
-
 func TestListSectionsByTemplateIDWrapsQueryError(t *testing.T) {
 	t.Parallel()
 
-	db := &captureListSectionsDB{err: errors.New("query failed")}
+	db := newPromptTestDB(t)
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
 	store := NewStore(db)
 
 	_, err := store.ListSectionsByTemplateID(context.Background(), 42)
@@ -270,369 +251,119 @@ func TestListSectionsByTemplateIDWrapsQueryError(t *testing.T) {
 	if !strings.Contains(err.Error(), "list_sections") {
 		t.Fatalf("error = %v, want list_sections context", err)
 	}
-	assertListSectionsSQL(t, db.query)
 }
 
-func assertRecallSectionSQL(t *testing.T, sql string) {
+func assertRecallTopicsNotFound(t *testing.T, store Store, cwd string, topics ...string) {
 	t.Helper()
-
-	for _, want := range []string{
-		"SELECT s.body",
-		"FROM prompt_template_sections s",
-		"JOIN prompt_templates t ON t.id = s.template_id",
-		"s.recall_topic = $1",
-		"s.trigger_type = 'recall'",
-		"s.enabled = TRUE",
-		"t.enabled = TRUE",
-		"(t.tags ? ('scope.cwd:' || $2::text) OR t.tags ? 'scope.global')",
-		"ORDER BY CASE",
-		"WHEN t.tags ? ('scope.cwd:' || $2::text) THEN 0",
-		"WHEN t.tags ? 'scope.global' THEN 1",
-		"s.ordinal",
-		"s.id",
-		"LIMIT 1",
-	} {
-		if !strings.Contains(sql, want) {
-			t.Fatalf("recall SQL missing %q:\n%s", want, sql)
-		}
-	}
-}
-
-func assertListSectionsSQL(t *testing.T, sql string) {
-	t.Helper()
-
-	for _, want := range []string{
-		"SELECT s.id, s.template_id, s.section_key, s.region, s.ordinal, s.body",
-		"FROM prompt_template_sections s",
-		"s.template_id = $1",
-		"s.enabled = TRUE",
-		"s.trigger_type <> 'recall'",
-		"ORDER BY CASE s.region WHEN 'static' THEN 0 ELSE 1 END, s.ordinal, s.id",
-	} {
-		if !strings.Contains(sql, want) {
-			t.Fatalf("list sections SQL missing %q:\n%s", want, sql)
-		}
-	}
-}
-
-func TestGetSectionByRecallTopicPGIntegration(t *testing.T) {
-	if os.Getenv("PROMPT_RECALL_INTEGRATION") != "1" {
-		t.Skip("set PROMPT_RECALL_INTEGRATION=1 and DATABASE_URL to run against a DB with migrations through 0096 already applied")
-	}
-	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
-	if databaseURL == "" {
-		t.Fatal("DATABASE_URL is required when PROMPT_RECALL_INTEGRATION=1")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("pgxpool.New() error = %v", err)
-	}
-	defer pool.Close()
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("Begin() error = %v", err)
-	}
-	defer func() { _ = tx.Rollback(context.Background()) }()
-
-	topic := fmt.Sprintf("codex_x2_recall_%d", time.Now().UnixNano())
-	disabledTopic := topic + "_disabled"
-	disabledParentTopic := topic + "_disabled_parent"
-	alwaysTopic := topic + "_always"
-	const cwd = "/repo/a"
-	templateID := insertPromptTemplate(t, ctx, tx, "test/prompt-recall-integration-"+topic, "Recall Integration", true, cwd)
-	disabledTemplateID := insertPromptTemplate(t, ctx, tx, "test/prompt-recall-integration-disabled-"+topic, "Disabled Recall Integration", false, cwd)
-	insertRecallSection(t, ctx, tx, templateID, "enabled_recall", "Recall body", true, "recall", topic)
-	insertRecallSection(t, ctx, tx, templateID, "disabled_recall", "Disabled body", false, "recall", disabledTopic)
-	insertRecallSection(t, ctx, tx, disabledTemplateID, "disabled_parent_recall", "Disabled parent body", true, "recall", disabledParentTopic)
-	insertRecallSection(t, ctx, tx, templateID, "always_topic", "Always body", true, "always", alwaysTopic)
-
-	store := NewStore(tx)
-	got, err := store.GetSectionByRecallTopic(ctx, cwd, topic)
-	if err != nil {
-		t.Fatalf("GetSectionByRecallTopic(enabled recall) error = %v", err)
-	}
-	if got != "Recall body" {
-		t.Fatalf("body = %q, want Recall body", got)
-	}
-	assertRecallTopicsNotFound(t, ctx, store, cwd, disabledTopic, disabledParentTopic, alwaysTopic, topic+"_missing")
-}
-
-func insertPromptTemplate(t *testing.T, ctx context.Context, tx pgx.Tx, promptKey, title string, enabled bool, cwd string) int64 {
-	t.Helper()
-
-	var templateID int64
-	err := tx.QueryRow(ctx, `
-INSERT INTO public.prompt_templates
-    (prompt_key, agent_key, title, tool_name, prompt_text, variables, tags, enabled,
-     created_by, updated_by, description, manually_edited, when_to_use)
-VALUES ($1, 'test', $2, '', 'fallback', '{}'::jsonb, jsonb_build_array('scope.cwd:' || $4::text), $3,
-        'test', 'test', '', FALSE, '')
-RETURNING id`, promptKey, title, enabled, cwd).Scan(&templateID)
-	if err != nil {
-		t.Fatalf("insert prompt template(%s) error = %v", promptKey, err)
-	}
-	return templateID
-}
-
-func assertRecallTopicsNotFound(t *testing.T, ctx context.Context, store Store, cwd string, topics ...string) {
-	t.Helper()
-
 	for _, topic := range topics {
-		_, err := store.GetSectionByRecallTopic(ctx, cwd, topic)
+		_, err := store.GetSectionByRecallTopic(context.Background(), cwd, topic)
 		if !platformdb.IsNotFound(err) {
 			t.Fatalf("GetSectionByRecallTopic(%q) error = %v, want not found", topic, err)
 		}
 	}
 }
 
-func insertRecallSection(t *testing.T, ctx context.Context, tx pgx.Tx, templateID int64, sectionKey, body string, enabled bool, triggerType, recallTopic string) {
+func newPromptTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-
-	_, err := tx.Exec(ctx, `
-INSERT INTO public.prompt_template_sections
-    (template_id, section_key, region, ordinal, body, enable_when, enabled, trigger_type, recall_topic)
-VALUES ($1, $2, 'dynamic', 0, $3, '{}'::jsonb, $4, $5, $6)`,
-		templateID, sectionKey, body, enabled, triggerType, recallTopic,
-	)
+	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
-		t.Fatalf("insert prompt_template_sections(%s) error = %v", sectionKey, err)
+		t.Fatalf("open sqlite: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	mustExecPromptSQL(t, db, `
+CREATE TABLE prompt_templates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  prompt_key TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  agent_key TEXT NOT NULL,
+  tool_name TEXT NOT NULL DEFAULT '',
+  prompt_text TEXT NOT NULL,
+  variables TEXT NOT NULL DEFAULT '{}',
+  tags TEXT NOT NULL DEFAULT '[]',
+  description TEXT NOT NULL DEFAULT '',
+  when_to_use TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  manually_edited INTEGER NOT NULL DEFAULT 0,
+  match_when TEXT NOT NULL DEFAULT '{}',
+  priority INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL DEFAULT '',
+  updated_by TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE prompt_template_sections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  template_id INTEGER NOT NULL,
+  section_key TEXT NOT NULL,
+  region TEXT NOT NULL,
+  ordinal INTEGER NOT NULL DEFAULT 0,
+  body TEXT NOT NULL,
+  enable_when TEXT NOT NULL DEFAULT '{}',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  trigger_type TEXT NOT NULL DEFAULT '',
+  recall_topic TEXT NOT NULL DEFAULT '',
+  FOREIGN KEY(template_id) REFERENCES prompt_templates(id) ON DELETE CASCADE
+);`)
+	return db
+}
+
+func insertPromptTemplate(t *testing.T, db *sql.DB, promptKey, title string, enabled bool, tags []string) int64 {
+	t.Helper()
+	tagsJSON, err := json.Marshal(tags)
+	if err != nil {
+		t.Fatalf("marshal tags: %v", err)
+	}
+	now := time.Unix(1, 0).UTC().UnixMilli()
+	result, err := db.ExecContext(context.Background(), `
+INSERT INTO prompt_templates (
+  prompt_key, title, agent_key, tool_name, prompt_text, variables, tags,
+  description, when_to_use, enabled, manually_edited, match_when, priority,
+  created_by, updated_by, created_at, updated_at
+) VALUES (?, ?, 'test', '', 'fallback', '{}', ?, '', '', ?, 0, '{}', 0, 'test', 'test', ?, ?)`,
+		promptKey, title, string(tagsJSON), boolInt64(enabled), now, now)
+	if err != nil {
+		t.Fatalf("insert prompt template(%s): %v", promptKey, err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("last insert id: %v", err)
+	}
+	return id
+}
+
+func insertRecallSection(t *testing.T, db *sql.DB, templateID int64, sectionKey, body string, enabled bool, triggerType, recallTopic string) {
+	t.Helper()
+	insertPromptSection(t, db, templateID, sectionKey, "dynamic", 0, body, enabled, triggerType, recallTopic)
+}
+
+func insertPromptSection(t *testing.T, db *sql.DB, templateID int64, sectionKey, region string, ordinal int64, body string, enabled bool, triggerType, recallTopic string) {
+	t.Helper()
+	_, err := db.ExecContext(context.Background(), `
+INSERT INTO prompt_template_sections (
+  template_id, section_key, region, ordinal, body, enable_when, enabled, trigger_type, recall_topic
+) VALUES (?, ?, ?, ?, ?, '{}', ?, ?, ?)`,
+		templateID, sectionKey, region, ordinal, body, boolInt64(enabled), triggerType, recallTopic)
+	if err != nil {
+		t.Fatalf("insert prompt_template_sections(%s): %v", sectionKey, err)
 	}
 }
 
-type captureRecallSectionDB struct {
-	query string
-	args  []any
-	body  string
-	err   error
-}
-
-func (*captureRecallSectionDB) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
-	return pgconn.CommandTag{}, fmt.Errorf("unexpected Exec call")
-}
-
-func (*captureRecallSectionDB) Query(context.Context, string, ...any) (pgx.Rows, error) {
-	return nil, fmt.Errorf("unexpected Query call")
-}
-
-func (db *captureRecallSectionDB) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
-	db.query = sql
-	db.args = append([]any(nil), args...)
-	return captureRecallSectionRow{body: db.body, err: db.err}
-}
-
-type captureRecallSectionRow struct {
-	body string
-	err  error
-}
-
-func (r captureRecallSectionRow) Scan(dest ...any) error {
-	if r.err != nil {
-		return r.err
+func mustExecPromptSQL(t *testing.T, db *sql.DB, body string) {
+	t.Helper()
+	if _, err := db.ExecContext(context.Background(), body); err != nil {
+		t.Fatalf("exec sqlite schema: %v", err)
 	}
-	if len(dest) != 1 {
-		return fmt.Errorf("scan dest len = %d, want 1", len(dest))
-	}
-	body, ok := dest[0].(*string)
-	if !ok {
-		return fmt.Errorf("scan dest[0] type = %T, want *string", dest[0])
-	}
-	*body = r.body
-	return nil
 }
 
-type captureListSectionsDB struct {
-	query string
-	args  []any
-	rows  pgx.Rows
-	err   error
-}
-
-func (*captureListSectionsDB) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
-	return pgconn.CommandTag{}, fmt.Errorf("unexpected Exec call")
-}
-
-func (db *captureListSectionsDB) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
-	db.query = sql
-	db.args = append([]any(nil), args...)
-	if db.err != nil {
-		return nil, db.err
-	}
-	if db.rows == nil {
-		return &stubPromptSectionRows{}, nil
-	}
-	return db.rows, nil
-}
-
-func (*captureListSectionsDB) QueryRow(context.Context, string, ...any) pgx.Row {
-	return captureRecallSectionRow{err: fmt.Errorf("unexpected QueryRow call")}
-}
-
-type capturePromptUpsertDB struct {
-	sql  string
-	args []any
-	row  []any
-	err  error
-}
-
-func (*capturePromptUpsertDB) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
-	return pgconn.CommandTag{}, fmt.Errorf("unexpected Exec call")
-}
-
-func (*capturePromptUpsertDB) Query(context.Context, string, ...any) (pgx.Rows, error) {
-	return nil, fmt.Errorf("unexpected Query call")
-}
-
-func (db *capturePromptUpsertDB) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
-	db.sql = sql
-	db.args = append([]any(nil), args...)
-	return capturePromptUpsertRow{values: db.row, err: db.err}
-}
-
-type capturePromptUpsertRow struct {
-	values []any
-	err    error
-}
-
-func (r capturePromptUpsertRow) Scan(dest ...any) error {
-	if r.err != nil {
-		return r.err
-	}
-	if len(dest) != len(r.values) {
-		return fmt.Errorf("dest len = %d, values len = %d", len(dest), len(r.values))
-	}
-	for i := range dest {
-		if err := assignPromptValue(dest[i], r.values[i]); err != nil {
-			return fmt.Errorf("scan column %d: %w", i, err)
-		}
-	}
-	return nil
-}
-
-func upsertArgsContain(args []any, whenToUse string, matchWhen []byte, priority int32) bool {
-	var hasWhen, hasMatch, hasPriority bool
-	for _, arg := range args {
-		if arg == whenToUse {
-			hasWhen = true
-		}
-		if got, ok := arg.([]byte); ok && string(got) == string(matchWhen) {
-			hasMatch = true
-		}
-		if arg == priority {
-			hasPriority = true
-		}
-	}
-	return hasWhen && hasMatch && hasPriority
-}
-
-type stubPromptSectionRows struct {
-	rows [][]any
-	idx  int
-	err  error
-}
-
-func (r *stubPromptSectionRows) Close()                                     { _ = r }
-func (r *stubPromptSectionRows) Err() error                                 { return r.err }
-func (*stubPromptSectionRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
-func (*stubPromptSectionRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
-func (*stubPromptSectionRows) RawValues() [][]byte                          { return nil }
-func (*stubPromptSectionRows) Conn() *pgx.Conn                              { return nil }
-
-func (r *stubPromptSectionRows) Next() bool {
-	if r.idx >= len(r.rows) {
+func promptArgsEqual(left, right []any) bool {
+	if len(left) != len(right) {
 		return false
 	}
-	r.idx++
+	for i := range left {
+		if fmt.Sprint(left[i]) != fmt.Sprint(right[i]) {
+			return false
+		}
+	}
 	return true
-}
-
-func (r *stubPromptSectionRows) Scan(dest ...any) error {
-	if r.idx == 0 || r.idx > len(r.rows) {
-		return fmt.Errorf("scan without current row")
-	}
-	values := r.rows[r.idx-1]
-	if len(dest) != len(values) {
-		return fmt.Errorf("dest len = %d, values len = %d", len(dest), len(values))
-	}
-	for i := range dest {
-		if err := assignPromptSectionValue(dest[i], values[i]); err != nil {
-			return fmt.Errorf("scan column %d: %w", i, err)
-		}
-	}
-	return nil
-}
-
-func (r *stubPromptSectionRows) Values() ([]any, error) {
-	if r.idx == 0 || r.idx > len(r.rows) {
-		return nil, fmt.Errorf("values without current row")
-	}
-	return append([]any(nil), r.rows[r.idx-1]...), nil
-}
-
-func assignPromptSectionValue(dest any, value any) error {
-	return assignPromptValue(dest, value)
-}
-
-func assignPromptValue(dest any, value any) error {
-	if assignPromptScalar(dest, value) {
-		return nil
-	}
-	return assignPromptExtended(dest, value)
-}
-
-func assignPromptScalar(dest any, value any) bool {
-	switch target := dest.(type) {
-	case *int64:
-		typed, ok := value.(int64)
-		if !ok {
-			return false
-		}
-		*target = typed
-		return true
-	case *int32:
-		typed, ok := value.(int32)
-		if !ok {
-			return false
-		}
-		*target = typed
-		return true
-	case *string:
-		typed, ok := value.(string)
-		if !ok {
-			return false
-		}
-		*target = typed
-		return true
-	case *bool:
-		typed, ok := value.(bool)
-		if !ok {
-			return false
-		}
-		*target = typed
-		return true
-	default:
-		return false
-	}
-}
-
-func assignPromptExtended(dest any, value any) error {
-	switch target := dest.(type) {
-	case *[]byte:
-		typed, ok := value.([]byte)
-		if !ok {
-			return fmt.Errorf("cannot assign %T to *[]byte", value)
-		}
-		*target = append((*target)[:0], typed...)
-	case *pgtype.Timestamptz:
-		typed, ok := value.(pgtype.Timestamptz)
-		if !ok {
-			return fmt.Errorf("cannot assign %T to *pgtype.Timestamptz", value)
-		}
-		*target = typed
-	default:
-		return fmt.Errorf("unsupported dest type %T", dest)
-	}
-	return nil
 }

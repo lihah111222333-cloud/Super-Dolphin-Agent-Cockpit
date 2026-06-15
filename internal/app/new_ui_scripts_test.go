@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -72,8 +73,8 @@ func TestNewUIDesktopScriptWaitsForFrontendBeforeBackend(t *testing.T) {
 	assertTextOrder(t, text, `: >"$SUPER_DOLPHIN_FRONTEND_LOG"`, `(cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &`)
 	assertTextOrder(t, text, `(cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &`, `wait_for_http "$FRONTEND_DEVSERVER_URL" "frontend-app vite"`)
 	assertTextOrder(t, text, `wait_for_http "$FRONTEND_DEVSERVER_URL" "frontend-app vite"`, "\nstart_desktop_backend\n")
-	assertTextOrder(t, text, "\nstart_desktop_backend\nwait_for_backend\nseed_dev_preferences\n", "\n  wait_for_any_process_exit\n")
-	if strings.Contains(text, "\nstart_desktop_backend\nwait_for_backend\nseed_dev_preferences\n\n(cd \"$FRONTEND_APP_DIR\"") {
+	assertTextOrder(t, text, "\nstart_desktop_backend\nwait_for_backend\n", "\n  wait_for_any_process_exit\n")
+	if strings.Contains(text, "\nstart_desktop_backend\nwait_for_backend\n\n(cd \"$FRONTEND_APP_DIR\"") {
 		t.Fatal("run-new-ui-desktop.sh must not launch the desktop backend before Vite is ready")
 	}
 	if strings.Contains(text, `wait_for_http "$VITE_DEV_URL" "frontend-app vite"`) {
@@ -217,6 +218,9 @@ func TestNewUIDesktopScriptEnablesFrontendPollingWatchByDefault(t *testing.T) {
 }
 
 func TestNewUIDesktopScriptFrontendWatchModeBooleanParsing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("bash snippet tests use WSL on Windows and cannot reliably access native temp paths")
+	}
 	tests := []struct {
 		name       string
 		env        map[string]string
@@ -302,38 +306,44 @@ func TestNewUIDesktopScriptCleansChildProcessesAndStaleVite(t *testing.T) {
 	assertTextOrderAfter(t, text, "cleanup() {", `stop_process_tree "frontend-app vite" "$VITE_PID"`, `stop_process_tree "new UI desktop backend" "$DESKTOP_PID"`)
 }
 
-func TestNewUIDesktopScriptAutostartsLocalPostgresBeforeBackend(t *testing.T) {
+func TestNewUIDesktopScriptUsesSQLiteWithoutPostgresRuntime(t *testing.T) {
 	text := readRootScript(t, "../../run-new-ui-desktop.sh")
 
 	required := []string{
-		`configure_dev_postgres_runtime`,
-		`ensure_local_postgres`,
-		`resolve_postgres_bin_dir`,
-		`resolve_postgres_share_dir`,
-		`SUPER_DOLPHIN_POSTGRES_DIST`,
-		`SUPER_DOLPHIN_POSTGRES_BIN_DIR`,
-		`SUPER_DOLPHIN_POSTGRES_SHARE_DIR`,
+		`ensure_sqlite_runtime`,
+		`SUPER_DOLPHIN_SQLITE_PATH="${SUPER_DOLPHIN_SQLITE_PATH:-$SUPER_DOLPHIN_HOME/super-dolphin.db}"`,
+		`mkdir -p "$sqlite_parent"`,
+		`export SUPER_DOLPHIN_SQLITE_PATH`,
 		`SUPER_DOLPHIN_PROCESS_ROLE="${SUPER_DOLPHIN_PROCESS_ROLE:-desktop}"`,
-		`SUPER_DOLPHIN_LOCAL_POSTGRES_PORT="${SUPER_DOLPHIN_LOCAL_POSTGRES_PORT:-55433}"`,
-		`SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR="${SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR:-$PROJECT_DIR/.tmp/pgdata}"`,
-		`SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR="${SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR:-$PROJECT_DIR/.tmp/pgsocket}"`,
-		`SUPER_DOLPHIN_LOCAL_POSTGRES_LOG="${SUPER_DOLPHIN_LOCAL_POSTGRES_LOG:-$PROJECT_DIR/.tmp/postgres.log}"`,
-		`DATABASE_URL="${DATABASE_URL:-postgres://super_dolphin@127.0.0.1:${SUPER_DOLPHIN_LOCAL_POSTGRES_PORT}/super_dolphin?sslmode=disable}"`,
-		`export DATABASE_URL`,
-		`postgres_is_local_database_url`,
-		`initialize_local_postgres_data_dir`,
-		`initdb" -D "$SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR"`,
-		`pg_ctl" -D "$SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR"`,
+		`sqlite:       $SUPER_DOLPHIN_SQLITE_PATH`,
 	}
 	for _, want := range required {
 		if !strings.Contains(text, want) {
 			t.Fatalf("run-new-ui-desktop.sh missing %q", want)
 		}
 	}
-	assertTextOrder(t, text, "ensure_dev_control_session_token\nconfigure_dev_postgres_runtime", `ensure_node_deps "$FRONTEND_APP_DIR"`)
-	assertTextOrder(t, text, "ensure_local_postgres\nensure_node_deps", "\nstart_desktop_backend\n")
-	if strings.Contains(text, `export DATABASE_URL="${DATABASE_URL:-`) {
-		t.Fatal("run-new-ui-desktop.sh must not overwrite an explicit DATABASE_URL")
+	assertTextOrder(t, text, "ensure_dev_control_session_token\nensure_sqlite_runtime", `ensure_node_deps "$FRONTEND_APP_DIR"`)
+	assertTextOrder(t, text, "ensure_sqlite_runtime\nstop_stale_vite_for_port", "\nstart_desktop_backend\n")
+	for _, forbidden := range []string{
+		`configure_dev_postgres_runtime`,
+		`ensure_local_postgres`,
+		`resolve_postgres_bin_dir`,
+		`resolve_postgres_share_dir`,
+		`SUPER_DOLPHIN_POSTGRES_`,
+		`SUPER_DOLPHIN_LOCAL_POSTGRES`,
+		`DATABASE_URL`,
+		`POSTGRES_CONNECTION_STRING`,
+		`postgres_is_local_database_url`,
+		`initialize_local_postgres_data_dir`,
+		`pg_ctl`,
+		`initdb`,
+		`psql`,
+		`seed_dev_preferences`,
+		`DEV_LOCAL_POSTGRES_MANAGED`,
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("run-new-ui-desktop.sh must not contain PostgreSQL runtime dependency %q", forbidden)
+		}
 	}
 	if strings.Contains(text, ",,}") {
 		t.Fatal("run-new-ui-desktop.sh must remain compatible with macOS Bash 3.2 and avoid Bash 4 lowercase expansion")
@@ -353,11 +363,11 @@ func TestNewUIDesktopScriptUsesShortDevHome(t *testing.T) {
 			t.Fatalf("run-new-ui-desktop.sh missing %q", want)
 		}
 	}
-	assertTextOrder(t, text, `SUPER_DOLPHIN_HOME="${SUPER_DOLPHIN_HOME:-/tmp/sd-new-ui-${USER:-user}/super-dolphin-home}"`, "\nensure_dev_control_session_token\nconfigure_dev_postgres_runtime")
-	assertTextOrder(t, text, `export SUPER_DOLPHIN_HOME`, "\nensure_dev_control_session_token\nconfigure_dev_postgres_runtime")
+	assertTextOrder(t, text, `SUPER_DOLPHIN_HOME="${SUPER_DOLPHIN_HOME:-/tmp/sd-new-ui-${USER:-user}/super-dolphin-home}"`, "\nensure_dev_control_session_token\nensure_sqlite_runtime")
+	assertTextOrder(t, text, `export SUPER_DOLPHIN_HOME`, "\nensure_dev_control_session_token\nensure_sqlite_runtime")
 }
 
-func TestNewUIDesktopScriptSeedsDevProviderPreferencesAfterBackendReady(t *testing.T) {
+func TestNewUIDesktopScriptDoesNotSeedDevProviderPreferencesThroughDatabase(t *testing.T) {
 	text := readRootScript(t, "../../run-new-ui-desktop.sh")
 
 	required := []string{
@@ -367,49 +377,62 @@ func TestNewUIDesktopScriptSeedsDevProviderPreferencesAfterBackendReady(t *testi
 		`SUPER_DOLPHIN_DEV_CODEX_HOME="${SUPER_DOLPHIN_DEV_CODEX_HOME:-$HOME/.codex}"`,
 		`SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY="${SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY:-default}"`,
 		`SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER="${SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER:-openai}"`,
-		`DEV_LOCAL_POSTGRES_MANAGED`,
-		`seed_dev_preferences`,
-		`"$SUPER_DOLPHIN_POSTGRES_BIN_DIR/psql"`,
-		`settings.provider.active`,
-		`settings.provider.codex.model`,
-		`settings.provider.codex.effort`,
-		`settings.provider.codex.codexHome`,
-		`settings.provider.codex.codexInstanceKey`,
-		`settings.provider.codex.codexModelProvider`,
 	}
 	for _, want := range required {
 		if !strings.Contains(text, want) {
 			t.Fatalf("run-new-ui-desktop.sh missing %q", want)
 		}
 	}
-	assertTextOrder(t, text, "\nstart_desktop_backend\nwait_for_backend\nseed_dev_preferences\n", "\nif backend_hot_reload_enabled; then\n  run_backend_hot_supervisor_loop")
+	for _, forbidden := range []string{
+		`seed_dev_preferences`,
+		`settings.provider.active`,
+		`settings.provider.codex.model`,
+		`settings.provider.codex.effort`,
+		`settings.provider.codex.codexHome`,
+		`settings.provider.codex.codexInstanceKey`,
+		`settings.provider.codex.codexModelProvider`,
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("run-new-ui-desktop.sh must not seed provider preferences through DB: %q", forbidden)
+		}
+	}
+	assertTextOrder(t, text, "\nstart_desktop_backend\nwait_for_backend\n", "\nif backend_hot_reload_enabled; then\n  run_backend_hot_supervisor_loop")
 }
 
-func TestNewUIDesktopPowerShellScriptSeedsDevProviderPreferencesWithStablePsqlArgs(t *testing.T) {
+func TestNewUIDesktopPowerShellScriptUsesSQLiteWithoutPostgresRuntime(t *testing.T) {
 	text := readRootScript(t, "../../run-new-ui-desktop.ps1")
 
 	required := []string{
 		`Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER' -Value 'openai'`,
-		`'settings.provider.codex.codexModelProvider'`,
-		`$psqlArgs = @(`,
-		`'--set=ON_ERROR_STOP=1'`,
-		`"--set=active_provider=$($env:SUPER_DOLPHIN_DEV_PROVIDER)"`,
-		`"--set=codex_model_provider=$($env:SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER)"`,
-		`'-d'`,
-		`& $psql @psqlArgs *> $null`,
+		`Ensure-SqliteRuntime`,
+		`Set-DefaultEnv -Name 'SUPER_DOLPHIN_SQLITE_PATH' -Value (Join-Path $env:SUPER_DOLPHIN_HOME 'super-dolphin.db')`,
+		`Write-Host "  sqlite:       $($env:SUPER_DOLPHIN_SQLITE_PATH)"`,
 	}
 	for _, want := range required {
 		if !strings.Contains(text, want) {
 			t.Fatalf("run-new-ui-desktop.ps1 missing %q", want)
 		}
 	}
-	if strings.Contains(text, "-v 'ON_ERROR_STOP=1'") {
-		t.Fatal("run-new-ui-desktop.ps1 must use --set argument strings instead of quoted -v pairs")
+	for _, forbidden := range []string{
+		`Configure-DevPostgresRuntime`,
+		`Ensure-LocalPostgres`,
+		`Resolve-PostgresBinDir`,
+		`SUPER_DOLPHIN_POSTGRES_`,
+		`SUPER_DOLPHIN_LOCAL_POSTGRES`,
+		`DATABASE_URL`,
+		`POSTGRES_CONNECTION_STRING`,
+		`pg_ctl`,
+		`initdb`,
+		`psql`,
+		`Seed-DevPreferences`,
+		`DEV_LOCAL_POSTGRES_MANAGED`,
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("run-new-ui-desktop.ps1 must not contain PostgreSQL runtime dependency %q", forbidden)
+		}
 	}
-	assertTextOrderAfter(t, text, "$psqlArgs = @(", "'--set=ON_ERROR_STOP=1'", "'-d'")
-	assertTextOrderAfter(t, text, "$psqlArgs = @(", "'-d'", "$env:DATABASE_URL")
-	assertTextOrderAfter(t, text, "$script:DesktopProcess = Start-Process", "Wait-ForBackend", "Seed-DevPreferences")
-	assertTextOrderAfter(t, text, "$script:DesktopProcess = Start-Process", "Seed-DevPreferences", "Wait-ForAnyProcessExit")
+	assertTextOrderAfter(t, text, "Add-CodexCliToPath", "Ensure-SqliteRuntime", "Stop-StaleViteForPort")
+	assertTextOrderAfter(t, text, "$script:DesktopProcess = Start-Process", "Wait-ForBackend", "Wait-ForAnyProcessExit")
 }
 
 func TestNewUIDesktopPowerShellScriptSkipsInvalidPathEntries(t *testing.T) {

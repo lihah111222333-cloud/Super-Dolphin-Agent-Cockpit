@@ -40,18 +40,20 @@ type stubAgentBindingStore struct {
 	orchestration.AgentBindingStore
 }
 type stubDAGScheduleStore struct{}
-type stubAdvisoryLocker struct{}
-type stubAdvisoryLockHandle struct{}
+type stubRuntimeLocker struct{}
+type stubRuntimeLockHandle struct{}
 
 func (stubDAGScheduleStore) DueDAGs(context.Context, time.Time) ([]orchcron.DueDAG, error) {
 	return nil, nil
 }
 
-func (stubAdvisoryLocker) TryLock(context.Context) (orchcron.AdvisoryLockHandle, bool, error) {
-	return stubAdvisoryLockHandle{}, true, nil
+func (stubRuntimeLocker) TryLock(context.Context) (orchcron.RuntimeLockHandle, bool, error) {
+	return stubRuntimeLockHandle{}, true, nil
 }
 
-func (stubAdvisoryLockHandle) Unlock(context.Context) error { return nil }
+func (stubRuntimeLockHandle) Renew(context.Context) error { return nil }
+
+func (stubRuntimeLockHandle) Unlock(context.Context) error { return nil }
 
 func TestParentFxStartup(t *testing.T) {
 	// P22 P4 S4c1: orchestration package no longer exports `Module`;
@@ -95,7 +97,7 @@ func TestParentFxStartup(t *testing.T) {
 			func() taskdagstore.RunStore { return &stubRunStore{} },
 			func() taskdagstore.ScheduledStartStore { return &stubScheduledStartStore{} },
 			func() orchcron.DAGScheduleStore { return stubDAGScheduleStore{} },
-			func() orchcron.AdvisoryLocker { return stubAdvisoryLocker{} },
+			func() orchcron.RuntimeLocker { return stubRuntimeLocker{} },
 		),
 		fx.Invoke(func(in consumeRunners) error {
 			if len(in.Runners) < 3 {
@@ -124,8 +126,8 @@ func TestBuildOrchestrationOptionsIncludesScheduledDAGCronRunner(t *testing.T) {
 	if !funcBodyContainsIdent(fn, "provideSQLDAGScheduleStore") {
 		t.Fatal("buildOrchestrationOptions must provide scheduled DAG SQL schedule store")
 	}
-	if !funcBodyContainsIdent(fn, "providePGAdvisoryLocker") {
-		t.Fatal("buildOrchestrationOptions must provide scheduled DAG advisory locker")
+	if !funcBodyContainsIdent(fn, "provideSQLiteRuntimeLocker") {
+		t.Fatal("buildOrchestrationOptions must provide scheduled DAG SQLite runtime locker")
 	}
 	if !funcBodyAnnotatesRunner(fn, "provideScheduledDAGCronRunner") {
 		t.Fatal("buildOrchestrationOptions must annotate provideScheduledDAGCronRunner into group:\"runners\"")

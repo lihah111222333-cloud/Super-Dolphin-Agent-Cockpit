@@ -3,13 +3,13 @@ package topologyapproval
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
 // querier is the narrow subset of sqlc.Queries this store depends on.
-// NewStore still accepts the concrete *sqlc.Queries for fx wiring.
 type querier interface {
 	CreateTopologyApproval(ctx context.Context, arg sqlc.CreateTopologyApprovalParams) (sqlc.TopologyApproval, error)
 	ApproveTopologyApproval(ctx context.Context, arg sqlc.ApproveTopologyApprovalParams) (int64, error)
@@ -27,13 +27,13 @@ func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 // Create 创建topologyapproval存储。
 func (s *store) Create(ctx context.Context, approval TopologyApproval) (*TopologyApproval, error) {
 	row, err := s.q.CreateTopologyApproval(ctx, sqlc.CreateTopologyApprovalParams{
-		ID:          approval.ID,
-		RequestedBy: approval.RequestedBy,
-		Reason:      approval.Reason,
-		CreatedAt:   approval.CreatedAt,
-		ExpireAt:    approval.ExpireAt,
-		ArchHash:    approval.ArchHash,
-		Column7:     approval.ProposedArchitecture,
+		ID:                   approval.ID,
+		RequestedBy:          approval.RequestedBy,
+		Reason:               approval.Reason,
+		CreatedAt:            platformdb.Millis(approval.CreatedAt),
+		ExpireAt:             platformdb.Millis(approval.ExpireAt),
+		ArchHash:             approval.ArchHash,
+		ProposedArchitecture: string(approval.ProposedArchitecture),
 	})
 	if err != nil {
 		return nil, wrapTopologyApprovalError(err, "create")
@@ -73,15 +73,23 @@ func (s *store) ListPending(ctx context.Context) ([]TopologyApproval, error) {
 	return approvals, nil
 }
 
+func reviewedAtPtr(ms *int64) *time.Time {
+	if ms == nil {
+		return nil
+	}
+	t := platformdb.TimeFromMillis(*ms)
+	return &t
+}
+
 func fromSQLC(row sqlc.TopologyApproval) TopologyApproval {
 	return TopologyApproval{
 		ID:                   row.ID,
 		Status:               row.Status,
 		RequestedBy:          row.RequestedBy,
 		Reason:               row.Reason,
-		CreatedAt:            row.CreatedAt,
-		ExpireAt:             row.ExpireAt,
-		ReviewedAt:           row.ReviewedAt,
+		CreatedAt:            platformdb.TimeFromMillis(row.CreatedAt),
+		ExpireAt:             platformdb.TimeFromMillis(row.ExpireAt),
+		ReviewedAt:           reviewedAtPtr(row.ReviewedAt),
 		Reviewer:             row.Reviewer,
 		ReviewNote:           row.ReviewNote,
 		ArchHash:             row.ArchHash,

@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgconn"
-
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
@@ -201,7 +199,7 @@ func (s *stubRunStore) TerminateRun(_ context.Context, input taskdag.TerminateRu
 // uniqueViolationErr 交付一个 SQLSTATE 23505 错误供 stub.WithRunTx 返回，
 // 以便驱动 service 走 GetRun-first fallback 路径。
 func uniqueViolationErr(constraintName string) error {
-	return &pgconn.PgError{Code: "23505", ConstraintName: constraintName}
+	return errors.New("UNIQUE constraint failed: " + constraintName)
 }
 
 // makeStartDAGService 构造测试用 service：仅注入 dagStore + runStore。

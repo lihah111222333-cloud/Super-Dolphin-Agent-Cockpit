@@ -1,6 +1,8 @@
 package store
 
 import (
+	"database/sql"
+
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus"
@@ -28,7 +30,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/topologyapproval"
 	turndedupestore "github.com/anthropic-ai/super-agent-v3/internal/store/turndedupe"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Module is the explicit store root assembler exception: this file may import
@@ -36,7 +37,7 @@ import (
 // must not spread to other root packages and this file must stay free of
 // business logic.
 var Module = fx.Module("store",
-	fx.Provide(func(pool *pgxpool.Pool) *sqlc.Queries { return sqlc.New(pool) }),
+	fx.Provide(func(db *sql.DB) *sqlc.Queries { return sqlc.New(db) }),
 	fx.Provide(func(q *sqlc.Queries) sqlc.Querier { return q }),
 	agentstatus.Module,
 	ailog.Module,

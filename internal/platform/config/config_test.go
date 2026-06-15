@@ -14,6 +14,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+const testInternalSQLitePathEnvKey = "SUPER_DOLPHIN_INTERNAL_SQLITE_PATH"
+
 func TestNew_PrefersCanonicalRPCAddr(t *testing.T) {
 	isolateConfigTestEnv(t)
 	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "127.0.0.1:9200")
@@ -50,53 +52,122 @@ func TestNew_UsesLegacyRPCAddrWithDeprecationWarning(t *testing.T) {
 	}
 }
 
-func TestNew_DoesNotSynthesizeDatabaseURLInDevWhenEnvMissing(t *testing.T) {
+func TestNew_DefaultsSQLitePathUnderProjectHomeInDev(t *testing.T) {
 	isolateConfigTestEnv(t)
 
 	cfg := mustNewConfig(t)
-	if got := strings.TrimSpace(cfg.DatabaseURL); got != "" {
-		t.Fatalf("DatabaseURL = %q, want empty without packaged runtime or explicit opt-in", got)
-	}
-	if cfg.EmbeddedPostgres.Enabled {
-		t.Fatal("EmbeddedPostgres.Enabled = true, want false without packaged runtime or explicit opt-in")
+	want := filepath.Join(cfg.ProjectRoot, ".super-dolphin", "super-dolphin.db")
+	if cfg.SQLitePath != want {
+		t.Fatalf("SQLitePath = %q, want %q", cfg.SQLitePath, want)
 	}
 	if got := os.Getenv("DATABASE_URL"); got != "" {
 		t.Fatalf("DATABASE_URL = %q, want empty", got)
 	}
 }
 
-func TestNew_PreservesDatabaseURLFromEnv(t *testing.T) {
+func TestNew_UsesExplicitSQLitePath(t *testing.T) {
 	isolateConfigTestEnv(t)
-	t.Setenv("DATABASE_URL", "postgres://tester@127.0.0.1:54320/custom_db?sslmode=disable")
+	explicit := filepath.Join(t.TempDir(), "state", "custom.db")
+	t.Setenv("SUPER_DOLPHIN_SQLITE_PATH", explicit)
 
 	cfg := mustNewConfig(t)
-	if cfg.DatabaseURL != "postgres://tester@127.0.0.1:54320/custom_db?sslmode=disable" {
-		t.Fatalf("DatabaseURL = %q", cfg.DatabaseURL)
+	if cfg.SQLitePath != explicit {
+		t.Fatalf("SQLitePath = %q, want %q", cfg.SQLitePath, explicit)
 	}
-	if cfg.EmbeddedPostgres.Enabled {
-		t.Fatal("EmbeddedPostgres.Enabled = true, want false when DATABASE_URL is set")
-	}
-	if got := os.Getenv("DATABASE_URL"); got != cfg.DatabaseURL {
-		t.Fatalf("DATABASE_URL = %q, want %q", got, cfg.DatabaseURL)
+	if got := os.Getenv("DATABASE_URL"); got != "" {
+		t.Fatalf("DATABASE_URL = %q, want no DB env writeback", got)
 	}
 }
 
-func TestNew_UsesPostgresConnectionStringCompat(t *testing.T) {
+func TestNew_UsesInternalSQLitePathChannelWhenPublicKeyAbsent(t *testing.T) {
 	isolateConfigTestEnv(t)
+	explicit := filepath.Join(t.TempDir(), "state", "internal.db")
+	t.Setenv(testInternalSQLitePathEnvKey, explicit)
+
+	cfg := mustNewConfig(t)
+	if cfg.SQLitePath != explicit {
+		t.Fatalf("SQLitePath = %q, want internal SQLite path %q", cfg.SQLitePath, explicit)
+	}
+}
+
+func TestNew_RejectsConflictingPublicAndInternalSQLitePath(t *testing.T) {
+	isolateConfigTestEnv(t)
+	publicPath := filepath.Join(t.TempDir(), "state", "public.db")
+	internalPath := filepath.Join(t.TempDir(), "state", "internal.db")
+	t.Setenv("SUPER_DOLPHIN_SQLITE_PATH", publicPath)
+	t.Setenv(testInternalSQLitePathEnvKey, internalPath)
+
+	_, err := New()
+	if err == nil {
+		t.Fatal("New() error = nil, want conflicting SQLite path env failure")
+	}
+	for _, want := range []string{"conflicting SQLite path", "SUPER_DOLPHIN_SQLITE_PATH", testInternalSQLitePathEnvKey} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("New() error = %v, want substring %q", err, want)
+		}
+	}
+}
+
+func TestNew_IgnoresPostgresEnvForDatabaseConfig(t *testing.T) {
+	isolateConfigTestEnv(t)
+	t.Setenv("DATABASE_URL", "postgres://tester@127.0.0.1:54320/custom_db?sslmode=disable")
 	t.Setenv("POSTGRES_CONNECTION_STRING", "postgres://compat@127.0.0.1:54320/compat_db?sslmode=disable")
 
 	var buf bytes.Buffer
 	restoreConfigLogger(t, &buf)
 
 	cfg := mustNewConfig(t)
-	if cfg.DatabaseURL != "postgres://compat@127.0.0.1:54320/compat_db?sslmode=disable" {
-		t.Fatalf("DatabaseURL = %q", cfg.DatabaseURL)
+	if cfg.SQLitePath == "" {
+		t.Fatal("SQLitePath is empty")
 	}
-	if got := os.Getenv("DATABASE_URL"); got != cfg.DatabaseURL {
-		t.Fatalf("DATABASE_URL = %q, want %q", got, cfg.DatabaseURL)
+	if got := os.Getenv("DATABASE_URL"); got != "postgres://tester@127.0.0.1:54320/custom_db?sslmode=disable" {
+		t.Fatalf("DATABASE_URL = %q, want preserved but ignored", got)
 	}
-	if logs := buf.String(); !strings.Contains(logs, "POSTGRES_CONNECTION_STRING is deprecated; use DATABASE_URL instead") {
-		t.Fatalf("logs = %q", logs)
+	if logs := buf.String(); strings.Contains(logs, "POSTGRES_CONNECTION_STRING") || strings.Contains(logs, "DATABASE_URL") {
+		t.Fatalf("logs = %q, want no PG env warning or DB DSN logging", logs)
+	}
+}
+
+func TestNew_PostgresEnvAndOldDataDirDoNotOverrideSQLitePath(t *testing.T) {
+	isolateConfigTestEnv(t)
+	projectRoot := t.TempDir()
+	t.Setenv("PROJECT_ROOT", projectRoot)
+	t.Setenv("DATABASE_URL", "postgres://tester@127.0.0.1:54320/custom_db?sslmode=disable")
+	t.Setenv("POSTGRES_CONNECTION_STRING", "postgres://compat@127.0.0.1:54320/compat_db?sslmode=disable")
+	explicitSQLite := filepath.Join(t.TempDir(), "state", "winner.db")
+	t.Setenv("SUPER_DOLPHIN_SQLITE_PATH", explicitSQLite)
+
+	oldPGDataDir := filepath.Join(projectRoot, ".tmp", "pgdata")
+	if err := os.MkdirAll(oldPGDataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pgVersion := filepath.Join(oldPGDataDir, "PG_VERSION")
+	if err := os.WriteFile(pgVersion, []byte("16\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(pgVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := mustNewConfig(t)
+	if cfg.SQLitePath != explicitSQLite {
+		t.Fatalf("SQLitePath = %q, want explicit SQLite path %q", cfg.SQLitePath, explicitSQLite)
+	}
+	after, err := os.Stat(pgVersion)
+	if err != nil {
+		t.Fatalf("old PG data dir was touched or removed: %v", err)
+	}
+	assertFileStatUnchanged(t, before, after)
+	if got := os.Getenv("DATABASE_URL"); got == "" {
+		t.Fatal("DATABASE_URL was cleared; want preserved in parent env but ignored")
+	}
+}
+
+func assertFileStatUnchanged(t *testing.T, before, after os.FileInfo) {
+	t.Helper()
+	if after.ModTime() != before.ModTime() || after.Size() != before.Size() {
+		t.Fatalf("old PG data file changed: before=%v/%d after=%v/%d", before.ModTime(), before.Size(), after.ModTime(), after.Size())
 	}
 }
 
@@ -106,9 +177,11 @@ func TestNew_LoadsDotEnvFromProjectRoot(t *testing.T) {
 	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "")
 	t.Setenv("DATABASE_URL", "")
 	t.Setenv("POSTGRES_CONNECTION_STRING", "")
+	t.Setenv("SUPER_DOLPHIN_SQLITE_PATH", "")
 	t.Setenv("LOG_LEVEL", "")
 
-	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("POSTGRES_CONNECTION_STRING=postgres://dotenv@127.0.0.1:54320/dotenv_db?sslmode=disable\nLOG_LEVEL=debug\n"), 0o600); err != nil {
+	sqlitePath := filepath.Join(root, "state", "dotenv.db")
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("SUPER_DOLPHIN_SQLITE_PATH="+sqlitePath+"\nLOG_LEVEL=debug\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -116,14 +189,115 @@ func TestNew_LoadsDotEnvFromProjectRoot(t *testing.T) {
 	if cfg.ProjectRoot != root {
 		t.Fatalf("ProjectRoot = %q, want %q", cfg.ProjectRoot, root)
 	}
-	if cfg.DatabaseURL != "postgres://dotenv@127.0.0.1:54320/dotenv_db?sslmode=disable" {
-		t.Fatalf("DatabaseURL = %q", cfg.DatabaseURL)
+	if cfg.SQLitePath != sqlitePath {
+		t.Fatalf("SQLitePath = %q, want %q", cfg.SQLitePath, sqlitePath)
 	}
 	if cfg.LogLevel != "debug" {
 		t.Fatalf("LogLevel = %q, want debug", cfg.LogLevel)
 	}
-	if got := os.Getenv("DATABASE_URL"); got != cfg.DatabaseURL {
-		t.Fatalf("DATABASE_URL = %q, want %q", got, cfg.DatabaseURL)
+	if got := os.Getenv("DATABASE_URL"); got != "" {
+		t.Fatalf("DATABASE_URL = %q, want no DB env writeback", got)
+	}
+}
+
+func TestNew_RejectsEmptyExplicitSQLitePath(t *testing.T) {
+	isolateConfigTestEnv(t)
+	t.Setenv("SUPER_DOLPHIN_SQLITE_PATH", "   ")
+
+	_, err := New()
+	if err == nil {
+		t.Fatal("New() error = nil, want empty SUPER_DOLPHIN_SQLITE_PATH fail-fast")
+	}
+	if !strings.Contains(err.Error(), "SUPER_DOLPHIN_SQLITE_PATH") {
+		t.Fatalf("New() error = %v, want SUPER_DOLPHIN_SQLITE_PATH", err)
+	}
+}
+
+func TestResolveSQLitePathRejectsDirectoryWithRedactedPath(t *testing.T) {
+	isolateConfigTestEnv(t)
+	dir := t.TempDir()
+	t.Setenv("SUPER_DOLPHIN_SQLITE_PATH", dir)
+
+	_, err := New()
+	if err == nil {
+		t.Fatal("New() error = nil, want directory path fail-fast")
+	}
+	if strings.Contains(err.Error(), dir) {
+		t.Fatalf("New() error leaked full path: %v", err)
+	}
+	if !strings.Contains(err.Error(), "<redacted:") {
+		t.Fatalf("New() error = %v, want redacted path", err)
+	}
+}
+
+func TestResolveSQLitePathRejectsParentFileWithRedactedPath(t *testing.T) {
+	isolateConfigTestEnv(t)
+	parentFile := filepath.Join(t.TempDir(), "private-parent")
+	if err := os.WriteFile(parentFile, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(parentFile, "secret.db")
+	t.Setenv("SUPER_DOLPHIN_SQLITE_PATH", dbPath)
+
+	_, err := New()
+	if err == nil {
+		t.Fatal("New() error = nil, want parent-file fail-fast")
+	}
+	if strings.Contains(err.Error(), parentFile) || strings.Contains(err.Error(), dbPath) {
+		t.Fatalf("New() error leaked full path: %v", err)
+	}
+	if !strings.Contains(err.Error(), "<redacted:private-parent>") {
+		t.Fatalf("New() error = %v, want redacted parent path", err)
+	}
+}
+
+func TestResolvePackagedSQLiteHomeByOS(t *testing.T) {
+	tests := []struct {
+		name string
+		goos string
+		env  map[string]string
+		home string
+		want string
+	}{
+		{
+			name: "windows appdata",
+			goos: "windows",
+			env:  map[string]string{"APPDATA": filepath.FromSlash("C:/Users/test/AppData/Roaming")},
+			want: filepath.FromSlash("C:/Users/test/AppData/Roaming/Super Dolphin"),
+		},
+		{
+			name: "macos application support",
+			goos: "darwin",
+			home: filepath.FromSlash("/Users/test"),
+			want: filepath.FromSlash("/Users/test/Library/Application Support/Super Dolphin"),
+		},
+		{
+			name: "linux xdg",
+			goos: "linux",
+			env:  map[string]string{"XDG_DATA_HOME": filepath.FromSlash("/home/test/.local/state")},
+			home: filepath.FromSlash("/home/test"),
+			want: filepath.FromSlash("/home/test/.local/state/Super Dolphin"),
+		},
+		{
+			name: "linux home fallback",
+			goos: "linux",
+			home: filepath.FromSlash("/home/test"),
+			want: filepath.FromSlash("/home/test/.local/share/Super Dolphin"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			getenv := func(key string) string { return tt.env[key] }
+			home := func() (string, error) { return tt.home, nil }
+
+			got, err := resolvePackagedSQLiteHome(tt.goos, getenv, home)
+			if err != nil {
+				t.Fatalf("resolvePackagedSQLiteHome() error = %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("resolvePackagedSQLiteHome() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -132,6 +306,28 @@ func TestResolvePackagedProjectRootUsesMacOSResources(t *testing.T) {
 	want := filepath.FromSlash("/Applications/Super Dolphin.app/Contents/Resources")
 	if got != want {
 		t.Fatalf("resolvePackagedProjectRoot() = %q, want %q", got, want)
+	}
+}
+
+func TestPackagedProjectRootMigrationsDirUsesSQLiteLayout(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "internal", "platform", "db", "sqlite", "migrations"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if !hasPackagedProjectRootMigrationsDir(root) {
+		t.Fatal("hasPackagedProjectRootMigrationsDir() = false, want true for SQLite migrations layout")
+	}
+}
+
+func TestPackagedProjectRootMigrationsDirRejectsLegacyTopLevelMigrations(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "migrations"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if hasPackagedProjectRootMigrationsDir(root) {
+		t.Fatal("hasPackagedProjectRootMigrationsDir() = true, want false for legacy top-level migrations")
 	}
 }
 
@@ -246,10 +442,29 @@ func isolateConfigTestEnv(t *testing.T) {
 	t.Setenv("PROJECT_ROOT", t.TempDir())
 	t.Setenv("DATABASE_URL", "")
 	t.Setenv("POSTGRES_CONNECTION_STRING", "")
+	unsetEnvForTest(t, "SUPER_DOLPHIN_SQLITE_PATH")
+	unsetEnvForTest(t, testInternalSQLitePathEnvKey)
+	t.Setenv("SUPER_DOLPHIN_HOME", "")
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "")
 	t.Setenv("LOG_LEVEL", "")
 	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "")
 	t.Setenv("RPC_ADDR", "")
 	clearLSPConfigEnv(t)
+}
+
+func unsetEnvForTest(t *testing.T, key string) {
+	t.Helper()
+	old, had := os.LookupEnv(key)
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatalf("Unsetenv(%s): %v", key, err)
+	}
+	t.Cleanup(func() {
+		if had {
+			_ = os.Setenv(key, old)
+			return
+		}
+		_ = os.Unsetenv(key)
+	})
 }
 
 func clearLSPConfigEnv(t *testing.T) {

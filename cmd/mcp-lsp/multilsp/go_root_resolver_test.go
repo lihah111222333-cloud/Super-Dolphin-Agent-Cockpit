@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -458,8 +459,14 @@ func writeFakeGoVersion(t *testing.T, root, name, output string) string {
 	t.Helper()
 	dir := filepath.Join(root, name)
 	body := "#!/bin/sh\n/bin/echo '" + output + "'\nexit 0\n"
-	writeFile(t, filepath.Join(dir, "go"), body)
-	if err := os.Chmod(filepath.Join(dir, "go"), 0o755); err != nil {
+	executable := "go"
+	if runtime.GOOS == "windows" {
+		executable = "go.cmd"
+		body = "@echo off\r\necho " + output + "\r\nexit /b 0\r\n"
+	}
+	path := filepath.Join(dir, executable)
+	writeFile(t, path, body)
+	if err := os.Chmod(path, 0o755); err != nil {
 		t.Fatalf("chmod fake go: %v", err)
 	}
 	return dir

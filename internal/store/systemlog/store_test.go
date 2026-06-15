@@ -10,11 +10,11 @@ import (
 )
 
 type systemLogQuerierStub struct {
-	listFn   func(context.Context, sqlc.ListSystemLogsParams) ([]sqlc.SystemLog, error)
+	listFn   func(context.Context, sqlc.ListSystemLogsParams) ([]sqlc.ListSystemLogsRow, error)
 	insertFn func(context.Context, sqlc.InsertSystemLogParams) error
 }
 
-func (s *systemLogQuerierStub) ListSystemLogs(ctx context.Context, arg sqlc.ListSystemLogsParams) ([]sqlc.SystemLog, error) {
+func (s *systemLogQuerierStub) ListSystemLogs(ctx context.Context, arg sqlc.ListSystemLogsParams) ([]sqlc.ListSystemLogsRow, error) {
 	if s.listFn != nil {
 		return s.listFn(ctx, arg)
 	}
@@ -31,15 +31,15 @@ func (s *systemLogQuerierStub) InsertSystemLog(ctx context.Context, arg sqlc.Ins
 func TestListForwardsAll9ColumnsAndLimit(t *testing.T) {
 	t.Parallel()
 	now := time.Unix(100, 0).UTC()
-	duration := int32(42)
+	duration := int64(42)
 	var captured sqlc.ListSystemLogsParams
 
 	s := &store{q: &systemLogQuerierStub{
-		listFn: func(_ context.Context, arg sqlc.ListSystemLogsParams) ([]sqlc.SystemLog, error) {
+		listFn: func(_ context.Context, arg sqlc.ListSystemLogsParams) ([]sqlc.ListSystemLogsRow, error) {
 			captured = arg
-			return []sqlc.SystemLog{{
+			return []sqlc.ListSystemLogsRow{{
 				ID:         1,
-				Ts:         now,
+				Ts:         now.UnixMilli(),
 				Level:      "info",
 				Logger:     "app",
 				Message:    "hello",
@@ -52,7 +52,7 @@ func TestListForwardsAll9ColumnsAndLimit(t *testing.T) {
 				EventType:  "evt",
 				ToolName:   "tool",
 				DurationMs: &duration,
-				Extra:      []byte(`{"ok":true}`),
+				Extra:      `{"ok":true}`,
 			}}, nil
 		},
 	}}
@@ -81,25 +81,27 @@ func assertSystemLogListParams(t *testing.T, captured sqlc.ListSystemLogsParams)
 	t.Helper()
 	for _, check := range []struct {
 		name string
-		got  string
+		got  any
 		want string
 	}{
-		{name: "level", got: captured.Column1, want: "info"},
-		{name: "logger", got: captured.Column2, want: "app"},
-		{name: "source", got: captured.Column3, want: "src"},
-		{name: "component", got: captured.Column4, want: "cmp"},
-		{name: "agent", got: captured.Column5, want: "a1"},
-		{name: "thread", got: captured.Column6, want: "t1"},
-		{name: "event", got: captured.Column7, want: "evt"},
-		{name: "tool", got: captured.Column8, want: "tool"},
-		{name: "keyword", got: captured.Column9, want: "hel"},
+		{name: "level", got: captured.LevelFilter, want: "info"},
+		{name: "logger", got: captured.LoggerFilter, want: "app"},
+		{name: "source", got: captured.SourceFilter, want: "src"},
+		{name: "component", got: captured.ComponentFilter, want: "cmp"},
+		{name: "agent", got: captured.AgentIDFilter, want: "a1"},
+		{name: "thread", got: captured.ThreadIDFilter, want: "t1"},
+		{name: "event", got: captured.EventTypeFilter, want: "evt"},
+		{name: "tool", got: captured.ToolNameFilter, want: "tool"},
+		{name: "keyword", got: captured.Keyword, want: "hel"},
+		{name: "keyword pattern", got: captured.KeywordPattern, want: "%hel%"},
 	} {
-		if check.got != check.want {
+		got, ok := check.got.(string)
+		if !ok || got != check.want {
 			t.Fatalf("List() %s param = %q, want %q; all params=%+v", check.name, check.got, check.want, captured)
 		}
 	}
-	if captured.Limit != 10 {
-		t.Fatalf("List() Limit = %d, want 10; all params=%+v", captured.Limit, captured)
+	if captured.LimitCount != 10 {
+		t.Fatalf("List() LimitCount = %d, want 10; all params=%+v", captured.LimitCount, captured)
 	}
 }
 
@@ -155,7 +157,7 @@ func TestListWrapsQuerierError(t *testing.T) {
 	t.Parallel()
 	sentinel := errors.New("db closed")
 	s := &store{q: &systemLogQuerierStub{
-		listFn: func(context.Context, sqlc.ListSystemLogsParams) ([]sqlc.SystemLog, error) {
+		listFn: func(context.Context, sqlc.ListSystemLogsParams) ([]sqlc.ListSystemLogsRow, error) {
 			return nil, sentinel
 		},
 	}}
@@ -180,6 +182,9 @@ func TestInsertForwardsParamsAndWrapsError(t *testing.T) {
 	}
 	if captured.Level != "warn" || captured.Logger != "audit" || captured.Message != "denied" || captured.Raw != "raw-line" {
 		t.Fatalf("Insert() forwarded wrong params: %+v", captured)
+	}
+	if captured.Ts == 0 {
+		t.Fatalf("Insert() Ts = 0, want Go epoch milliseconds")
 	}
 
 	sentinel := errors.New("write failed")

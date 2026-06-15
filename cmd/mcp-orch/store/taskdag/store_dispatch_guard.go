@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
@@ -62,11 +61,7 @@ func appendDispatchBlockedEvent(ctx context.Context, txStore *store, node *Node,
 	if err != nil {
 		return fmt.Errorf("marshal dispatch blocked event for %s/%s: %w", node.DagKey, node.NodeKey, err)
 	}
-	if _, err := txStore.q.AppendTaskDagRunEvent(ctx, sqlc.AppendTaskDagRunEventParams{
-		DagKey:  node.DagKey,
-		Column2: payload,
-		ID:      runID,
-	}); err != nil {
+	if _, err := txStore.appendTaskDagRunEvent(ctx, node.DagKey, runID, payload); err != nil {
 		return fmt.Errorf("append dispatch blocked event for %s/%s run_id=%d: %w", node.DagKey, node.NodeKey, runID, err)
 	}
 	return nil

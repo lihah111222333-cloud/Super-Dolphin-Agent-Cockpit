@@ -2,22 +2,27 @@ package runtimeenv
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 )
 
 func TestPackagedResourcesDir(t *testing.T) {
-	got := packagedResourcesDir("/Applications/Super Dolphin.app/Contents/MacOS/agent-terminal")
-	want := "/Applications/Super Dolphin.app/Contents/Resources"
+	got := packagedResourcesDirForOS("darwin", "/Applications/Super Dolphin.app/Contents/MacOS/agent-terminal")
+	want := filepath.FromSlash("/Applications/Super Dolphin.app/Contents/Resources")
 	if got != want {
 		t.Fatalf("packagedResourcesDir() = %q, want %q", got, want)
 	}
 }
 
 func TestPackagedRuntimeFromExecutableDetectsMacOSAppMainBinary(t *testing.T) {
+	if runtimeGOOS() != "darwin" {
+		t.Skip("macOS app executable auto-detection is platform-specific")
+	}
 	app := filepath.Join(t.TempDir(), "Super Dolphin.app")
 	resources := filepath.Join(app, "Contents", "Resources")
 	writePackagedRuntimeFixture(t, resources, runtimeGOOS()+"-"+runtimeGOARCH())
@@ -32,14 +37,27 @@ func TestPackagedRuntimeFromExecutableDetectsMacOSAppMainBinary(t *testing.T) {
 	if got.BinDir != filepath.Join(resources, "bin") {
 		t.Fatalf("BinDir = %q", got.BinDir)
 	}
-	if got.MigrationsDir != filepath.Join(resources, "migrations") {
+	if got.MigrationsDir != filepath.Join(resources, "internal", "platform", "db", "sqlite", "migrations") {
 		t.Fatalf("MigrationsDir = %q", got.MigrationsDir)
 	}
-	if got.PostgresRoot != filepath.Join(resources, "postgres") {
-		t.Fatalf("PostgresRoot = %q", got.PostgresRoot)
+	if _, ok := reflect.TypeOf(got).FieldByName("PostgresRoot"); ok {
+		t.Fatalf("PackagedRuntime exposes PostgresRoot after SQLite switch: %#v", got)
 	}
 	if got.AppDataDir != "/Users/alice/Library/Application Support/Super Dolphin" {
 		t.Fatalf("AppDataDir = %q", got.AppDataDir)
+	}
+}
+
+func TestPackagedRuntimeFromResourcesUsesSQLiteMigrationsDir(t *testing.T) {
+	resources := t.TempDir()
+
+	got := packagedRuntimeFromResourcesForOS("linux", resources, "/home/alice")
+	want := filepath.Join(resources, "internal", "platform", "db", "sqlite", "migrations")
+	if got.MigrationsDir != want {
+		t.Fatalf("MigrationsDir = %q, want %q", got.MigrationsDir, want)
+	}
+	if got.MigrationsDir == filepath.Join(resources, "migrations") {
+		t.Fatalf("MigrationsDir = %q, must not use legacy top-level migrations", got.MigrationsDir)
 	}
 }
 
@@ -136,11 +154,11 @@ func TestApplyPackagedEnvPrependsBundledTools(t *testing.T) {
 	resources := t.TempDir()
 	binDir := filepath.Join(resources, "bin")
 	lspBinDir := filepath.Join(resources, "lsp", "bin")
-	lspNodeBinDir := filepath.Join(resources, "lsp", "node", "bin")
+	lspNodePathDir := packagedNodePathEntryForTest(resources)
 	lspNodeModulesBinDir := filepath.Join(resources, "lsp", "node_modules", ".bin")
 	gitCore := filepath.Join(resources, "libexec", "git-core")
 	templates := filepath.Join(resources, "share", "git-core", "templates")
-	makeDirs(t, binDir, lspBinDir, lspNodeBinDir, lspNodeModulesBinDir, gitCore, templates)
+	makeDirs(t, binDir, lspBinDir, lspNodePathDir, lspNodeModulesBinDir, gitCore, templates)
 	writeBundledSidecars(t, binDir)
 	t.Setenv("PATH", strings.Join([]string{"/opt/homebrew/bin", "/usr/bin"}, string(os.PathListSeparator)))
 	t.Setenv(peerBinDirEnv, "/old/bin")
@@ -150,7 +168,7 @@ func TestApplyPackagedEnvPrependsBundledTools(t *testing.T) {
 	}
 
 	path := os.Getenv("PATH")
-	assertPathHasPrefix(t, path, binDir, lspBinDir, lspNodeBinDir, lspNodeModulesBinDir)
+	assertPathHasPrefix(t, path, binDir, lspBinDir, lspNodePathDir, lspNodeModulesBinDir)
 	assertPathListExcludes(t, path,
 		"/opt/homebrew/bin",
 		"/usr/local/bin",
@@ -169,9 +187,9 @@ func TestApplySidecarRuntimeContractPackagedRebuildsBundledToolPath(t *testing.T
 	resources := t.TempDir()
 	binDir := filepath.Join(resources, "bin")
 	lspBinDir := filepath.Join(resources, "lsp", "bin")
-	lspNodeBinDir := filepath.Join(resources, "lsp", "node", "bin")
+	lspNodePathDir := packagedNodePathEntryForTest(resources)
 	lspNodeModulesBinDir := filepath.Join(resources, "lsp", "node_modules", ".bin")
-	makeDirs(t, binDir, lspBinDir, lspNodeBinDir, lspNodeModulesBinDir)
+	makeDirs(t, binDir, lspBinDir, lspNodePathDir, lspNodeModulesBinDir)
 	t.Setenv("PATH", strings.Join([]string{"/bin", "/opt/homebrew/bin"}, string(os.PathListSeparator)))
 	t.Setenv(peerBinDirEnv, "")
 	t.Setenv(lspBundleDirEnv, "")
@@ -182,7 +200,7 @@ func TestApplySidecarRuntimeContractPackagedRebuildsBundledToolPath(t *testing.T
 	}
 
 	path := os.Getenv("PATH")
-	assertPathHasPrefix(t, path, lspBinDir, lspNodeBinDir, lspNodeModulesBinDir, binDir)
+	assertPathHasPrefix(t, path, lspBinDir, lspNodePathDir, lspNodeModulesBinDir, binDir)
 	assertPathListExcludes(t, path, "/opt/homebrew/bin")
 	assertEnvEquals(t, peerBinDirEnv, binDir)
 	assertEnvEquals(t, lspBundleDirEnv, filepath.Join(resources, "lsp"))
@@ -266,7 +284,7 @@ func TestApplyPackagedEnvRequiresBundledCodex(t *testing.T) {
 	if got := os.Getenv("SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX"); got != "1" {
 		t.Fatalf("SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX = %q, want packaged runtime to require bundled Codex", got)
 	}
-	if got, want := os.Getenv(codexHomeEnv), filepath.Join("/Users/alice", "Library", "Application Support", "Super Dolphin", "providers", "codex"); got != want {
+	if got, want := os.Getenv(codexHomeEnv), filepath.Join(packagedAppDataDirForOS(runtimeGOOS(), "/Users/alice"), "providers", "codex"); got != want {
 		t.Fatalf("%s = %q, want %q", codexHomeEnv, got, want)
 	}
 	if got := os.Getenv(packagedCodexEnv); got != "1" {
@@ -308,6 +326,7 @@ func TestApplyPackagedEnvFailsWhenBundledSidecarMissing(t *testing.T) {
 		t.Fatal("applyPackagedEnv() error = nil, want missing sidecar failure")
 	}
 	for _, want := range []string{"missing bundled sidecar", filepath.Join(binDir, "mcp-lsp")} {
+		want = strings.ReplaceAll(want, filepath.Join(binDir, "mcp-lsp"), filepath.Join(binDir, executableNameForOS(runtimeGOOS(), "mcp-lsp")))
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("applyPackagedEnv() error = %v, want substring %q", err, want)
 		}
@@ -345,7 +364,7 @@ func TestApplyPackagedEnvFailsWhenBundledLSPServerMissing(t *testing.T) {
 	if err == nil {
 		t.Fatal("applyPackagedEnv() error = nil, want missing bundled LSP server failure")
 	}
-	for _, want := range []string{"missing bundled LSP server", filepath.Join(resources, "lsp", "bin", "gopls")} {
+	for _, want := range []string{"missing bundled LSP server", filepath.Join(resources, "lsp", "bin", executableNameForOS(runtimeGOOS(), "gopls"))} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("applyPackagedEnv() error = %v, want substring %q", err, want)
 		}
@@ -404,35 +423,35 @@ func writeBundledSidecars(t *testing.T, binDir string) {
 	writeOnlyBundledSidecars(t, binDir)
 	resources := filepath.Dir(binDir)
 	writeBundledLSPManifest(t, resources)
-	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "gopls")
-	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "typescript-language-server")
-	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "pyright-langserver")
-	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "vscode-css-language-server")
-	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "rust-analyzer")
-	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), "jdtls")
+	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), executableNameForOS(runtimeGOOS(), "gopls"))
+	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), executableNameForOS(runtimeGOOS(), "typescript-language-server"))
+	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), executableNameForOS(runtimeGOOS(), "pyright-langserver"))
+	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), executableNameForOS(runtimeGOOS(), "vscode-css-language-server"))
+	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), executableNameForOS(runtimeGOOS(), "rust-analyzer"))
+	writeExecutable(t, filepath.Join(resources, "lsp", "bin"), executableNameForOS(runtimeGOOS(), "jdtls"))
 }
 
 func writeOnlyBundledSidecars(t *testing.T, binDir string) {
 	t.Helper()
 	for _, name := range []string{"mcp-orch", "mcp-lsp", "mcp-ida"} {
-		writeExecutable(t, binDir, name)
+		writeExecutable(t, binDir, executableNameForOS(runtimeGOOS(), name))
 	}
 }
 
 func writeBundledLSPManifest(t *testing.T, resources string) {
 	t.Helper()
-	manifest := `{
+	manifest := fmt.Sprintf(`{
   "schema_version": 1,
   "servers": {
-    "gopls": {"path": "lsp/bin/gopls", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-    "typescript-language-server": {"path": "lsp/bin/typescript-language-server", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-    "pyright": {"path": "lsp/bin/pyright-langserver", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-    "vscode-langservers-extracted": {"path": "lsp/bin/vscode-css-language-server", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-    "rust-analyzer": {"path": "lsp/bin/rust-analyzer", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-    "jdtls": {"path": "lsp/bin/jdtls", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
+    "gopls": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "typescript-language-server": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "pyright": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "vscode-langservers-extracted": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "rust-analyzer": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "jdtls": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
   }
 }
-`
+`, executableNameForOS(runtimeGOOS(), "gopls"), executableNameForOS(runtimeGOOS(), "typescript-language-server"), executableNameForOS(runtimeGOOS(), "pyright-langserver"), executableNameForOS(runtimeGOOS(), "vscode-css-language-server"), executableNameForOS(runtimeGOOS(), "rust-analyzer"), executableNameForOS(runtimeGOOS(), "jdtls"))
 	path := filepath.Join(resources, "lsp", "lsp-manifest.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
@@ -444,18 +463,18 @@ func writeBundledLSPManifest(t *testing.T, resources string) {
 
 func writeStandardBundledLSPManifest(t *testing.T, resources string) {
 	t.Helper()
-	manifest := `{
+	manifest := fmt.Sprintf(`{
   "schema_version": 1,
   "servers": {
-    "gopls": {"path": "lsp/bin/gopls", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-    "typescript-language-server": {"path": "lsp/bin/typescript-language-server", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-    "pyright": {"path": "lsp/bin/pyright-langserver", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-    "vscode-langservers-extracted": {"path": "lsp/bin/vscode-css-language-server", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-    "rust-analyzer": {"path": "lsp/bin/rust-analyzer", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-    "bash-language-server": {"path": "lsp/bin/bash-language-server", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
+    "gopls": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "typescript-language-server": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "pyright": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "vscode-langservers-extracted": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "rust-analyzer": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "bash-language-server": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
   }
 }
-`
+`, executableNameForOS(runtimeGOOS(), "gopls"), executableNameForOS(runtimeGOOS(), "typescript-language-server"), executableNameForOS(runtimeGOOS(), "pyright-langserver"), executableNameForOS(runtimeGOOS(), "vscode-css-language-server"), executableNameForOS(runtimeGOOS(), "rust-analyzer"), executableNameForOS(runtimeGOOS(), "bash-language-server"))
 	path := filepath.Join(resources, "lsp", "lsp-manifest.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
@@ -476,6 +495,13 @@ func makeDirs(t *testing.T, dirs ...string) {
 			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
 		}
 	}
+}
+
+func packagedNodePathEntryForTest(resources string) string {
+	if runtimeGOOS() == "windows" {
+		return filepath.Join(resources, "lsp", "node")
+	}
+	return filepath.Join(resources, "lsp", "node", "bin")
 }
 
 func assertPathHasPrefix(t *testing.T, path string, entries ...string) {
@@ -507,8 +533,14 @@ func writeExecutable(t *testing.T, dir, name string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q) error = %v", dir, err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatalf("WriteFile(%q) error = %v", filepath.Join(dir, name), err)
+	names := []string{name}
+	if runtimeGOOS() == "windows" && filepath.Ext(name) == "" {
+		names = append(names, name+".exe")
+	}
+	for _, current := range names {
+		if err := os.WriteFile(filepath.Join(dir, current), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatalf("WriteFile(%q) error = %v", filepath.Join(dir, current), err)
+		}
 	}
 }
 
@@ -516,10 +548,10 @@ func TestConfigurePackagedAppReturnsSetenvError(t *testing.T) {
 	prev := deps
 	t.Cleanup(func() { deps = prev })
 
-	app := filepath.Join(t.TempDir(), "Super Dolphin.app")
-	writePackagedRuntimeFixture(t, filepath.Join(app, "Contents", "Resources"), runtimeGOOS()+"-"+runtimeGOARCH())
+	resources := t.TempDir()
+	writePackagedRuntimeFixture(t, resources, runtimeGOOS()+"-"+runtimeGOARCH())
 	deps.executable = func() (string, error) {
-		return filepath.Join(app, "Contents", "MacOS", "agent-terminal"), nil
+		return filepath.Join(resources, "bin", executableNameForOS(runtimeGOOS(), "agent-terminal")), nil
 	}
 	deps.userHomeDir = func() (string, error) {
 		return "/Users/alice", nil
@@ -531,6 +563,7 @@ func TestConfigurePackagedAppReturnsSetenvError(t *testing.T) {
 		return nil
 	}
 	t.Setenv(projectRootEnv, "")
+	t.Setenv(packageRootEnv, resources)
 
 	err := ConfigurePackagedApp()
 	if err == nil {

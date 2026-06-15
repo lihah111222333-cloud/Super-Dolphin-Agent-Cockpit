@@ -1,13 +1,17 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
+
+const fixTestGuardGitTimeout = 5 * time.Second
 
 func newPrePushScopeFixture(t *testing.T) prePushScopeFixture {
 	t.Helper()
@@ -214,7 +218,7 @@ func runPrePushScopeHook(t *testing.T, root, stdin, binDir, logPath string) (str
 		"PATH="+bashArg("", binDir)+":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"HOOK_SCOPE_LOG="+bashArg("", logPath),
 	)
-	cmd.Env = appendWSLEnvKeys(env, "PATH", "HOOK_SCOPE_LOG")
+	cmd.Env = appendWSLEnvKeysWithGitPath(t, env, "PATH", "HOOK_SCOPE_LOG")
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -333,10 +337,21 @@ func runFixTestGuardGit(t *testing.T, root string, args ...string) {
 
 func runFixTestGuardGitOutput(t *testing.T, root string, args ...string) string {
 	t.Helper()
-	cmdArgs := append([]string{"-c", "core.hooksPath=/dev/null"}, args...)
-	cmd := exec.Command("git", cmdArgs...)
+	cmdArgs := append([]string{
+		"-c", "core.hooksPath=/dev/null",
+		"-c", "commit.gpgsign=false",
+		"-c", "tag.gpgsign=false",
+		"-c", "gc.auto=0",
+	}, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), fixTestGuardGitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", cmdArgs...)
 	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "GIT_EDITOR=true", "GIT_PAGER=cat")
 	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("git %s timed out after %s\n%s", strings.Join(args, " "), fixTestGuardGitTimeout, string(out))
+	}
 	if err != nil {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(out))
 	}

@@ -1,19 +1,21 @@
 -- name: AcquireTaskDagWorkerLease :execrows
 INSERT INTO task_dag_worker_leases (target_agent_id, owner_id, lease_expires_at, updated_at)
-VALUES ($1, $2, NOW() + $3::interval, NOW())
+VALUES (?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000) + sqlc.arg(lease_ms), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 ON CONFLICT (target_agent_id) DO UPDATE
 SET owner_id = EXCLUDED.owner_id,
     lease_expires_at = EXCLUDED.lease_expires_at,
-    updated_at = NOW()
-WHERE task_dag_worker_leases.lease_expires_at < NOW()
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE task_dag_worker_leases.lease_expires_at < (CAST(strftime('%s','now') AS INTEGER) * 1000)
    OR task_dag_worker_leases.owner_id = EXCLUDED.owner_id;
 
 -- name: RenewTaskDagWorkerLease :execrows
 UPDATE task_dag_worker_leases
-SET lease_expires_at = NOW() + $1::interval,
-    updated_at = NOW()
-WHERE target_agent_id = $2 AND owner_id = $3 AND lease_expires_at >= NOW();
+SET lease_expires_at = (CAST(strftime('%s','now') AS INTEGER) * 1000) + sqlc.arg(lease_ms),
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE target_agent_id = sqlc.arg(target_agent_id)
+  AND owner_id = sqlc.arg(owner_id)
+  AND lease_expires_at >= (CAST(strftime('%s','now') AS INTEGER) * 1000);
 
--- name: ReleaseTaskDagWorkerLease :exec
+-- name: ReleaseTaskDagWorkerLease :execrows
 DELETE FROM task_dag_worker_leases
-WHERE target_agent_id = $1 AND owner_id = $2;
+WHERE target_agent_id = ? AND owner_id = ?;

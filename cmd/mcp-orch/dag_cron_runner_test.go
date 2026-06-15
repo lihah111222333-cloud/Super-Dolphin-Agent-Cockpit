@@ -74,7 +74,7 @@ func TestScheduledDAGCronRunnerReturnsStartError(t *testing.T) {
 func TestProvideScheduledDAGCronRunnerConstructsRunner(t *testing.T) {
 	runner, err := provideScheduledDAGCronRunner(
 		stubDAGScheduleStore{},
-		stubAdvisoryLocker{},
+		stubRuntimeLocker{},
 		stubCronOrchestrationService{},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 	)
@@ -91,14 +91,14 @@ func TestProvideScheduledDAGCronRunnerFailsFastOnNilDependencies(t *testing.T) {
 	cases := []struct {
 		name   string
 		store  orchcron.DAGScheduleStore
-		locker orchcron.AdvisoryLocker
+		locker orchcron.RuntimeLocker
 		svc    orchestration.ScheduledDAGStartService
 		logger *slog.Logger
 	}{
-		{name: "store", store: nil, locker: stubAdvisoryLocker{}, svc: stubCronOrchestrationService{}, logger: logger},
+		{name: "store", store: nil, locker: stubRuntimeLocker{}, svc: stubCronOrchestrationService{}, logger: logger},
 		{name: "locker", store: stubDAGScheduleStore{}, locker: nil, svc: stubCronOrchestrationService{}, logger: logger},
-		{name: "service", store: stubDAGScheduleStore{}, locker: stubAdvisoryLocker{}, svc: nil, logger: logger},
-		{name: "logger", store: stubDAGScheduleStore{}, locker: stubAdvisoryLocker{}, svc: stubCronOrchestrationService{}, logger: nil},
+		{name: "service", store: stubDAGScheduleStore{}, locker: stubRuntimeLocker{}, svc: nil, logger: logger},
+		{name: "logger", store: stubDAGScheduleStore{}, locker: stubRuntimeLocker{}, svc: stubCronOrchestrationService{}, logger: nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

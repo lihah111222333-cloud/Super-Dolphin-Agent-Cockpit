@@ -2,25 +2,28 @@ package sqlctx
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type nonTransactionalDBTX struct{}
 
-func (nonTransactionalDBTX) Exec(context.Context, string, ...interface{}) (pgconn.CommandTag, error) {
-	return pgconn.CommandTag{}, nil
-}
-
-func (nonTransactionalDBTX) Query(context.Context, string, ...interface{}) (pgx.Rows, error) {
+func (nonTransactionalDBTX) ExecContext(context.Context, string, ...interface{}) (sql.Result, error) {
 	return nil, nil
 }
 
-func (nonTransactionalDBTX) QueryRow(context.Context, string, ...interface{}) pgx.Row {
+func (nonTransactionalDBTX) PrepareContext(context.Context, string) (*sql.Stmt, error) {
+	return nil, nil
+}
+
+func (nonTransactionalDBTX) QueryContext(context.Context, string, ...interface{}) (*sql.Rows, error) {
+	return nil, nil
+}
+
+func (nonTransactionalDBTX) QueryRowContext(context.Context, string, ...interface{}) *sql.Row {
 	return nil
 }
 

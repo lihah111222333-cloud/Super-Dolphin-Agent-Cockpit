@@ -484,7 +484,6 @@ restart_desktop_backend() {
   fi
   start_desktop_backend
   wait_for_backend
-  seed_dev_preferences
 }
 
 stat_backend_watch_file() {
@@ -568,317 +567,21 @@ run_backend_hot_supervisor_loop() {
   done
 }
 
-seed_dev_preferences() {
-  case "${SUPER_DOLPHIN_SEED_DEV_PREFERENCES:-1}" in
-    0|false|FALSE|no|NO)
-      echo "  → dev provider preference seed skipped"
-      return 0
-      ;;
-  esac
-  if [ "${DEV_LOCAL_POSTGRES_MANAGED:-}" != "1" ]; then
-    return 0
-  fi
-  if [ -z "$SUPER_DOLPHIN_DEV_PROVIDER" ] || [ -z "$SUPER_DOLPHIN_DEV_CODEX_MODEL" ] || [ -z "$SUPER_DOLPHIN_DEV_CODEX_EFFORT" ] || [ -z "$SUPER_DOLPHIN_DEV_CODEX_HOME" ] || [ -z "$SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY" ] || [ -z "$SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER" ]; then
-    echo "❌ dev provider preferences require non-empty SUPER_DOLPHIN_DEV_PROVIDER, SUPER_DOLPHIN_DEV_CODEX_MODEL, SUPER_DOLPHIN_DEV_CODEX_EFFORT, SUPER_DOLPHIN_DEV_CODEX_HOME, SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY, and SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER" >&2
-    exit 1
-  fi
-  if [ "$SUPER_DOLPHIN_DEV_PROVIDER" != "codex" ]; then
-    echo "❌ run-new-ui-desktop.sh only seeds codex dev provider preferences; got SUPER_DOLPHIN_DEV_PROVIDER=$SUPER_DOLPHIN_DEV_PROVIDER" >&2
-    exit 1
-  fi
-  if [ ! -x "$SUPER_DOLPHIN_POSTGRES_BIN_DIR/psql" ]; then
-    echo "❌ missing PostgreSQL psql binary: $SUPER_DOLPHIN_POSTGRES_BIN_DIR/psql" >&2
-    exit 1
-  fi
-
-  "$SUPER_DOLPHIN_POSTGRES_BIN_DIR/psql" "$DATABASE_URL" \
-    -v ON_ERROR_STOP=1 \
-    -v active_provider="$SUPER_DOLPHIN_DEV_PROVIDER" \
-    -v codex_model="$SUPER_DOLPHIN_DEV_CODEX_MODEL" \
-    -v codex_effort="$SUPER_DOLPHIN_DEV_CODEX_EFFORT" \
-    -v codex_home="$SUPER_DOLPHIN_DEV_CODEX_HOME" \
-    -v codex_instance_key="$SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY" \
-    -v codex_model_provider="$SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER" <<'SQL' >/dev/null
-INSERT INTO ui_preferences (cwd, key, value)
-VALUES
-  ('', 'settings.provider.active', to_jsonb(:'active_provider'::text)),
-  ('', 'settings.provider.codex.model', to_jsonb(:'codex_model'::text)),
-  ('', 'settings.provider.codex.effort', to_jsonb(:'codex_effort'::text)),
-  ('', 'settings.provider.codex.codexHome', to_jsonb(:'codex_home'::text)),
-  ('', 'settings.provider.codex.codexInstanceKey', to_jsonb(:'codex_instance_key'::text)),
-  ('', 'settings.provider.codex.codexModelProvider', to_jsonb(:'codex_model_provider'::text))
-ON CONFLICT (cwd, key) DO NOTHING;
-SQL
-  echo "  → dev provider preferences ready"
-}
-
-postgres_platform_id() {
-  local os arch
-  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
-  arch="$(uname -m)"
-  case "$arch" in
-    x86_64|amd64) arch="amd64" ;;
-    aarch64|arm64) arch="arm64" ;;
-  esac
-  echo "$os-$arch"
-}
-
-postgres_runtime_root_from_bin_dir() {
-  local bin_dir="$1"
-  case "$bin_dir" in
-    */usr/lib/postgresql/*/bin)
-      echo "${bin_dir%%/usr/lib/postgresql/*/bin}"
-      ;;
-    */bin)
-      echo "${bin_dir%/bin}"
-      ;;
-    *)
-      echo ""
-      ;;
-  esac
-}
-
-prepend_library_path_dir() {
-  local dir="$1"
-  [ -d "$dir" ] || return 0
-  case ":${LD_LIBRARY_PATH:-}:" in
-    *":$dir:"*) return 0 ;;
-  esac
-  export LD_LIBRARY_PATH="$dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-}
-
-configure_postgres_library_path() {
-  local bin_dir="$1"
-  local root version_dir
-  root="$(postgres_runtime_root_from_bin_dir "$bin_dir")"
-  version_dir="$(dirname "$bin_dir")"
-  prepend_library_path_dir "$version_dir/lib"
-  if [ -n "$root" ]; then
-    prepend_library_path_dir "$root/lib"
-    prepend_library_path_dir "$root/usr/lib"
-    prepend_library_path_dir "$root/usr/lib/x86_64-linux-gnu"
-    prepend_library_path_dir "$root/usr/lib/aarch64-linux-gnu"
-  fi
-}
-
-resolve_postgres_bin_dir() {
-  local platform bin_dir pg_ctl_path
-  platform="$(postgres_platform_id)"
-  local candidates=()
-  if [ -n "${SUPER_DOLPHIN_POSTGRES_BIN_DIR:-}" ]; then
-    candidates+=("$SUPER_DOLPHIN_POSTGRES_BIN_DIR")
-  fi
-  if [ -n "${SUPER_DOLPHIN_POSTGRES_DIST:-}" ]; then
-    candidates+=("$SUPER_DOLPHIN_POSTGRES_DIST/bin")
-  fi
-  candidates+=(
-    "$PROJECT_DIR/third_party/postgres/$platform/bin"
-    "$PROJECT_DIR/.build-cache/postgres/16.14/$platform/bin"
-  )
-  if [ -n "${HOME:-}" ]; then
-    candidates+=("$HOME/.cache/super-dolphin-toolchain/postgresql-14-root/usr/lib/postgresql/14/bin")
-  fi
-  if pg_ctl_path="$(command -v pg_ctl 2>/dev/null)"; then
-    candidates+=("$(dirname "$pg_ctl_path")")
-  fi
-
-  for bin_dir in "${candidates[@]}"; do
-    if [ -x "$bin_dir/postgres" ] && [ -x "$bin_dir/initdb" ] && [ -x "$bin_dir/pg_ctl" ] && [ -x "$bin_dir/pg_config" ]; then
-      echo "$bin_dir"
-      return 0
-    fi
-  done
-
-  echo "❌ missing PostgreSQL runtime; set SUPER_DOLPHIN_POSTGRES_DIST or SUPER_DOLPHIN_POSTGRES_BIN_DIR" >&2
-  return 1
-}
-
-resolve_postgres_share_dir() {
-  local bin_dir="$1"
-  local root sharedir candidate
-  if [ -n "${SUPER_DOLPHIN_POSTGRES_SHARE_DIR:-}" ]; then
-    if [ -f "$SUPER_DOLPHIN_POSTGRES_SHARE_DIR/postgres.bki" ]; then
-      echo "$SUPER_DOLPHIN_POSTGRES_SHARE_DIR"
-      return 0
-    fi
-    echo "❌ SUPER_DOLPHIN_POSTGRES_SHARE_DIR missing postgres.bki: $SUPER_DOLPHIN_POSTGRES_SHARE_DIR" >&2
-    return 1
-  fi
-
-  root="$(postgres_runtime_root_from_bin_dir "$bin_dir")"
-  local candidates=()
-  if sharedir="$("$bin_dir/pg_config" --sharedir 2>/dev/null)"; then
-    candidates+=("$sharedir")
-    if [ -n "$root" ] && [[ "$sharedir" = /* ]]; then
-      candidates+=("$root$sharedir")
-    fi
-  fi
-  candidates+=(
-    "$root/share"
-    "$root/share/postgresql@16"
-    "$root/share/postgresql"
-    "$root/usr/share/postgresql/16"
-    "$root/usr/share/postgresql/14"
-    "$(dirname "$bin_dir")/share"
-    "$(dirname "$(dirname "$bin_dir")")/share/postgresql"
-  )
-
-  for candidate in "${candidates[@]}"; do
-    if [ -f "$candidate/postgres.bki" ]; then
-      echo "$candidate"
-      return 0
-    fi
-  done
-
-  echo "❌ missing PostgreSQL share dir with postgres.bki; set SUPER_DOLPHIN_POSTGRES_SHARE_DIR" >&2
-  return 1
-}
-
-validate_postgres_port() {
-  local label="$1"
-  local port="$2"
-  local normalized value
-  case "$port" in
-    ''|*[!0-9]*)
-      echo "❌ invalid PostgreSQL port in $label: expected decimal 1-65535, got '${port:-<empty>}'" >&2
-      exit 1
-      ;;
-  esac
-  normalized="$port"
-  while [ "${normalized#0}" != "$normalized" ]; do
-    normalized="${normalized#0}"
-  done
-  if [ -z "$normalized" ]; then
-    normalized="0"
-  fi
-  if [ "${#normalized}" -gt 5 ]; then
-    echo "❌ invalid PostgreSQL port in $label: expected decimal 1-65535, got '$port'" >&2
-    exit 1
-  fi
-  value=$((10#$normalized))
-  if [ "$value" -lt 1 ] || [ "$value" -gt 65535 ]; then
-    echo "❌ invalid PostgreSQL port in $label: expected decimal 1-65535, got '$port'" >&2
-    exit 1
-  fi
-}
-
-postgres_is_local_database_url() {
-  local url="$1"
-  local label="${2:-DATABASE_URL}"
-  local rest authority host port normalized_host
-  POSTGRES_URL_HOST=""
-  POSTGRES_URL_PORT=""
-  case "$url" in
-    postgres://*) rest="${url#postgres://}" ;;
-    postgresql://*) rest="${url#postgresql://}" ;;
-    *) return 1 ;;
-  esac
-  rest="${rest#*@}"
-  authority="${rest%%/*}"
-  host="${authority%%:*}"
-  if [ "$host" = "$authority" ]; then
-    port="5432"
-  else
-    port="${authority#*:}"
-  fi
-  normalized_host="$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')"
-  case "$normalized_host" in
-    localhost|127.0.0.1)
-      validate_postgres_port "$label" "$port"
-      POSTGRES_URL_HOST="$host"
-      POSTGRES_URL_PORT="$port"
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
-
-configure_dev_postgres_runtime() {
+ensure_sqlite_runtime() {
   export SUPER_DOLPHIN_PROCESS_ROLE="${SUPER_DOLPHIN_PROCESS_ROLE:-desktop}"
-
-  local database_url=""
-  local database_url_label=""
-  if [ -n "${DATABASE_URL:-}" ]; then
-    database_url="$DATABASE_URL"
-    database_url_label="DATABASE_URL"
-  elif [ -n "${POSTGRES_CONNECTION_STRING:-}" ]; then
-    database_url="$POSTGRES_CONNECTION_STRING"
-    database_url_label="POSTGRES_CONNECTION_STRING"
+  SUPER_DOLPHIN_SQLITE_PATH="${SUPER_DOLPHIN_SQLITE_PATH:-$SUPER_DOLPHIN_HOME/super-dolphin.db}"
+  if [ -z "${SUPER_DOLPHIN_SQLITE_PATH:-}" ]; then
+    echo "SQLite database path is empty" >&2
+    exit 1
   fi
-  if [ -n "$database_url" ] && ! postgres_is_local_database_url "$database_url" "$database_url_label"; then
-    return 0
+  local sqlite_parent
+  sqlite_parent="$(dirname "$SUPER_DOLPHIN_SQLITE_PATH")"
+  if [ -z "$sqlite_parent" ] || [ "$sqlite_parent" = "." ]; then
+    echo "SQLite database path must include a parent directory: $SUPER_DOLPHIN_SQLITE_PATH" >&2
+    exit 1
   fi
-
-  local bin_dir share_dir
-  bin_dir="$(resolve_postgres_bin_dir)"
-  export SUPER_DOLPHIN_POSTGRES_BIN_DIR="${SUPER_DOLPHIN_POSTGRES_BIN_DIR:-$bin_dir}"
-  configure_postgres_library_path "$SUPER_DOLPHIN_POSTGRES_BIN_DIR"
-  share_dir="$(resolve_postgres_share_dir "$SUPER_DOLPHIN_POSTGRES_BIN_DIR")"
-  export SUPER_DOLPHIN_POSTGRES_SHARE_DIR="${SUPER_DOLPHIN_POSTGRES_SHARE_DIR:-$share_dir}"
-
-  if [ -z "$database_url" ]; then
-    validate_postgres_port "SUPER_DOLPHIN_LOCAL_POSTGRES_PORT" "$SUPER_DOLPHIN_LOCAL_POSTGRES_PORT"
-    DATABASE_URL="${DATABASE_URL:-postgres://super_dolphin@127.0.0.1:${SUPER_DOLPHIN_LOCAL_POSTGRES_PORT}/super_dolphin?sslmode=disable}"
-    export DATABASE_URL
-    DEV_LOCAL_POSTGRES_MANAGED="1"
-    echo "  → local PostgreSQL enabled for dev runtime"
-  fi
-}
-
-initialize_local_postgres_data_dir() {
-  mkdir -p "$(dirname "$SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR")"
-  echo "  → initializing local PostgreSQL data dir: $SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR"
-  "$SUPER_DOLPHIN_POSTGRES_BIN_DIR/initdb" -D "$SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR" \
-    -U super_dolphin \
-    -L "$SUPER_DOLPHIN_POSTGRES_SHARE_DIR" \
-    --locale=C \
-    --auth=trust \
-    --encoding=UTF8 >/dev/null
-}
-
-ensure_local_postgres() {
-  local database_url=""
-  local database_url_label=""
-  if [ -n "${DATABASE_URL:-}" ]; then
-    database_url="$DATABASE_URL"
-    database_url_label="DATABASE_URL"
-  elif [ -n "${POSTGRES_CONNECTION_STRING:-}" ]; then
-    database_url="$POSTGRES_CONNECTION_STRING"
-    database_url_label="POSTGRES_CONNECTION_STRING"
-  fi
-  if [ -z "$database_url" ]; then
-    return 0
-  fi
-  if ! postgres_is_local_database_url "$database_url" "$database_url_label"; then
-    return 0
-  fi
-
-  local host="$POSTGRES_URL_HOST"
-  local port="$POSTGRES_URL_PORT"
-  if lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
-    echo "  → local PostgreSQL already listening on $host:$port"
-    return 0
-  fi
-  if [ ! -f "$SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR/PG_VERSION" ]; then
-    if [ "${DEV_LOCAL_POSTGRES_MANAGED:-}" = "1" ]; then
-      initialize_local_postgres_data_dir
-    else
-      echo "❌ DATABASE_URL points to local PostgreSQL ($host:$port), but data dir is not initialized: $SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR" >&2
-      echo "   Start PostgreSQL manually, set DATABASE_URL to a reachable database, or initialize the local data dir." >&2
-      exit 1
-    fi
-  fi
-
-  mkdir -p "$SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR" "$(dirname "$SUPER_DOLPHIN_LOCAL_POSTGRES_LOG")"
-  chmod 700 "$SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR"
-  echo "  → starting local PostgreSQL: $host:$port"
-  "$SUPER_DOLPHIN_POSTGRES_BIN_DIR/pg_ctl" -D "$SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR" \
-    -l "$SUPER_DOLPHIN_LOCAL_POSTGRES_LOG" \
-    -o "-h $host -p $port -k $SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR" \
-    -w -t 30 start
-  LOCAL_POSTGRES_STARTED="1"
+  mkdir -p "$sqlite_parent"
+  export SUPER_DOLPHIN_SQLITE_PATH
 }
 
 cleanup() {
@@ -892,10 +595,6 @@ cleanup() {
   fi
   if [ -n "${DESKTOP_PID:-}" ]; then
     stop_process_tree "new UI desktop backend" "$DESKTOP_PID"
-  fi
-  if [ "${LOCAL_POSTGRES_STARTED:-}" = "1" ]; then
-    echo "  → stopping local PostgreSQL"
-    "$SUPER_DOLPHIN_POSTGRES_BIN_DIR/pg_ctl" -D "$SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR" -w -t 30 stop -m fast >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -960,15 +659,9 @@ SUPER_DOLPHIN_DEV_CODEX_EFFORT="${SUPER_DOLPHIN_DEV_CODEX_EFFORT:-xhigh}"
 SUPER_DOLPHIN_DEV_CODEX_HOME="${SUPER_DOLPHIN_DEV_CODEX_HOME:-$HOME/.codex}"
 SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY="${SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY:-default}"
 SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER="${SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER:-openai}"
-SUPER_DOLPHIN_LOCAL_POSTGRES_PORT="${SUPER_DOLPHIN_LOCAL_POSTGRES_PORT:-55433}"
-validate_postgres_port "SUPER_DOLPHIN_LOCAL_POSTGRES_PORT" "$SUPER_DOLPHIN_LOCAL_POSTGRES_PORT"
-SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR="${SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR:-$PROJECT_DIR/.tmp/pgdata}"
-SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR="${SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR:-$PROJECT_DIR/.tmp/pgsocket}"
-SUPER_DOLPHIN_LOCAL_POSTGRES_LOG="${SUPER_DOLPHIN_LOCAL_POSTGRES_LOG:-$PROJECT_DIR/.tmp/postgres.log}"
 export SUPER_DOLPHIN_HTTP_ADDR GO_AGENT_CTL_RPC_ADDR VITE_DEV_URL FRONTEND_DEVSERVER_URL GO_AGENT_PEER_BIN_DIR
 export SUPER_DOLPHIN_RUNTIME_MODE SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR SUPER_DOLPHIN_DEV_ENTRYPOINT
 export SUPER_DOLPHIN_HOME SUPER_DOLPHIN_BACKEND_HOT_RELOAD SUPER_DOLPHIN_HOT_WATCH_PATHS SUPER_DOLPHIN_HOT_POLL_INTERVAL
-export SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR SUPER_DOLPHIN_LOCAL_POSTGRES_LOG
 export LOG_LEVEL="${LOG_LEVEL:-debug}"
 export ENABLE_MEMORY_SYSTEM="${ENABLE_MEMORY_SYSTEM:-1}"
 export ENABLE_MEMORY_TOOLS="${ENABLE_MEMORY_TOOLS:-1}"
@@ -978,12 +671,11 @@ export CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME="${CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME:
 configure_frontend_watch_mode
 mkdir -p "$(dirname "$SUPER_DOLPHIN_BACKEND_LOG")" "$(dirname "$SUPER_DOLPHIN_FRONTEND_LOG")" "$SUPER_DOLPHIN_HOME"
 ensure_dev_control_session_token
-configure_dev_postgres_runtime
+ensure_sqlite_runtime
 stop_stale_vite_for_port "$VITE_DEV_PORT"
 fail_if_port_busy "$VITE_DEV_HOST:$VITE_DEV_PORT"
 fail_if_port_busy "$SUPER_DOLPHIN_HTTP_ADDR"
 fail_if_port_busy "$GO_AGENT_CTL_RPC_ADDR"
-ensure_local_postgres
 ensure_node_deps "$FRONTEND_APP_DIR"
 ensure_peer_binaries
 
@@ -996,6 +688,7 @@ echo "  control rpc:  $GO_AGENT_CTL_RPC_ADDR"
 echo "  peer bin dir: $GO_AGENT_PEER_BIN_DIR"
 echo "  runtime:      $SUPER_DOLPHIN_RUNTIME_MODE ($SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR)"
 echo "  home:         $SUPER_DOLPHIN_HOME"
+echo "  sqlite:       $SUPER_DOLPHIN_SQLITE_PATH"
 echo "  frontend watch: $FRONTEND_WATCH_MODE"
 echo "  logs:         $SUPER_DOLPHIN_BACKEND_LOG"
 if backend_hot_reload_enabled; then
@@ -1011,7 +704,6 @@ wait_for_http "$FRONTEND_DEVSERVER_URL" "frontend-app vite" "$SUPER_DOLPHIN_FRON
 
 start_desktop_backend
 wait_for_backend
-seed_dev_preferences
 
 if backend_hot_reload_enabled; then
   run_backend_hot_supervisor_loop

@@ -32,7 +32,7 @@ func TestEditRenameHappyPath(t *testing.T) {
 	manager := &renameTestManager{
 		renameResult: &protocol.WorkspaceEdit{
 			Changes: map[string][]protocol.TextEdit{
-				"file://" + target: {
+				fileURI(target): {
 					{Range: protocol.Range{
 						Start: protocol.Position{Line: 2, Character: 5},
 						End:   protocol.Position{Line: 2, Character: 12},
@@ -78,11 +78,11 @@ func TestEditRenameMultiFile(t *testing.T) {
 	manager := &renameTestManager{
 		renameResult: &protocol.WorkspaceEdit{
 			Changes: map[string][]protocol.TextEdit{
-				"file://" + file1: {{Range: protocol.Range{
+				fileURI(file1): {{Range: protocol.Range{
 					Start: protocol.Position{Line: 2, Character: 5},
 					End:   protocol.Position{Line: 2, Character: 12},
 				}, NewText: "newName"}},
-				"file://" + file2: {{Range: protocol.Range{
+				fileURI(file2): {{Range: protocol.Range{
 					Start: protocol.Position{Line: 2, Character: 8},
 					End:   protocol.Position{Line: 2, Character: 15},
 				}, NewText: "newName"}},

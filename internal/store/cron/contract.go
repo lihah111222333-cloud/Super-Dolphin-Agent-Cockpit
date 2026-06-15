@@ -1,10 +1,19 @@
 // Package cron persists P21 P1b scheduled agent tasks.
 //
 // This store is the database surface only: it exposes CRUD on cron_jobs,
-// claim/lease primitives driven by FOR UPDATE SKIP LOCKED, and the per-
-// trigger cron_job_runs rows that carry the three-phase state machine
+// claim/lease primitives driven by a single-statement atomic UPDATE with
+// id-in-subquery (SQLite equivalent of FOR UPDATE SKIP LOCKED), and the
+// per-trigger cron_job_runs rows that carry the three-phase state machine
 // (pending -> submitting -> submitted -> running -> finished / failed /
 // observe_lost).
+//
+// Claim atomicity relies on SQLite's statement-level atomicity: the UPDATE
+// and its inner SELECT subquery execute as one indivisible step. There is no
+// row-level locking; instead the WHERE id IN (SELECT ... LIMIT N) subquery
+// picks candidate rows, and the outer UPDATE only touches rows that still
+// match the unclaimed/expired lease predicate at write time. This gives the
+// same "claim exactly N available rows, no duplicates across concurrent
+// writers" guarantee as PG's FOR UPDATE SKIP LOCKED.
 //
 // The scheduler, lease renewer and crash-recovery policy that live on top
 // of this store are delivered in Track C phase 2 — they live under
@@ -66,10 +75,11 @@ type Store interface {
 
 	// ClaimDueJobsForUpdate atomically selects + marks up to limit rows where
 	// COALESCE(next_retry_at, next_run_at) <= now and the claim is either
-	// unheld or expired. leaseTTL sets lease_expires_at = now + leaseTTL.
+	// unheld or expired. LeaseExpiresAt is computed by the caller from its
+	// explicit now_ms and lease duration; the store does not use DB time.
 	// The scheduler calls this with MaxClaim=1 and a freshly generated
 	// ClaimToken per loop iteration, so each returned job has an independent
-	// application-generated UUID v4 token while SQL still owns SKIP LOCKED
+	// application-generated UUID v4 token while SQL still owns atomic claim
 	// fencing.
 	ClaimDueJobsForUpdate(ctx context.Context, params ClaimDueJobsForUpdateParams) ([]Job, error)
 

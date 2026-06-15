@@ -30,9 +30,9 @@ func (s *store) BatchUpsertNodes(ctx context.Context, nodes []Node) (int64, erro
 			Title:      node.Title,
 			NodeType:   node.NodeType,
 			AssignedTo: node.AssignedTo,
-			Column6:    node.DependsOn,
+			DependsOn:  node.DependsOn,
 			CommandRef: node.CommandRef,
-			Column8:    node.Config,
+			Config:     node.Config,
 		}); err != nil {
 			return rows, wrapTaskDAGError(err, "batch_upsert", "task_dag_node")
 		}

@@ -3,6 +3,7 @@ package runtimeenv
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -69,6 +70,9 @@ func TestResolveRuntimeExplicitMacOSPackageRootMissingManifestFailsFast(t *testi
 }
 
 func TestResolveRuntimeValidMacOSManifestResolvesPackaged(t *testing.T) {
+	if runtimeGOOS() == "windows" {
+		t.Skip("Windows file mode cannot model Unix executable bits for a macOS package fixture")
+	}
 	app := filepath.Join(t.TempDir(), "Super Dolphin.app")
 	resources := filepath.Join(app, "Contents", "Resources")
 	writePackagedRuntimeFixture(t, resources, "darwin-arm64")
@@ -89,12 +93,13 @@ func TestResolveRuntimeValidMacOSManifestResolvesPackaged(t *testing.T) {
 	if got.PackagedRuntime == nil || got.PackagedRuntime.ResourcesDir != resources {
 		t.Fatalf("ResolveRuntime() packaged runtime = %#v, want resources %q", got.PackagedRuntime, resources)
 	}
-	if !got.Capabilities.EmbeddedPostgres || !got.Capabilities.BundledLSP || !got.Capabilities.BundledCodex {
-		t.Fatalf("ResolveRuntime() capabilities = %#v, want packaged capabilities", got.Capabilities)
-	}
+	assertPackagedCapabilitiesWithoutPostgres(t, got.Capabilities)
 }
 
 func TestResolveRuntimeExplicitLinuxPackageRootValidManifestResolvesPackaged(t *testing.T) {
+	if runtimeGOOS() == "windows" {
+		t.Skip("Windows file mode cannot model Unix executable bits for a Linux package fixture")
+	}
 	root := t.TempDir()
 	writePackagedRuntimeFixture(t, root, "linux-amd64")
 
@@ -238,15 +243,20 @@ func TestResolveRuntimeSidecarConsumesParentContractWithoutAutoDetect(t *testing
 }
 
 func TestResolveRuntimeManifestRejectsEscapingSymlink(t *testing.T) {
+	if runtimeGOOS() == "windows" {
+		t.Skip("Windows symlink creation requires elevated privileges in this environment")
+	}
 	root := t.TempDir()
 	outside := t.TempDir()
 	writePackagedRuntimeFixture(t, root, "linux-amd64")
-	if err := os.RemoveAll(filepath.Join(root, "postgres")); err != nil {
-		t.Fatalf("remove postgres fixture: %v", err)
+	if err := os.RemoveAll(filepath.Join(root, "lsp")); err != nil {
+		t.Fatalf("remove lsp fixture: %v", err)
 	}
-	makeDirs(t, filepath.Join(outside, "linux-amd64"))
-	if err := os.Symlink(outside, filepath.Join(root, "postgres")); err != nil {
-		t.Fatalf("symlink escaped postgres: %v", err)
+	if err := os.WriteFile(filepath.Join(outside, "lsp-manifest.json"), []byte(`{"servers":{}}`+"\n"), 0o644); err != nil {
+		t.Fatalf("write outside lsp manifest: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "lsp")); err != nil {
+		t.Fatalf("symlink escaped lsp bundle: %v", err)
 	}
 
 	_, err := ResolveRuntime(RuntimeResolveInput{
@@ -263,6 +273,16 @@ func TestResolveRuntimeManifestRejectsEscapingSymlink(t *testing.T) {
 	}
 }
 
+func assertPackagedCapabilitiesWithoutPostgres(t *testing.T, got RuntimeCapabilities) {
+	t.Helper()
+	if !got.BundledLSP || !got.BundledCodex || !got.BundledSidecars {
+		t.Fatalf("ResolveRuntime() capabilities = %#v, want packaged capabilities", got)
+	}
+	if _, ok := reflect.TypeOf(got).FieldByName("EmbeddedPostgres"); ok {
+		t.Fatalf("ResolveRuntime() capabilities = %#v, must not advertise embedded Postgres", got)
+	}
+}
+
 func writePackagedRuntimeFixture(t *testing.T, resources, platform string) {
 	t.Helper()
 	writeBundledSidecars(t, filepath.Join(resources, "bin"))
@@ -272,12 +292,12 @@ func writePackagedRuntimeFixture(t *testing.T, resources, platform string) {
 	if err := os.WriteFile(filepath.Join(resources, "models.yaml"), []byte("models: []\n"), 0o644); err != nil {
 		t.Fatalf("write models.yaml: %v", err)
 	}
-	makeDirs(t, filepath.Join(resources, "postgres", platform, "bin"), filepath.Join(resources, "postgres", platform, "share"))
 	writeRuntimeManifestFixture(t, resources, platform)
 }
 
 func writeWindowsPackagedRuntimeFixture(t *testing.T, resources, platform string) {
 	t.Helper()
+	_ = platform
 	writeExecutable(t, filepath.Join(resources, "bin"), "mcp-orch.exe")
 	writeExecutable(t, filepath.Join(resources, "bin"), "mcp-lsp.exe")
 	writeExecutable(t, filepath.Join(resources, "bin"), "mcp-ida.exe")
@@ -290,14 +310,12 @@ func writeWindowsPackagedRuntimeFixture(t *testing.T, resources, platform string
 	if err := os.WriteFile(filepath.Join(resources, "models.yaml"), []byte("models: []\n"), 0o644); err != nil {
 		t.Fatalf("write models.yaml: %v", err)
 	}
-	makeDirs(t, filepath.Join(resources, "postgres", platform, "bin"), filepath.Join(resources, "postgres", platform, "share"))
 	manifest := `{
   "bundled_codex_path": "bin/codex.exe",
   "bundled_gopls_path": "bin/gopls.exe",
   "lsp_bundle_path": "lsp",
   "lsp_manifest_path": "lsp/lsp-manifest.json",
-  "model_registry_path": "models.yaml",
-  "embedded_postgres_resource_path": "postgres/` + platform + `"
+  "model_registry_path": "models.yaml"
 }
 `
 	if err := os.WriteFile(filepath.Join(resources, "runtime-manifest.json"), []byte(manifest), 0o644); err != nil {
@@ -307,13 +325,13 @@ func writeWindowsPackagedRuntimeFixture(t *testing.T, resources, platform string
 
 func writeRuntimeManifestFixture(t *testing.T, resources, platform string) {
 	t.Helper()
+	goos, _, _ := strings.Cut(platform, "-")
 	manifest := `{
-  "bundled_codex_path": "bin/codex",
-  "bundled_gopls_path": "bin/gopls",
+  "bundled_codex_path": "bin/` + executableNameForOS(goos, "codex") + `",
+  "bundled_gopls_path": "bin/` + executableNameForOS(goos, "gopls") + `",
   "lsp_bundle_path": "lsp",
   "lsp_manifest_path": "lsp/lsp-manifest.json",
-  "model_registry_path": "models.yaml",
-  "embedded_postgres_resource_path": "postgres/` + platform + `"
+  "model_registry_path": "models.yaml"
 }
 `
 	if err := os.WriteFile(filepath.Join(resources, "runtime-manifest.json"), []byte(manifest), 0o644); err != nil {

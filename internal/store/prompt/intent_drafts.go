@@ -6,23 +6,24 @@ import (
 	"errors"
 	"strings"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
 type upsertIntentDraftQuerier interface {
-	UpsertPromptIntentDraft(ctx context.Context, arg sqlc.UpsertPromptIntentDraftParams) (sqlc.PromptIntentDraft, error)
+	UpsertPromptIntentDraft(ctx context.Context, arg sqlc.UpsertPromptIntentDraftParams) (sqlc.UpsertPromptIntentDraftRow, error)
 }
 
 type getIntentDraftQuerier interface {
-	GetPromptIntentDraft(ctx context.Context, arg sqlc.GetPromptIntentDraftParams) (sqlc.PromptIntentDraft, error)
+	GetPromptIntentDraft(ctx context.Context, arg sqlc.GetPromptIntentDraftParams) (sqlc.GetPromptIntentDraftRow, error)
 }
 
 type listIntentDraftsQuerier interface {
-	ListPromptIntentDrafts(ctx context.Context, arg sqlc.ListPromptIntentDraftsParams) ([]sqlc.PromptIntentDraft, error)
+	ListPromptIntentDrafts(ctx context.Context, arg sqlc.ListPromptIntentDraftsParams) ([]sqlc.ListPromptIntentDraftsRow, error)
 }
 
 type updateIntentDraftStatusQuerier interface {
-	UpdatePromptIntentDraftStatus(ctx context.Context, arg sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.PromptIntentDraft, error)
+	UpdatePromptIntentDraftStatus(ctx context.Context, arg sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.UpdatePromptIntentDraftStatusRow, error)
 }
 
 // UpsertIntentDraft 处理upsertintentdraft。
@@ -43,19 +44,19 @@ func (s *store) UpsertIntentDraft(ctx context.Context, draft PromptIntentDraft) 
 		return nil, wrapPromptError(errors.New("prompt store does not support upsert_intent_draft"), "upsert", "prompt_intent_drafts")
 	}
 	row, err := q.UpsertPromptIntentDraft(ctx, sqlc.UpsertPromptIntentDraftParams{
-		DraftKey:    strings.TrimSpace(draft.DraftKey),
-		CWD:         strings.TrimSpace(draft.CWD),
-		Kind:        strings.TrimSpace(draft.Kind),
-		RawInput:    strings.TrimSpace(draft.RawInput),
-		SourceType:  strings.TrimSpace(draft.SourceType),
-		SourceUrl:   strings.TrimSpace(draft.SourceURL),
-		OriginHash:  strings.TrimSpace(draft.OriginHash),
-		LicenseHint: strings.TrimSpace(draft.LicenseHint),
-		Column9:     generatedCard,
-		Confidence:  draft.Confidence,
-		Status:      strings.TrimSpace(draft.Status),
-		Scope:       normalizePromptIntentDraftScope(draft.Scope),
-		Column13:    issues,
+		DraftKey:      strings.TrimSpace(draft.DraftKey),
+		CWD:           strings.TrimSpace(draft.CWD),
+		Kind:          strings.TrimSpace(draft.Kind),
+		RawInput:      strings.TrimSpace(draft.RawInput),
+		SourceType:    strings.TrimSpace(draft.SourceType),
+		SourceUrl:     strings.TrimSpace(draft.SourceURL),
+		OriginHash:    strings.TrimSpace(draft.OriginHash),
+		LicenseHint:   strings.TrimSpace(draft.LicenseHint),
+		GeneratedCard: generatedCard,
+		Confidence:    draft.Confidence,
+		Status:        strings.TrimSpace(draft.Status),
+		Scope:         normalizePromptIntentDraftScope(draft.Scope),
+		Issues:        issues,
 	})
 	if err != nil {
 		return nil, wrapPromptError(err, "upsert", "prompt_intent_drafts")
@@ -104,7 +105,7 @@ func (s *store) ListIntentDrafts(ctx context.Context, filter PromptIntentDraftLi
 	rows, err := q.ListPromptIntentDrafts(ctx, sqlc.ListPromptIntentDraftsParams{
 		CWD:        cwd,
 		Status:     status,
-		LimitCount: filter.Limit,
+		LimitCount: int64(filter.Limit),
 	})
 	if err != nil {
 		return nil, wrapPromptError(err, "list", "prompt_intent_drafts")
@@ -215,23 +216,50 @@ func normalizePromptIntentJSON(raw json.RawMessage, defaultValue string) ([]byte
 	return []byte(trimmed), nil
 }
 
-func fromSQLCPromptIntentDraft(row sqlc.PromptIntentDraft) PromptIntentDraft {
+func fromSQLCPromptIntentDraft(row any) PromptIntentDraft {
+	switch r := row.(type) {
+	case sqlc.UpsertPromptIntentDraftRow:
+		return promptIntentDraftFromFields(r.ID, r.DraftKey, r.CWD, r.Kind, r.RawInput, r.SourceType, r.SourceUrl,
+			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt)
+	case sqlc.GetPromptIntentDraftRow:
+		return promptIntentDraftFromFields(r.ID, r.DraftKey, r.CWD, r.Kind, r.RawInput, r.SourceType, r.SourceUrl,
+			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt)
+	case sqlc.ListPromptIntentDraftsRow:
+		return promptIntentDraftFromFields(r.ID, r.DraftKey, r.CWD, r.Kind, r.RawInput, r.SourceType, r.SourceUrl,
+			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt)
+	case sqlc.UpdatePromptIntentDraftStatusRow:
+		return promptIntentDraftFromFields(r.ID, r.DraftKey, r.CWD, r.Kind, r.RawInput, r.SourceType, r.SourceUrl,
+			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt)
+	default:
+		panic("unsupported prompt intent draft row type")
+	}
+}
+
+func promptIntentDraftFromFields(
+	id int64,
+	draftKey, cwd, kind, rawInput, sourceType, sourceURL, originHash, licenseHint string,
+	generatedCard []byte,
+	confidence float64,
+	status, scope string,
+	issues []byte,
+	createdAt, updatedAt int64,
+) PromptIntentDraft {
 	return PromptIntentDraft{
-		ID:            row.ID,
-		DraftKey:      row.DraftKey,
-		CWD:           row.CWD,
-		Kind:          row.Kind,
-		RawInput:      row.RawInput,
-		SourceType:    row.SourceType,
-		SourceURL:     row.SourceUrl,
-		OriginHash:    row.OriginHash,
-		LicenseHint:   row.LicenseHint,
-		GeneratedCard: json.RawMessage(row.GeneratedCard),
-		Confidence:    row.Confidence,
-		Status:        row.Status,
-		Scope:         normalizePromptIntentDraftScope(row.Scope),
-		Issues:        json.RawMessage(row.Issues),
-		CreatedAt:     row.CreatedAt.Time,
-		UpdatedAt:     row.UpdatedAt.Time,
+		ID:            id,
+		DraftKey:      draftKey,
+		CWD:           cwd,
+		Kind:          kind,
+		RawInput:      rawInput,
+		SourceType:    sourceType,
+		SourceURL:     sourceURL,
+		OriginHash:    originHash,
+		LicenseHint:   licenseHint,
+		GeneratedCard: json.RawMessage(generatedCard),
+		Confidence:    confidence,
+		Status:        status,
+		Scope:         normalizePromptIntentDraftScope(scope),
+		Issues:        json.RawMessage(issues),
+		CreatedAt:     platformdb.TimeFromMillis(createdAt),
+		UpdatedAt:     platformdb.TimeFromMillis(updatedAt),
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -234,6 +235,9 @@ func TestInstallRequiresRequestQuitBeforeStartingHelper(t *testing.T) {
 }
 
 func TestInstallIgnoresCanceledContextAfterDetachedHelperStarts(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("darwin helper launch uses /bin/sh")
+	}
 	stageDir := t.TempDir()
 	marker := filepath.Join(stageDir, "helper.started")
 	helper := writeHelperScript(t, marker, 200*time.Millisecond)
@@ -262,6 +266,9 @@ func TestInstallIgnoresCanceledContextAfterDetachedHelperStarts(t *testing.T) {
 }
 
 func TestInstallPassesAllowUnsignedToHelper(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("darwin helper launch uses /bin/sh")
+	}
 	stageDir := t.TempDir()
 	argsPath := filepath.Join(stageDir, "helper.args")
 	helper := writeArgsHelperScript(t, argsPath)
@@ -329,6 +336,9 @@ func TestInstallCommandUsesDetachedLauncherForMacHelper(t *testing.T) {
 }
 
 func TestInstallStartsWindowsInstallerWithSilentFlag(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a shell-script fixture with .exe name")
+	}
 	stageDir := t.TempDir()
 	argsPath := filepath.Join(stageDir, "installer.args")
 	installer := writeArgsHelperScriptWithName(t, argsPath, "Super-Dolphin-windows-amd64.exe")

@@ -171,6 +171,7 @@ func requireDAGDesignerSeedPromptTextCleanedBy0106(t *testing.T, label, path str
 }
 
 func applyPromptTextReplacements(content string, replacements map[string]string) string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
 	for old, new := range replacements {
 		content = strings.ReplaceAll(content, old, new)
 	}

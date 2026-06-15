@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -38,6 +39,9 @@ func TestValidateInstallRequestRejectsMissingTargetParent(t *testing.T) {
 }
 
 func TestValidateMountedAppAcceptsExpectedBundleShape(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows filesystems do not preserve macOS launcher execute bits in this fixture")
+	}
 	app := createAppBundle(t, filepath.Join(t.TempDir(), "Super Dolphin.app"))
 
 	if err := validateMountedApp(app); err != nil {
@@ -211,6 +215,9 @@ func TestRestartEnvironmentDropsStaleDevOverrides(t *testing.T) {
 }
 
 func TestInstallFromMountWaitsForAppExitBeforeReplacing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows filesystems do not preserve macOS launcher execute bits in this fixture")
+	}
 	oldRunCommand := runCommand
 	oldWaitForProcessExit := waitForProcessExit
 	defer func() {

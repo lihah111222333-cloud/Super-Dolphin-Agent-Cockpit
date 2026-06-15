@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -46,7 +47,6 @@ type codexInstallState struct {
 
 var codexInstall = &codexInstallState{maxFileBytes: defaultCodexExtractLimit, maxTotalBytes: defaultCodexExtractLimit}
 
-// EnsureCLIAvailable 确认 CLI 可执行文件可用。
 func EnsureCLIAvailable(ctx context.Context) error {
 	return ensureCodexCLIAvailable(ctx)
 }
@@ -58,7 +58,6 @@ type CodexBootstrapConfig struct {
 	ModelProvider       string
 }
 
-// EnsureCodexBootstrap 确保codex启动。
 func EnsureCodexBootstrap(ctx context.Context, cfg CodexBootstrapConfig) error {
 	home := strings.TrimSpace(cfg.Home)
 	baseURL := strings.TrimSpace(cfg.RelayBaseURL)
@@ -70,9 +69,7 @@ func EnsureCodexBootstrap(ctx context.Context, cfg CodexBootstrapConfig) error {
 	if err := validateCodexBootstrapConfig(home, baseURL, bootstrapToken); err != nil {
 		return err
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -134,11 +131,8 @@ type codexGitHubAsset struct {
 	DownloadURL string `json:"browser_download_url"`
 }
 
-// ensureCodexCLIAvailable 确认 Codex CLI 可用。
 func ensureCodexCLIAvailable(ctx context.Context) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	ok, err := bundledOrPathCodexAvailable(ctx)
 	if err != nil || ok {
 		return err
@@ -182,7 +176,6 @@ func bundledCodexPeerBinDirs() []string {
 	return dirs
 }
 
-// ensureManagedCodexCLI 确保managedcodexCLI。
 func ensureManagedCodexCLI(ctx context.Context) error {
 	root, err := codexManagedInstallRoot()
 	if err != nil {
@@ -212,7 +205,6 @@ func ensureManagedCodexCLI(ctx context.Context) error {
 	return nil
 }
 
-// bundledCodexCLI 处理bundledcodexCLI。
 func bundledCodexCLI(ctx context.Context) (string, error) {
 	for _, dir := range bundledCodexPeerBinDirs() {
 		dir = strings.TrimSpace(dir)
@@ -248,12 +240,11 @@ func validCodexCLI(ctx context.Context, path string) bool {
 	if path == "" || !isExecutable(path) {
 		return false
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = nonNilContext(ctx)
 	checkCtx, cancel := withTimeout(context.WithoutCancel(ctx), codexValidationTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(checkCtx, path, codexAppServerCommand, "--help")
+	cmd.Env = contract.ScrubDatabaseEnv(os.Environ())
 	setCodexProcessAttrs(cmd)
 	return cmd.Run() == nil
 }
@@ -271,7 +262,6 @@ func codexManagedInstallRoot() (string, error) {
 	return filepath.Join(home, "runtime", "openai-codex"), nil
 }
 
-// findManagedCodexBinary 查找managedcodex二进制。
 func findManagedCodexBinary(ctx context.Context, root, sourceSHA256 string) (string, error) {
 	entries, err := readManagedCodexInstallRoot(root)
 	if err != nil {
@@ -316,8 +306,6 @@ func readManagedCodexInstallRoot(root string) ([]os.DirEntry, error) {
 	}
 	return entries, nil
 }
-
-// installManagedCodexCLI 处理安装managedcodexCLI。
 func installManagedCodexCLI(ctx context.Context, root, checksum string) (string, error) {
 	release, err := fetchCodexRelease(ctx)
 	if err != nil {
@@ -403,28 +391,20 @@ func installCodexAsset(ctx context.Context, asset codexGitHubAsset, checksum, wo
 }
 
 func installCodexWheel(ctx context.Context, downloadURL, checksum, workDir, target string) error {
-	wheelPath := filepath.Join(workDir, "codex.whl")
-	if err := downloadCodexAsset(ctx, downloadURL, checksum, wheelPath); err != nil {
-		return err
-	}
-	extractDir := filepath.Join(workDir, "extract")
-	if err := extractCodexWheel(wheelPath, extractDir); err != nil {
-		return err
-	}
-	codexPath := filepath.Join(target, "codex_cli_bin", "bin", codexExecutableFileName())
-	if err := ensureCodexInstallLayout(extractDir); err != nil {
-		return err
-	}
-	return promoteCodexInstall(extractDir, target, codexPath)
+	return installCodexArchive(ctx, downloadURL, checksum, workDir, target, "codex.whl", extractCodexWheel)
 }
 
 func installCodexTarGz(ctx context.Context, downloadURL, checksum, workDir, target string) error {
-	archivePath := filepath.Join(workDir, "codex.tar.gz")
+	return installCodexArchive(ctx, downloadURL, checksum, workDir, target, "codex.tar.gz", extractCodexTarGz)
+}
+
+func installCodexArchive(ctx context.Context, downloadURL, checksum, workDir, target, archiveName string, extract func(string, string) error) error {
+	archivePath := filepath.Join(workDir, archiveName)
 	if err := downloadCodexAsset(ctx, downloadURL, checksum, archivePath); err != nil {
 		return err
 	}
 	extractDir := filepath.Join(workDir, "extract")
-	if err := extractCodexTarGz(archivePath, extractDir); err != nil {
+	if err := extract(archivePath, extractDir); err != nil {
 		return err
 	}
 	codexPath := filepath.Join(target, "codex_cli_bin", "bin", codexExecutableFileName())
@@ -434,7 +414,6 @@ func installCodexTarGz(ctx context.Context, downloadURL, checksum, workDir, targ
 	return promoteCodexInstall(extractDir, target, codexPath)
 }
 
-// promoteCodexInstall 处理promotecodex安装。
 func promoteCodexInstall(extractDir, target, codexPath string) error {
 	if isExecutable(codexPath) {
 		return nil
@@ -452,7 +431,6 @@ func promoteCodexInstall(extractDir, target, codexPath string) error {
 	return nil
 }
 
-// fetchCodexRelease 处理fetchcodexrelease。
 func fetchCodexRelease(ctx context.Context) (codexGitHubRelease, error) {
 	releaseURL, err := codexReleaseAPIRequestURL()
 	if err != nil {
@@ -479,7 +457,6 @@ func fetchCodexRelease(ctx context.Context) (codexGitHubRelease, error) {
 	return release, nil
 }
 
-// selectCodexReleaseAsset 选择codexreleaseasset。
 func selectCodexReleaseAsset(assets []codexGitHubAsset) (codexGitHubAsset, error) {
 	candidates := codexReleaseAssetCandidates()
 	if len(candidates) == 0 {
@@ -495,11 +472,6 @@ func selectCodexReleaseAsset(assets []codexGitHubAsset) (codexGitHubAsset, error
 	return codexGitHubAsset{}, fmt.Errorf("no compatible OpenAI Codex release asset for %s/%s in %s", runtime.GOOS, runtime.GOARCH, codexGitHubRepoURL)
 }
 
-func codexReleasePlatform() (string, error) {
-	return codexWheelReleasePlatform()
-}
-
-// codexReleaseAssetCandidates 处理codexreleaseasset候选项。
 func codexReleaseAssetCandidates() []func(string) bool {
 	var out []func(string) bool
 	if target, err := codexRustReleaseTarget(); err == nil {
@@ -521,63 +493,35 @@ func codexReleaseAssetCandidates() []func(string) bool {
 	return out
 }
 
-// codexRustReleaseTarget 处理codexrustreleasetarget。
 func codexRustReleaseTarget() (string, error) {
-	switch runtime.GOOS {
-	case "darwin":
-		switch runtime.GOARCH {
-		case "arm64":
-			return "aarch64-apple-darwin", nil
-		case "amd64":
-			return "x86_64-apple-darwin", nil
-		}
-	case "linux":
-		switch runtime.GOARCH {
-		case "arm64":
-			return "aarch64-unknown-linux-musl", nil
-		case "amd64":
-			return "x86_64-unknown-linux-musl", nil
-		}
-	case "windows":
-		switch runtime.GOARCH {
-		case "arm64":
-			return "aarch64-pc-windows-msvc", nil
-		case "amd64":
-			return "x86_64-pc-windows-msvc", nil
-		}
-	}
-	return "", fmt.Errorf("unsupported Codex auto-install platform %s/%s", runtime.GOOS, runtime.GOARCH)
+	return codexSupportedPlatformValue(map[string]string{
+		"darwin/arm64":  "aarch64-apple-darwin",
+		"darwin/amd64":  "x86_64-apple-darwin",
+		"linux/arm64":   "aarch64-unknown-linux-musl",
+		"linux/amd64":   "x86_64-unknown-linux-musl",
+		"windows/arm64": "aarch64-pc-windows-msvc",
+		"windows/amd64": "x86_64-pc-windows-msvc",
+	})
 }
 
-// codexWheelReleasePlatform 处理codexwheelrelease平台。
 func codexWheelReleasePlatform() (string, error) {
-	switch runtime.GOOS {
-	case "darwin":
-		switch runtime.GOARCH {
-		case "arm64":
-			return "macosx_11_0_arm64", nil
-		case "amd64":
-			return "macosx_10_9_x86_64", nil
-		}
-	case "linux":
-		switch runtime.GOARCH {
-		case "arm64":
-			return "manylinux_2_17_aarch64", nil
-		case "amd64":
-			return "manylinux_2_17_x86_64", nil
-		}
-	case "windows":
-		switch runtime.GOARCH {
-		case "arm64":
-			return "win_arm64", nil
-		case "amd64":
-			return "win_amd64", nil
-		}
+	return codexSupportedPlatformValue(map[string]string{
+		"darwin/arm64":  "macosx_11_0_arm64",
+		"darwin/amd64":  "macosx_10_9_x86_64",
+		"linux/arm64":   "manylinux_2_17_aarch64",
+		"linux/amd64":   "manylinux_2_17_x86_64",
+		"windows/arm64": "win_arm64",
+		"windows/amd64": "win_amd64",
+	})
+}
+
+func codexSupportedPlatformValue(values map[string]string) (string, error) {
+	if value := values[runtime.GOOS+"/"+runtime.GOARCH]; value != "" {
+		return value, nil
 	}
 	return "", fmt.Errorf("unsupported Codex auto-install platform %s/%s", runtime.GOOS, runtime.GOARCH)
 }
 
-// isExecutable 判断可执行文件是否可用。
 func isExecutable(path string) bool {
 	info, err := os.Stat(filepath.Clean(path))
 	if err != nil || info.IsDir() {
@@ -598,9 +542,7 @@ func isExecutable(path string) bool {
 	return info.Mode().Perm()&0o111 != 0
 }
 
-func codexExecutableFileName() string {
-	return codexExecutableFileNameFor(codexBinaryName)
-}
+func codexExecutableFileName() string { return codexExecutableFileNameFor(codexBinaryName) }
 
 func codexExecutableFileNameFor(name string) string {
 	if runtime.GOOS == "windows" {
@@ -640,11 +582,8 @@ func sanitizeCodexReleaseTag(tag string) string {
 	return b.String()
 }
 
-// isCodexReleaseTagRune 判断codexreleasetagrune是否可用。
 func isCodexReleaseTagRune(r rune) bool {
 	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-' || r == '_'
 }
 
-func codexHTTPClient() *http.Client {
-	return &http.Client{Timeout: 10 * time.Minute}
-}
+func codexHTTPClient() *http.Client { return &http.Client{Timeout: 10 * time.Minute} }

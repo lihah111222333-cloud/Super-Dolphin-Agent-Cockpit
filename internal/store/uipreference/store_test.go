@@ -2,22 +2,23 @@ package uipreference
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
-	"github.com/jackc/pgx/v5"
 )
 
 type uiPreferenceQuerierStub struct {
-	getValueFn func(context.Context, sqlc.GetUIPreferenceValueParams) ([]byte, error)
+	getValueFn func(context.Context, sqlc.GetUIPreferenceValueParams) (json.RawMessage, error)
 	upsertFn   func(context.Context, sqlc.UpsertUIPreferenceParams) error
 	listFn     func(context.Context, sqlc.ListUIPreferencesParams) ([]sqlc.ListUIPreferencesRow, error)
 }
 
-func (s *uiPreferenceQuerierStub) GetUIPreferenceValue(ctx context.Context, arg sqlc.GetUIPreferenceValueParams) ([]byte, error) {
+func (s *uiPreferenceQuerierStub) GetUIPreferenceValue(ctx context.Context, arg sqlc.GetUIPreferenceValueParams) (json.RawMessage, error) {
 	if s.getValueFn != nil {
 		return s.getValueFn(ctx, arg)
 	}
@@ -43,7 +44,7 @@ func TestGetValueForwardsParamsAndReturnsBytes(t *testing.T) {
 
 	var captured sqlc.GetUIPreferenceValueParams
 	s := &store{q: &uiPreferenceQuerierStub{
-		getValueFn: func(_ context.Context, arg sqlc.GetUIPreferenceValueParams) ([]byte, error) {
+		getValueFn: func(_ context.Context, arg sqlc.GetUIPreferenceValueParams) (json.RawMessage, error) {
 			captured = arg
 			return []byte(`{"theme":"dark"}`), nil
 		},
@@ -61,12 +62,12 @@ func TestGetValueForwardsParamsAndReturnsBytes(t *testing.T) {
 	}
 }
 
-func TestGetValueWrapsPgxErrNoRowsAsNotFound(t *testing.T) {
+func TestGetValueWrapsSQLErrNoRowsAsNotFound(t *testing.T) {
 	t.Parallel()
 
 	s := &store{q: &uiPreferenceQuerierStub{
-		getValueFn: func(context.Context, sqlc.GetUIPreferenceValueParams) ([]byte, error) {
-			return nil, pgx.ErrNoRows
+		getValueFn: func(context.Context, sqlc.GetUIPreferenceValueParams) (json.RawMessage, error) {
+			return nil, sql.ErrNoRows
 		},
 	}}
 
@@ -105,6 +106,29 @@ func TestUpsertForwardsParamsAndReturnsNilOnSuccess(t *testing.T) {
 	if captured.CWD != "/proj" || captured.Key != "theme" || string(captured.Value) != `{"theme":"light"}` {
 		t.Fatalf("Upsert() forwarded wrong params: %+v", captured)
 	}
+	if captured.UpdatedAt == 0 {
+		t.Fatalf("Upsert() UpdatedAt = 0, want Go epoch milliseconds")
+	}
+}
+
+func TestUpsertRejectsInvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	s := &store{q: &uiPreferenceQuerierStub{
+		upsertFn: func(context.Context, sqlc.UpsertUIPreferenceParams) error {
+			called = true
+			return nil
+		},
+	}}
+
+	err := s.Upsert(context.Background(), UpsertParams{Cwd: "/proj", Key: "theme", Value: []byte(`not-json`)})
+	if err == nil {
+		t.Fatal("Upsert() error = nil, want invalid JSON error")
+	}
+	if called {
+		t.Fatal("Upsert() called query despite invalid JSON")
+	}
 }
 
 func TestUpsertWrapsQuerierError(t *testing.T) {
@@ -115,7 +139,7 @@ func TestUpsertWrapsQuerierError(t *testing.T) {
 		upsertFn: func(context.Context, sqlc.UpsertUIPreferenceParams) error { return sentinel },
 	}}
 
-	err := s.Upsert(context.Background(), UpsertParams{})
+	err := s.Upsert(context.Background(), UpsertParams{Value: []byte(`{}`)})
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("Upsert() error = %v, want wrap of sentinel", err)
 	}
@@ -132,11 +156,17 @@ func TestListForwardsCwdAndMapsRows(t *testing.T) {
 	var capturedCwd string
 	s := &store{q: &uiPreferenceQuerierStub{
 		listFn: func(_ context.Context, arg sqlc.ListUIPreferencesParams) ([]sqlc.ListUIPreferencesRow, error) {
-			cwd := arg.Column1
+			if arg.CWDFilter != "/proj" {
+				t.Fatalf("List() forwarded wrong params: %+v", arg)
+			}
+			cwd, ok := arg.CWDFilter.(string)
+			if !ok {
+				t.Fatalf("List() cwd param type = %T, want string", arg.CWDFilter)
+			}
 			capturedCwd = cwd
 			return []sqlc.ListUIPreferencesRow{
-				{Key: "theme", Value: []byte(`"dark"`), CWD: "", UpdatedAt: now},
-				{Key: "layout", Value: []byte(`"wide"`), CWD: "/proj", UpdatedAt: now},
+				{Key: "theme", Value: []byte(`"dark"`), CWD: "", UpdatedAt: platformdb.Millis(now)},
+				{Key: "layout", Value: []byte(`"wide"`), CWD: "/proj", UpdatedAt: platformdb.Millis(now)},
 			}, nil
 		},
 	}}

@@ -13,8 +13,8 @@ func TestStoreListRecallSectionsMapsRows(t *testing.T) {
 
 	s := &store{q: &promptQuerierStub{
 		listRecallFn: func(_ context.Context, arg sqlc.ListRecallSectionsParams) ([]sqlc.ListRecallSectionsRow, error) {
-			if arg.CWD != "/repo/a" {
-				t.Fatalf("ListRecallSections() cwd = %q, want /repo/a", arg.CWD)
+			if arg.CWD == nil || *arg.CWD != "/repo/a" {
+				t.Fatalf("ListRecallSections() cwd = %v, want /repo/a", arg.CWD)
 			}
 			return []sqlc.ListRecallSectionsRow{{
 				ID:                  11,
@@ -22,8 +22,8 @@ func TestStoreListRecallSectionsMapsRows(t *testing.T) {
 				SectionKey:          "recall_sqlc",
 				Region:              "dynamic",
 				Ordinal:             0,
-				EnableWhen:          []byte(`{"language":"zh"}`),
-				Enabled:             true,
+				EnableWhen:          `{"language":"zh"}`,
+				Enabled:             int64(1),
 				TriggerType:         "recall",
 				RecallTopic:         "sqlc-workflow",
 				TemplatePromptKey:   "main/general-zh",
@@ -82,8 +82,8 @@ func TestStoreListDefaultRuleSectionsMapsRows(t *testing.T) {
 
 	s := &store{q: &promptQuerierStub{
 		listDefaultRulesFn: func(_ context.Context, arg sqlc.ListDefaultRuleSectionsParams) ([]sqlc.ListDefaultRuleSectionsRow, error) {
-			if arg.CWD != "/repo/a" {
-				t.Fatalf("ListDefaultRuleSections() cwd = %q, want /repo/a", arg.CWD)
+			if arg.CWD == nil || *arg.CWD != "/repo/a" {
+				t.Fatalf("ListDefaultRuleSections() cwd = %v, want /repo/a", arg.CWD)
 			}
 			return []sqlc.ListDefaultRuleSectionsRow{{
 				ID:                12,
@@ -92,8 +92,8 @@ func TestStoreListDefaultRuleSectionsMapsRows(t *testing.T) {
 				Region:            "dynamic",
 				Ordinal:           1,
 				Body:              "Default rule body",
-				EnableWhen:        []byte(`{"language":"zh"}`),
-				Enabled:           true,
+				EnableWhen:        `{"language":"zh"}`,
+				Enabled:           int64(1),
 				TriggerType:       "always",
 				TemplatePromptKey: "main/default-rule/sqlc",
 			}}, nil
@@ -137,7 +137,7 @@ func TestLockRecallTopicInCWDRequiresCWDAndTopic(t *testing.T) {
 	}
 }
 
-func TestLockRecallTopicInCWDForwardsTrimmedValues(t *testing.T) {
+func TestLockRecallTopicInCWDForwardsTrimmedParamsAfterValidation(t *testing.T) {
 	t.Parallel()
 
 	var captured sqlc.LockRecallTopicInCWDParams
@@ -147,11 +147,78 @@ func TestLockRecallTopicInCWDForwardsTrimmedValues(t *testing.T) {
 			return nil
 		},
 	}}
-	if err := s.LockRecallTopicInCWD(context.Background(), " /repo/a ", " topic "); err != nil {
+	if err := s.LockRecallTopicInCWD(context.Background(), " /repo/a ", " topic-name "); err != nil {
 		t.Fatalf("LockRecallTopicInCWD() unexpected error: %v", err)
 	}
-	if captured.CWD != "/repo/a" || captured.Topic != "topic" {
-		t.Fatalf("LockRecallTopicInCWD() params = %+v, want trimmed values", captured)
+	if captured.CWD != "/repo/a" || captured.Topic != "topic-name" {
+		t.Fatalf("LockRecallTopicInCWD() params = %+v, want trimmed cwd/topic", captured)
+	}
+}
+
+func TestLockRecallTopicInCWDRejectsInvalidTopicBeforeSQL(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	s := &store{q: &promptQuerierStub{
+		lockRecallFn: func(context.Context, sqlc.LockRecallTopicInCWDParams) error {
+			called = true
+			return nil
+		},
+	}}
+	if err := s.LockRecallTopicInCWD(context.Background(), "/repo/a", "Project.Memory"); err == nil {
+		t.Fatal("LockRecallTopicInCWD() expected invalid topic error, got nil")
+	}
+	if called {
+		t.Fatal("LockRecallTopicInCWD() called sqlc despite invalid topic")
+	}
+}
+
+func TestUpsertRecallTopicTargetInCWDForwardsTrimmedParams(t *testing.T) {
+	t.Parallel()
+
+	var captured sqlc.UpsertPromptRecallTopicTargetInCWDParams
+	s := &store{q: &promptQuerierStub{
+		upsertRecallTargetFn: func(_ context.Context, arg sqlc.UpsertPromptRecallTopicTargetInCWDParams) error {
+			captured = arg
+			return nil
+		},
+	}}
+	if err := s.UpsertRecallTopicTargetInCWD(context.Background(), " /repo/a ", " topic-name ", 7, " recall_topic "); err != nil {
+		t.Fatalf("UpsertRecallTopicTargetInCWD() unexpected error: %v", err)
+	}
+	if captured.CWD != "/repo/a" || captured.Topic != "topic-name" || captured.TemplateID != 7 || captured.SectionKey != "recall_topic" {
+		t.Fatalf("UpsertRecallTopicTargetInCWD() params = %+v, want trimmed target", captured)
+	}
+}
+
+func TestUpsertRecallTopicTargetInCWDRejectsInvalidInputBeforeSQL(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	s := &store{q: &promptQuerierStub{
+		upsertRecallTargetFn: func(context.Context, sqlc.UpsertPromptRecallTopicTargetInCWDParams) error {
+			called = true
+			return nil
+		},
+	}}
+	for _, tc := range []struct {
+		name       string
+		cwd        string
+		topic      string
+		templateID int64
+		sectionKey string
+	}{
+		{name: "empty cwd", cwd: " ", topic: "topic-name", templateID: 7, sectionKey: "recall_topic"},
+		{name: "invalid topic", cwd: "/repo/a", topic: "Topic.Name", templateID: 7, sectionKey: "recall_topic"},
+		{name: "empty template", cwd: "/repo/a", topic: "topic-name", templateID: 0, sectionKey: "recall_topic"},
+		{name: "empty section", cwd: "/repo/a", topic: "topic-name", templateID: 7, sectionKey: " "},
+	} {
+		if err := s.UpsertRecallTopicTargetInCWD(context.Background(), tc.cwd, tc.topic, tc.templateID, tc.sectionKey); err == nil {
+			t.Fatalf("%s: UpsertRecallTopicTargetInCWD() error = nil, want invalid input error", tc.name)
+		}
+	}
+	if called {
+		t.Fatal("UpsertRecallTopicTargetInCWD() called sqlc despite invalid input")
 	}
 }
 

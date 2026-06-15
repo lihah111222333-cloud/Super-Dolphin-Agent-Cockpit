@@ -13,7 +13,7 @@ import (
 func TestRestartIfNeededLockedCommitsPendingConfigAfterReady(t *testing.T) {
 	next := newScriptedTransport()
 	defer next.finish()
-	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		return next.tr, nil, nil
 	})
 
@@ -21,7 +21,7 @@ func TestRestartIfNeededLockedCommitsPendingConfigAfterReady(t *testing.T) {
 	pendingEffort := "max"
 	oldReady := make(chan struct{})
 	close(oldReady)
-	s := newPendingConfigRestartSession(oldReady, &pendingModel, &pendingEffort)
+	s := newPendingConfigRestartSession(oldReady, &pendingModel, &pendingEffort, launchFn)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	result := restartLockedAsync(s, ctx)
@@ -35,8 +35,8 @@ func TestRestartIfNeededLockedCommitsPendingConfigAfterReady(t *testing.T) {
 	assertPendingConfigReadback(t, s, pendingModel, pendingEffort)
 }
 
-func newPendingConfigRestartSession(oldReady chan struct{}, pendingModel, pendingEffort *string) *session {
-	return assumeSessionLaunchOverride(&session{
+func newPendingConfigRestartSession(oldReady chan struct{}, pendingModel, pendingEffort *string, launchFn testLaunchCLI) *session {
+	return &session{
 		threadID:        "pending",
 		sessionID:       "pending",
 		threadReady:     oldReady,
@@ -47,12 +47,12 @@ func newPendingConfigRestartSession(oldReady chan struct{}, pendingModel, pendin
 		pendingModel:    pendingModel,
 		pendingEffort:   pendingEffort,
 		configDirty:     true,
+		launchCLI:       launchFn,
 		suppressedTurns: map[string]struct{}{},
-	})
+	}
 }
 
 func restartLockedAsync(s *session, ctx context.Context) <-chan error {
-	assumeSessionLaunchOverride(s)
 	result := make(chan error, 1)
 	go func() {
 		s.mu.Lock()
@@ -152,7 +152,7 @@ func TestRestartIfNeededLockedConsumesCanonicalNoopPendingEffort(t *testing.T) {
 func TestRestartIfNeededLockedPreservesPendingConfigOnWaitError(t *testing.T) {
 	next := newScriptedTransport()
 	defer next.finish()
-	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		return next.tr, nil, nil
 	})
 
@@ -161,7 +161,7 @@ func TestRestartIfNeededLockedPreservesPendingConfigOnWaitError(t *testing.T) {
 	old := newBufferedTransport(t, "thread-1")
 	oldReady := make(chan struct{})
 	close(oldReady)
-	s := assumeSessionLaunchOverride(&session{
+	s := &session{
 		threadID:        "pending",
 		sessionID:       "pending",
 		threadReady:     oldReady,
@@ -172,8 +172,9 @@ func TestRestartIfNeededLockedPreservesPendingConfigOnWaitError(t *testing.T) {
 		pendingModel:    &pendingModel,
 		pendingEffort:   &pendingEffort,
 		configDirty:     true,
+		launchCLI:       launchFn,
 		suppressedTurns: map[string]struct{}{},
-	})
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
 	defer cancel()
 
@@ -200,7 +201,7 @@ func TestRestartIfNeededLockedUsesPromptSnapshot(t *testing.T) {
 	launched := make(chan struct{}, 1)
 	var launchedInstructions string
 	var launchedConfig cliLaunchConfig
-	overrideLaunchCLI(t, func(_, _, _, instructions string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+	launchFn := overrideLaunchCLI(t, func(_, _, _, instructions string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
 		launchedInstructions = instructions
 		launchedConfig = cfg
 		launched <- struct{}{}
@@ -213,7 +214,7 @@ func TestRestartIfNeededLockedUsesPromptSnapshot(t *testing.T) {
 		BaseInstructions:      "assembled base",
 		DeveloperInstructions: "assembled developer",
 	}
-	s := assumeSessionLaunchOverride(&session{
+	s := &session{
 		threadID:        "pending",
 		sessionID:       "pending",
 		threadReady:     oldReady,
@@ -223,8 +224,9 @@ func TestRestartIfNeededLockedUsesPromptSnapshot(t *testing.T) {
 		instructions:    "legacy base",
 		config:          cliLaunchConfig{PromptSnapshot: snapshot},
 		transportConfig: cliLaunchConfig{PromptSnapshot: snapshot},
+		launchCLI:       launchFn,
 		suppressedTurns: map[string]struct{}{},
-	})
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	result := make(chan error, 1)

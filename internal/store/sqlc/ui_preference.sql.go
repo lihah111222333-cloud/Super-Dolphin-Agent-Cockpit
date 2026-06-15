@@ -7,13 +7,13 @@ package sqlc
 
 import (
 	"context"
-	"time"
+	"encoding/json"
 )
 
 const getUIPreferenceValue = `-- name: GetUIPreferenceValue :one
 SELECT value
 FROM ui_preferences
-WHERE cwd = $1 AND key = $2
+WHERE cwd = ? AND key = ?
 `
 
 type GetUIPreferenceValueParams struct {
@@ -21,9 +21,9 @@ type GetUIPreferenceValueParams struct {
 	Key string `db:"key" json:"key"`
 }
 
-func (q *Queries) GetUIPreferenceValue(ctx context.Context, arg GetUIPreferenceValueParams) ([]byte, error) {
-	row := q.db.QueryRow(ctx, getUIPreferenceValue, arg.CWD, arg.Key)
-	var value []byte
+func (q *Queries) GetUIPreferenceValue(ctx context.Context, arg GetUIPreferenceValueParams) (json.RawMessage, error) {
+	row := q.db.QueryRowContext(ctx, getUIPreferenceValue, arg.CWD, arg.Key)
+	var value json.RawMessage
 	err := row.Scan(&value)
 	return value, err
 }
@@ -32,23 +32,23 @@ const listUIPreferences = `-- name: ListUIPreferences :many
 SELECT key, value, cwd, updated_at
 FROM ui_preferences
 WHERE cwd = ''
-   OR ($1::text <> '' AND cwd = $1)
+   OR (?1 <> '' AND cwd = ?1)
 ORDER BY cwd ASC, key ASC
 `
 
 type ListUIPreferencesParams struct {
-	Column1 string `db:"column_1" json:"column_1"`
+	CWDFilter interface{} `db:"cwd_filter" json:"cwd_filter"`
 }
 
 type ListUIPreferencesRow struct {
-	Key       string    `db:"key" json:"key"`
-	Value     []byte    `db:"value" json:"value"`
-	CWD       string    `db:"cwd" json:"cwd"`
-	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
+	Key       string          `db:"key" json:"key"`
+	Value     json.RawMessage `db:"value" json:"value"`
+	CWD       string          `db:"cwd" json:"cwd"`
+	UpdatedAt int64           `db:"updated_at" json:"updated_at"`
 }
 
 func (q *Queries) ListUIPreferences(ctx context.Context, arg ListUIPreferencesParams) ([]ListUIPreferencesRow, error) {
-	rows, err := q.db.Query(ctx, listUIPreferences, arg.Column1)
+	rows, err := q.db.QueryContext(ctx, listUIPreferences, arg.CWDFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -66,6 +66,9 @@ func (q *Queries) ListUIPreferences(ctx context.Context, arg ListUIPreferencesPa
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -74,19 +77,25 @@ func (q *Queries) ListUIPreferences(ctx context.Context, arg ListUIPreferencesPa
 
 const upsertUIPreference = `-- name: UpsertUIPreference :exec
 INSERT INTO ui_preferences (cwd, key, value, updated_at)
-VALUES ($1, $2, $3, NOW())
+VALUES (?1, ?2, ?3, ?4)
 ON CONFLICT (cwd, key) DO UPDATE
 SET value = EXCLUDED.value,
-    updated_at = NOW()
+    updated_at = EXCLUDED.updated_at
 `
 
 type UpsertUIPreferenceParams struct {
-	CWD   string `db:"cwd" json:"cwd"`
-	Key   string `db:"key" json:"key"`
-	Value []byte `db:"value" json:"value"`
+	CWD       string          `db:"cwd" json:"cwd"`
+	Key       string          `db:"key" json:"key"`
+	Value     json.RawMessage `db:"value" json:"value"`
+	UpdatedAt int64           `db:"updated_at" json:"updated_at"`
 }
 
 func (q *Queries) UpsertUIPreference(ctx context.Context, arg UpsertUIPreferenceParams) error {
-	_, err := q.db.Exec(ctx, upsertUIPreference, arg.CWD, arg.Key, arg.Value)
+	_, err := q.db.ExecContext(ctx, upsertUIPreference,
+		arg.CWD,
+		arg.Key,
+		arg.Value,
+		arg.UpdatedAt,
+	)
 	return err
 }

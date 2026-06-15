@@ -15,14 +15,14 @@ func (s *store) EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (in
 	if input.RunID <= 0 {
 		return 0, fmt.Errorf("enqueue task dag wakeup: run_id required")
 	}
-	return queryValue(func() (int64, error) {
+	return queryValueWrite(ctx, func() (int64, error) {
 		return s.q.EnqueueTaskDagWakeup(ctx, sqlc.EnqueueTaskDagWakeupParams{
 			DagKey:         input.DagKey,
 			NodeKey:        input.NodeKey,
-			Column3:        input.RunID,
+			RunID:          int64Ptr(input.RunID),
 			WakeupKind:     input.WakeupKind,
 			TargetAgentID:  input.TargetAgentID,
-			Column6:        input.PromptPayload,
+			PromptPayload:  input.PromptPayload,
 			IdempotencyKey: input.IdempotencyKey,
 		})
 	}, "enqueue", "task_dag_wakeup")
@@ -36,19 +36,19 @@ func (s *store) ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput)
 	if err != nil {
 		return nil, err
 	}
-	return queryMany(func() ([]sqlc.TaskDagWakeup, error) {
+	return queryManyWrite(ctx, func() ([]sqlc.ClaimDueTaskDagWakeupsRow, error) {
 		return s.q.ClaimDueTaskDagWakeups(ctx, sqlc.ClaimDueTaskDagWakeupsParams{
-			ClaimedBy: input.ClaimedBy,
-			Column2:   leaseInterval,
-			Limit:     input.Limit,
+			WorkerID:   input.ClaimedBy,
+			LeaseMs:    leaseInterval,
+			LimitCount: int64(input.Limit),
 		})
-	}, "claim_due", "task_dag_wakeup", fromWakeup)
+	}, "claim_due", "task_dag_wakeup", fromClaimedWakeup)
 }
 
 // MarkWakeupSent 标记 wakeup 已发送给目标线程。
 func (s *store) MarkWakeupSent(ctx context.Context, input MarkWakeupSentInput) (int64, error) {
 	fence := wakeupFenceFromMark(input)
-	return fencedWakeupMutation("mark_sent", fence, func(fence wakeupFence) (int64, error) {
+	return fencedWakeupMutationWrite(ctx, "mark_sent", fence, func(fence wakeupFence) (int64, error) {
 		return s.q.MarkTaskDagWakeupSent(ctx, sqlc.MarkTaskDagWakeupSentParams{
 			ID:             fence.ID,
 			ClaimedAt:      timestampValue(fence.ClaimedAt),
@@ -70,9 +70,9 @@ func (s *store) RetryWakeup(ctx context.Context, input RetryWakeupInput) (int64,
 		return 0, err
 	}
 	fence := wakeupFenceFromRetry(input)
-	return fencedWakeupMutation("retry", fence, func(fence wakeupFence) (int64, error) {
+	return fencedWakeupMutationWrite(ctx, "retry", fence, func(fence wakeupFence) (int64, error) {
 		return s.q.RetryTaskDagWakeup(ctx, sqlc.RetryTaskDagWakeupParams{
-			Column1:        retryInterval,
+			DelayMs:        retryInterval,
 			LastError:      input.LastError,
 			ID:             fence.ID,
 			ClaimedAt:      timestampValue(fence.ClaimedAt),
@@ -95,7 +95,7 @@ func (s *store) RetryWakeupWithNodeConfigPatch(ctx context.Context, input RetryW
 	var rows int64
 	err = sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
 		retryRows, retryErr := txq.RetryTaskDagWakeup(ctx, sqlc.RetryTaskDagWakeupParams{
-			Column1:        retryInterval,
+			DelayMs:        retryInterval,
 			LastError:      input.RetryWakeup.LastError,
 			ID:             fence.ID,
 			ClaimedAt:      timestampValue(fence.ClaimedAt),
@@ -130,7 +130,7 @@ func (s *store) RetryWakeupWithNodeConfigPatch(ctx context.Context, input RetryW
 // FailWakeup 把 wakeup 标记为失败并记录原因。
 func (s *store) FailWakeup(ctx context.Context, input FailWakeupInput) (int64, error) {
 	fence := wakeupFenceFromFail(input)
-	return fencedWakeupMutation("fail", fence, func(fence wakeupFence) (int64, error) {
+	return fencedWakeupMutationWrite(ctx, "fail", fence, func(fence wakeupFence) (int64, error) {
 		return s.q.FailTaskDagWakeup(ctx, sqlc.FailTaskDagWakeupParams{
 			LastError:      input.LastError,
 			ID:             fence.ID,
@@ -152,7 +152,7 @@ func (s *store) FailWakeupAndFailNodeAndCancelDownstream(ctx context.Context, wa
 	fence := wakeupFenceFromFail(wakeup)
 	var failRows int64
 	var result *FailNodeResult
-	err := sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
+	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
 		txStore := &store{db: txdb, q: txq}
 		rows, failWakeupErr := txq.FailTaskDagWakeup(ctx, sqlc.FailTaskDagWakeupParams{
 			LastError:      wakeup.LastError,
@@ -185,30 +185,30 @@ func (s *store) FailWakeupAndFailNodeAndCancelDownstream(ctx context.Context, wa
 // 它不判断 dispatcher 是否存活，只依赖 lease_expires_at；被回收后旧 claim 的
 // fence 全部失效，下一轮 dispatcher 会重新 claim。
 func (s *store) ReclaimStaleDispatchingWakeups(ctx context.Context) (int64, error) {
-	return queryValue(func() (int64, error) {
+	return queryValueWrite(ctx, func() (int64, error) {
 		return s.q.ReclaimStaleDispatchingTaskDagWakeups(ctx)
 	}, "reclaim_stale_dispatching", "task_dag_wakeup")
 }
 
 // ListSentUnboundWakeups 列出已发送但还没绑定 turn 的 wakeup。
 func (s *store) ListSentUnboundWakeups(ctx context.Context, targetAgentID string) ([]Wakeup, error) {
-	return queryMany(func() ([]sqlc.TaskDagWakeup, error) {
-		return s.q.ListSentUnboundTaskDagWakeups(ctx, targetAgentID)
-	}, "list_sent_unbound", "task_dag_wakeup", fromWakeup)
+	return queryMany(func() ([]sqlc.ListSentUnboundTaskDagWakeupsRow, error) {
+		return s.q.ListSentUnboundTaskDagWakeups(ctx, sqlc.ListSentUnboundTaskDagWakeupsParams{TargetAgentID: targetAgentID})
+	}, "list_sent_unbound", "task_dag_wakeup", fromSentUnboundWakeup)
 }
 
 // ListPendingOrDispatchingWakeups 列出等待或正在派发的 wakeup。
 func (s *store) ListPendingOrDispatchingWakeups(ctx context.Context) ([]Wakeup, error) {
-	return queryMany(func() ([]sqlc.TaskDagWakeup, error) {
+	return queryMany(func() ([]sqlc.ListPendingOrDispatchingTaskDagWakeupsRow, error) {
 		return s.q.ListPendingOrDispatchingTaskDagWakeups(ctx)
-	}, "list_pending_or_dispatching", "task_dag_wakeup", fromWakeup)
+	}, "list_pending_or_dispatching", "task_dag_wakeup", fromPendingOrDispatchingWakeup)
 }
 
 // GetWakeup 读取单个 wakeup 的当前状态。
 func (s *store) GetWakeup(ctx context.Context, id int64) (*Wakeup, error) {
-	return queryOne(func() (sqlc.TaskDagWakeup, error) {
-		return s.q.GetTaskDagWakeup(ctx, id)
-	}, "get", "task_dag_wakeup", fromWakeup)
+	return queryOne(func() (sqlc.GetTaskDagWakeupRow, error) {
+		return s.q.GetTaskDagWakeup(ctx, sqlc.GetTaskDagWakeupParams{ID: id})
+	}, "get", "task_dag_wakeup", fromGetWakeup)
 }
 
 func fromWakeup(row sqlc.TaskDagWakeup) Wakeup {
@@ -222,7 +222,104 @@ func fromWakeup(row sqlc.TaskDagWakeup) Wakeup {
 		PromptPayload:  row.PromptPayload,
 		IdempotencyKey: row.IdempotencyKey,
 		Status:         row.Status,
-		AttemptCount:   row.AttemptCount,
+		AttemptCount:   int32(row.AttemptCount),
+		NextRetryAt:    timeValue(row.NextRetryAt),
+		ClaimedAt:      timestampPtr(row.ClaimedAt),
+		ClaimedBy:      row.ClaimedBy,
+		LeaseExpiresAt: timestampPtr(row.LeaseExpiresAt),
+		SentAt:         timestampPtr(row.SentAt),
+		BoundTurnID:    sqlc.TextPtr(row.BoundTurnID),
+		TurnBoundAt:    timestampPtr(row.TurnBoundAt),
+		LastError:      row.LastError,
+		CreatedAt:      timeValue(row.CreatedAt),
+		UpdatedAt:      timeValue(row.UpdatedAt),
+	}
+}
+func fromClaimedWakeup(row sqlc.ClaimDueTaskDagWakeupsRow) Wakeup {
+	return Wakeup{
+		ID:             row.ID,
+		DagKey:         row.DagKey,
+		NodeKey:        row.NodeKey,
+		RunID:          sqlc.Int8Ptr(row.RunID),
+		WakeupKind:     row.WakeupKind,
+		TargetAgentID:  row.TargetAgentID,
+		PromptPayload:  row.PromptPayload,
+		IdempotencyKey: row.IdempotencyKey,
+		Status:         row.Status,
+		AttemptCount:   int32(row.AttemptCount),
+		NextRetryAt:    timeValue(row.NextRetryAt),
+		ClaimedAt:      timestampPtr(row.ClaimedAt),
+		ClaimedBy:      row.ClaimedBy,
+		LeaseExpiresAt: timestampPtr(row.LeaseExpiresAt),
+		SentAt:         timestampPtr(row.SentAt),
+		BoundTurnID:    sqlc.TextPtr(row.BoundTurnID),
+		TurnBoundAt:    timestampPtr(row.TurnBoundAt),
+		LastError:      row.LastError,
+		CreatedAt:      timeValue(row.CreatedAt),
+		UpdatedAt:      timeValue(row.UpdatedAt),
+	}
+}
+
+func fromGetWakeup(row sqlc.GetTaskDagWakeupRow) Wakeup {
+	return Wakeup{
+		ID:             row.ID,
+		DagKey:         row.DagKey,
+		NodeKey:        row.NodeKey,
+		RunID:          sqlc.Int8Ptr(row.RunID),
+		WakeupKind:     row.WakeupKind,
+		TargetAgentID:  row.TargetAgentID,
+		PromptPayload:  row.PromptPayload,
+		IdempotencyKey: row.IdempotencyKey,
+		Status:         row.Status,
+		AttemptCount:   int32(row.AttemptCount),
+		NextRetryAt:    timeValue(row.NextRetryAt),
+		ClaimedAt:      timestampPtr(row.ClaimedAt),
+		ClaimedBy:      row.ClaimedBy,
+		LeaseExpiresAt: timestampPtr(row.LeaseExpiresAt),
+		SentAt:         timestampPtr(row.SentAt),
+		BoundTurnID:    sqlc.TextPtr(row.BoundTurnID),
+		TurnBoundAt:    timestampPtr(row.TurnBoundAt),
+		LastError:      row.LastError,
+		CreatedAt:      timeValue(row.CreatedAt),
+		UpdatedAt:      timeValue(row.UpdatedAt),
+	}
+}
+
+func fromSentUnboundWakeup(row sqlc.ListSentUnboundTaskDagWakeupsRow) Wakeup {
+	return Wakeup{
+		ID:             row.ID,
+		DagKey:         row.DagKey,
+		NodeKey:        row.NodeKey,
+		RunID:          sqlc.Int8Ptr(row.RunID),
+		WakeupKind:     row.WakeupKind,
+		TargetAgentID:  row.TargetAgentID,
+		IdempotencyKey: row.IdempotencyKey,
+		Status:         row.Status,
+		AttemptCount:   int32(row.AttemptCount),
+		NextRetryAt:    timeValue(row.NextRetryAt),
+		ClaimedAt:      timestampPtr(row.ClaimedAt),
+		ClaimedBy:      row.ClaimedBy,
+		LeaseExpiresAt: timestampPtr(row.LeaseExpiresAt),
+		SentAt:         timestampPtr(row.SentAt),
+		BoundTurnID:    sqlc.TextPtr(row.BoundTurnID),
+		TurnBoundAt:    timestampPtr(row.TurnBoundAt),
+		LastError:      row.LastError,
+		CreatedAt:      timeValue(row.CreatedAt),
+		UpdatedAt:      timeValue(row.UpdatedAt),
+	}
+}
+
+func fromPendingOrDispatchingWakeup(row sqlc.ListPendingOrDispatchingTaskDagWakeupsRow) Wakeup {
+	return Wakeup{
+		ID:             row.ID,
+		DagKey:         row.DagKey,
+		NodeKey:        row.NodeKey,
+		RunID:          sqlc.Int8Ptr(row.RunID),
+		WakeupKind:     row.WakeupKind,
+		TargetAgentID:  row.TargetAgentID,
+		IdempotencyKey: row.IdempotencyKey,
+		Status:         row.Status,
+		AttemptCount:   int32(row.AttemptCount),
 		NextRetryAt:    timeValue(row.NextRetryAt),
 		ClaimedAt:      timestampPtr(row.ClaimedAt),
 		ClaimedBy:      row.ClaimedBy,

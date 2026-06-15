@@ -17,5 +17,5 @@ func TestPackageMacOSScriptPreservesGitCoreHardlinks(t *testing.T) {
 	assertScriptContains(t, restoreBody, "ln \"$canonical\" \"$path\"")
 	assertScriptOrder(t, copyBody, "rsync -aH --delete \"$git_exec_path\"/", "write_git_core_hardlink_manifest \"$git_exec_path\" \"$resources\"")
 	assertScriptOrder(t, script, "sign_macho_tree \"$codesign_identity\"", "restore_git_core_hardlinks \"$resources\"")
-	assertScriptOrder(t, script, "restore_git_core_hardlinks \"$resources\"", "verify_postgres_runtime \"$resources/postgres/$platform\"")
+	assertScriptOrder(t, script, "restore_git_core_hardlinks \"$resources\"", "verify_packaged_git \"$resources\"")
 }

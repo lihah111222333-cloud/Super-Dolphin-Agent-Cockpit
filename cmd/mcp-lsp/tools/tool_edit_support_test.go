@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
@@ -364,15 +365,19 @@ func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
 	if err := os.WriteFile(path, []byte("package main\n\nfunc f() { old() }\n"), 0o600); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
+	var hookOnce sync.Once
+	var hookErr error
 	manager := &editFailureManager{
 		didChangeErr: errors.New("lsp sync boom"),
 		didChangeHook: func(uri string) {
-			if err := os.Remove(uri); err != nil {
-				t.Fatalf("remove updated file before rollback: %v", err)
-			}
-			if err := os.Mkdir(uri, 0o700); err != nil {
-				t.Fatalf("replace file with directory before rollback: %v", err)
-			}
+			hookOnce.Do(func() {
+				diskPath, err := format.AbsolutePathFromURI(uri)
+				if err != nil {
+					hookErr = err
+					return
+				}
+				hookErr = replaceFileWithDirectoryForRollbackTest(diskPath)
+			})
 		},
 	}
 	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
@@ -390,6 +395,9 @@ func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
 	}
 
 	got, err := handler(testToolContext(root), input)
+	if hookErr != nil {
+		t.Fatalf("arrange rollback failure fixture: %v", hookErr)
+	}
 	requireSyncRollbackFailure(t, err)
 	if got == nil {
 		t.Fatalf("result = nil, want replaceRangeFailure envelope")
@@ -401,6 +409,20 @@ func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
 	if failure.Success {
 		t.Fatalf("failure.Success = true, want false")
 	}
+}
+
+func replaceFileWithDirectoryForRollbackTest(path string) (lastErr error) {
+	for i := 0; i < 200; i++ {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			lastErr = err
+		} else if err := os.Mkdir(path, 0o700); err != nil && !os.IsExist(err) {
+			lastErr = err
+		} else {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return lastErr
 }
 
 type editBlockingSyncManager struct {
@@ -559,8 +581,8 @@ func assertEditRecoveryLog(t *testing.T, logDir string, path string) {
 	if err != nil {
 		t.Fatalf("read edit recovery log: %v", err)
 	}
-	text := string(raw)
-	if !strings.Contains(text, path) || !strings.Contains(text, "git_diff_confirmed") {
+	path = strings.ReplaceAll(path, "\\", "\\\\")
+	if text := string(raw); !strings.Contains(text, path) || !strings.Contains(text, "git_diff_confirmed") {
 		t.Fatalf("edit recovery log = %q, want file path and git_diff_confirmed", text)
 	}
 }

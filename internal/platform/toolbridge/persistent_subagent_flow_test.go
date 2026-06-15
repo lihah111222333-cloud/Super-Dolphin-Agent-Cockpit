@@ -189,6 +189,11 @@ func TestPersistentSubagentDefaultFlow_StartFiltersSpawnAgentAndToolbridgeBlocks
 		Name:          "worker-agent",
 		ParentAgentID: "agent-main",
 		EnabledTools:  []string{"spawn_agent", "orchestration_launch_agent", "request_user_input"},
+		Config: map[string]any{
+			contract.CodexHomeKey:          t.TempDir(),
+			contract.CodexInstanceKeyKey:   "default",
+			contract.CodexModelProviderKey: "openai",
+		},
 	})
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)

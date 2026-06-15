@@ -31,6 +31,16 @@ type dreamExecutorParams struct {
 	Logger    *slog.Logger                     `optional:"true"`
 }
 
+type sessionResolverParams struct {
+	fx.In
+
+	ThreadStore   contract.SessionThreadLookup    `optional:"true"`
+	BindingStore  contract.SessionBindingLookup   `optional:"true"`
+	BindingWriter contract.SessionBindingUpserter `optional:"true"`
+	Registry      *Registry
+	Sessions      *SessionManager
+}
+
 var Module = fx.Module("provider.unified",
 	fx.Provide(
 		NewEventDispatcher,

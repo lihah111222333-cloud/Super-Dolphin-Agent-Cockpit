@@ -3,13 +3,13 @@ package interaction
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
 // querier is the narrow subset of sqlc.Queries this store depends on.
-// NewStore still accepts the concrete *sqlc.Queries for fx wiring.
 type querier interface {
 	CreateInteraction(ctx context.Context, arg sqlc.CreateInteractionParams) (sqlc.AgentInteraction, error)
 	GetInteraction(ctx context.Context, arg sqlc.GetInteractionParams) (sqlc.AgentInteraction, error)
@@ -21,10 +21,15 @@ type store struct {
 	q querier
 }
 
-// NewStore 创建存储。
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
-// Create 创建interaction存储。
+func boolToInt(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func (s *store) Create(ctx context.Context, interaction Interaction) (*Interaction, error) {
 	row, err := s.q.CreateInteraction(ctx, sqlc.CreateInteractionParams{
 		ThreadID:       interaction.ThreadID,
@@ -33,8 +38,8 @@ func (s *store) Create(ctx context.Context, interaction Interaction) (*Interacti
 		Receiver:       interaction.Receiver,
 		MsgType:        interaction.MsgType,
 		Status:         interaction.Status,
-		RequiresReview: interaction.RequiresReview,
-		Column8:        interaction.Payload,
+		RequiresReview: boolToInt(interaction.RequiresReview),
+		Payload:        interaction.Payload,
 	})
 	if err != nil {
 		return nil, wrapInteractionError(err, "create")
@@ -43,7 +48,6 @@ func (s *store) Create(ctx context.Context, interaction Interaction) (*Interacti
 	return &mapped, nil
 }
 
-// Get 读取interaction存储。
 func (s *store) Get(ctx context.Context, id int64) (*Interaction, error) {
 	row, err := s.q.GetInteraction(ctx, sqlc.GetInteractionParams{ID: id})
 	if err != nil {
@@ -53,9 +57,17 @@ func (s *store) Get(ctx context.Context, id int64) (*Interaction, error) {
 	return &mapped, nil
 }
 
-// List 列出interaction存储。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]Interaction, error) {
-	rows, err := s.q.ListInteractions(ctx, sqlc.ListInteractionsParams{Column1: filter.ThreadID, Column2: filter.Keyword, Limit: filter.Limit})
+	keyword := filter.Keyword
+	rows, err := s.q.ListInteractions(ctx, sqlc.ListInteractionsParams{
+		Column1:  filter.ThreadID,
+		ThreadID: filter.ThreadID,
+		Column3:  keyword,
+		Column4:  &keyword,
+		Column5:  &keyword,
+		Column6:  &keyword,
+		Limit:    int64(filter.Limit),
+	})
 	if err != nil {
 		return nil, wrapInteractionError(err, "list")
 	}
@@ -66,7 +78,6 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]Interaction, err
 	return interactions, nil
 }
 
-// Review 记录交互评审结果。
 func (s *store) Review(ctx context.Context, input ReviewInput) (*Interaction, error) {
 	row, err := s.q.ReviewInteraction(ctx, sqlc.ReviewInteractionParams{Status: input.Status, ReviewedBy: input.ReviewedBy, ReviewNote: input.ReviewNote, ID: input.ID})
 	if err != nil {
@@ -74,6 +85,14 @@ func (s *store) Review(ctx context.Context, input ReviewInput) (*Interaction, er
 	}
 	mapped := fromSQLC(row)
 	return &mapped, nil
+}
+
+func reviewedAtPtr(ms *int64) *time.Time {
+	if ms == nil {
+		return nil
+	}
+	t := platformdb.TimeFromMillis(*ms)
+	return &t
 }
 
 func fromSQLC(row sqlc.AgentInteraction) Interaction {
@@ -85,13 +104,13 @@ func fromSQLC(row sqlc.AgentInteraction) Interaction {
 		Receiver:       row.Receiver,
 		MsgType:        row.MsgType,
 		Status:         row.Status,
-		RequiresReview: row.RequiresReview,
+		RequiresReview: row.RequiresReview != 0,
 		ReviewedBy:     row.ReviewedBy,
 		ReviewNote:     row.ReviewNote,
-		ReviewedAt:     row.ReviewedAt,
+		ReviewedAt:     reviewedAtPtr(row.ReviewedAt),
 		Payload:        json.RawMessage(row.Payload),
-		CreatedAt:      row.CreatedAt,
-		UpdatedAt:      row.UpdatedAt,
+		CreatedAt:      platformdb.TimeFromMillis(row.CreatedAt),
+		UpdatedAt:      platformdb.TimeFromMillis(row.UpdatedAt),
 	}
 }
 

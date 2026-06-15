@@ -31,6 +31,37 @@ func (d *resumeCaptureDriver) ResumeSession(_ context.Context, req dto.ResumeSes
 	return d.session, nil
 }
 
+type resolvingResumeCaptureDriver struct {
+	*resumeCaptureDriver
+	resolveReq dto.ResumeSessionRequest
+}
+
+func (d *resolvingResumeCaptureDriver) ResolveResumeSessionIdentity(_ context.Context, req dto.ResumeSessionRequest) (dto.ResumeSessionRequest, error) {
+	d.resolveReq = req
+	if req.Config == nil {
+		req.Config = map[string]any{}
+	}
+	req.CodexHome = "/Users/test/.codex"
+	req.CodexInstanceKey = "default"
+	req.CodexModelProvider = "openai"
+	req.Config["codexHome"] = req.CodexHome
+	req.Config["codexInstanceKey"] = req.CodexInstanceKey
+	req.Config["codexModelProvider"] = req.CodexModelProvider
+	return req, nil
+}
+
+type recordingSessionBindingUpserter struct {
+	calls   int
+	binding contract.SessionBinding
+	err     error
+}
+
+func (w *recordingSessionBindingUpserter) UpsertSessionBinding(_ context.Context, binding contract.SessionBinding) error {
+	w.calls++
+	w.binding = binding
+	return w.err
+}
+
 func TestSessionResolverAutoResumePassesCodexIdentityGolden(t *testing.T) {
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111111"}}
@@ -100,6 +131,179 @@ func TestSessionResolverAutoResumePassesRuntimeConfig(t *testing.T) {
 	if !reflect.DeepEqual(driver.resumeReq.Config, want) {
 		t.Fatalf("ResumeSession Config = %#v, want %#v", driver.resumeReq.Config, want)
 	}
+}
+
+func TestSessionResolverAutoResumeBackfillsCodexIdentityFromRuntimeConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		runtime map[string]any
+	}{
+		{
+			name: "canonical keys",
+			runtime: map[string]any{
+				"codexHome":          "/runtime/.codex",
+				"codexInstanceKey":   "runtime-instance-key",
+				"codexModelProvider": "runtime-provider",
+			},
+		},
+		{
+			name: "snake case aliases",
+			runtime: map[string]any{
+				"codex_home":           "/runtime/snake/.codex",
+				"codex_instance_key":   "runtime-snake-instance-key",
+				"codex_model_provider": "runtime-snake-provider",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rolloutPath := writeExistingProviderHistoryFile(t)
+			driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "66666666-aaaa-bbbb-cccc-666666666666"}}
+			resolver := &sessionResolver{
+				threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
+					ThreadID:      "public-thread-1",
+					AgentID:       "agent-1",
+					RuntimeConfig: tc.runtime,
+				}},
+				bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+					"codex:provider-thread-1": {
+						Provider:         "codex",
+						AgentID:          "agent-1",
+						ProviderThreadID: "66666666-aaaa-bbbb-cccc-666666666666",
+						RolloutPath:      rolloutPath,
+						Cwd:              "/repo",
+					},
+				}},
+				registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+					{Name: "codex", Create: func() contract.Driver { return driver }},
+				}}),
+				sessions: NewSessionManager(nil),
+			}
+
+			if _, err := resolver.ResolveSession(context.Background(), "public-thread-1"); err != nil {
+				t.Fatalf("ResolveSession() error = %v", err)
+			}
+			if driver.resumeReq.CodexHome != codexIdentityTestString(tc.runtime, "codexHome", "codex_home") ||
+				driver.resumeReq.CodexInstanceKey != codexIdentityTestString(tc.runtime, "codexInstanceKey", "codex_instance_key") ||
+				driver.resumeReq.CodexModelProvider != codexIdentityTestString(tc.runtime, "codexModelProvider", "codex_model_provider") {
+				t.Fatalf("ResumeSession codex identity = %q/%q/%q, want runtime config identity",
+					driver.resumeReq.CodexHome,
+					driver.resumeReq.CodexInstanceKey,
+					driver.resumeReq.CodexModelProvider)
+			}
+		})
+	}
+}
+
+func TestSessionResolverAutoResumeResolvesAndBackfillsLegacyCodexIdentity(t *testing.T) {
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	writer := &recordingSessionBindingUpserter{}
+	driver := &resolvingResumeCaptureDriver{resumeCaptureDriver: &resumeCaptureDriver{
+		name:    "codex",
+		session: &generationTestSession{threadID: "99999999-aaaa-bbbb-cccc-999999999999"},
+	}}
+	resolver := &sessionResolver{
+		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
+			ThreadID: "public-thread-legacy",
+			AgentID:  "agent-legacy",
+			RuntimeConfig: map[string]any{
+				"provider": "codex",
+				"cwd":      "/repo",
+			},
+		}},
+		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+			"codex:provider-thread-legacy": {
+				Provider:         "codex",
+				AgentID:          "agent-legacy",
+				ProviderThreadID: "99999999-aaaa-bbbb-cccc-999999999999",
+				CodexThreadID:    "public-thread-legacy",
+				RolloutPath:      rolloutPath,
+				Cwd:              "/repo",
+				CreatedAt:        123,
+			},
+		}},
+		bindingWriter: writer,
+		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+			{Name: "codex", Create: func() contract.Driver { return driver }},
+		}}),
+		sessions: NewSessionManager(nil),
+	}
+
+	if _, err := resolver.ResolveSession(context.Background(), "public-thread-legacy"); err != nil {
+		t.Fatalf("ResolveSession() error = %v", err)
+	}
+	if driver.resumeReq.CodexHome != "/Users/test/.codex" ||
+		driver.resumeReq.CodexInstanceKey != "default" ||
+		driver.resumeReq.CodexModelProvider != "openai" {
+		t.Fatalf("ResumeSession codex identity = %q/%q/%q, want resolved default identity",
+			driver.resumeReq.CodexHome,
+			driver.resumeReq.CodexInstanceKey,
+			driver.resumeReq.CodexModelProvider)
+	}
+	if writer.calls != 1 {
+		t.Fatalf("binding backfill calls = %d, want 1", writer.calls)
+	}
+	if writer.binding.CodexHome != "/Users/test/.codex" ||
+		writer.binding.CodexInstanceKey != "default" ||
+		writer.binding.CodexModelProvider != "openai" {
+		t.Fatalf("backfilled codex identity = %q/%q/%q, want resolved default identity",
+			writer.binding.CodexHome,
+			writer.binding.CodexInstanceKey,
+			writer.binding.CodexModelProvider)
+	}
+}
+
+func TestSessionResolverAutoResumePrefersBindingCodexIdentityOverRuntimeConfig(t *testing.T) {
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "77777777-aaaa-bbbb-cccc-777777777777"}}
+	resolver := &sessionResolver{
+		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
+			ThreadID: "public-thread-1",
+			AgentID:  "agent-1",
+			RuntimeConfig: map[string]any{
+				"codexHome":          "/runtime/.codex",
+				"codexInstanceKey":   "runtime-instance-key",
+				"codexModelProvider": "runtime-provider",
+			},
+		}},
+		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+			"codex:provider-thread-1": {
+				Provider:           "codex",
+				AgentID:            "agent-1",
+				ProviderThreadID:   "77777777-aaaa-bbbb-cccc-777777777777",
+				RolloutPath:        rolloutPath,
+				Cwd:                "/repo",
+				CodexHome:          "/binding/.codex",
+				CodexInstanceKey:   "binding-instance-key",
+				CodexModelProvider: "binding-provider",
+			},
+		}},
+		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+			{Name: "codex", Create: func() contract.Driver { return driver }},
+		}}),
+		sessions: NewSessionManager(nil),
+	}
+
+	if _, err := resolver.ResolveSession(context.Background(), "public-thread-1"); err != nil {
+		t.Fatalf("ResolveSession() error = %v", err)
+	}
+	if driver.resumeReq.CodexHome != "/binding/.codex" ||
+		driver.resumeReq.CodexInstanceKey != "binding-instance-key" ||
+		driver.resumeReq.CodexModelProvider != "binding-provider" {
+		t.Fatalf("ResumeSession codex identity = %q/%q/%q, want binding identity",
+			driver.resumeReq.CodexHome,
+			driver.resumeReq.CodexInstanceKey,
+			driver.resumeReq.CodexModelProvider)
+	}
+}
+
+func codexIdentityTestString(config map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value, _ := config[key].(string)
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func TestSessionResolverProviderThreadAutoResumeDoesNotUseCodexThreadID(t *testing.T) {

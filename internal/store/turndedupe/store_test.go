@@ -2,12 +2,10 @@ package turndedupe
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
@@ -25,7 +23,7 @@ type fakeQuerier struct {
 	lastUpsert   sqlc.UpsertTurnDedupeRegistryParams
 	lastBind     sqlc.BindTurnDedupeProviderIDParams
 	lastTerminal sqlc.MarkTurnDedupeTerminalParams
-	lastCutoff   time.Time
+	lastCutoff   int64
 }
 
 func newFakeQuerier() *fakeQuerier {
@@ -42,7 +40,7 @@ func (f *fakeQuerier) UpsertTurnDedupeRegistry(_ context.Context, p sqlc.UpsertT
 		DedupeKey:   p.DedupeKey,
 		LocalTurnID: p.LocalTurnID,
 		UpdatedAt:   p.Now,
-		TerminalAt:  pgtype.Timestamptz{Valid: false},
+		TerminalAt:  nil,
 	}
 	if !ok {
 		row.CreatedAt = p.Now
@@ -84,9 +82,11 @@ func (f *fakeQuerier) MarkTurnDedupeTerminal(_ context.Context, p sqlc.MarkTurnD
 	if !ok {
 		return nil
 	}
-	if !row.TerminalAt.Valid {
+	if row.TerminalAt == nil {
 		row.TerminalAt = p.Now
-		row.UpdatedAt = p.Now
+		if p.Now != nil {
+			row.UpdatedAt = *p.Now
+		}
 	}
 	f.rows[p.DedupeKey] = row
 	return nil
@@ -98,22 +98,20 @@ func (f *fakeQuerier) GetLiveTurnDedupe(_ context.Context, arg sqlc.GetLiveTurnD
 		return sqlc.TurnDedupeRegistry{}, f.getErr
 	}
 	row, ok := f.rows[key]
-	if !ok || row.TerminalAt.Valid {
-		return sqlc.TurnDedupeRegistry{}, pgx.ErrNoRows
+	if !ok || row.TerminalAt != nil {
+		return sqlc.TurnDedupeRegistry{}, sql.ErrNoRows
 	}
 	return row, nil
 }
 
 func (f *fakeQuerier) SweepTurnDedupeRegistry(_ context.Context, arg sqlc.SweepTurnDedupeRegistryParams) error {
 	cutoff := arg.Cutoff
-	if cutoff.Valid {
-		f.lastCutoff = cutoff.Time
-	}
+	f.lastCutoff = cutoff
 	if f.sweepErr != nil {
 		return f.sweepErr
 	}
 	for k, row := range f.rows {
-		if row.UpdatedAt.Valid && row.UpdatedAt.Time.Before(cutoff.Time) {
+		if row.UpdatedAt != 0 && row.UpdatedAt < cutoff {
 			delete(f.rows, k)
 		}
 	}

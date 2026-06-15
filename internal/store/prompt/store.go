@@ -6,6 +6,7 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
@@ -53,6 +54,10 @@ type listDefaultRuleSectionsQuerier interface {
 
 type lockRecallTopicQuerier interface {
 	LockRecallTopicInCWD(ctx context.Context, arg sqlc.LockRecallTopicInCWDParams) error
+}
+
+type upsertRecallTopicTargetQuerier interface {
+	UpsertPromptRecallTopicTargetInCWD(ctx context.Context, arg sqlc.UpsertPromptRecallTopicTargetInCWDParams) error
 }
 
 type upsertSectionQuerier interface {
@@ -105,8 +110,8 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]PromptTemplate, 
 	rows, err := s.q.ListPromptTemplates(ctx, sqlc.ListPromptTemplatesParams{
 		AgentKey:   filter.AgentKey,
 		Keyword:    filter.Keyword,
-		CWD:        cwd,
-		LimitCount: filter.Limit,
+		CWD:        &cwd,
+		LimitCount: int64(filter.Limit),
 	})
 	if err != nil {
 		return nil, wrapPromptError(err, "list", "prompt_template")
@@ -196,7 +201,7 @@ func (s *store) ListRecallSections(ctx context.Context, cwd string) ([]PromptTem
 	if !ok {
 		return nil, wrapPromptError(errors.New("prompt store does not support list_recall_sections"), "list_recall_sections", "prompt_template_sections")
 	}
-	rows, err := q.ListRecallSections(ctx, sqlc.ListRecallSectionsParams{CWD: cwd})
+	rows, err := q.ListRecallSections(ctx, sqlc.ListRecallSectionsParams{CWD: &cwd})
 	if err != nil {
 		return nil, wrapPromptError(err, "list_recall_sections", "prompt_template_sections")
 	}
@@ -217,7 +222,7 @@ func (s *store) ListDefaultRuleSections(ctx context.Context, cwd string) ([]Prom
 	if !ok {
 		return nil, wrapPromptError(errors.New("prompt store does not support list_default_rule_sections"), "list_default_rule_sections", "prompt_template_sections")
 	}
-	rows, err := q.ListDefaultRuleSections(ctx, sqlc.ListDefaultRuleSectionsParams{CWD: cwd})
+	rows, err := q.ListDefaultRuleSections(ctx, sqlc.ListDefaultRuleSectionsParams{CWD: &cwd})
 	if err != nil {
 		return nil, wrapPromptError(err, "list_default_rule_sections", "prompt_template_sections")
 	}
@@ -240,13 +245,13 @@ func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion
 		AgentKey:        version.AgentKey,
 		ToolName:        version.ToolName,
 		PromptText:      version.PromptText,
-		Column6:         version.Variables,
-		Column7:         version.Tags,
+		Variables:       version.Variables,
+		Tags:            version.Tags,
 		Description:     version.Description,
-		Enabled:         version.Enabled,
+		Enabled:         boolToInt64(version.Enabled),
 		CreatedBy:       version.CreatedBy,
 		UpdatedBy:       version.UpdatedBy,
-		SourceUpdatedAt: version.SourceUpdatedAt,
+		SourceUpdatedAt: timePtrToInt64Ptr(version.SourceUpdatedAt),
 	})
 	if err != nil {
 		return 0, wrapPromptError(err, "insert_version", "prompt_template_version")
@@ -266,14 +271,14 @@ func (s *store) CreatePromptTemplate(ctx context.Context, template PromptTemplat
 		AgentKey:       template.AgentKey,
 		ToolName:       template.ToolName,
 		PromptText:     template.PromptText,
-		Column6:        template.Variables,
-		Column7:        template.Tags,
+		Variables:      template.Variables,
+		Tags:           template.Tags,
 		Description:    template.Description,
 		WhenToUse:      template.WhenToUse,
-		Enabled:        template.Enabled,
-		ManuallyEdited: template.ManuallyEdited,
-		Column12:       []byte(template.MatchWhen),
-		Priority:       int32(template.Priority),
+		Enabled:        boolToInt64(template.Enabled),
+		ManuallyEdited: boolToInt64(template.ManuallyEdited),
+		MatchWhen:      normalizePromptMatchWhen(template.MatchWhen),
+		Priority:       int64(template.Priority),
 		CreatedBy:      template.CreatedBy,
 		UpdatedBy:      template.UpdatedBy,
 	})
@@ -299,14 +304,14 @@ func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTem
 		AgentKey:       template.AgentKey,
 		ToolName:       template.ToolName,
 		PromptText:     template.PromptText,
-		Column6:        template.Variables,
-		Column7:        template.Tags,
+		Variables:      template.Variables,
+		Tags:           template.Tags,
 		Description:    template.Description,
 		WhenToUse:      template.WhenToUse,
-		Enabled:        template.Enabled,
-		ManuallyEdited: template.ManuallyEdited,
-		Column12:       []byte(template.MatchWhen),
-		Priority:       int32(template.Priority),
+		Enabled:        boolToInt64(template.Enabled),
+		ManuallyEdited: boolToInt64(template.ManuallyEdited),
+		MatchWhen:      normalizePromptMatchWhen(template.MatchWhen),
+		Priority:       int64(template.Priority),
 		CreatedBy:      template.CreatedBy,
 		UpdatedBy:      template.UpdatedBy,
 	})
@@ -318,94 +323,71 @@ func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTem
 }
 
 func fromCreateTemplate(row sqlc.CreatePromptTemplateRow) PromptTemplate {
-	return PromptTemplate{
-		ID:             row.ID,
-		PromptKey:      row.PromptKey,
-		Title:          row.Title,
-		AgentKey:       row.AgentKey,
-		ToolName:       row.ToolName,
-		PromptText:     row.PromptText,
-		WhenToUse:      row.WhenToUse,
-		Variables:      json.RawMessage(row.Variables),
-		Tags:           json.RawMessage(row.Tags),
-		Enabled:        row.Enabled,
-		ManuallyEdited: row.ManuallyEdited,
-		CreatedBy:      row.CreatedBy,
-		UpdatedBy:      row.UpdatedBy,
-		CreatedAt:      row.CreatedAt,
-		UpdatedAt:      row.UpdatedAt,
-		Description:    row.Description,
-		MatchWhen:      json.RawMessage(row.MatchWhen),
-		Priority:       int(row.Priority),
-	}
+	return promptTemplateFromFields(
+		row.ID, row.PromptKey, row.Title, row.AgentKey, row.ToolName, row.PromptText,
+		row.WhenToUse, row.Variables, row.Tags, row.Enabled, row.ManuallyEdited,
+		row.CreatedBy, row.UpdatedBy, row.CreatedAt, row.UpdatedAt, row.Description,
+		row.MatchWhen, row.Priority,
+	)
 }
 
 func fromGetTemplate(row sqlc.GetPromptTemplateRow) PromptTemplate {
-	return PromptTemplate{
-		ID:             row.ID,
-		PromptKey:      row.PromptKey,
-		Title:          row.Title,
-		AgentKey:       row.AgentKey,
-		ToolName:       row.ToolName,
-		PromptText:     row.PromptText,
-		WhenToUse:      row.WhenToUse,
-		Variables:      json.RawMessage(row.Variables),
-		Tags:           json.RawMessage(row.Tags),
-		Enabled:        row.Enabled,
-		ManuallyEdited: row.ManuallyEdited,
-		CreatedBy:      row.CreatedBy,
-		UpdatedBy:      row.UpdatedBy,
-		CreatedAt:      row.CreatedAt,
-		UpdatedAt:      row.UpdatedAt,
-		Description:    row.Description,
-		MatchWhen:      json.RawMessage(row.MatchWhen),
-		Priority:       int(row.Priority),
-	}
+	return promptTemplateFromFields(
+		row.ID, row.PromptKey, row.Title, row.AgentKey, row.ToolName, row.PromptText,
+		row.WhenToUse, row.Variables, row.Tags, row.Enabled, row.ManuallyEdited,
+		row.CreatedBy, row.UpdatedBy, row.CreatedAt, row.UpdatedAt, row.Description,
+		row.MatchWhen, row.Priority,
+	)
 }
 
 func fromListTemplate(row sqlc.ListPromptTemplatesRow) PromptTemplate {
-	return PromptTemplate{
-		ID:             row.ID,
-		PromptKey:      row.PromptKey,
-		Title:          row.Title,
-		AgentKey:       row.AgentKey,
-		ToolName:       row.ToolName,
-		PromptText:     row.PromptText,
-		WhenToUse:      row.WhenToUse,
-		Variables:      json.RawMessage(row.Variables),
-		Tags:           json.RawMessage(row.Tags),
-		Enabled:        row.Enabled,
-		ManuallyEdited: row.ManuallyEdited,
-		CreatedBy:      row.CreatedBy,
-		UpdatedBy:      row.UpdatedBy,
-		CreatedAt:      row.CreatedAt,
-		UpdatedAt:      row.UpdatedAt,
-		Description:    row.Description,
-		MatchWhen:      json.RawMessage(row.MatchWhen),
-		Priority:       int(row.Priority),
-	}
+	return promptTemplateFromFields(
+		row.ID, row.PromptKey, row.Title, row.AgentKey, row.ToolName, row.PromptText,
+		row.WhenToUse, row.Variables, row.Tags, row.Enabled, row.ManuallyEdited,
+		row.CreatedBy, row.UpdatedBy, row.CreatedAt, row.UpdatedAt, row.Description,
+		row.MatchWhen, row.Priority,
+	)
 }
 
 func fromUpsertTemplate(row sqlc.UpsertPromptTemplateRow) PromptTemplate {
+	return promptTemplateFromFields(
+		row.ID, row.PromptKey, row.Title, row.AgentKey, row.ToolName, row.PromptText,
+		row.WhenToUse, row.Variables, row.Tags, row.Enabled, row.ManuallyEdited,
+		row.CreatedBy, row.UpdatedBy, row.CreatedAt, row.UpdatedAt, row.Description,
+		row.MatchWhen, row.Priority,
+	)
+}
+
+func promptTemplateFromFields(
+	id int64,
+	promptKey, title, agentKey, toolName, promptText, whenToUse string,
+	variables, tags []byte,
+	enabled, manuallyEdited int64,
+	createdBy, updatedBy string,
+	createdAt, updatedAt int64,
+	description string,
+	matchWhen []byte,
+	priority int64,
+) PromptTemplate {
 	return PromptTemplate{
-		ID:             row.ID,
-		PromptKey:      row.PromptKey,
-		Title:          row.Title,
-		AgentKey:       row.AgentKey,
-		ToolName:       row.ToolName,
-		PromptText:     row.PromptText,
-		WhenToUse:      row.WhenToUse,
-		Variables:      json.RawMessage(row.Variables),
-		Tags:           json.RawMessage(row.Tags),
-		Enabled:        row.Enabled,
-		ManuallyEdited: row.ManuallyEdited,
-		CreatedBy:      row.CreatedBy,
-		UpdatedBy:      row.UpdatedBy,
-		CreatedAt:      row.CreatedAt,
-		UpdatedAt:      row.UpdatedAt,
-		Description:    row.Description,
-		MatchWhen:      json.RawMessage(row.MatchWhen),
-		Priority:       int(row.Priority),
+		ID:             id,
+		PromptKey:      promptKey,
+		Title:          title,
+		AgentKey:       agentKey,
+		ToolName:       toolName,
+		PromptText:     promptText,
+		WhenToUse:      whenToUse,
+		Variables:      json.RawMessage(variables),
+		Tags:           json.RawMessage(tags),
+		Enabled:        enabled != 0,
+		ManuallyEdited: manuallyEdited != 0,
+		CreatedBy:      createdBy,
+		UpdatedBy:      updatedBy,
+		CreatedAt:      platformdb.TimeFromMillis(createdAt),
+		UpdatedAt:      platformdb.TimeFromMillis(updatedAt),
+		Description:    description,
+		MatchWhen:      json.RawMessage(matchWhen),
+		Priority:       int(priority),
 	}
 }
 
@@ -433,14 +415,18 @@ func (s *store) UpsertSection(ctx context.Context, section PromptTemplateSection
 	if err := validatePromptSectionRecallTopic(triggerType, section.RecallTopic); err != nil {
 		return nil, wrapPromptError(err, "upsert_section", "prompt_template_sections")
 	}
+	enableWhen, err := normalizePromptSectionEnableWhen(section.EnableWhen)
+	if err != nil {
+		return nil, wrapPromptError(err, "upsert_section", "prompt_template_sections")
+	}
 	row, err := q.UpsertPromptTemplateSection(ctx, sqlc.UpsertPromptTemplateSectionParams{
 		TemplateID:  section.TemplateID,
 		SectionKey:  sectionKey,
 		Region:      region,
-		Ordinal:     int32(section.Ordinal),
+		Ordinal:     int64(section.Ordinal),
 		Body:        section.Body,
-		EnableWhen:  []byte(section.EnableWhen),
-		Enabled:     section.Enabled,
+		EnableWhen:  enableWhen,
+		Enabled:     boolToInt64(section.Enabled),
 		TriggerType: triggerType,
 		RecallTopic: normalizePromptSectionRecallTopic(triggerType, section.RecallTopic),
 	})
@@ -449,6 +435,17 @@ func (s *store) UpsertSection(ctx context.Context, section PromptTemplateSection
 	}
 	mapped := fromListSectionRow(row)
 	return &mapped, nil
+}
+
+func normalizePromptSectionEnableWhen(enableWhen json.RawMessage) (string, error) {
+	trimmed := strings.TrimSpace(string(enableWhen))
+	if trimmed == "" {
+		return "{}", nil
+	}
+	if !json.Valid([]byte(trimmed)) {
+		return "", errors.New("prompt section enable_when must be valid JSON")
+	}
+	return trimmed, nil
 }
 
 func normalizePromptSectionRecallTopic(triggerType, value string) string {
@@ -495,14 +492,45 @@ func (s *store) LockRecallTopicInCWD(ctx context.Context, cwd, topic string) err
 		return wrapPromptError(err, "lock_recall_topic", "prompt_template_sections")
 	}
 	topic = strings.TrimSpace(topic)
-	if topic == "" {
-		return wrapPromptError(errors.New("recall topic is required"), "lock_recall_topic", "prompt_template_sections")
+	if !validRecallTopicName(topic) {
+		return wrapPromptError(errors.New("recall topic must be lowercase dash-separated and shorter than 64 characters"), "lock_recall_topic", "prompt_template_sections")
 	}
 	q, ok := s.q.(lockRecallTopicQuerier)
 	if !ok {
 		return wrapPromptError(errors.New("prompt store does not support lock_recall_topic"), "lock_recall_topic", "prompt_template_sections")
 	}
-	return wrapPromptError(q.LockRecallTopicInCWD(ctx, sqlc.LockRecallTopicInCWDParams{CWD: cwd, Topic: topic}), "lock_recall_topic", "prompt_template_sections")
+	return wrapPromptError(q.LockRecallTopicInCWD(ctx, sqlc.LockRecallTopicInCWDParams{
+		CWD:   cwd,
+		Topic: topic,
+	}), "lock_recall_topic", "prompt_template_sections")
+}
+
+func (s *store) UpsertRecallTopicTargetInCWD(ctx context.Context, cwd, topic string, templateID int64, sectionKey string) error {
+	cwd, err := requirePromptSectionCWD(cwd)
+	if err != nil {
+		return wrapPromptError(err, "upsert_recall_topic_target", "prompt_recall_topics")
+	}
+	topic = strings.TrimSpace(topic)
+	if !validRecallTopicName(topic) {
+		return wrapPromptError(errors.New("recall topic must be lowercase dash-separated and shorter than 64 characters"), "upsert_recall_topic_target", "prompt_recall_topics")
+	}
+	if templateID <= 0 {
+		return wrapPromptError(errors.New("prompt recall topic template_id is required"), "upsert_recall_topic_target", "prompt_recall_topics")
+	}
+	sectionKey = strings.TrimSpace(sectionKey)
+	if sectionKey == "" {
+		return wrapPromptError(errors.New("prompt recall topic section_key is required"), "upsert_recall_topic_target", "prompt_recall_topics")
+	}
+	q, ok := s.q.(upsertRecallTopicTargetQuerier)
+	if !ok {
+		return wrapPromptError(errors.New("prompt store does not support upsert_recall_topic_target"), "upsert_recall_topic_target", "prompt_recall_topics")
+	}
+	return wrapPromptError(q.UpsertPromptRecallTopicTargetInCWD(ctx, sqlc.UpsertPromptRecallTopicTargetInCWDParams{
+		CWD:        cwd,
+		Topic:      topic,
+		TemplateID: templateID,
+		SectionKey: sectionKey,
+	}), "upsert_recall_topic_target", "prompt_recall_topics")
 }
 
 func validRecallTopicName(topic string) bool {
@@ -541,11 +569,11 @@ func fromListSectionRow(row sqlc.PromptTemplateSection) PromptTemplateSection {
 		Ordinal:     int(row.Ordinal),
 		Body:        row.Body,
 		EnableWhen:  json.RawMessage(row.EnableWhen),
-		Enabled:     row.Enabled,
+		Enabled:     row.Enabled != 0,
 		TriggerType: row.TriggerType,
 		RecallTopic: row.RecallTopic,
-		CreatedAt:   row.CreatedAt.Time,
-		UpdatedAt:   row.UpdatedAt.Time,
+		CreatedAt:   platformdb.TimeFromMillis(row.CreatedAt),
+		UpdatedAt:   platformdb.TimeFromMillis(row.UpdatedAt),
 	}
 }
 
@@ -557,7 +585,7 @@ func fromListRecallSectionRow(row sqlc.ListRecallSectionsRow) PromptTemplateSect
 		Region:              row.Region,
 		Ordinal:             int(row.Ordinal),
 		EnableWhen:          json.RawMessage(row.EnableWhen),
-		Enabled:             row.Enabled,
+		Enabled:             row.Enabled != 0,
 		TriggerType:         row.TriggerType,
 		RecallTopic:         row.RecallTopic,
 		TemplatePromptKey:   row.TemplatePromptKey,
@@ -565,8 +593,8 @@ func fromListRecallSectionRow(row sqlc.ListRecallSectionsRow) PromptTemplateSect
 		TemplateDescription: row.TemplateDescription,
 		TemplateWhenToUse:   row.TemplateWhenToUse,
 		TemplateTags:        json.RawMessage(row.TemplateTags),
-		CreatedAt:           row.CreatedAt.Time,
-		UpdatedAt:           row.UpdatedAt.Time,
+		CreatedAt:           platformdb.TimeFromMillis(row.CreatedAt),
+		UpdatedAt:           platformdb.TimeFromMillis(row.UpdatedAt),
 	}
 }
 
@@ -579,15 +607,37 @@ func fromListDefaultRuleSectionRow(row sqlc.ListDefaultRuleSectionsRow) PromptTe
 		Ordinal:           int(row.Ordinal),
 		Body:              row.Body,
 		EnableWhen:        json.RawMessage(row.EnableWhen),
-		Enabled:           row.Enabled,
+		Enabled:           row.Enabled != 0,
 		TriggerType:       row.TriggerType,
 		RecallTopic:       row.RecallTopic,
 		TemplatePromptKey: row.TemplatePromptKey,
 		TemplateTitle:     row.TemplateTitle,
 		TemplateTags:      json.RawMessage(row.TemplateTags),
-		CreatedAt:         row.CreatedAt.Time,
-		UpdatedAt:         row.UpdatedAt.Time,
+		CreatedAt:         platformdb.TimeFromMillis(row.CreatedAt),
+		UpdatedAt:         platformdb.TimeFromMillis(row.UpdatedAt),
 	}
+}
+
+func boolToInt64(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func normalizePromptMatchWhen(matchWhen json.RawMessage) string {
+	if strings.TrimSpace(string(matchWhen)) == "" {
+		return "{}"
+	}
+	return string(matchWhen)
+}
+
+func timePtrToInt64Ptr(t *time.Time) *int64 {
+	if t == nil {
+		return nil
+	}
+	v := platformdb.Millis(*t)
+	return &v
 }
 
 func wrapPromptError(err error, operation, entity string) error {

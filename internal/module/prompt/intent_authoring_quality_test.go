@@ -77,6 +77,44 @@ func TestPromptIntentDraftBlocksKnowledgeBaseReuseWithoutSaveBoundary(t *testing
 	requirePromptIntentIssue(t, result.Issues, "missing_save_boundary", "block")
 }
 
+func TestPromptIntentDraftNormalizesRecallTopicSlugBeforeReady(t *testing.T) {
+	t.Parallel()
+
+	store := newInMemoryPromptStore()
+	dream := &fakePromptIntentDream{output: `{
+		"kind":"recall",
+		"title":"SQLite Prompt Intent Draft Acceptance Token",
+		"summary":"SQLite prompt intent acceptance token notes.",
+		"recall_topic":"sqlite_prompt_intent_draft_acceptance_token",
+		"recall_body":"The acceptance token must survive recall draft save.",
+		"hit_examples":["Find the sqlite prompt intent acceptance token"],
+		"miss_examples":["Review frontend spacing"]
+	}`}
+
+	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+		Kind:     "recall",
+		RawInput: "Add this SQLite prompt intent draft acceptance token for AI recall.",
+		Cwd:      "/repo/a",
+	})
+	require.NoError(t, err)
+
+	raw, _ := json.Marshal(got)
+	var result struct {
+		DraftKey string               `json:"draft_key"`
+		Status   string               `json:"status"`
+		Issues   []promptintent.Issue `json:"issues"`
+		Card     promptintent.Card    `json:"card"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &result))
+	require.Equal(t, "ready_to_save", result.Status)
+	require.Equal(t, "sqlite-prompt-intent-draft-acceptance-token", result.Card.RecallTopic)
+	requireNoPromptIntentIssue(t, result.Issues, "missing_recall_topic")
+
+	var stored promptintent.Card
+	require.NoError(t, json.Unmarshal(store.drafts[result.DraftKey].GeneratedCard, &stored))
+	require.Equal(t, "sqlite-prompt-intent-draft-acceptance-token", stored.RecallTopic)
+}
+
 func TestPromptIntentDraftBlocksVagueOutputContainingGenericResult(t *testing.T) {
 	t.Parallel()
 

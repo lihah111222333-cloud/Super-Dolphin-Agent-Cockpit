@@ -11,7 +11,7 @@ import (
 
 const deleteSharedFile = `-- name: DeleteSharedFile :execrows
 DELETE FROM shared_files
-WHERE path = $1
+WHERE path = ?
 `
 
 type DeleteSharedFileParams struct {
@@ -19,17 +19,17 @@ type DeleteSharedFileParams struct {
 }
 
 func (q *Queries) DeleteSharedFile(ctx context.Context, arg DeleteSharedFileParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteSharedFile, arg.Path)
+	result, err := q.db.ExecContext(ctx, deleteSharedFile, arg.Path)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected(), nil
+	return result.RowsAffected()
 }
 
 const getSharedFile = `-- name: GetSharedFile :one
 SELECT path, content, updated_by, created_at, updated_at
 FROM shared_files
-WHERE path = $1
+WHERE path = ?
 `
 
 type GetSharedFileParams struct {
@@ -37,7 +37,7 @@ type GetSharedFileParams struct {
 }
 
 func (q *Queries) GetSharedFile(ctx context.Context, arg GetSharedFileParams) (SharedFile, error) {
-	row := q.db.QueryRow(ctx, getSharedFile, arg.Path)
+	row := q.db.QueryRowContext(ctx, getSharedFile, arg.Path)
 	var i SharedFile
 	err := row.Scan(
 		&i.Path,
@@ -52,18 +52,18 @@ func (q *Queries) GetSharedFile(ctx context.Context, arg GetSharedFileParams) (S
 const listSharedFiles = `-- name: ListSharedFiles :many
 SELECT path, content, updated_by, created_at, updated_at
 FROM shared_files
-WHERE ($1::text = '' OR path ILIKE '%' || $1 || '%')
+WHERE (?1 = '' OR path LIKE '%' || ?1 || '%')
 ORDER BY updated_at DESC, path ASC
-LIMIT $2
+LIMIT ?2
 `
 
 type ListSharedFilesParams struct {
-	Column1 string `db:"column_1" json:"column_1"`
-	Limit   int32  `db:"limit" json:"limit"`
+	Prefix     interface{} `db:"prefix" json:"prefix"`
+	LimitCount int64       `db:"limit_count" json:"limit_count"`
 }
 
 func (q *Queries) ListSharedFiles(ctx context.Context, arg ListSharedFilesParams) ([]SharedFile, error) {
-	rows, err := q.db.Query(ctx, listSharedFiles, arg.Column1, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listSharedFiles, arg.Prefix, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
@@ -82,6 +82,9 @@ func (q *Queries) ListSharedFiles(ctx context.Context, arg ListSharedFilesParams
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -90,11 +93,11 @@ func (q *Queries) ListSharedFiles(ctx context.Context, arg ListSharedFilesParams
 
 const upsertSharedFile = `-- name: UpsertSharedFile :one
 INSERT INTO shared_files (path, content, updated_by, created_at, updated_at)
-VALUES ($1, $2, $3, NOW(), NOW())
+VALUES (?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 ON CONFLICT (path) DO UPDATE
 SET content = EXCLUDED.content,
     updated_by = EXCLUDED.updated_by,
-    updated_at = NOW()
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 RETURNING path, content, updated_by, created_at, updated_at
 `
 
@@ -105,7 +108,7 @@ type UpsertSharedFileParams struct {
 }
 
 func (q *Queries) UpsertSharedFile(ctx context.Context, arg UpsertSharedFileParams) (SharedFile, error) {
-	row := q.db.QueryRow(ctx, upsertSharedFile, arg.Path, arg.Content, arg.UpdatedBy)
+	row := q.db.QueryRowContext(ctx, upsertSharedFile, arg.Path, arg.Content, arg.UpdatedBy)
 	var i SharedFile
 	err := row.Scan(
 		&i.Path,

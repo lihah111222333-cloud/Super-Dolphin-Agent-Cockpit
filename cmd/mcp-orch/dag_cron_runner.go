@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log/slog"
 
@@ -10,12 +11,11 @@ import (
 	orchcron "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/cron"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
-	scheduledDAGCronSpec           = "@every 1m"
-	scheduledDAGCronAdvisoryLockID = int64(0x5350444743524f4e) // "SPDGCRON"
+	scheduledDAGCronSpec    = "@every 1m"
+	scheduledDAGCronLockKey = "mcp-orch:scheduled-dag-cron"
 )
 
 type dagCronDaemon interface {
@@ -63,17 +63,17 @@ func provideSQLDAGScheduleStore(q *sqlc.Queries) (orchcron.DAGScheduleStore, err
 	return fxadapter.NewSQLDAGScheduleStore(q)
 }
 
-func providePGAdvisoryLocker(pool *pgxpool.Pool) (orchcron.AdvisoryLocker, error) {
-	if pool == nil {
-		return nil, errors.New("mcp-orch: scheduled dag cron advisory lock requires db pool")
+func provideSQLiteRuntimeLocker(db *sql.DB) (orchcron.RuntimeLocker, error) {
+	if db == nil {
+		return nil, errors.New("mcp-orch: scheduled dag cron runtime lock requires db")
 	}
-	return fxadapter.NewPGAdvisoryLocker(pool, scheduledDAGCronAdvisoryLockID)
+	return fxadapter.NewSQLiteRuntimeLocker(db, scheduledDAGCronLockKey)
 }
 
 // provideScheduledDAGCronRunner 提供scheduledDAGcronrunner。
 func provideScheduledDAGCronRunner(
 	store orchcron.DAGScheduleStore,
-	locker orchcron.AdvisoryLocker,
+	locker orchcron.RuntimeLocker,
 	svc orchestration.ScheduledDAGStartService,
 	logger *slog.Logger,
 ) (platformrunner.Runner, error) {

@@ -259,7 +259,7 @@ func (s *Scheduler) ClaimToken() string { return s.newID() }
 
 // RunTick claims due jobs and drives each through the three-phase state
 // machine. It is safe to call from multiple schedulers pointing at the
-// same DB because ClaimDueJobsForUpdate uses FOR UPDATE SKIP LOCKED.
+// same DB because ClaimDueJobsForUpdate uses an atomic SQLite UPDATE+subquery.
 //
 // 一次只 claim 一个 job，再循环到 MaxClaim。这样单个 job 出错不会拖住整轮，
 // 也能避免同一 job 被异常反复推进。

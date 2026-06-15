@@ -397,7 +397,7 @@ func canonicalGrepPath(t *testing.T, path string) string {
 	if err != nil {
 		t.Fatalf("canonicalize grep path %s: %v", path, err)
 	}
-	return resolved
+	return filepath.ToSlash(resolved)
 }
 
 func assertGrepResponseRelativeFiles(t *testing.T, root string, resp grepResponse, wants []string, unwanted string) {

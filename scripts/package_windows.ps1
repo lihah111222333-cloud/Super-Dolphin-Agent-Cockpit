@@ -398,29 +398,6 @@ function New-WindowsZip() {
     }
 }
 
-function Copy-PostgresRuntime() {
-    param(
-        [Parameter(Mandatory)][string]$Source,
-        [Parameter(Mandatory)][string]$Destination
-    )
-    if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
-        throw "missing PostgreSQL runtime directory: $Source"
-    }
-    if (Test-Path -LiteralPath $Destination) {
-        Remove-Item -LiteralPath $Destination -Recurse -Force
-    }
-    New-Item -ItemType Directory -Force -Path $Destination | Out-Null
-    $robocopy = Get-Command robocopy.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($robocopy) {
-        & $robocopy.Source $Source $Destination /MIR /R:2 /W:1 /XD 'pgAdmin 4' 'StackBuilder' /NFL /NDL /NJH /NJS /NP
-        if ($LASTEXITCODE -ge 8) { throw "robocopy PostgreSQL runtime failed with exit code $LASTEXITCODE" }
-        return
-    }
-    Get-ChildItem -LiteralPath $Source -Force |
-        Where-Object { $_.Name -notin @('pgAdmin 4', 'StackBuilder') } |
-        Copy-Item -Destination $Destination -Recurse -Force
-}
-
 function Resolve-PackagedRelayEnv() {
     if ((Get-EnvValue $CodexRelayPrivilegedApiKeyEnv).Trim() -ne '') {
         throw "privileged Codex relay API key env is not allowed for Windows packaging; set $CodexRelayBootstrapTokenEnv instead of $CodexRelayPrivilegedApiKeyEnv"
@@ -854,6 +831,20 @@ function Copy-ModelRegistry() {
     Copy-Item -LiteralPath $src -Destination (Join-Path $BundleRoot 'models.yaml') -Force
 }
 
+function Copy-SQLiteMigrations() {
+    param([Parameter(Mandatory)][string]$BundleRoot)
+    $source = Join-Path $Root 'internal/platform/db/sqlite/migrations'
+    $destination = Join-Path $BundleRoot 'internal/platform/db/sqlite/migrations'
+    if (-not (Test-Path -LiteralPath $source -PathType Container)) {
+        throw "missing SQLite migrations directory: $source"
+    }
+    $firstMigration = Get-ChildItem -LiteralPath $source -Recurse -File -Force | Select-Object -First 1
+    if ($null -eq $firstMigration) {
+        throw "missing SQLite migration files under $source"
+    }
+    Copy-DirectoryClean -Source $source -Destination $destination
+}
+
 function Write-RuntimeManifest() {
     param([Parameter(Mandatory)][string]$BundleRoot)
     $manifest = [ordered]@{
@@ -862,7 +853,6 @@ function Write-RuntimeManifest() {
         lsp_bundle_path = 'lsp'
         lsp_manifest_path = 'lsp/lsp-manifest.json'
         model_registry_path = 'models.yaml'
-        embedded_postgres_resource_path = "postgres/$Platform"
     }
     Write-Utf8NoBom -Path (Join-Path $BundleRoot 'runtime-manifest.json') -Content (($manifest | ConvertTo-Json -Depth 3) + "`n")
 }
@@ -912,7 +902,6 @@ set "SUPER_DOLPHIN_PACKAGE_ROOT=%here%"
 set "PROJECT_ROOT=%here%"
 set "SUPER_DOLPHIN_MODEL_REGISTRY=%here%\models.yaml"
 set "FFMPEG_PATH=%here%\bin\ffmpeg.exe"
-set "SUPER_DOLPHIN_POSTGRES_BIN_DIR=%here%\postgres\__PLATFORM__\bin"
 set "PATH=%here%\bin;%here%\lsp\bin;%here%\lsp\node;%here%\lsp\node_modules\.bin;%SystemRoot%\System32;%SystemRoot%;%PATH%"
 set "GO_AGENT_PEER_BIN_DIR=%here%\bin"
 set "SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX=1"
@@ -941,7 +930,6 @@ $env:SUPER_DOLPHIN_PACKAGE_ROOT = $Here
 $env:PROJECT_ROOT = $Here
 $env:SUPER_DOLPHIN_MODEL_REGISTRY = Join-Path $Here 'models.yaml'
 $env:FFMPEG_PATH = Join-Path $Here 'bin\ffmpeg.exe'
-$env:SUPER_DOLPHIN_POSTGRES_BIN_DIR = Join-Path $Here 'postgres\__PLATFORM__\bin'
 $env:Path = ((Join-Path $Here 'bin'), (Join-Path $Here 'lsp\bin'), (Join-Path $Here 'lsp\node'), (Join-Path $Here 'lsp\node_modules\.bin'), (Join-Path $env:SystemRoot 'System32'), $env:SystemRoot, $env:Path) -join [IO.Path]::PathSeparator
 $env:GO_AGENT_PEER_BIN_DIR = Join-Path $Here 'bin'
 $env:SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX = '1'
@@ -1031,15 +1019,6 @@ function Package-WindowsMain() {
         throw "package_windows.ps1 must run on Windows; current GOOS=$GoOS"
     }
 
-    $pgSrc = if ($env:SUPER_DOLPHIN_POSTGRES_DIST) { $env:SUPER_DOLPHIN_POSTGRES_DIST } else { Join-Path $Root "third_party/postgres/$Platform" }
-    foreach ($bin in @('postgres.exe', 'initdb.exe', 'pg_ctl.exe', 'pg_config.exe')) {
-        $candidate = Join-Path $pgSrc "bin/$bin"
-        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
-            throw "missing PostgreSQL binary: $candidate. Set SUPER_DOLPHIN_POSTGRES_DIST to a PostgreSQL runtime containing bin/postgres.exe, bin/initdb.exe, bin/pg_ctl.exe, and bin/pg_config.exe."
-        }
-        Assert-WindowsNativeArchitecture -Path $candidate -ExpectedArch $WindowsPackageArch -Label "PostgreSQL $bin"
-    }
-
     Resolve-PackagedRelayEnv
     Resolve-PackagedVideoEnv
     Resolve-UpdateConfig
@@ -1058,7 +1037,6 @@ function Package-WindowsMain() {
     if ($Artifact -in @('all', 'installer') -and (Test-Path -LiteralPath $setupPath)) { Remove-Item -LiteralPath $setupPath -Force }
     if ($Artifact -in @('all', 'installer') -and (Test-Path -LiteralPath $issPath)) { Remove-Item -LiteralPath $issPath -Force }
     New-Item -ItemType Directory -Force -Path (Join-Path $Stage 'bin') | Out-Null
-    New-Item -ItemType Directory -Force -Path (Join-Path $Stage "postgres/$Platform") | Out-Null
 
     Build-CurrentFrontendApp
 
@@ -1085,14 +1063,13 @@ function Package-WindowsMain() {
     Copy-Item -LiteralPath (Join-Path $Root 'bin/mcp-orch.exe') -Destination (Join-Path $Stage 'bin/mcp-orch.exe') -Force
     Copy-Item -LiteralPath (Join-Path $Root 'bin/mcp-lsp.exe') -Destination (Join-Path $Stage 'bin/mcp-lsp.exe') -Force
     Copy-Item -LiteralPath (Join-Path $Root 'bin/mcp-ida.exe') -Destination (Join-Path $Stage 'bin/mcp-ida.exe') -Force
-    Copy-DirectoryClean -Source (Join-Path $Root 'migrations') -Destination (Join-Path $Stage 'migrations')
+    Copy-SQLiteMigrations -BundleRoot $Stage
     Copy-PackagedLSPBundle -BundleRoot $Stage
     Copy-PackagedCodex -BundleRoot $Stage -Destination (Join-Path $Stage 'bin/codex.exe')
     Copy-PackagedFFmpeg -BundleRoot $Stage
     Write-CodexManifest -BundleRoot $Stage
     Write-LSPManifest -BundleRoot $Stage
     Copy-ModelRegistry -BundleRoot $Stage
-    Copy-PostgresRuntime -Source $pgSrc -Destination (Join-Path $Stage "postgres/$Platform")
     Write-PackagedRelayEnv -BundleRoot $Stage
     Write-PackagedUpdateEnv -BundleRoot $Stage
     Write-RuntimeManifest -BundleRoot $Stage

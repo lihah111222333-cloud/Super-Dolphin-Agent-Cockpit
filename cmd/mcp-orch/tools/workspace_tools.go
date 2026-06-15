@@ -108,7 +108,7 @@ func HandleWorkspaceAbortRun(svc workspace.Service) ToolHandler {
 // workspaceToolDefinitions 处理工作区工具definitions。
 func workspaceToolDefinitions(svc workspace.Service) []ToolDefinition {
 	return buildToolDefinitions(
-		defineTool("workspace_create_run", "Create a virtual workspace run. Filesystem workspace is used for edits; run status and file states are persisted in PostgreSQL.", ObjectSchema(map[string]Schema{
+		defineTool("workspace_create_run", "Create a virtual workspace run. Filesystem workspace is used for edits; run status and file states are stored in persistent state.", ObjectSchema(map[string]Schema{
 			"run_key":     StringSchema("Optional run key. Auto-generated if omitted."),
 			"dag_key":     StringSchema("Related DAG key (optional)."),
 			"source_root": StringSchema("Absolute or relative source project root."),
@@ -127,13 +127,13 @@ func workspaceToolDefinitions(svc workspace.Service) []ToolDefinition {
 			"limit":    IntegerSchema("Max number of runs to return."),
 			"envelope": BooleanSchema("When true, return {runs,data,total,showing,truncated,hint}; default false keeps the legacy array response."),
 		}), HandleWorkspaceListRuns(svc)),
-		defineTool("workspace_merge_run", "Merge changed files from virtual workspace back to source root with conflict detection. Also updates PostgreSQL run and file states.", ObjectSchema(map[string]Schema{
+		defineTool("workspace_merge_run", "Merge changed files from virtual workspace back to source root with conflict detection. Also updates persistent state for the run and file states.", ObjectSchema(map[string]Schema{
 			"run_key":        StringSchema("Workspace run key."),
 			"updated_by":     StringSchema("Operator identifier (optional)."),
 			"dry_run":        BooleanSchema("Only simulate merge without writing source files."),
 			"delete_removed": BooleanSchema("Delete source files removed in workspace when safe."),
 		}, "run_key"), HandleWorkspaceMergeRun(svc)),
-		defineTool("workspace_abort_run", "Abort a workspace run and mark it as aborted in PostgreSQL state.", ObjectSchema(map[string]Schema{
+		defineTool("workspace_abort_run", "Abort a workspace run and mark it as aborted in persistent state.", ObjectSchema(map[string]Schema{
 			"run_key":    StringSchema("Workspace run key."),
 			"updated_by": StringSchema("Operator identifier (optional)."),
 			"reason":     StringSchema("Abort reason (optional)."),
