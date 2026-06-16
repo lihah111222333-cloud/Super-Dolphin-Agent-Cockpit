@@ -85,6 +85,8 @@ export const RPC_METHODS = Object.freeze({
   PROMPT_INTENTS_COMMIT: 'prompt-intents/commit',
   PROMPT_INTENTS_DISCARD: 'prompt-intents/discard',
   PROMPT_INTENTS_DRY_RUN: 'prompt-intents/dry-run',
+  PERSONALIZATION_PROFILE_GET: 'personalization/profile/get',
+  PERSONALIZATION_PROFILE_SAVE: 'personalization/profile/save',
   PROMPT_SECTIONS_LIST: 'prompt-sections/list',
   PROMPT_SECTIONS_WRITE: 'prompt-sections/write',
   PROMPT_SECTIONS_DELETE: 'prompt-sections/delete',
@@ -752,6 +754,15 @@ function promptIntentDryRunPayload(params) {
   });
 }
 
+function personalizationProfilePayload(method, params) {
+  const payload = requireCwd(method, params);
+  if (method === RPC_METHODS.PERSONALIZATION_PROFILE_GET) return { cwd: payload.cwd };
+  if (!payload.profile || typeof payload.profile !== 'object' || Array.isArray(payload.profile)) {
+    throw new Error(`${method}: profile must be an object`);
+  }
+  return { cwd: payload.cwd, profile: payload.profile };
+}
+
 function promptSectionPayload(method, params) {
   return requireKey(method, requireCwd(method, params), 'prompt_id');
 }
@@ -956,6 +967,14 @@ function createPromptDagApi(callBackend) {
     commitPromptIntent: (params) => callBackend(RPC_METHODS.PROMPT_INTENTS_COMMIT, promptIntentCommitPayload(params)),
     discardPromptIntent: (params) => callBackend(RPC_METHODS.PROMPT_INTENTS_DISCARD, promptIntentDiscardPayload(params)),
     dryRunPromptIntent: (params) => callBackend(RPC_METHODS.PROMPT_INTENTS_DRY_RUN, promptIntentDryRunPayload(params)),
+    getPersonalizationProfile: (params) => callBackend(
+      RPC_METHODS.PERSONALIZATION_PROFILE_GET,
+      personalizationProfilePayload(RPC_METHODS.PERSONALIZATION_PROFILE_GET, params),
+    ),
+    savePersonalizationProfile: (params) => callBackend(
+      RPC_METHODS.PERSONALIZATION_PROFILE_SAVE,
+      personalizationProfilePayload(RPC_METHODS.PERSONALIZATION_PROFILE_SAVE, params),
+    ),
     listPromptSections: (params) => callBackend(RPC_METHODS.PROMPT_SECTIONS_LIST, promptSectionPayload(RPC_METHODS.PROMPT_SECTIONS_LIST, params)),
     writePromptSection: (params) => callBackend(RPC_METHODS.PROMPT_SECTIONS_WRITE, promptSectionPayload(RPC_METHODS.PROMPT_SECTIONS_WRITE, params)),
     deletePromptSection: (params) => callBackend(RPC_METHODS.PROMPT_SECTIONS_DELETE, promptSectionPayload(RPC_METHODS.PROMPT_SECTIONS_DELETE, params)),
@@ -1304,6 +1323,8 @@ export const draftPromptIntent = backendApi.draftPromptIntent;
 export const commitPromptIntent = backendApi.commitPromptIntent;
 export const discardPromptIntent = backendApi.discardPromptIntent;
 export const dryRunPromptIntent = backendApi.dryRunPromptIntent;
+export const getPersonalizationProfile = backendApi.getPersonalizationProfile;
+export const savePersonalizationProfile = backendApi.savePersonalizationProfile;
 export const listPromptSections = backendApi.listPromptSections;
 export const writePromptSection = backendApi.writePromptSection;
 export const deletePromptSection = backendApi.deletePromptSection;

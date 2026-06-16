@@ -9,9 +9,11 @@ import {
   draftPromptIntent,
   dryRunPromptIntent,
   getDashboardPrompts,
+  getPersonalizationProfile,
   getPreference,
   getPrompt,
   listPromptAssets,
+  savePersonalizationProfile,
   setPreference,
   writePrompt,
 } from '../../shared/api/backendApi.js';
@@ -326,6 +328,13 @@ function emptyPromptForm() {
     hasMatchWhen: false,
   };
 }
+
+const emptyPersonalizationProfile = Object.freeze({
+  displayName: '',
+  role: '',
+  background: '',
+  customInstructions: '',
+});
 
 function normalizeDraftItem(raw = {}, fallbackKind = 'expert', meta = {}) {
   const card = raw.card && typeof raw.card === 'object' ? raw.card : {};
@@ -796,7 +805,12 @@ function PromptPageLayout(props) {
   return (
     <section className="console-page prompt-page">
       <PageHeader title="个性化" subtitle="管理您的身份信息以及 Super-Dolphin 的记忆内容" projectPath={props.cwd || props.projectPath} />
-      <PromptPersonalizationOverview counts={props.counts} isProjectPending={props.isProjectPending} fallbackMode={props.fallbackMode} />
+      <PromptPersonalizationOverview
+        counts={props.counts}
+        fallbackMode={props.fallbackMode}
+        isProjectPending={props.isProjectPending}
+        personalization={props.personalization}
+      />
       <PromptStatusMessages {...props} onRetry={props.editorActions.retryPromptSync} />
       {showEmpty ? <PromptEmptyState /> : null}
       {showCards ? <PromptCardsGrid {...props} /> : null}
@@ -888,6 +902,19 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
 
   const queryState = usePromptQueries(cwd);
   const { items, fallbackMode, activePromptId, loading, syncError, error } = queryState;
+  const { data: profileData, error: profileError, isLoading: profileLoading } = useQuery({
+    queryKey: ['personalizationProfile', cwd],
+    queryFn: () => getPersonalizationProfile({ cwd }),
+    enabled: Boolean(cwd),
+  });
+  const loadedProfile = profileData?.profile
+    ? { ...emptyPersonalizationProfile, ...profileData.profile }
+    : emptyPersonalizationProfile;
+  const [profileDraft, setProfileDraft] = useState({ cwd: '', profile: null });
+  const profileForm = profileDraft.cwd === cwd && profileDraft.profile ? profileDraft.profile : loadedProfile;
+  const setProfileForm = useCallback((nextProfile) => {
+    setProfileDraft({ cwd, profile: nextProfile });
+  }, [cwd]);
   const refreshPromptSurface = usePromptRefreshSurface(
     cwd,
     queryClient,
@@ -908,6 +935,28 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
     setters,
   });
   const draftActions = usePromptDraftActions({ cwd, actioning, refreshPromptSurface, setters });
+  const handleSaveProfile = async () => {
+    if (!cwd || saving) return;
+    setters.setSaving(true);
+    setters.setNotice('');
+    try {
+      const result = await savePersonalizationProfile({ cwd, profile: profileForm });
+      const savedProfile = { ...emptyPersonalizationProfile, ...(result.profile || {}) };
+      queryClient.setQueryData(['personalizationProfile', cwd], { profile: savedProfile });
+      setProfileDraft({ cwd, profile: null });
+      setters.setNotice('个人资料已保存');
+    }
+    catch (err) {
+      setters.setNotice(noticeText(err, '个人资料保存失败'));
+    }
+    finally {
+      setters.setSaving(false);
+    }
+  };
+  const handleImportMemory = () => {
+    setters.setWizardDraft({ kind: 'recall', rawInput: '', scope: 'project' });
+    setters.setWizardOpen(true);
+  };
   const layoutProps = {
     activePromptId,
     actioning,
@@ -921,6 +970,15 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
     loading,
     modals,
     notice,
+    personalization: {
+      error: profileError,
+      loading: profileLoading,
+      onImportMemory: handleImportMemory,
+      onProfileChange: setProfileForm,
+      onSaveProfile: handleSaveProfile,
+      profile: profileForm,
+      saving,
+    },
     projectPath,
     resolveLaunchPreferences,
     saving,
@@ -945,18 +1003,32 @@ function PageHeader({ title, subtitle, projectPath }) {
   );
 }
 
-function PromptPersonalizationOverview({ counts, isProjectPending, fallbackMode }) {
+function PromptPersonalizationOverview({ counts, isProjectPending, fallbackMode, personalization }) {
   const metrics = [
     ['定制角色', counts.expert || 0],
     ['知识', counts.recall || 0],
     ['默认规则', counts.default_rule || 0],
     ['待确认', counts.pending || 0],
   ];
+  const profile = personalization?.profile || emptyPersonalizationProfile;
+  const profileLoading = Boolean(personalization?.loading);
+  const profileSaving = Boolean(personalization?.saving);
+  const profileDisabled = isProjectPending || profileLoading;
+  const updateProfile = (key) => (event) => {
+    personalization?.onProfileChange?.({ ...profile, [key]: event.target.value });
+  };
+  const profileStatus = isProjectPending
+    ? '等待项目'
+    : personalization?.error
+      ? '加载失败'
+      : profileLoading
+        ? '加载中'
+        : '已接入';
   const overviewText = isProjectPending
     ? '正在连接本地项目。'
     : fallbackMode
       ? 'prompt-assets/list 暂不可用；当前仅显示只读的提示词与参考资料。'
-      : '已接入提示词与参考资料；个人资料和外部记忆导入等待后端接口。';
+      : '已接入提示词、参考资料、个人资料和外部记忆导入入口。';
   return (
     <section className="personalization-overview" aria-label="个性化概览">
       <div className="personalization-overview-copy">
@@ -976,23 +1048,25 @@ function PromptPersonalizationOverview({ counts, isProjectPending, fallbackMode 
         <section className="personalization-profile-card" aria-label="个人资料">
           <header>
             <h3>个人资料</h3>
-            <span>待后端接入</span>
+            <span>{profileStatus}</span>
           </header>
           <div className="personalization-form-grid">
-            <label>昵称<input type="text" placeholder="待个人资料接口接入" disabled /></label>
-            <label>职业<input type="text" placeholder="待个人资料接口接入" disabled /></label>
-            <label>更多关于您的信息<textarea rows={3} placeholder="待个人资料接口接入" disabled /></label>
-            <label>自定义指令<textarea rows={3} placeholder="待自定义指令接口接入" disabled /></label>
+            <label>昵称<input aria-label="昵称" type="text" value={profile.displayName} onChange={updateProfile('displayName')} disabled={profileDisabled} /></label>
+            <label>职业<input aria-label="职业" type="text" value={profile.role} onChange={updateProfile('role')} disabled={profileDisabled} /></label>
+            <label>更多关于您的信息<textarea aria-label="更多关于您的信息" rows={3} value={profile.background} onChange={updateProfile('background')} disabled={profileDisabled} /></label>
+            <label>自定义指令<textarea aria-label="自定义指令" rows={3} value={profile.customInstructions} onChange={updateProfile('customInstructions')} disabled={profileDisabled} /></label>
           </div>
-          <button type="button" disabled>保存个人资料</button>
+          <button type="button" disabled={profileDisabled || profileSaving} onClick={personalization?.onSaveProfile}>
+            {profileSaving ? '保存中...' : '保存个人资料'}
+          </button>
         </section>
         <section className="personalization-profile-card" aria-label="从其他 AI 导入记忆">
           <header>
             <h3>从其他 AI 导入记忆</h3>
-            <span>待后端接入</span>
+            <span>复用参考资料</span>
           </header>
-          <p>当前页面只读取真实提示词与参考资料数据；导入记忆接口接入前不会显示为可用。</p>
-          <button type="button" disabled>导入记忆</button>
+          <p>把其他 AI 的长期记忆粘贴为参考资料，保存后会进入现有知识目录。</p>
+          <button type="button" disabled={isProjectPending} onClick={personalization?.onImportMemory}>导入记忆</button>
         </section>
       </div>
     </section>
@@ -1319,13 +1393,14 @@ async function runPromptDraftCommit({ confirmGlobal, confirmRisk, cwd, draft, on
 }
 
 function promptWizardInitialState(initialDraft) {
+  const hasDraft = Boolean(initialDraft?.draftKey || initialDraft?.id || initialDraft?.card);
   return {
-    draft: initialDraft,
+    draft: hasDraft ? initialDraft : null,
     dryRunQuestion: '',
     dryRunResult: null,
     kind: initialDraft?.kind || 'expert',
     notice: '',
-    rawInput: '',
+    rawInput: initialDraft?.rawInput || '',
     reviewConfirmed: false,
     scope: initialDraft?.scope || 'project',
     working: '',
