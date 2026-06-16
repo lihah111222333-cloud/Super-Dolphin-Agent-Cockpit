@@ -180,36 +180,61 @@ func validateRootAgentAssignees(nodes []contract.CreateDAGNodeRequest) error {
 	return nil
 }
 
-// validateAgentNodeLaunchConfigs 校验代理节点启动配置。
+// validateAgentNodeLaunchConfigs 校验创建阶段可自动拉起的 agent 配置。
+// agent 节点和 hybrid verifier 都会启动子 agent，必须用同一套身份与 provider 规则，
+// 避免坏 DAG 先落库、到自动派发时才失败。
 func validateAgentNodeLaunchConfigs(nodes []contract.CreateDAGNodeRequest) error {
 	for i, node := range nodes {
-		if !isAgentNodeType(node.NodeType) || !hasNodeExecConfig(node.Config) {
+		if !hasNodeExecConfig(node.Config) {
 			continue
 		}
-		cfg, err := nodeexec.ParseAgentConfig(node.Config)
-		if err != nil {
-			return fmt.Errorf("nodes[%d].config: %w", i, err)
-		}
-		provider := strings.ToLower(strings.TrimSpace(cfg.Exec.Provider))
-		switch provider {
-		case "":
-			return fmt.Errorf("nodes[%d].config.exec.provider required for agent node %q; set provider to claude or codex", i, node.NodeKey)
-		case "claude":
-			continue
-		case "codex":
-			if missing := missingCodexIdentityFields(cfg.Exec); len(missing) != 0 {
-				return fmt.Errorf("nodes[%d].config.exec provider=codex for agent node %q requires %s", i, node.NodeKey, strings.Join(missing, ", "))
+		switch strings.TrimSpace(node.NodeType) {
+		case "", "agent":
+			cfg, err := nodeexec.ParseAgentConfig(node.Config)
+			if err != nil {
+				return fmt.Errorf("nodes[%d].config: %w", i, err)
 			}
-		default:
-			return fmt.Errorf("nodes[%d].config.exec.provider invalid for agent node %q: must be claude or codex", i, node.NodeKey)
+			label := fmt.Sprintf("nodes[%d].config.exec", i)
+			if err := validateAgentExecLaunchConfig(cfg.Exec, label, node.NodeKey); err != nil {
+				return err
+			}
+		case "hybrid":
+			cfg, err := nodeexec.ParseHybridConfig(node.Config)
+			if err != nil {
+				return fmt.Errorf("nodes[%d].config: %w", i, err)
+			}
+			if cfg.Exec.Verifier == nil {
+				continue
+			}
+			label := fmt.Sprintf("nodes[%d].config.exec.verifier", i)
+			if err := validateAgentExecLaunchConfig(*cfg.Exec.Verifier, label, node.NodeKey); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-func isAgentNodeType(nodeType string) bool {
-	nodeType = strings.TrimSpace(nodeType)
-	return nodeType == "" || nodeType == "agent"
+// validateAgentExecLaunchConfig 校验子 agent 启动所需的执行模板和运行身份。
+// 创建入口必须 fail-fast，不在这里补默认 prompt；缺字段说明上游资源选择链路断开。
+func validateAgentExecLaunchConfig(exec nodeexec.AgentExecConfig, label, nodeKey string) error {
+	if strings.TrimSpace(exec.PromptKey) == "" && strings.TrimSpace(exec.AgentKey) == "" {
+		return fmt.Errorf("%s.prompt_key or %s.agent_key required for agent node %q", label, label, nodeKey)
+	}
+	provider := strings.ToLower(strings.TrimSpace(exec.Provider))
+	switch provider {
+	case "":
+		return fmt.Errorf("%s.provider required for agent node %q; set provider to claude or codex", label, nodeKey)
+	case "claude":
+		return nil
+	case "codex":
+		if missing := missingCodexIdentityFields(exec); len(missing) != 0 {
+			return fmt.Errorf("%s provider=codex for agent node %q requires %s", label, nodeKey, strings.Join(missing, ", "))
+		}
+		return nil
+	default:
+		return fmt.Errorf("%s.provider invalid for agent node %q: must be claude or codex", label, nodeKey)
+	}
 }
 
 func missingCodexIdentityFields(exec nodeexec.AgentExecConfig) []string {
