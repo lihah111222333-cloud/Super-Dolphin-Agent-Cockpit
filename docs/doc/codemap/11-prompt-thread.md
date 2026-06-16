@@ -1,7 +1,7 @@
 # 11B Prompt / Thread 代码地图
 
 > 拆卷说明：本卷只覆盖 `internal/module/prompt/`、`internal/module/thread/`、provider bridge、以及 blank-thread 首发链；memory 深水区另见 [`11-memory.md`](11-memory.md)。
-> 当前口径：以 2026-04-20 HEAD 为准；用于收口 prompt / thread / provider `start / resume / fork`、prompt store、snapshot、以及前端 blank-thread 首发真值。
+> 当前口径：以 2026-06-17 HEAD 为准；用于收口 prompt / thread / provider `start / resume / fork`、prompt store、prompt 模板路由、snapshot、以及前端 blank-thread 首发真值。
 > UI 路径校正（2026-06-02）：当前新 UI 的聊天页面在 `frontend-app/`，见 [`01-terminal-ui-react.md`](01-terminal-ui-react.md)。本卷中的 `cmd/agent-terminal/frontend/vue-app/` 锚点保留为 legacy Vue/package-embed 参考。
 > 必读搭配：`docs/会话习惯.md` §10.21 / §10.25；shared patches：`tmp/codemap-missing-coverage.md`、`tmp/codemap-mermaid-patches.md`、`tmp/codemap-test-freeze.md`、`tmp/codemap-howto-patches.md`。
 
@@ -11,7 +11,7 @@
 - `PROMPT_START_CURRENT_DATE`、dynamic sections、memory providers、native-tool replacement hints，**分别插在哪个层级**。
 - `thread/resume` / `thread/fork` / `thread/recover` 时，**prompt snapshot 与 runtime config snapshot 各自如何复用**。
 - provider raw event 经过 unified event map、session manager、thread 订阅、eventsurface，**最终怎样变成 UI 可见事件**。
-- blank-thread 首发时，前端为什么一定是 **`resolveStartOptions -> startThread -> sendMessage`** 两段式，而不是一次 RPC 直发。
+- blank-thread 首发时，当前 React 前端为什么一定是 **`sendDraft -> startNewDraftThread -> startTurn`** 两段式，而不是一次 RPC 直发；legacy Vue 的 `resolveStartOptions -> startThread -> sendMessage` 只保留为旧路径参考。
 
 ## 2. 当前源码结论
 
@@ -27,6 +27,7 @@
 10. **memory 与 prompt 的交点不是共用一个 snapshot 结构**：prompt snapshot 单独存 `agent_thread_prompt_snapshot`；memory 侧读的是 thread `ConfigOverride.Runtime`，由 `MemoryLifecycleHooks.resolveThreadRuntimeMetadata()` 解释。
 11. **provider bridge 的主干是 bus，不是 thread 直接监听 driver**：driver session 只 dispatch raw event；统一翻译发生在 `internal/provider/unified/event_map.go:71-124`；thread 只订阅 bus 上的 typed event。
 12. **blank-thread 首发天然是两跳**：前端先 `thread/start` 拿 thread id，再 `turn/start` 发用户输入；这保证 start-only prompt 只在创线时注入一次。
+13. **prompt 模板路由已从 thread 根包拆成纯规则子包**：`internal/module/thread/router_resolve.go` 仍负责 catalog 调用、runtime asset fallback、日志和 StartRequest 写入；`internal/module/thread/promptrouting` 只负责模板筛选、match_when 候选分组和 sections 到 BaseInstructionBlock 的转换。
 
 ## 3. 文件与入口索引
 
@@ -49,6 +50,8 @@
 | `internal/module/thread/contract.go` | service contract / DTO | `StartRequest`、`ResumeRequest`、`PromptSnapshot` 字段 |
 | `internal/module/thread/rpc.go` | `thread/*` RPC handlers | `thread/start`、`thread/resume`、`thread/fork` |
 | `internal/module/thread/lifecycle.go` | `Start / Resume` service 主链 | launch、persist、save prompt snapshot |
+| `internal/module/thread/router_resolve.go` | prompt 模板路由编排 | catalog list、runtime asset fallback、日志、StartRequest 写入 |
+| `internal/module/thread/promptrouting/` | prompt 模板纯路由规则 | match_when 分组、prompt_key / agent_key 查询、sections 转 block |
 | `internal/module/thread/start_prompt_context.go` | start BuildCtx 组装 | cwd / gitRoot / MCP / session flags 注入 |
 | `internal/module/thread/start_session_helpers.go` | start helper | `resolveStartPromptAssembly`、`buildStartSessionConfig` |
 | `internal/module/thread/start_session.go` | provider DTO 物化 | `StartSession` / `ResumeSession` 请求拼装 |
@@ -77,8 +80,9 @@
 
 | 路径 | 角色 | 本卷重点 |
 |---|---|---|
-| `frontend-app/src/App.jsx` | chat shell、composer、timeline 渲染 | composer 输入、发送按钮、历史消息与执行计划展示 |
-| `frontend-app/src/entities/client/model/useClientStore.js` | Zustand 客户端状态与 thread/turn action | `sendDraft()` 负责 blank-thread `thread/start -> turn/start` 两段式 |
+| `frontend-app/src/pages/chat/ChatPage.jsx` | 当前 React 聊天页 shell、composer 挂载、timeline 渲染 | composer 输入、发送按钮、历史消息与执行计划展示 |
+| `frontend-app/src/entities/client/model/composerSlice.js` | composer 状态与发送动作 | `sendDraft()` 负责 blank-thread 两段式入口 |
+| `frontend-app/src/entities/client/model/useClientStore.js` | Zustand 客户端状态与 thread/turn action | `startNewDraftThread()` 负责 blank-thread 的 `thread/start` 第一跳 |
 | `frontend-app/src/shared/api/backendApi.js` | RPC facade 与 payload 校验 | `startThread()`、`startTurn()`、cwd / threadId fail-fast |
 | `frontend-app/src/shared/api/wailsBridge.js` | Wails runtime bridge | `callAPI()`、runtime event、前端日志回传 |
 
@@ -204,6 +208,22 @@ Legacy Vue 参考：
 6. helper 最后会用 `ensureStartAssemblySnapshot()` 确保 snapshot 补齐 `DisplayName / BaseInstructions / DeveloperInstructions / Provider / Version / Hash / SectionSnapshot`。
 
 这条链说明：**assembler 是 prompt 包实现，入口却由 thread helper 拥有**。
+
+### 4.6.1 prompt 模板路由入口与边界
+
+prompt 模板路由发生在 `thread/start` 的 start assembly 之前，但它不是 prompt assembler 本体。当前分成两层：
+
+| 层 | 文件 | 职责 |
+|---|---|---|
+| 编排层 | `internal/module/thread/router_resolve.go:37-76`、`:141-163`、`:190-238`、`:256-318` | 读取 runtime prompt catalog，处理 pinned prompt、agent_key、match_when、main/default fallback、runtime asset stale 标记、日志和 StartRequest 字段写入。 |
+| 纯规则层 | `internal/module/thread/promptrouting/routing.go:11-138` | 不访问 store/provider/logging，只对已加载模板做 launchable 判断、prompt_key / agent_key 查询、match_when specific/fallback 分组、sections 转 `BaseInstructionBlock`。 |
+
+关键语义：
+
+- `AutoRouteCandidates()` 只接受 `Enabled && !runtime asset` 且带 `match_when` 的模板，并把非空条件放入 specific pool，把 `{}` 放入 fallback pool，两组都按 `Priority` 降序。
+- `TemplateLaunchable()` 明确排除 runtime asset，避免 runtime fallback 被误当成可启动模板。
+- `ConvertSectionsToBlocks()` 只转换 enabled、非 recall、正文非空的 section；是否按 `enable_when` 再过滤由 thread 根包调用 `contract.PrepareBaseInstructionBlocks(...)` 完成。
+- `router_resolve.go` 保留 `pkglogger.Info/Warn`，因为路由命中、stale pin、version materialize 失败属于运行时可观测边界，不放进纯规则子包。
 
 ### 4.7 `AssembleStart()` 的真实工作
 
@@ -1120,78 +1140,73 @@ memory 模块把 prompt handoff 分成两条：
 
 ### 9.1 前端 blank-thread 首发挂点
 
-`cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:126-174`：
+当前 React 新 UI 的主链在 `frontend-app/src/entities/client/model/composerSlice.js:232-258`：
 
-- 没有选中 thread 时，`performSend()` 先调 `resolveStartOptions(text, focusMode)`，再 `threadStore.startThread()`。
-- 非空 composer 文本会作为 `thread/start` 的 `prompt` 传给后端 router；空 composer 会设置 `deferSpawn: true`。
+- `sendDraft()` 先构造当前 composer 输入。
+- 若没有已有 thread，先调用 `startNewDraftThread(...)`。
+- 拿到 `threadId` 后，再调用 `startTurnWithStoppedThreadRecovery(...)`。
 
-`cmd/agent-terminal/frontend/vue-app/pages/UnifiedChatPage.js:175-190`：
+`frontend-app/src/entities/client/model/useClientStore.js:1341-1352`：
 
-- `useThreadActions` 由 `createPageThreadActions()` 装配，聊天页不再挂 blank-thread 技能选择器。
+- `startNewDraftThread()` 调 `startThread({ ..., deferSpawn: true })`。
+- `normalizeThreadIdentity()` 校验后端返回的 thread identity。
+- 返回的 `threadId` 才会进入第二跳 `turn/start`。
 
-### 9.2 `resolveStartOptions()`：先把首轮输入整理成 startOptions
+`frontend-app/src/shared/api/backendApi.js:1132-1142` 是当前 React UI 的 `startThread()` / `startTurn()` RPC facade。
 
-`cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:126-140`：
+Legacy Vue 的 `cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js` 仍可作为旧/package-embed 参考，但不再是当前新 UI 的主入口。
 
-- 写入 `focusMode`
-- 文本非空时写入 `prompt`
-- 文本为空时写入 `deferSpawn: true`
+### 9.2 `sendDraft()`：先把 composer 输入变成两段式请求
 
-它的产物是：
+`frontend-app/src/entities/client/model/composerSlice.js:232-290` 明确写死了顺序：
 
-- `startOptions`
+1. `createSendDraftRequest(...)` 读取文本、附件、cwd 和 launch intent。
+2. `optimisticSendDraftState(...)` 先落本地 optimistic timeline。
+3. 空 thread 时先 `startNewDraftThread(...)`。
+4. 然后调用 `startTurnWithStoppedThreadRecovery({ cwd, threadId, input, manualSkillSelection: false })`。
+5. 若旧 thread 自动恢复失败，会回滚并重建 fresh thread，再重新发 `turn/start`。
 
-### 9.3 `performSend()`：blank-thread 走两段式
+### 9.3 `startNewDraftThread()`：第一跳只做 `thread/start`
 
-`cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:120-173` 明确写死了顺序：
+`frontend-app/src/entities/client/model/useClientStore.js:1341-1352`：
 
-1. 如果 `selectedThreadId` 为空：
-   - `startOptions = await resolveStartOptions(text, focusMode)`
-   - `threadId = await threadStore.startThread(projectStore.state.active, startOptions)`
-   - 把 `selectedThreadId.value = threadId`
-2. 然后无论新旧线程，最终都执行：
-   - `await threadStore.sendMessage(threadId, text, attachments, {...})`
+- 先解析 launch preferences。
+- 调 `startThread({ cwd, name, ...launchPreferences, deferSpawn: true, launchIntentId })`。
+- 校验 `thread/start` 返回的 `threadId`。
+- 不在这里发送本轮输入。
 
-这就是用户要求的 `resolveStartOptions -> startThread -> sendMessage` 顺序真值。
+这一步只负责“建线程 + 建 session + 建 start prompt frame + 返回 thread identity”。
 
-### 9.4 `startThread()`：前端创线 RPC 只做 `thread/start`
+### 9.4 `startTurnWithStoppedThreadRecovery()`：第二跳才真正进 `turn/start`
 
-`cmd/agent-terminal/frontend/vue-app/stores/thread-actions-helpers.js:288-318`：
+`frontend-app/src/entities/client/model/composerSlice.js:252-274`：
 
-- 先读 `ui/preferences/get` 拿当前 `settings.provider.active`
-- 组装 payload `{ cwd, modelProvider }`
-- 如果有 selected skills / manual skill selection，则一并塞进 payload
-- `callAPI('thread/start', payload)`
-- 拿到 `thread.id`
-- `syncRuntimeState()`
-- 保存 active thread
+- 正常路径调用 `startTurnWithStoppedThreadRecovery({ cwd, threadId, input, manualSkillSelection: false })`。
+- stale session / stopped thread 恢复失败时，会 fresh retry：先回滚，再新建 thread，再发 `turn/start`。
+- 当前聊天页不再通过 blank-thread launch UI 注入 selected skills；skill 发现走 provider-native mirror。
 
-所以 blank-thread 首发的第一跳只负责“建线程 + 建 session + 建 start prompt frame”。
+`frontend-app/src/shared/api/backendApi.js:1141-1142` 只是 thin facade：`startThread` 发 `THREAD_START`，`startTurn` 发 `TURN_START`。
 
-### 9.5 `sendMessage()`：第二跳才真正进 `turn/start`
+### 9.5 Legacy Vue 参考链
 
-`cmd/agent-terminal/frontend/vue-app/stores/thread-actions-helpers.js:380-463`：
+旧/package-embed Vue 链路仍保持两段式，可用于回看历史兼容逻辑：
 
-1. 先把 text / attachments 组装成 `input[]`
-2. 组装 `requestPayload = { threadId, input }`
-3. 可选加入：
-   - `cwd`
-   - `selectedSkills`
-   - `manualSkillSelection`
-4. `callAPI('turn/start', requestPayload)`
-5. 再做 optimistic UI timeline 插入
+- `cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:126-174`：`resolveStartOptions -> startThread -> sendMessage`
+- `cmd/agent-terminal/frontend/vue-app/stores/thread-actions-helpers.js:288-318`：legacy `thread/start`
+- `cmd/agent-terminal/frontend/vue-app/stores/thread-actions-helpers.js:380-463`：legacy `turn/start`
 
-所以用户输入真正落到 turn 的路径发生在第二跳，而不是 `thread/start`。
+这条链不再作为当前 React UI 主证据。
 
 ### 9.6 blank-thread 首发落到后端 turn 的完整链
 
 链路如下：
 
-1. 前端 `startThread()` -> `thread/start`
+1. React `composerSlice.sendDraft()` 检测没有现有 thread。
+2. `startNewDraftThread()` -> `backendApi.startThread()` -> `thread/start`
 2. 后端 `thread/rpc.go:newStartHandler()` -> `svc.Start()`
 3. `svc.Start()` 完成 prompt assembly、provider session start、thread state persist、prompt snapshot persist
 4. 前端拿到 `threadId`
-5. 前端 `sendMessage()` -> `turn/start`
+5. React `startTurnWithStoppedThreadRecovery()` -> `backendApi.startTurn()` -> `turn/start`
 6. 后端 `turn/rpc.go:NewTurnHandlers()` 注册的 `turn/start` handler 被命中
 7. `turnStartHandler()` -> `svc.PrepareTurn()` -> `svc.StartTurn()`
 8. `session.StartTurn(ctx, req)` 真正把本轮输入送进 provider session
@@ -1241,7 +1256,7 @@ flowchart LR
 
 ```mermaid
 sequenceDiagram
-  participant UI as UI/useThreadActions
+  participant UI as React ChatPage / composerSlice
   participant TH as thread.Service
   participant PA as prompt.Assembler
   participant UC as unified.Client
@@ -1431,7 +1446,7 @@ flowchart LR
 ### 13.4 Blank-thread checklist
 
 - [ ] 已写明聊天页不再挂 blank-thread 技能选择器。
-- [ ] 已写明 `resolveStartOptions -> startThread -> sendMessage` 顺序。
+- [ ] 已写明当前 React `sendDraft -> startNewDraftThread -> startTurn` 顺序，并把 legacy Vue 链路标成参考。
 - [ ] 已落到 `thread/start` 与 `turn/start` 两个后端 handler。
 
 ## 14. 一句话索引
@@ -1443,4 +1458,5 @@ flowchart LR
 - 想看 prompt store 写口：看 `store/prompt/contract.go:15-22` 与 `prompt/service.go:290-340,473-488`。
 - 想看 prompt snapshot 保存/恢复：看 `thread/prompt_snapshot.go:173-215,217-275,320-399`。
 - 想看 provider bridge：看 `provider/unified/event_map.go:28-124`、`thread/events.go:25-152`、`eventsurface/bind.go:72-197`。
-- 想看 blank-thread 首发：看 `useThreadActions.js:100-118,137-158` 与 `thread-actions-helpers.js:288-318,380-463`。
+- 想看 prompt 模板路由：看 `thread/router_resolve.go:37-76,141-163,190-238,256-318` 与 `thread/promptrouting/routing.go:11-138`。
+- 想看 blank-thread 首发：看 `frontend-app/src/entities/client/model/composerSlice.js:232-290`、`frontend-app/src/entities/client/model/useClientStore.js:1341-1352` 与 `frontend-app/src/shared/api/backendApi.js:1132-1142`。

@@ -1,4 +1,78 @@
 path	module	domain	type	size_bytes	purpose	search_keys
+internal/sidecar/orch/sql/queries/command_card.sql	internal	store-sql	sql	2682	mcp-orch SQL query 源文件	internal,sidecar,orch,sql,queries,command,card,mcp-orch,SQL,query,源文件
+internal/sidecar/orch/sql/queries/prompt_template.sql	internal	store-sql	sql	4093	mcp-orch SQL query 源文件	internal,sidecar,orch,sql,queries,prompt,template,mcp-orch,SQL,query,源文件
+internal/sidecar/orch/sql/queries/README.md	internal	store-sql	doc	267	mcp-orch SQL query 源文件	internal,sidecar,orch,sql,queries,README,mcp-orch,SQL,query,源文件
+internal/sidecar/orch/sql/queries/shared_file.sql	internal	store-sql	sql	888	mcp-orch SQL query 源文件	internal,sidecar,orch,sql,queries,shared,file,mcp-orch,SQL,query,源文件
+internal/sidecar/orch/sql/queries/task_ack.sql	internal	store-sql	sql	1847	mcp-orch SQL query 源文件	internal,sidecar,orch,sql,queries,task,ack,mcp-orch,SQL,query,源文件
+internal/sidecar/orch/sql/queries/task_dag_dag.sql	internal	store-sql	sql	4172	mcp-orch SQL query 源文件	internal,sidecar,orch,sql,queries,task,dag,mcp-orch,SQL,query,源文件
+internal/sidecar/orch/sql/queries/task_dag_node_read.sql	internal	store-sql	sql	3239	mcp-orch SQL query 源文件	internal,sidecar,orch,sql,queries,task,dag,node,read,mcp-orch,SQL,query,源文件
+internal/sidecar/orch/sql/queries/task_dag_node_runtime.sql	internal	store-sql	sql	4261	mcp-orch SQL query 源文件	internal,sidecar,orch,sql,queries,task,dag,node,runtime,mcp-orch,SQL,query,源文件
+internal/sidecar/orch/sql/queries/task_dag_node_spawning_thread.sql	internal	store-sql	sql	729	mcp-orch SQL query 源文件	internal,sidecar,orch,sql,queries,task,dag,node,spawning,thread,mcp-orch,SQL,query,源文件
+internal/sidecar/orch/sql/queries/task_dag_node_write.sql	internal	store-sql	sql	5607	mcp-orch SQL query 源文件	internal,sidecar,orch,sql,queries,task,dag,node,write,mcp-orch,SQL,query,源文件
+internal/sidecar/orch/sql/queries/task_dag_run.sql	internal	store-sql	sql	5439	mcp-orch SQL query 源文件	internal,sidecar,orch,sql,queries,task,dag,run,mcp-orch,SQL,query,源文件
+internal/sidecar/orch/sql/queries/task_dag_wakeup_dispatch.sql	internal	store-sql	sql	3487	mcp-orch SQL query 源文件	internal,sidecar,orch,sql,queries,task,dag,wakeup,dispatch,mcp-orch,SQL,query,源文件
+internal/sidecar/orch/sql/queries/task_dag_wakeup_query.sql	internal	store-sql	sql	1534	mcp-orch SQL query 源文件	internal,sidecar,orch,sql,queries,task,dag,wakeup,query,mcp-orch,SQL,源文件
+internal/sidecar/orch/sql/queries/task_dag_worker_lease.sql	internal	store-sql	sql	1126	mcp-orch SQL query 源文件	internal,sidecar,orch,sql,queries,task,dag,worker,lease,mcp-orch,SQL,query,源文件
+internal/sidecar/orch/sql/queries/workspace_run.sql	internal	store-sql	sql	4604	mcp-orch SQL query 源文件	internal,sidecar,orch,sql,queries,workspace,run,mcp-orch,SQL,query,源文件
+internal/sidecar/orch/sql/schema_sqlc_patch.sql	internal	store-sql	sql	424	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,orch,sql,schema,sqlc,patch,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/orch/store/agent/store.go	internal	store-sql	go-source	6897	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,orch,store,agent,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/orch/store/commandcard/contract.go	internal	store-sql	go-source	2005	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,orch,store,commandcard,contract,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/orch/store/commandcard/doc.go	internal	store-sql	go-source	139	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,orch,store,commandcard,doc,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/orch/store/commandcard/module.go	internal	store-sql	go-source	165	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,orch,store,commandcard,module,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/orch/store/commandcard/store.go	internal	store-sql	go-source	6095	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,orch,store,commandcard,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/orch/store/prompt/contract.go	internal	store-sql	go-source	2930	prompt template 资源 store	internal,sidecar,orch,store,prompt,contract,template,资源
+internal/sidecar/orch/store/prompt/doc.go	internal	store-sql	go-source	124	prompt template 资源 store	internal,sidecar,orch,store,prompt,doc,template,资源
+internal/sidecar/orch/store/prompt/module.go	internal	store-sql	go-source	301	prompt template 资源 store	internal,sidecar,orch,store,prompt,module,template,资源
+internal/sidecar/orch/store/prompt/store.go	internal	store-sql	go-source	9311	prompt template 资源 store	internal,sidecar,orch,store,prompt,template,资源
+internal/sidecar/orch/store/sharedfile/contract.go	internal	store-sql	go-source	1493	shared file 资源 store	internal,sidecar,orch,store,sharedfile,contract,shared,file,资源
+internal/sidecar/orch/store/sharedfile/doc.go	internal	store-sql	go-source	136	shared file 资源 store	internal,sidecar,orch,store,sharedfile,doc,shared,file,资源
+internal/sidecar/orch/store/sharedfile/importer.go	internal	store-sql	go-source	8377	shared file 资源 store	internal,sidecar,orch,store,sharedfile,importer,shared,file,资源
+internal/sidecar/orch/store/sharedfile/module.go	internal	store-sql	go-source	1908	shared file 资源 store	internal,sidecar,orch,store,sharedfile,module,shared,file,资源
+internal/sidecar/orch/store/sharedfile/store.go	internal	store-sql	go-source	5938	shared file 资源 store	internal,sidecar,orch,store,sharedfile,shared,file,资源
+internal/sidecar/orch/store/sqlc/.gitkeep	internal	store-sql	file	0	mcp-orch sqlc 生成层	internal,sidecar,orch,store,sqlc,mcp-orch,生成层
+internal/sidecar/orch/store/sqlc/command_card.sql.go	internal	store-sql	go-source	11201	mcp-orch sqlc 生成层	internal,sidecar,orch,store,sqlc,command,card,sql,mcp-orch,生成层
+internal/sidecar/orch/store/sqlc/db.go	internal	store-sql	go-source	597	mcp-orch sqlc 生成层	internal,sidecar,orch,store,sqlc,db,mcp-orch,生成层
+internal/sidecar/orch/store/sqlc/doc.go	internal	store-sql	go-source	118	mcp-orch sqlc 生成层	internal,sidecar,orch,store,sqlc,doc,mcp-orch,生成层
+internal/sidecar/orch/store/sqlc/models.go	internal	store-sql	go-source	34322	mcp-orch sqlc 生成层	internal,sidecar,orch,store,sqlc,models,mcp-orch,生成层
+internal/sidecar/orch/store/sqlc/prompt_template.sql.go	internal	store-sql	go-source	14766	mcp-orch sqlc 生成层	internal,sidecar,orch,store,sqlc,prompt,template,sql,mcp-orch,生成层
+internal/sidecar/orch/store/sqlc/shared_file.sql.go	internal	store-sql	go-source	3039	mcp-orch sqlc 生成层	internal,sidecar,orch,store,sqlc,shared,file,sql,mcp-orch,生成层
+internal/sidecar/orch/store/sqlc/task_ack.sql.go	internal	store-sql	go-source	5637	mcp-orch sqlc 生成层	internal,sidecar,orch,store,sqlc,task,ack,sql,mcp-orch,生成层
+internal/sidecar/orch/store/sqlc/task_dag_dag.sql.go	internal	store-sql	go-source	16494	mcp-orch sqlc 生成层	internal,sidecar,orch,store,sqlc,task,dag,sql,mcp-orch,生成层
+internal/sidecar/orch/store/sqlc/task_dag_node_read.sql.go	internal	store-sql	go-source	17954	mcp-orch sqlc 生成层	internal,sidecar,orch,store,sqlc,task,dag,node,read,sql,mcp-orch,生成层
+internal/sidecar/orch/store/sqlc/task_dag_node_runtime.sql.go	internal	store-sql	go-source	16431	mcp-orch sqlc 生成层	internal,sidecar,orch,store,sqlc,task,dag,node,runtime,sql,mcp-orch,生成层
+internal/sidecar/orch/store/sqlc/task_dag_node_spawning_thread.sql.go	internal	store-sql	go-source	3230	mcp-orch sqlc 生成层	internal,sidecar,orch,store,sqlc,task,dag,node,spawning,thread,sql,mcp-orch,生成层
+internal/sidecar/orch/store/sqlc/task_dag_node_write.sql.go	internal	store-sql	go-source	21625	mcp-orch sqlc 生成层	internal,sidecar,orch,store,sqlc,task,dag,node,write,sql,mcp-orch,生成层
+internal/sidecar/orch/store/sqlc/task_dag_run.sql.go	internal	store-sql	go-source	14895	mcp-orch sqlc 生成层	internal,sidecar,orch,store,sqlc,task,dag,run,sql,mcp-orch,生成层
+internal/sidecar/orch/store/sqlc/task_dag_wakeup_dispatch.sql.go	internal	store-sql	go-source	9432	mcp-orch sqlc 生成层	internal,sidecar,orch,store,sqlc,task,dag,wakeup,dispatch,sql,mcp-orch,生成层
+internal/sidecar/orch/store/sqlc/task_dag_wakeup_query.sql.go	internal	store-sql	go-source	8598	mcp-orch sqlc 生成层	internal,sidecar,orch,store,sqlc,task,dag,wakeup,query,sql,mcp-orch,生成层
+internal/sidecar/orch/store/sqlc/task_dag_worker_lease.sql.go	internal	store-sql	go-source	2831	mcp-orch sqlc 生成层	internal,sidecar,orch,store,sqlc,task,dag,worker,lease,sql,mcp-orch,生成层
+internal/sidecar/orch/store/sqlc/types_ext.go	internal	store-sql	go-source	1691	mcp-orch sqlc 生成层	internal,sidecar,orch,store,sqlc,types,ext,mcp-orch,生成层
+internal/sidecar/orch/store/sqlc/workspace_run.sql.go	internal	store-sql	go-source	15432	mcp-orch sqlc 生成层	internal,sidecar,orch,store,sqlc,workspace,run,sql,mcp-orch,生成层
+internal/sidecar/orch/store/sqlctx/db.go	internal	store-sql	go-source	5866	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,orch,store,sqlctx,db,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/orch/store/sqlctx/doc.go	internal	store-sql	go-source	124	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,orch,store,sqlctx,doc,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/orch/store/taskdag/contract.go	internal	store-sql	go-source	31617	DAG/node/wakeup/worker lease 持久化 store	internal,sidecar,orch,store,taskdag,contract,DAG,node,wakeup,worker,lease,持久化
+internal/sidecar/orch/store/taskdag/doc.go	internal	store-sql	go-source	127	DAG/node/wakeup/worker lease 持久化 store	internal,sidecar,orch,store,taskdag,doc,DAG,node,wakeup,worker,lease,持久化
+internal/sidecar/orch/store/taskdag/factory.go	internal	store-sql	go-source	4687	DAG/node/wakeup/worker lease 持久化 store	internal,sidecar,orch,store,taskdag,factory,DAG,node,wakeup,worker,lease,持久化
+internal/sidecar/orch/store/taskdag/module.go	internal	store-sql	go-source	3245	DAG/node/wakeup/worker lease 持久化 store	internal,sidecar,orch,store,taskdag,module,DAG,node,wakeup,worker,lease,持久化
+internal/sidecar/orch/store/taskdag/row_mappers.go	internal	store-sql	go-source	8917	DAG/node/wakeup/worker lease 持久化 store	internal,sidecar,orch,store,taskdag,row,mappers,DAG,node,wakeup,worker,lease,持久化
+internal/sidecar/orch/store/taskdag/store_batch_upsert.go	internal	store-sql	go-source	1645	DAG/node/wakeup/worker lease 持久化 store	internal,sidecar,orch,store,taskdag,batch,upsert,DAG,node,wakeup,worker,lease,持久化
+internal/sidecar/orch/store/taskdag/store_complete_downstream.go	internal	store-sql	go-source	12980	DAG/node/wakeup/worker lease 持久化 store	internal,sidecar,orch,store,taskdag,complete,downstream,DAG,node,wakeup,worker,lease,持久化
+internal/sidecar/orch/store/taskdag/store_dag_ops.go	internal	store-sql	go-source	5190	DAG/node/wakeup/worker lease 持久化 store	internal,sidecar,orch,store,taskdag,dag,ops,DAG,node,wakeup,worker,lease,持久化
+internal/sidecar/orch/store/taskdag/store_delete_dag.go	internal	store-sql	go-source	1340	DAG/node/wakeup/worker lease 持久化 store	internal,sidecar,orch,store,taskdag,delete,dag,DAG,node,wakeup,worker,lease,持久化
+internal/sidecar/orch/store/taskdag/store_dispatch_guard.go	internal	store-sql	go-source	4619	DAG/node/wakeup/worker lease 持久化 store	internal,sidecar,orch,store,taskdag,dispatch,guard,DAG,node,wakeup,worker,lease,持久化
+internal/sidecar/orch/store/taskdag/store_fail_downstream.go	internal	store-sql	go-source	7074	DAG/node/wakeup/worker lease 持久化 store	internal,sidecar,orch,store,taskdag,fail,downstream,DAG,node,wakeup,worker,lease,持久化
+internal/sidecar/orch/store/taskdag/store_lease.go	internal	store-sql	go-source	2407	DAG/node/wakeup/worker lease 持久化 store	internal,sidecar,orch,store,taskdag,lease,DAG,node,wakeup,worker,持久化
+internal/sidecar/orch/store/taskdag/store_node_spawn.go	internal	store-sql	go-source	7292	DAG/node/wakeup/worker lease 持久化 store	internal,sidecar,orch,store,taskdag,node,spawn,DAG,wakeup,worker,lease,持久化
+internal/sidecar/orch/store/taskdag/store_root_wakeup.go	internal	store-sql	go-source	3541	DAG/node/wakeup/worker lease 持久化 store	internal,sidecar,orch,store,taskdag,root,wakeup,DAG,node,worker,lease,持久化
+internal/sidecar/orch/store/taskdag/store_run_events.go	internal	store-sql	go-source	2542	DAG/node/wakeup/worker lease 持久化 store	internal,sidecar,orch,store,taskdag,run,events,DAG,node,wakeup,worker,lease,持久化
+internal/sidecar/orch/store/taskdag/store_run.go	internal	store-sql	go-source	14445	DAG/node/wakeup/worker lease 持久化 store	internal,sidecar,orch,store,taskdag,run,DAG,node,wakeup,worker,lease,持久化
+internal/sidecar/orch/store/taskdag/store_wakeup.go	internal	store-sql	go-source	12363	DAG/node/wakeup/worker lease 持久化 store	internal,sidecar,orch,store,taskdag,wakeup,DAG,node,worker,lease,持久化
+internal/sidecar/orch/store/taskdag/store.go	internal	store-sql	go-source	16800	DAG/node/wakeup/worker lease 持久化 store	internal,sidecar,orch,store,taskdag,DAG,node,wakeup,worker,lease,持久化
+internal/sidecar/orch/store/workspace/contract.go	internal	store-sql	go-source	2981	workspace run/file 持久化 store	internal,sidecar,orch,store,workspace,contract,run,file,持久化
+internal/sidecar/orch/store/workspace/doc.go	internal	store-sql	go-source	133	workspace run/file 持久化 store	internal,sidecar,orch,store,workspace,doc,run,file,持久化
+internal/sidecar/orch/store/workspace/module.go	internal	store-sql	go-source	313	workspace run/file 持久化 store	internal,sidecar,orch,store,workspace,module,run,file,持久化
+internal/sidecar/orch/store/workspace/row_mappers.go	internal	store-sql	go-source	1774	workspace run/file 持久化 store	internal,sidecar,orch,store,workspace,row,mappers,run,file,持久化
+internal/sidecar/orch/store/workspace/store.go	internal	store-sql	go-source	6506	workspace run/file 持久化 store	internal,sidecar,orch,store,workspace,run,file,持久化
 internal/store/agentstatus/contract.go	internal	store-sql	go-source	405	应用级持久化 store	internal,store,agentstatus,contract,应用级持久化
 internal/store/agentstatus/module.go	internal	store-sql	go-source	115	应用级持久化 store	internal,store,agentstatus,module,应用级持久化
 internal/store/agentstatus/store.go	internal	store-sql	go-source	2806	应用级持久化 store	internal,store,agentstatus,应用级持久化
@@ -32,7 +106,7 @@ internal/store/datasourcev2/module.go	internal	store-sql	go-source	831	应用级
 internal/store/datasourcev2/store.go	internal	store-sql	go-source	6327	应用级持久化 store	internal,store,datasourcev2,应用级持久化
 internal/store/dbquery/contract.go	internal	store-sql	go-source	293	应用级持久化 store	internal,store,dbquery,contract,应用级持久化
 internal/store/dbquery/executor_parser.go	internal	store-sql	go-source	5333	应用级持久化 store	internal,store,dbquery,executor,parser,应用级持久化
-internal/store/dbquery/executor.go	internal	store-sql	go-source	18056	应用级持久化 store	internal,store,dbquery,executor,应用级持久化
+internal/store/dbquery/executor.go	internal	store-sql	go-source	18145	应用级持久化 store	internal,store,dbquery,executor,应用级持久化
 internal/store/dbquery/module.go	internal	store-sql	go-source	305	应用级持久化 store	internal,store,dbquery,module,应用级持久化
 internal/store/dbquery/normalize.go	internal	store-sql	go-source	738	应用级持久化 store	internal,store,dbquery,normalize,应用级持久化
 internal/store/dbquery/store.go	internal	store-sql	go-source	1942	应用级持久化 store	internal,store,dbquery,应用级持久化
@@ -59,7 +133,7 @@ internal/store/routingtest/module.go	internal	store-sql	go-source	346	应用级�
 internal/store/routingtest/store.go	internal	store-sql	go-source	1964	应用级持久化 store	internal,store,routingtest,应用级持久化
 internal/store/sharedfile/contract.go	internal	store-sql	go-source	871	应用级持久化 store	internal,store,sharedfile,contract,应用级持久化
 internal/store/sharedfile/module.go	internal	store-sql	go-source	1310	应用级持久化 store	internal,store,sharedfile,module,应用级持久化
-internal/store/sharedfile/store.go	internal	store-sql	go-source	7055	应用级持久化 store	internal,store,sharedfile,应用级持久化
+internal/store/sharedfile/store.go	internal	store-sql	go-source	7064	应用级持久化 store	internal,store,sharedfile,应用级持久化
 internal/store/sqlc/.gitkeep	internal	store-sql	file	0	应用级持久化 store	internal,store,sqlc,应用级持久化
 internal/store/sqlc/agent_feedback.sql.go	internal	store-sql	go-source	5732	应用级持久化 store	internal,store,sqlc,agent,feedback,sql,应用级持久化
 internal/store/sqlc/agent_provider_binding.sql.go	internal	store-sql	go-source	8633	应用级持久化 store	internal,store,sqlc,agent,provider,binding,sql,应用级持久化
@@ -186,9 +260,9 @@ migrations/0076_dag_v2_one_running_run_per_dag.sql	migrations	store-sql	sql	2530
 migrations/0077_dag_v2_run_metadata_not_null.sql	migrations	store-sql	sql	1626	数据库 migration	migrations,0077,dag,v2,run,metadata,not,null,数据库,migration
 migrations/0078_dag_v2_node_depends_on_array_check.sql	migrations	store-sql	sql	2406	数据库 migration	migrations,0078,dag,v2,node,depends,on,array,check,数据库,migration
 migrations/0079_dag_v2_node_run_id_fk_and_jsonb_checks.sql	migrations	store-sql	sql	3939	数据库 migration	migrations,0079,dag,v2,node,run,id,fk,and,jsonb,checks,数据库,migration
-migrations/0080_dag_v2_run_status_check.sql	migrations	store-sql	sql	1868	数据库 migration	migrations,0080,dag,v2,run,status,check,数据库,migration
-migrations/0081_dag_v2_dag_trigger_check.sql	migrations	store-sql	sql	1807	数据库 migration	migrations,0081,dag,v2,trigger,check,数据库,migration
-migrations/0082_dag_v2_run_trigger_source_check.sql	migrations	store-sql	sql	3560	数据库 migration	migrations,0082,dag,v2,run,trigger,source,check,数据库,migration
+migrations/0080_dag_v2_run_status_check.sql	migrations	store-sql	sql	1877	数据库 migration	migrations,0080,dag,v2,run,status,check,数据库,migration
+migrations/0081_dag_v2_dag_trigger_check.sql	migrations	store-sql	sql	1816	数据库 migration	migrations,0081,dag,v2,trigger,check,数据库,migration
+migrations/0082_dag_v2_run_trigger_source_check.sql	migrations	store-sql	sql	3578	数据库 migration	migrations,0082,dag,v2,run,trigger,source,check,数据库,migration
 migrations/0083_dag_v2_spawning_thread_id.sql	migrations	store-sql	sql	2701	数据库 migration	migrations,0083,dag,v2,spawning,thread,id,数据库,migration
 migrations/0084_seed_dag_designer_prompt_zh.sql	migrations	store-sql	sql	15392	数据库 migration	migrations,0084,seed,dag,designer,prompt,zh,数据库,migration
 migrations/0085_seed_dag_designer_prompt_en.sql	migrations	store-sql	sql	14557	数据库 migration	migrations,0085,seed,dag,designer,prompt,en,数据库,migration

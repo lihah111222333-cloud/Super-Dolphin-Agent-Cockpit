@@ -2,23 +2,22 @@
 
 > 状态：**OK**
 >
-> 已索引文件：2837
+> 已索引文件：2880
 >
-> 未细分职责文件：232
+> 未细分职责文件：91
 
 ## 1. 漂移指标
 
 | 指标 | 当前值 |
 |---|---:|
-| 未细分职责文件数 | 232 |
-| 未细分职责占比 | 8.18% |
+| 未细分职责文件数 | 91 |
+| 未细分职责占比 | 3.16% |
 
 ## 2. 未细分职责分布
 
 | 模块 | 文件数 |
 |---|---:|
-| `frontend-app` | 193 |
-| `internal` | 16 |
+| `internal` | 68 |
 | `cmd` | 7 |
 | `third_party` | 7 |
 | `.project-map` | 5 |
@@ -42,41 +41,41 @@
 - `cmd/super-dolphin-updater/detach_default.go`
 - `cmd/super-dolphin-updater/install.go`
 - `cmd/super-dolphin-updater/main.go`
-- `frontend-app/.env.example`
-- `frontend-app/.gitignore`
-- `frontend-app/.playwright-cli/console-2026-05-31T11-04-30-522Z.log`
-- `frontend-app/.playwright-cli/page-2026-05-31T11-04-30-787Z.yml`
-- `frontend-app/README.md`
-- `frontend-app/design-qa-active-chat.png`
-- `frontend-app/eslint.config.js`
-- `frontend-app/index.html`
-- `frontend-app/jsconfig.json`
-- `frontend-app/package-lock.json`
-- `frontend-app/package.json`
-- `frontend-app/playwright.desktop.config.js`
-- `frontend-app/public/favicon.svg`
-- `frontend-app/public/wails/runtime.js`
-- `frontend-app/scripts/desktop-smoke.mjs`
-- `frontend-app/scripts/desktop-ux-smoke.mjs`
-- `frontend-app/scripts/rpc-contract-audit.mjs`
-- `frontend-app/scripts/sync-frontend-dist.mjs`
-- `frontend-app/src/App.jsx`
-- `frontend-app/src/AppChrome.css`
-- `frontend-app/src/AppShell.css`
-- `frontend-app/src/AppShellSidebarPolish.css`
-- `frontend-app/src/AppShellSidebarThreadActions.css`
-- `frontend-app/src/AppShellWorkbench.css`
-- `frontend-app/src/adapters/apiErrorAdapter.js`
-- `frontend-app/src/adapters/fileAdapter.js`
-- `frontend-app/src/adapters/memoryAdapter.js`
-- `frontend-app/src/adapters/observabilityAdapter.js`
-- `frontend-app/src/app/appShellModel.js`
-- `frontend-app/src/assets/super-dolphin-logo.png`
-- `frontend-app/src/entities/client/model/bridgePatchState.js`
-- `frontend-app/src/entities/client/model/bridgeRevision.js`
-- `frontend-app/src/entities/client/model/composerAttachments.js`
-- `frontend-app/src/entities/client/model/composerSlice.js`
-- `frontend-app/src/entities/client/model/forkSlice.js`
+- `internal/guards/guard_manifest.json`
+- `internal/guards/refactor_baseline.json`
+- `internal/sidecar/lsp/edit/doc.go`
+- `internal/sidecar/lsp/edit/patchmatch.go`
+- `internal/sidecar/lsp/edit/patchparse.go`
+- `internal/sidecar/lsp/edit/patchparse_test.go`
+- `internal/sidecar/lsp/edit/replaceutil.go`
+- `internal/sidecar/lsp/edit/seeksequence.go`
+- `internal/sidecar/lsp/format/compact.go`
+- `internal/sidecar/lsp/format/display.go`
+- `internal/sidecar/lsp/format/doc.go`
+- `internal/sidecar/lsp/format/funcrange.go`
+- `internal/sidecar/lsp/format/render.go`
+- `internal/sidecar/lsp/installer/doc.go`
+- `internal/sidecar/lsp/installer/installer.go`
+- `internal/sidecar/lsp/installer/installer_test.go`
+- `internal/sidecar/lsp/internal/hiddenexec/doc.go`
+- `internal/sidecar/lsp/internal/hiddenexec/process.go`
+- `internal/sidecar/lsp/internal/hiddenexec/process_default.go`
+- `internal/sidecar/lsp/internal/hiddenexec/process_windows.go`
+- `internal/sidecar/lsp/manager/doc.go`
+- `internal/sidecar/lsp/manager/manager.go`
+- `internal/sidecar/lsp/manager/registry.go`
+- `internal/sidecar/lsp/manager/scope.go`
+- `internal/sidecar/lsp/middleware/budget.go`
+- `internal/sidecar/lsp/middleware/budget_hints.go`
+- `internal/sidecar/lsp/middleware/doc.go`
+- `internal/sidecar/lsp/middleware/logging.go`
+- `internal/sidecar/lsp/middleware/recovery.go`
+- `internal/sidecar/lsp/middleware/timeout.go`
+- `internal/sidecar/lsp/protocol/codec.go`
+- `internal/sidecar/lsp/protocol/codec_test.go`
+- `internal/sidecar/lsp/protocol/doc.go`
+- `internal/sidecar/lsp/protocol/ext.go`
+- `internal/sidecar/lsp/protocol/methods.go`
 
 ## 4. 修复方式
 

@@ -2,101 +2,12 @@ path	module	domain	type	size_bytes	purpose	search_keys
 cmd/mcp-ida/fx.go	cmd	platform-provider	go-source	7292	IDA MCP peer 与逆向分析工具入口	cmd,mcp,ida,fx,IDA,MCP,peer,与逆向分析工具入口
 cmd/mcp-ida/main.go	cmd	platform-provider	go-source	1476	IDA MCP peer 与逆向分析工具入口	cmd,mcp,ida,main,IDA,MCP,peer,与逆向分析工具入口
 cmd/mcp-lsp/.DS_Store	cmd	platform-provider	file	8196	代码智能/LSP MCP peer	cmd,mcp,lsp,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/edit/doc.go	cmd	platform-provider	go-source	83	代码智能/LSP MCP peer	cmd,mcp,lsp,edit,doc,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/edit/patchmatch.go	cmd	platform-provider	go-source	11053	代码智能/LSP MCP peer	cmd,mcp,lsp,edit,patchmatch,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/edit/patchparse_test.go	cmd	platform-provider	go-test	461	代码智能/LSP MCP peer	cmd,mcp,lsp,edit,patchparse,test,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/edit/patchparse.go	cmd	platform-provider	go-source	9347	代码智能/LSP MCP peer	cmd,mcp,lsp,edit,patchparse,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/edit/replaceutil.go	cmd	platform-provider	go-source	7259	代码智能/LSP MCP peer	cmd,mcp,lsp,edit,replaceutil,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/edit/seeksequence.go	cmd	platform-provider	go-source	5535	代码智能/LSP MCP peer	cmd,mcp,lsp,edit,seeksequence,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/format/compact.go	cmd	platform-provider	go-source	7429	代码智能/LSP MCP peer	cmd,mcp,lsp,format,compact,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/format/display.go	cmd	platform-provider	go-source	10093	代码智能/LSP MCP peer	cmd,mcp,lsp,format,display,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/format/funcrange.go	cmd	platform-provider	go-source	4086	代码智能/LSP MCP peer	cmd,mcp,lsp,format,funcrange,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/format/render.go	cmd	platform-provider	go-source	7268	代码智能/LSP MCP peer	cmd,mcp,lsp,format,render,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/fx.go	cmd	platform-provider	go-source	13882	代码智能/LSP MCP peer	cmd,mcp,lsp,fx,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/fx.go	cmd	platform-provider	go-source	13891	代码智能/LSP MCP peer	cmd,mcp,lsp,fx,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/http_runner.go	cmd	platform-provider	go-source	2563	代码智能/LSP MCP peer	cmd,mcp,lsp,http,runner,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/installer/doc.go	cmd	platform-provider	go-source	349	代码智能/LSP MCP peer	cmd,mcp,lsp,installer,doc,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/installer/installer_test.go	cmd	platform-provider	go-test	1590	代码智能/LSP MCP peer	cmd,mcp,lsp,installer,test,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/installer/installer.go	cmd	platform-provider	go-source	7790	代码智能/LSP MCP peer	cmd,mcp,lsp,installer,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/internal/hiddenexec/process_default.go	cmd	platform-provider	go-source	97	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,hiddenexec,process,default,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/internal/hiddenexec/process_windows.go	cmd	platform-provider	go-source	351	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,hiddenexec,process,windows,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/internal/hiddenexec/process.go	cmd	platform-provider	go-source	419	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,hiddenexec,process,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/main.go	cmd	platform-provider	go-source	1205	代码智能/LSP MCP peer	cmd,mcp,lsp,main,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/manager/manager.go	cmd	platform-provider	go-source	3181	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/manager/registry.go	cmd	platform-provider	go-source	13354	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/manager/scope.go	cmd	platform-provider	go-source	9869	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,scope,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/middleware/budget_hints.go	cmd	platform-provider	go-source	2411	代码智能/LSP MCP peer	cmd,mcp,lsp,middleware,budget,hints,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/middleware/budget.go	cmd	platform-provider	go-source	4844	代码智能/LSP MCP peer	cmd,mcp,lsp,middleware,budget,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/middleware/logging.go	cmd	platform-provider	go-source	2033	代码智能/LSP MCP peer	cmd,mcp,lsp,middleware,logging,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/middleware/recovery.go	cmd	platform-provider	go-source	913	代码智能/LSP MCP peer	cmd,mcp,lsp,middleware,recovery,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/middleware/timeout.go	cmd	platform-provider	go-source	2544	代码智能/LSP MCP peer	cmd,mcp,lsp,middleware,timeout,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/multilsp/adapter.go	cmd	platform-provider	go-source	17063	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,adapter,多语言,LSP,manager,transport,与缓存
-internal/sidecar/lsp/multilsp/bootstrap_doc.go	cmd	platform-provider	go-source	13500	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,bootstrap,doc,多语言,LSP,manager,transport,与缓存
-internal/sidecar/lsp/multilsp/cache.go	cmd	platform-provider	go-source	15640	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,cache,多语言,LSP,manager,transport,与缓存
-internal/sidecar/lsp/multilsp/client.go	cmd	platform-provider	go-source	12701	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,client,多语言,LSP,manager,transport,与缓存
-internal/sidecar/lsp/multilsp/configuration_request.go	cmd	platform-provider	go-source	1091	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,configuration,request,多语言,LSP,manager,transport,与缓存
-internal/sidecar/lsp/multilsp/factory.go	cmd	platform-provider	go-source	14578	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,factory,多语言,LSP,manager,transport,与缓存
-internal/sidecar/lsp/multilsp/go_root_resolver.go	cmd	platform-provider	go-source	14632	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,go,root,resolver,多语言,LSP,manager,transport,与缓存
-internal/sidecar/lsp/multilsp/go_toolchain.go	cmd	platform-provider	go-source	7711	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,go,toolchain,多语言,LSP,manager,transport,与缓存
-internal/sidecar/lsp/multilsp/gomod.go	cmd	platform-provider	go-source	6956	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,gomod,多语言,LSP,manager,transport,与缓存
-internal/sidecar/lsp/multilsp/jsts_dependency_prepare.go	cmd	platform-provider	go-source	5041	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,jsts,dependency,prepare,多语言,LSP,manager,transport,与缓存
-internal/sidecar/lsp/multilsp/language_service_config.go	cmd	platform-provider	go-source	5935	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,language,service,config,多语言,LSP,manager,transport,与缓存
-internal/sidecar/lsp/multilsp/log_message_classification.go	cmd	platform-provider	go-source	613	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,log,message,classification,多语言,LSP,manager,transport,与缓存
-internal/sidecar/lsp/multilsp/manager_diagnostics_readiness.go	cmd	platform-provider	go-source	4394	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,diagnostics,readiness,多语言,LSP,transport,与缓存
-internal/sidecar/lsp/multilsp/manager_diagnostics_refresh.go	cmd	platform-provider	go-source	2426	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,diagnostics,refresh,多语言,LSP,transport,与缓存
-internal/sidecar/lsp/multilsp/manager_diagnostics.go	cmd	platform-provider	go-source	19128	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,diagnostics,多语言,LSP,transport,与缓存
-internal/sidecar/lsp/multilsp/manager_lifecycle.go	cmd	platform-provider	go-source	19962	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,lifecycle,多语言,LSP,transport,与缓存
-internal/sidecar/lsp/multilsp/manager_retry.go	cmd	platform-provider	go-source	5233	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,retry,多语言,LSP,transport,与缓存
-internal/sidecar/lsp/multilsp/manager_symbols_fallback.go	cmd	platform-provider	go-source	9737	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,symbols,fallback,多语言,LSP,transport,与缓存
-internal/sidecar/lsp/multilsp/manager_symbols.go	cmd	platform-provider	go-source	16902	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,symbols,多语言,LSP,transport,与缓存
-internal/sidecar/lsp/multilsp/manager.go	cmd	platform-provider	go-source	16097	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,多语言,LSP,transport,与缓存
-internal/sidecar/lsp/multilsp/pool.go	cmd	platform-provider	go-source	11382	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,pool,多语言,LSP,manager,transport,与缓存
-internal/sidecar/lsp/multilsp/recycler.go	cmd	platform-provider	go-source	13818	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,recycler,多语言,LSP,manager,transport,与缓存
-internal/sidecar/lsp/multilsp/registry_scope.go	cmd	platform-provider	go-source	7845	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,registry,scope,多语言,LSP,manager,transport,与缓存
-internal/sidecar/lsp/multilsp/release_scope.go	cmd	platform-provider	go-source	6993	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,release,scope,多语言,LSP,manager,transport,与缓存
-internal/sidecar/lsp/multilsp/scope.go	cmd	platform-provider	go-source	11412	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,scope,多语言,LSP,manager,transport,与缓存
-internal/sidecar/lsp/multilsp/state.go	cmd	platform-provider	go-source	4957	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,state,多语言,LSP,manager,transport,与缓存
-internal/sidecar/lsp/multilsp/transport_compat.go	cmd	platform-provider	go-source	4244	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,compat,多语言,LSP,manager,与缓存
-internal/sidecar/lsp/multilsp/transport_conn.go	cmd	platform-provider	go-source	5728	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,conn,多语言,LSP,manager,与缓存
-internal/sidecar/lsp/multilsp/transport.go	cmd	platform-provider	go-source	7985	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,多语言,LSP,manager,与缓存
-internal/sidecar/lsp/protocol/codec_test.go	cmd	platform-provider	go-test	634	代码智能/LSP MCP peer	cmd,mcp,lsp,protocol,codec,test,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/protocol/codec.go	cmd	platform-provider	go-source	7087	代码智能/LSP MCP peer	cmd,mcp,lsp,protocol,codec,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/protocol/doc.go	cmd	platform-provider	go-source	305	代码智能/LSP MCP peer	cmd,mcp,lsp,protocol,doc,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/protocol/ext.go	cmd	platform-provider	go-source	10575	代码智能/LSP MCP peer	cmd,mcp,lsp,protocol,ext,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/protocol/methods.go	cmd	platform-provider	go-source	1630	代码智能/LSP MCP peer	cmd,mcp,lsp,protocol,methods,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/protocol/notification.go	cmd	platform-provider	go-source	2135	代码智能/LSP MCP peer	cmd,mcp,lsp,protocol,notification,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/protocol/types.go	cmd	platform-provider	go-source	14300	代码智能/LSP MCP peer	cmd,mcp,lsp,protocol,types,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/runtime.go	cmd	platform-provider	go-source	20200	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/schema.go	cmd	platform-provider	go-source	7440	代码智能/LSP MCP peer	cmd,mcp,lsp,schema,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/search/fileutil.go	cmd	platform-provider	go-source	14312	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,fileutil,文件搜索与,grep,搜索工具实现
-internal/sidecar/lsp/search/process.go	cmd	platform-provider	go-source	269	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,process,文件搜索与,grep,搜索工具实现
-internal/sidecar/lsp/search/searchutil_cap.go	cmd	platform-provider	go-source	531	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,searchutil,cap,文件搜索与,grep,搜索工具实现
-internal/sidecar/lsp/search/searchutil.go	cmd	platform-provider	go-source	19488	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,searchutil,文件搜索与,grep,搜索工具实现
-internal/sidecar/lsp/tools.go	cmd	platform-provider	go-source	3747	代码智能/LSP MCP peer	cmd,mcp,lsp,tools,代码智能,LSP,MCP,peer
-internal/sidecar/lsp/tools/factory.go	cmd	platform-provider	go-source	19090	LSP MCP tools 实现	cmd,mcp,lsp,tools,factory,LSP,MCP,实现
-internal/sidecar/lsp/tools/formatter.go	cmd	platform-provider	go-source	14745	LSP MCP tools 实现	cmd,mcp,lsp,tools,formatter,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_capability.go	cmd	platform-provider	go-source	2596	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,capability,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_compact_locations.go	cmd	platform-provider	go-source	4837	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,compact,locations,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_completion.go	cmd	platform-provider	go-source	5323	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,completion,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_diagnostics.go	cmd	platform-provider	go-source	18154	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,diagnostics,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_edit_function_context.go	cmd	platform-provider	go-source	1638	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,edit,function,context,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_edit_lock.go	cmd	platform-provider	go-source	707	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,edit,lock,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_edit_log.go	cmd	platform-provider	go-source	2926	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,edit,log,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_edit_lsp_actions.go	cmd	platform-provider	go-source	8583	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,edit,actions,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_edit_recovery.go	cmd	platform-provider	go-source	1923	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,edit,recovery,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_edit_rename.go	cmd	platform-provider	go-source	7973	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,edit,rename,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_edit_replace_update.go	cmd	platform-provider	go-source	6686	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,edit,replace,update,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_edit_replace.go	cmd	platform-provider	go-source	15503	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,edit,replace,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_edit_support.go	cmd	platform-provider	go-source	6137	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,edit,support,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_edit.go	cmd	platform-provider	go-source	5425	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,edit,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_error_envelope.go	cmd	platform-provider	go-source	545	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,error,envelope,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_file_render.go	cmd	platform-provider	go-source	8774	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,file,render,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_file.go	cmd	platform-provider	go-source	17454	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,file,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_grep_log.go	cmd	platform-provider	go-source	4191	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,grep,log,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_grep.go	cmd	platform-provider	go-source	17361	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,grep,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_inspect.go	cmd	platform-provider	go-source	5949	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,inspect,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_rust_workspace.go	cmd	platform-provider	go-source	1736	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,rust,workspace,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_structure.go	cmd	platform-provider	go-source	10733	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,structure,LSP,MCP,实现
-internal/sidecar/lsp/tools/tool_xref.go	cmd	platform-provider	go-source	6079	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,xref,LSP,MCP,实现
+cmd/mcp-lsp/runtime.go	cmd	platform-provider	go-source	20236	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/schema.go	cmd	platform-provider	go-source	7449	代码智能/LSP MCP peer	cmd,mcp,lsp,schema,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/tools.go	cmd	platform-provider	go-source	3756	代码智能/LSP MCP peer	cmd,mcp,lsp,tools,代码智能,LSP,MCP,peer
 internal/mcpserver/runtime/bootstrap/client.go	internal	platform-provider	go-source	10118	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,runtime,bootstrap,client,MCP,server,公共框架,与,transport
 internal/mcpserver/runtime/bootstrap/doc.go	internal	platform-provider	go-source	102	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,runtime,bootstrap,doc,MCP,server,公共框架,与,transport
 internal/mcpserver/runtime/bootstrap/env.go	internal	platform-provider	go-source	11379	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,runtime,bootstrap,env,MCP,server,公共框架,与,transport
@@ -129,9 +40,9 @@ internal/platform/cachekeepalive/module.go	internal	platform-provider	go-source	
 internal/platform/cachekeepalive/relay.go	internal	platform-provider	go-source	2070	基础设施层	internal,platform,cachekeepalive,relay,基础设施层
 internal/platform/cachekeepalive/subscribers.go	internal	platform-provider	go-source	1111	基础设施层	internal,platform,cachekeepalive,subscribers,基础设施层
 internal/platform/config/config.go	internal	platform-provider	go-source	13143	运行配置、env、provider 与超时策略	internal,platform,config,运行配置,env,provider,与超时策略
-internal/platform/config/lsp.go	internal	platform-provider	go-source	5700	运行配置、env、provider 与超时策略	internal,platform,config,lsp,运行配置,env,provider,与超时策略
+internal/platform/config/lsp.go	internal	platform-provider	go-source	5696	运行配置、env、provider 与超时策略	internal,platform,config,lsp,运行配置,env,provider,与超时策略
 internal/platform/config/module.go	internal	platform-provider	go-source	91	运行配置、env、provider 与超时策略	internal,platform,config,module,运行配置,env,provider,与超时策略
-internal/platform/config/timeouts.go	internal	platform-provider	go-source	2420	运行配置、env、provider 与超时策略	internal,platform,config,timeouts,运行配置,env,provider,与超时策略
+internal/platform/config/timeouts.go	internal	platform-provider	go-source	2401	运行配置、env、provider 与超时策略	internal,platform,config,timeouts,运行配置,env,provider,与超时策略
 internal/platform/db/checkpoint.go	internal	platform-provider	go-source	839	基础设施层	internal,platform,db,checkpoint,基础设施层
 internal/platform/db/errors.go	internal	platform-provider	go-source	2318	基础设施层	internal,platform,db,errors,基础设施层
 internal/platform/db/module.go	internal	platform-provider	go-source	5219	基础设施层	internal,platform,db,module,基础设施层
@@ -213,9 +124,13 @@ internal/platform/kernel/builtinprompts/load.go	internal	platform-provider	go-so
 internal/platform/kernel/builtinprompts/registry.go	internal	platform-provider	go-source	4600	基础设施层	internal,platform,kernel,builtinprompts,registry,基础设施层
 internal/platform/kernel/builtinprompts/schema.go	internal	platform-provider	go-source	1631	基础设施层	internal,platform,kernel,builtinprompts,schema,基础设施层
 internal/platform/kernel/builtinprompts/validate.go	internal	platform-provider	go-source	9477	基础设施层	internal,platform,kernel,builtinprompts,validate,基础设施层
+internal/platform/kernel/config_value.go	internal	platform-provider	go-source	1661	基础设施层	internal,platform,kernel,config,value,基础设施层
 internal/platform/kernel/ctxutil.go	internal	platform-provider	go-source	363	基础设施层	internal,platform,kernel,ctxutil,基础设施层
 internal/platform/kernel/doc.go	internal	platform-provider	go-source	342	基础设施层	internal,platform,kernel,doc,基础设施层
+internal/platform/kernel/history.go	internal	platform-provider	go-source	1668	基础设施层	internal,platform,kernel,history,基础设施层
 internal/platform/kernel/hookutil.go	internal	platform-provider	go-source	515	基础设施层	internal,platform,kernel,hookutil,基础设施层
+internal/platform/kernel/idempotency.go	internal	platform-provider	go-source	1316	基础设施层	internal,platform,kernel,idempotency,基础设施层
+internal/platform/kernel/identity.go	internal	platform-provider	go-source	394	基础设施层	internal,platform,kernel,identity,基础设施层
 internal/platform/kernel/idgen_agent.go	internal	platform-provider	go-source	417	基础设施层	internal,platform,kernel,idgen,agent,基础设施层
 internal/platform/kernel/idgen.go	internal	platform-provider	go-source	205	基础设施层	internal,platform,kernel,idgen,基础设施层
 internal/platform/kernel/jsonutil.go	internal	platform-provider	go-source	2359	基础设施层	internal,platform,kernel,jsonutil,基础设施层
@@ -223,6 +138,7 @@ internal/platform/kernel/log_error.go	internal	platform-provider	go-source	318	�
 internal/platform/kernel/pathscope.go	internal	platform-provider	go-source	4415	基础设施层	internal,platform,kernel,pathscope,基础设施层
 internal/platform/kernel/project_key.go	internal	platform-provider	go-source	1001	基础设施层	internal,platform,kernel,project,key,基础设施层
 internal/platform/kernel/retry.go	internal	platform-provider	go-source	2900	基础设施层	internal,platform,kernel,retry,基础设施层
+internal/platform/kernel/runtime_helpers.go	internal	platform-provider	go-source	4142	基础设施层	internal,platform,kernel,runtime,helpers,基础设施层
 internal/platform/kernel/safe_go.go	internal	platform-provider	go-source	774	基础设施层	internal,platform,kernel,safe,go,基础设施层
 internal/platform/kernel/search.go	internal	platform-provider	go-source	1336	基础设施层	internal,platform,kernel,search,基础设施层
 internal/platform/kernel/timeparse.go	internal	platform-provider	go-source	2541	基础设施层	internal,platform,kernel,timeparse,基础设施层
@@ -261,7 +177,7 @@ internal/platform/metrics/metrics.go	internal	platform-provider	go-source	2127	�
 internal/platform/metrics/skill.go	internal	platform-provider	go-source	2549	基础设施层	internal,platform,metrics,skill,基础设施层
 internal/platform/notify/dingtalk.go	internal	platform-provider	go-source	3020	基础设施层	internal,platform,notify,dingtalk,基础设施层
 internal/platform/notify/feishu.go	internal	platform-provider	go-source	2330	基础设施层	internal,platform,notify,feishu,基础设施层
-internal/platform/notify/flusher.go	internal	platform-provider	go-source	7059	基础设施层	internal,platform,notify,flusher,基础设施层
+internal/platform/notify/flusher.go	internal	platform-provider	go-source	7061	基础设施层	internal,platform,notify,flusher,基础设施层
 internal/platform/notify/notifier.go	internal	platform-provider	go-source	3033	基础设施层	internal,platform,notify,notifier,基础设施层
 internal/platform/notify/redact.go	internal	platform-provider	go-source	1397	基础设施层	internal,platform,notify,redact,基础设施层
 internal/platform/notify/render.go	internal	platform-provider	go-source	3877	基础设施层	internal,platform,notify,render,基础设施层
@@ -281,7 +197,7 @@ internal/platform/observability/query.go	internal	platform-provider	go-source	34
 internal/platform/observability/record_error.go	internal	platform-provider	go-source	1310	基础设施层	internal,platform,observability,record,error,基础设施层
 internal/platform/observability/sampler.go	internal	platform-provider	go-source	1303	基础设施层	internal,platform,observability,sampler,基础设施层
 internal/platform/observability/sanitizer.go	internal	platform-provider	go-source	5739	基础设施层	internal,platform,observability,sanitizer,基础设施层
-internal/platform/observability/service.go	internal	platform-provider	go-source	9483	基础设施层	internal,platform,observability,service,基础设施层
+internal/platform/observability/service.go	internal	platform-provider	go-source	9489	基础设施层	internal,platform,observability,service,基础设施层
 internal/platform/observability/sink.go	internal	platform-provider	go-source	259	基础设施层	internal,platform,observability,sink,基础设施层
 internal/platform/observability/stack.go	internal	platform-provider	go-source	1511	基础设施层	internal,platform,observability,stack,基础设施层
 internal/platform/pidregistry/pidregistry.go	internal	platform-provider	go-source	9940	基础设施层	internal,platform,pidregistry,基础设施层
@@ -312,7 +228,7 @@ internal/platform/rpc/timer_jitter.go	internal	platform-provider	go-source	288	J
 internal/platform/rpc/trace.go	internal	platform-provider	go-source	680	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,trace,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/transport_ws.go	internal	platform-provider	go-source	9912	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,transport,ws,JSON-RPC,dispatch,push,与审批框架
 internal/platform/runner/contract.go	internal	platform-provider	go-source	1253	基础设施层	internal,platform,runner,contract,基础设施层
-internal/platform/runner/group.go	internal	platform-provider	go-source	2409	基础设施层	internal,platform,runner,group,基础设施层
+internal/platform/runner/group.go	internal	platform-provider	go-source	2435	基础设施层	internal,platform,runner,group,基础设施层
 internal/platform/runner/module.go	internal	platform-provider	go-source	104	基础设施层	internal,platform,runner,module,基础设施层
 internal/platform/runtimeenv/runtime_paths.go	internal	platform-provider	go-source	4567	基础设施层	internal,platform,runtimeenv,runtime,paths,基础设施层
 internal/platform/runtimeenv/runtime_resolution.go	internal	platform-provider	go-source	10952	基础设施层	internal,platform,runtimeenv,runtime,resolution,基础设施层
@@ -336,7 +252,7 @@ internal/platform/toolbridge/handler_log.go	internal	platform-provider	go-source
 internal/platform/toolbridge/handler_managed_launch.go	internal	platform-provider	go-source	8668	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,managed,launch,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_peer_alias.go	internal	platform-provider	go-source	658	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,peer,alias,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_peer_decode_helpers.go	internal	platform-provider	go-source	4713	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,peer,decode,helpers,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/handler_peer_decode.go	internal	platform-provider	go-source	20157	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,peer,decode,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/handler_peer_decode.go	internal	platform-provider	go-source	20172	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,peer,decode,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler.go	internal	platform-provider	go-source	16304	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/host_tools.go	internal	platform-provider	go-source	1694	provider 与 MCP tools 桥接	internal,platform,toolbridge,host,tools,provider,与,MCP,桥接
 internal/platform/toolbridge/http_mcp_client.go	internal	platform-provider	go-source	13301	provider 与 MCP tools 桥接	internal,platform,toolbridge,http,mcp,client,provider,与,MCP,tools,桥接
@@ -349,41 +265,41 @@ internal/platform/toolbridge/ports.go	internal	platform-provider	go-source	2614	
 internal/platform/toolbridge/protocol_contract.go	internal	platform-provider	go-source	2175	provider 与 MCP tools 桥接	internal,platform,toolbridge,protocol,contract,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/proxy_runner.go	internal	platform-provider	go-source	4259	provider 与 MCP tools 桥接	internal,platform,toolbridge,proxy,runner,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/proxy.go	internal	platform-provider	go-source	13459	provider 与 MCP tools 桥接	internal,platform,toolbridge,proxy,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/stdio_mcp_client.go	internal	platform-provider	go-source	6574	provider 与 MCP tools 桥接	internal,platform,toolbridge,stdio,mcp,client,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/stdio_mcp_client.go	internal	platform-provider	go-source	6600	provider 与 MCP tools 桥接	internal,platform,toolbridge,stdio,mcp,client,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/stdio_process_test_unix.go	internal	platform-provider	go-source	40	provider 与 MCP tools 桥接	internal,platform,toolbridge,stdio,process,test,unix,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/stdio_process_test_windows.go	internal	platform-provider	go-source	462	provider 与 MCP tools 桥接	internal,platform,toolbridge,stdio,process,test,windows,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/stdio_process_unix.go	internal	platform-provider	go-source	1742	provider 与 MCP tools 桥接	internal,platform,toolbridge,stdio,process,unix,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/stdio_process_windows.go	internal	platform-provider	go-source	3253	provider 与 MCP tools 桥接	internal,platform,toolbridge,stdio,process,windows,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/subscribers.go	internal	platform-provider	go-source	1208	provider 与 MCP tools 桥接	internal,platform,toolbridge,subscribers,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/types.go	internal	platform-provider	go-source	5651	provider 与 MCP tools 桥接	internal,platform,toolbridge,types,provider,与,MCP,tools,桥接
-internal/provider/claudecli/auth_preflight.go	internal	platform-provider	go-source	2863	Claude CLI provider 集成	internal,provider,claudecli,auth,preflight,Claude,CLI,集成
+internal/provider/claudecli/auth_preflight.go	internal	platform-provider	go-source	2865	Claude CLI provider 集成	internal,provider,claudecli,auth,preflight,Claude,CLI,集成
 internal/provider/claudecli/config.go	internal	platform-provider	go-source	7114	Claude CLI provider 集成	internal,provider,claudecli,config,Claude,CLI,集成
 internal/provider/claudecli/context_window.go	internal	platform-provider	go-source	2067	Claude CLI provider 集成	internal,provider,claudecli,context,window,Claude,CLI,集成
 internal/provider/claudecli/dream_executor.go	internal	platform-provider	go-source	3057	Claude CLI provider 集成	internal,provider,claudecli,dream,executor,Claude,CLI,集成
-internal/provider/claudecli/driver.go	internal	platform-provider	go-source	19199	Claude CLI provider 集成	internal,provider,claudecli,driver,Claude,CLI,集成
+internal/provider/claudecli/driver.go	internal	platform-provider	go-source	19056	Claude CLI provider 集成	internal,provider,claudecli,driver,Claude,CLI,集成
 internal/provider/claudecli/event_map.go	internal	platform-provider	go-source	6672	Claude CLI provider 集成	internal,provider,claudecli,event,map,Claude,CLI,集成
 internal/provider/claudecli/factory.go	internal	platform-provider	go-source	9033	Claude CLI provider 集成	internal,provider,claudecli,factory,Claude,CLI,集成
 internal/provider/claudecli/history_model.go	internal	platform-provider	go-source	1229	Claude CLI provider 集成	internal,provider,claudecli,history,model,Claude,CLI,集成
 internal/provider/claudecli/history_trim.go	internal	platform-provider	go-source	3563	Claude CLI provider 集成	internal,provider,claudecli,history,trim,Claude,CLI,集成
-internal/provider/claudecli/history.go	internal	platform-provider	go-source	7898	Claude CLI provider 集成	internal,provider,claudecli,history,Claude,CLI,集成
+internal/provider/claudecli/history.go	internal	platform-provider	go-source	7786	Claude CLI provider 集成	internal,provider,claudecli,history,Claude,CLI,集成
 internal/provider/claudecli/image_block.go	internal	platform-provider	go-source	6220	Claude CLI provider 集成	internal,provider,claudecli,image,block,Claude,CLI,集成
 internal/provider/claudecli/image_tracker.go	internal	platform-provider	go-source	2707	Claude CLI provider 集成	internal,provider,claudecli,image,tracker,Claude,CLI,集成
 internal/provider/claudecli/manual_helper.go	internal	platform-provider	go-source	508	Claude CLI provider 集成	internal,provider,claudecli,manual,helper,Claude,CLI,集成
 internal/provider/claudecli/module.go	internal	platform-provider	go-source	11307	Claude CLI provider 集成	internal,provider,claudecli,module,Claude,CLI,集成
 internal/provider/claudecli/observability_trace.go	internal	platform-provider	go-source	3803	Claude CLI provider 集成	internal,provider,claudecli,observability,trace,Claude,CLI,集成
 internal/provider/claudecli/session_config.go	internal	platform-provider	go-source	6622	Claude CLI provider 集成	internal,provider,claudecli,session,config,Claude,CLI,集成
-internal/provider/claudecli/session_events.go	internal	platform-provider	go-source	14297	Claude CLI provider 集成	internal,provider,claudecli,session,events,Claude,CLI,集成
+internal/provider/claudecli/session_events.go	internal	platform-provider	go-source	14225	Claude CLI provider 集成	internal,provider,claudecli,session,events,Claude,CLI,集成
 internal/provider/claudecli/session_history.go	internal	platform-provider	go-source	3093	Claude CLI provider 集成	internal,provider,claudecli,session,history,Claude,CLI,集成
 internal/provider/claudecli/session_interrupt_cleanup.go	internal	platform-provider	go-source	1215	Claude CLI provider 集成	internal,provider,claudecli,session,interrupt,cleanup,Claude,CLI,集成
-internal/provider/claudecli/session_log_watcher_integration.go	internal	platform-provider	go-source	12807	Claude CLI provider 集成	internal,provider,claudecli,session,log,watcher,integration,Claude,CLI,集成
+internal/provider/claudecli/session_log_watcher_integration.go	internal	platform-provider	go-source	12725	Claude CLI provider 集成	internal,provider,claudecli,session,log,watcher,integration,Claude,CLI,集成
 internal/provider/claudecli/session_log_watcher.go	internal	platform-provider	go-source	8443	Claude CLI provider 集成	internal,provider,claudecli,session,log,watcher,Claude,CLI,集成
 internal/provider/claudecli/session_receive_exit.go	internal	platform-provider	go-source	370	Claude CLI provider 集成	internal,provider,claudecli,session,receive,exit,Claude,CLI,集成
 internal/provider/claudecli/session_restart_control.go	internal	platform-provider	go-source	1245	Claude CLI provider 集成	internal,provider,claudecli,session,restart,control,Claude,CLI,集成
-internal/provider/claudecli/session_silent_turn.go	internal	platform-provider	go-source	3039	Claude CLI provider 集成	internal,provider,claudecli,session,silent,turn,Claude,CLI,集成
+internal/provider/claudecli/session_silent_turn.go	internal	platform-provider	go-source	3040	Claude CLI provider 集成	internal,provider,claudecli,session,silent,turn,Claude,CLI,集成
 internal/provider/claudecli/session_turn.go	internal	platform-provider	go-source	12109	Claude CLI provider 集成	internal,provider,claudecli,session,turn,Claude,CLI,集成
-internal/provider/claudecli/session.go	internal	platform-provider	go-source	12160	Claude CLI provider 集成	internal,provider,claudecli,session,Claude,CLI,集成
+internal/provider/claudecli/session.go	internal	platform-provider	go-source	12161	Claude CLI provider 集成	internal,provider,claudecli,session,Claude,CLI,集成
 internal/provider/claudecli/thread_identity.go	internal	platform-provider	go-source	4158	Claude CLI provider 集成	internal,provider,claudecli,thread,identity,Claude,CLI,集成
-internal/provider/claudecli/transport_config.go	internal	platform-provider	go-source	18420	Claude CLI provider 集成	internal,provider,claudecli,transport,config,Claude,CLI,集成
+internal/provider/claudecli/transport_config.go	internal	platform-provider	go-source	18416	Claude CLI provider 集成	internal,provider,claudecli,transport,config,Claude,CLI,集成
 internal/provider/claudecli/transport_unix.go	internal	platform-provider	go-source	1302	Claude CLI provider 集成	internal,provider,claudecli,transport,unix,Claude,CLI,集成
 internal/provider/claudecli/transport_windows.go	internal	platform-provider	go-source	5378	Claude CLI provider 集成	internal,provider,claudecli,transport,windows,Claude,CLI,集成
 internal/provider/claudecli/transport.go	internal	platform-provider	go-source	7164	Claude CLI provider 集成	internal,provider,claudecli,transport,Claude,CLI,集成
@@ -393,7 +309,7 @@ internal/provider/codexapp/codex_manifest.go	internal	platform-provider	go-sourc
 internal/provider/codexapp/codexmanifest/manifest.go	internal	platform-provider	go-source	7135	Codex app/server provider 集成	internal,provider,codexapp,codexmanifest,manifest,Codex,app,server,集成
 internal/provider/codexapp/dream_executor.go	internal	platform-provider	go-source	2839	Codex app/server provider 集成	internal,provider,codexapp,dream,executor,Codex,app,server,集成
 internal/provider/codexapp/driver_pool_routing.go	internal	platform-provider	go-source	20410	Codex app/server provider 集成	internal,provider,codexapp,driver,pool,routing,Codex,app,server,集成
-internal/provider/codexapp/driver.go	internal	platform-provider	go-source	25419	Codex app/server provider 集成	internal,provider,codexapp,driver,Codex,app,server,集成
+internal/provider/codexapp/driver.go	internal	platform-provider	go-source	25347	Codex app/server provider 集成	internal,provider,codexapp,driver,Codex,app,server,集成
 internal/provider/codexapp/event_map.go	internal	platform-provider	go-source	15828	Codex app/server provider 集成	internal,provider,codexapp,event,map,Codex,app,server,集成
 internal/provider/codexapp/factory.go	internal	platform-provider	go-source	11809	Codex app/server provider 集成	internal,provider,codexapp,factory,Codex,app,server,集成
 internal/provider/codexapp/history_rollout.go	internal	platform-provider	go-source	9009	Codex app/server provider 集成	internal,provider,codexapp,history,rollout,Codex,app,server,集成
@@ -411,7 +327,7 @@ internal/provider/codexapp/server_pool.go	internal	platform-provider	go-source	1
 internal/provider/codexapp/session_approval.go	internal	platform-provider	go-source	14010	Codex app/server provider 集成	internal,provider,codexapp,session,approval,Codex,app,server,集成
 internal/provider/codexapp/session_dispatch.go	internal	platform-provider	go-source	13458	Codex app/server provider 集成	internal,provider,codexapp,session,dispatch,Codex,app,server,集成
 internal/provider/codexapp/session_enrich.go	internal	platform-provider	go-source	12473	Codex app/server provider 集成	internal,provider,codexapp,session,enrich,Codex,app,server,集成
-internal/provider/codexapp/session_history.go	internal	platform-provider	go-source	3867	Codex app/server provider 集成	internal,provider,codexapp,session,history,Codex,app,server,集成
+internal/provider/codexapp/session_history.go	internal	platform-provider	go-source	3949	Codex app/server provider 集成	internal,provider,codexapp,session,history,Codex,app,server,集成
 internal/provider/codexapp/session_rollout_events.go	internal	platform-provider	go-source	9388	Codex app/server provider 集成	internal,provider,codexapp,session,rollout,events,Codex,app,server,集成
 internal/provider/codexapp/session_runtime.go	internal	platform-provider	go-source	11558	Codex app/server provider 集成	internal,provider,codexapp,session,runtime,Codex,app,server,集成
 internal/provider/codexapp/session_turn.go	internal	platform-provider	go-source	8789	Codex app/server provider 集成	internal,provider,codexapp,session,turn,Codex,app,server,集成
@@ -430,7 +346,7 @@ internal/provider/e2efixture/dream_executor.go	internal	platform-provider	go-sou
 internal/provider/e2efixture/module.go	internal	platform-provider	go-source	202	AI provider 集成层	internal,provider,e2efixture,module,AI,集成层
 internal/provider/manifestbuilder/manifest.go	internal	platform-provider	go-source	381	AI provider 集成层	internal,provider,manifestbuilder,manifest,AI,集成层
 internal/provider/runtimeconfig/codex_identity.go	internal	platform-provider	go-source	1155	AI provider 集成层	internal,provider,runtimeconfig,codex,identity,AI,集成层
-internal/provider/runtimeconfig/config_helpers.go	internal	platform-provider	go-source	13230	AI provider 集成层	internal,provider,runtimeconfig,config,helpers,AI,集成层
+internal/provider/runtimeconfig/config_helpers.go	internal	platform-provider	go-source	13178	AI provider 集成层	internal,provider,runtimeconfig,config,helpers,AI,集成层
 internal/provider/runtimeconfig/doc.go	internal	platform-provider	go-source	92	AI provider 集成层	internal,provider,runtimeconfig,doc,AI,集成层
 internal/provider/runtimeconfig/hooks.go	internal	platform-provider	go-source	3394	AI provider 集成层	internal,provider,runtimeconfig,hooks,AI,集成层
 internal/provider/runtimeconfig/observability_trace.go	internal	platform-provider	go-source	2611	AI provider 集成层	internal,provider,runtimeconfig,observability,trace,AI,集成层
@@ -444,8 +360,104 @@ internal/provider/unified/module.go	internal	platform-provider	go-source	1921	�
 internal/provider/unified/observability_trace.go	internal	platform-provider	go-source	2838	统一 provider 会话解析与 manifest	internal,provider,unified,observability,trace,统一,会话解析与,manifest
 internal/provider/unified/registry.go	internal	platform-provider	go-source	1981	统一 provider 会话解析与 manifest	internal,provider,unified,registry,统一,会话解析与,manifest
 internal/provider/unified/session_adapter.go	internal	platform-provider	go-source	2228	统一 provider 会话解析与 manifest	internal,provider,unified,session,adapter,统一,会话解析与,manifest
-internal/provider/unified/session_resolver_auto_resume.go	internal	platform-provider	go-source	7892	统一 provider 会话解析与 manifest	internal,provider,unified,session,resolver,auto,resume,统一,会话解析与,manifest
-internal/provider/unified/session_resolver.go	internal	platform-provider	go-source	10107	统一 provider 会话解析与 manifest	internal,provider,unified,session,resolver,统一,会话解析与,manifest
+internal/provider/unified/session_resolver_auto_resume.go	internal	platform-provider	go-source	7903	统一 provider 会话解析与 manifest	internal,provider,unified,session,resolver,auto,resume,统一,会话解析与,manifest
+internal/provider/unified/session_resolver.go	internal	platform-provider	go-source	10070	统一 provider 会话解析与 manifest	internal,provider,unified,session,resolver,统一,会话解析与,manifest
 internal/provider/unified/session.go	internal	platform-provider	go-source	4947	统一 provider 会话解析与 manifest	internal,provider,unified,session,统一,会话解析与,manifest
 internal/provider/unified/testdata/golden/integration/auto_resume_identity_request.golden.json	internal	platform-provider	json	328	统一 provider 会话解析与 manifest	internal,provider,unified,testdata,golden,integration,auto,resume,identity,request,统一,会话解析与,manifest
 internal/provider/unified/ui_tokens.go	internal	platform-provider	go-source	4943	统一 provider 会话解析与 manifest	internal,provider,unified,ui,tokens,统一,会话解析与,manifest
+internal/sidecar/lsp/edit/doc.go	internal	platform-provider	go-source	83	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,edit,doc,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/edit/patchmatch.go	internal	platform-provider	go-source	11053	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,edit,patchmatch,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/edit/patchparse_test.go	internal	platform-provider	go-test	461	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,edit,patchparse,test,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/edit/patchparse.go	internal	platform-provider	go-source	9347	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,edit,patchparse,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/edit/replaceutil.go	internal	platform-provider	go-source	7259	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,edit,replaceutil,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/edit/seeksequence.go	internal	platform-provider	go-source	5535	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,edit,seeksequence,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/format/compact.go	internal	platform-provider	go-source	7591	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,format,compact,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/format/display.go	internal	platform-provider	go-source	10102	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,format,display,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/format/doc.go	internal	platform-provider	go-source	107	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,format,doc,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/format/funcrange.go	internal	platform-provider	go-source	4142	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,format,funcrange,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/format/render.go	internal	platform-provider	go-source	7277	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,format,render,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/installer/doc.go	internal	platform-provider	go-source	323	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,installer,doc,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/installer/installer_test.go	internal	platform-provider	go-test	1590	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,installer,test,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/installer/installer.go	internal	platform-provider	go-source	7799	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,installer,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/internal/hiddenexec/doc.go	internal	platform-provider	go-source	128	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,hiddenexec,doc,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/internal/hiddenexec/process_default.go	internal	platform-provider	go-source	97	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,hiddenexec,process,default,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/internal/hiddenexec/process_windows.go	internal	platform-provider	go-source	351	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,hiddenexec,process,windows,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/internal/hiddenexec/process.go	internal	platform-provider	go-source	419	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,hiddenexec,process,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/manager/doc.go	internal	platform-provider	go-source	110	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,manager,doc,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/manager/manager.go	internal	platform-provider	go-source	3842	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,manager,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/manager/registry.go	internal	platform-provider	go-source	13519	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,manager,registry,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/manager/scope.go	internal	platform-provider	go-source	9878	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,manager,scope,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/middleware/budget_hints.go	internal	platform-provider	go-source	2411	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,middleware,budget,hints,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/middleware/budget.go	internal	platform-provider	go-source	4887	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,middleware,budget,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/middleware/doc.go	internal	platform-provider	go-source	119	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,middleware,doc,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/middleware/logging.go	internal	platform-provider	go-source	2124	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,middleware,logging,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/middleware/recovery.go	internal	platform-provider	go-source	913	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,middleware,recovery,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/middleware/timeout.go	internal	platform-provider	go-source	2544	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,middleware,timeout,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/multilsp/adapter.go	internal	platform-provider	go-source	17339	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,adapter,多语言,LSP,manager,transport,与缓存
+internal/sidecar/lsp/multilsp/bootstrap_doc.go	internal	platform-provider	go-source	13509	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,bootstrap,doc,多语言,LSP,manager,transport,与缓存
+internal/sidecar/lsp/multilsp/cache.go	internal	platform-provider	go-source	15640	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,cache,多语言,LSP,manager,transport,与缓存
+internal/sidecar/lsp/multilsp/client.go	internal	platform-provider	go-source	12846	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,client,多语言,LSP,manager,transport,与缓存
+internal/sidecar/lsp/multilsp/configuration_request.go	internal	platform-provider	go-source	1091	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,configuration,request,多语言,LSP,manager,transport,与缓存
+internal/sidecar/lsp/multilsp/doc.go	internal	platform-provider	go-source	113	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,doc,多语言,LSP,manager,transport,与缓存
+internal/sidecar/lsp/multilsp/factory.go	internal	platform-provider	go-source	14596	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,factory,多语言,LSP,manager,transport,与缓存
+internal/sidecar/lsp/multilsp/go_root_resolver.go	internal	platform-provider	go-source	14792	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,go,root,resolver,多语言,LSP,manager,transport,与缓存
+internal/sidecar/lsp/multilsp/go_toolchain.go	internal	platform-provider	go-source	7720	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,go,toolchain,多语言,LSP,manager,transport,与缓存
+internal/sidecar/lsp/multilsp/gomod.go	internal	platform-provider	go-source	6965	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,gomod,多语言,LSP,manager,transport,与缓存
+internal/sidecar/lsp/multilsp/jsts_dependency_prepare.go	internal	platform-provider	go-source	5050	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,jsts,dependency,prepare,多语言,LSP,manager,transport,与缓存
+internal/sidecar/lsp/multilsp/language_service_config.go	internal	platform-provider	go-source	5935	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,language,service,config,多语言,LSP,manager,transport,与缓存
+internal/sidecar/lsp/multilsp/log_message_classification.go	internal	platform-provider	go-source	622	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,log,message,classification,多语言,LSP,manager,transport,与缓存
+internal/sidecar/lsp/multilsp/manager_diagnostics_readiness.go	internal	platform-provider	go-source	4403	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,manager,diagnostics,readiness,多语言,LSP,transport,与缓存
+internal/sidecar/lsp/multilsp/manager_diagnostics_refresh.go	internal	platform-provider	go-source	2426	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,manager,diagnostics,refresh,多语言,LSP,transport,与缓存
+internal/sidecar/lsp/multilsp/manager_diagnostics.go	internal	platform-provider	go-source	19146	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,manager,diagnostics,多语言,LSP,transport,与缓存
+internal/sidecar/lsp/multilsp/manager_lifecycle.go	internal	platform-provider	go-source	19971	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,manager,lifecycle,多语言,LSP,transport,与缓存
+internal/sidecar/lsp/multilsp/manager_retry.go	internal	platform-provider	go-source	5242	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,manager,retry,多语言,LSP,transport,与缓存
+internal/sidecar/lsp/multilsp/manager_symbols_fallback.go	internal	platform-provider	go-source	9746	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,manager,symbols,fallback,多语言,LSP,transport,与缓存
+internal/sidecar/lsp/multilsp/manager_symbols.go	internal	platform-provider	go-source	16920	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,manager,symbols,多语言,LSP,transport,与缓存
+internal/sidecar/lsp/multilsp/manager.go	internal	platform-provider	go-source	16526	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,manager,多语言,LSP,transport,与缓存
+internal/sidecar/lsp/multilsp/pool.go	internal	platform-provider	go-source	11428	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,pool,多语言,LSP,manager,transport,与缓存
+internal/sidecar/lsp/multilsp/recycler.go	internal	platform-provider	go-source	13818	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,recycler,多语言,LSP,manager,transport,与缓存
+internal/sidecar/lsp/multilsp/registry_scope.go	internal	platform-provider	go-source	7854	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,registry,scope,多语言,LSP,manager,transport,与缓存
+internal/sidecar/lsp/multilsp/release_scope.go	internal	platform-provider	go-source	7174	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,release,scope,多语言,LSP,manager,transport,与缓存
+internal/sidecar/lsp/multilsp/scope.go	internal	platform-provider	go-source	11468	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,scope,多语言,LSP,manager,transport,与缓存
+internal/sidecar/lsp/multilsp/state.go	internal	platform-provider	go-source	4957	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,state,多语言,LSP,manager,transport,与缓存
+internal/sidecar/lsp/multilsp/transport_compat.go	internal	platform-provider	go-source	4323	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,transport,compat,多语言,LSP,manager,与缓存
+internal/sidecar/lsp/multilsp/transport_conn.go	internal	platform-provider	go-source	5746	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,transport,conn,多语言,LSP,manager,与缓存
+internal/sidecar/lsp/multilsp/transport.go	internal	platform-provider	go-source	8049	多语言 LSP manager、transport 与缓存	internal,sidecar,lsp,multilsp,transport,多语言,LSP,manager,与缓存
+internal/sidecar/lsp/protocol/codec_test.go	internal	platform-provider	go-test	634	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,protocol,codec,test,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/protocol/codec.go	internal	platform-provider	go-source	7087	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,protocol,codec,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/protocol/doc.go	internal	platform-provider	go-source	305	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,protocol,doc,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/protocol/ext.go	internal	platform-provider	go-source	10575	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,protocol,ext,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/protocol/methods.go	internal	platform-provider	go-source	1630	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,protocol,methods,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/protocol/notification.go	internal	platform-provider	go-source	2135	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,protocol,notification,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/protocol/types.go	internal	platform-provider	go-source	14300	未细分职责：请结合路径、文件名和相邻代码判断	internal,sidecar,lsp,protocol,types,未细分职责：请结合路径,文件名和相邻代码判断
+internal/sidecar/lsp/search/doc.go	internal	platform-provider	go-source	107	文件搜索与 grep 搜索工具实现	internal,sidecar,lsp,search,doc,文件搜索与,grep,搜索工具实现
+internal/sidecar/lsp/search/fileutil.go	internal	platform-provider	go-source	14406	文件搜索与 grep 搜索工具实现	internal,sidecar,lsp,search,fileutil,文件搜索与,grep,搜索工具实现
+internal/sidecar/lsp/search/process.go	internal	platform-provider	go-source	278	文件搜索与 grep 搜索工具实现	internal,sidecar,lsp,search,process,文件搜索与,grep,搜索工具实现
+internal/sidecar/lsp/search/searchutil_cap.go	internal	platform-provider	go-source	531	文件搜索与 grep 搜索工具实现	internal,sidecar,lsp,search,searchutil,cap,文件搜索与,grep,搜索工具实现
+internal/sidecar/lsp/search/searchutil.go	internal	platform-provider	go-source	19629	文件搜索与 grep 搜索工具实现	internal,sidecar,lsp,search,searchutil,文件搜索与,grep,搜索工具实现
+internal/sidecar/lsp/tools/doc.go	internal	platform-provider	go-source	104	LSP MCP tools 实现	internal,sidecar,lsp,tools,doc,LSP,MCP,实现
+internal/sidecar/lsp/tools/factory.go	internal	platform-provider	go-source	19208	LSP MCP tools 实现	internal,sidecar,lsp,tools,factory,LSP,MCP,实现
+internal/sidecar/lsp/tools/formatter.go	internal	platform-provider	go-source	14763	LSP MCP tools 实现	internal,sidecar,lsp,tools,formatter,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_capability.go	internal	platform-provider	go-source	2605	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,capability,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_compact_locations.go	internal	platform-provider	go-source	4855	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,compact,locations,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_completion.go	internal	platform-provider	go-source	5359	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,completion,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_diagnostics.go	internal	platform-provider	go-source	18190	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,diagnostics,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_edit_function_context.go	internal	platform-provider	go-source	1656	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,edit,function,context,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_edit_lock.go	internal	platform-provider	go-source	707	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,edit,lock,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_edit_log.go	internal	platform-provider	go-source	2926	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,edit,log,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_edit_lsp_actions.go	internal	platform-provider	go-source	8601	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,edit,actions,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_edit_recovery.go	internal	platform-provider	go-source	1923	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,edit,recovery,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_edit_rename.go	internal	platform-provider	go-source	7991	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,edit,rename,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_edit_replace_update.go	internal	platform-provider	go-source	6695	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,edit,replace,update,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_edit_replace.go	internal	platform-provider	go-source	15530	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,edit,replace,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_edit_support.go	internal	platform-provider	go-source	6164	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,edit,support,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_edit.go	internal	platform-provider	go-source	5537	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,edit,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_error_envelope.go	internal	platform-provider	go-source	545	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,error,envelope,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_file_render.go	internal	platform-provider	go-source	8792	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,file,render,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_file.go	internal	platform-provider	go-source	17536	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,file,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_grep_log.go	internal	platform-provider	go-source	4209	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,grep,log,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_grep.go	internal	platform-provider	go-source	17379	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,grep,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_inspect.go	internal	platform-provider	go-source	5985	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,inspect,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_rust_workspace.go	internal	platform-provider	go-source	1745	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,rust,workspace,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_structure.go	internal	platform-provider	go-source	10769	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,structure,LSP,MCP,实现
+internal/sidecar/lsp/tools/tool_xref.go	internal	platform-provider	go-source	6115	LSP MCP tools 实现	internal,sidecar,lsp,tools,tool,xref,LSP,MCP,实现

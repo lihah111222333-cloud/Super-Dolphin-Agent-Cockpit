@@ -1,6 +1,6 @@
 # Super-Dolphin 依赖规则
 
-日期: 2026-06-16
+日期: 2026-06-17
 
 本文把架构规则落到可执行守卫和迁移约束上。它不替代 `docs/契约/onion-architecture-convention.md`，而是补齐当前仓库的 sidecar 层、日志例外和基线收敛规则。
 
@@ -68,7 +68,7 @@
 
 ### Business Modules
 
-`internal/module/*` 是当前业务层。新增代码应按职责继续向 use case、纯规则、port 拆分，避免继续把 service、DTO、worker、store adapter 逻辑堆进同一个包。
+`internal/module/*` 是当前业务层。新增代码应按职责继续向 use case、纯规则、port 拆分，避免继续把 service、DTO、worker、store adapter 逻辑堆进同一个包。上下文内部的纯规则子包（如 `internal/module/thread/promptrouting`）只处理已加载契约对象，不回接 store、provider、UI、日志或配置。
 
 业务模块访问持久化只能通过 `internal/contract` port，由 `internal/app` 或对应装配层注入具体 store 实现。不得在用例逻辑里新增对 `internal/store/*` 的直接依赖；如缺少 port，应先抽出最小业务接口再接入 store adapter。
 

@@ -16,7 +16,9 @@ frontend-app/            # Current React/Vite new UI used by run-new-ui-desktop.
 
 internal/
 ├── contract/            # Cross-module interfaces & DTOs
-├── module/              # Business logic (turn, prompt, cron, memory, skill)
+├── module/              # Business logic (thread, turn, prompt, cron, memory, skill, dashboard, uistate)
+│   └── thread/promptrouting/
+│                         # Pure prompt-template routing rules used by thread start/spawn flows
 ├── platform/            # Infrastructure (db, rpc, config, runtime safety)
 ├── provider/            # AI provider adapters (Claude CLI, Codex)
 └── store/               # Data access layer (sqlc-generated)

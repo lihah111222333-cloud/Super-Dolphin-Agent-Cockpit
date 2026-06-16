@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/thread/promptrouting"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
@@ -148,7 +148,7 @@ func (s *service) routedTemplateInstructions(ctx context.Context, req *StartRequ
 	if len(sections) == 0 {
 		return picked.PromptText, nil, nil
 	}
-	blocks := convertStoreSectionsToBlocks(sections)
+	blocks := promptrouting.ConvertSectionsToBlocks(sections)
 	if len(blocks) == 0 {
 		return picked.PromptText, nil, nil
 	}
@@ -198,8 +198,8 @@ func (s *service) pickRoutedTemplate(
 	// different one would be worse than leaving the request untouched and
 	// letting the upstream CLI use its bundled system prompt.
 	if pinned := strings.TrimSpace(req.PromptKey); pinned != "" {
-		picked := findEnabledByPromptKey(templates, pinned)
-		if picked != nil {
+		picked := promptrouting.FindByPromptKey(templates, pinned)
+		if picked != nil && picked.Enabled {
 			if contract.IsRuntimeAssetPromptTemplate(*picked) {
 				req.PromptKeyStale = true
 				pkglogger.Warn("router: pinned prompt_key targets runtime asset template",
@@ -222,94 +222,19 @@ func (s *service) pickRoutedTemplate(
 		return nil, nil
 	}
 	if explicit := strings.TrimSpace(req.AgentKey); explicit != "" {
-		picked := firstEnabledByAgentKey(templates, explicit)
+		picked := promptrouting.FirstEnabledByAgentKey(templates, explicit)
 		if picked != nil {
 			req.AgentTitle = picked.Title
 		}
 		return picked, nil
 	}
-	picked := findByPromptKey(templates, defaultPromptKey)
-	if picked != nil && promptTemplateLaunchable(*picked) {
+	picked := promptrouting.FindByPromptKey(templates, defaultPromptKey)
+	if picked != nil && promptrouting.TemplateLaunchable(*picked) {
 		req.AgentKey = picked.AgentKey
 		req.AgentTitle = picked.Title
 		return picked, nil
 	}
 	return nil, nil
-}
-
-func findEnabledByPromptKey(templates []contract.PromptTemplate, promptKey string) *contract.PromptTemplate {
-	picked := findByPromptKey(templates, promptKey)
-	if picked == nil || !picked.Enabled {
-		return nil
-	}
-	return picked
-}
-
-// convertStoreSectionsToBlocks maps injectable prompt_template_sections rows into
-// the contract-layer BaseInstructionBlock shape consumed by assembler.go.
-// Unknown region strings degrade to Dynamic (safer: blocks end up in the
-// uncached tail rather than accidentally claiming cached-prefix slots).
-// convertStoreSectionsToBlocks 把存储sections转换为blocks。
-func convertStoreSectionsToBlocks(sections []contract.PromptTemplateSection) []contract.BaseInstructionBlock {
-	if len(sections) == 0 {
-		return nil
-	}
-	out := make([]contract.BaseInstructionBlock, 0, len(sections))
-	for _, s := range sections {
-		if !s.Enabled {
-			continue
-		}
-		if strings.EqualFold(strings.TrimSpace(s.TriggerType), "recall") {
-			continue
-		}
-		if strings.TrimSpace(s.Body) == "" {
-			continue
-		}
-		region := contract.PromptRegionDynamic
-		if strings.EqualFold(strings.TrimSpace(s.Region), "static") {
-			region = contract.PromptRegionStatic
-		}
-		out = append(out, contract.BaseInstructionBlock{
-			Key:        s.SectionKey,
-			Region:     region,
-			Ordinal:    s.Ordinal,
-			Body:       s.Body,
-			EnableWhen: append([]byte(nil), s.EnableWhen...),
-		})
-	}
-	return out
-}
-
-func firstEnabledByAgentKey(templates []contract.PromptTemplate, agentKey string) *contract.PromptTemplate {
-	want := strings.TrimSpace(agentKey)
-	if want == "" {
-		return nil
-	}
-	for i := range templates {
-		t := &templates[i]
-		if promptTemplateLaunchable(*t) && strings.EqualFold(strings.TrimSpace(t.AgentKey), want) {
-			return t
-		}
-	}
-	return nil
-}
-
-func promptTemplateLaunchable(template contract.PromptTemplate) bool {
-	return template.Enabled && !contract.IsRuntimeAssetPromptTemplate(template)
-}
-
-func findByPromptKey(templates []contract.PromptTemplate, promptKey string) *contract.PromptTemplate {
-	want := strings.TrimSpace(promptKey)
-	if want == "" {
-		return nil
-	}
-	for i := range templates {
-		t := &templates[i]
-		if t.PromptKey == want {
-			return t
-		}
-	}
-	return nil
 }
 
 // d-clean: applyCandidatePoolMerge / candidateTemplateBlocks 已移除。
@@ -341,7 +266,7 @@ func (s *service) maybeAutoRouteByMatchWhen(req *StartRequest, templates []contr
 	if s.matchWhenEval == nil {
 		return
 	}
-	specific, fallback := autoRouteCandidates(templates)
+	specific, fallback := promptrouting.AutoRouteCandidates(templates)
 	if len(specific) == 0 && len(fallback) == 0 {
 		return
 	}
@@ -390,73 +315,6 @@ func (s *service) evaluateMatchWhenPool(
 		return true
 	}
 	return false
-}
-
-// autoRouteCandidates partitions enabled match_when rows into two pools:
-//   - specific: match_when decodes to a non-empty object (real filter rules)
-//   - fallback: match_when decodes to the empty object `{}` (opt-in always-
-//     match). nil / null / invalid JSON are dropped entirely because they
-//     can never satisfy EvaluateMatchWhen anyway — keeping them in the pool
-//     would just be wasted iteration.
-//
-// Each pool is sorted by Priority DESC (stable). The caller evaluates
-// specific first, then fallback, so a low-priority prompt with real structured
-// match rules wins over a high-priority `{}` row.
-// autoRouteCandidates 处理autoroute候选项。
-func autoRouteCandidates(templates []contract.PromptTemplate) (specific, fallback []contract.PromptTemplate) {
-	specific = make([]contract.PromptTemplate, 0, len(templates))
-	fallback = make([]contract.PromptTemplate, 0, len(templates))
-	for i := range templates {
-		t := &templates[i]
-		if !promptTemplateLaunchable(*t) {
-			continue
-		}
-		if len(t.MatchWhen) == 0 {
-			continue
-		}
-		if isFallbackMatchWhen(t.MatchWhen) {
-			fallback = append(fallback, *t)
-			continue
-		}
-		if hasSpecificMatchWhen(t.MatchWhen) {
-			specific = append(specific, *t)
-		}
-	}
-	sortByPriorityDesc(specific)
-	sortByPriorityDesc(fallback)
-	return specific, fallback
-}
-
-// isFallbackMatchWhen reports whether the raw JSON is the empty object `{}`.
-// nil / null / non-object / invalid JSON return false: only a real `{}` body
-// counts as the opt-in always-match fallback bucket. The nil check guards
-// against jsonb `null` decoding to a nil map and being mistaken for `{}`.
-func isFallbackMatchWhen(raw []byte) bool {
-	var expr map[string]any
-	if err := json.Unmarshal(raw, &expr); err != nil {
-		return false
-	}
-	return expr != nil && len(expr) == 0
-}
-
-// hasSpecificMatchWhen reports whether the raw JSON decodes to a non-empty
-// object with at least one filter key. Used to filter the specific pool —
-// anything else (null, [], string, number, invalid) is dropped because
-// EvaluateMatchWhen will not accept it anyway.
-func hasSpecificMatchWhen(raw []byte) bool {
-	var expr map[string]any
-	if err := json.Unmarshal(raw, &expr); err != nil {
-		return false
-	}
-	return len(expr) > 0
-}
-
-// sortByPriorityDesc sorts the rows in-place by Priority descending with
-// stable secondary order (insertion order from the store).
-func sortByPriorityDesc(rows []contract.PromptTemplate) {
-	sort.SliceStable(rows, func(i, j int) bool {
-		return rows[i].Priority > rows[j].Priority
-	})
 }
 
 // buildMatchWhenCtx synthesizes a lightweight BuildCtx for router-phase

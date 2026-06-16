@@ -26,6 +26,7 @@ flowchart LR
     MOD --> DASH[dashboard\n读模型聚合]
     MOD --> SKILL[skill\n技能扫描/渐进披露/本地 FS]
     MOD --> THREAD[thread\n线程生命周期]
+    THREAD --> ROUTING[promptrouting\nprompt 模板纯路由]
     MOD --> TURN[turn\n回合编排]
     MOD --> UISTATE[uistate\nUI 投影]
     MOD --> LSPGUI[lspgui\n当前仓内缺失]
@@ -42,7 +43,7 @@ flowchart LR
 |---|---|---|
 | `dashboard` | 运维/只读聚合页、日志、DAG、Agent 详情 | Wails/前端、诊断页 |
 | `skill` | 本地技能目录、渐进披露、匹配预览、受限命令执行；`Service` 仅保留兼容聚合面 | prompt(`SkillCatalogSource`)、turn(`SkillHydrationSource`)、dashboard(`SkillLister`)、toolbridge(`SkillHostToolReader`)、host RPC |
-| `thread` | 线程启动/恢复/fork/归档/配置 | RPC、uistate、turn |
+| `thread` | 线程启动/恢复/fork/归档/配置；prompt 模板路由纯规则下沉到 `thread/promptrouting` | RPC、uistate、turn、prompt asset 启动链 |
 | `turn` | 回合输入组装、启动/打断/强制完成 | RPC、thread、provider |
 | `uistate` | UIState / Sidebar / Timeline / Preferences 投影 | Wails 前端 |
 | `lspgui` | 历史 GUI-LSP 包；**当前仓内缺失** | — |
@@ -79,6 +80,7 @@ flowchart LR
 - **2026-04-20**：07A/07B 按当时代码真值重写，补回 `dashboard/prompts` cwd、`skill/list` / `skill/expand`、`lspgui` 缺席、thread/turn/uistate 真链路。
 - **2026-05-18**：Skill V1 切到 provider-native mirror 后，`skill/expand` 已退出 host RPC 注册表，文档改按 canonical/mirror 链路描述。
 - **2026-04-29**：接口隔离后，`skill.Service` 是兼容聚合接口；跨模块消费改按 `SkillLister` / `SkillCatalogSource` / `SkillHydrationSource` / `SkillHostToolReader` 等窄端口描述。
+- **2026-06-17**：`thread` 中 prompt 模板选择、match_when 分组和 section 转换规则拆到 `internal/module/thread/promptrouting`，`thread` 根包继续保留生命周期、provider session、store/binding 和日志边界。
 
 ## 10. 常见误导
 
@@ -96,3 +98,4 @@ flowchart LR
 | `skill/list` | [07-module-read.md](07-module-read.md) §4.3、§4.4 |
 | provider-native skill mirror / `skill/expand` 退役边界 | [07-module-read.md](07-module-read.md) §4.3、§4.5 |
 | `thread/start` / `turn/start` / blank-thread `sendMessage` | [07-module-write.md](07-module-write.md) §2.4 A、§3.4、§5 |
+| `promptrouting.AutoRouteCandidates` / prompt 模板路由边界 | [07-module-write.md](07-module-write.md) §2.8 |

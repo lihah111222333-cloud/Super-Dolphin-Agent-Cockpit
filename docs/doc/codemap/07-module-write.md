@@ -52,6 +52,7 @@ flowchart LR
 2. 它负责把 `thread/start`、`resume`、`fork`、`recover`、`archive/unarchive` 落到 provider session 与 orchestration。
 3. 它**消费** prompt assembly / prompt snapshot，但不拥有 prompt section registry。
 4. 它在停线程前先抢占 turn，在停线程后再清 tracker / scratchpad / binding。
+5. prompt 模板选择的纯规则已下沉到 `internal/module/thread/promptrouting`；根包只负责编排 store/provider/thread lifecycle、日志和 runtime asset fallback。
 
 ### 2.2 文件地图（核心生产文件）
 
@@ -63,6 +64,8 @@ flowchart LR
 | `lifecycle_fork.go` | `Fork` / `Recover` 主流程。 |
 | `start_session.go` | start/resume provider request 构造、`PromptSnapshot` 透传。 |
 | `start_session_helpers.go` | `StartInput` / start config / provider DTO 投影。 |
+| `router_resolve.go` | thread 启动/懒启动入口的 prompt asset 选择编排；调用 `promptrouting` 并保留 runtime asset fallback 与日志边界。 |
+| `promptrouting/` | prompt 模板纯路由子包；只处理已加载 DTO 的 match_when 分组、prompt_key / agent_key 查询、sections 转 blocks。 |
 | `binding_registration.go` | binding upsert、不可变字段校验、回滚。 |
 | `factory.go` | thread event 构造、offline config、binding chain 解析。 |
 | `history.go` | `thread/read`、`thread/messages`、runtime config、compact。 |
@@ -75,6 +78,7 @@ flowchart LR
 补充校正：
 
 - 旧稿若提过 `thread/launch_request.go` / `session_generation.go`，**现码已无该文件**；对应职责分别并入 `internal/module/thread/lifecycle_helpers.go:114-138` 的 `buildLaunchRequest(...)` 与 `internal/module/thread/lifecycle.go:62-75` 的 `bindSessionGeneration(...)`。
+- 旧稿若把 prompt 模板 `match_when`、agent_key 查询和 section 转换都写成 `thread` 根包职责，需按当前代码改为：纯规则在 `internal/module/thread/promptrouting`，根包 `router_resolve.go` 只做服务编排、fallback 和日志。
 
 ### 2.3 关键类型
 
@@ -247,6 +251,33 @@ sequenceDiagram
 - `cleanupThreadTurns`：`internal/module/thread/stop.go:141-148`
 - `backgroundResumeIfNeeded`：`internal/module/thread/service.go:291-324`
 - `resolveBindingChain`：`internal/module/thread/factory.go:457-472`
+
+### 2.8 Prompt 模板路由子包
+
+`internal/module/thread/promptrouting` 是从 `thread` 根包拆出的纯规则包，用来约束 prompt asset 路由职责不继续挤进生命周期包。
+
+```mermaid
+flowchart LR
+    ROOT[thread/router_resolve.go] --> ROUTING[promptrouting]
+    ROUTING --> MATCH[match_when 候选分组]
+    ROUTING --> LOOKUP[prompt_key / agent_key 查询]
+    ROUTING --> BLOCKS[prompt_template_sections -> BaseInstructionBlock]
+    ROOT --> RUNTIME[runtime asset fallback]
+    ROOT --> LOG[路由日志]
+```
+
+职责边界：
+
+- `promptrouting` 只接收已加载的 `contract.PromptTemplate` / `PromptTemplateSection`，不访问 store，不启动 provider session，不读配置，不发日志。
+- `thread/router_resolve.go` 继续负责调用 prompt asset provider、处理 runtime asset、记录路由结果，并把选中的模板接入 `thread/start` / spawn 流程。
+- `TemplateLaunchable` 明确排除 runtime asset，避免把运行时 fallback 误判成可启动模板。
+
+关键锚点：
+
+- `AutoRouteCandidates`：按 `match_when` 是否命中分为具体候选与 fallback，并按 `Priority` 降序。
+- `FindByPromptKey` / `FindEnabledByPromptKey`：按 prompt_key 精确查询，enabled 过滤由调用方语义决定。
+- `FirstEnabledByAgentKey`：显式 agent_key 路由入口。
+- `ConvertSectionsToBlocks`：把可用 section 转成 `contract.BaseInstructionBlock`，并保留 section key、region、ordinal、body 和 `enable_when`。
 
 ---
 
@@ -560,20 +591,22 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant UI as useThreadActions.performSend
-    participant TS as threadStore.startThread
+    participant UI as ChatPage / ComposerDock
+    participant CS as composerSlice.sendDraft
+    participant RT as useClientStore.startNewDraftThread
+    participant API as backendApi
     participant TH as thread/start RPC
     participant T as thread.Service
-    participant SM as threadStore.sendMessage
     participant TURN as turn/start RPC
     participant TVC as turn.Service
 
-    UI->>UI: resolveStartOptions(text, focusMode)
-    UI->>TS: startThread(cwd, startOptions)
-    TS->>TH: thread/start(prompt or deferSpawn)
+    UI->>CS: sendDraft()
+    CS->>RT: startNewDraftThread(cwd, launch preferences)
+    RT->>API: startThread(deferSpawn=true)
+    API->>TH: thread/start
     TH->>T: Start(prompt assembly / provider session)
-    UI->>SM: sendMessage(threadId, text, attachments, cwd)
-    SM->>TURN: turn/start(input, cwd)
+    CS->>API: startTurn(threadId, input, cwd)
+    API->>TURN: turn/start(input, cwd)
     TURN->>TVC: PrepareTurn()
     TVC->>TVC: Assemble + Resolve skills + Build MCP + TurnAssembly
     TVC-->>TURN: dto.TurnRequest
@@ -582,8 +615,9 @@ sequenceDiagram
 对应锚点：
 
 1. 当前 React 新 UI 的 blank-thread 分支在 `frontend-app/src/entities/client/model/useClientStore.js`：
-   - `sendDraft()` 先调用 `frontend-app/src/shared/api/backendApi.js` 的 `startThread()`。
-   - 拿到 `threadId` 后再调用 `startTurn()`，保持 `thread/start -> turn/start` 两段式。
+   - `composerSlice.sendDraft()` 在 `frontend-app/src/entities/client/model/composerSlice.js:232-258` 先判断是否已有 thread；空线程时调 `startNewDraftThread(...)`，拿到 `threadId` 后再 `startTurnWithStoppedThreadRecovery(...)`。
+   - `startNewDraftThread()` 在 `frontend-app/src/entities/client/model/useClientStore.js:1341-1352` 调 `startThread({ ..., deferSpawn: true })`，保持 `thread/start -> turn/start` 两段式。
+   - `frontend-app/src/shared/api/backendApi.js:1132-1142` 是当前 React UI 的 `startThread()` / `startTurn()` RPC facade。
 2. Legacy Vue blank-thread 分支先整理 start options，再起线程：
    - `resolveStartOptions()`：`cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:126-140`
    - blank-thread 首发分叉点在 `performSend()`：`cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:160-174`；其中 `162-164` 先 `startThread(...)`，`173-174` 紧接着把 turn 载荷送进 `threadStore.sendMessage(...)`
@@ -621,6 +655,6 @@ sequenceDiagram
 
 | 场景 | 步骤 | 锚点 | 验证 |
 |---|---|---|---|
-| blank-thread 首发消息 | 1) `performSend()` blank-thread 分支起线程 2) `threadStore.sendMessage()` 组 `turn/start` payload 3) `turnStartHandler -> PrepareTurn -> prepareTurnAssembly` | `useThreadActions.js:139-158` / `thread-actions-helpers.js:423-442` / `internal/module/turn/rpc_helpers.go:159-182` / `internal/module/turn/service.go:176` | `service_test.go` / 前端首发联调 |
+| blank-thread 首发消息 | 1) React `sendDraft()` blank-thread 分支起线程 2) `startNewDraftThread()` 以 `deferSpawn=true` 调 `thread/start` 3) 拿到 `threadId` 后调 `turn/start` 4) `turnStartHandler -> PrepareTurn -> prepareTurnAssembly` | `frontend-app/src/entities/client/model/composerSlice.js:232-258` / `frontend-app/src/entities/client/model/useClientStore.js:1341-1352` / `frontend-app/src/shared/api/backendApi.js:1132-1142` / `internal/module/turn/rpc_helpers.go:159-182` / `internal/module/turn/service.go:176` | `service_test.go` / React 前端首发联调 |
 | 手选 skill hydrate | 1) 保持 `skillpkg.SkillHydrationSource` 可选注入 2) `PrepareTurn` 里 `hydrateSkillRefs` 先跑 3) 再交 `skillResolver.Resolve` + `prepareTurnAssembly` | `internal/module/turn/module.go:12-19` / `internal/module/turn/service.go:141-146` / `internal/module/turn/skills.go:201-241` | `service_skill_hydrate_test.go` |
 | 线程/回合事件进 sidebar/timeline | 1) 上游 emit typed event 2) `registerProjections` 装订阅 3) `registerProjectionSubscriptions` + `timeline.RegisterSubscriptions` 落状态与 timeline 4) `threadPatchLocked`/timeline patch 推 UI | `internal/module/uistate/module.go:46-66` / `internal/module/uistate/projector.go:17-60` / `internal/module/uistate/timeline/projector.go:16-45` | `sidebar_test.go` / `timeline_test.go` |

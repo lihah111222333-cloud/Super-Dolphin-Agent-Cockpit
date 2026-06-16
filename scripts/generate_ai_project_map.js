@@ -54,7 +54,7 @@ const DOMAIN_FILES = {
 };
 
 const DOMAIN_DESCRIPTIONS = {
-  'app-ui': '桌面应用、Wails host、Vue/Vite 前端与 UI 测试',
+  'app-ui': '桌面应用、Wails host、当前 React/Vite 前端、legacy Vue/Vite 前端与 UI 测试',
   orchestration: 'mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具',
   modules: '业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等',
   'platform-provider': '基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider',
@@ -64,6 +64,19 @@ const DOMAIN_DESCRIPTIONS = {
 };
 
 const PURPOSE_RULES = [
+  ['frontend-app/src/pages/chat/components/', '当前 React 聊天页组件、composer、runtime panel 与 timeline 展示'],
+  ['frontend-app/src/pages/chat/hooks/', '当前 React 聊天页交互 hooks、composer 本地交互和线程数据读取'],
+  ['frontend-app/src/pages/chat/adapters/', '当前 React 聊天页 UI 状态适配器'],
+  ['frontend-app/src/pages/chat/services/', '当前 React 聊天页后端 API 薄服务'],
+  ['frontend-app/src/pages/chat/', '当前 React 聊天页与工作区布局'],
+  ['frontend-app/src/entities/client/model/', '当前 React 客户端 Zustand 状态、thread/turn/composer 运行链'],
+  ['frontend-app/src/shared/api/', '当前 React 前端 RPC facade、Wails bridge 与契约矩阵'],
+  ['frontend-app/src/pages/', '当前 React 页面层'],
+  ['frontend-app/src/services/', '当前 React 页面服务与后端 API 适配'],
+  ['frontend-app/src/app/', '当前 React app shell 状态模型'],
+  ['frontend-app/src/', '当前 React/Vite 前端源码'],
+  ['frontend-app/', '当前 React/Vite 前端工程、脚本、测试和构建配置'],
+
   ['cmd/agent-terminal/frontend/vue-app/components/unified-chat/', 'Vue 统一聊天组件与线程面板'],
   ['cmd/agent-terminal/frontend/vue-app/components/timeline/', 'Vue timeline 消息、附件、工具调用展示组件'],
   ['cmd/agent-terminal/frontend/vue-app/components/dag/', 'Vue DAG 控制台组件'],
@@ -73,7 +86,7 @@ const PURPOSE_RULES = [
   ['cmd/agent-terminal/frontend/vue-app/pages/', 'Vue 页面级组件'],
   ['cmd/agent-terminal/frontend/tests/e2e/', '前端 Playwright E2E 与视觉回归测试'],
   ['cmd/agent-terminal/frontend/scripts/', '前端构建、体积与模板守卫脚本'],
-  ['cmd/agent-terminal/frontend/', 'Vue/Vite 前端包'],
+  ['cmd/agent-terminal/frontend/', 'legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出'],
   ['cmd/agent-terminal/', 'Wails 桌面 UI、HTTP server、app host 与前端嵌入入口'],
 
   ['internal/sidecar/orch/orchestration/nodeexec/', 'DAG 节点执行器、typed ops、输入输出与自动化执行'],
@@ -103,6 +116,7 @@ const PURPOSE_RULES = [
   ['internal/module/memory/', 'memory canonical 管理、UI RPC 与持久化接线'],
   ['internal/module/prompt/', 'prompt 模板、启用条件、system prompt 组装'],
   ['internal/module/skill/', 'skill canonical 管理与 provider-native mirror'],
+  ['internal/module/thread/promptrouting/', 'thread prompt 模板纯路由规则与 sections 转换'],
   ['internal/module/thread/', 'thread start/resume/fork/stop 生命周期与绑定真相源'],
   ['internal/module/turn/', 'turn 启动、执行、审批与 provider 调度'],
   ['internal/module/uistate/', 'UI 事件投影、sidebar/timeline 状态'],
@@ -152,7 +166,8 @@ const PURPOSE_RULES = [
 
 const QUICK_ROUTES = [
   ['修改桌面 Go/Wails host', 'cmd/agent-terminal/', 'internal/ui/wails/', 'wails binding rpc app host'],
-  ['修改 Vue 聊天 UI', 'cmd/agent-terminal/frontend/vue-app/pages/', 'cmd/agent-terminal/frontend/vue-app/components/', 'UnifiedChatPage ChatTimeline composer store'],
+  ['修改当前 React 聊天 UI', 'frontend-app/src/pages/chat/', 'frontend-app/src/entities/client/model/', 'ChatPage composer sendDraft useClientStore backendApi'],
+  ['修改 legacy Vue 聊天 UI', 'cmd/agent-terminal/frontend/vue-app/pages/', 'cmd/agent-terminal/frontend/vue-app/components/', 'UnifiedChatPage ChatTimeline composer store'],
   ['修改 DAG 编排执行', 'internal/sidecar/orch/orchestration/', 'internal/sidecar/orch/store/taskdag/', 'dag wakeup nodeexec dispatcher retry'],
   ['修改 MCP orchestration tools', 'internal/sidecar/orch/tools/', 'internal/sidecar/orch/orchestration/rpc.go', 'task_dag agent_launch schema registry'],
   ['修改 LSP 工具', 'internal/sidecar/lsp/tools/', 'internal/sidecar/lsp/multilsp/', 'lsp tool grep file search diagnostics'],
@@ -242,6 +257,7 @@ function topModule(file) {
 }
 
 function classifyDomain(file) {
+  if (file.startsWith('frontend-app/')) return 'app-ui';
   if (file.startsWith('cmd/agent-terminal/')) return 'app-ui';
   if (file.startsWith('cmd/mcp-orch/') || file.startsWith('internal/sidecar/orch/orchestration/') || file.startsWith('internal/sidecar/orch/tools/') || file.startsWith('internal/sidecar/orch/workspace/')) return 'orchestration';
   if (file.startsWith('internal/module/')) return 'modules';
@@ -334,7 +350,7 @@ function renderMap(entries, grouped, drift) {
     .join('\n');
   const routeRows = QUICK_ROUTES.map(([target, first, second, keys]) => `| ${target} | \`${first}\` | \`${second}\` | \`${keys}\` |`).join('\n');
 
-  return `# AI 项目地图（Super-Dolphin）\n\n> 生成时间：${today()}\n>\n> 已索引文件：**${entries.length}**\n>\n> 漂移状态：**${drift.status}**（详见 \`docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md\`）\n\n## 1. 项目功能总览\n\nSuper-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer 体系，核心由以下能力构成：\n\n- **桌面控制台**：\`cmd/agent-terminal\` 提供 Wails/Go host、HTTP/RPC 桥和 Vue/Vite 前端。\n- **编排 peer**：\`cmd/mcp-orch\` 管理 agent 生命周期、DAG、wakeup、workspace、prompt、command card 与 shared file tools。\n- **代码智能 peer**：\`cmd/mcp-lsp\` 提供多语言 LSP、文件搜索、结构和诊断工具。\n- **业务模块层**：\`internal/module\` 承载 dashboard、memory、prompt、skill、thread、turn、uistate 等运行语义。\n- **基础设施与 provider**：\`internal/platform\`、\`internal/provider\` 负责 RPC、hooks、toolbridge、控制面、Claude/Codex provider 集成。\n- **持久化与治理**：\`internal/store\`、\`sql\`、\`migrations\`、\`internal/archtest\`、\`docs/doc/codemap\` 提供数据访问、schema、架构守卫和代码地图。\n\n## 2. 索引路由表\n\n| 索引文件 | 文件数 | 覆盖范围 |\n|---|---:|---|\n${domainRows}\n\n每个 TSV 字段为：\`path\`、\`module\`、\`domain\`、\`type\`、\`size_bytes\`、\`purpose\`、\`search_keys\`。\n\n## 3. 顶层结构\n\n| 模块 | 文件数 | 职责 |\n|---|---:|---|\n${topRows}\n\n## 4. 快速定位路由\n\n| 目标 | 首选路径 | 次选路径 | 检索关键词 |\n|---|---|---|---|\n${routeRows}\n\n## 5. 维护命令\n\n\`\`\`bash\nnode scripts/generate_ai_project_map.js\nnode scripts/generate_ai_project_map.js --check\nnode scripts/generate_ai_project_map.js --strict-drift\n\`\`\`\n\n现有手写代码地图仍以 \`docs/doc/codemap/README.md\` 和 \`make codemap-check\` / \`make codemap-refresh\` 为准；本目录提供低 token 的全仓文件级索引补充。\n`;
+  return `# AI 项目地图（Super-Dolphin）\n\n> 生成时间：${today()}\n>\n> 已索引文件：**${entries.length}**\n>\n> 漂移状态：**${drift.status}**（详见 \`docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md\`）\n\n## 1. 项目功能总览\n\nSuper-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer 体系，核心由以下能力构成：\n\n- **桌面控制台**：\`cmd/agent-terminal\` 提供 Wails/Go host 和 HTTP/RPC 桥；当前页面在 \`frontend-app\` 的 React/Vite 工程中，legacy Vue/Vite/package-embed 目录仍保留在 \`cmd/agent-terminal/frontend\`。\n- **编排 peer**：\`cmd/mcp-orch\` 管理 agent 生命周期、DAG、wakeup、workspace、prompt、command card 与 shared file tools。\n- **代码智能 peer**：\`cmd/mcp-lsp\` 提供多语言 LSP、文件搜索、结构和诊断工具。\n- **业务模块层**：\`internal/module\` 承载 dashboard、memory、prompt、skill、thread、turn、uistate 等运行语义；thread 的 prompt 模板纯路由规则在 \`internal/module/thread/promptrouting\`。\n- **基础设施与 provider**：\`internal/platform\`、\`internal/provider\` 负责 RPC、hooks、toolbridge、控制面、Claude/Codex provider 集成。\n- **持久化与治理**：\`internal/store\`、\`sql\`、\`migrations\`、\`internal/archtest\`、\`docs/doc/codemap\` 提供数据访问、schema、架构守卫和代码地图。\n\n## 2. 索引路由表\n\n| 索引文件 | 文件数 | 覆盖范围 |\n|---|---:|---|\n${domainRows}\n\n每个 TSV 字段为：\`path\`、\`module\`、\`domain\`、\`type\`、\`size_bytes\`、\`purpose\`、\`search_keys\`。\n\n## 3. 顶层结构\n\n| 模块 | 文件数 | 职责 |\n|---|---:|---|\n${topRows}\n\n## 4. 快速定位路由\n\n| 目标 | 首选路径 | 次选路径 | 检索关键词 |\n|---|---|---|---|\n${routeRows}\n\n## 5. 维护命令\n\n\`\`\`bash\nnode scripts/generate_ai_project_map.js\nnode scripts/generate_ai_project_map.js --check\nnode scripts/generate_ai_project_map.js --strict-drift\n\`\`\`\n\n现有手写代码地图仍以 \`docs/doc/codemap/README.md\` 和 \`make codemap-check\` / \`make codemap-refresh\` 为准；本目录提供低 token 的全仓文件级索引补充。\n`;
 }
 
 function renderDrift(entries, drift) {
@@ -419,6 +435,7 @@ function moduleDescription(module) {
   return {
     cmd: '可执行入口与 MCP peer',
     internal: '应用内部模块、平台、provider、store 与守卫',
+    'frontend-app': '当前 React/Vite 前端工程',
     docs: '代码地图、ADR、计划、迁移和内部说明',
     pkg: '可复用公共库',
     scripts: '工程自动化脚本',

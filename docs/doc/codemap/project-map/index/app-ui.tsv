@@ -1,19 +1,19 @@
 path	module	domain	type	size_bytes	purpose	search_keys
 cmd/agent-terminal/frontend.go	cmd	app-ui	go-source	536	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,frontend,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
-cmd/agent-terminal/frontend/.gitignore	cmd	app-ui	file	85	Vue/Vite 前端包	cmd,agent,terminal,frontend,Vue,Vite,前端包
-cmd/agent-terminal/frontend/assets/index.css	cmd	app-ui	css	308704	Vue/Vite 前端包	cmd,agent,terminal,frontend,assets,index,Vue,Vite,前端包
-cmd/agent-terminal/frontend/guard_output.txt	cmd	app-ui	txt	5850	Vue/Vite 前端包	cmd,agent,terminal,frontend,guard,output,Vue,Vite,前端包
-cmd/agent-terminal/frontend/index.html	cmd	app-ui	html	658	Vue/Vite 前端包	cmd,agent,terminal,frontend,index,Vue,Vite,前端包
-cmd/agent-terminal/frontend/jsconfig.json	cmd	app-ui	json	398	Vue/Vite 前端包	cmd,agent,terminal,frontend,jsconfig,Vue,Vite,前端包
-cmd/agent-terminal/frontend/lib/echarts-custom.js	cmd	app-ui	js-source	319	Vue/Vite 前端包	cmd,agent,terminal,frontend,lib,echarts,custom,Vue,Vite,前端包
-cmd/agent-terminal/frontend/lib/vue.esm-browser.prod.js	cmd	app-ui	js-source	162653	Vue/Vite 前端包	cmd,agent,terminal,frontend,lib,vue,esm,browser,prod,Vue,Vite,前端包
-cmd/agent-terminal/frontend/package-lock.json	cmd	app-ui	json	197013	Vue/Vite 前端包	cmd,agent,terminal,frontend,package,lock,Vue,Vite,前端包
-cmd/agent-terminal/frontend/package.json	cmd	app-ui	json	1578	Vue/Vite 前端包	cmd,agent,terminal,frontend,package,Vue,Vite,前端包
-cmd/agent-terminal/frontend/playwright.config.js	cmd	app-ui	js-source	1326	Vue/Vite 前端包	cmd,agent,terminal,frontend,playwright,config,Vue,Vite,前端包
-cmd/agent-terminal/frontend/playwright.real.config.js	cmd	app-ui	js-source	1027	Vue/Vite 前端包	cmd,agent,terminal,frontend,playwright,real,config,Vue,Vite,前端包
-cmd/agent-terminal/frontend/public/data/en-zh-dict.json	cmd	app-ui	json	40887	Vue/Vite 前端包	cmd,agent,terminal,frontend,public,data,en,zh,dict,Vue,Vite,前端包
-cmd/agent-terminal/frontend/README.md	cmd	app-ui	doc	556	Vue/Vite 前端包	cmd,agent,terminal,frontend,README,Vue,Vite,前端包
-cmd/agent-terminal/frontend/review/toolbar-icons-review.png	cmd	app-ui	png	95174	Vue/Vite 前端包	cmd,agent,terminal,frontend,review,toolbar,icons,Vue,Vite,前端包
+cmd/agent-terminal/frontend/.gitignore	cmd	app-ui	file	85	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/assets/index.css	cmd	app-ui	css	308704	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,assets,index,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/guard_output.txt	cmd	app-ui	txt	5850	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,guard,output,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/index.html	cmd	app-ui	html	658	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,index,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/jsconfig.json	cmd	app-ui	json	398	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,jsconfig,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/lib/echarts-custom.js	cmd	app-ui	js-source	319	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,lib,echarts,custom,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/lib/vue.esm-browser.prod.js	cmd	app-ui	js-source	162653	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,lib,vue,esm,browser,prod,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/package-lock.json	cmd	app-ui	json	197013	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,package,lock,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/package.json	cmd	app-ui	json	1578	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,package,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/playwright.config.js	cmd	app-ui	js-source	1326	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,playwright,config,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/playwright.real.config.js	cmd	app-ui	js-source	1027	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,playwright,real,config,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/public/data/en-zh-dict.json	cmd	app-ui	json	40887	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,public,data,en,zh,dict,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/README.md	cmd	app-ui	doc	556	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,README,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/review/toolbar-icons-review.png	cmd	app-ui	png	95174	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,review,toolbar,icons,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
 cmd/agent-terminal/frontend/scripts/check-templates.cjs	cmd	app-ui	js-source	5376	前端构建、体积与模板守卫脚本	cmd,agent,terminal,frontend,scripts,check,templates,前端构建,体积与模板守卫脚本
 cmd/agent-terminal/frontend/scripts/patch-guard-baseline.js	cmd	app-ui	js-source	1556	前端构建、体积与模板守卫脚本	cmd,agent,terminal,frontend,scripts,patch,guard,baseline,前端构建,体积与模板守卫脚本
 cmd/agent-terminal/frontend/scripts/run-real-e2e.cjs	cmd	app-ui	js-source	4997	前端构建、体积与模板守卫脚本	cmd,agent,terminal,frontend,scripts,run,real,e2e,前端构建,体积与模板守卫脚本
@@ -21,19 +21,19 @@ cmd/agent-terminal/frontend/scripts/size-guard-baseline-test.json	cmd	app-ui	jso
 cmd/agent-terminal/frontend/scripts/size-guard-baseline.json	cmd	app-ui	json	144876	前端构建、体积与模板守卫脚本	cmd,agent,terminal,frontend,scripts,size,guard,baseline,前端构建,体积与模板守卫脚本
 cmd/agent-terminal/frontend/scripts/size-guard.cjs	cmd	app-ui	js-source	22494	前端构建、体积与模板守卫脚本	cmd,agent,terminal,frontend,scripts,size,guard,前端构建,体积与模板守卫脚本
 cmd/agent-terminal/frontend/scripts/vitest-global-setup.js	cmd	app-ui	js-source	618	前端构建、体积与模板守卫脚本	cmd,agent,terminal,frontend,scripts,vitest,global,setup,前端构建,体积与模板守卫脚本
-cmd/agent-terminal/frontend/vite.config.js	cmd	app-ui	js-source	1745	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,config,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vitest.config.js	cmd	app-ui	js-source	222	Vue/Vite 前端包	cmd,agent,terminal,frontend,vitest,config,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/agent-components.css	cmd	app-ui	css	2644	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/app.js	cmd	app-ui	js-source	30352	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/ActivityPanel.js	cmd	app-ui	js-source	15061	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,ActivityPanel,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/ChatTimeline.js	cmd	app-ui	js-source	26472	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,ChatTimeline,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/ComposerBar.js	cmd	app-ui	js-source	19416	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,ComposerBar,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/ComposerForkDraftCard.js	cmd	app-ui	js-source	7987	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,ComposerForkDraftCard,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/ContextUsageBanner.js	cmd	app-ui	js-source	2629	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,ContextUsageBanner,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/cron/CronJobDetail.js	cmd	app-ui	js-source	6392	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,cron,CronJobDetail,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/cron/CronJobForm.js	cmd	app-ui	js-source	11156	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,cron,CronJobForm,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/cron/ProviderIdentityField.js	cmd	app-ui	js-source	3229	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,cron,ProviderIdentityField,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/cron/ScheduleField.js	cmd	app-ui	js-source	3850	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,cron,ScheduleField,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vite.config.js	cmd	app-ui	js-source	1745	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vite,config,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vitest.config.js	cmd	app-ui	js-source	222	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vitest,config,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/agent-components.css	cmd	app-ui	css	2644	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/app.js	cmd	app-ui	js-source	30352	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/components/ActivityPanel.js	cmd	app-ui	js-source	15061	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,ActivityPanel,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/components/ChatTimeline.js	cmd	app-ui	js-source	26472	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,ChatTimeline,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/components/ComposerBar.js	cmd	app-ui	js-source	19416	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,ComposerBar,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/components/ComposerForkDraftCard.js	cmd	app-ui	js-source	7987	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,ComposerForkDraftCard,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/components/ContextUsageBanner.js	cmd	app-ui	js-source	2629	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,ContextUsageBanner,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/components/cron/CronJobDetail.js	cmd	app-ui	js-source	6392	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,cron,CronJobDetail,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/components/cron/CronJobForm.js	cmd	app-ui	js-source	11156	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,cron,CronJobForm,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/components/cron/ProviderIdentityField.js	cmd	app-ui	js-source	3229	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,cron,ProviderIdentityField,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/components/cron/ScheduleField.js	cmd	app-ui	js-source	3850	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,cron,ScheduleField,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
 cmd/agent-terminal/frontend/vue-app/components/dag/DagFinalOutputPanel.js	cmd	app-ui	js-source	5003	Vue DAG 控制台组件	cmd,agent,terminal,frontend,vue,app,components,dag,DagFinalOutputPanel,Vue,DAG,控制台组件
 cmd/agent-terminal/frontend/vue-app/components/dag/DagNodeEditForm.js	cmd	app-ui	js-source	10263	Vue DAG 控制台组件	cmd,agent,terminal,frontend,vue,app,components,dag,DagNodeEditForm,Vue,DAG,控制台组件
 cmd/agent-terminal/frontend/vue-app/components/dag/DagNodeList.js	cmd	app-ui	js-source	2729	Vue DAG 控制台组件	cmd,agent,terminal,frontend,vue,app,components,dag,DagNodeList,Vue,DAG,控制台组件
@@ -41,18 +41,18 @@ cmd/agent-terminal/frontend/vue-app/components/dag/DagRunHistoryPanel.js	cmd	app
 cmd/agent-terminal/frontend/vue-app/components/dag/DagScheduleModal.js	cmd	app-ui	js-source	5087	Vue DAG 控制台组件	cmd,agent,terminal,frontend,vue,app,components,dag,DagScheduleModal,Vue,DAG,控制台组件
 cmd/agent-terminal/frontend/vue-app/components/dag/DagSharedFilesPanel.js	cmd	app-ui	js-source	3039	Vue DAG 控制台组件	cmd,agent,terminal,frontend,vue,app,components,dag,DagSharedFilesPanel,Vue,DAG,控制台组件
 cmd/agent-terminal/frontend/vue-app/components/dag/DagTopologyPanel.js	cmd	app-ui	js-source	4129	Vue DAG 控制台组件	cmd,agent,terminal,frontend,vue,app,components,dag,DagTopologyPanel,Vue,DAG,控制台组件
-cmd/agent-terminal/frontend/vue-app/components/DagDetailModal.js	cmd	app-ui	js-source	4304	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,DagDetailModal,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/DiffPanel.js	cmd	app-ui	js-source	13313	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,DiffPanel,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/DiffPanel.template.js	cmd	app-ui	js-source	8612	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,DiffPanel,template,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/json-render-markdown-action-key.js	cmd	app-ui	js-source	82	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,json,render,markdown,action,key,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/JsonRenderer.js	cmd	app-ui	js-source	1775	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,JsonRenderer,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/JsonRenderWidgets.js	cmd	app-ui	js-source	20511	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,JsonRenderWidgets,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/PathChoiceModal.js	cmd	app-ui	js-source	3530	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,PathChoiceModal,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/ProjectModal.js	cmd	app-ui	js-source	1892	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,ProjectModal,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/ProjectSelect.js	cmd	app-ui	js-source	4327	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,ProjectSelect,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/RoleBar.js	cmd	app-ui	js-source	6578	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,RoleBar,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/SidebarNav.js	cmd	app-ui	js-source	1098	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,SidebarNav,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/TagInput.js	cmd	app-ui	js-source	2327	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,TagInput,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/components/DagDetailModal.js	cmd	app-ui	js-source	4304	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,DagDetailModal,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/components/DiffPanel.js	cmd	app-ui	js-source	13313	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,DiffPanel,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/components/DiffPanel.template.js	cmd	app-ui	js-source	8612	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,DiffPanel,template,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/components/json-render-markdown-action-key.js	cmd	app-ui	js-source	82	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,json,render,markdown,action,key,legacy,Vue,Vite,前端包与
+cmd/agent-terminal/frontend/vue-app/components/JsonRenderer.js	cmd	app-ui	js-source	1775	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,JsonRenderer,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/components/JsonRenderWidgets.js	cmd	app-ui	js-source	20511	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,JsonRenderWidgets,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/components/PathChoiceModal.js	cmd	app-ui	js-source	3530	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,PathChoiceModal,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/components/ProjectModal.js	cmd	app-ui	js-source	1892	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,ProjectModal,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/components/ProjectSelect.js	cmd	app-ui	js-source	4327	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,ProjectSelect,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/components/RoleBar.js	cmd	app-ui	js-source	6578	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,RoleBar,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/components/SidebarNav.js	cmd	app-ui	js-source	1098	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,SidebarNav,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/components/TagInput.js	cmd	app-ui	js-source	2327	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,components,TagInput,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
 cmd/agent-terminal/frontend/vue-app/components/timeline/AttachmentPreview.ts	cmd	app-ui	ts-source	3524	Vue timeline 消息、附件、工具调用展示组件	cmd,agent,terminal,frontend,vue,app,components,timeline,AttachmentPreview,Vue,消息,附件,工具调用展示组件
 cmd/agent-terminal/frontend/vue-app/components/timeline/timeline-markdown-helpers.js	cmd	app-ui	js-source	4042	Vue timeline 消息、附件、工具调用展示组件	cmd,agent,terminal,frontend,vue,app,components,timeline,markdown,helpers,Vue,消息,附件,工具调用展示组件
 cmd/agent-terminal/frontend/vue-app/components/timeline/ToolTickerBar.ts	cmd	app-ui	ts-source	4173	Vue timeline 消息、附件、工具调用展示组件	cmd,agent,terminal,frontend,vue,app,components,timeline,ToolTickerBar,Vue,消息,附件,工具调用展示组件
@@ -111,9 +111,9 @@ cmd/agent-terminal/frontend/vue-app/composables/useThreadCards.pinned-plan.js	cm
 cmd/agent-terminal/frontend/vue-app/composables/useThreadConfigController.js	cmd	app-ui	js-source	8427	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useThreadConfigController,Vue,composable,行为,hooks
 cmd/agent-terminal/frontend/vue-app/composables/useThreadSelection.js	cmd	app-ui	js-source	3500	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useThreadSelection,Vue,composable,行为,hooks
 cmd/agent-terminal/frontend/vue-app/composables/useThreadStatus.js	cmd	app-ui	js-source	10604	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useThreadStatus,Vue,composable,行为,hooks
-cmd/agent-terminal/frontend/vue-app/data/en-zh-dict.json	cmd	app-ui	json	527516	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,data,en,zh,dict,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/lib/echarts-custom.js	cmd	app-ui	js-source	955	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,lib,echarts,custom,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/main.js	cmd	app-ui	js-source	451	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,main,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/data/en-zh-dict.json	cmd	app-ui	json	527516	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,data,en,zh,dict,legacy,Vue,Vite,前端包与,frontend-app,dist
+cmd/agent-terminal/frontend/vue-app/lib/echarts-custom.js	cmd	app-ui	js-source	955	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,lib,echarts,custom,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/main.js	cmd	app-ui	js-source	451	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,main,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
 cmd/agent-terminal/frontend/vue-app/pages/CommandsPage.js	cmd	app-ui	js-source	1797	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,CommandsPage,Vue,页面级组件
 cmd/agent-terminal/frontend/vue-app/pages/CronPanel.js	cmd	app-ui	js-source	10340	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,CronPanel,Vue,页面级组件
 cmd/agent-terminal/frontend/vue-app/pages/DagsPage.js	cmd	app-ui	js-source	33845	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,DagsPage,Vue,页面级组件
@@ -138,7 +138,7 @@ cmd/agent-terminal/frontend/vue-app/pages/TasksPage.js	cmd	app-ui	js-source	2351
 cmd/agent-terminal/frontend/vue-app/pages/UnifiedChatPage.helpers.js	cmd	app-ui	js-source	7941	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,UnifiedChatPage,helpers,Vue,页面级组件
 cmd/agent-terminal/frontend/vue-app/pages/UnifiedChatPage.js	cmd	app-ui	js-source	27196	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,UnifiedChatPage,Vue,页面级组件
 cmd/agent-terminal/frontend/vue-app/pages/UnifiedChatPage.template.js	cmd	app-ui	js-source	11052	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,UnifiedChatPage,template,Vue,页面级组件
-cmd/agent-terminal/frontend/vue-app/provider-config-options.js	cmd	app-ui	js-source	4425	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,provider,config,options,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/provider-config-options.js	cmd	app-ui	js-source	4425	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,provider,config,options,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
 cmd/agent-terminal/frontend/vue-app/services/api.js	cmd	app-ui	js-source	16378	Vue 前端 API 与状态服务封装	cmd,agent,terminal,frontend,vue,app,services,api,Vue,前端,API,与状态服务封装
 cmd/agent-terminal/frontend/vue-app/services/cron-api.js	cmd	app-ui	js-source	3386	Vue 前端 API 与状态服务封装	cmd,agent,terminal,frontend,vue,app,services,cron,api,Vue,前端,API,与状态服务封装
 cmd/agent-terminal/frontend/vue-app/services/diff.js	cmd	app-ui	js-source	4389	Vue 前端 API 与状态服务封装	cmd,agent,terminal,frontend,vue,app,services,diff,Vue,前端,API,与状态服务封装
@@ -181,42 +181,235 @@ cmd/agent-terminal/frontend/vue-app/stores/thread-time-utils.js	cmd	app-ui	js-so
 cmd/agent-terminal/frontend/vue-app/stores/thread-ui-normalize.js	cmd	app-ui	js-source	1508	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,thread,ui,normalize,Vue,前端状态,store
 cmd/agent-terminal/frontend/vue-app/stores/thread-view.model.js	cmd	app-ui	js-source	1800	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,thread,view,model,Vue,前端状态,store
 cmd/agent-terminal/frontend/vue-app/stores/threads.js	cmd	app-ui	js-source	8203	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,threads,Vue,前端状态,store
-cmd/agent-terminal/frontend/vue-app/styles.css	cmd	app-ui	css	430	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/styles/activity-widgets.css	cmd	app-ui	css	17624	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,activity,widgets,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/styles/composer.css	cmd	app-ui	css	21437	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,composer,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/styles/cron.css	cmd	app-ui	css	4645	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,cron,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/styles/dag-console.css	cmd	app-ui	css	9749	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,dag,console,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/styles/diff-chat.css	cmd	app-ui	css	66934	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,diff,chat,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/styles/memory-center.css	cmd	app-ui	css	22815	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,memory,center,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/styles/shell-layout.css	cmd	app-ui	css	36682	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,shell,layout,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/styles/skills.css	cmd	app-ui	css	18651	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,skills,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/styles/system-prompt.css	cmd	app-ui	css	30157	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,system,prompt,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/styles/tokens.css	cmd	app-ui	css	1998	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,tokens,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/styles/utilities-settings.css	cmd	app-ui	css	6900	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,utilities,settings,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/styles/workspace-runs.css	cmd	app-ui	css	4099	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,workspace,runs,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/assistant-markdown-click.js	cmd	app-ui	js-source	3766	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,assistant,markdown,click,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/assistant-markdown-codex-ui.js	cmd	app-ui	js-source	5951	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,assistant,markdown,codex,ui,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/assistant-markdown-codex.js	cmd	app-ui	js-source	12168	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,assistant,markdown,codex,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/assistant-markdown-streaming.js	cmd	app-ui	js-source	11617	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,assistant,markdown,streaming,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/assistant-markdown.js	cmd	app-ui	js-source	24513	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,assistant,markdown,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/citation-action-utils.js	cmd	app-ui	js-source	2782	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,citation,action,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/citation-preview-utils.js	cmd	app-ui	js-source	2750	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,citation,preview,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/code-highlight.js	cmd	app-ui	js-source	4261	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,code,highlight,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/composer-textarea-height.js	cmd	app-ui	js-source	858	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,composer,textarea,height,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/diff-utils.js	cmd	app-ui	js-source	4657	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,diff,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/format-utils.js	cmd	app-ui	js-source	14553	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,format,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/mermaid-renderer.js	cmd	app-ui	js-source	3767	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,mermaid,renderer,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/multi-agent-intent.js	cmd	app-ui	js-source	2382	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,multi,intent,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/multi-agent-plan.js	cmd	app-ui	js-source	5511	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,multi,plan,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/plan-utils.js	cmd	app-ui	js-source	2363	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,plan,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/preview-utils.js	cmd	app-ui	js-source	11659	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,preview,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/skill-match-utils.js	cmd	app-ui	js-source	100	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,skill,match,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/skill-parser.js	cmd	app-ui	js-source	10132	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,skill,parser,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/skill-ref-utils.js	cmd	app-ui	js-source	899	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,skill,ref,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/thread-copy-utils.js	cmd	app-ui	js-source	1617	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,thread,copy,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/thread-page-types.d.ts	cmd	app-ui	ts-source	3284	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,thread,page,types,d,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/thread-page-utils.js	cmd	app-ui	js-source	18677	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,thread,page,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/translate-dict.js	cmd	app-ui	js-source	7918	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,translate,dict,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/vitest.config.js	cmd	app-ui	js-source	196	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,vitest,config,Vue,Vite,前端包
-cmd/agent-terminal/frontend/wails/runtime.js	cmd	app-ui	js-source	11978	Vue/Vite 前端包	cmd,agent,terminal,frontend,wails,runtime,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/styles.css	cmd	app-ui	css	430	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,styles,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/styles/activity-widgets.css	cmd	app-ui	css	17624	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,styles,activity,widgets,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/styles/composer.css	cmd	app-ui	css	21437	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,styles,composer,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/styles/cron.css	cmd	app-ui	css	4645	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,styles,cron,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/styles/dag-console.css	cmd	app-ui	css	9749	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,styles,dag,console,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/styles/diff-chat.css	cmd	app-ui	css	66934	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,styles,diff,chat,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/styles/memory-center.css	cmd	app-ui	css	22815	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,styles,memory,center,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/styles/shell-layout.css	cmd	app-ui	css	36682	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,styles,shell,layout,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/styles/skills.css	cmd	app-ui	css	18651	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,styles,skills,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/styles/system-prompt.css	cmd	app-ui	css	30157	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,styles,system,prompt,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/styles/tokens.css	cmd	app-ui	css	1998	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,styles,tokens,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/styles/utilities-settings.css	cmd	app-ui	css	6900	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,styles,utilities,settings,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/styles/workspace-runs.css	cmd	app-ui	css	4099	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,styles,workspace,runs,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/utils/assistant-markdown-click.js	cmd	app-ui	js-source	3766	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,assistant,markdown,click,legacy,Vue,Vite,前端包与,frontend-app,dist
+cmd/agent-terminal/frontend/vue-app/utils/assistant-markdown-codex-ui.js	cmd	app-ui	js-source	5951	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,assistant,markdown,codex,ui,legacy,Vue,Vite,前端包与,frontend-app
+cmd/agent-terminal/frontend/vue-app/utils/assistant-markdown-codex.js	cmd	app-ui	js-source	12168	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,assistant,markdown,codex,legacy,Vue,Vite,前端包与,frontend-app,dist
+cmd/agent-terminal/frontend/vue-app/utils/assistant-markdown-streaming.js	cmd	app-ui	js-source	11617	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,assistant,markdown,streaming,legacy,Vue,Vite,前端包与,frontend-app,dist
+cmd/agent-terminal/frontend/vue-app/utils/assistant-markdown.js	cmd	app-ui	js-source	24513	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,assistant,markdown,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/utils/citation-action-utils.js	cmd	app-ui	js-source	2782	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,citation,action,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/utils/citation-preview-utils.js	cmd	app-ui	js-source	2750	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,citation,preview,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/utils/code-highlight.js	cmd	app-ui	js-source	4261	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,code,highlight,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/utils/composer-textarea-height.js	cmd	app-ui	js-source	858	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,composer,textarea,height,legacy,Vue,Vite,前端包与,frontend-app,dist
+cmd/agent-terminal/frontend/vue-app/utils/diff-utils.js	cmd	app-ui	js-source	4657	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,diff,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/utils/format-utils.js	cmd	app-ui	js-source	14553	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,format,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/utils/mermaid-renderer.js	cmd	app-ui	js-source	3767	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,mermaid,renderer,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/utils/multi-agent-intent.js	cmd	app-ui	js-source	2382	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,multi,intent,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/utils/multi-agent-plan.js	cmd	app-ui	js-source	5511	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,multi,plan,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/utils/plan-utils.js	cmd	app-ui	js-source	2363	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,plan,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/utils/preview-utils.js	cmd	app-ui	js-source	11659	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,preview,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/utils/skill-match-utils.js	cmd	app-ui	js-source	100	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,skill,match,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/utils/skill-parser.js	cmd	app-ui	js-source	10132	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,skill,parser,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/utils/skill-ref-utils.js	cmd	app-ui	js-source	899	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,skill,ref,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/utils/thread-copy-utils.js	cmd	app-ui	js-source	1617	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,thread,copy,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/utils/thread-page-types.d.ts	cmd	app-ui	ts-source	3284	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,thread,page,types,d,legacy,Vue,Vite,前端包与,frontend-app
+cmd/agent-terminal/frontend/vue-app/utils/thread-page-utils.js	cmd	app-ui	js-source	18677	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,thread,page,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/utils/translate-dict.js	cmd	app-ui	js-source	7918	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,utils,translate,dict,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/vue-app/vitest.config.js	cmd	app-ui	js-source	196	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,vue,app,vitest,config,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
+cmd/agent-terminal/frontend/wails/runtime.js	cmd	app-ui	js-source	11978	legacy Vue/Vite 前端包与 frontend-app dist 嵌入输出	cmd,agent,terminal,frontend,wails,runtime,legacy,Vue,Vite,前端包与,frontend-app,dist,嵌入输出
 cmd/agent-terminal/main.go	cmd	app-ui	go-source	923	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,main,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
+frontend-app/.env.example	frontend-app	app-ui	example	652	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,env,当前,React,Vite,前端工程,脚本,测试和构建配置
+frontend-app/.gitignore	frontend-app	app-ui	file	30	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,当前,React,Vite,前端工程,脚本,测试和构建配置
+frontend-app/.playwright-cli/console-2026-05-31T11-04-30-522Z.log	frontend-app	app-ui	log	365	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,playwright,cli,console,2026,05,31T11,04,30,522Z,当前,React,Vite,前端工程,脚本
+frontend-app/.playwright-cli/page-2026-05-31T11-04-30-787Z.yml	frontend-app	app-ui	yaml	3318	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,playwright,cli,page,2026,05,31T11,04,30,787Z,当前,React,Vite,前端工程,脚本
+frontend-app/design-qa-active-chat.png	frontend-app	app-ui	png	73949	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,design,qa,active,chat,当前,React,Vite,前端工程,脚本,测试和构建配置
+frontend-app/eslint.config.js	frontend-app	app-ui	js-source	857	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,eslint,config,当前,React,Vite,前端工程,脚本,测试和构建配置
+frontend-app/index.html	frontend-app	app-ui	html	368	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,index,当前,React,Vite,前端工程,脚本,测试和构建配置
+frontend-app/jsconfig.json	frontend-app	app-ui	json	421	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,jsconfig,当前,React,Vite,前端工程,脚本,测试和构建配置
+frontend-app/package-lock.json	frontend-app	app-ui	json	168676	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,package,lock,当前,React,Vite,前端工程,脚本,测试和构建配置
+frontend-app/package.json	frontend-app	app-ui	json	1528	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,package,当前,React,Vite,前端工程,脚本,测试和构建配置
+frontend-app/playwright.desktop.config.js	frontend-app	app-ui	js-source	617	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,playwright,desktop,config,当前,React,Vite,前端工程,脚本,测试和构建配置
+frontend-app/public/favicon.svg	frontend-app	app-ui	svg	295	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,public,favicon,当前,React,Vite,前端工程,脚本,测试和构建配置
+frontend-app/public/wails/runtime.js	frontend-app	app-ui	js-source	18864	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,public,wails,runtime,当前,React,Vite,前端工程,脚本,测试和构建配置
+frontend-app/README.md	frontend-app	app-ui	doc	1399	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,README,当前,React,Vite,前端工程,脚本,测试和构建配置
+frontend-app/scripts/desktop-smoke.mjs	frontend-app	app-ui	js-source	10249	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,scripts,desktop,smoke,当前,React,Vite,前端工程,脚本,测试和构建配置
+frontend-app/scripts/desktop-ux-smoke.mjs	frontend-app	app-ui	js-source	7636	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,scripts,desktop,ux,smoke,当前,React,Vite,前端工程,脚本,测试和构建配置
+frontend-app/scripts/rpc-contract-audit.mjs	frontend-app	app-ui	js-source	7599	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,scripts,rpc,contract,audit,当前,React,Vite,前端工程,脚本,测试和构建配置
+frontend-app/scripts/sync-frontend-dist.mjs	frontend-app	app-ui	js-source	1200	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,scripts,sync,dist,当前,React,Vite,前端工程,脚本,测试和构建配置
+frontend-app/src/adapters/apiErrorAdapter.js	frontend-app	app-ui	js-source	200	当前 React/Vite 前端源码	frontend,app,src,adapters,apiErrorAdapter,当前,React,Vite,前端源码
+frontend-app/src/adapters/fileAdapter.js	frontend-app	app-ui	js-source	4034	当前 React/Vite 前端源码	frontend,app,src,adapters,fileAdapter,当前,React,Vite,前端源码
+frontend-app/src/adapters/memoryAdapter.js	frontend-app	app-ui	js-source	4172	当前 React/Vite 前端源码	frontend,app,src,adapters,memoryAdapter,当前,React,Vite,前端源码
+frontend-app/src/adapters/observabilityAdapter.js	frontend-app	app-ui	js-source	1797	当前 React/Vite 前端源码	frontend,app,src,adapters,observabilityAdapter,当前,React,Vite,前端源码
+frontend-app/src/App.jsx	frontend-app	app-ui	jsx	44902	当前 React/Vite 前端源码	frontend,app,src,App,当前,React,Vite,前端源码
+frontend-app/src/app/appShellModel.js	frontend-app	app-ui	js-source	2714	当前 React app shell 状态模型	frontend,app,src,appShellModel,当前,React,shell,状态模型
+frontend-app/src/AppChrome.css	frontend-app	app-ui	css	7375	当前 React/Vite 前端源码	frontend,app,src,AppChrome,当前,React,Vite,前端源码
+frontend-app/src/AppShell.css	frontend-app	app-ui	css	20424	当前 React/Vite 前端源码	frontend,app,src,AppShell,当前,React,Vite,前端源码
+frontend-app/src/AppShellSidebarPolish.css	frontend-app	app-ui	css	468	当前 React/Vite 前端源码	frontend,app,src,AppShellSidebarPolish,当前,React,Vite,前端源码
+frontend-app/src/AppShellSidebarThreadActions.css	frontend-app	app-ui	css	4859	当前 React/Vite 前端源码	frontend,app,src,AppShellSidebarThreadActions,当前,React,Vite,前端源码
+frontend-app/src/AppShellWorkbench.css	frontend-app	app-ui	css	14613	当前 React/Vite 前端源码	frontend,app,src,AppShellWorkbench,当前,React,Vite,前端源码
+frontend-app/src/assets/super-dolphin-logo.png	frontend-app	app-ui	png	2521	当前 React/Vite 前端源码	frontend,app,src,assets,super,dolphin,logo,当前,React,Vite,前端源码
+frontend-app/src/entities/client/model/bridgePatchState.js	frontend-app	app-ui	js-source	9436	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,bridgePatchState,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/bridgeRevision.js	frontend-app	app-ui	js-source	2463	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,bridgeRevision,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/composerAttachments.js	frontend-app	app-ui	js-source	5366	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,composerAttachments,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/composerSlice.js	frontend-app	app-ui	js-source	11013	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,composerSlice,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/forkSlice.js	frontend-app	app-ui	js-source	6992	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,forkSlice,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/projectSlice.js	frontend-app	app-ui	js-source	5903	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,projectSlice,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/providerPreferences.js	frontend-app	app-ui	js-source	1484	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,providerPreferences,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/providerRuntimeConfig.js	frontend-app	app-ui	js-source	3244	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,providerRuntimeConfig,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/runtimeAssistantTimeline.js	frontend-app	app-ui	js-source	6974	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,runtimeAssistantTimeline,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/runtimeResults.js	frontend-app	app-ui	js-source	6089	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,runtimeResults,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/runtimeSlice.js	frontend-app	app-ui	js-source	8268	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,runtimeSlice,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/threadActivityMetrics.js	frontend-app	app-ui	js-source	7851	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,threadActivityMetrics,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/threadCopyPayload.js	frontend-app	app-ui	js-source	4040	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,threadCopyPayload,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/threadFork.js	frontend-app	app-ui	js-source	4768	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,threadFork,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/threadForkState.js	frontend-app	app-ui	js-source	4526	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,threadForkState,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/threadHistoryTimeline.js	frontend-app	app-ui	js-source	6683	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,threadHistoryTimeline,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/threadIdentity.js	frontend-app	app-ui	js-source	1840	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,threadIdentity,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/threadLifecycleRuntime.js	frontend-app	app-ui	js-source	2056	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,threadLifecycleRuntime,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/threadListMutations.js	frontend-app	app-ui	js-source	2629	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,threadListMutations,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/threadMessagesPagination.js	frontend-app	app-ui	js-source	2643	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,threadMessagesPagination,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/threadMessagesRuntime.js	frontend-app	app-ui	js-source	8577	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,threadMessagesRuntime,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/timelineRuntime.js	frontend-app	app-ui	js-source	21675	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,timelineRuntime,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/useClientStore.js	frontend-app	app-ui	js-source	111744	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,useClientStore,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/entities/client/model/warningRuntime.js	frontend-app	app-ui	js-source	3495	当前 React 客户端 Zustand 状态、thread/turn/composer 运行链	frontend,app,src,entities,client,model,warningRuntime,当前,React,客户端,Zustand,状态,thread,turn,composer,运行链
+frontend-app/src/features/prompts/Personalization.css	frontend-app	app-ui	css	2531	当前 React/Vite 前端源码	frontend,app,src,features,prompts,Personalization,当前,React,Vite,前端源码
+frontend-app/src/features/prompts/PromptPagePolish.css	frontend-app	app-ui	css	4875	当前 React/Vite 前端源码	frontend,app,src,features,prompts,PromptPagePolish,当前,React,Vite,前端源码
+frontend-app/src/features/prompts/PromptPageView.css	frontend-app	app-ui	css	8149	当前 React/Vite 前端源码	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端源码
+frontend-app/src/features/prompts/PromptPageView.jsx	frontend-app	app-ui	jsx	58059	当前 React/Vite 前端源码	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端源码
+frontend-app/src/main.jsx	frontend-app	app-ui	jsx	2646	当前 React/Vite 前端源码	frontend,app,src,main,当前,React,Vite,前端源码
+frontend-app/src/pages/chat/adapters/codePreviewAdapter.js	frontend-app	app-ui	js-source	5081	当前 React 聊天页 UI 状态适配器	frontend,app,src,pages,chat,adapters,codePreviewAdapter,当前,React,聊天页,UI,状态适配器
+frontend-app/src/pages/chat/adapters/codePreviewMetaAdapter.js	frontend-app	app-ui	js-source	1066	当前 React 聊天页 UI 状态适配器	frontend,app,src,pages,chat,adapters,codePreviewMetaAdapter,当前,React,聊天页,UI,状态适配器
+frontend-app/src/pages/chat/adapters/composerModelSelectorState.js	frontend-app	app-ui	js-source	6648	当前 React 聊天页 UI 状态适配器	frontend,app,src,pages,chat,adapters,composerModelSelectorState,当前,React,聊天页,UI,状态适配器
+frontend-app/src/pages/chat/adapters/runtimeActivityAdapter.js	frontend-app	app-ui	js-source	5011	当前 React 聊天页 UI 状态适配器	frontend,app,src,pages,chat,adapters,runtimeActivityAdapter,当前,React,聊天页,UI,状态适配器
+frontend-app/src/pages/chat/adapters/runtimeCodeAdapter.js	frontend-app	app-ui	js-source	2268	当前 React 聊天页 UI 状态适配器	frontend,app,src,pages,chat,adapters,runtimeCodeAdapter,当前,React,聊天页,UI,状态适配器
+frontend-app/src/pages/chat/adapters/runtimeDiffLineAdapter.js	frontend-app	app-ui	js-source	2426	当前 React 聊天页 UI 状态适配器	frontend,app,src,pages,chat,adapters,runtimeDiffLineAdapter,当前,React,聊天页,UI,状态适配器
+frontend-app/src/pages/chat/adapters/runtimeDiffSummaryAdapter.js	frontend-app	app-ui	js-source	5438	当前 React 聊天页 UI 状态适配器	frontend,app,src,pages,chat,adapters,runtimeDiffSummaryAdapter,当前,React,聊天页,UI,状态适配器
+frontend-app/src/pages/chat/adapters/runtimeDiffSummaryResultAdapter.js	frontend-app	app-ui	js-source	774	当前 React 聊天页 UI 状态适配器	frontend,app,src,pages,chat,adapters,runtimeDiffSummaryResultAdapter,当前,React,聊天页,UI,状态适配器
+frontend-app/src/pages/chat/adapters/runtimeLogAdapter.js	frontend-app	app-ui	js-source	1430	当前 React 聊天页 UI 状态适配器	frontend,app,src,pages,chat,adapters,runtimeLogAdapter,当前,React,聊天页,UI,状态适配器
+frontend-app/src/pages/chat/adapters/threadIdentityAdapter.js	frontend-app	app-ui	js-source	3626	当前 React 聊天页 UI 状态适配器	frontend,app,src,pages,chat,adapters,threadIdentityAdapter,当前,React,聊天页,UI,状态适配器
+frontend-app/src/pages/chat/adapters/threadStateAdapter.js	frontend-app	app-ui	js-source	453	当前 React 聊天页 UI 状态适配器	frontend,app,src,pages,chat,adapters,threadStateAdapter,当前,React,聊天页,UI,状态适配器
+frontend-app/src/pages/chat/adapters/threadStatusAdapter.js	frontend-app	app-ui	js-source	4693	当前 React 聊天页 UI 状态适配器	frontend,app,src,pages,chat,adapters,threadStatusAdapter,当前,React,聊天页,UI,状态适配器
+frontend-app/src/pages/chat/ChatMessages.css	frontend-app	app-ui	css	13205	当前 React 聊天页与工作区布局	frontend,app,src,pages,chat,ChatMessages,当前,React,聊天页与工作区布局
+frontend-app/src/pages/chat/ChatPage.css	frontend-app	app-ui	css	5108	当前 React 聊天页与工作区布局	frontend,app,src,pages,chat,ChatPage,当前,React,聊天页与工作区布局
+frontend-app/src/pages/chat/ChatPage.jsx	frontend-app	app-ui	jsx	35700	当前 React 聊天页与工作区布局	frontend,app,src,pages,chat,ChatPage,当前,React,聊天页与工作区布局
+frontend-app/src/pages/chat/ChatPageWorkbench.css	frontend-app	app-ui	css	15230	当前 React 聊天页与工作区布局	frontend,app,src,pages,chat,ChatPageWorkbench,当前,React,聊天页与工作区布局
+frontend-app/src/pages/chat/ChatReasoning.css	frontend-app	app-ui	css	6821	当前 React 聊天页与工作区布局	frontend,app,src,pages,chat,ChatReasoning,当前,React,聊天页与工作区布局
+frontend-app/src/pages/chat/ChatTimeline.css	frontend-app	app-ui	css	98	当前 React 聊天页与工作区布局	frontend,app,src,pages,chat,ChatTimeline,当前,React,聊天页与工作区布局
+frontend-app/src/pages/chat/components/AttachmentPreviewModal.jsx	frontend-app	app-ui	jsx	1233	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,AttachmentPreviewModal,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/ChatApprovalMessage.jsx	frontend-app	app-ui	jsx	2731	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,ChatApprovalMessage,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/chatApprovalModel.js	frontend-app	app-ui	js-source	1012	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,chatApprovalModel,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/chatHeaderModel.js	frontend-app	app-ui	js-source	567	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,chatHeaderModel,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/ChatPageHeader.jsx	frontend-app	app-ui	jsx	8961	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,ChatPageHeader,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/chatReasoningModel.js	frontend-app	app-ui	js-source	4124	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,chatReasoningModel,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/ChatReasoningTrace.jsx	frontend-app	app-ui	jsx	5434	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,ChatReasoningTrace,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/chatUiActions.js	frontend-app	app-ui	js-source	274	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,chatUiActions,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/CodePreviewDialog.css	frontend-app	app-ui	css	0	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,CodePreviewDialog,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/CodePreviewDialog.jsx	frontend-app	app-ui	jsx	3301	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,CodePreviewDialog,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/composerAttachmentKey.js	frontend-app	app-ui	js-source	156	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,composerAttachmentKey,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/ComposerAttachments.jsx	frontend-app	app-ui	jsx	1212	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,ComposerAttachments,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/ComposerDock.css	frontend-app	app-ui	css	8813	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,ComposerDock,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/ComposerDock.jsx	frontend-app	app-ui	jsx	5174	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,ComposerDock,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/ComposerMeta.jsx	frontend-app	app-ui	jsx	2414	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,ComposerMeta,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/ComposerModelSelector.jsx	frontend-app	app-ui	jsx	5067	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,ComposerModelSelector,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/ComposerTextarea.jsx	frontend-app	app-ui	jsx	653	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,ComposerTextarea,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/ForkDraftCard.jsx	frontend-app	app-ui	jsx	2342	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,ForkDraftCard,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/ImageLightbox.jsx	frontend-app	app-ui	jsx	993	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,ImageLightbox,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/MarkdownDirectiveChip.jsx	frontend-app	app-ui	jsx	1298	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,MarkdownDirectiveChip,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/markdownDirectiveModel.js	frontend-app	app-ui	js-source	7235	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,markdownDirectiveModel,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/MarkdownImagePreview.jsx	frontend-app	app-ui	jsx	1744	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,MarkdownImagePreview,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/MarkdownInline.jsx	frontend-app	app-ui	jsx	6716	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,MarkdownInline,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/markdownMermaidModel.js	frontend-app	app-ui	js-source	2514	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,markdownMermaidModel,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/MarkdownMessage.jsx	frontend-app	app-ui	jsx	27079	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,MarkdownMessage,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/markdownMessageModel.js	frontend-app	app-ui	js-source	1485	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,markdownMessageModel,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/MermaidDiagram.jsx	frontend-app	app-ui	jsx	3440	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,MermaidDiagram,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/PathChoiceDialog.css	frontend-app	app-ui	css	0	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,PathChoiceDialog,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/PathChoiceDialog.jsx	frontend-app	app-ui	jsx	1333	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,PathChoiceDialog,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/ProjectSelector.css	frontend-app	app-ui	css	0	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,ProjectSelector,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/ProjectSelector.jsx	frontend-app	app-ui	jsx	4163	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,ProjectSelector,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/projectSelectorModel.js	frontend-app	app-ui	js-source	2939	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,projectSelectorModel,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/runtimeActivityGeometry.js	frontend-app	app-ui	js-source	2771	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,runtimeActivityGeometry,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/RuntimeActivityLog.jsx	frontend-app	app-ui	jsx	1792	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,RuntimeActivityLog,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/RuntimeActivityPanel.jsx	frontend-app	app-ui	jsx	6662	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,RuntimeActivityPanel,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/RuntimeActivityStats.jsx	frontend-app	app-ui	jsx	2713	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,RuntimeActivityStats,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/RuntimeDiffView.jsx	frontend-app	app-ui	jsx	3177	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,RuntimeDiffView,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/RuntimePanel.css	frontend-app	app-ui	css	13279	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,RuntimePanel,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/RuntimePanel.jsx	frontend-app	app-ui	jsx	6738	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,RuntimePanel,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/RuntimePanelPolish.css	frontend-app	app-ui	css	677	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,RuntimePanelPolish,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/RuntimePanelSlot.jsx	frontend-app	app-ui	jsx	1543	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,RuntimePanelSlot,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/RuntimeToolbar.jsx	frontend-app	app-ui	jsx	904	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,RuntimeToolbar,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/ThreadCard.jsx	frontend-app	app-ui	jsx	5039	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,ThreadCard,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/ThreadCardActions.jsx	frontend-app	app-ui	jsx	3554	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,ThreadCardActions,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/ThreadDisplayCardContent.jsx	frontend-app	app-ui	jsx	1261	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,ThreadDisplayCardContent,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/ThreadRail.css	frontend-app	app-ui	css	0	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,ThreadRail,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/ThreadRail.jsx	frontend-app	app-ui	jsx	6294	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,ThreadRail,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/ThreadRailTools.jsx	frontend-app	app-ui	jsx	1734	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,ThreadRailTools,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/TimelineMessage.jsx	frontend-app	app-ui	jsx	4550	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,TimelineMessage,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/components/timelineMessageModel.js	frontend-app	app-ui	js-source	613	当前 React 聊天页组件、composer、runtime panel 与 timeline 展示	frontend,app,src,pages,chat,components,timelineMessageModel,当前,React,聊天页组件,composer,runtime,panel,与,timeline,展示
+frontend-app/src/pages/chat/hooks/timelineScroll.js	frontend-app	app-ui	js-source	1027	当前 React 聊天页交互 hooks、composer 本地交互和线程数据读取	frontend,app,src,pages,chat,hooks,timelineScroll,当前,React,聊天页交互,composer,本地交互和线程数据读取
+frontend-app/src/pages/chat/hooks/useChatThreadData.js	frontend-app	app-ui	js-source	6581	当前 React 聊天页交互 hooks、composer 本地交互和线程数据读取	frontend,app,src,pages,chat,hooks,useChatThreadData,当前,React,聊天页交互,composer,本地交互和线程数据读取
+frontend-app/src/pages/chat/hooks/useChatWorkbenchLayout.js	frontend-app	app-ui	js-source	10343	当前 React 聊天页交互 hooks、composer 本地交互和线程数据读取	frontend,app,src,pages,chat,hooks,useChatWorkbenchLayout,当前,React,聊天页交互,composer,本地交互和线程数据读取
+frontend-app/src/pages/chat/hooks/useComposerInteractions.js	frontend-app	app-ui	js-source	11083	当前 React 聊天页交互 hooks、composer 本地交互和线程数据读取	frontend,app,src,pages,chat,hooks,useComposerInteractions,当前,React,聊天页交互,composer,本地交互和线程数据读取
+frontend-app/src/pages/chat/hooks/useRuntimePanelLayout.js	frontend-app	app-ui	js-source	5313	当前 React 聊天页交互 hooks、composer 本地交互和线程数据读取	frontend,app,src,pages,chat,hooks,useRuntimePanelLayout,当前,React,聊天页交互,composer,本地交互和线程数据读取
+frontend-app/src/pages/chat/hooks/useSmoothStreamingText.js	frontend-app	app-ui	js-source	3635	当前 React 聊天页交互 hooks、composer 本地交互和线程数据读取	frontend,app,src,pages,chat,hooks,useSmoothStreamingText,当前,React,聊天页交互,composer,本地交互和线程数据读取
+frontend-app/src/pages/chat/hooks/useTimelineMaterialization.js	frontend-app	app-ui	js-source	2221	当前 React 聊天页交互 hooks、composer 本地交互和线程数据读取	frontend,app,src,pages,chat,hooks,useTimelineMaterialization,当前,React,聊天页交互,composer,本地交互和线程数据读取
+frontend-app/src/pages/chat/services/chatCodeService.js	frontend-app	app-ui	js-source	851	当前 React 聊天页后端 API 薄服务	frontend,app,src,pages,chat,services,chatCodeService,当前,React,聊天页后端,API,薄服务
+frontend-app/src/pages/files/FilesPage.css	frontend-app	app-ui	css	4692	当前 React 页面层	frontend,app,src,pages,files,FilesPage,当前,React,页面层
+frontend-app/src/pages/files/FilesPage.jsx	frontend-app	app-ui	jsx	28483	当前 React 页面层	frontend,app,src,pages,files,FilesPage,当前,React,页面层
+frontend-app/src/pages/files/FilesPageWorkbench.css	frontend-app	app-ui	css	4670	当前 React 页面层	frontend,app,src,pages,files,FilesPageWorkbench,当前,React,页面层
+frontend-app/src/pages/memory/MemoryPage.css	frontend-app	app-ui	css	4653	当前 React 页面层	frontend,app,src,pages,memory,MemoryPage,当前,React,页面层
+frontend-app/src/pages/memory/MemoryPage.jsx	frontend-app	app-ui	jsx	40446	当前 React 页面层	frontend,app,src,pages,memory,MemoryPage,当前,React,页面层
+frontend-app/src/pages/observability/ObservabilityPage.css	frontend-app	app-ui	css	11997	当前 React 页面层	frontend,app,src,pages,observability,ObservabilityPage,当前,React,页面层
+frontend-app/src/pages/observability/ObservabilityPage.jsx	frontend-app	app-ui	jsx	30837	当前 React 页面层	frontend,app,src,pages,observability,ObservabilityPage,当前,React,页面层
+frontend-app/src/pages/prompts/PromptPage.jsx	frontend-app	app-ui	jsx	330	当前 React 页面层	frontend,app,src,pages,prompts,PromptPage,当前,React,页面层
+frontend-app/src/pages/settings/components/BuiltinToolsCard.css	frontend-app	app-ui	css	0	当前 React 页面层	frontend,app,src,pages,settings,components,BuiltinToolsCard,当前,React,页面层
+frontend-app/src/pages/settings/components/BuiltinToolsCard.jsx	frontend-app	app-ui	jsx	3604	当前 React 页面层	frontend,app,src,pages,settings,components,BuiltinToolsCard,当前,React,页面层
+frontend-app/src/pages/settings/components/PromptSettingsCard.css	frontend-app	app-ui	css	0	当前 React 页面层	frontend,app,src,pages,settings,components,PromptSettingsCard,当前,React,页面层
+frontend-app/src/pages/settings/components/PromptSettingsCard.jsx	frontend-app	app-ui	jsx	3894	当前 React 页面层	frontend,app,src,pages,settings,components,PromptSettingsCard,当前,React,页面层
+frontend-app/src/pages/settings/components/ProviderSettingsPanels.css	frontend-app	app-ui	css	0	当前 React 页面层	frontend,app,src,pages,settings,components,ProviderSettingsPanels,当前,React,页面层
+frontend-app/src/pages/settings/components/ProviderSettingsPanels.jsx	frontend-app	app-ui	jsx	6494	当前 React 页面层	frontend,app,src,pages,settings,components,ProviderSettingsPanels,当前,React,页面层
+frontend-app/src/pages/settings/components/SettingsPageComponents.css	frontend-app	app-ui	css	7101	当前 React 页面层	frontend,app,src,pages,settings,components,SettingsPageComponents,当前,React,页面层
+frontend-app/src/pages/settings/components/SettingsPromptNotice.css	frontend-app	app-ui	css	0	当前 React 页面层	frontend,app,src,pages,settings,components,SettingsPromptNotice,当前,React,页面层
+frontend-app/src/pages/settings/components/SettingsPromptNotice.jsx	frontend-app	app-ui	jsx	418	当前 React 页面层	frontend,app,src,pages,settings,components,SettingsPromptNotice,当前,React,页面层
+frontend-app/src/pages/settings/components/SettingsPromptToggle.css	frontend-app	app-ui	css	0	当前 React 页面层	frontend,app,src,pages,settings,components,SettingsPromptToggle,当前,React,页面层
+frontend-app/src/pages/settings/components/SettingsSystemPanels.jsx	frontend-app	app-ui	jsx	3472	当前 React 页面层	frontend,app,src,pages,settings,components,SettingsSystemPanels,当前,React,页面层
+frontend-app/src/pages/settings/components/UILogCard.css	frontend-app	app-ui	css	0	当前 React 页面层	frontend,app,src,pages,settings,components,UILogCard,当前,React,页面层
+frontend-app/src/pages/settings/components/UILogCard.jsx	frontend-app	app-ui	jsx	4037	当前 React 页面层	frontend,app,src,pages,settings,components,UILogCard,当前,React,页面层
+frontend-app/src/pages/settings/components/VideoSettingsCard.jsx	frontend-app	app-ui	jsx	2294	当前 React 页面层	frontend,app,src,pages,settings,components,VideoSettingsCard,当前,React,页面层
+frontend-app/src/pages/settings/services/settingsPageService.js	frontend-app	app-ui	js-source	1921	当前 React 页面层	frontend,app,src,pages,settings,services,settingsPageService,当前,React,页面层
+frontend-app/src/pages/settings/SettingsPage.css	frontend-app	app-ui	css	1237	当前 React 页面层	frontend,app,src,pages,settings,SettingsPage,当前,React,页面层
+frontend-app/src/pages/settings/SettingsPage.jsx	frontend-app	app-ui	jsx	46894	当前 React 页面层	frontend,app,src,pages,settings,SettingsPage,当前,React,页面层
+frontend-app/src/pages/shared/pageComponents.jsx	frontend-app	app-ui	jsx	839	当前 React 页面层	frontend,app,src,pages,shared,pageComponents,当前,React,页面层
+frontend-app/src/pages/shared/pageShared.js	frontend-app	app-ui	js-source	7655	当前 React 页面层	frontend,app,src,pages,shared,pageShared,当前,React,页面层
+frontend-app/src/pages/skills/DatasourcePage.css	frontend-app	app-ui	css	2345	当前 React 页面层	frontend,app,src,pages,skills,DatasourcePage,当前,React,页面层
+frontend-app/src/pages/skills/SkillsPage.css	frontend-app	app-ui	css	12723	当前 React 页面层	frontend,app,src,pages,skills,SkillsPage,当前,React,页面层
+frontend-app/src/pages/skills/SkillsPage.jsx	frontend-app	app-ui	jsx	101753	当前 React 页面层	frontend,app,src,pages,skills,SkillsPage,当前,React,页面层
+frontend-app/src/pages/skills/SkillsPageHub.css	frontend-app	app-ui	css	6752	当前 React 页面层	frontend,app,src,pages,skills,SkillsPageHub,当前,React,页面层
+frontend-app/src/pages/workflows/adapters/workflowDisplayAdapter.js	frontend-app	app-ui	js-source	4275	当前 React 页面层	frontend,app,src,pages,workflows,adapters,workflowDisplayAdapter,当前,React,页面层
+frontend-app/src/pages/workflows/components/WorkflowDiagnostics.jsx	frontend-app	app-ui	jsx	3226	当前 React 页面层	frontend,app,src,pages,workflows,components,WorkflowDiagnostics,当前,React,页面层
+frontend-app/src/pages/workflows/components/WorkflowFinalOutputPanel.jsx	frontend-app	app-ui	jsx	6967	当前 React 页面层	frontend,app,src,pages,workflows,components,WorkflowFinalOutputPanel,当前,React,页面层
+frontend-app/src/pages/workflows/services/workflowPageService.js	frontend-app	app-ui	js-source	1651	当前 React 页面层	frontend,app,src,pages,workflows,services,workflowPageService,当前,React,页面层
+frontend-app/src/pages/workflows/WorkflowEmptyState.css	frontend-app	app-ui	css	2773	当前 React 页面层	frontend,app,src,pages,workflows,WorkflowEmptyState,当前,React,页面层
+frontend-app/src/pages/workflows/WorkflowPage.css	frontend-app	app-ui	css	7825	当前 React 页面层	frontend,app,src,pages,workflows,WorkflowPage,当前,React,页面层
+frontend-app/src/pages/workflows/WorkflowPage.jsx	frontend-app	app-ui	jsx	85214	当前 React 页面层	frontend,app,src,pages,workflows,WorkflowPage,当前,React,页面层
+frontend-app/src/pages/workflows/WorkflowPolish.css	frontend-app	app-ui	css	912	当前 React 页面层	frontend,app,src,pages,workflows,WorkflowPolish,当前,React,页面层
+frontend-app/src/services/apiClient.js	frontend-app	app-ui	js-source	1582	当前 React 页面服务与后端 API 适配	frontend,app,src,services,apiClient,当前,React,页面服务与后端,API,适配
+frontend-app/src/services/modules/fileService.js	frontend-app	app-ui	js-source	1715	当前 React 页面服务与后端 API 适配	frontend,app,src,services,modules,fileService,当前,React,页面服务与后端,API,适配
+frontend-app/src/services/modules/memoryService.js	frontend-app	app-ui	js-source	2706	当前 React 页面服务与后端 API 适配	frontend,app,src,services,modules,memoryService,当前,React,页面服务与后端,API,适配
+frontend-app/src/services/modules/observabilityService.js	frontend-app	app-ui	js-source	1209	当前 React 页面服务与后端 API 适配	frontend,app,src,services,modules,observabilityService,当前,React,页面服务与后端,API,适配
+frontend-app/src/shared/api/backendApi.contractMatrix.js	frontend-app	app-ui	js-source	16157	当前 React 前端 RPC facade、Wails bridge 与契约矩阵	frontend,app,src,shared,api,backendApi,contractMatrix,当前,React,前端,RPC,facade,Wails,bridge,与契约矩阵
+frontend-app/src/shared/api/backendApi.js	frontend-app	app-ui	js-source	62661	当前 React 前端 RPC facade、Wails bridge 与契约矩阵	frontend,app,src,shared,api,backendApi,当前,React,前端,RPC,facade,Wails,bridge,与契约矩阵
+frontend-app/src/shared/api/wailsBridge.js	frontend-app	app-ui	js-source	37391	当前 React 前端 RPC facade、Wails bridge 与契约矩阵	frontend,app,src,shared,api,wailsBridge,当前,React,前端,RPC,facade,Wails,bridge,与契约矩阵
+frontend-app/src/shared/styles/MarkdownReferences.css	frontend-app	app-ui	css	0	当前 React/Vite 前端源码	frontend,app,src,shared,styles,MarkdownReferences,当前,React,Vite,前端源码
+frontend-app/src/shared/styles/PagePrimitives.css	frontend-app	app-ui	css	1448	当前 React/Vite 前端源码	frontend,app,src,shared,styles,PagePrimitives,当前,React,Vite,前端源码
+frontend-app/src/shared/styles/PagePrimitivesLate.css	frontend-app	app-ui	css	1369	当前 React/Vite 前端源码	frontend,app,src,shared,styles,PagePrimitivesLate,当前,React,Vite,前端源码
+frontend-app/src/shared/styles/PagePrimitivesPolish.css	frontend-app	app-ui	css	19717	当前 React/Vite 前端源码	frontend,app,src,shared,styles,PagePrimitivesPolish,当前,React,Vite,前端源码
+frontend-app/src/shared/styles/ThemePolish.css	frontend-app	app-ui	css	18075	当前 React/Vite 前端源码	frontend,app,src,shared,styles,ThemePolish,当前,React,Vite,前端源码
+frontend-app/src/shared/ui/FocusTrapDialog.css	frontend-app	app-ui	css	0	当前 React/Vite 前端源码	frontend,app,src,shared,ui,FocusTrapDialog,当前,React,Vite,前端源码
+frontend-app/src/shared/ui/FocusTrapDialog.jsx	frontend-app	app-ui	jsx	4142	当前 React/Vite 前端源码	frontend,app,src,shared,ui,FocusTrapDialog,当前,React,Vite,前端源码
+frontend-app/src/shared/ui/runUIAction.js	frontend-app	app-ui	js-source	520	当前 React/Vite 前端源码	frontend,app,src,shared,ui,runUIAction,当前,React,Vite,前端源码
+frontend-app/src/styles.css	frontend-app	app-ui	css	4231	当前 React/Vite 前端源码	frontend,app,src,styles,当前,React,Vite,前端源码
+frontend-app/src/test-setup.js	frontend-app	app-ui	js-source	846	当前 React/Vite 前端源码	frontend,app,src,test,setup,当前,React,Vite,前端源码
+frontend-app/tsconfig.contracts.json	frontend-app	app-ui	json	326	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,tsconfig,contracts,当前,React,Vite,前端工程,脚本,测试和构建配置
+frontend-app/vite.config.js	frontend-app	app-ui	js-source	3193	当前 React/Vite 前端工程、脚本、测试和构建配置	frontend,app,vite,config,当前,React,Vite,前端工程,脚本,测试和构建配置

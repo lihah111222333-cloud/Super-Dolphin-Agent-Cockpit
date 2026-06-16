@@ -1,6 +1,6 @@
 # Super-Dolphin 包职责地图
 
-日期: 2026-06-16
+日期: 2026-06-17
 
 本文是当前仓库的权威包职责索引，和 `docs/契约/onion-architecture-convention.md`、`docs/契约/modularity-convention.md` 一起使用。若历史计划、代码地图或审计文档与本文冲突，先以源码、测试、守卫脚本和本文为准。
 
@@ -84,7 +84,7 @@ Public entry points: Fx modules、启动 runner、桌面应用构造函数。
 
 ### `internal/module/*`
 
-Responsibility: 业务用例和领域规则，包含 thread、turn、memory、skill、prompt、cron、dashboard、uistate 等上下文。
+Responsibility: 业务用例和领域规则，包含 thread、turn、memory、skill、prompt、cron、dashboard、uistate 等上下文；上下文内可继续按职责拆出纯规则子包，例如 `internal/module/thread/promptrouting`。
 
 Allowed imports: `internal/contract`、`internal/dto`、必要的 `internal/platform` 叶子能力（日志仅通过 `internal/platform/logging`）、同包子目录、标准库。
 
@@ -92,7 +92,17 @@ Forbidden imports: `cmd/*`、`internal/provider/*`、`internal/mcpserver/*`、`i
 
 Public entry points: Service 接口、命令/查询对象、结果 DTO、Fx `Module`。具体 service、缓存、worker 状态默认不导出。
 
-Notes: 当前 `internal/module/*` 仍混合了 domain 与 application 职责，但持久化访问已收敛到 `internal/contract` port。新增或大规模迁移时，继续在业务包内定义/复用 port，在 `internal/app` 装配层绑定 store 实现，并拆出纯规则和 use case；不得重新让业务模块直接导入具体 store 包、扩大单包文件数或新增 store 反向耦合。
+Notes: 当前 `internal/module/*` 仍混合了 domain 与 application 职责，但持久化访问已收敛到 `internal/contract` port。新增或大规模迁移时，继续在业务包内定义/复用 port，在 `internal/app` 装配层绑定 store 实现，并拆出纯规则和 use case；纯规则子包不得接回 store/provider/UI/logging。不得重新让业务模块直接导入具体 store 包、扩大单包文件数或新增 store 反向耦合。
+
+### `internal/module/thread/promptrouting`
+
+Responsibility: 线程启动/懒启动流程中的 prompt 模板纯路由规则，包括 match_when 候选分组、启动模板可用性判断、runtime asset 排除、agent_key/prompt_key 查询和 prompt_template_sections 到 BaseInstructionBlock 的转换。
+
+Allowed imports: `internal/contract`、标准库。
+
+Forbidden imports: provider 启动、thread 生命周期编排、store、UI、日志、配置和进程运行时能力。该包只处理已加载的契约 DTO，不读取数据库、不发日志、不启动 provider session。
+
+Public entry points: `AutoRouteCandidates`、`FindByPromptKey`、`FindEnabledByPromptKey`、`FirstEnabledByAgentKey`、`TemplateLaunchable`、`ConvertSectionsToBlocks`。
 
 ## 持久化防腐层
 
