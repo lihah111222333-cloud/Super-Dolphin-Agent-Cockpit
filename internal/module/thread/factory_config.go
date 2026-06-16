@@ -251,6 +251,46 @@ func encodeStoredThreadConfig(cfg storedThreadConfig) (json.RawMessage, error) {
 	return json.RawMessage(raw), nil
 }
 
+// canonicalizeResumeStoredThreadConfig 在 resume 写回前同步 Codex 身份；runtime 显式字段优先。
+func canonicalizeResumeStoredThreadConfig(provider string, raw json.RawMessage, home, instanceKey, modelProvider string, resolved bool, runtimeIdentity map[string]any, hasRuntimeIdentity bool) (json.RawMessage, contract.CodexIdentity, bool, error) {
+	if !isCodexResumeProvider(provider) {
+		return clone.RawMessage(raw), contract.CodexIdentity{}, false, nil
+	}
+	identity, ok, err := resolveResumeWritebackCodexIdentity(provider, home, instanceKey, modelProvider, resolved, runtimeIdentity, hasRuntimeIdentity)
+	if err != nil || !ok {
+		return clone.RawMessage(raw), identity, ok, err
+	}
+	cfg, err := decodeStoredThreadConfig(raw)
+	if err != nil {
+		return nil, contract.CodexIdentity{}, false, err
+	}
+	if cfg.Runtime == nil {
+		cfg.Runtime = map[string]any{}
+	}
+	cfg.Runtime[contract.CodexHomeKey], cfg.Runtime[contract.CodexInstanceKeyKey], cfg.Runtime[contract.CodexModelProviderKey] = identity.Home, identity.InstanceKey, identity.ModelProvider
+	raw, err = encodeStoredThreadConfig(cfg)
+	return raw, identity, true, err
+}
+
+// resolveResumeWritebackCodexIdentity 选择 resume 写回用的 Codex 身份；runtime 一旦显式出现就不再回退。
+func resolveResumeWritebackCodexIdentity(provider, home, instanceKey, modelProvider string, resolved bool, runtimeIdentity map[string]any, hasRuntimeIdentity bool) (contract.CodexIdentity, bool, error) {
+	if hasRuntimeIdentity {
+		identity, err := contract.ResolveCodexIdentity(runtimeIdentity)
+		return identity, err == nil, err
+	}
+	if strings.TrimSpace(home) == "" && strings.TrimSpace(instanceKey) == "" && strings.TrimSpace(modelProvider) == "" {
+		return contract.CodexIdentity{}, false, nil
+	}
+	if resolved {
+		return contract.CodexIdentity{Home: home, InstanceKey: instanceKey, ModelProvider: modelProvider}, true, nil
+	}
+	identity, ok, err := canonicalizeCodexIdentityFields(provider, home, instanceKey, modelProvider)
+	if err == nil && !ok {
+		err = collectResumeCodexIdentityValues(ResumeRequest{CodexHome: home, CodexInstanceKey: instanceKey, CodexModelProvider: modelProvider}, nil).validateCompleteStrings()
+	}
+	return identity, ok, err
+}
+
 func applyConfigPatch(base storedThreadConfig, patch dto.ThreadConfigPatch) storedThreadConfig {
 	applyConfigValue(&base.Model, patch.Model)
 	applyConfigValue(&base.Effort, patch.Effort)
