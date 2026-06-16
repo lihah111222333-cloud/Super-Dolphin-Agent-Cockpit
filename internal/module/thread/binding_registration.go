@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -139,31 +140,23 @@ func (s *service) registerThreadBinding(ctx context.Context, state threadState) 
 	s.logBindingPersisted(registration)
 	return outcome, s.verifyOrRollbackThreadBinding(ctx, registration, outcome)
 }
-
 func (s *service) logBindingSkipped(agentID, reason string) {
 	if s == nil || s.logger == nil {
 		return
 	}
-	s.logger.Warn("thread: registerThreadBinding skipped",
-		"agent_id", agentID, "reason", reason)
+	s.logger.Warn("thread: registerThreadBinding skipped", "agent_id", agentID, "reason", reason)
 }
-
 func (s *service) logBindingPersistFailed(r bindingRegistration, err error) {
 	if s == nil || s.logger == nil {
 		return
 	}
-	s.logger.Warn("thread: registerThreadBinding FAILED to persist",
-		"agent_id", r.AgentID,
-		"provider_thread_id", r.ProviderThreadID,
-		"error", err)
+	s.logger.Warn("thread: registerThreadBinding FAILED to persist", "agent_id", r.AgentID, "provider_thread_id", r.ProviderThreadID, "error", err)
 }
-
 func (s *service) logBindingPersisted(r bindingRegistration) {
 	if s == nil || s.logger == nil {
 		return
 	}
-	s.logger.Warn("thread: registerThreadBinding persisted OK", "agent_id", r.AgentID, "provider", r.Provider,
-		"provider_thread_id", r.ProviderThreadID, "public_thread_id", r.PublicThreadID, "rollout_path", r.RolloutPath, "session_uuid", r.SessionUUID)
+	s.logger.Warn("thread: registerThreadBinding persisted OK", "agent_id", r.AgentID, "provider", r.Provider, "provider_thread_id", r.ProviderThreadID, "public_thread_id", r.PublicThreadID, "rollout_path", r.RolloutPath, "session_uuid", r.SessionUUID)
 }
 
 // ensureProviderThreadAvailable 确保provider线程available。
@@ -190,27 +183,18 @@ func (s *service) ensureProviderThreadAvailable(ctx context.Context, registratio
 	}
 	return s.resolveProviderThreadConflict(ctx, registration, existingAgentID)
 }
-
 func (s *service) resolveProviderThreadConflict(ctx context.Context, registration bindingRegistration, existingAgentID string) error {
 	if s.isSessionAlive(existingAgentID) {
 		return fmt.Errorf("provider thread %q is already bound to agent %q (session active)", registration.ProviderThreadID, existingAgentID)
 	}
 	if s.logger != nil {
-		s.logger.Warn("thread: evicting stale provider_thread_id binding",
-			"provider_thread_id", registration.ProviderThreadID,
-			"stale_agent_id", existingAgentID,
-			"new_agent_id", registration.AgentID)
+		s.logger.Warn("thread: evicting stale provider_thread_id binding", "provider_thread_id", registration.ProviderThreadID, "stale_agent_id", existingAgentID, "new_agent_id", registration.AgentID)
 	}
-	if err := s.bindingStore.UpdateProviderThreadID(ctx, bindingstore.UpdateProviderThreadIDParams{
-		AgentID:          existingAgentID,
-		ProviderThreadID: "",
-		UpdatedAt:        time.Now().Unix(),
-	}); err != nil {
+	if err := s.bindingStore.UpdateProviderThreadID(ctx, bindingstore.UpdateProviderThreadIDParams{AgentID: existingAgentID, ProviderThreadID: "", UpdatedAt: time.Now().Unix()}); err != nil {
 		return fmt.Errorf("evict stale provider_thread_id binding: %w", err)
 	}
 	return nil
 }
-
 func (s *service) isSessionAlive(agentID string) bool {
 	if s == nil || s.sessions == nil {
 		return false
@@ -218,27 +202,17 @@ func (s *service) isSessionAlive(agentID string) bool {
 	session, err := s.sessions.GetSession(strings.TrimSpace(agentID))
 	return err == nil && session != nil
 }
-
 func validateBindingRegistration(existing *bindingstore.Binding, registration bindingRegistration) error {
 	if existing == nil {
 		return nil
 	}
-	for _, validate := range []func(*bindingstore.Binding, bindingRegistration) error{
-		validateBindingProvider,
-		validateBindingProviderThread,
-		validateBindingPublicThread,
-		validateBindingCWD,
-		validateBindingParentAgentID,
-		validateBindingAgentType,
-		validateBindingMemoryScope,
-	} {
+	for _, validate := range []func(*bindingstore.Binding, bindingRegistration) error{validateBindingProvider, validateBindingProviderThread, validateBindingPublicThread, validateBindingCWD, validateBindingParentAgentID, validateBindingAgentType, validateBindingMemoryScope, validateBindingCodexIdentity} {
 		if err := validate(existing, registration); err != nil {
 			return err
 		}
 	}
 	return nil
 }
-
 func shouldPersistBinding(existing *bindingstore.Binding, registration bindingRegistration) bool {
 	if existing == nil {
 		return true
@@ -282,11 +256,7 @@ func (s *service) verifyThreadBinding(ctx context.Context, registration bindingR
 	}
 	return nil
 }
-
-func (s *service) prepareBindingWrite(
-	ctx context.Context,
-	registration bindingRegistration,
-) (*bindingstore.Binding, bindingWriteOutcome, error) {
+func (s *service) prepareBindingWrite(ctx context.Context, registration bindingRegistration) (*bindingstore.Binding, bindingWriteOutcome, error) {
 	existing, err := s.bindingStore.GetByAgentID(ctx, registration.AgentID)
 	notFound := contract.IsNotFound(err)
 	if err != nil && !notFound {
@@ -300,7 +270,6 @@ func (s *service) prepareBindingWrite(
 		Previous: cloneBinding(existing),
 	}, nil
 }
-
 func (s *service) persistRegisteredBinding(ctx context.Context, registration bindingRegistration) error {
 	return s.bindingStore.Upsert(ctx, newBindingUpsertParams(bindingstore.Binding{
 		AgentID:            registration.AgentID,
@@ -320,12 +289,7 @@ func (s *service) persistRegisteredBinding(ctx context.Context, registration bin
 		UpdatedAt:          time.Now().Unix(),
 	}))
 }
-
-func (s *service) verifyOrRollbackThreadBinding(
-	ctx context.Context,
-	registration bindingRegistration,
-	outcome bindingWriteOutcome,
-) error {
+func (s *service) verifyOrRollbackThreadBinding(ctx context.Context, registration bindingRegistration, outcome bindingWriteOutcome) error {
 	if err := s.verifyThreadBinding(ctx, registration); err != nil {
 		if rollbackErr := s.rollbackThreadBinding(ctx, outcome); rollbackErr != nil {
 			return errors.Join(err, rollbackErr)
@@ -334,40 +298,32 @@ func (s *service) verifyOrRollbackThreadBinding(
 	}
 	return nil
 }
-
 func validateBindingProvider(existing *bindingstore.Binding, registration bindingRegistration) error {
 	if provider := strings.TrimSpace(existing.Provider); provider != "" && provider != registration.Provider {
 		return fmt.Errorf("agent %q is already bound to provider %q", registration.AgentID, provider)
 	}
 	return nil
 }
-
 func validateBindingProviderThread(existing *bindingstore.Binding, registration bindingRegistration) error {
 	existingID := strings.TrimSpace(existing.ProviderThreadID)
-	// Allow empty → non-empty (first fill after async handshake).
 	if existingID == "" {
 		return nil
 	}
-	// Same value — no conflict.
 	if existingID == registration.ProviderThreadID {
 		return nil
 	}
-	// Allow placeholder agent_id → real UUID correction.
 	if existingID == strings.TrimSpace(existing.AgentID) {
 		return nil
 	}
-	// UUID already set and caller tries to change it — reject.
 	return fmt.Errorf("agent %q provider_thread_id is immutable (existing=%q, new=%q)",
 		registration.AgentID, existingID, registration.ProviderThreadID)
 }
-
 func validateBindingPublicThread(existing *bindingstore.Binding, registration bindingRegistration) error {
 	if publicThreadID := strings.TrimSpace(existing.CodexThreadID); publicThreadID != "" && publicThreadID != registration.PublicThreadID {
 		return fmt.Errorf("agent %q is already bound to public thread %q", registration.AgentID, publicThreadID)
 	}
 	return nil
 }
-
 func validateBindingCWD(existing *bindingstore.Binding, registration bindingRegistration) error {
 	if cwd := strings.TrimSpace(existing.Cwd); cwd != "" && registration.CWD != "" && cwd != registration.CWD {
 		return fmt.Errorf("agent %q binding cwd mismatch", registration.AgentID)
@@ -388,17 +344,14 @@ func (v bindingVerification) mismatch() bool {
 	}
 	return v.actual != v.expected
 }
-
 func bindingNeedsProviderThreadUpdate(existing *bindingstore.Binding, registration bindingRegistration) bool {
 	return strings.TrimSpace(existing.ProviderThreadID) != registration.ProviderThreadID &&
 		registration.ProviderThreadID != ""
 }
-
 func bindingNeedsSessionUUIDUpdate(existing *bindingstore.Binding, registration bindingRegistration) bool {
 	return bindingRequiresSessionUUID(existing, registration) &&
 		strings.TrimSpace(existing.SessionUUID) != registration.SessionUUID
 }
-
 func bindingRequiresSessionUUID(existing *bindingstore.Binding, registration bindingRegistration) bool {
 	if registration.SessionUUID == "" {
 		return false
@@ -417,41 +370,73 @@ func bindingNeedsThreadMetadataUpdate(existing *bindingstore.Binding, registrati
 		bindingNeedsInitialValue(strings.TrimSpace(existing.AgentMemoryScope), registration.AgentMemoryScope)
 }
 
+// bindingNeedsCodexIdentityUpdate 只在补齐空身份或修正已验证的 CodexHome alias 时触发写回。
 func bindingNeedsCodexIdentityUpdate(existing *bindingstore.Binding, registration bindingRegistration) bool {
-	return bindingNeedsInitialValue(strings.TrimSpace(existing.CodexHome), registration.CodexHome) ||
+	existingHome := strings.TrimSpace(existing.CodexHome)
+	return bindingNeedsInitialValue(existingHome, registration.CodexHome) ||
 		bindingNeedsInitialValue(strings.TrimSpace(existing.CodexInstanceKey), registration.CodexInstanceKey) ||
-		bindingNeedsInitialValue(strings.TrimSpace(existing.CodexModelProvider), registration.CodexModelProvider)
+		bindingNeedsInitialValue(strings.TrimSpace(existing.CodexModelProvider), registration.CodexModelProvider) ||
+		(existingHome != "" && registration.CodexHome != "" && existingHome != registration.CodexHome && registration.CodexInstanceKey != "" && registration.CodexModelProvider != "")
 }
-
 func bindingNeedsInitialValue(existing, incoming string) bool {
 	return existing == "" && incoming != ""
 }
-
 func validateBindingParentAgentID(existing *bindingstore.Binding, registration bindingRegistration) error {
-	if parentID := strings.TrimSpace(existing.ParentAgentID); parentID != "" &&
-		registration.ParentAgentID != "" &&
-		parentID != registration.ParentAgentID {
-		return fmt.Errorf("agent %q parent_agent_id is immutable", registration.AgentID)
-	}
-	return nil
+	return validateBindingImmutableField(registration.AgentID, "parent_agent_id", existing.ParentAgentID, registration.ParentAgentID)
 }
-
 func validateBindingAgentType(existing *bindingstore.Binding, registration bindingRegistration) error {
-	if agentType := strings.TrimSpace(existing.AgentType); agentType != "" &&
-		registration.AgentType != "" &&
-		agentType != registration.AgentType {
-		return fmt.Errorf("agent %q agent_type is immutable", registration.AgentID)
+	return validateBindingImmutableField(registration.AgentID, "agent_type", existing.AgentType, registration.AgentType)
+}
+func validateBindingMemoryScope(existing *bindingstore.Binding, registration bindingRegistration) error {
+	return validateBindingImmutableField(registration.AgentID, "agent_memory_scope", existing.AgentMemoryScope, registration.AgentMemoryScope)
+}
+func validateBindingImmutableField(agentID, label, old, next string) error {
+	old, next = strings.TrimSpace(old), strings.TrimSpace(next)
+	if old != "" && next != "" && old != next {
+		return fmt.Errorf("agent %q %s is immutable", agentID, label)
 	}
 	return nil
 }
 
-func validateBindingMemoryScope(existing *bindingstore.Binding, registration bindingRegistration) error {
-	if scope := strings.TrimSpace(existing.AgentMemoryScope); scope != "" &&
-		registration.AgentMemoryScope != "" &&
-		scope != registration.AgentMemoryScope {
-		return fmt.Errorf("agent %q agent_memory_scope is immutable", registration.AgentID)
+// validateBindingCodexIdentity 只允许补齐空字段或把同一路径的旧 alias 修正成 canonical home，非空 tuple 不可覆盖。
+func validateBindingCodexIdentity(existing *bindingstore.Binding, registration bindingRegistration) error {
+	if err := validateCodexIdentityTupleField(registration.AgentID, "codex instance key", existing.CodexInstanceKey, registration.CodexInstanceKey); err != nil {
+		return err
 	}
-	return nil
+	if err := validateCodexIdentityTupleField(registration.AgentID, "codex model provider", existing.CodexModelProvider, registration.CodexModelProvider); err != nil {
+		return err
+	}
+	return validateCodexHomeAliasRepair(existing, registration)
+}
+func validateCodexIdentityTupleField(agentID, label, old, next string) error {
+	old, next = strings.TrimSpace(old), strings.TrimSpace(next)
+	if old == "" || next == "" || old == next {
+		return nil
+	}
+	return fmt.Errorf("agent %q %s is immutable (existing=%q, new=%q)", agentID, label, old, next)
+}
+
+// validateCodexHomeAliasRepair 允许 clean/canonical alias 修复，其他非空 CodexHome 变更都 fail-fast。
+func validateCodexHomeAliasRepair(existing *bindingstore.Binding, registration bindingRegistration) error {
+	old, next := strings.TrimSpace(existing.CodexHome), strings.TrimSpace(registration.CodexHome)
+	if old == "" || next == "" || old == next {
+		return nil
+	}
+	if registration.CodexInstanceKey == "" || registration.CodexModelProvider == "" {
+		return fmt.Errorf("agent %q codex home is immutable (existing=%q, new=%q): complete incoming codex identity is required", registration.AgentID, old, next)
+	}
+	if filepath.IsAbs(next) && filepath.Clean(old) == next {
+		return nil
+	}
+	canonical, err := contract.CanonicalizeCodexHome(old)
+	switch {
+	case err != nil:
+		return fmt.Errorf("agent %q codex home is immutable (existing=%q, new=%q): canonicalize existing home: %w", registration.AgentID, old, next, err)
+	case canonical != next:
+		return fmt.Errorf("agent %q codex home is immutable (existing=%q, new=%q)", registration.AgentID, old, next)
+	default:
+		return nil
+	}
 }
 
 // rollbackThreadBinding 处理rollback线程binding。
@@ -479,7 +464,6 @@ func (s *service) rollbackThreadBinding(ctx context.Context, outcome bindingWrit
 		UpdatedAt:        time.Now().Unix(),
 	}))
 }
-
 func cloneBinding(binding *bindingstore.Binding) *bindingstore.Binding {
 	if binding == nil {
 		return nil
@@ -533,11 +517,7 @@ func (r *bindingRecoveryReporter) ClearStaleProviderThreadID(ctx context.Context
 	if current == "" || identifier.LooksLikeUUID(current) {
 		return nil
 	}
-	if err := r.store.UpdateProviderThreadID(ctx, bindingstore.UpdateProviderThreadIDParams{
-		AgentID:          agentID,
-		ProviderThreadID: "",
-		UpdatedAt:        time.Now().Unix(),
-	}); err != nil {
+	if err := r.store.UpdateProviderThreadID(ctx, bindingstore.UpdateProviderThreadIDParams{AgentID: agentID, ProviderThreadID: "", UpdatedAt: time.Now().Unix()}); err != nil {
 		return err
 	}
 	if r.logger != nil {
@@ -574,11 +554,7 @@ func (r *bindingRecoveryReporter) RecordProviderSessionUUID(ctx context.Context,
 }
 
 func (r *bindingRecoveryReporter) recordSessionUUID(ctx context.Context, agentID, sessionUUID string, updatedAt int64) error {
-	return r.store.UpdateSessionUUID(ctx, bindingstore.UpdateSessionUUIDParams{
-		AgentID:     agentID,
-		SessionUUID: sessionUUID,
-		UpdatedAt:   updatedAt,
-	})
+	return r.store.UpdateSessionUUID(ctx, bindingstore.UpdateSessionUUIDParams{AgentID: agentID, SessionUUID: sessionUUID, UpdatedAt: updatedAt})
 }
 
 // recordProviderThreadID 记录provider线程ID。
@@ -589,16 +565,9 @@ func (r *bindingRecoveryReporter) recordProviderThreadID(ctx context.Context, bi
 	}
 	if !bindingHasProviderHistoryForUUID(binding, sessionUUID) {
 		if r.logger != nil {
-			r.logger.Info("thread: provider session uuid is not recoverable",
-				"agent_id", agentID,
-				"session_uuid", sessionUUID,
-				"rollout_path", binding.RolloutPath)
+			r.logger.Info("thread: provider session uuid is not recoverable", "agent_id", agentID, "session_uuid", sessionUUID, "rollout_path", binding.RolloutPath)
 		}
 		return nil
 	}
-	return r.store.UpdateProviderThreadID(ctx, bindingstore.UpdateProviderThreadIDParams{
-		AgentID:          agentID,
-		ProviderThreadID: sessionUUID,
-		UpdatedAt:        updatedAt,
-	})
+	return r.store.UpdateProviderThreadID(ctx, bindingstore.UpdateProviderThreadIDParams{AgentID: agentID, ProviderThreadID: sessionUUID, UpdatedAt: updatedAt})
 }
