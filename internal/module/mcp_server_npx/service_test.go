@@ -3,26 +3,26 @@ package mcpservernpx
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	mcpserver "github.com/anthropic-ai/super-agent-v3/internal/module/mcp_server"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
-func TestDefaultPostgresServerConfigUsesRequestedNPXCommand(t *testing.T) {
+func TestDefaultPostgresServerConfigUsesGlobalNPMCommand(t *testing.T) {
 	got := DefaultPostgresServerConfig()
 
 	if got.Transport != "stdio" {
 		t.Fatalf("Transport = %q, want stdio", got.Transport)
 	}
-	if got.Command != "npx" {
-		t.Fatalf("Command = %q, want npx", got.Command)
+	if got.Command != "mcp-server-postgres" {
+		t.Fatalf("Command = %q, want mcp-server-postgres", got.Command)
 	}
 	wantArgs := []string{
-		"-y",
-		"@modelcontextprotocol/server-postgres",
 		"postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable",
 	}
 	if !reflect.DeepEqual(got.Args, wantArgs) {
@@ -32,8 +32,12 @@ func TestDefaultPostgresServerConfigUsesRequestedNPXCommand(t *testing.T) {
 
 func TestStartPostgresServerAddsDefaultServerOnExplicitCall(t *testing.T) {
 	base := &recordingMCPServerService{
-		listResult: contract.MCPServerListResult{ConfigPath: "/repo/.agent/mcp_server/config.json"},
-		addResult:  contract.MCPServerAddResult{ConfigPath: "/repo/.agent/mcp_server/config.json", ServerNames: []string{DefaultPostgresServerName}},
+		startResult: mcpserver.StartPostgresServerResult{
+			ConfigPath: "/repo/.agent/mcp_server/config.json",
+			ServerName: DefaultPostgresServerName,
+			Added:      true,
+			Config:     DefaultPostgresServerConfig(),
+		},
 	}
 	svc := NewService(base)
 
@@ -44,23 +48,22 @@ func TestStartPostgresServerAddsDefaultServerOnExplicitCall(t *testing.T) {
 	if !got.Added || got.ServerName != DefaultPostgresServerName {
 		t.Fatalf("StartPostgresServer() = %#v, want added postgres", got)
 	}
-	if base.addCalls != 1 {
-		t.Fatalf("AddServers calls = %d, want 1", base.addCalls)
+	if base.startCalls != 1 {
+		t.Fatalf("StartPostgresServer calls = %d, want 1", base.startCalls)
 	}
-	want := DefaultPostgresServerConfig()
-	if !reflect.DeepEqual(base.addReq.MCPServers[DefaultPostgresServerName], want) {
-		t.Fatalf("AddServers postgres config = %#v, want %#v", base.addReq.MCPServers[DefaultPostgresServerName], want)
+	if base.addCalls != 0 {
+		t.Fatalf("AddServers calls = %d, want 0", base.addCalls)
 	}
 }
 
 func TestStartPostgresServerDoesNotAutoOverrideExistingServer(t *testing.T) {
 	existing := contract.MCPServerConfig{Transport: "stdio", Command: "custom-postgres-mcp"}
 	base := &recordingMCPServerService{
-		listResult: contract.MCPServerListResult{
+		startResult: mcpserver.StartPostgresServerResult{
 			ConfigPath: "/repo/.agent/mcp_server/config.json",
-			MCPServers: map[string]contract.MCPServerConfig{
-				DefaultPostgresServerName: existing,
-			},
+			ServerName: DefaultPostgresServerName,
+			Added:      false,
+			Config:     existing,
 		},
 	}
 	svc := NewService(base)
@@ -75,6 +78,9 @@ func TestStartPostgresServerDoesNotAutoOverrideExistingServer(t *testing.T) {
 	if base.addCalls != 0 {
 		t.Fatalf("AddServers calls = %d, want 0", base.addCalls)
 	}
+	if base.startCalls != 1 {
+		t.Fatalf("StartPostgresServer calls = %d, want 1", base.startCalls)
+	}
 	if !reflect.DeepEqual(got.Config, existing) {
 		t.Fatalf("Config = %#v, want existing %#v", got.Config, existing)
 	}
@@ -82,8 +88,12 @@ func TestStartPostgresServerDoesNotAutoOverrideExistingServer(t *testing.T) {
 
 func TestStartPostgresServerRPCAddsDefaultServer(t *testing.T) {
 	base := &recordingMCPServerService{
-		listResult: contract.MCPServerListResult{ConfigPath: "/repo/.agent/mcp_server/config.json"},
-		addResult:  contract.MCPServerAddResult{ConfigPath: "/repo/.agent/mcp_server/config.json", ServerNames: []string{DefaultPostgresServerName}},
+		startResult: mcpserver.StartPostgresServerResult{
+			ConfigPath: "/repo/.agent/mcp_server/config.json",
+			ServerName: DefaultPostgresServerName,
+			Added:      true,
+			Config:     DefaultPostgresServerConfig(),
+		},
 	}
 	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewHandlers(NewService(base)).Handlers)
@@ -96,32 +106,56 @@ func TestStartPostgresServerRPCAddsDefaultServer(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if !got.Added || got.Config.Command != "npx" {
-		t.Fatalf("StartPostgresServerResult = %#v, want added npx config", got)
+	if !got.Added || got.Config.Command != "mcp-server-postgres" {
+		t.Fatalf("StartPostgresServerResult = %#v, want added mcp-server-postgres config", got)
 	}
 }
 
 type recordingMCPServerService struct {
-	listResult contract.MCPServerListResult
+	listResult mcpserver.ListServersResult
 	listErr    error
-	addResult  contract.MCPServerAddResult
+	addResult  mcpserver.AddServersResult
 	addErr     error
-	addReq     contract.MCPServerAddRequest
+	addReq     mcpserver.AddServersRequest
 	addCalls   int
+
+	startResult mcpserver.StartPostgresServerResult
+	startErr    error
+	startCalls  int
 }
 
-func (s *recordingMCPServerService) AddServers(_ context.Context, req contract.MCPServerAddRequest) (contract.MCPServerAddResult, error) {
+func (s *recordingMCPServerService) AddServers(_ context.Context, req mcpserver.AddServersRequest) (mcpserver.AddServersResult, error) {
 	s.addCalls++
 	s.addReq = req
 	if s.addErr != nil {
-		return contract.MCPServerAddResult{}, s.addErr
+		return mcpserver.AddServersResult{}, s.addErr
 	}
 	return s.addResult, nil
 }
 
-func (s *recordingMCPServerService) ListServers(context.Context) (contract.MCPServerListResult, error) {
+func (s *recordingMCPServerService) ListServers(context.Context) (mcpserver.ListServersResult, error) {
 	if s.listErr != nil {
-		return contract.MCPServerListResult{}, s.listErr
+		return mcpserver.ListServersResult{}, s.listErr
 	}
 	return s.listResult, nil
+}
+
+func (s *recordingMCPServerService) ListServersForCWD(context.Context, string) (mcpserver.ListServersResult, error) {
+	return mcpserver.ListServersResult{}, errors.New("ListServersForCWD should not be called")
+}
+
+func (s *recordingMCPServerService) ListServerTools(context.Context, mcpserver.ListServerToolsRequest) (mcpserver.ListServerToolsResult, error) {
+	return mcpserver.ListServerToolsResult{}, errors.New("ListServerTools should not be called")
+}
+
+func (s *recordingMCPServerService) StartPostgresServer(context.Context, mcpserver.StartPostgresServerRequest) (mcpserver.StartPostgresServerResult, error) {
+	s.startCalls++
+	if s.startErr != nil {
+		return mcpserver.StartPostgresServerResult{}, s.startErr
+	}
+	return s.startResult, nil
+}
+
+func (s *recordingMCPServerService) DeleteServer(context.Context, mcpserver.DeleteServerRequest) (mcpserver.DeleteServerResult, error) {
+	return mcpserver.DeleteServerResult{}, errors.New("DeleteServer should not be called")
 }

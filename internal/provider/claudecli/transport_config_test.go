@@ -83,15 +83,13 @@ func TestWriteManifestConfigIncludesHTTPHeaders(t *testing.T) {
 	}
 }
 
-func TestWriteManifestConfigIncludesAllowedNPXPostgresStdioServer(t *testing.T) {
+func TestWriteManifestConfigIncludesAllowedGlobalPostgresStdioServer(t *testing.T) {
 	t.Parallel()
 
 	manifest := dto.MCPManifest{Binaries: []dto.MCPBinary{{
 		Name: "postgres",
 		Command: []string{
-			"npx",
-			"-y",
-			"@modelcontextprotocol/server-postgres",
+			"mcp-server-postgres",
 			"postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable",
 		},
 	}}}
@@ -113,12 +111,12 @@ func TestWriteManifestConfigIncludesAllowedNPXPostgresStdioServer(t *testing.T) 
 	}
 	servers, _ := doc["mcpServers"].(map[string]any)
 	server, _ := servers["postgres"].(map[string]any)
-	if server["command"] != "npx" {
-		t.Fatalf("postgres server = %#v, want npx command", server)
+	if server["command"] != "mcp-server-postgres" {
+		t.Fatalf("postgres server = %#v, want mcp-server-postgres command", server)
 	}
 	args, _ := server["args"].([]any)
-	if len(args) != 3 || args[1] != "@modelcontextprotocol/server-postgres" {
-		t.Fatalf("postgres args = %#v, want postgres package args", args)
+	if len(args) != 1 || args[0] != "postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable" {
+		t.Fatalf("postgres args = %#v, want postgres database url", args)
 	}
 }
 
