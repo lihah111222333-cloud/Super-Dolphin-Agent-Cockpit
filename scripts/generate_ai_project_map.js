@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const ROOT = findRepoRoot(process.cwd());
 const OUTPUT_DIR = path.join(ROOT, 'docs', 'doc', 'codemap', 'project-map');
@@ -13,35 +14,6 @@ const MANIFEST_JSON = path.join(OUTPUT_DIR, 'AI_PROJECT_MANIFEST.json');
 
 const CHECK = process.argv.includes('--check');
 const STRICT_DRIFT = process.argv.includes('--strict-drift');
-
-const EXCLUDES = [
-  '.git/**',
-  '.idea/**',
-  '.claude/**',
-  '.workspace/**',
-  '.worktrees/**',
-  '.agent/code_exec/**',
-  '.agent/workspaces/**',
-  '.agnet/report/**',
-  '.agnet/shared/**',
-  'bin/**',
-  'reports/**',
-  'docs/archive/**',
-  '**/node_modules/**',
-  '**/dist/**',
-  '**/coverage/**',
-  '**/.vite/**',
-  '**/.tmp/**',
-  '**/tmp/**',
-  '**/.gocache/**',
-  '**/.gomodcache/**',
-  '**/.npm-cache/**',
-  'docs/doc/codemap/project-map/**',
-  'docs/doc/codemap/ai-index.json',
-  'go.sum',
-  'test_output.txt',
-  'naked_go.txt',
-];
 
 const DOMAIN_FILES = {
   'app-ui': 'app-ui.tsv',
@@ -189,39 +161,35 @@ function main() {
 }
 
 function scanFiles() {
-  const files = [];
-  walk(ROOT, '', files);
-  return files.sort();
-}
-
-function walk(absDir, relDir, files) {
-  for (const dirent of fs.readdirSync(absDir, { withFileTypes: true })) {
-    const rel = normalize(relDir ? path.posix.join(relDir, dirent.name) : dirent.name);
-    const abs = path.join(absDir, dirent.name);
-    if (dirent.isDirectory()) {
-      if (!shouldSkipDir(rel)) walk(abs, rel, files);
-      continue;
-    }
-    if (dirent.isFile() && !shouldSkipFile(rel)) files.push(rel);
-  }
-}
-
-function shouldSkipDir(rel) {
-  const name = path.posix.basename(rel);
-  if (['.build-cache', '.git', '.idea', '.claude', '.workspace', '.worktrees', 'bin', 'node_modules', 'dist', 'coverage', '.vite', '.tmp', 'tmp', '.gocache', '.gomodcache', '.npm-cache'].includes(name)) return true;
-  return [
-    '.agent/code_exec',
-    '.agent/workspaces',
-    '.agnet/report',
-    '.agnet/shared',
-    'docs/archive',
-    'docs/doc/codemap/project-map',
-    'reports',
-  ].some((prefix) => rel === prefix || rel.startsWith(`${prefix}/`));
+  const out = execFileSync('git', ['ls-files', '-z', '--'], {
+    cwd: ROOT,
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  return out.toString('utf8').split('\0').filter(Boolean).map(normalize).filter((file) => !shouldSkipFile(file)).sort();
 }
 
 function shouldSkipFile(rel) {
-  return ['go.sum', 'test_output.txt', 'naked_go.txt', 'docs/doc/codemap/ai-index.json'].includes(rel);
+  const file = normalize(rel);
+  if (['go.sum', 'test_output.txt', 'naked_go.txt', 'docs/doc/codemap/ai-index.json'].includes(file)) return true;
+  if (!file.includes('/') && file.toLowerCase().endsWith('.exe')) return true;
+  if (file.startsWith('.codex/') && file.toLowerCase().endsWith('.log')) return true;
+  if (file.split('/').some((part) => ['node_modules', 'dist', 'coverage'].includes(part))) return true;
+  return [
+    '.build-cache/',
+    '.codex-run/',
+    '.superpowers/',
+    '.workspace/',
+    '.worktrees/',
+    '.agent/code_exec/',
+    '.agent/workspaces/',
+    '.agents/',
+    '.agnet/report/',
+    '.agnet/shared/',
+    'bin/',
+    'docs/archive/',
+    'docs/doc/codemap/project-map/',
+    'reports/',
+  ].some((prefix) => file.startsWith(prefix));
 }
 
 function buildEntry(file) {

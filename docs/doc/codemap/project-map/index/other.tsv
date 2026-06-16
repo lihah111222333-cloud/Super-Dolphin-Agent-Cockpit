@@ -1,19 +1,9 @@
 path	module	domain	type	size_bytes	purpose	search_keys
-.codex-run/chat-layout-check.png	.codex-run	other	png	55959	未细分职责：请结合路径、文件名和相邻代码判断	codex,run,chat,layout,check,未细分职责：请结合路径,文件名和相邻代码判断
-.codex-run/launcher.err.log	.codex-run	other	log	0	未细分职责：请结合路径、文件名和相邻代码判断	codex,run,launcher,err,未细分职责：请结合路径,文件名和相邻代码判断
-.codex-run/launcher.log	.codex-run	other	log	50723	未细分职责：请结合路径、文件名和相邻代码判断	codex,run,launcher,未细分职责：请结合路径,文件名和相邻代码判断
-.codex-run/manual-bash-launcher.err.log	.codex-run	other	log	98	未细分职责：请结合路径、文件名和相邻代码判断	codex,run,manual,bash,launcher,err,未细分职责：请结合路径,文件名和相邻代码判断
-.codex-run/manual-bash-launcher.log	.codex-run	other	log	0	未细分职责：请结合路径、文件名和相邻代码判断	codex,run,manual,bash,launcher,未细分职责：请结合路径,文件名和相邻代码判断
-.codex-run/manual-launcher.err.log	.codex-run	other	log	0	未细分职责：请结合路径、文件名和相邻代码判断	codex,run,manual,launcher,err,未细分职责：请结合路径,文件名和相邻代码判断
-.codex-run/manual-launcher.log	.codex-run	other	log	30371	未细分职责：请结合路径、文件名和相邻代码判断	codex,run,manual,launcher,未细分职责：请结合路径,文件名和相邻代码判断
 .codex/.gitignore	.codex	other	file	7	未细分职责：请结合路径、文件名和相邻代码判断	codex,未细分职责：请结合路径,文件名和相邻代码判断
 .codex/config.toml	.codex	other	toml	126	未细分职责：请结合路径、文件名和相邻代码判断	codex,config,未细分职责：请结合路径,文件名和相邻代码判断
 .codex/hooks.json	.codex	other	json	725	未细分职责：请结合路径、文件名和相邻代码判断	codex,hooks,未细分职责：请结合路径,文件名和相邻代码判断
-.codex/vite-ui-refactor.err.log	.codex	other	log	1415399	未细分职责：请结合路径、文件名和相邻代码判断	codex,vite,ui,refactor,err,未细分职责：请结合路径,文件名和相邻代码判断
-.codex/vite-ui-refactor.out.log	.codex	other	log	3169	未细分职责：请结合路径、文件名和相邻代码判断	codex,vite,ui,refactor,out,未细分职责：请结合路径,文件名和相邻代码判断
 .env.example	(root)	other	example	1819	仓库根级配置、入口或说明文件	env,仓库根级配置,入口或说明文件
 .env.packaging.example	(root)	other	example	1559	仓库根级配置、入口或说明文件	env,packaging,仓库根级配置,入口或说明文件
-.git	(root)	other	file	81	仓库根级配置、入口或说明文件	仓库根级配置,入口或说明文件
 .gitattributes	(root)	other	file	864	仓库根级配置、入口或说明文件	仓库根级配置,入口或说明文件
 .githooks/commit-msg	.githooks	other	file	454	仓库 git hooks	仓库,git,hooks
 .githooks/pre-commit	.githooks	other	file	11872	仓库 git hooks	仓库,git,hooks
@@ -24,12 +14,6 @@ path	module	domain	type	size_bytes	purpose	search_keys
 .gitignore	(root)	other	file	2024	仓库根级配置、入口或说明文件	仓库根级配置,入口或说明文件
 .golangci.yml	(root)	other	yaml	925	仓库根级配置、入口或说明文件	golangci,仓库根级配置,入口或说明文件
 .mcp.json	(root)	other	json	131	仓库根级配置、入口或说明文件	mcp,仓库根级配置,入口或说明文件
-.superpowers/brainstorm/1243779-1780164281/content/ready.html	.superpowers	other	html	284	未细分职责：请结合路径、文件名和相邻代码判断	superpowers,brainstorm,1243779,1780164281,content,ready,未细分职责：请结合路径,文件名和相邻代码判断
-.superpowers/brainstorm/1243779-1780164281/content/visual-direction.html	.superpowers	other	html	6178	未细分职责：请结合路径、文件名和相邻代码判断	superpowers,brainstorm,1243779,1780164281,content,visual,direction,未细分职责：请结合路径,文件名和相邻代码判断
-.superpowers/brainstorm/1243779-1780164281/content/waiting-done.html	.superpowers	other	html	147	未细分职责：请结合路径、文件名和相邻代码判断	superpowers,brainstorm,1243779,1780164281,content,waiting,done,未细分职责：请结合路径,文件名和相邻代码判断
-.superpowers/brainstorm/1243779-1780164281/state/server-stopped	.superpowers	other	file	53	未细分职责：请结合路径、文件名和相邻代码判断	未细分职责：请结合路径,文件名和相邻代码判断
-.superpowers/brainstorm/1243779-1780164281/state/server.log	.superpowers	other	log	692	未细分职责：请结合路径、文件名和相邻代码判断	superpowers,brainstorm,1243779,1780164281,state,server,未细分职责：请结合路径,文件名和相邻代码判断
-.superpowers/brainstorm/1243779-1780164281/state/server.pid	.superpowers	other	pid	9	未细分职责：请结合路径、文件名和相邻代码判断	superpowers,brainstorm,1243779,1780164281,state,server,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-release-manifest/main_test.go	cmd	other	go-test	7173	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,release,manifest,main,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-release-manifest/main.go	cmd	other	go-source	9174	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,release,manifest,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-updater/detach_darwin.go	cmd	other	go-source	182	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,updater,detach,darwin,未细分职责：请结合路径,文件名和相邻代码判断
@@ -70,21 +54,21 @@ frontend-app/src/adapters/apiErrorAdapter.js	frontend-app	other	js-source	206	�
 frontend-app/src/adapters/fileAdapter.js	frontend-app	other	js-source	4135	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,adapters,fileAdapter,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/adapters/memoryAdapter.js	frontend-app	other	js-source	4285	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,adapters,memoryAdapter,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/adapters/observabilityAdapter.js	frontend-app	other	js-source	1840	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,adapters,observabilityAdapter,未细分职责：请结合路径,文件名和相邻代码判断
-frontend-app/src/App.jsx	frontend-app	other	jsx	48715	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,App,未细分职责：请结合路径,文件名和相邻代码判断
-frontend-app/src/App.test.jsx	frontend-app	other	jsx	347785	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,App,test,未细分职责：请结合路径,文件名和相邻代码判断
+frontend-app/src/App.jsx	frontend-app	other	jsx	51455	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,App,未细分职责：请结合路径,文件名和相邻代码判断
+frontend-app/src/App.test.jsx	frontend-app	other	jsx	348353	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,App,test,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/AppChrome.css	frontend-app	other	css	7375	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,AppChrome,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/AppShell.css	frontend-app	other	css	20424	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,AppShell,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/AppShellSidebarPolish.css	frontend-app	other	css	468	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,AppShellSidebarPolish,未细分职责：请结合路径,文件名和相邻代码判断
-frontend-app/src/AppShellSidebarThreadActions.css	frontend-app	other	css	4859	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,AppShellSidebarThreadActions,未细分职责：请结合路径,文件名和相邻代码判断
+frontend-app/src/AppShellSidebarThreadActions.css	frontend-app	other	css	5682	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,AppShellSidebarThreadActions,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/AppShellWorkbench.css	frontend-app	other	css	14613	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,AppShellWorkbench,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/assets/super-dolphin-logo.png	frontend-app	other	png	2521	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,assets,super,dolphin,logo,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/entities/client/model/bridgePatchState.js	frontend-app	other	js-source	9436	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,bridgePatchState,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/entities/client/model/bridgePatchState.test.js	frontend-app	other	js-test	4929	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,bridgePatchState,test,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/entities/client/model/bridgeRevision.js	frontend-app	other	js-source	2463	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,bridgeRevision,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/entities/client/model/bridgeRevision.test.js	frontend-app	other	js-test	2161	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,bridgeRevision,test,未细分职责：请结合路径,文件名和相邻代码判断
-frontend-app/src/entities/client/model/composerAttachments.js	frontend-app	other	js-source	5366	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,composerAttachments,未细分职责：请结合路径,文件名和相邻代码判断
-frontend-app/src/entities/client/model/composerAttachments.test.js	frontend-app	other	js-test	4042	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,composerAttachments,test,未细分职责：请结合路径,文件名和相邻代码判断
-frontend-app/src/entities/client/model/composerSlice.js	frontend-app	other	js-source	11317	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,composerSlice,未细分职责：请结合路径,文件名和相邻代码判断
+frontend-app/src/entities/client/model/composerAttachments.js	frontend-app	other	js-source	5797	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,composerAttachments,未细分职责：请结合路径,文件名和相邻代码判断
+frontend-app/src/entities/client/model/composerAttachments.test.js	frontend-app	other	js-test	4302	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,composerAttachments,test,未细分职责：请结合路径,文件名和相邻代码判断
+frontend-app/src/entities/client/model/composerSlice.js	frontend-app	other	js-source	11119	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,composerSlice,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/entities/client/model/forkSlice.js	frontend-app	other	js-source	7192	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,forkSlice,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/entities/client/model/projectSlice.js	frontend-app	other	js-source	6046	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,projectSlice,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/entities/client/model/providerPreferences.js	frontend-app	other	js-source	1484	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,providerPreferences,未细分职责：请结合路径,文件名和相邻代码判断
@@ -116,8 +100,8 @@ frontend-app/src/entities/client/model/threadMessagesRuntime.js	frontend-app	oth
 frontend-app/src/entities/client/model/threadMessagesRuntime.test.js	frontend-app	other	js-test	4264	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,threadMessagesRuntime,test,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/entities/client/model/timelineRuntime.js	frontend-app	other	js-source	21675	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,timelineRuntime,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/entities/client/model/timelineRuntime.test.js	frontend-app	other	js-test	4927	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,timelineRuntime,test,未细分职责：请结合路径,文件名和相邻代码判断
-frontend-app/src/entities/client/model/useClientStore.js	frontend-app	other	js-source	114516	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,useClientStore,未细分职责：请结合路径,文件名和相邻代码判断
-frontend-app/src/entities/client/model/useClientStore.test.js	frontend-app	other	js-test	213634	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,useClientStore,test,未细分职责：请结合路径,文件名和相邻代码判断
+frontend-app/src/entities/client/model/useClientStore.js	frontend-app	other	js-source	117088	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,useClientStore,未细分职责：请结合路径,文件名和相邻代码判断
+frontend-app/src/entities/client/model/useClientStore.test.js	frontend-app	other	js-test	214638	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,useClientStore,test,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/entities/client/model/warningRuntime.js	frontend-app	other	js-source	3495	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,warningRuntime,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/entities/client/model/warningRuntime.test.js	frontend-app	other	js-test	2647	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,entities,client,model,warningRuntime,test,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/features/prompts/Personalization.css	frontend-app	other	css	2531	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,features,prompts,Personalization,未细分职责：请结合路径,文件名和相邻代码判断
@@ -143,7 +127,7 @@ frontend-app/src/pages/chat/ChatMessages.css	frontend-app	other	css	12435	未细
 frontend-app/src/pages/chat/ChatPage.css	frontend-app	other	css	5108	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,ChatPage,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/pages/chat/ChatPage.jsx	frontend-app	other	jsx	36549	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,ChatPage,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/pages/chat/ChatPage.test.jsx	frontend-app	other	jsx	66785	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,ChatPage,test,未细分职责：请结合路径,文件名和相邻代码判断
-frontend-app/src/pages/chat/ChatPageWorkbench.css	frontend-app	other	css	15230	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,ChatPageWorkbench,未细分职责：请结合路径,文件名和相邻代码判断
+frontend-app/src/pages/chat/ChatPageWorkbench.css	frontend-app	other	css	14712	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,ChatPageWorkbench,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/pages/chat/ChatReasoning.css	frontend-app	other	css	6821	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,ChatReasoning,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/pages/chat/ChatTimeline.css	frontend-app	other	css	98	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,ChatTimeline,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/pages/chat/components/AttachmentPreviewModal.jsx	frontend-app	other	jsx	1265	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,components,AttachmentPreviewModal,未细分职责：请结合路径,文件名和相邻代码判断
@@ -165,8 +149,8 @@ frontend-app/src/pages/chat/components/ComposerAttachments.jsx	frontend-app	othe
 frontend-app/src/pages/chat/components/ComposerAttachments.test.jsx	frontend-app	other	jsx	2135	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,components,ComposerAttachments,test,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/pages/chat/components/ComposerDock.css	frontend-app	other	css	8813	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,components,ComposerDock,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/pages/chat/components/ComposerDock.jsx	frontend-app	other	jsx	5301	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,components,ComposerDock,未细分职责：请结合路径,文件名和相邻代码判断
-frontend-app/src/pages/chat/components/ComposerDock.test.jsx	frontend-app	other	jsx	3927	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,components,ComposerDock,test,未细分职责：请结合路径,文件名和相邻代码判断
-frontend-app/src/pages/chat/components/ComposerMeta.jsx	frontend-app	other	jsx	2435	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,components,ComposerMeta,未细分职责：请结合路径,文件名和相邻代码判断
+frontend-app/src/pages/chat/components/ComposerDock.test.jsx	frontend-app	other	jsx	3940	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,components,ComposerDock,test,未细分职责：请结合路径,文件名和相邻代码判断
+frontend-app/src/pages/chat/components/ComposerMeta.jsx	frontend-app	other	jsx	1949	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,components,ComposerMeta,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/pages/chat/components/ComposerModelSelector.jsx	frontend-app	other	jsx	5176	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,components,ComposerModelSelector,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/pages/chat/components/ComposerModelSelector.test.jsx	frontend-app	other	jsx	1841	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,components,ComposerModelSelector,test,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/pages/chat/components/ComposerTextarea.jsx	frontend-app	other	jsx	682	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,components,ComposerTextarea,未细分职责：请结合路径,文件名和相邻代码判断
@@ -220,8 +204,8 @@ frontend-app/src/pages/chat/hooks/useChatThreadData.js	frontend-app	other	js-sou
 frontend-app/src/pages/chat/hooks/useChatThreadData.test.js	frontend-app	other	js-test	3806	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,hooks,useChatThreadData,test,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/pages/chat/hooks/useChatWorkbenchLayout.js	frontend-app	other	js-source	10343	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,hooks,useChatWorkbenchLayout,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/pages/chat/hooks/useChatWorkbenchLayout.test.js	frontend-app	other	js-test	1765	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,hooks,useChatWorkbenchLayout,test,未细分职责：请结合路径,文件名和相邻代码判断
-frontend-app/src/pages/chat/hooks/useComposerInteractions.js	frontend-app	other	js-source	11083	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,hooks,useComposerInteractions,未细分职责：请结合路径,文件名和相邻代码判断
-frontend-app/src/pages/chat/hooks/useComposerInteractions.test.js	frontend-app	other	js-test	2586	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,hooks,useComposerInteractions,test,未细分职责：请结合路径,文件名和相邻代码判断
+frontend-app/src/pages/chat/hooks/useComposerInteractions.js	frontend-app	other	js-source	11194	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,hooks,useComposerInteractions,未细分职责：请结合路径,文件名和相邻代码判断
+frontend-app/src/pages/chat/hooks/useComposerInteractions.test.js	frontend-app	other	js-test	2769	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,hooks,useComposerInteractions,test,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/pages/chat/hooks/useRuntimePanelLayout.js	frontend-app	other	js-source	5434	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,hooks,useRuntimePanelLayout,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/pages/chat/hooks/useSmoothStreamingText.js	frontend-app	other	js-source	3635	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,hooks,useSmoothStreamingText,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/pages/chat/hooks/useTimelineMaterialization.js	frontend-app	other	js-source	2278	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,pages,chat,hooks,useTimelineMaterialization,未细分职责：请结合路径,文件名和相邻代码判断
@@ -290,7 +274,7 @@ frontend-app/src/shared/styles/MarkdownReferences.css	frontend-app	other	css	0	�
 frontend-app/src/shared/styles/PagePrimitives.css	frontend-app	other	css	1448	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,shared,styles,PagePrimitives,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/shared/styles/PagePrimitivesLate.css	frontend-app	other	css	1369	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,shared,styles,PagePrimitivesLate,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/shared/styles/PagePrimitivesPolish.css	frontend-app	other	css	19717	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,shared,styles,PagePrimitivesPolish,未细分职责：请结合路径,文件名和相邻代码判断
-frontend-app/src/shared/styles/ThemePolish.css	frontend-app	other	css	18075	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,shared,styles,ThemePolish,未细分职责：请结合路径,文件名和相邻代码判断
+frontend-app/src/shared/styles/ThemePolish.css	frontend-app	other	css	17807	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,shared,styles,ThemePolish,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/shared/ui/FocusTrapDialog.css	frontend-app	other	css	0	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,shared,ui,FocusTrapDialog,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/shared/ui/FocusTrapDialog.jsx	frontend-app	other	jsx	4285	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,shared,ui,FocusTrapDialog,未细分职责：请结合路径,文件名和相邻代码判断
 frontend-app/src/shared/ui/FocusTrapDialog.test.jsx	frontend-app	other	jsx	735	未细分职责：请结合路径、文件名和相邻代码判断	frontend,app,src,shared,ui,FocusTrapDialog,test,未细分职责：请结合路径,文件名和相邻代码判断
@@ -510,7 +494,7 @@ internal/contract/runner.go	internal	other	go-source	1770	跨模块稳定接口�
 internal/contract/runtime_reporter.go	internal	other	go-source	433	跨模块稳定接口、事件和 DTO 边界	internal,contract,runtime,reporter,跨模块稳定接口,事件和,DTO,边界
 internal/contract/session.go	internal	other	go-source	4008	跨模块稳定接口、事件和 DTO 边界	internal,contract,session,跨模块稳定接口,事件和,DTO,边界
 internal/contract/skill.go	internal	other	go-source	8872	跨模块稳定接口、事件和 DTO 边界	internal,contract,skill,跨模块稳定接口,事件和,DTO,边界
-internal/contract/thread.go	internal	other	go-source	2899	跨模块稳定接口、事件和 DTO 边界	internal,contract,thread,跨模块稳定接口,事件和,DTO,边界
+internal/contract/thread.go	internal	other	go-source	2909	跨模块稳定接口、事件和 DTO 边界	internal,contract,thread,跨模块稳定接口,事件和,DTO,边界
 internal/contract/toolbridge.go	internal	other	go-source	3705	跨模块稳定接口、事件和 DTO 边界	internal,contract,toolbridge,跨模块稳定接口,事件和,DTO,边界
 internal/contract/ui_project_state.go	internal	other	go-source	1346	跨模块稳定接口、事件和 DTO 边界	internal,contract,ui,project,state,跨模块稳定接口,事件和,DTO,边界
 internal/devtools/capcontract/manifest_test.go	internal	other	go-test	3220	开发工具与生成器辅助包	internal,devtools,capcontract,manifest,test,开发工具与生成器辅助包
@@ -623,8 +607,6 @@ internal/util/util.go	internal	other	go-source	1881	未细分职责：请结合�
 LICENSE	(root)	other	file	1235	仓库根级配置、入口或说明文件	LICENSE,仓库根级配置,入口或说明文件
 logstash/pipeline/logstash.conf	logstash	other	conf	1862	未细分职责：请结合路径、文件名和相邻代码判断	logstash,pipeline,未细分职责：请结合路径,文件名和相邻代码判断
 Makefile	(root)	other	file	14928	仓库根级配置、入口或说明文件	Makefile,仓库根级配置,入口或说明文件
-mcp-lsp.exe	(root)	other	exe	25946112	仓库根级配置、入口或说明文件	mcp,lsp,仓库根级配置,入口或说明文件
-mcp-orch.exe	(root)	other	exe	31803392	仓库根级配置、入口或说明文件	mcp,orch,仓库根级配置,入口或说明文件
 pkg/dagmetrics/dagmetrics_test.go	pkg	other	go-test	1028	DAG 指标公共库	pkg,dagmetrics,test,DAG,指标公共库
 pkg/dagmetrics/dagmetrics.go	pkg	other	go-source	3421	DAG 指标公共库	pkg,dagmetrics,DAG,指标公共库
 pkg/dreammetrics/dreammetrics_test.go	pkg	other	go-test	3219	dream pipeline 指标公共库	pkg,dreammetrics,test,dream,pipeline,指标公共库
@@ -681,7 +663,7 @@ scripts/extract_jsonrpc_methods.go	scripts	other	go-source	5971	工程自动化�
 scripts/fixtures/prompt_intent_dream_fixture.json	scripts	other	json	3091	工程自动化、测试守卫、代码地图与开发脚本	scripts,fixtures,prompt,intent,dream,fixture,工程自动化,测试守卫,代码地图与开发脚本
 scripts/forbid_raw_go_test.sh	scripts	other	script	2325	工程自动化、测试守卫、代码地图与开发脚本	scripts,forbid,raw,go,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/frontend_build_guard_test.go	scripts	other	go-test	1071	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,build,guard,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/generate_ai_project_map.js	scripts	other	js-source	22035	工程自动化、测试守卫、代码地图与开发脚本	scripts,generate,ai,project,map,工程自动化,测试守卫,代码地图与开发脚本
+scripts/generate_ai_project_map.js	scripts	other	js-source	21412	工程自动化、测试守卫、代码地图与开发脚本	scripts,generate,ai,project,map,工程自动化,测试守卫,代码地图与开发脚本
 scripts/github_release_updater_guard_test.go	scripts	other	go-test	22690	工程自动化、测试守卫、代码地图与开发脚本	scripts,github,release,updater,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/go	scripts	other	file	1043	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,工程自动化,测试守卫,代码地图与开发脚本
 scripts/go_guard_shell.sh	scripts	other	script	603	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,guard,shell,工程自动化,测试守卫,代码地图与开发脚本
