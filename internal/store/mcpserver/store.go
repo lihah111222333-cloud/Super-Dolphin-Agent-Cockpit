@@ -20,6 +20,10 @@ var (
 	errUnsupportedTransport        = errors.New("mcp_server: unsupported transport")
 	errMissingServerURL            = errors.New("mcp_server: url is required")
 	errInvalidServerURL            = errors.New("mcp_server: invalid url")
+	errMissingServerCommand        = errors.New("mcp_server: command is required")
+	errMissingServerArg            = errors.New("mcp_server: arg is required")
+	errMissingServerEnvName        = errors.New("mcp_server: env name is required")
+	errMissingServerEnvValue       = errors.New("mcp_server: env value is required")
 	errMissingHeaderName           = errors.New("mcp_server: header name is required")
 	errMissingHeaderValue          = errors.New("mcp_server: header value is required")
 	errInvalidConfigDocument       = errors.New("mcp_server: invalid config document")
@@ -51,15 +55,23 @@ func (s *configStore) InsertServer(ctx context.Context, params contract.StoreMCP
 	if err != nil {
 		return false, err
 	}
+	args, err := encodeMCPServerArgs(config.Args)
+	if err != nil {
+		return false, err
+	}
+	env, err := encodeMCPServerEnv(config.Env)
+	if err != nil {
+		return false, err
+	}
 	if err := s.ensureTable(ctx); err != nil {
 		return false, err
 	}
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO mcp_server_configs (
-			workspace_root, name, transport, url, headers, updated_at
-		) VALUES (?, ?, ?, ?, ?, CAST(strftime('%s','now') AS INTEGER) * 1000)
+			workspace_root, name, transport, url, headers, command, args, env, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(strftime('%s','now') AS INTEGER) * 1000)
 		ON CONFLICT (workspace_root, name) DO NOTHING
-	`, workspaceRoot, name, config.Transport, config.URL, string(headers))
+	`, workspaceRoot, name, config.Transport, config.URL, string(headers), config.Command, string(args), string(env))
 	if err != nil {
 		return false, wrapMCPServerStoreError(err, "insert")
 	}
@@ -80,7 +92,7 @@ func (s *configStore) ListServers(ctx context.Context, workspaceRoot string) (ma
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT name, transport, url, headers
+		SELECT name, transport, url, headers, command, args, env
 		FROM mcp_server_configs
 		WHERE workspace_root = ?
 		ORDER BY name ASC
@@ -94,16 +106,11 @@ func (s *configStore) ListServers(ctx context.Context, workspaceRoot string) (ma
 	for rows.Next() {
 		var name string
 		var config contract.MCPServerConfig
-		var headersJSON string
-		if err := rows.Scan(&name, &config.Transport, &config.URL, &headersJSON); err != nil {
+		var headersJSON, argsJSON, envJSON string
+		if err := rows.Scan(&name, &config.Transport, &config.URL, &headersJSON, &config.Command, &argsJSON, &envJSON); err != nil {
 			return nil, wrapMCPServerStoreError(err, "list.scan")
 		}
-		headers, err := decodeMCPServerHeaders(headersJSON)
-		if err != nil {
-			return nil, err
-		}
-		config.Headers = headers
-		normalized, err := normalizeServerConfig(name, config)
+		normalized, err := decodeStoredMCPServerConfig(name, config, headersJSON, argsJSON, envJSON)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", errInvalidConfigDocument, err)
 		}
@@ -113,6 +120,31 @@ func (s *configStore) ListServers(ctx context.Context, workspaceRoot string) (ma
 		return nil, wrapMCPServerStoreError(err, "list.rows")
 	}
 	return servers, nil
+}
+
+func decodeStoredMCPServerConfig(
+	name string,
+	config contract.MCPServerConfig,
+	headersJSON string,
+	argsJSON string,
+	envJSON string,
+) (contract.MCPServerConfig, error) {
+	headers, err := decodeMCPServerHeaders(headersJSON)
+	if err != nil {
+		return contract.MCPServerConfig{}, err
+	}
+	config.Headers = headers
+	args, err := decodeMCPServerArgs(argsJSON)
+	if err != nil {
+		return contract.MCPServerConfig{}, err
+	}
+	config.Args = args
+	env, err := decodeMCPServerEnv(envJSON)
+	if err != nil {
+		return contract.MCPServerConfig{}, err
+	}
+	config.Env = env
+	return normalizeServerConfig(name, config)
 }
 
 // DeleteServer 删除指定工作区的 MCP server 配置，返回是否真的删除了记录。
@@ -155,7 +187,66 @@ func (s *configStore) ensureTable(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, createMCPServerConfigsTableSQL); err != nil {
 		return wrapMCPServerStoreError(err, "ensure_table")
 	}
+	if err := s.ensureTableShape(ctx); err != nil {
+		return err
+	}
 	s.ensured = true
+	return nil
+}
+
+// ensureTableShape 把旧的 HTTP-only 表升级为可保存 stdio 命令的形状。
+// 旧表带有 url 非空约束，不能靠 ALTER COLUMN 修改，因此发现缺列时直接重建并保留现有 HTTP 行。
+func (s *configStore) ensureTableShape(ctx context.Context) error {
+	columns, err := s.mcpServerConfigColumns(ctx)
+	if err != nil {
+		return err
+	}
+	for _, name := range []string{"command", "args", "env"} {
+		if !columns[name] {
+			return s.rebuildLegacyTable(ctx)
+		}
+	}
+	return nil
+}
+
+func (s *configStore) mcpServerConfigColumns(ctx context.Context) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(mcp_server_configs)`)
+	if err != nil {
+		return nil, wrapMCPServerStoreError(err, "columns")
+	}
+	defer rows.Close()
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, typ string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return nil, wrapMCPServerStoreError(err, "columns.scan")
+		}
+		columns[strings.ToLower(strings.TrimSpace(name))] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapMCPServerStoreError(err, "columns.rows")
+	}
+	return columns, nil
+}
+
+func (s *configStore) rebuildLegacyTable(ctx context.Context) error {
+	for _, stmt := range []string{
+		`DROP TABLE IF EXISTS mcp_server_configs_next`,
+		createMCPServerConfigsNextTableSQL,
+		`INSERT INTO mcp_server_configs_next (
+			workspace_root, name, transport, url, headers, command, args, env, created_at, updated_at
+		)
+		SELECT workspace_root, name, transport, url, headers, '', '[]', '{}', created_at, updated_at
+		FROM mcp_server_configs`,
+		`DROP TABLE mcp_server_configs`,
+		`ALTER TABLE mcp_server_configs_next RENAME TO mcp_server_configs`,
+	} {
+		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+			return wrapMCPServerStoreError(err, "migrate_stdio")
+		}
+	}
 	return nil
 }
 
@@ -176,15 +267,23 @@ func normalizeStoreServerParams(params contract.StoreMCPServerConfigParams) (str
 	return workspaceRoot, name, config, nil
 }
 
-// normalizeServerConfig 校验 MCP server 配置，只允许当前支持的 HTTP/HTTPS 传输。
+// normalizeServerConfig 校验 MCP server 配置，按 transport 分别清理 HTTP 和 stdio 字段。
 func normalizeServerConfig(name string, config contract.MCPServerConfig) (contract.MCPServerConfig, error) {
 	transport := strings.TrimSpace(config.Transport)
 	if transport == "" {
 		return contract.MCPServerConfig{}, fmt.Errorf("%w: %s", errMissingServerTransport, name)
 	}
-	if transport != "http" {
+	switch transport {
+	case "http":
+		return normalizeHTTPServerConfig(name, config)
+	case "stdio":
+		return normalizeStdioServerConfig(name, config)
+	default:
 		return contract.MCPServerConfig{}, fmt.Errorf("%w: %s", errUnsupportedTransport, transport)
 	}
+}
+
+func normalizeHTTPServerConfig(name string, config contract.MCPServerConfig) (contract.MCPServerConfig, error) {
 	rawURL := strings.TrimSpace(config.URL)
 	if rawURL == "" {
 		return contract.MCPServerConfig{}, fmt.Errorf("%w: %s", errMissingServerURL, name)
@@ -197,9 +296,30 @@ func normalizeServerConfig(name string, config contract.MCPServerConfig) (contra
 		return contract.MCPServerConfig{}, err
 	}
 	return contract.MCPServerConfig{
-		Transport: transport,
+		Transport: "http",
 		URL:       rawURL,
 		Headers:   headers,
+	}, nil
+}
+
+func normalizeStdioServerConfig(name string, config contract.MCPServerConfig) (contract.MCPServerConfig, error) {
+	command := strings.TrimSpace(config.Command)
+	if command == "" {
+		return contract.MCPServerConfig{}, fmt.Errorf("%w: %s", errMissingServerCommand, name)
+	}
+	args, err := normalizeStringList(config.Args, errMissingServerArg, name)
+	if err != nil {
+		return contract.MCPServerConfig{}, err
+	}
+	env, err := normalizeStringMap(config.Env, errMissingServerEnvName, errMissingServerEnvValue, name)
+	if err != nil {
+		return contract.MCPServerConfig{}, err
+	}
+	return contract.MCPServerConfig{
+		Transport: "stdio",
+		Command:   command,
+		Args:      args,
+		Env:       env,
 	}, nil
 }
 
@@ -221,6 +341,40 @@ func normalizeHeaders(serverName string, input map[string]string) (map[string]st
 		headers[name] = value
 	}
 	return headers, nil
+}
+
+func normalizeStringList(input []string, emptyErr error, label string) ([]string, error) {
+	if len(input) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(input))
+	for _, rawValue := range input {
+		value := strings.TrimSpace(rawValue)
+		if value == "" {
+			return nil, fmt.Errorf("%w: %s", emptyErr, label)
+		}
+		out = append(out, value)
+	}
+	return out, nil
+}
+
+func normalizeStringMap(input map[string]string, emptyKeyErr, emptyValueErr error, label string) (map[string]string, error) {
+	if len(input) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(input))
+	for rawName, rawValue := range input {
+		name := strings.TrimSpace(rawName)
+		if name == "" {
+			return nil, fmt.Errorf("%w: %s", emptyKeyErr, label)
+		}
+		value := strings.TrimSpace(rawValue)
+		if value == "" {
+			return nil, fmt.Errorf("%w: %s.%s", emptyValueErr, label, name)
+		}
+		out[name] = value
+	}
+	return out, nil
 }
 
 // validateHTTPURL 确认 URL 是 HTTP/HTTPS 且带 host，避免写入运行时不可连接的配置。
@@ -254,6 +408,36 @@ func encodeMCPServerHeaders(headers map[string]string) ([]byte, error) {
 	return raw, nil
 }
 
+func encodeMCPServerArgs(args []string) ([]byte, error) {
+	normalized, err := normalizeStringList(args, errMissingServerArg, "args")
+	if err != nil {
+		return nil, err
+	}
+	if len(normalized) == 0 {
+		return []byte("[]"), nil
+	}
+	raw, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, fmt.Errorf("marshal mcp server args: %w", err)
+	}
+	return raw, nil
+}
+
+func encodeMCPServerEnv(env map[string]string) ([]byte, error) {
+	normalized, err := normalizeStringMap(env, errMissingServerEnvName, errMissingServerEnvValue, "env")
+	if err != nil {
+		return nil, err
+	}
+	if len(normalized) == 0 {
+		return []byte("{}"), nil
+	}
+	raw, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, fmt.Errorf("marshal mcp server env: %w", err)
+	}
+	return raw, nil
+}
+
 // decodeMCPServerHeaders 读取 JSON 文本并重新校验 header 内容。
 func decodeMCPServerHeaders(raw string) (map[string]string, error) {
 	var headers map[string]string
@@ -261,6 +445,30 @@ func decodeMCPServerHeaders(raw string) (map[string]string, error) {
 		return nil, fmt.Errorf("%w: %v", errInvalidConfigDocument, err)
 	}
 	normalized, err := normalizeHeaders("headers", headers)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", errInvalidConfigDocument, err)
+	}
+	return normalized, nil
+}
+
+func decodeMCPServerArgs(raw string) ([]string, error) {
+	var args []string
+	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+		return nil, fmt.Errorf("%w: %v", errInvalidConfigDocument, err)
+	}
+	normalized, err := normalizeStringList(args, errMissingServerArg, "args")
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", errInvalidConfigDocument, err)
+	}
+	return normalized, nil
+}
+
+func decodeMCPServerEnv(raw string) (map[string]string, error) {
+	var env map[string]string
+	if err := json.Unmarshal([]byte(raw), &env); err != nil {
+		return nil, fmt.Errorf("%w: %v", errInvalidConfigDocument, err)
+	}
+	normalized, err := normalizeStringMap(env, errMissingServerEnvName, errMissingServerEnvValue, "env")
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", errInvalidConfigDocument, err)
 	}
@@ -277,16 +485,46 @@ CREATE TABLE IF NOT EXISTS mcp_server_configs (
 	workspace_root TEXT NOT NULL,
 	name TEXT NOT NULL,
 	transport TEXT NOT NULL,
-	url TEXT NOT NULL,
+	url TEXT NOT NULL DEFAULT '',
 	headers TEXT NOT NULL DEFAULT '{}',
+	command TEXT NOT NULL DEFAULT '',
+	args TEXT NOT NULL DEFAULT '[]',
+	env TEXT NOT NULL DEFAULT '{}',
 	created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
 	updated_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
 	PRIMARY KEY (workspace_root, name),
 	CHECK (workspace_root <> ''),
 	CHECK (name <> ''),
 	CHECK (transport <> ''),
-	CHECK (url <> ''),
-	CHECK (headers <> '')
+	CHECK (transport IN ('http', 'stdio')),
+	CHECK ((transport = 'http' AND url <> '') OR (transport = 'stdio' AND command <> '')),
+	CHECK (headers <> ''),
+	CHECK (args <> ''),
+	CHECK (env <> '')
+);
+`
+
+const createMCPServerConfigsNextTableSQL = `
+CREATE TABLE mcp_server_configs_next (
+	workspace_root TEXT NOT NULL,
+	name TEXT NOT NULL,
+	transport TEXT NOT NULL,
+	url TEXT NOT NULL DEFAULT '',
+	headers TEXT NOT NULL DEFAULT '{}',
+	command TEXT NOT NULL DEFAULT '',
+	args TEXT NOT NULL DEFAULT '[]',
+	env TEXT NOT NULL DEFAULT '{}',
+	created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+	updated_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+	PRIMARY KEY (workspace_root, name),
+	CHECK (workspace_root <> ''),
+	CHECK (name <> ''),
+	CHECK (transport <> ''),
+	CHECK (transport IN ('http', 'stdio')),
+	CHECK ((transport = 'http' AND url <> '') OR (transport = 'stdio' AND command <> '')),
+	CHECK (headers <> ''),
+	CHECK (args <> ''),
+	CHECK (env <> '')
 );
 `
 

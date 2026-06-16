@@ -298,7 +298,8 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	if err != nil {
 		return nil, err
 	}
-	s.releaseTools = d.releaseTools
+	s.prepareTools, s.listTools, s.releaseTools = d.prepareTools, d.listTools, d.releaseTools
+	s.dynamicToolsEnabled = contract.ToolSurfaceModeUsesDynamicTools(req.ToolSurfaceMode)
 	// P22 P1c: explicit runtime start. newSession no longer spawns
 	// reader / health goroutines, so StartSession is the sole production
 	// launch point for this session's runtime handle. Start BEFORE any
@@ -330,6 +331,10 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	if err != nil {
 		return nil, err
 	}
+	toolSurfaceMode, err := contract.NormalizeToolSurfaceMode(supportutil.ConfigString(req.Config, "toolSurfaceMode", "tool_surface_mode"))
+	if err != nil {
+		return nil, fmt.Errorf("codexapp: tool surface mode: %w", err)
+	}
 	opts, err := d.resolveResumeOptions(ctx, req)
 	if err != nil {
 		return nil, err
@@ -338,7 +343,8 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	if err != nil {
 		return nil, err
 	}
-	s.releaseTools = d.releaseTools
+	s.prepareTools, s.listTools, s.releaseTools = d.prepareTools, d.listTools, d.releaseTools
+	s.dynamicToolsEnabled = contract.ToolSurfaceModeUsesDynamicTools(toolSurfaceMode)
 	// P22 P1c: explicit runtime start BEFORE resumeRemoteThread; the latter
 	// issues a thread/resume RPC whose response lands via the runtime-owned
 	// reader. If resume fails below, cleanupFailedSession → ForceStop →

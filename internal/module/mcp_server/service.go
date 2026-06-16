@@ -36,6 +36,7 @@ var (
 	errMCPServerStoreNotConfigured = errors.New("mcp_server: config store is not configured")
 	errMCPServerToolsRequestFailed = errors.New("mcp_server: tools request failed")
 	errInvalidToolsResponse        = errors.New("mcp_server: invalid tools response")
+	errPostgresInstallerMissing    = errors.New("mcp_server: postgres installer is not configured")
 )
 
 type Service interface {
@@ -90,8 +91,9 @@ type DeleteServerResult struct {
 }
 
 type service struct {
-	store      MCPServerConfigStore
-	httpClient mcpHTTPDoer
+	store             MCPServerConfigStore
+	httpClient        mcpHTTPDoer
+	postgresInstaller postgresInstaller
 }
 
 // NewService 创建服务。
@@ -101,7 +103,11 @@ func NewService() Service {
 
 // NewServiceWithStore 创建带配置存储的 MCP server 服务。
 func NewServiceWithStore(store MCPServerConfigStore) Service {
-	return &service{store: store, httpClient: defaultMCPHTTPClient}
+	return newServiceWithStoreAndInstaller(store, newNPMPostgresInstaller())
+}
+
+func newServiceWithStoreAndInstaller(store MCPServerConfigStore, installer postgresInstaller) *service {
+	return &service{store: store, httpClient: defaultMCPHTTPClient, postgresInstaller: installer}
 }
 
 // AddServers 添加servers。
