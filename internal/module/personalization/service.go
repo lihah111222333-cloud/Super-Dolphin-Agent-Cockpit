@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
@@ -35,6 +36,9 @@ func (s *service) GetProfile(ctx context.Context, cwd string) (ProfileResult, er
 	}
 	raw, err := s.prefs.GetValue(ctx, cwd, profilePreferenceKey)
 	if err != nil {
+		if platformdb.IsNotFound(err) {
+			return ProfileResult{}, nil
+		}
 		return ProfileResult{}, fmt.Errorf("personalization: get profile: %w", err)
 	}
 	if len(raw) == 0 {

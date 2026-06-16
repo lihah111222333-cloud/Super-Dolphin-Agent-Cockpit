@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
@@ -139,7 +140,7 @@ func (s *profilePreferenceStore) GetValue(_ context.Context, cwd, key string) (j
 	}
 	value := s.values[cwd+"\x00"+key]
 	if len(value) == 0 {
-		return nil, nil
+		return nil, platformdb.ErrNotFound
 	}
 	return append(json.RawMessage(nil), value...), nil
 }
