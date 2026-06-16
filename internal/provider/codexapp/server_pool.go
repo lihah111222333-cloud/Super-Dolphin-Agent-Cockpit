@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -81,7 +80,7 @@ var (
 //     elapses.
 //   - Close tears every entry down and refuses subsequent Get calls.
 type ServerPool struct {
-	logger  *slog.Logger
+	logger  *pkglogger.Logger
 	spawner Spawner
 	cfg     PoolConfig
 	now     func() time.Time
@@ -116,7 +115,7 @@ type poolEntry struct {
 // produces a pool that always fails Get with ErrInvalidIdentity so
 // the mistake is loud.
 // NewServerPool 创建服务端pool。
-func NewServerPool(logger *slog.Logger, spawner Spawner, cfg PoolConfig) *ServerPool {
+func NewServerPool(logger *pkglogger.Logger, spawner Spawner, cfg PoolConfig) *ServerPool {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -237,7 +236,7 @@ func (p *ServerPool) checkBackoffLocked(entry *poolEntry, now time.Time) error {
 	if entry == nil || entry.spawnErr == nil || !now.Before(entry.backoffUntil) {
 		return nil
 	}
-	return fmt.Errorf("%w: %v", ErrSpawnBackoff, entry.spawnErr)
+	return fmt.Errorf("%w: %w", ErrSpawnBackoff, entry.spawnErr)
 }
 
 func (p *ServerPool) recordSpawnErrorLocked(entry *poolEntry, entryKey poolEntryKey, err error, now time.Time) {
@@ -393,7 +392,7 @@ func normalizePoolIdentity(identity providershared.CodexIdentity) (home, key, pr
 	}
 	canonical, err := providershared.CanonicalizeCodexHome(raw)
 	if err != nil {
-		return "", "", "", fmt.Errorf("%w: %v", ErrInvalidIdentity, err)
+		return "", "", "", fmt.Errorf("%w: %w", ErrInvalidIdentity, err)
 	}
 	key = strings.TrimSpace(identity.InstanceKey)
 	if key == "" {
@@ -410,14 +409,14 @@ func normalizePoolIdentity(identity providershared.CodexIdentity) (home, key, pr
 // pool never blocks an eviction on a slow child process. Logged at
 // debug level because the failure rarely indicates real trouble —
 // shutdown ordering races commonly surface as transient Close errors.
-func closeWithTimeout(server SpawnedServer, timeout time.Duration, logger *slog.Logger, key poolEntryKey) {
+func closeWithTimeout(server SpawnedServer, timeout time.Duration, logger *pkglogger.Logger, key poolEntryKey) {
 	ctx, cancel := withTimeout(context.Background(), timeout)
 	defer cancel()
 	if err := server.Close(ctx); err != nil {
 		logger.Debug("codexapp: pool close entry failed",
-			slog.String("codex_home", key.home),
-			slog.String("owner", key.ownerKey),
-			slog.String("error", err.Error()),
+			pkglogger.String("codex_home", key.home),
+			pkglogger.String("owner", key.ownerKey),
+			pkglogger.String("error", err.Error()),
 		)
 	}
 }
@@ -425,12 +424,12 @@ func closeWithTimeout(server SpawnedServer, timeout time.Duration, logger *slog.
 const defaultPoolEvictInterval = time.Minute
 
 type poolEvictRunner struct {
-	logger   *slog.Logger
+	logger   *pkglogger.Logger
 	pool     *ServerPool
 	interval time.Duration
 }
 
-func newPoolEvictRunner(logger *slog.Logger, pool *ServerPool) *poolEvictRunner {
+func newPoolEvictRunner(logger *pkglogger.Logger, pool *ServerPool) *poolEvictRunner {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -454,7 +453,7 @@ func (r *poolEvictRunner) Run(ctx context.Context) error {
 		case <-ticker.C:
 			if removed := r.pool.EvictIdle(); removed > 0 {
 				r.logger.Info("codexapp: pool evicted idle entries",
-					slog.Int("count", removed),
+					pkglogger.Int("count", removed),
 				)
 			}
 		}

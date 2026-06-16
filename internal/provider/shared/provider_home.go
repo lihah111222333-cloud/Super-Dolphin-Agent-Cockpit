@@ -370,7 +370,7 @@ func isValidGitRootMarker(path string) (bool, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return false, nil
+			return missingGitRootMarker()
 		}
 		return false, fmt.Errorf("stat provider project git root marker: %w", err)
 	}
@@ -378,7 +378,7 @@ func isValidGitRootMarker(path string) (bool, error) {
 		headInfo, err := os.Stat(filepath.Join(path, "HEAD"))
 		if err != nil {
 			if os.IsNotExist(err) {
-				return false, nil
+				return missingGitRootMarker()
 			}
 			return false, fmt.Errorf("stat provider project git HEAD marker: %w", err)
 		}
@@ -393,6 +393,10 @@ func isValidGitRootMarker(path string) (bool, error) {
 	}
 	marker := strings.TrimSpace(string(data))
 	return strings.HasPrefix(strings.ToLower(marker), "gitdir:"), nil
+}
+
+func missingGitRootMarker() (bool, error) {
+	return false, nil
 }
 
 // EnsureNoSkillMirrorConflicts 在 provider 启动前检查 mirror 是否能用。

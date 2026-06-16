@@ -65,7 +65,7 @@ func FindCanonicalGitRoot(ctx context.Context, projectRoot string) (string, erro
 	}
 	fallback, err := shared.CleanAbsolutePath(projectRoot)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidMemoryRoot, err)
+		return "", fmt.Errorf("%w: %w", ErrInvalidMemoryRoot, err)
 	}
 	gitCtx, cancel := ctxutil.WithTimeout(ctx, gitResolveTimeout)
 	defer cancel()

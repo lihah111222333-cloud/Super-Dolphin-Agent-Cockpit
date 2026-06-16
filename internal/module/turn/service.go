@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -27,7 +26,7 @@ type skillHydrationPort = contract.SkillHydrationSource
 const peerBinDirEnv = "GO_AGENT_PEER_BIN_DIR"
 
 type service struct {
-	logger                 *slog.Logger
+	logger                 *pkglogger.Logger
 	assembler              *inputAssembler
 	skills                 *skillResolver
 	manifest               *manifestBuilder
@@ -57,12 +56,12 @@ type steerableSession interface {
 }
 
 // NewService 创建服务。
-func NewService(logger *slog.Logger) Service {
+func NewService(logger *pkglogger.Logger) Service {
 	return newService(logger, nil, nil, nil, nil, nil, contract.BuildManifest, nil)
 }
 
 // NewServiceWithPromptAssembly 创建带promptassembly的服务。
-func NewServiceWithPromptAssembly(logger *slog.Logger, promptAssembly contract.PromptAssemblyService) Service {
+func NewServiceWithPromptAssembly(logger *pkglogger.Logger, promptAssembly contract.PromptAssemblyService) Service {
 	return newService(logger, promptAssembly, nil, nil, nil, nil, contract.BuildManifest, nil)
 }
 
@@ -70,7 +69,7 @@ func NewServiceWithPromptAssembly(logger *slog.Logger, promptAssembly contract.P
 // 参数按 fx `optional:"true"` 注入，用于 PrepareTurn 的 name-only skill
 // hydrate；observation.Contract 同样 optional，用于 P21 canonical facts。
 func NewServiceWithPromptAssemblyAndTurnContext(
-	logger *slog.Logger,
+	logger *pkglogger.Logger,
 	promptAssembly contract.PromptAssemblyService,
 	turnContextProvider contract.TurnContextProvider,
 	skillSvc contract.SkillHydrationSource,
@@ -93,7 +92,7 @@ func NewServiceWithPromptAssemblyAndTurnContext(
 
 // newService 创建服务。
 func newService(
-	logger *slog.Logger,
+	logger *pkglogger.Logger,
 	promptAssembly contract.PromptAssemblyService,
 	turnContextProvider contract.TurnContextProvider,
 	skillLookup skillHydrationPort,

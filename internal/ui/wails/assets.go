@@ -2,8 +2,8 @@ package wails
 
 import (
 	"embed"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"io/fs"
-	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -44,9 +44,10 @@ func AssetHandlerFrom(injected FrontendFS) http.Handler {
 func viteDevProxy(rawURL string) http.Handler {
 	target, err := url.Parse(rawURL)
 	if err != nil {
-		panic("invalid VITE_DEV_URL: " + err.Error())
+		pkglogger.Error("invalid VITE_DEV_URL, serving embedded frontend", "url", rawURL, "error", err)
+		return application.BundledAssetFileServer(resolveFS(FrontendFS{}))
 	}
-	slog.Info("frontend proxying to vite dev server", "url", target.String())
+	pkglogger.Info("frontend proxying to vite dev server", "url", target.String())
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	// Rewrite the Host header so Vite accepts the request.
 	originalDirector := proxy.Director

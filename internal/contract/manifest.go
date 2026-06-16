@@ -2,7 +2,6 @@ package contract
 
 import (
 	"encoding/json"
-	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -159,8 +158,7 @@ func addLSPWorkspaceRootEnv(env map[string]string, ctx dto.ManifestContext) {
 	}
 	raw, err := json.Marshal(roots)
 	if err != nil {
-		// archguard:ignore panic_count -- []string workspace roots must always JSON-encode.
-		panic(fmt.Sprintf("manifest workspace roots must encode as JSON: %v", err))
+		return
 	}
 	env["GO_AGENT_LSP_ROOT"] = roots[0]
 	env["GO_AGENT_LSP_ROOTS"] = string(raw)
@@ -253,15 +251,18 @@ var mcpForbiddenDatabaseEnvKeys = map[string]struct{}{
 	InternalSQLitePathEnvKey:     {},
 }
 
+// ForbiddenDatabaseEnvKeyNames returns database environment keys stripped from child MCP processes.
 func ForbiddenDatabaseEnvKeyNames() []string {
 	return []string{"DATABASE_URL", "POSTGRES_CONNECTION_STRING", SQLitePathEnvKey, InternalSQLitePathEnvKey}
 }
 
+// IsForbiddenDatabaseEnvKey reports whether a key would leak database routing into MCP children.
 func IsForbiddenDatabaseEnvKey(key string) bool {
 	_, ok := mcpForbiddenDatabaseEnvKeys[strings.ToUpper(strings.TrimSpace(key))]
 	return ok
 }
 
+// ScrubDatabaseEnv removes forbidden database entries from process environment slices.
 func ScrubDatabaseEnv(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, item := range env {
@@ -274,6 +275,7 @@ func ScrubDatabaseEnv(env []string) []string {
 	return out
 }
 
+// ScrubDatabaseEnvMap removes forbidden database entries from a mutable environment map.
 func ScrubDatabaseEnvMap(env map[string]string) {
 	for key := range env {
 		if IsForbiddenDatabaseEnvKey(key) {

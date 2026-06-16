@@ -240,6 +240,7 @@ func dashboardDAGSummariesFromRows(rows []map[string]any) ([]contract.DAGSummary
 	return out, nil
 }
 
+// dashboardDAGSummaryFromRow maps one persisted DAG row while preserving JSON field errors.
 func dashboardDAGSummaryFromRow(row map[string]any) (contract.DAGSummary, error) {
 	id, err := dashboardRowInt64(row, "id", true)
 	if err != nil {
@@ -260,6 +261,10 @@ func dashboardDAGSummaryFromRow(row map[string]any) (contract.DAGSummary, error)
 	scheduleEnabled := strings.TrimSpace(dashboardString(row, "trigger")) == "scheduled" &&
 		strings.TrimSpace(dashboardString(row, "cron_expr")) != "" &&
 		times.nextRunAt != nil
+	metadata, err := dashboardJSON(row, "metadata")
+	if err != nil {
+		return contract.DAGSummary{}, err
+	}
 	return contract.DAGSummary{
 		ID:              id,
 		DagKey:          dagKey,
@@ -268,7 +273,7 @@ func dashboardDAGSummaryFromRow(row map[string]any) (contract.DAGSummary, error)
 		Description:     dashboardString(row, "description"),
 		Status:          dashboardString(row, "status"),
 		CreatedBy:       dashboardString(row, "created_by"),
-		Metadata:        dashboardJSON(row, "metadata"),
+		Metadata:        metadata,
 		Trigger:         dashboardString(row, "trigger"),
 		CronExpr:        dashboardString(row, "cron_expr"),
 		NextRunAt:       times.nextRunAt,
@@ -292,6 +297,7 @@ func dashboardDAGNodesFromRows(rows []map[string]any) ([]contract.DAGNode, error
 	return out, nil
 }
 
+// dashboardDAGNodeFromRow maps one persisted node row while validating JSON and time columns.
 func dashboardDAGNodeFromRow(row map[string]any) (contract.DAGNode, error) {
 	id, err := dashboardRowInt64(row, "id", true)
 	if err != nil {
@@ -317,6 +323,14 @@ func dashboardDAGNodeFromRow(row map[string]any) (contract.DAGNode, error) {
 	if err != nil {
 		return contract.DAGNode{}, err
 	}
+	config, err := dashboardJSON(row, "config")
+	if err != nil {
+		return contract.DAGNode{}, err
+	}
+	result, err := dashboardJSON(row, "result")
+	if err != nil {
+		return contract.DAGNode{}, err
+	}
 	return contract.DAGNode{
 		ID:               id,
 		DagKey:           dagKey,
@@ -327,8 +341,8 @@ func dashboardDAGNodeFromRow(row map[string]any) (contract.DAGNode, error) {
 		DependsOn:        dependsOn,
 		Status:           dashboardString(row, "status"),
 		CommandRef:       dashboardString(row, "command_ref"),
-		Config:           dashboardJSON(row, "config"),
-		Result:           dashboardJSON(row, "result"),
+		Config:           config,
+		Result:           result,
 		StartedAt:        times.startedAt,
 		FinishedAt:       times.finishedAt,
 		CreatedAt:        times.createdAt,
@@ -352,6 +366,7 @@ func dashboardRunsFromRows(rows []map[string]any) ([]contract.Run, error) {
 	return out, nil
 }
 
+// dashboardRunFromRow maps one persisted DAG run row while preserving JSON field errors.
 func dashboardRunFromRow(row map[string]any) (contract.Run, error) {
 	id, err := dashboardRowInt64(row, "id", true)
 	if err != nil {
@@ -381,6 +396,14 @@ func dashboardRunFromRow(row map[string]any) (contract.Run, error) {
 	if err != nil {
 		return contract.Run{}, err
 	}
+	events, err := dashboardJSONOrDefault(row, "events", json.RawMessage("[]"))
+	if err != nil {
+		return contract.Run{}, err
+	}
+	metadata, err := dashboardJSONOrDefault(row, "metadata", json.RawMessage("{}"))
+	if err != nil {
+		return contract.Run{}, err
+	}
 	return contract.Run{
 		ID:                 id,
 		RunKey:             runKey,
@@ -390,10 +413,10 @@ func dashboardRunFromRow(row map[string]any) (contract.Run, error) {
 		Status:             dashboardString(row, "status"),
 		StartedAt:          times.startedAt,
 		FinishedAt:         times.finishedAt,
-		Events:             dashboardJSONOrDefault(row, "events", json.RawMessage("[]")),
+		Events:             events,
 		BudgetUsed:         budgetUsed,
 		BudgetLimit:        budgetLimit,
-		Metadata:           dashboardJSONOrDefault(row, "metadata", json.RawMessage("{}")),
+		Metadata:           metadata,
 		CreatedAt:          times.createdAt,
 		UpdatedAt:          times.updatedAt,
 	}, nil
@@ -429,48 +452,51 @@ func dashboardStringPtr(row map[string]any, key string) *string {
 	return &value
 }
 
-func dashboardJSON(row map[string]any, key string) json.RawMessage {
+func dashboardJSON(row map[string]any, key string) (json.RawMessage, error) {
 	return dashboardJSONOrDefault(row, key, nil)
 }
 
-func dashboardJSONOrDefault(row map[string]any, key string, fallback json.RawMessage) json.RawMessage {
+func dashboardJSONOrDefault(row map[string]any, key string, fallback json.RawMessage) (json.RawMessage, error) {
 	value, ok := row[key]
 	if !ok || value == nil {
-		return append(json.RawMessage(nil), fallback...)
+		return append(json.RawMessage(nil), fallback...), nil
 	}
 	switch typed := value.(type) {
 	case json.RawMessage:
-		return dashboardValidJSONOrFallback(typed, fallback)
+		return dashboardValidJSONOrFallback(key, typed, fallback)
 	case []byte:
-		return dashboardValidJSONOrFallback(json.RawMessage(typed), fallback)
+		return dashboardValidJSONOrFallback(key, json.RawMessage(typed), fallback)
 	case string:
-		return dashboardValidJSONOrFallback(json.RawMessage(strings.TrimSpace(typed)), fallback)
+		return dashboardValidJSONOrFallback(key, json.RawMessage(strings.TrimSpace(typed)), fallback)
 	default:
 		raw, err := json.Marshal(typed)
 		if err != nil {
-			return append(json.RawMessage(nil), fallback...)
+			return nil, fmt.Errorf("%s: marshal JSON value: %w", key, err)
 		}
-		return dashboardValidJSONOrFallback(raw, fallback)
+		return dashboardValidJSONOrFallback(key, raw, fallback)
 	}
 }
 
-func dashboardValidJSONOrFallback(raw json.RawMessage, fallback json.RawMessage) json.RawMessage {
+func dashboardValidJSONOrFallback(key string, raw json.RawMessage, fallback json.RawMessage) (json.RawMessage, error) {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" {
-		return append(json.RawMessage(nil), fallback...)
+		return append(json.RawMessage(nil), fallback...), nil
 	}
 	if json.Valid(json.RawMessage(trimmed)) {
-		return append(json.RawMessage(nil), trimmed...)
+		return append(json.RawMessage(nil), trimmed...), nil
 	}
 	quoted, err := json.Marshal(trimmed)
 	if err != nil {
-		return append(json.RawMessage(nil), fallback...)
+		return nil, fmt.Errorf("%s: quote JSON string fallback: %w", key, err)
 	}
-	return quoted
+	return quoted, nil
 }
 
 func dashboardStringSlice(row map[string]any, key string) ([]string, error) {
-	raw := dashboardJSONOrDefault(row, key, json.RawMessage("[]"))
+	raw, err := dashboardJSONOrDefault(row, key, json.RawMessage("[]"))
+	if err != nil {
+		return nil, err
+	}
 	if len(raw) == 0 {
 		return []string{}, nil
 	}

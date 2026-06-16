@@ -347,7 +347,7 @@ func formatIllegalTransitionError(ctx context.Context, agent *agentRuntime, befo
 	if agent != nil {
 		agentID = agent.id
 	}
-	return fmt.Errorf("%w for agent %q: state=%s trigger=%s allowed=%v: %w", errIllegalStateTransition, agentID, before, trigger, allowed, err)
+	return fmt.Errorf("%w for agent %q: state=%s trigger=%s allowed=%s: %w", errIllegalStateTransition, agentID, before, trigger, strings.Join(allowed, ","), err)
 }
 
 // allowedTriggersForState 返回当前状态允许的触发器，供错误消息说明可选路径。

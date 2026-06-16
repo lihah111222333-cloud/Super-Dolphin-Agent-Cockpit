@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -17,6 +16,7 @@ import (
 	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/creachadair/jrpc2/handler"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
@@ -47,7 +47,7 @@ type memoryHandlerDeps struct {
 	SharedFilesDeleter  sharedfilestore.Deleter       `optional:"true"`
 	SharedFilesUpserter sharedfilestore.Upserter      `optional:"true"`
 	Sections            contract.SectionInvalidator   `optional:"true"`
-	Logger              *slog.Logger                  `optional:"true"`
+	Logger              *pkglogger.Logger             `optional:"true"`
 	DreamExecutor       contract.DreamExecutor        `optional:"true"`
 	Dispatcher          *event.Dispatcher             `optional:"true"`
 }
@@ -107,7 +107,7 @@ type memoryLifecycleHookParams struct {
 	Team            *TeamMemoryManager          `optional:"true"`
 	Consolidator    *AutoDreamConsolidator      `optional:"true"`
 	DreamExtractFn  ExtractFunc                 `optional:"true"`
-	Logger          *slog.Logger                `optional:"true"`
+	Logger          *pkglogger.Logger           `optional:"true"`
 	Threads         historySource               `optional:"true"`
 	ThreadStore     threadMetadataStore         `optional:"true"`
 	Sections        contract.SectionInvalidator `optional:"true"`
@@ -201,7 +201,7 @@ func newMemoryLifecycleHooksWithTeam(
 	cfg *Config,
 	team *TeamMemoryManager,
 	consolidator *AutoDreamConsolidator,
-	logger *slog.Logger,
+	logger *pkglogger.Logger,
 	threads historySource,
 	threadStore threadMetadataStore,
 	sections sectionInvalidator,
@@ -385,7 +385,7 @@ type provideMemoryServiceParams struct {
 	fx.In
 
 	Cfg          *Config
-	Logger       *slog.Logger
+	Logger       *pkglogger.Logger
 	Consolidator *AutoDreamConsolidator
 	Hooks        *MemoryLifecycleHooks
 }

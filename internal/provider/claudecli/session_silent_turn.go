@@ -3,7 +3,7 @@ package claudecli
 import (
 	"context"
 	"errors"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -16,11 +16,11 @@ const (
 	keepaliveTurnIDPrefix = "keepalive_"
 )
 
-func (s *session) keepaliveLogger() *slog.Logger {
+func (s *session) keepaliveLogger() *pkglogger.Logger {
 	if s != nil && s.logger != nil {
 		return s.logger
 	}
-	return slog.Default()
+	return pkglogger.Get()
 }
 
 // SendKeepalive 处理sendkeepalive。

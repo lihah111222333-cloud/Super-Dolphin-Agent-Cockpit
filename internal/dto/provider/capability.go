@@ -1,5 +1,7 @@
 package provider
 
+// CapabilitySet records provider or thread capabilities by stable capability
+// key. Missing keys and nil maps both mean unsupported.
 type CapabilitySet map[string]bool
 
 const (

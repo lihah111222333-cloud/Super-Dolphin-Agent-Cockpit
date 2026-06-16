@@ -2,7 +2,6 @@ package thread
 
 import (
 	"context"
-	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -44,7 +43,7 @@ type agentLaunchedProcessor interface {
 // subscription OnStop stays bounded even when the DB is slow.
 type agentLaunchedWorker struct {
 	processor agentLaunchedProcessor
-	logger    *slog.Logger
+	logger    *pkglogger.Logger
 
 	mu      sync.Mutex
 	pending map[string]agentdto.AgentLaunched
@@ -57,7 +56,7 @@ type agentLaunchedWorker struct {
 	enqueuedTotal, coalescedTotal, processedTotal atomic.Int64
 }
 
-func newAgentLaunchedWorker(processor agentLaunchedProcessor, logger *slog.Logger) *agentLaunchedWorker {
+func newAgentLaunchedWorker(processor agentLaunchedProcessor, logger *pkglogger.Logger) *agentLaunchedWorker {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}

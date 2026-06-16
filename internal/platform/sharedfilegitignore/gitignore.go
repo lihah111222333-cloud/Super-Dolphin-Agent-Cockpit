@@ -5,11 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // Phase 3.8 / 3C · sharedfile `.gitignore` 默认策略
@@ -34,11 +35,11 @@ const (
 // Ensure makes sure `<cwd>/.gitignore` ignores `.agnet/shared/_internal/`.
 // Empty cwd is a no-op (test environments / fx graphs without
 // platformconfig). Failures are returned, not logged here — callers decide
-// whether to log-warn or surface. Logger may be nil; pass a real *slog.Logger
+// whether to log-warn or surface. Logger may be nil; pass a real *pkglogger.Logger
 // from the caller to record a single-line "appended" event the first time
 // per cwd.
 // Ensure 确保平台sharedfilegitignore。
-func Ensure(cwd string, logger *slog.Logger) error {
+func Ensure(cwd string, logger *pkglogger.Logger) error {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
 		return nil
@@ -95,7 +96,7 @@ func loadOrCreateState(cwd string) *ensureState {
 }
 
 // ensureOnce 确保once。
-func ensureOnce(cwd string, logger *slog.Logger) error {
+func ensureOnce(cwd string, logger *pkglogger.Logger) error {
 	gitignorePath := filepath.Join(cwd, ".gitignore")
 	existing, readErr := os.ReadFile(gitignorePath)
 	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {

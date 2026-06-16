@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // ---------------------------------------------------------------------------
@@ -78,7 +78,7 @@ type Deps interface {
 	ReadEntry(ctx context.Context, cwd, target, path string) (EntrySnapshot, error)
 	Merge(ctx context.Context, req MergeRequest) error
 	DreamExecute(ctx context.Context, prompt string) (string, error)
-	Logger() *slog.Logger
+	Logger() *pkglogger.Logger
 }
 
 // ---------------------------------------------------------------------------

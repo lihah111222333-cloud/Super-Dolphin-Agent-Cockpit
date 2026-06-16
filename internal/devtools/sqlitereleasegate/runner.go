@@ -17,6 +17,7 @@ import (
 
 var nowFunc = time.Now
 
+// RunOptions configures a SQLite release gate run.
 type RunOptions struct {
 	RepoRoot     string
 	LogDir       string
@@ -25,6 +26,7 @@ type RunOptions struct {
 	AllowPartial bool
 }
 
+// Run executes the selected SQLite release gates and returns a report even when gate validation fails.
 func Run(ctx context.Context, opts RunOptions) (Report, error) {
 	repoRoot := strings.TrimSpace(opts.RepoRoot)
 	if repoRoot == "" {
@@ -70,6 +72,7 @@ func Run(ctx context.Context, opts RunOptions) (Report, error) {
 	return report, nil
 }
 
+// WriteReport writes a rendered SQLite release gate report to disk.
 func WriteReport(path string, report Report) error {
 	clean := strings.TrimSpace(path)
 	if clean == "" {
@@ -84,6 +87,7 @@ func WriteReport(path string, report Report) error {
 	return nil
 }
 
+// runGate executes one SQLite gate and records enough metadata for release reports.
 func runGate(parent context.Context, repoRoot, logDir string, gate Gate, timeout time.Duration) Result {
 	started := nowFunc().UTC()
 	rawLogPath := filepath.Join(logDir, gate.ID+".log")
@@ -100,7 +104,7 @@ func runGate(parent context.Context, repoRoot, logDir string, gate Gate, timeout
 	if len(gate.Command) == 0 {
 		log.WriteString("gate command is empty\n")
 		result.EndedAt = nowFunc().UTC()
-		writeGateLog(rawLogPath, log.Bytes())
+		persistGateLog(&result, rawLogPath, log.Bytes())
 		return result
 	}
 	ctx, cancel := platformconfig.WithTimeout(parent, timeout)
@@ -122,14 +126,25 @@ func runGate(parent context.Context, repoRoot, logDir string, gate Gate, timeout
 		result.ExitCode = 0
 		result.Status = StatusPass
 	}
-	writeGateLog(rawLogPath, log.Bytes())
+	persistGateLog(&result, rawLogPath, log.Bytes())
 	return result
 }
 
-func writeGateLog(path string, body []byte) {
-	if err := os.WriteFile(path, body, 0o644); err != nil {
-		panic(fmt.Sprintf("write sqlite release gate raw log %s: %v", path, err))
+func persistGateLog(result *Result, path string, body []byte) {
+	if err := writeGateLog(path, body); err != nil {
+		result.Status = StatusFail
+		if result.ExitCode == 0 {
+			result.ExitCode = -1
+		}
+		result.LogError = err.Error()
 	}
+}
+
+func writeGateLog(path string, body []byte) error {
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		return fmt.Errorf("write sqlite release gate raw log %s: %w", path, err)
+	}
+	return nil
 }
 
 func selectGates(gates []Gate, only []string) ([]Gate, error) {

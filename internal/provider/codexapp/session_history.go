@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
 	"time"
 
@@ -20,7 +20,7 @@ type Message struct {
 }
 
 type rolloutReader struct {
-	logger    *slog.Logger
+	logger    *pkglogger.Logger
 	transport *transport
 }
 
@@ -71,7 +71,16 @@ func (s *session) readHistoryFallback(ctx context.Context, primaryTarget, codexH
 		return nil
 	}
 	messages, err := s.history.ReadHistory(ctx, codexThreadID, codexHome, limit)
-	if err != nil || len(messages) == 0 {
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("codexapp: history fallback read failed",
+				"requested", primaryTarget,
+				"used", codexThreadID,
+				"error", err)
+		}
+		return []Message{}
+	}
+	if len(messages) == 0 {
 		return nil
 	}
 	if s.logger != nil {

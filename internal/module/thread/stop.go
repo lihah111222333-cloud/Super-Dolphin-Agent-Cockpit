@@ -86,9 +86,13 @@ func (s *service) resolveResumeLifecycleBinding(
 	}
 	resolved, err := s.resolveBinding(ctx, threadID)
 	if err != nil {
-		return nil
+		return unresolvedStopBinding()
 	}
 	return resolved
+}
+
+func unresolvedStopBinding() *bindingstore.Binding {
+	return nil
 }
 
 // resumeAgentLifecycleBlock 处理恢复代理生命周期block。

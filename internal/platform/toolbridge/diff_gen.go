@@ -24,7 +24,7 @@ func (h *Handler) beginToolDiffSnapshot(ctx context.Context, req ToolCallRequest
 		}
 		resolved, err := h.resolver.ResolveAgentCWD(ctx, req.AgentID)
 		if err != nil {
-			return nil
+			return missingDiffSnapshot()
 		}
 		cwd = strings.TrimSpace(resolved)
 		if cwd == "" {
@@ -33,6 +33,10 @@ func (h *Handler) beginToolDiffSnapshot(ctx context.Context, req ToolCallRequest
 	}
 	snapshot, _ := difftracker.BeginSnapshot(ctx, cwd)
 	return snapshot
+}
+
+func missingDiffSnapshot() *difftracker.Snapshot {
+	return nil
 }
 
 // emitToolDiff 处理emit工具diff。

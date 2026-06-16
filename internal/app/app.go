@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -46,7 +45,7 @@ const (
 )
 
 // NewLogger 创建日志器。
-func NewLogger() *slog.Logger {
+func NewLogger() *pkglogger.Logger {
 	info := currentBuildInfo()
 	pkglogger.ConfigureServiceFromEnv(info.Version)
 	pkglogger.Init(os.Getenv("LOG_LEVEL"))

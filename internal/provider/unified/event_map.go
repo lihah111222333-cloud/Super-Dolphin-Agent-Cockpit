@@ -2,7 +2,6 @@ package unified
 
 import (
 	"encoding/json"
-	"log/slog"
 	"reflect"
 	"strings"
 	"sync"
@@ -23,6 +22,7 @@ import (
 
 type typedEventPublisher func(*event.Dispatcher, any) bool
 
+// EventTranslator converts one raw provider event into zero or more bus events.
 type EventTranslator func(raw dto.RawProviderEvent, publish func(ev any))
 
 var typedEventPublishers = map[reflect.Type]typedEventPublisher{
@@ -75,11 +75,11 @@ type EventDispatcher struct {
 	mu          sync.RWMutex
 	translators []EventTranslator
 	bus         *event.Dispatcher
-	logger      *slog.Logger
+	logger      *pkglogger.Logger
 }
 
 // NewEventDispatcher 创建事件调度器。
-func NewEventDispatcher(bus *event.Dispatcher, logger *slog.Logger) *EventDispatcher {
+func NewEventDispatcher(bus *event.Dispatcher, logger *pkglogger.Logger) *EventDispatcher {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -274,10 +274,22 @@ func rawEventPayload(data any) json.RawMessage {
 	default:
 		raw, err := json.Marshal(typed)
 		if err != nil {
-			return nil
+			pkglogger.Warn("unified: raw event payload marshal failed, using empty payload",
+				"payload_type", rawPayloadType(typed),
+				"error", err,
+			)
+			return json.RawMessage("{}")
 		}
 		return raw
 	}
+}
+
+func rawPayloadType(value any) string {
+	typ := reflect.TypeOf(value)
+	if typ == nil {
+		return "<nil>"
+	}
+	return typ.String()
 }
 
 func marshalPreview(values ...any) string {

@@ -75,10 +75,14 @@ func openOrReuseAgentFile(agentID, path string) *os.File {
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		return nil
+		return missingAgentLogFile()
 	}
 	agentFiles[agentID] = f
 	return f
+}
+
+func missingAgentLogFile() *os.File {
+	return nil
 }
 
 // CloseAgentLogger closes the per-agent log file for the given agent.

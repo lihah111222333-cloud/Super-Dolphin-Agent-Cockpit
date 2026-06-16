@@ -197,7 +197,7 @@ func decodeTeamPathEscapes(raw string) (string, error) {
 	for i := 0; i < maxTeamPathDecodePasses; i++ {
 		next, err := url.PathUnescape(decoded)
 		if err != nil {
-			return "", fmt.Errorf("invalid path escape: %v", err)
+			return "", fmt.Errorf("invalid path escape: %w", err)
 		}
 		if next == decoded {
 			return decoded, nil

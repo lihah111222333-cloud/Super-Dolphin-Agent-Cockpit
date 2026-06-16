@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/similarity"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const uiMemoryPreviewLimit = 320
@@ -80,7 +80,7 @@ type UISimilarGroup struct {
 }
 
 // buildUIMemorySnapshot 构建UI记忆快照。
-func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger, cwd string) (UIMemorySnapshot, error) {
+func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *pkglogger.Logger, cwd string) (UIMemorySnapshot, error) {
 	if svc == nil {
 		return UIMemorySnapshot{}, errors.New("memory service is not configured")
 	}
@@ -206,7 +206,7 @@ func countByCategory(entryType string, pref, proj *int) {
 }
 
 // loadUIMemoryScope 加载UI记忆作用域。
-func loadUIMemoryScope(logger *slog.Logger, label, root string, rootErr error, filterPrivateTeam bool) UIMemoryScopeSection {
+func loadUIMemoryScope(logger *pkglogger.Logger, label, root string, rootErr error, filterPrivateTeam bool) UIMemoryScopeSection {
 	section := UIMemoryScopeSection{
 		Label:   label,
 		Entries: []UIMemoryEntry{},
@@ -366,7 +366,7 @@ func errorIsPublicValidation(err error) bool {
 // inverts the previous black-list (which let any non-listed error pass) so
 // new validation messages added in service code do not silently leak
 // filesystem paths through the JSON-RPC reply.
-func redactIfPathBearing(logger *slog.Logger, op string, public, err error, attrs ...any) error {
+func redactIfPathBearing(logger *pkglogger.Logger, op string, public, err error, attrs ...any) error {
 	if err == nil {
 		return nil
 	}
@@ -379,12 +379,12 @@ func redactIfPathBearing(logger *slog.Logger, op string, public, err error, attr
 // redactRPCError logs the original (path-bearing) cause to the
 // supplied slog logger at Warn level, then returns the public sentinel
 // the RPC handler should surface to the client. Pass nil logger to
-// fall back to slog.Default() so callers without a threaded logger do
+// fall back to pkglogger.Get() so callers without a threaded logger do
 // not silently lose the operator-side signal. Caller-provided attrs
 // are appended to the standard {op, err} fields.
-func redactRPCError(logger *slog.Logger, op string, public, cause error, attrs ...any) error {
+func redactRPCError(logger *pkglogger.Logger, op string, public, cause error, attrs ...any) error {
 	if logger == nil {
-		logger = slog.Default()
+		logger = pkglogger.Get()
 	}
 	fields := append([]any{"op", op, "err", cause.Error()}, attrs...)
 	logger.Warn("memory rpc operation failed", fields...)
@@ -548,7 +548,7 @@ func newSimilarityAdapter(d memoryHandlerDeps, options ...contract.DreamOptions)
 }
 
 // Logger 处理日志器。
-func (s similarityAdapter) Logger() *slog.Logger { return s.deps.Logger }
+func (s similarityAdapter) Logger() *pkglogger.Logger { return s.deps.Logger }
 
 // PrivateRoot 处理private根目录。
 func (s similarityAdapter) PrivateRoot(_ context.Context, cwd string) (string, error) {

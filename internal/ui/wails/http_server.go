@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"net"
 	"net/http"
 	"os"
@@ -20,7 +20,7 @@ const defaultHTTPAddr = "127.0.0.1:4511"
 const httpAddrEnv = "SUPER_DOLPHIN_HTTP_ADDR"
 
 type httpAssetServer struct {
-	logger  *slog.Logger
+	logger  *pkglogger.Logger
 	addr    string
 	handler http.Handler
 	server  *rpc.Server

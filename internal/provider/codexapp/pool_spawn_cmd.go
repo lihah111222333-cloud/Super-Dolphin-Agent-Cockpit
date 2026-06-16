@@ -149,7 +149,7 @@ func poolSpawnNativeLSPConfigArgs(ctx context.Context, workDir string) []string 
 	primary := roots[0]
 	rawRoots, err := json.Marshal(roots)
 	if err != nil {
-		return nil
+		return []string{}
 	}
 	overrides := []string{
 		"mcp_servers.lsp.type=" + tomlString("stdio"),
@@ -472,7 +472,7 @@ func codexInstallVersionParts(name string) ([]int, bool) {
 	for _, part := range parts {
 		value, err := strconv.Atoi(part)
 		if err != nil {
-			return nil, false
+			return []int{}, false
 		}
 		out = append(out, value)
 	}

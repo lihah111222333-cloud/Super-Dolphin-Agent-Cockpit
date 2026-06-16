@@ -1,7 +1,7 @@
 package claudecli
 
 import (
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
@@ -31,7 +31,7 @@ func settleInterruptedTransportWithTimeout(tr *transport, grace time.Duration) e
 }
 
 // cleanupInterruptedTransport 处理cleanupinterrupted传输。
-func cleanupInterruptedTransport(logger *slog.Logger, reg *pidregistry.Registry, tr *transport, cleanup func(), settleTransport func(*transport) error) {
+func cleanupInterruptedTransport(logger *pkglogger.Logger, reg *pidregistry.Registry, tr *transport, cleanup func(), settleTransport func(*transport) error) {
 	if tr == nil {
 		if cleanup != nil {
 			cleanup()

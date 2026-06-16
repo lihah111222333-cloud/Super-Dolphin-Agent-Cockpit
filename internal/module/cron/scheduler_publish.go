@@ -2,7 +2,6 @@ package cron
 
 import (
 	"context"
-	"log/slog"
 	"time"
 
 	"github.com/kelindar/event"
@@ -10,6 +9,7 @@ import (
 	crondto "github.com/anthropic-ai/super-agent-v3/internal/dto/cron"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // WithDispatcher registers the event dispatcher that the scheduler
@@ -59,9 +59,9 @@ func (s *Scheduler) casLogPublish(
 ) {
 	if err := s.store.CASRunStatus(ctx, params); err != nil {
 		s.logger.Warn("cron: CAS "+transition+" failed",
-			slog.String("job_id", jobID),
-			slog.String("run_id", runID),
-			slog.String("error", err.Error()),
+			pkglogger.String("job_id", jobID),
+			pkglogger.String("run_id", runID),
+			pkglogger.String("error", err.Error()),
 		)
 		return
 	}

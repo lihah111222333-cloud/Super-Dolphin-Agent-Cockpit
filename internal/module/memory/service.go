@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,6 +15,7 @@ import (
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type Service interface {
@@ -30,7 +30,7 @@ type Service interface {
 
 type service struct {
 	cfg          *Config
-	logger       *slog.Logger
+	logger       *pkglogger.Logger
 	consolidator *AutoDreamConsolidator
 	dreamHooks   *MemoryLifecycleHooks
 }
@@ -50,7 +50,7 @@ type MemoryLifecycleHooks struct {
 	threads             historySource
 	threadStore         threadMetadataStore
 	sections            sectionInvalidator
-	logger              *slog.Logger
+	logger              *pkglogger.Logger
 	timeNow             func() time.Time
 	feedbackTracker     *FeedbackTracker
 	onFeedbackThreshold func(topicKey string, group []ExtractedMemory)
@@ -118,11 +118,11 @@ var forgetIntentPatterns = []*regexp.Regexp{
 }
 
 // NewService 创建模块服务并注入存储和运行依赖。
-func NewService(cfg *Config, logger *slog.Logger, consolidator *AutoDreamConsolidator, hooks *MemoryLifecycleHooks) Service {
+func NewService(cfg *Config, logger *pkglogger.Logger, consolidator *AutoDreamConsolidator, hooks *MemoryLifecycleHooks) Service {
 	return newServiceWithConsolidator(cfg, logger, consolidator, hooks)
 }
 
-func newServiceWithConsolidator(cfg *Config, logger *slog.Logger, consolidator *AutoDreamConsolidator, hooks *MemoryLifecycleHooks) Service {
+func newServiceWithConsolidator(cfg *Config, logger *pkglogger.Logger, consolidator *AutoDreamConsolidator, hooks *MemoryLifecycleHooks) Service {
 	if cfg == nil {
 		cfg = &Config{}
 	}

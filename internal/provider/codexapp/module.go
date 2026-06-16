@@ -3,7 +3,6 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -20,6 +19,7 @@ import (
 	"go.uber.org/fx"
 )
 
+// Module wires the Codex provider, app-server pool, peer supervisor, and translators.
 var Module = fx.Module("provider.codexapp",
 	fx.Provide(
 		NewServerManager,
@@ -43,7 +43,7 @@ var Module = fx.Module("provider.codexapp",
 
 // provideDefaultPeerSupervisor is the production constructor for PeerSupervisor.
 // Split out so the fx.Annotate above can type the result as platformrunner.Runner.
-func provideDefaultPeerSupervisor(mgr *ServerManager, logger *slog.Logger, cfg *contract.Config) platformrunner.Runner {
+func provideDefaultPeerSupervisor(mgr *ServerManager, logger *pkglogger.Logger, cfg *contract.Config) platformrunner.Runner {
 	return NewPeerSupervisor(mgr, logger, WithPeerWorkspaceRoots(configuredPeerWorkspaceRoots(cfg)))
 }
 
@@ -64,7 +64,7 @@ func configuredPeerWorkspaceRoots(cfg *contract.Config) func() []string {
 type DriverFactoryParams struct {
 	fx.In
 
-	Logger     *slog.Logger
+	Logger     *pkglogger.Logger
 	Dispatcher *unified.EventDispatcher
 	Approvals  *rpc.ApprovalManager
 	Reporter   contract.RuntimeReporter
@@ -85,12 +85,14 @@ func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory
 	return factory.DriverFactory
 }
 
-// ServerManager owns a single codex app-server process. Each agent
-// session creates its own independent WebSocket connection to
-// ServerURL(), providing natural isolation: one broken WS only affects
-// the owning session.
+// ToolHandler handles dynamic tool calls arriving from the Codex app-server.
 type ToolHandler func(context.Context, RawMessage) (any, error)
 
+// ServerManager owns one shared Codex app-server process for provider sessions.
+//
+// Each agent session creates its own independent WebSocket connection to
+// ServerURL(), providing natural isolation: one broken WS only affects the
+// owning session.
 type ServerManager struct {
 	mu          sync.Mutex
 	process     *transport // owns the local process; sessions use ServerURL() to connect independently
@@ -102,6 +104,7 @@ type ServerManager struct {
 	cleanupOnce sync.Once
 }
 
+// Responder sends a JSON-RPC response for a Codex app-server request id.
 type Responder interface {
 	RespondWithID(id json.RawMessage, result any, callErr error) error
 }
@@ -120,7 +123,7 @@ type ServerPoolParams struct {
 	fx.In
 
 	Lifecycle   fx.Lifecycle
-	Logger      *slog.Logger          `optional:"true"`
+	Logger      *pkglogger.Logger     `optional:"true"`
 	PIDRegistry *pidregistry.Registry `optional:"true"`
 }
 

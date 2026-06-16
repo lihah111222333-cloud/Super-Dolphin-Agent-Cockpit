@@ -2,7 +2,6 @@ package cron
 
 import (
 	"context"
-	"log/slog"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -18,7 +17,7 @@ import (
 // lease 只说明当前 scheduler 还在负责这个 job，不代表 turn 已完成。
 // 心跳独立运行，可减少长任务被误判为丢失。
 type LeaseActor struct {
-	logger    *slog.Logger
+	logger    *pkglogger.Logger
 	scheduler *Scheduler
 	interval  time.Duration
 }
@@ -26,7 +25,7 @@ type LeaseActor struct {
 var _ contract.Runner = (*LeaseActor)(nil)
 
 // NewLeaseActor 创建 cron 租约续期 actor。
-func NewLeaseActor(logger *slog.Logger, scheduler *Scheduler) *LeaseActor {
+func NewLeaseActor(logger *pkglogger.Logger, scheduler *Scheduler) *LeaseActor {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -45,7 +44,7 @@ func (a *LeaseActor) Run(ctx context.Context) error {
 		case <-t.C:
 			// 续租失败只记录，下一轮 claim 或 recovery 会处理。
 			if err := a.scheduler.RenewLeases(ctx); err != nil {
-				a.logger.Debug("cron: renew leases failed", slog.String("error", err.Error()))
+				a.logger.Debug("cron: renew leases failed", pkglogger.String("error", err.Error()))
 			}
 			t.Reset(timerDelayWithJitter(a.interval))
 		}

@@ -7,6 +7,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
+// MatchMode identifies the normalization strategy that found a line sequence.
 type MatchMode string
 
 const (

@@ -41,7 +41,7 @@ func ParseSchedule(scheduleExpr, timezone string) (func(after time.Time) time.Ti
 	}
 	sched, err := cronParser.Parse(expr)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidScheduleExpr, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidScheduleExpr, err)
 	}
 	loc := time.UTC
 	if tz := strings.TrimSpace(timezone); tz != "" {

@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -16,7 +15,7 @@ import (
 const requestIDHeader = "X-Request-ID"
 
 // withHTTPLogging 设置HTTPlogging。
-func withHTTPLogging(logger *slog.Logger, next http.Handler) http.Handler {
+func withHTTPLogging(logger *pkglogger.Logger, next http.Handler) http.Handler {
 	if next == nil {
 		next = http.NotFoundHandler()
 	}

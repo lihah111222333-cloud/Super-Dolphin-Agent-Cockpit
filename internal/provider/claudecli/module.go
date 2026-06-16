@@ -1,7 +1,7 @@
 package claudecli
 
 import (
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"go.uber.org/fx"
 
@@ -15,7 +15,7 @@ import (
 type driverFactoryParams struct {
 	fx.In
 
-	Logger      *slog.Logger
+	Logger      *pkglogger.Logger
 	Dispatcher  *unified.EventDispatcher
 	Reporter    contract.RuntimeReporter
 	Reg         *pidregistry.Registry

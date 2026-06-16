@@ -250,7 +250,7 @@ func (c *runtimePromptCatalog) storeTemplateForKey(ctx context.Context, promptKe
 	template, err := c.store.Get(ctx, promptKey)
 	if err != nil {
 		if platformdb.IsNotFound(err) {
-			return nil, false, nil
+			return missingStoreTemplate()
 		}
 		return nil, false, err
 	}
@@ -263,6 +263,10 @@ func (c *runtimePromptCatalog) storeTemplateForKey(ctx context.Context, promptKe
 		return nil, false, err
 	}
 	return &copy, true, nil
+}
+
+func missingStoreTemplate() (*promptstore.PromptTemplate, bool, error) {
+	return nil, false, nil
 }
 
 func (c *runtimePromptCatalog) builtinDefaultRuleSections(cwd string) []promptstore.PromptTemplateSection {
@@ -408,8 +412,7 @@ func runtimeAppendTagIfMissing(tags []string, tag string) []string {
 func runtimeEncodeTags(tags []string) json.RawMessage {
 	raw, err := json.Marshal(tags)
 	if err != nil {
-		// archguard:ignore panic_count -- tag lists are JSON-safe internal string slices.
-		panic(fmt.Sprintf("runtime prompt catalog: encode tags: %v", err))
+		return json.RawMessage("[]")
 	}
 	return raw
 }

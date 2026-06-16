@@ -2,7 +2,6 @@ package timeline
 
 import (
 	"context"
-	"log/slog"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -20,7 +19,7 @@ var timelineOutputDeltaLogSampler = pkglogger.NewEverySampler(1000)
 func RegisterSubscriptions(
 	dispatcher *event.Dispatcher,
 	svc Service,
-	logger *slog.Logger,
+	logger *pkglogger.Logger,
 	onUpdated func(threadID string),
 ) []context.CancelFunc {
 	if dispatcher == nil || svc == nil {

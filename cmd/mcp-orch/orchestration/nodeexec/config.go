@@ -107,6 +107,7 @@ func validateOutputsConfig(out OutputsConfig) error {
 	return out.ToArtifact.Validate()
 }
 
+// ArtifactImportPlan describes how a node-produced file should be imported into shared artifacts.
 type ArtifactImportPlan struct {
 	SourcePath         string
 	TargetPath         string
@@ -370,7 +371,7 @@ func ParseNodeConfig(nodeType string, raw json.RawMessage) (*ParsedNodeConfig, e
 func ValidateLaunchCWDForNodeConfig(nodeType string, raw json.RawMessage) (string, error) {
 	parsed, err := ParseNodeConfig(nodeType, raw)
 	if err != nil {
-		return "", fmt.Errorf("%w: parse node config for launch cwd: %v", contract.ErrLaunchCWDRequired, err)
+		return "", fmt.Errorf("%w: parse node config for launch cwd: %w", contract.ErrLaunchCWDRequired, err)
 	}
 	cwd := launchCWDFromParsedConfig(parsed)
 	if err := contract.ValidateLaunchCWD(cwd, ""); err != nil {

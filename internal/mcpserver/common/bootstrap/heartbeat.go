@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -111,12 +112,16 @@ func (c *Client) sendHeartbeat(ctx context.Context, timeout time.Duration) (bool
 	}
 	callCtx, cancel := withTimeoutIfNone(ctx, timeout)
 	defer cancel()
+	heartbeatMetrics, err := c.heartbeatMetrics()
+	if err != nil {
+		return false, 0, err
+	}
 	req := mcp.HeartbeatRequest{
 		InstanceID:            lease.InstanceID,
 		Generation:            lease.Generation,
 		HeartbeatSeq:          c.nextHeartbeatSeq(),
 		Status:                mcp.StatusActive,
-		Metrics:               c.heartbeatMetrics(),
+		Metrics:               heartbeatMetrics,
 		ObservedConfigVersion: c.currentConfigVersion(),
 	}
 	var resp mcp.HeartbeatResponse
@@ -176,7 +181,7 @@ func (c *Client) setHeartbeatInterval(interval time.Duration) {
 	c.mu.Unlock()
 }
 
-func (c *Client) heartbeatMetrics() json.RawMessage {
+func (c *Client) heartbeatMetrics() (json.RawMessage, error) {
 	c.mu.RLock()
 	payload := map[string]any{
 		"queued_reports": len(c.reportQueue),
@@ -185,9 +190,9 @@ func (c *Client) heartbeatMetrics() json.RawMessage {
 	c.mu.RUnlock()
 	raw, err := json.Marshal(payload)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("marshal bootstrap heartbeat metrics: %w", err)
 	}
-	return raw
+	return raw, nil
 }
 
 func isLeaseRejectedErr(err error) bool {

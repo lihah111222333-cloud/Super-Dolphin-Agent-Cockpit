@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	skillidentity "github.com/anthropic-ai/super-agent-v3/internal/module/skill/identity"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type skillNotFoundError string
@@ -30,7 +30,7 @@ func (skillNotFoundError) Unwrap() error {
 func requireCWDOrLog(ctx context.Context, op string) string {
 	cwd, err := requireCWD(ctx)
 	if err != nil {
-		slog.Warn("skill: requireCWD failed", "op", op, "error", err)
+		pkglogger.Warn("skill: requireCWD failed", "op", op, "error", err)
 	}
 	return cwd
 }

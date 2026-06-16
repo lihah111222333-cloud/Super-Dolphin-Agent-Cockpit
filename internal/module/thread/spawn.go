@@ -124,7 +124,7 @@ func (s *service) isThreadPendingLaunch(ctx context.Context, threadID string) (b
 	row, err := s.threadStore.GetByThreadID(ctx, threadID)
 	if err != nil {
 		if platformdb.IsNotFound(err) {
-			return false, nil
+			return noPendingLaunch()
 		}
 		return false, err
 	}
@@ -132,6 +132,10 @@ func (s *service) isThreadPendingLaunch(ctx context.Context, threadID string) (b
 		return false, nil
 	}
 	return row.PendingLaunch, nil
+}
+
+func noPendingLaunch() (bool, error) {
+	return false, nil
 }
 
 func (s *service) acquirePendingLaunchLock(threadID string) *sync.Mutex {

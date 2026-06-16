@@ -5,6 +5,8 @@ const (
 	AttachmentKindNestedMemory   = "nested_memory"
 )
 
+// AttachmentEnvelope carries a provider-visible context attachment after the
+// memory layer has rendered and bounded its content.
 type AttachmentEnvelope struct {
 	Kind      string `json:"kind,omitempty"`
 	Path      string `json:"path"`

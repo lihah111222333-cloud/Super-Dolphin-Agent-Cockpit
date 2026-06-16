@@ -1,5 +1,6 @@
 package provider
 
+// ThreadConfigPatch represents optional per-thread provider overrides.
 type ThreadConfigPatch struct {
 	Model       *string `json:"model,omitempty"`
 	Effort      *string `json:"effort,omitempty"`
@@ -7,12 +8,16 @@ type ThreadConfigPatch struct {
 	Approvals   *string `json:"approvals,omitempty"`
 }
 
+// ThreadConfigValues records concrete thread configuration values after
+// defaults and overrides are resolved.
 type ThreadConfigValues struct {
 	Model     string `json:"model,omitempty"`
 	Effort    string `json:"effort,omitempty"`
 	Approvals string `json:"approvals,omitempty"`
 }
 
+// ThreadConfig reports both requested override and effective provider config
+// for a thread.
 type ThreadConfig struct {
 	ThreadID               string             `json:"threadId"`
 	Provider               string             `json:"provider,omitempty"`
@@ -21,6 +26,8 @@ type ThreadConfig struct {
 	Effective              ThreadConfigValues `json:"effective"`
 }
 
+// ThreadCompactResult reports the outcome of a provider-side context compact
+// request.
 type ThreadCompactResult struct {
 	ThreadID     string `json:"threadId"`
 	Command      string `json:"command"`

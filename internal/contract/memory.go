@@ -14,6 +14,8 @@ var (
 	ErrMemoryTimedOut     = errors.New("memory timeout")
 )
 
+// MemoryScope identifies the ownership boundary used when reading or writing a
+// memory entry.
 type MemoryScope string
 
 const (
@@ -49,6 +51,7 @@ func (s MemoryScope) Valid() bool {
 	}
 }
 
+// MemoryType classifies memory content for provider and retrieval policies.
 type MemoryType string
 
 const (
@@ -87,6 +90,8 @@ func (t MemoryType) IsKnown() bool {
 	}
 }
 
+// MemoryEntry is the normalized memory payload returned across module and tool
+// boundaries.
 type MemoryEntry struct {
 	Name        string     `json:"name"`
 	Description string     `json:"description"`
@@ -96,6 +101,8 @@ type MemoryEntry struct {
 	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
+// MemoryReadRequest carries the caller identity and lookup selectors for a
+// memory read operation.
 type MemoryReadRequest struct {
 	Name     string
 	Path     string
@@ -107,6 +114,8 @@ type MemoryReadRequest struct {
 	CallID   string
 }
 
+// MemoryReadResult reports the resolved memory entry and degraded/denied state
+// without exposing store-specific errors.
 type MemoryReadResult struct {
 	Entry      *MemoryEntry `json:"entry,omitempty"`
 	SourcePath string       `json:"sourcePath,omitempty"`
@@ -116,16 +125,21 @@ type MemoryReadResult struct {
 	Source     string       `json:"source,omitempty"`
 }
 
+// MemoryService is the read-only memory port exposed to callers outside the
+// memory module.
 type MemoryService interface {
 	Read(ctx context.Context, req MemoryReadRequest) (MemoryReadResult, error)
 }
 
+// AgentMemoryReader is the tool-facing read contract for agent memory.
 type AgentMemoryReader interface {
 	ReadAgentMemory(ctx context.Context, req MemoryReadRequest) (MemoryReadResult, error)
 	MemoryReadEnabled() bool
 	MemoryReadToolsEnabled() bool
 }
 
+// AgentMemoryWriteRequest carries user-visible content and caller identity for
+// an agent memory write.
 type AgentMemoryWriteRequest struct {
 	Name        string
 	Description string
@@ -140,6 +154,8 @@ type AgentMemoryWriteRequest struct {
 	Source      string
 }
 
+// AgentMemoryWriteResult reports where a memory write landed and whether it was
+// skipped or merged.
 type AgentMemoryWriteResult struct {
 	Path           string      `json:"path,omitempty"`
 	RequestedScope MemoryScope `json:"requestedScope,omitempty"`
@@ -149,12 +165,15 @@ type AgentMemoryWriteResult struct {
 	Merged         bool        `json:"merged,omitempty"`
 }
 
+// AgentMemoryWriter is the tool-facing write contract for agent memory.
 type AgentMemoryWriter interface {
 	WriteAgentMemory(ctx context.Context, req AgentMemoryWriteRequest) (AgentMemoryWriteResult, error)
 	MemoryWriteEnabled() bool
 	MemoryWriteToolsEnabled() bool
 }
 
+// AgentMemoryError wraps memory tool failures with a stable machine-readable
+// code.
 type AgentMemoryError struct {
 	Code string
 	Err  error

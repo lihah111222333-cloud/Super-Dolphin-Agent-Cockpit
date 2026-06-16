@@ -2,7 +2,7 @@ package unified
 
 import (
 	"context"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"go.uber.org/fx"
 
@@ -20,7 +20,7 @@ type clientParams struct {
 	fx.In
 	Registry *Registry
 	Sessions *SessionManager
-	Logger   *slog.Logger           `optional:"true"`
+	Logger   *pkglogger.Logger      `optional:"true"`
 	Tracer   *observability.Service `optional:"true"`
 }
 
@@ -28,7 +28,7 @@ type dreamExecutorParams struct {
 	fx.In
 
 	Providers []contract.DreamExecutorProvider `group:"dream_executors"`
-	Logger    *slog.Logger                     `optional:"true"`
+	Logger    *pkglogger.Logger                `optional:"true"`
 }
 
 type sessionResolverParams struct {

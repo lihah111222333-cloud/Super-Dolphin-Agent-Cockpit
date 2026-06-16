@@ -10,6 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// JSONRPCVersion is the JSON-RPC protocol version emitted by this sidecar.
 const JSONRPCVersion = "2.0"
 
 var (
@@ -18,6 +19,7 @@ var (
 	ErrInvalidResponse = errors.New("protocol: invalid response")
 )
 
+// Request is a JSON-RPC request with an ID that expects a response.
 type Request struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id"`
@@ -25,12 +27,14 @@ type Request struct {
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
+// Notification is a JSON-RPC notification without an ID.
 type Notification struct {
 	JSONRPC string          `json:"jsonrpc"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
+// Response is a JSON-RPC response containing either a result or an error.
 type Response struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id"`
@@ -38,12 +42,15 @@ type Response struct {
 	Error   *ResponseError  `json:"error,omitempty"`
 }
 
+// ResponseError is the JSON-RPC error object returned for failed requests.
 type ResponseError struct {
 	Code    int             `json:"code"`
 	Message string          `json:"message"`
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
+// Envelope is the loose JSON-RPC shape decoded before classifying a payload as
+// request, notification, or response.
 type Envelope struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id,omitempty"`
@@ -138,7 +145,7 @@ func EncodeMessage(message any) ([]byte, error) {
 func DecodeEnvelope(payload []byte) (Envelope, error) {
 	var env Envelope
 	if err := json.Unmarshal(payload, &env); err != nil {
-		return Envelope{}, fmt.Errorf("%w: %v", ErrInvalidEnvelope, err)
+		return Envelope{}, fmt.Errorf("%w: %w", ErrInvalidEnvelope, err)
 	}
 	if strings.TrimSpace(env.JSONRPC) != JSONRPCVersion {
 		return Envelope{}, fmt.Errorf("%w: jsonrpc must be %s", ErrInvalidEnvelope, JSONRPCVersion)

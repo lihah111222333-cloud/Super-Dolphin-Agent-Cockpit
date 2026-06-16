@@ -33,22 +33,29 @@ const (
 	TriggerProcessExited      AgentTrigger = "process_exited"
 )
 
+// StateDefinition describes one stable lifecycle state for diagnostics and UI
+// metadata.
 type StateDefinition struct {
 	Name        AgentState
 	Description string
 }
 
+// TriggerDefinition describes one stable lifecycle trigger for diagnostics and
+// UI metadata.
 type TriggerDefinition struct {
 	Name        AgentTrigger
 	Description string
 }
 
+// TransitionDefinition describes one allowed state-machine edge.
 type TransitionDefinition struct {
 	From    AgentState
 	Trigger AgentTrigger
 	To      AgentState
 }
 
+// StateDefinitions is the stable lifecycle state catalog; it is metadata, not
+// the state-machine executor.
 var StateDefinitions = []StateDefinition{
 	{Name: StateProvisioning, Description: "Launching agent process and wiring runtime"},
 	{Name: StateIdle, Description: "Ready to accept a new turn"},
@@ -62,6 +69,8 @@ var StateDefinitions = []StateDefinition{
 	{Name: StateFailed, Description: "Launch or runtime failed and needs recovery"},
 }
 
+// TriggerDefinitions is the stable lifecycle trigger catalog used by UI and
+// diagnostics.
 var TriggerDefinitions = []TriggerDefinition{
 	{Name: TriggerLaunchSucceeded, Description: "Launch or re-launch completed successfully"},
 	{Name: TriggerLaunchFailed, Description: "Launch or re-launch failed"},
@@ -76,6 +85,8 @@ var TriggerDefinitions = []TriggerDefinition{
 	{Name: TriggerProcessExited, Description: "Underlying process exited"},
 }
 
+// TransitionDefinitions is the stable lifecycle transition table used to expose
+// allowed triggers.
 var TransitionDefinitions = []TransitionDefinition{
 	{From: StateProvisioning, Trigger: TriggerLaunchSucceeded, To: StateIdle},
 	{From: StateProvisioning, Trigger: TriggerLaunchFailed, To: StateFailed},

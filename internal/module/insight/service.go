@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -16,7 +15,7 @@ import (
 // Flusher; this type does not keep state beyond its dependencies so it
 // is trivially safe to share across goroutines.
 type service struct {
-	logger *slog.Logger
+	logger *pkglogger.Logger
 	store  insightstore.Store
 }
 
@@ -25,7 +24,7 @@ var _ Service = (*service)(nil)
 // NewService constructs the Service. A nil logger falls back to the
 // package default.
 // NewService 创建服务。
-func NewService(logger *slog.Logger, store insightstore.Store) Service {
+func NewService(logger *pkglogger.Logger, store insightstore.Store) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}

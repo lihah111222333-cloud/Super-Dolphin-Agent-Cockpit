@@ -334,7 +334,7 @@ func promptAssetDraftAgentType(kind string) string {
 func promptAssetDraftTags(kind string) json.RawMessage {
 	encoded, err := json.Marshal([]string{"intent:" + strings.TrimSpace(kind)})
 	if err != nil {
-		return nil
+		return json.RawMessage("[]")
 	}
 	return encoded
 }

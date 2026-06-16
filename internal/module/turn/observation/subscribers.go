@@ -247,7 +247,7 @@ func rawPayloadMap(data any) map[string]any {
 	default:
 		raw, err := json.Marshal(v)
 		if err != nil {
-			return nil
+			return map[string]any{}
 		}
 		return decodeRawPayload(raw)
 	}

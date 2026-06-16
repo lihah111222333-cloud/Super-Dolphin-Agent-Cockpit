@@ -3,7 +3,6 @@ package codexapp
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -33,7 +32,7 @@ import (
 // only owns the async signal-driven recovery worker plus reader / health.
 type SessionRuntime struct {
 	s      *session
-	logger *slog.Logger
+	logger *pkglogger.Logger
 
 	startedOnce sync.Once
 	started     atomic.Bool
@@ -68,7 +67,7 @@ type SessionRuntime struct {
 
 type sessionRuntimeOption func(*SessionRuntime)
 
-func newSessionRuntime(s *session, logger *slog.Logger, opts ...sessionRuntimeOption) *SessionRuntime {
+func newSessionRuntime(s *session, logger *pkglogger.Logger, opts ...sessionRuntimeOption) *SessionRuntime {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}

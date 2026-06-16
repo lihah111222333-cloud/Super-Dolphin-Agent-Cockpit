@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -23,10 +22,11 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// DriverFactory builds Codex provider drivers with the shared app-server dependencies.
 type DriverFactory struct {
 	contract.DriverFactory
 	mu              sync.RWMutex
-	logger          *slog.Logger
+	logger          *pkglogger.Logger
 	eventDispatcher *unified.EventDispatcher
 	approvals       *rpc.ApprovalManager
 	reporter        contract.RuntimeReporter
@@ -43,7 +43,7 @@ type DriverFactory struct {
 const fallbackBaseInstructions = "You are a helpful assistant."
 
 type driver struct {
-	logger          *slog.Logger
+	logger          *pkglogger.Logger
 	serverURL       string
 	eventDispatcher *unified.EventDispatcher
 	approvals       *rpc.ApprovalManager
@@ -106,7 +106,7 @@ type threadResumeParams struct {
 
 // NewDriverFactory 创建driver工厂。
 func NewDriverFactory(
-	logger *slog.Logger,
+	logger *pkglogger.Logger,
 	dispatcher *unified.EventDispatcher,
 	approvals *rpc.ApprovalManager,
 	reporter contract.RuntimeReporter,
@@ -250,7 +250,7 @@ func (f *DriverFactory) currentReleaseTools() func(contract.CodexToolSurfaceScop
 }
 
 // newDriver 创建driver。
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, pool *ServerPool, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
+func newDriver(logger *pkglogger.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, pool *ServerPool, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -367,6 +367,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	return d.finishResumedSession(ctx, s, req, threadID), nil
 }
 
+// ResolveResumeSessionIdentity normalizes Codex home and model identity before resume.
 func (d *driver) ResolveResumeSessionIdentity(_ context.Context, req dto.ResumeSessionRequest) (dto.ResumeSessionRequest, error) {
 	if err := validateStartCodexIdentityShape(req.Config); err != nil {
 		return req, err

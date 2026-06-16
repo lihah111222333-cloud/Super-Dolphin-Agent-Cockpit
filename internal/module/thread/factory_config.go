@@ -262,7 +262,7 @@ func canonicalizeResumeStoredThreadConfig(provider string, raw json.RawMessage, 
 	}
 	cfg, err := decodeStoredThreadConfig(raw)
 	if err != nil {
-		return nil, contract.CodexIdentity{}, false, err
+		return resumeConfigDecodeFailed(err)
 	}
 	if cfg.Runtime == nil {
 		cfg.Runtime = map[string]any{}
@@ -270,6 +270,10 @@ func canonicalizeResumeStoredThreadConfig(provider string, raw json.RawMessage, 
 	cfg.Runtime[contract.CodexHomeKey], cfg.Runtime[contract.CodexInstanceKeyKey], cfg.Runtime[contract.CodexModelProviderKey] = identity.Home, identity.InstanceKey, identity.ModelProvider
 	raw, err = encodeStoredThreadConfig(cfg)
 	return raw, identity, true, err
+}
+
+func resumeConfigDecodeFailed(err error) (json.RawMessage, contract.CodexIdentity, bool, error) {
+	return nil, contract.CodexIdentity{}, false, err
 }
 
 // resolveResumeWritebackCodexIdentity 选择 resume 写回用的 Codex 身份；runtime 一旦显式出现就不再回退。

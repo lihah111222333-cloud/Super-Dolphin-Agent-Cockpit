@@ -3,7 +3,6 @@ package insight
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -25,7 +24,7 @@ const defaultDrainTimeout = 5 * time.Second
 // queue, so the fx-wired lifecycle is simply: Run blocks until ctx
 // cancels, then a bounded drain runs.
 type Flusher struct {
-	logger       *slog.Logger
+	logger       *pkglogger.Logger
 	obs          observation.Contract
 	store        insightstore.Store
 	collector    *collector
@@ -36,7 +35,7 @@ type Flusher struct {
 // NewFlusher wires a Flusher with its collector and dependencies. now is
 // overridable for deterministic tests; defaults to time.Now.
 // NewFlusher 创建flusher。
-func NewFlusher(logger *slog.Logger, obs observation.Contract, store insightstore.Store, col *collector) *Flusher {
+func NewFlusher(logger *pkglogger.Logger, obs observation.Contract, store insightstore.Store, col *collector) *Flusher {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -95,7 +94,7 @@ func (f *Flusher) drain() {
 		case sig, ok := <-f.collector.queue:
 			if !ok {
 				if drained > 0 {
-					f.logger.Info("insight: drain complete", slog.Int("count", drained))
+					f.logger.Info("insight: drain complete", pkglogger.Int("count", drained))
 				}
 				return
 			}
@@ -105,8 +104,8 @@ func (f *Flusher) drain() {
 			remaining := len(f.collector.queue)
 			if remaining > 0 || drained > 0 {
 				f.logger.Warn("insight: drain timeout",
-					slog.Int("drained", drained),
-					slog.Int("remaining", remaining),
+					pkglogger.Int("drained", drained),
+					pkglogger.Int("remaining", remaining),
 				)
 			}
 			return
@@ -137,9 +136,9 @@ func (f *Flusher) handle(ctx context.Context, sig flushSignal) {
 	}
 	if _, err := f.store.Upsert(ctx, params); err != nil {
 		f.logger.Warn("insight: upsert failed",
-			slog.String("local_turn_id", sig.LocalTurnID),
-			slog.String("thread_id", sig.ThreadID),
-			slog.String("error", err.Error()),
+			pkglogger.String("local_turn_id", sig.LocalTurnID),
+			pkglogger.String("thread_id", sig.ThreadID),
+			pkglogger.String("error", err.Error()),
 		)
 	}
 }

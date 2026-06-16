@@ -102,7 +102,7 @@ func (t *diffFallbackTracker) currentGitDiff(ctx context.Context, cwd string) (s
 		if !errors.Is(err, difftracker.ErrNotGitRepository) {
 			t.warn("toolbridge: diff fallback git diff failed", "cwd", cwd, "error", err)
 		}
-		return "", nil, false
+		return "", []string{}, false
 	}
 	return diffText, files, strings.TrimSpace(diffText) != ""
 }

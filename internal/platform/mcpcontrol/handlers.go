@@ -3,7 +3,6 @@ package mcpcontrol
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"sort"
 	"strings"
 
@@ -269,16 +268,16 @@ func (s defaultLogSink) HandleLog(ctx context.Context, instance *ToolInstance, r
 	return nil
 }
 
-func controlLogLevel(level string) slog.Level {
+func controlLogLevel(level string) pkglogger.Level {
 	switch strings.ToUpper(strings.TrimSpace(level)) {
 	case "DEBUG":
-		return slog.LevelDebug
+		return pkglogger.LevelDebug
 	case "WARN", "WARNING":
-		return slog.LevelWarn
+		return pkglogger.LevelWarn
 	case "ERROR":
-		return slog.LevelError
+		return pkglogger.LevelError
 	default:
-		return slog.LevelInfo
+		return pkglogger.LevelInfo
 	}
 }
 

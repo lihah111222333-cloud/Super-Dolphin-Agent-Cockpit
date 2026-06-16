@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -32,7 +31,7 @@ import (
 //
 // On failure the caller gets an error already enriched with the stderr
 // tail, which the pool caches in the identity+owner backoff slot.
-func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pidregistry.Registry, logger *slog.Logger) (*transport, error) {
+func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pidregistry.Registry, logger *pkglogger.Logger) (*transport, error) {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -93,9 +92,9 @@ func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pid
 		return nil, fmt.Errorf("codexapp: pool establish: %w", err)
 	}
 	logger.Info("codexapp: pool spawned app-server",
-		slog.String("codex_home", home),
-		slog.String("work_dir", workDir),
-		slog.String("server_url", serverURL),
+		pkglogger.String("codex_home", home),
+		pkglogger.String("work_dir", workDir),
+		pkglogger.String("server_url", serverURL),
 	)
 	return t, nil
 }
@@ -337,7 +336,7 @@ func splitEnv(kv string) (string, string, bool) {
 //
 // The returned Spawner does not itself enforce concurrency or deduplication;
 // the pool owns those decisions per identity+owner entry.
-func NewTransportSpawner(registry *pidregistry.Registry, logger *slog.Logger) Spawner {
+func NewTransportSpawner(registry *pidregistry.Registry, logger *pkglogger.Logger) Spawner {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}

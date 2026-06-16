@@ -50,7 +50,7 @@ func ValidateMemoryRoot(raw string) (string, error) {
 	}
 	cleaned, err := CleanAbsolutePath(expanded)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidMemoryRoot, err)
+		return "", fmt.Errorf("%w: %w", ErrInvalidMemoryRoot, err)
 	}
 	if isRootOrNearRoot(cleaned) {
 		return "", fmt.Errorf("%w: path is too broad", ErrInvalidMemoryRoot)
@@ -142,7 +142,7 @@ func expandHomePath(raw string) (string, error) {
 	case strings.HasPrefix(raw, "~/") || strings.HasPrefix(raw, `~\\`):
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return "", fmt.Errorf("%w: %v", ErrInvalidMemoryRoot, err)
+			return "", fmt.Errorf("%w: %w", ErrInvalidMemoryRoot, err)
 		}
 		tail := strings.TrimLeft(raw[1:], `/\`)
 		if strings.TrimSpace(tail) == "" || filepath.Clean(tail) == "." {
@@ -275,7 +275,7 @@ func readSafeResolvedFile(candidate string) ([]byte, os.FileInfo, error) {
 	resolvedInfo, err := os.Stat(candidate)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil, ErrSafeReadNotFound
+			return missingSafeReadFile()
 		}
 		return nil, nil, err
 	}
@@ -287,4 +287,8 @@ func readSafeResolvedFile(candidate string) ([]byte, os.FileInfo, error) {
 		return nil, nil, err
 	}
 	return raw, resolvedInfo, nil
+}
+
+func missingSafeReadFile() ([]byte, os.FileInfo, error) {
+	return nil, nil, ErrSafeReadNotFound
 }

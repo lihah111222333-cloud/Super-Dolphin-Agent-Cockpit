@@ -2,6 +2,8 @@ package insight
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -22,6 +24,8 @@ type store struct{ q querier }
 
 // NewStore returns the production Store backed by sqlc queries.
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
+
+var errUnsupportedInsightRow = errors.New("unsupported session insight row type")
 
 // ----- helpers -----
 
@@ -102,6 +106,7 @@ func wrap(err error, op string) error {
 
 // ----- Store impl -----
 
+// Upsert persists the latest session insight snapshot for a provider/local turn pair.
 func (s *store) Upsert(ctx context.Context, p UpsertParams) (Insight, error) {
 	now := p.UpdatedAt
 	if now.IsZero() {
@@ -143,9 +148,14 @@ func (s *store) Upsert(ctx context.Context, p UpsertParams) (Insight, error) {
 	if err != nil {
 		return Insight{}, wrap(err, "upsert")
 	}
-	return fromRow(row), nil
+	mapped, err := fromRow(row)
+	if err != nil {
+		return Insight{}, wrap(err, "upsert.map")
+	}
+	return mapped, nil
 }
 
+// GetByLocalTurn loads one insight by thread and local turn id.
 func (s *store) GetByLocalTurn(ctx context.Context, threadID, localTurnID string) (Insight, error) {
 	threadID = strings.TrimSpace(threadID)
 	localTurnID = strings.TrimSpace(localTurnID)
@@ -162,9 +172,14 @@ func (s *store) GetByLocalTurn(ctx context.Context, threadID, localTurnID string
 		}
 		return Insight{}, wrap(err, "get_by_local_turn")
 	}
-	return fromRow(row), nil
+	mapped, err := fromRow(row)
+	if err != nil {
+		return Insight{}, wrap(err, "get_by_local_turn.map")
+	}
+	return mapped, nil
 }
 
+// ListByThread returns recent insight rows scoped to one thread.
 func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) ([]Insight, error) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -182,11 +197,16 @@ func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) 
 	}
 	out := make([]Insight, len(rows))
 	for i, r := range rows {
-		out[i] = fromRow(r)
+		mapped, err := fromRow(r)
+		if err != nil {
+			return nil, wrap(err, "list_by_thread.map")
+		}
+		out[i] = mapped
 	}
 	return out, nil
 }
 
+// ListRecent returns the newest insight snapshots across threads.
 func (s *store) ListRecent(ctx context.Context, limit int32) ([]Insight, error) {
 	if limit <= 0 {
 		limit = 100
@@ -197,11 +217,16 @@ func (s *store) ListRecent(ctx context.Context, limit int32) ([]Insight, error) 
 	}
 	out := make([]Insight, len(rows))
 	for i, r := range rows {
-		out[i] = fromRow(r)
+		mapped, err := fromRow(r)
+		if err != nil {
+			return nil, wrap(err, "list_recent.map")
+		}
+		out[i] = mapped
 	}
 	return out, nil
 }
 
+// ListObservedApprovalRequests returns turns where approval request counters were observed.
 func (s *store) ListObservedApprovalRequests(ctx context.Context, threadID string, limit int32) ([]ApprovalRow, error) {
 	if limit <= 0 {
 		limit = 100
@@ -228,6 +253,7 @@ func (s *store) ListObservedApprovalRequests(ctx context.Context, threadID strin
 	return out, nil
 }
 
+// ListObservedTokenTurns returns turns with token usage counters.
 func (s *store) ListObservedTokenTurns(ctx context.Context, threadID string, limit int32) ([]TokenRow, error) {
 	if limit <= 0 {
 		limit = 100
@@ -260,37 +286,38 @@ func (s *store) ListObservedTokenTurns(ctx context.Context, threadID string, lim
 // fromRow maps a sqlc session insight row into the domain Insight. Time
 // fields follow the same "zero value = NULL" convention used across this
 // project's stores.
-func fromRow(row any) Insight {
+func fromRow(row any) (Insight, error) {
 	switch r := row.(type) {
 	case sqlc.UpsertSessionInsightRow:
 		return insightFromFields(r.ID, r.ThreadID, r.AgentID, r.SessionID, r.Provider, r.LocalTurnID,
 			r.ProviderTurnID, r.StartedAt, r.CompletedAt, r.DurationMs, r.Success, r.Status, r.StopReason,
 			r.ToolCalls, r.ToolCallsObserved, r.ToolFailures, r.ToolFailuresObserved, r.ApprovalRequests,
 			r.ApprovalRequestsObserved, r.TokenInput, r.TokenOutput, r.TokenTotal, r.TokenSnapshotObserved,
-			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt)
+			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt), nil
 	case sqlc.GetSessionInsightByLocalTurnRow:
 		return insightFromFields(r.ID, r.ThreadID, r.AgentID, r.SessionID, r.Provider, r.LocalTurnID,
 			r.ProviderTurnID, r.StartedAt, r.CompletedAt, r.DurationMs, r.Success, r.Status, r.StopReason,
 			r.ToolCalls, r.ToolCallsObserved, r.ToolFailures, r.ToolFailuresObserved, r.ApprovalRequests,
 			r.ApprovalRequestsObserved, r.TokenInput, r.TokenOutput, r.TokenTotal, r.TokenSnapshotObserved,
-			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt)
+			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt), nil
 	case sqlc.ListSessionInsightsByThreadRow:
 		return insightFromFields(r.ID, r.ThreadID, r.AgentID, r.SessionID, r.Provider, r.LocalTurnID,
 			r.ProviderTurnID, r.StartedAt, r.CompletedAt, r.DurationMs, r.Success, r.Status, r.StopReason,
 			r.ToolCalls, r.ToolCallsObserved, r.ToolFailures, r.ToolFailuresObserved, r.ApprovalRequests,
 			r.ApprovalRequestsObserved, r.TokenInput, r.TokenOutput, r.TokenTotal, r.TokenSnapshotObserved,
-			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt)
+			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt), nil
 	case sqlc.ListRecentSessionInsightsRow:
 		return insightFromFields(r.ID, r.ThreadID, r.AgentID, r.SessionID, r.Provider, r.LocalTurnID,
 			r.ProviderTurnID, r.StartedAt, r.CompletedAt, r.DurationMs, r.Success, r.Status, r.StopReason,
 			r.ToolCalls, r.ToolCallsObserved, r.ToolFailures, r.ToolFailuresObserved, r.ApprovalRequests,
 			r.ApprovalRequestsObserved, r.TokenInput, r.TokenOutput, r.TokenTotal, r.TokenSnapshotObserved,
-			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt)
+			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt), nil
 	default:
-		panic("unsupported session insight row type")
+		return Insight{}, fmt.Errorf("%w: %T", errUnsupportedInsightRow, row)
 	}
 }
 
+// insightFromFields maps sqlc scalar fields into the store contract type in one place.
 func insightFromFields(
 	id int64,
 	threadID, agentID, sessionID, provider, localTurnID, providerTurnID string,

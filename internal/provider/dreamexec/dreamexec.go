@@ -83,10 +83,10 @@ func (realCommander) Run(ctx context.Context, binary string, args []string, inpu
 		}
 		// binary 不可用（PATH 未找到 / 绝对路径不存在）转为哨兵 error
 		if isBinaryNotAvailable(err) {
-			return nil, fmt.Errorf("%w: %s: %v", ErrBinaryNotAvailable, binary, err)
+			return nil, fmt.Errorf("%w: %s: %w", ErrBinaryNotAvailable, binary, err)
 		}
 		if modelErr := modelUnavailableErrorFromOutput(stdoutBuf.Bytes(), stderrBuf.Bytes()); modelErr != nil {
-			return nil, fmt.Errorf("%w: %s exited with error: %w: %v", ErrModelUnavailable, binary, err, modelErr)
+			return nil, fmt.Errorf("%w: %s exited with error: %w: %w", ErrModelUnavailable, binary, err, modelErr)
 		}
 		// 退出码错误携带 stderr 预览
 		stderrPreview := strings.TrimSpace(stderrBuf.String())

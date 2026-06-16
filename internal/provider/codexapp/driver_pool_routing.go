@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"maps"
 	"os"
 	"path/filepath"
@@ -364,12 +364,12 @@ func (d *driver) acquirePoolSessionOptions(ctx context.Context, req dto.StartSes
 	}
 	if d.logger != nil {
 		d.logger.Info("codexapp: start session via pool",
-			slog.String("agent_id", strings.TrimSpace(req.AgentID)),
-			slog.String("codex_home", identity.Home),
-			slog.String("instance_key", identity.InstanceKey),
-			slog.String("owner", owner),
-			slog.String("work_dir", workDir),
-			slog.String("server_url", url),
+			pkglogger.String("agent_id", strings.TrimSpace(req.AgentID)),
+			pkglogger.String("codex_home", identity.Home),
+			pkglogger.String("instance_key", identity.InstanceKey),
+			pkglogger.String("owner", owner),
+			pkglogger.String("work_dir", workDir),
+			pkglogger.String("server_url", url),
 		)
 	}
 	return []sessionOption{withPoolServer(url, release)}, nil
@@ -439,12 +439,12 @@ func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSession
 	}
 	if d.logger != nil {
 		d.logger.Info("codexapp: resume session via pool",
-			slog.String("agent_id", strings.TrimSpace(req.AgentID)),
-			slog.String("codex_home", identity.Home),
-			slog.String("instance_key", identity.InstanceKey),
-			slog.String("owner", owner),
-			slog.String("work_dir", workDir),
-			slog.String("server_url", url),
+			pkglogger.String("agent_id", strings.TrimSpace(req.AgentID)),
+			pkglogger.String("codex_home", identity.Home),
+			pkglogger.String("instance_key", identity.InstanceKey),
+			pkglogger.String("owner", owner),
+			pkglogger.String("work_dir", workDir),
+			pkglogger.String("server_url", url),
 		)
 	}
 	return []sessionOption{withPoolServer(url, release)}, nil
@@ -488,8 +488,8 @@ func (d *driver) warnLegacyIdentityFallback(agentID string, err error) {
 		return
 	}
 	d.logger.Warn("codexapp: legacy shared app-server fallback after identity error",
-		slog.String("agent_id", strings.TrimSpace(agentID)),
-		slog.String("reason", err.Error()),
+		pkglogger.String("agent_id", strings.TrimSpace(agentID)),
+		pkglogger.String("reason", err.Error()),
 	)
 }
 

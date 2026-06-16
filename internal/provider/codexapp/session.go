@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,7 +32,7 @@ type session struct {
 	caps                 dto.CapabilitySet
 	recovery             *recoveryManager
 	history              *rolloutReader
-	logger               *slog.Logger
+	logger               *pkglogger.Logger
 	dispatcher           *unified.EventDispatcher
 	approvals            *rpc.ApprovalManager
 	approvalDecisionHook func(context.Context, rpc.ApprovalRequest) (contract.ApprovalDecision, error)
@@ -84,9 +83,11 @@ type turnHandle struct {
 	once       sync.Once
 }
 
+// newSessionWithOptions centralizes session construction so transport, tools,
+// approvals, recovery state, and runtime config are initialized consistently.
 func newSessionWithOptions(
 	transportCtx context.Context,
-	logger *slog.Logger,
+	logger *pkglogger.Logger,
 	serverURL string,
 	agentID string,
 	dispatcher *unified.EventDispatcher,
@@ -247,6 +248,8 @@ func isToolCallMethod(method string) bool {
 	}
 	return false
 }
+
+// Capabilities returns a defensive copy of the active Codex session capabilities.
 func (s *session) Capabilities() dto.CapabilitySet { return cloneCaps(s.caps) }
 
 func (s *session) setRuntimeConfig(cfg map[string]any) {
@@ -255,6 +258,7 @@ func (s *session) setRuntimeConfig(cfg map[string]any) {
 	s.runtimeConfig = shared.CloneRuntimeConfigMap(cfg)
 }
 
+// RuntimeConfigSnapshot returns a normalized copy of the runtime config exposed to callers.
 func (s *session) RuntimeConfigSnapshot() map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -283,6 +287,7 @@ func (s *session) RuntimeConfigSnapshot() map[string]any {
 	return out
 }
 
+// StartTurn prepares dynamic tools, runtime config, and Codex turn/start params for one turn.
 func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
 	threadID, err := requireThreadID(s, req.ThreadID)
 	if err != nil {
@@ -372,6 +377,7 @@ func (s *session) resolveTurnStartModel(ctx context.Context, requested string) s
 	return model
 }
 
+// Steer sends incremental steering input to the active Codex turn.
 func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 	threadID, err := requireThreadID(s, req.ThreadID)
 	if err != nil {
@@ -385,6 +391,7 @@ func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 	return err
 }
 
+// Interrupt requests cancellation of the active Codex turn.
 func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error {
 	threadID, err := requireThreadID(s, req.ThreadID)
 	if err != nil {
@@ -401,6 +408,7 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 	return err
 }
 
+// ForceComplete asks Codex to mark the active turn complete when a terminal event was missed.
 func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteRequest) error {
 	threadID, err := requireThreadID(s, req.ThreadID)
 	if err != nil {
@@ -462,6 +470,7 @@ func forceCompleteTurnIDFallbackEligible(err error) bool {
 	return false
 }
 
+// ListThreads returns thread references reported by the Codex app-server.
 func (s *session) ListThreads(ctx context.Context) ([]dto.ThreadRef, error) {
 	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "thread/list", map[string]any{})
 	if err != nil {
@@ -486,6 +495,7 @@ func (s *session) ListThreads(ctx context.Context) ([]dto.ThreadRef, error) {
 	return threads, nil
 }
 
+// ForkThread asks Codex to fork the provider thread and returns the new provider id.
 func (s *session) ForkThread(ctx context.Context, req dto.ForkRequest) (dto.ForkResult, error) {
 	threadID, err := requireThreadID(s, req.ThreadID)
 	if err != nil {
@@ -502,6 +512,7 @@ func (s *session) ForkThread(ctx context.Context, req dto.ForkRequest) (dto.Fork
 	return dto.ForkResult{NewThreadID: id}, nil
 }
 
+// Configure applies a runtime thread configuration patch to the Codex session.
 func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) error {
 	return s.configureThread(ctx, patch)
 }

@@ -349,7 +349,7 @@ func applyPackagedRuntimeEnv(runtime PackagedRuntime) error {
 		func() error { return setEnv(lspManifestEnv, lspBundle.ManifestPath) },
 		func() error { return setEnvIfEmpty(controlRPCAddrEnv, "127.0.0.1:0") },
 		func() error { return setEnvIfEmpty(httpAddrEnv, "127.0.0.1:0") },
-		func() error { return setEnvIfEmpty(sessionTokenEnv, newSessionToken()) },
+		setSessionTokenEnv,
 		func() error { return setEnv(projectRootEnv, runtime.ResourcesDir) },
 		func() error { return setEnv(runtimeModeEnv, "packaged") },
 		func() error { return setEnv(runtimeResourcesEnv, runtime.ResourcesDir) },
@@ -478,13 +478,23 @@ func requireExecutableFile(path string) error {
 	return requireExecutableFileForOS(runtimeGOOS(), path)
 }
 
-func newSessionToken() string {
+func setSessionTokenEnv() error {
+	if strings.TrimSpace(os.Getenv(sessionTokenEnv)) != "" {
+		return nil
+	}
+	token, err := newSessionToken()
+	if err != nil {
+		return err
+	}
+	return setEnv(sessionTokenEnv, token)
+}
+
+func newSessionToken() (string, error) {
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {
-		// archguard:ignore panic_count -- cryptographic entropy failure is unrecoverable for session-token generation.
-		panic("generate packaged control-plane session token: " + err.Error())
+		return "", fmt.Errorf("generate packaged control-plane session token: %w", err)
 	}
-	return "sd-" + hex.EncodeToString(raw[:])
+	return "sd-" + hex.EncodeToString(raw[:]), nil
 }
 
 func packagedPathEntries(runtime PackagedRuntime) []string {

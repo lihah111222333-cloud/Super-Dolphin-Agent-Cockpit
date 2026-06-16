@@ -167,7 +167,7 @@ func ConfigJSON(cfg map[string]any, key string) json.RawMessage {
 	}
 	raw, err := json.Marshal(cfg[key])
 	if err != nil || string(raw) == "null" {
-		return nil
+		return json.RawMessage("{}")
 	}
 	return raw
 }

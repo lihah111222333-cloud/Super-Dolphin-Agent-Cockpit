@@ -2,7 +2,6 @@ package insight
 
 import (
 	"context"
-	"log/slog"
 	"reflect"
 	"strings"
 	"sync/atomic"
@@ -25,14 +24,14 @@ const defaultQueueCapacity = 512
 // terminal turn events and enqueues lightweight signals for the flusher.
 // It never reads observation.Contract itself; that lives in the flusher.
 type collector struct {
-	logger  *slog.Logger
+	logger  *pkglogger.Logger
 	queue   chan flushSignal
 	dropped atomic.Int64
 }
 
 // newCollector wires the bounded queue and logger. Capacity 0 falls back
 // to defaultQueueCapacity.
-func newCollector(logger *slog.Logger, capacity int) *collector {
+func newCollector(logger *pkglogger.Logger, capacity int) *collector {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -95,8 +94,8 @@ func (c *collector) enqueueTerminal(turnID, threadID, agentID, provider string, 
 		n := c.dropped.Add(1)
 		if c.logger != nil {
 			c.logger.Warn("insight: flush queue full, dropping terminal signal",
-				slog.String("local_turn_id", localTurnID),
-				slog.Int64("dropped_total", n),
+				pkglogger.String("local_turn_id", localTurnID),
+				pkglogger.Int64("dropped_total", n),
 			)
 		}
 	}

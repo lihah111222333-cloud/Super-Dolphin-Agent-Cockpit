@@ -148,7 +148,7 @@ func discoverAllProcesses() (map[int]int, []mcpProcessInfo) {
 	out, err := exec.Command("ps", "-eo", "pid,ppid,comm").Output()
 	if err != nil {
 		pkglogger.Warn("orphan cleanup: ps command failed", "error", err)
-		return nil, nil
+		return map[int]int{}, []mcpProcessInfo{}
 	}
 
 	allProcs := make(map[int]int, 256)
@@ -180,7 +180,7 @@ func discoverAppServerProcessList() (map[int]int, []appServerProcessInfo) {
 	out, err := exec.Command("ps", "-eo", "pid,ppid,args").Output()
 	if err != nil {
 		pkglogger.Warn("orphan sweeper: ps command failed", "error", err)
-		return nil, nil
+		return map[int]int{}, []appServerProcessInfo{}
 	}
 
 	allProcs := make(map[int]int, 256)

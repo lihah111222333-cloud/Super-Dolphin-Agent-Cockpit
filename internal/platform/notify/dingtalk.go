@@ -35,7 +35,7 @@ func RenderDingtalk(cfg ChannelConfig, msg contract.NotifyMessage, timestampMS i
 	}
 	u, err := url.Parse(cfg.URL)
 	if err != nil {
-		return "", nil, "", fmt.Errorf("%w: %v", ErrInvalidURL, err)
+		return "", nil, "", fmt.Errorf("%w: %w", ErrInvalidURL, err)
 	}
 	q := u.Query()
 	q.Set("timestamp", strconv.FormatInt(timestampMS, 10))

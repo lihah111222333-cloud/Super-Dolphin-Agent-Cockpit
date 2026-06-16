@@ -2,6 +2,7 @@ package codexapp
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// RegisterTranslators attaches Codex raw-event translation to the unified dispatcher.
 func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 	if dispatcher != nil {
 		dispatcher.Register(translateCodexEvent)
@@ -160,6 +162,7 @@ func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 	}
 }
 
+// translateTurnEvent folds Codex turn lifecycle variants into the shared turn DTOs.
 func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 	if isTurnTerminalEvent(eventType) {
 		header := buildTurnHeader(payload)
@@ -278,6 +281,7 @@ func isKnownAgentState(state string) bool {
 	return false
 }
 
+// translateToolEvent normalizes Codex tool and approval events into stable bus DTOs.
 func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 	if isApprovalBridgeMethod(eventType) {
 		return tooldto.ToolApprovalRequested{
@@ -346,7 +350,11 @@ func decodeAnyPayload(data any) map[string]any {
 	default:
 		raw, err := json.Marshal(value)
 		if err != nil {
-			return nil
+			pkglogger.Warn("codexapp: event payload marshal failed, using empty payload",
+				"payload_type", fmt.Sprintf("%T", value),
+				"error", err,
+			)
+			return map[string]any{}
 		}
 		return decodeEventPayload(raw)
 	}

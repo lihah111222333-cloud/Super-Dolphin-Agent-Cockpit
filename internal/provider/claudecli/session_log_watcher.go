@@ -5,8 +5,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"io"
-	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -21,7 +21,7 @@ func defaultSessionLogWatcherPollInterval() time.Duration {
 }
 
 type sessionLogWatcherConfig struct {
-	Logger       *slog.Logger
+	Logger       *pkglogger.Logger
 	ResolvePath  func() (string, error)
 	OnUsage      func(sessionLogUsage)
 	PollInterval time.Duration
@@ -42,7 +42,7 @@ type sessionLogPollTarget struct {
 }
 
 type sessionLogWatcher struct {
-	logger       *slog.Logger
+	logger       *pkglogger.Logger
 	resolvePath  func() (string, error)
 	onUsage      func(sessionLogUsage)
 	pollInterval time.Duration

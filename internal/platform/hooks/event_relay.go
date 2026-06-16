@@ -127,7 +127,7 @@ func mustMarshalHookContext(logger *pkglogger.Logger, kind string, event any) js
 func mustMarshalHookEvent(event any) json.RawMessage {
 	raw, err := json.Marshal(event)
 	if err != nil {
-		return nil
+		return json.RawMessage("{}")
 	}
 	return raw
 }

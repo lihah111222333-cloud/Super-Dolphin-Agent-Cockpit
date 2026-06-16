@@ -1,8 +1,8 @@
 package wails
 
 import (
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"io/fs"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +20,7 @@ const defaultClipboardRetention = 7 * 24 * time.Hour
 // whose modification time is older than retention. Errors on individual
 // files are logged and skipped — cleanup is best-effort.
 // cleanupStaleClipboardImages 处理cleanupstaleclipboardimages。
-func cleanupStaleClipboardImages(logger *slog.Logger, dir string, retention time.Duration) (removed, kept int) {
+func cleanupStaleClipboardImages(logger *pkglogger.Logger, dir string, retention time.Duration) (removed, kept int) {
 	if retention <= 0 || strings.TrimSpace(dir) == "" {
 		return 0, 0
 	}
@@ -53,7 +53,7 @@ const (
 // handleClipboardEntry classifies one directory entry and, when appropriate,
 // removes it. Splitting this out keeps cleanupStaleClipboardImages itself
 // inside the project's cyclomatic-complexity budget.
-func handleClipboardEntry(logger *slog.Logger, dir string, entry fs.DirEntry, cutoff time.Time) cleanupResult {
+func handleClipboardEntry(logger *pkglogger.Logger, dir string, entry fs.DirEntry, cutoff time.Time) cleanupResult {
 	if !isClipboardCleanupCandidate(entry) {
 		return cleanupResultSkipped
 	}
@@ -72,7 +72,7 @@ func handleClipboardEntry(logger *slog.Logger, dir string, entry fs.DirEntry, cu
 	return cleanupResultRemoved
 }
 
-func logCleanupSummary(logger *slog.Logger, dir string, retention time.Duration, removed, kept int) {
+func logCleanupSummary(logger *pkglogger.Logger, dir string, retention time.Duration, removed, kept int) {
 	if logger == nil || (removed == 0 && kept == 0) {
 		return
 	}
@@ -95,7 +95,7 @@ func isClipboardCleanupCandidate(entry fs.DirEntry) bool {
 	return strings.EqualFold(filepath.Ext(name), ".png")
 }
 
-func logCleanupWarn(logger *slog.Logger, msg string, args ...any) {
+func logCleanupWarn(logger *pkglogger.Logger, msg string, args ...any) {
 	if logger == nil {
 		return
 	}

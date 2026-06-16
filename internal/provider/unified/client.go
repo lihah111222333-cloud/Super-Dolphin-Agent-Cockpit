@@ -2,7 +2,6 @@ package unified
 
 import (
 	"context"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -12,19 +11,20 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// Client is the provider-agnostic session facade used by application modules.
 type Client struct {
 	registry *Registry
 	sessions *SessionManager
-	logger   *slog.Logger
+	logger   *pkglogger.Logger
 	tracer   *observability.Service
 }
 
 // NewClient 创建客户端。
-func NewClient(registry *Registry, sessions *SessionManager, logger *slog.Logger) *Client {
+func NewClient(registry *Registry, sessions *SessionManager, logger *pkglogger.Logger) *Client {
 	return newClient(registry, sessions, logger, nil)
 }
 
-func newClient(registry *Registry, sessions *SessionManager, logger *slog.Logger, tracer *observability.Service) *Client {
+func newClient(registry *Registry, sessions *SessionManager, logger *pkglogger.Logger, tracer *observability.Service) *Client {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}

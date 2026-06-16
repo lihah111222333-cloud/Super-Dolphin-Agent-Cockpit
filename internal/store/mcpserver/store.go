@@ -112,7 +112,7 @@ func (s *configStore) ListServers(ctx context.Context, workspaceRoot string) (ma
 		}
 		normalized, err := decodeStoredMCPServerConfig(name, config, headersJSON, argsJSON, envJSON)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", errInvalidConfigDocument, err)
+			return nil, fmt.Errorf("%w: %w", errInvalidConfigDocument, err)
 		}
 		servers[name] = normalized
 	}
@@ -442,11 +442,11 @@ func encodeMCPServerEnv(env map[string]string) ([]byte, error) {
 func decodeMCPServerHeaders(raw string) (map[string]string, error) {
 	var headers map[string]string
 	if err := json.Unmarshal([]byte(raw), &headers); err != nil {
-		return nil, fmt.Errorf("%w: %v", errInvalidConfigDocument, err)
+		return nil, fmt.Errorf("%w: %w", errInvalidConfigDocument, err)
 	}
 	normalized, err := normalizeHeaders("headers", headers)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errInvalidConfigDocument, err)
+		return nil, fmt.Errorf("%w: %w", errInvalidConfigDocument, err)
 	}
 	return normalized, nil
 }
@@ -454,11 +454,11 @@ func decodeMCPServerHeaders(raw string) (map[string]string, error) {
 func decodeMCPServerArgs(raw string) ([]string, error) {
 	var args []string
 	if err := json.Unmarshal([]byte(raw), &args); err != nil {
-		return nil, fmt.Errorf("%w: %v", errInvalidConfigDocument, err)
+		return nil, fmt.Errorf("%w: %w", errInvalidConfigDocument, err)
 	}
 	normalized, err := normalizeStringList(args, errMissingServerArg, "args")
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errInvalidConfigDocument, err)
+		return nil, fmt.Errorf("%w: %w", errInvalidConfigDocument, err)
 	}
 	return normalized, nil
 }
@@ -466,11 +466,11 @@ func decodeMCPServerArgs(raw string) ([]string, error) {
 func decodeMCPServerEnv(raw string) (map[string]string, error) {
 	var env map[string]string
 	if err := json.Unmarshal([]byte(raw), &env); err != nil {
-		return nil, fmt.Errorf("%w: %v", errInvalidConfigDocument, err)
+		return nil, fmt.Errorf("%w: %w", errInvalidConfigDocument, err)
 	}
 	normalized, err := normalizeStringMap(env, errMissingServerEnvName, errMissingServerEnvValue, "env")
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errInvalidConfigDocument, err)
+		return nil, fmt.Errorf("%w: %w", errInvalidConfigDocument, err)
 	}
 	return normalized, nil
 }

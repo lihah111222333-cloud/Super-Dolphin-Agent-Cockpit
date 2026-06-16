@@ -103,7 +103,7 @@ func (a teamConfigAdapter) TeamRoot(buildCtx contract.BuildCtx) (string, error) 
 	}
 	cleaned, err := shared.CleanAbsolutePath(root)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidMemoryRoot, err)
+		return "", fmt.Errorf("%w: %w", ErrInvalidMemoryRoot, err)
 	}
 	return filepath.Join(cleaned, teampkg.RootDirName), nil
 }

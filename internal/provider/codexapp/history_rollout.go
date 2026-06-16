@@ -136,7 +136,7 @@ func rolloutMetadataItem(item rolloutContentItem) (map[string]any, bool) {
 func marshalRolloutMetadata(inputs []map[string]any) json.RawMessage {
 	raw, err := json.Marshal(map[string]any{"input": inputs})
 	if err != nil {
-		return nil
+		return json.RawMessage("{}")
 	}
 	return raw
 }

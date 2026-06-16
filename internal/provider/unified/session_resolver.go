@@ -122,9 +122,13 @@ func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID str
 		if !platformdb.IsNotFound(err) {
 			return nil, err
 		}
-		return nil, contract.ErrSessionNotFound
+		return missingResolvedSession()
 	}
 	return r.autoResumeSession(ctx, binding, ref.RuntimeConfig, ref.ThreadID, threadID)
+}
+
+func missingResolvedSession() (contract.Session, error) {
+	return nil, contract.ErrSessionNotFound
 }
 
 func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, threadID string) (contract.Session, error) {

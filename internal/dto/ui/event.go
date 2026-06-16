@@ -76,6 +76,8 @@ type UIPromptsChanged struct {
 	Action    string `json:"action,omitempty"`
 }
 
+// ThreadPatchThread carries optional thread identity and lifecycle fields in an
+// incremental UI patch.
 type ThreadPatchThread struct {
 	ID        string     `json:"id"`
 	Name      string     `json:"name,omitempty"`
@@ -84,12 +86,16 @@ type ThreadPatchThread struct {
 	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
 }
 
+// ThreadPatchTokenUsage carries optional token counters in an incremental UI
+// patch.
 type ThreadPatchTokenUsage struct {
 	UsedTokens          int     `json:"usedTokens,omitempty"`
 	ContextWindowTokens int     `json:"contextWindowTokens,omitempty"`
 	UsedPercent         float64 `json:"usedPercent,omitempty"`
 }
 
+// ThreadPatchActiveTurn carries optional active-turn state in an incremental UI
+// patch.
 type ThreadPatchActiveTurn struct {
 	ID          string     `json:"id"`
 	ThreadID    string     `json:"threadId"`

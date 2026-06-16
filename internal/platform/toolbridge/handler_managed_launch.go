@@ -117,7 +117,7 @@ func (h *Handler) readMergedUIPreferences(ctx context.Context, cwd string) (map[
 		h.warn("toolbridge: read UI preferences for launch defaults failed",
 			"cwd", strings.TrimSpace(cwd),
 			"error", err)
-		return nil, false
+		return map[string]any{}, false
 	}
 	return prefs, true
 }

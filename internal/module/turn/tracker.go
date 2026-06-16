@@ -1,7 +1,6 @@
 package turn
 
 import (
-	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -130,7 +129,7 @@ func (s *inMemoryTurnTrackerStore) Tick() time.Time {
 
 type turnTracker struct {
 	store  turnTrackerStore
-	logger *slog.Logger
+	logger *pkglogger.Logger
 }
 
 type trackedTurn struct {

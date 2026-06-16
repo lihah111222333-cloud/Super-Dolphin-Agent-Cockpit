@@ -208,7 +208,7 @@ func resolveClaudeMdCandidatePath(path string) (string, string, bool, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", "", false, nil
+			return missingClaudeMdCandidate()
 		}
 		return "", "", false, fmt.Errorf("ClaudeMd candidate stat %q: %w", path, err)
 	}
@@ -224,6 +224,10 @@ func resolveClaudeMdCandidatePath(path string) (string, string, bool, error) {
 	digestInput := resolved + "\n" + info.ModTime().UTC().Format(timeLayoutRFC3339Nano) + "\n" + int64String(info.Size())
 	digest := sha256.Sum256([]byte(digestInput))
 	return resolved, hex.EncodeToString(digest[:]), true, nil
+}
+
+func missingClaudeMdCandidate() (string, string, bool, error) {
+	return "", "", false, nil
 }
 
 // ancestorWalkDirs 处理ancestorwalk目录。

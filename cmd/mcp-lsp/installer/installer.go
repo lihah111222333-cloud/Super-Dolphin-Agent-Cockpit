@@ -17,6 +17,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// InstallerConfig describes how to locate and, when needed, install one LSP
+// server binary for a language.
 type InstallerConfig struct {
 	BinaryName       string
 	InstallCmd       string
@@ -25,19 +27,30 @@ type InstallerConfig struct {
 	RequiredBinaries []RequiredBinary
 }
 
+// RequiredBinary describes a companion executable that must be available before
+// the primary LSP binary is considered usable.
 type RequiredBinary struct {
 	Name      string
 	CheckArgs []string
 }
 
+// InstallStatus records how an LSP binary path was resolved.
 type InstallStatus string
 
 const (
-	InstallStatusPathFound         InstallStatus = "path_found"
-	InstallStatusInstalledPath     InstallStatus = "installed_path"
+	// InstallStatusPathFound means the binary was already available on PATH.
+	InstallStatusPathFound InstallStatus = "path_found"
+
+	// InstallStatusInstalledPath means auto-install succeeded and PATH lookup
+	// resolved the binary afterwards.
+	InstallStatusInstalledPath InstallStatus = "installed_path"
+
+	// InstallStatusInstalledFallback means auto-install succeeded and the
+	// provider found the binary in a language-specific install directory.
 	InstallStatusInstalledFallback InstallStatus = "installed_fallback"
 )
 
+// InstallResult is the observable outcome of resolving an LSP binary.
 type InstallResult struct {
 	Path   string
 	Status InstallStatus
@@ -45,6 +58,8 @@ type InstallResult struct {
 	Binary string
 }
 
+// Provider stores language-specific installer configuration and emits boundary
+// logs for binary resolution and auto-install attempts.
 type Provider struct {
 	mu      sync.Mutex
 	configs map[string]InstallerConfig
@@ -96,11 +111,14 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 		if err := validateRequiredBinaries(ctx, cfg); err == nil {
 			result.Path = path
 			result.Status = InstallStatusPathFound
+			p.logResolvedBinary(result)
 			return result, nil
 		}
 	}
 
 	p.logger.Info("LSP binary or required companion not ready, attempting auto-install...",
+		slog.String("component", "mcp-lsp.installer"),
+		slog.String("operation", "ensure_lsp_binary"),
 		slog.String("lang", lang),
 		slog.String("binary", cfg.BinaryName),
 		slog.String("cmd", cfg.InstallCmd),
@@ -117,6 +135,8 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 	}
 
 	p.logger.Info("LSP auto-install successful",
+		slog.String("component", "mcp-lsp.installer"),
+		slog.String("operation", "auto_install_lsp_binary"),
 		slog.String("lang", lang),
 		slog.String("duration", time.Since(start).String()),
 	)
@@ -172,6 +192,8 @@ func (p *Provider) logResolvedBinary(result InstallResult) {
 		return
 	}
 	p.logger.Info("LSP binary resolved",
+		slog.String("component", "mcp-lsp.installer"),
+		slog.String("operation", "ensure_lsp_binary"),
 		slog.String("lang", result.Lang),
 		slog.String("binary", result.Binary),
 		slog.String("path", result.Path),

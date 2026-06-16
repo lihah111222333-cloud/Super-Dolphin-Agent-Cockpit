@@ -3,7 +3,6 @@ package thread
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -43,7 +42,7 @@ type sessionGenerationRemover interface {
 }
 
 type service struct {
-	logger         *slog.Logger
+	logger         *pkglogger.Logger
 	threadStore    threadstore.Store
 	bindingStore   bindingstore.Store
 	sharedFiles    sharedfilestore.Store

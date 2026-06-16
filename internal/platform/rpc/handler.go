@@ -116,7 +116,7 @@ func CapabilityErrorMapper() Middleware {
 			resp, err := next(ctx, req)
 			if err != nil {
 				if rpcErr := MapCapabilityError(err); rpcErr != nil {
-					return nil, rpcErr
+					return emptyRPCResponse(), rpcErr
 				}
 			}
 			return resp, err
@@ -133,12 +133,16 @@ func InvalidParamsMapper() Middleware {
 			resp, err := next(ctx, req)
 			if err != nil {
 				if rpcErr := MapInvalidParamsError(err); rpcErr != nil {
-					return nil, rpcErr
+					return emptyRPCResponse(), rpcErr
 				}
 			}
 			return resp, err
 		})
 	}
+}
+
+func emptyRPCResponse() any {
+	return nil
 }
 
 func resolveCapabilities(ctx context.Context, resolver CapabilityResolver) (dto.CapabilitySet, error) {

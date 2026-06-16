@@ -3,8 +3,9 @@ package eventsurface
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const (
@@ -12,6 +13,7 @@ const (
 	MethodUISidebarChanged = "ui/sidebar/changed"
 )
 
+// Notification describes one UI event method and payload emitted from the event surface.
 type Notification struct {
 	Method  string
 	Payload any
@@ -122,17 +124,17 @@ func payloadMap(payload any) map[string]any {
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
-		slog.Warn("eventsurface: payloadMap marshal failed, dropping legacy refresh payload",
-			slog.String("payload_type", fmt.Sprintf("%T", payload)),
-			slog.String("error", err.Error()),
+		pkglogger.Warn("eventsurface: payloadMap marshal failed, dropping legacy refresh payload",
+			pkglogger.String("payload_type", fmt.Sprintf("%T", payload)),
+			pkglogger.String("error", err.Error()),
 		)
 		return map[string]any{}
 	}
 	var out map[string]any
 	if err := json.Unmarshal(raw, &out); err != nil {
-		slog.Warn("eventsurface: payloadMap unmarshal failed, dropping legacy refresh payload",
-			slog.String("payload_type", fmt.Sprintf("%T", payload)),
-			slog.String("error", err.Error()),
+		pkglogger.Warn("eventsurface: payloadMap unmarshal failed, dropping legacy refresh payload",
+			pkglogger.String("payload_type", fmt.Sprintf("%T", payload)),
+			pkglogger.String("error", err.Error()),
 		)
 		return map[string]any{}
 	}

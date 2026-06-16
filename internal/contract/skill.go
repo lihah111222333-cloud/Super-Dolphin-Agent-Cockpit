@@ -180,6 +180,7 @@ type SkillHydrationSource interface {
 // Skill mirror provider cutover contracts
 // ---------------------------------------------------------------------------
 
+// SkillProvider identifies the external skill runtime that receives mirrored skills.
 type SkillProvider string
 
 const (
@@ -187,6 +188,7 @@ const (
 	SkillProviderCodex  SkillProvider = "codex"
 )
 
+// SkillMirrorReport summarizes published, skipped, deleted, and conflicted mirror operations.
 type SkillMirrorReport struct {
 	Published []SkillMirrorReportItem `json:"published,omitempty"`
 	Skipped   []SkillMirrorReportItem `json:"skipped,omitempty"`
@@ -194,6 +196,7 @@ type SkillMirrorReport struct {
 	Conflicts []SkillMirrorReportItem `json:"conflicts,omitempty"`
 }
 
+// SkillMirrorReportItem describes one provider mirror target outcome.
 type SkillMirrorReportItem struct {
 	TargetID           string        `json:"target_id"`
 	Provider           SkillProvider `json:"provider,omitempty"`
@@ -206,6 +209,7 @@ type SkillMirrorReportItem struct {
 	Error              string        `json:"error,omitempty"`
 }
 
+// SkillProviderMirrorTarget configures one provider skill directory mirror destination.
 type SkillProviderMirrorTarget struct {
 	Provider          string `json:"provider"`
 	HomeRoot          string `json:"home_root"`
@@ -213,6 +217,7 @@ type SkillProviderMirrorTarget struct {
 	AllowExplicitHome bool   `json:"allow_explicit_home,omitempty"`
 }
 
+// SkillMirrorReconciler syncs canonical project skills into provider-specific mirrors.
 type SkillMirrorReconciler interface {
 	ReconcileProviderMirrors(ctx context.Context, cwd string, targets []SkillProviderMirrorTarget) (SkillMirrorReport, error)
 }

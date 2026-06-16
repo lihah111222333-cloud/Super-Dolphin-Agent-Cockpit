@@ -3,7 +3,7 @@ package claudecli
 import (
 	"context"
 	"errors"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"reflect"
 	"strings"
 	"sync"
@@ -26,7 +26,7 @@ type session struct {
 	transport            *transport
 	caps                 dto.CapabilitySet
 	history              *historyBackend
-	logger               *slog.Logger
+	logger               *pkglogger.Logger
 	eventDispatcher      *unified.EventDispatcher
 	binaryPath           string
 	cwd                  string

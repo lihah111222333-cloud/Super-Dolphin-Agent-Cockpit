@@ -1,7 +1,6 @@
 package timeline
 
 import (
-	"log/slog"
 	"strings"
 	"sync"
 
@@ -39,6 +38,7 @@ type Item struct {
 	lookupKey   string
 }
 
+// AppendedEmitter publishes newly appended timeline items to downstream consumers.
 type AppendedEmitter func(uidto.UITimelineAppended)
 
 func itemLookupKey(item Item) string {
@@ -63,6 +63,7 @@ func toolCallLookupKey(item Item) string {
 	return timelineID("tool", tool, callID)
 }
 
+// Service manages per-thread UI timeline state in memory.
 type Service interface {
 	Append(threadID, agentID string, item Item)
 	UpdateByCallID(threadID, agentID, callID string, fn func(*Item)) bool
@@ -74,7 +75,7 @@ type Service interface {
 const defaultCapacity = 200
 
 // New 创建uistate。
-func New(logger *slog.Logger, emitter AppendedEmitter, capacity int) Service {
+func New(logger *pkglogger.Logger, emitter AppendedEmitter, capacity int) Service {
 	if capacity <= 0 {
 		capacity = defaultCapacity
 	}
@@ -92,7 +93,7 @@ func New(logger *slog.Logger, emitter AppendedEmitter, capacity int) Service {
 type service struct {
 	mu        sync.RWMutex
 	timelines map[string]*threadTimeline
-	logger    *slog.Logger
+	logger    *pkglogger.Logger
 	emitter   AppendedEmitter
 	capacity  int
 }

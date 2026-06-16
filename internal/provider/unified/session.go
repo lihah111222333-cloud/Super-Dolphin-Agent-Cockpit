@@ -3,7 +3,6 @@ package unified
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 	"sync"
 
@@ -18,7 +17,7 @@ type SessionManager struct {
 	mu             sync.RWMutex
 	sessions       map[string]sessionEntry
 	nextGeneration uint64
-	logger         *slog.Logger
+	logger         *pkglogger.Logger
 }
 
 type sessionEntry struct {
@@ -27,7 +26,7 @@ type sessionEntry struct {
 }
 
 // NewSessionManager 创建会话manager。
-func NewSessionManager(logger *slog.Logger) *SessionManager {
+func NewSessionManager(logger *pkglogger.Logger) *SessionManager {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}

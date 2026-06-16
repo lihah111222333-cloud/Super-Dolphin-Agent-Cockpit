@@ -2,7 +2,6 @@ package cron
 
 import (
 	"context"
-	"log/slog"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -21,7 +20,7 @@ import (
 // TickActor 是主动推进 due job 的入口。启动时先恢复旧 run，再跑新 tick，
 // 避免同一窗口重复推进。
 type TickActor struct {
-	logger    *slog.Logger
+	logger    *pkglogger.Logger
 	scheduler *Scheduler
 	interval  time.Duration
 }
@@ -31,7 +30,7 @@ var _ contract.Runner = (*TickActor)(nil)
 // NewTickActor wires a TickActor with a zero-field-ok signature. interval
 // defaults to the scheduler's TickInterval when non-positive.
 // NewTickActor 创建按固定间隔触发 cron 扫描的 actor。
-func NewTickActor(logger *slog.Logger, scheduler *Scheduler) *TickActor {
+func NewTickActor(logger *pkglogger.Logger, scheduler *Scheduler) *TickActor {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -49,10 +48,10 @@ func (a *TickActor) Run(ctx context.Context) error {
 
 	// 恢复失败不停止 tick；坏 run 会被记录，健康 job 仍要继续调度。
 	if err := a.scheduler.RecoverDanglingRuns(ctx); err != nil {
-		a.logger.Debug("cron: recovery failed", slog.String("error", err.Error()))
+		a.logger.Debug("cron: recovery failed", pkglogger.String("error", err.Error()))
 	}
 	if err := a.scheduler.RunTick(ctx); err != nil {
-		a.logger.Debug("cron: tick failed", slog.String("error", err.Error()))
+		a.logger.Debug("cron: tick failed", pkglogger.String("error", err.Error()))
 	}
 
 	for {
@@ -61,7 +60,7 @@ func (a *TickActor) Run(ctx context.Context) error {
 			return ctx.Err()
 		case <-t.C:
 			if err := a.scheduler.RunTick(ctx); err != nil {
-				a.logger.Debug("cron: tick failed", slog.String("error", err.Error()))
+				a.logger.Debug("cron: tick failed", pkglogger.String("error", err.Error()))
 			}
 			t.Reset(timerDelayWithJitter(a.interval))
 		}

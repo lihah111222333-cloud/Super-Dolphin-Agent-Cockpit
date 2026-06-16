@@ -475,7 +475,9 @@ var uiMemoryConsolidationJobs = newUIMemoryConsolidationJobStore(runConsolidateA
 
 func newUIMemoryConsolidationJobStore(run uiMemoryConsolidationRunner, timeout time.Duration) *uiMemoryConsolidationJobStore {
 	if run == nil {
-		panic("memory consolidation runner is required")
+		run = func(context.Context, memoryHandlerDeps, uiSimilarityConsolidateAllParams) (uiSimilarityConsolidateAllResult, error) {
+			return uiSimilarityConsolidateAllResult{}, errors.New("memory consolidation runner is required")
+		}
 	}
 	if timeout <= 0 {
 		timeout = ctxutil.DreamConsolidationTimeout

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"regexp"
 	"strings"
 	"sync"
@@ -17,6 +16,7 @@ import (
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type PromptRegistry interface {
@@ -48,7 +48,7 @@ type DisabledBuiltinToolsFn func(ctx context.Context, cwd, provider string) []st
 
 type service struct {
 	cfg              *Config
-	logger           *slog.Logger
+	logger           *pkglogger.Logger
 	registry         *SectionRegistry
 	cache            *sectionCache
 	userContextCache *userContextCache
@@ -373,15 +373,13 @@ func (s *service) registerBuiltInSections() {
 
 func mustRegisterSection(registry *SectionRegistry, section PromptSection) {
 	if err := registry.Register(section); err != nil {
-		// archguard:ignore panic_count -- builtin prompt section registration is a startup invariant.
-		panic(err)
+		pkglogger.Error("prompt: builtin section registration failed", "section", section.Name, "error", err)
 	}
 }
 
 func mustRegisterDynamicProvider(svc *service, provider DynamicSectionProvider) {
 	if err := svc.RegisterDynamicProvider(provider); err != nil {
-		// archguard:ignore panic_count -- builtin dynamic provider registration is a startup invariant.
-		panic(err)
+		pkglogger.Error("prompt: builtin dynamic provider registration failed", "provider", provider.SectionName(), "error", err)
 	}
 }
 
@@ -581,7 +579,7 @@ func sanitizeTemplateMatchWhen(raw json.RawMessage) json.RawMessage {
 	}
 	encoded, err := json.Marshal(expr)
 	if err != nil {
-		return nil
+		return json.RawMessage("{}")
 	}
 	return json.RawMessage(encoded)
 }

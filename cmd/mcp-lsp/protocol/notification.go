@@ -11,6 +11,7 @@ var (
 	ErrNotificationHandlerNil  = errors.New("protocol: notification handler is nil")
 )
 
+// LogMessageType is the LSP window/logMessage severity enum.
 type LogMessageType int
 
 const (
@@ -20,11 +21,13 @@ const (
 	LogMessageLog
 )
 
+// LogMessageParams is the payload for LSP window/logMessage notifications.
 type LogMessageParams struct {
 	Type    LogMessageType `json:"type"`
 	Message string         `json:"message"`
 }
 
+// NotificationHandler receives decoded LSP server notifications.
 type NotificationHandler interface {
 	PublishDiagnostics(PublishDiagnosticsParams) error
 	LogMessage(LogMessageParams) error

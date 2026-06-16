@@ -372,7 +372,7 @@ func (h *Handler) resolveRequiredHostToolCWD(ctx context.Context, req ToolCallRe
 		return "", fmt.Errorf("%w: host tool cwd is required", contract.ErrSkillMissingCWD)
 	}
 	if info, err := os.Stat(cwd); err != nil {
-		return "", fmt.Errorf("%w: host tool cwd stat %q: %v", contract.ErrSkillMissingCWD, cwd, err)
+		return "", fmt.Errorf("%w: host tool cwd stat %q: %w", contract.ErrSkillMissingCWD, cwd, err)
 	} else if !info.IsDir() {
 		return "", fmt.Errorf("%w: host tool cwd is not a directory: %q", contract.ErrSkillMissingCWD, cwd)
 	}
@@ -385,7 +385,7 @@ func (h *Handler) resolveAgentCWD(ctx context.Context, agentID string) (string, 
 	}
 	cwd, err := h.resolver.ResolveAgentCWD(ctx, agentID)
 	if err != nil {
-		return "", fmt.Errorf("%w: resolve agent cwd: %v", contract.ErrSkillMissingCWD, err)
+		return "", fmt.Errorf("%w: resolve agent cwd: %w", contract.ErrSkillMissingCWD, err)
 	}
 	return normalizeToolCallCWD(cwd), nil
 }

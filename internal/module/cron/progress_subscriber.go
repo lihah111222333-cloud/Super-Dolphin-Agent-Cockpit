@@ -2,7 +2,6 @@ package cron
 
 import (
 	"context"
-	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,7 +44,7 @@ type cronProgressRequest struct {
 // 也能保持本进程内顺序。
 type cronProgressWorker struct {
 	scheduler *Scheduler
-	logger    *slog.Logger
+	logger    *pkglogger.Logger
 
 	mu    sync.Mutex
 	queue []cronProgressRequest
@@ -61,7 +60,7 @@ type cronProgressWorker struct {
 	processedTotal atomic.Int64
 }
 
-func newCronProgressWorker(scheduler *Scheduler, logger *slog.Logger) *cronProgressWorker {
+func newCronProgressWorker(scheduler *Scheduler, logger *pkglogger.Logger) *cronProgressWorker {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -179,16 +178,16 @@ func (w *cronProgressWorker) dispatch(req cronProgressRequest) {
 		// 进度事件只续租，不改 run 状态。
 		if err := w.scheduler.ExtendClaimForTurnProgress(ctx, req.turnID); err != nil {
 			w.logger.Debug("cron: extend claim for turn progress failed",
-				slog.String("turn_id", req.turnID),
-				slog.String("error", err.Error()),
+				pkglogger.String("turn_id", req.turnID),
+				pkglogger.String("error", err.Error()),
 			)
 		}
 	case cronCompleteTurn:
 		// 终态事件才把 running run 结束；找不到 run 时让 CompleteTurn 暴露问题。
 		if err := w.scheduler.CompleteTurn(ctx, req.turnID, req.success, req.terminalErr); err != nil {
 			w.logger.Debug("cron: complete turn from terminal event failed",
-				slog.String("turn_id", req.turnID),
-				slog.String("error", err.Error()),
+				pkglogger.String("turn_id", req.turnID),
+				pkglogger.String("error", err.Error()),
 			)
 		}
 	}

@@ -30,7 +30,7 @@ func (op *OpUpdateDAG) UnmarshalJSON(data []byte) error {
 		}
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "unknown field") {
-			return fmt.Errorf("%w: %v (allowed: op/patch)", ErrUpdateDAGPayloadInvalid, err)
+			return fmt.Errorf("%w: %w (allowed: op/patch)", ErrUpdateDAGPayloadInvalid, err)
 		}
 		return err
 	}
@@ -54,7 +54,7 @@ func (p *DAGPatch) UnmarshalJSON(data []byte) error {
 	if err := dec.Decode(&plain); err != nil {
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "unknown field") {
-			return fmt.Errorf("%w: %v (allowed: title/description/trigger/cron_expr/owner_id/schedule_enabled)", ErrDAGPatchUnknownField, err)
+			return fmt.Errorf("%w: %w (allowed: title/description/trigger/cron_expr/owner_id/schedule_enabled)", ErrDAGPatchUnknownField, err)
 		}
 		return err
 	}

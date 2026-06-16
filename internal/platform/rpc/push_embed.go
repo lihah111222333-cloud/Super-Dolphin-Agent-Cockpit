@@ -199,11 +199,11 @@ func clonePayloadMap(payload any) (map[string]any, bool) {
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
-		return nil, false
+		return map[string]any{}, false
 	}
 	var out map[string]any
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, false
+		return map[string]any{}, false
 	}
 	return out, true
 }

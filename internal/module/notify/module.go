@@ -1,7 +1,6 @@
 package notify
 
 import (
-	"log/slog"
 	"time"
 
 	"go.uber.org/fx"
@@ -58,7 +57,7 @@ func provideWebhookClient(cfg *contract.Config) *platform.WebhookClient {
 	return platform.NewWebhookClient(wcfg)
 }
 
-func provideNotifier(logger *slog.Logger, cfg *contract.Config, resolver platform.Resolver) *platform.Notifier {
+func provideNotifier(logger *pkglogger.Logger, cfg *contract.Config, resolver platform.Resolver) *platform.Notifier {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -77,7 +76,7 @@ func provideMessageNotifierContract(n *platform.Notifier) contract.MessageNotifi
 type provideFlusherParams struct {
 	fx.In
 
-	Logger   *slog.Logger
+	Logger   *pkglogger.Logger
 	Cfg      *contract.Config
 	Notifier *platform.Notifier
 	Client   *platform.WebhookClient

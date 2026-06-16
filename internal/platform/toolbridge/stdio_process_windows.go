@@ -23,6 +23,10 @@ type stdioProcessGuard struct {
 	handle windows.Handle
 }
 
+func missingStdioProcessGuard() *stdioProcessGuard {
+	return nil
+}
+
 func stdioConfigureCommand(cmd *exec.Cmd) {
 	if cmd == nil {
 		return
@@ -41,7 +45,7 @@ func stdioAttachProcessGuard(cmd *exec.Cmd) *stdioProcessGuard {
 	handle, err := stdioCreateKillOnCloseJob()
 	if err != nil {
 		pkglogger.Warn("toolbridge: create stdio MCP job failed", "pid", cmd.Process.Pid, "error", err)
-		return nil
+		return missingStdioProcessGuard()
 	}
 	procHandle, err := windows.OpenProcess(
 		windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE,
@@ -51,13 +55,13 @@ func stdioAttachProcessGuard(cmd *exec.Cmd) *stdioProcessGuard {
 	if err != nil {
 		pkglogger.Warn("toolbridge: open stdio MCP process failed", "pid", cmd.Process.Pid, "error", err)
 		_ = windows.CloseHandle(handle)
-		return nil
+		return missingStdioProcessGuard()
 	}
 	defer windows.CloseHandle(procHandle)
 	if err := windows.AssignProcessToJobObject(handle, procHandle); err != nil {
 		pkglogger.Warn("toolbridge: assign stdio MCP process to job failed", "pid", cmd.Process.Pid, "error", err)
 		_ = windows.CloseHandle(handle)
-		return nil
+		return missingStdioProcessGuard()
 	}
 	return &stdioProcessGuard{handle: handle}
 }

@@ -3,27 +3,21 @@ package feedback
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"strings"
 
 	feedbackstore "github.com/anthropic-ai/super-agent-v3/internal/store/feedback"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type service struct {
-	logger *slog.Logger
-	store  feedbackstore.Store
+	store feedbackstore.Store
 }
 
 var _ Service = (*service)(nil)
 
-// NewService 创建服务。
-func NewService(logger *slog.Logger, store feedbackstore.Store) Service {
-	if logger == nil {
-		logger = pkglogger.Get()
-	}
-	return &service{logger: logger, store: store}
+// NewService creates the feedback service around the persistence port.
+func NewService(store feedbackstore.Store) Service {
+	return &service{store: store}
 }
 
 var errServiceDisabled = errors.New("feedback: service not wired (store is nil)")
@@ -49,11 +43,6 @@ func (s *service) Record(ctx context.Context, req RecordRequest) (RecordResult, 
 		Payload:         req.Payload,
 	})
 	if err != nil {
-		s.logger.Error("feedback/record: insert failed",
-			slog.String("thread_id", threadID),
-			slog.String("event_type", eventType),
-			slog.String("error", err.Error()),
-		)
 		return RecordResult{}, err
 	}
 	return RecordResult{ID: ev.ID, EventType: ev.EventType, Recorded: true}, nil

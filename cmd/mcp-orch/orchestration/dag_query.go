@@ -17,6 +17,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// ErrRunNotFound indicates no DAG run exists for the requested run key.
 var ErrRunNotFound = errors.New("orchestration: run_key not found")
 
 // GetRun 读取运行记录。
@@ -154,6 +155,7 @@ type partitionedOps struct {
 	removes    nodeexec.Ops
 }
 
+// ErrDuplicateOpForNode rejects multiple node-scoped operations for one node in a batch.
 var ErrDuplicateOpForNode = errors.New("orchestration: duplicate op for same node_key in batch")
 
 // 同批 dedup（R2 P1）：同一个 node_key 不允许被多条 node-scoped op 同时命中，
@@ -438,7 +440,7 @@ func validateDAGPatch(patch nodeexec.DAGPatch, current taskdag.DAGSchedule) (tas
 	}
 	if patch.CronExpr != nil && *patch.CronExpr != "" {
 		if _, err := orchcron.ParseDAGCronExpr(*patch.CronExpr); err != nil {
-			return taskdag.DAGSchedule{}, fmt.Errorf("%w: update_dag cron_expr %q invalid: %v", ErrApplyOpsInvalid, *patch.CronExpr, err)
+			return taskdag.DAGSchedule{}, fmt.Errorf("%w: update_dag cron_expr %q invalid: %w", ErrApplyOpsInvalid, *patch.CronExpr, err)
 		}
 	}
 	finalSchedule := finalDAGSchedule(current, patch)
@@ -472,7 +474,7 @@ func validateDAGPatchFinalSchedule(patch nodeexec.DAGPatch, final taskdag.DAGSch
 			return fmt.Errorf("%w: update_dag final trigger=scheduled requires non-empty cron_expr", ErrApplyOpsInvalid)
 		}
 		if _, err := orchcron.ParseDAGCronExpr(final.CronExpr); err != nil {
-			return fmt.Errorf("%w: update_dag final cron_expr %q invalid: %v", ErrApplyOpsInvalid, final.CronExpr, err)
+			return fmt.Errorf("%w: update_dag final cron_expr %q invalid: %w", ErrApplyOpsInvalid, final.CronExpr, err)
 		}
 		return nil
 	}

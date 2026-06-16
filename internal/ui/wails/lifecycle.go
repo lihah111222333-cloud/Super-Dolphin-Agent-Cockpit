@@ -3,7 +3,6 @@ package wails
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -25,10 +24,12 @@ type lifecycleTimer interface {
 	Stop() bool
 }
 
+// ActiveAgentCounter reports currently running agents during shutdown decisions.
 type ActiveAgentCounter interface {
 	ActiveAgentCount(context.Context) (int, error)
 }
 
+// ActiveAgentCounterFunc adapts a function into an ActiveAgentCounter.
 type ActiveAgentCounterFunc func(context.Context) (int, error)
 
 // ActiveAgentCount 处理active代理count。
@@ -36,8 +37,9 @@ func (f ActiveAgentCounterFunc) ActiveAgentCount(ctx context.Context) (int, erro
 	return f(ctx)
 }
 
+// WailsLifecycle coordinates frontend quit callbacks with backend shutdown state.
 type WailsLifecycle struct {
-	logger    *slog.Logger
+	logger    *pkglogger.Logger
 	counter   ActiveAgentCounter
 	afterFunc func(time.Duration, func()) lifecycleTimer
 
@@ -55,7 +57,7 @@ type WailsLifecycle struct {
 }
 
 // NewWailsLifecycle 创建wails生命周期。
-func NewWailsLifecycle(counter ActiveAgentCounter, slogLogger *slog.Logger) *WailsLifecycle {
+func NewWailsLifecycle(counter ActiveAgentCounter, slogLogger *pkglogger.Logger) *WailsLifecycle {
 	if slogLogger == nil {
 		slogLogger = pkglogger.Get()
 	}

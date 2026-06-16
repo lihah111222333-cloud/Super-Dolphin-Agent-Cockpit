@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -219,7 +218,7 @@ func (c SchedulerConfig) withDefaults() SchedulerConfig {
 // is driven by the tick actor (ticks) and the lease actor (heartbeats);
 // tests can drive it directly via RunTick / RenewLeases.
 type Scheduler struct {
-	logger     *slog.Logger
+	logger     *pkglogger.Logger
 	store      cronstore.Store
 	submitter  TurnSubmitter
 	cfg        SchedulerConfig
@@ -234,7 +233,7 @@ type Scheduler struct {
 // defaults to NoopTurnSubmitter; a nil logger falls back to the package
 // default.
 // NewScheduler 创建 cron 调度器并注入存储和 turn 依赖。
-func NewScheduler(logger *slog.Logger, store cronstore.Store, submitter TurnSubmitter, cfg SchedulerConfig) *Scheduler {
+func NewScheduler(logger *pkglogger.Logger, store cronstore.Store, submitter TurnSubmitter, cfg SchedulerConfig) *Scheduler {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -269,7 +268,6 @@ func (s *Scheduler) RunTick(ctx context.Context) error {
 	for i := int32(0); i < s.cfg.MaxClaim; i++ {
 		jobs, err := s.claimOneDueJob(ctx)
 		if err != nil {
-			s.logger.Warn("cron: claim due jobs failed", slog.String("error", err.Error()))
 			return err
 		}
 		if len(jobs) == 0 {
@@ -282,8 +280,8 @@ func (s *Scheduler) RunTick(ctx context.Context) error {
 		if err := s.driveJob(ctx, jobs[0]); err != nil {
 			firstErr = errors.Join(firstErr, err)
 			s.logger.Warn("cron: drive job failed",
-				slog.String("job_id", jobs[0].ID),
-				slog.String("error", err.Error()),
+				pkglogger.String("job_id", jobs[0].ID),
+				pkglogger.String("error", err.Error()),
 			)
 		}
 	}

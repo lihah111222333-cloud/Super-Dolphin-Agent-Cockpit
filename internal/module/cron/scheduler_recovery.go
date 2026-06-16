@@ -8,9 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"log/slog"
-
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // CompleteTurn applies a terminal turn event to the cron run that is currently
@@ -123,8 +122,8 @@ func (s *Scheduler) RenewLeases(ctx context.Context) error {
 		})
 		if err != nil {
 			s.logger.Debug("cron: renew lease failed",
-				slog.String("job_id", job.ID),
-				slog.String("error", err.Error()),
+				pkglogger.String("job_id", job.ID),
+				pkglogger.String("error", err.Error()),
 			)
 		}
 	}
@@ -147,9 +146,9 @@ func (s *Scheduler) RecoverDanglingRuns(ctx context.Context) error {
 		if err := s.recoverDanglingRun(ctx, run); err != nil {
 			joined = errors.Join(joined, err)
 			s.logger.Warn("cron: recover dangling run failed",
-				slog.String("run_id", run.ID),
-				slog.String("status", run.Status),
-				slog.String("error", err.Error()),
+				pkglogger.String("run_id", run.ID),
+				pkglogger.String("status", run.Status),
+				pkglogger.String("error", err.Error()),
 			)
 		}
 	}
@@ -234,8 +233,8 @@ func (s *Scheduler) finalizeRecoveredFailure(ctx context.Context, job cronstore.
 	now := s.now().UTC()
 	if casErr := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{ID: run.ID, ExpectedStatus: run.Status, NextStatus: cronstore.StatusFailed, Error: err.Error(), UpdatedAt: now}); casErr != nil {
 		s.logger.Warn("cron: recovered CAS submitting->failed failed",
-			slog.String("run_id", run.ID),
-			slog.String("error", casErr.Error()),
+			pkglogger.String("run_id", run.ID),
+			pkglogger.String("error", casErr.Error()),
 		)
 	}
 	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{ID: job.ID, ClaimToken: job.ClaimToken, LastRunAt: run.ScheduledAt, LastStatus: cronstore.StatusFailed, LastErrorAt: now, LastError: err.Error(), Now: now})
@@ -246,8 +245,8 @@ func (s *Scheduler) finalizeRecoveredObserveLost(ctx context.Context, job cronst
 	// 恢复期的 observe_lost 也不自动 retry；旧 turn 状态未知时，新 turn 会造成重复。
 	if casErr := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{ID: run.ID, ExpectedStatus: run.Status, NextStatus: cronstore.StatusObserveLost, Error: err.Error(), UpdatedAt: now}); casErr != nil {
 		s.logger.Warn("cron: recovered CAS submitted->observe_lost failed",
-			slog.String("run_id", run.ID),
-			slog.String("error", casErr.Error()),
+			pkglogger.String("run_id", run.ID),
+			pkglogger.String("error", casErr.Error()),
 		)
 	}
 	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{ID: job.ID, ClaimToken: job.ClaimToken, LastRunAt: run.ScheduledAt, LastTurnID: turnID, LastStatus: cronstore.StatusObserveLost, LastErrorAt: now, LastError: err.Error(), Now: now})

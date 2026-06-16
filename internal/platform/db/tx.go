@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 // Queryable 抽象 *sql.DB 和 *sql.Tx 都满足的最小查询接口。
@@ -18,13 +16,13 @@ type Queryable interface {
 // QueryFinish 表示查询 rows 的清理函数。
 type QueryFinish func(success bool) error
 
-// WithTx 开启普通 database/sql 事务，并在 panic 时回滚。
+// WithTx 开启普通 database/sql 事务，并在异常时回滚并返回错误。
 func WithTx(ctx context.Context, db *sql.DB, fn func(tx *sql.Tx) error) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	return runWithTx(ctx, tx, fn)
+	return runWithTx(tx, fn)
 }
 
 // WithImmediateTx 开启 SQLite 写入竞争防护用的 IMMEDIATE 事务。
@@ -33,7 +31,7 @@ func WithImmediateTx(ctx context.Context, db *sql.DB, fn func(tx *sql.Tx) error)
 	if err != nil {
 		return fmt.Errorf("begin immediate tx: %w", err)
 	}
-	return runWithTx(ctx, tx, fn)
+	return runWithTx(tx, fn)
 }
 
 // sqlTxCommitter 抽象 *sql.Tx 以便单元测试覆盖提交和回滚路径。
@@ -42,18 +40,15 @@ type sqlTxCommitter interface {
 	Rollback() error
 }
 
-func runWithTx(ctx context.Context, tx *sql.Tx, fn func(tx *sql.Tx) error) (retErr error) {
-	return runWithCommitter(ctx, tx, func(c sqlTxCommitter) error { return fn(c.(*sql.Tx)) })
+func runWithTx(tx *sql.Tx, fn func(tx *sql.Tx) error) (retErr error) {
+	return runWithCommitter(tx, func(c sqlTxCommitter) error { return fn(c.(*sql.Tx)) })
 }
 
-func runWithCommitter(ctx context.Context, tx sqlTxCommitter, fn func(c sqlTxCommitter) error) (retErr error) {
+func runWithCommitter(tx sqlTxCommitter, fn func(c sqlTxCommitter) error) (retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
-			cleanupCtx, cancel := txCleanupContext(ctx)
-			defer cancel()
 			_ = tx.Rollback()
-			_ = cleanupCtx
-			panic(r)
+			retErr = fmt.Errorf("transaction callback failed: %v", r)
 		}
 	}()
 	if err := fn(tx); err != nil {
@@ -81,11 +76,7 @@ func RowsFieldNames(rows *sql.Rows) []string {
 	}
 	cols, err := rows.Columns()
 	if err != nil {
-		return nil
+		return []string{}
 	}
 	return cols
-}
-
-func txCleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return platformconfig.WithTxCleanupTimeout(context.WithoutCancel(ctx))
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -17,7 +16,7 @@ import (
 
 type recoveryManager struct {
 	transport *transport
-	logger    *slog.Logger
+	logger    *pkglogger.Logger
 	maxRetry  int
 }
 

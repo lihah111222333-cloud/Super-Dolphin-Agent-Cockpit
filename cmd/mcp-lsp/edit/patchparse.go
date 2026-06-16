@@ -18,6 +18,8 @@ var (
 	ErrInvalidPatch     = errors.New("invalid patch")
 	ErrSequenceNotFound = errors.New("sequence not found")
 	ErrAmbiguousMatch   = errors.New("ambiguous match")
+
+	errInvalidPatchBodyLine = errors.New("patch body lines must start with ' ', '-', or '+'")
 )
 
 // Hunk is the parsed replace_range patch contract consumed by the edit engine.
@@ -258,7 +260,7 @@ func classifyBodyLines(body []string, startOffset int) ([]patchBodyLine, int, in
 	for idx, line := range body {
 		entry, err := parsePatchBodyLine(line)
 		if err != nil {
-			return nil, 0, 0, fmt.Errorf("%w: line %d: %v", ErrInvalidPatch, startOffset+idx+1, err)
+			return nil, 0, 0, fmt.Errorf("%w: line %d: %w", ErrInvalidPatch, startOffset+idx+1, err)
 		}
 		parsed = append(parsed, entry)
 		if entry.kind != ' ' {
@@ -288,14 +290,14 @@ func isPatchHeader(line string) bool {
 
 func parsePatchBodyLine(line string) (patchBodyLine, error) {
 	if line == "" {
-		return patchBodyLine{}, errors.New("patch body lines must start with ' ', '-', or '+'")
+		return patchBodyLine{}, errInvalidPatchBodyLine
 	}
 	prefix := line[0]
 	switch prefix {
 	case ' ', '-', '+':
 		return patchBodyLine{kind: prefix, text: line[1:]}, nil
 	default:
-		return patchBodyLine{}, errors.New("patch body lines must start with ' ', '-', or '+'")
+		return patchBodyLine{}, errInvalidPatchBodyLine
 	}
 }
 

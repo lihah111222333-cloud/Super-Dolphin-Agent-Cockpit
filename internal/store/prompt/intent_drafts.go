@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -61,7 +62,10 @@ func (s *store) UpsertIntentDraft(ctx context.Context, draft PromptIntentDraft) 
 	if err != nil {
 		return nil, wrapPromptError(err, "upsert", "prompt_intent_drafts")
 	}
-	mapped := fromSQLCPromptIntentDraft(row)
+	mapped, err := fromSQLCPromptIntentDraft(row)
+	if err != nil {
+		return nil, wrapPromptError(err, "upsert.map", "prompt_intent_drafts")
+	}
 	return &mapped, nil
 }
 
@@ -79,7 +83,10 @@ func (s *store) GetIntentDraft(ctx context.Context, cwd, draftKey string) (*Prom
 	if err != nil {
 		return nil, wrapPromptError(err, "get", "prompt_intent_drafts")
 	}
-	mapped := fromSQLCPromptIntentDraft(row)
+	mapped, err := fromSQLCPromptIntentDraft(row)
+	if err != nil {
+		return nil, wrapPromptError(err, "get.map", "prompt_intent_drafts")
+	}
 	return &mapped, nil
 }
 
@@ -112,7 +119,11 @@ func (s *store) ListIntentDrafts(ctx context.Context, filter PromptIntentDraftLi
 	}
 	drafts := make([]PromptIntentDraft, 0, len(rows))
 	for _, row := range rows {
-		drafts = append(drafts, fromSQLCPromptIntentDraft(row))
+		mapped, err := fromSQLCPromptIntentDraft(row)
+		if err != nil {
+			return nil, wrapPromptError(err, "list.map", "prompt_intent_drafts")
+		}
+		drafts = append(drafts, mapped)
 	}
 	return drafts, nil
 }
@@ -139,7 +150,10 @@ func (s *store) UpdateIntentDraftStatus(ctx context.Context, cwd, draftKey, stat
 	if err != nil {
 		return nil, wrapPromptError(err, "update_status", "prompt_intent_drafts")
 	}
-	mapped := fromSQLCPromptIntentDraft(row)
+	mapped, err := fromSQLCPromptIntentDraft(row)
+	if err != nil {
+		return nil, wrapPromptError(err, "update_status.map", "prompt_intent_drafts")
+	}
 	return &mapped, nil
 }
 
@@ -216,22 +230,22 @@ func normalizePromptIntentJSON(raw json.RawMessage, defaultValue string) ([]byte
 	return []byte(trimmed), nil
 }
 
-func fromSQLCPromptIntentDraft(row any) PromptIntentDraft {
+func fromSQLCPromptIntentDraft(row any) (PromptIntentDraft, error) {
 	switch r := row.(type) {
 	case sqlc.UpsertPromptIntentDraftRow:
 		return promptIntentDraftFromFields(r.ID, r.DraftKey, r.CWD, r.Kind, r.RawInput, r.SourceType, r.SourceUrl,
-			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt)
+			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt), nil
 	case sqlc.GetPromptIntentDraftRow:
 		return promptIntentDraftFromFields(r.ID, r.DraftKey, r.CWD, r.Kind, r.RawInput, r.SourceType, r.SourceUrl,
-			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt)
+			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt), nil
 	case sqlc.ListPromptIntentDraftsRow:
 		return promptIntentDraftFromFields(r.ID, r.DraftKey, r.CWD, r.Kind, r.RawInput, r.SourceType, r.SourceUrl,
-			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt)
+			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt), nil
 	case sqlc.UpdatePromptIntentDraftStatusRow:
 		return promptIntentDraftFromFields(r.ID, r.DraftKey, r.CWD, r.Kind, r.RawInput, r.SourceType, r.SourceUrl,
-			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt)
+			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt), nil
 	default:
-		panic("unsupported prompt intent draft row type")
+		return PromptIntentDraft{}, fmt.Errorf("unsupported prompt intent draft row type: %T", row)
 	}
 }
 

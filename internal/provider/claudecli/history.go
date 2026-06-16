@@ -183,7 +183,7 @@ func extractImageContentBlocksMetadata(items []historyContentItem) json.RawMessa
 	}
 	raw, err := json.Marshal(map[string]any{"input": inputs})
 	if err != nil {
-		return nil
+		return json.RawMessage("{}")
 	}
 	return raw
 }
@@ -264,7 +264,7 @@ func extractInjectedAttachmentMetadata(text string) (string, json.RawMessage) {
 	cleaned := strings.TrimLeft(strings.Join(lines[consumed:], "\n"), "\r\n")
 	raw, err := json.Marshal(map[string]any{"input": inputs})
 	if err != nil {
-		return cleaned, nil
+		return cleaned, json.RawMessage("{}")
 	}
 	return cleaned, raw
 }

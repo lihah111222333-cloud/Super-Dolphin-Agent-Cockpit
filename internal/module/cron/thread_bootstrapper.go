@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -31,7 +30,7 @@ import (
 // 它把配置交给 thread 层，保存 ID 仍由 Scheduler 做。
 type ThreadServiceBootstrapper struct {
 	svc    contract.CronThreadStarter
-	logger *slog.Logger
+	logger *pkglogger.Logger
 }
 
 // NewThreadServiceBootstrapper wires the adapter. A nil CronThreadStarter
@@ -39,7 +38,7 @@ type ThreadServiceBootstrapper struct {
 // factory to fall back to NoopThreadBootstrapper before reaching this
 // constructor.
 // NewThreadServiceBootstrapper 创建基于 thread service 的线程引导器。
-func NewThreadServiceBootstrapper(logger *slog.Logger, svc contract.CronThreadStarter) *ThreadServiceBootstrapper {
+func NewThreadServiceBootstrapper(logger *pkglogger.Logger, svc contract.CronThreadStarter) *ThreadServiceBootstrapper {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}

@@ -123,7 +123,7 @@ func (c *WebhookClient) HTTPClient() *http.Client { return c.http }
 func (c *WebhookClient) Post(ctx context.Context, target, contentType string, body []byte) error {
 	u, err := url.Parse(target)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidURL, err)
+		return fmt.Errorf("%w: %w", ErrInvalidURL, err)
 	}
 	if err := validateHTTPSURL(u); err != nil {
 		return err
@@ -210,7 +210,7 @@ func (d *ssrfGuardedDialer) DialContext(ctx context.Context, network, addr strin
 	}
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
-		return nil, fmt.Errorf("%w: split host/port: %v", ErrInvalidURL, err)
+		return nil, fmt.Errorf("%w: split host/port: %w", ErrInvalidURL, err)
 	}
 	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
 	if err != nil {

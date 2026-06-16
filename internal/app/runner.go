@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"sync"
 
 	"go.uber.org/fx"
@@ -12,8 +11,10 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// RunnerResult contributes a managed runner to the Fx runner group.
 type RunnerResult struct {
 	fx.Out
 	Runner platformrunner.Runner `group:"runners"`
@@ -233,7 +234,7 @@ func waitForRuntimeDone(runtimeDone <-chan error, ctx context.Context) error {
 type runtimeParams struct {
 	fx.In
 
-	Logger            *slog.Logger
+	Logger            *pkglogger.Logger
 	Runners           []platformrunner.Runner `group:"runners"`
 	Shutdowner        fx.Shutdowner
 	RootCtx           RootCtxProvider         `optional:"true"`

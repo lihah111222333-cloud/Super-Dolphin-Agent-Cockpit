@@ -100,14 +100,7 @@ func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, 
 func (s *service) ReadRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
-		runtimeConfig, handled, offlineErr := s.offlineRuntimeConfigForMissingSession(ctx, threadID, binding, err)
-		if offlineErr != nil {
-			return nil, offlineErr
-		}
-		if handled {
-			return runtimeConfig, nil
-		}
-		return nil, err
+		return s.runtimeConfigForUnresolvedSession(ctx, threadID, binding, err)
 	}
 	offline, offlineErr := s.buildOfflineConfig(ctx, threadID, binding)
 	if offlineErr != nil {
@@ -118,6 +111,17 @@ func (s *service) ReadRuntimeConfig(ctx context.Context, threadID string) (map[s
 		return nil, errors.New("thread runtime config reader is not available")
 	}
 	return mergeRuntimeConfig(offline.Runtime, reader.RuntimeConfigSnapshot()), nil
+}
+
+func (s *service) runtimeConfigForUnresolvedSession(ctx context.Context, threadID string, binding *bindingstore.Binding, resolveErr error) (map[string]any, error) {
+	runtimeConfig, handled, offlineErr := s.offlineRuntimeConfigForMissingSession(ctx, threadID, binding, resolveErr)
+	if offlineErr != nil {
+		return nil, offlineErr
+	}
+	if handled {
+		return runtimeConfig, nil
+	}
+	return nil, resolveErr
 }
 
 func newThreadReadHandler(svc Service) handler.Func {

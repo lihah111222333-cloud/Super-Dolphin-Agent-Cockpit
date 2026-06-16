@@ -161,6 +161,9 @@ def check_tokens(path: Path, root: Path, tokens: list[tuple[str, str]]) -> list[
             index = text.find(token, start)
             if index == -1:
                 break
+            if index > 0 and (text[index - 1].isalnum() or text[index - 1] == "_"):
+                start = index + len(token)
+                continue
             findings.append(f"{rel}:{line_for_offset(text, index)}: {reason}")
             start = index + len(token)
     return findings

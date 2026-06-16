@@ -2,7 +2,6 @@ package uistate
 
 import (
 	"context"
-	"log/slog"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -11,6 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/historyjsonl"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"go.uber.org/fx"
 )
 
@@ -28,7 +28,7 @@ type Service interface {
 type serviceParams struct {
 	fx.In
 
-	Logger        *slog.Logger
+	Logger        *pkglogger.Logger
 	ThreadLister  contract.ThreadLister         `optional:"true"`
 	Agents        contract.OrchestrationService `optional:"true"`
 	Preferences   uipreference.Store
@@ -121,7 +121,7 @@ func (s *service) loadBatchConfigs(ctx context.Context, threads []ThreadSummary)
 	batchConfigs, err := bulkReader.ReadRuntimeConfigs(ctx, threadIDs)
 	if err != nil {
 		s.logger.WarnContext(ctx, "uistate: ReadRuntimeConfigs failed; skipping per-thread fallback", "err", err)
-		return nil, true
+		return skippedRuntimeConfigFallback()
 	}
 	return batchConfigs, true
 }
@@ -215,13 +215,21 @@ func applyTaskRuntimeToThreadRuntimeConfig(threadID string, cfg map[string]any, 
 func (s *service) loadBindingIndex(ctx context.Context) map[string]bindingEntry {
 	entries, err := s.bindings.ListAgentThreadBindings(ctx)
 	if err != nil {
-		return nil
+		return emptyBindingIndex()
 	}
 	idx := make(map[string]bindingEntry, len(entries))
 	for _, e := range entries {
 		idx[strings.TrimSpace(e.AgentID)] = e
 	}
 	return idx
+}
+
+func skippedRuntimeConfigFallback() (map[string]map[string]any, bool) {
+	return nil, true
+}
+
+func emptyBindingIndex() map[string]bindingEntry {
+	return nil
 }
 
 func applyBindingToAgent(agent *AgentSummary, idx map[string]bindingEntry) {

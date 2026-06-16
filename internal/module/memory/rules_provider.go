@@ -521,11 +521,11 @@ func (p *MemoryContextProvider) searchPastContext(
 	threadID, query string,
 ) []transcriptSnippet {
 	if p == nil || session == nil {
-		return nil
+		return []transcriptSnippet{}
 	}
 	messages, err := session.ReadHistory(ctx, strings.TrimSpace(threadID), 200)
 	if err != nil {
-		return nil
+		return []transcriptSnippet{}
 	}
 	return searchTranscriptSnippets(query, messages, defaultRelevantMemoryBudgetBytes/2)
 }

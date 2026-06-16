@@ -1,10 +1,10 @@
 package turn
 
 import (
-	"fmt"
 	"regexp"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/util/repofingerprint"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // Redactor is the second-pass redactor used by the skill extractor. Redact
@@ -71,8 +71,8 @@ func NewDefaultRedactor() *DefaultRedactor {
 	for _, s := range specs {
 		re, err := regexp.Compile(s.expr)
 		if err != nil {
-			// archguard:ignore panic_count -- builtin redaction regexps must compile during package initialization.
-			panic(fmt.Sprintf("redaction pattern %q compile failed: %v", s.name, err))
+			pkglogger.Error("turn: redaction pattern compile failed", "pattern", s.name, "error", err)
+			continue
 		}
 		rs = append(rs, redactionPattern{name: s.name, re: re})
 	}

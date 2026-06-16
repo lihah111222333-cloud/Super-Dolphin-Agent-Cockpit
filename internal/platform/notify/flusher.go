@@ -3,7 +3,6 @@ package notify
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -22,7 +21,7 @@ const DefaultDrainTimeout = 5 * time.Second
 // none abort the loop because failed deliveries should not tear down
 // the Runner and block future notifications.
 type Flusher struct {
-	logger       *slog.Logger
+	logger       *pkglogger.Logger
 	queue        chan contract.NotifyRequest
 	resolver     Resolver
 	client       *WebhookClient
@@ -43,7 +42,7 @@ var _ contract.Runner = (*Flusher)(nil)
 // pre-built webhook client. drainTimeout <= 0 falls back to the plan
 // default.
 // NewFlusher 创建flusher。
-func NewFlusher(logger *slog.Logger, notifier *Notifier, client *WebhookClient, drainTimeout time.Duration) *Flusher {
+func NewFlusher(logger *pkglogger.Logger, notifier *Notifier, client *WebhookClient, drainTimeout time.Duration) *Flusher {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -141,7 +140,7 @@ func (f *Flusher) drain() {
 			if remaining > 0 {
 				f.drainDrops.Add(int64(remaining))
 				f.logger.Warn("notify: drain timeout, dropped",
-					slog.Int("remaining", remaining),
+					pkglogger.Int("remaining", remaining),
 				)
 			}
 			return
@@ -166,8 +165,8 @@ func (f *Flusher) handle(ctx context.Context, req contract.NotifyRequest) {
 	if err != nil {
 		f.resolveErrs.Add(1)
 		f.logger.Warn("notify: resolve alias failed",
-			slog.String("alias", req.ChannelAlias),
-			slog.String("error", RedactError(err)),
+			pkglogger.String("alias", req.ChannelAlias),
+			pkglogger.String("error", RedactError(err)),
 		)
 		return
 	}
@@ -175,9 +174,9 @@ func (f *Flusher) handle(ctx context.Context, req contract.NotifyRequest) {
 	if err != nil {
 		f.renderErrs.Add(1)
 		f.logger.Warn("notify: render failed",
-			slog.String("platform", string(cfg.Platform)),
-			slog.String("url", RedactURL(cfg.URL)),
-			slog.String("error", RedactError(err)),
+			pkglogger.String("platform", string(cfg.Platform)),
+			pkglogger.String("url", RedactURL(cfg.URL)),
+			pkglogger.String("error", RedactError(err)),
 		)
 		return
 	}
@@ -189,9 +188,9 @@ func (f *Flusher) handle(ctx context.Context, req contract.NotifyRequest) {
 	if err := f.client.Post(ctx, postURL, contentType, body); err != nil {
 		f.sendErrors.Add(1)
 		f.logger.Warn("notify: post failed",
-			slog.String("platform", string(cfg.Platform)),
-			slog.String("url", RedactURL(cfg.URL)),
-			slog.String("error", RedactError(err)),
+			pkglogger.String("platform", string(cfg.Platform)),
+			pkglogger.String("url", RedactURL(cfg.URL)),
+			pkglogger.String("error", RedactError(err)),
 		)
 		return
 	}

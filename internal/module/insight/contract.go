@@ -23,8 +23,11 @@ import (
 // (and downstream consumers that already import insight) keep working.
 type Service = contract.InsightService
 
-// Re-export contract types as local aliases for backwards compatibility.
+// Snapshot is the read-model row returned by insight queries.
 type Snapshot = contract.InsightSnapshot
+
+// ApprovalSnapshot is the approval-observation row returned by insight
+// approval queries.
 type ApprovalSnapshot = contract.InsightApprovalSnapshot
 
 // ErrInvalidLimit re-exports the contract sentinel.

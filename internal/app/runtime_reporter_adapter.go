@@ -2,9 +2,9 @@ package app
 
 import (
 	"context"
-	"log/slog"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"go.uber.org/fx"
 )
 
@@ -12,7 +12,7 @@ type runtimeReporterParams struct {
 	fx.In
 
 	Service contract.OrchestrationService `optional:"true"`
-	Logger  *slog.Logger
+	Logger  *pkglogger.Logger
 }
 
 // newRuntimeReporter provides a contract.RuntimeReporter for the desktop app.
@@ -36,7 +36,7 @@ func (r orchestrationRuntimeReporter) ReportRuntime(ctx context.Context, report 
 }
 
 type noopRuntimeReporter struct {
-	logger *slog.Logger
+	logger *pkglogger.Logger
 }
 
 // ReportRuntime 报告运行时。

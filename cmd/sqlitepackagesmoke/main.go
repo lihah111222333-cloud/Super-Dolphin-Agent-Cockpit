@@ -1,3 +1,4 @@
+// Command sqlitepackagesmoke verifies packaged SQLite runtime behavior.
 package main
 
 import (
@@ -5,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,6 +15,7 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	sqliteruntime "github.com/anthropic-ai/super-agent-v3/internal/platform/db/sqlite"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 var nowFunc = time.Now
@@ -29,7 +30,7 @@ func main() {
 	ctx, cancel := platformconfig.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := run(ctx); err != nil {
-		slog.Error("sqlite package smoke failed", "error", err)
+		pkglogger.Error("sqlite package smoke failed", "error", err)
 		os.Exit(1)
 	}
 }

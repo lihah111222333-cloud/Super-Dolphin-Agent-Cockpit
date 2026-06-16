@@ -6,6 +6,8 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 )
 
+// TurnRequest carries a provider-neutral turn submission after module-level
+// prompt and tool-surface assembly has completed.
 type TurnRequest struct {
 	LocalID              string          `json:"localId,omitempty"`
 	ThreadID             string          `json:"threadId"`
@@ -27,11 +29,14 @@ type TurnRequest struct {
 	DedupeKey string `json:"-"`
 }
 
+// TurnOverrides carries per-turn provider model controls.
 type TurnOverrides struct {
 	Model  string `json:"model,omitempty"`
 	Effort string `json:"effort,omitempty"`
 }
 
+// InputItem aliases the shared multimodal input DTO used by provider turn and
+// steer requests.
 type InputItem = shareddto.InputItem
 
 // SkillRef 是 turn / steer 请求中携带的 skill 引用。
@@ -93,6 +98,7 @@ func (s SkillSource) Valid() bool {
 	return false
 }
 
+// TurnResult is the normalized provider response for a submitted turn.
 type TurnResult struct {
 	LocalID    string `json:"localId"`
 	ProviderID string `json:"providerId,omitempty"`
@@ -100,12 +106,14 @@ type TurnResult struct {
 	Error      string `json:"error,omitempty"`
 }
 
+// InterruptRequest asks a provider runtime to interrupt a running turn.
 type InterruptRequest struct {
 	ThreadID string `json:"threadId"`
 	TurnID   string `json:"turnId,omitempty"`
 	Source   string `json:"source,omitempty"`
 }
 
+// SteerRequest carries additional user input for an active provider thread.
 type SteerRequest struct {
 	ThreadID             string          `json:"threadId"`
 	ExpectedTurnID       string          `json:"expectedTurnId,omitempty"`
@@ -117,15 +125,19 @@ type SteerRequest struct {
 	Overrides            TurnOverrides   `json:"overrides"`
 }
 
+// ForceCompleteRequest marks a provider turn complete when the provider cannot
+// emit a normal completion event.
 type ForceCompleteRequest struct {
 	ThreadID   string `json:"threadId"`
 	ProviderID string `json:"providerId,omitempty"`
 }
 
+// ForkRequest asks a provider to create a new thread from an existing thread.
 type ForkRequest struct {
 	ThreadID string `json:"threadId"`
 }
 
+// ForkResult reports the provider-neutral identity of a forked thread.
 type ForkResult struct {
 	NewThreadID string `json:"newThreadId"`
 }

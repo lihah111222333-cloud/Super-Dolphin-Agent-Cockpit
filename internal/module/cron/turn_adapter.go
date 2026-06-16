@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -43,7 +42,7 @@ import (
 type TurnServiceAdapter struct {
 	svc      contract.CronTurnExecutor
 	resolver contract.SessionResolver
-	logger   *slog.Logger
+	logger   *pkglogger.Logger
 	// bootstrapper is optional. When set, StartTurn invokes it on a job
 	// row whose ThreadID is still empty, then proceeds with the
 	// freshly-minted thread. A nil bootstrapper preserves the v1
@@ -58,7 +57,7 @@ var _ TurnSubmitter = (*TurnServiceAdapter)(nil)
 // is a programmer error; callers should fall back to NoopTurnSubmitter
 // before reaching this constructor.
 // NewTurnServiceAdapter 创建 cron 到 turn service 的适配器。
-func NewTurnServiceAdapter(logger *slog.Logger, svc contract.CronTurnExecutor, resolver contract.SessionResolver) *TurnServiceAdapter {
+func NewTurnServiceAdapter(logger *pkglogger.Logger, svc contract.CronTurnExecutor, resolver contract.SessionResolver) *TurnServiceAdapter {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}

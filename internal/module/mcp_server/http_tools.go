@@ -81,7 +81,7 @@ func sendMCPHTTPJSONRPC(
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s: %v", errMCPServerToolsRequestFailed, method, err)
+		return nil, fmt.Errorf("%w: %s: %w", errMCPServerToolsRequestFailed, method, err)
 	}
 	defer resp.Body.Close()
 	raw, err := readMCPHTTPResponseBody(resp.Body)
@@ -115,7 +115,7 @@ func buildMCPHTTPJSONRPCRequest(
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSpace(config.URL), bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("%w: build %s request: %v", errMCPServerToolsRequestFailed, method, err)
+		return nil, fmt.Errorf("%w: build %s request: %w", errMCPServerToolsRequestFailed, method, err)
 	}
 	req.Header.Set("Accept", mcpHTTPAcceptHeader)
 	req.Header.Set("Content-Type", "application/json")
@@ -147,7 +147,7 @@ func rejectMCPHTTPStatus(statusCode int, method string, raw []byte) error {
 func readMCPHTTPResponseBody(body io.Reader) ([]byte, error) {
 	raw, err := io.ReadAll(io.LimitReader(body, mcpHTTPMaxResponseBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("%w: read response: %v", errMCPServerToolsRequestFailed, err)
+		return nil, fmt.Errorf("%w: read response: %w", errMCPServerToolsRequestFailed, err)
 	}
 	if len(raw) > mcpHTTPMaxResponseBytes {
 		return nil, fmt.Errorf("%w: response exceeds %d bytes", errInvalidToolsResponse, mcpHTTPMaxResponseBytes)
@@ -178,7 +178,7 @@ func decodeMCPHTTPRPCResult(method string, raw []byte, expectResponse bool) (jso
 	}
 	var resp mcpHTTPRPCResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
-		return nil, fmt.Errorf("%w: decode %s response: %v", errInvalidToolsResponse, method, err)
+		return nil, fmt.Errorf("%w: decode %s response: %w", errInvalidToolsResponse, method, err)
 	}
 	if strings.TrimSpace(resp.JSONRPC) != "2.0" {
 		return nil, fmt.Errorf("%w: %s response jsonrpc must be 2.0", errInvalidToolsResponse, method)
@@ -196,7 +196,7 @@ func decodeMCPHTTPRPCResult(method string, raw []byte, expectResponse bool) (jso
 func decodeMCPHTTPTools(raw json.RawMessage) ([]mcpdto.MCPTool, error) {
 	var result map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &result); err != nil {
-		return nil, fmt.Errorf("%w: decode tools/list result: %v", errInvalidToolsResponse, err)
+		return nil, fmt.Errorf("%w: decode tools/list result: %w", errInvalidToolsResponse, err)
 	}
 	rawTools, ok := result["tools"]
 	if !ok {
@@ -208,7 +208,7 @@ func decodeMCPHTTPTools(raw json.RawMessage) ([]mcpdto.MCPTool, error) {
 	}
 	var tools []mcpdto.MCPTool
 	if err := json.Unmarshal(rawTools, &tools); err != nil {
-		return nil, fmt.Errorf("%w: decode tools/list tools: %v", errInvalidToolsResponse, err)
+		return nil, fmt.Errorf("%w: decode tools/list tools: %w", errInvalidToolsResponse, err)
 	}
 	for _, tool := range tools {
 		if strings.TrimSpace(tool.Name) == "" {

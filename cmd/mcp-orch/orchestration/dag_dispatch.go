@@ -341,7 +341,7 @@ func (s *service) resolveStartDAGUniqueViolation(ctx context.Context, dagKey, ru
 		}
 	}
 	if getErr != nil && !platformdb.IsNotFound(getErr) {
-		return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): GetRun fallback: %w (original tx error: %v)", dagKey, getErr, txErr)
+		return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): GetRun fallback: %w (original tx error: %w)", dagKey, getErr, txErr)
 	}
 	return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): unresolved unique violation for run_key=%s: %w", dagKey, runKey, txErr)
 }

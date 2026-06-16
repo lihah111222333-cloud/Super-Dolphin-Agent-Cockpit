@@ -1,8 +1,6 @@
 package thread
 
 import (
-	"log/slog"
-
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
@@ -17,7 +15,7 @@ import (
 
 // NewService 创建服务。
 func NewService(
-	logger *slog.Logger,
+	logger *pkglogger.Logger,
 	threadStore threadstore.Store,
 	bindingStore bindingstore.Store,
 	sessions SessionProvider,
@@ -31,7 +29,7 @@ func NewService(
 
 // NewServiceWithPromptAssembly 创建带promptassembly的服务。
 func NewServiceWithPromptAssembly(
-	logger *slog.Logger,
+	logger *pkglogger.Logger,
 	threadStore threadstore.Store,
 	bindingStore bindingstore.Store,
 	sessions SessionProvider,
@@ -48,7 +46,7 @@ func NewServiceWithPromptAssembly(
 
 // NewServiceWithPromptAssemblyAndSharedFiles 创建带promptassemblyshared文件的服务。
 func NewServiceWithPromptAssemblyAndSharedFiles(
-	logger *slog.Logger,
+	logger *pkglogger.Logger,
 	threadStore threadstore.Store,
 	bindingStore bindingstore.Store,
 	sharedFiles sharedfilestore.Store,
@@ -76,7 +74,7 @@ func NewServiceWithPromptAssemblyAndSharedFiles(
 
 // newService 创建服务。
 func newService(
-	logger *slog.Logger,
+	logger *pkglogger.Logger,
 	threadStore threadstore.Store,
 	bindingStore bindingstore.Store,
 	sharedFiles sharedfilestore.Store,

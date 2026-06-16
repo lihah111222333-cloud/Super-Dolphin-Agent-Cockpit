@@ -2,6 +2,8 @@ package provider
 
 import "encoding/json"
 
+// PromptRegion identifies whether a prompt section belongs to the static
+// cacheable prefix or dynamic tail.
 type PromptRegion int
 
 const (
@@ -9,6 +11,8 @@ const (
 	PromptRegionDynamic
 )
 
+// ResolvedPromptSection records a rendered prompt section and its cache
+// volatility metadata.
 type ResolvedPromptSection struct {
 	Name     string       `json:"name,omitempty"`
 	Region   PromptRegion `json:"region,omitempty"`
@@ -16,13 +20,19 @@ type ResolvedPromptSection struct {
 	Content  string       `json:"content,omitempty"`
 }
 
+// SystemContext carries provider-visible system metadata such as git status or
+// cache breakers.
 type SystemContext map[string]string
 
+// PromptAssemblyBoundary splits assembled instructions into cached and
+// uncached regions for providers that support prompt caching.
 type PromptAssemblyBoundary struct {
 	CachedPrefix string `json:"cachedPrefix,omitempty"`
 	UncachedTail string `json:"uncachedTail,omitempty"`
 }
 
+// PromptAssemblySnapshot is the durable prompt assembly metadata stored for a
+// thread and reused during resume.
 type PromptAssemblySnapshot struct {
 	DisplayName           string                  `json:"displayName,omitempty"`
 	BaseInstructions      string                  `json:"baseInstructions,omitempty"`
@@ -35,6 +45,7 @@ type PromptAssemblySnapshot struct {
 	Generation            uint64                  `json:"generation,omitempty"`
 }
 
+// StartAssembly is the provider-ready prompt assembly for a new session.
 type StartAssembly struct {
 	DisplayName           string                  `json:"displayName,omitempty"`
 	BaseInstructions      string                  `json:"baseInstructions,omitempty"`
@@ -62,6 +73,8 @@ type StartAssembly struct {
 	SystemContext SystemContext `json:"systemContext,omitempty"`
 }
 
+// TurnAssembly is the provider-ready prompt and attachment assembly for one
+// turn or steer request.
 type TurnAssembly struct {
 	UserContext      map[string]string       `json:"userContext,omitempty"`
 	UserContextText  string                  `json:"userContextText,omitempty"`
@@ -70,6 +83,8 @@ type TurnAssembly struct {
 	ResolvedSections []ResolvedPromptSection `json:"resolvedSections,omitempty"`
 }
 
+// StartSessionRequest carries all provider-neutral inputs needed to create a
+// new provider session.
 type StartSessionRequest struct {
 	Provider        string         `json:"provider"`
 	AgentID         string         `json:"agentId"`
@@ -93,6 +108,8 @@ type StartSessionRequest struct {
 	ForceLaunchSkills bool `json:"forceLaunchSkills,omitempty"`
 }
 
+// ResumeSessionRequest carries provider-neutral inputs needed to reconnect a
+// stored thread to a provider runtime.
 type ResumeSessionRequest struct {
 	Provider                 string                 `json:"provider"`
 	AgentID                  string                 `json:"agentId"`

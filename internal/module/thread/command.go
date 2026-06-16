@@ -183,21 +183,7 @@ func bindingProvider(binding *bindingstore.Binding) string {
 func (s *service) GetConfig(ctx context.Context, threadID string) (dto.ThreadConfig, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
-		cfg, handled, offlineErr := s.pendingLaunchOfflineConfig(ctx, threadID, err)
-		if offlineErr != nil {
-			return dto.ThreadConfig{}, offlineErr
-		}
-		if handled {
-			return cfg, nil
-		}
-		cfg, handled, offlineErr = s.offlineConfigForMissingSession(ctx, threadID, binding, err)
-		if offlineErr != nil {
-			return dto.ThreadConfig{}, offlineErr
-		}
-		if handled {
-			return cfg, nil
-		}
-		return dto.ThreadConfig{}, err
+		return s.configForUnresolvedSession(ctx, threadID, binding, err)
 	}
 	reader, ok := session.(configReaderSession)
 	if !ok {
@@ -208,6 +194,24 @@ func (s *service) GetConfig(ctx context.Context, threadID string) (dto.ThreadCon
 		return dto.ThreadConfig{}, err
 	}
 	return s.normalizeThreadConfig(ctx, threadID, binding, cfg), nil
+}
+
+func (s *service) configForUnresolvedSession(ctx context.Context, threadID string, binding *bindingstore.Binding, resolveErr error) (dto.ThreadConfig, error) {
+	cfg, handled, offlineErr := s.pendingLaunchOfflineConfig(ctx, threadID, resolveErr)
+	if offlineErr != nil {
+		return dto.ThreadConfig{}, offlineErr
+	}
+	if handled {
+		return cfg, nil
+	}
+	cfg, handled, offlineErr = s.offlineConfigForMissingSession(ctx, threadID, binding, resolveErr)
+	if offlineErr != nil {
+		return dto.ThreadConfig{}, offlineErr
+	}
+	if handled {
+		return cfg, nil
+	}
+	return dto.ThreadConfig{}, resolveErr
 }
 
 func (s *service) offlineConfigForMissingSession(

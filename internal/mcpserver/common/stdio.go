@@ -21,6 +21,8 @@ const (
 	modeFramed
 )
 
+// StdioTransport reads and writes MCP JSON-RPC messages over raw JSON or
+// Content-Length framed stdio streams.
 type StdioTransport struct {
 	reader  *bufio.Reader
 	writer  io.Writer
@@ -152,8 +154,11 @@ func (t *StdioTransport) readFramed() (json.RawMessage, error) {
 			continue
 		}
 		length, err = strconv.Atoi(strings.TrimSpace(value))
-		if err != nil || length < 0 {
-			return nil, fmt.Errorf("mcp stdio: invalid Content-Length %q", value)
+		if err != nil {
+			return nil, fmt.Errorf("mcp stdio: invalid Content-Length %q: %w", value, err)
+		}
+		if length < 0 {
+			return nil, fmt.Errorf("mcp stdio: invalid negative Content-Length %d", length)
 		}
 	}
 	if length < 0 {

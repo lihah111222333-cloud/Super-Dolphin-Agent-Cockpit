@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// Match describes where a parsed hunk landed in the target content.
 type Match struct {
 	MatchedBy           string
 	ResolvedStartOffset int
@@ -36,6 +37,7 @@ type AmbiguousMatchError struct {
 	Candidates []CandidateLocation
 }
 
+// CandidateLocation reports one ambiguous hunk destination for tool metadata.
 type CandidateLocation struct {
 	StartLine int
 	EndLine   int

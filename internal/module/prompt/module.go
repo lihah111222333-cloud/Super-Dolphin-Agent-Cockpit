@@ -1,8 +1,6 @@
 package prompt
 
 import (
-	"log/slog"
-
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 
@@ -12,6 +10,7 @@ import (
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // Module 把 prompt 的注册表、组装器和 RPC 接起来。
@@ -65,7 +64,7 @@ func registerPromptHandlers(params promptHandlersParams) platformrpc.HandlerMapR
 type ServiceFxParams struct {
 	fx.In
 	Cfg             *Config
-	Logger          *slog.Logger           `optional:"true"`
+	Logger          *pkglogger.Logger      `optional:"true"`
 	Prefs           uipreference.Store     `optional:"true"`
 	SharedFiles     sharedfilestore.Reader `optional:"true"`
 	DisabledToolsFn DisabledBuiltinToolsFn `optional:"true"`

@@ -8,10 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"log/slog"
-
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -22,7 +21,7 @@ const (
 
 type teamSyncWatcher struct {
 	service       *TeamSyncService
-	logger        *slog.Logger
+	logger        *pkglogger.Logger
 	root          string
 	canonicalRoot string
 	watcher       *fsnotify.Watcher
@@ -39,7 +38,7 @@ type teamSyncWatcher struct {
 }
 
 // newTeamSyncWatcher 创建teamsyncwatcher。
-func newTeamSyncWatcher(service *TeamSyncService, root string, logger *slog.Logger) (*teamSyncWatcher, error) {
+func newTeamSyncWatcher(service *TeamSyncService, root string, logger *pkglogger.Logger) (*teamSyncWatcher, error) {
 	canonicalRoot, err := resolveTeamMemRealPath(root, invalidTeamMemWritePath)
 	if err != nil {
 		return nil, err

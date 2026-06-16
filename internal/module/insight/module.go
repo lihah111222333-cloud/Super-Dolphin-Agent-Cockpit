@@ -1,8 +1,6 @@
 package insight
 
 import (
-	"log/slog"
-
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -29,7 +27,7 @@ var Module = fx.Module("insight",
 	),
 )
 
-func provideCollector(logger *slog.Logger) *collector {
+func provideCollector(logger *pkglogger.Logger) *collector {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}

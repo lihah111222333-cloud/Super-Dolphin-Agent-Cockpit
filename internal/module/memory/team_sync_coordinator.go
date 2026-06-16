@@ -2,7 +2,6 @@ package memory
 
 import (
 	"context"
-	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -55,7 +54,7 @@ type teamSyncOp struct {
 type teamSyncCoordinator struct {
 	svc    teampkg.Lifecycle
 	store  contract.ThreadMetadataStore
-	logger *slog.Logger
+	logger *pkglogger.Logger
 
 	mu    sync.Mutex
 	queue []teamSyncOp
@@ -71,7 +70,7 @@ type teamSyncCoordinator struct {
 	processedTotal atomic.Int64
 }
 
-func newTeamSyncCoordinator(svc teampkg.Lifecycle, store contract.ThreadMetadataStore, logger *slog.Logger) *teamSyncCoordinator {
+func newTeamSyncCoordinator(svc teampkg.Lifecycle, store contract.ThreadMetadataStore, logger *pkglogger.Logger) *teamSyncCoordinator {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}

@@ -95,6 +95,10 @@ type processGuard struct {
 	handle windows.Handle
 }
 
+func missingProcessGuard() *processGuard {
+	return nil
+}
+
 // attachProcessGuard 处理attach进程守卫。
 func attachProcessGuard(cmd *exec.Cmd) *processGuard {
 	if cmd == nil || cmd.Process == nil {
@@ -103,7 +107,7 @@ func attachProcessGuard(cmd *exec.Cmd) *processGuard {
 	handle, err := createKillOnCloseJob()
 	if err != nil {
 		pkglogger.Warn("claudecli: create job object failed", "error", err)
-		return nil
+		return missingProcessGuard()
 	}
 	procHandle, err := windows.OpenProcess(
 		windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE,
@@ -114,7 +118,7 @@ func attachProcessGuard(cmd *exec.Cmd) *processGuard {
 		pkglogger.Warn("claudecli: open process handle failed",
 			"pid", cmd.Process.Pid, "error", err)
 		windows.CloseHandle(handle)
-		return nil
+		return missingProcessGuard()
 	}
 	defer windows.CloseHandle(procHandle)
 	if err := windows.AssignProcessToJobObject(handle, procHandle); err != nil {

@@ -501,7 +501,12 @@ func (s *Server) releaseUIWebSocketSlot() {
 	defer s.mu.Unlock()
 
 	if s.activeUIWS <= 0 {
-		panic("rpc UI websocket slot released without a reservation")
+		logger := s.logger
+		if logger == nil {
+			logger = pkglogger.Get()
+		}
+		logger.Error("rpc: UI websocket slot released without a reservation")
+		return
 	}
 	s.activeUIWS--
 }

@@ -123,7 +123,11 @@ func (r *ToolRegistry) lookupInstance(key dto.LeaseKey) (*ToolInstance, bool) {
 		allowStale: true,
 	})
 	if err != nil {
-		return nil, false
+		return missingToolInstance()
 	}
 	return instance, true
+}
+
+func missingToolInstance() (*ToolInstance, bool) {
+	return nil, false
 }

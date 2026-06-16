@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +18,7 @@ import (
 )
 
 type service struct {
-	logger                *slog.Logger
+	logger                *pkglogger.Logger
 	threads               contract.ThreadLister
 	agents                contract.OrchestrationService
 	preferences           uipreference.Store
@@ -67,6 +66,7 @@ var errPreferenceKeyRequired = errors.New("uistate: preference key is required")
 
 var _ Service = (*service)(nil)
 
+// ServiceOption customizes the UI state service at construction time.
 type ServiceOption func(*service)
 
 // WithObservability 设置observability。
@@ -76,7 +76,7 @@ func WithObservability(trace *observability.Service) ServiceOption {
 
 // NewService 创建服务。
 func NewService(
-	logger *slog.Logger,
+	logger *pkglogger.Logger,
 	threads contract.ThreadLister,
 	agents contract.OrchestrationService,
 	preferences uipreference.Store,

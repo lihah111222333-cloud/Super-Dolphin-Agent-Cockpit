@@ -2,7 +2,6 @@ package thread
 
 import (
 	"context"
-	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -56,7 +55,7 @@ type sessionRecoverer interface {
 // instead of blocking.
 type sessionRecoveryWorker struct {
 	recoverer sessionRecoverer
-	logger    *slog.Logger
+	logger    *pkglogger.Logger
 
 	// ctx is the per-worker context threaded into every
 	// processSessionRecovery call. cancel() fires from Stop, which
@@ -80,7 +79,7 @@ type sessionRecoveryWorker struct {
 	enqueuedTotal, coalescedTotal, processedTotal atomic.Int64
 }
 
-func newSessionRecoveryWorker(recoverer sessionRecoverer, logger *slog.Logger) *sessionRecoveryWorker {
+func newSessionRecoveryWorker(recoverer sessionRecoverer, logger *pkglogger.Logger) *sessionRecoveryWorker {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}

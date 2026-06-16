@@ -3,7 +3,6 @@ package memory
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -13,8 +12,10 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// ErrConsolidationExtractFuncRequired reports a consolidation run without an extractor.
 var ErrConsolidationExtractFuncRequired = errors.New("dream extract func is not configured")
 
+// AutoDreamConsolidator coordinates periodic memory compaction into dream summaries.
 type AutoDreamConsolidator struct {
 	cfg       *Config
 	extractor *MemoryExtractor
@@ -211,7 +212,7 @@ const autoDreamSchedulerDrainGrace = 10 * time.Second
 
 type autoDreamScheduler struct {
 	hooks  *MemoryLifecycleHooks
-	logger *slog.Logger
+	logger *pkglogger.Logger
 
 	queue chan string
 
@@ -228,7 +229,7 @@ type autoDreamScheduler struct {
 	scheduledTotal atomic.Int64
 }
 
-func newAutoDreamScheduler(hooks *MemoryLifecycleHooks, logger *slog.Logger) *autoDreamScheduler {
+func newAutoDreamScheduler(hooks *MemoryLifecycleHooks, logger *pkglogger.Logger) *autoDreamScheduler {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}

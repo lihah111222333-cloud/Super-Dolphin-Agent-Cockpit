@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"sort"
 	"strings"
@@ -37,13 +36,13 @@ const defaultMaxPromptBytes = 256 * 1024
 type dreamExecutor struct {
 	order          []string
 	executors      map[string]contract.DreamExecutor
-	logger         *slog.Logger
+	logger         *pkglogger.Logger
 	timeout        time.Duration
 	maxPromptBytes int
 }
 
 // NewDreamExecutor 创建dreamexecutor。
-func NewDreamExecutor(providers []contract.DreamExecutorProvider, logger *slog.Logger) contract.DreamExecutor {
+func NewDreamExecutor(providers []contract.DreamExecutorProvider, logger *pkglogger.Logger) contract.DreamExecutor {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}

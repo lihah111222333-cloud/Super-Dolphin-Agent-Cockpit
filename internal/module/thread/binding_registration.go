@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
@@ -13,6 +12,7 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type bindingRegistration struct {
@@ -260,15 +260,23 @@ func (s *service) prepareBindingWrite(ctx context.Context, registration bindingR
 	existing, err := s.bindingStore.GetByAgentID(ctx, registration.AgentID)
 	notFound := contract.IsNotFound(err)
 	if err != nil && !notFound {
-		return nil, bindingWriteOutcome{}, err
+		return bindingWriteFailed(err)
 	}
 	if notFound {
-		return nil, bindingWriteOutcome{AgentID: registration.AgentID}, nil
+		return newBindingWrite(registration.AgentID)
 	}
 	return existing, bindingWriteOutcome{
 		AgentID:  registration.AgentID,
 		Previous: cloneBinding(existing),
 	}, nil
+}
+
+func bindingWriteFailed(err error) (*bindingstore.Binding, bindingWriteOutcome, error) {
+	return nil, bindingWriteOutcome{}, err
+}
+
+func newBindingWrite(agentID string) (*bindingstore.Binding, bindingWriteOutcome, error) {
+	return nil, bindingWriteOutcome{AgentID: agentID}, nil
 }
 func (s *service) persistRegisteredBinding(ctx context.Context, registration bindingRegistration) error {
 	return s.bindingStore.Upsert(ctx, newBindingUpsertParams(bindingstore.Binding{
@@ -492,11 +500,11 @@ func (s *service) lookupPersistedAgentID(ctx context.Context, threadID string) (
 
 type bindingRecoveryReporter struct {
 	store  bindingstore.Store
-	logger *slog.Logger
+	logger *pkglogger.Logger
 }
 
 // NewBindingRecoveryReporter 创建bindingrecoveryreporter。
-func NewBindingRecoveryReporter(store bindingstore.Store, logger *slog.Logger) contract.SessionRecoveryReporter {
+func NewBindingRecoveryReporter(store bindingstore.Store, logger *pkglogger.Logger) contract.SessionRecoveryReporter {
 	return &bindingRecoveryReporter{store: store, logger: logger}
 }
 

@@ -1,7 +1,6 @@
 package observability
 
 import (
-	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,7 +14,7 @@ var traceRecordErrorWarnings sync.Map
 
 // WarnRecordError reports tracing write failures without failing the caller path.
 // WarnRecordError 处理warn记录错误。
-func WarnRecordError(logger *slog.Logger, scope string, event TraceEvent, err error) {
+func WarnRecordError(logger *pkglogger.Logger, scope string, event TraceEvent, err error) {
 	if err == nil {
 		return
 	}

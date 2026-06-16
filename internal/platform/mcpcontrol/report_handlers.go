@@ -160,7 +160,7 @@ func completionEventData(report dto.ReportEnvelope) json.RawMessage {
 	}
 	raw, err := json.Marshal(report)
 	if err != nil {
-		return nil
+		return json.RawMessage("{}")
 	}
 	return raw
 }

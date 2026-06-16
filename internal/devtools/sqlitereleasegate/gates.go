@@ -7,14 +7,19 @@ import (
 	"time"
 )
 
+// Status describes the outcome of one SQLite release gate.
 type Status string
 
 const (
-	StatusPass    Status = "PASS"
-	StatusFail    Status = "FAIL"
+	// StatusPass means the gate command exited successfully.
+	StatusPass Status = "PASS"
+	// StatusFail means the gate command, gate setup, or result persistence failed.
+	StatusFail Status = "FAIL"
+	// StatusSkipped means a non-required gate was intentionally not executed.
 	StatusSkipped Status = "SKIPPED"
 )
 
+// Gate defines one SQLite release verification command and its release priority.
 type Gate struct {
 	ID           string
 	Title        string
@@ -35,6 +40,7 @@ var mcpOrchSQLiteSmokePackages = []string{
 	"./cmd/mcp-orch/tools",
 }
 
+// CommandString returns the shell-style command text used in release reports.
 func (g Gate) CommandString() string {
 	return strings.Join(g.Command, " ")
 }
@@ -172,6 +178,7 @@ func sqliteGoTestCommandWithTags(runPattern string, tags []string, packages ...s
 	return command
 }
 
+// Result captures the command output metadata and status for one executed gate.
 type Result struct {
 	Gate       Gate
 	Command    string
@@ -181,8 +188,10 @@ type Result struct {
 	ExitCode   int
 	RawLogPath string
 	Status     Status
+	LogError   string
 }
 
+// Report is the full release gate audit artifact for a commit and platform.
 type Report struct {
 	CommitSHA string
 	OS        string
@@ -192,6 +201,7 @@ type Report struct {
 	Results   []Result
 }
 
+// Definitions returns a defensive copy of the configured SQLite release gates.
 func Definitions() []Gate {
 	gates := make([]Gate, len(sqliteGateDefinitions))
 	for i, gate := range sqliteGateDefinitions {
@@ -201,6 +211,7 @@ func Definitions() []Gate {
 	return gates
 }
 
+// ValidateResults verifies that a report contains known gates and passing P0 outcomes.
 func ValidateResults(gates []Gate, results []Result, allowPartial bool) error {
 	gateByID, err := mapGateDefinitions(gates)
 	if err != nil {
@@ -287,6 +298,7 @@ func requireAllGatesReported(gates []Gate, seen map[string]Result) error {
 	return nil
 }
 
+// RenderMarkdown renders a release gate report as a stable Markdown table.
 func RenderMarkdown(report Report) string {
 	var b strings.Builder
 	b.WriteString("# SQLite Release Gate Report\n\n")
@@ -297,8 +309,8 @@ func RenderMarkdown(report Report) string {
 	writeRow(&b, "Start time", formatTime(report.StartedAt))
 	writeRow(&b, "End time", formatTime(report.EndedAt))
 	b.WriteString("\n")
-	b.WriteString("| Gate | Priority | Title | Command | CWD | Start time | End time | Exit code | Raw log artifact | Result | Blocker owner |\n")
-	b.WriteString("|---|---|---|---|---|---|---:|---:|---|---|---|\n")
+	b.WriteString("| Gate | Priority | Title | Command | CWD | Start time | End time | Exit code | Raw log artifact | Log error | Result | Blocker owner |\n")
+	b.WriteString("|---|---|---|---|---|---|---:|---:|---|---|---|---|\n")
 	results := append([]Result(nil), report.Results...)
 	sort.Slice(results, func(i, j int) bool {
 		return gateSortKey(results[i].Gate.ID) < gateSortKey(results[j].Gate.ID)
@@ -318,6 +330,7 @@ func RenderMarkdown(report Report) string {
 			formatTime(result.EndedAt),
 			fmt.Sprintf("%d", result.ExitCode),
 			result.RawLogPath,
+			result.LogError,
 			string(result.Status),
 			owner,
 		}

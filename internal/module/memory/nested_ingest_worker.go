@@ -2,7 +2,6 @@ package memory
 
 import (
 	"context"
-	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -57,7 +56,7 @@ type nestedIngestRequest struct {
 // the disk is slow.
 type nestedIngestWorker struct {
 	runtime nestedIngestRuntime
-	logger  *slog.Logger
+	logger  *pkglogger.Logger
 
 	mu      sync.Mutex
 	pending map[nestedIngestKey]nestedIngestRequest
@@ -76,7 +75,7 @@ type nestedIngestWorker struct {
 	processedTotal atomic.Int64
 }
 
-func newNestedIngestWorker(runtime nestedIngestRuntime, logger *slog.Logger) *nestedIngestWorker {
+func newNestedIngestWorker(runtime nestedIngestRuntime, logger *pkglogger.Logger) *nestedIngestWorker {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}

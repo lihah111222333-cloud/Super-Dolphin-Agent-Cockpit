@@ -406,7 +406,13 @@ func (h *Handler) readToolCallRuntime(ctx context.Context, threadID string) (map
 		return nil, false
 	}
 	raw, err := h.threadStore.GetConfigOverride(ctx, threadID)
-	if err != nil || len(raw) == 0 {
+	if err != nil {
+		h.warn("toolbridge: read tool call runtime override failed",
+			"thread_id", threadID,
+			"error", err)
+		return map[string]any{}, false
+	}
+	if len(raw) == 0 {
 		return nil, false
 	}
 	return decodeStoredThreadRuntime(raw)

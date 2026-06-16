@@ -263,7 +263,7 @@ func findStaleRegistryFiles() []staleFile {
 	pattern := filepath.Join(registryDir(), filePrefix+"*"+fileSuffix)
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
-		return nil
+		return []staleFile{}
 	}
 
 	myPID := os.Getpid()

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -17,7 +16,7 @@ import (
 )
 
 type service struct {
-	logger *slog.Logger
+	logger *pkglogger.Logger
 	store  Store
 	now    func() time.Time
 	newID  func() string
@@ -28,7 +27,7 @@ var _ Service = (*service)(nil)
 // NewService constructs a cron Service backed by the given store. now / newID
 // are overridable for deterministic tests.
 // NewService 创建模块服务并注入存储和运行依赖。
-func NewService(logger *slog.Logger, store Store) Service {
+func NewService(logger *pkglogger.Logger, store Store) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -88,7 +87,6 @@ func (s *service) CreateJob(ctx context.Context, req CreateJobRequest) (Job, err
 		UpdatedAt:     now,
 	})
 	if err != nil {
-		s.logger.Warn("cron: create job failed", slog.String("error", err.Error()))
 		return Job{}, err
 	}
 	return toJob(row), nil
@@ -287,10 +285,10 @@ func (s *service) validateCreate(req *CreateJobRequest) error {
 	// 这里先挡住错误的 Codex 身份配置，避免定时任务后来跑到错误的 home/instance。
 	configMap, err := decodeConfigMap(req.Config)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
+		return fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
 	if _, err := contract.ResolveCodexIdentity(configMap); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
+		return fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
 	return nil
 }
@@ -353,18 +351,18 @@ func toJob(row cronstore.Job) Job {
 	var skills []string
 	if len(row.Skills) > 0 {
 		if err := json.Unmarshal(row.Skills, &skills); err != nil {
-			slog.Warn("cron: corrupt skills json in job row",
-				slog.String("job_id", row.ID),
-				slog.String("error", err.Error()),
+			pkglogger.Warn("cron: corrupt skills json in job row",
+				pkglogger.String("job_id", row.ID),
+				pkglogger.String("error", err.Error()),
 			)
 		}
 	}
 	var config any
 	if len(row.Config) > 0 {
 		if err := json.Unmarshal(row.Config, &config); err != nil {
-			slog.Warn("cron: corrupt config json in job row",
-				slog.String("job_id", row.ID),
-				slog.String("error", err.Error()),
+			pkglogger.Warn("cron: corrupt config json in job row",
+				pkglogger.String("job_id", row.ID),
+				pkglogger.String("error", err.Error()),
 			)
 		}
 	}

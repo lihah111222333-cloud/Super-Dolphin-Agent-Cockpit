@@ -83,7 +83,7 @@ func terminateByPID(pid int) error {
 func collectDescendants(root int) []int {
 	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
-		return nil
+		return []int{}
 	}
 	defer windows.CloseHandle(snap)
 

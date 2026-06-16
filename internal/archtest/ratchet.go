@@ -2,7 +2,6 @@ package archtest
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -122,30 +121,30 @@ func IsTestFile(path string) bool {
 }
 
 // FreezeBaseline 全仓扫描生成生产文件 baseline。只冻结有真实违规的非测试文件。
-func FreezeBaseline(opts CheckOptions) Baseline {
+func FreezeBaseline(opts CheckOptions) (Baseline, error) {
 	return freezeBaselineFiltered(opts, false)
 }
 
 // FreezeTestBaseline 全仓扫描生成测试文件 baseline。只冻结有真实违规的测试文件。
-func FreezeTestBaseline(opts CheckOptions) Baseline {
+func FreezeTestBaseline(opts CheckOptions) (Baseline, error) {
 	return freezeBaselineFiltered(opts, true)
 }
 
 // freezeBaselineFiltered 处理freezebaselinefiltered。
-func freezeBaselineFiltered(opts CheckOptions, testsOnly bool) Baseline {
+func freezeBaselineFiltered(opts CheckOptions, testsOnly bool) (Baseline, error) {
 	repoRoot := opts.RepoRoot
 	if repoRoot == "" {
 		repoRoot = "."
 	}
 	files, err := collectGoFilesFiltered(repoRoot, opts.scanRoots(), opts.skipDirs(), testsOnly)
 	if err != nil {
-		log.Fatalf("collect baseline files: %v", err)
+		return nil, fmt.Errorf("collect baseline files: %w", err)
 	}
 	bl := make(Baseline)
 	for _, absPath := range files {
 		relPath, err := filepath.Rel(repoRoot, absPath)
 		if err != nil {
-			log.Fatalf("baseline file relative path: %v", err)
+			return nil, fmt.Errorf("baseline file relative path: %w", err)
 		}
 		relPath = filepath.ToSlash(relPath)
 		m := MeasureFileMetrics(absPath)
@@ -153,7 +152,7 @@ func freezeBaselineFiltered(opts CheckOptions, testsOnly bool) Baseline {
 			bl[relPath] = m
 		}
 	}
-	return bl
+	return bl, nil
 }
 
 // collectGoFiles 收集扫描根下的所有 Go 文件绝对路径（含测试文件）。

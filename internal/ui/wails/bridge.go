@@ -3,7 +3,6 @@ package wails
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"strings"
 	"sync"
 
@@ -12,17 +11,18 @@ import (
 	"github.com/kelindar/event"
 )
 
+// EventBridge mirrors backend bus notifications into Wails UI events.
 type EventBridge struct {
 	dispatcher *event.Dispatcher
 	lifecycle  *WailsLifecycle
-	logger     *slog.Logger
+	logger     *pkglogger.Logger
 
 	mu      sync.Mutex
 	cancels []context.CancelFunc
 }
 
 // NewEventBridge 创建事件桥接。
-func NewEventBridge(dispatcher *event.Dispatcher, lifecycle *WailsLifecycle, slogLogger *slog.Logger) *EventBridge {
+func NewEventBridge(dispatcher *event.Dispatcher, lifecycle *WailsLifecycle, slogLogger *pkglogger.Logger) *EventBridge {
 	if slogLogger == nil {
 		slogLogger = pkglogger.Get()
 	}

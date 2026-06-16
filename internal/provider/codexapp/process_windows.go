@@ -106,6 +106,10 @@ type processGuard struct {
 	handle windows.Handle
 }
 
+func missingProcessGuard() *processGuard {
+	return nil
+}
+
 // attachProcessGuard 处理attach进程守卫。
 func attachProcessGuard(cmd *exec.Cmd) *processGuard {
 	if cmd == nil || cmd.Process == nil {
@@ -114,7 +118,7 @@ func attachProcessGuard(cmd *exec.Cmd) *processGuard {
 	handle, err := createKillOnCloseJob()
 	if err != nil {
 		pkglogger.Warn("codexapp: create job object failed", "error", err)
-		return nil
+		return missingProcessGuard()
 	}
 	procHandle, err := windows.OpenProcess(
 		windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE,
@@ -125,7 +129,7 @@ func attachProcessGuard(cmd *exec.Cmd) *processGuard {
 		pkglogger.Warn("codexapp: open process handle failed",
 			"pid", cmd.Process.Pid, "error", err)
 		windows.CloseHandle(handle)
-		return nil
+		return missingProcessGuard()
 	}
 	defer windows.CloseHandle(procHandle)
 	if err := windows.AssignProcessToJobObject(handle, procHandle); err != nil {
@@ -258,7 +262,7 @@ func discoverAllProcesses() (map[int]int, []mcpProcessInfo) {
 	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
 		pkglogger.Warn("orphan cleanup: Toolhelp32 snapshot failed", "error", err)
-		return nil, nil
+		return map[int]int{}, []mcpProcessInfo{}
 	}
 	defer windows.CloseHandle(snap)
 

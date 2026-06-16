@@ -3,7 +3,6 @@ package notify
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"strings"
 	"sync/atomic"
 
@@ -19,7 +18,7 @@ const DefaultQueueCapacity = 512
 // bounded channel; TryEnqueue is non-blocking so a stuck flusher cannot
 // backpressure the bus callback that called us.
 type Notifier struct {
-	logger   *slog.Logger
+	logger   *pkglogger.Logger
 	queue    chan contract.NotifyRequest
 	resolver Resolver
 	dropped  atomic.Int64
@@ -32,7 +31,7 @@ var _ contract.MessageNotifier = (*Notifier)(nil)
 // TryEnqueue for an alias then fails with ErrNotifyAliasNotFound, which
 // is preferable to a silent drop.
 // NewNotifier 创建notifier。
-func NewNotifier(logger *slog.Logger, resolver Resolver, capacity int) *Notifier {
+func NewNotifier(logger *pkglogger.Logger, resolver Resolver, capacity int) *Notifier {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}

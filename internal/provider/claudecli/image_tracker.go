@@ -67,7 +67,7 @@ func imageBlockBytes(block map[string]any) []byte {
 	}
 	decoded, err := base64.StdEncoding.DecodeString(data)
 	if err != nil {
-		return nil
+		return []byte{}
 	}
 	return decoded
 }

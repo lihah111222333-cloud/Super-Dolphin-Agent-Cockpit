@@ -3,7 +3,7 @@ package wails
 import (
 	"context"
 	"errors"
-	"log/slog"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"os"
 	"strings"
 
@@ -99,7 +99,7 @@ func NewActiveAgentCounter(p activeAgentCounterParams) ActiveAgentCounter {
 type applicationParams struct {
 	fx.In
 
-	Logger    *slog.Logger
+	Logger    *pkglogger.Logger
 	Binding   *App
 	Service   application.Service
 	Lifecycle *WailsLifecycle
@@ -115,7 +115,7 @@ type httpAssetRunnerResult struct {
 type httpAssetServerParams struct {
 	fx.In
 
-	Logger   *slog.Logger
+	Logger   *pkglogger.Logger
 	Frontend FrontendFS `optional:"true"`
 	Config   *config.Config
 	Server   *rpc.Server
@@ -169,7 +169,7 @@ func isDebug(cfg *config.Config) bool {
 	return strings.EqualFold(strings.TrimSpace(cfg.LogLevel), "debug")
 }
 
-func bindWailsLifecycle(lifecycle *WailsLifecycle, shutdowner fx.Shutdowner, logger *slog.Logger) {
+func bindWailsLifecycle(lifecycle *WailsLifecycle, shutdowner fx.Shutdowner, logger *pkglogger.Logger) {
 	if lifecycle == nil {
 		return
 	}

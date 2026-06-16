@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 	"os"
 	"os/exec"
@@ -75,11 +74,13 @@ var managedMCPBinaries = map[string]struct{}{"mcp-orch": {}, "mcp-lsp": {}}
 // WithPeerNames without mutating the lifecycle-owned peer definition.
 func defaultPeerNames() []string { return append([]string(nil), managedPeerNames...) }
 
+// PeerSupervisor owns the lifecycle of bundled mcp-orch and mcp-lsp peer processes.
+//
 // Run keeps dev initial launch failures best-effort, but packaged runtime must
 // fail fast when bundled peers cannot start.
 type PeerSupervisor struct {
 	pidRegistry peerPIDTracker
-	logger      *slog.Logger
+	logger      *pkglogger.Logger
 	launcher    peerLauncher
 
 	peerNames []string
@@ -171,13 +172,13 @@ func WithPeerWorkspaceRoots(fn func() []string) PeerSupervisorOption {
 
 // NewPeerSupervisor is the production constructor.
 // NewPeerSupervisor 创建peersupervisor。
-func NewPeerSupervisor(mgr *ServerManager, logger *slog.Logger, opts ...PeerSupervisorOption) *PeerSupervisor {
+func NewPeerSupervisor(mgr *ServerManager, logger *pkglogger.Logger, opts ...PeerSupervisorOption) *PeerSupervisor {
 	return NewPeerSupervisorWithOptions(mgr, logger, opts...)
 }
 
 // NewPeerSupervisorWithOptions is the test-friendly constructor. mgr may be nil.
 // NewPeerSupervisorWithOptions 创建带选项的peersupervisor。
-func NewPeerSupervisorWithOptions(mgr *ServerManager, logger *slog.Logger, opts ...PeerSupervisorOption) *PeerSupervisor {
+func NewPeerSupervisorWithOptions(mgr *ServerManager, logger *pkglogger.Logger, opts ...PeerSupervisorOption) *PeerSupervisor {
 	var reg peerPIDTracker
 	if mgr != nil && mgr.pidRegistry != nil {
 		reg = mgr.pidRegistry
@@ -478,11 +479,11 @@ func (s *PeerSupervisor) snapshotPeers() []peerHandle {
 // returns a handle wrapping the exec.Cmd + stdin write-pipe. The supervisor
 // owns the pid-registry registration for every handle this launcher produces.
 type execPeerLauncher struct {
-	logger         *slog.Logger
+	logger         *pkglogger.Logger
 	workspaceRoots func() []string
 }
 
-func newExecPeerLauncher(logger *slog.Logger) *execPeerLauncher {
+func newExecPeerLauncher(logger *pkglogger.Logger) *execPeerLauncher {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}

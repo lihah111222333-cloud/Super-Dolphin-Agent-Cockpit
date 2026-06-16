@@ -7,11 +7,14 @@ const (
 	SemanticTokenResultLimit = 200
 )
 
+// WorkspaceFolder describes one workspace root announced during LSP
+// initialization.
 type WorkspaceFolder struct {
 	URI  string `json:"uri"`
 	Name string `json:"name"`
 }
 
+// InitializeParams is the client-to-server initialize request payload.
 type InitializeParams struct {
 	ProcessID             int                `json:"processId"`
 	RootURI               string             `json:"rootUri,omitempty"`
@@ -20,19 +23,25 @@ type InitializeParams struct {
 	InitializationOptions any                `json:"initializationOptions,omitempty"`
 }
 
+// ClientCapabilities groups client features advertised to an LSP server.
 type ClientCapabilities struct {
 	TextDocument *TextDocumentClientCapabilities `json:"textDocument,omitempty"`
 	Workspace    *WorkspaceClientCapability      `json:"workspace,omitempty"`
 }
 
+// WorkspaceClientCapability records workspace-level LSP client support.
 type WorkspaceClientCapability struct {
 	WorkspaceFolders bool `json:"workspaceFolders,omitempty"`
 }
 
+// DynamicRegistrationCapability records whether a capability supports dynamic
+// registration.
 type DynamicRegistrationCapability struct {
 	DynamicRegistration bool `json:"dynamicRegistration,omitempty"`
 }
 
+// TextDocumentClientCapabilities groups text-document LSP capabilities this
+// sidecar advertises.
 type TextDocumentClientCapabilities struct {
 	PublishDiagnostics *PublishDiagnosticsCapability  `json:"publishDiagnostics,omitempty"`
 	Hover              *HoverCapability               `json:"hover,omitempty"`
@@ -52,23 +61,29 @@ type TextDocumentClientCapabilities struct {
 	SemanticTokens     *SemanticTokensCapability      `json:"semanticTokens,omitempty"`
 }
 
+// DocumentSymbolCapability records document-symbol feature support.
 type DocumentSymbolCapability struct {
 	DynamicRegistration               bool `json:"dynamicRegistration,omitempty"`
 	HierarchicalDocumentSymbolSupport bool `json:"hierarchicalDocumentSymbolSupport,omitempty"`
 }
 
+// PublishDiagnosticsCapability records diagnostics notification support.
 type PublishDiagnosticsCapability struct {
 	RelatedInformation bool `json:"relatedInformation,omitempty"`
 }
 
+// HoverCapability records hover result formats the client can consume.
 type HoverCapability struct {
 	ContentFormat []string `json:"contentFormat,omitempty"`
 }
 
+// RenameClientCapability records rename preparation support.
 type RenameClientCapability struct {
 	PrepareSupport bool `json:"prepareSupport,omitempty"`
 }
 
+// SemanticTokensCapability records semantic-token formats and legends accepted
+// by the client.
 type SemanticTokensCapability struct {
 	DynamicRegistration bool                              `json:"dynamicRegistration,omitempty"`
 	Requests            *SemanticTokensRequestsCapability `json:"requests,omitempty"`
@@ -77,19 +92,25 @@ type SemanticTokensCapability struct {
 	Formats             []string                          `json:"formats,omitempty"`
 }
 
+// SemanticTokensRequestsCapability records range/full semantic-token request
+// support.
 type SemanticTokensRequestsCapability struct {
 	Range any `json:"range,omitempty"`
 	Full  any `json:"full,omitempty"`
 }
 
+// SemanticTokensFullRequestsCapability records full semantic-token delta
+// support.
 type SemanticTokensFullRequestsCapability struct {
 	Delta bool `json:"delta,omitempty"`
 }
 
+// InitializeResult is the server-to-client initialize response payload.
 type InitializeResult struct {
 	Capabilities ServerCapabilities `json:"capabilities"`
 }
 
+// ServerCapabilities groups LSP server features detected during initialize.
 type ServerCapabilities struct {
 	TextDocumentSync           any `json:"textDocumentSync,omitempty"`
 	HoverProvider              any `json:"hoverProvider,omitempty"`
@@ -121,6 +142,8 @@ type (
 	FoldingRangeCapability     = DynamicRegistrationCapability
 )
 
+// LocationResult normalizes location and location-link responses into a single
+// result shape for tools.
 type LocationResult struct {
 	Location     *Location     `json:"location,omitempty"`
 	LocationLink *LocationLink `json:"locationLink,omitempty"`
@@ -129,6 +152,7 @@ type LocationResult struct {
 	FuncEnd      int           `json:"func_end,omitempty"`
 }
 
+// CompactLocation is the compact model-facing location projection.
 type CompactLocation struct {
 	Line      int `json:"line"`
 	Col       int `json:"col"`
@@ -136,6 +160,8 @@ type CompactLocation struct {
 	FuncEnd   int `json:"func_end,omitempty"`
 }
 
+// GroupedLocationResult groups compact locations by file and reports cap
+// metadata.
 type GroupedLocationResult struct {
 	Data      map[string][]CompactLocation `json:"data"`
 	Total     int                          `json:"total"`
@@ -144,28 +170,35 @@ type GroupedLocationResult struct {
 	Hint      string                       `json:"hint,omitempty"`
 }
 
+// WorkspaceSymbolResult represents either LSP workspace-symbol response shape.
 type WorkspaceSymbolResult struct {
 	SymbolInformation *SymbolInformation `json:"symbolInformation,omitempty"`
 	WorkspaceSymbol   *WorkspaceSymbol   `json:"workspaceSymbol,omitempty"`
 }
 
+// CodeActionResult represents either a code action or command response item.
 type CodeActionResult struct {
 	CodeAction *CodeAction `json:"codeAction,omitempty"`
 	Command    *Command    `json:"command,omitempty"`
 }
 
+// CallHierarchyResult groups prepared hierarchy item with incoming/outgoing
+// calls.
 type CallHierarchyResult struct {
 	Item     CallHierarchyItem           `json:"item"`
 	Incoming []CallHierarchyIncomingCall `json:"incoming,omitempty"`
 	Outgoing []CallHierarchyOutgoingCall `json:"outgoing,omitempty"`
 }
 
+// TypeHierarchyResult groups prepared hierarchy item with related type items.
 type TypeHierarchyResult struct {
 	Item       TypeHierarchyItem   `json:"item"`
 	Supertypes []TypeHierarchyItem `json:"supertypes,omitempty"`
 	Subtypes   []TypeHierarchyItem `json:"subtypes,omitempty"`
 }
 
+// DecodedSemanticToken is a human-readable semantic-token entry decoded from
+// LSP delta encoding.
 type DecodedSemanticToken struct {
 	Line           int      `json:"line"`
 	StartCharacter int      `json:"startCharacter"`
@@ -174,6 +207,7 @@ type DecodedSemanticToken struct {
 	TokenModifiers []string `json:"tokenModifiers,omitempty"`
 }
 
+// SemanticTokensResult carries raw and decoded semantic-token response data.
 type SemanticTokensResult struct {
 	ResultID string                 `json:"resultId,omitempty"`
 	Data     []int                  `json:"data,omitempty"`

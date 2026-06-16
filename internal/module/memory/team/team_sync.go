@@ -3,7 +3,6 @@ package team
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const teamSyncGitTimeout = 4 * time.Second
@@ -52,7 +52,7 @@ type TeamSyncService struct {
 	manager         *TeamMemoryManager
 	guard           *TeamMemoryGuard
 	invalidator     teamSyncInvalidator
-	logger          *slog.Logger
+	logger          *pkglogger.Logger
 	remote          teamSyncRemote
 	resolveRepoSlug func(context.Context, string) (string, error)
 
@@ -79,7 +79,7 @@ func NewTeamSyncService(
 	manager *TeamMemoryManager,
 	guard *TeamMemoryGuard,
 	invalidator contract.PromptAssemblyService,
-	logger *slog.Logger,
+	logger *pkglogger.Logger,
 ) *TeamSyncService {
 	if cfg == nil {
 		cfg = disabledConfig{}

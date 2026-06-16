@@ -121,7 +121,7 @@ func advanceNextRunTx(ctx context.Context, tx taskdag.ScheduledStartTxStore, dag
 func advanceConsumedRun(ctx context.Context, runStore taskdag.ScheduledStartStore, dagKey, runKey string, dueAt, nextRunAt time.Time, txErr error) error {
 	existing, getErr := runStore.GetRun(ctx, runKey)
 	if getErr != nil {
-		return fmt.Errorf("scheduled start %q: GetRun fallback: %w (original tx error: %v)", dagKey, getErr, txErr)
+		return fmt.Errorf("scheduled start %q: GetRun fallback: %w (original tx error: %w)", dagKey, getErr, txErr)
 	}
 	if existing == nil {
 		return fmt.Errorf("scheduled start %q: unresolved unique violation for run_key=%s: %w", dagKey, runKey, txErr)

@@ -1,8 +1,6 @@
 package cron
 
 import (
-	"log/slog"
-
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 
@@ -64,7 +62,7 @@ func provideSchedulerConfig() SchedulerConfig { return SchedulerConfig{} }
 type turnSubmitterParams struct {
 	fx.In
 
-	Logger        *slog.Logger               `optional:"true"`
+	Logger        *pkglogger.Logger          `optional:"true"`
 	Service       contract.CronTurnExecutor  `optional:"true"`
 	Resolver      contract.SessionResolver   `optional:"true"`
 	ThreadService contract.CronThreadStarter `optional:"true"`
@@ -84,7 +82,7 @@ func provideTurnSubmitter(p turnSubmitterParams) TurnSubmitter {
 type schedulerParams struct {
 	fx.In
 
-	Logger     *slog.Logger
+	Logger     *pkglogger.Logger
 	Store      cronstore.Store
 	Submitter  TurnSubmitter
 	Cfg        SchedulerConfig
@@ -103,10 +101,10 @@ func provideScheduler(p schedulerParams) *Scheduler {
 	return s
 }
 
-func provideTickActor(logger *slog.Logger, s *Scheduler) contract.Runner {
+func provideTickActor(logger *pkglogger.Logger, s *Scheduler) contract.Runner {
 	return NewTickActor(logger, s)
 }
 
-func provideLeaseActor(logger *slog.Logger, s *Scheduler) contract.Runner {
+func provideLeaseActor(logger *pkglogger.Logger, s *Scheduler) contract.Runner {
 	return NewLeaseActor(logger, s)
 }

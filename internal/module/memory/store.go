@@ -565,7 +565,7 @@ func updateIndexAfterMutation(root string, options WriteOptions) error {
 		return nil
 	}
 	if _, err := UpdateMemoryIndex(root); err != nil {
-		return fmt.Errorf("%w: %v", ErrMemoryIndexUpdateFailed, err)
+		return fmt.Errorf("%w: %w", ErrMemoryIndexUpdateFailed, err)
 	}
 	return nil
 }

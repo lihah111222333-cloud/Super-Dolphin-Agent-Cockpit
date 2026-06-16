@@ -2,9 +2,9 @@ package turn
 
 import (
 	"context"
-	"log/slog"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // FeedbackItem is the narrow projection of a memory entry that the
@@ -19,13 +19,13 @@ type FeedbackItem struct {
 // candidate row in V1.
 type FeedbackProposer struct {
 	dream  contract.DreamExecutor
-	logger *slog.Logger
+	logger *pkglogger.Logger
 }
 
 // NewFeedbackProposer keeps the old constructor shape so stale callers compile
 // while the live candidate writer remains disabled.
 // NewFeedbackProposer 创建feedbackproposer。
-func NewFeedbackProposer(dream contract.DreamExecutor, _ any, logger *slog.Logger) *FeedbackProposer {
+func NewFeedbackProposer(dream contract.DreamExecutor, _ any, logger *pkglogger.Logger) *FeedbackProposer {
 	return &FeedbackProposer{dream: dream, logger: logger}
 }
 

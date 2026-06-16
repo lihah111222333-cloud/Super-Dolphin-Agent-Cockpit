@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"hash"
 	"io/fs"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,6 +16,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const skillMirrorManifestFile = ".super-dolphin-skill-mirror.json"
@@ -417,8 +417,8 @@ func (s *service) defaultPersonalMirrorTargets() []SkillMirrorTarget {
 	superHome := s.resolvedSuperDolphinHome()
 	owner, err := resolveOwnerIdentity(superHome, defaultOwnerOSUID(), defaultAppProfile())
 	if err != nil {
-		slog.Warn("skill: defaultPersonalMirrorTargets resolveOwnerIdentity failed", "error", err)
-		return nil
+		pkglogger.Warn("skill: defaultPersonalMirrorTargets resolveOwnerIdentity failed", "error", err)
+		return []SkillMirrorTarget{}
 	}
 	return []SkillMirrorTarget{
 		{

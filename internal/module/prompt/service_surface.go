@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"os"
 	"regexp"
 	"sort"
@@ -19,6 +18,7 @@ import (
 	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // SetEnabled intentionally stays outside this surface until the store/service
@@ -196,7 +196,7 @@ var _ contract.PromptAssemblyService = (*service)(nil)
 var _ PromptService = (*promptService)(nil)
 
 // NewService 创建服务。
-func NewService(cfg *Config, logger *slog.Logger, opts ...ServiceOption) Service {
+func NewService(cfg *Config, logger *pkglogger.Logger, opts ...ServiceOption) Service {
 	if cfg == nil {
 		cfg = &Config{}
 	}
@@ -647,7 +647,7 @@ func filterVisibleTags(raw json.RawMessage) json.RawMessage {
 	}
 	encoded, err := json.Marshal(visible)
 	if err != nil {
-		return nil
+		return json.RawMessage("[]")
 	}
 	return json.RawMessage(encoded)
 }

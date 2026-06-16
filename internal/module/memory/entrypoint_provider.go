@@ -3,13 +3,13 @@ package memory
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 
 	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 var _ contract.DynamicSectionProvider = (*MemoryEntrypointProvider)(nil)
@@ -26,14 +26,14 @@ var _ contract.DynamicSectionProvider = (*MemoryEntrypointProvider)(nil)
 type MemoryEntrypointProvider struct {
 	cfg    *Config
 	team   *TeamMemoryManager
-	logger *slog.Logger
+	logger *pkglogger.Logger
 }
 
 // NewEntrypointProvider returns a MemoryEntrypointProvider wired to the
 // shared memory config and (optionally) the team memory manager. Either may
 // be nil; the provider is fully nil-safe and degrades to "no entrypoint".
 // NewEntrypointProvider 创建entrypointprovider。
-func NewEntrypointProvider(cfg *Config, team *TeamMemoryManager, logger *slog.Logger) *MemoryEntrypointProvider {
+func NewEntrypointProvider(cfg *Config, team *TeamMemoryManager, logger *pkglogger.Logger) *MemoryEntrypointProvider {
 	return &MemoryEntrypointProvider{cfg: memoryConfig(cfg), team: team, logger: logger}
 }
 

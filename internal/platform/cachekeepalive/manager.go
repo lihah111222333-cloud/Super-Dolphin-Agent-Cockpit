@@ -342,7 +342,14 @@ func (m *Manager) keepaliveSession(ctx context.Context, threadID string) Keepali
 		return nil
 	}
 	sess, err := m.resolver.ResolveSession(ctx, threadID)
-	if err != nil || sess == nil {
+	if err != nil {
+		m.logger.Warn("cachekeepalive: resolve session failed",
+			"thread_id", threadID,
+			"error", err,
+		)
+		return missingKeepaliveSession()
+	}
+	if sess == nil {
 		return nil
 	}
 	kc, ok := sess.(KeepaliveCapable)
@@ -350,6 +357,10 @@ func (m *Manager) keepaliveSession(ctx context.Context, threadID string) Keepali
 		return nil
 	}
 	return kc
+}
+
+func missingKeepaliveSession() KeepaliveCapable {
+	return nil
 }
 
 func (m *Manager) hasBinding(ctx context.Context, agentID string) bool {
