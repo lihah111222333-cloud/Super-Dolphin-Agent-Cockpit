@@ -167,6 +167,136 @@ func TestHandleCreateDAGRejectsAgentNodeMissingProvider(t *testing.T) {
 	}
 }
 
+func TestHandleCreateDAGRejectsAgentNodeMissingFirstTurn(t *testing.T) {
+	err := handleCreateDAGRejects(t, `{
+		"agent_id":"designer-1",
+		"dag_key":"dag-missing-first-turn",
+		"title":"Missing first turn",
+		"nodes":[{
+			"node_key":"brief",
+			"title":"生成简报",
+			"node_type":"agent",
+			"assigned_to":"bad_first_turn_brief_runner",
+			"config":{"exec":{
+				"provider":"codex",
+				"prompt_key":"main/dag_designer_zh",
+				"model":"gpt-5.4-mini",
+				"cwd":"/repo/a",
+				"codex_home":"/tmp/codex-home",
+				"codex_instance_key":"default",
+				"codex_model_provider":"openai"
+			}}
+		}]
+	}`)
+	assertErrorContains(t, err, "nodes[0].config.first_turn", "brief")
+}
+
+func TestHandleCreateDAGRejectsAgentNodeLegacyInputTask(t *testing.T) {
+	err := handleCreateDAGRejects(t, `{
+		"agent_id":"designer-1",
+		"dag_key":"dag-legacy-input-task",
+		"title":"Legacy input task",
+		"nodes":[{
+			"node_key":"brief",
+			"title":"生成简报",
+			"node_type":"agent",
+			"assigned_to":"bad_first_turn_brief_runner",
+			"config":{
+				"exec":{
+					"provider":"codex",
+					"prompt_key":"main/dag_designer_zh",
+					"cwd":"/repo/a",
+					"codex_home":"/tmp/codex-home",
+					"codex_instance_key":"default",
+					"codex_model_provider":"openai"
+				},
+				"input":{
+					"task":"生成热点新闻简报。"
+				}
+			}
+		}]
+	}`)
+	assertErrorContains(t, err, "nodes[0].config.input", "nodes[0].config.input.task", "first_turn")
+}
+
+func TestHandleCreateDAGRejectsAgentNodeLegacyShapeWithoutExec(t *testing.T) {
+	tests := []struct {
+		name     string
+		execLine string
+	}{
+		{name: "missing_exec"},
+		{name: "null_exec", execLine: `"exec":null,`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := handleCreateDAGRejects(t, `{
+				"agent_id":"designer-1",
+				"dag_key":"dag-legacy-shape-without-exec-`+tc.name+`",
+				"title":"Legacy shape without exec",
+				"nodes":[{
+					"node_key":"brief",
+					"title":"生成简报",
+					"node_type":"agent",
+					"assigned_to":"bad_first_turn_brief_runner",
+					"config":{
+						`+tc.execLine+`
+						"prompt_key":"main/dag_designer_zh",
+						"provider":"codex",
+						"cwd":"/repo/a",
+						"input":{
+							"task":"生成热点新闻简报。"
+						}
+					}
+				}]
+			}`)
+			assertErrorContains(t, err, "nodes[0].config.prompt_key", "nodes[0].config.input.task", "first_turn")
+		})
+	}
+}
+
+func TestHandleCreateDAGRejectsAgentNodeLegacyShapeFields(t *testing.T) {
+	tests := []struct {
+		name  string
+		extra string
+		want  string
+	}{
+		{name: "input_outputs", extra: `,"input":{"outputs":{"to_sharedfile":"reports/news.md"}}`, want: "nodes[0].config.input.outputs"},
+		{name: "output_file", extra: `,"output_file":"reports/news.md"`, want: "nodes[0].config.output_file"},
+		{name: "top_level_prompt_key", extra: `,"prompt_key":"main/dag_designer_zh"`, want: "nodes[0].config.prompt_key"},
+		{name: "top_level_provider", extra: `,"provider":"codex"`, want: "nodes[0].config.provider"},
+		{name: "top_level_model", extra: `,"model":"gpt-5.4-mini"`, want: "nodes[0].config.model"},
+		{name: "top_level_cwd", extra: `,"cwd":"/repo/a"`, want: "nodes[0].config.cwd"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := handleCreateDAGRejects(t, `{
+				"agent_id":"designer-1",
+				"dag_key":"dag-legacy-shape-`+tc.name+`",
+				"title":"Legacy shape",
+				"nodes":[{
+					"node_key":"brief",
+					"title":"生成简报",
+					"node_type":"agent",
+					"assigned_to":"bad_first_turn_brief_runner",
+					"config":{
+						"exec":{
+							"provider":"codex",
+							"prompt_key":"main/dag_designer_zh",
+							"cwd":"/repo/a",
+							"codex_home":"/tmp/codex-home",
+							"codex_instance_key":"default",
+							"codex_model_provider":"openai"
+						},
+						"first_turn":"生成热点新闻简报。"
+						`+tc.extra+`
+					}
+				}]
+			}`)
+			assertErrorContains(t, err, tc.want, "first_turn")
+		})
+	}
+}
+
 func TestHandleCreateDAGRejectsAgentNodeMissingLaunchIdentity(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -221,6 +351,35 @@ func TestHandleCreateDAGAcceptsAgentNodeWithPromptKey(t *testing.T) {
 				"codex_home":"/tmp/codex-home",
 				"codex_instance_key":"default",
 				"codex_model_provider":"openai"
+			},
+			"first_turn":"实现任务并报告结果。"}
+		}]
+	}`)
+}
+
+func TestHandleCreateDAGAcceptsAgentNodeWithFirstTurn(t *testing.T) {
+	handleCreateDAGAccepts(t, `{
+		"agent_id":"designer-1",
+		"dag_key":"dag-agent-first-turn",
+		"title":"Agent first turn",
+		"nodes":[{
+			"node_key":"writer",
+			"title":"Writer",
+			"node_type":"agent",
+			"assigned_to":"agent-parent",
+			"config":{"exec":{
+				"provider":"codex",
+				"prompt_key":"main/dag_designer_zh",
+				"model":"gpt-5.4-mini",
+				"cwd":"/repo/project",
+				"codex_home":"/tmp/codex-home",
+				"codex_instance_key":"default",
+				"codex_model_provider":"openai"
+			},
+			"first_turn":"生成一份中文热点新闻简报，并写入 reports/news/daily-briefing.md。",
+			"outputs":{
+				"to_sharedfile":{"path":"reports/news/daily-briefing.md","lock_mode":"exclusive"},
+				"to_node_result":true
 			}}
 		}]
 	}`)
@@ -239,7 +398,8 @@ func TestHandleCreateDAGAcceptsAgentNodeWithAgentKey(t *testing.T) {
 				"provider":"claude",
 				"agent_key":"daily_brief_agent",
 				"cwd":"/repo/project"
-			}}
+			},
+			"first_turn":"生成每日简报。"}
 		}]
 	}`)
 }
