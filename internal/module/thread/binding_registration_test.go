@@ -320,6 +320,194 @@ func TestBindingRegistrationPersistsCodexIdentity(t *testing.T) {
 	}
 }
 
+func TestBindingRegistrationCanonicalizesExistingAliasCodexHome(t *testing.T) {
+	t.Parallel()
+
+	canonicalHome, aliasHome := createCleanCodexHomeAlias(t)
+	threads := &stubThreadStore{}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:            "agent-canonical",
+		Provider:           "codex",
+		ProviderThreadID:   "provider-thread-canonical",
+		CodexThreadID:      "thread-canonical",
+		Cwd:                "/repo",
+		CodexHome:          aliasHome,
+		CodexInstanceKey:   "default",
+		CodexModelProvider: "openai",
+		CreatedAt:          123,
+	}}
+	svc := NewService(silentLogger(), threads, bindings, nil, nil, nil, nil, nil).(*service)
+
+	err := svc.persistThreadState(context.Background(), threadState{
+		PublicThreadID:     "thread-canonical",
+		ProviderThreadID:   "provider-thread-canonical",
+		AgentID:            "agent-canonical",
+		Provider:           "codex",
+		CWD:                "/repo",
+		CodexHome:          canonicalHome,
+		CodexInstanceKey:   "default",
+		CodexModelProvider: "openai",
+		CreatedAt:          123,
+	}, true)
+	if err != nil {
+		t.Fatalf("persistThreadState() error = %v", err)
+	}
+	if len(bindings.upserts) != 1 {
+		t.Fatalf("binding upserts = %d, want 1 canonical repair", len(bindings.upserts))
+	}
+	if bindings.upsert.CodexHome != canonicalHome {
+		t.Fatalf("binding codex home = %q, want canonical %q", bindings.upsert.CodexHome, canonicalHome)
+	}
+	if bindings.binding.CodexHome != canonicalHome {
+		t.Fatalf("persisted binding codex home = %q, want canonical %q", bindings.binding.CodexHome, canonicalHome)
+	}
+}
+
+func TestBindingRegistrationRejectsCodexIdentityTupleConflict(t *testing.T) {
+	t.Parallel()
+
+	canonicalHome, _ := createCleanCodexHomeAlias(t)
+	for _, tc := range []struct {
+		name          string
+		instanceKey   string
+		modelProvider string
+		wantMessage   string
+	}{
+		{
+			name:          "instance key",
+			instanceKey:   "other",
+			modelProvider: "openai",
+			wantMessage:   "codex instance key is immutable",
+		},
+		{
+			name:          "model provider",
+			instanceKey:   "default",
+			modelProvider: "other-provider",
+			wantMessage:   "codex model provider is immutable",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			threads := &stubThreadStore{}
+			bindings := &stubBindingStore{binding: &bindingstore.Binding{
+				AgentID:            "agent-conflict-" + strings.ReplaceAll(tc.name, " ", "-"),
+				Provider:           "codex",
+				ProviderThreadID:   "provider-thread-conflict-" + strings.ReplaceAll(tc.name, " ", "-"),
+				CodexThreadID:      "thread-conflict-" + strings.ReplaceAll(tc.name, " ", "-"),
+				Cwd:                "/repo",
+				CodexHome:          canonicalHome,
+				CodexInstanceKey:   "default",
+				CodexModelProvider: "openai",
+				CreatedAt:          123,
+			}}
+			svc := NewService(silentLogger(), threads, bindings, nil, nil, nil, nil, nil).(*service)
+
+			err := svc.persistThreadState(context.Background(), threadState{
+				PublicThreadID:     bindings.binding.CodexThreadID,
+				ProviderThreadID:   bindings.binding.ProviderThreadID,
+				AgentID:            bindings.binding.AgentID,
+				Provider:           "codex",
+				CWD:                "/repo",
+				CodexHome:          canonicalHome,
+				CodexInstanceKey:   tc.instanceKey,
+				CodexModelProvider: tc.modelProvider,
+				CreatedAt:          123,
+			}, true)
+			if err == nil || !strings.Contains(err.Error(), tc.wantMessage) {
+				t.Fatalf("persistThreadState() error = %v, want %q", err, tc.wantMessage)
+			}
+			if len(bindings.upserts) != 0 {
+				t.Fatalf("binding upserts = %d, want none on tuple conflict", len(bindings.upserts))
+			}
+			if bindings.binding.CodexInstanceKey != "default" || bindings.binding.CodexModelProvider != "openai" {
+				t.Fatalf("binding identity changed to %q/%q, want original default/openai",
+					bindings.binding.CodexInstanceKey,
+					bindings.binding.CodexModelProvider)
+			}
+		})
+	}
+}
+
+func TestBindingRegistrationRejectsNonAliasCodexHomeRepair(t *testing.T) {
+	t.Parallel()
+
+	canonicalHome, _ := createCleanCodexHomeAlias(t)
+	otherHome, _ := createCleanCodexHomeAlias(t)
+	threads := &stubThreadStore{}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:            "agent-home-conflict",
+		Provider:           "codex",
+		ProviderThreadID:   "provider-thread-home-conflict",
+		CodexThreadID:      "thread-home-conflict",
+		Cwd:                "/repo",
+		CodexHome:          canonicalHome,
+		CodexInstanceKey:   "default",
+		CodexModelProvider: "openai",
+		CreatedAt:          123,
+	}}
+	svc := NewService(silentLogger(), threads, bindings, nil, nil, nil, nil, nil).(*service)
+
+	err := svc.persistThreadState(context.Background(), threadState{
+		PublicThreadID:     "thread-home-conflict",
+		ProviderThreadID:   "provider-thread-home-conflict",
+		AgentID:            "agent-home-conflict",
+		Provider:           "codex",
+		CWD:                "/repo",
+		CodexHome:          otherHome,
+		CodexInstanceKey:   "default",
+		CodexModelProvider: "openai",
+		CreatedAt:          123,
+	}, true)
+	if err == nil || !strings.Contains(err.Error(), "codex home is immutable") {
+		t.Fatalf("persistThreadState() error = %v, want codex home immutable rejection", err)
+	}
+	if len(bindings.upserts) != 0 {
+		t.Fatalf("binding upserts = %d, want none on non-alias home repair", len(bindings.upserts))
+	}
+	if bindings.binding.CodexHome != canonicalHome {
+		t.Fatalf("binding codex home = %q, want original %q", bindings.binding.CodexHome, canonicalHome)
+	}
+}
+
+func TestBindingRegistrationHistoryInputUsesCanonicalCodexHome(t *testing.T) {
+	t.Parallel()
+
+	canonicalHome, aliasHome := createCleanCodexHomeAlias(t)
+	threads := &stubThreadStore{}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:            "agent-history-canonical",
+		Provider:           "codex",
+		ProviderThreadID:   "provider-thread-history-canonical",
+		CodexThreadID:      "thread-history-canonical",
+		Cwd:                "/repo",
+		CodexHome:          aliasHome,
+		CodexInstanceKey:   "default",
+		CodexModelProvider: "openai",
+		CreatedAt:          123,
+	}}
+	svc := NewService(silentLogger(), threads, bindings, nil, nil, nil, nil, nil).(*service)
+
+	err := svc.persistThreadState(context.Background(), threadState{
+		PublicThreadID:     "thread-history-canonical",
+		ProviderThreadID:   "provider-thread-history-canonical",
+		AgentID:            "agent-history-canonical",
+		Provider:           "codex",
+		CWD:                "/repo",
+		CodexHome:          canonicalHome,
+		CodexInstanceKey:   "default",
+		CodexModelProvider: "openai",
+		CreatedAt:          123,
+	}, true)
+	if err != nil {
+		t.Fatalf("persistThreadState() error = %v", err)
+	}
+	historyReq := readMessagesHistoryRequestForSession("thread-history-canonical", bindings.binding, nil)
+	if historyReq.CodexHome != canonicalHome {
+		t.Fatalf("history request codex home = %q, want canonical %q", historyReq.CodexHome, canonicalHome)
+	}
+}
+
 func TestPersistThreadStateUpdatesExistingBindingSessionUUID(t *testing.T) {
 	t.Parallel()
 
