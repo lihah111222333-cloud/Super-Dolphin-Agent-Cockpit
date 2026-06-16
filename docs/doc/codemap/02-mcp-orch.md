@@ -4,10 +4,10 @@
 
 ## 1. 模块概述
 
-`cmd/mcp-orch` 是 `super-agent-v3` 的编排侧车 / peer 服务，核心职责可归纳为 5 类：
+`cmd/mcp-orch` 是 `super-agent-v3` 的编排侧车 / peer 服务入口；当前 Go main / Fx 装配留在 `cmd/mcp-orch`，编排、工具、workspace、store 与 SQL 实现主体已下沉到 `internal/sidecar/orch/*`。核心职责可归纳为 5 类：
 
 1. **Agent 编排**：维护 agent 生命周期、状态机、turn 队列、停止 / 恢复、report 请求者等内存态。
-2. **MCP 工具出口**：把 orchestration / task DAG / workspace / prompt / command card / shared file 能力注册进 `tools.Registry`，再通过 stdio / HTTP MCP 与 bootstrap `OnToolsList` / `OnToolsCall` 暴露给 Claude 或主控代理；当前 registry 不含 memory tools。
+2. **MCP 工具出口**：把 orchestration / task DAG / workspace / prompt / recall / command card / shared file / registry / TTS / audio-video / video 能力注册进 `tools.Registry`，再通过 stdio / HTTP MCP 与 bootstrap `OnToolsList` / `OnToolsCall` 暴露给 Claude 或主控代理；当前 registry 不含 memory tools。
 3. **包级 JSON-RPC handler 映射**：定义 `agent.*`、`task/dag/*`、`workspace/run/*` 等 handler map；它们不是 Claude 侧 MCP tools，是否暴露取决于外层 Fx / RPC 组合。
 4. **持久化层**：维护 DAG / wakeup / worker lease / workspace run / shared file / prompt / command card 等 SQLite 数据；SQLite 路径由主进程解析后通过内部配置传入，`DATABASE_URL` / `POSTGRES_CONNECTION_STRING` 不作为 mcp-orch DB 配置。
 5. **peer / bootstrap 桥接**：在 peer 模式下注册到主控、订阅 hooks，并把远端 thread/state/turn/runtime 事件回灌到本地编排内存态；`tools/list` / `tools/call` 也会经 bootstrap 回调代理到同一份 registry。
@@ -32,8 +32,8 @@
   - `bindRuntime()`：把 stdio / HTTP / bootstrap runner 注入同一个 `platformrunner.RunGroup` 生命周期。
   - 还包含 `newNoopSessionCleaner()` / `newNoopTurnStarter()`，作为 standalone / 测试兜底实现。
 - `cmd/mcp-orch/memory/`
-  - 旧 standalone memory read 包：保留 env config、scope root / 路径授权、index/file 读取与 `contract.MemoryService.Read()` 实现。
-  - 当前不由 `fx.go/run()`、`newRegistry()` 或 `tools.NewRegistry()` 装配，不提供 `memory_read` / `memory_write` MCP tools；agent-terminal 的 memory tools 由 app host-direct toolbridge registry 提供。
+  - 当前仓内已无该源码目录；旧 standalone memory read 包已从 mcp-orch 树移除。
+  - `memory_read` / `memory_write` 不由 `fx.go/run()`、`newRegistry()` 或 `tools.NewRegistry()` 装配；agent-terminal 的 memory tools 由 app host-direct toolbridge registry 提供。
 - `http_runner.go`
   - 仅在 `GO_AGENT_PEER_MODE=1` 时启用 `common.NewHTTPServer`。
   - 监听 `127.0.0.1:0`，并把地址写入 peer discovery file。
@@ -46,7 +46,7 @@
 ### 与第 11 卷的边界
 
 - 本卷聚焦 `cmd/mcp-orch` 的编排侧车、registry、bootstrap 与 tool 暴露；`memory / prompt / thread snapshot` 的跨模块语义请结合 `11-memory-prompt-thread.md` 阅读。
-- `cmd/mcp-orch` 当前**没有直接 import** `internal/module/{memory,prompt,thread}`；它消费的是 `internal/contract`、`store/*`、`internal/mcpserver/common/bootstrap` 这些边界层，因此这里描述的是“暴露 / 注入 / 存储读取”，不是第 11 卷那种“语义组装 / 生命周期编排”。
+- `cmd/mcp-orch` 当前**没有直接 import** `internal/module/{memory,prompt,thread}`；它消费的是 `internal/contract`、`internal/sidecar/orch/store/*`、`internal/mcpserver/runtime/bootstrap` 这些边界层，因此这里描述的是“暴露 / 注入 / 存储读取”，不是第 11 卷那种“语义组装 / 生命周期编排”。
 - `prompt_list` / `prompt_get` 读取的是 `internal/sidecar/orch/store/prompt` 里的 prompt template 资源，不等于 `internal/module/prompt` 的 system prompt assembly。
 - `memory_read` / `memory_write` 现由 app host-direct toolbridge registry 暴露并调用 `internal/module/memory` 的窄 contract；本卷只记录 `cmd/mcp-orch` 不再持有 memory tool registry / handler。
 - `UpdateRuntime()` 作为编排内存态的收口点仍在本卷说明；但 provider 何时上报 runtime、thread/session 如何消费这些元数据，属于第 11 卷与 provider/runtime 侧共同关注的链路。
@@ -71,14 +71,16 @@
 
 ### 顶层
 
+除本小节明确写 `cmd/mcp-orch/*` 的文件外，后续 `orchestration/`、`tools/`、`workspace/`、`store/`、`sql/queries/` 等相对路径均以 `internal/sidecar/orch/` 为基准。
+
 - `cmd/mcp-orch/main.go`：保护 stdout 的 MCP 通道，限制 `GOMAXPROCS`。
 - `cmd/mcp-orch/fx.go`：Fx 装配入口；拼装 store、workspace、orchestration、launcher、bootstrap、runner。
 - `cmd/mcp-orch/runtime.go`：logger / SQLite sqlc queries / registry / stdio runner / bootstrap runner / runtime 绑定。
-- `cmd/mcp-orch/memory/`：旧 standalone memory read 包；当前不被 runtime/registry 装配，不注册 memory tools。
+- `cmd/mcp-orch/memory/`：当前已删除；memory tools 不在 mcp-orch registry 中注册。
 - `cmd/mcp-orch/http_runner.go`：peer 模式 HTTP MCP server、peer discovery file、非 peer 模式阻塞 runner。
-- `cmd/mcp-orch/hook_subscription.go`：hook topic 常量与 `subscribeOrchestrationHooks()` 辅助函数；主启动路径未直接调用，主要被测试覆盖。
+- `cmd/mcp-orch/hook_subscription.go`：hook topic 常量与 `subscribeOrchestrationHooks()` 辅助函数；主启动路径未直接调用。
 - `internal/sidecar/orch/sqlc.yaml`：`sql/queries/*` 到 `store/sqlc/*` 的 sqlc 生成配置。
-- 顶层测试：`fx_test.go`、`runtime_test.go` 覆盖 Fx 装配与 bootstrap runner 行为。
+- 当前顶层无 package-local `*_test.go`；用 `go test ./cmd/mcp-orch` 做编译级校验。
 
 ### `orchestration/`
 
@@ -109,7 +111,7 @@
 - `recover.go`：agent 恢复与基于 DAG wakeup 的 turn replay。
 - `wakeup_dispatcher.go`：Phase 3.1/3.2/3.5w/3.9 wakeup dispatcher。10s ticker 调 `taskdag.Store.ClaimDueWakeups` 拿到一批 `dispatching` wakeup，按 `buildLaunchRequestFromWakeup` 解 `taskdag.DownstreamWakeupPayload`（3.9 起把 `UpstreamOutputs` 的路径列表渲染成中文 prompt 注入下游 launch），调 `WakeupLauncher.LaunchAgent`；成功 → `MarkWakeupSent`；失败按 1.8b `classifyLaunchError` 分 transient/permanent，DAG-driven wakeup（DagKey/NodeKey 非空）走 `tryDAGFailWithCascade` → `resolveDAGRetryPolicy(GetDAG metadata + ListNodes node config → ResolveRetryPolicy)`，AttemptCount ≥ MaxAttempts 时 `markPermanentFail` + `FailNodeAndCancelDownstream(FailFast)`；非 DAG wakeup 走旧 `RetryWakeup`/`FailWakeup`。`buildLaunchRequestFromWakeup` 解不出 DownstreamWakeupPayload 时 fallback 到老式 `LaunchRequest` 形状（兼容手工 enqueue / 测试）。
 - `wakeup_reclaim.go`：Phase 3.3 wakeup lease 过期回收。独立 30s ticker 调 `taskdag.Store.ReclaimStaleDispatchingWakeups`，把 lease 过期的 `dispatching` wakeup 回收为 `pending`；与 dispatcher 解耦，store 错误不退出 loop（DB 抖动由下次 tick 吸收）。
-- 测试文件：`execution_test.go`、`hook_consumer_test.go`、`launcher_test.go`、`recover_test.go`、`rpc_golden_test.go`、`runtime_report_test.go`、`runtime_test.go`、`stop_test.go`、`submission_test.go`、`turn_lifecycle_test.go`、`user_input_test.go`、`wakeup_dispatcher_test.go`（dispatcher 决策分支 + 3.9 prompt 注入 4 case）、`wakeup_reclaim_test.go`（lease 过期回收 9 case）、`dag_complete_downstream_test.go`（service.UpdateNodeStatus done 分支 type-assert 路由 3 case）、`retry_strategy_test.go`（ResolveRetryPolicy + F1.4 failure-class retry 策略）；`testdata/golden/turn-agent/rpc_samples.golden.json` 是 RPC golden fixture。
+- 当前 `internal/sidecar/orch/orchestration` 无 package-local `*_test.go`；行为变更时应补对应单元或 golden 测试，最低校验为 `go test ./internal/sidecar/orch/orchestration/...`。
 
 ### `tools/`
 
@@ -123,8 +125,8 @@
 - `prompt_tools.go`：prompt template list/get 工具；走通用 resource tool builder。
 - `command_tools.go`：command card list/get 工具；带固定 list limit（50）。
 - `shared_file_tools.go`：shared file read/write MCP 工具；保留 10 MiB 内容上限；read 走 `sharedfilepath.ValidateReadPath`，write 走 `sharedfilepath.ValidateAgentWritePath`；3.7 起不再持有本地路径 normalize 逻辑。
-- `memory_tools.go`：当前仅保留 package 壳，不定义或注册 `memory_read` / `memory_write`。
-- 测试文件：`handler_regression_test.go`、`orchestration_tools_test.go`、`parity_v2_test.go`、`workspace_tools_compat_test.go`。
+- 当前没有 `memory_tools.go`；`tools.NewRegistry()` 不定义或注册 `memory_read` / `memory_write`。
+- 当前 `internal/sidecar/orch/tools` 无 package-local `*_test.go`；新增工具时应补 handler / schema / 兼容 DTO 测试。
 
 ### `workspace/`
 
@@ -157,11 +159,11 @@
 - `taskdag/store.go`：DAG / node CRUD、running node 绑定、灵活状态更新、事务封装。
 - `taskdag/store_lease.go`：worker lease 抢占 / 续约 / 释放。
 - `taskdag/store_wakeup.go`：wakeup 入队 / claim / sent / retry / fail / bind turn / reclaim / 查询。
-- `taskdag/*_test.go`：`scan_helpers_test.go`、`store_fencing_test.go`、`test_helpers_test.go`，覆盖 wakeup fencing、running node turn 绑定与 fake DB 扫描。
+- 当前 `taskdag` store 子包无 package-local `*_test.go`；改动 wakeup fencing、running node turn 绑定或扫描逻辑时应补 store 级测试。
 - `workspace/contract.go`：workspace run / file 的持久化契约。
 - `workspace/module.go`：Fx provider。
 - `workspace/store.go`：`workspace_runs` / `workspace_run_files` 的 upsert / list / get / CAS 状态迁移。
-- `workspace/*_test.go`：`store_test.go`、`test_helpers_test.go`，覆盖 workspace store 的 query 参数和扫描。
+- 当前 `workspace` store 子包无 package-local `*_test.go`；改动 query 参数、扫描或 CAS 状态迁移时应补 store 级测试。
 - `sqlc/`：sqlc 生成层。
   - `db.go`：`Queries` 与 `DBTX`。
   - `db_ext.go`：事务辅助 `WithTx()` / `WithTxOrReuse()`。
@@ -217,7 +219,7 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 | `type taskdag.Store interface` | `store/taskdag/contract.go` | 兼容聚合持久化接口；真实消费面拆成 `OrchestrationStore` / `DAGMutationStore` / `DAGReadStore` / `DAGDetailStore` / `NodeStatusStore` / `RecoveryStore` / `RunningNodeStore` / `WakeupStore` / `WorkerLeaseStore`。 |
 | `type workspace.Store interface` | `store/workspace/contract.go` | `workspace_runs` / `workspace_run_files` 的持久化接口。 |
 | `type prompt.Store` / `commandcard.Store` / `sharedfile.Store` | `store/*/contract.go` | prompt / command / shared_file 资源查询与写入。 |
-| `cmd/mcp-orch/memory` legacy package | `memory/` | 旧 standalone memory read service/config/path 实现；当前不进入 Fx runtime/registry 装配，不提供 MCP memory tool。 |
+| legacy memory package | — | `cmd/mcp-orch/memory` 当前已删除；不进入 Fx runtime/registry 装配，不提供 MCP memory tool。 |
 | `type sqlc.Queries` | `store/sqlc/db.go` | 所有 SQL 的底层执行器。 |
 
 ### `agentRuntime` 里最关键的字段
@@ -471,7 +473,7 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 | `func makeHandler[T any, R any](dependency any, dependencyName string, exec func(context.Context, T) (R, error)) ToolHandler` | 通用 handler 工厂：依赖检查 + 输入解码。 |
 | `func resourceToolDefinitions(spec resourceToolSpec) []ToolDefinition` | 构造 prompt / command 这类 list/get 资源型工具。 |
 | `func promptToolDefinitions(store promptstore.Store) []ToolDefinition` | 通过 `resourceToolDefinitions()` 暴露 `prompt_list` / `prompt_get` 两个出口。 |
-| `memory_tools.go` | 当前不定义 memory tool；`tools.NewRegistry()` 不挂入 `memory_read` / `memory_write`。 |
+| — | 当前没有 memory tool 文件；`tools.NewRegistry()` 不挂入 `memory_read` / `memory_write`。 |
 | `func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler` | `orchestration_launch_agent` 实现；异步 launch。 |
 | `func createDAGRequestFromInput(in CreateDAGInput, trustedAgentID string) (contract.CreateDAGRequest, error)` | 把 tool 输入转成 service contract；可信 ToolScope `_agentId` 优先供 creator，公开 `agent_id` 只能匹配可信值。 |
 | `func createWorkspaceRun(ctx context.Context, svc workspace.Service, input WorkspaceCreateRunRequest) (*workspaceRunDTO, error)` | `workspace_create_run` 工具实现。 |
@@ -529,18 +531,19 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 | `internal/dto/turn` | turn started/completed/interrupted/stalled/resumed/item completed 事件。 |
 | `internal/dto/tool` | tool approval 请求/解决事件。 |
 | `internal/dto/thread` | thread started/stopped hook 事件。 |
-| `internal/dto/shared` | 输入项、事件时间透传、header 结构。 |
+| `internal/dto/eventcore` | 输入项、事件时间透传、header 结构。 |
 | `internal/dto/mcp` | bootstrap hook / report / shutdown / selector DTO。 |
-| `internal/mcpserver/common` | stdio/HTTP MCP server、tool provider 协议、peer discovery。 |
-| `internal/mcpserver/common/bootstrap` | 向控制面注册、订阅配置与 hooks、转发 `tools/list` / `tools/call`。 |
+| `internal/mcpserver/runtime` | stdio/HTTP MCP server、tool provider 协议与 tool result envelope。 |
+| `internal/mcpserver/runtime/bootstrap` | 向控制面注册、订阅配置与 hooks、转发 `tools/list` / `tools/call`。 |
 | `internal/platform/config` | RPC timeout、async launch timeout、runner stop timeout 等。 |
 | `internal/platform/runner` | runner group 管理。 |
 | `internal/platform/bus` | resilient 事件订阅。 |
 | `internal/platform/statemachine` | 基于 `dto/agent` 构建状态机。 |
-| `internal/platform/shared` | 输入解码、路径标准化、raw JSON/time clone、payload 取值。 |
+| `internal/platform/kernel` | 输入解码、路径标准化、raw JSON/time clone、payload 取值。 |
+| `internal/platform/sharedfilepath` / `sharedfilefs` / `sharedfilegitignore` | shared file 路径策略、磁盘原语与 `.gitignore` 维护。 |
 | `internal/platform/db` | SQLite 连接、迁移、最小 schema 校验、事务与 store 错误包装。 |
 | `internal/platform/rpc` | JSON-RPC handler map 注册类型。 |
-| `internal/store` / `internal/store/{prompt,commandcard,sharedfile}` | prompt/command/sharedfile 的共享 reader 模型与 Fx module。 |
+| `internal/sidecar/orch/store/{prompt,commandcard,sharedfile,taskdag,workspace}` | mcp-orch 自有 prompt/command/sharedfile/task/workspace 持久化模型与 Fx provider。 |
 | `pkg/logger` | 统一日志输出；`mcp-orch` 默认写 `/tmp/mcp-orch-<pid>.log`。 |
 
 > 反过来说，`cmd/mcp-orch` 对 `internal/module/memory`、`internal/module/prompt`、`internal/module/thread` 没有直接包依赖；这也是本卷与第 11 卷的源码边界。
@@ -562,14 +565,14 @@ transport
 
 orchestration.Service
   -> internal/contract
-  -> internal/dto/{agent,turn,tool,thread,shared,mcp}
-  -> internal/platform/{bus,statemachine,shared,config}
+  -> internal/dto/{agent,turn,tool,thread,eventcore,mcp}
+  -> internal/platform/{bus,statemachine,kernel,config}
   -> store/taskdag
   -> AgentLauncher(local|remote)
 
 workspace.Service
   -> store/workspace
-  -> internal/platform/{shared,db}
+  -> internal/platform/{kernel,db,sharedfilepath}
 
 tools.Registry
   -> orchestration.Service
@@ -577,13 +580,13 @@ tools.Registry
   -> store/{prompt,commandcard,sharedfile}
 ```
 
-> 当前 source tree 仍有 `cmd/mcp-orch/memory/*` 旧包，但 `run()` 不提供 `memory.NewConfig()` / `memory.NewService()`，`newRegistry(...)` 不接收 memory 参数，`tools.NewRegistry()` 不挂入 memory tools。
+> 当前 source tree 已无 `cmd/mcp-orch/memory/*` 旧包；`run()` 不提供 `memory.NewConfig()` / `memory.NewService()`，`newRegistry(...)` 不接收 memory 参数，`tools.NewRegistry()` 不挂入 memory tools。
 
 - `run()`：Fx 装配总入口（`cmd/mcp-orch/fx.go:30`）。
 - `buildBootstrapConfig()`：注册 `OnToolsList` / `OnToolsCall` / `Hooks.OnAfter` / capabilities（`cmd/mcp-orch/fx.go:77`）。
 - `newRegistry()`：把 orchestration / task / workspace / prompt / command / shared_file 组装成统一 registry；当前不含 memory tools。
 - `bootstrapRunner.Run()`：仅在 peer mode + RPC addr 下真正 register + subscribe hooks（`cmd/mcp-orch/runtime.go:184`）。
-- `newHTTPRunner()`：peer mode 下启动 HTTP MCP，并写 discovery file（`cmd/mcp-orch/http_runner.go:23`、`internal/mcpserver/common/discovery.go:62`）。
+- `newHTTPRunner()`：peer mode 下启动 HTTP MCP，并写 discovery file（`cmd/mcp-orch/http_runner.go:23`、`internal/platform/discovery/discovery.go`）。
 
 ## 3. Agent 生命周期（launch / list / report / send_message / stop）
 
@@ -746,21 +749,18 @@ flowchart LR
 
 ## 8. 测试入口 + archtest freeze 映射
 
-本卷涉及的 `cmd/mcp-orch` 子树当前有明确测试入口；`freeze` 列统一写 `—`，因为 `internal/archtest/freeze_registry.go` 当前只对 `internal/module/{memory,prompt}` 维护显式 freeze。
+当前 `cmd/mcp-orch` 与 `internal/sidecar/orch` 子树没有 package-local `*_test.go`；本卷的最低可执行校验是包编译与全仓守卫。`freeze` 列统一写 `—`，因为 `internal/archtest` 当前只保留项目守卫脚本与 ratchet 测试。
 
-| 包 | 测试文件 | 核心 Test* | freeze |
+| 包 | 当前校验入口 | 说明 | freeze |
 |---|---|---|---|
-| `mcp-orch` | `runtime_memory_test.go` | `TestNewRegistryDoesNotIncludeMemoryTools` | — |
-| `memory` | `memory/service_test.go` | `TestServiceReadByNameReturnsEntryContentAndMetadata`（旧 standalone 包隔离测试） | — |
-| `orchestration` | `orchestration/submission_test.go` | `TestEnqueueDequeue` | — |
-| `store/taskdag` | `store/taskdag/store_fencing_test.go` | `TestClaimDueWakeupsSkipsAlreadyClaimedWakeups` | — |
-| `store/workspace` | `store/workspace/store_test.go` | `TestCreateWorkspaceRun` | — |
-| `tools` | `tools/parity_v2_test.go` | `TestHandleWorkspaceGetRunNilMapsToNotFound` | — |
+| `cmd/mcp-orch` | `go test ./cmd/mcp-orch` | 验证入口装配可编译；当前无 package-local 测试用例。 | — |
+| `internal/sidecar/orch/...` | `go test ./internal/sidecar/orch/...` | 验证 orchestration / tools / workspace / store / sqlc 子树可编译；当前无 package-local 测试用例。 | — |
+| 全仓守卫 | `make guard-change` | 文档以外若伴随 Go 改动，必须按仓库守卫执行。 | — |
 
 ## 9. 常见改动 how-to
 
 | 场景 | 触发 | 步骤 | 锚点 | 验证 |
 |---|---|---|---|---|
-| MCP tool | 暴露新的 mcp-orch Claude-facing 工具能力 | 1. 在 `tools/*_tools.go` 增 schema / handler。<br>2. 在 `tools.NewRegistry()` 挂入 definition。<br>3. 回看 `newRegistry()` 与 `buildBootstrapConfig()`，按 tool family 同步依赖注入和 capability；memory tools 不在 mcp-orch 新增，走 app host-direct toolbridge。 | `tools.NewRegistry()` / `newRegistry()` / `buildBootstrapConfig()` | `tools/parity_v2_test.go`、相关 runtime 测试 |
-| orch RPC | 新增 agent / task / report 类 JSON-RPC | 1. 先补 `orchestration/rpc_types.go` 参数结构与 legacy alias。<br>2. 在 `ProvideRPCFacade()` 注册 handler。<br>3. 复用 `service` / helper 做 contract 映射与严格解码。 | `ProvideRPCFacade()` | `orchestration/rpc_golden_test.go` |
-| workspace op | 补 run / query / merge / abort 等 workspace 能力 | 1. 先补 `workspace/contract.go` / `workspace/rpc_types.go`。<br>2. 在 `workspace/service*.go` 实现校验、状态迁移与 merge 计划。<br>3. 经 `NewWorkspaceHandlers()` 与 `createWorkspaceRun()` / `workspaceRunDTOFromRun()` 同步暴露到 RPC / MCP。 | `NewWorkspaceHandlers()` / `createWorkspaceRun()` / `workspaceRunDTOFromRun()` | `tools/workspace_tools_compat_test.go`、`store/workspace/store_test.go` |
+| MCP tool | 暴露新的 mcp-orch Claude-facing 工具能力 | 1. 在 `internal/sidecar/orch/tools/*_tools.go` 增 schema / handler。<br>2. 在 `tools.NewRegistry()` 挂入 definition。<br>3. 回看 `newRegistry()` 与 `buildBootstrapConfig()`，按 tool family 同步依赖注入和 capability；memory tools 不在 mcp-orch 新增，走 app host-direct toolbridge。 | `tools.NewRegistry()` / `newRegistry()` / `buildBootstrapConfig()` | `go test ./cmd/mcp-orch ./internal/sidecar/orch/...`；必要时补 package-local 测试 |
+| orch RPC | 新增 agent / task / report 类 JSON-RPC | 1. 先补 `internal/sidecar/orch/orchestration/rpc_types.go` 参数结构与 legacy alias。<br>2. 在 `ProvideRPCFacade()` 注册 handler。<br>3. 复用 `service` / helper 做 contract 映射与严格解码。 | `ProvideRPCFacade()` | `go test ./internal/sidecar/orch/orchestration`；必要时补 RPC golden |
+| workspace op | 补 run / query / merge / abort 等 workspace 能力 | 1. 先补 `internal/sidecar/orch/workspace/contract.go` / `rpc_types.go`。<br>2. 在 `workspace/service*.go` 实现校验、状态迁移与 merge 计划。<br>3. 经 `NewWorkspaceHandlers()` 与 `createWorkspaceRun()` / `workspaceRunDTOFromRun()` 同步暴露到 RPC / MCP。 | `NewWorkspaceHandlers()` / `createWorkspaceRun()` / `workspaceRunDTOFromRun()` | `go test ./internal/sidecar/orch/workspace ./internal/sidecar/orch/tools`；必要时补 store/tool 测试 |
