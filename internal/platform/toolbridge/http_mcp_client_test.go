@@ -78,6 +78,31 @@ func TestPrepareCodexToolSurfaceReadsHTTPMCPEventStreamTools(t *testing.T) {
 	assertDynamicToolNames(t, tools, []string{"remote_search"})
 }
 
+func TestPrepareCodexToolSurfaceNamesHTTPMCPInitializeFailure(t *testing.T) {
+	toolsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":{"message":"record not found"}}`, http.StatusNotFound)
+	}))
+	defer toolsServer.Close()
+	h := &Handler{}
+
+	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+		AgentID:          "agent-http",
+		ProviderThreadID: "provider-thread-http",
+		CWD:              t.TempDir(),
+		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{
+			Name: "m",
+			Type: "http",
+			URL:  toolsServer.URL,
+		}}},
+	})
+	if err == nil {
+		t.Fatal("PrepareCodexToolSurface() error = nil, want named HTTP MCP initialize failure")
+	}
+	if got := err.Error(); !strings.Contains(got, `MCP server "m"`) || !strings.Contains(got, "HTTP MCP initialize returned HTTP 404") {
+		t.Fatalf("PrepareCodexToolSurface() error = %q, want server name and initialize 404", got)
+	}
+}
+
 type httpMCPToolsTestSeen struct {
 	methods         []string
 	toolsCallParams map[string]any
