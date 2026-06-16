@@ -887,10 +887,10 @@ describe('conversation content column styles', () => {
     expect(introStage['min-height']).toBe('0');
     expect(introStage.gap).toBe('clamp(22px, 3.8vh, 38px)');
     expect(introStage['padding-top']).toBe('clamp(116px, 30vh, 340px)');
-    expect(introTitle['font-size']).toBe('clamp(28px, 3vw, 46px)');
+    expect(introTitle['font-size']).toBe('clamp(30px, 2.75rem, 48px)');
     expect(introTitle['font-weight']).toBe('800');
-    expect(introTitle['white-space']).toBe('nowrap');
-    expect(introTitle['overflow-wrap']).toBe('normal');
+    expect(introTitle['white-space']).toBe('normal');
+    expect(introTitle['overflow-wrap']).toBe('anywhere');
     expect(scopedIntroTitle.margin).toBe('0 auto');
     expect(scopedIntroTitle.width).toBe('min(100%, max-content)');
     expect(scopedIntroTitle['max-width']).toBe('100%');
@@ -944,7 +944,9 @@ describe('workbench shell styles', () => {
     expect(projectTree.flex).toBe('1 1 auto');
     expect(projectTree['min-height']).toBe('0');
     expect(projectTree['overflow-y']).toBe('auto');
-    expect(settings['margin-top']).toBe('auto');
+    expect(settings['margin-top']).toBe('0');
+    expect(settings.position).toBe('relative');
+    expect(settings['z-index']).toBe('4');
     expect(settings['flex-shrink']).toBe('0');
   });
 

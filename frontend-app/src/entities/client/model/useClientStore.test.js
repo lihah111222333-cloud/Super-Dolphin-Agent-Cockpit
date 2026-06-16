@@ -409,7 +409,10 @@ function registerBridgeEventHandlersForTest() {
       activeProject: '/repo/app',
       projects: ['/repo/app', '/repo/other'],
     });
-    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    backend.setActiveProject.mockImplementation(({ path }) => Promise.resolve({
+      projects: path === '/repo/new' ? ['/repo/app', '/repo/other', '/repo/new'] : ['/repo/app', '/repo/other'],
+      active: path,
+    }));
     backend.addProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other', '/repo/new'], active: '/repo/other' });
     backend.removeProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
 
@@ -420,7 +423,8 @@ function registerBridgeEventHandlersForTest() {
     await expect(useClientStore.getState().addProjectFromPicker()).resolves.toBe(true);
     expect(backend.selectProjectDir).toHaveBeenCalledWith('/repo/other');
     expect(backend.addProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
-    expect(useClientStore.getState().activeProject).toBe('/repo/other');
+    expect(backend.setActiveProject).toHaveBeenLastCalledWith({ cwd: '/repo/app', path: '/repo/new' });
+    expect(useClientStore.getState().activeProject).toBe('/repo/new');
 
     await expect(useClientStore.getState().removeProjectPath('/repo/new')).resolves.toBe(true);
     expect(backend.removeProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });

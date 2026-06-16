@@ -11,12 +11,18 @@ const NATIVE_FILE_DROP_TARGET_IDS = new Set(['composer-input', 'chat-input-bar',
 const NATIVE_FILE_DROP_TARGET_ATTRIBUTE = 'data-file-drop-target';
 const NATIVE_FILE_DROP_TARGET_CLASSES = new Set([
   'composer',
+  'composer-actions',
+  'composer-attach',
   'composer--docked',
   'composer--floating',
   'composer-card',
   'composer-drop-hint',
+  'composer-meta',
+  'composer-model',
+  'composer-model-wrap',
   'conversation',
   'conversation--intro',
+  'send',
   'timeline',
   'timeline-shell',
 ]);

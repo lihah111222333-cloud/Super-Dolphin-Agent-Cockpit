@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, Brain, CircleUserRound, Folder, FolderOpen, Menu, Moon, PanelLeftClose, PanelLeftOpen, Plus, Puzzle, RefreshCw, Search, Settings as SettingsIcon, SquarePlus, Sun, X } from 'lucide-react';
+import { Archive, Brain, Check, CircleUserRound, Folder, FolderOpen, Menu, Moon, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Puzzle, RefreshCw, Search, Settings as SettingsIcon, SquarePlus, Sun, Trash2, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.js';
@@ -609,6 +609,7 @@ function selectAppShellStore(state) {
     activityStatsByThread: state.activityStatsByThread,
     addProjectFromPicker: state.addProjectFromPicker,
     addWarning: state.addWarning,
+    archiveThread: state.archiveThread,
     attachDroppedFilesForComposer: state.attachDroppedFilesForComposer,
     attachPathsForComposer: state.attachPathsForComposer,
     attachments: state.attachments,
@@ -616,6 +617,7 @@ function selectAppShellStore(state) {
     bootstrapStatus: state.bootstrapStatus,
     copyActiveThreadInfo: state.copyActiveThreadInfo,
     cwd: state.cwd,
+    deleteStaleThreads: state.deleteStaleThreads,
     diffTextByThread: state.diffTextByThread,
     draft: state.draft,
     error: state.error,
@@ -636,6 +638,7 @@ function selectAppShellStore(state) {
     respondApproval: state.respondApproval,
     resolveLaunchPreferences: state.resolveLaunchPreferences,
     rightPanelWidth: state.rightPanelWidth,
+    renameThread: state.renameThread,
     runtimeResultEntries: state.runtimeResultEntries,
     selectFilesForComposer: state.selectFilesForComposer,
     sendDraft: state.sendDraft,
@@ -802,8 +805,203 @@ function formatRelativeTime(dateString) {
   return `${diffMonths} 月`;
 }
 
+function useSidebarThreadActions(store) {
+  const [editingThreadId, setEditingThreadId] = useState('');
+  const [editingName, setEditingName] = useState('');
+  const [renamingThreadId, setRenamingThreadId] = useState('');
+  const [deletingThreadId, setDeletingThreadId] = useState('');
+
+  const beginRename = useCallback((thread, event) => {
+    event?.stopPropagation?.();
+    if (!thread?.id) return;
+    setDeletingThreadId('');
+    setEditingThreadId(thread.id);
+    setEditingName(projectThreadLabel(thread));
+  }, []);
+
+  const cancelRename = useCallback((event) => {
+    event?.stopPropagation?.();
+    if (renamingThreadId) return;
+    setEditingThreadId('');
+    setEditingName('');
+  }, [renamingThreadId]);
+
+  const submitRename = useCallback(async (thread, event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    const nextName = editingName.trim();
+    if (!thread?.id || !nextName || renamingThreadId) return;
+    if (nextName === projectThreadLabel(thread).trim()) {
+      cancelRename(event);
+      return;
+    }
+    setRenamingThreadId(thread.id);
+    try {
+      const saved = await store?.renameThread?.(thread.id, nextName);
+      if (saved) {
+        setEditingThreadId('');
+        setEditingName('');
+      }
+    }
+    finally {
+      setRenamingThreadId('');
+    }
+  }, [cancelRename, editingName, renamingThreadId, store]);
+
+  const beginDelete = useCallback((threadId, event) => {
+    event?.stopPropagation?.();
+    if (!threadId) return;
+    setEditingThreadId('');
+    setEditingName('');
+    setDeletingThreadId(threadId);
+  }, []);
+
+  const cancelDelete = useCallback((event) => {
+    event?.stopPropagation?.();
+    setDeletingThreadId('');
+  }, []);
+
+  const confirmDelete = useCallback((threadId, event) => {
+    event?.stopPropagation?.();
+    if (!threadId) return;
+    setDeletingThreadId('');
+    runUIAction(() => store?.deleteStaleThreads?.([threadId]), uiActionOptions(store));
+  }, [store]);
+
+  return {
+    beginDelete,
+    beginRename,
+    cancelDelete,
+    cancelRename,
+    confirmDelete,
+    deletingThreadId,
+    editingName,
+    editingThreadId,
+    renamingThreadId,
+    setEditingName,
+    submitRename,
+  };
+}
+
+function SidebarThreadRow({
+  active,
+  archiveLabel,
+  label,
+  onArchive,
+  onSelect,
+  openLabel,
+  thread,
+  threadActions,
+}) {
+  const editing = threadActions.editingThreadId === thread.id;
+  const deleting = threadActions.deletingThreadId === thread.id;
+  const renaming = threadActions.renamingThreadId === thread.id;
+
+  if (deleting) {
+    return (
+      <li className="sidebar-thread-row sidebar-thread-row--confirm">
+        <span>删除此会话？</span>
+        <div className="sidebar-thread-confirm-actions">
+          <button type="button" onClick={(event) => threadActions.confirmDelete(thread.id, event)}>
+            删除
+          </button>
+          <button type="button" onClick={threadActions.cancelDelete}>
+            取消
+          </button>
+        </div>
+      </li>
+    );
+  }
+
+  if (editing) {
+    return (
+      <li className="sidebar-thread-row sidebar-thread-row--editing">
+        <form className="sidebar-thread-rename" onSubmit={(event) => threadActions.submitRename(thread, event)}>
+          <input
+            aria-label="会话名称"
+            autoFocus
+            disabled={renaming}
+            maxLength={64}
+            value={threadActions.editingName}
+            onChange={(event) => threadActions.setEditingName(event.target.value)}
+            onClick={(event) => event.stopPropagation()}
+            onFocus={(event) => event.currentTarget.select()}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') threadActions.cancelRename(event);
+            }}
+          />
+          <button
+            type="submit"
+            aria-label="保存会话名称"
+            disabled={renaming}
+            onMouseDown={(event) => event.preventDefault()}
+          >
+            <Check size={13} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-label="取消重命名"
+            disabled={renaming}
+            onClick={threadActions.cancelRename}
+            onMouseDown={(event) => event.preventDefault()}
+          >
+            <X size={13} aria-hidden="true" />
+          </button>
+        </form>
+      </li>
+    );
+  }
+
+  return (
+    <li className="sidebar-thread-row">
+      <button
+        type="button"
+        className={`sidebar-thread-item${active ? ' active' : ''}`}
+        onClick={onSelect}
+        aria-label={openLabel}
+        title={label}
+      >
+        <span className="sidebar-thread-title">{label}</span>
+        {thread.updatedAt && (
+          <span className="sidebar-thread-time" aria-hidden="true">{formatRelativeTime(thread.updatedAt)}</span>
+        )}
+      </button>
+      <div className="thread-inline-actions" aria-label="会话操作">
+        <button
+          type="button"
+          className="thread-inline-action-btn"
+          onClick={(event) => threadActions.beginRename(thread, event)}
+          aria-label={`重命名会话：${label}`}
+          title="重命名"
+        >
+          <Pencil size={13} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="thread-inline-action-btn"
+          onClick={onArchive}
+          aria-label={archiveLabel}
+          title={archiveLabel}
+        >
+          <Archive size={13} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="thread-inline-action-btn danger"
+          onClick={(event) => threadActions.beginDelete(thread.id, event)}
+          aria-label={`删除会话：${label}`}
+          title="删除"
+        >
+          <Trash2 size={13} aria-hidden="true" />
+        </button>
+      </div>
+    </li>
+  );
+}
+
 function SidebarProjectTree({ projectPath, setActivePage, store }) {
   const [expandedProjects, setExpandedProjects] = useState({});
+  const threadActions = useSidebarThreadActions(store);
   const actionOptions = uiActionOptions(store);
   const toggleExpandProject = (path) => {
     setExpandedProjects((current) => ({
@@ -813,9 +1011,13 @@ function SidebarProjectTree({ projectPath, setActivePage, store }) {
   };
   const projectItems = projectDirectoryItems(projectPath, store?.projects, store?.activeProject);
   const activeProjectPath = textValue(store?.activeProject || projectPath);
-  const addProject = () => runUIAction(() => store?.addProjectFromPicker?.(), actionOptions);
+  const addProject = () => runUIAction(async () => {
+    const added = await store?.addProjectFromPicker?.();
+    if (added) setActivePage('chat');
+  }, actionOptions);
   const selectProject = (path) => {
     if (!path) return;
+    setActivePage('chat');
     runUIAction(() => store?.setActiveProjectPath?.(path), actionOptions);
   };
   const selectThread = (threadId) => {
@@ -859,6 +1061,21 @@ function SidebarProjectTree({ projectPath, setActivePage, store }) {
                 {visibleThreads.length > 0 ? visibleThreads.map((thread) => {
                   const label = projectThreadLabel(thread);
                   const active = thread.id === store?.activeThreadId;
+                  if (thread.id) {
+                    return (
+                      <SidebarThreadRow
+                        key={thread.id}
+                        active={active}
+                        archiveLabel="归档此项目会话"
+                        label={label}
+                        onArchive={(event) => archiveThread(thread.id, event)}
+                        onSelect={() => selectThread(thread.id)}
+                        openLabel={`打开项目聊天：${label}`}
+                        thread={thread}
+                        threadActions={threadActions}
+                      />
+                    );
+                  }
                   return (
                     <li key={thread.id || label}>
                       <button
@@ -1027,6 +1244,7 @@ function WorkbenchSidebar({
 
 function SidebarTaskSummary({ store, setActivePage }) {
   const tasks = taskThreadItems(store?.threads);
+  const threadActions = useSidebarThreadActions(store);
   const actionOptions = uiActionOptions(store);
   const selectThread = (threadId) => {
     if (!threadId) return;
@@ -1046,6 +1264,21 @@ function SidebarTaskSummary({ store, setActivePage }) {
           {tasks.map((thread) => {
             const label = projectThreadLabel(thread);
             const active = thread.id === store?.activeThreadId;
+            if (thread.id) {
+              return (
+                <SidebarThreadRow
+                  key={thread.id}
+                  active={active}
+                  archiveLabel="归档此任务会话"
+                  label={label}
+                  onArchive={(event) => archiveThread(thread.id, event)}
+                  onSelect={() => selectThread(thread.id)}
+                  openLabel={`打开任务对话：${label}`}
+                  thread={thread}
+                  threadActions={threadActions}
+                />
+              );
+            }
             return (
               <li key={thread.id || label}>
                 <button

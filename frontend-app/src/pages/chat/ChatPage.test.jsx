@@ -515,6 +515,15 @@ describe('ChatPage module', () => {
 
     act(() => {
       nativeDropHandler?.({
+        files: ['/tmp/native-composer-actions.txt'],
+        details: { classList: ['composer-actions'] },
+      });
+    });
+
+    expect(store.attachPathsForComposer).toHaveBeenCalledWith(['/tmp/native-composer-actions.txt']);
+
+    act(() => {
+      nativeDropHandler?.({
         files: ['/tmp/native-timeline-class.txt'],
         details: { classList: ['timeline'] },
       });
