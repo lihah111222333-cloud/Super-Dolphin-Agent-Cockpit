@@ -6,8 +6,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/codexmanifest"
 )
 
-const codexManagedManifestName = codexmanifest.Name
-
 type codexManifestVerifier struct{}
 
 // IsExecutable 判断路径是否指向可执行文件。

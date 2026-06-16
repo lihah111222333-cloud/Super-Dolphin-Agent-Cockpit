@@ -538,10 +538,6 @@ func ExtractTitle(prompt string) string {
 	return titleextract.Extract(prompt)
 }
 
-func countDisplayUnits(s string) int {
-	return titleextract.CountDisplayUnits(s)
-}
-
 func resolveDisplayName(ctx context.Context, store threadstore.Store, agentID, _ string, currentName string) string {
 	name := strings.TrimSpace(currentName)
 	if name == defaultThreadName() {

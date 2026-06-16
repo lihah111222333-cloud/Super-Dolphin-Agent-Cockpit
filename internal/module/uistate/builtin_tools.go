@@ -222,10 +222,6 @@ func ResolveHardEnabledBuiltinTools(ctx context.Context, prefs uipreference.Stor
 	return out
 }
 
-func filterBuiltinToolsByMode(ids []string, index map[string]contract.NativeToolDescriptor, mode contract.NativeToolFilterMode) []string {
-	return filterBuiltinToolsByModeAndProvider(ids, index, mode, "")
-}
-
 // filterBuiltinToolsByModeAndProvider 按模式provider处理过滤条件builtin工具。
 func filterBuiltinToolsByModeAndProvider(ids []string, index map[string]contract.NativeToolDescriptor, mode contract.NativeToolFilterMode, provider string) []string {
 	out := make([]string, 0, len(ids))

@@ -32,8 +32,6 @@ func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
 // newStoreForTest exists so tests can plug in a fake querier without
 // exporting the internal struct.
-func newStoreForTest(q querier) Store { return &store{q: q} }
-
 // Upsert 新增或更新记录。
 func (s *store) Upsert(ctx context.Context, p UpsertParams) error {
 	key := strings.TrimSpace(p.DedupeKey)

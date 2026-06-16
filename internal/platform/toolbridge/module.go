@@ -133,13 +133,8 @@ func provideDiffEmitter(dispatcher *event.Dispatcher) difftracker.DiffEmitter {
 // resolverFunc wraps a plain function into a difftracker.WorkDirResolver.
 // Used internally and by tests; the production provider lives in
 // internal/app/toolbridge_adapters.go.
-type resolverFunc func(context.Context, string) (string, error)
 
 // ResolveAgentCWD 解析代理工作目录。
-func (fn resolverFunc) ResolveAgentCWD(ctx context.Context, agentID string) (string, error) {
-	return fn(ctx, agentID)
-}
-
 func provideProxyAddrFn() func() string {
 	return func() string {
 		addr, _ := proxyAddr.Load().(string)

@@ -51,6 +51,9 @@ func NewLocalLauncher(turnStarter TurnStarter, logger *slog.Logger) AgentLaunche
 
 // Launch 启动代理会话并记录运行句柄。
 func (l *localLauncher) Launch(ctx context.Context, agent *agentRuntime, _ LaunchRequest) (LaunchResult, error) {
+	if l == nil {
+		return LaunchResult{}, errors.New("launcher is required")
+	}
 	if agent == nil {
 		return LaunchResult{}, errors.New("agent is required")
 	}
@@ -73,7 +76,7 @@ func (l *localLauncher) Launch(ctx context.Context, agent *agentRuntime, _ Launc
 	agent.launchSeq++
 	agent.startedAt = now
 	agent.updatedAt = now
-	if l != nil && l.logger != nil {
+	if l.logger != nil {
 		l.logger.Info("orchestration: agent launched", "agent_id", agent.id, "pid", cmd.Process.Pid)
 	}
 	return LaunchResult{}, nil

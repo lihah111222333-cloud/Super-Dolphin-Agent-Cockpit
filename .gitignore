@@ -54,6 +54,8 @@ Thumbs.db
 # Environment
 .env
 .env.local
+.env.*
+!.env.example
 
 # Agent workspace / tmp
 /.stitch/
@@ -70,7 +72,7 @@ Thumbs.db
 /.agent/skills/**/.super-dolphin-skill-recovery.json
 # Local Claude harness state (settings, scheduled-task locks, per-user memory stores)
 /.claude/
-/.agents/
+#/.agents/
 /.codex/*
 !/.codex/
 !/.codex/config.toml
@@ -104,3 +106,5 @@ cmd/agent-terminal/frontend/node_modules
 
 # orchestration runtime sqlite db (super-agent.db / agnet local state)
 .agnet/
+
+.project-map

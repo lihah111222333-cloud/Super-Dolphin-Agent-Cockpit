@@ -2,19 +2,19 @@
   "version": "1.0",
   "generator": "node:scripts/generate_ai_project_map.js",
   "generated_at": "2026-06-16",
-  "files": 4896,
+  "files": 2729,
   "domains": {
-    "docs-agent": 1569,
-    "other": 768,
-    "app-ui": 396,
-    "platform-provider": 844,
-    "orchestration": 355,
-    "modules": 665,
-    "store-sql": 299
+    "docs-agent": 891,
+    "other": 423,
+    "app-ui": 221,
+    "platform-provider": 432,
+    "orchestration": 183,
+    "modules": 331,
+    "store-sql": 248
   },
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.0776,
-    "unknown_files": 380
+    "unknown_ratio": 0.0843,
+    "unknown_files": 230
   }
 }

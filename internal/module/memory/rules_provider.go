@@ -59,10 +59,6 @@ func freezeTranscriptInputs(snippets []transcriptSnippet) []shareddto.InputItem 
 	return retrievalpkg.FreezeTranscriptInputs(snippets)
 }
 
-func memoryHeader(now time.Time, entry MemoryEntry) string {
-	return retrievalpkg.MemoryHeader(now, entry)
-}
-
 func shouldSearchPastContextQuery(query string) bool {
 	return retrievalpkg.ShouldSearchPastContextQuery(query)
 }

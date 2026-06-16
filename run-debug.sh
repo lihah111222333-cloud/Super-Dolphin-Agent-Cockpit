@@ -28,7 +28,6 @@ ensure_dev_control_session_token
 
 WORKTREE_DIR="$PROJECT_DIR/.worktrees/test"
 FRONTEND_DIR="$PROJECT_DIR/cmd/agent-terminal/frontend"
-export GO_GUARD_ALLOW_RAW="run-debug.sh"
 FORCE_NPM_REINSTALL="0"
 NPM_REGISTRY="https://registry.npmmirror.com"
 USE_FRIDA="1"
@@ -425,39 +424,10 @@ cd "$BUILD_DIR"
 maybe_refresh_codemap "$BUILD_DIR"
 
 echo "[3/4] 后端代码守卫检查..."
-
-# 预编译守卫工具并缓存（源码未变则跳过重编译，避免每次 go run）
-_GUARD_BIN="$BUILD_DIR/.build-cache/code-size-guard"
-_GUARD_HASH_FILE="$BUILD_DIR/.build-cache/code-size-guard.srchash"
-mkdir -p "$BUILD_DIR/.build-cache"
-_GUARD_CUR_HASH=$(find "$BUILD_DIR/scripts/code_size_guard.go" "$BUILD_DIR/internal/archtest" -name '*.go' 2>/dev/null | sort | xargs md5 -q 2>/dev/null | md5 -q 2>/dev/null || echo "nohash")
-
-rebuild_code_size_guard() {
-  echo "  → 编译 code_size_guard..."
-  go build -o "$_GUARD_BIN" "$BUILD_DIR/scripts/code_size_guard.go"
-  echo "$_GUARD_CUR_HASH" > "$_GUARD_HASH_FILE"
-}
-
-if [ ! -f "$_GUARD_BIN" ] || [ ! -f "$_GUARD_HASH_FILE" ] || [ "$(cat "$_GUARD_HASH_FILE")" != "$_GUARD_CUR_HASH" ]; then
-  rebuild_code_size_guard
-else
-  echo "  → code_size_guard 缓存命中，跳过编译"
-fi
-
-if "$_GUARD_BIN"; then
+if make guard-change; then
   _GUARD_STATUS=0
 else
   _GUARD_STATUS=$?
-fi
-if [ "$_GUARD_STATUS" -eq 126 ] || [ "$_GUARD_STATUS" -eq 137 ]; then
-  echo "  ⚠️  code_size_guard 缓存执行失败 (status=$_GUARD_STATUS)，删除缓存后重建重试..."
-  rm -f "$_GUARD_BIN" "$_GUARD_HASH_FILE"
-  rebuild_code_size_guard
-  if "$_GUARD_BIN"; then
-    _GUARD_STATUS=0
-  else
-    _GUARD_STATUS=$?
-  fi
 fi
 if [ "$_GUARD_STATUS" -ne 0 ]; then
   echo ""

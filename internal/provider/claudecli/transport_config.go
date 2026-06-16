@@ -324,11 +324,6 @@ func appendSystemPromptFlags(args []string, instructions string, cfg cliLaunchCo
 	return args
 }
 
-func composeLaunchSystemPrompt(instructions string, cfg cliLaunchConfig) string {
-	parts := composeLaunchSystemPromptBlocks(instructions, cfg)
-	return strings.TrimSpace(strings.Join(parts, "\n\n"))
-}
-
 func composeLaunchSystemPromptBlocks(instructions string, cfg cliLaunchConfig) []string {
 	parts := promptBaseInstructionBlocks(instructions, cfg.PromptSnapshot)
 	parts = append(parts, promptDeveloperInstructions(cfg))

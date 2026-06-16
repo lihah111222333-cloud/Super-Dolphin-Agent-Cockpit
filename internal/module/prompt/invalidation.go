@@ -78,18 +78,6 @@ func compactSectionNames(names []string) []string {
 	return out
 }
 
-func (s *promptService) invalidateAvailableExperts() {
-	s.invalidatePromptSections(contract.DynamicSectionAvailableExperts)
-}
-
-func (s *promptService) invalidateRecallCatalog() {
-	s.invalidatePromptSections(contract.DynamicSectionRecallCatalog)
-}
-
-func (s *promptService) invalidateProjectDefaultRules() {
-	s.invalidatePromptSections(contract.DynamicSectionProjectDefaultRules)
-}
-
 func (s *promptService) invalidateSectionAssetCatalogs() {
 	s.invalidatePromptSections(contract.DynamicSectionRecallCatalog, contract.DynamicSectionProjectDefaultRules)
 }

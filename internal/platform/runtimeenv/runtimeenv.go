@@ -177,14 +177,6 @@ func packagedAppDataDir(userHome string) string {
 	return packagedAppDataDirForOS(runtimeGOOS(), userHome)
 }
 
-func packagedResourcesDir(executablePath string) string {
-	return packagedResourcesDirForOS(runtimeGOOS(), executablePath)
-}
-
-func applyPackagedEnv(resources, userHome string) error {
-	return applyPackagedRuntimeEnv(packagedRuntimeFromResources(resources, userHome))
-}
-
 // LoadLSPBundleFromEnv 从env加载LSP包体。
 func LoadLSPBundleFromEnv() (LSPBundle, bool, error) {
 	bundleDir := strings.TrimSpace(os.Getenv(lspBundleDirEnv))
@@ -412,7 +404,7 @@ func LoadVideoEnv() error {
 
 // WriteVideoEnv 写入videoenv。
 func WriteVideoEnv(apiKey string) error {
-	apiKey = strings.TrimSpace(apiKey)
+	apiKey = strings.TrimSpace(apiKey) // guard:allow-secret user-provided value normalization, not a literal secret.
 	if apiKey == "" {
 		return fmt.Errorf("SILICONFLOW_API_KEY is required")
 	}

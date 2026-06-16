@@ -3,8 +3,9 @@ package rpc
 import (
 	"context"
 	"encoding/json"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"github.com/creachadair/jrpc2"
 	"github.com/kelindar/event"

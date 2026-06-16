@@ -106,13 +106,13 @@ func EnsureCodexBootstrap(ctx context.Context, cfg CodexBootstrapConfig) error {
 func validateCodexBootstrapConfig(home, baseURL, bootstrapToken string) error {
 	var problems []error
 	if home == "" {
-		problems = append(problems, errors.New("Codex home is required"))
+		problems = append(problems, errors.New("codex home is required"))
 	}
 	if baseURL == "" {
-		problems = append(problems, errors.New("Codex relay base URL is required"))
+		problems = append(problems, errors.New("codex relay base URL is required"))
 	}
 	if bootstrapToken == "" {
-		problems = append(problems, errors.New("Codex relay bootstrap token is required"))
+		problems = append(problems, errors.New("codex relay bootstrap token is required"))
 	}
 	return errors.Join(problems...)
 }
@@ -348,7 +348,7 @@ func installManagedCodexCLI(ctx context.Context, root, checksum string) (string,
 func codexReleaseChecksum() (string, error) {
 	checksum := strings.ToLower(strings.TrimSpace(os.Getenv(codexReleaseSHA256Env)))
 	if checksum == "" {
-		return "", fmt.Errorf("Codex fallback download requires pinned SHA-256 checksum; set %s", codexReleaseSHA256Env)
+		return "", fmt.Errorf("codex fallback download requires pinned SHA-256 checksum; set %s", codexReleaseSHA256Env)
 	}
 	decoded, err := hex.DecodeString(checksum)
 	if err != nil || len(decoded) != sha256.Size {

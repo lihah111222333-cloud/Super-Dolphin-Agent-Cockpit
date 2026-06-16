@@ -26,7 +26,6 @@ const (
 )
 
 type service struct {
-	root               string
 	projectRoot        string
 	projectSkillsRoot  string
 	superDolphinHome   string
@@ -254,13 +253,6 @@ func (s *service) prepareScopedSkillsRoot(cwd, scope string, personalType ...str
 		return "", err
 	}
 	return root, nil
-}
-
-func resolveRequestedSkillScope(scope ...string) string {
-	if len(scope) == 0 {
-		return ""
-	}
-	return scope[0]
 }
 
 func resolveRequestedPersonalType(personalType ...string) string {

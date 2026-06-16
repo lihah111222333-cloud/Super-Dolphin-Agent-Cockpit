@@ -31,10 +31,6 @@ const (
 	ownerIdentitySaltFile = "owner_identity.salt"
 )
 
-type canonicalRoots struct {
-	Project  string
-	Personal map[string]string
-}
 type ownerIdentity struct {
 	OwnerKey string
 	SaltPath string
@@ -55,18 +51,6 @@ type resolvedSkillPathTarget struct {
 
 // resolveCanonicalRoots 返回运行时真正读取的 skill 目录。
 // .claude/.agents 这类 provider mirror 是生成物，不在这里。
-func resolveCanonicalRoots(projectRoot, home string) canonicalRoots {
-	superDolphinHome := filepath.Join(strings.TrimSpace(home), ".super-dolphin")
-	personal := make(map[string]string, len(activePersonalSkillTypes()))
-	for _, personalType := range activePersonalSkillTypes() {
-		personal[personalType] = filepath.Join(superDolphinHome, "skills", "personal", personalType)
-	}
-	return canonicalRoots{
-		Project:  defaultProjectSkillsRoot(projectRoot),
-		Personal: personal,
-	}
-}
-
 // activePersonalSkillTypes 是运行时会读取的 personal 类型。
 // hub 不在这里；新增类型前要先想清楚怎么同步和清理 mirror。
 func activePersonalSkillTypes() []string {

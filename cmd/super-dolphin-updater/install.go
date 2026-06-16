@@ -259,7 +259,7 @@ func validateMountedApp(appPath string) error {
 		return err
 	}
 	if bundleID != expectedBundleID {
-		return fmt.Errorf("Info.plist CFBundleIdentifier mismatch: expected %s, got %s", expectedBundleID, bundleID)
+		return fmt.Errorf("info.plist CFBundleIdentifier mismatch: expected %s, got %s", expectedBundleID, bundleID)
 	}
 	return nil
 }
@@ -283,7 +283,7 @@ func plistStringValue(decoder *xml.Decoder, key string) (string, error) {
 	for {
 		token, err := decoder.Token()
 		if errors.Is(err, io.EOF) {
-			return "", fmt.Errorf("Info.plist missing %s", key)
+			return "", fmt.Errorf("info.plist missing %s", key)
 		}
 		if err != nil {
 			return "", fmt.Errorf("parse Info.plist: %w", err)
@@ -398,7 +398,7 @@ func verifyAppSignature(appPath string, expectedTeamID string, allowUnsigned boo
 		return errors.New("codesign details missing TeamIdentifier")
 	}
 	if teamID != expectedTeamID {
-		return fmt.Errorf("Team ID mismatch: expected %s, got %s", expectedTeamID, teamID)
+		return fmt.Errorf("team ID mismatch: expected %s, got %s", expectedTeamID, teamID)
 	}
 	if !strings.Contains(details, "Authority=Developer ID Application:") {
 		return errors.New("codesign details missing Developer ID Application authority")

@@ -113,10 +113,6 @@ func (d *HookDispatcher) dispatchPreparedAfter(ctx context.Context, leases []mcp
 	return dispatchPrepared(d, ctx, leases, payload, d.peerCallback.CallbackAfter)
 }
 
-func (d *HookDispatcher) prepareDispatch(topic string, payload mcp.HookPayload) ([]mcp.LeaseKey, mcp.HookPayload) {
-	return d.prepareDispatchBySelector(mcp.Selector{Subscription: topic}, payload)
-}
-
 func (d *HookDispatcher) prepareDispatchBySelector(sel mcp.Selector, payload mcp.HookPayload) ([]mcp.LeaseKey, mcp.HookPayload) {
 	topic := strings.TrimSpace(sel.Subscription)
 	payload = shared.CloneHookPayload(payload)

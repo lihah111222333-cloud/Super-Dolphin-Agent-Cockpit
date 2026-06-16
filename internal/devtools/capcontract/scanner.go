@@ -125,6 +125,7 @@ func shouldSkipDir(name string) bool {
 // scanPackage 扫描包。
 func scanPackage(repoRoot, dir string) (*PackageManifest, error) {
 	fset := token.NewFileSet()
+	//lint:ignore SA1019 this dev scanner intentionally uses go/parser syntax packages without type loading.
 	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
 		return !strings.HasSuffix(fi.Name(), "_test.go")
 	}, parser.ParseComments)
@@ -384,6 +385,7 @@ func returnFieldListToString(fields *ast.FieldList) string {
 	return fieldListToString(fields, ", ")
 }
 
+//lint:ignore SA1019 this dev scanner intentionally uses go/parser syntax packages without type loading.
 func sortedPackageFiles(pkg *ast.Package, fset *token.FileSet) []*ast.File {
 	files := make([]*ast.File, 0, len(pkg.Files))
 	for _, file := range pkg.Files {
@@ -395,6 +397,7 @@ func sortedPackageFiles(pkg *ast.Package, fset *token.FileSet) []*ast.File {
 	return files
 }
 
+//lint:ignore SA1019 this dev scanner intentionally uses go/parser syntax packages without type loading.
 func extractPackageDoc(pkg *ast.Package, fset *token.FileSet) string {
 	for _, file := range sortedPackageFiles(pkg, fset) {
 		if file.Doc == nil {

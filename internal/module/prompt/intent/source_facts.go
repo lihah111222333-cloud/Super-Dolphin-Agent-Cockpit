@@ -246,18 +246,6 @@ func promptIntentBusinessRuleSourceFacts() []promptIntentSourceFactRequirement {
 	}
 }
 
-func promptIntentLooksLikeExternalCodingPrompt(rawText string) bool {
-	return containsAnyPromptIntentTerm(rawText, []string{
-		"coding assistant",
-		"codebase",
-		"pair programming",
-		"making code changes",
-		"code changes",
-		"debugging",
-		"modify code",
-	})
-}
-
 func promptIntentLooksLikeAPIDoc(rawText string) bool {
 	return containsAnyPromptIntentTerm(rawText, []string{
 		"api doc",

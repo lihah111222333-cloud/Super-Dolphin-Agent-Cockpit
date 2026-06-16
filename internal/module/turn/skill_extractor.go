@@ -63,9 +63,6 @@ func (m *ExtractorMetrics) incDreamNotConfigured() { atomic.AddInt64(&m.DreamNot
 func (m *ExtractorMetrics) incDreamFailed()        { atomic.AddInt64(&m.DreamFailed, 1) }
 func (m *ExtractorMetrics) incRedactionFailed()    { atomic.AddInt64(&m.RedactionFailed, 1) }
 func (m *ExtractorMetrics) incResidualSecret()     { atomic.AddInt64(&m.PromotedDropped, 1) }
-func (m *ExtractorMetrics) incDedupHit()           { atomic.AddInt64(&m.DedupHit, 1) }
-func (m *ExtractorMetrics) incInsertFailed()       { atomic.AddInt64(&m.InsertFailed, 1) }
-func (m *ExtractorMetrics) incPromoted()           { atomic.AddInt64(&m.Promoted, 1) }
 
 // DefaultExtractor distills a Trajectory without writing to the removed
 // legacy candidate backend. dream is required so missing distillation

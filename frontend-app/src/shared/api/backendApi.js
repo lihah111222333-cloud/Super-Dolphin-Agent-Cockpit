@@ -775,7 +775,7 @@ function lspPromptHintWritePayload(params) {
 
 function videoApiKeyPayload(params) {
   const payload = assertPlainObject(RPC_METHODS.UI_VIDEO_SET_API_KEY, params);
-  const apiKey = normalizeString(payload.apiKey);
+  const apiKey = normalizeString(payload.apiKey); // guard:allow-secret request field normalization, not a literal secret.
   if (!apiKey) throw new Error(`${RPC_METHODS.UI_VIDEO_SET_API_KEY}: apiKey is required`);
   return { apiKey };
 }

@@ -4,13 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
@@ -222,10 +220,6 @@ func validateLaunchRequestForLauncher(req LaunchRequest, launcher AgentLauncher)
 		return errors.New("command is required")
 	}
 	return nil
-}
-
-func stopProcess(cmd *exec.Cmd) error {
-	return processctl.ForceStop(cmd, nil)
 }
 
 func closeAgentProcessGuard(agent *agentRuntime) {

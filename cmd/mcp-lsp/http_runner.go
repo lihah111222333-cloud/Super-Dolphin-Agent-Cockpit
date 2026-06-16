@@ -50,7 +50,9 @@ func (r *httpRunner) Run(ctx context.Context) error {
 	if strings.TrimSpace(r.bearerToken) == "" {
 		return errLSPHTTPSessionTokenRequired
 	}
+	//lint:ignore SA1019 peer HTTP transport is retained for legacy Claude CLI sharing mode.
 	srv := common.NewHTTPServer(httpLSPBinaryName, binaryVersion, r.tools, common.WithBearerToken(r.bearerToken))
+	//lint:ignore SA1019 peer HTTP transport is retained for legacy Claude CLI sharing mode.
 	addr, err := srv.Start(ctx, "127.0.0.1:0")
 	if err != nil {
 		pkglogger.Warn("mcp-lsp http: start failed", "error", err)
@@ -69,5 +71,6 @@ func (r *httpRunner) Run(ctx context.Context) error {
 	_ = discovery.CleanupPeerDiscovery(httpLSPBinaryName)
 	stopCtx, cancel := platformconfig.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	//lint:ignore SA1019 peer HTTP transport is retained for legacy Claude CLI sharing mode.
 	return srv.Stop(stopCtx)
 }

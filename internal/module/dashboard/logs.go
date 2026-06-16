@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"context"
-	"sort"
 	"strings"
 
 	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
@@ -66,18 +65,6 @@ func matchKeyword(keyword string, entry LogEntry) bool {
 
 func containsFold(value, needle string) bool {
 	return strings.Contains(strings.ToLower(value), strings.ToLower(needle))
-}
-
-func sortLogEntries(entries []LogEntry) {
-	sort.SliceStable(entries, func(i, j int) bool {
-		if !entries[i].Timestamp.Equal(entries[j].Timestamp) {
-			return entries[i].Timestamp.After(entries[j].Timestamp)
-		}
-		if entries[i].Source != entries[j].Source {
-			return entries[i].Source < entries[j].Source
-		}
-		return entries[i].ID > entries[j].ID
-	})
 }
 
 // GetAuditLogs 读取auditlogs。

@@ -1,1 +1,0 @@
-P21 fingerprint isolation fixture root. Actual repos materialised by bootstrap.sh into a tempdir.

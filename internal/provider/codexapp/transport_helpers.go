@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -93,18 +92,6 @@ func normalizeServerURL(raw string) string {
 }
 
 func localSpawnListenURL() string { return "ws://127.0.0.1:0" }
-
-func reserveServerURL() (string, func(), error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", nil, err
-	}
-	addr := listener.Addr().(*net.TCPAddr)
-	release := func() {
-		_ = listener.Close()
-	}
-	return fmt.Sprintf("ws://127.0.0.1:%d", addr.Port), release, nil
-}
 
 func jsonRPCIDKey(raw json.RawMessage) string {
 	var text string

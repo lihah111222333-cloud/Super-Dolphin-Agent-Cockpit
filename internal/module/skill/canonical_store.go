@@ -444,27 +444,6 @@ func readProjectSkillPolicy(cwd string) (projectSkillPolicy, error) {
 	return policy, nil
 }
 
-func writeProjectDisablePersonalPolicy(cwd, name, personalType string) (string, error) {
-	name, _, err := normalizeSkillIdentityName(name, "")
-	if err != nil {
-		return "", err
-	}
-	_, normalizedType, err := normalizeSkillTarget(skillScopePersonal, personalType)
-	if err != nil {
-		return "", err
-	}
-	policy, err := readProjectSkillPolicy(cwd)
-	if err != nil {
-		return "", err
-	}
-	if policy.Version == 0 {
-		policy.Version = 1
-	}
-	next := projectSkillPolicyDisabledPersonal{Name: name, PersonalType: normalizedType}
-	policy.DisablePersonalForProject = appendProjectDisabledPersonal(policy.DisablePersonalForProject, next)
-	return writeSkillPolicyJSON(filepath.Join(defaultProjectSkillsRoot(projectRootForCWD(cwd, "")), projectSkillPolicyFile), policy, 0o644)
-}
-
 // projectPolicyKeepsExternalProviderSkill 判断项目策略是否保留外部 provider skill。
 func projectPolicyKeepsExternalProviderSkill(policy projectSkillPolicy, name string, provider SkillProvider, sourceHash string) bool {
 	name = strings.TrimSpace(name)
@@ -481,15 +460,6 @@ func projectPolicyKeepsExternalProviderSkill(policy projectSkillPolicy, name str
 		}
 	}
 	return false
-}
-
-func appendProjectDisabledPersonal(items []projectSkillPolicyDisabledPersonal, next projectSkillPolicyDisabledPersonal) []projectSkillPolicyDisabledPersonal {
-	for _, item := range items {
-		if strings.EqualFold(item.Name, next.Name) && strings.EqualFold(item.PersonalType, next.PersonalType) {
-			return items
-		}
-	}
-	return append(items, next)
 }
 
 func canonicalSourceID(record canonicalSkillRecord) string {
@@ -522,27 +492,6 @@ func readJSONFileIfExists(path string, dst any) error {
 }
 
 // writeSkillPolicyJSON 写入 skill 策略文件。
-func writeSkillPolicyJSON(path string, value any, mode os.FileMode) (string, error) {
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	data = append(data, '\n')
-	if err := rejectWritableSymlinkComponentIfExists(path); err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(path, data, mode); err != nil {
-		return "", err
-	}
-	if err := os.Chmod(path, mode); err != nil {
-		return "", err
-	}
-	return skillContentHash(string(data)), nil
-}
-
 func filterCanonicalRecords(records []canonicalSkillRecord, keep func(canonicalSkillRecord) bool) []canonicalSkillRecord {
 	filtered := make([]canonicalSkillRecord, 0, len(records))
 	for _, record := range records {

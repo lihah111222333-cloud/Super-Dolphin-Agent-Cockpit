@@ -3,11 +3,12 @@ package rpc
 import (
 	"context"
 	"errors"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"github.com/creachadair/jrpc2"
 	"github.com/kelindar/event"

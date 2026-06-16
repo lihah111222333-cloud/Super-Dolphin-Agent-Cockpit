@@ -509,16 +509,3 @@ func (s *ExtractionState) finish() {
 	defer s.mu.Unlock()
 	s.inProgress = false
 }
-
-func (h *MemoryLifecycleHooks) debugExtractionState(threadID string) string {
-	state := h.extractionState(threadID)
-	state.mu.Lock()
-	defer state.mu.Unlock()
-	return fmt.Sprintf("cursor=%d in_progress=%t pending=%t handled=%t error=%q",
-		state.cursor,
-		state.inProgress,
-		state.pendingLatest,
-		state.pendingHandled,
-		state.lastError,
-	)
-}

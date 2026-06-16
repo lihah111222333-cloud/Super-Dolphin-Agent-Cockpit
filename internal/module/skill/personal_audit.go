@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -360,32 +359,3 @@ func skillMutationAuditResult(action string) string {
 }
 
 // copySkillDirContents 复制技能目录contents。
-func copySkillDirContents(source, target string) (int, int64, error) {
-	files, total := 0, int64(0)
-	err := filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		rel, err := filepath.Rel(source, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return os.MkdirAll(target, 0o755)
-		}
-		dst := filepath.Join(target, rel)
-		if entry.IsDir() {
-			return os.MkdirAll(dst, 0o755)
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("symlink is not allowed: %s", rel)
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		files, total = files+1, total+int64(len(data))
-		return os.WriteFile(dst, data, 0o644)
-	})
-	return files, total, err
-}

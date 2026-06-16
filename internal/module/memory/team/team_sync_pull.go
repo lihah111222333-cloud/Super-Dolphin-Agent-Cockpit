@@ -111,20 +111,6 @@ func (s *TeamSyncService) invalidateLocked(ctx context.Context, trigger TeamSync
 	}
 }
 
-func (s *TeamSyncService) syncedChecksum() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return strings.TrimSpace(s.state.LastKnownChecksum)
-}
-
-func (s *TeamSyncService) scanCurrentLocalChecksum(root string) (string, error) {
-	local, err := scanTeamMarkdownFiles(root)
-	if err != nil {
-		return "", err
-	}
-	return checksumTree(localChecksumMap(local)), nil
-}
-
 func (s *TeamSyncService) suppressWatcherWrites(paths []string) {
 	if s == nil || s.watcher == nil || len(paths) == 0 {
 		return

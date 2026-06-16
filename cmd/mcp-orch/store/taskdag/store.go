@@ -368,16 +368,8 @@ func stringPtr(value string) sqlc.Text {
 	return sqlc.TextValuePtr(&value)
 }
 
-func fromDAG(row sqlc.TaskDag) DAG {
-	return fromDAGRaw(row.ID, row.DagKey, row.Version, row.Title, row.Description, row.Status, row.CreatedBy, row.Metadata, row.Trigger, row.CronExpr, row.NextRunAt, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt)
-}
-
 func fromDAGListRow(row sqlc.ListTaskDagsRow) DAG {
 	return fromDAGRaw(row.ID, row.DagKey, row.Version, row.Title, row.Description, row.Status, row.CreatedBy, row.Metadata, row.Trigger, row.CronExpr, row.NextRunAt, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt)
-}
-
-func fromNode(row sqlc.TaskDagNode) Node {
-	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.SpawningThreadID)
 }
 
 func wrapTaskDAGError(err error, operation, entity string) error {

@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/internal/hiddenexec"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -274,46 +273,6 @@ func shouldUseJSTSWorkspace(languageID string) bool {
 	default:
 		return false
 	}
-}
-
-func findJSTSProjectRootWithin(root string) (string, error) {
-	cfg := lspProjectAdapterConfig(contract.LSPServiceJSTS)
-	return findProjectRootWithin(root, cfg.RootMarkers, lspProjectIgnoredDirSet(contract.LSPServiceJSTS))
-}
-
-func findJSTSBootstrapFileWithin(root string) (string, error) {
-	cfg := lspProjectAdapterConfig(contract.LSPServiceJSTS)
-	return findBootstrapFileWithin(root, cfg.FirstSourceExtensions, lspProjectIgnoredDirSet(contract.LSPServiceJSTS))
-}
-
-func shouldUseJavaWorkspace(languageID string) bool {
-	return normalizeLanguageID(languageID) == "java"
-}
-
-func findJavaProjectRoot(path string) (string, error) {
-	return findProjectRoot(path, lspProjectAdapterConfig(contract.LSPServiceJava).RootMarkers)
-}
-
-func findJavaProjectRootWithin(root string) (string, error) {
-	cfg := lspProjectAdapterConfig(contract.LSPServiceJava)
-	return findProjectRootWithin(root, cfg.RootMarkers, lspProjectIgnoredDirSet(contract.LSPServiceJava))
-}
-
-func findJavaBootstrapFileWithin(root string) (string, error) {
-	cfg := lspProjectAdapterConfig(contract.LSPServiceJava)
-	return findBootstrapFileWithin(root, cfg.FirstSourceExtensions, lspProjectIgnoredDirSet(contract.LSPServiceJava))
-}
-
-func lspProjectAdapterConfig(service string) contract.LSPProjectAdapterConfig {
-	return lspConfigWithDefaults(contract.LSPConfig{}).ProjectAdapters[service]
-}
-
-func lspProjectIgnoredDirSet(service string) map[string]struct{} {
-	cfg := lspConfigWithDefaults(contract.LSPConfig{})
-	project := cfg.ProjectAdapters[service]
-	names := append([]string(nil), project.IgnoredDirNames...)
-	names = append(names, cfg.NoiseDirNames...)
-	return stringSetFromList(names)
 }
 
 func normalizeLanguageID(languageID string) string {

@@ -181,10 +181,8 @@ func appendClaudeMdCandidate(candidates *[]claudeMdCandidate, seen map[string]st
 	// resolved BaseDir. loadStandardClaudeMdSource performs the same check
 	// at load time as defense-in-depth.
 	if candidate.BaseDir != "" {
-		resolvedBase := candidate.BaseDir
-		if evaled, err := filepath.EvalSymlinks(candidate.BaseDir); err == nil {
-			resolvedBase = evaled
-		} else {
+		resolvedBase, err := filepath.EvalSymlinks(candidate.BaseDir)
+		if err != nil {
 			return fmt.Errorf("ClaudeMd base resolve %q: %w", candidate.BaseDir, err)
 		}
 		if !pathutil.ContainsPath(resolvedBase, resolvedPath) {
@@ -387,10 +385,6 @@ func boolToken(value bool) string {
 
 func int64String(value int64) string {
 	return strings.TrimSpace(strconv.FormatInt(value, 10))
-}
-
-func memoryIndexPath(root string) string {
-	return filepath.Join(root, memoryIndexFileName)
 }
 
 const (

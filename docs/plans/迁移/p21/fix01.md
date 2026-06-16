@@ -126,7 +126,7 @@
 **修改**
 新增至少以下模式：
 - `Authorization: Basic <b64>`
-- `x-api-key: <token>`、`X-Auth-Token`
+- `x-api-key: <token>`、`X-Auth-Token` <!-- guard:allow-secret placeholder examples, not real secrets. -->
 - `password=` / `passwd=` / `pwd=` form & query
 - `-----BEGIN (RSA|EC|OPENSSH|PGP) PRIVATE KEY-----` 多行块
 - AWS Access Key ID `AKIA[0-9A-Z]{16}` & Secret 40 字符

@@ -363,10 +363,6 @@ func normalizeThreadConfigPatch(
 
 // normalizeThreadConfigPatchOffline validates a thread config patch without an active session.
 // Model name format and effort range are checked, but session-scoped model whitelist validation is skipped.
-func normalizeThreadConfigPatchOffline(provider string, patch dto.ThreadConfigPatch) (dto.ThreadConfigPatch, error) {
-	return normalizeThreadConfigPatchBase(provider, patch, nil)
-}
-
 // normalizeThreadConfigPatchBase 规范化线程配置补丁base。
 func normalizeThreadConfigPatchBase(
 	provider string,

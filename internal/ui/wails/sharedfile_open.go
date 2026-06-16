@@ -48,11 +48,6 @@ func handleOpenSharedFile(
 	return openSharedFileResult{Opened: true, Path: cleaned}, nil
 }
 
-func resolveSharedFileOpenPath(projectRoot, rawPath string) (string, error) {
-	abs, _, err := resolveSharedFileOpenPathWithCleanPath(projectRoot, rawPath)
-	return abs, err
-}
-
 // resolveSharedFileOpenPathWithCleanPath 解析带clean路径的shared文件打开路径。
 func resolveSharedFileOpenPathWithCleanPath(projectRoot, rawPath string) (string, string, error) {
 	root := strings.TrimSpace(projectRoot)

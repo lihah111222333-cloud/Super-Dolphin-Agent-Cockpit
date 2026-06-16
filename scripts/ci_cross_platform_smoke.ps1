@@ -67,13 +67,12 @@ function Invoke-GoBuild() {
 	Invoke-Checked go build -o $Output $Package
 }
 
-function Invoke-GuardedGoTest() {
+function Invoke-GoTest() {
 	param([Parameter(ValueFromRemainingArguments)][string[]]$Arguments)
-	$guard = Join-Path $Root 'scripts/test_with_guard.ps1'
-	Write-Host "scripts/test_with_guard.ps1 $($Arguments -join ' ')"
-	& $guard @Arguments
+	Write-Host "go test $($Arguments -join ' ')"
+	& go test @Arguments
 	if ($LASTEXITCODE -ne 0) {
-		throw "scripts/test_with_guard.ps1 $($Arguments -join ' ') failed with exit code $LASTEXITCODE"
+		throw "go test $($Arguments -join ' ') failed with exit code $LASTEXITCODE"
 	}
 }
 
@@ -101,7 +100,7 @@ Invoke-GoBuild -Output $mcpLSP -Package './cmd/mcp-lsp'
 Invoke-GoBuild -Output $agentTerminal -Package './cmd/agent-terminal'
 
 $sidecarPattern = 'Test(MCPToolsListIncludesPromptRecall|HandleScopedToolsCallWithCallerUsesTrustedScope|LSPToolManifestsExposeShortNames|ToolsListHidesSemanticLSPToolsWhenLanguageServersUnavailable)$'
-Invoke-GuardedGoTest ./cmd/mcp-orch ./cmd/mcp-lsp -run $sidecarPattern -count=1
+Invoke-GoTest ./cmd/mcp-orch ./cmd/mcp-lsp -run $sidecarPattern -count=1
 
 $cleanupPattern = 'Test(DiscoverProcessesReturnsBothMaps|FilterOrphanMCPProcessesSkipsPeerWithLiveParent|CleanOrphanedMCPProcessesSkipsSelf|KillMCPProcessRefusesPID1)$'
-Invoke-GuardedGoTest ./internal/provider/codexapp -run $cleanupPattern -count=1
+Invoke-GoTest ./internal/provider/codexapp -run $cleanupPattern -count=1

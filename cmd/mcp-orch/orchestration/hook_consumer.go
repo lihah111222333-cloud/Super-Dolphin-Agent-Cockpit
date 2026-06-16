@@ -63,10 +63,6 @@ type hookContextEnvelope struct {
 	Event json.RawMessage
 }
 
-func newHookConsumer(svc *service, logger *slog.Logger) *hookConsumer {
-	return newHookConsumerInternal(svc, logger, nil, nil, nil)
-}
-
 type HookAfterHandlerParams struct {
 	fx.In
 

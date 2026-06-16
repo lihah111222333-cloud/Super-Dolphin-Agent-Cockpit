@@ -151,16 +151,6 @@ func bindWakeupTurnTx(
 
 // 这里只统一错误包装；真正防并发靠 SQL 同时匹配 claim 字段。
 // rows=0 只是这次 claim 失效，不要在 helper 里变成错误。
-func fencedWakeupMutation(
-	operation string,
-	fence wakeupFence,
-	call func(wakeupFence) (int64, error),
-) (int64, error) {
-	return queryValue(func() (int64, error) {
-		return call(fence)
-	}, operation, "task_dag_wakeup")
-}
-
 func fencedWakeupMutationWrite(
 	ctx context.Context,
 	operation string,

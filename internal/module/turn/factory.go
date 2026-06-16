@@ -527,14 +527,6 @@ func normalizeSkillRefsWithSource(source dto.SkillSource, refs []skillRefParams)
 	return out
 }
 
-func normalizeSkillNames(groups ...[]string) []dto.SkillRef {
-	refGroups := make([][]dto.SkillRef, 0, len(groups))
-	for _, names := range groups {
-		refGroups = append(refGroups, normalizeSkillNamesWithSource(dto.SkillSourceUnspecified, names))
-	}
-	return normalizeSkillRefs(refGroups...)
-}
-
 func normalizeSkillNamesWithSource(source dto.SkillSource, names []string) []dto.SkillRef {
 	refs := make([]dto.SkillRef, 0, len(names))
 	for _, raw := range names {

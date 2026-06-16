@@ -77,7 +77,7 @@ type teamSyncHTTPRemote struct {
 func newTeamSyncRemoteFromEnv() teamSyncRemote {
 	return &teamSyncHTTPRemote{
 		baseURL: strings.TrimRight(strings.TrimSpace(os.Getenv(envTeamSyncBaseURL)), "/"),
-		token:   strings.TrimSpace(os.Getenv(envTeamSyncOAuthToken)),
+		token:   strings.TrimSpace(os.Getenv(envTeamSyncOAuthToken)), // guard:allow-secret env lookup, not a literal secret.
 		client:  &http.Client{Timeout: teamSyncHTTPTimeout},
 	}
 }

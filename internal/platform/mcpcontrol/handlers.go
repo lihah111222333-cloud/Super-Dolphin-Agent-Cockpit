@@ -3,10 +3,11 @@ package mcpcontrol
 import (
 	"context"
 	"encoding/json"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"log/slog"
 	"sort"
 	"strings"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"

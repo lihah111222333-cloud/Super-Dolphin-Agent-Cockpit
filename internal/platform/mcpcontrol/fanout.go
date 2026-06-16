@@ -3,8 +3,9 @@ package mcpcontrol
 import (
 	"context"
 	"fmt"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"

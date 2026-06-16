@@ -157,14 +157,6 @@ func freezeBaselineFiltered(opts CheckOptions, testsOnly bool) Baseline {
 }
 
 // collectGoFiles 收集扫描根下的所有 Go 文件绝对路径（含测试文件）。
-func collectGoFiles(repoRoot string, scanRoots []string, skipDirs map[string]bool) []string {
-	files, err := collectGoFilesFiltered(repoRoot, scanRoots, skipDirs, false)
-	if err != nil {
-		log.Fatalf("collect go files: %v", err)
-	}
-	return files
-}
-
 // collectGoFilesFiltered 收集go文件filtered。
 func collectGoFilesFiltered(repoRoot string, scanRoots []string, skipDirs map[string]bool, testsOnly bool) ([]string, error) {
 	var files []string

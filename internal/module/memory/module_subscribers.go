@@ -15,23 +15,6 @@ import (
 // fallback callers. Production ownership is split: scheduler / nested /
 // teamSync stop through their RunnerModule adapters, while the legacy dream
 // task is closed by bindMemoryDrainShutdown during resource shutdown.
-func drainMemoryHooks(ctx context.Context, scheduler *autoDreamScheduler, nested *nestedIngestWorker, teamSync *teamSyncCoordinator, hooks *MemoryLifecycleHooks) {
-	drainStoppable(ctx, "auto-dream scheduler", scheduler)
-	drainStoppable(ctx, "nested ingest worker", nested)
-	drainStoppable(ctx, "team sync coordinator", teamSync)
-	drainDreamTask(ctx, hooks)
-}
-
-type stoppable interface{ Stop(context.Context) error }
-
-func drainStoppable(ctx context.Context, name string, s stoppable) {
-	if s == nil {
-		return
-	}
-	if err := s.Stop(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		pkglogger.Get().Warn("memory: "+name+" drain failed", "error", err)
-	}
-}
 
 func drainDreamTask(ctx context.Context, hooks *MemoryLifecycleHooks) {
 	if hooks == nil {

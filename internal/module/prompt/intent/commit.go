@@ -584,16 +584,6 @@ func firstPromptIntentBlockIssue(issues []Issue) (Issue, bool) {
 	return Issue{}, false
 }
 
-func requirePromptIntentExamples(hit, miss []string) error {
-	if len(trimmedPromptIntentExamples(hit)) == 0 {
-		return platformrpc.ErrInvalidParams("prompt intent hit_examples is required")
-	}
-	if len(trimmedPromptIntentExamples(miss)) == 0 {
-		return platformrpc.ErrInvalidParams("prompt intent miss_examples is required")
-	}
-	return nil
-}
-
 func requireNonEmptyPromptIntentFields(fields map[string]string) error {
 	for name, value := range fields {
 		if strings.TrimSpace(value) == "" {

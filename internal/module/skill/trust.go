@@ -1,7 +1,6 @@
 package skill
 
 import (
-	"embed"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -9,15 +8,11 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	skillidentity "github.com/anthropic-ai/super-agent-v3/internal/module/skill/identity"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/repofingerprint"
 )
 
 // ErrInvalidSkillName 是 name 校验失败统一返回的哨兵错误，调用方可用 errors.Is 检查。
 var ErrInvalidSkillName = errors.New("invalid skill name")
-
-//go:embed all:embedded_skills
-var builtInSkillFS embed.FS
 
 // validateSkillName keeps runtime skill identifiers strict.
 func validateSkillName(name string) (string, error) {
@@ -146,28 +141,4 @@ func parseTrustScope(raw string) TrustScope {
 	default:
 		return TrustUnknown
 	}
-}
-
-// inferTrustFromRoot infers trust scope from skill root directory.
-// inferTrustFromRoot 从根目录处理infertrust。
-func inferTrustFromRoot(dir, projectRoot, userRoot string) TrustScope {
-	dir = normalizeTrustRoot(dir)
-	if dir == "" {
-		return TrustProject
-	}
-	if pRoot := normalizeTrustRoot(projectRoot); pRoot != "" && pathutil.ContainsPath(pRoot, dir) {
-		return TrustProject
-	}
-	if uRoot := normalizeTrustRoot(userRoot); uRoot != "" && pathutil.ContainsPath(uRoot, dir) {
-		return TrustUser
-	}
-	return TrustProject
-}
-
-func normalizeTrustRoot(path string) string {
-	path = filepath.Clean(strings.TrimSpace(path))
-	if path == "." {
-		return ""
-	}
-	return path
 }

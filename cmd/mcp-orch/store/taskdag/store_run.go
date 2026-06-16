@@ -292,18 +292,6 @@ func cancelTaskDagRunRow(ctx context.Context, db sqlc.DBTX, input TerminateRunIn
 	return db.QueryRowContext(ctx, cancelTaskDagRunSQL, nextEvents, input.DagKey, input.RunID, input.RunKey).Scan(&id)
 }
 
-func scanTaskDagRunRows(rows *sql.Rows) ([]taskDagRunRow, error) {
-	out := make([]taskDagRunRow, 0)
-	for rows.Next() {
-		row, err := scanTaskDagRunRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, row)
-	}
-	return out, rows.Err()
-}
-
 func scanTaskDagRunListRows(rows *sql.Rows) ([]taskDagRunListRow, error) {
 	out := make([]taskDagRunListRow, 0)
 	for rows.Next() {
@@ -352,10 +340,6 @@ func scanTaskDagRunRow(scanner taskDagRunScanner) (taskDagRunRow, error) {
 
 // fromTaskDagRun 把 sqlc 生成的行结构体转成 contract 层 Run。
 // SQLite epoch milliseconds map to time.Time; nullable columns map to nil.
-func fromTaskDagRun(row sqlc.TaskDagRun) Run {
-	return fromTaskDagRunRaw(row.ID, row.RunKey, row.DagKey, row.DagVersionSnapshot, row.TriggerSource, row.Status, row.StartedAt, row.FinishedAt, row.Events, row.BudgetUsed, row.BudgetLimit, row.Metadata, row.CreatedAt, row.UpdatedAt)
-}
-
 func fromTaskDagRunRow(row taskDagRunRow) Run {
 	return fromTaskDagRunRaw(row.ID, row.RunKey, row.DagKey, row.DagVersionSnapshot, row.TriggerSource, row.Status, row.StartedAt, row.FinishedAt, row.Events, row.BudgetUsed, row.BudgetLimit, row.Metadata, row.CreatedAt, row.UpdatedAt)
 }

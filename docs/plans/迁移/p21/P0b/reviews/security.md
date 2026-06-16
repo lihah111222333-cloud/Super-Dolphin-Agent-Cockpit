@@ -5,7 +5,7 @@
 ## 安全性
 
 1. **critical** — `internal/module/turn/redaction.go:46-56`
-6 个 pattern 不能作为 secret/PII 安全边界。当前会漏掉常见高危形态：`password=...`、`Authorization: Basic ...`、`x-api-key: ...`、Slack `xox*`、Stripe `sk_live_...`、裸 GitHub PAT / personal token、GCP service account JSON、SSH/PEM private key block、私网 IP、email / 本地路径等。漏掉后会在 `internal/module/turn/skill_extractor.go:144` 送入 LLM，并在 `:217-223` 入库。
+6 个 pattern 不能作为 secret/PII 安全边界。当前会漏掉常见高危形态：`password=...`、`Authorization: Basic ...`、`x-api-key: ...`、Slack `xox*`、Stripe `sk_live_...`、裸 GitHub PAT / personal token、GCP service account JSON、SSH/PEM private key block、私网 IP、email / 本地路径等。漏掉后会在 `internal/module/turn/skill_extractor.go:144` 送入 LLM，并在 `:217-223` 入库。 <!-- guard:allow-secret threat-model examples, not real secrets. -->
 **期望写法**：redactor 至少覆盖 header/key-value/vendor-token/PEM-block/PII 类模式，并增加熵检测；未通过扫描时 fail-closed，不调用 `ExecuteDream`，不写 `skill_candidates`。
 
 2. **critical** — `internal/module/turn/skill_extractor.go:261-278`

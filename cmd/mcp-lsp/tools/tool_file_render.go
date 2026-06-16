@@ -19,11 +19,6 @@ const (
 	lineWindowReasonOutsideFunction = "line is outside any function"
 )
 
-func renderReadContent(content string, offset, limit int, _ bool) string {
-	req := readFileRequest{rawPath: "file", line: offset, limit: limit}
-	return renderLineWindow("file", content, req, lineWindowReasonExplicit)
-}
-
 // renderLineWindow 渲染行window。
 func renderLineWindow(displayPath, content string, req readFileRequest, reason string) string {
 	lines := splitNormalizedLines(content)

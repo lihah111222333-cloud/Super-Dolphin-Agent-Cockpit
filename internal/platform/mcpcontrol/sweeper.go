@@ -2,9 +2,10 @@ package mcpcontrol
 
 import (
 	"context"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"math/rand"
 	"time"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )

@@ -134,14 +134,6 @@ func applyDotEnv(setenv func(string, string) error, path, content string, strict
 	return nil
 }
 
-func parseDotEnvLine(line string) (string, string, bool) {
-	key, value, ok, err := parseDotEnvLineStrict(line, 0)
-	if err != nil {
-		return "", "", false
-	}
-	return key, value, ok
-}
-
 func parseDotEnvLineStrict(line string, lineNumber int) (string, string, bool, error) {
 	line = strings.TrimSpace(line)
 	if line == "" || strings.HasPrefix(line, "#") {

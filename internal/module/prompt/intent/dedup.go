@@ -272,19 +272,6 @@ func promptIntentTemplateVisibleForCWD(template promptstore.PromptTemplate, cwd 
 	return true
 }
 
-func promptIntentTemplateHasCurrentProjectScope(template promptstore.PromptTemplate, cwd string) bool {
-	want := promptScopeTagPrefix + strings.TrimSpace(cwd)
-	if want == promptScopeTagPrefix {
-		return false
-	}
-	for _, tag := range promptstore.TemplateTags(template.Tags) {
-		if strings.TrimSpace(tag) == want {
-			return true
-		}
-	}
-	return false
-}
-
 func promptIntentRecallDuplicateConflicts(targetGlobal bool, template promptstore.PromptTemplate, cwd string) bool {
 	if targetGlobal && promptIntentTemplateHasCurrentProjectOnlyScope(template, cwd) {
 		return false

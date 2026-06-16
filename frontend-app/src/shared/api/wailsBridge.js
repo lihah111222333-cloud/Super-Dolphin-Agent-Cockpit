@@ -413,8 +413,8 @@ function containsForbiddenTraceText(text) {
   const normalized = safeTraceString(text, 512).toLowerCase();
   if (!normalized) return false;
   for (const key of FRONTEND_TRACE_FORBIDDEN_KEYS) {
-    const token = key.toLowerCase();
-    if (normalized.includes(token) || normalized.includes(token.replaceAll('_', ' '))) {
+    const forbiddenKey = key.toLowerCase();
+    if (normalized.includes(forbiddenKey) || normalized.includes(forbiddenKey.replaceAll('_', ' '))) {
       return true;
     }
   }

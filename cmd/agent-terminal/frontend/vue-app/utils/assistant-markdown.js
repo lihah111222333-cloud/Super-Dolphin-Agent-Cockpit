@@ -73,9 +73,9 @@ function escapeHtml(value) {
 }
 
 function stashToken(tokens, label, html) {
-  const token = `\u0000${label}${tokens.length}\u0000`;
+  const placeholder = `\u0000${label}${tokens.length}\u0000`;
   tokens.push(html);
-  return token;
+  return placeholder;
 }
 
 function restoreToken(text, label, tokens) {
@@ -308,11 +308,11 @@ function resolveRenderableImageSource(rawSource) {
   return '';
 }
 function renderMarkdownImage(tokens, idx, options, env, self) {
-  const token = tokens[idx];
-  const rawSource = (token?.attrGet('src') || '').toString().trim();
+  const imageNode = tokens[idx];
+  const rawSource = (imageNode?.attrGet('src') || '').toString().trim();
   if (!rawSource) return '';
-  const altText = (self.renderInlineAsText?.(token.children || [], options, env) || token.content || '').toString().trim();
-  const rawTitle = (token?.attrGet('title') || '').toString().trim();
+  const altText = (self.renderInlineAsText?.(imageNode.children || [], options, env) || imageNode.content || '').toString().trim();
+  const rawTitle = (imageNode?.attrGet('title') || '').toString().trim();
   const parsedFileRef = parseInlineFileReference(rawSource);
   const fileRefMeta = parsedFileRef ? buildFileRefMeta(parsedFileRef) : null;
   const filePath = parsedFileRef?.path || '';
@@ -363,9 +363,9 @@ function createMarkdownRenderer() {
     if (!derivedName) return;
     const visibleTextTokens = [];
     for (let cursor = startIdx + 1; cursor < tokens.length; cursor += 1) {
-      const token = tokens[cursor];
-      if (token?.type === 'link_close') break;
-      if (token?.type === 'text' || token?.type === 'code_inline') visibleTextTokens.push(token);
+      const node = tokens[cursor];
+      if (node?.type === 'link_close') break;
+      if (node?.type === 'text' || node?.type === 'code_inline') visibleTextTokens.push(node);
     }
     if (visibleTextTokens.length !== 1) return;
     const [labelToken] = visibleTextTokens;
@@ -374,26 +374,26 @@ function createMarkdownRenderer() {
   }
 
   instance.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
-    const token = tokens[idx];
-    const href = (token?.attrGet('href') || '').toString().trim();
-    const specialLink = resolveCodexLinkMeta(href); appendClass(token, 'chat-md-link');
+    const linkNode = tokens[idx];
+    const href = (linkNode?.attrGet('href') || '').toString().trim();
+    const specialLink = resolveCodexLinkMeta(href); appendClass(linkNode, 'chat-md-link');
     if (specialLink) {
       if ((specialLink?.dataAttrs?.['data-skill-path'] || '').toString().trim()) {
         normalizeSkillFileLinkLabel(tokens, idx, href);
       }
-      specialLink.className.split(/\s+/).filter(Boolean).forEach((className) => appendClass(token, className));
-      Object.entries(specialLink.dataAttrs || {}).forEach(([key, value]) => setAttr(token, key, `${value}`));
-      setAttr(token, 'href', '#'); setAttr(token, 'title', specialLink.title || href); return self.renderToken(tokens, idx, options);
+      specialLink.className.split(/\s+/).filter(Boolean).forEach((className) => appendClass(linkNode, className));
+      Object.entries(specialLink.dataAttrs || {}).forEach(([key, value]) => setAttr(linkNode, key, `${value}`));
+      setAttr(linkNode, 'href', '#'); setAttr(linkNode, 'title', specialLink.title || href); return self.renderToken(tokens, idx, options);
     }
     const parsedFileRef = parseInlineFileReference(href);
     const linkTextContent = (!parsedFileRef && tokens[idx + 1]) ? (tokens[idx + 1].content || '').toString().trim() : '';
     const effectiveFileRef = parsedFileRef || (linkTextContent ? parseInlineFileReference(linkTextContent) : null);
     if (effectiveFileRef) {
       const { titleText, line, column } = buildFileRefMeta(effectiveFileRef);
-      appendClass(token, 'chat-md-file-ref'); appendClass(token, 'is-file-ref'); appendClass(token, 'chat-md-file-link');
-      setAttr(token, 'data-file-path', effectiveFileRef.path); setAttr(token, 'data-file-line', `${line}`); setAttr(token, 'data-file-column', `${column}`); setAttr(token, 'title', `定位 ${titleText}`); return self.renderToken(tokens, idx, options);
+      appendClass(linkNode, 'chat-md-file-ref'); appendClass(linkNode, 'is-file-ref'); appendClass(linkNode, 'chat-md-file-link');
+      setAttr(linkNode, 'data-file-path', effectiveFileRef.path); setAttr(linkNode, 'data-file-line', `${line}`); setAttr(linkNode, 'data-file-column', `${column}`); setAttr(linkNode, 'title', `定位 ${titleText}`); return self.renderToken(tokens, idx, options);
     }
-    setAttr(token, 'target', '_blank'); setAttr(token, 'rel', 'noopener noreferrer'); return self.renderToken(tokens, idx, options);
+    setAttr(linkNode, 'target', '_blank'); setAttr(linkNode, 'rel', 'noopener noreferrer'); return self.renderToken(tokens, idx, options);
   };
 
 

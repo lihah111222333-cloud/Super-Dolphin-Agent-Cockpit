@@ -350,14 +350,6 @@ func (h *Handler) requireToolCallRuntimeConfig(ctx context.Context, req ToolCall
 	return h.requireToolCallRuntime(ctx, threadID)
 }
 
-func (h *Handler) toolCallRuntimeConfig(ctx context.Context, req ToolCallRequest) (map[string]any, bool) {
-	runtime, err := h.requireToolCallRuntimeConfig(ctx, req)
-	if err != nil {
-		return nil, false
-	}
-	return runtime, true
-}
-
 func (h *Handler) requireToolCallThreadID(ctx context.Context, req ToolCallRequest) (string, error) {
 	threadID, ok := h.resolveToolCallThreadID(ctx, req)
 	if !ok {
@@ -460,10 +452,6 @@ func setArgStringIfMissing(values map[string]any, key, value string) bool {
 
 func allowDefaultPersistentSubagentFallback() bool {
 	return os.Getenv(allowDefaultPersistentSubagentEnv) == "1"
-}
-
-func persistentSubagentDefaultFallbackCount() uint64 {
-	return persistentSubagentDefaultFallbackTotal.Load()
 }
 
 // persistentSubagentFlagFromRuntime 从运行时处理persistentsubagentflag。

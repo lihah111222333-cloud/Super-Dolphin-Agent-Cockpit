@@ -228,10 +228,6 @@ func NewService(cfg *Config, logger *slog.Logger, opts ...ServiceOption) Service
 	return svc
 }
 
-func newPromptService(store promptstore.Store, sections ...contract.SectionInvalidator) PromptService {
-	return newPromptServiceWithBuiltin(store, nil, sections...)
-}
-
 func newPromptServiceWithBuiltin(
 	store promptstore.Store,
 	builtin contract.BuiltinPromptRegistry,
@@ -464,10 +460,6 @@ func promptSectionItemFromStore(section promptstore.PromptTemplateSection, promp
 		CreatedAt:   section.CreatedAt,
 		UpdatedAt:   section.UpdatedAt,
 	}
-}
-
-func promptItemsFromTemplates(templates []promptstore.PromptTemplate) []promptRPCItem {
-	return promptItemsFromTemplatesWithSections(templates, nil)
 }
 
 func promptItemsFromTemplatesWithSections(

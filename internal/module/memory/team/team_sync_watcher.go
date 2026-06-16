@@ -8,10 +8,11 @@ import (
 	"sync"
 	"time"
 
+	"log/slog"
+
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	"github.com/fsnotify/fsnotify"
-	"log/slog"
 )
 
 const (
@@ -120,13 +121,6 @@ func (w *teamSyncWatcher) Suppress(paths ...string) {
 			w.suppressedPaths[cleaned] = expiry
 		}
 	}
-}
-
-func (w *teamSyncWatcher) suppressed() bool {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.cleanupSuppressedLocked()
-	return len(w.suppressedPaths) > 0
 }
 
 func (w *teamSyncWatcher) loop() {
@@ -251,20 +245,6 @@ func (w *teamSyncWatcher) eventPath(path string) (string, bool, error) {
 		return cleaned, false, nil
 	}
 	return cleaned, true, nil
-}
-
-func (w *teamSyncWatcher) detectDirty() (bool, error) {
-	if w == nil || w.service == nil {
-		return false, nil
-	}
-	if err := w.ensureStableRoot(); err != nil {
-		return false, err
-	}
-	checksum, err := w.service.scanCurrentLocalChecksum(w.root)
-	if err != nil {
-		return false, err
-	}
-	return checksum != w.service.syncedChecksum(), nil
 }
 
 func (w *teamSyncWatcher) ensureStableRoot() error {

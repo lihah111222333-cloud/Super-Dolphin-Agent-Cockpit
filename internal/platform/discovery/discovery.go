@@ -151,7 +151,7 @@ func newPeerProbeRequest(addr, token string, body io.Reader) (*http.Request, err
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if token = strings.TrimSpace(token); token != "" {
+	if token = strings.TrimSpace(token); token != "" { // guard:allow-secret request token normalization, not a literal secret.
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	return req, nil

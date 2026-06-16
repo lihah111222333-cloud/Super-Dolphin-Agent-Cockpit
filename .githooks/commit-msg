@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
-# commit-msg — 提交标题必须含中文；fix 提交必须带锁定 bug 测试
-# Bypass: git commit --no-verify
-set -e
+set -euo pipefail
 
-MSG_FILE="${1:?commit message file is required}"
-ROOT="$(git rev-parse --show-toplevel)"
-cd "$ROOT"
-
-echo "[commit-msg] Chinese commit message guard..."
-./scripts/guard_commit_titles.sh --message "$MSG_FILE"
-echo "[commit-msg] fix-test guard..."
-./scripts/guard_fix_commits_have_tests.sh --cached "$MSG_FILE"
+repo_root="$(git rev-parse --show-toplevel)"
+python3 "$repo_root/.agents/skills/guarding-go-projects/scripts/check_commit_message.py" "$1"

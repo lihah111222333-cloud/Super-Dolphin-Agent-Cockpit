@@ -461,40 +461,6 @@ func cleanSortedUniquePaths(paths []string) []string {
 }
 
 // goRootEnv 处理go根目录env。
-func goRootEnv(root GoRootInfo) []string {
-	env := make([]string, 0, 3)
-	switch root.GOWORKMode {
-	case goworkModeOff:
-		env = append(env, "GOWORK=off")
-	case goworkModeAuto, goworkModeExplicit:
-		if root.GoWorkPath != "" {
-			env = append(env, "GOWORK="+root.GoWorkPath)
-		}
-	}
-	if root.GoToolchain.PathEnv != "" {
-		env = append(env, "PATH="+root.GoToolchain.PathEnv)
-	}
-	if root.GoToolchain.ForceLocal {
-		env = append(env, "GOTOOLCHAIN=local")
-	}
-	if len(env) == 0 {
-		return nil
-	}
-	return env
-}
-
-func goWorkspaceKey(root GoRootInfo) string {
-	parts := goWorkspaceKeyPartsFor(root)
-	return strings.Join([]string{
-		parts.Language,
-		parts.RootKind,
-		parts.WorkspaceRoot,
-		parts.LanguageWorkspaceRoot,
-		parts.ProjectRoot,
-		formatLanguageSpecific(parts.LanguageSpecific),
-	}, "\x00")
-}
-
 func goWorkspaceKeyPartsFor(root GoRootInfo) goWorkspaceKeyParts {
 	languageWorkspaceRoot := root.ModuleRoot
 	if languageWorkspaceRoot == "" {
@@ -529,24 +495,6 @@ func goLanguageSpecific(root GoRootInfo) map[string]string {
 		specific["goToolchainRequired"] = root.GoToolchain.RequiredVersion
 	}
 	return specific
-}
-
-func formatLanguageSpecific(values map[string]string) string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	var builder strings.Builder
-	for i, key := range keys {
-		if i > 0 {
-			builder.WriteByte('\x1f')
-		}
-		builder.WriteString(key)
-		builder.WriteByte('=')
-		builder.WriteString(values[key])
-	}
-	return builder.String()
 }
 
 func hashWorkspaceFolders(folders []protocol.WorkspaceFolder) string {

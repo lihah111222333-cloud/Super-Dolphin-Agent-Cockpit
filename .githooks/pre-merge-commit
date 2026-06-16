@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "pre-merge-commit: running release guard before merge commit"
+make guard-release

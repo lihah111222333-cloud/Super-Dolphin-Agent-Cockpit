@@ -211,30 +211,6 @@ func (s *store) GetWakeup(ctx context.Context, id int64) (*Wakeup, error) {
 	}, "get", "task_dag_wakeup", fromGetWakeup)
 }
 
-func fromWakeup(row sqlc.TaskDagWakeup) Wakeup {
-	return Wakeup{
-		ID:             row.ID,
-		DagKey:         row.DagKey,
-		NodeKey:        row.NodeKey,
-		RunID:          sqlc.Int8Ptr(row.RunID),
-		WakeupKind:     row.WakeupKind,
-		TargetAgentID:  row.TargetAgentID,
-		PromptPayload:  row.PromptPayload,
-		IdempotencyKey: row.IdempotencyKey,
-		Status:         row.Status,
-		AttemptCount:   int32(row.AttemptCount),
-		NextRetryAt:    timeValue(row.NextRetryAt),
-		ClaimedAt:      timestampPtr(row.ClaimedAt),
-		ClaimedBy:      row.ClaimedBy,
-		LeaseExpiresAt: timestampPtr(row.LeaseExpiresAt),
-		SentAt:         timestampPtr(row.SentAt),
-		BoundTurnID:    sqlc.TextPtr(row.BoundTurnID),
-		TurnBoundAt:    timestampPtr(row.TurnBoundAt),
-		LastError:      row.LastError,
-		CreatedAt:      timeValue(row.CreatedAt),
-		UpdatedAt:      timeValue(row.UpdatedAt),
-	}
-}
 func fromClaimedWakeup(row sqlc.ClaimDueTaskDagWakeupsRow) Wakeup {
 	return Wakeup{
 		ID:             row.ID,

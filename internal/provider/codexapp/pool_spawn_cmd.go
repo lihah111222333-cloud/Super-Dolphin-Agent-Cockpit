@@ -218,18 +218,18 @@ func extractCodexZipFile(file *zip.File, targetDir string, total *int64) error {
 func codexArchiveEntryTarget(name, targetDir, label string) (string, error) {
 	cleanName := filepath.Clean(name)
 	if cleanName == "." || strings.HasPrefix(cleanName, ".."+string(filepath.Separator)) || filepath.IsAbs(cleanName) {
-		return "", fmt.Errorf("Codex %s contains unsafe path %q", label, name)
+		return "", fmt.Errorf("codex %s contains unsafe path %q", label, name)
 	}
 	target := filepath.Join(targetDir, cleanName)
 	if !strings.HasPrefix(target, filepath.Clean(targetDir)+string(filepath.Separator)) {
-		return "", fmt.Errorf("Codex %s path escapes target dir: %q", label, name)
+		return "", fmt.Errorf("codex %s path escapes target dir: %q", label, name)
 	}
 	return target, nil
 }
 
 func writeCodexZipEntry(file *zip.File, target string) (int64, error) {
 	if file.UncompressedSize64 > uint64(codexInstall.maxFileBytes) {
-		return 0, fmt.Errorf("Codex wheel entry %q exceeds %d bytes", file.Name, codexInstall.maxFileBytes)
+		return 0, fmt.Errorf("codex wheel entry %q exceeds %d bytes", file.Name, codexInstall.maxFileBytes)
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return 0, fmt.Errorf("create Codex wheel entry dir: %w", err)
@@ -292,16 +292,16 @@ func extractCodexTarEntry(reader *tar.Reader, header *tar.Header, targetDir stri
 	switch header.Typeflag {
 	case tar.TypeDir:
 		return 0, os.MkdirAll(target, 0o755)
-	case tar.TypeReg, tar.TypeRegA:
+	case tar.TypeReg:
 		return writeCodexTarEntry(reader, header, target)
 	default:
-		return 0, fmt.Errorf("Codex tar.gz contains unsupported entry %q", header.Name)
+		return 0, fmt.Errorf("codex tar.gz contains unsupported entry %q", header.Name)
 	}
 }
 
 func writeCodexTarEntry(reader *tar.Reader, header *tar.Header, target string) (int64, error) {
 	if header.Size > codexInstall.maxFileBytes {
-		return 0, fmt.Errorf("Codex tar.gz entry %q exceeds %d bytes", header.Name, codexInstall.maxFileBytes)
+		return 0, fmt.Errorf("codex tar.gz entry %q exceeds %d bytes", header.Name, codexInstall.maxFileBytes)
 	}
 	mode := fs.FileMode(header.Mode).Perm()
 	if mode == 0 {
@@ -335,7 +335,7 @@ func copyCodexArchiveFile(dst io.Writer, src io.Reader) (int64, error) {
 		return written, err
 	}
 	if written > codexInstall.maxFileBytes {
-		return written, fmt.Errorf("Codex archive entry exceeds %d bytes", codexInstall.maxFileBytes)
+		return written, fmt.Errorf("codex archive entry exceeds %d bytes", codexInstall.maxFileBytes)
 	}
 	return written, nil
 }
@@ -346,7 +346,7 @@ func addCodexExtractedBytes(total *int64, written int64) error {
 	}
 	*total += written
 	if *total > codexInstall.maxTotalBytes {
-		return fmt.Errorf("Codex archive extraction exceeds %d bytes", codexInstall.maxTotalBytes)
+		return fmt.Errorf("codex archive extraction exceeds %d bytes", codexInstall.maxTotalBytes)
 	}
 	return nil
 }
@@ -499,7 +499,7 @@ func compareIntParts(a, b []int) int {
 // downloadCodexAsset 处理downloadcodexasset。
 func downloadCodexAsset(ctx context.Context, rawURL, checksum, target string) error {
 	if strings.TrimSpace(rawURL) == "" {
-		return errors.New("Codex release asset download URL is empty")
+		return errors.New("codex release asset download URL is empty")
 	}
 	if err := validateCodexAssetDownloadURL(rawURL); err != nil {
 		return err
@@ -546,7 +546,7 @@ func validateCodexDownloadResponse(resp *http.Response) error {
 		return fmt.Errorf("download Codex release asset: unexpected HTTP status %s", resp.Status)
 	}
 	if resp.ContentLength > maxCodexDownloadBytes {
-		return fmt.Errorf("Codex release asset is too large: %d bytes", resp.ContentLength)
+		return fmt.Errorf("codex release asset is too large: %d bytes", resp.ContentLength)
 	}
 	return nil
 }
@@ -570,12 +570,12 @@ func writeCodexDownloadBody(body io.Reader, checksum, target string) error {
 	}
 	if written > maxCodexDownloadBytes {
 		_ = os.Remove(target)
-		return fmt.Errorf("Codex release asset exceeded %d bytes", maxCodexDownloadBytes)
+		return fmt.Errorf("codex release asset exceeded %d bytes", maxCodexDownloadBytes)
 	}
 	got := hex.EncodeToString(hash.Sum(nil))
 	if got != checksum {
 		_ = os.Remove(target)
-		return fmt.Errorf("Codex release asset checksum mismatch: got %s want %s", got, checksum)
+		return fmt.Errorf("codex release asset checksum mismatch: got %s want %s", got, checksum)
 	}
 	return nil
 }

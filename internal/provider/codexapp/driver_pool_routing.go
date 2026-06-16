@@ -493,20 +493,8 @@ func (d *driver) warnLegacyIdentityFallback(agentID string, err error) {
 	)
 }
 
-func (d *driver) warnSkillMirrorIssue(message string, err error) {
-	if d == nil || d.logger == nil || err == nil {
-		return
-	}
-	d.logger.Warn(message, slog.String("error", err.Error()))
-}
-
 // poolRoutingEnabled parses the env override. Missing / empty means enabled
 // and strict so valid identity uses the ServerPool by default.
-func poolRoutingEnabled() (bool, error) {
-	enabled, _, err := poolRoutingDecision()
-	return enabled, err
-}
-
 func poolRoutingDecision() (enabled bool, strict bool, err error) {
 	raw := strings.TrimSpace(os.Getenv(poolRoutingEnvVar))
 	if raw == "" {

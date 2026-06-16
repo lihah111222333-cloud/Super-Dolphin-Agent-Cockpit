@@ -175,31 +175,3 @@ func registerLifecycle(lc fx.Lifecycle, logger *pkglogger.Logger, database *sql.
 func sqliteMigrationsDir(projectRoot string) string {
 	return filepath.Join(strings.TrimSpace(projectRoot), "internal", "platform", "db", "sqlite", "migrations")
 }
-
-const migrationSplitSentinel = "-- SPLIT --"
-
-func splitMigrationBody(body string) []string {
-	var (
-		out   []string
-		part  strings.Builder
-		found bool
-	)
-	for _, line := range strings.SplitAfter(body, "\n") {
-		if strings.TrimSpace(line) == migrationSplitSentinel {
-			found = true
-			if segment := part.String(); strings.TrimSpace(segment) != "" {
-				out = append(out, segment)
-			}
-			part.Reset()
-			continue
-		}
-		part.WriteString(line)
-	}
-	if !found {
-		return []string{body}
-	}
-	if segment := part.String(); strings.TrimSpace(segment) != "" {
-		out = append(out, segment)
-	}
-	return out
-}

@@ -160,21 +160,6 @@ func (r *NestedRuntime) AddToolReadResult(threadID, toolName, result, persistedP
 	}
 }
 
-func (r *NestedRuntime) snapshot(threadID string) nestedSessionState {
-	if r == nil {
-		return nestedSessionState{}
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	state := r.stateLocked(threadID)
-	return nestedSessionState{
-		LoadedPaths:     cloneNestedSet(state.LoadedPaths),
-		PendingTriggers: cloneNestedSet(state.PendingTriggers),
-		Generation:      state.Generation,
-		MatcherRoot:     state.MatcherRoot,
-	}
-}
-
 func (r *NestedRuntime) stateLocked(threadID string) *nestedSessionState {
 	if r.sessions == nil {
 		r.sessions = map[string]*nestedSessionState{}
@@ -314,17 +299,6 @@ func sortedNestedKeys(values map[string]struct{}) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-func cloneNestedSet(values map[string]struct{}) map[string]struct{} {
-	if len(values) == 0 {
-		return nil
-	}
-	cloned := make(map[string]struct{}, len(values))
-	for value := range values {
-		cloned[value] = struct{}{}
-	}
-	return cloned
 }
 
 func cloneNestedBuildCtx(buildCtx contract.BuildCtx) contract.BuildCtx {

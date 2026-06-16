@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -40,10 +39,6 @@ func WithImmediateTx(ctx context.Context, db *sql.DB, fn func(tx *sql.Tx) error)
 // sqlTxCommitter 抽象 *sql.Tx 以便单元测试覆盖提交和回滚路径。
 type sqlTxCommitter interface {
 	Commit() error
-	Rollback() error
-}
-
-type sqlRollbacker interface {
 	Rollback() error
 }
 
@@ -89,13 +84,6 @@ func RowsFieldNames(rows *sql.Rows) []string {
 		return nil
 	}
 	return cols
-}
-
-func rollbackTx(_ context.Context, tx sqlRollbacker, queryErr error) error {
-	if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
-		return errors.Join(queryErr, err)
-	}
-	return queryErr
 }
 
 func txCleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {

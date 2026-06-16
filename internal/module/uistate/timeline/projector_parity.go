@@ -328,10 +328,6 @@ func planContent(delta string, payload []byte) parsedPlanContent {
 // parseStructuredPlan extracts human-readable text from a Codex structured
 // plan payload that contains an "explanation" string and/or a "plan" array
 // of {"status": ..., "step": ...} objects.
-func parseStructuredPlan(data []byte) string {
-	return parseStructuredPlanContent(data).Text
-}
-
 func parseStructuredPlanContent(data []byte) parsedPlanContent {
 	trimmed := strings.TrimSpace(string(data))
 	if len(trimmed) < 2 {

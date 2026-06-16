@@ -4,7 +4,7 @@
 #   - Frida / IDA 在 Windows 不支持：选项 1 子菜单的 "含 Frida" 分支被移除，
 #     所有 debug 编译都走 `-gcflags='-N -l'` 且不加 `-tags ida,frida`。
 #   - 其余特性（git worktree [选项 2] / git tag [选项 5] / run-only [选项 4] /
-#     codemap 索引刷新 / code_size_guard 预检 / 三级 npm 安装 / Vue template
+#     codemap 索引刷新 / 当前项目守卫预检 / 三级 npm 安装 / Vue template
 #     预检 / vite 热更新 / 退出清理）均已移植。
 #   - 不显式设置 CGO_ENABLED=1（sh 里 debug 会强制开 CGO）：Windows 上经常没有
 #     MinGW，显式开反而会让 build 直接炸。如需 CGO，在调用脚本前自己 `$env:CGO_ENABLED='1'`。
@@ -24,8 +24,6 @@ $FrontendDir        = Join-Path $ProjectDir 'cmd\agent-terminal\frontend'
 $NpmRegistry        = 'https://registry.npmmirror.com'
 $ForceNpmReinstall  = $false
 $AutoCodemapRefresh = if ($null -ne $env:AUTO_CODEMAP_REFRESH) { $env:AUTO_CODEMAP_REFRESH } else { '1' }
-
-$env:GO_GUARD_ALLOW_RAW = 'run-debug.ps1'
 
 # vite dev server 状态（供 finally 清理）
 $script:ViteDevPid = $null
@@ -694,35 +692,16 @@ try {
         Invoke-CodemapRefresh -BuildDir $BuildDir
 
         Write-Host '[3/4] 后端代码守卫检查...'
-        $guardCacheDir = Join-Path $BuildDir '.build-cache'
-        $guardBin      = Join-Path $guardCacheDir 'code-size-guard.exe'
-        $guardHashFile = Join-Path $guardCacheDir 'code-size-guard.srchash'
-        $guardSrcMain  = Join-Path $BuildDir 'scripts\code_size_guard.go'
-        $archtestDir   = Join-Path $BuildDir 'internal\archtest'
-        New-Item -ItemType Directory -Force -Path $guardCacheDir | Out-Null
-
-        $guardSrc = @()
-        if (Test-Path $guardSrcMain) { $guardSrc += $guardSrcMain }
-        if (Test-Path $archtestDir) {
-            $guardSrc += Get-ChildItem -LiteralPath $archtestDir -Recurse -Filter '*.go' |
-                ForEach-Object { $_.FullName }
-        }
-        $guardCurHash = Get-AggregateMd5 -Files $guardSrc
-
-        $needGuardBuild = (-not (Test-Path $guardBin)) -or
-                          (-not (Test-Path $guardHashFile)) -or
-                          ((Read-HashFile $guardHashFile) -ne $guardCurHash)
-        if ($needGuardBuild) {
-            Write-Host '  -> 编译 code_size_guard...'
-            & go build -o $guardBin $guardSrcMain
-            if ($LASTEXITCODE -ne 0) { throw 'code_size_guard 编译失败' }
-            Write-HashFile -Path $guardHashFile -Value $guardCurHash
+        $makeCommand = Get-Command make -ErrorAction SilentlyContinue
+        $guardExitCode = 0
+        if ($makeCommand) {
+            & $makeCommand.Source guard-change
+            $guardExitCode = $LASTEXITCODE
         } else {
-            Write-Host '  -> code_size_guard 缓存命中，跳过编译'
+            Write-Host '  -> 未找到 make，无法运行当前项目守卫 make guard-change。'
+            $guardExitCode = 127
         }
-
-        & $guardBin
-        if ($LASTEXITCODE -ne 0) {
+        if ($guardExitCode -ne 0) {
             Write-Host ''
             Write-Host '!! 代码守卫检查未通过！按 Enter 跳过继续编译，Ctrl+C 中止'
             [void](Read-Host)

@@ -32,10 +32,6 @@ type StopAgentService interface {
 	StopAgent(ctx context.Context, agentID string) error
 }
 
-type stopSpawnedAgentSink interface {
-	Inc(result StopResult)
-}
-
 // StopSpawnedAgent 停止spawned代理。
 func StopSpawnedAgent(ctx context.Context, threads AgentThreadLookup, svc StopAgentService, threadID string) (StopResult, error) {
 	threadID = strings.TrimSpace(threadID)

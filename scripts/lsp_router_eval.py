@@ -964,7 +964,7 @@ def main() -> int:
         help="Optional JSONL dataset path. If empty, use built-in 100-case dataset.",
     )
     args = parser.parse_args()
-    api_key = os.getenv(args.api_key_env, "").strip()
+    api_key = os.getenv(args.api_key_env, "").strip()  # guard:allow-secret env lookup, not a literal secret.
     if args.provider == "openai" and not api_key:
         print(f"[error] provider=openai requires env var {args.api_key_env}")
         return 2

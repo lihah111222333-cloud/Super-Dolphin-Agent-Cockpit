@@ -85,7 +85,7 @@ unified.dreamExecutor.ExecuteDream (dispatcher 入口)
 | 5min timeout | `platformconfig.WithTimeout(ctx, defaultDreamTimeout)`，0 时跳过（测试可注入） | `dream_executor.go:117-121` |
 | 256KB prompt cap | `len(prompt) > maxPromptBytes` fail-fast，`Warn + IncPromptOversize` | `dream_executor.go:131-138` |
 | DREAM_PROVIDER_ORDER env | `resolveProviderOrder(registered, override)` 纯函数：列出已注册的按 CSV 顺序在前，剩余字母序补后 | `dream_executor.go:80` |
-| 8 metrics counter | outcome: `Success / ProviderSkipped / ProviderFailed / AllNotConfigured / PromptOversize`；token: `TokensInput / TokensOutput / TokensCacheRead` | `pkg/dreammetrics/dreammetrics.go:17-29` |
+| 8 metrics counter | outcome: `Success / ProviderSkipped / ProviderFailed / AllNotConfigured / PromptOversize`；token: `TokensInput / TokensOutput / TokensCacheRead` | `pkg/dreammetrics/dreammetrics.go:17-29` | <!-- guard:allow-secret metrics label text, not a secret. -->
 
 ## 6. Provider 真实现矩阵
 

@@ -322,12 +322,6 @@ func (d *driver) prepareProviderHomeAndMirrors(ctx context.Context, spec startSp
 	return spec, nil
 }
 
-func (d *driver) warnSkillMirrorIssue(message string, err error) {
-	if d != nil && d.logger != nil && err != nil {
-		d.logger.Warn(message, "error", err)
-	}
-}
-
 func validateStartCWD(cwd string) error {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {

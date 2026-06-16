@@ -237,10 +237,6 @@ func (d *WakeupDispatcher) handleTurnCompletionRetryWakeup(ctx context.Context, 
 	}
 }
 
-func (d *WakeupDispatcher) shouldRouteThroughNodeExecutor(w *taskdag.Wakeup) bool {
-	return d != nil && isDAGWakeup(w)
-}
-
 // handleClaimedViaLegacyLauncher 是 wiring batch 前原造逻辑，保留不动。
 func (d *WakeupDispatcher) handleClaimedViaLegacyLauncher(ctx context.Context, w *taskdag.Wakeup) bool {
 	fence := extractFence(w)

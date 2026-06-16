@@ -2,9 +2,10 @@ package timeline
 
 import (
 	"context"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"log/slog"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"

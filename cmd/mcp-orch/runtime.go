@@ -26,7 +26,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -80,21 +79,6 @@ func newAgentThreadStore(db *sql.DB) orchestration.AgentThreadStore {
 
 func newAgentBindingStore(db *sql.DB) orchestration.AgentBindingStore {
 	return agentstore.NewBindingStore(db)
-}
-
-type mcpOrchDBReadyProbe interface {
-	PingContext(context.Context) error
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}
-
-func verifyMCPOrchDatabaseReady(ctx context.Context, probe mcpOrchDBReadyProbe) error {
-	if err := probe.PingContext(ctx); err != nil {
-		return fmt.Errorf("mcp-orch database ping failed: %w", err)
-	}
-	if err := platformdb.VerifyMinSchemaVersion(ctx, probe); err != nil {
-		return fmt.Errorf("mcp-orch database schema check failed: %w", err)
-	}
-	return nil
 }
 
 // noopSessionCleaner satisfies contract.OrchestrationSessionCleaner in

@@ -13,7 +13,6 @@ import (
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/resultguard"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
 const (
@@ -56,36 +55,6 @@ func toolCallParamString(params json.RawMessage, key string) string {
 }
 
 // enrichToolCallParams 保留旧版 fail-soft 注入路径供守卫和兼容测试覆盖。
-func enrichToolCallParams(msg RawMessage, agentID, cwd string) RawMessage {
-	agentID, cwd = strings.TrimSpace(agentID), strings.TrimSpace(cwd)
-	if (agentID == "" && cwd == "") || len(msg.Params) == 0 {
-		return msg
-	}
-	var payload map[string]json.RawMessage
-	if err := json.Unmarshal(msg.Params, &payload); err != nil || payload == nil || !injectToolCallMetadata(payload, agentID, cwd) {
-		skillmetrics.IncEnrichFailure()
-		return msg
-	}
-	if raw, err := json.Marshal(payload); err == nil {
-		msg.Params = raw
-		return msg
-	}
-	skillmetrics.IncEnrichFailure()
-	return msg
-}
-
-func injectToolCallMetadata(payload map[string]json.RawMessage, agentID, cwd string) bool {
-	if agentID != "" {
-		payload["agentId"] = mustJSON(agentID)
-		delete(payload, "agent_id")
-	}
-	if cwd != "" {
-		payload["_cwd"] = mustJSON(cwd)
-		delete(payload, "cwd")
-	}
-	return true
-}
-
 func shouldWarnToolCWDTrace(toolName string) bool {
 	toolName = strings.TrimSpace(toolName)
 	return strings.HasPrefix(toolName, "lsp_") ||

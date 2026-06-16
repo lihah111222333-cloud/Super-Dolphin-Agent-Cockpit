@@ -70,7 +70,7 @@
 ```
 curl https://api.anthropic.com/v1/models \
   -H 'anthropic-version: 2023-06-01' \
-  -H "X-Api-Key: $ANTHROPIC_API_KEY"
+  -H "X-Api-Key: $ANTHROPIC_API_KEY" # guard:allow-secret environment placeholder, not a literal secret.
 ```
 
 **结论：`max_input_tokens` 就是「无需硬编码」的动态数据源。** 可以拉取 `/v1/models` 后按 `id` 建立运行时映射，而不是在代码里写死数字表。

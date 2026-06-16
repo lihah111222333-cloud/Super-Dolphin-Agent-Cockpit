@@ -196,19 +196,6 @@ func scanEntriesAsSnapshots(root, typeFilter, scope string) ([]dedup.EntrySnapsh
 	return snapshots, nil
 }
 
-func newMemoryLifecycleHooks(
-	cfg *Config,
-	consolidator *AutoDreamConsolidator,
-	logger *slog.Logger,
-	threads historySource,
-	threadStore threadMetadataStore,
-	sections sectionInvalidator,
-	extractor *MemoryExtractor,
-	manifestBuilder *ManifestBuilder,
-) *MemoryLifecycleHooks {
-	return newMemoryLifecycleHooksWithTeam(cfg, nil, consolidator, logger, threads, threadStore, sections, extractor, manifestBuilder)
-}
-
 // newMemoryLifecycleHooksWithTeam 创建带团队记忆能力的生命周期 hook。
 func newMemoryLifecycleHooksWithTeam(
 	cfg *Config,

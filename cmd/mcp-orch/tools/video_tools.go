@@ -35,7 +35,7 @@ func siliconFlowAPIKey() (string, error) {
 	if err := runtimeenv.LoadVideoEnv(); err != nil {
 		return "", fmt.Errorf("load video env: %w", err)
 	}
-	apiKey = strings.TrimSpace(os.Getenv("SILICONFLOW_API_KEY"))
+	apiKey = strings.TrimSpace(os.Getenv("SILICONFLOW_API_KEY")) // guard:allow-secret env lookup, not a literal secret.
 	if apiKey == "" {
 		return "", errors.New("SILICONFLOW_API_KEY is required; set it in Settings -> Video")
 	}

@@ -77,14 +77,6 @@ func resolveHookPendingAgentID(instance *ToolInstance, req dto.HookPendingReques
 	}
 }
 
-func validateHookSubscribeRequest(req dto.HookSubscribeRequest) error {
-	return asHookRPCError(validateHookSubscribeInput(req))
-}
-
-func validateHookResolveRequest(req dto.HookResolveRequest) error {
-	return asHookRPCError(validateHookResolveInput(req))
-}
-
 func resolveCurrentRegisteredInstance(ctx context.Context, registry *ToolRegistry) (*ToolInstance, error) {
 	server, err := serverFromContext(ctx)
 	if err != nil {

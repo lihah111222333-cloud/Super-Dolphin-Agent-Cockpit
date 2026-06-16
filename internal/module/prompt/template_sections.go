@@ -92,26 +92,6 @@ func requirePromptCWD(cwd string) (string, error) {
 }
 
 // validatePromptScope 校验prompt作用域。
-func validatePromptScope(current *promptstore.PromptTemplate, cwd string) error {
-	requestScope, err := requirePromptCWD(cwd)
-	if err != nil {
-		return err
-	}
-	if current == nil {
-		return nil
-	}
-	if promptHasScopeCWD(current.Tags, requestScope) {
-		return nil
-	}
-	if promptHasAnyScopeCWD(current.Tags) || promptHasGlobalScope(current.Tags) {
-		return fmt.Errorf("dashboard: prompt %q is outside cwd scope", current.PromptKey)
-	}
-	if promptScopeFromTags(current.Tags) == "" {
-		return nil
-	}
-	return fmt.Errorf("dashboard: prompt %q is outside cwd scope", current.PromptKey)
-}
-
 // validatePromptWriteScope 校验promptwrite作用域。
 func validatePromptWriteScope(current *promptstore.PromptTemplate, cwd, scope string, scopeSet bool) error {
 	requestScope, err := requirePromptCWD(cwd)
@@ -222,10 +202,6 @@ func promptScopeForTemplate(template promptstore.PromptTemplate) string {
 		return "global"
 	}
 	return "project"
-}
-
-func withPromptScopeTag(raw json.RawMessage, cwd string) json.RawMessage {
-	return withPromptScopeKindTag(raw, cwd, "project")
 }
 
 // withPromptScopeKindTag 设置prompt作用域kindtag。

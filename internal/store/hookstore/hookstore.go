@@ -40,10 +40,6 @@ func NewStore(q *sqlc.Queries) contract.HookReviewStore {
 	return &store{q: q}
 }
 
-func newStoreForTest(q querier) *store {
-	return &store{q: q}
-}
-
 // SavePendingReview inserts a new pending hook review row.
 // SavePendingReview 保存待处理review。
 func (s *store) SavePendingReview(ctx context.Context, review mcp.PendingHookReview) error {

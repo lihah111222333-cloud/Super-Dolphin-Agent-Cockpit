@@ -84,25 +84,6 @@ func consolidationLockPath(root string) (string, error) {
 	return ValidateMemoryWritePath(normalizedRoot, filepath.Join(normalizedRoot, consolidationLockFileName))
 }
 
-func loadConsolidationLockRecord(path string) (consolidationLockRecord, time.Time, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return consolidationLockRecord{}, time.Time{}, err
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return consolidationLockRecord{}, time.Time{}, err
-	}
-	if len(raw) == 0 {
-		return consolidationLockRecord{}, info.ModTime(), nil
-	}
-	var record consolidationLockRecord
-	if err := json.Unmarshal(raw, &record); err != nil {
-		return consolidationLockRecord{}, time.Time{}, err
-	}
-	return record, info.ModTime(), nil
-}
-
 func isConsolidationLockStale(modTime, now time.Time, ttl time.Duration) bool {
 	if modTime.IsZero() {
 		return true

@@ -26,8 +26,6 @@ func NewStore(q *sqlc.Queries) Store {
 	return &store{q: q}
 }
 
-func newStoreForTest(q querier) Store { return &store{q: q} }
-
 // Upsert 新增或更新记录。
 func (s *store) Upsert(ctx context.Context, params UpsertParams) (*AgentStatus, error) {
 	if err := platformdb.ValidateJSONRaw(params.OutputTail); err != nil {

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Go 项目守卫"
+  short_description: "为 Go 项目改动、提交、合并执行强制门禁验证流程。"
+  default_prompt: "请使用该技能验证当前 Go 项目的代码改动、提交或合并是否通过项目守卫。"

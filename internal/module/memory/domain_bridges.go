@@ -32,8 +32,6 @@ type TeamMemSkippedFile = teampkg.TeamMemSkippedFile
 type TeamMemPrePushScanResult = teampkg.TeamMemPrePushScanResult
 type TeamMemSecretError = teampkg.TeamMemSecretError
 
-const teamMemoryRootDirName = teampkg.RootDirName
-
 var ErrTeamMemSecretDetected = teampkg.ErrTeamMemSecretDetected
 
 func provideTeamConfig(cfg *Config) teampkg.Config {

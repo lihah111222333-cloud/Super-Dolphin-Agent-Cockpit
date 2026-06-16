@@ -428,10 +428,6 @@ func diagnosisRelativePath(root string, candidate string) (string, bool) {
 	return rel, true
 }
 
-func diagnosisString(value string) string {
-	return newTraceDiagnosisProjector(TraceDiagnosisRequest{}).string(value)
-}
-
 func (ids *TraceDiagnosisRelatedIDs) addEvent(event TraceEvent, projector traceDiagnosisProjector) {
 	ids.ThreadIDs = appendUniqueBounded(ids.ThreadIDs, event.ThreadID, projector)
 	ids.AgentIDs = appendUniqueBounded(ids.AgentIDs, event.AgentID, projector)

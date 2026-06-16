@@ -39,10 +39,6 @@ func (s *session) handleApprovalRequest(method string, params json.RawMessage) {
 	})
 }
 
-func (s *session) requestToolApproval(method string, params json.RawMessage) error {
-	return s.requestToolApprovalWithContext(s.ctx, method, params)
-}
-
 func (s *session) requestToolApprovalWithContext(ctx context.Context, method string, params json.RawMessage) error {
 	req, requestID, ok := s.buildApprovalRequest(method, decodeEventPayload(params))
 	if !ok {

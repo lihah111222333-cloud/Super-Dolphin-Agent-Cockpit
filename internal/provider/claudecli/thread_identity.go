@@ -3,9 +3,10 @@ package claudecli
 import (
 	"context"
 	"errors"
+	"strings"
+
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	"strings"
 )
 
 func isPlaceholderThreadID(threadID string) bool {
@@ -17,14 +18,7 @@ func isPlaceholderThreadID(threadID string) bool {
 	case "pending", "unknown", "placeholder", "none", "null":
 		return true
 	}
-	if strings.HasPrefix(strings.ToLower(threadID), "agent_") {
-		return true
-	}
-	return false
-}
-
-func (s *session) setResolvedThreadID(threadID string) {
-	s.setResolvedThreadIDForTransport(nil, threadID)
+	return strings.HasPrefix(strings.ToLower(threadID), "agent_")
 }
 
 func (s *session) setResolvedThreadIDForTransport(tr *transport, threadID string) {

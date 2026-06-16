@@ -142,11 +142,6 @@ type initializeParams struct {
 	ProtocolVersion string `json:"protocolVersion,omitempty"`
 }
 
-type textContent struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
-
 type toolResultTextProvider interface {
 	ToolResultText() string
 }

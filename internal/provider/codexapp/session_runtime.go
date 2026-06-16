@@ -68,18 +68,6 @@ type SessionRuntime struct {
 
 type sessionRuntimeOption func(*SessionRuntime)
 
-func withHealthInterval(d time.Duration) sessionRuntimeOption {
-	return func(r *SessionRuntime) { r.healthInterval = d }
-}
-
-func withHealthIdleThreshold(d time.Duration) sessionRuntimeOption {
-	return func(r *SessionRuntime) { r.healthIdleThreshold = d }
-}
-
-func withClock(now func() time.Time) sessionRuntimeOption {
-	return func(r *SessionRuntime) { r.now = now }
-}
-
 func newSessionRuntime(s *session, logger *slog.Logger, opts ...sessionRuntimeOption) *SessionRuntime {
 	if logger == nil {
 		logger = pkglogger.Get()

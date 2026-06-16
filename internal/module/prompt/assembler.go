@@ -294,30 +294,6 @@ func (s *service) regionSections(region PromptRegion) []PromptSection {
 	return sections
 }
 
-func (s *service) fallbackStartAssembly(ctx context.Context, in StartInput) StartAssembly {
-	displayName := strings.TrimSpace(in.Name)
-	base := strings.TrimSpace(in.BaseInstructions)
-	buildCtx := buildStartCtx(in)
-	suppressedTools := s.aggregateSuppressedTools(ctx, strings.TrimSpace(in.CWD), strings.TrimSpace(in.Provider))
-	buildCtx.SuppressedTools = suppressedTools
-	userMeta := s.buildStartUserMeta(buildCtx, nil)
-	systemCtx := s.buildSystemContext(ctx, buildCtx)
-	if hint := s.resolvePromptHint(ctx, buildCtx.CWD); hint != "" {
-		base = joinBlocks(base, hint)
-	}
-	dev := strings.TrimSpace(in.DeveloperInstructions)
-	return StartAssembly{
-		DisplayName:           displayName,
-		BaseInstructions:      base,
-		DeveloperInstructions: dev,
-		Snapshot:              s.newSnapshot(displayName, base, dev, in.Provider, nil, nil),
-		SuppressedTools:       append([]string(nil), suppressedTools...),
-		UserContext:           map[string]string(cloneUserContextPayload(userMeta)),
-		UserContextText:       contract.FormatUserContextText(userMeta),
-		SystemContext:         systemCtx,
-	}
-}
-
 // buildStartUserMeta returns the structured per-start user meta payload
 // (currentDate + runtimeExtras). It is the Go equivalent of Claude Code's
 // getUserContext() entries for currentDate and runtimeExtras. The caller
@@ -389,10 +365,6 @@ func (s *service) notifyInvalidationProviders(reason InvalidateReason) {
 	if aware, ok := s.claudeMdProvider.(InvalidationAwareProvider); ok {
 		aware.OnPromptInvalidate(reason)
 	}
-}
-
-func buildStartSectionContext(in StartInput) SectionContext {
-	return SectionContext{BuildCtx: buildStartCtx(in), Start: &in}
 }
 
 func buildTurnSectionContext(in TurnInput) SectionContext {

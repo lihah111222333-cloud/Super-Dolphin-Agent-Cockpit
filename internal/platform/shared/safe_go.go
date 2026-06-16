@@ -1,8 +1,9 @@
 package shared
 
 import (
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"runtime/debug"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // SafeGo launches a goroutine with panic recovery.

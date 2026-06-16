@@ -1,0 +1,4 @@
+interface:
+  display_name: "编写 Go 项目架构"
+  short_description: "为 Go 项目设计 AI 友好、边界清晰、无循环依赖的模块化架构。"
+  default_prompt: "请使用该技能为当前 Go 项目设计包结构、依赖方向和架构边界规则。"

@@ -2,10 +2,11 @@ package skill
 
 import (
 	"context"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"

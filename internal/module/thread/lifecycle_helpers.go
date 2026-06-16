@@ -582,23 +582,6 @@ func (s *service) readMessagesPageFromSession(ctx context.Context, threadID stri
 }
 
 // readMessagesSource 读取消息source。
-func (s *service) readMessagesSource(ctx context.Context, threadID string, binding *bindingstore.Binding) ([]dto.Message, error) {
-	session, err := s.sessionForBinding(binding)
-	if err == nil && session != nil {
-		return session.ReadHistory(ctx, historyTargetID(binding, threadID), 0)
-	}
-	if err == nil {
-		err = contract.ErrSessionNotFound
-	} else if !errors.Is(err, contract.ErrSessionNotFound) {
-		return nil, err
-	}
-	req := historyjsonl.ReadRequest{ThreadID: strings.TrimSpace(threadID)}
-	if binding != nil {
-		req = historyjsonl.ReadRequest{Provider: binding.Provider, RolloutPath: binding.RolloutPath, ThreadID: util.FirstNonEmpty(binding.CodexThreadID, threadID), ProviderThreadID: binding.ProviderThreadID, SessionUUID: binding.SessionUUID, CodexHome: binding.CodexHome}
-	}
-	return historyjsonl.ReadProviderMessagesOrError(req, err)
-}
-
 func readMessagesHistoryRequestForSession(threadID string, binding *bindingstore.Binding, session contract.Session) historyjsonl.ReadRequest {
 	req := historyjsonl.ReadRequest{ThreadID: strings.TrimSpace(threadID)}
 	if binding != nil {
