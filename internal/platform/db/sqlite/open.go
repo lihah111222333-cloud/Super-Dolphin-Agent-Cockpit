@@ -26,6 +26,8 @@ type OpenOptions struct {
 	Path string
 }
 
+// Open 打开并校验 SQLite 数据库，启动期完成路径、权限和 PRAGMA 检查。
+// 任何文件系统或持久化能力异常都直接返回错误，避免运行时才暴露写入失败。
 func Open(ctx context.Context, opts OpenOptions) (*sql.DB, error) {
 	path := strings.TrimSpace(opts.Path)
 	if path == "" {
@@ -79,6 +81,8 @@ func configureAndVerifyPragmas(ctx context.Context, db *sql.DB) error {
 	return verifyPragmas(ctx, db)
 }
 
+// configurePragmas 写入运行期必须保持一致的 SQLite PRAGMA。
+// 这些配置影响外键、WAL 和同步级别，任一失败都必须阻断数据库启动。
 func configurePragmas(ctx context.Context, db *sql.DB) error {
 	if err := execPragma(ctx, db, "PRAGMA foreign_keys = ON"); err != nil {
 		return err
@@ -98,6 +102,7 @@ func configurePragmas(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+// verifyPragmas 复核 SQLite 连接实际生效的 PRAGMA，防止驱动或环境忽略关键配置。
 func verifyPragmas(ctx context.Context, db *sql.DB) error {
 	if err := verifyIntPragma(ctx, db, "foreign_keys", 1); err != nil {
 		return err
@@ -146,21 +151,23 @@ func verifyTextPragma(ctx context.Context, db *sql.DB, name, want string) error 
 	return nil
 }
 
+// prepareFilesystem 在打开数据库前准备并校验父目录和已有 DB 文件。
+// 父路径错误优先定位到父目录；已有 DB 文件必须在启动期通过读写探测。
 func prepareFilesystem(path string) error {
 	clean := filepath.Clean(path)
-	if err := validateExistingDatabasePath(clean); err != nil {
-		return err
-	}
-
 	parent := filepath.Dir(clean)
 	parentCreated, err := ensureParentDirectory(parent)
 	if err != nil {
 		return err
 	}
 	if parentCreated {
-		return securefs.RestrictOwnerOnly(parent, 0o700)
+		if err := securefs.RestrictOwnerOnly(parent, 0o700); err != nil {
+			return err
+		}
+	} else if err := validateExistingParentDirectory(parent); err != nil {
+		return err
 	}
-	return validateExistingParentDirectory(parent)
+	return validateExistingDatabasePath(clean)
 }
 
 func validateExistingDatabasePath(clean string) error {
@@ -174,7 +181,23 @@ func validateExistingDatabasePath(clean string) error {
 	if info.IsDir() {
 		return fmt.Errorf("SQLite database path points to a directory: %s", redactPath(clean))
 	}
+	if err := probeExistingDatabaseWritable(clean); err != nil {
+		return err
+	}
 	return securefs.CheckExistingOwnerOnly(clean, info)
+}
+
+// probeExistingDatabaseWritable 在打开 SQLite 前验证已有 DB 文件可由当前进程读写。
+// 这里不创建、不截断、不改权限；失败必须立即阻断，避免应用带着半可用持久化能力启动。
+func probeExistingDatabaseWritable(path string) error {
+	file, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		return fmt.Errorf("SQLite database file is not writable: %s: %s", redactPath(path), securefs.SafeErrorForPath(err, path))
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close SQLite database file %s: %s", redactPath(path), securefs.SafeErrorForPath(err, path))
+	}
+	return nil
 }
 
 func ensureParentDirectory(parent string) (bool, error) {
@@ -208,6 +231,8 @@ func validateExistingParentDirectory(parent string) error {
 	return nil
 }
 
+// ensureDatabaseFile 只在 DB 文件不存在时创建它，并立即收紧为 owner-only 权限。
+// 已存在文件的可写性和权限在 prepareFilesystem 中完成，避免这里静默放行半可用状态。
 func ensureDatabaseFile(path string) error {
 	clean := filepath.Clean(path)
 	if _, err := os.Stat(clean); err == nil {
@@ -225,6 +250,8 @@ func ensureDatabaseFile(path string) error {
 	return securefs.RestrictOwnerOnly(clean, 0o600)
 }
 
+// RestrictSidecarFilePermissions 检查 SQLite 主文件和 WAL/SHM sidecar 的权限边界。
+// 已存在的 sidecar 不会被静默改权限；权限不满足 owner-only 时直接失败。
 func RestrictSidecarFilePermissions(path string) error {
 	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
 		info, err := os.Stat(candidate)
@@ -248,6 +275,7 @@ func redactPath(path string) string {
 	return securefs.RedactPath(path)
 }
 
+// OpenTest 用测试固定超时打开 SQLite，避免测试因外部上下文缺失而无限等待。
 func OpenTest(ctx context.Context, path string) (*sql.DB, error) {
 	ctx, cancel := platformconfig.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

@@ -131,7 +131,7 @@ func resolveAuthoritativeResumeCWD(req ResumeRequest, state resumeState) (string
 
 // hydrateResumeSessionRequest 从 thread、binding、config 和 snapshot 还原 resume 输入。
 // 它不重新选 prompt，也不创建新 thread；cwd 或 snapshot 不可靠就报错。
-func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeRequest) (ResumeRequest, error) {
+func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeRequest, opts resumeHydrateOptions) (ResumeRequest, error) {
 	req, err := trimResumeRequest(req)
 	if err != nil {
 		return ResumeRequest{}, err
@@ -141,6 +141,12 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 		return ResumeRequest{}, err
 	}
 	req = hydrateResumeIDs(req, state)
+	if opts.validateExplicitCodexIdentity {
+		err = validateExplicitResumeCodexIdentity(req)
+	}
+	if err != nil {
+		return ResumeRequest{}, err
+	}
 	req.CWD, err = resolveAuthoritativeResumeCWD(req, state)
 	if err != nil {
 		return ResumeRequest{}, err
@@ -149,7 +155,7 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 	req = hydrateResumeCodexIdentity(req, state)
 	req.CodexDisabledNativeTools = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
 	req.Config = mergeRuntimeConfig(clone.RuntimeConfigMap(state.ConfigOverride.Runtime), req.Config)
-	req, err = s.injectDefaultCodexIdentityForResume(req)
+	req, err = s.canonicalizeHydratedResumeCodexIdentity(req, opts.canonicalizeCodexIdentity)
 	if err != nil {
 		return ResumeRequest{}, err
 	}
@@ -423,7 +429,9 @@ func isConfigArtifactKey(key string) bool {
 
 func buildStartStoredThreadConfig(req StartRequest, input contract.StartInput, assembly contract.StartAssembly, session ...contract.Session) storedThreadConfig {
 	runtime := clone.RuntimeConfigMap(buildStartSessionConfig(req, input, assembly))
-	runtime = mergeStartSessionRuntimeIdentity(runtime, firstStartStoredConfigSession(session))
+	if len(session) > 0 {
+		runtime = mergeStartSessionRuntimeIdentity(runtime, session[0])
+	}
 	return storedThreadConfig{
 		Model:           strings.TrimSpace(input.Model),
 		Effort:          strings.TrimSpace(req.Effort),
@@ -434,20 +442,15 @@ func buildStartStoredThreadConfig(req StartRequest, input contract.StartInput, a
 	}
 }
 
-func firstStartStoredConfigSession(session []contract.Session) contract.Session {
-	if len(session) == 0 {
-		return nil
-	}
-	return session[0]
-}
-
 func mergeStartSessionRuntimeIdentity(runtime map[string]any, session contract.Session) map[string]any {
-	if session == nil {
+	rc, ok := session.(interface{ RuntimeConfigSnapshot() map[string]any })
+	if !ok {
 		return runtime
 	}
+	cfg := rc.RuntimeConfigSnapshot()
 	for _, key := range []string{"codexHome", "codexInstanceKey", "codexModelProvider"} {
-		value := sessionRuntimeConfigString(session, key)
-		if value == "" {
+		value, _ := cfg[key].(string)
+		if value = strings.TrimSpace(value); value == "" {
 			continue
 		}
 		if runtime == nil {
