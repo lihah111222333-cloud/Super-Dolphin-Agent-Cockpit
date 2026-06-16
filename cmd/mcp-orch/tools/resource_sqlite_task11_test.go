@@ -41,14 +41,14 @@ func TestSQLitePromptToolListSearchKeepsPayloadShape(t *testing.T) {
 	store := promptstore.NewStore(db)
 	seedSQLitePromptTemplate(t, ctx, store)
 
-	result, err := HandlePromptList(store)(ctx, mustRawInput(t, promptListInput{Keyword: "task11-prompt-needle"}))
+	result, err := HandlePromptList(store, nil)(ctx, mustRawInput(t, promptListInput{Keyword: "task11-prompt-needle"}))
 	if err != nil {
 		t.Fatalf("HandlePromptList() error = %v", err)
 	}
 	prompts := result.([]promptTemplateDTO)
 	assertSinglePromptPayload(t, "list", prompts)
 
-	detail, err := HandlePromptGet(store)(ctx, mustRawInput(t, promptGetInput{PromptKey: "prompt/search-text"}))
+	detail, err := HandlePromptGet(store, nil)(ctx, mustRawInput(t, promptGetInput{PromptKey: "prompt/search-text"}))
 	if err != nil {
 		t.Fatalf("HandlePromptGet() error = %v", err)
 	}

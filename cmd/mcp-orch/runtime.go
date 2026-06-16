@@ -30,6 +30,7 @@ import (
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared/builtinprompts"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"go.uber.org/fx"
 )
@@ -147,12 +148,13 @@ func newNoopTurnStarter() contract.OrchestrationTurnStarter {
 type newRegistryParams struct {
 	fx.In
 
-	Orchestration contract.OrchestrationService
-	WS            workspace.Service
-	Prompt        promptstore.Store
-	Command       commandcardstore.Store
-	SharedFile    sharedfilestore.Store
-	ModelRegistry modelregistry.Registry
+	Orchestration  contract.OrchestrationService
+	WS             workspace.Service
+	Prompt         promptstore.Store
+	BuiltinPrompts contract.BuiltinPromptRegistry
+	Command        commandcardstore.Store
+	SharedFile     sharedfilestore.Store
+	ModelRegistry  modelregistry.Registry
 }
 
 func newModelRegistry(logger *slog.Logger) (modelregistry.Registry, error) {
@@ -163,14 +165,19 @@ func newModelRegistry(logger *slog.Logger) (modelregistry.Registry, error) {
 	return nil, fmt.Errorf("model registry load failed for %s: %w", modelregistry.DefaultRegistryPath(), err)
 }
 
+func newBuiltinPromptRegistry() (contract.BuiltinPromptRegistry, error) {
+	return builtinprompts.NewDefaultRegistry()
+}
+
 func newRegistry(p newRegistryParams) tools.Registry {
 	return tools.NewRegistry(tools.Dependencies{
-		Orchestration: p.Orchestration,
-		Workspace:     p.WS,
-		Prompt:        p.Prompt,
-		CommandCard:   p.Command,
-		SharedFile:    p.SharedFile,
-		ModelRegistry: p.ModelRegistry,
+		Orchestration:  p.Orchestration,
+		Workspace:      p.WS,
+		Prompt:         p.Prompt,
+		BuiltinPrompts: p.BuiltinPrompts,
+		CommandCard:    p.Command,
+		SharedFile:     p.SharedFile,
+		ModelRegistry:  p.ModelRegistry,
 	})
 }
 
