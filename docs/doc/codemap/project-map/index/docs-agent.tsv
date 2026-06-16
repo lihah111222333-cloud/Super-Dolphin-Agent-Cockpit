@@ -546,6 +546,7 @@ docs/decisions/ADR-015-provider-turn-completed-result.md	docs	docs-agent	doc	246
 docs/decisions/ADR-016-spawned-agent-auto-stop.md	docs	docs-agent	doc	25419	ADR/决策记录	docs,decisions,ADR,016,spawned,agent,auto,stop,决策记录
 docs/decisions/ADR-017-dag-turn-completed-subscriber.md	docs	docs-agent	doc	36555	ADR/决策记录	docs,decisions,ADR,017,dag,turn,completed,subscriber,决策记录
 docs/decisions/ADR-018-agent-output-materialization.md	docs	docs-agent	doc	6732	ADR/决策记录	docs,decisions,ADR,018,agent,output,materialization,决策记录
+docs/decisions/ADR-019-legacy-frontend-embed-fallback.md	docs	docs-agent	doc	2125	ADR/决策记录	docs,decisions,ADR,019,legacy,frontend,embed,fallback,决策记录
 docs/decisions/README.md	docs	docs-agent	doc	4432	ADR/决策记录	docs,decisions,README,ADR,决策记录
 docs/design/F1-lifecycle-audit-2026-05-12.md	docs	docs-agent	doc	31844	项目文档体系	docs,design,F1,lifecycle,audit,2026,05,12,项目文档体系
 docs/doc/codemap/01-terminal-ui-go.md	docs	docs-agent	doc	25751	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,go,手写代码地图卷与自动,ai-index
@@ -941,7 +942,7 @@ docs/plans/orch-pos-feedback-loop/2026-06-01-validation/cognitive-usability-scor
 docs/plans/prompt-ui-redesign.md	docs	docs-agent	doc	21543	历史计划与迁移执行文档	docs,plans,prompt,ui,redesign,历史计划与迁移执行文档
 docs/plans/README.md	docs	docs-agent	doc	377	历史计划与迁移执行文档	docs,plans,README,历史计划与迁移执行文档
 docs/plans/v3-workflow.md	docs	docs-agent	doc	84578	历史计划与迁移执行文档	docs,plans,v3,workflow,历史计划与迁移执行文档
-docs/README.md	docs	docs-agent	doc	1558	项目文档体系	docs,README,项目文档体系
+docs/README.md	docs	docs-agent	doc	1669	项目文档体系	docs,README,项目文档体系
 docs/scripts/macos_release_smoke.sh	docs	docs-agent	script	19254	项目文档体系	docs,scripts,macos,release,smoke,项目文档体系
 docs/security/internal/check_repofp_delegators.go	docs	docs-agent	go-source	2393	项目文档体系	docs,security,internal,check,repofp,delegators,项目文档体系
 docs/security/p21-redteam.sh	docs	docs-agent	script	7238	项目文档体系	docs,security,p21,redteam,项目文档体系
