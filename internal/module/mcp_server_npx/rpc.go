@@ -8,7 +8,7 @@ import (
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
-// NewHandlers 注册默认 npx MCP server 的显式启动 RPC。
+// NewHandlers 注册默认 npm MCP server 的显式启动 RPC。
 func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		"mcpServer/postgres/start": platformrpc.StrictHandler(startPostgresServerHandler(svc)),
