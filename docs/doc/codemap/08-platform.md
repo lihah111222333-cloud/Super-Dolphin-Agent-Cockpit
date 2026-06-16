@@ -20,7 +20,7 @@
 
 可以把 platform 层粗分为三组：
 
-1. **基础原语**：`config`、`db`、`shared`、`runner`、`statemachine`、`pidregistry`、`rlimit`、`runtimesafe`
+1. **基础原语**：`config`、`db`、`kernel`、`runner`、`statemachine`、`pidregistry`、`rlimit`、`runtimesafe`
 2. **通信/控制基础设施**：`bus`、`eventsurface`、`rpc`、`hooks`、`mcpcontrol`、`toolbridge`
 3. **运行时维持 / 旁路数据**：`cachekeepalive`、`difftracker`、`historyjsonl`
 
@@ -502,7 +502,7 @@
 
 ---
 
-## 2.12 `shared/`：共享基础工具
+## 2.12 `kernel/`：共享基础工具
 
 **职责**
 
@@ -525,7 +525,7 @@
 
 **实现要点**
 
-- `shared` 是全平台复用频率最高的工具箱
+- `kernel` 是全平台复用频率最高的低依赖工具箱；源码包路径是 `internal/platform/kernel`
 - 很多平台包的“拷贝防变异”语义都依赖 `CloneRawMessage/CloneJSONMap/CloneStrings/CloneSelector/CloneHookPayload`
 
 ---
@@ -698,7 +698,7 @@
 - `fn == nil` 时直接 no-op；`ctx == nil` 时会回退成 `context.Background()`
 - panic 时优先使用调用者传入 logger；若 logger 为空则回退全局 logger
 - `label` 设计成短且稳定的 grep 锚点，当前被 `app`、`rpc`、`thread`、`turn`、`claudecli`、`codexapp`、`unified` 等路径广泛使用
-- `internal/archtest/safego_guard_test.go` 会强制新 goroutine 走 `runtimesafe.SafeGo(...)`，避免继续扩散到旧 `shared/safe_go.go`
+- 当前代码约定新 goroutine 走 `runtimesafe.SafeGo(...)`，避免继续扩散到 `kernel.SafeGo` 这个 deprecated 兼容 wrapper。
 
 ---
 
@@ -744,8 +744,8 @@ flowchart LR
 ### 3.1 发布
 
 - **2026-04-20 / `7a1f49c`**：`internal/platform/rpc/module.go` 增补 approval restore / cleanup 生命周期，给 `skill/expand` 新接入的 approval cache 生产链兜底。
-- **2026-04-18 / `af7f81a`**：新增 `runtimesafe.SafeGo`，`shared.SafeGo` 改为 deprecated wrapper；`rpc.Server`、`memory/team`、`skill/events`、`thread`、`turn` 等后台 goroutine 改走统一安全启动。
-- **2026-04-17 / `8172367`**：memory 路径/项目 key helper 收敛，`internal/module/memory/*` 与 `cmd/mcp-orch/memory/path.go` 统一复用 `platform/shared.ContainsPath` / `SanitizeProjectKey` / `ProjectKeyFromCwd`。
+- **2026-04-18 / `af7f81a`**：新增 `runtimesafe.SafeGo`，`kernel.SafeGo` 保留为 deprecated wrapper；`rpc.Server`、`memory/team`、`skill/events`、`thread`、`turn` 等后台 goroutine 改走统一安全启动。
+- **2026-04-17 / `8172367`**：memory 路径/项目 key helper 收敛到 `internal/platform/kernel` / `internal/util/pathutil`，当前 `internal/module/memory/path.go` 复用 `kernel.ContainsPath` 与 project-key helper；旧 `cmd/mcp-orch/memory/path.go` 已不存在。
 - **2026-04-14 ~ 2026-04-12**：`cachekeepalive` 补齐注册后首轮 timer 调度；`difftracker` 收敛成 git snapshot/diff 原语，`toolbridge` 只负责接线和 fallback。
 
 ## 8. 读图结论
@@ -999,29 +999,29 @@ Codex session 收到 inbound tool request
 
 ## 7.2 核心业务模块
 
-- `internal/module/thread`：大量使用 `bus`、`db`、`rpc`、`historyjsonl`、`shared`
-- `internal/module/turn`：使用 `config`、`rpc`、`shared`
-- `internal/module/uistate`：使用 `bus`、`config`、`db`、`rpc`、`shared`
-- `internal/module/skill`：使用 `bus`、`config`、`rpc`、`shared`
-- `internal/module/dashboard`：使用 `rpc`、`shared`
-- `internal/module/lspgui`：使用 `config`、`rpc`、`shared`
+- `internal/module/thread`：大量使用 `bus`、`db`、`rpc`、`historyjsonl`、`kernel`
+- `internal/module/turn`：使用 `config`、`rpc`、`kernel`
+- `internal/module/uistate`：使用 `bus`、`config`、`db`、`rpc`、`kernel`
+- `internal/module/skill`：使用 `bus`、`config`、`rpc`、`kernel`
+- `internal/module/dashboard`：使用 `rpc`、`kernel`
+- `internal/module/lspgui`：当前仓内无源码目录；不要把它当作现有 platform 使用者。
 
 ## 7.3 Provider 层
 
-- `internal/provider/codexapp`：依赖 `rpc`、`shared`、`config`、`pidregistry`，并通过 `toolbridge` 注入 tool handler / list tools
-- `internal/provider/claudecli`：依赖 `config`、`shared`、`pidregistry`
-- `internal/provider/unified`：依赖 `config`、`shared`、`db`
+- `internal/provider/codexapp`：依赖 `rpc`、`kernel`、`config`、`runner`，并通过 `toolbridge` 注入 tool handler / list tools
+- `internal/provider/claudecli`：依赖 `config`、`kernel`、`pidregistry`
+- `internal/provider/unified`：依赖 `config`、`kernel`、`db`
 
 ## 7.4 MCP/Sidecar 进程
 
-- `cmd/mcp-orch`：根进程装配依赖 `config`、`bus`、`db`、`runner`；其 orchestration/workspace/store 子包还会用到 `rpc`、`shared`、`statemachine`
+- `cmd/mcp-orch`：根进程装配依赖 `config`、`bus`、`db`、`runner`；其 `internal/sidecar/orch/{orchestration,workspace,store,tools}` 子包还会用到 `rpc`、`kernel`、`sharedfilepath/sharedfilefs`
 - `cmd/mcp-lsp` / `cmd/mcp-ida`：依赖 `config`、`runner`
 - `cmd/agent-terminal` / `cmd/mcp-orch` / `cmd/mcp-lsp` / `cmd/mcp-ida` 都会 blank-import `internal/platform/rlimit`
 
 ## 7.5 Store 与基础 IO 层
 
 - `internal/store/*` 广泛依赖 `db`
-- `internal/ui/wails/*` 依赖 `rpc`、`eventsurface`、`shared`、`config`、`runner`
+- `internal/ui/wails/*` 依赖 `rpc`、`eventsurface`、`kernel`、`config`、`runner`，shared-file 打开链路还依赖 `sharedfilefs/sharedfilepath`
 
 ## 7.6 关键跨模块链路
 
@@ -1040,31 +1040,23 @@ Codex session 收到 inbound tool request
 
 ---
 
-## 7.7 测试入口 + archtest freeze 映射（13 子包）
+## 7.7 测试入口 + archtest freeze 映射
 
-| 包 | 测试文件 | 核心 Test* | freeze |
+当前 `internal/platform` 下只有 `mcpwire/stdio_test.go` package-local 测试；其它 platform 包以编译校验和全仓 guard 为准。新增/修改平台行为时应按风险补对应包测试。
+
+| 包 | 当前校验入口 | 说明 | freeze |
 |---|---|---|---|
-| `bus` | `bus_test.go` / +2 | `TestPublishSubscribe` / +7 | — |
-| `cachekeepalive` | `manager_test.go` | `TestRegisterSchedulesInitialTimer` / +6 | — |
-| `config` | `config_test.go` / +1 | `TestNew_PrefersCanonicalRPCAddr` / +5 | — |
-| `db` | `agent_provider_binding_migration_test.go` / +1 | `TestBaselineAgentProviderBindingIncludesConflictTargetSupport` / +3 | — |
-| `difftracker` | `git_ops_test.go` | `TestFindGitRoot_InGitRepo` / +2 | — |
-| `eventsurface` | `bind_test.go` / +1 | `TestBindPublishesExpandedSurface` / +6 | — |
-| `hooks` | `merge_test.go` / +14 | `TestMergeBeforePrefersDenyOverAllow` / +58 | — |
-| `mcpcontrol` | `handlers_test.go` / +8 | `TestRegistryContextProvider_UsesRequestedAgentSnapshotForRuntimeScope` / +34 | — |
-| `pidregistry` | `pidregistry_test.go` | `TestRegistryRegisterAndPersist` / +8 | — |
-| `rpc` | `approval_test.go` / +8 | `TestRegisterPendingAssignsUniqueRequestIDForDuplicateCallID` / +41 | — |
-| `runtimesafe` | `safego_test.go` | `TestSafeGoRunsFn` / +3 | — |
-| `shared` | `retry_test.go` / +7 | `TestRetryWithPolicyCallsOnRetry` / +23 | — |
-| `toolbridge` | `handler_test.go` / +2 | `TestToolBridge_FreshSession_ToolCallForward` / +16 | — |
+| `mcpwire` | `go test ./internal/platform/mcpwire` | 覆盖 stdio wire 层基础行为。 | — |
+| `platform` 全子树 | `go test ./internal/platform/...` | 编译并运行当前保留的 platform 测试。 | — |
+| 全仓守卫 | `make guard-change` | 检查格式、架构、大小、测试等项目级规则。 | — |
 
 ## 7.8 How-to：platform 常见改动落点
 
 | 场景 | 步骤 | 锚点 | 验证 |
 |---|---|---|---|
-| bus 链 | 1. DTO 2. emit/publish 3. `ResilientSubscribe()` 4. `eventsurface.Bind()` | `ResilientSubscribe` @ `internal/platform/bus/resilient.go` | bus tests / `bind_test.go` |
-| push/approval | 1. `HandlerMapResult` 2. `registerAllHandlers()` 3. `bindApprovalLifecycle()` | `bindApprovalLifecycle` @ `internal/platform/rpc/module.go` | `approval_lifecycle_test.go` |
-| toolbridge | 1. `handler.go` / `handler_host_tools.go` 2. `provideHostToolRegistry()` 3. `bindCodexHandlers()` 4. `provideDiffEmitter()` / `registerProxyLifecycle()` | `provideHostToolRegistry` / `registerProxyLifecycle` @ `internal/platform/toolbridge/module.go` | `handler_test.go` / `host_tools_test.go` / `phase1_diff_test.go` / `diff_fallback_test.go` |
+| bus 链 | 1. DTO 2. emit/publish 3. `ResilientSubscribe()` 4. `eventsurface.Bind()` | `ResilientSubscribe` @ `internal/platform/bus/resilient.go` | `go test ./internal/platform/bus ./internal/platform/eventsurface`；必要时补测试 |
+| push/approval | 1. `HandlerMapResult` 2. `registerAllHandlers()` 3. `bindApprovalLifecycle()` | `bindApprovalLifecycle` @ `internal/platform/rpc/module.go` | `go test ./internal/platform/rpc`；必要时补审批生命周期测试 |
+| toolbridge | 1. `handler.go` / `handler_host_tools.go` 2. `provideHostToolRegistry()` 3. `bindCodexHandlers()` 4. `provideDiffEmitter()` / `registerProxyLifecycle()` | `provideHostToolRegistry` / `registerProxyLifecycle` @ `internal/platform/toolbridge/module.go` | `go test ./internal/platform/toolbridge`；必要时补 host-tools / diff fallback 测试 |
 
 ---
 
@@ -1075,7 +1067,7 @@ platform 层不是单一“工具包”，而是一组彼此协作的基础设�
 - `bus + eventsurface + rpc` 负责**事件传播与对外推送**
 - `hooks + mcpcontrol` 负责**外部进程协作与控制面治理**
 - `toolbridge + difftracker` 负责**Provider 到 MCP/host tool 的执行桥与改动回流**
-- `config + db + shared + runner + statemachine + pidregistry + rlimit + runtimesafe` 负责**基础运行时语义**
+- `config + db + kernel + runner + statemachine + pidregistry + rlimit + runtimesafe` 负责**基础运行时语义**
 - `cachekeepalive + historyjsonl` 负责**长会话维持与 Provider 历史旁路**
 
 如果从项目架构角度看，platform 层承担的是 super-agent-v3 的“内核底座”角色：
@@ -1094,4 +1086,4 @@ platform 层不是单一“工具包”，而是一组彼此协作的基础设�
 - 本轮又按源码补全了 `config` 的完整环境变量/默认值、`mcpcontrol` 的注册/心跳/清扫常量、`rpc` 的 middleware 实际执行顺序、`historyjsonl` 的路径发现候选顺序，以及 `toolbridge` 的 `120s` callback timeout。
 - 本轮同步清理了 `difftracker/toolbridge` 的旧聚合器口径，改成 `Handler + BeginSnapshot/EmitGitDiff + diffFallbackTracker` 的现状描述。
 - 追加了 `cachekeepalive`、`rlimit`、`runtimesafe` 三个漏记子包，以及 §3 的 B17 bus Mermaid 数据流图。
-- 追加了 platform 13 子包测试入口 / freeze 表与 3 条 how-to 改动手册。
+- 同步了 platform 当前测试入口 / freeze 表与 3 条 how-to 改动手册。
