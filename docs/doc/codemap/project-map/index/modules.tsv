@@ -248,13 +248,13 @@ internal/module/notify/module.go	internal	modules	go-source	3266	业务模块层
 internal/module/observability/module.go	internal	modules	go-source	130	业务模块层	internal,module,observability,业务模块层
 internal/module/observability/rpc_test.go	internal	modules	go-test	22380	业务模块层	internal,module,observability,rpc,test,业务模块层
 internal/module/observability/rpc.go	internal	modules	go-source	20713	业务模块层	internal,module,observability,rpc,业务模块层
-internal/module/personalization/dto.go	internal	modules	go-source	621	业务模块层	internal,module,personalization,dto,业务模块层
+internal/module/personalization/dto.go	internal	modules	go-source	437	业务模块层	internal,module,personalization,dto,业务模块层
 internal/module/personalization/module.go	internal	modules	go-source	724	业务模块层	internal,module,personalization,业务模块层
 internal/module/personalization/provider.go	internal	modules	go-source	2180	业务模块层	internal,module,personalization,provider,业务模块层
 internal/module/personalization/rpc_test.go	internal	modules	go-test	1467	业务模块层	internal,module,personalization,rpc,test,业务模块层
 internal/module/personalization/rpc.go	internal	modules	go-source	1647	业务模块层	internal,module,personalization,rpc,业务模块层
-internal/module/personalization/service_test.go	internal	modules	go-test	4969	业务模块层	internal,module,personalization,service,test,业务模块层
-internal/module/personalization/service.go	internal	modules	go-source	3733	业务模块层	internal,module,personalization,service,业务模块层
+internal/module/personalization/service_test.go	internal	modules	go-test	4876	业务模块层	internal,module,personalization,service,test,业务模块层
+internal/module/personalization/service.go	internal	modules	go-source	3590	业务模块层	internal,module,personalization,service,业务模块层
 internal/module/prompt/agent_assembler_test.go	internal	modules	go-test	4897	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,agent,assembler,test,模板,启用条件,system,组装
 internal/module/prompt/agent_assembler.go	internal	modules	go-source	3886	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,agent,assembler,模板,启用条件,system,组装
 internal/module/prompt/assembler_shard11_helpers_test.go	internal	modules	go-test	8441	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,assembler,shard11,helpers,test,模板,启用条件,system,组装
@@ -460,7 +460,7 @@ internal/module/thread/compact_event_test.go	internal	modules	go-test	3103	threa
 internal/module/thread/config_offline_shard03_test.go	internal	modules	go-test	10729	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,config,offline,shard03,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/config_offline_test.go	internal	modules	go-test	14497	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,config,offline,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/config_set_test.go	internal	modules	go-test	17580	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,config,set,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/contract_adapter.go	internal	modules	go-source	4863	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,contract,adapter,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/contract_adapter.go	internal	modules	go-source	4850	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,contract,adapter,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/contract.go	internal	modules	go-source	12337	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,contract,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/event_publish.go	internal	modules	go-source	4261	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,event,publish,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/events_test.go	internal	modules	go-test	13843	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,events,test,start,resume,fork,stop,生命周期与绑定真相源
@@ -645,12 +645,12 @@ internal/module/uistate/projects_test.go	internal	modules	go-test	5385	UI 事件
 internal/module/uistate/projects.go	internal	modules	go-source	6400	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projects,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/rpc_test.go	internal	modules	go-test	4003	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,rpc,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/rpc.go	internal	modules	go-source	5843	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,rpc,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/service.go	internal	modules	go-source	16767	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,service,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/service.go	internal	modules	go-source	16722	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,service,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/sidebar_compat.go	internal	modules	go-source	12906	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,sidebar,compat,UI,事件投影,timeline,状态
-internal/module/uistate/sidebar_test.go	internal	modules	go-test	24388	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,sidebar,test,UI,事件投影,timeline,状态
+internal/module/uistate/sidebar_test.go	internal	modules	go-test	24341	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,sidebar,test,UI,事件投影,timeline,状态
 internal/module/uistate/snapshot_helpers.go	internal	modules	go-source	12286	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,snapshot,helpers,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/state_json_test.go	internal	modules	go-test	2066	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,state,json,test,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/state.go	internal	modules	go-source	19547	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,state,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/state.go	internal	modules	go-source	19469	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,state,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/subscribers_test.go	internal	modules	go-test	3479	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,subscribers,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/subscribers.go	internal	modules	go-source	1207	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,subscribers,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/timeline/merge.go	internal	modules	go-source	1800	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,merge,UI,事件投影,sidebar,状态

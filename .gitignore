@@ -54,7 +54,6 @@ Thumbs.db
 # Environment
 .env
 .env.local
-/.super-dolphin/
 
 # Agent workspace / tmp
 /.stitch/
@@ -72,7 +71,6 @@ Thumbs.db
 # Local Claude harness state (settings, scheduled-task locks, per-user memory stores)
 /.claude/
 /.agents/
-/.codex-run/
 /.codex/*
 !/.codex/
 !/.codex/config.toml
@@ -80,7 +78,6 @@ Thumbs.db
 !/.codex/.gitignore
 /.codex/logs/
 /.code_exec/
-/.superpowers/
 /.tmp/
 /tmp/
 __pycache__/
