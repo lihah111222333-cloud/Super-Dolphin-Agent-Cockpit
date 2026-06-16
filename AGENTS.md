@@ -6,6 +6,30 @@
 - If `.project-map/project-map.json` is missing or stale, run `make project-map` before broad repository searches.
 - The map is only an index; open the referenced source file before changing code or making claims.
 
+## Default Context Loading Order
+
+- Start from `README.md`, then read the relevant map or architecture document before broad source scans.
+- For repository navigation, use `docs/doc/codemap/README.md`, the relevant file under `docs/doc/codemap/`, and `.project-map/` for Go symbol lookups.
+- When a task matches a repo-local skill, read the selected `.agents/skills/<skill>/SKILL.md` and only the referenced files required by that skill.
+- Before changing code or making architecture claims, open the referenced source files and tests directly; maps and docs are indexes, not source of truth.
+- Treat `docs/契约/`, `docs/架构决策/`, and `docs/doc/codemap/` as current guidance. Use historical archives only when current docs are insufficient or the user asks for historical evidence.
+
+## Prompt and LSP Tooling Policy
+
+- Before using LSP tools, read `docs/交接笔记/内部笔记/LSP系统提示词.md` and follow its mandatory LSP toolchain workflow.
+- If the prompt file moves or is missing, verify the current equivalent before using LSP tooling; do not rely on stale prompt paths.
+
+## Context Exclusion Policy
+
+- Do not recursively read or index `docs/历史归档/归档材料/**` by default. Use it only when the user asks for historical reports, old agent notes, migration evidence, provenance, or current docs are insufficient.
+- Do not bulk-load generated, dependency, build, cache, workspace, or local runtime artifacts such as `.git/**`, `.project-map/**`, `.build-cache/**`, `bin/**`, `dist/**`, `node_modules/**`, `.worktrees/**`, `.workspace/**`, `.claude/**`, `.agent/code_exec/**`, `.agent/workspaces/**`, coverage outputs, temporary outputs, or generated reports. Use targeted reads only when needed.
+- Do not bulk-load `.agents/skills/**`; read only the selected skill entrypoint and the specific references required by that skill.
+
+## Repository Contract Pointers
+
+- For Fail-Fast and no-fallback rules, follow `docs/契约/fail-fast-convention.md`.
+- For package boundaries, dependency direction, comment policy, and guard levels, follow `docs/架构决策/架构边界/dependency-rules.md` and `docs/架构决策/架构边界/package-map.md`.
+
 ## Go Project Guard Policy
 
 - All Git commit messages must use Chinese for both subject and detail/body.
@@ -27,3 +51,10 @@
 - Before merging, release, or deployment readiness claims, run `make guard-release`.
 - If a guard fails, fix the failure or report the exact failing command and reason. Do not weaken or bypass a guard to finish a task.
 - If the repository has no `go.mod`, guard commands may skip Go checks; report the skip explicitly.
+
+## Git Discipline
+
+- Check `git status --short` before staging, committing, or handing off.
+- Do not use `git add .`; stage only files you intentionally changed and reviewed.
+- Keep generated or local-only artifacts such as `.project-map/` and `.env` unstaged unless the user explicitly asks otherwise and the repository policy allows it.
+- Avoid `--no-verify`. Use it only for an explicitly approved emergency bypass, then run the equivalent guard command afterward and report the result.
