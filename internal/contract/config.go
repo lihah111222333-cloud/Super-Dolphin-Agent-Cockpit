@@ -59,3 +59,44 @@ type Config struct {
 	Notify      NotifyConfig
 	LSP         LSPConfig
 }
+
+// RuntimeConfigField 描述运行时配置字段的规范名和兼容别名。
+type RuntimeConfigField struct {
+	Canonical string
+	Aliases   []string
+}
+
+// Keys 返回规范名加别名，供配置读取函数按兼容顺序查找。
+func (f RuntimeConfigField) Keys() []string {
+	keys := make([]string, 0, 1+len(f.Aliases))
+	keys = append(keys, f.Canonical)
+	keys = append(keys, f.Aliases...)
+	return keys
+}
+
+var (
+	RuntimeConfigProvider                     = RuntimeConfigField{Canonical: "provider"}
+	RuntimeConfigPromptKey                    = RuntimeConfigField{Canonical: "promptKey", Aliases: []string{"prompt_key"}}
+	RuntimeConfigCWD                          = RuntimeConfigField{Canonical: "cwd"}
+	RuntimeConfigModel                        = RuntimeConfigField{Canonical: "model"}
+	RuntimeConfigGitRoot                      = RuntimeConfigField{Canonical: "gitRoot", Aliases: []string{"git_root"}}
+	RuntimeConfigIsWorktree                   = RuntimeConfigField{Canonical: "isWorktree", Aliases: []string{"is_worktree"}}
+	RuntimeConfigLanguage                     = RuntimeConfigField{Canonical: "language"}
+	RuntimeConfigEnabledTools                 = RuntimeConfigField{Canonical: "enabledTools", Aliases: []string{"enabled_tools", "tools"}}
+	RuntimeConfigAdditionalWorkingDirectories = RuntimeConfigField{Canonical: "additionalWorkingDirectories", Aliases: []string{"additional_working_directories"}}
+	RuntimeConfigSessionFlags                 = RuntimeConfigField{Canonical: "sessionFlags", Aliases: []string{"session_flags"}}
+	RuntimeConfigSummary                      = RuntimeConfigField{Canonical: "summary"}
+	RuntimeConfigOutputStyleConfig            = RuntimeConfigField{Canonical: "outputStyleConfig", Aliases: []string{"output_style_config"}}
+	RuntimeConfigScratchpadDir                = RuntimeConfigField{Canonical: "scratchpadDir", Aliases: []string{"scratchpad_dir"}}
+	RuntimeConfigFRCConfig                    = RuntimeConfigField{Canonical: "frcConfig", Aliases: []string{"frc_config"}}
+	RuntimeConfigProviderNativeSkills         = RuntimeConfigField{Canonical: "providerNativeSkills", Aliases: []string{"provider_native_skills"}}
+	RuntimeConfigDisableProviderNativeSkills  = RuntimeConfigField{Canonical: "disableProviderNativeSkills", Aliases: []string{"disable_provider_native_skills"}}
+	RuntimeConfigMCPServers                   = RuntimeConfigField{Canonical: "mcpServers", Aliases: []string{"mcp_servers"}}
+	RuntimeConfigMCPTools                     = RuntimeConfigField{Canonical: "mcpTools", Aliases: []string{"mcp_tools"}}
+	RuntimeConfigMCPInstructions              = RuntimeConfigField{Canonical: "mcpInstructions", Aliases: []string{"mcp_instructions"}}
+	RuntimeConfigMCPInstructionsDeltaEnabled  = RuntimeConfigField{Canonical: "mcpInstructionsDeltaEnabled", Aliases: []string{"mcp_instructions_delta_enabled"}}
+	RuntimeConfigEnv                          = RuntimeConfigField{Canonical: "env"}
+	RuntimeConfigAutoApprove                  = RuntimeConfigField{Canonical: "autoApprove", Aliases: []string{"auto_approve"}}
+	RuntimeConfigBinaryDir                    = RuntimeConfigField{Canonical: "binary_dir", Aliases: []string{"binaryDir"}}
+	RuntimeConfigCodexDisabledNativeTools     = RuntimeConfigField{Canonical: "codexDisabledNativeTools"}
+)
