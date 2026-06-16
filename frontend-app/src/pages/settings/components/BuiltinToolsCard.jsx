@@ -1,5 +1,7 @@
 import React from 'react';
 import { SettingsPromptNotice } from './SettingsPromptNotice.jsx';
+import './BuiltinToolsCard.css';
+import './SettingsPromptToggle.css';
 
 function BuiltinToolsCard({ builtins }) {
   return (

@@ -3,13 +3,6 @@ path	module	domain	type	size_bytes	purpose	search_keys
 .agent/skills/安全工程师规范/SKILL.md	.agent	docs-agent	doc	8145	项目级 agent 技能 canonical	agent,skills,安全工程师规范,SKILL,项目级,技能,canonical
 .agent/skills/编写计划/plan-document-reviewer-prompt.md	.agent	docs-agent	doc	1745	项目级 agent 技能 canonical	agent,skills,编写计划,plan,document,reviewer,prompt,项目级,技能,canonical
 .agent/skills/编写计划/SKILL.md	.agent	docs-agent	doc	6021	项目级 agent 技能 canonical	agent,skills,编写计划,SKILL,项目级,技能,canonical
-.agent/skills/编写技能/使用子代理测试技能.md	.agent	docs-agent	doc	12373	项目级 agent 技能 canonical	agent,skills,编写技能,使用子代理测试技能,项目级,技能,canonical
-.agent/skills/编写技能/说服力原则.md	.agent	docs-agent	doc	5586	项目级 agent 技能 canonical	agent,skills,编写技能,说服力原则,项目级,技能,canonical
-.agent/skills/编写技能/Anthropic最佳实践.md	.agent	docs-agent	doc	44240	项目级 agent 技能 canonical	agent,skills,编写技能,Anthropic最佳实践,项目级,技能,canonical
-.agent/skills/编写技能/examples/CLAUDE_MD测试示例.md	.agent	docs-agent	doc	5434	项目级 agent 技能 canonical	agent,skills,编写技能,examples,CLAUDE,MD测试示例,项目级,技能,canonical
-.agent/skills/编写技能/graphviz-conventions.dot	.agent	docs-agent	dot	6141	项目级 agent 技能 canonical	agent,skills,编写技能,graphviz,conventions,项目级,技能,canonical
-.agent/skills/编写技能/render-graphs.js	.agent	docs-agent	js-source	5013	项目级 agent 技能 canonical	agent,skills,编写技能,render,graphs,项目级,技能,canonical
-.agent/skills/编写技能/SKILL.md	.agent	docs-agent	doc	22386	项目级 agent 技能 canonical	agent,skills,编写技能,SKILL,项目级,技能,canonical
 .agent/skills/测试驱动开发/SKILL.md	.agent	docs-agent	doc	10509	项目级 agent 技能 canonical	agent,skills,测试驱动开发,SKILL,项目级,技能,canonical
 .agent/skills/测试驱动开发/testing-anti-patterns.md	.agent	docs-agent	doc	8321	项目级 agent 技能 canonical	agent,skills,测试驱动开发,testing,anti,patterns,项目级,技能,canonical
 .agent/skills/调度并行代理/SKILL.md	.agent	docs-agent	doc	6450	项目级 agent 技能 canonical	agent,skills,调度并行代理,SKILL,项目级,技能,canonical
@@ -57,8 +50,12 @@ path	module	domain	type	size_bytes	purpose	search_keys
 .agent/skills/子代理驱动开发/implementer-prompt.md	.agent	docs-agent	doc	4458	项目级 agent 技能 canonical	agent,skills,子代理驱动开发,implementer,prompt,项目级,技能,canonical
 .agent/skills/子代理驱动开发/SKILL.md	.agent	docs-agent	doc	12075	项目级 agent 技能 canonical	agent,skills,子代理驱动开发,SKILL,项目级,技能,canonical
 .agent/skills/子代理驱动开发/spec-reviewer-prompt.md	.agent	docs-agent	doc	2129	项目级 agent 技能 canonical	agent,skills,子代理驱动开发,spec,reviewer,prompt,项目级,技能,canonical
-.agent/skills/Agent工程学/SKILL.md	.agent	docs-agent	doc	2841	项目级 agent 技能 canonical	agent,skills,Agent工程学,SKILL,项目级,技能,canonical
-.agent/skills/MCP协议/SKILL.md	.agent	docs-agent	doc	3547	项目级 agent 技能 canonical	agent,skills,MCP协议,SKILL,项目级,技能,canonical
+.agent/skills/Agent工程学/SKILL.md	.agent	docs-agent	doc	2871	项目级 agent 技能 canonical	agent,skills,Agent工程学,SKILL,项目级,技能,canonical
+.agent/skills/MCP协议/SKILL.md	.agent	docs-agent	doc	3576	项目级 agent 技能 canonical	agent,skills,MCP协议,SKILL,项目级,技能,canonical
+.agent/skills/react-doctor/SKILL.md	.agent	docs-agent	doc	2696	项目级 agent 技能 canonical	agent,skills,react,doctor,SKILL,项目级,技能,canonical
+.agent/skills/super-dolphin-workflow/agents/openai.yaml	.agent	docs-agent	yaml	267	项目级 agent 技能 canonical	agent,skills,super,dolphin,workflow,agents,openai,项目级,技能,canonical
+.agent/skills/super-dolphin-workflow/SKILL.md	.agent	docs-agent	doc	6311	项目级 agent 技能 canonical	agent,skills,super,dolphin,workflow,SKILL,项目级,技能,canonical
+.agent/skills/trace-diagnosis/SKILL.md	.agent	docs-agent	doc	779	项目级 agent 技能 canonical	agent,skills,trace,diagnosis,SKILL,项目级,技能,canonical
 .agent/skills/ui-ux-design/data-design/cip/deliverables.csv	.agent	docs-agent	csv	13435	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,cip,deliverables,项目级,技能,canonical
 .agent/skills/ui-ux-design/data-design/cip/industries.csv	.agent	docs-agent	csv	4955	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,cip,industries,项目级,技能,canonical
 .agent/skills/ui-ux-design/data-design/cip/mockup-contexts.csv	.agent	docs-agent	csv	5225	项目级 agent 技能 canonical	agent,skills,ui,ux,design,data,cip,mockup,contexts,项目级,技能,canonical
@@ -312,6 +309,7 @@ path	module	domain	type	size_bytes	purpose	search_keys
 .agent/skills/ui-ux-design/scripts/design_system.py	.agent	docs-agent	py	48218	项目级 agent 技能 canonical	agent,skills,ui,ux,design,scripts,system,项目级,技能,canonical
 .agent/skills/ui-ux-design/scripts/search.py	.agent	docs-agent	py	5607	项目级 agent 技能 canonical	agent,skills,ui,ux,design,scripts,search,项目级,技能,canonical
 .agent/skills/ui-ux-design/SKILL.md	.agent	docs-agent	doc	12909	项目级 agent 技能 canonical	agent,skills,ui,ux,design,SKILL,项目级,技能,canonical
+.agent/skills/video-generate/SKILL.md	.agent	docs-agent	doc	1386	项目级 agent 技能 canonical	agent,skills,video,generate,SKILL,项目级,技能,canonical
 .agent/skills/vue3/api/application.md	.agent	docs-agent	doc	299	项目级 agent 技能 canonical	agent,skills,vue3,api,application,项目级,技能,canonical
 .agent/skills/vue3/api/built-in-components.md	.agent	docs-agent	doc	311	项目级 agent 技能 canonical	agent,skills,vue3,api,built,in,components,项目级,技能,canonical
 .agent/skills/vue3/api/built-in-directives.md	.agent	docs-agent	doc	311	项目级 agent 技能 canonical	agent,skills,vue3,api,built,in,directives,项目级,技能,canonical
@@ -437,18 +435,11 @@ path	module	domain	type	size_bytes	purpose	search_keys
 .agent/workflows/p9-lsp-tools/p8-edit-exec.md	.agent	docs-agent	doc	1681	agent 工作流与执行档案	agent,workflows,p9,lsp,tools,p8,edit,exec,工作流与执行档案
 .agent/workflows/p9-lsp-tools/p9-verify.md	.agent	docs-agent	doc	1695	agent 工作流与执行档案	agent,workflows,p9,lsp,tools,verify,工作流与执行档案
 .agent/workflows/p9-lsp-tools/README.md	.agent	docs-agent	doc	4013	agent 工作流与执行档案	agent,workflows,p9,lsp,tools,README,工作流与执行档案
-.agents/skills/.super-dolphin-skill-mirror.json	.agents	docs-agent	json	7141	Codex/agent mirror 入口	agents,skills,super,dolphin,skill,mirror,Codex,agent,入口
+.agents/skills/.super-dolphin-skill-mirror.json	.agents	docs-agent	json	8095	Codex/agent mirror 入口	agents,skills,super,dolphin,skill,mirror,Codex,agent,入口
 .agents/skills/安全工程师规范/SKILL.md	.agents	docs-agent	doc	7916	Codex/agent mirror 入口	agents,skills,安全工程师规范,SKILL,Codex,agent,mirror,入口
 .agents/skills/编写计划/plan-document-reviewer-prompt.md	.agents	docs-agent	doc	1745	Codex/agent mirror 入口	agents,skills,编写计划,plan,document,reviewer,prompt,Codex,agent,mirror,入口
 .agents/skills/编写计划/SKILL.md	.agents	docs-agent	doc	5868	Codex/agent mirror 入口	agents,skills,编写计划,SKILL,Codex,agent,mirror,入口
-.agents/skills/编写技能/使用子代理测试技能.md	.agents	docs-agent	doc	12373	Codex/agent mirror 入口	agents,skills,编写技能,使用子代理测试技能,Codex,agent,mirror,入口
-.agents/skills/编写技能/说服力原则.md	.agents	docs-agent	doc	5586	Codex/agent mirror 入口	agents,skills,编写技能,说服力原则,Codex,agent,mirror,入口
-.agents/skills/编写技能/Anthropic最佳实践.md	.agents	docs-agent	doc	44240	Codex/agent mirror 入口	agents,skills,编写技能,Anthropic最佳实践,Codex,agent,mirror,入口
-.agents/skills/编写技能/examples/CLAUDE_MD测试示例.md	.agents	docs-agent	doc	5434	Codex/agent mirror 入口	agents,skills,编写技能,examples,CLAUDE,MD测试示例,Codex,agent,mirror,入口
-.agents/skills/编写技能/graphviz-conventions.dot	.agents	docs-agent	dot	6141	Codex/agent mirror 入口	agents,skills,编写技能,graphviz,conventions,Codex,agent,mirror,入口
-.agents/skills/编写技能/render-graphs.js	.agents	docs-agent	js-source	5013	Codex/agent mirror 入口	agents,skills,编写技能,render,graphs,Codex,agent,mirror,入口
-.agents/skills/编写技能/SKILL.md	.agents	docs-agent	doc	21732	Codex/agent mirror 入口	agents,skills,编写技能,SKILL,Codex,agent,mirror,入口
-.agents/skills/测试驱动开发/SKILL.md	.agents	docs-agent	doc	10137	Codex/agent mirror 入口	agents,skills,测试驱动开发,SKILL,Codex,agent,mirror,入口
+.agents/skills/测试驱动开发/SKILL.md	.agents	docs-agent	doc	10135	Codex/agent mirror 入口	agents,skills,测试驱动开发,SKILL,Codex,agent,mirror,入口
 .agents/skills/测试驱动开发/testing-anti-patterns.md	.agents	docs-agent	doc	8321	Codex/agent mirror 入口	agents,skills,测试驱动开发,testing,anti,patterns,Codex,agent,mirror,入口
 .agents/skills/调度并行代理/SKILL.md	.agents	docs-agent	doc	6267	Codex/agent mirror 入口	agents,skills,调度并行代理,SKILL,Codex,agent,mirror,入口
 .agents/skills/核心信息提取与总结/SKILL.md	.agents	docs-agent	doc	3310	Codex/agent mirror 入口	agents,skills,核心信息提取与总结,SKILL,Codex,agent,mirror,入口
@@ -458,7 +449,7 @@ path	module	domain	type	size_bytes	purpose	search_keys
 .agents/skills/后端/error_handling.md	.agents	docs-agent	doc	4119	Codex/agent mirror 入口	agents,skills,后端,error,handling,Codex,agent,mirror,入口
 .agents/skills/后端/naming_formatting.md	.agents	docs-agent	doc	3253	Codex/agent mirror 入口	agents,skills,后端,naming,formatting,Codex,agent,mirror,入口
 .agents/skills/后端/project_structure.md	.agents	docs-agent	doc	4193	Codex/agent mirror 入口	agents,skills,后端,project,structure,Codex,agent,mirror,入口
-.agents/skills/后端/SKILL.md	.agents	docs-agent	doc	4916	Codex/agent mirror 入口	agents,skills,后端,SKILL,Codex,agent,mirror,入口
+.agents/skills/后端/SKILL.md	.agents	docs-agent	doc	4914	Codex/agent mirror 入口	agents,skills,后端,SKILL,Codex,agent,mirror,入口
 .agents/skills/后端/testing_pitfalls.md	.agents	docs-agent	doc	4713	Codex/agent mirror 入口	agents,skills,后端,testing,pitfalls,Codex,agent,mirror,入口
 .agents/skills/接收代码审查/SKILL.md	.agents	docs-agent	doc	6122	Codex/agent mirror 入口	agents,skills,接收代码审查,SKILL,Codex,agent,mirror,入口
 .agents/skills/结束开发分支/SKILL.md	.agents	docs-agent	doc	4260	Codex/agent mirror 入口	agents,skills,结束开发分支,SKILL,Codex,agent,mirror,入口
@@ -490,13 +481,17 @@ path	module	domain	type	size_bytes	purpose	search_keys
 .agents/skills/系统化调试/test-pressure-1.md	.agents	docs-agent	doc	1808	Codex/agent mirror 入口	agents,skills,系统化调试,test,pressure,1,Codex,agent,mirror,入口
 .agents/skills/系统化调试/test-pressure-2.md	.agents	docs-agent	doc	2283	Codex/agent mirror 入口	agents,skills,系统化调试,test,pressure,2,Codex,agent,mirror,入口
 .agents/skills/系统化调试/test-pressure-3.md	.agents	docs-agent	doc	2697	Codex/agent mirror 入口	agents,skills,系统化调试,test,pressure,3,Codex,agent,mirror,入口
-.agents/skills/执行计划/SKILL.md	.agents	docs-agent	doc	2408	Codex/agent mirror 入口	agents,skills,执行计划,SKILL,Codex,agent,mirror,入口
+.agents/skills/执行计划/SKILL.md	.agents	docs-agent	doc	2406	Codex/agent mirror 入口	agents,skills,执行计划,SKILL,Codex,agent,mirror,入口
 .agents/skills/子代理驱动开发/code-quality-reviewer-prompt.md	.agents	docs-agent	doc	1045	Codex/agent mirror 入口	agents,skills,子代理驱动开发,code,quality,reviewer,prompt,Codex,agent,mirror,入口
 .agents/skills/子代理驱动开发/implementer-prompt.md	.agents	docs-agent	doc	4458	Codex/agent mirror 入口	agents,skills,子代理驱动开发,implementer,prompt,Codex,agent,mirror,入口
 .agents/skills/子代理驱动开发/SKILL.md	.agents	docs-agent	doc	11797	Codex/agent mirror 入口	agents,skills,子代理驱动开发,SKILL,Codex,agent,mirror,入口
 .agents/skills/子代理驱动开发/spec-reviewer-prompt.md	.agents	docs-agent	doc	2129	Codex/agent mirror 入口	agents,skills,子代理驱动开发,spec,reviewer,prompt,Codex,agent,mirror,入口
-.agents/skills/Agent工程学/SKILL.md	.agents	docs-agent	doc	2794	Codex/agent mirror 入口	agents,skills,Agent工程学,SKILL,Codex,agent,mirror,入口
-.agents/skills/MCP协议/SKILL.md	.agents	docs-agent	doc	3468	Codex/agent mirror 入口	agents,skills,MCP协议,SKILL,Codex,agent,mirror,入口
+.agents/skills/Agent工程学/SKILL.md	.agents	docs-agent	doc	2822	Codex/agent mirror 入口	agents,skills,Agent工程学,SKILL,Codex,agent,mirror,入口
+.agents/skills/MCP协议/SKILL.md	.agents	docs-agent	doc	3495	Codex/agent mirror 入口	agents,skills,MCP协议,SKILL,Codex,agent,mirror,入口
+.agents/skills/react-doctor/SKILL.md	.agents	docs-agent	doc	2646	Codex/agent mirror 入口	agents,skills,react,doctor,SKILL,Codex,agent,mirror,入口
+.agents/skills/super-dolphin-workflow/agents/openai.yaml	.agents	docs-agent	yaml	267	Codex/agent mirror 入口	agents,skills,super,dolphin,workflow,openai,Codex,agent,mirror,入口
+.agents/skills/super-dolphin-workflow/SKILL.md	.agents	docs-agent	doc	6155	Codex/agent mirror 入口	agents,skills,super,dolphin,workflow,SKILL,Codex,agent,mirror,入口
+.agents/skills/trace-diagnosis/SKILL.md	.agents	docs-agent	doc	764	Codex/agent mirror 入口	agents,skills,trace,diagnosis,SKILL,Codex,agent,mirror,入口
 .agents/skills/ui-ux-design/data-design/cip/deliverables.csv	.agents	docs-agent	csv	13435	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,cip,deliverables,Codex,agent,mirror,入口
 .agents/skills/ui-ux-design/data-design/cip/industries.csv	.agents	docs-agent	csv	4955	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,cip,industries,Codex,agent,mirror,入口
 .agents/skills/ui-ux-design/data-design/cip/mockup-contexts.csv	.agents	docs-agent	csv	5225	Codex/agent mirror 入口	agents,skills,ui,ux,design,data,cip,mockup,contexts,Codex,agent,mirror,入口
@@ -750,6 +745,7 @@ path	module	domain	type	size_bytes	purpose	search_keys
 .agents/skills/ui-ux-design/scripts/design_system.py	.agents	docs-agent	py	48218	Codex/agent mirror 入口	agents,skills,ui,ux,design,scripts,system,Codex,agent,mirror,入口
 .agents/skills/ui-ux-design/scripts/search.py	.agents	docs-agent	py	5607	Codex/agent mirror 入口	agents,skills,ui,ux,design,scripts,search,Codex,agent,mirror,入口
 .agents/skills/ui-ux-design/SKILL.md	.agents	docs-agent	doc	12596	Codex/agent mirror 入口	agents,skills,ui,ux,design,SKILL,Codex,agent,mirror,入口
+.agents/skills/video-generate/SKILL.md	.agents	docs-agent	doc	1345	Codex/agent mirror 入口	agents,skills,video,generate,SKILL,Codex,agent,mirror,入口
 .agents/skills/vue3/api/application.md	.agents	docs-agent	doc	299	Codex/agent mirror 入口	agents,skills,vue3,api,application,Codex,agent,mirror,入口
 .agents/skills/vue3/api/built-in-components.md	.agents	docs-agent	doc	311	Codex/agent mirror 入口	agents,skills,vue3,api,built,in,components,Codex,agent,mirror,入口
 .agents/skills/vue3/api/built-in-directives.md	.agents	docs-agent	doc	311	Codex/agent mirror 入口	agents,skills,vue3,api,built,in,directives,Codex,agent,mirror,入口
@@ -854,8 +850,8 @@ path	module	domain	type	size_bytes	purpose	search_keys
 .agents/skills/vue3/templates/installation.md	.agents	docs-agent	doc	1764	Codex/agent mirror 入口	agents,skills,vue3,templates,installation,Codex,agent,mirror,入口
 .agents/skills/vue3/templates/project-setup.md	.agents	docs-agent	doc	1593	Codex/agent mirror 入口	agents,skills,vue3,templates,project,setup,Codex,agent,mirror,入口
 .agents/skills/vue3/templates/project-structure.md	.agents	docs-agent	doc	6601	Codex/agent mirror 入口	agents,skills,vue3,templates,project,structure,Codex,agent,mirror,入口
-AGENTS.md	(root)	docs-agent	doc	8513	仓库根级配置、入口或说明文件	AGENTS,仓库根级配置,入口或说明文件
-CLAUDE.md	(root)	docs-agent	doc	8638	仓库根级配置、入口或说明文件	CLAUDE,仓库根级配置,入口或说明文件
+AGENTS.md	(root)	docs-agent	doc	11721	仓库根级配置、入口或说明文件	AGENTS,仓库根级配置,入口或说明文件
+CLAUDE.md	(root)	docs-agent	doc	10486	仓库根级配置、入口或说明文件	CLAUDE,仓库根级配置,入口或说明文件
 docs/1/会话习惯-迁移版.md	docs	docs-agent	doc	10315	项目文档体系	docs,1,会话习惯,迁移版,项目文档体系
 docs/1/会话习惯.md	docs	docs-agent	doc	80201	项目文档体系	docs,1,会话习惯,项目文档体系
 docs/1/session-summary.md	docs	docs-agent	doc	66504	项目文档体系	docs,1,session,summary,项目文档体系
@@ -872,108 +868,229 @@ docs/架构/skeleton-jrpc2.md	docs	docs-agent	doc	20947	项目文档体系	docs,
 docs/架构/skeleton-rungroup.md	docs	docs-agent	doc	13289	项目文档体系	docs,架构,skeleton,rungroup,项目文档体系
 docs/架构/skeleton-stateless.md	docs	docs-agent	doc	18717	项目文档体系	docs,架构,skeleton,stateless,项目文档体系
 docs/面试试题.md	docs	docs-agent	doc	7744	项目文档体系	docs,面试试题,项目文档体系
+docs/契约/atomic-commit-convention.md	docs	docs-agent	doc	8189	项目文档体系	docs,契约,atomic,commit,convention,项目文档体系
 docs/契约/fail-fast-convention.md	docs	docs-agent	doc	9656	项目文档体系	docs,契约,fail,fast,convention,项目文档体系
+docs/契约/fix-workflow-convention.md	docs	docs-agent	doc	25247	项目文档体系	docs,契约,fix,workflow,convention,项目文档体系
 docs/契约/fx-convention.md	docs	docs-agent	doc	3624	项目文档体系	docs,契约,fx,convention,项目文档体系
 docs/契约/jrpc2-convention.md	docs	docs-agent	doc	35823	项目文档体系	docs,契约,jrpc2,convention,项目文档体系
 docs/契约/mcp-service-convention.md	docs	docs-agent	doc	16070	项目文档体系	docs,契约,mcp,service,convention,项目文档体系
-docs/契约/modularity-convention.md	docs	docs-agent	doc	49386	项目文档体系	docs,契约,modularity,convention,项目文档体系
+docs/契约/modularity-convention.md	docs	docs-agent	doc	49165	项目文档体系	docs,契约,modularity,convention,项目文档体系
 docs/契约/onion-architecture-convention.md	docs	docs-agent	doc	3712	项目文档体系	docs,契约,onion,architecture,convention,项目文档体系
 docs/契约/recall-topic-naming.md	docs	docs-agent	doc	1371	项目文档体系	docs,契约,recall,topic,naming,项目文档体系
 docs/契约/rungroup-convention.md	docs	docs-agent	doc	3726	项目文档体系	docs,契约,rungroup,convention,项目文档体系
 docs/契约/sqlc-convention.md	docs	docs-agent	doc	52826	项目文档体系	docs,契约,sqlc,convention,项目文档体系
 docs/契约/statemachine-event-convention.md	docs	docs-agent	doc	33558	项目文档体系	docs,契约,statemachine,event,convention,项目文档体系
 docs/迁移/契约/stateless-convention.md	docs	docs-agent	doc	4144	项目文档体系	docs,迁移,契约,stateless,convention,项目文档体系
-docs/审查/5.17/bootstrap.md	docs	docs-agent	doc	2293	项目文档体系	docs,审查,5,17,bootstrap,项目文档体系
-docs/审查/5.17/README.md	docs	docs-agent	doc	15264	项目文档体系	docs,审查,5,17,README,项目文档体系
-docs/审查/5.17/round-001.md	docs	docs-agent	doc	8455	项目文档体系	docs,审查,5,17,round,001,项目文档体系
-docs/审查/5.17/round-002.md	docs	docs-agent	doc	6453	项目文档体系	docs,审查,5,17,round,002,项目文档体系
-docs/审查/5.17/round-003.md	docs	docs-agent	doc	6338	项目文档体系	docs,审查,5,17,round,003,项目文档体系
-docs/审查/5.17/round-004.md	docs	docs-agent	doc	6611	项目文档体系	docs,审查,5,17,round,004,项目文档体系
-docs/审查/5.17/round-005.md	docs	docs-agent	doc	6549	项目文档体系	docs,审查,5,17,round,005,项目文档体系
-docs/审查/5.17/round-006.md	docs	docs-agent	doc	6108	项目文档体系	docs,审查,5,17,round,006,项目文档体系
-docs/审查/5.17/round-007.md	docs	docs-agent	doc	5895	项目文档体系	docs,审查,5,17,round,007,项目文档体系
-docs/审查/5.17/round-008.md	docs	docs-agent	doc	5389	项目文档体系	docs,审查,5,17,round,008,项目文档体系
-docs/审查/5.17/round-009.md	docs	docs-agent	doc	5287	项目文档体系	docs,审查,5,17,round,009,项目文档体系
-docs/审查/5.17/round-010.md	docs	docs-agent	doc	5775	项目文档体系	docs,审查,5,17,round,010,项目文档体系
-docs/审查/5.17/round-011.md	docs	docs-agent	doc	5847	项目文档体系	docs,审查,5,17,round,011,项目文档体系
-docs/审查/5.17/round-012.md	docs	docs-agent	doc	5991	项目文档体系	docs,审查,5,17,round,012,项目文档体系
-docs/审查/5.17/round-013.md	docs	docs-agent	doc	5325	项目文档体系	docs,审查,5,17,round,013,项目文档体系
-docs/审查/5.17/round-014.md	docs	docs-agent	doc	6437	项目文档体系	docs,审查,5,17,round,014,项目文档体系
-docs/审查/5.17/round-015.md	docs	docs-agent	doc	8701	项目文档体系	docs,审查,5,17,round,015,项目文档体系
-docs/审查/5.17/round-016.md	docs	docs-agent	doc	8988	项目文档体系	docs,审查,5,17,round,016,项目文档体系
-docs/审查/5.17/round-017.md	docs	docs-agent	doc	8459	项目文档体系	docs,审查,5,17,round,017,项目文档体系
-docs/审查/5.17/round-018.md	docs	docs-agent	doc	9441	项目文档体系	docs,审查,5,17,round,018,项目文档体系
-docs/审查/5.17/round-019.md	docs	docs-agent	doc	8514	项目文档体系	docs,审查,5,17,round,019,项目文档体系
-docs/审查/5.17/round-020.md	docs	docs-agent	doc	9554	项目文档体系	docs,审查,5,17,round,020,项目文档体系
-docs/审查/5.17/round-021.md	docs	docs-agent	doc	9491	项目文档体系	docs,审查,5,17,round,021,项目文档体系
-docs/审查/5.17/round-022.md	docs	docs-agent	doc	8305	项目文档体系	docs,审查,5,17,round,022,项目文档体系
-docs/审查/5.17/round-023.md	docs	docs-agent	doc	6984	项目文档体系	docs,审查,5,17,round,023,项目文档体系
-docs/审查/5.17/round-024.md	docs	docs-agent	doc	7700	项目文档体系	docs,审查,5,17,round,024,项目文档体系
-docs/审查/5.17/round-025.md	docs	docs-agent	doc	9315	项目文档体系	docs,审查,5,17,round,025,项目文档体系
-docs/审查/5.17/round-026.md	docs	docs-agent	doc	8737	项目文档体系	docs,审查,5,17,round,026,项目文档体系
-docs/审查/5.17/round-027.md	docs	docs-agent	doc	8044	项目文档体系	docs,审查,5,17,round,027,项目文档体系
-docs/审查/5.17/round-028.md	docs	docs-agent	doc	7099	项目文档体系	docs,审查,5,17,round,028,项目文档体系
-docs/审查/5.17/round-029.md	docs	docs-agent	doc	6806	项目文档体系	docs,审查,5,17,round,029,项目文档体系
-docs/审查/5.17/round-030.md	docs	docs-agent	doc	6734	项目文档体系	docs,审查,5,17,round,030,项目文档体系
-docs/审查/5.17/round-031.md	docs	docs-agent	doc	6527	项目文档体系	docs,审查,5,17,round,031,项目文档体系
-docs/审查/5.17/round-032.md	docs	docs-agent	doc	7698	项目文档体系	docs,审查,5,17,round,032,项目文档体系
-docs/审查/5.17/round-033.md	docs	docs-agent	doc	6868	项目文档体系	docs,审查,5,17,round,033,项目文档体系
-docs/审查/5.17/round-034.md	docs	docs-agent	doc	5809	项目文档体系	docs,审查,5,17,round,034,项目文档体系
-docs/审查/5.17/round-035.md	docs	docs-agent	doc	5511	项目文档体系	docs,审查,5,17,round,035,项目文档体系
-docs/审查/5.17/round-036.md	docs	docs-agent	doc	5683	项目文档体系	docs,审查,5,17,round,036,项目文档体系
-docs/审查/5.17/round-037.md	docs	docs-agent	doc	6730	项目文档体系	docs,审查,5,17,round,037,项目文档体系
-docs/审查/5.17/round-038.md	docs	docs-agent	doc	6293	项目文档体系	docs,审查,5,17,round,038,项目文档体系
-docs/审查/5.17/round-039.md	docs	docs-agent	doc	6610	项目文档体系	docs,审查,5,17,round,039,项目文档体系
-docs/审查/5.17/round-040.md	docs	docs-agent	doc	5816	项目文档体系	docs,审查,5,17,round,040,项目文档体系
-docs/审查/5.17/round-041.md	docs	docs-agent	doc	5788	项目文档体系	docs,审查,5,17,round,041,项目文档体系
-docs/审查/5.17/round-042.md	docs	docs-agent	doc	5677	项目文档体系	docs,审查,5,17,round,042,项目文档体系
-docs/审查/5.17/round-043.md	docs	docs-agent	doc	6262	项目文档体系	docs,审查,5,17,round,043,项目文档体系
-docs/审查/5.17/round-044.md	docs	docs-agent	doc	6062	项目文档体系	docs,审查,5,17,round,044,项目文档体系
-docs/审查/5.17/round-045.md	docs	docs-agent	doc	6393	项目文档体系	docs,审查,5,17,round,045,项目文档体系
-docs/审查/5.17/round-046.md	docs	docs-agent	doc	6110	项目文档体系	docs,审查,5,17,round,046,项目文档体系
-docs/审查/5.17/round-047.md	docs	docs-agent	doc	6540	项目文档体系	docs,审查,5,17,round,047,项目文档体系
-docs/审查/5.17/round-048.md	docs	docs-agent	doc	7261	项目文档体系	docs,审查,5,17,round,048,项目文档体系
-docs/审查/5.17/round-049.md	docs	docs-agent	doc	6704	项目文档体系	docs,审查,5,17,round,049,项目文档体系
-docs/审查/5.17/round-050.md	docs	docs-agent	doc	7440	项目文档体系	docs,审查,5,17,round,050,项目文档体系
-docs/审查/5.17/round-051.md	docs	docs-agent	doc	7781	项目文档体系	docs,审查,5,17,round,051,项目文档体系
-docs/审查/5.17/round-052.md	docs	docs-agent	doc	7589	项目文档体系	docs,审查,5,17,round,052,项目文档体系
-docs/审查/5.17/round-053.md	docs	docs-agent	doc	6495	项目文档体系	docs,审查,5,17,round,053,项目文档体系
-docs/审查/5.17/round-054.md	docs	docs-agent	doc	7855	项目文档体系	docs,审查,5,17,round,054,项目文档体系
-docs/审查/5.17/round-055.md	docs	docs-agent	doc	6507	项目文档体系	docs,审查,5,17,round,055,项目文档体系
-docs/审查/5.17/round-056.md	docs	docs-agent	doc	6447	项目文档体系	docs,审查,5,17,round,056,项目文档体系
-docs/审查/5.17/round-057.md	docs	docs-agent	doc	6865	项目文档体系	docs,审查,5,17,round,057,项目文档体系
-docs/审查/5.17/round-058.md	docs	docs-agent	doc	6623	项目文档体系	docs,审查,5,17,round,058,项目文档体系
-docs/审查/5.17/round-059.md	docs	docs-agent	doc	7933	项目文档体系	docs,审查,5,17,round,059,项目文档体系
-docs/审查/5.17/round-060.md	docs	docs-agent	doc	6522	项目文档体系	docs,审查,5,17,round,060,项目文档体系
-docs/审查/5.17/round-061.md	docs	docs-agent	doc	6548	项目文档体系	docs,审查,5,17,round,061,项目文档体系
-docs/审查/5.17/round-062.md	docs	docs-agent	doc	6416	项目文档体系	docs,审查,5,17,round,062,项目文档体系
-docs/审查/5.17/round-063.md	docs	docs-agent	doc	7171	项目文档体系	docs,审查,5,17,round,063,项目文档体系
-docs/审查/5.17/round-064.md	docs	docs-agent	doc	7594	项目文档体系	docs,审查,5,17,round,064,项目文档体系
-docs/审查/5.17/round-065.md	docs	docs-agent	doc	8005	项目文档体系	docs,审查,5,17,round,065,项目文档体系
-docs/审查/5.17/round-template.md	docs	docs-agent	doc	2210	项目文档体系	docs,审查,5,17,round,template,项目文档体系
 docs/adr/0001-dag-v2-contracts.md	docs	docs-agent	doc	18902	架构决策记录	docs,adr,0001,dag,v2,contracts,架构决策记录
+docs/ai01-docs/工作流/automation-workflow-finding-arbitration-10-agent-2026-06-04.md	docs	docs-agent	doc	15656	项目文档体系	docs,ai01,工作流,automation,workflow,finding,arbitration,10,agent,2026,06,04,项目文档体系
+docs/ai01-docs/工作流/automation-workflow-production-readiness-5-agent-review-2026-06-04.md	docs	docs-agent	doc	23880	项目文档体系	docs,ai01,工作流,automation,workflow,production,readiness,5,agent,review,2026,06,04,项目文档体系
+docs/ai01-docs/工作流/run-new-ui-desktop-production-readiness-review-2026-06-04.md	docs	docs-agent	doc	13060	项目文档体系	docs,ai01,工作流,run,new,ui,desktop,production,readiness,review,2026,06,04,项目文档体系
+docs/ai01-docs/工作流/single-file-guard-invocation-notes-2026-06-04.md	docs	docs-agent	doc	3946	项目文档体系	docs,ai01,工作流,single,file,guard,invocation,notes,2026,06,04,项目文档体系
+docs/ai01-docs/前端测试文档/2026-06-08-frontend-full-scan-test-results.md	docs	docs-agent	doc	25048	项目文档体系	docs,ai01,前端测试文档,2026,06,08,frontend,full,scan,test,results,项目文档体系
+docs/ai01-docs/前端测试文档/2026-06-08-frontend-rpc-1to1-integration-change-summary.md	docs	docs-agent	doc	12014	项目文档体系	docs,ai01,前端测试文档,2026,06,08,frontend,rpc,1to1,integration,change,summary,项目文档体系
+docs/ai01-docs/前端测试文档/2026-06-08-frontend-rpc-1to1-interface-test-design.md	docs	docs-agent	doc	12615	项目文档体系	docs,ai01,前端测试文档,2026,06,08,frontend,rpc,1to1,interface,test,design,项目文档体系
+docs/ai01-docs/前端测试文档/frontend-app-vs-legacy-ui-gap-audit.md	docs	docs-agent	doc	103121	项目文档体系	docs,ai01,前端测试文档,frontend,app,vs,legacy,ui,gap,audit,项目文档体系
+docs/ai01-docs/前端测试文档/performance-audit-2026-06-09.md	docs	docs-agent	doc	49011	项目文档体系	docs,ai01,前端测试文档,performance,audit,2026,06,09,项目文档体系
+docs/ai01-docs/前端测试文档/performance-execution-agent-2026-06-09.md	docs	docs-agent	doc	25133	项目文档体系	docs,ai01,前端测试文档,performance,execution,agent,2026,06,09,项目文档体系
+docs/ai01-docs/审查文档/00-审查总览.md	docs	docs-agent	doc	5946	项目文档体系	docs,ai01,审查文档,00,审查总览,项目文档体系
+docs/ai01-docs/审查文档/01-项目结构与核心链路.md	docs	docs-agent	doc	8576	项目文档体系	docs,ai01,审查文档,01,项目结构与核心链路,项目文档体系
+docs/ai01-docs/审查文档/02-风险清单.md	docs	docs-agent	doc	7958	项目文档体系	docs,ai01,审查文档,02,风险清单,项目文档体系
+docs/ai01-docs/审查文档/03-测试验证与整改建议.md	docs	docs-agent	doc	6488	项目文档体系	docs,ai01,审查文档,03,测试验证与整改建议,项目文档体系
+docs/ai01-docs/审查文档/04-p0-p1-p2-remediation.md	docs	docs-agent	doc	21959	项目文档体系	docs,ai01,审查文档,04,p0,p1,p2,remediation,项目文档体系
+docs/ai01-docs/审查文档/backend-frontend-interface-scan-2026-06-03.md	docs	docs-agent	doc	26582	项目文档体系	docs,ai01,审查文档,backend,frontend,interface,scan,2026,06,03,项目文档体系
+docs/ai01-docs/审查文档/codetrust-project-scan-2026-06-02.md	docs	docs-agent	doc	19437	项目文档体系	docs,ai01,审查文档,codetrust,project,scan,2026,06,02,项目文档体系
+docs/ai01-docs/审查文档/evaluation-iteration-closed-loop-v1.1.md	docs	docs-agent	doc	43424	项目文档体系	docs,ai01,审查文档,evaluation,iteration,closed,loop,v1,1,项目文档体系
+docs/ai01-docs/审查文档/frontend-app-rum-bug-review-2026-06-01-iteration-2.md	docs	docs-agent	doc	9348	项目文档体系	docs,ai01,审查文档,frontend,app,rum,bug,review,2026,06,01,iteration,2,项目文档体系
+docs/ai01-docs/审查文档/frontend-app-rum-bug-review-2026-06-01.md	docs	docs-agent	doc	9292	项目文档体系	docs,ai01,审查文档,frontend,app,rum,bug,review,2026,06,01,项目文档体系
+docs/ai01-docs/审查文档/frontend-app-vs-agent-terminal-backend-interface-diff-2026-06-03.md	docs	docs-agent	doc	13708	项目文档体系	docs,ai01,审查文档,frontend,app,vs,agent,terminal,backend,interface,diff,2026,06,03,项目文档体系
+docs/ai01-docs/审查文档/frontend-app-vs-agent-terminal-real-ux-test-2026-06-03.md	docs	docs-agent	doc	13294	项目文档体系	docs,ai01,审查文档,frontend,app,vs,agent,terminal,real,ux,test,2026,06,03,项目文档体系
+docs/ai01-docs/审查文档/frontend-app-vs-legacy-ui-gap-audit.md	docs	docs-agent	doc	84066	项目文档体系	docs,ai01,审查文档,frontend,app,vs,legacy,ui,gap,audit,项目文档体系
+docs/ai01-docs/审查文档/frontend-codetrust-optimization-test-report-2026-06-02.md	docs	docs-agent	doc	9413	项目文档体系	docs,ai01,审查文档,frontend,codetrust,optimization,test,report,2026,06,02,项目文档体系
+docs/ai01-docs/审查文档/frontend-ui-backend-interface-codetrust-report-2026-06-02.md	docs	docs-agent	doc	10994	项目文档体系	docs,ai01,审查文档,frontend,ui,backend,interface,codetrust,report,2026,06,02,项目文档体系
+docs/ai01-docs/审查文档/new-ui-vs-legacy-ui-full-real-ux-audit-2026-06-03.md	docs	docs-agent	doc	31904	项目文档体系	docs,ai01,审查文档,new,ui,vs,legacy,full,real,ux,audit,2026,06,03,项目文档体系
+docs/ai01-docs/审查文档/old-ui-removal-new-ui-readiness-2026-06-03.md	docs	docs-agent	doc	12977	项目文档体系	docs,ai01,审查文档,old,ui,removal,new,readiness,2026,06,03,项目文档体系
+docs/ai01-docs/审查文档/README.md	docs	docs-agent	doc	904	项目文档体系	docs,ai01,审查文档,README,项目文档体系
+docs/ai01-docs/agent-implementation-plan.md	docs	docs-agent	doc	8703	项目文档体系	docs,ai01,agent,implementation,plan,项目文档体系
+docs/ai01-docs/agent-manus-like-spec.md	docs	docs-agent	doc	24136	项目文档体系	docs,ai01,agent,manus,like,spec,项目文档体系
+docs/ai01-docs/assets/2026-06-03-full-ux-clean-matrix.json	docs	docs-agent	json	97118	项目文档体系	docs,ai01,assets,2026,06,03,full,ux,clean,matrix,项目文档体系
+docs/ai01-docs/assets/2026-06-03-full-ux-matrix.json	docs	docs-agent	json	198088	项目文档体系	docs,ai01,assets,2026,06,03,full,ux,matrix,项目文档体系
+docs/ai01-docs/assets/2026-06-03-legacy-ui-chat.png	docs	docs-agent	png	85965	项目文档体系	docs,ai01,assets,2026,06,03,legacy,ui,chat,项目文档体系
+docs/ai01-docs/assets/2026-06-03-legacy-ui-full-ux-clean-final.png	docs	docs-agent	png	89093	项目文档体系	docs,ai01,assets,2026,06,03,legacy,ui,full,ux,clean,final,项目文档体系
+docs/ai01-docs/assets/2026-06-03-legacy-ui-full-ux-clean-home.png	docs	docs-agent	png	71203	项目文档体系	docs,ai01,assets,2026,06,03,legacy,ui,full,ux,clean,home,项目文档体系
+docs/ai01-docs/assets/2026-06-03-legacy-ui-full-ux-final.png	docs	docs-agent	png	72342	项目文档体系	docs,ai01,assets,2026,06,03,legacy,ui,full,ux,final,项目文档体系
+docs/ai01-docs/assets/2026-06-03-legacy-ui-full-ux-home.png	docs	docs-agent	png	71203	项目文档体系	docs,ai01,assets,2026,06,03,legacy,ui,full,ux,home,项目文档体系
+docs/ai01-docs/assets/2026-06-03-legacy-ui-shared-files-verified.png	docs	docs-agent	png	47765	项目文档体系	docs,ai01,assets,2026,06,03,legacy,ui,shared,files,verified,项目文档体系
+docs/ai01-docs/assets/2026-06-03-legacy-ui-targeted-key-controls.png	docs	docs-agent	png	92992	项目文档体系	docs,ai01,assets,2026,06,03,legacy,ui,targeted,key,controls,项目文档体系
+docs/ai01-docs/assets/2026-06-03-new-ui-chat.png	docs	docs-agent	png	90612	项目文档体系	docs,ai01,assets,2026,06,03,new,ui,chat,项目文档体系
+docs/ai01-docs/assets/2026-06-03-new-ui-delete-readiness-browser.png	docs	docs-agent	png	90486	项目文档体系	docs,ai01,assets,2026,06,03,new,ui,delete,readiness,browser,项目文档体系
+docs/ai01-docs/assets/2026-06-03-new-ui-delete-readiness-playwright.png	docs	docs-agent	png	132703	项目文档体系	docs,ai01,assets,2026,06,03,new,ui,delete,readiness,playwright,项目文档体系
+docs/ai01-docs/assets/2026-06-03-new-ui-full-ux-clean-final.png	docs	docs-agent	png	136301	项目文档体系	docs,ai01,assets,2026,06,03,new,ui,full,ux,clean,final,项目文档体系
+docs/ai01-docs/assets/2026-06-03-new-ui-full-ux-clean-home.png	docs	docs-agent	png	102221	项目文档体系	docs,ai01,assets,2026,06,03,new,ui,full,ux,clean,home,项目文档体系
+docs/ai01-docs/assets/2026-06-03-new-ui-full-ux-final.png	docs	docs-agent	png	126511	项目文档体系	docs,ai01,assets,2026,06,03,new,ui,full,ux,final,项目文档体系
+docs/ai01-docs/assets/2026-06-03-new-ui-full-ux-home.png	docs	docs-agent	png	102221	项目文档体系	docs,ai01,assets,2026,06,03,new,ui,full,ux,home,项目文档体系
+docs/ai01-docs/assets/2026-06-03-new-ui-targeted-key-controls.png	docs	docs-agent	png	176329	项目文档体系	docs,ai01,assets,2026,06,03,new,ui,targeted,key,controls,项目文档体系
+docs/ai01-docs/assets/2026-06-03-playwright-cli-legacy-ui-final.png	docs	docs-agent	png	103940	项目文档体系	docs,ai01,assets,2026,06,03,playwright,cli,legacy,ui,final,项目文档体系
+docs/ai01-docs/assets/2026-06-03-playwright-cli-new-ui-final.png	docs	docs-agent	png	81202	项目文档体系	docs,ai01,assets,2026,06,03,playwright,cli,new,ui,final,项目文档体系
+docs/ai01-docs/assets/2026-06-03-playwright-legacy-ui.png	docs	docs-agent	png	167733	项目文档体系	docs,ai01,assets,2026,06,03,playwright,legacy,ui,项目文档体系
+docs/ai01-docs/assets/2026-06-03-playwright-new-ui.png	docs	docs-agent	png	151235	项目文档体系	docs,ai01,assets,2026,06,03,playwright,new,ui,项目文档体系
+docs/ai01-docs/frontend-backend-interface-audit-2026-06-12.md	docs	docs-agent	doc	14504	项目文档体系	docs,ai01,frontend,backend,interface,audit,2026,06,12,项目文档体系
+docs/ai01-docs/manus_like_agent_claude_code_prompt.md	docs	docs-agent	doc	19903	项目文档体系	docs,ai01,manus,like,agent,claude,code,prompt,项目文档体系
 docs/ai01-docs/plan/2026-05-22-full-test-remediation-plan.md	docs	docs-agent	doc	10216	项目文档体系	docs,ai01,plan,2026,05,22,full,test,remediation,项目文档体系
+docs/ai01-docs/plan/每人任务.md	docs	docs-agent	doc	964	项目文档体系	docs,ai01,plan,每人任务,项目文档体系
+docs/ai01-docs/plan/frontend-architecture-decoupling.md	docs	docs-agent	doc	15624	项目文档体系	docs,ai01,plan,frontend,architecture,decoupling,项目文档体系
+docs/ai01-docs/plan/frontend-react-zustand-tailwind-refactor.md	docs	docs-agent	doc	52846	项目文档体系	docs,ai01,plan,frontend,react,zustand,tailwind,refactor,项目文档体系
+docs/ai01-docs/plan/frontend-react-zustand-tailwind-test-review-plan.md	docs	docs-agent	doc	25263	项目文档体系	docs,ai01,plan,frontend,react,zustand,tailwind,test,review,项目文档体系
+docs/ai01-docs/plan/implementation_plan.md	docs	docs-agent	doc	12630	项目文档体系	docs,ai01,plan,implementation,项目文档体系
+docs/ai01-docs/project-sop/01-handoff-goal-and-intake.md	docs	docs-agent	doc	4655	项目文档体系	docs,ai01,project,sop,01,handoff,goal,and,intake,项目文档体系
+docs/ai01-docs/project-sop/02-business-requirements-agile.md	docs	docs-agent	doc	6860	项目文档体系	docs,ai01,project,sop,02,business,requirements,agile,项目文档体系
+docs/ai01-docs/project-sop/03-architecture-diagrams.md	docs	docs-agent	doc	5020	项目文档体系	docs,ai01,project,sop,03,architecture,diagrams,项目文档体系
+docs/ai01-docs/project-sop/04-data-model.md	docs	docs-agent	doc	6797	项目文档体系	docs,ai01,project,sop,04,data,model,项目文档体系
+docs/ai01-docs/project-sop/05-interfaces-and-sequences.md	docs	docs-agent	doc	5578	项目文档体系	docs,ai01,project,sop,05,interfaces,and,sequences,项目文档体系
+docs/ai01-docs/project-sop/06-codebase-startup-quality.md	docs	docs-agent	doc	5692	项目文档体系	docs,ai01,project,sop,06,codebase,startup,quality,项目文档体系
+docs/ai01-docs/project-sop/07-ci-cd-ops-incident.md	docs	docs-agent	doc	5525	项目文档体系	docs,ai01,project,sop,07,ci,cd,ops,incident,项目文档体系
+docs/ai01-docs/project-sop/08-delivery-review-knowledge-base.md	docs	docs-agent	doc	5410	项目文档体系	docs,ai01,project,sop,08,delivery,review,knowledge,base,项目文档体系
+docs/ai01-docs/project-sop/README.md	docs	docs-agent	doc	3804	项目文档体系	docs,ai01,project,sop,README,项目文档体系
 docs/ai01-docs/test/2026-05-22-full-test-report.md	docs	docs-agent	doc	15670	项目文档体系	docs,ai01,test,2026,05,22,full,report,项目文档体系
 docs/ai01-docs/test/2026-05-22-full-test-rerun-report.md	docs	docs-agent	doc	4914	项目文档体系	docs,ai01,test,2026,05,22,full,rerun,report,项目文档体系
 docs/ai01-docs/test/2026-05-24-skill-cwd-source-boundary-test-report.md	docs	docs-agent	doc	3201	项目文档体系	docs,ai01,test,2026,05,24,skill,cwd,source,boundary,report,项目文档体系
-docs/ai01-docs/test/logs/2026-05-22-rerun/frontend_build.log	docs	docs-agent	log	21548	项目文档体系	docs,ai01,test,logs,2026,05,22,rerun,frontend,build,项目文档体系
-docs/ai01-docs/test/logs/2026-05-22-rerun/frontend_e2e_mock.log	docs	docs-agent	log	73824	项目文档体系	docs,ai01,test,logs,2026,05,22,rerun,frontend,e2e,mock,项目文档体系
-docs/ai01-docs/test/logs/2026-05-22-rerun/frontend_e2e_real.log	docs	docs-agent	log	1221	项目文档体系	docs,ai01,test,logs,2026,05,22,rerun,frontend,e2e,real,项目文档体系
-docs/ai01-docs/test/logs/2026-05-22-rerun/frontend_size_guard.log	docs	docs-agent	log	98	项目文档体系	docs,ai01,test,logs,2026,05,22,rerun,frontend,size,guard,项目文档体系
-docs/ai01-docs/test/logs/2026-05-22-rerun/frontend_vitest.log	docs	docs-agent	log	46094	项目文档体系	docs,ai01,test,logs,2026,05,22,rerun,frontend,vitest,项目文档体系
-docs/ai01-docs/test/logs/2026-05-22-rerun/git_rev_parse_HEAD.log	docs	docs-agent	log	449	项目文档体系	docs,ai01,test,logs,2026,05,22,rerun,git,rev,parse,HEAD,项目文档体系
-docs/ai01-docs/test/logs/2026-05-22-rerun/git_status.log	docs	docs-agent	log	8732	项目文档体系	docs,ai01,test,logs,2026,05,22,rerun,git,status,项目文档体系
-docs/ai01-docs/test/logs/2026-05-22-rerun/go_vet_all.log	docs	docs-agent	log	410	项目文档体系	docs,ai01,test,logs,2026,05,22,rerun,go,vet,all,项目文档体系
-docs/ai01-docs/test/logs/2026-05-22-rerun/make_build_plain.log	docs	docs-agent	log	841	项目文档体系	docs,ai01,test,logs,2026,05,22,rerun,make,build,plain,项目文档体系
-docs/ai01-docs/test/logs/2026-05-22-rerun/make_codemap_check.log	docs	docs-agent	log	568	项目文档体系	docs,ai01,test,logs,2026,05,22,rerun,make,codemap,check,项目文档体系
-docs/ai01-docs/test/logs/2026-05-22-rerun/make_guard.log	docs	docs-agent	log	825	项目文档体系	docs,ai01,test,logs,2026,05,22,rerun,make,guard,项目文档体系
-docs/ai01-docs/test/logs/2026-05-22-rerun/make_sqlc_verify.log	docs	docs-agent	log	533	项目文档体系	docs,ai01,test,logs,2026,05,22,rerun,make,sqlc,verify,项目文档体系
-docs/ai01-docs/test/logs/2026-05-22-rerun/make_test.log	docs	docs-agent	log	13550	项目文档体系	docs,ai01,test,logs,2026,05,22,rerun,make,项目文档体系
-docs/ai01-docs/test/logs/2026-05-22-rerun/matrix-results.ndjson	docs	docs-agent	ndjson	4764	项目文档体系	docs,ai01,test,logs,2026,05,22,rerun,matrix,results,项目文档体系
-docs/ai01-docs/test/logs/2026-05-22-rerun/provider-smoke.log	docs	docs-agent	log	206	项目文档体系	docs,ai01,test,logs,2026,05,22,rerun,provider,smoke,项目文档体系
-docs/ai01-docs/test/logs/2026-05-22-rerun/run-debug-server.err.log	docs	docs-agent	log	102125	项目文档体系	docs,ai01,test,logs,2026,05,22,rerun,run,debug,server,err,项目文档体系
-docs/ai01-docs/test/logs/2026-05-22-rerun/run-debug-server.out.log	docs	docs-agent	log	1664615	项目文档体系	docs,ai01,test,logs,2026,05,22,rerun,run,debug,server,out,项目文档体系
-docs/ai01-docs/test/logs/2026-05-22-rerun/service-health.log	docs	docs-agent	log	3583	项目文档体系	docs,ai01,test,logs,2026,05,22,rerun,service,health,项目文档体系
+docs/ai01-docs/test/frontend-react-review/A0-baseline.md	docs	docs-agent	doc	1262	项目文档体系	docs,ai01,test,frontend,react,review,A0,baseline,项目文档体系
+docs/ai01-docs/test/frontend-react-review/A1-contract-review.md	docs	docs-agent	doc	1825	项目文档体系	docs,ai01,test,frontend,react,review,A1,contract,项目文档体系
+docs/ai01-docs/test/frontend-react-review/A2-shared-api-wire.md	docs	docs-agent	doc	1867	项目文档体系	docs,ai01,test,frontend,react,review,A2,shared,api,wire,项目文档体系
+docs/ai01-docs/test/frontend-react-review/A3-state-store.md	docs	docs-agent	doc	2256	项目文档体系	docs,ai01,test,frontend,react,review,A3,state,store,项目文档体系
+docs/ai01-docs/test/frontend-react-review/A4-send-message-flow.md	docs	docs-agent	doc	2810	项目文档体系	docs,ai01,test,frontend,react,review,A4,send,message,flow,项目文档体系
+docs/ai01-docs/test/frontend-react-review/A5-unified-chat-ui.md	docs	docs-agent	doc	5621	项目文档体系	docs,ai01,test,frontend,react,review,A5,unified,chat,ui,项目文档体系
+docs/ai01-docs/test/frontend-react-review/A6-warning-log-trace.md	docs	docs-agent	doc	1889	项目文档体系	docs,ai01,test,frontend,react,review,A6,warning,log,trace,项目文档体系
+docs/ai01-docs/test/frontend-react-review/A7-architecture-style-accessibility.md	docs	docs-agent	doc	1784	项目文档体系	docs,ai01,test,frontend,react,review,A7,architecture,style,accessibility,项目文档体系
+docs/ai01-docs/test/frontend-react-review/A8-migration-build-guard.md	docs	docs-agent	doc	1836	项目文档体系	docs,ai01,test,frontend,react,review,A8,migration,build,guard,项目文档体系
+docs/ai01-docs/test/frontend-react-review/A9-summary.md	docs	docs-agent	doc	1777	项目文档体系	docs,ai01,test,frontend,react,review,A9,summary,项目文档体系
+docs/ai01-docs/test/react-wails-integration-20260529/A0-baseline.md	docs	docs-agent	doc	1986	项目文档体系	docs,ai01,test,react,wails,integration,20260529,A0,baseline,项目文档体系
+docs/ai01-docs/test/react-wails-integration-20260529/A1-entry-contract-review.md	docs	docs-agent	doc	2290	项目文档体系	docs,ai01,test,react,wails,integration,20260529,A1,entry,contract,review,项目文档体系
+docs/ai01-docs/test/react-wails-integration-20260529/A2-runtime-bridge.md	docs	docs-agent	doc	1092	项目文档体系	docs,ai01,test,react,wails,integration,20260529,A2,runtime,bridge,项目文档体系
+docs/ai01-docs/test/react-wails-integration-20260529/A3-backend-api-contract.md	docs	docs-agent	doc	3204	项目文档体系	docs,ai01,test,react,wails,integration,20260529,A3,backend,api,contract,项目文档体系
+docs/ai01-docs/test/react-wails-integration-20260529/A4-final-integration-review.md	docs	docs-agent	doc	1513	项目文档体系	docs,ai01,test,react,wails,integration,20260529,A4,final,review,项目文档体系
+docs/ai01-docs/test/react-wails-integration-20260529/A8-migration-build-guard.md	docs	docs-agent	doc	1324	项目文档体系	docs,ai01,test,react,wails,integration,20260529,A8,migration,build,guard,项目文档体系
+docs/ai01-docs/test/react-wails-integration-20260529/A9-summary.md	docs	docs-agent	doc	1728	项目文档体系	docs,ai01,test,react,wails,integration,20260529,A9,summary,项目文档体系
+docs/cc/数据库切换/dags/00-source-trace-risk-review.md	docs	docs-agent	doc	9062	项目文档体系	docs,cc,数据库切换,dags,00,source,trace,risk,review,项目文档体系
+docs/cc/数据库切换/dags/01-sqlite-platform-config.md	docs	docs-agent	doc	4537	项目文档体系	docs,cc,数据库切换,dags,01,sqlite,platform,config,项目文档体系
+docs/cc/数据库切换/dags/02-sqlite-schema-baseline.md	docs	docs-agent	doc	6693	项目文档体系	docs,cc,数据库切换,dags,02,sqlite,schema,baseline,项目文档体系
+docs/cc/数据库切换/dags/03-sqlc-db-boundary.md	docs	docs-agent	doc	4353	项目文档体系	docs,cc,数据库切换,dags,03,sqlc,db,boundary,项目文档体系
+docs/cc/数据库切换/dags/04-main-store-logs-status-preferences.md	docs	docs-agent	doc	3876	项目文档体系	docs,cc,数据库切换,dags,04,main,store,logs,status,preferences,项目文档体系
+docs/cc/数据库切换/dags/05-main-store-assets-feedback.md	docs	docs-agent	doc	3313	项目文档体系	docs,cc,数据库切换,dags,05,main,store,assets,feedback,项目文档体系
+docs/cc/数据库切换/dags/06-main-store-thread-binding-locks.md	docs	docs-agent	doc	2923	项目文档体系	docs,cc,数据库切换,dags,06,main,store,thread,binding,locks,项目文档体系
+docs/cc/数据库切换/dags/07-cron-claim-concurrency.md	docs	docs-agent	doc	2816	项目文档体系	docs,cc,数据库切换,dags,07,cron,claim,concurrency,项目文档体系
+docs/cc/数据库切换/dags/08-hook-interaction-dbquery.md	docs	docs-agent	doc	4378	项目文档体系	docs,cc,数据库切换,dags,08,hook,interaction,dbquery,项目文档体系
+docs/cc/数据库切换/dags/09-prompt-recall-topic-lock.md	docs	docs-agent	doc	3297	项目文档体系	docs,cc,数据库切换,dags,09,prompt,recall,topic,lock,项目文档体系
+docs/cc/数据库切换/dags/10-mcp-orch-runtime-sqlite.md	docs	docs-agent	doc	5042	项目文档体系	docs,cc,数据库切换,dags,10,mcp,orch,runtime,sqlite,项目文档体系
+docs/cc/数据库切换/dags/11-mcp-orch-dag-core-store.md	docs	docs-agent	doc	3672	项目文档体系	docs,cc,数据库切换,dags,11,mcp,orch,dag,core,store,项目文档体系
+docs/cc/数据库切换/dags/12-mcp-orch-wakeup-lease-events-locks.md	docs	docs-agent	doc	3380	项目文档体系	docs,cc,数据库切换,dags,12,mcp,orch,wakeup,lease,events,locks,项目文档体系
+docs/cc/数据库切换/dags/13-pg-runtime-packaging-removal.md	docs	docs-agent	doc	3935	项目文档体系	docs,cc,数据库切换,dags,13,pg,runtime,packaging,removal,项目文档体系
+docs/cc/数据库切换/dags/14-release-gates-regression-smoke.md	docs	docs-agent	doc	6084	项目文档体系	docs,cc,数据库切换,dags,14,release,gates,regression,smoke,项目文档体系
+docs/cc/数据库切换/dags/15-integration-final-scan.md	docs	docs-agent	doc	3847	项目文档体系	docs,cc,数据库切换,dags,15,integration,final,scan,项目文档体系
+docs/cc/数据库切换/dags/16-dashboard-dag-snapshot-time-int64.md	docs	docs-agent	doc	27070	项目文档体系	docs,cc,数据库切换,dags,16,dashboard,dag,snapshot,time,int64,项目文档体系
+docs/cc/数据库切换/dags/README.md	docs	docs-agent	doc	8399	项目文档体系	docs,cc,数据库切换,dags,README,项目文档体系
+docs/cc/数据库切换/postgres-to-sqlite-switch-review-2026-06-11.md	docs	docs-agent	doc	44312	项目文档体系	docs,cc,数据库切换,postgres,to,sqlite,switch,review,2026,06,11,项目文档体系
+docs/cc/数据库切换/sqlite-backup-restore.md	docs	docs-agent	doc	1821	项目文档体系	docs,cc,数据库切换,sqlite,backup,restore,项目文档体系
+docs/cc/数据库切换/sqlite-data-reset.md	docs	docs-agent	doc	1654	项目文档体系	docs,cc,数据库切换,sqlite,data,reset,项目文档体系
+docs/cc/数据库切换/sqlite-release-gate-report.md	docs	docs-agent	doc	4866	项目文档体系	docs,cc,数据库切换,sqlite,release,gate,report,项目文档体系
+docs/cc/数据库切换/sqlite-switch-overall-readiness-review-2026-06-14.md	docs	docs-agent	doc	6645	项目文档体系	docs,cc,数据库切换,sqlite,switch,overall,readiness,review,2026,06,14,项目文档体系
+docs/cc/数据库切换/sqlite-switch-overall-readiness-review-2026-06-15.md	docs	docs-agent	doc	4862	项目文档体系	docs,cc,数据库切换,sqlite,switch,overall,readiness,review,2026,06,15,项目文档体系
+docs/cc/agent-trace-diagnostics/traceid-agent-diagnostics-finding-2026-06-03.md	docs	docs-agent	doc	14859	项目文档体系	docs,cc,agent,trace,diagnostics,traceid,finding,2026,06,03,项目文档体系
+docs/cc/attachment-atomic-cleanup-removed-findings-20260604.md	docs	docs-agent	doc	3257	项目文档体系	docs,cc,attachment,atomic,cleanup,removed,findings,20260604,项目文档体系
+docs/cc/dag-node-conversation-jump-root-cause-20260606.md	docs	docs-agent	doc	14188	项目文档体系	docs,cc,dag,node,conversation,jump,root,cause,20260606,项目文档体系
+docs/cc/dag/01-create-dag-contract.md	docs	docs-agent	doc	3073	项目文档体系	docs,cc,dag,01,create,contract,项目文档体系
+docs/cc/dag/02-assignee-exec-runtime-guards.md	docs	docs-agent	doc	3182	项目文档体系	docs,cc,dag,02,assignee,exec,runtime,guards,项目文档体系
+docs/cc/dag/03-scheduler-timezone-error-isolation.md	docs	docs-agent	doc	2787	项目文档体系	docs,cc,dag,03,scheduler,timezone,error,isolation,项目文档体系
+docs/cc/dag/04-failure-cascade-atomicity.md	docs	docs-agent	doc	2705	项目文档体系	docs,cc,dag,04,failure,cascade,atomicity,项目文档体系
+docs/cc/dag/05-turn-completed-durable-retry.md	docs	docs-agent	doc	2657	项目文档体系	docs,cc,dag,05,turn,completed,durable,retry,项目文档体系
+docs/cc/dag/06-sharedfile-freshness-ownership.md	docs	docs-agent	doc	2765	项目文档体系	docs,cc,dag,06,sharedfile,freshness,ownership,项目文档体系
+docs/cc/dag/07-output-envelope-upstream-context.md	docs	docs-agent	doc	2755	项目文档体系	docs,cc,dag,07,output,envelope,upstream,context,项目文档体系
+docs/cc/dag/08-local-standalone-launcher-contract.md	docs	docs-agent	doc	2717	项目文档体系	docs,cc,dag,08,local,standalone,launcher,contract,项目文档体系
+docs/cc/dag/09-workflow-ui-recovery-schema.md	docs	docs-agent	doc	3151	项目文档体系	docs,cc,dag,09,workflow,ui,recovery,schema,项目文档体系
+docs/cc/dag/10-dag-designer-prompt-contract.md	docs	docs-agent	doc	2994	项目文档体系	docs,cc,dag,10,designer,prompt,contract,项目文档体系
+docs/cc/dag/orchestration-state.md	docs	docs-agent	doc	12260	项目文档体系	docs,cc,dag,orchestration,state,项目文档体系
+docs/cc/dag/README.md	docs	docs-agent	doc	3671	项目文档体系	docs,cc,dag,README,项目文档体系
+docs/cc/lsp-shell-diagnostics-review-findings-20260604.md	docs	docs-agent	doc	7063	项目文档体系	docs,cc,lsp,shell,diagnostics,review,findings,20260604,项目文档体系
+docs/cc/lsp-shell-diagnostics-root-cause-20260604.md	docs	docs-agent	doc	10742	项目文档体系	docs,cc,lsp,shell,diagnostics,root,cause,20260604,项目文档体系
+docs/cc/lsp-shell-tdd-packaged-evidence-20260604.md	docs	docs-agent	doc	9661	项目文档体系	docs,cc,lsp,shell,tdd,packaged,evidence,20260604,项目文档体系
+docs/cc/lsp-shell-tdd-runtime-evidence-20260604.md	docs	docs-agent	doc	4606	项目文档体系	docs,cc,lsp,shell,tdd,runtime,evidence,20260604,项目文档体系
+docs/cc/lsp-shellcheck-runtime-diagnostics-fix-20260605.md	docs	docs-agent	doc	6590	项目文档体系	docs,cc,lsp,shellcheck,runtime,diagnostics,fix,20260605,项目文档体系
+docs/cc/message-assistant-live-gap-root-cause-20260605.md	docs	docs-agent	doc	8956	项目文档体系	docs,cc,message,assistant,live,gap,root,cause,20260605,项目文档体系
+docs/cc/nav-rpc-failures-during-turn-review-findings-20260604.md	docs	docs-agent	doc	23589	项目文档体系	docs,cc,nav,rpc,failures,during,turn,review,findings,20260604,项目文档体系
+docs/cc/nav-rpc-failures-during-turn-root-cause-20260604.md	docs	docs-agent	doc	18613	项目文档体系	docs,cc,nav,rpc,failures,during,turn,root,cause,20260604,项目文档体系
+docs/cc/obs/backend-observability-readiness-review-2026-06-03.md	docs	docs-agent	doc	11279	项目文档体系	docs,cc,obs,backend,observability,readiness,review,2026,06,03,项目文档体系
+docs/cc/obs/dag/00-tail-cache-freshness-dag.md	docs	docs-agent	doc	1385	项目文档体系	docs,cc,obs,dag,00,tail,cache,freshness,项目文档体系
+docs/cc/obs/dag/01-service-stale-tail-red.md	docs	docs-agent	doc	1028	项目文档体系	docs,cc,obs,dag,01,service,stale,tail,red,项目文档体系
+docs/cc/obs/dag/02-service-remove-result-cache.md	docs	docs-agent	doc	1263	项目文档体系	docs,cc,obs,dag,02,service,remove,result,cache,项目文档体系
+docs/cc/obs/dag/03-inflight-only-contract.md	docs	docs-agent	doc	1066	项目文档体系	docs,cc,obs,dag,03,inflight,only,contract,项目文档体系
+docs/cc/obs/dag/04-jsonl-disk-freshness.md	docs	docs-agent	doc	1050	项目文档体系	docs,cc,obs,dag,04,jsonl,disk,freshness,项目文档体系
+docs/cc/obs/dag/05-rpc-trace-tail-freshness.md	docs	docs-agent	doc	970	项目文档体系	docs,cc,obs,dag,05,rpc,trace,tail,freshness,项目文档体系
+docs/cc/obs/dag/06-rpc-recent-tail-freshness.md	docs	docs-agent	doc	986	项目文档体系	docs,cc,obs,dag,06,rpc,recent,tail,freshness,项目文档体系
+docs/cc/obs/dag/07-frontend-api-tail-defaults.md	docs	docs-agent	doc	1034	项目文档体系	docs,cc,obs,dag,07,frontend,api,tail,defaults,项目文档体系
+docs/cc/obs/dag/08-review-document-sync.md	docs	docs-agent	doc	902	项目文档体系	docs,cc,obs,dag,08,review,document,sync,项目文档体系
+docs/cc/obs/dag/09-package-verification.md	docs	docs-agent	doc	868	项目文档体系	docs,cc,obs,dag,09,package,verification,项目文档体系
+docs/cc/obs/dag/10-integration-merge-checklist.md	docs	docs-agent	doc	958	项目文档体系	docs,cc,obs,dag,10,integration,merge,checklist,项目文档体系
+docs/cc/observability-tracing/00-implementation-plan.md	docs	docs-agent	doc	37740	项目文档体系	docs,cc,observability,tracing,00,implementation,plan,项目文档体系
+docs/cc/observability-tracing/manual-smoke.md	docs	docs-agent	doc	1869	项目文档体系	docs,cc,observability,tracing,manual,smoke,项目文档体系
+docs/cc/observability-tracing/README.md	docs	docs-agent	doc	3014	项目文档体系	docs,cc,observability,tracing,README,项目文档体系
+docs/cc/observability-tracing/reviews/review-a-architecture.md	docs	docs-agent	doc	2693	项目文档体系	docs,cc,observability,tracing,reviews,review,a,architecture,项目文档体系
+docs/cc/observability-tracing/reviews/review-b-volume-packaging.md	docs	docs-agent	doc	5433	项目文档体系	docs,cc,observability,tracing,reviews,review,b,volume,packaging,项目文档体系
+docs/cc/observability-tracing/reviews/review-c-react-frontend-reality-r2.md	docs	docs-agent	doc	3797	项目文档体系	docs,cc,observability,tracing,reviews,review,c,react,frontend,reality,r2,项目文档体系
+docs/cc/observability-tracing/reviews/review-d-backend-persistence-volume-r2.md	docs	docs-agent	doc	5825	项目文档体系	docs,cc,observability,tracing,reviews,review,d,backend,persistence,volume,r2,项目文档体系
+docs/cc/observability-tracing/reviews/tasks-final-adjudication.md	docs	docs-agent	doc	4356	项目文档体系	docs,cc,observability,tracing,reviews,tasks,final,adjudication,项目文档体系
+docs/cc/observability-tracing/reviews/tasks-review-a-architecture-dependencies.md	docs	docs-agent	doc	4767	项目文档体系	docs,cc,observability,tracing,reviews,tasks,review,a,architecture,dependencies,项目文档体系
+docs/cc/observability-tracing/reviews/tasks-review-b-privacy-volume-frontend.md	docs	docs-agent	doc	4009	项目文档体系	docs,cc,observability,tracing,reviews,tasks,review,b,privacy,volume,frontend,项目文档体系
+docs/cc/observability-tracing/tasks/01-core-schema-config-sanitizer.md	docs	docs-agent	doc	3429	项目文档体系	docs,cc,observability,tracing,tasks,01,core,schema,config,sanitizer,项目文档体系
+docs/cc/observability-tracing/tasks/02-jsonl-sink-retention-tail-reader.md	docs	docs-agent	doc	3077	项目文档体系	docs,cc,observability,tracing,tasks,02,jsonl,sink,retention,tail,reader,项目文档体系
+docs/cc/observability-tracing/tasks/03-bounded-index-query-service.md	docs	docs-agent	doc	3000	项目文档体系	docs,cc,observability,tracing,tasks,03,bounded,index,query,service,项目文档体系
+docs/cc/observability-tracing/tasks/04-fx-wiring-disabled-service.md	docs	docs-agent	doc	3644	项目文档体系	docs,cc,observability,tracing,tasks,04,fx,wiring,disabled,service,项目文档体系
+docs/cc/observability-tracing/tasks/05-wails-rpc-dispatch-instrumentation.md	docs	docs-agent	doc	2998	项目文档体系	docs,cc,observability,tracing,tasks,05,wails,rpc,dispatch,instrumentation,项目文档体系
+docs/cc/observability-tracing/tasks/06-react-frontend-trace-emitter.md	docs	docs-agent	doc	3559	项目文档体系	docs,cc,observability,tracing,tasks,06,react,frontend,trace,emitter,项目文档体系
+docs/cc/observability-tracing/tasks/07-thread-turn-spans.md	docs	docs-agent	doc	2878	项目文档体系	docs,cc,observability,tracing,tasks,07,thread,turn,spans,项目文档体系
+docs/cc/observability-tracing/tasks/08-provider-toolbridge-spans.md	docs	docs-agent	doc	2929	项目文档体系	docs,cc,observability,tracing,tasks,08,provider,toolbridge,spans,项目文档体系
+docs/cc/observability-tracing/tasks/09-bus-uistate-spans.md	docs	docs-agent	doc	2477	项目文档体系	docs,cc,observability,tracing,tasks,09,bus,uistate,spans,项目文档体系
+docs/cc/observability-tracing/tasks/10-dashboard-query-ui-verification-docs.md	docs	docs-agent	doc	5359	项目文档体系	docs,cc,observability,tracing,tasks,10,dashboard,query,ui,verification,项目文档体系
+docs/cc/p0/00-index.md	docs	docs-agent	doc	10377	项目文档体系	docs,cc,p0,00,index,项目文档体系
+docs/cc/p0/01-upstream-sync-conflict-map.md	docs	docs-agent	doc	2876	项目文档体系	docs,cc,p0,01,upstream,sync,conflict,map,项目文档体系
+docs/cc/p0/02-runtime-mode-sentinel.md	docs	docs-agent	doc	3568	项目文档体系	docs,cc,p0,02,runtime,mode,sentinel,项目文档体系
+docs/cc/p0/03-dev-entrypoints-db-dsn.md	docs	docs-agent	doc	1655	项目文档体系	docs,cc,p0,03,dev,entrypoints,db,dsn,项目文档体系
+docs/cc/p0/04-relay-preflight-gating.md	docs	docs-agent	doc	2511	项目文档体系	docs,cc,p0,04,relay,preflight,gating,项目文档体系
+docs/cc/p0/05-codex-home-routing.md	docs	docs-agent	doc	2759	项目文档体系	docs,cc,p0,05,codex,home,routing,项目文档体系
+docs/cc/p0/06-frontend-provider-defaults.md	docs	docs-agent	doc	3360	项目文档体系	docs,cc,p0,06,frontend,provider,defaults,项目文档体系
+docs/cc/p0/07-provider-prefs-scope.md	docs	docs-agent	doc	4148	项目文档体系	docs,cc,p0,07,provider,prefs,scope,项目文档体系
+docs/cc/p0/08-sidecar-runtime-inheritance.md	docs	docs-agent	doc	2417	项目文档体系	docs,cc,p0,08,sidecar,runtime,inheritance,项目文档体系
+docs/cc/p0/09-embedded-pg-baseline-atomicity.md	docs	docs-agent	doc	1529	项目文档体系	docs,cc,p0,09,embedded,pg,baseline,atomicity,项目文档体系
+docs/cc/p0/10-codex-sandbox-payload.md	docs	docs-agent	doc	2960	项目文档体系	docs,cc,p0,10,codex,sandbox,payload,项目文档体系
+docs/cc/p0/11-packaging-script-governance.md	docs	docs-agent	doc	2507	项目文档体系	docs,cc,p0,11,packaging,script,governance,项目文档体系
+docs/cc/p0/12-runtime-manifest-integrity.md	docs	docs-agent	doc	2975	项目文档体系	docs,cc,p0,12,runtime,manifest,integrity,项目文档体系
+docs/cc/p0/13-linux-packaging-parity.md	docs	docs-agent	doc	2240	项目文档体系	docs,cc,p0,13,linux,packaging,parity,项目文档体系
+docs/cc/p0/14-verification-smoke-matrix.md	docs	docs-agent	doc	5745	项目文档体系	docs,cc,p0,14,verification,smoke,matrix,项目文档体系
+docs/cc/p0/15-integration-review-final-gate.md	docs	docs-agent	doc	3980	项目文档体系	docs,cc,p0,15,integration,review,final,gate,项目文档体系
+docs/cc/t1/00-index.md	docs	docs-agent	doc	1394	项目文档体系	docs,cc,t1,00,index,项目文档体系
+docs/cc/t1/01-relay-bootstrap-credential.md	docs	docs-agent	doc	6059	项目文档体系	docs,cc,t1,01,relay,bootstrap,credential,项目文档体系
+docs/cc/t1/02-bundled-codex-cli.md	docs	docs-agent	doc	4783	项目文档体系	docs,cc,t1,02,bundled,codex,cli,项目文档体系
+docs/cc/t1/03-embedded-postgres-lifecycle.md	docs	docs-agent	doc	3991	项目文档体系	docs,cc,t1,03,embedded,postgres,lifecycle,项目文档体系
+docs/cc/t1/04-mcp-orch-linux-runtime.md	docs	docs-agent	doc	3281	项目文档体系	docs,cc,t1,04,mcp,orch,linux,runtime,项目文档体系
+docs/cc/t1/05-provider-ui-contract.md	docs	docs-agent	doc	4422	项目文档体系	docs,cc,t1,05,provider,ui,contract,项目文档体系
+docs/cc/t1/06-runtime-coupling-validation.md	docs	docs-agent	doc	5228	项目文档体系	docs,cc,t1,06,runtime,coupling,validation,项目文档体系
+docs/cc/thread-conversation-history-performance-review-2026-06-03.md	docs	docs-agent	doc	9388	项目文档体系	docs,cc,thread,conversation,history,performance,review,2026,06,03,项目文档体系
+docs/cc/thread-history-performance-dag-2026-06-03.md	docs	docs-agent	doc	3621	项目文档体系	docs,cc,thread,history,performance,dag,2026,06,03,项目文档体系
+docs/cc/traceid-agent-diagnostics-dag/closure-2026-06-03.md	docs	docs-agent	doc	3148	项目文档体系	docs,cc,traceid,agent,diagnostics,dag,closure,2026,06,03,项目文档体系
+docs/cc/traceid-agent-diagnostics-dag/README.md	docs	docs-agent	doc	7825	项目文档体系	docs,cc,traceid,agent,diagnostics,dag,README,项目文档体系
+docs/cc/traceid-agent-diagnostics-dag/task-01-trace-diagnosis-contract.md	docs	docs-agent	doc	2359	项目文档体系	docs,cc,traceid,agent,diagnostics,dag,task,01,trace,diagnosis,contract,项目文档体系
+docs/cc/traceid-agent-diagnostics-dag/task-02-query-freshness-and-predicate-alignment.md	docs	docs-agent	doc	1756	项目文档体系	docs,cc,traceid,agent,diagnostics,dag,task,02,query,freshness,and,predicate,alignment,项目文档体系
+docs/cc/traceid-agent-diagnostics-dag/task-03-tail-degradation-and-warning-propagation.md	docs	docs-agent	doc	2154	项目文档体系	docs,cc,traceid,agent,diagnostics,dag,task,03,tail,degradation,and,warning,propagation,项目文档体系
+docs/cc/traceid-agent-diagnostics-dag/task-04-redacted-model-facing-projection.md	docs	docs-agent	doc	3739	项目文档体系	docs,cc,traceid,agent,diagnostics,dag,task,04,redacted,model,facing,projection,项目文档体系
+docs/cc/traceid-agent-diagnostics-dag/task-05-host-direct-trace-tool-registry.md	docs	docs-agent	doc	1743	项目文档体系	docs,cc,traceid,agent,diagnostics,dag,task,05,host,direct,trace,tool,registry,项目文档体系
+docs/cc/traceid-agent-diagnostics-dag/task-06-host-dispatch-output-and-cwd-contract.md	docs	docs-agent	doc	1574	项目文档体系	docs,cc,traceid,agent,diagnostics,dag,task,06,host,dispatch,output,and,cwd,contract,项目文档体系
+docs/cc/traceid-agent-diagnostics-dag/task-07-codex-surface-wiring-gating-and-duplicates.md	docs	docs-agent	doc	1711	项目文档体系	docs,cc,traceid,agent,diagnostics,dag,task,07,codex,surface,wiring,gating,and,duplicates,项目文档体系
+docs/cc/traceid-agent-diagnostics-dag/task-08-platform-observability-tests.md	docs	docs-agent	doc	1758	项目文档体系	docs,cc,traceid,agent,diagnostics,dag,task,08,platform,observability,tests,项目文档体系
+docs/cc/traceid-agent-diagnostics-dag/task-09-toolbridge-and-codex-surface-tests.md	docs	docs-agent	doc	1664	项目文档体系	docs,cc,traceid,agent,diagnostics,dag,task,09,toolbridge,and,codex,surface,tests,项目文档体系
+docs/cc/traceid-agent-diagnostics-dag/task-10-integration-closure-verification-and-follow-up-docs.md	docs	docs-agent	doc	1794	项目文档体系	docs,cc,traceid,agent,diagnostics,dag,task,10,integration,closure,verification,and,follow,up,项目文档体系
+docs/cc/video/daily-douyin-ai-tools-dag.md	docs	docs-agent	doc	7619	项目文档体系	docs,cc,video,daily,douyin,ai,tools,dag,项目文档体系
+docs/cc/video/daily-douyin-ai-tools-task.yaml	docs	docs-agent	yaml	13260	项目文档体系	docs,cc,video,daily,douyin,ai,tools,task,项目文档体系
+docs/cc/video/douyin-ai-tools-prompt-templates.md	docs	docs-agent	doc	5603	项目文档体系	docs,cc,video,douyin,ai,tools,prompt,templates,项目文档体系
+docs/cc/workflow-sync-root-cause-20260604.md	docs	docs-agent	doc	14742	项目文档体系	docs,cc,workflow,sync,root,cause,20260604,项目文档体系
+docs/cc/workflow-sync-root-cause-review-findings-20260604.md	docs	docs-agent	doc	12369	项目文档体系	docs,cc,workflow,sync,root,cause,review,findings,20260604,项目文档体系
 docs/decisions/ADR-001-runtime-memory-retrieval.md	docs	docs-agent	doc	4188	ADR/决策记录	docs,decisions,ADR,001,runtime,memory,retrieval,决策记录
 docs/decisions/ADR-002-dependency-aware-cache.md	docs	docs-agent	doc	8106	ADR/决策记录	docs,decisions,ADR,002,dependency,aware,cache,决策记录
 docs/decisions/ADR-003-mcp-input-enum-validation.md	docs	docs-agent	doc	5845	ADR/决策记录	docs,decisions,ADR,003,mcp,input,enum,validation,决策记录
@@ -993,49 +1110,45 @@ docs/decisions/ADR-017-dag-turn-completed-subscriber.md	docs	docs-agent	doc	3655
 docs/decisions/ADR-018-agent-output-materialization.md	docs	docs-agent	doc	6732	ADR/决策记录	docs,decisions,ADR,018,agent,output,materialization,决策记录
 docs/decisions/README.md	docs	docs-agent	doc	4174	ADR/决策记录	docs,decisions,README,ADR,决策记录
 docs/design/F1-lifecycle-audit-2026-05-12.md	docs	docs-agent	doc	31844	项目文档体系	docs,design,F1,lifecycle,audit,2026,05,12,项目文档体系
-docs/doc/codemap/01-terminal-ui-go.md	docs	docs-agent	doc	25158	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,go,手写代码地图卷与自动,ai-index
-docs/doc/codemap/01-terminal-ui-vue.md	docs	docs-agent	doc	19350	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,vue,手写代码地图卷与自动,ai-index
-docs/doc/codemap/01-terminal-ui.md	docs	docs-agent	doc	3939	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,手写代码地图卷与自动,ai-index
-docs/doc/codemap/02-mcp-orch.md	docs	docs-agent	doc	67129	手写代码地图卷与自动 ai-index	docs,doc,codemap,02,mcp,orch,手写代码地图卷与自动,ai-index
-docs/doc/codemap/03-mcp-lsp-ida.md	docs	docs-agent	doc	25823	手写代码地图卷与自动 ai-index	docs,doc,codemap,03,mcp,lsp,ida,手写代码地图卷与自动,ai-index
+docs/doc/codemap/01-terminal-ui-go.md	docs	docs-agent	doc	25751	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,go,手写代码地图卷与自动,ai-index
+docs/doc/codemap/01-terminal-ui-react.md	docs	docs-agent	doc	3954	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,react,手写代码地图卷与自动,ai-index
+docs/doc/codemap/01-terminal-ui-vue.md	docs	docs-agent	doc	19694	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,vue,手写代码地图卷与自动,ai-index
+docs/doc/codemap/01-terminal-ui.md	docs	docs-agent	doc	4855	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,手写代码地图卷与自动,ai-index
+docs/doc/codemap/02-mcp-orch.md	docs	docs-agent	doc	68385	手写代码地图卷与自动 ai-index	docs,doc,codemap,02,mcp,orch,手写代码地图卷与自动,ai-index
+docs/doc/codemap/03-mcp-lsp-ida.md	docs	docs-agent	doc	25818	手写代码地图卷与自动 ai-index	docs,doc,codemap,03,mcp,lsp,ida,手写代码地图卷与自动,ai-index
 docs/doc/codemap/04-app-contract.md	docs	docs-agent	doc	63315	手写代码地图卷与自动 ai-index	docs,doc,codemap,04,app,contract,手写代码地图卷与自动,ai-index
 docs/doc/codemap/05-dto.md	docs	docs-agent	doc	67804	手写代码地图卷与自动 ai-index	docs,doc,codemap,05,dto,手写代码地图卷与自动,ai-index
-docs/doc/codemap/06-mcpserver.md	docs	docs-agent	doc	39238	手写代码地图卷与自动 ai-index	docs,doc,codemap,06,mcpserver,手写代码地图卷与自动,ai-index
+docs/doc/codemap/06-mcpserver.md	docs	docs-agent	doc	38902	手写代码地图卷与自动 ai-index	docs,doc,codemap,06,mcpserver,手写代码地图卷与自动,ai-index
 docs/doc/codemap/07-module-read.md	docs	docs-agent	doc	27892	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,read,手写代码地图卷与自动,ai-index
-docs/doc/codemap/07-module-write.md	docs	docs-agent	doc	38007	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,write,手写代码地图卷与自动,ai-index
+docs/doc/codemap/07-module-write.md	docs	docs-agent	doc	38590	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,write,手写代码地图卷与自动,ai-index
 docs/doc/codemap/07-module.md	docs	docs-agent	doc	6210	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,手写代码地图卷与自动,ai-index
-docs/doc/codemap/08-platform.md	docs	docs-agent	doc	55942	手写代码地图卷与自动 ai-index	docs,doc,codemap,08,platform,手写代码地图卷与自动,ai-index
-docs/doc/codemap/09-provider.md	docs	docs-agent	doc	78552	手写代码地图卷与自动 ai-index	docs,doc,codemap,09,provider,手写代码地图卷与自动,ai-index
-docs/doc/codemap/10-store.md	docs	docs-agent	doc	63110	手写代码地图卷与自动 ai-index	docs,doc,codemap,10,store,手写代码地图卷与自动,ai-index
+docs/doc/codemap/08-platform.md	docs	docs-agent	doc	56071	手写代码地图卷与自动 ai-index	docs,doc,codemap,08,platform,手写代码地图卷与自动,ai-index
+docs/doc/codemap/09-provider.md	docs	docs-agent	doc	78541	手写代码地图卷与自动 ai-index	docs,doc,codemap,09,provider,手写代码地图卷与自动,ai-index
+docs/doc/codemap/10-store.md	docs	docs-agent	doc	63159	手写代码地图卷与自动 ai-index	docs,doc,codemap,10,store,手写代码地图卷与自动,ai-index
 docs/doc/codemap/11-memory-prompt-thread.md	docs	docs-agent	doc	3251	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,memory,prompt,thread,手写代码地图卷与自动,ai-index
 docs/doc/codemap/11-memory.md	docs	docs-agent	doc	27583	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,memory,手写代码地图卷与自动,ai-index
-docs/doc/codemap/11-prompt-thread.md	docs	docs-agent	doc	60651	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,prompt,thread,手写代码地图卷与自动,ai-index
+docs/doc/codemap/11-prompt-thread.md	docs	docs-agent	doc	61599	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,prompt,thread,手写代码地图卷与自动,ai-index
 docs/doc/codemap/12-dream-pipeline.md	docs	docs-agent	doc	11594	手写代码地图卷与自动 ai-index	docs,doc,codemap,12,dream,pipeline,手写代码地图卷与自动,ai-index
-docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	948386	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
-docs/doc/codemap/capability-contract/README.md	docs	docs-agent	doc	587	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,README,手写代码地图卷与自动,ai-index
-docs/doc/codemap/README.md	docs	docs-agent	doc	2788	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
+docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	990100	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
+docs/doc/codemap/capability-contract/README.md	docs	docs-agent	doc	604	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,README,手写代码地图卷与自动,ai-index
+docs/doc/codemap/README.md	docs	docs-agent	doc	3223	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
 docs/doc/dream-provider-config.md	docs	docs-agent	doc	6470	项目文档体系	docs,doc,dream,provider,config,项目文档体系
 docs/experiments/p20-exp-a-agentsmd-merge.md	docs	docs-agent	doc	3848	项目文档体系	docs,experiments,p20,exp,a,agentsmd,merge,项目文档体系
 docs/experiments/p20-exp-b-claudecli-native-skills.md	docs	docs-agent	doc	4543	项目文档体系	docs,experiments,p20,exp,b,claudecli,native,skills,项目文档体系
 docs/handoff/dogfood-2026-05-12-merged-30commits.md	docs	docs-agent	doc	4370	项目文档体系	docs,handoff,dogfood,2026,05,12,merged,30commits,项目文档体系
-docs/internal-notes/lsp提示词英文版.md	docs	docs-agent	doc	6485	内部提示词与工程方法记录	docs,internal,notes,lsp提示词英文版,内部提示词与工程方法记录
-docs/internal-notes/LSP系统提示词.md	docs	docs-agent	doc	5982	内部提示词与工程方法记录	docs,internal,notes,LSP系统提示词,内部提示词与工程方法记录
+docs/internal-notes/lsp提示词英文版.md	docs	docs-agent	doc	6646	内部提示词与工程方法记录	docs,internal,notes,lsp提示词英文版,内部提示词与工程方法记录
+docs/internal-notes/LSP系统提示词.md	docs	docs-agent	doc	6103	内部提示词与工程方法记录	docs,internal,notes,LSP系统提示词,内部提示词与工程方法记录
 docs/internal-notes/TDD_护栏思维_逆向工程方法论.md	docs	docs-agent	doc	14226	内部提示词与工程方法记录	docs,internal,notes,TDD,护栏思维,逆向工程方法论,内部提示词与工程方法记录
-docs/li/p1/01-naked-returns-empty-funcs.md	docs	docs-agent	doc	1920	项目文档体系	docs,li,p1,01,naked,returns,empty,funcs,项目文档体系
-docs/li/p1/02-init-functions.md	docs	docs-agent	doc	1711	项目文档体系	docs,li,p1,02,init,functions,项目文档体系
-docs/li/p1/03-explicit-panics.md	docs	docs-agent	doc	1877	项目文档体系	docs,li,p1,03,explicit,panics,项目文档体系
-docs/li/p1/04-todo-cleanups.md	docs	docs-agent	doc	1508	项目文档体系	docs,li,p1,04,todo,cleanups,项目文档体系
-docs/li/p1/05-global-vars-refactor.md	docs	docs-agent	doc	2295	项目文档体系	docs,li,p1,05,global,vars,refactor,项目文档体系
-docs/li/p1/06-integration-and-shrink.md	docs	docs-agent	doc	818	项目文档体系	docs,li,p1,06,integration,and,shrink,项目文档体系
-docs/li/p1/README.md	docs	docs-agent	doc	2559	项目文档体系	docs,li,p1,README,项目文档体系
-docs/li/p2/01-generic-language-service-architecture.md	docs	docs-agent	doc	7732	项目文档体系	docs,li,p2,01,generic,language,service,architecture,项目文档体系
-docs/li/p2/02-tool-surface-error-compat.md	docs	docs-agent	doc	8391	项目文档体系	docs,li,p2,02,tool,surface,error,compat,项目文档体系
-docs/li/p2/03-manager-lifecycle-fault-tolerance.md	docs	docs-agent	doc	10986	项目文档体系	docs,li,p2,03,manager,lifecycle,fault,tolerance,项目文档体系
-docs/li/p2/04-diagnostics-cache-protection.md	docs	docs-agent	doc	9640	项目文档体系	docs,li,p2,04,diagnostics,cache,protection,项目文档体系
-docs/li/p2/05-go-workspace-fault-tolerance.md	docs	docs-agent	doc	9664	项目文档体系	docs,li,p2,05,go,workspace,fault,tolerance,项目文档体系
-docs/li/p2/06-transport-discovery-rollout.md	docs	docs-agent	doc	17362	项目文档体系	docs,li,p2,06,transport,discovery,rollout,项目文档体系
-docs/li/p2/README.md	docs	docs-agent	doc	13191	项目文档体系	docs,li,p2,README,项目文档体系
 docs/migrations/prompt-seed-policy.md	docs	docs-agent	doc	4936	项目文档体系	docs,migrations,prompt,seed,policy,项目文档体系
+docs/observability/elk-logging.md	docs	docs-agent	doc	6964	项目文档体系	docs,observability,elk,logging,项目文档体系
+docs/packaging/embedded-postgres.md	docs	docs-agent	doc	541	项目文档体系	docs,packaging,embedded,postgres,项目文档体系
+docs/packaging/github-release-update.md	docs	docs-agent	doc	8974	项目文档体系	docs,packaging,github,release,update,项目文档体系
+docs/packaging/linux-packaging-guide.md	docs	docs-agent	doc	2978	项目文档体系	docs,packaging,linux,guide,项目文档体系
+docs/packaging/macos-clean-vm-checklist.md	docs	docs-agent	doc	3004	项目文档体系	docs,packaging,macos,clean,vm,checklist,项目文档体系
+docs/packaging/macos-dmg-packaging-guide.md	docs	docs-agent	doc	3164	项目文档体系	docs,packaging,macos,dmg,guide,项目文档体系
+docs/packaging/macos-gray-release.md	docs	docs-agent	doc	2567	项目文档体系	docs,packaging,macos,gray,release,项目文档体系
+docs/packaging/release-notes-2026-05-28.md	docs	docs-agent	doc	2575	项目文档体系	docs,packaging,release,notes,2026,05,28,项目文档体系
+docs/packaging/windows-packaging-guide.md	docs	docs-agent	doc	2540	项目文档体系	docs,packaging,windows,guide,项目文档体系
 docs/plans/2026-03-19-framework-selection.md	docs	docs-agent	doc	11527	历史计划与迁移执行文档	docs,plans,2026,03,19,framework,selection,历史计划与迁移执行文档
 docs/plans/2026-03-19-jrpc2-framework.md	docs	docs-agent	doc	14596	历史计划与迁移执行文档	docs,plans,2026,03,19,jrpc2,framework,历史计划与迁移执行文档
 docs/plans/2026-03-19-migration-v3.md	docs	docs-agent	doc	3113	历史计划与迁移执行文档	docs,plans,2026,03,19,migration,v3,历史计划与迁移执行文档
@@ -1048,6 +1161,9 @@ docs/plans/2026-04-17-codexapp-rename-codexcli.md	docs	docs-agent	doc	10644	历�
 docs/plans/2026-04-17-lsp-package-relocation.md	docs	docs-agent	doc	23739	历史计划与迁移执行文档	docs,plans,2026,04,17,lsp,package,relocation,历史计划与迁移执行文档
 docs/plans/2026-05-09-session-stopped-rootfix.md	docs	docs-agent	doc	29573	历史计划与迁移执行文档	docs,plans,2026,05,09,session,stopped,rootfix,历史计划与迁移执行文档
 docs/plans/2026-05-14-thread-auto-naming.md	docs	docs-agent	doc	3854	历史计划与迁移执行文档	docs,plans,2026,05,14,thread,auto,naming,历史计划与迁移执行文档
+docs/plans/2026-06-01-lsp-output-unification.md	docs	docs-agent	doc	11660	历史计划与迁移执行文档	docs,plans,2026,06,01,lsp,output,unification,历史计划与迁移执行文档
+docs/plans/2026-06-06-code-guard-thaw-dag-plan.md	docs	docs-agent	doc	11667	历史计划与迁移执行文档	docs,plans,2026,06,code,guard,thaw,dag,plan,历史计划与迁移执行文档
+docs/plans/2026-06-06-code-guard-thaw-n0-b1-review.md	docs	docs-agent	doc	46558	历史计划与迁移执行文档	docs,plans,2026,06,code,guard,thaw,n0,b1,review,历史计划与迁移执行文档
 docs/plans/记忆去重过滤器.md	docs	docs-agent	doc	31998	历史计划与迁移执行文档	docs,plans,记忆去重过滤器,历史计划与迁移执行文档
 docs/plans/记忆中心UI布局重构.md	docs	docs-agent	doc	23948	历史计划与迁移执行文档	docs,plans,记忆中心UI布局重构,历史计划与迁移执行文档
 docs/plans/记忆中心UI改造.md	docs	docs-agent	doc	10974	历史计划与迁移执行文档	docs,plans,记忆中心UI改造,历史计划与迁移执行文档
@@ -1340,10 +1456,57 @@ docs/plans/dag改造蓝图v2.md	docs	docs-agent	doc	24370	历史计划与迁移�
 docs/plans/dag改造实施计划.md	docs	docs-agent	doc	114992	历史计划与迁移执行文档	docs,plans,dag改造实施计划,历史计划与迁移执行文档
 docs/plans/framework_audit.md	docs	docs-agent	doc	20809	历史计划与迁移执行文档	docs,plans,framework,audit,历史计划与迁移执行文档
 docs/plans/lsp-tool-result-optimization.md	docs	docs-agent	doc	7337	历史计划与迁移执行文档	docs,plans,lsp,tool,result,optimization,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase1/adjudication.md	docs	docs-agent	doc	1004	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase1,adjudication,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase1/implementation-plan.md	docs	docs-agent	doc	965	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase1,implementation,plan,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase1/issues-ledger.json	docs	docs-agent	json	1832	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase1,issues,ledger,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase1/rescore.md	docs	docs-agent	doc	877	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase1,rescore,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase1/review-after-implementation.md	docs	docs-agent	doc	1111	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase1,review,after,implementation,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase1/round-summary.md	docs	docs-agent	doc	1923	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase1,round,summary,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase1/scorecards/compatibility.json	docs	docs-agent	json	1289	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase1,scorecards,compatibility,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase1/scorecards/input-contract.json	docs	docs-agent	json	1256	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase1,scorecards,input,contract,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase1/scorecards/verification.json	docs	docs-agent	json	1301	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase1,scorecards,verification,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase3/adjudication.md	docs	docs-agent	doc	858	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase3,adjudication,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase3/implementation-plan.md	docs	docs-agent	doc	1373	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase3,implementation,plan,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase3/issues-ledger.json	docs	docs-agent	json	2101	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase3,issues,ledger,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase3/rescore.md	docs	docs-agent	doc	1079	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase3,rescore,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase3/review-after-implementation.md	docs	docs-agent	doc	1514	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase3,review,after,implementation,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase3/round-summary.md	docs	docs-agent	doc	741	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase3,round,summary,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase3/scorecards/compatibility.json	docs	docs-agent	json	1032	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase3,scorecards,compatibility,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase3/scorecards/mutation-selector.json	docs	docs-agent	json	1090	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase3,scorecards,mutation,selector,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase3/scorecards/verification.json	docs	docs-agent	json	793	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase3,scorecards,verification,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase4/adjudication.md	docs	docs-agent	doc	854	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase4,adjudication,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase4/implementation-plan.md	docs	docs-agent	doc	1370	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase4,implementation,plan,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase4/issues-ledger.json	docs	docs-agent	json	2417	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase4,issues,ledger,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase4/rescore.md	docs	docs-agent	doc	1213	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase4,rescore,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase4/review-after-implementation.md	docs	docs-agent	doc	1695	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase4,review,after,implementation,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase4/round-summary.md	docs	docs-agent	doc	575	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase4,round,summary,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase4/scorecards/compatibility.json	docs	docs-agent	json	1014	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase4,scorecards,compatibility,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase4/scorecards/complex-input.json	docs	docs-agent	json	1080	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase4,scorecards,complex,input,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase4/scorecards/verification.json	docs	docs-agent	json	812	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase4,scorecards,verification,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase5/adjudication.md	docs	docs-agent	doc	1220	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase5,adjudication,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase5/implementation-plan.md	docs	docs-agent	doc	1063	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase5,implementation,plan,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase5/issues-ledger.json	docs	docs-agent	json	1448	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase5,issues,ledger,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase5/rescore.md	docs	docs-agent	doc	1620	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase5,rescore,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase5/review-after-implementation.md	docs	docs-agent	doc	1282	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase5,review,after,implementation,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase5/round-summary.md	docs	docs-agent	doc	1314	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase5,round,summary,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase5/score-table.md	docs	docs-agent	doc	2382	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase5,score,table,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase5/scorecards/output-uniformity.json	docs	docs-agent	json	1313	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase5,scorecards,output,uniformity,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase6/adjudication.md	docs	docs-agent	doc	917	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase6,adjudication,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase6/implementation-plan.md	docs	docs-agent	doc	686	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase6,implementation,plan,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase6/issues-ledger.json	docs	docs-agent	json	955	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase6,issues,ledger,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase6/rescore.md	docs	docs-agent	doc	1296	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase6,rescore,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase6/review-after-implementation.md	docs	docs-agent	doc	1327	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase6,review,after,implementation,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase6/round-summary.md	docs	docs-agent	doc	1172	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase6,round,summary,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase6/score-table.md	docs	docs-agent	doc	1888	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase6,score,table,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-phase6/scorecards/array-output-migration.json	docs	docs-agent	json	1302	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase6,scorecards,array,output,migration,历史计划与迁移执行文档
+docs/plans/orch-pos-feedback-loop/2026-06-01-validation/cognitive-usability-score.md	docs	docs-agent	doc	3934	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,validation,cognitive,usability,score,历史计划与迁移执行文档
 docs/plans/prompt-ui-redesign.md	docs	docs-agent	doc	21543	历史计划与迁移执行文档	docs,plans,prompt,ui,redesign,历史计划与迁移执行文档
+docs/plans/README.md	docs	docs-agent	doc	377	历史计划与迁移执行文档	docs,plans,README,历史计划与迁移执行文档
 docs/plans/v3-workflow.md	docs	docs-agent	doc	84578	历史计划与迁移执行文档	docs,plans,v3,workflow,历史计划与迁移执行文档
-docs/security/internal/check_repofp_delegators.go	docs	docs-agent	go-source	2034	项目文档体系	docs,security,internal,check,repofp,delegators,项目文档体系
-docs/security/p21-redteam.sh	docs	docs-agent	script	7246	项目文档体系	docs,security,p21,redteam,项目文档体系
+docs/README.md	docs	docs-agent	doc	1558	项目文档体系	docs,README,项目文档体系
+docs/scripts/macos_release_smoke.sh	docs	docs-agent	script	19254	项目文档体系	docs,scripts,macos,release,smoke,项目文档体系
+docs/security/internal/check_repofp_delegators.go	docs	docs-agent	go-source	2393	项目文档体系	docs,security,internal,check,repofp,delegators,项目文档体系
+docs/security/p21-redteam.sh	docs	docs-agent	script	7238	项目文档体系	docs,security,p21,redteam,项目文档体系
 docs/superpowers/需求文档/发布验收清单-未完成.md	docs	docs-agent	doc	3590	项目文档体系	docs,superpowers,需求文档,发布验收清单,未完成,项目文档体系
 docs/superpowers/需求文档/后台页面字段清单-未完成.md	docs	docs-agent	doc	4222	项目文档体系	docs,superpowers,需求文档,后台页面字段清单,未完成,项目文档体系
 docs/superpowers/需求文档/接口拆工表-未完成.md	docs	docs-agent	doc	5218	项目文档体系	docs,superpowers,需求文档,接口拆工表,未完成,项目文档体系
@@ -1371,9 +1534,22 @@ docs/superpowers/plans/2026-05-21-launch-agent-cwd-contract.md	docs	docs-agent	d
 docs/superpowers/plans/2026-05-21-mcp-ida-p0-p1-remediation.md	docs	docs-agent	doc	14920	项目文档体系	docs,superpowers,plans,2026,05,21,mcp,ida,p0,p1,remediation,项目文档体系
 docs/superpowers/plans/2026-05-21-mcp-orch-p0-p1-remediation.md	docs	docs-agent	doc	26629	项目文档体系	docs,superpowers,plans,2026,05,21,mcp,orch,p0,p1,remediation,项目文档体系
 docs/superpowers/plans/2026-05-23-skill-display-name.md	docs	docs-agent	doc	5006	项目文档体系	docs,superpowers,plans,2026,05,23,skill,display,name,项目文档体系
+docs/superpowers/plans/2026-05-27-packaged-app-mvp-reset-plan.md	docs	docs-agent	doc	35999	项目文档体系	docs,superpowers,plans,2026,05,27,packaged,app,mvp,reset,plan,项目文档体系
+docs/superpowers/plans/2026-05-29-package-embedded-pg-run-debug-compat-fix-plan.md	docs	docs-agent	doc	39215	项目文档体系	docs,superpowers,plans,2026,05,29,package,embedded,pg,run,debug,compat,fix,plan,项目文档体系
+docs/superpowers/plans/2026-05-30-package-embedded-pg-reapply.md	docs	docs-agent	doc	8654	项目文档体系	docs,superpowers,plans,2026,05,30,package,embedded,pg,reapply,项目文档体系
+docs/superpowers/plans/2026-05-31-dev-runtime-contract-unification.md	docs	docs-agent	doc	49508	项目文档体系	docs,superpowers,plans,2026,05,31,dev,runtime,contract,unification,项目文档体系
+docs/superpowers/plans/2026-05-31-frontend-ui-theme-redesign.md	docs	docs-agent	doc	3422	项目文档体系	docs,superpowers,plans,2026,05,31,frontend,ui,theme,redesign,项目文档体系
+docs/superpowers/plans/2026-06-13-super-dolphin-ui-refactor-completion-audit.md	docs	docs-agent	doc	5843	项目文档体系	docs,superpowers,plans,2026,06,13,super,dolphin,ui,refactor,completion,audit,项目文档体系
+docs/superpowers/plans/2026-06-13-super-dolphin-ui-refactor-first-phase.md	docs	docs-agent	doc	10857	项目文档体系	docs,superpowers,plans,2026,06,13,super,dolphin,ui,refactor,first,phase,项目文档体系
+docs/superpowers/plans/2026-06-16-custom-role-personalization.md	docs	docs-agent	doc	4415	项目文档体系	docs,superpowers,plans,2026,06,16,custom,role,personalization,项目文档体系
+docs/superpowers/plans/打包/2026-06-06-macos-gray-packaging-and-updater.md	docs	docs-agent	doc	94266	项目文档体系	docs,superpowers,plans,打包,2026,06,macos,gray,packaging,and,updater,项目文档体系
+docs/superpowers/plans/打包/2026-06-06-macos-gray-packaging-dag-tasks.md	docs	docs-agent	doc	24454	项目文档体系	docs,superpowers,plans,打包,2026,06,macos,gray,packaging,dag,tasks,项目文档体系
 docs/superpowers/plans/内置提示词优化/prompt-inventory-whitelist.md	docs	docs-agent	doc	13706	项目文档体系	docs,superpowers,plans,内置提示词优化,prompt,inventory,whitelist,项目文档体系
 docs/superpowers/plans/内置提示词优化/prompt-template-canonical-assets.md	docs	docs-agent	doc	7979	项目文档体系	docs,superpowers,plans,内置提示词优化,prompt,template,canonical,assets,项目文档体系
 docs/superpowers/plans/提示词2阶段/README.md	docs	docs-agent	doc	4808	项目文档体系	docs,superpowers,plans,提示词2阶段,README,项目文档体系
+docs/superpowers/plans/assets/2026-06-13-super-dolphin-chat-detail-prototype.png	docs	docs-agent	png	354289	项目文档体系	docs,superpowers,plans,assets,2026,06,13,super,dolphin,chat,detail,prototype,项目文档体系
+docs/superpowers/plans/assets/2026-06-13-super-dolphin-new-chat-prototype.png	docs	docs-agent	png	81102	项目文档体系	docs,superpowers,plans,assets,2026,06,13,super,dolphin,new,chat,prototype,项目文档体系
+docs/superpowers/plans/assets/2026-06-13-ui-refactor-home-implementation-1568x1240.png	docs	docs-agent	png	94338	项目文档体系	docs,superpowers,plans,assets,2026,06,13,ui,refactor,home,implementation,1568x1240,项目文档体系
 docs/superpowers/plans/dag计划/2026-05-23-dag-console-v1-narrow-plan.md	docs	docs-agent	doc	7008	项目文档体系	docs,superpowers,plans,dag计划,2026,05,23,dag,console,v1,narrow,plan,项目文档体系
 docs/superpowers/plans/dag计划/README.md	docs	docs-agent	doc	3356	项目文档体系	docs,superpowers,plans,dag计划,README,项目文档体系
 docs/superpowers/plans/skill功能重构/00-implementation-index-and-decisions.md	docs	docs-agent	doc	14158	项目文档体系	docs,superpowers,plans,skill功能重构,00,implementation,index,and,decisions,项目文档体系
@@ -1383,9 +1559,12 @@ docs/superpowers/plans/skill功能重构/02b-v1-resolution-ui-rpc.md	docs	docs-a
 docs/superpowers/plans/skill功能重构/03-v2-skill-proposal.md	docs	docs-agent	doc	42906	项目文档体系	docs,superpowers,plans,skill功能重构,03,v2,skill,proposal,项目文档体系
 docs/superpowers/plans/skill功能重构/04-v3-personal-auto-maintenance.md	docs	docs-agent	doc	30690	项目文档体系	docs,superpowers,plans,skill功能重构,04,v3,personal,auto,maintenance,项目文档体系
 docs/superpowers/plans/skill功能重构/skill功能重构.md	docs	docs-agent	doc	29192	项目文档体系	docs,superpowers,plans,skill功能重构,项目文档体系
+docs/superpowers/README.md	docs	docs-agent	doc	484	项目文档体系	docs,superpowers,README,项目文档体系
 docs/superpowers/specs/2026-04-29-skill-refactor-design-appendix-cli-test.md	docs	docs-agent	doc	21237	项目文档体系	docs,superpowers,specs,2026,04,29,skill,refactor,design,appendix,cli,test,项目文档体系
 docs/superpowers/specs/2026-04-29-skill-refactor-design.md	docs	docs-agent	doc	31728	项目文档体系	docs,superpowers,specs,2026,04,29,skill,refactor,design,项目文档体系
 docs/superpowers/specs/2026-05-03-host-direct-memory-write-design.md	docs	docs-agent	doc	24348	项目文档体系	docs,superpowers,specs,2026,05,03,host,direct,memory,write,design,项目文档体系
-docs/superpowers/specs/2026-05-03-prompt-based-tool-filter-design.md	docs	docs-agent	doc	10939	项目文档体系	docs,superpowers,specs,2026,05,03,prompt,based,tool,filter,design,项目文档体系
+docs/superpowers/specs/2026-05-03-prompt-based-tool-filter-design.md	docs	docs-agent	doc	10932	项目文档体系	docs,superpowers,specs,2026,05,03,prompt,based,tool,filter,design,项目文档体系
 docs/superpowers/specs/2026-05-04-thread-auto-naming-design.md	docs	docs-agent	doc	3882	项目文档体系	docs,superpowers,specs,2026,05,04,thread,auto,naming,design,项目文档体系
 docs/superpowers/specs/2026-05-14-thread-auto-naming-design.md	docs	docs-agent	doc	3803	项目文档体系	docs,superpowers,specs,2026,05,14,thread,auto,naming,design,项目文档体系
+docs/superpowers/specs/2026-05-31-frontend-ui-theme-redesign.md	docs	docs-agent	doc	6155	项目文档体系	docs,superpowers,specs,2026,05,31,frontend,ui,theme,redesign,项目文档体系
+docs/superpowers/specs/2026-06-16-custom-role-personalization-design.md	docs	docs-agent	doc	6003	项目文档体系	docs,superpowers,specs,2026,06,16,custom,role,personalization,design,项目文档体系

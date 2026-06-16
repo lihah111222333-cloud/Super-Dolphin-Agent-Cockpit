@@ -87,6 +87,12 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
       agentKey: 'assistant',
       toolSurfaceMode: 'chat',
       deferSpawn: true,
+      codexModelProvider: 'openai',
+      config: {
+        codexHome: 'C:\\Users\\ai01\\.codex',
+        codexInstanceKey: 'default',
+        codexModelProvider: 'openai',
+      },
       launchIntentId: 'launch_018f00e0-39fc-72ac-a47a-2a858c75d111',
       optimisticUserMessage: 'Hello',
       skipInitialRuntimeSync: true,
@@ -100,6 +106,11 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
       agent_key: 'assistant',
       toolSurfaceMode: 'chat',
       defer_spawn: true,
+      config: {
+        codexHome: 'C:\\Users\\ai01\\.codex',
+        codexInstanceKey: 'default',
+        codexModelProvider: 'openai',
+      },
       launchIntentId: 'launch_018f00e0-39fc-72ac-a47a-2a858c75d111',
     });
   });
@@ -113,6 +124,17 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
       modelProvider: 'codex',
       toolSurfaceMode: 'full',
     }), 'toolSurfaceMode must be chat, auto, or agent');
+  });
+
+  it('rejects unknown thread/start payload fields before calling the backend', () => {
+    const callAPI = vi.fn().mockResolvedValue({ threadId: 'thread-123' });
+    const api = createBackendApi({ callAPI });
+
+    expectInvalidInputDoesNotCall(callAPI, () => api.startThread({
+      cwd: '/repo/app',
+      modelProvider: 'codex',
+      unexpectedUiField: true,
+    }), 'thread/start: unsupported payload field unexpectedUiField');
   });
 
   it('does not opt into pending launch unless deferSpawn is explicitly requested', async () => {
@@ -795,6 +817,16 @@ async function writePromptFacadePrompt(api) {
 }
 
 async function callPromptIntentFacadeMethods(api) {
+  await api.getPersonalizationProfile({ cwd: '/repo/app' });
+  await api.savePersonalizationProfile({
+    cwd: '/repo/app',
+    profile: {
+      displayName: ' 小海 ',
+      role: '后端工程师',
+      background: '熟悉 Go',
+      customInstructions: '回答要直接',
+    },
+  });
   await api.draftPromptIntent({
     cwd: '/repo/app',
     kind: 'expert',
@@ -853,6 +885,18 @@ function expectPromptWriteCall(callAPI) {
 }
 
 function expectPromptIntentFacadeCalls(callAPI) {
+  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PERSONALIZATION_PROFILE_GET, {
+    cwd: '/repo/app',
+  });
+  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PERSONALIZATION_PROFILE_SAVE, {
+    cwd: '/repo/app',
+    profile: {
+      displayName: ' 小海 ',
+      role: '后端工程师',
+      background: '熟悉 Go',
+      customInstructions: '回答要直接',
+    },
+  });
   expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_DRAFT, {
     cwd: '/repo/app',
     kind: 'expert',
@@ -897,6 +941,9 @@ function expectPromptFacadeValidation(api) {
   expect(() => api.writePrompt({ cwd: '/repo/app', name: '' })).toThrow('name is required');
   expect(() => api.commitPromptIntent({ cwd: '/repo/app', draftKey: '' })).toThrow('draft_key is required');
   expect(() => api.dryRunPromptIntent({ cwd: '/repo/app', draftKey: 'd1', question: '' })).toThrow('question is required');
+  expect(() => api.getPersonalizationProfile({ cwd: '' })).toThrow('cwd is required');
+  expect(() => api.savePersonalizationProfile({ cwd: '', profile: {} })).toThrow('cwd is required');
+  expect(() => api.savePersonalizationProfile({ cwd: '/repo/app', profile: null })).toThrow('profile must be an object');
 }
 
   it('wraps prompt RPCs with legacy payload shapes', async () => {

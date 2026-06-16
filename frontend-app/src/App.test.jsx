@@ -112,6 +112,48 @@ function decodedSvgDataUrl(image) {
   return decodeURIComponent(src.slice(prefix.length));
 }
 
+function waitForBackendThreadHeading() {
+  return screen.findByRole('heading', { name: '后端线程' });
+}
+
+async function openSkillToolsPage() {
+  fireEvent.click(screen.getByLabelText('插件与技能'));
+  fireEvent.click(await screen.findByRole('button', { name: 'Skill工具' }));
+}
+
+function getBackendThreadText() {
+  return screen.getAllByText('后端线程')[0];
+}
+
+function queryBackendThreadText() {
+  return screen.queryAllByText('后端线程')[0] ?? null;
+}
+
+function getThreadCardByName(name) {
+  const card = screen.getAllByText(name)
+    .map((node) => node.closest('.thread-card'))
+    .find(Boolean);
+  if (!card) throw new Error(`Thread card not found: ${name}`);
+  return card;
+}
+
+function clickThreadCardByName(name) {
+  const button = getThreadCardByName(name).querySelector('.thread-main');
+  if (!button) throw new Error(`Thread card button not found: ${name}`);
+  fireEvent.click(button);
+}
+
+function queryThreadCardByName(name) {
+  return screen.queryAllByText(name)
+    .map((node) => node.closest('.thread-card'))
+    .find(Boolean) ?? null;
+}
+
+async function findThreadCardByName(name) {
+  await screen.findAllByText(name);
+  return getThreadCardByName(name);
+}
+
 function defaultSkillFixtures() {
   return [
     {
@@ -255,6 +297,35 @@ function mockPromptDefaults() {
   backend.commitPromptIntent.mockResolvedValue({ prompt: { id: 'intent/expert/default' } });
   backend.discardPromptIntent.mockResolvedValue({ ok: true });
   backend.dryRunPromptIntent.mockResolvedValue({ would_use: true, reasons: ['matched'] });
+}
+
+function mockPromptWizardEntryPrompt(overrides = {}) {
+  const name = overrides.name || '待确认入口';
+  const content = overrides.content || '待确认内容';
+  const scope = overrides.scope || 'project';
+  backend.listPromptAssets.mockResolvedValue({
+    prompts: [{
+      id: overrides.id || 'intent/expert/entry',
+      draft_key: overrides.draftKey || 'intent/expert/entry',
+      draft_status: overrides.status || 'ready_to_save',
+      state: 'pending_confirm',
+      name,
+      content,
+      description: overrides.description || '',
+      tags: overrides.tags || ['intent:expert'],
+      scope,
+      enabled: true,
+      card: overrides.card || {
+        kind: 'expert',
+        scope,
+        title: name,
+        output: content,
+        hit_examples: [],
+        miss_examples: [],
+      },
+      issues: overrides.issues || [],
+    }],
+  });
 }
 
 function mockMemoryDefaults() {
@@ -591,9 +662,23 @@ async function showAllTraceDashboardEvents() {
     expect(shell).toHaveAttribute('data-theme', 'light');
     expect(document.querySelector('.traffic-lights')).not.toBeInTheDocument();
     expect(document.querySelector('.titlebar')).not.toBeInTheDocument();
-    expect(within(sidebar).getByText('Super Dolphin')).toBeInTheDocument();
-    expect(within(sidebar).getByRole('button', { name: '新会话' })).toBeInTheDocument();
-    expect(within(sidebar).getByRole('button', { name: 'Settings' })).toBeInTheDocument();
+    expect(within(sidebar).getByText('Super-Dolphin')).toBeInTheDocument();
+    expect(within(sidebar).getByRole('button', { name: '新对话' })).toBeInTheDocument();
+    expect(within(sidebar).getByRole('button', { name: '设置' })).toBeInTheDocument();
+    const sidebarResizer = within(sidebar).getByRole('separator', { name: '调整工作台侧栏宽度' });
+    expect(sidebarResizer).toHaveAttribute('aria-valuenow', '340');
+
+    fireEvent.keyDown(sidebarResizer, { key: 'ArrowLeft' });
+
+    expect(sidebarResizer).toHaveAttribute('aria-valuenow', '324');
+    expect(sidebar.parentElement).toHaveStyle({ '--workbench-sidebar-width': '324px' });
+
+    dispatchPointer(sidebarResizer, 'pointerdown', 324);
+    dispatchPointer(window, 'pointermove', 374);
+    dispatchPointer(window, 'pointerup', 374);
+
+    expect(sidebarResizer).toHaveAttribute('aria-valuenow', '374');
+    expect(sidebar.parentElement).toHaveStyle({ '--workbench-sidebar-width': '374px' });
   });
 
   it('keeps settings reachable from the collapsible workbench control', async () => {
@@ -609,42 +694,120 @@ async function showAllTraceDashboardEvents() {
     expect(screen.getByTestId('app-sidebar')).toHaveClass('is-open');
     expect(screen.getByTestId('app-sidebar')).toHaveStyle({ marginLeft: '0px' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(screen.getByRole('button', { name: '设置' }));
     await screen.findByTestId('settings-page');
     expect(shell).not.toHaveClass('sidebar-open');
   });
 
-  it('wires the sidebar project directory to project and file picker actions', async () => {
+  it('wires the sidebar project directory to project and thread actions', async () => {
+    backend.getSidebarState.mockImplementation(({ cwd }) => Promise.resolve(cwd === '/repo/other' ? {
+      activeThreadId: 'thread-other',
+      threads: [{ id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle', cwd: '/repo/other' }],
+    } : {
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中', cwd: '/repo/app' }],
+    }));
+    backend.getThreadState.mockImplementation(({ threadId }) => Promise.resolve({
+      activeThreadId: threadId,
+      threads: [
+        { id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中', cwd: '/repo/app' },
+        { id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle', cwd: '/repo/other' },
+      ],
+      timelinesByThread: {
+        [threadId]: [{ id: `message-${threadId}`, kind: 'assistant', text: `${threadId} message`, ts: '2026-05-30T00:00:00Z' }],
+      },
+    }));
     backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
-    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    backend.setActiveProject.mockImplementation(({ path }) => Promise.resolve({
+      projects: path === '/repo/new' ? ['/repo/app', '/repo/other', '/repo/new'] : ['/repo/app', '/repo/other'],
+      active: path,
+    }));
     backend.addProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other', '/repo/new'], active: '/repo/other' });
     backend.selectProjectDir.mockResolvedValue('/repo/new');
-    backend.selectFiles.mockResolvedValue(['/repo/app/src/main.go']);
 
     render(<App />);
 
     const sidebar = await screen.findByTestId('app-sidebar');
+    const appChats = await within(sidebar).findByRole('list', { name: 'app 聊天记录' });
+    const otherChats = await within(sidebar).findByRole('list', { name: 'other 聊天记录' });
+    expect(within(appChats).getByTitle('后端线程')).toBeInTheDocument();
+    expect(within(appChats).queryByText('指定文件')).not.toBeInTheDocument();
+    expect(within(appChats).queryByText('共享文件')).not.toBeInTheDocument();
+    expect(within(otherChats).queryByTitle('Other project chat')).not.toBeInTheDocument();
+
     fireEvent.click(await within(sidebar).findByRole('button', { name: '选择项目 other' }));
     await waitFor(() => expect(backend.setActiveProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/other' }));
+    await waitFor(() => expect(within(otherChats).getByTitle('Other project chat')).toBeInTheDocument());
+
+    fireEvent.click(within(otherChats).getByTitle('重命名'));
+    fireEvent.change(within(otherChats).getByLabelText('会话名称'), { target: { value: 'Renamed sidebar chat' } });
+    fireEvent.click(within(otherChats).getByLabelText('保存会话名称'));
+    await waitFor(() => expect(backend.renameThread).toHaveBeenCalledWith({ threadId: 'thread-other', name: 'Renamed sidebar chat' }));
+    await waitFor(() => expect(within(otherChats).getByTitle('Renamed sidebar chat')).toBeInTheDocument());
+
+    fireEvent.click(within(otherChats).getByTitle('Renamed sidebar chat'));
+    await waitFor(() => expect(useClientStore.getState().activeThreadId).toBe('thread-other'));
+
+    fireEvent.click(within(otherChats).getByTitle('删除'));
+    fireEvent.click(within(otherChats).getByRole('button', { name: '删除' }));
+    await waitFor(() => expect(backend.deleteThread).toHaveBeenCalledWith({ threadId: 'thread-other' }));
+
+    await waitFor(() => expect(useClientStore.getState().activeThreadId).toBe(''));
 
     fireEvent.click(within(sidebar).getByRole('button', { name: '添加项目目录' }));
     await waitFor(() => expect(backend.selectProjectDir).toHaveBeenCalledWith('/repo/other'));
     expect(backend.addProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
+    expect(backend.setActiveProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
+    await waitFor(() => expect(useClientStore.getState().activePage).toBe('chat'));
+  });
 
-    fireEvent.click(within(sidebar).getByRole('button', { name: '添加文件到会话' }));
-    await waitFor(() => expect(backend.selectFiles).toHaveBeenCalled());
-    expect(await screen.findByTestId('chat-page')).toBeInTheDocument();
+  it('moves automation threads from project chats into the sidebar task list', async () => {
+    const threads = [
+      { id: 'thread-project', name: '项目普通对话', provider: 'codex', status: 'idle', cwd: '/repo/app' },
+      { id: 'thread-design', name: '[AI 流程设计师] AI 设计流程', provider: 'codex', status: 'created', cwd: '/repo/app', agentKey: 'dag_designer' },
+      { id: 'thread-legacy-design', name: 'AI 设计流程', provider: 'codex', status: 'idle', cwd: '/repo/app' },
+    ];
+    backend.getSidebarState.mockResolvedValue({
+      activeThreadId: 'thread-project',
+      threads,
+    });
+    backend.getThreadState.mockImplementation(({ threadId }) => Promise.resolve({
+      activeThreadId: threadId,
+      threads,
+      timelinesByThread: {
+        [threadId]: [{ id: `message-${threadId}`, kind: 'assistant', text: `${threadId} message`, ts: '2026-05-30T00:00:00Z' }],
+      },
+    }));
+
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    const appChats = await within(sidebar).findByRole('list', { name: 'app 聊天记录' });
+    expect(within(appChats).getByTitle('项目普通对话')).toBeInTheDocument();
+    expect(within(appChats).getByRole('button', { name: '打开项目聊天：项目普通对话' })).toBeInTheDocument();
+    expect(within(appChats).queryByTitle('[AI 流程设计师] AI 设计流程')).not.toBeInTheDocument();
+    expect(within(appChats).queryByTitle('AI 设计流程')).not.toBeInTheDocument();
+
+    const tasks = within(sidebar).getByRole('list', { name: '任务对话' });
+    const taskThread = within(tasks).getByTitle('[AI 流程设计师] AI 设计流程');
+    expect(taskThread).toBeInTheDocument();
+    expect(within(tasks).getByRole('button', { name: '打开任务对话：[AI 流程设计师] AI 设计流程' })).toBeInTheDocument();
+    expect(within(tasks).getByTitle('AI 设计流程')).toBeInTheDocument();
+
+    fireEvent.click(taskThread);
+    await waitFor(() => expect(useClientStore.getState().activeThreadId).toBe('thread-design'));
   });
 
   it('starts a new empty draft from the screenshot sidebar new chat button', async () => {
     render(<App />);
 
-    await screen.findByText('后端线程');
-    expect(screen.queryByText('让我们从 Super-Dolphin 开始!')).not.toBeInTheDocument();
+    await waitForBackendThreadHeading();
+    expect(screen.queryByText('我们应该在 Super-Dolphin 中构建什么？')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '新会话' }));
+    fireEvent.click(screen.getByRole('button', { name: '新对话' }));
 
-    await screen.findByText('让我们从 Super-Dolphin 开始!');
+    await screen.findByText('我们应该在 Super-Dolphin 中构建什么？');
+    expect(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '添加项目目录' })).toBeVisible();
     expect(screen.getByTestId('composer-input')).toHaveValue('');
   });
 
@@ -876,7 +1039,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
   it('bootstraps project, sidebar, and timeline from backend without the removed work status bar', async () => {
     const { container } = render(<App />);
 
-    expect(await screen.findByText('后端线程')).toBeInTheDocument();
+    expect(await waitForBackendThreadHeading()).toBeInTheDocument();
     const projectSelector = screen.getByRole('button', { name: '选择项目' });
     expect(projectSelector).toHaveTextContent(/^app$/);
     expect(projectSelector).toHaveAttribute('title', '/repo/app');
@@ -895,7 +1058,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
   it('shows the project selector only once in the shell toolbar', async () => {
     render(<App />);
 
-    expect(await screen.findByText('后端线程')).toBeInTheDocument();
+    expect(await waitForBackendThreadHeading()).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: '选择项目' })).toHaveLength(1);
     expect(screen.queryByLabelText('当前工作目录')).not.toBeInTheDocument();
     const sidebarToggle = screen.getByRole('button', { name: '显示侧边栏' });
@@ -903,22 +1066,31 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(sidebarToggle).not.toHaveTextContent('侧边栏');
   });
 
-  it('renders the screenshot sidebar primary navigation order', () => {
+  it('renders the prototype sidebar primary navigation order', () => {
     render(<App skipBootstrap />);
 
-    expect(within(screen.getByTestId('sidebar-nav')).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
-      '插件市场',
-      '提示词',
+    const navButtons = within(screen.getByTestId('sidebar-nav')).getAllByRole('button');
+
+    expect(navButtons.map((button) => button.textContent)).toEqual([
+      '插件',
       '自动化',
+      '定制角色',
+      '共享文件',
     ]);
+    expect(navButtons.map((button) => button.querySelector('svg')?.classList.value)).toEqual([
+      expect.stringContaining('lucide-puzzle'),
+      expect.stringContaining('lucide-refresh-cw'),
+      expect.stringContaining('lucide-circle-user-round'),
+      expect.stringContaining('lucide-folder-open'),
+    ]);
+    expect(screen.getByRole('button', { name: '新对话' }).querySelector('svg')).toHaveClass('lucide-square-plus');
   });
 
-  it('keeps secondary navigation outside the screenshot primary rail', () => {
+  it('keeps non-prototype utility navigation outside the primary rail', () => {
     render(<App skipBootstrap />);
 
     expect(within(screen.getByTestId('sidebar-secondary-nav')).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
       '记忆中心',
-      '共享文件',
       '链路追踪',
     ]);
   });
@@ -940,7 +1112,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    const chatButton = await screen.findByRole('button', { name: '新会话' });
+    const chatButton = await screen.findByRole('button', { name: '新对话' });
     await waitFor(() => expect(chatButton).toHaveClass('active'));
     expect(screen.queryByRole('button', { name: '任务' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '命令' })).not.toBeInTheDocument();
@@ -955,20 +1127,20 @@ async function toggleInlineTraceFromRecentLogs(table) {
     const workflowButton = await screen.findByRole('button', { name: '自动化' });
     await waitFor(() => expect(workflowButton).toHaveClass('active'));
 
-    fireEvent.click(screen.getByRole('button', { name: '插件市场' }));
+    fireEvent.click(screen.getByRole('button', { name: '插件与技能' }));
 
-    await waitFor(() => expect(screen.getByRole('button', { name: '插件市场' })).toHaveClass('active'));
-    expect(screen.getByText('当前页面：插件市场')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: '插件与技能' })).toHaveClass('active'));
+    expect(screen.getByText('当前页面：插件与技能')).toBeInTheDocument();
     expect(window.location.pathname).toBe('/skills');
   });
 
   it('writes page navigation to browser history and restores it on popstate', async () => {
     render(<App skipBootstrap />);
 
-    fireEvent.click(screen.getByRole('button', { name: '插件市场' }));
+    fireEvent.click(screen.getByRole('button', { name: '插件与技能' }));
     await waitFor(() => expect(window.location.pathname).toBe('/skills'));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(screen.getByRole('button', { name: '设置' }));
     await waitFor(() => expect(window.location.pathname).toBe('/settings'));
 
     await act(async () => {
@@ -976,8 +1148,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
       window.dispatchEvent(new PopStateEvent('popstate', { state: { activePage: 'skills' } }));
     });
 
-    await waitFor(() => expect(screen.getByRole('button', { name: '插件市场' })).toHaveClass('active'));
-    expect(screen.getByText('当前页面：插件市场')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: '插件与技能' })).toHaveClass('active'));
+    expect(screen.getByText('当前页面：插件与技能')).toBeInTheDocument();
   });
 
   it('hides idle status noise while keeping the provider badge in thread cards', async () => {
@@ -988,7 +1160,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    const card = (await screen.findByText('静默会话')).closest('.thread-card');
+    const card = await findThreadCardByName('静默会话');
     expect(within(card).getByRole('button', { name: '重命名会话' })).toBeInTheDocument();
     expect(card).toHaveTextContent('codex');
     expect(card).not.toHaveTextContent('idle');
@@ -1010,14 +1182,14 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    expect((await screen.findByText('思考会话')).closest('.thread-card')).toHaveTextContent('思考中');
-    expect(screen.getByText('编辑会话').closest('.thread-card')).toHaveTextContent('编辑中');
-    expect(screen.getByText('确认会话').closest('.thread-card')).toHaveTextContent('等待确认');
-    expect(screen.getByText('同步会话').closest('.thread-card')).toHaveTextContent('同步中');
-    expect(screen.getByText('异常会话').closest('.thread-card')).toHaveTextContent('异常');
-    expect(screen.getByText('思考会话').closest('.thread-card').querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--thinking');
-    expect(screen.getByText('确认会话').closest('.thread-card').querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--waiting');
-    expect(screen.getByText('异常会话').closest('.thread-card').querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--error');
+    expect(await findThreadCardByName('思考会话')).toHaveTextContent('思考中');
+    expect(getThreadCardByName('编辑会话')).toHaveTextContent('编辑中');
+    expect(getThreadCardByName('确认会话')).toHaveTextContent('等待确认');
+    expect(getThreadCardByName('同步会话')).toHaveTextContent('同步中');
+    expect(getThreadCardByName('异常会话')).toHaveTextContent('异常');
+    expect(getThreadCardByName('思考会话').querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--thinking');
+    expect(getThreadCardByName('确认会话').querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--waiting');
+    expect(getThreadCardByName('异常会话').querySelector('.thread-status-dot')).toHaveClass('thread-status-dot--error');
   });
 
   it('shows a bootstrap failure notice when the backend bridge is unavailable', async () => {
@@ -1769,7 +1941,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     act(() => {
       bridgeCallback({
@@ -1822,7 +1994,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
 
@@ -1868,7 +2040,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     fireEvent.click(screen.getByRole('button', { name: '定位 src/a.js' }));
@@ -1943,7 +2115,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     fireEvent.click(screen.getByRole('button', { name: '定位 src/a.js' }));
@@ -1994,7 +2166,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     fireEvent.click(screen.getByRole('button', { name: '打开 docs/readme.md' }));
@@ -2042,7 +2214,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     fireEvent.click(screen.getByRole('button', { name: '打开 assets/logo.png' }));
@@ -2066,7 +2238,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const { container } = render(<App />);
 
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     expect(container.querySelector('.work-status')).toBeNull();
 
     act(() => {
@@ -2091,7 +2263,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const { container } = render(<App />);
 
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     expect(container.querySelector('.work-status')).toBeNull();
 
     for (const [index, status] of [
@@ -2132,7 +2304,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     const { container } = render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     act(() => {
       useClientStore.setState((state) => ({
@@ -2168,12 +2340,12 @@ async function toggleInlineTraceFromRecentLogs(table) {
     await screen.findByText('新对话');
     expect(container.querySelector('.work-status')).toBeNull();
     expect(container).not.toHaveTextContent(internalId);
-    expect(screen.getByText('新对话')).toBeInTheDocument();
+    expect(screen.getAllByText('新对话').length).toBeGreaterThan(0);
   });
 
   it('shows a lightweight history placeholder when the active thread has no trusted cache', async () => {
     const { container } = render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     act(() => {
       useClientStore.setState((state) => ({
@@ -2387,7 +2559,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    await screen.findByText('Thread 1');
+    await findThreadCardByName('Thread 1');
 
     act(() => {
       useClientStore.setState((state) => ({
@@ -2420,7 +2592,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
   it('hides ghost command timeline cards from the conversation body', async () => {
     render(<App />);
 
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     act(() => {
       useClientStore.setState((state) => ({
@@ -2646,7 +2818,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     const { container } = render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
 
     const toolStat = screen.getByRole('button', { name: '工具调用总数' });
@@ -2664,19 +2836,20 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('sets the chat composer textarea to three visible rows', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     const composer = screen.getByRole('textbox', { name: '输入给 Agent 的内容' });
     expect(composer).toHaveAttribute('rows', '3');
+    expect(composer).toHaveAttribute('placeholder', '随心输入');
   });
 
   it('does not render a desktop titlebar inside the workbench shell', async () => {
     const { container } = render(<App />);
 
-    expect(await screen.findByText('后端线程')).toBeInTheDocument();
+    expect(await waitForBackendThreadHeading()).toBeInTheDocument();
     expect(container.querySelector('.traffic-lights')).toBeNull();
     expect(container.querySelectorAll('.titlebar')).toHaveLength(0);
-    expect(within(screen.getByTestId('app-sidebar')).getByText('Super Dolphin')).toBeInTheDocument();
+    expect(within(screen.getByTestId('app-sidebar')).getByText('Super-Dolphin')).toBeInTheDocument();
   });
 
   it('keeps the user message visible and calls thread/start before turn/start for a new chat', async () => {
@@ -2687,7 +2860,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    await screen.findByText('让我们从 Super-Dolphin 开始!');
+    await screen.findByText('我们应该在 Super-Dolphin 中构建什么？');
     expect(screen.queryByTestId('composer-project')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('发送权限')).not.toBeInTheDocument();
     fireEvent.change(screen.getByTestId('composer-input'), {
@@ -2708,6 +2881,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(startPayload).not.toHaveProperty('prompt');
     expect(startPayload).not.toHaveProperty('optimisticUserMessage');
     expect(startPayload).not.toHaveProperty('skipInitialRuntimeSync');
+    expect(startPayload.config).toEqual({
+      codexHome: '~/.codex',
+      codexInstanceKey: 'default',
+      codexModelProvider: 'openai',
+    });
 
     expect(screen.getAllByText('请真正调用后端聊天').length).toBeGreaterThanOrEqual(1);
   });
@@ -2733,7 +2911,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
     render(<App />);
 
     await screen.findByText('阶段结论：先迁移 fork draft 链路');
-    fireEvent.click(screen.getByLabelText('继承当前对话'));
+    fireEvent.click(screen.getByRole('button', { name: '聊天操作' }));
+    fireEvent.click(await screen.findByRole('button', { name: '继承当前对话' }));
 
     const card = await screen.findByTestId('fork-draft-card');
     expect(card).toHaveTextContent('继承自会话：后端线程');
@@ -2799,7 +2978,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     backend.startTurn.mockResolvedValue({ ok: true });
     render(<App />);
 
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     const input = screen.getByTestId('composer-input');
     fireEvent.change(input, {
       target: { value: '普通 Enter 发送' },
@@ -2821,7 +3000,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
   it('does not send the composer draft when Enter confirms IME composition', async () => {
     render(<App />);
 
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     const input = screen.getByTestId('composer-input');
     fireEvent.change(input, {
       target: { value: '拼音候选' },
@@ -2847,7 +3026,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const { container } = render(<App />);
 
-    await screen.findByText('让我们从 Super-Dolphin 开始!');
+    await screen.findByText('我们应该在 Super-Dolphin 中构建什么？');
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer', 'composer--floating');
     expect(screen.getByTestId('chat-timeline')).toContainElement(screen.getByTestId('composer-dock'));
     expect(container.querySelector('.work-status')).toBeNull();
@@ -2868,7 +3047,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
   it('starts with only the chat rail and conversation, then toggles the right sidebar from the toolbar', async () => {
     const { container } = render(<App />);
 
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     const layout = screen.getByTestId('chat-layout');
 
     expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
@@ -2894,7 +3073,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     const layout = screen.getByTestId('chat-layout');
     const leftResizer = screen.getByRole('separator', { name: '调整会话栏宽度' });
     expect(leftResizer.tagName).toBe('BUTTON');
@@ -2932,7 +3111,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     const layout = screen.getByTestId('chat-layout');
 
@@ -2945,7 +3124,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('keeps default chat columns proportional when the window is resized', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     const layout = screen.getByTestId('chat-layout');
 
@@ -2966,7 +3145,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     const layout = screen.getByTestId('chat-layout');
 
@@ -2986,7 +3165,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     const layout = screen.getByTestId('chat-layout');
 
@@ -3012,7 +3191,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     const layout = screen.getByTestId('chat-layout');
 
@@ -3035,7 +3214,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     const layout = screen.getByTestId('chat-layout');
 
@@ -3060,7 +3239,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     const layout = screen.getByTestId('chat-layout');
 
@@ -3100,7 +3279,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     }));
 
     render(<App />);
-    await screen.findByText('Agent A');
+    await findThreadCardByName('Agent A');
 
     act(() => {
       bridgeCallback({
@@ -3129,7 +3308,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.getByTestId('warning-log-panel')).toHaveTextContent('api.rpc.failed');
     expect(screen.getByTestId('warning-log-panel')).not.toHaveTextContent('bridge.call/failed');
 
-    fireEvent.click(screen.getByRole('button', { name: /Agent B/ }));
+    clickThreadCardByName('Agent B');
 
     await waitFor(() => {
       expect(within(screen.getByTestId('runtime-panel')).getByRole('button', { name: '折叠 b' })).toBeInTheDocument();
@@ -3177,7 +3356,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
       }));
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /Agent B/ }));
+    clickThreadCardByName('Agent B');
 
     await waitFor(() => expect(backend.getThreadState).toHaveBeenCalledWith({
       cwd: '/repo/app',
@@ -3187,7 +3366,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(useClientStore.getState().activeThreadId).toBe('thread-b');
     expect(useClientStore.getState().pendingActiveThreadId).toBe('');
     expect(useClientStore.getState().threadStateLoadingByThread['thread-b']).toBe(true);
-    expect(screen.getByRole('button', { name: /Agent B/ }).closest('.thread-card')).toHaveClass('active');
+    expect(getThreadCardByName('Agent B')).toHaveClass('active');
     expect(screen.queryByText('Agent A ready')).not.toBeInTheDocument();
     expect(screen.queryByText('stale cached Agent B content')).not.toBeInTheDocument();
     expect(screen.queryByText(/让我们从/)).not.toBeInTheDocument();
@@ -3251,7 +3430,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
       }));
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /Agent B/ }));
+    clickThreadCardByName('Agent B');
 
     await waitFor(() => expect(backend.getThreadState).toHaveBeenCalledWith({
       cwd: '/repo/app',
@@ -3265,7 +3444,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('resizes the chat rail and right sidebar without crossing their minimum widths', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     const layout = screen.getByTestId('chat-layout');
     const leftResizer = screen.getByTestId('thread-rail-resizer');
@@ -3293,7 +3472,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 640 });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
 
@@ -3331,7 +3510,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('shows tool return entries alongside warning lines in the runtime panel', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     act(() => {
       bridgeCallback({
@@ -3378,7 +3557,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 640 });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
 
@@ -3424,7 +3603,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
 
@@ -3458,14 +3637,16 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    await screen.findByText('让我们从 Super-Dolphin 开始!');
+    await screen.findByText('我们应该在 Super-Dolphin 中构建什么？');
     expect(screen.queryByLabelText('复制当前线程')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('停止')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('线程状态')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('压缩当前线程')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('选择附件')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('权限')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('请先选择会话')).toBeDisabled();
+    expect(screen.queryByLabelText('请先选择会话')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '自定义配置' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '语音输入' })).toBeDisabled();
     expect(screen.getByLabelText('添加文件')).toBeInTheDocument();
     expect(screen.queryByLabelText('发送权限')).not.toBeInTheDocument();
     expect(screen.getByLabelText('会话列表')).toBeInTheDocument();
@@ -3483,12 +3664,14 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    await screen.findByText('让我们从 Super-Dolphin 开始!');
+    await screen.findByText('我们应该在 Super-Dolphin 中构建什么？');
     expect(screen.queryByLabelText('复制当前线程')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('线程状态')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('停止')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('强制完成')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('请先选择会话')).toBeDisabled();
+    expect(screen.queryByLabelText('请先选择会话')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '自定义配置' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '语音输入' })).toBeDisabled();
     expect(screen.queryByText('作文Agent-15')).not.toBeInTheDocument();
     expect(backend.getThreadState).not.toHaveBeenCalledWith(expect.objectContaining({ threadId: 'essay_agent_15' }));
   });
@@ -3498,7 +3681,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     backend.resolveThreadIdentity.mockResolvedValue({ id: 'thread-1', providerThreadId: 'provider-thread-1', agent_id: 'agent-1' });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByLabelText('添加文件'));
     expect(await screen.findByText('a.txt')).toBeInTheDocument();
@@ -3558,7 +3741,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('interrupts the selected conversation when Escape is pressed', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' });
 
@@ -3569,7 +3752,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('does not interrupt the selected conversation when Escape is handled by the composer', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     const input = screen.getByTestId('composer-input');
     input.focus();
@@ -3585,7 +3768,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' });
 
@@ -3597,7 +3780,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     backend.selectFiles.mockResolvedValue(['/tmp/a.txt']);
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByLabelText('添加文件'));
     const attachment = await screen.findByRole('button', { name: /预览附件 a\.txt/ });
@@ -3618,7 +3801,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     backend.selectFiles.mockResolvedValue(['/tmp/a.txt']);
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByLabelText('添加文件'));
     const attachment = await screen.findByRole('button', { name: /预览附件 a\.txt/ });
@@ -3649,7 +3832,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     backend.saveClipboardImage.mockResolvedValue('/tmp/pasted.png');
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     const input = screen.getByTestId('composer-input');
     const image = new File(['png'], 'shot.png', { type: 'image/png' });
@@ -3701,7 +3884,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     const composer = screen.getByTestId('composer-dock');
     const input = screen.getByTestId('composer-input');
@@ -3811,7 +3994,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByLabelText('复制当前线程'));
 
@@ -3840,7 +4023,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     backend.copyTextToClipboard.mockRejectedValue(new Error('clipboard copy failed: native ui/copyText returned ok=false: clipboard not available in headless mode'));
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByLabelText('复制当前线程'));
 
@@ -3855,7 +4038,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('hides the provider toggle after an opened chat already has an assistant reply', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     expect(screen.queryByLabelText('线程状态')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('压缩当前线程')).not.toBeInTheDocument();
@@ -3873,7 +4056,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     backend.getThreadState.mockResolvedValue({ timelinesByThread: {} });
 
     render(<App />);
-    await screen.findByText('让我们从 Super-Dolphin 开始!');
+    await screen.findByText('我们应该在 Super-Dolphin 中构建什么？');
 
     const providerToggle = screen.getByLabelText('切换 Claude / Codex provider');
     expect(providerToggle).not.toBeDisabled();
@@ -3893,9 +4076,9 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('uses the opened thread provider model selector without showing the global provider toggle', async () => {
     backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
-      'settings.provider.active': 'claude',
-      'settings.provider.claude.model': 'sonnet',
-      'settings.provider.claude.effort': 'high',
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
     }[key] ?? null));
     backend.getSidebarState.mockResolvedValue({
       activeThreadId: 'thread-failed',
@@ -3916,7 +4099,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: '选择模型' })).toHaveTextContent('GPT-5.4 · 中');
+      expect(screen.getByRole('button', { name: '选择模型' })).toHaveTextContent('5.4 中');
     });
     expect(screen.queryByLabelText('切换 Claude / Codex provider')).not.toBeInTheDocument();
   });
@@ -3957,12 +4140,15 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('aligns the project selector dropdown with old project actions', async () => {
     backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
-    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    backend.setActiveProject.mockImplementation(({ path }) => Promise.resolve({
+      projects: path === '/repo/new' ? ['/repo/app', '/repo/other', '/repo/new'] : ['/repo/app', '/repo/other'],
+      active: path,
+    }));
     backend.addProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other', '/repo/new'], active: '/repo/other' });
     backend.removeProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
     expect(screen.getByRole('menu', { name: '项目列表' })).toHaveTextContent('repo/app');
@@ -3979,7 +4165,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
     await waitFor(() => {
       expect(backend.selectProjectDir).toHaveBeenCalledWith('/repo/other');
       expect(backend.addProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
-      expect(screen.getByRole('button', { name: '选择项目' })).toHaveTextContent(/^other$/);
+      expect(backend.setActiveProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
+      expect(screen.getByRole('button', { name: '选择项目' })).toHaveTextContent(/^new$/);
     });
 
     fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
@@ -3994,7 +4181,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     backend.selectProjectDir.mockResolvedValue('/repo/window');
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByRole('button', { name: '新窗口（独立进程）' }));
 
@@ -4011,7 +4198,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
     expect(screen.getByRole('menu', { name: '项目列表' })).toHaveTextContent('当前目录 (.)');
@@ -4047,25 +4234,25 @@ async function toggleInlineTraceFromRecentLogs(table) {
     }));
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'repo/other' }));
 
     await waitFor(() => {
       expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/other' });
-      expect(screen.getByText('Other project chat')).toBeInTheDocument();
-      expect(screen.queryByText('后端线程')).not.toBeInTheDocument();
+      expect(getThreadCardByName('Other project chat')).toBeInTheDocument();
+      expect(queryBackendThreadText()).not.toBeInTheDocument();
     });
     expect(useClientStore.getState().activeThreadId).toBe('');
-    expect(screen.getByRole('button', { name: /Other project chat/ }).closest('.thread-card')).not.toHaveClass('active');
+    expect(getThreadCardByName('Other project chat')).not.toHaveClass('active');
     expect(backend.getThreadState).not.toHaveBeenCalledWith({
       cwd: '/repo/other',
       threadId: 'thread-other',
       includeDiff: true,
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /Other project chat/ }));
+    clickThreadCardByName('Other project chat');
 
     await waitFor(() => {
       expect(backend.getThreadState).toHaveBeenCalledWith({
@@ -4107,7 +4294,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     ));
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'repo/other' }));
@@ -4115,7 +4302,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: '选择项目' })).toHaveTextContent(/^other$/);
       expect(screen.getByText('正在加载会话列表…')).toBeInTheDocument();
-      expect(screen.queryByText('后端线程')).not.toBeInTheDocument();
+      expect(queryBackendThreadText()).not.toBeInTheDocument();
     });
 
     await act(async () => {
@@ -4126,7 +4313,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
       await Promise.resolve();
     });
 
-    await screen.findByText('Other project chat');
+    await waitFor(() => expect(getThreadCardByName('Other project chat')).toBeInTheDocument());
     expect(useClientStore.getState().activeThreadId).toBe('');
 
     await act(async () => {
@@ -4156,17 +4343,17 @@ async function toggleInlineTraceFromRecentLogs(table) {
     }));
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'repo/other' }));
 
     await waitFor(() => {
-      expect(screen.getByText('Other project chat')).toBeInTheDocument();
-      expect(screen.queryByText('后端线程')).not.toBeInTheDocument();
+      expect(getThreadCardByName('Other project chat')).toBeInTheDocument();
+      expect(queryBackendThreadText()).not.toBeInTheDocument();
     });
     expect(useClientStore.getState().activeThreadId).toBe('');
-    expect(screen.getByRole('button', { name: /Other project chat/ }).closest('.thread-card')).not.toHaveClass('active');
+    expect(getThreadCardByName('Other project chat')).not.toHaveClass('active');
     expect(backend.getThreadState).not.toHaveBeenCalledWith({
       cwd: '/repo/other',
       threadId: 'thread-other',
@@ -4185,10 +4372,10 @@ async function toggleInlineTraceFromRecentLogs(table) {
     }[key] ?? null));
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: '选择模型' })).toHaveTextContent('GPT-5.4 · 中');
+      expect(screen.getByRole('button', { name: '选择模型' })).toHaveTextContent('5.4 中');
     });
 
     fireEvent.click(screen.getByRole('button', { name: '选择模型' }));
@@ -4206,14 +4393,14 @@ async function toggleInlineTraceFromRecentLogs(table) {
         model: 'gpt-5.5',
         effort: '',
       });
-      expect(screen.getByRole('button', { name: '选择模型' })).toHaveTextContent('GPT-5.5 · 中');
+      expect(screen.getByRole('button', { name: '选择模型' })).toHaveTextContent('5.5 中');
       expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('线程配置已保存');
     });
   });
 
   it('shows an archive option on each visible thread card', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByLabelText('归档会话'));
 
@@ -4223,7 +4410,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
         key: 'archivedThreadAtById.thread-1',
         value: expect.any(Number),
       }));
-      expect(screen.queryByText('后端线程')).not.toBeInTheDocument();
+      expect(queryBackendThreadText()).not.toBeInTheDocument();
       expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('线程已归档');
     });
   });
@@ -4231,12 +4418,12 @@ async function toggleInlineTraceFromRecentLogs(table) {
   it('keeps the thread visible and reports a readable error when archive RPC fails', async () => {
     backend.archiveThread.mockRejectedValueOnce(new Error('orchestration: service not configured'));
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByLabelText('归档会话'));
 
     expect(await screen.findByText('归档会话失败：orchestration: service not configured')).toBeInTheDocument();
-    expect(screen.getByText('后端线程')).toBeInTheDocument();
+    expect(getBackendThreadText()).toBeInTheDocument();
     expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
       key: 'archivedThreadAtById.thread-1',
     }));
@@ -4244,7 +4431,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('shows the pin action tooltip when hovering the thread pin icon', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     const pinButton = screen.getByLabelText('置顶对话');
     expect(pinButton).not.toHaveAttribute('title');
@@ -4259,7 +4446,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('shows the archive action tooltip without a native title tooltip', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     const archiveButton = screen.getByLabelText('归档会话');
     expect(archiveButton).not.toHaveAttribute('title');
@@ -4274,7 +4461,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('renames a thread inline through the legacy backend name RPC', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByRole('button', { name: '重命名会话' }));
     const input = screen.getByLabelText('会话别名');
@@ -4283,13 +4470,13 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     await waitFor(() => {
       expect(backend.renameThread).toHaveBeenCalledWith({ threadId: 'thread-1', name: '重命名会话' });
-      expect(screen.getByText('重命名会话')).toBeInTheDocument();
+      expect(getThreadCardByName('重命名会话')).toBeInTheDocument();
     });
   });
 
   it('persists thread pins through the backend threadPins chat preference', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     fireEvent.click(screen.getByLabelText('置顶对话'));
 
@@ -4317,7 +4504,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     backend.getThreadState.mockResolvedValue({ activeThreadId: 'thread-old', timelinesByThread: {} });
     backend.startTurn.mockResolvedValue({ ok: true });
     const { container } = render(<App />);
-    await screen.findByText('Older chat');
+    await findThreadCardByName('Older chat');
 
     fireEvent.change(screen.getByTestId('composer-input'), { target: { value: 'bring old chat forward' } });
     fireEvent.click(screen.getByLabelText('发送消息'));
@@ -4342,7 +4529,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
     backend.getThreadState.mockResolvedValue({ activeThreadId: 'thread-old', timelinesByThread: {} });
     const { container } = render(<App />);
-    await screen.findByText('Newer chat');
+    await waitFor(() => expect(getThreadCardByName('Newer chat')).toBeInTheDocument());
 
     act(() => {
       bridgeCallback?.({
@@ -4393,7 +4580,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     render(<App />);
-    await screen.findByText('活跃线程');
+    await findThreadCardByName('活跃线程');
 
     expect(screen.getByLabelText('会话列表')).toBeInTheDocument();
     expect(screen.getByLabelText('1 个 Agent')).toBeInTheDocument();
@@ -4404,7 +4591,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(await screen.findByText('归档线程')).toBeInTheDocument();
     expect(screen.getByLabelText('归档列表')).toBeInTheDocument();
     expect(screen.getByLabelText('返回会话列表')).toBeInTheDocument();
-    expect(screen.queryByText('活跃线程')).not.toBeInTheDocument();
+    expect(queryThreadCardByName('活跃线程')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText('恢复会话'));
 
@@ -4536,7 +4723,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     render(<App />);
-    await screen.findByText('活跃线程');
+    await findThreadCardByName('活跃线程');
 
     fireEvent.click(screen.getByLabelText('打开归档列表'));
     expect(await screen.findByText('旧归档线程')).toBeInTheDocument();
@@ -4562,7 +4749,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('renders warning log entries from bridge events', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
     fireEvent.keyDown(screen.getByTestId('activity-panel-resizer'), { key: 'ArrowUp' });
 
@@ -4590,13 +4777,13 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('navigates to screenshot-style secondary pages', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
+    await screen.findByLabelText('插件与技能');
 
     expect(screen.queryByLabelText('命令')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('任务')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('任务')).toHaveTextContent('暂无任务');
 
-    fireEvent.click(screen.getByLabelText('插件市场'));
-    expect(await screen.findByText('技能管理')).toBeInTheDocument();
+    await openSkillToolsPage();
+    expect(await screen.findByText('插件与技能')).toBeInTheDocument();
     expect(await screen.findByText('后端')).toBeInTheDocument();
     expect(screen.getByText('/repo/app/.agent/skills/backend')).toBeInTheDocument();
     expect(screen.getByText('私人使用 1')).toBeInTheDocument();
@@ -4613,8 +4800,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
   });
 
   it.each([
-    ['提示词', 'AI 能力与资料', '暂无内容', () => expect(backend.listPromptAssets).not.toHaveBeenCalled()],
-    ['自动化', '自动化', '无任务', () => expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '未选择项目', page: 'dags' })],
+    ['提示词', '个性化', '暂无内容', () => expect(backend.listPromptAssets).not.toHaveBeenCalled()],
+    ['自动化', '自动化', '创建首个自动化', () => expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '未选择项目', page: 'dags' })],
     ['记忆中心', '记忆中心', '暂无记忆', () => expect(backend.getMemorySnapshot).not.toHaveBeenCalledWith({ cwd: '未选择项目' })],
   ])('keeps the %s route visible while project context resolves', async (navLabel, heading, settledText, assertNoInvalidLoad) => {
     const config = deferred();
@@ -4661,7 +4848,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('does not mark the memory center nav when no similar memories need merging', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     expect(screen.getByLabelText('记忆中心').querySelector('i')).toBeNull();
   });
@@ -4693,7 +4880,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
     await waitFor(() => {
       expect(screen.getByLabelText('记忆中心').querySelector('i')).toHaveAttribute('title', '2 条待整合相似记忆');
@@ -4701,7 +4888,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
   });
 
 
-  it('loads and filters prompt assets while wiring active launch prompt preference', async () => {
+  it('loads prompt assets while wiring active launch prompt preference', async () => {
     backend.listPromptAssets.mockResolvedValue({
       prompts: [
         {
@@ -4738,26 +4925,24 @@ async function toggleInlineTraceFromRecentLogs(table) {
     mockPromptPreferences('main/reviewer');
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('提示词'));
 
     expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '全部 3' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '专家能力 1' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '参考资料 1' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '待确认 1' })).toBeInTheDocument();
+    expect(screen.getByText('SQLC 资料')).toBeInTheDocument();
+    expect(screen.getByText('价格表资料')).toBeInTheDocument();
+    expect(screen.queryByRole('tablist', { name: '提示词分类' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /全部范围/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /全部状态/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '添加给 AI 的内容' })).not.toBeInTheDocument();
     expect(screen.getByText('强制使用')).toBeInTheDocument();
     expect(screen.getAllByText('全局可用').length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
     expect(backend.listPromptAssets).toHaveBeenCalledWith({ cwd: '/repo/app' });
     expect(backend.getPreference).toHaveBeenCalledWith({ cwd: '/repo/app', key: 'settings.activePromptKey' });
 
-    fireEvent.click(screen.getByRole('tab', { name: '参考资料 1' }));
-    expect(screen.queryByText('代码审查专家')).not.toBeInTheDocument();
-    expect(screen.getByText('SQLC 资料')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('tab', { name: '专家能力 1' }));
-    fireEvent.click(screen.getByRole('button', { name: '取消强制' }));
+    const reviewerCard = screen.getByText('代码审查专家').closest('article');
+    fireEvent.click(within(reviewerCard).getByRole('button', { name: '取消强制' }));
     await waitFor(() => {
       expect(backend.setPreference).toHaveBeenCalledWith({
         cwd: '/repo/app',
@@ -4784,7 +4969,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     mockPromptPreferences();
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('提示词'));
 
     const card = (await screen.findByText('代码审查专家')).closest('article');
@@ -4807,33 +4992,33 @@ async function toggleInlineTraceFromRecentLogs(table) {
   });
 
   it('traps focus in the prompt wizard and restores focus after Escape', async () => {
-    backend.listPromptAssets.mockResolvedValue({ prompts: [] });
+    mockPromptWizardEntryPrompt();
     mockPromptPreferences();
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('提示词'));
 
-    const addButton = await screen.findByRole('button', { name: '添加给 AI 的内容' });
-    addButton.focus();
-    fireEvent.click(addButton);
+    const continueButton = await screen.findByRole('button', { name: '继续确认' });
+    continueButton.focus();
+    fireEvent.click(continueButton);
 
     const wizard = await screen.findByRole('dialog', { name: '添加给 AI 的内容' });
     const firstKindTab = within(wizard).getByRole('tab', { name: '专家能力' });
-    const closeButton = within(wizard).getByRole('button', { name: '关闭' });
+    const saveButton = within(wizard).getByRole('button', { name: '确认保存' });
     await waitFor(() => {
       expect(document.activeElement).toBe(firstKindTab);
     });
 
     fireEvent.keyDown(wizard, { key: 'Tab', code: 'Tab', shiftKey: true });
-    expect(document.activeElement).toBe(closeButton);
+    expect(document.activeElement).toBe(saveButton);
     fireEvent.keyDown(wizard, { key: 'Tab', code: 'Tab' });
     expect(document.activeElement).toBe(firstKindTab);
     fireEvent.keyDown(wizard, { key: 'Escape', code: 'Escape' });
     await waitFor(() => {
       expect(screen.queryByRole('dialog', { name: '添加给 AI 的内容' })).not.toBeInTheDocument();
     });
-    expect(document.activeElement).toBe(addButton);
+    expect(document.activeElement).toBe(continueButton);
   });
 
   it('auto-updates prompt assets without a manual refresh button', async () => {
@@ -4850,7 +5035,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     mockPromptPreferences();
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('提示词'));
 
     expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
@@ -4905,7 +5090,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
       mockPromptPreferences();
 
       render(<App />);
-      await screen.findByText('后端线程');
+      await waitForBackendThreadHeading();
       fireEvent.click(screen.getByLabelText('提示词'));
 
       expect(await screen.findByText('代码审查助手')).toBeInTheDocument();
@@ -4930,7 +5115,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     mockPromptPreferences();
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('提示词'));
     expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
 
@@ -4992,7 +5177,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('提示词'));
 
     expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
@@ -5013,7 +5198,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     mockPromptPreferences();
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('提示词'));
 
     const alert = await screen.findByRole('alert');
@@ -5054,7 +5239,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     mockPromptPreferences();
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('提示词'));
 
     expect(await screen.findByText('旧提示词')).toBeInTheDocument();
@@ -5077,11 +5262,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
     mockPromptPreferences();
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('提示词'));
     expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('新会话'));
+    fireEvent.click(screen.getByLabelText('新对话'));
     prompts = [{
       id: 'main/deploy',
       name: '部署助手',
@@ -5157,9 +5342,17 @@ function mockPromptAssetWorkflow() {
 
 async function openPromptAssetsPage() {
   render(<App />);
-  await screen.findByText('后端线程');
+  await waitForBackendThreadHeading();
   fireEvent.click(screen.getByLabelText('提示词'));
   expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
+}
+
+async function openPromptWizardFromPendingCard(cardName = '价格表资料') {
+  const pendingCard = (await screen.findByText(cardName)).closest('article');
+  const continueButton = within(pendingCard).getByRole('button', { name: '继续确认' });
+  fireEvent.click(continueButton);
+  const wizard = await screen.findByRole('dialog', { name: '添加给 AI 的内容' });
+  return { continueButton, pendingCard, wizard };
 }
 
 async function editAndDeleteReviewerPrompt() {
@@ -5198,10 +5391,7 @@ async function editAndDeleteReviewerPrompt() {
 }
 
 async function handlePendingPromptDraft() {
-  const pendingCard = screen.getByText('价格表资料').closest('article');
-  fireEvent.click(within(pendingCard).getByRole('button', { name: '继续确认' }));
-  const pendingDialog = await screen.findByRole('dialog', { name: '添加给 AI 的内容' });
-  expect(pendingDialog).toBeInTheDocument();
+  const { pendingCard, wizard: pendingDialog } = await openPromptWizardFromPendingCard('价格表资料');
   expect(screen.getAllByText('价格表资料').length).toBeGreaterThanOrEqual(1);
   fireEvent.click(within(pendingDialog).getAllByRole('button', { name: '关闭' }).at(-1));
 
@@ -5212,8 +5402,8 @@ async function handlePendingPromptDraft() {
 }
 
 async function createGeneratedPromptIntent() {
-  fireEvent.click(screen.getByRole('button', { name: '添加给 AI 的内容' }));
-  expect(await screen.findByRole('dialog', { name: '添加给 AI 的内容' })).toBeInTheDocument();
+  const { wizard } = await openPromptWizardFromPendingCard('价格表资料');
+  fireEvent.click(within(wizard).getByRole('tab', { name: '专家能力' }));
   fireEvent.change(screen.getByLabelText('写下希望 AI 记住或使用的内容'), {
     target: { value: '当用户要求代码审查时，先检查阻塞问题。' },
   });
@@ -5266,11 +5456,13 @@ async function createGeneratedPromptIntent() {
       }],
     });
     backend.commitPromptIntent.mockResolvedValueOnce({ prompt: { id: 'recall/alcohol-guard' } });
+    mockPromptWizardEntryPrompt();
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('提示词'));
-    fireEvent.click(await screen.findByRole('button', { name: '添加给 AI 的内容' }));
+    const { wizard } = await openPromptWizardFromPendingCard('待确认入口');
+    fireEvent.click(within(wizard).getByRole('tab', { name: '专家能力' }));
     fireEvent.change(await screen.findByLabelText('写下希望 AI 记住或使用的内容'), {
       target: { value: '在我喝酒的时候阻止我' },
     });
@@ -5299,11 +5491,12 @@ async function createGeneratedPromptIntent() {
       },
       issues: [{ code: 'missing_when_not_to_use', severity: 'block', message: '需要补充不用它的场景' }],
     });
+    mockPromptWizardEntryPrompt();
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('提示词'));
-    fireEvent.click(await screen.findByRole('button', { name: '添加给 AI 的内容' }));
+    await openPromptWizardFromPendingCard('待确认入口');
     fireEvent.change(await screen.findByLabelText('写下希望 AI 记住或使用的内容'), {
       target: { value: '在我想喝酒的时候鼓励我' },
     });
@@ -5332,11 +5525,12 @@ async function createGeneratedPromptIntent() {
       issues: [],
     });
     backend.commitPromptIntent.mockRejectedValueOnce(new Error('with_tx prompt_template: [-31007] prompt intent draft is not ready to save'));
+    mockPromptWizardEntryPrompt();
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('提示词'));
-    fireEvent.click(await screen.findByRole('button', { name: '添加给 AI 的内容' }));
+    await openPromptWizardFromPendingCard('待确认入口');
     fireEvent.change(await screen.findByLabelText('写下希望 AI 记住或使用的内容'), {
       target: { value: '在我想喝酒的时候鼓励我' },
     });
@@ -5371,11 +5565,12 @@ async function createGeneratedPromptIntent() {
       },
       issues: [{ code: 'missing_when_not_to_use', severity: 'block', message: 'internal field copy' }],
     });
+    mockPromptWizardEntryPrompt();
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('提示词'));
-    fireEvent.click(await screen.findByRole('button', { name: '添加给 AI 的内容' }));
+    await openPromptWizardFromPendingCard('待确认入口');
     fireEvent.change(await screen.findByLabelText('写下希望 AI 记住或使用的内容'), {
       target: { value: '在我想喝酒的时候阻止我' },
     });
@@ -5435,7 +5630,7 @@ async function createGeneratedPromptIntent() {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('记忆中心'));
 
     expect(await screen.findByText('遵守 TDD')).toBeInTheDocument();
@@ -5483,7 +5678,7 @@ async function createGeneratedPromptIntent() {
     }));
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('记忆中心'));
 
     expect(await screen.findByText('遵守 TDD')).toBeInTheDocument();
@@ -5552,7 +5747,7 @@ async function createGeneratedPromptIntent() {
       });
 
       render(<App />);
-      await screen.findByText('后端线程');
+      await waitForBackendThreadHeading();
       fireEvent.click(screen.getByLabelText('记忆中心'));
 
       expect(await screen.findByText('遵守 TDD')).toBeInTheDocument();
@@ -5586,7 +5781,7 @@ async function createGeneratedPromptIntent() {
     }));
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('记忆中心'));
     expect(await screen.findByText('遵守 TDD')).toBeInTheDocument();
 
@@ -5642,7 +5837,7 @@ async function createGeneratedPromptIntent() {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('记忆中心'));
 
     const alert = await screen.findByRole('alert');
@@ -5679,11 +5874,11 @@ async function createGeneratedPromptIntent() {
     }));
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('记忆中心'));
     expect(await screen.findByText('遵守 TDD')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('新会话'));
+    fireEvent.click(screen.getByLabelText('新对话'));
     entries = [{
       name: 'reply-language',
       title: '默认中文',
@@ -5725,7 +5920,7 @@ async function createGeneratedPromptIntent() {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('记忆中心'));
     expect(await screen.findByText('遵守 TDD')).toBeInTheDocument();
 
@@ -5800,7 +5995,7 @@ async function createGeneratedPromptIntent() {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('记忆中心'));
     expect(await screen.findByText('1 组条目内容相似')).toBeInTheDocument();
 
@@ -5893,7 +6088,7 @@ function createSimilaritySnapshots() {
 
 async function openMemoryCenterWithSimilarity() {
   render(<App />);
-  await screen.findByText('后端线程');
+  await waitForBackendThreadHeading();
   await waitFor(() => {
     expect(screen.getByLabelText('记忆中心').querySelector('i')).toHaveAttribute('title', '1 条待整合相似记忆');
   });
@@ -6016,7 +6211,7 @@ function mockSharedFileWorkflow(sharedFiles) {
 
 async function openSharedFilesPage() {
   render(<App />);
-  await screen.findByText('后端线程');
+  await waitForBackendThreadHeading();
   fireEvent.click(screen.getByLabelText('共享文件'));
 
   expect(await screen.findByText('final.md')).toBeInTheDocument();
@@ -6153,7 +6348,7 @@ async function continueChatFromFinalSharedFile() {
     });
 
     const { container } = render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('共享文件'));
 
     const finalCard = (await screen.findByText('douyin_viral_scripts.md')).closest('article');
@@ -6203,7 +6398,7 @@ async function continueChatFromFinalSharedFile() {
     });
 
     const { container } = render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('共享文件'));
 
     const finalCard = (await screen.findByText('douyin_viral_scripts.md')).closest('article');
@@ -6245,7 +6440,7 @@ async function continueChatFromFinalSharedFile() {
     backend.deleteSharedFile.mockReturnValue(deletePending.promise);
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('共享文件'));
 
     const workCard = (await screen.findByText('work.json')).closest('article');
@@ -6279,7 +6474,7 @@ async function continueChatFromFinalSharedFile() {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('共享文件'));
 
     expect(await screen.findByText('legacy.md')).toBeInTheDocument();
@@ -6308,11 +6503,11 @@ async function continueChatFromFinalSharedFile() {
     backend.listSharedFiles.mockImplementation(() => Promise.resolve(memoryPayload()));
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('共享文件'));
     expect(await screen.findByText('final.md')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('新会话'));
+    fireEvent.click(screen.getByLabelText('新对话'));
     memoryFiles = [{
       path: 'scratch/notes.md',
       content: 'fresh notes',
@@ -6346,7 +6541,7 @@ async function continueChatFromFinalSharedFile() {
       });
 
       render(<App />);
-      await screen.findByText('后端线程');
+      await waitForBackendThreadHeading();
       fireEvent.click(screen.getByLabelText('共享文件'));
 
       expect(await screen.findByText('final.md')).toBeInTheDocument();
@@ -6377,7 +6572,7 @@ async function continueChatFromFinalSharedFile() {
     backend.listSharedFiles.mockImplementation(() => Promise.resolve(memoryPayload()));
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('共享文件'));
     expect(await screen.findByText('final.md')).toBeInTheDocument();
 
@@ -6406,7 +6601,7 @@ async function continueChatFromFinalSharedFile() {
     backend.listSharedFiles.mockRejectedValueOnce(new Error('shared files backend offline'));
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('共享文件'));
 
     const alert = await screen.findByRole('alert');
@@ -6470,7 +6665,7 @@ async function continueChatFromFinalSharedFile() {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('自动化'));
 
     expect((await screen.findAllByText('Daily Brief')).length).toBeGreaterThanOrEqual(2);
@@ -6527,7 +6722,7 @@ async function continueChatFromFinalSharedFile() {
     backend.readSharedFile.mockResolvedValue({ path: 'reports/final.md', content: '最终报告正文' });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('自动化'));
 
     expect((await screen.findAllByText('报告流水线')).length).toBeGreaterThanOrEqual(2);
@@ -6580,7 +6775,7 @@ async function continueChatFromFinalSharedFile() {
     }));
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('自动化'));
 
     expect((await screen.findAllByText('流程 A')).length).toBeGreaterThanOrEqual(1);
@@ -6644,7 +6839,7 @@ async function continueChatFromFinalSharedFile() {
       });
 
       render(<App />);
-      await screen.findByText('后端线程');
+      await waitForBackendThreadHeading();
       fireEvent.click(screen.getByLabelText('自动化'));
 
       expect((await screen.findAllByText('流程 A')).length).toBeGreaterThanOrEqual(1);
@@ -6686,7 +6881,7 @@ async function continueChatFromFinalSharedFile() {
     }));
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('自动化'));
     expect((await screen.findAllByText('流程 A')).length).toBeGreaterThanOrEqual(1);
 
@@ -6744,7 +6939,7 @@ async function continueChatFromFinalSharedFile() {
     }));
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('自动化'));
     expect((await screen.findAllByText('流程 A')).length).toBeGreaterThanOrEqual(1);
 
@@ -6793,7 +6988,7 @@ async function continueChatFromFinalSharedFile() {
     backend.getDagRun.mockResolvedValue({ run: runningDag.latest_run, nodes: [node] });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('自动化'));
     expect((await screen.findAllByText('流程 A')).length).toBeGreaterThanOrEqual(1);
     expect((await screen.findAllByText('步骤 A')).length).toBeGreaterThanOrEqual(1);
@@ -6862,7 +7057,7 @@ async function continueChatFromFinalSharedFile() {
     ));
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('自动化'));
 
     const alert = await screen.findByRole('alert');
@@ -6914,11 +7109,11 @@ async function continueChatFromFinalSharedFile() {
     }));
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('自动化'));
     expect((await screen.findAllByText('流程 A')).length).toBeGreaterThanOrEqual(1);
 
-    fireEvent.click(screen.getByLabelText('新会话'));
+    fireEvent.click(screen.getByLabelText('新对话'));
     dags = [{
       dag_key: 'flow-b',
       title: '流程 B',
@@ -6953,7 +7148,7 @@ async function continueChatFromFinalSharedFile() {
     backend.getDagRuns.mockResolvedValue({ runs: [] });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('自动化'));
 
     await waitFor(() => {
@@ -6985,7 +7180,7 @@ async function continueChatFromFinalSharedFile() {
     backend.getDagRuns.mockResolvedValue({ runs: [] });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('自动化'));
 
     await waitFor(() => {
@@ -7057,10 +7252,11 @@ function mockWorkflowDagLifecycle() {
       ? {
           timelinesByThread: {},
           activeThreadId: 'thread-design',
-          threads: [{ id: 'thread-design', name: 'AI 设计流程', status: 'created', agentKey: 'dag_designer' }],
+          threads: [{ id: 'thread-design', name: 'AI 设计流程', provider: 'codex', status: 'created', agentKey: 'dag_designer' }],
         }
       : {
           activeThreadId: 'thread-1',
+          threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中' }],
           timelinesByThread: {
             'thread-1': [{ id: 'assistant-1', kind: 'assistant', text: '来自后端的消息', ts: '2026-05-30T00:00:00Z' }],
           },
@@ -7073,9 +7269,7 @@ function mockWorkflowDagLifecycle() {
 
 async function openWorkflowDashboard() {
   render(<App />);
-  await screen.findByText('后端线程');
-  await screen.findByText('后端线程');
-  fireEvent.click(screen.getByLabelText('自动化'));
+  fireEvent.click(await screen.findByLabelText('自动化'));
   expect((await screen.findAllByText('Daily Brief')).length).toBeGreaterThanOrEqual(2);
 }
 
@@ -7159,7 +7353,7 @@ async function deleteWorkflowDag() {
 }
 
 async function designWorkflowWithAi() {
-  fireEvent.click(screen.getByRole('button', { name: 'AI 设计流程' }));
+  fireEvent.click(screen.getByRole('button', { name: '通过聊天创建' }));
   await waitFor(() => {
     expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
       cwd: '/repo/app',
@@ -7185,8 +7379,11 @@ async function designWorkflowWithAi() {
     expect(designPayload.config.enabledTools).toContain('task_dispatch_node');
     expect(designPayload.config.enabledTools).not.toContain('task_update_node');
   });
-  expect(await screen.findByText('AI 设计流程')).toBeInTheDocument();
-  expect(screen.getByText('AI 设计流程').closest('.thread-card')).toHaveTextContent('codex');
+  expect((await screen.findAllByText('AI 设计流程')).length).toBeGreaterThanOrEqual(1);
+  const designThreadCard = screen.getAllByText('AI 设计流程')
+    .map((node) => node.closest('.thread-card'))
+    .find(Boolean);
+  expect(designThreadCard).toHaveTextContent('codex');
   expect(screen.queryByText('unknown')).not.toBeInTheDocument();
 }
 
@@ -7236,7 +7433,7 @@ async function designWorkflowWithAi() {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('自动化'));
     expect(await screen.findByRole('button', { name: '停止运行' })).toBeInTheDocument();
 
@@ -7278,7 +7475,7 @@ async function designWorkflowWithAi() {
     backend.getDagRuns.mockResolvedValue({ runs: [] });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('自动化'));
     expect((await screen.findAllByText('Daily Brief')).length).toBeGreaterThanOrEqual(1);
 
@@ -7326,7 +7523,7 @@ async function designWorkflowWithAi() {
     backend.applyDagOps.mockResolvedValue({ newVersion: 8 });
 
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByLabelText('自动化'));
     expect((await screen.findAllByText('流程 A')).length).toBeGreaterThanOrEqual(2);
     expect((await screen.findAllByText('步骤 A')).length).toBeGreaterThanOrEqual(1);
@@ -7358,8 +7555,8 @@ async function designWorkflowWithAi() {
 
   it('refreshes skills page from backend when skills changed event arrives', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await waitForBackendThreadHeading();
+    await openSkillToolsPage();
     expect(await screen.findByText('后端')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
 
@@ -7404,8 +7601,8 @@ async function designWorkflowWithAi() {
 
   it('does not repeat a skill description when summary is empty', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await waitForBackendThreadHeading();
+    await openSkillToolsPage();
     const personalCard = (await screen.findByRole('heading', { name: 'personal-review' })).closest('article');
 
     expect(within(personalCard).getAllByText('当你需要私人代码审查偏好时使用。')).toHaveLength(1);
@@ -7413,8 +7610,8 @@ async function designWorkflowWithAi() {
 
   it('shows skills filter counts and an empty search state', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await waitForBackendThreadHeading();
+    await openSkillToolsPage();
 
     expect(await screen.findByText('共 2 个技能')).toBeInTheDocument();
 
@@ -7436,9 +7633,9 @@ async function designWorkflowWithAi() {
     backend.readConfig.mockReturnValueOnce(config.promise);
 
     render(<App />);
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await openSkillToolsPage();
 
-    expect(await screen.findByRole('heading', { name: '技能管理' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '插件与技能' })).toBeInTheDocument();
     expect(await screen.findByText('正在连接本地项目...')).toBeInTheDocument();
     expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '未选择项目', page: 'skills' });
 
@@ -7453,8 +7650,8 @@ async function designWorkflowWithAi() {
 
   it('keeps skills visible and exposes retry when a background sync fails', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await waitForBackendThreadHeading();
+    await openSkillToolsPage();
     expect(await screen.findByText('后端')).toBeInTheDocument();
 
     backend.getDashboardPage.mockRejectedValueOnce(new Error('backend offline'));
@@ -7486,8 +7683,8 @@ async function designWorkflowWithAi() {
     backend.listSkillResolutions.mockResolvedValueOnce({});
 
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await waitForBackendThreadHeading();
+    await openSkillToolsPage();
 
     expect(await screen.findByText('后端')).toBeInTheDocument();
     expect(await screen.findByRole('alert')).toHaveTextContent('读取技能冲突失败：skill resolutions response items must be an array');
@@ -7503,11 +7700,11 @@ async function designWorkflowWithAi() {
 
   it('keeps cached skills visible when navigating back and refreshes silently', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await waitForBackendThreadHeading();
+    await openSkillToolsPage();
     expect(await screen.findByText('后端')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('新会话'));
+    fireEvent.click(screen.getByLabelText('新对话'));
     backend.getDashboardPage.mockResolvedValueOnce({
       skills: [{
         name: 'security',
@@ -7518,21 +7715,23 @@ async function designWorkflowWithAi() {
         scope: 'project',
       }],
     });
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await openSkillToolsPage();
 
     expect(screen.queryByText('加载技能中...')).not.toBeInTheDocument();
-    expect(screen.getByText('后端')).toBeInTheDocument();
     expect(await screen.findByText('安全工程师')).toBeInTheDocument();
     expect(screen.queryByText('后端')).not.toBeInTheDocument();
   });
 
   it('releases the skills loading state when the dashboard request hangs', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
+    await waitForBackendThreadHeading();
 
+    let rejectSkillsDashboard;
     backend.getDashboardPage.mockImplementation(({ page }) => (
       page === 'skills'
-        ? new Promise(() => {})
+        ? new Promise((_, reject) => {
+          rejectSkillsDashboard = reject;
+        })
         : Promise.resolve({
           memory: [],
           finalOutputRefs: [],
@@ -7540,23 +7739,19 @@ async function designWorkflowWithAi() {
         })
     ));
 
-    vi.useFakeTimers();
-    try {
-      fireEvent.click(screen.getByLabelText('插件市场'));
-      expect(screen.getByText('加载技能中...')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('插件与技能'));
+    const skillToolsTab = await screen.findByRole('button', { name: 'Skill工具' });
 
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(8000);
-        await Promise.resolve();
-        await Promise.resolve();
-      });
+    fireEvent.click(skillToolsTab);
+    expect(screen.getByText('加载技能中...')).toBeInTheDocument();
 
-      expect(screen.queryByText('加载技能中...')).not.toBeInTheDocument();
-      expect(screen.getByRole('alert')).toHaveTextContent('技能列表加载超时');
-    }
-    finally {
-      vi.useRealTimers();
-    }
+    await act(async () => {
+      rejectSkillsDashboard(new Error('技能列表加载超时，请检查技能目录或后端状态。'));
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('技能列表加载超时');
+    expect(screen.queryByText('加载技能中...')).not.toBeInTheDocument();
 
     backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
       page === 'skills'
@@ -7598,8 +7793,8 @@ async function designWorkflowWithAi() {
     ));
 
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await waitForBackendThreadHeading();
+    await openSkillToolsPage();
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('skills backend offline');
@@ -7631,8 +7826,8 @@ async function designWorkflowWithAi() {
 
   it('deletes a skill through the legacy scoped API and refreshes the list', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await waitForBackendThreadHeading();
+    await openSkillToolsPage();
     expect(await screen.findByText('后端')).toBeInTheDocument();
 
     backend.getDashboardPage.mockResolvedValueOnce({ skills: [] });
@@ -7665,8 +7860,8 @@ async function designWorkflowWithAi() {
     }[key] ?? null));
 
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await waitForBackendThreadHeading();
+    await openSkillToolsPage();
     await screen.findByText('后端');
 
     fireEvent.click(screen.getByRole('button', { name: '新建技能' }));
@@ -7716,8 +7911,8 @@ async function designWorkflowWithAi() {
 
   it('opens an existing skill, loads related files, and saves edits', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await waitForBackendThreadHeading();
+    await openSkillToolsPage();
     await screen.findByText('后端');
 
     const backendCard = screen.getByText('后端').closest('article');
@@ -7782,8 +7977,8 @@ async function designWorkflowWithAi() {
     }));
 
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await waitForBackendThreadHeading();
+    await openSkillToolsPage();
     await screen.findByText('后端');
 
     const backendCard = screen.getByText('后端').closest('article');
@@ -7818,8 +8013,8 @@ async function designWorkflowWithAi() {
 
   it('imports skill directories with selected scope through skills/local/importDir', async () => {
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await waitForBackendThreadHeading();
+    await openSkillToolsPage();
     await screen.findByText('后端');
 
     fireEvent.click(screen.getByRole('button', { name: '批量导入技能目录' }));
@@ -7846,8 +8041,8 @@ async function designWorkflowWithAi() {
     backend.readSkill.mockRejectedValueOnce(new Error('skill same-name conflict: ProjectConflict'));
 
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await waitForBackendThreadHeading();
+    await openSkillToolsPage();
     await screen.findByText('后端');
 
     fireEvent.click(screen.getByRole('button', { name: '批量导入技能目录' }));
@@ -7885,8 +8080,8 @@ async function designWorkflowWithAi() {
     backend.suggestSkillSummary.mockResolvedValueOnce('当你需要维护导入技能时使用。');
 
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await waitForBackendThreadHeading();
+    await openSkillToolsPage();
     await screen.findByText('后端');
 
     fireEvent.click(screen.getByRole('button', { name: '批量导入技能目录' }));
@@ -7938,8 +8133,8 @@ async function designWorkflowWithAi() {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await waitForBackendThreadHeading();
+    await openSkillToolsPage();
 
     expect(await screen.findByText(/发现 1 个技能冲突/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '用本项目内容覆盖外部版本' }));
@@ -7978,8 +8173,8 @@ async function designWorkflowWithAi() {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await waitForBackendThreadHeading();
+    await openSkillToolsPage();
 
     expect(await screen.findByText('检测到同名技能同时存在于私人使用和项目共享。请选择使用项目共享版本、继续私人使用，或另存为新私人技能。')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '查看两个版本' }));
@@ -8001,8 +8196,8 @@ async function designWorkflowWithAi() {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await waitForBackendThreadHeading();
+    await openSkillToolsPage();
 
     expect(await screen.findByText('要保留项目共享：编辑或删除同名私人技能。')).toBeInTheDocument();
     expect(screen.getByText('要保留私人使用：编辑项目共享技能改名，或删除项目共享技能。')).toBeInTheDocument();
@@ -8026,8 +8221,8 @@ async function designWorkflowWithAi() {
     });
 
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await waitForBackendThreadHeading();
+    await openSkillToolsPage();
 
     expect(await screen.findByText(/发现 1 个技能冲突/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '另存为新技能' }));
@@ -8074,8 +8269,8 @@ async function designWorkflowWithAi() {
     }).mockResolvedValue({ items: [] });
 
     render(<App />);
-    await screen.findByText('后端线程');
-    fireEvent.click(screen.getByLabelText('插件市场'));
+    await waitForBackendThreadHeading();
+    await openSkillToolsPage();
 
     expect(await screen.findByText(/发现 1 个技能冲突/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '用项目共享版本，删除其他版本' }));

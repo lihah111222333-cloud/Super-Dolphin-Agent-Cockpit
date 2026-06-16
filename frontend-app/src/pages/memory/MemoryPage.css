@@ -1,0 +1,261 @@
+.memory-page,
+.settings-page {
+  padding-bottom: 32px;
+}
+
+.memory-stats,
+.similar-alert,
+.memory-cards {
+  margin: 28px;
+}
+
+.big {
+  font-size: 40px;
+}
+
+.orange-dot,
+.green-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--orange);
+}
+
+.green-dot {
+  background: var(--green);
+}
+
+meter {
+  width: 48%;
+}
+
+.similar-alert {
+  min-height: 62px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid color-mix(in srgb, var(--warning) 44%, var(--border));
+  border-radius: var(--radius);
+  color: var(--warning);
+  padding: 0 22px;
+  font-size: 20px;
+}
+
+.similar-alert button {
+  margin-left: 12px;
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 44%, var(--border));
+}
+
+.memory-tabs {
+  border-bottom: 1px solid var(--line);
+  margin: 0 28px;
+  padding-left: 0;
+}
+
+.memory-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px;
+}
+
+.memory-card {
+  border-left: 4px solid var(--orange);
+}
+
+.memory-card header em {
+  color: var(--muted);
+  font-style: normal;
+}
+
+.memory-card footer {
+  margin-top: 16px;
+}
+
+.memory-card footer time {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: auto;
+  color: var(--muted);
+}
+
+.memory-create {
+  position: relative;
+}
+
+.memory-create-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  min-width: 132px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 6px;
+  box-shadow: var(--shadow);
+}
+
+.memory-create-menu button {
+  width: 100%;
+  justify-content: flex-start;
+  border: 0;
+  background: transparent;
+}
+
+.memory-health-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+  margin: 8px 0 10px;
+}
+
+.memory-health-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green);
+}
+
+.memory-health-track.warning span {
+  background: var(--orange);
+}
+
+.memory-health-track.danger span {
+  background: var(--error);
+}
+
+.memory-pending,
+.memory-card .path,
+.memory-form-helper {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.memory-notice {
+  margin: 14px 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text-sec);
+  background: var(--surface);
+}
+
+.memory-notice.is-error {
+  border-color: color-mix(in srgb, var(--error) 52%, var(--border));
+  color: var(--error);
+}
+
+.memory-notice.is-warning {
+  border-color: color-mix(in srgb, var(--warning) 48%, var(--border));
+  color: var(--warning);
+}
+
+.memory-similar-list {
+  margin: -12px 28px 24px;
+  display: grid;
+  gap: 8px;
+}
+
+.memory-similar-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 26%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warning) 9%, var(--surface));
+  padding: 10px 12px;
+  color: var(--text-sec);
+}
+
+.memory-similar-item button {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--text-pri);
+  padding: 0 10px;
+}
+
+.memory-card.type-project {
+  border-left-color: var(--info);
+}
+
+.memory-card code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.memory-editor-modal {
+  width: min(760px, calc(100vw - 40px));
+}
+
+.memory-editor-modal header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.memory-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.memory-form-grid label,
+.memory-content-label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-sec);
+}
+
+.memory-form-grid input,
+.memory-form-grid select,
+.memory-content-label textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text-pri);
+  padding: 10px 12px;
+}
+
+.memory-content-label {
+  margin-top: 12px;
+}
+
+.memory-content-label textarea {
+  min-height: 220px;
+  resize: vertical;
+  font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.memory-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.memory-editor-actions button,
+.modal-box footer button,
+.modal-box header button {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--text-pri);
+  padding: 0 12px;
+}
+
+@media (max-width: 860px) {
+  .memory-similar-item,
+  .memory-form-grid {
+    grid-template-columns: 1fr;
+  }
+}

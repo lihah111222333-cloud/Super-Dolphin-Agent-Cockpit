@@ -35,6 +35,16 @@ function renderSkillsPage(projectPath = '/repo/app') {
   );
 }
 
+function openSkillTools() {
+  fireEvent.click(screen.getByRole('button', { name: /Skill/ }));
+}
+
+function getOverviewMetric(overview, label) {
+  const metric = within(overview).getByText(label).closest('div');
+  if (!metric) throw new Error(`Missing overview metric: ${label}`);
+  return metric;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   backend.getDashboardPage.mockResolvedValue({
@@ -79,8 +89,76 @@ describe('SkillsPage module', () => {
 });
 
 describe('SkillsPage backend migration', () => {
+  it('renders the plugins marketplace tab with connected apps and searchable recommendations', async () => {
+    renderSkillsPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'MCP工具' }));
+
+    expect(await screen.findByRole('heading', { name: '插件' })).toBeInTheDocument();
+    expect(screen.getByText('在你常用的工具中使用 Super-Dolphin')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '已连接' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '推荐' })).toBeInTheDocument();
+    expect(screen.getByText('Creative Production')).toBeInTheDocument();
+    expect(screen.getByText('Slack')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('搜索插件和技能'), { target: { value: 'slack' } });
+
+    expect(screen.getByText('Slack')).toBeInTheDocument();
+    expect(screen.queryByText('Creative Production')).not.toBeInTheDocument();
+  });
+
+  it('frames the plugin entry around the current local skills surface', async () => {
+    renderSkillsPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Skill工具' }));
+
+    expect(await screen.findByRole('heading', { name: '插件与技能' })).toBeInTheDocument();
+    expect(screen.getByText('本地运行时')).toBeInTheDocument();
+    expect(screen.getByText('本地技能库')).toBeInTheDocument();
+
+    const overview = screen.getByRole('region', { name: '插件与技能状态' });
+    expect(within(overview).getByRole('heading', { name: '本地技能、个人技能和运行时冲突处理' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '后端' })).toBeInTheDocument();
+    expect(within(overview).getByText('本地技能')).toBeInTheDocument();
+    expect(within(overview).getByText('项目共享')).toBeInTheDocument();
+    expect(within(overview).getByText('私人使用')).toBeInTheDocument();
+    expect(within(overview).getByText('待处理冲突')).toBeInTheDocument();
+    expect(within(getOverviewMetric(overview, '本地技能')).getByText('1')).toBeInTheDocument();
+    expect(within(getOverviewMetric(overview, '项目共享')).getByText('1')).toBeInTheDocument();
+    expect(within(getOverviewMetric(overview, '私人使用')).getByText('0')).toBeInTheDocument();
+    expect(within(getOverviewMetric(overview, '待处理冲突')).getByText('0')).toBeInTheDocument();
+  });
+
+  it('does not report zero conflicts when conflict sync has not succeeded', async () => {
+    backend.listSkillResolutions.mockRejectedValueOnce(new Error('resolver offline'));
+    renderSkillsPage();
+    openSkillTools();
+
+    expect(await screen.findByRole('heading', { name: '后端' })).toBeInTheDocument();
+    const overview = screen.getByRole('region', { name: '插件与技能状态' });
+    const conflictMetric = getOverviewMetric(overview, '待处理冲突');
+    expect(within(conflictMetric).getByText('待确认')).toBeInTheDocument();
+    expect(within(conflictMetric).queryByText('0')).not.toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('读取技能冲突失败：resolver offline');
+  });
+
+  it('keeps conflict status unresolved while project context is pending', async () => {
+    renderSkillsPage('');
+    openSkillTools();
+
+    expect(await screen.findByRole('heading', { name: '插件与技能' })).toBeInTheDocument();
+    const overview = screen.getByRole('region', { name: '插件与技能状态' });
+    const conflictMetric = getOverviewMetric(overview, '待处理冲突');
+    expect(within(conflictMetric).getByText('待确认')).toBeInTheDocument();
+    expect(within(conflictMetric).queryByText('0')).not.toBeInTheDocument();
+    expect(screen.getByText('正在连接本地项目...')).toBeInTheDocument();
+    expect(backend.getDashboardPage).not.toHaveBeenCalled();
+    expect(backend.listSkillResolutions).not.toHaveBeenCalled();
+  });
+
   it('loads skills from dashboard and saves an edited skill through skills/local RPCs', async () => {
     renderSkillsPage();
+    openSkillTools();
 
     expect(await screen.findByRole('heading', { name: '后端' })).toBeInTheDocument();
     expect(backend.getDashboardPage).toHaveBeenCalledWith({ cwd: '/repo/app', page: 'skills' });
@@ -167,6 +245,7 @@ describe('SkillsPage backend migration', () => {
     }));
 
     renderSkillsPage();
+    openSkillTools();
 
     const card = (await screen.findByRole('heading', { name: '后端' })).closest('article');
     fireEvent.click(within(card).getByRole('button', { name: '编辑详情' }));
@@ -193,6 +272,7 @@ describe('SkillsPage backend migration', () => {
 
   it('creates project skills through the internal skills/create RPC', async () => {
     renderSkillsPage();
+    openSkillTools();
 
     await screen.findByRole('heading', { name: '后端' });
     fireEvent.click(screen.getByRole('button', { name: '新建技能' }));
@@ -217,6 +297,7 @@ describe('SkillsPage backend migration', () => {
 
   it('keeps new personal skills on the skills/local write RPC with user personal type', async () => {
     renderSkillsPage();
+    openSkillTools();
 
     await screen.findByRole('heading', { name: '后端' });
     fireEvent.click(screen.getByRole('button', { name: '新建技能' }));

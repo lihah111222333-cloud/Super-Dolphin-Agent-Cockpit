@@ -1,3 +1,5 @@
+// @ts-check
+
 import {
   callAPI as callWailsAPI,
   getBuildInfo as getWailsBuildInfo,
@@ -83,6 +85,8 @@ export const RPC_METHODS = Object.freeze({
   PROMPT_INTENTS_COMMIT: 'prompt-intents/commit',
   PROMPT_INTENTS_DISCARD: 'prompt-intents/discard',
   PROMPT_INTENTS_DRY_RUN: 'prompt-intents/dry-run',
+  PERSONALIZATION_PROFILE_GET: 'personalization/profile/get',
+  PERSONALIZATION_PROFILE_SAVE: 'personalization/profile/save',
   PROMPT_SECTIONS_LIST: 'prompt-sections/list',
   PROMPT_SECTIONS_WRITE: 'prompt-sections/write',
   PROMPT_SECTIONS_DELETE: 'prompt-sections/delete',
@@ -137,6 +141,39 @@ export const RPC_METHODS = Object.freeze({
 
 const objectPrototype = Object.prototype;
 const TOOL_SURFACE_MODES = new Set(['chat', 'auto', 'agent']);
+/**
+ * Fields accepted by the React thread/start facade before canonicalization.
+ * Keep this list intentionally narrower than arbitrary objects so Go-side
+ * strict decoders are not the first layer that catches UI payload drift.
+ */
+const THREAD_START_ALLOWED_KEYS = new Set([
+  'cwd',
+  'name',
+  'provider',
+  'modelProvider',
+  'model_provider',
+  'model',
+  'effort',
+  'promptKey',
+  'prompt_key',
+  'agentKey',
+  'agent_key',
+  'toolSurfaceMode',
+  'tool_surface_mode',
+  'deferSpawn',
+  'defer_spawn',
+  'codexModelProvider',
+  'codex_model_provider',
+  'config',
+  'launchIntentId',
+  'launch_intent_id',
+  'baseInstructions',
+  'base_instructions',
+  'optimisticUserMessage',
+  'optimistic_user_message',
+  'skipInitialRuntimeSync',
+  'skip_initial_runtime_sync',
+]);
 const DEFAULT_PROMPT_INTENT_KIND = 'expert';
 const DEFAULT_PROMPT_SOURCE_TYPE = 'user_input';
 
@@ -147,6 +184,14 @@ function assertPlainObject(method, params) {
     throw new TypeError(`${method} params must be an object`);
   }
   return value;
+}
+
+function assertAllowedPayloadFields(method, payload, allowedKeys) {
+  for (const key of Object.keys(payload)) {
+    if (!allowedKeys.has(key)) {
+      throw new Error(`${method}: unsupported payload field ${key}`);
+    }
+  }
 }
 
 function normalizeString(value) {
@@ -709,6 +754,15 @@ function promptIntentDryRunPayload(params) {
   });
 }
 
+function personalizationProfilePayload(method, params) {
+  const payload = requireCwd(method, params);
+  if (method === RPC_METHODS.PERSONALIZATION_PROFILE_GET) return { cwd: payload.cwd };
+  if (!payload.profile || typeof payload.profile !== 'object' || Array.isArray(payload.profile)) {
+    throw new Error(`${method}: profile must be an object`);
+  }
+  return { cwd: payload.cwd, profile: payload.profile };
+}
+
 function promptSectionPayload(method, params) {
   return requireKey(method, requireCwd(method, params), 'prompt_id');
 }
@@ -756,6 +810,7 @@ function hasOwn(value, key) {
   return objectPrototype.hasOwnProperty.call(value, key);
 }
 
+/** @type {ReadonlyArray<readonly [string, (...args: any[]) => any]>} */
 const NATIVE_DEP_FALLBACKS = Object.freeze([
   ['getBuildInfo', getWailsBuildInfo],
   ['onAgentEvent', subscribeAgentEvent],
@@ -773,6 +828,7 @@ const NATIVE_DEP_FALLBACKS = Object.freeze([
   ['selectProjectDirs', selectProjectDirsViaBridge],
 ]);
 
+/** @param {Record<string, any>} deps */
 function resolveNativeDeps(deps) {
   return Object.fromEntries(NATIVE_DEP_FALLBACKS.map(([key, fallback]) => [key, deps[key] || fallback]));
 }
@@ -911,6 +967,14 @@ function createPromptDagApi(callBackend) {
     commitPromptIntent: (params) => callBackend(RPC_METHODS.PROMPT_INTENTS_COMMIT, promptIntentCommitPayload(params)),
     discardPromptIntent: (params) => callBackend(RPC_METHODS.PROMPT_INTENTS_DISCARD, promptIntentDiscardPayload(params)),
     dryRunPromptIntent: (params) => callBackend(RPC_METHODS.PROMPT_INTENTS_DRY_RUN, promptIntentDryRunPayload(params)),
+    getPersonalizationProfile: (params) => callBackend(
+      RPC_METHODS.PERSONALIZATION_PROFILE_GET,
+      personalizationProfilePayload(RPC_METHODS.PERSONALIZATION_PROFILE_GET, params),
+    ),
+    savePersonalizationProfile: (params) => callBackend(
+      RPC_METHODS.PERSONALIZATION_PROFILE_SAVE,
+      personalizationProfilePayload(RPC_METHODS.PERSONALIZATION_PROFILE_SAVE, params),
+    ),
     listPromptSections: (params) => callBackend(RPC_METHODS.PROMPT_SECTIONS_LIST, promptSectionPayload(RPC_METHODS.PROMPT_SECTIONS_LIST, params)),
     writePromptSection: (params) => callBackend(RPC_METHODS.PROMPT_SECTIONS_WRITE, promptSectionPayload(RPC_METHODS.PROMPT_SECTIONS_WRITE, params)),
     deletePromptSection: (params) => callBackend(RPC_METHODS.PROMPT_SECTIONS_DELETE, promptSectionPayload(RPC_METHODS.PROMPT_SECTIONS_DELETE, params)),
@@ -1101,6 +1165,7 @@ function threadConfigPayload(params) {
 
 function threadStartPayload(params) {
   const payload = requireCwd(RPC_METHODS.THREAD_START, params);
+  assertAllowedPayloadFields(RPC_METHODS.THREAD_START, payload, THREAD_START_ALLOWED_KEYS);
   const provider = normalizeProvider(payload);
   if (!provider) throw new Error(`${RPC_METHODS.THREAD_START}: provider is required`);
   const rest = { ...payload };
@@ -1118,6 +1183,8 @@ function stripThreadStartInternalKeys(rest) {
   delete rest.provider;
   delete rest.modelProvider;
   delete rest.model_provider;
+  delete rest.codexModelProvider;
+  delete rest.codex_model_provider;
   delete rest.promptKey;
   delete rest.prompt_key;
   delete rest.agentKey;
@@ -1256,6 +1323,8 @@ export const draftPromptIntent = backendApi.draftPromptIntent;
 export const commitPromptIntent = backendApi.commitPromptIntent;
 export const discardPromptIntent = backendApi.discardPromptIntent;
 export const dryRunPromptIntent = backendApi.dryRunPromptIntent;
+export const getPersonalizationProfile = backendApi.getPersonalizationProfile;
+export const savePersonalizationProfile = backendApi.savePersonalizationProfile;
 export const listPromptSections = backendApi.listPromptSections;
 export const writePromptSection = backendApi.writePromptSection;
 export const deletePromptSection = backendApi.deletePromptSection;

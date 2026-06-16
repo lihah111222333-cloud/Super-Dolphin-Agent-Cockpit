@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { isCancelledError, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Workflow } from 'lucide-react';
+import { Workflow, Clock, Bell, BookOpen, BarChart3, ChevronDown } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.jsx';
@@ -8,6 +8,7 @@ import { finalOutputPath, workflowOrderedNodes } from './adapters/workflowDispla
 import { WorkflowDiagnostics } from './components/WorkflowDiagnostics.jsx';
 import { WorkflowFinalOutputPanel } from './components/WorkflowFinalOutputPanel.jsx';
 import { applyDagOps, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, openSharedFile, readSharedFile, startDag, startThread, terminateDagRun } from './services/workflowPageService.js';
+import './WorkflowPage.css';
 
 const DAG_RECENT_RUN_LIMIT = 30;
 const DAG_RUN_HISTORY_VISIBLE_LIMIT = 10;
@@ -186,9 +187,16 @@ function normalizeDashboardDag(raw = {}, index = 0) {
     finishedAt: firstText(raw.finished_at, raw.finishedAt),
     version: dagVersionOf(raw),
     latestRun: latestRun ? normalizeDagRun(latestRun) : null,
+    hasFinalOutput: dashboardDagFinalOutputFlag(raw),
     scheduleEnabled: scheduleEnabledFromDagItem(raw),
     raw,
   };
+}
+
+function dashboardDagFinalOutputFlag(raw = {}) {
+  if (typeof raw.hasFinalOutput === 'boolean') return raw.hasFinalOutput;
+  if (typeof raw.has_final_output === 'boolean') return raw.has_final_output;
+  return undefined;
 }
 
 function normalizeDagsResponse(response) {
@@ -495,6 +503,37 @@ function categoryCounts(items) {
     acc[category.key] = items.filter((item) => dagCategoryOf(item) === category.key).length;
     return acc;
   }, {});
+}
+
+function workflowOverviewStats(items) {
+  const source = Array.isArray(items) ? items : [];
+  const counts = categoryCounts(source);
+  return {
+    total: source.length,
+    running: counts.running || 0,
+    scheduled: counts.scheduled || 0,
+    startable: source.filter((item) => (
+      !dagHasActiveRun(item)
+      && STARTABLE_DAG_STATUSES.has(textValue(item?.status).toLowerCase())
+      && STARTABLE_DAG_TRIGGERS.has(textValue(item?.trigger).toLowerCase())
+    )).length,
+    finalOutputs: source.filter((item) => workflowDagHasFinalOutput(item)).length,
+  };
+}
+
+function workflowDagHasFinalOutput(item) {
+  if (typeof item?.hasFinalOutput === 'boolean') return item.hasFinalOutput;
+  if (typeof item?.raw?.hasFinalOutput === 'boolean') return item.raw.hasFinalOutput;
+  if (typeof item?.raw?.has_final_output === 'boolean') return item.raw.has_final_output;
+  return isPresentFinalOutput(finalOutputDescriptor(item?.latestRun) || finalOutputDescriptor(item?.latestRun?.raw));
+}
+
+function isPresentFinalOutput(value) {
+  if (!value) return false;
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'object') return Object.keys(value).length > 0;
+  return true;
 }
 
 function firstAvailableCategory(items) {
@@ -1112,6 +1151,7 @@ function workflowDerivedSnapshot({ activeDetailDag, activeRunKey, dagKey, detail
     diagnostics,
     diagnosticNodes,
     missingRootAssigneeWarning,
+    overviewStats: workflowOverviewStats(list.items),
     recentRunPanelLabel,
     runId,
     scheduleActionLabel: isScheduledTrigger(activeDetailDag?.trigger) || activeDetailDag?.cronExpr ? '修改计划' : '创建定时任务',
@@ -1356,28 +1396,77 @@ function workflowDesignThreadPayload(cwd, launchConfig, launchPayload) {
   };
 }
 
+function AutomationEmptyState({ onStartChat }) {
+  return (
+    <div className="automation-empty-state">
+      <div className="empty-clock-wrapper">
+        <Clock size={40} className="empty-clock-icon" />
+      </div>
+      <h2>创建首个自动化</h2>
+      <div className="automation-presets-row">
+        <button type="button" className="preset-pill" onClick={onStartChat}>
+          <Bell size={16} className="preset-icon bell" />
+          <span>每日简报</span>
+        </button>
+        <button type="button" className="preset-pill" onClick={onStartChat}>
+          <BookOpen size={16} className="preset-icon doc" />
+          <span>每周回顾</span>
+        </button>
+        <button type="button" className="preset-pill" onClick={onStartChat}>
+          <BarChart3 size={16} className="preset-icon chart" />
+          <span>项目监控</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function WorkflowPageView({ model }) {
+  const { derived, isProjectPending, list, actions } = model;
+  const isEmpty = !isProjectPending && !derived.blockingLoadError && !list.loading && derived.overviewStats.total === 0;
+
   return (
     <section className="workflow-page">
       <WorkflowHeader model={model} />
       <WorkflowMessages model={model} />
-      <WorkflowGrid model={model} />
+      {isEmpty ? (
+        <AutomationEmptyState onStartChat={() => { void actions.startDesignFlow(); }} />
+      ) : (
+        <WorkflowGrid model={model} />
+      )}
       <WorkflowModals model={model} />
     </section>
   );
 }
 
 function WorkflowHeader({ model }) {
-  const { actionState, actions, isProjectPending, workflowCwd } = model;
+  const { actionState, actions, isProjectPending } = model;
   return (
     <PageHeader
       icon={Workflow}
       title="自动化"
-      subtitle={workflowCwd ? '当前项目：' + workflowCwd : '正在连接本地项目...'}
+      subtitle={
+        isProjectPending ? '正在连接本地项目...' : (
+          <span>
+            按计划或按需运行聊天。 <button type="button" className="learn-more-link">了解更多</button>
+          </span>
+        )
+      }
       actions={(
-        <button type="button" onClick={() => { void actions.startDesignFlow(); }} disabled={isProjectPending || actionState.actioning === 'design'}>
-          {actionState.actioning === 'design' ? '启动中...' : 'AI 设计流程'}
-        </button>
+        <div className="automation-header-actions">
+          <button type="button" className="btn-outline">
+            查看模板
+          </button>
+          <button
+            type="button"
+            className="btn-dark"
+            onClick={() => { void actions.startDesignFlow(); }}
+            disabled={isProjectPending || actionState.actioning === 'design'}
+          >
+            <span>通过聊天创建</span>
+            <ChevronDown size={14} className="dropdown-arrow-icon" />
+          </button>
+        </div>
       )}
     />
   );
@@ -1458,6 +1547,7 @@ function WorkflowDetail({ model }) {
   if (!model.derived.activeDetailDag) {
     return (
       <section className="workflow-detail">
+        <WorkflowOverview derived={model.derived} />
         <EmptyState icon={Workflow} title="暂无自动化" text="左侧选择自动化后查看详情。" />
       </section>
     );
@@ -1470,6 +1560,7 @@ function WorkflowDetailContent({ model }) {
   return (
     <section className="workflow-detail">
       <WorkflowDetailTop model={model} />
+      <WorkflowOverview derived={derived} />
       {detail.detailLoading ? <p className="console-message">正在加载详情...</p> : null}
       {notices.notice?.message && notices.notice.dagKey === selection.selectedDagKey ? <p className="settings-status">{notices.notice.message}</p> : null}
       {derived.startDisabledReason ? <p className="console-message">{derived.startDisabledReason}</p> : null}
@@ -1486,6 +1577,33 @@ function WorkflowDetailContent({ model }) {
       <WorkflowRunHistory model={model} />
       <WorkflowNodeList model={model} />
       <WorkflowAdvanced model={model} />
+    </section>
+  );
+}
+
+function WorkflowOverview({ derived }) {
+  const stats = derived.overviewStats;
+  const metrics = [
+    ['全部自动化', stats.total],
+    ['运行中', stats.running],
+    ['定时任务', stats.scheduled],
+    ['可启动', stats.startable],
+    ['最终产物', stats.finalOutputs],
+  ];
+  return (
+    <section className="workflow-overview" aria-label="自动化资产">
+      <div className="workflow-overview-copy">
+        <span>当前资产</span>
+        <h2>自动化和运行状态</h2>
+      </div>
+      <dl>
+        {metrics.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
     </section>
   );
 }

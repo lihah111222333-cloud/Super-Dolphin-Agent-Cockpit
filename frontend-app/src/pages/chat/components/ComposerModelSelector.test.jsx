@@ -33,7 +33,7 @@ describe('ComposerModelSelector', () => {
     fireEvent.click(screen.getByRole('button', { name: '选择模型' }));
     fireEvent.change(screen.getByLabelText('推理强度'), { target: { value: 'high' } });
 
-    expect(screen.getByRole('button', { name: '选择模型' })).toHaveTextContent('GPT-5.5 · 极高');
+    expect(screen.getByRole('button', { name: '选择模型' })).toHaveTextContent('5.5 超高');
     expect(store.saveComposerModelConfig).toHaveBeenCalledWith({ threadId: 'thread1', model: '', effort: 'high' });
   });
 

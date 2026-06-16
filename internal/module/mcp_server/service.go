@@ -52,9 +52,7 @@ type ConfigDocument struct {
 	MCPServers map[string]ServerConfig `json:"mcpServers"`
 }
 
-type AddServersRequest struct {
-	MCPServers map[string]ServerConfig `json:"mcpServers"`
-}
+type AddServersRequest = contract.MCPServerAddRequest
 
 type DeleteServerRequest struct {
 	ServerName string `json:"serverName"`
@@ -62,15 +60,9 @@ type DeleteServerRequest struct {
 
 type ServerConfig = contract.MCPServerConfig
 
-type AddServersResult struct {
-	ConfigPath  string   `json:"configPath"`
-	ServerNames []string `json:"serverNames"`
-}
+type AddServersResult = contract.MCPServerAddResult
 
-type ListServersResult struct {
-	ConfigPath string                  `json:"configPath"`
-	MCPServers map[string]ServerConfig `json:"mcpServers"`
-}
+type ListServersResult = contract.MCPServerListResult
 
 // ListServerToolsRequest 指定要通过 HTTP MCP tools/list 拉取工具的服务端名称。
 type ListServerToolsRequest struct {

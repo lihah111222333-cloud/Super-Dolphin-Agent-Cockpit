@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { textValue } from '../../shared/pageShared.js';
 import { SettingsPromptNotice } from './SettingsPromptNotice.jsx';
+import './UILogCard.css';
 
 function UILogCard({ loadLogs, store }) {
   const [remoteLogs, setRemoteLogs] = useState([]);

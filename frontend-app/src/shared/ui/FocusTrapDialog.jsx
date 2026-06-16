@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef } from 'react';
+import './FocusTrapDialog.css';
 
 const FOCUSABLE_SELECTOR = [
   'a[href]',

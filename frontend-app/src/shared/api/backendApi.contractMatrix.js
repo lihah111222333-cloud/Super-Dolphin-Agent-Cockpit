@@ -1,3 +1,5 @@
+// @ts-check
+
 import { RPC_METHODS } from './backendApi.js';
 
 export const RPC_CONTRACT_LEVELS = Object.freeze({
@@ -98,6 +100,8 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   PROMPT_INTENTS_COMMIT: contract('PROMPT_INTENTS_COMMIT', 'commitPromptIntent', 'P0', 'prompt', [TESTS.API, TESTS.PROMPTS], ['prompt mutation']),
   PROMPT_INTENTS_DISCARD: contract('PROMPT_INTENTS_DISCARD', 'discardPromptIntent', 'P1', 'prompt', [TESTS.API, TESTS.PROMPTS], ['prompt draft lifecycle']),
   PROMPT_INTENTS_DRY_RUN: contract('PROMPT_INTENTS_DRY_RUN', 'dryRunPromptIntent', 'P1', 'prompt', [TESTS.API, TESTS.PROMPTS], ['prompt preview']),
+  PERSONALIZATION_PROFILE_GET: contract('PERSONALIZATION_PROFILE_GET', 'getPersonalizationProfile', 'P1', 'prompt', [TESTS.API, TESTS.PROMPTS], ['personalization profile']),
+  PERSONALIZATION_PROFILE_SAVE: contract('PERSONALIZATION_PROFILE_SAVE', 'savePersonalizationProfile', 'P1', 'prompt', [TESTS.API, TESTS.PROMPTS], ['personalization profile']),
   PROMPT_SECTIONS_LIST: contract('PROMPT_SECTIONS_LIST', 'listPromptSections', 'P1', 'prompt', [TESTS.API], ['prompt read']),
   PROMPT_SECTIONS_WRITE: contract('PROMPT_SECTIONS_WRITE', 'writePromptSection', 'P0', 'prompt', [TESTS.API], ['prompt mutation']),
   PROMPT_SECTIONS_DELETE: contract('PROMPT_SECTIONS_DELETE', 'deletePromptSection', 'P0', 'prompt', [TESTS.API], ['prompt mutation']),
