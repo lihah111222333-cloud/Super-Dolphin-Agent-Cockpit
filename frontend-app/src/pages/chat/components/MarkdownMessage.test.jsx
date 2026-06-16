@@ -32,6 +32,33 @@ describe('MarkdownMessage', () => {
     }));
   });
 
+  it('routes local markdown file links to direct open actions', () => {
+    const onOpenPath = vi.fn();
+
+    render(
+      <MessageContent
+        text="[chat](frontend-app/src/pages/chat/) [main](file:///C:/repo/app/src/main.go#L12)"
+        actions={{ onOpenPath }}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /chat/ }));
+    fireEvent.click(screen.getByRole('button', { name: /main/ }));
+
+    expect(onOpenPath).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      column: 0,
+      line: 1,
+      path: 'frontend-app/src/pages/chat/',
+      raw: 'chat',
+    }));
+    expect(onOpenPath).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      column: 0,
+      line: 12,
+      path: 'C:/repo/app/src/main.go',
+      raw: 'main',
+    }));
+  });
+
   it('renders code preview markdown without the message wrapper', () => {
     const { container } = render(
       <div className="message-markdown">

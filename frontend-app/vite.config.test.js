@@ -12,6 +12,9 @@ describe('frontend vite dev proxy', () => {
     expect(config.server.proxy['/generated-image']).toEqual({
       target: `http://${backendAddr}`,
     });
+    expect(config.server.proxy['/local-image']).toEqual({
+      target: `http://${backendAddr}`,
+    });
   });
 });
 

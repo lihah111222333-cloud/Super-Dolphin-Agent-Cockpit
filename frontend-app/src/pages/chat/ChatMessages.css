@@ -214,6 +214,52 @@
   font-size: 12px;
 }
 
+.user-message-attachments {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.user-attachment-gallery,
+.user-attachment-file-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.user-attachment-file-pill {
+  max-width: 100%;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-2) 74%, transparent);
+  color: var(--text-sec);
+  padding: 3px 9px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+button.user-attachment-file-pill {
+  cursor: pointer;
+}
+
+button.user-attachment-file-pill:hover,
+button.user-attachment-file-pill:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  color: var(--ink);
+}
+
+.user-attachment-file-pill span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .bubble pre {
   margin: 0;
   white-space: pre-wrap;

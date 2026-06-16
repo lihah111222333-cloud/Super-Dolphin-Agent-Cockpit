@@ -48,6 +48,7 @@ export const RPC_METHODS = Object.freeze({
   UI_CODE_LOCATE: 'ui/code/locate',
   UI_CODE_OPEN: 'ui/code/open',
   UI_CODE_SAVE: 'ui/code/save',
+  UI_PATH_OPEN: 'ui/path/open',
 
   UI_PROJECTS_GET: 'ui/projects/get',
   UI_PROJECTS_SET_ACTIVE: 'ui/projects/setActive',
@@ -1017,6 +1018,7 @@ function createCodeApi(callBackend) {
   return {
     locateCodeFile: (params) => callBackend(RPC_METHODS.UI_CODE_LOCATE, codeFilePayload(RPC_METHODS.UI_CODE_LOCATE, params)),
     openCodeFile: (params) => callBackend(RPC_METHODS.UI_CODE_OPEN, codeFilePayload(RPC_METHODS.UI_CODE_OPEN, params, { includePosition: true })),
+    openPath: (params) => callBackend(RPC_METHODS.UI_PATH_OPEN, codeFilePayload(RPC_METHODS.UI_PATH_OPEN, params, { includePosition: true })),
     saveCodeFile: (params) => callBackend(RPC_METHODS.UI_CODE_SAVE, codeFilePayload(RPC_METHODS.UI_CODE_SAVE, params, { includeContent: true })),
   };
 }
@@ -1348,6 +1350,7 @@ export const setCronJobEnabled = backendApi.setCronJobEnabled;
 export const listCronJobRuns = backendApi.listCronJobRuns;
 export const locateCodeFile = backendApi.locateCodeFile;
 export const openCodeFile = backendApi.openCodeFile;
+export const openPath = backendApi.openPath;
 export const saveCodeFile = backendApi.saveCodeFile;
 export const readSkill = backendApi.readSkill;
 export const listSkillFiles = backendApi.listSkillFiles;

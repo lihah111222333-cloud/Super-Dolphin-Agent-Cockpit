@@ -57,7 +57,7 @@ const backend = vi.hoisted(() => {
     listSkillResolutions previewSkillResolution applySkillResolution readSharedFile deleteSharedFile getPreference
     startThread startTurn interruptTurn forceCompleteTurn compactThread recoverThread respondApproval resolveThreadIdentity archiveThread unarchiveThread
     deleteThread getThreadConfig setThreadConfig renameThread setPreference setVideoApiKey selectFiles saveClipboardImage saveTextFile
-    locateCodeFile openCodeFile saveCodeFile beginTextClipboardWrite copyTextToClipboard emitFrontendTraceEvent
+    locateCodeFile openCodeFile openPath saveCodeFile beginTextClipboardWrite copyTextToClipboard emitFrontendTraceEvent
   `.trim().split(/\s+/);
   return {
     ...Object.fromEntries(mockNames.map((name) => [name, vi.fn()])),
