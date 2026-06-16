@@ -32,7 +32,7 @@ describe('TimelineMessage', () => {
   it('renders assistant footer actions and notifies sticky scrolling while streaming', () => {
     const onScrollIfSticky = vi.fn();
 
-    render(
+    const { rerender } = render(
       <TimelineMessage
         message={{ id: 'assistant-1', role: 'assistant', text: 'streaming reply', time: '2026-06-15T08:00:00Z', done: false }}
         activeThreadId="thread-1"
@@ -43,8 +43,21 @@ describe('TimelineMessage', () => {
     );
 
     expect(screen.getByText('streaming reply')).toBeInTheDocument();
+    expect(screen.getByText('\u601d\u8003\u4e2d')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /\u590d\u5236/ })).toBeInTheDocument();
     expect(onScrollIfSticky).toHaveBeenCalledWith(false);
+
+    rerender(
+      <TimelineMessage
+        message={{ id: 'assistant-1', role: 'assistant', text: 'streaming reply', time: '2026-06-15T08:00:00Z', done: true }}
+        activeThreadId="thread-1"
+        smoothStreaming
+        onScrollIfSticky={onScrollIfSticky}
+        formatTime={formatTime}
+      />
+    );
+
+    expect(screen.queryByText('\u601d\u8003\u4e2d')).not.toBeInTheDocument();
   });
 
   it('delegates approval and reasoning message variants', () => {
