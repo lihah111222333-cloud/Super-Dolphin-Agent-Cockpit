@@ -83,7 +83,7 @@ func TestReadToolSchemasExposePosWithoutLegacyRequired(t *testing.T) {
 		{defs: workspaceToolDefinitions(nil), toolName: "workspace_get_run", legacyField: "run_key"},
 		{defs: workspaceToolDefinitions(nil), toolName: "workspace_list_runs", legacyField: "dag_key"},
 		{defs: sharedFileToolDefinitions(nil), toolName: "shared_file_read", legacyField: "path"},
-		{defs: promptToolDefinitions(nil), toolName: "prompt_get", legacyField: "prompt_key"},
+		{defs: promptToolDefinitions(nil, nil), toolName: "prompt_get", legacyField: "prompt_key"},
 		{defs: commandToolDefinitions(nil), toolName: "command_get", legacyField: "card_key"},
 	}
 
@@ -229,7 +229,7 @@ func assertPromptPosSelector(t *testing.T) {
 				Enabled:   true,
 			}, nil
 		},
-	})
+	}, nil)
 	result, err := handler(promptToolTestContext(), json.RawMessage(`{"pos":"prompt:main/dag_designer_zh"}`))
 	if err != nil {
 		t.Fatalf("HandlePromptGet() error = %v", err)

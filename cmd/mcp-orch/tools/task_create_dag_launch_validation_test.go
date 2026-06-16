@@ -167,6 +167,243 @@ func TestHandleCreateDAGRejectsAgentNodeMissingProvider(t *testing.T) {
 	}
 }
 
+func TestHandleCreateDAGRejectsAgentNodeMissingFirstTurn(t *testing.T) {
+	err := handleCreateDAGRejects(t, `{
+		"agent_id":"designer-1",
+		"dag_key":"dag-missing-first-turn",
+		"title":"Missing first turn",
+		"nodes":[{
+			"node_key":"brief",
+			"title":"生成简报",
+			"node_type":"agent",
+			"assigned_to":"bad_first_turn_brief_runner",
+			"config":{"exec":{
+				"provider":"codex",
+				"prompt_key":"main/dag_designer_zh",
+				"model":"gpt-5.4-mini",
+				"cwd":"/repo/a",
+				"codex_home":"/tmp/codex-home",
+				"codex_instance_key":"default",
+				"codex_model_provider":"openai"
+			}}
+		}]
+	}`)
+	assertErrorContains(t, err, "nodes[0].config.first_turn", "brief")
+}
+
+func TestHandleCreateDAGRejectsAgentNodeLegacyInputTask(t *testing.T) {
+	err := handleCreateDAGRejects(t, `{
+		"agent_id":"designer-1",
+		"dag_key":"dag-legacy-input-task",
+		"title":"Legacy input task",
+		"nodes":[{
+			"node_key":"brief",
+			"title":"生成简报",
+			"node_type":"agent",
+			"assigned_to":"bad_first_turn_brief_runner",
+			"config":{
+				"exec":{
+					"provider":"codex",
+					"prompt_key":"main/dag_designer_zh",
+					"cwd":"/repo/a",
+					"codex_home":"/tmp/codex-home",
+					"codex_instance_key":"default",
+					"codex_model_provider":"openai"
+				},
+				"input":{
+					"task":"生成热点新闻简报。"
+				}
+			}
+		}]
+	}`)
+	assertErrorContains(t, err, "nodes[0].config.input", "nodes[0].config.input.task", "first_turn")
+}
+
+func TestHandleCreateDAGRejectsAgentNodeLegacyShapeWithoutExec(t *testing.T) {
+	tests := []struct {
+		name     string
+		execLine string
+	}{
+		{name: "missing_exec"},
+		{name: "null_exec", execLine: `"exec":null,`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := handleCreateDAGRejects(t, `{
+				"agent_id":"designer-1",
+				"dag_key":"dag-legacy-shape-without-exec-`+tc.name+`",
+				"title":"Legacy shape without exec",
+				"nodes":[{
+					"node_key":"brief",
+					"title":"生成简报",
+					"node_type":"agent",
+					"assigned_to":"bad_first_turn_brief_runner",
+					"config":{
+						`+tc.execLine+`
+						"prompt_key":"main/dag_designer_zh",
+						"provider":"codex",
+						"cwd":"/repo/a",
+						"input":{
+							"task":"生成热点新闻简报。"
+						}
+					}
+				}]
+			}`)
+			assertErrorContains(t, err, "nodes[0].config.prompt_key", "nodes[0].config.input.task", "first_turn")
+		})
+	}
+}
+
+func TestHandleCreateDAGRejectsAgentNodeLegacyShapeFields(t *testing.T) {
+	tests := []struct {
+		name  string
+		extra string
+		want  string
+	}{
+		{name: "input_outputs", extra: `,"input":{"outputs":{"to_sharedfile":"reports/news.md"}}`, want: "nodes[0].config.input.outputs"},
+		{name: "output_file", extra: `,"output_file":"reports/news.md"`, want: "nodes[0].config.output_file"},
+		{name: "top_level_prompt_key", extra: `,"prompt_key":"main/dag_designer_zh"`, want: "nodes[0].config.prompt_key"},
+		{name: "top_level_provider", extra: `,"provider":"codex"`, want: "nodes[0].config.provider"},
+		{name: "top_level_model", extra: `,"model":"gpt-5.4-mini"`, want: "nodes[0].config.model"},
+		{name: "top_level_cwd", extra: `,"cwd":"/repo/a"`, want: "nodes[0].config.cwd"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := handleCreateDAGRejects(t, `{
+				"agent_id":"designer-1",
+				"dag_key":"dag-legacy-shape-`+tc.name+`",
+				"title":"Legacy shape",
+				"nodes":[{
+					"node_key":"brief",
+					"title":"生成简报",
+					"node_type":"agent",
+					"assigned_to":"bad_first_turn_brief_runner",
+					"config":{
+						"exec":{
+							"provider":"codex",
+							"prompt_key":"main/dag_designer_zh",
+							"cwd":"/repo/a",
+							"codex_home":"/tmp/codex-home",
+							"codex_instance_key":"default",
+							"codex_model_provider":"openai"
+						},
+						"first_turn":"生成热点新闻简报。"
+						`+tc.extra+`
+					}
+				}]
+			}`)
+			assertErrorContains(t, err, tc.want, "first_turn")
+		})
+	}
+}
+
+func TestHandleCreateDAGRejectsAgentNodeMissingLaunchIdentity(t *testing.T) {
+	tests := []struct {
+		name     string
+		nodeType string
+	}{
+		{name: "implicit agent node", nodeType: ""},
+		{name: "explicit agent node", nodeType: `"agent"`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			nodeTypeLine := ""
+			if tc.nodeType != "" {
+				nodeTypeLine = `"node_type":` + tc.nodeType + `,`
+			}
+			err := handleCreateDAGRejects(t, `{
+				"agent_id":"designer-1",
+				"dag_key":"dag-missing-launch-identity",
+				"title":"Missing launch identity",
+				"nodes":[{
+					"node_key":"writer",
+					"title":"Writer",
+					`+nodeTypeLine+`
+					"assigned_to":"agent-parent",
+					"config":{"exec":{
+						"provider":"codex",
+						"cwd":"/repo/project",
+						"codex_home":"/tmp/codex-home",
+						"codex_instance_key":"default",
+						"codex_model_provider":"openai"
+					}}
+				}]
+			}`)
+			assertErrorContains(t, err, "nodes[0].config.exec.prompt_key", "nodes[0].config.exec.agent_key", "writer")
+		})
+	}
+}
+
+func TestHandleCreateDAGAcceptsAgentNodeWithPromptKey(t *testing.T) {
+	handleCreateDAGAccepts(t, `{
+		"agent_id":"designer-1",
+		"dag_key":"dag-agent-prompt-key",
+		"title":"Agent prompt key",
+		"nodes":[{
+			"node_key":"writer",
+			"title":"Writer",
+			"node_type":"agent",
+			"assigned_to":"agent-parent",
+			"config":{"exec":{
+				"provider":"codex",
+				"prompt_key":"main/code-task",
+				"cwd":"/repo/project",
+				"codex_home":"/tmp/codex-home",
+				"codex_instance_key":"default",
+				"codex_model_provider":"openai"
+			},
+			"first_turn":"实现任务并报告结果。"}
+		}]
+	}`)
+}
+
+func TestHandleCreateDAGAcceptsAgentNodeWithFirstTurn(t *testing.T) {
+	handleCreateDAGAccepts(t, `{
+		"agent_id":"designer-1",
+		"dag_key":"dag-agent-first-turn",
+		"title":"Agent first turn",
+		"nodes":[{
+			"node_key":"writer",
+			"title":"Writer",
+			"node_type":"agent",
+			"assigned_to":"agent-parent",
+			"config":{"exec":{
+				"provider":"codex",
+				"prompt_key":"main/dag_designer_zh",
+				"model":"gpt-5.4-mini",
+				"cwd":"/repo/project",
+				"codex_home":"/tmp/codex-home",
+				"codex_instance_key":"default",
+				"codex_model_provider":"openai"
+			},
+			"first_turn":"生成一份中文热点新闻简报，并写入 reports/news/daily-briefing.md。",
+			"outputs":{
+				"to_sharedfile":{"path":"reports/news/daily-briefing.md","lock_mode":"exclusive"},
+				"to_node_result":true
+			}}
+		}]
+	}`)
+}
+
+func TestHandleCreateDAGAcceptsAgentNodeWithAgentKey(t *testing.T) {
+	handleCreateDAGAccepts(t, `{
+		"agent_id":"designer-1",
+		"dag_key":"dag-agent-agent-key",
+		"title":"Agent key",
+		"nodes":[{
+			"node_key":"writer",
+			"title":"Writer",
+			"assigned_to":"agent-parent",
+			"config":{"exec":{
+				"provider":"claude",
+				"agent_key":"daily_brief_agent",
+				"cwd":"/repo/project"
+			},
+			"first_turn":"生成每日简报。"}
+		}]
+	}`)
+}
+
 func TestHandleCreateDAGRejectsCodexAgentNodeMissingIdentity(t *testing.T) {
 	err := handleCreateDAGRejects(t, `{
 		"agent_id":"designer-1",
@@ -187,6 +424,76 @@ func TestHandleCreateDAGRejectsCodexAgentNodeMissingIdentity(t *testing.T) {
 	}
 }
 
+func TestHandleCreateDAGRejectsHybridVerifierMissingLaunchIdentity(t *testing.T) {
+	err := handleCreateDAGRejects(t, `{
+		"agent_id":"designer-1",
+		"dag_key":"dag-hybrid-missing-launch-identity",
+		"title":"Hybrid missing launch identity",
+		"nodes":[{
+			"node_key":"review",
+			"title":"Review",
+			"node_type":"hybrid",
+			"assigned_to":"agent-parent",
+			"config":{"exec":{
+				"automation":{"kind":"command_card","command_ref":"run_tests"},
+				"verifier":{
+					"provider":"codex",
+					"cwd":"/repo/project",
+					"codex_home":"/tmp/codex-home",
+					"codex_instance_key":"default",
+					"codex_model_provider":"openai"
+				}
+			}}
+		}]
+	}`)
+	assertErrorContains(t, err, "nodes[0].config.exec.verifier.prompt_key", "nodes[0].config.exec.verifier.agent_key", "review")
+}
+
+func TestHandleCreateDAGRejectsHybridVerifierMissingProvider(t *testing.T) {
+	err := handleCreateDAGRejects(t, `{
+		"agent_id":"designer-1",
+		"dag_key":"dag-hybrid-missing-provider",
+		"title":"Hybrid missing provider",
+		"nodes":[{
+			"node_key":"review",
+			"title":"Review",
+			"node_type":"hybrid",
+			"assigned_to":"agent-parent",
+			"config":{"exec":{
+				"automation":{"kind":"command_card","command_ref":"run_tests"},
+				"verifier":{
+					"prompt_key":"main/review-task",
+					"cwd":"/repo/project"
+				}
+			}}
+		}]
+	}`)
+	assertErrorContains(t, err, "nodes[0].config.exec.verifier.provider", "review", "claude", "codex")
+}
+
+func TestHandleCreateDAGRejectsCodexHybridVerifierMissingIdentity(t *testing.T) {
+	err := handleCreateDAGRejects(t, `{
+		"agent_id":"designer-1",
+		"dag_key":"dag-hybrid-missing-codex-identity",
+		"title":"Hybrid missing codex identity",
+		"nodes":[{
+			"node_key":"review",
+			"title":"Review",
+			"node_type":"hybrid",
+			"assigned_to":"agent-parent",
+			"config":{"exec":{
+				"automation":{"kind":"command_card","command_ref":"run_tests"},
+				"verifier":{
+					"provider":"codex",
+					"prompt_key":"main/review-task",
+					"cwd":"/repo/project"
+				}
+			}}
+		}]
+	}`)
+	assertErrorContains(t, err, "review", "codex_home", "codex_instance_key", "codex_model_provider")
+}
+
 func handleCreateDAGRejects(t *testing.T, raw string) error {
 	t.Helper()
 	handler := HandleCreateDAG(&golden.OrchestrationStub{
@@ -200,4 +507,30 @@ func handleCreateDAGRejects(t *testing.T, raw string) error {
 		t.Fatal("HandleCreateDAG() error = nil, want validation failure")
 	}
 	return err
+}
+
+func handleCreateDAGAccepts(t *testing.T, raw string) {
+	t.Helper()
+	called := false
+	handler := HandleCreateDAG(&golden.OrchestrationStub{
+		CreateDAGFunc: func(context.Context, contract.CreateDAGRequest) (contract.DAGDetail, error) {
+			called = true
+			return contract.DAGDetail{}, nil
+		},
+	})
+	if _, err := handler(context.Background(), json.RawMessage(raw)); err != nil {
+		t.Fatalf("HandleCreateDAG() error = %v", err)
+	}
+	if !called {
+		t.Fatal("CreateDAG was not called for valid task_create_dag input")
+	}
+}
+
+func assertErrorContains(t *testing.T, err error, wants ...string) {
+	t.Helper()
+	for _, want := range wants {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("HandleCreateDAG() error = %q, want substring %q", err.Error(), want)
+		}
+	}
 }
