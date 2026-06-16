@@ -67,7 +67,13 @@ func createDAGSchema() Schema {
 			"priority":    IntegerSchema("Flat execution shortcut; same as execution.priority."),
 			"retry":       IntegerSchema("Flat execution shortcut; same as execution.retry."),
 			"timeout_sec": IntegerSchema("Flat execution shortcut; same as execution.timeout_sec."),
-			"config":      RawObjectSchema("Optional full node config; executable agent nodes require config.exec.provider=claude or provider=codex with codex_home/codex_instance_key/codex_model_provider. For automation nodes use config.exec.command_ref."),
+			"config": RawObjectSchema(
+				"Optional full node config. Executable agent nodes require config.exec, non-empty config.first_turn, " +
+					"and provider=claude or provider=codex with codex_home/codex_instance_key/codex_model_provider. " +
+					"Use top-level config.outputs for output routing; do not use legacy config.input, " +
+					"config.input.task, config.input.outputs, config.output_file, config.prompt_key, " +
+					"config.provider, config.model, or config.cwd.",
+			),
 			"execution": ObjectSchema(map[string]Schema{
 				"on_failure":  StringSchema("Failure policy override."),
 				"pool":        StringSchema("Execution pool name."),
@@ -181,38 +187,107 @@ func validateRootAgentAssignees(nodes []contract.CreateDAGNodeRequest) error {
 }
 
 // validateAgentNodeLaunchConfigs 校验创建阶段可自动拉起的 agent 配置。
-// agent 节点和 hybrid verifier 都会启动子 agent，必须用同一套身份与 provider 规则，
-// 避免坏 DAG 先落库、到自动派发时才失败。
+// agent 显式 config 先做 raw shape 校验；exec 身份和 first_turn 只约束真正可执行的 agent 节点。
+// hybrid verifier 仍沿用既有 exec 身份校验，避免扩大本次 create 入口返修范围。
 func validateAgentNodeLaunchConfigs(nodes []contract.CreateDAGNodeRequest) error {
 	for i, node := range nodes {
-		if !hasNodeExecConfig(node.Config) {
-			continue
-		}
 		switch strings.TrimSpace(node.NodeType) {
 		case "", "agent":
-			cfg, err := nodeexec.ParseAgentConfig(node.Config)
-			if err != nil {
-				return fmt.Errorf("nodes[%d].config: %w", i, err)
+			if hasExplicitRawJSON(node.Config) {
+				configLabel := fmt.Sprintf("nodes[%d].config", i)
+				if err := validateAgentConfigShape(node.Config, configLabel, node.NodeKey); err != nil {
+					return err
+				}
 			}
-			label := fmt.Sprintf("nodes[%d].config.exec", i)
-			if err := validateAgentExecLaunchConfig(cfg.Exec, label, node.NodeKey); err != nil {
+			if !hasNodeExecConfig(node.Config) {
+				continue
+			}
+			if err := validateExecutableAgentNodeLaunchConfig(i, node); err != nil {
 				return err
 			}
 		case "hybrid":
-			cfg, err := nodeexec.ParseHybridConfig(node.Config)
-			if err != nil {
-				return fmt.Errorf("nodes[%d].config: %w", i, err)
-			}
-			if cfg.Exec.Verifier == nil {
+			if !hasNodeExecConfig(node.Config) {
 				continue
 			}
-			label := fmt.Sprintf("nodes[%d].config.exec.verifier", i)
-			if err := validateAgentExecLaunchConfig(*cfg.Exec.Verifier, label, node.NodeKey); err != nil {
+			if err := validateHybridVerifierLaunchConfig(i, node); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// validateExecutableAgentNodeLaunchConfig 校验可执行 agent 节点的创建期配置。
+// raw shape 已在外层先查；这里只校验 typed exec 与 first_turn，避免非执行占位节点被误杀。
+func validateExecutableAgentNodeLaunchConfig(i int, node contract.CreateDAGNodeRequest) error {
+	configLabel := fmt.Sprintf("nodes[%d].config", i)
+	cfg, err := nodeexec.ParseAgentConfig(node.Config)
+	if err != nil {
+		return fmt.Errorf("nodes[%d].config: %w", i, err)
+	}
+	label := configLabel + ".exec"
+	if err := validateAgentExecLaunchConfig(cfg.Exec, label, node.NodeKey); err != nil {
+		return err
+	}
+	if strings.TrimSpace(cfg.FirstTurn) == "" {
+		return fmt.Errorf("%s.first_turn required for executable agent node %q", configLabel, node.NodeKey)
+	}
+	return nil
+}
+
+// validateHybridVerifierLaunchConfig 校验 hybrid verifier 的 agent 启动身份。
+// hybrid 没有独立 first_turn 契约，本修复只复用既有 verifier exec 校验。
+func validateHybridVerifierLaunchConfig(i int, node contract.CreateDAGNodeRequest) error {
+	cfg, err := nodeexec.ParseHybridConfig(node.Config)
+	if err != nil {
+		return fmt.Errorf("nodes[%d].config: %w", i, err)
+	}
+	if cfg.Exec.Verifier == nil {
+		return nil
+	}
+	label := fmt.Sprintf("nodes[%d].config.exec.verifier", i)
+	return validateAgentExecLaunchConfig(*cfg.Exec.Verifier, label, node.NodeKey)
+}
+
+// validateAgentConfigShape 拦截旧版或错位 agent config 字段。
+// 这些字段会被 typed JSON 解码静默丢弃，必须在创建阶段报错，避免坏 DAG 落库后空跑。
+func validateAgentConfigShape(raw json.RawMessage, label, nodeKey string) error {
+	var config map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return fmt.Errorf("%s must be an object for executable agent node %q: %w", label, nodeKey, err)
+	}
+	invalidPaths := legacyAgentConfigPaths(config, label)
+	if len(invalidPaths) == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"unsupported legacy agent config fields for node %q: %s; use %s.first_turn, %s.outputs, and %s.exec",
+		nodeKey, strings.Join(invalidPaths, ", "), label, label, label,
+	)
+}
+
+// legacyAgentConfigPaths 收集最常见的旧 schema 路径。
+// 返回字段路径而不是布尔值，方便错误直接指出模型应该修正的具体位置。
+func legacyAgentConfigPaths(config map[string]json.RawMessage, label string) []string {
+	var paths []string
+	if rawInput, ok := config["input"]; ok {
+		paths = append(paths, label+".input")
+		var input map[string]json.RawMessage
+		if err := json.Unmarshal(rawInput, &input); err == nil {
+			if _, ok := input["task"]; ok {
+				paths = append(paths, label+".input.task")
+			}
+			if _, ok := input["outputs"]; ok {
+				paths = append(paths, label+".input.outputs")
+			}
+		}
+	}
+	for _, field := range []string{"output_file", "prompt_key", "provider", "model", "cwd"} {
+		if _, ok := config[field]; ok {
+			paths = append(paths, label+"."+field)
+		}
+	}
+	return paths
 }
 
 // validateAgentExecLaunchConfig 校验子 agent 启动所需的执行模板和运行身份。
