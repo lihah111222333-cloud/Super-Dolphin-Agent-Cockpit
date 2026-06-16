@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
 )
 
 // filterListAgentSnapshots 处理过滤条件list代理snapshots。

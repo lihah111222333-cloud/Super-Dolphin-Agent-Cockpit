@@ -40,7 +40,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/e2efixture"
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/runtimeconfig"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/anthropic-ai/super-agent-v3/internal/store"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"

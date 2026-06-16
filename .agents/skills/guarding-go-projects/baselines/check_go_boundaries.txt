@@ -1,5 +1,0 @@
-internal/dto/shared: package name 'shared' is too broad; name the concrete responsibility
-internal/mcpserver/common: package name 'common' is too broad; name the concrete responsibility
-internal/module/memory/shared: package name 'shared' is too broad; name the concrete responsibility
-internal/platform/shared: package name 'shared' is too broad; name the concrete responsibility
-internal/provider/shared: package name 'shared' is too broad; name the concrete responsibility

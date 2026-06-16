@@ -1,6 +1,6 @@
 package provider
 
-import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+import shared "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 
 // RawProviderEvent is a driver-originated event before translation.
 type RawProviderEvent struct {

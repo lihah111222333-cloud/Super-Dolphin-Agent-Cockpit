@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
 	sharedfilecleanup "github.com/anthropic-ai/super-agent-v3/internal/module/memory/sharedfilecleanup"

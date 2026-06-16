@@ -9,7 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared/builtinprompts"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel/builtinprompts"
 )
 
 type store struct {

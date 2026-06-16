@@ -7,9 +7,9 @@ import (
 
 	"go.uber.org/fx"
 
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )

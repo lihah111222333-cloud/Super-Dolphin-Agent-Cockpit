@@ -9,8 +9,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/creachadair/jrpc2"
 )

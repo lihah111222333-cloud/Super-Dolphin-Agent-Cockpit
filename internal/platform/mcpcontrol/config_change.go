@@ -8,7 +8,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )

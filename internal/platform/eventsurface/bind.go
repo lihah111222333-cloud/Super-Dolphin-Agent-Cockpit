@@ -11,14 +11,14 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	crondto "github.com/anthropic-ai/super-agent-v3/internal/dto/cron"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 	taskdto "github.com/anthropic-ai/super-agent-v3/internal/dto/task"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	"github.com/kelindar/event"
 )
 

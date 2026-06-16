@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/runtimeconfig"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/gorilla/websocket"
 )

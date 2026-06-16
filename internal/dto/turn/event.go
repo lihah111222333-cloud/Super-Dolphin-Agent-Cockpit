@@ -1,6 +1,6 @@
 package turn
 
-import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+import shared "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 
 // TurnStarted reports the beginning of a turn execution.
 type TurnStarted struct {

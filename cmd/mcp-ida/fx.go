@@ -10,12 +10,12 @@ import (
 	"sync"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
+	common "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime/bootstrap"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"go.uber.org/fx"

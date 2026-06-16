@@ -24,7 +24,7 @@ Public entry points: `main` 包只暴露进程入口，不向其他包提供可�
 
 Responsibility: LSP sidecar 进程根入口，负责 MCP/LSP peer 的启动、运行时参数、信号处理和顶层 wiring。
 
-Allowed imports: `cmd/mcp-lsp/*` 过渡 sidecar 库包、`internal/platform/*`、`internal/mcpserver/common`、`internal/contract`、`internal/dto`、`pkg/logger`。
+Allowed imports: `cmd/mcp-lsp/*` 过渡 sidecar 库包、`internal/platform/*`、`internal/mcpserver/runtime`、`internal/contract`、`internal/dto`、`pkg/logger`。
 
 Forbidden imports: `internal/module/*` 的具体业务实现、`internal/provider/*`、`internal/ui/*`。
 
@@ -34,7 +34,7 @@ Public entry points: `main`、Fx module/provider、sidecar runtime wiring。根�
 
 Responsibility: 当前承载 LSP sidecar 内部库能力，包括 `manager`、`multilsp`、`protocol`、`tools`、`search`、`format`、`edit`、`installer` 和 middleware。
 
-Allowed imports: 同一 sidecar 内的相邻包、`cmd/mcp-lsp/internal/*`、`internal/platform/*`、`internal/mcpserver/common`、`internal/contract`、`internal/dto`、`pkg/logger`。
+Allowed imports: 同一 sidecar 内的相邻包、`cmd/mcp-lsp/internal/*`、`internal/platform/*`、`internal/mcpserver/runtime`、`internal/contract`、`internal/dto`、`pkg/logger`。
 
 Forbidden imports: `cmd/mcp-orch/*`、`internal/provider/*`、`internal/ui/*`、业务模块具体 service、数据库 store 具体实现。
 

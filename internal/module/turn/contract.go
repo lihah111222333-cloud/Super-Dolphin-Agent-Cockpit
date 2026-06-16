@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 )
 
 type Service interface {

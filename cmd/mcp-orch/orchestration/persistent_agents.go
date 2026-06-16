@@ -11,7 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 type PersistedThread struct {

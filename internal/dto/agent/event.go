@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+import shared "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 
 // StateChanged reports an agent lifecycle state transition.
 type StateChanged struct {

@@ -7,7 +7,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
 )
 
 var applyOpsOpEnum = []string{

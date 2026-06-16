@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 )
 

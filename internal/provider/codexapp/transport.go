@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	"github.com/gorilla/websocket"
 )
 

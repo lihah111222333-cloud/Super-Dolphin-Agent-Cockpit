@@ -19,7 +19,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	common "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 

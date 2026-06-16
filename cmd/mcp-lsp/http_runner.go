@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
+	common "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime/bootstrap"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"

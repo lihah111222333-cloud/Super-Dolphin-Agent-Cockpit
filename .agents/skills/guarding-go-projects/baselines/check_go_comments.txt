@@ -373,18 +373,8 @@ internal/devtools/capcontract/manifest.go:73: exported ParamManifest must have a
 internal/devtools/capcontract/manifest.go:78: exported DiffResult must have a doc comment starting with 'DiffResult '
 internal/devtools/capcontract/scanner.go:15: exported ScanOptions must have a doc comment starting with 'ScanOptions '
 internal/devtools/codemapindex/readme_sync.go:10: exported ReadmeCodemap must have a doc comment starting with 'ReadmeCodemap '
-internal/dto/shared/input.go:3: exported InputItem must have a doc comment starting with 'InputItem '
 internal/dto/turn/model.go:9: exported InputItem must have a doc comment starting with 'InputItem '
 internal/dto/turn/model.go:11: exported TurnSubmission must have a doc comment starting with 'TurnSubmission '
-internal/mcpserver/common/bootstrap/client.go:32: exported Client must have a doc comment starting with 'Client '
-internal/mcpserver/common/bootstrap/client.go:71: exported Config must have a doc comment starting with 'Config '
-internal/mcpserver/common/scope.go:14: exported ToolScopeContextKey must have a doc comment starting with 'ToolScopeContextKey '
-internal/mcpserver/common/scope.go:15: exported RuntimeWorkspaceScopeFallbackContextKey must have a doc comment starting with 'RuntimeWorkspaceScopeFallbackContextKey '
-internal/mcpserver/common/server.go:21: exported CwdContextKey must have a doc comment starting with 'CwdContextKey '
-internal/mcpserver/common/server.go:23: exported ErrMissingContextCWD must have a doc comment starting with 'ErrMissingContextCWD '
-internal/mcpserver/common/server.go:24: exported ErrMissingWorkspaceRoots must have a doc comment starting with 'ErrMissingWorkspaceRoots '
-internal/mcpserver/common/server.go:104: exported ToolProvider must have a doc comment starting with 'ToolProvider '
-internal/mcpserver/common/server.go:114: exported Server must have a doc comment starting with 'Server '
 internal/module/appupdate/manifest.go:17: exported ErrNoUpdate must have a doc comment starting with 'ErrNoUpdate '
 internal/module/appupdate/manifest.go:19: exported ManifestPayload must have a doc comment starting with 'ManifestPayload '
 internal/module/appupdate/manifest.go:27: exported SignedManifest must have a doc comment starting with 'SignedManifest '
@@ -502,11 +492,6 @@ internal/module/memory/rules_provider.go:245: exported TurnContextPayload must h
 internal/module/memory/service.go:21: exported Service must have a doc comment starting with 'Service '
 internal/module/memory/service.go:38: exported MemoryLifecycleHooks must have a doc comment starting with 'MemoryLifecycleHooks '
 internal/module/memory/service.go:532: exported ForgetIntent must have a doc comment starting with 'ForgetIntent '
-internal/module/memory/shared/pathsafe.go:214: exported SafeReadEntrypoint must have a doc comment starting with 'SafeReadEntrypoint '
-internal/module/memory/shared/types.go:11: exported MemoryType must have a doc comment starting with 'MemoryType '
-internal/module/memory/shared/types.go:47: exported MemoryFrontmatter must have a doc comment starting with 'MemoryFrontmatter '
-internal/module/memory/shared/types.go:59: exported MemoryEntry must have a doc comment starting with 'MemoryEntry '
-internal/module/memory/shared/types.go:67: exported ParsedMemory must have a doc comment starting with 'ParsedMemory '
 internal/module/memory/sharedfilecleanup/gc.go:23: exported Deps must have a doc comment starting with 'Deps '
 internal/module/memory/sharedfilecleanup/gc.go:30: exported Params must have a doc comment starting with 'Params '
 internal/module/memory/sharedfilecleanup/gc.go:36: exported Result must have a doc comment starting with 'Result '
@@ -787,10 +772,6 @@ internal/platform/securefs/securefs.go:11: exported RedactPath must have a doc c
 internal/platform/securefs/securefs.go:19: exported SafeError must have a doc comment starting with 'SafeError '
 internal/platform/securefs/securefs.go:30: exported SafeErrorForPath must have a doc comment starting with 'SafeErrorForPath '
 internal/platform/securefs/securefs.go:47: exported ProbeWritableDir must have a doc comment starting with 'ProbeWritableDir '
-internal/platform/shared/builtinprompts/registry.go:10: exported Registry must have a doc comment starting with 'Registry '
-internal/platform/shared/pathscope.go:12: exported SuperDolphinHomeEnv must have a doc comment starting with 'SuperDolphinHomeEnv '
-internal/platform/shared/retry.go:9: exported Policy must have a doc comment starting with 'Policy '
-internal/platform/shared/search.go:10: exported LineMatcher must have a doc comment starting with 'LineMatcher '
 internal/platform/statemachine/factory.go:10: exported Permit must have a doc comment starting with 'Permit '
 internal/platform/statemachine/factory.go:16: exported StateConfig must have a doc comment starting with 'StateConfig '
 internal/platform/statemachine/factory.go:23: exported Config must have a doc comment starting with 'Config '
@@ -1028,13 +1009,10 @@ internal/archtest/testdata: package testdata needs a package comment, preferably
 internal/devtools/capcontract: package capcontract needs a package comment, preferably in doc.go
 internal/devtools/codemapindex: package codemapindex needs a package comment, preferably in doc.go
 internal/dto/mcp: package mcp needs a package comment, preferably in doc.go
-internal/dto/shared: package shared needs a package comment, preferably in doc.go
 internal/dto/task: package task needs a package comment, preferably in doc.go
 internal/dto/thread: package thread needs a package comment, preferably in doc.go
 internal/dto/tool: package tool needs a package comment, preferably in doc.go
 internal/dto/turn: package turn needs a package comment, preferably in doc.go
-internal/mcpserver/common: package common needs a package comment, preferably in doc.go
-internal/mcpserver/common/bootstrap: package bootstrap needs a package comment, preferably in doc.go
 internal/module/appupdate: package appupdate needs a package comment, preferably in doc.go
 internal/module/dashboard: package dashboard needs a package comment, preferably in doc.go
 internal/module/datasource: package datasource needs a package comment, preferably in doc.go
@@ -1044,7 +1022,6 @@ internal/module/mcp_server_npx: package mcpservernpx needs a package comment, pr
 internal/module/memory/dedup: package dedup needs a package comment, preferably in doc.go
 internal/module/memory/nested: package nested needs a package comment, preferably in doc.go
 internal/module/memory/retrieval: package retrieval needs a package comment, preferably in doc.go
-internal/module/memory/shared: package memshared needs a package comment, preferably in doc.go
 internal/module/memory/sharedfilecleanup: package sharedfilecleanup needs a package comment, preferably in doc.go
 internal/module/memory/team: package team needs a package comment, preferably in doc.go
 internal/module/observability: package observability needs a package comment, preferably in doc.go
@@ -1082,8 +1059,6 @@ internal/platform/rpc: package rpc needs a package comment, preferably in doc.go
 internal/platform/runner: package runner needs a package comment, preferably in doc.go
 internal/platform/runtimeenv: package runtimeenv needs a package comment, preferably in doc.go
 internal/platform/securefs: package securefs needs a package comment, preferably in doc.go
-internal/platform/shared: package shared needs a package comment, preferably in doc.go
-internal/platform/shared/builtinprompts: package builtinprompts needs a package comment, preferably in doc.go
 internal/platform/sharedfilefs: package sharedfilefs needs a package comment, preferably in doc.go
 internal/platform/sharedfilegitignore: package sharedfilegitignore needs a package comment, preferably in doc.go
 internal/platform/sharedfilepath: package sharedfilepath needs a package comment, preferably in doc.go
@@ -1098,7 +1073,6 @@ internal/provider/codexapp/supportutil: package supportutil needs a package comm
 internal/provider/codexapp/toolsurface: package toolsurface needs a package comment, preferably in doc.go
 internal/provider/e2efixture: package e2efixture needs a package comment, preferably in doc.go
 internal/provider/manifestbuilder: package manifestbuilder needs a package comment, preferably in doc.go
-internal/provider/shared: package shared needs a package comment, preferably in doc.go
 internal/provider/toolfilter: package toolfilter needs a package comment, preferably in doc.go
 internal/provider/unified: package unified needs a package comment, preferably in doc.go
 internal/store: package store needs a package comment, preferably in doc.go

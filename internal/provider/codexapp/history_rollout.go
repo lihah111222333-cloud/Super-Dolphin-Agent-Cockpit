@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/runtimeconfig"
 )
 
 type rolloutLine struct {

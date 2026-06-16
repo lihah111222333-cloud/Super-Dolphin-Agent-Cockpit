@@ -9,7 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
 )
 
 // 下列包级 enum 切片是 schema 与 handler requireEnum 的单一真正来源。

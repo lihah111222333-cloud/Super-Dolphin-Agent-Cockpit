@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 // ReadHistory 读取history。

@@ -1,6 +1,6 @@
 package thread
 
-import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+import shared "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 
 // Started reports a thread becoming active and routable.
 // PendingLaunch=true means the backend created a placeholder row but has not

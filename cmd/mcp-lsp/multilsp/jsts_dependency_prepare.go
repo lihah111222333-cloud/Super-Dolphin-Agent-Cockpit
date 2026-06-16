@@ -11,7 +11,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/internal/hiddenexec"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 const (

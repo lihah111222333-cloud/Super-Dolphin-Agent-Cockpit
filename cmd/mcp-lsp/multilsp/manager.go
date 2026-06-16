@@ -16,9 +16,9 @@ import (
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	common "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 var (
@@ -239,7 +239,7 @@ func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
 
 // effectiveWorkspaceRoot picks the workspace root for resolving relative
 // paths / language-only workspace lookups. When the MCP toolbridge has
-// injected a per-call _cwd into ctx (see internal/mcpserver/common +
+// injected a per-call _cwd into ctx (see internal/mcpserver/runtime +
 // cmd/mcp-lsp/fx.go OnToolsCall), the manager MUST follow that cwd
 // instead of the build-time m.workspaceRoot, otherwise an agent bound
 // to a project other than the mcp-lsp startup directory ends up looking

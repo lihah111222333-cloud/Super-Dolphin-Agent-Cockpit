@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 )
 
 type PromptRegion = dto.PromptRegion

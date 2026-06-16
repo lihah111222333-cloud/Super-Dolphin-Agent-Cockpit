@@ -11,7 +11,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	common "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 

@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/memdata"
 )
 
 type teamSyncLocalFile struct {

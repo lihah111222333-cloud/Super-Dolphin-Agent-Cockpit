@@ -17,7 +17,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 
 	dedup "github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/memdata"
 	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
 )
 

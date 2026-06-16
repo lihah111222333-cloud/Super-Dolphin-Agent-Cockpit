@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/resultguard"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"

@@ -3,7 +3,7 @@ package provider
 import (
 	"encoding/json"
 
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 )
 
 // TurnRequest carries a provider-neutral turn submission after module-level

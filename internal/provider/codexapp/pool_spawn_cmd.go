@@ -21,7 +21,7 @@ import (
 	"strconv"
 	"strings"
 
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/runtimeconfig"
 )
 
 // PoolSpawnArgs drives BuildPoolSpawnCmd. Home is injected as CODEX_HOME,

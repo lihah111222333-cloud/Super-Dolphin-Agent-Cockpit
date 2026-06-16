@@ -10,7 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/runtimeconfig"
 )
 
 // resolveAbsCWD ensures caller-provided CWD is absolute without inventing one.

@@ -1,6 +1,6 @@
 package retrieval
 
-import memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+import memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/memdata"
 
 type MemoryType = memshared.MemoryType
 

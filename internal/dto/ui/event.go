@@ -3,7 +3,7 @@ package ui
 import (
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 )
 
 // UIProjectionUpdated reports a projection snapshot revision change.

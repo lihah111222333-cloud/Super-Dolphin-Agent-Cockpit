@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/memdata"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 )
 

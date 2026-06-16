@@ -7,7 +7,7 @@ import (
 	"github.com/kelindar/event"
 
 	crondto "github.com/anthropic-ai/super-agent-v3/internal/dto/cron"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )

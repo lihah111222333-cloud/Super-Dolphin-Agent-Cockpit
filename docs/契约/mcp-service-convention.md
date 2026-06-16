@@ -34,7 +34,7 @@ V3 的目标契约是：
 - 每个 binary 同时通过共享 bootstrap client 回连核心 `jrpc2` TCP 生命周期通道
 - 生命周期通道统一使用 `ctl/*` 命名，不再使用 `mcp/*`
 - 核心侧 lifecycle registry / handler / fanout / lease 管理统一落在 `internal/platform/mcpcontrol/*`
-- 工具侧共享 bootstrap client 落在 `internal/mcpserver/common/bootstrap/*`
+- 工具侧共享 bootstrap client 落在 `internal/mcpserver/runtime/bootstrap/*`
 - DTO 统一落在 `internal/dto/mcp/*`
 - 接口契约统一落在 `internal/contract/*`
 - 规模目标调整为 20-30 个活跃实例，而不是 30-50
@@ -44,7 +44,7 @@ V3 的目标契约是：
 - `internal/platform/rpc`：只负责 `jrpc2` transport、连接 accept、通用 push helper
 - `internal/platform/mcpcontrol`：负责 lease、peer 分类、`ctl/*` handler、定向 fanout、错误映射
 - `internal/platform/hooks`：负责核心层 hooks 拦截点、merge、pending review、TTL、resolve 收敛
-- `internal/mcpserver/common/bootstrap`：负责 env 解析、register/heartbeat/reconnect、shutdown hook、boot snapshot fallback
+- `internal/mcpserver/runtime/bootstrap`：负责 env 解析、register/heartbeat/reconnect、shutdown hook、boot snapshot fallback
 - `cmd/mcp-*`：负责各自工具执行逻辑和本地 stdio server
 
 ### 1.1 当前代码现状
@@ -55,7 +55,7 @@ V3 的目标契约是：
 - `internal/platform/rpc/push.go` 已有单连接 `NotifyClient` / `CallbackClient`
 - `internal/platform/rpc/approval.go` 已有 pending approval 生命周期，但恢复目标还没有限制到 `ui` 连接
 - `internal/dto/provider/manifest.go` 只注入了有限 `GO_AGENT_MCP_*` env
-- `internal/mcpserver/common/server.go` 仍是骨架，尚未形成 `stdio serve + rpc bootstrap` 协调启动
+- `internal/mcpserver/runtime/server.go` 仍是骨架，尚未形成 `stdio serve + rpc bootstrap` 协调启动
 
 因此本文描述的是目标契约，不表示当前实现已经落地。
 
@@ -79,7 +79,7 @@ V3 的目标契约是：
 | 位置 | 职责 | 禁止事项 |
 | --- | --- | --- |
 | `cmd/mcp-*` | 本地工具执行、stdio MCP server、本地 business logic | 不得承载核心 lease registry 或 UI approval restore |
-| `internal/mcpserver/common/bootstrap/*` | 工具侧 bootstrap client、register/heartbeat/reconnect/shutdown 协调 | 不得依赖核心 service、store 或 `internal/platform/mcpcontrol` 实现 |
+| `internal/mcpserver/runtime/bootstrap/*` | 工具侧 bootstrap client、register/heartbeat/reconnect/shutdown 协调 | 不得依赖核心 service、store 或 `internal/platform/mcpcontrol` 实现 |
 | `internal/platform/rpc/*` | TCP `jrpc2` transport、连接 accept、`AllowPush`、通用 push helper | 不得继续堆放 `tool_registry` / `tool_callback` / lifecycle 业务路由 |
 | `internal/platform/mcpcontrol/*` | `LeaseKey` 注册表、`ctl/*` handlers、selector fanout、peer 分类、错误码 | 不得承载 stdio server、manifest 生成或具体 tool family 逻辑 |
 | `internal/platform/hooks/*` | 核心层 hooks 拦截点、合并、TTL、`pending_hook_review`、`resolve` 收敛 | 不得承载 DAG / 命令校验 / reviewer agent 等领域策略 |
@@ -115,7 +115,7 @@ V3 的目标契约是：
 - `internal/platform/db`
 - `internal/contract/*`
 - `internal/dto/*`
-- `internal/mcpserver/common/bootstrap/*`
+- `internal/mcpserver/runtime/bootstrap/*`
 - `cmd/mcp-orch/orchestration/*`
 - `cmd/mcp-orch/store/sqlc/*`
 - `cmd/mcp-orch/store/*`
@@ -273,7 +273,7 @@ MCP server 不强制按 input_schema 验证调用入参（避免引 jsonschema �
 - 是否所有活体索引都升级为 `LeaseKey{instance_id, generation}`
 - 是否给连接补了 `peer_kind=ui|tool`
 - 是否把 `tool_registry` / `tool_callback` 放进 `internal/platform/mcpcontrol/*`
-- 是否把 bootstrap client 放进 `internal/mcpserver/common/bootstrap/*`，且依赖只含 `jrpc2 + dto + stdlib`
+- 是否把 bootstrap client 放进 `internal/mcpserver/runtime/bootstrap/*`，且依赖只含 `jrpc2 + dto + stdlib`
 - 是否把 DTO 放进 `internal/dto/mcp/*`，接口放进 `internal/contract/*`
 - 是否删掉了 `report_type=event`，并把 `ctl/event` / `ctl/report` 职责彻底拆开
 - 是否把 `ctl/context` scope 收窄到 `agent.runtime`、`thread.binding`、`workspace.run`、`config.snapshot`

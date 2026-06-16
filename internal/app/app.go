@@ -19,7 +19,7 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/runtimeconfig"
 	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )

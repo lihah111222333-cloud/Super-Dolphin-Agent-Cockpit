@@ -7,7 +7,7 @@ import (
 )
 
 // BootstrapHookAfterHandler is the after-hook entry the bootstrap runtime
-// (internal/mcpserver/common/bootstrap) invokes when a ctl/hook/after
+// (internal/mcpserver/runtime/bootstrap) invokes when a ctl/hook/after
 // callback lands. Exposing the handler as a plain function type here lets
 // the cmd/mcp-orch root assembly wire the subpackage's hook implementation
 // into bootstrap without typing on an orchestration subpackage interface

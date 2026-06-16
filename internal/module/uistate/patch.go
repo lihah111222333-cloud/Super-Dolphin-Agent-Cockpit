@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"

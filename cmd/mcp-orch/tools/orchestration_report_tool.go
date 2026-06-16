@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 const (

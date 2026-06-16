@@ -12,6 +12,7 @@ cmd/mcp-lsp/multilsp/manager_lifecycle.go: 688 lines exceeds limit 400
 cmd/mcp-lsp/multilsp/manager_symbols.go: 450 lines exceeds limit 400
 cmd/mcp-lsp/multilsp/pool.go: 446 lines exceeds limit 400
 cmd/mcp-lsp/multilsp/recycler.go: 488 lines exceeds limit 400
+cmd/mcp-lsp/protocol/types.go: 410 lines exceeds limit 400
 cmd/mcp-lsp/runtime.go: 654 lines exceeds limit 400
 cmd/mcp-lsp/search/fileutil.go: 539 lines exceeds limit 400
 cmd/mcp-lsp/search/searchutil.go: 665 lines exceeds limit 400
@@ -23,13 +24,13 @@ cmd/mcp-lsp/tools/tool_file.go: 561 lines exceeds limit 400
 cmd/mcp-lsp/tools/tool_grep.go: 585 lines exceeds limit 400
 cmd/mcp-orch/orchestration/cron/scheduler_cron.go: 543 lines exceeds limit 400
 cmd/mcp-orch/orchestration/dag.go: 727 lines exceeds limit 400
-cmd/mcp-orch/orchestration/dag_query.go: 696 lines exceeds limit 400
+cmd/mcp-orch/orchestration/dag_query.go: 698 lines exceeds limit 400
 cmd/mcp-orch/orchestration/factory.go: 536 lines exceeds limit 400
 cmd/mcp-orch/orchestration/helpers.go: 541 lines exceeds limit 400
 cmd/mcp-orch/orchestration/hook_consumer.go: 608 lines exceeds limit 400
 cmd/mcp-orch/orchestration/launcher.go: 445 lines exceeds limit 400
 cmd/mcp-orch/orchestration/node_router.go: 635 lines exceeds limit 400
-cmd/mcp-orch/orchestration/nodeexec/config.go: 448 lines exceeds limit 400
+cmd/mcp-orch/orchestration/nodeexec/config.go: 449 lines exceeds limit 400
 cmd/mcp-orch/orchestration/nodeexec/executor_agent.go: 711 lines exceeds limit 400
 cmd/mcp-orch/orchestration/nodeexec/executor_automation.go: 714 lines exceeds limit 400
 cmd/mcp-orch/orchestration/report.go: 403 lines exceeds limit 400
@@ -54,18 +55,18 @@ internal/contract/orchestration.go: 642 lines exceeds limit 400
 internal/contract/prompt.go: 762 lines exceeds limit 400
 internal/contract/provider.go: 402 lines exceeds limit 400
 internal/devtools/capcontract/scanner.go: 485 lines exceeds limit 400
-internal/mcpserver/common/server.go: 457 lines exceeds limit 400
-internal/mcpserver/common/tool_error_envelope.go: 541 lines exceeds limit 400
+internal/mcpserver/runtime/server.go: 463 lines exceeds limit 400
+internal/mcpserver/runtime/tool_error_envelope.go: 541 lines exceeds limit 400
 internal/module/appupdate/service.go: 624 lines exceeds limit 400
-internal/module/cron/scheduler.go: 487 lines exceeds limit 400
-internal/module/cron/service.go: 425 lines exceeds limit 400
-internal/module/dashboard/dag_snapshot.go: 536 lines exceeds limit 400
+internal/module/cron/scheduler.go: 485 lines exceeds limit 400
+internal/module/cron/service.go: 423 lines exceeds limit 400
+internal/module/dashboard/dag_snapshot.go: 562 lines exceeds limit 400
 internal/module/dashboard/rpc.go: 446 lines exceeds limit 400
 internal/module/dashboard/service.go: 404 lines exceeds limit 400
 internal/module/dashboard/ui_page.go: 487 lines exceeds limit 400
 internal/module/datasource/service.go: 437 lines exceeds limit 400
 internal/module/mcp_server/service.go: 586 lines exceeds limit 400
-internal/module/memory/auto_dream_task.go: 602 lines exceeds limit 400
+internal/module/memory/auto_dream_task.go: 604 lines exceeds limit 400
 internal/module/memory/domain_bridges.go: 552 lines exceeds limit 400
 internal/module/memory/extract.go: 511 lines exceeds limit 400
 internal/module/memory/extract_runtime.go: 498 lines exceeds limit 400
@@ -88,7 +89,7 @@ internal/module/prompt/dynamic.go: 425 lines exceeds limit 400
 internal/module/prompt/intent/authoring.go: 652 lines exceeds limit 400
 internal/module/prompt/intent/commit.go: 639 lines exceeds limit 400
 internal/module/prompt/intent/source_facts.go: 610 lines exceeds limit 400
-internal/module/prompt/service.go: 642 lines exceeds limit 400
+internal/module/prompt/service.go: 640 lines exceeds limit 400
 internal/module/prompt/service_surface.go: 668 lines exceeds limit 400
 internal/module/prompt/template_sections.go: 610 lines exceeds limit 400
 internal/module/skill/approval.go: 417 lines exceeds limit 400
@@ -106,28 +107,28 @@ internal/module/skill/scope_model.go: 472 lines exceeds limit 400
 internal/module/skill/skills_fs.go: 511 lines exceeds limit 400
 internal/module/skill/skills_import.go: 417 lines exceeds limit 400
 internal/module/skill/skills_meta.go: 498 lines exceeds limit 400
-internal/module/thread/binding_registration.go: 573 lines exceeds limit 400
-internal/module/thread/command.go: 482 lines exceeds limit 400
-internal/module/thread/factory_config.go: 553 lines exceeds limit 400
-internal/module/thread/history.go: 661 lines exceeds limit 400
+internal/module/thread/binding_registration.go: 581 lines exceeds limit 400
+internal/module/thread/command.go: 486 lines exceeds limit 400
+internal/module/thread/factory_config.go: 557 lines exceeds limit 400
+internal/module/thread/history.go: 665 lines exceeds limit 400
 internal/module/thread/lifecycle.go: 595 lines exceeds limit 400
 internal/module/thread/lifecycle_helpers.go: 612 lines exceeds limit 400
 internal/module/thread/prompt_snapshot.go: 438 lines exceeds limit 400
 internal/module/thread/router_resolve.go: 478 lines exceeds limit 400
 internal/module/thread/rpc.go: 513 lines exceeds limit 400
 internal/module/thread/rpc_types.go: 629 lines exceeds limit 400
-internal/module/thread/service.go: 582 lines exceeds limit 400
-internal/module/thread/spawn.go: 502 lines exceeds limit 400
+internal/module/thread/service.go: 581 lines exceeds limit 400
+internal/module/thread/spawn.go: 506 lines exceeds limit 400
 internal/module/thread/start_prompt_context.go: 561 lines exceeds limit 400
 internal/module/thread/start_session.go: 609 lines exceeds limit 400
 internal/module/thread/start_session_helpers.go: 647 lines exceeds limit 400
 internal/module/threadprompt/providers.go: 413 lines exceeds limit 400
-internal/module/threadprompt/runtime_catalog.go: 563 lines exceeds limit 400
+internal/module/threadprompt/runtime_catalog.go: 566 lines exceeds limit 400
 internal/module/turn/factory.go: 580 lines exceeds limit 400
 internal/module/turn/rpc_helpers.go: 440 lines exceeds limit 400
-internal/module/turn/service.go: 615 lines exceeds limit 400
+internal/module/turn/service.go: 614 lines exceeds limit 400
 internal/module/turn/service_helpers.go: 507 lines exceeds limit 400
-internal/module/turn/tracker.go: 457 lines exceeds limit 400
+internal/module/turn/tracker.go: 456 lines exceeds limit 400
 internal/module/turn/trajectory_collector.go: 453 lines exceeds limit 400
 internal/module/uistate/config_rpc.go: 424 lines exceeds limit 400
 internal/module/uistate/patch.go: 495 lines exceeds limit 400
@@ -139,39 +140,39 @@ internal/module/uistate/sidebar_compat.go: 435 lines exceeds limit 400
 internal/module/uistate/snapshot_helpers.go: 447 lines exceeds limit 400
 internal/module/uistate/state.go: 459 lines exceeds limit 400
 internal/module/uistate/timeline/projector_parity.go: 607 lines exceeds limit 400
-internal/platform/cachekeepalive/manager.go: 484 lines exceeds limit 400
+internal/platform/cachekeepalive/manager.go: 495 lines exceeds limit 400
 internal/platform/config/config.go: 418 lines exceeds limit 400
 internal/platform/eventsurface/bind.go: 493 lines exceeds limit 400
 internal/platform/observability/diagnose.go: 507 lines exceeds limit 400
-internal/platform/rpc/server.go: 589 lines exceeds limit 400
-internal/platform/runtimeenv/runtimeenv.go: 548 lines exceeds limit 400
-internal/platform/toolbridge/handler.go: 516 lines exceeds limit 400
+internal/platform/rpc/server.go: 594 lines exceeds limit 400
+internal/platform/runtimeenv/runtimeenv.go: 558 lines exceeds limit 400
+internal/platform/toolbridge/handler.go: 522 lines exceeds limit 400
 internal/platform/toolbridge/handler_peer_decode.go: 659 lines exceeds limit 400
 internal/platform/toolbridge/http_mcp_client.go: 409 lines exceeds limit 400
 internal/platform/toolbridge/proxy.go: 445 lines exceeds limit 400
-internal/provider/claudecli/driver.go: 556 lines exceeds limit 400
+internal/provider/claudecli/driver.go: 555 lines exceeds limit 400
 internal/provider/claudecli/session.go: 452 lines exceeds limit 400
 internal/provider/claudecli/session_events.go: 450 lines exceeds limit 400
 internal/provider/claudecli/session_log_watcher_integration.go: 406 lines exceeds limit 400
 internal/provider/claudecli/session_turn.go: 407 lines exceeds limit 400
 internal/provider/claudecli/transport_config.go: 616 lines exceeds limit 400
 internal/provider/codexapp/codex_autoinstall.go: 589 lines exceeds limit 400
-internal/provider/codexapp/driver.go: 575 lines exceeds limit 400
+internal/provider/codexapp/driver.go: 576 lines exceeds limit 400
 internal/provider/codexapp/driver_pool_routing.go: 629 lines exceeds limit 400
-internal/provider/codexapp/event_map.go: 453 lines exceeds limit 400
-internal/provider/codexapp/module.go: 522 lines exceeds limit 400
-internal/provider/codexapp/peer_supervisor.go: 587 lines exceeds limit 400
+internal/provider/codexapp/event_map.go: 461 lines exceeds limit 400
+internal/provider/codexapp/module.go: 525 lines exceeds limit 400
+internal/provider/codexapp/peer_supervisor.go: 588 lines exceeds limit 400
 internal/provider/codexapp/pool_spawn_cmd.go: 581 lines exceeds limit 400
-internal/provider/codexapp/recovery.go: 474 lines exceeds limit 400
-internal/provider/codexapp/server_pool.go: 479 lines exceeds limit 400
-internal/provider/codexapp/session.go: 596 lines exceeds limit 400
+internal/provider/codexapp/recovery.go: 473 lines exceeds limit 400
+internal/provider/codexapp/server_pool.go: 478 lines exceeds limit 400
+internal/provider/codexapp/session.go: 607 lines exceeds limit 400
 internal/provider/codexapp/session_approval.go: 456 lines exceeds limit 400
 internal/provider/codexapp/session_dispatch.go: 474 lines exceeds limit 400
-internal/provider/codexapp/support.go: 630 lines exceeds limit 400
+internal/provider/codexapp/support.go: 629 lines exceeds limit 400
 internal/provider/codexapp/transport_helpers.go: 556 lines exceeds limit 400
 internal/provider/codexapp/transport_process.go: 426 lines exceeds limit 400
-internal/provider/shared/config_helpers.go: 493 lines exceeds limit 400
-internal/provider/shared/provider_home.go: 478 lines exceeds limit 400
+internal/provider/runtimeconfig/config_helpers.go: 493 lines exceeds limit 400
+internal/provider/runtimeconfig/provider_home.go: 482 lines exceeds limit 400
 internal/store/cron/store.go: 595 lines exceeds limit 400
 internal/store/dbquery/executor.go: 608 lines exceeds limit 400
 internal/store/mcpserver/store.go: 531 lines exceeds limit 400
@@ -183,6 +184,10 @@ internal/ui/wails/dropped_text.go: 590 lines exceeds limit 400
 internal/ui/wails/rpc.go: 423 lines exceeds limit 400
 scripts/codemap_index.go: 545 lines exceeds limit 400
 cmd/mcp-orch/orchestration: 31 Go files exceeds package limit 30
-internal/module/memory: 31 Go files exceeds package limit 30
-internal/module/thread: 31 Go files exceeds package limit 30
+internal/contract: 31 Go files exceeds package limit 30
+internal/module/memory: 32 Go files exceeds package limit 30
+internal/module/prompt: 31 Go files exceeds package limit 30
+internal/module/skill: 32 Go files exceeds package limit 30
+internal/module/thread: 32 Go files exceeds package limit 30
+internal/module/turn: 31 Go files exceeds package limit 30
 internal/provider/claudecli: 31 Go files exceeds package limit 30

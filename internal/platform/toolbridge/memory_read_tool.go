@@ -8,7 +8,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 const ToolNameMemoryRead = "memory_read"

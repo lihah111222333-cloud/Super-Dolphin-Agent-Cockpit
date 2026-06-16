@@ -73,7 +73,7 @@ V3 的核心原则只有一句：
 - `internal/provider/claudecli`
 - `internal/provider/codexapp`
 - `internal/store/*`
-- `internal/mcpserver/common`
+- `internal/mcpserver/runtime`
 - `internal/module/thread`
 - `internal/module/turn`
 - `internal/module/skill`
@@ -333,11 +333,11 @@ super-agent-v3/
 | 层 | 目录 | 职责 | 允许依赖 |
 |---|---|---|---|
 | 桌面入口层 | `cmd/agent-terminal` | 只组装桌面应用 `fx.New(...)`，不写业务逻辑 | `internal/app` |
-| MCP 服务入口层 | `cmd/mcp-*` | 组装独立 MCP binary，通过 stdio JSON-RPC 对外提供工具能力；MCP tool 的 schema + handler 壳只允许定义在这里 | `internal/contract/*`、`internal/dto/*`、`internal/platform/{config,db,shared,bus,rpc,runner,statemachine,rlimit}`、`internal/mcpserver/common{,/bootstrap}`、各自本地包 |
+| MCP 服务入口层 | `cmd/mcp-*` | 组装独立 MCP binary，通过 stdio JSON-RPC 对外提供工具能力；MCP tool 的 schema + handler 壳只允许定义在这里 | `internal/contract/*`、`internal/dto/*`、`internal/platform/{config,db,kernel,bus,rpc,runner,statemachine,rlimit}`、`internal/mcpserver/runtime{,/bootstrap}`、各自本地包 |
 | 应用层 | `internal/app` | 聚合桌面应用模块，定义启动顺序 | `platform`、`provider`、`store`、`module`、`ui` |
 | 平台层 | `internal/platform/*` | 提供基础设施能力 | 标准库、第三方库 |
 | Provider 收敛层 | `internal/provider/*` | 统一 provider 语义，屏蔽 Claude CLI / Codex transport 差异，对上暴露 session / capability / manifest | `contract`、`dto`、`platform` |
-| MCP 公共层 | `internal/mcpserver/common` | MCP binary 共享协议 / bootstrap 壳层；允许 `cmd/mcp-*` 复用，但不应承载宿主业务 runtime | `contract`、`dto`、`platform/{config,db}` |
+| MCP 公共层 | `internal/mcpserver/runtime` | MCP binary 共享协议 / bootstrap 壳层；允许 `cmd/mcp-*` 复用，但不应承载宿主业务 runtime | `contract`、`dto`、`platform/{config,db}` |
 | 存储层 | `internal/store/*` | 包装 `sqlc` 和 DB 访问，对外暴露 store 接口；commandcard/prompt/sharedfile 已迁至 `cmd/mcp-orch/store/*` | `platform/db`、`internal/store/sqlc` |
 | 业务层 | `internal/module/*` | 承载前端 UI 所需领域逻辑、核心 RPC 注册、事件处理；不再内嵌 MCP stdio tool binary | `contract`、`dto`、`platform`、`provider/unified`、`store` |
 | UI 视图层 | `internal/ui/*` | 运行时事件投影、timeline、dashboard SSE / code_open 等视图适配 | `contract`、`dto`、`platform`、`provider`、`module` |
@@ -374,7 +374,7 @@ super-agent-v3/
 - `cmd/mcp-lsp`、`cmd/mcp-orch`、`cmd/mcp-ida` 是独立二进制入口，不属于 `internal/module/*`。
 - 它们通过 stdio JSON-RPC 与宿主通信，并可通过 `ctl/*` 控制面自举回连核心；桌面/UI 宿主 RPC 仍由 `internal/platform/rpc` 承担。
 - `cmd/` 与 `internal/` 同属模块根 `github.com/anthropic-ai/super-agent-v3`，因此 `cmd/mcp-*` 合法 import `internal/*`；这符合 Go `internal` 包规则。
-- `cmd/mcp-orch` 只允许 import `internal/contract/*`、`internal/dto/*`（含子包）、`internal/platform/{config,db,shared,bus,rpc,runner,statemachine,rlimit}`、`internal/mcpserver/common`（含 `bootstrap`）与 `cmd/mcp-orch/*` 本地包；不得 import `internal/module/*`、`internal/store/*`（当前 3 处正在治理）、`internal/store/sqlc/*`。
+- `cmd/mcp-orch` 只允许 import `internal/contract/*`、`internal/dto/*`（含子包）、`internal/platform/{config,db,kernel,bus,rpc,runner,statemachine,rlimit}`、`internal/mcpserver/runtime`（含 `bootstrap`）与 `cmd/mcp-orch/*` 本地包；不得 import `internal/module/*`、`internal/store/*`（当前 3 处正在治理）、`internal/store/sqlc/*`。
 - 其他 MCP binary 也应优先把 runtime / store / transport 保持在各自入口层，本地化依赖优先于反向复用宿主层。
 - `cmd/mcp-*` 不可以 import 其他 `cmd/*` 下的代码，也禁止 import `internal/app`、`internal/ui/*`。
 - `internal/module/*` 不可以 import `cmd/mcp-*`；这是严格单向依赖，MCP binary 只能下游复用核心层。

@@ -19,7 +19,7 @@ import (
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	"github.com/kelindar/event"
 )
 

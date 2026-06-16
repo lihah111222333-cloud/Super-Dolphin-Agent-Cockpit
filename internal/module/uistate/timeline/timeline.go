@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	shared "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"

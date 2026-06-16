@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 

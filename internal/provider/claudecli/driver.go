@@ -12,11 +12,11 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/manifestbuilder"
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/runtimeconfig"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"

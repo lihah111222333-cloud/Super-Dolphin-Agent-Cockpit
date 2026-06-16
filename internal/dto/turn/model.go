@@ -3,7 +3,7 @@ package turn
 import (
 	"encoding/json"
 
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 )
 
 type InputItem = shareddto.InputItem

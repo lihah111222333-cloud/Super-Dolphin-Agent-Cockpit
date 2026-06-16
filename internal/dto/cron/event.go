@@ -11,7 +11,7 @@ package cron
 import (
 	"time"
 
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 )
 
 // JobRunStateChanged is published by Scheduler at every CAS-success

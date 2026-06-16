@@ -12,7 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/reportgc"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/reportstore"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 // GetState 读取状态。

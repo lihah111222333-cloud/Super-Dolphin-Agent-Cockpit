@@ -1,6 +1,6 @@
 package task
 
-import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+import shared "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 
 // TaskDagCreated reports a DAG entering the system.
 type TaskDagCreated struct {

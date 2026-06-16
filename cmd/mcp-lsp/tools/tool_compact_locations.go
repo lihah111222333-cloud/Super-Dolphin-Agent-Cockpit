@@ -7,7 +7,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	common "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
 )
 
 type compactHierarchyResult struct {

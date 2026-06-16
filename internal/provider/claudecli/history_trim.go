@@ -3,7 +3,7 @@ package claudecli
 import (
 	"strings"
 
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/runtimeconfig"
 )
 
 const claudeSystemNoiseTrimLeftCutset = "\ufeff \t\r\n"

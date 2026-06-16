@@ -8,7 +8,7 @@ import (
 	"time"
 
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 type WorkspaceMergeFileResult struct {

@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+import shared "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 
 // RuntimeReport is the sidecar-to-orchestration runtime endpoint report.
 type RuntimeReport struct {

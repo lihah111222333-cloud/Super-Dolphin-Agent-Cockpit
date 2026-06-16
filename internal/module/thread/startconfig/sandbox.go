@@ -52,5 +52,6 @@ func IsDangerFullAccessSandbox(raw json.RawMessage) (bool, error) {
 func isDangerFullAccessValue(value string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(value))
 	normalized = strings.ReplaceAll(normalized, "-", "")
+	normalized = strings.ReplaceAll(normalized, "_", "")
 	return normalized == "dangerfullaccess"
 }

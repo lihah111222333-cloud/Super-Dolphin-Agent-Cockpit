@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 )
 
 // EventHeader is a minimal event header for workspace events.

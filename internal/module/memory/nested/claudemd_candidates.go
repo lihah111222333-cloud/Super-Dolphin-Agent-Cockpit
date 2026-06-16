@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/memdata"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 )
 

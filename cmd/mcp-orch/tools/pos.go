@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
 )
 
 const (

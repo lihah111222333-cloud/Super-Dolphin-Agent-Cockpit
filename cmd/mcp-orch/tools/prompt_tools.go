@@ -9,8 +9,8 @@ import (
 	"time"
 
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	common "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 const promptSectionsPreviewMaxRunes = 200

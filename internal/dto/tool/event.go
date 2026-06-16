@@ -3,7 +3,7 @@ package tool
 import (
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 )
 
 // ToolCallBegin reports the start of a tool invocation.

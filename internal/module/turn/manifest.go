@@ -6,7 +6,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime/bootstrap"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 )
 

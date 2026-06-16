@@ -3,7 +3,7 @@ package turn
 import (
 	"encoding/json"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	shared "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 )
 
 // PlanDelta reports an incremental plan update payload.

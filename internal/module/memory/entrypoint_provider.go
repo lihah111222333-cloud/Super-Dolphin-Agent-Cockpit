@@ -7,8 +7,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 
+	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/memdata"
 	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
