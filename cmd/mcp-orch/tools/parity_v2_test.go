@@ -179,7 +179,7 @@ func TestHandlePromptGetTranslatesNotFound(t *testing.T) {
 			gotKey = key
 			return nil, platformdb.ErrNotFound
 		},
-	})
+	}, nil)
 
 	_, err := handler(promptToolTestContext(), mustRawInput(t, promptGetInput{PromptKey: " missing "}))
 	if err == nil || err.Error() != "prompt missing not found" {
@@ -218,7 +218,7 @@ func TestHandlePromptGetAssemblesInjectableSections(t *testing.T) {
 				{ID: 1, TemplateID: 42, SectionKey: "identity", Region: "static", Ordinal: 10, Body: "Identity body", TriggerType: "always", Enabled: true},
 			}, nil
 		},
-	})
+	}, nil)
 
 	result, err := handler(promptToolTestContext(), mustRawInput(t, promptGetInput{PromptKey: " custom/prompt "}))
 	if err != nil {
@@ -239,8 +239,8 @@ func TestHandlePromptListKeepsLegacyPromptText(t *testing.T) {
 	sectionsQueried := false
 	handler := HandlePromptList(stubPromptStore{
 		list: func(_ context.Context, filter promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
-			if filter.Keyword != "custom" {
-				t.Fatalf("List() keyword = %q, want custom", filter.Keyword)
+			if filter.Keyword != "" {
+				t.Fatalf("List() keyword = %q, want empty keyword for tool-side filtering", filter.Keyword)
 			}
 			if filter.CWD != "/repo/a" || !filter.RuntimeVisible {
 				t.Fatalf("List() filter scope = %+v, want runtime-visible /repo/a", filter)
@@ -259,7 +259,7 @@ func TestHandlePromptListKeepsLegacyPromptText(t *testing.T) {
 			sectionsQueried = true
 			return nil, nil
 		},
-	})
+	}, nil)
 
 	result, err := handler(promptToolTestContext(), mustRawInput(t, promptListInput{Keyword: " custom "}))
 	if err != nil {
@@ -282,8 +282,8 @@ func TestHandlePromptListEnvelopeKeepsLegacyDefault(t *testing.T) {
 
 	handler := HandlePromptList(stubPromptStore{
 		list: func(_ context.Context, filter promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
-			if filter.Keyword != "custom" {
-				t.Fatalf("List() keyword = %q, want custom", filter.Keyword)
+			if filter.Keyword != "" {
+				t.Fatalf("List() keyword = %q, want empty keyword for tool-side filtering", filter.Keyword)
 			}
 			return []promptstore.PromptTemplate{{
 				ID:        1,
@@ -293,9 +293,9 @@ func TestHandlePromptListEnvelopeKeepsLegacyDefault(t *testing.T) {
 				Tags:      json.RawMessage(`["scope.global"]`),
 			}}, nil
 		},
-	})
+	}, nil)
 
-	legacy, err := handler(promptToolTestContext(), mustRawInput(t, promptListInput{Keyword: " custom "}))
+	legacy, err := handler(promptToolTestContext(), mustRawInput(t, promptListInput{Keyword: " review "}))
 	if err != nil {
 		t.Fatalf("HandlePromptList() legacy error = %v", err)
 	}
@@ -303,7 +303,7 @@ func TestHandlePromptListEnvelopeKeepsLegacyDefault(t *testing.T) {
 		t.Fatalf("HandlePromptList() legacy response = %T, want []promptTemplateDTO", legacy)
 	}
 
-	result, err := handler(promptToolTestContext(), mustRawInput(t, promptListInput{Keyword: " custom ", Envelope: true}))
+	result, err := handler(promptToolTestContext(), mustRawInput(t, promptListInput{Keyword: " review ", Envelope: true}))
 	if err != nil {
 		t.Fatalf("HandlePromptList() envelope error = %v", err)
 	}
@@ -334,7 +334,7 @@ func TestHandlePromptListKeepsTask8RuntimeDiscoveryBoundary(t *testing.T) {
 				{PromptKey: "main/code-generate", Title: "User Code Generate", Tags: json.RawMessage(`["scope.global","intent:expert"]`), Enabled: true, CreatedBy: "rpc.prompts", UpdatedBy: "rpc.prompts"},
 			}, nil
 		},
-	})
+	}, nil)
 
 	result, err := handler(promptToolTestContext(), mustRawInput(t, promptListInput{}))
 	if err != nil {
@@ -373,7 +373,7 @@ func TestHandlePromptToolsRequireTrustedCWD(t *testing.T) {
 			t.Fatal("List() must not be called without trusted cwd")
 			return nil, nil
 		},
-	})
+	}, nil)
 	if _, err := listHandler(context.Background(), mustRawInput(t, promptListInput{})); err == nil || !strings.Contains(err.Error(), "trusted cwd") {
 		t.Fatalf("HandlePromptList() error = %v, want trusted cwd", err)
 	}
@@ -383,7 +383,7 @@ func TestHandlePromptToolsRequireTrustedCWD(t *testing.T) {
 			t.Fatal("Get() must not be called without trusted cwd")
 			return nil, nil
 		},
-	})
+	}, nil)
 	if _, err := getHandler(context.Background(), mustRawInput(t, promptGetInput{PromptKey: "custom/prompt"})); err == nil || !strings.Contains(err.Error(), "trusted cwd") {
 		t.Fatalf("HandlePromptGet() error = %v, want trusted cwd", err)
 	}
@@ -407,7 +407,7 @@ func TestHandlePromptGetHidesOutOfScopeTemplate(t *testing.T) {
 			sectionsQueried = true
 			return nil, nil
 		},
-	})
+	}, nil)
 
 	_, err := handler(promptToolTestContext(), mustRawInput(t, promptGetInput{PromptKey: "other/prompt"}))
 	if err == nil || err.Error() != "prompt other/prompt not found" {

@@ -74,5 +74,10 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 			"status":  EnumStringSchema("Optional status filter.", listRunsStatusEnum...),
 			"limit":   IntegerSchema("Optional max rows; defaults to 50 when 0/omitted."),
 		}), HandleListRuns(svc)),
+		defineTool("task_diagnose_dag_prompt_identity_gaps", "Read-only diagnostic for historical DAG nodes missing prompt_key/agent_key or hybrid verifier provider/Codex identity. It never rewrites DAGs; use task_dag_apply_ops for explicit rebind or recreate the DAG.", ObjectSchema(map[string]Schema{
+			"pos":     StringSchema("Optional flattened DAG locator, e.g. dag:<dag_key>. Omit to scan recent DAGs."),
+			"dag_key": StringSchema("Optional DAG key to diagnose. Omit to scan recent DAGs."),
+			"limit":   IntegerSchema("Optional DAG scan limit when dag_key is omitted."),
+		}), HandleDiagnoseDAGPromptIdentityGaps(svc)),
 	)
 }
