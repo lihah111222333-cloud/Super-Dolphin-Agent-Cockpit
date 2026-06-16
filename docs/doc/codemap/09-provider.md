@@ -1,6 +1,6 @@
 # 09 Provider 集成层代码地图
 
-> 覆盖 `internal/provider/unified/`、`internal/provider/claudecli/`、`internal/provider/codexapp/`。本文所有锚点均为 `lsp_grep` 校验后的 **1-based** 行号。
+> 覆盖 `internal/provider/unified/`、`internal/provider/claudecli/`、`internal/provider/codexapp/`。本文关键锚点按项目地图与源码抽样复核；行号均为 **1-based**。
 
 ## 0. 结论速记
 
@@ -369,7 +369,7 @@ sequenceDiagram
 | restart/token | `session_log_watcher_integration.go` / `session_log_watcher.go` | log watcher 生命周期、restart staged swap/rollback、token usage 补发 | `internal/provider/claudecli/session_log_watcher.go:19-40`、`internal/provider/claudecli/session_log_watcher_integration.go:59-73`、`internal/provider/claudecli/session_log_watcher_integration.go:165-205`、`internal/provider/claudecli/session_log_watcher_integration.go:230-323` |
 | 历史/上下文窗 | `history.go` / `context_window.go` | 读 CLI history.jsonl、settings model、context window 推断 | `internal/provider/claudecli/history.go:16-85`、`internal/provider/claudecli/history.go:87-110`、`internal/provider/claudecli/context_window.go:10-22`、`internal/provider/claudecli/context_window.go:40-59` |
 | 事件翻译 | `event_map.go` | Claude raw event -> DTO；含 `translateStatusPatchEvent` 与 `translateToolEvent` | `internal/provider/claudecli/event_map.go:18-42`、`internal/provider/claudecli/event_map.go:44-58`、`internal/provider/claudecli/event_map.go:92-138`、`internal/provider/claudecli/event_map.go:140-168` |
-| skill mirror / keepalive | `driver.go` / `session_silent_turn.go` | 启动/acquire 前 reconcile provider-native mirrors（project + provider home），让 Claude 原生发现；缺少 reconciler、reconcile error、发布目标不可用或 mirror root symlink 等基础设施错误才阻断启动；普通同名/drift/unmanaged 内容冲突交给技能管理页用户处理；silent keepalive turn | `internal/provider/claudecli/driver.go:228-260`、`internal/provider/shared/provider_home.go:51-93`、`internal/provider/claudecli/session_silent_turn.go:21-55` |
+| skill mirror / keepalive | `driver.go` / `session_silent_turn.go` | 启动/acquire 前 reconcile provider-native mirrors（project + provider home），让 Claude 原生发现；缺少 reconciler、reconcile error、发布目标不可用或 mirror root symlink 等基础设施错误才阻断启动；普通同名/drift/unmanaged 内容冲突交给技能管理页用户处理；silent keepalive turn | `internal/provider/claudecli/driver.go:234-238`、`internal/provider/claudecli/driver.go:293-319`、`internal/provider/runtimeconfig/provider_home.go:78-143`、`internal/provider/claudecli/session_silent_turn.go:21-55` |
 
 ### 10.2 关键类型
 
@@ -380,7 +380,7 @@ sequenceDiagram
 - `turnHandle`：provider/local turn id 在 Claude 场景通常相同，但结构仍保留二者，给 restart/replay/force-complete 留接口。锚点：`internal/provider/claudecli/session.go:61-97`。
 - `cliLaunchConfig`：是 CLI flag + system-prompt 元数据的桥；不是 thread config 的完整镜像。锚点：`internal/provider/claudecli/transport_config.go:22-30`。
 - `historyBackend` / `sessionLogWatcher`：一个管离线 history 文件，一个管在线 token usage 追踪。锚点：`internal/provider/claudecli/history.go:16-85`、`internal/provider/claudecli/session_log_watcher.go:19-40`。
-- `SkillMirrorReconciler`：provider 启动/acquire 前把 canonical skills 生成到 provider-native mirror。Claude project mirror 是 `<cwd>/.claude/skills`，默认 personal mirror 是用户自己的 `~/.claude/skills`；如果请求配置显式传入 `claude_home` / `claudeHome` / `history_dir`，则先归一化为 provider home，再使用该 home 下的 `skills`，launcher 随后把这个 home 写入 `CLAUDE_CONFIG_DIR`。mirror 是生成物；缺少 reconciler、reconcile error、发布目标不可用或 mirror root symlink 等基础设施错误会阻断启动/acquire；普通 same-name、drift、unmanaged provider skill 等内容冲突仅上报给技能管理页，用户自行处理，不拖死聊天主链。锚点：`internal/provider/claudecli/driver.go:228-260`、`internal/provider/shared/provider_home.go:51-93`、`internal/module/skill/contract.go:235-260`。
+- `SkillMirrorReconciler`：provider 启动/acquire 前把 canonical skills 生成到 provider-native mirror。Claude project mirror 是 `<cwd>/.claude/skills`，默认 personal mirror 是用户自己的 `~/.claude/skills`；如果请求配置显式传入 `claude_home` / `claudeHome` / `history_dir`，则先归一化为 provider home，再使用该 home 下的 `skills`，launcher 随后把这个 home 写入 `CLAUDE_CONFIG_DIR`。mirror 是生成物；缺少 reconciler、reconcile error、发布目标不可用或 mirror root symlink 等基础设施错误会阻断启动/acquire；普通 same-name、drift、unmanaged provider skill 等内容冲突仅上报给技能管理页，用户自行处理，不拖死聊天主链。锚点：`internal/provider/claudecli/driver.go:293-319`、`internal/provider/runtimeconfig/provider_home.go:107-143`、`internal/provider/runtimeconfig/provider_home.go:402-418`、`internal/module/skill/contract.go:235-260`。
 
 ### 10.3 Claude 启动主链
 
@@ -399,7 +399,7 @@ sequenceDiagram
 
 #### 10.3.3 `driver.start()` 展开
 
-- `prepareProviderHomeAndMirrors()` + `prepareSessionStart()`：默认不设置 `CLAUDE_CONFIG_DIR`，让 Claude CLI 使用用户自己的登录身份；启动前 reconcile `<cwd>/.claude/skills` 与 `~/.claude/skills`。显式配置 Claude home 时才规范化该 home 并使用其 `skills` mirror。旧 `SetupWorkspaceSkills` symlink 注入代码已删除；mirror reconcile 调用失败或发现阻断级 mirror 基础设施错误才返回 error，普通内容冲突交给技能管理页处理。锚点：`internal/provider/claudecli/driver.go:184-232`、`internal/provider/claudecli/driver.go:254-276`、`internal/provider/shared/provider_home.go:51-91`。
+- `prepareProviderHomeAndMirrors()` + `prepareSessionStart()`：默认不设置 `CLAUDE_CONFIG_DIR`，让 Claude CLI 使用用户自己的登录身份；启动前 reconcile `<cwd>/.claude/skills` 与 `~/.claude/skills`。显式配置 Claude home 时才规范化该 home 并使用其 `skills` mirror。旧 `SetupWorkspaceSkills` symlink 注入代码已删除；mirror reconcile 调用失败或发现阻断级 mirror 基础设施错误才返回 error，普通内容冲突交给技能管理页处理。锚点：`internal/provider/claudecli/driver.go:234-238`、`internal/provider/claudecli/driver.go:293-319`、`internal/provider/runtimeconfig/provider_home.go:78-143`。
 - `newStartedSession()`：构造 placeholder session，设置 `publicThreadID`、`transportModel`、`transportManifest`、`suppressedTurns` 等，并在必要时提前 `markThreadReady()`。锚点：`internal/provider/claudecli/driver.go:221-256`、`internal/provider/claudecli/thread_identity.go:17-19`。
 - `awaitStartedSession()`：阻塞到真实 thread ready，再把 transport PID 注册到 `pidregistry`。锚点：`internal/provider/claudecli/driver.go:258-265`、`internal/provider/claudecli/session_restart_control.go:9-21`。
 - `dispatchStartEvents()`：先合成 `agent:launched`，再发 `agent:state_changed{idling}`。锚点：`internal/provider/claudecli/driver.go:267-292`。
@@ -445,7 +445,7 @@ sequenceDiagram
 1. **Claude 实际会传 `--model`**：`buildCLIArgs()` 里直接 `appendFlagIfSet(args, "--model", model)`。锚点：`internal/provider/claudecli/transport_config.go:102-113`。
 2. **`--system-prompt` 元数据只拼 `summary/personality`**：approval/sandbox/effort 全都走独立 flag，不进 metadata block。锚点：`internal/provider/claudecli/transport_config.go:139-155`。
 3. **Boundary provider-ready，但 bridge 未全透传**：`promptBaseInstructionBlocks()` 支持 `snapshot.Boundary`，但 thread helper 当前只传 `DisplayName/BaseInstructions/DeveloperInstructions/Provider/Version/Hash/Generation`。锚点：`internal/provider/claudecli/transport_config.go:157-162`、`internal/module/thread/start_session_helpers.go:106-116`、`internal/dto/provider/session.go:26-45`。
-4. **skills 不再由 Claude provider 注入**：生产路径是 canonical skills -> provider-native mirror；Claude 通过 `<cwd>/.claude/skills` 与默认 `~/.claude/skills` 自己发现，显式 provider home 才使用其 `skills`。旧 `SetupWorkspaceSkills`/symlink 注入已物理删除，不是当前启动链路。锚点：`internal/provider/claudecli/driver.go:184-205`、`internal/provider/claudecli/driver.go:254-276`、`internal/provider/shared/provider_home.go:51-91`。
+4. **skills 不再由 Claude provider 注入**：生产路径是 canonical skills -> provider-native mirror；Claude 通过 `<cwd>/.claude/skills` 与默认 `~/.claude/skills` 自己发现，显式 provider home 才使用其 `skills`。旧 `SetupWorkspaceSkills`/symlink 注入已物理删除，不是当前启动链路。锚点：`internal/provider/claudecli/driver.go:293-319`、`internal/provider/runtimeconfig/provider_home.go:107-143`。
 
 ---
 
@@ -466,12 +466,12 @@ sequenceDiagram
 | RPC helpers | `factory.go` | method set、timeout call helper、shutdown 流、payload 解码 | `internal/provider/codexapp/factory.go:32-55`、`internal/provider/codexapp/factory.go:57-61`、`internal/provider/codexapp/factory.go:156-214`、`internal/provider/codexapp/factory.go:216-235` |
 | turn 输入 | `session_turn.go` | `turn/start` 输入模型、skills/attachments/input item 映射 | `internal/provider/codexapp/session_turn.go:13-21`、`internal/provider/codexapp/session_turn.go:38-50`、`internal/provider/codexapp/session_turn.go:77-94` |
 | 翻译 | `event_map.go` | Codex raw event -> agent/turn/tool DTO | `internal/provider/codexapp/event_map.go:20-24`、`internal/provider/codexapp/event_map.go:44-66`、`internal/provider/codexapp/event_map.go:114-146`、`internal/provider/codexapp/event_map.go:148-302` |
-| skill mirror | `driver_pool_routing.go` | 启动/acquire 前 reconcile Codex provider-native mirrors；project mirror 为 `<cwd>/.agents/skills`，默认 personal mirror 为 `~/.agents/skills`，显式 provider home 才使用其 `skills`；缺少 reconciler、reconcile error 或阻断级 mirror 基础设施错误才失败，普通内容冲突交给技能管理页用户处理 | `internal/provider/codexapp/driver_pool_routing.go:31-93`、`internal/provider/shared/provider_home.go:51-93` |
+| skill mirror | `driver_pool_routing.go` | 启动/acquire 前 reconcile Codex provider-native mirrors；project mirror 为 `<cwd>/.agents/skills`，默认 personal mirror 为 `~/.agents/skills`，显式 provider home 才使用其 `skills`；缺少 reconciler、reconcile error 或阻断级 mirror 基础设施错误才失败，普通内容冲突交给技能管理页用户处理 | `internal/provider/codexapp/driver_pool_routing.go:31-58`、`internal/provider/codexapp/driver_pool_routing.go:101-117`、`internal/provider/runtimeconfig/provider_home.go:107-143` |
 
 ### 11.2 关键类型
 
 - `DriverFactory`：自身既是 fx 单例，又包装出 `contract.DriverFactory{Name:"codex", Create:...}`；dynamic tools 的 provider 通过 `SetListTools()` 注入。锚点：`internal/provider/codexapp/driver.go:23-31`、`internal/provider/codexapp/driver.go:91-121`。
-- Provider 不直接依赖胖 `skill.Service`：Codex 通过必需的 `SkillMirrorReconciler` 只接收 provider-native mirror reconcile 能力，生成 `<cwd>/.agents/skills` 与默认 `~/.agents/skills`，让 Codex 自己发现 skills；显式 provider home 才使用其 `skills`。普通 same-name/drift/unmanaged 内容冲突不会阻断 provider 启动，只在技能管理页提示用户处理。`toolbridge` 仍注入 dynamic MCP tools 与 memory host tools，但不再把 `skill_read_section` 暴露为 Codex 生产工具。锚点：`internal/provider/codexapp/module.go:53-64`、`internal/provider/codexapp/driver_pool_routing.go:31-93`、`internal/provider/shared/provider_home.go:51-93`、`internal/platform/toolbridge/module.go:75-83`。
+- Provider 不直接依赖胖 `skill.Service`：Codex 通过必需的 `SkillMirrorReconciler` 只接收 provider-native mirror reconcile 能力，生成 `<cwd>/.agents/skills` 与默认 `~/.agents/skills`，让 Codex 自己发现 skills；显式 provider home 才使用其 `skills`。普通 same-name/drift/unmanaged 内容冲突不会阻断 provider 启动，只在技能管理页提示用户处理。`toolbridge` 仍注入 dynamic MCP tools 与 memory host tools，但不再把 `skill_read_section` 暴露为 Codex 生产工具。锚点：`internal/provider/codexapp/module.go:63-78`、`internal/provider/codexapp/driver_pool_routing.go:31-117`、`internal/provider/runtimeconfig/provider_home.go:107-143`、`internal/platform/toolbridge/module.go:74-87`。
 - `ServerManager`：共享 `codex app-server` 的 owner；session 只借它的 `ServerURL()`，不会共享 WS。锚点：`internal/provider/codexapp/module.go:64-79`、`internal/provider/codexapp/module.go:140-175`。
 - `session`：比 Claude 更像 RPC client runtime，内部有 `transport / recovery / approvals / readLoop / runtimeConfig / turns / pendingTurn`。锚点：`internal/provider/codexapp/session.go:22-50`。
 - `threadStartParams / threadResumeParams`：是 start/resume JSON-RPC 的精确 schema，也是 prompt parity 的 Codex 物化面。锚点：`internal/provider/codexapp/driver.go:64-89`。
@@ -522,7 +522,7 @@ sequenceDiagram
 - `buildThreadStartParams()` 才是 Codex session-start prompt carrier：`cwd/model/modelProvider/baseInstructions/developerInstructions/approvalPolicy/personality/summary/effort/sandbox` 全在这里。锚点：`internal/provider/codexapp/support.go:307-320`。
 - `startRemoteThreadWithDynamicTools()` 明确说明：dynamic tools 已由 app-server 暴露给模型，**不再把工具目录重复塞进 `developerInstructions`**。锚点：`internal/provider/codexapp/support.go:365-370`。
 - `session_turn.go` 里也注明：per-turn 的 system-reminder / SystemContext 已迁到 `thread/start` 的 `baseInstructions`。锚点：`internal/provider/codexapp/session_turn.go:77-94`。
-- Codex skills 的生产入口是 provider-native mirror，不是 prompt 正文注入或 host-direct reader；`.agents/skills` 与默认 `~/.agents/skills` mirror 由启动/acquire 前 reconcile 生成，显式 provider home 才使用其 `skills` mirror，Codex 自己发现并调用。锚点：`internal/provider/codexapp/driver_pool_routing.go:33-77`、`internal/provider/shared/provider_home.go:51-91`、`internal/module/skill/contract.go:219-246`。
+- Codex skills 的生产入口是 provider-native mirror，不是 prompt 正文注入或 host-direct reader；`.agents/skills` 与默认 `~/.agents/skills` mirror 由启动/acquire 前 reconcile 生成，显式 provider home 才使用其 `skills` mirror，Codex 自己发现并调用。锚点：`internal/provider/codexapp/driver_pool_routing.go:31-117`、`internal/provider/runtimeconfig/provider_home.go:107-143`、`internal/module/skill/contract.go:219-246`。
 
 ### 11.6 Codex event map 与 transport 细节
 
@@ -544,7 +544,7 @@ sequenceDiagram
 
 ---
 
-## 12. supporting packages 深描：`manifestbuilder / shared / toolfilter / e2e`
+## 12. supporting packages 深描：`manifestbuilder / runtimeconfig / toolfilter / e2e`
 
 ### 12.1 `provider/manifestbuilder`
 
@@ -565,18 +565,25 @@ sequenceDiagram
 2. 优先级是 `ProxyHTTPAddr` > `PeerHTTPAddrs[fam]` > 本地 `BinaryDir/mcp-<family>`。锚点：`internal/provider/manifestbuilder/manifest.go:32-60`。
 3. `normalizeManifestEnv()` 会把 legacy env alias 提升为 canonical `GO_AGENT_CTL_*`，并在缺省时从进程环境补齐。锚点：`internal/provider/manifestbuilder/manifest.go:109-138`。
 
-### 12.2 `provider/shared`
+### 12.2 `provider/runtimeconfig`
 
 #### 文件地图
 
 | 文件 | 作用 | 锚点 |
 |---|---|---|
-| `config_helpers.go` | provider 共用配置 helper：binary dir 解析、字符串/切片/字典标准化 | `internal/provider/shared/config_helpers.go:17-40`、`internal/provider/shared/config_helpers.go:74-83`、`internal/provider/shared/config_helpers.go:85-121`、`internal/provider/shared/config_helpers.go:123-172` |
+| `config_helpers.go` | provider 共用配置 helper：binary dir 解析、字符串/切片/字典标准化、MCP config 解析 | `internal/provider/runtimeconfig/config_helpers.go:29-68`、`internal/provider/runtimeconfig/config_helpers.go:147-187`、`internal/provider/runtimeconfig/config_helpers.go:195-220` |
+| `provider_home.go` | 应用托管 provider home、显式 provider home、personal/project skill mirror 与阻断级 mirror 冲突检查 | `internal/provider/runtimeconfig/provider_home.go:24-143`、`internal/provider/runtimeconfig/provider_home.go:179-236`、`internal/provider/runtimeconfig/provider_home.go:402-418` |
+| `codex_identity.go` | Codex identity 类型和错误别名，委托到 `contract.ResolveCodexIdentity()` / `CanonicalizeCodexHome()` | `internal/provider/runtimeconfig/codex_identity.go:7-29` |
+| `hooks.go` | provider 层到 turn/skill 模块的窄 hook：tool result capture、turn scope reset、skill block trim | `internal/provider/runtimeconfig/hooks.go:12-77`、`internal/provider/runtimeconfig/hooks.go:83-108` |
+| `proxy_env.go` | 保留外部代理变量，同时把 loopback 加入 `NO_PROXY/no_proxy` | `internal/provider/runtimeconfig/proxy_env.go:5-34` |
+| `observability_trace.go` | provider trace 事件默认字段、span id、错误/慢调用 stack 采样 | `internal/provider/runtimeconfig/observability_trace.go:13-22`、`internal/provider/runtimeconfig/observability_trace.go:24-58`、`internal/provider/runtimeconfig/observability_trace.go:60-81` |
 
 #### 关键流程
 
-- `ResolveBinaryDir()` 的优先级是：显式 config -> 当前可执行目录 -> cwd -> PATH 中的 managed binary -> 任意非空 candidate。锚点：`internal/provider/shared/config_helpers.go:17-40`。
-- `StringMap()` / `ConfigString()` / `ConfigStringSlice()` / `NormalizeConfigStringSlice()` 是 Claude/Codex 共用的 config 入口，避免两个 provider 各写一遍弱类型 map 解析。锚点：`internal/provider/shared/config_helpers.go:74-83`、`internal/provider/shared/config_helpers.go:85-121`、`internal/provider/shared/config_helpers.go:123-172`。
+- `ResolveBinaryDir()` 的优先级是：packaged runtime（`PROJECT_ROOT/runtime-manifest.json` -> `PROJECT_ROOT/bin`，或 `SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX=1` 时取 `GO_AGENT_PEER_BIN_DIR` 第一项）-> 显式 `binary_dir/binaryDir` -> 候选目录中第一个含 `mcp-lsp` 或 `mcp-orch` 的目录 -> 第一个非空候选目录。候选目录顺序是 `GO_AGENT_PEER_BIN_DIR`、当前可执行目录、cwd、PATH 中 managed binary 所在目录。锚点：`internal/provider/runtimeconfig/config_helpers.go:42-68`、`internal/provider/runtimeconfig/config_helpers.go:71-95`、`internal/provider/runtimeconfig/config_helpers.go:97-145`。
+- `StringMap()` / `ConfigString()` / `ConfigStringSlice()` / `NormalizeConfigStringSlice()` 等弱类型配置入口委托到 `internal/platform/kernel`，避免 Claude/Codex 各写一遍 map 解析。锚点：`internal/provider/runtimeconfig/config_helpers.go:147-187`。
+- `ProviderMirrorTargets()` 总是返回 personal + project 两类 mirror；Codex 默认 personal mirror 是 `~/.agents/skills`，不是 `~/.codex/skills`，显式 provider home 才使用 `<home>/skills`。锚点：`internal/provider/runtimeconfig/provider_home.go:107-143`、`internal/provider/runtimeconfig/provider_home.go:179-236`。
+- `EnsureNoSkillMirrorConflicts()` 只把 mirror root symlink、untrusted managed target、publish failed 这类基础设施问题作为阻断；同名、drift、unmanaged provider skill 等普通内容冲突交给技能管理页处理。锚点：`internal/provider/runtimeconfig/provider_home.go:402-440`。
 
 ### 12.3 `provider/toolfilter`
 
@@ -598,15 +605,12 @@ sequenceDiagram
 
 | 文件 | 作用 | 锚点 |
 |---|---|---|
-| `doc.go` | 说明包范围：验证 Claude manifest 注入与 Codex dynamic tools 注入 | `internal/provider/e2e/doc.go:1-9` |
-| `claude_mcp_test.go` | 验证 `BuildManifest -> writeManifestConfig -> --mcp-config` 的最终 JSON 形态 | `internal/provider/e2e/claude_mcp_test.go:32-97` |
-| `codex_mcp_test.go` | 验证 `thread/start(dynamicTools)` 与用户 config 字段透传 | `internal/provider/e2e/codex_mcp_test.go:20-71` |
+| `doc.go` | 当前包范围说明；本 checkout 下 `provider/e2e` 只保留包文档，没有 package-local 测试文件 | `internal/provider/e2e/doc.go:1-9` |
 
 #### 关键结论
 
-- 这个包不是 provider runtime 的一部分，而是“启动协议真值”回归层。锚点：`internal/provider/e2e/doc.go:1-9`。
-- Claude e2e 关心 manifest 文件内容，不关心真实 CLI 执行。锚点：`internal/provider/e2e/claude_mcp_test.go:32-97`。
-- Codex e2e 通过 mock RPC server 观察 `thread/start` 参数，验证 dynamic tools、approvalPolicy、prompt instructions、sandbox 等是否在 JSON-RPC 请求里出现。锚点：`internal/provider/e2e/codex_mcp_test.go:20-71`、`internal/provider/codexapp/support.go:307-420`。
+- 这个包当前不是 provider runtime 的一部分，也不是有效的回归测试入口；`go test ./internal/provider/e2e` 只能做编译级校验。
+- Claude manifest 与 Codex dynamic tools 的真实启动协议落点分别在 `manifestbuilder`、`claudecli/transport_config.go`、`codexapp/support.go`，新增回归时应重新补对应测试文件。锚点：`internal/provider/manifestbuilder/manifest.go:16-63`、`internal/provider/claudecli/transport_config.go:280-306`、`internal/provider/codexapp/support.go:365-420`。
 
 ---
 
@@ -676,30 +680,18 @@ sequenceDiagram
 | `raw event` | provider 有新 raw event 需要进 bus/UI | 1) provider 自己写 translator；2) `RegisterTranslators()` 注入 `EventDispatcher`；3) 如需公共 UI token 则先调 `PublishUITokensUpdated()` | `internal/provider/unified/event_map.go:91-124`、`internal/provider/claudecli/event_map.go:18-42`、`internal/provider/codexapp/event_map.go:20-66` | `event_map_test.go` / bus typed event 断言 |
 | `start/resume` | 新增 provider config/snapshot/carrier | 1) 先扩 `dto.StartSessionRequest/ResumeSessionRequest`；2) thread 层 `buildStartSessionConfig()/toProviderPromptSnapshot()` 透传；3) provider `StartSession/ResumeSession` 真正消费 | `internal/dto/provider/session.go:55-84`、`internal/module/thread/start_session_helpers.go:134-180`、`internal/provider/claudecli/driver.go:106-158`、`internal/provider/codexapp/driver.go:162-227` | `driver_session_test.go` / `resume` 冒烟 / grep 三层字段 |
 
-### 14.2 测试入口 + freeze 表（6 子包）
+### 14.2 测试入口 + freeze 表
 
-> 口径沿用 `tmp/codemap-test-freeze.md`；provider 目录当前无独立 freeze 值，`freeze` 列均为 `—`。
+当前 `internal/provider` 下没有 package-local `*_test.go` 文件，也没有 provider 目录独立 freeze 值；本节不再列已经删除的历史 provider 测试入口。新增/修改 provider 行为时应按风险补回具体包测试。
 
-| 包 | 测试文件 | 核心 Test* | freeze |
+| 包 | 当前校验入口 | 说明 | freeze |
 |---|---|---|---|
-| `claudecli` | `driver_mirror_test.go / +33` | `TestStartSessionReconcilesMirrorsBeforeLaunchWithoutDefaultClaudeHome` | — |
-| `codexapp` | `driver_pool_routing_test.go / +45` | `TestStartSessionReconcilesMirrorsBeforePoolAcquireAndDefaultsIdentity` | — |
-| `e2e` | `claude_mcp_test.go / +1` | `TestClaudeMCPManifest_E2E` | — |
-| `shared` | `config_helpers_test.go` | `TestResolveBinaryDirPrefersExplicitConfig` | — |
-| `toolfilter` | `presets_test.go` | `TestReviewerPreset_AllowsReadOnlyTools` | — |
-| `unified` | `contract_test.go / +7` | `TestSessionContract_StartTurn` | — |
-
-对应锚点：
-
-- `claudecli`: `internal/provider/claudecli/driver_mirror_test.go:33`
-- `codexapp`: `internal/provider/codexapp/driver_pool_routing_test.go:45`
-- `e2e`: `internal/provider/e2e/claude_mcp_test.go:32`
-- `shared`: `internal/provider/shared/config_helpers_test.go:13`
-- `toolfilter`: `internal/provider/toolfilter/presets_test.go:17`
-- `unified`: `internal/provider/unified/contract_test.go:102`
+| `provider` 全子树 | `go test ./internal/provider/...` | 编译 provider 全子树；当前不运行 package-local 测试。 | — |
+| `provider/runtimeconfig` | `go test ./internal/provider/runtimeconfig` | 编译共用 runtime config / provider home / mirror helper。 | — |
+| 全仓守卫 | `make guard-change` | 检查格式、架构、大小、测试等项目级规则。 | — |
 
 ### 14.3 推荐核对顺序（按 §10.21 / §10.25 执行）
 
-1. 先 `lsp_grep` 核对文中关键函数/测试名真存在，尤其是 `driver.start`、`attemptRecovery`、`handleApprovalRequest`、`buildThreadStartParams`、`TestSessionContract_StartTurn`。
-2. 再 `lsp_grep` 核对“旧说法已失真”的反例字符串：`thread/config/set` 只应出现在注释/否定语境，Claude `--model` 与 summary/personality 必须真实命中。
+1. 先用项目地图或 `rg` 核对文中关键函数真存在，尤其是 `driver.start`、`prepareProviderHomeAndMirrors`、`attemptRecovery`、`handleApprovalRequest`、`buildThreadStartParams`、`ProviderMirrorTargets`。
+2. 再核对“旧说法已失真”的反例字符串：`thread/config/set` 只应出现在注释/否定语境，Claude `--model` 与 summary/personality 必须真实命中，旧 provider 共用包路径不应再作为当前包路径出现。
 3. 最后 `wc -l` 确认本卷已从瘦身态恢复到可读深度。

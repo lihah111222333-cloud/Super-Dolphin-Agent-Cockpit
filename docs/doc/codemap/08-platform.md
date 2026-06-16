@@ -22,7 +22,7 @@
 
 1. **基础原语**：`config`、`db`、`kernel`、`runner`、`statemachine`、`pidregistry`、`rlimit`、`runtimesafe`
 2. **通信/控制基础设施**：`bus`、`eventsurface`、`rpc`、`hooks`、`mcpcontrol`、`toolbridge`
-3. **运行时维持 / 旁路数据**：`cachekeepalive`、`difftracker`、`historyjsonl`
+3. **运行时维持 / 旁路数据**：`cachekeepalive`、`difftracker`、`kernel/history.go`（封装 `internal/util/historyjsonl`）
 
 ---
 
@@ -227,32 +227,40 @@
 
 ---
 
-## 2.6 `historyjsonl/`：Provider 持久化历史读取
+## 2.6 `kernel/history.go` + `internal/util/historyjsonl`：Provider 持久化历史读取
 
 **职责**
 
+- platform 对外入口在 `internal/platform/kernel/history.go`
+- JSONL 查找、解析、分页实现仍在 `internal/util/historyjsonl`
 - 从 Codex / Claude 的 JSONL 历史文件中恢复消息页
 - 在实时 session 不可用时提供持久化历史旁路读取
 
 **核心类型**
 
-- `ReadRequest`
+- `kernel.ProviderHistoryReadRequest`（别名到 `historyjsonl.ReadRequest`）
+- `kernel.JSONLPageResult[T]`（别名到 `historyjsonl.JSONLPageResult[T]`）
 
 **关键 API**
 
-- `ReadProviderMessages(req)`
+- `kernel.ExistingProviderPath(req)`
+- `kernel.ReadProviderMessagesPage(req, pageReq)`
+- `kernel.ReadProviderMessagesPageOrError(req, pageReq, missingErr)`
+- `kernel.ReadJSONLPage(path, limit, before, parse)`
 
 **文件导览**
 
-- `history.go`：路径发现、逐行扫描、Codex/Claude 两种 JSONL 格式解析、消息正文抽取、时间解析
+- `internal/platform/kernel/history.go`：platform 层类型别名与读取 API 转发
+- `internal/util/historyjsonl/history.go`：路径发现、逐行扫描、Codex/Claude 两种 JSONL 格式解析、消息正文抽取、时间解析
+- `internal/util/historyjsonl/page.go`：按 cursor 从后向前分页读取 JSONL
 
 **实现要点**
 
-- `ReadRequest.RolloutPath` 非空时会直接绕过自动发现逻辑
-- Claude 从 sessionDir / `CLAUDE_CONFIG_DIR` / 兼容 `CLAUDE_HOME`（默认 `~/.claude`）下的 `projects/*/<id>.jsonl` 找文件，候选 ID 顺序是 `SessionUUID -> ProviderThreadID -> ThreadID`
-- Codex 从 `~/.codex/sessions/.../rollout-*-<id>.jsonl` 找最新匹配，候选 ID 是 `ProviderThreadID -> ThreadID`
+- `ProviderHistoryReadRequest.RolloutPath` 非空时会直接绕过自动发现逻辑
+- Claude 从 `CLAUDE_HOME`（默认 `~/.claude`）下的 `projects/*/<id>.jsonl` 找文件，候选 ID 顺序是 `SessionUUID -> ProviderThreadID -> ThreadID`
+- Codex 从 `CodexHome`（默认 `~/.codex`）下的 `sessions/*/*/*/rollout-*-<id>.jsonl` 找最新匹配，候选 ID 顺序是 `ProviderThreadID -> ThreadID -> SessionUUID`
 - 只保留 `user/assistant` 且非空消息
-- 上层主要由 thread 模块在 session 不可用时做“持久化历史回退读取”
+- 上层主要由 thread 模块通过 `kernel` 历史读取包装，在 session 不可用时做“持久化历史回退读取”
 
 ---
 
@@ -999,7 +1007,7 @@ Codex session 收到 inbound tool request
 
 ## 7.2 核心业务模块
 
-- `internal/module/thread`：大量使用 `bus`、`db`、`rpc`、`historyjsonl`、`kernel`
+- `internal/module/thread`：大量使用 `bus`、`db`、`rpc`、`kernel`，其中 provider 历史回退通过 `kernel/history.go` 包装 `internal/util/historyjsonl`
 - `internal/module/turn`：使用 `config`、`rpc`、`kernel`
 - `internal/module/uistate`：使用 `bus`、`config`、`db`、`rpc`、`kernel`
 - `internal/module/skill`：使用 `bus`、`config`、`rpc`、`kernel`
@@ -1068,7 +1076,7 @@ platform 层不是单一“工具包”，而是一组彼此协作的基础设�
 - `hooks + mcpcontrol` 负责**外部进程协作与控制面治理**
 - `toolbridge + difftracker` 负责**Provider 到 MCP/host tool 的执行桥与改动回流**
 - `config + db + kernel + runner + statemachine + pidregistry + rlimit + runtimesafe` 负责**基础运行时语义**
-- `cachekeepalive + historyjsonl` 负责**长会话维持与 Provider 历史旁路**
+- `cachekeepalive + kernel/history wrappers` 负责**长会话维持与 Provider 历史旁路**
 
 如果从项目架构角度看，platform 层承担的是 super-agent-v3 的“内核底座”角色：
 
@@ -1083,7 +1091,7 @@ platform 层不是单一“工具包”，而是一组彼此协作的基础设�
 - 补充了 RPC 章节中 push 双通道（typed surface + provider raw whitelist）、approval alias/catalog、断线恢复、停机清理与 `Respond(callID/requestID)` 语义。
 - 补充了 `mcpcontrol` 的 selector 交集、context scope、`ctl/event` 入总线、report 幂等与 unsupported variant 说明。
 - 补充了 `toolbridge` 的 peer 就绪轮询、`tools/call` 失败返回 `Success=false`、以及 snapshot 触发条件的精确范围。
-- 本轮又按源码补全了 `config` 的完整环境变量/默认值、`mcpcontrol` 的注册/心跳/清扫常量、`rpc` 的 middleware 实际执行顺序、`historyjsonl` 的路径发现候选顺序，以及 `toolbridge` 的 `120s` callback timeout。
+- 本轮又按源码补全了 `config` 的完整环境变量/默认值、`mcpcontrol` 的注册/心跳/清扫常量、`rpc` 的 middleware 实际执行顺序、provider 历史读取包装与 `historyjsonl` 的路径发现候选顺序，以及 `toolbridge` 的 `120s` callback timeout。
 - 本轮同步清理了 `difftracker/toolbridge` 的旧聚合器口径，改成 `Handler + BeginSnapshot/EmitGitDiff + diffFallbackTracker` 的现状描述。
 - 追加了 `cachekeepalive`、`rlimit`、`runtimesafe` 三个漏记子包，以及 §3 的 B17 bus Mermaid 数据流图。
 - 同步了 platform 当前测试入口 / freeze 表与 3 条 how-to 改动手册。
