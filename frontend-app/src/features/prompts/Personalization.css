@@ -1,0 +1,75 @@
+.personalization-overview {
+  border: 1px solid var(--border);
+  border-radius: 12px !important;
+  background: color-mix(in srgb, var(--surface-2) 60%, var(--surface)) !important;
+  padding: 20px !important;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--text-pri) 2%, transparent);
+  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.personalization-overview:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--text-pri) 4%, transparent);
+  border-color: var(--border-strong);
+}
+
+.personalization-overview dl div {
+  border-radius: 8px !important;
+  border: 1px solid var(--border) !important;
+  background: var(--surface) !important;
+  padding: 12px 14px !important;
+  transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.personalization-overview dl div:hover {
+  transform: scale(1.03);
+  border-color: var(--accent);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.personalization-profile-card {
+  border-radius: 12px !important;
+  border: 1px solid var(--border) !important;
+  background: var(--surface) !important;
+  padding: 24px !important;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--text-pri) 2%, transparent);
+  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.personalization-profile-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--text-pri) 5%, transparent);
+  border-color: var(--border-strong);
+}
+
+.personalization-form-grid input:disabled,
+.personalization-form-grid textarea:disabled {
+  background: var(--surface-2) !important;
+  border: 1px dashed var(--border-strong) !important;
+  color: var(--text-sec) !important;
+  cursor: not-allowed;
+  opacity: 0.85;
+  border-radius: 6px !important;
+  transition: all 0.25s ease;
+}
+
+.personalization-form-grid input:disabled:hover,
+.personalization-form-grid textarea:disabled:hover {
+  border-color: var(--accent) !important;
+  background: var(--surface-3) !important;
+}
+
+.personalization-profile-card button:disabled {
+  background: color-mix(in srgb, var(--text-pri) 6%, transparent) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text-muted) !important;
+  cursor: not-allowed;
+  border-radius: 24px !important;
+  font-weight: 600;
+  padding: 12px 24px !important;
+  transition: all 0.25s ease;
+}
+
+/* ==========================================================================
+   Figure 2: Sidebar New Chat Alignment
+   ========================================================================== */

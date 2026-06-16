@@ -33,6 +33,7 @@ const backend = vi.hoisted(() => ({
   setPreference: vi.fn(),
   selectProjectDir: vi.fn(),
   selectFiles: vi.fn(),
+  saveClipboardImage: vi.fn(),
   beginTextClipboardWrite: vi.fn(),
   copyTextToClipboard: vi.fn(),
   emitFrontendTraceEvent: vi.fn(),
@@ -339,25 +340,30 @@ function registerBridgeEventHandlersForTest() {
     });
   });
 
-  it('toggles the active provider preference for the top toolbar', async () => {
+  it('keeps the desktop active provider locked to Codex', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
       provider: 'codex',
     });
 
-    await expect(useClientStore.getState().toggleProviderMode()).resolves.toBe(true);
+    await expect(useClientStore.getState().toggleProviderMode()).resolves.toBe(false);
 
-    expect(backend.setPreference).toHaveBeenCalledWith({
-      cwd: '/repo/app',
+    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
       key: 'settings.provider.active',
-      value: 'claude',
-    });
-    expect(useClientStore.getState().provider).toBe('claude');
-    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
-      message: '已切换为 Claude',
-      tone: 'success',
     }));
+    expect(useClientStore.getState().provider).toBe('codex');
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '当前桌面仅支持 Codex provider',
+      tone: 'warning',
+    }));
+    expect(useClientStore.getState().warningEntries).toEqual([
+      expect.objectContaining({
+        level: 'warn',
+        event: 'provider.toggle.unsupported',
+        fields: { requestedProvider: 'claude' },
+      }),
+    ]);
   });
 
   it('does not change the active provider while an opened chat is selected', async () => {
@@ -381,20 +387,19 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
-  it('keeps provider toggle fail-fast when cwd is missing', async () => {
+  it('keeps provider toggle disabled without requiring cwd', async () => {
     resetClientStoreForTests({
       cwd: '',
       activeProject: '',
       provider: 'codex',
     });
 
-    await expect(useClientStore.getState().toggleProviderMode()).rejects.toThrow(
-      'frontend-app: cwd is required for provider.toggle',
-    );
+    await expect(useClientStore.getState().toggleProviderMode()).resolves.toBe(false);
 
     expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
       key: 'settings.provider.active',
     }));
+    expect(useClientStore.getState().provider).toBe('codex');
   });
 
   it('routes project selector actions through the project RPC contract', async () => {
@@ -404,7 +409,10 @@ function registerBridgeEventHandlersForTest() {
       activeProject: '/repo/app',
       projects: ['/repo/app', '/repo/other'],
     });
-    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    backend.setActiveProject.mockImplementation(({ path }) => Promise.resolve({
+      projects: path === '/repo/new' ? ['/repo/app', '/repo/other', '/repo/new'] : ['/repo/app', '/repo/other'],
+      active: path,
+    }));
     backend.addProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other', '/repo/new'], active: '/repo/other' });
     backend.removeProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
 
@@ -415,7 +423,8 @@ function registerBridgeEventHandlersForTest() {
     await expect(useClientStore.getState().addProjectFromPicker()).resolves.toBe(true);
     expect(backend.selectProjectDir).toHaveBeenCalledWith('/repo/other');
     expect(backend.addProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
-    expect(useClientStore.getState().activeProject).toBe('/repo/other');
+    expect(backend.setActiveProject).toHaveBeenLastCalledWith({ cwd: '/repo/app', path: '/repo/new' });
+    expect(useClientStore.getState().activeProject).toBe('/repo/new');
 
     await expect(useClientStore.getState().removeProjectPath('/repo/new')).resolves.toBe(true);
     expect(backend.removeProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
@@ -579,6 +588,7 @@ function registerBridgeEventHandlersForTest() {
       id: 'thread-design',
       name: 'AI 设计流程',
       provider: 'codex',
+      agentKey: 'dag_designer',
     }));
   });
 
@@ -2133,6 +2143,150 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
+  it('rejects a Claude active provider preference before thread/start', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Do not silently remap provider',
+      attachments: [],
+    });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'claude',
+      'settings.provider.claude.model': 'sonnet',
+      'settings.provider.claude.effort': 'high',
+    }[key] ?? null));
+    backend.startThread.mockResolvedValue({ threadId: 'thread-should-not-start' });
+
+    await expect(useClientStore.getState().sendDraft()).rejects.toThrow(
+      'startThread: unsupported provider preference "claude"; current desktop UI supports codex only',
+    );
+
+    expect(backend.startThread).not.toHaveBeenCalled();
+    expect(backend.startTurn).not.toHaveBeenCalled();
+    expect(useClientStore.getState().warningEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        level: 'error',
+        event: 'provider.unsupported',
+        fields: { provider: 'claude', reason: 'startThread' },
+      }),
+    ]));
+  });
+
+  it('includes default Codex identity preferences in thread/start launch payload', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Use default Codex identity',
+      attachments: [],
+    });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexHome': '~/.codex',
+      'settings.provider.codex.codexInstanceKey': 'default',
+      'settings.provider.codex.codexModelProvider': 'openai',
+    }[key] ?? null));
+    backend.startThread.mockResolvedValue({ threadId: 'thread-default-codex' });
+    backend.startTurn.mockResolvedValue({ ok: true });
+
+    await useClientStore.getState().sendDraft();
+
+    const payload = backend.startThread.mock.calls[0][0];
+    expect(payload).toEqual(expect.objectContaining({
+      cwd: '/repo/app',
+      modelProvider: 'codex',
+      model: 'gpt-5.5',
+      effort: 'xhigh',
+      config: {
+        codexHome: '~/.codex',
+        codexInstanceKey: 'default',
+        codexModelProvider: 'openai',
+      },
+    }));
+  });
+
+  it('falls back to global Codex identity preferences for thread/start launch payload', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Use global Codex identity',
+      attachments: [],
+    });
+    backend.getPreference.mockImplementation(({ cwd, key }) => {
+      if (!cwd) {
+        return Promise.resolve({
+          'settings.provider.codex.codexHome': 'C:\\Users\\ai01\\.codex',
+          'settings.provider.codex.codexInstanceKey': 'default',
+          'settings.provider.codex.codexModelProvider': 'openai',
+        }[key] ?? null);
+      }
+      return Promise.resolve({
+        'settings.provider.active': 'codex',
+        'settings.provider.codex.model': 'gpt-5.5',
+        'settings.provider.codex.effort': 'low',
+      }[key] ?? null);
+    });
+    backend.startThread.mockResolvedValue({ threadId: 'thread-global-codex' });
+    backend.startTurn.mockResolvedValue({ ok: true });
+
+    await useClientStore.getState().sendDraft();
+
+    expect(backend.getPreference).toHaveBeenCalledWith({ key: 'settings.provider.codex.codexHome' });
+    expect(backend.getPreference).toHaveBeenCalledWith({ key: 'settings.provider.codex.codexInstanceKey' });
+    expect(backend.getPreference).toHaveBeenCalledWith({ key: 'settings.provider.codex.codexModelProvider' });
+    expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/repo/app',
+      modelProvider: 'codex',
+      model: 'gpt-5.5',
+      effort: 'low',
+      codexModelProvider: 'openai',
+      config: {
+        codexHome: 'C:\\Users\\ai01\\.codex',
+        codexInstanceKey: 'default',
+        codexModelProvider: 'openai',
+      },
+    }));
+  });
+
+  it('includes expanded local Codex home defaults in thread/start launch payload', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Use expanded default Codex home',
+      attachments: [],
+    });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexHome': 'C:\\Users\\ai01\\.codex',
+      'settings.provider.codex.codexInstanceKey': 'default',
+      'settings.provider.codex.codexModelProvider': 'openai',
+    }[key] ?? null));
+    backend.startThread.mockResolvedValue({ threadId: 'thread-expanded-default-codex' });
+    backend.startTurn.mockResolvedValue({ ok: true });
+
+    await useClientStore.getState().sendDraft();
+
+    const payload = backend.startThread.mock.calls[0][0];
+    expect(payload).toEqual(expect.objectContaining({
+      cwd: '/repo/app',
+      modelProvider: 'codex',
+      model: 'gpt-5.5',
+      effort: 'xhigh',
+      config: {
+        codexHome: 'C:\\Users\\ai01\\.codex',
+        codexInstanceKey: 'default',
+        codexModelProvider: 'openai',
+      },
+    }));
+  });
+
   it('starts thread without model preference when it is missing', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -2180,6 +2334,7 @@ function registerBridgeEventHandlersForTest() {
       modelProvider: 'codex',
       model: 'gpt-5.5',
       effort: 'xhigh',
+      codexModelProvider: 'openrouter',
       prompt_key: 'main/reviewer',
       config: {
         codexHome: '/Users/test/.codex-alt',
@@ -2296,6 +2451,48 @@ function registerBridgeEventHandlersForTest() {
       input: [{ type: 'text', text: 'Continue stopped DAG agent' }],
       manualSkillSelection: false,
     });
+    expect(useClientStore.getState().draft).toBe('');
+  });
+
+  it('starts a fresh Codex thread when auto-resume fails because identity is missing', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-legacy',
+      draft: 'Continue legacy thread',
+      attachments: [],
+      threads: [{ id: 'thread-legacy', name: 'Legacy', provider: 'codex', status: 'running' }],
+    });
+    backend.startTurn
+      .mockRejectedValueOnce(new Error('resolve session: thread "thread-legacy": resolve session: auto-resume failed: codex identity required for resume'))
+      .mockResolvedValueOnce({ ok: true });
+    backend.startThread.mockResolvedValue({ threadId: 'thread-recovered', agentId: 'agent-recovered' });
+
+    await expect(useClientStore.getState().sendDraft()).resolves.toBe(true);
+
+    expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/repo/app',
+      modelProvider: 'codex',
+      config: {
+        codexHome: '~/.codex',
+        codexInstanceKey: 'default',
+        codexModelProvider: 'openai',
+      },
+    }));
+    expect(backend.startTurn).toHaveBeenCalledTimes(2);
+    expect(backend.startTurn).toHaveBeenNthCalledWith(1, {
+      cwd: '/repo/app',
+      threadId: 'thread-legacy',
+      input: [{ type: 'text', text: 'Continue legacy thread' }],
+      manualSkillSelection: false,
+    });
+    expect(backend.startTurn).toHaveBeenNthCalledWith(2, {
+      cwd: '/repo/app',
+      threadId: 'thread-recovered',
+      input: [{ type: 'text', text: 'Continue legacy thread' }],
+      manualSkillSelection: false,
+    });
+    expect(useClientStore.getState().activeThreadId).toBe('thread-recovered');
     expect(useClientStore.getState().draft).toBe('');
   });
 

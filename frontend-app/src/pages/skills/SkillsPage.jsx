@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, Sparkles } from 'lucide-react';
+import { Search, Sparkles, FileText, Table, Play, Palette, Compass, Briefcase, BarChart3, Slack, ChevronRight, SlidersHorizontal, Image, Code2, Folder, Database } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { applySkillResolution, createSkill, deleteSkill, getDashboardPage, importSkillDirectories, listSkillFiles, listSkillResolutions, previewSkillResolution, readSkill, selectProjectDirs, suggestSkillSummary, writeSkill } from '../../shared/api/backendApi.js';
 import { cleanScalar, dashboardQueryKey, errorMessage, listToText, optionalSettingsCwd, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx';
+import './SkillsPage.css';
 
 const SKILLS_DASHBOARD_TIMEOUT_MS = Math.max(1, SKILLS_REQUEST_TIMEOUT_MS - 250);
 
@@ -967,9 +968,300 @@ function importNotice(importedCount, drafts, failures, scope) {
   return parts.length > 0 ? parts.join('，') : '未导入任何技能目录';
 }
 
+const TrafficDots = () => (
+  <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
+    <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#2ec946' }}></span>
+    <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#ffbd2e' }}></span>
+    <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#ff5f56' }}></span>
+  </div>
+);
+
+const ClaudeSplashLogo = () => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+    <path d="M12 4.5a3 3 0 0 0-3 3v1.8c0 1 .5 1.8 1.2 2.3A4.5 4.5 0 0 0 6.5 15a3 3 0 1 0 5.2 2.1c0-.7-.2-1.3-.6-1.8A4.5 4.5 0 0 0 17.5 15a3 3 0 1 0 2.2-5c-.4.5-.6 1.1-.6 1.8a4.5 4.5 0 0 0-3.7-3.4V7.5a3 3 0 0 0-3-3zM12 12a1 1 0 1 1 0 2 1 1 0 0 1 0-2z" />
+  </svg>
+);
+
+const CONNECTED_PLUGIN_APPS = [
+  { id: 'file', bg: '#e8f0fe', color: '#1a73e8', icon: FileText },
+  { id: 'table', bg: '#e6f4ea', color: '#137333', icon: Table },
+  { id: 'video', bg: '#fef7e0', color: '#b06000', icon: Play },
+  { id: 'code', bg: '#f1f3f4', color: '#5f6368', icon: Image },
+  { id: 'more', bg: '#fce8e6', color: '#c5221f', icon: TrafficDots },
+  { id: 'mcp', bg: '#f3e8fd', color: '#8430d9', icon: ClaudeSplashLogo },
+  { id: 'db', bg: '#e2f7f9', color: '#007b83', icon: Code2 },
+];
+
+const RECOMMENDED_PLUGINS = [
+  {
+    id: 'creative',
+    title: 'Creative Production',
+    description: 'Create marketing visuals from a brief or product image.',
+    bg: '#f3e8fd',
+    color: '#8430d9',
+    icon: Palette,
+  },
+  {
+    id: 'sales',
+    title: 'Sales',
+    description: 'Prepare sales work faster.',
+    bg: '#e8f0fe',
+    color: '#1a73e8',
+    icon: Compass,
+  },
+  {
+    id: 'banking',
+    title: 'Investment Banking',
+    description: 'M&A, capital markets, LevFin, valuation, diligence, and pitch workflows.',
+    bg: '#e6f4ea',
+    color: '#137333',
+    icon: Briefcase,
+  },
+  {
+    id: 'equity',
+    title: 'Public Equity Investing',
+    description: 'Public equity PM research, long/short, earnings, ETF/index diligence, and memos.',
+    bg: '#e4f7f8',
+    color: '#007b83',
+    icon: BarChart3,
+  },
+  {
+    id: 'slack',
+    title: 'Slack',
+    description: 'Read and manage Slack messages and channels.',
+    bg: '#fff5f5',
+    color: '#ef4444',
+    icon: Slack,
+  },
+];
+
+const DATA_SOURCE_ITEMS = [
+  {
+    id: 'knowledge',
+    title: '本地知识库',
+    description: '包含已导入的文档、参考资料及个人笔记，用于增强 AI 的上下文检索能力。',
+    type: '文档向量库',
+    status: '已连接',
+    size: '1.2 GB',
+    icon: Folder,
+    bg: '#e8f0fe',
+    color: '#1a73e8',
+  },
+  {
+    id: 'postgres',
+    title: 'PostgreSQL 结构化数据',
+    description: '本地 PostgreSQL 数据库，存储系统核心元数据与分析表结构。',
+    type: '关系型数据库',
+    status: '运行中',
+    size: '124 表',
+    icon: Database,
+    bg: '#e2f7f9',
+    color: '#007b83',
+  },
+  {
+    id: 'shared_files',
+    title: '共享文件存储',
+    description: '保存项目共享的最终产物和工作文件目录，支持多项目隔离管理。',
+    type: '本地文件目录',
+    status: '已连接',
+    size: '2.4 GB',
+    icon: FileText,
+    bg: '#e6f4ea',
+    color: '#137333',
+  },
+  {
+    id: 'memory_store',
+    title: '记忆检索库',
+    description: '自动整合的长期记忆与事实提取结果，辅助生成更精准的对话提示词。',
+    type: '向量数据库',
+    status: '活跃中',
+    size: '482 条记忆',
+    icon: Sparkles,
+    bg: '#f3e8fd',
+    color: '#8430d9',
+  },
+];
+
 function SkillsPage({ projectPath, refreshKey = 0, resolveLaunchPreferences }) {
+  const [subTab, setSubTab] = useState('plugins');
   const model = useSkillsPageModel({ projectPath, refreshKey, resolveLaunchPreferences });
-  return <SkillsPageView model={model} />;
+  return (
+    <div className="skills-tabbed-container">
+      <div className="skills-subtabs-header">
+        <button
+          type="button"
+          className={subTab === 'plugins' ? 'active' : ''}
+          onClick={() => setSubTab('plugins')}
+        >
+          MCP工具
+        </button>
+        <button
+          type="button"
+          className={subTab === 'skills' ? 'active' : ''}
+          onClick={() => setSubTab('skills')}
+        >
+          Skill工具
+        </button>
+        <button
+          type="button"
+          className={subTab === 'datasource' ? 'active' : ''}
+          onClick={() => setSubTab('datasource')}
+        >
+          数据源
+        </button>
+      </div>
+      <div className="skills-tab-content">
+        {subTab === 'plugins' ? (
+          <PluginsSquareView />
+        ) : subTab === 'datasource' ? (
+          <DataSourceView />
+        ) : (
+          <SkillsPageView model={model} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DataSourceView() {
+  const [search, setSearch] = useState('');
+
+  const filtered = DATA_SOURCE_ITEMS.filter(s =>
+    s.title.toLowerCase().includes(search.toLowerCase()) ||
+    s.description.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="datasource-container">
+      <div className="datasource-header">
+        <h1>内部数据源</h1>
+        <p className="datasource-subtitle">为内部数据源</p>
+      </div>
+
+      <div className="plugins-search-bar-wrap">
+        <div className="plugins-search-input-container">
+          <Search className="search-icon" size={18} />
+          <input
+            type="text"
+            placeholder="搜索内部数据源"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="搜索内部数据源"
+          />
+        </div>
+      </div>
+
+      <div className="datasource-grid">
+        {filtered.map((s) => {
+          const IconComponent = s.icon;
+          return (
+            <div key={s.id} className="datasource-card">
+              <div className="datasource-card-header">
+                <div className="datasource-icon-wrap" style={{ backgroundColor: s.bg, color: s.color }}>
+                  <IconComponent size={22} />
+                </div>
+                <span className="datasource-status-badge">{s.status}</span>
+              </div>
+              <div className="datasource-card-body">
+                <h3>{s.title}</h3>
+                <p>{s.description}</p>
+              </div>
+              <div className="datasource-card-footer">
+                <span className="datasource-meta-tag">{s.type}</span>
+                <span className="datasource-meta-size">{s.size}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PluginsSquareView() {
+  const [search, setSearch] = useState('');
+
+  const filteredRecommended = RECOMMENDED_PLUGINS.filter(p =>
+    p.title.toLowerCase().includes(search.toLowerCase()) ||
+    p.description.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="plugins-square-container">
+      <div className="plugins-square-header">
+        <h1>插件</h1>
+        <p className="plugins-square-subtitle">在你常用的工具中使用 Super-Dolphin</p>
+      </div>
+
+      <div className="plugins-search-bar-wrap">
+        <div className="plugins-search-input-container">
+          <Search className="search-icon" size={18} />
+          <input
+            type="text"
+            placeholder="搜索插件和技能"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="搜索插件和技能"
+          />
+          <button type="button" className="filter-button" aria-label="筛选">
+            <SlidersHorizontal size={18} />
+          </button>
+        </div>
+      </div>
+
+      <div className="plugins-connected-section">
+        <div className="connected-header">
+          <h2>已连接</h2>
+          <button type="button" className="manage-link">管理</button>
+        </div>
+        <div className="connected-apps-list">
+          {CONNECTED_PLUGIN_APPS.map((app) => {
+            const IconComponent = app.icon;
+            return (
+              <div
+                key={app.id}
+                className="connected-app-circle"
+                style={{ backgroundColor: app.bg, color: app.color }}
+              >
+                <IconComponent size={20} />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="plugins-recommended-section">
+        <h2>推荐</h2>
+        <div className="recommended-list">
+          {filteredRecommended.map((plugin) => {
+            const IconComponent = plugin.icon;
+            return (
+              <div key={plugin.id} className="recommended-card">
+                <div
+                  className="recommended-icon-wrap"
+                  style={{ backgroundColor: plugin.bg, color: plugin.color }}
+                >
+                  <IconComponent size={22} />
+                </div>
+                <div className="recommended-info">
+                  <h3>{plugin.title}</h3>
+                  <p>{plugin.description}</p>
+                </div>
+                <button type="button" className="add-button">添加</button>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="recommended-footer-link">
+          <button type="button" className="footer-link-btn">
+            <span>查看 Notion, Linear 和另外 9 个</span>
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function useSkillsPageModel({ projectPath, refreshKey, resolveLaunchPreferences }) {
@@ -1041,12 +1333,16 @@ function useSkillsDashboard(projectCwd, refreshKey) {
 
 function skillsDashboardState({ items, projectCwd, resolutionConflicts, resolutionsQuery, retrySkillSurface, refreshSkillSurface, skillsQuery }) {
   const hasSnapshot = Array.isArray(skillsQuery.data);
+  const hasResolutionSnapshot = Array.isArray(resolutionsQuery.data);
+  const resolutionSyncErrorText = resolutionsQuery.error ? '读取技能冲突失败：' + errorMessage(resolutionsQuery.error) : '';
   const syncErrorText = skillsSyncErrorText(skillsQuery, resolutionsQuery);
   return {
     items,
     isInitialLoading: Boolean(projectCwd) && skillsQuery.isPending && !hasSnapshot && !syncErrorText,
+    isResolutionPending: Boolean(projectCwd) && resolutionsQuery.isPending && !hasResolutionSnapshot && !resolutionSyncErrorText,
     refreshSkillSurface,
     resolutionConflicts,
+    resolutionSyncErrorText,
     retrySkillSurface,
     showBlockingSyncError: Boolean(syncErrorText && !hasSnapshot),
     showCachedSyncError: Boolean(syncErrorText && hasSnapshot),
@@ -1532,8 +1828,9 @@ async function confirmResolutionPreview(ctx) {
 function SkillsPageView({ model }) {
   return (
     <section className="console-page">
-      <PageHeader icon={Sparkles} title="技能管理" />
-      <div className="subhead">技能列表</div>
+      <PageHeader icon={Sparkles} title="插件与技能" subtitle="本地运行时" />
+      <SkillsOverview model={model} />
+      <div className="subhead">本地技能库</div>
       <SkillsToolbar model={model} />
       <SkillFilter filters={model.filters} scopeFilter={model.scopeFilter} setScopeFilter={model.setScopeFilter} />
       <SkillsStatus model={model} />
@@ -1541,6 +1838,27 @@ function SkillsPageView({ model }) {
       <SkillResolutionPanel model={model} />
       <SkillGrid model={model} />
       <SkillModals model={model} />
+    </section>
+  );
+}
+
+function SkillsOverview({ model }) {
+  const counts = model.filters.counts;
+  const conflictValue = model.isProjectPending || model.dashboard.isResolutionPending || model.dashboard.resolutionSyncErrorText
+    ? '待确认'
+    : model.dashboard.resolutionConflicts.length;
+  return (
+    <section className="skills-overview" aria-label="插件与技能状态">
+      <div className="skills-overview-copy">
+        <span>当前连接</span>
+        <h2>本地技能、个人技能和运行时冲突处理</h2>
+      </div>
+      <dl>
+        <div><dt>本地技能</dt><dd>{counts.all}</dd></div>
+        <div><dt>项目共享</dt><dd>{counts.project}</dd></div>
+        <div><dt>私人使用</dt><dd>{counts.personal}</dd></div>
+        <div><dt>待处理冲突</dt><dd>{conflictValue}</dd></div>
+      </dl>
     </section>
   );
 }

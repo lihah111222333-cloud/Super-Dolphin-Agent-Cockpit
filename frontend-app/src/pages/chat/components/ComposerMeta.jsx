@@ -1,25 +1,21 @@
 import React from 'react';
-import { ArrowUp, CircleStop, GitBranch, Paperclip } from 'lucide-react';
+import { ArrowUp, CircleStop, Mic, Plus, SlidersHorizontal } from 'lucide-react';
 import { ComposerModelSelector } from './ComposerModelSelector.jsx';
-import { ProjectSelector } from './ProjectSelector.jsx';
 import { runUIAction } from './chatUiActions.js';
 
 function ComposerMeta({
   canInterrupt,
   canSend,
-  canUseProjectActions,
+  canUseProjectActions: _canUseProjectActions,
   modelThreadId,
-  projectPath,
   projectActionBlocked,
   projectActionBlockedTitle,
   selectFiles,
   sendMessage,
   showProviderToggle: _,
-  showProjectSelector = false,
+  showProjectSelector: _showProjectSelector = false,
   store,
 }) {
-  const canForkThread = canUseProjectActions && Boolean(store.hasActiveThreadActions?.());
-  const forkBlockedTitle = projectActionBlocked ? projectActionBlockedTitle : '当前没有可继承的会话';
   const primaryActionLabel = canInterrupt ? '中断当前执行' : '发送消息';
   const primaryActionTitle = canInterrupt ? '中断当前执行' : undefined;
   const primaryActionClass = `send${canInterrupt ? ' send--interrupt' : ''}`;
@@ -33,10 +29,9 @@ function ComposerMeta({
   };
   return (
     <div className="composer-meta">
-      {showProjectSelector ? <ProjectSelector store={store} projectPath={projectPath} /> : null}
       <button
         type="button"
-        className="composer-attach"
+        className="composer-icon-action composer-attach"
         aria-label="添加文件"
         title={projectActionBlocked ? projectActionBlockedTitle : '添加文件'}
         disabled={projectActionBlocked}
@@ -44,23 +39,23 @@ function ComposerMeta({
           if (!projectActionBlocked) runUIAction(() => selectFiles());
         }}
       >
-        <Paperclip size={18} />
-        <span>添加附件</span>
+        <Plus size={20} />
       </button>
       <button
         type="button"
-        className="composer-attach composer-fork"
-        aria-label="继承当前对话"
-        title={canForkThread ? '继承当前对话' : forkBlockedTitle}
-        disabled={!canForkThread}
-        onClick={() => {
-          if (canForkThread) runUIAction(() => store.openForkDraft?.());
-        }}
+        className="composer-custom"
+        aria-label="自定义配置"
+        title="自定义配置待后端接入"
+        disabled
       >
-        <GitBranch size={16} />
+        <SlidersHorizontal size={17} />
+        <span>自定义</span>
       </button>
       <div className="composer-actions">
         <ComposerModelSelector store={store} activeThreadId={modelThreadId} disabled={projectActionBlocked} />
+        <button type="button" className="composer-voice" aria-label="语音输入" title="语音输入待后端接入" disabled>
+          <Mic size={20} aria-hidden="true" />
+        </button>
         <button type="button" className={primaryActionClass} aria-label={primaryActionLabel} title={primaryActionTitle} disabled={primaryActionDisabled} onClick={onPrimaryAction}>
           {canInterrupt ? <CircleStop size={18} /> : <ArrowUp size={22} />}
         </button>

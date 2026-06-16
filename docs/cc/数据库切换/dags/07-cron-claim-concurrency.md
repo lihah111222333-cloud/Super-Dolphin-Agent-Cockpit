@@ -78,4 +78,3 @@ make sqlc-verify
 - 100 due jobs, 4 goroutines claim with same DB -> duplicate job IDs = 0, missing IDs = 0.
 - 100 due jobs, 2 OS test subprocesses claim same SQLite file -> duplicate job IDs = 0, missing IDs = 0.
 - stale lease can be reclaimed; fresh lease cannot be stolen.
-

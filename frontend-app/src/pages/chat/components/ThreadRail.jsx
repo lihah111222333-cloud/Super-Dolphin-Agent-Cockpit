@@ -3,6 +3,7 @@ import { archivedStaleReason, displayThreadName, threadSortTimestamp } from '../
 import { ThreadCard } from './ThreadCard.jsx';
 import { ThreadRailTools } from './ThreadRailTools.jsx';
 import { runUIAction } from './chatUiActions.js';
+import './ThreadRail.css';
 
 function ThreadRail({ store }) {
   const [showArchivedThreads, setShowArchivedThreads] = useState(false);

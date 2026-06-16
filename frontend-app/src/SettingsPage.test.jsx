@@ -27,7 +27,9 @@ const backend = vi.hoisted(() => ({
   readBuiltinTools: vi.fn(),
   writeBuiltinTool: vi.fn(),
   listDashboardLogs: vi.fn(),
+  readSharedFile: vi.fn(),
   copyTextToClipboard: vi.fn(),
+  saveClipboardImage: vi.fn(),
   onFilesDropped: vi.fn(() => () => {}),
   onBridgeEvent: vi.fn(() => () => {}),
 }));

@@ -68,6 +68,7 @@ function createProjectPickerActions(runtime, deps) {
     projectShortLabel,
     removeProject,
     selectProjectDir,
+    setActiveProject,
   } = deps;
 
   return {
@@ -88,6 +89,11 @@ function createProjectPickerActions(runtime, deps) {
         }
         const projects = await addProject({ cwd: scopeCwd, path: selected });
         runtime.applyProjects(projects, scopeCwd);
+        if (normalizePath(runtime.get().activeProject) !== selected) {
+          const activatedProjects = await setActiveProject({ cwd: scopeCwd, path: selected });
+          runtime.applyProjects(activatedProjects, scopeCwd);
+        }
+        runtime.refreshChatSurfaceForCwdInBackground(selected);
         runtime.notifyAction(`已添加项目：${projectShortLabel(selected)}`, 'success');
         return true;
       }

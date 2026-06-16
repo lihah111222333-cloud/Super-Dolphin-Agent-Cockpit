@@ -4,7 +4,45 @@ import { cwd } from 'node:process';
 import postcss from 'postcss';
 import { describe, expect, it } from 'vitest';
 
-const css = readFileSync(path.join(cwd(), 'src/styles.css'), 'utf8');
+const cssFiles = [
+  'src/styles.css',
+  'src/AppChrome.css',
+  'src/AppShell.css',
+  'src/pages/chat/ChatPage.css',
+  'src/pages/chat/ChatMessages.css',
+  'src/pages/chat/ChatReasoning.css',
+  'src/pages/chat/components/ComposerDock.css',
+  'src/pages/chat/components/RuntimePanel.css',
+  'src/shared/styles/PagePrimitives.css',
+  'src/pages/workflows/WorkflowPage.css',
+  'src/pages/skills/SkillsPage.css',
+  'src/pages/files/FilesPage.css',
+  'src/pages/memory/MemoryPage.css',
+  'src/pages/settings/SettingsPage.css',
+  'src/pages/observability/ObservabilityPage.css',
+  'src/shared/styles/PagePrimitivesLate.css',
+  'src/features/prompts/PromptPageView.css',
+  'src/pages/settings/components/SettingsPageComponents.css',
+  'src/shared/styles/ThemePolish.css',
+  'src/shared/styles/PagePrimitivesPolish.css',
+  'src/AppShellWorkbench.css',
+  'src/pages/chat/ChatPageWorkbench.css',
+  'src/pages/workflows/WorkflowEmptyState.css',
+  'src/pages/files/FilesPageWorkbench.css',
+  'src/features/prompts/PromptPagePolish.css',
+  'src/pages/skills/SkillsPageHub.css',
+  'src/features/prompts/Personalization.css',
+  'src/AppShellSidebarPolish.css',
+  'src/pages/workflows/WorkflowPolish.css',
+  'src/pages/chat/components/RuntimePanelPolish.css',
+  'src/pages/skills/DatasourcePage.css',
+  'src/AppShellSidebarThreadActions.css',
+  'src/shared/styles/MarkdownReferences.css',
+];
+
+const mainSource = readFileSync(path.join(cwd(), 'src/main.jsx'), 'utf8');
+const mainCssImports = [...mainSource.matchAll(/^import '\.\/([^']+\.css)';$/gm)].map((match) => `src/${match[1]}`);
+const css = cssFiles.map((file) => readFileSync(path.join(cwd(), file), 'utf8')).join('\n');
 const root = postcss.parse(css);
 
 function splitSelectors(selector) {
@@ -80,6 +118,24 @@ function mediaDeclarationsFor(mediaParams, selector) {
     });
   });
   return matches;
+}
+
+describe('css import order', () => {
+  it('keeps the test stylesheet list aligned with the app cascade order', () => {
+    expect(mainCssImports).toEqual(cssFiles);
+  });
+
+  it('documents the cascade groups in the main entrypoint', () => {
+    expect(mainSource).toContain('Base layers load first');
+    expect(mainSource).toContain('Route and feature styles stay in navigation order');
+    expect(mainSource).toContain('Late polish layers intentionally override');
+  });
+});
+
+function mediaDeclarationFor(mediaParams, selector, property) {
+  return mediaDeclarationsFor(mediaParams, selector).find((declarations) => (
+    Object.prototype.hasOwnProperty.call(declarations, property)
+  )) || {};
 }
 
 function containerDeclarationsFor(containerParams, selector) {
@@ -227,13 +283,23 @@ describe('composer layout styles', () => {
     expect(textarea['border-bottom']).toBe('1px solid var(--border)');
   });
 
-  it('keeps the composer textarea within a three-to-eight-row range', () => {
+  it('keeps the composer textarea in the screenshot-height input area', () => {
     const textarea = declarationsFor('.composer textarea');
+    const floatingTextarea = declarationsFor('.composer--floating textarea');
+    const activeTimelineShell = declarationsFor('.conversation:not(.conversation--intro) .timeline-shell');
+    const activeTimeline = declarationsFor('.conversation:not(.conversation--intro) .timeline');
+    const activeComposer = declarationsFor('.conversation:not(.conversation--intro) .composer--docked');
 
     expect(textarea['line-height']).toBe('1.5');
-    expect(textarea['min-height']).toBe('calc(1.5em * 3 + 34px)');
+    expect(textarea.height).toBe('104px');
+    expect(textarea['min-height']).toBe('104px');
+    expect(floatingTextarea.height).toBe('136px');
+    expect(floatingTextarea['min-height']).toBe('136px');
     expect(textarea['max-height']).toBe('calc(1.5em * 8 + 34px)');
     expect(textarea['overflow-y']).toBe('auto');
+    expect(activeTimelineShell['grid-row']).toBe('2');
+    expect(activeTimeline['padding-bottom']).toBe('clamp(112px, 16vh, 172px)');
+    expect(activeComposer['grid-row']).toBe('3');
   });
 
   it('keeps composer send controls aligned with the shell theme', () => {
@@ -254,6 +320,7 @@ describe('composer layout styles', () => {
   it('keeps app workbench navigation and agent list icons on consistent fixed sizes', () => {
     const nav = declarationsFor('.app-sidebar-nav');
     const navButton = declarationsFor('.app-sidebar-nav button');
+    const newChat = declarationsFor('.sidebar-new-chat');
     const navIcon = declarationsFor('.app-sidebar-nav button svg');
     const navActive = declarationsFor('.app-sidebar-nav button.active');
     const threadToolIcon = declarationsFor('.thread-tools svg');
@@ -264,13 +331,16 @@ describe('composer layout styles', () => {
     const statusLine = declarationsFor('.thread-status-row');
     const statusDot = declarationsFor('.thread-status-dot');
 
-    expect(nav.gap).toBe('14px');
+    expect(nav.gap).toBe('10px');
     expect(nav['padding-top']).toBe('0');
     expect(navButton.width).toBe('100%');
     expect(navButton['border-left']).toBeUndefined();
     expect(navActive.background).toBe('var(--sidebar-active)');
-    expect(navIcon.width).toBe('22px');
-    expect(navIcon.height).toBe('22px');
+    expect(newChat.height).toBe('auto');
+    expect(newChat['min-height']).toBe('38px');
+    expect(newChat.padding).toBe('8px 10px');
+    expect(navIcon.width).toBe('20px');
+    expect(navIcon.height).toBe('20px');
     expect(navIcon['flex-shrink']).toBe('0');
     expect(threadToolIcon.width).toBe('16px');
     expect(threadToolIcon.height).toBe('16px');
@@ -386,13 +456,13 @@ describe('composer layout styles', () => {
     expect(panel.border).toBeUndefined();
     expect(panel.position).toBe('relative');
     expect(Number(panel['z-index'])).toBeGreaterThan(20);
-    expect(panel['overflow-x']).toBe('visible');
+    expect(panel.overflow).toBe('hidden');
     expect(activityPanel.border).toBeUndefined();
     expect(activityPanel['border-top']).toBe('1px solid var(--line)');
     expect(activityPanel['border-radius']).toBeUndefined();
     expect(activityPanel['min-width']).toBe('0');
     expect(activityPanel['max-width']).toBe('100%');
-    expect(activityPanel['overflow-x']).toBe('visible');
+    expect(activityPanel.overflow).toBe('hidden');
     expect(icons['min-width']).toBe('0');
     expect(icons.overflow).toBe('visible');
     expect(logs['min-width']).toBe('0');
@@ -628,14 +698,27 @@ describe('reasoning trace styles', () => {
 describe('assistant message styles', () => {
   it('keeps assistant message content compact instead of spanning the full timeline', () => {
     const message = declarationsFor('.message');
-    const assistantBubble = declarationsFor('.message.assistant .bubble');
+    const assistantBubble = declarationsFor('.message.assistant:not(.approval-message) .bubble');
     const markdown = declarationsFor('.message-markdown');
 
     expect(message.margin).toBe('18px auto');
     expect(assistantBubble['max-width']).toBe('min(1080px, 100%)');
-    expect(assistantBubble.background).toBe('var(--assistant-card-bg)');
+    expect(assistantBubble.padding).toBe('0');
+    expect(assistantBubble.border).toBe('0');
+    expect(assistantBubble.background).toBe('transparent');
     expect(markdown['font-size']).toBe('14px');
     expect(markdown['line-height']).toBe('1.62');
+  });
+
+  it('does not flatten approval message cards through the no-avatar assistant rule', () => {
+    const genericNoAvatarBubble = declarationsFor('.message.assistant.no-avatar .bubble');
+    const noAvatarBubble = declarationsFor('.message.assistant.no-avatar:not(.approval-message) .bubble');
+    const approvalCard = declarationsFor('.message.assistant .approval-card');
+
+    expect(genericNoAvatarBubble.background).toBeUndefined();
+    expect(noAvatarBubble.background).toBe('transparent');
+    expect(approvalCard.background).toBe('color-mix(in srgb, var(--surface-2) 82%, var(--accent) 4%)');
+    expect(approvalCard['box-shadow']).toBe('var(--shadow)');
   });
 
   it('keeps streaming markdown and long code lines from forcing single-line layout', () => {
@@ -711,28 +794,60 @@ describe('conversation grid styles', () => {
 describe('conversation content column styles', () => {
   it('keeps timeline messages left-biased while the docked composer fills the footer frame', () => {
     const conversation = declarationsFor('.conversation');
+    const activeConversation = declarationsFor('.conversation:not(.conversation--intro)');
+    const activeTimelineShell = declarationsFor('.conversation:not(.conversation--intro) .timeline-shell');
+    const activeTimeline = declarationsFor('.conversation:not(.conversation--intro) .timeline');
     const timeline = declarationsFor('.timeline');
     const message = declarationsFor('.message');
     const userMessage = declarationsFor('.message.user');
     const userBubble = declarationsFor('.message.user .bubble');
+    const composer = declarationsFor('.composer');
     const dockedComposer = declarationsFor('.composer.composer--docked');
+    const activeDockedComposer = declarationsFor('.conversation:not(.conversation--intro) .composer.composer--docked');
     const dockedComposerCard = declarationsFor('.composer--docked .composer-card');
     const scrollButton = declarationsFor('.chat-scroll-bottom-btn');
+    const headerTools = declarationsFor('.chat-header-tools');
+    const headerTool = declarationsFor('.chat-header-tool');
+    const disabledHeaderTool = declarationsFor('.chat-header-tool:disabled');
 
-    expect(conversation['--conversation-content-width']).toBe('min(1080px, calc(100% - 128px))');
+    expect(conversation['--conversation-content-width']).toBe('min(900px, max(0px, calc(100% - clamp(24px, 7vw, 104px))))');
+    expect(activeConversation.display).toBe('grid');
+    expect(activeConversation['grid-template-rows']).toBe('auto minmax(0, 1fr) auto');
+    expect(activeConversation.overflow).toBe('hidden');
+    expect(activeTimelineShell['min-height']).toBe('0');
+    expect(activeTimelineShell.overflow).toBe('hidden');
+    expect(activeTimeline.height).toBe('100%');
+    expect(activeTimeline['overflow-y']).toBe('auto');
+    expect(headerTools.display).toBe('inline-flex');
+    expect(headerTools['align-items']).toBe('center');
+    expect(headerTools.gap).toBe('22px');
+    expect(headerTools['margin-top']).toBe('-6px');
+    expect(headerTool.width).toBe('32px');
+    expect(headerTool.height).toBe('32px');
+    expect(headerTool.background).toBe('transparent');
+    expect(headerTool.color).toBe('var(--text-sec)');
+    expect(disabledHeaderTool.opacity).toBe('1');
     expect(timeline.display).toBe('flex');
     expect(timeline['flex-direction']).toBe('column');
     expect(timeline['align-items']).toBe('flex-start');
-    expect(message.width).toBe('min(1080px, calc(100% - 128px))');
+    expect(message.width).toBe('var(--conversation-content-width)');
     expect(message.margin).toBe('18px auto');
     expect(userMessage['margin-left']).toBeUndefined();
     expect(userMessage.width).toBe('var(--conversation-content-width)');
     expect(userBubble['margin-left']).toBe('auto');
+    expect(userBubble.background).toBe('var(--message-user-bg, var(--workbench-ink, var(--accent-2)))');
+    expect(userBubble.color).toBe('var(--message-user-text, var(--on-accent))');
+    expect(composer.width).toBe('min(900px, max(0px, calc(100% - clamp(24px, 6vw, 96px))))');
     expect(dockedComposer.padding).toBe('0');
+    expect(dockedComposer['border-top']).toBe('0');
+    expect(dockedComposer.background).toBe('transparent');
+    expect(activeDockedComposer.padding).toBe('14px 0 18px');
+    expect(activeDockedComposer['border-top']).toBe('0');
+    expect(activeDockedComposer.background).toBe('transparent');
     expect(dockedComposerCard.width).toBe('100%');
     expect(dockedComposerCard.margin).toBe('0 auto');
-    expect(dockedComposerCard.border).toBe('1px solid var(--border-strong)');
-    expect(dockedComposerCard['border-radius']).toBe('18px');
+    expect(dockedComposerCard.border).toBe('1px solid color-mix(in srgb, var(--border) 88%, var(--surface))');
+    expect(dockedComposerCard['border-radius']).toBe('30px');
     expect(dockedComposerCard['box-shadow']).toBe('var(--composer-shadow)');
     expect(scrollButton.position).toBe('absolute');
     expect(scrollButton.right).toBe('max(18px, var(--conversation-content-right-gutter))');
@@ -741,20 +856,50 @@ describe('conversation content column styles', () => {
     expect(scrollButton.height).toBe('32px');
   });
 
-  it('keeps the new-chat intro stage centered and full width', () => {
+  it('keeps the new-chat intro stage positioned and full width', () => {
     const introConversation = declarationsFor('.conversation--intro');
+    const introTimelineShell = declarationsFor('.conversation--intro .timeline-shell');
     const introTimeline = declarationsFor('.conversation--intro .timeline');
-    const introStage = declarationsFor('.intro-chat-stage');
+    const introStage = declarationsFor('.conversation--intro .intro-chat-stage');
+    const introTitle = topLevelDeclarationsFor('.empty-chat h2');
+    const scopedIntroTitle = declarationsFor('.conversation--intro .empty-chat h2');
+    const introCopy = topLevelDeclarationsFor('.empty-chat p');
     const floatingComposer = declarationsFor('.conversation--intro .composer--floating');
     const floatingCard = declarationsFor('.composer--floating .composer-card');
 
-    expect(introConversation['--conversation-intro-width']).toBe('min(1120px, calc(100% - 96px))');
+    expect(introConversation['--conversation-intro-width']).toBe('min(920px, max(0px, calc(100% - clamp(24px, 6vw, 88px))))');
+    expect(introConversation['--conversation-composer-width']).toBe('min(820px, 100%)');
     expect(introConversation['--conversation-content-width']).toBe('var(--conversation-intro-width)');
     expect(introConversation['--conversation-content-left-nudge']).toBe('0px');
+    expect(introTimelineShell.display).toBe('block');
+    expect(introTimelineShell.width).toBe('100%');
+    expect(introTimelineShell.height).toBe('100%');
+    expect(introTimeline.display).toBe('flex');
+    expect(introTimeline.width).toBe('100%');
+    expect(introTimeline.height).toBe('100%');
     expect(introTimeline['align-items']).toBe('center');
-    expect(introStage.width).toBe('var(--conversation-intro-width)');
-    expect(floatingComposer.width).toBe('100%');
+    expect(introTimeline['justify-content']).toBe('flex-start');
+    expect(introTimeline.padding).toBe('0');
+    expect(introStage.width).toBe('min(100%, var(--conversation-intro-width))');
+    expect(introStage['max-width']).toBe('100%');
+    expect(introStage.display).toBe('flex');
+    expect(introStage['justify-content']).toBe('flex-start');
+    expect(introStage['min-height']).toBe('0');
+    expect(introStage.gap).toBe('clamp(22px, 3.8vh, 38px)');
+    expect(introStage['padding-top']).toBe('clamp(116px, 30vh, 340px)');
+    expect(introTitle['font-size']).toBe('clamp(30px, 2.75rem, 48px)');
+    expect(introTitle['font-weight']).toBe('800');
+    expect(introTitle['white-space']).toBe('normal');
+    expect(introTitle['overflow-wrap']).toBe('anywhere');
+    expect(scopedIntroTitle.margin).toBe('0 auto');
+    expect(scopedIntroTitle.width).toBe('min(100%, max-content)');
+    expect(scopedIntroTitle['max-width']).toBe('100%');
+    expect(scopedIntroTitle.transform).toBe('translateX(clamp(-28px, -2.2vw, 0px))');
+    expect(introCopy.display).toBe('none');
+    expect(floatingComposer.width).toBe('var(--conversation-composer-width)');
     expect(floatingComposer['max-width']).toBe('100%');
+    expect(floatingComposer.padding).toBe('0');
+    expect(floatingComposer.background).toBe('transparent');
     expect(floatingCard.width).toBe('100%');
     expect(floatingCard.margin).toBe('0 auto');
   });
@@ -764,29 +909,77 @@ describe('conversation content column styles', () => {
     const attach = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer--floating .composer-attach');
     const track = declarationsFor('.sa-window[data-theme="light"] .conversation--intro .composer--floating .provider-track');
 
-    expect(floatingCard.background).toContain('var(--surface)');
-    expect(floatingCard['border-color']).toContain('var(--border-strong)');
-    expect(floatingCard['box-shadow']).toContain('var(--shadow)');
-    expect(attach.background).toBe('color-mix(in srgb, var(--surface-2) 86%, var(--surface))');
+    expect(floatingCard.background).toBe('var(--composer-floating-bg, var(--surface))');
+    expect(floatingCard['border-color']).toContain('var(--border)');
+    expect(floatingCard['box-shadow']).toBe('0 18px 46px color-mix(in srgb, var(--text-pri) 8%, transparent)');
+    expect(attach.background).toBe('transparent');
     expect(track.background).toBe('color-mix(in srgb, var(--surface-3) 72%, var(--border))');
   });
 });
 
 describe('workbench shell styles', () => {
   it('keeps the screenshot-style sidebar fixed and branded', () => {
-    const sidebar = declarationsFor('.app-sidebar');
-    const body = declarationsFor('.sa-body');
+    const sidebar = topLevelDeclarationsFor('.app-sidebar');
+    const resizer = topLevelDeclarationsFor('.workbench-sidebar-resizer');
+    const body = topLevelDeclarationsFor('.sa-body');
     const brand = declarationsFor('.sidebar-brand');
     const newChat = declarationsFor('.sidebar-new-chat');
+    const projectTree = declarationsFor('.sidebar-project-tree');
+    const settings = declarationsFor('.sidebar-settings');
 
-    expect(sidebar.width).toBe('324px');
+    expect(sidebar.width).toBe('var(--workbench-sidebar-width)');
+    expect(sidebar.position).toBe('relative');
     expect(sidebar.background).toBe('var(--sidebar-bg)');
     expect(sidebar['border-right']).toBe('1px solid var(--sidebar-border)');
+    expect(sidebar.overflow).toBe('hidden');
     expect(body.height).toBe('100vh');
-    expect(body['grid-template-columns']).toBe('324px minmax(0, 1fr)');
+    expect(body['grid-template-columns']).toBe('var(--workbench-sidebar-width) minmax(0, 1fr)');
+    expect(resizer.cursor).toBe('col-resize');
+    expect(resizer.right).toBe('0');
+    expect(resizer.width).toBe('10px');
+    expect(resizer.height).toBe('100%');
     expect(brand.display).toBe('inline-flex');
-    expect(newChat.height).toBe('56px');
-    expect(newChat.background).toBe('var(--accent-2)');
+    expect(newChat['min-height']).toContain('38px');
+    expect(newChat.background).toBe('var(--sidebar-active)');
+    expect(projectTree.flex).toBe('1 1 auto');
+    expect(projectTree['min-height']).toBe('0');
+    expect(projectTree['overflow-y']).toBe('auto');
+    expect(settings['margin-top']).toBe('0');
+    expect(settings.position).toBe('relative');
+    expect(settings['z-index']).toBe('4');
+    expect(settings['flex-shrink']).toBe('0');
+  });
+
+  it('keeps project chat records visible under each sidebar project', () => {
+    const root = declarationsFor('.sidebar-tree-root');
+    const list = declarationsFor('.sidebar-project-thread-list');
+    const thread = declarationsFor('.sidebar-project-thread');
+    const threadTitle = declarationsFor('.sidebar-thread-title');
+    const empty = declarationsFor('.sidebar-project-thread-empty');
+    const chatList = declarationsFor('.app-sidebar--chat .sidebar-project-thread-list');
+    const chatThread = declarationsFor('.app-sidebar--chat .sidebar-project-thread');
+    const chatProjectAdd = declarationsFor('.app-sidebar--chat .sidebar-icon-action');
+    const chatTreeActions = declarationsFor('.app-sidebar--chat .sidebar-tree-actions');
+    const taskList = declarationsFor('.sidebar-task-list');
+    const taskThread = declarationsFor('.sidebar-task-thread');
+
+    expect(root.display).toBe('grid');
+    expect(root['min-width']).toBe('0');
+    expect(list['border-left']).toBe('1px solid var(--sidebar-border)');
+    expect(list.display).toBe('grid');
+    expect(thread['min-height']).toBe('28px');
+    expect(thread['font-size']).toBe('13px');
+    expect(threadTitle['text-overflow']).toBe('ellipsis');
+    expect(threadTitle['white-space']).toBe('nowrap');
+    expect(empty['font-style']).toBe('italic');
+    expect(chatList['margin-left']).toBe('14px');
+    expect(chatThread['min-height']).toBe('28px');
+    expect(chatProjectAdd.position).toBeUndefined();
+    expect(chatTreeActions.position).toBe('absolute');
+    expect(chatTreeActions.left).toBe('-10000px');
+    expect(taskList.display).toBe('grid');
+    expect(taskThread['min-height']).toBe('28px');
+    expect(taskThread['font-size']).toBe('13px');
   });
 
   it('exposes a mobile workbench drawer so settings remains reachable', () => {
@@ -794,6 +987,7 @@ describe('workbench shell styles', () => {
     const mobileToggle = mediaDeclarationsFor('(max-width: 920px)', '.workbench-toggle')[0];
     const mobileSidebar = mediaDeclarationsFor('(max-width: 920px)', '.app-sidebar')[0];
     const openSidebar = mediaDeclarationsFor('(max-width: 920px)', '.app-sidebar.is-open')[0];
+    const mobileResizer = mediaDeclarationsFor('(max-width: 920px)', '.workbench-sidebar-resizer')[0];
     const scrim = mediaDeclarationsFor('(max-width: 920px)', '.sidebar-scrim')[0];
     const mobileSettings = mediaDeclarationsFor('(max-width: 920px)', '.sa-window .settings-page')[0];
 
@@ -802,12 +996,17 @@ describe('workbench shell styles', () => {
     expect(mobileToggle.position).toBe('fixed');
     expect(mobileToggle['z-index']).toBe('45');
     expect(mobileSidebar.position).toBe('fixed');
-    expect(mobileSidebar['margin-left']).toBe('-324px');
+    expect(mobileSidebar['--workbench-sidebar-width']).toBe('min(320px, calc(100vw - 52px))');
+    expect(mobileSidebar.width).toBe('var(--workbench-sidebar-width)');
+    expect(mobileSidebar['margin-left']).toBe('calc(-1 * var(--workbench-sidebar-width))');
     expect(mobileSidebar.transform).toBe('none');
     expect(mobileSidebar.transition).toBe('margin-left 180ms ease');
-    expect(mobileSidebar['max-width']).toBe('min(324px, calc(100vw - 52px))');
+    expect(mobileSidebar['max-width']).toBe('var(--workbench-sidebar-width)');
+    expect(mobileSidebar['box-shadow']).toBe('none');
     expect(openSidebar['margin-left']).toBe('0');
     expect(openSidebar.transform).toBe('none');
+    expect(openSidebar['box-shadow']).toBe('var(--shadow)');
+    expect(mobileResizer.display).toBe('none');
     expect(scrim.display).toBe('block');
     expect(mobileSettings['padding-top']).toBe('78px');
   });
@@ -816,15 +1015,18 @@ describe('workbench shell styles', () => {
     const mediumConversation = mediaDeclarationsFor('(max-width: 1180px)', '.sa-window .conversation')[0];
     const mediumComposer = mediaDeclarationsFor('(max-width: 1180px)', '.sa-window .composer')[0];
     const mediumActions = mediaDeclarationsFor('(max-width: 1180px)', '.sa-window .composer-actions')[0];
+    const tabletTitle = mediaDeclarationsFor('(max-width: 920px)', '.empty-chat h2')[0];
     const mobileMeta = mediaDeclarationsFor('(max-width: 640px)', '.sa-window .composer-meta')[0];
-    const mobileProject = mediaDeclarationsFor('(max-width: 640px)', '.sa-window .composer-meta .project-select-wrap')[0];
-    const mobileActions = mediaDeclarationsFor('(max-width: 640px)', '.sa-window .composer-actions')[0];
-    const mobileModel = mediaDeclarationsFor('(max-width: 640px)', '.sa-window .composer-model')[0];
+    const mobileProject = mediaDeclarationFor('(max-width: 640px)', '.sa-window .composer-meta .project-select-wrap', 'grid-column');
+    const mobileActions = mediaDeclarationFor('(max-width: 640px)', '.sa-window .composer-actions', 'grid-template-columns');
+    const mobileModel = mediaDeclarationFor('(max-width: 640px)', '.sa-window .composer-model', 'max-width');
     const mobileSend = mediaDeclarationsFor('(max-width: 640px)', '.sa-window .composer .send')[0];
 
-    expect(mediumConversation['--conversation-content-width']).toBe('min(100%, calc(100% - 56px))');
-    expect(mediumComposer.width).toBe('min(100%, calc(100% - 56px))');
+    expect(mediumConversation['--conversation-content-width']).toBe('min(100%, calc(100% - 44px))');
+    expect(mediumComposer.width).toBe('min(100%, calc(100% - 44px))');
     expect(mediumActions['min-width']).toBe('0');
+    expect(tabletTitle['white-space']).toBe('normal');
+    expect(tabletTitle['overflow-wrap']).toBe('anywhere');
     expect(mobileMeta.display).toBe('grid');
     expect(mobileMeta['grid-template-columns']).toBe('minmax(0, 1fr) auto');
     expect(mobileProject['grid-column']).toBe('1 / -1');
@@ -864,7 +1066,7 @@ describe('composer control styles', () => {
     expect(wrap.width).toBe('fit-content');
     expect(wrap['max-width']).toBe('min(150px, 42vw)');
     expect(button.width).toBe('fit-content');
-    expect(button.padding).toBe('0 14px');
+    expect(button.padding).toBe('0 12px');
     expect(dropdown.position).toBe('absolute');
     expect(dropdown.inset).toBe('auto 0 calc(100% + 8px) auto');
     expect(dropdown.bottom).toBe('calc(100% + 8px)');
@@ -924,11 +1126,9 @@ describe('runtime activity panel styles', () => {
 
     expect(panel['--activity-panel-height']).toBe('64px');
     expect(panel['--activity-panel-min-height']).toBe('64px');
-    expect(panel['overflow-x']).toBe('visible');
-    expect(panel['overflow-y']).toBe('visible');
+    expect(panel.overflow).toBe('hidden');
     expect(panel['grid-template-rows']).toContain('var(--activity-panel-height)');
-    expect(activity['overflow-x']).toBe('visible');
-    expect(activity['overflow-y']).toBe('visible');
+    expect(activity.overflow).toBe('hidden');
     expect(activity.height).toBe('var(--activity-panel-height)');
     expect(collapsedActivity['grid-template-rows']).toBe('minmax(0, 1fr)');
     expect(collapsedIcons.height).toBe('100%');

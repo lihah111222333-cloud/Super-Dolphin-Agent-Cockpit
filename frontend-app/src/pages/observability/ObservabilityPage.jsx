@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useReducer, useRef, useState } from 'react
 import { Copy } from 'lucide-react';
 import { copyTextToClipboard, getObservabilityTrace, listObservabilityRecent as getObservabilityRecent } from '../../services/modules/observabilityService.js';
 import { errorMessage, textValue } from '../shared/pageShared.js';
+import './ObservabilityPage.css';
 
 const OBSERVABILITY_PAGE_INITIAL_STATE = Object.freeze({
   copiedTraceId: '',

@@ -51,6 +51,7 @@ function createFakeStore(overrides = {}) {
     loadThreadConfig: vi.fn(),
     newThread: vi.fn(),
     openNewWindow: vi.fn(),
+    openForkDraft: vi.fn(),
     pendingActiveThreadId: '',
     pinnedThreadAtById: {},
     provider: 'codex',
@@ -104,6 +105,14 @@ function createActiveThreadStore(messages, overrides = {}) {
   });
 }
 
+function getThreadCardByName(name) {
+  const card = screen.getAllByText(name)
+    .map((node) => node.closest('.thread-card'))
+    .find(Boolean);
+  if (!card) throw new Error(`Thread card not found: ${name}`);
+  return card;
+}
+
 function TestChatPageWrapper({ store, projectPath, rightPanelOpen: initialOpen = false }) {
   const [open, setOpen] = React.useState(initialOpen);
 
@@ -150,6 +159,61 @@ describe('ChatPage module', () => {
     expect(ChatPage).toBeTypeOf('function');
   });
 
+  it('uses the active thread name as the chat detail title', () => {
+    const store = createActiveThreadStore([
+      { id: 'msg-1', role: 'assistant', text: '已连接后端线程', time: '2026-06-02T08:00:00Z' },
+    ], {
+      threads: [{ id: 'thread-1', name: '介绍功能与能力', provider: 'codex', status: 'idle', updatedAt: '2026-06-02T08:00:00Z' }],
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    expect(screen.getByRole('heading', { name: '介绍功能与能力' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '聊天页面' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the empty new-chat intro free of the generic page title bar', () => {
+    const store = createFakeStore();
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    expect(screen.getByRole('heading', { name: '我们应该在 Super-Dolphin 中构建什么？' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '聊天页面' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('chat-page')).toHaveClass('chat-page--intro');
+    expect(screen.getByTestId('conversation-drop-zone')).toHaveClass('conversation--intro');
+    expect(screen.getByTestId('composer-dock')).toHaveClass('composer--floating');
+    expect(screen.getByTestId('composer-dock')).not.toHaveClass('composer--docked');
+    expect(screen.queryByRole('button', { name: '聊天操作' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '滚动到底部' })).not.toBeInTheDocument();
+  });
+
+  it('keeps successful new-chat notices out of the intro title bar', () => {
+    const store = createFakeStore({
+      actionNotice: { message: '已创建新对话草稿', tone: 'success' },
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    expect(screen.getByRole('heading', { name: '我们应该在 Super-Dolphin 中构建什么？' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '聊天页面' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('chat-action-feedback')).toHaveClass('sr-only');
+    expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('已创建新对话草稿');
+  });
+
+  it('keeps the generic title when active thread metadata is missing', () => {
+    const store = createFakeStore({
+      activeThreadId: 'missing-thread',
+      threads: [],
+      threadTimelineReadyByThread: { 'missing-thread': true },
+      timelinesByThread: { 'missing-thread': [] },
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    expect(screen.getByRole('heading', { name: '聊天页面' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '新对话' })).not.toBeInTheDocument();
+  });
+
   it('disables project actions when the backend is not ready or no project cwd is selected', () => {
     const store = createFakeStore({
       activeProject: '',
@@ -162,7 +226,7 @@ describe('ChatPage module', () => {
     render(<TestChatPageWrapper store={store} projectPath="未选择项目" />);
 
     expect(screen.getByText('连接后端失败：backend unavailable')).toBeInTheDocument();
-    expect(screen.getByText('让我们从 Super-Dolphin 开始!')).toBeInTheDocument();
+    expect(screen.getByText('我们应该在 Super-Dolphin 中构建什么？')).toBeInTheDocument();
     expect(screen.getByText('暂无会话，点击「新建对话」开始草稿')).toBeInTheDocument();
     expect(screen.getByTestId('composer-input')).toHaveValue('请修复测试');
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
@@ -189,10 +253,21 @@ describe('ChatPage module', () => {
 
     const { container } = render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
 
-    expect(screen.getByText('聊天页面')).toBeInTheDocument();
-    expect(screen.getByText('修复会话')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '修复会话' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '筛选消息' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '消息列表' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '布局视图' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('chat-page')).not.toHaveClass('chat-page--intro');
+    expect(screen.getByTestId('conversation-drop-zone')).not.toHaveClass('conversation--intro');
+    expect(screen.getByTestId('composer-dock')).toHaveClass('composer--docked');
+    expect(screen.getByTestId('composer-dock')).not.toHaveClass('composer--floating');
+    expect(getThreadCardByName('修复会话')).toBeInTheDocument();
     expect(screen.getByText('哪里失败了？')).toBeInTheDocument();
     expect(screen.getByText('测试在聊天页缺少覆盖。')).toBeInTheDocument();
+    expect(container.querySelector('.message.user.no-avatar')).not.toBeNull();
+    expect(container.querySelector('.message.assistant.no-avatar')).not.toBeNull();
+    expect(container.querySelector('.message.assistant .assistant-footer')).not.toBeNull();
+    expect(container.querySelector('.avatar')).toBeNull();
     expect(container.querySelector('.work-status')).toBeNull();
 
     const timeline = screen.getByTestId('chat-timeline');
@@ -220,7 +295,7 @@ describe('ChatPage module', () => {
     expect(timeline.scrollTop).toBe(960);
     requestAnimationFrameSpy.mockRestore();
 
-    fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
+    fireEvent.click(screen.getByRole('button', { name: '布局视图' }));
     await waitFor(() => expect(screen.getByTestId('runtime-panel')).toBeInTheDocument());
     expect(store.setRightPanelWidth).toHaveBeenCalledWith(expect.any(Number));
     expect(store.syncThreadState).toHaveBeenCalledWith('thread-1', {
@@ -256,6 +331,10 @@ describe('ChatPage module', () => {
     menu = openMenu();
     fireEvent.click(within(menu).getByRole('button', { name: '复制当前线程' }));
     expect(store.copyActiveThreadInfo).toHaveBeenCalledTimes(1);
+
+    menu = openMenu();
+    fireEvent.click(within(menu).getByRole('button', { name: '继承当前对话' }));
+    expect(store.openForkDraft).toHaveBeenCalledTimes(1);
 
     menu = openMenu();
     fireEvent.click(within(menu).getByRole('button', { name: '停止' }));
@@ -433,6 +512,15 @@ describe('ChatPage module', () => {
     });
 
     expect(store.attachPathsForComposer).toHaveBeenCalledWith(['/tmp/native-composer-class.txt']);
+
+    act(() => {
+      nativeDropHandler?.({
+        files: ['/tmp/native-composer-actions.txt'],
+        details: { classList: ['composer-actions'] },
+      });
+    });
+
+    expect(store.attachPathsForComposer).toHaveBeenCalledWith(['/tmp/native-composer-actions.txt']);
 
     act(() => {
       nativeDropHandler?.({
@@ -705,7 +793,7 @@ describe('ChatPage module', () => {
 
     render(<ChatPage store={store} projectPath="/repo/app" />);
 
-    const card = screen.getByText('启动中间态会话').closest('.thread-card');
+    const card = getThreadCardByName('启动中间态会话');
     expect(card).toHaveTextContent('codex');
     expect(card).not.toHaveTextContent('created');
     expect(card.querySelector('.thread-status-label')).toBeNull();
@@ -721,7 +809,7 @@ describe('ChatPage module', () => {
 
     render(<ChatPage store={store} projectPath="/repo/app" />);
 
-    const card = screen.getByText('AI 设计流程').closest('.thread-card');
+    const card = getThreadCardByName('AI 设计流程');
     const actions = card.querySelector('.thread-card-actions');
 
     expect(actions).not.toBeNull();

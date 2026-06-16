@@ -52,9 +52,9 @@ jobs:
       - name: Prepare embedded frontend assets
         run: make frontend-app-build
       - name: Vet
-        run: go vet ./...
+        run: make vet
       - name: Build
-        run: go build ./...
+        run: make build-plain
       - name: Test
         run: ./scripts/test_with_guard.sh $(go list ./... | grep -v /internal/provider/dreamexec) -count=1 -timeout 180s
 

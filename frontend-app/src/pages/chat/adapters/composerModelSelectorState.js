@@ -2,7 +2,7 @@ import { appendCurrentModelOption, canonicalizeModelValue, modelOptionFor, norma
 
 const EFFORT_OPTIONS_BY_PROVIDER = Object.freeze({
   codex: Object.freeze([
-    { value: 'xhigh', label: '极高' },
+    { value: 'xhigh', label: '超高' },
     { value: 'high', label: '高' },
     { value: 'medium', label: '中' },
     { value: 'low', label: '低' },
@@ -49,6 +49,7 @@ function composerModelLabel(provider, model, effort) {
   const effortValue = normalizeConfigText(effort) || MODEL_DEFAULTS_BY_PROVIDER[providerKey].effort;
   const modelLabel = modelOptionFor(providerKey, modelValue)?.label || modelValue;
   const effortLabel = effortOptionFor(providerKey, effortValue)?.label || effortValue;
+  if (providerKey === 'codex') return `${modelLabel.replace(/^GPT-/i, '')} ${effortLabel}`.trim();
   return `${modelLabel} · ${effortLabel}`.trim();
 }
 
@@ -117,6 +118,7 @@ function modelSelectorDerivedState({ activeEffort, activeModel, activeThreadConf
   return {
     canOverrideThread,
     disabled,
+    providerKey,
     effortOptions: appendCurrentEffortOption(providerKey, selectedEffort, selectedModel),
     inheritEffortLabel: activeEffort ? `默认（当前：${effortOptionFor(providerKey, activeEffort)?.label || activeEffort}）` : '默认',
     inheritModelLabel: activeModel ? `默认（当前：${modelOptionFor(providerKey, activeModel)?.label || activeModel}）` : '默认',

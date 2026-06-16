@@ -44,8 +44,7 @@ func AssetHandlerFrom(injected FrontendFS) http.Handler {
 func viteDevProxy(rawURL string) http.Handler {
 	target, err := url.Parse(rawURL)
 	if err != nil {
-		slog.Error("invalid VITE_DEV_URL, falling back to embedded assets", "url", rawURL, "error", err)
-		return application.BundledAssetFileServer(placeholderAssets)
+		panic("invalid VITE_DEV_URL: " + err.Error())
 	}
 	slog.Info("frontend proxying to vite dev server", "url", target.String())
 	proxy := httputil.NewSingleHostReverseProxy(target)

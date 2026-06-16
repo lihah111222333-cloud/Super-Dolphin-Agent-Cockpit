@@ -1,0 +1,140 @@
+.automation-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 80px 24px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.empty-clock-wrapper {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px dashed var(--border-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 24px;
+  color: var(--text-sec);
+  overflow: hidden;
+}
+
+.empty-clock-icon {
+  animation: clock-spin 12s linear infinite;
+}
+
+@keyframes clock-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.automation-empty-state h2 {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-pri);
+  margin: 0 0 24px 0;
+}
+
+.automation-presets-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.preset-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-sec);
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.preset-pill:hover {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  color: var(--text-pri);
+  transform: translateY(-1px);
+}
+
+.preset-icon {
+  flex-shrink: 0;
+}
+.preset-icon.bell {
+  --preset-bell: #f59e0b;
+  color: var(--preset-bell);
+}
+.preset-icon.doc {
+  --preset-doc: #3b82f6;
+  color: var(--preset-doc);
+}
+.preset-icon.chart {
+  --preset-chart: #10b981;
+  color: var(--preset-chart);
+}
+
+.automation-header-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.automation-header-actions .btn-outline {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--text-pri);
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.automation-header-actions .btn-outline:hover {
+  background: var(--surface-2);
+}
+
+.automation-header-actions .btn-dark {
+  background: var(--text-pri);
+  color: var(--bg);
+  border: 1px solid var(--text-pri);
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 150ms ease;
+}
+
+.automation-header-actions .btn-dark:hover {
+  opacity: 0.9;
+}
+
+.learn-more-link {
+  color: var(--primary-2);
+  text-decoration: none;
+  font-weight: 500;
+}
+.learn-more-link:hover {
+  text-decoration: underline;
+}
+
+
+/* ==========================================================================
+   UI Redesign: Shared Files Page
+   ========================================================================== */
