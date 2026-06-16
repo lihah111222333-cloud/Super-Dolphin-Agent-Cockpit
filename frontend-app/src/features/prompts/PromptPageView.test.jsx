@@ -12,10 +12,12 @@ const backend = vi.hoisted(() => ({
   draftPromptIntent: vi.fn(),
   dryRunPromptIntent: vi.fn(),
   getDashboardPrompts: vi.fn(),
+  getPersonalizationProfile: vi.fn(),
   getPreference: vi.fn(),
   getPrompt: vi.fn(),
   listPromptSections: vi.fn(),
   listPromptAssets: vi.fn(),
+  savePersonalizationProfile: vi.fn(),
   setPreference: vi.fn(),
   writePromptSection: vi.fn(),
   writePrompt: vi.fn(),
@@ -59,6 +61,8 @@ function mockPromptList() {
     ],
   });
   backend.getPreference.mockResolvedValue('');
+  backend.getPersonalizationProfile.mockResolvedValue({ profile: {} });
+  backend.savePersonalizationProfile.mockResolvedValue({ profile: {} });
   backend.writePrompt.mockResolvedValue({});
   backend.getPrompt.mockResolvedValue({ prompt: { content: '先检查阻塞问题' } });
   backend.copyTextToClipboard.mockResolvedValue(true);
@@ -121,7 +125,7 @@ describe('PromptPageView module', () => {
     expect(PromptPageView).toBeTypeOf('function');
   });
 
-  it('shows personalization overview with pending profile and import actions disabled', async () => {
+  it('loads and saves personalization profile', async () => {
     backend.listPromptAssets.mockResolvedValue({
       prompts: [
         { id: 'main/role', name: '代码审查专家', tags: ['intent:expert'], content: 'review', scope: 'project' },
@@ -129,6 +133,22 @@ describe('PromptPageView module', () => {
         { id: 'rule/default', name: '默认规则', tags: ['intent:default_rule'], content: 'rule', scope: 'global' },
         { id: 'draft/profile', name: '待确认角色', draft_key: 'draft-profile', draft_status: 'ready_to_save', tags: ['intent:expert'], content: 'draft', scope: 'project' },
       ],
+    });
+    backend.getPersonalizationProfile.mockResolvedValue({
+      profile: {
+        displayName: '小海',
+        role: '后端工程师',
+        background: '熟悉 Go',
+        customInstructions: '回答要直接',
+      },
+    });
+    backend.savePersonalizationProfile.mockResolvedValue({
+      profile: {
+        displayName: '小海',
+        role: '架构师',
+        background: '熟悉 Go',
+        customInstructions: '回答要直接',
+      },
     });
 
     renderPromptPage();
@@ -145,12 +165,35 @@ describe('PromptPageView module', () => {
     expect(metricValue('知识')).toHaveTextContent('1');
     expect(metricValue('默认规则')).toHaveTextContent('1');
     expect(metricValue('待确认')).toHaveTextContent('1');
-    expect(within(overview).getByLabelText('昵称')).toBeDisabled();
-    expect(within(overview).getByLabelText('职业')).toBeDisabled();
-    expect(within(overview).getByLabelText('更多关于您的信息')).toBeDisabled();
-    expect(within(overview).getByLabelText('自定义指令')).toBeDisabled();
-    expect(within(overview).getByRole('button', { name: '保存个人资料' })).toBeDisabled();
-    expect(within(overview).getByRole('button', { name: '导入记忆' })).toBeDisabled();
+    await waitFor(() => expect(backend.getPersonalizationProfile).toHaveBeenCalledWith({ cwd: '/repo/app' }));
+    expect(within(overview).getByLabelText('昵称')).toHaveValue('小海');
+    expect(within(overview).getByLabelText('职业')).toHaveValue('后端工程师');
+    expect(within(overview).getByLabelText('更多关于您的信息')).toHaveValue('熟悉 Go');
+    expect(within(overview).getByLabelText('自定义指令')).toHaveValue('回答要直接');
+
+    fireEvent.change(within(overview).getByLabelText('职业'), { target: { value: '架构师' } });
+    fireEvent.click(within(overview).getByRole('button', { name: '保存个人资料' }));
+
+    await waitFor(() => expect(backend.savePersonalizationProfile).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      profile: {
+        displayName: '小海',
+        role: '架构师',
+        background: '熟悉 Go',
+        customInstructions: '回答要直接',
+      },
+    }));
+    expect(await screen.findByText('个人资料已保存')).toBeInTheDocument();
+  });
+
+  it('opens the recall wizard from the import memory action', async () => {
+    renderPromptPage();
+
+    const overview = await screen.findByLabelText('个性化概览');
+    fireEvent.click(within(overview).getByRole('button', { name: '导入记忆' }));
+
+    const dialog = await screen.findByRole('dialog', { name: '添加给 AI 的内容' });
+    expect(within(dialog).getByRole('tab', { name: '参考资料' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('labels the personalization overview as read-only when prompt assets fall back', async () => {

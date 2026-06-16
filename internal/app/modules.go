@@ -19,6 +19,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/notify"
 	moduleobservability "github.com/anthropic-ai/super-agent-v3/internal/module/observability"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/personalization"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
@@ -69,6 +70,7 @@ var Module = fx.Options(
 	mcpserver.Module,
 	memory.Module,
 	prompt.Module,
+	personalization.Module,
 	moduleobservability.Module,
 	appupdate.Module,
 	skill.Module,
