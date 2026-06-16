@@ -11,7 +11,7 @@ path	module	domain	type	size_bytes	purpose	search_keys
 .githooks/README.md	.githooks	other	doc	9411	仓库 git hooks	githooks,README,仓库,git,hooks
 .github/workflows/ci.yml	.github	other	yaml	3412	GitHub 配置	github,workflows,ci,GitHub,配置
 .github/workflows/sqlite-release-gates.yml	.github	other	yaml	2367	GitHub 配置	github,workflows,sqlite,release,gates,GitHub,配置
-.gitignore	(root)	other	file	2024	仓库根级配置、入口或说明文件	仓库根级配置,入口或说明文件
+.gitignore	(root)	other	file	2041	仓库根级配置、入口或说明文件	仓库根级配置,入口或说明文件
 .golangci.yml	(root)	other	yaml	925	仓库根级配置、入口或说明文件	golangci,仓库根级配置,入口或说明文件
 .mcp.json	(root)	other	json	131	仓库根级配置、入口或说明文件	mcp,仓库根级配置,入口或说明文件
 cmd/super-dolphin-release-manifest/main_test.go	cmd	other	go-test	7173	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,release,manifest,main,test,未细分职责：请结合路径,文件名和相邻代码判断
