@@ -1,6 +1,5 @@
 import { memo, useLayoutEffect } from 'react';
 import { File } from 'lucide-react';
-import { textValue } from '../../shared/pageShared.js';
 import { useSmoothStreamingText } from '../hooks/useSmoothStreamingText.js';
 import { ChatApprovalMessage } from './ChatApprovalMessage.jsx';
 import { AssistantMessageActions, ReasoningTrace } from './ChatReasoningTrace.jsx';
@@ -19,14 +18,9 @@ function UserMessageAttachments({ attachments }) {
   const files = [];
   for (const att of attachments) {
     if (!att) continue;
-    const kind = textValue(att.kind).toLowerCase();
-    if (kind === 'image') {
-      const src = resolveAttachmentImageSrc(att);
-      if (src) {
-        images.push({ ...att, _resolvedSrc: src });
-      } else {
-        files.push(att);
-      }
+    const src = resolveAttachmentImageSrc(att);
+    if (src) {
+      images.push({ ...att, _resolvedSrc: src });
     } else {
       files.push(att);
     }
@@ -38,9 +32,9 @@ function UserMessageAttachments({ attachments }) {
         <div className="user-attachment-gallery">
           {images.map((att, idx) => (
             <MarkdownImagePreview
-              key={att.path || att.previewUrl || idx}
+              key={att.path || att.previewUrl || att.url || idx}
               src={att._resolvedSrc}
-              label={att.name || basenameFromPath(att.path || att.previewUrl || '') || IMAGE_ATTACHMENT_LABEL}
+              label={att.name || basenameFromPath(att.path || att.previewUrl || att.url || '') || IMAGE_ATTACHMENT_LABEL}
             />
           ))}
         </div>

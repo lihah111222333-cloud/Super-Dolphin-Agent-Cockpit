@@ -48,6 +48,60 @@ describe('ComposerAttachments', () => {
     expect(onRemove).toHaveBeenCalledWith(imageAttachment);
   });
 
+  it('renders image attachments from clipboard temp paths when previewUrl is missing', () => {
+    render(
+      <ComposerAttachments
+        attachments={[{
+          kind: 'image',
+          name: 'clipboard-333.png',
+          path: 'C:/Users/ai/AppData/Local/Temp/clipboard-333.png',
+        }]}
+        onPreview={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    const imagePreview = screen.getByLabelText(/\u9884\u89c8\u9644\u4ef6 clipboard-333\.png/);
+    expect(imagePreview.querySelector('img')).toHaveAttribute('src', '/clipboard/clipboard-333.png');
+  });
+
+  it('renders Codex clipboard image attachments without a broken file URL', () => {
+    render(
+      <ComposerAttachments
+        attachments={[{
+          kind: 'image',
+          name: 'screen.png',
+          path: 'C:/Users/ai/AppData/Local/Temp/codex-clipboard-f05.png',
+        }]}
+        onPreview={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    const imagePreview = screen.getByLabelText(/\u9884\u89c8\u9644\u4ef6 screen\.png/);
+    expect(imagePreview.querySelector('img')).toHaveAttribute('src', '/clipboard/codex-clipboard-f05.png');
+  });
+
+  it('renders normal local screenshot attachments without a broken file URL', () => {
+    const screenshotPath = 'C:\\Users\\ai04\\Pictures\\Screenshots\\\u5c4f\u5e55\u622a\u56fe 2026-06-13 170324.png';
+
+    render(
+      <ComposerAttachments
+        attachments={[{
+          kind: 'image',
+          name: '\u5c4f\u5e55\u622a\u56fe 2026-06-13 170324.png',
+          path: screenshotPath,
+          previewUrl: `file://${screenshotPath}`,
+        }]}
+        onPreview={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    const imagePreview = screen.getByLabelText(/\u9884\u89c8\u9644\u4ef6 \u5c4f\u5e55\u622a\u56fe 2026-06-13 170324\.png/);
+    expect(imagePreview.querySelector('img')).toHaveAttribute('src', `/local-image?path=${encodeURIComponent(screenshotPath)}`);
+  });
+
   it('normalizes attachment identity from path, preview URL, or URL', () => {
     expect(composerAttachmentKey({ path: ' /tmp/a.txt ' })).toBe('/tmp/a.txt');
     expect(composerAttachmentKey({ previewUrl: ' blob:a ' })).toBe('blob:a');

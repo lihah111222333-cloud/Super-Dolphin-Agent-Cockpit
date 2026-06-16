@@ -7,6 +7,7 @@ import {
 } from './timelineRuntime.js';
 
 const IMAGE_PLACEHOLDER_RE = /<image\s[^>]*><\/image>/gi;
+const CLIPBOARD_IMAGE_NAME_RE = /^(?:codex-)?clipboard-.+\.png$/i;
 
 function normalizeString(value) {
   return (value || '').toString().trim();
@@ -47,6 +48,16 @@ function extractText(value) {
   return '';
 }
 
+function basenameFromAnyPath(path) {
+  const value = normalizeString(path).split(/[?#]/, 1)[0];
+  return value.split(/[\\/]/).filter(Boolean).pop() || value;
+}
+
+function clipboardPreviewUrlForPath(path) {
+  const base = basenameFromAnyPath(path);
+  return CLIPBOARD_IMAGE_NAME_RE.test(base) ? `/clipboard/${encodeURIComponent(base)}` : '';
+}
+
 export function extractHistoryMetadata(message) {
   const meta = message.metadata || message.meta;
   if (!meta || typeof meta !== 'object') return null;
@@ -71,7 +82,7 @@ export function buildHistoryMessageAttachments(message) {
     if (item.type !== 'image' && item.type !== 'localImage') continue;
     const rawPath = normalizeString(item.path || item.url || item.source);
     if (!rawPath) continue;
-    let previewUrl = rawPath;
+    let previewUrl = clipboardPreviewUrlForPath(rawPath) || rawPath;
     if (rawPath.startsWith('/') && !rawPath.startsWith('/clipboard/')) {
       const base = rawPath.split('/').pop() || '';
       if (/\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(base)) {
