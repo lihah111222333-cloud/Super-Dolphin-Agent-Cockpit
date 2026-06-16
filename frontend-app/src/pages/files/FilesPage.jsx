@@ -5,6 +5,7 @@ import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { deleteSharedFile, listSharedFilesDashboard, openSharedFile, readSharedFile, saveTextFile } from '../../services/modules/fileService.js';
 import { dashboardQueryErrorState, optionalSettingsCwd, queryHasSnapshot, sharedFileTimestamp, textValue, useDashboardQueryFocusInvalidation } from '../shared/pageShared.js';
 import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx';
+import './FilesPage.css';
 
 const SHARED_FILE_CATEGORIES = Object.freeze([
   { key: 'all', label: '全部' },
@@ -487,11 +488,30 @@ function SharedFilesPageView({ actions, dashboard, filters }) {
   return (
     <section className="console-page shared-files-page">
       <SharedFilesHeader dashboard={dashboard} filters={filters} />
+      <SharedFilesOverview dashboard={dashboard} filters={filters} />
       <SharedFilesIntro />
       <SharedFilesTabs category={filters.category} categoryCounts={filters.categoryCounts} onCategory={filters.setCategory} />
       <SharedFilesStatus actions={actions} dashboard={dashboard} />
       <SharedFilesContent actions={actions} dashboard={dashboard} filters={filters} />
       <SharedFilesModals actions={actions} />
+    </section>
+  );
+}
+
+function SharedFilesOverview({ dashboard, filters }) {
+  const cleanupCount = Number(dashboard.retention?.cleanupCandidateCount || 0);
+  return (
+    <section className="shared-files-overview" aria-label="共享文件状态">
+      <div className="shared-files-overview-copy">
+        <span>当前资产</span>
+        <h2>共享文件和最终产物</h2>
+      </div>
+      <dl>
+        <div><dt>全部文件</dt><dd>{dashboard.files.length}</dd></div>
+        <div><dt>最终产物</dt><dd>{filters.finalCount}</dd></div>
+        <div><dt>工作文件</dt><dd>{filters.workCount}</dd></div>
+        <div><dt>可清理文件</dt><dd>{cleanupCount}</dd></div>
+      </dl>
     </section>
   );
 }
@@ -647,30 +667,34 @@ function SharedFileRow({
         <span>{role}</span>
       </header>
       <p>{role} {sharedFileTimestamp(file.updatedAt)} {formatBytes(sharedFileContent(file).length)}</p>
-      <code>{file.path}</code>
+      <div className="file-path-container">
+        <code>{file.path}</code>
+      </div>
       {finalOutputRef ? (
         <small>Run {finalOutputRef.runKey || '-'} · DAG {finalOutputRef.dagKey || '-'} · Node {finalOutputRef.sourceNodeKey || '-'}</small>
       ) : null}
       <pre className="shared-file-summary">{sharedFileSummary(file)}</pre>
       <footer>
-        <button type="button" onClick={() => { void onOpen(file); }} disabled={busy}>
-          <Eye size={14} /> {busy ? '加载中...' : '打开'}
-        </button>
-        <button type="button" onClick={() => { void onExport(file); }} disabled={busy || exporting}>
-          <Download size={14} /> {exporting ? '导出中...' : '导出'}
-        </button>
-        <button
-          type="button"
-          className={protectedFile ? 'ghost' : 'text-danger'}
-          onClick={() => onDelete(file)}
-          disabled={protectedFile || deleting}
-          title={protectedFile ? '最终产物由任务结果引用，不能直接删除。' : ''}
-        >
-          <Trash2 size={14} /> {deleteLabel}
-        </button>
-        <button type="button" className="ghost" onClick={() => onContinue(file)}>
+        <button type="button" className="ghost continue-with-file" onClick={() => onContinue(file)}>
           <MessageCircle size={14} /> 用此文件继续对话
         </button>
+        <div className="file-row-actions">
+          <button type="button" onClick={() => { void onOpen(file); }} disabled={busy}>
+            <Eye size={14} /> {busy ? '加载中...' : '打开'}
+          </button>
+          <button type="button" onClick={() => { void onExport(file); }} disabled={busy || exporting}>
+            <Download size={14} /> {exporting ? '导出中...' : '导出'}
+          </button>
+          <button
+            type="button"
+            className={protectedFile ? 'ghost' : 'text-danger'}
+            onClick={() => onDelete(file)}
+            disabled={protectedFile || deleting}
+            title={protectedFile ? '最终产物由任务结果引用，不能直接删除。' : ''}
+          >
+            <Trash2 size={14} /> {deleteLabel}
+          </button>
+        </div>
       </footer>
     </article>
   );

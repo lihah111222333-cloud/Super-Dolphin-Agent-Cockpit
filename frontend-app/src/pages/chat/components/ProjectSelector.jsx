@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Folder, Plus, X } from 'lucide-react';
 import { runUIAction } from './chatUiActions.js';
 import { normalizeProjectPath, projectDisplayName, projectOptionsFor } from './projectSelectorModel.js';
+import './ProjectSelector.css';
 
 function ProjectDropdown({ options, selectedValue, onSelect, onRemove, onAdd }) {
   return (

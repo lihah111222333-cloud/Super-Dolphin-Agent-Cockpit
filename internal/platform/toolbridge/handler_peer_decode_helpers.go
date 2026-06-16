@@ -4,12 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
+
+var errMCPSurfaceClientNotConfigured = errors.New("MCP client is not configured")
 
 var toolCWDTraceCanonicalTools = map[string]struct{}{
 	"file":                       {},
@@ -73,6 +78,17 @@ func (h *Handler) warnPeerToolCWDTrace(ctx context.Context, req ToolCallRequest,
 		"forwarded_cwd", strings.TrimSpace(forwardedCWD),
 		"client_kind", strings.TrimSpace(req.ClientKind),
 	)
+}
+
+func wrapMCPSurfaceBinaryError(binary providerdto.MCPBinary, err error) error {
+	if err == nil {
+		return nil
+	}
+	name := strings.TrimSpace(binary.Name)
+	if name == "" {
+		return fmt.Errorf("toolbridge: prepare unnamed MCP server: %w", err)
+	}
+	return fmt.Errorf("toolbridge: prepare MCP server %q: %w", name, err)
 }
 
 func firstString(payload map[string]json.RawMessage, keys ...string) string {

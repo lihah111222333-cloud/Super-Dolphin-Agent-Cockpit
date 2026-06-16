@@ -1,0 +1,122 @@
+.datasource-container {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 22px 0 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 34px;
+  animation: fadeIn 0.3s ease;
+}
+
+.datasource-header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.datasource-header h1 {
+  font-size: 34px;
+  line-height: 1.12;
+  font-weight: 760;
+  color: var(--text-pri);
+  margin: 0;
+}
+
+.datasource-subtitle {
+  font-size: 16px;
+  color: var(--text-sec);
+  margin: 0;
+}
+
+.datasource-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+@media (max-width: 768px) {
+  .datasource-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.datasource-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--text-pri) 2%, transparent);
+  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.datasource-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--text-pri) 6%, transparent);
+}
+
+.datasource-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.datasource-icon-wrap {
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.datasource-status-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 8%, var(--surface));
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--success) 20%, transparent);
+}
+
+.datasource-card-body h3 {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-pri);
+  margin: 0 0 8px 0;
+}
+
+.datasource-card-body p {
+  font-size: 14px;
+  color: var(--text-sec);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.datasource-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.datasource-meta-tag {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.datasource-meta-size {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}

@@ -76,7 +76,8 @@
   - `internal/store`：sqlc 生成的数据访问层。
   - `internal/archtest`：架构守卫和 baseline 棘轮。
   - `pkg`：可复用公共库。
-  - `cmd/agent-terminal/frontend`：Vue/Vite 前端包。
+  - `frontend-app`：当前 React/Vite 新 UI 包，由 `run-new-ui-desktop.sh` / `.ps1` 启动。
+  - `cmd/agent-terminal/frontend`：legacy/package-embed 前端资源目录；只在明确目标为旧嵌入包时编辑。
 
 ## 任务完成验证
 
@@ -120,13 +121,13 @@ make build-plain
 ### 前端代码
 
 ```bash
-cd cmd/agent-terminal/frontend
-node scripts/size-guard.cjs
-npx vitest run
+cd frontend-app
+npm run lint
+npm test
 npm run build
 ```
 
-`cmd/agent-terminal` 的前端资源依赖 `cmd/agent-terminal/frontend/dist`。该目录内容被 gitignore，首次 clone、清理 dist 后、或需要验证 agent-terminal build/run 前，先执行前端 build，确保 `go:embed` 能拿到最新 bundle。
+`cmd/agent-terminal` 无 dev proxy 时会读取 `cmd/agent-terminal/frontend/dist`。该目录内容被 gitignore；`make frontend-app-build` 会先构建 `frontend-app/dist`，再用跨平台 Node 同步脚本更新 embedded dist。
 
 ### SQL / store
 

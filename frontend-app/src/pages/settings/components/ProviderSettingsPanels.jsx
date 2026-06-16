@@ -1,6 +1,7 @@
 import React from 'react';
 import { Panel } from '../../shared/pageComponents.jsx';
 import { SettingsPromptNotice } from './SettingsPromptNotice.jsx';
+import './ProviderSettingsPanels.css';
 
 const SUMMARY_MODE_OPTIONS = Object.freeze([
   ['detailed', 'detailed（详细摘要，推荐）'], ['auto', 'auto（自动）'], ['concise', 'concise（简洁）'], ['none', 'none（关闭）'],

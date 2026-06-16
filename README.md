@@ -8,7 +8,7 @@ Multi-agent orchestration platform for AI-assisted development. Provides session
 
 ```
 cmd/
-├── agent-terminal/      # Wails desktop host + HTTP/RPC bridge; legacy embedded frontend
+├── agent-terminal/      # Wails desktop host + HTTP/RPC bridge; embeds copied frontend-app assets for package runs
 ├── mcp-orch/            # MCP orchestration peer (agent lifecycle, DAG, cron)
 └── mcp-lsp/             # MCP generic multi-language LSP peer (code intelligence)
 
@@ -28,13 +28,13 @@ pkg/                     # Reusable public libraries
 
 ### Prerequisites
 
-- Go 1.23+
+- Go 1.25.7
 - SQLite is used by the store layer automatically. By default the database is
   created under `SUPER_DOLPHIN_HOME/super-dolphin.db`; set
   `SUPER_DOLPHIN_SQLITE_PATH` to use a different local file.
 - Node.js 20+ (for frontend)
-- Claude Code CLI (`claude`) installed + authenticated — required if using Claude provider
-- OpenAI Codex CLI (`codex`) installed + authenticated — required if using Codex provider
+- OpenAI Codex CLI (`codex`) installed + authenticated — required for the current new UI desktop provider flow
+- Claude Code CLI (`claude`) installed + authenticated — only required for legacy/provider-integration work that explicitly targets Claude
 
 ### Clone & Setup
 
@@ -49,12 +49,17 @@ export SUPER_DOLPHIN_SQLITE_PATH="$PWD/.super-dolphin/super-dolphin.db"
 # For the current new UI desktop dev flow:
 ( cd frontend-app && npm install )
 ./run-new-ui-desktop.sh
+# Windows PowerShell:
+.\run-new-ui-desktop.ps1
 
 # For frontend HMR plus Go backend restart-on-change:
 ./run-new-ui-desktop-hot.sh
 
-# Legacy embedded frontend assets are gitignored; build them only when working on
-# cmd/agent-terminal/frontend or a package-embed path:
+# Package/embed builds use frontend-app and copy dist into
+# cmd/agent-terminal/frontend/dist for Go embed:
+make frontend-app-build
+
+# Build the legacy Vue package only when explicitly working on that path:
 ( cd cmd/agent-terminal/frontend && npm install && npm run build )
 ```
 
@@ -104,9 +109,10 @@ Notes:
 
 ```bash
 ./run-new-ui-desktop.sh      # Run current React/Vite new UI in the desktop host
+.\run-new-ui-desktop.ps1     # Windows PowerShell equivalent
 ./run-new-ui-desktop-hot.sh  # Same, with Vite HMR plus Go backend restart-on-change
-make build-plain           # Build all Go binaries (without Frida)
-make run-plain             # Run the cmd/server entry
+make build-plain           # Build all Go binaries after preparing frontend-app embed assets
+make run-plain             # Run the desktop host after preparing frontend-app embed assets
 make build-agent-terminal  # Build the desktop UI binary (Wails + Frida)
 make build-agent-terminal-plain   # Same without Frida (lighter)
 ```

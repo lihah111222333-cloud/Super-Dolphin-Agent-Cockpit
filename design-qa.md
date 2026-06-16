@@ -1,38 +1,40 @@
-# Screenshot UI Redesign QA
+# Product Design QA
 
-Final result: passed against the real desktop HTTP host.
+Date: 2026-06-13
 
 ## Scope
 
-- Worktree: `D:\project\Super-Dolphin-worktrees\screenshot-ui-redesign`
-- Branch: `codex/screenshot-ui-redesign`
-- Reference targets: uploaded Super Dolphin empty chat and active chat screenshots.
-- Changed surface: React/Vite `frontend-app` application shell, chat page, composer, style tests, related fixtures, and a narrow Windows startup script fix for invalid PATH entries.
+Slice 1 only: shell/sidebar navigation, new-chat entry, home empty-state headline, composer placeholder, and light-theme visual alignment.
 
-## Browser Checks
+This report does not claim the full uploaded UI refactor prompt is complete.
 
-- Desktop viewport `1600x1250` on `http://127.0.0.1:5176`.
-- Confirmed `.app-sidebar` renders at `324px` wide with the Super Dolphin bitmap logo, new chat button, primary navigation, project tree, secondary entries, and Settings.
-- Confirmed old `.nav-rail` and `.titlebar` are not rendered in the new shell.
-- Confirmed active chat state renders the new top header, right-aligned blue user bubble, assistant card, and bottom composer.
-- Desktop screenshot: `frontend-app/design-qa-active-chat.png`.
-- Mobile viewport `390x844`.
-- Confirmed `documentElement.scrollWidth` and `body.scrollWidth` stay at `390px`, avoiding horizontal overflow.
-- Confirmed composer wraps inside the viewport and does not overlap the header.
-- Mobile loaded screenshot: `frontend-app/design-qa-mobile-chat-loaded.png`.
+## Reference
 
-## Backend Host Check
+- `docs/superpowers/plans/assets/2026-06-13-super-dolphin-new-chat-prototype.png`
+- Viewport: 1568 x 1240
 
-- Started with `run-new-ui-desktop.ps1` from the isolated worktree.
-- Confirmed `http://127.0.0.1:4512/metrics` returns HTTP 200.
-- Confirmed listeners on `127.0.0.1:4512` (desktop HTTP bridge), `127.0.0.1:5175` (frontend-app Vite), and `127.0.0.1:55433` (local PostgreSQL).
-- Browser validation on `http://127.0.0.1:4512/` confirmed no `连接后端失败` banner.
-- Browser validation clicked `新会话`, confirmed `让我们从 Super-Dolphin 开始!`, filled the composer, opened `聊天操作`, and toggled the runtime side panel.
+## Implementation Capture
 
-## Automated Verification
+- URL: `http://127.0.0.1:5175/`
+- Screenshot: `docs/superpowers/plans/assets/2026-06-13-ui-refactor-home-implementation-1568x1240.png`
+- Browser title: `Super-Dolphin`
+- Viewport: 1568 x 1240
 
-- `npm run lint`
-- `npm test`
-- `npm run build`
-- `npx react-doctor@latest --verbose --diff`
-- `npx playwright test tests/e2e/desktop-ux.spec.js --config=playwright.desktop.config.js`
+## Result
+
+Passed for slice 1.
+
+## Checked
+
+- Product name uses `Super-Dolphin` in the sidebar brand and browser title.
+- Primary sidebar order matches the prototype intent: plugin, automation, custom roles, shared files.
+- New-chat entry, project section, pending task section, main headline, and composer placeholder are present.
+- Light-theme colors, sidebar width, new-chat button treatment, input width, and send button treatment are closer to the reference.
+- Unsupported backend state is not hidden or faked when the app is opened as standalone Vite.
+
+## Known Differences
+
+- Standalone Vite shows `runtime shim: failed to connect ws://127.0.0.1:5175/wails/ws`; this is expected without the Wails desktop host and was not masked.
+- The desktop window controls shown in the prototype are host chrome, not part of this standalone browser capture.
+- The current app shows the real project tree and existing project actions instead of static prototype project names.
+- Chat detail, plugins, automation, personalization, shared files, and mobile settings remain for later slices.

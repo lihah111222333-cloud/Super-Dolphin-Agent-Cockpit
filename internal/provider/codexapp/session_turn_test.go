@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -47,6 +49,88 @@ func TestStartTurnAppliesTurnToolScopeRuntimeConfig(t *testing.T) {
 	}
 	if roots := providershared.ConfigStringSlice(got, "additionalWorkingDirectories"); len(roots) != 1 || roots[0] != "/new-extra" {
 		t.Fatalf("runtime additionalWorkingDirectories = %#v, want [/new-extra]", got["additionalWorkingDirectories"])
+	}
+}
+
+func TestStartTurnAdvertisesDynamicToolsFromTurnMCPManifest(t *testing.T) {
+	turnParams := make(chan map[string]any, 1)
+	serverURL := startTurnDynamicToolsRPCServer(t, turnParams)
+	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("newSession() error = %v", err)
+	}
+	s.runtime.Start()
+	t.Cleanup(func() { closeCodexTestSession(t, s) })
+	workDir := t.TempDir()
+	s.setThreadID("provider-thread-1")
+	s.setRuntimeConfig(map[string]any{"cwd": workDir})
+	s.dynamicToolsEnabled = true
+	prepareCalls := 0
+	var gotScope contract.CodexToolSurfaceScope
+	s.prepareTools = func(_ context.Context, scope contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
+		prepareCalls++
+		gotScope = scope
+		return []codexprotocol.DynamicToolSchema{{
+			Name:        "query",
+			Description: "readonly postgres query",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"sql":{"type":"string"}}}`),
+		}}, nil
+	}
+
+	handle, err := s.StartTurn(context.Background(), dto.TurnRequest{
+		ThreadID: "provider-thread-1",
+		CWD:      workDir,
+		Inputs:   []dto.InputItem{{Type: "text", Content: "select now()"}},
+		MCP: dto.MCPManifest{Binaries: []dto.MCPBinary{{
+			Name:    "postgres",
+			Command: []string{"mcp-server-postgres", "postgres://readonly@example.test/app"},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("StartTurn() error = %v", err)
+	}
+	if handle.ProviderID() != "turn-pg" {
+		t.Fatalf("ProviderID() = %q, want turn-pg", handle.ProviderID())
+	}
+	if prepareCalls != 1 {
+		t.Fatalf("prepareTools calls = %d, want 1", prepareCalls)
+	}
+	assertTurnMCPToolScope(t, gotScope, workDir)
+	assertTurnStartQueryTool(t, <-turnParams)
+}
+
+func startTurnDynamicToolsRPCServer(t *testing.T, turnParams chan<- map[string]any) string {
+	t.Helper()
+	return startCodexRPCServerWithHandler(t, func(msg jsonRPCMessage) json.RawMessage {
+		if msg.Method != "turn/start" {
+			return mustJSON(map[string]any{"ok": true})
+		}
+		var params map[string]any
+		_ = json.Unmarshal(msg.Params, &params)
+		turnParams <- params
+		return mustJSON(map[string]any{"turn": map[string]any{"id": "turn-pg"}})
+	})
+}
+
+func assertTurnMCPToolScope(t *testing.T, got contract.CodexToolSurfaceScope, workDir string) {
+	t.Helper()
+	if got.AgentID != "agent-1" || got.ProviderThreadID != "provider-thread-1" || got.CWD != workDir {
+		t.Fatalf("turn tool scope = %#v, want agent/provider thread/cwd", got)
+	}
+	if len(got.Manifest.Binaries) != 1 || got.Manifest.Binaries[0].Name != "postgres" || got.Manifest.Binaries[0].Command[0] != "mcp-server-postgres" {
+		t.Fatalf("turn manifest binaries = %#v, want postgres mcp-server-postgres", got.Manifest.Binaries)
+	}
+}
+
+func assertTurnStartQueryTool(t *testing.T, params map[string]any) {
+	t.Helper()
+	tools, ok := params["dynamicTools"].([]any)
+	if !ok || len(tools) != 1 {
+		t.Fatalf("turn/start dynamicTools = %#v, want one query tool; params=%#v", params["dynamicTools"], params)
+	}
+	tool, ok := tools[0].(map[string]any)
+	if !ok || tool["name"] != "query" {
+		t.Fatalf("turn/start dynamicTools[0] = %#v, want query tool", tools[0])
 	}
 }
 

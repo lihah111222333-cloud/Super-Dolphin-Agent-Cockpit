@@ -1,228 +1,6 @@
 path	module	domain	type	size_bytes	purpose	search_keys
 cmd/agent-terminal/frontend.go	cmd	app-ui	go-source	495	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,frontend,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
 cmd/agent-terminal/frontend/.gitignore	cmd	app-ui	file	91	Vue/Vite 前端包	cmd,agent,terminal,frontend,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/_metadata.json	cmd	app-ui	json	12265	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,metadata,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/@chenglou_pretext.js	cmd	app-ui	js-source	114534	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,@chenglou,pretext,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/@chenglou_pretext.js.map	cmd	app-ui	map	226650	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,@chenglou,pretext,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/@vscode_markdown-it-katex.js	cmd	app-ui	js-source	644007	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,@vscode,markdown,it,katex,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/@vscode_markdown-it-katex.js.map	cmd	app-ui	map	1044111	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,@vscode,markdown,it,katex,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/architecture-7EHR7CIX-RFPP72LD.js	cmd	app-ui	js-source	213	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,architecture,7EHR7CIX,RFPP72LD,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/architecture-7EHR7CIX-RFPP72LD.js.map	cmd	app-ui	map	93	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,architecture,7EHR7CIX,RFPP72LD,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/architectureDiagram-3BPJPVTR-V4P4KFY2.js	cmd	app-ui	js-source	422629	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,architectureDiagram,3BPJPVTR,V4P4KFY2,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/architectureDiagram-3BPJPVTR-V4P4KFY2.js.map	cmd	app-ui	map	604189	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,architectureDiagram,3BPJPVTR,V4P4KFY2,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/blockDiagram-GPEHLZMM-SJQGEJPX.js	cmd	app-ui	js-source	138602	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,blockDiagram,GPEHLZMM,SJQGEJPX,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/blockDiagram-GPEHLZMM-SJQGEJPX.js.map	cmd	app-ui	map	248067	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,blockDiagram,GPEHLZMM,SJQGEJPX,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/c4Diagram-AAUBKEIU-EZDTC4HZ.js	cmd	app-ui	js-source	119195	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,c4Diagram,AAUBKEIU,EZDTC4HZ,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/c4Diagram-AAUBKEIU-EZDTC4HZ.js.map	cmd	app-ui	map	204355	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,c4Diagram,AAUBKEIU,EZDTC4HZ,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-56KIJ3PP.js	cmd	app-ui	js-source	1188296	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,56KIJ3PP,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-56KIJ3PP.js.map	cmd	app-ui	map	1970041	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,56KIJ3PP,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-7QCY5T2Q.js	cmd	app-ui	js-source	1481	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,7QCY5T2Q,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-7QCY5T2Q.js.map	cmd	app-ui	map	2526	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,7QCY5T2Q,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-AORMCZXM.js	cmd	app-ui	js-source	90246	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,AORMCZXM,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-AORMCZXM.js.map	cmd	app-ui	map	233154	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,AORMCZXM,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-BXIEL6Q6.js	cmd	app-ui	js-source	346857	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,BXIEL6Q6,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-BXIEL6Q6.js.map	cmd	app-ui	map	606796	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,BXIEL6Q6,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-CETKX2AN.js	cmd	app-ui	js-source	3906	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,CETKX2AN,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-CETKX2AN.js.map	cmd	app-ui	map	6878	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,CETKX2AN,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-CMHT5QA7.js	cmd	app-ui	js-source	53993	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,CMHT5QA7,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-CMHT5QA7.js.map	cmd	app-ui	map	99051	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,CMHT5QA7,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-DC5AMYBS.js	cmd	app-ui	js-source	1787	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,DC5AMYBS,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-DC5AMYBS.js.map	cmd	app-ui	map	93	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,DC5AMYBS,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-E544AABF.js	cmd	app-ui	js-source	4268	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,E544AABF,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-E544AABF.js.map	cmd	app-ui	map	11223	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,E544AABF,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-GJNPK2BY.js	cmd	app-ui	js-source	42696	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,GJNPK2BY,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-GJNPK2BY.js.map	cmd	app-ui	map	81000	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,GJNPK2BY,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-HGUGYJY3.js	cmd	app-ui	js-source	696	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,HGUGYJY3,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-HGUGYJY3.js.map	cmd	app-ui	map	1123	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,HGUGYJY3,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-I4S7KSEK.js	cmd	app-ui	js-source	2078	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,I4S7KSEK,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-I4S7KSEK.js.map	cmd	app-ui	map	3526	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,I4S7KSEK,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-IU7FF3QZ.js	cmd	app-ui	js-source	3737	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,IU7FF3QZ,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-IU7FF3QZ.js.map	cmd	app-ui	map	6254	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,IU7FF3QZ,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-JDKAYDAS.js	cmd	app-ui	js-source	1297	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,JDKAYDAS,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-JDKAYDAS.js.map	cmd	app-ui	map	2111	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,JDKAYDAS,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-K7AS2JA5.js	cmd	app-ui	js-source	593	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,K7AS2JA5,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-K7AS2JA5.js.map	cmd	app-ui	map	838	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,K7AS2JA5,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-LNIJ5OAU.js	cmd	app-ui	js-source	31248	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,LNIJ5OAU,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-LNIJ5OAU.js.map	cmd	app-ui	map	68271	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,LNIJ5OAU,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-MMCXZHCO.js	cmd	app-ui	js-source	1670	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,MMCXZHCO,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-MMCXZHCO.js.map	cmd	app-ui	map	2752	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,MMCXZHCO,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-MVRZZL5Y.js	cmd	app-ui	js-source	1193	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,MVRZZL5Y,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-MVRZZL5Y.js.map	cmd	app-ui	map	2063	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,MVRZZL5Y,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-NLJ6ZRR7.js	cmd	app-ui	js-source	1197	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,NLJ6ZRR7,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-NLJ6ZRR7.js.map	cmd	app-ui	map	1968	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,NLJ6ZRR7,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-OPXT5UQ5.js	cmd	app-ui	js-source	594	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,OPXT5UQ5,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-OPXT5UQ5.js.map	cmd	app-ui	map	1006	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,OPXT5UQ5,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-Q5IKKO4P.js	cmd	app-ui	js-source	515	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,Q5IKKO4P,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-Q5IKKO4P.js.map	cmd	app-ui	map	761	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,Q5IKKO4P,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-QAUJYLW4.js	cmd	app-ui	js-source	341938	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,QAUJYLW4,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-QAUJYLW4.js.map	cmd	app-ui	map	767887	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,QAUJYLW4,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-QENDTGQS.js	cmd	app-ui	js-source	1249	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,QENDTGQS,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-QENDTGQS.js.map	cmd	app-ui	map	2024	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,QENDTGQS,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-RCYUY4UI.js	cmd	app-ui	js-source	57910	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,RCYUY4UI,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-RCYUY4UI.js.map	cmd	app-ui	map	144266	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,RCYUY4UI,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-RFOCHLLB.js	cmd	app-ui	js-source	299183	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,RFOCHLLB,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-RFOCHLLB.js.map	cmd	app-ui	map	860356	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,RFOCHLLB,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-RJT5VS7C.js	cmd	app-ui	js-source	93163	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,RJT5VS7C,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-RJT5VS7C.js.map	cmd	app-ui	map	161044	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,RJT5VS7C,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-SGKTNDME.js	cmd	app-ui	js-source	300169	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,SGKTNDME,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-SGKTNDME.js.map	cmd	app-ui	map	755472	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,SGKTNDME,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-SS3PA26M.js	cmd	app-ui	js-source	474	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,SS3PA26M,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-SS3PA26M.js.map	cmd	app-ui	map	796	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,SS3PA26M,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-STAPNKDN.js	cmd	app-ui	js-source	1217	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,STAPNKDN,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-STAPNKDN.js.map	cmd	app-ui	map	1986	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,STAPNKDN,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-T2EDPTCW.js	cmd	app-ui	js-source	3896	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,T2EDPTCW,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-T2EDPTCW.js.map	cmd	app-ui	map	6010	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,T2EDPTCW,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-TMVXTVJF.js	cmd	app-ui	js-source	1206	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,TMVXTVJF,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-TMVXTVJF.js.map	cmd	app-ui	map	1973	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,TMVXTVJF,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-TNOOGCFI.js	cmd	app-ui	js-source	342597	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,TNOOGCFI,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-TNOOGCFI.js.map	cmd	app-ui	map	679657	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,TNOOGCFI,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-TYL4JH5V.js	cmd	app-ui	js-source	197138	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,TYL4JH5V,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-TYL4JH5V.js.map	cmd	app-ui	map	723762	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,TYL4JH5V,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-V4JZFDJD.js	cmd	app-ui	js-source	956969	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,V4JZFDJD,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-V4JZFDJD.js.map	cmd	app-ui	map	1865674	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,V4JZFDJD,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-VXISOA64.js	cmd	app-ui	js-source	73203	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,VXISOA64,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-VXISOA64.js.map	cmd	app-ui	map	126245	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,VXISOA64,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-WPIFGATQ.js	cmd	app-ui	js-source	6720	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,WPIFGATQ,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-WPIFGATQ.js.map	cmd	app-ui	map	11956	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,WPIFGATQ,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-WQI6L5XN.js	cmd	app-ui	js-source	2238	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,WQI6L5XN,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-WQI6L5XN.js.map	cmd	app-ui	map	3469	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,WQI6L5XN,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-WUHOMMN5.js	cmd	app-ui	js-source	85570	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,WUHOMMN5,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-WUHOMMN5.js.map	cmd	app-ui	map	153958	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,WUHOMMN5,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-YB5UPJN6.js	cmd	app-ui	js-source	3811	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,YB5UPJN6,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-YB5UPJN6.js.map	cmd	app-ui	map	6499	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,YB5UPJN6,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-YIHEFJKW.js	cmd	app-ui	js-source	3663	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,YIHEFJKW,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-YIHEFJKW.js.map	cmd	app-ui	map	6574	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,YIHEFJKW,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-YKICXSFT.js	cmd	app-ui	js-source	3723	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,YKICXSFT,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-YKICXSFT.js.map	cmd	app-ui	map	6208	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,YKICXSFT,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-ZKDDOW3M.js	cmd	app-ui	js-source	213717	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,ZKDDOW3M,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-ZKDDOW3M.js.map	cmd	app-ui	map	386375	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,ZKDDOW3M,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-ZYBR5BSF.js	cmd	app-ui	js-source	635059	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,ZYBR5BSF,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/chunk-ZYBR5BSF.js.map	cmd	app-ui	map	1479128	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,chunk,ZYBR5BSF,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/classDiagram-4FO5ZUOK-IG2I2OTH.js	cmd	app-ui	js-source	1129	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,classDiagram,4FO5ZUOK,IG2I2OTH,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/classDiagram-4FO5ZUOK-IG2I2OTH.js.map	cmd	app-ui	map	1500	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,classDiagram,4FO5ZUOK,IG2I2OTH,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/classDiagram-v2-Q7XG4LA2-3XWQZSXI.js	cmd	app-ui	js-source	1135	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,classDiagram,v2,Q7XG4LA2,3XWQZSXI,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/classDiagram-v2-Q7XG4LA2-3XWQZSXI.js.map	cmd	app-ui	map	1506	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,classDiagram,v2,Q7XG4LA2,3XWQZSXI,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/cose-bilkent-S5V4N54A-ZHEC6ZDN.js	cmd	app-ui	js-source	216345	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,cose,bilkent,S5V4N54A,ZHEC6ZDN,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/cose-bilkent-S5V4N54A-ZHEC6ZDN.js.map	cmd	app-ui	map	313449	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,cose,bilkent,S5V4N54A,ZHEC6ZDN,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/cron-parser.js	cmd	app-ui	js-source	300646	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,cron,parser,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/cron-parser.js.map	cmd	app-ui	map	478643	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,cron,parser,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/dagre-BM42HDAG-ME6JFWU3.js	cmd	app-ui	js-source	23542	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,dagre,BM42HDAG,ME6JFWU3,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/dagre-BM42HDAG-ME6JFWU3.js.map	cmd	app-ui	map	45480	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,dagre,BM42HDAG,ME6JFWU3,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/diagram-2AECGRRQ-XX3V225D.js	cmd	app-ui	js-source	11347	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,diagram,2AECGRRQ,XX3V225D,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/diagram-2AECGRRQ-XX3V225D.js.map	cmd	app-ui	map	19736	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,diagram,2AECGRRQ,XX3V225D,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/diagram-5GNKFQAL-V7ZCALQ7.js	cmd	app-ui	js-source	5751	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,diagram,5GNKFQAL,V7ZCALQ7,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/diagram-5GNKFQAL-V7ZCALQ7.js.map	cmd	app-ui	map	9813	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,diagram,5GNKFQAL,V7ZCALQ7,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/diagram-KO2AKTUF-ADPL6WCL.js	cmd	app-ui	js-source	22380	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,diagram,KO2AKTUF,ADPL6WCL,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/diagram-KO2AKTUF-ADPL6WCL.js.map	cmd	app-ui	map	37936	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,diagram,KO2AKTUF,ADPL6WCL,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/diagram-LMA3HP47-JQT2XFNA.js	cmd	app-ui	js-source	7844	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,diagram,LMA3HP47,JQT2XFNA,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/diagram-LMA3HP47-JQT2XFNA.js.map	cmd	app-ui	map	13059	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,diagram,LMA3HP47,JQT2XFNA,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/diagram-OG6HWLK6-TNQVJOMC.js	cmd	app-ui	js-source	22694	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,diagram,OG6HWLK6,TNQVJOMC,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/diagram-OG6HWLK6-TNQVJOMC.js.map	cmd	app-ui	map	38111	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,diagram,OG6HWLK6,TNQVJOMC,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/echarts_charts.js	cmd	app-ui	js-source	658794	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,echarts,charts,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/echarts_charts.js.map	cmd	app-ui	map	1485928	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,echarts,charts,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/echarts_components.js	cmd	app-ui	js-source	632418	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,echarts,components,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/echarts_components.js.map	cmd	app-ui	map	1420604	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,echarts,components,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/echarts_core.js	cmd	app-ui	js-source	24017	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,echarts,core,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/echarts_core.js.map	cmd	app-ui	map	52534	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,echarts,core,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/echarts_renderers.js	cmd	app-ui	js-source	79397	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,echarts,renderers,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/echarts_renderers.js.map	cmd	app-ui	map	156567	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,echarts,renderers,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/erDiagram-TEJ5UH35-ZK6UDPT2.js	cmd	app-ui	js-source	50223	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,erDiagram,TEJ5UH35,ZK6UDPT2,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/erDiagram-TEJ5UH35-ZK6UDPT2.js.map	cmd	app-ui	map	91487	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,erDiagram,TEJ5UH35,ZK6UDPT2,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/eventmodeling-FCH6USID-GKROVRM3.js	cmd	app-ui	js-source	217	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,eventmodeling,FCH6USID,GKROVRM3,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/eventmodeling-FCH6USID-GKROVRM3.js.map	cmd	app-ui	map	93	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,eventmodeling,FCH6USID,GKROVRM3,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/flowDiagram-I6XJVG4X-CN37UXPB.js	cmd	app-ui	js-source	105502	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,flowDiagram,I6XJVG4X,CN37UXPB,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/flowDiagram-I6XJVG4X-CN37UXPB.js.map	cmd	app-ui	map	192434	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,flowDiagram,I6XJVG4X,CN37UXPB,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/ganttDiagram-6RSMTGT7-WF4NTJ7T.js	cmd	app-ui	js-source	93231	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,ganttDiagram,6RSMTGT7,WF4NTJ7T,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/ganttDiagram-6RSMTGT7-WF4NTJ7T.js.map	cmd	app-ui	map	159688	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,ganttDiagram,6RSMTGT7,WF4NTJ7T,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/gitGraph-WXDBUCRP-QJB4W7RU.js	cmd	app-ui	js-source	197	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,gitGraph,WXDBUCRP,QJB4W7RU,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/gitGraph-WXDBUCRP-QJB4W7RU.js.map	cmd	app-ui	map	93	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,gitGraph,WXDBUCRP,QJB4W7RU,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/gitGraphDiagram-PVQCEYII-K6YH2CGB.js	cmd	app-ui	js-source	72793	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,gitGraphDiagram,PVQCEYII,K6YH2CGB,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/gitGraphDiagram-PVQCEYII-K6YH2CGB.js.map	cmd	app-ui	map	128632	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,gitGraphDiagram,PVQCEYII,K6YH2CGB,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_core.js	cmd	app-ui	js-source	51421	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,core,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_core.js.map	cmd	app-ui	map	109769	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,core,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_bash.js	cmd	app-ui	js-source	6325	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,bash,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_bash.js.map	cmd	app-ui	map	12172	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,bash,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_c.js	cmd	app-ui	js-source	7869	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,c,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_c.js.map	cmd	app-ui	map	13046	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,c,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_cpp.js	cmd	app-ui	js-source	11635	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,cpp,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_cpp.js.map	cmd	app-ui	map	20097	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,cpp,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_css.js	cmd	app-ui	js-source	18506	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,css,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_css.js.map	cmd	app-ui	map	30103	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,css,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_diff.js	cmd	app-ui	js-source	1159	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,diff,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_diff.js.map	cmd	app-ui	map	2107	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,diff,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_go.js	cmd	app-ui	js-source	3161	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,go,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_go.js.map	cmd	app-ui	map	5401	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,go,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_javascript.js	cmd	app-ui	js-source	16249	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,javascript,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_javascript.js.map	cmd	app-ui	map	28424	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,javascript,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_json.js	cmd	app-ui	js-source	885	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,json,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_json.js.map	cmd	app-ui	map	2103	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,json,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_markdown.js	cmd	app-ui	js-source	5023	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,markdown,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_markdown.js.map	cmd	app-ui	map	8870	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,markdown,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_python.js	cmd	app-ui	js-source	8601	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,python,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_python.js.map	cmd	app-ui	map	14867	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,python,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_rust.js	cmd	app-ui	js-source	5815	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,rust,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_rust.js.map	cmd	app-ui	map	10761	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,rust,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_sql.js	cmd	app-ui	js-source	10907	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,sql,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_sql.js.map	cmd	app-ui	map	21057	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,sql,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_typescript.js	cmd	app-ui	js-source	19027	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,typescript,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_typescript.js.map	cmd	app-ui	map	34069	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,typescript,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_xml.js	cmd	app-ui	js-source	5197	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,xml,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_xml.js.map	cmd	app-ui	map	10692	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,xml,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_yaml.js	cmd	app-ui	js-source	4564	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,yaml,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/highlight__js_lib_languages_yaml.js.map	cmd	app-ui	map	8172	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,highlight,js,lib,languages,yaml,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/info-J43DQDTF-VUUN3ZWD.js	cmd	app-ui	js-source	181	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,info,J43DQDTF,VUUN3ZWD,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/info-J43DQDTF-VUUN3ZWD.js.map	cmd	app-ui	map	93	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,info,J43DQDTF,VUUN3ZWD,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/infoDiagram-5YYISTIA-M5EINSEP.js	cmd	app-ui	js-source	1468	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,infoDiagram,5YYISTIA,M5EINSEP,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/infoDiagram-5YYISTIA-M5EINSEP.js.map	cmd	app-ui	map	2112	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,infoDiagram,5YYISTIA,M5EINSEP,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/ishikawaDiagram-YF4QCWOH-MDMOEQ3C.js	cmd	app-ui	js-source	35274	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,ishikawaDiagram,YF4QCWOH,MDMOEQ3C,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/ishikawaDiagram-YF4QCWOH-MDMOEQ3C.js.map	cmd	app-ui	map	63213	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,ishikawaDiagram,YF4QCWOH,MDMOEQ3C,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/journeyDiagram-JHISSGLW-A3FBMV5E.js	cmd	app-ui	js-source	45018	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,journeyDiagram,JHISSGLW,A3FBMV5E,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/journeyDiagram-JHISSGLW-A3FBMV5E.js.map	cmd	app-ui	map	80204	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,journeyDiagram,JHISSGLW,A3FBMV5E,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/kanban-definition-UN3LZRKU-ZGAJMYB5.js	cmd	app-ui	js-source	39570	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,kanban,definition,UN3LZRKU,ZGAJMYB5,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/kanban-definition-UN3LZRKU-ZGAJMYB5.js.map	cmd	app-ui	map	69233	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,kanban,definition,UN3LZRKU,ZGAJMYB5,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/katex-GXYLBBO3.js	cmd	app-ui	js-source	480284	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,katex,GXYLBBO3,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/katex-GXYLBBO3.js.map	cmd	app-ui	map	991213	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,katex,GXYLBBO3,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/markdown-it.js	cmd	app-ui	js-source	218629	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,markdown,it,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/markdown-it.js.map	cmd	app-ui	map	381965	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,markdown,it,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/mermaid.js	cmd	app-ui	js-source	56829	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,mermaid,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/mermaid.js.map	cmd	app-ui	map	109060	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,mermaid,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/mindmap-definition-RKZ34NQL-PNXI4N3F.js	cmd	app-ui	js-source	55027	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,mindmap,definition,RKZ34NQL,PNXI4N3F,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/mindmap-definition-RKZ34NQL-PNXI4N3F.js.map	cmd	app-ui	map	100662	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,mindmap,definition,RKZ34NQL,PNXI4N3F,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/package.json	cmd	app-ui	json	23	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,package,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/packet-YPE3B663-HG4VJWMG.js	cmd	app-ui	js-source	189	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,packet,YPE3B663,HG4VJWMG,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/packet-YPE3B663-HG4VJWMG.js.map	cmd	app-ui	map	93	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,packet,YPE3B663,HG4VJWMG,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/pie-LRSECV5Y-346RUNS5.js	cmd	app-ui	js-source	177	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,pie,LRSECV5Y,346RUNS5,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/pie-LRSECV5Y-346RUNS5.js.map	cmd	app-ui	map	93	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,pie,LRSECV5Y,346RUNS5,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/pieDiagram-4H26LBE5-ZFUKEJI2.js	cmd	app-ui	js-source	8105	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,pieDiagram,4H26LBE5,ZFUKEJI2,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/pieDiagram-4H26LBE5-ZFUKEJI2.js.map	cmd	app-ui	map	13558	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,pieDiagram,4H26LBE5,ZFUKEJI2,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/quadrantDiagram-W4KKPZXB-Z4FBWORR.js	cmd	app-ui	js-source	63018	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,quadrantDiagram,W4KKPZXB,Z4FBWORR,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/quadrantDiagram-W4KKPZXB-Z4FBWORR.js.map	cmd	app-ui	map	112113	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,quadrantDiagram,W4KKPZXB,Z4FBWORR,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/radar-GUYGQ44K-52JQLUJI.js	cmd	app-ui	js-source	185	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,radar,GUYGQ44K,52JQLUJI,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/radar-GUYGQ44K-52JQLUJI.js.map	cmd	app-ui	map	93	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,radar,GUYGQ44K,52JQLUJI,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/requirementDiagram-4Y6WPE33-UNZCKFVU.js	cmd	app-ui	js-source	54325	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,requirementDiagram,4Y6WPE33,UNZCKFVU,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/requirementDiagram-4Y6WPE33-UNZCKFVU.js.map	cmd	app-ui	map	100214	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,requirementDiagram,4Y6WPE33,UNZCKFVU,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/sankeyDiagram-5OEKKPKP-X676HMWK.js	cmd	app-ui	js-source	74583	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,sankeyDiagram,5OEKKPKP,X676HMWK,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/sankeyDiagram-5OEKKPKP-X676HMWK.js.map	cmd	app-ui	map	145698	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,sankeyDiagram,5OEKKPKP,X676HMWK,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/sequenceDiagram-3UESZ5HK-UUIP3I3Y.js	cmd	app-ui	js-source	202846	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,sequenceDiagram,3UESZ5HK,UUIP3I3Y,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/sequenceDiagram-3UESZ5HK-UUIP3I3Y.js.map	cmd	app-ui	map	350472	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,sequenceDiagram,3UESZ5HK,UUIP3I3Y,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/stateDiagram-AJRCARHV-7YNEBRJA.js	cmd	app-ui	js-source	19353	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,stateDiagram,AJRCARHV,7YNEBRJA,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/stateDiagram-AJRCARHV-7YNEBRJA.js.map	cmd	app-ui	map	35156	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,stateDiagram,AJRCARHV,7YNEBRJA,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/stateDiagram-v2-BHNVJYJU-O7OAHRGS.js	cmd	app-ui	js-source	1076	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,stateDiagram,v2,BHNVJYJU,O7OAHRGS,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/stateDiagram-v2-BHNVJYJU-O7OAHRGS.js.map	cmd	app-ui	map	1442	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,stateDiagram,v2,BHNVJYJU,O7OAHRGS,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/timeline-definition-PNZ67QCA-VJV2D66B.js	cmd	app-ui	js-source	61182	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,timeline,definition,PNZ67QCA,VJV2D66B,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/timeline-definition-PNZ67QCA-VJV2D66B.js.map	cmd	app-ui	map	107211	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,timeline,definition,PNZ67QCA,VJV2D66B,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/treemap-LRROVOQU-GK6OCDPW.js	cmd	app-ui	js-source	193	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,treemap,LRROVOQU,GK6OCDPW,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/treemap-LRROVOQU-GK6OCDPW.js.map	cmd	app-ui	map	93	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,treemap,LRROVOQU,GK6OCDPW,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/treeView-BLDUP644-ENJEJPYF.js	cmd	app-ui	js-source	197	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,treeView,BLDUP644,ENJEJPYF,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/treeView-BLDUP644-ENJEJPYF.js.map	cmd	app-ui	map	93	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,treeView,BLDUP644,ENJEJPYF,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/vennDiagram-CIIHVFJN-GUINGXVC.js	cmd	app-ui	js-source	88683	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,vennDiagram,CIIHVFJN,GUINGXVC,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/vennDiagram-CIIHVFJN-GUINGXVC.js.map	cmd	app-ui	map	184094	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,vennDiagram,CIIHVFJN,GUINGXVC,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/wardley-L42UT6IY-2WN2ZZ5U.js	cmd	app-ui	js-source	193	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,wardley,L42UT6IY,2WN2ZZ5U,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/wardley-L42UT6IY-2WN2ZZ5U.js.map	cmd	app-ui	map	93	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,wardley,L42UT6IY,2WN2ZZ5U,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/wardleyDiagram-YWT4CUSO-F525GKI7.js	cmd	app-ui	js-source	45854	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,wardleyDiagram,YWT4CUSO,F525GKI7,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/wardleyDiagram-YWT4CUSO-F525GKI7.js.map	cmd	app-ui	map	80147	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,wardleyDiagram,YWT4CUSO,F525GKI7,js,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/xychartDiagram-2RQKCTM6-XWJSEAJQ.js	cmd	app-ui	js-source	73615	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,xychartDiagram,2RQKCTM6,XWJSEAJQ,Vue,Vite,前端包
-cmd/agent-terminal/frontend/.vite-cache/deps/xychartDiagram-2RQKCTM6-XWJSEAJQ.js.map	cmd	app-ui	map	130617	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,cache,deps,xychartDiagram,2RQKCTM6,XWJSEAJQ,js,Vue,Vite,前端包
 cmd/agent-terminal/frontend/assets/index.css	cmd	app-ui	css	308736	Vue/Vite 前端包	cmd,agent,terminal,frontend,assets,index,Vue,Vite,前端包
 cmd/agent-terminal/frontend/guard_output.txt	cmd	app-ui	txt	5898	Vue/Vite 前端包	cmd,agent,terminal,frontend,guard,output,Vue,Vite,前端包
 cmd/agent-terminal/frontend/index.html	cmd	app-ui	html	677	Vue/Vite 前端包	cmd,agent,terminal,frontend,index,Vue,Vite,前端包
@@ -234,6 +12,7 @@ cmd/agent-terminal/frontend/package.json	cmd	app-ui	json	1623	Vue/Vite 前端包
 cmd/agent-terminal/frontend/playwright.config.js	cmd	app-ui	js-source	1370	Vue/Vite 前端包	cmd,agent,terminal,frontend,playwright,config,Vue,Vite,前端包
 cmd/agent-terminal/frontend/playwright.real.config.js	cmd	app-ui	js-source	1062	Vue/Vite 前端包	cmd,agent,terminal,frontend,playwright,real,config,Vue,Vite,前端包
 cmd/agent-terminal/frontend/public/data/en-zh-dict.json	cmd	app-ui	json	42090	Vue/Vite 前端包	cmd,agent,terminal,frontend,public,data,en,zh,dict,Vue,Vite,前端包
+cmd/agent-terminal/frontend/README.md	cmd	app-ui	doc	556	Vue/Vite 前端包	cmd,agent,terminal,frontend,README,Vue,Vite,前端包
 cmd/agent-terminal/frontend/review/toolbar-icons-review.png	cmd	app-ui	png	95174	Vue/Vite 前端包	cmd,agent,terminal,frontend,review,toolbar,icons,Vue,Vite,前端包
 cmd/agent-terminal/frontend/scripts/check-templates.cjs	cmd	app-ui	js-source	5519	前端构建、体积与模板守卫脚本	cmd,agent,terminal,frontend,scripts,check,templates,前端构建,体积与模板守卫脚本
 cmd/agent-terminal/frontend/scripts/patch-guard-baseline.js	cmd	app-ui	js-source	1595	前端构建、体积与模板守卫脚本	cmd,agent,terminal,frontend,scripts,patch,guard,baseline,前端构建,体积与模板守卫脚本
@@ -271,19 +50,16 @@ cmd/agent-terminal/frontend/tests/e2e/support/visual.js	cmd	app-ui	js-source	525
 cmd/agent-terminal/frontend/tests/e2e/thread-immediate-history.spec.js	cmd	app-ui	js-test	7197	前端 Playwright E2E 与视觉回归测试	cmd,agent,terminal,frontend,tests,e2e,thread,immediate,history,spec,前端,Playwright,E2E,与视觉回归测试
 cmd/agent-terminal/frontend/tests/e2e/thread-messages-double-load.spec.js	cmd	app-ui	js-test	12142	前端 Playwright E2E 与视觉回归测试	cmd,agent,terminal,frontend,tests,e2e,thread,messages,double,load,spec,前端,Playwright,E2E,与视觉回归测试
 cmd/agent-terminal/frontend/tests/e2e/thread-rename.real.spec.js	cmd	app-ui	js-test	5174	前端 Playwright E2E 与视觉回归测试	cmd,agent,terminal,frontend,tests,e2e,thread,rename,real,spec,前端,Playwright,E2E,与视觉回归测试
-cmd/agent-terminal/frontend/tests/e2e/timeline-actions.spec.js	cmd	app-ui	js-test	13308	前端 Playwright E2E 与视觉回归测试	cmd,agent,terminal,frontend,tests,e2e,timeline,actions,spec,前端,Playwright,E2E,与视觉回归测试
+cmd/agent-terminal/frontend/tests/e2e/timeline-actions.spec.js	cmd	app-ui	js-test	13320	前端 Playwright E2E 与视觉回归测试	cmd,agent,terminal,frontend,tests,e2e,timeline,actions,spec,前端,Playwright,E2E,与视觉回归测试
 cmd/agent-terminal/frontend/tests/e2e/timeline-actions.spec.js-snapshots/chat-page-reasoning-leak-hidden-chromium-darwin.png	cmd	app-ui	png	80053	前端 Playwright E2E 与视觉回归测试	cmd,agent,terminal,frontend,tests,e2e,timeline,actions,spec,js,snapshots,chat,page,reasoning,leak,hidden
 cmd/agent-terminal/frontend/tests/e2e/timeline-actions.spec.js-snapshots/chat-page-timeline-activity-expanded-chromium-darwin.png	cmd	app-ui	png	130695	前端 Playwright E2E 与视觉回归测试	cmd,agent,terminal,frontend,tests,e2e,timeline,actions,spec,js,snapshots,chat,page,activity,expanded,chromium
-cmd/agent-terminal/frontend/tmp-playwright/exit-overlay-desktop.png	cmd	app-ui	png	77867	Vue/Vite 前端包	cmd,agent,terminal,frontend,tmp,playwright,exit,overlay,desktop,Vue,Vite,前端包
-cmd/agent-terminal/frontend/tmp-playwright/exit-overlay-mobile.png	cmd	app-ui	png	42844	Vue/Vite 前端包	cmd,agent,terminal,frontend,tmp,playwright,exit,overlay,mobile,Vue,Vite,前端包
-cmd/agent-terminal/frontend/tmp-playwright/exit-overlay.png	cmd	app-ui	png	540315	Vue/Vite 前端包	cmd,agent,terminal,frontend,tmp,playwright,exit,overlay,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vite.config.js	cmd	app-ui	js-source	1797	Vue/Vite 前端包	cmd,agent,terminal,frontend,vite,config,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vitest.config.js	cmd	app-ui	js-source	231	Vue/Vite 前端包	cmd,agent,terminal,frontend,vitest,config,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/activity-panel-lsp-tools.test.js	cmd	app-ui	js-test	906	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,activity,panel,lsp,tools,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/agent-components.css	cmd	app-ui	css	2761	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/api-service.behavior.test.js	cmd	app-ui	js-test	4839	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,api,service,behavior,test,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/app-root.behavior.test.js	cmd	app-ui	js-test	27980	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,root,behavior,test,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/app.js	cmd	app-ui	js-source	31151	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/app-root.behavior.test.js	cmd	app-ui	js-test	28842	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,root,behavior,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/app.js	cmd	app-ui	js-source	31141	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/app.test.js	cmd	app-ui	js-test	4190	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/assistant-markdown-codex.test.js	cmd	app-ui	js-test	7560	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,assistant,markdown,codex,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/assistant-markdown-streaming.guard.test.js	cmd	app-ui	js-test	3016	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,assistant,markdown,streaming,guard,test,Vue,Vite,前端包
@@ -292,7 +68,7 @@ cmd/agent-terminal/frontend/vue-app/attachment-preview.test.js	cmd	app-ui	js-tes
 cmd/agent-terminal/frontend/vue-app/bridge-event-parser.test.js	cmd	app-ui	js-test	2536	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,bridge,event,parser,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/builtin-tools-settings.behavior.test.js	cmd	app-ui	js-test	9618	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,builtin,tools,settings,behavior,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/chat-timeline-approval.test.js	cmd	app-ui	js-test	4936	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,chat,timeline,approval,test,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/chat-timeline-behavior.test.js	cmd	app-ui	js-test	7617	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,chat,timeline,behavior,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/chat-timeline-behavior.test.js	cmd	app-ui	js-test	9418	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,chat,timeline,behavior,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/chat-timeline-citation-chips.test.js	cmd	app-ui	js-test	4747	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,chat,timeline,citation,chips,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/chat-timeline-contract-surface.test.js	cmd	app-ui	js-test	4396	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,chat,timeline,contract,surface,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/chat-timeline-host-lifecycle.test.js	cmd	app-ui	js-test	8080	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,chat,timeline,host,lifecycle,test,Vue,Vite,前端包
@@ -300,9 +76,10 @@ cmd/agent-terminal/frontend/vue-app/chat-timeline-internal-message.test.js	cmd	a
 cmd/agent-terminal/frontend/vue-app/chat-timeline-presence-popover.test.js	cmd	app-ui	js-test	7726	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,chat,timeline,presence,popover,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/chat-timeline-reasoning.test.js	cmd	app-ui	js-test	5446	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,chat,timeline,reasoning,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/chat-timeline-split-guard.test.js	cmd	app-ui	js-test	28172	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,chat,timeline,split,guard,test,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/chat-toolbar-thread-config.behavior.test.js	cmd	app-ui	js-test	4623	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,chat,toolbar,thread,config,behavior,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/chat-toolbar-thread-config.behavior.test.js	cmd	app-ui	js-test	5273	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,chat,toolbar,thread,config,behavior,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/citation-action-utils.test.js	cmd	app-ui	js-test	1190	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,citation,action,utils,test,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/components/ActivityPanel.js	cmd	app-ui	js-source	15476	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,ActivityPanel,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/codex-sandbox-defaults.test.js	cmd	app-ui	js-test	4690	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,codex,sandbox,defaults,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/components/ActivityPanel.js	cmd	app-ui	js-source	15447	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,ActivityPanel,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/components/ChatTimeline.js	cmd	app-ui	js-source	27097	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,ChatTimeline,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/components/ComposerBar.js	cmd	app-ui	js-source	19831	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,ComposerBar,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/components/ComposerForkDraftCard.js	cmd	app-ui	js-source	8184	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,components,ComposerForkDraftCard,Vue,Vite,前端包
@@ -339,8 +116,8 @@ cmd/agent-terminal/frontend/vue-app/components/timeline/useAttachmentPreviewStat
 cmd/agent-terminal/frontend/vue-app/components/timeline/useCommandHelpers.js	cmd	app-ui	js-source	1835	Vue timeline 消息、附件、工具调用展示组件	cmd,agent,terminal,frontend,vue,app,components,timeline,useCommandHelpers,Vue,消息,附件,工具调用展示组件
 cmd/agent-terminal/frontend/vue-app/components/timeline/usePresencePopover.js	cmd	app-ui	js-source	5984	Vue timeline 消息、附件、工具调用展示组件	cmd,agent,terminal,frontend,vue,app,components,timeline,usePresencePopover,Vue,消息,附件,工具调用展示组件
 cmd/agent-terminal/frontend/vue-app/components/timeline/useTimelineHelpers.js	cmd	app-ui	js-source	11111	Vue timeline 消息、附件、工具调用展示组件	cmd,agent,terminal,frontend,vue,app,components,timeline,useTimelineHelpers,Vue,消息,附件,工具调用展示组件
-cmd/agent-terminal/frontend/vue-app/components/timeline/useTimelineItems.js	cmd	app-ui	js-source	6065	Vue timeline 消息、附件、工具调用展示组件	cmd,agent,terminal,frontend,vue,app,components,timeline,useTimelineItems,Vue,消息,附件,工具调用展示组件
-cmd/agent-terminal/frontend/vue-app/components/unified-chat/ChatToolbar.js	cmd	app-ui	js-source	8312	Vue 统一聊天组件与线程面板	cmd,agent,terminal,frontend,vue,app,components,unified,chat,ChatToolbar,Vue,统一聊天组件与线程面板
+cmd/agent-terminal/frontend/vue-app/components/timeline/useTimelineItems.js	cmd	app-ui	js-source	6174	Vue timeline 消息、附件、工具调用展示组件	cmd,agent,terminal,frontend,vue,app,components,timeline,useTimelineItems,Vue,消息,附件,工具调用展示组件
+cmd/agent-terminal/frontend/vue-app/components/unified-chat/ChatToolbar.js	cmd	app-ui	js-source	8254	Vue 统一聊天组件与线程面板	cmd,agent,terminal,frontend,vue,app,components,unified,chat,ChatToolbar,Vue,统一聊天组件与线程面板
 cmd/agent-terminal/frontend/vue-app/components/unified-chat/CmdCardGrid.js	cmd	app-ui	js-source	2800	Vue 统一聊天组件与线程面板	cmd,agent,terminal,frontend,vue,app,components,unified,chat,CmdCardGrid,Vue,统一聊天组件与线程面板
 cmd/agent-terminal/frontend/vue-app/components/unified-chat/CmdOverviewPanel.js	cmd	app-ui	js-source	1528	Vue 统一聊天组件与线程面板	cmd,agent,terminal,frontend,vue,app,components,unified,chat,CmdOverviewPanel,Vue,统一聊天组件与线程面板
 cmd/agent-terminal/frontend/vue-app/components/unified-chat/ThreadRailSidePanel.js	cmd	app-ui	js-source	13423	Vue 统一聊天组件与线程面板	cmd,agent,terminal,frontend,vue,app,components,unified,chat,ThreadRailSidePanel,Vue,统一聊天组件与线程面板
@@ -367,9 +144,10 @@ cmd/agent-terminal/frontend/vue-app/composables/useInlineRename.js	cmd	app-ui	js
 cmd/agent-terminal/frontend/vue-app/composables/useKeyboardShortcuts.js	cmd	app-ui	js-source	2590	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useKeyboardShortcuts,Vue,composable,行为,hooks
 cmd/agent-terminal/frontend/vue-app/composables/useMemoryEditors.js	cmd	app-ui	js-source	5819	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useMemoryEditors,Vue,composable,行为,hooks
 cmd/agent-terminal/frontend/vue-app/composables/useMermaidRenderer.js	cmd	app-ui	js-source	782	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useMermaidRenderer,Vue,composable,行为,hooks
+cmd/agent-terminal/frontend/vue-app/composables/useMultiAgentLaunch.js	cmd	app-ui	js-source	6028	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useMultiAgentLaunch,Vue,composable,行为,hooks
 cmd/agent-terminal/frontend/vue-app/composables/usePageLifecycle.js	cmd	app-ui	js-source	1373	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,usePageLifecycle,Vue,composable,行为,hooks
 cmd/agent-terminal/frontend/vue-app/composables/usePromptIntentFileDrop.js	cmd	app-ui	js-source	8468	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,usePromptIntentFileDrop,Vue,composable,行为,hooks
-cmd/agent-terminal/frontend/vue-app/composables/useProviderMode.js	cmd	app-ui	js-source	6707	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useProviderMode,Vue,composable,行为,hooks
+cmd/agent-terminal/frontend/vue-app/composables/useProviderMode.js	cmd	app-ui	js-source	6894	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useProviderMode,Vue,composable,行为,hooks
 cmd/agent-terminal/frontend/vue-app/composables/useResizePanels.js	cmd	app-ui	js-source	7567	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useResizePanels,Vue,composable,行为,hooks
 cmd/agent-terminal/frontend/vue-app/composables/useSimilarityIgnore.js	cmd	app-ui	js-source	1601	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useSimilarityIgnore,Vue,composable,行为,hooks
 cmd/agent-terminal/frontend/vue-app/composables/useSkillEditor.js	cmd	app-ui	js-source	27715	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useSkillEditor,Vue,composable,行为,hooks
@@ -381,9 +159,9 @@ cmd/agent-terminal/frontend/vue-app/composables/useSkillResolutionCopy.js	cmd	ap
 cmd/agent-terminal/frontend/vue-app/composables/useSkillResolutions.js	cmd	app-ui	js-source	16856	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useSkillResolutions,Vue,composable,行为,hooks
 cmd/agent-terminal/frontend/vue-app/composables/useSkillSaveFeedback.js	cmd	app-ui	js-source	3721	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useSkillSaveFeedback,Vue,composable,行为,hooks
 cmd/agent-terminal/frontend/vue-app/composables/useSummaryHandoff.js	cmd	app-ui	js-source	12644	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useSummaryHandoff,Vue,composable,行为,hooks
-cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js	cmd	app-ui	js-source	31543	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useThreadActions,Vue,composable,行为,hooks
+cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js	cmd	app-ui	js-source	32750	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useThreadActions,Vue,composable,行为,hooks
 cmd/agent-terminal/frontend/vue-app/composables/useThreadCards.js	cmd	app-ui	js-source	16620	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useThreadCards,Vue,composable,行为,hooks
-cmd/agent-terminal/frontend/vue-app/composables/useThreadCards.pinned-plan.js	cmd	app-ui	js-source	2016	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useThreadCards,pinned,plan,Vue,composable,行为,hooks
+cmd/agent-terminal/frontend/vue-app/composables/useThreadCards.pinned-plan.js	cmd	app-ui	js-source	2092	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useThreadCards,pinned,plan,Vue,composable,行为,hooks
 cmd/agent-terminal/frontend/vue-app/composables/useThreadConfigController.js	cmd	app-ui	js-source	8662	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useThreadConfigController,Vue,composable,行为,hooks
 cmd/agent-terminal/frontend/vue-app/composables/useThreadSelection.js	cmd	app-ui	js-source	3606	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useThreadSelection,Vue,composable,行为,hooks
 cmd/agent-terminal/frontend/vue-app/composables/useThreadStatus.js	cmd	app-ui	js-source	10872	Vue composable 行为 hooks	cmd,agent,terminal,frontend,vue,app,composables,useThreadStatus,Vue,composable,行为,hooks
@@ -395,7 +173,7 @@ cmd/agent-terminal/frontend/vue-app/cron-detail.test.js	cmd	app-ui	js-test	3601	
 cmd/agent-terminal/frontend/vue-app/cron-form.test.js	cmd	app-ui	js-test	4115	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,cron,form,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/cron-panel.test.js	cmd	app-ui	js-test	4377	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,cron,panel,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/cron-store.behavior.test.js	cmd	app-ui	js-test	7635	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,cron,store,behavior,test,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/css-scroll-regression.test.js	cmd	app-ui	js-test	3933	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,css,scroll,regression,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/css-scroll-regression.test.js	cmd	app-ui	js-test	3936	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,css,scroll,regression,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/dag-detail-schedule-enabled.test.js	cmd	app-ui	js-test	1836	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,dag,detail,schedule,enabled,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/dag-detail-schedule.test.js	cmd	app-ui	js-test	1966	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,dag,detail,schedule,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/dag-detail-start-diagnostics.test.js	cmd	app-ui	js-test	1768	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,dag,detail,start,diagnostics,test,Vue,Vite,前端包
@@ -414,13 +192,14 @@ cmd/agent-terminal/frontend/vue-app/dev-runtime-shim.test.js	cmd	app-ui	js-test	
 cmd/agent-terminal/frontend/vue-app/diff-panel.test.js	cmd	app-ui	js-test	14596	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,diff,panel,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/diff-service.test.js	cmd	app-ui	js-test	6514	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,diff,service,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/file-ref-preview-citation.test.js	cmd	app-ui	js-test	2871	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,file,ref,preview,citation,test,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/format-utils.test.js	cmd	app-ui	js-test	13803	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,format,utils,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/format-utils.test.js	cmd	app-ui	js-test	13811	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,format,utils,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/history-sync-regression.test.js	cmd	app-ui	js-test	5212	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,history,sync,regression,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/lib/echarts-custom.js	cmd	app-ui	js-source	988	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,lib,echarts,custom,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/log-level-subscriber.test.js	cmd	app-ui	js-test	2224	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,log,level,subscriber,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/lsp-prompt-settings.behavior.test.js	cmd	app-ui	js-test	3687	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,lsp,prompt,settings,behavior,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/main.js	cmd	app-ui	js-source	470	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,main,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/memory-center-page.behavior.test.js	cmd	app-ui	js-test	16550	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,memory,center,page,behavior,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/multi-agent-intent.test.js	cmd	app-ui	js-test	1490	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,multi,intent,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/pages/CommandsPage.js	cmd	app-ui	js-source	1848	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,CommandsPage,Vue,页面级组件
 cmd/agent-terminal/frontend/vue-app/pages/CronPanel.js	cmd	app-ui	js-source	10650	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,CronPanel,Vue,页面级组件
 cmd/agent-terminal/frontend/vue-app/pages/DagsPage.js	cmd	app-ui	js-source	34694	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,DagsPage,Vue,页面级组件
@@ -431,8 +210,8 @@ cmd/agent-terminal/frontend/vue-app/pages/PromptIntentWizard.js	cmd	app-ui	js-so
 cmd/agent-terminal/frontend/vue-app/pages/PromptIntentWizard.scope.js	cmd	app-ui	js-source	2520	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,PromptIntentWizard,scope,Vue,页面级组件
 cmd/agent-terminal/frontend/vue-app/pages/SectionsEditor.js	cmd	app-ui	js-source	18076	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,SectionsEditor,Vue,页面级组件
 cmd/agent-terminal/frontend/vue-app/pages/settings/BuiltinToolsSettings.ts	cmd	app-ui	ts-source	11803	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,settings,BuiltinToolsSettings,Vue,页面级组件
-cmd/agent-terminal/frontend/vue-app/pages/settings/LspPromptSettings.ts	cmd	app-ui	ts-source	10560	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,settings,LspPromptSettings,Vue,页面级组件
-cmd/agent-terminal/frontend/vue-app/pages/settings/ProviderSettings.ts	cmd	app-ui	ts-source	27805	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,settings,ProviderSettings,Vue,页面级组件
+cmd/agent-terminal/frontend/vue-app/pages/settings/LspPromptSettings.ts	cmd	app-ui	ts-source	10549	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,settings,LspPromptSettings,Vue,页面级组件
+cmd/agent-terminal/frontend/vue-app/pages/settings/ProviderSettings.ts	cmd	app-ui	ts-source	29914	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,settings,ProviderSettings,Vue,页面级组件
 cmd/agent-terminal/frontend/vue-app/pages/settings/useSettingsScope.ts	cmd	app-ui	ts-source	1289	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,settings,useSettingsScope,Vue,页面级组件
 cmd/agent-terminal/frontend/vue-app/pages/SettingsPage.ts	cmd	app-ui	ts-source	15711	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,SettingsPage,Vue,页面级组件
 cmd/agent-terminal/frontend/vue-app/pages/SharedFilesPage.js	cmd	app-ui	js-source	28859	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,SharedFilesPage,Vue,页面级组件
@@ -443,16 +222,16 @@ cmd/agent-terminal/frontend/vue-app/pages/SystemPromptPage.launchPrompt.js	cmd	a
 cmd/agent-terminal/frontend/vue-app/pages/SystemPromptPage.pendingDraft.js	cmd	app-ui	js-source	2628	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,SystemPromptPage,pendingDraft,Vue,页面级组件
 cmd/agent-terminal/frontend/vue-app/pages/TasksPage.js	cmd	app-ui	js-source	2410	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,TasksPage,Vue,页面级组件
 cmd/agent-terminal/frontend/vue-app/pages/UnifiedChatPage.helpers.js	cmd	app-ui	js-source	8194	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,UnifiedChatPage,helpers,Vue,页面级组件
-cmd/agent-terminal/frontend/vue-app/pages/UnifiedChatPage.js	cmd	app-ui	js-source	26882	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,UnifiedChatPage,Vue,页面级组件
-cmd/agent-terminal/frontend/vue-app/pages/UnifiedChatPage.template.js	cmd	app-ui	js-source	11353	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,UnifiedChatPage,template,Vue,页面级组件
+cmd/agent-terminal/frontend/vue-app/pages/UnifiedChatPage.js	cmd	app-ui	js-source	27831	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,UnifiedChatPage,Vue,页面级组件
+cmd/agent-terminal/frontend/vue-app/pages/UnifiedChatPage.template.js	cmd	app-ui	js-source	11276	Vue 页面级组件	cmd,agent,terminal,frontend,vue,app,pages,UnifiedChatPage,template,Vue,页面级组件
 cmd/agent-terminal/frontend/vue-app/path-choice-modal.test.js	cmd	app-ui	js-test	3654	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,path,choice,modal,test,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/plan-utils.test.js	cmd	app-ui	js-test	5816	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,plan,utils,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/plan-utils.test.js	cmd	app-ui	js-test	6927	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,plan,utils,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/preferences-store.behavior.test.js	cmd	app-ui	js-test	5519	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,preferences,store,behavior,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/pretext-layout.test.js	cmd	app-ui	js-test	1258	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,pretext,layout,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/prompt-intent-wizard.behavior.test.js	cmd	app-ui	js-test	30892	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,prompt,intent,wizard,behavior,test,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/provider-config-options.js	cmd	app-ui	js-source	4480	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,provider,config,options,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/provider-config-options.test.js	cmd	app-ui	js-test	860	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,provider,config,options,test,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/provider-settings.behavior.test.js	cmd	app-ui	js-test	11337	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,provider,settings,behavior,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/provider-config-options.js	cmd	app-ui	js-source	4542	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,provider,config,options,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/provider-config-options.test.js	cmd	app-ui	js-test	1205	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,provider,config,options,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/provider-settings.behavior.test.js	cmd	app-ui	js-test	16204	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,provider,settings,behavior,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/role-bar.behavior.test.js	cmd	app-ui	js-test	2239	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,role,bar,behavior,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/sections-editor.behavior.test.js	cmd	app-ui	js-test	4807	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,sections,editor,behavior,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/services/api.js	cmd	app-ui	js-source	16925	Vue 前端 API 与状态服务封装	cmd,agent,terminal,frontend,vue,app,services,api,Vue,前端,API,与状态服务封装
@@ -461,7 +240,7 @@ cmd/agent-terminal/frontend/vue-app/services/diff.js	cmd	app-ui	js-source	4550	V
 cmd/agent-terminal/frontend/vue-app/services/json-render-engine.js	cmd	app-ui	js-source	4139	Vue 前端 API 与状态服务封装	cmd,agent,terminal,frontend,vue,app,services,json,render,engine,Vue,前端,API,与状态服务封装
 cmd/agent-terminal/frontend/vue-app/services/log.js	cmd	app-ui	js-source	7192	Vue 前端 API 与状态服务封装	cmd,agent,terminal,frontend,vue,app,services,log,Vue,前端,API,与状态服务封装
 cmd/agent-terminal/frontend/vue-app/services/pretext-layout.js	cmd	app-ui	js-source	7859	Vue 前端 API 与状态服务封装	cmd,agent,terminal,frontend,vue,app,services,pretext,layout,Vue,前端,API,与状态服务封装
-cmd/agent-terminal/frontend/vue-app/services/skills-api.js	cmd	app-ui	js-source	3489	Vue 前端 API 与状态服务封装	cmd,agent,terminal,frontend,vue,app,services,skills,api,Vue,前端,API,与状态服务封装
+cmd/agent-terminal/frontend/vue-app/services/skills-api.js	cmd	app-ui	js-source	3872	Vue 前端 API 与状态服务封装	cmd,agent,terminal,frontend,vue,app,services,skills,api,Vue,前端,API,与状态服务封装
 cmd/agent-terminal/frontend/vue-app/services/status.js	cmd	app-ui	js-source	1026	Vue 前端 API 与状态服务封装	cmd,agent,terminal,frontend,vue,app,services,status,Vue,前端,API,与状态服务封装
 cmd/agent-terminal/frontend/vue-app/settings-page.behavior.test.js	cmd	app-ui	js-test	6833	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,settings,page,behavior,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/shared-files-page.behavior.test.js	cmd	app-ui	js-test	8956	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,shared,files,page,behavior,test,Vue,Vite,前端包
@@ -478,13 +257,16 @@ cmd/agent-terminal/frontend/vue-app/skills-resolution-ux.test.js	cmd	app-ui	js-t
 cmd/agent-terminal/frontend/vue-app/status-service.test.js	cmd	app-ui	js-test	1562	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,status,service,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/stores/bridge-event-parser.js	cmd	app-ui	js-source	3021	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,bridge,event,parser,Vue,前端状态,store
 cmd/agent-terminal/frontend/vue-app/stores/builtin-tool-policy.js	cmd	app-ui	js-source	795	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,builtin,tool,policy,Vue,前端状态,store
+cmd/agent-terminal/frontend/vue-app/stores/codex-lsp-defaults.js	cmd	app-ui	js-source	952	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,codex,lsp,defaults,Vue,前端状态,store
+cmd/agent-terminal/frontend/vue-app/stores/codex-sandbox-defaults.js	cmd	app-ui	js-source	4249	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,codex,sandbox,defaults,Vue,前端状态,store
 cmd/agent-terminal/frontend/vue-app/stores/composer-drafts.js	cmd	app-ui	js-source	2672	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,composer,drafts,Vue,前端状态,store
 cmd/agent-terminal/frontend/vue-app/stores/composer.js	cmd	app-ui	js-source	11421	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,composer,Vue,前端状态,store
 cmd/agent-terminal/frontend/vue-app/stores/cron.js	cmd	app-ui	js-source	6281	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,cron,Vue,前端状态,store
 cmd/agent-terminal/frontend/vue-app/stores/preferences.js	cmd	app-ui	js-source	6315	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,preferences,Vue,前端状态,store
-cmd/agent-terminal/frontend/vue-app/stores/projects.js	cmd	app-ui	js-source	6811	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,projects,Vue,前端状态,store
-cmd/agent-terminal/frontend/vue-app/stores/projects.test.js	cmd	app-ui	js-test	6561	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,projects,test,Vue,前端状态,store
-cmd/agent-terminal/frontend/vue-app/stores/thread-actions-helpers.js	cmd	app-ui	js-source	46782	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,thread,actions,helpers,Vue,前端状态,store
+cmd/agent-terminal/frontend/vue-app/stores/projects.js	cmd	app-ui	js-source	7789	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,projects,Vue,前端状态,store
+cmd/agent-terminal/frontend/vue-app/stores/projects.test.js	cmd	app-ui	js-test	9120	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,projects,test,Vue,前端状态,store
+cmd/agent-terminal/frontend/vue-app/stores/provider-preferences.js	cmd	app-ui	js-source	2540	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,provider,preferences,Vue,前端状态,store
+cmd/agent-terminal/frontend/vue-app/stores/thread-actions-helpers.js	cmd	app-ui	js-source	47731	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,thread,actions,helpers,Vue,前端状态,store
 cmd/agent-terminal/frontend/vue-app/stores/thread-actions-timestamps.js	cmd	app-ui	js-source	628	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,thread,actions,timestamps,Vue,前端状态,store
 cmd/agent-terminal/frontend/vue-app/stores/thread-actions.js	cmd	app-ui	js-source	5455	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,thread,actions,Vue,前端状态,store
 cmd/agent-terminal/frontend/vue-app/stores/thread-compact-helpers.js	cmd	app-ui	js-source	2465	Vue 前端状态 store	cmd,agent,terminal,frontend,vue,app,stores,thread,compact,helpers,Vue,前端状态,store
@@ -517,7 +299,7 @@ cmd/agent-terminal/frontend/vue-app/styles/cron.css	cmd	app-ui	css	4905	Vue/Vite
 cmd/agent-terminal/frontend/vue-app/styles/dag-console.css	cmd	app-ui	css	10329	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,dag,console,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/styles/diff-chat.css	cmd	app-ui	css	69944	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,diff,chat,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/styles/memory-center.css	cmd	app-ui	css	24037	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,memory,center,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/styles/shell-layout.css	cmd	app-ui	css	38479	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,shell,layout,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/styles/shell-layout.css	cmd	app-ui	css	38521	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,shell,layout,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/styles/skills.css	cmd	app-ui	css	19596	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,skills,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/styles/system-prompt.css	cmd	app-ui	css	31707	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,system,prompt,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/styles/tokens.css	cmd	app-ui	css	2057	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,styles,tokens,Vue,Vite,前端包
@@ -527,8 +309,9 @@ cmd/agent-terminal/frontend/vue-app/system-prompt-page-classification.behavior.t
 cmd/agent-terminal/frontend/vue-app/system-prompt-page-pending-draft.behavior.test.js	cmd	app-ui	js-test	4583	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,system,prompt,page,pending,draft,behavior,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/system-prompt-page-scope.behavior.test.js	cmd	app-ui	js-test	6276	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,system,prompt,page,scope,behavior,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/system-prompt-page.behavior.test.js	cmd	app-ui	js-test	35559	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,system,prompt,page,behavior,test,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/thread-actions-launch-intent.test.js	cmd	app-ui	js-test	3796	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,actions,launch,intent,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/thread-actions-launch-intent.test.js	cmd	app-ui	js-test	3823	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,actions,launch,intent,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/thread-history-ui.test.js	cmd	app-ui	js-test	22086	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,history,ui,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/thread-page-utils-multi-agent-sort.test.js	cmd	app-ui	js-test	2734	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,page,utils,multi,sort,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/thread-page-utils-stale-selection.test.js	cmd	app-ui	js-test	868	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,page,utils,stale,selection,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/thread-page-utils.archive.test.js	cmd	app-ui	js-test	1323	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,page,utils,archive,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/thread-send-auto-recover.test.js	cmd	app-ui	js-test	2719	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,send,auto,recover,test,Vue,Vite,前端包
@@ -541,10 +324,12 @@ cmd/agent-terminal/frontend/vue-app/thread-snapshot-timeline-guard.test.js	cmd	a
 cmd/agent-terminal/frontend/vue-app/thread-snapshot-utils.test.js	cmd	app-ui	js-test	3303	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,snapshot,utils,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/thread-state-whitelist.test.js	cmd	app-ui	js-test	1560	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,state,whitelist,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/thread-status-terminal.test.js	cmd	app-ui	js-test	1235	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,status,test,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/thread-store-provider-preference.test.js	cmd	app-ui	js-test	3916	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,store,provider,preference,test,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/thread-store-skill-source.test.js	cmd	app-ui	js-test	3430	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,store,skill,source,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/thread-store-codex-default-home.test.js	cmd	app-ui	js-test	2948	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,store,codex,default,home,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/thread-store-provider-preference.test.js	cmd	app-ui	js-test	20735	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,store,provider,preference,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/thread-store-sandbox-payload.test.js	cmd	app-ui	js-test	5600	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,store,sandbox,payload,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/thread-store-skill-source.test.js	cmd	app-ui	js-test	3562	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,store,skill,source,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/thread-store-view.test.js	cmd	app-ui	js-test	6129	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,store,view,test,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/thread-store.actions.test.js	cmd	app-ui	js-test	37682	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,store,actions,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/thread-store.actions.test.js	cmd	app-ui	js-test	38300	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,store,actions,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/thread-store.deps-injection.test.js	cmd	app-ui	js-test	11909	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,store,deps,injection,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/thread-store.prefs.test.js	cmd	app-ui	js-test	4567	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,store,prefs,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/thread-store.public-api.test.js	cmd	app-ui	js-test	1930	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,thread,store,public,api,test,Vue,Vite,前端包
@@ -564,45 +349,49 @@ cmd/agent-terminal/frontend/vue-app/unified-chat-component.test.js	cmd	app-ui	js
 cmd/agent-terminal/frontend/vue-app/unified-chat-preflight-coverage.test.js	cmd	app-ui	js-test	32827	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,unified,chat,preflight,coverage,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/unified-chat-setup-contract.test.js	cmd	app-ui	js-test	10824	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,unified,chat,setup,contract,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/unified-chat-split-guard.test.js	cmd	app-ui	js-test	23646	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,unified,chat,split,guard,test,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/unified-chat-template-contract.test.js	cmd	app-ui	js-test	7782	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,unified,chat,template,contract,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/unified-chat-template-contract.test.js	cmd	app-ui	js-test	7842	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,unified,chat,template,contract,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/unified-chat-thread-config.behavior.test.js	cmd	app-ui	js-test	11776	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,unified,chat,thread,config,behavior,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/unified-chat-utils.test.js	cmd	app-ui	js-test	39184	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,unified,chat,utils,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/use-auto-scroll.test.js	cmd	app-ui	js-test	6918	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,auto,scroll,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/use-context-usage-thresholds.test.js	cmd	app-ui	js-test	4345	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,context,usage,thresholds,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/use-file-ref-preview.test.js	cmd	app-ui	js-test	20374	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,file,ref,preview,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/use-fork-thread.test.js	cmd	app-ui	js-test	12986	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,fork,thread,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/use-multi-agent-launch.test.js	cmd	app-ui	js-test	2716	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,multi,launch,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/use-provider-mode.cross-page.test.js	cmd	app-ui	js-test	4881	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,provider,mode,cross,page,test,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/use-provider-mode.test.js	cmd	app-ui	js-test	3831	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,provider,mode,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/use-provider-mode.test.js	cmd	app-ui	js-test	3881	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,provider,mode,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/use-resize-panels.test.js	cmd	app-ui	js-test	3761	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,resize,panels,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/use-settings-scope.test.js	cmd	app-ui	js-test	1362	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,settings,scope,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/use-skill-editor-personal.test.js	cmd	app-ui	js-test	36743	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,skill,editor,personal,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/use-skill-resolutions.test.js	cmd	app-ui	js-test	35053	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,skill,resolutions,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/use-summary-handoff.test.js	cmd	app-ui	js-test	18231	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,summary,handoff,test,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/use-thread-actions.test.js	cmd	app-ui	js-test	34367	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,thread,actions,test,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/use-thread-cards.test.js	cmd	app-ui	js-test	12558	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,thread,cards,test,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/use-thread-selection.test.js	cmd	app-ui	js-test	8299	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,thread,selection,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/use-thread-actions-launch-failure.test.js	cmd	app-ui	js-test	4948	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,thread,actions,launch,failure,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/use-thread-actions.test.js	cmd	app-ui	js-test	35595	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,thread,actions,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/use-thread-cards.test.js	cmd	app-ui	js-test	12566	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,thread,cards,test,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/use-thread-selection.test.js	cmd	app-ui	js-test	8306	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,use,thread,selection,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/utils/assistant-markdown-click.js	cmd	app-ui	js-source	3860	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,assistant,markdown,click,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/utils/assistant-markdown-codex-ui.js	cmd	app-ui	js-source	6116	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,assistant,markdown,codex,ui,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/utils/assistant-markdown-codex.js	cmd	app-ui	js-source	12475	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,assistant,markdown,codex,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/utils/assistant-markdown-streaming.js	cmd	app-ui	js-source	11960	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,assistant,markdown,streaming,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/assistant-markdown.js	cmd	app-ui	js-source	25002	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,assistant,markdown,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/utils/assistant-markdown.js	cmd	app-ui	js-source	24985	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,assistant,markdown,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/utils/citation-action-utils.js	cmd	app-ui	js-source	2850	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,citation,action,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/utils/citation-preview-utils.js	cmd	app-ui	js-source	2828	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,citation,preview,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/utils/code-highlight.js	cmd	app-ui	js-source	4430	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,code,highlight,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/utils/composer-textarea-height.js	cmd	app-ui	js-source	874	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,composer,textarea,height,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/utils/diff-utils.js	cmd	app-ui	js-source	4834	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,diff,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/format-utils.js	cmd	app-ui	js-source	14944	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,format,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/utils/format-utils.js	cmd	app-ui	js-source	14920	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,format,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/utils/mermaid-renderer.js	cmd	app-ui	js-source	3884	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,mermaid,renderer,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/plan-utils.js	cmd	app-ui	js-source	1932	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,plan,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/utils/multi-agent-intent.js	cmd	app-ui	js-source	2455	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,multi,intent,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/utils/multi-agent-plan.js	cmd	app-ui	js-source	5628	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,multi,plan,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/utils/plan-utils.js	cmd	app-ui	js-source	2439	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,plan,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/utils/preview-utils.js	cmd	app-ui	js-source	11970	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,preview,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/utils/skill-match-utils.js	cmd	app-ui	js-source	103	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,skill,match,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/utils/skill-parser.js	cmd	app-ui	js-source	10437	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,skill,parser,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/utils/skill-ref-utils.js	cmd	app-ui	js-source	924	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,skill,ref,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/utils/thread-copy-utils.js	cmd	app-ui	js-source	1659	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,thread,copy,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/utils/thread-page-types.d.ts	cmd	app-ui	ts-source	3409	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,thread,page,types,d,Vue,Vite,前端包
-cmd/agent-terminal/frontend/vue-app/utils/thread-page-utils.js	cmd	app-ui	js-source	17708	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,thread,page,Vue,Vite,前端包
+cmd/agent-terminal/frontend/vue-app/utils/thread-page-utils.js	cmd	app-ui	js-source	19192	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,thread,page,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/utils/translate-dict.js	cmd	app-ui	js-source	8155	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,utils,translate,dict,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/vitest.config.js	cmd	app-ui	js-source	205	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,vitest,config,Vue,Vite,前端包
 cmd/agent-terminal/frontend/vue-app/workspace-chat-scroll-guard.test.js	cmd	app-ui	js-test	1029	Vue/Vite 前端包	cmd,agent,terminal,frontend,vue,app,workspace,chat,scroll,guard,test,Vue,Vite,前端包
 cmd/agent-terminal/frontend/wails/runtime.js	cmd	app-ui	js-source	12370	Vue/Vite 前端包	cmd,agent,terminal,frontend,wails,runtime,Vue,Vite,前端包
-cmd/agent-terminal/main.go	cmd	app-ui	go-source	389	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,main,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
+cmd/agent-terminal/main.go	cmd	app-ui	go-source	923	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,main,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口

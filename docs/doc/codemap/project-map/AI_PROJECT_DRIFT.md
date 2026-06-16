@@ -2,75 +2,89 @@
 
 > 状态：**OK**
 >
-> 已索引文件：4213
+> 已索引文件：4896
 >
-> 未细分职责文件：45
+> 未细分职责文件：380
 
 ## 1. 漂移指标
 
 | 指标 | 当前值 |
 |---|---:|
-| 未细分职责文件数 | 45 |
-| 未细分职责占比 | 1.07% |
+| 未细分职责文件数 | 380 |
+| 未细分职责占比 | 7.76% |
 
 ## 2. 未细分职责分布
 
 | 模块 | 文件数 |
 |---|---:|
-| `internal` | 22 |
+| `frontend-app` | 260 |
+| `frontend` | 45 |
+| `internal` | 24 |
 | `test` | 9 |
 | `third_party` | 9 |
-| `logs` | 3 |
+| `.codex-run` | 7 |
+| `cmd` | 7 |
+| `.superpowers` | 6 |
+| `.codex` | 5 |
+| `deploy` | 3 |
+| `filebeat` | 1 |
+| `logstash` | 1 |
+| `skills` | 1 |
 | `sql` | 1 |
 | `tests` | 1 |
 
 ## 3. 样例文件
 
-- `internal/guards/code_size_guard_test.go`
-- `internal/guards/guard_manifest.json`
-- `internal/guards/refactor_baseline.json`
-- `internal/testutil/golden/golden.go`
-- `internal/testutil/golden/orchestration_stub.go`
-- `internal/util/clone/clone.go`
-- `internal/util/configutil/configutil.go`
-- `internal/util/ctxutil/ctxutil.go`
-- `internal/util/discovery/discovery.go`
-- `internal/util/historyjsonl/history.go`
-- `internal/util/historyjsonl/history_test.go`
-- `internal/util/idempotency/registry.go`
-- `internal/util/idempotency/registry_test.go`
-- `internal/util/identifier/uuid.go`
-- `internal/util/identifier/uuid_test.go`
-- `internal/util/idgen/idgen.go`
-- `internal/util/pathutil/pathutil.go`
-- `internal/util/pathutil/pathutil_test.go`
-- `internal/util/repofingerprint/fingerprint.go`
-- `internal/util/safego/safego.go`
-- `internal/util/toolresults/path.go`
-- `internal/util/util.go`
-- `logs/Super-Dolphin/peer-fallback/mcp-lsp-2026-05-27.log`
-- `logs/Super-Dolphin/peer-fallback/mcp-lsp-2026-05-28.log`
-- `logs/Super-Dolphin/peer-fallback/mcp-lsp.exe-2026-05-28.log`
-- `sql/schema/prompt_intent_drafts.sql`
-- `test/fixtures/p21/README.md`
-- `test/fixtures/p21/cron/README.md`
-- `test/fixtures/p21/prompt-injection/samples.txt`
-- `test/fixtures/p21/repos/.gitkeep`
-- `test/fixtures/p21/repos/bootstrap.sh`
-- `test/fixtures/p21/secrets/check_redaction.go`
-- `test/fixtures/p21/secrets/sample.txt`
-- `test/fixtures/p21/webhooks/README.md`
-- `test/fixtures/p21/webhooks/replay.py`
-- `tests/scripts/guard_env_test.sh`
-- `third_party/kelindar-event/LICENSE`
-- `third_party/kelindar-event/README.md`
-- `third_party/kelindar-event/default.go`
-- `third_party/kelindar-event/default_test.go`
-- `third_party/kelindar-event/event.go`
-- `third_party/kelindar-event/event_test.go`
-- `third_party/kelindar-event/example/main.go`
-- `third_party/kelindar-event/go.mod`
-- `third_party/kelindar-event/go.sum`
+- `.codex-run/chat-layout-check.png`
+- `.codex-run/launcher.err.log`
+- `.codex-run/launcher.log`
+- `.codex-run/manual-bash-launcher.err.log`
+- `.codex-run/manual-bash-launcher.log`
+- `.codex-run/manual-launcher.err.log`
+- `.codex-run/manual-launcher.log`
+- `.codex/.gitignore`
+- `.codex/config.toml`
+- `.codex/hooks.json`
+- `.codex/vite-ui-refactor.err.log`
+- `.codex/vite-ui-refactor.out.log`
+- `.superpowers/brainstorm/1243779-1780164281/content/ready.html`
+- `.superpowers/brainstorm/1243779-1780164281/content/visual-direction.html`
+- `.superpowers/brainstorm/1243779-1780164281/content/waiting-done.html`
+- `.superpowers/brainstorm/1243779-1780164281/state/server-stopped`
+- `.superpowers/brainstorm/1243779-1780164281/state/server.log`
+- `.superpowers/brainstorm/1243779-1780164281/state/server.pid`
+- `cmd/super-dolphin-release-manifest/main.go`
+- `cmd/super-dolphin-release-manifest/main_test.go`
+- `cmd/super-dolphin-updater/detach_darwin.go`
+- `cmd/super-dolphin-updater/detach_default.go`
+- `cmd/super-dolphin-updater/install.go`
+- `cmd/super-dolphin-updater/install_test.go`
+- `cmd/super-dolphin-updater/main.go`
+- `deploy/elk/README.md`
+- `deploy/elk/docker-compose.yml`
+- `deploy/elk/logstash/pipeline/super-dolphin.conf`
+- `filebeat/filebeat.yml`
+- `frontend-app/.env.example`
+- `frontend-app/.gitignore`
+- `frontend-app/.playwright-cli/console-2026-05-31T11-04-30-522Z.log`
+- `frontend-app/.playwright-cli/page-2026-05-31T11-04-30-787Z.yml`
+- `frontend-app/README.md`
+- `frontend-app/eslint.config.js`
+- `frontend-app/index.html`
+- `frontend-app/jsconfig.json`
+- `frontend-app/package-lock.json`
+- `frontend-app/package.json`
+- `frontend-app/playwright.desktop.config.js`
+- `frontend-app/public/favicon.svg`
+- `frontend-app/public/wails/runtime.js`
+- `frontend-app/public/wails/runtime.test.js`
+- `frontend-app/scripts/desktop-runner-contract.test.mjs`
+- `frontend-app/scripts/desktop-smoke.mjs`
+- `frontend-app/scripts/desktop-smoke.test.mjs`
+- `frontend-app/scripts/desktop-ux-smoke.mjs`
+- `frontend-app/scripts/desktop-ux-smoke.test.mjs`
+- `frontend-app/scripts/rpc-contract-audit.mjs`
+- `frontend-app/scripts/rpc-contract-audit.test.mjs`
 
 ## 4. 修复方式
 

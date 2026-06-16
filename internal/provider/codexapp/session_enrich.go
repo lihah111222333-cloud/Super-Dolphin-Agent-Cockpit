@@ -40,67 +40,6 @@ const (
 //
 // 错误路径全部 fail-soft（返回原 msg），让 toolbridge 用其它字段（threadID / 工具名）
 // 继续诊断或失败；本函数不应成为新的崩溃源。
-func enrichToolCallParams(msg RawMessage, agentID, cwd string) RawMessage {
-	agentID = strings.TrimSpace(agentID)
-	cwd = strings.TrimSpace(cwd)
-	if skipToolCallEnrichment(agentID, cwd, msg.Params) {
-		return msg
-	}
-	payload, ok := decodeToolCallParamObject(msg.Params)
-	if !ok || !injectToolCallMetadata(payload, agentID, cwd) {
-		skillmetrics.IncEnrichFailure()
-		return msg
-	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		skillmetrics.IncEnrichFailure()
-		return msg
-	}
-	enriched := msg
-	enriched.Params = raw
-	return enriched
-}
-
-func skipToolCallEnrichment(agentID, cwd string, params json.RawMessage) bool {
-	return (agentID == "" && cwd == "") || len(params) == 0
-}
-
-func decodeToolCallParamObject(params json.RawMessage) (map[string]json.RawMessage, bool) {
-	var payload map[string]json.RawMessage
-	if err := json.Unmarshal(params, &payload); err != nil {
-		return nil, false
-	}
-	if payload == nil {
-		payload = map[string]json.RawMessage{}
-	}
-	return payload, true
-}
-
-func injectToolCallMetadata(payload map[string]json.RawMessage, agentID, cwd string) bool {
-	if agentID != "" {
-		if !setToolCallStringParam(payload, "agentId", agentID) {
-			return false
-		}
-		delete(payload, "agent_id")
-	}
-	if cwd != "" {
-		if !setToolCallStringParam(payload, "_cwd", cwd) {
-			return false
-		}
-		delete(payload, "cwd")
-	}
-	return true
-}
-
-func setToolCallStringParam(payload map[string]json.RawMessage, key, value string) bool {
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return false
-	}
-	payload[key] = encoded
-	return true
-}
-
 func toolCallParamString(params json.RawMessage, key string) string {
 	if len(params) == 0 || strings.TrimSpace(key) == "" {
 		return ""
@@ -114,6 +53,37 @@ func toolCallParamString(params json.RawMessage, key string) string {
 		return ""
 	}
 	return strings.TrimSpace(value)
+}
+
+// enrichToolCallParams 保留旧版 fail-soft 注入路径供守卫和兼容测试覆盖。
+func enrichToolCallParams(msg RawMessage, agentID, cwd string) RawMessage {
+	agentID, cwd = strings.TrimSpace(agentID), strings.TrimSpace(cwd)
+	if (agentID == "" && cwd == "") || len(msg.Params) == 0 {
+		return msg
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(msg.Params, &payload); err != nil || payload == nil || !injectToolCallMetadata(payload, agentID, cwd) {
+		skillmetrics.IncEnrichFailure()
+		return msg
+	}
+	if raw, err := json.Marshal(payload); err == nil {
+		msg.Params = raw
+		return msg
+	}
+	skillmetrics.IncEnrichFailure()
+	return msg
+}
+
+func injectToolCallMetadata(payload map[string]json.RawMessage, agentID, cwd string) bool {
+	if agentID != "" {
+		payload["agentId"] = mustJSON(agentID)
+		delete(payload, "agent_id")
+	}
+	if cwd != "" {
+		payload["_cwd"] = mustJSON(cwd)
+		delete(payload, "cwd")
+	}
+	return true
 }
 
 func shouldWarnToolCWDTrace(toolName string) bool {

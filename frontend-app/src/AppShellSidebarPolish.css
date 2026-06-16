@@ -1,0 +1,15 @@
+.sidebar-new-chat {
+  gap: 18px !important;
+  min-height: 38px !important;
+  height: auto !important;
+  padding: 8px 10px !important;
+  transition: all 0.2s ease;
+}
+
+.sidebar-new-chat:hover {
+  background: var(--sidebar-active-hover, var(--surface-3));
+}
+
+/* ==========================================================================
+   Figure 3: Automation Clock & Presets Enhancements
+   ========================================================================== */

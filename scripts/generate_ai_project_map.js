@@ -26,6 +26,7 @@ const EXCLUDES = [
   '.agnet/shared/**',
   'bin/**',
   'reports/**',
+  'docs/archive/**',
   '**/node_modules/**',
   '**/dist/**',
   '**/coverage/**',
@@ -213,6 +214,7 @@ function shouldSkipDir(rel) {
     '.agent/workspaces',
     '.agnet/report',
     '.agnet/shared',
+    'docs/archive',
     'docs/doc/codemap/project-map',
     'reports',
   ].some((prefix) => rel === prefix || rel.startsWith(`${prefix}/`));

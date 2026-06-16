@@ -23,6 +23,7 @@ import { PathChoiceDialog } from './PathChoiceDialog.jsx';
 import { RuntimeActivityPanel } from './RuntimeActivityPanel.jsx';
 import { RuntimeDiffView } from './RuntimeDiffView.jsx';
 import { RuntimeToolbar } from './RuntimeToolbar.jsx';
+import './RuntimePanel.css';
 
 function RuntimePanel({
   diffText,
