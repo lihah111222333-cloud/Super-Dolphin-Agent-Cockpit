@@ -54,6 +54,7 @@ Thumbs.db
 # Environment
 .env
 .env.local
+/.super-dolphin/
 
 # Agent workspace / tmp
 /.stitch/
