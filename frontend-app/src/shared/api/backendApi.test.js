@@ -1062,6 +1062,7 @@ function expectMemoryCenterValidation(api) {
 
     await api.locateCodeFile({ filePath: 'src/App.jsx', project: '/repo/app', projects: ['/repo/app'] });
     await api.openCodeFile({ filePath: 'src/App.jsx', project: '/repo/app', projects: ['/repo/app'], line: 10, column: 2 });
+    await api.openPath({ filePath: 'src', project: '/repo/app', projects: ['/repo/app'] });
     await api.saveCodeFile({ filePath: 'src/App.jsx', content: 'export default App;', project: '/repo/app', projects: ['/repo/app'] });
 
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_CODE_LOCATE, {
@@ -1076,6 +1077,11 @@ function expectMemoryCenterValidation(api) {
       line: 10,
       column: 2,
     });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_PATH_OPEN, {
+      filePath: 'src',
+      project: '/repo/app',
+      projects: ['/repo/app'],
+    });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_CODE_SAVE, {
       filePath: 'src/App.jsx',
       content: 'export default App;',
@@ -1084,5 +1090,6 @@ function expectMemoryCenterValidation(api) {
     });
     expect(() => api.locateCodeFile({ filePath: '' })).toThrow('filePath is required');
     expect(() => api.openCodeFile({ filePath: '' })).toThrow('filePath is required');
+    expect(() => api.openPath({ filePath: '' })).toThrow('filePath is required');
     expect(() => api.saveCodeFile({ filePath: 'src/App.jsx' })).toThrow('content is required');
   });

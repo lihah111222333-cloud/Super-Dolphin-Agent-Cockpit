@@ -3,12 +3,13 @@ import { act, createEvent, fireEvent, render, screen, waitFor, within } from '@t
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import mermaid from 'mermaid';
 import { ChatPage } from './ChatPage.jsx';
-import { copyTextToClipboard, locateCodeFile, onFilesDropped, openCodeFile } from '../../shared/api/backendApi.js';
+import { copyTextToClipboard, locateCodeFile, onFilesDropped, openCodeFile, openPath } from '../../shared/api/backendApi.js';
 
 vi.mock('../../shared/api/backendApi.js', () => ({
   copyTextToClipboard: vi.fn(),
   locateCodeFile: vi.fn(),
   openCodeFile: vi.fn(),
+  openPath: vi.fn(),
   onFilesDropped: vi.fn(() => () => {}),
   saveCodeFile: vi.fn(),
 }));
@@ -152,6 +153,7 @@ beforeEach(() => {
       { line: 11, text: '}' },
     ],
   });
+  openPath.mockResolvedValue({ ok: true, opened: true });
 });
 
 describe('ChatPage module', () => {
@@ -903,6 +905,33 @@ describe('ChatPage module', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Follow-up' }));
     expect(store.selectThread).toHaveBeenCalledWith('thread-2');
+  });
+
+  it('opens local markdown links from timeline messages directly', async () => {
+    const store = createActiveThreadStore([
+      {
+        id: 'assistant-link',
+        role: 'assistant',
+        text: '[chat](frontend-app/src/pages/chat/)',
+        time: '2026-06-02T08:00:00Z',
+      },
+    ], {
+      activeProject: '/repo/app',
+      projects: ['/repo/app'],
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    fireEvent.click(screen.getByRole('button', { name: /\u6253\u5f00\u6587\u4ef6 chat/ }));
+
+    await waitFor(() => expect(openPath).toHaveBeenCalledWith({
+      filePath: 'frontend-app/src/pages/chat/',
+      line: 1,
+      column: 0,
+      project: '/repo/app',
+      projects: ['/repo/app'],
+    }));
+    expect(openCodeFile).not.toHaveBeenCalled();
   });
 
   it('materializes only the recent timeline window until older messages are requested', () => {

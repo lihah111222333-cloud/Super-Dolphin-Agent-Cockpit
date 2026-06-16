@@ -50,7 +50,7 @@ import {
   scrollTimelineElementToBottom,
 } from './hooks/timelineScroll.js';
 import { useTimelineMaterialization } from './hooks/useTimelineMaterialization.js';
-import { locateCodeFile, openCodeFile, saveCodeFile } from './services/chatCodeService.js';
+import { locateCodeFile, openCodeFile, openPath, saveCodeFile } from './services/chatCodeService.js';
 import './ChatTimeline.css';
 import './ChatMessages.css';
 import './ChatReasoning.css';
@@ -118,6 +118,24 @@ function useCodePreviewController({ projectPath, projects }) {
     }
   }, [openCodePreviewForPath, projectPath, projects]);
 
+  const openLocalPath = useCallback(async (payload = {}) => {
+    const filePath = (payload.path || payload.filePath || '').toString().trim();
+    if (!filePath) return;
+    const position = fileRefPosition(payload);
+    try {
+      await openPath(runtimeCodeScopePayload(filePath, projectPath, projects, position));
+    } catch (error) {
+      setCodePreview({
+        ...emptyCodePreviewState(),
+        open: true,
+        loading: false,
+        filePath,
+        relative: filePath,
+        error: codeActionError(error, '鎵撳紑澶辫触'),
+      });
+    }
+  }, [projectPath, projects]);
+
   const openChosenPath = useCallback(async (filePath) => {
     const fallback = pathChoice.file?.filename || filePath;
     const position = pathChoice.file?.position || null;
@@ -177,7 +195,7 @@ function useCodePreviewController({ projectPath, projects }) {
     </>
   );
 
-  return { dialogs, openFileRef };
+  return { dialogs, openFileRef, openLocalPath };
 }
 
 function shouldIgnoreGlobalEscape(target) {
@@ -369,9 +387,10 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
   const codePreview = useCodePreviewController({ projectPath: runtimeProject, projects: store.projects });
   const messageActions = useMemo(() => ({
     onFileRef: codePreview.openFileRef,
+    onOpenPath: codePreview.openLocalPath,
     onCitation: (payload) => handleTimelineCitationAction(payload, { store, openFileRef: codePreview.openFileRef }),
     onApproval: (message, approved) => store.respondApproval?.(message, approved),
-  }), [codePreview.openFileRef, store]);
+  }), [codePreview.openFileRef, codePreview.openLocalPath, store]);
   const viewportWidth = useViewportWidth();
   const chatLayoutRef = useRef(null);
   const rail = useThreadRailLayout({
