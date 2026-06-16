@@ -2,16 +2,16 @@
 
 > 状态：**OK**
 >
-> 已索引文件：4319
+> 已索引文件：4896
 >
-> 未细分职责文件：365
+> 未细分职责文件：380
 
 ## 1. 漂移指标
 
 | 指标 | 当前值 |
 |---|---:|
-| 未细分职责文件数 | 365 |
-| 未细分职责占比 | 8.45% |
+| 未细分职责文件数 | 380 |
+| 未细分职责占比 | 7.76% |
 
 ## 2. 未细分职责分布
 
@@ -22,8 +22,10 @@
 | `internal` | 24 |
 | `test` | 9 |
 | `third_party` | 9 |
+| `.codex-run` | 7 |
 | `cmd` | 7 |
-| `.codex` | 3 |
+| `.superpowers` | 6 |
+| `.codex` | 5 |
 | `deploy` | 3 |
 | `filebeat` | 1 |
 | `logstash` | 1 |
@@ -33,9 +35,24 @@
 
 ## 3. 样例文件
 
+- `.codex-run/chat-layout-check.png`
+- `.codex-run/launcher.err.log`
+- `.codex-run/launcher.log`
+- `.codex-run/manual-bash-launcher.err.log`
+- `.codex-run/manual-bash-launcher.log`
+- `.codex-run/manual-launcher.err.log`
+- `.codex-run/manual-launcher.log`
 - `.codex/.gitignore`
 - `.codex/config.toml`
 - `.codex/hooks.json`
+- `.codex/vite-ui-refactor.err.log`
+- `.codex/vite-ui-refactor.out.log`
+- `.superpowers/brainstorm/1243779-1780164281/content/ready.html`
+- `.superpowers/brainstorm/1243779-1780164281/content/visual-direction.html`
+- `.superpowers/brainstorm/1243779-1780164281/content/waiting-done.html`
+- `.superpowers/brainstorm/1243779-1780164281/state/server-stopped`
+- `.superpowers/brainstorm/1243779-1780164281/state/server.log`
+- `.superpowers/brainstorm/1243779-1780164281/state/server.pid`
 - `cmd/super-dolphin-release-manifest/main.go`
 - `cmd/super-dolphin-release-manifest/main_test.go`
 - `cmd/super-dolphin-updater/detach_darwin.go`
@@ -68,21 +85,6 @@
 - `frontend-app/scripts/desktop-ux-smoke.test.mjs`
 - `frontend-app/scripts/rpc-contract-audit.mjs`
 - `frontend-app/scripts/rpc-contract-audit.test.mjs`
-- `frontend-app/scripts/sync-frontend-dist.mjs`
-- `frontend-app/scripts/sync-frontend-dist.test.mjs`
-- `frontend-app/src/App.jsx`
-- `frontend-app/src/App.test.jsx`
-- `frontend-app/src/AppChrome.css`
-- `frontend-app/src/AppShell.css`
-- `frontend-app/src/AppShellSidebarPolish.css`
-- `frontend-app/src/AppShellSidebarThreadActions.css`
-- `frontend-app/src/AppShellWorkbench.css`
-- `frontend-app/src/SettingsPage.test.jsx`
-- `frontend-app/src/adapters/apiErrorAdapter.js`
-- `frontend-app/src/adapters/fileAdapter.js`
-- `frontend-app/src/adapters/memoryAdapter.js`
-- `frontend-app/src/adapters/observabilityAdapter.js`
-- `frontend-app/src/assets/super-dolphin-logo.png`
 
 ## 4. 修复方式
 

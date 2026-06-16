@@ -13,7 +13,6 @@ cmd/
 └── mcp-lsp/             # MCP generic multi-language LSP peer (code intelligence)
 
 frontend-app/            # Current React/Vite new UI used by run-new-ui-desktop.sh
-frontend/                # Legacy web-only dev harness used by run-new-ui-web.sh
 
 internal/
 ├── contract/            # Cross-module interfaces & DTOs
@@ -168,8 +167,6 @@ SUPER_DOLPHIN_HOT_WATCH_PATHS="cmd internal pkg go.mod go.sum" ./run-new-ui-desk
 `make install-hooks` sets `core.hooksPath` to `.githooks`, enabling automatic pre-commit and pre-push checks. Bypass with `--no-verify` only in emergencies — violations must be fixed retroactively.
 
 ## Code Map
-
-Documentation entry point: [`docs/README.md`](docs/README.md).
 
 Full code map: [`docs/doc/codemap/README.md`](docs/doc/codemap/README.md). Key sections:
 

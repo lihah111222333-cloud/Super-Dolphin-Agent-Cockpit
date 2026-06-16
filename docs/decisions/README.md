@@ -27,7 +27,6 @@
 - [ADR-016：DAG agent 节点完成后 spawned agent 自动 stop（C3）](./ADR-016-spawned-agent-auto-stop.md) — 2026-05-12 v1.2 升 Accepted（`cddb3ea2`；stop helper + metric + e2e）
 - [ADR-017：DAG turn.completed subscriber + thread.stopped fallback（A1）](./ADR-017-dag-turn-completed-subscriber.md) — 2026-05-12 v1.2 升 Accepted（`00864aa7`；subscriber lifecycle 闭环 + fallback）
 - [ADR-018：agent 节点真实输出物化（A2）](./ADR-018-agent-output-materialization.md) — 2026-05-13 升 Accepted（`3e70e468` + review-fix `02009e22`；复用 `CompleteNodeAndScheduleDownstream`，sharedfile 路径新增 materialization claim fence）
-- [ADR-019：保留 legacy frontend package 作为 embed fallback](./ADR-019-legacy-frontend-embed-fallback.md) — 2026-06-16 Accepted（当前 UI 事实源为 `frontend-app/`，`cmd/agent-terminal/frontend/**` 仅作为 legacy/package-embed fallback 保留）
 
 ### Proposed（DAG 改造修补单 §7 占位 + 返修轮新立，待拍板）
 

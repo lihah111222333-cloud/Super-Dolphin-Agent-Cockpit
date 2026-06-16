@@ -39,7 +39,7 @@ Interactivity target: full interaction where the existing backend supports it; h
 | `frontend-app/src/assets/super-dolphin-logo.png` | Valid asset | Logo only |
 | `frontend-app/design-qa-active-chat.png` | Not accepted as current prototype | Historical/current QA screenshot unless user explicitly selects it |
 | `frontend-app/design-qa-mobile-chat-loaded.png` | Not accepted as current prototype | Historical/current QA screenshot unless user explicitly selects it |
-| `docs/archive/evidence/ai01-docs/assets/2026-06-03-*.png` | Not accepted as current prototype | Older review screenshots |
+| `docs/ai01-docs/assets/2026-06-03-*.png` | Not accepted as current prototype | Older review screenshots |
 | `cmd/agent-terminal/frontend/tests/e2e/**/*.png` | Out of scope | Legacy Vue E2E snapshots |
 
 Visual conclusion: the two recovered Codex clipboard screenshots are now the selected local visual target for the first implementation slices.

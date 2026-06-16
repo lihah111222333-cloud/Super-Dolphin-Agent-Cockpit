@@ -20,8 +20,6 @@ before scanning large documentation folders.
 - `plans/`: historical execution plans. These files can explain why earlier
   work happened, but they are not current implementation truth.
 - `superpowers/plans/`: historical Superpowers implementation plans.
-- `ai01-docs/`: historical AI01 plans, SOP drafts, workflow notes, and test
-  reports retained for provenance.
 - `archive/`: old reports, agent notes, generated analysis, review logs, and
   evidence moved out of the default reading path.
 
