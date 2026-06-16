@@ -1,9 +1,9 @@
 # MR !52 Bugfix Task05 集成验收报告
 
-日期：2026-06-16  
-执行者：xhight-codeagent  
-Worktree：`C:\Users\ai03\Desktop\Super-Dolphin\.worktrees\mr52-bugfix-task-05-integration-acceptance`  
-分支：`codex/mr52-bugfix-task-05-integration-acceptance`  
+日期：2026-06-16
+执行者：xhight-codeagent
+Worktree：`C:\Users\ai03\Desktop\Super-Dolphin\.worktrees\mr52-bugfix-task-05-integration-acceptance`
+分支：`codex/mr52-bugfix-task-05-integration-acceptance`
 HEAD：`057b4f9e`
 
 ## 任务范围
@@ -91,47 +91,47 @@ Task05 原文预期 final diff 不包含 migration/generated；但 Task04 review
 
 ## P1 验收结论
 
-1. `NewDB(&config.Config{SQLitePath: existingReadOnlyDB})` 返回非 nil error。  
+1. `NewDB(&config.Config{SQLitePath: existingReadOnlyDB})` 返回非 nil error。
    结论：通过。SQLite focused tests exit 0；`open.go` 在打开期通过 `probeExistingDatabaseWritable()` 使用 `os.OpenFile(path, os.O_RDWR, 0)` 探测已有 DB。
 
-2. error 不包含完整 DB path，只包含 redacted basename。  
+2. error 不包含完整 DB path，只包含 redacted basename。
    结论：通过。SQLite 错误路径使用 `redactPath()` 与 `securefs.SafeErrorForPath()`；相关 redaction 测试随 `NewDBRejects` 正则通过。
 
-3. 错误发生在 `sqlite.Open()` 打开期，不依赖 migration 或业务 SQL。  
+3. 错误发生在 `sqlite.Open()` 打开期，不依赖 migration 或业务 SQL。
    结论：通过。写探测位于 `prepareFilesystem()` / `validateExistingDatabasePath()`，发生在 `sql.Open()`、PRAGMA 与 migration 前。
 
-4. Windows ACL/只读测试继续通过；Unix/macOS 通过显式 `O_RDWR` 探测。  
+4. Windows ACL/只读测试继续通过；Unix/macOS 通过显式 `O_RDWR` 探测。
    结论：通过，但本机有一个 Windows parent-writable 平台差异 skip；read-only DB 文件和 focused tests 均通过。
 
 ## P2 验收结论
 
-1. 使用真实目录和 symlink alias 作为 `codexHome` 时，provider 前 `CodexHome` 为 realpath。  
+1. 使用真实目录和 symlink alias 作为 `codexHome` 时，provider 前 `CodexHome` 为 realpath。
    结论：有条件通过。代码通过 thread helper 复用 `contract.ResolveCodexIdentity()`；本机 symlink 专项测试因 Windows 权限 skip，非 symlink canonical/clean alias 测试通过。建议在具备 symlink 权限的环境补跑专项测试。
 
-2. resume 的 `req.Config["codexHome"]`、thread runtime config、binding `CodexHome` 收敛到同一 canonical realpath。  
+2. resume 的 `req.Config["codexHome"]`、thread runtime config、binding `CodexHome` 收敛到同一 canonical realpath。
    结论：通过。thread focused tests 和 guard wrapper exit 0；相关覆盖包括 resume config、persisted runtime config、binding repair、history input。
 
-3. 已有 binding 存 raw alias 且 instance key/model provider 相同时，会被修正为 canonical realpath。  
+3. 已有 binding 存 raw alias 且 instance key/model provider 相同时，会被修正为 canonical realpath。
    结论：通过。`TestBindingRegistrationPersistsCodexIdentity`、`TestSQLiteUpsertAllowsCodexHomeAliasRepairForSameTuple` 及 guard wrapper 覆盖通过。
 
-4. 已有 binding 的 instance key/model provider 与 incoming 不同时，保持不可变冲突，不被覆盖。  
+4. 已有 binding 的 instance key/model provider 与 incoming 不同时，保持不可变冲突，不被覆盖。
    结论：通过。`TestBindingRegistrationRejectsCodexIdentityTupleConflict`、`TestSQLiteUpsertRejectsCodexTupleConflicts` 覆盖通过。
 
-5. history 读取继续使用 binding 中的 `CodexHome`，且 binding 写入或 backfill 时已 canonicalize。  
+5. history 读取继续使用 binding 中的 `CodexHome`，且 binding 写入或 backfill 时已 canonicalize。
    结论：通过。`TestBindingRegistrationHistoryInputUsesCanonicalCodexHome` 和 auto-resume backfill 覆盖通过。
 
 ## P3 验收结论
 
-1. `config.New()` 的 `SUPER_DOLPHIN_SQLITE_PATH=parentFile/secret.db` 仍报 parent redacted 错误。  
+1. `config.New()` 的 `SUPER_DOLPHIN_SQLITE_PATH=parentFile/secret.db` 仍报 parent redacted 错误。
    结论：通过。`ResolveSQLitePathRejectsParentFile` focused tests exit 0。
 
-2. 直接 `NewDB(&config.Config{SQLitePath: parentFile/secret.db})` 也报 parent redacted 错误。  
+2. 直接 `NewDB(&config.Config{SQLitePath: parentFile/secret.db})` 也报 parent redacted 错误。
    结论：通过。`NewDBRejectsParentFile` focused tests exit 0。
 
-3. error 不包含完整 parent path，不包含完整 leaf DB path。  
+3. error 不包含完整 parent path，不包含完整 leaf DB path。
    结论：通过。redaction 测试随 SQLite focused tests 通过。
 
-4. DB path 本身为目录时仍报 leaf DB path redacted 错误，不被父路径检查误吞。  
+4. DB path 本身为目录时仍报 leaf DB path redacted 错误，不被父路径检查误吞。
    结论：通过。`NewDBRejects` focused tests 覆盖通过。
 
 ## hight-reviewagent 评审状态
