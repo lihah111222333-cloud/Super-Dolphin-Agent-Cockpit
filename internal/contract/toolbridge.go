@@ -48,9 +48,9 @@ func NormalizeToolSurfaceMode(value string) (string, error) {
 // ToolSurfaceModeUsesDynamicTools 处理工具surface模式usesdynamic工具。
 func ToolSurfaceModeUsesDynamicTools(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "", ToolSurfaceModeAgent:
+	case "", ToolSurfaceModeChat, ToolSurfaceModeAgent:
 		return true
-	case ToolSurfaceModeChat, ToolSurfaceModeAuto:
+	case ToolSurfaceModeAuto:
 		return false
 	default:
 		return false
