@@ -528,6 +528,7 @@ docs/cc/数据库切换/sqlite-data-reset.md	docs	docs-agent	doc	1654	项目文�
 docs/cc/数据库切换/sqlite-release-gate-report.md	docs	docs-agent	doc	4866	项目文档体系	docs,cc,数据库切换,sqlite,release,gate,report,项目文档体系
 docs/cc/数据库切换/sqlite-switch-overall-readiness-review-2026-06-14.md	docs	docs-agent	doc	6645	项目文档体系	docs,cc,数据库切换,sqlite,switch,overall,readiness,review,2026,06,14,项目文档体系
 docs/cc/数据库切换/sqlite-switch-overall-readiness-review-2026-06-15.md	docs	docs-agent	doc	4862	项目文档体系	docs,cc,数据库切换,sqlite,switch,overall,readiness,review,2026,06,15,项目文档体系
+docs/cc/README.md	docs	docs-agent	doc	565	项目文档体系	docs,cc,README,项目文档体系
 docs/decisions/ADR-001-runtime-memory-retrieval.md	docs	docs-agent	doc	4188	ADR/决策记录	docs,decisions,ADR,001,runtime,memory,retrieval,决策记录
 docs/decisions/ADR-002-dependency-aware-cache.md	docs	docs-agent	doc	8106	ADR/决策记录	docs,decisions,ADR,002,dependency,aware,cache,决策记录
 docs/decisions/ADR-003-mcp-input-enum-validation.md	docs	docs-agent	doc	5845	ADR/决策记录	docs,decisions,ADR,003,mcp,input,enum,validation,决策记录
@@ -545,7 +546,7 @@ docs/decisions/ADR-015-provider-turn-completed-result.md	docs	docs-agent	doc	246
 docs/decisions/ADR-016-spawned-agent-auto-stop.md	docs	docs-agent	doc	25419	ADR/决策记录	docs,decisions,ADR,016,spawned,agent,auto,stop,决策记录
 docs/decisions/ADR-017-dag-turn-completed-subscriber.md	docs	docs-agent	doc	36555	ADR/决策记录	docs,decisions,ADR,017,dag,turn,completed,subscriber,决策记录
 docs/decisions/ADR-018-agent-output-materialization.md	docs	docs-agent	doc	6732	ADR/决策记录	docs,decisions,ADR,018,agent,output,materialization,决策记录
-docs/decisions/README.md	docs	docs-agent	doc	4174	ADR/决策记录	docs,decisions,README,ADR,决策记录
+docs/decisions/README.md	docs	docs-agent	doc	4432	ADR/决策记录	docs,decisions,README,ADR,决策记录
 docs/design/F1-lifecycle-audit-2026-05-12.md	docs	docs-agent	doc	31844	项目文档体系	docs,design,F1,lifecycle,audit,2026,05,12,项目文档体系
 docs/doc/codemap/01-terminal-ui-go.md	docs	docs-agent	doc	25751	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,go,手写代码地图卷与自动,ai-index
 docs/doc/codemap/01-terminal-ui-react.md	docs	docs-agent	doc	3954	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,react,手写代码地图卷与自动,ai-index
