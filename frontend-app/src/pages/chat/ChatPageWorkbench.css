@@ -261,11 +261,13 @@
 .empty-chat h2 {
   margin: 0;
   color: var(--text-pri);
-  font-size: clamp(28px, 3vw, 46px);
-  line-height: 1.18;
+  font-size: clamp(30px, 2.75rem, 48px);
+  line-height: 1.12;
   font-weight: 800;
   letter-spacing: 0;
-  white-space: nowrap;
+  text-wrap: balance;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .empty-chat p {

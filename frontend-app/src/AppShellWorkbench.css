@@ -329,7 +329,7 @@
 }
 
 .sidebar-scrollable-content {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   overflow-y: auto;
   min-height: 0;
   display: flex;
@@ -569,9 +569,12 @@
 }
 
 .sidebar-settings {
-  margin-top: auto;
+  position: relative;
+  z-index: 4;
+  margin-top: 0;
   min-height: 42px;
   flex-shrink: 0;
+  background: var(--sidebar-bg);
 }
 
 .sidebar-theme-toggle {

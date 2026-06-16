@@ -718,7 +718,10 @@ async function showAllTraceDashboardEvents() {
       },
     }));
     backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
-    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    backend.setActiveProject.mockImplementation(({ path }) => Promise.resolve({
+      projects: path === '/repo/new' ? ['/repo/app', '/repo/other', '/repo/new'] : ['/repo/app', '/repo/other'],
+      active: path,
+    }));
     backend.addProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other', '/repo/new'], active: '/repo/other' });
     backend.selectProjectDir.mockResolvedValue('/repo/new');
 
@@ -736,13 +739,26 @@ async function showAllTraceDashboardEvents() {
     await waitFor(() => expect(backend.setActiveProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/other' }));
     await waitFor(() => expect(within(otherChats).getByTitle('Other project chat')).toBeInTheDocument());
 
-    fireEvent.click(within(otherChats).getByTitle('Other project chat'));
+    fireEvent.click(within(otherChats).getByTitle('重命名'));
+    fireEvent.change(within(otherChats).getByLabelText('会话名称'), { target: { value: 'Renamed sidebar chat' } });
+    fireEvent.click(within(otherChats).getByLabelText('保存会话名称'));
+    await waitFor(() => expect(backend.renameThread).toHaveBeenCalledWith({ threadId: 'thread-other', name: 'Renamed sidebar chat' }));
+    await waitFor(() => expect(within(otherChats).getByTitle('Renamed sidebar chat')).toBeInTheDocument());
+
+    fireEvent.click(within(otherChats).getByTitle('Renamed sidebar chat'));
     await waitFor(() => expect(useClientStore.getState().activeThreadId).toBe('thread-other'));
+
+    fireEvent.click(within(otherChats).getByTitle('删除'));
+    fireEvent.click(within(otherChats).getByRole('button', { name: '删除' }));
+    await waitFor(() => expect(backend.deleteThread).toHaveBeenCalledWith({ threadId: 'thread-other' }));
+
+    await waitFor(() => expect(useClientStore.getState().activeThreadId).toBe(''));
 
     fireEvent.click(within(sidebar).getByRole('button', { name: '添加项目目录' }));
     await waitFor(() => expect(backend.selectProjectDir).toHaveBeenCalledWith('/repo/other'));
     expect(backend.addProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
-    expect(await screen.findByTestId('chat-page')).toBeInTheDocument();
+    expect(backend.setActiveProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
+    await waitFor(() => expect(useClientStore.getState().activePage).toBe('chat'));
   });
 
   it('moves automation threads from project chats into the sidebar task list', async () => {
@@ -4124,7 +4140,10 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
   it('aligns the project selector dropdown with old project actions', async () => {
     backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
-    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    backend.setActiveProject.mockImplementation(({ path }) => Promise.resolve({
+      projects: path === '/repo/new' ? ['/repo/app', '/repo/other', '/repo/new'] : ['/repo/app', '/repo/other'],
+      active: path,
+    }));
     backend.addProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other', '/repo/new'], active: '/repo/other' });
     backend.removeProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
 
@@ -4146,7 +4165,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
     await waitFor(() => {
       expect(backend.selectProjectDir).toHaveBeenCalledWith('/repo/other');
       expect(backend.addProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
-      expect(screen.getByRole('button', { name: '选择项目' })).toHaveTextContent(/^other$/);
+      expect(backend.setActiveProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
+      expect(screen.getByRole('button', { name: '选择项目' })).toHaveTextContent(/^new$/);
     });
 
     fireEvent.click(screen.getByRole('button', { name: '选择项目' }));
