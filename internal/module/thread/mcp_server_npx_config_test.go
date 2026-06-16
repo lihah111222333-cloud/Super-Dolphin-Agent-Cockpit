@@ -6,14 +6,12 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-func TestRenderMCPServerConfigMapCarriesStdioNPXServer(t *testing.T) {
+func TestRenderMCPServerConfigMapCarriesGlobalPostgresServer(t *testing.T) {
 	got := renderMCPServerConfigMap(map[string]contract.MCPServerConfig{
 		"postgres": {
 			Transport: "stdio",
-			Command:   "npx",
+			Command:   "mcp-server-postgres",
 			Args: []string{
-				"-y",
-				"@modelcontextprotocol/server-postgres",
 				"postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable",
 			},
 		},
@@ -23,11 +21,11 @@ func TestRenderMCPServerConfigMapCarriesStdioNPXServer(t *testing.T) {
 	if !ok {
 		t.Fatalf("postgres server = %#v, want object", got["postgres"])
 	}
-	if server["transport"] != "stdio" || server["command"] != "npx" {
-		t.Fatalf("server = %#v, want stdio npx config", server)
+	if server["transport"] != "stdio" || server["command"] != "mcp-server-postgres" {
+		t.Fatalf("server = %#v, want stdio mcp-server-postgres config", server)
 	}
 	args, ok := server["args"].([]string)
-	if !ok || len(args) != 3 || args[1] != "@modelcontextprotocol/server-postgres" {
-		t.Fatalf("server args = %#v, want postgres npx args", server["args"])
+	if !ok || len(args) != 1 || args[0] != "postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable" {
+		t.Fatalf("server args = %#v, want postgres database url", server["args"])
 	}
 }

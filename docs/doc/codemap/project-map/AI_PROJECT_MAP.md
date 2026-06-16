@@ -1,8 +1,8 @@
 # AI 项目地图（Super-Dolphin）
 
-> 生成时间：2026-05-28
+> 生成时间：2026-06-16
 >
-> 已索引文件：**4213**
+> 已索引文件：**4896**
 >
 > 漂移状态：**OK**（详见 `docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md`）
 
@@ -21,13 +21,13 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 
 | 索引文件 | 文件数 | 覆盖范围 |
 |---|---:|---|
-| `docs/doc/codemap/project-map/index/app-ui.tsv` | 607 | 桌面应用、Wails host、Vue/Vite 前端与 UI 测试 |
-| `docs/doc/codemap/project-map/index/orchestration.tsv` | 319 | mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具 |
-| `docs/doc/codemap/project-map/index/modules.tsv` | 591 | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
-| `docs/doc/codemap/project-map/index/platform-provider.tsv` | 677 | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
-| `docs/doc/codemap/project-map/index/store-sql.tsv` | 277 | 持久化层：store、sqlc、SQL queries、migrations |
-| `docs/doc/codemap/project-map/index/docs-agent.tsv` | 1390 | 代码地图、ADR/决策、计划、agent skills/workflows 与项目知识 |
-| `docs/doc/codemap/project-map/index/other.tsv` | 352 | 公共库、脚本、测试、配置与其他根级资源 |
+| `docs/doc/codemap/project-map/index/app-ui.tsv` | 396 | 桌面应用、Wails host、Vue/Vite 前端与 UI 测试 |
+| `docs/doc/codemap/project-map/index/orchestration.tsv` | 355 | mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具 |
+| `docs/doc/codemap/project-map/index/modules.tsv` | 665 | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
+| `docs/doc/codemap/project-map/index/platform-provider.tsv` | 844 | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
+| `docs/doc/codemap/project-map/index/store-sql.tsv` | 299 | 持久化层：store、sqlc、SQL queries、migrations |
+| `docs/doc/codemap/project-map/index/docs-agent.tsv` | 1569 | 代码地图、ADR/决策、计划、agent skills/workflows 与项目知识 |
+| `docs/doc/codemap/project-map/index/other.tsv` | 768 | 公共库、脚本、测试、配置与其他根级资源 |
 
 每个 TSV 字段为：`path`、`module`、`domain`、`type`、`size_bytes`、`purpose`、`search_keys`。
 
@@ -35,21 +35,29 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 
 | 模块 | 文件数 | 职责 |
 |---|---:|---|
-| `internal` | 1509 | 应用内部模块、平台、provider、store 与守卫 |
-| `cmd` | 1072 | 可执行入口与 MCP peer |
-| `docs` | 533 | 代码地图、ADR、计划、迁移和内部说明 |
-| `.agent` | 438 | 项目级 agent 技能与工作流 canonical |
-| `.agents` | 417 | agent/Codex mirror 入口 |
-| `migrations` | 107 | 数据库 migration |
-| `scripts` | 42 | 工程自动化脚本 |
+| `internal` | 1739 | 应用内部模块、平台、provider、store 与守卫 |
+| `cmd` | 959 | 可执行入口与 MCP peer |
+| `docs` | 716 | 代码地图、ADR、计划、迁移和内部说明 |
+| `.agent` | 436 | 项目级 agent 技能与工作流 canonical |
+| `.agents` | 415 | agent/Codex mirror 入口 |
+| `frontend-app` | 260 | 其他项目资源 |
+| `migrations` | 111 | 数据库 migration |
+| `scripts` | 89 | 工程自动化脚本 |
+| `frontend` | 45 | 其他项目资源 |
 | `sql` | 28 | SQL query 源文件 |
-| `pkg` | 21 | 可复用公共库 |
-| `(root)` | 19 | 仓库根级配置和说明 |
+| `(root)` | 26 | 仓库根级配置和说明 |
+| `pkg` | 23 | 可复用公共库 |
 | `test` | 9 | 测试夹具和辅助资源 |
 | `third_party` | 9 | 其他项目资源 |
+| `.codex-run` | 7 | 其他项目资源 |
+| `.superpowers` | 6 | 其他项目资源 |
+| `.codex` | 5 | 其他项目资源 |
 | `.githooks` | 4 | Git hooks |
-| `logs` | 3 | 其他项目资源 |
-| `.github` | 1 | GitHub 配置 |
+| `deploy` | 3 | 其他项目资源 |
+| `.github` | 2 | GitHub 配置 |
+| `filebeat` | 1 | 其他项目资源 |
+| `logstash` | 1 | 其他项目资源 |
+| `skills` | 1 | 其他项目资源 |
 | `tests` | 1 | 跨包测试资源 |
 
 ## 4. 快速定位路由

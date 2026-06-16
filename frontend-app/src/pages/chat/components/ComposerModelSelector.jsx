@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Zap } from 'lucide-react';
 import { loadedModelDraft, modelSelectorDerivedState, modelSelectorSnapshot, nextModelDraft } from '../adapters/composerModelSelectorState.js';
 import { runUIAction } from './chatUiActions.js';
 
@@ -80,7 +80,8 @@ function ModelSelectorButton({ controller }) {
       disabled={controller.disabled}
       onClick={() => runUIAction(controller.openSelector)}
     >
-      {controller.label}
+      {controller.providerKey === 'codex' ? <Zap size={14} aria-hidden="true" /> : null}
+      <span>{controller.label}</span>
       <ChevronDown size={12} />
     </button>
   );

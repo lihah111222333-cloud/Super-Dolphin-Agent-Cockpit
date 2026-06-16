@@ -11,6 +11,8 @@
     "smoke:desktop:rpc": "node scripts/desktop-smoke.mjs",
     "smoke:desktop:ux": "node scripts/desktop-ux-smoke.mjs",
     "build": "vite build",
+    "typecheck:contracts": "tsc -p tsconfig.contracts.json --noEmit",
+    "audit:rpc-contracts": "node scripts/rpc-contract-audit.mjs",
     "lint": "eslint .",
     "preview": "vite preview --host 127.0.0.1 --port 4175",
     "test": "vitest run"
@@ -36,6 +38,7 @@
     "globals": "^17.6.0",
     "jsdom": "^26.0.0",
     "postcss": "^8.5.15",
+    "typescript": "^5.9.3",
     "vite": "^8.0.12",
     "vitest": "^4.1.8"
   }

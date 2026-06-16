@@ -1,0 +1,91 @@
+.console-page,
+.memory-page,
+.settings-page,
+.workflow-page {
+  overflow: auto;
+}
+
+.toolbar-line,
+.action-row,
+.skills-toolbar,
+.skill-filter,
+.memory-tabs {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 28px 0;
+}
+
+.segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 4px;
+}
+
+.segment span {
+  color: var(--muted);
+  padding: 0 12px;
+}
+
+.segment button,
+.memory-tabs button,
+.tabs button {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  min-height: 36px;
+  padding: 0 14px;
+}
+
+.segment .active,
+.memory-tabs .active,
+.tabs .active {
+  background: color-mix(in srgb, var(--info) 12%, var(--surface));
+  color: var(--info);
+}
+
+.action-row button,
+.skills-toolbar button,
+.file-intro button {
+  color: var(--muted);
+}
+
+.ghost {
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+.empty-state {
+  min-height: 58vh;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  color: var(--text-subtle);
+  text-align: center;
+}
+
+.empty-state span {
+  width: 66px;
+  height: 66px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-sec);
+}
+
+.empty-state h2 {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 18px;
+}
+
+.empty-state p {
+  margin: 0;
+}

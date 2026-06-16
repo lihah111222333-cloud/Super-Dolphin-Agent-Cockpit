@@ -464,7 +464,7 @@ func (d *driver) missingResumeIdentityOptions(req dto.ResumeSessionRequest, stri
 }
 
 func withPoolSpawnSessionConfig(ctx context.Context, workDir string, cfg map[string]any, policy codexNativeToolPolicy) context.Context {
-	roots := trustedWorkspaceRoots(workDir, providershared.ConfigStringSlice(cfg, "additionalWorkingDirectories", "additional_working_directories"))
+	roots := trustedWorkspaceRoots(workDir, providershared.ConfigStringSlice(cfg, contract.RuntimeConfigAdditionalWorkingDirectories.Keys()...))
 	binaryDir := providershared.ResolveBinaryDir(workDir, cfg)
 	ctx = withPoolSpawnWorkDir(ctx, workDir)
 	ctx = withPoolSpawnLSPConfig(ctx, roots, binaryDir)

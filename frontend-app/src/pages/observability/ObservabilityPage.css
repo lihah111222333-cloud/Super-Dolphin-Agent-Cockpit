@@ -1,0 +1,578 @@
+.settings-page.observability-page {
+  padding: 18px 24px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.observability-page .settings-header,
+.observability-log-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.observability-page .settings-header h1,
+.observability-page .settings-card h2 {
+  margin: 0;
+}
+
+.observability-page .settings-header p,
+.observability-log-header p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+}
+
+.observability-page .settings-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 14px;
+}
+
+.observability-search {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--panel) 72%, var(--bg));
+  padding: 14px;
+}
+
+.observability-filter-grid {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px 14px;
+}
+
+.observability-filter-grid label {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.observability-filter-grid input,
+.observability-filter-grid select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--panel-2) 82%, var(--bg));
+  color: var(--text-pri);
+  padding: 0 11px;
+}
+
+.observability-filter-grid input::placeholder {
+  color: var(--text-subtle);
+}
+
+.observability-filter-grid input:focus-visible,
+.observability-filter-grid select:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--blue) 58%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 16%, transparent);
+}
+
+.observability-search .settings-actions {
+  margin-top: 12px;
+}
+
+.observability-result-header {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.observability-result-header p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.observability-system-log {
+  min-width: 0;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.observability-log-table {
+  width: 100%;
+  min-width: 0;
+  max-height: min(560px, calc(100vh - 320px));
+  margin-top: 12px;
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: auto;
+}
+
+.observability-log-table-head,
+.observability-log-table-body {
+  display: block;
+}
+
+.observability-log-table-head-row,
+.observability-log-table-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(168px, 0.8fr) minmax(78px, 0.35fr) minmax(0, 2.7fr) minmax(176px, 0.7fr);
+  gap: 12px;
+  align-items: start;
+  padding: 10px 12px;
+}
+
+.observability-log-table-head {
+  background: color-mix(in srgb, var(--panel-3) 62%, var(--panel));
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.observability-log-table [role='columnheader'],
+.observability-log-table [role='cell'] {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.observability-log-table-entry {
+  min-width: 0;
+}
+
+.observability-log-table-row {
+  border-top: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.observability-log-table-row time {
+  color: var(--text-subtle);
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.observability-status-pill {
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--info) 14%, transparent);
+  color: var(--info);
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.observability-status-pill.is-slow {
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: var(--warning);
+}
+
+.observability-status-pill.is-error,
+.observability-status-pill.is-panic {
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+  color: var(--error);
+}
+
+.observability-status-pill.is-sampled,
+.observability-status-pill.is-dropped-summary {
+  background: color-mix(in srgb, var(--text-subtle) 14%, transparent);
+  color: var(--text-muted);
+}
+
+.observability-log-summary {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.observability-log-summary strong {
+  color: var(--text-pri);
+  overflow-wrap: anywhere;
+}
+
+.observability-log-summary p {
+  margin: 0;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.observability-log-identifiers {
+  color: var(--text-subtle) !important;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.observability-log-row-actions {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  justify-items: stretch;
+}
+
+.observability-log-row-actions .btn {
+  width: 100%;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.observability-copy-trace.is-copied {
+  border-color: color-mix(in srgb, var(--success) 55%, var(--line));
+  background: color-mix(in srgb, var(--success) 18%, var(--panel-2));
+  color: var(--success);
+}
+
+.observability-log-table-detail-row {
+  min-width: 0;
+  display: block;
+  width: 100%;
+}
+
+.observability-log-table-detail-cell {
+  min-width: 0;
+  display: block;
+}
+
+.observability-log-trace-detail {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-3) 52%, var(--panel-2));
+  padding: 12px;
+}
+
+.observability-inline-trace-header {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.observability-inline-trace-header h3 {
+  margin: 0;
+  color: var(--text-pri);
+  font-size: 15px;
+}
+
+.observability-inline-trace-header p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.observability-log-list {
+  display: grid;
+  gap: 8px;
+  max-height: 340px;
+  overflow: auto;
+  margin-top: 12px;
+}
+
+.observability-log-row {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--info);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.observability-log-row.is-warn {
+  border-left-color: var(--warning);
+}
+
+.observability-log-row.is-error {
+  border-left-color: var(--error);
+}
+
+.observability-log-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-subtle);
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.observability-log-row strong {
+  color: var(--text-pri);
+  overflow-wrap: anywhere;
+}
+
+.observability-log-fields-label,
+.observability-log-empty {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.observability-log-row pre {
+  margin: 0;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--panel-3) 72%, var(--bg));
+  color: var(--text-sec);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.observability-table {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.observability-trace-filter {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--panel-3) 56%, var(--panel));
+  padding: 10px 12px;
+}
+
+.observability-trace-filter p {
+  margin: 0;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.observability-trace-filter .btn {
+  flex: 0 0 auto;
+}
+
+.observability-event-row {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--info);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.observability-event-row.is-slow {
+  border-left-color: var(--warning);
+}
+
+.observability-event-row.is-error,
+.observability-event-row.is-panic {
+  border-left-color: var(--error);
+}
+
+.observability-event-row.is-dropped-summary,
+.observability-event-row.is-sampled {
+  border-left-color: var(--text-subtle);
+}
+
+.observability-event-head {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.observability-event-title {
+  min-width: 0;
+}
+
+.observability-event-title strong {
+  display: block;
+  color: var(--text-pri);
+  overflow-wrap: anywhere;
+}
+
+.observability-event-title p,
+.observability-event-code,
+.observability-event-error {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.observability-event-metrics {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  color: var(--text-sec);
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-align: right;
+}
+
+.observability-event-metrics time {
+  color: var(--text-muted);
+}
+
+.observability-event-meta {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  color: var(--text-subtle);
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.observability-event-section {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.observability-event-meta span {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel-3) 58%, transparent);
+  padding: 3px 7px;
+}
+
+.observability-event-meta em {
+  color: var(--text-muted);
+  font-style: normal;
+}
+
+.observability-event-meta code {
+  min-width: 0;
+  color: var(--text-sec);
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.observability-event-meta span,
+.observability-event-code code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.observability-event-code {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.observability-event-code span {
+  color: var(--text-muted);
+}
+
+.observability-event-failure {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--error) 30%, var(--line));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--error) 8%, var(--panel-2));
+  padding: 9px 10px;
+}
+
+.observability-event-failure p {
+  margin: 4px 0 0;
+  color: var(--error);
+  overflow-wrap: anywhere;
+}
+
+.observability-event-error,
+.observability-event-failure {
+  color: var(--error);
+}
+
+.observability-event-detail {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.observability-detail-label {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.observability-event-detail pre {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  padding: 9px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--panel-3) 72%, var(--bg));
+  color: var(--text-sec);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+@media (max-width: 980px) {
+  .observability-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .observability-page .settings-header,
+  .observability-log-header {
+    flex-direction: column;
+  }
+
+  .observability-filter-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .observability-log-table-head {
+    display: none;
+  }
+
+  .observability-log-table-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .observability-log-row-actions {
+    justify-content: flex-start;
+  }
+
+  .observability-inline-trace-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .observability-event-head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .observability-trace-filter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .observability-trace-filter .btn {
+    width: 100%;
+  }
+}

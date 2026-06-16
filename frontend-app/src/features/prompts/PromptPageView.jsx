@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
-import { CheckCircle2, File, FileText, Plus } from 'lucide-react';
+import { CheckCircle2, File, FileText } from 'lucide-react';
 import {
   commitPromptIntent,
   copyTextToClipboard,
@@ -9,37 +9,19 @@ import {
   draftPromptIntent,
   dryRunPromptIntent,
   getDashboardPrompts,
+  getPersonalizationProfile,
   getPreference,
   getPrompt,
   listPromptAssets,
+  savePersonalizationProfile,
   setPreference,
   writePrompt,
 } from '../../shared/api/backendApi.js';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
+import './PromptPageView.css';
 
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
 const PROMPTS_REQUEST_TIMEOUT_MS = 8000;
-
-const PROMPT_TABS = Object.freeze([
-  { key: 'all', label: '全部' },
-  { key: 'expert', label: '专家能力' },
-  { key: 'recall', label: '参考资料' },
-  { key: 'default_rule', label: '默认规则' },
-  { key: 'pending', label: '待确认' },
-]);
-
-const PROMPT_SCOPE_FILTERS = Object.freeze([
-  { key: 'all', label: '全部范围' },
-  { key: 'project', label: '这个项目' },
-  { key: 'global', label: '全局可用' },
-]);
-
-const PROMPT_STATUS_FILTERS = Object.freeze([
-  { key: 'all', label: '全部状态' },
-  { key: 'created', label: '已创建' },
-  { key: 'started', label: '已启动' },
-  { key: 'disabled', label: '已停用' },
-]);
 
 const PROMPT_KIND_OPTIONS = Object.freeze([
   { key: 'expert', label: '专家能力' },
@@ -283,10 +265,6 @@ function promptLifecycleStatusLabel(status) {
   return '';
 }
 
-function promptIsForceActive(item, activePromptId) {
-  return activePromptId === item.id && canForceLaunchPrompt(item);
-}
-
 function promptCounts(items) {
   const counts = { all: items.length, expert: 0, recall: 0, default_rule: 0, pending: 0 };
   items.forEach((item) => {
@@ -294,16 +272,6 @@ function promptCounts(items) {
     counts[bucket] = (counts[bucket] || 0) + 1;
   });
   return counts;
-}
-
-function filterPrompts(items, activePromptId, tab, scopeFilter, statusFilter) {
-  return items.filter((item) => {
-    if (tab !== 'all' && promptBucket(item) !== tab) return false;
-    if (scopeFilter !== 'all' && item.scope !== scopeFilter) return false;
-    if (tab === 'pending') return true;
-    if (statusFilter !== 'all' && promptLifecycleStatus(item, promptIsForceActive(item, activePromptId)) !== statusFilter) return false;
-    return true;
-  });
 }
 
 function trunc(value, max = 120) {
@@ -360,6 +328,13 @@ function emptyPromptForm() {
     hasMatchWhen: false,
   };
 }
+
+const emptyPersonalizationProfile = Object.freeze({
+  displayName: '',
+  role: '',
+  background: '',
+  customInstructions: '',
+});
 
 function normalizeDraftItem(raw = {}, fallbackKind = 'expert', meta = {}) {
   const card = raw.card && typeof raw.card === 'object' ? raw.card : {};
@@ -714,23 +689,10 @@ async function discardPromptDraftItem({ cwd, item, refreshPromptSurface, setActi
 
 function usePromptEditorActions(params) {
   const { cwd, fallbackMode, actioning, form, queryClient, refreshPromptSurface, setters } = params;
-  const { setActioning, setEditorOpen, setForm, setNotice, setSaving, setWizardDraft, setWizardOpen } = setters;
+  const { setActioning, setEditorOpen, setForm, setNotice, setSaving } = setters;
   return {
-    switchTab: (key) => {
-      setters.setActiveTab(key);
-      setNotice('');
-    },
     retryPromptSync: () => {
       void refreshPromptSurface({ force: true });
-    },
-    openCreate: () => {
-      if (fallbackMode) {
-        setNotice('当前为只读降级，暂不支持新建');
-        return;
-      }
-      setWizardDraft(null);
-      setWizardOpen(true);
-      setNotice('');
     },
     openEdit: (item) => {
       setForm(promptFormFromItem(item));
@@ -783,25 +745,6 @@ function usePromptDraftActions({ cwd, actioning, refreshPromptSurface, setters }
   };
 }
 
-function PromptFilterControls({ scopeFilter, statusFilter, fallbackMode, onScopeChange, onStatusChange }) {
-  return (
-    <div className="prompt-filter-row">
-      <PromptSegment title="范围" items={PROMPT_SCOPE_FILTERS} value={scopeFilter} disabled={fallbackMode} onChange={onScopeChange} />
-      <PromptSegment title="状态" items={PROMPT_STATUS_FILTERS} value={statusFilter} disabled={fallbackMode} onChange={onStatusChange} />
-    </div>
-  );
-}
-
-function PromptToolbar({ cwd, fallbackMode, onCreate }) {
-  return (
-    <div className="prompt-toolbar">
-      <button type="button" onClick={onCreate} disabled={fallbackMode || !cwd}>
-        <Plus size={15} /> 添加给 AI 的内容
-      </button>
-    </div>
-  );
-}
-
 function PromptStatusMessages({ isProjectPending, fallbackMode, syncError, error, loading, onRetry }) {
   return (
     <>
@@ -823,12 +766,12 @@ function PromptRetryNotice({ message, onRetry }) {
   );
 }
 
-function PromptEmptyState({ activeTab }) {
+function PromptEmptyState() {
   return (
     <div className="empty-state prompt-empty">
       <File size={30} />
       <h3>暂无内容</h3>
-      <p>{activeTab === 'pending' ? '暂无待确认内容。' : '点击“添加给 AI 的内容”开始创建。'}</p>
+      <p>暂无可显示内容。</p>
     </div>
   );
 }
@@ -861,12 +804,15 @@ function PromptPageLayout(props) {
   const showCards = !props.isProjectPending && !props.loading && props.visibleItems.length > 0;
   return (
     <section className="console-page prompt-page">
-      <PageHeader title="AI 能力与资料" projectPath={props.cwd || props.projectPath} />
-      <PromptTabs tabs={PROMPT_TABS} activeTab={props.activeTab} counts={props.counts} disabled={props.fallbackMode} onSwitch={props.editorActions.switchTab} />
-      <PromptFilterControls {...props.filters} fallbackMode={props.fallbackMode} />
-      <PromptToolbar cwd={props.cwd} fallbackMode={props.fallbackMode} onCreate={props.editorActions.openCreate} />
+      <PageHeader title="个性化" subtitle="管理您的身份信息以及 Super-Dolphin 的记忆内容" projectPath={props.cwd || props.projectPath} />
+      <PromptPersonalizationOverview
+        counts={props.counts}
+        fallbackMode={props.fallbackMode}
+        isProjectPending={props.isProjectPending}
+        personalization={props.personalization}
+      />
       <PromptStatusMessages {...props} onRetry={props.editorActions.retryPromptSync} />
-      {showEmpty ? <PromptEmptyState activeTab={props.activeTab} /> : null}
+      {showEmpty ? <PromptEmptyState /> : null}
       {showCards ? <PromptCardsGrid {...props} /> : null}
       {props.notice && !props.modals.editorOpen && !props.modals.wizardOpen ? <div className="prompt-notice">{props.notice}</div> : null}
       <PromptEditorHost {...props} />
@@ -916,9 +862,6 @@ function promptWizardKey(draft) {
 }
 
 function usePromptPageState(cwd) {
-  const [activeTab, setActiveTab] = useState('all');
-  const [scopeFilter, setScopeFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
   const [noticeState, setNoticeState] = useState({ cwd, notice: '' });
   if (noticeState.cwd !== cwd) {
     setNoticeState({ cwd, notice: '' });
@@ -933,23 +876,17 @@ function usePromptPageState(cwd) {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardDraft, setWizardDraft] = useState(null);
   return {
-    activeTab,
     actioning,
     form,
     modals: { editorOpen, form, wizardDraft, wizardOpen },
     notice: noticeState.cwd === cwd ? noticeState.notice : '',
     saving,
-    scopeFilter,
-    statusFilter,
     setters: {
-      setActiveTab,
       setActioning,
       setEditorOpen,
       setForm,
       setNotice,
       setSaving,
-      setScopeFilter,
-      setStatusFilter,
       setWizardDraft,
       setWizardOpen,
     },
@@ -961,10 +898,23 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
   const isProjectPending = !cwd;
   const queryClient = useQueryClient();
   const pageState = usePromptPageState(cwd);
-  const { activeTab, actioning, form, modals, notice, saving, scopeFilter, statusFilter, setters } = pageState;
+  const { actioning, form, modals, notice, saving, setters } = pageState;
 
   const queryState = usePromptQueries(cwd);
   const { items, fallbackMode, activePromptId, loading, syncError, error } = queryState;
+  const { data: profileData, error: profileError, isLoading: profileLoading } = useQuery({
+    queryKey: ['personalizationProfile', cwd],
+    queryFn: () => getPersonalizationProfile({ cwd }),
+    enabled: Boolean(cwd),
+  });
+  const loadedProfile = profileData?.profile
+    ? { ...emptyPersonalizationProfile, ...profileData.profile }
+    : emptyPersonalizationProfile;
+  const [profileDraft, setProfileDraft] = useState({ cwd: '', profile: null });
+  const profileForm = profileDraft.cwd === cwd && profileDraft.profile ? profileDraft.profile : loadedProfile;
+  const setProfileForm = useCallback((nextProfile) => {
+    setProfileDraft({ cwd, profile: nextProfile });
+  }, [cwd]);
   const refreshPromptSurface = usePromptRefreshSurface(
     cwd,
     queryClient,
@@ -974,10 +924,7 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
   usePromptRefreshEffects(Number(refreshKey || 0), refreshPromptSurface);
 
   const counts = useMemo(() => promptCounts(items), [items]);
-  const visibleItems = useMemo(
-    () => filterPrompts(items, activePromptId, activeTab, scopeFilter, statusFilter),
-    [activePromptId, activeTab, items, scopeFilter, statusFilter],
-  );
+  const visibleItems = items;
   const editorActions = usePromptEditorActions({
     cwd,
     fallbackMode,
@@ -988,9 +935,30 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
     setters,
   });
   const draftActions = usePromptDraftActions({ cwd, actioning, refreshPromptSurface, setters });
+  const handleSaveProfile = async () => {
+    if (!cwd || saving) return;
+    setters.setSaving(true);
+    setters.setNotice('');
+    try {
+      const result = await savePersonalizationProfile({ cwd, profile: profileForm });
+      const savedProfile = { ...emptyPersonalizationProfile, ...(result.profile || {}) };
+      queryClient.setQueryData(['personalizationProfile', cwd], { profile: savedProfile });
+      setProfileDraft({ cwd, profile: null });
+      setters.setNotice('个人资料已保存');
+    }
+    catch (err) {
+      setters.setNotice(noticeText(err, '个人资料保存失败'));
+    }
+    finally {
+      setters.setSaving(false);
+    }
+  };
+  const handleImportMemory = () => {
+    setters.setWizardDraft({ kind: 'recall', rawInput: '', scope: 'project' });
+    setters.setWizardOpen(true);
+  };
   const layoutProps = {
     activePromptId,
-    activeTab,
     actioning,
     counts,
     cwd,
@@ -998,16 +966,19 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
     editorActions,
     error,
     fallbackMode,
-    filters: {
-      scopeFilter,
-      statusFilter,
-      onScopeChange: setters.setScopeFilter,
-      onStatusChange: setters.setStatusFilter,
-    },
     isProjectPending,
     loading,
     modals,
     notice,
+    personalization: {
+      error: profileError,
+      loading: profileLoading,
+      onImportMemory: handleImportMemory,
+      onProfileChange: setProfileForm,
+      onSaveProfile: handleSaveProfile,
+      profile: profileForm,
+      saving,
+    },
     projectPath,
     resolveLaunchPreferences,
     saving,
@@ -1020,53 +991,85 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
   return <PromptPageLayout {...layoutProps} />;
 }
 
-function PageHeader({ title, projectPath }) {
+function PageHeader({ title, subtitle, projectPath }) {
   return (
     <header className="prompt-header">
       <div>
         <h1><FileText size={25} /> {title}</h1>
+        {subtitle ? <strong>{subtitle}</strong> : null}
         <p title={projectPath}>当前项目：{projectPath || '未知'}</p>
       </div>
     </header>
   );
 }
 
-function PromptTabs({ tabs, activeTab, counts, disabled, onSwitch }) {
+function PromptPersonalizationOverview({ counts, isProjectPending, fallbackMode, personalization }) {
+  const metrics = [
+    ['定制角色', counts.expert || 0],
+    ['知识', counts.recall || 0],
+    ['默认规则', counts.default_rule || 0],
+    ['待确认', counts.pending || 0],
+  ];
+  const profile = personalization?.profile || emptyPersonalizationProfile;
+  const profileLoading = Boolean(personalization?.loading);
+  const profileSaving = Boolean(personalization?.saving);
+  const profileDisabled = isProjectPending || profileLoading;
+  const updateProfile = (key) => (event) => {
+    personalization?.onProfileChange?.({ ...profile, [key]: event.target.value });
+  };
+  const profileStatus = isProjectPending
+    ? '等待项目'
+    : personalization?.error
+      ? '加载失败'
+      : profileLoading
+        ? '加载中'
+        : '已接入';
+  const overviewText = isProjectPending
+    ? '正在连接本地项目。'
+    : fallbackMode
+      ? 'prompt-assets/list 暂不可用；当前仅显示只读的提示词与参考资料。'
+      : '已接入提示词、参考资料、个人资料和外部记忆导入入口。';
   return (
-    <div className="prompt-tabs" role="tablist" aria-label="提示词分类">
-      {tabs.map((tab) => (
-        <button
-          key={tab.key}
-          type="button"
-          role="tab"
-          aria-selected={activeTab === tab.key}
-          className={activeTab === tab.key ? 'active' : ''}
-          disabled={disabled}
-          onClick={() => onSwitch(tab.key)}
-        >
-          {tab.label} {counts[tab.key] || 0}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function PromptSegment({ title, items, value, disabled, onChange }) {
-  return (
-    <div className="prompt-segment">
-      <span>{title}</span>
-      {items.map((item) => (
-        <button
-          key={item.key}
-          type="button"
-          className={value === item.key ? 'active' : ''}
-          disabled={disabled}
-          onClick={() => onChange(item.key)}
-        >
-          {item.label}
-        </button>
-      ))}
-    </div>
+    <section className="personalization-overview" aria-label="个性化概览">
+      <div className="personalization-overview-copy">
+        <span>个人资料</span>
+        <h2>定制角色、知识和记忆</h2>
+        <p>{overviewText}</p>
+      </div>
+      <dl>
+        {metrics.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="personalization-profile-grid">
+        <section className="personalization-profile-card" aria-label="个人资料">
+          <header>
+            <h3>个人资料</h3>
+            <span>{profileStatus}</span>
+          </header>
+          <div className="personalization-form-grid">
+            <label>昵称<input aria-label="昵称" type="text" value={profile.displayName} onChange={updateProfile('displayName')} disabled={profileDisabled} /></label>
+            <label>职业<input aria-label="职业" type="text" value={profile.role} onChange={updateProfile('role')} disabled={profileDisabled} /></label>
+            <label>更多关于您的信息<textarea aria-label="更多关于您的信息" rows={3} value={profile.background} onChange={updateProfile('background')} disabled={profileDisabled} /></label>
+            <label>自定义指令<textarea aria-label="自定义指令" rows={3} value={profile.customInstructions} onChange={updateProfile('customInstructions')} disabled={profileDisabled} /></label>
+          </div>
+          <button type="button" disabled={profileDisabled || profileSaving} onClick={personalization?.onSaveProfile}>
+            {profileSaving ? '保存中...' : '保存个人资料'}
+          </button>
+        </section>
+        <section className="personalization-profile-card" aria-label="从其他 AI 导入记忆">
+          <header>
+            <h3>从其他 AI 导入记忆</h3>
+            <span>复用参考资料</span>
+          </header>
+          <p>把其他 AI 的长期记忆粘贴为参考资料，保存后会进入现有知识目录。</p>
+          <button type="button" disabled={isProjectPending} onClick={personalization?.onImportMemory}>导入记忆</button>
+        </section>
+      </div>
+    </section>
   );
 }
 
@@ -1235,7 +1238,7 @@ async function buildPromptDraft({ cwd, kind, rawInput, scope, resolveLaunchPrefe
     scope,
     provider: textValue(launchPreferences?.modelProvider || launchPreferences?.provider),
     model: textValue(launchPreferences?.model),
-    codexModelProvider: textValue(launchPreferences?.config?.codexModelProvider),
+    codexModelProvider: textValue(launchPreferences?.codexModelProvider || launchPreferences?.config?.codexModelProvider),
   });
 }
 
@@ -1390,13 +1393,14 @@ async function runPromptDraftCommit({ confirmGlobal, confirmRisk, cwd, draft, on
 }
 
 function promptWizardInitialState(initialDraft) {
+  const hasDraft = Boolean(initialDraft?.draftKey || initialDraft?.id || initialDraft?.card);
   return {
-    draft: initialDraft,
+    draft: hasDraft ? initialDraft : null,
     dryRunQuestion: '',
     dryRunResult: null,
     kind: initialDraft?.kind || 'expert',
     notice: '',
-    rawInput: '',
+    rawInput: initialDraft?.rawInput || '',
     reviewConfirmed: false,
     scope: initialDraft?.scope || 'project',
     working: '',

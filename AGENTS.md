@@ -28,6 +28,7 @@ Behavior reading mode, when the user asks how something works:
 
 - Prefer targeted `rg` searches and single-file reads over broad directory scans.
 - Do not recursively read or index `.build-cache/`, `bin/`, frontend `node_modules/`, frontend `dist/`, `.worktrees/`, `.workspace/`, `.claude/`, `.agent/code_exec/`, `.agent/workspaces/`, `.agnet/report/`, `.agnet/shared/_internal/`, `.agnet/shared/handoff/`, or generated test reports by default.
+- Do not recursively read or index `docs/archive/**` by default. Use it only when the user asks for historical reports, old agent notes, migration evidence, or provenance.
 - Do not bulk-load `.agent/skills/**`. Repo-local skills are opt-in references, not default context.
 - If a generated artifact appears stale, verify the generator or check target before editing it directly.
 

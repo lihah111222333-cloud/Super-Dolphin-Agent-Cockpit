@@ -114,6 +114,76 @@ describe('WorkflowPage module', () => {
     });
   });
 
+  it('shows automation overview metrics from the DAG dashboard data', async () => {
+    const dags = [
+      {
+        dag_key: 'live-flow',
+        title: 'Live Flow',
+        status: 'ready',
+        trigger: 'scheduled',
+        cron_expr: 'CRON_TZ=Asia/Shanghai 0 8 * * *',
+        latest_run: {
+          run_key: 'run-live',
+          status: 'running',
+          metadata: { final_output: { path: 'reports/live.md' } },
+        },
+      },
+      {
+        dag_key: 'scheduled-flow',
+        title: 'Scheduled Flow',
+        status: 'ready',
+        trigger: 'scheduled',
+        cron_expr: 'CRON_TZ=Asia/Shanghai 0 9 * * 1-5',
+        schedule_enabled: true,
+        hasFinalOutput: false,
+        latest_run: {
+          run_key: 'run-empty',
+          status: 'succeeded',
+          metadata: { final_output: {} },
+        },
+      },
+      {
+        dag_key: 'manual-flow',
+        title: 'Manual Flow',
+        status: 'ready',
+        trigger: 'manual',
+      },
+      {
+        dag_key: 'done-flow',
+        title: 'Done Flow',
+        status: 'done',
+        trigger: 'manual',
+        hasFinalOutput: true,
+        latest_run: {
+          run_key: 'run-done',
+          status: 'succeeded',
+        },
+      },
+    ];
+    backend.getDashboardPage.mockResolvedValue({ dags });
+    backend.getDagDetail.mockImplementation(({ dagKey }) => Promise.resolve({
+      dag: dags.find((item) => item.dag_key === dagKey) || dags[0],
+      nodes: [],
+    }));
+    backend.getDagRuns.mockResolvedValue({ runs: [] });
+    backend.getDagRun.mockResolvedValue({ run: null, nodes: [] });
+
+    renderWorkflowPage();
+
+    await screen.findByLabelText('自动化资产');
+    const metricValue = (label) => {
+      const overview = screen.getByLabelText('自动化资产');
+      const term = Array.from(overview.querySelectorAll('dt')).find((node) => node.textContent === label);
+      expect(term).toBeTruthy();
+      return term.nextElementSibling;
+    };
+    await waitFor(() => expect(metricValue('全部自动化')).toHaveTextContent('4'));
+    expect(metricValue('运行中')).toHaveTextContent('1');
+    expect(metricValue('定时任务')).toHaveTextContent('1');
+    expect(metricValue('可启动')).toHaveTextContent('2');
+    expect(metricValue('最终产物')).toHaveTextContent('2');
+  });
+
   it('coalesces pending DAG list refreshes without surfacing TanStack cancellation', async () => {
     const dag = {
       dag_key: 'daily-brief',
@@ -766,9 +836,9 @@ describe('WorkflowPage module', () => {
 
     renderWorkflowPage(store);
 
-    expect(await screen.findByRole('button', { name: 'AI 设计流程' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '通过聊天创建' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '抖音 5 点模板' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'AI 设计流程' }));
+    fireEvent.click(screen.getByRole('button', { name: '通过聊天创建' }));
 
     await waitFor(() => {
       expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({

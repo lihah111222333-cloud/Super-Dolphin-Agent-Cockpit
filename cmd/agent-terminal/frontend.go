@@ -5,8 +5,9 @@ import (
 	"io/fs"
 )
 
-// frontendDist embeds the Vite build output living next to the Vue source.
-// Makefile build/test/run targets create dist before Go compiles this package.
+// frontendDist embeds the Vite build output used by the desktop host.
+// The current React/Vite frontend-app build is copied into this embed path by
+// Makefile build/test/run targets before Go compiles this package.
 // The all: prefix preserves nested assets and dot-files in the built output.
 //
 //go:embed all:frontend/dist

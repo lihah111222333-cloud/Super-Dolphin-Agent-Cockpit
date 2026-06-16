@@ -1,0 +1,454 @@
+.composer {
+  min-width: 0;
+  max-width: 100%;
+  display: block;
+  position: relative;
+  padding: 18px 0 16px;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.composer--docked {
+  position: relative;
+  bottom: auto;
+  z-index: 6;
+  flex: 0 0 auto;
+}
+
+.composer.composer--docked {
+  padding: 0;
+  border-top: 0;
+  background: transparent;
+}
+
+.composer--floating {
+  z-index: 6;
+  width: min(1180px, calc(100% - 48px));
+  padding: 0;
+  border-top: 0;
+  background: transparent;
+}
+
+.composer-card {
+  width: var(--conversation-content-width);
+  margin: 0 var(--conversation-content-right-gutter) 0 var(--conversation-content-left-gutter);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow-x: hidden;
+  overflow-y: visible;
+}
+
+.composer--docked .composer-card {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.composer--floating .composer-card {
+  width: 100%;
+  margin: 0 auto;
+  border-color: var(--border-strong);
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--surface-2) 86%, var(--bg));
+  box-shadow: var(--shadow), inset 0 1px 0 color-mix(in srgb, var(--text-pri) 4%, transparent);
+}
+
+.composer textarea {
+  display: block;
+  width: 100%;
+  min-height: calc(1.5em * 3 + 34px);
+  max-height: calc(1.5em * 8 + 34px);
+  resize: none;
+  border: 0;
+  border-bottom: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  padding: 14px 16px 8px;
+  outline: none;
+  font-size: 16px;
+  line-height: 1.5;
+  overflow-y: auto;
+}
+
+.composer--floating textarea {
+  padding: 22px 26px 12px;
+  font-size: 17px;
+}
+
+.composer textarea:focus {
+  border-color: var(--focus-ring);
+}
+
+.composer.drop-active {
+  border-top-color: color-mix(in srgb, var(--info) 70%, var(--border));
+}
+
+.composer.drop-active .composer-card {
+  border-color: color-mix(in srgb, var(--info) 72%, var(--border));
+  box-shadow: var(--shadow), 0 0 0 1px color-mix(in srgb, var(--info) 28%, transparent);
+}
+
+.composer-drop-hint {
+  position: absolute;
+  top: 8px;
+  right: 18px;
+  z-index: 2;
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--info) 58%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--info) 16%, var(--surface));
+  color: var(--info);
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.composer-meta {
+  min-width: 0;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px 12px;
+}
+
+.composer--floating .composer-meta {
+  min-height: 58px;
+  padding: 0 22px 16px;
+}
+
+.composer button {
+  min-height: 34px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-sec);
+}
+
+.composer-attach {
+  flex: 0 0 34px;
+  width: 34px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+}
+
+.composer-fork {
+  color: var(--info);
+}
+
+.tool-surface-mode {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-2) 86%, var(--bg));
+}
+
+.tool-surface-mode button {
+  min-height: 28px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 9px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.tool-surface-mode button.active {
+  background: var(--surface-3);
+  color: var(--text-pri);
+}
+
+.composer-model {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.composer-actions {
+  min-width: 0;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-left: 18px;
+}
+
+.composer-model-wrap {
+  position: relative;
+  margin-left: 0;
+  flex: 0 0 auto;
+  width: fit-content;
+  min-width: 0;
+  max-width: min(150px, 42vw);
+}
+
+.composer .provider {
+  margin-left: 0;
+  flex: 0 0 auto;
+  min-height: 34px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  padding: 0 0 0 4px;
+}
+
+.composer-model {
+  min-height: 30px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0 7px 0 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.composer-model svg {
+  flex: 0 0 auto;
+  opacity: 0.65;
+}
+
+.model-dropdown {
+  position: absolute;
+  inset: auto 0 calc(100% + 8px) auto;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 25;
+  width: 260px;
+  height: max-content;
+  max-width: none;
+  max-height: min(320px, calc(100vh - 48px));
+  margin: 0;
+  display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-pri);
+  box-shadow: var(--shadow);
+  overflow: visible;
+}
+
+.model-dropdown label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.model-dropdown select {
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--text-pri);
+  padding: 0 8px;
+}
+
+.model-inherit {
+  width: 100%;
+  min-height: 31px;
+  border-radius: 7px;
+  border: 1px solid color-mix(in srgb, var(--success) 40%, var(--border));
+  background: color-mix(in srgb, var(--success) 10%, var(--surface));
+  color: var(--success);
+}
+
+.composer .send {
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  min-height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--primary-action-bg);
+  color: var(--primary-action-text);
+  padding: 0;
+}
+
+.attachments {
+  display: flex;
+  gap: 8px;
+  overflow: auto;
+  padding: 10px 10px 0;
+}
+
+.attachment-pill {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--info) 36%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--info) 10%, var(--surface));
+}
+
+.attachments .attachment-preview {
+  min-width: 0;
+  max-width: 260px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  border-radius: 999px;
+  border: 0;
+  background: transparent;
+  padding: 0 8px 0 10px;
+  color: var(--blue);
+  white-space: nowrap;
+}
+
+.attachments .attachment-preview span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attachments .attachment-preview img {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border-radius: 5px;
+  object-fit: cover;
+}
+
+.attachments .attachment-remove {
+  width: 28px;
+  min-height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-left: 1px solid color-mix(in srgb, var(--info) 24%, var(--border));
+  border-radius: 0 999px 999px 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 0;
+}
+
+.attachments .attachment-remove:hover {
+  color: var(--error);
+}
+
+.fork-draft-card {
+  display: grid;
+  gap: 10px;
+  margin: 10px 10px 0;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--info) 38%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--info) 8%, var(--surface-2));
+}
+
+.fork-draft-card header {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fork-draft-card header p {
+  margin: 0 0 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.fork-draft-card header strong {
+  display: block;
+  color: var(--text-pri);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.fork-draft-close {
+  flex: 0 0 28px;
+  width: 28px;
+  min-height: 28px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 999px;
+}
+
+.fork-draft-files {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fork-draft-file {
+  min-width: 0;
+  max-width: min(340px, 100%);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-sec);
+  font-size: 12px;
+}
+
+.fork-draft-file span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fork-draft-muted,
+.fork-draft-error {
+  font-size: 12px;
+}
+
+.fork-draft-muted {
+  color: var(--muted);
+}
+
+.fork-draft-error {
+  color: var(--error);
+}
+
+.fork-draft-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.fork-draft-actions button {
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.fork-draft-submit {
+  border-color: color-mix(in srgb, var(--info) 44%, var(--border));
+  background: color-mix(in srgb, var(--info) 16%, var(--surface-3));
+  color: var(--info);
+}

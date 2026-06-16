@@ -1,0 +1,479 @@
+
+.prompt-page {
+  overflow-y: auto;
+  padding: 20px 28px 40px;
+}
+
+.prompt-header {
+  min-height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -20px -28px 18px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-elevated);
+}
+
+.prompt-header h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 22px;
+}
+
+.prompt-header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.prompt-page button,
+.prompt-editor-modal button,
+.prompt-wizard-modal button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--ink);
+  padding: 0 12px;
+}
+
+.prompt-page button:disabled,
+.prompt-editor-modal button:disabled,
+.prompt-wizard-modal button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.prompt-tabs,
+.prompt-filter-row,
+.prompt-toolbar,
+.prompt-card-actions,
+.prompt-kind-tabs,
+.prompt-scope-choice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.prompt-tabs {
+  margin-bottom: 12px;
+}
+
+.prompt-scope-choice {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.prompt-tabs button,
+.prompt-kind-tabs button,
+.prompt-scope-choice button,
+.prompt-segment button {
+  color: var(--text-muted);
+  background: var(--panel);
+}
+
+.prompt-tabs button.active,
+.prompt-tabs button[aria-selected="true"],
+.prompt-kind-tabs button.active,
+.prompt-scope-choice button.active,
+.prompt-segment button.active {
+  color: var(--text-pri);
+  border-color: var(--line-strong);
+  background: var(--panel-3);
+}
+
+.prompt-filter-row {
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.prompt-segment {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.prompt-segment span {
+  color: var(--muted);
+}
+
+.prompt-toolbar {
+  margin-bottom: 14px;
+}
+
+.prompt-toolbar button,
+.prompt-card-actions button,
+.prompt-wizard-modal > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.prompt-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.prompt-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 14px;
+}
+
+.prompt-card.disabled {
+  opacity: .72;
+}
+
+.prompt-card.pending {
+  border-color: color-mix(in srgb, var(--warning) 44%, var(--border));
+}
+
+.prompt-card-head {
+  display: grid;
+  gap: 8px;
+}
+
+.prompt-card h3 {
+  margin: 0;
+  min-width: 0;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.prompt-badges,
+.prompt-tag-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.prompt-badges span,
+.prompt-tag-row span {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-sec);
+  background: var(--panel-2);
+  padding: 2px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.prompt-badges span.active {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 34%, var(--border));
+}
+
+.prompt-card-desc,
+.prompt-card-preview {
+  color: var(--text-sec);
+}
+
+.prompt-card-preview {
+  min-height: 54px;
+  white-space: pre-wrap;
+}
+
+.prompt-card-actions button {
+  flex: 0 0 auto;
+  min-width: 64px;
+  white-space: nowrap;
+}
+
+.prompt-notice,
+.prompt-loading {
+  margin: 12px 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text-sec);
+  padding: 10px 12px;
+}
+
+.prompt-notice.warn {
+  border-color: color-mix(in srgb, var(--warning) 34%, var(--border));
+}
+
+.prompt-notice.error {
+  border-color: color-mix(in srgb, var(--error) 34%, var(--border));
+}
+
+.prompt-empty {
+  min-height: 260px;
+}
+
+.prompt-modal-overlay {
+  align-items: center;
+  justify-content: center;
+}
+
+.prompt-editor-modal,
+.prompt-wizard-modal {
+  width: min(820px, calc(100vw - 40px));
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+}
+
+.prompt-editor-modal header,
+.prompt-wizard-modal header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.prompt-editor-modal h2,
+.prompt-wizard-modal h2 {
+  margin: 0;
+}
+
+.prompt-editor-modal header p,
+.prompt-wizard-modal header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.prompt-scope-copy {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  padding: 12px;
+}
+
+.prompt-scope-copy .prompt-scope-choice {
+  margin: 0;
+}
+
+.prompt-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.prompt-editor-grid label,
+.prompt-wizard-input {
+  display: grid;
+  gap: 6px;
+  color: var(--text-sec);
+}
+
+.prompt-editor-grid label.wide {
+  grid-column: 1 / -1;
+}
+
+.prompt-editor-grid input,
+.prompt-editor-grid textarea,
+.prompt-wizard-input textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--text-pri);
+  padding: 10px 12px;
+}
+
+.prompt-editor-grid textarea,
+.prompt-wizard-input textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+
+.prompt-editor-grid .prompt-preview-readonly {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--surface-2) 72%, var(--bg));
+  color: var(--text-sec);
+  cursor: default;
+}
+
+.prompt-advanced-debug {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  padding: 10px 12px;
+}
+
+.prompt-advanced-debug summary {
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.prompt-advanced-grid {
+  margin-top: 12px;
+}
+
+.prompt-check {
+  display: flex !important;
+  align-items: center;
+  gap: 8px !important;
+}
+
+.prompt-check input {
+  width: auto;
+}
+
+.prompt-editor-modal footer,
+.prompt-wizard-modal footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.prompt-wizard-modal {
+  display: grid;
+  gap: 12px;
+}
+
+.prompt-draft-review {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 12px;
+}
+
+.prompt-draft-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.prompt-draft-review pre {
+  white-space: pre-wrap;
+  color: var(--text-sec);
+}
+
+@media (max-width: 860px) {
+  .prompt-editor-grid,
+  .prompt-card-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* -- Utility classes replacing inline styles for Settings -- */
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  height: 52px;
+  background: var(--surface);
+  padding: 0 20px;
+  gap: 8px;
+  border-bottom: 1px solid var(--elevated);
+  flex-shrink: 0;
+}
+
+.ph-bar {
+  width: 3px;
+  height: 18px;
+  border-radius: 1.5px;
+  background: var(--primary);
+}
+
+.ph-text h2 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.ph-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.panel-body {
+  flex: 1;
+  overflow: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section-header {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 4px;
+  background: var(--surface);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  margin-top: 10px;
+}
+
+.data-list-vue {
+  display: grid;
+  gap: 10px;
+}
+
+.data-card-vue {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.data-card-clickable {
+  cursor: pointer;
+}
+
+.data-card-clickable:hover,
+.data-card-clickable:focus-visible {
+  border-color: var(--primary);
+  outline: none;
+}
+
+.data-row-vue {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  align-items: center;
+}
+
+.data-row-vue strong {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.data-row-vue span {
+  text-align: right;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.data-actions-vue {
+  margin-top: 6px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-toolbar-sm {
+  font-size: 11px;
+  padding: 4px 10px;
+}

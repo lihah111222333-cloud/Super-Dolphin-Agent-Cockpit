@@ -2,6 +2,7 @@ import React from 'react';
 import { X } from 'lucide-react';
 import { codePreviewMeta } from '../adapters/codePreviewMetaAdapter.js';
 import { FocusTrapDialog } from '../../../shared/ui/FocusTrapDialog.jsx';
+import './CodePreviewDialog.css';
 
 function CodePreviewDialog({
   preview,

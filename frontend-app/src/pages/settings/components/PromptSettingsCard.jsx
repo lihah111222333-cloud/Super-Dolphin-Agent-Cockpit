@@ -1,5 +1,7 @@
 import React from 'react';
 import { SettingsPromptNotice } from './SettingsPromptNotice.jsx';
+import './PromptSettingsCard.css';
+import './SettingsPromptToggle.css';
 
 function PromptSettingsCard({ prompt }) {
   return (

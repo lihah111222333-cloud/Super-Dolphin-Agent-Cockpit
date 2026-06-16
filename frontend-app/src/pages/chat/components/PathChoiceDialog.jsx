@@ -1,6 +1,7 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import { FocusTrapDialog } from '../../../shared/ui/FocusTrapDialog.jsx';
+import './PathChoiceDialog.css';
 
 function PathChoiceDialog({ choice, onClose, onSelect }) {
   const options = Array.isArray(choice?.options) ? choice.options : [];

@@ -244,13 +244,15 @@ function Wait-ForHttp {
         [Parameter(Mandatory)][string]$Label
     )
 
-    for ($i = 0; $i -lt 50; $i++) {
+    $attempts = Get-PositiveIntegerEnv -Name 'SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS' -DefaultValue 300
+    $pollMilliseconds = Get-PositivePollMilliseconds
+    for ($i = 0; $i -lt $attempts; $i++) {
         try {
             $null = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 1 -ErrorAction Stop
             Write-Host "  -> $Label ready: $Url"
             return
         } catch {
-            Start-Sleep -Milliseconds 200
+            Start-Sleep -Milliseconds $pollMilliseconds
         }
     }
 
@@ -259,7 +261,9 @@ function Wait-ForHttp {
 
 function Wait-ForBackend {
     $url = "http://$($env:SUPER_DOLPHIN_HTTP_ADDR)/metrics"
-    for ($i = 0; $i -lt 100; $i++) {
+    $attempts = Get-PositiveIntegerEnv -Name 'SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS' -DefaultValue 300
+    $pollMilliseconds = Get-PositivePollMilliseconds
+    for ($i = 0; $i -lt $attempts; $i++) {
         try {
             $null = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 1 -ErrorAction Stop
             Write-Host "  -> desktop backend ready: $url"
@@ -270,13 +274,38 @@ function Wait-ForBackend {
                 Get-BackendLogTail
                 throw 'desktop backend exited before readiness'
             }
-            Start-Sleep -Milliseconds 200
+            Start-Sleep -Milliseconds $pollMilliseconds
         }
     }
 
     Write-Host "XX timed out waiting for desktop backend: $url"
     Get-BackendLogTail
     throw "timed out waiting for desktop backend: $url"
+}
+
+function Get-PositiveIntegerEnv {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][int]$DefaultValue
+    )
+
+    $raw = [Environment]::GetEnvironmentVariable($Name, 'Process')
+    if ($null -eq $raw -or $raw.Trim() -eq '') { return $DefaultValue }
+    $value = 0
+    if (-not [int]::TryParse($raw, [ref]$value) -or $value -le 0) {
+        throw "$Name must be a positive integer, got: $raw"
+    }
+    return $value
+}
+
+function Get-PositivePollMilliseconds {
+    $raw = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS', 'Process')
+    if ($null -eq $raw -or $raw.Trim() -eq '') { return 200 }
+    $value = 0.0
+    if (-not [double]::TryParse($raw, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$value) -or $value -le 0) {
+        throw "SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS must be a positive number, got: $raw"
+    }
+    return [Math]::Max(1, [int]($value * 1000))
 }
 
 function Wait-ForAnyProcessExit {
@@ -409,28 +438,111 @@ function Ensure-NodeDeps {
     }
 }
 
-function Ensure-PeerBinaries {
-    $missing = $false
-    foreach ($name in @('mcp-orch', 'mcp-lsp')) {
-        if (-not (Test-Path -LiteralPath (Join-Path $ProjectDir "$name.exe") -PathType Leaf) -and
-            -not (Test-Path -LiteralPath (Join-Path $ProjectDir $name) -PathType Leaf)) {
-            $missing = $true
-            break
+function Test-PeerBinaryStale {
+    param(
+        [Parameter(Mandatory)][string]$BinaryPath,
+        [Parameter(Mandatory)][string[]]$SourcePaths
+    )
+
+    if (-not (Test-Path -LiteralPath $BinaryPath -PathType Leaf)) {
+        return $true
+    }
+
+    $binaryWriteTime = (Get-Item -LiteralPath $BinaryPath).LastWriteTimeUtc
+    foreach ($relativeSourcePath in $SourcePaths) {
+        $sourcePath = Join-Path $ProjectDir $relativeSourcePath
+        if (-not (Test-Path -LiteralPath $sourcePath)) {
+            continue
+        }
+
+        $sourceItem = Get-Item -LiteralPath $sourcePath
+        if (-not $sourceItem.PSIsContainer) {
+            if ($sourceItem.LastWriteTimeUtc -gt $binaryWriteTime) {
+                return $true
+            }
+            continue
+        }
+
+        $newerSource = Get-ChildItem -LiteralPath $sourcePath -Recurse -File |
+            Where-Object {
+                $_.LastWriteTimeUtc -gt $binaryWriteTime -and
+                ($_.Name -eq 'go.mod' -or $_.Name -eq 'go.sum' -or $_.Extension -in @('.go', '.yaml', '.yml'))
+            } |
+            Select-Object -First 1
+        if ($newerSource) {
+            return $true
         }
     }
 
-    if (-not $missing) { return }
+    return $false
+}
 
-    Write-Host '  -> building peer binaries for new UI desktop'
+function Resolve-PeerBinDir {
+    $rawPeerBinDir = [Environment]::GetEnvironmentVariable('GO_AGENT_PEER_BIN_DIR', 'Process')
+    if ($null -eq $rawPeerBinDir -or $rawPeerBinDir.Trim() -eq '') {
+        $env:GO_AGENT_PEER_BIN_DIR = $ProjectDir
+        $rawPeerBinDir = $ProjectDir
+    }
+
+    $peerBinDirCandidates = @($rawPeerBinDir -split [regex]::Escape([string][IO.Path]::PathSeparator) |
+        Where-Object { $_.Trim() -ne '' } |
+        Select-Object -First 1)
+    if ($peerBinDirCandidates.Count -eq 0) {
+        throw 'GO_AGENT_PEER_BIN_DIR must not be empty'
+    }
+
+    $peerBinDir = $peerBinDirCandidates[0]
+    if ($null -eq $peerBinDir -or $peerBinDir.Trim() -eq '') {
+        throw 'GO_AGENT_PEER_BIN_DIR must not be empty'
+    }
+
+    return $peerBinDir.Trim()
+}
+
+function Build-PeerBinaries {
+    param([Parameter(Mandatory)][string]$PeerBinDir)
+
+    if (-not $PeerBinDir -or $PeerBinDir.Trim() -eq '') {
+        throw 'PeerBinDir must not be empty'
+    }
+    $PeerBinDir = $PeerBinDir.Trim()
+    Write-Host "  -> building peer binaries for new UI desktop: $PeerBinDir"
     Push-Location -LiteralPath $ProjectDir
     try {
-        & go build -o (Join-Path $ProjectDir 'mcp-orch.exe') './cmd/mcp-orch/'
+        New-Item -ItemType Directory -Force -Path $PeerBinDir | Out-Null
+        $peerBinDirItem = Get-Item -LiteralPath $PeerBinDir
+        if (-not $peerBinDirItem.PSIsContainer) {
+            throw "PeerBinDir must be a directory: $PeerBinDir"
+        }
+
+        & go build -o (Join-Path $PeerBinDir 'mcp-orch.exe') './cmd/mcp-orch/'
         if ($LASTEXITCODE -ne 0) { throw 'go build mcp-orch failed' }
-        & go build -o (Join-Path $ProjectDir 'mcp-lsp.exe') './cmd/mcp-lsp/'
+        & go build -o (Join-Path $PeerBinDir 'mcp-lsp.exe') './cmd/mcp-lsp/'
         if ($LASTEXITCODE -ne 0) { throw 'go build mcp-lsp failed' }
     } finally {
         Pop-Location
     }
+}
+
+function Ensure-PeerBinaries {
+    $peerSourcePaths = @{
+        'mcp-orch' = @('cmd\mcp-orch', 'internal', 'pkg', 'go.mod', 'go.sum')
+        'mcp-lsp' = @('cmd\mcp-lsp', 'internal', 'pkg', 'go.mod', 'go.sum')
+    }
+
+    $peerBinDir = Resolve-PeerBinDir
+    $needsBuild = $false
+    foreach ($name in @('mcp-orch', 'mcp-lsp')) {
+        $binaryPath = Join-Path $peerBinDir "$name.exe"
+        if (Test-PeerBinaryStale -BinaryPath $binaryPath -SourcePaths $peerSourcePaths[$name]) {
+            $needsBuild = $true
+            break
+        }
+    }
+
+    if (-not $needsBuild) { return }
+
+    Build-PeerBinaries -PeerBinDir $peerBinDir
 }
 
 function Ensure-SqliteRuntime {
@@ -467,6 +579,9 @@ Set-DefaultEnv -Name 'SUPER_DOLPHIN_HTTP_ADDR' -Value '127.0.0.1:4512'
 Set-DefaultEnv -Name 'GO_AGENT_CTL_RPC_ADDR' -Value '127.0.0.1:8092'
 Set-DefaultEnv -Name 'VITE_DEV_URL' -Value 'http://127.0.0.1:5175'
 Set-DefaultEnv -Name 'FRONTEND_DEVSERVER_URL' -Value $env:VITE_DEV_URL
+if ($env:FRONTEND_DEVSERVER_URL -ne $env:VITE_DEV_URL) {
+    throw "FRONTEND_DEVSERVER_URL must match VITE_DEV_URL for Wails readiness, got FRONTEND_DEVSERVER_URL=$($env:FRONTEND_DEVSERVER_URL) VITE_DEV_URL=$($env:VITE_DEV_URL)"
+}
 
 $viteUri = [Uri]$env:VITE_DEV_URL
 if (-not $viteUri.Host -or $viteUri.Port -le 0 -or $viteUri.Authority -notmatch ':\d+$') {
@@ -491,6 +606,9 @@ Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_CODEX_EFFORT' -Value 'xhigh'
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_CODEX_HOME' -Value $env:CODEX_HOME
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_CODEX_INSTANCE_KEY' -Value 'default'
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER' -Value 'openai'
+Set-DefaultEnv -Name 'SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS' -Value '300'
+Set-DefaultEnv -Name 'SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS' -Value '300'
+Set-DefaultEnv -Name 'SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS' -Value '0.2'
 Set-DefaultEnv -Name 'LOG_LEVEL' -Value 'debug'
 Set-DefaultEnv -Name 'ENABLE_MEMORY_SYSTEM' -Value '1'
 Set-DefaultEnv -Name 'ENABLE_MEMORY_TOOLS' -Value '1'
@@ -526,6 +644,16 @@ try {
     New-Item -ItemType Directory -Force -Path $env:SUPER_DOLPHIN_HOME | Out-Null
     Remove-Item -LiteralPath $env:SUPER_DOLPHIN_BACKEND_LOG, $env:SUPER_DOLPHIN_BACKEND_ERR_LOG, $env:SUPER_DOLPHIN_FRONTEND_LOG, $env:SUPER_DOLPHIN_FRONTEND_ERR_LOG -Force -ErrorAction SilentlyContinue
 
+    $npm = Resolve-NpmCommand
+    $script:ViteProcess = Start-Process -FilePath $npm `
+        -ArgumentList @('run', 'dev', '--', '--host', $ViteDevHost, '--port', "$ViteDevPort", '--strictPort') `
+        -WorkingDirectory $FrontendAppDir `
+        -PassThru `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput $env:SUPER_DOLPHIN_FRONTEND_LOG `
+        -RedirectStandardError $env:SUPER_DOLPHIN_FRONTEND_ERR_LOG
+    Wait-ForHttp -Url $env:FRONTEND_DEVSERVER_URL -Label 'frontend-app vite'
+
     $script:DesktopProcess = Start-Process -FilePath 'go' `
         -ArgumentList @('run', './cmd/agent-terminal') `
         -WorkingDirectory $ProjectDir `
@@ -535,16 +663,6 @@ try {
         -RedirectStandardError $env:SUPER_DOLPHIN_BACKEND_ERR_LOG
 
     Wait-ForBackend
-
-    $npm = Resolve-NpmCommand
-    $script:ViteProcess = Start-Process -FilePath $npm `
-        -ArgumentList @('run', 'dev', '--', '--host', $ViteDevHost, '--port', "$ViteDevPort", '--strictPort') `
-        -WorkingDirectory $FrontendAppDir `
-        -PassThru `
-        -WindowStyle Hidden `
-        -RedirectStandardOutput $env:SUPER_DOLPHIN_FRONTEND_LOG `
-        -RedirectStandardError $env:SUPER_DOLPHIN_FRONTEND_ERR_LOG
-    Wait-ForHttp -Url $env:VITE_DEV_URL -Label 'frontend-app vite'
 
     Wait-ForAnyProcessExit
 } finally {
