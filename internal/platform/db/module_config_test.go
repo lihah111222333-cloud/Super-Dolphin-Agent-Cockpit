@@ -47,6 +47,34 @@ func TestNewDBRejectsDirectorySQLitePathWithRedaction(t *testing.T) {
 	}
 }
 
+func TestNewDBRejectsParentFileWithParentRedaction(t *testing.T) {
+	parentFile := filepath.Join(t.TempDir(), "private-parent")
+	if err := os.WriteFile(parentFile, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("write parent file: %v", err)
+	}
+	dbPath := filepath.Join(parentFile, "secret.db")
+
+	database, err := NewDB(&config.Config{SQLitePath: dbPath})
+	if err == nil {
+		if database != nil {
+			_ = database.Close()
+		}
+		t.Fatal("NewDB() error = nil, want parent-file fail-fast")
+	}
+	if database != nil {
+		t.Fatalf("NewDB() database = %v, want nil on parent-file path", database)
+	}
+	if strings.Contains(err.Error(), parentFile) || strings.Contains(err.Error(), dbPath) {
+		t.Fatalf("NewDB() error leaked full path: %v", err)
+	}
+	if strings.Contains(err.Error(), "<redacted:secret.db>") {
+		t.Fatalf("NewDB() error = %v, want parent path redaction, not leaf path", err)
+	}
+	if !strings.Contains(err.Error(), "<redacted:private-parent>") {
+		t.Fatalf("NewDB() error = %v, want redacted parent path", err)
+	}
+}
+
 func TestNewDBCreatesSQLiteWithPragmasAndRestrictiveFiles(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state", "super-dolphin.db")
 
@@ -106,6 +134,9 @@ func TestNewDBRejectsReadOnlyDatabaseFileWithRedaction(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), path) {
 		t.Fatalf("NewDB() error leaked full path: %v", err)
+	}
+	if !strings.Contains(err.Error(), "SQLite database file is not writable") {
+		t.Fatalf("NewDB() error = %v, want explicit DB file writability failure", err)
 	}
 	if !strings.Contains(err.Error(), "<redacted:super-dolphin.db>") {
 		t.Fatalf("NewDB() error = %v, want redacted DB path", err)
