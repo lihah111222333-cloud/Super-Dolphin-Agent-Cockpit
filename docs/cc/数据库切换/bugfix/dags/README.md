@@ -9,12 +9,15 @@
 ## 派发原则
 
 - 每个任务只能在自己的 task worktree 中实施，不要多个任务共用同一个 worktree。
-- 每个 codeagent 开始前必须读本 README、总计划、对应任务文档和任务列出的源码。
+- 一个 task worktree 只能由一个 `xhight-codeagent` 根据任务文档进行代码修改；不得在同一 worktree 并行拉起多个 `xhight-codeagent`。
+- 每个 `xhight-codeagent` 开始前必须读本 README、总计划、对应任务文档和任务列出的源码。
 - 涉及 Go 文件时，每改完一个 Go 文件先运行单文件 guard。Windows PowerShell 使用 `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\test_with_guard.ps1 <file.go>`；如果当前 worktree 没有 `.ps1` 入口，必须报告 skip reason 并运行真实可执行的替代验证。
 - 不允许 silent fallback，不允许自动 chmod 修复用户已有 DB/Codex home，不允许路径泄露。
 - 不允许手改 generated 文件，不允许修改 guard 阈值，不允许更新 baseline 绕过失败。
-- 每个任务完成后必须拉起一个 reviewagent。该 reviewagent 必须覆盖生产就绪性、性能、风险、安全、可维护性、回滚风险和任务验收标准。
-- reviewagent 未通过时，当前 codeagent 停止交付；新 codeagent 接手同一任务 worktree，修复后重新跑验收并重新单评审。
+- 每个任务修改完成并跑完任务验收后，必须拉起一个 `hight-reviewagent` 审查同一个 task worktree 的 diff 和验收输出。
+- `hight-reviewagent` 必须覆盖生产就绪性、性能、风险、安全、可维护性、回滚风险和任务验收标准。
+- `hight-reviewagent` 通过后，当前 `xhight-codeagent` 才允许用中文 commit message 提交该任务，并把任务分支合并回集成 worktree `.worktrees/bugfix-sqlite-codex-identity-mr52`。
+- `hight-reviewagent` 未通过时，当前 `xhight-codeagent` 停止交付；必须新拉起一个 `xhight-codeagent` 根据 `hight-reviewagent` 反馈接手返修，返修后重新跑验收并重新拉起 `hight-reviewagent`。
 
 ## DAG
 
@@ -39,7 +42,7 @@ Wave 1：`01` 和 `02` 可并行。二者修改文件不重叠，分别覆盖 SQ
 
 Wave 2：`03` 和 `04` 都依赖 `02`，且可并行。`03` 只改 thread start/resume 持久化和 runtime config；`04` 只改 binding 注册、auto-resume backfill 测试和历史读取输入收敛。两者不得互相修改对方文件。
 
-Wave 3：`05` 依赖 `01`、`03` 和 `04`。该任务只做验收、扫描、单 review 整理，不应再新增业务修复。
+Wave 3：`05` 依赖 `01`、`03` 和 `04`。该任务只做验收、扫描、`hight-reviewagent` 评审整理，不应再新增业务修复。
 
 ## 修改范围总表
 
