@@ -357,7 +357,7 @@ func (s *service) establishResumedSession(
 	); err != nil {
 		return nil, err
 	}
-	if _, err := s.resumeSession(ctx, req); err != nil {
+	if _, err := s.resumeResolvedRequestSession(ctx, req); err != nil {
 		s.stopAgent(ctx, req.AgentID)
 		return nil, err
 	}

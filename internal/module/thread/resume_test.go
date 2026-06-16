@@ -32,15 +32,12 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 		}}),
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
-		AgentID:            "agent-1",
-		Provider:           "codex",
-		ProviderThreadID:   providerThreadID,
-		CodexThreadID:      "thread-1",
-		RolloutPath:        rolloutPath,
-		Cwd:                "/repo",
-		CodexHome:          "/repo/.codex",
-		CodexInstanceKey:   "default",
-		CodexModelProvider: "openai",
+		AgentID:          "agent-1",
+		Provider:         "codex",
+		ProviderThreadID: providerThreadID,
+		CodexThreadID:    "thread-1",
+		RolloutPath:      rolloutPath,
+		Cwd:              "/repo",
 	}}
 	sessions := &stubSessionProvider{}
 	starter := &stubSessionStarter{
