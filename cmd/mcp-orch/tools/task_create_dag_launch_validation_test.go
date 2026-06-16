@@ -167,6 +167,83 @@ func TestHandleCreateDAGRejectsAgentNodeMissingProvider(t *testing.T) {
 	}
 }
 
+func TestHandleCreateDAGRejectsAgentNodeMissingLaunchIdentity(t *testing.T) {
+	tests := []struct {
+		name     string
+		nodeType string
+	}{
+		{name: "implicit agent node", nodeType: ""},
+		{name: "explicit agent node", nodeType: `"agent"`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			nodeTypeLine := ""
+			if tc.nodeType != "" {
+				nodeTypeLine = `"node_type":` + tc.nodeType + `,`
+			}
+			err := handleCreateDAGRejects(t, `{
+				"agent_id":"designer-1",
+				"dag_key":"dag-missing-launch-identity",
+				"title":"Missing launch identity",
+				"nodes":[{
+					"node_key":"writer",
+					"title":"Writer",
+					`+nodeTypeLine+`
+					"assigned_to":"agent-parent",
+					"config":{"exec":{
+						"provider":"codex",
+						"cwd":"/repo/project",
+						"codex_home":"/tmp/codex-home",
+						"codex_instance_key":"default",
+						"codex_model_provider":"openai"
+					}}
+				}]
+			}`)
+			assertErrorContains(t, err, "nodes[0].config.exec.prompt_key", "nodes[0].config.exec.agent_key", "writer")
+		})
+	}
+}
+
+func TestHandleCreateDAGAcceptsAgentNodeWithPromptKey(t *testing.T) {
+	handleCreateDAGAccepts(t, `{
+		"agent_id":"designer-1",
+		"dag_key":"dag-agent-prompt-key",
+		"title":"Agent prompt key",
+		"nodes":[{
+			"node_key":"writer",
+			"title":"Writer",
+			"node_type":"agent",
+			"assigned_to":"agent-parent",
+			"config":{"exec":{
+				"provider":"codex",
+				"prompt_key":"main/code-task",
+				"cwd":"/repo/project",
+				"codex_home":"/tmp/codex-home",
+				"codex_instance_key":"default",
+				"codex_model_provider":"openai"
+			}}
+		}]
+	}`)
+}
+
+func TestHandleCreateDAGAcceptsAgentNodeWithAgentKey(t *testing.T) {
+	handleCreateDAGAccepts(t, `{
+		"agent_id":"designer-1",
+		"dag_key":"dag-agent-agent-key",
+		"title":"Agent key",
+		"nodes":[{
+			"node_key":"writer",
+			"title":"Writer",
+			"assigned_to":"agent-parent",
+			"config":{"exec":{
+				"provider":"claude",
+				"agent_key":"daily_brief_agent",
+				"cwd":"/repo/project"
+			}}
+		}]
+	}`)
+}
+
 func TestHandleCreateDAGRejectsCodexAgentNodeMissingIdentity(t *testing.T) {
 	err := handleCreateDAGRejects(t, `{
 		"agent_id":"designer-1",
@@ -187,6 +264,76 @@ func TestHandleCreateDAGRejectsCodexAgentNodeMissingIdentity(t *testing.T) {
 	}
 }
 
+func TestHandleCreateDAGRejectsHybridVerifierMissingLaunchIdentity(t *testing.T) {
+	err := handleCreateDAGRejects(t, `{
+		"agent_id":"designer-1",
+		"dag_key":"dag-hybrid-missing-launch-identity",
+		"title":"Hybrid missing launch identity",
+		"nodes":[{
+			"node_key":"review",
+			"title":"Review",
+			"node_type":"hybrid",
+			"assigned_to":"agent-parent",
+			"config":{"exec":{
+				"automation":{"kind":"command_card","command_ref":"run_tests"},
+				"verifier":{
+					"provider":"codex",
+					"cwd":"/repo/project",
+					"codex_home":"/tmp/codex-home",
+					"codex_instance_key":"default",
+					"codex_model_provider":"openai"
+				}
+			}}
+		}]
+	}`)
+	assertErrorContains(t, err, "nodes[0].config.exec.verifier.prompt_key", "nodes[0].config.exec.verifier.agent_key", "review")
+}
+
+func TestHandleCreateDAGRejectsHybridVerifierMissingProvider(t *testing.T) {
+	err := handleCreateDAGRejects(t, `{
+		"agent_id":"designer-1",
+		"dag_key":"dag-hybrid-missing-provider",
+		"title":"Hybrid missing provider",
+		"nodes":[{
+			"node_key":"review",
+			"title":"Review",
+			"node_type":"hybrid",
+			"assigned_to":"agent-parent",
+			"config":{"exec":{
+				"automation":{"kind":"command_card","command_ref":"run_tests"},
+				"verifier":{
+					"prompt_key":"main/review-task",
+					"cwd":"/repo/project"
+				}
+			}}
+		}]
+	}`)
+	assertErrorContains(t, err, "nodes[0].config.exec.verifier.provider", "review", "claude", "codex")
+}
+
+func TestHandleCreateDAGRejectsCodexHybridVerifierMissingIdentity(t *testing.T) {
+	err := handleCreateDAGRejects(t, `{
+		"agent_id":"designer-1",
+		"dag_key":"dag-hybrid-missing-codex-identity",
+		"title":"Hybrid missing codex identity",
+		"nodes":[{
+			"node_key":"review",
+			"title":"Review",
+			"node_type":"hybrid",
+			"assigned_to":"agent-parent",
+			"config":{"exec":{
+				"automation":{"kind":"command_card","command_ref":"run_tests"},
+				"verifier":{
+					"provider":"codex",
+					"prompt_key":"main/review-task",
+					"cwd":"/repo/project"
+				}
+			}}
+		}]
+	}`)
+	assertErrorContains(t, err, "review", "codex_home", "codex_instance_key", "codex_model_provider")
+}
+
 func handleCreateDAGRejects(t *testing.T, raw string) error {
 	t.Helper()
 	handler := HandleCreateDAG(&golden.OrchestrationStub{
@@ -200,4 +347,30 @@ func handleCreateDAGRejects(t *testing.T, raw string) error {
 		t.Fatal("HandleCreateDAG() error = nil, want validation failure")
 	}
 	return err
+}
+
+func handleCreateDAGAccepts(t *testing.T, raw string) {
+	t.Helper()
+	called := false
+	handler := HandleCreateDAG(&golden.OrchestrationStub{
+		CreateDAGFunc: func(context.Context, contract.CreateDAGRequest) (contract.DAGDetail, error) {
+			called = true
+			return contract.DAGDetail{}, nil
+		},
+	})
+	if _, err := handler(context.Background(), json.RawMessage(raw)); err != nil {
+		t.Fatalf("HandleCreateDAG() error = %v", err)
+	}
+	if !called {
+		t.Fatal("CreateDAG was not called for valid task_create_dag input")
+	}
+}
+
+func assertErrorContains(t *testing.T, err error, wants ...string) {
+	t.Helper()
+	for _, want := range wants {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("HandleCreateDAG() error = %q, want substring %q", err.Error(), want)
+		}
+	}
 }
