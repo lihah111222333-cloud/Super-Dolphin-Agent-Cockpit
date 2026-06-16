@@ -1,6 +1,7 @@
 package codexapp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -9,16 +10,19 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/toolsurface"
 )
 
 type turnStartParams struct {
-	ThreadID             string          `json:"threadId"`
-	Input                []turnInputItem `json:"input"`
-	SelectedSkills       []string        `json:"selectedSkills,omitempty"`
-	ManualSkillSelection bool            `json:"manualSkillSelection,omitempty"`
-	Model                string          `json:"model,omitempty"`
-	Effort               string          `json:"effort,omitempty"`
-	OutputSchema         json.RawMessage `json:"outputSchema,omitempty"`
+	ThreadID             string                            `json:"threadId"`
+	Input                []turnInputItem                   `json:"input"`
+	SelectedSkills       []string                          `json:"selectedSkills,omitempty"`
+	ManualSkillSelection bool                              `json:"manualSkillSelection,omitempty"`
+	Model                string                            `json:"model,omitempty"`
+	Effort               string                            `json:"effort,omitempty"`
+	OutputSchema         json.RawMessage                   `json:"outputSchema,omitempty"`
+	DynamicTools         []codexprotocol.DynamicToolSchema `json:"dynamicTools,omitempty"`
 }
 
 type turnInputItem struct {
@@ -48,6 +52,20 @@ func buildTurnStartParams(threadID string, req dto.TurnRequest) turnStartParams 
 		Effort:               normalizeCodexAppEffort(req.Overrides.Effort),
 		OutputSchema:         req.OutputSchema,
 	}
+}
+
+// prepareTurnDynamicTools 为每次 turn/start 重新声明 Codex dynamicTools。
+// 这样启动后新增或更新的 MCP server 会随下一轮 chat 一起交给模型。
+func (s *session) prepareTurnDynamicTools(ctx context.Context, req dto.TurnRequest) ([]codexprotocol.DynamicToolSchema, error) {
+	if s == nil {
+		return nil, nil
+	}
+	cwd := strings.TrimSpace(req.CWD)
+	if cwd == "" {
+		cwd = s.runtimeConfigString("cwd")
+	}
+	input := toolsurface.TurnInput{Enabled: s.dynamicToolsEnabled, AgentID: s.agentID, UIThreadID: req.ThreadID, LocalThreadID: req.ThreadID, ProviderThreadID: s.ThreadID(), SurfaceID: s.ensureToolSurfaceID(), CWD: cwd, WorkspaceRoots: trustedWorkspaceRoots(cwd, req.AdditionalWorkingDirectories), Manifest: req.MCP, Prepare: s.prepareTools, List: s.listTools}
+	return toolsurface.PrepareTurn(ctx, input)
 }
 
 func (s *session) applyTurnToolScopeRuntimeConfig(req dto.TurnRequest) error {

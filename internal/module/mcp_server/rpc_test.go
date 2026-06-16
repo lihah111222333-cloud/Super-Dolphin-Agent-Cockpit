@@ -128,11 +128,11 @@ func TestStartPostgresRPCCreatesDefaultStdioConfig(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if !got.Added || got.Config.Command != "npx" {
-		t.Fatalf("StartPostgresServerResult = %#v, want added npx config", got)
+	if !got.Added || got.Config.Command != "mcp-server-postgres" {
+		t.Fatalf("StartPostgresServerResult = %#v, want added mcp-server-postgres config", got)
 	}
-	if store.servers[project][DefaultPostgresServerName].Command != "npx" {
-		t.Fatalf("stored servers = %#v, want postgres npx config", store.servers[project])
+	if store.servers[project][DefaultPostgresServerName].Command != "mcp-server-postgres" {
+		t.Fatalf("stored servers = %#v, want postgres mcp-server-postgres config", store.servers[project])
 	}
 }
 
@@ -168,6 +168,6 @@ func TestDeleteRPCRemovesMCPServerConfig(t *testing.T) {
 
 func newMCPServerTestServer(store MCPServerConfigStore) *platformrpc.Server {
 	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
-	server.Register(NewHandlers(NewServiceWithStore(store)).Handlers)
+	server.Register(NewHandlers(newServiceWithStoreAndInstaller(store, &recordingPostgresInstaller{})).Handlers)
 	return server
 }

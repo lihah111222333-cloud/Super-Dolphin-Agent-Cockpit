@@ -106,7 +106,8 @@ func mcpServerRPCError(err error) error {
 	case errors.Is(err, errMCPServerStoreNotConfigured):
 		return platformrpc.ErrInvalidState(err.Error())
 	case errors.Is(err, errMCPServerToolsRequestFailed),
-		errors.Is(err, errInvalidToolsResponse):
+		errors.Is(err, errInvalidToolsResponse),
+		errors.Is(err, errPostgresInstallerMissing):
 		return platformrpc.ErrInvalidState(err.Error())
 	case errors.Is(err, errServerNotFound):
 		return platformrpc.ErrNotFound(err.Error())
