@@ -71,12 +71,59 @@ describe('TimelineMessage', () => {
 
 describe('UserMessageAttachments', () => {
   it('normalizes supported image sources and empty attachment lists', () => {
+    const screenshotPath = 'C:/Users/ai04/Pictures/Screenshots/\u5c4f\u5e55\u622a\u56fe 2026-06-13 170324.png';
     expect(resolveAttachmentImageSrc({ previewUrl: 'data:image/png;base64,abc' })).toBe('data:image/png;base64,abc');
+    expect(resolveAttachmentImageSrc({ previewUrl: 'blob:screen-preview' })).toBe('blob:screen-preview');
     expect(resolveAttachmentImageSrc({ previewUrl: '/clipboard/a.png' })).toBe('/clipboard/a.png');
     expect(resolveAttachmentImageSrc({ previewUrl: 'https://example.test/a.png' })).toBe('https://example.test/a.png');
+    expect(resolveAttachmentImageSrc({ path: 'C:/Users/ai/AppData/Local/Temp/clipboard-222.png' })).toBe('/clipboard/clipboard-222.png');
+    expect(resolveAttachmentImageSrc({ path: 'C:/Users/ai/AppData/Local/Temp/codex-clipboard-f05.png' })).toBe('/clipboard/codex-clipboard-f05.png');
+    expect(resolveAttachmentImageSrc({ path: screenshotPath })).toBe(`/local-image?path=${encodeURIComponent(screenshotPath)}`);
 
     const { container } = render(<UserMessageAttachments attachments={[]} />);
     expect(container.firstChild).toBeNull();
+  });
+
+  it('renders path-only clipboard images as image previews', () => {
+    render(
+      <UserMessageAttachments
+        attachments={[
+          { path: 'C:/Users/ai/AppData/Local/Temp/clipboard-222.png', name: 'clipboard-222.png' },
+        ]}
+      />,
+    );
+
+    const img = screen.getByRole('img', { name: 'clipboard-222.png' });
+    expect(img).toHaveAttribute('src', '/clipboard/clipboard-222.png');
+    expect(screen.queryByText('C:/Users/ai/AppData/Local/Temp/clipboard-222.png')).not.toBeInTheDocument();
+  });
+
+  it('renders Codex clipboard temp images as image previews', () => {
+    render(
+      <UserMessageAttachments
+        attachments={[
+          { path: 'C:/Users/ai/AppData/Local/Temp/codex-clipboard-f05.png', name: 'screen.png' },
+        ]}
+      />,
+    );
+
+    const img = screen.getByRole('img', { name: 'screen.png' });
+    expect(img).toHaveAttribute('src', '/clipboard/codex-clipboard-f05.png');
+  });
+
+  it('renders normal local screenshot paths through the local image route', () => {
+    const screenshotPath = 'C:\\Users\\ai04\\Pictures\\Screenshots\\\u5c4f\u5e55\u622a\u56fe 2026-06-13 170324.png';
+
+    render(
+      <UserMessageAttachments
+        attachments={[
+          { path: screenshotPath, name: '\u5c4f\u5e55\u622a\u56fe 2026-06-13 170324.png' },
+        ]}
+      />,
+    );
+
+    const img = screen.getByRole('img', { name: '\u5c4f\u5e55\u622a\u56fe 2026-06-13 170324.png' });
+    expect(img).toHaveAttribute('src', `/local-image?path=${encodeURIComponent(screenshotPath)}`);
   });
 });
 

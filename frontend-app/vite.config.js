@@ -99,6 +99,9 @@ export function createFrontendViteConfig(env = process.env) {
         '/generated-image': {
           target: `http://${backendAddr}`,
         },
+        '/local-image': {
+          target: `http://${backendAddr}`,
+        },
       },
     },
     test: {

@@ -23,6 +23,8 @@ describe('threadHistoryTimeline', () => {
           { type: 'image', path: '/tmp/image.png' },
           { type: 'localImage', url: '/clipboard/existing.png', name: 'existing' },
           { type: 'localImage', source: 'C:/tmp/local.webp' },
+          { type: 'localImage', path: 'C:/Users/ai/AppData/Local/Temp/clipboard-win.png' },
+          { type: 'localImage', path: 'C:/Users/ai/AppData/Local/Temp/codex-clipboard-f05.png' },
         ],
       },
     })).toEqual([
@@ -43,6 +45,18 @@ describe('threadHistoryTimeline', () => {
         name: 'local.webp',
         path: 'C:/tmp/local.webp',
         previewUrl: 'C:/tmp/local.webp',
+      },
+      {
+        kind: 'image',
+        name: 'clipboard-win.png',
+        path: 'C:/Users/ai/AppData/Local/Temp/clipboard-win.png',
+        previewUrl: '/clipboard/clipboard-win.png',
+      },
+      {
+        kind: 'image',
+        name: 'codex-clipboard-f05.png',
+        path: 'C:/Users/ai/AppData/Local/Temp/codex-clipboard-f05.png',
+        previewUrl: '/clipboard/codex-clipboard-f05.png',
       },
     ]);
   });
