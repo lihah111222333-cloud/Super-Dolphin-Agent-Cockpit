@@ -169,6 +169,8 @@ SUPER_DOLPHIN_HOT_WATCH_PATHS="cmd internal pkg go.mod go.sum" ./run-new-ui-desk
 
 ## Code Map
 
+Documentation entry point: [`docs/README.md`](docs/README.md).
+
 Full code map: [`docs/doc/codemap/README.md`](docs/doc/codemap/README.md). Key sections:
 
 - [Terminal Entry & UI Layer](docs/doc/codemap/01-terminal-ui.md)

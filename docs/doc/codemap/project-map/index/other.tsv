@@ -630,7 +630,7 @@ pkg/logger/truncate.go	pkg	other	go-source	595	统一日志、采样、relay、w
 pkg/logger/watchdog.go	pkg	other	go-source	1385	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,watchdog,统一日志,采样,relay,与,trace,context
 pkg/skillmetrics/skillmetrics_test.go	pkg	other	go-test	1938	skill 指标公共库	pkg,skillmetrics,test,skill,指标公共库
 pkg/skillmetrics/skillmetrics.go	pkg	other	go-source	5052	skill 指标公共库	pkg,skillmetrics,skill,指标公共库
-README.md	(root)	other	doc	8149	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
+README.md	(root)	other	doc	8210	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
 run-debug.ps1	(root)	other	script	33651	仓库根级配置、入口或说明文件	run,debug,仓库根级配置,入口或说明文件
 run-debug.sh	(root)	other	script	22904	仓库根级配置、入口或说明文件	run,debug,仓库根级配置,入口或说明文件
 run-new-ui-desktop-hot.sh	(root)	other	script	373	仓库根级配置、入口或说明文件	run,new,ui,desktop,hot,仓库根级配置,入口或说明文件
