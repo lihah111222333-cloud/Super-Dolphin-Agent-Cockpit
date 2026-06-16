@@ -3,6 +3,7 @@ import {
   locateCodeFile as locateCodeFileBackend,
   onFilesDropped as onFilesDroppedBackend,
   openCodeFile as openCodeFileBackend,
+  openPath as openPathBackend,
   saveCodeFile as saveCodeFileBackend,
 } from '../../../shared/api/backendApi.js';
 
@@ -25,6 +26,10 @@ export function onFilesDropped(callback) {
 
 export function openCodeFile(payload) {
   return openCodeFileBackend(payload);
+}
+
+export function openPath(payload) {
+  return openPathBackend(payload);
 }
 
 export function saveCodeFile(payload) {

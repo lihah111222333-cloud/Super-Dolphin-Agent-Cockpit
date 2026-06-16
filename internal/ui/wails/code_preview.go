@@ -329,13 +329,14 @@ func openCodeEditor(path string, line, column int) bool {
 
 func codeOpenArgs(path string, line, column int) []string {
 	// 误判防护：codeOpenArgs 只构造 argv 参数，配合 openCodeEditor 避免 shell 注入。
-	location := path
-	if line > 0 {
-		if column <= 0 {
-			column = 1
-		}
-		location = path + ":" + strings.TrimSpace(intString(line)) + ":" + strings.TrimSpace(intString(column))
+	if line <= 0 {
+		return []string{path}
 	}
+	location := path
+	if column <= 0 {
+		column = 1
+	}
+	location = path + ":" + strings.TrimSpace(intString(line)) + ":" + strings.TrimSpace(intString(column))
 	return []string{"-g", location}
 }
 
