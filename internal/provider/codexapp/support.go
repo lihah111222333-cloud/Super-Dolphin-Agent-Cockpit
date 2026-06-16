@@ -393,7 +393,7 @@ func (d *driver) rebuildResumeToolSurface(ctx context.Context, s *session, req d
 // codexToolSurfaceScope 组装 Codex 动态工具面所需的可信上下文，并把 mcpConfig 转成可拉取 tools 的 manifest。
 func (d *driver) codexToolSurfaceScope(agentID, localThreadID, providerThreadID, cwd string, cfg map[string]any) (contract.CodexToolSurfaceScope, error) {
 	cwd = strings.TrimSpace(cwd)
-	workspaceRoots := trustedWorkspaceRoots(cwd, providershared.ConfigStringSlice(cfg, "additionalWorkingDirectories", "additional_working_directories"))
+	workspaceRoots := trustedWorkspaceRoots(cwd, providershared.ConfigStringSlice(cfg, contract.RuntimeConfigAdditionalWorkingDirectories.Keys()...))
 	additionalRoots := workspaceRoots[min(len(workspaceRoots), 1):]
 	extraBinaries, err := providershared.ConfigMCPBinaries(cfg, "mcpConfig", "mcp_config")
 	if err != nil {
@@ -413,8 +413,8 @@ func (d *driver) codexToolSurfaceScope(agentID, localThreadID, providerThreadID,
 			AdditionalWorkingDirectories: additionalRoots,
 			ThreadCaps:                   cloneCaps(codexCapabilities),
 			BinaryDir:                    providershared.ResolveBinaryDir(cwd, cfg),
-			Env:                          providershared.StringMap(cfg["env"]),
-			AutoApprove:                  providershared.ConfigStringSlice(cfg, "auto_approve", "autoApprove"),
+			Env:                          providershared.StringMap(cfg[contract.RuntimeConfigEnv.Canonical]),
+			AutoApprove:                  providershared.ConfigStringSlice(cfg, contract.RuntimeConfigAutoApprove.Keys()...),
 			ExtraBinaries:                extraBinaries,
 			TransportMode:                dto.ManifestTransportStdioOnly,
 		}),

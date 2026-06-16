@@ -10,6 +10,14 @@ import { runUIAction } from './shared/ui/runUIAction.js';
 import superDolphinLogo from './assets/super-dolphin-logo.png';
 import './AppChrome.css';
 import './AppShell.css';
+import {
+  COLOR_THEMES,
+  appPageFromPathname,
+  appRouteForPage,
+  normalizeAppPathname,
+  normalizeColorTheme,
+  selectAppShellStore,
+} from './app/appShellModel.js';
 
 function lazyNamedPage(loader, exportName) {
   return lazy(() => loader().then((module) => ({ default: module[exportName] })));
@@ -47,32 +55,6 @@ const pageLabels = Object.freeze({
   settings: '设置',
 });
 
-const PAGE_ROUTE_BY_ID = Object.freeze({
-  chat: '/',
-  prompts: '/prompts',
-  workflows: '/dags',
-  skills: '/skills',
-  memory: '/memory',
-  observability: '/observability',
-  files: '/files',
-  settings: '/settings',
-});
-
-const PAGE_ID_BY_ROUTE = Object.freeze({
-  '/': 'chat',
-  '/chat': 'chat',
-  '/prompts': 'prompts',
-  '/dags': 'workflows',
-  '/workflows': 'workflows',
-  '/skills': 'skills',
-  '/memory': 'memory',
-  '/memory-center': 'memory',
-  '/observability': 'observability',
-  '/files': 'files',
-  '/shared-files': 'files',
-  '/settings': 'settings',
-});
-
 const DASHBOARD_QUERY_STALE_MS = 30_000;
 
 const UPDATE_CHECK_DELAY_MS = 2_000;
@@ -84,25 +66,6 @@ export const APP_PROFILER_ID = 'App';
 
 const THEME_STORAGE_KEY = 'super-dolphin-theme';
 
-const COLOR_THEMES = Object.freeze({
-  dark: 'dark',
-  light: 'light',
-});
-
-function normalizeColorTheme(value) {
-  return value === COLOR_THEMES.light || value === COLOR_THEMES.dark ? value : COLOR_THEMES.light;
-}
-
-function normalizeAppPathname(value) {
-  const raw = (value || '').toString().trim().toLowerCase();
-  if (!raw || raw === '/') return '/';
-  return raw.replace(/\/+$/g, '') || '/';
-}
-
-function appPageFromPathname(pathname) {
-  return PAGE_ID_BY_ROUTE[normalizeAppPathname(pathname)] || '';
-}
-
 function appPageFromLocation() {
   if (typeof window === 'undefined') return 'chat';
   return appPageFromPathname(window.location?.pathname) || 'chat';
@@ -111,11 +74,7 @@ function appPageFromLocation() {
 function hasExplicitAppPageRoute() {
   if (typeof window === 'undefined') return false;
   const path = normalizeAppPathname(window.location?.pathname);
-  return path !== '/' && Boolean(PAGE_ID_BY_ROUTE[path]);
-}
-
-function appRouteForPage(page) {
-  return PAGE_ROUTE_BY_ID[page] || PAGE_ROUTE_BY_ID.chat;
+  return path !== '/' && Boolean(appPageFromPathname(path));
 }
 
 function useColorTheme() {
@@ -597,71 +556,6 @@ function AppUpdateBanner({ updateBanner }) {
       </div>
     </section>
   );
-}
-
-function selectAppShellStore(state) {
-  return {
-    actionNotice: state.actionNotice,
-    activePage: state.activePage,
-    activeProject: state.activeProject,
-    activeThreadId: state.activeThreadId,
-    activeTurnByThread: state.activeTurnByThread,
-    activityStatsByThread: state.activityStatsByThread,
-    addProjectFromPicker: state.addProjectFromPicker,
-    addWarning: state.addWarning,
-    archiveThread: state.archiveThread,
-    attachDroppedFilesForComposer: state.attachDroppedFilesForComposer,
-    attachPathsForComposer: state.attachPathsForComposer,
-    attachments: state.attachments,
-    bootstrap: state.bootstrap,
-    bootstrapStatus: state.bootstrapStatus,
-    copyActiveThreadInfo: state.copyActiveThreadInfo,
-    cwd: state.cwd,
-    deleteStaleThreads: state.deleteStaleThreads,
-    diffTextByThread: state.diffTextByThread,
-    draft: state.draft,
-    error: state.error,
-    forceCompleteActiveThread: state.forceCompleteActiveThread,
-    hasActiveThreadActions: state.hasActiveThreadActions,
-    hasInterruptibleThreadAction: state.hasInterruptibleThreadAction,
-    interruptActiveThread: state.interruptActiveThread,
-    loadOlderThreadMessages: state.loadOlderThreadMessages,
-    memoryRevision: state.memoryRevision,
-    newThread: state.newThread,
-    openForkDraft: state.openForkDraft,
-    openNewWindow: state.openNewWindow,
-    projects: state.projects,
-    promptRevision: state.promptRevision,
-    recoverActiveThread: state.recoverActiveThread,
-    removeProjectPath: state.removeProjectPath,
-    removeAttachment: state.removeAttachment,
-    respondApproval: state.respondApproval,
-    resolveLaunchPreferences: state.resolveLaunchPreferences,
-    rightPanelWidth: state.rightPanelWidth,
-    renameThread: state.renameThread,
-    runtimeResultEntries: state.runtimeResultEntries,
-    selectFilesForComposer: state.selectFilesForComposer,
-    sendDraft: state.sendDraft,
-    sending: state.sending,
-    setActivePage: state.setActivePage,
-    setActiveProjectPath: state.setActiveProjectPath,
-    setActiveThread: state.setActiveThread,
-    setDraft: state.setDraft,
-    setRightPanelWidth: state.setRightPanelWidth,
-    skillRevision: state.skillRevision,
-    statuses: state.statuses,
-    syncThreadState: state.syncThreadState,
-    threadDiffReadyByThread: state.threadDiffReadyByThread,
-    threadMessagePaginationByThread: state.threadMessagePaginationByThread,
-    threadStateLoadingByThread: state.threadStateLoadingByThread,
-    threadTimelineReadyByThread: state.threadTimelineReadyByThread,
-    threads: state.threads,
-    timelinesByThread: state.timelinesByThread,
-    toggleProviderMode: state.toggleProviderMode,
-    tokenUsageByThread: state.tokenUsageByThread,
-    warningEntries: state.warningEntries,
-    workflowRevision: state.workflowRevision,
-  };
 }
 
 function AppShell({ skipBootstrap = false }) {

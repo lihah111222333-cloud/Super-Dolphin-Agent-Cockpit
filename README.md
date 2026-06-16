@@ -8,7 +8,7 @@ Multi-agent orchestration platform for AI-assisted development. Provides session
 
 ```
 cmd/
-├── agent-terminal/      # Wails desktop host + HTTP/RPC bridge; legacy embedded frontend
+├── agent-terminal/      # Wails desktop host + HTTP/RPC bridge; embeds copied frontend-app assets for package runs
 ├── mcp-orch/            # MCP orchestration peer (agent lifecycle, DAG, cron)
 └── mcp-lsp/             # MCP generic multi-language LSP peer (code intelligence)
 
@@ -55,8 +55,11 @@ export SUPER_DOLPHIN_SQLITE_PATH="$PWD/.super-dolphin/super-dolphin.db"
 # For frontend HMR plus Go backend restart-on-change:
 ./run-new-ui-desktop-hot.sh
 
-# Legacy embedded frontend assets are gitignored; build them only when working on
-# cmd/agent-terminal/frontend or a package-embed path:
+# Package/embed builds use frontend-app and copy dist into
+# cmd/agent-terminal/frontend/dist for Go embed:
+make frontend-app-build
+
+# Build the legacy Vue package only when explicitly working on that path:
 ( cd cmd/agent-terminal/frontend && npm install && npm run build )
 ```
 
@@ -108,8 +111,8 @@ Notes:
 ./run-new-ui-desktop.sh      # Run current React/Vite new UI in the desktop host
 .\run-new-ui-desktop.ps1     # Windows PowerShell equivalent
 ./run-new-ui-desktop-hot.sh  # Same, with Vite HMR plus Go backend restart-on-change
-make build-plain           # Build all Go binaries (without Frida)
-make run-plain             # Run the cmd/server entry
+make build-plain           # Build all Go binaries after preparing frontend-app embed assets
+make run-plain             # Run the desktop host after preparing frontend-app embed assets
 make build-agent-terminal  # Build the desktop UI binary (Wails + Frida)
 make build-agent-terminal-plain   # Same without Frida (lighter)
 ```

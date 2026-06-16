@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 const (
@@ -17,15 +19,10 @@ const (
 )
 
 // StartPostgresServerRequest 是默认 postgres MCP server 的显式启动请求。
-type StartPostgresServerRequest struct{}
+type StartPostgresServerRequest = contract.MCPPostgresServerStartRequest
 
 // StartPostgresServerResult 返回配置写入位置以及本次是否新增配置。
-type StartPostgresServerResult struct {
-	ConfigPath string       `json:"configPath"`
-	ServerName string       `json:"serverName"`
-	Added      bool         `json:"added"`
-	Config     ServerConfig `json:"config"`
-}
+type StartPostgresServerResult = contract.MCPPostgresServerStartResult
 
 // StartPostgresServer 写入默认 postgres stdio MCP server 配置。
 // 这个入口只在 RPC 被显式调用时生效；首次写入前会确保 npm 全局包已安装，后续 provider 直接拉起本地命令。
