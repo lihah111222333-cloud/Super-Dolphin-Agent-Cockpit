@@ -1,4 +1,17 @@
-.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build frontend-app-deps frontend-app-build frontend-legacy-deps frontend-legacy-build run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux package-windows test test-deferred vet clean guard guard-shell protocol-sync-check rpc-regression-check codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
+.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build frontend-app-deps frontend-app-build frontend-legacy-deps frontend-legacy-build run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux package-windows test test-deferred vet clean guard guard-precommit guard-change guard-commit guard-release guard-shell protocol-sync-check rpc-regression-check codemap-check codemap-refresh project-map project-map-query project-map-check project-map-refresh generate capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
+
+GO_GUARD := .agents/skills/guarding-go-projects/scripts/go_project_guard.sh
+PROJECT_MAP := .agents/skills/mapping-go-projects/scripts/generate_go_project_map.go
+PROJECT_MAP_QUERY := .agents/skills/mapping-go-projects/scripts/query_project_map.py
+
+GO_GUARD_MAX_FILE_LINES ?= 800
+GO_GUARD_MAX_TEST_FILE_LINES ?= 1200
+GO_GUARD_MAX_PACKAGE_GO_FILES ?= 60
+GO_GUARD_COMMENT_LONG_FUNC_LINES ?= 80
+export GO_GUARD_MAX_FILE_LINES
+export GO_GUARD_MAX_TEST_FILE_LINES
+export GO_GUARD_MAX_PACKAGE_GO_FILES
+export GO_GUARD_COMMENT_LONG_FUNC_LINES
 
 # Auto-detect macOS version to avoid ld warnings about version mismatch.
 # Override with: make MIN_MACOS_VERSION=15.0 build
@@ -197,6 +210,12 @@ codemap-refresh:
 	go run scripts/codemap_index.go
 	@echo "✅ codemap ai-index.json refreshed"
 
+project-map:
+	go run $(PROJECT_MAP) -root . -out .project-map
+
+project-map-query:
+	python3 $(PROJECT_MAP_QUERY) --root . $(q)
+
 project-map-check:
 	node scripts/generate_ai_project_map.js --check --strict-drift
 	@echo "✅ project map generated files are up to date"
@@ -204,6 +223,8 @@ project-map-check:
 project-map-refresh:
 	node scripts/generate_ai_project_map.js
 	@echo "✅ project map refreshed"
+
+generate: project-map
 
 capcontract-check:
 	go run ./scripts/capcontract --check
@@ -219,8 +240,18 @@ vet: guard
 clean:
 	rm -rf bin/
 
-guard:
-	$(TEST_WITH_GUARD) --guard-only
+guard: guard-change
+
+guard-precommit: guard-commit
+
+guard-change:
+	$(GO_GUARD) change .
+
+guard-commit:
+	$(GO_GUARD) commit .
+
+guard-release:
+	$(GO_GUARD) release .
 
 guard-shell:
 	./scripts/go_guard_shell.sh

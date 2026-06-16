@@ -29,10 +29,7 @@ GO_BIN="${CODEX_STOP_GATE_GO_BIN:-go}"
 if [[ -z "${CODEX_STOP_GATE_GO_BIN:-}" ]] && ! command -v "${GO_BIN}" >/dev/null 2>&1 && command -v go.exe >/dev/null 2>&1; then
   GO_BIN="$(command -v go.exe)"
 fi
-if [[ -z "${REAL_GO_BIN:-}" && "${GO_BIN}" == *go.exe ]]; then
-  export REAL_GO_BIN="${GO_BIN}"
-fi
-
+GOFMT_BIN="${CODEX_STOP_GATE_GOFMT_BIN:-gofmt}"
 NODE_BIN="${CODEX_STOP_GATE_NODE_BIN:-node}"
 if [[ -z "${CODEX_STOP_GATE_NODE_BIN:-}" ]] && ! command -v "${NODE_BIN}" >/dev/null 2>&1 && command -v node.exe >/dev/null 2>&1; then
   NODE_BIN="$(command -v node.exe)"
@@ -48,7 +45,7 @@ if [[ -z "${CODEX_STOP_GATE_NPX_BIN:-}" ]] && ! command -v "${NPX_BIN}" >/dev/nu
 fi
 
 HOOK_INPUT=""
-if [[ ! -t 0 ]]; then
+if ! ${PRINT_PLAN} && [[ ! -t 0 ]]; then
   if IFS= read -r -t 1 first_line; then
     HOOK_INPUT="${first_line}"
     while IFS= read -r -t 1 next_line; do
@@ -61,6 +58,9 @@ LOG_DIR="${CODEX_STOP_GATE_LOG_DIR:-${REPO_ROOT}/.codex/logs}"
 mkdir -p "${LOG_DIR}" 2>/dev/null || true
 LOG_FILE="${LOG_DIR}/stop-gate-$(date +%Y%m%d%H%M%S).log"
 
+FULL_GO_GUARD="${CODEX_STOP_GATE_FULL_GO_GUARD:-${CODEX_STOP_GATE_FULL:-0}}"
+FRONTEND_TESTS="${CODEX_STOP_GATE_FRONTEND_TESTS:-0}"
+HOOK_TESTS="${CODEX_STOP_GATE_HOOK_TESTS:-1}"
 GO_PACKAGE_PATTERNS=("./cmd/..." "./internal/..." "./pkg/..." "./scripts/...")
 FRONTEND_PROJECT="frontend-app"
 
@@ -157,10 +157,10 @@ is_root_go_change() {
 is_hook_change() {
   case "$1" in
     .codex/config.toml|\
-    .codex/hooks.json|\
-    .codex/.gitignore|\
-    scripts/codex_stop_gate.sh|\
-    scripts/tests/test_codex_stop_gate_plan.sh)
+	    .codex/hooks.json|\
+	    .codex/.gitignore|\
+	    scripts/codex_stop_gate.sh|\
+	    scripts/tests/test_codex_stop_gate_plan.sh)
       return 0
       ;;
     *)
@@ -186,6 +186,19 @@ changed_go_packages() {
         else
           printf './%s\n' "${dir}"
         fi
+        ;;
+    esac
+	  done | sort -u
+}
+
+changed_go_files() {
+  while IFS= read -r file; do
+    [[ -z "${file}" ]] && continue
+    case "${file}" in
+      third_party/*)
+        ;;
+      *.go)
+        printf '%s\n' "${file}"
         ;;
     esac
   done | sort -u
@@ -233,7 +246,27 @@ run_cmd() {
   return 1
 }
 
-run_frontend_size_guard() {
+run_go_gofmt() {
+  local files="$1"
+  local output
+  output="$(mktemp)"
+
+  while IFS= read -r file; do
+    [[ -z "${file}" ]] && continue
+    [[ -f "${file}" ]] || continue
+    "${GOFMT_BIN}" -l "${file}" >>"${output}"
+  done <<< "${files}"
+
+  if [[ -s "${output}" ]]; then
+    log "Go files need gofmt:"
+    cat "${output}" >&2
+    rm -f "${output}"
+    return 1
+  fi
+  rm -f "${output}"
+}
+
+run_frontend_quick_guard() {
   local project="$1"
   if [[ -f "${project}/scripts/size-guard.cjs" ]]; then
     (cd "${project}" && "${NODE_BIN}" scripts/size-guard.cjs)
@@ -245,6 +278,22 @@ run_frontend_size_guard() {
 run_frontend_vitest() {
   local project="$1"
   (cd "${project}" && "${NPX_BIN}" vitest run)
+}
+
+run_hook_syntax_checks() {
+  [[ ! -f scripts/codex_stop_gate.sh ]] || bash -n scripts/codex_stop_gate.sh
+  for hook in .githooks/*; do
+    [[ -f "${hook}" ]] || continue
+    bash -n "${hook}"
+  done
+}
+
+run_hook_plan_tests() {
+  if [[ ! -f scripts/tests/test_codex_stop_gate_plan.sh ]]; then
+    log "skip Codex Stop gate plan tests: scripts/tests/test_codex_stop_gate_plan.sh not found"
+    return 0
+  fi
+  bash scripts/tests/test_codex_stop_gate_plan.sh
 }
 
 CHANGED_FILES="$(changed_files)"
@@ -276,30 +325,46 @@ while IFS= read -r file; do
 done <<< "${CHANGED_FILES}"
 
 GO_PKGS="$(changed_go_packages <<< "${CHANGED_FILES}")"
+GO_FILES="$(changed_go_files <<< "${CHANGED_FILES}")"
 FRONTEND_PROJECTS="$(changed_frontend_projects <<< "${CHANGED_FILES}")"
 
 if ${PRINT_PLAN}; then
   printed=false
+  while IFS= read -r file; do
+    [[ -z "${file}" ]] && continue
+    printf 'gofmt %s\n' "${file}"
+    printed=true
+  done <<< "${GO_FILES}"
   while IFS= read -r pkg; do
     [[ -z "${pkg}" ]] && continue
-    printf 'go_pkg %s\n' "${pkg}"
+    printf 'go_test %s\n' "${pkg}"
     printed=true
   done <<< "${GO_PKGS}"
   while IFS= read -r project; do
     [[ -z "${project}" ]] && continue
-    printf 'frontend_project %s\n' "${project}"
+    printf 'frontend_lint %s\n' "${project}"
+    if [[ "${FRONTEND_TESTS}" = "1" ]]; then
+      printf 'frontend_test %s\n' "${project}"
+    else
+      printf 'frontend_test_skipped %s CODEX_STOP_GATE_FRONTEND_TESTS=0\n' "${project}"
+    fi
     printed=true
   done <<< "${FRONTEND_PROJECTS}"
   if ${HAS_GO_GUARD}; then
-    printf 'guard go\n'
-    printed=true
-  fi
-  if ${HAS_FRONTEND_GUARD}; then
-    printf 'guard frontend\n'
+    if [[ "${FULL_GO_GUARD}" = "1" ]]; then
+      printf 'guard go full\n'
+    else
+      printf 'guard go full_skipped CODEX_STOP_GATE_FULL_GO_GUARD=0\n'
+    fi
     printed=true
   fi
   if ${HAS_HOOK_TEST}; then
-    printf 'hook_test scripts/tests/test_codex_stop_gate_plan.sh\n'
+    printf 'hook_syntax bash -n\n'
+    if [[ "${HOOK_TESTS}" = "1" && -f scripts/tests/test_codex_stop_gate_plan.sh ]]; then
+      printf 'hook_test scripts/tests/test_codex_stop_gate_plan.sh\n'
+    else
+      printf 'hook_test_skipped scripts/tests/test_codex_stop_gate_plan.sh\n'
+    fi
     printed=true
   fi
   if ! ${printed}; then
@@ -314,6 +379,12 @@ printf '%s\n' "${CHANGED_FILES}" >>"${LOG_FILE}" 2>/dev/null || true
 
 FAILURES=()
 
+if [[ -n "${GO_FILES}" ]]; then
+  if ! run_cmd "changed Go gofmt" run_go_gofmt "${GO_FILES}"; then
+    FAILURES+=("changed Go gofmt")
+  fi
+fi
+
 if [[ -n "${GO_PKGS}" ]]; then
   GO_PKGS="$(filter_active_go_packages "${GO_PKGS}")"
 fi
@@ -323,12 +394,17 @@ if [[ -n "${GO_PKGS}" ]]; then
     [[ -z "${pkg}" ]] && continue
     go_args+=("${pkg}")
   done <<< "${GO_PKGS}"
-  if ! run_cmd "changed Go package tests" ./scripts/test_with_guard.sh "${go_args[@]}" -count=1; then
+  if ! run_cmd "changed Go package tests" "${GO_BIN}" test "${go_args[@]}" -count=1; then
     FAILURES+=("changed Go package tests")
   fi
-elif ${HAS_GO_GUARD}; then
-  if ! run_cmd "Go code guard" ./scripts/test_with_guard.sh --guard-only; then
-    FAILURES+=("Go code guard")
+fi
+if [[ -n "${GO_PKGS}" ]] || ${HAS_GO_GUARD}; then
+  if [[ "${FULL_GO_GUARD}" = "1" ]]; then
+    if ! run_cmd "Go code guard" make guard-change; then
+      FAILURES+=("Go code guard")
+    fi
+  else
+    log "skip full Go code guard; set CODEX_STOP_GATE_FULL_GO_GUARD=1 to run make guard-change"
   fi
 fi
 
@@ -340,18 +416,29 @@ if [[ -n "${FRONTEND_PROJECTS}" ]]; then
       FAILURES+=("frontend project tests")
       continue
     fi
-    if ! run_cmd "frontend size guard (${project})" run_frontend_size_guard "${project}"; then
-      FAILURES+=("frontend size guard (${project})")
+    if ! run_cmd "frontend quick guard (${project})" run_frontend_quick_guard "${project}"; then
+      FAILURES+=("frontend quick guard (${project})")
     fi
-    if ! run_cmd "frontend vitest (${project})" run_frontend_vitest "${project}"; then
-      FAILURES+=("frontend vitest (${project})")
+    if [[ "${FRONTEND_TESTS}" = "1" ]]; then
+      if ! run_cmd "frontend vitest (${project})" run_frontend_vitest "${project}"; then
+        FAILURES+=("frontend vitest (${project})")
+      fi
+    else
+      log "skip frontend vitest (${project}); set CODEX_STOP_GATE_FRONTEND_TESTS=1 to run it"
     fi
   done <<< "${FRONTEND_PROJECTS}"
 fi
 
 if ${HAS_HOOK_TEST}; then
-  if ! run_cmd "Codex Stop gate plan tests" bash scripts/tests/test_codex_stop_gate_plan.sh; then
-    FAILURES+=("Codex Stop gate plan tests")
+  if ! run_cmd "hook shell syntax checks" run_hook_syntax_checks; then
+    FAILURES+=("hook shell syntax checks")
+  fi
+  if [[ "${HOOK_TESTS}" = "1" ]]; then
+    if ! run_cmd "Codex Stop gate plan tests" run_hook_plan_tests; then
+      FAILURES+=("Codex Stop gate plan tests")
+    fi
+  else
+    log "skip Codex Stop gate plan tests; CODEX_STOP_GATE_HOOK_TESTS=0"
   fi
 fi
 

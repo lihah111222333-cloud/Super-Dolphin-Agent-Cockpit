@@ -7,14 +7,11 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/jackc/pgx/v5 v5.8.0
 	github.com/kelindar/event v1.5.2
-	github.com/oklog/run v1.2.0
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/prometheus/client_golang v1.20.5
 	github.com/qmuntal/stateless v1.8.0
 	github.com/robfig/cron/v3 v3.0.1
-	github.com/stretchr/testify v1.11.1
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.74
 	go.uber.org/fx v1.24.0
 	golang.org/x/sync v0.20.0
@@ -36,7 +33,6 @@ require (
 	github.com/coder/websocket v1.8.14 // indirect
 	github.com/creachadair/mds v0.26.1 // indirect
 	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ebitengine/purego v0.9.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
@@ -46,15 +42,11 @@ require (
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
-	github.com/jackc/pgpassfile v1.0.0 // indirect
-	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
 	github.com/kevinburke/ssh_config v1.4.0 // indirect
 	github.com/klauspost/compress v1.18.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
-	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/leaanthony/go-ansi-parser v1.6.1 // indirect
 	github.com/leaanthony/u v1.1.1 // indirect
 	github.com/lmittmann/tint v1.1.2 // indirect
