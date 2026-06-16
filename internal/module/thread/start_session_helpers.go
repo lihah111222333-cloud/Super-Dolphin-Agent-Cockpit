@@ -131,7 +131,7 @@ func resolveAuthoritativeResumeCWD(req ResumeRequest, state resumeState) (string
 
 // hydrateResumeSessionRequest 从 thread、binding、config 和 snapshot 还原 resume 输入。
 // 它不重新选 prompt，也不创建新 thread；cwd 或 snapshot 不可靠就报错。
-func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeRequest) (ResumeRequest, error) {
+func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeRequest, opts resumeHydrateOptions) (ResumeRequest, error) {
 	req, err := trimResumeRequest(req)
 	if err != nil {
 		return ResumeRequest{}, err
@@ -141,6 +141,12 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 		return ResumeRequest{}, err
 	}
 	req = hydrateResumeIDs(req, state)
+	if opts.validateExplicitCodexIdentity {
+		err = validateExplicitResumeCodexIdentity(req)
+	}
+	if err != nil {
+		return ResumeRequest{}, err
+	}
 	req.CWD, err = resolveAuthoritativeResumeCWD(req, state)
 	if err != nil {
 		return ResumeRequest{}, err
@@ -149,7 +155,7 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 	req = hydrateResumeCodexIdentity(req, state)
 	req.CodexDisabledNativeTools = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
 	req.Config = mergeRuntimeConfig(clone.RuntimeConfigMap(state.ConfigOverride.Runtime), req.Config)
-	req, err = s.injectDefaultCodexIdentityForResume(req)
+	req, err = s.canonicalizeHydratedResumeCodexIdentity(req, opts.canonicalizeCodexIdentity)
 	if err != nil {
 		return ResumeRequest{}, err
 	}
