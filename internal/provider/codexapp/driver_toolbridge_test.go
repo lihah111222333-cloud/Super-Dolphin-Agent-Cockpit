@@ -63,7 +63,7 @@ func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 	assertDynamicToolsStartSession(t, recorder, s, listToolsCalls)
 }
 
-func TestToolBridge_StartSession_ChatModeSkipsDynamicTools(t *testing.T) {
+func TestToolBridge_StartSession_ChatModeCarriesDynamicTools(t *testing.T) {
 	recorder := &toolBridgeRPCRecorder{}
 	serverURL := startToolBridgeRPCServer(t, recorder)
 	manager := &ServerManager{}
@@ -85,13 +85,7 @@ func TestToolBridge_StartSession_ChatModeSkipsDynamicTools(t *testing.T) {
 	s := requireCodexSession(t, sessionAny, "StartSession")
 	defer closeCodexTestSession(t, s)
 
-	if listToolsCalls != 0 {
-		t.Fatalf("listTools calls = %d, want 0", listToolsCalls)
-	}
-	params := recorder.threadStartParamsSnapshot()
-	if _, ok := params["dynamicTools"]; ok {
-		t.Fatalf("thread/start dynamicTools = %#v, want omitted", params["dynamicTools"])
-	}
+	assertDynamicToolsStartSession(t, recorder, s, listToolsCalls)
 }
 
 func TestToolBridge_StartSession_PreparesScopedCodexSurface(t *testing.T) {

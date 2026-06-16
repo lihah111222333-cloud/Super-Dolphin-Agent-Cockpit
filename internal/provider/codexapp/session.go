@@ -18,6 +18,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -59,7 +60,10 @@ type session struct {
 	// poolRelease releases a P21 multi-provider Codex pool slot; nil outside pool mode.
 	poolRelease            func()
 	poolReleaseOnce        sync.Once
+	prepareTools           func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error)
+	listTools              func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
 	releaseTools           func(contract.CodexToolSurfaceScope) error
+	dynamicToolsEnabled    bool
 	toolSurfaceReleaseOnce sync.Once
 	toolSurfaceID          atomic.Value
 	// runtime owns the session-private reader / health / recovery goroutines.
@@ -311,6 +315,9 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 		return nil, err
 	}
 	params := buildTurnStartParams(threadID, req)
+	if params.DynamicTools, err = s.prepareTurnDynamicTools(ctx, req); err != nil {
+		return nil, err
+	}
 	// Fill model/effort from session runtimeConfig if not set by turn request.
 	// thread/config/set stores these in runtimeConfig; they take effect on the next turn.
 	if params.Model == "" {

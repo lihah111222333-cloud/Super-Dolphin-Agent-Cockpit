@@ -151,18 +151,18 @@ func prepareMCPSurfaceBinaries(
 			result := mcpSurfaceBinaryResult{binary: binary}
 			client, err := factory(workerCtx, binary)
 			if err != nil {
-				recordErr(err)
+				recordErr(wrapMCPSurfaceBinaryError(binary, err))
 				return
 			}
 			if client == nil {
-				recordErr(fmt.Errorf("toolbridge: stdio client not configured for %q", binary.Name))
+				recordErr(wrapMCPSurfaceBinaryError(binary, errMCPSurfaceClientNotConfigured))
 				return
 			}
 			result.client = client
 			results[i] = result
 			tools, err := client.ListTools(workerCtx)
 			if err != nil {
-				recordErr(err)
+				recordErr(wrapMCPSurfaceBinaryError(binary, err))
 				return
 			}
 			result.tools = tools
