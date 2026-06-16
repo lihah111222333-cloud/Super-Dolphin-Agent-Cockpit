@@ -335,11 +335,31 @@ func logStartProviderSessionIdentity(agentID string, req StartRequest, config ma
 // resumeSession 恢复用户已有的 thread。
 // 它先从 store/binding 取回 config 和 prompt snapshot，再交给 provider。
 func (s *service) resumeSession(ctx context.Context, req ResumeRequest) (contract.Session, error) {
-	resolvedReq, err := s.hydrateResumeSessionRequest(ctx, req)
+	resolvedReq, err := s.hydrateResumeSessionRequest(ctx, req, resumeHydrateOptions{
+		validateExplicitCodexIdentity: true,
+		canonicalizeCodexIdentity:     true,
+	})
 	if err != nil {
 		return nil, err
 	}
 	return s.resumeResolvedSession(ctx, resolvedReq)
+}
+
+// resumeResolvedRequestSession 恢复已经由 Resume 主流程整理过的请求。
+// 显式 partial 已在 resolveResumeRequest 检查过，这里仍补 snapshot，但不再把历史字段当请求字段。
+func (s *service) resumeResolvedRequestSession(ctx context.Context, req ResumeRequest) (contract.Session, error) {
+	resolvedReq, err := s.hydrateResumeSessionRequest(ctx, req, resumeHydrateOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return s.resumeResolvedSession(ctx, resolvedReq)
+}
+
+// resumeHydrateOptions 控制 hydrate 阶段是否执行 provider 边界检查。
+// Resume 主流程已经完成 identity 收敛，二次 hydrate 只补状态和 snapshot。
+type resumeHydrateOptions struct {
+	validateExplicitCodexIdentity bool
+	canonicalizeCodexIdentity     bool
 }
 
 // resumeForkSession 用在 fork 后的新 provider thread。
@@ -436,6 +456,9 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	req.AgentID = util.FirstNonEmpty(req.AgentID, state.AgentID)
 	req.Provider = util.FirstNonEmpty(req.Provider, state.Provider)
 	req.ProviderThreadID = normalizeProviderThreadID(req.Provider, util.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID))
+	if err := validateExplicitResumeCodexIdentity(req); err != nil {
+		return ResumeRequest{}, resumeState{}, err
+	}
 
 	req.CWD, err = resolveAuthoritativeResumeCWD(req, state)
 	if err != nil {
@@ -446,6 +469,10 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	req.CodexDisabledNativeTools = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
 	req.Config = mergeRuntimeConfig(clone.RuntimeConfigMap(state.ConfigOverride.Runtime), req.Config)
 	req, err = s.injectDefaultCodexIdentityForResume(req)
+	if err != nil {
+		return ResumeRequest{}, resumeState{}, err
+	}
+	req, err = canonicalizeResumeCodexIdentity(req)
 	if err != nil {
 		return ResumeRequest{}, resumeState{}, err
 	}

@@ -33,7 +33,10 @@ func (d *resumeCaptureDriver) ResumeSession(_ context.Context, req dto.ResumeSes
 
 type resolvingResumeCaptureDriver struct {
 	*resumeCaptureDriver
-	resolveReq dto.ResumeSessionRequest
+	resolveReq         dto.ResumeSessionRequest
+	codexHome          string
+	codexInstanceKey   string
+	codexModelProvider string
 }
 
 func (d *resolvingResumeCaptureDriver) ResolveResumeSessionIdentity(_ context.Context, req dto.ResumeSessionRequest) (dto.ResumeSessionRequest, error) {
@@ -41,9 +44,9 @@ func (d *resolvingResumeCaptureDriver) ResolveResumeSessionIdentity(_ context.Co
 	if req.Config == nil {
 		req.Config = map[string]any{}
 	}
-	req.CodexHome = "/Users/test/.codex"
-	req.CodexInstanceKey = "default"
-	req.CodexModelProvider = "openai"
+	req.CodexHome = firstNonEmptyTestString(d.codexHome, "/Users/test/.codex")
+	req.CodexInstanceKey = firstNonEmptyTestString(d.codexInstanceKey, "default")
+	req.CodexModelProvider = firstNonEmptyTestString(d.codexModelProvider, "openai")
 	req.Config["codexHome"] = req.CodexHome
 	req.Config["codexInstanceKey"] = req.CodexInstanceKey
 	req.Config["codexModelProvider"] = req.CodexModelProvider
@@ -252,6 +255,73 @@ func TestSessionResolverAutoResumeResolvesAndBackfillsLegacyCodexIdentity(t *tes
 	}
 }
 
+func TestAutoResumeBackfillWritesCanonicalCodexIdentity(t *testing.T) {
+	canonicalHome, aliasHome := createAutoResumeCodexHomeCleanAlias(t)
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	writer := &recordingSessionBindingUpserter{}
+	driver := &resolvingResumeCaptureDriver{
+		resumeCaptureDriver: &resumeCaptureDriver{
+			name:    "codex",
+			session: &generationTestSession{threadID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},
+		},
+		codexHome:          canonicalHome,
+		codexInstanceKey:   "default",
+		codexModelProvider: "openai",
+	}
+	resolver := &sessionResolver{
+		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
+			ThreadID: "public-thread-canonical-backfill",
+			AgentID:  "agent-canonical-backfill",
+			RuntimeConfig: map[string]any{
+				contract.CodexHomeKey:          aliasHome,
+				contract.CodexInstanceKeyKey:   "default",
+				contract.CodexModelProviderKey: "openai",
+			},
+		}},
+		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+			"codex:provider-thread-canonical-backfill": {
+				Provider:           "codex",
+				AgentID:            "agent-canonical-backfill",
+				ProviderThreadID:   "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+				CodexThreadID:      "public-thread-canonical-backfill",
+				RolloutPath:        rolloutPath,
+				Cwd:                t.TempDir(),
+				CodexHome:          aliasHome,
+				CodexInstanceKey:   "default",
+				CodexModelProvider: "openai",
+				CreatedAt:          123,
+			},
+		}},
+		bindingWriter: writer,
+		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+			{Name: "codex", Create: func() contract.Driver { return driver }},
+		}}),
+		sessions: NewSessionManager(nil),
+	}
+
+	if _, err := resolver.ResolveSession(context.Background(), "public-thread-canonical-backfill"); err != nil {
+		t.Fatalf("ResolveSession() error = %v", err)
+	}
+	if driver.resolveReq.CodexHome != aliasHome {
+		t.Fatalf("resolver input codex home = %q, want alias %q", driver.resolveReq.CodexHome, aliasHome)
+	}
+	if driver.resumeReq.CodexHome != canonicalHome {
+		t.Fatalf("ResumeSession codex home = %q, want canonical %q", driver.resumeReq.CodexHome, canonicalHome)
+	}
+	if writer.calls != 1 {
+		t.Fatalf("binding backfill calls = %d, want 1", writer.calls)
+	}
+	if writer.binding.CodexHome != canonicalHome ||
+		writer.binding.CodexInstanceKey != "default" ||
+		writer.binding.CodexModelProvider != "openai" {
+		t.Fatalf("backfilled codex identity = %q/%q/%q, want canonical %q/default/openai",
+			writer.binding.CodexHome,
+			writer.binding.CodexInstanceKey,
+			writer.binding.CodexModelProvider,
+			canonicalHome)
+	}
+}
+
 func TestSessionResolverAutoResumePrefersBindingCodexIdentityOverRuntimeConfig(t *testing.T) {
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "77777777-aaaa-bbbb-cccc-777777777777"}}
@@ -299,6 +369,15 @@ func TestSessionResolverAutoResumePrefersBindingCodexIdentityOverRuntimeConfig(t
 func codexIdentityTestString(config map[string]any, keys ...string) string {
 	for _, key := range keys {
 		value, _ := config[key].(string)
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstNonEmptyTestString(values ...string) string {
+	for _, value := range values {
 		if value = strings.TrimSpace(value); value != "" {
 			return value
 		}
@@ -445,4 +524,15 @@ func writeExistingProviderHistoryFile(t *testing.T) string {
 		t.Fatalf("write provider history file: %v", err)
 	}
 	return path
+}
+
+func createAutoResumeCodexHomeCleanAlias(t *testing.T) (string, string) {
+	t.Helper()
+	realHome := t.TempDir()
+	aliasHome := realHome + string(os.PathSeparator) + "."
+	canonicalHome, err := contract.CanonicalizeCodexHome(realHome)
+	if err != nil {
+		t.Fatalf("CanonicalizeCodexHome(real home) error = %v", err)
+	}
+	return canonicalHome, aliasHome
 }

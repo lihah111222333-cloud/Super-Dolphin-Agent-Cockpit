@@ -26,12 +26,10 @@ const (
 )
 
 func runScratchpadCleanup(active *bool, cleanup func()) {
-	if active == nil || !*active {
+	if active == nil || !*active || cleanup == nil {
 		return
 	}
-	if cleanup != nil {
-		cleanup()
-	}
+	cleanup()
 }
 
 // enrichFromSessionConfig 从会话配置补充线程。
@@ -42,9 +40,6 @@ func enrichFromSessionConfig(session contract.Session, reqModel, reqCWD string) 
 		return model, resolveRelativeCWD(cwd), 0
 	}
 	cfg := rc.RuntimeConfigSnapshot()
-	if cfg == nil {
-		return model, resolveRelativeCWD(cwd), 0
-	}
 	if model == "" {
 		model, _ = cfg["model"].(string)
 	}
@@ -59,17 +54,21 @@ func enrichFromSessionConfig(session contract.Session, reqModel, reqCWD string) 
 	return model, resolveRelativeCWD(cwd), port
 }
 
-func sessionRuntimeConfigString(session contract.Session, key string) string {
+// sessionRuntimeCodexIdentityConfig 读取 session runtime 中显式出现的 Codex 身份原始值。
+// key 一旦存在就交给上层校验，避免空字符串或错类型被当成缺失后又被其它来源补齐。
+func sessionRuntimeCodexIdentityConfig(session contract.Session) (map[string]any, bool) {
 	rc, ok := session.(interface{ RuntimeConfigSnapshot() map[string]any })
 	if !ok {
-		return ""
+		return nil, false
 	}
 	cfg := rc.RuntimeConfigSnapshot()
-	if cfg == nil {
-		return ""
+	identity := make(map[string]any, 3)
+	for _, key := range []string{contract.CodexHomeKey, contract.CodexInstanceKeyKey, contract.CodexModelProviderKey} {
+		if raw, ok := cfg[key]; ok {
+			identity[key] = raw
+		}
 	}
-	value, _ := cfg[strings.TrimSpace(key)].(string)
-	return strings.TrimSpace(value)
+	return identity, len(identity) > 0
 }
 
 // injectParentCodexIdentityForStart 为起点处理injectparentcodex身份。
@@ -138,19 +137,20 @@ func (s *service) injectDefaultCodexIdentityForResume(req ResumeRequest) (Resume
 	if strings.TrimSpace(req.Provider) != "codex" {
 		return req, nil
 	}
+	if err := validateResumeCodexIdentityPresentStrings(req); err != nil {
+		return ResumeRequest{}, err
+	}
 	allowed, err := contract.PackagedRuntimeFromEnv()
 	if err != nil {
 		return req, err
 	}
 	if !allowed {
-		return req, nil
+		return req, validateExplicitResumeCodexIdentity(req)
 	}
 	if strings.TrimSpace(req.CodexHome) == "" {
-		home, err := contract.CanonicalAppManagedCodexHome()
-		if err != nil {
+		if req.CodexHome, err = contract.CanonicalAppManagedCodexHome(); err != nil {
 			return req, err
 		}
-		req.CodexHome = home
 	}
 	if strings.TrimSpace(req.CodexInstanceKey) == "" {
 		req.CodexInstanceKey = defaultCodexInstanceKey
@@ -158,7 +158,25 @@ func (s *service) injectDefaultCodexIdentityForResume(req ResumeRequest) (Resume
 	if strings.TrimSpace(req.CodexModelProvider) == "" {
 		req.CodexModelProvider = defaultCodexModelProvider
 	}
-	return req, nil
+	return req, validateExplicitResumeCodexIdentity(req)
+}
+
+// validateResumeCodexIdentityPresentStrings 只检查已出现的 resume 身份字段，默认补齐前不要求三元组完整。
+func validateResumeCodexIdentityPresentStrings(req ResumeRequest) error {
+	values := collectResumeCodexIdentityValues(req, req.Config)
+	return errors.Join(
+		validateResumeCodexIdentityPresentString(values.home, values.hasHome, contract.CodexHomeKey, contract.ErrCodexHomeRequired),
+		validateResumeCodexIdentityPresentString(values.instanceKey, values.hasInstanceKey, contract.CodexInstanceKeyKey, contract.ErrCodexInstanceKeyRequired),
+		validateResumeCodexIdentityPresentString(values.modelProvider, values.hasModelProvider, contract.CodexModelProviderKey, contract.ErrCodexModelProviderRequired),
+	)
+}
+
+func validateResumeCodexIdentityPresentString(value any, present bool, key string, missing error) error {
+	if !present {
+		return nil
+	}
+	_, err := requireResumeCodexIdentityString(value, true, key, missing)
+	return err
 }
 
 // injectParentCodexIdentity 处理injectparentcodex身份。
@@ -173,52 +191,28 @@ func injectParentCodexIdentity(cfg map[string]any, parent *bindingstore.Binding)
 		cfg = make(map[string]any)
 	}
 	injected := false
-	if configutil.ConfigString(cfg, "codexHome") == "" {
-		cfg["codexHome"] = home
-		injected = true
-	}
-	if configutil.ConfigString(cfg, "codexInstanceKey") == "" {
-		cfg["codexInstanceKey"] = instanceKey
-		injected = true
-	}
-	if configutil.ConfigString(cfg, "codexModelProvider") == "" {
-		cfg["codexModelProvider"] = modelProvider
-		injected = true
+	for key, value := range map[string]string{
+		"codexHome":          home,
+		"codexInstanceKey":   instanceKey,
+		"codexModelProvider": modelProvider,
+	} {
+		if configutil.ConfigString(cfg, key) == "" {
+			cfg[key], injected = value, true
+		}
 	}
 	return cfg, injected
 }
 
-func (s *service) logStartedSessionCodexIdentity(
-	req StartRequest,
-	agentID,
-	codexHome string,
-	identity contract.CodexIdentity,
-	session contract.Session,
-) {
-	if s.logger == nil {
-		return
-	}
-	s.logger.Warn("thread: persist started session codex identity",
-		"agent_id", agentID,
-		"provider", req.Provider,
-		"codex_home", codexHome,
-		"has_strict_identity", identity.Home != "" && identity.InstanceKey != "" && identity.ModelProvider != "",
-		"session_runtime_codex_home", sessionRuntimeConfigString(session, "codexHome"),
-		"rollout_path", session.RolloutPath())
-}
-
 // resolveRelativeCWD preserves only caller-provided workspace paths.
 func resolveRelativeCWD(cwd string) string {
-	cwd = strings.TrimSpace(cwd)
-	if cwd == "." {
+	if cwd = strings.TrimSpace(cwd); cwd == "." {
 		return ""
 	}
 	return cwd
 }
 
 func comparablePromptCWD(cwd string) string {
-	cwd = strings.TrimSpace(cwd)
-	if cwd == "" || cwd == "." {
+	if cwd = strings.TrimSpace(cwd); cwd == "" || cwd == "." {
 		return ""
 	}
 	if abs, err := filepath.Abs(cwd); err == nil {

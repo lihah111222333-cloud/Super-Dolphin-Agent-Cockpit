@@ -242,14 +242,17 @@ func (s *service) persistStartedSession(
 	if err != nil {
 		return StartResult{}, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
 	}
-	codexHome := identity.Home
-	codexInstanceKey := identity.InstanceKey
-	codexModelProvider := identity.ModelProvider
-	configOverride, err := encodeStoredThreadConfig(buildStartStoredThreadConfig(req, input, assembly, session))
+	codexHome, codexInstanceKey, codexModelProvider := identity.Home, identity.InstanceKey, identity.ModelProvider
+	storedConfig := buildStartStoredThreadConfig(req, input, assembly, session)
+	if codexHome != "" {
+		storedConfig.Runtime[contract.CodexHomeKey] = codexHome
+		storedConfig.Runtime[contract.CodexInstanceKeyKey] = codexInstanceKey
+		storedConfig.Runtime[contract.CodexModelProviderKey] = codexModelProvider
+	}
+	configOverride, err := encodeStoredThreadConfig(storedConfig)
 	if err != nil {
 		return StartResult{}, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
 	}
-	s.logStartedSessionCodexIdentity(req, agentID, codexHome, identity, session)
 	rolloutPath := session.RolloutPath()
 	providerThreadID := recoverableProviderThreadID(req.Provider, providerUUID, agentID, rolloutPath, codexHome)
 	state := newThreadState(threadStateStartKind, threadStateFields{
@@ -297,38 +300,25 @@ func (s *service) persistStartedSession(
 	return newStartResult(req, publicThreadID, agentID, providerUUID, providerThreadID, effectiveModel, effectiveCWD), nil
 }
 
+// resolveStartedSessionCodexIdentity 解析 start 持久化所需的 Codex 身份；runtime 显式字段必须先通过完整校验。
 func resolveStartedSessionCodexIdentity(provider string, config map[string]any, session contract.Session) (contract.CodexIdentity, error) {
 	if !strings.EqualFold(strings.TrimSpace(provider), "codex") {
 		return contract.CodexIdentity{}, nil
 	}
-	effective, ok := startedSessionCodexIdentityConfig(config, session)
+	effective, ok := sessionRuntimeCodexIdentityConfig(session)
+	if !ok {
+		effective = make(map[string]any, 3)
+		for _, key := range []string{contract.CodexHomeKey, contract.CodexInstanceKeyKey, contract.CodexModelProviderKey} {
+			if raw, ok := config[key]; ok {
+				effective[key] = raw
+			}
+		}
+		ok = len(effective) > 0
+	}
 	if !ok {
 		return contract.CodexIdentity{}, contract.ErrCodexHomeRequired
 	}
 	return contract.ResolveCodexIdentity(effective)
-}
-
-func startedSessionCodexIdentityConfig(config map[string]any, session contract.Session) (map[string]any, bool) {
-	effective := make(map[string]any, 3)
-	for _, key := range []string{"codexHome", "codexInstanceKey", "codexModelProvider"} {
-		if value := sessionRuntimeConfigString(session, key); value != "" {
-			effective[key] = value
-			continue
-		}
-		if raw, ok := config[key]; ok {
-			effective[key] = raw
-		}
-	}
-	return effective, startConfigHasCodexIdentity(effective)
-}
-
-func startConfigHasCodexIdentity(config map[string]any) bool {
-	for _, key := range []string{"codexHome", "codexInstanceKey", "codexModelProvider"} {
-		if _, ok := config[key]; ok {
-			return true
-		}
-	}
-	return false
 }
 
 // establishResumedSession 恢复已有线程会话并绑定 provider session。
@@ -357,7 +347,7 @@ func (s *service) establishResumedSession(
 	); err != nil {
 		return nil, err
 	}
-	if _, err := s.resumeSession(ctx, req); err != nil {
+	if _, err := s.resumeResolvedRequestSession(ctx, req); err != nil {
 		s.stopAgent(ctx, req.AgentID)
 		return nil, err
 	}
@@ -383,22 +373,20 @@ func (s *service) persistResumedSession(
 	session contract.Session,
 ) (ResumeResult, error) {
 	model := util.FirstNonEmpty(req.Model, state.Model)
-	codexHome := util.FirstNonEmpty(req.CodexHome, state.CodexHome, sessionRuntimeConfigString(session, "codexHome"))
-	codexInstanceKey := util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey, sessionRuntimeConfigString(session, "codexInstanceKey"))
-	codexModelProvider := util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider, sessionRuntimeConfigString(session, "codexModelProvider"))
-	if s.logger != nil {
-		s.logger.Warn("thread: persist resumed session codex identity",
-			"agent_id", req.AgentID,
-			"provider", req.Provider,
-			"codex_home", codexHome,
-			"codex_instance_key", codexInstanceKey,
-			"codex_model_provider", codexModelProvider,
-			"session_runtime_codex_home", sessionRuntimeConfigString(session, "codexHome"),
-			"rollout_path", util.FirstNonEmpty(state.RolloutPath, session.RolloutPath()))
+	provider := util.FirstNonEmpty(req.Provider, state.Provider)
+	codexHome, codexInstanceKey, codexModelProvider := util.FirstNonEmpty(req.CodexHome, state.CodexHome), util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey), util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
+	reqIdentityResolved := req.CodexHome != "" && req.CodexInstanceKey != "" && req.CodexModelProvider != ""
+	runtimeIdentity, hasRuntimeIdentity := sessionRuntimeCodexIdentityConfig(session)
+	configOverride, identity, ok, err := canonicalizeResumeStoredThreadConfig(provider, state.ConfigOverrideRaw, codexHome, codexInstanceKey, codexModelProvider, reqIdentityResolved, runtimeIdentity, hasRuntimeIdentity)
+	if err != nil {
+		return ResumeResult{}, err
+	}
+	if ok {
+		codexHome, codexInstanceKey, codexModelProvider = identity.Home, identity.InstanceKey, identity.ModelProvider
 	}
 	rolloutPath := util.FirstNonEmpty(state.RolloutPath, session.RolloutPath())
 	sessionUUID := util.FirstNonEmpty(resolvedProviderUUID(session), state.SessionUUID, req.ProviderThreadID, state.ProviderThreadID)
-	providerThreadID := recoverableProviderThreadID(req.Provider, sessionUUID, state.PublicThreadID, rolloutPath, codexHome)
+	providerThreadID := recoverableProviderThreadID(provider, sessionUUID, state.PublicThreadID, rolloutPath, codexHome)
 	threadState := newThreadState(threadStateResumeKind, threadStateFields{
 		RequestedThreadID:  req.ThreadID,
 		PublicThreadID:     state.PublicThreadID,
@@ -407,14 +395,14 @@ func (s *service) persistResumedSession(
 		ParentAgentID:      state.ParentAgentID,
 		AgentType:          state.AgentType,
 		AgentMemoryScope:   state.AgentMemoryScope,
-		Provider:           req.Provider,
+		Provider:           provider,
 		CWD:                req.CWD,
 		Model:              model,
 		Name:               displayName,
 		Prompt:             displayName,
 		RolloutPath:        rolloutPath,
 		SessionUUID:        sessionUUID,
-		ConfigOverride:     clone.RawMessage(state.ConfigOverrideRaw),
+		ConfigOverride:     configOverride,
 		CodexHome:          codexHome,
 		CodexInstanceKey:   codexInstanceKey,
 		CodexModelProvider: codexModelProvider,
@@ -565,8 +553,7 @@ func resolvedProviderUUID(session contract.Session) string {
 	if session == nil {
 		return ""
 	}
-	id := strings.TrimSpace(session.ThreadID())
-	if identifier.LooksLikeUUID(id) {
+	if id := strings.TrimSpace(session.ThreadID()); identifier.LooksLikeUUID(id) {
 		return id
 	}
 	return ""
@@ -587,8 +574,7 @@ func allowDeferredStartedProviderUUID(session contract.Session, provider, agentI
 	if session == nil || !strings.EqualFold(strings.TrimSpace(provider), "claude") {
 		return false
 	}
-	threadID := strings.TrimSpace(session.ThreadID())
-	agentID = strings.TrimSpace(agentID)
+	threadID, agentID := strings.TrimSpace(session.ThreadID()), strings.TrimSpace(agentID)
 	return threadID == "" || threadID == agentID || strings.HasPrefix(strings.ToLower(threadID), "agent_")
 }
 

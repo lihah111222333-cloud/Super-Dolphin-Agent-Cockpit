@@ -197,8 +197,8 @@ type UpsertAgentProviderBindingParams struct {
 
 // Codex identity columns use "” preserves existing value" semantics so
 // non-P1a callers that pass ” do not overwrite an already-persisted
-// identity. The immutable trigger still rejects any attempt to rewrite a
-// non-empty identity column with a different non-empty value.
+// identity. Codex tuple fields are immutable once non-empty; non-empty
+// codex_home repair is only for caller-validated aliases on the same tuple.
 func (q *Queries) UpsertAgentProviderBinding(ctx context.Context, arg UpsertAgentProviderBindingParams) error {
 	_, err := q.db.ExecContext(ctx, upsertAgentProviderBinding,
 		arg.AgentID,

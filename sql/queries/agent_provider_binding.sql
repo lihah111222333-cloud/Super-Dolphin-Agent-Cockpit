@@ -6,8 +6,8 @@ WHERE provider = ? AND provider_thread_id = ?;
 -- name: UpsertAgentProviderBinding :exec
 -- Codex identity columns use "'' preserves existing value" semantics so
 -- non-P1a callers that pass '' do not overwrite an already-persisted
--- identity. The immutable trigger still rejects any attempt to rewrite a
--- non-empty identity column with a different non-empty value.
+-- identity. Codex tuple fields are immutable once non-empty; non-empty
+-- codex_home repair is only for caller-validated aliases on the same tuple.
 INSERT INTO agent_provider_binding (
     agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid, codex_home, codex_instance_key, codex_model_provider
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, false, ?, ?, ?, ?, ?, ?)

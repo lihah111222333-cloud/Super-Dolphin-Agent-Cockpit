@@ -44,8 +44,8 @@ type UpsertParams struct {
 	UpdatedAt        int64
 
 	// Codex instance identity (P21 P1a). Empty "" means "leave existing
-	// value alone" on UPSERT; the immutable trigger rejects any attempt to
-	// rewrite a non-empty value with a different non-empty value.
+	// value alone" on UPSERT. The tuple fields are immutable once non-empty;
+	// non-empty CodexHome repair must be caller-validated as a same-tuple alias.
 	CodexHome          string
 	CodexInstanceKey   string
 	CodexModelProvider string
