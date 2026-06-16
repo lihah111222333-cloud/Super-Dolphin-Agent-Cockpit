@@ -58,6 +58,22 @@ type MCPServerListResult struct {
 	MCPServers map[string]MCPServerConfig `json:"mcpServers"`
 }
 
+// MCPPostgresServerStartRequest 是默认 Postgres MCP server 显式启动入口的跨模块请求。
+type MCPPostgresServerStartRequest struct{}
+
+// MCPPostgresServerStartResult 返回默认 Postgres MCP server 配置的写入结果。
+type MCPPostgresServerStartResult struct {
+	ConfigPath string          `json:"configPath"`
+	ServerName string          `json:"serverName"`
+	Added      bool            `json:"added"`
+	Config     MCPServerConfig `json:"config"`
+}
+
+// MCPPostgresServerStarter 暴露默认 Postgres MCP server 的启动能力，避免 module 之间直接依赖。
+type MCPPostgresServerStarter interface {
+	StartPostgresServer(context.Context, MCPPostgresServerStartRequest) (MCPPostgresServerStartResult, error)
+}
+
 // MCPServerConfigWriter 暴露默认 MCP server 启动入口需要的最小配置读写能力。
 type MCPServerConfigWriter interface {
 	AddServers(context.Context, MCPServerAddRequest) (MCPServerAddResult, error)
