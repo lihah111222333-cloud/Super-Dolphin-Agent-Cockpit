@@ -13,6 +13,7 @@ cmd/
 └── mcp-lsp/             # MCP generic multi-language LSP peer (code intelligence)
 
 frontend-app/            # Current React/Vite new UI used by run-new-ui-desktop.sh
+frontend/                # Legacy web-only dev harness used by run-new-ui-web.sh
 
 internal/
 ├── contract/            # Cross-module interfaces & DTOs
