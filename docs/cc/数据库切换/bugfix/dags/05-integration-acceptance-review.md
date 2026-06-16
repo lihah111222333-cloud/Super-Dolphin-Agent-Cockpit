@@ -1,8 +1,8 @@
-# Task 05: 集成验收与单评审
+# Task 05: 集成验收与 hight-reviewagent 评审
 
 ## Agent Prompt
 
-你负责 MR !52 bugfix 的最终验收，不新增业务修复。必须在 Task 01、Task 03 和 Task 04 合并到 bugfix 集成 worktree 后执行，复核所有验收标准、运行 focused tests、检查 diff 范围，并组织一个 reviewagent 覆盖生产就绪性、性能、风险、安全、可维护性和测试充分性。
+你负责 MR !52 bugfix 的最终验收，不新增业务修复。必须在 Task 01、Task 03 和 Task 04 合并到 bugfix 集成 worktree 后执行，复核所有验收标准、运行 focused tests、检查 diff 范围，并组织一个 `hight-reviewagent` 覆盖生产就绪性、性能、风险、安全、可维护性和测试充分性。
 
 ## Scope
 
@@ -78,9 +78,9 @@ rg -n "chmod|fallback|default|CanonicalAppManagedCodexHome|EvalSymlinks|OpenFile
 - P2：provider request、thread runtime config、binding 均为 canonical realpath；identity 冲突不可覆盖。
 - P3：config 启动路径和 `NewDB()` 直调路径都能把 parent-file 错误定位到 parent redacted path。
 
-- [ ] **Step 6: 单 review**
+- [ ] **Step 6: hight-reviewagent 评审**
 
-启动一个 reviewagent 审查最终 diff 和验收输出。该 reviewagent 必须回答：
+启动一个 `hight-reviewagent` 审查最终 diff 和验收输出。该 `hight-reviewagent` 必须回答：
 
 - 生产就绪性：是否会进入半可用状态，是否 fail-fast。
 - 性能：是否有热路径 filesystem realpath/open 探测。
@@ -89,7 +89,7 @@ rg -n "chmod|fallback|default|CanonicalAppManagedCodexHome|EvalSymlinks|OpenFile
 - 可维护性：helper 是否集中，是否复用 contract。
 - 测试充分性：是否锁住 P1/P2/P3 原始症状和边界。
 
-reviewagent 未通过时，本任务不允许交付。
+`hight-reviewagent` 未通过时，本任务不允许交付；必须拉起新的 `xhight-codeagent` 根据 `hight-reviewagent` 反馈返修，返修后重新运行验收并重新拉起 `hight-reviewagent`。
 
 ## 最终报告要求
 
@@ -98,7 +98,7 @@ reviewagent 未通过时，本任务不允许交付。
 - 实际运行的命令和 exit code。
 - 若有 skip，必须说明 skip 的具体测试名和原因。
 - diff 范围摘要。
-- reviewagent 的结论摘要。
+- `hight-reviewagent` 的结论摘要。
 - 未解决风险或明确“无未解决风险”。
 
 ## 不允许改

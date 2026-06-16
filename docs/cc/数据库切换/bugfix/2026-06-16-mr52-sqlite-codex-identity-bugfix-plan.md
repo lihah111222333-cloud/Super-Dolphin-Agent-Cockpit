@@ -18,7 +18,7 @@
 2. 性能边界不清：`CodexIdentity.Home` realpath 规范化如果放在消息读取或列表查询热路径，会引入多余 filesystem stat；SQLite 写探测如果放在每次查询前也会放大启动外开销。
 3. 风险边界不清：binding 已有非空 identity 时，不能用新请求任意覆盖 instance key/model provider；只能修正等价 realpath alias，字段冲突必须 fail-fast 或保持不可变错误。
 4. 可维护性不足：thread 侧不能复制 provider driver 的零散逻辑，应集中到 thread 小 helper，并继续以 `contract.ResolveCodexIdentity()` 作为唯一契约入口。
-5. 验收标准缺失：原计划只有命令建议，没有逐条说明 P1/P2/P3 什么结果算通过，也没有要求单 review 覆盖生产、性能、风险、安全、可维护性和测试充分性。
+5. 验收标准缺失：原计划只有命令建议，没有逐条说明 P1/P2/P3 什么结果算通过，也没有要求 `hight-reviewagent` 覆盖生产、性能、风险、安全、可维护性和测试充分性。
 
 本文件已补齐上述约束，并把执行拆到 `docs/cc/数据库切换/bugfix/dags`。
 
@@ -145,12 +145,12 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\test_with_guard.ps1 inte
 
 任务文档已落盘到 `docs/cc/数据库切换/bugfix/dags`：
 
-- `README.md`：bugfix DAG、派发原则、单 review 要求。
+- `README.md`：bugfix DAG、派发原则、`xhight-codeagent`/`hight-reviewagent` 流程要求。
 - `01-sqlite-open-failfast-diagnostics.md`：P1 与 P3 的 SQLite 打开期 fail-fast 和父路径诊断。
 - `02-codex-identity-resume-request-canonicalization.md`：P2 的共享 helper 与 resume 请求进入 provider 前 canonicalization。
 - `03-codex-identity-thread-persistence-convergence.md`：P2 的 thread start/resume 持久化和 runtime config 收敛。
 - `04-codex-identity-binding-backfill-convergence.md`：P2 的 binding alias 修正、auto-resume backfill 和历史读取输入收敛。
-- `05-integration-acceptance-review.md`：全量验收、diff 复核、单 review checklist。
+- `05-integration-acceptance-review.md`：全量验收、diff 复核、`hight-reviewagent` checklist。
 
 依赖顺序：
 
