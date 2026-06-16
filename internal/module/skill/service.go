@@ -17,7 +17,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 )
 
 const (
@@ -38,7 +37,7 @@ type service struct {
 	skillsChangedSeq   uint64
 	skillsChangedDelay func()
 	approval           *ApprovalCache
-	auditStore         auditstore.Store
+	auditStore         contract.AuditLogStore
 	mirrorTargets      []SkillMirrorTarget
 
 	resolutionPreviewMu sync.Mutex
@@ -48,6 +47,7 @@ type service struct {
 var _ Service = (*service)(nil)
 var _ contract.SkillMirrorReconciler = (*service)(nil)
 
+// SkillApprovalRequiredError reports a skill operation that needs explicit approval.
 type SkillApprovalRequiredError = contract.SkillApprovalRequiredError
 
 // resolutionPreviewHash 处理resolutionpreviewhash。

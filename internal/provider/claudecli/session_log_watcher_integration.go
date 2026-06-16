@@ -7,8 +7,7 @@ import (
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 type logWatcherIdentity struct {
@@ -84,7 +83,7 @@ func (s *session) prepareLogWatcherStart(tr *transport) (logWatcherStartState, b
 		sessionID: strings.TrimSpace(s.sessionID),
 		threadID:  strings.TrimSpace(s.threadID),
 	}
-	if s.transport != tr || identity.sessionID == "" || !identifier.IsClaudeCLISessionUUID(identity.sessionID) {
+	if s.transport != tr || identity.sessionID == "" || !kernel.IsClaudeCLISessionUUID(identity.sessionID) {
 		return logWatcherStartState{}, false
 	}
 	state := logWatcherStartState{
@@ -277,7 +276,7 @@ func (s *session) restartSnapshotLocked() restartSnapshot {
 
 func (s *session) swapRestartTransportLocked(tr *transport, cleanup func(), next stagedSessionState, resumeID string) {
 	s.resetThreadReadyLocked()
-	if identifier.IsClaudeCLISessionUUID(resumeID) {
+	if kernel.IsClaudeCLISessionUUID(resumeID) {
 		s.markThreadReadyLocked()
 	}
 	s.activeTurn = nil
@@ -337,7 +336,7 @@ func (s *session) stagedTurnSettingsLocked(req dto.TurnRequest) stagedSessionSta
 	currentConfig := canonicalizeClaudeLaunchConfig(currentDisplayModel, s.config)
 	currentManifest := s.manifest
 	if s.transport != nil {
-		currentModel = strings.TrimSpace(shared.FirstNonEmpty(s.transportModel, currentModel))
+		currentModel = strings.TrimSpace(kernel.FirstNonEmpty(s.transportModel, currentModel))
 		currentDisplayModel = claudeLaunchDisplayModel(currentModel, s.history)
 		transportConfig := s.transportConfig
 		if reflect.DeepEqual(transportConfig, cliLaunchConfig{}) {

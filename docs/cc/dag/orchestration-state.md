@@ -97,7 +97,7 @@ orch DAG key：`mcp_orch_dag_current_fixes_20260605`
 - quality reviewer `agent-1780674469806-54`: PASS.
 - task commit: `ad523f694` (`修复：补齐 DAG 下游产物路径信封`).
 - integration merge commit: `b35f2a93e` (`合并：接入 DAG 下游产物路径信封`).
-- merge conflict resolved in `cmd/mcp-orch/store/taskdag/store_complete_downstream_test.go`; verified with `./scripts/test_with_guard.sh ./cmd/mcp-orch/store/taskdag -count=1` and commit hook.
+- merge conflict resolved in `internal/sidecar/orch/store/taskdag/store_complete_downstream_test.go`; verified with `./scripts/test_with_guard.sh ./internal/sidecar/orch/store/taskdag -count=1` and commit hook.
 
 ## T09/T10 repair started after FAIL
 
@@ -187,8 +187,8 @@ orch DAG key：`mcp_orch_dag_current_fixes_20260605`
   - duplicate dag_key DB conflict is classified as `invalid_input` for `task_create_dag`;
   - added active assets archtest contract.
 - Verification passed in T01 worktree:
-  - `./scripts/test_with_guard.sh ./cmd/mcp-orch/tools -count=1`
-  - `./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration ./cmd/mcp-orch/orchestration/nodeexec ./cmd/mcp-orch/store/taskdag -count=1`
+  - `./scripts/test_with_guard.sh ./internal/sidecar/orch/tools -count=1`
+  - `./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration ./internal/sidecar/orch/orchestration/nodeexec ./internal/sidecar/orch/store/taskdag -count=1`
   - `./scripts/test_with_guard.sh ./internal/archtest -run 'TestDAGDesignerPrompt|TestPromptExternalReference' -count=1`
   - `./scripts/test_with_guard.sh ./internal/mcpserver/common -run 'TestToolError|Test.*Envelope' -count=1`
   - `make codemap-check`
@@ -205,7 +205,7 @@ orch DAG key：`mcp_orch_dag_current_fixes_20260605`
 - task commit: `2033213cc` (`修复：收紧 DAG 创建入口契约`).
 - integration merge commit: `c541f50b9` (`合并：接入 DAG 创建入口契约修复`).
 - integration merge conflict resolved in DAG designer prompt assets; controller preserved both T10 runtime recovery guidance and T01 create-only/trusted-scope contract.
-- merge-time guard blocker in `cmd/mcp-orch/orchestration/nodeexec/ops.go` was fixed by removing the direct `strings.Contains(err.Error(), ...)` pattern required by `TestErrorStringMatchGuard`.
+- merge-time guard blocker in `internal/sidecar/orch/orchestration/nodeexec/ops.go` was fixed by removing the direct `strings.Contains(err.Error(), ...)` pattern required by `TestErrorStringMatchGuard`.
 
 ## Final integration summary
 

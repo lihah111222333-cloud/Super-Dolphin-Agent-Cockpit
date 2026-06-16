@@ -159,7 +159,7 @@ type ListRunsResponse struct {
 //
 // P22 P4 S4b: RemoveSessionGeneration was previously a side-channel
 // method exposed via a local `generationAwareSessionCleaner` interface
-// inside cmd/mcp-orch/orchestration/process_lifecycle.go; the service
+// inside internal/sidecar/orch/orchestration/process_lifecycle.go; the service
 // type-asserted sessionCleaner to that private interface. P4 §279
 // upgrades such local private extensions into the owner contract
 // directly: every OrchestrationSessionCleaner implementation now
@@ -187,7 +187,7 @@ type TurnSubmission = turndto.TurnSubmission
 //
 // P22 P4 S4a: WaitForSessionReady was previously a side-channel method
 // exposed via a local `sessionReadyWaiter` interface inside
-// cmd/mcp-orch/orchestration/helpers.go; the service type-asserted
+// internal/sidecar/orch/orchestration/helpers.go; the service type-asserted
 // turnStarter to that private interface. P4 §279 upgrades such local
 // private extensions into the owner contract directly: every
 // OrchestrationTurnStarter implementation now commits to the ready-wait
@@ -426,12 +426,12 @@ type GetRunResponse struct {
 	Nodes []DAGNode `json:"nodes,omitempty"`
 }
 
-// Run 是 task_dag_runs 的外露 DTO，镜像 cmd/mcp-orch/store/taskdag.Run 字段。
+// Run 是 task_dag_runs 的外露 DTO，镜像 internal/sidecar/orch/store/taskdag.Run 字段。
 // contract 包不依赖 mcp-orch 内部 store 包，故这里独立声明同形状。
 // service 层 dagRunDTO helper 负责转换。
 //
 // Run is the wire-side DTO for task_dag_runs, mirroring the field set of
-// cmd/mcp-orch/store/taskdag.Run. The contract package does not depend on the
+// internal/sidecar/orch/store/taskdag.Run. The contract package does not depend on the
 // internal mcp-orch store package, so the same shape is declared here. Service
 // layer's dagRunDTO helper is responsible for the conversion.
 type Run struct {

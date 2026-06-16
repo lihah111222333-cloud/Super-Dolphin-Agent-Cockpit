@@ -7,9 +7,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	observation "github.com/anthropic-ai/super-agent-v3/internal/dto/observation"
-	insightstore "github.com/anthropic-ai/super-agent-v3/internal/store/insight"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 // defaultDrainTimeout is the hard upper bound on how long the flusher
@@ -26,7 +25,7 @@ const defaultDrainTimeout = 5 * time.Second
 type Flusher struct {
 	logger       *pkglogger.Logger
 	obs          observation.Contract
-	store        insightstore.Store
+	store        contract.InsightStore
 	collector    *collector
 	drainTimeout time.Duration
 	now          func() time.Time
@@ -35,7 +34,7 @@ type Flusher struct {
 // NewFlusher wires a Flusher with its collector and dependencies. now is
 // overridable for deterministic tests; defaults to time.Now.
 // NewFlusher 创建flusher。
-func NewFlusher(logger *pkglogger.Logger, obs observation.Contract, store insightstore.Store, col *collector) *Flusher {
+func NewFlusher(logger *pkglogger.Logger, obs observation.Contract, store contract.InsightStore, col *collector) *Flusher {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -86,7 +85,7 @@ func (f *Flusher) drain() {
 	if f.drainTimeout <= 0 {
 		return
 	}
-	drainCtx, cancel := ctxutil.WithTimeout(context.Background(), f.drainTimeout)
+	drainCtx, cancel := kernel.WithTimeout(context.Background(), f.drainTimeout)
 	defer cancel()
 	drained := 0
 	for {
@@ -150,10 +149,10 @@ func (f *Flusher) handle(ctx context.Context, sig flushSignal) {
 // observation fall back to the signal.Timestamp so we never send
 // zero-valued timestamps through to the DB.
 // buildParams 构建params。
-func (f *Flusher) buildParams(sig flushSignal) (insightstore.UpsertParams, bool) {
+func (f *Flusher) buildParams(sig flushSignal) (contract.InsightUpsertParams, bool) {
 	term, termOk := f.obs.Terminal(sig.LocalTurnID)
 	if !termOk {
-		return insightstore.UpsertParams{}, false
+		return contract.InsightUpsertParams{}, false
 	}
 	tokens, _ := f.obs.Tokens(sig.LocalTurnID)
 	counts, _ := f.obs.Counts(sig.LocalTurnID)
@@ -184,10 +183,10 @@ func (f *Flusher) buildParams(sig flushSignal) (insightstore.UpsertParams, bool)
 	}
 	skillsJSON, err := json.Marshal(skills)
 	if err != nil {
-		return insightstore.UpsertParams{}, false
+		return contract.InsightUpsertParams{}, false
 	}
 
-	return insightstore.UpsertParams{
+	return contract.InsightUpsertParams{
 		ThreadID:                 sig.ThreadID,
 		AgentID:                  sig.AgentID,
 		SessionID:                "",

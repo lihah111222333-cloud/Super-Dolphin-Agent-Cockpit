@@ -6,10 +6,10 @@ import (
 
 	"github.com/kelindar/event"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	crondto "github.com/anthropic-ai/super-agent-v3/internal/dto/cron"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
-	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 // WithDispatcher registers the event dispatcher that the scheduler
@@ -53,7 +53,7 @@ func (s *Scheduler) publishRunState(jobID, runID, status, turnID, errStr string,
 // 这个 helper 只做 run 行的可见状态更新；失败时仍让调用方继续释放 job claim。
 func (s *Scheduler) casLogPublish(
 	ctx context.Context,
-	params cronstore.CASRunStatusParams,
+	params contract.CronCASRunStatusParams,
 	transition, jobID, runID, status, turnID, errStr string,
 	scheduledAt time.Time,
 ) {

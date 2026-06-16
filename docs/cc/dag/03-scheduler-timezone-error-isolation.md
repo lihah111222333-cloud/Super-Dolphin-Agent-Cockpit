@@ -12,7 +12,7 @@
 
 ## 建议关注文件/区域
 
-`cmd/mcp-orch/orchestration/cron, cmd/mcp-orch/orchestration/dag_query.go(nextRunAtForFinalSchedule), cmd/mcp-orch/orchestration/scheduledstart, sql queries/tests`
+`internal/sidecar/orch/orchestration/cron, internal/sidecar/orch/orchestration/dag_query.go(nextRunAtForFinalSchedule), internal/sidecar/orch/orchestration/scheduledstart, sql queries/tests`
 
 ## 必须满足的验收标准
 

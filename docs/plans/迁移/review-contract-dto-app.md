@@ -205,7 +205,7 @@
 - lifecycle 集成是完整的，不是裸 goroutine。
 - 但 `archtest/fx_graph_test.go` 只验证 `app.Module`，没有直接验证 `NewApp()` 上的 `fx.Invoke(BindRuntime)`；这部分目前靠代码阅读与全包测试旁证，而不是专门的 fx validate。
 
-证据：`internal/app/app.go:17-21`，`internal/app/runner.go:13-61`，`cmd/mcp-orch/orchestration/module.go:15-23`，`internal/app/modules.go:46-48`。
+证据：`internal/app/app.go:17-21`，`internal/app/runner.go:13-61`，`internal/sidecar/orch/orchestration/module.go:15-23`，`internal/app/modules.go:46-48`。
 
 ## 9. archtest guardlib
 
@@ -266,7 +266,7 @@ V3 全部 `handler.Map` key 总数是 80。
 
 | 文件 | key 数 |
 |---|---:|
-| `cmd/mcp-orch/orchestration/rpc.go` | 15 |
+| `internal/sidecar/orch/orchestration/rpc.go` | 15 |
 | `internal/module/skill/rpc.go` | 22 |
 | `internal/module/thread/rpc.go` | 29 |
 | `internal/module/turn/rpc.go` | 6 |

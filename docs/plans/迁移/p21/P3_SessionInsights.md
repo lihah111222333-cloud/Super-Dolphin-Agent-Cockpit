@@ -9,7 +9,7 @@
 - 当前 typed event bus 已经暴露 `turndto.Turn*`、`tooldto.ToolCall*`、`uidto.UITokensUpdated` 等事件，但不同事件头部并不等价完整，不能假定每条事件都天然带齐 `thread_id/agent_id/turn_id`。
 - 当前并没有一个现成 typed event 能直接给出模型实际用了哪些 skill；v1 最多只能先存 `skills_selected`，来源是 `PrepareTurn` resolver 的选择集。
 - 后端已经有 `dashboard/logs` RPC，但 `internal/module/dashboard/ui_page.go:22-30` 的 `DashboardPage` 目前只聚合 `Agents/DAGs/TaskTraces/Skills/CommandCards/Prompts/Memory`；前端也没有 logs / insights 页面，因此 P3 首期必须按 API-only 收口。
-- 当前仓库持久化统一走 Postgres / sqlc；P3 v1 同样是 **core-only**，不引入 SQLite 旁路，也不修改 `cmd/mcp-orch/sqlc.yaml`。
+- 当前仓库持久化统一走 Postgres / sqlc；P3 v1 同样是 **core-only**，不引入 SQLite 旁路，也不修改 `internal/sidecar/orch/sqlc.yaml`。
 - `ToolApprovalRequested` 生产事件当前只在 codex path 命中；`internal/provider/claudecli` 下没有对应 translator，因此 Claude 线程上的 `approval_requests` 目前只能记成 **`0 + approval_requests_observed=FALSE`**，不能读作“真实零次审批”。
 - signed skill 验签**延后到 P22**；P3 只消费 observation / insights 数据，不在本期追加 skill verifier 维度。
 
@@ -98,7 +98,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_session_insights_provider_turn
 
 > `success BOOLEAN` 必须保持 nullable，并一路延续到 sqlc / store contract。根 `sqlc.yaml` 已启用 `emit_pointers_for_null_types: true`，因此 collector 域模型字段也必须保持 `Success *bool`，不能在中间层偷改成 `bool`。
 >
-> P3 v1 **core-only**：只改根 `sqlc.yaml`，生成命令固定为仓库根的 `sqlc generate`，产物进入 `internal/store/sqlc/*`；**不改** `cmd/mcp-orch/sqlc.yaml`。migration 文件名实施时按实际下一可用编号命名；当前口径为 `0046_session_insights.sql`。
+> P3 v1 **core-only**：只改根 `sqlc.yaml`，生成命令固定为仓库根的 `sqlc generate`，产物进入 `internal/store/sqlc/*`；**不改** `internal/sidecar/orch/sqlc.yaml`。migration 文件名实施时按实际下一可用编号命名；当前口径为 `0046_session_insights.sql`。
 
 ## 收集来源建议
 

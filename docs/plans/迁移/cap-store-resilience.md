@@ -51,7 +51,7 @@
 - `internal/store/workspace/store.go:16-20` 暴露 `WithTx`。
 - `internal/module/workspace/service_helpers.go:166-179` 的 `persistRun` 把 `UpsertRun + UpsertFile*` 放进一个事务。
 - `internal/store/taskdag/store.go:15-19` 暴露 `WithTx`。
-- `cmd/mcp-orch/orchestration/dag.go:20-33` 的 `CreateDAG` 把 `upsertDAG + upsertDAGNodes + loadDAGDetail` 放进一个事务。
+- `internal/sidecar/orch/orchestration/dag.go:20-33` 的 `CreateDAG` 把 `upsertDAG + upsertDAGNodes + loadDAGDetail` 放进一个事务。
 - `internal/store/sqlc/query_task_dag.go:13-19` 还有 `FOR UPDATE`/条件更新，说明 taskdag 对并发控制是有意识设计的。
 
 缺事务的多步写路径：

@@ -1,7 +1,7 @@
 -- DAG v2 T1.2-mid 根治: task_dags.trigger 加 CHECK 枚举。
 --
 -- 背景：0072 仅声明 trigger TEXT NOT NULL DEFAULT 'manual'，无枚举约束。
--- 0072 的注释和 cmd/mcp-orch/store/taskdag/contract.go 规定全集为：
+-- 0072 的注释和 internal/sidecar/orch/store/taskdag/contract.go 规定全集为：
 --   manual | auto | scheduled | external
 -- 0075 兼容映射也以这 4 值为对齐目标。但 DB 没有 CHECK，任何 UPDATE
 -- 写入未知字符串都会通过；F5 cron daemon / dispatcher 读到非枚举值

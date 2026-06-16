@@ -131,10 +131,10 @@
 | internal/provider/unified/client.go | 48-68 | (*Client).open（统一 driver 分发） |
 | internal/contract/provider.go | 10-39 | provider 接口定义 |
 | internal/contract/orchestration.go | 46-55 | orchestration LaunchRequest |
-| cmd/mcp-orch/orchestration/rpc.go | 131-142 | launchRequestFromParams |
-| cmd/mcp-orch/orchestration/launcher.go | 141-178 | (*remoteLauncher).Launch → thread/start RPC payload |
-| cmd/mcp-orch/tools/orchestration_tools.go | 33-53 | HandleLaunchAgent（MCP 工具入口） |
-| cmd/mcp-orch/tools/orchestration_tools.go | 127-150 | launchRequestFromExecutable（子 agent launch request builder） |
+| internal/sidecar/orch/orchestration/rpc.go | 131-142 | launchRequestFromParams |
+| internal/sidecar/orch/orchestration/launcher.go | 141-178 | (*remoteLauncher).Launch → thread/start RPC payload |
+| internal/sidecar/orch/tools/orchestration_tools.go | 33-53 | HandleLaunchAgent（MCP 工具入口） |
+| internal/sidecar/orch/tools/orchestration_tools.go | 127-150 | launchRequestFromExecutable（子 agent launch request builder） |
 | internal/module/memory/config.go | 17-33 | `memory.Config` + `ENABLE_MEMORY_SYSTEM` / `ENABLE_MEMORY_TOOLS` |
 | internal/module/memory/service.go | 17-53 | `NewService` / `EnsureRoot`（memory root 骨架） |
 | internal/module/prompt/config.go | 15-24 | `prompt.Config` + `ENABLE_PROMPT_REGISTRY` / `ENABLE_PROMPT_ASSEMBLY` |
@@ -145,11 +145,11 @@
 | internal/module/turn/assembler.go | 48-71 | `inputAssembler.Assemble()` 现有输入去重 / clamp 入口 |
 | internal/module/turn/assembler.go | 251-258 | `inputKey(type+content+path+url)` |
 | cmd/mcp-orch/runtime.go | 111-125 | `newRegistry()` 注入 orchestration / workspace / prompt / command / sharedFile |
-| cmd/mcp-orch/tools/registry.go | 24-35 | `tools.NewRegistry()` 汇总 19 个 MCP tools |
-| cmd/mcp-orch/tools/shared_file_tools.go | 50-60 | `shared_file_read/write` tool definition |
-| cmd/mcp-orch/tools/shared_file_tools.go | 62-101 | `shared_file_read/write` handler：path normalize / actor=agent / 10 MiB limit |
-| cmd/mcp-orch/store/sharedfile/contract.go | 13-24 | `Store` 扩展 `sf.Reader`，补 `Upsert/Delete` |
-| cmd/mcp-orch/store/sharedfile/store.go | 18-61 | `Upsert/Get/List/Delete` |
+| internal/sidecar/orch/tools/registry.go | 24-35 | `tools.NewRegistry()` 汇总 19 个 MCP tools |
+| internal/sidecar/orch/tools/shared_file_tools.go | 50-60 | `shared_file_read/write` tool definition |
+| internal/sidecar/orch/tools/shared_file_tools.go | 62-101 | `shared_file_read/write` handler：path normalize / actor=agent / 10 MiB limit |
+| internal/sidecar/orch/store/sharedfile/contract.go | 13-24 | `Store` 扩展 `sf.Reader`，补 `Upsert/Delete` |
+| internal/sidecar/orch/store/sharedfile/store.go | 18-61 | `Upsert/Get/List/Delete` |
 | internal/store/sharedfile/contract.go | 10-27 | `shared_files` 读侧契约 |
 | internal/store/sharedfile/store.go | 16-38 | `Get/List` 读侧实现 |
 

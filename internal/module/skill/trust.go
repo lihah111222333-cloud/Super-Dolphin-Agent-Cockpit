@@ -8,7 +8,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	skillidentity "github.com/anthropic-ai/super-agent-v3/internal/module/skill/identity"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/repofingerprint"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 // ErrInvalidSkillName 是 name 校验失败统一返回的哨兵错误，调用方可用 errors.Is 检查。
@@ -47,7 +47,7 @@ func IsValidArtifactKind(kind string) bool { return contract.IsValidArtifactKind
 
 // RepoFingerprint 生成项目根目录的稳定 128-bit 指纹，作为审批缓存 key 的第一维数据。
 func RepoFingerprint(projectRoot string) string {
-	return repofingerprint.MustCompute(projectRoot)
+	return kernel.MustComputeRepoFingerprint(projectRoot)
 }
 
 // NormalizeArtifactLocator 规范化产物locator。

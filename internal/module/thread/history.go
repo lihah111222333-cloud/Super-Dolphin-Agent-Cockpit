@@ -15,10 +15,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 const eventTypeAgentMessage = "agent_message"
@@ -36,7 +33,7 @@ func (s *service) ReadHistory(ctx context.Context, threadID string, limit int) (
 		return nil, err
 	}
 	targetID := historyTargetID(binding, threadID)
-	messages, err := session.ReadHistory(ctx, targetID, util.ClampLimit(limit, 0, 0, 0))
+	messages, err := session.ReadHistory(ctx, targetID, kernel.ClampLimit(limit, 0, 0, 0))
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +110,7 @@ func (s *service) ReadRuntimeConfig(ctx context.Context, threadID string) (map[s
 	return mergeRuntimeConfig(offline.Runtime, reader.RuntimeConfigSnapshot()), nil
 }
 
-func (s *service) runtimeConfigForUnresolvedSession(ctx context.Context, threadID string, binding *bindingstore.Binding, resolveErr error) (map[string]any, error) {
+func (s *service) runtimeConfigForUnresolvedSession(ctx context.Context, threadID string, binding *contract.Binding, resolveErr error) (map[string]any, error) {
 	runtimeConfig, handled, offlineErr := s.offlineRuntimeConfigForMissingSession(ctx, threadID, binding, resolveErr)
 	if offlineErr != nil {
 		return nil, offlineErr
@@ -152,7 +149,7 @@ func (s *service) ReadThreadHistory(ctx context.Context, threadID string) (*Read
 }
 
 // resolveBatchBinding 解析batchbinding。
-func resolveBatchBinding(threadID string, thread *threadstore.Thread, allBindings []bindingstore.Binding, bindingByAgent map[string]*bindingstore.Binding) *bindingstore.Binding {
+func resolveBatchBinding(threadID string, thread *contract.Thread, allBindings []contract.Binding, bindingByAgent map[string]*contract.Binding) *contract.Binding {
 	if b, ok := bindingByAgent[threadID]; ok {
 		return b
 	}
@@ -171,7 +168,7 @@ func resolveBatchBinding(threadID string, thread *threadstore.Thread, allBinding
 }
 
 // resolveBatchSessionCfg 解析batch会话cfg。
-func (s *service) resolveBatchSessionCfg(binding *bindingstore.Binding) (map[string]any, error) {
+func (s *service) resolveBatchSessionCfg(binding *contract.Binding) (map[string]any, error) {
 	if binding == nil {
 		return nil, nil
 	}
@@ -214,8 +211,8 @@ func (s *service) ReadRuntimeConfigs(ctx context.Context, threadIDs []string) (m
 	return result, nil
 }
 
-func (s *service) loadBatchBindingIndex(ctx context.Context) ([]bindingstore.Binding, map[string]*bindingstore.Binding, error) {
-	var allBindings []bindingstore.Binding
+func (s *service) loadBatchBindingIndex(ctx context.Context) ([]contract.Binding, map[string]*contract.Binding, error) {
+	var allBindings []contract.Binding
 	if s.bindingStore != nil {
 		var err error
 		allBindings, err = s.bindingStore.ListAgentThreadBindings(ctx)
@@ -223,7 +220,7 @@ func (s *service) loadBatchBindingIndex(ctx context.Context) ([]bindingstore.Bin
 			return nil, nil, err
 		}
 	}
-	idx := make(map[string]*bindingstore.Binding, len(allBindings))
+	idx := make(map[string]*contract.Binding, len(allBindings))
 	for i := range allBindings {
 		b := allBindings[i]
 		idx[b.AgentID] = &b
@@ -231,8 +228,8 @@ func (s *service) loadBatchBindingIndex(ctx context.Context) ([]bindingstore.Bin
 	return allBindings, idx, nil
 }
 
-func (s *service) loadBatchThreadIndex(ctx context.Context, threadIDs []string) (map[string]*threadstore.Thread, error) {
-	idx := make(map[string]*threadstore.Thread)
+func (s *service) loadBatchThreadIndex(ctx context.Context, threadIDs []string) (map[string]*contract.Thread, error) {
+	idx := make(map[string]*contract.Thread)
 	if s.threadStore == nil {
 		return nil, errors.New("thread store is not configured")
 	}
@@ -250,9 +247,9 @@ func (s *service) loadBatchThreadIndex(ctx context.Context, threadIDs []string) 
 // resolveBatchRuntime 解析batch运行时。
 func (s *service) resolveBatchRuntime(
 	threadID string,
-	thread *threadstore.Thread,
-	allBindings []bindingstore.Binding,
-	bindingByAgent map[string]*bindingstore.Binding,
+	thread *contract.Thread,
+	allBindings []contract.Binding,
+	bindingByAgent map[string]*contract.Binding,
 ) (map[string]any, error) {
 	binding := resolveBatchBinding(threadID, thread, allBindings, bindingByAgent)
 	if thread == nil {
@@ -281,7 +278,7 @@ func (s *service) resolveBatchRuntime(
 	if sessionCfg != nil {
 		return mergeRuntimeConfig(baseRuntime, sessionCfg), nil
 	}
-	return clone.RuntimeConfigMap(baseRuntime), nil
+	return kernel.CloneRuntimeConfigMap(baseRuntime), nil
 }
 
 func fallbackReadThreadHistory(ctx context.Context, svc Service, threadID string) (*ReadHistoryResult, error) {
@@ -307,7 +304,7 @@ func buildReadHistoryResultFromThreads(threads []dto.ThreadRef, fallbackID strin
 func readHistoryFallbackID(ref *Ref, threadID string) string {
 	fallbackID := strings.TrimSpace(threadID)
 	if ref != nil {
-		return util.FirstNonEmpty(ref.ID, fallbackID)
+		return kernel.FirstNonEmpty(ref.ID, fallbackID)
 	}
 	return fallbackID
 }
@@ -331,9 +328,9 @@ func buildReadHistoryResult(threadIDs ...string) *ReadHistoryResult {
 
 func mergeRuntimeConfig(base, overlay map[string]any) map[string]any {
 	if len(base) == 0 {
-		return clone.RuntimeConfigMap(overlay)
+		return kernel.CloneRuntimeConfigMap(overlay)
 	}
-	merged := clone.RuntimeConfigMap(base)
+	merged := kernel.CloneRuntimeConfigMap(base)
 	if len(overlay) == 0 {
 		return merged
 	}

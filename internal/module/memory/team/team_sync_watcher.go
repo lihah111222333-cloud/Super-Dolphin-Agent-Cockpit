@@ -9,8 +9,8 @@ import (
 	"time"
 
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/memdata"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -75,7 +75,7 @@ func (w *teamSyncWatcher) Start() {
 	if w == nil {
 		return
 	}
-	safego.Go(w.loopCtx, w.logger, "memory.teamSyncWatcher.loop", func(context.Context) {
+	kernel.SafeGoContext(w.loopCtx, w.logger, "memory.teamSyncWatcher.loop", func(context.Context) {
 		w.loop()
 	})
 }

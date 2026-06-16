@@ -7,8 +7,8 @@ import (
 	"time"
 
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 // memoryHookDrainGrace bounds the Stop wait for the memoryHookWorker
@@ -107,7 +107,7 @@ func (w *memoryHookWorker) Stop(ctx context.Context) error {
 		}
 		if deadline, ok := waitCtx.Deadline(); !ok || time.Until(deadline) > memoryHookDrainGrace {
 			var cancel context.CancelFunc
-			waitCtx, cancel = ctxutil.WithTimeout(waitCtx, memoryHookDrainGrace)
+			waitCtx, cancel = kernel.WithTimeout(waitCtx, memoryHookDrainGrace)
 			defer cancel()
 			_ = deadline
 		}

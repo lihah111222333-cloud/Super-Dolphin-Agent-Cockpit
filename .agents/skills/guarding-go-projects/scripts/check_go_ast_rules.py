@@ -106,6 +106,8 @@ def layer(path: Path, root: Path) -> str:
     if len(parts) >= 3 and parts[0] == "docs" and parts[1] == "security" and parts[2] == "internal":
         return "cmd"
     if len(parts) >= 3 and parts[0] == "internal":
+        if parts[1] == "sidecar":
+            return "sidecar"
         if parts[1] == "bootstrap":
             return "bootstrap"
         if parts[1] == "platform":
@@ -139,12 +141,12 @@ def is_logging_platform(path: Path, root: Path) -> bool:
 
 def allows_direct_process_control(path: Path, root: Path) -> bool:
     current_layer = layer(path, root)
-    return is_test_file(path) or current_layer in {"cmd", "bootstrap"} or is_logging_platform(path, root)
+    return is_test_file(path) or current_layer in {"cmd", "bootstrap", "sidecar"} or is_logging_platform(path, root)
 
 
 def allows_direct_logging(path: Path, root: Path) -> bool:
     current_layer = layer(path, root)
-    return is_test_file(path) or current_layer in {"cmd", "bootstrap"} or is_logging_platform(path, root)
+    return is_test_file(path) or current_layer in {"cmd", "bootstrap", "sidecar"} or is_logging_platform(path, root)
 
 
 def line_for_offset(text: str, offset: int) -> int:
@@ -238,7 +240,7 @@ def main(argv: list[str]) -> int:
         if not allows_direct_process_control(path, root):
             findings.extend(check_tokens(path, root, PROCESS_EXIT_CALLS))
         findings.extend(check_regexes(path, root, ERROR_PATTERNS))
-        if current_layer not in {"cmd", "bootstrap"} and not is_test_file(path):
+        if current_layer not in {"cmd", "bootstrap", "sidecar"} and not is_test_file(path):
             findings.extend(check_err_swallowing(path, root))
         findings.extend(check_repository_orchestration(path, root))
 

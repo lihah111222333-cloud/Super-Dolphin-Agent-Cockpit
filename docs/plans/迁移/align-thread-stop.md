@@ -13,7 +13,7 @@
 - `thread/delete`：`❌`
   - V2 是“停进程/会话 + 删 archive 目录 + 删 binding + 清 prefs”的 best-effort 删除：`go-agent-v2/internal/apiserver/methods.go:204-227`
   - V3 是“best-effort `session.Close` + 删 binding + 删 thread row”的最小删除：`internal/module/thread/service.go:102-119`
-  - V3 没有接上 `orchestration.StopAgent` / `SessionManager.Remove`，所以事件、资源回收、僵尸防护都不等价：`cmd/mcp-orch/orchestration/service.go:127-140,155-164`，`internal/provider/unified/session.go:60-85`
+  - V3 没有接上 `orchestration.StopAgent` / `SessionManager.Remove`，所以事件、资源回收、僵尸防护都不等价：`internal/sidecar/orch/orchestration/service.go:127-140,155-164`，`internal/provider/unified/session.go:60-85`
 
 ## 0. 方法名对齐说明
 
@@ -70,7 +70,7 @@
 | store 清理 | 只清 binding store；`thread/delete` 主链不触达 `AgentThreadStore.Delete`，但 `Unbind` 会事务性删 `agent_provider_binding` + `agent_codex_binding`：`go-agent-v2/internal/store/agent_thread_binding.go:258-279` | 删 binding + `agent_threads` 行，但没有事务，binding 删了而 thread row 删失败会留下半状态：`internal/module/thread/service.go:109-118`，`internal/store/binding/store.go:60-62`，`internal/store/thread/store.go:100-104` | ⚠️ |
 | turn 级联清理 | `AgentManager.Stop` 会清 `activeSubmission`，并在有活跃提交时发 synthetic `turn_aborted`：`go-agent-v2/internal/runner/manager_lifecycle.go:68-85` | provider session 关闭会结束 in-flight handle：`internal/provider/codexapp/session.go:211-220`，`internal/provider/claudecli/session.go:240-283`；但 thread 模块没有显式 turn tracker/store 级联清理 | ⚠️ |
 | history 清理 | 会删 archive 目录，并把 archived prefs 里的 thread 移除：`go-agent-v2/internal/apiserver/methods.go:211-217`，`go-agent-v2/internal/apiserver/methods_ui_state.go:221-244` | 没有 archive/history/rollout 清理；`agent_interactions`、`system_logs` 都是按 `thread_id` 存储，但只有 insert/list，没有 delete：`migrations/0001_initial_schema.sql:95-114`，`sql/queries/interaction.sql:1-31`，`migrations/0009_system_logs_v2.sql:7-22`，`sql/queries/system_log.sql:1-24` | ❌ |
-| 事件发布 | 没有显式 `thread_deleted`；但 active turn 会通过 `runner.Stop` 间接发 `turn_aborted`：`go-agent-v2/internal/runner/manager_lifecycle.go:77-84` | `thread.Delete` 自己没有任何 publish；它也不调用 `orchestration.StopAgent`，因此不会走 `publishAgentStopped`：`internal/module/thread/service.go:102-119`，`cmd/mcp-orch/orchestration/service.go:127-140`，`cmd/mcp-orch/orchestration/events.go:35-43` | ❌ |
+| 事件发布 | 没有显式 `thread_deleted`；但 active turn 会通过 `runner.Stop` 间接发 `turn_aborted`：`go-agent-v2/internal/runner/manager_lifecycle.go:77-84` | `thread.Delete` 自己没有任何 publish；它也不调用 `orchestration.StopAgent`，因此不会走 `publishAgentStopped`：`internal/module/thread/service.go:102-119`，`internal/sidecar/orch/orchestration/service.go:127-140`，`internal/sidecar/orch/orchestration/events.go:35-43` | ❌ |
 | 资源回收 | 会停 client，失败时 fallback `Kill`，并删 archive 目录：`go-agent-v2/internal/runner/manager_lifecycle.go:39-57`，`go-agent-v2/internal/apiserver/methods.go:211-217` | provider session 的 transport 大多会被关闭，但 thread 删除不走 `StopAgent`，也不走 `SessionManager.Remove`，资源回收链不完整：`internal/provider/codexapp/transport.go:121-135`，`internal/provider/claudecli/session.go:248-283`，`internal/provider/unified/session.go:60-85` | ⚠️ |
 | 僵尸防护 | `Stop` 有 `Shutdown -> Kill` 兜底，并清 active submission；但 delete 路由吞掉 stop 错误，也不清 thread store/diff 状态，所以只是部分防护：`go-agent-v2/internal/runner/manager_lifecycle.go:19-91`，`go-agent-v2/internal/apiserver/methods_inline_residual_guard_test.go:51-65` | 没有 `StopAgent`、没有 `stopRequested`、没有 queue clear、没有 `SessionManager.Remove`；thread row 删掉后 runtime/session 仍可能残留 | ❌ |
 

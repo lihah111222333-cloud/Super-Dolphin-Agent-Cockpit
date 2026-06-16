@@ -11,7 +11,7 @@
 ## 现状校准（事实层）
 
 - 现有 TCP JSON-RPC：`internal/platform/config/config.go:45-47`（默认 `127.0.0.1:8090`）、`internal/platform/rpc/server.go:291-299`
-- DAG 已暴露的 RPC method：`cmd/mcp-orch/orchestration/rpc.go:127-137`（`task/dag/create|get|list`、`task/node/update`）
+- DAG 已暴露的 RPC method：`internal/sidecar/orch/orchestration/rpc.go:127-137`（`task/dag/create|get|list`、`task/node/update`）
 - 当前无 auth：`internal/mcpserver/common/server.go:221-264`、`internal/platform/rpc/transport_ws.go:20-40`
 - Wails WS：`internal/ui/wails/http_server.go:15,39-46`（`127.0.0.1:4511 /wails/ws`）
 - MCP HTTP：`internal/mcpserver/common/http_transport.go:38-53,73-79`（`/mcp`，10MB body limit）
@@ -22,11 +22,11 @@
 三入口先做 transport identity adapter，再进入同一 service-level guard：AuthN → AuthZ/tenant filter → rate → quota → idempotency → audit/spool → handler。`authenticated_host_actor_id` / `cron_job_owner_identity` / `external_caller_id` 等 authenticated principal 是唯一身份来源；`agent_id`、display name、`created_by`、RPC params 中的 `tenant_id/owner_id` 都只能做一致性校验或显示，不能作为授权来源；真实 `caller_identity` 必须来自 authenticated context，缺失 hard fail + audit。
 
 文件级落点：
-- TCP JSON-RPC：`internal/platform/rpc/server.go` / `internal/platform/rpc/transport_tcp.go`（如存在）提取 API key/session/mTLS claims；`cmd/mcp-orch/orchestration/rpc.go` 只接收已注入 ctx。
+- TCP JSON-RPC：`internal/platform/rpc/server.go` / `internal/platform/rpc/transport_tcp.go`（如存在）提取 API key/session/mTLS claims；`internal/sidecar/orch/orchestration/rpc.go` 只接收已注入 ctx。
 - Wails WS：`internal/ui/wails/http_server.go`、`internal/ui/wails/bridge.go`、`internal/platform/rpc/transport_ws.go` 增 Origin allowlist、CSRF token、session binding、optional API key；桌面 localhost 同样视为 untrusted local attack surface，不因 `127.0.0.1` 跳过 AuthN。
 - MCP HTTP：`internal/mcpserver/common/http_transport.go` / `internal/mcpserver/common/server.go` 提取 Authorization/API key/session，注入 `CallerIdentity`，并对 MCP tools 写操作套同一 guard。
 
-service-level guard 放在共享包（建议 `cmd/mcp-orch/orchestration/security_guard.go` 或平台级 `internal/platform/rpc/security_guard.go`，由 owner 按 import 方向选择），每个写 RPC 注册时声明 method class、resource resolver、quota class、idempotency requirement、audit class。RPC 注册拆到 `registerDAGSecurityRPC`，`cmd/mcp-orch/orchestration/rpc.go` 只保留顶层 wiring，避免 P3/P6/P10/P11 同时撞热文件。
+service-level guard 放在共享包（建议 `internal/sidecar/orch/orchestration/security_guard.go` 或平台级 `internal/platform/rpc/security_guard.go`，由 owner 按 import 方向选择），每个写 RPC 注册时声明 method class、resource resolver、quota class、idempotency requirement、audit class。RPC 注册拆到 `registerDAGSecurityRPC`，`internal/sidecar/orch/orchestration/rpc.go` 只保留顶层 wiring，避免 P3/P6/P10/P11 同时撞热文件。
 
 ## 改动清单
 
@@ -35,10 +35,10 @@ service-level guard 放在共享包（建议 `cmd/mcp-orch/orchestration/securit
 | TCP identity adapter | `internal/platform/rpc/server.go` + transport 文件 | 从 API key/JWT/mTLS/session 提取 `CallerIdentity`；localhost 不跳过；失败 audit |
 | Wails WS identity adapter | `internal/ui/wails/http_server.go`、`internal/ui/wails/bridge.go`、`internal/platform/rpc/transport_ws.go` | Origin allowlist、CSRF/session binding、可选 API key；WS upgrade 前校验 |
 | MCP HTTP identity adapter | `internal/mcpserver/common/http_transport.go`、`internal/mcpserver/common/server.go` | Authorization/API key/session → ctx；MCP tools 写操作同 guard |
-| service guard registry | `cmd/mcp-orch/orchestration/security_guard.go` [NEW] 或 platform 等价落点 | method matrix：AuthN/AuthZ/rate/quota/idempotency/audit，覆盖 agent/report/task/dag 写 RPC |
-| RPC registrar | `cmd/mcp-orch/orchestration/rpc_security.go` [NEW] | `registerDAGSecurityRPC` 注册/包裹安全 guard；`rpc.go` 仅调用 registrar |
-| Start idempotency | `cmd/mcp-orch/store/dagstart/*.go`（复用 P3） | `dag_start_requests` for `dag/start`；external 使用 client idempotency key |
-| audit/spool | `cmd/mcp-orch/store/dagaudit/*.go` [NEW] + SQL | 写 RPC fail-closed 或 durable spool；read-sensitive redacted audit |
+| service guard registry | `internal/sidecar/orch/orchestration/security_guard.go` [NEW] 或 platform 等价落点 | method matrix：AuthN/AuthZ/rate/quota/idempotency/audit，覆盖 agent/report/task/dag 写 RPC |
+| RPC registrar | `internal/sidecar/orch/orchestration/rpc_security.go` [NEW] | `registerDAGSecurityRPC` 注册/包裹安全 guard；`rpc.go` 仅调用 registrar |
+| Start idempotency | `internal/sidecar/orch/store/dagstart/*.go`（复用 P3） | `dag_start_requests` for `dag/start`；external 使用 client idempotency key |
+| audit/spool | `internal/sidecar/orch/store/dagaudit/*.go` [NEW] + SQL | 写 RPC fail-closed 或 durable spool；read-sensitive redacted audit |
 | config | `internal/platform/config/config.go`（扩展） | auth/rate/quota/audit/origin allowlist/api key 配置；默认安全关闭外部写面 |
 | archtest | `internal/archtest/dag_external_rpc_guard_test.go` [NEW] | 三入口 adapter + service guard matrix；禁止只守 `task/*` |
 

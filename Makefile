@@ -349,21 +349,21 @@ SQLC := go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
 
 sqlc-generate:
 	$(SQLC) generate
-	$(SQLC) generate -f cmd/mcp-orch/sqlc.yaml
-	@echo "✅ sqlc generate (root + cmd/mcp-orch)"
+	$(SQLC) generate -f internal/sidecar/orch/sqlc.yaml
+	@echo "✅ sqlc generate (root + internal/sidecar/orch)"
 
 # CI gate: regenerate and fail if the working tree drifts from committed output.
 sqlc-verify:
 	$(SQLC) generate
-	$(SQLC) generate -f cmd/mcp-orch/sqlc.yaml
-	@if [ -n "$$(git status --porcelain --untracked-files=all -- internal/store/sqlc cmd/mcp-orch/store/sqlc)" ]; then \
+	$(SQLC) generate -f internal/sidecar/orch/sqlc.yaml
+	@if [ -n "$$(git status --porcelain --untracked-files=all -- internal/store/sqlc internal/sidecar/orch/store/sqlc)" ]; then \
 		echo "❌ sqlc-generated code is out of date; run 'make sqlc-generate' and commit."; \
-		git --no-pager diff -- internal/store/sqlc cmd/mcp-orch/store/sqlc; \
-		UNTRACKED=$$(git ls-files --others --exclude-standard -- internal/store/sqlc cmd/mcp-orch/store/sqlc); \
+		git --no-pager diff -- internal/store/sqlc internal/sidecar/orch/store/sqlc; \
+		UNTRACKED=$$(git ls-files --others --exclude-standard -- internal/store/sqlc internal/sidecar/orch/store/sqlc); \
 		if [ -n "$$UNTRACKED" ]; then \
 			echo "Untracked generated files:"; \
 			echo "$$UNTRACKED"; \
 		fi; \
 		exit 1; \
 	fi
-	@echo "✅ sqlc-verify (generated code matches root + cmd/mcp-orch sqlc configs)"
+	@echo "✅ sqlc-verify (generated code matches root + internal/sidecar/orch sqlc configs)"

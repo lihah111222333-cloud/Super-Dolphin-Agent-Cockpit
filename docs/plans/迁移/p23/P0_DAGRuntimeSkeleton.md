@@ -10,11 +10,11 @@
 
 ## 现状校准（事实层）
 
-- watcher 进程不存在：`cmd/mcp-orch/tools/task_tools.go:23,231-235`、`cmd/mcp-orch/orchestration/dag.go:109-131`
-- 节点状态机原语（半成品）：`cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql:24-29,37-42`、`cmd/mcp-orch/store/taskdag/store.go:145-155,168-177`
-- wakeup 表 + fence（半成品）：`migrations/0023_dag_watcher_phase1.sql:9-30`、`cmd/mcp-orch/store/taskdag/store_wakeup.go:9-104`
-- worker lease（半成品）：`migrations/0023_dag_watcher_phase1.sql:38-43`、`cmd/mcp-orch/store/taskdag/store_lease.go:9-45`
-- ready 判定逻辑不存在：`cmd/mcp-orch/orchestration/dag.go:230,323-331`（只存/读 JSON）
+- watcher 进程不存在：`internal/sidecar/orch/tools/task_tools.go:23,231-235`、`internal/sidecar/orch/orchestration/dag.go:109-131`
+- 节点状态机原语（半成品）：`internal/sidecar/orch/sql/queries/task_dag_node_runtime.sql:24-29,37-42`、`internal/sidecar/orch/store/taskdag/store.go:145-155,168-177`
+- wakeup 表 + fence（半成品）：`migrations/0023_dag_watcher_phase1.sql:9-30`、`internal/sidecar/orch/store/taskdag/store_wakeup.go:9-104`
+- worker lease（半成品）：`migrations/0023_dag_watcher_phase1.sql:38-43`、`internal/sidecar/orch/store/taskdag/store_lease.go:9-45`
+- ready 判定逻辑不存在：`internal/sidecar/orch/orchestration/dag.go:230,323-331`（只存/读 JSON）
 
 ## 推荐架构
 
@@ -30,13 +30,13 @@ P0 冻结 watcher/dispatcher 协议边界：
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| runtime actor | `cmd/mcp-orch/orchestration/runtime/watcher_actor.go` [NEW] | ready claim + `pending → running` CAS + enqueue/active wakeup fence；不调用 launcher |
-| runtime actor | `cmd/mcp-orch/orchestration/runtime/dispatcher_actor.go` [NEW] | 消费 wakeup，持久化 launch intent，launcher accepted 后 bind agent/turn |
-| runtime actor | `cmd/mcp-orch/orchestration/runtime/lease_actor.go` [NEW] | lease/claim expiry 与 stuck running 观察，不做 terminal 覆盖 |
-| runtime actor | `cmd/mcp-orch/orchestration/runtime/reconcile_actor.go` [NEW] | 消费 durable terminal event，执行 terminal CAS / retry / on_failure |
+| runtime actor | `internal/sidecar/orch/orchestration/runtime/watcher_actor.go` [NEW] | ready claim + `pending → running` CAS + enqueue/active wakeup fence；不调用 launcher |
+| runtime actor | `internal/sidecar/orch/orchestration/runtime/dispatcher_actor.go` [NEW] | 消费 wakeup，持久化 launch intent，launcher accepted 后 bind agent/turn |
+| runtime actor | `internal/sidecar/orch/orchestration/runtime/lease_actor.go` [NEW] | lease/claim expiry 与 stuck running 观察，不做 terminal 覆盖 |
+| runtime actor | `internal/sidecar/orch/orchestration/runtime/reconcile_actor.go` [NEW] | 消费 durable terminal event，执行 terminal CAS / retry / on_failure |
 
 **已知关键改动方向**：
-- 新增 `cmd/mcp-orch/orchestration/runtime/<actor>.go` 4 个 actor，挂入 `runner.actors`（active Fx tag: `group:"runners"`）
+- 新增 `internal/sidecar/orch/orchestration/runtime/<actor>.go` 4 个 actor，挂入 `runner.actors`（active Fx tag: `group:"runners"`）
 - `0065_dag_state_machine.sql`：加 `assigned_agent_id` / `active_turn_id` / `active_wakeup_id BIGINT` / `attempt_no` / `last_activity_at` / `remaining_deps` 列（P7/P9 预留）、状态机 CHECK 约束；P1 launch intent 与 P2 terminal event 首选并入同一 migration
 - `task_dag_node_runtime.sql` 加 CAS 形 SQL：watcher ready claim 仅 `pending → running + active_wakeup_id`；dispatcher `BindRunningNodeTurn` 再写 `assigned_agent_id/active_turn_id`；terminal 写入必须同时校验 `active_turn_id` 与 `attempt_no`
 - archtest：`dag_watcher_no_lifecycle_loop` / `dag_runner_actors_present` / `dag_status_cas_only`

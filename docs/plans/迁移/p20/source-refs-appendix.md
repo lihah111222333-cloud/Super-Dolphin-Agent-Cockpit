@@ -155,11 +155,11 @@
 - 全局 config 目前仅含 DB/RPC/log/projectRoot；无 `skill.progressive_disclosure`。
 
 <a id="src-a29"></a>
-### SRC-A29 — `cmd/mcp-orch/tools/registry.go:11-37`
+### SRC-A29 — `internal/sidecar/orch/tools/registry.go:11-37`
 - MCP tool registry 当前只装配 orchestration / workspace / prompt / command / shared_file / memory。
 
 <a id="src-a30"></a>
-### SRC-A30 — `cmd/mcp-orch/tools/prompt_tools.go:50-60`
+### SRC-A30 — `internal/sidecar/orch/tools/prompt_tools.go:50-60`
 - `prompt_list` / `prompt_get` 是新增 resource-style `skill_list` / `skill_expand` 的直接模式。
 
 <a id="src-a53"></a>
@@ -173,11 +173,11 @@
 - P8 明确保留 `prompts/list|write|delete` 宿主 UI surface，不允许被 MCP 迁移搬空。
 
 <a id="src-c01"></a>
-### SRC-C01 — `docs/experiments/p20-exp-a-agentsmd-merge.md:35-55`
+### SRC-C01 — `docs/研究材料/实验验证/p20-exp-a-agentsmd-merge.md:35-55`
 - 实验 A 结论：`baseInstructions` 语义优先级高于 AGENTS.md；Phase 8 放尾部即可，Phase 9 从“必需”降为“可选加固”。
 
 <a id="src-c02"></a>
-### SRC-C02 — `docs/experiments/p20-exp-b-claudecli-native-skills.md:37-64`
+### SRC-C02 — `docs/研究材料/实验验证/p20-exp-b-claudecli-native-skills.md:37-64`
 - 实验 B 结论：Claude CLI 原生 skills 不能被 flag 关闭；P20 必须扫盘降级，native skills 不应再由 harness 注入全文。
 
 ## 合规结论

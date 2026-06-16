@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 // LeaseActor is the heartbeat Runner that bumps claim leases every

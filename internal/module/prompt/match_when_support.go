@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 // MatchWhen helper source note: these helpers support the merged
@@ -50,12 +50,12 @@ func matchTagsHas(keyword string, userPrompt string) bool {
 // storePromptTemplateAndContent 保存prompttemplate内容。
 func storePromptTemplateAndContent(
 	ctx context.Context,
-	store promptstore.Store,
-	template promptstore.PromptTemplate,
-	current *promptstore.PromptTemplate,
-	contentSection *promptstore.PromptTemplateSection,
+	store contract.PromptStore,
+	template contract.PromptTemplate,
+	current *contract.PromptTemplate,
+	contentSection *contract.PromptTemplateSection,
 	content string,
-) (*promptstore.PromptTemplate, error) {
+) (*contract.PromptTemplate, error) {
 	if contentSection != nil && current != nil {
 		template.PromptText = current.PromptText
 		template.Tags = withPromptInferredIntentTag(template.Tags, promptSectionInferredIntentKind(*contentSection))
@@ -81,10 +81,10 @@ func storePromptTemplateAndContent(
 // promptContentSectionTargetForWrite 为write处理prompt内容sectiontarget。
 func promptContentSectionTargetForWrite(
 	ctx context.Context,
-	store promptstore.Store,
-	current *promptstore.PromptTemplate,
+	store contract.PromptStore,
+	current *contract.PromptTemplate,
 	p PromptWriteRequest,
-) (*promptstore.PromptTemplateSection, error) {
+) (*contract.PromptTemplateSection, error) {
 	if current == nil || !p.ContentSet {
 		return nil, nil
 	}
@@ -101,26 +101,26 @@ func promptContentSectionTargetForWrite(
 
 // promptContentSectionForWrite 为write处理prompt内容section。
 func promptContentSectionForWrite(
-	template promptstore.PromptTemplate,
-	sections []promptstore.PromptTemplateSection,
-) *promptstore.PromptTemplateSection {
+	template contract.PromptTemplate,
+	sections []contract.PromptTemplateSection,
+) *contract.PromptTemplateSection {
 	if len(sections) == 0 {
 		return nil
 	}
 	switch promptTemplateIntentKindWithSections(template, sections) {
 	case "recall":
-		return firstPromptSectionMatching(sections, func(section promptstore.PromptTemplateSection) bool {
+		return firstPromptSectionMatching(sections, func(section contract.PromptTemplateSection) bool {
 			return strings.EqualFold(strings.TrimSpace(section.TriggerType), "recall")
 		})
 	case "default_rule":
-		if section := firstPromptSectionMatching(sections, func(section promptstore.PromptTemplateSection) bool {
+		if section := firstPromptSectionMatching(sections, func(section contract.PromptTemplateSection) bool {
 			return strings.TrimSpace(section.SectionKey) == "project_rule"
 		}); section != nil {
 			return section
 		}
 		return firstPromptSectionMatching(sections, promptSectionIsDirectlyInjectable)
 	case "expert":
-		if section := firstPromptSectionMatching(sections, func(section promptstore.PromptTemplateSection) bool {
+		if section := firstPromptSectionMatching(sections, func(section contract.PromptTemplateSection) bool {
 			return strings.TrimSpace(section.SectionKey) == "workflow"
 		}); section != nil {
 			return section
@@ -129,7 +129,7 @@ func promptContentSectionForWrite(
 	return firstPromptSectionMatching(sections, promptSectionIsDirectlyInjectable)
 }
 
-func promptTemplateRequiresSectionContent(template promptstore.PromptTemplate, sections []promptstore.PromptTemplateSection) bool {
+func promptTemplateRequiresSectionContent(template contract.PromptTemplate, sections []contract.PromptTemplateSection) bool {
 	switch promptTemplateIntentKindWithSections(template, sections) {
 	case "recall", "default_rule":
 		return true
@@ -139,7 +139,7 @@ func promptTemplateRequiresSectionContent(template promptstore.PromptTemplate, s
 }
 
 // promptTemplateIntentKind 处理prompttemplateintentkind。
-func promptTemplateIntentKind(template promptstore.PromptTemplate) string {
+func promptTemplateIntentKind(template contract.PromptTemplate) string {
 	if strings.TrimSpace(template.AgentKey) == "default_rule" {
 		return "default_rule"
 	}
@@ -157,8 +157,8 @@ func promptTemplateIntentKind(template promptstore.PromptTemplate) string {
 }
 
 func promptTemplateIntentKindWithSections(
-	template promptstore.PromptTemplate,
-	sections []promptstore.PromptTemplateSection,
+	template contract.PromptTemplate,
+	sections []contract.PromptTemplateSection,
 ) string {
 	if kind := promptTemplateIntentKind(template); kind != "" {
 		return kind
@@ -167,7 +167,7 @@ func promptTemplateIntentKindWithSections(
 }
 
 // promptSectionsInferredIntentKind 处理promptsectionsinferredintentkind。
-func promptSectionsInferredIntentKind(sections []promptstore.PromptTemplateSection) string {
+func promptSectionsInferredIntentKind(sections []contract.PromptTemplateSection) string {
 	hasRecallContent := false
 	for _, section := range sections {
 		if section.Enabled && promptSectionIsDirectlyInjectable(section) && strings.TrimSpace(section.Body) != "" {
@@ -183,7 +183,7 @@ func promptSectionsInferredIntentKind(sections []promptstore.PromptTemplateSecti
 	return ""
 }
 
-func promptSectionInferredIntentKind(section promptstore.PromptTemplateSection) string {
+func promptSectionInferredIntentKind(section contract.PromptTemplateSection) string {
 	if !section.Enabled {
 		return ""
 	}
@@ -197,9 +197,9 @@ func promptSectionInferredIntentKind(section promptstore.PromptTemplateSection) 
 }
 
 func promptTemplateWithInferredSectionIntent(
-	template promptstore.PromptTemplate,
-	sections []promptstore.PromptTemplateSection,
-) promptstore.PromptTemplate {
+	template contract.PromptTemplate,
+	sections []contract.PromptTemplateSection,
+) contract.PromptTemplate {
 	kind := promptSectionsInferredIntentKind(sections)
 	if kind == "" || promptTemplateIntentKind(template) != "" {
 		return template
@@ -228,9 +228,9 @@ func withPromptInferredIntentTag(raw json.RawMessage, kind string) json.RawMessa
 }
 
 func firstPromptSectionMatching(
-	sections []promptstore.PromptTemplateSection,
-	match func(promptstore.PromptTemplateSection) bool,
-) *promptstore.PromptTemplateSection {
+	sections []contract.PromptTemplateSection,
+	match func(contract.PromptTemplateSection) bool,
+) *contract.PromptTemplateSection {
 	for _, section := range sections {
 		if match(section) {
 			copy := section
@@ -240,7 +240,7 @@ func firstPromptSectionMatching(
 	return nil
 }
 
-func promptSectionIsDirectlyInjectable(section promptstore.PromptTemplateSection) bool {
+func promptSectionIsDirectlyInjectable(section contract.PromptTemplateSection) bool {
 	return !strings.EqualFold(strings.TrimSpace(section.TriggerType), "recall")
 }
 
@@ -260,7 +260,7 @@ type promptAssetDraftIssue struct {
 	Message  string `json:"message"`
 }
 
-func promptAssetItemsFromDrafts(drafts []promptstore.PromptIntentDraft) []promptAssetRPCItem {
+func promptAssetItemsFromDrafts(drafts []contract.PromptIntentDraft) []promptAssetRPCItem {
 	items := make([]promptAssetRPCItem, 0, len(drafts))
 	for _, draft := range drafts {
 		items = append(items, promptAssetItemFromDraft(draft))
@@ -269,7 +269,7 @@ func promptAssetItemsFromDrafts(drafts []promptstore.PromptIntentDraft) []prompt
 }
 
 // promptAssetItemFromDraft 从draft处理promptassetitem。
-func promptAssetItemFromDraft(draft promptstore.PromptIntentDraft) promptAssetRPCItem {
+func promptAssetItemFromDraft(draft contract.PromptIntentDraft) promptAssetRPCItem {
 	card, cardPayload := promptAssetDraftCardPayload(draft)
 	issues := []promptAssetDraftIssue{}
 	_ = json.Unmarshal(draft.Issues, &issues)
@@ -301,7 +301,7 @@ func promptAssetItemFromDraft(draft promptstore.PromptIntentDraft) promptAssetRP
 	}
 }
 
-func promptAssetDraftCardPayload(draft promptstore.PromptIntentDraft) (promptAssetDraftCard, map[string]any) {
+func promptAssetDraftCardPayload(draft contract.PromptIntentDraft) (promptAssetDraftCard, map[string]any) {
 	generated := promptintent.Card{}
 	if err := json.Unmarshal(draft.GeneratedCard, &generated); err == nil {
 		normalized := promptintent.NormalizeGeneratedCard(draft.Kind, draft.RawInput, generated)
@@ -320,7 +320,7 @@ func promptAssetDraftCardPayload(draft promptstore.PromptIntentDraft) (promptAss
 	return card, payload
 }
 
-func promptAssetDraftKind(draft promptstore.PromptIntentDraft, card promptAssetDraftCard) string {
+func promptAssetDraftKind(draft contract.PromptIntentDraft, card promptAssetDraftCard) string {
 	return firstNonEmpty(card.Kind, draft.Kind, "expert")
 }
 

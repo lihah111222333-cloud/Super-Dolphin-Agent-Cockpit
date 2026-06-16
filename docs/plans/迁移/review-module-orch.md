@@ -1,8 +1,8 @@
 # module/orchestration 总审查
 
 审查时间：2026-03-21  
-审查范围：`cmd/mcp-orch/orchestration/` 下 12 个源码文件  
-辅助旁证：`cmd/mcp-orch/orchestration/submission_test.go`、`go-agent-v2/internal/apiserver/methods_orchestration.go`、`go-agent-v2/internal/apiserver/orchestration_report.go`、`internal/store/taskdag/*`、`internal/provider/unified/*`
+审查范围：`internal/sidecar/orch/orchestration/` 下 12 个源码文件  
+辅助旁证：`internal/sidecar/orch/orchestration/submission_test.go`、`go-agent-v2/internal/apiserver/methods_orchestration.go`、`go-agent-v2/internal/apiserver/orchestration_report.go`、`internal/store/taskdag/*`、`internal/provider/unified/*`
 
 ## 结论摘要
 
@@ -19,7 +19,7 @@
 补充旁证：
 
 - `service.go` 381 行，满足你要求的 `<=400`。
-- `go test ./cmd/mcp-orch/orchestration` 通过。
+- `go test ./internal/sidecar/orch/orchestration` 通过。
 - 非测试代码的最高 CC 为 10，未超过你要求的阈值。
 
 ## 审查方法
@@ -34,9 +34,9 @@
 
 补充命令只用于客观计数和验证：
 
-- `wc -l cmd/mcp-orch/orchestration/*.go`
-- `gocyclo -over 0 cmd/mcp-orch/orchestration/*.go`
-- `go test ./cmd/mcp-orch/orchestration`
+- `wc -l internal/sidecar/orch/orchestration/*.go`
+- `gocyclo -over 0 internal/sidecar/orch/orchestration/*.go`
+- `go test ./internal/sidecar/orch/orchestration`
 
 ## 关键发现
 
@@ -64,13 +64,13 @@
 证据：
 
 - V2 清单：`go-agent-v2/internal/apiserver/methods_orchestration.go:14-27`
-- 当前清单：`cmd/mcp-orch/orchestration/rpc.go:15-76`
+- 当前清单：`internal/sidecar/orch/orchestration/rpc.go:15-76`
 
 具体问题：
 
 - `agent.saveSubAgent`、`agent.deleteSubAgent`、`agent.persistSubAgentBinding` 完全未注册，也没有对应 `Service` 方法
 - V2 `agent.launch` 参数是 `id/name/prompt/cwd/instructions/dynamic_tools/config`，见 `go-agent-v2/internal/apiserver/methods_orchestration.go:29-37` 和 `methods_schema_contract_a_m_test.go:252-257`
-- 当前 `launchParams` 只有 `agentId/name/cwd/command/parentId/env`，见 `cmd/mcp-orch/orchestration/rpc_types.go:10-17`
+- 当前 `launchParams` 只有 `agentId/name/cwd/command/parentId/env`，见 `internal/sidecar/orch/orchestration/rpc_types.go:10-17`
 - 当前 `launchParams` 没有 `UnmarshalJSON` 补齐 `id`，V2 调用会把 `AgentID` 留空，最终在 `validateLaunchRequest` 报 `agent id is required`
 - 当前 `agent.launch` handler 返回 `nil`，不是 V2 的 `{agent_id,name,status}`
 
@@ -333,7 +333,7 @@
 - `runner_actor.go:26-45` 主循环只做三件事：`startWaiters`、`processTurnQueues`、`recoverStalledAgents`
 - `runner_actor.go:62-66` `processTurnQueues` 只调用 `claimTurnWork` / `startTurnExecution`
 - `helpers.go:140-151` `startTurnExecution` 只做状态机推进
-- `cmd/mcp-orch/orchestration` 范围内没有任何 `turn/interrupt` 或 provider/session submit 调用
+- `internal/sidecar/orch/orchestration` 范围内没有任何 `turn/interrupt` 或 provider/session submit 调用
 
 结论细化：
 
@@ -391,11 +391,11 @@
 
 ### 16. import 方向
 
-结论：✅ `cmd/mcp-orch/orchestration` 内没有直接 import `internal/provider/...`。
+结论：✅ `internal/sidecar/orch/orchestration` 内没有直接 import `internal/provider/...`。
 
 结果：
 
-- 对 `cmd/mcp-orch/orchestration` 做 `text_search("internal/provider/")` 和 `text_search("provider/")` 都无命中
+- 对 `internal/sidecar/orch/orchestration` 做 `text_search("internal/provider/")` 和 `text_search("provider/")` 都无命中
 - provider 侧反向 import orchestration 的窄接口用于 `fx.As(new(orchestration.SessionCleaner))`，这是可接受方向
 
 ### 17. fx 注册

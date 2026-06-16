@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	"github.com/kelindar/event"
 
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 // cronProgressDrainGrace bounds the Stop wait for the cronProgressWorker
@@ -107,7 +107,7 @@ func (w *cronProgressWorker) Stop(ctx context.Context) error {
 		}
 		if deadline, ok := waitCtx.Deadline(); !ok || time.Until(deadline) > cronProgressDrainGrace {
 			var cancel context.CancelFunc
-			waitCtx, cancel = ctxutil.WithTimeout(waitCtx, cronProgressDrainGrace)
+			waitCtx, cancel = kernel.WithTimeout(waitCtx, cronProgressDrainGrace)
 			defer cancel()
 			_ = deadline
 		}

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 // agentLaunchedDrainGrace bounds the shutdown wait for
@@ -138,7 +138,7 @@ func (w *agentLaunchedWorker) Stop(ctx context.Context) error {
 		}
 		if deadline, ok := waitCtx.Deadline(); !ok || time.Until(deadline) > agentLaunchedDrainGrace {
 			var cancel context.CancelFunc
-			waitCtx, cancel = ctxutil.WithTimeout(waitCtx, agentLaunchedDrainGrace)
+			waitCtx, cancel = kernel.WithTimeout(waitCtx, agentLaunchedDrainGrace)
 			defer cancel()
 			_ = deadline
 		}

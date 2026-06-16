@@ -27,9 +27,9 @@ diagnostics: ❌
 ### review-platform-infra
 
 - ⏳ 推迟 P7 — `config` 仍只有环境变量 + 默认值，没有文件层，`LogLevel` 也仍未在配置装载层外扩展，见 `internal/platform/config/config.go:15-40`。
-- ⏳ 推迟 P7 — bus 真实业务消费者仍很少；`LogSink` 仍覆盖 28 个 typed event，而非日志消费者主干仍集中在 orchestration 与 rpc push，见 `internal/platform/bus/sink.go:43-87`, `cmd/mcp-orch/orchestration/module.go:25-53`, `internal/platform/rpc/push.go:75-92`。
+- ⏳ 推迟 P7 — bus 真实业务消费者仍很少；`LogSink` 仍覆盖 28 个 typed event，而非日志消费者主干仍集中在 orchestration 与 rpc push，见 `internal/platform/bus/sink.go:43-87`, `internal/sidecar/orch/orchestration/module.go:25-53`, `internal/platform/rpc/push.go:75-92`。
 - ⏳ 推迟 P7 — “听了没人发”的事件族仍成立；`TurnStalled` / `TurnResumed` / `Task*` / `UI*` 仍只在 `LogSink` 订阅，当前全仓对 `TurnStalled{}` / `TurnResumed{}` / `TaskDagCreated{}` / `UIProjectionUpdated{}` 等构造仍是 0 命中，见 `internal/platform/bus/sink.go:51-87`。
-- ✅ 已确认 — state machine force fallback 已移除；`fireOrForceLocked` 只做 `fireAndPublishLocked`，失败时返回 `illegal state transition`，见 `cmd/mcp-orch/orchestration/service.go:266-279`。
+- ✅ 已确认 — state machine force fallback 已移除；`fireOrForceLocked` 只做 `fireAndPublishLocked`，失败时返回 `illegal state transition`，见 `internal/sidecar/orch/orchestration/service.go:266-279`。
 - ⏳ 推迟 P7 — `TriggerUserInputRequested` / `TriggerUserInputResolved` 仍只存在于状态表声明，没有 fire 点；`StateAwaitingUserInput` 仍不可达，见 `internal/dto/agent/state.go:28-29`, `internal/dto/agent/state.go:96`, `internal/dto/agent/state.go:100`。
 - ⏳ 推迟 P7 — DB pool 配置仍然偏薄，仍只硬编码 `MaxConns = 4` 并在 `OnStart` 做 `Ping`，没有把 timeout 配置接入，见 `internal/platform/db/module.go:19-39`, `internal/platform/config/timeouts.go:8-20`。
 - ⏳ 推迟 P7 — `RequireNonEmpty` 仍零引用，`internal/platform/shared/idgen.go` 与 `internal/dto/shared/ids.go` 仍保留重复 `NewID` 实现，见 `internal/platform/shared/validation.go:9-14`, `internal/platform/shared/idgen.go:10-14`, `internal/dto/shared/ids.go:10-14`。
@@ -49,11 +49,11 @@ diagnostics: ❌
 
 ### review-module-orch
 
-- ✅ 已修复 — 旧报告里“`agent.submit*` 只会入本地队列、submission 内容在 queue 后被丢弃、runner 不做真实执行”这条结论已不成立；`claimTurnWork` 现在保留完整 `submission`，`startTurnExecution` 已调用 `turnStarter.StartTurn(ctx, work.submission)`，而 `orchestrationTurnStarter` 会把 `Inputs/SelectedSkills/OutputSchema` 送入 `PrepareTurn`，见 `cmd/mcp-orch/orchestration/service.go:301-321`, `cmd/mcp-orch/orchestration/helpers.go:140-151`, `internal/module/turn/orchestration_starter.go:22-62`。
-- 🔴 仍 Blocker — V2 的 `agent.saveSubAgent` / `agent.deleteSubAgent` / `agent.persistSubAgentBinding` 仍缺失，`agent.launch` 的 wire 仍非 V2；当前 `launchParams` 仍只有 `agentId/name/cwd/command/parentId/env`，见 `cmd/mcp-orch/orchestration/rpc.go:15-76`, `cmd/mcp-orch/orchestration/rpc_types.go:8-17`。
-- ⏳ 推迟 P7 — report 链仍是最小内存版；`RememberReportRequest` 仍只是记 requester，`HandleReportEvent` 仍只 drain requester IDs，不做实际投递，`SetReport` 仍只有声明与实现本身，见 `cmd/mcp-orch/orchestration/report.go:73-95`, `cmd/mcp-orch/orchestration/report.go:97-133`, `cmd/mcp-orch/orchestration/contract.go:19`, `cmd/mcp-orch/orchestration/report.go:39-49`。
-- 🔴 仍 Blocker — stall auto-recover 仍可能误伤长 turn，且恢复仍是有损的；runner 仍按 30s 阈值轮询，恢复仍直接 `stopProcess -> activeTurnID = "" -> startProcessLocked`，见 `cmd/mcp-orch/orchestration/runner_actor.go:27-44`, `cmd/mcp-orch/orchestration/recover.go:16-25`, `cmd/mcp-orch/orchestration/recover.go:43-54`。
-- ⏳ 推迟 P7 — `StopAgent` 的时序问题仍在；当前仍在 waiter 回收前先 `removeSession` 与 `publishAgentStopped`，见 `cmd/mcp-orch/orchestration/service.go:127-140`, `cmd/mcp-orch/orchestration/service.go:155-163`, `cmd/mcp-orch/orchestration/service.go:342-381`。
+- ✅ 已修复 — 旧报告里“`agent.submit*` 只会入本地队列、submission 内容在 queue 后被丢弃、runner 不做真实执行”这条结论已不成立；`claimTurnWork` 现在保留完整 `submission`，`startTurnExecution` 已调用 `turnStarter.StartTurn(ctx, work.submission)`，而 `orchestrationTurnStarter` 会把 `Inputs/SelectedSkills/OutputSchema` 送入 `PrepareTurn`，见 `internal/sidecar/orch/orchestration/service.go:301-321`, `internal/sidecar/orch/orchestration/helpers.go:140-151`, `internal/module/turn/orchestration_starter.go:22-62`。
+- 🔴 仍 Blocker — V2 的 `agent.saveSubAgent` / `agent.deleteSubAgent` / `agent.persistSubAgentBinding` 仍缺失，`agent.launch` 的 wire 仍非 V2；当前 `launchParams` 仍只有 `agentId/name/cwd/command/parentId/env`，见 `internal/sidecar/orch/orchestration/rpc.go:15-76`, `internal/sidecar/orch/orchestration/rpc_types.go:8-17`。
+- ⏳ 推迟 P7 — report 链仍是最小内存版；`RememberReportRequest` 仍只是记 requester，`HandleReportEvent` 仍只 drain requester IDs，不做实际投递，`SetReport` 仍只有声明与实现本身，见 `internal/sidecar/orch/orchestration/report.go:73-95`, `internal/sidecar/orch/orchestration/report.go:97-133`, `internal/sidecar/orch/orchestration/contract.go:19`, `internal/sidecar/orch/orchestration/report.go:39-49`。
+- 🔴 仍 Blocker — stall auto-recover 仍可能误伤长 turn，且恢复仍是有损的；runner 仍按 30s 阈值轮询，恢复仍直接 `stopProcess -> activeTurnID = "" -> startProcessLocked`，见 `internal/sidecar/orch/orchestration/runner_actor.go:27-44`, `internal/sidecar/orch/orchestration/recover.go:16-25`, `internal/sidecar/orch/orchestration/recover.go:43-54`。
+- ⏳ 推迟 P7 — `StopAgent` 的时序问题仍在；当前仍在 waiter 回收前先 `removeSession` 与 `publishAgentStopped`，见 `internal/sidecar/orch/orchestration/service.go:127-140`, `internal/sidecar/orch/orchestration/service.go:155-163`, `internal/sidecar/orch/orchestration/service.go:342-381`。
 
 ### review-module-skill
 
@@ -94,7 +94,7 @@ diagnostics: ❌
 
 #### 覆盖率补充（P5 RPC 同名覆盖率）
 
-- 当前 V3 的 80 个 handler key 来自 `cmd/mcp-orch/orchestration/rpc.go:15-76`, `internal/module/skill/rpc.go:42-87`, `internal/module/thread/rpc.go:18-83`, `internal/module/turn/rpc.go:32-92`, `internal/module/workspace/rpc.go:13-23`。
+- 当前 V3 的 80 个 handler key 来自 `internal/sidecar/orch/orchestration/rpc.go:15-76`, `internal/module/skill/rpc.go:42-87`, `internal/module/thread/rpc.go:18-83`, `internal/module/turn/rpc.go:32-92`, `internal/module/workspace/rpc.go:13-23`。
 - V2 当前快照仍是 `go-agent-v2/internal/guards/rpc_registry_snapshot.json:1-156` 的 154 个 method。
 - 逐项比对后，同名命中仍是 `64/154 = 41.56%`，缺失仍有 90 个。主要缺口如下：
 - `ui`（14）— `ui/code/locate`[L134], `ui/code/open`[L135], `ui/code/save`[L136], `ui/dashboard/get`[L137], `ui/log`[L138], `ui/preferences/get`[L139], `ui/preferences/getAll`[L140], `ui/preferences/set`[L141], `ui/projects/add`[L142], `ui/projects/get`[L143], `ui/projects/remove`[L144], `ui/projects/setActive`[L145], `ui/sidebar/get`[L146], `ui/state/get`[L147]。
@@ -128,7 +128,7 @@ diagnostics: ❌
 
 ### 对 final-verdict-1 的批判
 
-1. `B1 submit 执行链：✅修复完成` 的口径偏满。[docs/plans/迁移/final-verdict-1.md:5-10] 只证明了 queue 到 `turnStarter` 的执行链打通，但当前 RPC 入口 `submitParams` 仍只接 `agent_id/prompt/images/files`，`submissionFromParams` 也仍只填 `AgentID/ThreadID/Inputs`，没有把 `SelectedSkills`、`ManualSkillSelection`、`OutputSchema` 从 `agent.submit*` 带进执行链；这些字段虽然在 `TurnSubmission` 和 `orchestrationTurnStarter` 中会被保留，但 RPC 根本不生产它们。证据：`docs/plans/迁移/final-verdict-1.md:5-10`，`cmd/mcp-orch/orchestration/rpc_types.go:70-77`，`cmd/mcp-orch/orchestration/rpc.go:90-100`，`internal/dto/turn/model.go:11-19`，`internal/module/turn/orchestration_starter.go:54-60`。
+1. `B1 submit 执行链：✅修复完成` 的口径偏满。[docs/plans/迁移/final-verdict-1.md:5-10] 只证明了 queue 到 `turnStarter` 的执行链打通，但当前 RPC 入口 `submitParams` 仍只接 `agent_id/prompt/images/files`，`submissionFromParams` 也仍只填 `AgentID/ThreadID/Inputs`，没有把 `SelectedSkills`、`ManualSkillSelection`、`OutputSchema` 从 `agent.submit*` 带进执行链；这些字段虽然在 `TurnSubmission` 和 `orchestrationTurnStarter` 中会被保留，但 RPC 根本不生产它们。证据：`docs/plans/迁移/final-verdict-1.md:5-10`，`internal/sidecar/orch/orchestration/rpc_types.go:70-77`，`internal/sidecar/orch/orchestration/rpc.go:90-100`，`internal/dto/turn/model.go:11-19`，`internal/module/turn/orchestration_starter.go:54-60`。
 
 2. 它漏掉了 `review-platform-rpc` 里更具体也更危险的 approval dedupe 问题。[docs/plans/迁移/final-verdict-1.md:21-32] 列了 10 条 rpc 结论，但没有提原总审已明确指出的“pending approval 只按 `callID` 去重”。当前 `registerPending` 仍在 `m.pending[req.CallID]` 命中时直接复用旧 pending，这会在 `callID` 复用时把后续请求并到旧审批上。证据：`docs/plans/迁移/review-platform-rpc.md:181`，`internal/platform/rpc/approval.go:125-146`。
 
@@ -138,9 +138,9 @@ diagnostics: ❌
 
 ### 对 final-verdict-2 的批判
 
-1. `agent.submit*` 的 `✅ 已修复` 仍然高估了现状。[docs/plans/迁移/final-verdict-2.md:29-30] 甚至写到 `SelectedSkills` 和 `OutputSchema` 会继续传入 turn 准备阶段；但当前 `submitParams` 根本没有这几个字段，`submissionFromParams` 也只填 `AgentID/ThreadID/Inputs`。所以修好的只是“排队后的 turn 能真正启动”，不是“V2 提交负载被完整保留”。证据：`docs/plans/迁移/final-verdict-2.md:29-30`，`cmd/mcp-orch/orchestration/rpc_types.go:70-77`，`cmd/mcp-orch/orchestration/rpc.go:90-100`，`internal/module/turn/orchestration_starter.go:54-60`。
+1. `agent.submit*` 的 `✅ 已修复` 仍然高估了现状。[docs/plans/迁移/final-verdict-2.md:29-30] 甚至写到 `SelectedSkills` 和 `OutputSchema` 会继续传入 turn 准备阶段；但当前 `submitParams` 根本没有这几个字段，`submissionFromParams` 也只填 `AgentID/ThreadID/Inputs`。所以修好的只是“排队后的 turn 能真正启动”，不是“V2 提交负载被完整保留”。证据：`docs/plans/迁移/final-verdict-2.md:29-30`，`internal/sidecar/orch/orchestration/rpc_types.go:70-77`，`internal/sidecar/orch/orchestration/rpc.go:90-100`，`internal/module/turn/orchestration_starter.go:54-60`。
 
-2. `B5 悬空接口：✅` 的证据链不够严谨。[docs/plans/迁移/final-verdict-2.md:21-23] 声称 `ToolCallResponder`、`ThreadRepository`、`HandlerProvider` 零命中，却引用了 `cmd/mcp-orch/orchestration/contract.go` 和 `internal/module/workspace/contract.go`；这些文件只能说明两个模块各自还有 contract，不能直接证明那 3 个 `internal/contract` 接口已经删除或清空。真正的直接证据应落在当前 `internal/contract` 包只剩 `Driver/Session/TurnHandle`、`ApprovalResponder`、`SessionResolver`。证据：`docs/plans/迁移/final-verdict-2.md:21-23`，`internal/contract/provider.go:10-45`，`internal/contract/approval.go:7-16`，`internal/contract/session_resolver.go:5-7`。
+2. `B5 悬空接口：✅` 的证据链不够严谨。[docs/plans/迁移/final-verdict-2.md:21-23] 声称 `ToolCallResponder`、`ThreadRepository`、`HandlerProvider` 零命中，却引用了 `internal/sidecar/orch/orchestration/contract.go` 和 `internal/module/workspace/contract.go`；这些文件只能说明两个模块各自还有 contract，不能直接证明那 3 个 `internal/contract` 接口已经删除或清空。真正的直接证据应落在当前 `internal/contract` 包只剩 `Driver/Session/TurnHandle`、`ApprovalResponder`、`SessionResolver`。证据：`docs/plans/迁移/final-verdict-2.md:21-23`，`internal/contract/provider.go:10-45`，`internal/contract/approval.go:7-16`，`internal/contract/session_resolver.go:5-7`。
 
 3. `MergeRun(dryRun)` 被直接归为 `⏳ 推迟 P7`，理由偏弱。[docs/plans/迁移/final-verdict-2.md:87-88] 已承认 dry-run 会在状态迁移和事件发送前直接返回；当前代码也确实如此，`MergeRun` 在 `req.DryRun` 时直接走 `dryRunMerge`，而 `dryRunMerge` 只算结果并原样返回 `run.Status`，既不迁移状态，也不发 typed event。对外观察者来说，这不是“小尾巴”，而是“调用发生了但系统完全无感知”的行为缺口。证据：`docs/plans/迁移/final-verdict-2.md:87-88`，`internal/module/workspace/service.go:220-227`，`internal/module/workspace/service.go:325-339`。
 

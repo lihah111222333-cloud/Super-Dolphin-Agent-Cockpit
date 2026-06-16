@@ -6,8 +6,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime/bootstrap"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimeenv"
 )
 
 type manifestBuilder struct {
@@ -124,7 +124,7 @@ func cloneMCPServerHeaders(headers map[string]string) map[string]string {
 // discoverPeers probes for running peer HTTP endpoints. Returns nil maps if none.
 // discoverPeers 处理discoverpeers。
 func discoverPeers() (map[dto.ToolFamily]string, map[dto.ToolFamily]string) {
-	token := bootstrap.SessionTokenFromEnv()
+	token := runtimeenv.SessionTokenFromEnv()
 	addrs := make(map[dto.ToolFamily]string)
 	tokens := make(map[dto.ToolFamily]string)
 	for _, fam := range []dto.ToolFamily{dto.FamilyLSP, dto.FamilyOrch} {

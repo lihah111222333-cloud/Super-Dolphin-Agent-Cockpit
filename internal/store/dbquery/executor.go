@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
@@ -92,6 +91,9 @@ type sqliteReadOnlyConnector interface {
 	Conn(context.Context) (*sql.Conn, error)
 }
 
+// openSQLiteReadOnlyRows pins a SQLite read cursor to one dedicated
+// connection and returns a finish callback so callers can release it
+// after the result rows are consumed.
 func openSQLiteReadOnlyRows(ctx context.Context, queryer platformdb.Queryable, query string, args ...any) (*sql.Rows, platformdb.QueryFinish, error) {
 	connector, ok := queryer.(sqliteReadOnlyConnector)
 	if !ok {
@@ -146,7 +148,7 @@ func cleanupSQLiteReadOnlyQuery(ctx context.Context, conn *sql.Conn, tx *sql.Tx,
 			cleanupErr = errors.Join(cleanupErr, err)
 		}
 	}
-	cleanupCtx, cancel := platformconfig.WithTimeout(context.WithoutCancel(ctx), queryOnlyCleanupTimeout)
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), queryOnlyCleanupTimeout)
 	defer cancel()
 	if conn != nil {
 		if _, err := conn.ExecContext(cleanupCtx, "PRAGMA query_only = OFF"); err != nil {

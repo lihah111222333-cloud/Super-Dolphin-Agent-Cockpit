@@ -2,7 +2,7 @@
 
 > 生成时间：2026-06-16
 >
-> 已索引文件：**2729**
+> 已索引文件：**2837**
 >
 > 漂移状态：**OK**（详见 `docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md`）
 
@@ -23,11 +23,11 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 |---|---:|---|
 | `docs/doc/codemap/project-map/index/app-ui.tsv` | 221 | 桌面应用、Wails host、Vue/Vite 前端与 UI 测试 |
 | `docs/doc/codemap/project-map/index/orchestration.tsv` | 183 | mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具 |
-| `docs/doc/codemap/project-map/index/modules.tsv` | 331 | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
-| `docs/doc/codemap/project-map/index/platform-provider.tsv` | 432 | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
+| `docs/doc/codemap/project-map/index/modules.tsv` | 387 | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
+| `docs/doc/codemap/project-map/index/platform-provider.tsv` | 450 | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
 | `docs/doc/codemap/project-map/index/store-sql.tsv` | 248 | 持久化层：store、sqlc、SQL queries、migrations |
-| `docs/doc/codemap/project-map/index/docs-agent.tsv` | 891 | 代码地图、ADR/决策、计划、agent skills/workflows 与项目知识 |
-| `docs/doc/codemap/project-map/index/other.tsv` | 423 | 公共库、脚本、测试、配置与其他根级资源 |
+| `docs/doc/codemap/project-map/index/docs-agent.tsv` | 906 | 代码地图、ADR/决策、计划、agent skills/workflows 与项目知识 |
+| `docs/doc/codemap/project-map/index/other.tsv` | 442 | 公共库、脚本、测试、配置与其他根级资源 |
 
 每个 TSV 字段为：`path`、`module`、`domain`、`type`、`size_bytes`、`purpose`、`search_keys`。
 
@@ -35,19 +35,20 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 
 | 模块 | 文件数 | 职责 |
 |---|---:|---|
-| `internal` | 912 | 应用内部模块、平台、provider、store 与守卫 |
-| `docs` | 705 | 代码地图、ADR、计划、迁移和内部说明 |
-| `cmd` | 502 | 可执行入口与 MCP peer |
-| `frontend-app` | 194 | 其他项目资源 |
-| `.agents` | 185 | agent/Codex mirror 入口 |
+| `internal` | 997 | 应用内部模块、平台、provider、store 与守卫 |
+| `docs` | 716 | 代码地图、ADR、计划、迁移和内部说明 |
+| `cmd` | 509 | 可执行入口与 MCP peer |
+| `frontend-app` | 193 | 其他项目资源 |
+| `.agents` | 189 | agent/Codex mirror 入口 |
 | `migrations` | 111 | 数据库 migration |
 | `scripts` | 37 | 工程自动化脚本 |
 | `sql` | 28 | SQL query 源文件 |
-| `(root)` | 21 | 仓库根级配置和说明 |
+| `(root)` | 20 | 仓库根级配置和说明 |
 | `pkg` | 17 | 可复用公共库 |
 | `third_party` | 7 | 其他项目资源 |
 | `.project-map` | 5 | 其他项目资源 |
 | `.githooks` | 4 | Git hooks |
+| `.codex` | 3 | 其他项目资源 |
 | `.github` | 1 | GitHub 配置 |
 
 ## 4. 快速定位路由
@@ -56,9 +57,9 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 |---|---|---|---|
 | 修改桌面 Go/Wails host | `cmd/agent-terminal/` | `internal/ui/wails/` | `wails binding rpc app host` |
 | 修改 Vue 聊天 UI | `cmd/agent-terminal/frontend/vue-app/pages/` | `cmd/agent-terminal/frontend/vue-app/components/` | `UnifiedChatPage ChatTimeline composer store` |
-| 修改 DAG 编排执行 | `cmd/mcp-orch/orchestration/` | `cmd/mcp-orch/store/taskdag/` | `dag wakeup nodeexec dispatcher retry` |
-| 修改 MCP orchestration tools | `cmd/mcp-orch/tools/` | `cmd/mcp-orch/orchestration/rpc.go` | `task_dag agent_launch schema registry` |
-| 修改 LSP 工具 | `cmd/mcp-lsp/tools/` | `cmd/mcp-lsp/multilsp/` | `lsp tool grep file search diagnostics` |
+| 修改 DAG 编排执行 | `internal/sidecar/orch/orchestration/` | `internal/sidecar/orch/store/taskdag/` | `dag wakeup nodeexec dispatcher retry` |
+| 修改 MCP orchestration tools | `internal/sidecar/orch/tools/` | `internal/sidecar/orch/orchestration/rpc.go` | `task_dag agent_launch schema registry` |
+| 修改 LSP 工具 | `internal/sidecar/lsp/tools/` | `internal/sidecar/lsp/multilsp/` | `lsp tool grep file search diagnostics` |
 | 修改 thread/turn 生命周期 | `internal/module/thread/` | `internal/module/turn/` | `thread start resume fork turn provider` |
 | 修改 memory/prompt/skill | `internal/module/memory/` | `internal/module/prompt/` | `memory prompt skill canonical mirror` |
 | 修改 provider 接入 | `internal/provider/` | `internal/platform/toolbridge/` | `claude codex provider session manifest toolbridge` |

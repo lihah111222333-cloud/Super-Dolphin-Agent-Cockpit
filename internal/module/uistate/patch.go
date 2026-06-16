@@ -10,8 +10,8 @@ import (
 	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	"github.com/kelindar/event"
 )
 
@@ -213,8 +213,8 @@ func (s *service) threadPatchLocked(threadID, source string) uidto.UIThreadPatch
 			ID:        summary.ID,
 			Name:      summary.Name,
 			State:     status,
-			CreatedAt: clone.Time(summary.CreatedAt),
-			UpdatedAt: clone.Time(summary.UpdatedAt),
+			CreatedAt: kernel.CloneTime(summary.CreatedAt),
+			UpdatedAt: kernel.CloneTime(summary.UpdatedAt),
 		}
 		patch.Status = status
 		patch.StatusHeader = header
@@ -251,8 +251,8 @@ func (s *service) threadPatchActiveTurnLocked(threadID string) *uidto.ThreadPatc
 		ThreadID:    threadID,
 		AgentID:     strings.TrimSpace(turn.AgentID),
 		Status:      strings.TrimSpace(turn.Status),
-		StartedAt:   clone.Time(turn.StartedAt),
-		CompletedAt: clone.Time(turn.CompletedAt),
+		StartedAt:   kernel.CloneTime(turn.StartedAt),
+		CompletedAt: kernel.CloneTime(turn.CompletedAt),
 	}
 }
 

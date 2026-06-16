@@ -6,8 +6,8 @@ import (
 
 	shared "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 // Item represents a single renderable entry in the thread timeline.
@@ -55,7 +55,7 @@ func toolCallLookupKey(item Item) string {
 	if strings.TrimSpace(item.Kind) != "tool" {
 		return ""
 	}
-	tool := util.FirstNonEmpty(strings.TrimSpace(item.Tool), strings.TrimSpace(item.ToolName))
+	tool := kernel.FirstNonEmpty(strings.TrimSpace(item.Tool), strings.TrimSpace(item.ToolName))
 	callID := strings.TrimSpace(item.CallID)
 	if tool == "" || callID == "" {
 		return ""
@@ -204,7 +204,7 @@ func (s *service) emitAppended(emitter AppendedEmitter, threadID string, item It
 		ItemKind:  item.Kind,
 		RequestID: item.RequestID,
 		CallID:    item.CallID,
-		ToolName:  strings.TrimSpace(util.FirstNonEmpty(item.ToolName, item.Tool)),
+		ToolName:  strings.TrimSpace(kernel.FirstNonEmpty(item.ToolName, item.Tool)),
 	})
 }
 

@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"strings"
 
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 func (c *runtimePromptCatalog) storeTemplatesWithInferredSectionIntents(
 	ctx context.Context,
-	templates []promptstore.PromptTemplate,
-) ([]promptstore.PromptTemplate, error) {
+	templates []contract.PromptTemplate,
+) ([]contract.PromptTemplate, error) {
 	if len(templates) == 0 {
 		return templates, nil
 	}
@@ -24,7 +24,7 @@ func (c *runtimePromptCatalog) storeTemplatesWithInferredSectionIntents(
 		return nil, fmt.Errorf("runtime prompt catalog: list prompt_template_sections: %w", err)
 	}
 	sectionsByTemplateID := runtimeSectionsByTemplateID(sections)
-	out := make([]promptstore.PromptTemplate, len(templates))
+	out := make([]contract.PromptTemplate, len(templates))
 	for i, template := range templates {
 		out[i] = runtimeTemplateWithInferredSectionIntent(template, sectionsByTemplateID[template.ID])
 	}
@@ -33,19 +33,19 @@ func (c *runtimePromptCatalog) storeTemplatesWithInferredSectionIntents(
 
 func (c *runtimePromptCatalog) storeTemplateWithInferredSectionIntent(
 	ctx context.Context,
-	template promptstore.PromptTemplate,
-) (promptstore.PromptTemplate, error) {
+	template contract.PromptTemplate,
+) (contract.PromptTemplate, error) {
 	if !runtimeTemplateNeedsSectionIntentInference(template) {
 		return template, nil
 	}
 	sections, err := c.store.ListSectionsByTemplateID(ctx, template.ID)
 	if err != nil {
-		return promptstore.PromptTemplate{}, fmt.Errorf("runtime prompt catalog: list prompt_template_sections for %q: %w", template.PromptKey, err)
+		return contract.PromptTemplate{}, fmt.Errorf("runtime prompt catalog: list prompt_template_sections for %q: %w", template.PromptKey, err)
 	}
 	return runtimeTemplateWithInferredSectionIntent(template, sections), nil
 }
 
-func runtimeTemplateIDsNeedingIntentInference(templates []promptstore.PromptTemplate) []int64 {
+func runtimeTemplateIDsNeedingIntentInference(templates []contract.PromptTemplate) []int64 {
 	ids := make([]int64, 0, len(templates))
 	for _, template := range templates {
 		if runtimeTemplateNeedsSectionIntentInference(template) {
@@ -55,16 +55,16 @@ func runtimeTemplateIDsNeedingIntentInference(templates []promptstore.PromptTemp
 	return ids
 }
 
-func runtimeTemplateNeedsSectionIntentInference(template promptstore.PromptTemplate) bool {
+func runtimeTemplateNeedsSectionIntentInference(template contract.PromptTemplate) bool {
 	return template.ID > 0 && runtimeTemplateIntentKind(template) == ""
 }
 
 // runtimeTemplateIntentKind 处理运行时templateintentkind。
-func runtimeTemplateIntentKind(template promptstore.PromptTemplate) string {
+func runtimeTemplateIntentKind(template contract.PromptTemplate) string {
 	if strings.TrimSpace(template.AgentKey) == "default_rule" {
 		return "default_rule"
 	}
-	for _, tag := range promptstore.TemplateTags(template.Tags) {
+	for _, tag := range contract.PromptTemplateTags(template.Tags) {
 		switch strings.TrimSpace(tag) {
 		case "intent:expert":
 			return "expert"
@@ -77,8 +77,8 @@ func runtimeTemplateIntentKind(template promptstore.PromptTemplate) string {
 	return ""
 }
 
-func runtimeSectionsByTemplateID(sections []promptstore.PromptTemplateSection) map[int64][]promptstore.PromptTemplateSection {
-	byTemplateID := make(map[int64][]promptstore.PromptTemplateSection)
+func runtimeSectionsByTemplateID(sections []contract.PromptTemplateSection) map[int64][]contract.PromptTemplateSection {
+	byTemplateID := make(map[int64][]contract.PromptTemplateSection)
 	for _, section := range sections {
 		byTemplateID[section.TemplateID] = append(byTemplateID[section.TemplateID], section)
 	}
@@ -86,9 +86,9 @@ func runtimeSectionsByTemplateID(sections []promptstore.PromptTemplateSection) m
 }
 
 func runtimeTemplateWithInferredSectionIntent(
-	template promptstore.PromptTemplate,
-	sections []promptstore.PromptTemplateSection,
-) promptstore.PromptTemplate {
+	template contract.PromptTemplate,
+	sections []contract.PromptTemplateSection,
+) contract.PromptTemplate {
 	if runtimeTemplateIntentKind(template) != "" {
 		return template
 	}
@@ -96,13 +96,13 @@ func runtimeTemplateWithInferredSectionIntent(
 	if kind == "" {
 		return template
 	}
-	tags := promptstore.TemplateTags(template.Tags)
+	tags := contract.PromptTemplateTags(template.Tags)
 	template.Tags = runtimeEncodeTags(runtimeAppendTagIfMissing(tags, "intent:"+kind))
 	return template
 }
 
 // runtimeSectionsInferredIntentKind 处理运行时sectionsinferredintentkind。
-func runtimeSectionsInferredIntentKind(sections []promptstore.PromptTemplateSection) string {
+func runtimeSectionsInferredIntentKind(sections []contract.PromptTemplateSection) string {
 	hasRecallContent := false
 	for _, section := range sections {
 		if section.Enabled && runtimeSectionIsDirectlyInjectable(section) && strings.TrimSpace(section.Body) != "" {
@@ -118,7 +118,7 @@ func runtimeSectionsInferredIntentKind(sections []promptstore.PromptTemplateSect
 	return ""
 }
 
-func runtimeSectionInferredIntentKind(section promptstore.PromptTemplateSection) string {
+func runtimeSectionInferredIntentKind(section contract.PromptTemplateSection) string {
 	if !section.Enabled {
 		return ""
 	}
@@ -131,6 +131,6 @@ func runtimeSectionInferredIntentKind(section promptstore.PromptTemplateSection)
 	return "recall"
 }
 
-func runtimeSectionIsDirectlyInjectable(section promptstore.PromptTemplateSection) bool {
+func runtimeSectionIsDirectlyInjectable(section contract.PromptTemplateSection) bool {
 	return !strings.EqualFold(strings.TrimSpace(section.TriggerType), "recall")
 }

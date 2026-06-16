@@ -25,11 +25,11 @@
 
 | 操作 | 文件 | 职责 |
 |------|------|------|
-| Modify | `cmd/mcp-lsp/protocol/ext.go` | CompactLocation 的 `Column` → `Col`；GroupedLocationResult 的 `Files` → `Data` |
-| Modify | `cmd/mcp-lsp/format/compact.go` | CompactWorkspaceSymbol 的 `Column` → `Col`；GroupLocationsByFile 返回值字段对齐；hint 文案统一 |
-| Modify | `cmd/mcp-lsp/tools/tool_grep.go` | grepResponse 的 `Files` → `Data`；hint 文案统一 |
-| Modify | `cmd/mcp-lsp/tools/tool_edit_replace.go` | hint 文案统一为 `next:` 格式 |
-| Modify | `cmd/mcp-lsp/tools/tool_coderun.go` | hint 文案统一为 `next:` 格式 |
+| Modify | `internal/sidecar/lsp/protocol/ext.go` | CompactLocation 的 `Column` → `Col`；GroupedLocationResult 的 `Files` → `Data` |
+| Modify | `internal/sidecar/lsp/format/compact.go` | CompactWorkspaceSymbol 的 `Column` → `Col`；GroupLocationsByFile 返回值字段对齐；hint 文案统一 |
+| Modify | `internal/sidecar/lsp/tools/tool_grep.go` | grepResponse 的 `Files` → `Data`；hint 文案统一 |
+| Modify | `internal/sidecar/lsp/tools/tool_edit_replace.go` | hint 文案统一为 `next:` 格式 |
+| Modify | `internal/sidecar/lsp/tools/tool_coderun.go` | hint 文案统一为 `next:` 格式 |
 | Modify | 相关 `*_test.go` | 同步更新所有断言 |
 
 ---
@@ -37,13 +37,13 @@
 ## Task 1: 统一位置字段 — column → col
 
 **Files:**
-- Modify: `cmd/mcp-lsp/protocol/ext.go:132-137`
-- Modify: `cmd/mcp-lsp/format/compact.go:32-38`
+- Modify: `internal/sidecar/lsp/protocol/ext.go:132-137`
+- Modify: `internal/sidecar/lsp/format/compact.go:32-38`
 - Test: 相关测试文件
 
 - [ ] **Step 1: 修改 CompactLocation 的 Column → Col**
 
-修改 `cmd/mcp-lsp/protocol/ext.go` L132-137：
+修改 `internal/sidecar/lsp/protocol/ext.go` L132-137：
 
 ```go
 type CompactLocation struct {
@@ -58,7 +58,7 @@ JSON tag 从 `"column"` 改为 `"col"`。
 
 - [ ] **Step 2: 修改 CompactWorkspaceSymbol 的 Column → Col**
 
-修改 `cmd/mcp-lsp/format/compact.go` L32-38：
+修改 `internal/sidecar/lsp/format/compact.go` L32-38：
 
 ```go
 type CompactWorkspaceSymbol struct {
@@ -75,9 +75,9 @@ JSON tag 从 `"column"` 改为 `"col"`。
 
 - [ ] **Step 3: 更新所有引用 Column 字段的代码**
 
-在 `cmd/mcp-lsp/format/compact.go` 和 `cmd/mcp-lsp/protocol/ext.go` 中，所有赋值 `.Column = ...` 的地方改为 `.Col = ...`。
+在 `internal/sidecar/lsp/format/compact.go` 和 `internal/sidecar/lsp/protocol/ext.go` 中，所有赋值 `.Column = ...` 的地方改为 `.Col = ...`。
 
-用 grep 搜索：`grep -rn '\.Column' cmd/mcp-lsp/format/ cmd/mcp-lsp/protocol/ cmd/mcp-lsp/tools/`
+用 grep 搜索：`grep -rn '\.Column' internal/sidecar/lsp/format/ internal/sidecar/lsp/protocol/ internal/sidecar/lsp/tools/`
 
 逐一修改。
 
@@ -99,7 +99,7 @@ Expected: ALL PASS
 - [ ] **Step 7: Commit**
 
 ```bash
-git add cmd/mcp-lsp/protocol/ext.go cmd/mcp-lsp/format/compact.go cmd/mcp-lsp/tools/
+git add internal/sidecar/lsp/protocol/ext.go internal/sidecar/lsp/format/compact.go internal/sidecar/lsp/tools/
 git commit -m "refactor(lsp): 统一位置字段 column → col"
 ```
 
@@ -108,14 +108,14 @@ git commit -m "refactor(lsp): 统一位置字段 column → col"
 ## Task 2: 统一列表承载字段 — files → data
 
 **Files:**
-- Modify: `cmd/mcp-lsp/protocol/ext.go:139-145`
-- Modify: `cmd/mcp-lsp/tools/tool_grep.go:38`
-- Modify: `cmd/mcp-lsp/format/compact.go:204-237`
+- Modify: `internal/sidecar/lsp/protocol/ext.go:139-145`
+- Modify: `internal/sidecar/lsp/tools/tool_grep.go:38`
+- Modify: `internal/sidecar/lsp/format/compact.go:204-237`
 - Test: 相关测试文件
 
 - [ ] **Step 1: 修改 GroupedLocationResult 的 Files → Data**
 
-修改 `cmd/mcp-lsp/protocol/ext.go` L139-145：
+修改 `internal/sidecar/lsp/protocol/ext.go` L139-145：
 
 ```go
 type GroupedLocationResult struct {
@@ -131,7 +131,7 @@ type GroupedLocationResult struct {
 
 - [ ] **Step 2: 修改 grepResponse 的 Files → Data**
 
-修改 `cmd/mcp-lsp/tools/tool_grep.go` L38：
+修改 `internal/sidecar/lsp/tools/tool_grep.go` L38：
 
 ```go
 type grepResponse struct {
@@ -150,13 +150,13 @@ type grepResponse struct {
 
 - [ ] **Step 3: 更新所有引用 .Files 的代码**
 
-在 `cmd/mcp-lsp/format/compact.go` 的 `GroupLocationsByFile` 函数中，所有 `grouped.Files` 改为 `grouped.Data`。
+在 `internal/sidecar/lsp/format/compact.go` 的 `GroupLocationsByFile` 函数中，所有 `grouped.Files` 改为 `grouped.Data`。
 
-在 `cmd/mcp-lsp/tools/tool_grep.go` 中，所有 `resp.Files`、`files[...]` 等引用改为 `resp.Data`、`data[...]`。
+在 `internal/sidecar/lsp/tools/tool_grep.go` 中，所有 `resp.Files`、`files[...]` 等引用改为 `resp.Data`、`data[...]`。
 
 用 grep 搜索：
-- `grep -rn '\.Files' cmd/mcp-lsp/format/ cmd/mcp-lsp/protocol/ cmd/mcp-lsp/tools/`
-- `grep -rn 'resp\.Files\|files\[' cmd/mcp-lsp/tools/tool_grep.go`
+- `grep -rn '\.Files' internal/sidecar/lsp/format/ internal/sidecar/lsp/protocol/ internal/sidecar/lsp/tools/`
+- `grep -rn 'resp\.Files\|files\[' internal/sidecar/lsp/tools/tool_grep.go`
 
 逐一修改。注意 `tool_grep.go` 中有局部变量 `files` 用于构建 map，需要改名为 `data` 或 `grouped`（避免与 `resp.Data` 混淆）。
 
@@ -187,10 +187,10 @@ git commit -m "refactor(lsp): 统一列表承载字段 files → data"
 ## Task 3: 统一 hint 风格
 
 **Files:**
-- Modify: `cmd/mcp-lsp/tools/tool_grep.go:216`
-- Modify: `cmd/mcp-lsp/format/compact.go:231,237`
-- Modify: `cmd/mcp-lsp/tools/tool_edit_replace.go:133-137`
-- Modify: `cmd/mcp-lsp/tools/tool_coderun.go`（截断 hint）
+- Modify: `internal/sidecar/lsp/tools/tool_grep.go:216`
+- Modify: `internal/sidecar/lsp/format/compact.go:231,237`
+- Modify: `internal/sidecar/lsp/tools/tool_edit_replace.go:133-137`
+- Modify: `internal/sidecar/lsp/tools/tool_coderun.go`（截断 hint）
 - Test: 相关测试文件
 
 - [ ] **Step 1: 定义统一 hint 格式规范**
@@ -209,7 +209,7 @@ git commit -m "refactor(lsp): 统一列表承载字段 files → data"
 
 - [ ] **Step 2: 修改 grep hint**
 
-修改 `cmd/mcp-lsp/tools/tool_grep.go` L216：
+修改 `internal/sidecar/lsp/tools/tool_grep.go` L216：
 
 将 `"step 2: use the returned func_start/func_end to read that function range, e.g. file action=read_file pos=<file>:<func_start> limit=<func_end-func_start+1>"`
 
@@ -217,7 +217,7 @@ git commit -m "refactor(lsp): 统一列表承载字段 files → data"
 
 - [ ] **Step 3: 修改 xref hint**
 
-修改 `cmd/mcp-lsp/format/compact.go` L231：
+修改 `internal/sidecar/lsp/format/compact.go` L231：
 
 将 `"step 2: use the returned func_start/func_end to read that function range, e.g. file action=read_file pos=<file>:<func_start> limit=<func_end-func_start+1>"`
 
@@ -225,7 +225,7 @@ git commit -m "refactor(lsp): 统一列表承载字段 files → data"
 
 - [ ] **Step 4: 修改 CompactList 截断 hint**
 
-修改 `cmd/mcp-lsp/format/compact.go` L82 附近的截断 hint：
+修改 `internal/sidecar/lsp/format/compact.go` L82 附近的截断 hint：
 
 将 `"results truncated; increase max_results or narrow the request"`
 
@@ -239,7 +239,7 @@ git commit -m "refactor(lsp): 统一列表承载字段 files → data"
 
 - [ ] **Step 5: 修改 edit failure hint**
 
-修改 `cmd/mcp-lsp/tools/tool_edit_replace.go` L133-137 的 `appendFailureNextStep`：
+修改 `internal/sidecar/lsp/tools/tool_edit_replace.go` L133-137 的 `appendFailureNextStep`：
 
 将 `"Next step: file action=read_file pos=%s:1 limit=%d ..."` 格式
 
@@ -249,7 +249,7 @@ git commit -m "refactor(lsp): 统一列表承载字段 files → data"
 
 - [ ] **Step 6: 修改 code_run 截断 hint**
 
-修改 `cmd/mcp-lsp/tools/tool_coderun.go` 中截断时的 hint：
+修改 `internal/sidecar/lsp/tools/tool_coderun.go` 中截断时的 hint：
 
 将 `"output truncated; rerun with narrower scope or check logs"`
 

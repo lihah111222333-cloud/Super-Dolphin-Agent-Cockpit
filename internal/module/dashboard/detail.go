@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 var errOrchestrationServiceNotAvailable = errors.New("dashboard: orchestration service not available")
@@ -50,7 +50,7 @@ func (s *service) effectiveDAGRuntime() contract.DAGRuntime {
 func (s *service) ListDAGs(ctx context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error) {
 	filter.Status = strings.TrimSpace(filter.Status)
 	filter.Keyword = strings.TrimSpace(filter.Keyword)
-	filter.Limit = util.ClampLimit(filter.Limit, 1, maxLogLimit, defaultLogLimit)
+	filter.Limit = kernel.ClampLimit(filter.Limit, 1, maxLogLimit, defaultLogLimit)
 	if s.hasDAGSnapshotQueries() {
 		return s.listDAGsFromSnapshot(ctx, filter)
 	}
@@ -87,7 +87,7 @@ func (s *service) ListDAGRuns(ctx context.Context, dagKey, status string, limit 
 	if key == "" {
 		return nil, errors.New("dashboard: dag key is required")
 	}
-	limit = int32(util.ClampLimit(int(limit), 1, maxLogLimit, 50))
+	limit = int32(kernel.ClampLimit(int(limit), 1, maxLogLimit, 50))
 	status = strings.TrimSpace(status)
 	if s.hasDAGSnapshotQueries() {
 		return s.listDAGRunsFromSnapshot(ctx, key, status, limit)

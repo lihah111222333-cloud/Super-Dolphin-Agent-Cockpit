@@ -14,7 +14,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/similarity"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 const uiMemoryPreviewLimit = 320

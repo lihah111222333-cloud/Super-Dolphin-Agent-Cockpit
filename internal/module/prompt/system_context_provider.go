@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 const (
@@ -47,7 +47,7 @@ func systemContextRepoDir(buildCtx BuildCtx) string {
 }
 
 func runSystemContextGitStatus(ctx context.Context, dir string) string {
-	ctx, cancel := ctxutil.WithTimeout(ctx, systemContextCommandTimeout)
+	ctx, cancel := kernel.WithTimeout(ctx, systemContextCommandTimeout)
 	defer cancel()
 	output, err := exec.CommandContext(ctx, "git", "-C", dir, "status", "--short", "--branch").CombinedOutput()
 	if err != nil {

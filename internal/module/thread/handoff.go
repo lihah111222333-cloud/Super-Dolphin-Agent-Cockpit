@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 var (
@@ -17,7 +17,7 @@ var (
 
 // Handoff 处理交接。
 func (s *service) Handoff(ctx context.Context, req HandoffRequest) (HandoffResult, error) {
-	ctx = util.NonNilContext(ctx)
+	ctx = kernel.NonNilContext(ctx)
 
 	sourceID := strings.TrimSpace(req.SourceThreadID)
 	if sourceID == "" {

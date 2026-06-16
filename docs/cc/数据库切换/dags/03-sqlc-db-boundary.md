@@ -52,7 +52,7 @@
 - 不要用 ad hoc string scanner 替代 sqlc。
 - 不要保留 `pgxpool.Pool` 作为 Fx 注入入口。
 - 不要手改 generated sqlc 文件。
-- 不要修改 `cmd/mcp-orch/sqlc.yaml`、`cmd/mcp-orch/sql/queries/**`、`cmd/mcp-orch/store/sqlc/**`、`cmd/mcp-orch/store/sqlctx/**`；这些属于 Task 10。
+- 不要修改 `internal/sidecar/orch/sqlc.yaml`、`internal/sidecar/orch/sql/queries/**`、`internal/sidecar/orch/store/sqlc/**`、`internal/sidecar/orch/store/sqlctx/**`；这些属于 Task 10。
 
 ## 验收方案
 

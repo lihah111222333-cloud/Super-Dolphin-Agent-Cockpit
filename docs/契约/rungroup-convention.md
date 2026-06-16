@@ -1,6 +1,6 @@
 # `oklog/run` 契约（快速参考）
 
-> **完整规范见迁移方案 `docs/plans/v3-migration-plan.md` 及架构骨架 `docs/架构/fx-rungroup-skeleton.md`**
+> **完整规范见迁移方案 `docs/plans/v3-migration-plan.md` 及架构骨架 `docs/架构决策/架构骨架/fx-rungroup-skeleton.md`**
 > 本文是快速参考卡，覆盖 run.Group 的核心范式和反模式。
 
 ## 1. 选型理由

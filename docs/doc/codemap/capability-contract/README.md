@@ -6,8 +6,8 @@ Default scanned roots:
 
 - `internal/contract`
 - `internal/provider`
-- `cmd/mcp-orch/orchestration`
-- `cmd/mcp-orch/tools`
+- `internal/sidecar/orch/orchestration`
+- `internal/sidecar/orch/tools`
 
 Refresh and check:
 

@@ -12,7 +12,7 @@ import (
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 // registerProjectionSubscriptions 注册projectionsubscriptions。
@@ -291,14 +291,14 @@ func completedTurnSummary(current *TurnSummary, ev turndto.TurnCompleted) TurnSu
 		Status:      completionStatus(ev),
 		Error:       strings.TrimSpace(ev.Error),
 		Reason:      strings.TrimSpace(ev.Reason),
-		CompletedAt: clone.Time(&ev.Timestamp),
+		CompletedAt: kernel.CloneTime(&ev.Timestamp),
 	}
 	if current != nil && current.ID == summary.ID {
 		summary = *cloneTurn(current)
 		summary.Status = completionStatus(ev)
 		summary.Error = strings.TrimSpace(ev.Error)
 		summary.Reason = strings.TrimSpace(ev.Reason)
-		summary.CompletedAt = clone.Time(&ev.Timestamp)
+		summary.CompletedAt = kernel.CloneTime(&ev.Timestamp)
 	}
 	success := ev.Success
 	summary.Success = &success
@@ -340,7 +340,7 @@ func choosePositiveInt(next, current int) int {
 
 func chooseTime(next, current *time.Time) *time.Time {
 	if next != nil && !next.IsZero() {
-		return clone.Time(next)
+		return kernel.CloneTime(next)
 	}
 	return current
 }

@@ -547,9 +547,9 @@ sequenceDiagram
 
 ##### Day 2
 
-- 任务描述：建立 `internal/platform/statemachine` 工厂和 `cmd/mcp-orch/orchestration` 中的 transition table。
+- 任务描述：建立 `internal/platform/statemachine` 工厂和 `internal/sidecar/orch/orchestration` 中的 transition table。
 - 输入：Day 1 transition spec、`stateless` 契约、P0 模块骨架。
-- 输出：`internal/platform/statemachine/*`、`cmd/mcp-orch/orchestration/transitions.go`。
+- 输出：`internal/platform/statemachine/*`、`internal/sidecar/orch/orchestration/transitions.go`。
 - 验证方式：状态机构造期可通过；未处理 trigger 返回 error 而非分散 panic。
 - 预估时间：`1 人天`。
 
@@ -557,7 +557,7 @@ sequenceDiagram
 
 - 任务描述：把 entry/exit/action/recovery side effects 从迁移表中分离到 `actions.go` 与 `recovery.go`。
 - 输入：Day 2 状态机骨架、P2 typed events、P1 repo。
-- 输出：`cmd/mcp-orch/orchestration/actions.go`、`recovery.go`、动作依赖接口。
+- 输出：`internal/sidecar/orch/orchestration/actions.go`、`recovery.go`、动作依赖接口。
 - 验证方式：迁移表只表达 state/trigger/guard；副作用不内嵌在 table 构造链。
 - 预估时间：`1 人天`。
 
@@ -714,7 +714,7 @@ sequenceDiagram
 
 - 任务描述：把 unified provider 接入 orchestration 模块、状态机和 Runner，形成完整 runtime 主链。
 - 输入：Day 3-9 driver/unified 结果、P3 orchestration。
-- 输出：`cmd/mcp-orch/orchestration/provider_bridge.go`、统一 provider registry。
+- 输出：`internal/sidecar/orch/orchestration/provider_bridge.go`、统一 provider registry。
 - 验证方式：orchestration 只依赖 unified provider facade；Claude/Codex 可热切换或按能力选择。
 - 预估时间：`1 人天`。
 
@@ -1570,7 +1570,7 @@ go test ./internal/platform/rpc/... -count=1
 ```bash
 go test ./internal/store/... -count=1
 go test ./internal/module/workspace/... -count=1
-go test ./cmd/mcp-orch/orchestration/... -count=1
+go test ./internal/sidecar/orch/orchestration/... -count=1
 ```
 
 ### 5.3 契约测试标准流程
@@ -1622,9 +1622,9 @@ go test ./internal/provider/... -run Parity -count=1
 #### 推荐命令
 
 ```bash
-go test ./cmd/mcp-orch/orchestration/... -run Matrix -count=1
-go test ./cmd/mcp-orch/orchestration/... -run Recover -count=1
-go test ./cmd/mcp-orch/orchestration/... -race -count=1
+go test ./internal/sidecar/orch/orchestration/... -run Matrix -count=1
+go test ./internal/sidecar/orch/orchestration/... -run Recover -count=1
+go test ./internal/sidecar/orch/orchestration/... -race -count=1
 ```
 
 ### 5.5 测试分层总表

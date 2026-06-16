@@ -14,11 +14,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	"github.com/kelindar/event"
 )
 
@@ -65,7 +61,7 @@ type offlineConfigSnapshot struct {
 func (s *service) buildOfflineConfig(
 	ctx context.Context,
 	threadID string,
-	binding *bindingstore.Binding,
+	binding *contract.Binding,
 ) (offlineConfigSnapshot, error) {
 	id, err := normalizeThreadID(threadID)
 	if err != nil {
@@ -82,7 +78,7 @@ func (s *service) buildOfflineConfig(
 	if err != nil {
 		return offlineConfigSnapshot{}, err
 	}
-	provider := util.FirstNonEmpty(stored.Provider, offlineThreadProvider(binding))
+	provider := kernel.FirstNonEmpty(stored.Provider, offlineThreadProvider(binding))
 	return offlineConfigSnapshot{
 		Config: dto.ThreadConfig{
 			ThreadID:               id,
@@ -94,7 +90,7 @@ func (s *service) buildOfflineConfig(
 				Approvals: stored.Approvals,
 			},
 			Effective: dto.ThreadConfigValues{
-				Model:     util.FirstNonEmpty(stored.Model, offlineThreadModel(thread)),
+				Model:     kernel.FirstNonEmpty(stored.Model, offlineThreadModel(thread)),
 				Effort:    strings.TrimSpace(stored.Effort),
 				Approvals: strings.TrimSpace(stored.Approvals),
 			},
@@ -106,7 +102,7 @@ func (s *service) buildOfflineConfig(
 func (s *service) loadOfflineThread(
 	ctx context.Context,
 	threadID string,
-) (*threadstore.Thread, error) {
+) (*contract.Thread, error) {
 	if s.threadStore == nil {
 		return nil, nil
 	}
@@ -122,7 +118,7 @@ func (s *service) loadOfflineThread(
 }
 
 // buildOfflineRuntimeConfig 构建offline运行时配置。
-func buildOfflineRuntimeConfig(stored storedThreadConfig, thread *threadstore.Thread, binding *bindingstore.Binding) map[string]any {
+func buildOfflineRuntimeConfig(stored storedThreadConfig, thread *contract.Thread, binding *contract.Binding) map[string]any {
 	cfg := map[string]any{
 		"approvalPolicy": offlineApprovalPolicy,
 		"toolRouting": map[string]any{
@@ -135,7 +131,7 @@ func buildOfflineRuntimeConfig(stored storedThreadConfig, thread *threadstore.Th
 			"timeoutSec":          8,
 		},
 	}
-	cfg = mergeRuntimeConfig(cfg, clone.RuntimeConfigMap(stored.Runtime))
+	cfg = mergeRuntimeConfig(cfg, kernel.CloneRuntimeConfigMap(stored.Runtime))
 	if thread != nil && strings.TrimSpace(thread.Cwd) != "" {
 		cfg["cwd"] = strings.TrimSpace(thread.Cwd)
 	} else if binding != nil && strings.TrimSpace(binding.Cwd) != "" {
@@ -151,7 +147,7 @@ func buildOfflineRuntimeConfig(stored storedThreadConfig, thread *threadstore.Th
 		cfg["promptKey"] = value
 		cfg["prompt_key"] = value
 	}
-	if model := util.FirstNonEmpty(stored.Model, offlineThreadModel(thread)); model != "" {
+	if model := kernel.FirstNonEmpty(stored.Model, offlineThreadModel(thread)); model != "" {
 		cfg["model"] = model
 	}
 	return cfg
@@ -202,11 +198,11 @@ func cleanResumeStringList(value any) []string {
 	return out
 }
 
-func offlineThreadProvider(binding *bindingstore.Binding) string {
+func offlineThreadProvider(binding *contract.Binding) string {
 	if binding == nil {
 		return offlineProvider
 	}
-	return util.FirstNonEmpty(binding.Provider, offlineProvider)
+	return kernel.FirstNonEmpty(binding.Provider, offlineProvider)
 }
 
 func supportsThreadOverride(provider string) bool {
@@ -218,14 +214,14 @@ func supportsThreadOverride(provider string) bool {
 	}
 }
 
-func offlineThreadModel(thread *threadstore.Thread) string {
+func offlineThreadModel(thread *contract.Thread) string {
 	if thread == nil {
 		return ""
 	}
 	return strings.TrimSpace(thread.Model)
 }
 
-func offlineThreadConfigRaw(thread *threadstore.Thread) json.RawMessage {
+func offlineThreadConfigRaw(thread *contract.Thread) json.RawMessage {
 	if thread == nil {
 		return nil
 	}
@@ -254,11 +250,11 @@ func encodeStoredThreadConfig(cfg storedThreadConfig) (json.RawMessage, error) {
 // canonicalizeResumeStoredThreadConfig 在 resume 写回前同步 Codex 身份；runtime 显式字段优先。
 func canonicalizeResumeStoredThreadConfig(provider string, raw json.RawMessage, home, instanceKey, modelProvider string, resolved bool, runtimeIdentity map[string]any, hasRuntimeIdentity bool) (json.RawMessage, contract.CodexIdentity, bool, error) {
 	if !isCodexResumeProvider(provider) {
-		return clone.RawMessage(raw), contract.CodexIdentity{}, false, nil
+		return kernel.CloneRawMessage(raw), contract.CodexIdentity{}, false, nil
 	}
 	identity, ok, err := resolveResumeWritebackCodexIdentity(provider, home, instanceKey, modelProvider, resolved, runtimeIdentity, hasRuntimeIdentity)
 	if err != nil || !ok {
-		return clone.RawMessage(raw), identity, ok, err
+		return kernel.CloneRawMessage(raw), identity, ok, err
 	}
 	cfg, err := decodeStoredThreadConfig(raw)
 	if err != nil {
@@ -406,10 +402,10 @@ func (s *service) emitThreadModelUpdated(threadID string, model *string) {
 func (s *service) normalizeThreadConfig(
 	ctx context.Context,
 	threadID string,
-	binding *bindingstore.Binding,
+	binding *contract.Binding,
 	cfg dto.ThreadConfig,
 ) dto.ThreadConfig {
-	cfg.ThreadID = util.FirstNonEmpty(strings.TrimSpace(cfg.ThreadID), strings.TrimSpace(threadID))
+	cfg.ThreadID = kernel.FirstNonEmpty(strings.TrimSpace(cfg.ThreadID), strings.TrimSpace(threadID))
 	if binding != nil && strings.TrimSpace(cfg.Provider) == "" {
 		cfg.Provider = strings.TrimSpace(binding.Provider)
 	}
@@ -433,12 +429,12 @@ func decodeLegacyParams[T any](raw []byte, target *T, legacyFn func([]byte, *T) 
 }
 
 // resolveBindingChain 解析bindingchain。
-func (s *service) resolveBindingChain(ctx context.Context, threadID string) (*bindingstore.Binding, error) {
+func (s *service) resolveBindingChain(ctx context.Context, threadID string) (*contract.Binding, error) {
 	binding, err := s.bindingStore.GetByAgentID(ctx, threadID)
 	switch {
 	case err == nil:
 		return s.rememberBinding(binding), err
-	case !platformdb.IsNotFound(err):
+	case !contract.IsNotFound(err):
 		return nil, err
 	}
 	binding, threadMissing, missingErr, lookupErr := s.bindingByPersistedOrRememberedAgent(ctx, threadID)
@@ -455,9 +451,9 @@ func (s *service) resolveBindingChain(ctx context.Context, threadID string) (*bi
 }
 
 // bindingByPersistedOrRememberedAgent 按persistedremembered代理处理binding。
-func (s *service) bindingByPersistedOrRememberedAgent(ctx context.Context, threadID string) (*bindingstore.Binding, bool, error, error) {
+func (s *service) bindingByPersistedOrRememberedAgent(ctx context.Context, threadID string) (*contract.Binding, bool, error, error) {
 	persistedAgentID, persistedFound, missingErr := s.lookupPersistedAgentID(ctx, threadID)
-	if missingErr != nil && !platformdb.IsNotFound(missingErr) {
+	if missingErr != nil && !contract.IsNotFound(missingErr) {
 		return nil, false, nil, missingErr
 	}
 	if persistedFound {
@@ -466,13 +462,13 @@ func (s *service) bindingByPersistedOrRememberedAgent(ctx context.Context, threa
 		}
 	}
 	binding, lookupErr := s.bindingByResolvedAgentID(ctx, threadID, s.lookupThreadAgent(threadID))
-	if platformdb.IsNotFound(missingErr) && platformdb.IsNotFound(lookupErr) {
+	if contract.IsNotFound(missingErr) && contract.IsNotFound(lookupErr) {
 		lookupErr = nil
 	}
-	return binding, platformdb.IsNotFound(missingErr), missingErr, lookupErr
+	return binding, contract.IsNotFound(missingErr), missingErr, lookupErr
 }
 
-func (s *service) bindingByResolvedAgentID(ctx context.Context, threadID, agentID string) (*bindingstore.Binding, error) {
+func (s *service) bindingByResolvedAgentID(ctx context.Context, threadID, agentID string) (*contract.Binding, error) {
 	if agentID == "" || agentID == threadID {
 		return nil, nil
 	}
@@ -480,20 +476,20 @@ func (s *service) bindingByResolvedAgentID(ctx context.Context, threadID, agentI
 	switch {
 	case err == nil:
 		return s.rememberBinding(binding), nil
-	case platformdb.IsNotFound(err):
+	case contract.IsNotFound(err):
 		return nil, fmt.Errorf("thread %q binding for resolved agent_id %q not found: %w", threadID, agentID, contract.ErrNotFound)
 	default:
 		return nil, err
 	}
 }
 
-func (s *service) bindingByProviderThreadID(ctx context.Context, threadID string) (*bindingstore.Binding, error) {
+func (s *service) bindingByProviderThreadID(ctx context.Context, threadID string) (*contract.Binding, error) {
 	for _, provider := range []string{"codex", "claude"} {
 		binding, err := s.bindingStore.GetByProviderThread(ctx, provider, threadID)
 		switch {
 		case err == nil:
 			return s.rememberBinding(binding), nil
-		case !platformdb.IsNotFound(err):
+		case !contract.IsNotFound(err):
 			return nil, err
 		}
 	}

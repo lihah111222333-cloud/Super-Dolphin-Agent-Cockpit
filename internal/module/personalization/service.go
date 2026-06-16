@@ -7,21 +7,21 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// Service reads and writes project-level personalization profile data.
 type Service interface {
 	GetProfile(ctx context.Context, cwd string) (ProfileResult, error)
 	SaveProfile(ctx context.Context, cwd string, profile Profile) (ProfileResult, error)
 }
 
 type service struct {
-	prefs uipreference.Store
+	prefs contract.UIPreferenceStore
 }
 
 // NewService 创建项目级个性化服务。该服务只读写 uipreference，不持有额外全局状态。
-func NewService(prefs uipreference.Store) Service {
+func NewService(prefs contract.UIPreferenceStore) Service {
 	return &service{prefs: prefs}
 }
 
@@ -36,7 +36,7 @@ func (s *service) GetProfile(ctx context.Context, cwd string) (ProfileResult, er
 	}
 	raw, err := s.prefs.GetValue(ctx, cwd, profilePreferenceKey)
 	if err != nil {
-		if platformdb.IsNotFound(err) {
+		if contract.IsNotFound(err) {
 			return ProfileResult{}, nil
 		}
 		return ProfileResult{}, fmt.Errorf("personalization: get profile: %w", err)
@@ -72,7 +72,7 @@ func (s *service) SaveProfile(ctx context.Context, cwd string, profile Profile) 
 	if err != nil {
 		return ProfileResult{}, fmt.Errorf("personalization: encode profile: %w", err)
 	}
-	if err := s.prefs.Upsert(ctx, uipreference.UpsertParams{Cwd: cwd, Key: profilePreferenceKey, Value: raw}); err != nil {
+	if err := s.prefs.Upsert(ctx, contract.UIPreferenceUpsertParams{Cwd: cwd, Key: profilePreferenceKey, Value: raw}); err != nil {
 		return ProfileResult{}, fmt.Errorf("personalization: save profile: %w", err)
 	}
 	return ProfileResult{Profile: normalized}, nil

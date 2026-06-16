@@ -3,7 +3,7 @@
 ## 方法与口径
 
 - 读取手段仅使用 LSP：`read_file`、`text_search`、`document_symbol`、`workspace_symbol`、`implementation`、`references`、`call_hierarchy`。
-- `HandlerMapResult` 聚合点位于 `internal/platform/rpc/module.go:31-35`；`internal/module/*` 下当前只存在 5 个 `handler.Map` 生产点：`internal/module/thread/rpc.go:18-82`、`internal/module/turn/rpc.go:14-93`、`internal/module/skill/rpc.go:12-65`、`internal/module/workspace/rpc.go:13-96`、`cmd/mcp-orch/orchestration/rpc.go:11-36`。
+- `HandlerMapResult` 聚合点位于 `internal/platform/rpc/module.go:31-35`；`internal/module/*` 下当前只存在 5 个 `handler.Map` 生产点：`internal/module/thread/rpc.go:18-82`、`internal/module/turn/rpc.go:14-93`、`internal/module/skill/rpc.go:12-65`、`internal/module/workspace/rpc.go:13-96`、`internal/sidecar/orch/orchestration/rpc.go:11-36`。
 - 应用当前实际装配的模块为 `skill`、`thread`、`turn`、`orchestration`、`workspace`，见 `internal/app/modules.go:32-36`。
 - 覆盖率分两层口径：
   - 注册覆盖率：V2 方法名在 V3 中是否仍有 handler。
@@ -143,7 +143,7 @@
 
 ### 3.1 handler 清单（9 个）
 
-证据：`cmd/mcp-orch/orchestration/rpc.go:11-36`
+证据：`internal/sidecar/orch/orchestration/rpc.go:11-36`
 
 1. `agent.launch`
 2. `agent.stop`
@@ -161,38 +161,38 @@
 
 | V2 方法 | V3 结论 | 证据 | 说明 |
 | --- | --- | --- | --- |
-| `agent.launch` | ⚠️ | V2: `go-agent-v2/internal/apiserver/methods_orchestration.go:29-70`, `go-agent-v2/internal/runner/manager_launch.go:268-333`; V3: `cmd/mcp-orch/orchestration/rpc_types.go:5-10`, `cmd/mcp-orch/orchestration/rpc.go:13-20`, `cmd/mcp-orch/orchestration/service.go:86-101,211-234` | V2 有 `prompt/instructions/dynamic_tools/config/provider`；V3 只接 `agentId/name/cwd/command` 并直接起进程。 |
-| `agent.submit` | ❌ | V2: `go-agent-v2/internal/apiserver/methods_orchestration.go:16,73-91`; V3: 无同名 handler，仅有 `SubmitTurn` service `cmd/mcp-orch/orchestration/contract.go:14-18`, `cmd/mcp-orch/orchestration/service.go:140-159` | service 存在，但 RPC 面未暴露。 |
+| `agent.launch` | ⚠️ | V2: `go-agent-v2/internal/apiserver/methods_orchestration.go:29-70`, `go-agent-v2/internal/runner/manager_launch.go:268-333`; V3: `internal/sidecar/orch/orchestration/rpc_types.go:5-10`, `internal/sidecar/orch/orchestration/rpc.go:13-20`, `internal/sidecar/orch/orchestration/service.go:86-101,211-234` | V2 有 `prompt/instructions/dynamic_tools/config/provider`；V3 只接 `agentId/name/cwd/command` 并直接起进程。 |
+| `agent.submit` | ❌ | V2: `go-agent-v2/internal/apiserver/methods_orchestration.go:16,73-91`; V3: 无同名 handler，仅有 `SubmitTurn` service `internal/sidecar/orch/orchestration/contract.go:14-18`, `internal/sidecar/orch/orchestration/service.go:140-159` | service 存在，但 RPC 面未暴露。 |
 | `agent.submitPrompt` | ❌ | V2: `go-agent-v2/internal/apiserver/methods_orchestration.go:17,73-91`; V3: 无同名 handler | 兼容 alias 未迁入。 |
-| `agent.stop` | ⚠️ | V2: `go-agent-v2/internal/apiserver/methods_orchestration.go:18,93-108`, `go-agent-v2/internal/runner/manager_lifecycle.go:19-92`; V3: `cmd/mcp-orch/orchestration/rpc.go:21-23`, `cmd/mcp-orch/orchestration/service.go:103-117` | 同名功能存在，但 V3 参数标签改为 `agentId`，返回面也不再给 `success`。 |
-| `agent.list` | ⚠️ | V2: `go-agent-v2/internal/apiserver/methods_orchestration.go:19,110-116`, `go-agent-v2/internal/runner/manager.go:147-157,278-313`; V3: `cmd/mcp-orch/orchestration/rpc.go:24-26`, `cmd/mcp-orch/orchestration/service.go:161-170,183-208` | V3 返回 `AgentSnapshot`，但缺 V2 `port/provider/last_report`，并改为进程/状态机视角。 |
-| `agent.getReport` | ❌ | V2: `go-agent-v2/internal/apiserver/methods_orchestration.go:20,118-135`, `go-agent-v2/internal/runner/manager.go:475-477`; V3: `cmd/mcp-orch/orchestration/rpc.go:34,38-41` | V3 没有 `agent.getReport`；`orchestration/report` 只是未实现占位。 |
+| `agent.stop` | ⚠️ | V2: `go-agent-v2/internal/apiserver/methods_orchestration.go:18,93-108`, `go-agent-v2/internal/runner/manager_lifecycle.go:19-92`; V3: `internal/sidecar/orch/orchestration/rpc.go:21-23`, `internal/sidecar/orch/orchestration/service.go:103-117` | 同名功能存在，但 V3 参数标签改为 `agentId`，返回面也不再给 `success`。 |
+| `agent.list` | ⚠️ | V2: `go-agent-v2/internal/apiserver/methods_orchestration.go:19,110-116`, `go-agent-v2/internal/runner/manager.go:147-157,278-313`; V3: `internal/sidecar/orch/orchestration/rpc.go:24-26`, `internal/sidecar/orch/orchestration/service.go:161-170,183-208` | V3 返回 `AgentSnapshot`，但缺 V2 `port/provider/last_report`，并改为进程/状态机视角。 |
+| `agent.getReport` | ❌ | V2: `go-agent-v2/internal/apiserver/methods_orchestration.go:20,118-135`, `go-agent-v2/internal/runner/manager.go:475-477`; V3: `internal/sidecar/orch/orchestration/rpc.go:34,38-41` | V3 没有 `agent.getReport`；`orchestration/report` 只是未实现占位。 |
 | `agent.rememberReportRequest` | ❌ | V2: `go-agent-v2/internal/apiserver/methods_orchestration.go:21,137-160`, `go-agent-v2/internal/apiserver/orchestration_report.go:23-37`; V3: 无同名 handler | V2 的 waiter 注册链未迁入。 |
 | `agent.reportEvent` | ❌ | V2: `go-agent-v2/internal/apiserver/methods_orchestration.go:22,179-209`; V3: 无同名 handler | V2 runtime event 上报口缺失。 |
-| `agent.getState` | ❌ | V2: `go-agent-v2/internal/apiserver/methods_orchestration.go:23,162-177`; V3: 无同名 handler，最近似的是 `agent.snapshot` `cmd/mcp-orch/orchestration/rpc.go:27-29` | 仅有近似替代，无兼容入口。 |
+| `agent.getState` | ❌ | V2: `go-agent-v2/internal/apiserver/methods_orchestration.go:23,162-177`; V3: 无同名 handler，最近似的是 `agent.snapshot` `internal/sidecar/orch/orchestration/rpc.go:27-29` | 仅有近似替代，无兼容入口。 |
 | `agent.saveSubAgent` | ❌ | V2: `go-agent-v2/internal/apiserver/methods_orchestration.go:24,211-220`; V3: 无 | 子 agent 持久化能力未迁入 RPC。 |
 | `agent.deleteSubAgent` | ❌ | V2: `go-agent-v2/internal/apiserver/methods_orchestration.go:25,222-229`; V3: 无 | 同上。 |
 | `agent.persistSubAgentBinding` | ❌ | V2: `go-agent-v2/internal/apiserver/methods_orchestration.go:26,231-241`; V3: 无 | 同上。 |
 
 补充：
 
-- `agent.snapshot` 是 V3 新增 key，见 `cmd/mcp-orch/orchestration/rpc.go:27-29`；V2 没有同名 RPC，最接近的是内部 `Snapshot()`，见 `go-agent-v2/internal/runner/manager_lifecycle.go:139-149`。
-- `task/dag/*` 与 `orchestration/report` 都是 V3 新增 key，但当前统一返回 `ErrNotImplemented`，见 `cmd/mcp-orch/orchestration/rpc.go:30-41`。
+- `agent.snapshot` 是 V3 新增 key，见 `internal/sidecar/orch/orchestration/rpc.go:27-29`；V2 没有同名 RPC，最接近的是内部 `Snapshot()`，见 `go-agent-v2/internal/runner/manager_lifecycle.go:139-149`。
+- `task/dag/*` 与 `orchestration/report` 都是 V3 新增 key，但当前统一返回 `ErrNotImplemented`，见 `internal/sidecar/orch/orchestration/rpc.go:30-41`。
 
 ### 3.3 service 能力
 
-- `orchestration.Service` 现有 contract 只有 `LaunchAgent`、`ListAgents`、`StopAgent`、`SubmitTurn`、`CompleteTurn`、`Recover`、`Snapshot`，见 `cmd/mcp-orch/orchestration/contract.go:10-18`；DAG 方法仍停留在 TODO 注释，见 `cmd/mcp-orch/orchestration/contract.go:20-24`。
-- `SubmitTurn` 的当前能力是把 `TurnSubmission` 放入本地 FIFO 队列，并在 state 为 `idle` 时触发 `turn_queued`，见 `cmd/mcp-orch/orchestration/service.go:140-159`。
+- `orchestration.Service` 现有 contract 只有 `LaunchAgent`、`ListAgents`、`StopAgent`、`SubmitTurn`、`CompleteTurn`、`Recover`、`Snapshot`，见 `internal/sidecar/orch/orchestration/contract.go:10-18`；DAG 方法仍停留在 TODO 注释，见 `internal/sidecar/orch/orchestration/contract.go:20-24`。
+- `SubmitTurn` 的当前能力是把 `TurnSubmission` 放入本地 FIFO 队列，并在 state 为 `idle` 时触发 `turn_queued`，见 `internal/sidecar/orch/orchestration/service.go:140-159`。
 - V2 `SubmitOrQueueWithMetadata` 则包含 queue position、`SubmissionMetadata`、dead-client 自恢复、pending wakeup context、非队列提交和回滚逻辑，见 `go-agent-v2/internal/runner/manager_submission.go:243-275,307-331,356-440,514-526`。V3 只覆盖了最薄的排队语义。
-- `CompleteTurn` 只校验 `activeTurnID` 并做成功/失败状态切换，见 `cmd/mcp-orch/orchestration/service.go:288-307`；V2 事件流还会抓 turn completion report、message、tracked artifacts，见 `go-agent-v2/internal/runner/manager_event.go:418-484`。
-- `Recover` 在 V3 是显式入口：stop process -> 清理状态 -> 重新启动，见 `cmd/mcp-orch/orchestration/recover.go:27-56`；V2 `RecoverAgentWithOptions` 还包含 provider-aware recovery target 推导、early-silence circuit breaker、active submission replay、历史线程 resume，见 `go-agent-v2/internal/runner/manager_recover.go:219-332`。
-- `Snapshot` 在 V3 返回的是结构化 `AgentSnapshot`，见 `cmd/mcp-orch/orchestration/service.go:172-208`；V2 对外 list 使用 `AgentInfo`，内部 `Snapshot()` 则返回 `[]*AgentProcess` 供 shutdown/kill，见 `go-agent-v2/internal/runner/manager.go:147-157,278-313`、`go-agent-v2/internal/runner/manager_lifecycle.go:139-149`。两者用途不同，不能直接视为等价迁移。
+- `CompleteTurn` 只校验 `activeTurnID` 并做成功/失败状态切换，见 `internal/sidecar/orch/orchestration/service.go:288-307`；V2 事件流还会抓 turn completion report、message、tracked artifacts，见 `go-agent-v2/internal/runner/manager_event.go:418-484`。
+- `Recover` 在 V3 是显式入口：stop process -> 清理状态 -> 重新启动，见 `internal/sidecar/orch/orchestration/recover.go:27-56`；V2 `RecoverAgentWithOptions` 还包含 provider-aware recovery target 推导、early-silence circuit breaker、active submission replay、历史线程 resume，见 `go-agent-v2/internal/runner/manager_recover.go:219-332`。
+- `Snapshot` 在 V3 返回的是结构化 `AgentSnapshot`，见 `internal/sidecar/orch/orchestration/service.go:172-208`；V2 对外 list 使用 `AgentInfo`，内部 `Snapshot()` 则返回 `[]*AgentProcess` 供 shutdown/kill，见 `go-agent-v2/internal/runner/manager.go:147-157,278-313`、`go-agent-v2/internal/runner/manager_lifecycle.go:139-149`。两者用途不同，不能直接视为等价迁移。
 
 ### 3.4 RunnerActor + StallDetector + SubmissionQueue 对照
 
-- V3 `runnerActor` 只有 3 个核心动作：启动 waiters、消费 turn queue、按 200ms ticker 做 stall recovery，见 `cmd/mcp-orch/orchestration/runner_actor.go:26-44,48-77`。
-- V3 `SubmissionQueue` 只是进程内 `[]turn.TurnSubmission` FIFO，见 `cmd/mcp-orch/orchestration/submission.go:9-50`；没有 V2 `queuedSubmission` 的 prompt/images/files/dispatch、active submission、queue position、replay、progressed 标记，见 `go-agent-v2/internal/runner/manager_submission.go:243-275,286-297,333-374`。
-- V3 `StallDetector` 只检查 `state == turn_running` 且 `updatedAt` 超阈值，见 `cmd/mcp-orch/orchestration/recover.go:11-24`；V2 除 stall 之外，还有 `connection_dead` 自动恢复窗口、intentional interrupt allowlist、early silence 自恢复等，见 `go-agent-v2/internal/runner/manager_event.go:15-16,307-320`、`go-agent-v2/internal/runner/manager.go:51-57`、`go-agent-v2/internal/runner/manager_recover.go:236-253`。
+- V3 `runnerActor` 只有 3 个核心动作：启动 waiters、消费 turn queue、按 200ms ticker 做 stall recovery，见 `internal/sidecar/orch/orchestration/runner_actor.go:26-44,48-77`。
+- V3 `SubmissionQueue` 只是进程内 `[]turn.TurnSubmission` FIFO，见 `internal/sidecar/orch/orchestration/submission.go:9-50`；没有 V2 `queuedSubmission` 的 prompt/images/files/dispatch、active submission、queue position、replay、progressed 标记，见 `go-agent-v2/internal/runner/manager_submission.go:243-275,286-297,333-374`。
+- V3 `StallDetector` 只检查 `state == turn_running` 且 `updatedAt` 超阈值，见 `internal/sidecar/orch/orchestration/recover.go:11-24`；V2 除 stall 之外，还有 `connection_dead` 自动恢复窗口、intentional interrupt allowlist、early silence 自恢复等，见 `go-agent-v2/internal/runner/manager_event.go:15-16,307-320`、`go-agent-v2/internal/runner/manager.go:51-57`、`go-agent-v2/internal/runner/manager_recover.go:236-253`。
 - 结论：V3 `RunnerActor + StallDetector + SubmissionQueue` 只覆盖了 V2 runner 的最小骨架，不具备 V2 的自恢复、submission metadata、报告聚合、event-normalize 完整面。
 
 ## 4. skill + workspace 快扫
@@ -223,9 +223,9 @@
 6. 同文档对 skill 的 jrpc2 描述只覆盖 `skills/*` 家族，见 `docs/plans/迁移/v3-module-migration-details.md:204`；实际 `internal/module/skill/rpc.go:20-33` 还包含 `command/card/*` 与 `command/exec`。文档低估了 V3 实际 skill RPC 面。
 7. 同文档对 workspace 的 jrpc2 描述只写 `workspace/run/create|get|list|merge|abort`，见 `docs/plans/迁移/v3-module-migration-details.md:340`；实际 `internal/module/workspace/rpc.go:42-93` 还包含 `status/update`、`files/list`、`file/get` 3 个新增 handler。
 8. 同文档列出 workspace 目标文件 `merge.go`、`helpers.go`，见 `docs/plans/迁移/v3-module-migration-details.md:327-333`；实际 workspace 包只有 `contract.go`、`module.go`、`rpc.go`、`rpc_types.go`、`service.go`，见这些文件各自 `:1`。文件结构描述已过时。
-9. 同文档列出 orchestration 目标文件 `phase1_watcher.go`、`patterns.go`，并宣称 `orchestration.Module` 提供 DAG service、phase1 watcher、recovery service、tool-facing facade、Runner，见 `docs/plans/迁移/v3-module-migration-details.md:263-278`；实际 orchestration 包只有 `contract.go`、`events.go`、`helpers.go`、`module.go`、`recover.go`、`rpc.go`、`rpc_types.go`、`runner_actor.go`、`service.go`、`submission.go`，见这些文件 `:1`，且 `cmd/mcp-orch/orchestration/module.go:5-11` 只提供 `NewService`、`Service`、`NewOrchestrationHandlers`、`NewRunnerActor`。
-10. 同文档写 “jrpc2：负责 orchestration_*、task_* 以及 DAG/phase1 相关 RPC”，见 `docs/plans/迁移/v3-module-migration-details.md:277`；实际 `cmd/mcp-orch/orchestration/rpc.go:30-41` 中所有 `task/dag/*` 与 `orchestration/report` 都是 `ErrNotImplemented`。
-11. `v2-v3-alignment-report.md` 前半段仍写“provider registry 无”“internal/provider 目录不存在”“events 缺失”，见 `docs/plans/迁移/v2-v3-alignment-report.md:50-58`；但实际 `internal/app/modules.go:17-19,37-39` 已装配 `unified/claudecli/codexapp` provider 模块，`internal/provider/unified/module.go:17-26` 与 `internal/provider/unified/registry.go:11-40` 已存在 registry，`cmd/mcp-orch/orchestration/events.go:25-63` 已发布 `AgentLaunched/Stopped/Recovering/Failed`。该报告存在过时段落。
+9. 同文档列出 orchestration 目标文件 `phase1_watcher.go`、`patterns.go`，并宣称 `orchestration.Module` 提供 DAG service、phase1 watcher、recovery service、tool-facing facade、Runner，见 `docs/plans/迁移/v3-module-migration-details.md:263-278`；实际 orchestration 包只有 `contract.go`、`events.go`、`helpers.go`、`module.go`、`recover.go`、`rpc.go`、`rpc_types.go`、`runner_actor.go`、`service.go`、`submission.go`，见这些文件 `:1`，且 `internal/sidecar/orch/orchestration/module.go:5-11` 只提供 `NewService`、`Service`、`NewOrchestrationHandlers`、`NewRunnerActor`。
+10. 同文档写 “jrpc2：负责 orchestration_*、task_* 以及 DAG/phase1 相关 RPC”，见 `docs/plans/迁移/v3-module-migration-details.md:277`；实际 `internal/sidecar/orch/orchestration/rpc.go:30-41` 中所有 `task/dag/*` 与 `orchestration/report` 都是 `ErrNotImplemented`。
+11. `v2-v3-alignment-report.md` 前半段仍写“provider registry 无”“internal/provider 目录不存在”“events 缺失”，见 `docs/plans/迁移/v2-v3-alignment-report.md:50-58`；但实际 `internal/app/modules.go:17-19,37-39` 已装配 `unified/claudecli/codexapp` provider 模块，`internal/provider/unified/module.go:17-26` 与 `internal/provider/unified/registry.go:11-40` 已存在 registry，`internal/sidecar/orch/orchestration/events.go:25-63` 已发布 `AgentLaunched/Stopped/Recovering/Failed`。该报告存在过时段落。
 12. 同报告写“当前 V3 仍是 six-state idle/thinking/running/paused/stopped/error”，见 `docs/plans/迁移/v2-v3-alignment-report.md:75`；实际 `internal/dto/agent/state.go:8-18,78-102` 已是 10 态状态机。该条已经失真。
 13. 同报告后半段的“修复项验证”反而更接近现状，见 `docs/plans/迁移/v2-v3-alignment-report.md:169-175`。该文档内部前后口径不一致，需要清理过时结论。
 
@@ -239,7 +239,7 @@
   - turn 6：`internal/module/turn/rpc.go:32-91`
   - skill 22：`internal/module/skill/rpc.go:20-62`
   - workspace 8：`internal/module/workspace/rpc.go:15-94`
-  - orchestration 9：`cmd/mcp-orch/orchestration/rpc.go:12-34`
+  - orchestration 9：`internal/sidecar/orch/orchestration/rpc.go:12-34`
 - 结论：V3 当前总 RPC handler 数为 `74`。
 
 ### 6.2 V2 总数
@@ -288,7 +288,7 @@ V3-only 新增面：
 
 - skill 新增 7 个 `command/card/*`，见 `internal/module/skill/rpc.go:20-30`
 - workspace 新增 3 个 `workspace/run/status/update|files/list|file/get`，见 `internal/module/workspace/rpc.go:42-93`
-- orchestration 新增 6 个 `agent.snapshot`、`task/dag/create|get|list`、`task/node/update`、`orchestration/report`，见 `cmd/mcp-orch/orchestration/rpc.go:27-34`
+- orchestration 新增 6 个 `agent.snapshot`、`task/dag/create|get|list`、`task/node/update`、`orchestration/report`，见 `internal/sidecar/orch/orchestration/rpc.go:27-34`
 
 ## 结论
 
@@ -296,7 +296,7 @@ V3-only 新增面：
 
 - thread 29 个 key 只是“名字齐全”，不是 V2 等价迁移。`internal/module/thread/rpc.go:96-99` 已明确只有 `/model`、`/personality`、`/approvals` 真正闭环，其余 command 路由仍是骨架；`thread/read`、`thread/resolve`、`thread/messages`、`thread/list` 也都明显弱化。
 - `approval/respond` 虽已接到 `ApprovalResponder.Respond`，但 `RequestApproval` 没有任何 turn/provider/orchestration 外部调用点，见 `internal/platform/rpc/approval.go:71-103` 的 call hierarchy 结果；V3 审批链没有形成 V2 那样的 `request -> pending -> respond -> resolve` 闭环。
-- orchestration 的 V2 12 方法面只保留了 3 个同名入口，`agent.submit*`、`agent.getReport`、`agent.getState`、report request/event、sub-agent 持久化相关全部缺失，见 `go-agent-v2/internal/apiserver/methods_orchestration.go:14-27` 对比 `cmd/mcp-orch/orchestration/rpc.go:12-34`。
+- orchestration 的 V2 12 方法面只保留了 3 个同名入口，`agent.submit*`、`agent.getReport`、`agent.getState`、report request/event、sub-agent 持久化相关全部缺失，见 `go-agent-v2/internal/apiserver/methods_orchestration.go:14-27` 对比 `internal/sidecar/orch/orchestration/rpc.go:12-34`。
 
 ### Warning
 
@@ -321,8 +321,8 @@ V3-only 新增面：
 ### 对 audit-event-sm 的批判
 
 1. `docs/plans/迁移/audit-event-sm.md:106,114` 正确抓到了 approval 事件没有驱动 `awaiting_user_input`，但它只看到了“事件没有映射到状态机”的后半段，没看到更严重的前半段：`ApprovalManager.RequestApproval` 本身没有任何外部调用者。LSP `references` 对 `internal/platform/rpc/approval.go:71` 只返回同文件 `RequestUserInput` 的内部包装 `internal/platform/rpc/approval.go:102`。这意味着不是“approval event 发了但没驱动状态”，而是“request -> pending” 这半条链都没有真正启动。
-2. `docs/plans/迁移/audit-event-sm.md:129` 说 “已发布的 typed event 不存在完全无人订阅的硬孤儿，因为 LogSink 覆盖了全部六族”，这个 OK 口径过于宽松。日志订阅并不等于业务消费。`orchestration.CompleteTurn` 定义于 `cmd/mcp-orch/orchestration/service.go:282-301`，LSP `references` 返回 0；`BindEventToNotify` 定义于 `internal/platform/rpc/push.go:50-63`，LSP `references` 也返回 0。也就是说，`TurnCompleted` 和 typed push 事件虽然“被记录”，但并没有驱动业务闭环，这类事件在业务语义上仍然是孤儿。
-3. `docs/plans/迁移/audit-event-sm.md:123` 只把双源发布问题收束到 `agentdto.StateChanged` 与 Codex translator，低估了碰撞面。实际 Claude translator 也发布 agent 级事件，见 `internal/provider/claudecli/event_map.go:35-53`；Codex translator 发布 `AgentLaunched` / `StateChanged` / `AgentStopped` / `AgentRecovering` / `AgentFailed`，见 `internal/provider/codexapp/event_map.go:39-74`；orchestration 自己也发布同一族事件，见 `cmd/mcp-orch/orchestration/events.go:25-63`。冲突不是单个 `StateChanged`，而是整组 agent 生命周期事件的归属冲突。
+2. `docs/plans/迁移/audit-event-sm.md:129` 说 “已发布的 typed event 不存在完全无人订阅的硬孤儿，因为 LogSink 覆盖了全部六族”，这个 OK 口径过于宽松。日志订阅并不等于业务消费。`orchestration.CompleteTurn` 定义于 `internal/sidecar/orch/orchestration/service.go:282-301`，LSP `references` 返回 0；`BindEventToNotify` 定义于 `internal/platform/rpc/push.go:50-63`，LSP `references` 也返回 0。也就是说，`TurnCompleted` 和 typed push 事件虽然“被记录”，但并没有驱动业务闭环，这类事件在业务语义上仍然是孤儿。
+3. `docs/plans/迁移/audit-event-sm.md:123` 只把双源发布问题收束到 `agentdto.StateChanged` 与 Codex translator，低估了碰撞面。实际 Claude translator 也发布 agent 级事件，见 `internal/provider/claudecli/event_map.go:35-53`；Codex translator 发布 `AgentLaunched` / `StateChanged` / `AgentStopped` / `AgentRecovering` / `AgentFailed`，见 `internal/provider/codexapp/event_map.go:39-74`；orchestration 自己也发布同一族事件，见 `internal/sidecar/orch/orchestration/events.go:25-63`。冲突不是单个 `StateChanged`，而是整组 agent 生命周期事件的归属冲突。
 4. 这份报告没有追打迁移文档与代码的状态机口径冲突。`docs/plans/迁移/v2-v3-alignment-report.md:75` 仍写“当前 V3 还是 idle/thinking/running/paused/stopped/error 六态”，但实际状态集已经是 `internal/dto/agent/state.go:8-18,78-102` 的 10 状态、23 转换。event/state 主题下不指出这条文档失真，遗漏了最该纠偏的文档问题。
 
 ### 对 audit-store-sqlc 的批判
@@ -337,4 +337,4 @@ V3-only 新增面：
 1. `docs/plans/迁移/audit-provider.md:111-112` 把 `Driver/Session/TurnHandle` 基础实现面判成 OK，但这个 OK 没有穿透到 live 调用路径。当前 RPC 侧仍暴露大量 provider-facing thread 方法，见 `internal/module/thread/rpc.go:58-80`；而这些入口最终大多落到 `SendCommand`，`internal/module/thread/rpc.go:96-99` 已明写只有 `/model`、`/personality`、`/approvals` 真正闭环，`internal/module/thread/command.go:18-35` 也证明其余 command 根本不支持。provider 层即便接口实现齐全，只要 live RPC 进不去，这个 OK 就过宽。
 2. `docs/plans/迁移/audit-provider.md:96-98` 抓到了 `ToolCallResponder` 和 session lifecycle，却漏掉了 provider 与 approval 闭环之间更严重的断层。provider translator 已经直接发布 `ToolApprovalRequested/Resolved`，见 `internal/provider/codexapp/event_map.go:132-144`；但 `ApprovalManager.RequestApproval` 在仓内没有外部调用者，LSP `references` 对 `internal/platform/rpc/approval.go:71` 只返回 `internal/platform/rpc/approval.go:102` 的内部包装。也就是说，provider 侧已经在发 approval 结果 DTO，但真正的 `request -> pending -> respond -> resolve` manager 链并没被 provider/session 使用。报告没有把这条断层列成 blocker，和 V2 完整性审查结论不一致。
 3. 这份 provider 审计没有清理最关键的文档失真。`docs/plans/迁移/v2-v3-alignment-report.md:57` 仍写 “provider registry 无，internal/provider 目录当前不存在”，但 live 代码里 `internal/provider/unified/registry.go:15-56` 已有 registry，`internal/app/modules.go:37-39` 也明确装配了 `unified`、`claudecli`、`codexapp` 三个 provider 模块。provider 主题下不指出这条文档已过时，会让后续审查继续围绕错误前提展开。
-4. 报告聚焦 driver/session 内部 parity，却没有指出 V2 `agent.submit` / `agent.submitPrompt` 已经没有 RPC 入口可把请求送到 provider。V2 在 `go-agent-v2/internal/apiserver/methods_orchestration.go:15-17` 注册了 `agent.launch` / `agent.submit` / `agent.submitPrompt`，而 V3 orchestration RPC 只剩 `agent.launch/stop/list/snapshot` 与若干 task stub，见 `cmd/mcp-orch/orchestration/rpc.go:12-34`。这意味着即便 provider 层有 `Session.StartTurn` 等实现，V2 orchestration submit 面仍然到不了 provider；provider 审计没把这条入口缺失拉进结论，方法面判断不够完整。
+4. 报告聚焦 driver/session 内部 parity，却没有指出 V2 `agent.submit` / `agent.submitPrompt` 已经没有 RPC 入口可把请求送到 provider。V2 在 `go-agent-v2/internal/apiserver/methods_orchestration.go:15-17` 注册了 `agent.launch` / `agent.submit` / `agent.submitPrompt`，而 V3 orchestration RPC 只剩 `agent.launch/stop/list/snapshot` 与若干 task stub，见 `internal/sidecar/orch/orchestration/rpc.go:12-34`。这意味着即便 provider 层有 `Session.StartTurn` 等实现，V2 orchestration submit 面仍然到不了 provider；provider 审计没把这条入口缺失拉进结论，方法面判断不够完整。

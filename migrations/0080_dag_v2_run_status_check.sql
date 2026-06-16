@@ -1,7 +1,7 @@
 -- DAG v2 T1.2-mid 根治 (B-0074 剩余): task_dag_runs.status 加 CHECK 枚举。
 --
 -- 背景：0074 仅声明 status TEXT NOT NULL DEFAULT 'running'，无枚举约束。
--- 应用层 contract (cmd/mcp-orch/store/taskdag/contract.go:381) 规定：
+-- 应用层 contract (internal/sidecar/orch/store/taskdag/contract.go:381) 规定：
 --   running | succeeded | failed | cancelled
 -- 0076 partial unique index `WHERE status='running'` 也依赖该 status 字面量。
 -- 但 DB 没有约束，任何 UPDATE 写入未知字符串都会通过；后续 service 状态机

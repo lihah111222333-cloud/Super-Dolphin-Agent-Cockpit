@@ -18,7 +18,7 @@ PR 77 已经把 `.sh` 接到 `shellscript` / `bash-language-server` 链路，但
 
 ### 开发态运行时
 
-- `cmd/mcp-lsp/installer/installer.go`
+- `internal/sidecar/lsp/installer/installer.go`
   - `InstallerConfig` 新增 `RequiredBinaries []RequiredBinary`。
   - 主二进制存在时也会验证 companion。
   - companion 缺失或健康检查失败时触发安装。
@@ -137,10 +137,10 @@ ok  	github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp	8.252s
 
 ```text
 ok  	github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp	16.214s
-ok  	github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer	4.353s
-ok  	github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager	2.406s
-ok  	github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp	9.177s
-ok  	github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/tools	3.758s
+ok  	github.com/anthropic-ai/super-agent-v3/internal/sidecar/lsp/installer	4.353s
+ok  	github.com/anthropic-ai/super-agent-v3/internal/sidecar/lsp/manager	2.406s
+ok  	github.com/anthropic-ai/super-agent-v3/internal/sidecar/lsp/multilsp	9.177s
+ok  	github.com/anthropic-ai/super-agent-v3/internal/sidecar/lsp/tools	3.758s
 ```
 
 命令期间 `internal/archtest` 构建输出了 macOS object version warning，但命令 exit code 为 0。

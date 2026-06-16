@@ -4,8 +4,8 @@ import (
 	"strings"
 
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 // applyMutation centralizes the lock/mutate/patch/unlock/emit flow used by projection handlers.
@@ -39,7 +39,7 @@ func copyThreadGroups(items []ThreadGroup) []ThreadGroup {
 }
 
 func copyViewPrefs(value ViewPrefs) ViewPrefs {
-	return ViewPrefs{Chat: clone.JSONMap(value.Chat), Cmd: clone.JSONMap(value.Cmd)}
+	return ViewPrefs{Chat: kernel.CloneJSONMap(value.Chat), Cmd: kernel.CloneJSONMap(value.Cmd)}
 }
 
 func copyThreadCollections(value ThreadCollections) ThreadCollections {

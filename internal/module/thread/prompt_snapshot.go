@@ -11,8 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 // ensureStartAssemblySnapshot 把 start 提示整理成可保存的 snapshot。
@@ -100,17 +99,17 @@ func promptBoundaryUncachedTail(boundary *dto.PromptAssemblyBoundary) string {
 	return strings.TrimSpace(boundary.UncachedTail)
 }
 
-func toStoredPromptBoundary(boundary *dto.PromptAssemblyBoundary) *threadstore.PromptBoundary {
+func toStoredPromptBoundary(boundary *dto.PromptAssemblyBoundary) *contract.PromptBoundary {
 	if promptBoundaryBlank(boundary) {
 		return nil
 	}
-	return &threadstore.PromptBoundary{
+	return &contract.PromptBoundary{
 		CachedPrefix: promptBoundaryCachedPrefix(boundary),
 		UncachedTail: promptBoundaryUncachedTail(boundary),
 	}
 }
 
-func fromStoredPromptBoundary(boundary *threadstore.PromptBoundary) *dto.PromptAssemblyBoundary {
+func fromStoredPromptBoundary(boundary *contract.PromptBoundary) *dto.PromptAssemblyBoundary {
 	if boundary == nil {
 		return nil
 	}
@@ -196,9 +195,9 @@ func (s *service) savePromptSnapshot(ctx context.Context, threadID string, assem
 	return s.threadStore.SavePromptSnapshot(ctx, threadID, toStoredPromptSnapshot(assembly.Snapshot))
 }
 
-func toStoredPromptSnapshot(snapshot contract.PromptAssemblySnapshot) threadstore.PromptSnapshot {
+func toStoredPromptSnapshot(snapshot contract.PromptAssemblySnapshot) contract.PromptSnapshot {
 	snapshot = normalizePromptSnapshotContent(snapshot)
-	return threadstore.PromptSnapshot{
+	return contract.PromptSnapshot{
 		DisplayName:           snapshot.DisplayName,
 		BaseInstructions:      snapshot.BaseInstructions,
 		Boundary:              toStoredPromptBoundary(snapshot.Boundary),
@@ -240,7 +239,7 @@ func (s *service) resolveResumePromptSnapshot(
 	req ResumeRequest,
 	state resumeState,
 ) (contract.PromptAssemblySnapshot, error) {
-	provider := strings.TrimSpace(util.FirstNonEmpty(req.Provider, state.Provider))
+	provider := strings.TrimSpace(kernel.FirstNonEmpty(req.Provider, state.Provider))
 	if stored, ok, err := s.preferredStoredPromptSnapshot(ctx, state.PublicThreadID, provider); err != nil {
 		return contract.PromptAssemblySnapshot{}, err
 	} else if ok {
@@ -365,7 +364,7 @@ func (s *service) loadStoredPromptSnapshot(ctx context.Context, threadID string)
 	return fromStoredPromptSnapshot(snapshot), nil
 }
 
-func fromStoredPromptSnapshot(snapshot *threadstore.PromptSnapshot) contract.PromptAssemblySnapshot {
+func fromStoredPromptSnapshot(snapshot *contract.PromptSnapshot) contract.PromptAssemblySnapshot {
 	if snapshot == nil {
 		return contract.PromptAssemblySnapshot{}
 	}

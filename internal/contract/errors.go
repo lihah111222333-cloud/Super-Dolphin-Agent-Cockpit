@@ -58,6 +58,12 @@ func IsNotFound(err error) bool {
 	return errors.Is(err, ErrNotFound)
 }
 
+// IsConflict reports whether err (or any error in its chain) matches
+// the store-conflict sentinel.
+func IsConflict(err error) bool {
+	return errors.Is(err, ErrConflict)
+}
+
 // ---------------------------------------------------------------------------
 // Toolbridge runtime sentinels (was toolbridge_runtime_required.go)
 // ---------------------------------------------------------------------------

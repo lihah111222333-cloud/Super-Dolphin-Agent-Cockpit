@@ -10,8 +10,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/kelindar/event"
 
-	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 // Defaults match the P1b plan. Every one of them is overridable via the
@@ -219,7 +219,7 @@ func (c SchedulerConfig) withDefaults() SchedulerConfig {
 // tests can drive it directly via RunTick / RenewLeases.
 type Scheduler struct {
 	logger     *pkglogger.Logger
-	store      cronstore.Store
+	store      contract.CronStore
 	submitter  TurnSubmitter
 	cfg        SchedulerConfig
 	dispatcher *event.Dispatcher
@@ -233,7 +233,7 @@ type Scheduler struct {
 // defaults to NoopTurnSubmitter; a nil logger falls back to the package
 // default.
 // NewScheduler 创建 cron 调度器并注入存储和 turn 依赖。
-func NewScheduler(logger *pkglogger.Logger, store cronstore.Store, submitter TurnSubmitter, cfg SchedulerConfig) *Scheduler {
+func NewScheduler(logger *pkglogger.Logger, store contract.CronStore, submitter TurnSubmitter, cfg SchedulerConfig) *Scheduler {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -288,9 +288,9 @@ func (s *Scheduler) RunTick(ctx context.Context) error {
 	return firstErr
 }
 
-func (s *Scheduler) claimOneDueJob(ctx context.Context) ([]cronstore.Job, error) {
+func (s *Scheduler) claimOneDueJob(ctx context.Context) ([]contract.CronJob, error) {
 	now := s.now().UTC()
-	return s.store.ClaimDueJobsForUpdate(ctx, cronstore.ClaimDueJobsForUpdateParams{
+	return s.store.ClaimDueJobsForUpdate(ctx, contract.CronClaimDueJobsForUpdateParams{
 		Now:            now,
 		ClaimedBy:      s.cfg.ClaimedBy,
 		LeaseExpiresAt: now.Add(s.cfg.LeaseTTL),
@@ -306,7 +306,7 @@ func (s *Scheduler) claimOneDueJob(ctx context.Context) ([]cronstore.Job, error)
 //
 // 正常只走 pending -> submitting -> submitted -> running，后续靠终态事件结束。
 // StartTurn/Observe 失败各有固定落点，不要回退重提。
-func (s *Scheduler) driveJob(ctx context.Context, job cronstore.Job) error {
+func (s *Scheduler) driveJob(ctx context.Context, job contract.CronJob) error {
 	now := s.now().UTC()
 	scheduledAt := scheduledAtForJob(job, now)
 	run, dedupe, err := s.createPendingRun(ctx, job, scheduledAt, now)
@@ -326,7 +326,7 @@ func (s *Scheduler) driveJob(ctx context.Context, job cronstore.Job) error {
 	return s.observeStartedTurn(ctx, job, run, startResult)
 }
 
-func scheduledAtForJob(job cronstore.Job, now time.Time) time.Time {
+func scheduledAtForJob(job contract.CronJob, now time.Time) time.Time {
 	if !job.NextRetryAt.IsZero() {
 		return job.NextRetryAt
 	}
@@ -336,41 +336,41 @@ func scheduledAtForJob(job cronstore.Job, now time.Time) time.Time {
 	return now
 }
 
-func (s *Scheduler) createPendingRun(ctx context.Context, job cronstore.Job, scheduledAt, now time.Time) (cronstore.Run, string, error) {
+func (s *Scheduler) createPendingRun(ctx context.Context, job contract.CronJob, scheduledAt, now time.Time) (contract.CronRun, string, error) {
 	idempotencyKey := s.newID()
 	dedupe := DedupeKey(job.ID, scheduledAt, idempotencyKey)
 	// 每个 run 都生成自己的 idempotency_key；dedupe_key 也只属于这次提交。
 	// 别复用 job 级值，否则 retry/RunOnce 会互相影响。
-	run, err := s.store.InsertRun(ctx, cronstore.InsertRunParams{
+	run, err := s.store.InsertRun(ctx, contract.CronInsertRunParams{
 		ID:             s.newID(),
 		JobID:          job.ID,
 		ScheduledAt:    scheduledAt,
 		IdempotencyKey: idempotencyKey,
 		DedupeKey:      dedupe,
-		Status:         cronstore.StatusPending,
+		Status:         contract.CronStatusPending,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	})
 	if err == nil {
-		s.publishRunState(job.ID, run.ID, cronstore.StatusPending, "", "", scheduledAt)
+		s.publishRunState(job.ID, run.ID, contract.CronStatusPending, "", "", scheduledAt)
 	}
 	return run, dedupe, err
 }
 
 func (s *Scheduler) markRunSubmitting(ctx context.Context, jobID, runID string, scheduledAt time.Time) error {
-	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
+	if err := s.store.CASRunStatus(ctx, contract.CronCASRunStatusParams{
 		ID:             runID,
-		ExpectedStatus: cronstore.StatusPending,
-		NextStatus:     cronstore.StatusSubmitting,
+		ExpectedStatus: contract.CronStatusPending,
+		NextStatus:     contract.CronStatusSubmitting,
 		UpdatedAt:      s.now().UTC(),
 	}); err != nil {
 		return err
 	}
-	s.publishRunState(jobID, runID, cronstore.StatusSubmitting, "", "", scheduledAt)
+	s.publishRunState(jobID, runID, contract.CronStatusSubmitting, "", "", scheduledAt)
 	return nil
 }
 
-func buildStartTurnRequest(job cronstore.Job, runID, dedupe string, scheduledAt time.Time) StartTurnRequest {
+func buildStartTurnRequest(job contract.CronJob, runID, dedupe string, scheduledAt time.Time) StartTurnRequest {
 	return StartTurnRequest{
 		JobID:        job.ID,
 		RunID:        runID,
@@ -390,11 +390,11 @@ func buildStartTurnRequest(job cronstore.Job, runID, dedupe string, scheduledAt 
 }
 
 // persistSubmittedTurn 保存已提交 turn 和 cron run 的绑定关系。
-func (s *Scheduler) persistSubmittedTurn(ctx context.Context, job cronstore.Job, run cronstore.Run, result StartTurnResult) error {
+func (s *Scheduler) persistSubmittedTurn(ctx context.Context, job contract.CronJob, run contract.CronRun, result StartTurnResult) error {
 	updatedAt := s.now().UTC()
 	// 先保存 turn_id，再把 run 标成 submitted，最后更新 job.active_turn_id。
 	// 恢复逻辑依赖这个顺序找回已提交的 turn。
-	if err := s.store.SetRunTurn(ctx, cronstore.SetRunTurnParams{
+	if err := s.store.SetRunTurn(ctx, contract.CronSetRunTurnParams{
 		ID:          run.ID,
 		ThreadID:    result.ThreadID,
 		AgentID:     result.AgentID,
@@ -404,16 +404,16 @@ func (s *Scheduler) persistSubmittedTurn(ctx context.Context, job cronstore.Job,
 	}); err != nil {
 		return err
 	}
-	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
+	if err := s.store.CASRunStatus(ctx, contract.CronCASRunStatusParams{
 		ID:             run.ID,
-		ExpectedStatus: cronstore.StatusSubmitting,
-		NextStatus:     cronstore.StatusSubmitted,
+		ExpectedStatus: contract.CronStatusSubmitting,
+		NextStatus:     contract.CronStatusSubmitted,
 		UpdatedAt:      updatedAt,
 	}); err != nil {
 		return err
 	}
-	s.publishRunState(job.ID, run.ID, cronstore.StatusSubmitted, result.TurnID, "", run.ScheduledAt)
-	return s.store.SetActiveTurn(ctx, cronstore.SetActiveTurnParams{
+	s.publishRunState(job.ID, run.ID, contract.CronStatusSubmitted, result.TurnID, "", run.ScheduledAt)
+	return s.store.SetActiveTurn(ctx, contract.CronSetActiveTurnParams{
 		ID:           job.ID,
 		ClaimToken:   job.ClaimToken,
 		ActiveTurnID: result.TurnID,
@@ -423,40 +423,40 @@ func (s *Scheduler) persistSubmittedTurn(ctx context.Context, job cronstore.Job,
 	})
 }
 
-func (s *Scheduler) observeStartedTurn(ctx context.Context, job cronstore.Job, run cronstore.Run, result StartTurnResult) error {
+func (s *Scheduler) observeStartedTurn(ctx context.Context, job contract.CronJob, run contract.CronRun, result StartTurnResult) error {
 	if err := s.submitter.Observe(ctx, result.TurnID); err != nil {
 		// 到这里 turn 已被 provider 接收。Observe 失败时只能记为
 		// observe_lost，不能再启动一个新 turn。
 		return s.finalizeObserveLost(ctx, job, run, result, err)
 	}
-	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
+	if err := s.store.CASRunStatus(ctx, contract.CronCASRunStatusParams{
 		ID:             run.ID,
-		ExpectedStatus: cronstore.StatusSubmitted,
-		NextStatus:     cronstore.StatusRunning,
+		ExpectedStatus: contract.CronStatusSubmitted,
+		NextStatus:     contract.CronStatusRunning,
 		UpdatedAt:      s.now().UTC(),
 	}); err != nil {
 		return err
 	}
-	s.publishRunState(job.ID, run.ID, cronstore.StatusRunning, result.TurnID, "", run.ScheduledAt)
+	s.publishRunState(job.ID, run.ID, contract.CronStatusRunning, result.TurnID, "", run.ScheduledAt)
 	return nil
 }
 
-func (s *Scheduler) finalizeFailure(ctx context.Context, job cronstore.Job, run cronstore.Run, scheduledAt time.Time, startErr error) error {
+func (s *Scheduler) finalizeFailure(ctx context.Context, job contract.CronJob, run contract.CronRun, scheduledAt time.Time, startErr error) error {
 	now := s.now().UTC()
 	nextRetry := s.nextRetry(job, now)
 	// Record the failed run transition. A CAS error here is not fatal
 	// (the subsequent MarkFailed owns the job-level state transition)
 	// but we log it so DB hiccups during finalize are observable.
-	s.casLogPublish(ctx, cronstore.CASRunStatusParams{
-		ID: run.ID, ExpectedStatus: cronstore.StatusSubmitting, NextStatus: cronstore.StatusFailed,
+	s.casLogPublish(ctx, contract.CronCASRunStatusParams{
+		ID: run.ID, ExpectedStatus: contract.CronStatusSubmitting, NextStatus: contract.CronStatusFailed,
 		Error: startErr.Error(), UpdatedAt: now,
-	}, "submitting->failed", job.ID, run.ID, cronstore.StatusFailed, "", startErr.Error(), scheduledAt)
-	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{
+	}, "submitting->failed", job.ID, run.ID, contract.CronStatusFailed, "", startErr.Error(), scheduledAt)
+	return s.store.MarkFailed(ctx, contract.CronMarkFailedParams{
 		ID:          job.ID,
 		ClaimToken:  job.ClaimToken,
 		LastRunAt:   scheduledAt,
 		LastTurnID:  "",
-		LastStatus:  cronstore.StatusFailed,
+		LastStatus:  contract.CronStatusFailed,
 		LastErrorAt: now,
 		LastError:   startErr.Error(),
 		NextRetryAt: nextRetry,
@@ -464,19 +464,19 @@ func (s *Scheduler) finalizeFailure(ctx context.Context, job cronstore.Job, run 
 	})
 }
 
-func (s *Scheduler) finalizeObserveLost(ctx context.Context, job cronstore.Job, run cronstore.Run, result StartTurnResult, observeErr error) error {
+func (s *Scheduler) finalizeObserveLost(ctx context.Context, job contract.CronJob, run contract.CronRun, result StartTurnResult, observeErr error) error {
 	now := s.now().UTC()
 	// observe_lost 需要人工看，不能自动 retry。无法跟踪旧 turn 时重试会制造重复任务。
-	s.casLogPublish(ctx, cronstore.CASRunStatusParams{
-		ID: run.ID, ExpectedStatus: cronstore.StatusSubmitted, NextStatus: cronstore.StatusObserveLost,
+	s.casLogPublish(ctx, contract.CronCASRunStatusParams{
+		ID: run.ID, ExpectedStatus: contract.CronStatusSubmitted, NextStatus: contract.CronStatusObserveLost,
 		Error: observeErr.Error(), UpdatedAt: now,
-	}, "submitted->observe_lost", job.ID, run.ID, cronstore.StatusObserveLost, result.TurnID, observeErr.Error(), run.ScheduledAt)
-	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{
+	}, "submitted->observe_lost", job.ID, run.ID, contract.CronStatusObserveLost, result.TurnID, observeErr.Error(), run.ScheduledAt)
+	return s.store.MarkFailed(ctx, contract.CronMarkFailedParams{
 		ID:          job.ID,
 		ClaimToken:  job.ClaimToken,
 		LastRunAt:   now,
 		LastTurnID:  result.TurnID,
-		LastStatus:  cronstore.StatusObserveLost,
+		LastStatus:  contract.CronStatusObserveLost,
 		LastErrorAt: now,
 		LastError:   observeErr.Error(),
 		NextRetryAt: time.Time{}, // observe_lost does not retry automatically

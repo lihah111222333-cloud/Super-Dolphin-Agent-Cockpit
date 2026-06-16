@@ -29,7 +29,7 @@ Make mutation and lifecycle tools accept the same `pos` selector style added to 
    - handlers accept `pos`,
    - conflicts reject with `pos_conflict`.
 7. Run:
-   - `go test ./cmd/mcp-orch/tools -count=1`
+   - `go test ./internal/sidecar/orch/tools -count=1`
    - `go test ./cmd/mcp-orch/... -count=1` for residual awareness.
 
 ## Constraints

@@ -8,7 +8,7 @@ Agent 自动将成功经验（trajectory）提炼为可复用 Skill，并以 sco
 
 - 当前仓库已经具备 Skill 写入基础能力：`skills/local/write`、`skills/local/importDir`、`WriteSkillContent`、`WriteSummary`，以及 `SkillsChanged` 事件广播。
 - `skills/local/write` 是 `cwd` + scope 感知的；但 `WriteSkillContent` / `WriteSummary` 当前直接写全局 `s.root`，不适合承接 project-scope 自学习沉淀。
-- 当前 `skill/rpc.go` 注册的是宿主 / UI JSON-RPC，不是 agent 直接可见的 MCP / dynamic tool；若未来希望模型运行中主动创建 skill，应另起 `cmd/mcp-orch/tools` 方案，不在 P21 默认范围。
+- 当前 `skill/rpc.go` 注册的是宿主 / UI JSON-RPC，不是 agent 直接可见的 MCP / dynamic tool；若未来希望模型运行中主动创建 skill，应另起 `internal/sidecar/orch/tools` 方案，不在 P21 默认范围。
 - `internal/module/turn/tracker.go` 目前只维护 turn 的本地状态与句柄，不记录完整 `tool_calls/results` 轨迹；不应把它扩成事实流水仓库。
 - 自动提炼更适合复用现有 bus 订阅模式，但 callback 只能做 state merge / enqueue；LLM 提炼、落盘与重试都必须交给 runner worker。
 - signed skill 验签**延后到 P22**；P21 只先定义写入路径、observation 契约和自动提炼闭环。

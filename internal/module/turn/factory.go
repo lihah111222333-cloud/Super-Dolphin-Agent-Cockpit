@@ -8,9 +8,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 type prepareInputSpec struct {
@@ -88,7 +86,7 @@ func buildPrepareInput(spec prepareInputSpec, skills prepareSkillSpec, session p
 		OutputStyleConfig:            cloneOutputStyleConfigValue(spec.OutputStyleConfig),
 		ScratchpadDir:                strings.TrimSpace(spec.ScratchpadDir),
 		FRCConfig:                    configFRCConfig(map[string]any{"frc": spec.FRCConfig}, "frc"),
-		ThreadRuntimeConfig:          clone.RuntimeConfigMap(spec.ThreadRuntimeConfig),
+		ThreadRuntimeConfig:          kernel.CloneRuntimeConfigMap(spec.ThreadRuntimeConfig),
 		ThreadCaps:                   caps,
 		BinaryDir:                    spec.BinaryDir,
 	}
@@ -110,20 +108,20 @@ func mergePrepareInputRuntime(input PrepareInput, cfg map[string]any) PrepareInp
 	if len(cfg) == 0 {
 		return input
 	}
-	input.Provider = util.FirstNonEmpty(strings.TrimSpace(input.Provider), configutil.ConfigString(cfg, contract.RuntimeConfigProvider.Keys()...))
-	input.PromptKey = util.FirstNonEmpty(strings.TrimSpace(input.PromptKey), configutil.ConfigString(cfg, contract.RuntimeConfigPromptKey.Keys()...))
-	input.CWD = util.FirstNonEmpty(strings.TrimSpace(input.CWD), configutil.ConfigString(cfg, contract.RuntimeConfigCWD.Keys()...))
-	input.Model = util.FirstNonEmpty(strings.TrimSpace(input.Model), configutil.ConfigString(cfg, contract.RuntimeConfigModel.Keys()...))
-	input.GitRoot = util.FirstNonEmpty(strings.TrimSpace(input.GitRoot), configutil.ConfigString(cfg, contract.RuntimeConfigGitRoot.Keys()...))
+	input.Provider = kernel.FirstNonEmpty(strings.TrimSpace(input.Provider), kernel.ConfigString(cfg, contract.RuntimeConfigProvider.Keys()...))
+	input.PromptKey = kernel.FirstNonEmpty(strings.TrimSpace(input.PromptKey), kernel.ConfigString(cfg, contract.RuntimeConfigPromptKey.Keys()...))
+	input.CWD = kernel.FirstNonEmpty(strings.TrimSpace(input.CWD), kernel.ConfigString(cfg, contract.RuntimeConfigCWD.Keys()...))
+	input.Model = kernel.FirstNonEmpty(strings.TrimSpace(input.Model), kernel.ConfigString(cfg, contract.RuntimeConfigModel.Keys()...))
+	input.GitRoot = kernel.FirstNonEmpty(strings.TrimSpace(input.GitRoot), kernel.ConfigString(cfg, contract.RuntimeConfigGitRoot.Keys()...))
 	input.IsWorktree = input.IsWorktree || configBool(cfg, contract.RuntimeConfigIsWorktree.Keys()...)
-	input.Language = util.FirstNonEmpty(strings.TrimSpace(input.Language), configutil.ConfigString(cfg, contract.RuntimeConfigLanguage.Keys()...))
-	input.EnabledTools = firstNonEmptyStrings(input.EnabledTools, configutil.ConfigStringSlice(cfg, contract.RuntimeConfigEnabledTools.Keys()...))
-	input.AdditionalWorkingDirectories = firstNonEmptyStrings(input.AdditionalWorkingDirectories, configutil.ConfigStringSlice(cfg, contract.RuntimeConfigAdditionalWorkingDirectories.Keys()...))
+	input.Language = kernel.FirstNonEmpty(strings.TrimSpace(input.Language), kernel.ConfigString(cfg, contract.RuntimeConfigLanguage.Keys()...))
+	input.EnabledTools = firstNonEmptyStrings(input.EnabledTools, kernel.ConfigStringSlice(cfg, contract.RuntimeConfigEnabledTools.Keys()...))
+	input.AdditionalWorkingDirectories = firstNonEmptyStrings(input.AdditionalWorkingDirectories, kernel.ConfigStringSlice(cfg, contract.RuntimeConfigAdditionalWorkingDirectories.Keys()...))
 	input.MCPSnapshot = mergeMCPSnapshot(input.MCPSnapshot, configMCPSnapshot(cfg))
 	input.SessionFlags = firstNonEmptyFlags(input.SessionFlags, configBoolMap(cfg, contract.RuntimeConfigSessionFlags.Keys()...))
-	input.Summary = util.FirstNonEmpty(strings.TrimSpace(input.Summary), configutil.ConfigString(cfg, contract.RuntimeConfigSummary.Keys()...))
+	input.Summary = kernel.FirstNonEmpty(strings.TrimSpace(input.Summary), kernel.ConfigString(cfg, contract.RuntimeConfigSummary.Keys()...))
 	input.OutputStyleConfig = firstNonNilOutputStyle(input.OutputStyleConfig, configOutputStyle(cfg, contract.RuntimeConfigOutputStyleConfig.Keys()...))
-	input.ScratchpadDir = util.FirstNonEmpty(strings.TrimSpace(input.ScratchpadDir), configScratchpadDir(cfg, contract.RuntimeConfigScratchpadDir.Keys()...))
+	input.ScratchpadDir = kernel.FirstNonEmpty(strings.TrimSpace(input.ScratchpadDir), configScratchpadDir(cfg, contract.RuntimeConfigScratchpadDir.Keys()...))
 	if input.FRCConfig == nil {
 		input.FRCConfig = configFRCConfig(cfg, contract.RuntimeConfigFRCConfig.Keys()...)
 	}
@@ -201,8 +199,8 @@ func normalizePrepareBoolMap(value any) map[string]bool {
 
 func configMCPSnapshot(cfg map[string]any) contract.MCPSnapshot {
 	return contract.MCPSnapshot{
-		Servers:                  configutil.ConfigStringSlice(cfg, contract.RuntimeConfigMCPServers.Keys()...),
-		Tools:                    configutil.ConfigStringSlice(cfg, contract.RuntimeConfigMCPTools.Keys()...),
+		Servers:                  kernel.ConfigStringSlice(cfg, contract.RuntimeConfigMCPServers.Keys()...),
+		Tools:                    kernel.ConfigStringSlice(cfg, contract.RuntimeConfigMCPTools.Keys()...),
 		Instructions:             configStringMap(cfg, contract.RuntimeConfigMCPInstructions.Keys()...),
 		InstructionsDeltaEnabled: configBool(cfg, contract.RuntimeConfigMCPInstructionsDeltaEnabled.Keys()...),
 	}
@@ -214,7 +212,7 @@ func configStringMap(cfg map[string]any, keys ...string) map[string]string {
 		if !ok {
 			continue
 		}
-		if out := configutil.StringMap(value); len(out) > 0 {
+		if out := kernel.ConfigStringMap(value); len(out) > 0 {
 			return out
 		}
 	}
@@ -222,10 +220,10 @@ func configStringMap(cfg map[string]any, keys ...string) map[string]string {
 }
 
 func firstNonEmptyStrings(primary, fallback []string) []string {
-	if out := configutil.NormalizeConfigStringSlice(primary); len(out) > 0 {
+	if out := kernel.NormalizeConfigStringSlice(primary); len(out) > 0 {
 		return out
 	}
-	if out := configutil.NormalizeConfigStringSlice(fallback); len(out) > 0 {
+	if out := kernel.NormalizeConfigStringSlice(fallback); len(out) > 0 {
 		return out
 	}
 	return nil
@@ -308,7 +306,7 @@ func mergeMCPSnapshot(base, extra contract.MCPSnapshot) contract.MCPSnapshot {
 	serverConfigs := mergeTurnMCPServerConfigMaps(base.ServerConfigs, extra.ServerConfigs)
 	return contract.MCPSnapshot{
 		Servers:                  uniqueTurnMCPServerNames(base.Servers, extra.Servers, turnMCPServerConfigNames(serverConfigs)),
-		Tools:                    configutil.NormalizeConfigStringSlice(append(append([]string(nil), base.Tools...), extra.Tools...)),
+		Tools:                    kernel.NormalizeConfigStringSlice(append(append([]string(nil), base.Tools...), extra.Tools...)),
 		Instructions:             mergeMCPInstructions(base.Instructions, extra.Instructions),
 		ServerConfigs:            serverConfigs,
 		InstructionsDeltaEnabled: base.InstructionsDeltaEnabled || extra.InstructionsDeltaEnabled,
@@ -351,7 +349,7 @@ func readThreadRuntimeConfig(ctx context.Context, reader ThreadStateConfigReader
 	if err != nil {
 		return nil, err
 	}
-	return clone.RuntimeConfigMap(cfg), nil
+	return kernel.CloneRuntimeConfigMap(cfg), nil
 }
 
 // requireTurnContext 处理requireturn上下文。
@@ -360,7 +358,7 @@ func requireTurnContext(
 	session contract.Session,
 	requestedThreadID ...string,
 ) (context.Context, string, error) {
-	ctx = util.NonNilContext(ctx)
+	ctx = kernel.NonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return ctx, "", err
 	}

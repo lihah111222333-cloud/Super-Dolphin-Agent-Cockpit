@@ -10,13 +10,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	turnobservation "github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
-	turndedupe "github.com/anthropic-ai/super-agent-v3/internal/store/turndedupe"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // skillHydrationPort is the turn service's minimal dependency for resolving
@@ -42,7 +38,7 @@ type service struct {
 	// nil when the deployment has not wired the turndedupe store; the tracker
 	// alone handles same-process dedupe in that case. When set, StartTurn
 	// upserts a registry row and Complete/Stall stamps terminal_at.
-	dedupeStore turndedupe.Store
+	dedupeStore contract.TurnDedupeStore
 
 	// ctx/cancel bound to the service lifetime. Shutdown cancels ctx so
 	// background goroutines (watchTurn) can exit instead of waiting out
@@ -74,7 +70,7 @@ func NewServiceWithPromptAssemblyAndTurnContext(
 	turnContextProvider contract.TurnContextProvider,
 	skillSvc contract.SkillHydrationSource,
 	observation turnobservation.Contract,
-	dedupeStore turndedupe.Store,
+	dedupeStore contract.TurnDedupeStore,
 	manifestBuild contract.ManifestBuildFunc,
 	mcpServers contract.MCPServerConfigProvider,
 	tracing *platformobs.Service,
@@ -97,7 +93,7 @@ func newService(
 	turnContextProvider contract.TurnContextProvider,
 	skillLookup skillHydrationPort,
 	observation turnobservation.Contract,
-	dedupeStore turndedupe.Store,
+	dedupeStore contract.TurnDedupeStore,
 	manifestBuild contract.ManifestBuildFunc,
 	tracingOpt ...*platformobs.Service,
 ) Service {
@@ -123,7 +119,7 @@ func newService(
 		observation:            observation,
 		tracing:                tracing,
 		dedupeStore:            dedupeStore,
-		interruptSettleTimeout: ctxutil.InterruptSettleTimeout,
+		interruptSettleTimeout: kernel.InterruptSettleTimeout,
 		ctx:                    ctx,
 		ctxCancel:              cancel,
 	}
@@ -162,7 +158,7 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	}
 	userText := s.assembler.PromptText(input)
 	s.cleanupStaleToolResults(threadID, input)
-	localID := idgen.NewID("turn")
+	localID := kernel.NewID("turn")
 	span.turnID = localID
 	mcp := s.manifest.Build(input, threadID)
 	span.metadata = turnPrepareTraceMetadata(input, mcp)
@@ -310,7 +306,7 @@ func (s *service) ForceCompleteTurn(ctx context.Context, session contract.Sessio
 
 // TrackTurn 跟踪turn。
 func (s *service) TrackTurn(ctx context.Context, localID string) (TurnStatus, error) {
-	ctx = util.NonNilContext(ctx)
+	ctx = kernel.NonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return TurnStatus{}, err
 	}
@@ -328,7 +324,7 @@ func (s *service) TrackTurn(ctx context.Context, localID string) (TurnStatus, er
 // StartTurn via the normal pending→submitting path.
 // LookupByDedupeKey 按去重键处理lookup。
 func (s *service) LookupByDedupeKey(ctx context.Context, dedupeKey string) (TurnStatus, bool, error) {
-	ctx = util.NonNilContext(ctx)
+	ctx = kernel.NonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return TurnStatus{}, false, err
 	}
@@ -348,7 +344,7 @@ func (s *service) LookupByDedupeKey(ctx context.Context, dedupeKey string) (Turn
 	}
 	entry, err := s.dedupeStore.GetLive(ctx, key)
 	if err != nil {
-		if errors.Is(err, turndedupe.ErrNotFound) {
+		if errors.Is(err, contract.ErrTurnDedupeNotFound) {
 			return TurnStatus{}, false, nil
 		}
 		return TurnStatus{}, false, err
@@ -387,7 +383,7 @@ func (s *service) recordDedupeUpsert(ctx context.Context, dedupeKey, localID, th
 	if key == "" {
 		return nil
 	}
-	return s.dedupeStore.Upsert(ctx, turndedupe.UpsertParams{
+	return s.dedupeStore.Upsert(ctx, contract.TurnDedupeUpsertParams{
 		DedupeKey:   key,
 		LocalTurnID: strings.TrimSpace(localID),
 		ThreadID:    strings.TrimSpace(threadID),
@@ -407,7 +403,7 @@ func (s *service) recordDedupeProviderID(ctx context.Context, dedupeKey, provide
 	if key == "" || pid == "" {
 		return nil
 	}
-	return s.dedupeStore.BindProviderTurnID(ctx, turndedupe.BindProviderTurnIDParams{
+	return s.dedupeStore.BindProviderTurnID(ctx, contract.TurnDedupeBindProviderTurnIDParams{
 		DedupeKey:      key,
 		ProviderTurnID: pid,
 		Now:            time.Now(),
@@ -461,7 +457,7 @@ func (s *service) watchTurn(parentCtx context.Context, handle contract.TurnHandl
 	if svcCtx == nil {
 		svcCtx = context.Background()
 	}
-	safego.Go(svcCtx, s.logger, "turn.watchTurn", func(ctx context.Context) {
+	kernel.SafeGoContext(svcCtx, s.logger, "turn.watchTurn", func(ctx context.Context) {
 		timer := time.NewTimer(trackerTTL)
 		defer timer.Stop()
 		select {
@@ -497,7 +493,7 @@ func (s *service) watchTurn(parentCtx context.Context, handle contract.TurnHandl
 
 func (s *service) waitForTurnSettle(ctx context.Context, localID string, handle contract.TurnHandle) error {
 	deadline := time.Now().Add(s.interruptSettleTimeout)
-	ctx = util.NonNilContext(ctx)
+	ctx = kernel.NonNilContext(ctx)
 	if err := waitForHandle(ctx, handle, deadline); err != nil && handle != nil {
 		return err
 	}
@@ -571,17 +567,17 @@ type turnTraceSpan struct {
 }
 
 func (s *service) beginTurnTraceSpan(ctx context.Context, kind, threadID, agentID, turnID string, code platformobs.CodeAnchor, metadata map[string]any) turnTraceSpan {
-	ctx = util.NonNilContext(ctx)
+	ctx = kernel.NonNilContext(ctx)
 	trace, ok := platformobs.TraceFromContext(ctx)
 	parentSpanID := ""
 	if ok {
 		parentSpanID = trace.SpanID
 	}
 	if trace.TraceID == "" {
-		trace.TraceID = idgen.NewID("trace")
+		trace.TraceID = kernel.NewID("trace")
 	}
 	trace.ParentSpanID = parentSpanID
-	trace.SpanID = idgen.NewID("span")
+	trace.SpanID = kernel.NewID("span")
 	span := turnTraceSpan{ctx: platformobs.ContextWithTrace(ctx, trace), trace: trace, kind: kind, threadID: strings.TrimSpace(threadID), agentID: strings.TrimSpace(agentID), turnID: strings.TrimSpace(turnID), code: code, metadata: metadata, startedAt: time.Now()}
 	s.recordTurnTraceEvent(span, "begin", platformobs.StatusOK, 0, "")
 	return span

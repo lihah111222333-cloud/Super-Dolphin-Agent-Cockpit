@@ -10,8 +10,8 @@ import (
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 )
 
 // Host RPC parameter types. These are the on-the-wire shapes; service-level
@@ -263,10 +263,10 @@ func mapRPCError(err error) error {
 		errors.Is(err, ErrInvalidConfig),
 		errors.Is(err, ErrProviderNotSupported),
 		errors.Is(err, ErrJobDisabled),
-		errors.Is(err, cronstore.ErrEmptyID),
-		errors.Is(err, cronstore.ErrEmptyCWD),
-		errors.Is(err, cronstore.ErrEmptyProvider),
-		errors.Is(err, cronstore.ErrEmptyScheduleExpr):
+		errors.Is(err, contract.ErrCronEmptyID),
+		errors.Is(err, contract.ErrCronEmptyCWD),
+		errors.Is(err, contract.ErrCronEmptyProvider),
+		errors.Is(err, contract.ErrCronEmptyScheduleExpr):
 		return platformrpc.ErrInvalidParams(err.Error())
 	}
 	return err

@@ -11,7 +11,7 @@
 Command:
 
 ```bash
-go test ./cmd/mcp-lsp/manager ./cmd/mcp-lsp/multilsp ./cmd/mcp-lsp ./cmd/mcp-lsp/tools ./internal/platform/config -run "TestDetectLanguageIDShellExtensionsUseShellscript|TestLanguageAdapterRegistryFromConfigRegistersShellAdapter|TestRuntimePrimaryLanguageIDsIncludeShellscript|TestSetupInstallerRegistersShellLanguageServer|TestDiagnosticsShellScriptBootstrapsShellscriptLanguage|TestNew_DefaultsLSPConfig" -count=1
+go test ./internal/sidecar/lsp/manager ./internal/sidecar/lsp/multilsp ./cmd/mcp-lsp ./internal/sidecar/lsp/tools ./internal/platform/config -run "TestDetectLanguageIDShellExtensionsUseShellscript|TestLanguageAdapterRegistryFromConfigRegistersShellAdapter|TestRuntimePrimaryLanguageIDsIncludeShellscript|TestSetupInstallerRegistersShellLanguageServer|TestDiagnosticsShellScriptBootstrapsShellscriptLanguage|TestNew_DefaultsLSPConfig" -count=1
 ```
 
 Exit code: 1
@@ -32,17 +32,17 @@ Failure reason is the expected missing shell runtime-chain support, not a test c
 Command:
 
 ```bash
-go test ./cmd/mcp-lsp/manager ./cmd/mcp-lsp/multilsp ./cmd/mcp-lsp ./cmd/mcp-lsp/tools ./internal/platform/config -run "TestDetectLanguageIDShellExtensionsUseShellscript|TestLanguageAdapterRegistryFromConfigRegistersShellAdapter|TestRuntimePrimaryLanguageIDsIncludeShellscript|TestSetupInstallerRegistersShellLanguageServer|TestDiagnosticsShellScriptBootstrapsShellscriptLanguage|TestNew_DefaultsLSPConfig" -count=1
+go test ./internal/sidecar/lsp/manager ./internal/sidecar/lsp/multilsp ./cmd/mcp-lsp ./internal/sidecar/lsp/tools ./internal/platform/config -run "TestDetectLanguageIDShellExtensionsUseShellscript|TestLanguageAdapterRegistryFromConfigRegistersShellAdapter|TestRuntimePrimaryLanguageIDsIncludeShellscript|TestSetupInstallerRegistersShellLanguageServer|TestDiagnosticsShellScriptBootstrapsShellscriptLanguage|TestNew_DefaultsLSPConfig" -count=1
 ```
 
 Exit code: 0
 
 Passing packages:
 
-- `github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager`
-- `github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp`
+- `github.com/anthropic-ai/super-agent-v3/internal/sidecar/lsp/manager`
+- `github.com/anthropic-ai/super-agent-v3/internal/sidecar/lsp/multilsp`
 - `github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp`
-- `github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/tools`
+- `github.com/anthropic-ai/super-agent-v3/internal/sidecar/lsp/tools`
 - `github.com/anthropic-ai/super-agent-v3/internal/platform/config`
 
 ## Final verification
@@ -50,7 +50,7 @@ Passing packages:
 Commands:
 
 ```bash
-gofmt -w cmd/mcp-lsp/manager/language_id_test.go cmd/mcp-lsp/manager/registry.go cmd/mcp-lsp/multilsp/language_service_config.go cmd/mcp-lsp/multilsp/language_service_config_test.go cmd/mcp-lsp/runtime.go cmd/mcp-lsp/runtime_test.go cmd/mcp-lsp/tools/tool_diagnostics_test.go internal/contract/config.go internal/platform/config/lsp.go internal/platform/config/config_test.go
+gofmt -w internal/sidecar/lsp/manager/language_id_test.go internal/sidecar/lsp/manager/registry.go internal/sidecar/lsp/multilsp/language_service_config.go internal/sidecar/lsp/multilsp/language_service_config_test.go cmd/mcp-lsp/runtime.go cmd/mcp-lsp/runtime_test.go internal/sidecar/lsp/tools/tool_diagnostics_test.go internal/contract/config.go internal/platform/config/lsp.go internal/platform/config/config_test.go
 ```
 
 Exit code: 0
@@ -61,7 +61,7 @@ Exit code: 0
 
 First attempt exit code: 1. Guard caught a new test complexity violation:
 
-- `cmd/mcp-lsp/multilsp/language_service_config_test.go:43 TestLanguageAdapterRegistryFromConfigRegistersShellAdapter(): CC 11 > 上限 10`
+- `internal/sidecar/lsp/multilsp/language_service_config_test.go:43 TestLanguageAdapterRegistryFromConfigRegistersShellAdapter(): CC 11 > 上限 10`
 
 Fix: split shell adapter assertions into small test helpers; did not freeze or weaken guard thresholds.
 
@@ -69,10 +69,10 @@ Rerun exit code: 0. Passing packages included:
 
 - `github.com/anthropic-ai/super-agent-v3/internal/archtest`
 - `github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp`
-- `github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer`
-- `github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager`
-- `github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp`
-- `github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/tools`
+- `github.com/anthropic-ai/super-agent-v3/internal/sidecar/lsp/installer`
+- `github.com/anthropic-ai/super-agent-v3/internal/sidecar/lsp/manager`
+- `github.com/anthropic-ai/super-agent-v3/internal/sidecar/lsp/multilsp`
+- `github.com/anthropic-ai/super-agent-v3/internal/sidecar/lsp/tools`
 - `github.com/anthropic-ai/super-agent-v3/internal/platform/config`
 
 Linker emitted macOS version warnings while archtest built, but the command exited 0 on rerun.
@@ -90,13 +90,13 @@ git status --short
 Output:
 
 ```text
- M cmd/mcp-lsp/manager/language_id_test.go
- M cmd/mcp-lsp/manager/registry.go
- M cmd/mcp-lsp/multilsp/language_service_config.go
- M cmd/mcp-lsp/multilsp/language_service_config_test.go
+ M internal/sidecar/lsp/manager/language_id_test.go
+ M internal/sidecar/lsp/manager/registry.go
+ M internal/sidecar/lsp/multilsp/language_service_config.go
+ M internal/sidecar/lsp/multilsp/language_service_config_test.go
  M cmd/mcp-lsp/runtime.go
  M cmd/mcp-lsp/runtime_test.go
- M cmd/mcp-lsp/tools/tool_diagnostics_test.go
+ M internal/sidecar/lsp/tools/tool_diagnostics_test.go
  M internal/contract/config.go
  M internal/platform/config/config_test.go
  M internal/platform/config/lsp.go

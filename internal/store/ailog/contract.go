@@ -1,49 +1,15 @@
 package ailog
 
-import (
-	"context"
-	"encoding/json"
-	"time"
-)
+import "github.com/anthropic-ai/super-agent-v3/internal/contract"
 
-type Store interface {
-	List(ctx context.Context, filter ListFilter) ([]AILog, error)
-	ListByCategory(ctx context.Context, category string, keyword string, limit int32) ([]AILog, error)
-	CountByStatus(ctx context.Context) ([]StatusCount, error)
-	ListRecent(ctx context.Context, limit int32) ([]AILog, error)
-}
+// Store reads normalized AI/runtime logs for dashboards.
+type Store = contract.AILogStore
 
-type ListFilter struct {
-	Keyword string
-	Limit   int32
-}
+// ListFilter constrains AI log list queries.
+type ListFilter = contract.AILogListFilter
 
-type AILog struct {
-	ID         int64
-	Ts         time.Time
-	Level      string
-	Logger     string
-	Message    string
-	Raw        string
-	Source     string
-	Component  string
-	AgentID    string
-	ThreadID   string
-	TraceID    string
-	EventType  string
-	ToolName   string
-	DurationMs *int32
-	Extra      json.RawMessage
-	Category   string
-	Method     string
-	URL        string
-	Endpoint   string
-	Status     string
-	StatusText string
-	Model      string
-}
+// AILog is a normalized log row used by operational dashboards.
+type AILog = contract.AILog
 
-type StatusCount struct {
-	Status string
-	Count  int64
-}
+// StatusCount summarizes AI logs by status.
+type StatusCount = contract.AILogStatusCount

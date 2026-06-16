@@ -12,7 +12,7 @@
 2. 事件时间语义“统一”只覆盖了 provider translator，没有覆盖内部事件生产者，因此 turn / approval 事件在系统内仍不是同一套时间来源。
    证据：
    provider translator 已改为 helper：`internal/provider/claudecli/event_map.go:105-142`、`internal/provider/codexapp/event_map.go:153-308`。
-   但内部事件发布仍直接写 `time.Now()`：`cmd/mcp-orch/orchestration/events.go:73-81`、`internal/module/workspace/service_helpers.go:286-294`、`internal/platform/rpc/approval_events.go:102-115`。
+   但内部事件发布仍直接写 `time.Now()`：`internal/sidecar/orch/orchestration/events.go:73-81`、`internal/module/workspace/service_helpers.go:286-294`、`internal/platform/rpc/approval_events.go:102-115`。
    结论：所谓“统一时间语义”目前只在 provider -> typed event 这一层成立；对 turn 发布链路整体并不成立。
 
 3. 即便在 provider translator 内部，时间语义也没有真正统一，helper 接受的字段集合和回退策略仍然不一致。

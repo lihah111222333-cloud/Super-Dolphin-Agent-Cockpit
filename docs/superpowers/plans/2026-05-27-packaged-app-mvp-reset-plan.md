@@ -107,7 +107,7 @@ Observed direction is partially correct:
   - New script to verify a staged app bundle before VM testing.
   - Checks resource files, dylib references, executable bits, migrations, peer binaries, and PostgreSQL share files.
 
-- `docs/packaging/embedded-postgres.md`
+- `docs/运维发布/打包发布/embedded-postgres.md`
   - Documents the single supported MVP path, owner process, app data dirs, and VM acceptance test.
 
 ### Files to avoid broad rewrites
@@ -751,7 +751,7 @@ git commit -m "fix: fail fast when packaged desktop preflight fails"
 **Files:**
 - Modify: `scripts/package_macos.sh`
 - Create: `scripts/verify_packaged_app_macos.sh`
-- Modify: `docs/packaging/embedded-postgres.md`
+- Modify: `docs/运维发布/打包发布/embedded-postgres.md`
 
 - [ ] **Step 1: Add bundle verification script**
 
@@ -863,7 +863,7 @@ Expected: package script reaches `packaged app verification passed` or fails wit
 - [ ] **Step 6: Commit**
 
 ```bash
-git add scripts/package_macos.sh scripts/verify_packaged_app_macos.sh docs/packaging/embedded-postgres.md
+git add scripts/package_macos.sh scripts/verify_packaged_app_macos.sh docs/运维发布/打包发布/embedded-postgres.md
 git commit -m "fix: verify macos package from staged runtime files"
 ```
 
@@ -872,12 +872,12 @@ git commit -m "fix: verify macos package from staged runtime files"
 ## Task 7: Add clean-VM acceptance checklist
 
 **Files:**
-- Modify: `docs/packaging/embedded-postgres.md`
-- Create: `docs/packaging/macos-clean-vm-checklist.md`
+- Modify: `docs/运维发布/打包发布/embedded-postgres.md`
+- Create: `docs/运维发布/打包发布/macos-clean-vm-checklist.md`
 
 - [ ] **Step 1: Create the checklist document**
 
-Create `docs/packaging/macos-clean-vm-checklist.md`:
+Create `docs/运维发布/打包发布/macos-clean-vm-checklist.md`:
 
 ```markdown
 # macOS Clean VM Packaged App Checklist
@@ -939,20 +939,20 @@ Also copy the app's PostgreSQL log from:
 
 - [ ] **Step 2: Link the checklist from embedded Postgres docs**
 
-Add to `docs/packaging/embedded-postgres.md`:
+Add to `docs/运维发布/打包发布/embedded-postgres.md`:
 
 ```markdown
 ## Clean VM acceptance
 
 Before calling the package ready, run the checklist in:
 
-- `docs/packaging/macos-clean-vm-checklist.md`
+- `docs/运维发布/打包发布/macos-clean-vm-checklist.md`
 ```
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add docs/packaging/embedded-postgres.md docs/packaging/macos-clean-vm-checklist.md
+git add docs/运维发布/打包发布/embedded-postgres.md docs/运维发布/打包发布/macos-clean-vm-checklist.md
 git commit -m "docs: add clean vm packaged app checklist"
 ```
 
@@ -1028,7 +1028,7 @@ packaged app verification passed: dist/package/macos/Super Dolphin.app
 
 - [ ] **Step 6: Run clean VM checklist**
 
-Follow `docs/packaging/macos-clean-vm-checklist.md`.
+Follow `docs/运维发布/打包发布/macos-clean-vm-checklist.md`.
 
 Expected: one Codex conversation succeeds on a clean VM.
 
@@ -1087,7 +1087,7 @@ Review and copy manually instead of blind cherry-picking:
 - `internal/platform/embeddedpg/runtime.go`
 - `scripts/package_macos.sh`
 - `scripts/build_relocatable_postgres_macos.sh`
-- `docs/packaging/embedded-postgres.md`
+- `docs/运维发布/打包发布/embedded-postgres.md`
 
 Do not blindly copy:
 

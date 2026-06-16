@@ -12,7 +12,7 @@ import (
 	"github.com/kelindar/event"
 
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 // defaultQueueCapacity is the bounded queue size between the subscriber

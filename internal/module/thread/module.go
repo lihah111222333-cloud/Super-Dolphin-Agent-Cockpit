@@ -3,12 +3,12 @@ package thread
 import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/threadprompt"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	"go.uber.org/fx"
 )
 
 var _ contract.PendingLaunchSpawner = (Service)(nil)
 
+// Module wires thread services, subscribers, prompt providers, and RPC handlers.
 var Module = fx.Module("thread",
 	fx.Provide(
 		fx.Annotate(
@@ -40,9 +40,9 @@ func provideCronThreadStarter(svc Service) contract.CronThreadStarter {
 type threadPromptProviderParams struct {
 	fx.In
 	Registrar     contract.DynamicSectionRegistrar `optional:"true"`
-	PromptStore   promptstore.Store                `optional:"true"`
+	PromptStore   contract.PromptStore             `optional:"true"`
 	Builtin       contract.BuiltinPromptRegistry   `optional:"true"`
-	PromptCatalog promptstore.RuntimePromptCatalog `optional:"true"`
+	PromptCatalog contract.RuntimePromptCatalog    `optional:"true"`
 }
 
 func registerThreadPromptProviders(params threadPromptProviderParams) error {
@@ -55,10 +55,10 @@ func registerThreadPromptProviders(params threadPromptProviderParams) error {
 
 type runtimePromptCatalogParams struct {
 	fx.In
-	PromptStore promptstore.Store              `optional:"true"`
+	PromptStore contract.PromptStore           `optional:"true"`
 	Builtin     contract.BuiltinPromptRegistry `optional:"true"`
 }
 
-func provideRuntimePromptCatalog(params runtimePromptCatalogParams) promptstore.RuntimePromptCatalog {
+func provideRuntimePromptCatalog(params runtimePromptCatalogParams) contract.RuntimePromptCatalog {
 	return threadprompt.NewRuntimeCatalog(params.PromptStore, params.Builtin)
 }

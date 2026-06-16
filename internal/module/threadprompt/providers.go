@@ -9,8 +9,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 // RegisterProviders 注册providers。
@@ -34,6 +33,7 @@ func RegisterProviders(registrar contract.DynamicSectionRegistrar, catalog Runti
 	return nil
 }
 
+// AvailableExpertsProvider renders launchable expert prompt suggestions.
 type AvailableExpertsProvider struct{ catalog RuntimePromptCatalog }
 
 // SectionName 处理section名称。
@@ -116,7 +116,7 @@ func availableExpertsPromptKey(input contract.SectionContext) string {
 }
 
 // availableExpertsFromTemplates 从templates处理availableexperts。
-func availableExpertsFromTemplates(templates []promptstore.PromptTemplate, currentPromptKey string) []availableExpert {
+func availableExpertsFromTemplates(templates []contract.PromptTemplate, currentPromptKey string) []availableExpert {
 	byIdentity := map[string]availableExpert{}
 	currentPromptKey = strings.TrimSpace(currentPromptKey)
 	for _, template := range templates {
@@ -143,13 +143,13 @@ func availableExpertsFromTemplates(templates []promptstore.PromptTemplate, curre
 }
 
 // availableExpertFromTemplate 从template处理availableexpert。
-func availableExpertFromTemplate(template promptstore.PromptTemplate, currentPromptKey string) (availableExpert, bool) {
+func availableExpertFromTemplate(template contract.PromptTemplate, currentPromptKey string) (availableExpert, bool) {
 	promptKey := strings.TrimSpace(template.PromptKey)
 	whenToUse := strings.TrimSpace(template.WhenToUse)
 	if !template.Enabled || promptKey == "" || whenToUse == "" || promptKey == currentPromptKey {
 		return availableExpert{}, false
 	}
-	if promptstore.IsRuntimeAssetTemplate(template) {
+	if contract.IsRuntimeAssetPromptTemplate(template) {
 		return availableExpert{}, false
 	}
 	return availableExpert{
@@ -251,6 +251,7 @@ func escapePromptKeyForInstruction(promptKey string) string {
 	return strings.ReplaceAll(promptKey, "'", "\\'")
 }
 
+// RecallCatalogProvider renders recall prompt sections for the current project.
 type RecallCatalogProvider struct{ catalog RuntimePromptCatalog }
 
 // SectionName 处理section名称。
@@ -312,7 +313,7 @@ func recallCatalogSnippet(body string) string {
 	return string(runes[:limit]) + "..."
 }
 
-func recallCatalogMetadataSnippet(section promptstore.PromptTemplateSection) string {
+func recallCatalogMetadataSnippet(section contract.PromptTemplateSection) string {
 	for _, candidate := range []string{
 		section.TemplateDescription,
 		section.TemplateWhenToUse,
@@ -339,7 +340,7 @@ func stripRecallCatalogMetadataPrefix(value string) string {
 	return text
 }
 
-func renderRecallCatalog(sections []promptstore.PromptTemplateSection) string {
+func renderRecallCatalog(sections []contract.PromptTemplateSection) string {
 	sections = effectiveRecallSections(sections)
 	sort.SliceStable(sections, func(i, j int) bool {
 		return strings.TrimSpace(sections[i].RecallTopic) < strings.TrimSpace(sections[j].RecallTopic)
@@ -364,8 +365,8 @@ func renderRecallCatalog(sections []promptstore.PromptTemplateSection) string {
 }
 
 // effectiveRecallSections 处理effectiverecallsections。
-func effectiveRecallSections(sections []promptstore.PromptTemplateSection) []promptstore.PromptTemplateSection {
-	byTopic := map[string]promptstore.PromptTemplateSection{}
+func effectiveRecallSections(sections []contract.PromptTemplateSection) []contract.PromptTemplateSection {
+	byTopic := map[string]contract.PromptTemplateSection{}
 	for _, section := range sections {
 		topic := strings.TrimSpace(section.RecallTopic)
 		if topic == "" {
@@ -375,14 +376,14 @@ func effectiveRecallSections(sections []promptstore.PromptTemplateSection) []pro
 			byTopic[topic] = section
 		}
 	}
-	out := make([]promptstore.PromptTemplateSection, 0, len(byTopic))
+	out := make([]contract.PromptTemplateSection, 0, len(byTopic))
 	for _, section := range byTopic {
 		out = append(out, section)
 	}
 	return out
 }
 
-func preferPromptSection(left, right promptstore.PromptTemplateSection) bool {
+func preferPromptSection(left, right contract.PromptTemplateSection) bool {
 	leftRank := templateScopeRank(left.TemplateTags)
 	rightRank := templateScopeRank(right.TemplateTags)
 	if leftRank != rightRank {
@@ -398,7 +399,7 @@ func preferPromptSection(left, right promptstore.PromptTemplateSection) bool {
 }
 
 func templateScopeRank(raw json.RawMessage) int {
-	tags := promptstore.TemplateTags(raw)
+	tags := contract.PromptTemplateTags(raw)
 	for _, tag := range tags {
 		if strings.HasPrefix(strings.TrimSpace(tag), "scope.cwd:") {
 			return 0

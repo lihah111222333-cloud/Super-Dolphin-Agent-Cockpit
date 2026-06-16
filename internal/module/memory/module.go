@@ -14,14 +14,14 @@ import (
 	nestedpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/nested"
 	retrievalpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval"
 	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/creachadair/jrpc2/handler"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 )
 
+// RootManager owns the root memory service dependency for legacy wiring.
 type RootManager struct {
 	svc Service
 }
@@ -43,9 +43,9 @@ type memoryHandlerDeps struct {
 	Service             Service                       `optional:"true"`
 	Orchestration       contract.OrchestrationService `optional:"true"`
 	DAGRuntime          contract.DAGRuntime           `optional:"true"`
-	SharedFiles         sharedfilestore.Reader        `optional:"true"`
-	SharedFilesDeleter  sharedfilestore.Deleter       `optional:"true"`
-	SharedFilesUpserter sharedfilestore.Upserter      `optional:"true"`
+	SharedFiles         contract.SharedFileReader     `optional:"true"`
+	SharedFilesDeleter  contract.SharedFileDeleter    `optional:"true"`
+	SharedFilesUpserter contract.SharedFileUpserter   `optional:"true"`
 	Sections            contract.SectionInvalidator   `optional:"true"`
 	Logger              *pkglogger.Logger             `optional:"true"`
 	DreamExecutor       contract.DreamExecutor        `optional:"true"`

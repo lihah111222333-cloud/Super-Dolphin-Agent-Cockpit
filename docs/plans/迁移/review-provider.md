@@ -315,7 +315,7 @@ driver 侧：
 - 依赖 `dto/provider`：有。
 - 还依赖：
   - `internal/module/thread`，见 `internal/provider/unified/module.go:10`
-  - `cmd/mcp-orch/orchestration`，见 `internal/provider/unified/module.go:9`
+  - `internal/sidecar/orch/orchestration`，见 `internal/provider/unified/module.go:9`
   - `internal/store/thread`，见 `internal/provider/unified/session_resolver.go:9`
   - `github.com/kelindar/event`，见 `internal/provider/unified/event_map.go:7`
 

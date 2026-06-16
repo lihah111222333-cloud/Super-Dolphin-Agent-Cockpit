@@ -12,7 +12,7 @@
 
 ## 建议关注文件/区域
 
-`cmd/mcp-orch/tools, cmd/mcp-orch/orchestration/dag.go, cmd/mcp-orch/sql/queries/task_dag_*.sql, cmd/mcp-orch/store/taskdag, internal/contract/orchestration.go tests`
+`internal/sidecar/orch/tools, internal/sidecar/orch/orchestration/dag.go, internal/sidecar/orch/sql/queries/task_dag_*.sql, internal/sidecar/orch/store/taskdag, internal/contract/orchestration.go tests`
 
 ## 必须满足的验收标准
 

@@ -12,15 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
-	agentstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/agent"
-	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
-	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools/modelregistry"
-	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	common "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
@@ -29,6 +20,15 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
+	"github.com/anthropic-ai/super-agent-v3/internal/sidecar/orch/orchestration"
+	agentstore "github.com/anthropic-ai/super-agent-v3/internal/sidecar/orch/store/agent"
+	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/sidecar/orch/store/commandcard"
+	promptstore "github.com/anthropic-ai/super-agent-v3/internal/sidecar/orch/store/prompt"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/sidecar/orch/store/sharedfile"
+	"github.com/anthropic-ai/super-agent-v3/internal/sidecar/orch/store/sqlc"
+	"github.com/anthropic-ai/super-agent-v3/internal/sidecar/orch/tools"
+	"github.com/anthropic-ai/super-agent-v3/internal/sidecar/orch/tools/modelregistry"
+	workspace "github.com/anthropic-ai/super-agent-v3/internal/sidecar/orch/workspace"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"go.uber.org/fx"
 )
@@ -110,7 +110,7 @@ func newNoopSessionCleaner() contract.OrchestrationSessionCleaner {
 //
 // P22 P4 S4a: after WaitForSessionReady joined the owner contract, this
 // noop type must commit to it too; returning nil matches the pre-S4a
-// duck-typing path in cmd/mcp-orch/orchestration/helpers.go where the
+// duck-typing path in internal/sidecar/orch/orchestration/helpers.go where the
 // type-assertion would have failed and the helper returned nil.
 type noopTurnStarter struct{}
 

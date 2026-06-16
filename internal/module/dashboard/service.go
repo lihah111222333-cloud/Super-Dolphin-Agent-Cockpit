@@ -9,16 +9,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	agentstatusstore "github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus"
-	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
-	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
-	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
-	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
-	dbquerystore "github.com/anthropic-ai/super-agent-v3/internal/store/dbquery"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
-	systemlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -33,15 +24,15 @@ const (
 type service struct {
 	orchestration  contract.OrchestrationService
 	dagRuntime     contract.DAGRuntime
-	agentStatuses  agentstatusstore.Store
-	systemLogs     systemlogstore.Store
-	auditLogs      auditlogstore.Store
-	busLogs        buslogstore.Store
-	aiLogs         ailogstore.Store
-	dbQueries      dbquerystore.Store
-	commandCards   commandcardstore.Reader
-	prompts        promptstore.Reader
-	sharedFiles    sharedfilestore.Reader
+	agentStatuses  contract.AgentStatusStore
+	systemLogs     contract.SystemLogStore
+	auditLogs      contract.AuditLogStore
+	busLogs        contract.BusLogStore
+	aiLogs         contract.AILogStore
+	dbQueries      contract.DBQueryStore
+	commandCards   contract.CommandCardReader
+	prompts        contract.PromptReader
+	sharedFiles    contract.SharedFileReader
 	skills         contract.SkillLister
 	skillInventory contract.SkillInventoryLister
 	startedAt      time.Time
@@ -54,15 +45,15 @@ var _ Service = (*service)(nil)
 // NewService 创建服务。
 func NewService(
 	orchestrationSvc contract.OrchestrationService,
-	agentStatuses agentstatusstore.Store,
-	systemLogs systemlogstore.Store,
-	auditLogs auditlogstore.Store,
-	busLogs buslogstore.Store,
-	aiLogs ailogstore.Store,
-	dbQueries dbquerystore.Store,
-	commandCards commandcardstore.Reader,
-	prompts promptstore.Reader,
-	sharedFiles sharedfilestore.Reader,
+	agentStatuses contract.AgentStatusStore,
+	systemLogs contract.SystemLogStore,
+	auditLogs contract.AuditLogStore,
+	busLogs contract.BusLogStore,
+	aiLogs contract.AILogStore,
+	dbQueries contract.DBQueryStore,
+	commandCards contract.CommandCardReader,
+	prompts contract.PromptReader,
+	sharedFiles contract.SharedFileReader,
 	skills contract.SkillLister,
 ) Service {
 	return &service{
@@ -87,15 +78,15 @@ func NewService(
 func newServiceWithDAGRuntime(
 	orchestrationSvc contract.OrchestrationService,
 	dagRuntime contract.DAGRuntime,
-	agentStatuses agentstatusstore.Store,
-	systemLogs systemlogstore.Store,
-	auditLogs auditlogstore.Store,
-	busLogs buslogstore.Store,
-	aiLogs ailogstore.Store,
-	dbQueries dbquerystore.Store,
-	commandCards commandcardstore.Reader,
-	prompts promptstore.Reader,
-	sharedFiles sharedfilestore.Reader,
+	agentStatuses contract.AgentStatusStore,
+	systemLogs contract.SystemLogStore,
+	auditLogs contract.AuditLogStore,
+	busLogs contract.BusLogStore,
+	aiLogs contract.AILogStore,
+	dbQueries contract.DBQueryStore,
+	commandCards contract.CommandCardReader,
+	prompts contract.PromptReader,
+	sharedFiles contract.SharedFileReader,
 	skills contract.SkillLister,
 ) Service {
 	svc := NewService(
@@ -184,7 +175,7 @@ func (s *service) GetAgentDetail(ctx context.Context, agentID string) (*AgentDet
 	snapshot := AgentSnapshot(rawSnapshot)
 	report := strings.TrimSpace(snapshot.LastReport)
 	if reportErr == nil {
-		report = util.FirstNonEmpty(strings.TrimSpace(reportResp.Report), report)
+		report = kernel.FirstNonEmpty(strings.TrimSpace(reportResp.Report), report)
 	}
 	snapshot.LastReport = report
 	return &AgentDetail{
@@ -218,7 +209,7 @@ func (s *service) GetLogs(ctx context.Context, filter LogFilter) ([]LogEntry, er
 	if err != nil {
 		return nil, err
 	}
-	limit := util.ClampLimit(filter.Limit, 1, maxLogLimit, defaultLogLimit)
+	limit := kernel.ClampLimit(filter.Limit, 1, maxLogLimit, defaultLogLimit)
 	filter.Limit = limit
 
 	var systemEntries, aiEntries []LogEntry
@@ -382,7 +373,7 @@ func (s *service) appendSystemLogs(ctx context.Context, entries []LogEntry, filt
 	if err != nil {
 		return nil, err
 	}
-	return appendMappedLogs(entries, rows, filter, func(row systemlogstore.SystemLog) LogEntry {
+	return appendMappedLogs(entries, rows, filter, func(row contract.SystemLog) LogEntry {
 		return mapLogEntry(row, logSourceSystem)
 	}), nil
 }
@@ -391,14 +382,14 @@ func (s *service) appendAILogs(ctx context.Context, entries []LogEntry, filter L
 	if s.aiLogs == nil {
 		return entries, nil
 	}
-	rows, err := s.aiLogs.List(ctx, ailogstore.ListFilter{
+	rows, err := s.aiLogs.List(ctx, contract.AILogListFilter{
 		Keyword: strings.TrimSpace(filter.Keyword),
 		Limit:   int32(filter.Limit),
 	})
 	if err != nil {
 		return nil, err
 	}
-	return appendMappedLogs(entries, rows, filter, func(row ailogstore.AILog) LogEntry {
+	return appendMappedLogs(entries, rows, filter, func(row contract.AILog) LogEntry {
 		return mapLogEntry(row, logSourceAI)
 	}), nil
 }

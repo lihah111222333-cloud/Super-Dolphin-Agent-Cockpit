@@ -133,7 +133,7 @@
   - `internal/provider/claudecli/event_map.go:105-124`
   - `internal/provider/codexapp/event_map.go:150-173`
   - `internal/platform/rpc/approval_events.go:96-114`
-  - `cmd/mcp-orch/orchestration/events.go:73-81`
+  - `internal/sidecar/orch/orchestration/events.go:73-81`
 - 这些位置都还在手写 `EventHeader -> ThreadHeader -> AgentHeader -> TurnHeader` 的嵌套字面量。
 
 问题：

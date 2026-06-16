@@ -11,7 +11,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	common "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpwire"
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
@@ -269,7 +269,7 @@ func marshalHostToolResult(result any) ([]byte, json.RawMessage, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	structured, err := common.StructuredContentFromRaw(payload)
+	structured, err := mcpwire.StructuredContentFromRaw(payload)
 	if err != nil {
 		return nil, nil, err
 	}

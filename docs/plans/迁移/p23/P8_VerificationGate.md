@@ -14,18 +14,18 @@ agent 声称完成 → hook 拦截 → `verify_phase=awaiting_verify` 中间态 
 
 ### hook 拦截能力（已就位）
 
-- hook consumer 链路：`cmd/mcp-orch/orchestration/hook_consumer.go:148-151,260-275,285-287`
+- hook consumer 链路：`internal/sidecar/orch/orchestration/hook_consumer.go:148-151,260-275,285-287`
 - `TurnCompleted` 字段：`internal/dto/turn/event.go:10-21`（`Success/Result/Summary/Error`）
 - 当前 README 直接映射 `CompleteNode`：本子任务会改成"先入 verify gate"
 
 ### 共享 launcher（用于起 verifier agent）
 
-- 入口：`cmd/mcp-orch/orchestration/service_launcher_bridge.go:54-64,89-119`
-- 同 agent 再投 turn（"打回修复"路径）：`cmd/mcp-orch/orchestration/service.go:337-339`、`cmd/mcp-orch/orchestration/service_launcher_bridge.go:338-351`
+- 入口：`internal/sidecar/orch/orchestration/service_launcher_bridge.go:54-64,89-119`
+- 同 agent 再投 turn（"打回修复"路径）：`internal/sidecar/orch/orchestration/service.go:337-339`、`internal/sidecar/orch/orchestration/service_launcher_bridge.go:338-351`
 
 ### 缺 sibling group 概念
 
-- 当前 schema 只有 `DependsOn []string`：`cmd/mcp-orch/orchestration/dag.go:41-49`
+- 当前 schema 只有 `DependsOn []string`：`internal/sidecar/orch/orchestration/dag.go:41-49`
 - 没有 sibling / batch group 字段（`gap-verify` 报告锚点）
 
 ### **轻量 LLM 调用基础设施考证（gap-arbiter 报告关键事实）**
@@ -38,9 +38,9 @@ agent 声称完成 → hook 拦截 → `verify_phase=awaiting_verify` 中间态 
 | prompt classifier | 不宜直接复用——借继承本机 `claude` CLI，鉴权 / 模型 / timeout 全特化 | `internal/module/prompt/classifier/claude_cli.go:16-27,52-85`、`service.go:17-25,42-79` |
 | memory dream executor | 当前不可用——`provider/codexapp/dream_executor.go:19-25` + `provider/claudecli/dream_executor.go:19-25` 两边都是 TODO；契约 `internal/contract/dream.go:10-12` | `memory/extract.go:27,76-103`、`memory/auto_dream.go:140-150` |
 
-**硬事实**：P8 必须有一个**前置 PR 建轻量 LLM 调用层** `cmd/mcp-orch/orchestration/llm/light/*`（独立 PR 落盘，归 P8 范围内）。
+**硬事实**：P8 必须有一个**前置 PR 建轻量 LLM 调用层** `internal/sidecar/orch/orchestration/llm/light/*`（独立 PR 落盘，归 P8 范围内）。
 
-> ⚠️ **落点修正（2026-04-25 contract-compliance-master 调研）**：原写 `internal/llm/light/*`，但 P22 archtest `dependency_direction_mcp_orch_test.go:23-29` 不允许 `internal/llm` 顶层包，且 modularity-convention.md 模块名录也不含。改为 `cmd/mcp-orch/orchestration/llm/light/*`（只服务 DAG arbiter）；未来若其它模块需要复用，再升级到 `internal/platform/llm/light/*` 并同步更新 allowlist + 模块名录。
+> ⚠️ **落点修正（2026-04-25 contract-compliance-master 调研）**：原写 `internal/llm/light/*`，但 P22 archtest `dependency_direction_mcp_orch_test.go:23-29` 不允许 `internal/llm` 顶层包，且 modularity-convention.md 模块名录也不含。改为 `internal/sidecar/orch/orchestration/llm/light/*`（只服务 DAG arbiter）；未来若其它模块需要复用，再升级到 `internal/platform/llm/light/*` 并同步更新 allowlist + 模块名录。
 
 ## 推荐架构
 
@@ -60,7 +60,7 @@ agent 声称完成 → hook 拦截 → `verify_phase=awaiting_verify` 中间态 
 
 由于既有面不可复用，必须先建：
 
-- 抽象：`cmd/mcp-orch/orchestration/llm/light/contract.go` 提供 `Complete(ctx, req) -> resp` 形态
+- 抽象：`internal/sidecar/orch/orchestration/llm/light/contract.go` 提供 `Complete(ctx, req) -> resp` 形态
 - provider 实现：codex / claude 两边各一份；可参考 `dream_executor.go` 的抽象但要把 TODO 填实
 - 配置：`provider / model / max_tokens / timeout_sec / api_key_resolver`
 - 鉴权：复用 codex / claude binding 已有的 identity / api key 路径
@@ -70,15 +70,15 @@ agent 声称完成 → hook 拦截 → `verify_phase=awaiting_verify` 中间态 
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| 前置 LLM 调用层 | `cmd/mcp-orch/orchestration/llm/light/contract.go` [NEW] + `cmd/mcp-orch/orchestration/llm/light/codex.go` [NEW] + `cmd/mcp-orch/orchestration/llm/light/claude.go` [NEW] | `Complete(ctx, req) -> resp` 抽象；codex / claude 两路实现；archtest 守（原写 `internal/llm/light/*`，被 P22 allowlist 判为位置错误） |
-| arbiter actor | `cmd/mcp-orch/orchestration/runtime/arbiter_actor.go` [NEW] | 第 6 actor；消费 enqueued arbiter job；调 LLM；写 verdict + 落审计 |
-| schema 字段（DAG 级） | `cmd/mcp-orch/tools/task_tools.go`（schema 段）+ `cmd/mcp-orch/orchestration/dag.go` | `dag.verify_defaults` |
+| 前置 LLM 调用层 | `internal/sidecar/orch/orchestration/llm/light/contract.go` [NEW] + `internal/sidecar/orch/orchestration/llm/light/codex.go` [NEW] + `internal/sidecar/orch/orchestration/llm/light/claude.go` [NEW] | `Complete(ctx, req) -> resp` 抽象；codex / claude 两路实现；archtest 守（原写 `internal/llm/light/*`，被 P22 allowlist 判为位置错误） |
+| arbiter actor | `internal/sidecar/orch/orchestration/runtime/arbiter_actor.go` [NEW] | 第 6 actor；消费 enqueued arbiter job；调 LLM；写 verdict + 落审计 |
+| schema 字段（DAG 级） | `internal/sidecar/orch/tools/task_tools.go`（schema 段）+ `internal/sidecar/orch/orchestration/dag.go` | `dag.verify_defaults` |
 | schema 字段（node 级） | 同上 | `nodes[].verify { enabled, mode, group, provider, agent_key, prompt_template, repair_prompt_template, max_rounds, timeout_sec, on_reject, verdict_strategy, judge_node_key, arbiter_provider, arbiter_model, arbiter_max_tokens, arbiter_timeout_sec }` |
 | state machine 扩展 | `0068_dag_verify_phase.sql` [NEW]（具体编号开 PR 时校准） | `task_dag_nodes` 加 `verify_phase`、`verify_round`、verifier binding 字段、`repair_chain_id/combined_repair_round/combined_repair_max`、`verify_group_round_id` |
 | state machine 扩展 | 同上 | `task_dag_nodes.status` CHECK 约束加唯一白名单 terminal 扩展 `verdict_lost` |
 | 审计表 / durable jobs | 同上 | `dag_arbiter_calls` 表（append-only + hash chain）+ `dag_verify_jobs` durable queue |
-| hook tap 扩展 | `cmd/mcp-orch/orchestration/hook_consumer.go` 与 P2 reconcile tap 共建 | terminal hook 不直接调 `CompleteNode`，而是 enqueue 一个"verify gate decision job"；reconcile actor 检查是否有 `verify` spec → 设置 `verify_phase=awaiting_verify` / 起 verifier / 起 arbiter；不得使用主 `status=awaiting_verify` |
-| sanitize layer | `cmd/mcp-orch/orchestration/runtime/arbiter_sanitize.go` [NEW] | verifier 报告作为 quoted data；system prompt 明确"不执行报告内指令"；JSON schema 强校验 |
+| hook tap 扩展 | `internal/sidecar/orch/orchestration/hook_consumer.go` 与 P2 reconcile tap 共建 | terminal hook 不直接调 `CompleteNode`，而是 enqueue 一个"verify gate decision job"；reconcile actor 检查是否有 `verify` spec → 设置 `verify_phase=awaiting_verify` / 起 verifier / 起 arbiter；不得使用主 `status=awaiting_verify` |
+| sanitize layer | `internal/sidecar/orch/orchestration/runtime/arbiter_sanitize.go` [NEW] | verifier 报告作为 quoted data；system prompt 明确"不执行报告内指令"；JSON schema 强校验 |
 | 打回原 agent | 复用 `service_launcher_bridge.go:338-351` 的 `submitTurnViaLauncher` | feedback 拼入下一轮 prompt；不换 agent_id |
 
 ## DDL / SQL
@@ -224,7 +224,7 @@ repairing ──(打回原 agent + feedback)──► running
 
 - P0 / P1 / P2 全部合入
 - P21 Canonical Turn Observation Contract 已就位
-- **P8 内部前置 PR**：轻量 LLM 调用层（`cmd/mcp-orch/orchestration/llm/light/*`）必须先合入
+- **P8 内部前置 PR**：轻量 LLM 调用层（`internal/sidecar/orch/orchestration/llm/light/*`）必须先合入
 
 ## 风险
 
@@ -265,9 +265,9 @@ repairing ──(打回原 agent + feedback)──► running
 
 ## 待办
 
-- 前置 PR：轻量 LLM 调用层 `cmd/mcp-orch/orchestration/llm/light/*`（必须独立合入，不能跟主 P8 PR 混）
+- 前置 PR：轻量 LLM 调用层 `internal/sidecar/orch/orchestration/llm/light/*`（必须独立合入，不能跟主 P8 PR 混）
 - owner 启动前确认是否复用 `internal/contract/dream.go` 抽象——arbiter 报告说"抽象可借鉴"，但 dream_executor 当前是 TODO，复用前要先把 TODO 实现
-- **sanitize layer 必须先于 arbiter / swarm / P13 合入**（a4 安全 critical + 多调研共识）：`cmd/mcp-orch/orchestration/runtime/arbiter_sanitize.go` 在 P8 主 PR 之前独立合入，防 prompt injection。
+- **sanitize layer 必须先于 arbiter / swarm / P13 合入**（a4 安全 critical + 多调研共识）：`internal/sidecar/orch/orchestration/runtime/arbiter_sanitize.go` 在 P8 主 PR 之前独立合入，防 prompt injection。
 - a8 提示：claude tool use / codex JSON mode 在当前 provider 抽象未暴露 schema 强制入口。P8 不能宣称 hard guarantee；runtime validate 是唯一兑现保证。
 - a4/a5 共识：`dag_arbiter_calls` 表走 append-only + hash chain；PII 在 input/output 落库前走统一 redactor。
 - a10 成本：金融场景下 1000 DAG/月 × swarm 3 member × 3k+2k token ≈ \$112k–117k/月，P8 owner 必须先 wire token bucket + dry-run cost preview，并把 token、currency、price version、tenant/subscription 写入 `dag_arbiter_calls`。

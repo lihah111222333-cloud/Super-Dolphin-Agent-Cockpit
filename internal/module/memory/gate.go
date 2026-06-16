@@ -6,7 +6,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/memdata"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 type AutoMemPathSource string
@@ -221,7 +221,7 @@ func isAutoMemPath(cfg *Config, path string) bool {
 	if err != nil {
 		return false
 	}
-	return pathutil.ContainsPath(root, candidate)
+	return kernel.ContainsPath(root, candidate)
 }
 
 // resolveAutoEnabled 解析autoenabled。

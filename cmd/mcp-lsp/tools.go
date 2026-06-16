@@ -6,7 +6,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/tools"
+	"github.com/anthropic-ai/super-agent-v3/internal/sidecar/lsp/tools"
 )
 
 type ToolHandler func(ctx context.Context, params json.RawMessage) (any, error)

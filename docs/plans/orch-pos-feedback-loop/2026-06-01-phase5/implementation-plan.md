@@ -25,7 +25,7 @@
 4. 修改 `shared_file_list`，保留 `files/allowed_prefixes`，新增统一字段。
 5. 修改 `list_models`，保留 `providers`，新增统一字段。
 6. 增加或扩展单测，断言旧字段和新字段同时存在。
-7. 运行 `go test ./cmd/mcp-orch/tools -count=1`。
+7. 运行 `go test ./internal/sidecar/orch/tools -count=1`。
 8. 按审查结果修复，再评分并登记剩余缺口。
 
 ## 非目标

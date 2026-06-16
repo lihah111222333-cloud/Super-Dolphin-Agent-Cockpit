@@ -27,7 +27,7 @@ The score is not 95+ because:
 Focused M4 verification:
 
 ```powershell
-go test ./cmd/mcp-orch/tools -count=1
+go test ./internal/sidecar/orch/tools -count=1
 ```
 
 Result: pass.

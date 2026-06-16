@@ -2,36 +2,41 @@
 
 > 状态：**OK**
 >
-> 已索引文件：2729
+> 已索引文件：2837
 >
-> 未细分职责文件：230
+> 未细分职责文件：232
 
 ## 1. 漂移指标
 
 | 指标 | 当前值 |
 |---|---:|
-| 未细分职责文件数 | 230 |
-| 未细分职责占比 | 8.43% |
+| 未细分职责文件数 | 232 |
+| 未细分职责占比 | 8.18% |
 
 ## 2. 未细分职责分布
 
 | 模块 | 文件数 |
 |---|---:|
-| `frontend-app` | 194 |
-| `internal` | 17 |
+| `frontend-app` | 193 |
+| `internal` | 16 |
+| `cmd` | 7 |
 | `third_party` | 7 |
-| `cmd` | 6 |
 | `.project-map` | 5 |
+| `.codex` | 3 |
 | `sql` | 1 |
 
 ## 3. 样例文件
 
+- `.codex/logs/stop-gate-20260616200625.log`
+- `.codex/logs/stop-gate-20260616200852.log`
+- `.codex/logs/stop-gate-20260616200947.log`
 - `.project-map/PROJECT_MAP.md`
 - `.project-map/imports.tsv`
 - `.project-map/packages.tsv`
 - `.project-map/project-map.json`
 - `.project-map/symbols.tsv`
 - `cmd/.DS_Store`
+- `cmd/sqlitepackagesmoke/main.go`
 - `cmd/super-dolphin-release-manifest/main.go`
 - `cmd/super-dolphin-updater/detach_darwin.go`
 - `cmd/super-dolphin-updater/detach_default.go`
@@ -43,7 +48,6 @@
 - `frontend-app/.playwright-cli/page-2026-05-31T11-04-30-787Z.yml`
 - `frontend-app/README.md`
 - `frontend-app/design-qa-active-chat.png`
-- `frontend-app/design-qa-mobile-chat-loaded.png`
 - `frontend-app/eslint.config.js`
 - `frontend-app/index.html`
 - `frontend-app/jsconfig.json`
@@ -73,9 +77,6 @@
 - `frontend-app/src/entities/client/model/composerAttachments.js`
 - `frontend-app/src/entities/client/model/composerSlice.js`
 - `frontend-app/src/entities/client/model/forkSlice.js`
-- `frontend-app/src/entities/client/model/projectSlice.js`
-- `frontend-app/src/entities/client/model/providerPreferences.js`
-- `frontend-app/src/entities/client/model/providerRuntimeConfig.js`
 
 ## 4. 修复方式
 

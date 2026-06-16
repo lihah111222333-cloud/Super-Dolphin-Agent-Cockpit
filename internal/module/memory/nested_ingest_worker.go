@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 // nestedIngestDrainGrace bounds the shutdown wait for nestedIngestWorker so
@@ -189,7 +189,7 @@ func (w *nestedIngestWorker) Stop(ctx context.Context) error {
 		}
 		if deadline, ok := waitCtx.Deadline(); !ok || time.Until(deadline) > nestedIngestDrainGrace {
 			var cancel context.CancelFunc
-			waitCtx, cancel = ctxutil.WithTimeout(waitCtx, nestedIngestDrainGrace)
+			waitCtx, cancel = kernel.WithTimeout(waitCtx, nestedIngestDrainGrace)
 			defer cancel()
 			_ = deadline
 		}

@@ -8,7 +8,7 @@
 - 宿主 UI / 管理 API 仍优先落在 `internal/module/*`，并通过 `rpc.HandlerMapResult` 暴露；agent-visible tool、DAG、workspace、长期编排默认仍属于 `cmd/mcp-orch` 的 MCP 工具执行面。
 - 持久化调度类能力默认落在 core；若未来要让模型直接操作，再由 `cmd/mcp-orch` 追加 agent-visible tool 包装。
 - `internal/mcpserver/common/bootstrap/*` 仍是当前合法的工具侧 lifecycle client；禁止把业务能力继续堆到 common 旁路。
-- 关系型持久化统一走 `migrations/` + `sql/queries/` + sqlc。新增表/查询只维护**实际消费侧**的 `sqlc.yaml`：Cron v1 与 Session Insights v1 都是 **core-only**，因此只改根 `sqlc.yaml`，不改 `cmd/mcp-orch/sqlc.yaml`。
+- 关系型持久化统一走 `migrations/` + `sql/queries/` + sqlc。新增表/查询只维护**实际消费侧**的 `sqlc.yaml`：Cron v1 与 Session Insights v1 都是 **core-only**，因此只改根 `sqlc.yaml`，不改 `internal/sidecar/orch/sqlc.yaml`。
 - 内容型数据仍允许文件持久化例外；不要为了“统一”把 `SKILL.md` 等内容强塞回 Postgres。
 - `fx.Module` / `BusModule` / `RunnerModule` 必须按三层分工落地：`fx.Module` 只做 constructor + 资源 open/close；`fx.Invoke` 只把订阅器注入 `bus.subscribers`；所有长跑 worker 都实现 `Runner.Run(ctx)` 并进入 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`）。长循环、drain、重试都不放进 `fx` 生命周期。
 - core Fx 与 `cmd/mcp-orch` Fx 是**双树同构**：两边各有一根 bus / run.Group；平台库可共享（首选 `internal/module/<domain>/shared/*` 或 `internal/platform/*` 白名单内包），业务 module 分别落在 `internal/module/*` 与 `cmd/mcp-orch/*`。共享库位置与业务 module 归属不是互斥选择。**archtest 白名单是枚举式**：`internal/archtest/dependency_direction_mcp_orch_test.go:23-29` 放行 `internal/platform/{config,db,bus,runner,rpc,runtimesafe,shared,statemachine,eventsurface,rlimit}` 十个子包，**不是前缀通配**；新建顶层 `internal/platform/<X>` 需同步改护栏，否则将 orch 层共享代码放在 `internal/module/<X>/shared/*` 以命中 `internal/module` 白名单。
@@ -22,9 +22,9 @@
 
 ## core ↔ orch 事件链路的真实入口
 
-- **core terminal turn 到 orch 的全部通道是 hook consumer**，不是跨 Fx 桥接 core bus。实际入口链：`cmd/mcp-orch/runtime.go:216-219` 的 `subscribeOrchestrationHooks` → `cmd/mcp-orch/hook_subscription.go:13-40` 订 `agent.turn.after / failed / progress` hook → `cmd/mcp-orch/orchestration/hook_consumer.go:96-220` 分流处理 `TurnCompleted` 与 `ItemCompleted(final_answer)`。
+- **core terminal turn 到 orch 的全部通道是 hook consumer**，不是跨 Fx 桥接 core bus。实际入口链：`cmd/mcp-orch/runtime.go:216-219` 的 `subscribeOrchestrationHooks` → `cmd/mcp-orch/hook_subscription.go:13-40` 订 `agent.turn.after / failed / progress` hook → `internal/sidecar/orch/orchestration/hook_consumer.go:96-220` 分流处理 `TurnCompleted` 与 `ItemCompleted(final_answer)`。
 - orch 侧 P2 / P1b / 任何需要观察 core terminal turn 的业务模块，必须在 hook consumer 处理链上装 tap，而不是向 `cmd/mcp-orch` 本地 bus 上寻找重发后的 core 事件——该重发流在该返回 0 命中。
-- orch 本地 bus（`cmd/mcp-orch/orchestration/events.go`）只承载 orch 自己产生的事件（DAG / task / wakeup），不双向桥接 core。
+- orch 本地 bus（`internal/sidecar/orch/orchestration/events.go`）只承载 orch 自己产生的事件（DAG / task / wakeup），不双向桥接 core。
 
 ## 阶段 0：前置冻结（已落地）
 

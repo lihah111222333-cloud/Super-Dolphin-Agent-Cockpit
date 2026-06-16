@@ -612,30 +612,30 @@ store 层的主要价值在于：
 - `task_dag_wakeups`
 - `task_dag_worker_leases`
 
-另说明：`task_dag_runs` 已由 `cmd/mcp-orch/store/taskdag.RunStore` 包装（commit eb341e54 起走 `ProvideRunStore`），**不**列在上述“未包装”清单里；它也不是 `internal/store.Module` 的成员，而是在 `cmd/mcp-orch/store/taskdag` 这个独立包里（详见下面§4.7）。
+另说明：`task_dag_runs` 已由 `internal/sidecar/orch/store/taskdag.RunStore` 包装（commit eb341e54 起走 `ProvideRunStore`），**不**列在上述“未包装”清单里；它也不是 `internal/store.Module` 的成员，而是在 `internal/sidecar/orch/store/taskdag` 这个独立包里（详见下面§4.7）。
 
 其中：
 - `task_dag_*` 在 schema 中仍然有效，且 `0023_dag_watcher_phase1.sql` 还继续扩展 `task_dag_nodes` 并新增 `task_dag_wakeups / task_dag_worker_leases`；
-- 但这些对象当前都不在 `store.Module` 的 23 个子 store 注册面里（`task_dag_runs` 上面已说明，由 `cmd/mcp-orch/store/taskdag.RunStore` 在独立 fx 包里装载；commit eb341e54 之后 taskdag 包中的 RunStore binding 已被 `ProvideRunStore` 补齐，internal/store 侧子 store 计数仍以 `internal/store/module.go` 为准）；
+- 但这些对象当前都不在 `store.Module` 的 23 个子 store 注册面里（`task_dag_runs` 上面已说明，由 `internal/sidecar/orch/store/taskdag.RunStore` 在独立 fx 包里装载；commit eb341e54 之后 taskdag 包中的 RunStore binding 已被 `ProvideRunStore` 补齐，internal/store 侧子 store 计数仍以 `internal/store/module.go` 为准）；
 - `dbquery` 的白名单也**没有**向这些表开放。
 
-### 4.7 `cmd/mcp-orch/store/taskdag` — 独立 fx 包装的 DAG / Run 存储
+### 4.7 `internal/sidecar/orch/store/taskdag` — 独立 fx 包装的 DAG / Run 存储
 
 该包是 `internal/store/` 之外的另一块“独立 fx store 子包”，不在 §3 “23 个子 store”表内，但仍是运行时装配面的一员。
 
 | 子项 | 接口位置 | 实现位置 | Module 注册 | sqlc query 来源 | 关键方法 |
 | --- | --- | --- | --- | --- | --- |
-| `Store`（聚合） | `cmd/mcp-orch/store/taskdag/contract.go:13-21` | `cmd/mcp-orch/store/taskdag/store.go` | `Module` 中 `fx.Provide(NewStore)` + `ProvideOrchestrationStore` | `task_dags / task_dag_nodes` 等（sqlc 生成仓位于 `internal/store/sqlc`） | `WithTx`、`UpsertDAG`、`UpsertNode`、`UpdateNodeStatus`、`AcquireDAGLock`、节点生命周期等 |
-| `RunStore`（独立窄接口） | `cmd/mcp-orch/store/taskdag/contract.go:RunStore` 区段 | `cmd/mcp-orch/store/taskdag/store.go`（同一 `*store` 类型实现，编译期由 `store_compile_assertions_test.go` 里 `var _ RunStore = (*store)(nil)` 守住） | `Module` 中 `fx.Provide(ProvideRunStore)`，从聚合 `Store` type-assert 到 `RunStore`（commit eb341e54） | `task_dag_runs`（`sql/queries/task_dag_run.sql`） | `CreateRun`、`GetRun`、`ListRuns`、`UpdateRunStatus`、`AppendRunEvent` 等 |
+| `Store`（聚合） | `internal/sidecar/orch/store/taskdag/contract.go:13-21` | `internal/sidecar/orch/store/taskdag/store.go` | `Module` 中 `fx.Provide(NewStore)` + `ProvideOrchestrationStore` | `task_dags / task_dag_nodes` 等（sqlc 生成仓位于 `internal/store/sqlc`） | `WithTx`、`UpsertDAG`、`UpsertNode`、`UpdateNodeStatus`、`AcquireDAGLock`、节点生命周期等 |
+| `RunStore`（独立窄接口） | `internal/sidecar/orch/store/taskdag/contract.go:RunStore` 区段 | `internal/sidecar/orch/store/taskdag/store.go`（同一 `*store` 类型实现，编译期由 `store_compile_assertions_test.go` 里 `var _ RunStore = (*store)(nil)` 守住） | `Module` 中 `fx.Provide(ProvideRunStore)`，从聚合 `Store` type-assert 到 `RunStore`（commit eb341e54） | `task_dag_runs`（`sql/queries/task_dag_run.sql`） | `CreateRun`、`GetRun`、`ListRuns`、`UpdateRunStatus`、`AppendRunEvent` 等 |
 
-设计说明：`RunStore` **故意不嵌入** `taskdag.Store` 聚合接口，以保住 `OrchestrationStore` / `DAGMutationStore` 的 `InterfaceIsolation` 预算（·04 §2.1 接口隔离预算注脚同步列出；源码凭证见 `cmd/mcp-orch/store/taskdag/contract.go:25-27` 与 `:39-42`）。`cmd/mcp-orch/orchestration.service` 同时持有 `dagStore`（`OrchestrationStore`）与 `runStore`（`RunStore`）两个字段；事务内需要联合语义（例如 StartDAG 同一事务内 `CreateRun + PromoteRootNodesToReady`）时，走扩展接口 `DAGMutationWithRunStore`。
+设计说明：`RunStore` **故意不嵌入** `taskdag.Store` 聚合接口，以保住 `OrchestrationStore` / `DAGMutationStore` 的 `InterfaceIsolation` 预算（·04 §2.1 接口隔离预算注脚同步列出；源码凭证见 `internal/sidecar/orch/store/taskdag/contract.go:25-27` 与 `:39-42`）。`internal/sidecar/orch/orchestration.service` 同时持有 `dagStore`（`OrchestrationStore`）与 `runStore`（`RunStore`）两个字段；事务内需要联合语义（例如 StartDAG 同一事务内 `CreateRun + PromoteRootNodesToReady`）时，走扩展接口 `DAGMutationWithRunStore`。
 
 **本次 DAG 改造新增 store 文件与 sqlc 手维**（F1.5 / F4.1 / F4.2 / F6.3）：
-- `cmd/mcp-orch/store/taskdag/store_node_spawn.go`：F1.5 `NodeSpawnRecorderStore` 实现 `RecordNodeSpawn`；migration 0083 加列 `task_dag_nodes.spawning_thread_id`；commits `edc22076` `f111c12b` + follow-up `970cb5aa`（从聚合 Store 拆窄端口）。
-- `cmd/mcp-orch/store/taskdag/store_dag_ops.go`：F4.1 / F4.2 `DAGOpsStore` 实现 add_node + update_node 同事务批写 + OCC bump；commits `13a81828` `848f1188`。
-- `cmd/mcp-orch/store/taskdag/store_complete_downstream.go`：F6.3 `CompleteNode` 同事务 promote 下游 pending→ready，返回 `PromotedDownstream`；commit `34240412`（与 F6.4 `ScheduledDownstream` 分工：promote=状态机真相 / enqueue=路由后子集）。
-- sqlc 手维 5 文件（4 W1 / 1 W3 / 1 W2 db_accessor）集中在 `cmd/mcp-orch/sqlc.yaml` 顶部 marker：`task_dag_node_write.sql.go`（F6.3 新增 `PromoteSingleNodePendingToReady`）、F1.5 加列后的 `task_dag_node_*.sql.go`、F4.1 `db_accessor.go`；不通过 `sqlc generate` 覆盖，每次重生成需对照 marker 手补。详 commit `bec17a85`（sqlc.yaml marker 注释）。
-- 新 SQL：`migrations/0083_dag_v2_spawning_thread_id.sql`（F1.5）+ `cmd/mcp-orch/sql/queries/task_dag_node_write.sql` 中 `PromoteSingleNodePendingToReady`（F6.3）+ `cmd/mcp-orch/sql/queries/task_dag_ops.sql`（F4.1 / F4.2）。
+- `internal/sidecar/orch/store/taskdag/store_node_spawn.go`：F1.5 `NodeSpawnRecorderStore` 实现 `RecordNodeSpawn`；migration 0083 加列 `task_dag_nodes.spawning_thread_id`；commits `edc22076` `f111c12b` + follow-up `970cb5aa`（从聚合 Store 拆窄端口）。
+- `internal/sidecar/orch/store/taskdag/store_dag_ops.go`：F4.1 / F4.2 `DAGOpsStore` 实现 add_node + update_node 同事务批写 + OCC bump；commits `13a81828` `848f1188`。
+- `internal/sidecar/orch/store/taskdag/store_complete_downstream.go`：F6.3 `CompleteNode` 同事务 promote 下游 pending→ready，返回 `PromotedDownstream`；commit `34240412`（与 F6.4 `ScheduledDownstream` 分工：promote=状态机真相 / enqueue=路由后子集）。
+- sqlc 手维 5 文件（4 W1 / 1 W3 / 1 W2 db_accessor）集中在 `internal/sidecar/orch/sqlc.yaml` 顶部 marker：`task_dag_node_write.sql.go`（F6.3 新增 `PromoteSingleNodePendingToReady`）、F1.5 加列后的 `task_dag_node_*.sql.go`、F4.1 `db_accessor.go`；不通过 `sqlc generate` 覆盖，每次重生成需对照 marker 手补。详 commit `bec17a85`（sqlc.yaml marker 注释）。
+- 新 SQL：`migrations/0083_dag_v2_spawning_thread_id.sql`（F1.5）+ `internal/sidecar/orch/sql/queries/task_dag_node_write.sql` 中 `PromoteSingleNodePendingToReady`（F6.3）+ `internal/sidecar/orch/sql/queries/task_dag_ops.sql`（F4.1 / F4.2）。
 
 ---
 
@@ -837,7 +837,7 @@ var Module = fx.Module("store",
 | `dbquery` | runtime query result / `PlaceholderRow` | `db_query.sql` + `executor.go` | `internal/module/dashboard` |
 | `hookstore` | `mcp.PendingHookReview` | **无 sqlc SQL 文件；手写 SQL 在 `hookstore.go`** | `internal/platform/hooks` |
 | `interaction` | `Interaction` | `interaction.sql` | `internal/store.Module` |
-| `prompt` | `PromptTemplate` / `PromptTemplateVersion` | `prompt_template.sql` | `internal/module/prompt` / `internal/module/dashboard` / `cmd/mcp-orch/tools` |
+| `prompt` | `PromptTemplate` / `PromptTemplateVersion` | `prompt_template.sql` | `internal/module/prompt` / `internal/module/dashboard` / `internal/sidecar/orch/tools` |
 | `sharedfile` | `SharedFile` | `shared_file.sql` | `internal/module/dashboard` / `internal/module/uistate` |
 | `systemlog` | `SystemLog` | `system_log.sql` | `internal/module/dashboard` |
 | `tasktrace` | `TaskTrace` | `task_trace.sql` | `internal/module/dashboard` |

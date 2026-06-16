@@ -8,8 +8,8 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 var uiOutputDeltaLogSampler = pkglogger.NewEverySampler(1000)
@@ -340,7 +340,7 @@ func (s *service) applyTurnStarted(ev turndto.TurnStarted) {
 			duplicate = true
 			return
 		}
-		startedAt := clone.Time(&ev.Timestamp)
+		startedAt := kernel.CloneTime(&ev.Timestamp)
 		s.state.ActiveTurn = &TurnSummary{
 			ID:        turnID,
 			AgentID:   agentID,
@@ -384,7 +384,7 @@ func (s *service) applyTurnInterrupted(ev turndto.TurnInterrupted) {
 	applyMutation(s, threadID, func() {
 		startedAt := (*time.Time)(nil)
 		if s.state.ActiveTurn != nil && strings.TrimSpace(s.state.ActiveTurn.ID) == turnID {
-			startedAt = clone.Time(s.state.ActiveTurn.StartedAt)
+			startedAt = kernel.CloneTime(s.state.ActiveTurn.StartedAt)
 			s.state.ActiveTurn = nil
 		}
 		if turnID != "" {
@@ -395,7 +395,7 @@ func (s *service) applyTurnInterrupted(ev turndto.TurnInterrupted) {
 				Status:      "interrupted",
 				Reason:      strings.TrimSpace(ev.Reason),
 				StartedAt:   startedAt,
-				CompletedAt: clone.Time(&ev.Timestamp),
+				CompletedAt: kernel.CloneTime(&ev.Timestamp),
 			}, recentTurnLimit)
 		}
 		s.clearThreadActivityLocked(threadID)

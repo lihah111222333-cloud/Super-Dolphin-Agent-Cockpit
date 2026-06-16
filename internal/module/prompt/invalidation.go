@@ -8,10 +8,10 @@ import (
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	"github.com/creachadair/jrpc2/handler"
 )
 
+// SectionInvalidator is the prompt section cache invalidation port.
 type SectionInvalidator = contract.SectionInvalidator
 
 // AsSectionInvalidator 把prompt处理为sectioninvalidator。
@@ -182,7 +182,7 @@ func promptSectionDeleteRPCHandler(promptSvc PromptService, emit func(uidto.UIPr
 }
 
 func promptIntentDraftRPCHandler(
-	store promptstore.Store,
+	store contract.PromptStore,
 	dream contract.DreamExecutor,
 	builtin contract.BuiltinPromptRegistry,
 	emit func(uidto.UIPromptsChanged),
@@ -195,7 +195,7 @@ func promptIntentDraftRPCHandler(
 }
 
 func promptIntentCommitRPCHandler(
-	store promptstore.Store,
+	store contract.PromptStore,
 	sectionInvalidator contract.SectionInvalidator,
 	builtin contract.BuiltinPromptRegistry,
 	emit func(uidto.UIPromptsChanged),
@@ -207,7 +207,7 @@ func promptIntentCommitRPCHandler(
 	})
 }
 
-func promptIntentDiscardRPCHandler(store promptstore.Store, emit func(uidto.UIPromptsChanged)) handler.Func {
+func promptIntentDiscardRPCHandler(store contract.PromptStore, emit func(uidto.UIPromptsChanged)) handler.Func {
 	return platformrpc.StrictHandler(func(ctx context.Context, p promptintent.DiscardParams) (any, error) {
 		result, err := promptintent.HandleDiscard(ctx, store, p)
 		publishUIPromptIntentChanged(emit, p.Cwd, result, "discard", err)

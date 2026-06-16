@@ -12,7 +12,7 @@
 
 ## 建议关注文件/区域
 
-`cmd/mcp-orch/orchestration/nodeexec/executor_automation.go, node_router.go, wakeup_dispatcher.go, store/taskdag/store_complete_downstream.go, tests`
+`internal/sidecar/orch/orchestration/nodeexec/executor_automation.go, node_router.go, wakeup_dispatcher.go, store/taskdag/store_complete_downstream.go, tests`
 
 ## 必须满足的验收标准
 

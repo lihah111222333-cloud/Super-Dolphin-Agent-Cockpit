@@ -9,14 +9,13 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 // Fork 从当前 provider 历史分出一个新 thread。
 // 它复用旧 thread 的 prompt snapshot，再接上新的 provider session；不要重新跑 start 路由。
 func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error) {
-	ctx = util.NonNilContext(ctx)
+	ctx = kernel.NonNilContext(ctx)
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
 		return ForkResult{}, err
@@ -113,7 +112,7 @@ func (s *service) resolveForkContext(ctx context.Context, threadID, bindingProvi
 // Recover 重新接上 binding 指向的 provider session。
 // 它复用 thread meta、runtime config 和已有 snapshot，只刷新 binding/thread 状态。
 func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, error) {
-	ctx = util.NonNilContext(ctx)
+	ctx = kernel.NonNilContext(ctx)
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil {
 		return RecoverResult{}, err
@@ -156,7 +155,7 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 	if err := s.persistThreadState(ctx, newThreadState(threadStateRecoverKind, threadStateFields{
 		RequestedThreadID: threadID,
 		PublicThreadID:    publicThreadID,
-		ProviderThreadID:  util.FirstNonEmpty(providerThreadID, resolvedProviderUUID(session), binding.ProviderThreadID),
+		ProviderThreadID:  kernel.FirstNonEmpty(providerThreadID, resolvedProviderUUID(session), binding.ProviderThreadID),
 		AgentID:           agentID,
 		ParentAgentID:     meta.ParentAgentID,
 		AgentType:         meta.AgentType,
@@ -166,9 +165,9 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 		Model:             meta.Model,
 		Name:              displayName,
 		Prompt:            displayName,
-		RolloutPath:       util.FirstNonEmpty(binding.RolloutPath, session.RolloutPath()),
-		SessionUUID:       util.FirstNonEmpty(binding.SessionUUID, resolvedProviderUUID(session)),
-		ConfigOverride:    clone.RawMessage(meta.ConfigOverride),
+		RolloutPath:       kernel.FirstNonEmpty(binding.RolloutPath, session.RolloutPath()),
+		SessionUUID:       kernel.FirstNonEmpty(binding.SessionUUID, resolvedProviderUUID(session)),
+		ConfigOverride:    kernel.CloneRawMessage(meta.ConfigOverride),
 		CreatedAt:         meta.CreatedAt,
 	}), true); err != nil {
 		return RecoverResult{}, err
@@ -234,7 +233,7 @@ func resolveLifecycleCWD(action, metaCWD, bindingCWD string) (string, error) {
 	if meta != "" && binding != "" && comparablePromptCWD(meta) != comparablePromptCWD(binding) {
 		return "", fmt.Errorf("thread %s cwd mismatch: meta cwd %q binding cwd %q", strings.TrimSpace(action), meta, binding)
 	}
-	cwd := util.FirstNonEmpty(meta, binding)
+	cwd := kernel.FirstNonEmpty(meta, binding)
 	if cwd == "" || cwd == "." {
 		return "", fmt.Errorf("thread %s cwd is required", strings.TrimSpace(action))
 	}

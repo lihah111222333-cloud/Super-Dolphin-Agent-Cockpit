@@ -33,5 +33,5 @@
 | 兼容性 | 原字段 `dags/runs/files/providers` 保留 |
 | 统一性 | 新增统一字段 `data/total/showing/truncated/hint` |
 | AI 易用性 | `hint` 明确下一步工具，例如用 `pos` 读取详情 |
-| 测试 | `go test ./cmd/mcp-orch/tools -count=1` 通过 |
+| 测试 | `go test ./internal/sidecar/orch/tools -count=1` 通过 |
 | 缺口回流 | 数组型工具进入 `issues-ledger.json` |

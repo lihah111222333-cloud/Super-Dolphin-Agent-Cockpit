@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -126,7 +126,7 @@ func (f *Flusher) drain() {
 	if f.drainTimeout <= 0 {
 		return
 	}
-	drainCtx, cancel := ctxutil.WithTimeout(context.Background(), f.drainTimeout)
+	drainCtx, cancel := kernel.WithTimeout(context.Background(), f.drainTimeout)
 	defer cancel()
 	for {
 		select {

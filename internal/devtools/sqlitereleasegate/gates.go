@@ -32,12 +32,12 @@ type Gate struct {
 
 var mcpOrchSQLiteSmokePackages = []string{
 	"./cmd/mcp-orch",
-	"./cmd/mcp-orch/fxadapter",
-	"./cmd/mcp-orch/orchestration",
-	"./cmd/mcp-orch/store/commandcard",
-	"./cmd/mcp-orch/store/workspace",
-	"./cmd/mcp-orch/store/taskdag",
-	"./cmd/mcp-orch/tools",
+	"./internal/sidecar/orch/fxadapter",
+	"./internal/sidecar/orch/orchestration",
+	"./internal/sidecar/orch/store/commandcard",
+	"./internal/sidecar/orch/store/workspace",
+	"./internal/sidecar/orch/store/taskdag",
+	"./internal/sidecar/orch/tools",
 }
 
 // CommandString returns the shell-style command text used in release reports.
@@ -98,7 +98,7 @@ var sqliteGateDefinitions = []Gate{
 		ID:          "G7",
 		Title:       "DAG wakeup claim concurrency",
 		Priority:    "P0",
-		Command:     []string{"go", "test", "./cmd/mcp-orch/store/taskdag", "-run", "TestSQLiteWakeupClaimConcurrentGoroutinesAndProcesses", "-count=1"},
+		Command:     []string{"go", "test", "./internal/sidecar/orch/store/taskdag", "-run", "TestSQLiteWakeupClaimConcurrentGoroutinesAndProcesses", "-count=1"},
 		CWD:         ".",
 		Description: "Detect duplicate or missing DAG wakeup claims across goroutines and OS processes.",
 	},
@@ -106,7 +106,7 @@ var sqliteGateDefinitions = []Gate{
 		ID:          "G8",
 		Title:       "SQLite runtime lock replacement",
 		Priority:    "P0",
-		Command:     []string{"go", "test", "./cmd/mcp-orch/store/taskdag", "-run", "TestSQLiteRuntimeLock", "-count=1"},
+		Command:     []string{"go", "test", "./internal/sidecar/orch/store/taskdag", "-run", "TestSQLiteRuntimeLock", "-count=1"},
 		CWD:         ".",
 		Description: "Verify SQLite runtime lock/CAS behavior that replaces PostgreSQL advisory locks.",
 	},
@@ -122,7 +122,7 @@ var sqliteGateDefinitions = []Gate{
 		ID:          "G10",
 		Title:       "DAG JSON event golden",
 		Priority:    "P0",
-		Command:     []string{"go", "test", "./cmd/mcp-orch/store/taskdag", "-run", "TestSQLiteRunEventAppendGoldenPayloads|TestSQLiteRunEventAppendConcurrentWritersDoNotOverwrite", "-count=1"},
+		Command:     []string{"go", "test", "./internal/sidecar/orch/store/taskdag", "-run", "TestSQLiteRunEventAppendGoldenPayloads|TestSQLiteRunEventAppendConcurrentWritersDoNotOverwrite", "-count=1"},
 		CWD:         ".",
 		Description: "Verify JSON event append/truncate semantics and concurrent append integrity.",
 	},

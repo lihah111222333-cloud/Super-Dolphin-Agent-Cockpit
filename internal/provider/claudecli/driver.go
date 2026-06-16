@@ -12,14 +12,12 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/manifestbuilder"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/runtimeconfig"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -188,7 +186,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	})
 	return d.start(ctx, startSpec{
 		agentID:      req.AgentID,
-		threadID:     shared.FirstNonEmpty(req.ProviderThreadID, req.ThreadID),
+		threadID:     kernel.FirstNonEmpty(req.ProviderThreadID, req.ThreadID),
 		publicThread: req.ThreadID,
 		cwd:          req.CWD,
 		model:        req.Model,
@@ -227,7 +225,7 @@ func (d *driver) start(ctx context.Context, spec startSpec) (session contract.Se
 			d.recordDriverTrace(ctx, claudeSessionEvent("provider.session.ready", spec, time.Since(traceStarted), nil))
 		}
 	}()
-	if err := shared.CheckCtx(ctx); err != nil {
+	if err := kernel.CheckCtx(ctx); err != nil {
 		return nil, err
 	}
 	if err := validateStartCWD(spec.cwd); err != nil {
@@ -351,7 +349,7 @@ func resolveRequestedStartConfig(spec startSpec) (string, cliLaunchConfig) {
 // newStartedSession 创建started会话。
 func (d *driver) newStartedSession(spec startSpec, started preparedStartSession) *session {
 	initialThreadID := fallbackThreadID(spec.agentID, spec.threadID)
-	publicThreadID := shared.FirstNonEmpty(spec.publicThread, spec.agentID, initialThreadID)
+	publicThreadID := kernel.FirstNonEmpty(spec.publicThread, spec.agentID, initialThreadID)
 	baseInstructions := promptBaseInstructions(spec.startAssembly.BaseInstructions, started.launchConfig.PromptSnapshot)
 	s := &session{
 		agentID:           strings.TrimSpace(spec.agentID),
@@ -398,7 +396,7 @@ func (d *driver) newStartedSession(spec startSpec, started preparedStartSession)
 
 func (d *driver) awaitStartedSession(ctx context.Context, s *session, tr *transport) error {
 	if err := s.awaitResolvedThreadID(ctx); err != nil {
-		shared.LogIgnoredError(d.logger, "stop failed on start error", s.stop(true))
+		kernel.LogIgnoredError(d.logger, "stop failed on start error", s.stop(true))
 		d.clearStaleProviderThreadID(s.agentID, "claudecli: clear stale binding failed")
 		return err
 	}
@@ -410,7 +408,7 @@ func (d *driver) clearStaleProviderThreadID(agentID, message string) {
 	if d == nil || d.recovery == nil {
 		return
 	}
-	cleanCtx, cancel := ctxutil.WithSessionCloseTimeout(context.Background())
+	cleanCtx, cancel := kernel.WithSessionCloseTimeout(context.Background())
 	defer cancel()
 	if err := d.recovery.ClearStaleProviderThreadID(cleanCtx, agentID); err != nil && d.logger != nil {
 		d.logger.Warn(message, "agent_id", strings.TrimSpace(agentID), "error", err)
@@ -524,8 +522,8 @@ func (s *session) commitRestartSuccessLocked(next stagedSessionState) {
 }
 
 func (s *session) restartResumeIDLocked() string {
-	resumeID := strings.TrimSpace(shared.FirstNonEmpty(s.sessionID, s.threadID))
-	if !identifier.IsClaudeCLISessionUUID(resumeID) {
+	resumeID := strings.TrimSpace(kernel.FirstNonEmpty(s.sessionID, s.threadID))
+	if !kernel.IsClaudeCLISessionUUID(resumeID) {
 		return ""
 	}
 	return resumeID

@@ -43,7 +43,7 @@
 | 入口 | 数据来源 | 结论 | 证据 |
 | --- | --- | --- | --- |
 | `GetDashboard` | `orchestration.Service.ListAgents` + 进程 runtime/build 信息 | 聚合 agent 列表、system 信息、启动时长；`TokenUsage` 暂为零值 | `internal/module/dashboard/service.go:55-66`、`internal/module/dashboard/service.go:132-160` |
-| `GetAgentDetail` | `orchestration.Service.Snapshot` + `orchestration.Service.GetReport` | 读取 agent 快照和最后报告；`TurnHistory` 目前固定空切片 | `internal/module/dashboard/service.go:68-90`、`cmd/mcp-orch/orchestration/contract.go:11-29` |
+| `GetAgentDetail` | `orchestration.Service.Snapshot` + `orchestration.Service.GetReport` | 读取 agent 快照和最后报告；`TurnHistory` 目前固定空切片 | `internal/module/dashboard/service.go:68-90`、`internal/sidecar/orch/orchestration/contract.go:11-29` |
 | `GetSystemInfo` | `orchestration.Service.ListAgents` + `runtime` + `debug.ReadBuildInfo` | 只取 agent 数量，其他为本进程 build/runtime 指标 | `internal/module/dashboard/service.go:92-103`、`internal/module/dashboard/service.go:143-213` |
 | `GetLogs` | `systemlog.Store.List` + `ailog.Store.List` | 合并 system log 与 AI log，排序后裁剪 limit | `internal/module/dashboard/service.go:105-130`、`internal/module/dashboard/service.go:243-328`、`internal/store/systemlog/contract.go:9-50`、`internal/store/ailog/contract.go:9-34` |
 
@@ -102,7 +102,7 @@
 需要单独说明的点：
 
 - `AgentSnapshot`/`AgentOverview` 并未在 dashboard 包内重定义，而是直接 alias 到 `orchestration.AgentSnapshot`。证据：`internal/module/dashboard/types.go:10-11`
-- `orchestration.AgentSnapshot` 的 tag 也是 snake_case：`parent_id`、`thread_id`、`last_report` 等。证据：`cmd/mcp-orch/orchestration/contract.go:52-62`
+- `orchestration.AgentSnapshot` 的 tag 也是 snake_case：`parent_id`、`thread_id`、`last_report` 等。证据：`internal/sidecar/orch/orchestration/contract.go:52-62`
 
 结论：DTO tag 风格统一，没有发现响应对象里的 camelCase tag。
 
@@ -155,8 +155,8 @@ V2 `dashrpc.Register` 一次注册了 12 个 `dashboard/*` 方法。
 - `logs.go` 只依赖标准库 `sort`、`strings`。证据：`internal/module/dashboard/logs.go:3-6`
 - `module.go` 只依赖 `go.uber.org/fx`。证据：`internal/module/dashboard/module.go:3-3`
 - `rpc.go` 依赖 `context`、`strings`、`jrpc2/handler`、`internal/platform/rpc`。证据：`internal/module/dashboard/rpc.go:3-10`
-- `service.go` 依赖 `cmd/mcp-orch/orchestration`、`internal/store/ailog`、`internal/store/systemlog`，没有 `provider/`。证据：`internal/module/dashboard/service.go:3-14`
-- `types.go` 依赖 `cmd/mcp-orch/orchestration`，没有 `provider/`。证据：`internal/module/dashboard/types.go:3-8`
+- `service.go` 依赖 `internal/sidecar/orch/orchestration`、`internal/store/ailog`、`internal/store/systemlog`，没有 `provider/`。证据：`internal/module/dashboard/service.go:3-14`
+- `types.go` 依赖 `internal/sidecar/orch/orchestration`，没有 `provider/`。证据：`internal/module/dashboard/types.go:3-8`
 
 结论：dashboard 模块遵守“模块聚合 store/service，不直接 import provider/”的方向要求。
 

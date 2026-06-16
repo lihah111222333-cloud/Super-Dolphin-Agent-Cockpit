@@ -1,50 +1,25 @@
 package sharedfile
 
-import (
-	"context"
-	"time"
-)
+import "github.com/anthropic-ai/super-agent-v3/internal/contract"
 
 // Reader provides read-only access to shared files.
 // This is the shared interface consumed by both internal modules and cmd/mcp-orch.
-type Reader interface {
-	Get(ctx context.Context, path string) (*SharedFile, error)
-	List(ctx context.Context, filter ListFilter) ([]SharedFile, error)
-}
+type Reader = contract.SharedFileReader
 
 // Upserter writes or overwrites a shared file by path.
-type Upserter interface {
-	Upsert(ctx context.Context, params UpsertParams) (*SharedFile, error)
-}
+type Upserter = contract.SharedFileUpserter
 
 // Deleter removes a shared file by path. Returns the number of rows deleted.
-type Deleter interface {
-	Delete(ctx context.Context, path string) (int64, error)
-}
+type Deleter = contract.SharedFileDeleter
 
 // Store combines read and mutation access to shared files.
-type Store interface {
-	Reader
-	Upserter
-	Deleter
-}
+type Store = contract.SharedFileStore
 
-type UpsertParams struct {
-	Path      string
-	Content   string
-	UpdatedBy string
-}
+// UpsertParams drives Store.Upsert.
+type UpsertParams = contract.SharedFileUpsertParams
 
-type ListFilter struct {
-	Prefix string
-	Limit  int32
-}
+// ListFilter constrains shared-file list queries.
+type ListFilter = contract.SharedFileListFilter
 
 // SharedFile is the shared domain DTO for shared files.
-type SharedFile struct {
-	Path      string    `json:"path"`
-	Content   string    `json:"content"`
-	UpdatedBy string    `json:"updated_by"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
+type SharedFile = contract.SharedFile

@@ -24,8 +24,8 @@
 
 ### 2.2 SessionManager lifecycle
 
-- `SessionManager` 的“创建 -> 使用 -> Remove”闭环不成立。创建路径只有 `Client.open -> SessionManager.Register`，见 `internal/provider/unified/client.go:47-67`、`internal/provider/unified/session.go:30-46`；`Remove` 的入边只有 `sessionCleanerAdapter.RemoveSession`，再向上只有 orchestration 的 `removeSession`，见 `internal/provider/unified/session.go:59-67`、`internal/provider/unified/session_adapter.go:29-34`、`cmd/mcp-orch/orchestration/service.go:80-84`。
-- orchestration 确实会在 `StopAgent`、`StopAllAgents` 和进程退出时调用 `RemoveSession`，见 `cmd/mcp-orch/orchestration/service.go:103-117`、`cmd/mcp-orch/orchestration/service.go:119-129`、`cmd/mcp-orch/orchestration/service.go:309-323`。
+- `SessionManager` 的“创建 -> 使用 -> Remove”闭环不成立。创建路径只有 `Client.open -> SessionManager.Register`，见 `internal/provider/unified/client.go:47-67`、`internal/provider/unified/session.go:30-46`；`Remove` 的入边只有 `sessionCleanerAdapter.RemoveSession`，再向上只有 orchestration 的 `removeSession`，见 `internal/provider/unified/session.go:59-67`、`internal/provider/unified/session_adapter.go:29-34`、`internal/sidecar/orch/orchestration/service.go:80-84`。
+- orchestration 确实会在 `StopAgent`、`StopAllAgents` 和进程退出时调用 `RemoveSession`，见 `internal/sidecar/orch/orchestration/service.go:103-117`、`internal/sidecar/orch/orchestration/service.go:119-129`、`internal/sidecar/orch/orchestration/service.go:309-323`。
 - 但 thread 删除路径只做 `session.Close(ctx)`，不做 `RemoveSession`，也不做 `StopAgent`。删除入口见 `internal/module/thread/service.go:102-119`；其内部 `closeSessionIfActive` 只查 session 并 `Close`，见 `internal/module/thread/service.go:228-240`。由于 `SessionManager` 自身不会在 `Close` 后剔除条目，已关闭 session 会残留在 map 中。结论：这是明确的 lifecycle 漏洞。
 - `CloseAll` 目前是死代码。定义在 `internal/provider/unified/session.go:69-83`，语义引用查询只有定义本身，没有任何调用点。结论：统一层没有全局 session 收口点。
 
@@ -38,7 +38,7 @@
 ### 2.4 EventDispatcher
 
 - `EventDispatcher` 本身只是“把原始事件广播给所有 translator”，没有 provider 级隔离，见 `internal/provider/unified/event_map.go:12-66`。当前之所以能工作，依赖的是 Claude 使用 `agent:` / `turn:` 命名，Codex 使用 `thread/` / `turn/` 命名，原始事件名大多不冲突，见 `internal/provider/claudecli/event_map.go:35-103`、`internal/provider/codexapp/event_map.go:39-148`。
-- 事件归属存在实质性越界：provider translator 不仅发 turn/tool 级事件，还发 agent 级事件。Claude translator 会发 `AgentLaunched` / `AgentStopped` / `AgentFailed`，见 `internal/provider/claudecli/event_map.go:35-53`；Codex translator 会发 `AgentLaunched` / `StateChanged` / `AgentStopped` / `AgentRecovering` / `AgentFailed`，见 `internal/provider/codexapp/event_map.go:39-74`。与此同时 orchestration 也会发同一组 agent 级事件，见 `cmd/mcp-orch/orchestration/events.go:13-64`。结论：`orchestration 发 agent 级、provider translator 发 turn 级` 的边界当前没有被遵守。
+- 事件归属存在实质性越界：provider translator 不仅发 turn/tool 级事件，还发 agent 级事件。Claude translator 会发 `AgentLaunched` / `AgentStopped` / `AgentFailed`，见 `internal/provider/claudecli/event_map.go:35-53`；Codex translator 会发 `AgentLaunched` / `StateChanged` / `AgentStopped` / `AgentRecovering` / `AgentFailed`，见 `internal/provider/codexapp/event_map.go:39-74`。与此同时 orchestration 也会发同一组 agent 级事件，见 `internal/sidecar/orch/orchestration/events.go:13-64`。结论：`orchestration 发 agent 级、provider translator 发 turn 级` 的边界当前没有被遵守。
 
 ## 3. claudecli Driver
 
@@ -85,7 +85,7 @@
 
 ### 5.2 事件归属
 
-- agent 级事件已经由 orchestration 发布：`StateChanged` / `AgentLaunched` / `AgentStopped` / `AgentRecovering` / `AgentFailed` 都在 `cmd/mcp-orch/orchestration/events.go:13-64`。
+- agent 级事件已经由 orchestration 发布：`StateChanged` / `AgentLaunched` / `AgentStopped` / `AgentRecovering` / `AgentFailed` 都在 `internal/sidecar/orch/orchestration/events.go:13-64`。
 - turn/tool 级事件也确实由 provider translator 负责翻译：Claude 见 `internal/provider/claudecli/event_map.go:55-103`，Codex 见 `internal/provider/codexapp/event_map.go:76-148`。
 - 但 provider translator 同时还在发布 agent 级事件，见 `internal/provider/claudecli/event_map.go:35-53`、`internal/provider/codexapp/event_map.go:39-74`。结论：当前实现不是“orchestration 发 agent 级、provider translator 发 turn 级”的单一归属模型，而是双源发布。
 
@@ -94,8 +94,8 @@
 ### Blocker
 
 - `ToolCallResponder` 迁移未完成。V3 合同存在、实现为空、生产引用为空；V2 具备 `SendDynamicToolResult` / `RespondError` 与 request-scoped responder 绑定。证据：`internal/contract/provider.go:47-50`、`go-agent-v2/legacy-agentsdk/agentcore/client.go:13-14`、`go-agent-v2/legacy-agentsdk/codex/client_appserver_events.go:265-274`、`go-agent-v2/legacy-agentsdk/claude/client.go:363-393`。
-- `SessionManager` lifecycle 不闭合。注册只在 `Client.open`，清理只经 orchestration，thread 删除只做 `session.Close()` 不做 `RemoveSession()`。证据：`internal/provider/unified/client.go:47-67`、`internal/provider/unified/session.go:30-67`、`internal/provider/unified/session_adapter.go:29-34`、`internal/module/thread/service.go:102-119`、`internal/module/thread/service.go:228-240`、`cmd/mcp-orch/orchestration/service.go:80-84`。
-- agent 级事件归属冲突。orchestration 与 provider translator 同时发布 `AgentLaunched` / `AgentStopped` / `AgentFailed` / `AgentRecovering` / `StateChanged` 家族事件。证据：`cmd/mcp-orch/orchestration/events.go:13-64`、`internal/provider/claudecli/event_map.go:35-53`、`internal/provider/codexapp/event_map.go:39-74`。
+- `SessionManager` lifecycle 不闭合。注册只在 `Client.open`，清理只经 orchestration，thread 删除只做 `session.Close()` 不做 `RemoveSession()`。证据：`internal/provider/unified/client.go:47-67`、`internal/provider/unified/session.go:30-67`、`internal/provider/unified/session_adapter.go:29-34`、`internal/module/thread/service.go:102-119`、`internal/module/thread/service.go:228-240`、`internal/sidecar/orch/orchestration/service.go:80-84`。
+- agent 级事件归属冲突。orchestration 与 provider translator 同时发布 `AgentLaunched` / `AgentStopped` / `AgentFailed` / `AgentRecovering` / `StateChanged` 家族事件。证据：`internal/sidecar/orch/orchestration/events.go:13-64`、`internal/provider/claudecli/event_map.go:35-53`、`internal/provider/codexapp/event_map.go:39-74`。
 
 ### Warning
 
@@ -118,14 +118,14 @@
 
 1. `docs/plans/迁移/audit-fx-rpc.md:158-161` 把 “V2 151 方法 vs V3 74 方法” 作为 fx/rpc 主 blocker，口径失焦。RPC 装配链本身是闭合的，`rpc.Module` 只负责 `NewServer/NewPushBridge/NewApprovalManager/NewCapabilityResolver` 和 handler 注册，见 `internal/platform/rpc/module.go:13-22`；更直接的 rpc 集成断点反而是 `BindEventToNotify` 完全未接线，定义在 `internal/platform/rpc/push.go:50-63`，`references` 结果只有声明本身。这说明它把 module parity 问题放进了 fx/rpc blocker，却漏掉了真正的 rpc 桥接断点。
 2. `docs/plans/迁移/audit-fx-rpc.md:171-172` 用 `drivers` group 闭合推出 provider/rpc 侧“合格”，结论过度乐观。它验证到的只是 `DriverFactory -> group:"drivers" -> Registry`，见 `internal/provider/unified/module.go:14-26`、`internal/provider/claudecli/module.go:21-26`、`internal/provider/codexapp/module.go:21-26`；但 provider 合同里的 `ToolCallResponder` 仅在 `internal/contract/provider.go:47-50` 声明，`text_search("ToolCallResponder")` 在 `internal/*.go` 只命中这一处。V2 却把 `SendDynamicToolResult/RespondError` 作为基础 client 面，见 `go-agent-v2/legacy-agentsdk/agentcore/client.go:13-14`。所以 driver group 闭合不等于 provider-rpc 交互闭合。
-3. `docs/plans/迁移/audit-fx-rpc.md:172` 的“未发现实际挂空依赖”只验证了 DI 图，没有验证运行时生命周期。`SessionManager.Register` 只由 `internal/provider/unified/client.go:63-65` 调用，`SessionManager.Remove` 只沿 `internal/provider/unified/session_adapter.go:29-34 -> cmd/mcp-orch/orchestration/service.go:80-84` 触发；而 `thread.Delete` 仅 `session.Close(ctx)` 不 `Remove`，见 `internal/module/thread/service.go:102-119`、`internal/module/thread/service.go:228-240`。结果是 DI 还能查到已关闭 session，这比报告列出的 optional 依赖 warning 更接近现实 blocker。
+3. `docs/plans/迁移/audit-fx-rpc.md:172` 的“未发现实际挂空依赖”只验证了 DI 图，没有验证运行时生命周期。`SessionManager.Register` 只由 `internal/provider/unified/client.go:63-65` 调用，`SessionManager.Remove` 只沿 `internal/provider/unified/session_adapter.go:29-34 -> internal/sidecar/orch/orchestration/service.go:80-84` 触发；而 `thread.Delete` 仅 `session.Close(ctx)` 不 `Remove`，见 `internal/module/thread/service.go:102-119`、`internal/module/thread/service.go:228-240`。结果是 DI 还能查到已关闭 session，这比报告列出的 optional 依赖 warning 更接近现实 blocker。
 4. `docs/plans/迁移/audit-fx-rpc.md:171-173` 对 jrpc2 的审查只停留在 handler 签名合法性，没有核对 push 侧是否真正连通。`PushBridge` 虽然被 `rpc.Module` 提供，见 `internal/platform/rpc/module.go:15-18`，但真正负责 typed event -> notify 的 `BindEventToNotify` 无任何调用点，见 `internal/platform/rpc/push.go:50-63`。这使报告的 “jrpc2 包装方式当前合法” 成为纯语法结论，不是端到端集成结论。
 
 ### 对 audit-event-sm 的批判
 
-1. `docs/plans/迁移/audit-event-sm.md:123` 把 `agentdto.StateChanged` 双源发布降为 Warning，严重性偏低。实际双源不止 `StateChanged`：orchestration 发布 `StateChanged/AgentLaunched/AgentStopped/AgentRecovering/AgentFailed`，见 `cmd/mcp-orch/orchestration/events.go:13-64`；Claude translator 同时发布 `AgentLaunched/AgentStopped/AgentFailed`，见 `internal/provider/claudecli/event_map.go:35-49`；Codex translator 还发布 `StateChanged/AgentStopped/AgentRecovering/AgentFailed`，见 `internal/provider/codexapp/event_map.go:41-70`。这已经是 agent 生命周期 source-of-truth 冲突，不只是 warning。
+1. `docs/plans/迁移/audit-event-sm.md:123` 把 `agentdto.StateChanged` 双源发布降为 Warning，严重性偏低。实际双源不止 `StateChanged`：orchestration 发布 `StateChanged/AgentLaunched/AgentStopped/AgentRecovering/AgentFailed`，见 `internal/sidecar/orch/orchestration/events.go:13-64`；Claude translator 同时发布 `AgentLaunched/AgentStopped/AgentFailed`，见 `internal/provider/claudecli/event_map.go:35-49`；Codex translator 还发布 `StateChanged/AgentStopped/AgentRecovering/AgentFailed`，见 `internal/provider/codexapp/event_map.go:41-70`。这已经是 agent 生命周期 source-of-truth 冲突，不只是 warning。
 2. `docs/plans/迁移/audit-event-sm.md:104-105` 证明了 raw event 能进 typed bus，但漏掉了更底层的 dispatcher 设计缺口：`EventDispatcher.Dispatch` 对每个 raw event 都遍历全部 translator，见 `internal/provider/unified/event_map.go:42-65`；而两个 provider translator 都在 app 启动时全局注册，见 `internal/provider/claudecli/module.go:21-26`、`internal/provider/codexapp/module.go:21-26`。当前正确性依赖事件名偶然不冲突，而不是 provider 身份隔离。这个缺口比“typed bus 消费者少”更基础。
-3. `docs/plans/迁移/audit-event-sm.md:129` 以 `LogSink` 覆盖六族事件为由认定“无硬孤儿”，判断标准过低。`LogSink` 的 subscriber 只做 `logger.Info`，见 `internal/platform/bus/sink.go:87-96`；`BindEventToNotify` 在 `internal/platform/rpc/push.go:50-63` 定义但零引用；`orchestration.CompleteTurn` 在 `cmd/mcp-orch/orchestration/service.go:282-301` 定义且 `references` 只有声明本身。事件即使被记录日志，控制流仍然是孤儿。
+3. `docs/plans/迁移/audit-event-sm.md:129` 以 `LogSink` 覆盖六族事件为由认定“无硬孤儿”，判断标准过低。`LogSink` 的 subscriber 只做 `logger.Info`，见 `internal/platform/bus/sink.go:87-96`；`BindEventToNotify` 在 `internal/platform/rpc/push.go:50-63` 定义但零引用；`orchestration.CompleteTurn` 在 `internal/sidecar/orch/orchestration/service.go:282-301` 定义且 `references` 只有声明本身。事件即使被记录日志，控制流仍然是孤儿。
 4. `docs/plans/迁移/audit-event-sm.md:121-123` 已经看到 “状态机不消费 bus 事件” 和 “双源 StateChanged”，但没有继续追到 provider 层的 turn/agent 分界错误。provider translator 现在不仅发 turn/tool 事件，也发 agent 事件，见 `internal/provider/claudecli/event_map.go:35-53`、`internal/provider/codexapp/event_map.go:39-74`；这直接违反了应由 orchestration 独占 agent 生命周期发布面的边界。报告抓到了症状，但没有把根因提升为主结论。
 
 ### 对 audit-store-sqlc 的批判
@@ -138,6 +138,6 @@
 ### 对 audit-module-v2-parity 的批判
 
 1. `docs/plans/迁移/audit-module-v2-parity.md:293-305` 只围绕 RPC handler parity 下结论，完全跳过了 app 实际已装配的 provider 子系统：`internal/app/modules.go:37-39` 明确装了 `unified.Module`、`claudecli.Module`、`codexapp.Module`。结果它没有检查 V2 `SendDynamicToolResult/RespondError` (`go-agent-v2/legacy-agentsdk/agentcore/client.go:13-14`) 对应到 V3 仅剩声明、无实现的 `ToolCallResponder` (`internal/contract/provider.go:47-50`；`text_search("ToolCallResponder")` 在 `internal/*.go` 只命中声明)。这是明显遗漏的 parity blocker。
-2. `docs/plans/迁移/audit-module-v2-parity.md:297-299` 把 thread/orchestration/approval 当成主要 blocker，却没有覆盖 provider session 生命周期。V3 session 注册只来自 `internal/provider/unified/client.go:63-65`，删除只走 `internal/provider/unified/session_adapter.go:29-34 -> cmd/mcp-orch/orchestration/service.go:80-84`；`thread.Delete` 只 `Close` 不 `Remove`，见 `internal/module/thread/service.go:102-119`、`internal/module/thread/service.go:228-240`。这会直接破坏 thread/turn 的运行时等价性，比多处 handler 参数缩水更基础。
-3. `docs/plans/迁移/audit-module-v2-parity.md:293-310` 也漏掉了 event ownership parity。当前 orchestration 发布 agent lifecycle，见 `cmd/mcp-orch/orchestration/events.go:13-64`；Claude/Codex translator 同时发布同族 agent 事件，见 `internal/provider/claudecli/event_map.go:35-49`、`internal/provider/codexapp/event_map.go:41-70`。只看 RPC key 覆盖率，无法解释这种运行时双源偏差，因此它的 parity 结论与 provider 审查冲突。
+2. `docs/plans/迁移/audit-module-v2-parity.md:297-299` 把 thread/orchestration/approval 当成主要 blocker，却没有覆盖 provider session 生命周期。V3 session 注册只来自 `internal/provider/unified/client.go:63-65`，删除只走 `internal/provider/unified/session_adapter.go:29-34 -> internal/sidecar/orch/orchestration/service.go:80-84`；`thread.Delete` 只 `Close` 不 `Remove`，见 `internal/module/thread/service.go:102-119`、`internal/module/thread/service.go:228-240`。这会直接破坏 thread/turn 的运行时等价性，比多处 handler 参数缩水更基础。
+3. `docs/plans/迁移/audit-module-v2-parity.md:293-310` 也漏掉了 event ownership parity。当前 orchestration 发布 agent lifecycle，见 `internal/sidecar/orch/orchestration/events.go:13-64`；Claude/Codex translator 同时发布同族 agent 事件，见 `internal/provider/claudecli/event_map.go:35-49`、`internal/provider/codexapp/event_map.go:41-70`。只看 RPC key 覆盖率，无法解释这种运行时双源偏差，因此它的 parity 结论与 provider 审查冲突。
 4. `docs/plans/迁移/audit-module-v2-parity.md:298` 对审批链的 blocker 判断仍然偏窄。它抓到了 `RequestApproval` 无外部调用点，见 `internal/platform/rpc/approval.go:71-103` 的 `references` 只有声明与 `RequestUserInput` 内部转发；但更深一层的 V2 parity 缺口是：即便未来 approval request 接上线，V3 仍缺少 dynamic tool result/error 的 responder 实现，见 `internal/contract/provider.go:47-50` 与 `go-agent-v2/legacy-agentsdk/agentcore/client.go:13-14`。报告没有把这条更深的 provider parity 缺口纳入主结论。

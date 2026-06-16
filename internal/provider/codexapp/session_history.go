@@ -4,14 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
 	"time"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
+// Message is a Codex history message normalized before provider DTO conversion.
 type Message struct {
 	Role      string          `json:"role"`
 	Content   string          `json:"content"`

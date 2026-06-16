@@ -2,7 +2,7 @@
 
 ## 范围与方法
 
-- 范围：V3 `internal/module/turn`、`cmd/mcp-orch/orchestration`、`internal/provider/*`，以及对照 V2 `go-agent-v2/internal/apiserver`、`go-agent-v2/legacy-agentsdk/service/*`。
+- 范围：V3 `internal/module/turn`、`internal/sidecar/orch/orchestration`、`internal/provider/*`，以及对照 V2 `go-agent-v2/internal/apiserver`、`go-agent-v2/legacy-agentsdk/service/*`。
 - 方法：仅用 LSP `text_search`、`workspace_symbol`、`references(compact)`、`call_hierarchy`、`read_file(func_start/func_end)` 逐项落证。
 - 口径：只认“代码里已经接通的真实链路”；文档、计划、历史审计不作为主证据。
 
@@ -77,7 +77,7 @@
 - Codex provider 的中断是远程 RPC：`internal/provider/codexapp/session.go:127-140`；真正 handle 完成依赖后续 `turn/completed` 或 `turn/aborted` 通知：`internal/provider/codexapp/session.go:231-279`。
 - Claude provider 的中断是发 `SIGINT`，然后本地直接 `handle.finish(context.Canceled)` 并 dispatch `turn:interrupted`：`internal/provider/claudecli/session.go:205-226`。
 - 两个 provider 都会把中断类原始事件翻译成 `turndto.TurnInterrupted`：`internal/provider/codexapp/event_map.go:86-90`、`internal/provider/claudecli/event_map.go:71-75`。
-- orchestration 只订阅 `TurnStarted` 和 `TurnCompleted`，没有消费 `TurnInterrupted`：`cmd/mcp-orch/orchestration/module.go:33-44`。
+- orchestration 只订阅 `TurnStarted` 和 `TurnCompleted`，没有消费 `TurnInterrupted`：`internal/sidecar/orch/orchestration/module.go:33-44`。
 
 判断：
 - direct turn 路径下，本地 tracker 可以靠 handle settle 收敛。
@@ -106,11 +106,11 @@
 证据：
 - provider 会产出 `TurnCompleted`：`internal/provider/codexapp/event_map.go:80-85`、`internal/provider/claudecli/event_map.go:76-81`。
 - typed event 会被统一 dispatcher 发布：`internal/provider/unified/event_map.go:43-64`。
-- orchestration 模块订阅 `TurnCompleted` 后调用 `svc.CompleteTurn(...)`：`cmd/mcp-orch/orchestration/module.go:38-44`。
-- `CompleteTurn` 会校验 `activeTurnID`，触发状态机转换，并在成功后清空 `activeTurnID`：`cmd/mcp-orch/orchestration/service.go:326-352`。
-- 但 `activeTurnID` 只会在 orchestration queue 路径里预先设入：`cmd/mcp-orch/orchestration/service.go:291-324`。
-- `TurnStarted` 订阅里的 `BindActiveTurnID(...)` 只在 `agent.activeTurnID` 已经非空时才会绑定 provider turn id，否则直接返回 `errTurnNotActive`：`cmd/mcp-orch/orchestration/helpers.go:77-98`。
-- module 层把 `errTurnNotActive` 当作可忽略错误：`cmd/mcp-orch/orchestration/module.go:34-43`。
+- orchestration 模块订阅 `TurnCompleted` 后调用 `svc.CompleteTurn(...)`：`internal/sidecar/orch/orchestration/module.go:38-44`。
+- `CompleteTurn` 会校验 `activeTurnID`，触发状态机转换，并在成功后清空 `activeTurnID`：`internal/sidecar/orch/orchestration/service.go:326-352`。
+- 但 `activeTurnID` 只会在 orchestration queue 路径里预先设入：`internal/sidecar/orch/orchestration/service.go:291-324`。
+- `TurnStarted` 订阅里的 `BindActiveTurnID(...)` 只在 `agent.activeTurnID` 已经非空时才会绑定 provider turn id，否则直接返回 `errTurnNotActive`：`internal/sidecar/orch/orchestration/helpers.go:77-98`。
+- module 层把 `errTurnNotActive` 当作可忽略错误：`internal/sidecar/orch/orchestration/module.go:34-43`。
 
 判断：
 - 通过 `SubmitTurn -> claimTurnWork -> startTurnExecution` 发起的 turn，`TurnCompleted` 闭环是通的。
@@ -156,12 +156,12 @@
 
 证据：
 - `session.StartTurn(...)` 同步报错时，turn tracker 会立即 `Complete(..., false, err)`：`internal/module/turn/service.go:92-100`。
-- orchestration 的启动失败路径会清掉 `activeTurnID`，并用 `TriggerTurnCompleted` 把状态拉回去：`cmd/mcp-orch/orchestration/helpers.go:176-192`。
+- orchestration 的启动失败路径会清掉 `activeTurnID`，并用 `TriggerTurnCompleted` 把状态拉回去：`internal/sidecar/orch/orchestration/helpers.go:176-192`。
 - Codex provider 的 `StartTurn`/`Interrupt` 都有显式 RPC timeout：`internal/provider/codexapp/session.go:109-113`、`136-139`。
 - Codex `connection.dead` 会先 `failTurns(...)`，再尝试 recovery：`internal/provider/codexapp/session_recovery.go:23-30`。
 - Claude read loop 遇到 transport error 时，会 finish handle 并 dispatch 一个失败的 `turn:complete`：`internal/provider/claudecli/session_events.go:61-82`。
 - 本地 watcher 还有一个 30 分钟 TTL，超时后 tracker 记为 `stalled`：`internal/module/turn/service.go:184-201`、`internal/module/turn/tracker.go:11,138-153`。
-- 但 orchestration 只消费 `TurnCompleted`，没有消费 `TurnInterrupted/TurnStalled`；因此卡死、断连、interrupt-only 场景不会统一回收 agent 状态：`cmd/mcp-orch/orchestration/module.go:33-44`。
+- 但 orchestration 只消费 `TurnCompleted`，没有消费 `TurnInterrupted/TurnStalled`；因此卡死、断连、interrupt-only 场景不会统一回收 agent 状态：`internal/sidecar/orch/orchestration/module.go:33-44`。
 
 判断：
 - “当前 turn handle 失败/超时”在 turn service 内部通常能收敛。
@@ -172,8 +172,8 @@
 结论：⚠️ orchestration 路径有串行保证，direct RPC 没有统一保证。
 
 证据：
-- orchestration 提交是排队的：`cmd/mcp-orch/orchestration/service.go:166-187`。
-- `claimTurnWork(...)` 只会在 `StateTurnQueued` 的 agent 上 dequeue 一条 submission，并设置唯一 `activeTurnID`：`cmd/mcp-orch/orchestration/service.go:291-324`。
+- orchestration 提交是排队的：`internal/sidecar/orch/orchestration/service.go:166-187`。
+- `claimTurnWork(...)` 只会在 `StateTurnQueued` 的 agent 上 dequeue 一条 submission，并设置唯一 `activeTurnID`：`internal/sidecar/orch/orchestration/service.go:291-324`。
 - turn service 自己的 `StartTurn(...)` 没有做同线程互斥检查：`internal/module/turn/service.go:76-106`。
 - Claude session 会拒绝已有未完成 turn：`internal/provider/claudecli/session.go:120-127`。
 - Codex session 没有对应保护；它只是发远程 `turn/start` 并把 handle 放进 `map[providerID]`：`internal/provider/codexapp/session.go:104-125`。
@@ -238,7 +238,7 @@
 
 ## 额外风险
 
-- 推导风险：`CompleteTurn(success=false)` 在 `StateTurnStarting` 上会走 `TriggerTurnAborted`，而状态机只允许 `TriggerTurnCompleted` 从 `turn_starting -> idle`，不允许 `turn_aborted` 从 `turn_starting` 触发：`internal/dto/agent/state.go:89-95`、`cmd/mcp-orch/orchestration/service.go:341-348`。如果 provider 很快发出失败完成事件，可能触发非法状态迁移。
+- 推导风险：`CompleteTurn(success=false)` 在 `StateTurnStarting` 上会走 `TriggerTurnAborted`，而状态机只允许 `TriggerTurnCompleted` 从 `turn_starting -> idle`，不允许 `turn_aborted` 从 `turn_starting` 触发：`internal/dto/agent/state.go:89-95`、`internal/sidecar/orch/orchestration/service.go:341-348`。如果 provider 很快发出失败完成事件，可能触发非法状态迁移。
 - 推导风险：直接 `turn/start` RPC 发起的 turn 不会先设置 orchestration `activeTurnID`，因此即使 provider 后续发了 `TurnStarted/TurnCompleted`，orchestration 也不会把它当成当前 active turn。
 
 ## 最终判断
@@ -259,7 +259,7 @@
 
 1. 首先是 artifact 本身不可复核：对 `docs/plans/迁移/cap-orchestration-agent.md` 做 LSP `read_file` 直接得到 `path not found`，全仓对 `cap-orchestration-agent` / `cap-orchestration-agent.md` 的 `text_search` 也都是空结果。一个无法定位的报告，本身就不满足可审计性。
 2. 报告集的 traceability 也坏了。仓库里自己的复核链引用的是 `docs/plans/迁移/review-module-orch.md`，而不是用户指定的 `cap-orchestration-agent.md`，见 `docs/plans/迁移/final-verdict-2.md:3-7`。这说明 orchestration 审查 artifact 的命名和索引已经漂移，后续交叉引用不稳定。
-3. 如果这份路径实际意图指向 `docs/plans/迁移/review-module-orch.md`，那其中头号结论已经过时。该文断言 `claimTurnWork` 后只剩 `agentID/threadID/turnID`，`startTurnExecution` 也不做 session/provider 调用，见 `docs/plans/迁移/review-module-orch.md:13,49-52`。当前代码里 `turnWork` 明确保留完整 `submission`，见 `cmd/mcp-orch/orchestration/service.go:73-78`；`claimTurnWork` 也把 `submission` 带入工作项，见 `cmd/mcp-orch/orchestration/service.go:291-324`；`startTurnExecution` 会真实调用 `turnStarter.StartTurn(ctx, work.submission)`，见 `cmd/mcp-orch/orchestration/helpers.go:140-150`；而 `orchestrationTurnStarter` 已把 `Inputs/SelectedSkills/ManualSkillSelection/OutputSchema` 送进 `PrepareTurn -> StartTurn`，见 `internal/module/turn/orchestration_starter.go:22-63`。所以如果它是第二份报告的实际替身，至少这条主判断已经失效。
+3. 如果这份路径实际意图指向 `docs/plans/迁移/review-module-orch.md`，那其中头号结论已经过时。该文断言 `claimTurnWork` 后只剩 `agentID/threadID/turnID`，`startTurnExecution` 也不做 session/provider 调用，见 `docs/plans/迁移/review-module-orch.md:13,49-52`。当前代码里 `turnWork` 明确保留完整 `submission`，见 `internal/sidecar/orch/orchestration/service.go:73-78`；`claimTurnWork` 也把 `submission` 带入工作项，见 `internal/sidecar/orch/orchestration/service.go:291-324`；`startTurnExecution` 会真实调用 `turnStarter.StartTurn(ctx, work.submission)`，见 `internal/sidecar/orch/orchestration/helpers.go:140-150`；而 `orchestrationTurnStarter` 已把 `Inputs/SelectedSkills/ManualSkillSelection/OutputSchema` 送进 `PrepareTurn -> StartTurn`，见 `internal/module/turn/orchestration_starter.go:22-63`。所以如果它是第二份报告的实际替身，至少这条主判断已经失效。
 
 ### 3. 对 `docs/plans/迁移/cap-provider-session.md` 的批判
 

@@ -1,6 +1,6 @@
 package main
 
-// schema helpers — mirrors cmd/mcp-orch/tools/types.go pattern.
+// schema helpers — mirrors internal/sidecar/orch/tools/types.go pattern.
 
 type schema = map[string]any
 

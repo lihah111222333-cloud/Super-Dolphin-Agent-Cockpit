@@ -42,7 +42,7 @@
 - 统一流程：`sanitize → resolve → authorize → read`；`path` 仅限 debug/内部场景，但仍走同一授权链。
 - 工具只读不写，不触发迁移、索引重建、forget、写盘或自动提取副作用。
 - 返回建议保持 `{entry, sourcePath, indexHit}`；索引损坏时允许 `degraded=true / source=rebuilt_view` 的只读降级语义。
-- `cmd/mcp-orch/tools/memory_tools.go` 只保留 `memory_read` 的 schema/handler；`memory_write/search/list/forget` 代码与 schema 一律清理。
+- `internal/sidecar/orch/tools/memory_tools.go` 只保留 `memory_read` 的 schema/handler；`memory_write/search/list/forget` 代码与 schema 一律清理。
 
 ## 7.6 用户交互
 
@@ -71,7 +71,7 @@
 - [ ] `turn/end` hook：接入显式保存意图检测，命中后直接写盘并更新索引
 - [ ] `/dream`：接入 sideQuery 蒸馏与分类写盘
 - [ ] 定时蒸馏：预留 cron / 阈值配置入口，默认关闭
-- [ ] `cmd/mcp-orch/tools/memory_tools.go`：只保留 `memory_read` schema/handler
+- [ ] `internal/sidecar/orch/tools/memory_tools.go`：只保留 `memory_read` schema/handler
 - [ ] slash command：补齐 `/memory`、`/forget`、`/dream` 的路由
 - [ ] `shared_files → 磁盘记忆` 迁移脚本与报告
 - [ ] `shared_file_read/write` 兼容校验 + kill switch 接入

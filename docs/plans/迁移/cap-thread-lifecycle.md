@@ -59,7 +59,7 @@ V3 的 `thread` 生命周期链路已经有基本骨架，但离“能力闭环 
 
 - `thread` handler map 中没有 `thread/stop`：`internal/module/thread/rpc.go:20-83`
 - 当前只有私有 `stopAgent`，且只被 `Start` / `Resume` 的失败回滚使用：`internal/module/thread/lifecycle.go:54-55,59-60,72-73,89-90,94-95,309-313`
-- orchestration 有 `StopAgent`，但不暴露成 thread 模块的公共 RPC：`cmd/mcp-orch/orchestration/service.go:127-141`
+- orchestration 有 `StopAgent`，但不暴露成 thread 模块的公共 RPC：`internal/sidecar/orch/orchestration/service.go:127-141`
 
 **判断**
 
@@ -130,7 +130,7 @@ V3 现在没有标准的 thread 停止语义。现有“停止”能力分散在
 - thread store 持久化时总是写 `created`：`internal/module/thread/lifecycle.go:246-253`
 - `Archive/Unarchive` 只在 `archived` 和 `created` 间切换：`internal/module/thread/archive.go:5-20`
 - store 明明定义了 `ListRunning` / `ListRecoverable` / `ResetRunning` / `ExpireStale` / `RunningExists`，但引用搜索没有实际调用者：`internal/store/thread/contract.go:10-19`
-- orchestration 自己维护独立运行时状态 `agentRuntime.state/threadID`：`cmd/mcp-orch/orchestration/service.go:41-65,220-231`
+- orchestration 自己维护独立运行时状态 `agentRuntime.state/threadID`：`internal/sidecar/orch/orchestration/service.go:41-65,220-231`
 - thread row 自身不写 `AgentID`；`AgentID` 读取靠 binding 子查询推导：`internal/store/thread/contract.go:24-35`, `internal/store/sqlc/query_agent_thread.go:6-12,22-25`
 - binding 持久化时把 `ProviderThreadID` 和 `CodexThreadID` 都写成同一个 `state.ThreadID`：`internal/module/thread/lifecycle.go:262-267`
 
@@ -163,7 +163,7 @@ V3 现在没有标准的 thread 停止语义。现有“停止”能力分散在
 - `Start` / `Resume` / `Delete` / `Archive` 本身没有按 `threadID` 的串行化：`internal/module/thread/lifecycle.go:44-107`, `internal/module/thread/service.go:102-119`, `internal/module/thread/archive.go:5-20`
 - `RunningExists` 虽然存在，但完全没有调用者：`internal/store/thread/contract.go:19`
 - `SessionManager` 是按 `agentID` 单槽管理 session；新的 session 注册会 `ForceStop` 旧 session：`internal/provider/unified/session.go:30-46`
-- orchestration 的 `LaunchAgent` 也是按 `agentID` 加锁和判重，不是按 `threadID`：`cmd/mcp-orch/orchestration/service.go:110-125`
+- orchestration 的 `LaunchAgent` 也是按 `agentID` 加锁和判重，不是按 `threadID`：`internal/sidecar/orch/orchestration/service.go:110-125`
 - fork 场景会复用同一个 `agentID`，但新 fork thread 默认不写新 binding：`internal/module/thread/lifecycle.go:122-131`
 - fork thread 的 agent 关联只记在内存 map 里：`internal/module/thread/lifecycle.go:244,372-380`
 - `resolveBinding` 会通过这张 map 回退到共享 `agentID`：`internal/module/thread/service.go:196-201`
@@ -185,7 +185,7 @@ V3 现在没有标准的 thread 停止语义。现有“停止”能力分散在
 **证据**
 
 - thread service 自己不设 deadline，只把 `nil` context 变成 `Background()`：`internal/module/thread/lifecycle.go:341-345`
-- `internal/module/thread` 和 `cmd/mcp-orch/orchestration` 中都没有 `WithTimeout` 使用
+- `internal/module/thread` 和 `internal/sidecar/orch/orchestration` 中都没有 `WithTimeout` 使用
 - `codexapp` driver 有明确超时：
   - `initialize`: `10s`：`internal/provider/codexapp/driver.go:114-122`
   - `thread/start`: `30s`：`internal/provider/codexapp/driver.go:124-144`
@@ -362,7 +362,7 @@ V3 现在没有标准的 thread 停止语义。现有“停止”能力分散在
 
 **证据**
 
-- orchestration 会发布 agent 级事件：`cmd/mcp-orch/orchestration/events.go:13-64`
+- orchestration 会发布 agent 级事件：`internal/sidecar/orch/orchestration/events.go:13-64`
 - `codexapp` 会把 `thread/started`、`thread/status/changed`、`shutdown.complete` 等翻译成 `agentdto.*`：`internal/provider/codexapp/event_map.go:39-74`
 - RPC push 只订阅并转发：
   - `ui/state/changed`
@@ -414,7 +414,7 @@ V3 现在没有标准的 thread 停止语义。现有“停止”能力分散在
 ### 1. 对 `docs/plans/迁移/cap-turn-execution.md`
 
 1. `turn/start` 被评成“✅ 真正落地” (`docs/plans/迁移/cap-turn-execution.md:37-52`) 口径偏高。当前 `turn/start` handler 先强依赖 `resolver.ResolveSession(ctx, threadID)` 成功，见 `internal/module/turn/rpc.go:20-30,33-46`；而 resolver 又要求 thread store 能反查出非空 `AgentID`，且 `SessionManager` 里已经有活跃 session，见 `internal/provider/unified/session_resolver.go:34-45`、`internal/provider/unified/session.go:48-57`。也就是说，V3 现状不是“turn/start 自己闭环”，而是“已有 thread/session 前提下的 turn 执行链”。报告没有把这个前置条件记成能力缺口。
-2. `TurnCompleted` 被评成“⚠️ 仅 direct RPC 不闭环” (`docs/plans/迁移/cap-turn-execution.md:104-117`) 仍然偏乐观。即便走 orchestration queue，失败完成路径也可能不闭环：状态机只允许 `turn_starting --turn_completed--> idle`，不允许 `turn_starting --turn_aborted--> ...`，见 `internal/dto/agent/state.go:89-95`；但 `CompleteTurn(success=false)` 明确选择 `TriggerTurnAborted`，见 `cmd/mcp-orch/orchestration/service.go:341-348`。报告把这个问题只放在“额外风险” (`docs/plans/迁移/cap-turn-execution.md:241-242`)，没有反映进主判定，轻了一档。
+2. `TurnCompleted` 被评成“⚠️ 仅 direct RPC 不闭环” (`docs/plans/迁移/cap-turn-execution.md:104-117`) 仍然偏乐观。即便走 orchestration queue，失败完成路径也可能不闭环：状态机只允许 `turn_starting --turn_completed--> idle`，不允许 `turn_starting --turn_aborted--> ...`，见 `internal/dto/agent/state.go:89-95`；但 `CompleteTurn(success=false)` 明确选择 `TriggerTurnAborted`，见 `internal/sidecar/orch/orchestration/service.go:341-348`。报告把这个问题只放在“额外风险” (`docs/plans/迁移/cap-turn-execution.md:241-242`)，没有反映进主判定，轻了一档。
 3. approval 集成一节 (`docs/plans/迁移/cap-turn-execution.md:137-151`) 只批到了“统一事件交付/状态机闭环不完整”，但漏了更强的 correctness bug。`codexapp` 在收到审批通知时，会先 `dispatch` 原始 provider 事件，再异步 goroutine 进入 `requestToolApproval`，见 `internal/provider/codexapp/session.go:233-239`、`internal/provider/codexapp/session_approval.go:14-23`；而 pending 直到 `ApprovalManager.registerPending` 才建立，见 `internal/platform/rpc/approval.go:74-85,127-152`。这意味着前端可能先看到 approval request，但随后抢先发 `approval/respond` 仍然会命中不到 pending。这个竞态没有进入报告主结论。
 
 ### 2. 对 `docs/plans/迁移/cap-approval-lifecycle.md`

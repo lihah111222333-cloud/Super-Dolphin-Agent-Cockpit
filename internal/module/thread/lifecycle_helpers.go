@@ -10,14 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/historyjsonl"
-
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 const (
@@ -116,17 +109,17 @@ func (s *service) injectDefaultCodexIdentityForStart(req StartRequest) (StartReq
 	if req.Config == nil {
 		req.Config = make(map[string]any)
 	}
-	if configutil.ConfigString(req.Config, "codexHome") == "" {
+	if kernel.ConfigString(req.Config, "codexHome") == "" {
 		home, err := contract.CanonicalAppManagedCodexHome()
 		if err != nil {
 			return req, err
 		}
 		req.Config["codexHome"] = home
 	}
-	if configutil.ConfigString(req.Config, "codexInstanceKey") == "" {
+	if kernel.ConfigString(req.Config, "codexInstanceKey") == "" {
 		req.Config["codexInstanceKey"] = defaultCodexInstanceKey
 	}
-	if configutil.ConfigString(req.Config, "codexModelProvider") == "" {
+	if kernel.ConfigString(req.Config, "codexModelProvider") == "" {
 		req.Config["codexModelProvider"] = defaultCodexModelProvider
 	}
 	return req, nil
@@ -180,7 +173,7 @@ func validateResumeCodexIdentityPresentString(value any, present bool, key strin
 }
 
 // injectParentCodexIdentity 处理injectparentcodex身份。
-func injectParentCodexIdentity(cfg map[string]any, parent *bindingstore.Binding) (map[string]any, bool) {
+func injectParentCodexIdentity(cfg map[string]any, parent *contract.Binding) (map[string]any, bool) {
 	home := strings.TrimSpace(parent.CodexHome)
 	instanceKey := strings.TrimSpace(parent.CodexInstanceKey)
 	modelProvider := strings.TrimSpace(parent.CodexModelProvider)
@@ -196,7 +189,7 @@ func injectParentCodexIdentity(cfg map[string]any, parent *bindingstore.Binding)
 		"codexInstanceKey":   instanceKey,
 		"codexModelProvider": modelProvider,
 	} {
-		if configutil.ConfigString(cfg, key) == "" {
+		if kernel.ConfigString(cfg, key) == "" {
 			cfg[key], injected = value, true
 		}
 	}
@@ -266,7 +259,7 @@ func (s *service) ReadThreadStateRuntimeConfig(ctx context.Context, threadID str
 	if err != nil {
 		return nil, err
 	}
-	return clone.RuntimeConfigMap(offline.Runtime), nil
+	return kernel.CloneRuntimeConfigMap(offline.Runtime), nil
 }
 
 func buildLaunchRequest(
@@ -351,11 +344,11 @@ func (s *service) recoverAgent(
 	return s.launchAgent(ctx, agentID, cwd, name, parentID, agentType, memoryScope, provider, model)
 }
 
-func bindingPublicThreadID(binding *bindingstore.Binding, fallback string) string {
+func bindingPublicThreadID(binding *contract.Binding, fallback string) string {
 	if binding == nil {
 		return strings.TrimSpace(fallback)
 	}
-	return util.FirstNonEmpty(binding.CodexThreadID, fallback)
+	return kernel.FirstNonEmpty(binding.CodexThreadID, fallback)
 }
 
 func firstNonZero(values ...int64) int64 {
@@ -400,8 +393,8 @@ func (s *service) upsertPublicThread(
 	if s.threadStore == nil {
 		return errors.New("thread: thread store is not configured")
 	}
-	displayName := strings.TrimSpace(util.FirstNonEmpty(state.Name, state.Prompt))
-	err := s.threadStore.Upsert(ctx, newThreadUpsertParams(threadstore.Thread{
+	displayName := strings.TrimSpace(kernel.FirstNonEmpty(state.Name, state.Prompt))
+	err := s.threadStore.Upsert(ctx, newThreadUpsertParams(contract.Thread{
 		ThreadID:        state.PublicThreadID,
 		Name:            displayName,
 		Prompt:          displayName,
@@ -411,7 +404,7 @@ func (s *service) upsertPublicThread(
 		CreatedAt:       state.CreatedAt,
 		UpdatedAt:       time.Now().Unix(),
 		OwnerThreadID:   state.OwnerThreadID,
-		ConfigOverride:  clone.RawMessage(state.ConfigOverride),
+		ConfigOverride:  kernel.CloneRawMessage(state.ConfigOverride),
 		AgentKey:        state.AgentKey,
 		PromptVersionID: state.PromptVersionID,
 	}))
@@ -429,7 +422,7 @@ func (s *service) rememberStartedThread(state threadState) {
 	s.rememberThreadAgent(state.ProviderThreadID, state.AgentID)
 }
 
-func historyTargetID(binding *bindingstore.Binding, threadID string) string {
+func historyTargetID(binding *contract.Binding, threadID string) string {
 	requestedID := strings.TrimSpace(threadID)
 	if binding == nil {
 		return requestedID
@@ -439,15 +432,15 @@ func historyTargetID(binding *bindingstore.Binding, threadID string) string {
 	if requestedID != "" && requestedID != publicThreadID && requestedID != agentID {
 		return requestedID
 	}
-	return util.FirstNonEmpty(binding.ProviderThreadID, publicThreadID, agentID, requestedID)
+	return kernel.FirstNonEmpty(binding.ProviderThreadID, publicThreadID, agentID, requestedID)
 }
 
 func recoverableProviderThreadID(provider, providerUUID, publicThreadID, rolloutPath, codexHome string) string {
 	providerThreadID := normalizeProviderThreadID(provider, providerUUID)
-	if providerThreadID == "" || !identifier.LooksLikeUUID(providerThreadID) {
+	if providerThreadID == "" || !kernel.LooksLikeUUID(providerThreadID) {
 		return ""
 	}
-	if _, err := historyjsonl.ExistingProviderPath(historyjsonl.ReadRequest{
+	if _, err := kernel.ExistingProviderPath(kernel.ProviderHistoryReadRequest{
 		Provider:         provider,
 		RolloutPath:      rolloutPath,
 		ThreadID:         publicThreadID,
@@ -461,13 +454,13 @@ func recoverableProviderThreadID(provider, providerUUID, publicThreadID, rollout
 }
 
 // recoverableBindingProviderThreadID 处理recoverablebindingprovider线程ID。
-func recoverableBindingProviderThreadID(binding *bindingstore.Binding) string {
+func recoverableBindingProviderThreadID(binding *contract.Binding) string {
 	if binding == nil {
 		return ""
 	}
 	for _, candidate := range []string{binding.ProviderThreadID, binding.SessionUUID} {
 		providerThreadID := normalizeProviderThreadID(binding.Provider, candidate)
-		if providerThreadID == "" || !identifier.LooksLikeUUID(providerThreadID) {
+		if providerThreadID == "" || !kernel.LooksLikeUUID(providerThreadID) {
 			continue
 		}
 		if bindingHasProviderHistoryForUUID(binding, providerThreadID) {
@@ -477,15 +470,15 @@ func recoverableBindingProviderThreadID(binding *bindingstore.Binding) string {
 	return ""
 }
 
-func bindingHasProviderHistoryForUUID(binding *bindingstore.Binding, providerThreadID string) bool {
+func bindingHasProviderHistoryForUUID(binding *contract.Binding, providerThreadID string) bool {
 	if binding == nil {
 		return false
 	}
 	providerThreadID = normalizeProviderThreadID(binding.Provider, providerThreadID)
-	if providerThreadID == "" || !identifier.LooksLikeUUID(providerThreadID) {
+	if providerThreadID == "" || !kernel.LooksLikeUUID(providerThreadID) {
 		return false
 	}
-	_, err := historyjsonl.ExistingProviderPath(historyjsonl.ReadRequest{
+	_, err := kernel.ExistingProviderPath(kernel.ProviderHistoryReadRequest{
 		Provider:         binding.Provider,
 		RolloutPath:      binding.RolloutPath,
 		ThreadID:         binding.CodexThreadID,
@@ -496,8 +489,8 @@ func bindingHasProviderHistoryForUUID(binding *bindingstore.Binding, providerThr
 	return err == nil
 }
 
-func toRef(thread threadstore.Thread) Ref {
-	name := strings.TrimSpace(util.FirstNonEmpty(thread.Name, thread.Prompt))
+func toRef(thread contract.Thread) Ref {
+	name := strings.TrimSpace(kernel.FirstNonEmpty(thread.Name, thread.Prompt))
 	return Ref{
 		ID:        strings.TrimSpace(thread.ThreadID),
 		Name:      name,
@@ -517,7 +510,7 @@ func normalizeThreadID(threadID string) (string, error) {
 	return "", errors.New("thread id is required")
 }
 
-func agentIDFromBinding(binding *bindingstore.Binding, fallback string) string {
+func agentIDFromBinding(binding *contract.Binding, fallback string) string {
 	if binding != nil {
 		if agentID := strings.TrimSpace(binding.AgentID); agentID != "" {
 			return agentID
@@ -544,7 +537,7 @@ type messagePageReaderSession interface {
 	ReadMessagesPage(ctx context.Context, threadID string, req dto.MessagePageRequest) (dto.MessagePageResult, error)
 }
 
-func (s *service) readMessagesPageSource(ctx context.Context, threadID string, binding *bindingstore.Binding, req dto.MessagePageRequest) (dto.MessagePageResult, error) {
+func (s *service) readMessagesPageSource(ctx context.Context, threadID string, binding *contract.Binding, req dto.MessagePageRequest) (dto.MessagePageResult, error) {
 	req.Limit = normalizeMessagesPageLimit(req.Limit)
 	req.Before = strings.TrimSpace(req.Before)
 	session, err := s.sessionForBinding(binding)
@@ -557,21 +550,21 @@ func (s *service) readMessagesPageSource(ctx context.Context, threadID string, b
 		return dto.MessagePageResult{}, err
 	}
 	historyReq := readMessagesHistoryRequestForSession(threadID, binding, nil)
-	return historyjsonl.ReadProviderMessagesPageOrError(historyReq, req, err)
+	return kernel.ReadProviderMessagesPageOrError(historyReq, req, err)
 }
 
 // readMessagesPageFromSession 从会话读取消息page。
-func (s *service) readMessagesPageFromSession(ctx context.Context, threadID string, binding *bindingstore.Binding, session contract.Session, req dto.MessagePageRequest) (dto.MessagePageResult, error) {
+func (s *service) readMessagesPageFromSession(ctx context.Context, threadID string, binding *contract.Binding, session contract.Session, req dto.MessagePageRequest) (dto.MessagePageResult, error) {
 	targetID := historyTargetID(binding, threadID)
 	if pager, ok := session.(messagePageReaderSession); ok {
 		return pager.ReadMessagesPage(ctx, targetID, req)
 	}
 	historyReq := readMessagesHistoryRequestForSession(threadID, binding, session)
-	page, pageErr := historyjsonl.ReadProviderMessagesPage(historyReq, req)
+	page, pageErr := kernel.ReadProviderMessagesPage(historyReq, req)
 	if pageErr == nil {
 		return page, nil
 	}
-	if req.Before != "" || !historyjsonl.IsMissingProviderHistory(pageErr) {
+	if req.Before != "" || !kernel.IsMissingProviderHistory(pageErr) {
 		return dto.MessagePageResult{}, pageErr
 	}
 	messages, err := session.ReadHistory(ctx, targetID, req.Limit)
@@ -582,26 +575,26 @@ func (s *service) readMessagesPageFromSession(ctx context.Context, threadID stri
 }
 
 // readMessagesSource 读取消息source。
-func readMessagesHistoryRequestForSession(threadID string, binding *bindingstore.Binding, session contract.Session) historyjsonl.ReadRequest {
-	req := historyjsonl.ReadRequest{ThreadID: strings.TrimSpace(threadID)}
+func readMessagesHistoryRequestForSession(threadID string, binding *contract.Binding, session contract.Session) kernel.ProviderHistoryReadRequest {
+	req := kernel.ProviderHistoryReadRequest{ThreadID: strings.TrimSpace(threadID)}
 	if binding != nil {
 		sessionID := ""
 		if session != nil {
 			sessionID = strings.TrimSpace(session.ThreadID())
 		}
-		req = historyjsonl.ReadRequest{
+		req = kernel.ProviderHistoryReadRequest{
 			Provider:         binding.Provider,
 			RolloutPath:      binding.RolloutPath,
-			ThreadID:         util.FirstNonEmpty(binding.CodexThreadID, sessionID, threadID),
+			ThreadID:         kernel.FirstNonEmpty(binding.CodexThreadID, sessionID, threadID),
 			ProviderThreadID: binding.ProviderThreadID,
-			SessionUUID:      util.FirstNonEmpty(binding.SessionUUID, sessionID),
+			SessionUUID:      kernel.FirstNonEmpty(binding.SessionUUID, sessionID),
 			CodexHome:        binding.CodexHome,
 		}
 	}
 	return req
 }
 
-func (s *service) sessionForBinding(binding *bindingstore.Binding) (contract.Session, error) {
+func (s *service) sessionForBinding(binding *contract.Binding) (contract.Session, error) {
 	if binding == nil {
 		return nil, errors.New("thread binding is not configured")
 	}

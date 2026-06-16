@@ -87,7 +87,7 @@
 主要证据：
 
 - `session-summary.md:3-4` 标注生成时间为 `2026-03-20`，会话范围停在 `P0-P5 波次 1`。
-- `session-summary.md:48` 仍写“DAG 方法 TODO 骨架”。当前 `cmd/mcp-orch/orchestration/dag.go:14-79` 已实现 `CreateDAG/GetDAG/ListDAGs/UpdateNodeStatus`，`cmd/mcp-orch/orchestration/rpc.go:61-75` 已接入对应 handler，`orchestration/report` 也已改成 `GetReport` 读路径。
+- `session-summary.md:48` 仍写“DAG 方法 TODO 骨架”。当前 `internal/sidecar/orch/orchestration/dag.go:14-79` 已实现 `CreateDAG/GetDAG/ListDAGs/UpdateNodeStatus`，`internal/sidecar/orch/orchestration/rpc.go:61-75` 已接入对应 handler，`orchestration/report` 也已改成 `GetReport` 读路径。
 - `session-summary.md:58-63` 仍写 “P5 波次 2 审查+互辩中，P6 入口层待开工，P7 工具层待开工”。当前 `internal/app/modules.go:23-44` 已把 `skill/thread/turn/orchestration/workspace` 装入主应用，`cmd/agent-terminal/main.go:10-14` 已走 `app.RunDesktop()`，`internal/ui/wails/module.go:17-28` 与 `internal/app/app.go:29-50` 已形成桌面路径。
 - `session-summary.md:19` 的 `~68%` 覆盖度不是当前 HEAD 的新鲜统计；仓内搜索这个百分比只落在 `session-summary.md` 和较早的 `v2-v3-alignment-report.md`。
 
@@ -124,7 +124,7 @@
 
 - 工具面总数 `20` 是对的，且与 `audit-mcp-orch-tools.md:13-16` 的最新审查一致。
 - 但 `p8-execution-plan.md:21-24` 的 V3 可复用资产行数已经不是当前精确值：
-  - 文档写 `orchestration/rpc.go = 218`，当前末行是 `cmd/mcp-orch/orchestration/rpc.go:218`，即 217 行正文。
+  - 文档写 `orchestration/rpc.go = 218`，当前末行是 `internal/sidecar/orch/orchestration/rpc.go:218`，即 217 行正文。
   - 文档写 `workspace/rpc.go = 152`，当前末行是 `internal/module/workspace/rpc.go:137`。
   - 文档写 `skill/rpc.go = 103`，当前末行是 `internal/module/skill/rpc.go:102`。
   - 文档写 `skill/cards.go = 200`，当前末行是 `internal/module/skill/cards.go:199`。

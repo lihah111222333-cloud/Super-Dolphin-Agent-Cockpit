@@ -10,10 +10,10 @@
 
 ## 现状校准（事实层）
 
-- 共享 launcher 入口：`cmd/mcp-orch/tools/orchestration_tools.go:38-57` → `cmd/mcp-orch/orchestration/service.go:299-301` → `cmd/mcp-orch/orchestration/service_launcher_bridge.go:54-64`
-- prompt 自动投递路径：`cmd/mcp-orch/orchestration/service_launcher_bridge.go:89-119`（已确认 first-turn 路径存在）
-- launcher：`cmd/mcp-orch/orchestration/service_launcher_bridge.go` 当前无固定并发上限
-- wakeup 表 SQL：`migrations/0023_dag_watcher_phase1.sql:9-30`、`cmd/mcp-orch/sql/queries/task_dag_wakeup_query.sql`
+- 共享 launcher 入口：`internal/sidecar/orch/tools/orchestration_tools.go:38-57` → `internal/sidecar/orch/orchestration/service.go:299-301` → `internal/sidecar/orch/orchestration/service_launcher_bridge.go:54-64`
+- prompt 自动投递路径：`internal/sidecar/orch/orchestration/service_launcher_bridge.go:89-119`（已确认 first-turn 路径存在）
+- launcher：`internal/sidecar/orch/orchestration/service_launcher_bridge.go` 当前无固定并发上限
+- wakeup 表 SQL：`migrations/0023_dag_watcher_phase1.sql:9-30`、`internal/sidecar/orch/sql/queries/task_dag_wakeup_query.sql`
 - node→agent 绑定 SQL：`task_dag_node_runtime.sql:1-11`（绑定 turn 需 running + wakeup fence）
 
 ## 推荐架构
@@ -30,9 +30,9 @@ Dispatcher 只接管 P0 watcher claim 后的 launch/bind 半程，采用 durable
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| dispatcher actor | `cmd/mcp-orch/orchestration/dag_dispatcher_actor.go` | 消费 due wakeup，持久化 launch intent，调用 launcher，执行 `BindRunningNodeTurn` |
-| launch intent DDL/SQL | `migrations/0065_dag_state_machine.sql`（首选并入；拆分时仅允许 `0065a/0065b` no-conflict）+ `cmd/mcp-orch/sql/queries/task_dag_launch_intent.sql` | `idempotency_key` 唯一、status 枚举、crash recovery 查询 |
-| store/service contract | `cmd/mcp-orch/store/taskdag/*`、`cmd/mcp-orch/orchestration/dag_launch_intent.go` | `UpsertLaunchIntent` / `MarkLauncherAccepted` / `BindRunningNodeTurn` / stale conflict 处理 |
+| dispatcher actor | `internal/sidecar/orch/orchestration/dag_dispatcher_actor.go` | 消费 due wakeup，持久化 launch intent，调用 launcher，执行 `BindRunningNodeTurn` |
+| launch intent DDL/SQL | `migrations/0065_dag_state_machine.sql`（首选并入；拆分时仅允许 `0065a/0065b` no-conflict）+ `internal/sidecar/orch/sql/queries/task_dag_launch_intent.sql` | `idempotency_key` 唯一、status 枚举、crash recovery 查询 |
+| store/service contract | `internal/sidecar/orch/store/taskdag/*`、`internal/sidecar/orch/orchestration/dag_launch_intent.go` | `UpsertLaunchIntent` / `MarkLauncherAccepted` / `BindRunningNodeTurn` / stale conflict 处理 |
 
 **已知关键改动方向**：
 - `dagDispatcherActor.Run(ctx)` 主循环：`ClaimDueWakeups` → 持久化 `launch_intent`（deterministic idempotency key）→ 调 launcher 或 submit turn（幂等返回 `{agent_id, thread_id, turn_id, accepted_at}` 或 deterministic `ExpectedTurnID`）→ `BindRunningNodeTurn` CAS → `MarkWakeupSent/acked`

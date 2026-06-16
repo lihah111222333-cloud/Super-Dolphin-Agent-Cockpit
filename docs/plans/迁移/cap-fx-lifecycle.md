@@ -22,7 +22,7 @@
 - 通过 `Store` 接口引用反查，当前只有 5 个被应用层消费：
   - `binding.Store`：`internal/module/thread/service.go:29,43`
   - `commandcard.Store`：`internal/module/skill/module.go:20-26`、`internal/module/skill/service.go:20,29`
-  - `taskdag.Store`：`cmd/mcp-orch/orchestration/service.go:34,85`、`cmd/mcp-orch/orchestration/dag.go:20,81,88,103,112`
+  - `taskdag.Store`：`internal/sidecar/orch/orchestration/service.go:34,85`、`internal/sidecar/orch/orchestration/dag.go:20,81,88,103,112`
   - `thread.Store`：`internal/module/thread/service.go:28,42`、`internal/provider/unified/session_resolver.go:13,19`
   - `workspace.Store`：`internal/module/workspace/module.go:10-13`、`internal/module/workspace/service.go:37,45`
 - 下列 store provider 仅在各自 `contract.go` 与 `store.go` 自身出现，当前 app graph 没有消费者：
@@ -46,10 +46,10 @@
 ### R2. graceful shutdown 顺序与目标不一致
 
 - `BindRuntime` 的 `OnStop` 最后注册，因此最先执行：`internal/app/runner.go:32-69`。
-- 它先 `cancel()` 运行时 context，触发 `runnerActor.Run()` 进入 `ctx.Done()` 分支，然后 `stopAll()`：`cmd/mcp-orch/orchestration/runner_actor.go:37-40,79-81`。
+- 它先 `cancel()` 运行时 context，触发 `runnerActor.Run()` 进入 `ctx.Done()` 分支，然后 `stopAll()`：`internal/sidecar/orch/orchestration/runner_actor.go:37-40,79-81`。
 - `StopAllAgents()` 内部顺序是：
-  - 先 `stopAgentLocked()`，实际是 `cmd.Process.Kill()`：`cmd/mcp-orch/orchestration/service.go:143-164`、`cmd/mcp-orch/orchestration/helpers.go:303-308`
-  - 再 `removeSession(agent.id)`：`cmd/mcp-orch/orchestration/service.go:147-150`
+  - 先 `stopAgentLocked()`，实际是 `cmd.Process.Kill()`：`internal/sidecar/orch/orchestration/service.go:143-164`、`internal/sidecar/orch/orchestration/helpers.go:303-308`
+  - 再 `removeSession(agent.id)`：`internal/sidecar/orch/orchestration/service.go:147-150`
   - `removeSession` 通过 `SessionCleaner` 走到 `SessionManager.Remove()`，并立即 `session.Close(context.Background())`：`internal/provider/unified/session_adapter.go:34-39`、`internal/provider/unified/session.go:59-82`
 - 也就是说，真实顺序不是“session close -> agent stop”，而是“agent kill 与 per-agent session close 交织执行”，然后 `unified.registerSessionShutdown` 再兜底关闭剩余 session：`internal/provider/unified/module.go:33-43`
 - 之后才是订阅解绑与基础设施关闭。按 hook 注册顺序反推，headless 的 `OnStop` 顺序是：
@@ -61,7 +61,7 @@
   - `db.registerLifecycle`
 - 证据：
   - 模块装配顺序：`internal/app/modules.go:23-44`
-  - hook 注册点：`internal/platform/db/module.go:28-40`、`internal/platform/bus/module.go:25-35`、`internal/platform/rpc/module.go:51-69`、`cmd/mcp-orch/orchestration/module.go:25-53`、`internal/provider/unified/module.go:33-43`
+  - hook 注册点：`internal/platform/db/module.go:28-40`、`internal/platform/bus/module.go:25-35`、`internal/platform/rpc/module.go:51-69`、`internal/sidecar/orch/orchestration/module.go:25-53`、`internal/provider/unified/module.go:33-43`
   - Fx 本地源码明确 `OnStop` 逆序执行：`/Users/mima0000/go/pkg/mod/go.uber.org/fx@v1.24.0/app.go:709-732`
 - 结论：目标顺序“session close -> agent stop -> db close -> bus stop”目前不成立；实际更接近“agent stop/RemoveSession -> leftover session close -> subscription stop -> bus stop -> db close”。
 
@@ -106,11 +106,11 @@
 
 - 已有 recover：
   - `platformbus.ResilientSubscribe` 会 recover 回调 panic 并记日志：`internal/platform/bus/resilient.go:10-29`
-  - orchestration / rpc push / wails bridge 都用它：`cmd/mcp-orch/orchestration/module.go:33-44`、`internal/platform/rpc/push.go:82-90`、`internal/ui/wails/bridge.go:53-63`
+  - orchestration / rpc push / wails bridge 都用它：`internal/sidecar/orch/orchestration/module.go:33-44`、`internal/platform/rpc/push.go:82-90`、`internal/ui/wails/bridge.go:53-63`
 - 但没有全局保护：
   - 没有 `fx.RecoverFromPanics`
   - `BindRuntime` goroutine 无 recover：`internal/app/runner.go:37-53`
-  - `runnerActor.Run()` / `waitForExit()` 无 recover：`cmd/mcp-orch/orchestration/runner_actor.go:26-60`
+  - `runnerActor.Run()` / `waitForExit()` 无 recover：`internal/sidecar/orch/orchestration/runner_actor.go:26-60`
   - `rpc.Server` accept/serve goroutine 无 recover：`internal/platform/rpc/server.go:92-125`
   - `claudecli.startReadLoop()` 无 recover：`internal/provider/claudecli/session_events.go:13-30`
   - `codexapp` read loop / approval / recovery goroutine 无 recover：`internal/provider/codexapp/session_readloop.go:5-41`、`internal/provider/codexapp/session_approval.go:19-23`、`internal/provider/codexapp/session_recovery.go:29-57`
@@ -150,7 +150,7 @@
 - grouped provider 都有消费者：
   - `group:"drivers"`：`internal/provider/claudecli/module.go:21-26`、`internal/provider/codexapp/module.go:26-31` -> `internal/provider/unified/registry.go:15-25`
   - `group:"rpc_handlers"`：`internal/module/{skill,thread,turn,orchestration,workspace}/rpc.go` -> `internal/platform/rpc/module.go:47-49`
-  - `group:"runners"`：`internal/app/modules.go:40-48` 的 `AsRPCRunner` + `cmd/mcp-orch/orchestration/module.go:16-23` 的 `NewRunnerActor` -> `internal/app/runner.go:23-24,38-40`
+  - `group:"runners"`：`internal/app/modules.go:40-48` 的 `AsRPCRunner` + `internal/sidecar/orch/orchestration/module.go:16-23` 的 `NewRunnerActor` -> `internal/app/runner.go:23-24,38-40`
 - singleton provider 里，`newThreadOrchestrationFacade` 也不是悬空：`internal/app/thread_orchestration_adapter.go:14-16` 被 `thread.NewService` 消费：`internal/module/thread/service.go:46-57`
 - 明确的 dead code：
   - `internal/ui/wails/runner.go:16-35` 没有 caller，也没有被 `uiwails.Module` 注册
@@ -253,7 +253,7 @@
 - 已看到的主要 goroutine 与退出条件：
   - `watchFXShutdown`：`app.Done()` 或 `stop` channel，见 `internal/app/app.go:78-88`
   - `BindRuntime`：`RunGroup` 返回，`OnStop` 等 `done`，见 `internal/app/runner.go:29-69`
-  - `runnerActor` waiter：`cmd.Wait()` 返回；shutdown 时由 `StopAllAgents` kill 进程，见 `cmd/mcp-orch/orchestration/runner_actor.go:48-60`
+  - `runnerActor` waiter：`cmd.Wait()` 返回；shutdown 时由 `StopAllAgents` kill 进程，见 `internal/sidecar/orch/orchestration/runner_actor.go:48-60`
   - turn watch goroutine：`handle.Done()` 或 `trackerTTL`，见 `internal/module/turn/service.go:173-203`
   - rpc serveConn goroutine：连接 ctx 结束，见 `internal/platform/rpc/server.go:103-125`
   - claude transport wait goroutine：进程退出，见 `internal/provider/claudecli/transport.go:60-63,137-143`

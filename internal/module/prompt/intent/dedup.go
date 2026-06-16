@@ -6,14 +6,13 @@ import (
 	"unicode"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 const promptIntentDuplicateListLimit = 1000
 
 func promptIntentDuplicateIssues(
 	ctx context.Context,
-	store promptstore.Store,
+	store contract.PromptStore,
 	builtin contract.BuiltinPromptRegistry,
 	cwd string,
 	kind Kind,
@@ -21,7 +20,7 @@ func promptIntentDuplicateIssues(
 	card Card,
 	targetGlobal bool,
 ) ([]Issue, error) {
-	templates, err := store.List(ctx, promptstore.ListFilter{CWD: cwd, Limit: promptIntentDuplicateListLimit})
+	templates, err := store.List(ctx, contract.PromptListFilter{CWD: cwd, Limit: promptIntentDuplicateListLimit})
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +47,7 @@ func promptIntentDuplicateIssuesFromBuiltin(
 	candidateTitleSlug := stableSlug(card.Title)
 	var issues []Issue
 	for _, template := range builtin.ListTemplates() {
-		mapped := promptstore.PromptTemplate{
+		mapped := contract.PromptTemplate{
 			ID:          template.ID,
 			PromptKey:   template.PromptKey,
 			Title:       template.Title,
@@ -71,11 +70,11 @@ func promptIntentDuplicateIssuesFromBuiltin(
 	return issues
 }
 
-func promptIntentBuiltinSections(templateID int64, builtin contract.BuiltinPromptRegistry) []promptstore.PromptTemplateSection {
+func promptIntentBuiltinSections(templateID int64, builtin contract.BuiltinPromptRegistry) []contract.PromptTemplateSection {
 	sections := builtin.SectionsByTemplateID(templateID)
-	out := make([]promptstore.PromptTemplateSection, 0, len(sections))
+	out := make([]contract.PromptTemplateSection, 0, len(sections))
 	for _, section := range sections {
-		out = append(out, promptstore.PromptTemplateSection{
+		out = append(out, contract.PromptTemplateSection{
 			ID:          section.ID,
 			TemplateID:  section.TemplateID,
 			SectionKey:  section.SectionKey,
@@ -91,9 +90,9 @@ func promptIntentBuiltinSections(templateID int64, builtin contract.BuiltinPromp
 // promptIntentSectionsByTemplateID 按templateID处理promptintentsections。
 func promptIntentSectionsByTemplateID(
 	ctx context.Context,
-	store promptstore.Store,
-	templates []promptstore.PromptTemplate,
-) (map[int64][]promptstore.PromptTemplateSection, error) {
+	store contract.PromptStore,
+	templates []contract.PromptTemplate,
+) (map[int64][]contract.PromptTemplateSection, error) {
 	ids := make([]int64, 0, len(templates))
 	for _, template := range templates {
 		if template.ID != 0 {
@@ -101,13 +100,13 @@ func promptIntentSectionsByTemplateID(
 		}
 	}
 	if len(ids) == 0 {
-		return map[int64][]promptstore.PromptTemplateSection{}, nil
+		return map[int64][]contract.PromptTemplateSection{}, nil
 	}
 	sections, err := store.ListSectionsByTemplateIDs(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
-	out := map[int64][]promptstore.PromptTemplateSection{}
+	out := map[int64][]contract.PromptTemplateSection{}
 	for _, section := range sections {
 		out[section.TemplateID] = append(out[section.TemplateID], section)
 	}
@@ -120,8 +119,8 @@ func promptIntentDuplicateIssuesFromTemplates(
 	kind Kind,
 	rawInput string,
 	card Card,
-	templates []promptstore.PromptTemplate,
-	sectionsByID map[int64][]promptstore.PromptTemplateSection,
+	templates []contract.PromptTemplate,
+	sectionsByID map[int64][]contract.PromptTemplateSection,
 	targetGlobal bool,
 ) []Issue {
 	candidateText := promptIntentCandidateText(rawInput, card)
@@ -160,8 +159,8 @@ func promptIntentBuiltinDuplicateIssue(kind Kind, rawInput string) Issue {
 
 func promptIntentTemplateDuplicates(
 	candidateTitleSlug, candidateText string,
-	template promptstore.PromptTemplate,
-	sections []promptstore.PromptTemplateSection,
+	template contract.PromptTemplate,
+	sections []contract.PromptTemplateSection,
 ) bool {
 	if candidateTitleSlug != "" && candidateTitleSlug != "prompt" && candidateTitleSlug == stableSlug(template.Title) {
 		return true
@@ -185,7 +184,7 @@ func promptIntentCandidateText(rawInput string, card Card) string {
 	}, "\n")
 }
 
-func promptIntentTemplateComparableText(template promptstore.PromptTemplate, sections []promptstore.PromptTemplateSection) string {
+func promptIntentTemplateComparableText(template contract.PromptTemplate, sections []contract.PromptTemplateSection) string {
 	parts := []string{template.Title, template.Description, template.WhenToUse, template.PromptText}
 	for _, section := range sections {
 		if section.Enabled {
@@ -259,12 +258,12 @@ func promptIntentComparableText(value string) string {
 	return strings.TrimSpace(b.String())
 }
 
-func promptIntentTemplateVisibleForCWD(template promptstore.PromptTemplate, cwd string) bool {
+func promptIntentTemplateVisibleForCWD(template contract.PromptTemplate, cwd string) bool {
 	requestScope := strings.TrimSpace(cwd)
 	if requestScope == "" {
 		return true
 	}
-	for _, tag := range promptstore.TemplateTags(template.Tags) {
+	for _, tag := range contract.PromptTemplateTags(template.Tags) {
 		if value, ok := strings.CutPrefix(strings.TrimSpace(tag), promptScopeTagPrefix); ok {
 			return strings.TrimSpace(value) == requestScope
 		}
@@ -272,7 +271,7 @@ func promptIntentTemplateVisibleForCWD(template promptstore.PromptTemplate, cwd 
 	return true
 }
 
-func promptIntentRecallDuplicateConflicts(targetGlobal bool, template promptstore.PromptTemplate, cwd string) bool {
+func promptIntentRecallDuplicateConflicts(targetGlobal bool, template contract.PromptTemplate, cwd string) bool {
 	if targetGlobal && promptIntentTemplateHasCurrentProjectOnlyScope(template, cwd) {
 		return false
 	}
@@ -282,21 +281,21 @@ func promptIntentRecallDuplicateConflicts(targetGlobal bool, template promptstor
 	return true
 }
 
-func promptIntentTemplateHasCurrentProjectOnlyScope(template promptstore.PromptTemplate, cwd string) bool {
+func promptIntentTemplateHasCurrentProjectOnlyScope(template contract.PromptTemplate, cwd string) bool {
 	hasCurrentProject, hasGlobal := promptIntentTemplateScopeFlags(template, cwd)
 	return hasCurrentProject && !hasGlobal
 }
 
-func promptIntentTemplateHasGlobalOnlyScope(template promptstore.PromptTemplate, cwd string) bool {
+func promptIntentTemplateHasGlobalOnlyScope(template contract.PromptTemplate, cwd string) bool {
 	hasCurrentProject, hasGlobal := promptIntentTemplateScopeFlags(template, cwd)
 	return hasGlobal && !hasCurrentProject
 }
 
-func promptIntentTemplateScopeFlags(template promptstore.PromptTemplate, cwd string) (bool, bool) {
+func promptIntentTemplateScopeFlags(template contract.PromptTemplate, cwd string) (bool, bool) {
 	want := promptScopeTagPrefix + strings.TrimSpace(cwd)
 	hasCurrentProject := false
 	hasGlobal := false
-	for _, tag := range promptstore.TemplateTags(template.Tags) {
+	for _, tag := range contract.PromptTemplateTags(template.Tags) {
 		switch strings.TrimSpace(tag) {
 		case want:
 			hasCurrentProject = want != promptScopeTagPrefix
@@ -307,7 +306,7 @@ func promptIntentTemplateScopeFlags(template promptstore.PromptTemplate, cwd str
 	return hasCurrentProject, hasGlobal
 }
 
-func promptIntentTemplateLooksBuiltin(template promptstore.PromptTemplate) bool {
+func promptIntentTemplateLooksBuiltin(template contract.PromptTemplate) bool {
 	return promptIntentAuthorLooksSystem(template.CreatedBy) || promptIntentAuthorLooksSystem(template.UpdatedBy)
 }
 
@@ -316,7 +315,7 @@ func promptIntentAuthorLooksSystem(author string) bool {
 	return strings.HasPrefix(normalized, "system") || strings.Contains(normalized, "seed") || strings.Contains(normalized, "migration")
 }
 
-func promptIntentRecallTopicExists(topic string, sections []promptstore.PromptTemplateSection) bool {
+func promptIntentRecallTopicExists(topic string, sections []contract.PromptTemplateSection) bool {
 	topic = strings.TrimSpace(topic)
 	if topic == "" {
 		return false

@@ -12,14 +12,14 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 func ensureLocalTurnID(localID string) string {
 	if localID = strings.TrimSpace(localID); localID != "" {
 		return localID
 	}
-	return idgen.NewID("turn")
+	return kernel.NewID("turn")
 }
 
 func isTerminalTurnState(state string) bool {

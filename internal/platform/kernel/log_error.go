@@ -1,12 +1,12 @@
 package kernel
 
 import (
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// LogIgnoredError delegates to util.LogIgnoredError.
-// LogIgnoredError 处理日志ignored错误。
+// LogIgnoredError records an error that a boundary intentionally does not return.
 func LogIgnoredError(logger *pkglogger.Logger, msg string, err error) {
-	util.LogIgnoredError(logger, msg, err)
+	if err != nil && logger != nil {
+		logger.Warn(msg, "error", err)
+	}
 }

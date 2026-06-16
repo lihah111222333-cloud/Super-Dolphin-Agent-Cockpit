@@ -203,7 +203,7 @@ Use separate agents for independent ownership lanes. Agents must not edit files 
 | C | Launch integration | `run-debug.sh`, `Makefile`, `scripts/run_debug_dev_dsn_guard_test.go` | B |
 | D | Codex/LSP artifact staging | `scripts/dev_runtime.sh`, `scripts/prepare_lsp_bundle_*`, package guard tests | A, B |
 | E | Verifier and smoke tests | `scripts/verify_dev_runtime.sh`, `scripts/*guard_test.go` | A, B, D |
-| F | Docs and migration notes | `docs/packaging/*.md`, this plan updates | B, C, E |
+| F | Docs and migration notes | `docs/运维发布/打包发布/*.md`, this plan updates | B, C, E |
 
 Suggested execution order:
 
@@ -311,7 +311,7 @@ Minimum node metadata:
   - Add `dev-runtime-prepare`, `dev-runtime-verify`, and `run-agent-terminal-debug-staged` targets.
   - Do not remove `run-agent-terminal-debug` until staged mode has passed a full local smoke.
 
-- `docs/packaging/embedded-postgres.md`
+- `docs/运维发布/打包发布/embedded-postgres.md`
   - Document high-fidelity dev staging and host-deps escape hatch.
 
 ## 7. Acceptance Criteria
@@ -721,7 +721,7 @@ Required stages:
 1. Create `bin`, `home/super-dolphin`, `home/codex`, `postgres/<platform>`.
 2. Copy debug binaries if they exist under `bin/` or build them when `prepare` is invoked with `SUPER_DOLPHIN_DEV_BUILD_BINARIES=1`.
 3. Copy `migrations`.
-4. Copy `cmd/mcp-orch/tools/modelregistry/models.yaml`.
+4. Copy `internal/sidecar/orch/tools/modelregistry/models.yaml`.
 5. Prepare LSP bundle by calling the existing platform script:
 
 ```bash
@@ -1212,14 +1212,14 @@ Expected: pass.
 
 **Files:**
 - Modify: `README.md`
-- Modify: `docs/packaging/embedded-postgres.md`
-- Create: `docs/packaging/dev-runtime-staging.md`
+- Modify: `docs/运维发布/打包发布/embedded-postgres.md`
+- Create: `docs/运维发布/打包发布/dev-runtime-staging.md`
 
 **Goal:** Make the new model discoverable and set the right expectations for developers and agents.
 
 - [ ] **Step 1: Create dev staging docs**
 
-Create `docs/packaging/dev-runtime-staging.md` with:
+Create `docs/运维发布/打包发布/dev-runtime-staging.md` with:
 
 - What high-fidelity dev runtime means.
 - Required env vars.

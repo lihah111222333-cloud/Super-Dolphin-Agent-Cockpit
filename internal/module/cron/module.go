@@ -5,8 +5,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 // Module wires the cron service + host RPC handlers, the scheduler, and
@@ -32,11 +31,11 @@ var Module = fx.Module("cron",
 	fx.Provide(NewCronProgressSubscribers),
 )
 
-// provideStore narrows the fully-featured cronstore.Store into the
-// module-local Store interface. cronstore.Store is a superset, so
+// provideStore narrows the fully-featured contract.CronStore into the
+// module-local Store interface. contract.CronStore is a superset, so
 // the assignment is legal; the narrower facade keeps the service
 // layer decoupled from the sqlc-backed implementation surface.
-func provideStore(s cronstore.Store) Store { return s }
+func provideStore(s contract.CronStore) Store { return s }
 
 // provideSchedulerConfig returns the zero SchedulerConfig so callers who
 // don't supply one (via fx.Decorate or fx.Supply) get the Default*
@@ -83,7 +82,7 @@ type schedulerParams struct {
 	fx.In
 
 	Logger     *pkglogger.Logger
-	Store      cronstore.Store
+	Store      contract.CronStore
 	Submitter  TurnSubmitter
 	Cfg        SchedulerConfig
 	Dispatcher *event.Dispatcher `optional:"true"`

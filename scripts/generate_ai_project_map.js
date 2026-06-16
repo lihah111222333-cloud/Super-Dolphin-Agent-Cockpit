@@ -26,7 +26,7 @@ const EXCLUDES = [
   '.agnet/shared/**',
   'bin/**',
   'reports/**',
-  'docs/archive/**',
+  'docs/历史归档/归档材料/**',
   '**/node_modules/**',
   '**/dist/**',
   '**/coverage/**',
@@ -76,23 +76,23 @@ const PURPOSE_RULES = [
   ['cmd/agent-terminal/frontend/', 'Vue/Vite 前端包'],
   ['cmd/agent-terminal/', 'Wails 桌面 UI、HTTP server、app host 与前端嵌入入口'],
 
-  ['cmd/mcp-orch/orchestration/nodeexec/', 'DAG 节点执行器、typed ops、输入输出与自动化执行'],
-  ['cmd/mcp-orch/orchestration/cron/', 'DAG/任务 cron 调度支持'],
-  ['cmd/mcp-orch/orchestration/metrics/', 'DAG/编排指标事件与度量'],
-  ['cmd/mcp-orch/orchestration/', 'agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费'],
-  ['cmd/mcp-orch/tools/', 'mcp-orch MCP tool schema、registry 与 handler'],
-  ['cmd/mcp-orch/workspace/', 'workspace run 生命周期、merge、dry-run 与文件回写'],
-  ['cmd/mcp-orch/store/taskdag/', 'DAG/node/wakeup/worker lease 持久化 store'],
-  ['cmd/mcp-orch/store/prompt/', 'prompt template 资源 store'],
-  ['cmd/mcp-orch/store/sharedfile/', 'shared file 资源 store'],
-  ['cmd/mcp-orch/store/workspace/', 'workspace run/file 持久化 store'],
-  ['cmd/mcp-orch/store/sqlc/', 'mcp-orch sqlc 生成层'],
-  ['cmd/mcp-orch/sql/queries/', 'mcp-orch SQL query 源文件'],
+  ['internal/sidecar/orch/orchestration/nodeexec/', 'DAG 节点执行器、typed ops、输入输出与自动化执行'],
+  ['internal/sidecar/orch/orchestration/cron/', 'DAG/任务 cron 调度支持'],
+  ['internal/sidecar/orch/orchestration/metrics/', 'DAG/编排指标事件与度量'],
+  ['internal/sidecar/orch/orchestration/', 'agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费'],
+  ['internal/sidecar/orch/tools/', 'mcp-orch MCP tool schema、registry 与 handler'],
+  ['internal/sidecar/orch/workspace/', 'workspace run 生命周期、merge、dry-run 与文件回写'],
+  ['internal/sidecar/orch/store/taskdag/', 'DAG/node/wakeup/worker lease 持久化 store'],
+  ['internal/sidecar/orch/store/prompt/', 'prompt template 资源 store'],
+  ['internal/sidecar/orch/store/sharedfile/', 'shared file 资源 store'],
+  ['internal/sidecar/orch/store/workspace/', 'workspace run/file 持久化 store'],
+  ['internal/sidecar/orch/store/sqlc/', 'mcp-orch sqlc 生成层'],
+  ['internal/sidecar/orch/sql/queries/', 'mcp-orch SQL query 源文件'],
   ['cmd/mcp-orch/', 'orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口'],
 
-  ['cmd/mcp-lsp/tools/', 'LSP MCP tools 实现'],
-  ['cmd/mcp-lsp/multilsp/', '多语言 LSP manager、transport 与缓存'],
-  ['cmd/mcp-lsp/search/', '文件搜索与 grep 搜索工具实现'],
+  ['internal/sidecar/lsp/tools/', 'LSP MCP tools 实现'],
+  ['internal/sidecar/lsp/multilsp/', '多语言 LSP manager、transport 与缓存'],
+  ['internal/sidecar/lsp/search/', '文件搜索与 grep 搜索工具实现'],
   ['cmd/mcp-lsp/', '代码智能/LSP MCP peer'],
   ['cmd/mcp-ida/', 'IDA MCP peer 与逆向分析工具入口'],
 
@@ -141,7 +141,7 @@ const PURPOSE_RULES = [
   ['docs/decisions/', 'ADR/决策记录'],
   ['docs/adr/', '架构决策记录'],
   ['docs/plans/', '历史计划与迁移执行文档'],
-  ['docs/internal-notes/', '内部提示词与工程方法记录'],
+  ['docs/交接笔记/内部笔记/', '内部提示词与工程方法记录'],
   ['docs/', '项目文档体系'],
   ['.agent/skills/', '项目级 agent 技能 canonical'],
   ['.agent/workflows/', 'agent 工作流与执行档案'],
@@ -153,9 +153,9 @@ const PURPOSE_RULES = [
 const QUICK_ROUTES = [
   ['修改桌面 Go/Wails host', 'cmd/agent-terminal/', 'internal/ui/wails/', 'wails binding rpc app host'],
   ['修改 Vue 聊天 UI', 'cmd/agent-terminal/frontend/vue-app/pages/', 'cmd/agent-terminal/frontend/vue-app/components/', 'UnifiedChatPage ChatTimeline composer store'],
-  ['修改 DAG 编排执行', 'cmd/mcp-orch/orchestration/', 'cmd/mcp-orch/store/taskdag/', 'dag wakeup nodeexec dispatcher retry'],
-  ['修改 MCP orchestration tools', 'cmd/mcp-orch/tools/', 'cmd/mcp-orch/orchestration/rpc.go', 'task_dag agent_launch schema registry'],
-  ['修改 LSP 工具', 'cmd/mcp-lsp/tools/', 'cmd/mcp-lsp/multilsp/', 'lsp tool grep file search diagnostics'],
+  ['修改 DAG 编排执行', 'internal/sidecar/orch/orchestration/', 'internal/sidecar/orch/store/taskdag/', 'dag wakeup nodeexec dispatcher retry'],
+  ['修改 MCP orchestration tools', 'internal/sidecar/orch/tools/', 'internal/sidecar/orch/orchestration/rpc.go', 'task_dag agent_launch schema registry'],
+  ['修改 LSP 工具', 'internal/sidecar/lsp/tools/', 'internal/sidecar/lsp/multilsp/', 'lsp tool grep file search diagnostics'],
   ['修改 thread/turn 生命周期', 'internal/module/thread/', 'internal/module/turn/', 'thread start resume fork turn provider'],
   ['修改 memory/prompt/skill', 'internal/module/memory/', 'internal/module/prompt/', 'memory prompt skill canonical mirror'],
   ['修改 provider 接入', 'internal/provider/', 'internal/platform/toolbridge/', 'claude codex provider session manifest toolbridge'],
@@ -214,7 +214,7 @@ function shouldSkipDir(rel) {
     '.agent/workspaces',
     '.agnet/report',
     '.agnet/shared',
-    'docs/archive',
+    'docs/历史归档/归档材料',
     'docs/doc/codemap/project-map',
     'reports',
   ].some((prefix) => rel === prefix || rel.startsWith(`${prefix}/`));
@@ -243,10 +243,10 @@ function topModule(file) {
 
 function classifyDomain(file) {
   if (file.startsWith('cmd/agent-terminal/')) return 'app-ui';
-  if (file.startsWith('cmd/mcp-orch/')) return 'orchestration';
+  if (file.startsWith('cmd/mcp-orch/') || file.startsWith('internal/sidecar/orch/orchestration/') || file.startsWith('internal/sidecar/orch/tools/') || file.startsWith('internal/sidecar/orch/workspace/')) return 'orchestration';
   if (file.startsWith('internal/module/')) return 'modules';
-  if (file.startsWith('internal/platform/') || file.startsWith('internal/provider/') || file.startsWith('internal/mcpserver/') || file.startsWith('cmd/mcp-lsp/') || file.startsWith('cmd/mcp-ida/')) return 'platform-provider';
-  if (file.startsWith('internal/store/') || file.startsWith('sql/') || file.startsWith('migrations/') || file.startsWith('cmd/mcp-orch/store/') || file.startsWith('cmd/mcp-orch/sql/')) return 'store-sql';
+  if (file.startsWith('internal/platform/') || file.startsWith('internal/provider/') || file.startsWith('internal/mcpserver/') || file.startsWith('internal/sidecar/lsp/') || file.startsWith('cmd/mcp-lsp/') || file.startsWith('cmd/mcp-ida/')) return 'platform-provider';
+  if (file.startsWith('internal/store/') || file.startsWith('sql/') || file.startsWith('migrations/') || file.startsWith('internal/sidecar/orch/store/') || file.startsWith('internal/sidecar/orch/sql/')) return 'store-sql';
   if (file.startsWith('docs/') || file.startsWith('.agent/') || file.startsWith('.agents/') || file === 'CLAUDE.md' || file === 'AGENTS.md') return 'docs-agent';
   return 'other';
 }

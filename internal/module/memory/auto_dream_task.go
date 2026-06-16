@@ -12,9 +12,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/memdata"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 const (
@@ -40,12 +39,14 @@ type dreamTaskState struct {
 	done     chan struct{}
 }
 
+// DreamTaskSnapshot describes the currently running Dream task, if any.
 type DreamTaskSnapshot struct {
 	Running  bool
 	ThreadID string
 	Phase    string
 }
 
+// ErrDreamTaskNotRunning is returned when a caller tries to stop an idle Dream task.
 var ErrDreamTaskNotRunning = errors.New("dream task is not running")
 
 // GetDreamTaskStatus 读取dream任务状态。
@@ -293,7 +294,7 @@ func (h *MemoryLifecycleHooks) launchAutoDreamTask(taskCtx context.Context, thre
 	// crash in consolidator does not bring down the process. Mirrors the
 	// pattern in team/team_sync_watcher.go:76. Without this, a panic in
 	// the background dream task would propagate to runtime and abort.
-	safego.Go(taskCtx, h.logger, "memory.autoDream.task", func(ctx context.Context) {
+	kernel.SafeGoContext(taskCtx, h.logger, "memory.autoDream.task", func(ctx context.Context) {
 		defer h.finishDreamTask()
 		err := h.consolidator.consolidateWithOptions(ctx, plan.root, plan.extractFn, consolidationRunOptions{
 			cfg:            h.cfg,
@@ -471,7 +472,7 @@ type uiMemoryConsolidationJobStore struct {
 	now     func() time.Time
 }
 
-var uiMemoryConsolidationJobs = newUIMemoryConsolidationJobStore(runConsolidateAll, ctxutil.DreamConsolidationTimeout)
+var uiMemoryConsolidationJobs = newUIMemoryConsolidationJobStore(runConsolidateAll, kernel.DreamConsolidationTimeout)
 
 func newUIMemoryConsolidationJobStore(run uiMemoryConsolidationRunner, timeout time.Duration) *uiMemoryConsolidationJobStore {
 	if run == nil {
@@ -480,7 +481,7 @@ func newUIMemoryConsolidationJobStore(run uiMemoryConsolidationRunner, timeout t
 		}
 	}
 	if timeout <= 0 {
-		timeout = ctxutil.DreamConsolidationTimeout
+		timeout = kernel.DreamConsolidationTimeout
 	}
 	return &uiMemoryConsolidationJobStore{
 		jobs:    make(map[string]*uiMemoryConsolidationJob),
@@ -534,7 +535,7 @@ func (s *uiMemoryConsolidationJobStore) status(req uiSimilarityConsolidateAllSta
 }
 
 func (s *uiMemoryConsolidationJobStore) runJob(jobID string, deps memoryHandlerDeps, req uiSimilarityConsolidateAllParams) {
-	ctx, cancel := ctxutil.WithTimeout(context.Background(), s.timeout)
+	ctx, cancel := kernel.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
 
 	result, err := s.run(ctx, deps, req)

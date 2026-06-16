@@ -7,8 +7,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
 // prepareTurnAssembly 准备turnassembly。
@@ -36,7 +36,7 @@ func (s *service) prepareTurnAssembly(ctx context.Context, threadID string, inpu
 		AdditionalWorkingDirectories: append([]string(nil), input.AdditionalWorkingDirectories...),
 		MCPSnapshot:                  turnMCPSnapshot(input.MCPSnapshot, req.MCP),
 		SessionFlags:                 clonePrepareFlags(input.SessionFlags),
-		RuntimeUserContext:           clone.StringMap(input.RuntimeUserContext),
+		RuntimeUserContext:           kernel.CloneStringMap(input.RuntimeUserContext),
 		OutputStyleConfig:            cloneOutputStyleConfigValue(input.OutputStyleConfig),
 		ScratchpadDir:                strings.TrimSpace(input.ScratchpadDir),
 		FRCConfig:                    normalizeFRCConfig(input.FRCConfig),

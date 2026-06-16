@@ -15,10 +15,10 @@
 ## 结论摘要
 
 1. `config` 当前只有“环境变量 + 默认值”，没有“文件”来源；因此实际优先级不是“环境变量 > 文件 > 默认值”，而是“环境变量 > 默认值”。证据: `internal/platform/config/config.go:15-40`。
-2. bus 发布/订阅框架已经成形，但真正有业务消费者的事件很少。运行时有非日志消费方的只有 `agentdto.StateChanged`、`turndto.TurnStarted`、`turndto.TurnCompleted`；其余大多只有 `LogSink` 在听。证据: `internal/platform/bus/sink.go:43-87`、`cmd/mcp-orch/orchestration/module.go:25-53`、`internal/platform/rpc/push.go:75-92`。
+2. bus 发布/订阅框架已经成形，但真正有业务消费者的事件很少。运行时有非日志消费方的只有 `agentdto.StateChanged`、`turndto.TurnStarted`、`turndto.TurnCompleted`；其余大多只有 `LogSink` 在听。证据: `internal/platform/bus/sink.go:43-87`、`internal/sidecar/orch/orchestration/module.go:25-53`、`internal/platform/rpc/push.go:75-92`。
 3. 严格意义上的“听了没人发”事件存在: `TurnStalled`、`TurnResumed`、全部 `Task*`、全部 `UI*`。这些类型在 `LogSink` 有订阅，但在 `internal/*` 没有发布源。证据: `internal/platform/bus/sink.go:51-87`，以及全仓 `text_search` 无对应构造/发布命中。
-4. 状态机已经去掉 force fallback；`fireOrForceLocked` 只做 `FireCtx`，失败时返回 `illegal state transition`，不再直接改状态。证据: `cmd/mcp-orch/orchestration/service.go:257-279`。
-5. 状态机声明表包含 10 状态、11 触发器、32 条转换，但运行时只实际 fire 了其中 9 个触发器；`TriggerUserInputRequested` / `TriggerUserInputResolved` 没有任何 fire 点，`StateAwaitingUserInput` 目前不可达。证据: `internal/dto/agent/state.go:51-112`，`cmd/mcp-orch/orchestration/**/*.go` 对 user_input 触发器全仓无命中。
+4. 状态机已经去掉 force fallback；`fireOrForceLocked` 只做 `FireCtx`，失败时返回 `illegal state transition`，不再直接改状态。证据: `internal/sidecar/orch/orchestration/service.go:257-279`。
+5. 状态机声明表包含 10 状态、11 触发器、32 条转换，但运行时只实际 fire 了其中 9 个触发器；`TriggerUserInputRequested` / `TriggerUserInputResolved` 没有任何 fire 点，`StateAwaitingUserInput` 目前不可达。证据: `internal/dto/agent/state.go:51-112`，`internal/sidecar/orch/orchestration/**/*.go` 对 user_input 触发器全仓无命中。
 6. `db.WithTx` 被 `sqlc -> store -> module service` 正确串起来了，但连接池配置非常薄，只设置了 `MaxConns=4` 并在 `OnStart` 做一次 `Ping`，没有把 `timeouts.go` 里的 DB/health 配置接进去。证据: `internal/platform/db/module.go:19-39`、`internal/platform/config/timeouts.go:8-17`。
 7. `platform/shared` 里 `Retry` 有真实调用，但 `RequireNonEmpty` 当前零引用；`idgen.go` 又与 `internal/dto/shared/ids.go` 存在重复实现，ID 生成权威被拆成两份。证据: `internal/platform/shared/*.go`、`internal/dto/shared/ids.go:1-14`。
 
@@ -124,7 +124,7 @@
 - 语义正确，但它是“panic 屏蔽订阅”，不是“重试订阅”。
 - `recoverCall()` 的写法能正确拿到 panic 值并写日志，但不附带 stack trace。
 - 真实运行时调用点只有两处:
-  - `cmd/mcp-orch/orchestration/module.go:33-44`
+  - `internal/sidecar/orch/orchestration/module.go:33-44`
   - `internal/platform/rpc/push.go:82-90`
 
 ### `Projector[S,E]`
@@ -146,7 +146,7 @@
 
 ### 直接/间接发布入口
 
-1. `cmd/mcp-orch/orchestration/events.go:13-64`
+1. `internal/sidecar/orch/orchestration/events.go:13-64`
    - 直接 `event.Publish(...)`
    - 发布: `StateChanged`、`AgentLaunched`、`AgentStopped`、`AgentRecovering`、`AgentFailed`
 
@@ -169,16 +169,16 @@
 #### 有发布且有非日志消费方
 
 - `agentdto.StateChanged`
-  - 发布: `cmd/mcp-orch/orchestration/events.go:13-23`、`internal/provider/codexapp/event_map.go:47-53`
+  - 发布: `internal/sidecar/orch/orchestration/events.go:13-23`、`internal/provider/codexapp/event_map.go:47-53`
   - 订阅: `internal/platform/rpc/push.go:82-84`、`internal/platform/bus/sink.go:44`
 
 - `turndto.TurnStarted`
   - 发布: `internal/provider/claudecli/event_map.go:57-58`、`internal/provider/codexapp/event_map.go:77-79`
-  - 订阅: `cmd/mcp-orch/orchestration/module.go:33-37`、`internal/platform/rpc/push.go:85-87`、`internal/platform/bus/sink.go:52`
+  - 订阅: `internal/sidecar/orch/orchestration/module.go:33-37`、`internal/platform/rpc/push.go:85-87`、`internal/platform/bus/sink.go:52`
 
 - `turndto.TurnCompleted`
   - 发布: `internal/provider/claudecli/event_map.go:76-81`、`internal/provider/codexapp/event_map.go:80-85`
-  - 订阅: `cmd/mcp-orch/orchestration/module.go:38-44`、`internal/platform/rpc/push.go:88-90`、`internal/platform/bus/sink.go:53`
+  - 订阅: `internal/sidecar/orch/orchestration/module.go:38-44`、`internal/platform/rpc/push.go:88-90`、`internal/platform/bus/sink.go:53`
 
 #### 有发布，但只有 `LogSink` 在消费
 
@@ -210,7 +210,7 @@
    - `LogSink` 订阅 28 个 typed event
    - 本质是“总线镜像到日志”
 
-2. `cmd/mcp-orch/orchestration/module.go:25-53`
+2. `internal/sidecar/orch/orchestration/module.go:25-53`
    - `TurnStarted -> BindActiveTurnID`
    - `TurnCompleted -> CompleteTurn`
 
@@ -301,8 +301,8 @@
 
 位置:
 - 状态/触发器/转换定义: `internal/dto/agent/state.go:8-112`
-- 从 DTO 定义生成 `StateConfig`: `cmd/mcp-orch/orchestration/helpers.go:16-32`
-- 装配到 `machineCfg`: `cmd/mcp-orch/orchestration/service.go:87-90`
+- 从 DTO 定义生成 `StateConfig`: `internal/sidecar/orch/orchestration/helpers.go:16-32`
+- 装配到 `machineCfg`: `internal/sidecar/orch/orchestration/service.go:87-90`
 
 统计:
 - 状态 10 个
@@ -351,7 +351,7 @@
 
 ### `fireOrForceLocked` 是否已去掉 force fallback
 
-位置: `cmd/mcp-orch/orchestration/service.go:257-279`
+位置: `internal/sidecar/orch/orchestration/service.go:257-279`
 
 结论:
 - 已去掉。
@@ -473,7 +473,7 @@
   - `internal/store/taskdag/store.go:15-19`
   - `internal/store/workspace/store.go:15-19`
 - 业务调用:
-  - `cmd/mcp-orch/orchestration/dag.go:20-34`
+  - `internal/sidecar/orch/orchestration/dag.go:20-34`
   - `internal/module/workspace/service_helpers.go:166-179`
 
 ### 结论

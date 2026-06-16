@@ -560,7 +560,7 @@ t=5.5h           ✅ 完成
 | cmd/mcp-lsp/main.go | 已有14行 + 新增~16 | 入口，添加 LSP 相关调用 |
 | cmd/mcp-lsp/fx.go | 已有134行 + 新增~104 | 扩展已有 DI 容器，添加 Manager/ToolHandlers/Server |
 | cmd/mcp-lsp/runtime.go | ~50 | 新建，启动关闭编排 (graceful shutdown) |
-| cmd/mcp-lsp/tools.go | ~40 | 新建，9 工具注册表 (tool name → handler 映射) |
+| internal/sidecar/lsp/tools.go | ~40 | 新建，9 工具注册表 (tool name → handler 映射) |
 
 **注意**: fx.go 已包含 run(), newBootstrapRunner(), bindRuntime() 三个函数。
 必须在已有代码基础上扩展，而非从零创建。
@@ -711,7 +711,7 @@ fx.go 已包含函数: run(), newBootstrapRunner(), bindRuntime()。
    添加 Manager/ToolHandlers/Server 的 Provide 和 Invoke
    已有函数: run(), newBootstrapRunner(), bindRuntime()
 3. cmd/mcp-lsp/runtime.go (~50行) — 新建，启动/关闭编排
-4. cmd/mcp-lsp/tools.go (~40行) — 新建，9 工具名→handler 注册表 (占位)
+4. internal/sidecar/lsp/tools.go (~40行) — 新建，9 工具名→handler 注册表 (占位)
 
 ## 参考
 - **cmd/mcp-lsp/fx.go (134行)** — 必须先读取确认现有内容
@@ -1359,7 +1359,7 @@ func TestMCPLSPExactToolSet(t *testing.T) {
         "lsp_structure", "lsp_edit", "lsp_completion",
         "code_run", "code_run_test",
     }
-    // 从 cmd/mcp-lsp/tools.go 或 manifest 中提取实际注册的工具名
+    // 从 internal/sidecar/lsp/tools.go 或 manifest 中提取实际注册的工具名
     // assert.ElementsMatch(t, expected, actual)
 }
 ```

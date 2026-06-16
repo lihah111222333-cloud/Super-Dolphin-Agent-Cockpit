@@ -12,7 +12,7 @@
 
 ## 建议关注文件/区域
 
-`cmd/mcp-orch/orchestration/dag_turn_completed_subscriber.go, sharedfile_adapter.go, internal/store/sharedfile or cmd/mcp-orch/store/shared_file, SQL/tests`
+`internal/sidecar/orch/orchestration/dag_turn_completed_subscriber.go, sharedfile_adapter.go, internal/store/sharedfile or internal/sidecar/orch/store/shared_file, SQL/tests`
 
 ## 必须满足的验收标准
 

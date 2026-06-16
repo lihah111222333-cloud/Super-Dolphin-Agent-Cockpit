@@ -16,28 +16,29 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// PromptService exposes prompt template authoring and section editing operations.
 // SetEnabled intentionally stays outside this surface until the store/service
 // contract exists end-to-end.
 type PromptService interface {
-	ListPrompts(ctx context.Context, cwd, keyword string) ([]promptstore.PromptTemplate, error)
-	ListPromptSectionsByTemplates(ctx context.Context, cwd string, templates []promptstore.PromptTemplate) (map[int64][]promptstore.PromptTemplateSection, error)
-	GetPrompt(ctx context.Context, cwd, key string) (*promptstore.PromptTemplate, error)
-	WritePrompt(ctx context.Context, cwd string, prompt PromptWriteRequest) (*promptstore.PromptTemplate, error)
+	ListPrompts(ctx context.Context, cwd, keyword string) ([]contract.PromptTemplate, error)
+	ListPromptSectionsByTemplates(ctx context.Context, cwd string, templates []contract.PromptTemplate) (map[int64][]contract.PromptTemplateSection, error)
+	GetPrompt(ctx context.Context, cwd, key string) (*contract.PromptTemplate, error)
+	WritePrompt(ctx context.Context, cwd string, prompt PromptWriteRequest) (*contract.PromptTemplate, error)
 	DeletePrompt(ctx context.Context, cwd, key string, scope ...string) error
 	// ListSections / WriteSection / DeleteSection back the advanced-debug UI.
 	// Ordinary users never touch these — the per-template PromptText editor
 	// remains the primary path. Sections power the Step 1/2/3b cached-prefix
 	// / uncached-tail / enable_when feature gate.
-	ListSections(ctx context.Context, cwd, promptKey string) ([]promptstore.PromptTemplateSection, error)
-	WriteSection(ctx context.Context, cwd string, req PromptSectionWriteRequest) (*promptstore.PromptTemplateSection, error)
+	ListSections(ctx context.Context, cwd, promptKey string) ([]contract.PromptTemplateSection, error)
+	WriteSection(ctx context.Context, cwd string, req PromptSectionWriteRequest) (*contract.PromptTemplateSection, error)
 	DeleteSection(ctx context.Context, cwd, promptKey, sectionKey string, scope ...string) error
 }
 
+// PromptWriteRequest carries a prompt template create or update request.
 type PromptWriteRequest struct {
 	ID, Name, Content, Description, AgentType string
 	// ContentSet distinguishes omitted content (preserve existing prompt_text)
@@ -80,7 +81,7 @@ type PromptSectionWriteRequest struct {
 }
 
 type promptService struct {
-	store    promptstore.Store
+	store    contract.PromptStore
 	sections contract.SectionInvalidator
 	builtin  contract.BuiltinPromptRegistry
 }
@@ -229,7 +230,7 @@ func NewService(cfg *Config, logger *pkglogger.Logger, opts ...ServiceOption) Se
 }
 
 func newPromptServiceWithBuiltin(
-	store promptstore.Store,
+	store contract.PromptStore,
 	builtin contract.BuiltinPromptRegistry,
 	sections ...contract.SectionInvalidator,
 ) PromptService {
@@ -242,14 +243,14 @@ func newPromptServiceWithBuiltin(
 
 // buildPromptHandlersWithService 构建带服务的prompt处理器。
 func buildPromptHandlersWithService(promptSvc PromptService, deps ...any) platformrpc.HandlerMapResult {
-	var promptStore promptstore.Store
+	var promptStore contract.PromptStore
 	var sectionInvalidator contract.SectionInvalidator
 	var dream contract.DreamExecutor
 	var builtin contract.BuiltinPromptRegistry
 	var emitPromptsChanged func(uidto.UIPromptsChanged)
 	for _, dep := range deps {
 		switch value := dep.(type) {
-		case promptstore.Store:
+		case contract.PromptStore:
 			promptStore = value
 		case contract.SectionInvalidator:
 			sectionInvalidator = value
@@ -308,7 +309,7 @@ func handlePromptGet(ctx context.Context, promptSvc PromptService, p promptGetPa
 	if err != nil {
 		return nil, err
 	}
-	sectionsByTemplateID, err := promptSvc.ListPromptSectionsByTemplates(ctx, p.Cwd, []promptstore.PromptTemplate{*template})
+	sectionsByTemplateID, err := promptSvc.ListPromptSectionsByTemplates(ctx, p.Cwd, []contract.PromptTemplate{*template})
 	if err != nil {
 		return nil, err
 	}
@@ -366,7 +367,7 @@ func stringValue(value *string) string {
 	return *value
 }
 
-func validatePromptDiscoverability(template promptstore.PromptTemplate, current *promptstore.PromptTemplate, explicit bool) error {
+func validatePromptDiscoverability(template contract.PromptTemplate, current *contract.PromptTemplate, explicit bool) error {
 	if strings.TrimSpace(template.WhenToUse) != "" || current != nil && !explicit {
 		return nil
 	}
@@ -437,7 +438,7 @@ func deletePromptSectionWithOptionalScope(ctx context.Context, promptSvc PromptS
 	return promptSvc.DeleteSection(ctx, p.Cwd, p.PromptID, p.SectionKey, stringValue(p.Scope))
 }
 
-func promptSectionItemsFromStore(sections []promptstore.PromptTemplateSection, promptKey string) []promptSectionRPCItem {
+func promptSectionItemsFromStore(sections []contract.PromptTemplateSection, promptKey string) []promptSectionRPCItem {
 	out := make([]promptSectionRPCItem, 0, len(sections))
 	for _, sec := range sections {
 		out = append(out, promptSectionItemFromStore(sec, promptKey))
@@ -445,7 +446,7 @@ func promptSectionItemsFromStore(sections []promptstore.PromptTemplateSection, p
 	return out
 }
 
-func promptSectionItemFromStore(section promptstore.PromptTemplateSection, promptKey string) promptSectionRPCItem {
+func promptSectionItemFromStore(section contract.PromptTemplateSection, promptKey string) promptSectionRPCItem {
 	return promptSectionRPCItem{
 		ID:          section.ID,
 		PromptID:    promptKey,
@@ -463,8 +464,8 @@ func promptSectionItemFromStore(section promptstore.PromptTemplateSection, promp
 }
 
 func promptItemsFromTemplatesWithSections(
-	templates []promptstore.PromptTemplate,
-	sectionsByTemplateID map[int64][]promptstore.PromptTemplateSection,
+	templates []contract.PromptTemplate,
+	sectionsByTemplateID map[int64][]contract.PromptTemplateSection,
 ) []promptRPCItem {
 	items := make([]promptRPCItem, 0, len(templates))
 	for _, template := range templates {
@@ -478,7 +479,7 @@ func promptItemsFromTemplatesWithSections(
 	return items
 }
 
-func promptItemFromTemplate(template promptstore.PromptTemplate) promptRPCItem {
+func promptItemFromTemplate(template contract.PromptTemplate) promptRPCItem {
 	return promptRPCItem{
 		ID:          template.PromptKey,
 		Name:        template.Title,
@@ -496,7 +497,7 @@ func promptItemFromTemplate(template promptstore.PromptTemplate) promptRPCItem {
 	}
 }
 
-func promptItemFromTemplateWithFullSections(template promptstore.PromptTemplate, sections []promptstore.PromptTemplateSection) promptRPCItem {
+func promptItemFromTemplateWithFullSections(template contract.PromptTemplate, sections []contract.PromptTemplateSection) promptRPCItem {
 	template = promptTemplateWithInferredSectionIntent(template, sections)
 	item := promptItemFromTemplate(template)
 	if content := promptEditableSectionsContent(template, sections); content != "" {
@@ -505,7 +506,7 @@ func promptItemFromTemplateWithFullSections(template promptstore.PromptTemplate,
 	return item
 }
 
-func promptTemplateIDs(templates []promptstore.PromptTemplate) []int64 {
+func promptTemplateIDs(templates []contract.PromptTemplate) []int64 {
 	ids := make([]int64, 0, len(templates))
 	seen := map[int64]struct{}{}
 	for _, template := range templates {
@@ -521,16 +522,16 @@ func promptTemplateIDs(templates []promptstore.PromptTemplate) []int64 {
 	return ids
 }
 
-func promptSectionsContentPreview(sections []promptstore.PromptTemplateSection) string {
+func promptSectionsContentPreview(sections []contract.PromptTemplateSection) string {
 	return promptSectionsContent(sections, promptListContentPreviewMaxRunes)
 }
 
 // promptSectionsContent 处理promptsections内容。
-func promptSectionsContent(sections []promptstore.PromptTemplateSection, maxRunes int) string {
+func promptSectionsContent(sections []contract.PromptTemplateSection, maxRunes int) string {
 	if len(sections) == 0 {
 		return ""
 	}
-	sorted := make([]promptstore.PromptTemplateSection, len(sections))
+	sorted := make([]contract.PromptTemplateSection, len(sections))
 	copy(sorted, sections)
 	sort.SliceStable(sorted, func(i, j int) bool { return promptPreviewSectionLess(sorted[i], sorted[j]) })
 	blocks := make([]string, 0, len(sorted))
@@ -549,7 +550,7 @@ func promptSectionsContent(sections []promptstore.PromptTemplateSection, maxRune
 	return truncatePromptListContentPreview(text)
 }
 
-func promptEditableSectionsContent(template promptstore.PromptTemplate, sections []promptstore.PromptTemplateSection) string {
+func promptEditableSectionsContent(template contract.PromptTemplate, sections []contract.PromptTemplateSection) string {
 	if promptTemplateIntentKind(template) == "recall" {
 		return promptRecallSectionsContent(sections)
 	}
@@ -557,11 +558,11 @@ func promptEditableSectionsContent(template promptstore.PromptTemplate, sections
 }
 
 // promptRecallSectionsContent 处理promptrecallsections内容。
-func promptRecallSectionsContent(sections []promptstore.PromptTemplateSection) string {
+func promptRecallSectionsContent(sections []contract.PromptTemplateSection) string {
 	if len(sections) == 0 {
 		return ""
 	}
-	sorted := make([]promptstore.PromptTemplateSection, len(sections))
+	sorted := make([]contract.PromptTemplateSection, len(sections))
 	copy(sorted, sections)
 	sort.SliceStable(sorted, func(i, j int) bool { return promptPreviewSectionLess(sorted[i], sorted[j]) })
 	blocks := make([]string, 0, len(sorted))
@@ -576,7 +577,7 @@ func promptRecallSectionsContent(sections []promptstore.PromptTemplateSection) s
 	return strings.Join(blocks, "\n\n")
 }
 
-func promptPreviewSectionLess(left, right promptstore.PromptTemplateSection) bool {
+func promptPreviewSectionLess(left, right contract.PromptTemplateSection) bool {
 	if left.TemplateID != right.TemplateID {
 		return left.TemplateID < right.TemplateID
 	}
@@ -592,7 +593,7 @@ func promptPreviewSectionLess(left, right promptstore.PromptTemplateSection) boo
 	return left.SectionKey < right.SectionKey
 }
 
-func promptPreviewSectionBody(section promptstore.PromptTemplateSection) string {
+func promptPreviewSectionBody(section contract.PromptTemplateSection) string {
 	if !section.Enabled || strings.EqualFold(strings.TrimSpace(section.TriggerType), "recall") {
 		return ""
 	}

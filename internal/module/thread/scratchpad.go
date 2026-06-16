@@ -10,8 +10,7 @@ import (
 	"unicode"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 const (
@@ -77,7 +76,7 @@ func ensureManagedScratchpadDir(buildCtx contract.BuildCtx, req StartRequest, th
 }
 
 func managedScratchpadProjectRoot(buildCtx contract.BuildCtx, req StartRequest, cfg *contract.Config) string {
-	return util.FirstNonEmpty(
+	return kernel.FirstNonEmpty(
 		strings.TrimSpace(buildCtx.GitRoot),
 		strings.TrimSpace(req.GitRoot),
 		strings.TrimSpace(buildCtx.CWD),
@@ -139,14 +138,14 @@ func isManagedScratchpadDir(dir string) bool {
 	return rel != "." && rel != "" && !strings.HasPrefix(rel, "..")
 }
 
-func (s *service) cleanupThreadScratchpad(ctx context.Context, threadID string, binding *bindingstore.Binding) {
+func (s *service) cleanupThreadScratchpad(ctx context.Context, threadID string, binding *contract.Binding) {
 	dir := s.threadScratchpadDir(ctx, threadID, binding)
 	if err := cleanupManagedScratchpadDir(dir); err != nil && s.logger != nil {
 		s.logger.Warn("thread scratchpad cleanup failed", "thread_id", threadID, "scratchpad_dir", dir, "error", err)
 	}
 }
 
-func (s *service) threadScratchpadDir(ctx context.Context, threadID string, binding *bindingstore.Binding) string {
+func (s *service) threadScratchpadDir(ctx context.Context, threadID string, binding *contract.Binding) string {
 	offline, err := s.buildOfflineConfig(ctx, threadID, binding)
 	if err != nil {
 		return ""

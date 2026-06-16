@@ -12,7 +12,7 @@
 
 - `mcp-lsp` 是完整 MCP 工具服务：**stdio MCP server 始终开启**，**HTTP MCP server 仅在 peer mode 开启**。
 - `mcp-lsp` 的工具面固定为 7 个 LSP 工具：`file`、`inspect`、`xref`、`grep`、`structure`、`edit`、`completion`；执行命令和测试走独立 CLI/命令工具，不在 `mcp-lsp` 暴露。
-- `mcp-lsp` 的真正 handler 全在 `cmd/mcp-lsp/tools/*`；传输层统一落在 `internal/mcpserver/common/server.go:92` 与 `internal/mcpserver/common/http_transport.go:40`。
+- `mcp-lsp` 的真正 handler 全在 `internal/sidecar/lsp/tools/*`；传输层统一落在 `internal/mcpserver/common/server.go:92` 与 `internal/mcpserver/common/http_transport.go:40`。
 - **首个真正依赖语言服务器的工具调用**会懒触发：`registry.GetManagerForFile/GetManagerForLanguage` → `installer.EnsureInstalled` → `multilsp.Manager.EnsureClient`（`ClientEnsurer`）→ `client.Initialize` / `initialized`。
 - `mcp-ida` 当前只有 `tools/ida` bootstrap 能力，没有本地 `tools/list` / `tools/call`、没有 schema / manifest / handler 映射，也没有 stdio/HTTP MCP tool server。
 - `ast_search`、`semantic_tokens`、markdown/json/yaml 文档符号 fallback 都属于 **LSP toolchain**；当前 **不属于** `mcp-ida` 暴露面。
@@ -29,12 +29,12 @@ flowchart LR
         Stdio[common.Server\ninternal/mcpserver/common/server.go:92]
         HTTP[common.HTTPServer\ninternal/mcpserver/common/http_transport.go:40]
         Provider[registryToolProvider\ncmd/mcp-lsp/fx.go:31]
-        Tools[toolDefinitions + handlers\ncmd/mcp-lsp/tools.go:27\ncmd/mcp-lsp/tools.go:39]
-        Registry[manager.Registry\ncmd/mcp-lsp/manager/registry.go:63]
+        Tools[toolDefinitions + handlers\ninternal/sidecar/lsp/tools.go:27\ninternal/sidecar/lsp/tools.go:39]
+        Registry[manager.Registry\ninternal/sidecar/lsp/manager/registry.go:63]
         Search[search/*\ntext_search / ast_search]
         Edit[edit/* + format/*\nreplace_range / render]
-        Installer[installer.Provider\ncmd/mcp-lsp/installer/installer.go:27]
-        LSPMgr[multilsp manager 基座\ncmd/mcp-lsp/multilsp/*]
+        Installer[installer.Provider\ninternal/sidecar/lsp/installer/installer.go:27]
+        LSPMgr[multilsp manager 基座\ninternal/sidecar/lsp/multilsp/*]
     end
     subgraph IDA[mcp-ida]
         IDAMain[main/fx\ncmd/mcp-ida/main.go:10\ncmd/mcp-ida/fx.go:30]
@@ -74,8 +74,8 @@ flowchart LR
 | 二进制入口 | `cmd/mcp-lsp/main.go:20` / `cmd/mcp-ida/main.go:10` | `mcp-lsp` 抢占 `stdout` 作为 MCP 通道；`mcp-ida` 只做极简错误退出。 |
 | Fx 装配 | `cmd/mcp-lsp/fx.go:37` / `cmd/mcp-ida/fx.go:30` | 装配 bootstrap runner、stdio runner、HTTP runner（仅 LSP）并托管生命周期。 |
 | LSP runtime | `cmd/mcp-lsp/runtime.go:24` | 生成 registry、installer、6 个通用 LSP manager、10 个 language ID 注册。 |
-| MCP tool manifest | `cmd/mcp-lsp/tools.go:27` | 声明 9 个工具的 manifest 文案。 |
-| MCP tool handler 绑定 | `cmd/mcp-lsp/tools.go:39` | 把 tool 名绑定到 `cmd/mcp-lsp/tools/*` 的具体 handler。 |
+| MCP tool manifest | `internal/sidecar/lsp/tools.go:27` | 声明 9 个工具的 manifest 文案。 |
+| MCP tool handler 绑定 | `internal/sidecar/lsp/tools.go:39` | 把 tool 名绑定到 `internal/sidecar/lsp/tools/*` 的具体 handler。 |
 | stdio transport | `internal/mcpserver/common/server.go:92` | 循环读取 stdio JSON-RPC，处理 `initialize/ping/shutdown/tools/*`。 |
 | HTTP transport | `internal/mcpserver/common/http_transport.go:40` | peer mode 下监听 `POST /mcp`，同样处理 `initialize/ping/shutdown/tools/*`。 |
 | bootstrap client | `internal/mcpserver/common/bootstrap/client.go:91` | 回连控制面 `register`，启动 heartbeat，接收 `ctl/shutdown` / `ctl/config/changed` 与 toolbridge callback。 |
@@ -92,7 +92,7 @@ flowchart LR
 - `newServer()` 以 `common.NewStdioTransport(os.Stdin, stdout)` 构建 stdio MCP server：`cmd/mcp-lsp/fx.go:105`。
 - `common.Server.dispatch()` 只认 `initialize`、`notifications/initialized`、`ping`、`shutdown`、`exit`、`tools/list`、`tools/call`：`internal/mcpserver/common/server.go:160`。
 - 真正 tool 调用链是 `tools/call` → `registryToolProvider.CallTool` → `handleToolCall` → `toolDefinition.Handler`：`internal/mcpserver/common/server.go:221`、`cmd/mcp-lsp/fx.go:136`、`cmd/mcp-lsp/fx.go:151`。
-- 若 handler 需要语言服务器，则继续进入 `registry.GetManagerForFile`，并懒触发语言服务器 `Initialize` / `initialized`：`cmd/mcp-lsp/manager/registry.go:76`、`cmd/mcp-lsp/multilsp/client.go:98`。
+- 若 handler 需要语言服务器，则继续进入 `registry.GetManagerForFile`，并懒触发语言服务器 `Initialize` / `initialized`：`internal/sidecar/lsp/manager/registry.go:76`、`internal/sidecar/lsp/multilsp/client.go:98`。
 
 ```mermaid
 sequenceDiagram
@@ -200,34 +200,34 @@ sequenceDiagram
 
 | LSP 工具 | manifest | handler 绑定 | 实际入口 |
 |---|---|---|---|
-| `lsp_file` | `cmd/mcp-lsp/tools.go:28` | `cmd/mcp-lsp/tools.go:53` | `cmd/mcp-lsp/tools/tool_file.go:90` |
-| `lsp_inspect` | `cmd/mcp-lsp/tools.go:29` | `cmd/mcp-lsp/tools.go:54` | `cmd/mcp-lsp/tools/tool_inspect.go:26` |
-| `lsp_xref` | `cmd/mcp-lsp/tools.go:30` | `cmd/mcp-lsp/tools.go:55` | `cmd/mcp-lsp/tools/tool_xref.go:26` |
-| `lsp_grep` | `cmd/mcp-lsp/tools.go:31` | `cmd/mcp-lsp/tools.go:56` | `cmd/mcp-lsp/tools/tool_grep.go:50` |
-| `lsp_structure` | `cmd/mcp-lsp/tools.go:32` | `cmd/mcp-lsp/tools.go:57` | `cmd/mcp-lsp/tools/tool_structure.go:25` |
-| `lsp_edit` | `cmd/mcp-lsp/tools.go:33` | `cmd/mcp-lsp/tools.go:58` | `cmd/mcp-lsp/tools/tool_edit.go:65` |
-| `lsp_completion` | `cmd/mcp-lsp/tools.go:34` | `cmd/mcp-lsp/tools.go:59` | `cmd/mcp-lsp/tools/tool_completion.go:20` |
+| `lsp_file` | `internal/sidecar/lsp/tools.go:28` | `internal/sidecar/lsp/tools.go:53` | `internal/sidecar/lsp/tools/tool_file.go:90` |
+| `lsp_inspect` | `internal/sidecar/lsp/tools.go:29` | `internal/sidecar/lsp/tools.go:54` | `internal/sidecar/lsp/tools/tool_inspect.go:26` |
+| `lsp_xref` | `internal/sidecar/lsp/tools.go:30` | `internal/sidecar/lsp/tools.go:55` | `internal/sidecar/lsp/tools/tool_xref.go:26` |
+| `lsp_grep` | `internal/sidecar/lsp/tools.go:31` | `internal/sidecar/lsp/tools.go:56` | `internal/sidecar/lsp/tools/tool_grep.go:50` |
+| `lsp_structure` | `internal/sidecar/lsp/tools.go:32` | `internal/sidecar/lsp/tools.go:57` | `internal/sidecar/lsp/tools/tool_structure.go:25` |
+| `lsp_edit` | `internal/sidecar/lsp/tools.go:33` | `internal/sidecar/lsp/tools.go:58` | `internal/sidecar/lsp/tools/tool_edit.go:65` |
+| `lsp_completion` | `internal/sidecar/lsp/tools.go:34` | `internal/sidecar/lsp/tools.go:59` | `internal/sidecar/lsp/tools/tool_completion.go:20` |
 
 调用链实测（由 `lsp_xref` 反查）：
 
 1. `common.Server` / `common.HTTPServer` 的 `tools/call` 最终调用 `registryToolProvider.CallTool`：`internal/mcpserver/common/server.go:221`、`internal/mcpserver/common/http_transport.go:161`、`cmd/mcp-lsp/fx.go:136`。
 2. `registryToolProvider.CallTool` 只做名字分发，核心逻辑在 `handleToolCall`：`cmd/mcp-lsp/fx.go:151`。
-3. `newToolHandlers` 把每个 tool 名绑定到 `tools.New*Handler(...)`：`cmd/mcp-lsp/tools.go:39`。
-4. 具体 handler 里再决定是否走 registry / search / edit / format / sandbox：`cmd/mcp-lsp/tools/factory.go:35`。
+3. `newToolHandlers` 把每个 tool 名绑定到 `tools.New*Handler(...)`：`internal/sidecar/lsp/tools.go:39`。
+4. 具体 handler 里再决定是否走 registry / search / edit / format / sandbox：`internal/sidecar/lsp/tools/factory.go:35`。
 
 ### 5.1 `manager.Registry` / language 检测真实调用链
 
 | 阶段 | 真实动作 | 关键锚点 |
 |---|---|---|
 | runtime 组装 | `newManager()` 先 `setupInstaller()`，再 `manager.NewRegistry(inst)`，随后把 `go/gomod/gosum/gowork/javascript/typescript/python/css/rust/java` 注册到 registry。 | `cmd/mcp-lsp/runtime.go:24`、`cmd/mcp-lsp/runtime.go:30`、`cmd/mcp-lsp/runtime.go:32`、`cmd/mcp-lsp/runtime.go:35`、`cmd/mcp-lsp/runtime.go:42`、`cmd/mcp-lsp/runtime.go:47`、`cmd/mcp-lsp/runtime.go:51`、`cmd/mcp-lsp/runtime.go:55`、`cmd/mcp-lsp/runtime.go:59` |
-| installer 口径 | `setupInstaller()` 只登记“语言 → binary/install cmd”；真正触发安装发生在 `registry.GetManagerForFile/GetManagerForLanguage` 内部的 `EnsureInstalled`。 | `cmd/mcp-lsp/runtime.go:65`、`cmd/mcp-lsp/installer/installer.go:35`、`cmd/mcp-lsp/installer/installer.go:44` |
+| installer 口径 | `setupInstaller()` 只登记“语言 → binary/install cmd”；真正触发安装发生在 `registry.GetManagerForFile/GetManagerForLanguage` 内部的 `EnsureInstalled`。 | `cmd/mcp-lsp/runtime.go:65`、`internal/sidecar/lsp/installer/installer.go:35`、`internal/sidecar/lsp/installer/installer.go:44` |
 | generic manager 口径 | `createGenericManager()` 并不区分“专用 manager 类型”；所有语言都复用 `multilsp.NewManager(Config{ClientFactory: ...})`，差别只在 binary / args / initOpts。 | `cmd/mcp-lsp/runtime.go:107`、`cmd/mcp-lsp/runtime.go:112`、`cmd/mcp-lsp/runtime.go:114`、`cmd/mcp-lsp/runtime.go:127` |
-| file → languageID | 文件型工具进入 `registry.GetManagerForFile()` 后，先跑 `DetectLanguageID(filePath)`：优先 basename 映射 `go.mod/go.sum/go.work`，再看扩展名映射，最后才 fallback 为去点扩展名。 | `cmd/mcp-lsp/manager/registry.go:16`、`cmd/mcp-lsp/manager/registry.go:22`、`cmd/mcp-lsp/manager/registry.go:76`、`cmd/mcp-lsp/manager/registry.go:130` |
-| language → manager | `GetManagerForLanguage()` 只 lower-case + trim，再查已注册 manager；如果没注册，直接 `ErrUnsupportedLanguage`，不会进入安装。 | `cmd/mcp-lsp/manager/registry.go:96`、`cmd/mcp-lsp/manager/registry.go:103` |
-| manager 二次检测 | 进入 multilsp manager 后，`resolveDocumentRef()` 在调用方没显式给 languageID 时会再次 `DetectLanguageID(absPath)`；随后 `resolveProjectRoot()` 按 Go/JSTS/Java 选择 workspace root。 | `cmd/mcp-lsp/multilsp/manager.go:151`、`:180`、`:193` |
-| 惰性 client 初始化 | `multilsp.Manager` 先由 `ClientEnsurer + lspmanager.Manager + BackgroundRunnerProvider` 组合出对外端口；`EnsureClient()` → `ensureClientForFile/ensureClientForLanguage()` → `ensureClient()` → `createAndRegisterClient()` → `client.Initialize()` + `initialized`，这才是真正拉起外部语言服务器的点。 | `cmd/mcp-lsp/multilsp/manager.go:36`、`:42`、`:46`、`cmd/mcp-lsp/multilsp/manager_lifecycle.go:30`、`:105`、`:117`、`:231`、`:260`、`cmd/mcp-lsp/multilsp/client.go:98`、`:119` |
-| workspace symbol 特例 | `lsp_structure.workspace_symbol` 是唯一可直接走 `language` 的 tool action：`resolveWorkspaceSymbolManager()` 强制 `file_path` 与 `language` 二选一；language 模式走 `GetManagerForLanguage()`，file 模式仍会经 `DetectLanguageID()`。 | `cmd/mcp-lsp/tools/tool_structure.go:68`、`cmd/mcp-lsp/tools/tool_structure.go:75`、`cmd/mcp-lsp/tools/tool_structure.go:84`、`cmd/mcp-lsp/tools/tool_structure.go:91` |
-| 非 registry 旁路 | `lsp_grep.text_search` / `ast_search` 都是搜索子系统直连：前者本地 walk，后者 `sg`，不经过 `manager.Registry`。 | `cmd/mcp-lsp/tools/tool_grep.go:73`、`cmd/mcp-lsp/search/searchutil.go:64`、`cmd/mcp-lsp/search/searchutil.go:84` |
+| file → languageID | 文件型工具进入 `registry.GetManagerForFile()` 后，先跑 `DetectLanguageID(filePath)`：优先 basename 映射 `go.mod/go.sum/go.work`，再看扩展名映射，最后才 fallback 为去点扩展名。 | `internal/sidecar/lsp/manager/registry.go:16`、`internal/sidecar/lsp/manager/registry.go:22`、`internal/sidecar/lsp/manager/registry.go:76`、`internal/sidecar/lsp/manager/registry.go:130` |
+| language → manager | `GetManagerForLanguage()` 只 lower-case + trim，再查已注册 manager；如果没注册，直接 `ErrUnsupportedLanguage`，不会进入安装。 | `internal/sidecar/lsp/manager/registry.go:96`、`internal/sidecar/lsp/manager/registry.go:103` |
+| manager 二次检测 | 进入 multilsp manager 后，`resolveDocumentRef()` 在调用方没显式给 languageID 时会再次 `DetectLanguageID(absPath)`；随后 `resolveProjectRoot()` 按 Go/JSTS/Java 选择 workspace root。 | `internal/sidecar/lsp/multilsp/manager.go:151`、`:180`、`:193` |
+| 惰性 client 初始化 | `multilsp.Manager` 先由 `ClientEnsurer + lspmanager.Manager + BackgroundRunnerProvider` 组合出对外端口；`EnsureClient()` → `ensureClientForFile/ensureClientForLanguage()` → `ensureClient()` → `createAndRegisterClient()` → `client.Initialize()` + `initialized`，这才是真正拉起外部语言服务器的点。 | `internal/sidecar/lsp/multilsp/manager.go:36`、`:42`、`:46`、`internal/sidecar/lsp/multilsp/manager_lifecycle.go:30`、`:105`、`:117`、`:231`、`:260`、`internal/sidecar/lsp/multilsp/client.go:98`、`:119` |
+| workspace symbol 特例 | `lsp_structure.workspace_symbol` 是唯一可直接走 `language` 的 tool action：`resolveWorkspaceSymbolManager()` 强制 `file_path` 与 `language` 二选一；language 模式走 `GetManagerForLanguage()`，file 模式仍会经 `DetectLanguageID()`。 | `internal/sidecar/lsp/tools/tool_structure.go:68`、`internal/sidecar/lsp/tools/tool_structure.go:75`、`internal/sidecar/lsp/tools/tool_structure.go:84`、`internal/sidecar/lsp/tools/tool_structure.go:91` |
+| 非 registry 旁路 | `lsp_grep.text_search` / `ast_search` 都是搜索子系统直连：前者本地 walk，后者 `sg`，不经过 `manager.Registry`。 | `internal/sidecar/lsp/tools/tool_grep.go:73`、`internal/sidecar/lsp/search/searchutil.go:64`、`internal/sidecar/lsp/search/searchutil.go:84` |
 
 | action | 参数 | 内部动作 | 返回字段 |
 |---|---|---|---|
@@ -242,10 +242,10 @@ sequenceDiagram
 
 | 能力 | 实现锚点 | 与语言服务器关系 | 说明 |
 |---|---|---|---|
-| 文本搜索 | `cmd/mcp-lsp/search/searchutil.go:64` | **独立于** LSP server | 纯本地扫描，适合 grep/批量验真。 |
-| AST 搜索 | `cmd/mcp-lsp/search/searchutil.go:84` | **独立于** LSP server，但依赖 `sg` | `lsp_grep.ast_search` 不走 `manager.Registry`。 |
-| semantic tokens | `cmd/mcp-lsp/tools/tool_structure.go:160` | **依赖** LSP server | 由具体语言服务器返回 token data。 |
-| markdown/json/yaml 文档符号 fallback | `cmd/mcp-lsp/multilsp/manager_symbols_fallback.go:33` | **不依赖** 外部 LSP server | 能力存在于 manager 基座，但当前 cmd 层未把这些 language ID 注册进 registry。 |
+| 文本搜索 | `internal/sidecar/lsp/search/searchutil.go:64` | **独立于** LSP server | 纯本地扫描，适合 grep/批量验真。 |
+| AST 搜索 | `internal/sidecar/lsp/search/searchutil.go:84` | **独立于** LSP server，但依赖 `sg` | `lsp_grep.ast_search` 不走 `manager.Registry`。 |
+| semantic tokens | `internal/sidecar/lsp/tools/tool_structure.go:160` | **依赖** LSP server | 由具体语言服务器返回 token data。 |
+| markdown/json/yaml 文档符号 fallback | `internal/sidecar/lsp/multilsp/manager_symbols_fallback.go:33` | **不依赖** 外部 LSP server | 能力存在于 manager 基座，但当前 cmd 层未把这些 language ID 注册进 registry。 |
 
 ### 7.2 `mcp-ida` 当前独立能力
 
@@ -291,10 +291,10 @@ sequenceDiagram
 | 场景 | 原始错误来源 | 最终码 | 说明 | 锚点 |
 |---|---|---|---|---|
 | `tools/call` 外层 envelope 解码失败 | `toolCallParams` 反序列化失败 | `-32602` | 这是 transport 层错误，尚未进入具体 tool handler。 | `internal/mcpserver/common/server.go:221`、`internal/mcpserver/common/http_transport.go:161` |
-| tool 内部严格参数校验失败 | `decodeStrictToolParams` / `requireFilePath` / `requirePosition` / `unsupported <tool> action` | `-32000` | 已进入具体 handler，因此统一由 `tools/call` 包装成 tool call error。 | `cmd/mcp-lsp/tools/factory.go:92`、`cmd/mcp-lsp/tools/factory.go:120`、`cmd/mcp-lsp/tools/factory.go:144`、`cmd/mcp-lsp/tools/factory.go:152`、`internal/mcpserver/common/server.go:233` |
-| path 越界 / symlink / binary / file too large | `search.ResolvePath` / `readValidatedFile` | `-32000` | 常见于 `lsp_file` 与 `lsp_grep`。 | `cmd/mcp-lsp/search/fileutil.go:112`、`cmd/mcp-lsp/search/fileutil.go:147`、`cmd/mcp-lsp/search/fileutil.go:156`、`cmd/mcp-lsp/search/fileutil.go:162`、`cmd/mcp-lsp/search/fileutil.go:169` |
-| registry 未注册语言 | `ErrUnsupportedLanguage` | `-32000` | registry 直接拒绝；不会进入 auto-install。 | `cmd/mcp-lsp/manager/registry.go:14`、`cmd/mcp-lsp/manager/registry.go:83`、`cmd/mcp-lsp/manager/registry.go:103` |
-| LSP binary 缺失且安装失败 | `installer.EnsureInstalled` | `-32000` | LookPath 失败后尝试安装；安装失败同样按 tool error 上抛。 | `cmd/mcp-lsp/installer/installer.go:44`、`cmd/mcp-lsp/installer/installer.go:65`、`cmd/mcp-lsp/installer/installer.go:70` |
+| tool 内部严格参数校验失败 | `decodeStrictToolParams` / `requireFilePath` / `requirePosition` / `unsupported <tool> action` | `-32000` | 已进入具体 handler，因此统一由 `tools/call` 包装成 tool call error。 | `internal/sidecar/lsp/tools/factory.go:92`、`internal/sidecar/lsp/tools/factory.go:120`、`internal/sidecar/lsp/tools/factory.go:144`、`internal/sidecar/lsp/tools/factory.go:152`、`internal/mcpserver/common/server.go:233` |
+| path 越界 / symlink / binary / file too large | `search.ResolvePath` / `readValidatedFile` | `-32000` | 常见于 `lsp_file` 与 `lsp_grep`。 | `internal/sidecar/lsp/search/fileutil.go:112`、`internal/sidecar/lsp/search/fileutil.go:147`、`internal/sidecar/lsp/search/fileutil.go:156`、`internal/sidecar/lsp/search/fileutil.go:162`、`internal/sidecar/lsp/search/fileutil.go:169` |
+| registry 未注册语言 | `ErrUnsupportedLanguage` | `-32000` | registry 直接拒绝；不会进入 auto-install。 | `internal/sidecar/lsp/manager/registry.go:14`、`internal/sidecar/lsp/manager/registry.go:83`、`internal/sidecar/lsp/manager/registry.go:103` |
+| LSP binary 缺失且安装失败 | `installer.EnsureInstalled` | `-32000` | LookPath 失败后尝试安装；安装失败同样按 tool error 上抛。 | `internal/sidecar/lsp/installer/installer.go:44`、`internal/sidecar/lsp/installer/installer.go:65`、`internal/sidecar/lsp/installer/installer.go:70` |
 | bootstrap lease 被拒绝 | jrpc2 error `4101/4102` | `4101` / `4102` | `mcp-lsp` / `mcp-ida` 本地不制造该码，但 heartbeat 会识别并走重连。 | `internal/dto/mcp/errors.go:7`、`internal/dto/mcp/errors.go:8`、`internal/mcpserver/common/bootstrap/heartbeat.go:172` |
 | bootstrap approval 不可用 | `approvalUnavailableErr()` | `4105` | 主要出现在控制面 live lifecycle 不可用时。 | `internal/dto/mcp/errors.go:11`、`internal/mcpserver/common/bootstrap/env.go:203` |
 | ctl 业务错误目录 | capability / scope / peer / auth / busy / timeout | `4103`~`4110` | 这些码定义在 DTO 与 mcpcontrol，但 03 这两个 binary 主要是“消费/透传”，不是本地 tool server 主动发射点。 | `internal/dto/mcp/errors.go:9`、`internal/dto/mcp/errors.go:10`、`internal/dto/mcp/errors.go:13`、`internal/dto/mcp/errors.go:14`、`internal/dto/mcp/errors.go:15`、`internal/dto/mcp/errors.go:16`、`internal/platform/mcpcontrol/errors.go:30`、`internal/platform/mcpcontrol/errors.go:34`、`internal/platform/mcpcontrol/errors.go:50`、`internal/platform/mcpcontrol/errors.go:42`、`internal/platform/mcpcontrol/errors.go:54` |
@@ -317,11 +317,11 @@ sequenceDiagram
 
 | 包 | 测试文件 | 核心 Test* | freeze |
 |---|---|---|---|
-| `edit` | `cmd/mcp-lsp/edit/patchparse_test.go` | `TestParseImplicitSingleHunk` (`cmd/mcp-lsp/edit/patchparse_test.go:9`) | — |
-| `multilsp` | `cmd/mcp-lsp/multilsp/gomod_test.go` | `TestFindJSTSProjectRootWithinFindsFirstValidProject` (`cmd/mcp-lsp/multilsp/gomod_test.go:9`) | — |
-| `manager` | `cmd/mcp-lsp/manager/registry_multilang_e2e_test.go` | `TestMultiLanguageLSP_E2E` (`cmd/mcp-lsp/manager/registry_multilang_e2e_test.go:242`) | — |
-| `search` | `cmd/mcp-lsp/search/language_inference_test.go` | `TestInferLanguage` (`cmd/mcp-lsp/search/language_inference_test.go:5`) | — |
-| `tools` | `cmd/mcp-lsp/tools/tool_edit_support_test.go` | `TestReadFileWithModeNormalizesCRLF` (`cmd/mcp-lsp/tools/tool_edit_support_test.go:11`) | — |
+| `edit` | `internal/sidecar/lsp/edit/patchparse_test.go` | `TestParseImplicitSingleHunk` (`internal/sidecar/lsp/edit/patchparse_test.go:9`) | — |
+| `multilsp` | `internal/sidecar/lsp/multilsp/gomod_test.go` | `TestFindJSTSProjectRootWithinFindsFirstValidProject` (`internal/sidecar/lsp/multilsp/gomod_test.go:9`) | — |
+| `manager` | `internal/sidecar/lsp/manager/registry_multilang_e2e_test.go` | `TestMultiLanguageLSP_E2E` (`internal/sidecar/lsp/manager/registry_multilang_e2e_test.go:242`) | — |
+| `search` | `internal/sidecar/lsp/search/language_inference_test.go` | `TestInferLanguage` (`internal/sidecar/lsp/search/language_inference_test.go:5`) | — |
+| `tools` | `internal/sidecar/lsp/tools/tool_edit_support_test.go` | `TestReadFileWithModeNormalizesCRLF` (`internal/sidecar/lsp/tools/tool_edit_support_test.go:11`) | — |
 
 补充：本卷覆盖的 5 个子包当前都**没有独立 archtest freeze 数字**；冻结压力仍主要落在 11 卷 `memory/prompt` 等包，而 03 卷更像“运行时与工具语义”地图。
 
@@ -329,6 +329,6 @@ sequenceDiagram
 
 | 场景 | 何时改 | 步骤 | 锚点 | 验证 |
 |---|---|---|---|---|
-| LSP tool | 新增理解/编辑/执行类工具 | `schema.go` 增 schema → `lspToolManifests` / `newToolHandlers` 接 manifest+handler → `tools/tool_*.go` 落 action，并经 `wrapToolHandler()` 接入治理 | `cmd/mcp-lsp/tools.go:27`、`cmd/mcp-lsp/tools.go:39` | `cmd/mcp-lsp/tools/tool_*_test.go` |
-| language | 引入新语言 server | `setupInstaller()` 登 binary/install cmd → `createGenericManager()` 指定 binary/args/initOpts → `registry.Register(languageID, mgr)` 暴露给文件型工具 | `cmd/mcp-lsp/runtime.go:65`、`cmd/mcp-lsp/runtime.go:107`、`cmd/mcp-lsp/manager/registry.go:70` | `cmd/mcp-lsp/manager/registry_multilang_e2e_test.go:242` |
-| action | 给已有 tool 补新 action | `schema.go` 扩 enum → `dispatchToolAction()` 分发表补 case → 视需要补 `WithOutputBudget` / timeout tier / format helper | `cmd/mcp-lsp/schema.go:56`、`cmd/mcp-lsp/tools/factory.go:120`、`cmd/mcp-lsp/middleware/budget.go:17`、`cmd/mcp-lsp/middleware/timeout.go:11` | `cmd/mcp-lsp/tools/tool_structure_test.go` / 同类 handler test |
+| LSP tool | 新增理解/编辑/执行类工具 | `schema.go` 增 schema → `lspToolManifests` / `newToolHandlers` 接 manifest+handler → `tools/tool_*.go` 落 action，并经 `wrapToolHandler()` 接入治理 | `internal/sidecar/lsp/tools.go:27`、`internal/sidecar/lsp/tools.go:39` | `internal/sidecar/lsp/tools/tool_*_test.go` |
+| language | 引入新语言 server | `setupInstaller()` 登 binary/install cmd → `createGenericManager()` 指定 binary/args/initOpts → `registry.Register(languageID, mgr)` 暴露给文件型工具 | `cmd/mcp-lsp/runtime.go:65`、`cmd/mcp-lsp/runtime.go:107`、`internal/sidecar/lsp/manager/registry.go:70` | `internal/sidecar/lsp/manager/registry_multilang_e2e_test.go:242` |
+| action | 给已有 tool 补新 action | `schema.go` 扩 enum → `dispatchToolAction()` 分发表补 case → 视需要补 `WithOutputBudget` / timeout tier / format helper | `cmd/mcp-lsp/schema.go:56`、`internal/sidecar/lsp/tools/factory.go:120`、`internal/sidecar/lsp/middleware/budget.go:17`、`internal/sidecar/lsp/middleware/timeout.go:11` | `internal/sidecar/lsp/tools/tool_structure_test.go` / 同类 handler test |

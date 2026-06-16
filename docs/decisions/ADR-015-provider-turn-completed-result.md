@@ -6,7 +6,7 @@
 > - **C1 codex 累加器**：4 commit `2a392e61`/`5dd5486e`/`026a9cce`/`3c115ebf`。新建 `internal/provider/codexapp/turn_output_accumulator.go` + `session_approval.go` sniff + `event_map.go` 4 字段补完 + 3 处 cleanup hook + 2 个单测文件（10 文件 / +716 / -17）。贴近 v4.1 §2.1 描述；grep 揭出 2 处实际与 ADR 描述偏差已修（事件 method 字面量 3 种 + encodePayload 函数不存在）。
 > - **C2 claude e2e 脚手架**：2 commit `b2220bb7`/`fe5572b0`。实测揭出 §2.4 情况 A（CLI 不截断，3KB gotLen=4509 纯 ABC）；8KB/16KB 未拿到证据（模型拒绝 / timeout）立 H12 follow-up。
 > - **文档漂移修**：`4a2cba3f` 修正 §2.1 + §2.2 + §4 共 4 处 `failTurns` 文件名（`factory.go:178-188` → `session_dispatch.go:182-196`）。
-> 相关：C-A 实施计划 §2.1 + §2.2（`docs/plans/dag-lifecycle-c-a-implementation.md`）/ F1.x lifecycle 审计 §8.1 实证 #1+#2（`docs/design/F1-lifecycle-audit-2026-05-12.md`）/ ADR-016（C3 auto stop，配套独立 ADR）/ ADR-017（A1 DAG subscriber 消费 ev.Result）
+> 相关：C-A 实施计划 §2.1 + §2.2（`docs/plans/dag-lifecycle-c-a-implementation.md`）/ F1.x lifecycle 审计 §8.1 实证 #1+#2（`docs/架构决策/设计审计/F1-lifecycle-audit-2026-05-12.md`）/ ADR-016（C3 auto stop，配套独立 ADR）/ ADR-017（A1 DAG subscriber 消费 ev.Result）
 > 编号说明：ADR-015 编号被 v1/v2/v3 占用过，v1-v3 从未 git-tracked 已删；本 v4 是基于 C-A 路径的全新决策记录。
 
 ## 1. 背景
@@ -188,7 +188,7 @@ v4.1 reviewer 揭出：`ev.Result` 已经在被消费但当前 codex 侧零值�
 |---|---|---|
 | `hook_consumer.go:301 handleTurnCompleted` | `report := platformshared.FirstTrimmed(ev.Result, ev.Summary, ev.Message)` | codex 侧 ev.Result/Summary/Message 全是零值 → fallback 到空字符串 |
 | `notify/turn.go:209 buildTurnCompletedBody` | 同上 FirstTrimmed 逻辑 | 同上 |
-| `cmd/mcp-orch/orchestration/service.go:269 TurnCompleted 订阅` | 调用 `handleTurnCompletedEventWithCtx` → `svc.CompleteTurn(ctx, ev.AgentID, ev.TurnID, ev.Success, ev.Error)` | 不消费 Result，仅 agent runtime 状态推进 |
+| `internal/sidecar/orch/orchestration/service.go:269 TurnCompleted 订阅` | 调用 `handleTurnCompletedEventWithCtx` → `svc.CompleteTurn(ctx, ev.AgentID, ev.TurnID, ev.Success, ev.Error)` | 不消费 Result，仅 agent runtime 状态推进 |
 
 **含义**：C1 落地即激活 hook_consumer + notify 已有的消费链路（用户 UI 立刻看到 codex agent 的回复 report），不需要任何 service 层 / hook_consumer 改动。
 

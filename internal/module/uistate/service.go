@@ -11,17 +11,16 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type service struct {
 	logger                *pkglogger.Logger
 	threads               contract.ThreadLister
 	agents                contract.OrchestrationService
-	preferences           uipreference.Store
+	preferences           contract.UIPreferenceStore
 	bindings              bindingLookup
 	runtimeConfig         runtimeConfigLookup
 	mu                    sync.RWMutex
@@ -79,7 +78,7 @@ func NewService(
 	logger *pkglogger.Logger,
 	threads contract.ThreadLister,
 	agents contract.OrchestrationService,
-	preferences uipreference.Store,
+	preferences contract.UIPreferenceStore,
 	bindings bindingLookup,
 	runtimeCfg runtimeConfigLookup,
 	options ...ServiceOption,
@@ -148,8 +147,8 @@ func buildInitialState(ctx context.Context, threads contract.ThreadLister, agent
 		state.Threads = upsertThreadSummary(state.Threads, ThreadSummary{
 			ID:        agent.ThreadID,
 			AgentID:   agent.ID,
-			CreatedAt: clone.Time(agent.CreatedAt),
-			UpdatedAt: clone.Time(agent.UpdatedAt),
+			CreatedAt: kernel.CloneTime(agent.CreatedAt),
+			UpdatedAt: kernel.CloneTime(agent.UpdatedAt),
 		})
 	}
 	sortThreads(state.Threads)
@@ -341,7 +340,7 @@ func (s *service) fallbackPreferencesLocked(scope string) map[string]any {
 	}
 	return values
 }
-func loadPreferencesFromStore(ctx context.Context, store uipreference.Store, scope string) (map[string]any, error) {
+func loadPreferencesFromStore(ctx context.Context, store contract.UIPreferenceStore, scope string) (map[string]any, error) {
 	rows, err := store.List(ctx, scope)
 	if err != nil {
 		return nil, err
@@ -352,12 +351,12 @@ func loadPreferencesFromStore(ctx context.Context, store uipreference.Store, sco
 	}
 	return values, nil
 }
-func storePreference(ctx context.Context, store uipreference.Store, scope, key string, value any) error {
+func storePreference(ctx context.Context, store contract.UIPreferenceStore, scope, key string, value any) error {
 	raw, err := marshalPreferenceValue(value)
 	if err != nil {
 		return err
 	}
-	return store.Upsert(ctx, uipreference.UpsertParams{
+	return store.Upsert(ctx, contract.UIPreferenceUpsertParams{
 		Cwd:   scope,
 		Key:   key,
 		Value: raw,

@@ -11,7 +11,7 @@ import (
 	"errors"
 	"time"
 
-	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // Service is the host-facing facade used by cronjob/* JSON-RPC methods.
@@ -83,7 +83,7 @@ type UpdateJobRequest struct {
 	MaxAttempts   int32
 }
 
-// Job is the presentation-level projection of cronstore.Job. Unlike the
+// Job is the presentation-level projection of contract.CronJob. Unlike the
 // store DTO, time fields are encoded as RFC3339 strings for JSON consumers
 // and the skills JSONB is already decoded to a string slice.
 type Job struct {
@@ -116,7 +116,7 @@ type Job struct {
 	UpdatedAt       string   `json:"updated_at,omitempty"`
 }
 
-// Run is the presentation-level projection of cronstore.Run.
+// Run is the presentation-level projection of contract.CronRun.
 type Run struct {
 	ID             string `json:"id"`
 	JobID          string `json:"job_id"`
@@ -137,14 +137,14 @@ type Run struct {
 // module. Kept narrow so tests can stub only what the service exercises.
 //
 // 这个窄接口只给 CRUD service 用。scheduler 的恢复和续租直接用
-// cronstore.Store，别塞到这里。
+// contract.CronStore，别塞到这里。
 type Store interface {
-	CreateJob(ctx context.Context, params cronstore.CreateJobParams) (cronstore.Job, error)
-	GetJobByID(ctx context.Context, id string) (cronstore.Job, error)
-	ListJobs(ctx context.Context) ([]cronstore.Job, error)
+	CreateJob(ctx context.Context, params contract.CronCreateJobParams) (contract.CronJob, error)
+	GetJobByID(ctx context.Context, id string) (contract.CronJob, error)
+	ListJobs(ctx context.Context) ([]contract.CronJob, error)
 	DeleteJob(ctx context.Context, id string) error
-	UpdateJobSchedule(ctx context.Context, params cronstore.UpdateJobScheduleParams) error
+	UpdateJobSchedule(ctx context.Context, params contract.CronUpdateJobScheduleParams) error
 	SetJobEnabled(ctx context.Context, id string, enabled bool, now time.Time) error
 	PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Time, now time.Time) error
-	ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]cronstore.Run, error)
+	ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]contract.CronRun, error)
 }

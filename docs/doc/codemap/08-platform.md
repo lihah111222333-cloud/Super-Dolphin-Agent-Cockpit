@@ -873,7 +873,7 @@ flowchart LR
 
 ### 5.3 上层实际用法
 
-在 `cmd/mcp-orch/orchestration/service.go` 中：
+在 `internal/sidecar/orch/orchestration/service.go` 中：
 
 - `service.machineCfg` 来自 `agentdto.TransitionDefinitions`
 - `newAgentLocked()` 为每个 `agentRuntime` 创建一个状态机
@@ -940,13 +940,13 @@ Codex session 收到 inbound tool request
 | `memory_read` | host-direct (routeHostOnlyToolCall) | `memory_read_tool.go` |
 | `memory_write` | host-direct (routeHostOnlyToolCall) | `memory_write_tool.go` |
 | `skill_read_section` | stale-call rejection only; unavailable to Codex production path | `host_tools.go` / `handler.go` |
-| `orchestration_*` (5) | peer → mcp-orch | `cmd/mcp-orch/tools/orchestration_tools.go` |
-| `task_*` (3) | peer → mcp-orch | `cmd/mcp-orch/tools/task_tools.go` |
-| `workspace_*` (5) | peer → mcp-orch | `cmd/mcp-orch/tools/workspace_tools.go` |
-| `prompt_*` (2) | peer → mcp-orch | `cmd/mcp-orch/tools/prompt_tools.go` |
-| `command_*` (2) | peer → mcp-orch | `cmd/mcp-orch/tools/command_tools.go` |
-| `shared_file_*` (2) | peer → mcp-orch | `cmd/mcp-orch/tools/shared_file_tools.go` |
-| `lsp_*` (7) | peer → mcp-lsp | `cmd/mcp-lsp/tools/` |
+| `orchestration_*` (5) | peer → mcp-orch | `internal/sidecar/orch/tools/orchestration_tools.go` |
+| `task_*` (3) | peer → mcp-orch | `internal/sidecar/orch/tools/task_tools.go` |
+| `workspace_*` (5) | peer → mcp-orch | `internal/sidecar/orch/tools/workspace_tools.go` |
+| `prompt_*` (2) | peer → mcp-orch | `internal/sidecar/orch/tools/prompt_tools.go` |
+| `command_*` (2) | peer → mcp-orch | `internal/sidecar/orch/tools/command_tools.go` |
+| `shared_file_*` (2) | peer → mcp-orch | `internal/sidecar/orch/tools/shared_file_tools.go` |
+| `lsp_*` (7) | peer → mcp-lsp | `internal/sidecar/lsp/tools/` |
 
 > 注：Claude CLI 通过 proxy HTTP endpoint 进入，所有工具前缀为 `mcp__orch__`（orch family）或 `mcp__lsp__`（lsp family）。memory host tools 虽然前缀是 `mcp__orch__`，但从不经过 mcp-orch 子进程。
 

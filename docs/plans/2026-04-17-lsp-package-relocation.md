@@ -88,7 +88,7 @@ search ──→ format
 | 文件 | 引用方式 |
 |------|---------|
 | `cmd/mcp-lsp/runtime.go` | import `gopls` / `installer` / `manager` / `protocol` |
-| `cmd/mcp-lsp/tools.go` | import `tools` |
+| `internal/sidecar/lsp/tools.go` | import `tools` |
 | `internal/archtest/dependency_direction_test.go` | rule7 / rule7b 路径字符串 |
 
 其余入口文件（`main.go` / `fx.go` / `http_runner.go` / `schema.go`）只 import `internal/mcpserver/common{,/bootstrap}` 与 `internal/platform/*`，sed 对它们 no-op。
@@ -170,11 +170,11 @@ find cmd/mcp-lsp -name '*.go' | wc -l                           # 68（Step 1 �
 | 位置 | 命中数 | 说明 |
 |------|------:|------|
 | `cmd/mcp-lsp/` 入口（`runtime.go` + `tools.go`） | 2 | 引用 `gopls/installer/manager/protocol/tools` |
-| `cmd/mcp-lsp/format/` | 4 | 全部引用 `protocol` |
+| `internal/sidecar/lsp/format/` | 4 | 全部引用 `protocol` |
 | `cmd/mcp-lsp/gopls/` | 10 | client/manager/transport 等引用 `format/manager/protocol` |
-| `cmd/mcp-lsp/manager/` | 4 | 含 2 测试；引用 `installer/gopls/protocol` |
-| `cmd/mcp-lsp/search/` | 1 | `fileutil.go` → `format` |
-| `cmd/mcp-lsp/tools/` | 16 | 含 3 测试；广泛引用 edit/format/manager/middleware/protocol/search |
+| `internal/sidecar/lsp/manager/` | 4 | 含 2 测试；引用 `installer/gopls/protocol` |
+| `internal/sidecar/lsp/search/` | 1 | `fileutil.go` → `format` |
+| `internal/sidecar/lsp/tools/` | 16 | 含 3 测试；广泛引用 edit/format/manager/middleware/protocol/search |
 | `internal/archtest/dependency_direction_test.go` | 1 | rule7/7b 路径字符串 |
 | **合计** | **38** | |
 
@@ -188,7 +188,7 @@ find cmd/mcp-lsp internal/archtest -name '*.go' \
 find cmd/mcp-lsp internal/archtest -name '*.go.bak' -delete
 ```
 
-> ⚠️ sed 会同时命中注释/字符串字面量里的路径（如 `manager/registry_e2e_test.go:39` 注释 `go test ... ./internal/mcpserver/lsp/manager/...` → `./cmd/mcp-lsp/manager/...`）。这是**期望行为**，review 时核对。
+> ⚠️ sed 会同时命中注释/字符串字面量里的路径（如 `manager/registry_e2e_test.go:39` 注释 `go test ... ./internal/mcpserver/lsp/manager/...` → `./internal/sidecar/lsp/manager/...`）。这是**期望行为**，review 时核对。
 
 **argv 长度无风险**：`getconf ARG_MAX` = 1048576，`find -exec ... {} +` 自动分批 ≤85 文件，充裕。
 
@@ -246,7 +246,7 @@ t.Run("rule7b_cmd_mcp_lsp_cannot_import_module", func(t *testing.T) {
 
 原规则对 `cmd/**` 所有文件全放行 `fx`；迁移后 `cmd/mcp-lsp/{edit,exec,...}` 子包也会被自动豁免，会丢失 fx 越界检查。
 
-**收窄方案（只收窄 cmd/mcp-lsp）**：`cmd/mcp-orch` / `cmd/mcp-ida` 目前有活跃的子包 fx import（例如 `cmd/mcp-orch/orchestration/service.go:20`），且属于旧布局 TODO，**本次不收窄它们**，避免扩散修复。只把 `cmd/mcp-lsp/**` 子包纳入严格规则：
+**收窄方案（只收窄 cmd/mcp-lsp）**：`cmd/mcp-orch` / `cmd/mcp-ida` 目前有活跃的子包 fx import（例如 `internal/sidecar/orch/orchestration/service.go:20`），且属于旧布局 TODO，**本次不收窄它们**，避免扩散修复。只把 `cmd/mcp-lsp/**` 子包纳入严格规则：
 
 ```go
 // 放行条件：
@@ -421,7 +421,7 @@ internal/mcpserver/             ← 只剩 common/
 ### 遗留 2：`cmd/mcp-orch/**` 与 `cmd/mcp-ida/**` 子包的 `fx` import 未收窄
 
 - **现状**：本次 rule10 仅把 `cmd/mcp-lsp/<子包>/` 收窄到「只允许 `module.go` / `fx.go` import `fx`」；`cmd/mcp-orch`、`cmd/mcp-ida` 子包仍整体放行。
-- **具体存量**：`cmd/mcp-orch/orchestration/service.go:20` 等多处子包中 `fx` import。它们属于 P8 残留的旧布局，正在待重构。
+- **具体存量**：`internal/sidecar/orch/orchestration/service.go:20` 等多处子包中 `fx` import。它们属于 P8 残留的旧布局，正在待重构。
 - **应对**：在 `cmd/mcp-orch`、`cmd/mcp-ida` 的后续搬迁 / 瘦身计划里同步把 rule10 的规则 d) 处理成与 `cmd/mcp-lsp` 同样的白名单约束。
 
 ### 遗留 3：历史计划文档残留旧守卫数字

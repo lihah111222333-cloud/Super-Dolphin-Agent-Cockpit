@@ -8,9 +8,9 @@
 
 | 测试项 | 命令 | 结果 | 说明 |
 | --- | --- | --- | --- |
-| 定向验证：pos / envelope / list 输出 | `go test ./cmd/mcp-orch/tools -run 'Test.*(Pos|Envelope|ListDAGs|ListRuns|SharedFileList|ListModels)' -count=1` | 通过 | 验证平铺定位、统一出参、列表工具 |
-| 定向验证：创建 / 应用 ops / 数组型 envelope | `go test ./cmd/mcp-orch/tools -run 'TestHandle(CreateDAG|ApplyOps|ListAgents|PromptList|CommandList|WorkspaceListRuns)' -count=1` | 通过 | 验证复杂入参平铺和兼容 envelope |
-| tools 包完整测试 | `go test ./cmd/mcp-orch/tools -count=1` | 通过 | 本次优化范围内通过 |
+| 定向验证：pos / envelope / list 输出 | `go test ./internal/sidecar/orch/tools -run 'Test.*(Pos|Envelope|ListDAGs|ListRuns|SharedFileList|ListModels)' -count=1` | 通过 | 验证平铺定位、统一出参、列表工具 |
+| 定向验证：创建 / 应用 ops / 数组型 envelope | `go test ./internal/sidecar/orch/tools -run 'TestHandle(CreateDAG|ApplyOps|ListAgents|PromptList|CommandList|WorkspaceListRuns)' -count=1` | 通过 | 验证复杂入参平铺和兼容 envelope |
+| tools 包完整测试 | `go test ./internal/sidecar/orch/tools -count=1` | 通过 | 本次优化范围内通过 |
 | mcp-orch 全量回归 | `go test ./cmd/mcp-orch/... -count=1` | 未全绿 | 仍失败在既有非 tools 用例 |
 
 全量回归失败项：
@@ -32,7 +32,7 @@
 | 出参统一度 | 35 | 82 | +47 | 对象型列表新增 `data/total/showing/truncated/hint`，数组型工具支持 `envelope=true` | AI 可以统一读 `data` |
 | hint 可操作性 | 40 | 80 | +40 | 列表输出 hint 指向下一步工具，例如 `task_get_run`, `shared_file_read` | AI 能知道下一步该调用什么 |
 | 旧接口兼容性 | 76 | 91 | +15 | 旧字段保留；数组型工具默认仍返回数组 | 优化没有粗暴破坏老调用方 |
-| 功能可用性 | 65 | 87 | +22 | `go test ./cmd/mcp-orch/tools -count=1` 通过 | 工具层可用性验证通过 |
+| 功能可用性 | 65 | 87 | +22 | `go test ./internal/sidecar/orch/tools -count=1` 通过 | 工具层可用性验证通过 |
 | 测试覆盖可信度 | 55 | 84 | +29 | pos、flat input、envelope、legacy fallback 均有测试 | 优化路径有自动化测试保护 |
 | 加权总分 | 53.5 | 85.0 | +31.5 | 见上方测试结果 | 达到可交付状态 |
 

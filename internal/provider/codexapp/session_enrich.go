@@ -11,8 +11,8 @@ import (
 
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/resultguard"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
 const (
@@ -71,8 +71,8 @@ type preparedToolCall struct {
 // prepareToolCall 准备工具call。
 func (s *session) prepareToolCall(msg RawMessage) (preparedToolCall, error) {
 	started := time.Now()
-	callID := util.FirstNonEmpty(jsonRPCIDString(msg.ID), toolCallParamStringAny(msg.Params, "callId", "call_id"), nestedToolCallString(msg.Params, "item", "callId", "call_id"))
-	toolName := util.FirstNonEmpty(toolCallParamStringAny(msg.Params, "name", "toolName", "tool_name", "tool"), nestedToolCallString(msg.Params, "item", "name", "toolName", "tool"))
+	callID := kernel.FirstNonEmpty(jsonRPCIDString(msg.ID), toolCallParamStringAny(msg.Params, "callId", "call_id"), nestedToolCallString(msg.Params, "item", "callId", "call_id"))
+	toolName := kernel.FirstNonEmpty(toolCallParamStringAny(msg.Params, "name", "toolName", "tool_name", "tool"), nestedToolCallString(msg.Params, "item", "name", "toolName", "tool"))
 	if callID == "" {
 		return preparedToolCall{}, fmt.Errorf("codexapp: tool call id is required")
 	}
@@ -89,7 +89,7 @@ func (s *session) prepareToolCall(msg RawMessage) (preparedToolCall, error) {
 		return preparedToolCall{}, fmt.Errorf("codexapp: tool call cwd is required")
 	}
 	workspaceRoots := trustedWorkspaceRoots(cwd, s.runtimeConfigStringSlice("additionalWorkingDirectories", "additional_working_directories"))
-	turnID := util.FirstNonEmpty(toolCallParamStringAny(msg.Params, "turnId", "turn_id"), nestedToolCallString(msg.Params, "item", "turnId", "turn_id"), s.activeTurnSnapshot())
+	turnID := kernel.FirstNonEmpty(toolCallParamStringAny(msg.Params, "turnId", "turn_id"), nestedToolCallString(msg.Params, "item", "turnId", "turn_id"), s.activeTurnSnapshot())
 	header := toolCallHeader(agentID, turnID, callID, toolName, started)
 	enriched, err := enrichToolCallParamsStrict(msg, agentID, providerThreadID, callID, cwd, workspaceRoots)
 	if err != nil {
@@ -199,7 +199,7 @@ func (e toolCallResultEnvelope) explicitFailure() bool {
 
 // failureText 提取失败说明文本。
 func (e toolCallResultEnvelope) failureText(result any) string {
-	if text := util.FirstNonEmpty(e.Error, e.Message, e.Reason); text != "" {
+	if text := kernel.FirstNonEmpty(e.Error, e.Message, e.Reason); text != "" {
 		return text
 	}
 	for _, item := range e.ContentItems {

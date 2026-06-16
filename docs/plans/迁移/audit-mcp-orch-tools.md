@@ -80,7 +80,7 @@
 
 ### 2.2 V3 代码库内存在的“非 MCP tool”对应能力
 
-- V3 已有 orchestration RPC handler 映射，但它们只在 `cmd/mcp-orch/orchestration` 模块内定义为 app/RPC handler，不是 `cmd/mcp-orch` 暴露出来的 MCP tool：`cmd/mcp-orch/orchestration/module.go:15-23`、`cmd/mcp-orch/orchestration/rpc.go:15-77`。
+- V3 已有 orchestration RPC handler 映射，但它们只在 `internal/sidecar/orch/orchestration` 模块内定义为 app/RPC handler，不是 `cmd/mcp-orch` 暴露出来的 MCP tool：`internal/sidecar/orch/orchestration/module.go:15-23`、`internal/sidecar/orch/orchestration/rpc.go:15-77`。
 - V3 已有 workspace RPC handler 映射，但同样只在 `internal/module/workspace` 模块内定义，不是 `cmd/mcp-orch` 当前暴露出来的 MCP tool：`internal/module/workspace/module.go:9-14`、`internal/module/workspace/rpc.go:13-24`。
 - 这两个 module 目前被桌面 app 总装配进 `internal/app/modules.go`，而不是被 `cmd/mcp-orch` 组装：`internal/app/modules.go:28-37`。
 - V3 `internal/mcpserver/common` 目前只有未被消费的 manifest type 和一个只等待 `ctx.Done()` 的空 server；没有任何 family-specific tool 注册逻辑：`internal/mcpserver/common/manifest.go:3-12`、`internal/mcpserver/common/server.go:8-20`。
@@ -119,14 +119,14 @@
 
 | V2 Tool Name | V2 文件 | V3 对应 | 状态 |
 |---|---|---|---|
-| `orchestration_list_agents` | `go-agent-v2/pkg/toolsdk/tools/orchestration.go:232-240` | RPC `agent.list`，但未接入 `cmd/mcp-orch`：`cmd/mcp-orch/orchestration/rpc.go:43-45`、`cmd/mcp-orch/fx.go:5-12` | ❌ |
-| `orchestration_send_message` | `go-agent-v2/pkg/toolsdk/tools/orchestration.go:245-258` | 近似 RPC `agent.submit` / `agent.submitPrompt`，但未接入 `cmd/mcp-orch`：`cmd/mcp-orch/orchestration/rpc.go:20-39`、`cmd/mcp-orch/fx.go:5-12` | ❌ |
-| `orchestration_launch_agent` | `go-agent-v2/pkg/toolsdk/tools/orchestration.go:262-278` | RPC `agent.launch`，但未接入 `cmd/mcp-orch`：`cmd/mcp-orch/orchestration/rpc.go:17-19`、`cmd/mcp-orch/fx.go:5-12` | ❌ |
-| `orchestration_stop_agent` | `go-agent-v2/pkg/toolsdk/tools/orchestration.go:282-294` | RPC `agent.stop`，但未接入 `cmd/mcp-orch`：`cmd/mcp-orch/orchestration/rpc.go:40-42`、`cmd/mcp-orch/fx.go:5-12` | ❌ |
-| `orchestration_get_agent_report` | `go-agent-v2/pkg/toolsdk/tools/orchestration.go:298-310` | RPC `agent.getReport` / `orchestration/report`，但未接入 `cmd/mcp-orch`：`cmd/mcp-orch/orchestration/rpc.go:52-54`、`cmd/mcp-orch/orchestration/rpc.go:73-75`、`cmd/mcp-orch/fx.go:5-12` | ❌ |
-| `task_create_dag` | `go-agent-v2/pkg/toolsdk/tools/resource_specs.go:45-53` | RPC `task/dag/create`，但未接入 `cmd/mcp-orch`：`cmd/mcp-orch/orchestration/rpc.go:61-63`、`cmd/mcp-orch/fx.go:5-12` | ❌ |
-| `task_get_dag` | `go-agent-v2/pkg/toolsdk/tools/resource_specs.go:69-78` | RPC `task/dag/get`，但未接入 `cmd/mcp-orch`：`cmd/mcp-orch/orchestration/rpc.go:64-66`、`cmd/mcp-orch/fx.go:5-12` | ❌ |
-| `task_update_node` | `go-agent-v2/pkg/toolsdk/tools/resource_specs.go:82-96` | RPC `task/node/update`，但未接入 `cmd/mcp-orch`：`cmd/mcp-orch/orchestration/rpc.go:70-72`、`cmd/mcp-orch/fx.go:5-12` | ❌ |
+| `orchestration_list_agents` | `go-agent-v2/pkg/toolsdk/tools/orchestration.go:232-240` | RPC `agent.list`，但未接入 `cmd/mcp-orch`：`internal/sidecar/orch/orchestration/rpc.go:43-45`、`cmd/mcp-orch/fx.go:5-12` | ❌ |
+| `orchestration_send_message` | `go-agent-v2/pkg/toolsdk/tools/orchestration.go:245-258` | 近似 RPC `agent.submit` / `agent.submitPrompt`，但未接入 `cmd/mcp-orch`：`internal/sidecar/orch/orchestration/rpc.go:20-39`、`cmd/mcp-orch/fx.go:5-12` | ❌ |
+| `orchestration_launch_agent` | `go-agent-v2/pkg/toolsdk/tools/orchestration.go:262-278` | RPC `agent.launch`，但未接入 `cmd/mcp-orch`：`internal/sidecar/orch/orchestration/rpc.go:17-19`、`cmd/mcp-orch/fx.go:5-12` | ❌ |
+| `orchestration_stop_agent` | `go-agent-v2/pkg/toolsdk/tools/orchestration.go:282-294` | RPC `agent.stop`，但未接入 `cmd/mcp-orch`：`internal/sidecar/orch/orchestration/rpc.go:40-42`、`cmd/mcp-orch/fx.go:5-12` | ❌ |
+| `orchestration_get_agent_report` | `go-agent-v2/pkg/toolsdk/tools/orchestration.go:298-310` | RPC `agent.getReport` / `orchestration/report`，但未接入 `cmd/mcp-orch`：`internal/sidecar/orch/orchestration/rpc.go:52-54`、`internal/sidecar/orch/orchestration/rpc.go:73-75`、`cmd/mcp-orch/fx.go:5-12` | ❌ |
+| `task_create_dag` | `go-agent-v2/pkg/toolsdk/tools/resource_specs.go:45-53` | RPC `task/dag/create`，但未接入 `cmd/mcp-orch`：`internal/sidecar/orch/orchestration/rpc.go:61-63`、`cmd/mcp-orch/fx.go:5-12` | ❌ |
+| `task_get_dag` | `go-agent-v2/pkg/toolsdk/tools/resource_specs.go:69-78` | RPC `task/dag/get`，但未接入 `cmd/mcp-orch`：`internal/sidecar/orch/orchestration/rpc.go:64-66`、`cmd/mcp-orch/fx.go:5-12` | ❌ |
+| `task_update_node` | `go-agent-v2/pkg/toolsdk/tools/resource_specs.go:82-96` | RPC `task/node/update`，但未接入 `cmd/mcp-orch`：`internal/sidecar/orch/orchestration/rpc.go:70-72`、`cmd/mcp-orch/fx.go:5-12` | ❌ |
 | `task_start_node` | `go-agent-v2/pkg/toolsdk/tools/resource_specs.go:100-111` | 未找到对应 RPC / tool；`cmd/mcp-orch` 也未注册任何 tool：`cmd/mcp-orch/fx.go:5-12` | ❌ |
 | `command_list` | `go-agent-v2/pkg/toolsdk/tools/resource_specs.go:120-128` | 仅 store list 能力：`internal/store/commandcard/contract.go:10-15`、`internal/store/commandcard/store.go:76-86`；无 MCP tool | ❌ |
 | `command_get` | `go-agent-v2/pkg/toolsdk/tools/resource_specs.go:132-141` | 仅 store get 能力：`internal/store/commandcard/contract.go:10-15`、`internal/store/commandcard/store.go:16-23`；无 MCP tool | ❌ |
@@ -397,4 +397,4 @@
 - V2 真正的 MCP 编排工具族不是来自 `go-agent-v2/internal/mcp/orch/`，而是由 `go-agent-v2/pkg/toolsdk/tools/resource.go:16-20`、`go-agent-v2/pkg/toolsdk/tools/resource_specs.go:56-292`、`go-agent-v2/pkg/toolsdk/tools/orchestration.go:228-313` 定义，再由 `go-agent-v2/pkg/toolsdk/tooladapter/registry.go:164-170` 注册进 MCP runtime。
 - V2 当前可确认的编排族 MCP tool 共 20 个：5 个 orchestration、4 个 DAG/task、4 个 command/prompt、2 个 shared_file、5 个 workspace：`go-agent-v2/pkg/toolsdk/tools/resource_specs.go:56-292`、`go-agent-v2/pkg/toolsdk/tools/orchestration.go:228-313`。
 - V2 中用户特别点名的 `prompt_create` / `prompt_update` / `prompt_delete`、`command_create` / `command_run` / `command_card_*`、`shared_file_list` 都不是已暴露的 MCP tool；它们至多对应到底层 store CRUD 能力：`go-agent-v2/pkg/toolsdk/tools/providers.go:178-199`、`go-agent-v2/internal/store/command_card.go:15-75`、`go-agent-v2/internal/store/prompt_template.go:15-73`、`go-agent-v2/internal/store/shared_file.go:18-46`。
-- V3 当前 `cmd/mcp-orch` 还是空壳，现阶段没有任何已注册的 MCP orchestration family tool；虽然代码库已经有 orchestration / workspace 的 RPC handler 和 command/prompt/sharedfile 的 store 层，但都没有被组装进 `cmd/mcp-orch`：`cmd/mcp-orch/fx.go:5-12`、`cmd/mcp-orch/orchestration/rpc.go:15-77`、`internal/module/workspace/rpc.go:13-24`、`internal/store/commandcard/contract.go:10-15`、`internal/store/prompt/contract.go:10-13`、`internal/store/sharedfile/contract.go:9-11`。
+- V3 当前 `cmd/mcp-orch` 还是空壳，现阶段没有任何已注册的 MCP orchestration family tool；虽然代码库已经有 orchestration / workspace 的 RPC handler 和 command/prompt/sharedfile 的 store 层，但都没有被组装进 `cmd/mcp-orch`：`cmd/mcp-orch/fx.go:5-12`、`internal/sidecar/orch/orchestration/rpc.go:15-77`、`internal/module/workspace/rpc.go:13-24`、`internal/store/commandcard/contract.go:10-15`、`internal/store/prompt/contract.go:10-13`、`internal/store/sharedfile/contract.go:9-11`。

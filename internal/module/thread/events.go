@@ -7,10 +7,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 	"github.com/kelindar/event"
 )
 
@@ -94,18 +92,18 @@ func (s *service) processAgentLaunched(ev agentdto.AgentLaunched) {
 	}
 	s.syncAgentLaunchCWD(ctx, binding, threadID, ev.CWD)
 	agentID = strings.TrimSpace(binding.AgentID)
-	if agentID == "" || sessionID == "" || !identifier.LooksLikeUUID(sessionID) {
+	if agentID == "" || sessionID == "" || !kernel.LooksLikeUUID(sessionID) {
 		return
 	}
 	s.recordAgentLaunchSessionUUID(ctx, binding, threadID, agentID, sessionID)
 	s.recordAgentLaunchProviderThreadID(ctx, binding, threadID, agentID, sessionID)
 }
 
-func (s *service) recordAgentLaunchSessionUUID(ctx context.Context, binding *bindingstore.Binding, threadID, agentID, sessionID string) {
+func (s *service) recordAgentLaunchSessionUUID(ctx context.Context, binding *contract.Binding, threadID, agentID, sessionID string) {
 	if strings.TrimSpace(binding.SessionUUID) == sessionID {
 		return
 	}
-	if err := s.bindingStore.UpdateSessionUUID(ctx, bindingstore.UpdateSessionUUIDParams{
+	if err := s.bindingStore.UpdateSessionUUID(ctx, contract.BindingUpdateSessionUUIDParams{
 		AgentID:     agentID,
 		SessionUUID: sessionID,
 		UpdatedAt:   time.Now().Unix(),
@@ -118,7 +116,7 @@ func (s *service) recordAgentLaunchSessionUUID(ctx context.Context, binding *bin
 }
 
 // recordAgentLaunchProviderThreadID 记录代理启动provider线程ID。
-func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding *bindingstore.Binding, threadID, agentID, sessionID string) {
+func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding *contract.Binding, threadID, agentID, sessionID string) {
 	providerThreadID := normalizeProviderThreadID(binding.Provider, sessionID)
 	if providerThreadID == "" {
 		return
@@ -127,7 +125,7 @@ func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding
 	if current == providerThreadID {
 		return
 	}
-	if current != "" && current != agentID && identifier.LooksLikeUUID(current) {
+	if current != "" && current != agentID && kernel.LooksLikeUUID(current) {
 		return
 	}
 	if !bindingHasProviderHistoryForUUID(binding, providerThreadID) {
@@ -140,7 +138,7 @@ func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding
 		}
 		return
 	}
-	if err := s.bindingStore.UpdateProviderThreadID(ctx, bindingstore.UpdateProviderThreadIDParams{
+	if err := s.bindingStore.UpdateProviderThreadID(ctx, contract.BindingUpdateProviderThreadIDParams{
 		AgentID:          agentID,
 		ProviderThreadID: providerThreadID,
 		UpdatedAt:        time.Now().Unix(),
@@ -153,7 +151,7 @@ func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding
 }
 
 // syncAgentLaunchCWD 同步代理启动工作目录。
-func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *bindingstore.Binding, threadID, nextCWD string) {
+func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *contract.Binding, threadID, nextCWD string) {
 	agentID, nextCWD, ok := normalizedAgentLaunchCWD(s, binding, nextCWD)
 	if !ok {
 		return
@@ -168,7 +166,7 @@ func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *bindingstore.
 		}
 		return
 	}
-	if err := s.bindingStore.UpdateAgentCwd(ctx, bindingstore.UpdateAgentCwdParams{
+	if err := s.bindingStore.UpdateAgentCwd(ctx, contract.BindingUpdateAgentCwdParams{
 		AgentID:   agentID,
 		Cwd:       nextCWD,
 		UpdatedAt: time.Now().Unix(),
@@ -188,7 +186,7 @@ func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *bindingstore.
 }
 
 // normalizedAgentLaunchCWD 处理normalized代理启动工作目录。
-func normalizedAgentLaunchCWD(s *service, binding *bindingstore.Binding, nextCWD string) (string, string, bool) {
+func normalizedAgentLaunchCWD(s *service, binding *contract.Binding, nextCWD string) (string, string, bool) {
 	if s == nil || s.bindingStore == nil || binding == nil {
 		return "", "", false
 	}
@@ -217,7 +215,7 @@ func (s *service) onAgentFailed(ev agentdto.AgentFailed) {
 	if agentID == "" {
 		return
 	}
-	target := util.FirstNonEmpty(threadID, agentID)
+	target := kernel.FirstNonEmpty(threadID, agentID)
 	s.sessionRecoveryWorker.Enqueue(target, ev)
 }
 
@@ -234,7 +232,7 @@ func (s *service) processSessionRecovery(ctx context.Context, ev agentdto.AgentF
 	if agentID == "" {
 		return
 	}
-	target := util.FirstNonEmpty(threadID, agentID)
+	target := kernel.FirstNonEmpty(threadID, agentID)
 	if reason, blocked := s.resumeLifecycleBlockReason(ctx, target, nil); blocked {
 		pkglogger.Info("thread: session recovery skipped by lifecycle",
 			"agent_id", agentID,
@@ -292,7 +290,7 @@ func (s *service) resetSessionRecoveryCount(agentID string) {
 	s.sessionRecoveryCount.Delete(strings.TrimSpace(agentID))
 }
 
-func (s *service) resolveBindingForEvent(ctx context.Context, agentID, threadID string) (*bindingstore.Binding, error) {
+func (s *service) resolveBindingForEvent(ctx context.Context, agentID, threadID string) (*contract.Binding, error) {
 	if agentID != "" {
 		b, err := s.bindingStore.GetByAgentID(ctx, agentID)
 		if err == nil && b != nil {

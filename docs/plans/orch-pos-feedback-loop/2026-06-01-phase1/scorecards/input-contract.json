@@ -1,7 +1,7 @@
 {
   "round_id": "orch-pos-phase1-2026-06-01",
   "scorer": "input-contract",
-  "target": "cmd/mcp-orch/tools read-only selectors",
+  "target": "internal/sidecar/orch/tools read-only selectors",
   "score_before": 68,
   "score_after": 88,
   "dimensions": {

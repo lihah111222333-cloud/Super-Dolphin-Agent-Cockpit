@@ -35,8 +35,8 @@
 
 ### 2.1 `orchestration/service.go` 行数与拆分压力
 
-- **Blocker**：计划只写“`orchestration/service.go` 超限风险，拆 `dag.go + report.go`”（`docs/plans/迁移/p2-execution-plan.md:74`），但当前文件真实长度已经是 **391 行**（`cmd/mcp-orch/orchestration/service.go:1-391`），不是“约 350 行”。`SetReport` 也已经在 service 中存在（`cmd/mcp-orch/orchestration/service.go:207-218`，`cmd/mcp-orch/orchestration/contract.go:17`），所以 B15 不是从 0 到 1，而是在已接近上限的文件里继续堆 report requester / event 逻辑。
-- **B14 还会扩大构造器面**：当前 `NewService` 只注入 `logger/eventBus/sessionCleaner`（`cmd/mcp-orch/orchestration/service.go:75-89`），而计划的 B14 需要再引入 `taskdag.Store`（`docs/plans/迁移/p2-execution-plan.md:37`）。`taskdag.Store` 的确已经具备 `UpsertDAG/GetDAG/ListDAGs/UpdateNodeStatus` 级别的基础能力（`internal/store/taskdag/contract.go:9-18`、`internal/store/taskdag/contract.go:41-52`），但如果仍把 DAG 方法塞回 `service.go`，文件一定越过 400 行。
+- **Blocker**：计划只写“`orchestration/service.go` 超限风险，拆 `dag.go + report.go`”（`docs/plans/迁移/p2-execution-plan.md:74`），但当前文件真实长度已经是 **391 行**（`internal/sidecar/orch/orchestration/service.go:1-391`），不是“约 350 行”。`SetReport` 也已经在 service 中存在（`internal/sidecar/orch/orchestration/service.go:207-218`，`internal/sidecar/orch/orchestration/contract.go:17`），所以 B15 不是从 0 到 1，而是在已接近上限的文件里继续堆 report requester / event 逻辑。
+- **B14 还会扩大构造器面**：当前 `NewService` 只注入 `logger/eventBus/sessionCleaner`（`internal/sidecar/orch/orchestration/service.go:75-89`），而计划的 B14 需要再引入 `taskdag.Store`（`docs/plans/迁移/p2-execution-plan.md:37`）。`taskdag.Store` 的确已经具备 `UpsertDAG/GetDAG/ListDAGs/UpdateNodeStatus` 级别的基础能力（`internal/store/taskdag/contract.go:9-18`、`internal/store/taskdag/contract.go:41-52`），但如果仍把 DAG 方法塞回 `service.go`，文件一定越过 400 行。
 
 ### 2.2 workspace event 类型是否已定义
 
@@ -45,13 +45,13 @@
 
 ### 2.3 `handler.Map` 总 key 数预估
 
-- **当前实际总数是 76**：thread 29 个（`internal/module/thread/rpc.go:20-80`），turn 6 个（`internal/module/turn/rpc.go:33-91`），skill 22 个（`internal/module/skill/rpc.go:20-63`），workspace 8 个（`internal/module/workspace/rpc.go:15-22`），orchestration 11 个（`cmd/mcp-orch/orchestration/rpc.go:17-58`）。
-- **按计划完成后的预估总数是 80**：批次 A 与批次 C 都不新增 RPC key；批次 B 的 B13 会补 4 个当前缺失的 `agent.*` key，即 `agent.getReport`、`agent.rememberReportRequest`、`agent.reportEvent`、`agent.getState`（计划见 `docs/plans/迁移/p2-execution-plan.md:36`，V2 注册见 `go-agent-v2/internal/apiserver/methods_orchestration.go:20-23`）。当前 orchestration handler 表并不包含这 4 个 key（`cmd/mcp-orch/orchestration/rpc.go:17-58`），因此预估值是 `76 + 4 = 80`。
+- **当前实际总数是 76**：thread 29 个（`internal/module/thread/rpc.go:20-80`），turn 6 个（`internal/module/turn/rpc.go:33-91`），skill 22 个（`internal/module/skill/rpc.go:20-63`），workspace 8 个（`internal/module/workspace/rpc.go:15-22`），orchestration 11 个（`internal/sidecar/orch/orchestration/rpc.go:17-58`）。
+- **按计划完成后的预估总数是 80**：批次 A 与批次 C 都不新增 RPC key；批次 B 的 B13 会补 4 个当前缺失的 `agent.*` key，即 `agent.getReport`、`agent.rememberReportRequest`、`agent.reportEvent`、`agent.getState`（计划见 `docs/plans/迁移/p2-execution-plan.md:36`，V2 注册见 `go-agent-v2/internal/apiserver/methods_orchestration.go:20-23`）。当前 orchestration handler 表并不包含这 4 个 key（`internal/sidecar/orch/orchestration/rpc.go:17-58`），因此预估值是 `76 + 4 = 80`。
 
 ## 3. 代码守卫预检
 
 - `internal/module/workspace/service.go` 当前 **234 行**（`internal/module/workspace/service.go:1-234`）。按计划批次 A 约 `+150` 行（`docs/plans/迁移/p2-execution-plan.md:26`），理论上约到 `384` 行，仍在守卫内，但已经不宽裕。
-- `cmd/mcp-orch/orchestration/service.go` 当前 **391 行**（`cmd/mcp-orch/orchestration/service.go:1-391`）。计划批次 B 约 `+170` 行（`docs/plans/迁移/p2-execution-plan.md:40`），若不先拆文件必然越过 `400` 行守卫。
+- `internal/sidecar/orch/orchestration/service.go` 当前 **391 行**（`internal/sidecar/orch/orchestration/service.go:1-391`）。计划批次 B 约 `+170` 行（`docs/plans/迁移/p2-execution-plan.md:40`），若不先拆文件必然越过 `400` 行守卫。
 - `internal/module/skill/exec.go` 当前 **116 行**（`internal/module/skill/exec.go:1-116`），安全。
 - `internal/module/skill/rpc.go` 当前 **80 行**（`internal/module/skill/rpc.go:1-80`），文件本身安全；`NewSkillHandlers` 范围 `12-66`，函数体 55 行，也未踩 80 行函数守卫（`internal/module/skill/rpc.go:12-66`）。
 - `internal/module/skill/service.go` 当前 **44 行**（`internal/module/skill/service.go:1-44`），安全。
@@ -66,7 +66,7 @@
 
 - **Blocker**：I1 不能只改 `skill/exec.go`；当前 contract / params / DI 都不够承载 V2 的 timeout + cwd fallback + env allowlist（`docs/plans/迁移/p2-execution-plan.md:50`，`internal/module/skill/rpc_types.go:26-30`，`internal/module/skill/service.go:18-33`，`go-agent-v2/internal/apiserver/methods_command.go:55-67`）。
 - **Blocker**：I5 被错误降成“注释问题”；`thread/skills/list` 当前会掉进 `unsupported command: /skills`，不是仅有语义重叠（`docs/plans/迁移/p2-execution-plan.md:54`，`internal/module/thread/rpc.go:68`，`internal/module/thread/command.go:17-35`）。
-- **Blocker**：批次 B 若不先拆文件，`orchestration/service.go` 会直接撞上 400 行守卫；当前已 391 行（`docs/plans/迁移/p2-execution-plan.md:74`，`cmd/mcp-orch/orchestration/service.go:1-391`）。
+- **Blocker**：批次 B 若不先拆文件，`orchestration/service.go` 会直接撞上 400 行守卫；当前已 391 行（`docs/plans/迁移/p2-execution-plan.md:74`，`internal/sidecar/orch/orchestration/service.go:1-391`）。
 - **Warning**：I3 对工厂扩展的表述过于乐观；现有 `cardByKey` 只适配 3/7 的 key-only 形态（`docs/plans/迁移/p2-execution-plan.md:52`，`internal/module/skill/rpc.go:13-15`，`internal/module/skill/rpc.go:20-30`）。
 - **Warning**：I4 的 TODO 描述准确，但它只是在文档层承认“无运行时接线”；并没有减少任何 runtime gap（`docs/plans/迁移/p2-execution-plan.md:53`，`internal/module/skill/module.go:5-8`，`internal/module/skill/skills_match.go:189-204`）。
 - **Warning**：workspace event DTO 已经有 `Created/StatusChanged/Merged` 三类，但若 B12 需要专门的 abort 事件，还要补新 DTO（`internal/dto/workspace/event.go:5-32`）。
@@ -83,5 +83,5 @@
 ### 对 audit-p2-plan-B 的批判
 
 1. `audit-p2-plan-B.md:62-63,82-83` 说“workspace event 类型已经具备，不是当前 blocker”，这个结论与代码事实和跨批次风险分析相冲突。workspace 侧当前没有任何 event 发布或 notify/UI side-effect：`service` 只有 `store`（`internal/module/workspace/service.go:29-31`），`module.go` 只有 `NewService/NewWorkspaceHandlers`（`internal/module/workspace/module.go:5-8`），`rpc.go` 也没有 bus/ui 依赖（`internal/module/workspace/rpc.go:1-11`）。对照 V2，create/merge/abort 都会更新 `uiRuntime` 并 `notify(...)`（`go-agent-v2/internal/apiserver/workspace_methods.go:57-60`, `go-agent-v2/internal/apiserver/workspace_methods.go:131-165`）。只因为 DTO 已定义就把 B12 从 blocker 降掉，过于宽松。
-2. `audit-p2-plan-B.md:45` 只在方法对照表里轻描淡写提到 `agent.launch` 缺 `prompt/instructions/dynamic_tools/config`，但没有把它上升为 blocker。这与计划目标“达到 V2 功能等价的最低可用标准”（`docs/plans/迁移/p2-execution-plan.md:10`）直接冲突。V2 `agentLaunchParams` 明确包含 `Prompt`、`Instructions`、`DynamicTools`、`Config`（`go-agent-v2/internal/apiserver/methods_orchestration.go:29-36`）；当前 V3 `launchParams` 只有 `agentId/name/cwd/command/parentId/env`（`cmd/mcp-orch/orchestration/rpc_types.go:10-17`），`LaunchRequest` 也只承接这几项（`cmd/mcp-orch/orchestration/contract.go:32-39`）。即便 B13 按计划补完 4 个 getter/report 方法，`agent.launch` 仍明显不等价；B 没把这条保留下来的 contract drift 提到结论层。
-3. `audit-p2-plan-B.md:50,53,76` 把 `agent.getReport` / `agent.getState` 主要描述成“缺入口，可由 `LastReport` / `Snapshot.State` 派生”，但漏掉了更硬的 wire-shape 缺口。V2 `agentGetReportTyped` 返回 `{agent_id, report, state}`（`go-agent-v2/internal/apiserver/methods_orchestration.go:122-135`），V2 `agentGetStateTyped` 返回 `{agent_id, state}`（`go-agent-v2/internal/apiserver/methods_orchestration.go:166-177`）；当前 V3 只有 `AgentSnapshot{ID,Name,ParentID,Port,ThreadID,Cwd,State,Provider,LastReport}`（`cmd/mcp-orch/orchestration/contract.go:41-51`）和 setter-only 的 `SetReport`，而 `SetReport` 的唯一入边仍是 `orchestration/report` handler（`cmd/mcp-orch/orchestration/rpc.go:53-57`；`call_hierarchy` 指向 `cmd/mcp-orch/orchestration/service.go:207-218`）。因此真正的 blocker 不只是“再挂两个 route”，而是要新增 getter 响应投影/DTO；B 没把这层要求写清楚。
+2. `audit-p2-plan-B.md:45` 只在方法对照表里轻描淡写提到 `agent.launch` 缺 `prompt/instructions/dynamic_tools/config`，但没有把它上升为 blocker。这与计划目标“达到 V2 功能等价的最低可用标准”（`docs/plans/迁移/p2-execution-plan.md:10`）直接冲突。V2 `agentLaunchParams` 明确包含 `Prompt`、`Instructions`、`DynamicTools`、`Config`（`go-agent-v2/internal/apiserver/methods_orchestration.go:29-36`）；当前 V3 `launchParams` 只有 `agentId/name/cwd/command/parentId/env`（`internal/sidecar/orch/orchestration/rpc_types.go:10-17`），`LaunchRequest` 也只承接这几项（`internal/sidecar/orch/orchestration/contract.go:32-39`）。即便 B13 按计划补完 4 个 getter/report 方法，`agent.launch` 仍明显不等价；B 没把这条保留下来的 contract drift 提到结论层。
+3. `audit-p2-plan-B.md:50,53,76` 把 `agent.getReport` / `agent.getState` 主要描述成“缺入口，可由 `LastReport` / `Snapshot.State` 派生”，但漏掉了更硬的 wire-shape 缺口。V2 `agentGetReportTyped` 返回 `{agent_id, report, state}`（`go-agent-v2/internal/apiserver/methods_orchestration.go:122-135`），V2 `agentGetStateTyped` 返回 `{agent_id, state}`（`go-agent-v2/internal/apiserver/methods_orchestration.go:166-177`）；当前 V3 只有 `AgentSnapshot{ID,Name,ParentID,Port,ThreadID,Cwd,State,Provider,LastReport}`（`internal/sidecar/orch/orchestration/contract.go:41-51`）和 setter-only 的 `SetReport`，而 `SetReport` 的唯一入边仍是 `orchestration/report` handler（`internal/sidecar/orch/orchestration/rpc.go:53-57`；`call_hierarchy` 指向 `internal/sidecar/orch/orchestration/service.go:207-218`）。因此真正的 blocker 不只是“再挂两个 route”，而是要新增 getter 响应投影/DTO；B 没把这层要求写清楚。

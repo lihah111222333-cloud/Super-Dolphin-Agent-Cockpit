@@ -160,7 +160,7 @@ sequenceDiagram
 - `schema.go`（138 行，工具 schema 注册）
   - 集中定义 9 个 MCP tool 的 input schema 与字段 helper。
 - `tools.go`（87 行，tool handler 绑定）
-  - 声明 tool manifest 列表，并把 cmd 层 handler 名称映射到 `cmd/mcp-lsp/tools` 的具体实现。
+  - 声明 tool manifest 列表，并把 cmd 层 handler 名称映射到 `internal/sidecar/lsp/tools` 的具体实现。
 
 ### `edit/`：补丁与 replace_range 算法层
 - `patchparse.go`
@@ -399,11 +399,11 @@ sequenceDiagram
 
 | 类型 | 位置 | 作用 |
 |---|---|---|
-| `manager.Manager` | `cmd/mcp-lsp/manager/manager.go` | 对工具层暴露统一 LSP 能力接口；当前聚合 8 个细分端口，非直铺方法签名 |
-| `manager.Registry` | `cmd/mcp-lsp/manager/registry.go` | 按文件/语言路由 manager，并聚合 diagnostics |
-| `installer.Provider` | `cmd/mcp-lsp/installer/installer.go` | 确保语言服务器 binary 可用 |
-| `middleware.Handler` | `cmd/mcp-lsp/middleware/logging.go` | 工具处理器统一签名 |
-| `middleware.Middleware` | `cmd/mcp-lsp/middleware/logging.go` | 工具中间件签名 |
+| `manager.Manager` | `internal/sidecar/lsp/manager/manager.go` | 对工具层暴露统一 LSP 能力接口；当前聚合 8 个细分端口，非直铺方法签名 |
+| `manager.Registry` | `internal/sidecar/lsp/manager/registry.go` | 按文件/语言路由 manager，并聚合 diagnostics |
+| `installer.Provider` | `internal/sidecar/lsp/installer/installer.go` | 确保语言服务器 binary 可用 |
+| `middleware.Handler` | `internal/sidecar/lsp/middleware/logging.go` | 工具处理器统一签名 |
+| `middleware.Middleware` | `internal/sidecar/lsp/middleware/logging.go` | 工具中间件签名 |
 
 ### 3.4 `multilsp/` 内部核心抽象
 
@@ -443,7 +443,7 @@ sequenceDiagram
   - `lsp_file`、`lsp_grep` 额外挂了 `WithOutputBudget()`。
   - `lsp_edit` 也没有走 `newManagerTool()`，而是保留了自定义 handler 以支持多文件 apply/rollback 流程。
 
-> 实际 MCP tool name / schema / handler 注册在 `cmd/mcp-lsp/tools.go`；`cmd/mcp-lsp/tools` 负责“工具逻辑”，装配层负责“把逻辑暴露成 MCP tool”。
+> 实际 MCP tool name / schema / handler 注册在 `internal/sidecar/lsp/tools.go`；`internal/sidecar/lsp/tools` 负责“工具逻辑”，装配层负责“把逻辑暴露成 MCP tool”。
 
 ## 4.2 工具能力总表
 
@@ -686,10 +686,10 @@ graph TD
 
 1. `common/server.go` + `stdio.go`
 2. `common/bootstrap/client.go` + `lifecycle.go` + `reconnect.go`
-3. `cmd/mcp-lsp/tools/factory.go` + `cmd/mcp-lsp/tools.go`
-4. `cmd/mcp-lsp/manager/registry.go` + `cmd/mcp-lsp/multilsp/manager*.go`
-5. `cmd/mcp-lsp/multilsp/client.go` + `cmd/mcp-lsp/multilsp/transport*.go`
-6. `cmd/mcp-lsp/tools/tool_edit*.go` + `cmd/mcp-lsp/edit/*.go`
+3. `internal/sidecar/lsp/tools/factory.go` + `internal/sidecar/lsp/tools.go`
+4. `internal/sidecar/lsp/manager/registry.go` + `internal/sidecar/lsp/multilsp/manager*.go`
+5. `internal/sidecar/lsp/multilsp/client.go` + `internal/sidecar/lsp/multilsp/transport*.go`
+6. `internal/sidecar/lsp/tools/tool_edit*.go` + `internal/sidecar/lsp/edit/*.go`
 
 这样能最快建立“从 MCP 调用入口到 LSP 子进程，再到控制面生命周期”的完整心智模型。
 
@@ -731,4 +731,4 @@ graph TD
 |---|---|---|---|---|
 | common server | 新 sidecar / binary 需要暴露 MCP 工具 | 1) 实现 `ToolProvider` 2) 选择 `NewServer()` 或 `NewHTTPServer()` 3) 在 runner/Fx 装配里入组 | `type ToolProvider interface`@`internal/mcpserver/common/server.go`；`registryToolProvider`@`cmd/mcp-lsp/fx.go` | grep `NewServer` / `NewHTTPServer` builder |
 | callback | peer 需要承接 `tools/list` / `tools/call` / `ctl/shutdown` / `ctl/config/changed` 等回调 | 1) 扩 `bootstrap.Config` 2) 在启动装配时填充回调 3) 由 `handleCallback()` + `dispatchRequest()` 接住 | `handleCallback()` / `dispatchRequest()`@`internal/mcpserver/common/bootstrap/lifecycle.go` | grep callback route + 常量名 |
-| middleware | tool 需要 timeout / budget 治理 | 1) 在 `middleware/` 增补中间件 2) 经 `wrapToolHandler()` 挂链 3) 需要输出裁剪时显式接 `WithOutputBudget()` | `wrapToolHandler()`@`cmd/mcp-lsp/tools/factory.go`；`WithOutputBudget()`@`cmd/mcp-lsp/middleware/budget.go` | `tool_middleware_test.go` / 相关 tool 测试 |
+| middleware | tool 需要 timeout / budget 治理 | 1) 在 `middleware/` 增补中间件 2) 经 `wrapToolHandler()` 挂链 3) 需要输出裁剪时显式接 `WithOutputBudget()` | `wrapToolHandler()`@`internal/sidecar/lsp/tools/factory.go`；`WithOutputBudget()`@`internal/sidecar/lsp/middleware/budget.go` | `tool_middleware_test.go` / 相关 tool 测试 |

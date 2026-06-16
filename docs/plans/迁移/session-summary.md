@@ -12,7 +12,7 @@
 
 - **代码守卫全仓放宽**：`internal/archtest/guardlib.go` `MaxPackageFiles` 25 → **30**；autofix 自动删掉 `memory/prompt` 两条已失效 freeze（8/27 ≤ 30）；`thread` 包 27 < 30 本轮违规自动消失
 - **3 路 CC 超限 TDD 修复**：
-  - `cmd/mcp-orch/orchestration/launcher.go:166 looksTechnicalManagedAgentName` CC 16 → ≤ 10
+  - `internal/sidecar/orch/orchestration/launcher.go:166 looksTechnicalManagedAgentName` CC 16 → ≤ 10
   - `internal/module/thread/service.go:169 Delete` / `task_handoff.go:48 prepareTaskHandoffStart` / `task_handoff.go:84 resolveTaskHandoffStart` CC 14/12/23 → ≤ 10
   - `internal/module/uistate/module.go:147 applyTaskRuntimeToThreadRuntime` / `internal/platform/toolbridge/handler.go:155 toolCallRuntimeConfig` CC 11/14 → ≤ 10
 - **P21 架构路线图 6 份文档 4 轮迭代闭环**：README / P0_SelfLearningSkill / P1a_MultiProviderCodex / P1b_CronScheduledTasks / P2_MultiPlatformNotifications / P3_SessionInsights 经 4 轮独立审查 + 2 轮修订（修订 agent + 主 agent 自改）+ Q2 合入裁决 + 最后 agent 按裁决直修完毕
@@ -350,7 +350,7 @@ R10 冷启动 agent 读的是 R2 前 HEAD，以下 "🔴" 是旧版本而非当�
 
 | # | 文件 / 函数 | 违规 | 手法 |
 |---|---|---|---|
-| 1 | `cmd/mcp-orch/notify/turn.go:169` `buildTurnCompletedMessage` | CC 11 | 拆 `buildTurnCompletedTitle` + `buildTurnCompletedBody` + `appendTurnCompletedField` + `appendTurnCompletedResult` |
+| 1 | `internal/sidecar/orch/notify/turn.go:169` `buildTurnCompletedMessage` | CC 11 | 拆 `buildTurnCompletedTitle` + `buildTurnCompletedBody` + `appendTurnCompletedField` + `appendTurnCompletedResult` |
 | 2 | `internal/module/cron/scheduler.go:278` `driveJob` | 95 行 + CC 11 | 拆 `scheduledAtForJob` + `createPendingRun` + `markRunSubmitting` + `buildStartTurnRequest` + `persistSubmittedTurn` + `observeStartedTurn` |
 | 3 | `internal/module/cron/turn_adapter.go:88` `StartTurn` | CC 11 | 抽 `resolveThreadAgent` + `executeTurn` |
 | 4 | `internal/module/notify/platform/webhook.go:214` `isBlockedIP` | CC 11 | 抽 `isBlockedByStdlib` + `isBlockedByRange`（10 条 SSRF 判定 §10.31 全保留）|

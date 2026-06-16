@@ -3,7 +3,7 @@
 ## 审查方式
 
 - 只用 LSP 取证：`text_search`、`workspace_symbol`、`references(compact)`、`call_hierarchy`、`read_file`
-- 主审对象：V3 `cmd/mcp-orch/orchestration`、`internal/module/thread`、`internal/module/turn`、`internal/provider/unified`、`internal/store/taskdag`
+- 主审对象：V3 `internal/sidecar/orch/orchestration`、`internal/module/thread`、`internal/module/turn`、`internal/provider/unified`、`internal/store/taskdag`
 - V2 仅用于等价性对照：`go-agent-v2/internal/apiserver/methods_orchestration.go`
 - 结论口径：
   - `通过`：链路闭合，当前代码可真实到达
@@ -31,9 +31,9 @@
 
 证据：
 
-- RPC 入口存在：`cmd/mcp-orch/orchestration/rpc.go:17-19` 把 `agent.launch` 直接绑到 `svc.LaunchAgent(...)`，参数映射在 `cmd/mcp-orch/orchestration/rpc.go:79-88`
-- service 链路真实存在：`cmd/mcp-orch/orchestration/service.go:110-125` 负责校验、取/建 runtime、清队列、置 launch 状态并启动进程
-- 进程启动与状态变更真实存在：`cmd/mcp-orch/orchestration/service.go:234-263` 调 `exec.Command(...).Start()`，成功后触发 `launch_succeeded`，状态机会从 `provisioning -> idle`，随后发 `AgentLaunched`
+- RPC 入口存在：`internal/sidecar/orch/orchestration/rpc.go:17-19` 把 `agent.launch` 直接绑到 `svc.LaunchAgent(...)`，参数映射在 `internal/sidecar/orch/orchestration/rpc.go:79-88`
+- service 链路真实存在：`internal/sidecar/orch/orchestration/service.go:110-125` 负责校验、取/建 runtime、清队列、置 launch 状态并启动进程
+- 进程启动与状态变更真实存在：`internal/sidecar/orch/orchestration/service.go:234-263` 调 `exec.Command(...).Start()`，成功后触发 `launch_succeeded`，状态机会从 `provisioning -> idle`，随后发 `AgentLaunched`
 - 但 session 创建不在这条链上：orchestration `LaunchAgent` 只启动进程；真正 `StartSession/Register` 在 thread 生命周期里，见 `internal/module/thread/lifecycle.go:44-76,204-219` 与 `internal/provider/unified/client.go:29-65`
 
 判断：
@@ -46,35 +46,35 @@
 
 证据：
 
-- RPC 入口存在：`cmd/mcp-orch/orchestration/rpc.go:40-42`
-- stop 主路径在 `cmd/mcp-orch/orchestration/service.go:127-141`
-- `stopAgentLocked` 会先走 `stop_requested`，然后 `queue.Clear()`、清空 `activeTurnID/threadID`，最后 `Kill` 进程，见 `cmd/mcp-orch/orchestration/service.go:155-164`
+- RPC 入口存在：`internal/sidecar/orch/orchestration/rpc.go:40-42`
+- stop 主路径在 `internal/sidecar/orch/orchestration/service.go:127-141`
+- `stopAgentLocked` 会先走 `stop_requested`，然后 `queue.Clear()`、清空 `activeTurnID/threadID`，最后 `Kill` 进程，见 `internal/sidecar/orch/orchestration/service.go:155-164`
 - `RemoveSession` 确实包含 `Close`：`internal/provider/unified/session_adapter.go:34-39` -> `internal/provider/unified/session.go:59-82`
-- 真正 `stopped` 状态要等 `cmd.Wait()` 回来：`cmd/mcp-orch/orchestration/runner_actor.go:48-59` -> `cmd/mcp-orch/orchestration/service.go:355-394`
+- 真正 `stopped` 状态要等 `cmd.Wait()` 回来：`internal/sidecar/orch/orchestration/runner_actor.go:48-59` -> `internal/sidecar/orch/orchestration/service.go:355-394`
 
 判断：
 
 - 这条链不是同步的“stop 完即 stopped”
 - `StopAgent()` 返回时，状态通常只是 `stopping`
-- `AgentStopped` 事件在 `service.StopAgent` 返回路径里提前发出，见 `cmd/mcp-orch/orchestration/service.go:138-139`；真正 `StateStopped` 则依赖稍后的 `handleProcessExitTransition`
+- `AgentStopped` 事件在 `service.StopAgent` 返回路径里提前发出，见 `internal/sidecar/orch/orchestration/service.go:138-139`；真正 `StateStopped` 则依赖稍后的 `handleProcessExitTransition`
 - 另外这里是 `Process.Kill()`，不是优雅停止
 
 ## 3. `agent.submit` 真实执行
 
 证据：
 
-- RPC 入口存在：`cmd/mcp-orch/orchestration/rpc.go:20-29,30-39`
-- `SubmitTurn` 会把 submission 入队，并在 `idle` 时转到 `turn_queued`，见 `cmd/mcp-orch/orchestration/service.go:166-187`
-- runner actor 每 200ms 处理一次队列：`cmd/mcp-orch/orchestration/runner_actor.go:33-44,62-66`
-- `claimTurnWork` 会 dequeue、设 `ExpectedTurnID`、绑定 `activeTurnID`，并把状态从 `turn_queued -> turn_starting`，见 `cmd/mcp-orch/orchestration/service.go:291-324`
-- `startTurnExecution` 会调用 `TurnStarter.StartTurn`，见 `cmd/mcp-orch/orchestration/helpers.go:140-151`
+- RPC 入口存在：`internal/sidecar/orch/orchestration/rpc.go:20-29,30-39`
+- `SubmitTurn` 会把 submission 入队，并在 `idle` 时转到 `turn_queued`，见 `internal/sidecar/orch/orchestration/service.go:166-187`
+- runner actor 每 200ms 处理一次队列：`internal/sidecar/orch/orchestration/runner_actor.go:33-44,62-66`
+- `claimTurnWork` 会 dequeue、设 `ExpectedTurnID`、绑定 `activeTurnID`，并把状态从 `turn_queued -> turn_starting`，见 `internal/sidecar/orch/orchestration/service.go:291-324`
+- `startTurnExecution` 会调用 `TurnStarter.StartTurn`，见 `internal/sidecar/orch/orchestration/helpers.go:140-151`
 - 当前 `TurnStarter` 实现已经连到 provider session：`internal/module/turn/orchestration_starter.go:22-52`，里面先 `sessions.GetSession(agentID)`，再 `PrepareTurn`，再 `session.StartTurn`
 - provider session `StartTurn` 真实存在：`internal/provider/codexapp/session.go:104-125`、`internal/provider/claudecli/session.go:87-113`
 
 关键前提：
 
 - session 只会在 `StartSession/ResumeSession` 后被 `SessionManager.Register(...)`，见 `internal/provider/unified/client.go:47-67`
-- orchestration `agent.launch` 自己并不会做这一步，见 `cmd/mcp-orch/orchestration/service.go:110-125`
+- orchestration `agent.launch` 自己并不会做这一步，见 `internal/sidecar/orch/orchestration/service.go:110-125`
 
 判断：
 
@@ -85,15 +85,15 @@
 
 证据：
 
-- 监控等待器真实存在：`cmd/mcp-orch/orchestration/runner_actor.go:48-59`
-- 退出统一收口在 `cmd/mcp-orch/orchestration/service.go:355-394`
+- 监控等待器真实存在：`internal/sidecar/orch/orchestration/runner_actor.go:48-59`
+- 退出统一收口在 `internal/sidecar/orch/orchestration/service.go:355-394`
 - unexpected exit 会：
   - 清 `cmd`
   - 记录 `exitedAt/updatedAt`
   - `RemoveSession`
   - 若非手动 stop，发 `AgentFailed(recoverable=true)`，见 `recordProcessExitError`
   - 再走状态机 `process_exited` / `launch_failed`
-- 但 recovery 只有低层 relaunch：`cmd/mcp-orch/orchestration/recover.go:27-58`
+- 但 recovery 只有低层 relaunch：`internal/sidecar/orch/orchestration/recover.go:27-58`
 
 关键缺口：
 
@@ -110,14 +110,14 @@
 
 证据：
 
-- actor 在 `Run()` 里固定创建 `StallDetector{threshold: 30 * time.Second}` 并周期检查，见 `cmd/mcp-orch/orchestration/runner_actor.go:27-44`
-- `CheckStall` 只认 `state == turn_running` 且 `time.Since(updatedAt) > threshold`，见 `cmd/mcp-orch/orchestration/recover.go:16-25`
+- actor 在 `Run()` 里固定创建 `StallDetector{threshold: 30 * time.Second}` 并周期检查，见 `internal/sidecar/orch/orchestration/runner_actor.go:27-44`
+- `CheckStall` 只认 `state == turn_running` 且 `time.Since(updatedAt) > threshold`，见 `internal/sidecar/orch/orchestration/recover.go:16-25`
 - `updatedAt` 只在这些地方刷新：
-  - `prepareLaunchStateLocked` / `BindActiveTurnID`，见 `cmd/mcp-orch/orchestration/helpers.go:52-60,77-98`
-  - `fireAndPublishLocked`，见 `cmd/mcp-orch/orchestration/service.go:281-289`
-  - report 相关写操作，见 `cmd/mcp-orch/orchestration/report.go:135-169`
+  - `prepareLaunchStateLocked` / `BindActiveTurnID`，见 `internal/sidecar/orch/orchestration/helpers.go:52-60,77-98`
+  - `fireAndPublishLocked`，见 `internal/sidecar/orch/orchestration/service.go:281-289`
+  - report 相关写操作，见 `internal/sidecar/orch/orchestration/report.go:135-169`
 - 没有任何 turn output delta / input / provider 活动会刷新 orchestration 的 `updatedAt`
-- 检测到 stall 后的动作只是 `service.Recover(...)`，见 `cmd/mcp-orch/orchestration/runner_actor.go:68-77`
+- 检测到 stall 后的动作只是 `service.Recover(...)`，见 `internal/sidecar/orch/orchestration/runner_actor.go:68-77`
 
 判断：
 
@@ -129,10 +129,10 @@
 
 证据：
 
-- 实现是互斥锁 + slice：`cmd/mcp-orch/orchestration/submission.go:9-50`
+- 实现是互斥锁 + slice：`internal/sidecar/orch/orchestration/submission.go:9-50`
 - FIFO 成立：`Enqueue` append，`Dequeue` 总是取 `items[0]`
 - 空队列边界存在：`Dequeue/Peek` 都会返回零值和 `false`
-- 测试覆盖了顺序、清空、并发访问：`cmd/mcp-orch/orchestration/submission_test.go:17-111`
+- 测试覆盖了顺序、清空、并发访问：`internal/sidecar/orch/orchestration/submission_test.go:17-111`
 
 判断：
 
@@ -144,7 +144,7 @@
 
 证据：
 
-- service 用一个全局 `sync.RWMutex` 保护全部 agents 运行态，见 `cmd/mcp-orch/orchestration/service.go:29-39`
+- service 用一个全局 `sync.RWMutex` 保护全部 agents 运行态，见 `internal/sidecar/orch/orchestration/service.go:29-39`
 - `LaunchAgent`、`StopAgent`、`SubmitTurn`、`claimTurnWork`、`handleProcessExit`、`Recover` 都会拿这把锁，见：
   - `service.go:115-116,128-129,167-168,292-293,356-357`
   - `recover.go:28-29`
@@ -161,11 +161,11 @@
 
 证据：
 
-- `fireOrForceLocked` 实际上不会 force；它只是 `FireCtx(...)`，失败就返回 `illegal state transition` 并附 allowed trigger，见 `cmd/mcp-orch/orchestration/service.go:266-279`
-- 但 `prepareLaunchStateLocked` 直接写 `agent.state = provisioning`，见 `cmd/mcp-orch/orchestration/helpers.go:52-60`
+- `fireOrForceLocked` 实际上不会 force；它只是 `FireCtx(...)`，失败就返回 `illegal state transition` 并附 allowed trigger，见 `internal/sidecar/orch/orchestration/service.go:266-279`
+- 但 `prepareLaunchStateLocked` 直接写 `agent.state = provisioning`，见 `internal/sidecar/orch/orchestration/helpers.go:52-60`
 - 这一步没有经过状态机，也没有发 `StateChanged`
 - 状态定义里 `turn_starting -> idle` 只允许 `turn_completed`，不允许 `turn_aborted`，见 `internal/dto/agent/state.go:89-95`
-- `CompleteTurn(success=false)` 却会在任何当前 active turn 上选择 `TriggerTurnAborted`，见 `cmd/mcp-orch/orchestration/service.go:341-348`
+- `CompleteTurn(success=false)` 却会在任何当前 active turn 上选择 `TriggerTurnAborted`，见 `internal/sidecar/orch/orchestration/service.go:341-348`
 
 判断：
 
@@ -179,9 +179,9 @@
 
 - RPC 已注册：
   - `task/dag/create`、`task/dag/get`、`task/dag/list`、`task/node/update`
-  - 见 `cmd/mcp-orch/orchestration/rpc.go:61-72`
+  - 见 `internal/sidecar/orch/orchestration/rpc.go:61-72`
 - service 层都真实落到 store：
-  - `CreateDAG`：`cmd/mcp-orch/orchestration/dag.go:14-39`
+  - `CreateDAG`：`internal/sidecar/orch/orchestration/dag.go:14-39`
   - `GetDAG`：`41-47`
   - `ListDAGs`：`49-63`
   - `UpdateNodeStatus`：`65-79`
@@ -200,10 +200,10 @@
 
 证据：
 
-- `agent.getReport`、`agent.rememberReportRequest`、`agent.reportEvent`、`orchestration/report` 全都注册了，见 `cmd/mcp-orch/orchestration/rpc.go:52-75`
-- `GetReport` 返回 `agent_id/report/state/metadata.requester_ids`，见 `cmd/mcp-orch/orchestration/report.go:62-70,140-151`
-- `RememberReportRequest` 会把 requester 记到 `agent.reportRequesters`，见 `cmd/mcp-orch/orchestration/report.go:73-95,154-163`
-- `HandleReportEvent` 会解析 report、必要时 drain requester，并返回 `notified_requester_ids`，见 `cmd/mcp-orch/orchestration/report.go:98-133`
+- `agent.getReport`、`agent.rememberReportRequest`、`agent.reportEvent`、`orchestration/report` 全都注册了，见 `internal/sidecar/orch/orchestration/rpc.go:52-75`
+- `GetReport` 返回 `agent_id/report/state/metadata.requester_ids`，见 `internal/sidecar/orch/orchestration/report.go:62-70,140-151`
+- `RememberReportRequest` 会把 requester 记到 `agent.reportRequesters`，见 `internal/sidecar/orch/orchestration/report.go:73-95,154-163`
+- `HandleReportEvent` 会解析 report、必要时 drain requester，并返回 `notified_requester_ids`，见 `internal/sidecar/orch/orchestration/report.go:98-133`
 - 但同文件 `97` 行明确写了 TODO：drained requester notifications 还没有真正送进 UI timeline
 
 判断：
@@ -216,10 +216,10 @@
 
 证据：
 
-- 合约字段与 JSON tag 在 `cmd/mcp-orch/orchestration/contract.go:49-59`，全部是 snake_case
-- `snapshotLocked` 的填充逻辑在 `cmd/mcp-orch/orchestration/service.go:220-231`
+- 合约字段与 JSON tag 在 `internal/sidecar/orch/orchestration/contract.go:49-59`，全部是 snake_case
+- `snapshotLocked` 的填充逻辑在 `internal/sidecar/orch/orchestration/service.go:220-231`
 - `Port` / `Provider` 来自 launch 参数推导，不是 runtime 真值：
-  - `launchPort` / `launchProvider` 在 `cmd/mcp-orch/orchestration/helpers.go:233-253`
+  - `launchPort` / `launchProvider` 在 `internal/sidecar/orch/orchestration/helpers.go:233-253`
 - `threadID` 只有两类写路径：
   - clear：`helpers.go:56`、`service.go:162,251`
   - 由 submission.ThreadID 回填：`service.go:312-315`
@@ -248,7 +248,7 @@ V2 的 orchestration RPC 方法面，见 `go-agent-v2/internal/apiserver/methods
 11. `agent.deleteSubAgent`
 12. `agent.persistSubAgentBinding`
 
-V3 当前方法面，见 `cmd/mcp-orch/orchestration/rpc.go:15-76`：
+V3 当前方法面，见 `internal/sidecar/orch/orchestration/rpc.go:15-76`：
 
 - 已覆盖的 9 个：`launch / submit / submitPrompt / stop / list / getReport / rememberReportRequest / reportEvent / getState`
 - 新增：`agent.snapshot`、`task/dag/create|get|list`、`task/node/update`、`orchestration/report`
@@ -256,7 +256,7 @@ V3 当前方法面，见 `cmd/mcp-orch/orchestration/rpc.go:15-76`：
 
 进一步差异：
 
-- V3 `agent.launch` 参数明显缩水，`cmd/mcp-orch/orchestration/rpc_types.go:8-17` 只保留 `agentId/name/cwd/command/parentId/env`
+- V3 `agent.launch` 参数明显缩水，`internal/sidecar/orch/orchestration/rpc_types.go:8-17` 只保留 `agentId/name/cwd/command/parentId/env`
 - 同文件 `8-9` 行直接写了 TODO：V2 `agent.launch` 还有 `prompt/instructions/dynamic_tools/config`
 - V3 `internal` 里也找不到 `SaveSubAgent/DeleteSubAgent/PersistSubAgentBinding` 对应实现，LSP `text_search` 为 0
 
@@ -281,7 +281,7 @@ V3 当前方法面，见 `cmd/mcp-orch/orchestration/rpc.go:15-76`：
 
 1. 这份报告漏掉了一个更基础的 RPC 面问题：V3 turn RPC 里的 `threadId` 基本是死字段。`turnStartParams.ThreadID`、`turnSteerParams.ThreadID`、`turnInterruptParams.ThreadID`、`threadIDOnlyParams.ThreadID` 都定义了，但 LSP `references` 为 0；handler 实际用的是 `rpc.ThreadIDFrom(ctx)`，见 `internal/module/turn/rpc.go:20-29` 与 `internal/platform/rpc/handler.go:88-100`，而 `buildPrepareInput(...)` 也根本不传 `ThreadID`，见 `internal/module/turn/rpc_helpers.go:5-14`。报告讲了“输入面缩水”，但没指出参数已经名存实亡。
 
-2. 这份报告把 orchestration submit 链讲成了“真实可执行”，但漏掉了当前最硬的前提条件：session 必须预先存在。`orchestrationTurnStarter.StartTurn` 第一件事就是 `sessions.GetSession(agentID)`，见 `internal/module/turn/orchestration_starter.go:29-37`；而 session 只会在 `StartSession/ResumeSession` 后被 `SessionManager.Register(...)`，见 `internal/provider/unified/client.go:47-67`。`agent.launch` 自己只起进程，不建 session，见 `cmd/mcp-orch/orchestration/service.go:110-125`。所以“代码链接上了”不等于“`agent.launch -> agent.submit` 当前就一定能跑通”。
+2. 这份报告把 orchestration submit 链讲成了“真实可执行”，但漏掉了当前最硬的前提条件：session 必须预先存在。`orchestrationTurnStarter.StartTurn` 第一件事就是 `sessions.GetSession(agentID)`，见 `internal/module/turn/orchestration_starter.go:29-37`；而 session 只会在 `StartSession/ResumeSession` 后被 `SessionManager.Register(...)`，见 `internal/provider/unified/client.go:47-67`。`agent.launch` 自己只起进程，不建 session，见 `internal/sidecar/orch/orchestration/service.go:110-125`。所以“代码链接上了”不等于“`agent.launch -> agent.submit` 当前就一定能跑通”。
 
 3. 这份报告批了 `turn/forceComplete` 的语义，但还少指出一个直接的 RPC 兼容性问题：V3 handler 返回 `nil`，见 `internal/module/turn/rpc.go:70-75`；V2 则把 provider 返回值原样透出，`turn/forceComplete` 实现最终返回的是 `{"confirmed": true, "forceCompleted": true}`，见 `go-agent-v2/internal/apiserver/methods_thread_turn.go:67-70` 与 `go-agent-v2/legacy-agentsdk/service/interrupt/turn_interrupt_core.go:271-305`。也就是说，V3 这里不仅“语义不等价”，连返回形状都已经变了。
 
@@ -299,4 +299,4 @@ V3 当前方法面，见 `cmd/mcp-orch/orchestration/rpc.go:15-76`：
 
 2. 这份报告第 10 节里“Push / Wails 实际外放了多少，只外放 3 个”这个表述不够精确。对 bus-bridged typed event 来说，这句话是对的，见 `internal/platform/rpc/push.go:75-92` 与 `internal/ui/wails/bridge.go:53-63`；但 Wails 后端并不只会发这 3 个事件，生命周期层还会独立发 `app-will-quit`，见 `internal/ui/wails/lifecycle.go:12-15,82-99,137-143`。所以这里至少应该收窄成“bus-derived bridge methods 只有 3 个”。
 
-3. 这份报告强调“状态机成功迁移后必发 `StateChanged`”，但漏掉了 orchestration 里有一个关键生命周期阶段根本不走状态机：`prepareLaunchStateLocked(...)` 直接写 `agent.state = provisioning`，见 `cmd/mcp-orch/orchestration/helpers.go:52-60`。真正会统一 `publishStateChanged(...)` 的只有 `fireAndPublishLocked(...)`，见 `cmd/mcp-orch/orchestration/service.go:281-289`。这意味着 bus/push/Wails 并不能观察到所有重要生命周期变化，至少 `provisioning` 进入点现在就是静默的。报告如果只强调 `StateChanged` 的稳定性，会高估当前生命周期事件面的完整度。
+3. 这份报告强调“状态机成功迁移后必发 `StateChanged`”，但漏掉了 orchestration 里有一个关键生命周期阶段根本不走状态机：`prepareLaunchStateLocked(...)` 直接写 `agent.state = provisioning`，见 `internal/sidecar/orch/orchestration/helpers.go:52-60`。真正会统一 `publishStateChanged(...)` 的只有 `fireAndPublishLocked(...)`，见 `internal/sidecar/orch/orchestration/service.go:281-289`。这意味着 bus/push/Wails 并不能观察到所有重要生命周期变化，至少 `provisioning` 进入点现在就是静默的。报告如果只强调 `StateChanged` 的稳定性，会高估当前生命周期事件面的完整度。

@@ -34,7 +34,7 @@ Result: Pass for M3 scope.
 
 Evidence:
 
-- `go test ./cmd/mcp-orch/tools -count=1` passes.
+- `go test ./internal/sidecar/orch/tools -count=1` passes.
 - New tests cover mutation schema exposure, handler mapping, runtime node `run_id` selector grammar, and conflict rejection.
 
 Residual full-suite status:

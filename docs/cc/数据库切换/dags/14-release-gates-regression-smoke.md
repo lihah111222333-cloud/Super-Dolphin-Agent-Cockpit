@@ -20,7 +20,7 @@
   - `internal/platform/db/sqlite/query_plan_test.go` or equivalent `sqlite_query_plan_test`
   - `internal/platform/db/sqlite/mixed_write_pressure_test.go` or equivalent process-level harness
   - `internal/store/sqlite_regression_test.go` or per-store fixture tests.
-  - `cmd/mcp-orch/sqlite_smoke_test.go`
+  - `internal/sidecar/orch/sqlite_smoke_test.go`
   - `.github/workflows/sqlite-release-gates.yml` or required jobs in `.github/workflows/ci.yml`
 - Add fixture builders:
   - medium fixture: 1,000 threads, 10,000 system logs, 1,000 prompts/versions, 500 cron jobs/runs, 500 DAG runs, 10,000 wakeups/events.

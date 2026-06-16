@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	buscontract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 	"github.com/kelindar/event"
 
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"

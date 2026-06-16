@@ -41,10 +41,10 @@
 
 ## 现状校准（事实层）
 
-- 当前**无** DAG 模板概念：`task_dags` 表只承载实例（`migrations/0004_ack_dag.sql:33-67`、`cmd/mcp-orch/store/taskdag/contract.go:160-181`）
-- DAG 创建是 upsert：`cmd/mcp-orch/orchestration/dag.go:109-131`；每次创建相当于"新实例"，无"基于模板实例化"路径
-- 无 DAG 编辑专用 RPC：当前只能 `task_create_dag` 整体 upsert（覆盖）+ `task_update_node` 改 node status/result（`cmd/mcp-orch/tools/task_tools.go:84-91`）；不能只改 node 的 prompt / depends_on / verify spec
-- node UpsertNode 会覆盖整 node：`cmd/mcp-orch/sql/queries/task_dag_node_write.sql:1-12`
+- 当前**无** DAG 模板概念：`task_dags` 表只承载实例（`migrations/0004_ack_dag.sql:33-67`、`internal/sidecar/orch/store/taskdag/contract.go:160-181`）
+- DAG 创建是 upsert：`internal/sidecar/orch/orchestration/dag.go:109-131`；每次创建相当于"新实例"，无"基于模板实例化"路径
+- 无 DAG 编辑专用 RPC：当前只能 `task_create_dag` 整体 upsert（覆盖）+ `task_update_node` 改 node status/result（`internal/sidecar/orch/tools/task_tools.go:84-91`）；不能只改 node 的 prompt / depends_on / verify spec
+- node UpsertNode 会覆盖整 node：`internal/sidecar/orch/sql/queries/task_dag_node_write.sql:1-12`
 - UI 框架基础：Wails 桌面应用 + WS（`internal/ui/wails/http_server.go:15,39-46`），但真实前端主要在 `cmd/agent-terminal/frontend/vue-app/*`；Wails 只处理 bridge/transport。当前前端 DAG 列表使用通用 `DataPage`，但 `DataPage` 未 emit `select`，`DagDetailModal` 仍是占位；P10 owner 必须先接通 `dashboard/dagDetail`。
 - 拓扑可视化：`mermaid` 依赖已存在，但当前**无** DAG 专用 renderer / graphviz / d3 组件占位
 
@@ -85,10 +85,10 @@
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
 | DDL | `0070_dag_templates.sql` [NEW]（编号校准） | `dag_templates` 表 + `task_dags.template_key/template_version/schema_hash` 列 + `dag_template_revisions`（版本历史） |
-| 模板 store | `cmd/mcp-orch/store/dagtemplate/*.go` [NEW] | CRUD + 版本管理 |
-| 模板 service | `cmd/mcp-orch/orchestration/template_service.go` [NEW] | 模板 → DAG 实例化（拷贝 snapshot）+ 参数渲染 |
-| 模板 RPC registrar | `cmd/mcp-orch/orchestration/rpc_template.go` [NEW] | `registerDAGTemplateRPC` 注册 `dag/template/*` + `dag/instantiate` + `dag/edit_node` + `dag/edit_dag`；`rpc.go` 只调用 registrar |
-| 编辑权限 fence | `cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql`（扩展） | CAS：`UPDATE ... WHERE status='pending'` 拒绝跳态写入 |
+| 模板 store | `internal/sidecar/orch/store/dagtemplate/*.go` [NEW] | CRUD + 版本管理 |
+| 模板 service | `internal/sidecar/orch/orchestration/template_service.go` [NEW] | 模板 → DAG 实例化（拷贝 snapshot）+ 参数渲染 |
+| 模板 RPC registrar | `internal/sidecar/orch/orchestration/rpc_template.go` [NEW] | `registerDAGTemplateRPC` 注册 `dag/template/*` + `dag/instantiate` + `dag/edit_node` + `dag/edit_dag`；`rpc.go` 只调用 registrar |
+| 编辑权限 fence | `internal/sidecar/orch/sql/queries/task_dag_node_runtime.sql`（扩展） | CAS：`UPDATE ... WHERE status='pending'` 拒绝跳态写入 |
 | UI bridge/transport | `internal/ui/wails/http_server.go`、`internal/ui/wails/bridge.go`（扩展） | 只承载 Wails WS/bridge 调用与 P6 identity，不放主要页面实现 |
 | UI 模板库 tab | `cmd/agent-terminal/frontend/vue-app/*`（新增/扩展 DAG template components/store/routes） | 列表 / 详情 / 搜索 / fork；通过 Wails bridge 调 RPC |
 | UI 任务列表 tab | `cmd/agent-terminal/frontend/vue-app/*`（DAG instances components/store/routes） | 列表 / 状态 / 关联模板；接 `dashboard/dagDetail` |
@@ -101,7 +101,7 @@
 
 ### schema / RPC 拆分依赖
 
-P10 UI 表单字段不得要求 P7/P8/P11/P12/P13 并行修改 `cmd/mcp-orch/tools/task_tools.go`。字段注册表读取 `cmd/mcp-orch/tools/dag_schema_registry.go` 的 per-feature providers；未合入 provider 的字段在 UI feature gate 隐藏但保留 extension slot。模板 RPC 通过 `registerDAGTemplateRPC` 落在 `rpc_template.go`，避免与 P3/P6/P11 同时改 `rpc.go`。
+P10 UI 表单字段不得要求 P7/P8/P11/P12/P13 并行修改 `internal/sidecar/orch/tools/task_tools.go`。字段注册表读取 `internal/sidecar/orch/tools/dag_schema_registry.go` 的 per-feature providers；未合入 provider 的字段在 UI feature gate 隐藏但保留 extension slot。模板 RPC 通过 `registerDAGTemplateRPC` 落在 `rpc_template.go`，避免与 P3/P6/P11 同时改 `rpc.go`。
 
 ## DDL / SQL
 

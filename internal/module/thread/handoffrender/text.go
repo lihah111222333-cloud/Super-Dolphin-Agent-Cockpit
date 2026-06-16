@@ -3,11 +3,11 @@ package handoffrender
 import (
 	"strings"
 
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // ThreadStatus 处理线程状态。
-func ThreadStatus(row *threadstore.Thread) string {
+func ThreadStatus(row *contract.Thread) string {
 	if row == nil {
 		return ""
 	}
@@ -15,7 +15,7 @@ func ThreadStatus(row *threadstore.Thread) string {
 }
 
 // ThreadID 处理线程ID。
-func ThreadID(row *threadstore.Thread) string {
+func ThreadID(row *contract.Thread) string {
 	if row == nil {
 		return ""
 	}
@@ -23,7 +23,7 @@ func ThreadID(row *threadstore.Thread) string {
 }
 
 // ThreadCWD 处理线程工作目录。
-func ThreadCWD(row *threadstore.Thread) string {
+func ThreadCWD(row *contract.Thread) string {
 	if row == nil {
 		return ""
 	}

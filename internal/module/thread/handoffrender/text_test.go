@@ -3,7 +3,7 @@ package handoffrender
 import (
 	"testing"
 
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // TestThreadFieldHelpersTrimValuesAndHandleNil verifies handoff row helpers are nil-safe.
@@ -14,7 +14,7 @@ func TestThreadFieldHelpersTrimValuesAndHandleNil(t *testing.T) {
 		t.Fatal("thread field helpers should return empty strings for nil rows")
 	}
 
-	row := &threadstore.Thread{ThreadID: " t-1 ", Cwd: " /repo ", Status: " running "}
+	row := &contract.Thread{ThreadID: " t-1 ", Cwd: " /repo ", Status: " running "}
 	if got := ThreadID(row); got != "t-1" {
 		t.Fatalf("ThreadID() = %q, want t-1", got)
 	}

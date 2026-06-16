@@ -93,7 +93,7 @@
   - `internal/provider/claudecli/event_map.go:105-116` 用 `eventTime(data)`
 - 但仍有模块继续手写 `time.Now()`：
   - `internal/platform/rpc/approval_events.go:102-120`
-  - `cmd/mcp-orch/orchestration/events.go:73-81`
+  - `internal/sidecar/orch/orchestration/events.go:73-81`
 - 对 `internal/dto/shared/event.go:42` 的 `EventHeader` 做 LSP `references`，上述两类构造点同时存在。
 
 问题：

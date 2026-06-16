@@ -15,8 +15,8 @@ import (
 var defaultCapabilityRoots = []string{
 	"internal/contract",
 	"internal/provider",
-	"cmd/mcp-orch/orchestration",
-	"cmd/mcp-orch/tools",
+	"internal/sidecar/orch/orchestration",
+	"internal/sidecar/orch/tools",
 }
 
 const capabilityManifestPath = "docs/doc/codemap/capability-contract/capability_manifest.json"

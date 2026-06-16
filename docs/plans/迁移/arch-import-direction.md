@@ -56,7 +56,7 @@
 
 扫描包：
 
-- `cmd/mcp-orch/orchestration`
+- `internal/sidecar/orch/orchestration`
 - `internal/module/skill`
 - `internal/module/thread`
 - `internal/module/turn`
@@ -169,5 +169,5 @@
   2. `ui/wails` 仍直连 `module/uistate`。
   3. `provider/claudecli` 仍反向依赖 `module/*`。
   4. `platform/toolbridge` 仍直连 provider concrete 与业务 store。
-  5. `cmd/mcp-orch/orchestration` 仍暴露 `Module` / `handler.Map` / hidden side-channel contract。
+  5. `internal/sidecar/orch/orchestration` 仍暴露 `Module` / `handler.Map` / hidden side-channel contract。
 - 其余方向约束的状态以最新 archtest 与 `docs/plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md` 为准，不能再从本文旧扫描结果外推“全仓无违规”。

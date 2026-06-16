@@ -100,7 +100,7 @@
 - `GetFile`
 - `ListFiles`
 
-`cmd/mcp-orch/orchestration/contract.go` 的 `Service` 只有 `6` 个方法：
+`internal/sidecar/orch/orchestration/contract.go` 的 `Service` 只有 `6` 个方法：
 
 - `LaunchAgent`
 - `StopAgent`
@@ -298,7 +298,7 @@
   - 必须 `fx.Provide(NewService, NewSkillHandlers, ...)`
 - `internal/module/workspace/module.go`
   - 必须 `fx.Provide(NewService, NewWorkspaceHandlers, ...)`
-- `cmd/mcp-orch/orchestration/module.go`
+- `internal/sidecar/orch/orchestration/module.go`
   - 当前只提供 `NewService`、`Service` 转型、`NewRunnerActor`
   - 必须新增 `NewOrchestrationHandlers`
 
@@ -580,10 +580,10 @@ LSP 复核结果：
 
 LSP 证据：
 
-- `cmd/mcp-orch/orchestration/contract.go:10-17`
+- `internal/sidecar/orch/orchestration/contract.go:10-17`
   - `Service` 只有 `LaunchAgent/StopAgent/SubmitTurn/CompleteTurn/Recover/Snapshot`
   - 没有 `ListAgents`
-- `cmd/mcp-orch/orchestration/helpers.go:123-137`
+- `internal/sidecar/orch/orchestration/helpers.go:123-137`
   - 只有私有 `listAgents() []agentRuntime`
 
 B 在 `p5-wave2-plan-audit-B.md:115-124` 已明确写出：
@@ -609,9 +609,9 @@ B 在 `p5-wave2-plan-audit-B.md:115-124` 已明确写出：
 
 已落地：
 
-- `cmd/mcp-orch/orchestration/contract.go`
+- `internal/sidecar/orch/orchestration/contract.go`
   - 新增 `ListAgents(ctx context.Context) ([]AgentSnapshot, error)`
-- `cmd/mcp-orch/orchestration/service.go`
+- `internal/sidecar/orch/orchestration/service.go`
   - 新增公开方法 `ListAgents`
   - 从 `Snapshot` 提取 `snapshotLocked`
 
@@ -711,7 +711,7 @@ func cardByKey(svc skill.Service, method string) handler.Func {
 
 已落地：
 
-- `cmd/mcp-orch/orchestration/contract.go`
+- `internal/sidecar/orch/orchestration/contract.go`
   - 新增 `TODO(P5-R5)` 注释，明确 `CreateDAG/GetDAG/ListDAGs/UpdateNode` 属于 service 层，不应停留在 rpc glue
 
 ### 7. 改进 3：skill auto-match 归属备注

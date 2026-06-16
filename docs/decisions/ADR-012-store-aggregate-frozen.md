@@ -1,10 +1,10 @@
 # ADR-012：taskdag 聚合 Store 接口 7/7 嵌入端口预算锁死
 
-> 状态：✅ Accepted | 日期：2026-05-12 | 决策者：项目维护者 | 相关：`cmd/mcp-orch/store/taskdag/contract.go`、`internal/archtest/store_interface_isolation_test.go`、ADR-009（F1.5 NodeSpawnRecorderStore 作为窄端口独立挂的先例）
+> 状态：✅ Accepted | 日期：2026-05-12 | 决策者：项目维护者 | 相关：`internal/sidecar/orch/store/taskdag/contract.go`、`internal/archtest/store_interface_isolation_test.go`、ADR-009（F1.5 NodeSpawnRecorderStore 作为窄端口独立挂的先例）
 
 ## 1. 背景
 
-`cmd/mcp-orch/store/taskdag.Store` 是 DAG / Run / Wakeup / Worker lease 等持久化能力的**向后兼容聚合接口**。该接口当前嵌入 **7 个窄端口**，已顶到 archtest `InterfaceIsolation` 预算上限：
+`internal/sidecar/orch/store/taskdag.Store` 是 DAG / Run / Wakeup / Worker lease 等持久化能力的**向后兼容聚合接口**。该接口当前嵌入 **7 个窄端口**，已顶到 archtest `InterfaceIsolation` 预算上限：
 
 ```go
 type Store interface {
@@ -29,8 +29,8 @@ F1.5（commit `970cb5aa`）已用真实先例：`NodeSpawnRecorderStore` **没�
 新增 Store 端口必须满足三条：
 
 1. **窄端口独立挂载**：新接口以独立类型声明，**不嵌入 `Store`** 也不嵌入其他已嵌入 `Store` 的 port（避免间接撑爆预算）。
-2. **编译期 `var _` 断言**：在 `cmd/mcp-orch/store/taskdag/store_compile_assertions_test.go` 加 `var _ NewStore = (*store)(nil)`，确保同一 `*store` concrete 同时满足新接口与现有接口。
-3. **Module 单独 `fx.Provide`**：在 `cmd/mcp-orch/store/taskdag/module.go` 用独立 `ProvideXxxStore` 把 `*store` type-assert 出新接口，让 service 层只依赖窄端口。
+2. **编译期 `var _` 断言**：在 `internal/sidecar/orch/store/taskdag/store_compile_assertions_test.go` 加 `var _ NewStore = (*store)(nil)`，确保同一 `*store` concrete 同时满足新接口与现有接口。
+3. **Module 单独 `fx.Provide`**：在 `internal/sidecar/orch/store/taskdag/module.go` 用独立 `ProvideXxxStore` 把 `*store` type-assert 出新接口，让 service 层只依赖窄端口。
 
 ## 3. 替代方案与拒绝理由
 
@@ -40,7 +40,7 @@ F1.5（commit `970cb5aa`）已用真实先例：`NodeSpawnRecorderStore` **没�
 
 ## 4. 适用范围
 
-- 文件：`cmd/mcp-orch/store/taskdag/contract.go`
+- 文件：`internal/sidecar/orch/store/taskdag/contract.go`
 - 守卫：`internal/archtest/store_interface_isolation_test.go` 的 `TestInterfaceIsolationBudgets`
 - 历史先例：`NodeSpawnRecorderStore`（F1.5）、`RunStore`（commit eb341e54）、`DAGOpsStore`（F4.1 / F4.2）、`DAGOpsTxRunner`（F4.2）
 

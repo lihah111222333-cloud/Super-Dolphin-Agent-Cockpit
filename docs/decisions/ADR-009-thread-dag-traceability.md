@@ -80,9 +80,9 @@ T6.1 / T8.1 UI 任务允许在字段位就位后开始（不必等 F1.5 全部 d
 | 项 | 状态 | 位置 |
 |---|---|---|
 | migration 0083 | ⏳ 待 F1.5 | `migrations/0083_dag_v2_spawning_thread_id.sql` |
-| AgentExecutor 写入 | ⏳ 待 F1.5 | `cmd/mcp-orch/orchestration/nodeexec/executor_agent.go` |
-| task_get_dag 返回字段 | ⏳ 待 F1.5 | `cmd/mcp-orch/orchestration/dag_query.go` |
+| AgentExecutor 写入 | ⏳ 待 F1.5 | `internal/sidecar/orch/orchestration/nodeexec/executor_agent.go` |
+| task_get_dag 返回字段 | ⏳ 待 F1.5 | `internal/sidecar/orch/orchestration/dag_query.go` |
 | task_get_run 返回字段 | ⏳ 待 F1.5 | 同上 |
-| events node_spawn 环形 cap（Q4） | ⏳ 待 F1.5 | `cmd/mcp-orch/store/taskdag/` events append 路径 |
+| events node_spawn 环形 cap（Q4） | ⏳ 待 F1.5 | `internal/sidecar/orch/store/taskdag/` events append 路径 |
 | UI T6.1 消费 | ⏳ 待 T6.1 | `components/DagDetailModal.js` |
 | UI T8.1 消费 | ⏳ 待 T8.1 | `pages/DagsPage.js` |

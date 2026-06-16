@@ -6,7 +6,7 @@
 
 **Architecture:** Dashboard 在配置了 `dbquery.Store` 时会绕过 orchestration runtime，直接用受限 `dbquery` 查询 SQLite `task_dags/task_dag_runs/task_dag_nodes`，再把 `[]map[string]any` 映射成 contract 类型。修复应放在 Dashboard snapshot mapper 的时间字段解析边界，而不是修改 `dbquery` 的原始查询返回语义，也不是改 SQLite schema。
 
-**Tech Stack:** Go, `database/sql`, modernc SQLite driver, Dashboard RPC, existing `internal/store/dbquery`, existing `cmd/mcp-orch/store/sqlc.TimeValue/TimePtr` Unix-millis convention.
+**Tech Stack:** Go, `database/sql`, modernc SQLite driver, Dashboard RPC, existing `internal/store/dbquery`, existing `internal/sidecar/orch/store/sqlc.TimeValue/TimePtr` Unix-millis convention.
 
 ---
 
@@ -54,8 +54,8 @@ SQLite schema 与 typed store 对照：
 - `internal/platform/db/sqlite/migrations/001_baseline.sql:533-540` `started_at/finished_at/created_at/updated_at/next_run_at` 都是 `INTEGER`。
 - `internal/platform/db/sqlite/migrations/001_baseline.sql:544-558` `task_dag_runs.started_at/finished_at/created_at/updated_at` 都是 `INTEGER`。
 - `internal/platform/db/sqlite/migrations/001_baseline.sql:561-579` `task_dag_nodes.started_at/finished_at/created_at/updated_at/last_event_at` 都是 `INTEGER`。
-- `cmd/mcp-orch/store/sqlc/types_ext.go:10` `TimeValue(int64)` 使用 `time.UnixMilli(value).UTC()`。
-- `cmd/mcp-orch/store/sqlc/types_ext.go:17` `TimePtr(*int64)` 对 `nil` 和 `0` 返回 `nil`，否则 `time.UnixMilli(*value).UTC()`。
+- `internal/sidecar/orch/store/sqlc/types_ext.go:10` `TimeValue(int64)` 使用 `time.UnixMilli(value).UTC()`。
+- `internal/sidecar/orch/store/sqlc/types_ext.go:17` `TimePtr(*int64)` 对 `nil` 和 `0` 返回 `nil`，否则 `time.UnixMilli(*value).UTC()`。
 
 实际运行库证据：
 
@@ -102,7 +102,7 @@ task_dag_runs count=0
 - `internal/store/dbquery/executor.go`
 - `internal/store/dbquery/executor_parser.go`
 - `internal/platform/db/sqlite/migrations/001_baseline.sql`
-- `cmd/mcp-orch/store/sqlc/**` generated files
+- `internal/sidecar/orch/store/sqlc/**` generated files
 - `internal/store/sqlc/**` generated files
 
 ## Task Steps
@@ -460,7 +460,7 @@ func dashboardOptionalTime(row map[string]any, key string) (*time.Time, error) {
 
 - [ ] **Step 2: 让 `dashboardRowTimePtr` 支持 SQLite Unix millis**
 
-在 `dashboardRowTimePtr` 的 type switch 中新增整数毫秒支持，语义对齐 `cmd/mcp-orch/store/sqlc.TimeValue/TimePtr`。
+在 `dashboardRowTimePtr` 的 type switch 中新增整数毫秒支持，语义对齐 `internal/sidecar/orch/store/sqlc.TimeValue/TimePtr`。
 
 ```go
 func dashboardRowTimePtr(row map[string]any, key string, required bool) (*time.Time, error) {

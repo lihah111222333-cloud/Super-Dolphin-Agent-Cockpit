@@ -37,7 +37,7 @@
 8. **MCP common server 原生支持 `tools/list` / `tools/call`**  
    `internal/mcpserver/common/server.go:208-219` 处理 `tools/list`，`221-251` 处理 `tools/call`；返回 `tools/list -> {"tools": []common.MCPTool}`，`tools/call -> {"content": [{"type":"text","text":...}]}`。
 9. **`cmd/mcp-lsp` 的 schema 分布已经固定**  
-   `cmd/mcp-lsp/schema.go` 定义 9 个 schema 变量；`cmd/mcp-lsp/tools.go` 定义 `lspToolManifests`；`cmd/mcp-lsp/fx.go:113-142` 负责 `ListTools()` 把 schema marshal 成 `common.MCPTool`；`cmd/mcp-lsp/runtime.go` 当前**没有** schema 定义。
+   `cmd/mcp-lsp/schema.go` 定义 9 个 schema 变量；`internal/sidecar/lsp/tools.go` 定义 `lspToolManifests`；`cmd/mcp-lsp/fx.go:113-142` 负责 `ListTools()` 把 schema marshal 成 `common.MCPTool`；`cmd/mcp-lsp/runtime.go` 当前**没有** schema 定义。
 10. **V3 当前 transport 会丢掉 inbound JSON-RPC request id**  
    `internal/provider/codexapp/transport.go:87-94` + `transport_helpers.go:210-222` 当前 `ReadLoop` 只向上抛 `method/params`，没有把 `json.RawMessage id` 继续往 session 传。
 11. **当前守卫预算（LSP 实测）**  

@@ -93,7 +93,7 @@ Claude Code 的 LSP MCP 工具返回格式是混合型：
 - **文件**:
   - internal/dto/mcp/tool.go — MCPTool 增加 OutputSchema json.RawMessage
   - cmd/mcp-lsp/fx.go — registryToolProvider.ListTools() 中传递 OutputSchema
-  - cmd/mcp-lsp/tools/ 中的工具 manifest — 为 lsp_grep 声明 outputSchema
+  - internal/sidecar/lsp/tools/ 中的工具 manifest — 为 lsp_grep 声明 outputSchema
 - **只做 lsp_grep 一个**: 最常用的结构化返回工具
 - **风险**: 低
 

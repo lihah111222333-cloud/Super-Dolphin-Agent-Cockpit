@@ -13,7 +13,7 @@
 
 验证范围：
 
-- `cmd/mcp-orch/orchestration/rpc_types.go`
+- `internal/sidecar/orch/orchestration/rpc_types.go`
 - `internal/module/thread/rpc_types.go`
 - `internal/module/turn/rpc_types.go`
 - `internal/module/skill/rpc_types.go`
@@ -29,7 +29,7 @@
 
 | 文件 | 观察 | 结论 |
 | --- | --- | --- |
-| `cmd/mcp-orch/orchestration/rpc_types.go` | 同时出现 camelCase（`agentId`/`parentId`/`dagKey`/`nodeKey`/`createdBy`/`nodeType`/`assignedTo`/`dependsOn`/`commandRef`）和 snake_case（`agent_id`/`selected_skills`/`manual_skill_selection`/`output_schema`/`worker_id`/`sender_id`/`event_type`/`event_data`） | **混用最严重** |
+| `internal/sidecar/orch/orchestration/rpc_types.go` | 同时出现 camelCase（`agentId`/`parentId`/`dagKey`/`nodeKey`/`createdBy`/`nodeType`/`assignedTo`/`dependsOn`/`commandRef`）和 snake_case（`agent_id`/`selected_skills`/`manual_skill_selection`/`output_schema`/`worker_id`/`sender_id`/`event_type`/`event_data`） | **混用最严重** |
 | `internal/module/thread/rpc_types.go` | 多词字段偏 camelCase（`threadId`/`approvalPolicy`），其余单词字段小写 | **偏 camelCase** |
 | `internal/module/turn/rpc_types.go` | `threadId` / `turnId` 用 camelCase；`call_id` / `request_id` 用 snake_case | **混用** |
 | `internal/module/skill/rpc_types.go` | 多词字段统一 snake_case（`command_template`/`args_schema`/`risk_level`/`created_by`/`updated_by`） | **偏 snake_case** |
@@ -73,7 +73,7 @@
 
 V3 定义：
 
-- `cmd/mcp-orch/orchestration/contract.go:49-59`
+- `internal/sidecar/orch/orchestration/contract.go:49-59`
 
 V2 对应：
 
@@ -106,11 +106,11 @@ V2 对应：
 
 | 类型 | 主格式 | 兼容格式 | 证据 |
 | --- | --- | --- | --- |
-| `agentIDParams` | `agentId` | `agent_id` | `cmd/mcp-orch/orchestration/rpc_types.go:19-40` |
-| `submitParams` | `agent_id` / `selected_skills` / `manual_skill_selection` / `output_schema` | `agentId` / `selectedSkills` / `manualSkillSelection` / `outputSchema`，以及旧 `input` | `cmd/mcp-orch/orchestration/rpc_types.go:70-116` |
-| `reportParams` | `agent_id` | `agentId` | `cmd/mcp-orch/orchestration/rpc_types.go:118-140` |
-| `rememberReportRequestParams` | `worker_id` / `sender_id` | `agentId` / `requesterId`，以及 `agent_id` / `requester_id` | `cmd/mcp-orch/orchestration/rpc_types.go:142-170` |
-| `reportEventParams` | `agent_id` / `event_type` / `event_data` | `agentId` / `eventType` / `eventData` | `cmd/mcp-orch/orchestration/rpc_types.go:172-204` |
+| `agentIDParams` | `agentId` | `agent_id` | `internal/sidecar/orch/orchestration/rpc_types.go:19-40` |
+| `submitParams` | `agent_id` / `selected_skills` / `manual_skill_selection` / `output_schema` | `agentId` / `selectedSkills` / `manualSkillSelection` / `outputSchema`，以及旧 `input` | `internal/sidecar/orch/orchestration/rpc_types.go:70-116` |
+| `reportParams` | `agent_id` | `agentId` | `internal/sidecar/orch/orchestration/rpc_types.go:118-140` |
+| `rememberReportRequestParams` | `worker_id` / `sender_id` | `agentId` / `requesterId`，以及 `agent_id` / `requester_id` | `internal/sidecar/orch/orchestration/rpc_types.go:142-170` |
+| `reportEventParams` | `agent_id` / `event_type` / `event_data` | `agentId` / `eventType` / `eventData` | `internal/sidecar/orch/orchestration/rpc_types.go:172-204` |
 | `approvalRespondParams` | `call_id` / `request_id` | `callId` / `requestId` | `internal/module/turn/rpc_types.go:31-69` |
 
 缺口：
@@ -138,15 +138,15 @@ V2 对应：
 
 | 返回类型 / 方法 | V3 | V2 期望 | 判定 |
 | --- | --- | --- | --- |
-| `AgentSnapshot` / `agent.list` | `cmd/mcp-orch/orchestration/contract.go:49-59`，handler 直接返回 `[]AgentSnapshot`（`cmd/mcp-orch/orchestration/rpc.go:43-45`） | `[]runner.AgentInfo`，keys 为 `cwd/id/last_report/name/parent_id/port/provider/state/thread_id` | **一致** |
-| `AgentStateResult` / `agent.getState` | `{agent_id,state}`，见 `cmd/mcp-orch/orchestration/contract.go:61-64`、`cmd/mcp-orch/orchestration/report.go:51-60` | `{agent_id,state}`，见 V2 `methods_orchestration.go:166-176` | **一致** |
-| `AgentReportResult` / `agent.getReport` | 基础 shape 是 `{agent_id,report,state}`，但在存在 requester 时会额外带 `metadata.requester_ids`，见 `cmd/mcp-orch/orchestration/contract.go:70-75`、`cmd/mcp-orch/orchestration/report.go:140-151` | `{agent_id,report,state}`，见 V2 `methods_orchestration.go:122-135` 和 shape guard `259-262` | **条件性偏离** |
-| `RememberReportRequestResult` / `agent.rememberReportRequest` | `{success,agent_id,requester_id}`，见 `cmd/mcp-orch/orchestration/contract.go:82-86`、`cmd/mcp-orch/orchestration/report.go:73-95` | `{success,sender_id,worker_id}`，见 V2 `methods_orchestration.go:137-159` 和 shape guard `269-271` | **不一致** |
-| `ReportEventResult` / `agent.reportEvent` | 基础字段 `{success,agent_id,event_type}`，但还可能带 `report` 与 `notified_requester_ids`，见 `cmd/mcp-orch/orchestration/contract.go:95-101`、`cmd/mcp-orch/orchestration/report.go:98-133` | `{success,agent_id,event_type}`，见 V2 `methods_orchestration.go:185-208` 和 shape guard `274-276` | **不一致** |
+| `AgentSnapshot` / `agent.list` | `internal/sidecar/orch/orchestration/contract.go:49-59`，handler 直接返回 `[]AgentSnapshot`（`internal/sidecar/orch/orchestration/rpc.go:43-45`） | `[]runner.AgentInfo`，keys 为 `cwd/id/last_report/name/parent_id/port/provider/state/thread_id` | **一致** |
+| `AgentStateResult` / `agent.getState` | `{agent_id,state}`，见 `internal/sidecar/orch/orchestration/contract.go:61-64`、`internal/sidecar/orch/orchestration/report.go:51-60` | `{agent_id,state}`，见 V2 `methods_orchestration.go:166-176` | **一致** |
+| `AgentReportResult` / `agent.getReport` | 基础 shape 是 `{agent_id,report,state}`，但在存在 requester 时会额外带 `metadata.requester_ids`，见 `internal/sidecar/orch/orchestration/contract.go:70-75`、`internal/sidecar/orch/orchestration/report.go:140-151` | `{agent_id,report,state}`，见 V2 `methods_orchestration.go:122-135` 和 shape guard `259-262` | **条件性偏离** |
+| `RememberReportRequestResult` / `agent.rememberReportRequest` | `{success,agent_id,requester_id}`，见 `internal/sidecar/orch/orchestration/contract.go:82-86`、`internal/sidecar/orch/orchestration/report.go:73-95` | `{success,sender_id,worker_id}`，见 V2 `methods_orchestration.go:137-159` 和 shape guard `269-271` | **不一致** |
+| `ReportEventResult` / `agent.reportEvent` | 基础字段 `{success,agent_id,event_type}`，但还可能带 `report` 与 `notified_requester_ids`，见 `internal/sidecar/orch/orchestration/contract.go:95-101`、`internal/sidecar/orch/orchestration/report.go:98-133` | `{success,agent_id,event_type}`，见 V2 `methods_orchestration.go:185-208` 和 shape guard `274-276` | **不一致** |
 
 额外发现：
 
-- `agent.launch` 在 V3 handler 中直接 `return nil, svc.LaunchAgent(...)`，即成功时 RPC 结果是 `null`，见 `cmd/mcp-orch/orchestration/rpc.go:17-19`。
+- `agent.launch` 在 V3 handler 中直接 `return nil, svc.LaunchAgent(...)`，即成功时 RPC 结果是 `null`，见 `internal/sidecar/orch/orchestration/rpc.go:17-19`。
 - V2 `agent.launch` 返回 `{agent_id,name,status}`，见 `go-agent-v2/internal/apiserver/methods_orchestration.go:39-71` 与 shape guard `252-257`。
 - 这不是“类型 tag”问题，而是**整条返回 wire 缺对象**。
 
@@ -173,8 +173,8 @@ type S struct {
 1. `nil` 和 `empty` 不是一回事。
 2. 对 `json.RawMessage` 来说，**nil 是安全值**，零长非 `nil` 切片不是。
 3. 当前代码大量使用 `append(json.RawMessage(nil), raw...)` 复制 `RawMessage`，例如：
-   - `cmd/mcp-orch/orchestration/rpc.go:102,175,185,200,215`
-   - `cmd/mcp-orch/orchestration/dag.go:99,133,165,200,219,220`
+   - `internal/sidecar/orch/orchestration/rpc.go:102,175,185,200,215`
+   - `internal/sidecar/orch/orchestration/dag.go:99,133,165,200,219,220`
    - `internal/module/turn/rpc.go:92`
 4. 这种写法会把“零长输入”归一化成 `nil`，从而得到两种可预期行为：
    - 无 `omitempty` 时输出 `null`

@@ -96,9 +96,9 @@
 证据：
 - `StrictHandler` 明确走 `handler.Check(fn).AllowArray(false).SetStrict(true).Wrap()`：`internal/platform/rpc/strict.go:11-16`。
 - `ThreadHandler` / `CapabilityThreadHandler` 只是在线程/能力中间件外再包一层 `StrictHandler`：`internal/platform/rpc/handler.go:89-96`。
-- 当前 `rpc_handlers` producer 只有 5 处：`cmd/mcp-orch/orchestration/rpc.go:15-77`、`internal/module/skill/rpc.go:42-88`、`internal/module/thread/rpc.go:18-84`、`internal/module/turn/rpc.go:14-93`、`internal/module/workspace/rpc.go:13-24`。
+- 当前 `rpc_handlers` producer 只有 5 处：`internal/sidecar/orch/orchestration/rpc.go:15-77`、`internal/module/skill/rpc.go:42-88`、`internal/module/thread/rpc.go:18-84`、`internal/module/turn/rpc.go:14-93`、`internal/module/workspace/rpc.go:13-24`。
 - 这 5 处输出的所有 method 都使用 `rpc.StrictHandler(...)`、`rpc.ThreadHandler(...)` 或 `rpc.CapabilityThreadHandler(...)`。例如：
-  - orchestration：`cmd/mcp-orch/orchestration/rpc.go:16-76`
+  - orchestration：`internal/sidecar/orch/orchestration/rpc.go:16-76`
   - thread：`internal/module/thread/rpc.go:19-83`、helper `internal/module/thread/rpc.go:86-131`
   - turn：`internal/module/turn/rpc.go:32-92`
 - `RawHandler` 存在，但 LSP `references`/`text_search` 没有发现任何调用点：定义见 `internal/platform/rpc/strict.go:20-22`。
@@ -265,7 +265,7 @@
   - `bindEventBridge`
   见 `internal/platform/rpc/module.go:22-24`
 - handler producer 来自 5 个业务模块：
-  - `cmd/mcp-orch/orchestration/rpc.go:15-77`
+  - `internal/sidecar/orch/orchestration/rpc.go:15-77`
   - `internal/module/skill/rpc.go:42-88`
   - `internal/module/thread/rpc.go:18-84`
   - `internal/module/turn/rpc.go:14-93`

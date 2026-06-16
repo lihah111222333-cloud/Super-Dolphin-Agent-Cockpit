@@ -18,7 +18,7 @@
 ## 核心设计：AgentLauncher 接口
 
 ```go
-// cmd/mcp-orch/orchestration/contract.go
+// internal/sidecar/orch/orchestration/contract.go
 type AgentLauncher interface {
     Launch(ctx context.Context, agent *agentRuntime, req LaunchRequest) (LaunchResult, error)
     Stop(ctx context.Context, agent *agentRuntime) error
@@ -141,14 +141,14 @@ parent agent-terminal                     mcp-orch
 ## 任务拆分
 
 ### 任务 0: 定义 AgentLauncher 接口 + LaunchResult
-文件: `cmd/mcp-orch/orchestration/contract.go`
+文件: `internal/sidecar/orch/orchestration/contract.go`
 - AgentLauncher{Launch, Stop, SubmitTurn, IsRunning}
 - LaunchResult{ThreadID, RemoteAgentID}
 - service 构造函数加 AgentLauncher 参数
 - ~15 LOC
 
 ### 任务 1: 提取 localLauncher
-文件: `cmd/mcp-orch/orchestration/launcher_local.go`（新建）
+文件: `internal/sidecar/orch/orchestration/launcher_local.go`（新建）
 - 从 startProcessLocked 提取 Launch 方法（操作 agentRuntime 字段）
 - 从 stopProcess 提取 Stop 方法
 - SubmitTurn 委托现有 turnStarter
@@ -157,7 +157,7 @@ parent agent-terminal                     mcp-orch
 - ~80 LOC
 
 ### 任务 2: 实现 remoteLauncher
-文件: `cmd/mcp-orch/orchestration/launcher_remote.go`（新建）
+文件: `internal/sidecar/orch/orchestration/launcher_remote.go`（新建）
 - 懒连接 jrpc2.Client + ensureClient + IsStopped 检查
 - Launch: RPC→thread/start → 解析返回 threadID + agentId
 - Stop: RPC→thread/stop
@@ -168,7 +168,7 @@ parent agent-terminal                     mcp-orch
 - ~80 LOC
 
 ### 任务 3: 改 service 核心路径
-文件: `cmd/mcp-orch/orchestration/service.go` + `helpers.go` + `process_lifecycle.go`
+文件: `internal/sidecar/orch/orchestration/service.go` + `helpers.go` + `process_lifecycle.go`
 - LaunchAgent: 两阶段（锁内预留 → 锁外发 launcher.Launch(agent) → 锁内提交）
 - StopAgent: 委托 launcher.Stop(agent)
 - SubmitTurn: agent.cmd!=nil → launcher.IsRunning(agent)
@@ -182,7 +182,7 @@ parent agent-terminal                     mcp-orch
 - ~80 LOC 改动
 
 ### 任务 4: parent 装 orchestration.Module
-文件: `internal/app/modules.go` + `cmd/mcp-orch/orchestration/service.go`
+文件: `internal/app/modules.go` + `internal/sidecar/orch/orchestration/service.go`
 - taskdag.Store 改 optional
 - 解决 RuntimeReporter 冲突
 - parent 注入 localLauncher
@@ -196,7 +196,7 @@ parent agent-terminal                     mcp-orch
 - ~20 LOC
 
 ### 任务 6: identity + 状态回流 + remote 读面
-文件: `cmd/mcp-orch/orchestration/service.go` + `runtime.go`
+文件: `internal/sidecar/orch/orchestration/service.go` + `runtime.go`
 - agent.remoteThreadID 存 LaunchResult.ThreadID
 - agent.remoteAgentID 存 LaunchResult.RemoteAgentID
 - remote 模式：Launch 成功 → remoteThreadID 有值，Stop → 清空

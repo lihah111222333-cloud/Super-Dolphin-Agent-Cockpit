@@ -739,7 +739,7 @@ Codex：
 
 - `internal/module/turn/tracker.go:14-19` 明确同时保存 `localID` 与 `providerID`，`lookupLocked` 允许按两类 ID 查询，区分是成立的。
 - 但 `internal/module/turn/tracker.go:94-100` 在 `providerID` 非空时，会把 `TurnStatus.TurnID` 切换成 provider ID。
-- 与之相比，orchestration 侧 `cmd/mcp-orch/orchestration/helpers.go:147-153` 和 `cmd/mcp-orch/orchestration/service.go:244-250` 把活跃 turn ID 视为本地/orchestration ID（`ExpectedTurnID` 或派生 ID）。
+- 与之相比，orchestration 侧 `internal/sidecar/orch/orchestration/helpers.go:147-153` 和 `internal/sidecar/orch/orchestration/service.go:244-250` 把活跃 turn ID 视为本地/orchestration ID（`ExpectedTurnID` 或派生 ID）。
 - 结论：内部存储区分正确，但对外 `TurnStatus.TurnID` 语义与 orchestration 的 `activeTurnID` 不完全对齐；如果调用方把 `TrackTurn(...).TurnID` 当作 orchestration turn ID 回传，会发生语义漂移。更稳妥的接口应固定 `TurnID` 为 local/orchestration ID，并单独暴露 `ProviderID`。
 
 ### 事件归属

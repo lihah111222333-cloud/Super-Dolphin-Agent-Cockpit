@@ -23,7 +23,7 @@
 - **⚠️ 部分落地（9 项）**：审批缓存骨架；`skill/requestApproval` 事件面；skill 静态清单来源；`skill/list` / `skill/expand` RPC 面；rollout 读端；codex/claude per-turn 注入；`skillResolver`；launch assembly；per-turn 运行时。
 - **❌ 未落地（10 项）**：`skill_catalog_provider`；dynamic prompt slot 注册；skill port 扩展；`rollout_markers.go`；provider `skill_inject.go`；`skill_injection` contract；`expanded_state.go`；config/policy/metrics；MCP skill tools。
 - **🐞 Bug**：`prompts/list` host RPC 404（Bug #1）；UI 强制 skill 未注入 codex，已拆成 per-turn 断点 B 与 launch 断点 A（Bug #2）。
-- **前置实验状态**：实验 A / B 已在 2026-04-18 完成，结论见 `docs/experiments/p20-exp-a-agentsmd-merge.md` 与 `docs/experiments/p20-exp-b-claudecli-native-skills.md`。
+- **前置实验状态**：实验 A / B 已在 2026-04-18 完成，结论见 `docs/研究材料/实验验证/p20-exp-a-agentsmd-merge.md` 与 `docs/研究材料/实验验证/p20-exp-b-claudecli-native-skills.md`。
 ## 0.5 施工前置实验（Phase 1 启动前必跑，2026-04-18 已完成）
 两家 provider 可行度评估（见§11 附录 D）暴露 **2 个“不确定性收益”假设**必须先用最小实验验证，否则后续 Phase 可能整段返工。
 ### ✅ 实验 A：codexapp AGENTS.md 合并顺序（30 分钟）
@@ -38,7 +38,7 @@
 | AGENTS.md 在 marker **之后** | codex-rs 后追加 | L1 清单放 `baseInstructions` **尾部**；Phase 9 必须用 `<system-reminder>` 每 turn 重贴防稀释 |
 | AGENTS.md 在 marker **之前** | codex-rs 前追加 | L1 清单放 `baseInstructions` **头部**，注意力优先级最高 |
 | 交织 / list 合并 | 顺序语义不稳 | 放弃 `baseInstructions` 通道，改走 developerInstructions 或每 turn 贴 |
-**产出**：`docs/experiments/p20-exp-a-agentsmd-merge.md`
+**产出**：`docs/研究材料/实验验证/p20-exp-a-agentsmd-merge.md`
 ### ✅ 实验 B：claudecli 原生 Skills 自动注入行为（20 分钟）
 **目的**：确认 Claude Code CLI 对 `.claude/skills/*/SKILL.md` 的自动发现机制与我们的注入通道是否冲突（关系到 Phase 7 的退化策略）。
 **步骤**：
@@ -52,7 +52,7 @@
 | Claude CLI 自动加载且**不可关** | 原生接管 body 注入 | Phase 7 必须扫 `.claude/skills/`，命中时 Mode 强制 `None`；L1 清单只提供元数据 |
 | 可通过 flag 关闭 | 我们独占 | Phase 7 启动时关原生，走 Full/Summary 分支；简化实现 |
 | 不自动加载（需 `/skill-name` 显式）| 低冲突 | Phase 7 不需要退化，按原方案走 Full/Summary 分支 |
-**产出**：`docs/experiments/p20-exp-b-claudecli-native-skills.md`
+**产出**：`docs/研究材料/实验验证/p20-exp-b-claudecli-native-skills.md`
 **卡关条件**：两个实验均需在 Phase 1 施工前完成；结论写入产出文档，并反向修订 Phase 7/8/9 的任务清单。
 ## 1. 背景与调研依据
 ### 1.1 Claude Code Skills 官方机制（progressive disclosure）

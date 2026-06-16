@@ -13,12 +13,10 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
+// PromptRegistry owns prompt section and dynamic-provider registration.
 type PromptRegistry interface {
 	RegisterSection(section PromptSection) error
 	RegisterDynamicProvider(provider DynamicSectionProvider) error
@@ -26,8 +24,12 @@ type PromptRegistry interface {
 	Sections() []PromptSection
 }
 
+// PromptAssemblyService is the prompt assembly contract exposed to turn and
+// thread modules.
 type PromptAssemblyService = contract.PromptAssemblyService
 
+// Service is the full prompt module surface used by RPC handlers and other
+// business modules.
 type Service interface {
 	PromptRegistry
 	contract.PromptAssemblyService
@@ -55,8 +57,8 @@ type service struct {
 	claudeMdProvider contract.ClaudeMdSourceProvider
 	flight           singleflight.Group
 
-	prefs           uipreference.Store
-	sharedFiles     sharedfilestore.Reader
+	prefs           contract.UIPreferenceStore
+	sharedFiles     contract.SharedFileReader
 	disabledToolsFn DisabledBuiltinToolsFn
 
 	dynamicMu sync.RWMutex
@@ -70,7 +72,7 @@ type ServiceOption func(*service)
 // used to resolve the user-configurable LSP prompt hint that is prepended to
 // the start system prompt.
 // WithPromptHintSources 设置prompthintsources。
-func WithPromptHintSources(prefs uipreference.Store, sharedFiles sharedfilestore.Reader) ServiceOption {
+func WithPromptHintSources(prefs contract.UIPreferenceStore, sharedFiles contract.SharedFileReader) ServiceOption {
 	return func(s *service) {
 		s.prefs = prefs
 		s.sharedFiles = sharedFiles
@@ -134,15 +136,15 @@ func (s *service) Sections() []PromptSection {
 func (s *promptService) ListPrompts(
 	ctx context.Context,
 	cwd, keyword string,
-) ([]promptstore.PromptTemplate, error) {
+) ([]contract.PromptTemplate, error) {
 	if s.store == nil {
-		return []promptstore.PromptTemplate{}, nil
+		return []contract.PromptTemplate{}, nil
 	}
 	requestScope, err := requirePromptCWD(cwd)
 	if err != nil {
 		return nil, err
 	}
-	templates, err := s.store.List(ctx, promptstore.ListFilter{
+	templates, err := s.store.List(ctx, contract.PromptListFilter{
 		Keyword: strings.TrimSpace(keyword),
 		CWD:     requestScope,
 		Limit:   promptRPCLimit,
@@ -157,9 +159,9 @@ func (s *promptService) ListPrompts(
 func (s *promptService) ListPromptSectionsByTemplates(
 	ctx context.Context,
 	cwd string,
-	templates []promptstore.PromptTemplate,
-) (map[int64][]promptstore.PromptTemplateSection, error) {
-	sectionsByTemplateID := map[int64][]promptstore.PromptTemplateSection{}
+	templates []contract.PromptTemplate,
+) (map[int64][]contract.PromptTemplateSection, error) {
+	sectionsByTemplateID := map[int64][]contract.PromptTemplateSection{}
 	if s.store == nil || len(templates) == 0 {
 		return sectionsByTemplateID, nil
 	}
@@ -193,7 +195,7 @@ func (s *promptService) ListPromptSectionsByTemplates(
 func (s *promptService) GetPrompt(
 	ctx context.Context,
 	cwd, key string,
-) (*promptstore.PromptTemplate, error) {
+) (*contract.PromptTemplate, error) {
 	if s.store == nil {
 		return nil, errPromptStoreRequired
 	}
@@ -220,7 +222,7 @@ func (s *promptService) WritePrompt(
 	ctx context.Context,
 	cwd string,
 	prompt PromptWriteRequest,
-) (*promptstore.PromptTemplate, error) {
+) (*contract.PromptTemplate, error) {
 	if s.store == nil {
 		return nil, errPromptStoreRequired
 	}
@@ -231,8 +233,8 @@ func (s *promptService) WritePrompt(
 	if err := rejectBuiltinPromptMutation(s.builtin, prompt.ID); err != nil {
 		return nil, err
 	}
-	var template *promptstore.PromptTemplate
-	err = s.store.WithTx(ctx, func(txStore promptstore.Store) error {
+	var template *contract.PromptTemplate
+	err = s.store.WithTx(ctx, func(txStore contract.PromptStore) error {
 		next, err := upsertPrompt(ctx, txStore, s.builtin, requestScope, prompt)
 		if err != nil {
 			return err
@@ -248,7 +250,7 @@ func (s *promptService) WritePrompt(
 }
 
 // ListSections 列出sections。
-func (s *promptService) ListSections(ctx context.Context, cwd, promptKey string) ([]promptstore.PromptTemplateSection, error) {
+func (s *promptService) ListSections(ctx context.Context, cwd, promptKey string) ([]contract.PromptTemplateSection, error) {
 	template, err := s.GetPrompt(ctx, cwd, promptKey)
 	if err != nil {
 		return nil, err
@@ -257,7 +259,7 @@ func (s *promptService) ListSections(ctx context.Context, cwd, promptKey string)
 }
 
 // WriteSection 写入section。
-func (s *promptService) WriteSection(ctx context.Context, cwd string, req PromptSectionWriteRequest) (*promptstore.PromptTemplateSection, error) {
+func (s *promptService) WriteSection(ctx context.Context, cwd string, req PromptSectionWriteRequest) (*contract.PromptTemplateSection, error) {
 	if s.store == nil {
 		return nil, errPromptStoreRequired
 	}
@@ -300,7 +302,7 @@ func (s *promptService) DeleteSection(ctx context.Context, cwd, promptKey, secti
 	if err := rejectBuiltinPromptMutation(s.builtin, pKey); err != nil {
 		return err
 	}
-	err = s.store.WithTx(ctx, func(txStore promptstore.Store) error {
+	err = s.store.WithTx(ctx, func(txStore contract.PromptStore) error {
 		template, gerr := txStore.Get(ctx, pKey)
 		if gerr != nil {
 			return gerr
@@ -333,7 +335,7 @@ func (s *promptService) DeletePrompt(ctx context.Context, cwd, key string, scope
 	if err := rejectBuiltinPromptMutation(s.builtin, promptKey); err != nil {
 		return err
 	}
-	err = s.store.WithTx(ctx, func(txStore promptstore.Store) error {
+	err = s.store.WithTx(ctx, func(txStore contract.PromptStore) error {
 		current, err := txStore.Get(ctx, promptKey)
 		if err != nil {
 			return err
@@ -384,10 +386,10 @@ func mustRegisterDynamicProvider(svc *service, provider DynamicSectionProvider) 
 }
 
 func filterVisiblePrompts(
-	templates []promptstore.PromptTemplate,
+	templates []contract.PromptTemplate,
 	cwd string,
-) []promptstore.PromptTemplate {
-	items := make([]promptstore.PromptTemplate, 0, len(templates))
+) []contract.PromptTemplate {
+	items := make([]contract.PromptTemplate, 0, len(templates))
 	for _, template := range templates {
 		if promptVisibleForRead(template, cwd) {
 			items = append(items, template)
@@ -396,18 +398,18 @@ func filterVisiblePrompts(
 	return items
 }
 
-func promptVisibleForRead(template promptstore.PromptTemplate, cwd string) bool {
+func promptVisibleForRead(template contract.PromptTemplate, cwd string) bool {
 	return promptVisibleForCWD(template, cwd)
 }
 
 // upsertPrompt 处理upsertprompt。
 func upsertPrompt(
 	ctx context.Context,
-	store promptstore.Store,
+	store contract.PromptStore,
 	builtin contract.BuiltinPromptRegistry,
 	cwd string,
 	p PromptWriteRequest,
-) (*promptstore.PromptTemplate, error) {
+) (*contract.PromptTemplate, error) {
 	if err := validatePromptWrite(p); err != nil {
 		return nil, err
 	}
@@ -440,9 +442,9 @@ func upsertPrompt(
 
 func lookupPromptForMutation(
 	ctx context.Context,
-	store promptstore.Store,
+	store contract.PromptStore,
 	id string,
-) (*promptstore.PromptTemplate, error) {
+) (*contract.PromptTemplate, error) {
 	key := strings.TrimSpace(id)
 	if key == "" {
 		return nil, nil
@@ -452,10 +454,10 @@ func lookupPromptForMutation(
 
 func resolvePromptKey(
 	ctx context.Context,
-	store promptstore.Store,
+	store contract.PromptStore,
 	builtin contract.BuiltinPromptRegistry,
 	p PromptWriteRequest,
-	current *promptstore.PromptTemplate,
+	current *contract.PromptTemplate,
 ) (string, error) {
 	if current != nil {
 		return current.PromptKey, nil
@@ -498,15 +500,15 @@ func builtinPromptExists(builtin contract.BuiltinPromptRegistry, promptKey strin
 func buildPromptTemplate(
 	p PromptWriteRequest,
 	cwd, key string,
-	current *promptstore.PromptTemplate,
-) promptstore.PromptTemplate {
+	current *contract.PromptTemplate,
+) contract.PromptTemplate {
 	baseTags := clientTagsOrDefault(p.Tags, nil)
 	scope := promptScopeForWrite(current, cwd, p.Scope, p.ScopeSet)
 	whenToUse := ""
 	if p.WhenToUseSet {
 		whenToUse = strings.TrimSpace(p.WhenToUse)
 	}
-	template := promptstore.PromptTemplate{
+	template := contract.PromptTemplate{
 		PromptKey:      key,
 		Title:          strings.TrimSpace(p.Name),
 		AgentKey:       promptAgentType(p.AgentType),
@@ -543,7 +545,7 @@ func buildPromptTemplate(
 	return template
 }
 
-func promptEnabledForWrite(p PromptWriteRequest, current *promptstore.PromptTemplate) bool {
+func promptEnabledForWrite(p PromptWriteRequest, current *contract.PromptTemplate) bool {
 	if p.Enabled != nil {
 		return *p.Enabled
 	}
@@ -553,7 +555,7 @@ func promptEnabledForWrite(p PromptWriteRequest, current *promptstore.PromptTemp
 	return true
 }
 
-func promptTextForWrite(p PromptWriteRequest, current *promptstore.PromptTemplate) string {
+func promptTextForWrite(p PromptWriteRequest, current *contract.PromptTemplate) string {
 	if current != nil && !p.ContentSet && p.Content == "" {
 		return current.PromptText
 	}
@@ -584,8 +586,8 @@ func sanitizeTemplateMatchWhen(raw json.RawMessage) json.RawMessage {
 	return json.RawMessage(encoded)
 }
 
-func archivePrompt(ctx context.Context, store promptstore.Store, current promptstore.PromptTemplate) error {
-	_, err := store.InsertVersion(ctx, promptstore.PromptTemplateVersion{
+func archivePrompt(ctx context.Context, store contract.PromptStore, current contract.PromptTemplate) error {
+	_, err := store.InsertVersion(ctx, contract.PromptTemplateVersion{
 		PromptKey:       current.PromptKey,
 		Title:           current.Title,
 		AgentKey:        current.AgentKey,

@@ -1,8 +1,8 @@
 -- DAG v2 A+ 修复 (B-0074 剩余): task_dag_runs.trigger_source 加 CHECK 枚举。
 --
 -- 背景：0074 仅声明 trigger_source TEXT NOT NULL DEFAULT ''，无枚举约束。
--- ADR 0001 §2.10 baseline、cmd/mcp-orch/store/taskdag/contract.go 与 MCP
--- 工具 schema (cmd/mcp-orch/tools/task_tools.go startDAGTriggerEnum) 规定：
+-- ADR 0001 §2.10 baseline、internal/sidecar/orch/store/taskdag/contract.go 与 MCP
+-- 工具 schema (internal/sidecar/orch/tools/task_tools.go startDAGTriggerEnum) 规定：
 --   manual | auto | scheduled | external
 -- 但 DB 没有 CHECK，任何 UPDATE 写入未知字符串都会通过；F5 cron daemon /
 -- dispatcher 读到非枚举值会落 default 分支或抛 unmarshal 错。

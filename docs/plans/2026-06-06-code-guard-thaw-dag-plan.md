@@ -27,7 +27,7 @@
   - `naked_returns > 0`：2 个文件。
   - `lines > 600`：1 个文件。
 - 冻结集中目录：
-  - `cmd/mcp-orch/orchestration`：9 个文件。
+  - `internal/sidecar/orch/orchestration`：9 个文件。
   - `internal/module/skill`：7 个文件。
   - `internal/provider/claudecli`：7 个文件。
   - `internal/provider/codexapp`：6 个文件。
@@ -120,12 +120,12 @@ N0-preflight-inventory
 
 | 批次 | 范围 | 文件数 | 说明 |
 | --- | --- | ---: | --- |
-| B1 | `cmd/mcp-orch/orchestration/**` | 12 | 编排核心，高风险，串行修；含 `nodeevents` / `nodeexec` / `processctl` 子目录冻结文件 |
+| B1 | `internal/sidecar/orch/orchestration/**` | 12 | 编排核心，高风险，串行修；含 `nodeevents` / `nodeexec` / `processctl` 子目录冻结文件 |
 | B2 | `internal/provider/claudecli/**` + `internal/provider/codexapp/**` | 13 | provider 生命周期/进程/会话，需强测试 |
 | B3 | `internal/module/skill/**` + `internal/module/prompt/**` | 12 | 业务模块，需契约和回归测试 |
 | B4 | `internal/module/thread/**` + `internal/module/memory/**` | 7 | 状态/记忆/线程，修复前先补测试 |
 | B5 | `internal/platform/**` | 15 | 平台边界，重点全局状态、panic、init |
-| B6 | `cmd/mcp-lsp/**` + `cmd/mcp-orch/tools/**` + 其他 cmd | 18 | 工具入口和 schema，注意 wire 兼容 |
+| B6 | `cmd/mcp-lsp/**` + `internal/sidecar/orch/tools/**` + 其他 cmd | 18 | 工具入口和 schema，注意 wire 兼容 |
 | B7 | `internal/app/**` + `internal/ui/wails/**` | 9 | Fx/Wails wiring，重点启动顺序和平台差异 |
 | B8 | 其余低聚合文件 | 18 | 小批滚动，避免大改 |
 

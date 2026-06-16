@@ -10,9 +10,8 @@ import (
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -177,7 +176,7 @@ func (s *session) recordProviderSessionUUID(sessionUUID string) {
 	if s == nil || s.recovery == nil {
 		return
 	}
-	reportCtx, cancel := ctxutil.WithSessionCloseTimeout(context.Background())
+	reportCtx, cancel := kernel.WithSessionCloseTimeout(context.Background())
 	defer cancel()
 	if err := s.recovery.RecordProviderSessionUUID(reportCtx, s.agentID, sessionUUID); err != nil && s.logger != nil {
 		s.logger.Warn("claudecli: record provider session uuid failed", "agent_id", s.agentID, "session_uuid", sessionUUID, "error", err)
@@ -372,14 +371,14 @@ func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 			data["stop_reason"] = sr
 		}
 	} else {
-		errStr := strings.TrimSpace(shared.FirstNonEmpty(raw.Result, raw.StopReason))
+		errStr := strings.TrimSpace(kernel.FirstNonEmpty(raw.Result, raw.StopReason))
 		var objReq struct {
 			Message string `json:"message"`
 		}
 		var plainStr string
 		_ = json.Unmarshal(raw.Error, &objReq)
 		_ = json.Unmarshal(raw.Error, &plainStr)
-		errStr = strings.TrimSpace(shared.FirstNonEmpty(errStr, objReq.Message, plainStr, joinErrorsArray(raw.Errors)))
+		errStr = strings.TrimSpace(kernel.FirstNonEmpty(errStr, objReq.Message, plainStr, joinErrorsArray(raw.Errors)))
 		if errStr == "" {
 			errStr = errorMessageFromTerminalReason(terminalReason)
 			pkglogger.Get().Warn("claudecli: stream error result missing message", "agent_id", base.AgentID, "terminal_reason", terminalReason, "raw_error", string(raw.Error), "raw_message", string(raw.Message), "raw_errors", raw.Errors)

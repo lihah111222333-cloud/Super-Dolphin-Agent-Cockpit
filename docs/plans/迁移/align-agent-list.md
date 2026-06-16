@@ -13,11 +13,11 @@
   - `go-agent-v2/internal/runner/manager_lifecycle.go`
   - `go-agent-v2/internal/runner/manager_event.go`
 - V3：
-  - `cmd/mcp-orch/orchestration/rpc.go`
-  - `cmd/mcp-orch/orchestration/contract.go`
-  - `cmd/mcp-orch/orchestration/service.go`
-  - `cmd/mcp-orch/orchestration/helpers.go`
-  - `cmd/mcp-orch/orchestration/report.go`
+  - `internal/sidecar/orch/orchestration/rpc.go`
+  - `internal/sidecar/orch/orchestration/contract.go`
+  - `internal/sidecar/orch/orchestration/service.go`
+  - `internal/sidecar/orch/orchestration/helpers.go`
+  - `internal/sidecar/orch/orchestration/report.go`
   - `internal/module/thread/lifecycle.go`
   - `internal/dto/agent/state.go`
 
@@ -43,9 +43,9 @@ V2 依据：
 
 V3 依据：
 
-- `cmd/mcp-orch/orchestration/rpc.go:15-76` 注册了 `agent.list`
-- `cmd/mcp-orch/orchestration/service.go:189-207` `ListAgents()` 返回 `[]AgentSnapshot`，并按 `ID -> Name -> Port` 做 `sort.SliceStable`
-- `cmd/mcp-orch/orchestration/contract.go:49-59` `AgentSnapshot` 使用 snake_case json tag
+- `internal/sidecar/orch/orchestration/rpc.go:15-76` 注册了 `agent.list`
+- `internal/sidecar/orch/orchestration/service.go:189-207` `ListAgents()` 返回 `[]AgentSnapshot`，并按 `ID -> Name -> Port` 做 `sort.SliceStable`
+- `internal/sidecar/orch/orchestration/contract.go:49-59` `AgentSnapshot` 使用 snake_case json tag
 
 对比：
 
@@ -57,7 +57,7 @@ V3 依据：
   - `last_report`：两边都是内存里的最近结构化报告字段
   - `port/provider`：
     - V2 来自 runtime：`proc.Client.GetPort()` 和 `proc.Provider`
-    - V3 来自 launch 请求推断：`launchPort(req)` / `launchProvider(req)`，见 `cmd/mcp-orch/orchestration/helpers.go:34-50,233-253`
+    - V3 来自 launch 请求推断：`launchPort(req)` / `launchProvider(req)`，见 `internal/sidecar/orch/orchestration/helpers.go:34-50,233-253`
     - `internal/module/thread/lifecycle.go:326-337` 的默认 `buildLaunchRequest()` 只传 `Command: []string{exe}`，不传 `Env`，所以 thread 生命周期走默认启动路径时，V3 的 `port/provider` 很容易落成 `0` / `""`
 - 排序稳定性：
   - 两边一致，都是稳定排序，比较键一致
@@ -80,9 +80,9 @@ V2 依据：
 
 V3 依据：
 
-- `cmd/mcp-orch/orchestration/rpc.go:46-48` 注册了 `agent.snapshot`
-- `cmd/mcp-orch/orchestration/service.go:209-232` `Snapshot(ctx, agentID)` 返回单 agent `AgentSnapshot`
-- `cmd/mcp-orch/orchestration/contract.go:49-59` `AgentSnapshot` 是 snake_case DTO
+- `internal/sidecar/orch/orchestration/rpc.go:46-48` 注册了 `agent.snapshot`
+- `internal/sidecar/orch/orchestration/service.go:209-232` `Snapshot(ctx, agentID)` 返回单 agent `AgentSnapshot`
+- `internal/sidecar/orch/orchestration/contract.go:49-59` `AgentSnapshot` 是 snake_case DTO
 
 对比：
 
@@ -113,9 +113,9 @@ V2 依据：
 
 V3 依据：
 
-- `cmd/mcp-orch/orchestration/rpc.go:49-51` 注册并返回 `svc.GetState(...)`
-- `cmd/mcp-orch/orchestration/contract.go:61-64` `AgentStateResult` 使用 snake_case tag
-- `cmd/mcp-orch/orchestration/report.go:51-60` `GetState()` 直接返回 `{agent_id,state}`；缺失 agent 时返回错误
+- `internal/sidecar/orch/orchestration/rpc.go:49-51` 注册并返回 `svc.GetState(...)`
+- `internal/sidecar/orch/orchestration/contract.go:61-64` `AgentStateResult` 使用 snake_case tag
+- `internal/sidecar/orch/orchestration/report.go:51-60` `GetState()` 直接返回 `{agent_id,state}`；缺失 agent 时返回错误
 
 对比：
 
@@ -147,9 +147,9 @@ V2 依据：
 
 V3 依据：
 
-- `cmd/mcp-orch/orchestration/rpc.go:52-54` 注册并返回 `svc.GetReport(...)`
-- `cmd/mcp-orch/orchestration/contract.go:70-75` `AgentReportResult` 使用 snake_case tag，新增可选 `metadata`
-- `cmd/mcp-orch/orchestration/report.go:62-71,140-151` `GetReport()` 只返回 `lastReport`，不回退别的文本
+- `internal/sidecar/orch/orchestration/rpc.go:52-54` 注册并返回 `svc.GetReport(...)`
+- `internal/sidecar/orch/orchestration/contract.go:70-75` `AgentReportResult` 使用 snake_case tag，新增可选 `metadata`
+- `internal/sidecar/orch/orchestration/report.go:62-71,140-151` `GetReport()` 只返回 `lastReport`，不回退别的文本
 
 对比：
 

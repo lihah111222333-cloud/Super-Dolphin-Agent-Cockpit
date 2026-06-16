@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 const (
@@ -21,12 +19,14 @@ const (
 	runtimeCatalogStoreLimitPad = int32(64)
 )
 
-type RuntimeListFilter = promptstore.RuntimeListFilter
+// RuntimeListFilter filters runtime prompt catalog reads.
+type RuntimeListFilter = contract.PromptRuntimeListFilter
 
-type RuntimePromptCatalog = promptstore.RuntimePromptCatalog
+// RuntimePromptCatalog is the thread-facing prompt catalog port.
+type RuntimePromptCatalog = contract.RuntimePromptCatalog
 
 // NewRuntimeCatalog 创建运行时catalog。
-func NewRuntimeCatalog(store promptstore.Store, builtin contract.BuiltinPromptRegistry) promptstore.RuntimePromptCatalog {
+func NewRuntimeCatalog(store contract.PromptStore, builtin contract.BuiltinPromptRegistry) contract.RuntimePromptCatalog {
 	if store == nil && builtin == nil {
 		return nil
 	}
@@ -34,12 +34,12 @@ func NewRuntimeCatalog(store promptstore.Store, builtin contract.BuiltinPromptRe
 }
 
 type runtimePromptCatalog struct {
-	store   promptstore.Store
+	store   contract.PromptStore
 	builtin contract.BuiltinPromptRegistry
 }
 
 // ListTemplates 列出templates。
-func (c *runtimePromptCatalog) ListTemplates(ctx context.Context, filter RuntimeListFilter) ([]promptstore.PromptTemplate, error) {
+func (c *runtimePromptCatalog) ListTemplates(ctx context.Context, filter RuntimeListFilter) ([]contract.PromptTemplate, error) {
 	out, builtinKeys := c.listBuiltinTemplates(filter)
 	storeTemplates, err := c.listStoreTemplates(ctx, filter, builtinKeys)
 	if err != nil {
@@ -51,7 +51,7 @@ func (c *runtimePromptCatalog) ListTemplates(ctx context.Context, filter Runtime
 }
 
 // GetTemplate 读取template。
-func (c *runtimePromptCatalog) GetTemplate(ctx context.Context, promptKey, cwd string) (*promptstore.PromptTemplate, error) {
+func (c *runtimePromptCatalog) GetTemplate(ctx context.Context, promptKey, cwd string) (*contract.PromptTemplate, error) {
 	promptKey = strings.TrimSpace(promptKey)
 	cwd = strings.TrimSpace(cwd)
 	builtin := c.builtinTemplateForKey(promptKey, cwd)
@@ -61,20 +61,20 @@ func (c *runtimePromptCatalog) GetTemplate(ctx context.Context, promptKey, cwd s
 	}
 	picked := runtimePickTemplateForGet(dbTemplate, builtin)
 	if picked == nil {
-		return nil, fmt.Errorf("runtime prompt catalog: template %q not found: %w", promptKey, platformdb.ErrNotFound)
+		return nil, fmt.Errorf("runtime prompt catalog: template %q not found: %w", promptKey, contract.ErrNotFound)
 	}
 	return cloneRuntimeTemplate(picked), nil
 }
 
 // ListSectionsByTemplateID 按templateID列出sections。
-func (c *runtimePromptCatalog) ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]promptstore.PromptTemplateSection, error) {
+func (c *runtimePromptCatalog) ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]contract.PromptTemplateSection, error) {
 	if templateID < 0 {
 		if c.builtin == nil {
 			return nil, fmt.Errorf("runtime prompt catalog: builtin prompt registry is required for template_id %d", templateID)
 		}
 		template, ok := c.builtinTemplateByID(templateID)
 		if !ok {
-			return []promptstore.PromptTemplateSection{}, nil
+			return []contract.PromptTemplateSection{}, nil
 		}
 		return c.builtinSectionsForTemplate(template, false), nil
 	}
@@ -85,9 +85,9 @@ func (c *runtimePromptCatalog) ListSectionsByTemplateID(ctx context.Context, tem
 }
 
 // ListRecallSections 列出recallsections。
-func (c *runtimePromptCatalog) ListRecallSections(ctx context.Context, cwd string) ([]promptstore.PromptTemplateSection, error) {
+func (c *runtimePromptCatalog) ListRecallSections(ctx context.Context, cwd string) ([]contract.PromptTemplateSection, error) {
 	cwd = strings.TrimSpace(cwd)
-	var out []promptstore.PromptTemplateSection
+	var out []contract.PromptTemplateSection
 	if c.builtin != nil {
 		for _, template := range c.builtin.ListTemplates() {
 			mapped := runtimeBuiltinTemplateToStore(template)
@@ -112,7 +112,7 @@ func (c *runtimePromptCatalog) ListRecallSections(ctx context.Context, cwd strin
 }
 
 // ListDefaultRuleSections 列出defaultrulesections。
-func (c *runtimePromptCatalog) ListDefaultRuleSections(ctx context.Context, cwd string) ([]promptstore.PromptTemplateSection, error) {
+func (c *runtimePromptCatalog) ListDefaultRuleSections(ctx context.Context, cwd string) ([]contract.PromptTemplateSection, error) {
 	cwd = strings.TrimSpace(cwd)
 	out := c.builtinDefaultRuleSections(cwd)
 	sections, err := c.storeDefaultRuleSections(ctx, cwd)
@@ -124,7 +124,7 @@ func (c *runtimePromptCatalog) ListDefaultRuleSections(ctx context.Context, cwd 
 }
 
 // InsertVersion 插入版本。
-func (c *runtimePromptCatalog) InsertVersion(ctx context.Context, version promptstore.PromptTemplateVersion) (int64, error) {
+func (c *runtimePromptCatalog) InsertVersion(ctx context.Context, version contract.PromptTemplateVersion) (int64, error) {
 	if c.store == nil {
 		return 0, fmt.Errorf("runtime prompt catalog: prompt store is required for insert_version")
 	}
@@ -136,12 +136,12 @@ func (c *runtimePromptCatalog) CanInsertPromptVersion() bool {
 	return c != nil && c.store != nil
 }
 
-func (c *runtimePromptCatalog) listBuiltinTemplates(filter RuntimeListFilter) ([]promptstore.PromptTemplate, map[string]struct{}) {
+func (c *runtimePromptCatalog) listBuiltinTemplates(filter RuntimeListFilter) ([]contract.PromptTemplate, map[string]struct{}) {
 	keys := map[string]struct{}{}
 	if c.builtin == nil {
 		return nil, keys
 	}
-	out := make([]promptstore.PromptTemplate, 0, len(c.builtin.ListTemplates()))
+	out := make([]contract.PromptTemplate, 0, len(c.builtin.ListTemplates()))
 	for _, template := range c.builtin.ListTemplates() {
 		mapped := runtimeBuiltinTemplateToStore(template)
 		if key := strings.TrimSpace(mapped.PromptKey); key != "" {
@@ -160,14 +160,14 @@ func (c *runtimePromptCatalog) listStoreTemplates(
 	ctx context.Context,
 	filter RuntimeListFilter,
 	builtinKeys map[string]struct{},
-) ([]promptstore.PromptTemplate, error) {
+) ([]contract.PromptTemplate, error) {
 	if c.store == nil {
 		return nil, nil
 	}
 	if strings.TrimSpace(filter.CWD) == "" {
 		return nil, nil
 	}
-	templates, err := c.store.List(ctx, promptstore.ListFilter{
+	templates, err := c.store.List(ctx, contract.PromptListFilter{
 		AgentKey: strings.TrimSpace(filter.AgentKey),
 		Keyword:  c.storeListKeyword(filter),
 		CWD:      strings.TrimSpace(filter.CWD),
@@ -176,7 +176,7 @@ func (c *runtimePromptCatalog) listStoreTemplates(
 	if err != nil {
 		return nil, err
 	}
-	out := make([]promptstore.PromptTemplate, 0, len(templates))
+	out := make([]contract.PromptTemplate, 0, len(templates))
 	for _, template := range templates {
 		if runtimeStoreTemplateHiddenByBuiltin(template, builtinKeys) {
 			continue
@@ -224,7 +224,7 @@ func runtimeCatalogStoreLimitWithBuiltin(limit int32, builtinCount int) int32 {
 	return int32(storeLimit)
 }
 
-func (c *runtimePromptCatalog) builtinTemplateForKey(promptKey, cwd string) *promptstore.PromptTemplate {
+func (c *runtimePromptCatalog) builtinTemplateForKey(promptKey, cwd string) *contract.PromptTemplate {
 	if c.builtin == nil {
 		return nil
 	}
@@ -240,7 +240,7 @@ func (c *runtimePromptCatalog) builtinTemplateForKey(promptKey, cwd string) *pro
 }
 
 // storeTemplateForKey 为键保存template。
-func (c *runtimePromptCatalog) storeTemplateForKey(ctx context.Context, promptKey, cwd string) (*promptstore.PromptTemplate, bool, error) {
+func (c *runtimePromptCatalog) storeTemplateForKey(ctx context.Context, promptKey, cwd string) (*contract.PromptTemplate, bool, error) {
 	if c.store == nil {
 		return nil, false, nil
 	}
@@ -249,7 +249,7 @@ func (c *runtimePromptCatalog) storeTemplateForKey(ctx context.Context, promptKe
 	}
 	template, err := c.store.Get(ctx, promptKey)
 	if err != nil {
-		if platformdb.IsNotFound(err) {
+		if contract.IsNotFound(err) {
 			return missingStoreTemplate()
 		}
 		return nil, false, err
@@ -265,15 +265,15 @@ func (c *runtimePromptCatalog) storeTemplateForKey(ctx context.Context, promptKe
 	return &copy, true, nil
 }
 
-func missingStoreTemplate() (*promptstore.PromptTemplate, bool, error) {
+func missingStoreTemplate() (*contract.PromptTemplate, bool, error) {
 	return nil, false, nil
 }
 
-func (c *runtimePromptCatalog) builtinDefaultRuleSections(cwd string) []promptstore.PromptTemplateSection {
+func (c *runtimePromptCatalog) builtinDefaultRuleSections(cwd string) []contract.PromptTemplateSection {
 	if c.builtin == nil {
 		return nil
 	}
-	var out []promptstore.PromptTemplateSection
+	var out []contract.PromptTemplateSection
 	for _, template := range c.builtin.ListTemplates() {
 		mapped := runtimeBuiltinTemplateToStore(template)
 		if strings.TrimSpace(mapped.AgentKey) != "default_rule" || !runtimeTemplateVisibleForRead(mapped, cwd) {
@@ -284,7 +284,7 @@ func (c *runtimePromptCatalog) builtinDefaultRuleSections(cwd string) []promptst
 	return out
 }
 
-func (c *runtimePromptCatalog) storeDefaultRuleSections(ctx context.Context, cwd string) ([]promptstore.PromptTemplateSection, error) {
+func (c *runtimePromptCatalog) storeDefaultRuleSections(ctx context.Context, cwd string) ([]contract.PromptTemplateSection, error) {
 	if c.store == nil {
 		return nil, nil
 	}
@@ -304,16 +304,16 @@ func (c *runtimePromptCatalog) builtinTemplateByID(templateID int64) (contract.B
 func (c *runtimePromptCatalog) builtinSectionsForTemplate(
 	template contract.BuiltinPromptTemplate,
 	recallDefaultsGlobal bool,
-) []promptstore.PromptTemplateSection {
+) []contract.PromptTemplateSection {
 	mappedTemplate := runtimeBuiltinTemplateToStore(template)
 	templateTags := mappedTemplate.Tags
 	if recallDefaultsGlobal {
 		templateTags = runtimeEnsureGlobalScopeWhenUnscoped(templateTags)
 	}
 	sections := c.builtin.SectionsByTemplateID(template.ID)
-	out := make([]promptstore.PromptTemplateSection, 0, len(sections))
+	out := make([]contract.PromptTemplateSection, 0, len(sections))
 	for _, section := range sections {
-		out = append(out, promptstore.PromptTemplateSection{
+		out = append(out, contract.PromptTemplateSection{
 			ID:                  runtimeBuiltinTemplateID(section.ID),
 			TemplateID:          runtimeBuiltinTemplateID(section.TemplateID),
 			SectionKey:          section.SectionKey,
@@ -343,8 +343,8 @@ func (c *runtimePromptCatalog) builtinSectionsForTemplate(
 	return out
 }
 
-func runtimeBuiltinTemplateToStore(template contract.BuiltinPromptTemplate) promptstore.PromptTemplate {
-	return promptstore.PromptTemplate{
+func runtimeBuiltinTemplateToStore(template contract.BuiltinPromptTemplate) contract.PromptTemplate {
+	return contract.PromptTemplate{
 		ID:          runtimeBuiltinTemplateID(template.ID),
 		PromptKey:   template.PromptKey,
 		Title:       template.Title,
@@ -418,7 +418,7 @@ func runtimeEncodeTags(tags []string) json.RawMessage {
 }
 
 func runtimeEnsureGlobalScopeWhenUnscoped(raw json.RawMessage) json.RawMessage {
-	tags := promptstore.TemplateTags(raw)
+	tags := contract.PromptTemplateTags(raw)
 	hasScope := false
 	for _, tag := range tags {
 		tag = strings.TrimSpace(tag)
@@ -434,7 +434,7 @@ func runtimeEnsureGlobalScopeWhenUnscoped(raw json.RawMessage) json.RawMessage {
 }
 
 // runtimeTemplateMatchesFilter 处理运行时templatematches过滤条件。
-func runtimeTemplateMatchesFilter(template promptstore.PromptTemplate, filter RuntimeListFilter) bool {
+func runtimeTemplateMatchesFilter(template contract.PromptTemplate, filter RuntimeListFilter) bool {
 	if !runtimeTemplateVisibleForRead(template, filter.CWD) {
 		return false
 	}
@@ -452,23 +452,23 @@ func runtimeTemplateMatchesFilter(template promptstore.PromptTemplate, filter Ru
 		strings.Contains(strings.ToLower(template.WhenToUse), keyword)
 }
 
-func runtimeStoreTemplateHiddenByBuiltin(template promptstore.PromptTemplate, builtinKeys map[string]struct{}) bool {
+func runtimeStoreTemplateHiddenByBuiltin(template contract.PromptTemplate, builtinKeys map[string]struct{}) bool {
 	_, hasBuiltin := builtinKeys[strings.TrimSpace(template.PromptKey)]
 	return hasBuiltin
 }
 
 func runtimePickTemplateForGet(
-	dbTemplate *promptstore.PromptTemplate,
-	builtin *promptstore.PromptTemplate,
-) *promptstore.PromptTemplate {
+	dbTemplate *contract.PromptTemplate,
+	builtin *contract.PromptTemplate,
+) *contract.PromptTemplate {
 	if builtin != nil {
 		return builtin
 	}
 	return dbTemplate
 }
 
-func runtimeDefaultRuleSections(sections []promptstore.PromptTemplateSection) []promptstore.PromptTemplateSection {
-	out := make([]promptstore.PromptTemplateSection, 0, len(sections))
+func runtimeDefaultRuleSections(sections []contract.PromptTemplateSection) []contract.PromptTemplateSection {
+	out := make([]contract.PromptTemplateSection, 0, len(sections))
 	for _, section := range sections {
 		if section.TriggerType == "always" && section.Enabled && strings.TrimSpace(section.Body) != "" {
 			out = append(out, section)
@@ -478,12 +478,12 @@ func runtimeDefaultRuleSections(sections []promptstore.PromptTemplateSection) []
 }
 
 // runtimeTemplateVisibleForRead 为read处理运行时templatevisible。
-func runtimeTemplateVisibleForRead(template promptstore.PromptTemplate, cwd string) bool {
+func runtimeTemplateVisibleForRead(template contract.PromptTemplate, cwd string) bool {
 	if !template.Enabled {
 		return false
 	}
 	cwd = strings.TrimSpace(cwd)
-	tags := promptstore.TemplateTags(template.Tags)
+	tags := contract.PromptTemplateTags(template.Tags)
 	hasCWDTag := false
 	for _, tag := range tags {
 		tag = strings.TrimSpace(tag)
@@ -500,7 +500,7 @@ func runtimeTemplateVisibleForRead(template promptstore.PromptTemplate, cwd stri
 	return !hasCWDTag
 }
 
-func sortRuntimeTemplates(templates []promptstore.PromptTemplate) {
+func sortRuntimeTemplates(templates []contract.PromptTemplate) {
 	sort.SliceStable(templates, func(i, j int) bool {
 		left := templates[i]
 		right := templates[j]
@@ -515,12 +515,12 @@ func sortRuntimeTemplates(templates []promptstore.PromptTemplate) {
 }
 
 // limitRuntimeTemplates 处理limit运行时templates。
-func limitRuntimeTemplates(templates []promptstore.PromptTemplate, limit int32) []promptstore.PromptTemplate {
+func limitRuntimeTemplates(templates []contract.PromptTemplate, limit int32) []contract.PromptTemplate {
 	if limit <= 0 || int(limit) >= len(templates) {
 		return templates
 	}
-	protected := make([]promptstore.PromptTemplate, 0, len(templates))
-	others := make([]promptstore.PromptTemplate, 0, len(templates))
+	protected := make([]contract.PromptTemplate, 0, len(templates))
+	others := make([]contract.PromptTemplate, 0, len(templates))
 	for _, template := range templates {
 		if runtimeTemplateIsBuiltin(template) {
 			protected = append(protected, template)
@@ -531,7 +531,7 @@ func limitRuntimeTemplates(templates []promptstore.PromptTemplate, limit int32) 
 	if len(protected) >= int(limit) {
 		return protected[:limit]
 	}
-	out := make([]promptstore.PromptTemplate, 0, int(limit))
+	out := make([]contract.PromptTemplate, 0, int(limit))
 	out = append(out, protected...)
 	remaining := int(limit) - len(out)
 	if remaining > len(others) {
@@ -540,12 +540,12 @@ func limitRuntimeTemplates(templates []promptstore.PromptTemplate, limit int32) 
 	return append(out, others[:remaining]...)
 }
 
-func runtimeTemplateIsBuiltin(template promptstore.PromptTemplate) bool {
+func runtimeTemplateIsBuiltin(template contract.PromptTemplate) bool {
 	return strings.TrimSpace(template.CreatedBy) == runtimeBuiltinAuthor &&
 		strings.TrimSpace(template.UpdatedBy) == runtimeBuiltinAuthor
 }
 
-func cloneRuntimeTemplate(template *promptstore.PromptTemplate) *promptstore.PromptTemplate {
+func cloneRuntimeTemplate(template *contract.PromptTemplate) *contract.PromptTemplate {
 	if template == nil {
 		return nil
 	}

@@ -11,7 +11,7 @@
 - `native-skill` 与 `signed-skill` / trust / review contract 不再混成一个 `claudecli` 子域标签：前者归 provider 行为契约，后者归 `module/skill` / verifier / approval trust lane
 - `thread/turn` 的 consumer-local side-channel contract
 - `platform/toolbridge -> provider/* / store/*` 的平台层依赖越界
-- `cmd/mcp-orch/orchestration` 里的 `Module` / `handler.Map` / consumer-local 扩展接口
+- `internal/sidecar/orch/orchestration` 里的 `Module` / `handler.Map` / consumer-local 扩展接口
 - `MCP-LSP/bootstrap` 的 compatibility / hidden contract
 
 ## 现状校准
@@ -52,16 +52,16 @@
 
 这不是单纯 owner 问题，而是平台层本身已经吸入了 provider/store 语义。
 
-### `cmd/mcp-orch/orchestration`
+### `internal/sidecar/orch/orchestration`
 
-- [cmd/mcp-orch/orchestration/service.go](/Users/mima0000/Desktop/wj/super-agent-v3/cmd/mcp-orch/orchestration/service.go) 仍导出 `orchestration.Module`
-- [cmd/mcp-orch/orchestration/rpc.go](/Users/mima0000/Desktop/wj/super-agent-v3/cmd/mcp-orch/orchestration/rpc.go) 仍以 `handler.Map` 暴露协议壳
-- [cmd/mcp-orch/orchestration/hook_consumer.go](/Users/mima0000/Desktop/wj/super-agent-v3/cmd/mcp-orch/orchestration/hook_consumer.go) 仍直接导出 bootstrap/hook 协议入口
-- [cmd/mcp-orch/orchestration/helpers.go](/Users/mima0000/Desktop/wj/super-agent-v3/cmd/mcp-orch/orchestration/helpers.go) 仍通过 `sessionReadyWaiter` 这类消费者本地扩展接口读取附加能力
-- [cmd/mcp-orch/orchestration/process_lifecycle.go](/Users/mima0000/Desktop/wj/super-agent-v3/cmd/mcp-orch/orchestration/process_lifecycle.go) 还依赖 `generationAwareSessionCleaner` 这种未入 `internal/contract` 的本地私扩接口
-- [cmd/mcp-orch/orchestration/launcher.go](/Users/mima0000/Desktop/wj/super-agent-v3/cmd/mcp-orch/orchestration/launcher.go) 仍以 `*agentRuntime` 作为共享可变 carrier，并在子包里硬编码 outbound RPC 方法名 / 请求参数 / 响应 alias 兼容
-- [cmd/mcp-orch/orchestration/factory.go](/Users/mima0000/Desktop/wj/super-agent-v3/cmd/mcp-orch/orchestration/factory.go) 的 `lookupAgentByIDLocked(...)` 仍把本地 `agentID`、`remoteAgentID`、`remoteThreadID` 静默视为等价 lookup key，却不校验 `SessionID/launchSeq`
-- [cmd/mcp-orch/orchestration/rpc.go](/Users/mima0000/Desktop/wj/super-agent-v3/cmd/mcp-orch/orchestration/rpc.go) / [report.go](/Users/mima0000/Desktop/wj/super-agent-v3/cmd/mcp-orch/orchestration/report.go) 仍保留 `agent.reportEvent` / `agent.rememberReportRequest` 这组 stringly hidden protocol shell
+- [internal/sidecar/orch/orchestration/service.go](/Users/mima0000/Desktop/wj/super-agent-v3/internal/sidecar/orch/orchestration/service.go) 仍导出 `orchestration.Module`
+- [internal/sidecar/orch/orchestration/rpc.go](/Users/mima0000/Desktop/wj/super-agent-v3/internal/sidecar/orch/orchestration/rpc.go) 仍以 `handler.Map` 暴露协议壳
+- [internal/sidecar/orch/orchestration/hook_consumer.go](/Users/mima0000/Desktop/wj/super-agent-v3/internal/sidecar/orch/orchestration/hook_consumer.go) 仍直接导出 bootstrap/hook 协议入口
+- [internal/sidecar/orch/orchestration/helpers.go](/Users/mima0000/Desktop/wj/super-agent-v3/internal/sidecar/orch/orchestration/helpers.go) 仍通过 `sessionReadyWaiter` 这类消费者本地扩展接口读取附加能力
+- [internal/sidecar/orch/orchestration/process_lifecycle.go](/Users/mima0000/Desktop/wj/super-agent-v3/internal/sidecar/orch/orchestration/process_lifecycle.go) 还依赖 `generationAwareSessionCleaner` 这种未入 `internal/contract` 的本地私扩接口
+- [internal/sidecar/orch/orchestration/launcher.go](/Users/mima0000/Desktop/wj/super-agent-v3/internal/sidecar/orch/orchestration/launcher.go) 仍以 `*agentRuntime` 作为共享可变 carrier，并在子包里硬编码 outbound RPC 方法名 / 请求参数 / 响应 alias 兼容
+- [internal/sidecar/orch/orchestration/factory.go](/Users/mima0000/Desktop/wj/super-agent-v3/internal/sidecar/orch/orchestration/factory.go) 的 `lookupAgentByIDLocked(...)` 仍把本地 `agentID`、`remoteAgentID`、`remoteThreadID` 静默视为等价 lookup key，却不校验 `SessionID/launchSeq`
+- [internal/sidecar/orch/orchestration/rpc.go](/Users/mima0000/Desktop/wj/super-agent-v3/internal/sidecar/orch/orchestration/rpc.go) / [report.go](/Users/mima0000/Desktop/wj/super-agent-v3/internal/sidecar/orch/orchestration/report.go) 仍保留 `agent.reportEvent` / `agent.rememberReportRequest` 这组 stringly hidden protocol shell
 
 这批问题属于 `cmd/mcp-*` 模块化契约与隐藏 contract 违规。
 
@@ -148,7 +148,7 @@
 - `NewActiveAgentCounter` 不按“纯 UI 内部重命名”处理；它属于 `ui/wails ↔ orchestration/app` 的 hidden contract，同步改判时要连同 facade / debt banner / 口径说明一起收口。
 - `thread/turn` 虽属 `P4` 的 hidden contract，但与 `P2` 的 `thread event / resume / task-handoff` 切片共享写集与 owner contract；文档澄清可先行，代码合入按 `P2(thread slice) -> P4(thread/turn side-channel)` 串行，且 thread+turn 视为同一 lane，不再拆成两个互不感知的 agent。
 - `toolbridge`、`orchestration`、`gopls/bootstrap` 都只允许先做文档/contract 澄清；代码实现分别要等 `P2(toolbridge runtime)`、`P3(waiter/exit owner)`、`P2(gopls/bootstrap runtime)` 前置完成后串行落地。
-- 守卫优先级以窄规则为主：`ui/wails -> module/*`、`provider/claudecli -> module/{turn,skill,prompt}`、`platform/toolbridge -> provider/* / store/*`、`cmd/mcp-orch/orchestration` 不再导出 `Module/handler.Map` 与本地 side-channel shell，以及 `ui/wails` 不再保留 `NewActiveAgentCounter` 这类 state-negative-enum hidden contract。
+- 守卫优先级以窄规则为主：`ui/wails -> module/*`、`provider/claudecli -> module/{turn,skill,prompt}`、`platform/toolbridge -> provider/* / store/*`、`internal/sidecar/orch/orchestration` 不再导出 `Module/handler.Map` 与本地 side-channel shell，以及 `ui/wails` 不再保留 `NewActiveAgentCounter` 这类 state-negative-enum hidden contract。
 - 不保留“新 facade 已接上，但旧 import / old shell 仍能继续用”的软删除状态。
 - `thread/turn`、`toolbridge`、`orchestration` 这三类共享写集子域，默认先做文档/contract 澄清，再等前置 runtime slice 合入后串行删除旧 shell；不把“文档已说明”误当成“代码已可并行改”。
 - `native-skill` 与 `signed-skill` 分两条 contract lane 处理：前者跟随 `provider/claudecli` 的注入/渲染/Mode=None 语义，后者跟随 `module/skill` / verifier / approval trust 边界；不再用“claudecli 子域”一把兜住两者。
@@ -159,7 +159,7 @@
 | 守卫类 | 本页主承接子域 | 典型对象 |
 |---|---|---|
 | import-direction | `ui/wails`、`provider/claudecli`、`platform/toolbridge` | 包 import 越界 |
-| symbol / export | `cmd/mcp-orch/orchestration`、`thread/turn` | `Module` / `handler.Map` / `HookConsumer` / side-channel interface |
+| symbol / export | `internal/sidecar/orch/orchestration`、`thread/turn` | `Module` / `handler.Map` / `HookConsumer` / side-channel interface |
 | behavior / protocol | `ui/wails`、`provider/claudecli`、`toolbridge`、`orchestration`、`gopls/bootstrap` | `NewActiveAgentCounter`、native-skill、signed-skill trust lane、identity/report、protocol fallback |
 
 ## 依赖图（文本）
@@ -194,7 +194,7 @@ P2(gopls/bootstrap runtime) -> P4(gopls/bootstrap compatibility / hidden contrac
 | `orchestration` ↔ `gopls/bootstrap` | 都依赖前置 runtime slice，最多并行做 contract 澄清；真正代码落地仍分属 `P3` 后与 `P2(sidecar)` 后 |
 | `gopls` ↔ `bootstrap` | 固定同一 sidecar lane；compatibility 与 hidden contract 可以分两拍，但不拆成两个互不感知的 implementation lanes |
 
-> 本页的“可并行”统一解释为**可并发开工**；凡共享 `internal/app/modules.go`、`cmd/mcp-lsp/fx.go`、`cmd/mcp-orch/orchestration/*`、`internal/platform/toolbridge/*` 等 wiring/hot files 的组合，仍需单点 closer 串行合码。
+> 本页的“可并行”统一解释为**可并发开工**；凡共享 `internal/app/modules.go`、`cmd/mcp-lsp/fx.go`、`internal/sidecar/orch/orchestration/*`、`internal/platform/toolbridge/*` 等 wiring/hot files 的组合，仍需单点 closer 串行合码。
 
 > 简化成一句话：`P4` 只有 `ui/wails + claudecli(native-skill/provider lane)` 是首波可直接实施的双 lane；signed-skill / trust lane 仍属 `P4`，但不与 claudecli 首波实现混写。其余组合最多先做文档/contract 澄清，真正实现必须跟随 `P2/P3` 前置门串行落地。
 
@@ -251,11 +251,11 @@ P2(gopls/bootstrap runtime) -> P4(gopls/bootstrap compatibility / hidden contrac
 ## TDD 与旧实现清理
 
 - `P4` 守卫固定分三类写：**import-direction**、**symbol/export**、**behavior/protocol**；不要把 `ui/wails` / `claudecli` / `toolbridge` / `orchestration` / `gopls-bootstrap` 的所有问题都塞进同一份 `dependency_direction` 测试壳。
-- 先补失败的依赖方向守卫：只对本页点名子域落包域窄守卫——`provider/claudecli -> module/{turn,skill,prompt}`、`ui/wails -> module/*`、`platform/toolbridge -> provider/*/store/*`、`cmd/mcp-orch/orchestration` 子包 `Module/handler.Map` 出口
+- 先补失败的依赖方向守卫：只对本页点名子域落包域窄守卫——`provider/claudecli -> module/{turn,skill,prompt}`、`ui/wails -> module/*`、`platform/toolbridge -> provider/*/store/*`、`internal/sidecar/orch/orchestration` 子包 `Module/handler.Map` 出口
 - 先补失败的 claudecli-specific 行为守卫：`provider/claudecli -> module/{turn,skill,prompt}`、`Mode=None` name-list 语义、native-scan 根路径优先级
 - 先补失败的 hidden-contract 守卫：`toolbridge` runtime schema / request shape / peer selection 行为，以及 `orchestration` 的 generation/session-ready side-channel contract
 - 测试名固定到可派单级别：`TestClaudecliNativeScanRequiresCWD`、`TestClaudecliModeNoneContract`、`TestToolbridgePersistentSubagentRejectsMissingRuntime`、`TestBootstrapPendingHooksRequiresAgentID`、`TestThreadTurnPendingLaunchSpawnerContractGuard`、`TestOrchestrationNoModuleExport`、`TestToolbridgeCompatibilityFallbackRemoved`
-- 验证命令固定写法：`go test ./internal/provider/claudecli/... -run 'Test(ClaudecliNativeScanRequiresCWD|ClaudecliModeNoneContract)' -count=1 -v`、`go test ./internal/platform/toolbridge/... -run 'Test(ToolbridgePersistentSubagentRejectsMissingRuntime|ToolbridgeCompatibilityFallbackRemoved)' -count=1 -v`、`go test ./internal/mcpserver/common/bootstrap/... -run 'TestBootstrapPendingHooksRequiresAgentID' -count=1 -v`、`go test ./cmd/mcp-orch/orchestration -run 'TestOrchestrationNoModuleExport' -count=1 -v`
+- 验证命令固定写法：`go test ./internal/provider/claudecli/... -run 'Test(ClaudecliNativeScanRequiresCWD|ClaudecliModeNoneContract)' -count=1 -v`、`go test ./internal/platform/toolbridge/... -run 'Test(ToolbridgePersistentSubagentRejectsMissingRuntime|ToolbridgeCompatibilityFallbackRemoved)' -count=1 -v`、`go test ./internal/mcpserver/common/bootstrap/... -run 'TestBootstrapPendingHooksRequiresAgentID' -count=1 -v`、`go test ./internal/sidecar/orch/orchestration -run 'TestOrchestrationNoModuleExport' -count=1 -v`
 - 对 `native-scan` 根路径判定、`PendingHooks()` 身份判定、`persistent_subagent_default` 阻断逻辑补运行时 PoC；不能只靠 mock 单测证明“缺参会硬报错”
 - 补上 `hook_consumer` / `AgentLauncher` / `remoteLauncher` 这组 protocol-shell / hidden-RPC-contract 的失败测试与守卫
 - 补上 `thread/turn` side-channel interface 的失败测试与守卫
@@ -274,7 +274,7 @@ P2(gopls/bootstrap runtime) -> P4(gopls/bootstrap compatibility / hidden contrac
 - `toolbridge` 的 runtime schema / protocol compatibility / peer selection 规则要么被显式协议化并有测试守卫，要么随迁包/解耦一起删除
 - `toolbridge` 的 thread runtime 解析链、私有 metadata 注入、handshake 固定值、response shape 降级、peer selection 规则与 family 支持矩阵都有单一 authoritative 文档和测试守卫
 - 缺 `cwd` / `thread` / `runtime` / `agent_id` 时统一走 `ErrXxxRequired` / fail-closed；不再通过 silent fallback 放宽 trust-domain
-- `cmd/mcp-orch/orchestration` 不再导出 `Module` / `handler.Map` 协议壳
+- `internal/sidecar/orch/orchestration` 不再导出 `Module` / `handler.Map` 协议壳
 - `HookConsumer` 不再作为子包直接导出的 bootstrap/hook 协议入口
 - `generationAwareSessionCleaner`、`sessionReadyWaiter` 这类本地私扩接口被升格进 owner contract 或删掉
 - `AgentLauncher` / `remoteLauncher` 的 hidden protocol contract 被 facade/DTO/contract 替代，不再靠 `*agentRuntime` 与子包内 RPC alias 实现传递

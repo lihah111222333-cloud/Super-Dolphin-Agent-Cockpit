@@ -21,275 +21,87 @@
 // so no Postgres extension is required.
 package cron
 
-import (
-	"context"
-	"encoding/json"
-	"errors"
-	"time"
-)
+import "github.com/anthropic-ai/super-agent-v3/internal/contract"
 
 // Run status constants — mirror the CHECK constraint in migration 0045.
 const (
-	StatusPending     = "pending"
-	StatusSubmitting  = "submitting"
-	StatusSubmitted   = "submitted"
-	StatusRunning     = "running"
-	StatusFinished    = "finished"
-	StatusFailed      = "failed"
-	StatusObserveLost = "observe_lost"
+	StatusPending     = contract.CronStatusPending
+	StatusSubmitting  = contract.CronStatusSubmitting
+	StatusSubmitted   = contract.CronStatusSubmitted
+	StatusRunning     = contract.CronStatusRunning
+	StatusFinished    = contract.CronStatusFinished
+	StatusFailed      = contract.CronStatusFailed
+	StatusObserveLost = contract.CronStatusObserveLost
 )
 
 // Provider whitelist mirrors the DB CHECK. The service layer still only
 // accepts codex in v1 because the dedupe_key handshake is codex-only.
 const (
-	ProviderCodex  = "codex"
-	ProviderClaude = "claude"
+	ProviderCodex  = contract.CronProviderCodex
+	ProviderClaude = contract.CronProviderClaude
 )
 
 // Sentinel errors exposed so upper layers can errors.Is against them.
 var (
-	ErrJobNotFound             = errors.New("cron: job not found")
-	ErrJobRunNotFound          = errors.New("cron: job run not found")
-	ErrClaimTokenMismatch      = errors.New("cron: claim token mismatch (lease lost)")
-	ErrStatusTransitionRefused = errors.New("cron: status transition refused (CAS mismatch)")
-	ErrEmptyID                 = errors.New("cron: id is required")
-	ErrEmptyCWD                = errors.New("cron: cwd is required")
-	ErrEmptyProvider           = errors.New("cron: provider is required")
-	ErrEmptyScheduleExpr       = errors.New("cron: schedule_expr is required")
-	ErrEmptyClaimToken         = errors.New("cron: claim_token is required")
+	ErrJobNotFound             = contract.ErrCronJobNotFound
+	ErrJobRunNotFound          = contract.ErrCronJobRunNotFound
+	ErrClaimTokenMismatch      = contract.ErrCronClaimTokenMismatch
+	ErrStatusTransitionRefused = contract.ErrCronStatusTransitionRefused
+	ErrEmptyID                 = contract.ErrCronEmptyID
+	ErrEmptyCWD                = contract.ErrCronEmptyCWD
+	ErrEmptyProvider           = contract.ErrCronEmptyProvider
+	ErrEmptyScheduleExpr       = contract.ErrCronEmptyScheduleExpr
+	ErrEmptyClaimToken         = contract.ErrCronEmptyClaimToken
 )
 
 // Store is the persistence surface. Return values always clone sqlc rows
 // into the Job / Run domain DTOs below; callers never see pgtype.
-type Store interface {
-	CreateJob(ctx context.Context, params CreateJobParams) (Job, error)
-	GetJobByID(ctx context.Context, id string) (Job, error)
-	ListJobs(ctx context.Context) ([]Job, error)
-	DeleteJob(ctx context.Context, id string) error
-	UpdateJobSchedule(ctx context.Context, params UpdateJobScheduleParams) error
-	SetJobEnabled(ctx context.Context, id string, enabled bool, now time.Time) error
-
-	// PatchNextRunAt is a narrow update that only touches next_run_at +
-	// updated_at, used by RunOnce to avoid a full-row read-modify-write.
-	PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Time, now time.Time) error
-
-	// ClaimDueJobsForUpdate atomically selects + marks up to limit rows where
-	// COALESCE(next_retry_at, next_run_at) <= now and the claim is either
-	// unheld or expired. LeaseExpiresAt is computed by the caller from its
-	// explicit now_ms and lease duration; the store does not use DB time.
-	// The scheduler calls this with MaxClaim=1 and a freshly generated
-	// ClaimToken per loop iteration, so each returned job has an independent
-	// application-generated UUID v4 token while SQL still owns atomic claim
-	// fencing.
-	ClaimDueJobsForUpdate(ctx context.Context, params ClaimDueJobsForUpdateParams) ([]Job, error)
-
-	RenewLease(ctx context.Context, params LeaseParams) error
-	ExtendClaim(ctx context.Context, params LeaseParams) error
-	ReleaseClaim(ctx context.Context, id, claimToken string, now time.Time) error
-	MarkFinished(ctx context.Context, params MarkFinishedParams) error
-	MarkFailed(ctx context.Context, params MarkFailedParams) error
-	SetActiveTurn(ctx context.Context, params SetActiveTurnParams) error
-
-	InsertRun(ctx context.Context, params InsertRunParams) (Run, error)
-	CASRunStatus(ctx context.Context, params CASRunStatusParams) error
-	SetRunTurn(ctx context.Context, params SetRunTurnParams) error
-	GetRunByID(ctx context.Context, id string) (Run, error)
-	GetRunByDedupeKey(ctx context.Context, dedupeKey string) (Run, error)
-	ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]Run, error)
-	ListUnresolvedRuns(ctx context.Context) ([]Run, error)
-
-	// GetRunningRunByTurnID returns the single run in 'running' state for
-	// the given turn ID. Returns ErrJobRunNotFound when no such row exists.
-	GetRunningRunByTurnID(ctx context.Context, turnID string) (Run, error)
-
-	// ListJobsClaimedBy returns only jobs currently claimed by the given
-	// scheduler identity (claimed_by = claimedBy AND claim_token <> '').
-	ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]Job, error)
-}
+type Store = contract.CronStore
 
 // Job is the domain DTO for a cron_jobs row. Time fields are zero when the
 // underlying column is NULL; callers that need nullable semantics should
 // check LastRunAt.IsZero() etc.
-type Job struct {
-	ID              string
-	Name            string
-	Prompt          string
-	ScheduleType    string
-	ScheduleExpr    string
-	Timezone        string
-	Provider        string
-	Model           string
-	CWD             string
-	Config          json.RawMessage
-	Skills          json.RawMessage
-	NotifyChannel   string
-	Enabled         bool
-	NextRunAt       time.Time
-	LastScheduledAt time.Time
-	LastRunAt       time.Time
-	ClaimedAt       time.Time
-	ClaimedBy       string
-	LeaseExpiresAt  time.Time
-	ClaimToken      string
-	ThreadID        string
-	AgentID         string
-	ActiveTurnID    string
-	LastTurnID      string
-	FailureCount    int32
-	MaxAttempts     int32
-	NextRetryAt     time.Time
-	LastStatus      string
-	LastErrorAt     time.Time
-	LastError       string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-}
+type Job = contract.CronJob
 
 // Run is the domain DTO for a cron_job_runs row.
-type Run struct {
-	ID             string
-	JobID          string
-	ScheduledAt    time.Time
-	IdempotencyKey string
-	DedupeKey      string
-	ThreadID       string
-	AgentID        string
-	TurnID         string
-	SubmittedAt    time.Time
-	Status         string
-	Error          string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-}
+type Run = contract.CronRun
 
 // CreateJobParams is the input for Store.CreateJob.
-type CreateJobParams struct {
-	ID            string
-	Name          string
-	Prompt        string
-	ScheduleType  string
-	ScheduleExpr  string
-	Timezone      string
-	Provider      string
-	Model         string
-	CWD           string
-	Config        json.RawMessage
-	Skills        json.RawMessage
-	NotifyChannel string
-	Enabled       bool
-	NextRunAt     time.Time
-	MaxAttempts   int32
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-}
+type CreateJobParams = contract.CronCreateJobParams
 
 // UpdateJobScheduleParams is the input for Store.UpdateJobSchedule.
-type UpdateJobScheduleParams struct {
-	ID            string
-	Name          string
-	Prompt        string
-	ScheduleType  string
-	ScheduleExpr  string
-	Timezone      string
-	Provider      string
-	Model         string
-	CWD           string
-	Config        json.RawMessage
-	Skills        json.RawMessage
-	NotifyChannel string
-	Enabled       bool
-	NextRunAt     time.Time
-	MaxAttempts   int32
-	UpdatedAt     time.Time
-}
+type UpdateJobScheduleParams = contract.CronUpdateJobScheduleParams
 
 // ClaimDueJobsForUpdateParams drives ClaimDueJobsForUpdate. ClaimToken is generated by the
 // caller (UUID v4). The scheduler uses MaxClaim=1 per call so each job
 // gets an independent claim token; renew/finish/release then verify that
 // token to prevent a preempted worker from overwriting state.
-type ClaimDueJobsForUpdateParams struct {
-	Now            time.Time
-	ClaimedBy      string
-	LeaseExpiresAt time.Time
-	ClaimToken     string
-	MaxClaim       int32
-}
+type ClaimDueJobsForUpdateParams = contract.CronClaimDueJobsForUpdateParams
 
 // LeaseParams drives RenewLease / ExtendClaim.
-type LeaseParams struct {
-	ID             string
-	ClaimToken     string
-	LeaseExpiresAt time.Time
-	Now            time.Time
-}
+type LeaseParams = contract.CronLeaseParams
 
 // MarkFinishedParams drives MarkFinished.
-type MarkFinishedParams struct {
-	ID         string
-	ClaimToken string
-	LastRunAt  time.Time
-	LastTurnID string
-	NextRunAt  time.Time
-	Now        time.Time
-}
+type MarkFinishedParams = contract.CronMarkFinishedParams
 
 // MarkFailedParams drives MarkFailed. LastStatus is a free-form label
 // (typically "failed" or "observe_lost"); failure_count increments by 1.
-type MarkFailedParams struct {
-	ID          string
-	ClaimToken  string
-	LastRunAt   time.Time
-	LastTurnID  string
-	LastStatus  string
-	LastErrorAt time.Time
-	LastError   string
-	NextRetryAt time.Time
-	Now         time.Time
-}
+type MarkFailedParams = contract.CronMarkFailedParams
 
 // SetActiveTurnParams drives SetActiveTurn. Empty ThreadID / AgentID are
 // treated as "don't overwrite" so resume paths can bind turn id without
 // clobbering identity already recorded earlier in the run.
-type SetActiveTurnParams struct {
-	ID           string
-	ClaimToken   string
-	ActiveTurnID string
-	ThreadID     string
-	AgentID      string
-	Now          time.Time
-}
+type SetActiveTurnParams = contract.CronSetActiveTurnParams
 
 // InsertRunParams drives InsertRun. Status must be a value from the run
 // status constants above and is validated by the DB CHECK constraint.
-type InsertRunParams struct {
-	ID             string
-	JobID          string
-	ScheduledAt    time.Time
-	IdempotencyKey string
-	DedupeKey      string
-	Status         string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-}
+type InsertRunParams = contract.CronInsertRunParams
 
 // CASRunStatusParams drives CASRunStatus. The transition is applied iff
 // the current row.status equals ExpectedStatus; otherwise returns
 // ErrStatusTransitionRefused.
-type CASRunStatusParams struct {
-	ID             string
-	ExpectedStatus string
-	NextStatus     string
-	Error          string
-	UpdatedAt      time.Time
-}
+type CASRunStatusParams = contract.CronCASRunStatusParams
 
 // SetRunTurnParams drives SetRunTurn. Empty ThreadID / AgentID are
 // preserved against existing values (CoalesceNullIf).
-type SetRunTurnParams struct {
-	ID          string
-	ThreadID    string
-	AgentID     string
-	TurnID      string
-	SubmittedAt time.Time
-	UpdatedAt   time.Time
-}
+type SetRunTurnParams = contract.CronSetRunTurnParams

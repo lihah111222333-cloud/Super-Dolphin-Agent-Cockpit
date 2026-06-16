@@ -34,7 +34,7 @@ Result: Pass for Phase 1 scope.
 
 Evidence:
 
-- `go test ./cmd/mcp-orch/tools -count=1` passes.
+- `go test ./internal/sidecar/orch/tools -count=1` passes.
 - `pos_test.go` covers parser, schema exposure, handler calls, and conflict rejection.
 
 Residual risk:

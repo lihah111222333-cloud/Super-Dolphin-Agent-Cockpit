@@ -45,7 +45,7 @@
 - `module/turn/*.go` 未发现 `internal/provider/*` import。
 - `SessionProvider` 定义在 `internal/module/thread/service.go`，位置合规，且只暴露 `GetSession(agentID string) (contract.Session, error)`。
 - `OrchestrationFacade` 定义在 `internal/module/thread/lifecycle.go`，形式上位于 `module/thread` 包内。
-- 但 `internal/module/thread/lifecycle.go` 与 `internal/module/thread/module.go` 仍直接 import `cmd/mcp-orch/orchestration`，且 `OrchestrationFacade` 的 `LaunchAgent` 参数直接暴露 `orchestration.LaunchRequest`，`buildLaunchRequest` 也直接构造该类型。
+- 但 `internal/module/thread/lifecycle.go` 与 `internal/module/thread/module.go` 仍直接 import `internal/sidecar/orch/orchestration`，且 `OrchestrationFacade` 的 `LaunchAgent` 参数直接暴露 `orchestration.LaunchRequest`，`buildLaunchRequest` 也直接构造该类型。
 - 结论：对 `provider/*` 的 import 方向合规；对 `orchestration` 的解耦不完全合规，`thread` 仍然显式依赖 `module/orchestration` 类型。
 
 ## 6. 行数
@@ -61,10 +61,10 @@
 ## 8. 窄接口
 - `SessionProvider` 足够窄，只暴露 session 查询能力，没有把 provider registry 或 session manager 全量泄漏到 `thread` 模块。
 - `SessionStarter` 也基本合理，只暴露 `StartSession` / `ResumeSession`。
-- `OrchestrationFacade` 的方法集相对 `cmd/mcp-orch/orchestration/contract.go` 中完整 `Service`（`LaunchAgent` / `StopAgent` / `SubmitTurn` / `CompleteTurn` / `Recover` / `Snapshot`）已经收窄到 3 个方法，方向正确。
+- `OrchestrationFacade` 的方法集相对 `internal/sidecar/orch/orchestration/contract.go` 中完整 `Service`（`LaunchAgent` / `StopAgent` / `SubmitTurn` / `CompleteTurn` / `Recover` / `Snapshot`）已经收窄到 3 个方法，方向正确。
 - 但它仍暴露了 `orchestration.LaunchRequest`，导致 `thread` 需要认识 `module/orchestration` 的请求类型；这说明接口“方法数变窄”了，但“类型边界”没有彻底收窄。
 - 结论：`SessionProvider` 合格；`OrchestrationFacade` 只做到了半收窄，仍有类型泄漏。
 
 ## 结论（Blocker / Improvement）
-- Blocker：`internal/module/thread/lifecycle.go` 和 `internal/module/thread/module.go` 仍直接依赖 `cmd/mcp-orch/orchestration`，`OrchestrationFacade` 也直接暴露 `orchestration.LaunchRequest`。如果本轮目标是把 thread 侧 contracts 扩充为“模块内定义、模块外适配”的窄接口，这一项尚未完成，建议改为 `thread` 包内自定义 request DTO 或更小的构造参数，避免 `thread -> orchestration` 类型依赖。
+- Blocker：`internal/module/thread/lifecycle.go` 和 `internal/module/thread/module.go` 仍直接依赖 `internal/sidecar/orch/orchestration`，`OrchestrationFacade` 也直接暴露 `orchestration.LaunchRequest`。如果本轮目标是把 thread 侧 contracts 扩充为“模块内定义、模块外适配”的窄接口，这一项尚未完成，建议改为 `thread` 包内自定义 request DTO 或更小的构造参数，避免 `thread -> orchestration` 类型依赖。
 - Improvement：`ForceCompleteTurn` 当前是“`Interrupt` 成功后立即把 tracker 标成 completed”的乐观实现；若后续 handle 以 `context.Canceled` 或其它 error 结束，状态可能再被 `watchTurn` 改写为 `interrupted/failed`。建议明确 `force_complete` 的最终状态语义，避免本地状态短暂失真。

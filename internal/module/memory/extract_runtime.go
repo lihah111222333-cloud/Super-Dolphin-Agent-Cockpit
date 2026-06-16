@@ -10,8 +10,8 @@ import (
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 const backgroundExtractTimeout = 5 * time.Second
@@ -346,7 +346,7 @@ func (h *MemoryLifecycleHooks) executeBackgroundExtraction(
 	cursor int64,
 	handled bool,
 ) (int64, error) {
-	ctx, cancel := ctxutil.WithTimeout(context.Background(), backgroundExtractTimeout)
+	ctx, cancel := kernel.WithTimeout(context.Background(), backgroundExtractTimeout)
 	defer cancel()
 	messages, err := h.readTranscript(ctx, threadID)
 	if err != nil {

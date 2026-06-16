@@ -458,7 +458,7 @@
   - F4 `internal/platform/rpc/module.go:149-166 + 179-197`
   - F5 `internal/module/memory/module.go:456-467`
   - F7 `internal/module/memory/auto_dream_task.go:156-178`
-  - F8 `cmd/mcp-orch/orchestration/process_lifecycle.go:220-239`
+  - F8 `internal/sidecar/orch/orchestration/process_lifecycle.go:220-239`
   - F10 `internal/module/memory/module.go:435-437 + internal/module/memory/nested/nested_runtime.go:314-339`
 - archtest 真值复核：
   - `go test ./internal/archtest/... -run TestCodeSizeGuard -count=1 -v`：**PASS / 0 violations**
@@ -550,7 +550,7 @@
 18. `lsp_file internal/platform/rpc/module.go:149-197` -> F4 仍为 `149-166 + 179-197`
 19. `lsp_file internal/module/memory/module.go:456-467` -> F5 TeamSync callback 仍在 `:458/:463`
 20. `lsp_file internal/module/memory/auto_dream_task.go:156-178` -> F7 `callback -> go func()` 仍在 `:173`
-21. `lsp_file cmd/mcp-orch/orchestration/process_lifecycle.go:220-239` -> F8 `go a.waitForExit(...)` 仍在 `:222`
+21. `lsp_file internal/sidecar/orch/orchestration/process_lifecycle.go:220-239` -> F8 `go a.waitForExit(...)` 仍在 `:222`
 22. `lsp_file internal/module/memory/nested/nested_runtime.go:314-339` -> F10 `os.ReadFile(...)` 仍在 `:320`
 23. `lsp_file internal/archtest/freeze_registry.go:19-25` -> empty registry 仍在 `:19`
 24. `lsp_file internal/archtest/guardlib.go:22-32` -> numeric guard 常量仍为 `600/800/30/10000`

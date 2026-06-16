@@ -55,7 +55,7 @@
 - `commandcardstore.Store` 被 `skill.newService` 消费，见 `internal/module/skill/module.go:20-26`
 - `threadstore.Store` 被 `thread.NewService` 与 `unified.NewSessionResolver` 消费，见 `internal/module/thread/service.go:40-47`、`internal/provider/unified/session_resolver.go:19-21`
 - `bindingstore.Store` 被 `thread.NewService` 消费，见 `internal/module/thread/service.go:40-47`
-- `taskdag.Store` 被 `orchestration.NewService` 消费，见 `cmd/mcp-orch/orchestration/service.go:80-102`
+- `taskdag.Store` 被 `orchestration.NewService` 消费，见 `internal/sidecar/orch/orchestration/service.go:80-102`
 - `storeworkspace.Store` 与 `*bus.WorkspaceEmitters` 被 `workspace.NewService` 消费，见 `internal/module/workspace/service.go:49-59`
 
 ## 2. fx.In 标记依赖：缺失依赖检查
@@ -130,7 +130,7 @@ group 定义：`internal/platform/rpc/module.go:36-40` 的 `HandlerMapResult` �
 | `skill.NewSkillHandlers` | `internal/module/skill/rpc.go:42-88` |
 | `thread.NewThreadHandlers` | `internal/module/thread/rpc.go:19-97` |
 | `turn.NewTurnHandlers` | `internal/module/turn/rpc.go:14-96` |
-| `orchestration.NewOrchestrationHandlers` | `cmd/mcp-orch/orchestration/rpc.go:15-77` |
+| `orchestration.NewOrchestrationHandlers` | `internal/sidecar/orch/orchestration/rpc.go:15-77` |
 | `workspace.NewWorkspaceHandlers` | `internal/module/workspace/rpc.go:13-23` |
 
 结论：`group:"rpc_handlers"` 是 `5 -> 1`，消费者唯一且闭合。
@@ -149,7 +149,7 @@ group 定义：`internal/app/runner.go:14-17` 的 `RunnerResult` 把 `platformru
 | 生产者 | 证据 |
 | --- | --- |
 | `app.AsRPCRunner` | 输出在 `internal/app/modules.go:46-48`，group tag 在 `internal/app/runner.go:14-17` |
-| `orchestration.NewRunnerActor` | `cmd/mcp-orch/orchestration/runner_actor.go:22-24`，注解在 `cmd/mcp-orch/orchestration/module.go:20` |
+| `orchestration.NewRunnerActor` | `internal/sidecar/orch/orchestration/runner_actor.go:22-24`，注解在 `internal/sidecar/orch/orchestration/module.go:20` |
 
 补充观察：
 
@@ -185,7 +185,7 @@ LSP 手工展开后的几条最长链如下，都会在叶子节点终止，没�
    -> `orchestration.TurnStarter`
    -> `turn.Service`
 
-   证据：`internal/module/thread/service.go:40-47`、`internal/app/thread_orchestration_adapter.go:14-16`、`cmd/mcp-orch/orchestration/service.go:80-102`、`internal/module/turn/orchestration_starter.go:18-20`、`internal/module/turn/service.go:26-37`
+   证据：`internal/module/thread/service.go:40-47`、`internal/app/thread_orchestration_adapter.go:14-16`、`internal/sidecar/orch/orchestration/service.go:80-102`、`internal/module/turn/orchestration_starter.go:18-20`、`internal/module/turn/service.go:26-37`
 
    终止原因：`turn.Service` 不依赖 `thread.Service`。
 

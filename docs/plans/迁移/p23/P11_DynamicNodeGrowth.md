@@ -10,7 +10,7 @@
 
 ## 现状校准（事实层）
 
-- 当前 DAG 是**静态结构**：`task_create_dag` 一次性 upsert 全部 node + 依赖（`cmd/mcp-orch/orchestration/dag.go:109-131`）；创建后 schema 不可改
+- 当前 DAG 是**静态结构**：`task_create_dag` 一次性 upsert 全部 node + 依赖（`internal/sidecar/orch/orchestration/dag.go:109-131`）；创建后 schema 不可改
 - 当前**无** `spawn_child` 动作：node 只能 done / failed / observe_lost（P23 阶段 0 ②）
 - 当前**无** 资源预算 / cap 字段：DAG 级只有 `schedule.max_concurrency`（控并发，**不**控 node 总数）
 - 当前**无** 收敛条件 / 终止条件字段：DAG 永不终止由所有节点 done 触发（隐式）
@@ -58,19 +58,19 @@ DAG schema 加：
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| schema provider | `cmd/mcp-orch/tools/dag_schema_registry.go` + `cmd/mcp-orch/tools/dag_schema_growth.go` [NEW] | 注册 `dag.growth_budget` + `dag.convergence` schema；`task_tools.go` / `dag.go` 只消费 registry |
-| MCP 工具 | `cmd/mcp-orch/tools/task_tools.go`（薄 handler） + growth schema provider | `task_spawn_child` 工具；handler 只做 registry 校验并调用 `SpawnChildNodes` |
-| RPC registrar | `cmd/mcp-orch/orchestration/rpc_growth.go` [NEW] | `registerDAGGrowthRPC` 注册 `dag/spawn`；`rpc.go` 只调用 registrar |
-| service | `cmd/mcp-orch/orchestration/dag_spawn.go` [NEW] | `SpawnChildNodes(ctx, ...)` 函数：事务内 reservation + 预算校验 + 插入；不膨胀 `dag.go` |
+| schema provider | `internal/sidecar/orch/tools/dag_schema_registry.go` + `internal/sidecar/orch/tools/dag_schema_growth.go` [NEW] | 注册 `dag.growth_budget` + `dag.convergence` schema；`task_tools.go` / `dag.go` 只消费 registry |
+| MCP 工具 | `internal/sidecar/orch/tools/task_tools.go`（薄 handler） + growth schema provider | `task_spawn_child` 工具；handler 只做 registry 校验并调用 `SpawnChildNodes` |
+| RPC registrar | `internal/sidecar/orch/orchestration/rpc_growth.go` [NEW] | `registerDAGGrowthRPC` 注册 `dag/spawn`；`rpc.go` 只调用 registrar |
+| service | `internal/sidecar/orch/orchestration/dag_spawn.go` [NEW] | `SpawnChildNodes(ctx, ...)` 函数：事务内 reservation + 预算校验 + 插入；不膨胀 `dag.go` |
 | state machine | `task_dag_node_runtime.sql` [扩展] | `growth_capped` DAG 级标记；node 级无新状态 |
-| watcher | `cmd/mcp-orch/orchestration/runtime/watcher_actor.go` [扩展] | spawn 后重算 ready；预算预警 |
-| convergence actor | `cmd/mcp-orch/orchestration/runtime/convergence_actor.go` [NEW] | Runner actor 周期性评估 `convergence.condition_template`；触发 DAG 终态 |
+| watcher | `internal/sidecar/orch/orchestration/runtime/watcher_actor.go` [扩展] | spawn 后重算 ready；预算预警 |
+| convergence actor | `internal/sidecar/orch/orchestration/runtime/convergence_actor.go` [NEW] | Runner actor 周期性评估 `convergence.condition_template`；触发 DAG 终态 |
 | DDL | `0071_dag_dynamic_growth.sql` [NEW]（编号校准） | `task_dags` 加 structural `growth_budget JSONB` + `convergence JSONB`；统计列 `total_node_count` + `max_observed_growth_depth` |
 | archtest | `internal/archtest/dag_growth_test.go` [NEW] | spawn 必须经 `SpawnChildNodes` 入口；不允许直接 INSERT node |
 
 ### schema / RPC write-set 拆分
 
-P11 不直接并行改 `task_tools.go` 的 schema 段，也不直接追加 `rpc.go` case。growth 字段通过 `cmd/mcp-orch/tools/dag_schema_registry.go` 的 growth provider 注册；RPC 通过 `registerDAGGrowthRPC`；动态生长服务落 `dag_spawn.go`；长跑收敛逻辑落 `cmd/mcp-orch/orchestration/runtime/convergence_actor.go`。
+P11 不直接并行改 `task_tools.go` 的 schema 段，也不直接追加 `rpc.go` case。growth 字段通过 `internal/sidecar/orch/tools/dag_schema_registry.go` 的 growth provider 注册；RPC 通过 `registerDAGGrowthRPC`；动态生长服务落 `dag_spawn.go`；长跑收敛逻辑落 `internal/sidecar/orch/orchestration/runtime/convergence_actor.go`。
 
 ## DDL / SQL
 

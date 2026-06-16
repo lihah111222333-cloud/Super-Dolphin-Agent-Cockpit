@@ -10,9 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread/titleextract"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 type promptGitContext struct {
@@ -31,12 +29,12 @@ func buildStartCtx(req StartRequest, cfg *contract.Config, registry contract.Too
 	sessionFlags := firstNonEmptyFlags(req.SessionFlags, configBoolMap(req.Config, "sessionFlags", "session_flags"))
 	sessionFlags = applyConfiguredSessionFlagDefaults(sessionFlags, cfg)
 	enabledTools := applyPersistentSubagentToolPolicy(
-		firstNonEmptyStrings(req.EnabledTools, configutil.ConfigStringSlice(req.Config, "enabledTools", "enabled_tools", "tools")),
+		firstNonEmptyStrings(req.EnabledTools, kernel.ConfigStringSlice(req.Config, "enabledTools", "enabled_tools", "tools")),
 		sessionFlags,
 	)
 	gitCtx := resolvePromptGitContext(
 		cwd,
-		util.FirstNonEmpty(req.GitRoot, configutil.ConfigString(req.Config, "gitRoot", "git_root")),
+		kernel.FirstNonEmpty(req.GitRoot, kernel.ConfigString(req.Config, "gitRoot", "git_root")),
 		cfg,
 	)
 	if req.IsWorktree || configBool(req.Config, "isWorktree", "is_worktree") {
@@ -46,15 +44,15 @@ func buildStartCtx(req StartRequest, cfg *contract.Config, registry contract.Too
 		CWD:                          cwd,
 		GitRoot:                      gitCtx.Root,
 		IsWorktree:                   gitCtx.IsWorktree,
-		Language:                     util.FirstNonEmpty(req.Language, configutil.ConfigString(req.Config, "language")),
+		Language:                     kernel.FirstNonEmpty(req.Language, kernel.ConfigString(req.Config, "language")),
 		Provider:                     req.Provider,
 		Model:                        req.Model,
 		EnabledTools:                 enabledTools,
-		AdditionalWorkingDirectories: firstNonEmptyStrings(req.AdditionalWorkingDirectories, configutil.ConfigStringSlice(req.Config, "additionalWorkingDirectories", "additional_working_directories")),
-		ClaudeMdExcludes:             configutil.ConfigStringSlice(req.Config, "claudeMdExcludes", "claude_md_excludes"),
+		AdditionalWorkingDirectories: firstNonEmptyStrings(req.AdditionalWorkingDirectories, kernel.ConfigStringSlice(req.Config, "additionalWorkingDirectories", "additional_working_directories")),
+		ClaudeMdExcludes:             kernel.ConfigStringSlice(req.Config, "claudeMdExcludes", "claude_md_excludes"),
 		MCPSnapshot:                  buildPromptMCPSnapshot(req.MCPSnapshot, configMCPSnapshot(req.Config), registryMCPSnapshot(registry)),
 		SessionFlags:                 sessionFlags,
-		Summary:                      util.FirstNonEmpty(req.Summary, configutil.ConfigString(req.Config, "summary")),
+		Summary:                      kernel.FirstNonEmpty(req.Summary, kernel.ConfigString(req.Config, "summary")),
 		OutputStyleConfig:            outputStyleConfig,
 		ScratchpadDir:                configScratchpadDir(req.Config, "scratchpadDir", "scratchpad_dir"),
 		FRCConfig:                    configFRCConfig(req.Config, "frcConfig", "frc_config"),
@@ -273,8 +271,8 @@ func cloneOptionalBool(value *bool) *bool {
 
 func configMCPSnapshot(cfg map[string]any) contract.MCPSnapshot {
 	return contract.MCPSnapshot{
-		Servers:                  configutil.ConfigStringSlice(cfg, "mcpServers", "mcp_servers"),
-		Tools:                    configutil.ConfigStringSlice(cfg, "mcpTools", "mcp_tools"),
+		Servers:                  kernel.ConfigStringSlice(cfg, "mcpServers", "mcp_servers"),
+		Tools:                    kernel.ConfigStringSlice(cfg, "mcpTools", "mcp_tools"),
 		Instructions:             configStringMap(cfg, "mcpInstructions", "mcp_instructions"),
 		InstructionsDeltaEnabled: configBool(cfg, "mcpInstructionsDeltaEnabled", "mcp_instructions_delta_enabled"),
 	}
@@ -286,7 +284,7 @@ func configStringMap(cfg map[string]any, keys ...string) map[string]string {
 		if !ok {
 			continue
 		}
-		if out := configutil.StringMap(value); len(out) > 0 {
+		if out := kernel.ConfigStringMap(value); len(out) > 0 {
 			return out
 		}
 	}
@@ -308,7 +306,7 @@ func registryMCPSnapshot(registry contract.ToolRegistry) contract.MCPSnapshot {
 			servers = append(servers, server)
 		}
 	}
-	return contract.MCPSnapshot{Servers: configutil.NormalizeConfigStringSlice(servers)}
+	return contract.MCPSnapshot{Servers: kernel.NormalizeConfigStringSlice(servers)}
 }
 
 func buildPromptMCPSnapshot(base, configured, live contract.MCPSnapshot) contract.MCPSnapshot {
@@ -364,7 +362,7 @@ func firstNonEmptyStrings(primary, fallback []string) []string {
 }
 
 func uniquePromptStrings(first, second []string) []string {
-	combined := configutil.NormalizeConfigStringSlice(append(append([]string(nil), first...), second...))
+	combined := kernel.NormalizeConfigStringSlice(append(append([]string(nil), first...), second...))
 	if len(combined) == 0 {
 		return nil
 	}
@@ -431,10 +429,10 @@ func normalizeOutputStyleConfig(value any) *contract.OutputStyleConfig {
 		return cloneOutputStyleConfig(*typed)
 	case map[string]any:
 		style := contract.OutputStyleConfig{
-			Name:        configutil.ConfigString(typed, "name"),
-			Description: configutil.ConfigString(typed, "description"),
-			Prompt:      configutil.ConfigString(typed, "prompt"),
-			Source:      configutil.ConfigString(typed, "source"),
+			Name:        kernel.ConfigString(typed, "name"),
+			Description: kernel.ConfigString(typed, "description"),
+			Prompt:      kernel.ConfigString(typed, "prompt"),
+			Source:      kernel.ConfigString(typed, "source"),
 		}
 		style.KeepCodingInstructions = configOptionalBool(typed, "keepCodingInstructions", "keep_coding_instructions")
 		if strings.TrimSpace(style.Name) == "" &&
@@ -500,7 +498,7 @@ func normalizeFRCConfig(value any) *contract.FRCConfig {
 		cfg := contract.FRCConfig{
 			Enabled:                      configBool(typed, "enabled"),
 			SystemPromptSuggestSummaries: configBool(typed, "systemPromptSuggestSummaries", "system_prompt_suggest_summaries"),
-			SupportedModels:              configutil.ConfigStringSlice(typed, "supportedModels", "supported_models"),
+			SupportedModels:              kernel.ConfigStringSlice(typed, "supportedModels", "supported_models"),
 			KeepRecent:                   configInt(typed, "keepRecent", "keep_recent"),
 		}
 		if !cfg.Enabled && !cfg.SystemPromptSuggestSummaries && cfg.KeepRecent == 0 && len(cfg.SupportedModels) == 0 {
@@ -538,7 +536,7 @@ func ExtractTitle(prompt string) string {
 	return titleextract.Extract(prompt)
 }
 
-func resolveDisplayName(ctx context.Context, store threadstore.Store, agentID, _ string, currentName string) string {
+func resolveDisplayName(ctx context.Context, store contract.ThreadStore, agentID, _ string, currentName string) string {
 	name := strings.TrimSpace(currentName)
 	if name == defaultThreadName() {
 		name = ""

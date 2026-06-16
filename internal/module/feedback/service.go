@@ -5,18 +5,18 @@ import (
 	"errors"
 	"strings"
 
-	feedbackstore "github.com/anthropic-ai/super-agent-v3/internal/store/feedback"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 type service struct {
-	store feedbackstore.Store
+	store contract.FeedbackEventStore
 }
 
 var _ Service = (*service)(nil)
 
 // NewService creates the feedback service around the persistence port.
-func NewService(store feedbackstore.Store) Service {
+func NewService(store contract.FeedbackEventStore) Service {
 	return &service{store: store}
 }
 
@@ -24,7 +24,7 @@ var errServiceDisabled = errors.New("feedback: service not wired (store is nil)"
 
 // Record 记录feedback。
 func (s *service) Record(ctx context.Context, req RecordRequest) (RecordResult, error) {
-	ctx = util.NonNilContext(ctx)
+	ctx = kernel.NonNilContext(ctx)
 	if s.store == nil {
 		return RecordResult{}, errServiceDisabled
 	}
@@ -33,7 +33,7 @@ func (s *service) Record(ctx context.Context, req RecordRequest) (RecordResult, 
 	if threadID == "" || eventType == "" {
 		return RecordResult{}, errors.New("feedback/record: thread_id and event_type are required")
 	}
-	ev, err := s.store.Insert(ctx, feedbackstore.Event{
+	ev, err := s.store.Insert(ctx, contract.FeedbackEvent{
 		ThreadID:        threadID,
 		TurnID:          strings.TrimSpace(req.TurnID),
 		AgentKey:        strings.TrimSpace(req.AgentKey),

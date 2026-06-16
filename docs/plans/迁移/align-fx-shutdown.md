@@ -9,7 +9,7 @@
 - V2 provider stop: `go-agent-v2/legacy-agentsdk/claude/client.go`, `go-agent-v2/legacy-agentsdk/codex/client_appserver_runtime.go`
 - V3 app/fx: `internal/app/app.go`, `internal/app/modules.go`, `internal/app/runner.go`
 - V3 wails: `internal/ui/wails/lifecycle.go`, `internal/ui/wails/module.go`
-- V3 runtime/shutdown: `internal/platform/runner/group.go`, `cmd/mcp-orch/orchestration/runner_actor.go`, `cmd/mcp-orch/orchestration/service.go`, `cmd/mcp-orch/orchestration/helpers.go`, `internal/provider/unified/module.go`, `internal/provider/unified/session.go`, `internal/provider/unified/session_adapter.go`, `internal/platform/db/module.go`
+- V3 runtime/shutdown: `internal/platform/runner/group.go`, `internal/sidecar/orch/orchestration/runner_actor.go`, `internal/sidecar/orch/orchestration/service.go`, `internal/sidecar/orch/orchestration/helpers.go`, `internal/provider/unified/module.go`, `internal/provider/unified/session.go`, `internal/provider/unified/session_adapter.go`, `internal/platform/db/module.go`
 
 补充语义基线：
 
@@ -186,9 +186,9 @@ V3 desktop 下，`ShouldQuit()`/`OnShutdown()` 只是请求 FX shutdown：
 
 - `internal/app/app.go:45-50`
 - `internal/app/runner.go:57-67`
-- `cmd/mcp-orch/orchestration/runner_actor.go:36-39`
-- `cmd/mcp-orch/orchestration/service.go:143-164`
-- `cmd/mcp-orch/orchestration/helpers.go:303-308`
+- `internal/sidecar/orch/orchestration/runner_actor.go:36-39`
+- `internal/sidecar/orch/orchestration/service.go:143-164`
+- `internal/sidecar/orch/orchestration/helpers.go:303-308`
 
 链路是：
 
@@ -224,8 +224,8 @@ V2 没有独立的 session manager shutdown 步骤。session close 被折叠进 
 
 V3 有显式 session close：
 
-- `cmd/mcp-orch/orchestration/service.go:104-108`
-- `cmd/mcp-orch/orchestration/service.go:143-153`
+- `internal/sidecar/orch/orchestration/service.go:104-108`
+- `internal/sidecar/orch/orchestration/service.go:143-153`
 - `internal/provider/unified/session_adapter.go:34-39`
 - `internal/provider/unified/session.go:60-104`
 - `internal/provider/unified/module.go:33-43`

@@ -258,7 +258,7 @@ P9/P10/P11/P12/P13 共用中央成本阻断口径：若 `dag/cost_preview` 判�
 
 ### MIGRATION_OWNER_CHECKLIST（需求补全仲裁）
 
-每个 P23 migration owner 必须按 PR 当时 HEAD 的下一个可用编号重新校准，并在 PR 描述或同目录 stub 中填写：preflight SQL、forward migration、是否 forward-only、rollback/roll-forward 修复路径、backfill/lock 评估、是否含 `CREATE INDEX CONCURRENTLY` no-transaction 文件、`cmd/mcp-orch/sqlc.yaml` schema entry、`make sqlc-verify` 输出、tenant/audit/redaction 影响、postcheck SQL。缺任一项不得 merge 对应 migration PR。
+每个 P23 migration owner 必须按 PR 当时 HEAD 的下一个可用编号重新校准，并在 PR 描述或同目录 stub 中填写：preflight SQL、forward migration、是否 forward-only、rollback/roll-forward 修复路径、backfill/lock 评估、是否含 `CREATE INDEX CONCURRENTLY` no-transaction 文件、`internal/sidecar/orch/sqlc.yaml` schema entry、`make sqlc-verify` 输出、tenant/audit/redaction 影响、postcheck SQL。缺任一项不得 merge 对应 migration PR。
 
 ### 阶段 0 / P0 拆分 checklist（需求补全仲裁）
 

@@ -38,7 +38,7 @@
 - `internal/provider/unified/session.go:37-55` 的 `Register` 返回 generation，并把 `{generation, session}` 写入 map。
 - `internal/provider/unified/session.go:78-91`、`internal/provider/unified/session.go:139-152` 的 `Remove(agentID, generation)` 只有代际匹配时才删除。
 - `internal/module/thread/session_generation.go:13-26` 在 session 建立后把 generation 绑定到 orchestration。
-- `cmd/mcp-orch/orchestration/session_generation.go:29-40` 清理链路优先走 `RemoveSessionGeneration`。
+- `internal/sidecar/orch/orchestration/session_generation.go:29-40` 清理链路优先走 `RemoveSessionGeneration`。
 - `internal/provider/unified/session_generation_test.go:39-58` 已补回归测试，验证旧 generation 不会删掉新 session。
 
 判断：✅ 已修。此前“旧 session 的 remove 误删新 session”的主问题已经收口。
@@ -85,10 +85,10 @@
 
 当前代码：
 - 已转为 snake_case 的主路径示例：
-  - `cmd/mcp-orch/orchestration/rpc_types.go:15`
-  - `cmd/mcp-orch/orchestration/rpc_types.go:58`
-  - `cmd/mcp-orch/orchestration/rpc_types.go:81`
-  - `cmd/mcp-orch/orchestration/rpc_types.go:104-105`
+  - `internal/sidecar/orch/orchestration/rpc_types.go:15`
+  - `internal/sidecar/orch/orchestration/rpc_types.go:58`
+  - `internal/sidecar/orch/orchestration/rpc_types.go:81`
+  - `internal/sidecar/orch/orchestration/rpc_types.go:104-105`
   - `internal/module/turn/rpc_types.go:9-21`
   - `internal/module/workspace/contract.go:25-44`
   - `internal/module/workspace/rpc_types.go:10-15`

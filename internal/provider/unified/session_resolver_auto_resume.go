@@ -8,7 +8,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -73,7 +73,7 @@ func buildAutoResumeRequest(binding *contract.SessionBinding, runtimeConfig map[
 		ThreadID:           autoResumePublicThreadID(publicThreadID),
 		ProviderThreadID:   providerThreadID,
 		CWD:                cwd,
-		Config:             clone.RuntimeConfigMap(runtimeConfig),
+		Config:             kernel.CloneRuntimeConfigMap(runtimeConfig),
 		CodexHome:          codexHome,
 		CodexInstanceKey:   codexInstanceKey,
 		CodexModelProvider: codexModelProvider,

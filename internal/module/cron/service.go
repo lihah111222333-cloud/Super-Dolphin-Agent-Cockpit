@@ -11,8 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 type service struct {
@@ -67,7 +66,7 @@ func (s *service) CreateJob(ctx context.Context, req CreateJobRequest) (Job, err
 	if scheduleType == "" {
 		scheduleType = "cron"
 	}
-	row, err := s.store.CreateJob(ctx, cronstore.CreateJobParams{
+	row, err := s.store.CreateJob(ctx, contract.CronCreateJobParams{
 		ID:            s.newID(),
 		Name:          strings.TrimSpace(req.Name),
 		Prompt:        req.Prompt,
@@ -96,7 +95,7 @@ func (s *service) CreateJob(ctx context.Context, req CreateJobRequest) (Job, err
 func (s *service) GetJob(ctx context.Context, id string) (Job, error) {
 	row, err := s.store.GetJobByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, cronstore.ErrJobNotFound) {
+		if errors.Is(err, contract.ErrCronJobNotFound) {
 			return Job{}, ErrNotFound
 		}
 		return Job{}, err
@@ -158,7 +157,7 @@ func (s *service) UpdateJob(ctx context.Context, req UpdateJobRequest) (Job, err
 	if scheduleType == "" {
 		scheduleType = "cron"
 	}
-	if err := s.store.UpdateJobSchedule(ctx, cronstore.UpdateJobScheduleParams{
+	if err := s.store.UpdateJobSchedule(ctx, contract.CronUpdateJobScheduleParams{
 		ID:            req.ID,
 		Name:          strings.TrimSpace(creq.Name),
 		Prompt:        creq.Prompt,
@@ -187,7 +186,7 @@ func (s *service) SetJobEnabled(ctx context.Context, id string, enabled bool) er
 		return errors.New("cron: id is required")
 	}
 	err := s.store.SetJobEnabled(ctx, id, enabled, s.now().UTC())
-	if errors.Is(err, cronstore.ErrJobNotFound) {
+	if errors.Is(err, contract.ErrCronJobNotFound) {
 		return ErrNotFound
 	}
 	return err
@@ -199,7 +198,7 @@ func (s *service) DeleteJob(ctx context.Context, id string) error {
 		return errors.New("cron: id is required")
 	}
 	err := s.store.DeleteJob(ctx, id)
-	if errors.Is(err, cronstore.ErrJobNotFound) {
+	if errors.Is(err, contract.ErrCronJobNotFound) {
 		return ErrNotFound
 	}
 	return err
@@ -237,7 +236,7 @@ func (s *service) RunOnce(ctx context.Context, jobID string) (Job, error) {
 	}
 	row, err := s.store.GetJobByID(ctx, jobID)
 	if err != nil {
-		if errors.Is(err, cronstore.ErrJobNotFound) {
+		if errors.Is(err, contract.ErrCronJobNotFound) {
 			return Job{}, ErrNotFound
 		}
 		return Job{}, err
@@ -273,10 +272,10 @@ func (s *service) validateCreate(req *CreateJobRequest) error {
 	}
 	provider := strings.TrimSpace(req.Provider)
 	if provider == "" {
-		provider = cronstore.ProviderCodex
+		provider = contract.CronProviderCodex
 		req.Provider = provider
 	}
-	if provider != cronstore.ProviderCodex {
+	if provider != contract.CronProviderCodex {
 		return fmt.Errorf("%w: got %q", ErrProviderNotSupported, req.Provider)
 	}
 	// v1 codex whitelist: identity triple in config must resolve. This
@@ -347,7 +346,7 @@ func marshalSkills(skills []string) ([]byte, error) {
 // ----- row -> DTO mappers -----
 
 // toJob 把存储层记录转换成 cron 领域对象。
-func toJob(row cronstore.Job) Job {
+func toJob(row contract.CronJob) Job {
 	var skills []string
 	if len(row.Skills) > 0 {
 		if err := json.Unmarshal(row.Skills, &skills); err != nil {
@@ -397,7 +396,7 @@ func toJob(row cronstore.Job) Job {
 	}
 }
 
-func toRun(row cronstore.Run) Run {
+func toRun(row contract.CronRun) Run {
 	return Run{
 		ID:             row.ID,
 		JobID:          row.JobID,

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	insightstore "github.com/anthropic-ai/super-agent-v3/internal/store/insight"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 // service is the read-only Service implementation. Writes go through the
@@ -16,7 +16,7 @@ import (
 // is trivially safe to share across goroutines.
 type service struct {
 	logger *pkglogger.Logger
-	store  insightstore.Store
+	store  contract.InsightStore
 }
 
 var _ Service = (*service)(nil)
@@ -24,7 +24,7 @@ var _ Service = (*service)(nil)
 // NewService constructs the Service. A nil logger falls back to the
 // package default.
 // NewService 创建服务。
-func NewService(logger *pkglogger.Logger, store insightstore.Store) Service {
+func NewService(logger *pkglogger.Logger, store contract.InsightStore) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -86,7 +86,7 @@ func (s *service) ListObservedApprovalRequests(ctx context.Context, threadID str
 // toSnapshots maps store.Insight rows into the RPC-facing Snapshot DTOs,
 // keeping the JSON-friendly time formatting + nullable Success in one
 // place so both List methods stay consistent.
-func toSnapshots(rows []insightstore.Insight) []Snapshot {
+func toSnapshots(rows []contract.Insight) []Snapshot {
 	out := make([]Snapshot, len(rows))
 	for i, r := range rows {
 		out[i] = toSnapshot(r)
@@ -95,7 +95,7 @@ func toSnapshots(rows []insightstore.Insight) []Snapshot {
 }
 
 // toSnapshot 把insight处理为快照。
-func toSnapshot(r insightstore.Insight) Snapshot {
+func toSnapshot(r contract.Insight) Snapshot {
 	var skills []string
 	if len(r.SkillsSelected) > 0 {
 		_ = json.Unmarshal(r.SkillsSelected, &skills)

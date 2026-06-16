@@ -13,7 +13,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/memdata"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 type claudeRuleMetadata struct {
@@ -185,7 +185,7 @@ func appendClaudeMdCandidate(candidates *[]claudeMdCandidate, seen map[string]st
 		if err != nil {
 			return fmt.Errorf("ClaudeMd base resolve %q: %w", candidate.BaseDir, err)
 		}
-		if !pathutil.ContainsPath(resolvedBase, resolvedPath) {
+		if !kernel.ContainsPath(resolvedBase, resolvedPath) {
 			return fmt.Errorf("ClaudeMd candidate containment %q under %q: %w", resolvedPath, resolvedBase, memshared.ErrSafeReadContainment)
 		}
 	}

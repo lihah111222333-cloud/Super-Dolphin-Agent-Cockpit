@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 )
 
+// FreezeRegistryAutoFix describes a archtest API type.
 type FreezeRegistryAutoFix struct {
 	Path         string
 	Kind         string

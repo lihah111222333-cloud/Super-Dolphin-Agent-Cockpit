@@ -3,9 +3,10 @@ package wails
 import (
 	"context"
 	"errors"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"os"
 	"strings"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/appupdate"
@@ -19,6 +20,7 @@ import (
 	"go.uber.org/fx"
 )
 
+// Module wires the Wails UI adapter, RPC handlers, and desktop lifecycle hooks.
 var Module = fx.Module("ui.wails",
 	fx.Provide(
 		NewApp,

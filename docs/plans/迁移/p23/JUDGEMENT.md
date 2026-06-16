@@ -130,14 +130,14 @@ R2.1 修订有效，以下问题已基本销账：
 问题：
 
 - P0 若单独启用 watcher claim，会产生 `running + active_wakeup_id` 但无 dispatcher 的半提交死区。
-- P1/P2 actor 文件落点仍与 README/P0 的 `cmd/mcp-orch/orchestration/runtime/*_actor.go` 不一致。
+- P1/P2 actor 文件落点仍与 README/P0 的 `internal/sidecar/orch/orchestration/runtime/*_actor.go` 不一致。
 - `0065_dag_state_machine.sql` 同时承载 P0/P1/P2，但唯一 owner 未硬锁。
 - P0 待办仍与 P3 `StartDAG` 所有权有冲突风险。
 
 **必须修：**
 
 - P0 只落 DDL/CAS/actor skeleton，默认 runtime disabled；P1 ready 后再允许 watcher claim。
-- P1/P2 actor 路径统一到 `cmd/mcp-orch/orchestration/runtime/dispatcher_actor.go` / `reconcile_actor.go`。
+- P1/P2 actor 路径统一到 `internal/sidecar/orch/orchestration/runtime/dispatcher_actor.go` / `reconcile_actor.go`。
 - `0065` 只允许 Phase0/P0 schema owner 修改；P1/P2 不并行抢同一 migration。
 
 ---

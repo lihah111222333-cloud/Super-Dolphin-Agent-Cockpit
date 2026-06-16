@@ -156,9 +156,9 @@ V3 的 typed bus 已覆盖“原始实时事件”层，但还没有覆盖 V2 �
 | V2 需求 | V3 状态 | 证据 |
 | --- | --- | --- |
 | thread list 同步 | 部分具备。已有 `thread/list` 拉取接口，但没有 UI projection store，也没有 `ui/state/get` / `ui/sidebar/get` | `internal/module/thread/rpc.go:42`、`internal/module/thread/rpc.go:48`、`internal/module/thread/rpc.go:52` |
-| agent list 同步 | 部分具备。已有 `agent.list` / `agent.snapshot` / `agent.getState`，但没有统一 `agentRuntimeById` UI 结果层 | `cmd/mcp-orch/orchestration/rpc.go:43`、`cmd/mcp-orch/orchestration/rpc.go:46`、`cmd/mcp-orch/orchestration/rpc.go:49` |
+| agent list 同步 | 部分具备。已有 `agent.list` / `agent.snapshot` / `agent.getState`，但没有统一 `agentRuntimeById` UI 结果层 | `internal/sidecar/orch/orchestration/rpc.go:43`、`internal/sidecar/orch/orchestration/rpc.go:46`、`internal/sidecar/orch/orchestration/rpc.go:49` |
 | turn status 同步 | 原始事件层基本具备；但桥接层只推了 `turn/started` / `turn/completed`，缺少完整 projection 与 payload assembly | `internal/dto/turn/event.go:6`、`internal/platform/rpc/push.go:18`、`internal/platform/rpc/push.go:85` |
-| sidebar/tab 状态 | 缺失。V3 现有 RPC handler 仅分布在 thread/turn/orchestration/skill/workspace 命名空间，`internal/**` 中 `\"ui/` 字面量只出现在 push/Wails bridge 常量 | `internal/module/thread/rpc.go:19`、`internal/module/turn/rpc.go:14`、`cmd/mcp-orch/orchestration/rpc.go:15`、`internal/module/skill/rpc.go:42`、`internal/module/workspace/rpc.go:13`、`internal/platform/rpc/push.go:17`、`internal/ui/wails/bridge.go:17` |
+| sidebar/tab 状态 | 缺失。V3 现有 RPC handler 仅分布在 thread/turn/orchestration/skill/workspace 命名空间，`internal/**` 中 `\"ui/` 字面量只出现在 push/Wails bridge 常量 | `internal/module/thread/rpc.go:19`、`internal/module/turn/rpc.go:14`、`internal/sidecar/orch/orchestration/rpc.go:15`、`internal/module/skill/rpc.go:42`、`internal/module/workspace/rpc.go:13`、`internal/platform/rpc/push.go:17`、`internal/ui/wails/bridge.go:17` |
 | 消息面板实时更新 | 部分具备。已有 `TurnOutputDelta` / `ToolCall*` / `ToolApproval*` typed event，但 bridge 未订阅这些事件，也没有 V2 等价 timeline patch/projection 发布 | `internal/dto/turn/event.go:44`、`internal/dto/tool/event.go:5`、`internal/provider/codexapp/event_map.go:92`、`internal/provider/codexapp/event_map.go:117`、`internal/ui/wails/bridge.go:53`、`internal/platform/rpc/push.go:81` |
 | token usage 实时推送 | 缺失。虽然 `UITokensUpdated` DTO 已定义，但未见发布点；现有 provider translator 也未覆盖 token usage 事件 | `internal/dto/ui/event.go:20`、`internal/platform/bus/sink.go:86`、`internal/provider/codexapp/event_map.go:77`、`internal/provider/claudecli/event_map.go:55` |
 
@@ -185,10 +185,10 @@ V3 的 typed bus 已覆盖“原始实时事件”层，但还没有覆盖 V2 �
 可直接复用：
 
 - provider -> typed event translator：`codexapp` / `claudecli` 已把大量 raw event 提前规范化，能省掉 V2 的整块 `event_normalizer.go` 风格工作量，见 `internal/provider/codexapp/event_map.go:77`、`internal/provider/codexapp/event_map.go:115`、`internal/provider/claudecli/event_map.go:55`、`internal/provider/claudecli/event_map.go:87`。
-- typed bus 和 sink 机制：已有统一 `event.Publish(...)` 和 `LogSink.bindUI()` 订阅口，见 `cmd/mcp-orch/orchestration/events.go:13`、`internal/platform/bus/sink.go:83`。
+- typed bus 和 sink 机制：已有统一 `event.Publish(...)` 和 `LogSink.bindUI()` 订阅口，见 `internal/sidecar/orch/orchestration/events.go:13`、`internal/platform/bus/sink.go:83`。
 - push / Wails bridge 外壳：已有 fanout 和 `bridge-event` 统一出口，见 `internal/platform/rpc/push.go:60`、`internal/platform/rpc/server.go:67`、`internal/ui/wails/bridge.go:81`。
 - workspace 事件与 RPC：V3 已有 workspace run 事件和 `workspace/run/*` RPC，可直接并入 UI state/dashboard 聚合结果，见 `internal/dto/workspace/event.go:6`、`internal/module/workspace/service_helpers.go:229`、`internal/module/workspace/rpc.go:13`。
-- thread / agent 拉取接口：V3 已有 `thread/list`、`thread/read`、`thread/messages`、`agent.list`、`agent.snapshot`，可作为初始快照补数来源，见 `internal/module/thread/rpc.go:42`、`internal/module/thread/rpc.go:48`、`internal/module/thread/rpc.go:52`、`cmd/mcp-orch/orchestration/rpc.go:43`、`cmd/mcp-orch/orchestration/rpc.go:46`。
+- thread / agent 拉取接口：V3 已有 `thread/list`、`thread/read`、`thread/messages`、`agent.list`、`agent.snapshot`，可作为初始快照补数来源，见 `internal/module/thread/rpc.go:42`、`internal/module/thread/rpc.go:48`、`internal/module/thread/rpc.go:52`、`internal/sidecar/orch/orchestration/rpc.go:43`、`internal/sidecar/orch/orchestration/rpc.go:46`。
 
 需要新做：
 
@@ -208,7 +208,7 @@ V3 的 typed bus 已覆盖“原始实时事件”层，但还没有覆盖 V2 �
 
 - V2 同类核心生产代码本体已经达到多文件规模：`runtime_state.go` 552 行、`runtime_timeline.go` 546 行、`event_status.go` 475 行、`event_lifecycle.go` 428 行、`event_normalizer.go` 374 行、`runtime_event_handlers.go` 338 行、`runtime_timeline_plan.go` 330 行、`timeline_tokens.go` 235 行，见 `go-agent-v2/internal/uistate/runtime_state.go:1`、`go-agent-v2/internal/uistate/runtime_timeline.go:1`、`go-agent-v2/internal/uistate/event_status.go:1`、`go-agent-v2/internal/uistate/event_lifecycle.go:1`、`go-agent-v2/internal/uistate/event_normalizer.go:1`、`go-agent-v2/internal/uistate/runtime_event_handlers.go:1`、`go-agent-v2/internal/uistate/runtime_timeline_plan.go:1`、`go-agent-v2/internal/uistate/timeline_tokens.go:1`。
 - V3 已有 typed translator、bus、push bridge、Wails bridge、workspace event/RPC，可以明显缩小“接线成本”，见 `internal/provider/codexapp/event_map.go:77`、`internal/platform/rpc/push.go:60`、`internal/ui/wails/bridge.go:81`、`internal/module/workspace/rpc.go:13`。
-- 但 V3 目前没有 UI projection publisher、也没有 ui/preferences/ui/state/ui/sidebar/dashboard 结果层，所以不可能是几十行补丁级别的工作，见 `internal/dto/ui/event.go:5`、`internal/platform/bus/sink.go:83`、`internal/module/thread/rpc.go:19`、`cmd/mcp-orch/orchestration/rpc.go:15`。
+- 但 V3 目前没有 UI projection publisher、也没有 ui/preferences/ui/state/ui/sidebar/dashboard 结果层，所以不可能是几十行补丁级别的工作，见 `internal/dto/ui/event.go:5`、`internal/platform/bus/sink.go:83`、`internal/module/thread/rpc.go:19`、`internal/sidecar/orch/orchestration/rpc.go:15`。
 
 ### 4.4 与 Dashboard 的关系
 
@@ -233,7 +233,7 @@ V2 注册的 `ui/` 前缀请求方法如下，统一入口见 `go-agent-v2/inter
 
 | V2 方法 | V2 状态 | V3 是否已有 | 对照证据 |
 | --- | --- | --- | --- |
-| `ui/preferences/get` | 已注册 | 否 | V2: `go-agent-v2/internal/apiserver/methods.go:264`; V3 handler 命名空间仅见 `thread` / `turn` / `orchestration` / `skill` / `workspace`，见 `internal/module/thread/rpc.go:19`、`internal/module/turn/rpc.go:14`、`cmd/mcp-orch/orchestration/rpc.go:15`、`internal/module/skill/rpc.go:42`、`internal/module/workspace/rpc.go:13` |
+| `ui/preferences/get` | 已注册 | 否 | V2: `go-agent-v2/internal/apiserver/methods.go:264`; V3 handler 命名空间仅见 `thread` / `turn` / `orchestration` / `skill` / `workspace`，见 `internal/module/thread/rpc.go:19`、`internal/module/turn/rpc.go:14`、`internal/sidecar/orch/orchestration/rpc.go:15`、`internal/module/skill/rpc.go:42`、`internal/module/workspace/rpc.go:13` |
 | `ui/preferences/set` | 已注册 | 否 | V2: `go-agent-v2/internal/apiserver/methods.go:264`; V3 同上 |
 | `ui/preferences/getAll` | 已注册 | 否 | V2: `go-agent-v2/internal/apiserver/methods.go:264`; V3 同上 |
 | `ui/projects/get` | 已注册 | 否 | V2: `go-agent-v2/internal/apiserver/methods.go:265`; V3 同上 |
@@ -243,10 +243,10 @@ V2 注册的 `ui/` 前缀请求方法如下，统一入口见 `go-agent-v2/inter
 | `ui/code/open` | 已注册 | 否 | V2: `go-agent-v2/internal/apiserver/methods.go:266`; V3 同上 |
 | `ui/code/locate` | 已注册 | 否 | V2: `go-agent-v2/internal/apiserver/methods.go:266`; V3 同上 |
 | `ui/code/save` | 已注册 | 否 | V2: `go-agent-v2/internal/apiserver/methods.go:267`; V3 同上 |
-| `ui/dashboard/get` | 已注册 | 否，只有若干可拼装的子接口 | V2: `go-agent-v2/internal/apiserver/methods.go:267`; V3 可复用的子接口见 `cmd/mcp-orch/orchestration/rpc.go:43`、`cmd/mcp-orch/orchestration/rpc.go:61`、`internal/module/workspace/rpc.go:15`、`internal/module/skill/rpc.go:44`、`internal/module/skill/rpc.go:56` |
+| `ui/dashboard/get` | 已注册 | 否，只有若干可拼装的子接口 | V2: `go-agent-v2/internal/apiserver/methods.go:267`; V3 可复用的子接口见 `internal/sidecar/orch/orchestration/rpc.go:43`、`internal/sidecar/orch/orchestration/rpc.go:61`、`internal/module/workspace/rpc.go:15`、`internal/module/skill/rpc.go:44`、`internal/module/skill/rpc.go:56` |
 | `ui/state/get` | 已注册 | 否 | V2: `go-agent-v2/internal/apiserver/methods.go:268`; V3 `internal/**` 中 `\"ui/` 只命中 push/Wails bridge 常量，见 `internal/platform/rpc/push.go:17`、`internal/ui/wails/bridge.go:17` |
 | `ui/sidebar/get` | 已注册 | 否 | V2: `go-agent-v2/internal/apiserver/methods.go:268`; V3 同上 |
-| `ui/log` | 已注册 | 否 | V2: `go-agent-v2/internal/apiserver/methods.go:270`; V3 未见对应 handler，现有 handler 入口仍只在 thread/turn/orchestration/skill/workspace，见 `internal/module/thread/rpc.go:19`、`internal/module/turn/rpc.go:14`、`cmd/mcp-orch/orchestration/rpc.go:15`、`internal/module/skill/rpc.go:42`、`internal/module/workspace/rpc.go:13` |
+| `ui/log` | 已注册 | 否 | V2: `go-agent-v2/internal/apiserver/methods.go:270`; V3 未见对应 handler，现有 handler 入口仍只在 thread/turn/orchestration/skill/workspace，见 `internal/module/thread/rpc.go:19`、`internal/module/turn/rpc.go:14`、`internal/sidecar/orch/orchestration/rpc.go:15`、`internal/module/skill/rpc.go:42`、`internal/module/workspace/rpc.go:13` |
 
 ### 5.2 V2 `ui/` 前缀推送/通知方法
 

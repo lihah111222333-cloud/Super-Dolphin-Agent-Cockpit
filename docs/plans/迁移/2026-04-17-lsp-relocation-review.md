@@ -25,7 +25,7 @@
 | 审查者 | 视角 | 裁决 | 结论摘要 |
 |---|---|---|---|
 | `re-reviewer-A-guard` | 守卫 / spec | 需修复 | `v3-code-guard-spec.md`、`modularity-convention.md` 仍残留 `30/7161`、`44/12000` 等旧数字；`guardlib.go` core 分支存在死代码。 |
-| `re-reviewer-B-plan` | 计划 / 规则设计 | 需修复 | rule10 文案会误伤 `cmd/mcp-orch/orchestration/service.go:20`；Step 2 分组表存在 `edit=0` 等实测错误；rule7 与 `mcp_family_isolation` 有重复维护面。 |
+| `re-reviewer-B-plan` | 计划 / 规则设计 | 需修复 | rule10 文案会误伤 `internal/sidecar/orch/orchestration/service.go:20`；Step 2 分组表存在 `edit=0` 等实测错误；rule7 与 `mcp_family_isolation` 有重复维护面。 |
 | `re-reviewer-C-docsync` | 文档 / 会话收口 | 需修复 | Step 5 需明确补 10 份口径说明、`session-summary` 模板与 review note 目录；`v3-code-guard-spec.md:150` 仍是旧数字；两份会话习惯文档第 71 行口径不一致。 |
 
 ## 3. 问题清单与修复记录

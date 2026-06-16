@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/util/toolresults"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 type ToolResultMeta struct {
@@ -64,7 +64,7 @@ func persistToolResult(meta ToolResultMeta, raw string) string {
 }
 
 func toolResultStorageDir() (string, error) {
-	dir := toolresults.CacheDir()
+	dir := kernel.ToolResultsCacheDir()
 	if dir == "" {
 		return "", errors.New("tool-results: cache base unavailable")
 	}

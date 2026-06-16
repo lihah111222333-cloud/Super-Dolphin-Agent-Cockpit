@@ -8,9 +8,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/historyjsonl"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -40,6 +38,7 @@ func NewSessionResolver(p sessionResolverParams) contract.SessionResolver {
 	}
 }
 
+// ResolveSession resolves a public thread id or agent id to an active provider session.
 func (r *sessionResolver) ResolveSession(ctx context.Context, threadID string) (contract.Session, error) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -211,7 +210,7 @@ func (r *sessionResolver) lookupAutoResumeRuntimeConfig(ctx context.Context, bin
 			continue
 		}
 		if len(ref.RuntimeConfig) > 0 {
-			return clone.RuntimeConfigMap(ref.RuntimeConfig)
+			return kernel.CloneRuntimeConfigMap(ref.RuntimeConfig)
 		}
 	}
 	return nil
@@ -270,10 +269,10 @@ func recoverableAutoResumeProviderThreadID(binding *contract.SessionBinding) (st
 	var lastErr error
 	for _, candidate := range []string{binding.ProviderThreadID, binding.SessionUUID} {
 		providerThreadID := strings.TrimSpace(candidate)
-		if !identifier.LooksLikeUUID(providerThreadID) {
+		if !kernel.LooksLikeUUID(providerThreadID) {
 			continue
 		}
-		if _, err := historyjsonl.ExistingProviderPath(historyjsonl.ReadRequest{
+		if _, err := kernel.ExistingProviderPath(kernel.ProviderHistoryReadRequest{
 			Provider:         binding.Provider,
 			RolloutPath:      binding.RolloutPath,
 			ThreadID:         binding.CodexThreadID,

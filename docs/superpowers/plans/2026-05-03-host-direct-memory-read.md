@@ -5,7 +5,7 @@
 ## 背景与约束
 
 - 迁移前 `memory_write` 已是 host-direct：`internal/platform/toolbridge/memory_write_tool.go` 暴露 schema，`routePrePeerToolCall()` 命中 host tool 后不走 peer。
-- 迁移前 `memory_read` 由 `cmd/mcp-orch/tools/memory_tools.go` 注册，并调用 `cmd/mcp-orch/memory/service.go`；当前实现已移除这条工具注册链路。
+- 迁移前 `memory_read` 由 `internal/sidecar/orch/tools/memory_tools.go` 注册，并调用 `cmd/mcp-orch/memory/service.go`；当前实现已移除这条工具注册链路。
 - 目标是全量 host-direct：agent-terminal 内 `memory_read` 只能来自 app host registry，不得继续通过 mcp-orch peer 暴露或调用。
 - 必须保持：
   - `cmd/mcp-orch` 不再注册 `memory_read` / `memory_write`。
@@ -83,9 +83,9 @@
 ### Task 1: mcp-orch 不再暴露 memory tools
 
 **Files:**
-- Modify: `cmd/mcp-orch/tools/memory_tools.go`
-- Modify: `cmd/mcp-orch/tools/memory_tools_test.go`
-- Modify: `cmd/mcp-orch/tools/registry.go`
+- Modify: `internal/sidecar/orch/tools/memory_tools.go`
+- Modify: `internal/sidecar/orch/tools/memory_tools_test.go`
+- Modify: `internal/sidecar/orch/tools/registry.go`
 - Modify: `cmd/mcp-orch/runtime.go`
 - Modify/Delete: `cmd/mcp-orch/runtime_memory_test.go`
 - Potentially delete: `cmd/mcp-orch/memory/*` if no remaining imports depend on it
@@ -109,7 +109,7 @@ func TestMemoryToolDefinitionsExposeNoMemoryTools(t *testing.T) {
 Run:
 
 ```bash
-go test ./cmd/mcp-orch/tools -run TestMemoryToolDefinitionsExposeNoMemoryTools -count=1 -v
+go test ./internal/sidecar/orch/tools -run TestMemoryToolDefinitionsExposeNoMemoryTools -count=1 -v
 ```
 
 Expected: FAIL because `memory_read` is still registered.
@@ -140,11 +140,11 @@ Expected: FAIL。
 - [ ] **Step 3: 最小实现 — 移除 mcp-orch memory tool assembly**
 
 修改点：
-- `cmd/mcp-orch/tools/registry.go` 不再 append `memoryToolDefinitions(deps.Memory)`。
-- `cmd/mcp-orch/tools.Dependencies` 删除 `Memory contract.MemoryService` 字段；旧 `cmd/mcp-orch/memory` 包若暂留，只能作为未装配 legacy seam，不能参与 registry/runtime 装配。
+- `internal/sidecar/orch/tools/registry.go` 不再 append `memoryToolDefinitions(deps.Memory)`。
+- `internal/sidecar/orch/tools.Dependencies` 删除 `Memory contract.MemoryService` 字段；旧 `cmd/mcp-orch/memory` 包若暂留，只能作为未装配 legacy seam，不能参与 registry/runtime 装配。
 - `cmd/mcp-orch/runtime.go` 删除 memory service 参数与 `memory.NewService(...)` assembly 接线。
 - `newRegistry(...)` 删除 memory 参数位，并同步所有调用点。
-- `cmd/mcp-orch/tools/memory_tools.go` 删除或让 `memoryToolDefinitions` 不再被引用；若文件无引用则删除。
+- `internal/sidecar/orch/tools/memory_tools.go` 删除或让 `memoryToolDefinitions` 不再被引用；若文件无引用则删除。
 - `cmd/mcp-orch/memory/*` 若没有剩余 import，本任务删除；若因测试/其它非工具路径暂留，必须确认它不被 runtime/registry 装配。
 
 不要把 `memory_write` 注册回 mcp-orch。
@@ -154,7 +154,7 @@ Expected: FAIL。
 Run:
 
 ```bash
-go test ./cmd/mcp-orch/tools ./cmd/mcp-orch -run 'Memory|memory|ToolsList|ToolCall' -count=1 -v
+go test ./internal/sidecar/orch/tools ./cmd/mcp-orch -run 'Memory|memory|ToolsList|ToolCall' -count=1 -v
 ```
 
 Expected: PASS。
@@ -642,7 +642,7 @@ Run:
 ```bash
 go test ./internal/contract -count=1
 
-go test ./cmd/mcp-orch/tools ./cmd/mcp-orch \
+go test ./internal/sidecar/orch/tools ./cmd/mcp-orch \
   -run 'Memory|memory|ToolsList|ToolCall' \
   -count=1 -v
 
@@ -654,10 +654,10 @@ go test ./internal/platform/toolbridge \
   -run 'TestMemoryReadHostToolRegistry|TestCompositeHostToolRegistry|TestListToolsForCodex|TestProxyToolsList|TestProxyToolCall' \
   -count=1 -v
 
-go test ./internal/platform/toolbridge ./internal/module/memory ./internal/provider/codexapp ./internal/provider/claudecli ./internal/provider/unified ./cmd/mcp-orch/tools ./cmd/mcp-orch \
+go test ./internal/platform/toolbridge ./internal/module/memory ./internal/provider/codexapp ./internal/provider/claudecli ./internal/provider/unified ./internal/sidecar/orch/tools ./cmd/mcp-orch \
   -count=1
 
-go vet ./internal/platform/toolbridge ./internal/module/memory ./internal/provider/codexapp ./internal/provider/claudecli ./internal/provider/unified ./cmd/mcp-orch/tools ./cmd/mcp-orch
+go vet ./internal/platform/toolbridge ./internal/module/memory ./internal/provider/codexapp ./internal/provider/claudecli ./internal/provider/unified ./internal/sidecar/orch/tools ./cmd/mcp-orch
 
 ./scripts/test_with_guard.sh --guard-only
 ```
@@ -675,7 +675,7 @@ Run:
 ```bash
 rg 'internal/module/memory' internal/platform/toolbridge || true
 rg 'cmd/mcp-orch/memory' internal/module/memory internal/platform/toolbridge || true
-rg 'memory_read|memory_write' cmd/mcp-orch/tools cmd/mcp-orch/runtime.go || true
+rg 'memory_read|memory_write' internal/sidecar/orch/tools cmd/mcp-orch/runtime.go || true
 git diff --stat
 git status --short --branch
 ```

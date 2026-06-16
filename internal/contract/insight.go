@@ -2,7 +2,9 @@ package contract
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"time"
 )
 
 // InsightService is the read-side facade for turn-level metrics.
@@ -15,6 +17,127 @@ type InsightService interface {
 
 // ErrInsightInvalidLimit is a sentinel for callers that pass a negative limit.
 var ErrInsightInvalidLimit = errors.New("insight: limit must be >= 0")
+
+const (
+	// InsightStatusUnknown is the default status when a turn has no terminal
+	// observation yet.
+	InsightStatusUnknown = "unknown"
+	// InsightStatusCompleted marks a successful completed turn.
+	InsightStatusCompleted = "completed"
+	// InsightStatusInterrupted marks a user-interrupted turn.
+	InsightStatusInterrupted = "interrupted"
+	// InsightStatusAborted marks an aborted turn.
+	InsightStatusAborted = "aborted"
+	// InsightStatusFailed marks a failed turn.
+	InsightStatusFailed = "failed"
+	// InsightStatusStalled marks a stalled turn.
+	InsightStatusStalled = "stalled"
+)
+
+var (
+	// ErrInsightNotFound reports that no session insight row matched a lookup.
+	ErrInsightNotFound = errors.New("insight: session insight not found")
+	// ErrInsightEmptyID reports a missing insight identity.
+	ErrInsightEmptyID = errors.New("insight: id is required")
+)
+
+// InsightStore persists turn-level aggregate metrics.
+type InsightStore interface {
+	Upsert(ctx context.Context, params InsightUpsertParams) (Insight, error)
+	GetByLocalTurn(ctx context.Context, threadID, localTurnID string) (Insight, error)
+	ListByThread(ctx context.Context, threadID string, limit int32) ([]Insight, error)
+	ListRecent(ctx context.Context, limit int32) ([]Insight, error)
+	ListObservedApprovalRequests(ctx context.Context, threadID string, limit int32) ([]InsightApprovalRow, error)
+	ListObservedTokenTurns(ctx context.Context, threadID string, limit int32) ([]InsightTokenRow, error)
+}
+
+// Insight is the per-turn aggregate stored by the insight persistence port.
+type Insight struct {
+	ID                       int64
+	ThreadID                 string
+	AgentID                  string
+	SessionID                string
+	Provider                 string
+	LocalTurnID              string
+	ProviderTurnID           string
+	StartedAt                time.Time
+	CompletedAt              time.Time
+	DurationMS               int32
+	Success                  *bool
+	Status                   string
+	StopReason               string
+	ToolCalls                int32
+	ToolCallsObserved        bool
+	ToolFailures             int32
+	ToolFailuresObserved     bool
+	ApprovalRequests         int32
+	ApprovalRequestsObserved bool
+	TokenInput               int32
+	TokenOutput              int32
+	TokenTotal               int32
+	TokenSnapshotObserved    bool
+	ContextWindowTokens      int32
+	UIProjection             string
+	SkillsSelected           json.RawMessage
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+}
+
+// InsightUpsertParams drives InsightStore.Upsert.
+type InsightUpsertParams struct {
+	ThreadID                 string
+	AgentID                  string
+	SessionID                string
+	Provider                 string
+	LocalTurnID              string
+	ProviderTurnID           string
+	StartedAt                time.Time
+	CompletedAt              time.Time
+	DurationMS               int32
+	Success                  *bool
+	Status                   string
+	StopReason               string
+	ToolCalls                int32
+	ToolCallsObserved        bool
+	ToolFailures             int32
+	ToolFailuresObserved     bool
+	ApprovalRequests         int32
+	ApprovalRequestsObserved bool
+	TokenInput               int32
+	TokenOutput              int32
+	TokenTotal               int32
+	TokenSnapshotObserved    bool
+	ContextWindowTokens      int32
+	UIProjection             string
+	SkillsSelected           json.RawMessage
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+}
+
+// InsightApprovalRow is the persistence projection for approval metrics.
+type InsightApprovalRow struct {
+	ID               int64
+	ThreadID         string
+	AgentID          string
+	LocalTurnID      string
+	ProviderTurnID   string
+	ApprovalRequests int32
+	CreatedAt        time.Time
+}
+
+// InsightTokenRow is the persistence projection for token metrics.
+type InsightTokenRow struct {
+	ID                  int64
+	ThreadID            string
+	AgentID             string
+	LocalTurnID         string
+	ProviderTurnID      string
+	TokenInput          int32
+	TokenOutput         int32
+	TokenTotal          int32
+	ContextWindowTokens int32
+	CreatedAt           time.Time
+}
 
 // InsightSnapshot is the read-side projection of a session_insights row.
 type InsightSnapshot struct {

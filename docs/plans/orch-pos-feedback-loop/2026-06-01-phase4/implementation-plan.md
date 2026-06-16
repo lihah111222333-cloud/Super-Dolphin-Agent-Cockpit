@@ -55,6 +55,6 @@ Rules:
 
 ## Verification
 
-- Add focused tests in `cmd/mcp-orch/tools`.
-- Run `go test ./cmd/mcp-orch/tools -count=1`.
+- Add focused tests in `internal/sidecar/orch/tools`.
+- Run `go test ./internal/sidecar/orch/tools -count=1`.
 - Run `go test ./cmd/mcp-orch/... -count=1` for residual awareness.

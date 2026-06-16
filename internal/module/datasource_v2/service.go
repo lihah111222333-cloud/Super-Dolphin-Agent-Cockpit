@@ -15,7 +15,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	datasourcev2store "github.com/anthropic-ai/super-agent-v3/internal/store/datasourcev2"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 const datasourceV2ChunkTargetBytes = 64 * 1024
@@ -55,12 +55,12 @@ type ImportFileTextResult struct {
 }
 
 type service struct {
-	store datasourcev2store.Store
+	store contract.DatasourceV2Store
 }
 
 // NewService 创建 datasource_v2 service。
 // store 必须由 fx 注入；如果缺失，调用导入接口会 fail-fast 返回配置错误。
-func NewService(store datasourcev2store.Store) Service {
+func NewService(store contract.DatasourceV2Store) Service {
 	return &service{store: store}
 }
 
@@ -93,9 +93,9 @@ func (s *service) requireStore() error {
 
 // importSourceText 用 store 事务包住一次完整导入。
 // imported 只在事务回调全部成功后返回，避免调用方拿到未标记 ready 的文档。
-func (s *service) importSourceText(ctx context.Context, source importSource) (*datasourcev2store.Document, error) {
-	var imported *datasourcev2store.Document
-	err := s.store.WithTx(ctx, func(txStore datasourcev2store.Store) error {
+func (s *service) importSourceText(ctx context.Context, source importSource) (*contract.DatasourceV2Document, error) {
+	var imported *contract.DatasourceV2Document
+	err := s.store.WithTx(ctx, func(txStore contract.DatasourceV2Store) error {
 		ready, err := importSourceTextInTx(ctx, txStore, source)
 		if err != nil {
 			return err
@@ -116,10 +116,10 @@ func (s *service) importSourceText(ctx context.Context, source importSource) (*d
 // 任一步失败都必须向上返回错误，让事务 runner 回滚旧版本不被破坏。
 func importSourceTextInTx(
 	ctx context.Context,
-	txStore datasourcev2store.Store,
+	txStore contract.DatasourceV2Store,
 	source importSource,
-) (*datasourcev2store.Document, error) {
-	doc, err := txStore.UpsertImporting(ctx, datasourcev2store.UpsertDocumentParams{
+) (*contract.DatasourceV2Document, error) {
+	doc, err := txStore.UpsertImporting(ctx, contract.DatasourceV2UpsertDocumentParams{
 		SourcePath: source.path,
 		FileName:   source.fileName,
 		Extension:  source.extension,
@@ -135,7 +135,7 @@ func importSourceTextInTx(
 	if err != nil {
 		return nil, err
 	}
-	return txStore.MarkReady(ctx, datasourcev2store.MarkReadyParams{
+	return txStore.MarkReady(ctx, contract.DatasourceV2MarkReadyParams{
 		DocumentID:  doc.ID,
 		ContentHash: summary.contentHash,
 		ChunkCount:  summary.chunkCount,
@@ -197,7 +197,7 @@ func writeTextChunks(
 	ctx context.Context,
 	sourcePath string,
 	documentID int64,
-	store datasourcev2store.Store,
+	store contract.DatasourceV2Store,
 ) (summary chunkWriteSummary, err error) {
 	file, err := os.Open(sourcePath)
 	if err != nil {
@@ -256,7 +256,7 @@ func readTextRune(reader *bufio.Reader) (rune, bool, error) {
 
 type chunkWriter struct {
 	documentID int64
-	store      datasourcev2store.Store
+	store      contract.DatasourceV2Store
 	hash       hashWriter
 	builder    strings.Builder
 	chunkIndex int32
@@ -270,7 +270,7 @@ type hashWriter interface {
 	Sum([]byte) []byte
 }
 
-func newChunkWriter(documentID int64, store datasourcev2store.Store) *chunkWriter {
+func newChunkWriter(documentID int64, store contract.DatasourceV2Store) *chunkWriter {
 	return &chunkWriter{
 		documentID: documentID,
 		store:      store,
@@ -313,7 +313,7 @@ func (w *chunkWriter) flush(ctx context.Context) error {
 	if w.chunkIndex == math.MaxInt32 {
 		return errDatasourceV2TextTooLarge
 	}
-	if err := w.store.InsertChunk(ctx, datasourcev2store.InsertChunkParams{
+	if err := w.store.InsertChunk(ctx, contract.DatasourceV2InsertChunkParams{
 		DocumentID: w.documentID,
 		ChunkIndex: w.chunkIndex,
 		Content:    w.builder.String(),
@@ -343,7 +343,7 @@ func (w *chunkWriter) summary() (chunkWriteSummary, error) {
 	}, nil
 }
 
-func importFileTextResult(doc datasourcev2store.Document) ImportFileTextResult {
+func importFileTextResult(doc contract.DatasourceV2Document) ImportFileTextResult {
 	return ImportFileTextResult{
 		DocumentID:  doc.ID,
 		SourcePath:  doc.SourcePath,

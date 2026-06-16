@@ -17,7 +17,7 @@
 }
 ```
 
-`command_ref` 指向 `command_get` 注册表，本质是 Super-Dolphin 自身的命令卡。command_card 已支持 `CommandTemplate` 字符串（见 `cmd/mcp-orch/tools/command_tools.go`），实际上能承载一定 shell-style 表达力；但这些模板仅限注册表内预定义命令，与 §1 "所有自动化能力" 之间仍存在张力：
+`command_ref` 指向 `command_get` 注册表，本质是 Super-Dolphin 自身的命令卡。command_card 已支持 `CommandTemplate` 字符串（见 `internal/sidecar/orch/tools/command_tools.go`），实际上能承载一定 shell-style 表达力；但这些模板仅限注册表内预定义命令，与 §1 "所有自动化能力" 之间仍存在张力：
 - webhook（HTTP POST 到外部系统）
 - shell（执行任意命令——及“用 command_card 包装 shell”以外的任意脚本）
 - http（GET / POST 任意 URL，含 response 解析）
@@ -105,7 +105,7 @@
 
 ### 实装路径
 
-1. **F2.0（schema kind 字段位返修，先行）**：S5.1 typed schema 已 done 但没加 Kind 字段，本属 drift。F2.0 给 `AutomationExecConfig` 加 `Kind string `json:"kind,omitempty"`` 字段位 + `ParseAutomationConfig` 兜底「未知 kind → fail-fast 拒绝」+ 「空 kind → 默认填 command_card」。实装位 `cmd/mcp-orch/orchestration/nodeexec/config.go`。
+1. **F2.0（schema kind 字段位返修，先行）**：S5.1 typed schema 已 done 但没加 Kind 字段，本属 drift。F2.0 给 `AutomationExecConfig` 加 `Kind string `json:"kind,omitempty"`` 字段位 + `ParseAutomationConfig` 兜底「未知 kind → fail-fast 拒绝」+ 「空 kind → 默认填 command_card」。实装位 `internal/sidecar/orch/orchestration/nodeexec/config.go`。
 2. **F2.1（AutomationExecutor 实装）**：仅识别 `kind="command_card"`，其他 kind 返 `unsupported automation.kind: <kind>` 错误。
 3. **后续 kind 渐进开通**：每种 kind 独立 ADR-007a/b/c 子节点 + 守门规则（详 §3）。webhook → http → shell 顺序。
 

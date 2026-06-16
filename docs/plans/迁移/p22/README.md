@@ -41,7 +41,7 @@
 | **[P1c](P1c_CodexAppSessionRuntime.md)** | CodexApp session runtime 收口 | session read/health/recovery hidden runtime | 1-2 天 | ✅ 已收口（4dfed68 + 366c702，SessionRuntime 接管 readLoop/healthLoop）|
 | **[P2](P2_BusRuntimeDecoupling.md)** | bus/runtime 解耦 | Finding 5, 6, 7, 9, 10 + thread/hooks/toolbridge/config fanout/keepalive/rpc push/memory hook/gopls/bootstrap runtime 遗留问题 | 2.5-5 天 | ✅ 已收口（Finding 5–10 + thread/hooks/keepalive/rpc push/memory + gopls-S1/S2/S3（549beba/8406372/35ce09b）+ bootstrap-S1/S2（a524f6c/9a8a609））|
 | **[P3](P3_OrchestrationWaiterAlignment.md)** | orchestration wait/exit 归位 | Finding 8 | 1-1.5 天 | ✅ 已收口（processExitMonitor 单 owner + 守卫）|
-| **[P4](P4_DependencyDirectionAndHiddenContracts.md)** | 依赖方向与隐藏契约收口 | `ui/wails`、`provider/claudecli`、`toolbridge`、`cmd/mcp-orch/orchestration`、`thread/turn` 的模块边界/隐藏 contract 违规 | 2-4 天 | ✅ 已收口（S1..S4c6 + S5a/S5b；最后 commit 1226cc4）|
+| **[P4](P4_DependencyDirectionAndHiddenContracts.md)** | 依赖方向与隐藏契约收口 | `ui/wails`、`provider/claudecli`、`toolbridge`、`internal/sidecar/orch/orchestration`、`thread/turn` 的模块边界/隐藏 contract 违规 | 2-4 天 | ✅ 已收口（S1..S4c6 + S5a/S5b；最后 commit 1226cc4）|
 
 ## Findings 对照表
 
@@ -54,7 +54,7 @@
 | 5 | `P2` | `internal/module/memory/module.go:456-467` 的 TeamSync runtime ownership 落在 bus 回调 |
 | 6 | `P2` | `internal/module/memory/team/team_sync_watcher.go:72-79` 的 watcher 主循环脱离 `run.Group` |
 | 7 | `P2` | `internal/module/memory/auto_dream_task.go:156-178` 的 auto-dream 调度塞进事件回调 |
-| 8 | `P3` | `cmd/mcp-orch/orchestration/process_lifecycle.go:220-239` 的 actor 内再起 waiter goroutine |
+| 8 | `P3` | `internal/sidecar/orch/orchestration/process_lifecycle.go:220-239` 的 actor 内再起 waiter goroutine |
 | 9 | `P2` | `internal/platform/toolbridge/module.go:130-159` 的 proxy `OnStart -> go ServeProxy(...)` |
 | 10 | `P2` | `internal/module/memory/module.go:435-437 + internal/module/memory/nested/nested_runtime.go:314-339` 的 NestedRuntime tool-read 回调经 helper 同步读盘 |
 

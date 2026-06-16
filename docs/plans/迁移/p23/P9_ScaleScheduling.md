@@ -14,13 +14,13 @@
 
 | 瓶颈点 | N=1000 影响 | file:line | 建议方向 |
 |---|---|---|---|
-| DAG 创建 | 单事务内 1000 次 `UpsertNode` + 全量 load，O(N) 串行 | `cmd/mcp-orch/orchestration/dag.go:109-126,202-208,211-220`、`cmd/mcp-orch/sql/queries/task_dag_node_write.sql:1-12` | 拆批 / async / streaming |
+| DAG 创建 | 单事务内 1000 次 `UpsertNode` + 全量 load，O(N) 串行 | `internal/sidecar/orch/orchestration/dag.go:109-126,202-208,211-220`、`internal/sidecar/orch/sql/queries/task_dag_node_write.sql:1-12` | 拆批 / async / streaming |
 | ready 计算 | JSONB `depends_on` 扫描，最坏 O(N²) | `migrations/0004_ack_dag.sql:58-62,70-71` | partial index `(dag_key, id) WHERE status='pending'` + 依赖计数列 |
-| wakeup 表 | 5000 行/DAG，多 DAG 后 M 快速膨胀，无 GC | `migrations/0023_dag_watcher_phase1.sql:9-36`、`cmd/mcp-orch/sql/queries/task_dag_wakeup_query.sql:1-16` | TTL / DAG archive / 分区 |
-| launcher | 当前无固定并发上限，百 agent 会直接并发打到下游 | `cmd/mcp-orch/orchestration/service_launcher_bridge.go` | 若未来需要容量治理，必须显式设计全局 token bucket / provider quota，而不是恢复硬编码上限 |
-| hook 风暴 | `OnTurnCompleted` 同步 dispatch | `cmd/mcp-orch/orchestration/hook_consumer.go:105-116,260-275,285-294` | non-blocking enqueue + worker pool + bounded queue |
-| 状态存储 | `result jsonb` 承载 verifier/tool log，行膨胀 | `migrations/0004_ack_dag.sql:62`、`cmd/mcp-orch/sql/queries/task_dag_node_read.sql:1-18` | result 只存摘要，详细日志 spillover |
-| 全量锁读 | `GetNodesForUpdate` 锁整 DAG | `cmd/mcp-orch/sql/queries/task_dag_node_read.sql:13-18`、`cmd/mcp-orch/store/taskdag/store.go:100-103` | claim 小批 ready，`SKIP LOCKED` |
+| wakeup 表 | 5000 行/DAG，多 DAG 后 M 快速膨胀，无 GC | `migrations/0023_dag_watcher_phase1.sql:9-36`、`internal/sidecar/orch/sql/queries/task_dag_wakeup_query.sql:1-16` | TTL / DAG archive / 分区 |
+| launcher | 当前无固定并发上限，百 agent 会直接并发打到下游 | `internal/sidecar/orch/orchestration/service_launcher_bridge.go` | 若未来需要容量治理，必须显式设计全局 token bucket / provider quota，而不是恢复硬编码上限 |
+| hook 风暴 | `OnTurnCompleted` 同步 dispatch | `internal/sidecar/orch/orchestration/hook_consumer.go:105-116,260-275,285-294` | non-blocking enqueue + worker pool + bounded queue |
+| 状态存储 | `result jsonb` 承载 verifier/tool log，行膨胀 | `migrations/0004_ack_dag.sql:62`、`internal/sidecar/orch/sql/queries/task_dag_node_read.sql:1-18` | result 只存摘要，详细日志 spillover |
+| 全量锁读 | `GetNodesForUpdate` 锁整 DAG | `internal/sidecar/orch/sql/queries/task_dag_node_read.sql:13-18`、`internal/sidecar/orch/store/taskdag/store.go:100-103` | claim 小批 ready，`SKIP LOCKED` |
 
 ## 推荐架构
 
@@ -32,13 +32,13 @@ P9 提供统一容量控制层：ready claim 小批 `SKIP LOCKED`、bounded queu
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| ready claim SQL | `cmd/mcp-orch/sql/queries/task_dag_node_read.sql` / runtime queries | `FOR UPDATE SKIP LOCKED LIMIT K`；禁止整 DAG 锁读 |
-| scheduler fairness | `cmd/mcp-orch/orchestration/runtime/scheduler_queue.go` [NEW] | `queue_policy` enum 映射 weighted fair / tenant fair / DAG share / priority aging |
-| token bucket | `cmd/mcp-orch/orchestration/runtime/token_bucket.go` [NEW] | global/tenant/DAG/workload 四级 min；verifier/swarm/launcher 共用 |
-| budget ledger | `cmd/mcp-orch/store/dagbudget/*.go` [NEW] | launch/spawn/swarm/repair/storage spend reservation、refund、hard stop |
-| hook queues | `cmd/mcp-orch/orchestration/hook_consumer.go`（扩展） | durable terminal/reconcile/validation；progress coalesce/drop with metric |
-| metrics | `cmd/mcp-orch/orchestration/runtime/metrics.go` [NEW] + promhttp wiring | 输出 lag/depth/p99/budget；promhttp 不可用时 scheduled-audit fallback |
-| archive/spillover | `cmd/mcp-orch/store/taskdag/*.go` + archive migrations | result summary cap、blob ref、TTL/archive union pagination |
+| ready claim SQL | `internal/sidecar/orch/sql/queries/task_dag_node_read.sql` / runtime queries | `FOR UPDATE SKIP LOCKED LIMIT K`；禁止整 DAG 锁读 |
+| scheduler fairness | `internal/sidecar/orch/orchestration/runtime/scheduler_queue.go` [NEW] | `queue_policy` enum 映射 weighted fair / tenant fair / DAG share / priority aging |
+| token bucket | `internal/sidecar/orch/orchestration/runtime/token_bucket.go` [NEW] | global/tenant/DAG/workload 四级 min；verifier/swarm/launcher 共用 |
+| budget ledger | `internal/sidecar/orch/store/dagbudget/*.go` [NEW] | launch/spawn/swarm/repair/storage spend reservation、refund、hard stop |
+| hook queues | `internal/sidecar/orch/orchestration/hook_consumer.go`（扩展） | durable terminal/reconcile/validation；progress coalesce/drop with metric |
+| metrics | `internal/sidecar/orch/orchestration/runtime/metrics.go` [NEW] + promhttp wiring | 输出 lag/depth/p99/budget；promhttp 不可用时 scheduled-audit fallback |
+| archive/spillover | `internal/sidecar/orch/store/taskdag/*.go` + archive migrations | result summary cap、blob ref、TTL/archive union pagination |
 | archtest | `internal/archtest/dag_scale_scheduling_test.go` [NEW] | 禁止无界 channel、整 DAG lock、未知 queue_policy fallback |
 
 **已知关键改动方向**：

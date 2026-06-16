@@ -47,7 +47,7 @@
   - `internal/provider/unified/session.go:60-116`
   - `internal/provider/unified/module.go:33-43`
 - orchestration 的 stop 路径会调用 `RemoveSession(agentID)`，这部分是闭合的。证据：
-  - `cmd/mcp-orch/orchestration/service.go:104-153`
+  - `internal/sidecar/orch/orchestration/service.go:104-153`
   - `internal/provider/unified/session_adapter.go:34-39`
 
 ### 未对齐点

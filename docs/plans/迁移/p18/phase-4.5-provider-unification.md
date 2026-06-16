@@ -349,10 +349,10 @@ PromptAssemblyService.AssembleTurn()
 | internal/provider/unified/client.go | 30-68 | 统一 driver 分发 |
 | internal/contract/provider.go | 10-39 | provider 接口定义 |
 | internal/contract/orchestration.go | 46-55 | orchestration LaunchRequest |
-| cmd/mcp-orch/orchestration/rpc.go | 131-142 | launchRequestFromParams |
-| cmd/mcp-orch/orchestration/launcher.go | 141-178 | remote launcher → thread/start |
-| cmd/mcp-orch/tools/orchestration_tools.go | 33-53 | orchestration_launch_agent MCP 入口 |
-| cmd/mcp-orch/tools/orchestration_tools.go | 127-150 | 子 agent launch request builder |
+| internal/sidecar/orch/orchestration/rpc.go | 131-142 | launchRequestFromParams |
+| internal/sidecar/orch/orchestration/launcher.go | 141-178 | remote launcher → thread/start |
+| internal/sidecar/orch/tools/orchestration_tools.go | 33-53 | orchestration_launch_agent MCP 入口 |
+| internal/sidecar/orch/tools/orchestration_tools.go | 127-150 | 子 agent launch request builder |
 
 ---
 

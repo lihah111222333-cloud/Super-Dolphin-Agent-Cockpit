@@ -8,10 +8,10 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
+// SendCommand dispatches supported slash commands to the active provider session.
 // NOTE(P8): 这里仍处在过渡态；provider-neutral Session 只暴露 Configure /
 // Interrupt 等少量 typed surface，所以 SendCommand 目前只对高频命令做结构化
 // 处理，其余命令保留低频兼容壳。`thread/skills/list` 返回线程绑定的 active
@@ -135,7 +135,7 @@ func sendConfigPatchCommand(
 func sendInterruptCommand(
 	ctx context.Context,
 	session contract.Session,
-	binding *bindingstore.Binding,
+	binding *contract.Binding,
 	threadID string,
 	args string,
 ) (threadCommandResult, error) {
@@ -172,7 +172,7 @@ func providerLabel(provider string) string {
 	return "active"
 }
 
-func bindingProvider(binding *bindingstore.Binding) string {
+func bindingProvider(binding *contract.Binding) string {
 	if binding == nil {
 		return providerLabel("")
 	}
@@ -196,7 +196,7 @@ func (s *service) GetConfig(ctx context.Context, threadID string) (dto.ThreadCon
 	return s.normalizeThreadConfig(ctx, threadID, binding, cfg), nil
 }
 
-func (s *service) configForUnresolvedSession(ctx context.Context, threadID string, binding *bindingstore.Binding, resolveErr error) (dto.ThreadConfig, error) {
+func (s *service) configForUnresolvedSession(ctx context.Context, threadID string, binding *contract.Binding, resolveErr error) (dto.ThreadConfig, error) {
 	cfg, handled, offlineErr := s.pendingLaunchOfflineConfig(ctx, threadID, resolveErr)
 	if offlineErr != nil {
 		return dto.ThreadConfig{}, offlineErr
@@ -217,7 +217,7 @@ func (s *service) configForUnresolvedSession(ctx context.Context, threadID strin
 func (s *service) offlineConfigForMissingSession(
 	ctx context.Context,
 	threadID string,
-	binding *bindingstore.Binding,
+	binding *contract.Binding,
 	resolveErr error,
 ) (dto.ThreadConfig, bool, error) {
 	if !errors.Is(resolveErr, contract.ErrSessionNotFound) {
@@ -240,7 +240,7 @@ func (s *service) offlineConfigForMissingSession(
 func (s *service) offlineRuntimeConfigForMissingSession(
 	ctx context.Context,
 	threadID string,
-	binding *bindingstore.Binding,
+	binding *contract.Binding,
 	resolveErr error,
 ) (map[string]any, bool, error) {
 	if !errors.Is(resolveErr, contract.ErrSessionNotFound) {
@@ -257,7 +257,7 @@ func (s *service) offlineRuntimeConfigForMissingSession(
 	if err != nil {
 		return nil, false, err
 	}
-	return clone.RuntimeConfigMap(offline.Runtime), true, nil
+	return kernel.CloneRuntimeConfigMap(offline.Runtime), true, nil
 }
 
 func (s *service) pendingLaunchOfflineConfig(

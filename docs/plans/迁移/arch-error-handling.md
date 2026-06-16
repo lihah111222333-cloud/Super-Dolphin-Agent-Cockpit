@@ -161,7 +161,7 @@ RPC 路由侧也没有把这些错误统一映射成专门的 RPC 码：
 | --- | --- |
 | `internal/app/runner.go` | `:52` `_ = p.Shutdowner.Shutdown()` |
 | `internal/dto/shared/ids.go` | `:12` `_, _ = rand.Read(buf)` |
-| `cmd/mcp-orch/orchestration/service.go` | `:257` `_ = stopProcess(cmd)` |
+| `internal/sidecar/orch/orchestration/service.go` | `:257` `_ = stopProcess(cmd)` |
 | `internal/module/skill/exec.go` | `:173` `_, _ = b.buf.Write(p)` |
 | `internal/module/skill/skills_fs.go` | `:255` `_ = os.RemoveAll(target)` |
 | `internal/module/thread/command.go` | `:207` `_ = s.upsertThread(ctx, *thread)` |
@@ -280,7 +280,7 @@ repo 内当前有两类订阅方式：
 | --- | --- |
 | `internal/provider/claudecli/transport_config.go:23-47` + `internal/provider/claudecli/transport.go:33-63` | `launchCLI -> newTransport -> exec.Command` 整条 Claude CLI 启动链没有 ctx 参数；`internal/provider/claudecli/driver.go:87-99` 只在进入前检查一次 `ctx.Err()`，无法取消实际启动过程。 |
 | `internal/provider/codexapp/session.go:75-104` + `internal/provider/codexapp/transport.go:63-76` + `internal/provider/codexapp/transport.go:170-190` | `newSession` 不接收 ctx；内部 `newTransport` 用 `context.Background()` 做 15 秒 connect，`spawnLocal` 也用 `exec.Command` 启本地 `codex app-server`，调用方无法取消构造阶段。 |
-| `cmd/mcp-orch/orchestration/service.go:234-264` + `cmd/mcp-orch/orchestration/helpers.go:303-308` | agent 进程启动 `exec.Command` 无 ctx；停止路径直接 `Process.Kill()`，没有 ctx 控制的优雅退出窗口。 |
+| `internal/sidecar/orch/orchestration/service.go:234-264` + `internal/sidecar/orch/orchestration/helpers.go:303-308` | agent 进程启动 `exec.Command` 无 ctx；停止路径直接 `Process.Kill()`，没有 ctx 控制的优雅退出窗口。 |
 | `internal/platform/db/module.go:19-26` | `pgxpool.NewWithConfig(context.Background(), poolCfg)` 在建连阶段不吃 lifecycle ctx。 |
 | `internal/platform/rpc/push.go:68-90` | event push 到 RPC client 时统一用 `context.Background()` 调 `NotifyClient` / `NotifyAll`，不继承请求 ctx，也没有独立 timeout。 |
 | `internal/platform/rpc/module.go:79-85` | late connect 时 `approvals.RestorePending(context.Background(), bridge, current)` 不继承 lifecycle / connect ctx。 |

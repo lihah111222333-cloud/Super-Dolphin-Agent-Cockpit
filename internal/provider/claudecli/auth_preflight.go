@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -25,7 +25,7 @@ type claudeAuthStatus struct {
 
 // preflightClaudeAuth 处理preflightclaude认证。
 func (d *driver) preflightClaudeAuth(ctx context.Context, binary, cwd string, cfg cliLaunchConfig) error {
-	checkCtx, cancel := ctxutil.WithTimeout(ctx, claudeAuthPreflightTimeout)
+	checkCtx, cancel := kernel.WithTimeout(ctx, claudeAuthPreflightTimeout)
 	defer cancel()
 	status, raw, statusErr := d.authStatus(checkCtx, binary, cwd, cfg)
 	inconclusive := statusErr != nil

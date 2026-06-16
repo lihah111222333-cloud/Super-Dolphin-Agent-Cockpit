@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
 	common "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime/bootstrap"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	"github.com/anthropic-ai/super-agent-v3/internal/sidecar/orch/tools"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 

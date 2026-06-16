@@ -84,14 +84,14 @@
 
 ### B1: `TurnInterrupted` 独立终态闭环
 
-**问题**：orchestration 当前只在 `cmd/mcp-orch/orchestration/service.go` 的 `registerTurnLifecycle` 中订阅 `TurnStarted/TurnCompleted`；`TurnInterrupted` 没有独立消费路径。现有 `CompleteTurn(ctx, agentID, turnID, success bool, errMsg string)` 是二态接口，无法表达 interrupted 第三态。
+**问题**：orchestration 当前只在 `internal/sidecar/orch/orchestration/service.go` 的 `registerTurnLifecycle` 中订阅 `TurnStarted/TurnCompleted`；`TurnInterrupted` 没有独立消费路径。现有 `CompleteTurn(ctx, agentID, turnID, success bool, errMsg string)` 是二态接口，无法表达 interrupted 第三态。
 
 **V2 参考**：
 - `internal/runner/manager_lifecycle.go`：停机/中断链路会发出终态事件
 - legacy tracker rules：区分 `turn_aborted`、`turn_complete`、`idle` 等终态
 
 **修复方案**：
-1. 在 `cmd/mcp-orch/orchestration/service.go` 的 `registerTurnLifecycle` 中显式订阅 `turndto.TurnInterrupted`。
+1. 在 `internal/sidecar/orch/orchestration/service.go` 的 `registerTurnLifecycle` 中显式订阅 `turndto.TurnInterrupted`。
 2. 新增独立 `handleTurnInterruptedEvent(...)`，不再合成 `TurnCompleted`。
 3. interrupted 路径单独完成：
    - 清理 `activeTurnID`
@@ -100,7 +100,7 @@
    - 保证不复用 `success=false` 冒充 interrupted
 4. 补测试：覆盖 `TurnInterrupted` 正常闭环、重复事件幂等、interrupt 后再收到 `TurnCompleted` 的收敛规则。
 
-**验证**：`go test ./cmd/mcp-orch/orchestration/...`
+**验证**：`go test ./internal/sidecar/orch/orchestration/...`
 
 ### B2: `StopAllAgents/archive/delete` 统一停机
 
@@ -109,13 +109,13 @@
 **V2 参考**：`internal/runner/manager_lifecycle.go` 的 `Stop/StopAll` 统一经停机链路收敛，`Shutdown/Kill` 完成后才删除运行态。
 
 **修复方案**：
-1. 以 `cmd/mcp-orch/orchestration/service.go` 的 `StopAgent/StopAllAgents` 为入口，抽出统一 stop helper。
+1. 以 `internal/sidecar/orch/orchestration/service.go` 的 `StopAgent/StopAllAgents` 为入口，抽出统一 stop helper。
 2. `StopAllAgents` 改为逐个走 `StopAgent()` + `waitForProcessExit()`，不再直接 `removeSession/publishAgentStopped`。
 3. `archive/delete` 在变更 thread/session/store 前必须先复用同一停机 helper。
 4. 同步修复 `StopAllAgents` 中 `stopReason=""` 清空 bug，保证 `publishAgentStopped` 使用真实原因。
 5. 补测试：stop-all、archive、delete、重复 stop、失败回滚。
 
-**验证**：`go test ./cmd/mcp-orch/orchestration/... ./internal/module/thread/...`
+**验证**：`go test ./internal/sidecar/orch/orchestration/... ./internal/module/thread/...`
 
 ### B3: claude reconnect / reinitialize
 
@@ -167,11 +167,11 @@
 2. 在人工定案后，统一修改状态机判定、恢复路径与测试基线。
 3. 保证与 B1 的 interrupted 终态处理能正确配合，不产生等待态泄漏。
 
-**验证**：`go test ./internal/platform/statemachine/... ./cmd/mcp-orch/orchestration/...`
+**验证**：`go test ./internal/platform/statemachine/... ./internal/sidecar/orch/orchestration/...`
 
 ### B6: DAG 锁 / wakeup fencing
 
-**问题**：当前 wakeup claim/bind/recover 相关逻辑分散在 `cmd/mcp-orch/sql/queries/task_dag_wakeup_dispatch.sql`、`cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql`、`cmd/mcp-orch/store/taskdag/store_wakeup.go`、`cmd/mcp-orch/orchestration/recover.go`，但计划里还没有独立 Agent 负责把 `claimed_at/claimed_by/lease_expires_at/active_wakeup_id` 做成完整 fencing。
+**问题**：当前 wakeup claim/bind/recover 相关逻辑分散在 `internal/sidecar/orch/sql/queries/task_dag_wakeup_dispatch.sql`、`internal/sidecar/orch/sql/queries/task_dag_node_runtime.sql`、`internal/sidecar/orch/store/taskdag/store_wakeup.go`、`internal/sidecar/orch/orchestration/recover.go`，但计划里还没有独立 Agent 负责把 `claimed_at/claimed_by/lease_expires_at/active_wakeup_id` 做成完整 fencing。
 
 **修复方案**：
 1. 明确 wakeup claim fence：`claimed_at + claimed_by + lease_expires_at` 必须参与 sent/retry/fail 的幂等条件。
@@ -179,7 +179,7 @@
 3. 补 stale dispatch reclaim 与 recover replay 的冲突测试，防止旧 wakeup 绑定新 turn。
 4. 补 DAG 级回归测试：重复 claim、stale reclaim、recover replay、双 worker 并发。
 
-**验证**：`go test ./cmd/mcp-orch/orchestration/... ./cmd/mcp-orch/store/taskdag/...`
+**验证**：`go test ./internal/sidecar/orch/orchestration/... ./internal/sidecar/orch/store/taskdag/...`
 
 ### D0: golden test 框架
 
@@ -197,7 +197,7 @@
 - 不把所有 golden 都堆到 `rpc/`
 - 为第二批返回体修复提供回归基线
 
-**验证**：`go test ./cmd/mcp-orch/orchestration/... ./internal/provider/... ./internal/archtest/...`
+**验证**：`go test ./internal/sidecar/orch/orchestration/... ./internal/provider/... ./internal/archtest/...`
 
 ---
 
@@ -568,16 +568,16 @@
 **说明**：`WSHandler` 已经在 `internal/platform/rpc/module.go` 接线，本任务只保留 execute-time ready wait。
 
 **目标文件链**：
-1. `cmd/mcp-orch/orchestration/helpers.go`
-2. `cmd/mcp-orch/orchestration/service.go`
-3. `cmd/mcp-orch/orchestration/execution_test.go`
+1. `internal/sidecar/orch/orchestration/helpers.go`
+2. `internal/sidecar/orch/orchestration/service.go`
+3. `internal/sidecar/orch/orchestration/execution_test.go`
 
 **目标**：
 1. 统一 submit / execute 前的 session ready 等待
-2. 以 `cmd/mcp-orch/orchestration/helpers.go` 的 `waitForSubmitSessionReady` 为收敛点
+2. 以 `internal/sidecar/orch/orchestration/helpers.go` 的 `waitForSubmitSessionReady` 为收敛点
 3. 覆盖 ready race、超时、重试
 
-**验证**：`go test ./cmd/mcp-orch/orchestration/...`
+**验证**：`go test ./internal/sidecar/orch/orchestration/...`
 
 ### F8: Claude resume public/provider thread ID 边界修复
 
@@ -620,7 +620,7 @@
 
 **批次验收**：
 1. `go test ./internal/module/dashboard/... ./internal/ui/wails/... ./internal/module/thread/... ./internal/module/workspace/...`
-2. `go test ./cmd/mcp-orch/orchestration/... ./internal/provider/codexapp/...`
+2. `go test ./internal/sidecar/orch/orchestration/... ./internal/provider/codexapp/...`
 
 ### 第四批后仍未闭环项（需第五批或人工决策）
 

@@ -6,11 +6,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel/builtinprompts"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // Module 把 prompt 的注册表、组装器和 RPC 接起来。
@@ -41,7 +38,7 @@ func newEnableWhenEvaluator() contract.EnableWhenEvaluator {
 type promptHandlersParams struct {
 	fx.In
 
-	Store      promptstore.Store
+	Store      contract.PromptStore
 	Builtin    contract.BuiltinPromptRegistry `optional:"true"`
 	Dream      contract.DreamExecutor         `optional:"true"`
 	Sections   contract.SectionInvalidator    `optional:"true"`
@@ -64,10 +61,10 @@ func registerPromptHandlers(params promptHandlersParams) platformrpc.HandlerMapR
 type ServiceFxParams struct {
 	fx.In
 	Cfg             *Config
-	Logger          *pkglogger.Logger      `optional:"true"`
-	Prefs           uipreference.Store     `optional:"true"`
-	SharedFiles     sharedfilestore.Reader `optional:"true"`
-	DisabledToolsFn DisabledBuiltinToolsFn `optional:"true"`
+	Logger          *pkglogger.Logger          `optional:"true"`
+	Prefs           contract.UIPreferenceStore `optional:"true"`
+	SharedFiles     contract.SharedFileReader  `optional:"true"`
+	DisabledToolsFn DisabledBuiltinToolsFn     `optional:"true"`
 }
 
 // NewServiceFx is the fx-facing constructor that wires the preference store,

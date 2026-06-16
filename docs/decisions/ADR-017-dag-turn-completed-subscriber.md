@@ -31,7 +31,7 @@ ADR-017 立 A1 subscriber + 状态机推进 + thread.stopped fallback。
 > **v1.1 reviewer 揭出 fx OnStart ctx 使用错误**：v1 代码示例用 OnStart 参数 `ctx` 直接传给订阅 lambda — 这个 ctx 在 OnStart return 后被取消。对照 `service.go:256-294 RegisterTurnLifecycle` 真实范式：必须独立 `lifecycleCtx, lifecycleCancel = context.WithCancel(context.Background())`，否则 subscriber 启动后**立即所有 handler ctx 超时空转**。
 
 ```go
-// cmd/mcp-orch/orchestration/dag_turn_completed_subscriber.go (新建)
+// internal/sidecar/orch/orchestration/dag_turn_completed_subscriber.go (新建)
 func RegisterDAGTurnCompletedSubscriber(
     lc fx.Lifecycle,
     dispatcher *event.Dispatcher,
@@ -66,7 +66,7 @@ func RegisterDAGTurnCompletedSubscriber(
 }
 ```
 
-**fx wiring 位置**：`cmd/mcp-orch/notify/module.go:138-151 registerDAGSubscriberLifecycle` 风格 — 新建 `cmd/mcp-orch/orchestration/dag_subscriber_module.go` 或就近 fx.Invoke 注入。
+**fx wiring 位置**：`internal/sidecar/orch/notify/module.go:138-151 registerDAGSubscriberLifecycle` 风格 — 新建 `internal/sidecar/orch/orchestration/dag_subscriber_module.go` 或就近 fx.Invoke 注入。
 
 **与现有 TurnCompleted 订阅的关系**（v1.1 补 reviewer A-P1-2 揭出）：
 
@@ -96,7 +96,7 @@ type NodeSpawningThreadLookup interface {
 
 **返回类型**：`[]Node` 不是 `*Node` — **N>1 在重试 / recovery 链下是常态**（v1.1 修正：migration 0083:56-58 partial index 无 UNIQUE 约束 + F1.5 写入端口非 single-writer，spawning_thread_id 可能短暂多挂；详 ADR-009 历史链事件）；逐条尝试推进 + warn log 兜底。
 
-**SQL 实现**（新增到 `cmd/mcp-orch/sql/queries/task_dag_node_read.sql`）：
+**SQL 实现**（新增到 `internal/sidecar/orch/sql/queries/task_dag_node_read.sql`）：
 ```sql
 -- name: LookupNodesBySpawningThread :many
 SELECT ... FROM task_dag_nodes
@@ -130,7 +130,7 @@ Explorer 揭示 + ADR-016 reviewer 已核：`task_dag_node_runtime.sql:37-42 Com
 > **v1.2 reviewer 揭出虚构 metric API**：v1.1 代码用 `r.metric.IncDAGNodeRunningSkipped(...)` — 项目无此 helper，是 ADR 自造 API。**v1.2 修正**：暂用通用 `IncCounter(name, labels)` 的接口形态；落码时已按 ADR-016 v1.2 结论接入独立 metric collector。
 
 ```go
-// cmd/mcp-orch/orchestration/node_router.go:291-296 dispatchAgent 改造
+// internal/sidecar/orch/orchestration/node_router.go:291-296 dispatchAgent 改造
 func (r *NodeExecutorRouter) dispatchAgent(ctx, node, runCtx) (NodeOutcome, error) {
     if r.agentExec == nil {
         return validationOutcome("..."), nil
@@ -363,12 +363,12 @@ type DAGSubscriberDeps struct {
 
 | 改动 | 文件 | v1 估 | v1.1 修订 |
 |---|---|---|---|
-| 新建 subscriber + handler（含 godoc / nil check / type assertion / fx.In 适配 / 6 错误分类 switch） | `cmd/mcp-orch/orchestration/dag_turn_completed_subscriber.go` | +250 | **+330-400** |
-| 新建 fx wiring 模块 | `cmd/mcp-orch/orchestration/dag_subscriber_module.go` | +50 | **+50**（保持）|
+| 新建 subscriber + handler（含 godoc / nil check / type assertion / fx.In 适配 / 6 错误分类 switch） | `internal/sidecar/orch/orchestration/dag_turn_completed_subscriber.go` | +250 | **+330-400** |
+| 新建 fx wiring 模块 | `internal/sidecar/orch/orchestration/dag_subscriber_module.go` | +50 | **+50**（保持）|
 | store 新增 `LookupNodesBySpawningThread` API + SQL + sqlc 手维 | `store/taskdag/contract.go` + `sql/queries/task_dag_node_read.sql` + sqlc gen | +80 | **+80**（保持）|
 | `CompleteTaskDagNode` SQL 白名单扩 + sqlc regen + **现有调用方 test fixture 同步**（v1.1 新增遗漏项）| `sql/queries/task_dag_node_runtime.sql` + sqlc gen + 多个 test fixture | +20 | **+40-60** |
-| `dispatchAgent` 加 ready→running 推进（v1.1 改用 `UpdateRunningTaskDagNodeStatus` + 0 rows 分支） | `cmd/mcp-orch/orchestration/node_router.go:291-296` | +30 | **+40** |
-| `handleThreadStopped` 加 DAG fallback 分支（v1.1 移出 withAgentLocked + 多 metric） | `cmd/mcp-orch/orchestration/hook_consumer.go:269-295` | +60 | **+80** |
+| `dispatchAgent` 加 ready→running 推进（v1.1 改用 `UpdateRunningTaskDagNodeStatus` + 0 rows 分支） | `internal/sidecar/orch/orchestration/node_router.go:291-296` | +30 | **+40** |
+| `handleThreadStopped` 加 DAG fallback 分支（v1.1 移出 withAgentLocked + 多 metric） | `internal/sidecar/orch/orchestration/hook_consumer.go:269-295` | +60 | **+80** |
 | Metric 注册（dag_node_status_idempotent_skipped_total / dag_node_running_skipped_already_terminal_total / dag_node_thread_stopped_fallback_total{result=success/failed/skipped_already_terminal/skipped_lookup_failed} 等 8+ 计数器）| 复用 ADR-016 v1.2 metric collector 基础 | +40 | **+50-60** |
 | 单测 `dag_turn_completed_subscriber_test.go`（v1.1: 60-80 行/case × 9 case + race A/D 双 case） | 新建 | +400 | **+540-720** |
 | 单测 `handle_thread_stopped_dag_test.go`（v1.1: 60-80 行/case × 5 case + mock withAgentLocked / hookConsumer / dagStore / dagFlowStore 4 依赖）| 新建 | +200 | **+300-400** |

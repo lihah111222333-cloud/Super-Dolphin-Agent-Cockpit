@@ -9,8 +9,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -34,10 +32,11 @@ type agentTimer struct {
 	timer       *time.Timer
 }
 
+// Manager manages cache keepalive timers for launched agent sessions.
 type Manager struct {
 	resolver     contract.SessionResolver
-	bindingStore bindingstore.Store
-	threadStore  threadstore.Store
+	bindingStore contract.BindingStore
+	threadStore  contract.ThreadStore
 	logger       *pkglogger.Logger
 
 	mu     sync.Mutex
@@ -59,8 +58,8 @@ type Manager struct {
 // NewManager 创建manager。
 func NewManager(
 	resolver contract.SessionResolver,
-	bindingStore bindingstore.Store,
-	threadStore threadstore.Store,
+	bindingStore contract.BindingStore,
+	threadStore contract.ThreadStore,
 	logger *pkglogger.Logger,
 ) *Manager {
 	if logger == nil {

@@ -6,7 +6,7 @@ import (
 
 	buscontract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 	"github.com/kelindar/event"
 )
 

@@ -2,33 +2,16 @@ package prompt
 
 import (
 	"encoding/json"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
-	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// IsRuntimeAssetTemplate 判断运行时assettemplate是否可用。
+// IsRuntimeAssetTemplate is kept as a compatibility helper for prompt runtime assets.
 func IsRuntimeAssetTemplate(template PromptTemplate) bool {
-	if strings.TrimSpace(template.AgentKey) == "default_rule" {
-		return true
-	}
-	for _, tag := range TemplateTags(template.Tags) {
-		switch strings.TrimSpace(tag) {
-		case "intent:recall", "intent:default_rule":
-			return true
-		}
-	}
-	return false
+	return contract.IsRuntimeAssetPromptTemplate(template)
 }
 
-// TemplateTags 处理templatetags。
+// TemplateTags is kept as a compatibility helper for prompt template tags.
 func TemplateTags(raw json.RawMessage) []string {
-	var tags []string
-	if err := json.Unmarshal(raw, &tags); err != nil {
-		pkglogger.Warn("prompt: TemplateTags unmarshal failed, returning nil tag slice",
-			pkglogger.Int("raw_len", len(raw)),
-			pkglogger.String("error", err.Error()),
-		)
-		return nil
-	}
-	return tags
+	return contract.PromptTemplateTags(raw)
 }

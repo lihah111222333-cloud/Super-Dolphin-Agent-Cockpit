@@ -6,7 +6,7 @@ Scope: file management, documentation governance, archive policy, and safe shrin
 
 ## 1. 背景
 
-本仓库同时承载 Go 后端、Wails 桌面入口、MCP peers、当前 React UI、legacy Vue embed 包、项目级 agent skills、运行脚本、历史计划、审查报告和本地产物。第一轮已把一批根级 agent notes、报告和旧审查材料归档到 `docs/archive/**`，并新增 `docs/README.md` 与 `docs/archive/README.md`。
+本仓库同时承载 Go 后端、Wails 桌面入口、MCP peers、当前 React UI、legacy Vue embed 包、项目级 agent skills、运行脚本、历史计划、审查报告和本地产物。第一轮已把一批根级 agent notes、报告和旧审查材料归档到 `docs/历史归档/归档材料/**`，并新增 `docs/README.md` 与 `docs/历史归档/归档材料/README.md`。
 
 本轮目标不是继续立即删除文件，而是形成可复用的项目管理方案，避免后续 agent 或维护者在源码、生成物、历史材料和本地运行产物之间反复迷路。
 
@@ -27,11 +27,11 @@ Scope: file management, documentation governance, archive policy, and safe shrin
 
 ### 2.2 文档噪音仍然集中
 
-除 `docs/archive/**` 与 `docs/doc/codemap/**` 外，文档剩余大块是：
+除 `docs/历史归档/归档材料/**` 与 `docs/doc/codemap/**` 外，文档剩余大块是：
 
 - `docs/plans/`: 354 files。源码注释、archtest、脚本仍大量引用，不能整体移动。
 - `docs/cc/`: 121 files。多为阶段性审查、SQLite 切换和打包证据。
-- `docs/ai01-docs/`: 88 files。多为前端审查、测试、资产矩阵和 SOP。
+- `docs/审查报告/前端项目资料/`: 88 files。多为前端审查、测试、资产矩阵和 SOP。
 - `docs/superpowers/`: 61 files。包含 specs 与 plans；plans 应默认视为历史计划。
 
 ### 2.3 当前不能直接删除的目录
@@ -54,7 +54,7 @@ Scope: file management, documentation governance, archive policy, and safe shrin
 
 ### 2.5 项目地图生成器存在治理缺口
 
-`scripts/generate_ai_project_map.js` 当前按文件系统 walk 生成索引，已经排除了 `docs/archive/**`，但仍会把本地 ignored 产物写入 `docs/doc/codemap/project-map/**`，例如 `.codex-run/**`、`.codex/*.log`、`.superpowers/brainstorm/**`、根目录 exe。
+`scripts/generate_ai_project_map.js` 当前按文件系统 walk 生成索引，已经排除了 `docs/历史归档/归档材料/**`，但仍会把本地 ignored 产物写入 `docs/doc/codemap/project-map/**`，例如 `.codex-run/**`、`.codex/*.log`、`.superpowers/brainstorm/**`、根目录 exe。
 
 这会造成两个问题：
 
@@ -108,7 +108,7 @@ Scope: file management, documentation governance, archive policy, and safe shrin
 - `docs/adr/**`
 - `docs/decisions/**`
 - `docs/契约/**`
-- `docs/internal-notes/**`
+- `docs/交接笔记/内部笔记/**`
 
 规则：
 
@@ -123,14 +123,14 @@ Scope: file management, documentation governance, archive policy, and safe shrin
 - `docs/plans/**`
 - `docs/superpowers/plans/**`
 - `docs/cc/**`
-- `docs/ai01-docs/**`
-- `docs/archive/**`
+- `docs/审查报告/前端项目资料/**`
+- `docs/历史归档/归档材料/**`
 
 规则：
 
 - 需要迁移历史或追溯证据时再打开。
 - 新增历史文档必须有日期、主题和状态。
-- 已完成且不再被源码/测试引用的批次可移动到 `docs/archive/**`。
+- 已完成且不再被源码/测试引用的批次可移动到 `docs/历史归档/归档材料/**`。
 
 ### Tier 3: 本地运行产物
 
@@ -184,7 +184,7 @@ Scope: file management, documentation governance, archive policy, and safe shrin
 
 规则：
 
-- 若内容仍有长期价值，先移动到 `docs/archive/evidence/**`。
+- 若内容仍有长期价值，先移动到 `docs/历史归档/归档材料/evidence/**`。
 - 若只是会话缓存、pid、server log 或 smoke 临时 go.mod，直接 `git rm`。
 - 同批更新 `.gitignore` 和项目地图排除规则，避免再次出现。
 
@@ -200,11 +200,11 @@ Scope: file management, documentation governance, archive policy, and safe shrin
 
 候选：
 
-- `docs/ai01-docs/前端测试文档/**`
-- `docs/ai01-docs/审查文档/**`
-- `docs/ai01-docs/assets/**`
+- `docs/审查报告/前端项目资料/前端测试文档/**`
+- `docs/审查报告/前端项目资料/审查文档/**`
+- `docs/审查报告/前端项目资料/assets/**`
 - `docs/cc/**` 中已经完成的审查/证据包
-- `docs/调研/**` 中原始材料
+- `docs/研究材料/调研材料/**` 中原始材料
 
 规则：
 
@@ -215,7 +215,7 @@ Scope: file management, documentation governance, archive policy, and safe shrin
 
 验证：
 
-- `rg -n "old/path" -g '!docs/archive/**'`
+- `rg -n "old/path" -g '!docs/历史归档/归档材料/**'`
 - `git diff --name-status --find-renames`
 - `node scripts/generate_ai_project_map.js --check --strict-drift`
 
@@ -265,7 +265,7 @@ Scope: file management, documentation governance, archive policy, and safe shrin
 3. 删除动作优先用 `git rm`；移动历史资料用 `git mv`。
 4. 不 stage 其他任务的 UI、prompt、personalization 改动。
 5. 不删除 `.agent/skills/**`、`.agent/workflows/**`、`third_party/**`，除非有明确替代方案和测试。
-6. 不把 `docs/archive/**`、`.tmp/**`、`.workspace/**`、`.codex-run/**`、`.superpowers/**` 纳入默认项目地图。
+6. 不把 `docs/历史归档/归档材料/**`、`.tmp/**`、`.workspace/**`、`.codex-run/**`、`.superpowers/**` 纳入默认项目地图。
 
 ## 7. 成功标准
 
@@ -273,7 +273,7 @@ Scope: file management, documentation governance, archive policy, and safe shrin
 
 - 新人或 agent 默认入口是 `README.md` -> `docs/README.md` -> `docs/doc/codemap/README.md`。
 - 项目地图只包含稳定仓库内容，不包含本地 exe、日志、pid、临时工作区。
-- 历史资料集中在 `docs/archive/**` 或明确标记为 historical。
+- 历史资料集中在 `docs/历史归档/归档材料/**` 或明确标记为 historical。
 - `frontend-app/` 是当前 UI 事实源；`frontend/` 和 legacy Vue 的状态明确。
 - 每次瘦身提交都能用 `git diff --name-status --find-renames` 解释清楚。
 

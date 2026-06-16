@@ -9,7 +9,7 @@
 5. 为四类工具增加 envelope 输出结构，保留旧语义字段。
 6. 在 schema 中暴露 `envelope`。
 7. 增加单测：默认路径仍返回数组，`envelope=true` 返回统一对象。
-8. 运行 `go test ./cmd/mcp-orch/tools -count=1`。
+8. 运行 `go test ./internal/sidecar/orch/tools -count=1`。
 9. 审查、修复、再评分，并登记剩余分页缺口。
 
 ## 非目标

@@ -2,7 +2,7 @@
 
 > 状态：✅ Accepted（v1.2 reviewer 三审通过 + 2026-05-12 实装落地）| 日期：2026-05-12 | 决策者：项目维护者
 >
-> **实装落地说明**（2026-05-12 W-C3 worker 实装）：4 commit `9ff6059f`/`6e6ad8e2`/`9030a6ca`/`a5345514`。新建 `cmd/mcp-orch/orchestration/stop_helper.go`（`StopSpawnedAgent` 5 条语义契约 / 7 StopResult 分支）+ `stop_metric.go`（`dag_node_stop_spawned_agent_total{result}` atomic.Int64 counter）+ `stop_helper_test.go` 7 分支 10 case 全 PASS + `freeze_registry.go` baseline 33→35。贴近 v1.2 §2.1-§2.6 描述；grep 揭出：dispatcher/metric.go 不存在（是 F15.1 将来新建位），worker 改照 `notify/subscribers.go` 范式。A1 subscriber 调 `StopSpawnedAgent` 大写函数（hard constraint §2.8）未 inline 。
+> **实装落地说明**（2026-05-12 W-C3 worker 实装）：4 commit `9ff6059f`/`6e6ad8e2`/`9030a6ca`/`a5345514`。新建 `internal/sidecar/orch/orchestration/stop_helper.go`（`StopSpawnedAgent` 5 条语义契约 / 7 StopResult 分支）+ `stop_metric.go`（`dag_node_stop_spawned_agent_total{result}` atomic.Int64 counter）+ `stop_helper_test.go` 7 分支 10 case 全 PASS + `freeze_registry.go` baseline 33→35。贴近 v1.2 §2.1-§2.6 描述；grep 揭出：dispatcher/metric.go 不存在（是 F15.1 将来新建位），worker 改照 `notify/subscribers.go` 范式。A1 subscriber 调 `StopSpawnedAgent` 大写函数（hard constraint §2.8）未 inline 。
 > 相关：C-A 实施计划 §2.3（`docs/plans/dag-lifecycle-c-a-implementation.md`）/ ADR-015 v4.1（C1+C2 TurnCompleted.Result 补完，配套）/ ADR-017（A1 DAG subscriber，调用方）/ F1.x 审计 §8.2 实证 #1（codex CLI 长进程不自动退出）
 > 编号说明：ADR-016 编号被废弃的 v1/v2 占用过（从未 git-tracked），本次复用编号为 C-A 路径下的全新决策。
 
@@ -20,7 +20,7 @@ C-A 路径 §2.3 决定：A1 subscriber（ADR-017）推进 DAG 节点 done/faile
 
 ### 2.1 API 选用 — `service.StopAgent(ctx, agentID)`
 
-签名（`cmd/mcp-orch/orchestration/service.go:414-416`）：
+签名（`internal/sidecar/orch/orchestration/service.go:414-416`）：
 ```go
 func (s *service) StopAgent(ctx context.Context, agentID string) error {
     return s.stopAgentViaLauncher(ctx, agentID, "user_requested")
@@ -29,14 +29,14 @@ func (s *service) StopAgent(ctx context.Context, agentID string) error {
 
 **为什么用 StopAgent 而不是 ArchiveAgent**：
 - StopAgent = graceful stop（仅停止进程），适合"DAG 节点完成 → 自动释放运行时进程"语义
-- ArchiveAgent（`cmd/mcp-orch/orchestration/archive.go:25`）= stop + 标记 thread/binding archived（UI recycle-bin），是用户主动操作语义
+- ArchiveAgent（`internal/sidecar/orch/orchestration/archive.go:25`）= stop + 标记 thread/binding archived（UI recycle-bin），是用户主动操作语义
 - C3 是后台自动清理，不该出现在 recycle-bin
 
 **Reason 字段**：`stopAgentViaLauncher` 接 reason string 参数。C3 调用方应传 `"dag_node_completed"`（新 reason，与 `"user_requested"` 区分），便于审计和 metric 分类。
 
 ### 2.2 threadID → agentID 反查路径（v1.1 修订）
 
-> **v1.1 reviewer 揭出事实层错误**：v1 称"codex 线程总是写 thread.agent_id，命中率 100%"。真相是 `agent_threads` 表**没有** `agent_id` 列（只有 `parent_agent_id`），`PersistedThread.AgentID` 来自 `cmd/mcp-orch/store/agent/store.go:91-103` 的 sqlc 行扫描，**通过 `agent_provider_binding` 左 join 子查询派生**。binding 缺失或 archived 时 AgentID 返空串。
+> **v1.1 reviewer 揭出事实层错误**：v1 称"codex 线程总是写 thread.agent_id，命中率 100%"。真相是 `agent_threads` 表**没有** `agent_id` 列（只有 `parent_agent_id`），`PersistedThread.AgentID` 来自 `internal/sidecar/orch/store/agent/store.go:91-103` 的 sqlc 行扫描，**通过 `agent_provider_binding` 左 join 子查询派生**。binding 缺失或 archived 时 AgentID 返空串。
 
 **真实反查路径**：
 
@@ -55,7 +55,7 @@ if persistedThread == nil || persistedThread.AgentID == "" {
 agentID := persistedThread.AgentID
 ```
 
-API：`AgentThreadStore.GetByThreadID(ctx, threadID) (*PersistedThread, error)`（`cmd/mcp-orch/orchestration/persistent_store_types.go:51-55`）。
+API：`AgentThreadStore.GetByThreadID(ctx, threadID) (*PersistedThread, error)`（`internal/sidecar/orch/orchestration/persistent_store_types.go:51-55`）。
 
 **命中率分支**（v1.1 新增）：
 
@@ -158,8 +158,8 @@ v1 称"由 OS / reclaim cron 兜底（H6b 监控范围）"。真相：
 - **不加** `{reason}` 标签：C3 只有 `dag_node_completed` 一个 reason，加了恒为 1
 - **不加** `{provider}` 标签：双侧同 API 不需要区分；想看分布 join thread 表
 
-**v1.1 reviewer 修正**：v1 称"由 ADR-015 v4.1 / F15.1 metric framework 复用"。真相是项目**没有通用 `metrics.IncCounter` API**，F15.1 是 `cmd/mcp-orch/orchestration/dispatcher/metric.go` 的具体 counter 而非框架。C3 metric 注册需要：
-- 决定挂载点：扩 `dispatcher/metric.go` 还是新建 `cmd/mcp-orch/orchestration/stop_metric.go`
+**v1.1 reviewer 修正**：v1 称"由 ADR-015 v4.1 / F15.1 metric framework 复用"。真相是项目**没有通用 `metrics.IncCounter` API**，F15.1 是 `internal/sidecar/orch/orchestration/dispatcher/metric.go` 的具体 counter 而非框架。C3 metric 注册需要：
+- 决定挂载点：扩 `dispatcher/metric.go` 还是新建 `internal/sidecar/orch/orchestration/stop_metric.go`
 - 是 prometheus collector 还是 fx provider 扩展
 - ADR-016 §4 工程量需上调 ~30-60 行（不是 ~10 行）
 
@@ -167,7 +167,7 @@ v1 称"由 OS / reclaim cron 兜底（H6b 监控范围）"。真相：
 
 依据 Explorer 调研项目现有命名约定（`archive.go` 单职责先例）：
 
-新建 `cmd/mcp-orch/orchestration/stop_helper.go`：
+新建 `internal/sidecar/orch/orchestration/stop_helper.go`：
 - `StopSpawnedAgent(ctx, agentThreads, svc, threadID) error` 函数封装：threadID 反查 → 拿 agentID → 调 StopAgent
 - 与 A1 subscriber 解耦，**C3 可与 A1 并行 worktree 落地**（C-A §5 P1 方案）
 
@@ -222,13 +222,13 @@ ADR-017 实现 stop 调用时，必须满足：
 
 | 改动 | 文件 | v1 估算 | v1.2 修正 |
 |---|---|---|---|
-| 新建 `stop_helper.go`（StopSpawnedAgent + threadID→agentID 反查 + 6 种错误分类 + log 上下文 + nil 检查 + godoc + 辅助方法封装让 5 分支可测） | `cmd/mcp-orch/orchestration/stop_helper.go` | +60 | **+100-150** |
-| service 层引入 `errAgentNotRunning` sentinel + helpers.go / service_launcher_bridge.go 改返 sentinel（与 ADR-016 同 PR，§2.4 v1.1） | `cmd/mcp-orch/orchestration/{helpers,service_launcher_bridge}.go` | 0 | **+20-30** |
-| stopAgentViaLauncher 加 `"dag_node_completed"` reason 常量定义 + log/metric 透传 | `cmd/mcp-orch/orchestration/service_launcher_bridge.go:266-286` | +5 | **+5-10** |
+| 新建 `stop_helper.go`（StopSpawnedAgent + threadID→agentID 反查 + 6 种错误分类 + log 上下文 + nil 检查 + godoc + 辅助方法封装让 5 分支可测） | `internal/sidecar/orch/orchestration/stop_helper.go` | +60 | **+100-150** |
+| service 层引入 `errAgentNotRunning` sentinel + helpers.go / service_launcher_bridge.go 改返 sentinel（与 ADR-016 同 PR，§2.4 v1.1） | `internal/sidecar/orch/orchestration/{helpers,service_launcher_bridge}.go` | 0 | **+20-30** |
+| stopAgentViaLauncher 加 `"dag_node_completed"` reason 常量定义 + log/metric 透传 | `internal/sidecar/orch/orchestration/service_launcher_bridge.go:266-286` | +5 | **+5-10** |
 | Metric 注册（项目无通用 IncCounter framework，从零自建 collector + label 注册 + fx provider wiring + `/metrics` 端点挂载 + 测试 hook） | 待 §2.5 决策 | +10 | **+80-120** |
 | 单测 `stop_helper_test.go`（v1.2: 9 case 全覆盖 — 4 主路径 + 5 反查命中率分支 × ~50-80 行/case，table-driven 折半参照 stop_test.go 范式） | 新建 | +60 | **+300-450** |
 | 端到端测：2 节点 DAG + spawned agent stop 验证（含 DAG fixture + provider mock 或真启 + setup / assert / teardown） | 新建或扩 `*_e2e_test.go` | ~20 | **+150-200**（10 节点资源泄漏验证留 M3 dogfood 复用，但 2 节点验证 fixture ~80-100 行 + spawn 触发 + stop 验证 ~80 行） |
-| **遗漏项**：fx wiring（metric collector + stop_helper 注入 subscriber 需改 factory.go / service.go）| `cmd/mcp-orch/orchestration/factory.go` 或 `service.go` | 0 | **+10-20** |
+| **遗漏项**：fx wiring（metric collector + stop_helper 注入 subscriber 需改 factory.go / service.go）| `internal/sidecar/orch/orchestration/factory.go` 或 `service.go` | 0 | **+10-20** |
 | **遗漏项**：ADR-017 接口对接 boilerplate（§3.2 5 条语义契约的接口适配） | `dag_turn_completed_subscriber.go`（由 ADR-017 落地，C3 提供 helper） | 0 | **+15-25** |
 
 **C3 小计**（v1.2 修正 — 吸收 reviewer B2 揭出的 4 处遗漏 + F1.x 30% 漂移规律）：

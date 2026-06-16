@@ -7,7 +7,7 @@ import (
 
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 type UIState struct {
@@ -196,8 +196,8 @@ func cloneState(value UIState) *UIState {
 		MainAgentID:              value.MainAgentID,
 		StallThresholdSec:        value.StallThresholdSec,
 		ShowInjectedPromptInChat: cloneBoolPtr(value.ShowInjectedPromptInChat),
-		ViewPrefsChat:            clone.JSONMap(value.ViewPrefsChat),
-		ViewPrefsCmd:             clone.JSONMap(value.ViewPrefsCmd),
+		ViewPrefsChat:            kernel.CloneJSONMap(value.ViewPrefsChat),
+		ViewPrefsCmd:             kernel.CloneJSONMap(value.ViewPrefsCmd),
 		ThreadPinsChat:           cloneTimestampMap(value.ThreadPinsChat),
 		ThreadArchivesChat:       cloneTimestampMap(value.ThreadArchivesChat),
 		Groups:                   copyThreadGroups(value.Groups),
@@ -220,8 +220,8 @@ func cloneSidebar(value Sidebar) *Sidebar {
 		ActiveThreadID:        value.ActiveThreadID,
 		ActiveCmdThreadID:     value.ActiveCmdThreadID,
 		MainAgentID:           value.MainAgentID,
-		ViewPrefsChat:         clone.JSONMap(value.ViewPrefsChat),
-		ViewPrefsCmd:          clone.JSONMap(value.ViewPrefsCmd),
+		ViewPrefsChat:         kernel.CloneJSONMap(value.ViewPrefsChat),
+		ViewPrefsCmd:          kernel.CloneJSONMap(value.ViewPrefsCmd),
 		ThreadPinsChat:        cloneTimestampMap(value.ThreadPinsChat),
 		ThreadArchivesChat:    cloneTimestampMap(value.ThreadArchivesChat),
 		Groups:                copyThreadGroups(value.Groups),
@@ -231,7 +231,7 @@ func cloneSidebar(value Sidebar) *Sidebar {
 func clonePreferences(value Preferences) *Preferences {
 	return &Preferences{
 		CWD:                      value.CWD,
-		Values:                   clone.JSONMap(value.Values),
+		Values:                   kernel.CloneJSONMap(value.Values),
 		ActiveThreadID:           value.ActiveThreadID,
 		ActiveCmdThreadID:        value.ActiveCmdThreadID,
 		MainAgentID:              value.MainAgentID,
@@ -246,8 +246,8 @@ func clonePreferences(value Preferences) *Preferences {
 func cloneThreads(items []ThreadSummary) []ThreadSummary {
 	out := append([]ThreadSummary(nil), items...)
 	for i := range out {
-		out[i].CreatedAt = clone.Time(items[i].CreatedAt)
-		out[i].UpdatedAt = clone.Time(items[i].UpdatedAt)
+		out[i].CreatedAt = kernel.CloneTime(items[i].CreatedAt)
+		out[i].UpdatedAt = kernel.CloneTime(items[i].UpdatedAt)
 	}
 	return out
 }
@@ -255,8 +255,8 @@ func cloneThreads(items []ThreadSummary) []ThreadSummary {
 func cloneAgents(items []AgentSummary) []AgentSummary {
 	out := append([]AgentSummary(nil), items...)
 	for i := range out {
-		out[i].CreatedAt = clone.Time(items[i].CreatedAt)
-		out[i].UpdatedAt = clone.Time(items[i].UpdatedAt)
+		out[i].CreatedAt = kernel.CloneTime(items[i].CreatedAt)
+		out[i].UpdatedAt = kernel.CloneTime(items[i].UpdatedAt)
 	}
 	return out
 }
@@ -276,8 +276,8 @@ func cloneTurns(items []TurnSummary) []TurnSummary {
 	out := make([]TurnSummary, len(items))
 	for i := range items {
 		out[i] = items[i]
-		out[i].StartedAt = clone.Time(items[i].StartedAt)
-		out[i].CompletedAt = clone.Time(items[i].CompletedAt)
+		out[i].StartedAt = kernel.CloneTime(items[i].StartedAt)
+		out[i].CompletedAt = kernel.CloneTime(items[i].CompletedAt)
 		if items[i].Success != nil {
 			success := *items[i].Success
 			out[i].Success = &success
@@ -291,8 +291,8 @@ func cloneTurn(value *TurnSummary) *TurnSummary {
 		return nil
 	}
 	copied := *value
-	copied.StartedAt = clone.Time(value.StartedAt)
-	copied.CompletedAt = clone.Time(value.CompletedAt)
+	copied.StartedAt = kernel.CloneTime(value.StartedAt)
+	copied.CompletedAt = kernel.CloneTime(value.CompletedAt)
 	if value.Success != nil {
 		success := *value.Success
 		copied.Success = &success
@@ -308,7 +308,7 @@ func cloneWorkspaceRuns(items []WorkspaceRunSummary) []WorkspaceRunSummary {
 	out := make([]WorkspaceRunSummary, len(items))
 	for i := range items {
 		out[i] = items[i]
-		out[i].UpdatedAt = clone.Time(items[i].UpdatedAt)
+		out[i].UpdatedAt = kernel.CloneTime(items[i].UpdatedAt)
 	}
 	return out
 }
@@ -455,5 +455,5 @@ func nonZeroTimePtr(value time.Time) *time.Time {
 	if value.IsZero() {
 		return nil
 	}
-	return clone.Time(&value)
+	return kernel.CloneTime(&value)
 }

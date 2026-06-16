@@ -47,7 +47,7 @@
 
 - 本卷聚焦 `cmd/mcp-orch` 的编排侧车、registry、bootstrap 与 tool 暴露；`memory / prompt / thread snapshot` 的跨模块语义请结合 `11-memory-prompt-thread.md` 阅读。
 - `cmd/mcp-orch` 当前**没有直接 import** `internal/module/{memory,prompt,thread}`；它消费的是 `internal/contract`、`store/*`、`internal/mcpserver/common/bootstrap` 这些边界层，因此这里描述的是“暴露 / 注入 / 存储读取”，不是第 11 卷那种“语义组装 / 生命周期编排”。
-- `prompt_list` / `prompt_get` 读取的是 `cmd/mcp-orch/store/prompt` 里的 prompt template 资源，不等于 `internal/module/prompt` 的 system prompt assembly。
+- `prompt_list` / `prompt_get` 读取的是 `internal/sidecar/orch/store/prompt` 里的 prompt template 资源，不等于 `internal/module/prompt` 的 system prompt assembly。
 - `memory_read` / `memory_write` 现由 app host-direct toolbridge registry 暴露并调用 `internal/module/memory` 的窄 contract；本卷只记录 `cmd/mcp-orch` 不再持有 memory tool registry / handler。
 - `UpdateRuntime()` 作为编排内存态的收口点仍在本卷说明；但 provider 何时上报 runtime、thread/session 如何消费这些元数据，属于第 11 卷与 provider/runtime 侧共同关注的链路。
 
@@ -77,7 +77,7 @@
 - `cmd/mcp-orch/memory/`：旧 standalone memory read 包；当前不被 runtime/registry 装配，不注册 memory tools。
 - `cmd/mcp-orch/http_runner.go`：peer 模式 HTTP MCP server、peer discovery file、非 peer 模式阻塞 runner。
 - `cmd/mcp-orch/hook_subscription.go`：hook topic 常量与 `subscribeOrchestrationHooks()` 辅助函数；主启动路径未直接调用，主要被测试覆盖。
-- `cmd/mcp-orch/sqlc.yaml`：`sql/queries/*` 到 `store/sqlc/*` 的 sqlc 生成配置。
+- `internal/sidecar/orch/sqlc.yaml`：`sql/queries/*` 到 `store/sqlc/*` 的 sqlc 生成配置。
 - 顶层测试：`fx_test.go`、`runtime_test.go` 覆盖 Fx 装配与 bootstrap runner 行为。
 
 ### `orchestration/`
@@ -711,12 +711,12 @@ sequenceDiagram
 
 ### 3.2 生命周期要点
 
-- `orchestration_launch_agent` 是**立即返回**的异步工具；真正 launch 在后台跑，避免 MCP tool-call 超时（`cmd/mcp-orch/tools/orchestration_tools.go:36`、`cmd/mcp-orch/orchestration/service.go:273`、`cmd/mcp-orch/orchestration/service_launcher_bridge.go:53`）。
-- launch 先经过 `prepareLauncherLaunch()` 归一化 `agentRuntime`，再由 `localLauncher` 执行本地进程或由 `remoteLauncher` 发 `thread/start` RPC（`cmd/mcp-orch/orchestration/launcher.go:141`）。
-- `orchestration_list_agents` 纯读 `agents` map 并返回 snapshot，不做副作用（`cmd/mcp-orch/orchestration/service.go:301`）。
-- 报告读取与报告写入分离：`GetReport()` 只读；真正写 `lastReport` 的入口是 `HandleReportEvent()`、`hookConsumer.handleTurnCompleted()` 与 final-answer item 镜像（`cmd/mcp-orch/orchestration/report.go:49`、`cmd/mcp-orch/orchestration/report.go:81`、`cmd/mcp-orch/orchestration/hook_consumer.go:53`）。
-- stop 统一收口到 `stopAgentViaLauncher()`；本地进程退出走 `handleProcessExit()`，远端线程退出主要靠 hook 镜像回灌（`cmd/mcp-orch/orchestration/service.go:277`、`cmd/mcp-orch/orchestration/service_launcher_bridge.go:180`、`cmd/mcp-orch/orchestration/process_lifecycle.go:82`）。
-- `sessionGeneration` 在 thread 启动/恢复后从 `SessionManager` 回写给 mcp-orch；退出时优先调用 generation-aware cleaner，避免误删新 session（`internal/module/thread/lifecycle.go:62`、`cmd/mcp-orch/orchestration/process_lifecycle.go:21`、`internal/provider/unified/session_adapter.go:54`）。
+- `orchestration_launch_agent` 是**立即返回**的异步工具；真正 launch 在后台跑，避免 MCP tool-call 超时（`internal/sidecar/orch/tools/orchestration_tools.go:36`、`internal/sidecar/orch/orchestration/service.go:273`、`internal/sidecar/orch/orchestration/service_launcher_bridge.go:53`）。
+- launch 先经过 `prepareLauncherLaunch()` 归一化 `agentRuntime`，再由 `localLauncher` 执行本地进程或由 `remoteLauncher` 发 `thread/start` RPC（`internal/sidecar/orch/orchestration/launcher.go:141`）。
+- `orchestration_list_agents` 纯读 `agents` map 并返回 snapshot，不做副作用（`internal/sidecar/orch/orchestration/service.go:301`）。
+- 报告读取与报告写入分离：`GetReport()` 只读；真正写 `lastReport` 的入口是 `HandleReportEvent()`、`hookConsumer.handleTurnCompleted()` 与 final-answer item 镜像（`internal/sidecar/orch/orchestration/report.go:49`、`internal/sidecar/orch/orchestration/report.go:81`、`internal/sidecar/orch/orchestration/hook_consumer.go:53`）。
+- stop 统一收口到 `stopAgentViaLauncher()`；本地进程退出走 `handleProcessExit()`，远端线程退出主要靠 hook 镜像回灌（`internal/sidecar/orch/orchestration/service.go:277`、`internal/sidecar/orch/orchestration/service_launcher_bridge.go:180`、`internal/sidecar/orch/orchestration/process_lifecycle.go:82`）。
+- `sessionGeneration` 在 thread 启动/恢复后从 `SessionManager` 回写给 mcp-orch；退出时优先调用 generation-aware cleaner，避免误删新 session（`internal/module/thread/lifecycle.go:62`、`internal/sidecar/orch/orchestration/process_lifecycle.go:21`、`internal/provider/unified/session_adapter.go:54`）。
 
 ## 4. 三条核心数据流
 

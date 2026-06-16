@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/ownerperms"
-	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 )
 
 const (
@@ -326,7 +326,7 @@ func (s *service) writeSkillMutationAudit(ctx context.Context, action string, re
 		return err
 	}
 	actor, target, detail := skillMutationAuditFields(record)
-	return s.auditStore.Insert(ctx, auditstore.InsertParams{
+	return s.auditStore.Insert(ctx, contract.AuditLogInsertParams{
 		EventType: skillMutationAuditEventType,
 		Action:    action,
 		Result:    skillMutationAuditResult(action),

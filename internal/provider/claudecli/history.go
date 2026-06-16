@@ -14,8 +14,7 @@ import (
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/historyjsonl"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 type historyBackend struct {
@@ -24,7 +23,7 @@ type historyBackend struct {
 
 // ReadHistory 读取history。
 func (h *historyBackend) ReadHistory(ctx context.Context, threadID string) ([]Message, error) {
-	if err := shared.CheckCtx(ctx); err != nil {
+	if err := kernel.CheckCtx(ctx); err != nil {
 		return nil, err
 	}
 	path, err := h.sessionPath(threadID)
@@ -55,20 +54,20 @@ func (h *historyBackend) ReadHistory(ctx context.Context, threadID string) ([]Me
 }
 
 // ReadMessagesPage 读取消息page。
-func (h *historyBackend) ReadMessagesPage(ctx context.Context, threadID string, req dto.MessagePageRequest) (historyjsonl.JSONLPageResult[Message], error) {
-	if err := shared.CheckCtx(ctx); err != nil {
-		return historyjsonl.JSONLPageResult[Message]{}, err
+func (h *historyBackend) ReadMessagesPage(ctx context.Context, threadID string, req dto.MessagePageRequest) (kernel.JSONLPageResult[Message], error) {
+	if err := kernel.CheckCtx(ctx); err != nil {
+		return kernel.JSONLPageResult[Message]{}, err
 	}
 	path, err := h.sessionPath(threadID)
 	if err != nil {
-		return historyjsonl.JSONLPageResult[Message]{}, err
+		return kernel.JSONLPageResult[Message]{}, err
 	}
 	if path == "" {
-		return historyjsonl.JSONLPageResult[Message]{}, nil
+		return kernel.JSONLPageResult[Message]{}, nil
 	}
-	page, err := historyjsonl.ReadJSONLPage(path, req.Limit, req.Before, parseHistoryLine)
+	page, err := kernel.ReadJSONLPage(path, req.Limit, req.Before, parseHistoryLine)
 	if err != nil {
-		return historyjsonl.JSONLPageResult[Message]{}, fmt.Errorf("read claude history page: %w", err)
+		return kernel.JSONLPageResult[Message]{}, fmt.Errorf("read claude history page: %w", err)
 	}
 	return page, nil
 }
@@ -119,7 +118,7 @@ func parseHistoryLine(raw []byte) (Message, bool) {
 	if err := json.Unmarshal(raw, &line); err != nil {
 		return Message{}, false
 	}
-	role := strings.ToLower(strings.TrimSpace(shared.FirstNonEmpty(line.Message.Role, line.Type)))
+	role := strings.ToLower(strings.TrimSpace(kernel.FirstNonEmpty(line.Message.Role, line.Type)))
 	if role != "user" && role != "assistant" {
 		return Message{}, false
 	}

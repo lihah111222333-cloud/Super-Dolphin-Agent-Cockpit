@@ -62,7 +62,7 @@
 
 - `make guard`
 - `make sqlc-verify`
-- `./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration ./cmd/mcp-orch/tools ./internal/module/uistate ./internal/module/thread ./internal/module/prompt ./internal/module/threadprompt ./internal/module/turn ./internal/module/dashboard ./cmd/mcp-orch/store/prompt ./internal/store/prompt ./internal/archtest -count=1`
+- `./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration ./internal/sidecar/orch/tools ./internal/module/uistate ./internal/module/thread ./internal/module/prompt ./internal/module/threadprompt ./internal/module/turn ./internal/module/dashboard ./internal/sidecar/orch/store/prompt ./internal/store/prompt ./internal/archtest -count=1`
 - `make build-plain`
 - `cd cmd/agent-terminal/frontend && node scripts/size-guard.cjs && npx vitest run && npm run build`
 

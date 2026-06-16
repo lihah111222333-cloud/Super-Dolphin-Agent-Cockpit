@@ -12,7 +12,7 @@
 
 ## 建议关注文件/区域
 
-`cmd/mcp-orch/orchestration/dag.go, wakeup_dispatcher.go, retry_strategy.go, cmd/mcp-orch/store/taskdag/store_fail_downstream.go, SQL/tests`
+`internal/sidecar/orch/orchestration/dag.go, wakeup_dispatcher.go, retry_strategy.go, internal/sidecar/orch/store/taskdag/store_fail_downstream.go, SQL/tests`
 
 ## 必须满足的验收标准
 

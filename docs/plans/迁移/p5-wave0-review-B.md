@@ -318,7 +318,7 @@ R0a
 - A 在 `p5-wave0-review-A.md:61-70` 接受“删掉 fallback 后 R0c <= 250 可成立”，但这个估计没有把 typed 通道仍必需的三块算进去：
   - provider 侧 callback 绑定。`go-agent-v2/legacy-agentsdk/codex/client_appserver_events.go:265-274` 把 `RespondResultFunc` / `DenyFunc` 挂到 event 上，这是 approval 恢复 turn 的核心，不是 legacy 专属分支。
   - shared awaiter。`go-agent-v2/internal/apiserver/server_conn.go:196-257` 与 `go-agent-v2/internal/apiserver/server_state_groups.go:21-137` 承载了 request/response 相关性和 pending wait。
-  - turn 状态恢复。V3 已定义 `awaiting_user_input -> turn_running` 触发器，见 `internal/dto/agent/state.go:28-29`、`:90-95`，但 `cmd/mcp-orch/orchestration` 内没有任何 `TriggerUserInputRequested` / `TriggerUserInputResolved` 使用点。
+  - turn 状态恢复。V3 已定义 `awaiting_user_input -> turn_running` 触发器，见 `internal/dto/agent/state.go:28-29`、`:90-95`，但 `internal/sidecar/orch/orchestration` 内没有任何 `TriggerUserInputRequested` / `TriggerUserInputResolved` 使用点。
 - 因此 A 在代码量节接受 `R0c <= 250`，与它自己在 `p5-wave0-review-A.md:88-91` 识别出的“缺 user input 恢复接口链”是内在冲突的。缺口既然存在，就不应被当作 250 行内可自然吸收的细节。
 
 ### A 的契约解读问题

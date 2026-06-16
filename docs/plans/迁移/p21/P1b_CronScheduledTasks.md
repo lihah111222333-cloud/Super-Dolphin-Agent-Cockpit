@@ -105,7 +105,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cron_job_runs_dedupe_key
 
 > 迁移文件风格与 `migrations/0035_agent_feedback_events.sql` 对齐：使用 `CREATE ... IF NOT EXISTS`、`public.<table>` 前缀、字段对齐和统一索引命名。编号实施时按 `ls migrations/` 的下一个可用编号命名；当前口径为 `0045_cron_jobs.sql`。
 >
-> Cron v1 **core-only**：只改根 `sqlc.yaml`，生成命令固定为仓库根的 `sqlc generate`，产物进入 `internal/store/sqlc/*`；**不改** `cmd/mcp-orch/sqlc.yaml`。未来若 `mcp-orch` 直接消费 cron 查询，再单独补那套生成面。
+> Cron v1 **core-only**：只改根 `sqlc.yaml`，生成命令固定为仓库根的 `sqlc generate`，产物进入 `internal/store/sqlc/*`；**不改** `internal/sidecar/orch/sqlc.yaml`。未来若 `mcp-orch` 直接消费 cron 查询，再单独补那套生成面。
 >
 > `cwd` 为必填字段；service 层缺值直接 `ErrMissingCWD`。当 `provider=codex` 时，identity config keys 也必须齐全并在 service 层 fail fast。
 >

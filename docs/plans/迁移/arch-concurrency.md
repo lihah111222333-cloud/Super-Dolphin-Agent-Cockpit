@@ -16,7 +16,7 @@
 总体结论：核心共享 map 大多有明确锁保护，当前代码库没有发现“已经成型的、确定性可复现”的死锁链；但存在 5 个需要处理的并发热点，其中 3 个属于真实竞态风险。
 
 高优先级问题：
-1. `SessionManager.Register` 与 `Remove` 只有 map 级互斥，没有 session 代际保护；并发 create/remove 时，`Remove` 可能删掉并关闭刚注册的新 session。证据：`internal/provider/unified/client.go:47-65`、`internal/provider/unified/session.go:31-85`、`cmd/mcp-orch/orchestration/service.go:104-108`、`cmd/mcp-orch/orchestration/service.go:355-369`。
+1. `SessionManager.Register` 与 `Remove` 只有 map 级互斥，没有 session 代际保护；并发 create/remove 时，`Remove` 可能删掉并关闭刚注册的新 session。证据：`internal/provider/unified/client.go:47-65`、`internal/provider/unified/session.go:31-85`、`internal/sidecar/orch/orchestration/service.go:104-108`、`internal/sidecar/orch/orchestration/service.go:355-369`。
 2. `codexapp.session.threadID` 在后台 goroutine 已启动后，由 driver 无锁写入；同时读路径已经存在，属于真实 data race。证据：`internal/provider/codexapp/session.go:87-103`、`internal/provider/codexapp/driver.go:78-93`、`internal/provider/codexapp/driver.go:96-110`、`internal/provider/codexapp/recovery.go:79-87`、`internal/provider/codexapp/session_approval.go:60-71`。
 3. `ApprovalManager` 的 `pending.dispatcher` 在锁外写入，而 `finishPending -> publishResolved` 在锁外读取；如果 approval 很快被 `Respond`，存在 register/resolve 并发窗口。证据：`internal/platform/rpc/approval.go:79-85`、`internal/platform/rpc/approval.go:108-117`、`internal/platform/rpc/approval.go:237-264`、`internal/platform/rpc/approval_events.go:34-42`。
 
@@ -35,7 +35,7 @@
 
 | 位置 | 受保护状态 | 结论 |
 | --- | --- | --- |
-| `cmd/mcp-orch/orchestration/submission.go:9-12` | `SubmissionQueue.items` | 所有 `Enqueue/Dequeue/Peek/Len/Clear` 都走 `q.mu`，队列本身安全。 |
+| `internal/sidecar/orch/orchestration/submission.go:9-12` | `SubmissionQueue.items` | 所有 `Enqueue/Dequeue/Peek/Len/Clear` 都走 `q.mu`，队列本身安全。 |
 | `internal/platform/rpc/approval.go:19-25` | `pending`、`pendingByRequestID`、approval 生命周期字段 | map 主体受保护；但 `pending.dispatcher` 额外在锁外写，见热点 3。 |
 | `internal/platform/rpc/transport_ws.go:45-49` | websocket send 序列化 | `Send` 串行化写操作，安全。 |
 | `internal/provider/claudecli/session.go:38-40` | `threadID/sessionID/transport/activeTurn` | 主状态受 `s.mu` 保护，未发现 map 竞态。 |
@@ -50,7 +50,7 @@
 
 | 位置 | 受保护状态 | 结论 |
 | --- | --- | --- |
-| `cmd/mcp-orch/orchestration/service.go:29-39` | `agents` 运行态总表 | `Launch/Stop/List/Snapshot/CompleteTurn` 都经 `s.mu`；map 访问安全。 |
+| `internal/sidecar/orch/orchestration/service.go:29-39` | `agents` 运行态总表 | `Launch/Stop/List/Snapshot/CompleteTurn` 都经 `s.mu`；map 访问安全。 |
 | `internal/module/thread/service.go:26-36` | `threadAgents` 索引 | `remember/lookup/forget` 都走 `threadAgentsMu`，map 访问安全。 |
 | `internal/module/turn/tracker.go:13-16` | `turns` 追踪表 | `Start/Attach/Update/Complete/Cleanup/Get` 全部受保护。 |
 | `internal/platform/bus/projection.go:10-14` | projector state | `Apply/State` 分别走写锁/读锁，安全。 |
@@ -89,7 +89,7 @@
 | `ApprovalManager.pending` | `internal/platform/rpc/approval.go:21` | `m.mu` | 通过 |
 | `ApprovalManager.pendingByRequestID` | `internal/platform/rpc/approval.go:22` | `m.mu` | 通过 |
 | `SessionManager.sessions` | `internal/provider/unified/session.go:17` | `m.mu` | map 访问通过；生命周期语义不通过 |
-| `service.agents` | `cmd/mcp-orch/orchestration/service.go:37` | `s.mu` | 通过 |
+| `service.agents` | `internal/sidecar/orch/orchestration/service.go:37` | `s.mu` | 通过 |
 | `thread.service.threadAgents` | `internal/module/thread/service.go:35` | `threadAgentsMu` | 通过 |
 | `turnTracker.turns` | `internal/module/turn/tracker.go:15` | `t.mu` | 通过 |
 | `rpc.Server.active` | `internal/platform/rpc/server.go:24` | `s.mu` | 通过 |
@@ -101,7 +101,7 @@
 | map | 位置 | 风险 | 结论 |
 | --- | --- | --- | --- |
 | `rpc.Server.methods` | `internal/platform/rpc/server.go:21` | `Register` 直接 `maps.Copy(s.methods, current)`，无锁；`Dispatch`/`serveConn` 直接读这个 map。当前只有 `internal/platform/rpc/module.go:50-52` 在启动期调用。 | 当前依赖启动期单线程初始化，建议加锁或在 `Run` 后冻结注册。 |
-| 各类函数内局部 map | 如 `internal/module/skill/skills_match.go:117`、`cmd/mcp-orch/orchestration/helpers.go:17` | goroutine 局部对象，不形成共享状态 | 不构成并发问题 |
+| 各类函数内局部 map | 如 `internal/module/skill/skills_match.go:117`、`internal/sidecar/orch/orchestration/helpers.go:17` | goroutine 局部对象，不形成共享状态 | 不构成并发问题 |
 
 ### 2.3 `SessionManager.sessions` 专项结论
 
@@ -111,7 +111,7 @@
 - 注册：`previous := m.sessions[id]; m.sessions[id] = session`，然后在锁外 `previous.ForceStop()`，见 `internal/provider/unified/session.go:37-45`。
 - 删除：`session := m.sessions[id]; delete(m.sessions, id)`，然后在锁外 `closeSession/ForceStop`，见 `internal/provider/unified/session.go:69-83`。
 - 创建入口：`Client.open -> c.sessions.Register(agentID, session)`，见 `internal/provider/unified/client.go:47-65`。
-- 删除入口：`orchestration.service.removeSession -> SessionManager.Remove`，见 `cmd/mcp-orch/orchestration/service.go:104-108`。
+- 删除入口：`orchestration.service.removeSession -> SessionManager.Remove`，见 `internal/sidecar/orch/orchestration/service.go:104-108`。
 
 竞态序列：
 1. 旧 session `A` 已存在。
@@ -130,7 +130,7 @@
 | --- | --- | --- |
 | `internal/app/app.go:78-88` | `app.Done()` 或调用方关闭 `stop` | 通过 |
 | `internal/app/runner.go:32-68` | `cancel()` + `done` 通知 | 基本通过；依赖 `RunGroup` 和各 runner 响应 `ctx` |
-| `cmd/mcp-orch/orchestration/runner_actor.go:48-60` | `cmd.Wait()` 结束；actor 退出时 `StopAllAgents()` 杀进程 | 通过 |
+| `internal/sidecar/orch/orchestration/runner_actor.go:48-60` | `cmd.Wait()` 结束；actor 退出时 `StopAllAgents()` 杀进程 | 通过 |
 | `internal/module/turn/service.go:173-203` | `handle.Done()` 或 `trackerTTL` | 通过 |
 | `internal/platform/rpc/approval.go:154-169` | callback `ctx` 被 `finishPending/resetDispatch` 取消 | 通过 |
 | `internal/platform/rpc/server.go:93-128` | `acceptLoop` 用 `WaitGroup`，连接退出时 `srv.Stop()` | 通过 |
@@ -155,7 +155,7 @@
 | --- | --- | --- | --- |
 | `stop chan struct{}` | `internal/app/app.go:78-88` | 调用方 `close(stopWatch)` | 通过 |
 | `done chan error` | `internal/app/runner.go:30-43` | goroutine `close(done)` | 通过 |
-| `results chan waitResult` | `cmd/mcp-orch/orchestration/runner_actor.go:31-45` | actor 生命周期内常驻，不要求关闭 | 通过 |
+| `results chan waitResult` | `internal/sidecar/orch/orchestration/runner_actor.go:31-45` | actor 生命周期内常驻，不要求关闭 | 通过 |
 | `pending.result chan ApprovalDecision` | `internal/platform/rpc/approval.go:144` | 仅写入，不关闭，也没有读者 | 无立即 bug，但字段已基本失效 |
 | `pending.done chan struct{}` | `internal/platform/rpc/approval.go:146` | `finishPending` 中统一 `close` | 通过 |
 | `signals chan os.Signal` | `internal/platform/runner/group.go:51-60` | `signal.Stop(signals)`，actor 退出即释放 | 通过 |
@@ -200,7 +200,7 @@
 
 证据链：
 - `StartSession/ResumeSession` 完成 driver 调用后统一 `Register`，见 `internal/provider/unified/client.go:29-65`。
-- orchestration 在 `StopAgent`、`StopAllAgents`、`handleProcessExit` 路径都会调用 `removeSession`，见 `cmd/mcp-orch/orchestration/service.go:127-153`、`cmd/mcp-orch/orchestration/service.go:355-369`。
+- orchestration 在 `StopAgent`、`StopAllAgents`、`handleProcessExit` 路径都会调用 `removeSession`，见 `internal/sidecar/orch/orchestration/service.go:127-153`、`internal/sidecar/orch/orchestration/service.go:355-369`。
 - `Register` 和 `Remove` 都在锁外做真正的 `ForceStop/Close`，见 `internal/provider/unified/session.go:37-45`、`internal/provider/unified/session.go:69-83`。
 
 额外风险：
@@ -249,7 +249,7 @@
 
 | 锁顺序 | 位置 | 结论 |
 | --- | --- | --- |
-| `service.mu -> queue.mu` | `cmd/mcp-orch/orchestration/service.go:166-187`、`cmd/mcp-orch/orchestration/service.go:291-324`、`cmd/mcp-orch/orchestration/helpers.go:119-138` | 只发现这一种方向，未发现 `queue.mu -> service.mu` 反向路径 |
+| `service.mu -> queue.mu` | `internal/sidecar/orch/orchestration/service.go:166-187`、`internal/sidecar/orch/orchestration/service.go:291-324`、`internal/sidecar/orch/orchestration/helpers.go:119-138` | 只发现这一种方向，未发现 `queue.mu -> service.mu` 反向路径 |
 | `writeMu -> stateMu` | `internal/provider/codexapp/transport.go:192-201`、`internal/provider/codexapp/transport.go:271-284` | `writeJSON -> currentWS` 会这样拿锁；未发现 `stateMu` 持有期间再去拿 `writeMu` |
 | `ApprovalManager.mu` 单锁 | `internal/platform/rpc/approval.go:127-350` | 外部动作如 `cancel`、`publishResolved` 在解锁后执行，避免持锁回调 |
 | `WailsLifecycle.mu` 单锁 | `internal/ui/wails/lifecycle.go:53-191` | 取函数指针后在锁外执行，避免自锁 |

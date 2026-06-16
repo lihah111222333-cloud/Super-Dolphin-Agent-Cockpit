@@ -10,7 +10,7 @@ import (
 	"time"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 type serviceSink interface {
@@ -158,7 +158,7 @@ func (s *Service) correlateTraceByThread(event TraceEvent) TraceEvent {
 		event.ParentSpanID = trace.SpanID
 	}
 	if event.SpanID == "" {
-		event.SpanID = idgen.NewID("span")
+		event.SpanID = kernel.NewID("span")
 	}
 	return event
 }

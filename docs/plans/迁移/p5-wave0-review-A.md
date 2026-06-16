@@ -86,7 +86,7 @@
 ### 当前仓内缺失的端口
 
 - `internal/contract/provider.go:22-50` 的 `Session`/`ToolCallResponder` 没有审批响应接口，只有 tool call result/error responder，无法承载 `request_user_input` 的 approval resolve。
-- `cmd/mcp-orch/orchestration/contract.go:10-17` 没有 `UserInputRequested` / `UserInputResolved` 之类状态推进方法。
+- `internal/sidecar/orch/orchestration/contract.go:10-17` 没有 `UserInputRequested` / `UserInputResolved` 之类状态推进方法。
 - `internal/dto/agent/state.go:28-29,90-95` 已经定义了 `user_input_requested` / `user_input_resolved` 触发器，但仓内没有任何使用点。
 - 结论：R0c 不只是一个 `platform/rpc/approval.go` 文件问题，还缺一条“审批结果 -> orchestration 状态恢复”的接口链。
 
@@ -103,7 +103,7 @@
 - 当前 assembly 在 `internal/app/modules.go:15-25` 只接入了 `config/db/bus/rpc/platformrunner/statemachine/thread`。
 - 当前没有接入 `turn`、`orchestration`，也不存在 `skill`、`uistate`、`dashboard` 这三个包的实现。
 - 当前 `rpc.Server.Register` 只存在于 `internal/platform/rpc/server.go:29-35`，仓内没有任何调用点。
-- 当前仓内也没有 `group:"rpc_methods"` 的实际 provider；只有 `docs/架构/skeleton-fx.md:192-215` 给出了设计草图。
+- 当前仓内也没有 `group:"rpc_methods"` 的实际 provider；只有 `docs/架构决策/架构骨架/skeleton-fx.md:192-215` 给出了设计草图。
 
 ### `handler.Map` value-group 是否可行
 

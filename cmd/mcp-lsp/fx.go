@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/tools"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	common "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime/bootstrap"
@@ -18,6 +17,7 @@ import (
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimeenv"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
+	"github.com/anthropic-ai/super-agent-v3/internal/sidecar/lsp/tools"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"go.uber.org/fx"

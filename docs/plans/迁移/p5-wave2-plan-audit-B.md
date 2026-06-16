@@ -110,16 +110,16 @@ R5 `agent/task`
 
 ## 6. orchestration 映射
 
-`cmd/mcp-orch/orchestration/contract.go`
+`internal/sidecar/orch/orchestration/contract.go`
 
 - `agent.launch` -> `LaunchAgent` 存在。
 - 但它只是“方法名存在”，不是“语义已对齐”。当前 `LaunchRequest` 字段是 `AgentID/Name/ParentID/Cwd/Command/Env`；V2 `agentLaunchParams` 字段是 `id/name/prompt/cwd/instructions/dynamic_tools/config`。这不是直接映射，contract 需要重设计或至少加 adapter DTO。
 - `agent.stop` -> `StopAgent` 存在，形状直接可用。
-- `agent.list` -> 没有 `ListAgents`。当前只有 `cmd/mcp-orch/orchestration/helpers.go:123-137` 的私有 `listAgents() []agentRuntime`，RPC 不能把它当稳定 contract。
+- `agent.list` -> 没有 `ListAgents`。当前只有 `internal/sidecar/orch/orchestration/helpers.go:123-137` 的私有 `listAgents() []agentRuntime`，RPC 不能把它当稳定 contract。
 - `agent.snapshot` -> `Snapshot` 存在。
 - `agent.getState` 可以部分复用 `Snapshot.State`，但 contract 没有独立 `GetState` 方法。
 - `agent.getReport` 没有对应方法，也没有任何实现命中。
-- `task/dag/*` 完全没有对应方法。`cmd/mcp-orch/orchestration/service.go` 的 `service` 结构当前只有 logger、event bus、session cleaner、state machine、agents map，没有 `taskdag.Store` 或其他 DAG 依赖。
+- `task/dag/*` 完全没有对应方法。`internal/sidecar/orch/orchestration/service.go` 的 `service` 结构当前只有 logger、event bus、session cleaner、state machine、agents map，没有 `taskdag.Store` 或其他 DAG 依赖。
 - 另外，V2 兼容面里的 `rememberReportRequest`、`reportEvent`、`saveSubAgent`、`deleteSubAgent`、`persistSubAgentBinding` 也都不在 contract 上。
 - `SubmitTurn` 虽然存在，但它的 DTO `TurnSubmission` 当前字段是 `agentId/threadId/input/...`，也不直接匹配 V2 `agent.submit` 的 `agent_id/prompt/images/files` 形状。
 

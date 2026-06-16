@@ -4,7 +4,7 @@
 - 只读审查。
 - 仅使用 LSP 路径完成验证：`text_search`、`workspace_symbol`、`references(compact)`、`call_hierarchy`、`read_file`。
 - 审查对象覆盖：
-  - V3：`internal/provider/*`、`internal/module/thread/*`、`internal/module/turn/*`、`cmd/mcp-orch/orchestration/*`、`internal/store/*`
+  - V3：`internal/provider/*`、`internal/module/thread/*`、`internal/module/turn/*`、`internal/sidecar/orch/orchestration/*`、`internal/store/*`
   - V2 对照：`go-agent-v2/internal/runner/*`、`go-agent-v2/internal/apiserver/*`、`go-agent-v2/legacy-agentsdk/*`
 
 ## 总结
@@ -92,9 +92,9 @@
 - `SessionManager.Remove` / `CloseAll`：`internal/provider/unified/session.go:59-101`
 - fx `OnStop -> sessions.CloseAll(ctx)`：`internal/provider/unified/module.go:33-43`
 - orchestration cleanup：
-  - `StopAgent`：`cmd/mcp-orch/orchestration/service.go:127-141`
-  - `StopAllAgents`：`cmd/mcp-orch/orchestration/service.go:143-153`
-  - 进程退出：`cmd/mcp-orch/orchestration/service.go:355-370`
+  - `StopAgent`：`internal/sidecar/orch/orchestration/service.go:127-141`
+  - `StopAllAgents`：`internal/sidecar/orch/orchestration/service.go:143-153`
+  - 进程退出：`internal/sidecar/orch/orchestration/service.go:355-370`
 - Claude `Close(context.Context)` 实际忽略 ctx：`internal/provider/claudecli/session.go:237-280`
 - Codex `Close(context.Context)` 实际忽略 ctx：`internal/provider/codexapp/session.go:205-215`
 

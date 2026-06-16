@@ -1,7 +1,7 @@
 # DAG agent 节点 lifecycle 闭环 — C-A 实施计划
 
 > 日期：2026-05-12 | 范围：F1-followup-3 + F1.3-rework 合并 ticket
-> 前置：`docs/design/F1-lifecycle-audit-2026-05-12.md`（4 轮实证 + 跨 4 层缺陷盘点）
+> 前置：`docs/架构决策/设计审计/F1-lifecycle-audit-2026-05-12.md`（4 轮实证 + 跨 4 层缺陷盘点）
 > 路径：**C 阶段（provider 层基础设施）→ A 阶段（DAG lifecycle 层）**
 > 总工程量预估（v2.9 Phase 4 dogfood 同步）：情况 A **~3730-4600 行 / 5 ADR / 20-24 commit**；情况 B **~3960-4830 行 / 5 ADR / 22-26 commit**（详 §9 工程量盘点；Phase 4 dogfood 触发 2 个 runtime follow-up + 1 个 harness fix）
 
@@ -129,7 +129,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 - 10 节点 multi-agent-node DAG 跑完会留 10 个挂着的 codex CLI 子进程（资源泄漏）
 
 **API 签名**（reviewer 修订）：
-- 真实 API：`service.StopAgent(ctx, agentID)`（`cmd/mcp-orch/orchestration/service.go:414-416`）— **接收 agentID 不是 threadID**
+- 真实 API：`service.StopAgent(ctx, agentID)`（`internal/sidecar/orch/orchestration/service.go:414-416`）— **接收 agentID 不是 threadID**
 - subscriber 从 `task_dag_nodes.spawning_thread_id` 反查到 **threadID**，需要再做一步 threadID → agentID 反查（codex 路径下两者不一定相等，见 `event_map.go:30 FirstNonEmpty(agentID, payloadThreadID)`）
 
 **修法**：
@@ -161,7 +161,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 **前置**：C1 + C2 完成（TurnCompleted.Result 真携带 agent 完整回复）+ C3 完成（spawned agent 推进 done 后自动 stop）
 
 **核心**：
-1. 新建 `cmd/mcp-orch/orchestration/dag_turn_completed_subscriber.go`
+1. 新建 `internal/sidecar/orch/orchestration/dag_turn_completed_subscriber.go`
 2. 通过 `bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnCompleted){...})` 订阅
 3. 反查 `task_dag_nodes WHERE spawning_thread_id = ev.ThreadID`
 4. 命中 + 节点 status ∈ {running, ready}：
@@ -171,7 +171,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 5. 节点已终态 → 跳过 + metric
 
 **fallback 路径**（thread.stopped）：
-- 复用 `cmd/mcp-orch/orchestration/hook_consumer.go handleProcessExitTopic`
+- 复用 `internal/sidecar/orch/orchestration/hook_consumer.go handleProcessExitTopic`
 - 在 `handleThreadStopped` 之后挂独立闭包（不进 withAgentLocked）
 - 反查 spawning_thread_id → 仍 running/ready → FailNodeAndCancelDownstream
 
@@ -183,7 +183,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 
 > 初稿提两种修法（新 SQL 或扩白名单）但未拍板 — 这是"未决细节藏在风险段"的反模式。本节强制拍板。
 
-- **采纳方案**：直接**扩 `CompleteTaskDagNode` 白名单为 `IN ('ready', 'running', 'awaiting_verify')`**（`cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql:37-42`）
+- **采纳方案**：直接**扩 `CompleteTaskDagNode` 白名单为 `IN ('ready', 'running', 'awaiting_verify')`**（`internal/sidecar/orch/sql/queries/task_dag_node_runtime.sql:37-42`）
   - **事实核对**：现状白名单**已经是** `IN ('running', 'awaiting_verify')`，本次改动**只新增 `ready` 一态**（不是从单态扩成三态）— 防止落码 worker 误读为重写整个白名单
   - **对称扩 FailNode 路径**：subscriber `ev.Success=false` 走 `FailNodeAndCancelDownstream` → `FailTaskDagNode` SQL（同文件附近），同样需要核对当前白名单 + 同步加 `ready`，否则失败路径 race 仍会卡 ready；ADR-017 拍板项加入"FailNode 白名单对称扩"
 - **拒绝方案**：新增 `FailReadyOrRunningTaskDagNode` SQL — 多一份手维护负担，与扩白名单效果等价但维度更碎
@@ -266,7 +266,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 
 - **C1 + C2 真并行**（两者修改 codex / claude 两个独立 provider 包）
 - **C3 切分方案**（二选一，ADR-016 拍板）：
-  - **方案 P1**：C3 拆出独立 `stop_helper.go`（在 `cmd/mcp-orch/orchestration/`），A1 subscriber 调用 helper — C3 可与 A1 并行
+  - **方案 P1**：C3 拆出独立 `stop_helper.go`（在 `internal/sidecar/orch/orchestration/`），A1 subscriber 调用 helper — C3 可与 A1 并行
   - **方案 P2**：C3 移到 A1 之后（与 A1 同 worker，作为 A1 工程量的子项）— 工程量不变但失去并行优势
 - **A1 + A2 必须串行**（A2 依赖 A1 subscriber 框架；MVP 复用 `CompleteNodeAndScheduleDownstream` result 更新，不新增 jsonb merge SQL）
 

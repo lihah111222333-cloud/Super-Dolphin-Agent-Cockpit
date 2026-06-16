@@ -8,7 +8,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 )
 
 type serviceThreadListerAdapter struct {
@@ -200,7 +199,7 @@ func (s *service) providerThreadNameTargetID(ctx context.Context, threadID, agen
 	return historyTargetID(binding, threadID), nil
 }
 
-func (s *service) providerThreadNameBinding(ctx context.Context, agentID string) (*bindingstore.Binding, error) {
+func (s *service) providerThreadNameBinding(ctx context.Context, agentID string) (*contract.Binding, error) {
 	if s == nil || s.bindingStore == nil {
 		return nil, errors.New("thread/name/set: binding store is not configured")
 	}

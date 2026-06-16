@@ -3,8 +3,8 @@ package turn
 import (
 	"regexp"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/util/repofingerprint"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 // Redactor is the second-pass redactor used by the skill extractor. Redact
@@ -105,7 +105,7 @@ func (r *DefaultRedactor) Redact(input string) (string, []string, error) {
 // share one implementation. Empty / whitespace cwd returns the empty string.
 // RepoFingerprint 处理仓库fingerprint。
 func RepoFingerprint(cwd string) string {
-	return repofingerprint.MustCompute(cwd)
+	return kernel.MustComputeRepoFingerprint(cwd)
 }
 
 // Compile-time assertion that *DefaultRedactor satisfies Redactor.

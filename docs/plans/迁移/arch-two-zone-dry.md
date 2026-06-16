@@ -31,8 +31,8 @@
 
 | 构件 | 定义位置 | LSP 真实消费点 | 复用结论 |
 | --- | --- | --- | --- |
-| `HandlerMapResult` | `internal/platform/rpc/module.go:36` | `cmd/mcp-orch/orchestration/rpc.go:15,16`；`internal/module/skill/rpc.go:42,43`；`internal/module/thread/rpc.go:19,20`；`internal/module/turn/rpc.go:19,32`；`internal/module/workspace/rpc.go:13,14` | 5 个业务模块复用，满足 >=3 |
-| `ResilientSubscribe[T]` | `internal/platform/bus/resilient.go:10` | `cmd/mcp-orch/orchestration/module.go:33,39`；`internal/platform/rpc/push.go:82,85,88`；`internal/ui/wails/bridge.go:54,57,60` | 3 个消费包，满足“包级复用”；若只按 `internal/module/` 业务模块计数，则仅 orchestration 1 个，不满足 |
+| `HandlerMapResult` | `internal/platform/rpc/module.go:36` | `internal/sidecar/orch/orchestration/rpc.go:15,16`；`internal/module/skill/rpc.go:42,43`；`internal/module/thread/rpc.go:19,20`；`internal/module/turn/rpc.go:19,32`；`internal/module/workspace/rpc.go:13,14` | 5 个业务模块复用，满足 >=3 |
+| `ResilientSubscribe[T]` | `internal/platform/bus/resilient.go:10` | `internal/sidecar/orch/orchestration/module.go:33,39`；`internal/platform/rpc/push.go:82,85,88`；`internal/ui/wails/bridge.go:54,57,60` | 3 个消费包，满足“包级复用”；若只按 `internal/module/` 业务模块计数，则仅 orchestration 1 个，不满足 |
 | `Route[T]` | `internal/platform/bus/router.go:18` | `internal/platform/bus/projection.go:42` | 仅被 `Projector.Bind` 复用 1 次，不满足 |
 | `Projector[S,E]` | `internal/platform/bus/projection.go:10` | 无外部 `references`；`NewProjector` 也无外部 `references` | 0 个外部消费者，不满足 |
 
@@ -52,7 +52,7 @@
 
 | 模块 | module.go | contract.go | service.go | 结论 |
 | --- | --- | --- | --- | --- |
-| orchestration | `cmd/mcp-orch/orchestration/module.go:1` | `cmd/mcp-orch/orchestration/contract.go:1` | `cmd/mcp-orch/orchestration/service.go:1` | 通过 |
+| orchestration | `internal/sidecar/orch/orchestration/module.go:1` | `internal/sidecar/orch/orchestration/contract.go:1` | `internal/sidecar/orch/orchestration/service.go:1` | 通过 |
 | skill | `internal/module/skill/module.go:1` | `internal/module/skill/contract.go:1` | `internal/module/skill/service.go:1` | 通过 |
 | thread | `internal/module/thread/module.go:1` | `internal/module/thread/contract.go:1` | `internal/module/thread/service.go:1` | 通过 |
 | turn | `internal/module/turn/module.go:1` | `internal/module/turn/contract.go:1` | `internal/module/turn/service.go:1` | 通过 |
@@ -75,10 +75,10 @@
 
 `lsp_grep` 对 `p agentIDParams` 的命中有 4 处：
 
-- `cmd/mcp-orch/orchestration/rpc.go:40` `agent.stop`
-- `cmd/mcp-orch/orchestration/rpc.go:46` `agent.snapshot`
-- `cmd/mcp-orch/orchestration/rpc.go:49` `agent.getState`
-- `cmd/mcp-orch/orchestration/rpc.go:52` `agent.getReport`
+- `internal/sidecar/orch/orchestration/rpc.go:40` `agent.stop`
+- `internal/sidecar/orch/orchestration/rpc.go:46` `agent.snapshot`
+- `internal/sidecar/orch/orchestration/rpc.go:49` `agent.getState`
+- `internal/sidecar/orch/orchestration/rpc.go:52` `agent.getReport`
 
 这些路由的形态都接近“取单个 ID 参数，然后直接转调 `svc`”，但当前没有抽成统一 helper。
 
@@ -86,7 +86,7 @@
 
 `lsp_grep` 对 `_ struct{}` 的命中有 5 处：
 
-- `cmd/mcp-orch/orchestration/rpc.go:43`
+- `internal/sidecar/orch/orchestration/rpc.go:43`
 - `internal/module/skill/rpc.go:44`
 - `internal/module/skill/rpc.go:56`
 - `internal/module/thread/rpc.go:42`

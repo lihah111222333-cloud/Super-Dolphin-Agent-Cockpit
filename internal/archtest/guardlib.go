@@ -35,6 +35,7 @@ const (
 	FuncCommentMinCC        = 6
 )
 
+// ViolationKind describes a archtest API type.
 type ViolationKind int
 
 const (
@@ -49,6 +50,7 @@ const (
 	ViolationFuncComment
 )
 
+// Violation describes a archtest API type.
 type Violation struct {
 	Kind    ViolationKind
 	File    string
@@ -67,6 +69,7 @@ func (v Violation) String() string {
 	return fmt.Sprintf("%s:%d %s got=%d limit=%d", v.File, v.Line, v.Func, v.Got, v.Limit)
 }
 
+// CheckOptions configures archtest behavior.
 type CheckOptions struct {
 	RepoRoot            string
 	ScanRoots           []string
@@ -541,7 +544,7 @@ func IsGeneratedSQLCFile(relPath string, data []byte) bool {
 
 func isSQLCPackageDir(pkgDir string) bool {
 	switch pkgDir {
-	case "internal/store/sqlc", "cmd/mcp-orch/store/sqlc":
+	case "internal/store/sqlc", "internal/sidecar/orch/store/sqlc":
 		return true
 	default:
 		return false

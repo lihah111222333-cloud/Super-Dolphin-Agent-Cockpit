@@ -11,25 +11,25 @@
 ## 修改点
 
 - Modify SQL:
-  - `cmd/mcp-orch/sql/queries/task_dag_wakeup_dispatch.sql`
-  - `cmd/mcp-orch/sql/queries/task_dag_wakeup_query.sql`
-  - `cmd/mcp-orch/sql/queries/task_dag_worker_lease.sql`
-  - `cmd/mcp-orch/sql/queries/task_dag_run.sql`
-  - `cmd/mcp-orch/sql/queries/task_dag_dag.sql` remove advisory lock queries.
+  - `internal/sidecar/orch/sql/queries/task_dag_wakeup_dispatch.sql`
+  - `internal/sidecar/orch/sql/queries/task_dag_wakeup_query.sql`
+  - `internal/sidecar/orch/sql/queries/task_dag_worker_lease.sql`
+  - `internal/sidecar/orch/sql/queries/task_dag_run.sql`
+  - `internal/sidecar/orch/sql/queries/task_dag_dag.sql` remove advisory lock queries.
 - Modify stores:
-  - `cmd/mcp-orch/store/taskdag/store_wakeup.go`
-  - `cmd/mcp-orch/store/taskdag/store_lease.go`
-  - `cmd/mcp-orch/store/taskdag/store_run.go`
-  - `cmd/mcp-orch/store/taskdag/store_dispatch_guard.go`
+  - `internal/sidecar/orch/store/taskdag/store_wakeup.go`
+  - `internal/sidecar/orch/store/taskdag/store_lease.go`
+  - `internal/sidecar/orch/store/taskdag/store_run.go`
+  - `internal/sidecar/orch/store/taskdag/store_dispatch_guard.go`
 - Harden runtime lock from Task 10:
   - `cmd/mcp-orch/dag_cron_runner.go`
   - `cmd/mcp-orch/fx.go`
-  - `cmd/mcp-orch/fxadapter/dag_cron_store.go`
-  - `cmd/mcp-orch/orchestration/cron/scheduler_cron.go` only if interface needs holder/renew/release semantics.
+  - `internal/sidecar/orch/fxadapter/dag_cron_store.go`
+  - `internal/sidecar/orch/orchestration/cron/scheduler_cron.go` only if interface needs holder/renew/release semantics.
 - Add tests:
-  - `cmd/mcp-orch/store/taskdag/wakeup_sqlite_concurrency_test.go`
-  - `cmd/mcp-orch/store/taskdag/runtime_lock_sqlite_test.go`
-  - `cmd/mcp-orch/store/taskdag/run_event_sqlite_golden_test.go`
+  - `internal/sidecar/orch/store/taskdag/wakeup_sqlite_concurrency_test.go`
+  - `internal/sidecar/orch/store/taskdag/runtime_lock_sqlite_test.go`
+  - `internal/sidecar/orch/store/taskdag/run_event_sqlite_golden_test.go`
 
 ## 目标语义
 
@@ -60,7 +60,7 @@
 ## 验收方案
 
 ```bash
-./scripts/test_with_guard.sh ./cmd/mcp-orch/store/taskdag ./cmd/mcp-orch/orchestration ./cmd/mcp-orch/fxadapter ./cmd/mcp-orch -count=1
+./scripts/test_with_guard.sh ./internal/sidecar/orch/store/taskdag ./internal/sidecar/orch/orchestration ./internal/sidecar/orch/fxadapter ./cmd/mcp-orch -count=1
 make sqlc-verify
 ```
 

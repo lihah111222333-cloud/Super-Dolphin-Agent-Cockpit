@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 func configOutputStyle(cfg map[string]any, keys ...string) *contract.OutputStyleConfig {
@@ -32,10 +32,10 @@ func normalizeOutputStyleConfig(value any) *contract.OutputStyleConfig {
 		return cloneOutputStyleConfig(*typed)
 	case map[string]any:
 		style := contract.OutputStyleConfig{
-			Name:        configutil.ConfigString(typed, "name"),
-			Description: configutil.ConfigString(typed, "description"),
-			Prompt:      configutil.ConfigString(typed, "prompt"),
-			Source:      configutil.ConfigString(typed, "source"),
+			Name:        kernel.ConfigString(typed, "name"),
+			Description: kernel.ConfigString(typed, "description"),
+			Prompt:      kernel.ConfigString(typed, "prompt"),
+			Source:      kernel.ConfigString(typed, "source"),
 		}
 		style.KeepCodingInstructions = configOptionalBool(typed, "keepCodingInstructions", "keep_coding_instructions")
 		if strings.TrimSpace(style.Name) == "" &&

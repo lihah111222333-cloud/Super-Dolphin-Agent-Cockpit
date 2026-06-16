@@ -17,7 +17,7 @@ import (
 )
 
 // Phase 3.6 / 3C 落地后，桌面端 sharedfile store 与 mcp-orch 端共用同一份
-// 磁盘 source / DB 索引语义；详见 cmd/mcp-orch/store/sharedfile/store.go
+// 磁盘 source / DB 索引语义；详见 internal/sidecar/orch/store/sharedfile/store.go
 // 头部注释。Config.CWD 为空时退化到 DB-only（兼容老 fixture）。
 
 type querier interface {

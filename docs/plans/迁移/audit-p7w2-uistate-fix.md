@@ -148,7 +148,7 @@ V2 基线：`go-agent-v2/internal/uistate/` 在既有审计里被确认有 50 �
 
 - `projector.go` 只依赖 `internal/dto/*` 和 `internal/platform/bus`，见 `internal/module/uistate/projector.go:9-13`
 - `rpc.go` 只依赖 `internal/platform/rpc`，见 `internal/module/uistate/rpc.go:8`
-- `service.go` 依赖 `cmd/mcp-orch/orchestration`、`internal/module/thread`、`internal/store/uipreference`，见 `internal/module/uistate/service.go:11-13`
+- `service.go` 依赖 `internal/sidecar/orch/orchestration`、`internal/module/thread`、`internal/store/uipreference`，见 `internal/module/uistate/service.go:11-13`
 
 本次 LSP 搜索 `internal/module/uistate/**` 下没有任何 `internal/provider/` 命中。
 

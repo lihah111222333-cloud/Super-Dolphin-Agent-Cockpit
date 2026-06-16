@@ -2,13 +2,15 @@ package kernel
 
 import (
 	"context"
-
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
-// NonNilContext delegates to util.NonNilContext.
-// NonNilContext 处理nonnil上下文。
-func NonNilContext(ctx context.Context) context.Context { return util.NonNilContext(ctx) }
+// NonNilContext returns ctx, or context.Background when callers pass nil.
+func NonNilContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
 
 // CheckCtx 处理checkctx。
 func CheckCtx(ctx context.Context) error {

@@ -624,7 +624,7 @@ JSON
 
 copy_model_registry() {
   local stage="$1"
-  local src="$root/cmd/mcp-orch/tools/modelregistry/models.yaml"
+  local src="$root/internal/sidecar/orch/tools/modelregistry/models.yaml"
   if [[ ! -f "$src" ]]; then
     echo "missing model registry: $src" >&2
     exit 1

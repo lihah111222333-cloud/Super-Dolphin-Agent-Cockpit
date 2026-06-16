@@ -14,9 +14,9 @@
   - `internal/module/thread/rpc_types.go`
   - `internal/module/thread/contract.go`
   - `internal/module/thread/lifecycle.go`
-  - `cmd/mcp-orch/orchestration/service.go`
-  - `cmd/mcp-orch/orchestration/events.go`
-  - `cmd/mcp-orch/orchestration/helpers.go`
+  - `internal/sidecar/orch/orchestration/service.go`
+  - `internal/sidecar/orch/orchestration/events.go`
+  - `internal/sidecar/orch/orchestration/helpers.go`
   - `internal/provider/unified/client.go`
   - `internal/provider/unified/session.go`
   - `internal/provider/unified/registry.go`

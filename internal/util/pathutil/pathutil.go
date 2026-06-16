@@ -15,7 +15,6 @@ import (
 	"time"
 	"unicode"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -310,7 +309,7 @@ func canonicalProjectRoot(ctx context.Context, cwd string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	gitCtx, cancel := platformconfig.WithTimeout(ctx, projectKeyResolveTimeout)
+	gitCtx, cancel := context.WithTimeout(ctx, projectKeyResolveTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(gitCtx, "git", "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")

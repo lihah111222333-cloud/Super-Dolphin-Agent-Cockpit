@@ -1,7 +1,7 @@
 # 能力+容错审查：Event Bus → Push → Wails 事件推送链
 
 审查时间：2026-03-21  
-审查范围：V3 `internal/platform/bus` / `internal/platform/rpc` / `internal/ui/wails` / `cmd/mcp-orch/orchestration` / `internal/provider/*`，以及 V2 `go-agent-v2` 对照实现。  
+审查范围：V3 `internal/platform/bus` / `internal/platform/rpc` / `internal/ui/wails` / `internal/sidecar/orch/orchestration` / `internal/provider/*`，以及 V2 `go-agent-v2` 对照实现。  
 取证方式：仅使用 LSP `text_search` / `workspace_symbol` / `references(compact)` / `call_hierarchy` / `read_file(func_start/func_end)`。
 
 ## 结论摘要
@@ -31,13 +31,13 @@
 
 | 事件 | 发布点 | 订阅点 | 判定 |
 | --- | --- | --- | --- |
-| `agentdto.StateChanged` | orchestration `cmd/mcp-orch/orchestration/events.go:13-23`；codex translator `internal/provider/codexapp/event_map.go:39-74` | `LogSink` `internal/platform/bus/sink.go:43-49`；jrpc2 push `internal/platform/rpc/push.go:81-90`；Wails bridge `internal/ui/wails/bridge.go:53-63` | 有业务闭环，但存在双源 |
-| `turndto.TurnStarted` | claude translator `internal/provider/claudecli/event_map.go:55-85`；codex translator `internal/provider/codexapp/event_map.go:76-112` | `LogSink` `internal/platform/bus/sink.go:51-59`；orchestration turn lifecycle `cmd/mcp-orch/orchestration/module.go:25-53`；jrpc2 push；Wails bridge | 有业务闭环 |
+| `agentdto.StateChanged` | orchestration `internal/sidecar/orch/orchestration/events.go:13-23`；codex translator `internal/provider/codexapp/event_map.go:39-74` | `LogSink` `internal/platform/bus/sink.go:43-49`；jrpc2 push `internal/platform/rpc/push.go:81-90`；Wails bridge `internal/ui/wails/bridge.go:53-63` | 有业务闭环，但存在双源 |
+| `turndto.TurnStarted` | claude translator `internal/provider/claudecli/event_map.go:55-85`；codex translator `internal/provider/codexapp/event_map.go:76-112` | `LogSink` `internal/platform/bus/sink.go:51-59`；orchestration turn lifecycle `internal/sidecar/orch/orchestration/module.go:25-53`；jrpc2 push；Wails bridge | 有业务闭环 |
 | `turndto.TurnCompleted` | claude translator；codex translator | `LogSink`；orchestration turn lifecycle；jrpc2 push；Wails bridge | 有业务闭环 |
-| `agentdto.AgentLaunched` | orchestration `cmd/mcp-orch/orchestration/events.go:25-33`；claude/codex translator | 仅 `LogSink` | 软孤儿 |
-| `agentdto.AgentStopped` | orchestration `cmd/mcp-orch/orchestration/events.go:35-43`；claude/codex translator | 仅 `LogSink` | 软孤儿 |
-| `agentdto.AgentRecovering` | orchestration `cmd/mcp-orch/orchestration/events.go:45-53`；codex translator | 仅 `LogSink` | 软孤儿，且双源 |
-| `agentdto.AgentFailed` | orchestration `cmd/mcp-orch/orchestration/events.go:55-64`；claude/codex translator | 仅 `LogSink` | 软孤儿 |
+| `agentdto.AgentLaunched` | orchestration `internal/sidecar/orch/orchestration/events.go:25-33`；claude/codex translator | 仅 `LogSink` | 软孤儿 |
+| `agentdto.AgentStopped` | orchestration `internal/sidecar/orch/orchestration/events.go:35-43`；claude/codex translator | 仅 `LogSink` | 软孤儿 |
+| `agentdto.AgentRecovering` | orchestration `internal/sidecar/orch/orchestration/events.go:45-53`；codex translator | 仅 `LogSink` | 软孤儿，且双源 |
+| `agentdto.AgentFailed` | orchestration `internal/sidecar/orch/orchestration/events.go:55-64`；claude/codex translator | 仅 `LogSink` | 软孤儿 |
 | `turndto.TurnInterrupted` | claude/codex translator | 仅 `LogSink` | 软孤儿 |
 | `turndto.TurnInputReceived` | claude translator `internal/provider/claudecli/event_map.go:59-64` | 仅 `LogSink` | 软孤儿 |
 | `turndto.TurnOutputDelta` | claude/codex translator | 仅 `LogSink` | 软孤儿 |
@@ -230,7 +230,7 @@ Wails bridge 也没有 replay：
 
 具体例子：
 
-- launch 成功时，orchestration 先 `fireOrForceLocked(...TriggerLaunchSucceeded)` 产出 `StateChanged(idle)`，再 `publishAgentLaunched()`，见 `cmd/mcp-orch/orchestration/service.go:255-263`
+- launch 成功时，orchestration 先 `fireOrForceLocked(...TriggerLaunchSucceeded)` 产出 `StateChanged(idle)`，再 `publishAgentLaunched()`，见 `internal/sidecar/orch/orchestration/service.go:255-263`
 - 但 `StateChanged` 和 `AgentLaunched` 是两个不同 typed event
 - 对同时订阅两者的消费者来说，观察顺序取决于两个 goroutine 的调度，不受发布先后严格约束
 
@@ -265,7 +265,7 @@ typed handler 没有 error 返回值，只有 panic 这条异常路径。
 
 是 resilient 的：
 
-- orchestration turn lifecycle 订阅，见 `cmd/mcp-orch/orchestration/module.go:33-44`
+- orchestration turn lifecycle 订阅，见 `internal/sidecar/orch/orchestration/module.go:33-44`
 - jrpc2 push 订阅，见 `internal/platform/rpc/push.go:81-90`
 - Wails bridge 订阅，见 `internal/ui/wails/bridge.go:53-63`
 
@@ -300,7 +300,7 @@ orchestration 会发布：
 - `AgentRecovering`
 - `AgentFailed`
 
-见 `cmd/mcp-orch/orchestration/events.go:13-64`。
+见 `internal/sidecar/orch/orchestration/events.go:13-64`。
 
 provider translator 也会发布：
 
@@ -318,7 +318,7 @@ provider translator 也会发布：
 
 这是当前去重最麻烦的点：
 
-- orchestration 的 `SessionID` 用本地 `launchSeq`，见 `cmd/mcp-orch/orchestration/events.go:66-88`
+- orchestration 的 `SessionID` 用本地 `launchSeq`，见 `internal/sidecar/orch/orchestration/events.go:66-88`
 - codex translator 的 `SessionID` 用远端 `sessionId`，拿不到时退回 `threadId`，见 `internal/provider/codexapp/event_map.go:153-164`
 - claude translator 的 `SessionID` 用远端 `session_id`，见 `internal/provider/claudecli/event_map.go:105-115`
 
@@ -331,7 +331,7 @@ provider translator 也会发布：
 
 对外桥接层，`ui/state/changed` 尤其有风险：
 
-- orchestration 状态机每次成功 transition 都发 `StateChanged`，见 `cmd/mcp-orch/orchestration/service.go:281-289`
+- orchestration 状态机每次成功 transition 都发 `StateChanged`，见 `internal/sidecar/orch/orchestration/service.go:281-289`
 - codex 原始 `thread/status/changed` 也会翻译成 `StateChanged`，见 `internal/provider/codexapp/event_map.go:47-53`
 
 结果：**同一 agent 的状态 UI 事件可能重复、交织，且无法区分是“本地调度状态”还是“provider 上报状态”。**
@@ -382,7 +382,7 @@ provider translator 也会发布：
 
 是稳定的。
 
-- 所有成功的状态迁移都经 `fireAndPublishLocked()`，见 `cmd/mcp-orch/orchestration/service.go:281-289`
+- 所有成功的状态迁移都经 `fireAndPublishLocked()`，见 `internal/sidecar/orch/orchestration/service.go:281-289`
 - 该函数在 `agent.sm.FireCtx(...)` 成功后立刻 `publishStateChanged(...)`
 
 所以：**状态机 transition 成功后，一定发 `StateChanged`。**
@@ -393,7 +393,7 @@ provider translator 也会发布：
 
 - `TurnStarted` 只在 provider translator 中构造，见 `internal/provider/claudecli/event_map.go:55-85`、`internal/provider/codexapp/event_map.go:76-112`
 - `TurnCompleted` 也只在 provider translator 中构造
-- orchestration 只是订阅这些 turn 事件来反推状态机，见 `cmd/mcp-orch/orchestration/module.go:25-53`
+- orchestration 只是订阅这些 turn 事件来反推状态机，见 `internal/sidecar/orch/orchestration/module.go:25-53`
 
 因此链路方向是：
 
@@ -410,17 +410,17 @@ provider translator 也会发布：
 
 ### 9.3 由此带来的空洞
 
-- 本地 `turn_queued -> turn_starting` 发生时，只会发 `StateChanged`，不会发 `TurnStarted`，见 `cmd/mcp-orch/orchestration/service.go:291-324`
-- `finishTurnStartSuccess()` 把 `turn_starting -> turn_running` 时，同样只是状态迁移，不产出 `TurnStarted`，见 `cmd/mcp-orch/orchestration/helpers.go:153-174`
-- `finishTurnStartFailure()` / `reconcileReadyStateLocked()` 能把 turn 状态收回 `idle`，也只会产出 `StateChanged`，见 `cmd/mcp-orch/orchestration/helpers.go:119-138`、`176-192`
+- 本地 `turn_queued -> turn_starting` 发生时，只会发 `StateChanged`，不会发 `TurnStarted`，见 `internal/sidecar/orch/orchestration/service.go:291-324`
+- `finishTurnStartSuccess()` 把 `turn_starting -> turn_running` 时，同样只是状态迁移，不产出 `TurnStarted`，见 `internal/sidecar/orch/orchestration/helpers.go:153-174`
+- `finishTurnStartFailure()` / `reconcileReadyStateLocked()` 能把 turn 状态收回 `idle`，也只会产出 `StateChanged`，见 `internal/sidecar/orch/orchestration/helpers.go:119-138`、`176-192`
 
 结论：**当前只保证“状态机会发 `StateChanged`”；并不保证“状态转移后必有对应 `TurnStarted` / `TurnCompleted`”。**
 
 ### 9.4 sideband agent 事件也不是状态机产物
 
-- `publishAgentRecovering()` 在真正 `TriggerRecoverRequested` 之前先发，见 `cmd/mcp-orch/orchestration/recover.go:27-40`
-- `publishAgentStopped()` 在 `StopAgent()` 返回路径里手工发，见 `cmd/mcp-orch/orchestration/service.go:127-141`
-- `publishAgentFailed()` 在 `recordProcessExitError()` 里手工发，然后才做 `process_exited` transition，见 `cmd/mcp-orch/orchestration/service.go:372-394`
+- `publishAgentRecovering()` 在真正 `TriggerRecoverRequested` 之前先发，见 `internal/sidecar/orch/orchestration/recover.go:27-40`
+- `publishAgentStopped()` 在 `StopAgent()` 返回路径里手工发，见 `internal/sidecar/orch/orchestration/service.go:127-141`
+- `publishAgentFailed()` 在 `recordProcessExitError()` 里手工发，然后才做 `process_exited` transition，见 `internal/sidecar/orch/orchestration/service.go:372-394`
 
 所以 `AgentLaunched` / `AgentStopped` / `AgentRecovering` / `AgentFailed` 只是 sideband 事件，不是状态机统一出口。
 
@@ -562,9 +562,9 @@ V3 `internal/dto/shared/event.go:5-39` 只定义了 **28 个 typed event**，6 �
 ### 2. 对 `docs/plans/迁移/cap-provider-session.md`
 
 1. 报告在 §1 把 “provider 必填导致与 V2 默认 provider 不等价” 主要落在 `thread.Start`，范围写窄了。它引用的是 `internal/module/thread/lifecycle.go:180-183`，但 `Resume` 其实同样硬性要求 `provider`，见 `internal/module/thread/lifecycle.go:189-203`；而 `newResumeHandler` 只从 `svc.Get(threadID)` 回填 `AgentID`，不回填 `Provider`，见 `internal/module/thread/rpc.go:118-130`。所以默认 provider/fallback 缺口不只影响 Start，也影响 Resume。
-2. 报告把 close deadline 问题主要归因于 driver `Close(ctx)` 不 honor `ctx`，但漏掉了更近的调用点 bug。`SessionManager.Remove` 自己就直接 `session.Close(context.Background())`，见 `internal/provider/unified/session.go:59-82`；而 orchestration 的 `StopAgent`、`StopAllAgents`、`handleProcessExit` 都走 `removeSession(agent.id)`，见 `cmd/mcp-orch/orchestration/service.go:127-141`、`143-153`、`355-368`。因此即使 driver 之后修正为 honor ctx，当前 per-agent cleanup 仍然会先把 deadline 丢掉，这一层应该比 driver 侧更先被点名。
-3. 报告在 codex recovery 一节停在 “transport-level reconnect 不等于 session-level recovery”，但漏掉了**它也没有进入 orchestration 状态机**。`attemptRecovery` 只发 raw `recovery.attempt`，见 `internal/provider/codexapp/recovery.go:69-94`；translator 只是把它翻成 `agentdto.AgentRecovering`，见 `internal/provider/codexapp/event_map.go:39-70`；而 orchestration live 订阅只有 `TurnStarted` / `TurnCompleted`，见 `cmd/mcp-orch/orchestration/module.go:25-53`，`TriggerRecoverRequested` 也只在手工 `Recover(ctx, agentID)` 时触发，见 `cmd/mcp-orch/orchestration/recover.go:27-58`。这说明 provider 自动恢复与 agent 状态机是脱节的，问题比报告表述的“半层恢复”还更严重。
-4. 报告把 stale session 问题放进总结里的 `P0` 没错，但**作用域需要收窄**。主线 stop/exit 路径并不会保留 session：`StopAgent`、`StopAllAgents`、`handleProcessExit` 都明确 `removeSession`，见 `cmd/mcp-orch/orchestration/service.go:127-141`、`143-153`、`355-368`。真正留下 closed-but-retained session 的是 `thread/archive` / `thread/delete` 这两条 thread-service 支线，因为它们只走 `closeSessionIfActive -> session.Close(ctx)`，不走 `SessionManager.Remove`，见 `internal/module/thread/archive.go:5-13`、`internal/module/thread/service.go:102-119`、`228-241`。所以这是“特定入口导致的 retained session”，不是 provider session 主链普遍泄漏。
+2. 报告把 close deadline 问题主要归因于 driver `Close(ctx)` 不 honor `ctx`，但漏掉了更近的调用点 bug。`SessionManager.Remove` 自己就直接 `session.Close(context.Background())`，见 `internal/provider/unified/session.go:59-82`；而 orchestration 的 `StopAgent`、`StopAllAgents`、`handleProcessExit` 都走 `removeSession(agent.id)`，见 `internal/sidecar/orch/orchestration/service.go:127-141`、`143-153`、`355-368`。因此即使 driver 之后修正为 honor ctx，当前 per-agent cleanup 仍然会先把 deadline 丢掉，这一层应该比 driver 侧更先被点名。
+3. 报告在 codex recovery 一节停在 “transport-level reconnect 不等于 session-level recovery”，但漏掉了**它也没有进入 orchestration 状态机**。`attemptRecovery` 只发 raw `recovery.attempt`，见 `internal/provider/codexapp/recovery.go:69-94`；translator 只是把它翻成 `agentdto.AgentRecovering`，见 `internal/provider/codexapp/event_map.go:39-70`；而 orchestration live 订阅只有 `TurnStarted` / `TurnCompleted`，见 `internal/sidecar/orch/orchestration/module.go:25-53`，`TriggerRecoverRequested` 也只在手工 `Recover(ctx, agentID)` 时触发，见 `internal/sidecar/orch/orchestration/recover.go:27-58`。这说明 provider 自动恢复与 agent 状态机是脱节的，问题比报告表述的“半层恢复”还更严重。
+4. 报告把 stale session 问题放进总结里的 `P0` 没错，但**作用域需要收窄**。主线 stop/exit 路径并不会保留 session：`StopAgent`、`StopAllAgents`、`handleProcessExit` 都明确 `removeSession`，见 `internal/sidecar/orch/orchestration/service.go:127-141`、`143-153`、`355-368`。真正留下 closed-but-retained session 的是 `thread/archive` / `thread/delete` 这两条 thread-service 支线，因为它们只走 `closeSessionIfActive -> session.Close(ctx)`，不走 `SessionManager.Remove`，见 `internal/module/thread/archive.go:5-13`、`internal/module/thread/service.go:102-119`、`228-241`。所以这是“特定入口导致的 retained session”，不是 provider session 主链普遍泄漏。
 
 ### 3. 对 `docs/plans/迁移/cap-fx-lifecycle.md`
 

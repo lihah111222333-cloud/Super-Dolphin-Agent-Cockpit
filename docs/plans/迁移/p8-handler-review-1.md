@@ -2,13 +2,13 @@
 
 ## 审查范围
 
-- `cmd/mcp-orch/tools/workspace_tools.go`
-- `cmd/mcp-orch/tools/prompt_tools.go`
-- `cmd/mcp-orch/tools/command_tools.go`
-- `cmd/mcp-orch/tools/shared_file_tools.go`
-- `cmd/mcp-orch/tools/registry.go`
-- `cmd/mcp-orch/tools/orchestration_tools.go`
-- `cmd/mcp-orch/tools/task_tools.go`
+- `internal/sidecar/orch/tools/workspace_tools.go`
+- `internal/sidecar/orch/tools/prompt_tools.go`
+- `internal/sidecar/orch/tools/command_tools.go`
+- `internal/sidecar/orch/tools/shared_file_tools.go`
+- `internal/sidecar/orch/tools/registry.go`
+- `internal/sidecar/orch/tools/orchestration_tools.go`
+- `internal/sidecar/orch/tools/task_tools.go`
 
 ## 1. 19 工具注册完整性表
 
@@ -45,7 +45,7 @@
 
 ### 2.1 import 约束
 
-按要求在 `cmd/mcp-orch/tools/` 范围搜索 import 依赖：
+按要求在 `internal/sidecar/orch/tools/` 范围搜索 import 依赖：
 
 - `internal/module/`：`0`
 - `internal/store/`：`0`
@@ -54,7 +54,7 @@
 
 当前依赖边界符合要求：
 
-- 允许依赖 `cmd/mcp-orch/store/*`
+- 允许依赖 `internal/sidecar/orch/store/*`
 - 允许依赖 `internal/contract`
 - 未发现直接越层依赖 `internal/module/*`
 - 未发现直接依赖旧的 `internal/store/*`
@@ -63,11 +63,11 @@
 
 | 文件 | 主要依赖 | 结果 |
 |---|---|---|
-| `registry.go` | `cmd/mcp-orch/store/commandcard`, `cmd/mcp-orch/store/prompt`, `cmd/mcp-orch/store/sharedfile`, `internal/contract` | 通过 |
-| `workspace_tools.go` | `cmd/mcp-orch/store/workspace` | 通过 |
-| `prompt_tools.go` | `cmd/mcp-orch/store/prompt` | 通过 |
-| `command_tools.go` | `cmd/mcp-orch/store/commandcard` | 通过 |
-| `shared_file_tools.go` | `cmd/mcp-orch/store/sharedfile` | 通过 |
+| `registry.go` | `internal/sidecar/orch/store/commandcard`, `internal/sidecar/orch/store/prompt`, `internal/sidecar/orch/store/sharedfile`, `internal/contract` | 通过 |
+| `workspace_tools.go` | `internal/sidecar/orch/store/workspace` | 通过 |
+| `prompt_tools.go` | `internal/sidecar/orch/store/prompt` | 通过 |
+| `command_tools.go` | `internal/sidecar/orch/store/commandcard` | 通过 |
+| `shared_file_tools.go` | `internal/sidecar/orch/store/sharedfile` | 通过 |
 | `orchestration_tools.go` | `internal/contract`, `internal/dto/shared` | 通过 |
 | `task_tools.go` | `internal/contract` | 通过 |
 
@@ -95,7 +95,7 @@
 
 - `prompt/command/shared_file` 都有 tool-local DTO 映射。
 - `workspace_merge_run` 也有 tool-local DTO。
-- 但 `workspace_create_run/get_run/list_runs/abort_run` 直接返回 `cmd/mcp-orch/store/workspace.WorkspaceRun`。
+- 但 `workspace_create_run/get_run/list_runs/abort_run` 直接返回 `internal/sidecar/orch/store/workspace.WorkspaceRun`。
 - `task_*` 和部分 `orchestration_*` 直接返回 `internal/contract` 结构体。
 
 判断：
@@ -196,7 +196,7 @@
 | # | 问题 | 严重度 | 建议 |
 |---|---|---|---|
 | 1 | `orchestration_*` 与 `task_*` 缺少 `svc == nil` 守卫，和其它资源 handler 的 `store == nil` 守卫不一致。`Dependencies.Orchestration` 未配置时会直接在 `svc.LaunchAgent / SubmitTurn / StopAgent / ListAgents / GetReport / CreateDAG / GetDAG / UpdateNodeStatus` 处触发空指针。 | 高 | 在全部 `HandleLaunchAgent/HandleSendMessage/HandleStopAgent/HandleListAgents/HandleGetAgentReport/HandleCreateDAG/HandleGetDAG/HandleUpdateNode` 入口统一补 `svc == nil` 判空，并返回固定错误文案。 |
-| 2 | `workspace_create_run/get_run/list_runs/abort_run` 直接暴露 `cmd/mcp-orch/store/workspace.WorkspaceRun`，而不是 tool-local DTO；同组中的 `workspace_merge_run` 却使用了 `WorkspaceMergeRunResult`，导致 workspace 资源层边界不一致。 | 中 | 为 `workspace` 组补一套工具层 DTO，统一由 tools 包负责映射返回，避免 store 层结构体成为稳定外部协议。 |
+| 2 | `workspace_create_run/get_run/list_runs/abort_run` 直接暴露 `internal/sidecar/orch/store/workspace.WorkspaceRun`，而不是 tool-local DTO；同组中的 `workspace_merge_run` 却使用了 `WorkspaceMergeRunResult`，导致 workspace 资源层边界不一致。 | 中 | 为 `workspace` 组补一套工具层 DTO，统一由 tools 包负责映射返回，避免 store 层结构体成为稳定外部协议。 |
 | 3 | `orchestration_*` 与 `task_*` 的 required/enum 约束只存在于 `InputSchema`，但工具层 `decodeInput` 只做 `json.Unmarshal`，并不执行 schema 校验。空白 `name`、`agent_id`、`message`、`dag_key`、`title`、`node_key`、`status` 仍可下传到 service。 | 中 | 抽取通用 guard helper，复用 `requireTrimmed`，并在 `launchRequestFromInput`、`submissionFromMessage`、`createDAGRequestFromInput`、`createDAGNodesFromInput`、`updateNodeRequestFromInput` 中把必填和枚举校验落到代码。 |
 | 4 | `createDAGNodesFromInput` 对 `DependsOn` 直接 `append([]string(nil), node.DependsOn...)`，未做 `trimNonEmpty` 级别的清洗，可能把空白依赖名原样带入 contract。 | 中 | 对 `depends_on` 做与 workspace `files` 一致的 trim + empty 过滤。 |
 | 5 | 成功返回形状在不同 handler 组之间并不统一：`orchestration_launch/send/stop` 返回 `{success, agent_id}`，`task_*` 返回原始 contract DTO，`workspace_*` 有的返回 store struct，有的返回 tool DTO，`prompt/command/shared_file` 则返回资源 DTO。这不影响注册，但会提高上层适配复杂度。 | 低 | 如果目标是统一资源 handler 协议，建议明确“全部返回资源 DTO”或“全部 mutation 返回 success envelope + payload”中的一种。 |

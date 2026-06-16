@@ -9,7 +9,7 @@
 3. **Bug #1 是契约回归，不是“可接受噪声”。** `prompts/list|write|delete` 被前端直接依赖，且 P8 已写明宿主 surface 必须保留，因此应单独成 `p20.1`，不再混入 skill 主链。
 4. **其余工作可拆成真正并行单。** rollout marker、RPC、MCP、config/policy/metrics、approval wiring、frontend fallback 都能独立推进；provider 实现与前端 launch UI 则待 critical path 契约稳定后并行收口。
 
-> 旁证：实验 A（`docs/experiments/p20-exp-a-agentsmd-merge.md`）已证明 codex `baseInstructions` 语义高于 AGENTS.md；实验 B（`docs/experiments/p20-exp-b-claudecli-native-skills.md`）已锁定 Claude native skills 必须走“扫盘降级”方案。
+> 旁证：实验 A（`docs/研究材料/实验验证/p20-exp-a-agentsmd-merge.md`）已证明 codex `baseInstructions` 语义高于 AGENTS.md；实验 B（`docs/研究材料/实验验证/p20-exp-b-claudecli-native-skills.md`）已锁定 Claude native skills 必须走“扫盘降级”方案。
 
 ## 2. 30% / 40% / 30% 落地对照（4 / 9 / 10，按本次 checkpoint 口径）
 
@@ -49,7 +49,7 @@
 | `internal/contract/skill_injection.go` | 文件缺失 | `p20.6` / `p20.7` |
 | `internal/module/turn/expanded_state.go` | 文件缺失 | `p20.8` |
 | `config.skill.progressive_disclosure` + skillPolicy + metrics | `internal/platform/config/config.go:9-25` 未含 | `p20.12` |
-| MCP tool 注册 `skill_expand` / `skill_list` | `cmd/mcp-orch/tools/` 无命中 | ~~`p20.11`~~ **已废弃**：skill 是宿主独有能力，不属于编排层 |
+| MCP tool 注册 `skill_expand` / `skill_list` | `internal/sidecar/orch/tools/` 无命中 | ~~`p20.11`~~ **已废弃**：skill 是宿主独有能力，不属于编排层 |
 
 ## 3. 两个 Bug 的 smoking-gun 一页纸
 

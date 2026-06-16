@@ -46,15 +46,15 @@
 ## 2. 事件时间语义统一：⚠️
 
 - 已统一的消费侧：
-  - `cmd/mcp-orch/orchestration/event_time.go:10-32` 定义 `withEventTime/resolveEventTime`。
-  - `cmd/mcp-orch/orchestration/module.go:33-41` 与 `cmd/mcp-orch/orchestration/turn_lifecycle.go:20-25` 会把 turn 事件时间写入上下文。
+  - `internal/sidecar/orch/orchestration/event_time.go:10-32` 定义 `withEventTime/resolveEventTime`。
+  - `internal/sidecar/orch/orchestration/module.go:33-41` 与 `internal/sidecar/orch/orchestration/turn_lifecycle.go:20-25` 会把 turn 事件时间写入上下文。
   - `internal/platform/rpc/approval_events.go:123-173` approval 事件优先取 payload 时间。
   - `internal/provider/codexapp/event_map.go:304-313` 与 `internal/provider/claudecli/event_map.go:136-144` translator 优先解析事件自带时间。
 - 未统一的内部生产侧：
   - `internal/module/thread/service.go:320-357` 三类 thread 事件直接 `Timestamp: time.Now()`。
   - `internal/module/workspace/service_helpers.go:337-344` workspace 事件头直接 `time.Now()`。
-  - `cmd/mcp-orch/orchestration/helpers.go:52-60` launch 准备阶段直接 `agent.updatedAt = time.Now()`。
-  - `cmd/mcp-orch/orchestration/service.go:240-249`、`cmd/mcp-orch/orchestration/service.go:358-361` 进程启动/退出直接写 `now := time.Now()`。
+  - `internal/sidecar/orch/orchestration/helpers.go:52-60` launch 准备阶段直接 `agent.updatedAt = time.Now()`。
+  - `internal/sidecar/orch/orchestration/service.go:240-249`、`internal/sidecar/orch/orchestration/service.go:358-361` 进程启动/退出直接写 `now := time.Now()`。
 - 判定：当前只是消费侧和部分 orchestration 内部使用了 event-time helper，还不是生产-消费全链路统一语义。
 
 ## 3. sqlc 生成层漂移是否修复：❌
@@ -71,11 +71,11 @@
 
 ## 4. 状态机严格模式（无 force fallback）：❌
 
-- 正向变化：`cmd/mcp-orch/orchestration/service.go:261-274` 的 `fireOrForceLocked()` 现在只做严格 `FireCtx`，非法转换直接报错。
+- 正向变化：`internal/sidecar/orch/orchestration/service.go:261-274` 的 `fireOrForceLocked()` 现在只做严格 `FireCtx`，非法转换直接报错。
 - 但仍存在状态机外直接写状态：
-  - `cmd/mcp-orch/orchestration/helpers.go:52-60` 的 `prepareLaunchStateLocked()` 直接把状态写成 `provisioning`。
-  - `cmd/mcp-orch/orchestration/turn_lifecycle.go:14`、`cmd/mcp-orch/orchestration/turn_lifecycle.go:29-59` 的 `forceIdleAfterCompletionError()` 直接把状态写回 `idle`。
-- `internal/dto/agent/state.go:21-32` 的 trigger 定义里没有 `turn_completion_recovered`，但 `cmd/mcp-orch/orchestration/turn_lifecycle.go:14`、`cmd/mcp-orch/orchestration/turn_lifecycle.go:58` 仍发布这个未声明 trigger。
+  - `internal/sidecar/orch/orchestration/helpers.go:52-60` 的 `prepareLaunchStateLocked()` 直接把状态写成 `provisioning`。
+  - `internal/sidecar/orch/orchestration/turn_lifecycle.go:14`、`internal/sidecar/orch/orchestration/turn_lifecycle.go:29-59` 的 `forceIdleAfterCompletionError()` 直接把状态写回 `idle`。
+- `internal/dto/agent/state.go:21-32` 的 trigger 定义里没有 `turn_completion_recovered`，但 `internal/sidecar/orch/orchestration/turn_lifecycle.go:14`、`internal/sidecar/orch/orchestration/turn_lifecycle.go:58` 仍发布这个未声明 trigger。
 - 判定：strict mode 还没成立，只是 fallback 从 `fireOrForceLocked()` 函数里移走了。
 
 ## 5. `awaiting_user_input` 链路：❌
@@ -84,16 +84,16 @@
 - `internal/provider/codexapp/session_approval.go:38-43` 已把 `request_user_input` 桥接到 approval manager。
 - `internal/platform/rpc/approval_support.go:26-31` 会把 approval 默认状态归一到 `awaiting_user_input`。
 - `internal/platform/rpc/approval_events.go:23-43` 会发布 `ToolApprovalRequested/Resolved`。
-- 但 `cmd/mcp-orch/orchestration/module.go:33-41` 只订阅 `TurnStarted` 和 `TurnCompleted`，没有消费 approval 事件。
-- LSP 对 `cmd/mcp-orch/orchestration` 搜索 `TriggerUserInputRequested` / `TriggerUserInputResolved` 无命中；当前没有找到任何 fire 点。
+- 但 `internal/sidecar/orch/orchestration/module.go:33-41` 只订阅 `TurnStarted` 和 `TurnCompleted`，没有消费 approval 事件。
+- LSP 对 `internal/sidecar/orch/orchestration` 搜索 `TriggerUserInputRequested` / `TriggerUserInputResolved` 无命中；当前没有找到任何 fire 点。
 - 判定：链路仍停在 approval 层，没有反向驱动 agent 状态机进入/退出 `awaiting_user_input`。
 
 ## 6. recover 路径：⚠️
 
-- `cmd/mcp-orch/orchestration/recover.go:27-58` 有显式 recover；流程是 `publishAgentRecovering("manual") -> stopProcess -> 清空 activeTurnID -> fire recover_requested -> startProcessLocked`。
-- `cmd/mcp-orch/orchestration/recover.go:16-25` 与 `cmd/mcp-orch/orchestration/runner_actor.go:68-77` 仍保留 stall detector 自动 recover。
+- `internal/sidecar/orch/orchestration/recover.go:27-58` 有显式 recover；流程是 `publishAgentRecovering("manual") -> stopProcess -> 清空 activeTurnID -> fire recover_requested -> startProcessLocked`。
+- `internal/sidecar/orch/orchestration/recover.go:16-25` 与 `internal/sidecar/orch/orchestration/runner_actor.go:68-77` 仍保留 stall detector 自动 recover。
 - `internal/module/thread/lifecycle.go:151-187` 暴露 thread recover；`internal/module/thread/lifecycle.go:271-280` 会先调 orchestration recover，失败再 fallback 到 launch。
-- 但 `cmd/mcp-orch/orchestration/recover.go:47-53` 明确会清空 `activeTurnID` 并直接重启；LSP 对 `cmd/mcp-orch/orchestration` 搜索 `replay` 无命中。
+- 但 `internal/sidecar/orch/orchestration/recover.go:47-53` 明确会清空 `activeTurnID` 并直接重启；LSP 对 `internal/sidecar/orch/orchestration` 搜索 `replay` 无命中。
 - 判定：recover 路径“存在”，但仍不是完整 replay/recover 语义，只能给 `⚠️`。
 
 ## 最终结论

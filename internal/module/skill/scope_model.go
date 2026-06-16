@@ -15,7 +15,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/ownerperms"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 const (
@@ -239,7 +239,7 @@ func resolveExistingPath(path string) (string, error) {
 	}
 }
 func pathEscapesRoot(rootPath, targetPath string) (bool, error) {
-	return !pathutil.ContainsPath(rootPath, targetPath), nil
+	return !kernel.ContainsPath(rootPath, targetPath), nil
 }
 
 // ensureWritableSkillPathInsideRoot 确认待写路径仍在允许的 skill 根目录内。
@@ -254,7 +254,7 @@ func ensureWritableSkillPathInsideRoot(root, target string) error {
 			return err
 		}
 	}
-	if !pathutil.ContainsPath(rootAbs, targetAbs) {
+	if !kernel.ContainsPath(rootAbs, targetAbs) {
 		return fmt.Errorf("path escapes skills root: %s", target)
 	}
 	rel, err := filepath.Rel(rootAbs, filepath.Dir(targetAbs))

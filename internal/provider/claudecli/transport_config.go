@@ -12,7 +12,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -26,7 +26,7 @@ func sanitizeResumeID(id string) string {
 	if trimmed == "" {
 		return ""
 	}
-	if identifier.IsClaudeCLISessionUUID(trimmed) {
+	if kernel.IsClaudeCLISessionUUID(trimmed) {
 		return trimmed
 	}
 	pkglogger.Warn("claudecli: dropping non-UUID resume id",

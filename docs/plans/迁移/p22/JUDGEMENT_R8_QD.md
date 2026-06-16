@@ -140,8 +140,8 @@
 11. `lsp_file internal/platform/mcpcontrol/sweeper.go:12-17`：`defaultSweepTick/defaultSweepJitter/defaultHeartbeatTTL/defaultStaleGraceTime` 真值存在。  
 12. `lsp_file internal/provider/codexapp/recovery.go:24-28`：`healthCheckInterval = 15s`、`healthCheckIdleThreshold = 30s`。  
 13. `lsp_file internal/dto/agent/state.go:46-57,73-107`：agent FSM 真值为 `turn_queued -> turn_starting -> turn_running -> ...`。  
-14. `lsp_grep cmd/mcp-orch/orchestration "processExitWaitTimeout"` -> `service.go:171` = `30 * time.Second`。  
-15. `lsp_grep cmd/mcp-orch/orchestration "launchRetryBase"` -> `service_launcher_bridge.go:23` = `2 * time.Second`。  
+14. `lsp_grep internal/sidecar/orch/orchestration "processExitWaitTimeout"` -> `service.go:171` = `30 * time.Second`。  
+15. `lsp_grep internal/sidecar/orch/orchestration "launchRetryBase"` -> `service_launcher_bridge.go:23` = `2 * time.Second`。  
 16. `lsp_grep P3 "CREATE UNIQUE INDEX"` -> `P3:166,167`，P21 DDL 锚点已补回。  
 17. `lsp_file docs/plans/迁移/p22/P1b_PlatformLoopRunners.md:138-170`：runner observability / rollback card 已落盘。  
 18. `lsp_file(diagnostics)` on `README/P0/P1a/P1b/P1c/P2/P3/P4` -> `no diagnostics`。  

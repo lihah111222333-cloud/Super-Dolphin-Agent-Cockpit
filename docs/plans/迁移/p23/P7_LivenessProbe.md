@@ -15,7 +15,7 @@ DAG 每 N 分钟探测 running node 上 agent 有无新动向（工具调用、t
   - `internal/dto/turn/event.go:42-64`（`TurnOutputDelta/Started/InputReceived/Stalled/Resumed`）
   - `internal/dto/turn/progress.go:24-54`（`ItemStarted/ItemCompleted`）
   - `internal/dto/tool/event.go:9-61`（`ToolCallBegin/End/Approval/Diff`）
-  - hook subscriptions：`cmd/mcp-orch/orchestration/hook_consumer.go:20-26`
+  - hook subscriptions：`internal/sidecar/orch/orchestration/hook_consumer.go:20-26`
 - 已走 hook：`TurnCompleted/Interrupted` + 仅 final-answer `ItemCompleted`（`hook_consumer.go:285-287`、`event_relay.go:64-86`）
 - **未走 hook**：非 final `ItemCompleted` / `ItemStarted` / `TurnOutputDelta` / 工具事件 / 客户端 stdout
 - p21 P1b 续租先例：`internal/module/cron/lease_actor.go:12-16`、`internal/module/cron/progress_subscriber.go:19-20`、`internal/module/cron/scheduler.go:708-724`
@@ -32,10 +32,10 @@ P9 backpressure 信号是前置要求：hook/launcher/DB lag 超阈值时，P7 �
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| activity actor | `cmd/mcp-orch/orchestration/runtime/activity_actor.go` [NEW] | 第 5 个 `Runner.Run(ctx)` actor；按 `next_probe_at` 分片扫描 running nodes；遵守 P9 backpressure |
-| hook activity tap provider | `cmd/mcp-orch/orchestration/hook_tap_registry.go` + `cmd/mcp-orch/orchestration/activity_tap.go` [NEW] | 注册 activity provider；Turn/tool/progress heartbeat coalesce 写 `last_activity_*`，terminal 事件 durable；不直接扩主 hook 分发 |
-| SQL runtime | `cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql`（扩展） | fenced update：`last_activity_at/kind/state/tool_call_id/tool_started_at/heartbeat_seq/next_probe_at` |
-| schema provider | `cmd/mcp-orch/tools/dag_schema_registry.go` + `cmd/mcp-orch/tools/dag_schema_activity.go` [NEW] | 注册 `probe_interval_sec`、`idle_timeout_sec`、`tool_idle_timeout_sec`、batch/jitter/backoff 字段；不直接并行改 `task_tools.go` |
+| activity actor | `internal/sidecar/orch/orchestration/runtime/activity_actor.go` [NEW] | 第 5 个 `Runner.Run(ctx)` actor；按 `next_probe_at` 分片扫描 running nodes；遵守 P9 backpressure |
+| hook activity tap provider | `internal/sidecar/orch/orchestration/hook_tap_registry.go` + `internal/sidecar/orch/orchestration/activity_tap.go` [NEW] | 注册 activity provider；Turn/tool/progress heartbeat coalesce 写 `last_activity_*`，terminal 事件 durable；不直接扩主 hook 分发 |
+| SQL runtime | `internal/sidecar/orch/sql/queries/task_dag_node_runtime.sql`（扩展） | fenced update：`last_activity_at/kind/state/tool_call_id/tool_started_at/heartbeat_seq/next_probe_at` |
+| schema provider | `internal/sidecar/orch/tools/dag_schema_registry.go` + `internal/sidecar/orch/tools/dag_schema_activity.go` [NEW] | 注册 `probe_interval_sec`、`idle_timeout_sec`、`tool_idle_timeout_sec`、batch/jitter/backoff 字段；不直接并行改 `task_tools.go` |
 | metrics/backpressure | P9 promhttp metrics or scheduled-audit fallback | 读取 hook lag、launcher lag、DB p99；缺指标时关闭 relaunch |
 | archtest | `internal/archtest/dag_activity_actor_test.go` [NEW] | 确认 actor 注册、CAS fence、禁止 watcher 直接写 `observe_lost` |
 

@@ -30,7 +30,7 @@
 - `internal/platform/config/config.go:31` 通过 `embeddedpg.ResolveFromEnvironment` 解析 embedded PG / 外部 PG，并在 `config.go:206-213` 回写 `DATABASE_URL` 给子进程继承。
 - `internal/platform/db/module.go:28-47` 创建 `*pgxpool.Pool`；`module.go:422-444` 在生命周期内启动 embedded PG、建库、跑迁移、校验 schema 版本。
 - `internal/platform/db/module.go:136` 定义 `MinRequiredSchemaVersion = 103`；`VerifyMinSchemaVersion` 在 app 与 `cmd/mcp-orch/runtime.go:95` 都会调用。因此“schema 低版本当前完全无防护”不成立，但 SQLite 必须保留等价 gate。
-- 根 `sqlc.yaml` 与 `cmd/mcp-orch/sqlc.yaml` 均为 `engine: "postgresql"`，并使用 `sql_package: "pgx/v5"`。
+- 根 `sqlc.yaml` 与 `internal/sidecar/orch/sqlc.yaml` 均为 `engine: "postgresql"`，并使用 `sql_package: "pgx/v5"`。
 - `internal/store/module.go` 直接提供 `func(pool *pgxpool.Pool) *sqlc.Queries`，主应用 store 当前仍围绕 `pgxpool/sqlc/pgtype` 组织。
 - `cmd/mcp-orch/runtime.go:74-101` 独立创建 pgx pool、sqlc queries，并校验 PG schema。
 - `internal/platform/embeddedpg/**`、`internal/app/*postgres*test.go`、启动脚本和打包 smoke 都围绕 bundled PostgreSQL。
@@ -44,10 +44,10 @@
 | PG 环境变量残留影响 SQLite 启动 | 真阳性，P0，属于完全解耦风险 | `internal/platform/embeddedpg/config.go:57` 会消费 `DATABASE_URL` / `POSTGRES_CONNECTION_STRING`；`internal/platform/config/config.go:205-213` 会回写 `DATABASE_URL` 给子进程 | 产品运行时完全忽略 PG env；`config.New()` 不再读取或导出这些变量，残留 env 不影响 SQLite 启动 |
 | `schema_migrations` 低版本仍允许启动 | 当前 PG 路径不是真阳性；SQLite 必须复制防护 | `VerifyMinSchemaVersion` 已存在并被 app 与 `mcp-orch` 调用 | 不作为全新缺陷；列为 SQLite 等价 gate |
 | cron `FOR UPDATE SKIP LOCKED` 替换不严谨会重复 claim | 真阳性，P0，上层 token/dedupe 不是等价防护 | `sql/queries/cron_job.sql:83-96` 与 `internal/module/cron/scheduler.go:247` 明确依赖 `SKIP LOCKED`；`dedupe_key` 包含每次新生成 idempotency key | SQLite 用原子条件 `UPDATE ... RETURNING` + lease，并加并发测试 |
-| DAG wakeup claim 替换不严谨会重复 dispatch | 真阳性，P0，后置 holder/status guard 不保护选择阶段 | `cmd/mcp-orch/sql/queries/task_dag_wakeup_dispatch.sql:7-28` 在选择阶段使用 `FOR UPDATE SKIP LOCKED` | SQLite 把选择与状态变更合成单个条件更新 |
+| DAG wakeup claim 替换不严谨会重复 dispatch | 真阳性，P0，后置 holder/status guard 不保护选择阶段 | `internal/sidecar/orch/sql/queries/task_dag_wakeup_dispatch.sql:7-28` 在选择阶段使用 `FOR UPDATE SKIP LOCKED` | SQLite 把选择与状态变更合成单个条件更新 |
 | PG advisory lock 不能用 Go mutex 替代 | 真阳性，P0，无跨进程上层防护 | `cmd/mcp-orch/dag_cron_runner.go:64-68` 注入 `NewPGAdvisoryLocker`；`task_dag_dag.sql:125-128` 调 `pg_try_advisory_lock` | 新增 `runtime_locks` 表，CAS + holder + lease |
 | prompt recall topic lock 不能直接丢弃 | 真阳性，P0，业务可达 | `sql/queries/prompt_template_sections.sql:104` 使用 `pg_advisory_xact_lock`；`internal/module/prompt/service.go:289-292` 与 `internal/module/prompt/intent/commit.go:436` 写 recall section 前会调用 | SQLite 用 `prompt_recall_locks` / 唯一索引 / 事务 CAS 保证同一 cwd/topic 不重复 |
-| JSON event append/truncate 语义可能漂移 | 真阳性，P0/P1，历史注释证明有过静默覆盖风险 | `cmd/mcp-orch/sql/queries/task_dag_run.sql:245-277` 用 JSONB 追加并截断最近 50 条 | 建 golden；默认 Go 层读改写，不把复杂 JSON1 SQL 作为首选 |
+| JSON event append/truncate 语义可能漂移 | 真阳性，P0/P1，历史注释证明有过静默覆盖风险 | `internal/sidecar/orch/sql/queries/task_dag_run.sql:245-277` 用 JSONB 追加并截断最近 50 条 | 建 golden；默认 Go 层读改写，不把复杂 JSON1 SQL 作为首选 |
 | 多进程 SQLite 写入稳定性 | 真阳性，P0，现有 PG server 模型没有 SQLite 等价保护 | 桌面主进程和 `mcp-orch` 是独立进程，当前共享 PG server | WAL + busy timeout + 单写连接 + 压测 gate |
 | 备份/恢复文档可延期 | 不采纳延期 | WAL 模式下只备份 `.db` 会有恢复风险 | 作为 P1 发布 gate，不进入 RC 后再补 |
 
@@ -57,7 +57,7 @@
 |---|---|---|---|
 | 迁移期间并发写入导致快照不一致或迁移后丢写 | 按新产品前提降级并排除：不做 PG 历史数据迁移时，该风险不再真实可达 | 用户确认旧 PG 本地数据无价值；SQLite 新库从 baseline 创建，不读取 PG | 删除旧 7.x 迁移规格与原 12.3 迁移测试 |
 | 升级后无法读取旧 embedded PG data dir | 按新产品前提降级并排除：旧 PG data dir 不再作为输入源 | 产品运行时不启动、不读取旧 PG；旧目录只是遗留文件 | 删除原“首次迁移 PG 读取能力”gate；打包与 config gate 改为验证无 PG runtime/config 消费 |
-| 文档 SQL 示例使用 `RETURNING *` | 真阳性，但只影响文档可执行性，不是当前产品运行风险 | `internal/archtest/sqlc_bypass_guard_test.go:15,92-122` 已禁止 `cmd/mcp-orch/sql/queries` 中出现 `SELECT *` / `RETURNING *` | 示例改为枚举列；不升级为运行时 P0 |
+| 文档 SQL 示例使用 `RETURNING *` | 真阳性，但只影响文档可执行性，不是当前产品运行风险 | `internal/archtest/sqlc_bypass_guard_test.go:15,92-122` 已禁止 `internal/sidecar/orch/sql/queries` 中出现 `SELECT *` / `RETURNING *` | 示例改为枚举列；不升级为运行时 P0 |
 | prompt recall topic lock 迁移遗漏 | 真阳性，P0，业务可达：dashboard prompt section 写入与 intent commit 都会在写 recall topic 前走 `LockRecallTopicInCWD` | 无可替代上层防护；后续 duplicate scan 依赖锁避免并发插入穿透 | 8.6、G8 与 12.4 的并发验证需补 recall topic 同 cwd/topic 双写重复=0 |
 | 改写完成后缺少回归与冒烟验证 | 真阳性，属于发布就绪风险；当前 SQLite runtime 尚未实现，因此不是现有源码路径上的生产缺陷 | 无上层自动防护；如果没有完整测试，功能缺口、明显卡顿或锁等待可能在发布后才暴露 | 新增 G14 与 12.6，要求实现完成后运行功能回归、启动 smoke、并发压力和基础性能冒烟；删除迁移工具耗时/RSS |
 | 回滚与灾难恢复不明确 | 真阳性，但范围改为 SQLite 备份/恢复；PG 回滚语义删除 | 无自动回滚防护；SQLite WAL 模式下备份只拷 `.db` 会有恢复风险 | G14 要求 `.db/.wal/.shm`、checkpoint、恢复流程；不再定义回滚到 PG |
@@ -194,8 +194,8 @@
 | 查询目录 | 重点文件 | 重写策略 |
 |---|---|---|
 | `sql/queries` | `cron_job.sql`, `agent_thread.sql`, `prompt_template_sections.sql`, `session_insight.sql`, `ai_log.sql`, `db_query.sql` | 先重写 P0 并发/运行态查询，再处理 dashboard 派生查询 |
-| `cmd/mcp-orch/sql/queries` | `task_dag_wakeup_dispatch.sql`, `task_dag_dag.sql`, `task_dag_run.sql`, `task_dag_node_*.sql`, `task_dag_worker_lease.sql`, `workspace_run.sql` | DAG/wakeup/lock/run events 必须先有 golden，再改 SQL |
-| 手写 SQL | `internal/store/hookstore`, `internal/store/dbquery`, `cmd/mcp-orch/fxadapter` | 直接改为 `database/sql` 接口，避免继续暴露 pgx 类型 |
+| `internal/sidecar/orch/sql/queries` | `task_dag_wakeup_dispatch.sql`, `task_dag_dag.sql`, `task_dag_run.sql`, `task_dag_node_*.sql`, `task_dag_worker_lease.sql`, `workspace_run.sql` | DAG/wakeup/lock/run events 必须先有 golden，再改 SQL |
+| 手写 SQL | `internal/store/hookstore`, `internal/store/dbquery`, `internal/sidecar/orch/fxadapter` | 直接改为 `database/sql` 接口，避免继续暴露 pgx 类型 |
 
 ## 7. 旧 PG 数据与配置废弃策略
 
@@ -375,7 +375,7 @@ WHERE runtime_locks.lease_expires_at <= ?
 
 - 新增 SQLite golden fixtures：`internal/platform/db/sqlite/testdata/**`
 - 新增 SQLite runtime fixture：`internal/platform/db/sqlite/runtime_testdata/**` 或同等包
-- 新增并发测试 fixture：`internal/store/cron/**`, `cmd/mcp-orch/store/taskdag/**`
+- 新增并发测试 fixture：`internal/store/cron/**`, `internal/sidecar/orch/store/taskdag/**`
 
 任务：
 
@@ -394,7 +394,7 @@ WHERE runtime_locks.lease_expires_at <= ?
 - `internal/platform/config/config.go`
 - `internal/platform/db/**`
 - `sqlc.yaml`
-- `cmd/mcp-orch/sqlc.yaml`
+- `internal/sidecar/orch/sqlc.yaml`
 - 新增 SQLite schema baseline
 
 任务：
@@ -435,10 +435,10 @@ WHERE runtime_locks.lease_expires_at <= ?
 改动文件：
 
 - `cmd/mcp-orch/runtime.go`
-- `cmd/mcp-orch/store/**`
-- `cmd/mcp-orch/sql/queries/**`
-- `cmd/mcp-orch/sqlc.yaml`
-- `cmd/mcp-orch/fxadapter/**`
+- `internal/sidecar/orch/store/**`
+- `internal/sidecar/orch/sql/queries/**`
+- `internal/sidecar/orch/sqlc.yaml`
+- `internal/sidecar/orch/fxadapter/**`
 - `cmd/mcp-orch/dag_cron_runner.go`
 
 任务：

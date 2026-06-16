@@ -14,7 +14,7 @@
 ## 2. T5 依赖方向
 
 - `provider/unified` 做 driver registry 的方向可行。
-  - 现仓已有 `fx` value-group 使用先例：`internal/app/runner.go` 用 `group:"runners"` 收集 runner，`cmd/mcp-orch/orchestration/module.go` 用 `fx.Annotate(..., fx.ResultTags(\`group:"runners"\`))` 输出 runner。
+  - 现仓已有 `fx` value-group 使用先例：`internal/app/runner.go` 用 `group:"runners"` 收集 runner，`internal/sidecar/orch/orchestration/module.go` 用 `fx.Annotate(..., fx.ResultTags(\`group:"runners"\`))` 输出 runner。
   - 因此可采用：
     - `claudecli` / `codexapp` 各自输出一个 `contract.DriverFactory` 到 `group:"drivers"`
     - `provider/unified` 通过 `fx.In` 收集 `[]contract.DriverFactory`，构建只读 registry
@@ -49,7 +49,7 @@
   - 当前 `contract.Session` 没有 `ReviewStart`、通用 slash-command、或 review 专用接口。
   - 若波次 3 保留 `module/turn/review.go`，必须先补 contract；否则应将 review 移出本波次。
 - Blocker：turn ID 相关职责未统一。
-  - `module/orchestration` 在 provider 接受前就为 turn 分配 ID：`cmd/mcp-orch/orchestration/helpers.go:147-153`。
+  - `module/orchestration` 在 provider 接受前就为 turn 分配 ID：`internal/sidecar/orch/orchestration/helpers.go:147-153`。
   - `claudecli/session.go` 在本地生成 turn ID：`newTurnHandle(shared.NewID("turn"))`。
   - `codexapp/session.go` 则以远端 `turn/start` 返回值作为 turn ID。
   - 当前没有 local turn ID 与 provider turn ID 的相关性模型，`module/turn` 无法安全对齐 orchestration 状态、provider event、interrupt/tracker。
@@ -162,7 +162,7 @@
     - `InterruptCoordinator`
   - `service.go` 只保留 orchestration / session / event bus 编排。
 - tracker/stall 检测不能直接复用 orchestration 现有 `StallDetector`。
-  - 当前 `cmd/mcp-orch/orchestration/recover.go` 的 `StallDetector` 只按 agent `updatedAt` 判定整进程卡死。
+  - 当前 `internal/sidecar/orch/orchestration/recover.go` 的 `StallDetector` 只按 agent `updatedAt` 判定整进程卡死。
   - V2 tracker 的 stall 检测是 turn 级别，含 heartbeat、grace period、auto interrupt、recovery callback。
   - 两者层级不同；最多共享阈值配置与 logger，不应共享实现。
 - `module/turn` 与 `module/orchestration` 当前存在职责重叠风险：
@@ -223,9 +223,9 @@
   - `module/turn` 禁止 import `internal/provider/`
   - `provider/unified` 禁止 import concrete provider
 - I3 已落地：
-  - `cmd/mcp-orch/orchestration/events.go` 已移除 turn 级事件发布。
-  - `cmd/mcp-orch/orchestration/runner_actor.go` 已不再发布 `TurnStarted`。
-  - `cmd/mcp-orch/orchestration/service.go` 已不再发布 `TurnCompleted`。
+  - `internal/sidecar/orch/orchestration/events.go` 已移除 turn 级事件发布。
+  - `internal/sidecar/orch/orchestration/runner_actor.go` 已不再发布 `TurnStarted`。
+  - `internal/sidecar/orch/orchestration/service.go` 已不再发布 `TurnCompleted`。
   - 当前规则明确为：orchestration 仅发 agent 级事件；provider translator 独占 turn/tool 级事件；未来 `module/turn` 仅消费。
 
 ## 9. 自审（10 维度）
@@ -247,7 +247,7 @@
 
 - I1：通过。`claudecli`/`codexapp` 均已改为 `group:"drivers"` 输出，`unified` 已收集。
 - I2：通过。新增 wave3 archtest 文件，规则已纳入测试并通过。
-- I3：通过。`cmd/mcp-orch/orchestration` 下 `TurnStarted{` / `TurnCompleted{` 搜索结果为 0；`internal/provider/*/event_map.go` 仍保留 turn 级 typed event 发布。
+- I3：通过。`internal/sidecar/orch/orchestration` 下 `TurnStarted{` / `TurnCompleted{` 搜索结果为 0；`internal/provider/*/event_map.go` 仍保留 turn 级 typed event 发布。
 
 ### 4. import 全面扫描
 
@@ -260,7 +260,7 @@
 - 修改文件全部 `<= 400` 行；最大文件为 `internal/provider/claudecli/session.go`，`wc -l` 结果为 393。
 - 其余关键文件：
   - `internal/provider/codexapp/session.go`：337
-  - `cmd/mcp-orch/orchestration/service.go`：308
+  - `internal/sidecar/orch/orchestration/service.go`：308
   - `internal/provider/unified/registry.go`：53
 
 ### 6. 接口完整性

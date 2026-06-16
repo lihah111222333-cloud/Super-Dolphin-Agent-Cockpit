@@ -10,10 +10,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread/startconfig"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 const maxAgentIDReservationRetries = 64
@@ -25,7 +23,7 @@ func normalizeStartRequest(req StartRequest) (StartRequest, string, error) {
 		return StartRequest{}, "", errors.New("thread: agent_id cannot be provided with launch_intent_id")
 	}
 	if req.AgentID == "" {
-		req.AgentID = idgen.NewAgentID()
+		req.AgentID = kernel.NewAgentID()
 	}
 	req, err := resolveStartConfig(req)
 	if err != nil {
@@ -44,7 +42,7 @@ func (s *service) reserveUniqueStartAgentID(
 	candidate = strings.TrimSpace(candidate)
 	parentID := strings.TrimSpace(req.ParentAgentID)
 	if candidate == "" {
-		candidate = idgen.NewAgentID()
+		candidate = kernel.NewAgentID()
 	}
 	s.agentIDMu.Lock()
 	defer s.agentIDMu.Unlock()
@@ -78,7 +76,7 @@ func (s *service) reserveNextChildAgentIDLocked(ctx context.Context, parentID st
 		}
 	}
 	for i := 0; i < maxAgentIDReservationRetries; i++ {
-		candidate := idgen.NewChildAgentID(parentID, int(base)+1+i)
+		candidate := kernel.NewChildAgentID(parentID, int(base)+1+i)
 		release, err := s.reserveAgentIDIfAvailableLocked(ctx, candidate)
 		if err != nil {
 			return "", nil, err
@@ -92,7 +90,7 @@ func (s *service) reserveNextChildAgentIDLocked(ctx context.Context, parentID st
 
 func (s *service) reserveGeneratedRootAgentIDLocked(ctx context.Context) (string, func(), error) {
 	for i := 0; i < maxAgentIDReservationRetries; i++ {
-		candidate := idgen.NewAgentID()
+		candidate := kernel.NewAgentID()
 		release, err := s.reserveAgentIDIfAvailableLocked(ctx, candidate)
 		if err != nil {
 			return "", nil, err
@@ -186,7 +184,7 @@ func resolveStartConfig(req StartRequest) (StartRequest, error) {
 	// when Provider is not explicitly set.
 	providerInput := req.Provider
 	modelProviderInput := req.ModelProvider
-	provider, err := resolveStartProvider(util.FirstNonEmpty(req.Provider, req.ModelProvider))
+	provider, err := resolveStartProvider(kernel.FirstNonEmpty(req.Provider, req.ModelProvider))
 	if err != nil {
 		return StartRequest{}, err
 	}
@@ -397,7 +395,7 @@ func (s *service) resumeResolvedSession(ctx context.Context, resolvedReq ResumeR
 		CWD:                      cwd,
 		Model:                    resolvedReq.Model,
 		Effort:                   resolvedReq.Effort,
-		Config:                   clone.RuntimeConfigMap(resolvedReq.Config),
+		Config:                   kernel.CloneRuntimeConfigMap(resolvedReq.Config),
 		PromptSnapshot:           toProviderPromptSnapshot(resolvedReq.PromptSnapshot),
 		ConfigOverride:           resolvedReq.ConfigOverride,
 		ClaudeHome:               resolvedReq.ClaudeHome,
@@ -452,10 +450,10 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	if err != nil {
 		return ResumeRequest{}, resumeState{}, err
 	}
-	state.PublicThreadID = util.FirstNonEmpty(state.PublicThreadID, requestedThreadID)
-	req.AgentID = util.FirstNonEmpty(req.AgentID, state.AgentID)
-	req.Provider = util.FirstNonEmpty(req.Provider, state.Provider)
-	req.ProviderThreadID = normalizeProviderThreadID(req.Provider, util.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID))
+	state.PublicThreadID = kernel.FirstNonEmpty(state.PublicThreadID, requestedThreadID)
+	req.AgentID = kernel.FirstNonEmpty(req.AgentID, state.AgentID)
+	req.Provider = kernel.FirstNonEmpty(req.Provider, state.Provider)
+	req.ProviderThreadID = normalizeProviderThreadID(req.Provider, kernel.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID))
 	if err := validateExplicitResumeCodexIdentity(req); err != nil {
 		return ResumeRequest{}, resumeState{}, err
 	}
@@ -464,10 +462,10 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	if err != nil {
 		return ResumeRequest{}, resumeState{}, err
 	}
-	req.ClaudeHome = util.FirstNonEmpty(req.ClaudeHome, state.ClaudeHome, resumeRuntimeConfigString(state.ConfigOverride.Runtime, "claudeHome", "claude_home", "history_dir"))
+	req.ClaudeHome = kernel.FirstNonEmpty(req.ClaudeHome, state.ClaudeHome, resumeRuntimeConfigString(state.ConfigOverride.Runtime, "claudeHome", "claude_home", "history_dir"))
 	req = hydrateResumeCodexIdentity(req, state)
 	req.CodexDisabledNativeTools = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
-	req.Config = mergeRuntimeConfig(clone.RuntimeConfigMap(state.ConfigOverride.Runtime), req.Config)
+	req.Config = mergeRuntimeConfig(kernel.CloneRuntimeConfigMap(state.ConfigOverride.Runtime), req.Config)
 	req, err = s.injectDefaultCodexIdentityForResume(req)
 	if err != nil {
 		return ResumeRequest{}, resumeState{}, err
@@ -489,10 +487,10 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	state.CWD = req.CWD
 	state.Model = req.Model
 	state.Effort = req.Effort
-	state.ClaudeHome = util.FirstNonEmpty(state.ClaudeHome, req.ClaudeHome)
-	state.CodexHome = util.FirstNonEmpty(state.CodexHome, req.CodexHome)
-	state.CodexInstanceKey = util.FirstNonEmpty(state.CodexInstanceKey, req.CodexInstanceKey)
-	state.CodexModelProvider = util.FirstNonEmpty(state.CodexModelProvider, req.CodexModelProvider)
+	state.ClaudeHome = kernel.FirstNonEmpty(state.ClaudeHome, req.ClaudeHome)
+	state.CodexHome = kernel.FirstNonEmpty(state.CodexHome, req.CodexHome)
+	state.CodexInstanceKey = kernel.FirstNonEmpty(state.CodexInstanceKey, req.CodexInstanceKey)
+	state.CodexModelProvider = kernel.FirstNonEmpty(state.CodexModelProvider, req.CodexModelProvider)
 	return req, state, nil
 }
 
@@ -501,17 +499,17 @@ func hydrateResumeCodexIdentity(req ResumeRequest, state resumeState) ResumeRequ
 		return req
 	}
 	runtime := state.ConfigOverride.Runtime
-	req.CodexHome = util.FirstNonEmpty(
+	req.CodexHome = kernel.FirstNonEmpty(
 		req.CodexHome,
 		state.CodexHome,
 		resumeRuntimeConfigString(runtime, contract.CodexHomeKey, "codex_home"),
 	)
-	req.CodexInstanceKey = util.FirstNonEmpty(
+	req.CodexInstanceKey = kernel.FirstNonEmpty(
 		req.CodexInstanceKey,
 		state.CodexInstanceKey,
 		resumeRuntimeConfigString(runtime, contract.CodexInstanceKeyKey, "codex_instance_key"),
 	)
-	req.CodexModelProvider = util.FirstNonEmpty(
+	req.CodexModelProvider = kernel.FirstNonEmpty(
 		req.CodexModelProvider,
 		state.CodexModelProvider,
 		resumeRuntimeConfigString(runtime, contract.CodexModelProviderKey, "codex_model_provider"),

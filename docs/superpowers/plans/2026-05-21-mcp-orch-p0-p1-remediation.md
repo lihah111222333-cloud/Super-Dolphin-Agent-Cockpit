@@ -4,7 +4,7 @@
 
 **Goal:** Remove the confirmed P1 risks found in `cmd/mcp-orch` review so the peer HTTP, cron, memory, and notify paths have no known P0/P1 issues.
 
-**Architecture:** Fix security boundaries at the transport and filesystem edges, then fix scheduler correctness with deterministic idempotency and fail-fast locking. Keep changes narrow: shared HTTP transport/auth stays in `internal/mcpserver/common` and `internal/platform/discovery`; cron correctness stays in `cmd/mcp-orch/orchestration/cron` plus the orchestration adapter; memory and notify fixes stay in their existing packages.
+**Architecture:** Fix security boundaries at the transport and filesystem edges, then fix scheduler correctness with deterministic idempotency and fail-fast locking. Keep changes narrow: shared HTTP transport/auth stays in `internal/mcpserver/common` and `internal/platform/discovery`; cron correctness stays in `internal/sidecar/orch/orchestration/cron` plus the orchestration adapter; memory and notify fixes stay in their existing packages.
 
 **Tech Stack:** Go 1.25.7, fx, pgx/pgxpool, robfig/cron, existing `taskdag` stores, `./scripts/test_with_guard.sh`.
 
@@ -20,7 +20,7 @@ Confirmed P1 issues to fix:
    Evidence: `cmd/mcp-orch/http_runner.go:41` starts `common.NewHTTPServer(...)`; `internal/mcpserver/common/http_transport.go:83-129` accepts POST `/mcp` and dispatches `tools/list` and `tools/call` without token checks; `internal/platform/discovery/discovery.go:30-36` writes the address to `/tmp` with `0644`.
 
 2. Scheduled DAG can be skipped if `next_run_at` is advanced before `StartDAG` fails.
-   Evidence: `cmd/mcp-orch/orchestration/cron/scheduler_cron.go:404-412` calls `UpdateNextRun` before `StartDAG`.
+   Evidence: `internal/sidecar/orch/orchestration/cron/scheduler_cron.go:404-412` calls `UpdateNextRun` before `StartDAG`.
 
 3. Cron advisory lock release can fail under canceled/deadline context and leave the session lock held.
    Evidence: `scheduler_cron.go:373` defers release with the tick context; `scheduler_cron.go:398-400` calls `Unlock(ctx)`; `scheduler_cron.go:511-514` runs `pg_advisory_unlock` on that context.
@@ -32,7 +32,7 @@ Confirmed P1 issues to fix:
    Evidence: `cmd/mcp-orch/memory/entry_file.go:28-35` walks `.md` files and calls `readEntryFile(path)`; `entry_file.go:49-54` uses `os.ReadFile`/`os.Stat`, which follows symlinks; this bypasses `validateMemoryWritePath` used only by path lookup in `service.go:110-120`.
 
 6. DAG notification intake queue is unbounded before the bounded platform notifier queue.
-   Evidence: `cmd/mcp-orch/notify/subscribers.go:167-169` appends to `DAGNotifier.queue` without a limit; the single worker then performs DB lookups and `TryEnqueue`.
+   Evidence: `internal/sidecar/orch/notify/subscribers.go:167-169` appends to `DAGNotifier.queue` without a limit; the single worker then performs DB lookups and `TryEnqueue`.
 
 Not treated as confirmed P1:
 
@@ -234,16 +234,16 @@ Expected: PASS.
 ### Task 2: Scheduled DAG Trigger Consistency
 
 **Files:**
-- Modify: `cmd/mcp-orch/orchestration/cron/scheduler_cron.go`
-- Modify: `cmd/mcp-orch/orchestration/scheduler.go`
-- Modify: `cmd/mcp-orch/store/taskdag/contract.go`
-- Modify: `cmd/mcp-orch/store/taskdag/store_run.go` or the existing run transaction store file
-- Test: `cmd/mcp-orch/orchestration/cron/scheduler_cron_test.go`
-- Test: `cmd/mcp-orch/orchestration/dag_start_test.go`
+- Modify: `internal/sidecar/orch/orchestration/cron/scheduler_cron.go`
+- Modify: `internal/sidecar/orch/orchestration/scheduler.go`
+- Modify: `internal/sidecar/orch/store/taskdag/contract.go`
+- Modify: `internal/sidecar/orch/store/taskdag/store_run.go` or the existing run transaction store file
+- Test: `internal/sidecar/orch/orchestration/cron/scheduler_cron_test.go`
+- Test: `internal/sidecar/orch/orchestration/dag_start_test.go`
 
 - [ ] **Step 1: Write failing regression for StartDAG failure**
 
-In `cmd/mcp-orch/orchestration/cron/scheduler_cron_test.go`, add:
+In `internal/sidecar/orch/orchestration/cron/scheduler_cron_test.go`, add:
 
 ```go
 func TestScheduledDAGTicker_DoesNotAdvanceNextRunWhenStartFails(t *testing.T) {
@@ -265,7 +265,7 @@ func TestScheduledDAGTicker_DoesNotAdvanceNextRunWhenStartFails(t *testing.T) {
 }
 ```
 
-Run: `./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration/cron -run TestScheduledDAGTicker_DoesNotAdvanceNextRunWhenStartFails -count=1`
+Run: `./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration/cron -run TestScheduledDAGTicker_DoesNotAdvanceNextRunWhenStartFails -count=1`
 
 Expected: FAIL until `triggerDueDAG` starts before it advances schedule.
 
@@ -377,7 +377,7 @@ If production cron wiring is still absent, add the adapter in the orchestration 
 Run:
 
 ```bash
-./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration/cron ./cmd/mcp-orch/orchestration -run 'TestScheduledDAGTicker_|TestStartDAG_' -count=1
+./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration/cron ./internal/sidecar/orch/orchestration -run 'TestScheduledDAGTicker_|TestStartDAG_' -count=1
 ```
 
 Expected: PASS, including the new failure-before-advance regression.
@@ -387,8 +387,8 @@ Expected: PASS, including the new failure-before-advance regression.
 ### Task 3: Advisory Lock Release Must Survive Cancellation
 
 **Files:**
-- Modify: `cmd/mcp-orch/orchestration/cron/scheduler_cron.go`
-- Test: `cmd/mcp-orch/orchestration/cron/scheduler_cron_test.go`
+- Modify: `internal/sidecar/orch/orchestration/cron/scheduler_cron.go`
+- Test: `internal/sidecar/orch/orchestration/cron/scheduler_cron_test.go`
 
 - [ ] **Step 1: Write failing canceled-unlock test**
 
@@ -425,7 +425,7 @@ func TestScheduledDAGTicker_UnlockUsesFreshCleanupContext(t *testing.T) {
 }
 ```
 
-Run: `./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration/cron -run TestScheduledDAGTicker_UnlockUsesFreshCleanupContext -count=1`
+Run: `./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration/cron -run TestScheduledDAGTicker_UnlockUsesFreshCleanupContext -count=1`
 
 Expected: FAIL because the current release uses the canceled context.
 
@@ -482,7 +482,7 @@ If `pgxpool.Conn.Hijack` is unavailable in the pinned pgx version, use the suppo
 Run:
 
 ```bash
-./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration/cron -run 'TestScheduledDAGTicker_ReleaseOnExit|TestScheduledDAGTicker_UnlockUsesFreshCleanupContext|TestScheduledDAGTicker_MultiInstance_OneAcquires' -count=1
+./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration/cron -run 'TestScheduledDAGTicker_ReleaseOnExit|TestScheduledDAGTicker_UnlockUsesFreshCleanupContext|TestScheduledDAGTicker_MultiInstance_OneAcquires' -count=1
 ```
 
 Expected: PASS.
@@ -492,8 +492,8 @@ Expected: PASS.
 ### Task 4: Scheduled Ticker Must Require A Locker
 
 **Files:**
-- Modify: `cmd/mcp-orch/orchestration/cron/scheduler_cron.go`
-- Test: `cmd/mcp-orch/orchestration/cron/scheduler_cron_test.go`
+- Modify: `internal/sidecar/orch/orchestration/cron/scheduler_cron.go`
+- Test: `internal/sidecar/orch/orchestration/cron/scheduler_cron_test.go`
 
 - [ ] **Step 1: Write failing nil-locker test**
 
@@ -512,7 +512,7 @@ func TestNewScheduledDAGTickerRejectsNilLocker(t *testing.T) {
 }
 ```
 
-Run: `./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration/cron -run TestNewScheduledDAGTickerRejectsNilLocker -count=1`
+Run: `./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration/cron -run TestNewScheduledDAGTickerRejectsNilLocker -count=1`
 
 Expected: FAIL because nil currently means no-op acquired.
 
@@ -537,7 +537,7 @@ Update every `NewScheduledDAGTicker` call in `scheduler_cron_test.go` to pass `L
 Run:
 
 ```bash
-./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration/cron -run 'TestNewScheduledDAGTickerRejectsNilLocker|TestScheduledDAGTicker_' -count=1
+./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration/cron -run 'TestNewScheduledDAGTickerRejectsNilLocker|TestScheduledDAGTicker_' -count=1
 ```
 
 Expected: PASS.
@@ -654,8 +654,8 @@ Expected: PASS.
 ### Task 6: Bound DAG Notifier Intake Queue
 
 **Files:**
-- Modify: `cmd/mcp-orch/notify/subscribers.go`
-- Test: `cmd/mcp-orch/notify/subscribers_test.go`
+- Modify: `internal/sidecar/orch/notify/subscribers.go`
+- Test: `internal/sidecar/orch/notify/subscribers_test.go`
 
 - [ ] **Step 1: Write failing queue bound regression**
 
@@ -690,7 +690,7 @@ func TestDAGNotifierDropsWhenQueueFull(t *testing.T) {
 }
 ```
 
-Run: `./scripts/test_with_guard.sh ./cmd/mcp-orch/notify -run TestDAGNotifierDropsWhenQueueFull -count=1`
+Run: `./scripts/test_with_guard.sh ./internal/sidecar/orch/notify -run TestDAGNotifierDropsWhenQueueFull -count=1`
 
 Expected: FAIL because no queue capacity or dropped metric exists.
 
@@ -765,7 +765,7 @@ This prevents a stuck store from blocking the single worker forever.
 Run:
 
 ```bash
-./scripts/test_with_guard.sh ./cmd/mcp-orch/notify -count=1
+./scripts/test_with_guard.sh ./internal/sidecar/orch/notify -count=1
 ```
 
 Expected: PASS.

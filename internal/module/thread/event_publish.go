@@ -6,10 +6,9 @@ import (
 	"time"
 
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func (s *service) publishThreadStarted(state threadState) {
@@ -90,17 +89,17 @@ func (s *service) beginThreadTraceSpan(
 	code observability.CodeAnchor,
 	metadata map[string]any,
 ) threadTraceSpan {
-	ctx = util.NonNilContext(ctx)
+	ctx = kernel.NonNilContext(ctx)
 	trace, ok := observability.TraceFromContext(ctx)
 	parentSpanID := ""
 	if ok {
 		parentSpanID = trace.SpanID
 	}
 	if trace.TraceID == "" {
-		trace.TraceID = idgen.NewID("trace")
+		trace.TraceID = kernel.NewID("trace")
 	}
 	trace.ParentSpanID = parentSpanID
-	trace.SpanID = idgen.NewID("span")
+	trace.SpanID = kernel.NewID("span")
 	span := threadTraceSpan{
 		ctx:       observability.ContextWithTrace(ctx, trace),
 		trace:     trace,

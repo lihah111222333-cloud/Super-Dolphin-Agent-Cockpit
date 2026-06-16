@@ -8,7 +8,7 @@
 
 ### 1. SessionManager 代际保护是否已修
 - 结论：✅
-- 证据：`internal/provider/unified/session.go:37-55` 在 `Register` 返回 generation；`internal/provider/unified/session.go:78-90` 的 `Remove` 要求传入 generation；`internal/provider/unified/session.go:139-152` 的 `removeEntry` 只有 generation 匹配才删除；`internal/module/thread/session_generation.go:13-25` 会把当前 generation 绑定进 orchestration；`cmd/mcp-orch/orchestration/session_generation.go:13-40` 在 stop/exit 清理时优先走 `RemoveSessionGeneration(agentID, generation)`；`internal/provider/unified/session_generation_test.go:39-58` 覆盖了“旧 generation 不能删掉新 session”。
+- 证据：`internal/provider/unified/session.go:37-55` 在 `Register` 返回 generation；`internal/provider/unified/session.go:78-90` 的 `Remove` 要求传入 generation；`internal/provider/unified/session.go:139-152` 的 `removeEntry` 只有 generation 匹配才删除；`internal/module/thread/session_generation.go:13-25` 会把当前 generation 绑定进 orchestration；`internal/sidecar/orch/orchestration/session_generation.go:13-40` 在 stop/exit 清理时优先走 `RemoveSessionGeneration(agentID, generation)`；`internal/provider/unified/session_generation_test.go:39-58` 覆盖了“旧 generation 不能删掉新 session”。
 - 说明：就 `SessionManager` 并发 create/remove 的代际问题看，当前代码已修。
 
 ### 2. `codexapp` `threadID` data race 是否已修
@@ -28,7 +28,7 @@
 
 ### 5. event 推送面是否已从 3 个扩展；method name 是否 V2 兼容
 - 结论：⚠️
-- 证据：`internal/platform/rpc/push.go:67-74` 不再手写 3 个订阅，而是调用 `eventsurface.Bind(...)`；`internal/platform/eventsurface/bind.go:18-29` 当前定义了 11 个对外 method：`ui/state/changed`、`turn/started`、`turn/completed`、`thread/started`、`thread/stopped`、`thread/messages/page`、`workspace/run/created`、`workspace/run/merged`、`workspace/run/aborted`、`agent/launched`、`agent/stopped`；`internal/platform/eventsurface/bind.go:44-95` 把 core/thread/workspace/agent 四组 typed event 都接到对外推送面；`internal/platform/eventsurface/bind_test.go:20-77` 也显式校验了 expanded surface。线程/工作区/agent 发布端当前都存在：`internal/module/thread/service.go:41-43`、`internal/module/thread/service.go:76-78`、`internal/module/thread/service.go:320-358`；`internal/module/workspace/service.go:42-58`、`internal/module/workspace/service_helpers.go:260-289`；`cmd/mcp-orch/orchestration/events.go:25-43`。
+- 证据：`internal/platform/rpc/push.go:67-74` 不再手写 3 个订阅，而是调用 `eventsurface.Bind(...)`；`internal/platform/eventsurface/bind.go:18-29` 当前定义了 11 个对外 method：`ui/state/changed`、`turn/started`、`turn/completed`、`thread/started`、`thread/stopped`、`thread/messages/page`、`workspace/run/created`、`workspace/run/merged`、`workspace/run/aborted`、`agent/launched`、`agent/stopped`；`internal/platform/eventsurface/bind.go:44-95` 把 core/thread/workspace/agent 四组 typed event 都接到对外推送面；`internal/platform/eventsurface/bind_test.go:20-77` 也显式校验了 expanded surface。线程/工作区/agent 发布端当前都存在：`internal/module/thread/service.go:41-43`、`internal/module/thread/service.go:76-78`、`internal/module/thread/service.go:320-358`；`internal/module/workspace/service.go:42-58`、`internal/module/workspace/service_helpers.go:260-289`；`internal/sidecar/orch/orchestration/events.go:25-43`。
 - 说明：从“只推 3 个”这个问题看，当前代码已经扩面，子结论可判 `✅`。但 V2 method name 兼容仍只能判部分对齐：保留下来的兼容名主要是 `ui/state/changed`、`turn/started`、`turn/completed`、`thread/started`（见 `internal/platform/eventsurface/bind.go:18-23`）；按当前 method 常量表推断，仍未见 V2 的 `thread/tokenUsage/updated`、`thread/compacted`、`turn/diff/updated`、`turn/plan/updated`、`item/*` 等更宽方法族，所以整体仍是 `⚠️`，不是 1:1。
 
 ### 6. Wails bridge 是否同步扩展

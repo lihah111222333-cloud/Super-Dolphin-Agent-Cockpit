@@ -30,7 +30,7 @@
 | `go run .\scripts\code_size_guard.go` | PASS | `代码守卫: 全部通过`；生产 baseline 棘轮 10 个文件、测试 baseline 棘轮 21 个文件通过。 |
 | `go test ./internal/archtest -run TestCodeSizeGuard -count=1` | PASS | `ok github.com/anthropic-ai/super-agent-v3/internal/archtest 5.293s` |
 | `go test ./internal/module/prompt -count=1` | PASS | `ok github.com/anthropic-ai/super-agent-v3/internal/module/prompt 18.570s` |
-| `go test ./cmd/mcp-orch/store/sqlctx -count=1` | PASS | `ok github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx 1.989s` |
+| `go test ./internal/sidecar/orch/store/sqlctx -count=1` | PASS | `ok github.com/anthropic-ai/super-agent-v3/internal/sidecar/orch/store/sqlctx 1.989s` |
 | `go run .\scripts\sqlite_release_gates -out "docs\cc\数据库切换\sqlite-release-gate-report.md" -logs ".tmp\final-release-logs" -timeout 10m` | PASS | runner 写入 `docs\cc\数据库切换\sqlite-release-gate-report.md`，Commit SHA 为 `ddf4e7048ff5eec43dbae5f53098263179619bbb`，OS/arch 为 `windows/amd64`，G1-G14 全部 PASS。 |
 
 release gate 细节以 `docs\cc\数据库切换\sqlite-release-gate-report.md` 为准。其中 G12 是本地 packaging smoke 证据，证明本地打包 smoke 路径在 Windows/amd64 worktree 下通过；它不是跨平台发布产物矩阵的替代证据。
@@ -42,7 +42,7 @@ release gate 细节以 `docs\cc\数据库切换\sqlite-release-gate-report.md` �
 | 问题 | 收口依据 |
 |---|---|
 | 离线线程配置读取 | 当前历史包含 `1b5409bc 修复离线线程配置读取` 与合并提交 `4a9f5789 合并离线线程配置读取修复`；G13 旧 PostgreSQL 数据忽略与 provider/config 相关回归 PASS。 |
-| `sqlctx` 空函数 guard | 当前历史包含 `ddf1e6d6 修复SQLite事务上下文空函数守卫` 与合并提交 `22004a40 合并SQLite事务上下文空函数守卫修复`；`go test ./cmd/mcp-orch/store/sqlctx -count=1` PASS。 |
+| `sqlctx` 空函数 guard | 当前历史包含 `ddf1e6d6 修复SQLite事务上下文空函数守卫` 与合并提交 `22004a40 合并SQLite事务上下文空函数守卫修复`；`go test ./internal/sidecar/orch/store/sqlctx -count=1` PASS。 |
 | 测试 guard baseline | 当前历史包含 `519dfdaa 收口SQLite回归测试守卫基线` 与合并提交 `03a29f4a 合并SQLite回归测试守卫基线收口`；full code-size guard 与 `TestCodeSizeGuard` 均 PASS。 |
 | prompt e2e Codex identity fixture | 当前历史包含 `c9c139d4 修复Prompt端到端Codex身份夹具` 与 HEAD 合并提交 `ddf4e704 合并Prompt端到端Codex身份夹具修复`；`go test ./internal/module/prompt -count=1` PASS。 |
 

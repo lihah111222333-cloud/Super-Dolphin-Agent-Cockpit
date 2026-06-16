@@ -4,18 +4,10 @@
 // agent" (per-agent metrics, prompt A/B comparison).
 package feedback
 
-import (
-	"context"
-	"encoding/json"
-	"time"
-)
+import "github.com/anthropic-ai/super-agent-v3/internal/contract"
 
 // Store is the write + read surface the feedback module uses.
-type Store interface {
-	Insert(ctx context.Context, ev Event) (Event, error)
-	ListByThread(ctx context.Context, threadID string, limit int32) ([]Event, error)
-	ListByAgentKey(ctx context.Context, agentKey string, limit int32) ([]Event, error)
-}
+type Store = contract.FeedbackEventStore
 
 // Event is the domain DTO for an agent_feedback_events row.
 //
@@ -27,14 +19,4 @@ type Store interface {
 //	edit                    — user edited prompt then re-sent
 //	handoff_out             — this thread was superseded by a handoff
 //	user_override_route     — user manually pinned agent_key, overriding router
-type Event struct {
-	ID              int64           `json:"id"`
-	ThreadID        string          `json:"thread_id"`
-	TurnID          string          `json:"turn_id,omitempty"`
-	AgentKey        string          `json:"agent_key,omitempty"`
-	PromptVersionID *int64          `json:"prompt_version_id,omitempty"`
-	EventType       string          `json:"event_type"`
-	Actor           string          `json:"actor,omitempty"`
-	Payload         json.RawMessage `json:"payload,omitempty"`
-	CreatedAt       time.Time       `json:"created_at"`
-}
+type Event = contract.FeedbackEvent

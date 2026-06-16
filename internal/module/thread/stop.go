@@ -7,16 +7,15 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 type threadStopState struct {
 	agentID   string
 	stoppedID string
 	targets   []string
-	binding   *bindingstore.Binding
+	binding   *contract.Binding
 }
 
 var errResumeLifecycleBlocked = errors.New("thread resume blocked by lifecycle state")
@@ -64,7 +63,7 @@ func (s *service) resetSessionRecoveryForThread(ctx context.Context, threadID st
 func (s *service) resumeLifecycleBlockReason(
 	ctx context.Context,
 	threadID string,
-	binding *bindingstore.Binding,
+	binding *contract.Binding,
 ) (string, bool) {
 	binding = s.resolveResumeLifecycleBinding(ctx, threadID, binding)
 	if reason, blocked := s.resumeAgentLifecycleBlock(threadID, binding); blocked {
@@ -79,8 +78,8 @@ func (s *service) resumeLifecycleBlockReason(
 func (s *service) resolveResumeLifecycleBinding(
 	ctx context.Context,
 	threadID string,
-	binding *bindingstore.Binding,
-) *bindingstore.Binding {
+	binding *contract.Binding,
+) *contract.Binding {
 	if s == nil || binding != nil || s.bindingStore == nil {
 		return binding
 	}
@@ -91,12 +90,12 @@ func (s *service) resolveResumeLifecycleBinding(
 	return resolved
 }
 
-func unresolvedStopBinding() *bindingstore.Binding {
+func unresolvedStopBinding() *contract.Binding {
 	return nil
 }
 
 // resumeAgentLifecycleBlock 处理恢复代理生命周期block。
-func (s *service) resumeAgentLifecycleBlock(threadID string, binding *bindingstore.Binding) (string, bool) {
+func (s *service) resumeAgentLifecycleBlock(threadID string, binding *contract.Binding) (string, bool) {
 	if s == nil {
 		return "", false
 	}
@@ -128,7 +127,7 @@ func resumeLifecycleStatusBlock(status string) (string, bool) {
 func (s *service) resumeLifecycleThreadStatus(
 	ctx context.Context,
 	threadID string,
-	binding *bindingstore.Binding,
+	binding *contract.Binding,
 ) (string, bool) {
 	if s == nil || s.threadStore == nil {
 		return "", false
@@ -143,7 +142,7 @@ func (s *service) resumeLifecycleThreadStatus(
 	return "", false
 }
 
-func resumeLifecycleThreadIDs(threadID string, binding *bindingstore.Binding) []string {
+func resumeLifecycleThreadIDs(threadID string, binding *contract.Binding) []string {
 	candidates := []string{strings.TrimSpace(threadID)}
 	if binding != nil {
 		candidates = append(candidates,
@@ -176,7 +175,7 @@ func resumeLifecycleError(threadID, reason string) error {
 
 // Stop 停止线程流程。
 func (s *service) Stop(ctx context.Context, threadID string) error {
-	ctx = util.NonNilContext(ctx)
+	ctx = kernel.NonNilContext(ctx)
 	stopState, err := s.resolveThreadStopState(ctx, threadID)
 	if err != nil {
 		if handled, pendingErr := s.stopPendingLaunchThread(ctx, threadID); handled || pendingErr != nil {
@@ -237,7 +236,7 @@ func (s *service) resolveThreadStopState(ctx context.Context, threadID string) (
 	return newThreadStopState(binding, threadID), nil
 }
 
-func newThreadStopState(binding *bindingstore.Binding, threadID string) threadStopState {
+func newThreadStopState(binding *contract.Binding, threadID string) threadStopState {
 	return threadStopState{
 		agentID:   strings.TrimSpace(bindingAgentID(binding)),
 		stoppedID: stoppedThreadID(binding, threadID),
@@ -301,7 +300,7 @@ func (s *service) interruptStoppingThread(ctx context.Context, agentID, source s
 	}
 }
 
-func bindingAgentID(binding *bindingstore.Binding) string {
+func bindingAgentID(binding *contract.Binding) string {
 	if binding == nil {
 		return ""
 	}
@@ -338,11 +337,11 @@ func (s *service) cleanupThreadTurns(ctx context.Context, reason string, threadI
 		return
 	}
 	for _, threadID := range uniqueThreadIDs(threadIDs...) {
-		util.LogIgnoredError(s.logger, "cleanup thread turns failed", s.turns.CleanupThread(ctx, threadID, reason))
+		kernel.LogIgnoredError(s.logger, "cleanup thread turns failed", s.turns.CleanupThread(ctx, threadID, reason))
 	}
 }
 
-func stopThreadTargets(binding *bindingstore.Binding, threadID string) []string {
+func stopThreadTargets(binding *contract.Binding, threadID string) []string {
 	if binding == nil {
 		return uniqueThreadIDs(threadID)
 	}
@@ -354,11 +353,11 @@ func stopThreadTargets(binding *bindingstore.Binding, threadID string) []string 
 	)
 }
 
-func stoppedThreadID(binding *bindingstore.Binding, threadID string) string {
+func stoppedThreadID(binding *contract.Binding, threadID string) string {
 	if binding == nil {
 		return strings.TrimSpace(threadID)
 	}
-	return util.FirstNonEmpty(
+	return kernel.FirstNonEmpty(
 		binding.CodexThreadID,
 		threadID,
 		binding.ProviderThreadID,

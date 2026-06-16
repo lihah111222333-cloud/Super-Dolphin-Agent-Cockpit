@@ -1,26 +1,12 @@
 package uipreference
 
-import (
-	"context"
-	"encoding/json"
-	"time"
-)
+import "github.com/anthropic-ai/super-agent-v3/internal/contract"
 
-type Store interface {
-	GetValue(ctx context.Context, cwd, key string) (json.RawMessage, error)
-	Upsert(ctx context.Context, params UpsertParams) error
-	List(ctx context.Context, cwd string) ([]UIPreference, error)
-}
+// Store is the persistence surface for scoped UI preferences.
+type Store = contract.UIPreferenceStore
 
-type UpsertParams struct {
-	Cwd   string
-	Key   string
-	Value json.RawMessage
-}
+// UpsertParams drives Store.Upsert.
+type UpsertParams = contract.UIPreferenceUpsertParams
 
-type UIPreference struct {
-	Key       string
-	Value     json.RawMessage
-	UpdatedAt time.Time
-	Cwd       string
-}
+// UIPreference is the stored preference projection.
+type UIPreference = contract.UIPreference

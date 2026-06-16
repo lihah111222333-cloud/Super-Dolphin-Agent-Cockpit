@@ -13,8 +13,8 @@
 DAG v2 改造把"自动化任务"收敛为 DAG 一种节点类型，统一抽象成"动态可重写 DAG 运行时"。骨架阶段（S 阶段）目标是**只搭抽象、不改行为**，给 T/F 阶段稳定的接口表面。
 
 骨架阶段产出 14 处补丁，全是 typed schema / 接口位 / Go enum，分布在两个 Go 包：
-- `cmd/mcp-orch/orchestration/nodeexec/` — 执行层抽象（NodeExecutor / 三 stub / typed ops / typed config / 状态机校验 / 失败策略 lookup）
-- `cmd/mcp-orch/orchestration/` — 编排层抽象（service.StartDAG/TerminateDAG/ApplyOps stub / Scheduler stub）
+- `internal/sidecar/orch/orchestration/nodeexec/` — 执行层抽象（NodeExecutor / 三 stub / typed ops / typed config / 状态机校验 / 失败策略 lookup）
+- `internal/sidecar/orch/orchestration/` — 编排层抽象（service.StartDAG/TerminateDAG/ApplyOps stub / Scheduler stub）
 
 本 ADR 把所有契约固化为不可随意修改的协议——任何 T/F 阶段实现必须遵守这些契约。
 
@@ -195,7 +195,7 @@ SharedfileTarget { Path; LockMode }   // exclusive | append | shared
 
 ### 2.7 与现有 dispatcher retry strategy 的协调（M-6）
 
-现有 `cmd/mcp-orch/orchestration/retry_strategy.go` 定义了：
+现有 `internal/sidecar/orch/orchestration/retry_strategy.go` 定义了：
 - `DAGSchedulePolicy { DefaultRetry, FailFast }` ← DAG metadata 的 schedule 子树
 - `NodeExecutionPolicy { Retry, HasRetry }` ← node.config 的 execution 子树
 - `RetryPolicy { MaxAttempts, FailFast }` ← dispatcher 派生的最终决策

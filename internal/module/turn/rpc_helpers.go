@@ -14,12 +14,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 )
 
 func buildRPCPrepareInput(p turnStartParams, session contract.Session, threadRuntimeConfig map[string]any) PrepareInput {
@@ -70,11 +67,11 @@ func sameTurnRPCCWD(requestCWD, authoritativeCWD string) bool {
 	if requestCWD == authoritativeCWD {
 		return true
 	}
-	normalizedRequest, err := pathutil.NormalizeAbsolutePath(requestCWD)
+	normalizedRequest, err := kernel.NormalizeAbsolutePath(requestCWD)
 	if err != nil || normalizedRequest == "" {
 		return false
 	}
-	normalizedAuthoritative, err := pathutil.NormalizeAbsolutePath(authoritativeCWD)
+	normalizedAuthoritative, err := kernel.NormalizeAbsolutePath(authoritativeCWD)
 	if err != nil || normalizedAuthoritative == "" {
 		return false
 	}
@@ -85,7 +82,7 @@ func sameTurnRPCCWD(requestCWD, authoritativeCWD string) bool {
 }
 
 func strictRuntimeCWD(cfg map[string]any, label string) (string, error) {
-	cwd, err := configutil.StrictString(cfg, label, "cwd")
+	cwd, err := kernel.StrictConfigString(cfg, label, "cwd")
 	if err != nil {
 		return "", platformrpc.ErrInvalidParams(err.Error())
 	}
@@ -163,7 +160,7 @@ func lookupReadyTurnSession(
 }
 
 func readyTurnWaitContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return ctxutil.WithTimeoutIfNone(ctx, ctxutil.LaunchTimeout)
+	return kernel.WithTimeoutIfNone(ctx, kernel.LaunchTimeout)
 }
 
 // waitForReadyTurnSession 等待会话 ready 后再提交 turn。
@@ -413,17 +410,17 @@ func (p turnInputItemParams) skillName() string {
 	if !strings.EqualFold(strings.TrimSpace(p.Type), "skill") {
 		return ""
 	}
-	return util.FirstTrimmed(p.Name, p.Text, p.Content, p.Path)
+	return kernel.FirstTrimmed(p.Name, p.Text, p.Content, p.Path)
 }
 
 // inputItem 处理inputitem。
 func (p turnInputItemParams) inputItem() (InputItem, bool) {
 	item := InputItem{
-		Type:    util.FirstTrimmed(p.Type),
-		Content: util.FirstTrimmed(p.Content, p.Text),
-		Path:    util.FirstTrimmed(p.Path),
-		Name:    util.FirstTrimmed(p.Name),
-		URL:     util.FirstTrimmed(p.URL),
+		Type:    kernel.FirstTrimmed(p.Type),
+		Content: kernel.FirstTrimmed(p.Content, p.Text),
+		Path:    kernel.FirstTrimmed(p.Path),
+		Name:    kernel.FirstTrimmed(p.Name),
+		URL:     kernel.FirstTrimmed(p.URL),
 	}
 	switch {
 	case item.Type == "" && item.URL != "":

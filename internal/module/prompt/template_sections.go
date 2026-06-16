@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 // mergeTemplateSections folds DB-sourced prompt_template sections into the
@@ -93,7 +92,7 @@ func requirePromptCWD(cwd string) (string, error) {
 
 // validatePromptScope 校验prompt作用域。
 // validatePromptWriteScope 校验promptwrite作用域。
-func validatePromptWriteScope(current *promptstore.PromptTemplate, cwd, scope string, scopeSet bool) error {
+func validatePromptWriteScope(current *contract.PromptTemplate, cwd, scope string, scopeSet bool) error {
 	requestScope, err := requirePromptCWD(cwd)
 	if err != nil {
 		return err
@@ -123,7 +122,7 @@ func validatePromptWriteScope(current *promptstore.PromptTemplate, cwd, scope st
 }
 
 // validatePromptMutationScope 校验promptmutation作用域。
-func validatePromptMutationScope(current *promptstore.PromptTemplate, cwd, scope string, scopeSet bool) error {
+func validatePromptMutationScope(current *contract.PromptTemplate, cwd, scope string, scopeSet bool) error {
 	requestScope, err := requirePromptCWD(cwd)
 	if err != nil {
 		return err
@@ -146,7 +145,7 @@ func validatePromptMutationScope(current *promptstore.PromptTemplate, cwd, scope
 	return fmt.Errorf("dashboard: prompt %q is outside cwd scope", current.PromptKey)
 }
 
-func promptVisibleForCWD(template promptstore.PromptTemplate, cwd string) bool {
+func promptVisibleForCWD(template contract.PromptTemplate, cwd string) bool {
 	requestScope := strings.TrimSpace(cwd)
 	if requestScope == "" {
 		return false
@@ -159,7 +158,7 @@ func promptVisibleForCWD(template promptstore.PromptTemplate, cwd string) bool {
 }
 
 // promptScopeForWrite 为write处理prompt作用域。
-func promptScopeForWrite(current *promptstore.PromptTemplate, cwd, scope string, scopeSet bool) string {
+func promptScopeForWrite(current *contract.PromptTemplate, cwd, scope string, scopeSet bool) string {
 	if scopeSet {
 		if normalized := normalizePromptScope(scope); normalized != "" {
 			return normalized
@@ -197,7 +196,7 @@ func normalizePromptScope(scope string) string {
 	}
 }
 
-func promptScopeForTemplate(template promptstore.PromptTemplate) string {
+func promptScopeForTemplate(template contract.PromptTemplate) string {
 	if promptHasGlobalScope(template.Tags) {
 		return "global"
 	}
@@ -228,7 +227,7 @@ func withPromptScopeKindTag(raw json.RawMessage, cwd, scope string) json.RawMess
 // rejectDuplicateRecallTopicInCWD 在工作目录处理rejectduplicaterecalltopic。
 func rejectDuplicateRecallTopicInCWD(
 	ctx context.Context,
-	store promptstore.Store,
+	store contract.PromptStore,
 	cwd, topic string,
 	targetScope string,
 	templateID int64,
@@ -241,7 +240,7 @@ func rejectDuplicateRecallTopicInCWD(
 	if err := store.LockRecallTopicInCWD(ctx, cwd, topic); err != nil {
 		return err
 	}
-	templates, err := store.List(ctx, promptstore.ListFilter{CWD: cwd, Limit: promptRPCLimit})
+	templates, err := store.List(ctx, contract.PromptListFilter{CWD: cwd, Limit: promptRPCLimit})
 	if err != nil {
 		return err
 	}
@@ -259,8 +258,8 @@ func rejectDuplicateRecallTopicInCWD(
 
 // promptRecallDuplicateExists 处理promptrecallduplicateexists。
 func promptRecallDuplicateExists(
-	templates []promptstore.PromptTemplate,
-	sectionsByID map[int64][]promptstore.PromptTemplateSection,
+	templates []contract.PromptTemplate,
+	sectionsByID map[int64][]contract.PromptTemplateSection,
 	cwd, topic, targetScope string,
 	templateID int64,
 	sectionKey string,
@@ -282,7 +281,7 @@ func promptRecallDuplicateExists(
 }
 
 // promptRecallDuplicateTargetScope 处理promptrecallduplicatetarget作用域。
-func promptRecallDuplicateTargetScope(current *promptstore.PromptTemplate, cwd, scope string, scopeSet bool) string {
+func promptRecallDuplicateTargetScope(current *contract.PromptTemplate, cwd, scope string, scopeSet bool) string {
 	if current != nil {
 		hasProject := promptHasScopeCWD(current.Tags, cwd)
 		hasGlobal := promptHasGlobalScope(current.Tags)
@@ -306,8 +305,8 @@ func promptRecallDuplicateTargetScope(current *promptstore.PromptTemplate, cwd, 
 	return ""
 }
 
-func promptRecallDuplicateVisibleTemplates(templates []promptstore.PromptTemplate, cwd string) []promptstore.PromptTemplate {
-	out := make([]promptstore.PromptTemplate, 0, len(templates))
+func promptRecallDuplicateVisibleTemplates(templates []contract.PromptTemplate, cwd string) []contract.PromptTemplate {
+	out := make([]contract.PromptTemplate, 0, len(templates))
 	for _, template := range templates {
 		if template.Enabled && template.ID != 0 && promptVisibleForCWD(template, cwd) {
 			out = append(out, template)
@@ -316,7 +315,7 @@ func promptRecallDuplicateVisibleTemplates(templates []promptstore.PromptTemplat
 	return out
 }
 
-func promptRecallTemplateConflictsWithTarget(targetScope string, template promptstore.PromptTemplate, cwd string) bool {
+func promptRecallTemplateConflictsWithTarget(targetScope string, template contract.PromptTemplate, cwd string) bool {
 	switch targetScope {
 	case "global":
 		return !promptTemplateHasCurrentProjectOnlyScope(template, cwd)
@@ -327,11 +326,11 @@ func promptRecallTemplateConflictsWithTarget(targetScope string, template prompt
 	}
 }
 
-func promptTemplateHasCurrentProjectOnlyScope(template promptstore.PromptTemplate, cwd string) bool {
+func promptTemplateHasCurrentProjectOnlyScope(template contract.PromptTemplate, cwd string) bool {
 	return promptHasScopeCWD(template.Tags, cwd) && !promptHasGlobalScope(template.Tags)
 }
 
-func promptTemplateHasGlobalOnlyScope(template promptstore.PromptTemplate, cwd string) bool {
+func promptTemplateHasGlobalOnlyScope(template contract.PromptTemplate, cwd string) bool {
 	return promptHasGlobalScope(template.Tags) && !promptHasScopeCWD(template.Tags, cwd)
 }
 
@@ -350,7 +349,7 @@ type promptAssetRPCItem struct {
 }
 
 // handlePromptAssetList 处理promptassetlist。
-func handlePromptAssetList(ctx context.Context, store promptstore.Store, p promptAssetListParams) (any, error) {
+func handlePromptAssetList(ctx context.Context, store contract.PromptStore, p promptAssetListParams) (any, error) {
 	if store == nil {
 		return nil, errPromptStoreRequired
 	}
@@ -358,7 +357,7 @@ func handlePromptAssetList(ctx context.Context, store promptstore.Store, p promp
 	if err != nil {
 		return nil, err
 	}
-	templates, err := store.List(ctx, promptstore.ListFilter{CWD: cwd, Limit: promptRPCLimit})
+	templates, err := store.List(ctx, contract.PromptListFilter{CWD: cwd, Limit: promptRPCLimit})
 	if err != nil {
 		return nil, err
 	}
@@ -368,7 +367,7 @@ func handlePromptAssetList(ctx context.Context, store promptstore.Store, p promp
 		return nil, err
 	}
 	items := promptAssetItemsFromTemplates(assets, sections)
-	drafts, err := store.ListIntentDrafts(ctx, promptstore.PromptIntentDraftListFilter{
+	drafts, err := store.ListIntentDrafts(ctx, contract.PromptIntentDraftListFilter{
 		CWD:    cwd,
 		Status: "ready_to_save",
 		Limit:  promptRPCLimit,
@@ -380,8 +379,8 @@ func handlePromptAssetList(ctx context.Context, store promptstore.Store, p promp
 	return map[string]any{"prompts": items}, nil
 }
 
-func promptAssetTemplatesForCWD(templates []promptstore.PromptTemplate, cwd string) []promptstore.PromptTemplate {
-	assets := make([]promptstore.PromptTemplate, 0, len(templates))
+func promptAssetTemplatesForCWD(templates []contract.PromptTemplate, cwd string) []contract.PromptTemplate {
+	assets := make([]contract.PromptTemplate, 0, len(templates))
 	for _, template := range templates {
 		if promptAssetVisibleForCWD(template, cwd) && promptTemplateIsUserAsset(template) {
 			assets = append(assets, template)
@@ -390,7 +389,7 @@ func promptAssetTemplatesForCWD(templates []promptstore.PromptTemplate, cwd stri
 	return effectivePromptAssetTemplates(assets, cwd)
 }
 
-func promptAssetVisibleForCWD(template promptstore.PromptTemplate, cwd string) bool {
+func promptAssetVisibleForCWD(template contract.PromptTemplate, cwd string) bool {
 	requestScope := strings.TrimSpace(cwd)
 	if requestScope == "" {
 		return false
@@ -399,9 +398,9 @@ func promptAssetVisibleForCWD(template promptstore.PromptTemplate, cwd string) b
 }
 
 // effectivePromptAssetTemplates 处理effectivepromptassettemplates。
-func effectivePromptAssetTemplates(templates []promptstore.PromptTemplate, cwd string) []promptstore.PromptTemplate {
+func effectivePromptAssetTemplates(templates []contract.PromptTemplate, cwd string) []contract.PromptTemplate {
 	type pickedAsset struct {
-		template promptstore.PromptTemplate
+		template contract.PromptTemplate
 		rank     int
 		index    int
 	}
@@ -422,14 +421,14 @@ func effectivePromptAssetTemplates(templates []promptstore.PromptTemplate, cwd s
 		out = append(out, asset)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].index < out[j].index })
-	templates = make([]promptstore.PromptTemplate, 0, len(out))
+	templates = make([]contract.PromptTemplate, 0, len(out))
 	for _, asset := range out {
 		templates = append(templates, asset.template)
 	}
 	return templates
 }
 
-func promptAssetLogicalKey(template promptstore.PromptTemplate) string {
+func promptAssetLogicalKey(template contract.PromptTemplate) string {
 	agent := strings.ToLower(strings.TrimSpace(template.AgentKey))
 	intentTag := ""
 	for _, tag := range promptTags(template.Tags) {
@@ -445,7 +444,7 @@ func promptAssetLogicalKey(template promptstore.PromptTemplate) string {
 	return strings.Join([]string{agent, intentTag, title}, "\x00")
 }
 
-func promptAssetScopeRank(template promptstore.PromptTemplate, cwd string) int {
+func promptAssetScopeRank(template contract.PromptTemplate, cwd string) int {
 	if promptHasGlobalScope(template.Tags) && !promptHasScopeCWD(template.Tags, cwd) {
 		return 1
 	}
@@ -462,7 +461,7 @@ func preferPromptAsset(leftRank, rightRank, leftPriority, rightPriority, leftInd
 	return leftIndex < rightIndex
 }
 
-func promptTemplateIsUserAsset(template promptstore.PromptTemplate) bool {
+func promptTemplateIsUserAsset(template contract.PromptTemplate) bool {
 	if promptTemplateHasTag(template.Tags, "builtin:system") {
 		return false
 	}
@@ -491,7 +490,7 @@ func promptTemplateHasTag(raw json.RawMessage, want string) bool {
 	return false
 }
 
-func promptTemplateAuthoredByUser(template promptstore.PromptTemplate) bool {
+func promptTemplateAuthoredByUser(template contract.PromptTemplate) bool {
 	return promptAuthorIsRPC(template.CreatedBy) || promptAuthorIsRPC(template.UpdatedBy)
 }
 
@@ -499,7 +498,7 @@ func promptAuthorIsRPC(author string) bool {
 	return strings.TrimSpace(author) == promptUpdatedBy
 }
 
-func promptTemplateAuthoredBySystem(template promptstore.PromptTemplate) bool {
+func promptTemplateAuthoredBySystem(template contract.PromptTemplate) bool {
 	return promptAuthorLooksSystem(template.CreatedBy) || promptAuthorLooksSystem(template.UpdatedBy)
 }
 
@@ -511,7 +510,7 @@ func promptAuthorLooksSystem(author string) bool {
 		strings.Contains(normalized, "migration")
 }
 
-func promptTemplateHasIntentAssetMarker(template promptstore.PromptTemplate) bool {
+func promptTemplateHasIntentAssetMarker(template contract.PromptTemplate) bool {
 	if strings.TrimSpace(template.AgentKey) == "default_rule" {
 		return true
 	}
@@ -526,10 +525,10 @@ func promptTemplateHasIntentAssetMarker(template promptstore.PromptTemplate) boo
 
 func promptAssetSectionsByTemplateID(
 	ctx context.Context,
-	store promptstore.Store,
-	templates []promptstore.PromptTemplate,
-) (map[int64][]promptstore.PromptTemplateSection, error) {
-	sectionsByTemplateID := map[int64][]promptstore.PromptTemplateSection{}
+	store contract.PromptStore,
+	templates []contract.PromptTemplate,
+) (map[int64][]contract.PromptTemplateSection, error) {
+	sectionsByTemplateID := map[int64][]contract.PromptTemplateSection{}
 	ids := promptTemplateIDs(templates)
 	if len(ids) == 0 {
 		return sectionsByTemplateID, nil
@@ -545,8 +544,8 @@ func promptAssetSectionsByTemplateID(
 }
 
 func promptAssetItemsFromTemplates(
-	templates []promptstore.PromptTemplate,
-	sectionsByTemplateID map[int64][]promptstore.PromptTemplateSection,
+	templates []contract.PromptTemplate,
+	sectionsByTemplateID map[int64][]contract.PromptTemplateSection,
 ) []promptAssetRPCItem {
 	items := make([]promptAssetRPCItem, 0, len(templates))
 	for _, template := range templates {

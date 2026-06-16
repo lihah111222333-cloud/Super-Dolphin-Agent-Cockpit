@@ -14,7 +14,7 @@
 |---|---|---|---|---|
 | `shared` | 事件编号、Header 骨架、通用输入/错误 | 事件总线：`agent/thread/tool/turn/task/ui` 全部嵌入；Provider translator 复用 Header | 各模块 emitter / translator 在构造事件时嵌入 | `internal/dto/shared/event.go:5` |
 | `agent` | Agent 生命周期、运行态、告警/错误 DTO | 事件总线：orchestration / memory / uistate；UI：eventsurface 下发 agent 相关投影 | `claudecli` / `codexapp` translator；orchestration 生命周期 | `internal/dto/agent/event.go:6` |
-| `mcp` | `ctl/*` 控制面 RPC/notify/hook/report 协议 | RPC：`cmd/mcp-orch/orchestration`、`internal/platform/mcpcontrol` | orch 控制面、sidecar/peer 客户端 | `internal/dto/mcp/protocol.go:6` |
+| `mcp` | `ctl/*` 控制面 RPC/notify/hook/report 协议 | RPC：`internal/sidecar/orch/orchestration`、`internal/platform/mcpcontrol` | orch 控制面、sidecar/peer 客户端 | `internal/dto/mcp/protocol.go:6` |
 | `provider` | Provider 启停/turn/config/history/raw-event 边界 | RPC：`contract.Driver` / `contract.Session`；事件总线：`RawProviderEvent` 进 `unified.EventDispatcher`；UI：历史/线程配置查询 | `thread` 模块、`turn` 模块、`prompt` 装配、provider drivers | `internal/dto/provider/session.go:55` |
 | `task` | DAG / node / wakeup typed event | 事件总线：task watcher / orchestration / UI projector | task DAG service / watcher | `internal/dto/task/event.go:6` |
 | `thread` | Thread 生命周期 typed event | 事件总线：memory team sync、uistate、eventsurface；UI：sidebar/state patch | `internal/module/thread` service/factory | `internal/dto/thread/event.go:6` |
@@ -98,9 +98,9 @@
 
 > 当前没有单独 `TurnEvent` struct；实际由 `turn/event.go` 的生命周期事件和 `turn/progress.go` 的计划/条目进度事件组成。定义锚点：`internal/dto/turn/event.go:6/11/24/30/37/43/52`、`internal/dto/turn/progress.go:10/18/25/37`。
 >
-> 生产侧：`internal/provider/claudecli/event_map.go:92`、`internal/provider/codexapp/event_map.go:148`、`internal/provider/unified/event_map.go:151`、`cmd/mcp-orch/orchestration/turn_lifecycle.go:21`。
+> 生产侧：`internal/provider/claudecli/event_map.go:92`、`internal/provider/codexapp/event_map.go:148`、`internal/provider/unified/event_map.go:151`、`internal/sidecar/orch/orchestration/turn_lifecycle.go:21`。
 >
-> 消费侧：`cmd/mcp-orch/orchestration/hook_consumer.go:97`、`internal/module/memory/service.go:201`、`internal/module/uistate/projector_handlers.go:296`。
+> 消费侧：`internal/sidecar/orch/orchestration/hook_consumer.go:97`、`internal/module/memory/service.go:201`、`internal/module/uistate/projector_handlers.go:296`。
 
 | concrete DTO | 字段 | JSON | 说明 |
 |---|---|---|---|

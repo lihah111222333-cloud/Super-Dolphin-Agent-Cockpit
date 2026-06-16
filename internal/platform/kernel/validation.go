@@ -2,21 +2,31 @@ package kernel
 
 import (
 	"strings"
-
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
-// FirstNonEmpty delegates to util.FirstNonEmpty.
-// FirstNonEmpty 处理firstnonempty。
-func FirstNonEmpty(values ...string) string { return util.FirstNonEmpty(values...) }
+// FirstNonEmpty returns the first non-blank value after trimming whitespace.
+func FirstNonEmpty(values ...string) string { return FirstTrimmed(values...) }
 
-// FirstTrimmed delegates to util.FirstTrimmed.
-// FirstTrimmed 处理firsttrimmed。
-func FirstTrimmed(values ...string) string { return util.FirstTrimmed(values...) }
+// FirstTrimmed returns the first value that remains non-empty after TrimSpace.
+func FirstTrimmed(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
 
-// ClampLimit delegates to util.ClampLimit.
-// ClampLimit 返回clamplimit。
-func ClampLimit(val, min, max, defaultVal int) int { return util.ClampLimit(val, min, max, defaultVal) }
+// ClampLimit clamps val into [min, max], falling back when val is below min.
+func ClampLimit(val, min, max, defaultVal int) int {
+	if val < min {
+		return defaultVal
+	}
+	if max > 0 && val > max {
+		return max
+	}
+	return val
+}
 
 // FirstPayloadString 处理first载荷string。
 func FirstPayloadString(payload map[string]any, keys ...string) string {

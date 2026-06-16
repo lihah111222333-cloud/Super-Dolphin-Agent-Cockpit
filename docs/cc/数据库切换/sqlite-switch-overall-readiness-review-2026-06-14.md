@@ -16,7 +16,7 @@
 
 - `task-01` 到 `task-15` 的分支 HEAD 均已进入当前集成分支历史；`task02` 是主干直接提交，其余任务大体保留为 merge 侧枝。
 - 最新集成 HEAD 包含运行时 SQL 修复提交 `32ee0ef1 sqlite: unblock runtime SQL writes`。
-- 针对该修复面的 Go 回归验证通过：`go test ./internal/store/thread ./internal/store/prompt ./internal/store/commandcard ./internal/store/sqlc ./cmd/mcp-orch/store/taskdag ./cmd/mcp-orch/orchestration -count=1`。
+- 针对该修复面的 Go 回归验证通过：`go test ./internal/store/thread ./internal/store/prompt ./internal/store/commandcard ./internal/store/sqlc ./internal/sidecar/orch/store/taskdag ./internal/sidecar/orch/orchestration -count=1`。
 - 当前 HEAD 重新运行 SQLite release gate 后，G1-G11、G13、G14 为 PASS。
 
 仍然阻断完成裁决的事实：
@@ -32,7 +32,7 @@
 |---|---|---|
 | `go mod download` | PASS | 新建文档收口 worktree 后的依赖准备。 |
 | `go run ./scripts/sqlite_release_gates -logs .tmp/final-release-logs -timeout 10m` | FAIL | G12 为 FAIL，其余 gate 见 `sqlite-release-gate-report.md`。 |
-| `go test ./internal/store/thread ./internal/store/prompt ./internal/store/commandcard ./internal/store/sqlc ./cmd/mcp-orch/store/taskdag ./cmd/mcp-orch/orchestration -count=1` | PASS | 覆盖 `32ee0ef1` 修复涉及的 store/sqlc/taskdag/orchestration 面。 |
+| `go test ./internal/store/thread ./internal/store/prompt ./internal/store/commandcard ./internal/store/sqlc ./internal/sidecar/orch/store/taskdag ./internal/sidecar/orch/orchestration -count=1` | PASS | 覆盖 `32ee0ef1` 修复涉及的 store/sqlc/taskdag/orchestration 面。 |
 | `go run ./scripts/code_size_guard.go` | FAIL | `internal/module/prompt: 31 个 > 上限 30`。 |
 | `Test-Path docs/cc/数据库切换/task15-integration-final-scan-report.md` | FALSE | 最终扫描报告工件缺失。 |
 | `git merge-base --is-ancestor codex/sqlite-switch-task-15-integration-final-scan HEAD` | PASS | task15 分支 HEAD 已在当前集成分支历史中。 |

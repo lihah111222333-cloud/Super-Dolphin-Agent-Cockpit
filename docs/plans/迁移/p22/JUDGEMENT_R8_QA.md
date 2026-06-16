@@ -89,7 +89,7 @@
 10. `lsp_grep README "H + O + M"` -> `README.md:206,221`
 11. `lsp_grep internal/provider/codexapp "fx.Invoke(spawnToolbridgePeers)"` -> `internal/provider/codexapp/module.go:35`
 12. `lsp_grep internal/platform "group:\"runners\""` -> `0 hit`（印证 V4 的“HEAD 尚无 platform runner producer”）
-13. `lsp_grep cmd/mcp-orch/orchestration "WaitForSessionReady"` -> `helpers.go:22,219`
+13. `lsp_grep internal/sidecar/orch/orchestration "WaitForSessionReady"` -> `helpers.go:22,219`
 14. `lsp_grep internal/module "PendingLaunchSpawner"` -> `thread/module.go:17,42` + `turn/rpc_helpers.go:171,190`
 15. `lsp_grep README "并行度矩阵" / "风险矩阵"` -> `README.md:154/168/195`
 
@@ -98,7 +98,7 @@
 2. `lsp_xref registerProxyLifecycle` -> declaration `internal/platform/toolbridge/module.go:130`，caller `internal/platform/toolbridge/module.go:37`
 3. `lsp_xref NewActiveAgentCounter` -> declaration `internal/ui/wails/module.go:53`，caller `internal/ui/wails/module.go:24`
 4. `lsp_xref AddToolReadResult` / nested ingest 位点 -> `internal/module/memory/nested/nested_runtime.go:314` 被 `nested_runtime.go:131` 触达
-5. `lsp_xref waitForExit` -> declaration `cmd/mcp-orch/orchestration/process_lifecycle.go:226`，caller `process_lifecycle.go:222`
+5. `lsp_xref waitForExit` -> declaration `internal/sidecar/orch/orchestration/process_lifecycle.go:226`，caller `process_lifecycle.go:222`
 6. `lsp_xref PendingLaunchSpawner` -> `thread/module.go:17,42` + `turn/rpc.go:16` + `turn/rpc_helpers.go:171,190`
 7. `lsp_xref WaitForSessionReady` -> `helpers.go:22,219`
 

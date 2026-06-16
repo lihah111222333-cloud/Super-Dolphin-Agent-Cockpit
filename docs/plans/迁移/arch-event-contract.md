@@ -6,8 +6,8 @@
 - 核对范围覆盖：
   - typed event 定义：`internal/dto/shared/event.go`、`internal/dto/{agent,turn,tool,task,workspace,ui}/event.go`
   - bus 装配与日志订阅：`internal/platform/bus/{module.go,sink.go,emitters.go,typed.go}`
-  - 发布入口：`cmd/mcp-orch/orchestration/events.go`、`internal/provider/{unified,claudecli,codexapp}/event_map.go`、`internal/platform/rpc/approval_events.go`、`internal/module/workspace/{service.go,service_helpers.go}`
-  - 订阅入口：`cmd/mcp-orch/orchestration/module.go`、`internal/platform/rpc/{module.go,push.go}`、`internal/ui/wails/{module.go,bridge.go}`。
+  - 发布入口：`internal/sidecar/orch/orchestration/events.go`、`internal/provider/{unified,claudecli,codexapp}/event_map.go`、`internal/platform/rpc/approval_events.go`、`internal/module/workspace/{service.go,service_helpers.go}`
+  - 订阅入口：`internal/sidecar/orch/orchestration/module.go`、`internal/platform/rpc/{module.go,push.go}`、`internal/ui/wails/{module.go,bridge.go}`。
 
 ## 总结
 
@@ -43,7 +43,7 @@
 当前生产发布面可以收敛为 4 组：
 
 1. `orchestration` 主动发布 agent 族事件  
-   证据：`cmd/mcp-orch/orchestration/events.go:13-64`
+   证据：`internal/sidecar/orch/orchestration/events.go:13-64`
 
 2. provider translator 返回 typed DTO，再由 unified dispatcher 统一 `event.Publish`  
    证据：
@@ -69,7 +69,7 @@
    证据：`internal/platform/bus/sink.go:21-99`
 
 2. `orchestration` 在 lifecycle 中订阅 `TurnStarted` / `TurnCompleted`  
-   证据：`cmd/mcp-orch/orchestration/module.go:25-50`
+   证据：`internal/sidecar/orch/orchestration/module.go:25-50`
 
 3. `rpc` 在 lifecycle 中订阅 `StateChanged` / `TurnStarted` / `TurnCompleted`  
    证据：
@@ -182,7 +182,7 @@
 以下订阅都满足“`OnStart` 建立 / `OnStop` 释放”：
 
 - `orchestration`  
-  `cmd/mcp-orch/orchestration/module.go:31-49`
+  `internal/sidecar/orch/orchestration/module.go:31-49`
 
 - `rpc`  
   `internal/platform/rpc/module.go:57-70`

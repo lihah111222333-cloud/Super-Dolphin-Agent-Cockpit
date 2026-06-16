@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 const peerBinDirEnv = "GO_AGENT_PEER_BIN_DIR"
@@ -144,52 +144,52 @@ func hasManagedBinary(dir string) bool {
 	return false
 }
 
-// ConfigString delegates to configutil.ConfigString.
+// ConfigString delegates to kernel.ConfigString.
 // ConfigString 处理配置string。
 func ConfigString(cfg map[string]any, keys ...string) string {
-	return configutil.ConfigString(cfg, keys...)
+	return kernel.ConfigString(cfg, keys...)
 }
 
-// SanitizeConfigString delegates to configutil.SanitizeConfigString.
+// SanitizeConfigString delegates to kernel.SanitizeConfigString.
 // SanitizeConfigString 清理配置string。
 func SanitizeConfigString(value string) string {
-	return configutil.SanitizeConfigString(value)
+	return kernel.SanitizeConfigString(value)
 }
 
-// StringMap delegates to configutil.StringMap.
+// StringMap delegates to kernel.ConfigStringMap.
 // StringMap 处理stringmap。
 func StringMap(raw any) map[string]string {
-	return configutil.StringMap(raw)
+	return kernel.ConfigStringMap(raw)
 }
 
-// ConfigStringSlice delegates to configutil.ConfigStringSlice.
+// ConfigStringSlice delegates to kernel.ConfigStringSlice.
 // ConfigStringSlice 处理配置stringslice。
 func ConfigStringSlice(cfg map[string]any, keys ...string) []string {
-	return configutil.ConfigStringSlice(cfg, keys...)
+	return kernel.ConfigStringSlice(cfg, keys...)
 }
 
-// NormalizeConfigStringSlice delegates to configutil.NormalizeConfigStringSlice.
+// NormalizeConfigStringSlice delegates to kernel.NormalizeConfigStringSlice.
 // NormalizeConfigStringSlice 规范化配置stringslice。
 func NormalizeConfigStringSlice(values any) []string {
-	return configutil.NormalizeConfigStringSlice(values)
+	return kernel.NormalizeConfigStringSlice(values)
 }
 
-// TrimConfigStringValues delegates to configutil.TrimConfigStringValues.
+// TrimConfigStringValues delegates to kernel.TrimConfigStringValues.
 // TrimConfigStringValues 处理裁剪配置string值。
 func TrimConfigStringValues(values []any) []string {
-	return configutil.TrimConfigStringValues(values)
+	return kernel.TrimConfigStringValues(values)
 }
 
-// SplitConfigStringSlice delegates to configutil.SplitConfigStringSlice.
+// SplitConfigStringSlice delegates to kernel.SplitConfigStringSlice.
 // SplitConfigStringSlice 拆分配置stringslice。
 func SplitConfigStringSlice(value string) []string {
-	return configutil.SplitConfigStringSlice(value)
+	return kernel.SplitConfigStringSlice(value)
 }
 
-// TrimStrings delegates to configutil.TrimStrings.
+// TrimStrings delegates to kernel.TrimStrings.
 // TrimStrings 处理裁剪strings。
 func TrimStrings(values []string) []string {
-	return configutil.TrimStrings(values)
+	return kernel.TrimStrings(values)
 }
 
 // ConfigMCPBinaries 处理配置MCP二进制。

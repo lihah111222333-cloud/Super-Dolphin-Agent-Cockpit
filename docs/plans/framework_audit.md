@@ -106,7 +106,7 @@
 - `request_user_input` 尚未收口到统一前端交互链；approval event 也没有反向驱动 orchestration 状态机
 
 ### JSON wire / 返回值 shape 当前状态
-- **snake_case 主格式 + camelCase 兼容** 已明显推进到 orchestration DAG、thread、turn、workspace 多模块，旧版“只补少数点状类型”的判断已经过时（依据：`verify-align-fx-wails.md` 第 18 条、`cmd/mcp-orch/orchestration/rpc_types.go`、`internal/module/thread/rpc_types.go`、`internal/module/turn/rpc_types.go`、`internal/module/workspace/rpc_types.go`）
+- **snake_case 主格式 + camelCase 兼容** 已明显推进到 orchestration DAG、thread、turn、workspace 多模块，旧版“只补少数点状类型”的判断已经过时（依据：`verify-align-fx-wails.md` 第 18 条、`internal/sidecar/orch/orchestration/rpc_types.go`、`internal/module/thread/rpc_types.go`、`internal/module/turn/rpc_types.go`、`internal/module/workspace/rpc_types.go`）
 - **但治理仍未完成**：
   - `thread/start` 仍保留 camelCase 主 tag
   - `turnForceCompleteResult` 仍输出 `forceCompleted`

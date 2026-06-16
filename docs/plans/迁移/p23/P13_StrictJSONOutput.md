@@ -92,20 +92,20 @@ P10 模板库提供"金融场景预设"：
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| schema provider | `cmd/mcp-orch/tools/dag_schema_registry.go` + `cmd/mcp-orch/tools/dag_schema_output.go` [NEW] | 注册 `nodes[].output_schema` + `nodes[].output_validation` + `dag.output_schema_defaults`；不直接并行改 `task_tools.go` |
-| validator | `cmd/mcp-orch/orchestration/runtime/output_validator.go` [NEW] | JSON schema validate 库（Go 建议 `github.com/santhosh-tekuri/jsonschema`）；缓存 compiled schema |
-| output validation actor | `cmd/mcp-orch/orchestration/runtime/output_validation_actor.go` [NEW] | hook tap enqueue 后、terminal 前 validate；invalid 走 repair / fail；挂入 `group:"runners"` |
-| repair prompt 模板 | `cmd/mcp-orch/orchestration/runtime/repair_prompt.go` [NEW] | 拼装 schema + 错误信息 + 原 agent 输出，发回原 agent |
+| schema provider | `internal/sidecar/orch/tools/dag_schema_registry.go` + `internal/sidecar/orch/tools/dag_schema_output.go` [NEW] | 注册 `nodes[].output_schema` + `nodes[].output_validation` + `dag.output_schema_defaults`；不直接并行改 `task_tools.go` |
+| validator | `internal/sidecar/orch/orchestration/runtime/output_validator.go` [NEW] | JSON schema validate 库（Go 建议 `github.com/santhosh-tekuri/jsonschema`）；缓存 compiled schema |
+| output validation actor | `internal/sidecar/orch/orchestration/runtime/output_validation_actor.go` [NEW] | hook tap enqueue 后、terminal 前 validate；invalid 走 repair / fail；挂入 `group:"runners"` |
+| repair prompt 模板 | `internal/sidecar/orch/orchestration/runtime/repair_prompt.go` [NEW] | 拼装 schema + 错误信息 + 原 agent 输出，发回原 agent |
 | agent turn provider output schema 适配 | provider / launcher turn 请求路径（owner 开工前按当前 provider 代码事实补精确文件） | 将 `nodes[].output_schema` 传入 agent turn；provider native structured output 只作优化，不是 hard guarantee |
-| arbiter light JSON mode 适配 | `cmd/mcp-orch/orchestration/llm/light/codex_json_mode.go` [扩展] + `cmd/mcp-orch/orchestration/llm/light/claude_tool_mode.go` [扩展] | 仅服务 P8/P12 arbiter 的结构化 verdict 输出；不得替代 agent final answer runtime validate |
+| arbiter light JSON mode 适配 | `internal/sidecar/orch/orchestration/llm/light/codex_json_mode.go` [扩展] + `internal/sidecar/orch/orchestration/llm/light/claude_tool_mode.go` [扩展] | 仅服务 P8/P12 arbiter 的结构化 verdict 输出；不得替代 agent final answer runtime validate |
 | state machine | `task_dag_nodes` schema 扩展 | 新增独立 `output_validation_phase`（或等价独立列）；output_validation 失败不得把 `repairing` 写入主 `status`，主 `status` 只在最终 fail/done 时变更 |
 | 审计 | `0073_dag_output_validation.sql` [NEW]（编号校准） | `dag_output_validations` 表：node_key, schema_hash/version/draft, valid, error_path, hash-chain, validated_at；索引拆 no-transaction migration |
-| hook tap provider | `cmd/mcp-orch/orchestration/output_validation_tap.go` [NEW] + `hook_tap_registry.go` | 注册 output validation provider；主 hook consumer 不直接扩分发 |
+| hook tap provider | `internal/sidecar/orch/orchestration/output_validation_tap.go` [NEW] + `hook_tap_registry.go` | 注册 output validation provider；主 hook consumer 不直接扩分发 |
 | archtest | `internal/archtest/dag_output_validation_test.go` [NEW] | output_validator 必须经统一入口；不绕路 |
 
 ### schema / hook write-set 拆分
 
-P13 output schema 字段通过 `cmd/mcp-orch/tools/dag_schema_registry.go` 的 output provider 注册；不得直接并行改 `task_tools.go`。hook 集成通过 `output_validation_tap.go` 注册到 `dag_terminal_tap` / `hook_tap_registry.go`；主 hook consumer 只做 bounded parse + enqueue。长跑校验固定落 `cmd/mcp-orch/orchestration/runtime/output_validation_actor.go`。P8 的 arbiter verdict 表/列应对 `parsed_verdict` 加 CHECK（`pass|fail|verdict_lost|repair|invalid` 或 P8 冻结 enum），P13 不新增另一套 verdict enum。
+P13 output schema 字段通过 `internal/sidecar/orch/tools/dag_schema_registry.go` 的 output provider 注册；不得直接并行改 `task_tools.go`。hook 集成通过 `output_validation_tap.go` 注册到 `dag_terminal_tap` / `hook_tap_registry.go`；主 hook consumer 只做 bounded parse + enqueue。长跑校验固定落 `internal/sidecar/orch/orchestration/runtime/output_validation_actor.go`。P8 的 arbiter verdict 表/列应对 `parsed_verdict` 加 CHECK（`pass|fail|verdict_lost|repair|invalid` 或 P8 冻结 enum），P13 不新增另一套 verdict enum。
 
 ## DDL / SQL
 
@@ -169,7 +169,7 @@ CREATE INDEX CONCURRENTLY idx_dag_output_validations_invalid
 - **空输出 / 部分输出**：agent 输出空字符串 / 截断 → 视为 invalid
 - **与 P8 verifier 关系**：`output_validation` 是**语法层**（schema 符合），`verify` 是**语义层**（结果对错）；两者正交，可同时开启；但顺序固定：先 schema validate（不 valid 直接 repair / fail），通过后才进 verify gate
 - **archtest `dag_output_validate_before_verify` 守此顺序**：落点 `internal/archtest/dag_output_validation_test.go`
-- **共用 sanitize layer**：`cmd/mcp-orch/orchestration/runtime/arbiter_sanitize.go`（P8 前置 PR 落地，可抽为 runtime 通用 sanitize）；P13 的 repair_prompt 拼装也复用此 sanitize（防 prompt injection 进 agent），不依赖旧 `llm/light/sanitize.go` 路径
+- **共用 sanitize layer**：`internal/sidecar/orch/orchestration/runtime/arbiter_sanitize.go`（P8 前置 PR 落地，可抽为 runtime 通用 sanitize）；P13 的 repair_prompt 拼装也复用此 sanitize（防 prompt injection 进 agent），不依赖旧 `llm/light/sanitize.go` 路径
 - **审计开销**：金融场景 `audit_log=true` 时每次 validate 都落表，N=1000 节点 + 多轮 repair → 表会大；P9 archive 策略要覆盖
 - **sensitive data 进 schema**：金融数据可能含 PII；error_detail 落表前必须 redact
 

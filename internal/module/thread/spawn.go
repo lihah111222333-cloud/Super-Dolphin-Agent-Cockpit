@@ -11,13 +11,9 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/idempotency"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func isPendingLaunchIntent(req StartRequest) bool {
@@ -52,7 +48,7 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 		PromptKey:       strings.TrimSpace(req.PromptKey),
 		AgentKey:        strings.TrimSpace(req.AgentKey),
 		ToolSurfaceMode: strings.TrimSpace(req.ToolSurfaceMode),
-		Runtime:         clone.RuntimeConfigMap(req.Config),
+		Runtime:         kernel.CloneRuntimeConfigMap(req.Config),
 	}
 	configOverride, err := encodeStoredThreadConfig(pendingStored)
 	if err != nil {
@@ -74,7 +70,7 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 		OwnerThreadID:    req.OwnerThreadID,
 		PendingLaunch:    true,
 	})
-	if err := s.threadStore.Upsert(ctx, newThreadUpsertParams(threadstore.Thread{
+	if err := s.threadStore.Upsert(ctx, newThreadUpsertParams(contract.Thread{
 		ThreadID:         state.PublicThreadID,
 		Name:             state.Name,
 		Prompt:           state.Prompt,
@@ -123,7 +119,7 @@ func (s *service) isThreadPendingLaunch(ctx context.Context, threadID string) (b
 	}
 	row, err := s.threadStore.GetByThreadID(ctx, threadID)
 	if err != nil {
-		if platformdb.IsNotFound(err) {
+		if contract.IsNotFound(err) {
 			return noPendingLaunch()
 		}
 		return false, err
@@ -145,7 +141,7 @@ func (s *service) acquirePendingLaunchLock(threadID string) *sync.Mutex {
 
 // SpawnIfNeeded 处理spawnifneeded。
 func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter, requestCWD string) (launched bool, routing SpawnRouting, err error) {
-	ctx = util.NonNilContext(ctx)
+	ctx = kernel.NonNilContext(ctx)
 	threadID = strings.TrimSpace(threadID)
 	span := s.beginThreadTraceSpan(ctx, "thread.spawn_if_needed", threadID, threadID, platformobs.NewCodeAnchor("internal/module/thread/spawn.go", "thread.(*service).SpawnIfNeeded", 138), nil)
 	ctx = span.ctx
@@ -157,7 +153,7 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 	mu := s.acquirePendingLaunchLock(threadID)
 	mu.Lock()
 	defer mu.Unlock()
-	if err, ok := idempotency.MappedError(&s.launchIntentByThread, &s.launchIntentRegistry, threadID); ok {
+	if err, ok := kernel.MappedIdempotencyError(&s.launchIntentByThread, &s.launchIntentRegistry, threadID); ok {
 		return false, SpawnRouting{}, err
 	}
 	row, needSpawn, err := s.loadPendingLaunchRow(ctx, threadID)
@@ -198,7 +194,7 @@ func validateSpawnIfNeededInputs(s *service, threadID string) error {
 }
 
 // loadPendingLaunchRow 加载待处理启动row。
-func (s *service) loadPendingLaunchRow(ctx context.Context, threadID string) (*threadstore.Thread, bool, error) {
+func (s *service) loadPendingLaunchRow(ctx context.Context, threadID string) (*contract.Thread, bool, error) {
 	row, err := s.threadStore.GetByThreadID(ctx, threadID)
 	if err != nil {
 		if contract.IsNotFound(err) {
@@ -216,7 +212,7 @@ func (s *service) loadPendingLaunchRow(ctx context.Context, threadID string) (*t
 }
 
 // buildPendingSpawnRequest 构建待处理spawn请求。
-func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRouter, requestCWD string) (StartRequest, error) {
+func buildPendingSpawnRequest(row *contract.Thread, agentID, userInputForRouter, requestCWD string) (StartRequest, error) {
 	cwd, err := resolvePendingLaunchCWD(row.Cwd, requestCWD)
 	if err != nil {
 		return StartRequest{}, err
@@ -231,7 +227,7 @@ func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRout
 		AgentType:        row.AgentType,
 		AgentMemoryScope: row.AgentMemoryScope,
 		CWD:              cwd,
-		Model:            util.FirstNonEmpty(storedCfg.Model, row.Model),
+		Model:            kernel.FirstNonEmpty(storedCfg.Model, row.Model),
 		Name:             row.Prompt,
 		Prompt:           strings.TrimSpace(userInputForRouter),
 		OwnerThreadID:    row.OwnerThreadID,
@@ -239,10 +235,10 @@ func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRout
 		Effort:           storedCfg.Effort,
 		Personality:      storedCfg.Personality,
 		ApprovalPolicy:   storedCfg.Approvals,
-		AgentKey:         util.FirstNonEmpty(storedCfg.AgentKey, row.AgentKey),
+		AgentKey:         kernel.FirstNonEmpty(storedCfg.AgentKey, row.AgentKey),
 		PromptKey:        storedCfg.PromptKey,
 		ToolSurfaceMode:  storedCfg.ToolSurfaceMode,
-		Config:           clone.RuntimeConfigMap(storedCfg.Runtime),
+		Config:           kernel.CloneRuntimeConfigMap(storedCfg.Runtime),
 	}
 	normalized, normalizedAgentID, err := normalizeStartRequest(req)
 	if err != nil {
@@ -270,7 +266,7 @@ func (s *service) cleanupFailedPendingLaunch(ctx context.Context, threadID, agen
 	}
 	s.retainLaunchIntentFailure(threadID, cause)
 	if err := s.updateThreadStatus(ctx, threadID, statusFailed); err != nil {
-		cause = idempotency.Retain(errors.Join(cause, fmt.Errorf("thread: mark failed pending_launch row %q: %w", threadID, err)))
+		cause = kernel.RetainIdempotencyError(errors.Join(cause, fmt.Errorf("thread: mark failed pending_launch row %q: %w", threadID, err)))
 		s.retainLaunchIntentFailure(threadID, cause)
 		return cause
 	}
@@ -284,7 +280,7 @@ func (s *service) retainLaunchIntentFailure(threadID string, cause error) {
 		return
 	}
 	if intentID, ok := s.launchIntentByThread.Load(strings.TrimSpace(threadID)); ok {
-		s.launchIntentRegistry.RetainError(intentID.(string), idempotency.Retain(cause))
+		s.launchIntentRegistry.RetainError(intentID.(string), kernel.RetainIdempotencyError(cause))
 	}
 }
 
@@ -304,7 +300,7 @@ func resolvePendingLaunchCWD(storedCWD, requestCWD string) (string, error) {
 func (s *service) runPendingSpawn(
 	ctx context.Context,
 	req *StartRequest,
-	row *threadstore.Thread,
+	row *contract.Thread,
 	agentID, threadID string,
 ) error {
 	if req.PromptAssemblyRef == nil {
@@ -346,7 +342,7 @@ func (s *service) runPendingSpawn(
 	displayName = applyTitleExtractionFallback(displayName, req.Prompt)
 	displayName = prependAgentBadge(displayName, req.AgentTitle, req.AgentKey)
 	if err := s.launchAgent(ctx, agentID, req.CWD, displayName, req.ParentAgentID, req.AgentType, req.AgentMemoryScope, req.Provider, req.Model); err != nil {
-		return idempotency.Retain(fmt.Errorf("thread: launch agent: %w", err))
+		return kernel.RetainIdempotencyError(fmt.Errorf("thread: launch agent: %w", err))
 	}
 	agentLaunched = true
 	session, err := s.establishStartedSession(ctx, *req, assemblyInput, assembly, agentID)
@@ -416,7 +412,7 @@ func cleanupPendingSpawn(
 func publishPendingSpawnLaunched(
 	s *service,
 	req *StartRequest,
-	row *threadstore.Thread,
+	row *contract.Thread,
 	session contract.Session,
 	agentID, threadID, displayName string,
 ) {

@@ -10,9 +10,9 @@ import (
 
 	"github.com/creachadair/jrpc2/handler"
 
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimeenv"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type scopeParams struct {

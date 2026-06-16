@@ -12,22 +12,23 @@ import (
 )
 
 const (
-	controlRPCAddrEnv   = "GO_AGENT_CTL_RPC_ADDR"
-	httpAddrEnv         = "SUPER_DOLPHIN_HTTP_ADDR"
-	peerBinDirEnv       = "GO_AGENT_PEER_BIN_DIR"
-	sessionTokenEnv     = "GO_AGENT_CTL_SESSION_TOKEN"
-	requireCodexEnv     = "SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX"
-	modelRegistryEnv    = "SUPER_DOLPHIN_MODEL_REGISTRY"
-	modelRegistryBundle = "models.yaml"
-	projectRootEnv      = "PROJECT_ROOT"
-	superDolphinHomeEnv = "SUPER_DOLPHIN_HOME"
-	codexHomeEnv        = "CODEX_HOME"
-	packagedCodexEnv    = "SUPER_DOLPHIN_PACKAGED_CODEX_IDENTITY"
-	lspBundleDirEnv     = "SUPER_DOLPHIN_LSP_BUNDLE_DIR"
-	lspManifestEnv      = "SUPER_DOLPHIN_LSP_MANIFEST"
-	runtimeResourcesEnv = "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR"
-	lspBundleName       = "lsp"
-	lspManifestName     = "lsp-manifest.json"
+	controlRPCAddrEnv     = "GO_AGENT_CTL_RPC_ADDR"
+	httpAddrEnv           = "SUPER_DOLPHIN_HTTP_ADDR"
+	peerBinDirEnv         = "GO_AGENT_PEER_BIN_DIR"
+	sessionTokenEnv       = "GO_AGENT_CTL_SESSION_TOKEN"
+	legacySessionTokenEnv = "GO_AGENT_MCP_SESSION_TOKEN"
+	requireCodexEnv       = "SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX"
+	modelRegistryEnv      = "SUPER_DOLPHIN_MODEL_REGISTRY"
+	modelRegistryBundle   = "models.yaml"
+	projectRootEnv        = "PROJECT_ROOT"
+	superDolphinHomeEnv   = "SUPER_DOLPHIN_HOME"
+	codexHomeEnv          = "CODEX_HOME"
+	packagedCodexEnv      = "SUPER_DOLPHIN_PACKAGED_CODEX_IDENTITY"
+	lspBundleDirEnv       = "SUPER_DOLPHIN_LSP_BUNDLE_DIR"
+	lspManifestEnv        = "SUPER_DOLPHIN_LSP_MANIFEST"
+	runtimeResourcesEnv   = "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR"
+	lspBundleName         = "lsp"
+	lspManifestName       = "lsp-manifest.json"
 )
 
 type runtimeDeps struct {
@@ -53,16 +54,20 @@ type PackagedRuntime struct {
 	AppDataDir    string
 }
 
+// SidecarRuntimeInput carries the executable path and environment that a
+// packaged sidecar should inherit.
 type SidecarRuntimeInput struct {
 	ExecutablePath string
 	Env            map[string]string
 }
 
+// SidecarRuntimeContract describes the runtime resources visible to sidecars.
 type SidecarRuntimeContract struct {
 	Mode         string
 	ResourcesDir string
 }
 
+// LSPBundle describes the packaged language-server bundle and lookup indexes.
 type LSPBundle struct {
 	BundleDir    string
 	ManifestPath string
@@ -70,6 +75,7 @@ type LSPBundle struct {
 	Languages    map[string]LSPServer
 }
 
+// LSPServer describes one packaged language server binary and its languages.
 type LSPServer struct {
 	ID        string
 	Path      string
@@ -487,6 +493,17 @@ func setSessionTokenEnv() error {
 		return err
 	}
 	return setEnv(sessionTokenEnv, token)
+}
+
+// SessionTokenFromEnv returns the current control-plane session token from the
+// preferred environment key or its legacy sidecar alias.
+func SessionTokenFromEnv() string {
+	for _, key := range []string{sessionTokenEnv, legacySessionTokenEnv} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func newSessionToken() (string, error) {

@@ -1,36 +1,48 @@
-# Super-Dolphin Docs
+# Super-Dolphin 文档入口
 
-This directory separates current project references from historical planning
-material and archived agent output. Use this file as the default entry point
-before scanning large documentation folders.
+本目录按“当前事实源优先、历史材料后置”的原则整理。阅读文档前先看本页，避免在计划、审查、归档和当前契约之间反复跳转。
 
-## Current Sources
+## 当前事实源
 
-- `../README.md`: repository layout, entry points, and local development flow.
-- `doc/codemap/README.md`: generated code-map table of contents and reading
-  boundaries.
-- `decisions/` and `adr/`: accepted architecture decisions.
-- `契约/`: long-lived engineering conventions for framework, runtime, store,
-  RPC, MCP, and module boundaries.
-- `internal-notes/`: mandatory local workflow notes, including LSP tool-chain
-  guidance.
+- `../README.md`: 仓库结构、入口和本地开发流程。
+- `doc/codemap/README.md`: 代码地图入口；该路径被脚本使用，保留在根层。
+- `adr/`、`decisions/`、`契约/`: 已接受的架构决策和长期工程契约。
+- `架构决策/`: 架构边界、骨架说明和设计审计。
+- `migrations/`: 数据迁移规约。
+- `1/`: 会话习惯和历史交接约束；部分守卫文案仍引用该路径。
 
-## Historical Material
+## 中文分类
 
-- `plans/`: historical execution plans. These files can explain why earlier
-  work happened, but they are not current implementation truth.
-- `superpowers/plans/`: historical Superpowers implementation plans.
-- `archive/`: old reports, agent notes, generated analysis, review logs, and
-  evidence moved out of the default reading path.
+- `架构决策/`: 架构边界、架构骨架、生命周期设计审计。
+- `审查报告/`: 前端、SOP、审查、测试和阶段性评估资料。
+- `运维发布/`: 打包发布、可观测性、发布检查清单和运行说明。
+- `交接笔记/`: 交接记录、内部提示词和工程方法笔记。
+- `研究材料/`: 实验验证、上下文窗口调研和原始调研资料。
+- `历史归档/`: 旧报告、agent notes、生成分析、审查日志和证据。
+- `人才评估/`: 工程师笔试、机试和面试材料。
 
-When current behavior and historical documents disagree, trust source code,
-tests, accepted ADRs, and active contract docs first.
+## 保留在根层的路径
 
-## Reading Order
+以下路径仍被脚本、技能、守卫、Go 注释或历史迁移引用，本轮不移动：
 
-1. Read `../README.md` for the active project shape.
-2. Read `doc/codemap/README.md`, then one relevant code-map volume.
-3. Read source code and same-package tests for the behavior in question.
-4. Use `decisions/`, `adr/`, and `契约/` for accepted constraints.
-5. Open `plans/`, `superpowers/plans/`, or `archive/` only for history,
-   migration context, or provenance.
+- `doc/codemap/`
+- `plans/`
+- `superpowers/`
+- `cc/`
+- `adr/`
+- `decisions/`
+- `契约/`
+- `migrations/`
+- `scripts/`
+- `security/`
+- `1/`
+
+## 阅读顺序
+
+1. 读 `../README.md` 确认当前项目形态。
+2. 读 `doc/codemap/README.md`，再打开相关代码地图分卷。
+3. 以源码和同包测试为当前行为事实源。
+4. 用 `adr/`、`decisions/`、`契约/`、`架构决策/` 校验约束。
+5. 只有追溯原因、迁移过程或历史证据时，才打开 `plans/`、`superpowers/plans/`、`审查报告/` 或 `历史归档/`。
+
+当当前源码、测试与历史文档冲突时，以源码、测试、已接受 ADR 和长期契约为准。

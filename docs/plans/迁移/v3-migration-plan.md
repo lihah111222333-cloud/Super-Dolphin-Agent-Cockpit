@@ -430,7 +430,7 @@ internal/
 | `internal/module/thread` | 线程生命周期、读取、归档、配置、线程 RPC |
 | `internal/module/turn` | turn prepare/runtime/tracker/review/interruption |
 | `internal/module/skill` | skill 解析、匹配、装载、命令卡管理；不承载 MCP tool surface |
-| `cmd/mcp-orch/orchestration` | P8 前的迁移源；P8 后删除，职责迁到 `cmd/mcp-orch/orchestration` |
+| `internal/sidecar/orch/orchestration` | P8 前的迁移源；P8 后删除，职责迁到 `internal/sidecar/orch/orchestration` |
 | `internal/module/workspace` | 宿主内 workspace 领域服务、merge 与 UI-facing RPC；MCP workspace 能力在 `cmd/mcp-orch` 直接走 store |
 | `internal/module/uistate` | UI projection、状态拼装、runtime 视图适配 |
 | `internal/module/lspgui` | GUI/LSP 兼容 facade 与宿主侧 RPC；真实 LSP 执行留在 `cmd/mcp-lsp` |
@@ -512,7 +512,7 @@ Rule of Two 在 V3 中保持不变，仍然是跨模块抽象唯一允许的晋�
 | Zone A legacy retry stub | `internal/platform/shared/retry.go` | 保留为跨模块共享纯 helper |
 | Zone B `internal/apiserver/factory_handler.go` | `internal/platform/rpc/` + `internal/module/*/rpc.go` | 中间件留在平台层，领域 handler 留在 module |
 | Zone B `internal/store/factory_repo_*.go` | `internal/store/*/store.go` | `sqlc` 生成查询，手写 repo wrapper 变薄 |
-| Zone B `internal/runner/factory_event_rules.go` | `cmd/mcp-orch/orchestration/` + `internal/platform/statemachine/` | 声明式规则在编排模块，状态机宿主在平台层 |
+| Zone B `internal/runner/factory_event_rules.go` | `internal/sidecar/orch/orchestration/` + `internal/platform/statemachine/` | 声明式规则在编排模块，状态机宿主在平台层 |
 | Zone B `internal/*/factory_*.go` | `internal/module/*/{module.go, contract.go, service.go}` + optional `helpers.go` / `patterns.go` | 模块自治替代原 `factory_*.go` 文件群 |
 
 ### 2.4 包依赖方向图
@@ -650,7 +650,7 @@ V2 里的 `withRequiredThreadID` 16 处重复，在 V3 中统一变成 `ThreadSc
 | V2 区域 | V3 归宿 | 变化 |
 |---|---|---|
 | `go-agent-v2/internal/apiserver` | `internal/platform/rpc`, `internal/module/*`, `internal/provider/*`, `internal/ui/*`, `internal/app` | 拆掉 God Object，RPC/模块/provider/UI 分层 |
-| `go-agent-v2/internal/runner` | `cmd/mcp-orch/orchestration` + `internal/platform/statemachine` + `internal/platform/runner` | 状态机显式化，actor 宿主与业务编排分离 |
+| `go-agent-v2/internal/runner` | `internal/sidecar/orch/orchestration` + `internal/platform/statemachine` + `internal/platform/runner` | 状态机显式化，actor 宿主与业务编排分离 |
 | `go-agent-v2/internal/store` | `internal/platform/db`, `internal/store/sqlc`, `internal/store/*` | SQL 生成化，仓储回到独立 Store 层 |
 | `go-agent-v2/internal/bus` | `internal/platform/bus` | 事件改为 typed event |
 | `go-agent-v2/internal/uistate` | `internal/ui/runtime`, `internal/module/uistate` | UI 投影与业务状态拼装分离 |
@@ -792,14 +792,14 @@ V3 的唯一方式是：
 
 #### 2026-03-22 架构决策记录：MCP 工具独立服务
 
-- 决策：P8 的 orchestration 家族不再拆成“宿主 runtime + MCP bridge”，而是把 `cmd/mcp-orch/orchestration/*`、相关 store 包和依赖的 sqlc 查询/生成代码一起迁到 `cmd/mcp-orch/*`；P9 的 LSP 工具继续收敛到 `cmd/mcp-lsp/*`。
+- 决策：P8 的 orchestration 家族不再拆成“宿主 runtime + MCP bridge”，而是把 `internal/sidecar/orch/orchestration/*`、相关 store 包和依赖的 sqlc 查询/生成代码一起迁到 `cmd/mcp-orch/*`；P9 的 LSP 工具继续收敛到 `cmd/mcp-lsp/*`。
 - 原因 1：MCP 天然以独立进程 + stdio JSON-RPC 运行，生命周期与桌面宿主解耦。
 - 原因 2：独立二进制不等于复制一套框架；`cmd/mcp-orch` 仍只共享 V3 的 `internal/platform/{config,db}`、`internal/contract`、`internal/dto`。
 - 原因 3：agent runtime、report、runtime snapshot、DAG、资源类 store 与 sqlc 查询本来就在同一对象图里，迁到 `cmd/mcp-orch` 内部后不再需要宿主桥接或内部 store 回跳。
 - 原因 4：Provider 只需要挂载 manifest 和二进制健康状态，不需要感知工具内部实现。
 - 结果 1：`cmd/mcp-orch` 的 stdio runtime / manifest / registry 也本地化，shared layer 收缩到 config/db/contract/dto。
 - 结果 2：具体 MCP 工具定义（schema + handler）只存在于对应 `cmd/mcp-*`。
-- 结果 3：P8 完成后 `cmd/mcp-orch/orchestration/*` 删除，`cmd/mcp-orch/orchestration/*` 成为编排真相源；`cmd/mcp-orch/store/*` 与 `cmd/mcp-orch/store/sqlc/*` 成为本地数据层。
+- 结果 3：P8 完成后 `internal/sidecar/orch/orchestration/*` 删除，`internal/sidecar/orch/orchestration/*` 成为编排真相源；`internal/sidecar/orch/store/*` 与 `internal/sidecar/orch/store/sqlc/*` 成为本地数据层。
 
 ### 3.7 家族与工具面的映射
 
@@ -926,7 +926,7 @@ V3 不保留这个 API 名字。
 | P5 | P1 P2 P3 P4 | 151（含 23 noop）RPC 方法 + server 基础设施迁移到 `jrpc2` | `jrpc2` `fx` | 16 |
 | P6 | P0 P4 P5 | Wails/入口层整合 | `fx` `run` | 7 |
 | P7 | P0 P1 P2 P4 P5 | 辅助业务模块：workspace、skills、dashboard、uistate、lspgui | `fx` `event` `run` | 8 |
-| P8 | P0 P1 P4 P5 P7 | 整体迁移 `cmd/mcp-orch/orchestration/*`、相关 `internal/store/*` 与依赖的 `internal/store/sqlc/*` / `sql/queries/*.sql` 到 `cmd/mcp-orch/*`；19 个可交付工具 + 1 个延后（`task_start_node`） | `fx` `stdio` `sqlc` | 4 |
+| P8 | P0 P1 P4 P5 P7 | 整体迁移 `internal/sidecar/orch/orchestration/*`、相关 `internal/store/*` 与依赖的 `internal/store/sqlc/*` / `sql/queries/*.sql` 到 `cmd/mcp-orch/*`；19 个可交付工具 + 1 个延后（`task_start_node`） | `fx` `stdio` `sqlc` | 4 |
 | P9 | P0 P4 P5 | MCP LSP 工具独立服务（`cmd/mcp-lsp`，可完全独立运行），并共享 V3 framework code | `fx` `stdio` | 12 |
 | P10 | P7 P8 P9 | Two-Zone/shared 丰满化与架构收口 | `fx` `archtest` | 6 |
 
@@ -1068,7 +1068,7 @@ P2 的 Done 标准：
 | 项目 | 内容 |
 |---|---|
 | 迁移源 | `go-agent-v2/internal/runner/manager*.go`, `go-agent-v2/internal/runner/provider_registry.go`, `go-agent-v2/internal/apiserver/codexadapter/*` 中与 tracked turn / deferred submit / recover 相关逻辑 |
-| 迁移目标 | `cmd/mcp-orch/orchestration/*`, `internal/module/turn/service.go`, `internal/platform/statemachine/*` |
+| 迁移目标 | `internal/sidecar/orch/orchestration/*`, `internal/module/turn/service.go`, `internal/platform/statemachine/*` |
 | 使用框架 | `github.com/qmuntal/stateless`, `github.com/oklog/run` |
 | 预期代码量变化 | runner 层净减 500 ~ 1,000 行 |
 | 验证方式 | full transition matrix、recover matrix、queued firing tests、race tests |
@@ -1138,7 +1138,7 @@ P3 的 Done 标准：
 | 项目 | 内容 |
 |---|---|
 | 迁移源 | `go-agent-v2/legacy-agentsdk/claude/*`, `go-agent-v2/legacy-agentsdk/codex/*`, `go-agent-v2/legacy-agentsdk/agentcore/*`, `go-agent-v2/internal/apiserver/codexadapter/*`, `go-agent-v2/internal/runner/provider_registry.go` |
-| 迁移目标 | `internal/provider/unified/*`, `internal/provider/claudecli/*`, `internal/provider/codexapp/*`, `cmd/mcp-orch/orchestration/*` |
+| 迁移目标 | `internal/provider/unified/*`, `internal/provider/claudecli/*`, `internal/provider/codexapp/*`, `internal/sidecar/orch/orchestration/*` |
 | 使用框架 | `fx`, `run.Group` |
 | 预期代码量变化 | provider 相关手写代码净减 4,000 ~ 6,000 行 |
 | 验证方式 | driver contract suite、dual-provider parity tests、MCP manifest tests |
@@ -1197,7 +1197,7 @@ P5 的 handler 分组归宿：
 | ~~`workspace.go`~~ | `internal/module/workspace/rpc.go` |
 | ~~`ui.go`~~ | `internal/module/uistate/rpc.go` |
 | ~~`dashboard.go`~~ | `internal/module/dashboard/rpc.go` |
-| ~~`orchestration.go`~~ | `cmd/mcp-orch/tools/orchestration_tools.go` |
+| ~~`orchestration.go`~~ | `internal/sidecar/orch/tools/orchestration_tools.go` |
 | ~~`log.go`~~ | `internal/platform/bus` sink |
 | ~~`debug.go`~~ | `internal/platform/rpc/debug.go` |
 
@@ -1293,11 +1293,11 @@ P7 的 Done 标准：
 
 | 项目 | 内容 |
 |---|---|
-| 迁移源 | `cmd/mcp-orch/orchestration/*`, `internal/store/{taskdag,workspace,prompt,commandcard,sharedfile}`、必要时 `internal/store/binding`，以及对应 `internal/store/sqlc/*` / `sql/queries/*.sql` |
+| 迁移源 | `internal/sidecar/orch/orchestration/*`, `internal/store/{taskdag,workspace,prompt,commandcard,sharedfile}`、必要时 `internal/store/binding`，以及对应 `internal/store/sqlc/*` / `sql/queries/*.sql` |
 | 迁移目标 | `cmd/mcp-orch/{orchestration,store/sqlc,store/*,tools}/*` |
 | 使用框架 | `fx`, `stdio JSON-RPC`, `sqlc` |
 | 预期代码量变化 | 从 V3 现有 orchestration 模块整体迁移 + 本地 store/sqlc 层复制迁移 + 11 个 tool adapter；19 个可交付工具 + 1 个延后项 `task_start_node`；V3 核心层不新增 MCP tool surface |
-| 验证方式 | `go build ./cmd/mcp-orch`、`tools/list` schema contract、删除 `cmd/mcp-orch/orchestration` 后的编译 smoke、以及 `cmd/mcp-orch` 对 `internal/store/*` / `internal/store/sqlc/*` 零 import 检查 |
+| 验证方式 | `go build ./cmd/mcp-orch`、`tools/list` schema contract、删除 `internal/sidecar/orch/orchestration` 后的编译 smoke、以及 `cmd/mcp-orch` 对 `internal/store/*` / `internal/store/sqlc/*` 零 import 检查 |
 | 预估天数 | 4 |
 
 P8 的目标不是把 MCP 工具塞回 `internal/module/*`，而是把编排工具面、相关 store 层和依赖 sqlc 层一起迁到独立 `cmd/mcp-orch` 服务，同时只共享 V3 的 config/db/contract/dto 基础设施。
@@ -1305,8 +1305,8 @@ P8 的目标不是把 MCP 工具塞回 `internal/module/*`，而是把编排工�
 P8 的关键规则：
 
 - tool handler、registry、runtime、resource adapter 都留在 `cmd/mcp-orch/*`。
-- `cmd/mcp-orch/orchestration/*` 是迁移后的本地编排组件；P8 完成后不再依赖 `cmd/mcp-orch/orchestration/*`。
-- `cmd/mcp-orch/store/*` 与 `cmd/mcp-orch/store/sqlc/*` 是迁移后的本地数据层；P8 完成后 `cmd/mcp-orch` 不再依赖 `internal/store/*` 或 `internal/store/sqlc/*`。
+- `internal/sidecar/orch/orchestration/*` 是迁移后的本地编排组件；P8 完成后不再依赖 `internal/sidecar/orch/orchestration/*`。
+- `internal/sidecar/orch/store/*` 与 `internal/sidecar/orch/store/sqlc/*` 是迁移后的本地数据层；P8 完成后 `cmd/mcp-orch` 不再依赖 `internal/store/*` 或 `internal/store/sqlc/*`。
 - `workspace_*`、`command_*`、`prompt_*`、`shared_file_*` 直接调用本地 store；`task_*` 通过迁移后的本地 DAG 逻辑 + 本地 `taskdag.Store` 执行。
 - 这一步是“迁移”而不是“复制 V2”：MCP 二进制必须站在本地 runtime/store/sqlc + 共享 config/db/contract/dto 之上，不能长期保留一份平行的 V2 内核。
 - P8 可交付范围固定为 19 个工具：`orchestration_*` 5 个、`task_*` 3 个（不含 `task_start_node`）、`workspace_*` 5 个、`command_*` 2 个、`prompt_*` 2 个、`shared_file_*` 2 个。
@@ -1317,8 +1317,8 @@ P8 的关键规则：
 P8 的 Done 标准：
 
 - `cmd/mcp-orch` 可独立启动并通过 stdio 暴露 19 个可交付工具：`orchestration_*`、`task_create_dag`、`task_get_dag`、`task_update_node`、`workspace_*`、`command_list|get`、`prompt_list|get`、`shared_file_read|write`。
-- `cmd/mcp-orch/orchestration/*` 已整体删除；`cmd/mcp-orch/orchestration/*` 成为编排真相源。
-- `cmd/mcp-orch/store/*` 与 `cmd/mcp-orch/store/sqlc/*` 已本地化；`cmd/mcp-orch` 对共享基础设施的依赖只剩 `internal/platform/{config,db}`、`internal/contract/*`、`internal/dto/*`。
+- `internal/sidecar/orch/orchestration/*` 已整体删除；`internal/sidecar/orch/orchestration/*` 成为编排真相源。
+- `internal/sidecar/orch/store/*` 与 `internal/sidecar/orch/store/sqlc/*` 已本地化；`cmd/mcp-orch` 对共享基础设施的依赖只剩 `internal/platform/{config,db}`、`internal/contract/*`、`internal/dto/*`。
 - `task_start_node` 明确延后且不进入 P8 对外可见 manifest。
 - `prompts/list|write|delete` 的宿主 UI surface 保持可用，P8 不得为迁 MCP 把 prompt 宿主入口搬空。
 - P8 合入前，archtest 必须新增并通过 `cmd/mcp-orch` 禁止 import `internal/module/*`、`internal/store/*`、`internal/store/sqlc/*`，以及 `cmd/mcp-*` 禁止交叉 import、`internal/*` 禁止反向 import `cmd/mcp-*` 三条规则。
@@ -1500,14 +1500,14 @@ V3 状态机必须做到：
 | V2 文件 | 动作 | V3 归宿 | 说明 |
 |---|---|---|---|
 | `go-agent-v2/internal/apiserver/codexadapter/adapter.go` | 重写 | `internal/provider/unified/client.go` | 统一 Provider 语义入口 |
-| `go-agent-v2/internal/apiserver/codexadapter/adapter_deferred_turn_start.go` | 重写 | `cmd/mcp-orch/orchestration/runner_actor.go` | 延迟 turn/start 进入提交队列 |
+| `go-agent-v2/internal/apiserver/codexadapter/adapter_deferred_turn_start.go` | 重写 | `internal/sidecar/orch/orchestration/runner_actor.go` | 延迟 turn/start 进入提交队列 |
 | `go-agent-v2/internal/apiserver/codexadapter/adapter_event.go` | 重写 | `internal/provider/unified/event_map.go` | 原始 provider 事件统一映射 |
 | `go-agent-v2/internal/apiserver/codexadapter/adapter_helpers.go` | 合并 | `internal/provider/unified/session.go` | session 辅助逻辑 |
 | `go-agent-v2/internal/apiserver/codexadapter/adapter_launch_config.go` | 合并 | `internal/provider/unified/thread_config.go` | launch config 归统一层 |
 | `go-agent-v2/internal/apiserver/codexadapter/adapter_lifecycle.go` | 合并 | `internal/provider/unified/client.go` | provider lifecycle 统一化 |
 | `go-agent-v2/internal/apiserver/codexadapter/adapter_memory_stats.go` | 合并 | `internal/platform/rpc/*` | memory stats 不再归 provider |
-| `go-agent-v2/internal/apiserver/codexadapter/adapter_plan_heartbeat.go` | 合并 | `cmd/mcp-orch/orchestration/service.go` | 计划心跳归 runtime snapshot |
-| `go-agent-v2/internal/apiserver/codexadapter/adapter_stall.go` | 重写 | `cmd/mcp-orch/orchestration/recover.go` | stall/recover 进入状态机 |
+| `go-agent-v2/internal/apiserver/codexadapter/adapter_plan_heartbeat.go` | 合并 | `internal/sidecar/orch/orchestration/service.go` | 计划心跳归 runtime snapshot |
+| `go-agent-v2/internal/apiserver/codexadapter/adapter_stall.go` | 重写 | `internal/sidecar/orch/orchestration/recover.go` | stall/recover 进入状态机 |
 | `go-agent-v2/internal/apiserver/codexadapter/adapter_submit.go` | 重写 | `internal/provider/unified/turn.go` | 统一 turn request |
 | `go-agent-v2/internal/apiserver/codexadapter/adapter_thread_listing.go` | 重写 | `internal/module/thread/service.go` | 线程列举归 service |
 | `go-agent-v2/internal/apiserver/codexadapter/doc.go` | 丢弃 | - | V2 包文档无迁移价值 |
@@ -1515,20 +1515,20 @@ V3 状态机必须做到：
 | `go-agent-v2/internal/apiserver/codexadapter/thread_config_guard.go` | 重写 | `internal/module/thread/service.go` | thread config 归 service |
 | `go-agent-v2/internal/apiserver/codexadapter/thread_messages.go` | 重写 | `internal/module/thread/service.go` | thread messages 归 history service |
 | `go-agent-v2/internal/apiserver/codexadapter/thread_messages_internal.go` | 合并 | `internal/provider/codexapp/history.go` | provider-specific 历史读取 |
-| `go-agent-v2/internal/apiserver/codexadapter/thread_recover.go` | 重写 | `cmd/mcp-orch/orchestration/recover.go` | recover 统一入口 |
+| `go-agent-v2/internal/apiserver/codexadapter/thread_recover.go` | 重写 | `internal/sidecar/orch/orchestration/recover.go` | recover 统一入口 |
 | `go-agent-v2/internal/apiserver/commonadapter/common.go` | 合并 | `internal/module/turn/service.go` | 通用 prompt/merge 逻辑 |
 | `go-agent-v2/internal/apiserver/commonadapter/doc.go` | 丢弃 | - | 文档并入 V3 设计文档 |
 | `go-agent-v2/internal/apiserver/commonadapter/skills.go` | 合并 | `internal/module/skill/service.go` | skill 公共逻辑并域化 |
 | `go-agent-v2/internal/apiserver/contracts/doc.go` | 丢弃 | - | 契约文档由 `contract` 与 `dto` 承载 |
 | `go-agent-v2/internal/apiserver/contracts/types.go` | 重写 | `internal/dto/skill/skill.go` + `internal/contract/skill.go` | 技能/契约类型回归核心模型 |
-| `go-agent-v2/internal/apiserver/dagwatcher/advancer.go` | 重写 | `cmd/mcp-orch/orchestration/service.go` | phase1 watcher 推进逻辑 |
-| `go-agent-v2/internal/apiserver/dagwatcher/controller.go` | 重写 | `cmd/mcp-orch/orchestration/service.go` | 控制器并入 watcher |
-| `go-agent-v2/internal/apiserver/dagwatcher/deps.go` | 合并 | `cmd/mcp-orch/orchestration/service.go` | task service 提供依赖面 |
-| `go-agent-v2/internal/apiserver/dagwatcher/direct_update_advance.go` | 合并 | `cmd/mcp-orch/orchestration/service.go` | 直接推进逻辑并入 watcher |
-| `go-agent-v2/internal/apiserver/dagwatcher/dispatcher.go` | 重写 | `cmd/mcp-orch/orchestration/service.go` | wakeup dispatcher 独立 |
-| `go-agent-v2/internal/apiserver/dagwatcher/helpers.go` | 合并 | `cmd/mcp-orch/orchestration/service.go` | 辅助逻辑并入 watcher |
-| `go-agent-v2/internal/apiserver/dagwatcher/runtime_helpers.go` | 合并 | `cmd/mcp-orch/orchestration/service.go` | runtime 辅助逻辑并入 watcher |
-| `go-agent-v2/internal/apiserver/dagwatcher/status_guard.go` | 合并 | `cmd/mcp-orch/orchestration/service.go` | 状态判定并入 watcher |
+| `go-agent-v2/internal/apiserver/dagwatcher/advancer.go` | 重写 | `internal/sidecar/orch/orchestration/service.go` | phase1 watcher 推进逻辑 |
+| `go-agent-v2/internal/apiserver/dagwatcher/controller.go` | 重写 | `internal/sidecar/orch/orchestration/service.go` | 控制器并入 watcher |
+| `go-agent-v2/internal/apiserver/dagwatcher/deps.go` | 合并 | `internal/sidecar/orch/orchestration/service.go` | task service 提供依赖面 |
+| `go-agent-v2/internal/apiserver/dagwatcher/direct_update_advance.go` | 合并 | `internal/sidecar/orch/orchestration/service.go` | 直接推进逻辑并入 watcher |
+| `go-agent-v2/internal/apiserver/dagwatcher/dispatcher.go` | 重写 | `internal/sidecar/orch/orchestration/service.go` | wakeup dispatcher 独立 |
+| `go-agent-v2/internal/apiserver/dagwatcher/helpers.go` | 合并 | `internal/sidecar/orch/orchestration/service.go` | 辅助逻辑并入 watcher |
+| `go-agent-v2/internal/apiserver/dagwatcher/runtime_helpers.go` | 合并 | `internal/sidecar/orch/orchestration/service.go` | runtime 辅助逻辑并入 watcher |
+| `go-agent-v2/internal/apiserver/dagwatcher/status_guard.go` | 合并 | `internal/sidecar/orch/orchestration/service.go` | 状态判定并入 watcher |
 | `go-agent-v2/internal/apiserver/dashboard_bindings.go` | 重写 | `internal/module/dashboard/rpc.go` + `internal/platform/rpc/*` | dashboard RPC 归 handler |
 | `go-agent-v2/internal/apiserver/db_scope_cwd.go` | 合并 | `internal/platform/rpc/request_context.go` | scoped context 统一 |
 | `go-agent-v2/internal/apiserver/internal_messages.go` | 重写 | `internal/module/turn/service.go` | 内部消息路由归 turn runtime |
@@ -1536,7 +1536,7 @@ V3 状态机必须做到：
 | `go-agent-v2/internal/apiserver/methods_command.go` | 重写 | `internal/platform/rpc/method.go` + `internal/module/skill/service.go` | command/skills 分拆 |
 | `go-agent-v2/internal/apiserver/methods_config.go` | 重写 | `internal/platform/rpc/method.go` | config 统一 handler |
 | `go-agent-v2/internal/apiserver/methods_log_relay.go` | 重写 | `internal/platform/rpc/method.go` | log relay 独立 handler |
-| `go-agent-v2/internal/apiserver/methods_orchestration.go` | 重写 | `cmd/mcp-orch/tools/orchestration_tools.go` + `cmd/mcp-orch/orchestration/service.go` | orchestration 工具面收口 |
+| `go-agent-v2/internal/apiserver/methods_orchestration.go` | 重写 | `internal/sidecar/orch/tools/orchestration_tools.go` + `internal/sidecar/orch/orchestration/service.go` | orchestration 工具面收口 |
 | `go-agent-v2/internal/apiserver/methods_thread.go` | 重写 | `internal/platform/rpc/method.go` + `internal/module/thread/rpc.go` | thread handler |
 | `go-agent-v2/internal/apiserver/methods_thread_helpers.go` | 合并 | `internal/module/thread/service.go` | thread 辅助逻辑并入 service |
 | `go-agent-v2/internal/apiserver/methods_thread_turn.go` | 重写 | `internal/platform/rpc/method.go` + `internal/module/thread/rpc.go` + `internal/module/turn/rpc.go` | thread/turn 边界拆开 |
@@ -1548,8 +1548,8 @@ V3 状态机必须做到：
 | `go-agent-v2/internal/apiserver/methods_ui_state.go` | 重写 | `internal/platform/rpc/method.go` + `internal/module/uistate/runtime.go` | ui state handler |
 | `go-agent-v2/internal/apiserver/methods_ui_state_helpers.go` | 合并 | `internal/module/uistate/runtime.go` | ui state 拼装逻辑 |
 | `go-agent-v2/internal/apiserver/notifications.go` | 合并 | `internal/platform/rpc/server.go` | 通知发送归 transport 层 |
-| `go-agent-v2/internal/apiserver/orchestration_report.go` | 重写 | `cmd/mcp-orch/orchestration/service.go` | orchestration report 独立 |
-| `go-agent-v2/internal/apiserver/provider_adapter_registry.go` | 重写 | `cmd/mcp-orch/orchestration/service.go` | provider 注册归 orchestration 模块 |
+| `go-agent-v2/internal/apiserver/orchestration_report.go` | 重写 | `internal/sidecar/orch/orchestration/service.go` | orchestration report 独立 |
+| `go-agent-v2/internal/apiserver/provider_adapter_registry.go` | 重写 | `internal/sidecar/orch/orchestration/service.go` | provider 注册归 orchestration 模块 |
 | `go-agent-v2/internal/apiserver/server.go` | 重写 | `internal/platform/rpc/server.go` | 不再保留 God Server |
 | `go-agent-v2/internal/apiserver/server_approval.go` | 重写 | `internal/platform/rpc/*` + `internal/module/turn/service.go` | approval 从 server 抽离 |
 | `go-agent-v2/internal/apiserver/server_bootstrap.go` | 重写 | `internal/app/app.go` + `internal/app/lifecycle.go` | 启动骨架重建 |
@@ -1565,14 +1565,14 @@ V3 状态机必须做到：
 | `go-agent-v2/internal/apiserver/server_memory_stats.go` | 合并 | `internal/platform/rpc/*` | debug 统一出口 |
 | `go-agent-v2/internal/apiserver/server_payload.go` | 合并 | `internal/platform/rpc/codec.go` | payload 编解码归 codec |
 | `go-agent-v2/internal/apiserver/server_payload_filechange.go` | 合并 | `internal/ui/runtime/workspace.go` | 文件变化归 UI workspace 视图 |
-| `go-agent-v2/internal/apiserver/server_phase1_deps.go` | 合并 | `cmd/mcp-orch/orchestration/service.go` | phase1 依赖显式化 |
+| `go-agent-v2/internal/apiserver/server_phase1_deps.go` | 合并 | `internal/sidecar/orch/orchestration/service.go` | phase1 依赖显式化 |
 | `go-agent-v2/internal/apiserver/server_state_groups.go` | 丢弃 | - | 旧状态组结构不保留 |
 | `go-agent-v2/internal/apiserver/server_state_throttle.go` | 合并 | `internal/module/uistate/runtime.go` | 节流逻辑归 UI state |
 | `go-agent-v2/internal/apiserver/server_thread_patch.go` | 重写 | `internal/module/thread/service.go` | thread patch 归 thread service |
 | `go-agent-v2/internal/apiserver/server_transport.go` | 重写 | `internal/platform/rpc/server.go` | transport 主循环归 infra |
 | `go-agent-v2/internal/apiserver/server_user_input_responder.go` | 重写 | `internal/module/turn/service.go` | request_user_input 归 review 服务 |
 | `go-agent-v2/internal/apiserver/tool_provider_adapters.go` | 重写 | `cmd/mcp-orch/adapter/*` + `cmd/mcp-lsp/adapter/*` + `cmd/mcp-ida/adapter/*` | tool adapter 按 family 收口 |
-| `go-agent-v2/internal/apiserver/tool_providers.go` | 重写 | `cmd/mcp-lsp/tools/*` + `cmd/mcp-orch/tools/*` + `cmd/mcp-ida/tools/*` | schema 导出按 family 拆分 |
+| `go-agent-v2/internal/apiserver/tool_providers.go` | 重写 | `internal/sidecar/lsp/tools/*` + `internal/sidecar/orch/tools/*` + `cmd/mcp-ida/tools/*` | schema 导出按 family 拆分 |
 | `go-agent-v2/internal/apiserver/workspace_methods.go` | 重写 | `internal/platform/rpc/method.go` + `internal/module/workspace/rpc.go` | workspace handler |
 
 ### 6.2 `go-agent-v2/internal/store/`
@@ -1611,17 +1611,17 @@ V3 状态机必须做到：
 | V2 文件 | 动作 | V3 归宿 | 说明 |
 |---|---|---|---|
 | `go-agent-v2/internal/runner/doc.go` | 丢弃 | - | 包文档不迁移 |
-| `go-agent-v2/internal/runner/launch_facade.go` | 合并 | `cmd/mcp-orch/orchestration/service.go` | facade 被 manager 吸收 |
-| `go-agent-v2/internal/runner/manager.go` | 重写 | `cmd/mcp-orch/orchestration/service.go` + `internal/platform/statemachine/factory.go` | manager 分拆 |
-| `go-agent-v2/internal/runner/manager_auto_recover.go` | 重写 | `cmd/mcp-orch/orchestration/recover.go` | 自动恢复统一 |
-| `go-agent-v2/internal/runner/manager_event.go` | 重写 | `cmd/mcp-orch/orchestration/service.go` + `internal/provider/unified/event_map.go` | 事件派发拆层 |
-| `go-agent-v2/internal/runner/manager_launch.go` | 重写 | `cmd/mcp-orch/orchestration/runner_actor.go` | launch 与 supervise 收口 |
-| `go-agent-v2/internal/runner/manager_lifecycle.go` | 重写 | `cmd/mcp-orch/orchestration/runner_actor.go` | lifecycle 合并 |
-| `go-agent-v2/internal/runner/manager_recover.go` | 重写 | `cmd/mcp-orch/orchestration/recover.go` | recovery 统一文件 |
-| `go-agent-v2/internal/runner/manager_submission.go` | 重写 | `cmd/mcp-orch/orchestration/runner_actor.go` | 提交队列独立 |
-| `go-agent-v2/internal/runner/manager_wakeup_context.go` | 重写 | `cmd/mcp-orch/orchestration/contract.go` | wakeup 上下文独立 |
-| `go-agent-v2/internal/runner/provider_registry.go` | 重写 | `cmd/mcp-orch/orchestration/service.go` | provider registry 新位置 |
-| `go-agent-v2/internal/runner/ringbuf.go` | 合并 | `cmd/mcp-orch/orchestration/service.go` | 缓冲与快照合并 |
+| `go-agent-v2/internal/runner/launch_facade.go` | 合并 | `internal/sidecar/orch/orchestration/service.go` | facade 被 manager 吸收 |
+| `go-agent-v2/internal/runner/manager.go` | 重写 | `internal/sidecar/orch/orchestration/service.go` + `internal/platform/statemachine/factory.go` | manager 分拆 |
+| `go-agent-v2/internal/runner/manager_auto_recover.go` | 重写 | `internal/sidecar/orch/orchestration/recover.go` | 自动恢复统一 |
+| `go-agent-v2/internal/runner/manager_event.go` | 重写 | `internal/sidecar/orch/orchestration/service.go` + `internal/provider/unified/event_map.go` | 事件派发拆层 |
+| `go-agent-v2/internal/runner/manager_launch.go` | 重写 | `internal/sidecar/orch/orchestration/runner_actor.go` | launch 与 supervise 收口 |
+| `go-agent-v2/internal/runner/manager_lifecycle.go` | 重写 | `internal/sidecar/orch/orchestration/runner_actor.go` | lifecycle 合并 |
+| `go-agent-v2/internal/runner/manager_recover.go` | 重写 | `internal/sidecar/orch/orchestration/recover.go` | recovery 统一文件 |
+| `go-agent-v2/internal/runner/manager_submission.go` | 重写 | `internal/sidecar/orch/orchestration/runner_actor.go` | 提交队列独立 |
+| `go-agent-v2/internal/runner/manager_wakeup_context.go` | 重写 | `internal/sidecar/orch/orchestration/contract.go` | wakeup 上下文独立 |
+| `go-agent-v2/internal/runner/provider_registry.go` | 重写 | `internal/sidecar/orch/orchestration/service.go` | provider registry 新位置 |
+| `go-agent-v2/internal/runner/ringbuf.go` | 合并 | `internal/sidecar/orch/orchestration/service.go` | 缓冲与快照合并 |
 
 ### 6.4 `go-agent-v2/internal/bus/`
 
@@ -1629,7 +1629,7 @@ V3 状态机必须做到：
 |---|---|---|---|
 | `go-agent-v2/internal/bus/bus.go` | 重写 | `internal/platform/bus/bus.go` | 底座替换为 typed bus wrapper |
 | `go-agent-v2/internal/bus/doc.go` | 丢弃 | - | 包文档不迁移 |
-| `go-agent-v2/internal/bus/orchestration.go` | 重写 | `cmd/mcp-orch/orchestration/service.go` | orchestration 事件归 task service |
+| `go-agent-v2/internal/bus/orchestration.go` | 重写 | `internal/sidecar/orch/orchestration/service.go` | orchestration 事件归 task service |
 | `go-agent-v2/internal/bus/resilient.go` | 重写 | `internal/platform/bus/subscription.go` | fallback/retry 作为订阅策略 |
 | `go-agent-v2/internal/bus/router.go` | 重写 | `internal/module/uistate/projection.go` + `internal/platform/bus/typed.go` | 路由从字符串改为 typed 投影 |
 | `go-agent-v2/internal/bus/types.go` | 重写 | `internal/contract/agent/event.go` + `internal/platform/bus/typed.go` | 消息类型回核心事件模型 |
@@ -1717,11 +1717,11 @@ V3 状态机必须做到：
 
 | V2 范围 | 动作 | V3 终态归宿 | 说明 |
 |---|---|---|---|
-| `go-agent-v2/pkg/toolsdk/lsp/*` | 重写/拆分 | `cmd/mcp-lsp/tools/*` + `cmd/mcp-lsp/adapter/*` + `cmd/mcp-lsp/mcpserver/*` | LSP/RUN 的 schema、handler、runtime、protocol 都留在独立二进制 |
-| `go-agent-v2/pkg/toolsdk/tools/{lsp_tools.go,lsp_tools_ide.go,lsp_schema_builder.go,code_run.go}` | 重写/合并 | `cmd/mcp-lsp/tools/*` | `lsp_*`、`code_run*` 只在 `cmd/mcp-lsp` 注册 |
-| `go-agent-v2/pkg/toolsdk/tools/{orchestration.go,orchestration_report.go,resource*.go,providers.go}` | 重写/合并 | `cmd/mcp-orch/tools/*` + `cmd/mcp-orch/adapter/*` | orchestration/task/workspace/command/prompt/shared_file 工具统一落在 `cmd/mcp-orch` |
+| `go-agent-v2/pkg/toolsdk/lsp/*` | 重写/拆分 | `internal/sidecar/lsp/tools/*` + `cmd/mcp-lsp/adapter/*` + `cmd/mcp-lsp/mcpserver/*` | LSP/RUN 的 schema、handler、runtime、protocol 都留在独立二进制 |
+| `go-agent-v2/pkg/toolsdk/tools/{lsp_tools.go,lsp_tools_ide.go,lsp_schema_builder.go,code_run.go}` | 重写/合并 | `internal/sidecar/lsp/tools/*` | `lsp_*`、`code_run*` 只在 `cmd/mcp-lsp` 注册 |
+| `go-agent-v2/pkg/toolsdk/tools/{orchestration.go,orchestration_report.go,resource*.go,providers.go}` | 重写/合并 | `internal/sidecar/orch/tools/*` + `cmd/mcp-orch/adapter/*` | orchestration/task/workspace/command/prompt/shared_file 工具统一落在 `cmd/mcp-orch` |
 | `go-agent-v2/pkg/toolsdk/tooladapter/*` | 按 family 重写 | `cmd/mcp-lsp/adapter/*` + `cmd/mcp-orch/adapter/*` + `cmd/mcp-ida/adapter/*` | adapter 不再落到 `internal/tool/registry/*` |
-| `go-agent-v2/pkg/toolsdk/tools/{helpers.go,tool_result_success.go,truncation.go,types_sdk.go}` | 按 family 吸收 | `cmd/mcp-lsp/tools/*` + `cmd/mcp-orch/tools/*` + `cmd/mcp-ida/tools/*` | 结果包络、schema helper、截断规则跟随各 family 二进制 |
+| `go-agent-v2/pkg/toolsdk/tools/{helpers.go,tool_result_success.go,truncation.go,types_sdk.go}` | 按 family 吸收 | `internal/sidecar/lsp/tools/*` + `internal/sidecar/orch/tools/*` + `cmd/mcp-ida/tools/*` | 结果包络、schema helper、截断规则跟随各 family 二进制 |
 | `go-agent-v2/pkg/toolsdk/tools/{ida_tools.go,ida_tools_p3.go,ida_tools_p4.go,ida_tools_p5.go}` | 重写/合并 | `cmd/mcp-ida/tools/*` | IDA 家族独立二进制 |
 | `go-agent-v2/pkg/toolsdk/visualide/*` | 合并 | `internal/ui/dashboard/code_open.go` | UI 视图层逻辑不进入 MCP family |
 

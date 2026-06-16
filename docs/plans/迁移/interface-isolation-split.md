@@ -32,7 +32,7 @@
 
 | 端口 | 职责 | 预期消费者 |
 |---|---|---|
-| `OrchestrationStore` | DAG 创建/读取/状态更新所需最小能力 | `cmd/mcp-orch/orchestration` |
+| `OrchestrationStore` | DAG 创建/读取/状态更新所需最小能力 | `internal/sidecar/orch/orchestration` |
 | `UnitOfWorkStore` | transaction boundary | `OrchestrationStore` 内嵌 |
 | `DAGMutationStore` | tx 内 DAG / node upsert + detail reload | `CreateDAG` tx callback |
 | `DAGReadStore` / `DAGDetailStore` | DAG list/detail 读取 | DAG RPC flow |
@@ -45,7 +45,7 @@
 
 ### 3.2 第一批验收
 
-- `cmd/mcp-orch/orchestration.service.dagStore` 不再依赖 `taskdag.Store`，改为 `taskdag.OrchestrationStore`。
+- `internal/sidecar/orch/orchestration.service.dagStore` 不再依赖 `taskdag.Store`，改为 `taskdag.OrchestrationStore`。
 - `serviceParams.DAGStore` 不再请求胖 `taskdag.Store`，Fx 通过 `ProvideOrchestrationStore` 显式适配。
 - `taskdag.Store` 不再声明 29 个直接方法，只嵌入窄端口。
 - `WithTx` callback 不再暴露完整 `Store`，只给 `DAGMutationStore`。
@@ -59,7 +59,7 @@
    - `taskdag.OrchestrationStore` 直接方法必须为 0，只能组合 `UnitOfWorkStore` / `DAGReadStore` / `NodeStatusStore`。
    - `skill.Service`、`gopls.Manager`、`manager.Manager` 暂按当前直接方法数做“不回长”预算，后续每拆一批就下调预算。
 2. **消费者隔离护栏**：
-   - `cmd/mcp-orch/orchestration.service.dagStore` 必须是 `taskdag.OrchestrationStore`。
+   - `internal/sidecar/orch/orchestration.service.dagStore` 必须是 `taskdag.OrchestrationStore`。
    - `serviceParams.DAGStore` 必须是 `taskdag.OrchestrationStore`。
 
 ## 5. 自审清单
@@ -77,14 +77,14 @@
 
 - `taskdag.Store` 改为兼容聚合接口，只嵌入窄端口，不再声明 29 个直接方法。
 - 新增 `OrchestrationStore` / `DAGMutationStore` / `DAGReadStore` / `DAGDetailStore` / `NodeStatusStore` / `RecoveryStore` / `RunningNodeStore` / `WakeupStore` / `WorkerLeaseStore`。
-- `cmd/mcp-orch/orchestration` 的 `dagStore` 字段、`serviceParams.DAGStore` 与 `withDAGStore` callback 已改为 `taskdag.OrchestrationStore`。
+- `internal/sidecar/orch/orchestration` 的 `dagStore` 字段、`serviceParams.DAGStore` 与 `withDAGStore` callback 已改为 `taskdag.OrchestrationStore`。
 - `WithTx` callback 已从完整 `Store` 收窄到 `DAGMutationStore`。
 - `taskdag.Module` 新增 `ProvideOrchestrationStore`，Fx 图通过显式 adapter 提供窄端口。
 - 新增 archtest：`TestInterfaceIsolationBudgets`、`TestTaskDAGStoreConsumersUseNarrowPort`。
 
 已验证：
 
-- `go test ./cmd/mcp-orch/store/taskdag ./cmd/mcp-orch/orchestration ./internal/archtest -run 'Test(ReclaimStaleDispatchingWakeupsAllowsFreshClaimAndBlocksStaleCommit|InterfaceIsolationBudgets|TaskDAGStoreConsumersUseNarrowPort)' -count=1`
+- `go test ./internal/sidecar/orch/store/taskdag ./internal/sidecar/orch/orchestration ./internal/archtest -run 'Test(ReclaimStaleDispatchingWakeupsAllowsFreshClaimAndBlocksStaleCommit|InterfaceIsolationBudgets|TaskDAGStoreConsumersUseNarrowPort)' -count=1`
 - `go test ./cmd/mcp-orch/... ./internal/archtest`
 - `go test ./...`
 - `git diff --check`
@@ -110,7 +110,7 @@
 
 已完成：
 
-- `cmd/mcp-lsp/manager.Manager` 改为兼容聚合接口，直接方法预算从 26 下调为 0。
+- `internal/sidecar/lsp/manager.Manager` 改为兼容聚合接口，直接方法预算从 26 下调为 0。
 - 新增能力端口：`LifecycleManager`、`NavigationManager`、`XRefManager`、`StructureManager`、`CompletionManager`、`EditManager`、`DocumentLifecycleManager`、`DiagnosticsManager`。
 - `cmd/mcp-lsp/gopls.Manager` 改为组合 `ClientEnsurer`、`lspmanager.Manager`、`BackgroundRunnerProvider`，直接方法预算从 28 下调为 0。
 - `internal/archtest/interface_isolation_guard_test.go` 已同步下调 `gopls.Manager` / `manager.Manager` 预算，防止大接口重新堆直接方法。
@@ -121,6 +121,6 @@
 
 ## 9. 后续建议
 
-1. 后续如继续深拆，可把 `cmd/mcp-lsp/tools/*` 的 helper 参数逐步从 `manager.Manager` 收窄到 `NavigationManager` / `XRefManager` / `StructureManager` / `EditManager`。
+1. 后续如继续深拆，可把 `internal/sidecar/lsp/tools/*` 的 helper 参数逐步从 `manager.Manager` 收窄到 `NavigationManager` / `XRefManager` / `StructureManager` / `EditManager`。
 2. 如果 `skill.Service` 后续删除兼容聚合面，需要先把 `internal/module/skill/rpc.go` 内部 handler 也拆成更细端口；当前保留聚合面是为了稳定 RPC surface。
 3. 每批完成后继续下调 `interface_isolation_guard_test.go` 对应预算。

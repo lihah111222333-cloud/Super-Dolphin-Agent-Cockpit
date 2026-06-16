@@ -12,9 +12,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	common "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpwire"
 )
 
 const peerReadyTimeout = 10 * time.Second
@@ -146,7 +146,7 @@ func prepareMCPSurfaceBinaries(
 	for i, binary := range binaries {
 		i, binary := i, binary
 		wg.Add(1)
-		safego.Go(ctx, nil, "toolbridge.prepareMCPSurfaceBinary", func(workerCtx context.Context) {
+		kernel.SafeGoContext(ctx, nil, "toolbridge.prepareMCPSurfaceBinary", func(workerCtx context.Context) {
 			defer wg.Done()
 			result := mcpSurfaceBinaryResult{binary: binary}
 			client, err := factory(workerCtx, binary)
@@ -488,7 +488,7 @@ func normalizeToolResultStructuredContent(raw json.RawMessage) (json.RawMessage,
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, nil
 	}
-	return common.StructuredContentFromRaw(raw)
+	return mcpwire.StructuredContentFromRaw(raw)
 }
 
 // structuredContentReportsFailure 判断 structured content 是否报告失败。

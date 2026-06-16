@@ -1,6 +1,6 @@
 # ADR-008：FailureClass 七类的映射规则全集
 
-> 状态：✅ Accepted | 日期：2026-05-11（Proposed）→ 2026-05-12（Accepted，代码引用 ≥5 处 + 行为稳定数轮） | 决策者：项目维护者 | 相关：`docs/adr/0001-dag-v2-contracts.md`（§2 FailureClass 7 类枚举 / S1.2 done）、`cmd/mcp-orch/orchestration/nodeexec/executor_agent.go`（F1.1 已实装 4 处映射）、`docs/plans/dag改造现状与补丁v2.md` §4.5
+> 状态：✅ Accepted | 日期：2026-05-11（Proposed）→ 2026-05-12（Accepted，代码引用 ≥5 处 + 行为稳定数轮） | 决策者：项目维护者 | 相关：`docs/adr/0001-dag-v2-contracts.md`（§2 FailureClass 7 类枚举 / S1.2 done）、`internal/sidecar/orch/orchestration/nodeexec/executor_agent.go`（F1.1 已实装 4 处映射）、`docs/plans/dag改造现状与补丁v2.md` §4.5
 
 ## 1. 背景
 

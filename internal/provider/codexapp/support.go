@@ -12,10 +12,10 @@ import (
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/runtimeconfig"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -402,7 +402,7 @@ func (d *driver) codexToolSurfaceScope(agentID, localThreadID, providerThreadID,
 		WorkspaceRoots:   append([]string(nil), workspaceRoots...),
 		Manifest: contract.BuildManifest(dto.ManifestContext{
 			AgentID:                      strings.TrimSpace(agentID),
-			ThreadID:                     strings.TrimSpace(util.FirstNonEmpty(providerThreadID, localThreadID, agentID)),
+			ThreadID:                     strings.TrimSpace(kernel.FirstNonEmpty(providerThreadID, localThreadID, agentID)),
 			CWD:                          cwd,
 			AdditionalWorkingDirectories: additionalRoots,
 			ThreadCaps:                   cloneCaps(codexCapabilities),
@@ -431,7 +431,7 @@ func (d *driver) finishStartedSession(s *session, req dto.StartSessionRequest, r
 }
 
 func primeResumeToolScope(s *session, req dto.ResumeSessionRequest) {
-	if resumeID := util.FirstNonEmpty(req.ProviderThreadID, req.ThreadID); resumeID != "" {
+	if resumeID := kernel.FirstNonEmpty(req.ProviderThreadID, req.ThreadID); resumeID != "" {
 		s.setThreadID(resumeID)
 	}
 	if cwd := strings.TrimSpace(req.CWD); cwd != "" {

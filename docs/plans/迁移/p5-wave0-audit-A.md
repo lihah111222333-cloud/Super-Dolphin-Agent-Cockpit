@@ -33,7 +33,7 @@
   - `internal/platform/rpc/server.go`
   - `internal/platform/rpc/registry.go`
   - `internal/contract/provider.go`
-  - `cmd/mcp-orch/orchestration/contract.go`
+  - `internal/sidecar/orch/orchestration/contract.go`
   - `internal/dto/agent/state.go`
   - `docs/plans/迁移/p5-execution-plan.md`
   - `docs/契约/jrpc2-convention.md`
@@ -87,7 +87,7 @@
   - `AutoApprove(`
 - `internal/platform/rpc/approval.go:16` 的 callback method 常量是 `tool/approval/request`；全仓没有对应 handler 或 route producer。
 - `internal/contract/provider.go:47-50` 的 `ToolCallResponder` 只有 `RespondResult` / `RespondError`，没有 approval resolve 接口。
-- `cmd/mcp-orch/orchestration/contract.go:10-17` 没有 `UserInputRequested` / `UserInputResolved` 一类状态推进接口。
+- `internal/sidecar/orch/orchestration/contract.go:10-17` 没有 `UserInputRequested` / `UserInputResolved` 一类状态推进接口。
 - `internal/dto/agent/state.go:28-29,90-95` 虽然定义了 `user_input_requested` / `user_input_resolved` 触发器和 `awaiting_user_input -> turn_running` 转移，但全仓没有任何使用点。
 
 结论：

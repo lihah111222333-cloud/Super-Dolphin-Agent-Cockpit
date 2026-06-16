@@ -10,17 +10,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/idempotency"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
-
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
 
@@ -43,9 +35,9 @@ type sessionGenerationRemover interface {
 
 type service struct {
 	logger         *pkglogger.Logger
-	threadStore    threadstore.Store
-	bindingStore   bindingstore.Store
-	sharedFiles    sharedfilestore.Store
+	threadStore    contract.ThreadStore
+	bindingStore   contract.BindingStore
+	sharedFiles    contract.SharedFileStore
 	sessions       SessionProvider
 	starter        SessionStarter
 	promptAssembly contract.PromptAssemblyService
@@ -73,7 +65,7 @@ type service struct {
 	agentIDMu           sync.Mutex
 	agentIDReservations map[string]struct{}
 
-	launchIntentRegistry idempotency.Registry[StartResult]
+	launchIntentRegistry kernel.IdempotencyRegistry[StartResult]
 	launchIntentByThread sync.Map
 
 	threadAgentsMu sync.RWMutex
@@ -84,11 +76,11 @@ type service struct {
 	// promptStore is optional; when nil, thread/start skips injection and the
 	// CLI falls back to its bundled system prompt. When wired, it powers the
 	// agent_key → prompt_text lookup in resolveRoutedPrompt.
-	promptStore promptstore.Store
+	promptStore contract.PromptStore
 	// promptCatalog is the runtime read path for routed prompts. It may combine
 	// repo-owned builtin prompts with DB-owned user assets; promptStore remains
 	// the write path for prompt_versions snapshots.
-	promptCatalog promptstore.RuntimePromptCatalog
+	promptCatalog contract.RuntimePromptCatalog
 
 	// matchWhenEval evaluates a prompt_template's match_when JSONB expression
 	// against the current BuildCtx. Injected from prompt.EvaluateMatchWhen at
@@ -152,7 +144,7 @@ func (s *service) ListByStatus(ctx context.Context, status string) ([]Ref, error
 	if want == "" {
 		return s.List(ctx)
 	}
-	return s.listThreads(ctx, func(thread threadstore.Thread) bool {
+	return s.listThreads(ctx, func(thread contract.Thread) bool {
 		return strings.EqualFold(strings.TrimSpace(thread.Status), want)
 	})
 }
@@ -160,7 +152,7 @@ func (s *service) ListByStatus(ctx context.Context, status string) ([]Ref, error
 // ListByCWD 按工作目录列出线程。
 func (s *service) ListByCWD(ctx context.Context, cwdPrefix string) ([]Ref, error) {
 	prefix := strings.TrimSpace(cwdPrefix)
-	return s.listThreads(ctx, func(thread threadstore.Thread) bool {
+	return s.listThreads(ctx, func(thread contract.Thread) bool {
 		return prefix == "" || strings.HasPrefix(strings.TrimSpace(thread.Cwd), prefix)
 	})
 }
@@ -196,7 +188,7 @@ func (s *service) SetName(ctx context.Context, threadID, name string) error {
 
 // Delete 删除线程。
 func (s *service) Delete(ctx context.Context, threadID string) error {
-	ctx = util.NonNilContext(ctx)
+	ctx = kernel.NonNilContext(ctx)
 	id, err := normalizeThreadID(threadID)
 	if err != nil {
 		return err
@@ -221,7 +213,7 @@ func (s *service) Delete(ctx context.Context, threadID string) error {
 func (s *service) resolveDeleteBinding(
 	ctx context.Context,
 	threadID string,
-) (*bindingstore.Binding, bool, error) {
+) (*contract.Binding, bool, error) {
 	if s.bindingStore == nil {
 		return nil, false, nil
 	}
@@ -240,7 +232,7 @@ func (s *service) resolveDeleteBinding(
 func (s *service) deletePendingLaunchThread(
 	ctx context.Context,
 	threadID string,
-	binding *bindingstore.Binding,
+	binding *contract.Binding,
 ) (bool, error) {
 	if binding != nil {
 		return false, nil
@@ -273,7 +265,7 @@ func (s *service) deletePendingLaunchThread(
 func (s *service) deleteThreadRuntime(
 	ctx context.Context,
 	stopState threadStopState,
-	binding *bindingstore.Binding,
+	binding *contract.Binding,
 ) error {
 	if binding == nil {
 		return nil
@@ -281,7 +273,7 @@ func (s *service) deleteThreadRuntime(
 	return s.stopThreadRuntime(ctx, stopState, "thread_deleted", true)
 }
 
-func (s *service) deleteThreadBinding(ctx context.Context, binding *bindingstore.Binding) error {
+func (s *service) deleteThreadBinding(ctx context.Context, binding *contract.Binding) error {
 	if s.bindingStore == nil || binding == nil {
 		return nil
 	}
@@ -292,7 +284,7 @@ func (s *service) deleteThreadState(
 	ctx context.Context,
 	threadID string,
 	stopState threadStopState,
-	binding *bindingstore.Binding,
+	binding *contract.Binding,
 ) error {
 	s.cleanupThreadScratchpad(ctx, threadID, binding)
 	s.forgetThreadAgents(stopState.targets...)
@@ -314,7 +306,7 @@ func (s *service) forgetThreadAgents(threadIDs ...string) {
 }
 
 // listThreads 列出线程。
-func (s *service) listThreads(ctx context.Context, filter func(threadstore.Thread) bool) ([]Ref, error) {
+func (s *service) listThreads(ctx context.Context, filter func(contract.Thread) bool) ([]Ref, error) {
 	if s.threadStore == nil {
 		return nil, errors.New("thread store is not configured")
 	}
@@ -332,7 +324,7 @@ func (s *service) listThreads(ctx context.Context, filter func(threadstore.Threa
 	return result, nil
 }
 
-func (s *service) getThread(ctx context.Context, threadID string) (*threadstore.Thread, error) {
+func (s *service) getThread(ctx context.Context, threadID string) (*contract.Thread, error) {
 	id, err := normalizeThreadID(threadID)
 	if err != nil {
 		return nil, err
@@ -343,7 +335,7 @@ func (s *service) getThread(ctx context.Context, threadID string) (*threadstore.
 	return s.threadStore.GetByThreadID(ctx, id)
 }
 
-func (s *service) upsertThread(ctx context.Context, thread threadstore.Thread) error {
+func (s *service) upsertThread(ctx context.Context, thread contract.Thread) error {
 	if s.threadStore == nil {
 		return errors.New("thread store is not configured")
 	}
@@ -358,14 +350,14 @@ func (s *service) updateThreadStatus(ctx context.Context, threadID, status strin
 	if s.threadStore == nil {
 		return errors.New("thread store is not configured")
 	}
-	return s.threadStore.UpdateStatus(ctx, threadstore.UpdateStatusParams{
+	return s.threadStore.UpdateStatus(ctx, contract.ThreadUpdateStatusParams{
 		ThreadID:  id,
 		Status:    strings.TrimSpace(status),
 		UpdatedAt: time.Now().Unix(),
 	})
 }
 
-func (s *service) resolveBinding(ctx context.Context, threadID string) (*bindingstore.Binding, error) {
+func (s *service) resolveBinding(ctx context.Context, threadID string) (*contract.Binding, error) {
 	id, err := normalizeThreadID(threadID)
 	if err != nil {
 		return nil, err
@@ -376,7 +368,7 @@ func (s *service) resolveBinding(ctx context.Context, threadID string) (*binding
 	return s.resolveBindingChain(ctx, id)
 }
 
-func (s *service) resolveSession(ctx context.Context, threadID string) (contract.Session, *bindingstore.Binding, error) {
+func (s *service) resolveSession(ctx context.Context, threadID string) (contract.Session, *contract.Binding, error) {
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil {
 		return nil, nil, err
@@ -414,16 +406,16 @@ func (s *service) enrichRefIdentity(ctx context.Context, ref *Ref) {
 	}
 }
 
-func resolvedProviderThreadID(binding *bindingstore.Binding) string {
+func resolvedProviderThreadID(binding *contract.Binding) string {
 	return recoverableBindingProviderThreadID(binding)
 }
 
-func resolvedSessionID(binding *bindingstore.Binding) string {
+func resolvedSessionID(binding *contract.Binding) string {
 	if binding == nil {
 		return ""
 	}
 	sessionUUID := strings.TrimSpace(binding.SessionUUID)
-	if identifier.LooksLikeUUID(sessionUUID) {
+	if kernel.LooksLikeUUID(sessionUUID) {
 		return sessionUUID
 	}
 	return strings.TrimSpace(binding.ProviderThreadID)
@@ -477,12 +469,12 @@ func (s *service) backgroundResumeIfNeeded(ctx context.Context, threadID string)
 	if _, loaded := s.resumeInFlight.LoadOrStore(agentID, struct{}{}); loaded {
 		return
 	}
-	safego.Go(context.Background(), s.logger, "thread.backgroundResume", func(ctx context.Context) {
+	kernel.SafeGoContext(context.Background(), s.logger, "thread.backgroundResume", func(ctx context.Context) {
 		if s.logger != nil {
 			s.logger.Info("thread: background resume", "thread_id", threadID, "agent_id", agentID)
 		}
 		if _, err := s.Resume(ctx, ResumeRequest{ThreadID: threadID}); err != nil {
-			util.LogIgnoredError(s.logger, "thread: background resume failed", err)
+			kernel.LogIgnoredError(s.logger, "thread: background resume failed", err)
 			// Keep resumeInFlight entry to block further retries.
 			return
 		}
@@ -573,7 +565,7 @@ func (s *service) setBindingArchived(ctx context.Context, threadID string, archi
 	if err != nil {
 		return err
 	}
-	return s.bindingStore.SetArchived(ctx, bindingstore.SetArchivedParams{
+	return s.bindingStore.SetArchived(ctx, contract.BindingSetArchivedParams{
 		AgentID:   strings.TrimSpace(binding.AgentID),
 		Archived:  archived,
 		UpdatedAt: time.Now().Unix(),

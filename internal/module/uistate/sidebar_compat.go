@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 const (
@@ -57,7 +57,7 @@ func cloneRuntimeMap(input map[string]map[string]any) map[string]map[string]any 
 	}
 	out := make(map[string]map[string]any, len(input))
 	for key, value := range input {
-		out[key] = clone.JSONMap(value)
+		out[key] = kernel.CloneJSONMap(value)
 	}
 	return out
 }

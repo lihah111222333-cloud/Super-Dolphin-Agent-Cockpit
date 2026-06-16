@@ -18,7 +18,7 @@
 
 ## Current Bug
 
-`cmd/mcp-orch/tools/orchestration_tools.go` describes `launch_agent.cwd` as optional, but a launch without `cwd` and without a parent cwd inheritance path reaches `thread/start`, which rejects it with `thread start cwd is required`. The generic MCP tool error classifier then falls back to `lsp_unavailable`, making the error look retryable and related to LSP startup.
+`internal/sidecar/orch/tools/orchestration_tools.go` describes `launch_agent.cwd` as optional, but a launch without `cwd` and without a parent cwd inheritance path reaches `thread/start`, which rejects it with `thread start cwd is required`. The generic MCP tool error classifier then falls back to `lsp_unavailable`, making the error look retryable and related to LSP startup.
 
 Expected behavior:
 
@@ -30,23 +30,23 @@ Expected behavior:
 
 - Modify: `internal/contract/errors.go`
   - Add launch cwd error sentinels shared across orchestration and MCP error-envelope classification.
-- Modify: `cmd/mcp-orch/orchestration/launch_helpers.go`
+- Modify: `internal/sidecar/orch/orchestration/launch_helpers.go`
   - Validate resolved launch cwd after parent inheritance.
-- Modify/Test: `cmd/mcp-orch/orchestration/launcher_test.go`
+- Modify/Test: `internal/sidecar/orch/orchestration/launcher_test.go`
   - Lock launch and snapshot cwd behavior.
 - Modify: `internal/mcpserver/common/tool_error_envelope.go`
   - Classify launch cwd sentinel errors before generic fallback.
 - Create/Modify Test: `internal/mcpserver/common/tool_error_envelope_test.go`
   - Lock cwd error envelope classification.
-- Modify/Test: `cmd/mcp-orch/tools/orchestration_tools.go`
+- Modify/Test: `internal/sidecar/orch/tools/orchestration_tools.go`
   - Clarify `cwd` schema description.
-- Create/Modify Test: `cmd/mcp-orch/tools/orchestration_tools_test.go`
+- Create/Modify Test: `internal/sidecar/orch/tools/orchestration_tools_test.go`
   - Lock tool-level envelope behavior and schema wording.
 
 ## Task 1: Add Failing Orchestration CWD Tests
 
 **Files:**
-- Modify: `cmd/mcp-orch/orchestration/launcher_test.go`
+- Modify: `internal/sidecar/orch/orchestration/launcher_test.go`
 
 - [ ] **Step 1: Add a helper that fails if `thread/start` is called**
 
@@ -172,7 +172,7 @@ Do not change the parent-inheritance tests to pass child cwd.
 Run:
 
 ```bash
-./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration -run 'TestService_LaunchAgent_RejectsMissingCwd|TestService_LaunchAgentSnapshot_RejectsMissingCwd|TestService_LaunchAgent_RejectsDotCwd' -count=1
+./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration -run 'TestService_LaunchAgent_RejectsMissingCwd|TestService_LaunchAgentSnapshot_RejectsMissingCwd|TestService_LaunchAgent_RejectsDotCwd' -count=1
 ```
 
 Expected before implementation: failures because the sentinel errors and validation do not exist yet.
@@ -181,7 +181,7 @@ Expected before implementation: failures because the sentinel errors and validat
 
 **Files:**
 - Modify: `internal/contract/errors.go`
-- Modify: `cmd/mcp-orch/orchestration/launch_helpers.go`
+- Modify: `internal/sidecar/orch/orchestration/launch_helpers.go`
 
 - [ ] **Step 1: Add sentinels**
 
@@ -198,7 +198,7 @@ Place these near the other shared contract sentinels.
 
 - [ ] **Step 2: Import contract in launch helpers**
 
-In `cmd/mcp-orch/orchestration/launch_helpers.go`, add:
+In `internal/sidecar/orch/orchestration/launch_helpers.go`, add:
 
 ```go
 "github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -267,7 +267,7 @@ This relies on `LaunchAgent` and `LaunchAgentSnapshot` applying parent defaults 
 Run:
 
 ```bash
-./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration -count=1
+./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration -count=1
 ```
 
 Expected: pass.
@@ -356,8 +356,8 @@ Expected: pass.
 ## Task 4: Update `launch_agent` Tool Contract and End-to-End Envelope Tests
 
 **Files:**
-- Modify: `cmd/mcp-orch/tools/orchestration_tools.go`
-- Create/Modify: `cmd/mcp-orch/tools/orchestration_tools_test.go`
+- Modify: `internal/sidecar/orch/tools/orchestration_tools.go`
+- Create/Modify: `internal/sidecar/orch/tools/orchestration_tools_test.go`
 
 - [ ] **Step 1: Update cwd schema description**
 
@@ -407,7 +407,7 @@ This is the endpoint-level regression for the original user-visible bug.
 Run:
 
 ```bash
-./scripts/test_with_guard.sh ./cmd/mcp-orch/tools -count=1
+./scripts/test_with_guard.sh ./internal/sidecar/orch/tools -count=1
 ```
 
 Expected: pass.
@@ -422,7 +422,7 @@ Expected: pass.
 Run:
 
 ```bash
-./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration ./cmd/mcp-orch/tools ./internal/mcpserver/common -count=1
+./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration ./internal/sidecar/orch/tools ./internal/mcpserver/common -count=1
 ```
 
 Expected: pass.

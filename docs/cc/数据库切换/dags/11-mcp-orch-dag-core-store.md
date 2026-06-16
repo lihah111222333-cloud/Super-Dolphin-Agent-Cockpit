@@ -8,33 +8,33 @@
 
 依赖：Task 10。
 
-不可与 Task 12 并行。Task 12 依赖本任务合并后的 DAG run/node schema、store 类型和 generated sqlc；并行会同时触碰 `task_dag_dag.sql`、`task_dag_run.sql` 与 `cmd/mcp-orch/store/taskdag/**`，容易产生不可评审的冲突。
+不可与 Task 12 并行。Task 12 依赖本任务合并后的 DAG run/node schema、store 类型和 generated sqlc；并行会同时触碰 `task_dag_dag.sql`、`task_dag_run.sql` 与 `internal/sidecar/orch/store/taskdag/**`，容易产生不可评审的冲突。
 
 ## 修改点
 
 - Modify SQL:
-  - `cmd/mcp-orch/sql/queries/task_dag_dag.sql`
-  - `cmd/mcp-orch/sql/queries/task_dag_node_read.sql`
-  - `cmd/mcp-orch/sql/queries/task_dag_node_write.sql`
-  - `cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql`
-  - `cmd/mcp-orch/sql/queries/task_dag_node_spawning_thread.sql`
-  - `cmd/mcp-orch/sql/queries/workspace_run.sql`
-  - `cmd/mcp-orch/sql/queries/prompt_template.sql`
-  - `cmd/mcp-orch/sql/queries/command_card.sql`
-  - `cmd/mcp-orch/sql/queries/shared_file.sql`
-  - `cmd/mcp-orch/sql/queries/task_ack.sql`
+  - `internal/sidecar/orch/sql/queries/task_dag_dag.sql`
+  - `internal/sidecar/orch/sql/queries/task_dag_node_read.sql`
+  - `internal/sidecar/orch/sql/queries/task_dag_node_write.sql`
+  - `internal/sidecar/orch/sql/queries/task_dag_node_runtime.sql`
+  - `internal/sidecar/orch/sql/queries/task_dag_node_spawning_thread.sql`
+  - `internal/sidecar/orch/sql/queries/workspace_run.sql`
+  - `internal/sidecar/orch/sql/queries/prompt_template.sql`
+  - `internal/sidecar/orch/sql/queries/command_card.sql`
+  - `internal/sidecar/orch/sql/queries/shared_file.sql`
+  - `internal/sidecar/orch/sql/queries/task_ack.sql`
 - Modify stores:
-  - `cmd/mcp-orch/store/taskdag/store.go`
-  - `cmd/mcp-orch/store/taskdag/store_dag_ops.go`
-  - `cmd/mcp-orch/store/taskdag/store_complete_downstream.go`
-  - `cmd/mcp-orch/store/taskdag/store_fail_downstream.go`
-  - `cmd/mcp-orch/store/taskdag/store_node_spawn.go`
-  - `cmd/mcp-orch/store/workspace/store.go`
+  - `internal/sidecar/orch/store/taskdag/store.go`
+  - `internal/sidecar/orch/store/taskdag/store_dag_ops.go`
+  - `internal/sidecar/orch/store/taskdag/store_complete_downstream.go`
+  - `internal/sidecar/orch/store/taskdag/store_fail_downstream.go`
+  - `internal/sidecar/orch/store/taskdag/store_node_spawn.go`
+  - `internal/sidecar/orch/store/workspace/store.go`
 - Modify tests:
-  - `cmd/mcp-orch/store/taskdag/*_test.go`
-  - `cmd/mcp-orch/orchestration/dag*_test.go`
-  - `cmd/mcp-orch/workspace/*_test.go`
-  - `cmd/mcp-orch/tools/parity_v2_test.go`
+  - `internal/sidecar/orch/store/taskdag/*_test.go`
+  - `internal/sidecar/orch/orchestration/dag*_test.go`
+  - `internal/sidecar/orch/workspace/*_test.go`
+  - `internal/sidecar/orch/tools/parity_v2_test.go`
 
 ## 语义要求
 
@@ -50,7 +50,7 @@
 - Workspace CAS status transitions remain exact.
 - JSON result/config/metadata stay valid JSON text.
 - Dashboard/list and tool list queries must use metadata-only projection. Large JSON columns such as `events`, `metadata`, `result`, `config`, and resource payloads are read only by detail-by-id queries unless the existing protocol explicitly requires them.
-- Synchronized mcp-orch resource SQL (`prompt_template`, `command_card`, `shared_file`) must stay behavior-compatible with root query equivalents where `cmd/mcp-orch/sql/queries/README.md` requires synchronization.
+- Synchronized mcp-orch resource SQL (`prompt_template`, `command_card`, `shared_file`) must stay behavior-compatible with root query equivalents where `internal/sidecar/orch/sql/queries/README.md` requires synchronization.
 
 ## 不允许改
 
@@ -61,7 +61,7 @@
 ## 验收方案
 
 ```bash
-./scripts/test_with_guard.sh ./cmd/mcp-orch/store/taskdag ./cmd/mcp-orch/orchestration ./cmd/mcp-orch/store/workspace ./cmd/mcp-orch/workspace ./cmd/mcp-orch/tools -count=1
+./scripts/test_with_guard.sh ./internal/sidecar/orch/store/taskdag ./internal/sidecar/orch/orchestration ./internal/sidecar/orch/store/workspace ./internal/sidecar/orch/workspace ./internal/sidecar/orch/tools -count=1
 make sqlc-verify
 ```
 

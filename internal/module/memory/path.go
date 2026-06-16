@@ -12,8 +12,7 @@ import (
 	"time"
 
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/memdata"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -67,7 +66,7 @@ func FindCanonicalGitRoot(ctx context.Context, projectRoot string) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", ErrInvalidMemoryRoot, err)
 	}
-	gitCtx, cancel := ctxutil.WithTimeout(ctx, gitResolveTimeout)
+	gitCtx, cancel := kernel.WithTimeout(ctx, gitResolveTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(gitCtx, "git", "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
@@ -100,7 +99,7 @@ func FindCanonicalGitRoot(ctx context.Context, projectRoot string) (string, erro
 
 // SanitizePath 清理路径。
 func SanitizePath(raw string) string {
-	return pathutil.SanitizeMemoryProjectKey(raw)
+	return kernel.SanitizeMemoryProjectKey(raw)
 }
 
 // ValidateMemoryWritePath 校验记忆write路径。
@@ -124,7 +123,7 @@ func ValidateMemoryWritePath(root, file string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !pathutil.ContainsPath(rootReal, candidateReal) {
+	if !kernel.ContainsPath(rootReal, candidateReal) {
 		return "", invalidMemoryWritePath("path escapes root")
 	}
 	return candidate, nil
@@ -151,7 +150,7 @@ func ValidateMemoryReadPath(root, file string) (string, error) {
 	if err != nil {
 		return "", invalidMemoryReadPath(err.Error())
 	}
-	if !pathutil.ContainsPath(rootReal, candidateReal) {
+	if !kernel.ContainsPath(rootReal, candidateReal) {
 		return "", invalidMemoryReadPath("path escapes root")
 	}
 	if info, err := os.Stat(candidateReal); err != nil {
@@ -496,6 +495,7 @@ func consolidationName(item ExtractedMemory, description string) string {
 	return "Dream note"
 }
 
+// MemoryType identifies the persisted memory category used on disk.
 type MemoryType = shared.MemoryType
 
 const (
@@ -519,6 +519,7 @@ func ParseMemoryType(raw string) MemoryType { return shared.ParseMemoryType(raw)
 // CanonicalName 处理canonical名称。
 func CanonicalName(raw string) string { return shared.CanonicalName(raw) }
 
+// MemoryScope identifies whether a memory path belongs to user, project, or local scope.
 type MemoryScope string
 
 const (
@@ -527,10 +528,16 @@ const (
 	MemoryScopeLocal   MemoryScope = "local"
 )
 
+// MemoryFrontmatter is the YAML metadata block stored with a memory entry.
 type MemoryFrontmatter = shared.MemoryFrontmatter
+
+// MemoryEntry is a normalized memory document ready for persistence.
 type MemoryEntry = shared.MemoryEntry
+
+// ParsedMemory is a memory document parsed from disk with metadata and body.
 type ParsedMemory = shared.ParsedMemory
 
+// SaveIntent captures memory content that should be saved from a user request.
 type SaveIntent struct {
 	Detected bool
 	Content  string

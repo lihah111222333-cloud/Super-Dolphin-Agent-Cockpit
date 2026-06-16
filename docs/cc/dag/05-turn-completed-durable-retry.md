@@ -12,7 +12,7 @@
 
 ## 建议关注文件/区域
 
-`cmd/mcp-orch/orchestration/dag_turn_completed_subscriber.go, sharedfile_adapter.go(如必要), taskdag store/SQL, bus hook tests`
+`internal/sidecar/orch/orchestration/dag_turn_completed_subscriber.go, sharedfile_adapter.go(如必要), taskdag store/SQL, bus hook tests`
 
 ## 必须满足的验收标准
 

@@ -11,7 +11,8 @@ from pathlib import Path
 
 
 FORBIDDEN_PACKAGE_NAMES = {"common", "utils", "shared", "models", "types", "helpers"}
-SIDECAR_COMMANDS = {"mcp-lsp", "mcp-orch"}
+SIDECAR_COMMANDS = {"mcp-lsp": "lsp", "mcp-orch": "orch"}
+SIDECAR_NAMES = {"lsp", "orch"}
 
 FORBIDDEN_EXTERNAL_BY_LAYER = {
     "domain": {
@@ -115,8 +116,10 @@ def rel_import(import_path: str, module_path: str) -> str | None:
 def layer(path: str) -> str:
     parts = path.split("/")
     if len(parts) >= 3 and parts[0] == "cmd" and parts[1] in SIDECAR_COMMANDS:
-        return "sidecar"
+        return "cmd"
     if len(parts) >= 2 and parts[0] == "internal":
+        if len(parts) >= 3 and parts[1] == "sidecar" and parts[2] in SIDECAR_NAMES:
+            return "sidecar"
         if parts[1] in {"bootstrap", "platform"}:
             return parts[1]
         if len(parts) < 3:
@@ -132,6 +135,22 @@ def layer(path: str) -> str:
     if parts and parts[0] == "cmd":
         return "cmd"
     return "other"
+
+
+def internal_area(path: str) -> str | None:
+    parts = path.split("/")
+    if len(parts) >= 2 and parts[0] == "internal":
+        return parts[1]
+    return None
+
+
+def sidecar_name(path: str) -> str | None:
+    parts = path.split("/")
+    if len(parts) >= 3 and parts[0] == "internal" and parts[1] == "sidecar" and parts[2] in SIDECAR_NAMES:
+        return parts[2]
+    if len(parts) >= 3 and parts[0] == "cmd" and parts[1] in SIDECAR_COMMANDS:
+        return SIDECAR_COMMANDS[parts[1]]
+    return None
 
 
 def context_name(path: str) -> str | None:
@@ -182,12 +201,33 @@ def violation_reason(source: str, target: str) -> str | None:
         return f"{src_adapter} adapter must implement ports, not import app use cases"
     if src_layer == "platform" and dst_layer in {"domain", "app", "port", "adapter"}:
         return "platform must not import business packages"
+    if src_layer == "platform" and dst_layer == "sidecar":
+        return "platform must not import sidecar packages"
     if src_layer == "cmd" and dst_layer not in {"bootstrap", "other", "platform", "sidecar"}:
         return "cmd should import bootstrap, not business packages directly"
+    if src_layer == "sidecar":
+        if dst_layer == "cmd":
+            return "sidecar must not import command packages"
+        dst_area = internal_area(target)
+        if dst_area in {"app", "module", "provider", "ui", "store"}:
+            return f"sidecar must not import internal/{dst_area}; use stable contracts or sidecar-local adapters"
+        src_sidecar = sidecar_name(source)
+        dst_sidecar = sidecar_name(target)
+        if src_sidecar and dst_sidecar and src_sidecar != dst_sidecar:
+            return "sidecars must not import each other's internal packages"
 
     if src_ctx and dst_ctx and src_ctx != dst_ctx and dst_layer == "adapter":
         return "bounded contexts must not import each other's adapters"
     return None
+
+
+def legacy_sidecar_command_package_violations(pkg: dict, root: Path) -> list[str]:
+    source = package_rel_dir(pkg, root)
+    parts = source.split("/")
+    if len(parts) >= 3 and parts[0] == "cmd" and parts[1] in SIDECAR_COMMANDS:
+        target = f"internal/sidecar/{SIDECAR_COMMANDS[parts[1]]}"
+        return [f"{source}: {parts[0]}/{parts[1]} may only contain the root command package; move sidecar implementation packages under {target}"]
+    return []
 
 
 def package_name_violations(pkg: dict, root: Path) -> list[str]:
@@ -221,6 +261,7 @@ def main(argv: list[str]) -> int:
     violations: list[str] = []
     for pkg in packages:
         source = package_rel_dir(pkg, root)
+        violations.extend(legacy_sidecar_command_package_violations(pkg, root))
         violations.extend(package_name_violations(pkg, root))
         for import_path in pkg.get("Imports", []):
             target = rel_import(import_path, module_path)

@@ -20,7 +20,7 @@
 - 双 reviewagent 通过后，才允许在 task worktree 用中文 commit message 提交该任务改动，然后合并回集成分支 `codex/sqlite-switch-integration`。
 - 每个 task worktree 的生命周期必须用 `mcp-go-agent-orchestration` 记录：创建任务节点、启动 codeagent、记录验收命令、启动两个 reviewagent、记录 review 结论；若未双通过，记录新 codeagent 接手、修复验收、重新双评审；双通过后记录 commit 与 merge 结果。
 - Go 文件每次改完后先跑单文件守卫。macOS/Linux/Git Bash/WSL 使用 `./scripts/test_with_guard.sh <file.go>`；Windows PowerShell 只有在当前 worktree 确认存在 `scripts/test_with_guard.ps1` 时才允许使用 `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\test_with_guard.ps1 <file.go>`。如果 Windows worktree 没有 `.ps1` 入口，agent 必须明确报告 skipped reason，并运行真实可执行的 `gofmt`、`go test`、`git diff --check` 等替代验证；禁止在 PowerShell 里直接运行 `.sh` 来刷失败日志。
-- `internal/store/sqlc/**` 与 `cmd/mcp-orch/store/sqlc/**` 是共享生成物目录，任何任务都不得手改带有 `Code generated` 标记的文件。凡是切换 `sqlc.yaml`、修改 `sql/queries/**` 或 `cmd/mcp-orch/sql/queries/**` 且需要编译/测试通过的任务，必须运行 sqlc 生成并提交由生成器产生的 generated diff；reviewagent 必须确认 generated diff 来源于生成器且没有手工改写。手写扩展文件例外，例如当前 `cmd/mcp-orch/store/sqlc/types_ext.go` 没有 generated header，Task 10 可迁移/删除/移动它以移除 pgtype 依赖。Wave 1.5 / Wave 2.5 是串行冲突消解与 drift verify 检查点，不再是唯一允许提交 generated diff 的地方。
+- `internal/store/sqlc/**` 与 `internal/sidecar/orch/store/sqlc/**` 是共享生成物目录，任何任务都不得手改带有 `Code generated` 标记的文件。凡是切换 `sqlc.yaml`、修改 `sql/queries/**` 或 `internal/sidecar/orch/sql/queries/**` 且需要编译/测试通过的任务，必须运行 sqlc 生成并提交由生成器产生的 generated diff；reviewagent 必须确认 generated diff 来源于生成器且没有手工改写。手写扩展文件例外，例如当前 `internal/sidecar/orch/store/sqlc/types_ext.go` 没有 generated header，Task 10 可迁移/删除/移动它以移除 pgtype 依赖。Wave 1.5 / Wave 2.5 是串行冲突消解与 drift verify 检查点，不再是唯一允许提交 generated diff 的地方。
 - 不允许静默兜底：配置缺失、PRAGMA 未生效、schema 版本不足、SQLite lock 重试耗尽都必须 fail-fast。
 - 不做 PG -> SQLite 历史数据迁移；旧 PG data dir 只能被忽略或在文档中说明清理方式。
 - `DATABASE_URL` / `POSTGRES_CONNECTION_STRING` 在产品运行时不得作为 DB 配置源，也不得继续透传给 sidecar/provider 当作数据库依赖。
@@ -90,7 +90,7 @@ Wave 1.5：串行 root sqlc finalize，由集成者在 `04` 到 `09` 合并后�
 
 Wave 2：`10` 先做 mcp-orch SQLC 机械 cutover、SQLite runtime 注入、最小 runtime lock provider，使 `cmd/mcp-orch` 不依赖 `DATABASE_URL`/pgx pool 即可构图启动；`11` 在 `10` 后做 DAG 核心 store 语义，`12` 必须等 `11` 合并后做 wakeup/lease/events/runtime-lock 高并发语义。
 
-Wave 2.5：串行 mcp-orch sqlc finalize，由集成者在 `11` 与 `12` 合并后运行 sqlc generate/verify 或当前环境等价命令，统一解决 `cmd/mcp-orch/store/sqlc/**` merge drift。
+Wave 2.5：串行 mcp-orch sqlc finalize，由集成者在 `11` 与 `12` 合并后运行 sqlc generate/verify 或当前环境等价命令，统一解决 `internal/sidecar/orch/store/sqlc/**` merge drift。
 
 Wave 3：`13` 移除 PG runtime/packaging 残留；`14` 和 `15` 做发布 gate、压测与最终扫描。
 

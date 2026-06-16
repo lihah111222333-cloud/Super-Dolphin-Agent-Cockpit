@@ -116,10 +116,10 @@ V3 的目标契约是：
 - `internal/contract/*`
 - `internal/dto/*`
 - `internal/mcpserver/runtime/bootstrap/*`
-- `cmd/mcp-orch/orchestration/*`
-- `cmd/mcp-orch/store/sqlc/*`
-- `cmd/mcp-orch/store/*`
-- `cmd/mcp-orch/tools/*`
+- `internal/sidecar/orch/orchestration/*`
+- `internal/sidecar/orch/store/sqlc/*`
+- `internal/sidecar/orch/store/*`
+- `internal/sidecar/orch/tools/*`
 - `cmd/mcp-orch` 本地 stdio server / manifest 组装
 
 禁止依赖：

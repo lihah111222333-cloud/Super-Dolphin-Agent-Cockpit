@@ -2,18 +2,18 @@
 
 ## 目标
 
-修正 `cmd/mcp-orch/orchestration` 里 `runnerActor.Run(ctx)` 再次散射 waiter goroutine 的问题，让进程退出观测和状态迁移重新回到单一 owner 之下。本文默认把“local process monitor owner + actor 只吃 exit events”作为首选分层：`RunnerModule` 继续托管 actor，本地 process owner 托管 OS wait，不把 `AgentLauncher` 全接口扩容当成前置。当前代码里的 `waitResult + results chan` 仍只是 Run-local 私有管道，不是正式 exit contract；P3 的目标是把它升级成 owner-facing contract，并删掉旧 waiter 账本。下文的 `目标架构 / 实施步骤` 描述的是 P3 落地后的目标态；在实现完成前，HEAD 仍按旧 waiter 模式运行，不应把这些 contract 误读成“已经存在”。
+修正 `internal/sidecar/orch/orchestration` 里 `runnerActor.Run(ctx)` 再次散射 waiter goroutine 的问题，让进程退出观测和状态迁移重新回到单一 owner 之下。本文默认把“local process monitor owner + actor 只吃 exit events”作为首选分层：`RunnerModule` 继续托管 actor，本地 process owner 托管 OS wait，不把 `AgentLauncher` 全接口扩容当成前置。当前代码里的 `waitResult + results chan` 仍只是 Run-local 私有管道，不是正式 exit contract；P3 的目标是把它升级成 owner-facing contract，并删掉旧 waiter 账本。下文的 `目标架构 / 实施步骤` 描述的是 P3 落地后的目标态；在实现完成前，HEAD 仍按旧 waiter 模式运行，不应把这些 contract 误读成“已经存在”。
 
 ## 对应 findings
 
-- Finding 8: `cmd/mcp-orch/orchestration/process_lifecycle.go:220-239`
+- Finding 8: `internal/sidecar/orch/orchestration/process_lifecycle.go:220-239`
 
 ## 现状校准
 
 - `runnerActor` 本身已经作为 `platformrunner.Runner` 进入 `run.Group`
 - 但 `startWaiters(...)` 仍在 `Run(ctx)` 路径里对每个 monitor target `go a.waitForExit(...)`
 - `waitForExit(...)` 结束后，还会直接调用 `handleProcessExit(...)` 或向结果 channel 投递
-- 旁路不只影响 `cmd.Wait()`；当前 `cmd/mcp-orch/orchestration/process_lifecycle.go:136-162` 的 `waitForProcessExit(...)` 还依赖 `lastExitedSeq` 判定退出完成，并在超时后 `forceKillProcess(...)`
+- 旁路不只影响 `cmd.Wait()`；当前 `internal/sidecar/orch/orchestration/process_lifecycle.go:136-162` 的 `waitForProcessExit(...)` 还依赖 `lastExitedSeq` 判定退出完成，并在超时后 `forceKillProcess(...)`
 - 同类 only-once waiter 问题还出现在 `turn`：`watchTurn()` 与 `waitForTurnSettle()` 会等待同一个 handle 并双写 tracker；`turn.Module` 的 stop 目前只是 cancel ctx，不做 waiter drain
 
 这让状态迁移不再只经过 actor 主循环，实际形成了：
@@ -203,7 +203,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_session_insights_provider_turn
 - 先补失败测试：正常退出 only-once、shutdown 途中退出不重复迁移、timeout kill 后只走一次 exit 链、wait owner drain 后无残留 waiter。
 - 先补 `internal/archtest` / AST 守卫：至少锁住 `runnerActor.Run(ctx)` 及其一跳 helper 不得再 `go a.waitForExit(...)`，避免旧 waiter 路径回归。
 - 测试名固定到可派单级别：`TestOrchestrationWaiterHotFileGuard`、`TestExitEventExactlyOnceByLaunchSeq`、`TestStopPathReusesExitOwner`、`TestShutdownDrainWaitOwner`、`TestKillTimeoutStillEmitsSingleExitEvent`、`TestProcessExitStateMachine`
-- 验证命令固定写法：`go test ./cmd/mcp-orch/orchestration -run 'Test(ExitEventExactlyOnceByLaunchSeq|StopPathReusesExitOwner|ShutdownDrainWaitOwner|KillTimeoutStillEmitsSingleExitEvent|ProcessExitStateMachine)' -count=1 -v` 与 `go test ./internal/archtest -run 'TestOrchestrationWaiterHotFileGuard' -count=1 -v`
+- 验证命令固定写法：`go test ./internal/sidecar/orch/orchestration -run 'Test(ExitEventExactlyOnceByLaunchSeq|StopPathReusesExitOwner|ShutdownDrainWaitOwner|KillTimeoutStillEmitsSingleExitEvent|ProcessExitStateMachine)' -count=1 -v` 与 `go test ./internal/archtest -run 'TestOrchestrationWaiterHotFileGuard' -count=1 -v`
 - 修复完成后必须删掉 `runnerActor.Run(ctx)` 里直接 `go a.waitForExit(...)` 的旧路径；不能保留“新 ExitEvents + 旧 waiter goroutine”双轨。
 - 若 `waitForExit(...)`、`startWaiters(...)` 只剩 legacy wrapper 价值，应继续删除或合并进新的 process owner，避免留下空壳 helper。
 - `handleProcessExit(...)` 的旁路调用点必须收敛到单一 owner；没有删干净的旁路一律视为未完成。
@@ -212,7 +212,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_session_insights_provider_turn
 
 如果实施中已经修改 `service.go` 的 turn/approval 订阅路径，建议顺手把“回调直接改状态”改成 enqueue-only，再由 actor 主循环消费。但这属于建议收口，不是本单的硬前置。
 
-与 `cmd/mcp-orch/orchestration` 同包相关、但不属于 waiter/exit owner 本体的问题，统一转交 [P4_DependencyDirectionAndHiddenContracts.md](P4_DependencyDirectionAndHiddenContracts.md)：
+与 `internal/sidecar/orch/orchestration` 同包相关、但不属于 waiter/exit owner 本体的问题，统一转交 [P4_DependencyDirectionAndHiddenContracts.md](P4_DependencyDirectionAndHiddenContracts.md)：
 
 - `orchestration.Module` 作为子包整包装配出口
 - `NewOrchestrationHandlers` / `handler.Map` 协议壳

@@ -60,7 +60,7 @@ Expected: 新测试先失败。
 **Files:**
 - Create or Modify: `scripts/package_linux_guard_test.go`
 
-- [ ] 测试 Linux script 包含复制 `cmd/mcp-orch/tools/modelregistry/models.yaml`。
+- [ ] 测试 Linux script 包含复制 `internal/sidecar/orch/tools/modelregistry/models.yaml`。
 - [ ] 测试 generated `run.sh` 设置 `SUPER_DOLPHIN_MODEL_REGISTRY`。
 - [ ] 测试缺失 registry 文件时 packaging fail-fast。
 

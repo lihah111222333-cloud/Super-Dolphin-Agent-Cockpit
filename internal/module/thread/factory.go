@@ -5,12 +5,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 type threadStateKind string
@@ -35,7 +33,7 @@ type threadStateFields struct {
 
 // newThreadState 创建线程状态。
 func newThreadState(kind threadStateKind, fields threadStateFields) threadState {
-	displayName := strings.TrimSpace(util.FirstNonEmpty(fields.Name, fields.Prompt))
+	displayName := strings.TrimSpace(kernel.FirstNonEmpty(fields.Name, fields.Prompt))
 	state := threadState{
 		OwnerThreadID:    fields.OwnerThreadID,
 		AgentID:          fields.AgentID,
@@ -50,18 +48,18 @@ func newThreadState(kind threadStateKind, fields threadStateFields) threadState 
 	}
 	switch kind {
 	case threadStateStartKind:
-		state.PublicThreadID = util.FirstNonEmpty(fields.PublicThreadID, fields.AgentID)
+		state.PublicThreadID = kernel.FirstNonEmpty(fields.PublicThreadID, fields.AgentID)
 	case threadStateForkKind:
-		state.PublicThreadID = util.FirstNonEmpty(fields.PublicThreadID, fields.ProviderThreadID, fields.AgentID)
+		state.PublicThreadID = kernel.FirstNonEmpty(fields.PublicThreadID, fields.ProviderThreadID, fields.AgentID)
 	default:
-		state.PublicThreadID = util.FirstNonEmpty(fields.PublicThreadID, fields.RequestedThreadID, fields.AgentID)
+		state.PublicThreadID = kernel.FirstNonEmpty(fields.PublicThreadID, fields.RequestedThreadID, fields.AgentID)
 	}
 	// Keep provider_thread_id as-is — empty when the real UUID is not
 	// yet known (e.g. Claude resolves it asynchronously after launch).
 	state.ProviderThreadID = strings.TrimSpace(fields.ProviderThreadID)
 	state.RolloutPath = fields.RolloutPath
 	state.SessionUUID = fields.SessionUUID
-	state.ConfigOverride = clone.RawMessage(fields.ConfigOverride)
+	state.ConfigOverride = kernel.CloneRawMessage(fields.ConfigOverride)
 	state.CodexHome = strings.TrimSpace(fields.CodexHome)
 	state.CodexInstanceKey = strings.TrimSpace(fields.CodexInstanceKey)
 	state.CodexModelProvider = strings.TrimSpace(fields.CodexModelProvider)
@@ -72,10 +70,10 @@ func newThreadState(kind threadStateKind, fields threadStateFields) threadState 
 	return state
 }
 
-func newThreadUpsertParams(thread threadstore.Thread) threadstore.UpsertParams {
-	return threadstore.UpsertParams{
+func newThreadUpsertParams(thread contract.Thread) contract.ThreadUpsertParams {
+	return contract.ThreadUpsertParams{
 		ThreadID:         strings.TrimSpace(thread.ThreadID),
-		Name:             strings.TrimSpace(util.FirstNonEmpty(thread.Name, thread.Prompt)),
+		Name:             strings.TrimSpace(kernel.FirstNonEmpty(thread.Name, thread.Prompt)),
 		Prompt:           strings.TrimSpace(thread.Prompt),
 		Model:            strings.TrimSpace(thread.Model),
 		Cwd:              strings.TrimSpace(thread.Cwd),
@@ -96,8 +94,8 @@ func newThreadUpsertParams(thread threadstore.Thread) threadstore.UpsertParams {
 	}
 }
 
-func newBindingUpsertParams(binding bindingstore.Binding) bindingstore.UpsertParams {
-	return bindingstore.UpsertParams{
+func newBindingUpsertParams(binding contract.Binding) contract.BindingUpsertParams {
+	return contract.BindingUpsertParams{
 		AgentID:            strings.TrimSpace(binding.AgentID),
 		Provider:           strings.TrimSpace(binding.Provider),
 		ProviderThreadID:   strings.TrimSpace(binding.ProviderThreadID),
@@ -123,7 +121,7 @@ func newStartResult(
 	return StartResult{
 		ThreadID:        publicThreadID,
 		AgentID:         agentID,
-		SessionID:       util.FirstNonEmpty(providerUUID, providerThreadID, publicThreadID),
+		SessionID:       kernel.FirstNonEmpty(providerUUID, providerThreadID, publicThreadID),
 		Status:          "running",
 		Model:           effectiveModel,
 		Provider:        req.Provider,

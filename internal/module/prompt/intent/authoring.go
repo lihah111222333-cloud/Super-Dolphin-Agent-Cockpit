@@ -15,11 +15,12 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent/draftdream"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
+// DryRunDisclaimer is shown on prompt intent dry-run responses.
 const DryRunDisclaimer = "这是创建前试问解释，不会写入路由索引，也不承诺真实模型一定做出相同选择。"
 
+// DraftResult reports one generated prompt intent draft.
 type DraftResult struct {
 	DraftKey      string  `json:"draft_key"`
 	RequestedKind string  `json:"requested_kind"`
@@ -31,12 +32,14 @@ type DraftResult struct {
 	Card          Card    `json:"card"`
 }
 
+// DraftSetResult reports a batch of generated prompt intent drafts.
 type DraftSetResult struct {
 	RequestedKind string        `json:"requested_kind"`
 	InferredKind  string        `json:"inferred_kind"`
 	Drafts        []DraftResult `json:"drafts"`
 }
 
+// DryRunResult reports how a prompt intent would be routed without persistence.
 type DryRunResult struct {
 	WouldUse   bool     `json:"would_use"`
 	Action     string   `json:"action"`
@@ -49,7 +52,7 @@ type DryRunResult struct {
 // HandleDraft 处理draft。
 func HandleDraft(
 	ctx context.Context,
-	promptStore promptstore.Store,
+	promptStore contract.PromptStore,
 	dream contract.DreamExecutor,
 	builtin contract.BuiltinPromptRegistry,
 	p DraftParams,
@@ -104,16 +107,16 @@ func promptIntentDraftDreamOptions(p DraftParams) contract.DreamOptions {
 
 func buildPromptIntentDrafts(
 	ctx context.Context,
-	promptStore promptstore.Store,
+	promptStore contract.PromptStore,
 	builtin contract.BuiltinPromptRegistry,
 	cwd string,
 	requestedKind Kind,
 	rawInput string,
 	p DraftParams,
 	cards []Card,
-) ([]DraftResult, []promptstore.PromptIntentDraft, error) {
+) ([]DraftResult, []contract.PromptIntentDraft, error) {
 	results := make([]DraftResult, 0, len(cards))
-	drafts := make([]promptstore.PromptIntentDraft, 0, len(cards))
+	drafts := make([]contract.PromptIntentDraft, 0, len(cards))
 	for _, card := range cards {
 		result, draft, err := buildPromptIntentDraft(ctx, promptStore, builtin, cwd, requestedKind, rawInput, p, card)
 		if err != nil {
@@ -125,8 +128,8 @@ func buildPromptIntentDrafts(
 	return results, drafts, nil
 }
 
-func upsertPromptIntentDrafts(ctx context.Context, promptStore promptstore.Store, drafts []promptstore.PromptIntentDraft) error {
-	return promptStore.WithTx(ctx, func(txStore promptstore.Store) error {
+func upsertPromptIntentDrafts(ctx context.Context, promptStore contract.PromptStore, drafts []contract.PromptIntentDraft) error {
+	return promptStore.WithTx(ctx, func(txStore contract.PromptStore) error {
 		for _, draft := range drafts {
 			if _, err := txStore.UpsertIntentDraft(ctx, draft); err != nil {
 				return err
@@ -138,7 +141,7 @@ func upsertPromptIntentDrafts(ctx context.Context, promptStore promptstore.Store
 
 // validatePromptIntentDraftRequest 校验promptintentdraft请求。
 func validatePromptIntentDraftRequest(
-	promptStore promptstore.Store,
+	promptStore contract.PromptStore,
 	dream contract.DreamExecutor,
 	p DraftParams,
 ) (string, Kind, string, error) {
@@ -179,19 +182,19 @@ func buildPromptIntentDraftResult(
 	p DraftParams,
 	card Card,
 	extraIssues []Issue,
-) (DraftResult, promptstore.PromptIntentDraft, error) {
+) (DraftResult, contract.PromptIntentDraft, error) {
 	issues := promptIntentDraftIssues(inferredKind, rawInput, card)
 	issues = append(issues, extraIssues...)
 	confidence, status := promptIntentDraftConfidenceAndStatus(issues)
 	cardJSON, err := json.Marshal(card)
 	if err != nil {
-		return DraftResult{}, promptstore.PromptIntentDraft{}, err
+		return DraftResult{}, contract.PromptIntentDraft{}, err
 	}
 	issuesJSON, err := json.Marshal(issues)
 	if err != nil {
-		return DraftResult{}, promptstore.PromptIntentDraft{}, err
+		return DraftResult{}, contract.PromptIntentDraft{}, err
 	}
-	draft := promptstore.PromptIntentDraft{
+	draft := contract.PromptIntentDraft{
 		DraftKey:      draftKey,
 		CWD:           cwd,
 		Kind:          string(inferredKind),
@@ -221,25 +224,25 @@ func buildPromptIntentDraftResult(
 
 func buildPromptIntentDraft(
 	ctx context.Context,
-	promptStore promptstore.Store,
+	promptStore contract.PromptStore,
 	builtin contract.BuiltinPromptRegistry,
 	cwd string,
 	requestedKind Kind,
 	rawInput string,
 	p DraftParams,
 	card Card,
-) (DraftResult, promptstore.PromptIntentDraft, error) {
+) (DraftResult, contract.PromptIntentDraft, error) {
 	inferredKind, err := normalizeKind(card.Kind)
 	if err != nil {
-		return DraftResult{}, promptstore.PromptIntentDraft{}, err
+		return DraftResult{}, contract.PromptIntentDraft{}, err
 	}
 	draftKey, err := newPromptIntentDraftKeyFromEntropy(inferredKind)
 	if err != nil {
-		return DraftResult{}, promptstore.PromptIntentDraft{}, err
+		return DraftResult{}, contract.PromptIntentDraft{}, err
 	}
 	duplicateIssues, err := promptIntentDuplicateIssues(ctx, promptStore, builtin, cwd, inferredKind, rawInput, card, p.EnableGlobal)
 	if err != nil {
-		return DraftResult{}, promptstore.PromptIntentDraft{}, err
+		return DraftResult{}, contract.PromptIntentDraft{}, err
 	}
 	return buildPromptIntentDraftResult(draftKey, cwd, requestedKind, inferredKind, rawInput, p, card, duplicateIssues)
 }
@@ -261,7 +264,7 @@ func promptIntentDraftConfidenceAndStatus(issues []Issue) (float64, string) {
 // HandleDryRun 处理dry运行记录。
 func HandleDryRun(
 	ctx context.Context,
-	promptStore promptstore.Store,
+	promptStore contract.PromptStore,
 	_ contract.DreamExecutor,
 	_ contract.BuiltinPromptRegistry,
 	p DryRunParams,
@@ -340,7 +343,7 @@ func newPromptIntentDraftKey(kind Kind, now time.Time, random []byte) (string, e
 }
 
 // buildPromptIntentDraftPrompt 构建promptintentdraftprompt。
-func buildPromptIntentDraftPrompt(ctx context.Context, store promptstore.Store, cwd string, kind Kind, rawInput string) (string, error) {
+func buildPromptIntentDraftPrompt(ctx context.Context, store contract.PromptStore, cwd string, kind Kind, rawInput string) (string, error) {
 	var existingRules []string
 	if kind == KindDefaultRule {
 		sections, err := store.ListDefaultRuleSections(ctx, cwd)
@@ -587,7 +590,7 @@ func normalizePromptIntentComparableText(text string) string {
 }
 
 // promptIntentDryRunCard 处理promptintentdry运行记录card。
-func promptIntentDryRunCard(ctx context.Context, promptStore promptstore.Store, p DryRunParams) (Card, error) {
+func promptIntentDryRunCard(ctx context.Context, promptStore contract.PromptStore, p DryRunParams) (Card, error) {
 	if draftKey := strings.TrimSpace(p.DraftKey); draftKey != "" {
 		if promptStore == nil {
 			return Card{}, errors.New("prompt store is required for prompt intent dry-run")

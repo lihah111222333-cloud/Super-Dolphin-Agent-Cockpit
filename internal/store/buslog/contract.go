@@ -1,30 +1,12 @@
 package buslog
 
-import (
-	"context"
-	"encoding/json"
-	"time"
-)
+import "github.com/anthropic-ai/super-agent-v3/internal/contract"
 
-type Store interface {
-	List(ctx context.Context, filter ListFilter) ([]BusExceptionLog, error)
-}
+// Store reads exception logs from the internal event bus.
+type Store = contract.BusLogStore
 
-type ListFilter struct {
-	Category string
-	Severity string
-	Keyword  string
-	Limit    int32
-}
+// ListFilter constrains bus exception log queries.
+type ListFilter = contract.BusLogListFilter
 
-type BusExceptionLog struct {
-	ID        int64           `json:"id"`
-	Ts        time.Time       `json:"ts"`
-	Category  string          `json:"category"`
-	Severity  string          `json:"severity"`
-	Source    string          `json:"source"`
-	ToolName  string          `json:"tool_name"`
-	Message   string          `json:"message"`
-	Traceback string          `json:"traceback"`
-	Extra     json.RawMessage `json:"extra"`
-}
+// BusExceptionLog is a dashboard projection of one bus exception.
+type BusExceptionLog = contract.BusExceptionLog

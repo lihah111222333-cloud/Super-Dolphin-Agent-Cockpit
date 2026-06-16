@@ -99,7 +99,7 @@ func (g *errorPronePatternGuard) guardStreamingStateMachinePattern() {
 }
 
 func (g *errorPronePatternGuard) guardLongLivedSubscriptionPattern() {
-	const rel = "cmd/mcp-orch/orchestration/dag_turn_completed_subscriber.go"
+	const rel = "internal/sidecar/orch/orchestration/dag_turn_completed_subscriber.go"
 	g.requireContains(rel, "long-lived fx subscriptions must own an independent cancellable context",
 		"context.WithCancel(context.Background())",
 		"bus.ResilientSubscribe",
@@ -109,7 +109,7 @@ func (g *errorPronePatternGuard) guardLongLivedSubscriptionPattern() {
 }
 
 func (g *errorPronePatternGuard) guardClaimBeforeExternalSideEffectPattern() {
-	const rel = "cmd/mcp-orch/orchestration/dag_turn_completed_subscriber.go"
+	const rel = "internal/sidecar/orch/orchestration/dag_turn_completed_subscriber.go"
 	g.requireContains(rel, "external writes must have a narrow claim/fence entrypoint",
 		"type nodeOutputMaterializationClaimer interface",
 		"ClaimNodeOutputMaterialization(context.Context, taskdag.OutputMaterializationClaimInput)",
@@ -123,17 +123,17 @@ func (g *errorPronePatternGuard) guardClaimBeforeExternalSideEffectPattern() {
 }
 
 func (g *errorPronePatternGuard) guardAsyncStateTransitionFencePattern() {
-	const subscriberRel = "cmd/mcp-orch/orchestration/dag_turn_completed_subscriber.go"
+	const subscriberRel = "internal/sidecar/orch/orchestration/dag_turn_completed_subscriber.go"
 	g.requireContains(subscriberRel, "asynchronous terminal event consumers must short-circuit already terminal rows before writes",
 		"isTerminalNodeStatus",
 		"IncIdempotentSkipped",
 	)
 
-	const runtimeSQLRel = "cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql"
+	const runtimeSQLRel = "internal/sidecar/orch/sql/queries/task_dag_node_runtime.sql"
 	g.requireContains(runtimeSQLRel, "asynchronous completion fences must accept pre-running/running/verification states",
 		"status IN ('ready', 'running', 'awaiting_verify')",
 	)
-	const writeSQLRel = "cmd/mcp-orch/sql/queries/task_dag_node_write.sql"
+	const writeSQLRel = "internal/sidecar/orch/sql/queries/task_dag_node_write.sql"
 	g.requireContains(writeSQLRel, "side-effect claim fences must reject terminal rows while accepting active race states",
 		"ClaimTaskDagNodeOutputMaterialization",
 		"status IN ('ready', 'running', 'awaiting_verify')",
@@ -141,7 +141,7 @@ func (g *errorPronePatternGuard) guardAsyncStateTransitionFencePattern() {
 }
 
 func (g *errorPronePatternGuard) guardFailClosedPreparationPattern() {
-	const rel = "cmd/mcp-orch/orchestration/retry_strategy.go"
+	const rel = "internal/sidecar/orch/orchestration/retry_strategy.go"
 	g.requireContains(rel, "preparation failures after a claim must fail closed instead of leaving ambiguous in-flight state",
 		"failSmartRetryPrepare",
 		"smart retry prepare failed:",
@@ -154,13 +154,13 @@ func (g *errorPronePatternGuard) guardFailClosedPreparationPattern() {
 }
 
 func (g *errorPronePatternGuard) guardAtomicConfigPatchPattern() {
-	const retryRel = "cmd/mcp-orch/orchestration/retry_strategy.go"
+	const retryRel = "internal/sidecar/orch/orchestration/retry_strategy.go"
 	g.requireContains(retryRel, "multi-resource retry preparation must use a narrow atomic store port",
 		"SmartRetryConfigStore",
 		"RetryWakeupWithNodeConfigPatch",
 	)
 
-	const storeRel = "cmd/mcp-orch/store/taskdag/store_wakeup.go"
+	const storeRel = "internal/sidecar/orch/store/taskdag/store_wakeup.go"
 	g.requireContains(storeRel, "multi-resource retry preparation must combine retry state and config CAS in one transaction",
 		"sqlctx.WithTxOrReuse",
 		"RetryTaskDagWakeup",
@@ -168,7 +168,7 @@ func (g *errorPronePatternGuard) guardAtomicConfigPatchPattern() {
 		"wrapTaskDAGError(err, \"retry_with_config_patch\", \"task_dag_wakeup\")",
 	)
 
-	const contractRel = "cmd/mcp-orch/store/taskdag/contract.go"
+	const contractRel = "internal/sidecar/orch/store/taskdag/contract.go"
 	g.requireContains(contractRel, "callers must depend on a narrow atomic patch port rather than broad overwrite semantics",
 		"type SmartRetryConfigStore interface",
 		"RetryWakeupWithNodeConfigPatch(ctx context.Context, input RetryWakeupWithNodeConfigPatchInput) (int64, error)",
@@ -195,7 +195,7 @@ func (g *errorPronePatternGuard) guardMissingContextSuppressionPattern() {
 }
 
 func (g *errorPronePatternGuard) guardMultiAgentGlobalStatePattern() {
-	const rel = "cmd/mcp-lsp/multilsp/manager.go"
+	const rel = "internal/sidecar/lsp/multilsp/manager.go"
 	g.requireContains(rel, "managers must be explicitly instantiated without global singleton wrappers",
 		"func NewManager(cfg Config) Manager",
 	)
@@ -289,7 +289,7 @@ func (g *errorPronePatternGuard) guardLanguageAnchorPattern() {
 // Also ensures pool server spawn passes workDir from the session request.
 func (g *errorPronePatternGuard) guardEmptyCWDPropagationPattern() {
 	// 1. Orchestration launcher must apply cwd defaults before forwarding.
-	const launcherRel = "cmd/mcp-orch/orchestration/service_launcher_bridge.go"
+	const launcherRel = "internal/sidecar/orch/orchestration/service_launcher_bridge.go"
 	g.requireContains(launcherRel, "child agents must inherit parent cwd when the tool call omits it",
 		"applyLaunchRequestDefaults",
 		"strings.TrimSpace(req.Cwd)",

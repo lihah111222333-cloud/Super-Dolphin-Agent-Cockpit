@@ -1,44 +1,15 @@
 package auditlog
 
-import (
-	"context"
-	"encoding/json"
-	"time"
-)
+import "github.com/anthropic-ai/super-agent-v3/internal/contract"
 
-type Store interface {
-	List(ctx context.Context, filter ListFilter) ([]AuditEvent, error)
-	Insert(ctx context.Context, params InsertParams) error
-}
+// Store reads and writes audit events.
+type Store = contract.AuditLogStore
 
-type ListFilter struct {
-	EventType string
-	Action    string
-	Actor     string
-	Keyword   string
-	Limit     int32
-}
+// ListFilter constrains audit event list queries.
+type ListFilter = contract.AuditLogListFilter
 
-type InsertParams struct {
-	EventType string
-	Action    string
-	Result    string
-	Actor     string
-	Target    string
-	Detail    string
-	Level     string
-	Extra     json.RawMessage
-}
+// InsertParams captures one audit event write.
+type InsertParams = contract.AuditLogInsertParams
 
-type AuditEvent struct {
-	ID        int64           `json:"id"`
-	Ts        time.Time       `json:"ts"`
-	EventType string          `json:"event_type"`
-	Action    string          `json:"action"`
-	Result    string          `json:"result"`
-	Actor     string          `json:"actor"`
-	Target    string          `json:"target"`
-	Detail    string          `json:"detail"`
-	Level     string          `json:"level"`
-	Extra     json.RawMessage `json:"extra"`
-}
+// AuditEvent is a normalized audit event row.
+type AuditEvent = contract.AuditEvent

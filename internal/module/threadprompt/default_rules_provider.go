@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
+// ProjectDefaultRulesProvider renders project default rule prompt sections.
 type ProjectDefaultRulesProvider struct{ catalog RuntimePromptCatalog }
 
 // SectionName 处理section名称。
@@ -44,7 +44,7 @@ func (p ProjectDefaultRulesProvider) Resolve(ctx context.Context, input contract
 	return &text, nil
 }
 
-func renderProjectDefaultRules(sections []promptstore.PromptTemplateSection) string {
+func renderProjectDefaultRules(sections []contract.PromptTemplateSection) string {
 	sections = effectiveDefaultRuleSections(sections)
 	lines := []string{"项目和全局默认规则："}
 	for _, section := range sections {
@@ -62,8 +62,8 @@ func renderProjectDefaultRules(sections []promptstore.PromptTemplateSection) str
 }
 
 // effectiveDefaultRuleSections 处理effectivedefaultrulesections。
-func effectiveDefaultRuleSections(sections []promptstore.PromptTemplateSection) []promptstore.PromptTemplateSection {
-	byKey := map[string]promptstore.PromptTemplateSection{}
+func effectiveDefaultRuleSections(sections []contract.PromptTemplateSection) []contract.PromptTemplateSection {
+	byKey := map[string]contract.PromptTemplateSection{}
 	order := make([]string, 0, len(sections))
 	for _, section := range sections {
 		key := defaultRuleIdentity(section)
@@ -77,7 +77,7 @@ func effectiveDefaultRuleSections(sections []promptstore.PromptTemplateSection) 
 			byKey[key] = section
 		}
 	}
-	out := make([]promptstore.PromptTemplateSection, 0, len(order))
+	out := make([]contract.PromptTemplateSection, 0, len(order))
 	for _, key := range order {
 		if section, ok := byKey[key]; ok {
 			out = append(out, section)
@@ -87,7 +87,7 @@ func effectiveDefaultRuleSections(sections []promptstore.PromptTemplateSection) 
 }
 
 // defaultRuleIdentity 处理defaultrule身份。
-func defaultRuleIdentity(section promptstore.PromptTemplateSection) string {
+func defaultRuleIdentity(section contract.PromptTemplateSection) string {
 	sectionKey := strings.ToLower(strings.TrimSpace(section.SectionKey))
 	if title := strings.ToLower(strings.TrimSpace(section.TemplateTitle)); title != "" {
 		if sectionKey != "" {

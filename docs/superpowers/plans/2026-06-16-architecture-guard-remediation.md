@@ -53,21 +53,21 @@
 - `cmd` 层只允许导入 `bootstrap` 或 `other`。
 - 仓库实际把大量库包放在 `cmd/mcp-lsp/*`、`cmd/mcp-orch/*` 下，例如 `manager`、`multilsp`、`tools`、`store`、`orchestration`。
 
-这会把 `cmd/mcp-lsp/tools` 导入 `cmd/mcp-lsp/manager`、`cmd/mcp-orch/orchestration` 导入 `cmd/mcp-orch/store/taskdag` 等正常内部依赖判定为违规。
+这会把 `internal/sidecar/lsp/tools` 导入 `internal/sidecar/lsp/manager`、`internal/sidecar/orch/orchestration` 导入 `internal/sidecar/orch/store/taskdag` 等正常内部依赖判定为违规。
 
 处理原则:
 
 - 不删除守卫，也不把所有违规改成宽泛 allowlist。
 - 本次采用过渡路径: `cmd/mcp-lsp/*`、`cmd/mcp-orch/*` 的非根包暂时识别为 sidecar internal layer，根入口仍保持 command layer。
 - 后续推荐路径仍是把非 `main` 库包逐步迁入 `internal/sidecar/lsp/*`、`internal/sidecar/orch/*` 或更具体的业务目录，只让 `cmd/<binary>` 保持薄入口。
-- 需要补充 `docs/architecture/package-map.md` 与 `docs/architecture/dependency-rules.md`，把这条过渡规则和迁移期限写清楚。
+- 需要补充 `docs/架构决策/架构边界/package-map.md` 与 `docs/架构决策/架构边界/dependency-rules.md`，把这条过渡规则和迁移期限写清楚。
 
 ### 3. 源码尺寸失控
 
 `make guard-change` 第一处失败是 `check_go_size.py`。当前有 188 项尺寸违规，其中包括:
 
-- 单文件超过 400 行，例如 `cmd/mcp-orch/orchestration/dag.go`、`cmd/mcp-lsp/multilsp/manager_lifecycle.go`、`internal/module/memory/ui_rpc.go`、`internal/provider/codexapp/support.go`。
-- 包内 Go 文件数超过 30，例如 `cmd/mcp-orch/orchestration`、`internal/module/memory`、`internal/module/thread`、`internal/provider/claudecli`。
+- 单文件超过 400 行，例如 `internal/sidecar/orch/orchestration/dag.go`、`internal/sidecar/lsp/multilsp/manager_lifecycle.go`、`internal/module/memory/ui_rpc.go`、`internal/provider/codexapp/support.go`。
+- 包内 Go 文件数超过 30，例如 `internal/sidecar/orch/orchestration`、`internal/module/memory`、`internal/module/thread`、`internal/provider/claudecli`。
 
 处理原则:
 
@@ -144,8 +144,8 @@
 
 新增:
 
-- `docs/architecture/package-map.md`
-- `docs/architecture/dependency-rules.md`
+- `docs/架构决策/架构边界/package-map.md`
+- `docs/架构决策/架构边界/dependency-rules.md`
 
 内容必须覆盖:
 
@@ -203,14 +203,14 @@
 优先拆分路径:
 
 1. LSP sidecar:
-   - `cmd/mcp-lsp/multilsp/*.go`
-   - `cmd/mcp-lsp/tools/*.go`
-   - `cmd/mcp-lsp/search/*.go`
+   - `internal/sidecar/lsp/multilsp/*.go`
+   - `internal/sidecar/lsp/tools/*.go`
+   - `internal/sidecar/lsp/search/*.go`
    - `cmd/mcp-lsp/runtime.go`
 2. Orchestration sidecar:
-   - `cmd/mcp-orch/orchestration/*.go`
-   - `cmd/mcp-orch/tools/*.go`
-   - `cmd/mcp-orch/store/taskdag/*.go`
+   - `internal/sidecar/orch/orchestration/*.go`
+   - `internal/sidecar/orch/tools/*.go`
+   - `internal/sidecar/orch/store/taskdag/*.go`
 3. 核心模块:
    - `internal/module/memory/*.go`
    - `internal/module/thread/*.go`
@@ -245,7 +245,7 @@
 
 优先级:
 
-1. `internal/contract`、`internal/dto`、`cmd/mcp-lsp/protocol`，这些是契约面，注释应先补齐。
+1. `internal/contract`、`internal/dto`、`internal/sidecar/lsp/protocol`，这些是契约面，注释应先补齐。
 2. `internal/module/*`，补业务不变量、幂等、事务和副作用说明。
 3. `internal/platform/*`，补生命周期、并发、资源关闭、日志/指标契约。
 4. `cmd/*` 和 `scripts`，补 command 入口说明。

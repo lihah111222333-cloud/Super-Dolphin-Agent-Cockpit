@@ -36,22 +36,22 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 
 ## B1 范围修正
 
-计划初稿按顶层目录估算 `cmd/mcp-orch/orchestration/**` 为 9 个冻结文件；实际从 `baseline.json` 精确读取为 12 个文件，因为包含子目录：
+计划初稿按顶层目录估算 `internal/sidecar/orch/orchestration/**` 为 9 个冻结文件；实际从 `baseline.json` 精确读取为 12 个文件，因为包含子目录：
 
 | 文件 | 主冻结原因 |
 | --- | --- |
-| `cmd/mcp-orch/orchestration/dag.go` | `todo_count=1`，文件 534 有效行接近阈值 |
-| `cmd/mcp-orch/orchestration/factory.go` | `lines=731 > 600` |
-| `cmd/mcp-orch/orchestration/helpers.go` | `todo_count=1`，CC 贴顶 10 |
-| `cmd/mcp-orch/orchestration/nodeevents/events.go` | `panic_count=1`，`max_params=6` |
-| `cmd/mcp-orch/orchestration/nodeexec/ops.go` | `todo_count=1`，CC 贴顶 10 |
-| `cmd/mcp-orch/orchestration/processctl/process_unix.go` | `empty_funcs=1` |
-| `cmd/mcp-orch/orchestration/report.go` | `global_vars=2`，另有派生全局 set |
-| `cmd/mcp-orch/orchestration/runtime.go` | `todo_count=1`，`max_params=8` |
-| `cmd/mcp-orch/orchestration/service.go` | `todo_count=4`，`max_struct_fields=44`，`max_params=6` |
-| `cmd/mcp-orch/orchestration/stop_helper.go` | `empty_funcs=1`，`max_returns=4` |
-| `cmd/mcp-orch/orchestration/stop_metric.go` | `has_init=true` |
-| `cmd/mcp-orch/orchestration/wakeup_dispatcher.go` | `global_vars=1`，`max_returns=3` |
+| `internal/sidecar/orch/orchestration/dag.go` | `todo_count=1`，文件 534 有效行接近阈值 |
+| `internal/sidecar/orch/orchestration/factory.go` | `lines=731 > 600` |
+| `internal/sidecar/orch/orchestration/helpers.go` | `todo_count=1`，CC 贴顶 10 |
+| `internal/sidecar/orch/orchestration/nodeevents/events.go` | `panic_count=1`，`max_params=6` |
+| `internal/sidecar/orch/orchestration/nodeexec/ops.go` | `todo_count=1`，CC 贴顶 10 |
+| `internal/sidecar/orch/orchestration/processctl/process_unix.go` | `empty_funcs=1` |
+| `internal/sidecar/orch/orchestration/report.go` | `global_vars=2`，另有派生全局 set |
+| `internal/sidecar/orch/orchestration/runtime.go` | `todo_count=1`，`max_params=8` |
+| `internal/sidecar/orch/orchestration/service.go` | `todo_count=4`，`max_struct_fields=44`，`max_params=6` |
+| `internal/sidecar/orch/orchestration/stop_helper.go` | `empty_funcs=1`，`max_returns=4` |
+| `internal/sidecar/orch/orchestration/stop_metric.go` | `has_init=true` |
+| `internal/sidecar/orch/orchestration/wakeup_dispatcher.go` | `global_vars=1`，`max_returns=3` |
 
 ## 19 维度首轮判定
 
@@ -79,14 +79,14 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 
 ## 关键证据
 
-- `cmd/mcp-orch/orchestration/nodeevents/events.go:57-58`：`build()` 对非法 identity 使用 `panic()`。
-- `cmd/mcp-orch/orchestration/processctl/process_unix.go:26`：`Guard.Close()` 为空函数，可能是跨平台占位。
-- `cmd/mcp-orch/orchestration/report.go:17-48`：多个包级列表和 set，用于终态事件/文本字段识别。
-- `cmd/mcp-orch/orchestration/stop_metric.go:62-65`：包级默认 counter + `init()` 写入 `stopSpawnedAgentMetrics`。
-- `cmd/mcp-orch/orchestration/wakeup_dispatcher.go:43-61`：包级 `dispatcherClaimedBySeq` 被 atomic 自增生成 claimed_by。
-- `cmd/mcp-orch/orchestration/service.go:219-264`：4 个 TODO 均指向 event handler 直接操作状态机。
-- `cmd/mcp-orch/orchestration/helpers.go:359-361`：TODO 指向持锁期间 Publish 的潜在死锁风险。
-- `cmd/mcp-orch/orchestration/runtime.go:18-19`：TODO 指向 runtime port clear semantics。
+- `internal/sidecar/orch/orchestration/nodeevents/events.go:57-58`：`build()` 对非法 identity 使用 `panic()`。
+- `internal/sidecar/orch/orchestration/processctl/process_unix.go:26`：`Guard.Close()` 为空函数，可能是跨平台占位。
+- `internal/sidecar/orch/orchestration/report.go:17-48`：多个包级列表和 set，用于终态事件/文本字段识别。
+- `internal/sidecar/orch/orchestration/stop_metric.go:62-65`：包级默认 counter + `init()` 写入 `stopSpawnedAgentMetrics`。
+- `internal/sidecar/orch/orchestration/wakeup_dispatcher.go:43-61`：包级 `dispatcherClaimedBySeq` 被 atomic 自增生成 claimed_by。
+- `internal/sidecar/orch/orchestration/service.go:219-264`：4 个 TODO 均指向 event handler 直接操作状态机。
+- `internal/sidecar/orch/orchestration/helpers.go:359-361`：TODO 指向持锁期间 Publish 的潜在死锁风险。
+- `internal/sidecar/orch/orchestration/runtime.go:18-19`：TODO 指向 runtime port clear semantics。
 
 ## N4 仲裁队列
 
@@ -131,9 +131,9 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 
 批准进入第一轮试点修复：
 
-1. `cmd/mcp-orch/orchestration/nodeevents/events.go`：消除 `panic()`。
-2. `cmd/mcp-orch/orchestration/stop_metric.go` + `stop_helper.go`：消除 `init()` 和收窄全局 metrics 注入。
-3. 可选：`cmd/mcp-orch/orchestration/report.go`：消除可变全局配置。
+1. `internal/sidecar/orch/orchestration/nodeevents/events.go`：消除 `panic()`。
+2. `internal/sidecar/orch/orchestration/stop_metric.go` + `stop_helper.go`：消除 `init()` 和收窄全局 metrics 注入。
+3. 可选：`internal/sidecar/orch/orchestration/report.go`：消除可变全局配置。
 
 暂缓：
 
@@ -156,9 +156,9 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 验证：
 
 ```bash
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh cmd/mcp-orch/orchestration/nodeevents/events.go
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration/nodeevents -count=1
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration -run 'TestUpdateNodeStatusDonePublishesTaskNodeStatusChanged|TestWakeupDispatcherDagNodeRunsAutomationAndPublishesStatus' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh internal/sidecar/orch/orchestration/nodeevents/events.go
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration/nodeevents -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration -run 'TestUpdateNodeStatusDonePublishesTaskNodeStatusChanged|TestWakeupDispatcherDagNodeRunsAutomationAndPublishesStatus' -count=1
 ```
 
 结果：PASS。`nodeevents/events.go` 从生产 baseline 自动毕业。
@@ -175,10 +175,10 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 验证：
 
 ```bash
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh cmd/mcp-orch/orchestration/stop_metric.go
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh cmd/mcp-orch/orchestration/stop_helper.go
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration -run 'TestStopSpawnedAgent' -count=1
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration -run 'Test.*Stop' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh internal/sidecar/orch/orchestration/stop_metric.go
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh internal/sidecar/orch/orchestration/stop_helper.go
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration -run 'TestStopSpawnedAgent' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration -run 'Test.*Stop' -count=1
 ```
 
 结果：PASS。较宽的 `Test.*Stop` 在默认 sandbox 下因 `127.0.0.1:0` listen 被拒绝，授权环境重跑通过。`stop_helper.go` 和 `stop_metric.go` 从生产 baseline 自动毕业。
@@ -196,9 +196,9 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 - 生产冻结：104 -> 101。
 - 测试冻结：47，未变化。
 - 本轮自动毕业文件：
-  - `cmd/mcp-orch/orchestration/nodeevents/events.go`
-  - `cmd/mcp-orch/orchestration/stop_helper.go`
-  - `cmd/mcp-orch/orchestration/stop_metric.go`
+  - `internal/sidecar/orch/orchestration/nodeevents/events.go`
+  - `internal/sidecar/orch/orchestration/stop_helper.go`
+  - `internal/sidecar/orch/orchestration/stop_metric.go`
 
 ### 下一步建议
 
@@ -217,15 +217,15 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 
 中间风险：
 
-- 第一次等价重写让 `cmd/mcp-orch/orchestration` 包有效行数触发 `10010 > 10000`，守卫阻止继续测试。
+- 第一次等价重写让 `internal/sidecar/orch/orchestration` 包有效行数触发 `10010 > 10000`，守卫阻止继续测试。
 - 随后压缩为更短等价实现，守卫通过。
 
 验证：
 
 ```bash
 REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh --guard-only
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration -run 'Test.*Report|TestHandleReportEvent|TestTerminalReport|TestGetReport' -count=1
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration/... -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration -run 'Test.*Report|TestHandleReportEvent|TestTerminalReport|TestGetReport' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration/... -count=1
 ```
 
 结果：PASS。`orchestration/...` 全影响面测试需授权环境允许 localhost 临时端口监听。
@@ -235,14 +235,14 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 - 生产冻结：104 -> 100。
 - 测试冻结：47，未变化。
 - 追加毕业文件：
-  - `cmd/mcp-orch/orchestration/report.go`
+  - `internal/sidecar/orch/orchestration/report.go`
 
 ## 并行子 Agent 结果
 
 用户要求 5 个子 agent 并行。已按互斥范围执行并关闭：
 
-- `B1-nodeexec worker`：只改 `cmd/mcp-orch/orchestration/nodeexec/ops.go` 注释，确认 wire/API 行为不变；nodeexec 测试和 guard PASS。
-- `B1-dag worker`：只改 `cmd/mcp-orch/orchestration/dag.go` 注释，并补 `dag_ops_test.go` 最小错误链测试；DAG ApplyOps 相关测试和 guard PASS。
+- `B1-nodeexec worker`：只改 `internal/sidecar/orch/orchestration/nodeexec/ops.go` 注释，确认 wire/API 行为不变；nodeexec 测试和 guard PASS。
+- `B1-dag worker`：只改 `internal/sidecar/orch/orchestration/dag.go` 注释，并补 `dag_ops_test.go` 最小错误链测试；DAG ApplyOps 相关测试和 guard PASS。
 - `B1-runtime verifier`：确认 `runtime.go` 注释契约化不改变行为，现有 runtime 测试覆盖。
 - `B1-high-risk reviewer`：建议跳过 `factory.go`、`helpers.go`、`service.go`，`process_unix.go` 进入假阳性/守卫例外队列。
 - `B2-provider classifier`：只读分类 provider 冻结文件，建议 B2 先处理 `session_log_watcher.go`，不要碰 provider 会话核心。
@@ -251,14 +251,14 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 
 追加变更：
 
-- `cmd/mcp-orch/orchestration/runtime.go`：把 `port<=0` 的 TODO 改为兼容契约注释，明确现有行为由 `TestUpdateRuntimeZeroPortDoesNotClearRuntimePort` 锁住；生产行为不变。
-- `cmd/mcp-orch/orchestration/dag.go`：把注释中的 `ErrXxx` 改成 `sentinel 子错误链`，消除 `XXX` 假阳性；补 `TestApplyOps_PreservesNodeexecSentinelErrorChain` 验证 `errors.Is` 仍命中 `nodeexec.ErrDAGPatchUnknownField`。
-- `cmd/mcp-orch/orchestration/nodeexec/ops.go`：把历史“骨架阶段”注释改为当前 wire 契约说明；生产代码不变。
+- `internal/sidecar/orch/orchestration/runtime.go`：把 `port<=0` 的 TODO 改为兼容契约注释，明确现有行为由 `TestUpdateRuntimeZeroPortDoesNotClearRuntimePort` 锁住；生产行为不变。
+- `internal/sidecar/orch/orchestration/dag.go`：把注释中的 `ErrXxx` 改成 `sentinel 子错误链`，消除 `XXX` 假阳性；补 `TestApplyOps_PreservesNodeexecSentinelErrorChain` 验证 `errors.Is` 仍命中 `nodeexec.ErrDAGPatchUnknownField`。
+- `internal/sidecar/orch/orchestration/nodeexec/ops.go`：把历史“骨架阶段”注释改为当前 wire 契约说明；生产代码不变。
 
 验证：
 
 ```bash
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration/... -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration/... -count=1
 REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh --guard-only
 ```
 
@@ -269,10 +269,10 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 - 生产冻结：104 -> 98。
 - 测试冻结：47，未变化。
 - 追加毕业文件：
-  - `cmd/mcp-orch/orchestration/runtime.go`
-  - `cmd/mcp-orch/orchestration/dag.go`
+  - `internal/sidecar/orch/orchestration/runtime.go`
+  - `internal/sidecar/orch/orchestration/dag.go`
 
-说明：`cmd/mcp-orch/orchestration/nodeexec/ops.go` 注释已修，但当前仍在 baseline 中；后续单独核对是否还有其他指标阻止毕业。
+说明：`internal/sidecar/orch/orchestration/nodeexec/ops.go` 注释已修，但当前仍在 baseline 中；后续单独核对是否还有其他指标阻止毕业。
 
 ## B2 试点：`session_log_watcher.go`
 
@@ -409,7 +409,7 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 
 ## 追加推进：app/mcp-orch no-op、Fx wiring、注释假阳性
 
-### `cmd/mcp-orch/orchestration/processctl/process_unix.go` 与 `cmd/mcp-orch/runtime.go`
+### `internal/sidecar/orch/orchestration/processctl/process_unix.go` 与 `cmd/mcp-orch/runtime.go`
 
 变更：
 
@@ -424,7 +424,7 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 验证：
 
 ```bash
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration/processctl ./cmd/mcp-orch -run 'Test.*Noop|Test.*Runtime|Test.*Process|Test.*Bootstrap|Test.*Stdio' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration/processctl ./cmd/mcp-orch -run 'Test.*Noop|Test.*Runtime|Test.*Process|Test.*Bootstrap|Test.*Stdio' -count=1
 REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh --guard-only
 ```
 
@@ -468,7 +468,7 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 
 结果：PASS。生产 baseline 追加毕业 1 个文件。
 
-### `cmd/mcp-orch/orchestration/nodeexec/ops.go`
+### `internal/sidecar/orch/orchestration/nodeexec/ops.go`
 
 变更：
 
@@ -481,7 +481,7 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 验证：
 
 ```bash
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration/nodeexec -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration/nodeexec -count=1
 REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh --guard-only
 ```
 
@@ -511,14 +511,14 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 - `cmd/mcp-orch/memory/test_symlink_unix_test.go`
 - `internal/module/memory/team/test_symlink_unix_test.go`
 - `internal/module/skill/test_symlink_unix_test.go`
-- `cmd/mcp-orch/fxadapter/dag_cron_store_test.go`
+- `internal/sidecar/orch/fxadapter/dag_cron_store_test.go`
 
 这些文件的空 no-op helper 改为显式消费参数/receiver。
 
 验证：
 
 ```bash
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-orch/fxadapter ./cmd/mcp-orch/memory ./internal/module/memory/team -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/sidecar/orch/fxadapter ./cmd/mcp-orch/memory ./internal/module/memory/team -count=1
 REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh --guard-only
 ```
 
@@ -582,19 +582,19 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 - `internal/platform/db/tx_test.go`
 - `internal/module/thread/history_test.go`
 - `internal/module/dashboard/query_test.go`
-- `cmd/mcp-orch/store/workspace/test_helpers_test.go`
-- `cmd/mcp-orch/store/taskdag/scan_helpers_test.go`
-- `cmd/mcp-orch/store/prompt/store_test.go`
-- `cmd/mcp-lsp/multilsp/multi_cwd_e2e_helpers_test.go`
-- `cmd/mcp-lsp/multilsp/generic_language_service_test.go`
+- `internal/sidecar/orch/store/workspace/test_helpers_test.go`
+- `internal/sidecar/orch/store/taskdag/scan_helpers_test.go`
+- `internal/sidecar/orch/store/prompt/store_test.go`
+- `internal/sidecar/lsp/multilsp/multi_cwd_e2e_helpers_test.go`
+- `internal/sidecar/lsp/multilsp/generic_language_service_test.go`
 
 这些测试 fake 的空 `Close` / logger / workspace folder 方法改为显式消费 receiver/参数。
 
 验证：
 
 ```bash
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/store/hookstore ./internal/store/ailog ./internal/store/dbquery ./internal/platform/db ./cmd/mcp-orch/store/workspace ./cmd/mcp-orch/store/taskdag ./cmd/mcp-orch/store/prompt -count=1
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/platform/rpc ./internal/module/thread ./internal/module/dashboard ./cmd/mcp-lsp/multilsp -run 'Test.*Minimal|Test.*History|Test.*Dashboard|Test.*Generic|Test.*MultiCWD|Test.*WorkspaceFolders' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/store/hookstore ./internal/store/ailog ./internal/store/dbquery ./internal/platform/db ./internal/sidecar/orch/store/workspace ./internal/sidecar/orch/store/taskdag ./internal/sidecar/orch/store/prompt -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/platform/rpc ./internal/module/thread ./internal/module/dashboard ./internal/sidecar/lsp/multilsp -run 'Test.*Minimal|Test.*History|Test.*Dashboard|Test.*Generic|Test.*MultiCWD|Test.*WorkspaceFolders' -count=1
 REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh --guard-only
 ```
 
@@ -611,8 +611,8 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 
 变更：
 
-- `cmd/mcp-orch/orchestration/dispatch_agent_running_metric.go` 合并回 `dag_dispatch.go`。
-- `cmd/mcp-orch/orchestration/stop_metric.go` 合并回 `stop_helper.go`。
+- `internal/sidecar/orch/orchestration/dispatch_agent_running_metric.go` 合并回 `dag_dispatch.go`。
+- `internal/sidecar/orch/orchestration/stop_metric.go` 合并回 `stop_helper.go`。
 - `internal/archtest/freeze_registry.go` 同步当前 freeze 说明：守卫包文件数口径不计 `factory.go`，当前 observed/Limit 为 38。
 
 审查结论：
@@ -638,7 +638,7 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 变更：
 
 - `internal/platform/sharedfilefs/disk.go`：`ValidateXxx` 注释示例改为 `ValidateRel`。
-- `cmd/mcp-lsp/multilsp/transport_compat.go`：删除由常量方法表派生的包级 map，改为局部线性查找函数；兼容协议常量和返回分支不变。
+- `internal/sidecar/lsp/multilsp/transport_compat.go`：删除由常量方法表派生的包级 map，改为局部线性查找函数；兼容协议常量和返回分支不变。
 
 审查结论：
 
@@ -649,13 +649,13 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 验证：
 
 ```bash
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration -run 'Test.*StopSpawnedAgent|Test.*DispatchRetry|Test.*WakeupDispatcher|Test.*DispatchNode|Test.*DispatchAgentRunning' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration -run 'Test.*StopSpawnedAgent|Test.*DispatchRetry|Test.*WakeupDispatcher|Test.*DispatchNode|Test.*DispatchAgentRunning' -count=1
 REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/archtest -run 'TestMeasureFileMetrics|TestBaselineShrink|TestErrorStringMatchGuard|TestCodeSizeGuard' -count=1
 REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/provider/unified -run 'TestSessionResolverProviderThreadAutoResumeDoesNotUseCodexThreadID' -count=1
 REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/provider/codexapp -run 'TestSessionRuntimeStartOwnedByStartSession' -count=1
 REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/module/skill -run 'TestTrimInjectedSkillBlocks_NoMatch' -count=1
 REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/platform/sharedfilefs -run 'Test' -count=1
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-lsp/multilsp ./internal/archtest -run 'Test.*Compat|TestMultiLSPTransportCompatFreeze|TestCodeSizeGuard' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/sidecar/lsp/multilsp ./internal/archtest -run 'Test.*Compat|TestMultiLSPTransportCompatFreeze|TestCodeSizeGuard' -count=1
 REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh --guard-only
 ```
 
@@ -673,7 +673,7 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 变更：
 
 - `internal/module/uistate/builtin_tools_test.go`：`testNativeToolIndex` 从包级派生 map 改为按需 helper，固定测试工具表不变。
-- `cmd/mcp-orch/orchestration/test_cwd_test.go`、`nodeexec/test_cwd_test.go`：去掉包级 `sync.Map` cwd 缓存，改为按 `t.Name()` 和 cwd 名称生成稳定临时目录，并在测试结束清理。
+- `internal/sidecar/orch/orchestration/test_cwd_test.go`、`nodeexec/test_cwd_test.go`：去掉包级 `sync.Map` cwd 缓存，改为按 `t.Name()` 和 cwd 名称生成稳定临时目录，并在测试结束清理。
 
 审查结论：
 
@@ -684,7 +684,7 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 
 变更：
 
-- `cmd/mcp-lsp/multilsp/language_service_config.go`、`go_root_resolver.go`：默认 noise dir set 从包级派生 map 改成函数返回。
+- `internal/sidecar/lsp/multilsp/language_service_config.go`、`go_root_resolver.go`：默认 noise dir set 从包级派生 map 改成函数返回。
 - `internal/archtest/testdata/metrics_sample.go` 改名为 `metrics_sample.gotxt`，`metrics_test.go` 改用新 fixture 路径。
 
 审查结论：
@@ -708,14 +708,14 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 
 ```bash
 REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/module/uistate -run 'TestBuiltinTools|TestResolve.*BuiltinTools|TestConfig' -count=1
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration ./cmd/mcp-orch/orchestration/nodeexec -run 'Test.*CWD|Test.*Launch|Test.*Agent|Test.*Wakeup.*Retry' -count=1
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-lsp/multilsp -run 'Test.*Go.*Root|Test.*Language|Test.*Config|Test.*Compat' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration ./internal/sidecar/orch/orchestration/nodeexec -run 'Test.*CWD|Test.*Launch|Test.*Agent|Test.*Wakeup.*Retry' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/sidecar/lsp/multilsp -run 'Test.*Go.*Root|Test.*Language|Test.*Config|Test.*Compat' -count=1
 REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/archtest -run 'TestMeasureFileMetrics|TestCountGlobalVarsV3|TestCodeSizeGuard' -count=1
 REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/module/thread ./internal/module/prompt -run 'Test.*Command|Test.*RPC|Test.*Prompt|Test.*Service|Test.*DebugMemory|Test.*Skills' -count=1
 REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh --guard-only
 ```
 
-结果：PASS。`cmd/mcp-orch/orchestration` 窄测在普通沙箱下因 localhost listener 失败，提权重跑通过。
+结果：PASS。`internal/sidecar/orch/orchestration` 窄测在普通沙箱下因 localhost listener 失败，提权重跑通过。
 
 当前冻结数：
 
@@ -728,8 +728,8 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 
 变更：
 
-- `cmd/mcp-lsp/tools/tool_edit_patch_sync_test.go`：`quoteJSON` 改为接收 `*testing.T`，JSON fixture 构造失败时 `t.Fatalf`。
-- `cmd/mcp-lsp/search/searchutil_test.go`：`literalMatcher` 改为接收 `*testing.T`，matcher fixture 构造失败时 `t.Fatalf`。
+- `internal/sidecar/lsp/tools/tool_edit_patch_sync_test.go`：`quoteJSON` 改为接收 `*testing.T`，JSON fixture 构造失败时 `t.Fatalf`。
+- `internal/sidecar/lsp/search/searchutil_test.go`：`literalMatcher` 改为接收 `*testing.T`，matcher fixture 构造失败时 `t.Fatalf`。
 - `internal/ui/wails/rpc_test.go`：`xmlText` 使用 `bytes.Buffer` 时忽略 `xml.EscapeText` 的 writer error，避免不可能失败分支中的 panic。
 
 审查结论：
@@ -753,7 +753,7 @@ REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test
 验证：
 
 ```bash
-REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./cmd/mcp-lsp/search ./cmd/mcp-lsp/tools -run 'TestSearch|TestWalk|TestEdit|TestMiddleware' -count=1
+REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/sidecar/lsp/search ./internal/sidecar/lsp/tools -run 'TestSearch|TestWalk|TestEdit|TestMiddleware' -count=1
 REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/ui/wails -run 'Test.*RPC|Test.*XLSX|Test.*Bootstrap' -count=1
 REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh ./internal/provider/claudecli -run 'TestDriverStartSession.*Auth' -count=1
 REAL_GO_BIN=/home/ai02@f666.com/.local/toolchains/go1.25.7/bin/go ./scripts/test_with_guard.sh --guard-only
@@ -828,9 +828,9 @@ REAL_GO_BIN=... ./scripts/test_with_guard.sh --guard-only
 
 | 文件 | 原因 | 处置 |
 | --- | --- | --- |
-| `cmd/mcp-orch/orchestration/factory.go` | `lines=731` | 待拆分，高风险，暂缓 |
-| `cmd/mcp-orch/notify/subscribers.go` | `panic_count=1` | option func panic，设计债 |
-| `cmd/mcp-orch/store/sqlctx/db.go` | `panic_count=1` | re-panic after rollback，合法 |
+| `internal/sidecar/orch/orchestration/factory.go` | `lines=731` | 待拆分，高风险，暂缓 |
+| `internal/sidecar/orch/notify/subscribers.go` | `panic_count=1` | option func panic，设计债 |
+| `internal/sidecar/orch/store/sqlctx/db.go` | `panic_count=1` | re-panic after rollback，合法 |
 | `internal/archtest/ratchet.go` | `panic_count=3` | CI 工具 panic，已接受 |
 | `internal/contract/manifest.go` | `panic_count=1` | 不可能失败 marshal，合法 |
 | `internal/module/prompt/cache.go` | `panic_count=1` | 不可能失败 marshal，合法 |

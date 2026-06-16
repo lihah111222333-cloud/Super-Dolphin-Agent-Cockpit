@@ -30,7 +30,7 @@ graph TD
 ## Node A: 定义 bundled Codex artifact 契约
 
 **Files:**
-- Modify: `docs/packaging/embedded-postgres.md`
+- Modify: `docs/运维发布/打包发布/embedded-postgres.md`
 - Modify: `scripts/package_macos.sh`
 - Modify: `scripts/package_linux.sh`
 

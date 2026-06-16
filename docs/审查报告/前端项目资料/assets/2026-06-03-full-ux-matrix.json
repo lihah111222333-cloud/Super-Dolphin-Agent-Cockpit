@@ -1,0 +1,6039 @@
+{
+  "generatedAt": "2026-06-03T15:17:33.407Z",
+  "apps": [
+    {
+      "id": "new-ui",
+      "name": "React new UI",
+      "url": "http://127.0.0.1:5175/",
+      "title": "Super Agent Frontend App",
+      "shellPresent": true,
+      "pages": [
+        {
+          "navLabel": "Chat",
+          "navigated": true,
+          "url": "http://127.0.0.1:5175/",
+          "headingText": "我们应该在 Super-Dolphin 中构建什么？",
+          "buttonTotal": 23,
+          "fieldTotal": 2,
+          "buttons": [
+            {
+              "label": "选择项目",
+              "status": "skip",
+              "reason": "native-file-or-project-dialog"
+            },
+            {
+              "label": "新窗口（独立进程）",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "请先选择会话",
+              "status": "disabled",
+              "reason": "disabled"
+            },
+            {
+              "label": "切换到白天模式",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "显示侧边栏",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "Chat",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "提示词",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "自动化",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "任务",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "命令",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "技能",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "记忆中心",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "链路追踪",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "共享文件",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "设置",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "新建对话",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "打开归档列表",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "调整会话栏宽度",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "添加文件",
+              "status": "disabled",
+              "reason": "disabled"
+            },
+            {
+              "label": "继承当前对话",
+              "status": "disabled",
+              "reason": "disabled"
+            },
+            {
+              "label": "请先连接后端并选择项目",
+              "status": "disabled",
+              "reason": "disabled"
+            },
+            {
+              "label": "选择模型",
+              "status": "disabled",
+              "reason": "disabled"
+            },
+            {
+              "label": "发送消息",
+              "status": "disabled",
+              "reason": "disabled"
+            }
+          ],
+          "fields": [
+            {
+              "label": "统一超时阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Warn 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Danger 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Critical 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Codex Claude",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "Codex",
+                "Claude"
+              ]
+            },
+            {
+              "label": "Provider Model",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "GPT-5 Codex",
+                "GPT-5.5",
+                "GPT-5.4",
+                "GPT-5.3 Codex",
+                "GPT-5.2"
+              ]
+            },
+            {
+              "label": "Provider Effort",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "极高",
+                "高",
+                "中",
+                "低",
+                "极低",
+                "关闭"
+              ]
+            },
+            {
+              "label": "Personality",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "pragmatic（务实高效，默认）",
+                "friendly（友好气氛）",
+                "none（默认风格）"
+              ]
+            },
+            {
+              "label": "Codex Home",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Instance Key",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Sandbox Policy",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "workspaceWrite",
+                "readOnly",
+                "dangerFullAccess"
+              ]
+            },
+            {
+              "label": "input:checkbox",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Writable Roots",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "detailed（详细摘要，推荐） auto（自动） concise（简洁） none（关闭）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "detailed（详细摘要，推荐）",
+                "auto（自动）",
+                "concise（简洁）",
+                "none（关闭）"
+              ]
+            },
+            {
+              "label": "on-request（按需，默认） untrusted（始终询问） on-failure（失败后询问） never（全部放行）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "on-request（按需，默认）",
+                "untrusted（始终询问）",
+                "on-failure（失败后询问）",
+                "never（全部放行）"
+              ]
+            },
+            {
+              "label": "settings-show-injected-toggle-input",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "暂无可用提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "请输入提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "debug（最详细） info（默认） warn error（仅错误）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "debug（最详细）",
+                "info（默认）",
+                "warn",
+                "error（仅错误）"
+              ]
+            }
+          ],
+          "clicked": 12,
+          "skipped": 3,
+          "disabled": 6,
+          "fieldFilled": 4,
+          "fieldSkipped": 15,
+          "modalEvents": 0
+        },
+        {
+          "navLabel": "提示词",
+          "navigated": true,
+          "url": "http://127.0.0.1:5175/prompts",
+          "headingText": "AI 能力与资料",
+          "buttonTotal": 40,
+          "fieldTotal": 0,
+          "buttons": [
+            {
+              "label": "切换到黑夜模式",
+              "status": "clicked",
+              "reason": "unknown-non-dangerous-control"
+            },
+            {
+              "label": "Chat",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "提示词",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "自动化",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "任务",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "命令",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "技能",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "记忆中心",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "链路追踪",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "共享文件",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "设置",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "全部 4",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "专家能力 4",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "参考资料 0",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "默认规则 0",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "待确认 0",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "全部范围",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "这个项目",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "全局可用",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "全部状态",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "已创建",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "已启动",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "已停用",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "添加给 AI 的内容",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "编辑",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "复制",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "强制使用",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "删除",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "编辑",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "复制",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "强制使用",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "复制",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "强制使用",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "复制",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "强制使用",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            }
+          ],
+          "fields": [
+            {
+              "label": "统一超时阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Warn 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Danger 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Critical 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Codex Claude",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "Codex",
+                "Claude"
+              ]
+            },
+            {
+              "label": "Provider Model",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "GPT-5 Codex",
+                "GPT-5.5",
+                "GPT-5.4",
+                "GPT-5.3 Codex",
+                "GPT-5.2"
+              ]
+            },
+            {
+              "label": "Provider Effort",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "极高",
+                "高",
+                "中",
+                "低",
+                "极低",
+                "关闭"
+              ]
+            },
+            {
+              "label": "Personality",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "pragmatic（务实高效，默认）",
+                "friendly（友好气氛）",
+                "none（默认风格）"
+              ]
+            },
+            {
+              "label": "Codex Home",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Instance Key",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Sandbox Policy",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "workspaceWrite",
+                "readOnly",
+                "dangerFullAccess"
+              ]
+            },
+            {
+              "label": "input:checkbox",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Writable Roots",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "detailed（详细摘要，推荐） auto（自动） concise（简洁） none（关闭）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "detailed（详细摘要，推荐）",
+                "auto（自动）",
+                "concise（简洁）",
+                "none（关闭）"
+              ]
+            },
+            {
+              "label": "on-request（按需，默认） untrusted（始终询问） on-failure（失败后询问） never（全部放行）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "on-request（按需，默认）",
+                "untrusted（始终询问）",
+                "on-failure（失败后询问）",
+                "never（全部放行）"
+              ]
+            },
+            {
+              "label": "settings-show-injected-toggle-input",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "暂无可用提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "请输入提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "debug（最详细） info（默认） warn error（仅错误）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "debug（最详细）",
+                "info（默认）",
+                "warn",
+                "error（仅错误）"
+              ]
+            }
+          ],
+          "clicked": 11,
+          "skipped": 4,
+          "disabled": 0,
+          "fieldFilled": 4,
+          "fieldSkipped": 15,
+          "modalEvents": 0
+        },
+        {
+          "navLabel": "自动化",
+          "navigated": true,
+          "url": "http://127.0.0.1:5175/dags",
+          "headingText": "自动化",
+          "buttonTotal": 24,
+          "fieldTotal": 9,
+          "buttons": [
+            {
+              "label": "切换到白天模式",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "Chat",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "提示词",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "自动化",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "任务",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "命令",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "技能",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "记忆中心",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "链路追踪",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "共享文件",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "设置",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "AI 设计流程",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "进行中 0",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "定时任务 2",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "历史记录 0",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "每日生活计划 最近运行：成功 已暂停 · 定时 · 成功",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "每天#点生成5条抖音爆款视频方案包 最近运行：已取消 已启用 · 每天 #:# · 已取消",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "删除",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "修改计划",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "启用自动运行",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "运行",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "读取最终结果",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "第 1 次运行 成功 #-#-# #:#:#",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "(unlabeled)",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            }
+          ],
+          "fields": [
+            {
+              "label": "统一超时阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Warn 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Danger 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Critical 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Codex Claude",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "Codex",
+                "Claude"
+              ]
+            },
+            {
+              "label": "Provider Model",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "GPT-5 Codex",
+                "GPT-5.5",
+                "GPT-5.4",
+                "GPT-5.3 Codex",
+                "GPT-5.2"
+              ]
+            },
+            {
+              "label": "Provider Effort",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "极高",
+                "高",
+                "中",
+                "低",
+                "极低",
+                "关闭"
+              ]
+            },
+            {
+              "label": "Personality",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "pragmatic（务实高效，默认）",
+                "friendly（友好气氛）",
+                "none（默认风格）"
+              ]
+            },
+            {
+              "label": "Codex Home",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Instance Key",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Sandbox Policy",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "workspaceWrite",
+                "readOnly",
+                "dangerFullAccess"
+              ]
+            },
+            {
+              "label": "input:checkbox",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Writable Roots",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "detailed（详细摘要，推荐） auto（自动） concise（简洁） none（关闭）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "detailed（详细摘要，推荐）",
+                "auto（自动）",
+                "concise（简洁）",
+                "none（关闭）"
+              ]
+            },
+            {
+              "label": "on-request（按需，默认） untrusted（始终询问） on-failure（失败后询问） never（全部放行）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "on-request（按需，默认）",
+                "untrusted（始终询问）",
+                "on-failure（失败后询问）",
+                "never（全部放行）"
+              ]
+            },
+            {
+              "label": "settings-show-injected-toggle-input",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "暂无可用提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "请输入提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "debug（最详细） info（默认） warn error（仅错误）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "debug（最详细）",
+                "info（默认）",
+                "warn",
+                "error（仅错误）"
+              ]
+            }
+          ],
+          "clicked": 11,
+          "skipped": 7,
+          "disabled": 0,
+          "fieldFilled": 4,
+          "fieldSkipped": 15,
+          "modalEvents": 0
+        },
+        {
+          "navLabel": "任务",
+          "navigated": true,
+          "url": "http://127.0.0.1:5175/tasks",
+          "headingText": "任务",
+          "buttonTotal": 14,
+          "fieldTotal": 0,
+          "buttons": [
+            {
+              "label": "切换到黑夜模式",
+              "status": "clicked",
+              "reason": "unknown-non-dangerous-control"
+            },
+            {
+              "label": "Chat",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "提示词",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "自动化",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "任务",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "命令",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "技能",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "记忆中心",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "链路追踪",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "共享文件",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "设置",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "任务工单",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "执行追踪",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "定时任务",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            }
+          ],
+          "fields": [
+            {
+              "label": "统一超时阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Warn 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Danger 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Critical 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Codex Claude",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "Codex",
+                "Claude"
+              ]
+            },
+            {
+              "label": "Provider Model",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "GPT-5 Codex",
+                "GPT-5.5",
+                "GPT-5.4",
+                "GPT-5.3 Codex",
+                "GPT-5.2"
+              ]
+            },
+            {
+              "label": "Provider Effort",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "极高",
+                "高",
+                "中",
+                "低",
+                "极低",
+                "关闭"
+              ]
+            },
+            {
+              "label": "Personality",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "pragmatic（务实高效，默认）",
+                "friendly（友好气氛）",
+                "none（默认风格）"
+              ]
+            },
+            {
+              "label": "Codex Home",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Instance Key",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Sandbox Policy",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "workspaceWrite",
+                "readOnly",
+                "dangerFullAccess"
+              ]
+            },
+            {
+              "label": "input:checkbox",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Writable Roots",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "detailed（详细摘要，推荐） auto（自动） concise（简洁） none（关闭）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "detailed（详细摘要，推荐）",
+                "auto（自动）",
+                "concise（简洁）",
+                "none（关闭）"
+              ]
+            },
+            {
+              "label": "on-request（按需，默认） untrusted（始终询问） on-failure（失败后询问） never（全部放行）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "on-request（按需，默认）",
+                "untrusted（始终询问）",
+                "on-failure（失败后询问）",
+                "never（全部放行）"
+              ]
+            },
+            {
+              "label": "settings-show-injected-toggle-input",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "暂无可用提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "请输入提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "debug（最详细） info（默认） warn error（仅错误）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "debug（最详细）",
+                "info（默认）",
+                "warn",
+                "error（仅错误）"
+              ]
+            }
+          ],
+          "clicked": 11,
+          "skipped": 0,
+          "disabled": 0,
+          "fieldFilled": 4,
+          "fieldSkipped": 15,
+          "modalEvents": 0
+        },
+        {
+          "navLabel": "命令",
+          "navigated": true,
+          "url": "http://127.0.0.1:5175/commands",
+          "headingText": "命令卡",
+          "buttonTotal": 12,
+          "fieldTotal": 0,
+          "buttons": [
+            {
+              "label": "切换到白天模式",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "Chat",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "提示词",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "自动化",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "任务",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "命令",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "技能",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "记忆中心",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "链路追踪",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "共享文件",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "设置",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "刷新",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            }
+          ],
+          "fields": [
+            {
+              "label": "统一超时阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Warn 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Danger 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Critical 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Codex Claude",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "Codex",
+                "Claude"
+              ]
+            },
+            {
+              "label": "Provider Model",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "GPT-5 Codex",
+                "GPT-5.5",
+                "GPT-5.4",
+                "GPT-5.3 Codex",
+                "GPT-5.2"
+              ]
+            },
+            {
+              "label": "Provider Effort",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "极高",
+                "高",
+                "中",
+                "低",
+                "极低",
+                "关闭"
+              ]
+            },
+            {
+              "label": "Personality",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "pragmatic（务实高效，默认）",
+                "friendly（友好气氛）",
+                "none（默认风格）"
+              ]
+            },
+            {
+              "label": "Codex Home",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Instance Key",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Sandbox Policy",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "workspaceWrite",
+                "readOnly",
+                "dangerFullAccess"
+              ]
+            },
+            {
+              "label": "input:checkbox",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Writable Roots",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "detailed（详细摘要，推荐） auto（自动） concise（简洁） none（关闭）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "detailed（详细摘要，推荐）",
+                "auto（自动）",
+                "concise（简洁）",
+                "none（关闭）"
+              ]
+            },
+            {
+              "label": "on-request（按需，默认） untrusted（始终询问） on-failure（失败后询问） never（全部放行）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "on-request（按需，默认）",
+                "untrusted（始终询问）",
+                "on-failure（失败后询问）",
+                "never（全部放行）"
+              ]
+            },
+            {
+              "label": "settings-show-injected-toggle-input",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "暂无可用提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "请输入提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "debug（最详细） info（默认） warn error（仅错误）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "debug（最详细）",
+                "info（默认）",
+                "warn",
+                "error（仅错误）"
+              ]
+            }
+          ],
+          "clicked": 11,
+          "skipped": 0,
+          "disabled": 0,
+          "fieldFilled": 4,
+          "fieldSkipped": 15,
+          "modalEvents": 0
+        },
+        {
+          "navLabel": "技能",
+          "navigated": true,
+          "url": "http://127.0.0.1:5175/skills",
+          "headingText": "技能管理",
+          "buttonTotal": 62,
+          "fieldTotal": 1,
+          "buttons": [
+            {
+              "label": "切换到黑夜模式",
+              "status": "clicked",
+              "reason": "unknown-non-dangerous-control"
+            },
+            {
+              "label": "Chat",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "提示词",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "自动化",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "任务",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "命令",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "技能",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "记忆中心",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "链路追踪",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "共享文件",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "设置",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "批量导入技能目录",
+              "status": "skip",
+              "reason": "native-file-or-project-dialog"
+            },
+            {
+              "label": "新建技能",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "私人使用 0",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "项目共享 #",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "全部 #",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "编辑详情",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "删除",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            }
+          ],
+          "fields": [
+            {
+              "label": "统一超时阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Warn 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Danger 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Critical 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Codex Claude",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "Codex",
+                "Claude"
+              ]
+            },
+            {
+              "label": "Provider Model",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "GPT-5 Codex",
+                "GPT-5.5",
+                "GPT-5.4",
+                "GPT-5.3 Codex",
+                "GPT-5.2"
+              ]
+            },
+            {
+              "label": "Provider Effort",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "极高",
+                "高",
+                "中",
+                "低",
+                "极低",
+                "关闭"
+              ]
+            },
+            {
+              "label": "Personality",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "pragmatic（务实高效，默认）",
+                "friendly（友好气氛）",
+                "none（默认风格）"
+              ]
+            },
+            {
+              "label": "Codex Home",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Instance Key",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Sandbox Policy",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "workspaceWrite",
+                "readOnly",
+                "dangerFullAccess"
+              ]
+            },
+            {
+              "label": "input:checkbox",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Writable Roots",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "detailed（详细摘要，推荐） auto（自动） concise（简洁） none（关闭）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "detailed（详细摘要，推荐）",
+                "auto（自动）",
+                "concise（简洁）",
+                "none（关闭）"
+              ]
+            },
+            {
+              "label": "on-request（按需，默认） untrusted（始终询问） on-failure（失败后询问） never（全部放行）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "on-request（按需，默认）",
+                "untrusted（始终询问）",
+                "on-failure（失败后询问）",
+                "never（全部放行）"
+              ]
+            },
+            {
+              "label": "settings-show-injected-toggle-input",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "暂无可用提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "请输入提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "debug（最详细） info（默认） warn error（仅错误）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "debug（最详细）",
+                "info（默认）",
+                "warn",
+                "error（仅错误）"
+              ]
+            }
+          ],
+          "clicked": 11,
+          "skipped": 4,
+          "disabled": 0,
+          "fieldFilled": 3,
+          "fieldSkipped": 16,
+          "modalEvents": 0
+        },
+        {
+          "navLabel": "记忆中心",
+          "navigated": true,
+          "url": "http://127.0.0.1:5175/memory",
+          "headingText": "记忆中心",
+          "buttonTotal": 20,
+          "fieldTotal": 1,
+          "buttons": [
+            {
+              "label": "切换到白天模式",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "Chat",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "提示词",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "自动化",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "任务",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "命令",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "技能",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "记忆中心",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "链路追踪",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "共享文件",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "设置",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "+ 新建 ▾",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "关闭",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "偏好 2",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "项目 7",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "全部 9",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "编辑",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "删除",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "编辑",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            }
+          ],
+          "fields": [
+            {
+              "label": "统一超时阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Warn 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Danger 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Critical 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Codex Claude",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "Codex",
+                "Claude"
+              ]
+            },
+            {
+              "label": "Provider Model",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "GPT-5 Codex",
+                "GPT-5.5",
+                "GPT-5.4",
+                "GPT-5.3 Codex",
+                "GPT-5.2"
+              ]
+            },
+            {
+              "label": "Provider Effort",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "极高",
+                "高",
+                "中",
+                "低",
+                "极低",
+                "关闭"
+              ]
+            },
+            {
+              "label": "Personality",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "pragmatic（务实高效，默认）",
+                "friendly（友好气氛）",
+                "none（默认风格）"
+              ]
+            },
+            {
+              "label": "Codex Home",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Instance Key",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Sandbox Policy",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "workspaceWrite",
+                "readOnly",
+                "dangerFullAccess"
+              ]
+            },
+            {
+              "label": "input:checkbox",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Writable Roots",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "detailed（详细摘要，推荐） auto（自动） concise（简洁） none（关闭）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "detailed（详细摘要，推荐）",
+                "auto（自动）",
+                "concise（简洁）",
+                "none（关闭）"
+              ]
+            },
+            {
+              "label": "on-request（按需，默认） untrusted（始终询问） on-failure（失败后询问） never（全部放行）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "on-request（按需，默认）",
+                "untrusted（始终询问）",
+                "on-failure（失败后询问）",
+                "never（全部放行）"
+              ]
+            },
+            {
+              "label": "settings-show-injected-toggle-input",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "暂无可用提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "请输入提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "debug（最详细） info（默认） warn error（仅错误）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "debug（最详细）",
+                "info（默认）",
+                "warn",
+                "error（仅错误）"
+              ]
+            }
+          ],
+          "clicked": 11,
+          "skipped": 1,
+          "disabled": 0,
+          "fieldFilled": 4,
+          "fieldSkipped": 15,
+          "modalEvents": 0
+        },
+        {
+          "navLabel": "链路追踪",
+          "navigated": true,
+          "url": "http://127.0.0.1:5175/observability",
+          "headingText": "链路追踪",
+          "buttonTotal": 12,
+          "fieldTotal": 8,
+          "buttons": [
+            {
+              "label": "切换到黑夜模式",
+              "status": "clicked",
+              "reason": "unknown-non-dangerous-control"
+            },
+            {
+              "label": "Chat",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "提示词",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "自动化",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "任务",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "命令",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "技能",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "记忆中心",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "链路追踪",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "共享文件",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "设置",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "查询最新日志",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            }
+          ],
+          "fields": [
+            {
+              "label": "统一超时阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Warn 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Danger 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Critical 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Codex Claude",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "Codex",
+                "Claude"
+              ]
+            },
+            {
+              "label": "Provider Model",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "GPT-5 Codex",
+                "GPT-5.5",
+                "GPT-5.4",
+                "GPT-5.3 Codex",
+                "GPT-5.2"
+              ]
+            },
+            {
+              "label": "Provider Effort",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "极高",
+                "高",
+                "中",
+                "低",
+                "极低",
+                "关闭"
+              ]
+            },
+            {
+              "label": "Personality",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "pragmatic（务实高效，默认）",
+                "friendly（友好气氛）",
+                "none（默认风格）"
+              ]
+            },
+            {
+              "label": "Codex Home",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Instance Key",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Sandbox Policy",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "workspaceWrite",
+                "readOnly",
+                "dangerFullAccess"
+              ]
+            },
+            {
+              "label": "input:checkbox",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Writable Roots",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "detailed（详细摘要，推荐） auto（自动） concise（简洁） none（关闭）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "detailed（详细摘要，推荐）",
+                "auto（自动）",
+                "concise（简洁）",
+                "none（关闭）"
+              ]
+            },
+            {
+              "label": "on-request（按需，默认） untrusted（始终询问） on-failure（失败后询问） never（全部放行）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "on-request（按需，默认）",
+                "untrusted（始终询问）",
+                "on-failure（失败后询问）",
+                "never（全部放行）"
+              ]
+            },
+            {
+              "label": "settings-show-injected-toggle-input",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "暂无可用提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "请输入提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "debug（最详细） info（默认） warn error（仅错误）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "debug（最详细）",
+                "info（默认）",
+                "warn",
+                "error（仅错误）"
+              ]
+            }
+          ],
+          "clicked": 11,
+          "skipped": 0,
+          "disabled": 0,
+          "fieldFilled": 4,
+          "fieldSkipped": 15,
+          "modalEvents": 0
+        },
+        {
+          "navLabel": "共享文件",
+          "navigated": true,
+          "url": "http://127.0.0.1:5175/files",
+          "headingText": "文件产物",
+          "buttonTotal": 18,
+          "fieldTotal": 2,
+          "buttons": [
+            {
+              "label": "切换到白天模式",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "Chat",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "提示词",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "自动化",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "任务",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "命令",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "技能",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "记忆中心",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "链路追踪",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "共享文件",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "设置",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "全部 1",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "最终产物 1",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "工作文件 0",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "打开",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "导出",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "不可删除",
+              "status": "disabled",
+              "reason": "disabled"
+            },
+            {
+              "label": "用此文件继续对话",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            }
+          ],
+          "fields": [
+            {
+              "label": "统一超时阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Warn 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Danger 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Critical 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Codex Claude",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "Codex",
+                "Claude"
+              ]
+            },
+            {
+              "label": "Provider Model",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "GPT-5 Codex",
+                "GPT-5.5",
+                "GPT-5.4",
+                "GPT-5.3 Codex",
+                "GPT-5.2"
+              ]
+            },
+            {
+              "label": "Provider Effort",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "极高",
+                "高",
+                "中",
+                "低",
+                "极低",
+                "关闭"
+              ]
+            },
+            {
+              "label": "Personality",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "pragmatic（务实高效，默认）",
+                "friendly（友好气氛）",
+                "none（默认风格）"
+              ]
+            },
+            {
+              "label": "Codex Home",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Instance Key",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Sandbox Policy",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "workspaceWrite",
+                "readOnly",
+                "dangerFullAccess"
+              ]
+            },
+            {
+              "label": "input:checkbox",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Writable Roots",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "detailed（详细摘要，推荐） auto（自动） concise（简洁） none（关闭）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "detailed（详细摘要，推荐）",
+                "auto（自动）",
+                "concise（简洁）",
+                "none（关闭）"
+              ]
+            },
+            {
+              "label": "on-request（按需，默认） untrusted（始终询问） on-failure（失败后询问） never（全部放行）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "on-request（按需，默认）",
+                "untrusted（始终询问）",
+                "on-failure（失败后询问）",
+                "never（全部放行）"
+              ]
+            },
+            {
+              "label": "settings-show-injected-toggle-input",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "暂无可用提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "请输入提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "debug（最详细） info（默认） warn error（仅错误）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "debug（最详细）",
+                "info（默认）",
+                "warn",
+                "error（仅错误）"
+              ]
+            }
+          ],
+          "clicked": 11,
+          "skipped": 1,
+          "disabled": 1,
+          "fieldFilled": 3,
+          "fieldSkipped": 16,
+          "modalEvents": 0
+        },
+        {
+          "navLabel": "设置",
+          "navigated": true,
+          "url": "http://127.0.0.1:5175/settings",
+          "headingText": "设置",
+          "buttonTotal": 25,
+          "fieldTotal": 19,
+          "buttons": [
+            {
+              "label": "切换到黑夜模式",
+              "status": "clicked",
+              "reason": "unknown-non-dangerous-control"
+            },
+            {
+              "label": "Chat",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "提示词",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "自动化",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "任务",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "命令",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "技能",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "记忆中心",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "链路追踪",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "共享文件",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "设置",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "刷新构建信息",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "保存超时阈值",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "保存运行阈值",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "保存 Provider 设置",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "刷新",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "保存",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "刷新",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "复制生效提示词",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "恢复默认",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "保存提示词",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "▸ 启动前已关闭（#） 已管控 # 项",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "▸ 仅提醒使用项目工具（7） 已管控 7 项",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "▸ 保持可用（#） 可用 # 项",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "刷新日志",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            }
+          ],
+          "fields": [
+            {
+              "label": "统一超时阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Warn 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Danger 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Critical 阈值",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Codex Claude",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "Codex",
+                "Claude"
+              ]
+            },
+            {
+              "label": "Provider Model",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "GPT-5 Codex",
+                "GPT-5.5",
+                "GPT-5.4",
+                "GPT-5.3 Codex",
+                "GPT-5.2"
+              ]
+            },
+            {
+              "label": "Provider Effort",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "极高",
+                "高",
+                "中",
+                "低",
+                "极低",
+                "关闭"
+              ]
+            },
+            {
+              "label": "Personality",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "pragmatic（务实高效，默认）",
+                "friendly（友好气氛）",
+                "none（默认风格）"
+              ]
+            },
+            {
+              "label": "Codex Home",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Instance Key",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "Sandbox Policy",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "workspaceWrite",
+                "readOnly",
+                "dangerFullAccess"
+              ]
+            },
+            {
+              "label": "input:checkbox",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Writable Roots",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "detailed（详细摘要，推荐） auto（自动） concise（简洁） none（关闭）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "detailed（详细摘要，推荐）",
+                "auto（自动）",
+                "concise（简洁）",
+                "none（关闭）"
+              ]
+            },
+            {
+              "label": "on-request（按需，默认） untrusted（始终询问） on-failure（失败后询问） never（全部放行）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "on-request（按需，默认）",
+                "untrusted（始终询问）",
+                "on-failure（失败后询问）",
+                "never（全部放行）"
+              ]
+            },
+            {
+              "label": "settings-show-injected-toggle-input",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "暂无可用提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "请输入提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "debug（最详细） info（默认） warn error（仅错误）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "debug（最详细）",
+                "info（默认）",
+                "warn",
+                "error（仅错误）"
+              ]
+            }
+          ],
+          "clicked": 11,
+          "skipped": 7,
+          "disabled": 0,
+          "fieldFilled": 4,
+          "fieldSkipped": 15,
+          "modalEvents": 0
+        }
+      ],
+      "consoleSummary": {
+        "debug": 2,
+        "info": 1
+      },
+      "pageErrors": [],
+      "failedRequests": [],
+      "screenshot": "docs/审查报告/前端项目资料/assets/2026-06-03-new-ui-full-ux-home.png",
+      "consoleWarnings": [],
+      "consoleErrors": []
+    },
+    {
+      "id": "legacy-ui",
+      "name": "Legacy Vue UI",
+      "url": "http://127.0.0.1:5173/",
+      "title": "Agent Orchestrator",
+      "shellPresent": true,
+      "pages": [
+        {
+          "navLabel": "Chat",
+          "navigated": true,
+          "url": "http://127.0.0.1:5173/",
+          "headingText": "AGENTS.md instructions for /Users/ai/Desktop/Super-Dolphin",
+          "buttonTotal": 55,
+          "fieldTotal": 2,
+          "buttons": [
+            {
+              "label": "💬 Chat",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "提示词",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "D 任务流程",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "T 任务",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "S 技能",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "C 命令",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "M 记忆中心",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "F 共享文件",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": ".. 设置",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "Desktop/Super-Dolphin",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "复制信息",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "当前没有可中断任务",
+              "status": "disabled",
+              "reason": "disabled"
+            },
+            {
+              "label": "新对话",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "进程恢复",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "新窗口 (独立进程)",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "打开归档列表",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "取消置顶会话",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "归档会话",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "取消置顶会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "归档会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "置顶会话",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "归档会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "置顶会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "归档会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "置顶会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "归档会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "置顶会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "归档会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "置顶会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "归档会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "置顶会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "归档会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "置顶会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "归档会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "置顶会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "归档会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "置顶会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "归档会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "置顶会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "归档会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "置顶会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "归档会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "置顶会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "归档会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "置顶会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "归档会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "置顶会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "归档会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "置顶会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "归档会话",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "滚动到顶部",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "附件",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "以当前会话为背景新建一个继承对话",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "当前 agent 不支持上下文压缩",
+              "status": "disabled",
+              "reason": "disabled"
+            },
+            {
+              "label": "发送",
+              "status": "disabled",
+              "reason": "disabled"
+            }
+          ],
+          "fields": [
+            {
+              "label": "settings-stall-threshold-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-warn-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-danger-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-critical-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Codex (默认) Claude 命令行 (原生)",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "Codex (默认)",
+                "Claude 命令行 (原生)"
+              ]
+            },
+            {
+              "label": "~/Library/Application Support/Super Dolphin/providers/codex",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "default",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "workspaceWrite（推荐） readOnly（只读） dangerFullAccess（无限制 ⚠️）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "workspaceWrite（推荐）",
+                "readOnly（只读）",
+                "dangerFullAccess（无限制 ⚠️）"
+              ]
+            },
+            {
+              "label": "/abs/path/to/workspace",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "input:checkbox",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "GPT-5 Codex GPT-5.5 GPT-5.4 GPT-5.3 Codex GPT-5.2",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "GPT-5 Codex",
+                "GPT-5.5",
+                "GPT-5.4",
+                "GPT-5.3 Codex",
+                "GPT-5.2"
+              ]
+            },
+            {
+              "label": "极高 高 中 低 极低 关闭",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "极高",
+                "高",
+                "中",
+                "低",
+                "极低",
+                "关闭"
+              ]
+            },
+            {
+              "label": "pragmatic（务实高效，默认） friendly（友好气氛） none（默认风格）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "pragmatic（务实高效，默认）",
+                "friendly（友好气氛）",
+                "none（默认风格）"
+              ]
+            },
+            {
+              "label": "detailed（详细摘要，推荐） auto（自动） concise（简洁） none（关闭）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "detailed（详细摘要，推荐）",
+                "auto（自动）",
+                "concise（简洁）",
+                "none（关闭）"
+              ]
+            },
+            {
+              "label": "on-request（按需，默认） untrusted（始终询问） on-failure（失败后询问） never（全部放行）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "on-request（按需，默认）",
+                "untrusted（始终询问）",
+                "on-failure（失败后询问）",
+                "never（全部放行）"
+              ]
+            },
+            {
+              "label": "settings-show-injected-toggle-input",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-lsp-effective-output",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "请输入提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "debug（最详细） info（默认） warn error（仅错误）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "debug（最详细）",
+                "info（默认）",
+                "warn",
+                "error（仅错误）"
+              ]
+            }
+          ],
+          "clicked": 9,
+          "skipped": 4,
+          "disabled": 3,
+          "fieldFilled": 4,
+          "fieldSkipped": 15,
+          "modalEvents": 0
+        },
+        {
+          "navLabel": "提示词",
+          "navigated": true,
+          "url": "http://127.0.0.1:5173/",
+          "headingText": "AI 能力与资料",
+          "buttonTotal": 38,
+          "fieldTotal": 0,
+          "buttons": [
+            {
+              "label": "💬 Chat",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "提示词",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "D 任务流程",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "T 任务",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "S 技能",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "C 命令",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "M 记忆中心",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "F 共享文件",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": ".. 设置",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "📂 全部 4 条",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "🧠 专家能力 4 条",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "📚 参考资料 0 条",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "📌 默认规则 0 条",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "⏳ 待确认 0 条",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "全部范围",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "这个项目",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "全局可用",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "全部状态",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "启用中",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "已停用",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "+ 添加给 AI 的内容",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "刷新",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "编辑",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "复制",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "强制使用",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "删除",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "编辑",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "复制",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "强制使用",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "复制",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "强制使用",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "复制",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "强制使用",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            }
+          ],
+          "fields": [
+            {
+              "label": "settings-stall-threshold-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-warn-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-danger-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-critical-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Codex (默认) Claude 命令行 (原生)",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "Codex (默认)",
+                "Claude 命令行 (原生)"
+              ]
+            },
+            {
+              "label": "~/Library/Application Support/Super Dolphin/providers/codex",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "default",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "workspaceWrite（推荐） readOnly（只读） dangerFullAccess（无限制 ⚠️）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "workspaceWrite（推荐）",
+                "readOnly（只读）",
+                "dangerFullAccess（无限制 ⚠️）"
+              ]
+            },
+            {
+              "label": "/abs/path/to/workspace",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "input:checkbox",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "GPT-5 Codex GPT-5.5 GPT-5.4 GPT-5.3 Codex GPT-5.2",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "GPT-5 Codex",
+                "GPT-5.5",
+                "GPT-5.4",
+                "GPT-5.3 Codex",
+                "GPT-5.2"
+              ]
+            },
+            {
+              "label": "极高 高 中 低 极低 关闭",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "极高",
+                "高",
+                "中",
+                "低",
+                "极低",
+                "关闭"
+              ]
+            },
+            {
+              "label": "pragmatic（务实高效，默认） friendly（友好气氛） none（默认风格）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "pragmatic（务实高效，默认）",
+                "friendly（友好气氛）",
+                "none（默认风格）"
+              ]
+            },
+            {
+              "label": "detailed（详细摘要，推荐） auto（自动） concise（简洁） none（关闭）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "detailed（详细摘要，推荐）",
+                "auto（自动）",
+                "concise（简洁）",
+                "none（关闭）"
+              ]
+            },
+            {
+              "label": "on-request（按需，默认） untrusted（始终询问） on-failure（失败后询问） never（全部放行）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "on-request（按需，默认）",
+                "untrusted（始终询问）",
+                "on-failure（失败后询问）",
+                "never（全部放行）"
+              ]
+            },
+            {
+              "label": "settings-show-injected-toggle-input",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-lsp-effective-output",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "请输入提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "debug（最详细） info（默认） warn error（仅错误）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "debug（最详细）",
+                "info（默认）",
+                "warn",
+                "error（仅错误）"
+              ]
+            }
+          ],
+          "clicked": 9,
+          "skipped": 4,
+          "disabled": 0,
+          "fieldFilled": 4,
+          "fieldSkipped": 15,
+          "modalEvents": 0
+        },
+        {
+          "navLabel": "任务流程",
+          "navigated": true,
+          "url": "http://127.0.0.1:5173/",
+          "headingText": "任务流程",
+          "buttonTotal": 24,
+          "fieldTotal": 12,
+          "buttons": [
+            {
+              "label": "💬 Chat",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "提示词",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "D 任务流程",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "T 任务",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "S 技能",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "C 命令",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "M 记忆中心",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "F 共享文件",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": ".. 设置",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "AI 设计流程",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "进行中 0",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "定时任务 2",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "历史记录 0",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "每日生活计划 最近运行：成功 已暂停 定时 成功 最终结果",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "每天#点生成5条抖音爆款视频方案包 最近运行：已取消 已启用 每天 #:# 已取消",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "删除",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "启用自动运行",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "修改计划",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "运行",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "打开",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "读取",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "第 1 次运行 成功 #-#-#T#:#:#.#+#:#",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "dag-node-open-chat",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "dag-node-edit-save",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            }
+          ],
+          "fields": [
+            {
+              "label": "settings-stall-threshold-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-warn-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-danger-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-critical-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Codex (默认) Claude 命令行 (原生)",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "Codex (默认)",
+                "Claude 命令行 (原生)"
+              ]
+            },
+            {
+              "label": "~/Library/Application Support/Super Dolphin/providers/codex",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "default",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "workspaceWrite（推荐） readOnly（只读） dangerFullAccess（无限制 ⚠️）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "workspaceWrite（推荐）",
+                "readOnly（只读）",
+                "dangerFullAccess（无限制 ⚠️）"
+              ]
+            },
+            {
+              "label": "/abs/path/to/workspace",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "input:checkbox",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "GPT-5 Codex GPT-5.5 GPT-5.4 GPT-5.3 Codex GPT-5.2",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "GPT-5 Codex",
+                "GPT-5.5",
+                "GPT-5.4",
+                "GPT-5.3 Codex",
+                "GPT-5.2"
+              ]
+            },
+            {
+              "label": "极高 高 中 低 极低 关闭",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "极高",
+                "高",
+                "中",
+                "低",
+                "极低",
+                "关闭"
+              ]
+            },
+            {
+              "label": "pragmatic（务实高效，默认） friendly（友好气氛） none（默认风格）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "pragmatic（务实高效，默认）",
+                "friendly（友好气氛）",
+                "none（默认风格）"
+              ]
+            },
+            {
+              "label": "detailed（详细摘要，推荐） auto（自动） concise（简洁） none（关闭）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "detailed（详细摘要，推荐）",
+                "auto（自动）",
+                "concise（简洁）",
+                "none（关闭）"
+              ]
+            },
+            {
+              "label": "on-request（按需，默认） untrusted（始终询问） on-failure（失败后询问） never（全部放行）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "on-request（按需，默认）",
+                "untrusted（始终询问）",
+                "on-failure（失败后询问）",
+                "never（全部放行）"
+              ]
+            },
+            {
+              "label": "settings-show-injected-toggle-input",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-lsp-effective-output",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "请输入提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "debug（最详细） info（默认） warn error（仅错误）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "debug（最详细）",
+                "info（默认）",
+                "warn",
+                "error（仅错误）"
+              ]
+            }
+          ],
+          "clicked": 9,
+          "skipped": 7,
+          "disabled": 0,
+          "fieldFilled": 4,
+          "fieldSkipped": 15,
+          "modalEvents": 0
+        },
+        {
+          "navLabel": "任务",
+          "navigated": true,
+          "url": "http://127.0.0.1:5173/",
+          "headingText": "任务管理",
+          "buttonTotal": 12,
+          "fieldTotal": 0,
+          "buttons": [
+            {
+              "label": "💬 Chat",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "提示词",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "D 任务流程",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "T 任务",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "S 技能",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "C 命令",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "M 记忆中心",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "F 共享文件",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": ".. 设置",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "任务工单",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "执行追踪",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "定时任务",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            }
+          ],
+          "fields": [
+            {
+              "label": "settings-stall-threshold-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-warn-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-danger-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-critical-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Codex (默认) Claude 命令行 (原生)",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "Codex (默认)",
+                "Claude 命令行 (原生)"
+              ]
+            },
+            {
+              "label": "~/Library/Application Support/Super Dolphin/providers/codex",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "default",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "workspaceWrite（推荐） readOnly（只读） dangerFullAccess（无限制 ⚠️）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "workspaceWrite（推荐）",
+                "readOnly（只读）",
+                "dangerFullAccess（无限制 ⚠️）"
+              ]
+            },
+            {
+              "label": "/abs/path/to/workspace",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "input:checkbox",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "GPT-5 Codex GPT-5.5 GPT-5.4 GPT-5.3 Codex GPT-5.2",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "GPT-5 Codex",
+                "GPT-5.5",
+                "GPT-5.4",
+                "GPT-5.3 Codex",
+                "GPT-5.2"
+              ]
+            },
+            {
+              "label": "极高 高 中 低 极低 关闭",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "极高",
+                "高",
+                "中",
+                "低",
+                "极低",
+                "关闭"
+              ]
+            },
+            {
+              "label": "pragmatic（务实高效，默认） friendly（友好气氛） none（默认风格）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "pragmatic（务实高效，默认）",
+                "friendly（友好气氛）",
+                "none（默认风格）"
+              ]
+            },
+            {
+              "label": "detailed（详细摘要，推荐） auto（自动） concise（简洁） none（关闭）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "detailed（详细摘要，推荐）",
+                "auto（自动）",
+                "concise（简洁）",
+                "none（关闭）"
+              ]
+            },
+            {
+              "label": "on-request（按需，默认） untrusted（始终询问） on-failure（失败后询问） never（全部放行）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "on-request（按需，默认）",
+                "untrusted（始终询问）",
+                "on-failure（失败后询问）",
+                "never（全部放行）"
+              ]
+            },
+            {
+              "label": "settings-show-injected-toggle-input",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-lsp-effective-output",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "请输入提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "debug（最详细） info（默认） warn error（仅错误）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "debug（最详细）",
+                "info（默认）",
+                "warn",
+                "error（仅错误）"
+              ]
+            }
+          ],
+          "clicked": 9,
+          "skipped": 0,
+          "disabled": 0,
+          "fieldFilled": 4,
+          "fieldSkipped": 15,
+          "modalEvents": 0
+        },
+        {
+          "navLabel": "命令",
+          "navigated": true,
+          "url": "http://127.0.0.1:5173/",
+          "headingText": "命令卡",
+          "buttonTotal": 9,
+          "fieldTotal": 0,
+          "buttons": [
+            {
+              "label": "💬 Chat",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "提示词",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "D 任务流程",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "T 任务",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "S 技能",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "C 命令",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "M 记忆中心",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "F 共享文件",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": ".. 设置",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            }
+          ],
+          "fields": [
+            {
+              "label": "settings-stall-threshold-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-warn-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-danger-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-critical-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Codex (默认) Claude 命令行 (原生)",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "Codex (默认)",
+                "Claude 命令行 (原生)"
+              ]
+            },
+            {
+              "label": "~/Library/Application Support/Super Dolphin/providers/codex",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "default",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "workspaceWrite（推荐） readOnly（只读） dangerFullAccess（无限制 ⚠️）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "workspaceWrite（推荐）",
+                "readOnly（只读）",
+                "dangerFullAccess（无限制 ⚠️）"
+              ]
+            },
+            {
+              "label": "/abs/path/to/workspace",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "input:checkbox",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "GPT-5 Codex GPT-5.5 GPT-5.4 GPT-5.3 Codex GPT-5.2",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "GPT-5 Codex",
+                "GPT-5.5",
+                "GPT-5.4",
+                "GPT-5.3 Codex",
+                "GPT-5.2"
+              ]
+            },
+            {
+              "label": "极高 高 中 低 极低 关闭",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "极高",
+                "高",
+                "中",
+                "低",
+                "极低",
+                "关闭"
+              ]
+            },
+            {
+              "label": "pragmatic（务实高效，默认） friendly（友好气氛） none（默认风格）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "pragmatic（务实高效，默认）",
+                "friendly（友好气氛）",
+                "none（默认风格）"
+              ]
+            },
+            {
+              "label": "detailed（详细摘要，推荐） auto（自动） concise（简洁） none（关闭）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "detailed（详细摘要，推荐）",
+                "auto（自动）",
+                "concise（简洁）",
+                "none（关闭）"
+              ]
+            },
+            {
+              "label": "on-request（按需，默认） untrusted（始终询问） on-failure（失败后询问） never（全部放行）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "on-request（按需，默认）",
+                "untrusted（始终询问）",
+                "on-failure（失败后询问）",
+                "never（全部放行）"
+              ]
+            },
+            {
+              "label": "settings-show-injected-toggle-input",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-lsp-effective-output",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "请输入提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "debug（最详细） info（默认） warn error（仅错误）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "debug（最详细）",
+                "info（默认）",
+                "warn",
+                "error（仅错误）"
+              ]
+            }
+          ],
+          "clicked": 9,
+          "skipped": 0,
+          "disabled": 0,
+          "fieldFilled": 4,
+          "fieldSkipped": 15,
+          "modalEvents": 0
+        },
+        {
+          "navLabel": "技能",
+          "navigated": true,
+          "url": "http://127.0.0.1:5173/",
+          "headingText": "技能管理",
+          "buttonTotal": 60,
+          "fieldTotal": 1,
+          "buttons": [
+            {
+              "label": "💬 Chat",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "提示词",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "D 任务流程",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "T 任务",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "S 技能",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "C 命令",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "M 记忆中心",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "F 共享文件",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": ".. 设置",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "批量导入技能目录",
+              "status": "skip",
+              "reason": "native-file-or-project-dialog"
+            },
+            {
+              "label": "新建技能",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "私人使用 0",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "项目共享 #",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "全部 #",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "编辑详情",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "删除",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "编辑详情",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            }
+          ],
+          "fields": [
+            {
+              "label": "settings-stall-threshold-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-warn-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-danger-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-critical-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Codex (默认) Claude 命令行 (原生)",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "Codex (默认)",
+                "Claude 命令行 (原生)"
+              ]
+            },
+            {
+              "label": "~/Library/Application Support/Super Dolphin/providers/codex",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "default",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "workspaceWrite（推荐） readOnly（只读） dangerFullAccess（无限制 ⚠️）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "workspaceWrite（推荐）",
+                "readOnly（只读）",
+                "dangerFullAccess（无限制 ⚠️）"
+              ]
+            },
+            {
+              "label": "/abs/path/to/workspace",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "input:checkbox",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "GPT-5 Codex GPT-5.5 GPT-5.4 GPT-5.3 Codex GPT-5.2",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "GPT-5 Codex",
+                "GPT-5.5",
+                "GPT-5.4",
+                "GPT-5.3 Codex",
+                "GPT-5.2"
+              ]
+            },
+            {
+              "label": "极高 高 中 低 极低 关闭",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "极高",
+                "高",
+                "中",
+                "低",
+                "极低",
+                "关闭"
+              ]
+            },
+            {
+              "label": "pragmatic（务实高效，默认） friendly（友好气氛） none（默认风格）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "pragmatic（务实高效，默认）",
+                "friendly（友好气氛）",
+                "none（默认风格）"
+              ]
+            },
+            {
+              "label": "detailed（详细摘要，推荐） auto（自动） concise（简洁） none（关闭）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "detailed（详细摘要，推荐）",
+                "auto（自动）",
+                "concise（简洁）",
+                "none（关闭）"
+              ]
+            },
+            {
+              "label": "on-request（按需，默认） untrusted（始终询问） on-failure（失败后询问） never（全部放行）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "on-request（按需，默认）",
+                "untrusted（始终询问）",
+                "on-failure（失败后询问）",
+                "never（全部放行）"
+              ]
+            },
+            {
+              "label": "settings-show-injected-toggle-input",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-lsp-effective-output",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "请输入提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "debug（最详细） info（默认） warn error（仅错误）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "debug（最详细）",
+                "info（默认）",
+                "warn",
+                "error（仅错误）"
+              ]
+            }
+          ],
+          "clicked": 9,
+          "skipped": 4,
+          "disabled": 0,
+          "fieldFilled": 4,
+          "fieldSkipped": 15,
+          "modalEvents": 0
+        },
+        {
+          "navLabel": "记忆中心",
+          "navigated": true,
+          "url": "http://127.0.0.1:5173/",
+          "headingText": "M\n记忆中心",
+          "buttonTotal": 16,
+          "fieldTotal": 1,
+          "buttons": [
+            {
+              "label": "💬 Chat",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "提示词",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "D 任务流程",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "T 任务",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "S 技能",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "C 命令",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "M 记忆中心",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "F 共享文件",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": ".. 设置",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "刷新",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "+ 新建 ▾",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "关闭",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "编辑",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "删除",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "编辑",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "删除",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            }
+          ],
+          "fields": [
+            {
+              "label": "settings-stall-threshold-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-warn-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-danger-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-critical-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Codex (默认) Claude 命令行 (原生)",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "Codex (默认)",
+                "Claude 命令行 (原生)"
+              ]
+            },
+            {
+              "label": "~/Library/Application Support/Super Dolphin/providers/codex",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "default",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "workspaceWrite（推荐） readOnly（只读） dangerFullAccess（无限制 ⚠️）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "workspaceWrite（推荐）",
+                "readOnly（只读）",
+                "dangerFullAccess（无限制 ⚠️）"
+              ]
+            },
+            {
+              "label": "/abs/path/to/workspace",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "input:checkbox",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "GPT-5 Codex GPT-5.5 GPT-5.4 GPT-5.3 Codex GPT-5.2",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "GPT-5 Codex",
+                "GPT-5.5",
+                "GPT-5.4",
+                "GPT-5.3 Codex",
+                "GPT-5.2"
+              ]
+            },
+            {
+              "label": "极高 高 中 低 极低 关闭",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "极高",
+                "高",
+                "中",
+                "低",
+                "极低",
+                "关闭"
+              ]
+            },
+            {
+              "label": "pragmatic（务实高效，默认） friendly（友好气氛） none（默认风格）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "pragmatic（务实高效，默认）",
+                "friendly（友好气氛）",
+                "none（默认风格）"
+              ]
+            },
+            {
+              "label": "detailed（详细摘要，推荐） auto（自动） concise（简洁） none（关闭）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "detailed（详细摘要，推荐）",
+                "auto（自动）",
+                "concise（简洁）",
+                "none（关闭）"
+              ]
+            },
+            {
+              "label": "on-request（按需，默认） untrusted（始终询问） on-failure（失败后询问） never（全部放行）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "on-request（按需，默认）",
+                "untrusted（始终询问）",
+                "on-failure（失败后询问）",
+                "never（全部放行）"
+              ]
+            },
+            {
+              "label": "settings-show-injected-toggle-input",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-lsp-effective-output",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "请输入提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "debug（最详细） info（默认） warn error（仅错误）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "debug（最详细）",
+                "info（默认）",
+                "warn",
+                "error（仅错误）"
+              ]
+            }
+          ],
+          "clicked": 9,
+          "skipped": 1,
+          "disabled": 0,
+          "fieldFilled": 4,
+          "fieldSkipped": 15,
+          "modalEvents": 0
+        },
+        {
+          "navLabel": "共享文件",
+          "navigated": true,
+          "url": "http://127.0.0.1:5173/",
+          "headingText": "文件产物",
+          "buttonTotal": 17,
+          "fieldTotal": 2,
+          "buttons": [
+            {
+              "label": "💬 Chat",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "提示词",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "D 任务流程",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "T 任务",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "S 技能",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "C 命令",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "M 记忆中心",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "F 共享文件",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": ".. 设置",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "全部 1",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "最终产物 1",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "工作文件 0",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "刷新",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "打开",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "导出",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "不可删除",
+              "status": "disabled",
+              "reason": "disabled"
+            },
+            {
+              "label": "用此文件继续对话",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            }
+          ],
+          "fields": [
+            {
+              "label": "settings-stall-threshold-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-warn-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-danger-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-critical-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Codex (默认) Claude 命令行 (原生)",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "Codex (默认)",
+                "Claude 命令行 (原生)"
+              ]
+            },
+            {
+              "label": "~/Library/Application Support/Super Dolphin/providers/codex",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "default",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "workspaceWrite（推荐） readOnly（只读） dangerFullAccess（无限制 ⚠️）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "workspaceWrite（推荐）",
+                "readOnly（只读）",
+                "dangerFullAccess（无限制 ⚠️）"
+              ]
+            },
+            {
+              "label": "/abs/path/to/workspace",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "input:checkbox",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "GPT-5 Codex GPT-5.5 GPT-5.4 GPT-5.3 Codex GPT-5.2",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "GPT-5 Codex",
+                "GPT-5.5",
+                "GPT-5.4",
+                "GPT-5.3 Codex",
+                "GPT-5.2"
+              ]
+            },
+            {
+              "label": "极高 高 中 低 极低 关闭",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "极高",
+                "高",
+                "中",
+                "低",
+                "极低",
+                "关闭"
+              ]
+            },
+            {
+              "label": "pragmatic（务实高效，默认） friendly（友好气氛） none（默认风格）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "pragmatic（务实高效，默认）",
+                "friendly（友好气氛）",
+                "none（默认风格）"
+              ]
+            },
+            {
+              "label": "detailed（详细摘要，推荐） auto（自动） concise（简洁） none（关闭）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "detailed（详细摘要，推荐）",
+                "auto（自动）",
+                "concise（简洁）",
+                "none（关闭）"
+              ]
+            },
+            {
+              "label": "on-request（按需，默认） untrusted（始终询问） on-failure（失败后询问） never（全部放行）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "on-request（按需，默认）",
+                "untrusted（始终询问）",
+                "on-failure（失败后询问）",
+                "never（全部放行）"
+              ]
+            },
+            {
+              "label": "settings-show-injected-toggle-input",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-lsp-effective-output",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "请输入提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "debug（最详细） info（默认） warn error（仅错误）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "debug（最详细）",
+                "info（默认）",
+                "warn",
+                "error（仅错误）"
+              ]
+            }
+          ],
+          "clicked": 9,
+          "skipped": 0,
+          "disabled": 1,
+          "fieldFilled": 4,
+          "fieldSkipped": 15,
+          "modalEvents": 0
+        },
+        {
+          "navLabel": "设置",
+          "navigated": true,
+          "url": "http://127.0.0.1:5173/",
+          "headingText": "设置",
+          "buttonTotal": 22,
+          "fieldTotal": 19,
+          "buttons": [
+            {
+              "label": "💬 Chat",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "提示词",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "D 任务流程",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "T 任务",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "S 技能",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "C 命令",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "M 记忆中心",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "F 共享文件",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": ".. 设置",
+              "status": "clicked",
+              "reason": "safe-known-control"
+            },
+            {
+              "label": "刷新构建信息",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "保存",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "保存",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "刷新",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "保存",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "刷新",
+              "status": "covered-by-equivalent",
+              "reason": "same-label-and-class"
+            },
+            {
+              "label": "复制生效提示词",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "恢复默认",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "保存提示词",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "▸ 启动前已关闭（#） 已管控 # 项",
+              "status": "skip",
+              "reason": "state-changing-final-action"
+            },
+            {
+              "label": "▸ 仅提醒使用项目工具（7） 已管控 7 项",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "▸ 保持可用（#） 可用 # 项",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            },
+            {
+              "label": "刷新日志",
+              "status": "stale",
+              "reason": "element-rerendered-before-click"
+            }
+          ],
+          "fields": [
+            {
+              "label": "settings-stall-threshold-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-warn-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-danger-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-ctx-critical-input",
+              "tag": "input",
+              "type": "number",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "Codex (默认) Claude 命令行 (原生)",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "Codex (默认)",
+                "Claude 命令行 (原生)"
+              ]
+            },
+            {
+              "label": "~/Library/Application Support/Super Dolphin/providers/codex",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "default",
+              "tag": "input",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "workspaceWrite（推荐） readOnly（只读） dangerFullAccess（无限制 ⚠️）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "workspaceWrite（推荐）",
+                "readOnly（只读）",
+                "dangerFullAccess（无限制 ⚠️）"
+              ]
+            },
+            {
+              "label": "/abs/path/to/workspace",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "input:checkbox",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "GPT-5 Codex GPT-5.5 GPT-5.4 GPT-5.3 Codex GPT-5.2",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "GPT-5 Codex",
+                "GPT-5.5",
+                "GPT-5.4",
+                "GPT-5.3 Codex",
+                "GPT-5.2"
+              ]
+            },
+            {
+              "label": "极高 高 中 低 极低 关闭",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "极高",
+                "高",
+                "中",
+                "低",
+                "极低",
+                "关闭"
+              ]
+            },
+            {
+              "label": "pragmatic（务实高效，默认） friendly（友好气氛） none（默认风格）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "pragmatic（务实高效，默认）",
+                "friendly（友好气氛）",
+                "none（默认风格）"
+              ]
+            },
+            {
+              "label": "detailed（详细摘要，推荐） auto（自动） concise（简洁） none（关闭）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "detailed（详细摘要，推荐）",
+                "auto（自动）",
+                "concise（简洁）",
+                "none（关闭）"
+              ]
+            },
+            {
+              "label": "on-request（按需，默认） untrusted（始终询问） on-failure（失败后询问） never（全部放行）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "on-request（按需，默认）",
+                "untrusted（始终询问）",
+                "on-failure（失败后询问）",
+                "never（全部放行）"
+              ]
+            },
+            {
+              "label": "settings-show-injected-toggle-input",
+              "tag": "input",
+              "type": "checkbox",
+              "status": "field-observed-no-change"
+            },
+            {
+              "label": "settings-lsp-effective-output",
+              "tag": "textarea",
+              "type": "",
+              "status": "disabled-or-readonly"
+            },
+            {
+              "label": "请输入提示词",
+              "tag": "textarea",
+              "type": "",
+              "status": "filled-and-restored"
+            },
+            {
+              "label": "debug（最详细） info（默认） warn error（仅错误）",
+              "tag": "select",
+              "type": "",
+              "status": "select-observed-no-change",
+              "options": [
+                "debug（最详细）",
+                "info（默认）",
+                "warn",
+                "error（仅错误）"
+              ]
+            }
+          ],
+          "clicked": 9,
+          "skipped": 4,
+          "disabled": 0,
+          "fieldFilled": 4,
+          "fieldSkipped": 15,
+          "modalEvents": 0
+        }
+      ],
+      "consoleSummary": {
+        "debug": 2,
+        "info": 287,
+        "warning": 24
+      },
+      "pageErrors": [],
+      "failedRequests": [],
+      "screenshot": "docs/审查报告/前端项目资料/assets/2026-06-03-legacy-ui-full-ux-home.png",
+      "consoleWarnings": [
+        {
+          "type": "warning",
+          "text": "[TRACE-CWD] threadScopeCwd changed {next: /Users/ai/Desktop/Super-Dolphin, prev: , ts: 1780499902996}"
+        },
+        {
+          "type": "warning",
+          "text": "[AO] scroll.scroll.restore.collapsed {seq: 12, ts: 2026-06-03T15:18:25.164Z, level: warn, scope: scroll, event: scroll.restore.collapsed}"
+        },
+        {
+          "type": "warning",
+          "text": "[AO] thread.config.get.failed {seq: 18, ts: 2026-06-03T15:18:25.219Z, level: warn, scope: thread, event: config.get.failed}"
+        },
+        {
+          "type": "warning",
+          "text": "[AO] ui.chat.selection.forceReload.done {seq: 42, ts: 2026-06-03T15:18:27.903Z, level: warn, scope: ui, event: chat.selection.forceReload.done}"
+        },
+        {
+          "type": "warning",
+          "text": "[AO] thread.config.get.failed {seq: 63, ts: 2026-06-03T15:18:28.617Z, level: warn, scope: thread, event: config.get.failed}"
+        },
+        {
+          "type": "warning",
+          "text": "[AO] ui.chat.selection.fallbackSync.done {seq: 73, ts: 2026-06-03T15:18:30.963Z, level: warn, scope: ui, event: chat.selection.fallbackSync.done}"
+        },
+        {
+          "type": "warning",
+          "text": "[AO] thread.config.get.failed {seq: 90, ts: 2026-06-03T15:18:31.637Z, level: warn, scope: thread, event: config.get.failed}"
+        },
+        {
+          "type": "warning",
+          "text": "[TRACE-CWD] refreshSidebarState completed {ts: 1780499912411}"
+        },
+        {
+          "type": "warning",
+          "text": "[AO] ui.chat.selection.fallbackSync.done {seq: 111, ts: 2026-06-03T15:18:34.037Z, level: warn, scope: ui, event: chat.selection.fallbackSync.done}"
+        },
+        {
+          "type": "warning",
+          "text": "[AO] ui.chat.selection.fallbackSync.done {seq: 112, ts: 2026-06-03T15:18:34.037Z, level: warn, scope: ui, event: chat.selection.fallbackSync.done}"
+        },
+        {
+          "type": "warning",
+          "text": "[AO] ui.chat.selection.concurrentLoad.done {seq: 115, ts: 2026-06-03T15:18:34.037Z, level: warn, scope: ui, event: chat.selection.concurrentLoad.done}"
+        },
+        {
+          "type": "warning",
+          "text": "[AO] thread.config.get.failed {seq: 130, ts: 2026-06-03T15:18:34.670Z, level: warn, scope: thread, event: config.get.failed}"
+        },
+        {
+          "type": "warning",
+          "text": "[AO] ui.chat.selection.fallbackSync.done {seq: 140, ts: 2026-06-03T15:18:36.404Z, level: warn, scope: ui, event: chat.selection.fallbackSync.done}"
+        },
+        {
+          "type": "warning",
+          "text": "[AO] thread.config.get.failed {seq: 166, ts: 2026-06-03T15:18:37.643Z, level: warn, scope: thread, event: config.get.failed}"
+        },
+        {
+          "type": "warning",
+          "text": "[AO] ui.chat.selection.fallbackSync.done {seq: 175, ts: 2026-06-03T15:18:38.721Z, level: warn, scope: ui, event: chat.selection.fallbackSync.done}"
+        },
+        {
+          "type": "warning",
+          "text": "[AO] ui.chat.selection.concurrentLoad.done {seq: 176, ts: 2026-06-03T15:18:38.721Z, level: warn, scope: ui, event: chat.selection.concurrentLoad.done}"
+        },
+        {
+          "type": "warning",
+          "text": "[AO] thread.config.get.failed {seq: 195, ts: 2026-06-03T15:18:40.626Z, level: warn, scope: thread, event: config.get.failed}"
+        },
+        {
+          "type": "warning",
+          "text": "[AO] thread.config.get.failed {seq: 224, ts: 2026-06-03T15:18:43.602Z, level: warn, scope: thread, event: config.get.failed}"
+        },
+        {
+          "type": "warning",
+          "text": "[AO] ui.chat.selection.fallbackSync.done {seq: 242, ts: 2026-06-03T15:18:45.919Z, level: warn, scope: ui, event: chat.selection.fallbackSync.done}"
+        },
+        {
+          "type": "warning",
+          "text": "[AO] ui.chat.selection.concurrentLoad.done {seq: 245, ts: 2026-06-03T15:18:45.919Z, level: warn, scope: ui, event: chat.selection.concurrentLoad.done}"
+        }
+      ],
+      "consoleErrors": []
+    }
+  ]
+}

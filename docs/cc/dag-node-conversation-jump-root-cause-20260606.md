@@ -19,10 +19,10 @@
    - `docs/doc/codemap/02-mcp-orch.md:102`
 
 2. 远端 launcher 通过主控 RPC 启动子代理 thread。`remoteLauncher.Launch` 调 `thread/start`，从响应的 `thread.id/threadId/thread_id` 解析出 `ThreadID`，然后写回 agent runtime 的 `threadID/remoteThreadID`。
-   - `cmd/mcp-orch/orchestration/launcher.go:180`
-   - `cmd/mcp-orch/orchestration/launcher.go:211`
-   - `cmd/mcp-orch/orchestration/launcher.go:222`
-   - `cmd/mcp-orch/orchestration/launcher.go:233`
+   - `internal/sidecar/orch/orchestration/launcher.go:180`
+   - `internal/sidecar/orch/orchestration/launcher.go:211`
+   - `internal/sidecar/orch/orchestration/launcher.go:222`
+   - `internal/sidecar/orch/orchestration/launcher.go:233`
 
 3. `thread/start` 在未传 `AgentID` 时会生成 `agent_*` 风格的 agent id；新建 thread 的公开 id 在 start 场景下优先使用 `PublicThreadID`，否则使用 `AgentID`。因此 `agent_*` 既可能是 runtime agent id，也可能是合法的公开 thread id。
    - `internal/module/thread/start_session.go:21`
@@ -38,21 +38,21 @@
    - `internal/module/thread/rpc_types.go:462`
 
 5. DAG agent executor 拿到 launcher 返回的 thread id 后，调用 `RecordNodeSpawn` 写回 DAG 节点。
-   - `cmd/mcp-orch/orchestration/nodeexec/executor_agent.go:221`
-   - `cmd/mcp-orch/orchestration/nodeexec/executor_agent.go:251`
-   - `cmd/mcp-orch/orchestration/nodeexec/executor_agent.go:434`
-   - `cmd/mcp-orch/orchestration/nodeexec/executor_agent.go:446`
+   - `internal/sidecar/orch/orchestration/nodeexec/executor_agent.go:221`
+   - `internal/sidecar/orch/orchestration/nodeexec/executor_agent.go:251`
+   - `internal/sidecar/orch/orchestration/nodeexec/executor_agent.go:434`
+   - `internal/sidecar/orch/orchestration/nodeexec/executor_agent.go:446`
 
 6. store 层 fail-fast 要求 `thread_id` 非空，并通过 SQL 更新 `task_dag_nodes.spawning_thread_id`。
-   - `cmd/mcp-orch/store/taskdag/store_node_spawn.go:45`
-   - `cmd/mcp-orch/store/taskdag/store_node_spawn.go:52`
-   - `cmd/mcp-orch/store/taskdag/store_node_spawn.go:78`
-   - `cmd/mcp-orch/sql/queries/task_dag_node_spawning_thread.sql:17`
-   - `cmd/mcp-orch/sql/queries/task_dag_node_spawning_thread.sql:26`
+   - `internal/sidecar/orch/store/taskdag/store_node_spawn.go:45`
+   - `internal/sidecar/orch/store/taskdag/store_node_spawn.go:52`
+   - `internal/sidecar/orch/store/taskdag/store_node_spawn.go:78`
+   - `internal/sidecar/orch/sql/queries/task_dag_node_spawning_thread.sql:17`
+   - `internal/sidecar/orch/sql/queries/task_dag_node_spawning_thread.sql:26`
 
 7. DAG DTO 把 `SpawningThreadID` 作为 `spawning_thread_id` 暴露给 `task_get_dag`。契约注释也明确说 UI 用它拼“节点行到子 agent thread”的跳转链接。
-   - `cmd/mcp-orch/orchestration/dag.go:455`
-   - `cmd/mcp-orch/orchestration/dag.go:475`
+   - `internal/sidecar/orch/orchestration/dag.go:455`
+   - `internal/sidecar/orch/orchestration/dag.go:475`
    - `internal/contract/orchestration.go:540`
    - `internal/contract/orchestration.go:543`
 
@@ -191,7 +191,7 @@ npm run lint
 若修改 DAG DTO 或 orchestrator 写回链路:
 
 ```bash
-./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration ./cmd/mcp-orch/store/taskdag -count=1
+./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration ./internal/sidecar/orch/store/taskdag -count=1
 ```
 
 ## 不建议的修复

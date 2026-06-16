@@ -10,7 +10,7 @@
 - 当前还存在 `rpc.PushBridge` / `eventsurface` 这一套 UI JSON-RPC push 面，它也不是外部消息发送器。
 - `turn/service.go` 没有 event-bus 依赖，也不适合继续堆完成后发通知这类 side effect。
 - 当前 core app 与 `cmd/mcp-orch` 是两套 Fx / Bus；如果只在 core 装 notify module，看不到 `mcp-orch` 自己的 DAG / orchestration 事件。
-- **core terminal turn 在 orch 侧的真实入口是 hook consumer**，不是跨 Fx 桥接的 core bus：`cmd/mcp-orch/runtime.go:216-219` 的 `subscribeOrchestrationHooks` → `cmd/mcp-orch/hook_subscription.go:13-40` 订 `agent.turn.after / failed / progress` → `cmd/mcp-orch/orchestration/hook_consumer.go:96-220` 处理 `TurnCompleted` 与 `ItemCompleted(final_answer)`。因此 orch 侧 notify 对 **core terminal turn** 的观察 tap 必须接在 hook consumer 处理链上；而 orch 自己产生的 DAG / task / wakeup 事件仍走 orch 本地 `bus.subscribers`，两者不能互相替代。
+- **core terminal turn 在 orch 侧的真实入口是 hook consumer**，不是跨 Fx 桥接的 core bus：`cmd/mcp-orch/runtime.go:216-219` 的 `subscribeOrchestrationHooks` → `cmd/mcp-orch/hook_subscription.go:13-40` 订 `agent.turn.after / failed / progress` → `internal/sidecar/orch/orchestration/hook_consumer.go:96-220` 处理 `TurnCompleted` 与 `ItemCompleted(final_answer)`。因此 orch 侧 notify 对 **core terminal turn** 的观察 tap 必须接在 hook consumer 处理链上；而 orch 自己产生的 DAG / task / wakeup 事件仍走 orch 本地 `bus.subscribers`，两者不能互相替代。
 - **archtest 白名单事实**：`internal/archtest/dependency_direction_mcp_orch_test.go:23-29` **枚举** 放行 `internal/platform/{config,db,bus,runner,rpc,runtimesafe,shared,statemachine,eventsurface,rlimit}` 十个子包，不是 `internal/platform/*` 前缀通配。因此若新建 `internal/platform/notify` 包会撞护栏。
 
 ## 推荐改动清单
@@ -20,7 +20,7 @@
 | 抽象合约 | `internal/contract/message_notifier.go` [NEW] | 定义 alias-first 的外部通知接口，例如 `TryEnqueue(ctx, NotifyRequest)` |
 | 共享库位置（已拍板） | `internal/module/notify/platform/{webhook,resolver,render,dingtalk,feishu,slack}.go` [NEW]，package doc 标注 *cross-tree shared*；避免与 module 内部 helper 的 `shared` 命名混淆 | 共享 webhook 客户端 / resolver / 模板 / 平台签名；放在 `internal/module` 子包会被 `internal/archtest/dependency_direction_mcp_orch_test.go` 的白名单放行，orch 侧 import 不撞护栏。**禁止** 新建 `internal/platform/notify` 顶层包（那会触发 archtest 护栏改动，本期不采）。 |
 | core 业务 module | `internal/module/notify/module.go` [NEW] | Provide core notifier、注册 core turn / provider / cron subscriber，并把 flush worker 放进 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`） |
-| orch 业务 module | `cmd/mcp-orch/notify/` 或等价位置 [NEW] | Provide orch notifier；`fx.Invoke(RegisterSubscribers)` 负责 orch 本地 DAG / task / wakeup 订阅器，`fx.Invoke(RegisterHookConsumerTaps)` 只负责 core terminal turn 的 hook tap；flush worker 进入 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`） |
+| orch 业务 module | `internal/sidecar/orch/notify/` 或等价位置 [NEW] | Provide orch notifier；`fx.Invoke(RegisterSubscribers)` 负责 orch 本地 DAG / task / wakeup 订阅器，`fx.Invoke(RegisterHookConsumerTaps)` 只负责 core terminal turn 的 hook tap；flush worker 进入 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`） |
 | 配置承载 | `internal/platform/config/config.go` | 新增 `NotifyConfig`，集中表达 alias -> channel config、queue、timeout、retry、allowlist（`platform/config` 已在 archtest 白名单内，配置加在这里不需动护栏） |
 | 解析器 | `internal/module/notify/platform/resolver.go` [NEW] | 业务层只传 `channelAlias`；resolver 内部把 alias 解析成 `{Platform, URL, Secret}` |
 | 接线 | `internal/app/modules.go`、`cmd/mcp-orch/fx.go` | core Fx 和 orch Fx 各装一套 `bus.subscribers` + `runner.actors`（historical role naming；active Fx tag: `group:"runners"`） wiring；平台共享库位置与业务 module 落点可并存，按双树同构接线即可 |

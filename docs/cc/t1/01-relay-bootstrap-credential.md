@@ -61,7 +61,7 @@ graph TD
 ## Node C: 服务端限制清单
 
 **Files:**
-- Modify: `docs/packaging/embedded-postgres.md`
+- Modify: `docs/运维发布/打包发布/embedded-postgres.md`
 - Modify: `docs/cc/t1/01-relay-bootstrap-credential.md`
 
 - [x] 文档列出 bootstrap credential 必须具备的服务端属性：低权限、限流、配额、可撤销、可轮换。
@@ -97,8 +97,8 @@ go test ./scripts -run TestPackageMacOS -count=1
 ## Node E: 测试与文档
 
 **Files:**
-- Modify: `docs/packaging/embedded-postgres.md`
-- Modify: `docs/packaging/macos-clean-vm-checklist.md`
+- Modify: `docs/运维发布/打包发布/embedded-postgres.md`
+- Modify: `docs/运维发布/打包发布/macos-clean-vm-checklist.md`
 - Test: `scripts/package_macos_guard_test.go`
 
 - [x] macOS/Linux 文档使用 public/bootstrap 术语。

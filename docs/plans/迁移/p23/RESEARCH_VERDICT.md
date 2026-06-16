@@ -56,11 +56,11 @@
 **结论**：P23 现有 state machine `pending → running → done | failed | observe_lost` **不能容纳** verify gate；需要扩展。
 
 **关键事实**：
-- hook 拦截能力已就位：`cmd/mcp-orch/orchestration/hook_consumer.go:148-151,260-275`，但 README 现要求直接映射 `CompleteNode`（`README.md:71-72`）
+- hook 拦截能力已就位：`internal/sidecar/orch/orchestration/hook_consumer.go:148-151,260-275`，但 README 现要求直接映射 `CompleteNode`（`README.md:71-72`）
 - `TurnCompleted` 已有 `Success/Result/Summary/Error`：`internal/dto/turn/event.go:10-21`
-- 现有 schema 只有 `DependsOn []string`：`cmd/mcp-orch/orchestration/dag.go:41-49`，**无 sibling group 概念**
+- 现有 schema 只有 `DependsOn []string`：`internal/sidecar/orch/orchestration/dag.go:41-49`，**无 sibling group 概念**
 - 共享 launcher 已支持 launch 后自动投 prompt：`service_launcher_bridge.go:89-119`
-- 同 agent 再投 turn 接口：`cmd/mcp-orch/orchestration/service.go:337-339` 的 `SubmitTurn` → `cmd/mcp-orch/orchestration/service_launcher_bridge.go:338-351` 的 `submitTurnViaLauncher`
+- 同 agent 再投 turn 接口：`internal/sidecar/orch/orchestration/service.go:337-339` 的 `SubmitTurn` → `internal/sidecar/orch/orchestration/service_launcher_bridge.go:338-351` 的 `submitTurnViaLauncher`
 
 **核心建议**：
 - verify 子状态走独立列（不与 `status` 共枚举），避免状态爆炸
@@ -75,13 +75,13 @@
 
 | 瓶颈点 | N=1000 影响 | file:line | 建议方向 |
 |---|---|---|---|
-| DAG 创建单事务 | 1000 次 UpsertNode 串行；事务长锁强 | `cmd/mcp-orch/orchestration/dag.go:109-126,202-208,211-220`、SQL `cmd/mcp-orch/sql/queries/task_dag_node_write.sql:1-12` | 批量 insert / 拆批 / async / streaming |
+| DAG 创建单事务 | 1000 次 UpsertNode 串行；事务长锁强 | `internal/sidecar/orch/orchestration/dag.go:109-126,202-208,211-220`、SQL `internal/sidecar/orch/sql/queries/task_dag_node_write.sql:1-12` | 批量 insert / 拆批 / async / streaming |
 | ready 计算 | JSONB depends_on 扫描，最坏 O(N²) | `0004_ack_dag.sql:58-62,70-71` | partial index `(dag_key, id) WHERE status='pending'` + 依赖计数列 |
-| wakeup 表 | 5000 行/DAG，无 GC | `migrations/0023_dag_watcher_phase1.sql:9-36`、`cmd/mcp-orch/sql/queries/task_dag_wakeup_query.sql:1-16` | TTL / 按 DAG archive / 分区 |
+| wakeup 表 | 5000 行/DAG，无 GC | `migrations/0023_dag_watcher_phase1.sql:9-36`、`internal/sidecar/orch/sql/queries/task_dag_wakeup_query.sql:1-16` | TTL / 按 DAG archive / 分区 |
 | launcher 并发 | 当前无固定并发上限；百 agent 会直接并发打到下游 | `service_launcher_bridge.go` | 如需容量治理，走显式全局 token bucket / provider quota，不恢复硬编码上限 |
 | hook 风暴 | 同步 dispatch，百 agent progress 阻塞 core | `hook_consumer.go:105-116,260-275,285-294` | non-blocking enqueue + worker pool + bounded queue |
-| 状态存储 | result jsonb 承载 verifier/tool log，行膨胀 | `migrations/0004_ack_dag.sql:62`、`cmd/mcp-orch/sql/queries/task_dag_node_read.sql:1-18` | result 只存摘要，日志 spillover |
-| 全量锁读 | `GetNodesForUpdate` 锁整 DAG | `cmd/mcp-orch/sql/queries/task_dag_node_read.sql:13-18`、`cmd/mcp-orch/store/taskdag/store.go:100-103` | 只 claim 小批 ready，`SKIP LOCKED` |
+| 状态存储 | result jsonb 承载 verifier/tool log，行膨胀 | `migrations/0004_ack_dag.sql:62`、`internal/sidecar/orch/sql/queries/task_dag_node_read.sql:1-18` | result 只存摘要，日志 spillover |
+| 全量锁读 | `GetNodesForUpdate` 锁整 DAG | `internal/sidecar/orch/sql/queries/task_dag_node_read.sql:13-18`、`internal/sidecar/orch/store/taskdag/store.go:100-103` | 只 claim 小批 ready，`SKIP LOCKED` |
 
 ### 4. `gap-synth`
 
@@ -199,7 +199,7 @@
 
 **新增的关键依赖**：
 - P11 依赖 P9 backpressure（动态生长 × 规模会形成倍数压力）
-- P12 依赖 P8 已合入（特别是 `cmd/mcp-orch/orchestration/llm/light/*` 轻量 LLM 调用层；原写 `internal/llm/light/*` ✅ 已修正）
+- P12 依赖 P8 已合入（特别是 `internal/sidecar/orch/orchestration/llm/light/*` 轻量 LLM 调用层；原写 `internal/llm/light/*` ✅ 已修正）
 - P13 依赖 P8 sanitize layer（agent 输出在 validate 前的安全处理）
 
 **金融场景的"复合预设"（写入 P10 模板库 + P13 默认）**：
@@ -316,7 +316,7 @@
 
 ### 6. `impl-front-P0-P3` 摘要
 
-**结论**：P0–P3 可行，但 **P3 落点必须修正**——stub 写 `internal/orchestration/dag.Start` 与 README §"当前基线约束"（DAG runtime 默认归 `cmd/mcp-orch`）冲突。建议改为 `cmd/mcp-orch/orchestration/dag_start.go` 的 `StartDAG(ctx, dagKey, triggerMeta)`，**不**膨胀 `dag.go`。
+**结论**：P0–P3 可行，但 **P3 落点必须修正**——stub 写 `internal/orchestration/dag.Start` 与 README §"当前基线约束"（DAG runtime 默认归 `cmd/mcp-orch`）冲突。建议改为 `internal/sidecar/orch/orchestration/dag_start.go` 的 `StartDAG(ctx, dagKey, triggerMeta)`，**不**膨胀 `dag.go`。
 
 **关键设计建议**：
 - P0 状态机 SQL：把现有 `task_dag_node_runtime.sql:24-42` 加参数化 `WHERE current_status=$expected` CAS；继续复用 `migrations/0023_dag_watcher_phase1.sql:9-43` 的 wakeup / lease 表，不另建 fence 表
@@ -330,23 +330,23 @@
 
 **结论**：P4–P6 可做，但**必须串行**（P3 → P4/P5/P6）。最大风险是 P5 跨 root：
 
-- **P5 跨 root 违规**：`internal/module/cron/scheduler.go:288-305` 当前直接调 `StartTurn`；扩展时如直接 import `cmd/mcp-orch/orchestration` 会被 `internal/archtest/dependency_direction_mcp_orch_test.go:49-53` 拦截。✅ 修正：cron 模块定义 `TriggerSink` interface，mcp-orch 装配实现 bridge
+- **P5 跨 root 违规**：`internal/module/cron/scheduler.go:288-305` 当前直接调 `StartTurn`；扩展时如直接 import `internal/sidecar/orch/orchestration` 会被 `internal/archtest/dependency_direction_mcp_orch_test.go:49-53` 拦截。✅ 修正：cron 模块定义 `TriggerSink` interface，mcp-orch 装配实现 bridge
 - **P5 idempotency 缺失**：cron run 当前 idempotency 是 UUID（`internal/module/cron/scheduler.go:318-326`），不是 `hash(cron_job_id, scheduled_at)`。✅ 修正：DAG 路径用 deterministic key + 唯一约束 `(job_id, scheduled_at, target_dag_key)`
 - **P5 已落地依据**：P21 P1b 已实际合入（`internal/app/modules.go:58-60`、`internal/module/cron/module.go:31-32`、`internal/module/cron/tick_actor.go:41-60`）
-- **P6 AuthN middleware**：必须分两层——transport 提取 identity 到 ctx + service 层统一 AuthN/AuthZ/rate/quota/audit；不能只挂 `cmd/mcp-orch/orchestration/rpc.go`，因为 TCP / Wails / MCP HTTP 三种入口形态不同
+- **P6 AuthN middleware**：必须分两层——transport 提取 identity 到 ctx + service 层统一 AuthN/AuthZ/rate/quota/audit；不能只挂 `internal/sidecar/orch/orchestration/rpc.go`，因为 TCP / Wails / MCP HTTP 三种入口形态不同
 - **跨 root 边界**：cron→DAG 不能 core 直接 import orch concrete；DAG runtime 调用面必须经 hook / interface
 
 ### 8. `impl-quality-P7-P8-P12-P13` 摘要
 
-**结论**：可行，但 **P8 前置 PR 是关键阻塞**——必须先合 `cmd/mcp-orch/orchestration/llm/light/*`。
+**结论**：可行，但 **P8 前置 PR 是关键阻塞**——必须先合 `internal/sidecar/orch/orchestration/llm/light/*`。
 
-- **`internal/llm/light/*` 落点违反 allowlist**：`docs/契约/modularity-convention.md:336-377` 的 cmd/mcp-orch 允许 import 清单不含此包；模块名录也不含。✅ 已修正：改为 `cmd/mcp-orch/orchestration/llm/light/*`
+- **`internal/llm/light/*` 落点违反 allowlist**：`docs/契约/modularity-convention.md:336-377` 的 cmd/mcp-orch 允许 import 清单不含此包；模块名录也不含。✅ 已修正：改为 `internal/sidecar/orch/orchestration/llm/light/*`
 - **不复用 `dream.go`**：`internal/contract/dream.go:10-12` + `provider/codexapp/dream_executor.go:19-25` + `provider/claudecli/dream_executor.go:19-25` 当前 TODO 不可用；且缺 role/message、schema、timeout、usage、审计字段
 - **codex / claude structured output 锚点**：codex 仓库未见 OpenAI JSON mode / function calling 锚点（不能宣称 hard guarantee）；claude 有 `tool_use` 事件解析（`internal/provider/claudecli/factory.go:148-168`）但 CLI 只通过 `--mcp-config` 接工具（`transport_config.go:185-203`），未见"output_tool schema 强制返回"入口
 - **fallback 代价**：只能 prompt 要求 JSON + runtime validate；无 hard guarantee
 - **verdict CHECK**：P8 arbiter 表/列必须对 `parsed_verdict` 加 DB CHECK；P12 `dag_swarm_consensus.final_verdict` 必须加 DB CHECK，避免自由文本 verdict 污染状态机
 - **archtest 例外**：P13 hook 内同步 schema validate 需 archtest 例外（**已写入 P23 阶段 0 ⑤**）：只允许 parse + validate + enqueue / 轻量 CAS，禁网络 / LLM / 阻塞循环
-- **共享 sanitize**：抽 `cmd/mcp-orch/orchestration/runtime/arbiter_sanitize.go` 给 P8 arbiter / P12 swarm / P13 repair_prompt 共用
+- **共享 sanitize**：抽 `internal/sidecar/orch/orchestration/runtime/arbiter_sanitize.go` 给 P8 arbiter / P12 swarm / P13 repair_prompt 共用
 - **合入关系**：P12 不能与 P8 独立并行，必须 P8 + 轻量 LLM 后；P13 可在 P8 sanitize 合入后独立
 
 ### 9. `impl-scale-P9-P10-P11` 摘要
@@ -358,8 +358,8 @@
 - **P9 hook worker pool / tap registry**：当前 hook callback 同步 dispatch（`hook_consumer.go:105-116,260-275,285-294`）；改成 `dag_terminal_tap` / `hook_tap_registry.go` bounded enqueue + Runner worker，初值 workers=4 / queue=1000 / drop 拒非关键 progress、terminal 不丢只反压；这是 P21 Observation Contract consumer 级重构
 - **P10 UI 现状**：Wails runner / WS 已就位（`internal/ui/wails/http_server.go:39-46`），真实前端是 `cmd/agent-terminal/frontend/` Vue/Vite（`package.json:5,39-42`）；DAG 详情 modal 仍是 stub（`cmd/agent-terminal/frontend/vue-app/components/DagDetailModal.js:1-5,52-54`）；mermaid 依赖已存在（`package.json:33`，`mermaid-renderer.js:22-26`）
 - **P10 编辑 CAS**：新建 `task_dag_node_edit.sql`，与 dispatcher CAS 竞争（谁先提交谁赢）
-- **P11 spawn 入口**：放 `cmd/mcp-orch/orchestration/dag_spawn.go`；archtest grep `INSERT INTO task_dag_nodes`，只允许 `UpsertTaskDagNode` / `CreateDAG` / `SpawnChildNodes` 出现
-- **P11 收敛 evaluator**：必须是 `cmd/mcp-orch/orchestration/runtime/convergence_actor.go` Runner actor（不是 cron），遵守 `rungroup-convention §2 §4`
+- **P11 spawn 入口**：放 `internal/sidecar/orch/orchestration/dag_spawn.go`；archtest grep `INSERT INTO task_dag_nodes`，只允许 `UpsertTaskDagNode` / `CreateDAG` / `SpawnChildNodes` 出现
+- **P11 收敛 evaluator**：必须是 `internal/sidecar/orch/orchestration/runtime/convergence_actor.go` Runner actor（不是 cron），遵守 `rungroup-convention §2 §4`
 
 **资源峰值估算**：base=1000 + P11 放大到 N=10000 + P12 swarm 3 verdict/节点 = 最坏 30000 verifier/LLM job；缓解依赖 P11 budget cap + 80% backpressure + P8/P12 共用 P9 token bucket。
 
@@ -407,14 +407,14 @@
 
 ### 9.1 已修正的关键漂移（已写入 README + stub）
 
-1. **P3 落点**：`internal/orchestration/dag.Start` → `cmd/mcp-orch/orchestration/dag_start.go` 的 `StartDAG(ctx, dagKey, triggerMeta)`
+1. **P3 落点**：`internal/orchestration/dag.Start` → `internal/sidecar/orch/orchestration/dag_start.go` 的 `StartDAG(ctx, dagKey, triggerMeta)`
 2. **P5 跨 root**：`internal/module/cron` 不直接 import `cmd/mcp-orch`；改为 cron 定义 `TriggerSink` interface，mcp-orch 装配实现 bridge
 3. **P5 idempotency**：UUID 改为 deterministic `hash(cron_job_id, scheduled_at, target_dag_key)` + `cron_job_runs` 唯一约束 `(job_id, scheduled_at, target_dag_key) WHERE target_dag_key <> ''`
 4. **migration 编号**：HEAD 已占 0063/0064；P23 暂从 0065 起排，并要求每个 migration PR 前重新校准
-5. **`internal/llm/light/*` 落点**：改为 `cmd/mcp-orch/orchestration/llm/light/*`（只服务 DAG arbiter，未来其它模块需要再升级到 `internal/platform/llm/light`）
+5. **`internal/llm/light/*` 落点**：改为 `internal/sidecar/orch/orchestration/llm/light/*`（只服务 DAG arbiter，未来其它模块需要再升级到 `internal/platform/llm/light`）
 6. **P13 hook 同步 schema validate 例外**：写入 P23 阶段 0 ⑤（archtest `dag_hook_tap_enqueue_only` 白名单：parse + validate + enqueue，禁网络 / LLM / 阻塞循环）
 7. **archtest 清单**：执行权威迁入 COMPLIANCE_GATES；README 只引用 gate key，不维护第二清单
-8. **共享 sanitize layer**：抽 `cmd/mcp-orch/orchestration/runtime/arbiter_sanitize.go` 给 P8 / P12 / P13 共用
+8. **共享 sanitize layer**：抽 `internal/sidecar/orch/orchestration/runtime/arbiter_sanitize.go` 给 P8 / P12 / P13 共用
 
 ### 9.2 未修正的关键缺口（必须在 P0 启动前补 / 或在 README 风险段标记）
 
@@ -506,10 +506,10 @@ rollout 面包含足，但可执行度不够：migration 编号/拓扑仍不一�
 
 ### 10.3 立即修正项（必改文件清单，本 PR 已含）
 
-- `README.md`：`internal/orchestration/dag.Start` → `cmd/mcp-orch/orchestration/dag_start.go:StartDAG`（L196）、P5 表述 `trigger=external` → `trigger=cron`（L174）、补 a3/a4/a5 风险段、补 5 项 archtest。
+- `README.md`：`internal/orchestration/dag.Start` → `internal/sidecar/orch/orchestration/dag_start.go:StartDAG`（L196）、P5 表述 `trigger=external` → `trigger=cron`（L174）、补 a3/a4/a5 风险段、补 5 项 archtest。
 - `P5_CronTriggerSurface.md`：目标句 `trigger=external` → `trigger=cron`；补待办（DST/UTC、双轨窗口、append-only）。
-- `P8_VerificationGate.md`：改动清单 `internal/llm/light` 改为 `cmd/mcp-orch/orchestration/llm/light`；依赖/待办补 sanitize / audit / cost。
-- `P12_SwarmArbiter.md`：`internal/llm/light` 改为 `cmd/mcp-orch/orchestration/llm/light`；swarm actor 明示 `group:"runners"` + Runner.Run + interrupt/drain。
+- `P8_VerificationGate.md`：改动清单 `internal/llm/light` 改为 `internal/sidecar/orch/orchestration/llm/light`；依赖/待办补 sanitize / audit / cost。
+- `P12_SwarmArbiter.md`：`internal/llm/light` 改为 `internal/sidecar/orch/orchestration/llm/light`；swarm actor 明示 `group:"runners"` + Runner.Run + interrupt/drain。
 - `P13_StrictJSONOutput.md`：`internal/llm/light/codex_json_mode.go` / `claude_tool_mode.go` 改为合规路径；补 PII redaction / append-only / cache cap / archive TTL。
 - `P9_ScaleScheduling.md`：N=10000 击穿补三项 + 补 SQL `FOR UPDATE SKIP LOCKED LIMIT K` / result 拆摘要 / actor buffer / CONCURRENTLY / subscription 映射 / turn fence。
 - `RESEARCH_VERDICT.md`：本节 §12–§15 + §裁决 10。
@@ -918,7 +918,7 @@ Rollout 侧指出 README 依赖拓扑漏边（P12 依赖 P9、P10 依赖 P7–P9
 ## 裁决 16 - 第四轮复审仲裁
 
 1. ❌ **archtest 单一权威表**：COMPLIANCE 改为 21 行 authoritative 表，README 只摘要；P6 external guard 保持一个 archtest key、两个 Go test 函数。
-2. ❌ **P5 入口名**：全部统一为 `cmd/mcp-orch/orchestration/dag_start.go:StartDAG`，禁止 `dag.Start` 旧名。
+2. ❌ **P5 入口名**：全部统一为 `internal/sidecar/orch/orchestration/dag_start.go:StartDAG`，禁止 `dag.Start` 旧名。
 3. ❌ **P13 provider path**：agent final answer 的 output schema 适配走 provider/launcher turn 请求路径；`llm/light/*` 只服务 P8/P12 arbiter verdict。
 4. ❌ **审计 hash-chain 入 DDL**：`dag_arbiter_calls`、`dag_swarm_consensus`、`dag_output_validations` 的 hash-chain 字段必须写进草案而非只留待办。
 5. ❌ **combined repair budget**：P8/P13/P12 repair 共用 node 级 `repair_chain_id + combined_repair_round/combined_repair_max`，swarm dissent repair 也扣同一链。

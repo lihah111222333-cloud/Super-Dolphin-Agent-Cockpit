@@ -38,7 +38,7 @@
 - 停止前会尝试中断活跃 turn，并等待 settle：`internal/module/thread/stop.go:26-37`，`internal/module/turn/thread_cleanup.go:11-35`
 - 停止后会对 `threadID/providerThreadID/codexThreadID/agentID` 做去重并调用 `turns.CleanupThread(...)`：`internal/module/thread/stop.go:50-85`
 - `CleanupThread(...)` 会直接 `AbortThread(threadID, reason)`；tracker 层已有对应实现：`internal/module/turn/thread_cleanup.go:37-39`，`internal/module/turn/tracker.go:190-198`
-- 走 orchestration 时，`StopAgent(...)` 还会 remove session 并发布 stopped event：`cmd/mcp-orch/orchestration/service.go:122-135`
+- 走 orchestration 时，`StopAgent(...)` 还会 remove session 并发布 stopped event：`internal/sidecar/orch/orchestration/service.go:122-135`
 
 备注：
 

@@ -824,7 +824,7 @@ function Write-CodexManifest() {
 
 function Copy-ModelRegistry() {
     param([Parameter(Mandatory)][string]$BundleRoot)
-    $src = Join-Path $Root 'cmd/mcp-orch/tools/modelregistry/models.yaml'
+    $src = Join-Path $Root 'internal/sidecar/orch/tools/modelregistry/models.yaml'
     if (-not (Test-Path -LiteralPath $src -PathType Leaf)) {
         throw "missing model registry: $src"
     }

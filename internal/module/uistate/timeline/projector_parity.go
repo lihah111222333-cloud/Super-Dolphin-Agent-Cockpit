@@ -9,7 +9,7 @@ import (
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 // planDeltaHandler 处理plandelta处理器。
@@ -74,7 +74,7 @@ func agentErrorHandler(svc Service, onUpdated func(string)) func(agentdto.AgentE
 		if threadID == "" {
 			return
 		}
-		appendErrorItem(svc, threadID, strings.TrimSpace(ev.AgentID), "", timelineID("error", "agent", ev.AgentID, ev.Code, ev.Message), util.FirstNonEmpty(strings.TrimSpace(ev.Message), strings.TrimSpace(ev.Code), strings.TrimSpace(string(ev.Payload))), ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"))
+		appendErrorItem(svc, threadID, strings.TrimSpace(ev.AgentID), "", timelineID("error", "agent", ev.AgentID, ev.Code, ev.Message), kernel.FirstNonEmpty(strings.TrimSpace(ev.Message), strings.TrimSpace(ev.Code), strings.TrimSpace(string(ev.Payload))), ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"))
 		emitTimelineUpdated(onUpdated, threadID)
 	}
 }
@@ -145,10 +145,10 @@ func itemCompletedHandler(svc Service, onUpdated func(string)) func(turndto.Item
 // applyItemCompleted 应用itemcompleted。
 func applyItemCompleted(it *Item, ev turndto.ItemCompleted, success bool) {
 	it.Kind = itemKind(
-		util.FirstNonEmpty(strings.TrimSpace(ev.ItemType), it.ItemType),
+		kernel.FirstNonEmpty(strings.TrimSpace(ev.ItemType), it.ItemType),
 		strings.TrimSpace(ev.RawType),
-		util.FirstNonEmpty(strings.TrimSpace(ev.Command), it.Command),
-		util.FirstNonEmpty(strings.TrimSpace(ev.File), it.File),
+		kernel.FirstNonEmpty(strings.TrimSpace(ev.Command), it.Command),
+		kernel.FirstNonEmpty(strings.TrimSpace(ev.File), it.File),
 	)
 	it.Status = itemCompletedStatus(it.Kind, success, ev.ExitCode, ev.Error)
 	it.Success = &success
@@ -214,7 +214,7 @@ func shouldAppendCompletedItemFallback(ev turndto.ItemCompleted) bool {
 	command := strings.TrimSpace(ev.Command)
 	file := strings.TrimSpace(ev.File)
 	toolName := strings.TrimSpace(ev.ToolName)
-	if util.FirstNonEmpty(itemType, command, file, toolName) == "" {
+	if kernel.FirstNonEmpty(itemType, command, file, toolName) == "" {
 		return false
 	}
 	if strings.TrimSpace(ev.CallID) != "" || command != "" || file != "" || strings.TrimSpace(ev.Error) != "" {
@@ -240,8 +240,8 @@ func applyToolCallCompleted(it *Item, ev tooldto.ToolCallEnd, success bool) {
 	if strings.TrimSpace(it.Ts) == "" {
 		it.Ts = ev.Timestamp.Format("2006-01-02T15:04:05Z07:00")
 	}
-	it.Tool = util.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.Tool)
-	it.ToolName = util.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.ToolName)
+	it.Tool = kernel.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.Tool)
+	it.ToolName = kernel.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.ToolName)
 	if ev.ElapsedMS > 0 {
 		ms := int(ev.ElapsedMS)
 		it.ElapsedMS = &ms
@@ -581,7 +581,7 @@ func toolCallEndPreview(result, errText string, success bool) string {
 	if isNullPreview(result) {
 		result = ""
 	}
-	text := util.FirstNonEmpty(result, errText)
+	text := kernel.FirstNonEmpty(result, errText)
 	if compact := compactToolResultPreview(text); compact != "" {
 		return compact
 	}

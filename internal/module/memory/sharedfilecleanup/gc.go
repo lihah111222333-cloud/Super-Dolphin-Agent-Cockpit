@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 )
 
 const (
@@ -20,19 +19,22 @@ const (
 	runScanLimit       int32 = 100
 )
 
+// Deps carries shared-file cleanup ports and runtime hooks.
 type Deps struct {
-	Reader     sharedfilestore.Reader
-	Deleter    sharedfilestore.Deleter
+	Reader     contract.SharedFileReader
+	Deleter    contract.SharedFileDeleter
 	DAGRuntime contract.DAGRuntime
 	Now        func() time.Time
 }
 
+// Params configures shared-file cleanup planning and deletion.
 type Params struct {
 	WorkTTLDays int      `json:"workTtlDays,omitempty"`
 	Limit       int32    `json:"limit,omitempty"`
 	PinnedPaths []string `json:"pinnedPaths,omitempty"`
 }
 
+// Result reports the shared-file cleanup plan or apply outcome.
 type Result struct {
 	Items          []Item   `json:"items"`
 	WorkTTLDays    int      `json:"workTtlDays"`
@@ -44,6 +46,7 @@ type Result struct {
 	DeletedPaths   []string `json:"deletedPaths,omitempty"`
 }
 
+// Item describes one shared file's cleanup classification.
 type Item struct {
 	Path             string    `json:"path"`
 	UpdatedAt        time.Time `json:"updatedAt"`
@@ -110,8 +113,8 @@ func buildPlan(ctx context.Context, deps Deps, params Params) (Result, error) {
 	return buildResult(files, protectedPaths, normalized, deps.Now), nil
 }
 
-func listSharedFiles(ctx context.Context, reader sharedfilestore.Reader, limit int32) ([]sharedfilestore.SharedFile, error) {
-	files, err := reader.List(ctx, sharedfilestore.ListFilter{Limit: limit})
+func listSharedFiles(ctx context.Context, reader contract.SharedFileReader, limit int32) ([]contract.SharedFile, error) {
+	files, err := reader.List(ctx, contract.SharedFileListFilter{Limit: limit})
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +126,7 @@ func listSharedFiles(ctx context.Context, reader sharedfilestore.Reader, limit i
 
 // buildResult 构建结果。
 func buildResult(
-	files []sharedfilestore.SharedFile,
+	files []contract.SharedFile,
 	protectedPaths map[string]string,
 	params Params,
 	now func() time.Time,
@@ -177,7 +180,7 @@ func normalizeParams(params Params) (Params, error) {
 // classifyFile 分类文件。
 func classifyFile(
 	now time.Time,
-	file sharedfilestore.SharedFile,
+	file contract.SharedFile,
 	workTTLDays int,
 	protectedPaths map[string]string,
 	pinned map[string]struct{},

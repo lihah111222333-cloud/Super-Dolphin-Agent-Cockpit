@@ -3,8 +3,9 @@ package claudecli
 import (
 	"context"
 	"errors"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"time"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )

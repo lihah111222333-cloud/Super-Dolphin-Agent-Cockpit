@@ -16,7 +16,7 @@
   - `thread.OrchestrationFacade`
 - 桌面模式额外叠加 `uiwails.Module`，并通过 `fx.Populate` 取出 `*application.App` 和 `*uiwails.WailsLifecycle`。
 
-**关键边界：** `app.Module` 明确 **不内嵌 `cmd/mcp-orch/orchestration.Module`**。源码注释也写明：agent orchestration 由独立 `mcp-orch` MCP 服务承载；桌面进程只暴露控制面与适配层，避免桌面二进制被再次拉起成子进程。
+**关键边界：** `app.Module` 明确 **不内嵌 `internal/sidecar/orch/orchestration.Module`**。源码注释也写明：agent orchestration 由独立 `mcp-orch` MCP 服务承载；桌面进程只暴露控制面与适配层，避免桌面二进制被再次拉起成子进程。
 
 ### 1.2 `internal/contract`：稳定契约层
 
@@ -27,7 +27,7 @@
 - 把 RPC、sqlc、provider transport、standalone orchestration 这类易变实现隔离到外层；
 - 允许桌面态在 **没有 orchestration service** 时，依靠 `optional:"true"` + noop 适配器完成大部分组装；
 - 按能力域拆分：`approval`、`hooks`、`mcp_control`、`orchestration`、`prompt`、`provider`、`runtime_reporter`、`session_resolver`、`skill`、`agent_memory`、`memory/team/thread_metadata`，以及 `agent_state`、`bootstrap_hook`、`dream`、`frc`、`message_notifier`、`pending_launch_spawner`、`prompt_attachment`、`toolbridge_runtime_required`、`ui_project_state` 等桥接/模型/helper。
-- **58f19fa 接口隔离维护口径**：不要把单一模块拥有的超大 `Service` / `Store` 端口继续抬进 `internal/contract`；`internal/module/skill/contract.go`、`cmd/mcp-orch/store/taskdag/contract.go` 等 owner-local narrow ports 由模块自身维护，04 只记录它们和 app/root graph 的边界关系。
+- **58f19fa 接口隔离维护口径**：不要把单一模块拥有的超大 `Service` / `Store` 端口继续抬进 `internal/contract`；`internal/module/skill/contract.go`、`internal/sidecar/orch/store/taskdag/contract.go` 等 owner-local narrow ports 由模块自身维护，04 只记录它们和 app/root graph 的边界关系。
 
 一句话：**`app` 负责“怎么装”，`contract` 负责“装出来的东西如何说话”。**
 
@@ -94,7 +94,7 @@ flowchart TD
   app --> codex["provider.codexapp.Module"]
   app --> toolbridge["toolbridge.Module"]
   app -. desktop only .-> wails["ui.wails.Module"]
-  app -. not embedded .-> orch["cmd/mcp-orch/orchestration.Module"]
+  app -. not embedded .-> orch["internal/sidecar/orch/orchestration.Module"]
 ```
 
 ### 1.2 `internal/contract` 文件速览
@@ -142,12 +142,12 @@ flowchart TD
 | `ToolHookCallback` | `CallbackHookBefore(...); CallbackHookCheck(...); CallbackHookAfter(...)` | Platform：`internal/platform/mcpcontrol` | `internal/platform/mcpcontrol` (`ToolRegistry`) |
 | `PeerCallback` | `CallbackBefore(...); CallbackCheck(...); CallbackAfter(...)` | Platform：`internal/platform/hooks` dispatcher | `internal/platform/mcpcontrol` (`ToolRegistry`) |
 | `ToolControlPlane` | `ToolRegistry + ToolNotifier + ToolHookCallback + PeerCallback` | 当前主要作为组合别名；无独立消费面 | `internal/platform/mcpcontrol` (`ToolRegistry`) |
-| `OrchestrationService` | `LaunchAgent(...); ListAgents(...); StopAgent(...); SubmitTurn(...); CompleteTurn(...); Recover(...); BindSessionGeneration(...); Snapshot(...); UpdateRuntime(...); GetState(...); GetReport(...); RememberReportRequest(...); HandleReportEvent(...); CreateDAG(...); GetDAG(...); ListDAGs(...); UpdateNodeStatus(...); StartDAG(ctx, StartDAGRequest) (StartDAGResponse, error); ApplyOps(ctx, ApplyOpsRequest) (ApplyOpsResponse, error); GetRun(ctx, GetRunRequest) (GetRunResponse, error); ListRuns(ctx, ListRunsRequest) (ListRunsResponse, error)` | App：`internal/app`；Module：`dashboard/uistate`；UI：`internal/ui/wails`；Platform：`mcpcontrol`；cmd：`cmd/mcp-orch/tools` | `cmd/mcp-orch/orchestration` (`service`) |
-| `OrchestrationSessionCleaner` | `RemoveSession(agentID string)` | cmd：`cmd/mcp-orch/orchestration` | `internal/provider/unified` (`sessionCleanerAdapter`)；standalone fallback：`cmd/mcp-orch` (`noopSessionCleaner`) |
-| `OrchestrationTurnStarter` | `StartTurn(ctx context.Context, submission TurnSubmission) (string, error)` | cmd：`cmd/mcp-orch/orchestration` | `internal/module/turn` (`orchestrationTurnStarter`)；standalone fallback：`cmd/mcp-orch` (`noopTurnStarter`) |
-| `RuntimeReporter` | `ReportRuntime(ctx context.Context, report RuntimeReport) error` | Provider：`internal/provider/{claudecli,codexapp}` | `internal/app` (`orchestrationRuntimeReporter` / `noopRuntimeReporter`)；`cmd/mcp-orch/orchestration.runtimeReporter` 仅辅类型，未导出到 app 图 |
+| `OrchestrationService` | `LaunchAgent(...); ListAgents(...); StopAgent(...); SubmitTurn(...); CompleteTurn(...); Recover(...); BindSessionGeneration(...); Snapshot(...); UpdateRuntime(...); GetState(...); GetReport(...); RememberReportRequest(...); HandleReportEvent(...); CreateDAG(...); GetDAG(...); ListDAGs(...); UpdateNodeStatus(...); StartDAG(ctx, StartDAGRequest) (StartDAGResponse, error); ApplyOps(ctx, ApplyOpsRequest) (ApplyOpsResponse, error); GetRun(ctx, GetRunRequest) (GetRunResponse, error); ListRuns(ctx, ListRunsRequest) (ListRunsResponse, error)` | App：`internal/app`；Module：`dashboard/uistate`；UI：`internal/ui/wails`；Platform：`mcpcontrol`；cmd：`internal/sidecar/orch/tools` | `internal/sidecar/orch/orchestration` (`service`) |
+| `OrchestrationSessionCleaner` | `RemoveSession(agentID string)` | cmd：`internal/sidecar/orch/orchestration` | `internal/provider/unified` (`sessionCleanerAdapter`)；standalone fallback：`cmd/mcp-orch` (`noopSessionCleaner`) |
+| `OrchestrationTurnStarter` | `StartTurn(ctx context.Context, submission TurnSubmission) (string, error)` | cmd：`internal/sidecar/orch/orchestration` | `internal/module/turn` (`orchestrationTurnStarter`)；standalone fallback：`cmd/mcp-orch` (`noopTurnStarter`) |
+| `RuntimeReporter` | `ReportRuntime(ctx context.Context, report RuntimeReport) error` | Provider：`internal/provider/{claudecli,codexapp}` | `internal/app` (`orchestrationRuntimeReporter` / `noopRuntimeReporter`)；`internal/sidecar/orch/orchestration.runtimeReporter` 仅辅类型，未导出到 app 图 |
 | `SessionResolver` | `ResolveSession(ctx context.Context, threadID string) (Session, error)` | RPC：`internal/platform/rpc` capability gate；Module：`internal/module/turn`；Platform：`internal/platform/cachekeepalive` | `internal/provider/unified` (`sessionResolver`) |
-| `MemoryService` | `Read(ctx context.Context, req MemoryReadRequest) (MemoryReadResult, error)` | cmd：`cmd/mcp-orch/tools` / `tools.Registry` | `cmd/mcp-orch/memory` (`service`) |
+| `MemoryService` | `Read(ctx context.Context, req MemoryReadRequest) (MemoryReadResult, error)` | cmd：`internal/sidecar/orch/tools` / `tools.Registry` | `cmd/mcp-orch/memory` (`service`) |
 | `AgentMemoryReader` | `ReadAgentMemory(ctx, MemoryReadRequest) (MemoryReadResult, error); MemoryReadEnabled() bool; MemoryReadToolsEnabled() bool` | Platform：`internal/platform/toolbridge` (`MemoryReadHostToolRegistry`) | `internal/module/memory` (`MemoryLifecycleHooks`) |
 | `AgentMemoryWriter` | `WriteAgentMemory(ctx, AgentMemoryWriteRequest) (AgentMemoryWriteResult, error); MemoryWriteEnabled() bool; MemoryWriteToolsEnabled() bool` | Platform：`internal/platform/toolbridge` (`MemoryWriteHostToolRegistry`) | `internal/module/memory` (`MemoryLifecycleHooks`) |
 
@@ -184,14 +184,14 @@ flowchart TD
 | `MemoryService` | `memory.go` | `memory_read` 背后的只读 memory 查询 | `*cmd/mcp-orch/memory.service` | 仅在 `cmd/mcp-orch` standalone 图由 `memory.NewService` 提供；`app.Module` 当前不装它。 |
 | `AgentMemoryReader` | `memory.go` | agent 侧 memory 读取（host tool 注册） | `*internal/module/memory.MemoryLifecycleHooks` | 由 `memory.Module` 通过 `provideAgentMemoryReader` 导出；`toolbridge.Module` 消费。 |
 | `AgentMemoryWriter` | `memory.go` | agent 侧 memory 写入（host tool 注册） | `*internal/module/memory.MemoryLifecycleHooks` | 由 `memory.Module` 通过 `provideAgentMemoryWriter` 导出；`toolbridge.Module` 消费。 |
-| `OrchestrationService` | `orchestration.go` | agent 生命周期、turn、runtime、report、DAG、DAG run（StartDAG / ApplyOps / GetRun / ListRuns） | `*cmd/mcp-orch/orchestration.service` | 由 `cmd/mcp-orch/orchestration.Module` 导出；桌面态默认不内嵌该模块。StartDAG 路径 N 幂等：重复 idempotency_key 复用既有 run，达上限返 `ErrIdempotencyKeyExhausted`。 |
+| `OrchestrationService` | `orchestration.go` | agent 生命周期、turn、runtime、report、DAG、DAG run（StartDAG / ApplyOps / GetRun / ListRuns） | `*internal/sidecar/orch/orchestration.service` | 由 `internal/sidecar/orch/orchestration.Module` 导出；桌面态默认不内嵌该模块。StartDAG 路径 N 幂等：重复 idempotency_key 复用既有 run，达上限返 `ErrIdempotencyKeyExhausted`。 |
 | `OrchestrationSessionCleaner` | `orchestration.go` | orchestration 关闭 agent 时清理本地 session | `*internal/provider/unified.sessionCleanerAdapter`；standalone noop：`cmd/mcp-orch.noopSessionCleaner` | `app.Module` 侧由 `unified.NewSessionCleaner` 提供；`mcp-orch` standalone 图由 `newNoopSessionCleaner` 提供。`sessionCleanerAdapter` 额外实现了非契约方法 `RemoveSessionGeneration(...)`，供 orchestration 通过类型断言使用。 |
 | `OrchestrationTurnStarter` | `orchestration.go` | orchestration 触发 turn 启动 | `internal/module/turn.orchestrationTurnStarter`；standalone noop：`cmd/mcp-orch.noopTurnStarter` | `turn.Module` 直接提供返回值类型 `contract.OrchestrationTurnStarter`；当前 `app.Module` 不内嵌 `orchestration.Module`，`mcp-orch` standalone 图则使用 `newNoopTurnStarter`。 |
 | `PromptAssemblyService` | `prompt.go` | 统一组装 start / turn system prompt，并支持失效刷新 | `*internal/module/prompt.service` | `internal/module/prompt.Module` 通过 `AsPromptAssemblyService` 导出。 |
 | `Driver` | `provider.go` | provider 工厂抽象：启动/恢复 session | `*internal/provider/claudecli.driver`、`*internal/provider/codexapp.driver` | 通过 `contract.DriverFactory` 注入 `group:"drivers"`。 |
 | `Session` | `provider.go` | 统一 provider session 抽象 | `*internal/provider/claudecli.session`、`*internal/provider/codexapp.session` | 由各 `Driver` 返回；由 `unified.SessionManager` 管理。 |
 | `TurnHandle` | `provider.go` | 运行中 turn 的句柄 | `*internal/provider/claudecli.turnHandle`、`*internal/provider/codexapp.turnHandle` | 分别由 provider 的 `Session.StartTurn` 返回。 |
-| `RuntimeReporter` | `runtime_reporter.go` | provider 上报 runtime 信息 | `internal/app.orchestrationRuntimeReporter`、`internal/app.noopRuntimeReporter` | `internal/app.Module` 提供 app 侧实现（`Run` / `RunDesktop` 均会加载）。另有 `cmd/mcp-orch/orchestration.runtimeReporter` 辅助类型定义在 `service.go`，但当前 Fx 图未导出它。 |
+| `RuntimeReporter` | `runtime_reporter.go` | provider 上报 runtime 信息 | `internal/app.orchestrationRuntimeReporter`、`internal/app.noopRuntimeReporter` | `internal/app.Module` 提供 app 侧实现（`Run` / `RunDesktop` 均会加载）。另有 `internal/sidecar/orch/orchestration.runtimeReporter` 辅助类型定义在 `service.go`，但当前 Fx 图未导出它。 |
 | `SessionResolver` | `session_resolver.go` | 由 threadID 解析/自动恢复 session | `*internal/provider/unified.sessionResolver` | 由 `internal/provider/unified.Module` 导出。 |
 | `SkillMirrorReconciler` | `skill.go` | provider-native mirror reconcile 窄端口 | `*internal/module/skill.service` | `skill.Module` 导出给 `claudecli` / `codexapp`；mirror 为生成物，错误阻断 provider 启动/acquire。 |
 | `TeamMemoryManager` | `team_memory.go` | 暴露 team memory path / entrypoint 的只读桥 | `*internal/module/memory/team.TeamMemoryManager` | `internal/module/memory.Module` 通过 `provideTeamMemoryManagerContract` 导出。 |
@@ -366,11 +366,11 @@ uiwails.NewHTTPAssetServer() [desktop only] -----┼--> []platformrunner.Runner
 | `thread.SessionStarter` | `unified.NewClient`（`fx.As(new(thread.SessionStarter))`） | `module/thread.NewService` |
 | `thread.SessionProvider` | `unified.NewSessionProvider`（`fx.As(new(thread.SessionProvider))`） | `module/thread.NewService` |
 | `turn.SessionProvider` | `unified.NewTurnSessionProvider` | `turn.NewOrchestrationTurnStarter` |
-| `contract.OrchestrationSessionCleaner` | `unified.NewSessionCleaner`（`fx.As(new(contract.OrchestrationSessionCleaner))`）；`mcp-orch` standalone 图中为 `newNoopSessionCleaner` | `cmd/mcp-orch/orchestration.NewService`（仅在同一 Fx 图加载 `orchestration.Module` 时消费；`app.Module` 当前不加载它） |
+| `contract.OrchestrationSessionCleaner` | `unified.NewSessionCleaner`（`fx.As(new(contract.OrchestrationSessionCleaner))`）；`mcp-orch` standalone 图中为 `newNoopSessionCleaner` | `internal/sidecar/orch/orchestration.NewService`（仅在同一 Fx 图加载 `orchestration.Module` 时消费；`app.Module` 当前不加载它） |
 | `contract.SessionResolver` | `unified.NewSessionResolver` | `rpc.NewCapabilityResolver`、`turn.NewTurnHandlers` |
 | `rpc.CapabilityResolver` | `rpc.NewCapabilityResolver(contract.SessionResolver)` | `thread.NewThreadHandlers`、`turn.NewTurnHandlers` |
 | `group:"drivers"` (`contract.DriverFactory`) | `provider/claudecli.Module`、`provider/codexapp.Module` | `unified.NewRegistry` |
-| `contract.OrchestrationTurnStarter` | `turn.NewOrchestrationTurnStarter`；`mcp-orch` standalone 图中为 `newNoopTurnStarter` | `cmd/mcp-orch/orchestration.NewService`（仅在同一 Fx 图加载 `orchestration.Module` 时消费；当前 `app.Module` 导出但不消费真实 starter） |
+| `contract.OrchestrationTurnStarter` | `turn.NewOrchestrationTurnStarter`；`mcp-orch` standalone 图中为 `newNoopTurnStarter` | `internal/sidecar/orch/orchestration.NewService`（仅在同一 Fx 图加载 `orchestration.Module` 时消费；当前 `app.Module` 导出但不消费真实 starter） |
 | `contract.PromptAssemblyService` | `prompt.AsPromptAssemblyService` | `module/thread.NewService`、`turn.NewServiceWithPromptAssembly...`、`memory/team` prompt 失效链 |
 | `contract.SkillMirrorReconciler` | `skill.Module` | `provider/claudecli`、`provider/codexapp` |
 | `contract.TeamMemoryManager` | `memory.provideTeamMemoryManagerContract` | `memory/nested.NewClaudeMdSourcesProvider`、`memory.NewRulesProvider` |
@@ -422,10 +422,10 @@ turn.NewOrchestrationTurnStarter
         ↓
 contract.OrchestrationTurnStarter
         ↓（仅当 `orchestration.Module` 与真实 starter 位于同一 Fx 图）
-cmd/mcp-orch/orchestration.service
+internal/sidecar/orch/orchestration.service
 ```
 
-注意：当前 `app.Module` 会导出 `turn.NewOrchestrationTurnStarter`，但不会加载 `cmd/mcp-orch/orchestration.Module`；`cmd/mcp-orch` standalone 图则加载 `orchestration.Module`，并用 `newNoopTurnStarter` / `newNoopSessionCleaner` 满足其依赖。
+注意：当前 `app.Module` 会导出 `turn.NewOrchestrationTurnStarter`，但不会加载 `internal/sidecar/orch/orchestration.Module`；`cmd/mcp-orch` standalone 图则加载 `orchestration.Module`，并用 `newNoopTurnStarter` / `newNoopSessionCleaner` 满足其依赖。
 
 #### C. Hook 与 MCP 控制面链
 
@@ -738,7 +738,7 @@ type SessionResolver interface {
 | `internal/module/uistate` | `OrchestrationService`、`AgentSnapshot` |
 | `internal/ui/wails` | `OrchestrationService` |
 | `internal/store/thread` | `ThreadMetadataStore` |
-| `cmd/mcp-orch` / `cmd/mcp-orch/orchestration` | `OrchestrationService`、`OrchestrationSessionCleaner`、`OrchestrationTurnStarter`、`MemoryService`、`RuntimeReport`、DAG/report 相关请求/响应模型 |
+| `cmd/mcp-orch` / `internal/sidecar/orch/orchestration` | `OrchestrationService`、`OrchestrationSessionCleaner`、`OrchestrationTurnStarter`、`MemoryService`、`RuntimeReport`、DAG/report 相关请求/响应模型 |
 
 ### 6.2 `app.Module` 直接纳入的模块
 
@@ -878,8 +878,8 @@ store/thread
 
 补充：`04` 这卷自身没有额外 freeze 豁免；当前 `internal/archtest/freeze_registry.go:19-28` 只给 `internal/provider/codexapp` 留有 P25 临时预算，接口隔离另由 `internal/archtest/interface_isolation_guard_test.go` 管住。
 
-接口隔离预算注脚：`taskdag.RunStore` 故意 **不** 嵌入 `taskdag.Store` 聚合接口，以保住 `OrchestrationStore` / `DAGMutationStore` 的 InterfaceIsolation 预算（`<=0 direct + <=3 embedded` 与 `<=2 direct + <=1 embedded`）— 详见 `cmd/mcp-orch/store/taskdag/contract.go:25-27` 与 `:39-42`。service 层通过独立 `runStore` 字段持有 RunStore，与 `dagStore` 并列；事务内联合语义由 `DAGMutationWithRunStore` 扩展接口提供。  
-_Interface-isolation budget note_: `taskdag.RunStore` is intentionally **not** embedded in the `taskdag.Store` aggregate so the `OrchestrationStore` / `DAGMutationStore` budgets stay green (`<=0 direct + <=3 embedded` and `<=2 direct + <=1 embedded`). See `cmd/mcp-orch/store/taskdag/contract.go:25-27` and `:39-42`. The service layer keeps RunStore as a separate `runStore` field alongside `dagStore`; in-transaction joint semantics go through the `DAGMutationWithRunStore` extension.
+接口隔离预算注脚：`taskdag.RunStore` 故意 **不** 嵌入 `taskdag.Store` 聚合接口，以保住 `OrchestrationStore` / `DAGMutationStore` 的 InterfaceIsolation 预算（`<=0 direct + <=3 embedded` 与 `<=2 direct + <=1 embedded`）— 详见 `internal/sidecar/orch/store/taskdag/contract.go:25-27` 与 `:39-42`。service 层通过独立 `runStore` 字段持有 RunStore，与 `dagStore` 并列；事务内联合语义由 `DAGMutationWithRunStore` 扩展接口提供。  
+_Interface-isolation budget note_: `taskdag.RunStore` is intentionally **not** embedded in the `taskdag.Store` aggregate so the `OrchestrationStore` / `DAGMutationStore` budgets stay green (`<=0 direct + <=3 embedded` and `<=2 direct + <=1 embedded`). See `internal/sidecar/orch/store/taskdag/contract.go:25-27` and `:39-42`. The service layer keeps RunStore as a separate `runStore` field alongside `dagStore`; in-transaction joint semantics go through the `DAGMutationWithRunStore` extension.
 
 ## 9. 常见修改路径（how-to）
 
@@ -888,13 +888,13 @@ _Interface-isolation budget note_: `taskdag.RunStore` is intentionally **not** e
 | 根 Module | 新模块 / provider / platform 启动接线 | 1. 先在 owning `Module` 内导出 provider；2. 再把模块纳入 `internal/app/modules.go`；3. 如需跨边界收口，再补 `fx.Provide` adapter（如 `AsRPCRunner` / facade / reporter）。 | `internal/app/modules.go`、`AsRPCRunner` | `lsp_grep` `modules.go`；必要时跑 `internal/app/runner_test.go` |
 | RPC 收编 | 新模块需要暴露 JSON-RPC / Wails RPC | 1. 返回 `rpc.HandlerMapResult`；2. 在模块侧提供 `New*Handlers`；3. 由 `internal/platform/rpc.registerAllHandlers` 统一收编。 | `internal/platform/rpc/module.go`、`registerAllHandlers` | `internal/platform/rpc/server_minimal_test.go` |
 | freeze | 适配层膨胀 / bridge 临时收口触发架构 guard | 1. 优先把 helper / adapter 收回 owning module；2. 对照 `freeze_registry.go` 找当前真值；3. 用 `TestCodeSizeGuard` 校验是否需要同步调整 freeze。 | `internal/archtest/freeze_registry.go`、`internal/archtest/code_size_guard_test.go` | `go test ./internal/archtest -run TestCodeSizeGuard` |
-| 接口隔离 / 窄端口 | 某个 `Service` / `Store` 方法集继续膨胀，或消费者只需要子集能力 | 1. 先在 owning package 拆 module-local narrow port；2. Fx assembly 层提供 aggregate -> narrow port adapter；3. 不把局部端口抬到 `internal/contract`，除非至少两个上层领域都需要稳定公共语义。 | `internal/module/skill/contract.go`、`cmd/mcp-orch/store/taskdag/contract.go`、`internal/archtest/interface_isolation_guard_test.go` | `go test ./internal/archtest -run 'TestInterfaceIsolation|TestSkillService|TestTaskDAG'` |
+| 接口隔离 / 窄端口 | 某个 `Service` / `Store` 方法集继续膨胀，或消费者只需要子集能力 | 1. 先在 owning package 拆 module-local narrow port；2. Fx assembly 层提供 aggregate -> narrow port adapter；3. 不把局部端口抬到 `internal/contract`，除非至少两个上层领域都需要稳定公共语义。 | `internal/module/skill/contract.go`、`internal/sidecar/orch/store/taskdag/contract.go`、`internal/archtest/interface_isolation_guard_test.go` | `go test ./internal/archtest -run 'TestInterfaceIsolation|TestSkillService|TestTaskDAG'` |
 
 ## 审查补遗
 
 - 已补齐 `5.6` 节中先前遗漏的接口签名：`HookReviewStore`、`ToolHookCallback`、`PeerCallback`、`ToolControlPlane`、`OrchestrationSessionCleaner`、`OrchestrationTurnStarter`。  
 - 已补充此前漏写的源码符号：`internal/app/app.go` 中的 `currentBuildInfo` / `applyBuildSetting`，以及 `contract.DriverFactory`、`TurnSubmission`、`AgentReportMetadata`、`RememberReportRequest`、`RememberReportRequestResult`、`ReportEventResult` 等契约类型。  
-- 已修正 `RuntimeReporter` 的实现说明：`cmd/mcp-orch/orchestration` 中确有 `runtimeReporter` 辅助类型，但它定义在 `service.go` 内，**当前并未进入 Fx 导出图**；桌面态真正接线的是 `internal/app` 下两种 reporter。  
+- 已修正 `RuntimeReporter` 的实现说明：`internal/sidecar/orch/orchestration` 中确有 `runtimeReporter` 辅助类型，但它定义在 `service.go` 内，**当前并未进入 Fx 导出图**；桌面态真正接线的是 `internal/app` 下两种 reporter。  
 - 已修正跨 Fx 图的依赖描述：`turn.NewOrchestrationTurnStarter` / `unified.NewSessionCleaner` 会在 `app.Module` 中导出，但当前生产 `mcp-orch` standalone 图分别实际注入的是 `newNoopTurnStarter` / `newNoopSessionCleaner`。  
 - 已补全此前文档未展开的依赖注入链：`group:"drivers" -> unified.Registry -> Client / SessionManager / SessionResolver -> thread / turn / rpc`，以及 `SessionGeneration -> BindSessionGeneration -> generation-aware session cleaner` 这条链路。  
 - 已澄清适配器模式的真实落点：`newThreadOrchestrationFacade` 与 `newRuntimeReporter` 是薄适配层；`AsRPCRunner` 只是 Fx 结果包装，不属于业务语义适配。  

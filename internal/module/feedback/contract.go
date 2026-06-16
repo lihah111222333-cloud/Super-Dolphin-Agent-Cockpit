@@ -1,6 +1,5 @@
 // Package feedback exposes feedback-event capture RPCs to the frontend.
-// The underlying store lives at internal/store/feedback; this module is the
-// thin JRPC-facing layer (validation + wrapping).
+// This module is the thin JRPC-facing layer for validation and wrapping.
 package feedback
 
 import "context"

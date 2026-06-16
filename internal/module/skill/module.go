@@ -8,10 +8,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
-
-	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 )
 
+// Module wires skill catalog, mirror, inventory, and RPC handlers.
 // Skill matching currently runs on demand through skills/match/preview; runtime
 // session binding waits for the provider context to expose the required state.
 var Module = fx.Module("skill",
@@ -35,7 +34,7 @@ type serviceDeps struct {
 
 	Config     *contract.Config
 	Dispatcher *event.Dispatcher
-	AuditStore auditstore.Store
+	AuditStore contract.AuditLogStore
 }
 
 type skillHandlerDeps struct {

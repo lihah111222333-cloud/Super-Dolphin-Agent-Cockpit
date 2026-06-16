@@ -3,8 +3,6 @@ package commandcard
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -73,9 +71,6 @@ func timePtr(value any) *time.Time {
 		t := platformdb.TimeFromMillis(ts)
 		return &t
 	default:
-		pkglogger.Warn("commandcard: timePtr received unexpected type, returning nil",
-			pkglogger.String("value_type", fmt.Sprintf("%T", value)),
-		)
 		return nil
 	}
 }

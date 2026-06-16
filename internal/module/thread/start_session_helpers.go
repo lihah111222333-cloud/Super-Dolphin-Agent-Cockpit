@@ -11,9 +11,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 const startDisplayNameMaxRunes = 160
@@ -103,19 +101,19 @@ func resolveStartPromptAssembly(ctx context.Context, req StartRequest, input con
 	if err != nil {
 		return contract.StartAssembly{}, err
 	}
-	assembly.DisplayName = normalizeStartDisplayName(util.FirstNonEmpty(strings.TrimSpace(assembly.DisplayName), req.Name))
+	assembly.DisplayName = normalizeStartDisplayName(kernel.FirstNonEmpty(strings.TrimSpace(assembly.DisplayName), req.Name))
 	assembly.BaseInstructions = strings.TrimSpace(assembly.BaseInstructions)
 	assembly.DeveloperInstructions = strings.TrimSpace(assembly.DeveloperInstructions)
 	return ensureStartAssemblySnapshot(assembly, input.Provider), nil
 }
 
 func resolveResumeCWD(req ResumeRequest, state resumeState) (string, error) {
-	requested := util.FirstNonEmpty(req.CWD, req.Path)
+	requested := kernel.FirstNonEmpty(req.CWD, req.Path)
 	stored := strings.TrimSpace(state.CWD)
 	if stored != "" && requested != "" && comparablePromptCWD(stored) != comparablePromptCWD(requested) {
 		return "", fmt.Errorf("thread resume cwd mismatch: stored cwd %q request cwd %q", stored, requested)
 	}
-	return util.FirstNonEmpty(stored, requested), nil
+	return kernel.FirstNonEmpty(stored, requested), nil
 }
 
 func resolveAuthoritativeResumeCWD(req ResumeRequest, state resumeState) (string, error) {
@@ -151,10 +149,10 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 	if err != nil {
 		return ResumeRequest{}, err
 	}
-	req.ClaudeHome = util.FirstNonEmpty(req.ClaudeHome, state.ClaudeHome, resumeRuntimeConfigString(state.ConfigOverride.Runtime, "claudeHome", "claude_home", "history_dir"))
+	req.ClaudeHome = kernel.FirstNonEmpty(req.ClaudeHome, state.ClaudeHome, resumeRuntimeConfigString(state.ConfigOverride.Runtime, "claudeHome", "claude_home", "history_dir"))
 	req = hydrateResumeCodexIdentity(req, state)
 	req.CodexDisabledNativeTools = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
-	req.Config = mergeRuntimeConfig(clone.RuntimeConfigMap(state.ConfigOverride.Runtime), req.Config)
+	req.Config = mergeRuntimeConfig(kernel.CloneRuntimeConfigMap(state.ConfigOverride.Runtime), req.Config)
 	req, err = s.canonicalizeHydratedResumeCodexIdentity(req, opts.canonicalizeCodexIdentity)
 	if err != nil {
 		return ResumeRequest{}, err
@@ -171,10 +169,10 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 }
 
 func hydrateResumeIDs(req ResumeRequest, state resumeState) ResumeRequest {
-	state.PublicThreadID = util.FirstNonEmpty(state.PublicThreadID, req.ThreadID)
-	req.AgentID = util.FirstNonEmpty(req.AgentID, state.AgentID)
-	req.Provider = util.FirstNonEmpty(req.Provider, state.Provider)
-	req.ProviderThreadID = normalizeProviderThreadID(req.Provider, util.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID))
+	state.PublicThreadID = kernel.FirstNonEmpty(state.PublicThreadID, req.ThreadID)
+	req.AgentID = kernel.FirstNonEmpty(req.AgentID, state.AgentID)
+	req.Provider = kernel.FirstNonEmpty(req.Provider, state.Provider)
+	req.ProviderThreadID = normalizeProviderThreadID(req.Provider, kernel.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID))
 	req.ThreadID = state.PublicThreadID
 	return req
 }
@@ -247,7 +245,7 @@ func (s *service) lookupResumeThreadState(ctx context.Context, threadID string) 
 		PublicThreadID:    strings.TrimSpace(thread.ThreadID),
 		Prompt:            strings.TrimSpace(thread.Prompt),
 		Model:             sanitizeConfigStringArtifact(thread.Model),
-		ConfigOverrideRaw: clone.RawMessage(thread.ConfigOverride),
+		ConfigOverrideRaw: kernel.CloneRawMessage(thread.ConfigOverride),
 		ConfigOverride:    cfg,
 		Effort:            sanitizeConfigStringArtifact(cfg.Effort),
 		CWD:               strings.TrimSpace(thread.Cwd),
@@ -255,23 +253,23 @@ func (s *service) lookupResumeThreadState(ctx context.Context, threadID string) 
 	}, nil
 }
 
-func mergeResumeBindingState(state *resumeState, binding *bindingstore.Binding) {
+func mergeResumeBindingState(state *resumeState, binding *contract.Binding) {
 	if state == nil || binding == nil {
 		return
 	}
-	state.AgentID = util.FirstNonEmpty(state.AgentID, binding.AgentID)
-	state.ParentAgentID = util.FirstNonEmpty(state.ParentAgentID, strings.TrimSpace(binding.ParentAgentID))
-	state.AgentType = util.FirstNonEmpty(state.AgentType, strings.TrimSpace(binding.AgentType))
-	state.AgentMemoryScope = util.FirstNonEmpty(state.AgentMemoryScope, strings.TrimSpace(binding.AgentMemoryScope))
+	state.AgentID = kernel.FirstNonEmpty(state.AgentID, binding.AgentID)
+	state.ParentAgentID = kernel.FirstNonEmpty(state.ParentAgentID, strings.TrimSpace(binding.ParentAgentID))
+	state.AgentType = kernel.FirstNonEmpty(state.AgentType, strings.TrimSpace(binding.AgentType))
+	state.AgentMemoryScope = kernel.FirstNonEmpty(state.AgentMemoryScope, strings.TrimSpace(binding.AgentMemoryScope))
 	state.Provider = strings.TrimSpace(binding.Provider)
-	state.ProviderThreadID = util.FirstNonEmpty(state.ProviderThreadID, recoverableBindingProviderThreadID(binding))
-	state.PublicThreadID = util.FirstNonEmpty(state.PublicThreadID, binding.CodexThreadID)
+	state.ProviderThreadID = kernel.FirstNonEmpty(state.ProviderThreadID, recoverableBindingProviderThreadID(binding))
+	state.PublicThreadID = kernel.FirstNonEmpty(state.PublicThreadID, binding.CodexThreadID)
 	state.RolloutPath = strings.TrimSpace(binding.RolloutPath)
 	state.SessionUUID = strings.TrimSpace(binding.SessionUUID)
 	state.CodexHome = strings.TrimSpace(binding.CodexHome)
 	state.CodexInstanceKey = strings.TrimSpace(binding.CodexInstanceKey)
 	state.CodexModelProvider = strings.TrimSpace(binding.CodexModelProvider)
-	state.CWD = util.FirstNonEmpty(state.CWD, binding.Cwd)
+	state.CWD = kernel.FirstNonEmpty(state.CWD, binding.Cwd)
 }
 
 func dispatchPromptAssembly(ctx context.Context, req StartRequest, input contract.StartInput) (contract.StartAssembly, error) {
@@ -303,9 +301,9 @@ func toProviderStartAssembly(assembly contract.StartAssembly) dto.StartAssembly 
 		ResolvedSections:      toProviderResolvedSections(assembly.ResolvedSections),
 		Snapshot:              toProviderPromptSnapshot(assembly.Snapshot),
 		SuppressedTools:       append([]string(nil), assembly.SuppressedTools...),
-		UserContext:           clone.StringMap(assembly.UserContext),
+		UserContext:           kernel.CloneStringMap(assembly.UserContext),
 		UserContextText:       strings.TrimSpace(assembly.UserContextText),
-		SystemContext:         dto.SystemContext(clone.StringMap(assembly.SystemContext)),
+		SystemContext:         dto.SystemContext(kernel.CloneStringMap(assembly.SystemContext)),
 	}
 }
 
@@ -318,7 +316,7 @@ func toProviderPromptSnapshot(snapshot contract.PromptAssemblySnapshot) dto.Prom
 		Provider:              strings.TrimSpace(snapshot.Provider),
 		Version:               snapshot.Version,
 		Hash:                  strings.TrimSpace(snapshot.Hash),
-		SectionSnapshot:       clone.StringMap(snapshot.SectionSnapshot),
+		SectionSnapshot:       kernel.CloneStringMap(snapshot.SectionSnapshot),
 		Generation:            snapshot.Generation,
 	}
 }
@@ -428,7 +426,7 @@ func isConfigArtifactKey(key string) bool {
 }
 
 func buildStartStoredThreadConfig(req StartRequest, input contract.StartInput, assembly contract.StartAssembly, session ...contract.Session) storedThreadConfig {
-	runtime := clone.RuntimeConfigMap(buildStartSessionConfig(req, input, assembly))
+	runtime := kernel.CloneRuntimeConfigMap(buildStartSessionConfig(req, input, assembly))
 	if len(session) > 0 {
 		runtime = mergeStartSessionRuntimeIdentity(runtime, session[0])
 	}

@@ -20,7 +20,7 @@ LSP `read_file` 确认当前只有 2 个文件超过 350 有效行；没有文�
 | 文件 | LSP 物理总行 | 守卫有效行 | 结论 |
 | --- | ---: | ---: | --- |
 | `internal/module/thread/lifecycle.go` | 400 | 385 | 超过 350；未超过 400 红线；物理行数已到边界 |
-| `cmd/mcp-orch/orchestration/service.go` | 395 | 358 | 超过 350；未超过 400 红线 |
+| `internal/sidecar/orch/orchestration/service.go` | 395 | 358 | 超过 350；未超过 400 红线 |
 
 结论：
 - `>350` 文件数：2
@@ -33,7 +33,7 @@ LSP `document_symbol` 确认当前只有 2 个函数超过 60 有效行；没有
 | 函数 | LSP 范围 | 物理跨度 | 有效行 | 嵌套 | CC | 结论 |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
 | `NewTurnHandlers` | `internal/module/turn/rpc.go:14-96` | 83 | 77 | 1 | 10 | 超过 60；未超过 80；复杂度已到上限 |
-| `NewOrchestrationHandlers` | `cmd/mcp-orch/orchestration/rpc.go:15-77` | 63 | 63 | 1 | 5 | 超过 60；未超过 80 |
+| `NewOrchestrationHandlers` | `internal/sidecar/orch/orchestration/rpc.go:15-77` | 63 | 63 | 1 | 5 | 超过 60；未超过 80 |
 
 结论：
 - `>60` 函数数：2
@@ -50,8 +50,8 @@ LSP `document_symbol` 确认当前只有 2 个函数超过 60 有效行；没有
 | 3 | `main` | `scripts/refactor/rename_codexsdk_to_agentsdk.go:64-125` | 53 | 2 | 10 | 通过 |
 | 4 | `bindApprovalLifecycle` | `internal/platform/rpc/module.go:74-104` | 31 | 2 | 10 | 通过 |
 | 5 | `visitSkillEntry` | `internal/module/skill/skills_meta.go:42-65` | 24 | 2 | 10 | 通过 |
-| 6 | `reconcileReadyStateLocked` | `cmd/mcp-orch/orchestration/helpers.go:119-138` | 20 | 2 | 10 | 通过 |
-| 7 | `inputItemsFromSubmitParams` | `cmd/mcp-orch/orchestration/rpc.go:106-125` | 20 | 2 | 10 | 通过 |
+| 6 | `reconcileReadyStateLocked` | `internal/sidecar/orch/orchestration/helpers.go:119-138` | 20 | 2 | 10 | 通过 |
+| 7 | `inputItemsFromSubmitParams` | `internal/sidecar/orch/orchestration/rpc.go:106-125` | 20 | 2 | 10 | 通过 |
 | 8 | `validMethod` | `scripts/extract_jsonrpc_methods.go:187-202` | 16 | 2 | 10 | 通过 |
 | 9 | `NewTurnHandlers` | `internal/module/turn/rpc.go:14-96` | 77 | 1 | 10 | 通过，但距离函数长度红线只差 3 行 |
 | 10 | `collectStringConsts` | `scripts/extract_jsonrpc_methods.go:124-145` | 22 | 4 | 9 | 通过；嵌套深度达到上限但未越线 |
@@ -89,7 +89,7 @@ LSP `text_search` 与 AST 枚举交叉确认后，生产代码一共有 41 个 `
 - `cmd/` 目录，3 个文件：`cmd/mcp-ida/fx.go`、`cmd/mcp-lsp/fx.go`、`cmd/mcp-orch/fx.go`
 - `internal/app/` 目录，3 个文件：`internal/app/app.go`、`internal/app/modules.go`、`internal/app/runner.go`
 - `module.go` 文件，35 个文件：
-  - `cmd/mcp-orch/orchestration/module.go`
+  - `internal/sidecar/orch/orchestration/module.go`
   - `internal/module/skill/module.go`
   - `internal/module/thread/module.go`
   - `internal/module/turn/module.go`

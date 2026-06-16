@@ -40,8 +40,8 @@ done
 echo ""
 echo "=== Check 2: ADR 常量数 vs 代码 grep ==="
 
-types_go="$ROOT/cmd/mcp-orch/orchestration/nodeexec/types.go"
-ops_go="$ROOT/cmd/mcp-orch/orchestration/nodeexec/ops.go"
+types_go="$ROOT/internal/sidecar/orch/orchestration/nodeexec/types.go"
+ops_go="$ROOT/internal/sidecar/orch/orchestration/nodeexec/ops.go"
 
 count_const() {
     local prefix="$1"

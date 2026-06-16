@@ -270,7 +270,7 @@ fix 过程被打断或重启会话时，下一轮必须先恢复状态，而不�
 | Wails/desktop/打包 | `cmd/agent-terminal`、`scripts/package_*`、embedded assets、release docs | 相关脚本/guard 测试，加 `make build-plain` 或目标平台 smoke | 平台不可用时列出未覆盖平台和手动验证计划 |
 | MCP sidecar/tool contract | `cmd/mcp-lsp`、`cmd/mcp-orch`、`cmd/mcp-ida`、`internal/mcpserver` | sidecar 包测试，加真实 MCP/binary e2e 或 contract test | 明确是源码级 harness 还是产物级 e2e |
 | Provider/runtime | `internal/provider`、`internal/platform/rpc`、thread/turn/prompt/memory 串联 | 受影响 provider/module 测试，加原始 turn/session 复现 | 外部 CLI/API 不可用时使用明确 stub，并说明未覆盖真 provider |
-| 文档/契约 | `docs/契约`、`docs/decisions`、`docs/adr`、`docs/internal-notes` | `git diff --check` | docs-only 可跳过 Go 测试，但 final 必须说明 |
+| 文档/契约 | `docs/契约`、`docs/decisions`、`docs/adr`、`docs/交接笔记/内部笔记` | `git diff --check` | docs-only 可跳过 Go 测试，但 final 必须说明 |
 | codemap | `docs/doc/codemap`、生成脚本 | `make codemap-check` | 如只读使用 codemap 不需跑；编辑 codemap 必须验证 |
 | skills/provider mirrors | `.agent/skills`、skill module/provider mirror 相关代码 | 相关 skill/module/provider mirror tests | provider mirrors 是生成物时不要直接编辑，先确认 canonical source |
 

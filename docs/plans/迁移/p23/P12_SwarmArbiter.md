@@ -61,7 +61,7 @@
 
 新增第 7 个 actor `dagSwarmArbiterActor`：
 - 消费 enqueued swarm arbiter job
-- **并行**调 N 个 LLM（共用 P8 前置的 `cmd/mcp-orch/orchestration/llm/light/*` 调用层）
+- **并行**调 N 个 LLM（共用 P8 前置的 `internal/sidecar/orch/orchestration/llm/light/*` 调用层）
 - 等齐 N 个结果（或超 `timeout_sec` 用已到的）
 - 走 consensus 算法 → 出 final verdict
 - 落 N 行 `dag_arbiter_calls` 审计 + 1 行 `dag_swarm_consensus` 聚合记录
@@ -76,16 +76,16 @@
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| swarm actor | `cmd/mcp-orch/orchestration/runtime/swarm_arbiter_actor.go` [NEW] | 第 7 actor；必走 `group:"runners"` Fx tag（a1 调研 medium）；并行调 N LLM；consensus 聚合；Runner.Run(ctx) + interrupt/drain |
-| schema provider | `cmd/mcp-orch/tools/dag_schema_registry.go` + `cmd/mcp-orch/tools/dag_schema_swarm.go` [NEW] | 注册 `verify.arbiter_swarm.members[] / consensus / parallel / timeout_sec`；不直接并行改 `task_tools.go` |
-| consensus 算法库 | `cmd/mcp-orch/orchestration/runtime/consensus.go` [NEW] | majority / unanimous / weighted 三套策略 |
-| dissent 处理器 | `cmd/mcp-orch/orchestration/runtime/dissent_handler.go` [NEW] | 三种 dissent_action 实现 |
+| swarm actor | `internal/sidecar/orch/orchestration/runtime/swarm_arbiter_actor.go` [NEW] | 第 7 actor；必走 `group:"runners"` Fx tag（a1 调研 medium）；并行调 N LLM；consensus 聚合；Runner.Run(ctx) + interrupt/drain |
+| schema provider | `internal/sidecar/orch/tools/dag_schema_registry.go` + `internal/sidecar/orch/tools/dag_schema_swarm.go` [NEW] | 注册 `verify.arbiter_swarm.members[] / consensus / parallel / timeout_sec`；不直接并行改 `task_tools.go` |
+| consensus 算法库 | `internal/sidecar/orch/orchestration/runtime/consensus.go` [NEW] | majority / unanimous / weighted 三套策略 |
+| dissent 处理器 | `internal/sidecar/orch/orchestration/runtime/dissent_handler.go` [NEW] | 三种 dissent_action 实现 |
 | 审计扩展 | `0072_dag_swarm_consensus.sql` [NEW]（编号校准） | `dag_swarm_consensus` 聚合表；`dag_arbiter_calls` 加 `swarm_round_id` 列 |
 | archtest | `internal/archtest/dag_swarm_test.go` [NEW] | swarm 必须经统一 actor，不绕路 |
 
 ### schema / actor write-set 拆分
 
-P12 swarm schema 通过 `cmd/mcp-orch/tools/dag_schema_registry.go` 的 swarm provider 注册；不得直接并行改 `task_tools.go`。长跑 actor 固定落 `cmd/mcp-orch/orchestration/runtime/swarm_arbiter_actor.go`，并复用 P8 的 light LLM + P9 token bucket。
+P12 swarm schema 通过 `internal/sidecar/orch/tools/dag_schema_registry.go` 的 swarm provider 注册；不得直接并行改 `task_tools.go`。长跑 actor 固定落 `internal/sidecar/orch/orchestration/runtime/swarm_arbiter_actor.go`，并复用 P8 的 light LLM + P9 token bucket。
 
 ## DDL / SQL
 
@@ -136,7 +136,7 @@ CREATE INDEX CONCURRENTLY idx_dag_arbiter_calls_swarm
 
 ## 依赖
 
-- P8 已合入（含轻量 LLM 调用层 `cmd/mcp-orch/orchestration/llm/light/*`）
+- P8 已合入（含轻量 LLM 调用层 `internal/sidecar/orch/orchestration/llm/light/*`）
 - P9 全局 token bucket 已就位（N 倍 LLM 调用必须在 quota 内）
 
 ## 风险

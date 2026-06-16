@@ -10,15 +10,15 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	common "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimeenv"
+	"github.com/anthropic-ai/super-agent-v3/internal/sidecar/lsp/installer"
+	"github.com/anthropic-ai/super-agent-v3/internal/sidecar/lsp/manager"
+	"github.com/anthropic-ai/super-agent-v3/internal/sidecar/lsp/multilsp"
+	"github.com/anthropic-ai/super-agent-v3/internal/sidecar/lsp/protocol"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 

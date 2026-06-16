@@ -8,12 +8,12 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/memdata"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 const nestedGlobalThreadKey = "_global"
 
+// NestedRuntime owns per-thread nested memory trigger state for the memory module.
 type NestedRuntime struct {
 	deps Dependencies
 
@@ -192,7 +192,7 @@ func (r *NestedRuntime) ensureMatcherRootLocked(state *nestedSessionState, build
 // normalizeTrigger 规范化trigger。
 func (r *NestedRuntime) normalizeTrigger(buildCtx contract.BuildCtx, raw string) (string, bool) {
 	raw = strings.TrimSpace(raw)
-	if raw == "" || util.IsRemoteTurnInput(raw) {
+	if raw == "" || kernel.IsRemoteTurnInput(raw) {
 		return "", false
 	}
 	if !filepath.IsAbs(raw) && strings.TrimSpace(buildCtx.CWD) != "" {
@@ -286,7 +286,7 @@ func nestedContainsPath(root, child string) bool {
 	if err != nil {
 		return false
 	}
-	return pathutil.ContainsPath(cleanRoot, cleanChild)
+	return kernel.ContainsPath(cleanRoot, cleanChild)
 }
 
 func sortedNestedKeys(values map[string]struct{}) []string {

@@ -68,7 +68,7 @@
 
 ### 5.1 实装位置
 
-- 常量：`cmd/mcp-orch/orchestration/nodeexec/executor_automation.go::NodeResultSizeCapBytes = 4096`；
+- 常量：`internal/sidecar/orch/orchestration/nodeexec/executor_automation.go::NodeResultSizeCapBytes = 4096`；
 - 守卫函数：`enforceNodeResultSizeCap(payload []byte) *NodeOutcome`——返回非 nil 即拦截；
 - 触发点：`finalizeAutomationOutcome`，在 `shouldEmitNodeResult` 已判定要写 `node.result` 之后、`outcome.Result = payload` 之前；
 - 行为：`len(payload) > 4096` → `NodeOutcome{Status: failed, FailureClass: validation, ErrorSummary: "result exceeds 4KB size cap (N > 4096 bytes), configure outputs.to_sharedfile (ADR-006)"}`；

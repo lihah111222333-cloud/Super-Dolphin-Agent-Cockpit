@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 const (
@@ -175,7 +175,7 @@ func (e *DefaultExtractor) redactedTrajectoryPrompt(t Trajectory) (string, error
 }
 
 func (e *DefaultExtractor) executeDream(ctx context.Context, t Trajectory, prompt string) (string, error) {
-	callCtx, cancel := ctxutil.WithTimeout(ctx, extractTimeout)
+	callCtx, cancel := kernel.WithTimeout(ctx, extractTimeout)
 	defer cancel()
 	rawSkillMd, err := e.dream.ExecuteDream(callCtx, prompt)
 	if err != nil {

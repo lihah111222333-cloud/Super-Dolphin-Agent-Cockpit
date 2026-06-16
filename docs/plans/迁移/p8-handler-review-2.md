@@ -2,10 +2,10 @@
 
 ## 审查范围
 - V3
-  - `cmd/mcp-orch/tools/workspace_tools.go`
-  - `cmd/mcp-orch/tools/prompt_tools.go`
-  - `cmd/mcp-orch/tools/command_tools.go`
-  - `cmd/mcp-orch/tools/shared_file_tools.go`
+  - `internal/sidecar/orch/tools/workspace_tools.go`
+  - `internal/sidecar/orch/tools/prompt_tools.go`
+  - `internal/sidecar/orch/tools/command_tools.go`
+  - `internal/sidecar/orch/tools/shared_file_tools.go`
 - V2 参考
   - `/Users/mima0000/Desktop/wj/go-agent-v2/pkg/toolsdk/tools/resource.go`
   - `/Users/mima0000/Desktop/wj/go-agent-v2/pkg/toolsdk/tools/resource_specs.go`
@@ -65,7 +65,7 @@
 - SQL 注入面基本安全。
 - 主要问题不在注入，而在路径规范化和 handler 层缺少独立的安全边界。
 - `shared_file_*` 因为失去 V2 的 path canonicalization，逻辑同一路径可能被写成多个不同 key。
-- `workspace_*` 的路径沙箱、文件数量、字节上限如果要成立，必须依赖被注入的具体实现；仅从 `cmd/mcp-orch/tools/*.go` 这层看，不是自证安全的。
+- `workspace_*` 的路径沙箱、文件数量、字节上限如果要成立，必须依赖被注入的具体实现；仅从 `internal/sidecar/orch/tools/*.go` 这层看，不是自证安全的。
 
 ## 问题清单
 | # | 问题 | 严重度 | 建议 |

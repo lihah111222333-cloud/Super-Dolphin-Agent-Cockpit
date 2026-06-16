@@ -10,11 +10,11 @@
 
 ## 现状校准（事实层）
 
-- hook consumer 链路：`cmd/mcp-orch/orchestration/hook_consumer.go:96-220`、`cmd/mcp-orch/orchestration/hook_consumer.go:148-151,260-275,285-287`
+- hook consumer 链路：`internal/sidecar/orch/orchestration/hook_consumer.go:96-220`、`internal/sidecar/orch/orchestration/hook_consumer.go:148-151,260-275,285-287`
 - hook 订阅入口：`cmd/mcp-orch/runtime.go:216-219` 的 `subscribeOrchestrationHooks` → `cmd/mcp-orch/hook_subscription.go:13-40`
 - terminal 事件类型：`internal/dto/turn/event.go:10-21`（`TurnCompleted.Success/Result/Summary/Error`）
 - 完成节点 SQL：`task_dag_node_runtime.sql:37-42`（`CompleteNode`）
-- timeout/retry/on_failure 字段当前只存 JSON，无执行：`cmd/mcp-orch/tools/task_tools.go:120-121,269-284`
+- timeout/retry/on_failure 字段当前只存 JSON，无执行：`internal/sidecar/orch/tools/task_tools.go:120-121,269-284`
 
 ## 推荐架构
 
@@ -30,9 +30,9 @@ P2 只负责 durable terminal fact 与 fenced 状态推进，不依赖 P13 actor
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| terminal tap | `cmd/mcp-orch/orchestration/hook_consumer.go`、`cmd/mcp-orch/orchestration/dag_terminal_tap.go` | bounded parse + durable insert；禁止在 callback 内推进 node |
-| durable event DDL/SQL | `migrations/0065_dag_state_machine.sql`（首选并入；拆分时仅允许 `0065a/0065b` no-conflict）+ `cmd/mcp-orch/sql/queries/task_dag_terminal_event.sql` | 去重键 `(dag_key,node_key,active_turn_id,event_type)`，携带 `attempt_no` / `terminal_kind` |
-| reconcile actor | `cmd/mcp-orch/orchestration/dag_reconcile_actor.go`、`cmd/mcp-orch/store/taskdag/*` | fenced `CompleteNode/MarkFailed/RetryNode/MarkObserveLost`，0 rows 作为 stale terminal |
+| terminal tap | `internal/sidecar/orch/orchestration/hook_consumer.go`、`internal/sidecar/orch/orchestration/dag_terminal_tap.go` | bounded parse + durable insert；禁止在 callback 内推进 node |
+| durable event DDL/SQL | `migrations/0065_dag_state_machine.sql`（首选并入；拆分时仅允许 `0065a/0065b` no-conflict）+ `internal/sidecar/orch/sql/queries/task_dag_terminal_event.sql` | 去重键 `(dag_key,node_key,active_turn_id,event_type)`，携带 `attempt_no` / `terminal_kind` |
+| reconcile actor | `internal/sidecar/orch/orchestration/dag_reconcile_actor.go`、`internal/sidecar/orch/store/taskdag/*` | fenced `CompleteNode/MarkFailed/RetryNode/MarkObserveLost`，0 rows 作为 stale terminal |
 
 **已知关键改动方向**：
 - 在 `hook_consumer.go` 的 `OnTurnCompleted` 链上装 enqueue tap，只做 bounded parse + durable insert terminal event；禁止纯内存队列承载 terminal 事件

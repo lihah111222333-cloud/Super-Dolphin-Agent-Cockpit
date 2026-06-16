@@ -11,9 +11,9 @@ import (
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
+// ReadRequest describes the provider history lookup keys used to locate JSONL history.
 type ReadRequest struct {
 	Provider         string
 	RolloutPath      string
@@ -240,7 +240,16 @@ func parseClaudeLine(raw []byte) (dto.Message, bool) {
 	if err := json.Unmarshal(raw, &line); err != nil {
 		return dto.Message{}, false
 	}
-	return buildMessage(shared.FirstNonEmpty(line.Message.Role, line.Type), collectText(line.Message.Content), line.Timestamp)
+	return buildMessage(firstNonEmpty(line.Message.Role, line.Type), collectText(line.Message.Content), line.Timestamp)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 // buildMessage 构建消息。

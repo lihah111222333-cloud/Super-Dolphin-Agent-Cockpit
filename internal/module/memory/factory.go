@@ -11,8 +11,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/toolresults"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 	"github.com/kelindar/event"
 )
 
@@ -315,7 +315,7 @@ func newNestedIngestWorkerProvider(p nestedIngestWorkerProviderParams) *nestedIn
 		// Empty cache root (host without UserCacheDir nor TempDir) disables
 		// persistedPath reads via NestedRuntime.SetToolReadCacheRoot's
 		// empty-root contract — fail-closed.
-		p.NestedRuntime.SetToolReadCacheRoot(toolresults.CacheDir())
+		p.NestedRuntime.SetToolReadCacheRoot(kernel.ToolResultsCacheDir())
 	}
 	return newNestedIngestWorker(p.NestedRuntime, pkglogger.Get())
 }

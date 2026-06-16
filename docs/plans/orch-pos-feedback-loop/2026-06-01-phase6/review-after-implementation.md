@@ -15,13 +15,13 @@
 | 编号 | 发现 | 处理 |
 | --- | --- | --- |
 | M6-FIX-001 | 新增 prompt 测试使用了不存在的 `mustRawJSON` helper | 改为直接使用 `json.RawMessage` |
-| M6-FIX-002 | 首次测试因测试 helper 名称错误构建失败 | 修复后 `go test ./cmd/mcp-orch/tools -count=1` 通过 |
+| M6-FIX-002 | 首次测试因测试 helper 名称错误构建失败 | 修复后 `go test ./internal/sidecar/orch/tools -count=1` 通过 |
 
 ## 验证结果
 
 | 命令 | 结果 |
 | --- | --- |
-| `go test ./cmd/mcp-orch/tools -count=1` | 通过 |
+| `go test ./internal/sidecar/orch/tools -count=1` | 通过 |
 | `go test ./cmd/mcp-orch/... -count=1` | 未全绿，仍失败于既有非 tools 用例 |
 
 全量失败项仍为：

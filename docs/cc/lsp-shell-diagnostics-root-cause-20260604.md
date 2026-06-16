@@ -54,15 +54,15 @@ tool call: file action=diagnostics file_path=<worktree>/.tmp-lsp-shell-diagnosti
 源码链路如下：
 
 ```text
-cmd/mcp-lsp/tools.go
+internal/sidecar/lsp/tools.go
   newToolHandlers()
     "file" -> tools.NewFileHandler(...)
 
-cmd/mcp-lsp/tools/tool_file.go
+internal/sidecar/lsp/tools/tool_file.go
   handleFile()
     action "diagnostics" -> h.handleDiagnostics(ctx, input)
 
-cmd/mcp-lsp/tools/tool_diagnostics.go
+internal/sidecar/lsp/tools/tool_diagnostics.go
   handleDiagnostics()
     collectDiagnosticURIs()                         // 显式目标解析为 URI；不存在目标仍保留 URI（194-224）
     fetchDiagnosticsWithRetry()
@@ -73,7 +73,7 @@ cmd/mcp-lsp/tools/tool_diagnostics.go
       waitDiagnosticsWithStartupRecovery()
       registry.Diagnostics()
 
-cmd/mcp-lsp/manager/registry.go
+internal/sidecar/lsp/manager/registry.go
   BootstrapDocument()
     path := strings.TrimPrefix(uri, "file://")
     resolveManagerForTarget(ctx, DetectLanguageID(path), path, uri)
@@ -86,17 +86,17 @@ cmd/mcp-lsp/manager/registry.go
 
 ### 1. `.sh` 会被识别为 `sh`，但没有注册 `sh`
 
-`cmd/mcp-lsp/manager/registry.go`：
+`internal/sidecar/lsp/manager/registry.go`：
 
 - `languageIDByExtension` 只列出 `.go`、`.js/.jsx/.mjs/.cjs`、`.ts/.tsx`、`.py/.pyi`、`.rs`、`.java`、`.css`、`.md/.markdown`、`.json`、`.yaml/.yml`。
 - 没有 `.sh` / `.bash` / `.zsh`。
-- `DetectLanguageID()` 找不到扩展映射时，会 `return strings.TrimPrefix(ext, ".")`；所以 `.sh` 最终变成语言 ID `sh`（`cmd/mcp-lsp/manager/registry.go:250-259`）。
-- `resolveManagerForTarget()` 用 `sh` 查 `r.managers`，查不到就返回 `ErrUnsupportedLanguage`（`cmd/mcp-lsp/manager/registry.go:147-156`）。
-- diagnostics 的下游分组 `groupURIsByManager()` 虽然会跳过 unsupported URI（`cmd/mcp-lsp/manager/registry.go:377-391`），但它不是显式存在 `.sh` 的有效防护：当前顺序是先 reactive bootstrap，`BootstrapDocument()` 已在读取 diagnostics 前失败。
+- `DetectLanguageID()` 找不到扩展映射时，会 `return strings.TrimPrefix(ext, ".")`；所以 `.sh` 最终变成语言 ID `sh`（`internal/sidecar/lsp/manager/registry.go:250-259`）。
+- `resolveManagerForTarget()` 用 `sh` 查 `r.managers`，查不到就返回 `ErrUnsupportedLanguage`（`internal/sidecar/lsp/manager/registry.go:147-156`）。
+- diagnostics 的下游分组 `groupURIsByManager()` 虽然会跳过 unsupported URI（`internal/sidecar/lsp/manager/registry.go:377-391`），但它不是显式存在 `.sh` 的有效防护：当前顺序是先 reactive bootstrap，`BootstrapDocument()` 已在读取 diagnostics 前失败。
 
 ### 2. 默认 adapter 注册不包含 shell
 
-`cmd/mcp-lsp/multilsp/language_service_config.go` 的 `NewLanguageAdapterRegistryFromConfig()` 只注册：
+`internal/sidecar/lsp/multilsp/language_service_config.go` 的 `NewLanguageAdapterRegistryFromConfig()` 只注册：
 
 - `goLanguageAdapter`
 - JSTS adapter
@@ -145,10 +145,10 @@ hint: next: choose file_path or language_id with a registered language adapter
 
 ## 可达性与防护边界
 
-- 显式传入且真实存在的 `.sh`：`collectDiagnosticURIs()` 会解析为 URI（`cmd/mcp-lsp/tools/tool_diagnostics.go:194-224`），`existingDiagnosticURIs()` 会把普通非 symlink 文件送入 bootstrap（`cmd/mcp-lsp/tools/tool_diagnostics.go:239-251`），随后 `reactiveBootstrap()` 调 `registry.BootstrapDocument()`（`cmd/mcp-lsp/tools/tool_diagnostics.go:333-352`），最终在 manager 解析失败。
-- 无显式目标：`collectDiagnosticURIs()` 对空目标直接返回空（`cmd/mcp-lsp/tools/tool_diagnostics.go:194-198`），`bootstrapDiagnostics()` 对空 existing URI 返回 `manager`，不会 reactive bootstrap（`cmd/mcp-lsp/tools/tool_diagnostics.go:71-82`）。
-- 显式目标不存在：路径解析后可生成 URI，但 `existingDiagnosticURIs()` 只保留 `os.Lstat` 成功且为普通非 symlink 文件的 URI（`cmd/mcp-lsp/tools/tool_diagnostics.go:239-251`），不存在目标不会进入 bootstrap。
-- 下游 `groupURIsByManager()` 跳过 unsupported（`cmd/mcp-lsp/manager/registry.go:377-391`）不是有效防护，因为显式存在目标已先在 `BootstrapDocument()` 的 `resolveManagerForTarget(ctx, DetectLanguageID(path), ...)` 失败（`cmd/mcp-lsp/manager/registry.go:300-306`，`cmd/mcp-lsp/manager/registry.go:147-156`）。
+- 显式传入且真实存在的 `.sh`：`collectDiagnosticURIs()` 会解析为 URI（`internal/sidecar/lsp/tools/tool_diagnostics.go:194-224`），`existingDiagnosticURIs()` 会把普通非 symlink 文件送入 bootstrap（`internal/sidecar/lsp/tools/tool_diagnostics.go:239-251`），随后 `reactiveBootstrap()` 调 `registry.BootstrapDocument()`（`internal/sidecar/lsp/tools/tool_diagnostics.go:333-352`），最终在 manager 解析失败。
+- 无显式目标：`collectDiagnosticURIs()` 对空目标直接返回空（`internal/sidecar/lsp/tools/tool_diagnostics.go:194-198`），`bootstrapDiagnostics()` 对空 existing URI 返回 `manager`，不会 reactive bootstrap（`internal/sidecar/lsp/tools/tool_diagnostics.go:71-82`）。
+- 显式目标不存在：路径解析后可生成 URI，但 `existingDiagnosticURIs()` 只保留 `os.Lstat` 成功且为普通非 symlink 文件的 URI（`internal/sidecar/lsp/tools/tool_diagnostics.go:239-251`），不存在目标不会进入 bootstrap。
+- 下游 `groupURIsByManager()` 跳过 unsupported（`internal/sidecar/lsp/manager/registry.go:377-391`）不是有效防护，因为显式存在目标已先在 `BootstrapDocument()` 的 `resolveManagerForTarget(ctx, DetectLanguageID(path), ...)` 失败（`internal/sidecar/lsp/manager/registry.go:300-306`，`internal/sidecar/lsp/manager/registry.go:147-156`）。
 
 ## 非根因
 

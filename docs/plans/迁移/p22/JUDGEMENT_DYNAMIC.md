@@ -40,7 +40,7 @@
 | 6 | 读 `internal/module/memory/module.go:456-466` | TeamSync 回调仍直达 start/stop helper | 实测范围已是 `456-467`；`458/463` 仍直达 `StartSessionFromThreadEvent` / `StopSessionFromThreadEvent` | ✅ |
 | 7 | 读 `internal/module/memory/team/team_sync_watcher.go:72-78` | watcher 仍 `SafeGo` 起 loop | 实测范围已是 `72-79`；`76-78` 仍 `runtimesafe.SafeGo(...)` | ✅ |
 | 8 | 读 `internal/module/memory/auto_dream_task.go:160-177` | auto-dream 回调仍直 `go` | 实测问题段为 `156-178`；`160-162` callback -> `165-178` -> `173 go func()` | ✅ |
-| 9 | 读 `cmd/mcp-orch/orchestration/process_lifecycle.go:220-238` | actor 仍 `go waitForExit` | 实测范围已是 `220-239`；`222` 仍 `go a.waitForExit(...)` | ✅ |
+| 9 | 读 `internal/sidecar/orch/orchestration/process_lifecycle.go:220-238` | actor 仍 `go waitForExit` | 实测范围已是 `220-239`；`222` 仍 `go a.waitForExit(...)` | ✅ |
 | 10 | `go test ./internal/archtest/... -run TestCodeSizeGuard -count=1 -v` | 以实测为唯一真值 | **0 violations / PASS** | ✅ |
 
 ## 3. Findings 1-10 行号 drift 表
@@ -54,7 +54,7 @@
 | 5 | `internal/module/memory/module.go:456-466` | `internal/module/memory/module.go:456-467` | +1 行 | ✅ |
 | 6 | `internal/module/memory/team/team_sync_watcher.go:72-78` | `internal/module/memory/team/team_sync_watcher.go:72-79` | +1 行 | ✅ |
 | 7 | `internal/module/memory/auto_dream_task.go:160-177` | `internal/module/memory/auto_dream_task.go:156-178` | 起点前移 4 行、尾段 +1 行 | ✅ |
-| 8 | `cmd/mcp-orch/orchestration/process_lifecycle.go:220-238` | `cmd/mcp-orch/orchestration/process_lifecycle.go:220-239` | +1 行 | ✅ |
+| 8 | `internal/sidecar/orch/orchestration/process_lifecycle.go:220-238` | `internal/sidecar/orch/orchestration/process_lifecycle.go:220-239` | +1 行 | ✅ |
 | 9 | `internal/platform/toolbridge/module.go:130-159` | `internal/platform/toolbridge/module.go:130-159` | 0 | ✅ |
 | 10 | `internal/module/memory/module.go:435-437 + internal/module/memory/nested/nested_runtime.go:314-339` | `internal/module/memory/module.go:435-437 + internal/module/memory/nested/nested_runtime.go:314-339` | 0 | ✅ |
 
@@ -124,7 +124,7 @@
   - `waitForProcessExit` -> `process_lifecycle.go:136-162`, `helpers.go:173`
   - `go sweeper.Run(` -> `internal/platform/mcpcontrol/module.go:191`
   - `go startApprovalCleanupLoop(` -> `internal/platform/rpc/module.go:195`
-  - `go a.waitForExit(` -> `cmd/mcp-orch/orchestration/process_lifecycle.go:222`
+  - `go a.waitForExit(` -> `internal/sidecar/orch/orchestration/process_lifecycle.go:222`
   - `StartSessionFromThreadEvent` -> `memory/module.go:458`, `team/thread_metadata.go:63`
   - `go func() {`（memory） -> `auto_dream_task.go:173,286`, `extract_runtime.go:210`
   - `publishConfigChanged(` -> `internal/platform/mcpcontrol/config_change.go:34/37/40/43/46/49/52/55`
@@ -139,7 +139,7 @@
 - `lsp_inspect(definition)`：
   - `ServeProxy` -> `internal/platform/toolbridge/proxy.go:53-68`
   - `StartSessionFromThreadEvent` -> `internal/module/memory/team/thread_metadata.go:63-77`
-  - `waitForProcessExit` -> `cmd/mcp-orch/orchestration/process_lifecycle.go:136-162`
+  - `waitForProcessExit` -> `internal/sidecar/orch/orchestration/process_lifecycle.go:136-162`
 - `lsp_structure(document_symbol)`：
   - `internal/app/runner.go` 顶层符号仅 `RunnerResult` / `runtimeParams` / `BindRuntime`
 - `lsp_file`：
@@ -382,7 +382,7 @@
   - `TeamSyncService <- internal/module/memory/team/module.go:18`、`internal/module/memory/module.go:165`
   - `NewActiveAgentCounter <- internal/ui/wails/module.go:24`
   - `registerProxyLifecycle <- internal/platform/toolbridge/module.go:37`
-  - `waitForProcessExit <- cmd/mcp-orch/orchestration/helpers.go:173`
+  - `waitForProcessExit <- internal/sidecar/orch/orchestration/helpers.go:173`
   - `waitDreamTask` 仍只有 `_test.go` caller，为 test-only helper
   - `startApprovalCleanupLoop <- internal/platform/rpc/module.go:195`
 - 本轮事实层修订：**5 条**
@@ -424,7 +424,7 @@
   - F4 `internal/platform/rpc/module.go:149-166 + 179-197`
   - F5 `internal/module/memory/module.go:456-467`
   - F7 `internal/module/memory/auto_dream_task.go:156-178`
-  - F8 `cmd/mcp-orch/orchestration/process_lifecycle.go:220-239`
+  - F8 `internal/sidecar/orch/orchestration/process_lifecycle.go:220-239`
   - F10 `internal/module/memory/module.go:435-437 + internal/module/memory/nested/nested_runtime.go:314-339`
 - archtest 真值复核：
   - `go test ./internal/archtest/... -run TestCodeSizeGuard -count=1 -v`：**PASS / 0 violations**
@@ -454,7 +454,7 @@
 - 历史 code-anchor 复核仍成立：
   - `spawnToolbridgePeers <- internal/provider/codexapp/module.go:35`
   - `registerProxyLifecycle <- internal/platform/toolbridge/module.go:37`
-  - `waitForProcessExit <- cmd/mcp-orch/orchestration/helpers.go:173`
+  - `waitForProcessExit <- internal/sidecar/orch/orchestration/helpers.go:173`
   - `waitDreamTask` 仍仅 `_test.go` caller
 - 当轮 diff / 行数快照已转入后续轮次续更；当前 rerun 见 `§20.6`。
 - 若未来要真正改写旧轮 `P2/F10` 文字，需在保留年轮的前提下单独 justify。
@@ -468,7 +468,7 @@
 | F4 | `internal/platform/rpc/module.go:149-166 + 179-197` | `internal/platform/rpc/module.go:149-166 + 179-197` | 稳定 |
 | F5 | `internal/module/memory/module.go:456-467` | `internal/module/memory/module.go:456-467` | 稳定 |
 | F7 | `internal/module/memory/auto_dream_task.go:156-178` | `internal/module/memory/auto_dream_task.go:156-178` | 稳定 |
-| F8 | `cmd/mcp-orch/orchestration/process_lifecycle.go:220-239` | `cmd/mcp-orch/orchestration/process_lifecycle.go:220-239` | 稳定 |
+| F8 | `internal/sidecar/orch/orchestration/process_lifecycle.go:220-239` | `internal/sidecar/orch/orchestration/process_lifecycle.go:220-239` | 稳定 |
 | F10 | `internal/module/memory/module.go:435-437 + internal/module/memory/nested/nested_runtime.go:314-339` | 同上 | 稳定 |
 | `connection.dead` 链路（后续轮修订项） | `session_approval.go:242-250 -> recovery.go:102-120` | 同上 | 稳定 |
 
@@ -492,7 +492,7 @@
 3. `lsp_file internal/platform/rpc/module.go:149-197` -> F4 仍为 `149-166 + 179-197`
 4. `lsp_file internal/module/memory/module.go:456-467` -> F5 TeamSync start/stop callback 仍在 `:458/:463`
 5. `lsp_file internal/module/memory/auto_dream_task.go:156-178` -> F7 `go func()` 仍在 `:173`
-6. `lsp_file cmd/mcp-orch/orchestration/process_lifecycle.go:220-239` -> F8 `go a.waitForExit(...)` 仍在 `:222`
+6. `lsp_file internal/sidecar/orch/orchestration/process_lifecycle.go:220-239` -> F8 `go a.waitForExit(...)` 仍在 `:222`
 7. `lsp_file internal/module/memory/nested/nested_runtime.go:314-339` -> F10 `os.ReadFile(...)` 仍在 `:320`
 8. `lsp_file internal/archtest/freeze_registry.go:19-25` -> `explicitFreezeRegistry = []explicitFreeze{}`
 9. `lsp_file internal/archtest/guardlib.go:22-32` -> numeric 守卫常量 `600/800/30/10000`
@@ -502,7 +502,7 @@
 13. `lsp_xref internal/platform/toolbridge/diff_fallback.go:44:31` -> prod caller `internal/platform/toolbridge/module.go:117`
 14. `lsp_file internal/platform/toolbridge/module.go:110-128` -> `registerDiffFallbackLifecycle` 仍在 `OnStart` 注册 `tracker.handleToolCallEnd`
 15. `lsp_file internal/mcpserver/common/server.go:92-145` -> `Run()` 仍 `go s.readLoop(results)`，但 readLoop 仍是同 owner 私有 helper
-16. `lsp_xref cmd/mcp-orch/orchestration/process_lifecycle.go:136:19` -> `waitForProcessExit <- helpers.go:173`
+16. `lsp_xref internal/sidecar/orch/orchestration/process_lifecycle.go:136:19` -> `waitForProcessExit <- helpers.go:173`
 17. `lsp_grep docs/plans/迁移/p22/JUDGEMENT_DYNAMIC.md "Finding 11"` -> `命中本文件“不升级” disposition`
 18. `lsp_grep docs/plans/迁移/p22/JUDGEMENT_DYNAMIC.md "Finding 12"` -> `命中本文件“强候选 / deferred” disposition`
 19. `lsp_grep docs/plans/迁移/p22/JUDGEMENT_DYNAMIC.md "pre-drain"` -> `命中本文件 handoff gap 记账`

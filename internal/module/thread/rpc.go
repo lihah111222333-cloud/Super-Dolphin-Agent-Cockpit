@@ -11,9 +11,9 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const (
@@ -116,7 +116,7 @@ func validateStartParams(p startParams) error {
 	if strings.TrimSpace(p.CWD) == "" {
 		return fmt.Errorf("%s: cwd is required", contract.ThreadRPCStart)
 	}
-	if strings.TrimSpace(util.FirstNonEmpty(p.Provider, p.ModelProvider)) == "" {
+	if strings.TrimSpace(kernel.FirstNonEmpty(p.Provider, p.ModelProvider)) == "" {
 		return fmt.Errorf("%s: provider is required", contract.ThreadRPCStart)
 	}
 	return nil
@@ -256,8 +256,8 @@ func threadSkillRefsFromParams(params []skillRefParams, manual bool) []dto.Skill
 
 // buildStartResponse 构建起点响应。
 func buildStartResponse(result StartResult) startResponse {
-	status := util.FirstNonEmpty(result.Status, "running")
-	sessionID := util.FirstNonEmpty(result.SessionID, result.ThreadID)
+	status := kernel.FirstNonEmpty(result.Status, "running")
+	sessionID := kernel.FirstNonEmpty(result.SessionID, result.ThreadID)
 	resp := startResponse{
 		Thread:         threadInfo{ID: result.ThreadID, Status: status},
 		ThreadID:       result.ThreadID,
@@ -491,7 +491,7 @@ var errApprovalsSetArgsConflict = platformrpc.ErrInvalidParams("thread/approvals
 func newResumeHandler(svc Service) handler.Func {
 	return platformrpc.ThreadHandler(func(ctx context.Context, p resumeParams) (any, error) {
 		result, err := svc.Resume(ctx, ResumeRequest{
-			ThreadID: util.FirstNonEmpty(p.ThreadID, contract.ThreadIDFrom(ctx)),
+			ThreadID: kernel.FirstNonEmpty(p.ThreadID, contract.ThreadIDFrom(ctx)),
 			Path:     p.Path,
 			CWD:      p.CWD,
 			Model:    p.Model,
@@ -500,8 +500,8 @@ func newResumeHandler(svc Service) handler.Func {
 		if err != nil {
 			return nil, err
 		}
-		status := util.FirstNonEmpty(result.Status, "resumed")
-		sessionID := util.FirstNonEmpty(result.SessionID, result.ThreadID)
+		status := kernel.FirstNonEmpty(result.Status, "resumed")
+		sessionID := kernel.FirstNonEmpty(result.SessionID, result.ThreadID)
 		return resumeResponse{Thread: threadInfo{ID: result.ThreadID, Status: status}, ThreadID: result.ThreadID, ThreadIDSnake: result.ThreadID, SessionID: sessionID, SessionIDSnake: sessionID, Status: status, Model: result.Model, CWD: result.CWD}, nil
 	})
 }

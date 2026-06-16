@@ -6,8 +6,8 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 	platform "github.com/anthropic-ai/super-agent-v3/internal/platform/notify"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // Module wires the core-side notify stack into the Fx tree.

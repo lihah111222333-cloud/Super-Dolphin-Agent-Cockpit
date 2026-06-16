@@ -41,11 +41,11 @@ P2 items to track after P0/P1: optional symbol enrichment warnings, stderr prese
 | Task | Files |
 | --- | --- |
 | 1. Peer launch and LSP availability | `internal/provider/codexapp/peer_supervisor.go`, `internal/provider/codexapp/peer_supervisor_test.go`, `internal/provider/codexapp/module.go`, `internal/contract/config.go`, `cmd/mcp-lsp/runtime.go`, `cmd/mcp-lsp/runtime_test.go` |
-| 2. MCP/toolbridge error semantics | `internal/mcpserver/common/server.go`, `internal/mcpserver/common/http_transport.go`, `internal/mcpserver/common/server_test.go`, `cmd/mcp-lsp/fx.go`, `cmd/mcp-lsp/tools_test.go`, `internal/platform/toolbridge/types.go`, `internal/platform/toolbridge/handler.go`, `internal/platform/toolbridge/handler_peer_decode.go`, `internal/platform/toolbridge/handler_host_tools.go`, `internal/platform/toolbridge/stdio_mcp_client.go`, `internal/platform/toolbridge/proxy.go`, same-package tests |
-| 3. Diagnostics and bootstrap state | `cmd/mcp-lsp/tools/tool_diagnostics.go`, `cmd/mcp-lsp/tools/*diagnostics*_test.go`, `cmd/mcp-lsp/multilsp/manager_diagnostics.go`, `cmd/mcp-lsp/multilsp/state.go`, `cmd/mcp-lsp/multilsp/bootstrap_doc.go`, same-package tests |
-| 4. Multilsp lifecycle, cache, Go roots, installer | `cmd/mcp-lsp/multilsp/cache.go`, `cmd/mcp-lsp/multilsp/factory.go`, `cmd/mcp-lsp/multilsp/go_root_resolver.go`, `cmd/mcp-lsp/multilsp/manager_lifecycle.go`, `cmd/mcp-lsp/installer/installer.go`, `cmd/mcp-lsp/manager/registry.go`, `cmd/mcp-lsp/search/fileutil.go`, `cmd/mcp-lsp/search/language_inference_test.go`, `cmd/mcp-lsp/runtime.go`, same-package tests |
-| 5. File/read/edit/code-run result failures | `cmd/mcp-lsp/tools/tool_file.go`, `cmd/mcp-lsp/tools/tool_edit_replace.go`, `cmd/mcp-lsp/tools/factory.go`, `cmd/mcp-lsp/middleware/budget.go`, same-package tests |
-| 6. Search and sandbox fail-fast | `cmd/mcp-lsp/tools/tool_grep.go`, `cmd/mcp-lsp/search/searchutil.go`, `cmd/mcp-lsp/search/fileutil.go`, `cmd/mcp-lsp/exec/sandbox.go`, `cmd/mcp-lsp/exec/sandbox_windows.go`, same-package tests |
+| 2. MCP/toolbridge error semantics | `internal/mcpserver/common/server.go`, `internal/mcpserver/common/http_transport.go`, `internal/mcpserver/common/server_test.go`, `cmd/mcp-lsp/fx.go`, `internal/sidecar/lsp/tools_test.go`, `internal/platform/toolbridge/types.go`, `internal/platform/toolbridge/handler.go`, `internal/platform/toolbridge/handler_peer_decode.go`, `internal/platform/toolbridge/handler_host_tools.go`, `internal/platform/toolbridge/stdio_mcp_client.go`, `internal/platform/toolbridge/proxy.go`, same-package tests |
+| 3. Diagnostics and bootstrap state | `internal/sidecar/lsp/tools/tool_diagnostics.go`, `internal/sidecar/lsp/tools/*diagnostics*_test.go`, `internal/sidecar/lsp/multilsp/manager_diagnostics.go`, `internal/sidecar/lsp/multilsp/state.go`, `internal/sidecar/lsp/multilsp/bootstrap_doc.go`, same-package tests |
+| 4. Multilsp lifecycle, cache, Go roots, installer | `internal/sidecar/lsp/multilsp/cache.go`, `internal/sidecar/lsp/multilsp/factory.go`, `internal/sidecar/lsp/multilsp/go_root_resolver.go`, `internal/sidecar/lsp/multilsp/manager_lifecycle.go`, `internal/sidecar/lsp/installer/installer.go`, `internal/sidecar/lsp/manager/registry.go`, `internal/sidecar/lsp/search/fileutil.go`, `internal/sidecar/lsp/search/language_inference_test.go`, `cmd/mcp-lsp/runtime.go`, same-package tests |
+| 5. File/read/edit/code-run result failures | `internal/sidecar/lsp/tools/tool_file.go`, `internal/sidecar/lsp/tools/tool_edit_replace.go`, `internal/sidecar/lsp/tools/factory.go`, `internal/sidecar/lsp/middleware/budget.go`, same-package tests |
+| 6. Search and sandbox fail-fast | `internal/sidecar/lsp/tools/tool_grep.go`, `internal/sidecar/lsp/search/searchutil.go`, `internal/sidecar/lsp/search/fileutil.go`, `cmd/mcp-lsp/exec/sandbox.go`, `cmd/mcp-lsp/exec/sandbox_windows.go`, same-package tests |
 | 7. Frontend failure rendering | `cmd/agent-terminal/frontend/vue-app/utils/format-utils.js`, `cmd/agent-terminal/frontend/vue-app/format-utils.test.js`, `cmd/agent-terminal/frontend/vue-app/composables/useThreadCards.js`, `cmd/agent-terminal/frontend/vue-app/use-thread-cards.test.js` |
 | 8. Verification and review | affected package tests, frontend checks, `make guard`, review agents |
 
@@ -263,7 +263,7 @@ Expected: PASS.
 - Modify: `internal/mcpserver/common/http_transport.go:185-192`
 - Modify: `internal/mcpserver/common/server_test.go`
 - Modify: `cmd/mcp-lsp/fx.go:211-241`
-- Test: `cmd/mcp-lsp/tools_test.go`
+- Test: `internal/sidecar/lsp/tools_test.go`
 - Modify: `internal/platform/toolbridge/types.go:123-139`
 - Modify: `internal/platform/toolbridge/handler.go:183-198`
 - Modify: `internal/platform/toolbridge/handler_peer_decode.go:352-360`
@@ -495,17 +495,17 @@ Expected: PASS.
 ### Task 3: Make Diagnostics and Bootstrap State Observable
 
 **Files:**
-- Modify: `cmd/mcp-lsp/tools/tool_diagnostics.go:30-75,155-193`
-- Modify: `cmd/mcp-lsp/multilsp/manager_diagnostics.go:114-190`
-- Modify: `cmd/mcp-lsp/multilsp/state.go:29-156`
-- Modify: `cmd/mcp-lsp/multilsp/bootstrap_doc.go:212-285`
-- Test: `cmd/mcp-lsp/tools/tool_diagnostics_test.go`
-- Test: `cmd/mcp-lsp/multilsp/manager_diagnostics_scoped_test.go`
-- Test: `cmd/mcp-lsp/multilsp/bootstrap_state_test.go`
+- Modify: `internal/sidecar/lsp/tools/tool_diagnostics.go:30-75,155-193`
+- Modify: `internal/sidecar/lsp/multilsp/manager_diagnostics.go:114-190`
+- Modify: `internal/sidecar/lsp/multilsp/state.go:29-156`
+- Modify: `internal/sidecar/lsp/multilsp/bootstrap_doc.go:212-285`
+- Test: `internal/sidecar/lsp/tools/tool_diagnostics_test.go`
+- Test: `internal/sidecar/lsp/multilsp/manager_diagnostics_scoped_test.go`
+- Test: `internal/sidecar/lsp/multilsp/bootstrap_state_test.go`
 
 - [ ] **Step 1: Add failing diagnostics wait tests**
 
-In `cmd/mcp-lsp/multilsp/manager_diagnostics_scoped_test.go`, add:
+In `internal/sidecar/lsp/multilsp/manager_diagnostics_scoped_test.go`, add:
 
 ```go
 func TestWaitDiagnosticsStableFailsWhenTargetNeverPublishes(t *testing.T) {
@@ -560,7 +560,7 @@ func TestPublishEmptyDiagnosticsCountsAsObservedReadySnapshot(t *testing.T) {
 
 - [ ] **Step 2: Add failing partial bootstrap test**
 
-In `cmd/mcp-lsp/tools/tool_diagnostics_test.go`, add a fake registry where one URI bootstrap fails and one succeeds:
+In `internal/sidecar/lsp/tools/tool_diagnostics_test.go`, add a fake registry where one URI bootstrap fails and one succeeds:
 
 ```go
 func TestDiagnosticsReportsPartialBootstrapFailure(t *testing.T) {
@@ -579,7 +579,7 @@ func TestDiagnosticsReportsPartialBootstrapFailure(t *testing.T) {
 
 - [ ] **Step 3: Add failing bootstrap wait-state tests**
 
-Create `cmd/mcp-lsp/multilsp/bootstrap_state_test.go`:
+Create `internal/sidecar/lsp/multilsp/bootstrap_state_test.go`:
 
 ```go
 func TestBootstrapWaitReturnsErrorWhenInflightEntryExpires(t *testing.T) {
@@ -610,7 +610,7 @@ func TestBootstrapWaitReturnsErrorWhenInflightEntryIsDeleted(t *testing.T) {
 
 - [ ] **Step 4: Run tests and confirm failure**
 
-Run: `./scripts/test_with_guard.sh ./cmd/mcp-lsp/tools ./cmd/mcp-lsp/multilsp -run 'Test.*Diagnostics|TestBootstrapWait' -count=1`
+Run: `./scripts/test_with_guard.sh ./internal/sidecar/lsp/tools ./internal/sidecar/lsp/multilsp -run 'Test.*Diagnostics|TestBootstrapWait' -count=1`
 
 Expected: FAIL under current nil-timeout/delete-snapshot behavior.
 
@@ -689,7 +689,7 @@ On complete: `finish(..., nil)`. On fail: `finish(..., err)`. On stale expiry: s
 
 - [ ] **Step 9: Verify**
 
-Run: `./scripts/test_with_guard.sh ./cmd/mcp-lsp/tools ./cmd/mcp-lsp/multilsp -count=1`
+Run: `./scripts/test_with_guard.sh ./internal/sidecar/lsp/tools ./internal/sidecar/lsp/multilsp -count=1`
 
 Expected: PASS.
 
@@ -698,15 +698,15 @@ Expected: PASS.
 ### Task 4: Fail Fast in Multilsp Lifecycle, Cache, Go Roots, Installer, and Language Routing
 
 **Files:**
-- Modify: `cmd/mcp-lsp/multilsp/cache.go:100-123,353-369,523-532`
-- Modify: `cmd/mcp-lsp/multilsp/factory.go:260-275`
-- Modify: `cmd/mcp-lsp/multilsp/go_root_resolver.go:184-199`
-- Modify: `cmd/mcp-lsp/multilsp/manager_lifecycle.go:169-185,311-315`
-- Modify: `cmd/mcp-lsp/multilsp/bootstrap_doc.go:212-285`
-- Modify: `cmd/mcp-lsp/installer/installer.go:83-115`
-- Modify: `cmd/mcp-lsp/manager/registry.go:24-32,168-173`
+- Modify: `internal/sidecar/lsp/multilsp/cache.go:100-123,353-369,523-532`
+- Modify: `internal/sidecar/lsp/multilsp/factory.go:260-275`
+- Modify: `internal/sidecar/lsp/multilsp/go_root_resolver.go:184-199`
+- Modify: `internal/sidecar/lsp/multilsp/manager_lifecycle.go:169-185,311-315`
+- Modify: `internal/sidecar/lsp/multilsp/bootstrap_doc.go:212-285`
+- Modify: `internal/sidecar/lsp/installer/installer.go:83-115`
+- Modify: `internal/sidecar/lsp/manager/registry.go:24-32,168-173`
 - Modify: `cmd/mcp-lsp/runtime.go:303-334`
-- Test: same-package tests under `cmd/mcp-lsp/multilsp`, `cmd/mcp-lsp/installer`, `cmd/mcp-lsp/manager`, `cmd/mcp-lsp/tools`
+- Test: same-package tests under `internal/sidecar/lsp/multilsp`, `internal/sidecar/lsp/installer`, `internal/sidecar/lsp/manager`, `internal/sidecar/lsp/tools`
 
 - [ ] **Step 1: Add failing tests**
 
@@ -889,7 +889,7 @@ func TestInferASTLanguageReactExtensions(t *testing.T) {
 
 - [ ] **Step 2: Run tests and confirm failure**
 
-Run: `./scripts/test_with_guard.sh ./cmd/mcp-lsp/multilsp ./cmd/mcp-lsp/installer ./cmd/mcp-lsp/manager ./cmd/mcp-lsp/search -run 'TestPersistentCache|TestResolveGoWorkRootRejects|TestNewClientFromFactoryRejects|TestRegistryUsesInstaller|TestDetectLanguageIDReactExtensions|TestInferASTLanguageReactExtensions' -count=1`
+Run: `./scripts/test_with_guard.sh ./internal/sidecar/lsp/multilsp ./internal/sidecar/lsp/installer ./internal/sidecar/lsp/manager ./internal/sidecar/lsp/search -run 'TestPersistentCache|TestResolveGoWorkRootRejects|TestNewClientFromFactoryRejects|TestRegistryUsesInstaller|TestDetectLanguageIDReactExtensions|TestInferASTLanguageReactExtensions' -count=1`
 
 Expected: FAIL on current fallback/discard behavior.
 
@@ -1026,11 +1026,11 @@ Update:
 
 Add an `open_file` test that `DidOpen` receives `typescriptreact` for `.tsx`.
 
-Also update `cmd/mcp-lsp/search/fileutil.go` language inference so `.jsx` and `.tsx` resolve to `javascriptreact` and `typescriptreact`, and update `cmd/mcp-lsp/search/language_inference_test.go` expectations. If ast-grep itself only accepts canonical `javascript`/`typescript`, add an explicit adapter at the `sg` command boundary, not by losing React identity in the public LSP/search inference layer.
+Also update `internal/sidecar/lsp/search/fileutil.go` language inference so `.jsx` and `.tsx` resolve to `javascriptreact` and `typescriptreact`, and update `internal/sidecar/lsp/search/language_inference_test.go` expectations. If ast-grep itself only accepts canonical `javascript`/`typescript`, add an explicit adapter at the `sg` command boundary, not by losing React identity in the public LSP/search inference layer.
 
 - [ ] **Step 8: Verify**
 
-Run: `./scripts/test_with_guard.sh ./cmd/mcp-lsp/multilsp ./cmd/mcp-lsp/installer ./cmd/mcp-lsp/manager ./cmd/mcp-lsp -count=1`
+Run: `./scripts/test_with_guard.sh ./internal/sidecar/lsp/multilsp ./internal/sidecar/lsp/installer ./internal/sidecar/lsp/manager ./cmd/mcp-lsp -count=1`
 
 Expected: PASS.
 
@@ -1039,15 +1039,15 @@ Expected: PASS.
 ### Task 5: Make File, Read, Edit, Budget, and Code Run Failures Non-Successful
 
 **Files:**
-- Modify: `cmd/mcp-lsp/tools/tool_file.go:144-239,264-305`
-- Modify: `cmd/mcp-lsp/tools/tool_edit_replace.go:95-119`
-- Modify: `cmd/mcp-lsp/tools/factory.go:346-356`
-- Modify: `cmd/mcp-lsp/middleware/budget.go:45-104`
-- Test: `cmd/mcp-lsp/tools/tool_file_scope_test.go`
-- Test: `cmd/mcp-lsp/tools/tool_language_override_test.go`
-- Test: `cmd/mcp-lsp/tools/tool_edit_support_test.go`
-- Test: `cmd/mcp-lsp/tools/factory_test.go`
-- Test: `cmd/mcp-lsp/middleware/budget_test.go`
+- Modify: `internal/sidecar/lsp/tools/tool_file.go:144-239,264-305`
+- Modify: `internal/sidecar/lsp/tools/tool_edit_replace.go:95-119`
+- Modify: `internal/sidecar/lsp/tools/factory.go:346-356`
+- Modify: `internal/sidecar/lsp/middleware/budget.go:45-104`
+- Test: `internal/sidecar/lsp/tools/tool_file_scope_test.go`
+- Test: `internal/sidecar/lsp/tools/tool_language_override_test.go`
+- Test: `internal/sidecar/lsp/tools/tool_edit_support_test.go`
+- Test: `internal/sidecar/lsp/tools/factory_test.go`
+- Test: `internal/sidecar/lsp/middleware/budget_test.go`
 
 - [ ] **Step 1: Add failing tests**
 
@@ -1144,7 +1144,7 @@ func TestExecuteSandboxInfrastructureErrorReturnsToolError(t *testing.T) {
 
 - [ ] **Step 2: Run tests and confirm failure**
 
-Run: `./scripts/test_with_guard.sh ./cmd/mcp-lsp/tools ./cmd/mcp-lsp/middleware -run 'Test(OpenFile|ReadBatch|ReplaceRange|BudgetOverflow|ExecuteSandbox)' -count=1`
+Run: `./scripts/test_with_guard.sh ./internal/sidecar/lsp/tools ./internal/sidecar/lsp/middleware -run 'Test(OpenFile|ReadBatch|ReplaceRange|BudgetOverflow|ExecuteSandbox)' -count=1`
 
 Expected: FAIL under current nil-error wrappers.
 
@@ -1222,7 +1222,7 @@ Program exit code failures remain ordinary `CodeRunResult{Success:false, ExitCod
 
 - [ ] **Step 8: Verify**
 
-Run: `./scripts/test_with_guard.sh ./cmd/mcp-lsp/tools ./cmd/mcp-lsp/middleware -count=1`
+Run: `./scripts/test_with_guard.sh ./internal/sidecar/lsp/tools ./internal/sidecar/lsp/middleware -count=1`
 
 Expected: PASS.
 
@@ -1231,14 +1231,14 @@ Expected: PASS.
 ### Task 6: Make Search and Sandbox Fail Closed
 
 **Files:**
-- Modify: `cmd/mcp-lsp/tools/tool_grep.go:82-100`
-- Modify: `cmd/mcp-lsp/search/searchutil.go:117-126,190-205,312-320,323-355`
-- Modify: `cmd/mcp-lsp/search/fileutil.go:270-286`
+- Modify: `internal/sidecar/lsp/tools/tool_grep.go:82-100`
+- Modify: `internal/sidecar/lsp/search/searchutil.go:117-126,190-205,312-320,323-355`
+- Modify: `internal/sidecar/lsp/search/fileutil.go:270-286`
 - Modify: `cmd/mcp-lsp/exec/sandbox.go:291-320`
 - Modify: `cmd/mcp-lsp/exec/sandbox_windows.go:29-71`
-- Test: `cmd/mcp-lsp/tools/tool_grep_test.go`
-- Test: `cmd/mcp-lsp/search/searchutil_test.go`
-- Test: `cmd/mcp-lsp/search/fileutil_test.go`
+- Test: `internal/sidecar/lsp/tools/tool_grep_test.go`
+- Test: `internal/sidecar/lsp/search/searchutil_test.go`
+- Test: `internal/sidecar/lsp/search/fileutil_test.go`
 - Test: `cmd/mcp-lsp/exec/sandbox_test.go`
 - Test: `cmd/mcp-lsp/exec/sandbox_windows_test.go`
 
@@ -1433,7 +1433,7 @@ func TestRunKillsStartedProcessWhenSandboxGuardAttachFails(t *testing.T) {
 
 - [ ] **Step 3: Run tests and confirm failure**
 
-Run: `./scripts/test_with_guard.sh ./cmd/mcp-lsp/tools ./cmd/mcp-lsp/search ./cmd/mcp-lsp/exec -run 'TestGrepInvalidRegex|TestGrepInvalidGlob|TestWalkSearchEntry|TestIsSearchCandidate|TestIsBinaryFile|TestSearchTextSingleFile|TestSearchTextInvalidGlob|TestDecodeSG|TestSearchAST|TestLimitedBuffer|TestAttachSandboxGuard|TestRunKillsStartedProcess' -count=1`
+Run: `./scripts/test_with_guard.sh ./internal/sidecar/lsp/tools ./internal/sidecar/lsp/search ./cmd/mcp-lsp/exec -run 'TestGrepInvalidRegex|TestGrepInvalidGlob|TestWalkSearchEntry|TestIsSearchCandidate|TestIsBinaryFile|TestSearchTextSingleFile|TestSearchTextInvalidGlob|TestDecodeSG|TestSearchAST|TestLimitedBuffer|TestAttachSandboxGuard|TestRunKillsStartedProcess' -count=1`
 
 Expected: FAIL under fallback/ignore/head-only behavior.
 
@@ -1575,7 +1575,7 @@ On timeout, `Run` must include guard termination errors in the returned sandbox 
 
 - [ ] **Step 8: Verify**
 
-Run: `./scripts/test_with_guard.sh ./cmd/mcp-lsp/tools ./cmd/mcp-lsp/search ./cmd/mcp-lsp/exec -count=1`
+Run: `./scripts/test_with_guard.sh ./internal/sidecar/lsp/tools ./internal/sidecar/lsp/search ./cmd/mcp-lsp/exec -count=1`
 
 Expected: PASS.
 

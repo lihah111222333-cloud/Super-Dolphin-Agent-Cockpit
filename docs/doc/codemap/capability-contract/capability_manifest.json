@@ -2,8 +2,8 @@
   "version": "1.0",
   "generated_at": "2026-05-28",
   "roots": [
-    "cmd/mcp-orch/orchestration",
-    "cmd/mcp-orch/tools",
+    "internal/sidecar/orch/orchestration",
+    "internal/sidecar/orch/tools",
     "internal/contract",
     "internal/provider"
   ],
@@ -19,7 +19,7 @@
   },
   "packages": [
     {
-      "path": "cmd/mcp-orch/orchestration",
+      "path": "internal/sidecar/orch/orchestration",
       "name": "orchestration",
       "functions": [
         {
@@ -13288,7 +13288,7 @@
       ]
     },
     {
-      "path": "cmd/mcp-orch/orchestration/cron",
+      "path": "internal/sidecar/orch/orchestration/cron",
       "name": "cron",
       "description": "提供 DAG 改造 Scheduler 蓝图 v2 §5 所需的 cron daemon 进程入口",
       "functions": [
@@ -13635,7 +13635,7 @@
       ]
     },
     {
-      "path": "cmd/mcp-orch/orchestration/metrics",
+      "path": "internal/sidecar/orch/orchestration/metrics",
       "name": "metrics",
       "functions": [
         {
@@ -13723,7 +13723,7 @@
       ]
     },
     {
-      "path": "cmd/mcp-orch/orchestration/nodeevents",
+      "path": "internal/sidecar/orch/orchestration/nodeevents",
       "name": "nodeevents",
       "functions": [
         {
@@ -13830,7 +13830,7 @@
       ]
     },
     {
-      "path": "cmd/mcp-orch/orchestration/nodeexec",
+      "path": "internal/sidecar/orch/orchestration/nodeexec",
       "name": "nodeexec",
       "functions": [
         {
@@ -16401,7 +16401,7 @@
       ]
     },
     {
-      "path": "cmd/mcp-orch/orchestration/retrypolicy",
+      "path": "internal/sidecar/orch/orchestration/retrypolicy",
       "name": "retrypolicy",
       "functions": [
         {
@@ -16475,7 +16475,7 @@
       ]
     },
     {
-      "path": "cmd/mcp-orch/orchestration/scheduledstart",
+      "path": "internal/sidecar/orch/orchestration/scheduledstart",
       "name": "scheduledstart",
       "functions": [
         {
@@ -16628,7 +16628,7 @@
       ]
     },
     {
-      "path": "cmd/mcp-orch/tools",
+      "path": "internal/sidecar/orch/tools",
       "name": "tools",
       "functions": [
         {
@@ -19553,7 +19553,7 @@
       ]
     },
     {
-      "path": "cmd/mcp-orch/tools/modelregistry",
+      "path": "internal/sidecar/orch/tools/modelregistry",
       "name": "modelregistry",
       "functions": [
         {

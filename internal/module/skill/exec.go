@@ -11,7 +11,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 var blockedCommands = map[string]bool{
@@ -107,7 +107,7 @@ func (s *service) execCommand(ctx context.Context, command string, args []string
 		return ExecResult{}, err
 	}
 	dir := resolveExecCWD(cwd, s.projectRoot)
-	execCtx, cancel := ctxutil.WithRPCRequestTimeout(ctx)
+	execCtx, cancel := kernel.WithRPCRequestTimeout(ctx)
 	defer cancel()
 	return runExecCommand(execCtx, name, base, args, dir, buildExecEnv(dir, env))
 }

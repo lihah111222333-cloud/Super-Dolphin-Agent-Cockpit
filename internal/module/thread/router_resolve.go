@@ -8,8 +8,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 func shouldSkipRoutedPrompt(s *service, req *StartRequest) bool {
@@ -28,7 +27,7 @@ func shouldSkipRoutedPrompt(s *service, req *StartRequest) bool {
 	}
 }
 
-func (s *service) runtimePromptCatalog() promptstore.RuntimePromptCatalog {
+func (s *service) runtimePromptCatalog() contract.RuntimePromptCatalog {
 	if s == nil {
 		return nil
 	}
@@ -48,7 +47,7 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) er
 	// Read enabled candidates once. Limit is generous; rule matching is cheap
 	// and list is unlikely to exceed a few hundred rows even in large orgs.
 	catalog := s.runtimePromptCatalog()
-	templates, err := catalog.ListTemplates(ctx, promptstore.RuntimeListFilter{CWD: trustedCWD, Limit: 200})
+	templates, err := catalog.ListTemplates(ctx, contract.PromptRuntimeListFilter{CWD: trustedCWD, Limit: 200})
 	if err != nil {
 		return fmt.Errorf("router: list prompt_templates: %w", err)
 	}
@@ -81,7 +80,7 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) er
 func (s *service) applyPickedRoutedTemplate(
 	ctx context.Context,
 	req *StartRequest,
-	picked *promptstore.PromptTemplate,
+	picked *contract.PromptTemplate,
 ) error {
 	versionPromptText, blocks, err := s.routedTemplateInstructions(ctx, req, picked)
 	if err != nil {
@@ -106,7 +105,7 @@ func (s *service) applyPickedRoutedTemplate(
 		req.PromptVersionID = nil
 		return nil
 	}
-	versionID, verr := catalog.InsertVersion(ctx, promptstore.PromptTemplateVersion{
+	versionID, verr := catalog.InsertVersion(ctx, contract.PromptTemplateVersion{
 		PromptKey:       picked.PromptKey,
 		Title:           picked.Title,
 		AgentKey:        picked.AgentKey,
@@ -134,13 +133,13 @@ type promptVersionInsertCapability interface {
 	CanInsertPromptVersion() bool
 }
 
-func promptCatalogCanInsertVersion(catalog promptstore.RuntimePromptCatalog) bool {
+func promptCatalogCanInsertVersion(catalog contract.RuntimePromptCatalog) bool {
 	checker, ok := catalog.(promptVersionInsertCapability)
 	return !ok || checker.CanInsertPromptVersion()
 }
 
 // routedTemplateInstructions 处理routedtemplateinstructions。
-func (s *service) routedTemplateInstructions(ctx context.Context, req *StartRequest, picked *promptstore.PromptTemplate) (string, []contract.BaseInstructionBlock, error) {
+func (s *service) routedTemplateInstructions(ctx context.Context, req *StartRequest, picked *contract.PromptTemplate) (string, []contract.BaseInstructionBlock, error) {
 	catalog := s.runtimePromptCatalog()
 	sections, serr := catalog.ListSectionsByTemplateID(ctx, picked.ID)
 	if serr != nil {
@@ -191,8 +190,8 @@ const defaultPromptKey = "main/default"
 func (s *service) pickRoutedTemplate(
 	_ context.Context,
 	req *StartRequest,
-	templates []promptstore.PromptTemplate,
-) (*promptstore.PromptTemplate, error) {
+	templates []contract.PromptTemplate,
+) (*contract.PromptTemplate, error) {
 	// Explicit prompt_key beats everything else: it's the most specific pin
 	// the UI can give ("use this exact row"). If it doesn't resolve, refuse
 	// to fall through — the user picked this row, silently substituting a
@@ -201,7 +200,7 @@ func (s *service) pickRoutedTemplate(
 	if pinned := strings.TrimSpace(req.PromptKey); pinned != "" {
 		picked := findEnabledByPromptKey(templates, pinned)
 		if picked != nil {
-			if promptstore.IsRuntimeAssetTemplate(*picked) {
+			if contract.IsRuntimeAssetPromptTemplate(*picked) {
 				req.PromptKeyStale = true
 				pkglogger.Warn("router: pinned prompt_key targets runtime asset template",
 					"prompt_key", pinned)
@@ -238,7 +237,7 @@ func (s *service) pickRoutedTemplate(
 	return nil, nil
 }
 
-func findEnabledByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *promptstore.PromptTemplate {
+func findEnabledByPromptKey(templates []contract.PromptTemplate, promptKey string) *contract.PromptTemplate {
 	picked := findByPromptKey(templates, promptKey)
 	if picked == nil || !picked.Enabled {
 		return nil
@@ -251,7 +250,7 @@ func findEnabledByPromptKey(templates []promptstore.PromptTemplate, promptKey st
 // Unknown region strings degrade to Dynamic (safer: blocks end up in the
 // uncached tail rather than accidentally claiming cached-prefix slots).
 // convertStoreSectionsToBlocks 把存储sections转换为blocks。
-func convertStoreSectionsToBlocks(sections []promptstore.PromptTemplateSection) []contract.BaseInstructionBlock {
+func convertStoreSectionsToBlocks(sections []contract.PromptTemplateSection) []contract.BaseInstructionBlock {
 	if len(sections) == 0 {
 		return nil
 	}
@@ -281,7 +280,7 @@ func convertStoreSectionsToBlocks(sections []promptstore.PromptTemplateSection) 
 	return out
 }
 
-func firstEnabledByAgentKey(templates []promptstore.PromptTemplate, agentKey string) *promptstore.PromptTemplate {
+func firstEnabledByAgentKey(templates []contract.PromptTemplate, agentKey string) *contract.PromptTemplate {
 	want := strings.TrimSpace(agentKey)
 	if want == "" {
 		return nil
@@ -295,11 +294,11 @@ func firstEnabledByAgentKey(templates []promptstore.PromptTemplate, agentKey str
 	return nil
 }
 
-func promptTemplateLaunchable(template promptstore.PromptTemplate) bool {
-	return template.Enabled && !promptstore.IsRuntimeAssetTemplate(template)
+func promptTemplateLaunchable(template contract.PromptTemplate) bool {
+	return template.Enabled && !contract.IsRuntimeAssetPromptTemplate(template)
 }
 
-func findByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *promptstore.PromptTemplate {
+func findByPromptKey(templates []contract.PromptTemplate, promptKey string) *contract.PromptTemplate {
 	want := strings.TrimSpace(promptKey)
 	if want == "" {
 		return nil
@@ -329,7 +328,7 @@ func findByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *
 // All failure modes leave req.PromptKey untouched so the main/default
 // fallback still applies.
 // maybeAutoRouteByMatchWhen 按matchwhen处理maybeautoroute。
-func (s *service) maybeAutoRouteByMatchWhen(req *StartRequest, templates []promptstore.PromptTemplate) {
+func (s *service) maybeAutoRouteByMatchWhen(req *StartRequest, templates []contract.PromptTemplate) {
 	if req == nil {
 		return
 	}
@@ -366,7 +365,7 @@ func (s *service) maybeAutoRouteByMatchWhen(req *StartRequest, templates []promp
 // for observability so a single line tells operators which stage fired.
 func (s *service) evaluateMatchWhenPool(
 	stage string,
-	pool []promptstore.PromptTemplate,
+	pool []contract.PromptTemplate,
 	peerCount int,
 	buildCtx contract.BuildCtx,
 	userPrompt string,
@@ -404,9 +403,9 @@ func (s *service) evaluateMatchWhenPool(
 // specific first, then fallback, so a low-priority prompt with real structured
 // match rules wins over a high-priority `{}` row.
 // autoRouteCandidates 处理autoroute候选项。
-func autoRouteCandidates(templates []promptstore.PromptTemplate) (specific, fallback []promptstore.PromptTemplate) {
-	specific = make([]promptstore.PromptTemplate, 0, len(templates))
-	fallback = make([]promptstore.PromptTemplate, 0, len(templates))
+func autoRouteCandidates(templates []contract.PromptTemplate) (specific, fallback []contract.PromptTemplate) {
+	specific = make([]contract.PromptTemplate, 0, len(templates))
+	fallback = make([]contract.PromptTemplate, 0, len(templates))
 	for i := range templates {
 		t := &templates[i]
 		if !promptTemplateLaunchable(*t) {
@@ -454,7 +453,7 @@ func hasSpecificMatchWhen(raw []byte) bool {
 
 // sortByPriorityDesc sorts the rows in-place by Priority descending with
 // stable secondary order (insertion order from the store).
-func sortByPriorityDesc(rows []promptstore.PromptTemplate) {
+func sortByPriorityDesc(rows []contract.PromptTemplate) {
 	sort.SliceStable(rows, func(i, j int) bool {
 		return rows[i].Priority > rows[j].Priority
 	})

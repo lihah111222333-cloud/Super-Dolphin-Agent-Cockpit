@@ -23,29 +23,29 @@
 
 ## Files and responsibilities
 
-- Modify: `cmd/mcp-lsp/installer/installer.go`
+- Modify: `internal/sidecar/lsp/installer/installer.go`
   - 增强 npm post-install binary 解析、输出截断、必要的 per-key 安装互斥。
 - Modify/Test: `cmd/mcp-lsp/runtime.go`
   - 注册 ast-grep installer，并把 installer-backed resolver 注入工具层。
-- Modify: `cmd/mcp-lsp/tools/tool_file.go`
+- Modify: `internal/sidecar/lsp/tools/tool_file.go`
   - 扩展 `tools.Config`，承载 ast-grep resolver / installer adapter。
-- Modify: `cmd/mcp-lsp/tools.go`
+- Modify: `internal/sidecar/lsp/tools.go`
   - 给 `newToolHandlers` 传 resolver；新增 `format_preview` manifest/handler/可选 alias。
-- Modify/Test: `cmd/mcp-lsp/search/searchutil.go`
+- Modify/Test: `internal/sidecar/lsp/search/searchutil.go`
   - `ASTSearchOptions` 接受 resolver/binary；`run`/`scan` 使用 resolved binary，不再硬编码 `sg`。
-- Modify/Test: `cmd/mcp-lsp/tools/tool_grep.go`
+- Modify/Test: `internal/sidecar/lsp/tools/tool_grep.go`
   - ast_search 将 resolver 传入 `SearchAST`；确保生产 handler 真调用 installer。
-- Modify/Test: `cmd/mcp-lsp/tools/tool_edit.go`
+- Modify/Test: `internal/sidecar/lsp/tools/tool_edit.go`
   - `format` 增加 `persist_to_disk=true` apply 路径；省略/false 保持 legacy preview。
-- Modify/Test: `cmd/mcp-lsp/tools/tool_edit_support.go`
+- Modify/Test: `internal/sidecar/lsp/tools/tool_edit_support.go`
   - LSP WorkspaceEdit 应用路径切换到 UTF-16 helper；保留 replace_range 用户坐标。
-- Create/Modify: `cmd/mcp-lsp/tools/tool_format_preview.go`
+- Create/Modify: `internal/sidecar/lsp/tools/tool_format_preview.go`
   - 新增顶级 `format_preview` 工具，只返回 edits，不落盘。
 - Modify/Test: `cmd/mcp-lsp/schema.go`
   - 新增 `format_preview` schema；更新 `edit.format` / `persist_to_disk` 文案。
-- Modify: `docs/internal-notes/LSP系统提示词.md`
+- Modify: `docs/交接笔记/内部笔记/LSP系统提示词.md`
   - 更新工具语义。
-- Modify if present: `docs/internal-notes/lsp提示词英文版.md`
+- Modify if present: `docs/交接笔记/内部笔记/lsp提示词英文版.md`
   - 同步英文提示词。
 
 ---
@@ -53,8 +53,8 @@
 ## Task 1: ast-grep installer support and npm post-install resolution
 
 **Files:**
-- Modify: `cmd/mcp-lsp/installer/installer.go:18-144`
-- Test: `cmd/mcp-lsp/installer/installer_test.go`
+- Modify: `internal/sidecar/lsp/installer/installer.go:18-144`
+- Test: `internal/sidecar/lsp/installer/installer_test.go`
 
 - [ ] **Step 1: Write npm post-install failing test**
 
@@ -96,12 +96,12 @@
 
 **Files:**
 - Modify: `cmd/mcp-lsp/runtime.go`
-- Modify: `cmd/mcp-lsp/tools/tool_file.go`
-- Modify: `cmd/mcp-lsp/tools.go`
-- Modify: `cmd/mcp-lsp/tools/tool_grep.go`
-- Modify: `cmd/mcp-lsp/search/searchutil.go`
-- Test: `cmd/mcp-lsp/search/searchutil_test.go`
-- Test: `cmd/mcp-lsp/tools/*grep*test.go`
+- Modify: `internal/sidecar/lsp/tools/tool_file.go`
+- Modify: `internal/sidecar/lsp/tools.go`
+- Modify: `internal/sidecar/lsp/tools/tool_grep.go`
+- Modify: `internal/sidecar/lsp/search/searchutil.go`
+- Test: `internal/sidecar/lsp/search/searchutil_test.go`
+- Test: `internal/sidecar/lsp/tools/*grep*test.go`
 
 - [ ] **Step 1: Define a small resolver interface**
 
@@ -176,8 +176,8 @@
 ## Task 3: LSP UTF-16 TextEdit application path
 
 **Files:**
-- Modify: `cmd/mcp-lsp/tools/tool_edit_support.go`
-- Test: `cmd/mcp-lsp/tools/tool_edit_support_test.go`
+- Modify: `internal/sidecar/lsp/tools/tool_edit_support.go`
+- Test: `internal/sidecar/lsp/tools/tool_edit_support_test.go`
 
 - [ ] **Step 1: Add LSP UTF-16 tests**
 
@@ -220,9 +220,9 @@
 ## Task 4: `edit.format` explicit apply and compatibility bridge
 
 **Files:**
-- Modify: `cmd/mcp-lsp/tools/tool_edit.go`
-- Test: `cmd/mcp-lsp/tools/tool_edit_logging_test.go`
-- Test: `cmd/mcp-lsp/tools/tool_edit_format_test.go` or adjacent edit tests
+- Modify: `internal/sidecar/lsp/tools/tool_edit.go`
+- Test: `internal/sidecar/lsp/tools/tool_edit_logging_test.go`
+- Test: `internal/sidecar/lsp/tools/tool_edit_format_test.go` or adjacent edit tests
 
 - [ ] **Step 1: Preserve legacy default/false**
 
@@ -282,10 +282,10 @@
 ## Task 5: New `format_preview` top-level tool
 
 **Files:**
-- Create: `cmd/mcp-lsp/tools/tool_format_preview.go`
-- Modify: `cmd/mcp-lsp/tools.go`
+- Create: `internal/sidecar/lsp/tools/tool_format_preview.go`
+- Modify: `internal/sidecar/lsp/tools.go`
 - Modify: `cmd/mcp-lsp/schema.go`
-- Tests: `cmd/mcp-lsp/tools/*format_preview*test.go`
+- Tests: `internal/sidecar/lsp/tools/*format_preview*test.go`
 
 - [ ] **Step 1: Add schema and manifest**
 
@@ -370,9 +370,9 @@
 
 **Files:**
 - Modify: `cmd/mcp-lsp/schema.go`
-- Modify: `cmd/mcp-lsp/tools.go`
-- Modify: `docs/internal-notes/LSP系统提示词.md`
-- Modify if exists: `docs/internal-notes/lsp提示词英文版.md`
+- Modify: `internal/sidecar/lsp/tools.go`
+- Modify: `docs/交接笔记/内部笔记/LSP系统提示词.md`
+- Modify if exists: `docs/交接笔记/内部笔记/lsp提示词英文版.md`
 - Optional generated docs/codemap: only update through generator/check flow.
 
 - [ ] **Step 1: Update edit schema**

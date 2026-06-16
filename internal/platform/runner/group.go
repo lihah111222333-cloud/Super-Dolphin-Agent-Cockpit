@@ -9,7 +9,7 @@ import (
 	"runtime/debug"
 	"syscall"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 type Runner interface {
@@ -42,7 +42,7 @@ func RunGroup(ctx context.Context, runners []Runner, options GroupOptions) error
 	resultCh := make(chan error, len(runners))
 	for _, runner := range runners {
 		current := runner
-		safego.Go(rootCtx, nil, "runner.group.runner", func(context.Context) {
+		kernel.SafeGoContext(rootCtx, nil, "runner.group.runner", func(context.Context) {
 			resultCh <- runOne(rootCtx, current)
 		})
 	}
@@ -82,7 +82,7 @@ func runOne(ctx context.Context, runner Runner) (err error) {
 
 func startSignalWatcher(rootCtx context.Context) <-chan error {
 	errCh := make(chan error, 1)
-	safego.Go(rootCtx, nil, "runner.group.signal", func(ctx context.Context) {
+	kernel.SafeGoContext(rootCtx, nil, "runner.group.signal", func(ctx context.Context) {
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 		defer signal.Stop(signals)

@@ -6,17 +6,13 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
-	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
-	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
-	systemlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 type logFilterField string
 
 type storedLogRow interface {
-	ailogstore.AILog | systemlogstore.SystemLog
+	contract.AILog | contract.SystemLog
 }
 
 type storedLogFields struct {
@@ -75,17 +71,17 @@ func (p logsParams) ToFilter(source string) LogFilter {
 		Level:     strings.TrimSpace(p.Level),
 		Logger:    strings.TrimSpace(p.Logger),
 		Component: strings.TrimSpace(p.Component),
-		AgentID:   util.FirstNonEmpty(p.AgentID, p.AgentIDSnake),
-		ThreadID:  util.FirstNonEmpty(p.ThreadID, p.ThreadIDSnake),
-		EventType: util.FirstNonEmpty(p.EventType, p.EventTypeSnake),
-		ToolName:  util.FirstNonEmpty(p.ToolName, p.ToolNameSnake),
+		AgentID:   kernel.FirstNonEmpty(p.AgentID, p.AgentIDSnake),
+		ThreadID:  kernel.FirstNonEmpty(p.ThreadID, p.ThreadIDSnake),
+		EventType: kernel.FirstNonEmpty(p.EventType, p.EventTypeSnake),
+		ToolName:  kernel.FirstNonEmpty(p.ToolName, p.ToolNameSnake),
 		Limit:     p.Limit,
 	}
 }
 
 // ToFilter 把dashboard处理为过滤条件。
-func (p auditLogsParams) ToFilter() auditlogstore.ListFilter {
-	return auditlogstore.ListFilter{
+func (p auditLogsParams) ToFilter() contract.AuditLogListFilter {
+	return contract.AuditLogListFilter{
 		EventType: strings.TrimSpace(p.EventType),
 		Action:    strings.TrimSpace(p.Action),
 		Actor:     strings.TrimSpace(p.Actor),
@@ -95,8 +91,8 @@ func (p auditLogsParams) ToFilter() auditlogstore.ListFilter {
 }
 
 // ToFilter 把dashboard处理为过滤条件。
-func (p busLogsParams) ToFilter() buslogstore.ListFilter {
-	return buslogstore.ListFilter{
+func (p busLogsParams) ToFilter() contract.BusLogListFilter {
+	return contract.BusLogListFilter{
 		Category: strings.TrimSpace(p.Category),
 		Severity: strings.TrimSpace(p.Severity),
 		Keyword:  strings.TrimSpace(p.Keyword),
@@ -157,8 +153,8 @@ func logEntryValue(entry LogEntry, field logFilterField) string {
 	}
 }
 
-func newSystemLogListFilter(filter LogFilter) systemlogstore.ListFilter {
-	return systemlogstore.ListFilter{
+func newSystemLogListFilter(filter LogFilter) contract.SystemLogListFilter {
+	return contract.SystemLogListFilter{
 		Level:     strings.TrimSpace(filter.Level),
 		Logger:    strings.TrimSpace(filter.Logger),
 		Component: strings.TrimSpace(filter.Component),
@@ -210,7 +206,7 @@ func mapLogEntry[T storedLogRow](row T, source string) LogEntry {
 // readStoredLogFields 读取stored日志字段。
 func readStoredLogFields[T storedLogRow](row T) storedLogFields {
 	switch value := any(row).(type) {
-	case systemlogstore.SystemLog:
+	case contract.SystemLog:
 		return storedLogFields{
 			id:         value.ID,
 			timestamp:  value.Ts,
@@ -227,7 +223,7 @@ func readStoredLogFields[T storedLogRow](row T) storedLogFields {
 			durationMS: value.DurationMs,
 			extra:      value.Extra,
 		}
-	case ailogstore.AILog:
+	case contract.AILog:
 		return storedLogFields{
 			id:         value.ID,
 			timestamp:  value.Ts,

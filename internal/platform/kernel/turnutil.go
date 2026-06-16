@@ -1,7 +1,9 @@
 package kernel
 
-import "github.com/anthropic-ai/super-agent-v3/internal/util"
+import "strings"
 
-// IsRemoteTurnInput delegates to util.IsRemoteTurnInput.
-// IsRemoteTurnInput 判断remoteturninput是否可用。
-func IsRemoteTurnInput(value string) bool { return util.IsRemoteTurnInput(value) }
+// IsRemoteTurnInput reports whether value is an HTTP(S) input reference.
+func IsRemoteTurnInput(value string) bool {
+	value = strings.TrimSpace(value)
+	return strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://")
+}

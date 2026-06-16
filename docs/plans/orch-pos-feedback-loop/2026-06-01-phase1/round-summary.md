@@ -26,7 +26,7 @@ It does not cover mutation tools, complex DAG creation flattening, raw ops flatt
 | Machine scoring | `scorecards/*.json` | Done for this round as three scorer views |
 | Review | `adjudication.md` | Done |
 | Write plan | `implementation-plan.md` | Done |
-| Implementation | Code under `cmd/mcp-orch/tools` | Done |
+| Implementation | Code under `internal/sidecar/orch/tools` | Done |
 | Machine review implementation | `review-after-implementation.md` | Done |
 | Fix | Parser/schema/handler/test corrections listed in review | Done |
 | Re-score calibration | `rescore.md` | Done |

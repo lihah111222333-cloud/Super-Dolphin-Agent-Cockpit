@@ -6,7 +6,7 @@ Make read-only orch tools accept a single flattened `pos` selector while preserv
 
 ## Steps
 
-1. Add `cmd/mcp-orch/tools/pos.go`.
+1. Add `internal/sidecar/orch/tools/pos.go`.
 2. Define supported selectors:
    - `agent:<agent_id>`
    - `dag:<dag_key>`

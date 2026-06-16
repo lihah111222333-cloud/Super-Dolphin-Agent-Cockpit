@@ -10,15 +10,8 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	agentstatusstore "github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus"
-	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
-	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
-	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
-	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
 type uiDashboardGetParams struct {
@@ -160,21 +153,21 @@ type dagApplyOpsParams struct {
 // --- typed RPC response structs (replace map[string]any wrappers) ---
 
 type agentsResponse struct {
-	Agents []agentstatusstore.AgentStatus `json:"agents"`
+	Agents []contract.AgentStatus `json:"agents"`
 }
 
 type cardsResponse struct {
-	Cards []commandcardstore.CommandCard `json:"cards"`
+	Cards []contract.CommandCard `json:"cards"`
 }
 
 type promptsResponse struct {
-	Prompts []promptstore.PromptTemplate `json:"prompts"`
+	Prompts []contract.PromptTemplate `json:"prompts"`
 }
 
 type filesResponse struct {
-	Files               []sharedfilestore.SharedFile `json:"files"`
-	FinalOutputRefs     []FinalOutputRef             `json:"finalOutputRefs"`
-	SharedFileRetention SharedFileRetention          `json:"sharedFileRetention"`
+	Files               []contract.SharedFile `json:"files"`
+	FinalOutputRefs     []FinalOutputRef      `json:"finalOutputRefs"`
+	SharedFileRetention SharedFileRetention   `json:"sharedFileRetention"`
 }
 
 type finalOutputSnapshotLister interface {
@@ -190,15 +183,15 @@ type logsResponse struct {
 }
 
 type aiLogsResponse struct {
-	Logs []ailogstore.AILog `json:"logs"`
+	Logs []contract.AILog `json:"logs"`
 }
 
 type auditLogsResponse struct {
-	Logs []auditlogstore.AuditEvent `json:"logs"`
+	Logs []contract.AuditEvent `json:"logs"`
 }
 
 type busLogsResponse struct {
-	Logs []buslogstore.BusExceptionLog `json:"logs"`
+	Logs []contract.BusExceptionLog `json:"logs"`
 }
 
 type dagsResponse struct {
@@ -231,7 +224,7 @@ type dagApplyOpsResponse struct {
 }
 
 type aiLogStatsResponse struct {
-	Stats []ailogstore.StatusCount `json:"stats"`
+	Stats []contract.AILogStatusCount `json:"stats"`
 }
 
 // NewDashboardHandlers 创建dashboard处理器。
@@ -442,5 +435,5 @@ func registerDashboardDAGHandlers(m handler.Map, svc Service) {
 }
 
 func (p agentDetailParams) agentID() string {
-	return util.FirstNonEmpty(p.AgentID, p.AgentIDSnake)
+	return kernel.FirstNonEmpty(p.AgentID, p.AgentIDSnake)
 }

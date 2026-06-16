@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 // DefaultLSPConfig returns the built-in language-service configuration used
@@ -110,7 +110,7 @@ func envStringSliceOr(key string, fallback []string) []string {
 	if value == "" {
 		return slices.Clone(fallback)
 	}
-	values := configutil.SplitConfigStringSlice(value)
+	values := kernel.SplitConfigStringSlice(value)
 	if len(values) == 0 {
 		return slices.Clone(fallback)
 	}

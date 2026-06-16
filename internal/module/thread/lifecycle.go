@@ -11,17 +11,14 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/idempotency"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 // SessionStarter is an alias for contract.SessionStarter.
 // Kept as a local type alias for backward compatibility within this package.
 type SessionStarter = contract.SessionStarter
 
+// OrchestrationFacade is the thread lifecycle boundary into orchestration.
 type OrchestrationFacade interface {
 	LaunchAgent(ctx context.Context, req LaunchAgentRequest) error
 	StopAgent(ctx context.Context, agentID string) error
@@ -112,7 +109,7 @@ func (s *service) completeStart(ctx context.Context, req StartRequest, agentID s
 	displayName := resolveDisplayName(ctx, s.threadStore, agentID, req.Prompt, assembly.DisplayName)
 	if err := s.launchAgent(ctx, agentID, req.CWD, displayName, req.ParentAgentID,
 		req.AgentType, req.AgentMemoryScope, req.Provider, req.Model); err != nil {
-		return StartResult{}, idempotency.Retain(err)
+		return StartResult{}, kernel.RetainIdempotencyError(err)
 	}
 	session, err := s.establishStartedSession(ctx, req, assemblyInput, assembly, agentID)
 	if err != nil {
@@ -129,7 +126,7 @@ func (s *service) completeStart(ctx context.Context, req StartRequest, agentID s
 // Start 创建新的 public thread，并启动对应 provider。
 // provider 和 cwd 必须明确给出，缺了就报错，不猜默认值。
 func (s *service) Start(ctx context.Context, req StartRequest) (result StartResult, err error) {
-	ctx = util.NonNilContext(ctx)
+	ctx = kernel.NonNilContext(ctx)
 	span := s.beginThreadTraceSpan(ctx, "thread.start", req.AgentID, req.AgentID, platformobs.NewCodeAnchor("internal/module/thread/lifecycle.go", "thread.(*service).Start", 126), map[string]any{"provider": strings.TrimSpace(req.Provider)})
 	ctx = span.ctx
 	defer func() {
@@ -144,7 +141,7 @@ func (s *service) Start(ctx context.Context, req StartRequest) (result StartResu
 	if req.LaunchIntentID = strings.TrimSpace(req.LaunchIntentID); req.LaunchIntentID == "" {
 		return s.startOnce(ctx, req)
 	}
-	intentID, err := idempotency.NormalizeKey("thread/start: launch_intent_id", req.LaunchIntentID)
+	intentID, err := kernel.NormalizeIdempotencyKey("thread/start: launch_intent_id", req.LaunchIntentID)
 	if err != nil {
 		return StartResult{}, err
 	}
@@ -162,7 +159,7 @@ func (s *service) Start(ctx context.Context, req StartRequest) (result StartResu
 func (s *service) CompleteLaunchIntent(_ context.Context, threadID string) {
 	threadID = strings.TrimSpace(threadID)
 	s.pendingLaunchMu.Delete(threadID)
-	idempotency.ForgetMappedUnlessError(&s.launchIntentByThread, &s.launchIntentRegistry, threadID)
+	kernel.ForgetMappedIdempotencyUnlessError(&s.launchIntentByThread, &s.launchIntentRegistry, threadID)
 }
 func startRequestFingerprint(req StartRequest) StartRequest {
 	req.LaunchIntentID, req.AgentTitle, req.PromptAssemblyRef, req.PromptVersionID, req.PromptKeyStale = "", "", nil, nil, false
@@ -184,7 +181,7 @@ func (s *service) startOnce(ctx context.Context, req StartRequest) (StartResult,
 // Resume 只把已有 thread 接回 provider。
 // 它复用保存过的 thread、binding 和 snapshot，不重新走 thread/start。
 func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, error) {
-	ctx = util.NonNilContext(ctx)
+	ctx = kernel.NonNilContext(ctx)
 	req, state, err := s.resolveResumeRequest(ctx, req)
 	if err != nil {
 		return ResumeResult{}, err
@@ -192,9 +189,9 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 	if reason, blocked := s.resumeLifecycleBlockReason(ctx, req.ThreadID, nil); blocked {
 		return ResumeResult{}, resumeLifecycleError(req.ThreadID, reason)
 	}
-	req.Provider = util.FirstNonEmpty(req.Provider, state.Provider)
-	req.Model = util.FirstNonEmpty(req.Model, state.Model)
-	req.CWD = util.FirstNonEmpty(req.CWD, state.CWD, s.lookupBindingCWD(ctx, req.AgentID))
+	req.Provider = kernel.FirstNonEmpty(req.Provider, state.Provider)
+	req.Model = kernel.FirstNonEmpty(req.Model, state.Model)
+	req.CWD = kernel.FirstNonEmpty(req.CWD, state.CWD, s.lookupBindingCWD(ctx, req.AgentID))
 	displayName := resolveDisplayName(ctx, s.threadStore, req.AgentID, "", state.Prompt)
 	session, err := s.establishResumedSession(ctx, req, state, displayName)
 	if err != nil {
@@ -211,14 +208,14 @@ func (s *service) establishStartedSession(
 	agentID string,
 ) (contract.Session, error) {
 	if _, err := s.startSession(ctx, req, input, assembly, agentID); err != nil {
-		return nil, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
+		return nil, kernel.RetainIdempotencyOnError(err, s.stopAgent(ctx, agentID))
 	}
 	if err := s.bindSessionGeneration(ctx, agentID); err != nil {
-		return nil, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
+		return nil, kernel.RetainIdempotencyOnError(err, s.stopAgent(ctx, agentID))
 	}
 	session, err := s.lookupSession(agentID)
 	if err != nil {
-		return nil, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
+		return nil, kernel.RetainIdempotencyOnError(err, s.stopAgent(ctx, agentID))
 	}
 	return session, nil
 }
@@ -235,12 +232,12 @@ func (s *service) persistStartedSession(
 ) (StartResult, error) {
 	providerUUID, err := requireStartedProviderUUID(session, req.Provider, agentID)
 	if err != nil {
-		return StartResult{}, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
+		return StartResult{}, kernel.RetainIdempotencyOnError(err, s.stopAgent(ctx, agentID))
 	}
 	effectiveModel, effectiveCWD, _ := enrichFromSessionConfig(session, req.Model, req.CWD)
 	identity, err := resolveStartedSessionCodexIdentity(req.Provider, req.Config, session)
 	if err != nil {
-		return StartResult{}, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
+		return StartResult{}, kernel.RetainIdempotencyOnError(err, s.stopAgent(ctx, agentID))
 	}
 	codexHome, codexInstanceKey, codexModelProvider := identity.Home, identity.InstanceKey, identity.ModelProvider
 	storedConfig := buildStartStoredThreadConfig(req, input, assembly, session)
@@ -251,7 +248,7 @@ func (s *service) persistStartedSession(
 	}
 	configOverride, err := encodeStoredThreadConfig(storedConfig)
 	if err != nil {
-		return StartResult{}, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
+		return StartResult{}, kernel.RetainIdempotencyOnError(err, s.stopAgent(ctx, agentID))
 	}
 	rolloutPath := session.RolloutPath()
 	providerThreadID := recoverableProviderThreadID(req.Provider, providerUUID, agentID, rolloutPath, codexHome)
@@ -280,10 +277,10 @@ func (s *service) persistStartedSession(
 	publicThreadID := state.PublicThreadID
 	providerThreadID = state.ProviderThreadID
 	if err := s.persistThreadState(ctx, state, true); err != nil {
-		return StartResult{}, idempotency.Retain(errors.Join(err, s.stopAgent(ctx, agentID)))
+		return StartResult{}, kernel.RetainIdempotencyError(errors.Join(err, s.stopAgent(ctx, agentID)))
 	}
 	if err := s.savePromptSnapshot(ctx, publicThreadID, assembly); err != nil {
-		err = idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
+		err = kernel.RetainIdempotencyOnError(err, s.stopAgent(ctx, agentID))
 		var cleanupErr error
 		if s.bindingStore != nil {
 			cleanupErr = errors.Join(cleanupErr, s.bindingStore.DeleteByAgentID(ctx, agentID))
@@ -293,7 +290,7 @@ func (s *service) persistStartedSession(
 		}
 		s.forgetThreadAgents(publicThreadID, providerThreadID)
 		if cleanupErr != nil {
-			err = idempotency.Retain(errors.Join(err, cleanupErr))
+			err = kernel.RetainIdempotencyError(errors.Join(err, cleanupErr))
 		}
 		return StartResult{}, err
 	}
@@ -372,9 +369,9 @@ func (s *service) persistResumedSession(
 	displayName string,
 	session contract.Session,
 ) (ResumeResult, error) {
-	model := util.FirstNonEmpty(req.Model, state.Model)
-	provider := util.FirstNonEmpty(req.Provider, state.Provider)
-	codexHome, codexInstanceKey, codexModelProvider := util.FirstNonEmpty(req.CodexHome, state.CodexHome), util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey), util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
+	model := kernel.FirstNonEmpty(req.Model, state.Model)
+	provider := kernel.FirstNonEmpty(req.Provider, state.Provider)
+	codexHome, codexInstanceKey, codexModelProvider := kernel.FirstNonEmpty(req.CodexHome, state.CodexHome), kernel.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey), kernel.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
 	reqIdentityResolved := req.CodexHome != "" && req.CodexInstanceKey != "" && req.CodexModelProvider != ""
 	runtimeIdentity, hasRuntimeIdentity := sessionRuntimeCodexIdentityConfig(session)
 	configOverride, identity, ok, err := canonicalizeResumeStoredThreadConfig(provider, state.ConfigOverrideRaw, codexHome, codexInstanceKey, codexModelProvider, reqIdentityResolved, runtimeIdentity, hasRuntimeIdentity)
@@ -384,8 +381,8 @@ func (s *service) persistResumedSession(
 	if ok {
 		codexHome, codexInstanceKey, codexModelProvider = identity.Home, identity.InstanceKey, identity.ModelProvider
 	}
-	rolloutPath := util.FirstNonEmpty(state.RolloutPath, session.RolloutPath())
-	sessionUUID := util.FirstNonEmpty(resolvedProviderUUID(session), state.SessionUUID, req.ProviderThreadID, state.ProviderThreadID)
+	rolloutPath := kernel.FirstNonEmpty(state.RolloutPath, session.RolloutPath())
+	sessionUUID := kernel.FirstNonEmpty(resolvedProviderUUID(session), state.SessionUUID, req.ProviderThreadID, state.ProviderThreadID)
 	providerThreadID := recoverableProviderThreadID(provider, sessionUUID, state.PublicThreadID, rolloutPath, codexHome)
 	threadState := newThreadState(threadStateResumeKind, threadStateFields{
 		RequestedThreadID:  req.ThreadID,
@@ -434,7 +431,7 @@ func (s *service) persistResumedSession(
 	}
 	return ResumeResult{
 		ThreadID:  publicThreadID,
-		SessionID: util.FirstNonEmpty(providerThreadID, publicThreadID),
+		SessionID: kernel.FirstNonEmpty(providerThreadID, publicThreadID),
 		Status:    "resumed",
 		Model:     model,
 		CWD:       req.CWD,
@@ -501,7 +498,7 @@ func (s *service) lookupThreadMeta(ctx context.Context, threadID string) threadM
 		ParentAgentID:    strings.TrimSpace(thread.ParentAgentID),
 		AgentType:        strings.TrimSpace(thread.AgentType),
 		AgentMemoryScope: strings.TrimSpace(thread.AgentMemoryScope),
-		ConfigOverride:   clone.RawMessage(thread.ConfigOverride),
+		ConfigOverride:   kernel.CloneRawMessage(thread.ConfigOverride),
 		CreatedAt:        thread.CreatedAt,
 	}
 }
@@ -510,7 +507,7 @@ func (s *service) stopAgent(ctx context.Context, agentID string) error {
 	return s.stopManagedAgent(ctx, strings.TrimSpace(agentID), true)
 }
 
-func (s *service) rememberBinding(binding *bindingstore.Binding) *bindingstore.Binding {
+func (s *service) rememberBinding(binding *contract.Binding) *contract.Binding {
 	if binding != nil {
 		agentID := strings.TrimSpace(binding.AgentID)
 		for _, tid := range []string{binding.ProviderThreadID, binding.CodexThreadID, binding.AgentID} {
@@ -553,7 +550,7 @@ func resolvedProviderUUID(session contract.Session) string {
 	if session == nil {
 		return ""
 	}
-	if id := strings.TrimSpace(session.ThreadID()); identifier.LooksLikeUUID(id) {
+	if id := strings.TrimSpace(session.ThreadID()); kernel.LooksLikeUUID(id) {
 		return id
 	}
 	return ""

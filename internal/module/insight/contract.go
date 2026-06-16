@@ -1,5 +1,5 @@
 // Package insight consumes the Canonical Turn Observation Contract and
-// persists per-turn aggregate metrics through internal/store/insight.
+// persists per-turn aggregate metrics through contract.InsightStore.
 //
 // The module wires together three pieces:
 //   - subscriber (bus.ResilientSubscribe → queue): terminal events push a
@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	insightstore "github.com/anthropic-ai/super-agent-v3/internal/store/insight"
 )
 
 // Service re-exports the contract interface so in-package references
@@ -52,7 +51,7 @@ type flushSignal struct {
 // is the one place that boundary is crossed.
 func mapTerminalKindToStatus(k string) string {
 	if k == "" {
-		return insightstore.StatusUnknown
+		return contract.InsightStatusUnknown
 	}
 	return k
 }

@@ -44,7 +44,7 @@
 
 ## 4. 批次 B/C 快扫
 
-- `Blocker`：批次 B 的超限风险是真实存在的，而且比计划表述更接近硬超限。`orchestration/service.go` 当前已到 `390` 行结束，若再按计划增加约 `80` 行，会到约 `470` 行，明显超过 `400`。证据：`docs/plans/迁移/p2-execution-plan.md:40-42`，`docs/plans/迁移/p2-execution-plan.md:71-75`，`cmd/mcp-orch/orchestration/service.go:378-390`。
+- `Blocker`：批次 B 的超限风险是真实存在的，而且比计划表述更接近硬超限。`orchestration/service.go` 当前已到 `390` 行结束，若再按计划增加约 `80` 行，会到约 `470` 行，明显超过 `400`。证据：`docs/plans/迁移/p2-execution-plan.md:40-42`，`docs/plans/迁移/p2-execution-plan.md:71-75`，`internal/sidecar/orch/orchestration/service.go:378-390`。
 - `OK`：taskdag store 已具备计划 B14 所需的核心方法：`UpsertDAG/GetDAG/ListDAGs/UpdateNodeStatus` 全部存在。证据：`internal/store/taskdag/contract.go:9-15`。
 
 ## 结论（Blocker / Warning / OK）
@@ -52,16 +52,16 @@
 - `Blocker`：批次 A 计划最大的技术问题不是“做不到”，而是**目标文件集明显低估**。B6 至少还要改 `contract.go/rpc.go`，B12 至少还要改 `internal/dto/workspace/event.go`，I7 至少还要改 `contract.go/rpc.go`。证据：`docs/plans/迁移/p2-execution-plan.md:20-24`，`internal/module/workspace/contract.go:11-19`，`internal/module/workspace/rpc.go:75-114`，`internal/module/workspace/rpc_types.go:5-23`，`internal/dto/workspace/event.go:5-32`。
 - `Blocker`：B6/B8 的真正缺口在于 V3 当前没有 V2 那套 workspace 生命周期模型：缺 `rootDir`、缺真实 merge 请求/结果对象、缺 `merging/failed` 状态和多种文件状态。证据：`internal/module/workspace/service.go:20-26`，`internal/module/workspace/service.go:29-31`，`internal/module/workspace/service.go:33-45`，`internal/module/workspace/contract.go:11-19`，`go-agent-v2/internal/service/workspace.go:176-243`，`go-agent-v2/internal/service/workspace.go:283-373`。
 - `Warning`：B7 本身可做，因为 store 字段已齐；但它不是“只改 rpc_types.go + service.go”级别，必须连同 `contract.go/rpc.go` 一起收口。证据：`internal/store/workspace/contract.go:33-39`，`internal/module/workspace/rpc_types.go:5-23`，`internal/module/workspace/rpc.go:88-100`，`internal/module/workspace/contract.go:16-19`。
-- `OK`：文件级代码量上，批次 A 的 `workspace/service.go +120` 仍在安全区；批次 B 的 `orchestration/service.go +80` 不在安全区，拆 `dag.go/report.go` 的方向正确。证据：`internal/module/workspace/service.go:226-235`，`cmd/mcp-orch/orchestration/service.go:378-390`，`docs/plans/迁移/p2-execution-plan.md:40-42`，`docs/plans/迁移/p2-execution-plan.md:71-75`。
+- `OK`：文件级代码量上，批次 A 的 `workspace/service.go +120` 仍在安全区；批次 B 的 `orchestration/service.go +80` 不在安全区，拆 `dag.go/report.go` 的方向正确。证据：`internal/module/workspace/service.go:226-235`，`internal/sidecar/orch/orchestration/service.go:378-390`，`docs/plans/迁移/p2-execution-plan.md:40-42`，`docs/plans/迁移/p2-execution-plan.md:71-75`。
 
 ## 互辩
 
 ### 对 audit-p2-plan-B 的批判
 
 1. `audit-p2-plan-B.md:62-63` 把“workspace event 类型已经定义，不是当前 blocker”定成 OK，证据不足且与计划冲突。计划 B12 明确要求 `CreateRun/MergeRun/AbortRun/UpdateRunStatus` 发布对应 typed event（`docs/plans/迁移/p2-execution-plan.md:23`），但当前 DTO 只有 `WorkspaceRunCreated/WorkspaceRunStatusChanged/WorkspaceRunMerged`（`internal/dto/workspace/event.go:5-32`），`WorkspaceRunAborted` 在 `internal/dto/workspace` 中无命中；workspace 模块还没有 bus 注入面（`internal/module/workspace/service.go:29-31`，`internal/module/workspace/module.go:5-8`）。这个点在我的 workspace 审查里是 `Blocker`，B 报告的快扫结论失真。
-2. `audit-p2-plan-B.md:7-11,70-72` 过度把 B13 收敛成“缺几个方法”，遗漏了更严重的语义回退：当前 `agent.launch` 虽已注册（`cmd/mcp-orch/orchestration/rpc.go:17-19`），但 `launchParams`/`LaunchRequest` 只有 `AgentID/Name/CWD/Command/ParentID/Env`（`cmd/mcp-orch/orchestration/rpc_types.go:8-17`，`cmd/mcp-orch/orchestration/contract.go:32-39`），缺 V2 `Prompt/Instructions/DynamicTools/Config`（`go-agent-v2/internal/apiserver/methods_orchestration.go:29-37`）。按计划目标“达到 V2 功能等价的最低可用标准”（`docs/plans/迁移/p2-execution-plan.md:10`），这同样是 `Blocker`，但 B 报告没有把它抬到结论层。
-3. `audit-p2-plan-B.md:18-21,77` 对 B14 create 路径仍然估轻。它只点到 DAG `Status` 和节点拆写，但 `createDAGNodeParams` 还缺 node `Status`，`DependsOn` 也是 `[]string`（`cmd/mcp-orch/orchestration/rpc_types.go:41-49`），而 store `Node` 要 `Status` 和 `DependsOn json.RawMessage`（`internal/store/taskdag/contract.go:166-176`）。不补默认节点状态和序列化策略，`task/dag/create` 依然不能落地；B 报告遗漏了这个更硬的适配缺口。
-4. `audit-p2-plan-B.md:20` 把 `list -> ListDAGs` 写成“同形可行”不够严谨。RPC `listDAGsParams.Limit` 是 `int`（`cmd/mcp-orch/orchestration/rpc_types.go:88-92`），store `ListDAGsFilter.Limit` 是 `int32`（`internal/store/taskdag/contract.go:41-45`）；这不是 blocker，但说明 B 报告在适配复杂度判断上偏乐观。
+2. `audit-p2-plan-B.md:7-11,70-72` 过度把 B13 收敛成“缺几个方法”，遗漏了更严重的语义回退：当前 `agent.launch` 虽已注册（`internal/sidecar/orch/orchestration/rpc.go:17-19`），但 `launchParams`/`LaunchRequest` 只有 `AgentID/Name/CWD/Command/ParentID/Env`（`internal/sidecar/orch/orchestration/rpc_types.go:8-17`，`internal/sidecar/orch/orchestration/contract.go:32-39`），缺 V2 `Prompt/Instructions/DynamicTools/Config`（`go-agent-v2/internal/apiserver/methods_orchestration.go:29-37`）。按计划目标“达到 V2 功能等价的最低可用标准”（`docs/plans/迁移/p2-execution-plan.md:10`），这同样是 `Blocker`，但 B 报告没有把它抬到结论层。
+3. `audit-p2-plan-B.md:18-21,77` 对 B14 create 路径仍然估轻。它只点到 DAG `Status` 和节点拆写，但 `createDAGNodeParams` 还缺 node `Status`，`DependsOn` 也是 `[]string`（`internal/sidecar/orch/orchestration/rpc_types.go:41-49`），而 store `Node` 要 `Status` 和 `DependsOn json.RawMessage`（`internal/store/taskdag/contract.go:166-176`）。不补默认节点状态和序列化策略，`task/dag/create` 依然不能落地；B 报告遗漏了这个更硬的适配缺口。
+4. `audit-p2-plan-B.md:20` 把 `list -> ListDAGs` 写成“同形可行”不够严谨。RPC `listDAGsParams.Limit` 是 `int`（`internal/sidecar/orch/orchestration/rpc_types.go:88-92`），store `ListDAGsFilter.Limit` 是 `int32`（`internal/store/taskdag/contract.go:41-45`）；这不是 blocker，但说明 B 报告在适配复杂度判断上偏乐观。
 
 ### 对 audit-p2-plan-C 的批判
 

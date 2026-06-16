@@ -132,7 +132,7 @@ flowchart LR
 | `p20.8` | `internal/module/turn` | ≤6 文件 | M | P2 | `turn` 最终预计 `24`；`expanded_state` 内存态，TTL 5 turns |
 | `p20.9` | `internal/module/skill` + provider rollout trim path | ≤4 文件 | M | P1 | 读端可先落；写端切换并入 `p20.6/p20.7` |
 | `p20.10` | `internal/module/skill` | ≤6 文件 | M | P1 | host RPC 新增 `skill/list` / `skill/expand`；保留 `skills/match/preview` 共存 |
-| `p20.11` | ~~`cmd/mcp-orch/tools`~~ | — | — | 🚫 废弃 | skill 是宿主独有能力，mcp-orch 不应持有 skill 工具 |
+| `p20.11` | ~~`internal/sidecar/orch/tools`~~ | — | — | 🚫 废弃 | skill 是宿主独有能力，mcp-orch 不应持有 skill 工具 |
 | `p20.12` | `internal/platform/config` + `internal/module/skill` | ≤5 文件 | M | P2 | `internal/module/skill` 目录当前 `24` 个 `.go`（含 tests），本单**只允 +1** `policy_metrics.go` |
 | `p20.13` | `internal/module/skill` + `eventsurface` + `codexapp/factory` | ≤6 文件 | H | P2 | 依赖 `p20.10` + `p20.6`；默认 `(name,hash)` 全局批准，`scope=session` 只走内存态 |
 | `p20.14` | frontend `vue-app` | ≤9 文件 | M | P2 | 依赖 `p20.3`；`thread-actions-helpers.js` 已 613 行，只做极小 payload diff |
@@ -187,7 +187,7 @@ flowchart LR
   SkillSvc --> EventSurface[internal/platform/eventsurface]
   EventSurface --> CodexBridge[internal/provider/codexapp/factory]
 
-  MCP[cmd/mcp-orch/tools] --> PromptStore
+  MCP[internal/sidecar/orch/tools] --> PromptStore
 
 ```
 

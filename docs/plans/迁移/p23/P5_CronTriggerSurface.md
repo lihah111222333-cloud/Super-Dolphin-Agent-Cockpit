@@ -13,7 +13,7 @@
 - cron 模块当前实现：`internal/module/cron/scheduler.go:26-45,65-87`、`internal/module/cron/tick_actor.go:12-18,41-60`、`internal/module/cron/schedule.go:12-24`
 - cron 当前触发对象：turn / thread，**不**触发 DAG
 - cron lease：`internal/module/cron/lease_actor.go:12-16`（活 turn 续租先例）
-- DAG `schedule.trigger` 当前是自由 string：`cmd/mcp-orch/tools/task_tools.go:118-124,246-250`
+- DAG `schedule.trigger` 当前是自由 string：`internal/sidecar/orch/tools/task_tools.go:118-124,246-250`
 
 ## 推荐架构
 
@@ -27,11 +27,11 @@
 | cron contract | `internal/module/cron/contract.go`（扩展） | `TriggerSink.Trigger(ctx, target, meta)`；meta 只携带 cron tick facts，不携带授权 owner 来源 |
 | cron scheduler | `internal/module/cron/scheduler.go`（扩展） | `target_dag_key!=''` 时生成 deterministic cron tick key，填充 authenticated cron caller context 后经 sink 触发 |
 | bridge | platform bus/RPC sink 或 `cmd/mcp-orch` 本地 cron runtime | 避免 `internal/module/cron` 与 `cmd/mcp-orch` concrete import；最终仍调用 P3 `StartDAG` |
-| idempotency | `cmd/mcp-orch/store/dagstart/*.go`（复用 P3） + `cron_job_runs` index | cron tick 写 `dag_start_requests(trigger_source='cron', trigger_instance_key=hash(job_id, scheduled_at_utc, target_dag_key))` |
+| idempotency | `internal/sidecar/orch/store/dagstart/*.go`（复用 P3） + `cron_job_runs` index | cron tick 写 `dag_start_requests(trigger_source='cron', trigger_instance_key=hash(job_id, scheduled_at_utc, target_dag_key))` |
 
 **已知关键改动方向**：
 
-> ⚠️ **跨 root 边界硬约束**：`internal/module/cron` **不能** import `cmd/mcp-orch/orchestration`（archtest `internal/archtest/dependency_direction_mcp_orch_test.go:49-53` 拦截）。当前 cron scheduler 直接调 `StartTurn`（`internal/module/cron/scheduler.go:288-305`）；扩展为 cron→DAG 必须经接口注入，不能直接函数调用。
+> ⚠️ **跨 root 边界硬约束**：`internal/module/cron` **不能** import `internal/sidecar/orch/orchestration`（archtest `internal/archtest/dependency_direction_mcp_orch_test.go:49-53` 拦截）。当前 cron scheduler 直接调 `StartTurn`（`internal/module/cron/scheduler.go:288-305`）；扩展为 cron→DAG 必须经接口注入，不能直接函数调用。
 
 - `0067_dag_trigger_cron.sql`（**编号从已占用旧口径改为 0067**，必须晚于 P3 的 `0066_dag_owner_tenant.sql`）：cron job 表加 `target_dag_key` + `target_dag_trigger_meta JSONB` + `owner_id/tenant_id/scope`（或从受权 cron job owner row/FK 派生）；`target_dag_trigger_meta` 只能做 trigger 参数，不能作为 owner/tenant/AuthZ 来源
 - **接口设计**：`internal/module/cron/contract.go` 定义 `TriggerSink` interface（`Trigger(ctx, target, meta) error`），cron scheduler 在 `target_dag_key != ''` 时调 `TriggerSink.Trigger(...)`，**不**直接调 DAG Start
@@ -69,7 +69,7 @@ CREATE UNIQUE INDEX CONCURRENTLY uq_cron_run_dag_trigger
 ## 依赖
 
 - p21 P1b 已合入（cron 模块本身 runner / lease / submit-window 状态机）
-- P3 已合入（`cmd/mcp-orch/orchestration/dag_start.go:StartDAG` 共享入口）
+- P3 已合入（`internal/sidecar/orch/orchestration/dag_start.go:StartDAG` 共享入口）
 
 ## 风险
 

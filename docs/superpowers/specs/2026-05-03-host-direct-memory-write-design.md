@@ -442,7 +442,7 @@ host tool 错误应作为 MCP tool result 返回：JSON-RPC response 仍是 resu
 
 覆盖：
 
-- `cmd/mcp-orch/tools` registry 不暴露任何 memory tools。
+- `internal/sidecar/orch/tools` registry 不暴露任何 memory tools。
 - `memory_read/write/search/list/forget` 不出现在 `cmd/mcp-orch` schema、registry、handler 测试中。
 - 将旧 `TestMemoryToolDefinitionsExposeOnlyRead` 改为 `TestMemoryToolDefinitionsExposeNoMemoryTools`。
 

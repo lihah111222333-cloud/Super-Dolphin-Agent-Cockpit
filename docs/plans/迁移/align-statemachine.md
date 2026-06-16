@@ -21,11 +21,11 @@
   - `go-agent-v2/internal/apiserver/server.go`
 - V3：
   - `internal/dto/agent/state.go`
-  - `cmd/mcp-orch/orchestration/helpers.go`
-  - `cmd/mcp-orch/orchestration/service.go`
-  - `cmd/mcp-orch/orchestration/recover.go`
-  - `cmd/mcp-orch/orchestration/turn_lifecycle.go`
-  - `cmd/mcp-orch/orchestration/module.go`
+  - `internal/sidecar/orch/orchestration/helpers.go`
+  - `internal/sidecar/orch/orchestration/service.go`
+  - `internal/sidecar/orch/orchestration/recover.go`
+  - `internal/sidecar/orch/orchestration/turn_lifecycle.go`
+  - `internal/sidecar/orch/orchestration/module.go`
   - `internal/platform/rpc/approval.go`
   - `internal/platform/rpc/approval_events.go`
   - `internal/platform/rpc/approval_support.go`
@@ -36,7 +36,7 @@
 
 - V2 对外可见状态只有 `5` 个：`idle`、`thinking`、`running`、`stopped`、`error`。见 `go-agent-v2/internal/runner/manager.go:17-25`，以及快照 `go-agent-v2/internal/guards/state_matrix_snapshot.json:2-8`。
 - V2 额外依赖若干“非状态机位”：`recoveryPending`、`pendingSubmissions`、`activeSubmission`、`queueDispatching`。这些位承载了 V3 里 `turn_queued`、`recovering`、`stopping` 一类语义，见 `go-agent-v2/internal/runner/manager.go:46-60`、`go-agent-v2/internal/runner/manager_recover.go:57-85`、`go-agent-v2/internal/runner/manager_submission.go:75-82,286-297`。
-- V3 明确声明 `10` 状态、`11` 触发器，并由 `buildStatesFromDefinitions()` 装配到 `stateless.NewStateMachineWithExternalStorage(...)`。见 `internal/dto/agent/state.go:8-112`、`cmd/mcp-orch/orchestration/helpers.go:16-31`、`cmd/mcp-orch/orchestration/service.go:96-99`、`internal/platform/statemachine/factory.go:28-67`。
+- V3 明确声明 `10` 状态、`11` 触发器，并由 `buildStatesFromDefinitions()` 装配到 `stateless.NewStateMachineWithExternalStorage(...)`。见 `internal/dto/agent/state.go:8-112`、`internal/sidecar/orch/orchestration/helpers.go:16-31`、`internal/sidecar/orch/orchestration/service.go:96-99`、`internal/platform/statemachine/factory.go:28-67`。
 
 ## 10 状态对照
 
@@ -57,17 +57,17 @@
 
 | V3 触发器 | V2 对应 | 判定 | 说明 |
 | --- | --- | --- | --- |
-| `launch_succeeded` | `Launch()` / `RecoverAgent()` 成功后落到 idle | `⚠️` | V2 有成功语义，但没有显式 trigger；V3 用显式 trigger 从 `provisioning/recovering` 进 `idle`，见 `internal/dto/agent/state.go:22,65,79,105`、`cmd/mcp-orch/orchestration/service.go:255-263`。 |
-| `launch_failed` | 启动失败 / 恢复失败进 `error` | `⚠️` | V2 启动失败会 `StateError` 后移除 agent，恢复失败则停在 `error`，见 `go-agent-v2/internal/runner/manager_launch.go:253-266`、`go-agent-v2/internal/runner/manager_recover.go:251-303`。V3 则把 provisioning/recovering 失败统一落到 `failed`，见 `internal/dto/agent/state.go:23,66,80,106`、`cmd/mcp-orch/orchestration/service.go:240-243,387-389`。 |
-| `turn_enqueued` | `pendingSubmissions` 入队 | `⚠️` | V2 有真实入队，但不是 trigger，不会切到显式 queue state，见 `go-agent-v2/internal/runner/manager_submission.go:286-297`。V3 则由 `SubmitTurn()` / `reconcileReadyStateLocked()` fire，见 `cmd/mcp-orch/orchestration/service.go:180-185`、`cmd/mcp-orch/orchestration/helpers.go:123-127`。 |
-| `turn_accepted` | V2 提交后进入 `thinking` / provider 回 `turn_started` | `⚠️` | V2 没有一个单独 trigger 对应“accept”；V3 把一个 trigger 复用成两跳：`turn_queued -> turn_starting` 与 `turn_starting -> turn_running`，见 `internal/dto/agent/state.go:25,68,85,90`、`cmd/mcp-orch/orchestration/service.go:305-309`、`cmd/mcp-orch/orchestration/helpers.go:171-173`。 |
-| `turn_completed` | `turn_complete` / `idle` 归位 | `⚠️` | V2 `turn_complete` 能从任意 5 态回 `idle`，见 `go-agent-v2/internal/guards/state_matrix_snapshot.json:63-88,117-140`。V3 只声明了 `turn_starting/turn_running -> idle`，并在非法时用 fallback 直接改 `idle`，见 `internal/dto/agent/state.go:26,69,89,94`、`cmd/mcp-orch/orchestration/turn_lifecycle.go:20-26,43-59`。 |
-| `turn_aborted` | `turn_aborted` 回 `idle` | `⚠️` | V2 `turn_aborted` 也能从任意 5 态回 `idle`，见 `go-agent-v2/internal/guards/state_matrix_snapshot.json:90-114`。V3 只声明了 `turn_running/awaiting_user_input -> idle`，`turn_starting` abort 需要靠 `forceIdleAfterCompletionError()` 收口，见 `internal/dto/agent/state.go:27,70,95,101`、`cmd/mcp-orch/orchestration/service.go:341-348`、`cmd/mcp-orch/orchestration/turn_lifecycle.go:43-59`。 |
+| `launch_succeeded` | `Launch()` / `RecoverAgent()` 成功后落到 idle | `⚠️` | V2 有成功语义，但没有显式 trigger；V3 用显式 trigger 从 `provisioning/recovering` 进 `idle`，见 `internal/dto/agent/state.go:22,65,79,105`、`internal/sidecar/orch/orchestration/service.go:255-263`。 |
+| `launch_failed` | 启动失败 / 恢复失败进 `error` | `⚠️` | V2 启动失败会 `StateError` 后移除 agent，恢复失败则停在 `error`，见 `go-agent-v2/internal/runner/manager_launch.go:253-266`、`go-agent-v2/internal/runner/manager_recover.go:251-303`。V3 则把 provisioning/recovering 失败统一落到 `failed`，见 `internal/dto/agent/state.go:23,66,80,106`、`internal/sidecar/orch/orchestration/service.go:240-243,387-389`。 |
+| `turn_enqueued` | `pendingSubmissions` 入队 | `⚠️` | V2 有真实入队，但不是 trigger，不会切到显式 queue state，见 `go-agent-v2/internal/runner/manager_submission.go:286-297`。V3 则由 `SubmitTurn()` / `reconcileReadyStateLocked()` fire，见 `internal/sidecar/orch/orchestration/service.go:180-185`、`internal/sidecar/orch/orchestration/helpers.go:123-127`。 |
+| `turn_accepted` | V2 提交后进入 `thinking` / provider 回 `turn_started` | `⚠️` | V2 没有一个单独 trigger 对应“accept”；V3 把一个 trigger 复用成两跳：`turn_queued -> turn_starting` 与 `turn_starting -> turn_running`，见 `internal/dto/agent/state.go:25,68,85,90`、`internal/sidecar/orch/orchestration/service.go:305-309`、`internal/sidecar/orch/orchestration/helpers.go:171-173`。 |
+| `turn_completed` | `turn_complete` / `idle` 归位 | `⚠️` | V2 `turn_complete` 能从任意 5 态回 `idle`，见 `go-agent-v2/internal/guards/state_matrix_snapshot.json:63-88,117-140`。V3 只声明了 `turn_starting/turn_running -> idle`，并在非法时用 fallback 直接改 `idle`，见 `internal/dto/agent/state.go:26,69,89,94`、`internal/sidecar/orch/orchestration/turn_lifecycle.go:20-26,43-59`。 |
+| `turn_aborted` | `turn_aborted` 回 `idle` | `⚠️` | V2 `turn_aborted` 也能从任意 5 态回 `idle`，见 `go-agent-v2/internal/guards/state_matrix_snapshot.json:90-114`。V3 只声明了 `turn_running/awaiting_user_input -> idle`，`turn_starting` abort 需要靠 `forceIdleAfterCompletionError()` 收口，见 `internal/dto/agent/state.go:27,70,95,101`、`internal/sidecar/orch/orchestration/service.go:341-348`、`internal/sidecar/orch/orchestration/turn_lifecycle.go:43-59`。 |
 | `user_input_requested` | `request_user_input` 桥接到 approval | `❌` | V2 有真实入口，见 `go-agent-v2/internal/apiserver/server_event_handler.go:221-233,486-534`。V3 只在 DTO 里定义了 trigger，生产代码没有 fire 点。approval 层只会发布 `ToolApprovalRequested`，见 `internal/dto/agent/state.go:28,71,96`、`internal/platform/rpc/approval_events.go:23-32`。 |
 | `user_input_resolved` | `approval/respond` 解锁等待 | `❌` | V2 resolution 链路真实存在，见 `go-agent-v2/internal/apiserver/server.go:233-238`。V3 trigger 只定义不触发；approval 层发布的是 `ToolApprovalResolved`，但 orchestration 没有消费它，见 `internal/dto/agent/state.go:29,72,100`、`internal/platform/rpc/approval_events.go:34-43`。 |
-| `recover_requested` | `RecoverAgent(...)` | `⚠️` | V2 会在 `connection_dead`、`system_error`、`early_silent_turn`、submission dead-client 等多条路径自动 recover，见 `go-agent-v2/internal/runner/manager_event.go:307-342`、`go-agent-v2/internal/runner/manager_auto_recover.go:191-305`、`go-agent-v2/internal/runner/manager_submission.go:156-170,211-233`。V3 有显式 trigger，但运行时入口主要是 manual/thread recover 和 stall detector，见 `cmd/mcp-orch/orchestration/recover.go:27-58`、`cmd/mcp-orch/orchestration/runner_actor.go:68-77`、`internal/module/thread/lifecycle.go:137-169`。 |
-| `stop_requested` | `Stop()` / `StopAll()` | `⚠️` | V2 有 stop 行为，但没有显式 stopping trigger，见 `go-agent-v2/internal/runner/manager_lifecycle.go:19-117`。V3 用显式 `stop_requested -> stopping`，见 `internal/dto/agent/state.go:31,74,83,87,92,99,104,111`、`cmd/mcp-orch/orchestration/service.go:155-164`。 |
-| `process_exited` | `connection_dead` / `shutdown_complete` / stale-active reconcile | `⚠️` | V2 把异常退出拆成 `connection_dead -> error + auto recover`，正常停机是 `shutdown_complete -> stopped`，无事件时还会做 stale-active reconcile，见 `go-agent-v2/internal/guards/state_matrix_snapshot.json:170-193,1687-1710`、`go-agent-v2/internal/runner/manager_event.go:323-342`、`go-agent-v2/internal/runner/manager.go:227-276`。V3 用单一 process-exit 观测点统一转 `failed/stopped`，见 `internal/dto/agent/state.go:32,75,84,88,93,98,103,107`、`cmd/mcp-orch/orchestration/service.go:355-394`。 |
+| `recover_requested` | `RecoverAgent(...)` | `⚠️` | V2 会在 `connection_dead`、`system_error`、`early_silent_turn`、submission dead-client 等多条路径自动 recover，见 `go-agent-v2/internal/runner/manager_event.go:307-342`、`go-agent-v2/internal/runner/manager_auto_recover.go:191-305`、`go-agent-v2/internal/runner/manager_submission.go:156-170,211-233`。V3 有显式 trigger，但运行时入口主要是 manual/thread recover 和 stall detector，见 `internal/sidecar/orch/orchestration/recover.go:27-58`、`internal/sidecar/orch/orchestration/runner_actor.go:68-77`、`internal/module/thread/lifecycle.go:137-169`。 |
+| `stop_requested` | `Stop()` / `StopAll()` | `⚠️` | V2 有 stop 行为，但没有显式 stopping trigger，见 `go-agent-v2/internal/runner/manager_lifecycle.go:19-117`。V3 用显式 `stop_requested -> stopping`，见 `internal/dto/agent/state.go:31,74,83,87,92,99,104,111`、`internal/sidecar/orch/orchestration/service.go:155-164`。 |
+| `process_exited` | `connection_dead` / `shutdown_complete` / stale-active reconcile | `⚠️` | V2 把异常退出拆成 `connection_dead -> error + auto recover`，正常停机是 `shutdown_complete -> stopped`，无事件时还会做 stale-active reconcile，见 `go-agent-v2/internal/guards/state_matrix_snapshot.json:170-193,1687-1710`、`go-agent-v2/internal/runner/manager_event.go:323-342`、`go-agent-v2/internal/runner/manager.go:227-276`。V3 用单一 process-exit 观测点统一转 `failed/stopped`，见 `internal/dto/agent/state.go:32,75,84,88,93,98,103,107`、`internal/sidecar/orch/orchestration/service.go:355-394`。 |
 
 ## 专项结论
 
@@ -75,10 +75,10 @@
 
 - 结论：`❌`
 - 事实：
-  - `fireOrForceLocked()` 本身现在是严格的，内部只调用 `agent.sm.FireCtx(...)`，失败就返回错误，不再在这个函数里静默改状态，见 `cmd/mcp-orch/orchestration/service.go:266-289`。
+  - `fireOrForceLocked()` 本身现在是严格的，内部只调用 `agent.sm.FireCtx(...)`，失败就返回错误，不再在这个函数里静默改状态，见 `internal/sidecar/orch/orchestration/service.go:266-289`。
   - 但运行时仍有两条绕过状态机的直接写状态路径：
-    - `prepareLaunchStateLocked()` 直接把任意旧态写成 `provisioning`，见 `cmd/mcp-orch/orchestration/helpers.go:52-60`。
-    - `forceIdleAfterCompletionError()` 在 completion 处理失败时直接把状态写成 `idle`，并发布一个未在状态机声明里的 `turn_completion_recovered`，见 `cmd/mcp-orch/orchestration/turn_lifecycle.go:14,29-59`。
+    - `prepareLaunchStateLocked()` 直接把任意旧态写成 `provisioning`，见 `internal/sidecar/orch/orchestration/helpers.go:52-60`。
+    - `forceIdleAfterCompletionError()` 在 completion 处理失败时直接把状态写成 `idle`，并发布一个未在状态机声明里的 `turn_completion_recovered`，见 `internal/sidecar/orch/orchestration/turn_lifecycle.go:14,29-59`。
 - 结论含义：
   - “函数名里没有 force”不等于“系统已经 strict”。
   - 当前实现仍然存在 out-of-band state write，因此不能称为“无 force fallback”。
@@ -100,8 +100,8 @@
   - 自动触发点很多：`connection_dead`、`thread_status_system_error`、`early silent turn`、queued/dead client submit，见 `go-agent-v2/internal/runner/manager_event.go:307-342`、`go-agent-v2/internal/runner/manager_auto_recover.go:191-305`、`go-agent-v2/internal/runner/manager_submission.go:156-170,211-233`。
 - V3：
   - 声明式 recover 路径完整，允许从 `idle`、`turn_queued`、`turn_starting`、`turn_running`、`awaiting_user_input`、`stopped`、`failed` 进入 `recovering`，见 `internal/dto/agent/state.go:82,86,91,97,102,108,110`。
-  - 真实运行时入口偏少：主要是 `service.Recover()`、thread recover 和 stall detector，见 `cmd/mcp-orch/orchestration/recover.go:27-58`、`cmd/mcp-orch/orchestration/runner_actor.go:68-77`、`internal/module/thread/lifecycle.go:137-169`。
-  - orchestration recover 只负责停旧进程、切状态、重启进程，不承担 V2 那种 active submission replay 语义，见 `cmd/mcp-orch/orchestration/recover.go:43-58`。
+  - 真实运行时入口偏少：主要是 `service.Recover()`、thread recover 和 stall detector，见 `internal/sidecar/orch/orchestration/recover.go:27-58`、`internal/sidecar/orch/orchestration/runner_actor.go:68-77`、`internal/module/thread/lifecycle.go:137-169`。
+  - orchestration recover 只负责停旧进程、切状态、重启进程，不承担 V2 那种 active submission replay 语义，见 `internal/sidecar/orch/orchestration/recover.go:43-58`。
 
 ### 4. 进程崩溃状态转换
 
@@ -111,8 +111,8 @@
   - 若 crash 被 allowlist 命中，会走 `stopped`，并对活动提交合成 `turn_aborted`，见 `go-agent-v2/internal/runner/manager_event.go:270-289,327-337`。
   - 若 provider 没有补 terminal event，但 client 已死，`effectiveState()` 还会把假活跃态回收到 `idle/error`，见 `go-agent-v2/internal/runner/manager.go:227-276`。
 - V3：
-  - `runnerActor` 用 `cmd.Wait()` 统一监听退出，见 `cmd/mcp-orch/orchestration/runner_actor.go:48-59`。
-  - 退出后的状态分支只有三类，见 `cmd/mcp-orch/orchestration/service.go:355-394`：
+  - `runnerActor` 用 `cmd.Wait()` 统一监听退出，见 `internal/sidecar/orch/orchestration/runner_actor.go:48-59`。
+  - 退出后的状态分支只有三类，见 `internal/sidecar/orch/orchestration/service.go:355-394`：
     - `stopRequested=true`：`stopping -> process_exited -> stopped`
     - 当前是 `provisioning/recovering`：`launch_failed -> failed`
     - 其他运行态：`process_exited -> failed`

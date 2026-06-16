@@ -42,7 +42,7 @@ Result: Pass for M4 scope.
 
 Evidence:
 
-- `go test ./cmd/mcp-orch/tools -count=1` passes.
+- `go test ./internal/sidecar/orch/tools -count=1` passes.
 - Tests cover flat schedule/node execution, conflict handling, flat apply_ops add/update actions, and raw patch conflict.
 
 Residual full-suite status:

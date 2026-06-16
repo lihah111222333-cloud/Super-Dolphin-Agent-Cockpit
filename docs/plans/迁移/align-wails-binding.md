@@ -59,9 +59,9 @@
 | --- | --- | --- | --- | --- |
 | `CallAPI` | 有，`app_handlers.go:15` | 有，`binding.go:22` | ⚠️ | 同名保留，但 V2 是 `params any`，V3 改成 `paramsJSON string`，前端调用契约变了。 |
 | `LaunchAgent` | 有，`app.go:78` | 走 `CallAPI("thread/start")`，有首条 prompt 时再走 `CallAPI("turn/start")`；见 `internal/module/thread/rpc.go:21`、`internal/module/turn/rpc.go:33` | ⚠️ | V3 没有同名便捷绑定。按 V2 实现本身，它实际就是 `thread/start` + 可选 `turn/start`。 |
-| `StopAgent` | 有，`app.go:173` | 走 `CallAPI("agent.stop")`；见 `cmd/mcp-orch/orchestration/rpc.go:40` | ⚠️ | 同名绑定删除，功能收敛到 RPC。 |
-| `ListAgents` | 有，`app.go:188` | 走 `CallAPI("agent.list")`；见 `cmd/mcp-orch/orchestration/rpc.go:43` | ⚠️ | 同名绑定删除，功能收敛到 RPC。 |
-| `SubmitInput` | 有，`app.go:149` | 走 `CallAPI("agent.submitPrompt")` 或 `CallAPI("agent.submit")`；见 `cmd/mcp-orch/orchestration/rpc.go:20`、`30` | ⚠️ | 同名绑定删除，功能收敛到 RPC。 |
+| `StopAgent` | 有，`app.go:173` | 走 `CallAPI("agent.stop")`；见 `internal/sidecar/orch/orchestration/rpc.go:40` | ⚠️ | 同名绑定删除，功能收敛到 RPC。 |
+| `ListAgents` | 有，`app.go:188` | 走 `CallAPI("agent.list")`；见 `internal/sidecar/orch/orchestration/rpc.go:43` | ⚠️ | 同名绑定删除，功能收敛到 RPC。 |
+| `SubmitInput` | 有，`app.go:149` | 走 `CallAPI("agent.submitPrompt")` 或 `CallAPI("agent.submit")`；见 `internal/sidecar/orch/orchestration/rpc.go:20`、`30` | ⚠️ | 同名绑定删除，功能收敛到 RPC。 |
 | `SendCommand` | 有，`app.go:165` | 缺失 | ❌ | V3 没有泛化 `SendCommand` 绑定，也没有通用 RPC key。`internal/module/thread/rpc.go:59-95` 只是把少数命令拆成若干 `thread/*` 路由，不能 1:1 替代任意 `cmd,args`。 |
 | `GetBuildInfo` | 有，`app.go:197` | 有，`binding.go:41` | ✅ | 仍是直接绑定，零参数，归宿清晰。 |
 | `GetGroup` | 有，`app.go:193` | 有，`binding.go:45` | ⚠️ | V2 返回运行时 `a.group`；V3 直接返回 `defaultGroup` 常量 `""`，语义退化。 |

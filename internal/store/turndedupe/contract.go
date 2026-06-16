@@ -11,69 +11,28 @@
 // lifetime contract.
 package turndedupe
 
-import (
-	"context"
-	"errors"
-	"time"
-)
+import "github.com/anthropic-ai/super-agent-v3/internal/contract"
 
 // ErrNotFound is returned by GetLive when no live row matches the
 // requested dedupe_key. Callers MUST treat this as "never submitted"
 // per the plan.
-var ErrNotFound = errors.New("turndedupe: no live registry row")
+var ErrNotFound = contract.ErrTurnDedupeNotFound
 
 // Entry is the domain DTO for a turn_dedupe_registry row. TerminalAt
 // is zero when the row is still live; callers that care about dead
 // vs. missing rows check ErrNotFound first.
-type Entry struct {
-	DedupeKey      string
-	LocalTurnID    string
-	ProviderTurnID string
-	ThreadID       string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	TerminalAt     time.Time
-}
+type Entry = contract.TurnDedupeEntry
 
 // Store is the persistence surface. The default production wiring
 // uses the sqlc-backed implementation in this package; tests that
 // don't want a real DB use noopStore via NewNoop.
-type Store interface {
-	// Upsert writes or refreshes the registry row for dedupeKey. A
-	// conflict resets terminal_at to NULL so a re-used key that was
-	// previously marked terminal is "resurrected" — mirrors the
-	// tracker's last-wins RegisterDedupeKey semantics.
-	Upsert(ctx context.Context, params UpsertParams) error
-	// BindProviderTurnID updates the provider_turn_id on an existing
-	// row, leaving local_turn_id / terminal_at untouched.
-	BindProviderTurnID(ctx context.Context, params BindProviderTurnIDParams) error
-	// MarkTerminal stamps terminal_at = now on the row so subsequent
-	// GetLive calls skip it. A row that is already terminal is left
-	// alone (no-op).
-	MarkTerminal(ctx context.Context, dedupeKey string, now time.Time) error
-	// GetLive returns the live row for dedupeKey or ErrNotFound when
-	// nothing matches / all matching rows are terminal.
-	GetLive(ctx context.Context, dedupeKey string) (Entry, error)
-	// Sweep deletes rows whose updated_at is older than cutoff.
-	// Returned error is surfaced up for logging; the scheduler keeps
-	// running regardless.
-	Sweep(ctx context.Context, cutoff time.Time) error
-}
+type Store = contract.TurnDedupeStore
 
 // UpsertParams drives Upsert. Empty ThreadID is treated as "leave
 // existing value alone" at the SQL layer so a lookup-then-register
 // flow that doesn't know the thread id can safely call Upsert
 // repeatedly.
-type UpsertParams struct {
-	DedupeKey   string
-	LocalTurnID string
-	ThreadID    string
-	Now         time.Time
-}
+type UpsertParams = contract.TurnDedupeUpsertParams
 
 // BindProviderTurnIDParams drives BindProviderTurnID.
-type BindProviderTurnIDParams struct {
-	DedupeKey      string
-	ProviderTurnID string
-	Now            time.Time
-}
+type BindProviderTurnIDParams = contract.TurnDedupeBindProviderTurnIDParams

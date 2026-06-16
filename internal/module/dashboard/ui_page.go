@@ -8,9 +8,6 @@ import (
 	"sync"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -24,25 +21,28 @@ const (
 	dashboardDAGLatestRunLookupLimit = 4
 )
 
+// DashboardPage aggregates the dashboard overview panels for the desktop UI.
 type DashboardPage struct {
-	Agents              []AgentOverview                `json:"agents"`
-	DAGs                []DashboardDAG                 `json:"dags"`
-	Skills              []contract.SkillInfo           `json:"skills"`
-	CommandCards        []commandcardstore.CommandCard `json:"commandCards"`
-	Prompts             []promptstore.PromptTemplate   `json:"prompts"`
-	Memory              []sharedfilestore.SharedFile   `json:"memory"`
-	FinalOutputRefs     []FinalOutputRef               `json:"finalOutputRefs"`
-	SharedFileRetention SharedFileRetention            `json:"sharedFileRetention"`
+	Agents              []AgentOverview           `json:"agents"`
+	DAGs                []DashboardDAG            `json:"dags"`
+	Skills              []contract.SkillInfo      `json:"skills"`
+	CommandCards        []contract.CommandCard    `json:"commandCards"`
+	Prompts             []contract.PromptTemplate `json:"prompts"`
+	Memory              []contract.SharedFile     `json:"memory"`
+	FinalOutputRefs     []FinalOutputRef          `json:"finalOutputRefs"`
+	SharedFileRetention SharedFileRetention       `json:"sharedFileRetention"`
 }
 
 type dashboardPageLoader func(context.Context) error
 
+// SharedFileRetention summarizes shared-file cleanup safety state for dashboard display.
 type SharedFileRetention struct {
 	Items                 []SharedFileRetentionItem `json:"items"`
 	ProtectedCount        int                       `json:"protectedCount"`
 	CleanupCandidateCount int                       `json:"cleanupCandidateCount"`
 }
 
+// SharedFileRetentionItem describes one shared-file cleanup or protection decision.
 type SharedFileRetentionItem struct {
 	Path             string          `json:"path"`
 	Protected        bool            `json:"protected"`
@@ -65,9 +65,9 @@ func newDashboardPage() *DashboardPage {
 		Agents:              []AgentOverview{},
 		DAGs:                []DashboardDAG{},
 		Skills:              []contract.SkillInfo{},
-		CommandCards:        []commandcardstore.CommandCard{},
-		Prompts:             []promptstore.PromptTemplate{},
-		Memory:              []sharedfilestore.SharedFile{},
+		CommandCards:        []contract.CommandCard{},
+		Prompts:             []contract.PromptTemplate{},
+		Memory:              []contract.SharedFile{},
 		FinalOutputRefs:     []FinalOutputRef{},
 		SharedFileRetention: SharedFileRetention{Items: []SharedFileRetentionItem{}},
 	}
@@ -260,16 +260,16 @@ func (s *service) listDashboardSkills(ctx context.Context) ([]contract.SkillInfo
 	})
 }
 
-func (s *service) listDashboardCommandCards(ctx context.Context) ([]commandcardstore.CommandCard, error) {
-	return safeList(s.commandCards != nil, func() ([]commandcardstore.CommandCard, error) {
-		return s.commandCards.List(ctx, commandcardstore.ListFilter{Limit: dashboardPageDefaultLimit})
+func (s *service) listDashboardCommandCards(ctx context.Context) ([]contract.CommandCard, error) {
+	return safeList(s.commandCards != nil, func() ([]contract.CommandCard, error) {
+		return s.commandCards.List(ctx, contract.CommandCardListFilter{Limit: dashboardPageDefaultLimit})
 	})
 }
 
-func (s *service) listDashboardPrompts(ctx context.Context) ([]promptstore.PromptTemplate, error) {
+func (s *service) listDashboardPrompts(ctx context.Context) ([]contract.PromptTemplate, error) {
 	cwd := dashboardPromptScopeCWDFromContext(ctx)
-	return safeList(s.prompts != nil, func() ([]promptstore.PromptTemplate, error) {
-		items, err := s.prompts.List(ctx, promptstore.ListFilter{CWD: cwd, Limit: dashboardPageDefaultLimit})
+	return safeList(s.prompts != nil, func() ([]contract.PromptTemplate, error) {
+		items, err := s.prompts.List(ctx, contract.PromptListFilter{CWD: cwd, Limit: dashboardPageDefaultLimit})
 		if err != nil {
 			return nil, err
 		}
@@ -278,12 +278,12 @@ func (s *service) listDashboardPrompts(ctx context.Context) ([]promptstore.Promp
 }
 
 // filterDashboardPromptsByCWD 按工作目录处理过滤条件dashboardprompts。
-func filterDashboardPromptsByCWD(items []promptstore.PromptTemplate, cwd string) []promptstore.PromptTemplate {
+func filterDashboardPromptsByCWD(items []contract.PromptTemplate, cwd string) []contract.PromptTemplate {
 	requestScope := strings.TrimSpace(cwd)
 	if requestScope == "" {
-		return []promptstore.PromptTemplate{}
+		return []contract.PromptTemplate{}
 	}
-	filtered := make([]promptstore.PromptTemplate, 0, len(items))
+	filtered := make([]contract.PromptTemplate, 0, len(items))
 	for _, item := range items {
 		if dashboardPromptIsSystemManaged(item) {
 			continue
@@ -295,7 +295,7 @@ func filterDashboardPromptsByCWD(items []promptstore.PromptTemplate, cwd string)
 	return filtered
 }
 
-func dashboardPromptVisibleForCWD(template promptstore.PromptTemplate, cwd string) bool {
+func dashboardPromptVisibleForCWD(template contract.PromptTemplate, cwd string) bool {
 	storedScope := dashboardPromptScopeFromTags(template.Tags)
 	return storedScope == "" || storedScope == strings.TrimSpace(cwd)
 }
@@ -321,7 +321,7 @@ func dashboardPromptTags(raw json.RawMessage) []string {
 }
 
 // dashboardPromptIsSystemManaged 处理dashboardpromptissystemmanaged。
-func dashboardPromptIsSystemManaged(template promptstore.PromptTemplate) bool {
+func dashboardPromptIsSystemManaged(template contract.PromptTemplate) bool {
 	for _, tag := range dashboardPromptTags(template.Tags) {
 		if strings.TrimSpace(tag) == "builtin:system" {
 			return true
@@ -348,17 +348,17 @@ func dashboardPromptAuthorLooksSystem(author string) bool {
 		strings.Contains(normalized, "builtin.registry")
 }
 
-func (s *service) listDashboardMemory(ctx context.Context) ([]sharedfilestore.SharedFile, error) {
-	return safeList(s.sharedFiles != nil, func() ([]sharedfilestore.SharedFile, error) {
-		return s.sharedFiles.List(ctx, sharedfilestore.ListFilter{Limit: dashboardMemoryLimit})
+func (s *service) listDashboardMemory(ctx context.Context) ([]contract.SharedFile, error) {
+	return safeList(s.sharedFiles != nil, func() ([]contract.SharedFile, error) {
+		return s.sharedFiles.List(ctx, contract.SharedFileListFilter{Limit: dashboardMemoryLimit})
 	})
 }
 
 // ListSharedFiles 列出shared文件。
-func (s *service) ListSharedFiles(ctx context.Context) ([]sharedfilestore.SharedFile, error) {
+func (s *service) ListSharedFiles(ctx context.Context) ([]contract.SharedFile, error) {
 	items, err := s.listDashboardMemory(ctx)
 	if items == nil {
-		items = []sharedfilestore.SharedFile{}
+		items = []contract.SharedFile{}
 	}
 	return items, err
 }
@@ -451,7 +451,7 @@ func finalOutputRefFromRun(run contract.Run) (FinalOutputRef, bool) {
 }
 
 // buildSharedFileRetention 构建shared文件retention。
-func buildSharedFileRetention(files []sharedfilestore.SharedFile, refs []FinalOutputRef) SharedFileRetention {
+func buildSharedFileRetention(files []contract.SharedFile, refs []FinalOutputRef) SharedFileRetention {
 	refByPath := make(map[string]FinalOutputRef, len(refs))
 	for _, ref := range refs {
 		path := strings.TrimSpace(ref.Path)

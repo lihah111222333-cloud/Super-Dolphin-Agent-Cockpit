@@ -49,7 +49,7 @@ Completed by the mainline alignment slice:
 Verification:
 
 ```bash
-./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration ./internal/app ./internal/module/memory ./internal/module/dashboard -count=1
+./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration ./internal/app ./internal/module/memory ./internal/module/dashboard -count=1
 ```
 
 ## Task 1: DAG Console Shell — Complete
@@ -140,7 +140,7 @@ npm run build
 If Go orchestration behavior changes in the same branch, also run:
 
 ```bash
-./scripts/test_with_guard.sh ./cmd/mcp-orch/orchestration -count=1
+./scripts/test_with_guard.sh ./internal/sidecar/orch/orchestration -count=1
 ```
 
 ## Completion Rule

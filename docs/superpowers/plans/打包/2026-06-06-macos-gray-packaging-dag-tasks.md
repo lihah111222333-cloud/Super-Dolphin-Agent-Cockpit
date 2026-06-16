@@ -194,7 +194,7 @@ nodes:
 - `scripts/package_macos.sh`
 - `scripts/package_macos_guard_test.go`
 - `scripts/verify_packaged_app_macos.sh`
-- `docs/packaging/macos-gray-release.md`
+- `docs/运维发布/打包发布/macos-gray-release.md`
 
 **Steps:**
 
@@ -542,7 +542,7 @@ bash -n scripts/verify_packaged_app_macos.sh
 **Write scope:**
 
 - `docs/scripts/macos_release_smoke.sh`
-- `docs/packaging/macos-gray-release.md`
+- `docs/运维发布/打包发布/macos-gray-release.md`
 
 **Steps:**
 

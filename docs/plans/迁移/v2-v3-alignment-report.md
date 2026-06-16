@@ -47,7 +47,7 @@
 
 | V2 能力 | V2 位置 | V3 对应 | 结论 |
 |---|---|---|---|
-| Launch | `manager_launch.go` | `cmd/mcp-orch/orchestration/service.go:LaunchAgent` | 部分覆盖：V3 只做 `command/env` 进程启动；V2 的 provider 解析、dynamic tools、resume session、transport fallback 未迁入 |
+| Launch | `manager_launch.go` | `internal/sidecar/orch/orchestration/service.go:LaunchAgent` | 部分覆盖：V3 只做 `command/env` 进程启动；V2 的 provider 解析、dynamic tools、resume session、transport fallback 未迁入 |
 | Stop | `manager_lifecycle.go:Stop` | `StopAgent` / `StopAllAgents` | 基本覆盖：单 agent stop 存在；批量 stop 仅内部方法，不在 `Service` 契约中暴露 |
 | Submit / deferred submit | `manager_submission.go` | `SubmitTurn` + `SubmissionQueue` | 部分覆盖：有排队，但没有 V2 的 metadata、queue position、active submission、progress 标记、replay 次数、dead client 同步恢复 |
 | Recover | `manager_recover.go` | `Recover` | 部分覆盖：存在统一恢复入口，但无 V2 的 provider-aware resume 目标推导、submission replay 选项、early silence circuit breaker |
@@ -61,7 +61,7 @@
 
 - V3 已把状态机显式化：`internal/platform/statemachine/factory.go` + `github.com/qmuntal/stateless` 已接入。
 - V3 `Snapshot` 能返回 `AllowedTriggers`，比 V2 的外部可见状态更适合直接做状态矩阵观测。
-- V3 已把恢复入口收敛到 `cmd/mcp-orch/orchestration/recover.go`，方向符合 P3 “所有恢复入口统一经过 recovery”。
+- V3 已把恢复入口收敛到 `internal/sidecar/orch/orchestration/recover.go`，方向符合 P3 “所有恢复入口统一经过 recovery”。
 
 ### 遗漏项
 
@@ -107,7 +107,7 @@
 
 | 项目 | 结论 | 说明 |
 |---|---|---|
-| §2.8 `go-agent-v2/internal/runner -> cmd/mcp-orch/orchestration + internal/platform/statemachine + internal/platform/runner` | 部分达成 | 目录存在，基本骨架存在，但能力明显弱于 V2，且未达到 P3 目标状态机 |
+| §2.8 `go-agent-v2/internal/runner -> internal/sidecar/orch/orchestration + internal/platform/statemachine + internal/platform/runner` | 部分达成 | 目录存在，基本骨架存在，但能力明显弱于 V2，且未达到 P3 目标状态机 |
 | §2.8 `go-agent-v2/internal/store -> internal/platform/db + internal/store/sqlc + internal/store/*` | 基本达成 | 路径存在，repo + sqlc 风格查询已落地 |
 | §2.8 `go-agent-v2/internal/bus -> internal/platform/bus` | 部分达成 | typed DTO 方向成立，但当前实现是自研 reflect bus，不是 P2 计划中的 `kelindar/event` |
 | §2.8 `go-agent-v2/internal/apiserver -> internal/platform/rpc + internal/module/* + internal/provider/* + internal/ui/* + internal/app` | 部分达成 | `rpc/module/app` 存在，`internal/provider` / `internal/ui` 当前不存在 |
@@ -166,13 +166,13 @@
 
 | # | 修复 | 状态 | 备注 |
 |---|---|---|---|
-| 1 | 封装 | 已覆盖 | [runner_actor.go](/Volumes/bot/super-agent-v3/cmd/mcp-orch/orchestration/runner_actor.go) 中 `stopAll` 仅调用 `service.StopAllAgents()`；未发现 `service.mu` 直接访问 |
-| 2 | 事件发布 | 已覆盖 | [events.go](/Volumes/bot/super-agent-v3/cmd/mcp-orch/orchestration/events.go) 已有 `publishAgentLaunched` / `publishAgentStopped` / `publishAgentRecovering` / `publishAgentFailed`；header 构造复用 `agentSessionHeader` / `turnHeader` / `agentHeader` |
-| 3 | auto-recover | 部分覆盖 | [recover.go](/Volumes/bot/super-agent-v3/cmd/mcp-orch/orchestration/recover.go) 有 `StallDetector`，且 [runner_actor.go](/Volumes/bot/super-agent-v3/cmd/mcp-orch/orchestration/runner_actor.go) 在 ticker 中调用 `recoverStalledAgents`；仅覆盖 stall 检测，未见 connection-dead / CLI-dead 等其他 V2 自动恢复路径 |
+| 1 | 封装 | 已覆盖 | [runner_actor.go](/Volumes/bot/super-agent-v3/internal/sidecar/orch/orchestration/runner_actor.go) 中 `stopAll` 仅调用 `service.StopAllAgents()`；未发现 `service.mu` 直接访问 |
+| 2 | 事件发布 | 已覆盖 | [events.go](/Volumes/bot/super-agent-v3/internal/sidecar/orch/orchestration/events.go) 已有 `publishAgentLaunched` / `publishAgentStopped` / `publishAgentRecovering` / `publishAgentFailed`；header 构造复用 `agentSessionHeader` / `turnHeader` / `agentHeader` |
+| 3 | auto-recover | 部分覆盖 | [recover.go](/Volumes/bot/super-agent-v3/internal/sidecar/orch/orchestration/recover.go) 有 `StallDetector`，且 [runner_actor.go](/Volumes/bot/super-agent-v3/internal/sidecar/orch/orchestration/runner_actor.go) 在 ticker 中调用 `recoverStalledAgents`；仅覆盖 stall 检测，未见 connection-dead / CLI-dead 等其他 V2 自动恢复路径 |
 | 4 | binding 幂等 | 已覆盖 | [binding/store.go](/Volumes/bot/super-agent-v3/internal/store/binding/store.go) `Upsert` 通过 [errors.go](/Volumes/bot/super-agent-v3/internal/platform/db/errors.go) `IsUniqueViolation` 检测唯一约束冲突，并在同 `provider + providerThreadID + agentID` 时视为成功 |
 | 5 | taskdag 事务 | 已覆盖 | [taskdag/store.go](/Volumes/bot/super-agent-v3/internal/store/taskdag/store.go) 已提供 `WithTx`；[db.go](/Volumes/bot/super-agent-v3/internal/store/sqlc/db.go) 已提供 `NewWithTx` 和 `Queries.WithTx` |
-| 6 | 去 stub | 已覆盖 | [runner_actor.go](/Volumes/bot/super-agent-v3/cmd/mcp-orch/orchestration/runner_actor.go) `processTurnQueues` 不再立即完成 turn；[contract.go](/Volumes/bot/super-agent-v3/cmd/mcp-orch/orchestration/contract.go) 已暴露 `CompleteTurn` |
-| 7 | helpers 拆分 | 已覆盖 | [service.go](/Volumes/bot/super-agent-v3/cmd/mcp-orch/orchestration/service.go) 现为 312 行，低于 380 行阈值；辅助逻辑已拆至 [helpers.go](/Volumes/bot/super-agent-v3/cmd/mcp-orch/orchestration/helpers.go) |
+| 6 | 去 stub | 已覆盖 | [runner_actor.go](/Volumes/bot/super-agent-v3/internal/sidecar/orch/orchestration/runner_actor.go) `processTurnQueues` 不再立即完成 turn；[contract.go](/Volumes/bot/super-agent-v3/internal/sidecar/orch/orchestration/contract.go) 已暴露 `CompleteTurn` |
+| 7 | helpers 拆分 | 已覆盖 | [service.go](/Volumes/bot/super-agent-v3/internal/sidecar/orch/orchestration/service.go) 现为 312 行，低于 380 行阈值；辅助逻辑已拆至 [helpers.go](/Volumes/bot/super-agent-v3/internal/sidecar/orch/orchestration/helpers.go) |
 
 ### 旧偏差项状态更新
 
@@ -224,11 +224,11 @@
 
 | # | 对照项 | V2 参考 | V3 文件 | 状态 | 备注 |
 |---|---|---|---|---|---|
-| A | auto-recover | `go-agent-v2/internal/runner/manager_recover.go` | `cmd/mcp-orch/orchestration/recover.go`, `cmd/mcp-orch/orchestration/runner_actor.go` | ✅ | V3 已有 `StallDetector`，且 `runner_actor.Run` 的 ticker 分支调用 `recoverStalledAgents`；但仍仅覆盖 stall 检测，不等于 V2 全量 recover matrix |
-| B | 事件发布 | `go-agent-v2/internal/runner/manager_event.go` | `cmd/mcp-orch/orchestration/events.go` | ✅ | 已发布 `publishAgentLaunched` / `publishAgentStopped` / `publishAgentRecovering` / `publishAgentFailed`；header 通过 `agentSessionHeader` / `turnHeader` / `agentHeader` 工厂复用 |
+| A | auto-recover | `go-agent-v2/internal/runner/manager_recover.go` | `internal/sidecar/orch/orchestration/recover.go`, `internal/sidecar/orch/orchestration/runner_actor.go` | ✅ | V3 已有 `StallDetector`，且 `runner_actor.Run` 的 ticker 分支调用 `recoverStalledAgents`；但仍仅覆盖 stall 检测，不等于 V2 全量 recover matrix |
+| B | 事件发布 | `go-agent-v2/internal/runner/manager_event.go` | `internal/sidecar/orch/orchestration/events.go` | ✅ | 已发布 `publishAgentLaunched` / `publishAgentStopped` / `publishAgentRecovering` / `publishAgentFailed`；header 通过 `agentSessionHeader` / `turnHeader` / `agentHeader` 工厂复用 |
 | C | binding 幂等 | `go-agent-v2/internal/store/agent_provider_binding.go` | `internal/store/binding/store.go`, `internal/platform/db/errors.go` | ✅ | V3 `Upsert` 已在唯一约束冲突后回查 `(provider, provider_thread_id)` 并在同 agent 时视为成功；`IsUniqueViolation` 已落地 |
 | D | taskdag 事务 | `go-agent-v2/internal/store/task_dag_phase1.go` | `internal/store/taskdag/store.go`, `internal/store/sqlc/db.go` | ✅ | V2 `WithDAGTx` 的意图在 V3 由 `taskdag.Store.WithTx` + `sqlc.NewWithTx` / `Queries.WithTx` 承接 |
-| E | turn 生命周期 | `go-agent-v2/internal/runner/manager_submission.go` | `cmd/mcp-orch/orchestration/runner_actor.go`, `cmd/mcp-orch/orchestration/contract.go` | ✅ | `processTurnQueues` 已去掉“立即完成” stub，只做 `startTurnExecution + publishTurnStarted`；`CompleteTurn` 已进入 `Service` 契约 |
+| E | turn 生命周期 | `go-agent-v2/internal/runner/manager_submission.go` | `internal/sidecar/orch/orchestration/runner_actor.go`, `internal/sidecar/orch/orchestration/contract.go` | ✅ | `processTurnQueues` 已去掉“立即完成” stub，只做 `startTurnExecution + publishTurnStarted`；`CompleteTurn` 已进入 `Service` 契约 |
 | F | 状态表 | `go-agent-v2/internal/runner/manager.go` | `internal/dto/agent/state.go` | ✅ | V3 现有 10 个状态、11 个触发器；不再停留在 V2 `idle/thinking/running/stopped/error` 粗粒度状态 |
 
 ### 覆盖度更新

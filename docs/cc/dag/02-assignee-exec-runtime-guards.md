@@ -12,7 +12,7 @@
 
 ## 建议关注文件/区域
 
-`cmd/mcp-orch/orchestration/dag_query.go, cmd/mcp-orch/orchestration/nodeexec/ops.go, cmd/mcp-orch/tools/task_apply_ops.go, cmd/mcp-orch/tools/task_schemas.go(apply_ops区域), cmd/mcp-orch/store/taskdag/store_root_wakeup.go, store_complete_downstream.go, cmd/mcp-orch/orchestration/scheduledstart, nodeexec config tests`
+`internal/sidecar/orch/orchestration/dag_query.go, internal/sidecar/orch/orchestration/nodeexec/ops.go, internal/sidecar/orch/tools/task_apply_ops.go, internal/sidecar/orch/tools/task_schemas.go(apply_ops区域), internal/sidecar/orch/store/taskdag/store_root_wakeup.go, store_complete_downstream.go, internal/sidecar/orch/orchestration/scheduledstart, nodeexec config tests`
 
 ## 必须满足的验收标准
 

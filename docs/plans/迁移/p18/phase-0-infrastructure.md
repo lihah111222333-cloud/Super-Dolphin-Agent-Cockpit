@@ -12,7 +12,7 @@
 | `internal/module/memory` | 磁盘 CRUD、`MEMORY.md` 索引、路径安全、截断 | Phase 1 / 5 / 6；Phase 7 只能经 `internal/contract` + `cmd/mcp-orch` 本地实现接入，禁止 `cmd/mcp-orch` 直接 import 本模块 |
 | `internal/module/prompt` | PromptRegistry、PromptContext、PromptAssemblyService 的实现、缓存失效 | Phase 2 / 3 / 4 / 4.5 / 8；凡跨 provider / MCP binary 的接口上提 `internal/contract/*`，载荷上提 `internal/dto/*` |
 | `internal/module/thread` | `start_session` / `turn` 注入入口，只消费 prompt 产物，不承担组装逻辑 | Phase 4 / 4.5 |
-| `cmd/mcp-orch/tools` | `memory_read` 工具的 schema/handler 壳、slash command 配套边界与迁移脚本入口 | Phase 7；业务实现必须留在 `cmd/mcp-orch/*` 本地包或 `internal/contract/*`，禁止直连 `internal/module/*` |
+| `internal/sidecar/orch/tools` | `memory_read` 工具的 schema/handler 壳、slash command 配套边界与迁移脚本入口 | Phase 7；业务实现必须留在 `cmd/mcp-orch/*` 本地包或 `internal/contract/*`，禁止直连 `internal/module/*` |
 
 ## 与后续 Phase 的关系
 

@@ -8,8 +8,8 @@ import (
 
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 	"github.com/kelindar/event"
 )
 
@@ -77,7 +77,7 @@ func turnCompletedHandler(svc Service, onUpdated func(string)) func(turndto.Turn
 		// Dialog (user/assistant) items are no longer projected into the uistate
 		// timeline. They come exclusively from the thread/messages history RPC so
 		// that live and history paths share a single source of truth and id format.
-		failed := !ev.Success && util.FirstNonEmpty(
+		failed := !ev.Success && kernel.FirstNonEmpty(
 			strings.TrimSpace(ev.Error),
 			strings.TrimSpace(ev.Reason),
 			strings.TrimSpace(ev.Status),
@@ -100,7 +100,7 @@ func turnCompletedHandler(svc Service, onUpdated func(string)) func(turndto.Turn
 				agentID,
 				turnID,
 				timelineID("error", "turn", turnID),
-				util.FirstNonEmpty(
+				kernel.FirstNonEmpty(
 					strings.TrimSpace(ev.Error),
 					strings.TrimSpace(ev.Reason),
 					strings.TrimSpace(ev.Result),
@@ -329,8 +329,8 @@ func approvalResolvedHandler(svc Service, onUpdated func(string)) func(tooldto.T
 			if strings.TrimSpace(it.Ts) == "" {
 				it.Ts = ev.Timestamp.Format("2006-01-02T15:04:05Z07:00")
 			}
-			it.Tool = util.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.Tool)
-			it.ToolName = util.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.ToolName)
+			it.Tool = kernel.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.Tool)
+			it.ToolName = kernel.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.ToolName)
 		})
 		if updated {
 			if onUpdated != nil {
@@ -376,5 +376,5 @@ func toolUpdateKey(callID, tool string) string {
 }
 
 func approvalUpdateKey(approvalID, callID string) string {
-	return timelineID("approval", util.FirstNonEmpty(approvalID, callID))
+	return timelineID("approval", kernel.FirstNonEmpty(approvalID, callID))
 }

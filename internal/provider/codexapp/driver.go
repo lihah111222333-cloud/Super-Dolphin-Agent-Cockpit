@@ -12,13 +12,12 @@ import (
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/runtimeconfig"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -418,7 +417,7 @@ func (d *driver) clearStaleProviderThreadID(agentID, message string) {
 	if d == nil || d.recovery == nil {
 		return
 	}
-	cleanCtx, cancel := ctxutil.WithSessionCloseTimeout(context.Background())
+	cleanCtx, cancel := kernel.WithSessionCloseTimeout(context.Background())
 	defer cancel()
 	if err := d.recovery.ClearStaleProviderThreadID(cleanCtx, agentID); err != nil && d.logger != nil {
 		d.logger.Warn(message, "agent_id", strings.TrimSpace(agentID), "error", err)
@@ -444,7 +443,7 @@ type startResult struct {
 }
 
 func resumeRemoteThread(ctx context.Context, t *transport, req dto.ResumeSessionRequest) (string, error) {
-	resumeID := shared.FirstNonEmpty(req.ProviderThreadID, req.ThreadID)
+	resumeID := kernel.FirstNonEmpty(req.ProviderThreadID, req.ThreadID)
 	params := buildThreadResumeParams(req)
 	params.ThreadID = strings.TrimSpace(resumeID)
 	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/resume", params)
@@ -455,12 +454,12 @@ func resumeRemoteThread(ctx context.Context, t *transport, req dto.ResumeSession
 }
 
 func (d *driver) startAssemblyInstructions(req dto.StartSessionRequest) (string, string) {
-	base := strings.TrimSpace(shared.FirstNonEmpty(
+	base := strings.TrimSpace(kernel.FirstNonEmpty(
 		req.StartAssembly.BaseInstructions,
 		req.StartAssembly.Snapshot.BaseInstructions,
 		req.Instructions,
 	))
-	developer := strings.TrimSpace(shared.FirstNonEmpty(
+	developer := strings.TrimSpace(kernel.FirstNonEmpty(
 		req.StartAssembly.DeveloperInstructions,
 		req.StartAssembly.Snapshot.DeveloperInstructions,
 		supportutil.ConfigString(req.Config, "developerInstructions"),

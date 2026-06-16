@@ -14,7 +14,7 @@
     },
     "regression_safety": {
       "score": 72,
-      "evidence": "cmd/mcp-orch/tools focused test suite is available."
+      "evidence": "internal/sidecar/orch/tools focused test suite is available."
     }
   },
   "findings": [

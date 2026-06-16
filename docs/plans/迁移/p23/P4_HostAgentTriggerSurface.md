@@ -6,13 +6,13 @@
 
 ## 目标
 
-MCP 工具 `task_create_dag` 接受新可选参数 `auto_start: true`（语法糖：创建后立即调用 `cmd/mcp-orch/orchestration/dag_start.go:StartDAG`）；DAG terminal 事件通过既有 hook tap registry / hook consumer 链路回到主 agent；100% 向后兼容旧调用方。
+MCP 工具 `task_create_dag` 接受新可选参数 `auto_start: true`（语法糖：创建后立即调用 `internal/sidecar/orch/orchestration/dag_start.go:StartDAG`）；DAG terminal 事件通过既有 hook tap registry / hook consumer 链路回到主 agent；100% 向后兼容旧调用方。
 
 ## 现状校准（事实层）
 
-- 主 agent 当前触发能力：`cmd/mcp-orch/tools/task_tools.go:64-70,94-105`（`task_create_dag` / `task_get_dag` / `task_update_node`）
-- 主 agent 状态查询：`cmd/mcp-orch/tools/task_tools.go:74-80`（poll `task_get_dag`）
-- 主 agent 收事件路径：复用 P21 hook consumer + `dag_terminal_tap` registry（`cmd/mcp-orch/orchestration/hook_consumer.go:96-220`）；agent 通过 `agent.turn.after / progress` 间接收 DAG 推进事件
+- 主 agent 当前触发能力：`internal/sidecar/orch/tools/task_tools.go:64-70,94-105`（`task_create_dag` / `task_get_dag` / `task_update_node`）
+- 主 agent 状态查询：`internal/sidecar/orch/tools/task_tools.go:74-80`（poll `task_get_dag`）
+- 主 agent 收事件路径：复用 P21 hook consumer + `dag_terminal_tap` registry（`internal/sidecar/orch/orchestration/hook_consumer.go:96-220`）；agent 通过 `agent.turn.after / progress` 间接收 DAG 推进事件
 
 ## 推荐架构
 
@@ -24,14 +24,14 @@ host auto-start 使用 P3 统一 `dag_start_requests` schema：`trigger_instance
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| MCP tool schema provider | `cmd/mcp-orch/tools/dag_schema_registry.go` + host trigger provider [NEW] | 注册 `task_create_dag.auto_start`、`idempotency_key/request_id`；`task_tools.go` 只消费 registry，避免热文件并行改；`agent_id` 标注 legacy/display-only |
+| MCP tool schema provider | `internal/sidecar/orch/tools/dag_schema_registry.go` + host trigger provider [NEW] | 注册 `task_create_dag.auto_start`、`idempotency_key/request_id`；`task_tools.go` 只消费 registry，避免热文件并行改；`agent_id` 标注 legacy/display-only |
 | MCP caller adapter | `internal/mcpserver/common/server.go` / `internal/mcpserver/common/http_transport.go`（扩展） | 从 authenticated MCP context 注入 `CallerIdentity`；缺失时写 audit 并拒绝写操作 |
-| host trigger handler | `cmd/mcp-orch/tools/task_tools.go`（薄 handler） + `cmd/mcp-orch/orchestration/dag_start.go` | handler 只做 registry 校验与服务调用；create 成功后调用 `StartDAG(ctx, dagKey, TriggerMeta{source:host,...})`；不从 params 推导 owner/tenant |
-| Start idempotency | `cmd/mcp-orch/store/dagstart/*.go`（复用 P3） | host `trigger_instance_key` 与 `params_hash` 去重；冲突返回 conflict |
-| hook 回流 | `cmd/mcp-orch/orchestration/dag_terminal_tap.go` / `hook_tap_registry.go`（复用） | 终态事件沿既有 P21 hook consumer 的 tap registry 回主 agent，不直接扩主 hook 分发，不新增平行 event bus |
+| host trigger handler | `internal/sidecar/orch/tools/task_tools.go`（薄 handler） + `internal/sidecar/orch/orchestration/dag_start.go` | handler 只做 registry 校验与服务调用；create 成功后调用 `StartDAG(ctx, dagKey, TriggerMeta{source:host,...})`；不从 params 推导 owner/tenant |
+| Start idempotency | `internal/sidecar/orch/store/dagstart/*.go`（复用 P3） | host `trigger_instance_key` 与 `params_hash` 去重；冲突返回 conflict |
+| hook 回流 | `internal/sidecar/orch/orchestration/dag_terminal_tap.go` / `hook_tap_registry.go`（复用） | 终态事件沿既有 P21 hook consumer 的 tap registry 回主 agent，不直接扩主 hook 分发，不新增平行 event bus |
 
 **已知关键改动方向**：
-- 通过 `cmd/mcp-orch/tools/dag_schema_registry.go` 的 host provider 给 `task_create_dag` schema 加 `auto_start: bool` 字段；server 端创建成功后立即调 `StartDAG(ctx, dagKey, triggerMeta)`，trigger 默认 `auto`
+- 通过 `internal/sidecar/orch/tools/dag_schema_registry.go` 的 host provider 给 `task_create_dag` schema 加 `auto_start: bool` 字段；server 端创建成功后立即调 `StartDAG(ctx, dagKey, triggerMeta)`，trigger 默认 `auto`
 - 不引入新 hook event；DAG terminal 通过 `dag_terminal_tap` registry 回流到 agent，主 hook consumer 保持 bounded fanout/enqueue-only
 - 旧调用方不传 `auto_start` 仍按当前隐式期望工作（旧 DAG 默认 `auto`）
 
@@ -42,7 +42,7 @@ host auto-start 使用 P3 统一 `dag_start_requests` schema：`trigger_instance
 
 ## 依赖
 
-- P3 已合入（trigger 枚举 + `cmd/mcp-orch/orchestration/dag_start.go:StartDAG` 共享入口）
+- P3 已合入（trigger 枚举 + `internal/sidecar/orch/orchestration/dag_start.go:StartDAG` 共享入口）
 
 ## 风险
 

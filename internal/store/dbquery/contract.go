@@ -1,12 +1,9 @@
 package dbquery
 
-import "context"
+import "github.com/anthropic-ai/super-agent-v3/internal/contract"
 
-type Store interface {
-	Placeholder(ctx context.Context) ([]PlaceholderRow, error)
-	Query(ctx context.Context, query string, args ...any) ([]map[string]any, error)
-}
+// Store executes dashboard diagnostic database queries.
+type Store = contract.DBQueryStore
 
-type PlaceholderRow struct {
-	Placeholder *string
-}
+// PlaceholderRow is the minimal placeholder query projection.
+type PlaceholderRow = contract.DBQueryPlaceholderRow

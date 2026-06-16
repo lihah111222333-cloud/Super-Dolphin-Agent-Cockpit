@@ -4,17 +4,17 @@ import (
 	"context"
 	"strings"
 
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 func writePromptSectionInTx(
 	ctx context.Context,
-	store promptstore.Store,
+	store contract.PromptStore,
 	requestScope, promptKey string,
 	req PromptSectionWriteRequest,
-) (*promptstore.PromptTemplateSection, error) {
-	var saved *promptstore.PromptTemplateSection
-	err := store.WithTx(ctx, func(txStore promptstore.Store) error {
+) (*contract.PromptTemplateSection, error) {
+	var saved *contract.PromptTemplateSection
+	err := store.WithTx(ctx, func(txStore contract.PromptStore) error {
 		template, gerr := txStore.Get(ctx, promptKey)
 		if gerr != nil {
 			return gerr
@@ -29,7 +29,7 @@ func writePromptSectionInTx(
 				return err
 			}
 		}
-		section, uerr := txStore.UpsertSection(ctx, promptstore.PromptTemplateSection{
+		section, uerr := txStore.UpsertSection(ctx, contract.PromptTemplateSection{
 			TemplateID:  template.ID,
 			SectionKey:  req.SectionKey,
 			Region:      req.Region,

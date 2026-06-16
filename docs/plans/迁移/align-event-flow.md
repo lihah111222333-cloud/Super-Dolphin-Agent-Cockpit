@@ -26,7 +26,7 @@
   - `internal/provider/claudecli/session_events.go:46-54`
   - `internal/provider/codexapp/event_map.go:24-154`
   - `internal/provider/claudecli/event_map.go:21-103`
-  - `cmd/mcp-orch/orchestration/events.go:13-64`
+  - `internal/sidecar/orch/orchestration/events.go:13-64`
   - `internal/module/workspace/service.go:40-58`
   - `internal/module/workspace/service_helpers.go:220-284`
   - `internal/platform/rpc/push.go:16-92`
@@ -60,7 +60,7 @@
 
 1. provider 侧 `codexapp` / `claudecli` 都会把 raw event 送入 `EventDispatcher.Dispatch()`，见 `internal/provider/codexapp/session.go:237-263`、`internal/provider/claudecli/session_events.go:46-54`、`internal/provider/unified/event_map.go:43-66`。
 2. translator 把 raw event 翻译为 typed event，再 `event.Publish()` 进 bus，见 `internal/provider/codexapp/event_map.go:24-154`、`internal/provider/claudecli/event_map.go:21-103`、`internal/provider/unified/event_map.go:49-64`。
-3. orchestration 和 workspace 也直接往 typed bus 发事件，见 `cmd/mcp-orch/orchestration/events.go:13-64`、`internal/module/workspace/service.go:49-58`、`internal/module/workspace/service_helpers.go:220-284`。
+3. orchestration 和 workspace 也直接往 typed bus 发事件，见 `internal/sidecar/orch/orchestration/events.go:13-64`、`internal/module/workspace/service.go:49-58`、`internal/module/workspace/service_helpers.go:220-284`。
 4. jrpc2 push live path 只订阅 3 个 typed event 并发 3 个 method：`ui/state/changed`、`turn/started`、`turn/completed`，见 `internal/platform/rpc/push.go:16-92`、`internal/platform/rpc/module.go:54-72`。
 5. Wails bridge live path 也只订阅这 3 个 typed event，但统一封装到 `bridge-event` 信道，见 `internal/ui/wails/bridge.go:42-89`、`internal/ui/wails/module.go:120-134`。
 6. 当前内嵌 frontend 只是占位页，没有任何 event runtime 订阅代码，见 `internal/ui/wails/frontend/index.html:1-53`。
@@ -90,7 +90,7 @@
   - workspace：`WorkspaceRunCreated`、`WorkspaceRunStatusChanged`、`WorkspaceRunMerged`、`WorkspaceRunAborted`、`WorkspaceRunMergeError`，见 `internal/dto/workspace/event.go:5-52`
   - ui：`UIProjectionUpdated`、`UITimelineAppended`、`UITokensUpdated`，见 `internal/dto/ui/event.go:5-31`
 - 当前源码能确认 live publish 的主要是：
-  - agent：provider translator + orchestration 都会发，见 `internal/provider/codexapp/event_map.go:40-75`、`internal/provider/claudecli/event_map.go:35-53`、`cmd/mcp-orch/orchestration/events.go:13-64`
+  - agent：provider translator + orchestration 都会发，见 `internal/provider/codexapp/event_map.go:40-75`、`internal/provider/claudecli/event_map.go:35-53`、`internal/sidecar/orch/orchestration/events.go:13-64`
   - turn：`TurnStarted` / `TurnCompleted` / `TurnInterrupted` / `TurnInputReceived` / `TurnOutputDelta` 有 publisher，见 `internal/provider/codexapp/event_map.go:77-113`、`internal/provider/claudecli/event_map.go:55-85`
   - tool：4 个都有 publisher，见 `internal/provider/codexapp/event_map.go:115-154`、`internal/provider/claudecli/event_map.go:87-103`、`internal/platform/rpc/approval_events.go:23-43`
   - workspace：5 个都有 publisher，见 `internal/module/workspace/service.go:49-58`、`internal/module/workspace/service_helpers.go:220-284`

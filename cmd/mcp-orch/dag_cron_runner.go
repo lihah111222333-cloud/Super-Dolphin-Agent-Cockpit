@@ -6,11 +6,11 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/fxadapter"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
-	orchcron "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/cron"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	"github.com/anthropic-ai/super-agent-v3/internal/sidecar/orch/fxadapter"
+	"github.com/anthropic-ai/super-agent-v3/internal/sidecar/orch/orchestration"
+	orchcron "github.com/anthropic-ai/super-agent-v3/internal/sidecar/orch/orchestration/cron"
+	"github.com/anthropic-ai/super-agent-v3/internal/sidecar/orch/store/sqlc"
 )
 
 const (

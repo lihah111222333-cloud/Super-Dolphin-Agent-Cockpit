@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
 // builtinToolsDisabledKey is the preference key that stores the user's chosen
@@ -52,7 +51,7 @@ type builtinToolsWriteParams struct {
 }
 
 // readBuiltinTools 读取builtin工具。
-func readBuiltinTools(ctx context.Context, prefs uipreference.Store, store contract.SkillLister, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, cwd string) (*builtinToolsReadResult, error) {
+func readBuiltinTools(ctx context.Context, prefs contract.UIPreferenceStore, store contract.SkillLister, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, cwd string) (*builtinToolsReadResult, error) {
 	var replaced map[string]string
 	if store != nil {
 		entries, err := store.ListSkills(contract.WithSkillCWD(ctx, cwd))
@@ -143,7 +142,7 @@ func aggregateReplacementSources(entries []contract.SkillInfo) map[string]string
 }
 
 // writeBuiltinTool 写入builtin工具。
-func writeBuiltinTool(ctx context.Context, prefs uipreference.Store, store contract.SkillLister, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, p builtinToolsWriteParams) (*builtinToolsReadResult, error) {
+func writeBuiltinTool(ctx context.Context, prefs contract.UIPreferenceStore, store contract.SkillLister, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, p builtinToolsWriteParams) (*builtinToolsReadResult, error) {
 	if prefs == nil {
 		return nil, errConfigPreferenceStoreRequired
 	}
@@ -173,7 +172,7 @@ func writeBuiltinTool(ctx context.Context, prefs uipreference.Store, store contr
 // this scope. Defaults apply when the caller has never persisted a preference;
 // explicit overrides from the preference store replace the defaults entirely.
 // ResolveFilteredBuiltinTools 解析filteredbuiltin工具。
-func ResolveFilteredBuiltinTools(ctx context.Context, prefs uipreference.Store, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor) []string {
+func ResolveFilteredBuiltinTools(ctx context.Context, prefs contract.UIPreferenceStore, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor) []string {
 	disabled, err := effectiveDisabledBuiltinToolSet(ctx, prefs, cwd, registry, index)
 	if err != nil {
 		disabled = defaultDisabledBuiltinToolSet(registry)
@@ -189,17 +188,17 @@ func ResolveFilteredBuiltinTools(ctx context.Context, prefs uipreference.Store, 
 }
 
 // ResolveDisabledBuiltinTools 解析disabledbuiltin工具。
-func ResolveDisabledBuiltinTools(ctx context.Context, prefs uipreference.Store, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor) []string {
+func ResolveDisabledBuiltinTools(ctx context.Context, prefs contract.UIPreferenceStore, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor) []string {
 	return ResolveFilteredBuiltinTools(ctx, prefs, cwd, registry, index)
 }
 
 // ResolveSoftFilteredBuiltinTools 解析softfilteredbuiltin工具。
-func ResolveSoftFilteredBuiltinTools(ctx context.Context, prefs uipreference.Store, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, provider string) []string {
+func ResolveSoftFilteredBuiltinTools(ctx context.Context, prefs contract.UIPreferenceStore, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, provider string) []string {
 	return filterBuiltinToolsByModeAndProvider(ResolveFilteredBuiltinTools(ctx, prefs, cwd, registry, index), index, contract.NativeToolFilterModeSoft, provider)
 }
 
 // ResolveHardEnabledBuiltinTools 解析hardenabledbuiltin工具。
-func ResolveHardEnabledBuiltinTools(ctx context.Context, prefs uipreference.Store, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, provider string) []string {
+func ResolveHardEnabledBuiltinTools(ctx context.Context, prefs contract.UIPreferenceStore, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, provider string) []string {
 	disabled := make(map[string]struct{})
 	for _, id := range ResolveFilteredBuiltinTools(ctx, prefs, cwd, registry, index) {
 		disabled[id] = struct{}{}
@@ -244,7 +243,7 @@ func filterBuiltinToolsByModeAndProvider(ids []string, index map[string]contract
 // should be treated as the current state: the persisted override when present
 // (including an explicit empty array meaning "all enabled"), else the built-in
 // defaults.
-func effectiveDisabledBuiltinToolSet(ctx context.Context, prefs uipreference.Store, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor) (map[string]struct{}, error) {
+func effectiveDisabledBuiltinToolSet(ctx context.Context, prefs contract.UIPreferenceStore, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor) (map[string]struct{}, error) {
 	stored, present, err := loadStoredDisabledBuiltinToolSet(ctx, prefs, cwd, index)
 	if err != nil {
 		return nil, err
@@ -279,7 +278,7 @@ func defaultDisabledBuiltinToolSet(registry []contract.NativeToolDescriptor) map
 // from "no override stored yet" so callers can decide whether to apply the
 // registry defaults.
 // loadStoredDisabledBuiltinToolSet 加载storeddisabledbuiltin工具set。
-func loadStoredDisabledBuiltinToolSet(ctx context.Context, prefs uipreference.Store, cwd string, index map[string]contract.NativeToolDescriptor) (map[string]struct{}, bool, error) {
+func loadStoredDisabledBuiltinToolSet(ctx context.Context, prefs contract.UIPreferenceStore, cwd string, index map[string]contract.NativeToolDescriptor) (map[string]struct{}, bool, error) {
 	if prefs == nil {
 		return nil, false, nil
 	}
@@ -311,7 +310,7 @@ func loadStoredDisabledBuiltinToolSet(ctx context.Context, prefs uipreference.St
 	return out, true, nil
 }
 
-func storeDisabledBuiltinToolSet(ctx context.Context, prefs uipreference.Store, cwd string, set map[string]struct{}) error {
+func storeDisabledBuiltinToolSet(ctx context.Context, prefs contract.UIPreferenceStore, cwd string, set map[string]struct{}) error {
 	ids := make([]string, 0, len(set))
 	for id := range set {
 		ids = append(ids, id)
@@ -321,7 +320,7 @@ func storeDisabledBuiltinToolSet(ctx context.Context, prefs uipreference.Store, 
 }
 
 // loadStoredBuiltinToolKnownSet 加载storedbuiltin工具knownset。
-func loadStoredBuiltinToolKnownSet(ctx context.Context, prefs uipreference.Store, cwd string, index map[string]contract.NativeToolDescriptor) (map[string]struct{}, bool, error) {
+func loadStoredBuiltinToolKnownSet(ctx context.Context, prefs contract.UIPreferenceStore, cwd string, index map[string]contract.NativeToolDescriptor) (map[string]struct{}, bool, error) {
 	if prefs == nil {
 		return nil, false, nil
 	}
@@ -373,7 +372,7 @@ func mergeNewDefaultDisabledTools(stored map[string]struct{}, known map[string]s
 	return out
 }
 
-func storeKnownBuiltinToolSet(ctx context.Context, prefs uipreference.Store, cwd string, registry []contract.NativeToolDescriptor) error {
+func storeKnownBuiltinToolSet(ctx context.Context, prefs contract.UIPreferenceStore, cwd string, registry []contract.NativeToolDescriptor) error {
 	ids := make([]string, 0, len(registry))
 	for _, item := range registry {
 		if strings.TrimSpace(item.ID) != "" {

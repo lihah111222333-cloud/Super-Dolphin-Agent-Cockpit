@@ -10,8 +10,8 @@ import (
 
 	shared "github.com/anthropic-ai/super-agent-v3/internal/dto/eventcore"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 	"github.com/kelindar/event"
 )
 
@@ -70,7 +70,7 @@ func (s *service) scheduleSkillsChanged(next uidto.SkillsChanged) {
 
 	// Bounded lifetime: goroutine sleeps for skillsChangedDebounceWindow (100ms)
 	// then performs a non-blocking flush. Total duration ~100ms; no lifecycle ctx needed.
-	safego.Go(context.Background(), pkglogger.Get(), "skill.scheduleSkillsChangedFlush", func(context.Context) {
+	kernel.SafeGoContext(context.Background(), pkglogger.Get(), "skill.scheduleSkillsChangedFlush", func(context.Context) {
 		s.waitSkillsChangedDebounce()
 		s.flushSkillsChanged(seq)
 	})

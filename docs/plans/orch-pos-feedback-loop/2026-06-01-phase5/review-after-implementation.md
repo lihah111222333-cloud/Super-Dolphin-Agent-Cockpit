@@ -15,13 +15,13 @@
 | 编号 | 发现 | 处理 |
 | --- | --- | --- |
 | M5-FIX-001 | 新增测试桩命名与既有 `stubSharedFileStore` 冲突 | 已改名为 `stubSharedFileListStore` |
-| M5-FIX-002 | 首次测试因测试桩冲突构建失败 | 修复后 `go test ./cmd/mcp-orch/tools -count=1` 通过 |
+| M5-FIX-002 | 首次测试因测试桩冲突构建失败 | 修复后 `go test ./internal/sidecar/orch/tools -count=1` 通过 |
 
 ## 验证结果
 
 | 命令 | 结果 |
 | --- | --- |
-| `go test ./cmd/mcp-orch/tools -count=1` | 通过 |
+| `go test ./internal/sidecar/orch/tools -count=1` | 通过 |
 | `go test ./cmd/mcp-orch/... -count=1` | 未全绿，仍失败于既有非 tools 用例 |
 
 全量失败项：

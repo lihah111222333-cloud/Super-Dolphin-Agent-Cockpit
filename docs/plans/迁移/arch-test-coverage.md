@@ -14,7 +14,7 @@
 | 包 | 生产 Go 文件数 | `_test.go` |
 | --- | ---: | --- |
 | `internal/archtest` | 1 | `code_size_guard_test.go`, `dependency_direction_test.go`, `dependency_direction_wave3_test.go`, `fx_graph_test.go`, `mcp_family_isolation_test.go`, `shared_budget_test.go`, `sqlc_boundary_test.go`, `timeout_locality_test.go` |
-| `cmd/mcp-orch/orchestration` | 14 | `execution_test.go`, `submission_test.go`, `turn_lifecycle_test.go` |
+| `internal/sidecar/orch/orchestration` | 14 | `execution_test.go`, `submission_test.go`, `turn_lifecycle_test.go` |
 | `internal/module/skill` | 12 | `exec_test.go`, `skills_fs_test.go`, `skills_match_test.go` |
 | `internal/module/turn` | 11 | `orchestration_starter_test.go`, `service_test.go` |
 | `internal/module/workspace` | 7 | `service_test.go` |
@@ -49,7 +49,7 @@
 ### 1.4 补充观察
 
 - `cmd/*` 入口包全部零测试：`cmd/agent-terminal`, `cmd/mcp-ida`, `cmd/mcp-lsp`, `cmd/mcp-orch`。
-- 当前覆盖较好的核心包主要集中在 `cmd/mcp-orch/orchestration`, `internal/module/skill`, `internal/module/turn`, `internal/platform/bus`, `internal/provider/unified`。
+- 当前覆盖较好的核心包主要集中在 `internal/sidecar/orch/orchestration`, `internal/module/skill`, `internal/module/turn`, `internal/platform/bus`, `internal/provider/unified`。
 
 ## 2. `archtest` 8 个守卫测试
 
@@ -74,7 +74,7 @@
 
 | 模块 | 生产 Go 文件数 | `_test.go` 文件数 | `func Test*` 数量 | 结论 |
 | --- | ---: | ---: | ---: | --- |
-| `cmd/mcp-orch/orchestration` | 14 | 3 | 12 | 覆盖面在模块层里最好，已覆盖队列、事件、提交参数、turn 生命周期。 |
+| `internal/sidecar/orch/orchestration` | 14 | 3 | 12 | 覆盖面在模块层里最好，已覆盖队列、事件、提交参数、turn 生命周期。 |
 | `internal/module/skill` | 12 | 3 | 9 | 已覆盖命令执行、skill FS、匹配预览。 |
 | `internal/module/workspace` | 7 | 1 | 4 | 只覆盖 run key 校验与 merge 状态迁移，仍偏薄。 |
 | `internal/module/turn` | 11 | 2 | 9 | 已覆盖 prepare、starter、interrupt、force-complete 等主路径。 |
@@ -94,7 +94,7 @@
 - V3 最接近“契约测试”的是 `internal/provider/unified/contract_test.go`：共有 10 个 `TestSessionContract_*`，验证的是 `contract.Session` 接口行为契约，不是 schema 契约。
 - V3 当前与 schema 有关的测试只看到两类“字段透传”覆盖：
   - `internal/module/turn/orchestration_starter_test.go` 断言 `OutputSchema` 被带入 turn 启动请求。
-  - `cmd/mcp-orch/orchestration/submission_test.go` 断言 `output_schema` / `outputSchema` JSON 入参能被反序列化进 `submitParams`。
+  - `internal/sidecar/orch/orchestration/submission_test.go` 断言 `output_schema` / `outputSchema` JSON 入参能被反序列化进 `submitParams`。
 - 结论：如果以 V2 的 `schema_contract_test` 为基线，V3 目前没有对应物；现有覆盖只证明接口契约和 schema 字段透传，没有验证 schema 本身的结构约束、兼容性和回归面。
 
 ## 6. 测试缺口清单

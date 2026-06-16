@@ -388,7 +388,7 @@
 
 ### 5.3 `module/orchestration`
 
-现有 `cmd/mcp-orch/orchestration/contract.go:10-17` 仅提供：
+现有 `internal/sidecar/orch/orchestration/contract.go:10-17` 仅提供：
 
 - `LaunchAgent`
 - `StopAgent`

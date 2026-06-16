@@ -12,7 +12,7 @@
 | 拒绝意见 | 当前可复核证据 | 本次处理 |
 |---|---|---|
 | root-cause 已包含非回归约束，findings 不应继续列为缺失项 | root-cause 的“修复方向（未在本次任务中实施）”第 6 条已要求扩展 shell 支持时保留并扩展既有多语言/打包防护 | findings 改为“已在 root-cause 中保留该边界，后续实现时继续扩展”，不再作为未完成建议 |
-| findings 不应用当前 root-cause 行号证明修复前文本 | 当前源码证据可由 `cmd/mcp-lsp/tools/tool_diagnostics.go` 与 `cmd/mcp-lsp/manager/registry.go` 复核；修复前描述只能作为历史状态概述 | 删除“当前文件行号 = 修复前证据”的写法；当前判断改用源码锚点或 root-cause 章节名 |
+| findings 不应用当前 root-cause 行号证明修复前文本 | 当前源码证据可由 `internal/sidecar/lsp/tools/tool_diagnostics.go` 与 `internal/sidecar/lsp/manager/registry.go` 复核；修复前描述只能作为历史状态概述 | 删除“当前文件行号 = 修复前证据”的写法；当前判断改用源码锚点或 root-cause 章节名 |
 | findings 不应保留不可稳定复核的旧过程性结论 | 旧审查过程统计无法由当前源码与当前两个文档复核 | 改为当前修复决策表与 supported findings；如需决策，只记录本次文档修复决策 |
 | 保持范围边界 | root-cause 仍明确“修复方向（未在本次任务中实施）”；本 worktree 未改源码 | 不声称已经实现 shell diagnostics，不新增源码改动，不扩大到实现方案 |
 
@@ -26,12 +26,12 @@
 
 可复核源码锚点：
 
-- `fetchDiagnosticsWithRetry()` 先取 `existingDiagnosticURIs()`，再 `bootstrapDiagnostics()`，再等待稳定，最后 `registry.Diagnostics()`：`cmd/mcp-lsp/tools/tool_diagnostics.go:47-82`
-- `collectDiagnosticURIs()` 负责显式目标到 URI 的收集：`cmd/mcp-lsp/tools/tool_diagnostics.go:194-224`
-- `existingDiagnosticURIs()` 只保留真实存在、普通文件、非 symlink URI：`cmd/mcp-lsp/tools/tool_diagnostics.go:239-251`
-- `reactiveBootstrap()` 对 existing URI 调 `registry.BootstrapDocument(ctx, uri)`：`cmd/mcp-lsp/tools/tool_diagnostics.go:333-352`
-- `BootstrapDocument()` 通过 `DetectLanguageID(path)` 进入 manager resolution：`cmd/mcp-lsp/manager/registry.go:300-306`
-- `resolveManagerForTarget()` 对未注册语言返回 `ErrUnsupportedLanguage`：`cmd/mcp-lsp/manager/registry.go:147-156`
+- `fetchDiagnosticsWithRetry()` 先取 `existingDiagnosticURIs()`，再 `bootstrapDiagnostics()`，再等待稳定，最后 `registry.Diagnostics()`：`internal/sidecar/lsp/tools/tool_diagnostics.go:47-82`
+- `collectDiagnosticURIs()` 负责显式目标到 URI 的收集：`internal/sidecar/lsp/tools/tool_diagnostics.go:194-224`
+- `existingDiagnosticURIs()` 只保留真实存在、普通文件、非 symlink URI：`internal/sidecar/lsp/tools/tool_diagnostics.go:239-251`
+- `reactiveBootstrap()` 对 existing URI 调 `registry.BootstrapDocument(ctx, uri)`：`internal/sidecar/lsp/tools/tool_diagnostics.go:333-352`
+- `BootstrapDocument()` 通过 `DetectLanguageID(path)` 进入 manager resolution：`internal/sidecar/lsp/manager/registry.go:300-306`
+- `resolveManagerForTarget()` 对未注册语言返回 `ErrUnsupportedLanguage`：`internal/sidecar/lsp/manager/registry.go:147-156`
 
 决策：root-cause 与本 findings 均保留这条当前顺序；它是文档准确性修复，不代表 shell diagnostics 已实现。
 
@@ -39,12 +39,12 @@
 
 当前事实：
 
-- 显式传入且真实存在的 `.sh` 会被收集为 URI，并因存在且是普通非 symlink 文件进入 bootstrap：`cmd/mcp-lsp/tools/tool_diagnostics.go:194-224`，`cmd/mcp-lsp/tools/tool_diagnostics.go:239-251`
-- `.sh` 没有扩展映射时 fallback 为 `sh`：`cmd/mcp-lsp/manager/registry.go:250-259`
-- `sh` 未注册 manager 时在 `resolveManagerForTarget()` 返回 unsupported：`cmd/mcp-lsp/manager/registry.go:147-156`
-- `BootstrapDocument()` 发生在读取 diagnostics 之前，因此显式存在的 `.sh` 会先在 bootstrap 的 manager resolution 失败：`cmd/mcp-lsp/manager/registry.go:300-306`，`cmd/mcp-lsp/tools/tool_diagnostics.go:47-82`，`cmd/mcp-lsp/tools/tool_diagnostics.go:333-352`
-- 无显式目标时没有 URI 可 bootstrap；显式目标不存在时不会进入 `existingDiagnosticURIs()` 返回的 bootstrap 列表：`cmd/mcp-lsp/tools/tool_diagnostics.go:194-224`，`cmd/mcp-lsp/tools/tool_diagnostics.go:239-251`
-- 下游 `groupURIsByManager()` 对 unsupported URI 的 skip 不是这个上层失败路径的有效防护，因为显式存在目标已先在 `BootstrapDocument()` 失败：`cmd/mcp-lsp/manager/registry.go:377-391`
+- 显式传入且真实存在的 `.sh` 会被收集为 URI，并因存在且是普通非 symlink 文件进入 bootstrap：`internal/sidecar/lsp/tools/tool_diagnostics.go:194-224`，`internal/sidecar/lsp/tools/tool_diagnostics.go:239-251`
+- `.sh` 没有扩展映射时 fallback 为 `sh`：`internal/sidecar/lsp/manager/registry.go:250-259`
+- `sh` 未注册 manager 时在 `resolveManagerForTarget()` 返回 unsupported：`internal/sidecar/lsp/manager/registry.go:147-156`
+- `BootstrapDocument()` 发生在读取 diagnostics 之前，因此显式存在的 `.sh` 会先在 bootstrap 的 manager resolution 失败：`internal/sidecar/lsp/manager/registry.go:300-306`，`internal/sidecar/lsp/tools/tool_diagnostics.go:47-82`，`internal/sidecar/lsp/tools/tool_diagnostics.go:333-352`
+- 无显式目标时没有 URI 可 bootstrap；显式目标不存在时不会进入 `existingDiagnosticURIs()` 返回的 bootstrap 列表：`internal/sidecar/lsp/tools/tool_diagnostics.go:194-224`，`internal/sidecar/lsp/tools/tool_diagnostics.go:239-251`
+- 下游 `groupURIsByManager()` 对 unsupported URI 的 skip 不是这个上层失败路径的有效防护，因为显式存在目标已先在 `BootstrapDocument()` 失败：`internal/sidecar/lsp/manager/registry.go:377-391`
 
 决策：该边界已在 root-cause 的 diagnostics 调用链、根因细节和可达性段落中保留；findings 不再扩大为“所有 shell 目标都会 bootstrap”或“下游 skip 已防住”。
 

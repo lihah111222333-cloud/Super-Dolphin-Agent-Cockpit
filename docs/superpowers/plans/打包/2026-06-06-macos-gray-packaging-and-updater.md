@@ -134,7 +134,7 @@
 - `frontend-app/src/SettingsPage.test.jsx`
   - 同步更新根级 SettingsPage 测试的 backend API mock，避免全量 `npm test` 因新增 named export 缺失而失败。
 
-- `docs/packaging/macos-gray-release.md`
+- `docs/运维发布/打包发布/macos-gray-release.md`
   - 记录灰度打包、签名、公证、manifest 发布、clean VM 验收步骤。
 
 ---
@@ -144,7 +144,7 @@
 **Files:**
 - Modify: `scripts/package_macos.sh`
 - Modify: `scripts/package_macos_guard_test.go`
-- Create: `docs/packaging/macos-gray-release.md`
+- Create: `docs/运维发布/打包发布/macos-gray-release.md`
 
 - [ ] **Step 1: Write failing guard tests for gray profile**
 
@@ -275,7 +275,7 @@ Expected: PASS.
 
 - [ ] **Step 5: Document gray release variables**
 
-Create `docs/packaging/macos-gray-release.md` with:
+Create `docs/运维发布/打包发布/macos-gray-release.md` with:
 
 ````markdown
 # macOS Gray Release
@@ -326,7 +326,7 @@ Run:
 git status --short
 ```
 
-Expected: shows `docs/packaging/macos-gray-release.md` and the script/test changes only.
+Expected: shows `docs/运维发布/打包发布/macos-gray-release.md` and the script/test changes only.
 
 ---
 
@@ -2461,7 +2461,7 @@ Expected: PASS and `frontend-app/dist/index.html` exists.
 
 **Files:**
 - Modify: `docs/scripts/macos_release_smoke.sh`
-- Modify: `docs/packaging/macos-gray-release.md`
+- Modify: `docs/运维发布/打包发布/macos-gray-release.md`
 
 - [ ] **Step 1: Add smoke usage text**
 

@@ -12,8 +12,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
 const (
@@ -63,8 +61,8 @@ type lspPromptHintResult struct {
 // NewConfigHandlers 创建配置处理器。
 func NewConfigHandlers(
 	cfg *contract.Config,
-	prefs uipreference.Store,
-	sharedFiles sharedfilestore.Reader,
+	prefs contract.UIPreferenceStore,
+	sharedFiles contract.SharedFileReader,
 	threads contract.ThreadConfigReader,
 	skillStore contract.SkillLister,
 	nativeTools []contract.NativeToolDescriptor,
@@ -93,7 +91,7 @@ func NewConfigHandlers(
 func readRuntimeConfig(
 	ctx context.Context,
 	cfg *contract.Config,
-	prefs uipreference.Store,
+	prefs contract.UIPreferenceStore,
 	threads contract.ThreadConfigReader,
 ) runtimeConfigResult {
 	result := defaultRuntimeConfig(cfg)
@@ -179,7 +177,7 @@ func defaultRuntimeConfig(cfg *contract.Config) runtimeConfigResult {
 	}
 }
 
-func readActiveThreadID(ctx context.Context, prefs uipreference.Store, cwd string) string {
+func readActiveThreadID(ctx context.Context, prefs contract.UIPreferenceStore, cwd string) string {
 	if prefs == nil {
 		return ""
 	}
@@ -330,8 +328,8 @@ func isPackagedResourceRoot(root string) bool {
 
 func readLSPPromptHint(
 	ctx context.Context,
-	prefs uipreference.Store,
-	sharedFiles sharedfilestore.Reader,
+	prefs contract.UIPreferenceStore,
+	sharedFiles contract.SharedFileReader,
 	cwd string,
 ) (*lspPromptHintResult, error) {
 	defaultHint, err := readDefaultLSPPromptHint(ctx, sharedFiles)
@@ -347,8 +345,8 @@ func readLSPPromptHint(
 
 func writeLSPPromptHint(
 	ctx context.Context,
-	prefs uipreference.Store,
-	sharedFiles sharedfilestore.Reader,
+	prefs contract.UIPreferenceStore,
+	sharedFiles contract.SharedFileReader,
 	cwd, hint string,
 ) (*lspPromptHintResult, error) {
 	if prefs == nil {
@@ -368,7 +366,7 @@ func writeLSPPromptHint(
 	return buildLSPPromptHintResult(defaultHint, overrideHint), nil
 }
 
-func readDefaultLSPPromptHint(ctx context.Context, sharedFiles sharedfilestore.Reader) (string, error) {
+func readDefaultLSPPromptHint(ctx context.Context, sharedFiles contract.SharedFileReader) (string, error) {
 	if sharedFiles == nil {
 		return "", nil
 	}
@@ -387,7 +385,7 @@ func readDefaultLSPPromptHint(ctx context.Context, sharedFiles sharedfilestore.R
 }
 
 // readLSPPromptOverride 读取LSPpromptoverride。
-func readLSPPromptOverride(ctx context.Context, prefs uipreference.Store, cwd string) (string, error) {
+func readLSPPromptOverride(ctx context.Context, prefs contract.UIPreferenceStore, cwd string) (string, error) {
 	if prefs == nil {
 		return "", nil
 	}

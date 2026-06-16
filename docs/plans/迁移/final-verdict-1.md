@@ -4,8 +4,8 @@
 
 ### B1 submit 执行链：✅修复完成
 
-- `TurnStarter` 窄接口已定义，并被 orchestration service 持有/注入：`cmd/mcp-orch/orchestration/contract.go:36-38`，`cmd/mcp-orch/orchestration/service.go:29-35,80-95`。
-- `SubmitTurn -> claimTurnWork -> runnerActor.processTurnQueues -> startTurnExecution -> turnStarter.StartTurn` 已形成真实执行链：`cmd/mcp-orch/orchestration/service.go:166-186,291-324`，`cmd/mcp-orch/orchestration/runner_actor.go:33-35,62-65`，`cmd/mcp-orch/orchestration/helpers.go:140-150`。
+- `TurnStarter` 窄接口已定义，并被 orchestration service 持有/注入：`internal/sidecar/orch/orchestration/contract.go:36-38`，`internal/sidecar/orch/orchestration/service.go:29-35,80-95`。
+- `SubmitTurn -> claimTurnWork -> runnerActor.processTurnQueues -> startTurnExecution -> turnStarter.StartTurn` 已形成真实执行链：`internal/sidecar/orch/orchestration/service.go:166-186,291-324`，`internal/sidecar/orch/orchestration/runner_actor.go:33-35,62-65`，`internal/sidecar/orch/orchestration/helpers.go:140-150`。
 - `turn` 侧 adapter 已提供并实际调用 `PrepareTurn + StartTurn`：`internal/module/turn/module.go:7-15`，`internal/module/turn/orchestration_starter.go:18-52`。
 - 模块装配链已闭合，`turn.Module` 与 `orchestration.Module` 同时挂入 app：`internal/app/modules.go:23-37`。
 
@@ -35,7 +35,7 @@
 
 - `🔴 仍 Blocker` config 仍只有“环境变量 + 默认值”，没有文件来源层，也没有来源优先级合并。报告：`docs/plans/迁移/review-platform-infra.md:17,393-414`；当前实现：`internal/platform/config/config.go:15-40`。
 - `⏳ 推迟 P7` “听了没人发”的 orphan 事件族仍存在，当前仍只在 `LogSink` 订阅。报告：`docs/plans/迁移/review-platform-infra.md:19,235-251,631-645`；当前订阅点：`internal/platform/bus/sink.go:51-56,68-72,83-86`；仓内对 `TurnStalled`/`TurnResumed`/`TaskDagCreated`/`UIProjectionUpdated` 的命中仍只落在 DTO 定义与 sink：`internal/dto/turn/event.go:24-31,54-55`，`internal/dto/task/event.go:6-13,38`，`internal/dto/ui/event.go:6-13,29`。
-- `⏳ 推迟 P7` “只有日志消费”的弱 orphan 仍存在；高价值事件仍缺真实业务消费者。报告：`docs/plans/迁移/review-platform-infra.md:18,183-203,253-268,652-654`；当前业务级非日志订阅仍集中在 orchestration/rpc push：`cmd/mcp-orch/orchestration/module.go:33-44`，`internal/platform/rpc/push.go:75-92`。
+- `⏳ 推迟 P7` “只有日志消费”的弱 orphan 仍存在；高价值事件仍缺真实业务消费者。报告：`docs/plans/迁移/review-platform-infra.md:18,183-203,253-268,652-654`；当前业务级非日志订阅仍集中在 orchestration/rpc push：`internal/sidecar/orch/orchestration/module.go:33-44`，`internal/platform/rpc/push.go:75-92`。
 - `🔧 当场修复` bus 辅助 API 的“死代码 + 小瑕疵”仍在：`NewRouter` 仍未使用 dispatcher，`Projector.State()` 仍无 nil guard，`BindEventToNotify`/`NewProjector` 仍无运行时调用点。报告：`docs/plans/迁移/review-platform-infra.md:30,116-138,220-226`；当前代码：`internal/platform/bus/router.go:14-22`，`internal/platform/bus/projection.go:16-43`，`internal/platform/rpc/push.go:60-73`。修复方案：为 `State()` 补 nil guard，并清理或接线未使用 helper。
 - `🔴 仍 Blocker` `awaiting_user_input` 状态链路仍未接入运行时。报告：`docs/plans/迁移/review-platform-infra.md:21,338-348,642-646`；当前触发器仍只存在于声明表：`internal/dto/agent/state.go:28-29,96-104`；运行时代码没有 fire 点，approval 侧仅把该状态当字符串默认值：`internal/platform/rpc/approval_support.go:27`。
 - `🔧 当场修复` runner 提前 `nil` 返回导致整组 cancel、但 app 不主动 shutdown 的半死风险仍在。报告：`docs/plans/迁移/review-platform-infra.md:37,383-391`；当前行为：`internal/platform/runner/group.go:22-37,66-74`，`internal/app/runner.go:37-50`。修复方案：把“非 cancel 的首个 actor 返回 nil”视为异常退出并显式 `Shutdown()`。
@@ -77,13 +77,13 @@
 
 ### 对 final-verdict-2 的批判
 
-1. `B5 悬空接口：✅` 的口径过满，而且和同文件后文自相矛盾。`docs/plans/迁移/final-verdict-2.md:21-24` 把“当前相关接口面”概括为只剩 `orchestration.Service / SessionCleaner / TurnStarter` 与 `workspace.Service`，但 `docs/plans/迁移/final-verdict-2.md:41-42` 又承认 `SetReport` 仍是死接口。当前 `SetReport` 仍在接口和实现里，但 LSP `references` 为 0：`cmd/mcp-orch/orchestration/contract.go:19`、`cmd/mcp-orch/orchestration/report.go:39-49`。这说明 B5 至少需要补充“仅指 3 个已知悬空接口名已清理”的边界，否则 `✅` 会误导成“接口面已无悬空项”。
+1. `B5 悬空接口：✅` 的口径过满，而且和同文件后文自相矛盾。`docs/plans/迁移/final-verdict-2.md:21-24` 把“当前相关接口面”概括为只剩 `orchestration.Service / SessionCleaner / TurnStarter` 与 `workspace.Service`，但 `docs/plans/迁移/final-verdict-2.md:41-42` 又承认 `SetReport` 仍是死接口。当前 `SetReport` 仍在接口和实现里，但 LSP `references` 为 0：`internal/sidecar/orch/orchestration/contract.go:19`、`internal/sidecar/orch/orchestration/report.go:39-49`。这说明 B5 至少需要补充“仅指 3 个已知悬空接口名已清理”的边界，否则 `✅` 会误导成“接口面已无悬空项”。
 
 2. `review-module-skill` 的覆盖率项没有做当前轮验证，证据链不满足“每条必须 LSP 验证”。`docs/plans/迁移/final-verdict-2.md:67-68` 明确写的是“没有重新跑覆盖率，因此沿用报告结论”；它引用的仍是旧报告段落 `docs/plans/迁移/review-module-skill.md:263-325`，而不是当前代码证据。这一条最多只能算“未重新核实”，不能直接作为本轮 `⏳ 推迟 P7` 裁定。
 
 3. `review-module-workspace` 漏掉了 `CreateRun` 的一个更实质的残留风险：文件系统副作用仍不在事务回滚面内。原审报告把这点明确写在 `docs/plans/迁移/review-module-workspace.md:66`；当前代码也仍然是先做 `os.MkdirAll` 和 `bootstrapFiles`，后才进入 `persistRun` 的 `WithTx`：`internal/module/workspace/service.go:57-73`、`internal/module/workspace/service_helpers.go:166-179`。但 `docs/plans/迁移/final-verdict-2.md:70-88` 只回收了 `runKey`、merge、bootstrap guard、`ListRuns` 和 dry-run event，没有复核这条，遗漏了原报告里比 `ListRuns` limit 更重的边界问题。
 
-4. `review-module-orch` 少复核了一条结构性负面结论：`runner_actor` 仍不是 execute/interrupt actor。原审把这条单列为结论，见 `docs/plans/迁移/review-module-orch.md:327-342`；当前实现仍只是 `ticker + waiters + processTurnQueues + recoverStalledAgents` 的状态泵：`cmd/mcp-orch/orchestration/runner_actor.go:26-45,48-65`。但 `docs/plans/迁移/final-verdict-2.md:27-52` 只谈 submit 链、wire、report、recover、stop 时序，没有把这一条回收，导致 orchestration 的复审结论偏乐观。
+4. `review-module-orch` 少复核了一条结构性负面结论：`runner_actor` 仍不是 execute/interrupt actor。原审把这条单列为结论，见 `docs/plans/迁移/review-module-orch.md:327-342`；当前实现仍只是 `ticker + waiters + processTurnQueues + recoverStalledAgents` 的状态泵：`internal/sidecar/orch/orchestration/runner_actor.go:26-45,48-65`。但 `docs/plans/迁移/final-verdict-2.md:27-52` 只谈 submit 链、wire、report、recover、stop 时序，没有把这一条回收，导致 orchestration 的复审结论偏乐观。
 
 ### 对 final-verdict-3 的批判
 

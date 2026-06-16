@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
 )
 
 const (
@@ -78,7 +78,7 @@ func normalizePreferenceKey(key string) string {
 }
 
 func buildPreferences(scope string, values map[string]any) Preferences {
-	prefValues := clone.JSONMap(values)
+	prefValues := kernel.CloneJSONMap(values)
 	applyPreferenceDefaults(scope, prefValues)
 	prefs := Preferences{
 		CWD:            scope,
@@ -127,9 +127,9 @@ func preferenceValue(prefs Preferences, key string) any {
 	case preferenceMainAgentID:
 		return emptyStringAsNil(prefs.MainAgentID)
 	case preferenceViewPrefsChat:
-		return clone.JSONMap(prefs.ViewPrefs.Chat)
+		return kernel.CloneJSONMap(prefs.ViewPrefs.Chat)
 	case preferenceViewPrefsCmd:
-		return clone.JSONMap(prefs.ViewPrefs.Cmd)
+		return kernel.CloneJSONMap(prefs.ViewPrefs.Cmd)
 	case preferenceThreadPinsChat:
 		return cloneTimestampMap(prefs.ThreadPins.Chat)
 	case preferenceThreadArchivesChat:
@@ -156,8 +156,8 @@ func applyPreferencesToState(state *UIState, prefs *Preferences) {
 	state.MainAgentID = deriveMainAgentID(state.Agents, prefs.MainAgentID)
 	state.StallThresholdSec = prefs.StallThresholdSec
 	state.ShowInjectedPromptInChat = cloneBoolPtr(prefs.ShowInjectedPromptInChat)
-	state.ViewPrefsChat = clone.JSONMap(prefs.ViewPrefs.Chat)
-	state.ViewPrefsCmd = clone.JSONMap(prefs.ViewPrefs.Cmd)
+	state.ViewPrefsChat = kernel.CloneJSONMap(prefs.ViewPrefs.Chat)
+	state.ViewPrefsCmd = kernel.CloneJSONMap(prefs.ViewPrefs.Cmd)
 	state.ThreadPinsChat = cloneTimestampMap(prefs.ThreadPins.Chat)
 	state.ThreadArchivesChat = projectArchivedThreadStatus(state.Threads, prefs.ThreadArchives.Chat)
 	state.Groups = buildThreadGroups(state.Threads, prefs.ThreadPins.Chat, state.ThreadArchivesChat)
@@ -170,8 +170,8 @@ func applyPreferencesToSidebar(sidebar *Sidebar, prefs *Preferences) {
 	sidebar.ActiveThreadID = activeThreadPreference(sidebar.Threads, prefs.ActiveThreadID)
 	sidebar.ActiveCmdThreadID = activeThreadPreference(sidebar.Threads, prefs.ActiveCmdThreadID)
 	sidebar.MainAgentID = deriveMainAgentID(sidebar.Agents, prefs.MainAgentID)
-	sidebar.ViewPrefsChat = clone.JSONMap(prefs.ViewPrefs.Chat)
-	sidebar.ViewPrefsCmd = clone.JSONMap(prefs.ViewPrefs.Cmd)
+	sidebar.ViewPrefsChat = kernel.CloneJSONMap(prefs.ViewPrefs.Chat)
+	sidebar.ViewPrefsCmd = kernel.CloneJSONMap(prefs.ViewPrefs.Cmd)
 	sidebar.ThreadPinsChat = cloneTimestampMap(prefs.ThreadPins.Chat)
 	sidebar.ThreadArchivesChat = projectArchivedThreadStatus(sidebar.Threads, prefs.ThreadArchives.Chat)
 	sidebar.Groups = buildThreadGroups(sidebar.Threads, prefs.ThreadPins.Chat, sidebar.ThreadArchivesChat)
@@ -326,7 +326,7 @@ func normalizeJSONObject(value any) map[string]any {
 	if !ok {
 		return map[string]any{}
 	}
-	return clone.JSONMap(typed)
+	return kernel.CloneJSONMap(typed)
 }
 
 // normalizeTimestampMap 规范化timestampmap。
@@ -351,7 +351,7 @@ func normalizeTimestampMap(value any) map[string]int64 {
 func cloneJSONValue(value any) any {
 	switch typed := value.(type) {
 	case map[string]any:
-		return clone.JSONMap(typed)
+		return kernel.CloneJSONMap(typed)
 	case []any:
 		out := make([]any, len(typed))
 		for i := range typed {

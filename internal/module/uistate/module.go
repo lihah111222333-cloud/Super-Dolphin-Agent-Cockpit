@@ -5,15 +5,13 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/historyjsonl"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"go.uber.org/fx"
 )
 
+// Service exposes the UI state read/write operations consumed by RPC adapters.
 type Service interface {
 	GetState(ctx context.Context) (*UIState, error)
 	GetSidebar(ctx context.Context) (*Sidebar, error)
@@ -31,12 +29,13 @@ type serviceParams struct {
 	Logger        *pkglogger.Logger
 	ThreadLister  contract.ThreadLister         `optional:"true"`
 	Agents        contract.OrchestrationService `optional:"true"`
-	Preferences   uipreference.Store
-	Bindings      bindingstore.Store                 `optional:"true"`
+	Preferences   contract.UIPreferenceStore
+	Bindings      contract.BindingStore              `optional:"true"`
 	RuntimeConfig contract.ThreadRuntimeConfigReader `optional:"true"`
 	Trace         *observability.Service             `optional:"true"`
 }
 
+// Module wires UI state services, config RPC handlers, and lifecycle startup.
 var Module = fx.Module("uistate",
 	fx.Provide(func(p serviceParams) (*service, Service, error) {
 		var rcl runtimeConfigLookup
@@ -68,10 +67,10 @@ func registerInitialStateLifecycle(lc fx.Lifecycle, svc *service) {
 
 // bindingAdapter adapts binding.Store to the minimal bindingLookup interface.
 type bindingAdapter struct {
-	store bindingstore.Store
+	store contract.BindingStore
 }
 
-func newBindingAdapter(store bindingstore.Store) bindingLookup {
+func newBindingAdapter(store contract.BindingStore) bindingLookup {
 	if store == nil {
 		return nil
 	}
@@ -252,10 +251,10 @@ func applyBindingToAgent(agent *AgentSummary, idx map[string]bindingEntry) {
 func resolveProviderThreadID(b bindingEntry) string {
 	for _, candidate := range []string{b.ProviderThreadID, b.SessionUUID} {
 		ptid := strings.TrimSpace(candidate)
-		if !identifier.LooksLikeUUID(ptid) {
+		if !kernel.LooksLikeUUID(ptid) {
 			continue
 		}
-		if _, err := historyjsonl.ExistingProviderPath(historyjsonl.ReadRequest{
+		if _, err := kernel.ExistingProviderPath(kernel.ProviderHistoryReadRequest{
 			Provider:         b.Provider,
 			RolloutPath:      b.RolloutPath,
 			ThreadID:         b.CodexThreadID,

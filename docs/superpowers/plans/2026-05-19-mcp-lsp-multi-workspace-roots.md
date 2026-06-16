@@ -42,11 +42,11 @@
 ### Task 3: LSP File, Search, Diagnostics, Edit, and Exec Roots
 
 **Files:**
-- Modify: `cmd/mcp-lsp/search/fileutil.go`
-- Modify: `cmd/mcp-lsp/search/searchutil.go`
-- Modify: `cmd/mcp-lsp/tools/*.go`
+- Modify: `internal/sidecar/lsp/search/fileutil.go`
+- Modify: `internal/sidecar/lsp/search/searchutil.go`
+- Modify: `internal/sidecar/lsp/tools/*.go`
 - Modify: `cmd/mcp-lsp/exec/sandbox.go`
-- Test: `cmd/mcp-lsp/search/fileutil_roots_test.go` and existing tool/edit tests.
+- Test: `internal/sidecar/lsp/search/fileutil_roots_test.go` and existing tool/edit tests.
 
 - [x] Add multi-root path resolution where relative paths stay under primary root and absolute paths select the longest containing trusted root.
 - [x] Pass root sets through file, grep, diagnostics, and edit handlers.
@@ -57,11 +57,11 @@
 ### Task 4: LSP Manager and Cache Root Selection
 
 **Files:**
-- Modify: `cmd/mcp-lsp/manager/scope.go`
-- Modify: `cmd/mcp-lsp/manager/registry.go`
-- Modify: `cmd/mcp-lsp/multilsp/*.go`
-- Test: `cmd/mcp-lsp/manager/registry_scoped_test.go`
-- Test: `cmd/mcp-lsp/multilsp/registry_scope_test.go`
+- Modify: `internal/sidecar/lsp/manager/scope.go`
+- Modify: `internal/sidecar/lsp/manager/registry.go`
+- Modify: `internal/sidecar/lsp/multilsp/*.go`
+- Test: `internal/sidecar/lsp/manager/registry_scoped_test.go`
+- Test: `internal/sidecar/lsp/multilsp/registry_scope_test.go`
 
 - [x] Add `WorkspaceRoots` to manager and multilsp tool scopes.
 - [x] Forward trusted root sets from registry context into the production scoped resolver.

@@ -9,32 +9,37 @@ import (
 	"testing"
 )
 
+// TestGoBoundaryGuardTreatsSidecarSubpackagesAsInternalLibraries runs a archtest operation.
 func TestGoBoundaryGuardTreatsSidecarSubpackagesAsInternalLibraries(t *testing.T) {
 	root := newGuardFixture(t)
 	writeFixtureFile(t, root, "cmd/mcp-lsp/main.go", `package main
 
-import _ "example.com/guardcase/cmd/mcp-lsp/tools"
+import _ "example.com/guardcase/internal/sidecar/lsp/tools"
 
 func main() {}
 `)
-	writeFixtureFile(t, root, "cmd/mcp-lsp/tools/tools.go", `package tools
+	writeFixtureFile(t, root, "internal/sidecar/lsp/tools/tools.go", `package tools
 
-import _ "example.com/guardcase/cmd/mcp-lsp/manager"
+import _ "example.com/guardcase/internal/sidecar/lsp/manager"
 
+// Ready is part of the archtest package API.
 var Ready = true
 `)
-	writeFixtureFile(t, root, "cmd/mcp-lsp/manager/manager.go", `package manager
+	writeFixtureFile(t, root, "internal/sidecar/lsp/manager/manager.go", `package manager
 
+// Ready is part of the archtest package API.
 var Ready = true
 `)
-	writeFixtureFile(t, root, "cmd/mcp-orch/orchestration/service.go", `package orchestration
+	writeFixtureFile(t, root, "internal/sidecar/orch/orchestration/service.go", `package orchestration
 
 import _ "example.com/guardcase/internal/platform/config"
 
+// Ready is part of the archtest package API.
 var Ready = true
 `)
 	writeFixtureFile(t, root, "internal/platform/config/config.go", `package config
 
+// Ready is part of the archtest package API.
 var Ready = true
 `)
 
@@ -44,12 +49,36 @@ var Ready = true
 	}
 }
 
+// TestGoBoundaryGuardRejectsLegacySidecarCommandSubpackages runs a archtest operation.
+func TestGoBoundaryGuardRejectsLegacySidecarCommandSubpackages(t *testing.T) {
+	root := newGuardFixture(t)
+	writeFixtureFile(t, root, "cmd/mcp-lsp/main.go", `package main
+
+func main() {}
+`)
+	writeFixtureFile(t, root, "cmd/mcp-lsp/tools/tools.go", `package tools
+
+// Ready is part of the archtest package API.
+var Ready = true
+`)
+
+	out, err := runGuardScriptWithEnvErr(t, root, ".agents/skills/guarding-go-projects/scripts/check_go_boundaries.py", nil)
+	if err == nil {
+		t.Fatalf("boundary guard allowed legacy sidecar command subpackage:\n%s", out)
+	}
+	if !strings.Contains(out, "cmd/mcp-lsp/tools") || !strings.Contains(out, "internal/sidecar/lsp") {
+		t.Fatalf("boundary guard failed for the wrong reason:\n%s", out)
+	}
+}
+
+// TestGoASTGuardAllowsLoggingImplementationAndCommandTools runs a archtest operation.
 func TestGoASTGuardAllowsLoggingImplementationAndCommandTools(t *testing.T) {
 	root := newGuardFixture(t)
 	writeFixtureFile(t, root, "pkg/logger/logger.go", `package logger
 
 import "log/slog"
 
+// Default is part of the archtest package API.
 var Default = slog.Default()
 `)
 	writeFixtureFile(t, root, "scripts/dev_tool.go", `//go:build ignore
@@ -85,6 +114,7 @@ func main() {
 	}
 }
 
+// TestGoSizeGuardBaselineSuppressesKnownDebtOnly runs a archtest operation.
 func TestGoSizeGuardBaselineSuppressesKnownDebtOnly(t *testing.T) {
 	root := newGuardFixture(t)
 	writeFixtureFile(t, root, "internal/large/large.go", strings.Join([]string{

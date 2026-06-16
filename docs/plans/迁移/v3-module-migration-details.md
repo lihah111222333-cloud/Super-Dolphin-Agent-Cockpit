@@ -260,14 +260,14 @@
 - `go-agent-v2/internal/apiserver/tool_provider_adapters.go`
 
 #### V3 目标文件结构
-- `cmd/mcp-orch/orchestration/module.go`
-- `cmd/mcp-orch/orchestration/contract.go`
-- `cmd/mcp-orch/orchestration/service.go`
-- `cmd/mcp-orch/orchestration/phase1_watcher.go`
-- `cmd/mcp-orch/orchestration/runner_actor.go`
-- `cmd/mcp-orch/orchestration/recover.go`
-- `cmd/mcp-orch/orchestration/events.go`
-- `cmd/mcp-orch/orchestration/patterns.go`
+- `internal/sidecar/orch/orchestration/module.go`
+- `internal/sidecar/orch/orchestration/contract.go`
+- `internal/sidecar/orch/orchestration/service.go`
+- `internal/sidecar/orch/orchestration/phase1_watcher.go`
+- `internal/sidecar/orch/orchestration/runner_actor.go`
+- `internal/sidecar/orch/orchestration/recover.go`
+- `internal/sidecar/orch/orchestration/events.go`
+- `internal/sidecar/orch/orchestration/patterns.go`
 
 #### 6 框架使用方式
 - fx：`orchestration.Module` 提供 DAG service、phase1 watcher、recovery service、tool-facing facade、`Runner` 适配输出。
@@ -1610,7 +1610,7 @@
 - `cmd/mcp-lsp/runtime.go`
 - `cmd/mcp-lsp/http_runner.go`
 - `cmd/mcp-lsp/schema.go`
-- `cmd/mcp-lsp/tools.go`
+- `internal/sidecar/lsp/tools.go`
 - `internal/mcpserver/orch/module.go`
 - `internal/mcpserver/orch/tools.go`
 - `internal/mcpserver/ida/module.go`

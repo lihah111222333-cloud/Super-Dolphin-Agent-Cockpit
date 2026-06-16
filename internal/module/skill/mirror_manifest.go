@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/internal/platform/logging"
 )
 
 const skillMirrorManifestFile = ".super-dolphin-skill-mirror.json"

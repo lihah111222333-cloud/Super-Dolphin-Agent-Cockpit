@@ -15,8 +15,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	common "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpwire"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -76,7 +76,7 @@ func newStdioMCPClient(ctx context.Context, binary providerdto.MCPBinary) (*stdi
 	client := &stdioMCPClient{
 		cmd:       cmd,
 		guard:     stdioAttachProcessGuard(cmd),
-		transport: common.NewStdioTransport(stdout, stdin),
+		transport: mcpwire.NewStdioTransport(stdout, stdin),
 		stdin:     stdin,
 		closed:    make(chan struct{}),
 	}
@@ -177,7 +177,7 @@ type stdioReadResult struct {
 
 func (c *stdioMCPClient) readMessage(ctx context.Context) (json.RawMessage, error) {
 	readDone := make(chan stdioReadResult, 1)
-	safego.Go(ctx, pkglogger.Get(), "toolbridge.stdioMCPClient.readMessage", func(context.Context) {
+	kernel.SafeGoContext(ctx, pkglogger.Get(), "toolbridge.stdioMCPClient.readMessage", func(context.Context) {
 		raw, err := c.transport.ReadMessage()
 		readDone <- stdioReadResult{raw: raw, err: err}
 	})
@@ -218,7 +218,7 @@ func (c *stdioMCPClient) close() error {
 		return stdioCleanupProcessTree(c.cmd, c.guard)
 	}
 	done := make(chan error, 1)
-	safego.Go(context.Background(), pkglogger.Get(), "toolbridge.stdioMCPClient.wait", func(context.Context) {
+	kernel.SafeGoContext(context.Background(), pkglogger.Get(), "toolbridge.stdioMCPClient.wait", func(context.Context) {
 		done <- c.cmd.Wait()
 	})
 	select {
