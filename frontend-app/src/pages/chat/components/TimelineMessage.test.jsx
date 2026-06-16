@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { TimelineLoadingPlaceholder, TimelineMessage, UserMessageAttachments } from './TimelineMessage.jsx';
 import { resolveAttachmentImageSrc } from './timelineMessageModel.js';
@@ -8,6 +8,8 @@ const formatTime = () => '16:00';
 
 describe('TimelineMessage', () => {
   it('renders user attachments as image previews and file pills', () => {
+    const onOpenPath = vi.fn();
+
     render(
       <TimelineMessage
         message={{
@@ -20,12 +22,17 @@ describe('TimelineMessage', () => {
             { kind: 'file', path: 'reports/summary.md' },
           ],
         }}
+        actions={{ onOpenPath }}
         formatTime={formatTime}
       />
     );
 
     expect(screen.getByRole('button', { name: '\u653e\u5927\u56fe\u7247 clip.png' })).toBeInTheDocument();
-    expect(screen.getByText('summary.md')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /\u6253\u5f00\u6587\u4ef6 summary\.md/ }));
+    expect(onOpenPath).toHaveBeenCalledWith(expect.objectContaining({
+      path: 'reports/summary.md',
+      raw: 'summary.md',
+    }));
     expect(screen.getByText('with files')).toBeInTheDocument();
   });
 

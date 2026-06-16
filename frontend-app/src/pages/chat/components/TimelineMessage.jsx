@@ -12,7 +12,43 @@ import { resolveAttachmentImageSrc } from './timelineMessageModel.js';
 const IMAGE_ATTACHMENT_LABEL = '\u56fe\u7247\u9644\u4ef6';
 const SYNC_HISTORY_LABEL = '\u6b63\u5728\u540c\u6b65\u4f1a\u8bdd\u5386\u53f2';
 
-function UserMessageAttachments({ attachments }) {
+function attachmentFilePath(att) {
+  return (att?.path || att?.url || att?.previewUrl || '').toString().trim();
+}
+
+function attachmentFileLabel(att) {
+  const path = attachmentFilePath(att);
+  return att?.name || basenameFromPath(path) || path;
+}
+
+function UserAttachmentFilePill({ att, index, actions }) {
+  const path = attachmentFilePath(att);
+  const label = attachmentFileLabel(att);
+  const openFile = actions?.onOpenPath || actions?.onFileRef;
+  const content = (
+    <>
+      <File size={12} />
+      <span>{label}</span>
+    </>
+  );
+  if (!path || !openFile) {
+    return <span key={att?.path || att?.name || index} className="user-attachment-file-pill">{content}</span>;
+  }
+  return (
+    <button
+      key={att?.path || att?.name || index}
+      type="button"
+      className="user-attachment-file-pill"
+      title={path}
+      aria-label={`\u6253\u5f00\u6587\u4ef6 ${label}`}
+      onClick={() => openFile({ path, line: 1, column: 0, raw: label })}
+    >
+      {content}
+    </button>
+  );
+}
+
+function UserMessageAttachments({ attachments, actions }) {
   if (!Array.isArray(attachments) || attachments.length === 0) return null;
   const images = [];
   const files = [];
@@ -42,10 +78,7 @@ function UserMessageAttachments({ attachments }) {
       {files.length > 0 ? (
         <div className="user-attachment-file-list">
           {files.map((att, idx) => (
-            <span key={att.path || att.name || idx} className="user-attachment-file-pill">
-              <File size={12} />
-              <span>{att.name || basenameFromPath(att.path || '') || att.path}</span>
-            </span>
+            <UserAttachmentFilePill key={att.path || att.name || idx} att={att} index={idx} actions={actions} />
           ))}
         </div>
       ) : null}
@@ -86,7 +119,7 @@ const TimelineMessage = memo(function TimelineMessage({
             <time>{formatTime(message.time)}</time>
           </header>
         ) : null}
-        {isUser ? <UserMessageAttachments attachments={message.attachments} /> : null}
+        {isUser ? <UserMessageAttachments attachments={message.attachments} actions={actions} /> : null}
         <MessageContent text={displayText} actions={actions} />
         {!isUser && message.role === 'assistant' ? (
           <div className="assistant-footer">
