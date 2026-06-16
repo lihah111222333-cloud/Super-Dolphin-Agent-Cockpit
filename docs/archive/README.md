@@ -20,5 +20,6 @@ default agent reading path.
 - `reviews/`: historical review reports and review evidence.
 - `lsp-investigations/`: old LSP investigation rounds and reproductions.
 - `generated-analysis/`: generated repository analysis snapshots.
+- `research/`: raw research notes and source-material captures.
 - `evidence/`: raw logs and other evidence that are useful only when tracing
   past verification.
