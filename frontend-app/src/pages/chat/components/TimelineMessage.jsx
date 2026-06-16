@@ -12,6 +12,7 @@ import { resolveAttachmentImageSrc } from './timelineMessageModel.js';
 
 const IMAGE_ATTACHMENT_LABEL = '\u56fe\u7247\u9644\u4ef6';
 const SYNC_HISTORY_LABEL = '\u6b63\u5728\u540c\u6b65\u4f1a\u8bdd\u5386\u53f2';
+const ASSISTANT_THINKING_LABEL = '\u601d\u8003\u4e2d';
 
 function UserMessageAttachments({ attachments }) {
   if (!Array.isArray(attachments) || attachments.length === 0) return null;
@@ -94,6 +95,11 @@ const TimelineMessage = memo(function TimelineMessage({
         ) : null}
         {isUser ? <UserMessageAttachments attachments={message.attachments} /> : null}
         <MessageContent text={displayText} actions={actions} />
+        {streamingAssistant ? (
+          <output className="assistant-thinking-status" aria-live="polite">
+            {ASSISTANT_THINKING_LABEL}
+          </output>
+        ) : null}
         {!isUser && message.role === 'assistant' ? (
           <div className="assistant-footer">
             <time>{formatTime(message.time)}</time>

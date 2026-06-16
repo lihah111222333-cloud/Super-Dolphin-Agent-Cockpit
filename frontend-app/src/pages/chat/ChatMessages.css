@@ -241,6 +241,29 @@
   color: var(--text-sec);
 }
 
+.assistant-thinking-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.assistant-thinking-status::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent-2);
+  animation: assistant-thinking-pulse 1.25s ease-in-out infinite;
+}
+
 .message-markdown > *:first-child {
   margin-top: 0;
 }
@@ -611,4 +634,24 @@
 
 .mermaid-diagram pre {
   margin: 0;
+}
+
+@keyframes assistant-thinking-pulse {
+  0%,
+  100% {
+    opacity: 0.38;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-thinking-status::before {
+    animation: none;
+    opacity: 0.78;
+    transform: none;
+  }
 }
