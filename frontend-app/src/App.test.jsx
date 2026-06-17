@@ -662,9 +662,15 @@ async function showAllTraceDashboardEvents() {
     expect(shell).toHaveAttribute('data-theme', 'light');
     expect(document.querySelector('.traffic-lights')).not.toBeInTheDocument();
     expect(document.querySelector('.titlebar')).not.toBeInTheDocument();
-    expect(within(sidebar).getByText('Super-Dolphin')).toBeInTheDocument();
+    expect(within(sidebar).getByText('燧元')).toBeInTheDocument();
     expect(within(sidebar).getByRole('button', { name: '新对话' })).toBeInTheDocument();
     expect(within(sidebar).getByRole('button', { name: '设置' })).toBeInTheDocument();
+    fireEvent.click(within(sidebar).getByRole('button', { name: '切换到 English' }));
+    expect(within(sidebar).getByRole('button', { name: 'New chat' })).toBeInTheDocument();
+    expect(screen.getByText('Current page: Chat')).toBeInTheDocument();
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Switch to 中文' }));
+    expect(within(sidebar).getByRole('button', { name: '新对话' })).toBeInTheDocument();
+    expect(screen.getByText('当前页面: 聊天页面')).toBeInTheDocument();
     const sidebarResizer = within(sidebar).getByRole('separator', { name: '调整工作台侧栏宽度' });
     expect(sidebarResizer).toHaveAttribute('aria-valuenow', '340');
 
@@ -739,7 +745,7 @@ async function showAllTraceDashboardEvents() {
     await waitFor(() => expect(backend.setActiveProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/other' }));
     await waitFor(() => expect(within(otherChats).getByTitle('Other project chat')).toBeInTheDocument());
 
-    fireEvent.click(within(otherChats).getByTitle('重命名'));
+    fireEvent.click(within(otherChats).getByTitle('重命名会话'));
     fireEvent.change(within(otherChats).getByLabelText('会话名称'), { target: { value: 'Renamed sidebar chat' } });
     fireEvent.click(within(otherChats).getByLabelText('保存会话名称'));
     await waitFor(() => expect(backend.renameThread).toHaveBeenCalledWith({ threadId: 'thread-other', name: 'Renamed sidebar chat' }));
@@ -802,11 +808,11 @@ async function showAllTraceDashboardEvents() {
     render(<App />);
 
     await waitForBackendThreadHeading();
-    expect(screen.queryByText('我们应该在 Super-Dolphin 中构建什么？')).not.toBeInTheDocument();
+    expect(screen.queryByText('我们应该在 燧元 中构建什么？')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '新对话' }));
 
-    await screen.findByText('我们应该在 Super-Dolphin 中构建什么？');
+    await screen.findByText('我们应该在 燧元 中构建什么？');
     expect(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '添加项目目录' })).toBeVisible();
     expect(screen.getByTestId('composer-input')).toHaveValue('');
   });
@@ -1103,7 +1109,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const workflowButton = await screen.findByRole('button', { name: '自动化' });
     await waitFor(() => expect(workflowButton).toHaveClass('active'));
-    expect(screen.getByText('当前页面：自动化')).toBeInTheDocument();
+    expect(screen.getByText('当前页面: 自动化')).toBeInTheDocument();
     expect(window.location.pathname).toBe('/dags');
   });
 
@@ -1116,7 +1122,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     await waitFor(() => expect(chatButton).toHaveClass('active'));
     expect(screen.queryByRole('button', { name: '任务' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '命令' })).not.toBeInTheDocument();
-    expect(screen.getByText('当前页面：聊天页面')).toBeInTheDocument();
+    expect(screen.getByText('当前页面: 聊天页面')).toBeInTheDocument();
   });
 
   it('lets user navigation override the explicit boot URL after initial route sync', async () => {
@@ -1130,7 +1136,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(screen.getByRole('button', { name: '插件与技能' }));
 
     await waitFor(() => expect(screen.getByRole('button', { name: '插件与技能' })).toHaveClass('active'));
-    expect(screen.getByText('当前页面：插件与技能')).toBeInTheDocument();
+    expect(screen.getByText('当前页面: 插件与技能')).toBeInTheDocument();
     expect(window.location.pathname).toBe('/skills');
   });
 
@@ -1149,7 +1155,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     await waitFor(() => expect(screen.getByRole('button', { name: '插件与技能' })).toHaveClass('active'));
-    expect(screen.getByText('当前页面：插件与技能')).toBeInTheDocument();
+    expect(screen.getByText('当前页面: 插件与技能')).toBeInTheDocument();
   });
 
   it('hides idle status noise while keeping the provider badge in thread cards', async () => {
@@ -2849,7 +2855,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(await waitForBackendThreadHeading()).toBeInTheDocument();
     expect(container.querySelector('.traffic-lights')).toBeNull();
     expect(container.querySelectorAll('.titlebar')).toHaveLength(0);
-    expect(within(screen.getByTestId('app-sidebar')).getByText('Super-Dolphin')).toBeInTheDocument();
+    expect(within(screen.getByTestId('app-sidebar')).getByText('燧元')).toBeInTheDocument();
   });
 
   it('keeps the user message visible and calls thread/start before turn/start for a new chat', async () => {
@@ -2860,7 +2866,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    await screen.findByText('我们应该在 Super-Dolphin 中构建什么？');
+    await screen.findByText('我们应该在 燧元 中构建什么？');
     expect(screen.queryByTestId('composer-project')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('发送权限')).not.toBeInTheDocument();
     fireEvent.change(screen.getByTestId('composer-input'), {
@@ -3026,7 +3032,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const { container } = render(<App />);
 
-    await screen.findByText('我们应该在 Super-Dolphin 中构建什么？');
+    await screen.findByText('我们应该在 燧元 中构建什么？');
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer', 'composer--floating');
     expect(screen.getByTestId('chat-timeline')).toContainElement(screen.getByTestId('composer-dock'));
     expect(container.querySelector('.work-status')).toBeNull();
@@ -3637,7 +3643,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    await screen.findByText('我们应该在 Super-Dolphin 中构建什么？');
+    await screen.findByText('我们应该在 燧元 中构建什么？');
     expect(screen.queryByLabelText('复制当前线程')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('停止')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('线程状态')).not.toBeInTheDocument();
@@ -3645,8 +3651,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByLabelText('选择附件')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('权限')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('请先选择会话')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '自定义配置' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '语音输入' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '自定义配置' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '语音输入' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('添加文件')).toBeInTheDocument();
     expect(screen.queryByLabelText('发送权限')).not.toBeInTheDocument();
     expect(screen.getByLabelText('会话列表')).toBeInTheDocument();
@@ -3664,14 +3670,14 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    await screen.findByText('我们应该在 Super-Dolphin 中构建什么？');
+    await screen.findByText('我们应该在 燧元 中构建什么？');
     expect(screen.queryByLabelText('复制当前线程')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('线程状态')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('停止')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('强制完成')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('请先选择会话')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '自定义配置' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '语音输入' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '自定义配置' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '语音输入' })).not.toBeInTheDocument();
     expect(screen.queryByText('作文Agent-15')).not.toBeInTheDocument();
     expect(backend.getThreadState).not.toHaveBeenCalledWith(expect.objectContaining({ threadId: 'essay_agent_15' }));
   });
@@ -4056,7 +4062,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     backend.getThreadState.mockResolvedValue({ timelinesByThread: {} });
 
     render(<App />);
-    await screen.findByText('我们应该在 Super-Dolphin 中构建什么？');
+    await screen.findByText('我们应该在 燧元 中构建什么？');
 
     const providerToggle = screen.getByLabelText('切换 Claude / Codex provider');
     expect(providerToggle).not.toBeDisabled();

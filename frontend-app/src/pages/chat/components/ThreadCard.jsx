@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import {
   displayThreadName,
   threadCardStatusLabel,
@@ -12,6 +13,7 @@ import { ThreadDisplayCardContent as ThreadDisplayCardContentView } from './Thre
 import { runUIAction } from './chatUiActions.js';
 
 function ThreadCard({
+  copy = APP_COPY.zh.chat,
   thread,
   store,
   active,
@@ -32,15 +34,15 @@ function ThreadCard({
   onCancelDelete,
   onConfirmDelete,
 }) {
-  const archiveLabel = thread.archived ? '恢复会话' : '归档会话';
+  const archiveLabel = thread.archived ? copy.restoreThread : copy.archiveThread;
   const threadLabel = displayThreadName(thread);
   if (deleting) {
     return (
       <div className={`thread-card ${active ? 'active' : ''} thread-card--deleting`}>
-        <div className="thread-delete-confirm-label">确定删除该会话？</div>
+        <div className="thread-delete-confirm-label">{copy.deleteThreadQuestion}</div>
         <div className="thread-delete-confirm-actions">
-          <button type="button" className="thread-delete-confirm-btn confirm" onClick={onConfirmDelete}>确认</button>
-          <button type="button" className="thread-delete-confirm-btn cancel" onClick={onCancelDelete}>取消</button>
+          <button type="button" className="thread-delete-confirm-btn confirm" onClick={onConfirmDelete}>{copy.confirm}</button>
+          <button type="button" className="thread-delete-confirm-btn cancel" onClick={onCancelDelete}>{copy.cancel}</button>
         </div>
       </div>
     );
@@ -49,6 +51,7 @@ function ThreadCard({
     <div className={`thread-card ${active ? 'active' : ''}`}>
       {editing ? (
         <ThreadRenameCardContent
+          copy={copy}
           thread={thread}
           editingName={editingName}
           renaming={renaming}
@@ -63,6 +66,7 @@ function ThreadCard({
       <ThreadCardActions
         thread={thread}
         threadLabel={threadLabel}
+        copy={copy}
         editing={editing}
         archiveLabel={archiveLabel}
         hoveredArchiveThreadId={hoveredArchiveThreadId}
@@ -79,7 +83,7 @@ function ThreadCard({
   );
 }
 
-function ThreadRenameCardContent({ thread, editingName, renaming, onCancelRename, onRenameBlur, onSetEditingName, onSubmitRename }) {
+function ThreadRenameCardContent({ copy = APP_COPY.zh.chat, thread, editingName, renaming, onCancelRename, onRenameBlur, onSetEditingName, onSubmitRename }) {
   const inputRef = useRef(null);
   useEffect(() => {
     const input = inputRef.current;
@@ -93,7 +97,7 @@ function ThreadRenameCardContent({ thread, editingName, renaming, onCancelRename
       <input
         ref={inputRef}
         className="thread-name-input"
-        aria-label="会话别名"
+        aria-label={copy.threadAlias}
         value={editingName}
         maxLength={64}
         disabled={renaming}
@@ -106,13 +110,13 @@ function ThreadRenameCardContent({ thread, editingName, renaming, onCancelRename
       <button
         type="button"
         className="thread-rename-save"
-        aria-label="保存别名"
+        aria-label={copy.saveAlias}
         data-rename-save-button-for={thread.id}
         disabled={renaming}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => runUIAction(() => onSubmitRename(thread))}
       >
-        保存
+        {copy.saveAlias}
       </button>
     </div>
   );

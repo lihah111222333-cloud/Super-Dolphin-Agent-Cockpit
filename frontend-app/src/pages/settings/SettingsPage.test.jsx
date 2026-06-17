@@ -131,16 +131,16 @@ describe('SettingsPage module', () => {
 
     const panel = screen.getByTestId('settings-mobile-account');
     await screen.findByTestId('settings-update-card');
-    expect(panel).toHaveTextContent('Super-Dolphin');
+    expect(panel).toHaveTextContent('燧元');
     expect(panel).toHaveTextContent('app');
     expect(panel).toHaveTextContent('/repo/app');
     expect(panel).toHaveTextContent('Codex');
     expect(panel).toHaveTextContent('待鉴权接入');
     expect(within(panel).getByRole('button', { name: '菜单' })).toBeDisabled();
     expect(within(panel).getByTestId('settings-mobile-logout-button')).toBeDisabled();
-    expect(within(panel).getByRole('button', { name: 'Account' })).toBeDisabled();
-    expect(within(panel).getByRole('button', { name: 'Settings' })).toBeDisabled();
-    const logOutButtons = within(panel).getAllByRole('button', { name: 'Log Out' });
+    expect(within(panel).getByRole('button', { name: '账号' })).toBeDisabled();
+    expect(within(panel).getByRole('button', { name: '设置' })).toBeDisabled();
+    const logOutButtons = within(panel).getAllByRole('button', { name: '退出登录' });
     expect(logOutButtons).toHaveLength(2);
     logOutButtons.forEach((button) => expect(button).toBeDisabled());
   });

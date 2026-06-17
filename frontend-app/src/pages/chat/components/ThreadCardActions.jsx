@@ -1,9 +1,11 @@
 import React from 'react';
 import { Archive, Pencil, Pin, Trash2 } from 'lucide-react';
+import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 
 function ThreadCardActions({
   thread,
   threadLabel,
+  copy = APP_COPY.zh.chat,
   editing,
   archiveLabel,
   hoveredArchiveThreadId,
@@ -17,14 +19,14 @@ function ThreadCardActions({
   onBeginDelete,
 }) {
   return (
-    <div className="thread-card-actions" aria-label={`${threadLabel} 操作`}>
+    <div className="thread-card-actions" aria-label={`${threadLabel} ${copy.threadActionsSuffix}`}>
       {!editing ? (
         <>
           <button
             type="button"
             className="thread-rename-trigger"
-            aria-label="重命名会话"
-            title={`重命名 ${threadLabel}`}
+            aria-label={copy.renameThread}
+            title={`${copy.renameThread} ${threadLabel}`}
             onClick={onBeginRename}
           >
             <Pencil size={13} aria-hidden="true" />
@@ -33,15 +35,16 @@ function ThreadCardActions({
             <button
               type="button"
               className="thread-delete-trigger"
-              aria-label="删除会话"
-              title={`删除 ${threadLabel}`}
+              aria-label={copy.deleteThread}
+              title={`${copy.deleteThread} ${threadLabel}`}
               onClick={onBeginDelete}
             >
               <Trash2 size={13} aria-hidden="true" />
             </button>
           ) : (
-            <ThreadPinButton
-              thread={thread}
+        <ThreadPinButton
+          copy={copy}
+          thread={thread}
               hoveredPinThreadId={hoveredPinThreadId}
               onSetHoveredPinThreadId={onSetHoveredPinThreadId}
               onToggle={onTogglePin}
@@ -85,9 +88,9 @@ function ThreadArchiveButton({ thread, archiveLabel, hoveredArchiveThreadId, loa
   );
 }
 
-function ThreadPinButton({ thread, hoveredPinThreadId, onSetHoveredPinThreadId, onToggle }) {
+function ThreadPinButton({ copy = APP_COPY.zh.chat, thread, hoveredPinThreadId, onSetHoveredPinThreadId, onToggle }) {
   const pinned = thread.pinnedAt > 0 || thread.pinned;
-  const pinLabel = pinned ? '取消置顶对话' : '置顶对话';
+  const pinLabel = pinned ? copy.unpinThread : copy.pinThread;
   const clearHover = () => onSetHoveredPinThreadId((current) => (current === thread.id ? '' : current));
   return (
     <button

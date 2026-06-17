@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, Sparkles, FileText, Table, Play, Palette, Compass, Briefcase, BarChart3, Slack, ChevronRight, SlidersHorizontal, Image, Code2, Folder, Database } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
+import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { applySkillResolution, createSkill, deleteSkill, getDashboardPage, importSkillDirectories, listSkillFiles, listSkillResolutions, previewSkillResolution, readSkill, selectProjectDirs, suggestSkillSummary, writeSkill } from '../../shared/api/backendApi.js';
 import { cleanScalar, dashboardQueryKey, errorMessage, listToText, optionalSettingsCwd, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx';
@@ -1082,7 +1083,7 @@ const DATA_SOURCE_ITEMS = [
   },
 ];
 
-function SkillsPage({ projectPath, refreshKey = 0, resolveLaunchPreferences }) {
+function SkillsPage({ copy = APP_COPY.zh.skills, projectPath, refreshKey = 0, resolveLaunchPreferences }) {
   const [subTab, setSubTab] = useState('plugins');
   const model = useSkillsPageModel({ projectPath, refreshKey, resolveLaunchPreferences });
   return (
@@ -1093,40 +1094,40 @@ function SkillsPage({ projectPath, refreshKey = 0, resolveLaunchPreferences }) {
           className={subTab === 'plugins' ? 'active' : ''}
           onClick={() => setSubTab('plugins')}
         >
-          MCP工具
+          {copy.tabs.plugins}
         </button>
         <button
           type="button"
           className={subTab === 'skills' ? 'active' : ''}
           onClick={() => setSubTab('skills')}
         >
-          Skill工具
+          {copy.tabs.skills}
         </button>
         <button
           type="button"
           className={subTab === 'datasource' ? 'active' : ''}
           onClick={() => setSubTab('datasource')}
         >
-          数据源
+          {copy.tabs.datasource}
         </button>
       </div>
       <div className="skills-tab-content">
         {subTab === 'plugins' ? (
-          <PluginsSquareView />
+          <PluginsSquareView copy={copy} />
         ) : subTab === 'datasource' ? (
-          <DataSourceView />
+          <DataSourceView copy={copy} />
         ) : (
-          <SkillsPageView model={model} />
+          <SkillsPageView copy={copy} model={model} />
         )}
       </div>
     </div>
   );
 }
 
-function DataSourceView() {
+function DataSourceView({ copy }) {
   const [search, setSearch] = useState('');
 
-  const filtered = DATA_SOURCE_ITEMS.filter(s =>
+  const filtered = DATA_SOURCE_ITEMS.map((item) => ({ ...item, ...copy.datasourceItems[item.id] })).filter(s =>
     s.title.toLowerCase().includes(search.toLowerCase()) ||
     s.description.toLowerCase().includes(search.toLowerCase())
   );
@@ -1134,8 +1135,8 @@ function DataSourceView() {
   return (
     <div className="datasource-container">
       <div className="datasource-header">
-        <h1>内部数据源</h1>
-        <p className="datasource-subtitle">为内部数据源</p>
+        <h1>{copy.datasourceTitle}</h1>
+        <p className="datasource-subtitle">{copy.datasourceSubtitle}</p>
       </div>
 
       <div className="plugins-search-bar-wrap">
@@ -1143,10 +1144,10 @@ function DataSourceView() {
           <Search className="search-icon" size={18} />
           <input
             type="text"
-            placeholder="搜索内部数据源"
+            placeholder={copy.datasourceSearch}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            aria-label="搜索内部数据源"
+            aria-label={copy.datasourceSearch}
           />
         </div>
       </div>
@@ -1178,7 +1179,7 @@ function DataSourceView() {
   );
 }
 
-function PluginsSquareView() {
+function PluginsSquareView({ copy }) {
   const [search, setSearch] = useState('');
 
   const filteredRecommended = RECOMMENDED_PLUGINS.filter(p =>
@@ -1189,8 +1190,8 @@ function PluginsSquareView() {
   return (
     <div className="plugins-square-container">
       <div className="plugins-square-header">
-        <h1>插件</h1>
-        <p className="plugins-square-subtitle">在你常用的工具中使用 Super-Dolphin</p>
+        <h1>{copy.pluginsTitle}</h1>
+        <p className="plugins-square-subtitle">{copy.pluginsSubtitle}</p>
       </div>
 
       <div className="plugins-search-bar-wrap">
@@ -1198,12 +1199,12 @@ function PluginsSquareView() {
           <Search className="search-icon" size={18} />
           <input
             type="text"
-            placeholder="搜索插件和技能"
+            placeholder={copy.pluginsSearch}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            aria-label="搜索插件和技能"
+            aria-label={copy.pluginsSearch}
           />
-          <button type="button" className="filter-button" aria-label="筛选">
+          <button type="button" className="filter-button" aria-label={copy.filter}>
             <SlidersHorizontal size={18} />
           </button>
         </div>
@@ -1211,8 +1212,8 @@ function PluginsSquareView() {
 
       <div className="plugins-connected-section">
         <div className="connected-header">
-          <h2>已连接</h2>
-          <button type="button" className="manage-link">管理</button>
+          <h2>{copy.connected}</h2>
+          <button type="button" className="manage-link">{copy.manage}</button>
         </div>
         <div className="connected-apps-list">
           {CONNECTED_PLUGIN_APPS.map((app) => {
@@ -1231,7 +1232,7 @@ function PluginsSquareView() {
       </div>
 
       <div className="plugins-recommended-section">
-        <h2>推荐</h2>
+        <h2>{copy.recommended}</h2>
         <div className="recommended-list">
           {filteredRecommended.map((plugin) => {
             const IconComponent = plugin.icon;
@@ -1247,7 +1248,7 @@ function PluginsSquareView() {
                   <h3>{plugin.title}</h3>
                   <p>{plugin.description}</p>
                 </div>
-                <button type="button" className="add-button">添加</button>
+                <button type="button" className="add-button">{copy.add}</button>
               </div>
             );
           })}
@@ -1255,7 +1256,7 @@ function PluginsSquareView() {
 
         <div className="recommended-footer-link">
           <button type="button" className="footer-link-btn">
-            <span>查看 Notion, Linear 和另外 9 个</span>
+            <span>{copy.viewMore}</span>
             <ChevronRight size={16} />
           </button>
         </div>
@@ -1825,39 +1826,39 @@ async function confirmResolutionPreview(ctx) {
   }
 }
 
-function SkillsPageView({ model }) {
+function SkillsPageView({ copy, model }) {
   return (
     <section className="console-page">
-      <PageHeader icon={Sparkles} title="插件与技能" subtitle="本地运行时" />
-      <SkillsOverview model={model} />
-      <div className="subhead">本地技能库</div>
-      <SkillsToolbar model={model} />
-      <SkillFilter filters={model.filters} scopeFilter={model.scopeFilter} setScopeFilter={model.setScopeFilter} />
-      <SkillsStatus model={model} />
+      <PageHeader icon={Sparkles} title={copy.title} subtitle={copy.subtitle} />
+      <SkillsOverview copy={copy} model={model} />
+      <div className="subhead">{copy.localLibrary}</div>
+      <SkillsToolbar copy={copy} model={model} />
+      <SkillFilter copy={copy} filters={model.filters} scopeFilter={model.scopeFilter} setScopeFilter={model.setScopeFilter} />
+      <SkillsStatus copy={copy} model={model} />
       <SkillImportSummaryPanel editor={model.editor} />
       <SkillResolutionPanel model={model} />
-      <SkillGrid model={model} />
+      <SkillGrid copy={copy} model={model} />
       <SkillModals model={model} />
     </section>
   );
 }
 
-function SkillsOverview({ model }) {
+function SkillsOverview({ copy, model }) {
   const counts = model.filters.counts;
   const conflictValue = model.isProjectPending || model.dashboard.isResolutionPending || model.dashboard.resolutionSyncErrorText
-    ? '待确认'
+    ? copy.pending
     : model.dashboard.resolutionConflicts.length;
   return (
-    <section className="skills-overview" aria-label="插件与技能状态">
+    <section className="skills-overview" aria-label={copy.overviewAria}>
       <div className="skills-overview-copy">
-        <span>当前连接</span>
-        <h2>本地技能、个人技能和运行时冲突处理</h2>
+        <span>{copy.currentConnection}</span>
+        <h2>{copy.overviewTitle}</h2>
       </div>
       <dl>
-        <div><dt>本地技能</dt><dd>{counts.all}</dd></div>
-        <div><dt>项目共享</dt><dd>{counts.project}</dd></div>
-        <div><dt>私人使用</dt><dd>{counts.personal}</dd></div>
-        <div><dt>待处理冲突</dt><dd>{conflictValue}</dd></div>
+        <div><dt>{copy.localSkills}</dt><dd>{counts.all}</dd></div>
+        <div><dt>{copy.projectShared}</dt><dd>{counts.project}</dd></div>
+        <div><dt>{copy.personalUse}</dt><dd>{counts.personal}</dd></div>
+        <div><dt>{copy.pendingConflicts}</dt><dd>{conflictValue}</dd></div>
       </dl>
     </section>
   );
@@ -1892,42 +1893,43 @@ function SkillImportSummaryItem({ draft, editor, index }) {
   );
 }
 
-function SkillsToolbar({ model }) {
+function SkillsToolbar({ copy, model }) {
   return (
     <div className="skills-toolbar">
-      <button type="button" onClick={model.editor.openImportScope} disabled={model.editor.importing}>批量导入技能目录</button>
-      <button type="button" className="ghost" onClick={model.editor.openCreateEditor}>新建技能</button>
-      <label><Search size={18} /><input value={model.query} onChange={(event) => model.setQuery(event.target.value)} placeholder="搜索技能名称、简介、关键词..." aria-label="搜索技能" /></label>
+      <button type="button" onClick={model.editor.openImportScope} disabled={model.editor.importing}>{copy.importDirs}</button>
+      <button type="button" className="ghost" onClick={model.editor.openCreateEditor}>{copy.newSkill}</button>
+      <label><Search size={18} /><input value={model.query} onChange={(event) => model.setQuery(event.target.value)} placeholder={copy.searchSkillsPlaceholder} aria-label={copy.searchSkills} /></label>
     </div>
   );
 }
 
-function SkillFilter({ filters, scopeFilter, setScopeFilter }) {
+function SkillFilter({ copy, filters, scopeFilter, setScopeFilter }) {
+  const labels = { personal: copy.personalUse, project: copy.projectShared, all: copy.scopeAll };
   return (
     <div className="skill-filter">
-      {filters.scopeOptions.map(([value, label]) => <button key={value} type="button" className={scopeFilter === value ? 'active' : ''} onClick={() => setScopeFilter(value)}>{label}</button>)}
+      {filters.scopeOptions.map(([value]) => <button key={value} type="button" className={scopeFilter === value ? 'active' : ''} onClick={() => setScopeFilter(value)}>{labels[value]} {filters.counts[value]}</button>)}
     </div>
   );
 }
 
-function SkillsStatus({ model }) {
+function SkillsStatus({ copy, model }) {
   return (
     <>
-      {model.isProjectPending ? <p className="console-message">正在连接本地项目...</p> : null}
-      {model.dashboard.isInitialLoading ? <p className="console-message">加载技能中...</p> : null}
+      {model.isProjectPending ? <p className="console-message">{copy.connecting}</p> : null}
+      {model.dashboard.isInitialLoading ? <p className="console-message">{copy.loading}</p> : null}
       {model.notice ? <p className="settings-status">{model.notice}</p> : null}
-      {model.dashboard.showCachedSyncError ? <CachedSkillSyncError dashboard={model.dashboard} /> : null}
+      {model.dashboard.showCachedSyncError ? <CachedSkillSyncError copy={copy} dashboard={model.dashboard} /> : null}
       {model.dashboard.showBlockingSyncError ? <RetryableSyncError className="danger-text skills-sync-alert" message={model.dashboard.syncErrorText} onRetry={model.dashboard.retrySkillSurface} /> : null}
       {model.error ? <p className="danger-text" role="alert">{model.error}</p> : null}
     </>
   );
 }
 
-function CachedSkillSyncError({ dashboard }) {
+function CachedSkillSyncError({ copy, dashboard }) {
   return (
     <div className="danger-text skills-sync-alert" role="alert">
       <span>同步失败，显示的是上次成功的数据：{dashboard.syncErrorText}</span>
-      <button type="button" className="ghost" onClick={() => { void dashboard.retrySkillSurface(); }}>重试同步</button>
+      <button type="button" className="ghost" onClick={() => { void dashboard.retrySkillSurface(); }}>{copy.retrySync}</button>
     </div>
   );
 }
@@ -2025,27 +2027,27 @@ function SkillResolutionPreviewItem({ action, item }) {
   );
 }
 
-function SkillGrid({ model }) {
+function SkillGrid({ copy, model }) {
   const showReadyEmpty = !model.isProjectPending && !model.dashboard.isInitialLoading && !model.dashboard.showBlockingSyncError && model.filters.filteredItems.length === 0;
   return (
     <>
-      {showReadyEmpty ? <SkillsEmptyState hasSkills={model.filters.counts.all > 0} /> : null}
-      {model.filters.filteredItems.length > 0 ? <div className="skill-grid">{model.filters.filteredItems.map((skill) => <SkillCard key={skill.id} skill={skill} onEdit={model.editor.openEditSkill} onDelete={model.editor.onDeleteSkill} />)}</div> : null}
+      {showReadyEmpty ? <SkillsEmptyState copy={copy} hasSkills={model.filters.counts.all > 0} /> : null}
+      {model.filters.filteredItems.length > 0 ? <div className="skill-grid">{model.filters.filteredItems.map((skill) => <SkillCard copy={copy} key={skill.id} skill={skill} onEdit={model.editor.openEditSkill} onDelete={model.editor.onDeleteSkill} />)}</div> : null}
       {model.filters.countText ? <p className="skills-inline-tip">{model.filters.countText}</p> : null}
     </>
   );
 }
 
-function SkillsEmptyState({ hasSkills }) {
+function SkillsEmptyState({ copy, hasSkills }) {
   if (hasSkills) {
     return (
       <div className="empty-state">
-        <h3>没有匹配技能</h3>
-        <p>尝试更换关键词或切换使用范围，支持按名称、简介、关键词搜索</p>
+        <h3>{copy.noMatchesTitle}</h3>
+        <p>{copy.noMatchesText}</p>
       </div>
     );
   }
-  return <p className="console-message">暂无技能</p>;
+  return <p className="console-message">{copy.empty}</p>;
 }
 
 function SkillModals({ model }) {
@@ -2080,28 +2082,28 @@ function SkillEditorDialog({ editor }) {
   );
 }
 
-function SkillCard({ skill, onEdit, onDelete }) {
+function SkillCard({ copy, skill, onEdit, onDelete }) {
   const tags = skill.tags.slice(0, 4);
   const extraTagCount = skill.tags.length - tags.length;
   const descriptionText = (skill.description || '').toString().trim();
   const summaryText = (skill.summary || '').toString().trim();
-  const description = descriptionText || summaryText || '暂无描述';
+  const description = descriptionText || summaryText || copy.noDescription;
   const shouldShowSummary = Boolean(summaryText && summaryText !== description);
 
   return (
     <article className="skill-card">
       <header><h3>{skill.title}</h3><span>{scopeLabel(skill.scope)}</span></header>
-      <p className="path">{skill.dir || '未提供路径'}</p>
+      <p className="path">{skill.dir || copy.noPath}</p>
       <p>{description}</p>
       {shouldShowSummary ? <div className="quote">{summaryText}</div> : null}
-      <small>关键词</small>
+      <small>{copy.keywords}</small>
       <div className="tags">
-        {tags.length > 0 ? tags.map((tag) => <span key={tag}>{tag}</span>) : <span>暂无关键词</span>}
+        {tags.length > 0 ? tags.map((tag) => <span key={tag}>{tag}</span>) : <span>{copy.noKeywords}</span>}
         {extraTagCount > 0 ? <span>+{extraTagCount}</span> : null}
       </div>
       <footer>
-        <button type="button" onClick={() => { void onEdit(skill); }} disabled={!skill.dir}>编辑详情</button>
-        <button type="button" className="text-danger" onClick={() => { void onDelete(skill); }} disabled={!skill.name}>删除</button>
+        <button type="button" onClick={() => { void onEdit(skill); }} disabled={!skill.dir}>{copy.editDetails}</button>
+        <button type="button" className="text-danger" onClick={() => { void onDelete(skill); }} disabled={!skill.name}>{copy.delete}</button>
       </footer>
     </article>
   );

@@ -1,7 +1,9 @@
 import React from 'react';
 import { Archive, ArrowLeft, Bot, Pencil, Trash2 } from 'lucide-react';
+import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 
 function ThreadRailTools({
+  copy = APP_COPY.zh.chat,
   count,
   confirmCleanMode,
   showArchivedThreads,
@@ -15,22 +17,22 @@ function ThreadRailTools({
 }) {
   return (
     <div className="thread-tools">
-      <button type="button" className="round thread-new-primary" aria-label="新建对话" title="新对话：发送第一条消息时才会创建会话" onClick={onNewThread}>
+      <button type="button" className="round thread-new-primary" aria-label={copy.newThread} title={copy.newThreadTitle} onClick={onNewThread}>
         <Pencil size={17} />
       </button>
-      <output className="count thread-count" aria-label={`${count} 个 Agent`} title={`${count} 个 Agent`}>
+      <output className="count thread-count" aria-label={`${count} ${copy.agentCountSuffix}`} title={`${count} ${copy.agentCountSuffix}`}>
         <Bot size={14} />
         <strong>{count}</strong>
       </output>
       {showArchivedThreads && staleThreadIds.length > 0 && !confirmCleanMode ? (
-        <button type="button" className="round thread-clean" aria-label="清理无用对话" title="清理无用对话" onClick={onCleanMode}>
+        <button type="button" className="round thread-clean" aria-label={copy.cleanStale} title={copy.cleanStale} onClick={onCleanMode}>
           <Trash2 size={15} />
         </button>
       ) : null}
       {showArchivedThreads && confirmCleanMode ? (
         <>
-          <button type="button" className="thread-clean-confirm" onClick={onCleanConfirm}>确认</button>
-          <button type="button" className="thread-clean-cancel" onClick={onCancelClean}>取消</button>
+          <button type="button" className="thread-clean-confirm" onClick={onCleanConfirm}>{copy.confirm}</button>
+          <button type="button" className="thread-clean-cancel" onClick={onCancelClean}>{copy.cancel}</button>
         </>
       ) : null}
       <button
