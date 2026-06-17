@@ -84,6 +84,7 @@ func provideHostToolRegistry(in hostToolRegistryIn) HostToolRegistry {
 		NewMemoryReadHostToolRegistry(in.Reader, memoryReadHostToolOptions(in.Reader)),
 		NewMemoryWriteHostToolRegistry(in.Writer, memoryWriteHostToolOptions(in.Writer)),
 		NewObservabilityTraceHostToolRegistry(in.Tracer),
+		NewWorkflowTemplateHostToolRegistry(),
 	)
 }
 

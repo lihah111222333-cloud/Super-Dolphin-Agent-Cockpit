@@ -111,6 +111,73 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     expect(typeof stopPlaywrightMCPServer).toBe('function');
   });
 
+  it('wraps workflow template RPC methods with canonical payloads', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    await api.listWorkflowTemplates({
+      category: 'government-enterprise',
+      business_flow: 'meeting-review',
+      output_type: 'docx',
+      supports_schedule: true,
+      locale: 'zh-CN',
+    });
+    await api.getWorkflowTemplate({
+      templateId: 'government-enterprise/meeting-minutes',
+      version: 1,
+    });
+    await api.renderWorkflowTemplateDraft({
+      templateId: 'government-enterprise/meeting-minutes',
+      version: 1,
+      values: { title: 'June meeting' },
+      user_inputs: { reviewer: 'office' },
+      runtime_context: { locale: 'zh-CN' },
+      locale: 'zh-CN',
+    });
+
+    expect(callAPI).toHaveBeenNthCalledWith(1, RPC_METHODS.WORKFLOW_TEMPLATES_LIST, {
+      category: 'government-enterprise',
+      business_flow: 'meeting-review',
+      output_type: 'docx',
+      supports_schedule: true,
+      locale: 'zh-CN',
+    });
+    expect(callAPI).toHaveBeenNthCalledWith(2, RPC_METHODS.WORKFLOW_TEMPLATES_GET, {
+      templateId: 'government-enterprise/meeting-minutes',
+      version: 1,
+    });
+    expect(callAPI).toHaveBeenNthCalledWith(3, RPC_METHODS.WORKFLOW_TEMPLATES_RENDER_DAG, {
+      templateId: 'government-enterprise/meeting-minutes',
+      version: 1,
+      values: { title: 'June meeting' },
+      user_inputs: { reviewer: 'office' },
+      runtime_context: { locale: 'zh-CN' },
+      locale: 'zh-CN',
+    });
+  });
+
+  it('fails fast for invalid workflow template facade inputs', () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    expectInvalidInputDoesNotCall(callAPI, () => api.getWorkflowTemplate({ templateId: '' }), 'templateId is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.renderWorkflowTemplateDraft({
+      templateId: '',
+    }), 'templateId is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.renderWorkflowTemplateDraft({
+      templateId: 'government-enterprise/meeting-minutes',
+      values: [],
+    }), 'values must be an object');
+    expectInvalidInputDoesNotCall(callAPI, () => api.renderWorkflowTemplateDraft({
+      templateId: 'government-enterprise/meeting-minutes',
+      user_inputs: [],
+    }), 'user_inputs must be an object');
+    expectInvalidInputDoesNotCall(callAPI, () => api.renderWorkflowTemplateDraft({
+      templateId: 'government-enterprise/meeting-minutes',
+      runtime_context: [],
+    }), 'runtime_context must be an object');
+  });
+
   it('starts a pending backend thread with the canonical thread/start payload shape', async () => {
     const response = { threadId: 'thread-123', state: 'pending' };
     const callAPI = vi.fn().mockResolvedValue(response);

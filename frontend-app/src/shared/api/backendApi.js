@@ -102,6 +102,10 @@ export const RPC_METHODS = Object.freeze({
   DASHBOARD_DAG_DELETE: 'dashboard/dagDelete',
   DASHBOARD_DAG_APPLY_OPS: 'dashboard/dagApplyOps',
 
+  WORKFLOW_TEMPLATES_LIST: 'workflowTemplates/list',
+  WORKFLOW_TEMPLATES_GET: 'workflowTemplates/get',
+  WORKFLOW_TEMPLATES_RENDER_DAG: 'workflowTemplates/renderDag',
+
   CRONJOB_LIST: 'cronjob/list',
   CRONJOB_GET: 'cronjob/get',
   CRONJOB_CREATE: 'cronjob/create',
@@ -1004,6 +1008,54 @@ function createPromptDagApi(callBackend) {
       requireKey(RPC_METHODS.DASHBOARD_DAG_DELETE, assertPlainObject(RPC_METHODS.DASHBOARD_DAG_DELETE, params), 'dagKey'),
     ),
     applyDagOps: (params) => callBackend(RPC_METHODS.DASHBOARD_DAG_APPLY_OPS, dashboardDagApplyOpsPayload(params)),
+    listWorkflowTemplates: (params = {}) => callBackend(
+      RPC_METHODS.WORKFLOW_TEMPLATES_LIST,
+      workflowTemplateListPayload(params),
+    ),
+    getWorkflowTemplate: (params) => callBackend(
+      RPC_METHODS.WORKFLOW_TEMPLATES_GET,
+      requireKey(RPC_METHODS.WORKFLOW_TEMPLATES_GET, assertPlainObject(RPC_METHODS.WORKFLOW_TEMPLATES_GET, params), 'templateId'),
+    ),
+    renderWorkflowTemplateDraft: (params) => callBackend(
+      RPC_METHODS.WORKFLOW_TEMPLATES_RENDER_DAG,
+      workflowTemplateRenderPayload(params),
+    ),
+  };
+}
+
+function workflowTemplateRenderPayload(params) {
+  const payload = requireKey(
+    RPC_METHODS.WORKFLOW_TEMPLATES_RENDER_DAG,
+    assertPlainObject(RPC_METHODS.WORKFLOW_TEMPLATES_RENDER_DAG, params),
+    'templateId',
+  );
+  if (payload.values != null && (typeof payload.values !== 'object' || Array.isArray(payload.values))) {
+    throw new Error(`${RPC_METHODS.WORKFLOW_TEMPLATES_RENDER_DAG}: values must be an object`);
+  }
+  if (payload.user_inputs != null && (typeof payload.user_inputs !== 'object' || Array.isArray(payload.user_inputs))) {
+    throw new Error(`${RPC_METHODS.WORKFLOW_TEMPLATES_RENDER_DAG}: user_inputs must be an object`);
+  }
+  if (payload.runtime_context != null && (typeof payload.runtime_context !== 'object' || Array.isArray(payload.runtime_context))) {
+    throw new Error(`${RPC_METHODS.WORKFLOW_TEMPLATES_RENDER_DAG}: runtime_context must be an object`);
+  }
+  return {
+    templateId: payload.templateId,
+    version: payload.version,
+    values: payload.values || {},
+    user_inputs: payload.user_inputs,
+    runtime_context: payload.runtime_context,
+    locale: payload.locale,
+  };
+}
+
+function workflowTemplateListPayload(params) {
+  const payload = assertPlainObject(RPC_METHODS.WORKFLOW_TEMPLATES_LIST, params);
+  return {
+    category: payload.category,
+    business_flow: payload.business_flow,
+    output_type: payload.output_type,
+    supports_schedule: payload.supports_schedule,
+    locale: payload.locale,
   };
 }
 
@@ -1378,6 +1430,9 @@ export const terminateDagRun = backendApi.terminateDagRun;
 export const terminateDag = backendApi.terminateDag;
 export const deleteDag = backendApi.deleteDag;
 export const applyDagOps = backendApi.applyDagOps;
+export const listWorkflowTemplates = backendApi.listWorkflowTemplates;
+export const getWorkflowTemplate = backendApi.getWorkflowTemplate;
+export const renderWorkflowTemplateDraft = backendApi.renderWorkflowTemplateDraft;
 export const listCronJobs = backendApi.listCronJobs;
 export const getCronJob = backendApi.getCronJob;
 export const createCronJob = backendApi.createCronJob;

@@ -34,19 +34,39 @@ func TestDAGDesignerPromptContractCoversRuntimeRecoveryAndSchedule(t *testing.T)
 		"CRON_TZ=Asia/Shanghai",
 		"裸 cron 默认 UTC",
 		"runtime append",
-		"政企模板包",
-		"文档审查归档",
-		"数据报告发布",
-		"会议纪要督办",
-		"enterprise-workflows/<template_key>/{{run_id}}/",
+		"政企工作流模板库",
+		"阶段评估",
+		"template_id",
+		"template_version",
+		"ui_schema",
+		"dag_template",
+		"workflow_template_list",
+		"workflow_template_get",
+		"workflow_template_render_dag",
+		"宣传视频",
+		"日报/周报",
+		"项目汇报",
+		"会议纪要",
+		"数据分析简报",
+		"审批材料",
+		"reports/workflows/{{dag_key}}/{{run_id}}/",
+		"dag/{{dag_key}}/{{run_id}}/",
+		"config.ui",
+		"operation_summary",
+		"execution_mode",
+		"expected_outputs",
+		"md、json、pdf、docx、xlsx、pptx、mp4",
 		"command_card",
-		"审批节点只生成审批材料",
+		"复核节点只生成审批/审稿/口径复核材料",
+		"review_node",
 		"final_node_key",
+		"video_with_audio",
+		"outputs.to_artifact",
 	} {
 		require.Contains(t, body, want)
 	}
 
-	require.JSONEq(t, `{"enabled_tools_all":["list_models","prompt_list","command_list","shared_file_list","task_create_dag","task_get_dag","task_get_run","task_list_runs","task_dag_apply_ops","task_dispatch_node","task_start_dag"]}`, string(section.EnableWhen))
+	require.JSONEq(t, `{"enabled_tools_all":["list_models","prompt_list","command_list","shared_file_list","workflow_template_list","workflow_template_get","workflow_template_render_dag","task_create_dag","task_get_dag","task_get_run","task_list_runs","task_dag_apply_ops","task_dispatch_node","task_start_dag"]}`, string(section.EnableWhen))
 	for _, legacy := range []string{`"output_file"`, `"config":{"provider"`, `"config": {"provider"`, "task_update_node"} {
 		if strings.Contains(body, legacy) {
 			t.Fatalf("DAG designer prompt must not teach legacy node config field or unavailable tool %s", legacy)
