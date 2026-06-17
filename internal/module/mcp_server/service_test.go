@@ -433,6 +433,36 @@ func TestMCPServerConfigProviderReadsProjectTableRowsForNestedCWD(t *testing.T) 
 	}
 }
 
+func TestMCPServerConfigProviderSkipsDisabledRows(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
+	project := t.TempDir()
+	nested := filepath.Join(project, "pkg", "api")
+	store.seed(project, "enabled-search", ServerConfig{
+		Transport: "http",
+		URL:       "https://enabled.example/mcp",
+		Enabled:   boolPtr(true),
+	})
+	store.seed(project, "disabled-sqlite", ServerConfig{
+		Transport: "stdio",
+		Command:   "npx",
+		Args:      []string{"-y", "@bytebase/dbhub", "--dsn=sqlite:///" + filepath.ToSlash(filepath.Join(project, "super-dolphin.db"))},
+		Enabled:   boolPtr(false),
+	})
+
+	provider := AsMCPServerConfigProvider(svc)
+	got, err := provider.ListMCPServerConfigs(context.Background(), nested)
+	if err != nil {
+		t.Fatalf("ListMCPServerConfigs() error = %v", err)
+	}
+	if _, ok := got["enabled-search"]; !ok {
+		t.Fatalf("enabled server missing from %#v", got)
+	}
+	if _, ok := got["disabled-sqlite"]; ok {
+		t.Fatalf("disabled server leaked into provider configs: %#v", got)
+	}
+}
+
 func newToolsListHTTPMCPTestServer(t *testing.T, wantAuth string) (*httptest.Server, *[]string) {
 	t.Helper()
 	methods := []string{}
@@ -541,6 +571,19 @@ func (s *memoryMCPServerStore) DeleteServer(_ context.Context, workspaceRoot, na
 		return false, nil
 	}
 	delete(s.servers[workspaceRoot], name)
+	return true, nil
+}
+
+func (s *memoryMCPServerStore) SetServerEnabled(_ context.Context, workspaceRoot, name string, enabled bool) (bool, error) {
+	if s.servers[workspaceRoot] == nil {
+		return false, nil
+	}
+	config, exists := s.servers[workspaceRoot][name]
+	if !exists {
+		return false, nil
+	}
+	config.Enabled = boolPtr(enabled)
+	s.servers[workspaceRoot][name] = config
 	return true, nil
 }
 

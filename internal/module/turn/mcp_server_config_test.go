@@ -49,6 +49,34 @@ func TestPrepareTurnMergesConfiguredMCPServersIntoAssemblyInput(t *testing.T) {
 	requireMCPBinary(t, req.MCP, "my-search")
 }
 
+func TestPrepareTurnSkipsDisabledConfiguredMCPServers(t *testing.T) {
+	t.Parallel()
+
+	assembly := &stubPromptAssemblyService{}
+	svc := NewServiceWithPromptAssembly(silentLogger(), assembly).(*service)
+	svc.mcpServers = staticTurnMCPServerConfigProvider{servers: map[string]contract.MCPServerConfig{
+		"sqlite": {
+			Transport: "stdio",
+			Command:   "npx",
+			Args:      []string{"-y", "@bytebase/dbhub", "--dsn=sqlite:////tmp/super-dolphin.db"},
+			Enabled:   turnBoolPtr(false),
+		},
+	}}
+	session := &stubSession{threadID: "thread-1"}
+
+	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
+		Prompt: "query sqlite",
+		CWD:    "/repo",
+	})
+	require.NoError(t, err)
+
+	require.NotContains(t, assembly.lastTurnInput.MCPSnapshot.Servers, "sqlite")
+	require.NotContains(t, assembly.lastTurnInput.MCPSnapshot.ServerConfigs, "sqlite")
+	for _, binary := range req.MCP.Binaries {
+		require.NotEqual(t, "sqlite", binary.Name)
+	}
+}
+
 func TestMergeTurnConfiguredMCPServersSkipsActiveServerNames(t *testing.T) {
 	t.Parallel()
 
@@ -69,6 +97,25 @@ func TestMergeTurnConfiguredMCPServersSkipsActiveServerNames(t *testing.T) {
 	require.ElementsMatch(t, []string{"deepwiki", "my-search"}, got.Servers)
 	require.NotContains(t, got.ServerConfigs, "deepwiki")
 	require.Equal(t, "https://your-domain.com/mcp", got.ServerConfigs["my-search"].URL)
+}
+
+func TestMergeTurnConfiguredMCPServersKeepsStdioConfigWhenNameAlreadyPresent(t *testing.T) {
+	t.Parallel()
+
+	got, err := mergeTurnConfiguredMCPServers(contract.MCPSnapshot{
+		Servers: []string{"sqlite"},
+	}, map[string]contract.MCPServerConfig{
+		"sqlite": {
+			Transport: "stdio",
+			Command:   "npx",
+			Args:      []string{"-y", "@bytebase/dbhub", "--dsn=sqlite:///tmp/super-dolphin.db"},
+		},
+	})
+	require.NoError(t, err)
+
+	require.Contains(t, got.Servers, "sqlite")
+	require.Equal(t, "npx", got.ServerConfigs["sqlite"].Command)
+	require.Equal(t, []string{"-y", "@bytebase/dbhub", "--dsn=sqlite:///tmp/super-dolphin.db"}, got.ServerConfigs["sqlite"].Args)
 }
 
 type staticTurnMCPServerConfigProvider struct {

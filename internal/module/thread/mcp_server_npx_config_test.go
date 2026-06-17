@@ -29,3 +29,22 @@ func TestRenderMCPServerConfigMapCarriesGlobalPostgresServer(t *testing.T) {
 		t.Fatalf("server args = %#v, want postgres database url", server["args"])
 	}
 }
+
+func TestMergeConfiguredMCPServersSkipsDisabledSQLiteServer(t *testing.T) {
+	disabled := false
+	got, err := mergeConfiguredMCPServers(t.Context(), contract.MCPSnapshot{}, staticMCPServerConfigProvider{
+		servers: map[string]contract.MCPServerConfig{
+			"sqlite": {
+				Transport: "stdio",
+				Command:   "npx",
+				Enabled:   &disabled,
+			},
+		},
+	}, "/repo")
+	if err != nil {
+		t.Fatalf("mergeConfiguredMCPServers() error = %v", err)
+	}
+	if len(got.Servers) != 0 || len(got.ServerConfigs) != 0 {
+		t.Fatalf("mergeConfiguredMCPServers() = %#v, want no disabled sqlite config", got)
+	}
+}

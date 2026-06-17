@@ -567,7 +567,8 @@ func buildStdioServer(bin dto.MCPBinary, cwd string) (map[string]any, bool) {
 }
 
 // allowedStdioMCPCommand 控制 Claude MCP 配置里可被拉起的 stdio 命令范围。
-// managed sidecar 继续按 mcp-* 放行；npx 只允许 postgres MCP 包，避免任意 npm 包被配置启动。
+// managed sidecar 继续按 mcp-* 放行；npx 只允许明确列出的 MCP 包，避免任意 npm 包被配置启动。
+// 当前 npx 只允许显式声明的 MCP 包，避免把任意 npx 命令写入 provider 配置。
 func allowedStdioMCPCommand(command string, args []string) bool {
 	base := strings.ToLower(strings.TrimSpace(filepath.Base(command)))
 	base = strings.TrimSuffix(strings.TrimSuffix(base, ".exe"), ".cmd")
@@ -578,7 +579,8 @@ func allowedStdioMCPCommand(command string, args []string) bool {
 		return false
 	}
 	for _, arg := range args {
-		if strings.TrimSpace(arg) == "@modelcontextprotocol/server-postgres" {
+		switch strings.TrimSpace(arg) {
+		case "@modelcontextprotocol/server-postgres", "@bytebase/dbhub", "@playwright/mcp@latest":
 			return true
 		}
 	}

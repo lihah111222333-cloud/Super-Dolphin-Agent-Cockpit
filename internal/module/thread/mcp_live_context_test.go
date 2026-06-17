@@ -95,6 +95,23 @@ func TestMergeConfiguredMCPServersSkipsActiveServerNames(t *testing.T) {
 	}
 }
 
+func TestMergeConfiguredMCPServersKeepsStdioConfigWhenNameAlreadyPresent(t *testing.T) {
+	t.Parallel()
+
+	got, err := mergeConfiguredMCPServers(context.Background(), contract.MCPSnapshot{Servers: []string{"sqlite"}}, staticMCPServerConfigProvider{servers: map[string]contract.MCPServerConfig{
+		"sqlite": {
+			Transport: "stdio",
+			Command:   "npx",
+		},
+	}}, "/repo")
+	if err != nil {
+		t.Fatalf("mergeConfiguredMCPServers() error = %v", err)
+	}
+	if got.ServerConfigs["sqlite"].Command != "npx" {
+		t.Fatalf("ServerConfigs = %#v, want sqlite stdio config retained", got.ServerConfigs)
+	}
+}
+
 func newMCPPromptGitFixture(t *testing.T) (string, string) {
 	t.Helper()
 	repoRoot := t.TempDir()
