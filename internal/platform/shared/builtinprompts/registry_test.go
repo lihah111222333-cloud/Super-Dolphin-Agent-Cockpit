@@ -229,19 +229,14 @@ func TestRegistryLoadsDAGDesignerPrompts(t *testing.T) {
 	for _, want := range []string{
 		"list_models()",
 		"prompt_list(keyword?)",
-		"command_list(keyword?)",
-		"shared_file_list(prefix?)",
-		"task_create_dag",
-		"task_get_dag",
-		"node.config.exec",
-		"assigned_to",
-		"waiting_for_assignee",
-		"final_output",
+		"command_list(keyword?)", "shared_file_list(prefix?)",
+		"workflow_template_list", "workflow_template_get", "workflow_template_render_dag", "task_create_dag", "task_get_dag",
+		"node.config.exec", "assigned_to", "waiting_for_assignee", "final_output",
 		"provider-native Skill",
 	} {
 		require.Contains(t, body, want)
 	}
-	require.JSONEq(t, `{"enabled_tools_all":["list_models","prompt_list","command_list","shared_file_list","task_create_dag","task_get_dag","task_get_run","task_list_runs","task_dag_apply_ops","task_dispatch_node","task_start_dag"]}`, string(requireSection(t, sections, "dag_designer_runtime_tools").EnableWhen))
+	require.JSONEq(t, `{"enabled_tools_all":["list_models","prompt_list","command_list","shared_file_list","workflow_template_list","workflow_template_get","workflow_template_render_dag","task_create_dag","task_get_dag","task_get_run","task_list_runs","task_dag_apply_ops","task_dispatch_node","task_start_dag"]}`, string(requireSection(t, sections, "dag_designer_runtime_tools").EnableWhen))
 
 	enSections := reg.SectionsByTemplateID(en.ID)
 	enBody := sectionBodyByKey(enSections, "dag_designer_runtime_tools")

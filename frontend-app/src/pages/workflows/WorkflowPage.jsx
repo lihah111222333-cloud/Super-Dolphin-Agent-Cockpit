@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { isCancelledError, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Workflow, Clock, Bell, BookOpen, BarChart3, ChevronDown } from 'lucide-react';
+import { Workflow, Clock, Bell, BookOpen, BarChart3, ChevronDown, ClipboardList, FileText, Presentation, ShieldCheck, Video } from 'lucide-react';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
@@ -8,7 +8,7 @@ import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.
 import { finalOutputPath, workflowOrderedNodes } from './adapters/workflowDisplayAdapter.js';
 import { WorkflowDiagnostics } from './components/WorkflowDiagnostics.jsx';
 import { WorkflowFinalOutputPanel } from './components/WorkflowFinalOutputPanel.jsx';
-import { applyDagOps, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, openSharedFile, readSharedFile, startDag, startThread, startTurn, terminateDagRun } from './services/workflowPageService.js';
+import { applyDagOps, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, getWorkflowTemplate, listWorkflowTemplates, openSharedFile, readSharedFile, startDag, startThread, startTurn, terminateDagRun } from './services/workflowPageService.js';
 import './WorkflowPage.css';
 
 const DAG_RECENT_RUN_LIMIT = 30;
@@ -20,12 +20,23 @@ const IDEMPOTENCY_RANDOM_RADIX = 16;
 const EMPTY_STATE_ICON_SIZE = 34;
 const DAG_SCHEDULE_TIMEZONE = 'Asia/Shanghai';
 const DAG_SCHEDULE_CRON_TZ_PREFIX = `CRON_TZ=${DAG_SCHEDULE_TIMEZONE}`;
+const ENTERPRISE_OUTPUT_FORMATS = Object.freeze(['markdown', 'json', 'pdf', 'docx', 'pptx', 'xlsx', 'video']);
+const ENTERPRISE_DESIGN_PHASES = Object.freeze([
+  '场景理解',
+  '阶段拆分',
+  '资源/skill 发现',
+  'DAG 生成',
+  '等待运行',
+]);
 
 const DAG_DESIGNER_ENABLED_TOOLS = Object.freeze([
   'list_models',
   'prompt_list',
   'command_list',
   'shared_file_list',
+  'workflow_template_list',
+  'workflow_template_get',
+  'workflow_template_render_dag',
   'task_create_dag',
   'task_get_dag',
   'task_get_run',
@@ -35,68 +46,221 @@ const DAG_DESIGNER_ENABLED_TOOLS = Object.freeze([
   'task_start_dag',
 ]);
 
-const ENTERPRISE_WORKFLOW_TEMPLATES = Object.freeze([
-  {
-    key: 'document-review-archive',
-    title: '文档审查归档',
-    summary: '抽取材料要点、识别风险，并生成审批材料和归档清单。',
-    scenario: '政策文件、合同、制度、会议材料或外发材料在归档和发布前的分类、风险识别与复核。',
-    trigger: '默认手动触发',
-    outputPrefix: 'enterprise-workflows/document-review-archive/{{run_id}}/',
-    finalNodeKey: 'approval_pack',
-    icon: BookOpen,
-    nodes: ['接收材料与审查要求', '抽取要点与文档分类', '风险分析', '生成审批材料', '生成归档清单'],
-    approvalPolicy: '审批节点只生成审批材料、复核结论和人工确认项，不代表系统已完成 DAG 级审批。',
-    schedulePreference: '默认手动触发；如用户要求定时审查，必须先确认具体时间。',
-  },
-  {
-    key: 'data-report-release',
-    title: '数据报告发布',
-    summary: '确认数据口径、校验规则，生成报告草稿和发布复核包。',
-    scenario: '周报、月报、经营数据、项目台账、风险台账或政务统计材料的查询、校验、成稿与发布前复核。',
-    trigger: '默认手动触发，可改定时',
-    outputPrefix: 'enterprise-workflows/data-report-release/{{run_id}}/',
-    finalNodeKey: 'release_pack',
-    icon: BarChart3,
-    nodes: ['确认数据口径', '采集或读取数据', '规则校验', '生成报告草稿', '发布复核包'],
-    approvalPolicy: '发布复核只生成清单、风险提示和待确认项，不自动发布外部系统。',
-    schedulePreference: '默认手动触发；如需周期发布，使用 CRON_TZ=Asia/Shanghai，但用户未说明具体时间时必须确认。',
-  },
-  {
-    key: 'meeting-minutes-followup',
-    title: '会议纪要督办',
-    summary: '整理会议输入、拆解责任事项，并生成督办清单和复盘摘要。',
-    scenario: '会议录音转写稿、会议纪要、领导批示或项目例会材料的任务提取、责任拆解、督办清单生成和复盘。',
-    trigger: '默认手动触发，可改工作日定时',
-    outputPrefix: 'enterprise-workflows/meeting-minutes-followup/{{run_id}}/',
-    finalNodeKey: 'followup_list',
-    icon: Bell,
-    nodes: ['整理会议输入', '抽取议题与决议', '拆解责任事项', '生成督办清单', '生成复盘摘要'],
-    approvalPolicy: '督办节点只生成材料；除非发现明确 command_card 且用户确认，不自动发送通知或创建外部工单。',
-    schedulePreference: '默认手动触发；如需工作日催办，使用 CRON_TZ=Asia/Shanghai，但用户未说明具体时间时必须确认。',
-  },
+const ENTERPRISE_TEMPLATE_ICON_BY_ID = Object.freeze({
+  'government-enterprise/promo-video': Video,
+  'government-enterprise/daily-weekly-report': FileText,
+  'government-enterprise/project-briefing': Presentation,
+  'government-enterprise/meeting-minutes': Bell,
+  'government-enterprise/data-analysis-brief': BarChart3,
+  'government-enterprise/approval-material': ShieldCheck,
+});
+
+const ENTERPRISE_TEMPLATE_PRESET_IDS = Object.freeze({
+  dailyBrief: 'government-enterprise/daily-weekly-report',
+  weeklyReview: 'government-enterprise/approval-material',
+  projectMonitor: 'government-enterprise/project-briefing',
+});
+
+const ENTERPRISE_TEMPLATE_DEFAULTS = Object.freeze({
+  timezone: DAG_SCHEDULE_TIMEZONE,
+  output_format: 'markdown',
+});
+
+const ENTERPRISE_REQUIRED_TEMPLATE_FIELDS = Object.freeze([
+  'template_id',
+  'template_version',
+  'ui_schema',
+  'dag_template',
+  'review_node',
+  'final_node_key',
+  'outputs.to_sharedfile',
+  'config.ui',
 ]);
 
-// 生成给 DAG 设计器的首轮模板需求，约束它先发现资源再创建可运行 DAG。
+// 生成给 DAG 设计器的首轮模板需求，约束它按模板库参数先发现资源再创建可运行 DAG。
 function buildEnterpriseWorkflowTemplateBrief(template) {
+  const values = objectValue(template.templateValues);
+  const templateId = enterpriseTemplateId(template);
+  const outputFormat = textValue(values.output_format || template.selectedOutputFormat || firstEnterpriseOutputType(template)) || 'markdown';
+  const outputPath = textValue(values.output_path) || enterpriseTemplateDefaultOutputPath(templateId);
+  const outputTypes = enterpriseOutputTypes(template);
+  const dagTemplate = objectValue(template.dag_template || template.dagTemplate);
+  const nodes = Array.isArray(dagTemplate.nodes) ? dagTemplate.nodes : [];
+  const finalNodeKey = textValue(dagTemplate.final_node_key || dagTemplate.finalNodeKey || template.finalNodeKey);
+  const reviewNode = nodes.find((node) => enterpriseNodeKey(node).includes('review')) || nodes.find((node) => enterpriseNodeTitle(node).includes('复核')) || null;
+  const draftPreview = template.draftPreview || renderEnterpriseTemplatePreview(template, values);
   return [
-    `请基于“${template.title}”政企工作流模板设计一个可运行 DAG。`,
-    `template_key: ${template.key}`,
-    `场景: ${template.scenario}`,
-    `建议节点草图: ${template.nodes.join(' -> ')}`,
-    `审批口径: ${template.approvalPolicy} 需要人工确认时，由用户在聊天或流程页确认后再启动或派发后续节点，不要宣称已有 DAG 级审批阻断。`,
-    `默认输出路径: ${template.outputPrefix}`,
-    `推荐 final_node_key: ${template.finalNodeKey}`,
-    `调度偏好: ${template.schedulePreference}`,
+    `请基于政企工作流模板库中的“${enterpriseTemplateTitle(template)}”创建可运行 DAG。`,
+    `template_id: ${templateId}`,
+    `template_version: ${enterpriseTemplateVersion(template)}`,
+    `business_flow: ${textValue(template.business_flow || template.businessFlow)}`,
+    `场景说明: ${enterpriseTemplateDescription(template)}`,
+    `目标输出格式: ${outputFormat}`,
+    `可选输出格式: ${outputTypes.join(', ')}`,
+    `默认输出路径: ${outputPath}`,
+    `final_node_key: ${finalNodeKey}`,
+    `review_node: ${reviewNode ? enterpriseNodeKey(reviewNode) : '必须从模板节点中识别复核节点'}`,
+    `用户参数: ${JSON.stringify(values, null, 2)}`,
+    `ui_schema: ${JSON.stringify(template.ui_schema || template.uiSchema || [], null, 2)}`,
+    `dag_template: ${JSON.stringify(dagTemplate, null, 2)}`,
+    `dag_preview: ${JSON.stringify(draftPreview, null, 2)}`,
+    'workflow_template tools: first call workflow_template_list/get/render_dag for the same built-in template library; workflow_template_render_dag only renders a DAG draft and must not persist or start a DAG.',
+    `模板必备字段: ${ENTERPRISE_REQUIRED_TEMPLATE_FIELDS.join(', ')}`,
     `DAG 设计器工具白名单: ${DAG_DESIGNER_ENABLED_TOOLS.join(', ')}。`,
+    '创建 DAG 前先说明阶段数、依赖关系、顺序/并行关系、每阶段 skill/prompt/command_card 选择和最终材料路径。',
     '必须先调用 list_models、prompt_list、command_list、shared_file_list 发现当前资源，再通过 task_create_dag 落库。',
     '不得硬编码 provider、model、prompt_key、agent_key、command_ref 或 sharedfile path。',
     '所有可运行节点必须设置顶层 assigned_to，执行配置必须放在 node.config.exec。',
     'automation 只允许使用 command_list 发现到的 command_card；未发现合适 command_card 时，改用 agent 节点说明需要用户提供数据或人工处理。',
-    '大结果必须写 outputs.to_sharedfile，小摘要才写 outputs.to_node_result。',
+    '所有模板必须包含复核节点；最终交付只能来自复核后的唯一 final_node_key，不要宣称已有 DAG 级审批阻断。',
+    '支持定时的模板默认使用 CRON_TZ=Asia/Shanghai；用户未填写具体 cron 或执行时间时必须先确认，不要替用户猜测。',
+    '大结果必须写 outputs.to_sharedfile；视频成片使用 outputs.to_artifact，并保留 video_with_audio 的结构化成功/失败 JSON 契约。',
+    '每个节点必须保留或补全 config.ui：stage_key、stage_title、execution_mode、operation_summary、model_action、skills、input_sources、expected_outputs。',
+    'config.ui.operation_summary 用来给用户悬停节点时展示该节点计划执行的大模型操作；不要输出或要求暴露隐藏思维链。',
+    '如果 pptx、docx、xlsx、pdf、mp4 等目标格式需要的生成工具或 command_card 未发现，必须显式提示能力缺口，不能伪造二进制产物、外部发布动作或静默降级。',
     '最终交付必须使用唯一 final_node_key，并说明该节点如何提升为 run-level final_output。',
-    '如果用户要求现在执行，创建 DAG 后再调用 task_start_dag；否则只创建模板并说明如何启动。',
+    '首版只创建可运行 DAG 草案；外部发布、OA/IM/网盘/审批系统流转和真实人工审批都需要用户确认后另行配置。',
   ].join('\n');
+}
+
+function enterpriseTemplateId(template) {
+  return textValue(template?.id || template?.key || template?.template_id || template?.templateId);
+}
+
+function enterpriseTemplateVersion(template) {
+  if (template?.version == null) return '';
+  return String(template.version).trim();
+}
+
+function enterpriseTemplateOutputSlug(templateId) {
+  return textValue(templateId).replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').toLowerCase();
+}
+
+function enterpriseTemplateDefaultOutputPath(templateId) {
+  const slug = enterpriseTemplateOutputSlug(templateId) || 'government_enterprise_workflow';
+  return `reports/workflows/${slug}/{{run_id}}/`;
+}
+
+function enterpriseTemplateTitle(template) {
+  const title = template?.title;
+  if (typeof title === 'string') return textValue(title);
+  return textValue(title?.zh || title?.en || template?.name || enterpriseTemplateId(template));
+}
+
+function enterpriseTemplateDescription(template) {
+  const description = template?.description;
+  if (typeof description === 'string') return textValue(description);
+  return textValue(description?.zh || description?.en || template?.summary);
+}
+
+function enterpriseOutputTypes(template) {
+  const raw = template?.output_types || template?.outputTypes || template?.outputFormats;
+  if (!Array.isArray(raw) || raw.length === 0) return ENTERPRISE_OUTPUT_FORMATS;
+  const outputTypes = raw.flatMap((item) => {
+    const value = textValue(item);
+    return value ? [value] : [];
+  });
+  return outputTypes.length > 0 ? outputTypes : ENTERPRISE_OUTPUT_FORMATS;
+}
+
+function firstEnterpriseOutputType(template) {
+  return enterpriseOutputTypes(template)[0] || 'markdown';
+}
+
+function enterpriseNodeKey(node) {
+  return textValue(node?.node_key || node?.nodeKey || node?.key);
+}
+
+function enterpriseNodeTitle(node) {
+  return textValue(node?.title || node?.name || enterpriseNodeKey(node));
+}
+
+function enterpriseTemplateIcon(template) {
+  return ENTERPRISE_TEMPLATE_ICON_BY_ID[enterpriseTemplateId(template)] || ClipboardList;
+}
+
+function enterpriseTemplateFields(template) {
+  const fields = template?.ui_schema || template?.uiSchema;
+  return Array.isArray(fields) ? fields : [];
+}
+
+function enterpriseTemplateDefaultValues(template) {
+  const defaults = { ...ENTERPRISE_TEMPLATE_DEFAULTS };
+  for (const field of enterpriseTemplateFields(template)) {
+    if (field.key === 'output_path') {
+      defaults[field.key] = enterpriseTemplateDefaultOutputPath(enterpriseTemplateId(template));
+    } else if (field.key === 'output_format') {
+      defaults[field.key] = firstEnterpriseOutputType(template);
+    } else if (field.key === 'timezone') {
+      defaults[field.key] = DAG_SCHEDULE_TIMEZONE;
+    } else if (field.type === 'boolean') {
+      defaults[field.key] = false;
+    } else {
+      defaults[field.key] = '';
+    }
+  }
+  return defaults;
+}
+
+function enterpriseFieldLabel(field) {
+  if (typeof field?.label === 'string') return textValue(field.label);
+  return textValue(field?.label?.zh || field?.key);
+}
+
+function enterpriseFieldHelp(field) {
+  if (typeof field?.help === 'string') return textValue(field.help);
+  return textValue(field?.help?.zh);
+}
+
+function enterpriseFieldPlaceholder(field) {
+  if (typeof field?.placeholder === 'string') return textValue(field.placeholder);
+  return textValue(field?.placeholder?.zh);
+}
+
+function enterpriseFieldOptions(field) {
+  return Array.isArray(field?.options) ? field.options : [];
+}
+
+function enterpriseOptionLabel(option) {
+  if (typeof option?.label === 'string') return textValue(option.label);
+  return textValue(option?.label?.zh || option?.value);
+}
+
+function renderEnterpriseTemplatePreview(template, values = {}) {
+  const dagTemplate = objectValue(template?.dag_template || template?.dagTemplate);
+  const nodes = Array.isArray(dagTemplate.nodes) ? dagTemplate.nodes : [];
+  return {
+    dag_key: renderEnterprisePlaceholders(dagTemplate.dag_key_template || dagTemplate.dagKeyTemplate || enterpriseTemplateId(template), values),
+    title: renderEnterprisePlaceholders(dagTemplate.title_template || dagTemplate.titleTemplate || enterpriseTemplateTitle(template), values),
+    description: renderEnterprisePlaceholders(dagTemplate.description_template || dagTemplate.descriptionTemplate || enterpriseTemplateDescription(template), values),
+    trigger: textValue(dagTemplate.trigger || 'manual'),
+    final_node_key: textValue(dagTemplate.final_node_key || dagTemplate.finalNodeKey),
+    nodes: nodes.map((node) => ({
+      node_key: enterpriseNodeKey(node),
+      title: renderEnterprisePlaceholders(enterpriseNodeTitle(node), values),
+      node_type: textValue(node.node_type || node.nodeType),
+      assigned_to: textValue(node.assigned_to || node.assignedTo),
+      depends_on: Array.isArray(node.depends_on || node.dependsOn) ? (node.depends_on || node.dependsOn) : [],
+      config: renderEnterpriseValue(node.config || {}, values),
+    })),
+  };
+}
+
+function renderEnterpriseValue(value, values) {
+  if (typeof value === 'string') return renderEnterprisePlaceholders(value, values);
+  if (Array.isArray(value)) return value.map((item) => renderEnterpriseValue(item, values));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, renderEnterpriseValue(item, values)]));
+  }
+  return value;
+}
+
+function renderEnterprisePlaceholders(value, values) {
+  let output = textValue(value);
+  for (const [key, raw] of Object.entries(values || {})) {
+    output = output.replaceAll(`{{${key}}}`, textValue(raw));
+  }
+  return output;
 }
 
 const DAG_CATEGORIES = Object.freeze([
@@ -918,9 +1082,27 @@ function useWorkflowPageController({ projectPath, refreshKey, store }) {
   const notices = useWorkflowNotice(selection.selectedDagKey);
   const refresh = useWorkflowRefresh({ refreshDags, refreshKey, selectedDagKeyRef: selection.selectedDagKeyRef, selectedRunKey: run.selectedRunKey, setSelectedRunKey: run.setSelectedRunKey, workflowCwd });
   const actionState = useWorkflowActionState(detail.activeDetailDag);
+  const [designSession, setDesignSession] = useState(null);
+  const templates = useWorkflowTemplatesQuery();
   const derived = useWorkflowDerivedState({ detail, list, run, selection });
-  const actions = useWorkflowActions({ actionState, derived, detail, list, notices, refresh, run, selection, store, workflowCwd });
-  return { actions, actionState, derived, detail, isProjectPending, list, notices, refresh, run, selection, store, workflowCwd };
+  const actions = useWorkflowActions({ actionState, derived, detail, list, notices, refresh, run, selection, setDesignSession, store, workflowCwd });
+  return { actions, actionState, derived, designSession, detail, isProjectPending, list, notices, refresh, run, selection, store, templates, workflowCwd };
+}
+
+function useWorkflowTemplatesQuery() {
+  const { data, error, isPending } = useQuery({
+    queryKey: ['workflow-templates', 'government-enterprise'],
+    queryFn: () => listWorkflowTemplates({ category: 'government-enterprise' }),
+  });
+  const items = useMemo(() => {
+    const templates = Array.isArray(data?.templates) ? data.templates : [];
+    return templates.filter((item) => enterpriseTemplateId(item));
+  }, [data]);
+  return {
+    items,
+    loading: isPending,
+    error: error ? errorMessage(error) : '',
+  };
 }
 
 function useWorkflowListQuery(workflowCwd) {
@@ -1249,7 +1431,7 @@ function workflowLoadMessages(listErrorState, syncFailure, detailErrorState) {
   };
 }
 
-function useWorkflowActions({ actionState, derived, list, notices, refresh, selection, store, workflowCwd }) {
+function useWorkflowActions({ actionState, derived, list, notices, refresh, selection, setDesignSession, store, workflowCwd }) {
   /*
    * workflow actions 只提交操作并刷新数据。
    * DAG 的真实状态以后端刷新结果为准，本地只放按钮和提示状态。
@@ -1261,7 +1443,7 @@ function useWorkflowActions({ actionState, derived, list, notices, refresh, sele
   const toggleScheduleEnabled = useToggleScheduleAction({ actionState, derived, list, notices, refresh });
   const saveAgentNode = useSaveAgentNodeAction({ actionState, derived, notices, refresh });
   const dispatchNode = useDispatchDagNodeAction({ actionState, derived, list, notices, refresh });
-  const startDesignFlow = useStartDesignFlowAction({ actionState, notices, store, workflowCwd });
+  const startDesignFlow = useStartDesignFlowAction({ actionState, notices, setDesignSession, store, workflowCwd });
   return { confirmDeleteDAG, dispatchNode, runSelectedDag, saveAgentNode, saveSchedule, startDesignFlow, stopSelectedDag, toggleScheduleEnabled };
 }
 
@@ -1439,12 +1621,19 @@ function useDispatchDagNodeAction({ actionState, derived, list, notices, refresh
   }, [actionState, derived, list, notices, refresh]);
 }
 
-function useStartDesignFlowAction({ actionState, notices, store, workflowCwd }) {
+function useStartDesignFlowAction({ actionState, notices, setDesignSession, store, workflowCwd }) {
   return useCallback(async (template = null) => {
     if (!workflowCwd) return;
+    const isEnterpriseTemplate = Boolean(template);
     actionState.setActioning('design');
     actionState.setError('');
     notices.clearNotice();
+    if (isEnterpriseTemplate) {
+      setDesignSession?.(enterpriseDesignSessionSnapshot(template, {
+        phase: 'starting',
+        message: '正在启动 DAG 设计器',
+      }));
+    }
     try {
       if (typeof store?.resolveLaunchPreferences !== 'function') throw new Error('自动化启动配置不可用');
       const launchPreferences = await store.resolveLaunchPreferences(workflowCwd);
@@ -1453,25 +1642,63 @@ function useStartDesignFlowAction({ actionState, notices, store, workflowCwd }) 
       const threadId = threadIdFromStartResponse(response);
       if (template) {
         if (!threadId) throw new Error('thread/start 未返回可用 threadId，无法发送模板需求');
+        setDesignSession?.(enterpriseDesignSessionSnapshot(template, {
+          threadId,
+          phase: 'sending',
+          message: '正在发送阶段拆分需求',
+        }));
         try {
           await withWorkflowActionTimeout(startTurn({
             cwd: workflowCwd,
             threadId,
             input: buildEnterpriseWorkflowTemplateBrief(template),
           }));
+          setDesignSession?.(enterpriseDesignSessionSnapshot(template, {
+            threadId,
+            phase: 'submitted',
+            message: 'DAG 设计器已接收，正在评估阶段拆分和可用资源。',
+          }));
         } catch (err) {
           actionState.setError('发送政企模板需求失败：' + errorMessage(err));
+          setDesignSession?.(enterpriseDesignSessionSnapshot(template, {
+            threadId,
+            phase: 'failed',
+            message: '发送政企模板需求失败：' + errorMessage(err),
+          }));
           return;
         }
       }
+      if (isEnterpriseTemplate) return;
       if (threadId && typeof store?.setActiveThread === 'function') await store.setActiveThread(threadId);
       if (typeof store?.setActivePage === 'function') store.setActivePage('chat');
     } catch (err) {
       actionState.setError((template ? '启动政企模板失败：' : '启动 AI 设计流程失败：') + errorMessage(err));
+      if (isEnterpriseTemplate) {
+        setDesignSession?.(enterpriseDesignSessionSnapshot(template, {
+          phase: 'failed',
+          message: '启动政企模板失败：' + errorMessage(err),
+        }));
+      }
     } finally {
       actionState.setActioning('');
     }
-  }, [actionState, notices, store, workflowCwd]);
+  }, [actionState, notices, setDesignSession, store, workflowCwd]);
+}
+
+function enterpriseDesignSessionSnapshot(template, patch = {}) {
+  const values = objectValue(template?.templateValues);
+  const outputFormat = textValue(values.output_format || template?.selectedOutputFormat || firstEnterpriseOutputType(template)) || 'markdown';
+  return {
+    templateKey: enterpriseTemplateId(template),
+    templateTitle: enterpriseTemplateTitle(template),
+    outputFormat,
+    phases: ENTERPRISE_DESIGN_PHASES,
+    phase: 'starting',
+    threadId: '',
+    message: '',
+    startedAt: Date.now(),
+    ...patch,
+  };
 }
 
 function workflowDesignThreadPayload(cwd, launchConfig, launchPayload) {
@@ -1487,7 +1714,7 @@ function workflowDesignThreadPayload(cwd, launchConfig, launchPayload) {
   };
 }
 
-function AutomationEmptyState({ copy, onStartChat }) {
+function AutomationEmptyState({ copy, onSelectTemplate, onStartChat }) {
   return (
     <div className="automation-empty-state">
       <div className="empty-clock-wrapper">
@@ -1495,24 +1722,43 @@ function AutomationEmptyState({ copy, onStartChat }) {
       </div>
       <h2>{copy.createFirst}</h2>
       <div className="automation-presets-row">
-        <button type="button" className="preset-pill" onClick={onStartChat}>
+        <button type="button" className="preset-pill" onClick={() => onSelectTemplate(ENTERPRISE_TEMPLATE_PRESET_IDS.dailyBrief)}>
           <Bell size={16} className="preset-icon bell" />
           <span>{copy.dailyBrief}</span>
         </button>
-        <button type="button" className="preset-pill" onClick={onStartChat}>
+        <button type="button" className="preset-pill" onClick={() => onSelectTemplate(ENTERPRISE_TEMPLATE_PRESET_IDS.weeklyReview)}>
           <BookOpen size={16} className="preset-icon doc" />
           <span>{copy.weeklyReview}</span>
         </button>
-        <button type="button" className="preset-pill" onClick={onStartChat}>
+        <button type="button" className="preset-pill" onClick={() => onSelectTemplate(ENTERPRISE_TEMPLATE_PRESET_IDS.projectMonitor)}>
           <BarChart3 size={16} className="preset-icon chart" />
           <span>{copy.projectMonitor}</span>
+        </button>
+        <button type="button" className="preset-pill" onClick={onStartChat}>
+          <Workflow size={16} className="preset-icon" />
+          <span>自由设计</span>
         </button>
       </div>
     </div>
   );
 }
 
-function EnterpriseWorkflowTemplates({ onStartTemplate, sectionRef, starting, templates }) {
+function EnterpriseWorkflowTemplates({ onSelectTemplate, sectionRef, selectedTemplateId, templatesState }) {
+  const templates = templatesState.items;
+  const [filters, setFilters] = useState({ businessFlow: '', outputType: '', schedule: '' });
+  const businessFlowOptions = useMemo(() => Array.from(new Set(templates.flatMap((template) => {
+    const businessFlow = textValue(template.business_flow || template.businessFlow);
+    return businessFlow ? [businessFlow] : [];
+  }))), [templates]);
+  const outputTypeOptions = useMemo(() => Array.from(new Set(templates.flatMap((template) => enterpriseOutputTypes(template).filter(Boolean)))), [templates]);
+  const visibleTemplates = useMemo(() => templates.filter((template) => {
+    if (filters.businessFlow && textValue(template.business_flow || template.businessFlow) !== filters.businessFlow) return false;
+    if (filters.outputType && !enterpriseOutputTypes(template).includes(filters.outputType)) return false;
+    if (filters.schedule === 'scheduled' && !(template.supports_schedule || template.supportsSchedule)) return false;
+    if (filters.schedule === 'manual' && (template.supports_schedule || template.supportsSchedule)) return false;
+    return true;
+  }), [filters, templates]);
+  const updateFilter = (key, value) => setFilters((current) => ({ ...current, [key]: value }));
   return (
     <section
       ref={sectionRef}
@@ -1521,46 +1767,86 @@ function EnterpriseWorkflowTemplates({ onStartTemplate, sectionRef, starting, te
       tabIndex={-1}
     >
       <div className="enterprise-template-heading">
-        <h2 id="enterprise-workflow-templates-title">政企工作流模板</h2>
-        <p>围绕审查、发布、督办三类闭环工作，按当前环境资源生成可运行 DAG。</p>
+        <div>
+          <h2 id="enterprise-workflow-templates-title">政企工作流模板库</h2>
+          <p>按业务流程选择模板，先填写关键参数并预览 DAG 草案，再交给 DAG 设计器发现资源和创建工作流。</p>
+        </div>
+        <div className="enterprise-template-capabilities" aria-label="政企自动化能力">
+          <span>复核节点</span>
+          <span>DAG 草案</span>
+          <span>目标输出格式</span>
+        </div>
+      </div>
+      {templatesState.loading ? <p className="enterprise-template-muted">正在加载模板库。</p> : null}
+      {templatesState.error ? <p className="danger-text" role="alert">加载模板库失败：{templatesState.error}</p> : null}
+      <div className="enterprise-template-filters" aria-label="政企模板筛选">
+        <label>
+          <span>业务流</span>
+          <select value={filters.businessFlow} onChange={(event) => updateFilter('businessFlow', event.target.value)}>
+            <option value="">全部</option>
+            {businessFlowOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>输出类型</span>
+          <select value={filters.outputType} onChange={(event) => updateFilter('outputType', event.target.value)}>
+            <option value="">全部</option>
+            {outputTypeOptions.map((item) => <option key={item} value={item}>{item.toUpperCase()}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>定时</span>
+          <select value={filters.schedule} onChange={(event) => updateFilter('schedule', event.target.value)}>
+            <option value="">全部</option>
+            <option value="scheduled">支持定时</option>
+            <option value="manual">手动触发</option>
+          </select>
+        </label>
       </div>
       <div className="enterprise-template-grid">
-        {templates.map((template) => {
-          const TemplateIcon = template.icon;
+        {visibleTemplates.map((template) => {
+          const templateId = enterpriseTemplateId(template);
+          const TemplateIcon = enterpriseTemplateIcon(template);
+          const selected = templateId === selectedTemplateId;
           return (
-            <article key={template.key} className="enterprise-template-card">
+            <article key={templateId} className={'enterprise-template-card' + (selected ? ' selected' : '')}>
               <div className="enterprise-template-card-top">
                 <span className="enterprise-template-icon" aria-hidden="true">
                   <TemplateIcon size={18} />
                 </span>
                 <div>
-                  <h3>{template.title}</h3>
-                  <p>{template.summary}</p>
+                  <h3>{enterpriseTemplateTitle(template)}</h3>
+                  <p>{enterpriseTemplateDescription(template)}</p>
                 </div>
+              </div>
+              <div className="enterprise-template-chip-group" aria-label={`${enterpriseTemplateTitle(template)}输出格式`}>
+                {enterpriseOutputTypes(template).map((item) => <span key={item}>{item.toUpperCase()}</span>)}
               </div>
               <dl className="enterprise-template-meta">
                 <div>
-                  <dt>触发</dt>
-                  <dd>{template.trigger}</dd>
+                  <dt>业务流</dt>
+                  <dd>{textValue(template.business_flow || template.businessFlow)}</dd>
                 </div>
                 <div>
-                  <dt>输出</dt>
-                  <dd>{template.outputPrefix}</dd>
+                  <dt>节点</dt>
+                  <dd>{Number(template.estimated_nodes || template.estimatedNodes || 0) || '-'} 个</dd>
+                </div>
+                <div>
+                  <dt>复核</dt>
+                  <dd>{template.requires_review || template.requiresReview ? '默认包含' : '未配置'}</dd>
+                </div>
+                <div>
+                  <dt>定时</dt>
+                  <dd>{template.supports_schedule || template.supportsSchedule ? '支持' : '手动'}</dd>
                 </div>
               </dl>
-              <ul className="enterprise-template-nodes" aria-label={`${template.title}节点草图`}>
-                {template.nodes.slice(0, 4).map((node) => (
-                  <li key={node}>{node}</li>
-                ))}
-              </ul>
               <button
                 type="button"
-                className="btn-dark enterprise-template-action"
-                onClick={() => { void onStartTemplate(template); }}
-                disabled={starting}
-                aria-label={`用${template.title}模板设计`}
+                className={selected ? 'btn-dark enterprise-template-action' : 'btn-outline enterprise-template-action'}
+                onClick={() => onSelectTemplate(templateId)}
+                aria-label={`选择${enterpriseTemplateTitle(template)}模板`}
               >
-                {starting ? '正在启动' : '用此模板设计'}
+                {selected ? '已选择' : '选择模板'}
               </button>
             </article>
           );
@@ -1570,29 +1856,281 @@ function EnterpriseWorkflowTemplates({ onStartTemplate, sectionRef, starting, te
   );
 }
 
+function EnterpriseTemplateWorkbench({ onStartTemplate, selectedTemplateId, starting }) {
+  const {
+    data,
+    error,
+    isPending,
+  } = useQuery({
+    queryKey: ['workflow-template-detail', selectedTemplateId],
+    queryFn: () => getWorkflowTemplate({ templateId: selectedTemplateId }),
+    enabled: Boolean(selectedTemplateId),
+  });
+  const template = data?.template || null;
+
+  if (!selectedTemplateId) return null;
+  if (isPending) return <section className="enterprise-template-workbench"><p>正在加载模板详情。</p></section>;
+  if (error) return <p className="danger-text" role="alert">加载模板详情失败：{errorMessage(error)}</p>;
+  if (!template) return null;
+
+  return (
+    <EnterpriseTemplateForm
+      key={enterpriseTemplateId(template)}
+      onStartTemplate={onStartTemplate}
+      starting={starting}
+      template={template}
+    />
+  );
+}
+
+function EnterpriseTemplateForm({ onStartTemplate, starting, template }) {
+  const [formValues, setFormValues] = useState(() => enterpriseTemplateDefaultValues(template));
+  const [formError, setFormError] = useState('');
+  const fields = enterpriseTemplateFields(template);
+  const draftPreview = renderEnterpriseTemplatePreview(template, formValues);
+  const startTemplate = () => {
+    const missing = missingEnterpriseRequiredFields(fields, formValues);
+    if (missing.length > 0) {
+      setFormError(`请先填写必填参数：${missing.join('、')}`);
+      return;
+    }
+    setFormError('');
+    void onStartTemplate({
+      ...template,
+      templateValues: formValues,
+      selectedOutputFormat: formValues.output_format,
+      draftPreview,
+    });
+  };
+
+  return (
+    <section className="enterprise-template-workbench" aria-labelledby="enterprise-template-workbench-title">
+      <div className="enterprise-workbench-heading">
+        <div>
+          <h2 id="enterprise-template-workbench-title">{enterpriseTemplateTitle(template)}</h2>
+          <p>{enterpriseTemplateDescription(template)}</p>
+        </div>
+        <div className="enterprise-workbench-badges" aria-label="模板能力">
+          <span>{textValue(template.business_flow || template.businessFlow)}</span>
+          <span>{template.requires_review || template.requiresReview ? '含复核节点' : '无复核节点'}</span>
+          <span>{template.supports_schedule || template.supportsSchedule ? '支持定时' : '手动触发'}</span>
+        </div>
+      </div>
+      {formError ? <p className="danger-text" role="alert">{formError}</p> : null}
+      <div className="enterprise-workbench-layout">
+        <form className="enterprise-template-form" onSubmit={(event) => { event.preventDefault(); startTemplate(); }}>
+          <h3>模板参数</h3>
+          {fields.map((field) => (
+            <EnterpriseTemplateField
+              field={field}
+              key={field.key}
+              onChange={(value) => setFormValues((current) => ({ ...current, [field.key]: value }))}
+              outputTypes={enterpriseOutputTypes(template)}
+              value={formValues[field.key]}
+            />
+          ))}
+          <div className="enterprise-template-form-actions">
+            <button type="submit" className="btn-dark" disabled={starting}>
+              {starting ? '正在创建' : '创建工作流'}
+            </button>
+            <button type="button" className="btn-outline" disabled={starting} onClick={startTemplate}>
+              用聊天调整
+            </button>
+          </div>
+        </form>
+        <EnterpriseTemplatePreview draft={draftPreview} template={template} />
+      </div>
+    </section>
+  );
+}
+
+function EnterpriseTemplateField({ field, onChange, outputTypes, value }) {
+  const label = enterpriseFieldLabel(field);
+  const help = enterpriseFieldHelp(field);
+  const commonProps = {
+    'aria-label': label,
+    id: `enterprise-template-field-${field.key}`,
+    value: value ?? '',
+    onChange: (event) => onChange(event.target.value),
+  };
+  return (
+    <label className="enterprise-template-field" htmlFor={commonProps.id}>
+      <span>{label}{field.required ? <em>必填</em> : null}</span>
+      <EnterpriseTemplateInput
+        commonProps={commonProps}
+        field={field}
+        onChange={onChange}
+        outputTypes={outputTypes}
+        value={value}
+      />
+      {help ? <small>{help}</small> : null}
+    </label>
+  );
+}
+
+function EnterpriseTemplateInput({ commonProps, field, onChange, outputTypes, value }) {
+  if (field.type === 'textarea') {
+    return <textarea {...commonProps} placeholder={enterpriseFieldPlaceholder(field)} rows={4} />;
+  }
+  if (field.type === 'select' || field.type === 'multi_select') {
+    const options = enterpriseFieldOptions(field);
+    const selectOptions = options.length > 0 ? options : outputTypes.map((format) => ({ value: format, label: { zh: format.toUpperCase() } }));
+    return (
+      <select {...commonProps}>
+        {selectOptions.map((option) => (
+          <option key={option.value} value={option.value}>{enterpriseOptionLabel(option)}</option>
+        ))}
+      </select>
+    );
+  }
+  if (field.type === 'boolean') {
+    return (
+      <input
+        aria-label={commonProps['aria-label']}
+        checked={Boolean(value)}
+        id={commonProps.id}
+        onChange={(event) => onChange(event.target.checked)}
+        type="checkbox"
+      />
+    );
+  }
+  if (field.type === 'number') {
+    return <input {...commonProps} placeholder={enterpriseFieldPlaceholder(field)} type="number" />;
+  }
+  return <input {...commonProps} placeholder={enterpriseFieldPlaceholder(field)} type="text" />;
+}
+
+function EnterpriseTemplatePreview({ draft, template }) {
+  const nodes = Array.isArray(draft.nodes) ? draft.nodes : [];
+  return (
+    <div className="enterprise-template-preview">
+      <div className="enterprise-template-preview-head">
+        <div>
+          <h3>DAG 草案预览</h3>
+          <p>{draft.title || enterpriseTemplateTitle(template)}</p>
+        </div>
+        <span>{draft.final_node_key || 'final_node_key'}</span>
+      </div>
+      <dl className="enterprise-template-preview-meta">
+        <div>
+          <dt>触发</dt>
+          <dd>{draft.trigger || 'manual'}</dd>
+        </div>
+        <div>
+          <dt>最终输出</dt>
+          <dd>{textValue(template?.final_output?.path_template || template?.finalOutput?.pathTemplate)}</dd>
+        </div>
+      </dl>
+      <ol className="enterprise-template-preview-nodes">
+        {nodes.map((node) => {
+          const key = enterpriseNodeKey(node);
+          const isFinal = key === draft.final_node_key;
+          const isReview = key.includes('review') || enterpriseNodeTitle(node).includes('复核');
+          return (
+            <li key={key}>
+              <div>
+                <strong>{enterpriseNodeTitle(node)}</strong>
+                <span>{textValue(node.node_type || node.nodeType)} · {textValue(node.assigned_to || node.assignedTo)}</span>
+              </div>
+              <em>{(node.depends_on || node.dependsOn || []).length ? `依赖 ${(node.depends_on || node.dependsOn).join('、')}` : '起始节点'}</em>
+              {isReview ? <b>复核</b> : null}
+              {isFinal ? <b>最终</b> : null}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+function missingEnterpriseRequiredFields(fields, values) {
+  return fields.reduce((missing, field) => {
+    if (field.required && !textValue(values?.[field.key])) missing.push(enterpriseFieldLabel(field));
+    return missing;
+  }, []);
+}
+
+function EnterpriseDesignProgress({ designSession, store }) {
+  if (!designSession) return null;
+  const activeIndex = enterpriseDesignPhaseIndex(designSession.phase);
+  const canOpenThread = Boolean(designSession.threadId);
+  return (
+    <section className={'enterprise-design-progress enterprise-design-progress-' + designSession.phase} aria-labelledby="enterprise-design-progress-title" role="status">
+      <div className="enterprise-design-progress-heading">
+        <div>
+          <h2 id="enterprise-design-progress-title">{designSession.templateTitle}设计进度</h2>
+          <p>{designSession.message || '正在准备政企自动化设计。'}</p>
+        </div>
+        <span>{designSession.outputFormat.toUpperCase()}</span>
+      </div>
+      <ol className="enterprise-design-steps">
+        {designSession.phases.map((phase, index) => {
+          const state = index < activeIndex ? 'done' : index === activeIndex ? 'active' : 'waiting';
+          return (
+            <li className={'enterprise-design-step ' + state} key={phase}>
+              <span>{index + 1}</span>
+              <strong>{phase}</strong>
+            </li>
+          );
+        })}
+      </ol>
+      {canOpenThread ? (
+        <button type="button" className="btn-outline enterprise-design-open" onClick={() => { void openEnterpriseDesignThread(store, designSession.threadId); }}>
+          查看设计对话
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+function enterpriseDesignPhaseIndex(phase) {
+  if (phase === 'starting') return 0;
+  if (phase === 'sending') return 2;
+  if (phase === 'submitted') return 4;
+  if (phase === 'failed') return 1;
+  return 0;
+}
+
+async function openEnterpriseDesignThread(store, threadId) {
+  if (!threadId) return;
+  if (typeof store?.setActiveThread === 'function') await store.setActiveThread(threadId);
+  if (typeof store?.setActivePage === 'function') store.setActivePage('chat');
+}
+
 function WorkflowPageView({ copy, model }) {
   const { derived, isProjectPending, list, actions, actionState } = model;
   const isEmpty = !isProjectPending && !derived.blockingLoadError && !list.loading && derived.overviewStats.total === 0;
   const templateSectionRef = useRef(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const handleViewTemplates = useCallback(() => {
     const section = templateSectionRef.current;
     if (!section) return;
     if (typeof section.scrollIntoView === 'function') section.scrollIntoView({ block: 'start' });
     section.focus();
   }, []);
+  const handleSelectTemplate = useCallback((templateId) => {
+    setSelectedTemplateId(templateId);
+    handleViewTemplates();
+  }, [handleViewTemplates]);
 
   return (
     <section className="workflow-page">
       <WorkflowHeader copy={copy} model={model} onViewTemplates={handleViewTemplates} />
       <WorkflowMessages copy={copy} model={model} />
       <EnterpriseWorkflowTemplates
+        onSelectTemplate={handleSelectTemplate}
         sectionRef={templateSectionRef}
-        templates={ENTERPRISE_WORKFLOW_TEMPLATES}
-        starting={actionState.actioning === 'design'}
-        onStartTemplate={(template) => actions.startDesignFlow(template)}
+        selectedTemplateId={selectedTemplateId}
+        templatesState={model.templates}
       />
+      <EnterpriseTemplateWorkbench
+        onStartTemplate={(template) => actions.startDesignFlow(template)}
+        selectedTemplateId={selectedTemplateId}
+        starting={actionState.actioning === 'design'}
+      />
+      <EnterpriseDesignProgress designSession={model.designSession} store={model.store} />
       {isEmpty ? (
-        <AutomationEmptyState copy={copy} onStartChat={() => { void actions.startDesignFlow(); }} />
+        <AutomationEmptyState copy={copy} onSelectTemplate={handleSelectTemplate} onStartChat={() => { void actions.startDesignFlow(); }} />
       ) : (
         <WorkflowGrid copy={copy} model={model} />
       )}
@@ -1734,6 +2272,7 @@ function WorkflowDetailContent({ copy, model }) {
         readFile={(payload) => readSharedFile(payload)}
         workflowCwd={model.workflowCwd}
       />
+      <WorkflowStageProgress model={model} />
       <WorkflowStatGrid derived={derived} selection={selection} />
       <WorkflowDiagnostics model={model} />
       <WorkflowRunHistory model={model} />
@@ -1811,6 +2350,198 @@ function WorkflowStatGrid({ derived, selection }) {
       <Panel title="最终结果">{derived.finalText ? '已生成' : '-'}</Panel>
     </div>
   );
+}
+
+function WorkflowStageProgress({ model }) {
+  const groups = useMemo(() => workflowStageGroups(model.derived.diagnosticNodes), [model.derived.diagnosticNodes]);
+  const [activeNodeKey, setActiveNodeKey] = useState('');
+  const flatNodes = groups.flatMap((group) => group.nodes);
+  const activeNode = flatNodes.find((node) => node.nodeKey === activeNodeKey) || flatNodes[0] || null;
+  if (groups.length === 0) return null;
+  return (
+    <Panel title="阶段进度">
+      <div className="workflow-stage-progress">
+        <div className="workflow-stage-track" aria-label="工作流阶段">
+          {groups.map((group) => (
+            <section className="workflow-stage-group" key={group.key} aria-label={`第 ${group.index + 1} 阶段`}>
+              <div className="workflow-stage-group-head">
+                <span>第 {group.index + 1} 阶段</span>
+                <em>{group.executionLabel}</em>
+              </div>
+              <div className="workflow-stage-node-grid">
+                {group.nodes.map((node) => (
+                  <button
+                    type="button"
+                    className={'workflow-stage-node workflow-stage-node-' + node.statusKind}
+                    key={node.nodeKey}
+                    onFocus={() => setActiveNodeKey(node.nodeKey)}
+                    onMouseEnter={() => setActiveNodeKey(node.nodeKey)}
+                    aria-label={`${node.title} ${dagStatusLabel(node.status)}`}
+                  >
+                    <strong>{node.title}</strong>
+                    <span>{dagStatusLabel(node.status)}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+        <WorkflowStageOperationPanel node={activeNode} />
+      </div>
+    </Panel>
+  );
+}
+
+function WorkflowStageOperationPanel({ node }) {
+  if (!node) return null;
+  return (
+    <aside className="workflow-stage-operation" aria-label="节点操作说明">
+      <span>{node.executionLabel}</span>
+      <h4>{node.stageTitle}</h4>
+      <p>{node.operationSummary}</p>
+      <dl>
+        <div>
+          <dt>模型操作</dt>
+          <dd>{node.modelAction}</dd>
+        </div>
+        <div>
+          <dt>Skill / 工具</dt>
+          <dd>{node.skillsText}</dd>
+        </div>
+        <div>
+          <dt>输入来源</dt>
+          <dd>{node.inputSourcesText}</dd>
+        </div>
+        <div>
+          <dt>输出文件</dt>
+          <dd>{node.outputsText}</dd>
+        </div>
+      </dl>
+    </aside>
+  );
+}
+
+function workflowStageGroups(nodes = []) {
+  const orderedNodes = workflowOrderedNodes(nodes);
+  const byKey = new Map(orderedNodes.flatMap((node) => {
+    const key = textValue(node?.nodeKey);
+    return key ? [[key, node]] : [];
+  }));
+  const memo = new Map();
+  const visiting = new Set();
+  const depthFor = (node) => {
+    const key = textValue(node?.nodeKey);
+    if (!key) return 0;
+    if (memo.has(key)) return memo.get(key);
+    if (visiting.has(key)) return 0;
+    visiting.add(key);
+    const deps = Array.isArray(node.dependsOn) ? node.dependsOn : [];
+    const depth = deps.reduce((max, depKey) => {
+      const dependency = byKey.get(depKey);
+      return dependency ? Math.max(max, depthFor(dependency) + 1) : max;
+    }, 0);
+    visiting.delete(key);
+    memo.set(key, depth);
+    return depth;
+  };
+  const groups = new Map();
+  orderedNodes.forEach((node) => {
+    const depth = depthFor(node);
+    if (!groups.has(depth)) groups.set(depth, []);
+    groups.get(depth).push(workflowStageNodeView(node, depth));
+  });
+  return Array.from(groups.entries())
+    .sort(([left], [right]) => left - right)
+    .map(([depth, groupNodes], index) => ({
+      key: `stage:${depth}`,
+      index,
+      nodes: groupNodes,
+      executionLabel: workflowStageGroupExecutionLabel(groupNodes),
+    }));
+}
+
+function workflowStageNodeView(node, depth) {
+  const config = parsedDagConfig(node?.config);
+  const ui = objectValue(config.ui);
+  const outputs = workflowStageOutputPaths(ui, config);
+  const skills = listFromMaybe(ui.skills);
+  const inputSources = listFromMaybe(ui.input_sources || ui.inputSources);
+  const executionMode = textValue(ui.execution_mode || ui.executionMode).toLowerCase();
+  return {
+    nodeKey: textValue(node?.nodeKey) || `stage-node:${depth}`,
+    title: textValue(node?.title || ui.stage_title || ui.stageTitle || node?.nodeKey) || `阶段 ${depth + 1}`,
+    status: textValue(node?.status),
+    statusKind: workflowStageStatusKind(node?.status),
+    stageTitle: firstText(ui.stage_title, ui.stageTitle, node?.title, node?.nodeKey, `阶段 ${depth + 1}`),
+    operationSummary: firstText(ui.operation_summary, ui.operationSummary, workflowStageFallbackOperation(node, config)),
+    modelAction: firstText(ui.model_action, ui.modelAction, workflowStageFallbackModelAction(node, config)),
+    skillsText: skills.length > 0 ? skills.join('、') : '未声明，等待 DAG 设计器补充',
+    inputSourcesText: inputSources.length > 0 ? inputSources.join('、') : workflowStageDependencyText(node),
+    outputsText: outputs.length > 0 ? outputs.join('、') : '未声明 sharedfile 输出',
+    executionMode,
+    executionLabel: executionMode === 'parallel' ? '并行执行' : '顺序执行',
+  };
+}
+
+function workflowStageGroupExecutionLabel(nodes = []) {
+  if (nodes.length > 1 || nodes.some((node) => node.executionMode === 'parallel')) return '并行执行';
+  return '顺序执行';
+}
+
+function workflowStageStatusKind(status) {
+  const value = textValue(status).toLowerCase();
+  if (['done', 'succeeded', 'success', 'completed'].includes(value)) return 'done';
+  if (['running', 'dispatching', 'active'].includes(value)) return 'active';
+  if (['failed', 'error', 'blocked'].includes(value)) return 'failed';
+  if (['waiting_for_assignee', 'ready', 'pending'].includes(value)) return 'attention';
+  if (['cancelled', 'canceled', 'terminated'].includes(value)) return 'neutral';
+  return 'waiting';
+}
+
+function workflowStageOutputPaths(ui, config) {
+  const expected = Array.isArray(ui.expected_outputs) ? ui.expected_outputs : (Array.isArray(ui.expectedOutputs) ? ui.expectedOutputs : []);
+  const paths = expected.flatMap((item) => {
+    if (!item) return [];
+    if (typeof item === 'string') return [item];
+    const path = firstText(item.path, item.sharedfile, item.shared_file);
+    return path ? [path] : [];
+  });
+  const outputs = objectValue(config.outputs);
+  const toSharedfile = objectValue(outputs.to_sharedfile);
+  const sharedfilePath = textValue(toSharedfile.path);
+  if (sharedfilePath) paths.push(sharedfilePath);
+  return [...new Set(paths)];
+}
+
+function workflowStageFallbackOperation(node, config) {
+  const outputs = objectValue(config.outputs);
+  const toSharedfile = objectValue(outputs.to_sharedfile);
+  const outputPath = textValue(toSharedfile.path);
+  if (outputPath) return `该节点按配置生成材料并写入 ${outputPath}。`;
+  return '该节点尚未声明悬停说明，前端根据节点标题和状态展示保守说明。';
+}
+
+function workflowStageFallbackModelAction(node, config) {
+  const exec = objectValue(config.exec);
+  const promptKey = firstText(exec.prompt_key, exec.promptKey, exec.verifier?.prompt_key, exec.verifier?.promptKey);
+  const commandRef = firstText(exec.command_ref, exec.commandRef, exec.automation?.command_ref, exec.automation?.commandRef);
+  if (promptKey) return `使用已发现的 prompt ${promptKey} 处理该阶段输入。`;
+  if (commandRef) return `调用已发现的 command_card ${commandRef} 执行该阶段自动化。`;
+  return `处理 ${node?.title || node?.nodeKey || '当前阶段'} 的输入并产出阶段结果。`;
+}
+
+function workflowStageDependencyText(node) {
+  const deps = Array.isArray(node?.dependsOn) ? node.dependsOn.filter(Boolean) : [];
+  return deps.length > 0 ? deps.join('、') : '首阶段输入或用户提供材料';
+}
+
+function listFromMaybe(value) {
+  if (Array.isArray(value)) return value.flatMap((item) => {
+    const text = textValue(item);
+    return text ? [text] : [];
+  });
+  const text = textValue(value);
+  return text ? wordListFromText(text) : [];
 }
 
 function WorkflowRunHistory({ model }) {
