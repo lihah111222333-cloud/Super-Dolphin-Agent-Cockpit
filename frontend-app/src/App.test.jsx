@@ -773,6 +773,44 @@ async function showAllTraceDashboardEvents() {
     await waitFor(() => expect(useClientStore.getState().activePage).toBe('chat'));
   });
 
+  it('keeps sidebar project order stable and toggles project chats from folder clicks', async () => {
+    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
+    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    backend.getSidebarState.mockImplementation(({ cwd }) => Promise.resolve(cwd === '/repo/other' ? {
+      activeThreadId: '',
+      threads: [{ id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle', cwd: '/repo/other' }],
+    } : {
+      activeThreadId: '',
+      threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
+    }));
+
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    const projectNames = () => Array.from(sidebar.querySelectorAll('.sidebar-tree-folder span'))
+      .map((node) => node.textContent);
+    const projectLists = () => Array.from(sidebar.querySelectorAll('.sidebar-project-thread-list'));
+    const projectButton = (name) => Array.from(sidebar.querySelectorAll('.sidebar-tree-folder'))
+      .find((button) => button.textContent === name);
+
+    await waitFor(() => expect(projectNames()).toEqual(['app', 'other']));
+    expect(within(projectLists()[0]).getByTitle('App project chat')).toBeInTheDocument();
+    expect(within(projectLists()[1]).queryByTitle('Other project chat')).not.toBeInTheDocument();
+
+    fireEvent.click(projectButton('other'));
+
+    await waitFor(() => {
+      expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/other' });
+      expect(within(projectLists()[1]).getByTitle('Other project chat')).toBeInTheDocument();
+    });
+    expect(projectNames()).toEqual(['app', 'other']);
+
+    fireEvent.click(projectButton('other'));
+
+    await waitFor(() => expect(within(projectLists()[1]).queryByTitle('Other project chat')).not.toBeInTheDocument());
+    expect(projectNames()).toEqual(['app', 'other']);
+  });
+
   it('moves automation threads from project chats into the sidebar task list', async () => {
     const threads = [
       { id: 'thread-project', name: '项目普通对话', provider: 'codex', status: 'idle', cwd: '/repo/app' },

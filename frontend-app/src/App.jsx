@@ -598,9 +598,9 @@ function projectDirectoryItems(projectPath, projects = [], activeProject = '') {
     seen.add(path);
     items.push({ path, name: projectNameFromPath(path) });
   };
+  projects.forEach(add);
   add(activeProject);
   add(projectPath);
-  projects.forEach(add);
   return items.length ? items : [{ path: '', name: APP_BRAND_NAME }];
 }
 
@@ -909,12 +909,6 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
   const [expandedProjects, setExpandedProjects] = useState({});
   const threadActions = useSidebarThreadActions(store);
   const actionOptions = uiActionOptions(store);
-  const toggleExpandProject = (path) => {
-    setExpandedProjects((current) => ({
-      ...current,
-      [path]: !current[path],
-    }));
-  };
   const projectItems = projectDirectoryItems(projectPath, store?.projects, store?.activeProject);
   const activeProjectPath = textValue(store?.activeProject || projectPath);
   const addProject = () => runUIAction(async () => {
@@ -924,7 +918,17 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
   const selectProject = (path) => {
     if (!path) return;
     setActivePage('chat');
-    runUIAction(() => store?.setActiveProjectPath?.(path), actionOptions);
+    setExpandedProjects((current) => {
+      const hasExplicitState = Object.prototype.hasOwnProperty.call(current, path);
+      const currentExpanded = hasExplicitState ? !!current[path] : projectTreeKey(path) === projectTreeKey(activeProjectPath);
+      return {
+        ...current,
+        [path]: !currentExpanded,
+      };
+    });
+    if (projectTreeKey(path) !== projectTreeKey(activeProjectPath)) {
+      runUIAction(() => store?.setActiveProjectPath?.(path), actionOptions);
+    }
   };
   const selectThread = (threadId) => {
     if (!threadId) return;
@@ -950,14 +954,16 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
         {projectItems.map((item) => {
           const isActiveProject = item.path && item.path === activeProjectPath;
           const projectThreads = projectThreadItems(store?.threads, item.path, activeProjectPath);
-          const isExpanded = !!expandedProjects[item.path];
-          const visibleThreads = isExpanded ? projectThreads : projectThreads.slice(0, 5);
+          const hasExplicitState = Object.prototype.hasOwnProperty.call(expandedProjects, item.path);
+          const isExpanded = hasExplicitState ? !!expandedProjects[item.path] : isActiveProject;
+          const visibleThreads = isExpanded ? projectThreads : [];
           return (
             <div className="sidebar-tree-project" key={item.path || item.name}>
               <button
                 type="button"
                 className={`sidebar-tree-folder${isActiveProject ? ' active' : ''}`}
                 onClick={() => selectProject(item.path)}
+                aria-expanded={isExpanded}
                 aria-label={`${copy.selectProject} ${item.name}`}
               >
                 <Folder size={18} aria-hidden="true" />
@@ -1009,18 +1015,7 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
                     </li>
                   );
                 }) : (
-                  <li className="sidebar-project-thread-empty">{copy.emptyThreads}</li>
-                )}
-                {projectThreads.length > 5 && (
-                  <li className="thread-expand-item">
-                    <button
-                      type="button"
-                      className="thread-expand-btn"
-                      onClick={() => toggleExpandProject(item.path)}
-                    >
-                      {isExpanded ? copy.collapseMore : copy.showMore}
-                    </button>
-                  </li>
+                  isExpanded ? <li className="sidebar-project-thread-empty">{copy.emptyThreads}</li> : null
                 )}
               </ul>
             </div>
