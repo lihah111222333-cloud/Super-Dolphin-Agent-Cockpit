@@ -236,7 +236,7 @@ func TestPersistentSubagentDefaultFlow_StartFiltersSpawnAgentAndToolbridgeBlocks
 	if err != nil {
 		t.Fatalf("routeToolCall() error = %v", err)
 	}
-	assertSingleTextItem(t, toolResult, "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `orchestration_launch_agent` 创建持续化 UI 子 agent。", false)
+	assertSingleTextItem(t, toolResult, "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `launch_agent` 创建持续化 UI 子 agent，并用 `get_agent_report(wait=true)` 等待结果。", false)
 	if len(registry.gotKinds) != 0 {
 		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
 	}

@@ -145,6 +145,12 @@ func TestEnableWhen_EnabledToolsHas(t *testing.T) {
 	assertEnableWhen(t, "enabled tool direct hit", []byte(`{"enabled_tools_has":"grep"}`), withLsp, "", true)
 	assertEnableWhen(t, "enabled tool legacy want", []byte(`{"enabled_tools_has":"lsp_grep"}`), withLsp, "", true)
 	assertEnableWhen(t, "enabled tool canonical want", []byte(`{"enabled_tools_has":"grep"}`), withLegacyLsp, "", true)
+	assertEnableWhen(t, "enabled orchestration launch legacy runtime name",
+		[]byte(`{"enabled_tools_has":"launch_agent"}`),
+		contract.BuildCtx{EnabledTools: []string{"orchestration_launch_agent"}}, "", true)
+	assertEnableWhen(t, "enabled orchestration report legacy runtime name",
+		[]byte(`{"enabled_tools_has":"get_agent_report"}`),
+		contract.BuildCtx{EnabledTools: []string{"orchestration_get_agent_report"}}, "", true)
 	assertEnableWhen(t, "enabled tool miss", []byte(`{"enabled_tools_has":"grep"}`), noLsp, "", false)
 	assertEnableWhen(t, "enabled tool empty", []byte(`{"enabled_tools_has":"grep"}`), noTools, "", false)
 

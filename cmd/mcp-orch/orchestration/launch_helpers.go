@@ -190,6 +190,49 @@ func envValue(env []string, key string) string {
 	return ""
 }
 
+func envCSVValue(env []string, key string) []string {
+	raw := envValue(env, key)
+	if raw == "" {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	for _, item := range strings.Split(raw, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		out = append(out, item)
+	}
+	return out
+}
+
+// launchStartConfig 把 launch env 中的运行配置转成 thread/start config。
+// 这里集中处理子 agent 工具禁用和 Codex 实例身份，避免 remoteLauncher.Launch 继续膨胀。
+func launchStartConfig(env []string) map[string]any {
+	config := map[string]any{}
+	if disabledTools := envValue(env, "AGENT_DISABLED_TOOLS"); disabledTools != "" {
+		config["disallowed_tools"] = disabledTools
+	}
+	if disabledNativeTools := envCSVValue(env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"); len(disabledNativeTools) > 0 {
+		config["codexDisabledNativeTools"] = disabledNativeTools
+	}
+	if codexHome := envValue(env, "AGENT_CODEX_HOME"); codexHome != "" {
+		config["codexHome"] = codexHome
+	}
+	if codexInstanceKey := envValue(env, "AGENT_CODEX_INSTANCE_KEY"); codexInstanceKey != "" {
+		config["codexInstanceKey"] = codexInstanceKey
+	}
+	if codexModelProvider := envValue(env, "AGENT_CODEX_MODEL_PROVIDER"); codexModelProvider != "" {
+		config["codexModelProvider"] = codexModelProvider
+	}
+	return config
+}
+
 func commandFlagValue(args []string, flag string) string {
 	for idx, arg := range args {
 		arg = strings.TrimSpace(arg)

@@ -90,6 +90,34 @@ func TestRemoteLauncher_DisabledToolsUseStartConfig(t *testing.T) {
 	}
 }
 
+func TestRemoteLauncher_CodexDisabledNativeToolsUseStartConfig(t *testing.T) {
+	var started map[string]any
+	launcher := remoteLocalLauncher(t, handler.Map{
+		"thread/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+			started = req
+			return map[string]any{"thread": map[string]any{"id": "thread-1"}, "agentId": "remote-1"}, nil
+		}),
+	})
+
+	_, err := launcher.Launch(context.Background(), &agentRuntime{id: "agent-1"}, LaunchRequest{
+		Env: []string{"AGENT_CODEX_DISABLED_NATIVE_TOOLS=spawn_agent"},
+	})
+	if err != nil {
+		t.Fatalf("Launch() error = %v", err)
+	}
+	cfg, ok := started["config"].(map[string]any)
+	if !ok {
+		t.Fatalf("thread/start config = %#v, want object", started["config"])
+	}
+	got, ok := cfg["codexDisabledNativeTools"].([]any)
+	if !ok {
+		t.Fatalf("config.codexDisabledNativeTools = %#v, want []any", cfg["codexDisabledNativeTools"])
+	}
+	if len(got) != 1 || got[0] != "spawn_agent" {
+		t.Fatalf("config.codexDisabledNativeTools = %#v, want [spawn_agent]", got)
+	}
+}
+
 func TestRemoteLauncher_CodexIdentityUsesStartConfig(t *testing.T) {
 	var started map[string]any
 	launcher := remoteLocalLauncher(t, handler.Map{
