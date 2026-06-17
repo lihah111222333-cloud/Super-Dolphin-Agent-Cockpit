@@ -91,3 +91,16 @@ func TestCodeOpenArgsUsesGotoOnlyForPositiveLine(t *testing.T) {
 		t.Fatalf("codeOpenArgs(file line) = %#v, want %#v", got, want)
 	}
 }
+
+func TestWindowsPathOpenCommandAvoidsShell(t *testing.T) {
+	t.Parallel()
+
+	path := `C:\repo\bad&calc.txt`
+	command, args := windowsPathOpenCommand(path)
+	if command == "cmd" || command == "cmd.exe" {
+		t.Fatalf("windowsPathOpenCommand command = %q, want shell-free opener", command)
+	}
+	if got, want := args, []string{"url.dll,FileProtocolHandler", path}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("windowsPathOpenCommand args = %#v, want %#v", got, want)
+	}
+}

@@ -106,6 +106,24 @@ func TestWriteAtomicReplacesExisting(t *testing.T) {
 	}
 }
 
+func TestResolveReadAbsRejectsParentSymlinkEscape(t *testing.T) {
+	t.Parallel()
+
+	cfg, rel := configWithEscapingSharedfileLink(t)
+	if _, err := cfg.ResolveReadAbs(rel); !errors.Is(err, ErrSandboxEscape) {
+		t.Fatalf("ResolveReadAbs(parent symlink) err = %v, want ErrSandboxEscape", err)
+	}
+}
+
+func TestResolveWriteAbsRejectsParentSymlinkEscape(t *testing.T) {
+	t.Parallel()
+
+	cfg, _ := configWithEscapingSharedfileLink(t)
+	if _, err := cfg.ResolveWriteAbs("reports/new.md"); !errors.Is(err, ErrSandboxEscape) {
+		t.Fatalf("ResolveWriteAbs(parent symlink) err = %v, want ErrSandboxEscape", err)
+	}
+}
+
 func TestReadDiskMissingReturnsErrNotExist(t *testing.T) {
 	t.Parallel()
 
@@ -114,6 +132,24 @@ func TestReadDiskMissingReturnsErrNotExist(t *testing.T) {
 	if !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("ReadDisk(missing) err = %v, want fs.ErrNotExist", err)
 	}
+}
+
+func configWithEscapingSharedfileLink(t *testing.T) (Config, string) {
+	t.Helper()
+
+	dir := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.md"), []byte("secret"), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	root := filepath.Join(dir, SandboxDir)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir sandbox root: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "reports")); err != nil {
+		t.Skipf("symlink unavailable on this platform: %v", err)
+	}
+	return Config{CWD: dir}, "reports/secret.md"
 }
 
 func TestReadDiskRejectsDirectory(t *testing.T) {

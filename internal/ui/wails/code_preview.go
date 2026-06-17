@@ -321,7 +321,7 @@ func openCodeEditor(path string, line, column int) bool {
 	case "linux":
 		return openSystemPath("xdg-open", path)
 	case "windows":
-		return exec.Command("cmd", "/c", "start", "", path).Run() == nil
+		return openWindowsPath(path)
 	default:
 		return false
 	}
@@ -507,6 +507,20 @@ func openSystemPath(command, path string) bool {
 	}
 	// 误判防护：openSystemPath 通过 exec.Command(binary, path) 传参，不拼接 shell 命令。
 	return exec.Command(binary, path).Run() == nil
+}
+
+func openWindowsPath(path string) bool {
+	command, args := windowsPathOpenCommand(path)
+	binary, err := exec.LookPath(command)
+	if err != nil {
+		return false
+	}
+	return exec.Command(binary, args...).Run() == nil
+}
+
+// windowsPathOpenCommand 使用 argv 方式打开文件，避免 cmd /c start 解析路径中的 shell 字符。
+func windowsPathOpenCommand(path string) (string, []string) {
+	return "rundll32.exe", []string{"url.dll,FileProtocolHandler", path}
 }
 
 func newLineScanner(reader io.Reader) *bufio.Scanner {
