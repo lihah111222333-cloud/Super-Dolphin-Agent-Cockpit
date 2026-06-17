@@ -6,8 +6,11 @@ import {
   getDagDetail as getDagDetailBackend,
   getDagRun as getDagRunBackend,
   getDagRuns as getDagRunsBackend,
+  getWorkflowTemplate as getWorkflowTemplateBackend,
+  listWorkflowTemplates as listWorkflowTemplatesBackend,
   openSharedFile as openSharedFileBackend,
   readSharedFile as readSharedFileBackend,
+  renderWorkflowTemplateDraft as renderWorkflowTemplateDraftBackend,
   startDag as startDagBackend,
   startThread as startThreadBackend,
   startTurn as startTurnBackend,
@@ -45,6 +48,18 @@ export function getDagRun(payload) {
 
 export function getDagRuns(payload) {
   return getDagRunsBackend(payload);
+}
+
+export function getWorkflowTemplate(payload) {
+  return getWorkflowTemplateBackend(payload);
+}
+
+export function listWorkflowTemplates(payload) {
+  return listWorkflowTemplatesBackend(payload);
+}
+
+export function renderWorkflowTemplateDraft(payload) {
+  return renderWorkflowTemplateDraftBackend(payload);
 }
 
 export function openSharedFile(payload) {

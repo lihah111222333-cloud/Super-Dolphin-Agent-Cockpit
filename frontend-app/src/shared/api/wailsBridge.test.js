@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { cwd } from 'node:process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { waitFor } from '@testing-library/react';
 import { beginTextClipboardWrite, copyTextToClipboard } from './wailsBridge.js';
@@ -39,6 +42,16 @@ function resetFrontendTraceEmitter() {
   delete window.__AO_WAILS_RUNTIME_TELEMETRY__;
   window.localStorage.clear();
 }
+
+describe('wails bridge runtime loading', () => {
+  it('keeps the public Wails runtime out of Vite import analysis', () => {
+    const source = readFileSync(join(cwd(), 'src/shared/api/wailsBridge.js'), 'utf8');
+
+    expect(source).toContain('nativeImportModule(WAILS_RUNTIME_MODULE)');
+    expect(source).toContain("return import(modulePath)");
+    expect(source).not.toContain('import(/* @vite-ignore */ WAILS_RUNTIME_MODULE)');
+  });
+});
 
 function createTestWebSocketClass(sockets) {
   return class TestWebSocket {
