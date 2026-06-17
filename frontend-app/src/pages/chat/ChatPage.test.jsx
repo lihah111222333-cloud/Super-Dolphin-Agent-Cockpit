@@ -179,7 +179,7 @@ describe('ChatPage module', () => {
 
     render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
 
-    expect(screen.getByRole('heading', { name: '我们应该在 Super-Dolphin 中构建什么？' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '我们应该在 燧元 中构建什么？' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '聊天页面' })).not.toBeInTheDocument();
     expect(screen.getByTestId('chat-page')).toHaveClass('chat-page--intro');
     expect(screen.getByTestId('conversation-drop-zone')).toHaveClass('conversation--intro');
@@ -196,7 +196,7 @@ describe('ChatPage module', () => {
 
     render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
 
-    expect(screen.getByRole('heading', { name: '我们应该在 Super-Dolphin 中构建什么？' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '我们应该在 燧元 中构建什么？' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '聊天页面' })).not.toBeInTheDocument();
     expect(screen.getByTestId('chat-action-feedback')).toHaveClass('sr-only');
     expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('已创建新对话草稿');
@@ -228,7 +228,7 @@ describe('ChatPage module', () => {
     render(<TestChatPageWrapper store={store} projectPath="未选择项目" />);
 
     expect(screen.getByText('连接后端失败：backend unavailable')).toBeInTheDocument();
-    expect(screen.getByText('我们应该在 Super-Dolphin 中构建什么？')).toBeInTheDocument();
+    expect(screen.getByText('我们应该在 燧元 中构建什么？')).toBeInTheDocument();
     expect(screen.getByText('暂无会话，点击「新建对话」开始草稿')).toBeInTheDocument();
     expect(screen.getByTestId('composer-input')).toHaveValue('请修复测试');
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
@@ -256,8 +256,8 @@ describe('ChatPage module', () => {
     const { container } = render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
 
     expect(screen.getByRole('heading', { name: '修复会话' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '筛选消息' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '消息列表' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '筛选消息' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '消息列表' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '布局视图' })).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByTestId('chat-page')).not.toHaveClass('chat-page--intro');
     expect(screen.getByTestId('conversation-drop-zone')).not.toHaveClass('conversation--intro');

@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Folder, Plus, X } from 'lucide-react';
+import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { runUIAction } from './chatUiActions.js';
 import { normalizeProjectPath, projectDisplayName, projectOptionsFor } from './projectSelectorModel.js';
 import './ProjectSelector.css';
 
-function ProjectDropdown({ options, selectedValue, onSelect, onRemove, onAdd }) {
+function ProjectDropdown({ copy = APP_COPY.zh.workbench, options, selectedValue, onSelect, onRemove, onAdd }) {
   return (
-    <div className="project-dropdown" role="menu" aria-label="项目列表">
+    <div className="project-dropdown" role="menu" aria-label={copy.projectList || copy.projects}>
       {options.map((item) => (
         <div key={item.value} className={`project-dropdown-row ${item.value === selectedValue ? 'selected' : ''}`} role="none" title={item.full}>
           <button
@@ -22,8 +23,8 @@ function ProjectDropdown({ options, selectedValue, onSelect, onRemove, onAdd }) 
             <button
               type="button"
               className="project-dropdown-remove"
-              aria-label={`移除此项目 ${item.label}`}
-              title="移除此项目"
+              aria-label={`${copy.removeProject} ${item.label}`}
+              title={copy.removeProject}
               onClick={(event) => runUIAction(() => onRemove(event, item.value))}
             >
               <X size={12} />
@@ -39,13 +40,13 @@ function ProjectDropdown({ options, selectedValue, onSelect, onRemove, onAdd }) 
         onClick={() => runUIAction(onAdd)}
       >
         <Plus size={13} />
-        <span>添加项目</span>
+        <span>{copy.addProjectMenu || copy.addProject}</span>
       </button>
     </div>
   );
 }
 
-export function ProjectSelector({ store, projectPath }) {
+export function ProjectSelector({ copy = APP_COPY.zh.workbench, store, projectPath }) {
   /*
    * ProjectSelector 只管菜单开关和点击。
    * 选择、添加、移除项目都交给 store，不在组件里改项目状态。
@@ -96,7 +97,7 @@ export function ProjectSelector({ store, projectPath }) {
       <button
         type="button"
         className="project-select"
-        aria-label="选择项目"
+        aria-label={copy.selectProject}
         aria-haspopup="menu"
         aria-expanded={open}
         title={selected.full === '.' ? projectPath : selected.full}
@@ -108,6 +109,7 @@ export function ProjectSelector({ store, projectPath }) {
       </button>
       {open ? (
         <ProjectDropdown
+          copy={copy}
           options={options}
           selectedValue={selected.value}
           onSelect={selectProject}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Copy } from 'lucide-react';
+import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { copyTextToClipboard } from '../services/chatCodeService.js';
 import { MessageContent } from './MarkdownMessage.jsx';
 import {
@@ -37,7 +38,7 @@ function ExecutionPlan({ message }) {
   );
 }
 
-function AssistantMessageActions({ text }) {
+function AssistantMessageActions({ copy = APP_COPY.zh.chat, text }) {
   const [copyState, setCopyState] = useState('idle');
   const resetTimerRef = useRef(null);
   useEffect(() => () => {
@@ -67,19 +68,19 @@ function AssistantMessageActions({ text }) {
   if (!canCopy) return null;
   const copied = copyState === 'copied';
   const failed = copyState === 'failed';
-  let copyLabel = '复制';
+  let copyLabel = copy.copyOutput;
   if (copied) {
-    copyLabel = '已复制';
+    copyLabel = copy.copiedOutput;
   } else if (failed) {
-    copyLabel = '复制失败';
+    copyLabel = copy.copyOutputFailed;
   }
   return (
-    <div className="message-actions" aria-label="AI 输出操作">
+    <div className="message-actions" aria-label={copy.assistantOutputActions}>
       <button
         type="button"
         className={`message-copy${copied ? ' is-copied' : ''}${failed ? ' is-failed' : ''}`}
-        aria-label="复制 AI 输出"
-        title="复制 AI 输出"
+        aria-label={copy.copyAssistantOutput}
+        title={copy.copyAssistantOutput}
         onClick={() => { void copyOutput(); }}
       >
         {copied ? <CheckCircle2 size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}

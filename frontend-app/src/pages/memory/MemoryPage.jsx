@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, MemoryStick, Plus, Search } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
+import { APP_BRAND_NAME, APP_COPY } from '../../shared/i18n/appI18n.js';
 import { deleteMemoryEntry, getMemoryConsolidationStatus, getMemoryEntry, ignoreMemorySimilarity, mergeMemoryEntries, setMemoryAutoDreamIntent, startConsolidateMemorySimilarities, upsertMemoryEntry } from '../../services/modules/memoryService.js';
 import { dashboardQueryErrorState, dashboardQueryKey, errorMessage, fetchMemoryDashboard, firstText, memoryHealth, memoryNoticeText, optionalSettingsCwd, queryHasSnapshot, sharedFileTimestamp, textValue } from '../shared/pageShared.js';
 import { PageHeader, Panel } from '../shared/pageComponents.jsx';
@@ -11,11 +12,7 @@ const MEMORY_CONSOLIDATION_POLL_MS = 2000;
 
 const MEMORY_CONSOLIDATION_MAX_POLLS = 180;
 
-const MEMORY_CATEGORIES = Object.freeze([
-  { key: 'preference', label: '偏好' },
-  { key: 'project', label: '项目' },
-  { key: 'all', label: '全部' },
-]);
+const MEMORY_CATEGORY_KEYS = Object.freeze(['preference', 'project', 'all']);
 
 const MEMORY_EDITOR_TYPES = Object.freeze([
   { key: 'feedback', label: '偏好' },
@@ -277,7 +274,7 @@ function useMemoryAutoDream({ dashboard, showNotice }) {
     setAutoToggling(true);
     try {
       await setMemoryAutoDreamIntent({ enabled: next });
-      showNotice('warning', `自动沉淀已切换为${next ? '开启' : '关闭'}，重启 Super Dolphin 后生效`);
+      showNotice('warning', `自动沉淀已切换为${next ? '开启' : '关闭'}，重启 ${APP_BRAND_NAME} 后生效`);
       await dashboard.refreshMemory();
     } catch (err) {
       showNotice('error', `切换自动沉淀失败：${errorMessage(err)}`);
@@ -552,30 +549,33 @@ function useMemoryPageModel({ projectPath, onSimilarCountChange, resolveLaunchPr
   return { activeCategory, autoDream, dashboard, deletion, derived, editor, notice, searchText, setActiveCategory, setSearchText, setSimilarExpanded, similarExpanded, similarity };
 }
 
-function MemoryPage({ projectPath, onSimilarCountChange, resolveLaunchPreferences }) {
+function MemoryPage({ copy = APP_COPY.zh.memory, projectPath, onSimilarCountChange, resolveLaunchPreferences }) {
   const model = useMemoryPageModel({ projectPath, onSimilarCountChange, resolveLaunchPreferences });
-  return <MemoryPageView model={model} />;
+  return <MemoryPageView copy={copy} model={model} />;
 }
 
-function MemoryPageView({ model }) {
+function MemoryPageView({ copy, model }) {
   return (
     <section className="memory-page">
       <MemoryPageHeader
+        copy={copy}
         disabled={model.dashboard.isProjectPending}
         editor={model.editor}
         searchText={model.searchText}
         setSearchText={model.setSearchText}
       />
-      <MemoryStats autoDream={model.autoDream} categoryCounts={model.derived.categoryCounts} disabled={model.dashboard.isProjectPending} health={model.derived.health} />
+      <MemoryStats autoDream={model.autoDream} categoryCounts={model.derived.categoryCounts} copy={copy} disabled={model.dashboard.isProjectPending} health={model.derived.health} />
       <MemorySimilaritySection
+        copy={copy}
         expanded={model.similarExpanded}
         groups={model.derived.similarGroups}
         setExpanded={model.setSimilarExpanded}
         similarity={model.similarity}
       />
-      <MemoryStatusMessages dashboard={model.dashboard} notice={model.notice} />
-      <MemoryTabs activeCategory={model.activeCategory} categoryCounts={model.derived.categoryCounts} setActiveCategory={model.setActiveCategory} />
+      <MemoryStatusMessages copy={copy} dashboard={model.dashboard} notice={model.notice} />
+      <MemoryTabs activeCategory={model.activeCategory} categoryCounts={model.derived.categoryCounts} copy={copy} setActiveCategory={model.setActiveCategory} />
       <MemoryCardsSection
+        copy={copy}
         dashboard={model.dashboard}
         deletion={model.deletion}
         editor={model.editor}
@@ -587,27 +587,27 @@ function MemoryPageView({ model }) {
   );
 }
 
-function MemoryPageHeader({ disabled, editor, searchText, setSearchText }) {
+function MemoryPageHeader({ copy, disabled, editor, searchText, setSearchText }) {
   return (
     <PageHeader
       icon={MemoryStick}
-      title="记忆中心"
+      title={copy.title}
       actions={(
         <>
           <label>
             <Search size={17} />
             <input
-              aria-label="搜索记忆"
-              placeholder="搜索记忆标题 / 内容"
+              aria-label={copy.search}
+              placeholder={copy.searchPlaceholder}
               value={searchText}
               onChange={(event) => setSearchText(event.target.value)}
             />
           </label>
           <div className="memory-create">
-            <button type="button" className="light" aria-label="+ 新建 ▾" onClick={() => editor.setCreateMenuOpen((open) => !open)} disabled={disabled}>
-              <Plus size={15} /> 新建 ▾
+            <button type="button" className="light" aria-label={`+ ${copy.new} ▾`} onClick={() => editor.setCreateMenuOpen((open) => !open)} disabled={disabled}>
+              <Plus size={15} /> {copy.new} ▾
             </button>
-            {editor.createMenuOpen ? <MemoryCreateMenu onCreate={editor.openCreate} /> : null}
+            {editor.createMenuOpen ? <MemoryCreateMenu copy={copy} onCreate={editor.openCreate} /> : null}
           </div>
         </>
       )}
@@ -615,90 +615,90 @@ function MemoryPageHeader({ disabled, editor, searchText, setSearchText }) {
   );
 }
 
-function MemoryCreateMenu({ onCreate }) {
+function MemoryCreateMenu({ copy, onCreate }) {
   return (
     <div className="memory-create-menu">
-      <button type="button" onClick={() => onCreate('feedback')}>新建偏好</button>
-      <button type="button" onClick={() => onCreate('project')}>新建项目</button>
+      <button type="button" onClick={() => onCreate('feedback')}>{copy.newPreference}</button>
+      <button type="button" onClick={() => onCreate('project')}>{copy.newProject}</button>
     </div>
   );
 }
 
-function MemoryStats({ autoDream, categoryCounts, disabled, health }) {
+function MemoryStats({ autoDream, categoryCounts, copy, disabled, health }) {
   return (
     <div className="memory-stats">
-      <Panel title="总览">
+      <Panel title={copy.overview}>
         <strong className="big">{categoryCounts.all}</strong>
-        <p><span className="orange-dot" />{categoryCounts.preference} 偏好 <span />{categoryCounts.project} 项目</p>
+        <p><span className="orange-dot" />{categoryCounts.preference} {copy.preference} <span />{categoryCounts.project} {copy.project}</p>
       </Panel>
-      {health ? <MemoryHealthPanel health={health} /> : null}
-      <MemoryAutoDreamPanel autoDream={autoDream} disabled={disabled} />
+      {health ? <MemoryHealthPanel copy={copy} health={health} /> : null}
+      <MemoryAutoDreamPanel autoDream={autoDream} copy={copy} disabled={disabled} />
     </div>
   );
 }
 
-function MemoryHealthPanel({ health }) {
+function MemoryHealthPanel({ copy, health }) {
   const prefPercent = memoryHealthPercent(health.preferenceCount, health.maxPerCategory);
   const projPercent = memoryHealthPercent(health.projectCount, health.maxPerCategory);
   return (
-    <Panel title="健康度">
-      <p>偏好 <meter value={health.preferenceCount} max={health.maxPerCategory} /> {health.preferenceCount} / {health.maxPerCategory}</p>
+    <Panel title={copy.health}>
+      <p>{copy.preference} <meter value={health.preferenceCount} max={health.maxPerCategory} /> {health.preferenceCount} / {health.maxPerCategory}</p>
       <div className={'memory-health-track ' + memoryHealthClass(prefPercent)}><span style={{ width: String(prefPercent) + '%' }} /></div>
-      <p>项目 <meter value={health.projectCount} max={health.maxPerCategory} /> {health.projectCount} / {health.maxPerCategory}</p>
+      <p>{copy.project} <meter value={health.projectCount} max={health.maxPerCategory} /> {health.projectCount} / {health.maxPerCategory}</p>
       <div className={'memory-health-track ' + memoryHealthClass(projPercent)}><span style={{ width: String(projPercent) + '%' }} /></div>
-      <p><span className="green-dot" /> 综合良好</p>
+      <p><span className="green-dot" /> {copy.healthy}</p>
     </Panel>
   );
 }
 
-function MemoryAutoDreamPanel({ autoDream, disabled }) {
+function MemoryAutoDreamPanel({ autoDream, copy, disabled }) {
   return (
-    <Panel title="自动沉淀">
-      <p><span className={autoDream.enabled ? 'green-dot' : 'orange-dot'} /> {autoDream.enabled ? '已开启' : '已关闭'}</p>
-      <small>对话结束后自动整理重要内容</small>
+    <Panel title={copy.autoDream}>
+      <p><span className={autoDream.enabled ? 'green-dot' : 'orange-dot'} /> {autoDream.enabled ? copy.autoDreamOn : copy.autoDreamOff}</p>
+      <small>{copy.autoDreamDescription}</small>
       <button type="button" onClick={() => { void autoDream.toggleAutoDream(); }} disabled={autoDream.toggling || disabled}>
-        {autoDream.enabled ? '关闭' : '开启'}
+        {autoDream.enabled ? copy.disable : copy.enable}
       </button>
-      {autoDream.pendingRestart ? <small className="memory-pending">已保存切换，重启 Super Dolphin 后生效</small> : null}
+      {autoDream.pendingRestart ? <small className="memory-pending">{copy.pendingRestart}</small> : null}
     </Panel>
   );
 }
 
-function MemorySimilaritySection({ expanded, groups, setExpanded, similarity }) {
+function MemorySimilaritySection({ copy, expanded, groups, setExpanded, similarity }) {
   if (!groups.length) return null;
   const busy = memorySimilarityBusy(similarity);
   return (
     <>
       <div className="similar-alert">
         <AlertTriangle size={20} />
-        <span>{groups.length} 组条目内容相似</span>
-        <button type="button" onClick={() => { void similarity.mergeAllGroups(); }} disabled={busy}>{memoryMergeAllLabel(similarity)}</button>
-        <button type="button" onClick={() => setExpanded((current) => !current)}>{expanded ? '收起' : '展开'}</button>
+        <span>{groups.length} {copy.similarGroupsSuffix}</span>
+        <button type="button" onClick={() => { void similarity.mergeAllGroups(); }} disabled={busy}>{memoryMergeAllLabel(similarity, copy)}</button>
+        <button type="button" onClick={() => setExpanded((current) => !current)}>{expanded ? copy.collapse : copy.expand}</button>
       </div>
-      {expanded ? <MemorySimilarityList busy={busy} groups={groups} similarity={similarity} /> : null}
+      {expanded ? <MemorySimilarityList busy={busy} copy={copy} groups={groups} similarity={similarity} /> : null}
     </>
   );
 }
 
-function MemorySimilarityList({ busy, groups, similarity }) {
+function MemorySimilarityList({ busy, copy, groups, similarity }) {
   return (
     <div className="memory-similar-list">
       {groups.map((group) => (
-        <MemorySimilarItem busy={busy} group={group} similarity={similarity} key={memoryPairKey(group)} />
+        <MemorySimilarItem busy={busy} copy={copy} group={group} similarity={similarity} key={memoryPairKey(group)} />
       ))}
     </div>
   );
 }
 
-function MemorySimilarItem({ busy, group, similarity }) {
+function MemorySimilarItem({ busy, copy, group, similarity }) {
   const key = memoryPairKey(group);
   return (
     <div className="memory-similar-item">
       <span>「{group.nameA || group.pathA}」与「{group.nameB || group.pathB}」</span>
       <strong>{formatMemoryScore(group.score)}</strong>
-      <button type="button" onClick={() => similarity.setMergeTarget(group)} disabled={busy}>整合</button>
+      <button type="button" onClick={() => similarity.setMergeTarget(group)} disabled={busy}>{copy.merge}</button>
       <button type="button" className="ghost" onClick={() => { void similarity.ignoreGroup(group); }} disabled={busy}>
-        {similarity.ignoringKey === key ? '...' : '忽略'}
+        {similarity.ignoringKey === key ? '...' : copy.ignore}
       </button>
     </div>
   );
@@ -708,68 +708,68 @@ function memorySimilarityBusy(similarity) {
   return similarity.mergingAll || Boolean(similarity.consolidationJob) || Boolean(similarity.mergingKey) || Boolean(similarity.ignoringKey);
 }
 
-function memoryMergeAllLabel(similarity) {
-  if (similarity.mergingAll) return '启动中...';
-  if (similarity.consolidationJob) return '后台整合中';
-  return '一键整合全部';
+function memoryMergeAllLabel(similarity, copy) {
+  if (similarity.mergingAll) return copy.mergeStarting;
+  if (similarity.consolidationJob) return copy.mergeRunning;
+  return copy.mergeAll;
 }
 
-function MemoryStatusMessages({ dashboard, notice }) {
+function MemoryStatusMessages({ copy, dashboard, notice }) {
   return (
     <>
       {notice.message ? <div className={'memory-notice is-' + notice.level}>{notice.message}</div> : null}
-      {dashboard.isProjectPending ? <div className="memory-notice is-info">正在连接本地项目...</div> : null}
-      {!dashboard.isProjectPending && dashboard.loading ? <div className="memory-notice is-info">正在加载记忆中心...</div> : null}
-      {dashboard.syncError ? <MemorySyncError message={dashboard.syncError} onRefresh={dashboard.refreshMemory} /> : null}
-      {dashboard.error ? <MemorySyncError message={dashboard.error} onRefresh={dashboard.refreshMemory} /> : null}
+      {dashboard.isProjectPending ? <div className="memory-notice is-info">{copy.connecting}</div> : null}
+      {!dashboard.isProjectPending && dashboard.loading ? <div className="memory-notice is-info">{copy.loading}</div> : null}
+      {dashboard.syncError ? <MemorySyncError copy={copy} message={dashboard.syncError} onRefresh={dashboard.refreshMemory} /> : null}
+      {dashboard.error ? <MemorySyncError copy={copy} message={dashboard.error} onRefresh={dashboard.refreshMemory} /> : null}
     </>
   );
 }
 
-function MemorySyncError({ message, onRefresh }) {
+function MemorySyncError({ copy, message, onRefresh }) {
   return (
     <div className="memory-notice is-error" role="alert">
       <span>{message}</span>
-      <button type="button" onClick={() => { void onRefresh(); }}>重试同步</button>
+      <button type="button" onClick={() => { void onRefresh(); }}>{copy.retrySync}</button>
     </div>
   );
 }
 
-function MemoryTabs({ activeCategory, categoryCounts, setActiveCategory }) {
+function MemoryTabs({ activeCategory, categoryCounts, copy, setActiveCategory }) {
   return (
-    <div className="memory-tabs" role="tablist" aria-label="记忆分类">
-      {MEMORY_CATEGORIES.map((item) => (
+    <div className="memory-tabs" role="tablist" aria-label={copy.tabsAria}>
+      {MEMORY_CATEGORY_KEYS.map((key) => (
         <button
-          key={item.key}
+          key={key}
           type="button"
           role="tab"
-          aria-selected={activeCategory === item.key}
-          className={activeCategory === item.key ? 'active' : ''}
-          onClick={() => setActiveCategory(item.key)}
+          aria-selected={activeCategory === key}
+          className={activeCategory === key ? 'active' : ''}
+          onClick={() => setActiveCategory(key)}
         >
-          {item.label} {categoryCounts[item.key] || 0}
+          {copy[key]} {categoryCounts[key] || 0}
         </button>
       ))}
     </div>
   );
 }
 
-function MemoryCardsSection({ dashboard, deletion, editor, searchText, visibleEntries }) {
+function MemoryCardsSection({ copy, dashboard, deletion, editor, searchText, visibleEntries }) {
   if (!dashboard.error && !dashboard.isProjectPending && !dashboard.loading && visibleEntries.length === 0) {
-    return <MemoryEmptyState searchText={searchText} />;
+    return <MemoryEmptyState copy={copy} searchText={searchText} />;
   }
   if (!dashboard.error && !dashboard.isProjectPending && visibleEntries.length > 0) {
-    return <MemoryCardsList deletion={deletion} editor={editor} visibleEntries={visibleEntries} />;
+    return <MemoryCardsList copy={copy} deletion={deletion} editor={editor} visibleEntries={visibleEntries} />;
   }
   return null;
 }
 
-function MemoryEmptyState({ searchText }) {
+function MemoryEmptyState({ copy, searchText }) {
   return (
     <div className="empty-state memory-empty">
       <span><MemoryStick size={24} /></span>
-      <h2>{searchText ? '没有匹配的条目' : '暂无记忆'}</h2>
-      <p>{searchText ? '清空搜索或切换分类后再试。' : '点击右上角“新建”按钮开始添加记忆。'}</p>
+      <h2>{searchText ? copy.emptySearchTitle : copy.emptyTitle}</h2>
+      <p>{searchText ? copy.emptySearchText : copy.emptyText}</p>
     </div>
   );
 }
@@ -778,7 +778,7 @@ function memoryEntryKey(entry) {
   return [entry.target, entry.path].join(':');
 }
 
-function MemoryCardsList({ deletion, editor, visibleEntries }) {
+function MemoryCardsList({ copy, deletion, editor, visibleEntries }) {
   return (
     <div className="memory-cards">
       {visibleEntries.map((entry) => (
@@ -786,6 +786,7 @@ function MemoryCardsList({ deletion, editor, visibleEntries }) {
           key={entry.id}
           entry={entry}
           busy={editor.busyKey === memoryEntryKey(entry)}
+          copy={copy}
           deleting={deletion.deletingKey === memoryEntryKey(entry)}
           onEdit={editor.openEdit}
           onDelete={deletion.setDeleteTarget}
@@ -850,20 +851,20 @@ function MemoryMergeDialog({ similarity }) {
   );
 }
 
-function MemoryCard({ entry, busy, deleting, onEdit, onDelete }) {
+function MemoryCard({ copy, entry, busy, deleting, onEdit, onDelete }) {
   return (
     <article className={`memory-card ${entry.category === 'project' ? 'type-project' : 'type-preference'}`}>
       <header>
         <h3>{memoryEntryTitle(entry)}</h3>
         <span>{entry.tag}</span>
-        {entry.source === 'dream' ? <em>梦境</em> : null}
+        {entry.source === 'dream' ? <em>{copy.dream}</em> : null}
       </header>
       {entry.description ? <p>{entry.description}</p> : null}
-      <code>{entry.preview || '暂无预览'}</code>
+      <code>{entry.preview || copy.noPreview}</code>
       <footer>
         <time>{sharedFileTimestamp(entry.updatedAt)}</time>
-        <button type="button" onClick={() => { void onEdit(entry); }} disabled={busy}>{busy ? '加载中...' : '编辑'}</button>
-        <button type="button" className="danger" onClick={() => onDelete(entry)} disabled={deleting}>{deleting ? '删除中...' : '删除'}</button>
+        <button type="button" onClick={() => { void onEdit(entry); }} disabled={busy}>{busy ? copy.loadingAction : copy.edit}</button>
+        <button type="button" className="danger" onClick={() => onDelete(entry)} disabled={deleting}>{deleting ? copy.deleting : copy.delete}</button>
       </footer>
     </article>
   );
