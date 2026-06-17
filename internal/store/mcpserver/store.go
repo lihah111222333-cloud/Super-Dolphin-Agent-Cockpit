@@ -68,10 +68,10 @@ func (s *configStore) InsertServer(ctx context.Context, params contract.StoreMCP
 	}
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO mcp_server_configs (
-			workspace_root, name, transport, url, headers, command, args, env, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(strftime('%s','now') AS INTEGER) * 1000)
+			workspace_root, name, transport, url, headers, command, args, env, enabled, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(strftime('%s','now') AS INTEGER) * 1000)
 		ON CONFLICT (workspace_root, name) DO NOTHING
-	`, workspaceRoot, name, config.Transport, config.URL, string(headers), config.Command, string(args), string(env))
+	`, workspaceRoot, name, config.Transport, config.URL, string(headers), config.Command, string(args), string(env), mcpServerEnabledInt(config.Enabled))
 	if err != nil {
 		return false, wrapMCPServerStoreError(err, "insert")
 	}
@@ -92,7 +92,7 @@ func (s *configStore) ListServers(ctx context.Context, workspaceRoot string) (ma
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT name, transport, url, headers, command, args, env
+		SELECT name, transport, url, headers, command, args, env, enabled
 		FROM mcp_server_configs
 		WHERE workspace_root = ?
 		ORDER BY name ASC
@@ -107,10 +107,11 @@ func (s *configStore) ListServers(ctx context.Context, workspaceRoot string) (ma
 		var name string
 		var config contract.MCPServerConfig
 		var headersJSON, argsJSON, envJSON string
-		if err := rows.Scan(&name, &config.Transport, &config.URL, &headersJSON, &config.Command, &argsJSON, &envJSON); err != nil {
+		var enabled int
+		if err := rows.Scan(&name, &config.Transport, &config.URL, &headersJSON, &config.Command, &argsJSON, &envJSON, &enabled); err != nil {
 			return nil, wrapMCPServerStoreError(err, "list.scan")
 		}
-		normalized, err := decodeStoredMCPServerConfig(name, config, headersJSON, argsJSON, envJSON)
+		normalized, err := decodeStoredMCPServerConfig(name, config, headersJSON, argsJSON, envJSON, enabled)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", errInvalidConfigDocument, err)
 		}
@@ -128,6 +129,7 @@ func decodeStoredMCPServerConfig(
 	headersJSON string,
 	argsJSON string,
 	envJSON string,
+	enabled int,
 ) (contract.MCPServerConfig, error) {
 	headers, err := decodeMCPServerHeaders(headersJSON)
 	if err != nil {
@@ -144,6 +146,7 @@ func decodeStoredMCPServerConfig(
 		return contract.MCPServerConfig{}, err
 	}
 	config.Env = env
+	config.Enabled = boolPtr(enabled != 0)
 	return normalizeServerConfig(name, config)
 }
 
@@ -170,6 +173,34 @@ func (s *configStore) DeleteServer(ctx context.Context, workspaceRoot, name stri
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return false, wrapMCPServerStoreError(err, "delete.rows_affected")
+	}
+	return rowsAffected > 0, nil
+}
+
+// SetServerEnabled 更新指定 MCP server 的开启状态，关闭时保留配置供后续按需恢复。
+func (s *configStore) SetServerEnabled(ctx context.Context, workspaceRoot, name string, enabled bool) (bool, error) {
+	workspaceRoot = strings.TrimSpace(workspaceRoot)
+	name = strings.TrimSpace(name)
+	if workspaceRoot == "" {
+		return false, errMissingWorkspaceRoot
+	}
+	if name == "" {
+		return false, errMissingServerName
+	}
+	if err := s.ensureTable(ctx); err != nil {
+		return false, err
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE mcp_server_configs
+		SET enabled = ?, updated_at = CAST(strftime('%s','now') AS INTEGER) * 1000
+		WHERE workspace_root = ? AND name = ?
+	`, boolToInt(enabled), workspaceRoot, name)
+	if err != nil {
+		return false, wrapMCPServerStoreError(err, "set_enabled")
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, wrapMCPServerStoreError(err, "set_enabled.rows_affected")
 	}
 	return rowsAffected > 0, nil
 }
@@ -205,6 +236,9 @@ func (s *configStore) ensureTableShape(ctx context.Context) error {
 		if !columns[name] {
 			return s.rebuildLegacyTable(ctx)
 		}
+	}
+	if !columns["enabled"] {
+		return s.addMCPServerEnabledColumn(ctx)
 	}
 	return nil
 }
@@ -246,6 +280,14 @@ func (s *configStore) rebuildLegacyTable(ctx context.Context) error {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			return wrapMCPServerStoreError(err, "migrate_stdio")
 		}
+	}
+	return nil
+}
+
+func (s *configStore) addMCPServerEnabledColumn(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `ALTER TABLE mcp_server_configs ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1))`)
+	if err != nil {
+		return wrapMCPServerStoreError(err, "migrate_enabled")
 	}
 	return nil
 }
@@ -299,6 +341,7 @@ func normalizeHTTPServerConfig(name string, config contract.MCPServerConfig) (co
 		Transport: "http",
 		URL:       rawURL,
 		Headers:   headers,
+		Enabled:   normalizeMCPServerEnabled(config.Enabled),
 	}, nil
 }
 
@@ -320,6 +363,7 @@ func normalizeStdioServerConfig(name string, config contract.MCPServerConfig) (c
 		Command:   command,
 		Args:      args,
 		Env:       env,
+		Enabled:   normalizeMCPServerEnabled(config.Enabled),
 	}, nil
 }
 
@@ -375,6 +419,31 @@ func normalizeStringMap(input map[string]string, emptyKeyErr, emptyValueErr erro
 		out[name] = value
 	}
 	return out, nil
+}
+
+func normalizeMCPServerEnabled(enabled *bool) *bool {
+	if enabled == nil {
+		return boolPtr(true)
+	}
+	return boolPtr(*enabled)
+}
+
+func mcpServerEnabledInt(enabled *bool) int {
+	if enabled == nil || *enabled {
+		return 1
+	}
+	return 0
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }
 
 // validateHTTPURL 确认 URL 是 HTTP/HTTPS 且带 host，避免写入运行时不可连接的配置。
@@ -490,6 +559,7 @@ CREATE TABLE IF NOT EXISTS mcp_server_configs (
 	command TEXT NOT NULL DEFAULT '',
 	args TEXT NOT NULL DEFAULT '[]',
 	env TEXT NOT NULL DEFAULT '{}',
+	enabled INTEGER NOT NULL DEFAULT 1,
 	created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
 	updated_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
 	PRIMARY KEY (workspace_root, name),
@@ -500,7 +570,8 @@ CREATE TABLE IF NOT EXISTS mcp_server_configs (
 	CHECK ((transport = 'http' AND url <> '') OR (transport = 'stdio' AND command <> '')),
 	CHECK (headers <> ''),
 	CHECK (args <> ''),
-	CHECK (env <> '')
+	CHECK (env <> ''),
+	CHECK (enabled IN (0, 1))
 );
 `
 
@@ -514,6 +585,7 @@ CREATE TABLE mcp_server_configs_next (
 	command TEXT NOT NULL DEFAULT '',
 	args TEXT NOT NULL DEFAULT '[]',
 	env TEXT NOT NULL DEFAULT '{}',
+	enabled INTEGER NOT NULL DEFAULT 1,
 	created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
 	updated_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
 	PRIMARY KEY (workspace_root, name),
@@ -524,7 +596,8 @@ CREATE TABLE mcp_server_configs_next (
 	CHECK ((transport = 'http' AND url <> '') OR (transport = 'stdio' AND command <> '')),
 	CHECK (headers <> ''),
 	CHECK (args <> ''),
-	CHECK (env <> '')
+	CHECK (env <> ''),
+	CHECK (enabled IN (0, 1))
 );
 `
 

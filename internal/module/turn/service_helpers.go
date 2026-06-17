@@ -199,14 +199,19 @@ func normalizeTurnMCPServerConfigs(input map[string]contract.MCPServerConfig) (m
 	}
 	sort.Strings(names)
 	out := make(map[string]contract.MCPServerConfig, len(names))
+	enabledNames := make([]string, 0, len(names))
 	for _, name := range names {
 		config, err := normalizeTurnMCPServerConfig(name, input[rawNames[name]])
 		if err != nil {
 			return nil, nil, err
 		}
+		if !turnMCPServerConfigEnabled(config) {
+			continue
+		}
 		out[name] = config
+		enabledNames = append(enabledNames, name)
 	}
-	return out, names, nil
+	return out, enabledNames, nil
 }
 
 func normalizeTurnMCPServerConfig(name string, config contract.MCPServerConfig) (contract.MCPServerConfig, error) {
@@ -237,6 +242,7 @@ func normalizeTurnHTTPMCPServerConfig(name string, config contract.MCPServerConf
 		Transport: "http",
 		URL:       rawURL,
 		Headers:   headers,
+		Enabled:   normalizeTurnMCPEnabled(config.Enabled),
 	}, nil
 }
 
@@ -258,6 +264,7 @@ func normalizeTurnStdioMCPServerConfig(name string, config contract.MCPServerCon
 		Command:   command,
 		Args:      args,
 		Env:       env,
+		Enabled:   normalizeTurnMCPEnabled(config.Enabled),
 	}, nil
 }
 
@@ -328,13 +335,17 @@ func skipTurnConfiguredMCPServersWithActiveNames(existing []string, configs map[
 	filteredNames := make([]string, 0, len(names))
 	for _, name := range names {
 		name = strings.TrimSpace(name)
-		if turnMCPServerNameIsActive(active, name) {
+		if turnMCPServerNameIsActive(active, name) && turnMCPServerConfigUsesReusableHTTP(configs[name]) {
 			continue
 		}
 		filteredConfigs[name] = configs[name]
 		filteredNames = append(filteredNames, name)
 	}
 	return turnConfiguredMCPFilterResult(filteredConfigs, filteredNames)
+}
+
+func turnMCPServerConfigUsesReusableHTTP(config contract.MCPServerConfig) bool {
+	return strings.EqualFold(strings.TrimSpace(config.Transport), "http")
 }
 
 func turnMCPServerNameSet(names []string) map[string]struct{} {
@@ -446,6 +457,7 @@ func copyTurnMCPServerConfigs(out map[string]contract.MCPServerConfig, input map
 			Command:   strings.TrimSpace(config.Command),
 			Args:      cloneTurnStringList(config.Args),
 			Env:       cloneTurnStringMap(config.Env),
+			Enabled:   cloneTurnBoolPtr(config.Enabled),
 		}
 	}
 }
@@ -455,6 +467,28 @@ func cloneTurnStringList(input []string) []string {
 		return nil
 	}
 	return append([]string(nil), input...)
+}
+
+func normalizeTurnMCPEnabled(enabled *bool) *bool {
+	if enabled == nil {
+		return turnBoolPtr(true)
+	}
+	return turnBoolPtr(*enabled)
+}
+
+func turnMCPServerConfigEnabled(config contract.MCPServerConfig) bool {
+	return config.Enabled == nil || *config.Enabled
+}
+
+func cloneTurnBoolPtr(input *bool) *bool {
+	if input == nil {
+		return nil
+	}
+	return turnBoolPtr(*input)
+}
+
+func turnBoolPtr(value bool) *bool {
+	return &value
 }
 
 // cloneTurnStringMap 复制并清理 turn 快照里的 MCP 字符串 map。

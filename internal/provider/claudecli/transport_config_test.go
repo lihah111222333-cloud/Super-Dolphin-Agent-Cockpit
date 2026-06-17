@@ -3,6 +3,7 @@ package claudecli
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -117,6 +118,84 @@ func TestWriteManifestConfigIncludesAllowedGlobalPostgresStdioServer(t *testing.
 	args, _ := server["args"].([]any)
 	if len(args) != 1 || args[0] != "postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable" {
 		t.Fatalf("postgres args = %#v, want postgres database url", args)
+	}
+}
+
+func TestWriteManifestConfigIncludesAllowedNPXSQLiteStdioServer(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), ".super-dolphin", "super-dolphin.db")
+	dsn := "sqlite:///" + filepath.ToSlash(dbPath)
+	manifest := dto.MCPManifest{Binaries: []dto.MCPBinary{{
+		Name: "sqlite",
+		Command: []string{
+			"npx",
+			"-y",
+			"@bytebase/dbhub",
+			"--dsn=" + dsn,
+		},
+	}}}
+
+	path, cleanup, err := writeManifestConfig(manifest, "/tmp/work")
+	if err != nil {
+		t.Fatalf("writeManifestConfig() error = %v", err)
+	}
+	defer cleanup()
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", path, err)
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	servers, _ := doc["mcpServers"].(map[string]any)
+	server, _ := servers["sqlite"].(map[string]any)
+	if server["command"] != "npx" {
+		t.Fatalf("sqlite server = %#v, want npx command", server)
+	}
+	args, _ := server["args"].([]any)
+	if len(args) != 3 || args[1] != "@bytebase/dbhub" || args[2] != "--dsn="+dsn {
+		t.Fatalf("sqlite args = %#v, want dbhub sqlite npx package", args)
+	}
+}
+
+func TestWriteManifestConfigIncludesAllowedNPXPlaywrightStdioServer(t *testing.T) {
+	t.Parallel()
+
+	manifest := dto.MCPManifest{Binaries: []dto.MCPBinary{{
+		Name: "playwright",
+		Command: []string{
+			"npx",
+			"@playwright/mcp@latest",
+		},
+	}}}
+
+	path, cleanup, err := writeManifestConfig(manifest, "/tmp/work")
+	if err != nil {
+		t.Fatalf("writeManifestConfig() error = %v", err)
+	}
+	defer cleanup()
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", path, err)
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	servers, _ := doc["mcpServers"].(map[string]any)
+	server, _ := servers["playwright"].(map[string]any)
+	if server["command"] != "npx" {
+		t.Fatalf("playwright server = %#v, want npx command", server)
+	}
+	args, _ := server["args"].([]any)
+	if len(args) != 1 || args[0] != "@playwright/mcp@latest" {
+		t.Fatalf("playwright args = %#v, want playwright npx package", args)
 	}
 }
 

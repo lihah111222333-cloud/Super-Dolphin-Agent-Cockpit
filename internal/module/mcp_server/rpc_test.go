@@ -136,6 +136,97 @@ func TestStartPostgresRPCCreatesDefaultStdioConfig(t *testing.T) {
 	}
 }
 
+func TestStartSQLiteRPCCreatesDefaultNPXConfig(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	dbPath := filepath.Join(project, "super-dolphin.db")
+	store := newMemoryMCPServerStore()
+	server := newMCPServerTestServerWithSQLitePath(store, dbPath)
+
+	raw, err := server.Dispatch(context.Background(), "mcpServer/sqlite/start", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Dispatch mcpServer/sqlite/start: %v", err)
+	}
+	var got StartSQLiteServerResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if !got.Added || !got.Enabled || got.Config.Command != "npx" {
+		t.Fatalf("StartSQLiteServerResult = %#v, want added enabled npx sqlite config", got)
+	}
+	if store.servers[project][DefaultSQLiteServerName].Command != "npx" {
+		t.Fatalf("stored servers = %#v, want sqlite npx config", store.servers[project])
+	}
+}
+
+func TestStopSQLiteRPCDisablesDefaultConfig(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	dbPath := filepath.Join(project, "super-dolphin.db")
+	store := newMemoryMCPServerStore()
+	store.seed(project, DefaultSQLiteServerName, defaultSQLiteServerConfig(dbPath))
+	server := newMCPServerTestServerWithSQLitePath(store, dbPath)
+
+	raw, err := server.Dispatch(context.Background(), "mcpServer/sqlite/stop", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Dispatch mcpServer/sqlite/stop: %v", err)
+	}
+	var got StopSQLiteServerResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if got.Enabled {
+		t.Fatalf("StopSQLiteServerResult = %#v, want disabled", got)
+	}
+}
+
+func TestStartPlaywrightRPCCreatesDefaultNPXConfig(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	store := newMemoryMCPServerStore()
+	server := newMCPServerTestServer(store)
+
+	raw, err := server.Dispatch(context.Background(), "mcpServer/playwright/start", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Dispatch mcpServer/playwright/start: %v", err)
+	}
+	var got StartPlaywrightServerResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if !got.Added || !got.Enabled || got.Config.Command != "npx" {
+		t.Fatalf("StartPlaywrightServerResult = %#v, want added enabled npx playwright config", got)
+	}
+	if args := store.servers[project][DefaultPlaywrightServerName].Args; len(args) != 1 || args[0] != "@playwright/mcp@latest" {
+		t.Fatalf("stored servers = %#v, want playwright npx config", store.servers[project])
+	}
+}
+
+func TestStopPlaywrightRPCDisablesDefaultConfig(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	store := newMemoryMCPServerStore()
+	store.seed(project, DefaultPlaywrightServerName, ServerConfig{
+		Transport: "stdio",
+		Command:   "npx",
+		Args:      []string{"@playwright/mcp@latest"},
+		Enabled:   boolPtr(true),
+	})
+	server := newMCPServerTestServer(store)
+
+	raw, err := server.Dispatch(context.Background(), "mcpServer/playwright/stop", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Dispatch mcpServer/playwright/stop: %v", err)
+	}
+	var got StopPlaywrightServerResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if got.Enabled {
+		t.Fatalf("StopPlaywrightServerResult = %#v, want disabled", got)
+	}
+}
+
 func TestDeleteRPCRemovesMCPServerConfig(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
@@ -167,7 +258,11 @@ func TestDeleteRPCRemovesMCPServerConfig(t *testing.T) {
 }
 
 func newMCPServerTestServer(store MCPServerConfigStore) *platformrpc.Server {
+	return newMCPServerTestServerWithSQLitePath(store, "")
+}
+
+func newMCPServerTestServerWithSQLitePath(store MCPServerConfigStore, sqlitePath string) *platformrpc.Server {
 	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
-	server.Register(NewHandlers(newServiceWithStoreAndInstaller(store, &recordingPostgresInstaller{})).Handlers)
+	server.Register(NewHandlers(newServiceWithStoreInstallerAndSQLitePath(store, &recordingPostgresInstaller{}, sqlitePath)).Handlers)
 	return server
 }

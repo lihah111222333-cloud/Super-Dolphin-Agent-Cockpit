@@ -137,6 +137,12 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   SKILLS_RESOLUTION_PREVIEW: contract('SKILLS_RESOLUTION_PREVIEW', 'previewSkillResolution', 'P1', 'skill', [TESTS.API, TESTS.SKILLS], ['skill preview']),
   SKILLS_RESOLUTION_APPLY: contract('SKILLS_RESOLUTION_APPLY', 'applySkillResolution', 'P0', 'skill', [TESTS.API, TESTS.SKILLS], ['skill mutation']),
 
+  MCP_SERVER_LIST: contract('MCP_SERVER_LIST', 'listMCPServers', 'P1', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['MCP server config read', 'params:{}-only']),
+  MCP_SERVER_SQLITE_START: contract('MCP_SERVER_SQLITE_START', 'startSQLiteMCPServer', 'P0', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['sqlite MCP server mutation', 'params:{}-only']),
+  MCP_SERVER_SQLITE_STOP: contract('MCP_SERVER_SQLITE_STOP', 'stopSQLiteMCPServer', 'P0', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['sqlite MCP server mutation', 'params:{}-only']),
+  MCP_SERVER_PLAYWRIGHT_START: contract('MCP_SERVER_PLAYWRIGHT_START', 'startPlaywrightMCPServer', 'P0', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['playwright MCP server mutation', 'params:{}-only']),
+  MCP_SERVER_PLAYWRIGHT_STOP: contract('MCP_SERVER_PLAYWRIGHT_STOP', 'stopPlaywrightMCPServer', 'P0', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['playwright MCP server mutation', 'params:{}-only']),
+
   THREAD_START: contract('THREAD_START', 'startThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['runtime lifecycle start', 'custom-decoder']),
   THREAD_MESSAGES: contract('THREAD_MESSAGES', 'getThreadMessages', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread read']),
   THREAD_RESOLVE: contract('THREAD_RESOLVE', 'resolveThreadIdentity', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread read']),
