@@ -6,9 +6,14 @@ import {
   emitFrontendTraceEvent,
   installAppUpdate,
   installLatestAppUpdate,
+  listMCPServers,
   getVideoApiKey,
   RPC_METHODS,
   setVideoApiKey,
+  startPlaywrightMCPServer,
+  startSQLiteMCPServer,
+  stopPlaywrightMCPServer,
+  stopSQLiteMCPServer,
 } from './backendApi.js';
 
 function expectInvalidInputDoesNotCall(callAPI, action, message) {
@@ -72,6 +77,38 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     expect(typeof downloadAppUpdate).toBe('function');
     expect(typeof installAppUpdate).toBe('function');
     expect(typeof installLatestAppUpdate).toBe('function');
+  });
+
+  it('wraps MCP server list and default controls with strict empty payloads', async () => {
+    const listResponse = { mcpServers: { sqlite: { enabled: false } } };
+    const startResponse = { serverName: 'sqlite', enabled: true };
+    const stopResponse = { serverName: 'sqlite', enabled: false };
+    const playwrightStartResponse = { serverName: 'playwright', enabled: true };
+    const playwrightStopResponse = { serverName: 'playwright', enabled: false };
+    const callAPI = vi.fn()
+      .mockResolvedValueOnce(listResponse)
+      .mockResolvedValueOnce(startResponse)
+      .mockResolvedValueOnce(stopResponse)
+      .mockResolvedValueOnce(playwrightStartResponse)
+      .mockResolvedValueOnce(playwrightStopResponse);
+    const api = createBackendApi({ callAPI });
+
+    await expect(api.listMCPServers()).resolves.toEqual(listResponse);
+    await expect(api.startSQLiteMCPServer()).resolves.toEqual(startResponse);
+    await expect(api.stopSQLiteMCPServer()).resolves.toEqual(stopResponse);
+    await expect(api.startPlaywrightMCPServer()).resolves.toEqual(playwrightStartResponse);
+    await expect(api.stopPlaywrightMCPServer()).resolves.toEqual(playwrightStopResponse);
+
+    expect(callAPI).toHaveBeenNthCalledWith(1, RPC_METHODS.MCP_SERVER_LIST, {});
+    expect(callAPI).toHaveBeenNthCalledWith(2, RPC_METHODS.MCP_SERVER_SQLITE_START, {});
+    expect(callAPI).toHaveBeenNthCalledWith(3, RPC_METHODS.MCP_SERVER_SQLITE_STOP, {});
+    expect(callAPI).toHaveBeenNthCalledWith(4, RPC_METHODS.MCP_SERVER_PLAYWRIGHT_START, {});
+    expect(callAPI).toHaveBeenNthCalledWith(5, RPC_METHODS.MCP_SERVER_PLAYWRIGHT_STOP, {});
+    expect(typeof listMCPServers).toBe('function');
+    expect(typeof startSQLiteMCPServer).toBe('function');
+    expect(typeof stopSQLiteMCPServer).toBe('function');
+    expect(typeof startPlaywrightMCPServer).toBe('function');
+    expect(typeof stopPlaywrightMCPServer).toBe('function');
   });
 
   it('starts a pending backend thread with the canonical thread/start payload shape', async () => {

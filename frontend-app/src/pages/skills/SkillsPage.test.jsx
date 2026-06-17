@@ -10,11 +10,16 @@ const backend = vi.hoisted(() => ({
   deleteSkill: vi.fn(),
   getDashboardPage: vi.fn(),
   importSkillDirectories: vi.fn(),
+  listMCPServers: vi.fn(),
   listSkillFiles: vi.fn(),
   listSkillResolutions: vi.fn(),
   previewSkillResolution: vi.fn(),
   readSkill: vi.fn(),
   selectProjectDirs: vi.fn(),
+  startPlaywrightMCPServer: vi.fn(),
+  startSQLiteMCPServer: vi.fn(),
+  stopPlaywrightMCPServer: vi.fn(),
+  stopSQLiteMCPServer: vi.fn(),
   suggestSkillSummary: vi.fn(),
   writeSkill: vi.fn(),
 }));
@@ -80,6 +85,11 @@ beforeEach(() => {
   });
   backend.createSkill.mockResolvedValue({ path: '/repo/app/.agent/skills/deploy/SKILL.md' });
   backend.writeSkill.mockResolvedValue({ path: '/repo/app/.agent/skills/backend/SKILL.md' });
+  backend.listMCPServers.mockResolvedValue({ mcpServers: { sqlite: { enabled: false }, playwright: { enabled: false } } });
+  backend.startSQLiteMCPServer.mockResolvedValue({ serverName: 'sqlite', enabled: true });
+  backend.stopSQLiteMCPServer.mockResolvedValue({ serverName: 'sqlite', enabled: false });
+  backend.startPlaywrightMCPServer.mockResolvedValue({ serverName: 'playwright', enabled: true });
+  backend.stopPlaywrightMCPServer.mockResolvedValue({ serverName: 'playwright', enabled: false });
 });
 
 describe('SkillsPage module', () => {
@@ -89,22 +99,45 @@ describe('SkillsPage module', () => {
 });
 
 describe('SkillsPage backend migration', () => {
-  it('renders the plugins marketplace tab with connected apps and searchable recommendations', async () => {
+  it('renders default MCP controls and sends the start and stop RPC actions', async () => {
     renderSkillsPage();
 
     fireEvent.click(screen.getByRole('button', { name: 'MCP工具' }));
 
-    expect(await screen.findByRole('heading', { name: '插件' })).toBeInTheDocument();
-    expect(screen.getByText('在你常用的工具中使用 燧元')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '已连接' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '推荐' })).toBeInTheDocument();
-    expect(screen.getByText('Creative Production')).toBeInTheDocument();
-    expect(screen.getByText('Slack')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'MCP工具' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'SQLite MCP' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Playwright MCP' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '开启 SQLite MCP' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '关闭 SQLite MCP' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '开启 Playwright MCP' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '关闭 Playwright MCP' })).toBeInTheDocument();
+    expect(screen.queryByText('Slack')).not.toBeInTheDocument();
+    const sqliteControl = screen.getByRole('region', { name: 'SQLite MCP 控制' });
+    const playwrightControl = screen.getByRole('region', { name: 'Playwright MCP 控制' });
 
-    fireEvent.change(screen.getByLabelText('搜索插件和技能'), { target: { value: 'slack' } });
+    expect(await within(sqliteControl).findByTestId('sqlite-mcp-status')).toHaveTextContent('已关闭');
+    expect(await within(playwrightControl).findByTestId('playwright-mcp-status')).toHaveTextContent('已关闭');
+    expect(backend.listMCPServers).toHaveBeenCalledTimes(1);
 
-    expect(screen.getByText('Slack')).toBeInTheDocument();
-    expect(screen.queryByText('Creative Production')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '开启 SQLite MCP' }));
+    await waitFor(() => expect(backend.startSQLiteMCPServer).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(within(sqliteControl).getByTestId('sqlite-mcp-status')).toHaveTextContent('已开启'));
+    expect(within(sqliteControl).getByRole('status')).toHaveTextContent('SQLite MCP 已开启');
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭 SQLite MCP' }));
+    await waitFor(() => expect(backend.stopSQLiteMCPServer).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(within(sqliteControl).getByTestId('sqlite-mcp-status')).toHaveTextContent('已关闭'));
+    expect(within(sqliteControl).getByRole('status')).toHaveTextContent('SQLite MCP 已关闭');
+
+    fireEvent.click(screen.getByRole('button', { name: '开启 Playwright MCP' }));
+    await waitFor(() => expect(backend.startPlaywrightMCPServer).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(within(playwrightControl).getByTestId('playwright-mcp-status')).toHaveTextContent('已开启'));
+    expect(within(playwrightControl).getByRole('status')).toHaveTextContent('Playwright MCP 已开启');
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭 Playwright MCP' }));
+    await waitFor(() => expect(backend.stopPlaywrightMCPServer).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(within(playwrightControl).getByTestId('playwright-mcp-status')).toHaveTextContent('已关闭'));
+    expect(within(playwrightControl).getByRole('status')).toHaveTextContent('Playwright MCP 已关闭');
   });
 
   it('frames the plugin entry around the current local skills surface', async () => {

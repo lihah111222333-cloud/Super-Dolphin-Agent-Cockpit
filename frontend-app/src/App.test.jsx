@@ -54,6 +54,7 @@ const backend = vi.hoisted(() => {
     listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps deleteSkill
     listCronJobs getCronJob createCronJob updateCronJob deleteCronJob runCronJobOnce setCronJobEnabled listCronJobRuns
     readSkill listSkillFiles createSkill writeSkill importSkillDirectories suggestSkillSummary selectProjectDir selectProjectDirs
+    listMCPServers startSQLiteMCPServer stopSQLiteMCPServer startPlaywrightMCPServer stopPlaywrightMCPServer
     listSkillResolutions previewSkillResolution applySkillResolution readSharedFile deleteSharedFile getPreference
     startThread startTurn interruptTurn forceCompleteTurn compactThread recoverThread respondApproval resolveThreadIdentity archiveThread unarchiveThread
     deleteThread getThreadConfig setThreadConfig renameThread setPreference setVideoApiKey selectFiles saveClipboardImage saveTextFile
@@ -387,6 +388,11 @@ function mockCronDefaults() {
 
 function mockSkillDefaults() {
   backend.deleteSkill.mockResolvedValue({ ok: true });
+  backend.listMCPServers.mockResolvedValue({ mcpServers: { sqlite: { enabled: false }, playwright: { enabled: false } } });
+  backend.startSQLiteMCPServer.mockResolvedValue({ serverName: 'sqlite', enabled: true });
+  backend.stopSQLiteMCPServer.mockResolvedValue({ serverName: 'sqlite', enabled: false });
+  backend.startPlaywrightMCPServer.mockResolvedValue({ serverName: 'playwright', enabled: true });
+  backend.stopPlaywrightMCPServer.mockResolvedValue({ serverName: 'playwright', enabled: false });
   backend.readSkill.mockImplementation(({ path }) => Promise.resolve({
     skill: {
       content: path.endsWith('/SKILL.md')

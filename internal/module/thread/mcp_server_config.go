@@ -62,14 +62,20 @@ func normalizePromptMCPServerConfigs(input map[string]contract.MCPServerConfig) 
 	}
 	sort.Strings(names)
 	out := make(map[string]contract.MCPServerConfig, len(names))
+	enabledNames := make([]string, 0, len(names))
 	for _, name := range names {
-		config, err := normalizePromptMCPServerConfig(name, input[rawNames[name]])
+		rawConfig := input[rawNames[name]]
+		if !promptMCPServerConfigEnabled(rawConfig) {
+			continue
+		}
+		config, err := normalizePromptMCPServerConfig(name, rawConfig)
 		if err != nil {
 			return nil, nil, err
 		}
 		out[name] = config
+		enabledNames = append(enabledNames, name)
 	}
-	return out, names, nil
+	return out, enabledNames, nil
 }
 
 func normalizePromptMCPServerConfig(name string, config contract.MCPServerConfig) (contract.MCPServerConfig, error) {
@@ -191,7 +197,7 @@ func skipPromptConfiguredMCPServersWithActiveNames(existing []string, configs ma
 	filteredNames := make([]string, 0, len(names))
 	for _, name := range names {
 		name = strings.TrimSpace(name)
-		if promptMCPServerNameIsActive(active, name) {
+		if promptMCPServerNameIsActive(active, name) && strings.EqualFold(strings.TrimSpace(configs[name].Transport), "http") {
 			continue
 		}
 		filteredConfigs[name] = configs[name]
@@ -275,6 +281,10 @@ func clonePromptMCPStringList(input []string) []string {
 		return nil
 	}
 	return out
+}
+
+func promptMCPServerConfigEnabled(config contract.MCPServerConfig) bool {
+	return config.Enabled == nil || *config.Enabled
 }
 
 // clonePromptMCPStringMap 复制并清理 prompt 快照里的 MCP 字符串 map。

@@ -122,6 +122,12 @@ export const RPC_METHODS = Object.freeze({
   SKILLS_RESOLUTION_PREVIEW: 'skills/resolution_preview',
   SKILLS_RESOLUTION_APPLY: 'skills/resolution_apply',
 
+  MCP_SERVER_LIST: 'mcpServer/list',
+  MCP_SERVER_SQLITE_START: 'mcpServer/sqlite/start',
+  MCP_SERVER_SQLITE_STOP: 'mcpServer/sqlite/stop',
+  MCP_SERVER_PLAYWRIGHT_START: 'mcpServer/playwright/start',
+  MCP_SERVER_PLAYWRIGHT_STOP: 'mcpServer/playwright/stop',
+
   THREAD_START: 'thread/start',
   THREAD_MESSAGES: 'thread/messages',
   THREAD_RESOLVE: 'thread/resolve',
@@ -1131,6 +1137,37 @@ function deleteSkillPayload(callBackend, params) {
   }));
 }
 
+function emptyStrictPayload(method, params = {}) {
+  const payload = assertPlainObject(method, params);
+  if (Object.keys(payload).length > 0) throw new Error(`${method}: params are not supported`);
+  return {};
+}
+
+function createMCPServerApi(callBackend) {
+  return {
+    listMCPServers: (params = {}) => callBackend(
+      RPC_METHODS.MCP_SERVER_LIST,
+      emptyStrictPayload(RPC_METHODS.MCP_SERVER_LIST, params),
+    ),
+    startSQLiteMCPServer: (params = {}) => callBackend(
+      RPC_METHODS.MCP_SERVER_SQLITE_START,
+      emptyStrictPayload(RPC_METHODS.MCP_SERVER_SQLITE_START, params),
+    ),
+    stopSQLiteMCPServer: (params = {}) => callBackend(
+      RPC_METHODS.MCP_SERVER_SQLITE_STOP,
+      emptyStrictPayload(RPC_METHODS.MCP_SERVER_SQLITE_STOP, params),
+    ),
+    startPlaywrightMCPServer: (params = {}) => callBackend(
+      RPC_METHODS.MCP_SERVER_PLAYWRIGHT_START,
+      emptyStrictPayload(RPC_METHODS.MCP_SERVER_PLAYWRIGHT_START, params),
+    ),
+    stopPlaywrightMCPServer: (params = {}) => callBackend(
+      RPC_METHODS.MCP_SERVER_PLAYWRIGHT_STOP,
+      emptyStrictPayload(RPC_METHODS.MCP_SERVER_PLAYWRIGHT_STOP, params),
+    ),
+  };
+}
+
 function createThreadApi(callBackend) {
   return {
     getThreadMessages: (params) => callBackend(RPC_METHODS.THREAD_MESSAGES, requireThreadId(RPC_METHODS.THREAD_MESSAGES, assertPlainObject(RPC_METHODS.THREAD_MESSAGES, params))),
@@ -1265,6 +1302,7 @@ export function createBackendApi(deps = {}) {
     ...createCronApi(callBackend),
     ...createCodeApi(callBackend),
     ...createSkillApi(callBackend),
+    ...createMCPServerApi(callBackend),
     ...createThreadApi(callBackend),
     ...createNativeApi(resolveNativeDeps(deps)),
   };
@@ -1362,6 +1400,11 @@ export const listSkillResolutions = backendApi.listSkillResolutions;
 export const previewSkillResolution = backendApi.previewSkillResolution;
 export const applySkillResolution = backendApi.applySkillResolution;
 export const deleteSkill = backendApi.deleteSkill;
+export const listMCPServers = backendApi.listMCPServers;
+export const startSQLiteMCPServer = backendApi.startSQLiteMCPServer;
+export const stopSQLiteMCPServer = backendApi.stopSQLiteMCPServer;
+export const startPlaywrightMCPServer = backendApi.startPlaywrightMCPServer;
+export const stopPlaywrightMCPServer = backendApi.stopPlaywrightMCPServer;
 export const getThreadMessages = backendApi.getThreadMessages;
 export const resolveThreadIdentity = backendApi.resolveThreadIdentity;
 export const archiveThread = backendApi.archiveThread;

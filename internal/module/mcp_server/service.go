@@ -2,17 +2,15 @@ package mcpserver
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 var (
@@ -45,6 +43,10 @@ type Service interface {
 	ListServersForCWD(context.Context, string) (ListServersResult, error)
 	ListServerTools(context.Context, ListServerToolsRequest) (ListServerToolsResult, error)
 	StartPostgresServer(context.Context, StartPostgresServerRequest) (StartPostgresServerResult, error)
+	StartSQLiteServer(context.Context, StartSQLiteServerRequest) (StartSQLiteServerResult, error)
+	StopSQLiteServer(context.Context, StopSQLiteServerRequest) (StopSQLiteServerResult, error)
+	StartPlaywrightServer(context.Context, StartPlaywrightServerRequest) (StartPlaywrightServerResult, error)
+	StopPlaywrightServer(context.Context, StopPlaywrightServerRequest) (StopPlaywrightServerResult, error)
 	DeleteServer(context.Context, DeleteServerRequest) (DeleteServerResult, error)
 }
 
@@ -86,6 +88,7 @@ type service struct {
 	store             MCPServerConfigStore
 	httpClient        mcpHTTPDoer
 	postgresInstaller postgresInstaller
+	sqlitePath        string
 }
 
 // NewService 创建服务。
@@ -95,11 +98,24 @@ func NewService() Service {
 
 // NewServiceWithStore 创建带配置存储的 MCP server 服务。
 func NewServiceWithStore(store MCPServerConfigStore) Service {
-	return newServiceWithStoreAndInstaller(store, newNPMPostgresInstaller())
+	return newServiceWithStoreInstallerAndSQLitePath(store, newNPMPostgresInstaller(), "")
+}
+
+// NewServiceWithStoreAndConfig 创建带运行时配置的 MCP server 服务，用于解析默认 SQLite MCP server 路径。
+func NewServiceWithStoreAndConfig(store MCPServerConfigStore, cfg *platformconfig.Config) Service {
+	sqlitePath := ""
+	if cfg != nil {
+		sqlitePath = cfg.SQLitePath
+	}
+	return newServiceWithStoreInstallerAndSQLitePath(store, newNPMPostgresInstaller(), sqlitePath)
 }
 
 func newServiceWithStoreAndInstaller(store MCPServerConfigStore, installer postgresInstaller) *service {
-	return &service{store: store, httpClient: defaultMCPHTTPClient, postgresInstaller: installer}
+	return newServiceWithStoreInstallerAndSQLitePath(store, installer, "")
+}
+
+func newServiceWithStoreInstallerAndSQLitePath(store MCPServerConfigStore, installer postgresInstaller, sqlitePath string) *service {
+	return &service{store: store, httpClient: defaultMCPHTTPClient, postgresInstaller: installer, sqlitePath: strings.TrimSpace(sqlitePath)}
 }
 
 // AddServers 添加servers。
@@ -258,7 +274,7 @@ func (p mcpServerConfigProvider) ListMCPServerConfigs(ctx context.Context, cwd s
 	if err != nil {
 		return nil, err
 	}
-	return mcpServersToContract(result.MCPServers), nil
+	return enabledMCPServersToContract(result.MCPServers), nil
 }
 
 func rejectExistingMCPServers(existing map[string]ServerConfig, names []string) error {
@@ -418,6 +434,7 @@ func normalizeHTTPServerConfig(name string, config ServerConfig) (ServerConfig, 
 		Transport: "http",
 		URL:       rawURL,
 		Headers:   headers,
+		Enabled:   normalizeServerEnabled(config.Enabled),
 	}, nil
 }
 
@@ -439,6 +456,7 @@ func normalizeStdioServerConfig(name string, config ServerConfig) (ServerConfig,
 		Command:   command,
 		Args:      args,
 		Env:       env,
+		Enabled:   normalizeServerEnabled(config.Enabled),
 	}, nil
 }
 
@@ -483,6 +501,21 @@ func normalizeStringMap(input map[string]string, emptyKeyErr, emptyValueErr erro
 	return out, nil
 }
 
+func normalizeServerEnabled(enabled *bool) *bool {
+	if enabled == nil {
+		return boolPtr(true)
+	}
+	return boolPtr(*enabled)
+}
+
+func mcpServerConfigEnabled(config ServerConfig) bool {
+	return config.Enabled == nil || *config.Enabled
+}
+
+func boolPtr(value bool) *bool {
+	return &value
+}
+
 func validateHTTPURL(rawURL string) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
@@ -495,157 +528,4 @@ func validateHTTPURL(rawURL string) error {
 		return errInvalidServerURL
 	}
 	return nil
-}
-
-// readMCPServerConfig 读取MCP服务端配置。
-func readMCPServerConfig(configPath string) (ConfigDocument, error) {
-	raw, err := os.ReadFile(configPath)
-	switch {
-	case errors.Is(err, os.ErrNotExist):
-		return ConfigDocument{MCPServers: map[string]ServerConfig{}}, nil
-	case err != nil:
-		return ConfigDocument{}, fmt.Errorf("read mcp server config: %w", err)
-	}
-	var doc ConfigDocument
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		return ConfigDocument{}, fmt.Errorf("%w: %v", errInvalidConfigDocument, err)
-	}
-	if doc.MCPServers == nil {
-		return ConfigDocument{}, errInvalidConfigDocument
-	}
-	for name, config := range doc.MCPServers {
-		normalized, err := normalizeServerConfig(name, config)
-		if err != nil {
-			return ConfigDocument{}, fmt.Errorf("%w: %v", errInvalidConfigDocument, err)
-		}
-		doc.MCPServers[name] = normalized
-	}
-	return doc, nil
-}
-
-func writeMCPServerConfig(configPath string, doc ConfigDocument) error {
-	raw, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal mcp server config: %w", err)
-	}
-	raw = append(raw, '\n')
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		return fmt.Errorf("create mcp server config dir: %w", err)
-	}
-	if err := os.WriteFile(configPath, raw, 0o600); err != nil {
-		return fmt.Errorf("write mcp server config: %w", err)
-	}
-	return nil
-}
-
-func cloneMCPServers(input map[string]ServerConfig) map[string]ServerConfig {
-	out := make(map[string]ServerConfig, len(input))
-	for name, config := range input {
-		config.Headers = cloneStringMap(config.Headers)
-		config.Args = cloneStringList(config.Args)
-		config.Env = cloneStringMap(config.Env)
-		out[name] = config
-	}
-	return out
-}
-
-func cloneStringList(input []string) []string {
-	if len(input) == 0 {
-		return nil
-	}
-	return append([]string(nil), input...)
-}
-
-func cloneStringMap(input map[string]string) map[string]string {
-	if len(input) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
-	return out
-}
-
-// mcpServersToContract 把MCPservers处理为contract。
-func mcpServersToContract(input map[string]ServerConfig) map[string]contract.MCPServerConfig {
-	out := make(map[string]contract.MCPServerConfig, len(input))
-	for name, config := range input {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-		out[name] = contract.MCPServerConfig{
-			Transport: strings.TrimSpace(config.Transport),
-			URL:       strings.TrimSpace(config.URL),
-			Headers:   cloneStringMap(config.Headers),
-			Command:   strings.TrimSpace(config.Command),
-			Args:      cloneStringList(config.Args),
-			Env:       cloneStringMap(config.Env),
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-// resolveMCPServerConfigBaseDir 解析MCP服务端配置base目录。
-func resolveMCPServerConfigBaseDir(cwd string) (string, error) {
-	cwd = strings.TrimSpace(cwd)
-	if cwd == "" {
-		return os.Getwd()
-	}
-	if abs, err := filepath.Abs(cwd); err == nil {
-		cwd = abs
-	}
-	for dir := filepath.Clean(cwd); dir != ""; dir = filepath.Dir(dir) {
-		configPath := mcpServerConfigPath(dir)
-		if _, err := os.Stat(configPath); err == nil {
-			return dir, nil
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("stat mcp server config: %w", err)
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-	}
-	return filepath.Clean(cwd), nil
-}
-
-func mcpServerConfigPath(workingDir string) string {
-	return filepath.Join(workingDir, ".agent", "mcp_server", "config.json")
-}
-
-func currentMCPServerWorkspaceRoot() (string, error) {
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("get working directory: %w", err)
-	}
-	return filepath.Clean(workingDir), nil
-}
-
-func normalizeMCPServerWorkspaceRoot(cwd string) (string, error) {
-	cwd = strings.TrimSpace(cwd)
-	if cwd == "" {
-		return currentMCPServerWorkspaceRoot()
-	}
-	if abs, err := filepath.Abs(cwd); err == nil {
-		cwd = abs
-	}
-	return filepath.Clean(cwd), nil
-}
-
-func mcpServerWorkspaceCandidates(workspaceRoot string) []string {
-	workspaceRoot = filepath.Clean(workspaceRoot)
-	candidates := make([]string, 0, 4)
-	for dir := workspaceRoot; dir != ""; dir = filepath.Dir(dir) {
-		candidates = append(candidates, dir)
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-	}
-	return candidates
 }
