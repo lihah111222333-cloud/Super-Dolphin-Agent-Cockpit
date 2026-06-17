@@ -494,21 +494,39 @@ function promptActiveIdForItems(activePromptId, items, hasPromptSnapshot) {
 }
 
 function usePromptQueries(cwd) {
-  const promptAssetsQuery = useQuery({
+  const {
+    data: promptAssetsData,
+    error: promptAssetsError,
+    isPending: promptAssetsPending,
+    refetch: refetchPromptAssets,
+  } = useQuery({
     queryKey: promptAssetsQueryKey(cwd),
     queryFn: () => fetchPromptAssetsSurface(cwd),
     enabled: Boolean(cwd),
   });
-  const activePromptQuery = useQuery({
+  const {
+    data: activePromptData,
+    error: activePromptError,
+    refetch: refetchActivePrompt,
+  } = useQuery({
     queryKey: activePromptQueryKey(cwd),
     queryFn: () => fetchActivePromptId(cwd),
     enabled: Boolean(cwd),
   });
+  const promptAssetsQuery = {
+    data: promptAssetsData,
+    error: promptAssetsError,
+    isPending: promptAssetsPending,
+  };
+  const activePromptQuery = {
+    data: activePromptData,
+    error: activePromptError,
+  };
   const state = promptQueryState(cwd, promptAssetsQuery, activePromptQuery);
   return {
     ...state,
-    refetchPromptAssets: promptAssetsQuery.refetch,
-    refetchActivePrompt: activePromptQuery.refetch,
+    refetchPromptAssets,
+    refetchActivePrompt,
   };
 }
 

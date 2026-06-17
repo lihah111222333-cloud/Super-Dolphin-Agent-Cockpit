@@ -266,7 +266,8 @@ function useSharedFilesDashboard(store) {
   const queryClient = useQueryClient();
   const queryKey = useMemo(() => dashboardGlobalQueryKey('shared-files'), []);
   useDashboardQueryFocusInvalidation(queryKey);
-  const query = useQuery({ queryKey, queryFn: listSharedFilesDashboard });
+  const { data: queryData, error: queryError, isPending: queryPending } = useQuery({ queryKey, queryFn: listSharedFilesDashboard });
+  const query = { data: queryData, error: queryError, isPending: queryPending };
   const hasSnapshot = queryHasSnapshot(query);
   const data = query.data || {
     files: [],

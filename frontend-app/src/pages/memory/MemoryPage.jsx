@@ -213,11 +213,12 @@ async function waitForMemoryConsolidationJob(cwd, jobID) {
 function useMemoryDashboard(projectPath) {
   const memoryCwd = optionalSettingsCwd(projectPath);
   const queryClient = useQueryClient();
-  const memoryQuery = useQuery({
+  const { data: memoryData, error: memoryError, isPending: memoryPending } = useQuery({
     queryKey: dashboardQueryKey(memoryCwd, 'memory'),
     queryFn: () => fetchMemoryDashboard(memoryCwd),
     enabled: Boolean(memoryCwd),
   });
+  const memoryQuery = { data: memoryData, error: memoryError, isPending: memoryPending };
   const hasSnapshot = queryHasSnapshot(memoryQuery);
   const snapshot = memoryQuery.data || { overview: {}, entries: [] };
   const loading = Boolean(memoryCwd) && memoryQuery.isPending && !hasSnapshot;
@@ -230,11 +231,14 @@ function useMemoryDashboard(projectPath) {
 }
 
 function useMemoryNotice(memoryCwd) {
-  const [notice, setNotice] = useState({ level: 'info', message: '' });
-  useEffect(() => { setNotice({ level: 'info', message: '' }); }, [memoryCwd]);
+  const [noticeState, setNoticeState] = useState({ memoryCwd, notice: { level: 'info', message: '' } });
+  if (noticeState.memoryCwd !== memoryCwd) {
+    setNoticeState({ memoryCwd, notice: { level: 'info', message: '' } });
+  }
+  const notice = noticeState.memoryCwd === memoryCwd ? noticeState.notice : { level: 'info', message: '' };
   const showNotice = useCallback((level, message) => {
-    setNotice({ level: level || 'info', message: memoryNoticeText(message) });
-  }, []);
+    setNoticeState({ memoryCwd, notice: { level: level || 'info', message: memoryNoticeText(message) } });
+  }, [memoryCwd]);
   return { notice, showNotice };
 }
 

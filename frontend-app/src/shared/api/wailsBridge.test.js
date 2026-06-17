@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { waitFor } from '@testing-library/react';
 import { beginTextClipboardWrite, copyTextToClipboard } from './wailsBridge.js';
 
-const runtimeModule = 'http://127.0.0.1:5175/wails/runtime.js';
+const runtimeModule = '/wails/runtime.js';
 const devRuntimeShimModule = '../../../public/wails/runtime.js?test-runtime-shim';
 
 function captureBridgeLogs(registerBridgeLogStore) {

@@ -227,6 +227,32 @@ function normalizePath(value) {
   return path;
 }
 
+function sidebarProjectKey(value) {
+  return normalizePath(value).replace(/\\/g, '/').replace(/\/+$/g, '').toLowerCase();
+}
+
+function sidebarThreadsByProjectWith(state, projectPath, threads) {
+  const key = sidebarProjectKey(projectPath);
+  if (!key) return state.sidebarThreadsByProject || {};
+  return {
+    ...(state.sidebarThreadsByProject || {}),
+    [key]: Array.isArray(threads) ? threads : [],
+  };
+}
+
+function mapSidebarThreadCache(state, mapThreads) {
+  const current = objectRecord(state.sidebarThreadsByProject);
+  let changed = false;
+  const next = {};
+  for (const [projectKey, threads] of Object.entries(current)) {
+    const sourceThreads = Array.isArray(threads) ? threads : [];
+    const mappedThreads = mapThreads(sourceThreads);
+    next[projectKey] = mappedThreads;
+    if (mappedThreads !== threads) changed = true;
+  }
+  return changed ? next : current;
+}
+
 function normalizeTimestamp(value) {
   if (typeof value === 'boolean' || value === null || value === undefined) return 0;
   if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : 0;
@@ -1052,9 +1078,11 @@ function buildSnapshotState(state, payload = {}, options = {}) {
   const timelineState = snapshotTimelines(state, payload, nextThreads);
   const metrics = snapshotThreadMetrics(state, payload, nextThreads, activeThreadId);
   const diffState = snapshotDiffText(state, payload, nextThreads, activeThreadId);
+  const sidebarThreadsByProject = sidebarThreadsByProjectWith(state, maps.scopeCwd, nextThreads);
   return {
     activeThreadId,
     threads: nextThreads,
+    sidebarThreadsByProject,
     pinnedThreadAtById: maps.pinnedAtById,
     timelinesByThread: timelineState.timelinesByThread,
     threadTimelineReadyByThread: timelineState.threadTimelineReadyByThread,
@@ -1564,6 +1592,7 @@ const baseState = {
   memoryPageCacheByCwd: {},
   chatSurfaceLoadingCwd: '',
   threads: [],
+  sidebarThreadsByProject: {},
   pinnedThreadAtById: {},
   activityThreadAtById: {},
   statuses: {},
@@ -1762,9 +1791,10 @@ function attachScopeRuntime(runtime) {
     sequencesByThread.clear();
     threadMessageGenerations.clear();
     threadSyncGenerations.clear();
-    set({
+    set((state) => ({
       activeThreadId: '',
       threads: [],
+      sidebarThreadsByProject: sidebarThreadsByProjectWith(state, cwd, []),
       pinnedThreadAtById: {},
       statuses: {},
       activeTurnByThread: {},
@@ -1785,7 +1815,7 @@ function attachScopeRuntime(runtime) {
       draft: '',
       attachments: [],
       chatSurfaceLoadingCwd: cwd,
-    });
+    }));
   };
 
   const applyProjects = (payload, fallbackCwd) => {
@@ -2894,6 +2924,7 @@ function createThreadRenamePinActions(runtime) {
         await renameThreadRPC({ threadId: id, name: nextName });
         runtime.set((state) => ({
           threads: applyThreadRename(state.threads, id, nextName),
+          sidebarThreadsByProject: mapSidebarThreadCache(state, (threads) => applyThreadRename(threads, id, nextName)),
           actionNotice: actionNotice('线程已重命名', 'success'),
         }));
         return true;
@@ -2928,6 +2959,11 @@ function createThreadRenamePinActions(runtime) {
             pinned: !pinned,
             pinnedAt: nextMap[id] || 0,
           } : thread)),
+          sidebarThreadsByProject: mapSidebarThreadCache(state, (threads) => threads.map((thread) => (thread.id === id ? {
+            ...thread,
+            pinned: !pinned,
+            pinnedAt: nextMap[id] || 0,
+          } : thread))),
           actionNotice: actionNotice(pinned ? '会话已取消置顶' : '会话已置顶', 'success'),
         }));
         return true;
@@ -3055,6 +3091,7 @@ function createThreadDeleteActions(runtime) {
         runtime.set((state) => ({
           activeThreadId: deletedSet.has(state.activeThreadId) ? '' : state.activeThreadId,
           threads: state.threads.filter((thread) => !deletedSet.has(thread.id)),
+          sidebarThreadsByProject: mapSidebarThreadCache(state, (threads) => threads.filter((thread) => !deletedSet.has(thread.id))),
           actionNotice: actionNotice(
             failedIds.length > 0
               ? `已删除 ${deletedIds.length} 个无用会话，${failedIds.length} 个失败`

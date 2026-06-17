@@ -139,6 +139,34 @@
   place-items: center;
 }
 
+.composer-context {
+  min-width: 0;
+  max-width: min(240px, 36vw);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-2) 92%, var(--bg));
+  color: var(--text-sec);
+  padding: 0 11px;
+  min-height: 32px;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.composer-context svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.composer-context span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .composer-fork {
   color: var(--info);
 }
