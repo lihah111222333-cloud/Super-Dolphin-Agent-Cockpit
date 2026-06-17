@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { isCancelledError, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Workflow, Clock, Bell, BookOpen, BarChart3, ChevronDown } from 'lucide-react';
+import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.jsx';
@@ -826,9 +827,9 @@ function rootAssigneeWarning(nodes = []) {
   return names ? `首个步骤「${names}」缺少执行者，请先在高级设置中填写执行者。` : '首个步骤缺少执行者，请先在高级设置中填写执行者。';
 }
 
-function WorkflowPage({ projectPath, store, refreshKey = 0 }) {
+function WorkflowPage({ copy = APP_COPY.zh.workflow, projectPath, store, refreshKey = 0 }) {
   const model = useWorkflowPageController({ projectPath, refreshKey, store });
-  return <WorkflowPageView model={model} />;
+  return <WorkflowPageView copy={copy} model={model} />;
 }
 
 function useWorkflowPageController({ projectPath, refreshKey, store }) {
@@ -1396,66 +1397,66 @@ function workflowDesignThreadPayload(cwd, launchConfig, launchPayload) {
   };
 }
 
-function AutomationEmptyState({ onStartChat }) {
+function AutomationEmptyState({ copy, onStartChat }) {
   return (
     <div className="automation-empty-state">
       <div className="empty-clock-wrapper">
         <Clock size={40} className="empty-clock-icon" />
       </div>
-      <h2>创建首个自动化</h2>
+      <h2>{copy.createFirst}</h2>
       <div className="automation-presets-row">
         <button type="button" className="preset-pill" onClick={onStartChat}>
           <Bell size={16} className="preset-icon bell" />
-          <span>每日简报</span>
+          <span>{copy.dailyBrief}</span>
         </button>
         <button type="button" className="preset-pill" onClick={onStartChat}>
           <BookOpen size={16} className="preset-icon doc" />
-          <span>每周回顾</span>
+          <span>{copy.weeklyReview}</span>
         </button>
         <button type="button" className="preset-pill" onClick={onStartChat}>
           <BarChart3 size={16} className="preset-icon chart" />
-          <span>项目监控</span>
+          <span>{copy.projectMonitor}</span>
         </button>
       </div>
     </div>
   );
 }
 
-function WorkflowPageView({ model }) {
+function WorkflowPageView({ copy, model }) {
   const { derived, isProjectPending, list, actions } = model;
   const isEmpty = !isProjectPending && !derived.blockingLoadError && !list.loading && derived.overviewStats.total === 0;
 
   return (
     <section className="workflow-page">
-      <WorkflowHeader model={model} />
-      <WorkflowMessages model={model} />
+      <WorkflowHeader copy={copy} model={model} />
+      <WorkflowMessages copy={copy} model={model} />
       {isEmpty ? (
-        <AutomationEmptyState onStartChat={() => { void actions.startDesignFlow(); }} />
+        <AutomationEmptyState copy={copy} onStartChat={() => { void actions.startDesignFlow(); }} />
       ) : (
-        <WorkflowGrid model={model} />
+        <WorkflowGrid copy={copy} model={model} />
       )}
       <WorkflowModals model={model} />
     </section>
   );
 }
 
-function WorkflowHeader({ model }) {
+function WorkflowHeader({ copy, model }) {
   const { actionState, actions, isProjectPending } = model;
   return (
     <PageHeader
       icon={Workflow}
-      title="自动化"
+      title={copy.title}
       subtitle={
-        isProjectPending ? '正在连接本地项目...' : (
+        isProjectPending ? copy.connecting : (
           <span>
-            按计划或按需运行聊天。 <button type="button" className="learn-more-link">了解更多</button>
+            {copy.subtitle} <button type="button" className="learn-more-link">{copy.learnMore}</button>
           </span>
         )
       }
       actions={(
         <div className="automation-header-actions">
           <button type="button" className="btn-outline">
-            查看模板
+            {copy.viewTemplates}
           </button>
           <button
             type="button"
@@ -1463,7 +1464,7 @@ function WorkflowHeader({ model }) {
             onClick={() => { void actions.startDesignFlow(); }}
             disabled={isProjectPending || actionState.actioning === 'design'}
           >
-            <span>通过聊天创建</span>
+            <span>{copy.createByChat}</span>
             <ChevronDown size={14} className="dropdown-arrow-icon" />
           </button>
         </div>
@@ -1472,50 +1473,50 @@ function WorkflowHeader({ model }) {
   );
 }
 
-function WorkflowMessages({ model }) {
+function WorkflowMessages({ copy, model }) {
   const { actionState, derived, refresh } = model;
   return (
     <>
-      {derived.syncError ? <WorkflowSyncAlert message={derived.syncError} onRetry={refresh.refreshWorkflowSurface} /> : null}
+      {derived.syncError ? <WorkflowSyncAlert copy={copy} message={derived.syncError} onRetry={refresh.refreshWorkflowSurface} /> : null}
       {actionState.error ? <p className="danger-text" role="alert">{actionState.error}</p> : null}
       <RetryableSyncError className="danger-text workflow-sync-alert" message={derived.blockingLoadError} onRetry={refresh.refreshWorkflowSurface} />
     </>
   );
 }
 
-function WorkflowSyncAlert({ message, onRetry }) {
+function WorkflowSyncAlert({ copy, message, onRetry }) {
   return (
     <div className="danger-text workflow-sync-alert" role="alert">
       <span>{message}</span>
-      <button type="button" className="ghost" onClick={() => { void onRetry().catch(() => {}); }}>重试同步</button>
+      <button type="button" className="ghost" onClick={() => { void onRetry().catch(() => {}); }}>{copy.retrySync}</button>
     </div>
   );
 }
 
-function WorkflowGrid({ model }) {
+function WorkflowGrid({ copy, model }) {
   return (
     <div className="workflow-grid">
-      <WorkflowList model={model} />
-      <WorkflowDetail model={model} />
+      <WorkflowList copy={copy} model={model} />
+      <WorkflowDetail copy={copy} model={model} />
     </div>
   );
 }
 
-function WorkflowList({ model }) {
+function WorkflowList({ copy, model }) {
   const { derived, isProjectPending, list, selection } = model;
   return (
     <aside className="workflow-list">
-      <WorkflowCategoryTabs selection={selection} />
-      {!isProjectPending && list.loading ? <p className="console-message">正在加载自动化...</p> : null}
-      {!isProjectPending && !derived.blockingLoadError && !list.loading && selection.visibleItems.length === 0 ? <p className="console-message">无任务</p> : null}
-      {selection.visibleItems.map((item) => <WorkflowListItem item={item} key={item.id} selection={selection} />)}
+      <WorkflowCategoryTabs copy={copy} selection={selection} />
+      {!isProjectPending && list.loading ? <p className="console-message">{copy.loading}</p> : null}
+      {!isProjectPending && !derived.blockingLoadError && !list.loading && selection.visibleItems.length === 0 ? <p className="console-message">{copy.noTasks}</p> : null}
+      {selection.visibleItems.map((item) => <WorkflowListItem copy={copy} item={item} key={item.id} selection={selection} />)}
     </aside>
   );
 }
 
-function WorkflowCategoryTabs({ selection }) {
+function WorkflowCategoryTabs({ copy, selection }) {
   return (
-    <div className="tabs" role="tablist" aria-label="自动化分类">
+    <div className="tabs" role="tablist" aria-label={copy.categoriesAria}>
       {DAG_CATEGORIES.map((category) => (
         <button
           key={category.key}
@@ -1525,42 +1526,42 @@ function WorkflowCategoryTabs({ selection }) {
           className={selection.activeCategory === category.key ? 'active' : ''}
           onClick={() => selection.chooseCategory(category.key)}
         >
-          {category.label} {selection.counts[category.key] || 0}
+          {copy.categories[category.key]} {selection.counts[category.key] || 0}
         </button>
       ))}
     </div>
   );
 }
 
-function WorkflowListItem({ item, selection }) {
+function WorkflowListItem({ copy, item, selection }) {
   const recentLabel = latestDagRunLabel(item);
   return (
     <button type="button" className={item.dagKey === selection.selectedDagKey ? 'active' : ''} onClick={() => selection.setSelectedDagKey(item.dagKey)}>
       <strong>{item.title}</strong>
-      <span>{recentLabel === '-' ? '暂无运行' : '最近运行：' + recentLabel}</span>
+      <span>{recentLabel === '-' ? copy.noRuns : copy.recentRunPrefix + recentLabel}</span>
       <em>{displayDagStatusLabel(item)} · {schedulePlanLabel(item)} · {recentLabel}</em>
     </button>
   );
 }
 
-function WorkflowDetail({ model }) {
+function WorkflowDetail({ copy, model }) {
   if (!model.derived.activeDetailDag) {
     return (
       <section className="workflow-detail">
-        <WorkflowOverview derived={model.derived} />
-        <EmptyState icon={Workflow} title="暂无自动化" text="左侧选择自动化后查看详情。" />
+        <WorkflowOverview copy={copy} derived={model.derived} />
+        <EmptyState icon={Workflow} title={copy.noAutomationTitle} text={copy.noAutomationText} />
       </section>
     );
   }
-  return <WorkflowDetailContent model={model} />;
+  return <WorkflowDetailContent copy={copy} model={model} />;
 }
 
-function WorkflowDetailContent({ model }) {
+function WorkflowDetailContent({ copy, model }) {
   const { derived, detail, notices, selection } = model;
   return (
     <section className="workflow-detail">
       <WorkflowDetailTop model={model} />
-      <WorkflowOverview derived={derived} />
+      <WorkflowOverview copy={copy} derived={derived} />
       {detail.detailLoading ? <p className="console-message">正在加载详情...</p> : null}
       {notices.notice?.message && notices.notice.dagKey === selection.selectedDagKey ? <p className="settings-status">{notices.notice.message}</p> : null}
       {derived.startDisabledReason ? <p className="console-message">{derived.startDisabledReason}</p> : null}
@@ -1581,20 +1582,20 @@ function WorkflowDetailContent({ model }) {
   );
 }
 
-function WorkflowOverview({ derived }) {
+function WorkflowOverview({ copy, derived }) {
   const stats = derived.overviewStats;
   const metrics = [
-    ['全部自动化', stats.total],
-    ['运行中', stats.running],
-    ['定时任务', stats.scheduled],
-    ['可启动', stats.startable],
-    ['最终产物', stats.finalOutputs],
+    [copy.metrics.total, stats.total],
+    [copy.metrics.running, stats.running],
+    [copy.metrics.scheduled, stats.scheduled],
+    [copy.metrics.startable, stats.startable],
+    [copy.metrics.finalOutputs, stats.finalOutputs],
   ];
   return (
-    <section className="workflow-overview" aria-label="自动化资产">
+    <section className="workflow-overview" aria-label={copy.overviewAria}>
       <div className="workflow-overview-copy">
-        <span>当前资产</span>
-        <h2>自动化和运行状态</h2>
+        <span>{copy.currentAssets}</span>
+        <h2>{copy.overviewTitle}</h2>
       </div>
       <dl>
         {metrics.map(([label, value]) => (

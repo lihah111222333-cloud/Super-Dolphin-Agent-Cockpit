@@ -91,6 +91,7 @@ const TimelineMessage = memo(function TimelineMessage({
   message,
   actions,
   activeThreadId,
+  copy,
   smoothStreaming,
   onScrollIfSticky,
   formatTime,
@@ -130,7 +131,7 @@ const TimelineMessage = memo(function TimelineMessage({
         {!isUser && message.role === 'assistant' ? (
           <div className="assistant-footer">
             <time>{formatTime(message.time)}</time>
-            <AssistantMessageActions text={message.text} />
+            <AssistantMessageActions copy={copy} text={message.text} />
           </div>
         ) : null}
       </div>

@@ -7,6 +7,7 @@ import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.
 import { dashboardQueryKey, errorMessage, fetchMemoryDashboard, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, useDashboardFocusInvalidation, textValue } from './pages/shared/pageShared.js';
 import { ProjectSelector } from './pages/chat/components/ProjectSelector.jsx';
 import { runUIAction } from './shared/ui/runUIAction.js';
+import { APP_BRAND_NAME, APP_COPY, APP_LANGUAGE_STORAGE_KEY, initialAppLocale } from './shared/i18n/appI18n.js';
 import superDolphinLogo from './assets/super-dolphin-logo.png';
 import './AppChrome.css';
 import './AppShell.css';
@@ -33,27 +34,16 @@ const SkillsPage = lazyNamedPage(() => import('./pages/skills/SkillsPage.jsx'), 
 const WorkflowPage = lazyNamedPage(() => import('./pages/workflows/WorkflowPage.jsx'), 'WorkflowPage');
 
 const primaryNavItems = [
-  { id: 'skills', label: '插件与技能', displayLabel: '插件', icon: Puzzle },
-  { id: 'workflows', label: '自动化', icon: RefreshCw },
-  { id: 'prompts', label: '提示词', displayLabel: '定制角色', icon: CircleUserRound },
-  { id: 'files', label: '共享文件', icon: FolderOpen },
+  { id: 'skills', labelKey: 'skills', displayLabelKey: 'skillsShort', icon: Puzzle },
+  { id: 'workflows', labelKey: 'workflows', icon: RefreshCw },
+  { id: 'prompts', labelKey: 'prompts', displayLabelKey: 'promptsShort', icon: CircleUserRound },
+  { id: 'files', labelKey: 'files', icon: FolderOpen },
 ];
 
 const secondaryNavItems = [
-  { id: 'memory', label: '记忆中心', icon: Brain },
-  { id: 'observability', label: '链路追踪', icon: Search },
+  { id: 'memory', labelKey: 'memory', icon: Brain },
+  { id: 'observability', labelKey: 'observability', icon: Search },
 ];
-
-const pageLabels = Object.freeze({
-  chat: '聊天页面',
-  skills: '插件与技能',
-  prompts: '提示词',
-  workflows: '自动化',
-  memory: '记忆中心',
-  files: '共享文件',
-  observability: '链路追踪',
-  settings: '设置',
-});
 
 const DASHBOARD_QUERY_STALE_MS = 30_000;
 
@@ -89,6 +79,19 @@ function useColorTheme() {
   }, []);
 
   return { theme, toggleTheme };
+}
+
+function useAppLanguage() {
+  const [locale, setLocale] = useState(initialAppLocale);
+  const copy = APP_COPY[locale] || APP_COPY.zh;
+  const toggleLocale = useCallback(() => {
+    setLocale((current) => {
+      const next = current === 'zh' ? 'en' : 'zh';
+      window.localStorage.setItem(APP_LANGUAGE_STORAGE_KEY, next);
+      return next;
+    });
+  }, []);
+  return { copy, locale, toggleLocale };
 }
 
 function createDashboardQueryClient() {
@@ -240,16 +243,17 @@ function uiActionOptions(store) {
 function PageLoadingFallback() {
   return (
     <div className="empty-state" aria-live="polite">
-      <h2>正在加载页面</h2>
-      <p>请稍候</p>
+      <h2>{APP_COPY.zh.pageLoadingTitle}</h2>
+      <p>{APP_COPY.zh.pageLoadingDescription}</p>
     </div>
   );
 }
 
-function ChatPageRoute({ projectPath, rightPanelOpen, setRightPanelOpen }) {
+function ChatPageRoute({ copy, projectPath, rightPanelOpen, setRightPanelOpen }) {
   const store = useClientStore();
   return (
     <ChatPage
+      copy={copy.chat}
       store={store}
       projectPath={projectPath}
       rightPanelOpen={rightPanelOpen}
@@ -258,36 +262,37 @@ function ChatPageRoute({ projectPath, rightPanelOpen, setRightPanelOpen }) {
   );
 }
 
-function PromptPageRoute({ projectPath, refreshKey }) {
+function PromptPageRoute({ copy, projectPath, refreshKey }) {
   const resolveLaunchPreferences = useClientStore((state) => state.resolveLaunchPreferences);
   const store = useMemo(() => ({ resolveLaunchPreferences }), [resolveLaunchPreferences]);
-  return <PromptPage projectPath={projectPath} store={store} refreshKey={refreshKey} />;
+  return <PromptPage copy={copy.prompts} projectPath={projectPath} store={store} refreshKey={refreshKey} />;
 }
 
-function WorkflowPageRoute({ projectPath, refreshKey }) {
+function WorkflowPageRoute({ copy, projectPath, refreshKey }) {
   const store = useClientStore();
-  return <WorkflowPage projectPath={projectPath} store={store} refreshKey={refreshKey} />;
+  return <WorkflowPage copy={copy.workflow} projectPath={projectPath} store={store} refreshKey={refreshKey} />;
 }
 
-function FilesPageRoute({ projectPath }) {
+function FilesPageRoute({ copy, projectPath }) {
   const store = useClientStore();
-  return <FilesPage projectPath={projectPath} store={store} />;
+  return <FilesPage copy={copy.files} projectPath={projectPath} store={store} />;
 }
 
-function ActivePageContent({ activePage, store, projectPath, memoryRevision, setMemoryPageSimilarCount, rightPanelOpen, setRightPanelOpen }) {
+function ActivePageContent({ activePage, copy, store, projectPath, memoryRevision, setMemoryPageSimilarCount, rightPanelOpen, setRightPanelOpen }) {
   if (activePage === 'chat') {
     return (
       <ChatPageRoute
+        copy={copy}
         projectPath={projectPath}
         rightPanelOpen={rightPanelOpen}
         setRightPanelOpen={setRightPanelOpen}
       />
     );
   }
-  if (activePage === 'prompts') return <PromptPageRoute projectPath={projectPath} refreshKey={store.promptRevision} />;
-  if (activePage === 'workflows') return <WorkflowPageRoute projectPath={projectPath} refreshKey={store.workflowRevision} />;
+  if (activePage === 'prompts') return <PromptPageRoute copy={copy} projectPath={projectPath} refreshKey={store.promptRevision} />;
+  if (activePage === 'workflows') return <WorkflowPageRoute copy={copy} projectPath={projectPath} refreshKey={store.workflowRevision} />;
   if (activePage === 'skills') {
-    return <SkillsPage projectPath={projectPath} refreshKey={store.skillRevision} resolveLaunchPreferences={store.resolveLaunchPreferences} />;
+    return <SkillsPage copy={copy.skills} projectPath={projectPath} refreshKey={store.skillRevision} resolveLaunchPreferences={store.resolveLaunchPreferences} />;
   }
   if (activePage === 'memory') {
     return (
@@ -295,13 +300,14 @@ function ActivePageContent({ activePage, store, projectPath, memoryRevision, set
         projectPath={projectPath}
         refreshKey={memoryRevision}
         onSimilarCountChange={setMemoryPageSimilarCount}
+        copy={copy.memory}
         resolveLaunchPreferences={store.resolveLaunchPreferences}
       />
     );
   }
-  if (activePage === 'files') return <FilesPageRoute projectPath={projectPath} />;
-  if (activePage === 'observability') return <ObservabilityPage />;
-  if (activePage === 'settings') return <SettingsPage projectPath={projectPath} />;
+  if (activePage === 'files') return <FilesPageRoute copy={copy} projectPath={projectPath} />;
+  if (activePage === 'observability') return <ObservabilityPage copy={copy.observability} />;
+  if (activePage === 'settings') return <SettingsPage copy={copy.settings} projectPath={projectPath} />;
   return null;
 }
 
@@ -391,13 +397,10 @@ function useAppShellState(store, skipBootstrap) {
   useAppBootstrap(store.bootstrap, skipBootstrap);
   const projectPath = store.activeProject && store.activeProject !== '.' ? store.activeProject : store.cwd || '未选择项目';
   const memoryBadge = useMemoryBadgeState(store, projectPath);
-  const activeLabel = useMemo(() => (
-    pageLabels[store.activePage] || pageLabels.chat
-  ), [store.activePage]);
   const { theme, toggleTheme } = useColorTheme();
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const updateBanner = useAppUpdateBanner(skipBootstrap);
-  return { activeLabel, memoryBadge, projectPath, theme, toggleTheme, rightPanelOpen, setRightPanelOpen, updateBanner };
+  return { memoryBadge, projectPath, theme, toggleTheme, rightPanelOpen, setRightPanelOpen, updateBanner };
 }
 
 const WORKBENCH_SIDEBAR_MIN_WIDTH = 280;
@@ -423,7 +426,9 @@ function workbenchSidebarNextKeyboardWidth(event, currentWidth) {
   return nextWidthByKey[event.key] ?? null;
 }
 
-function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggleTheme, rightPanelOpen, setRightPanelOpen, updateBanner }) {
+function AppWindow({ memoryBadge, projectPath, store, theme, toggleTheme, rightPanelOpen, setRightPanelOpen, updateBanner }) {
+  const { copy, locale, toggleLocale } = useAppLanguage();
+  const activeLabel = copy.nav[store.activePage] || copy.nav.chat;
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     const isTest = typeof globalThis !== 'undefined' && globalThis.process?.env?.NODE_ENV === 'test';
     if (isTest) return false;
@@ -481,21 +486,21 @@ function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggle
       <button
         type="button"
         className="workbench-toggle"
-        aria-label={sidebarOpen ? '关闭工作台' : '打开工作台'}
+        aria-label={sidebarOpen ? copy.workbench.close : copy.workbench.open}
         aria-controls="app-sidebar"
         aria-expanded={sidebarOpen}
         onClick={() => setSidebarOpen((open) => !open)}
       >
         <SidebarToggleIcon size={22} aria-hidden="true" />
       </button>
-      {sidebarOpen ? <button type="button" className="sidebar-scrim" aria-label="关闭工作台" onClick={closeSidebar} /> : null}
+      {sidebarOpen ? <button type="button" className="sidebar-scrim" aria-label={copy.workbench.close} onClick={closeSidebar} /> : null}
       <div className="sa-body" style={{ '--workbench-sidebar-width': `${workbenchSidebarWidth}px` }}>
         {!sidebarOpen && (
           <button
             type="button"
             className="sidebar-expand-trigger"
-            aria-label="展开侧栏"
-            title="展开侧栏"
+            aria-label={copy.workbench.expand}
+            title={copy.workbench.expand}
             onClick={() => setSidebarOpen(true)}
           >
             <PanelLeftOpen size={20} aria-hidden="true" />
@@ -503,7 +508,9 @@ function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggle
         )}
         <WorkbenchSidebar
           activePage={store.activePage}
+          copy={copy}
           isOpen={sidebarOpen}
+          locale={locale}
           sidebarWidth={workbenchSidebarWidth}
           onSidebarResizeKeyDown={handleWorkbenchSidebarResizeKeyDown}
           onSidebarResizeStart={beginWorkbenchSidebarResize}
@@ -511,15 +518,17 @@ function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggle
           store={store}
           projectPath={projectPath}
           theme={theme}
+          toggleLocale={toggleLocale}
           toggleTheme={toggleTheme}
           memorySimilarCount={memoryBadge.memorySimilarCount}
           onCloseSidebar={() => setSidebarOpen(false)}
         />
         <main className="sa-main">
-          <AppUpdateBanner updateBanner={updateBanner} />
+          <AppUpdateBanner copy={copy.update} updateBanner={updateBanner} />
           <Suspense fallback={<PageLoadingFallback />}>
             <ActivePageContent
               activePage={store.activePage}
+              copy={copy}
               store={store}
               projectPath={projectPath}
               memoryRevision={memoryBadge.memoryRevision}
@@ -528,30 +537,30 @@ function AppWindow({ activeLabel, memoryBadge, projectPath, store, theme, toggle
               setRightPanelOpen={setRightPanelOpen}
             />
           </Suspense>
-          <span className="sr-only">当前页面：{activeLabel}</span>
+          <span className="sr-only">{copy.currentPagePrefix}: {activeLabel}</span>
         </main>
       </div>
     </div>
   );
 }
 
-function AppUpdateBanner({ updateBanner }) {
+function AppUpdateBanner({ copy = APP_COPY.zh.update, updateBanner }) {
   if (!updateBanner?.update) return null;
   const version = updateVersionFromResult(updateBanner.update);
   const installing = updateBanner.status === 'installing';
   return (
     <section className="app-update-banner" data-testid="app-update-banner" role="status">
       <div className="app-update-copy">
-        <strong>发现新版本{version ? ` ${version}` : ''}</strong>
-        <span>建议更新到最新版，以获得最新功能和修复。</span>
+        <strong>{copy.available}{version ? ` ${version}` : ''}</strong>
+        <span>{copy.description}</span>
         {updateBanner.message ? <small>{updateBanner.message}</small> : null}
       </div>
       <div className="app-update-actions">
         <button type="button" className="app-update-primary" onClick={updateBanner.install} disabled={installing}>
-          {installing ? '正在更新…' : '立即更新'}
+          {installing ? copy.installing : copy.install}
         </button>
         <button type="button" className="app-update-secondary" onClick={updateBanner.dismiss} disabled={installing}>
-          稍后
+          {copy.dismiss}
         </button>
       </div>
     </section>
@@ -575,9 +584,9 @@ function App(props) {
 
 function projectNameFromPath(projectPath) {
   const value = textValue(projectPath);
-  if (!value || value === '未选择项目') return 'Super-Dolphin';
+  if (!value || value === '未选择项目') return APP_BRAND_NAME;
   const normalized = value.replace(/\\/g, '/').replace(/\/+$/g, '');
-  return normalized.split('/').filter(Boolean).pop() || 'Super-Dolphin';
+  return normalized.split('/').filter(Boolean).pop() || APP_BRAND_NAME;
 }
 
 function projectDirectoryItems(projectPath, projects = [], activeProject = '') {
@@ -592,7 +601,7 @@ function projectDirectoryItems(projectPath, projects = [], activeProject = '') {
   add(activeProject);
   add(projectPath);
   projects.forEach(add);
-  return items.length ? items : [{ path: '', name: 'Super-Dolphin' }];
+  return items.length ? items : [{ path: '', name: APP_BRAND_NAME }];
 }
 
 function projectTreeKey(value) {
@@ -651,11 +660,13 @@ function projectThreadLabel(thread = {}) {
   return label;
 }
 
-function SidebarNavList({ items, activePage, setActivePage, memoryBadgeCount = 0, testId, className }) {
+function SidebarNavList({ copy, items, activePage, setActivePage, memoryBadgeCount = 0, testId, className }) {
   return (
     <nav className={`app-sidebar-nav ${className || ''}`} data-testid={testId}>
       {items.map((item) => {
         const Icon = item.icon;
+        const label = copy.nav[item.labelKey];
+        const displayLabel = item.displayLabelKey ? copy.nav[item.displayLabelKey] : label;
         const badgeCount = item.id === 'memory' ? memoryBadgeCount : 0;
         return (
           <button
@@ -663,11 +674,11 @@ function SidebarNavList({ items, activePage, setActivePage, memoryBadgeCount = 0
             type="button"
             className={activePage === item.id ? 'active' : ''}
             onClick={() => setActivePage(item.id)}
-            aria-label={item.label}
+            aria-label={label}
           >
             <Icon size={22} aria-hidden="true" />
-            <span>{item.displayLabel || item.label}</span>
-            {badgeCount > 0 ? <i aria-hidden="true" title={`${badgeCount} 条待整合相似记忆`} /> : null}
+            <span>{displayLabel}</span>
+            {badgeCount > 0 ? <i aria-hidden="true" title={`${badgeCount} ${copy.workbench.memoryBadgeTitle}`} /> : null}
           </button>
         );
       })}
@@ -676,13 +687,13 @@ function SidebarNavList({ items, activePage, setActivePage, memoryBadgeCount = 0
 }
 
 
-function formatRelativeTime(dateString) {
+function formatRelativeTime(dateString, copy = APP_COPY.zh.workbench.relativeTime) {
   if (!dateString) return '';
   const date = new Date(dateString);
   if (isNaN(date.getTime())) return '';
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
-  if (diffMs < 0) return '刚刚';
+  if (diffMs < 0) return copy.now;
 
   const diffSecs = Math.floor(diffMs / 1000);
   const diffMins = Math.floor(diffSecs / 60);
@@ -691,12 +702,12 @@ function formatRelativeTime(dateString) {
   const diffWeeks = Math.floor(diffDays / 7);
   const diffMonths = Math.floor(diffDays / 30);
 
-  if (diffMins < 1) return '刚刚';
-  if (diffMins < 60) return `${diffMins} 分`;
-  if (diffHours < 24) return `${diffHours} 小时`;
-  if (diffDays < 7) return `${diffDays} 天`;
-  if (diffWeeks < 5) return `${diffWeeks} 周`;
-  return `${diffMonths} 月`;
+  if (diffMins < 1) return copy.now;
+  if (diffMins < 60) return copy.minute.replace('{count}', diffMins);
+  if (diffHours < 24) return copy.hour.replace('{count}', diffHours);
+  if (diffDays < 7) return copy.day.replace('{count}', diffDays);
+  if (diffWeeks < 5) return copy.week.replace('{count}', diffWeeks);
+  return copy.month.replace('{count}', diffMonths);
 }
 
 function useSidebarThreadActions(store) {
@@ -780,6 +791,7 @@ function useSidebarThreadActions(store) {
 function SidebarThreadRow({
   active,
   archiveLabel,
+  copy = APP_COPY.zh.workbench,
   label,
   onArchive,
   onSelect,
@@ -794,13 +806,13 @@ function SidebarThreadRow({
   if (deleting) {
     return (
       <li className="sidebar-thread-row sidebar-thread-row--confirm">
-        <span>删除此会话？</span>
+        <span>{copy.deleteQuestion}</span>
         <div className="sidebar-thread-confirm-actions">
           <button type="button" onClick={(event) => threadActions.confirmDelete(thread.id, event)}>
-            删除
+            {copy.delete}
           </button>
           <button type="button" onClick={threadActions.cancelDelete}>
-            取消
+            {copy.cancel}
           </button>
         </div>
       </li>
@@ -812,7 +824,7 @@ function SidebarThreadRow({
       <li className="sidebar-thread-row sidebar-thread-row--editing">
         <form className="sidebar-thread-rename" onSubmit={(event) => threadActions.submitRename(thread, event)}>
           <input
-            aria-label="会话名称"
+            aria-label={copy.conversationName}
             autoFocus
             disabled={renaming}
             maxLength={64}
@@ -826,7 +838,7 @@ function SidebarThreadRow({
           />
           <button
             type="submit"
-            aria-label="保存会话名称"
+            aria-label={copy.saveConversationName}
             disabled={renaming}
             onMouseDown={(event) => event.preventDefault()}
           >
@@ -834,7 +846,7 @@ function SidebarThreadRow({
           </button>
           <button
             type="button"
-            aria-label="取消重命名"
+            aria-label={copy.cancelRename}
             disabled={renaming}
             onClick={threadActions.cancelRename}
             onMouseDown={(event) => event.preventDefault()}
@@ -857,16 +869,16 @@ function SidebarThreadRow({
       >
         <span className="sidebar-thread-title">{label}</span>
         {thread.updatedAt && (
-          <span className="sidebar-thread-time" aria-hidden="true">{formatRelativeTime(thread.updatedAt)}</span>
+          <span className="sidebar-thread-time" aria-hidden="true">{formatRelativeTime(thread.updatedAt, copy.relativeTime)}</span>
         )}
       </button>
-      <div className="thread-inline-actions" aria-label="会话操作">
+      <div className="thread-inline-actions" aria-label={copy.conversationActions}>
         <button
           type="button"
           className="thread-inline-action-btn"
           onClick={(event) => threadActions.beginRename(thread, event)}
-          aria-label={`重命名会话：${label}`}
-          title="重命名"
+          aria-label={`${copy.renameConversation}：${label}`}
+          title={copy.renameConversation}
         >
           <Pencil size={13} aria-hidden="true" />
         </button>
@@ -883,8 +895,8 @@ function SidebarThreadRow({
           type="button"
           className="thread-inline-action-btn danger"
           onClick={(event) => threadActions.beginDelete(thread.id, event)}
-          aria-label={`删除会话：${label}`}
-          title="删除"
+          aria-label={`${copy.delete}：${label}`}
+          title={copy.delete}
         >
           <Trash2 size={13} aria-hidden="true" />
         </button>
@@ -893,7 +905,7 @@ function SidebarThreadRow({
   );
 }
 
-function SidebarProjectTree({ projectPath, setActivePage, store }) {
+function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActivePage, store }) {
   const [expandedProjects, setExpandedProjects] = useState({});
   const threadActions = useSidebarThreadActions(store);
   const actionOptions = uiActionOptions(store);
@@ -925,12 +937,12 @@ function SidebarProjectTree({ projectPath, setActivePage, store }) {
     runUIAction(() => store?.archiveThread?.(threadId, true), actionOptions);
   };
   return (
-    <section className="sidebar-project-tree" aria-label="项目">
+    <section className="sidebar-project-tree" aria-label={copy.projects}>
       <div className="sidebar-section-heading">
         <span className="sidebar-section-title">
-          <span>项目</span>
+          <span>{copy.projects}</span>
         </span>
-        <button type="button" className="sidebar-icon-action" aria-label="添加项目目录" onClick={addProject}>
+        <button type="button" className="sidebar-icon-action" aria-label={copy.addProject} onClick={addProject}>
           <Plus size={16} aria-hidden="true" />
         </button>
       </div>
@@ -946,12 +958,12 @@ function SidebarProjectTree({ projectPath, setActivePage, store }) {
                 type="button"
                 className={`sidebar-tree-folder${isActiveProject ? ' active' : ''}`}
                 onClick={() => selectProject(item.path)}
-                aria-label={`选择项目 ${item.name}`}
+                aria-label={`${copy.selectProject} ${item.name}`}
               >
                 <Folder size={18} aria-hidden="true" />
                 <span>{item.name}</span>
               </button>
-              <ul className="sidebar-project-thread-list" aria-label={`${item.name} 聊天记录`}>
+              <ul className="sidebar-project-thread-list" aria-label={`${item.name} ${copy.projectChatsSuffix}`}>
                 {visibleThreads.length > 0 ? visibleThreads.map((thread) => {
                   const label = projectThreadLabel(thread);
                   const active = thread.id === store?.activeThreadId;
@@ -960,11 +972,12 @@ function SidebarProjectTree({ projectPath, setActivePage, store }) {
                       <SidebarThreadRow
                         key={thread.id}
                         active={active}
-                        archiveLabel="归档此项目会话"
+                        archiveLabel={copy.archiveProjectThread}
+                        copy={copy}
                         label={label}
                         onArchive={(event) => archiveThread(thread.id, event)}
                         onSelect={() => selectThread(thread.id)}
-                        openLabel={`打开项目聊天：${label}`}
+                        openLabel={`${copy.openProjectThread}：${label}`}
                         thread={thread}
                         threadActions={threadActions}
                       />
@@ -976,27 +989,27 @@ function SidebarProjectTree({ projectPath, setActivePage, store }) {
                         type="button"
                         className={`sidebar-project-thread${active ? ' active' : ''}`}
                         onClick={() => selectThread(thread.id)}
-                        aria-label={`打开项目聊天：${label}`}
+                        aria-label={`${copy.openProjectThread}：${label}`}
                         title={label}
                       >
                         <span className="sidebar-thread-title">{label}</span>
                         {thread.updatedAt && (
-                          <span className="sidebar-thread-time" aria-hidden="true">{formatRelativeTime(thread.updatedAt)}</span>
+                          <span className="sidebar-thread-time" aria-hidden="true">{formatRelativeTime(thread.updatedAt, copy.workbench.relativeTime)}</span>
                         )}
                       </button>
                       <button
                         type="button"
                         className="thread-archive-btn"
                         onClick={(e) => archiveThread(thread.id, e)}
-                        aria-label="归档此项目会话"
-                        title="归档此项目会话"
+                        aria-label={copy.archiveProjectThread}
+                        title={copy.archiveProjectThread}
                       >
                         <Archive size={14} aria-hidden="true" />
                       </button>
                     </li>
                   );
                 }) : (
-                  <li className="sidebar-project-thread-empty">暂无聊天记录</li>
+                  <li className="sidebar-project-thread-empty">{copy.emptyThreads}</li>
                 )}
                 {projectThreads.length > 5 && (
                   <li className="thread-expand-item">
@@ -1005,7 +1018,7 @@ function SidebarProjectTree({ projectPath, setActivePage, store }) {
                       className="thread-expand-btn"
                       onClick={() => toggleExpandProject(item.path)}
                     >
-                      {isExpanded ? '收起' : '展开显示'}
+                      {isExpanded ? copy.collapseMore : copy.showMore}
                     </button>
                   </li>
                 )}
@@ -1020,7 +1033,9 @@ function SidebarProjectTree({ projectPath, setActivePage, store }) {
 
 function WorkbenchSidebar({
   activePage,
+  copy = APP_COPY.zh,
   isOpen = false,
+  locale = 'zh',
   sidebarWidth = WORKBENCH_SIDEBAR_DEFAULT_WIDTH,
   onSidebarResizeKeyDown,
   onSidebarResizeStart,
@@ -1028,6 +1043,7 @@ function WorkbenchSidebar({
   store,
   projectPath,
   theme,
+  toggleLocale,
   toggleTheme,
   memorySimilarCount = 0,
   onCloseSidebar,
@@ -1036,7 +1052,7 @@ function WorkbenchSidebar({
   const memoryBadgeCount = Math.max(0, Number(memorySimilarCount) || 0);
   const isDark = theme === COLOR_THEMES.dark;
   const ThemeIcon = isDark ? Sun : Moon;
-  const themeLabel = isDark ? '白天模式' : '黑夜模式';
+  const themeLabel = isDark ? copy.workbench.dayMode : copy.workbench.nightMode;
   const startNewChat = () => {
     setActivePage('chat');
     runUIAction(() => store?.newThread?.(), actionOptions);
@@ -1047,22 +1063,30 @@ function WorkbenchSidebar({
       id="app-sidebar"
       className={`app-sidebar${isOpen ? ' is-open' : ''}${activePage === 'chat' ? ' app-sidebar--chat' : ''}`}
       data-testid="app-sidebar"
-      aria-label="Super-Dolphin 工作台"
+      aria-label={copy.workbench.ariaLabel}
       style={isOpen ? { marginLeft: 0 } : undefined}
     >
       <div className="sidebar-brand-row">
         <div className="sidebar-brand">
           <img src={superDolphinLogo} alt="" aria-hidden="true" />
-          <strong>Super-Dolphin</strong>
+          <strong>{APP_BRAND_NAME}</strong>
         </div>
-        <div className="sidebar-brand-actions" aria-label="工作台工具">
-          <button type="button" aria-label="搜索" title="搜索" onClick={() => setActivePage('observability')}>
+        <div className="sidebar-brand-actions" aria-label={copy.workbench.tools}>
+          <button type="button" aria-label={copy.workbench.search} title={copy.workbench.search} onClick={() => setActivePage('observability')}>
             <Search size={19} aria-hidden="true" />
           </button>
           <button
             type="button"
-            aria-label="折叠侧栏"
-            title="折叠侧栏"
+            aria-label={copy.switchLanguage}
+            title={copy.switchLanguage}
+            onClick={toggleLocale}
+          >
+            <span aria-hidden="true">{locale.toUpperCase()}</span>
+          </button>
+          <button
+            type="button"
+            aria-label={copy.workbench.collapse}
+            title={copy.workbench.collapse}
             onClick={onCloseSidebar}
           >
             <PanelLeftClose size={19} aria-hidden="true" />
@@ -1072,13 +1096,14 @@ function WorkbenchSidebar({
       <button
         type="button"
         className={`sidebar-new-chat ${activePage === 'chat' ? 'active' : ''}`}
-        aria-label="新对话"
+        aria-label={copy.workbench.newChat}
         onClick={startNewChat}
       >
         <SquarePlus size={22} aria-hidden="true" />
-        <span>新对话</span>
+        <span>{copy.workbench.newChat}</span>
       </button>
       <SidebarNavList
+        copy={copy}
         items={primaryNavItems}
         activePage={activePage}
         setActivePage={setActivePage}
@@ -1087,6 +1112,7 @@ function WorkbenchSidebar({
         className="sidebar-primary-nav"
       />
       <SidebarNavList
+        copy={copy}
         items={secondaryNavItems}
         activePage={activePage}
         setActivePage={setActivePage}
@@ -1095,17 +1121,17 @@ function WorkbenchSidebar({
         className="sidebar-secondary-nav"
       />
       <div className="sidebar-project-selector">
-        <ProjectSelector store={store} projectPath={projectPath} />
+        <ProjectSelector copy={copy.workbench} store={store} projectPath={projectPath} />
       </div>
       <div className="sidebar-scrollable-content">
-        <SidebarProjectTree projectPath={projectPath} setActivePage={setActivePage} store={store} />
-        <SidebarTaskSummary store={store} setActivePage={setActivePage} />
+        <SidebarProjectTree copy={copy.workbench} projectPath={projectPath} setActivePage={setActivePage} store={store} />
+        <SidebarTaskSummary copy={copy.workbench} store={store} setActivePage={setActivePage} />
       </div>
       <button
         type="button"
         className="sidebar-theme-toggle"
         onClick={toggleTheme}
-        aria-label={`切换到${themeLabel}`}
+        aria-label={`${copy.workbench.switchThemePrefix}${themeLabel}`}
       >
         <ThemeIcon size={16} aria-hidden="true" />
         <span>{themeLabel}</span>
@@ -1113,18 +1139,18 @@ function WorkbenchSidebar({
       <button
         type="button"
         className={`sidebar-settings ${activePage === 'settings' ? 'active' : ''}`}
-        aria-label="设置"
+        aria-label={copy.workbench.settings}
         onClick={() => setActivePage('settings')}
       >
         <SettingsIcon size={25} aria-hidden="true" />
-        <span>设置</span>
+        <span>{copy.workbench.settings}</span>
       </button>
       <button
         type="button"
         className="workbench-sidebar-resizer"
         data-testid="workbench-sidebar-resizer"
         role="separator"
-        aria-label="调整工作台侧栏宽度"
+        aria-label={copy.workbench.resize}
         aria-orientation="vertical"
         aria-valuemin={WORKBENCH_SIDEBAR_MIN_WIDTH}
         aria-valuemax={WORKBENCH_SIDEBAR_MAX_WIDTH}
@@ -1136,7 +1162,7 @@ function WorkbenchSidebar({
   );
 }
 
-function SidebarTaskSummary({ store, setActivePage }) {
+function SidebarTaskSummary({ copy = APP_COPY.zh.workbench, store, setActivePage }) {
   const tasks = taskThreadItems(store?.threads);
   const threadActions = useSidebarThreadActions(store);
   const actionOptions = uiActionOptions(store);
@@ -1151,10 +1177,10 @@ function SidebarTaskSummary({ store, setActivePage }) {
     runUIAction(() => store?.archiveThread?.(threadId, true), actionOptions);
   };
   return (
-    <section className="sidebar-task-summary" aria-label="任务">
-      <h2>任务</h2>
+    <section className="sidebar-task-summary" aria-label={copy.task}>
+      <h2>{copy.task}</h2>
       {tasks.length > 0 ? (
-        <ul className="sidebar-task-list" aria-label="任务对话">
+        <ul className="sidebar-task-list" aria-label={copy.taskDialogs}>
           {tasks.map((thread) => {
             const label = projectThreadLabel(thread);
             const active = thread.id === store?.activeThreadId;
@@ -1163,11 +1189,12 @@ function SidebarTaskSummary({ store, setActivePage }) {
                 <SidebarThreadRow
                   key={thread.id}
                   active={active}
-                  archiveLabel="归档此任务会话"
+                  archiveLabel={copy.archiveTask}
+                  copy={copy}
                   label={label}
                   onArchive={(event) => archiveThread(thread.id, event)}
                   onSelect={() => selectThread(thread.id)}
-                  openLabel={`打开任务对话：${label}`}
+                  openLabel={`${copy.openTask}：${label}`}
                   thread={thread}
                   threadActions={threadActions}
                 />
@@ -1179,20 +1206,20 @@ function SidebarTaskSummary({ store, setActivePage }) {
                   type="button"
                   className={`sidebar-task-thread${active ? ' active' : ''}`}
                   onClick={() => selectThread(thread.id)}
-                  aria-label={`打开任务对话：${label}`}
+                  aria-label={`${copy.openTask}：${label}`}
                   title={label}
                 >
                   <span className="sidebar-thread-title">{label}</span>
                   {thread.updatedAt && (
-                    <span className="sidebar-thread-time" aria-hidden="true">{formatRelativeTime(thread.updatedAt)}</span>
+                    <span className="sidebar-thread-time" aria-hidden="true">{formatRelativeTime(thread.updatedAt, copy.workbench.relativeTime)}</span>
                   )}
                 </button>
                 <button
                   type="button"
                   className="thread-archive-btn"
                   onClick={(e) => archiveThread(thread.id, e)}
-                  aria-label="归档此任务会话"
-                  title="归档此任务会话"
+                  aria-label={copy.archiveTask}
+                  title={copy.archiveTask}
                 >
                   <Archive size={14} aria-hidden="true" />
                 </button>
@@ -1200,7 +1227,7 @@ function SidebarTaskSummary({ store, setActivePage }) {
             );
           })}
         </ul>
-      ) : <p>暂无任务</p>}
+      ) : <p>{copy.emptyTasks}</p>}
     </section>
   );
 }

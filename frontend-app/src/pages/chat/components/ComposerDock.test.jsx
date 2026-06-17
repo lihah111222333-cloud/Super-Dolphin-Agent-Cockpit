@@ -52,7 +52,7 @@ const baseProps = {
 };
 
 describe('ComposerDock', () => {
-  it('routes primary, attach, paste, and enter actions through props while showing reserved controls', () => {
+  it('routes primary, attach, paste, and enter actions through props without reserved controls', () => {
     const composer = createComposer();
     const store = createStore();
     const props = { ...baseProps, composer, store, selectFiles: vi.fn(), sendMessage: vi.fn(), setDraft: vi.fn() };
@@ -72,8 +72,8 @@ describe('ComposerDock', () => {
     expect(screen.queryByRole('button', { name: '继承当前对话' })).not.toBeInTheDocument();
     expect(container.querySelector('.project-select')).toBeNull();
     expect(props.selectFiles).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('button', { name: '自定义配置' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '语音输入' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '自定义配置' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '语音输入' })).not.toBeInTheDocument();
     expect(store.openForkDraft).not.toHaveBeenCalled();
     expect(props.sendMessage).toHaveBeenCalledTimes(2);
     expect(composer.handlePaste).toHaveBeenCalledTimes(1);

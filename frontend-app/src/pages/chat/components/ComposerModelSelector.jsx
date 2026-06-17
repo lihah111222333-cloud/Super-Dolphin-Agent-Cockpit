@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Zap } from 'lucide-react';
+import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { loadedModelDraft, modelSelectorDerivedState, modelSelectorSnapshot, nextModelDraft } from '../adapters/composerModelSelectorState.js';
 import { runUIAction } from './chatUiActions.js';
 
-function useModelSelectorController({ store, activeThreadId, disabled, wrapRef }) {
+function useModelSelectorController({ copy, store, activeThreadId, disabled, wrapRef }) {
   const [open, setOpen] = useState(false);
   const snapshot = modelSelectorSnapshot(store, activeThreadId);
   const { activeEffort, activeModel, activeThreadConfig, canOverrideThread, draftEffort, draftModel, providerKey } = snapshot;
@@ -47,7 +48,7 @@ function useModelSelectorController({ store, activeThreadId, disabled, wrapRef }
   };
 
   return {
-    ...modelSelectorDerivedState({ activeEffort, activeModel, activeThreadConfig, canOverrideThread, disabled, draft: selectorDraft, providerKey, store, activeThreadId }),
+    ...modelSelectorDerivedState({ activeEffort, activeModel, activeThreadConfig, canOverrideThread, copy, disabled, draft: selectorDraft, providerKey, store, activeThreadId }),
     open: selectorOpen,
     openSelector,
     restoreInheritance,
@@ -55,28 +56,31 @@ function useModelSelectorController({ store, activeThreadId, disabled, wrapRef }
   };
 }
 
-function ComposerModelSelector({ store, activeThreadId, disabled = false }) {
+function ComposerModelSelector({ copy = APP_COPY.zh.chat, store, activeThreadId, disabled = false }) {
   const wrapRef = useRef(null);
-  const controller = useModelSelectorController({ store, activeThreadId, disabled, wrapRef });
+  const controller = useModelSelectorController({ copy, store, activeThreadId, disabled, wrapRef });
 
   return (
     <div className="composer-model-wrap" ref={wrapRef}>
-      <ModelSelectorButton controller={controller} />
-      {controller.open ? <ModelSelectorDropdown controller={controller} /> : null}
+      <ModelSelectorButton copy={copy} controller={controller} />
+      {controller.open ? <ModelSelectorDropdown copy={copy} controller={controller} /> : null}
     </div>
   );
 }
 
-function ModelSelectorButton({ controller }) {
+function ModelSelectorButton({ copy, controller }) {
+  const selectorTitle = controller.disabled
+    ? copy.projectActionBlocked
+    : (controller.canOverrideThread ? copy.threadModelConfig : copy.globalModelConfig);
   return (
     <button
       type="button"
       className="composer-model"
-      aria-label="选择模型"
+      aria-label={copy.selectModel}
       aria-expanded={controller.open}
       aria-haspopup="dialog"
       aria-busy={controller.selectorBusy}
-      title={controller.selectorTitle}
+      title={selectorTitle}
       disabled={controller.disabled}
       onClick={() => runUIAction(controller.openSelector)}
     >
@@ -87,27 +91,27 @@ function ModelSelectorButton({ controller }) {
   );
 }
 
-function ModelSelectorDropdown({ controller }) {
+function ModelSelectorDropdown({ copy, controller }) {
   const optionDisabled = controller.disabled || controller.selectorBusy;
   return (
-    <dialog className="model-dropdown" open aria-label="模型配置">
+    <dialog className="model-dropdown" open aria-label={copy.modelConfig}>
       <label>
-        <span>模型</span>
-        <select aria-label="模型" value={controller.selectModelValue} disabled={optionDisabled} onChange={(event) => runUIAction(() => controller.saveModelConfig({ model: event.target.value }))}>
+        <span>{copy.model}</span>
+        <select aria-label={copy.model} value={controller.selectModelValue} disabled={optionDisabled} onChange={(event) => runUIAction(() => controller.saveModelConfig({ model: event.target.value }))}>
           {controller.canOverrideThread ? <option value="">{controller.inheritModelLabel}</option> : null}
           {controller.modelOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
         </select>
       </label>
       <label>
-        <span>强度</span>
-        <select aria-label="推理强度" value={controller.selectEffortValue} disabled={optionDisabled} onChange={(event) => runUIAction(() => controller.saveModelConfig({ effort: event.target.value }))}>
+        <span>{copy.effort}</span>
+        <select aria-label={copy.reasoningEffort} value={controller.selectEffortValue} disabled={optionDisabled} onChange={(event) => runUIAction(() => controller.saveModelConfig({ effort: event.target.value }))}>
           {controller.canOverrideThread ? <option value="">{controller.inheritEffortLabel}</option> : null}
           {controller.effortOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
         </select>
       </label>
       {controller.canOverrideThread && !controller.inherited ? (
         <button type="button" className="model-inherit" disabled={optionDisabled} onClick={() => runUIAction(controller.restoreInheritance)}>
-          继承全局
+          {copy.inheritGlobal}
         </button>
       ) : null}
     </dialog>
