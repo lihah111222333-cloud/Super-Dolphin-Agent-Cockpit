@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, Sparkles, FileText, Table, Play, Palette, Compass, Briefcase, BarChart3, Slack, ChevronRight, SlidersHorizontal, Image, Code2, Folder, Database } from 'lucide-react';
+import { Database, FileText, Folder, MousePointer2, Power, PowerOff, Search, Sparkles } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
-import { applySkillResolution, createSkill, deleteSkill, getDashboardPage, importSkillDirectories, listSkillFiles, listSkillResolutions, previewSkillResolution, readSkill, selectProjectDirs, suggestSkillSummary, writeSkill } from '../../shared/api/backendApi.js';
+import { applySkillResolution, createSkill, deleteSkill, getDashboardPage, importSkillDirectories, listMCPServers, listSkillFiles, listSkillResolutions, previewSkillResolution, readSkill, selectProjectDirs, startPlaywrightMCPServer, startSQLiteMCPServer, stopPlaywrightMCPServer, stopSQLiteMCPServer, suggestSkillSummary, writeSkill } from '../../shared/api/backendApi.js';
 import { cleanScalar, dashboardQueryKey, errorMessage, listToText, optionalSettingsCwd, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx';
 import './SkillsPage.css';
@@ -969,73 +969,6 @@ function importNotice(importedCount, drafts, failures, scope) {
   return parts.length > 0 ? parts.join('，') : '未导入任何技能目录';
 }
 
-const TrafficDots = () => (
-  <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
-    <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#2ec946' }}></span>
-    <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#ffbd2e' }}></span>
-    <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#ff5f56' }}></span>
-  </div>
-);
-
-const ClaudeSplashLogo = () => (
-  <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-    <path d="M12 4.5a3 3 0 0 0-3 3v1.8c0 1 .5 1.8 1.2 2.3A4.5 4.5 0 0 0 6.5 15a3 3 0 1 0 5.2 2.1c0-.7-.2-1.3-.6-1.8A4.5 4.5 0 0 0 17.5 15a3 3 0 1 0 2.2-5c-.4.5-.6 1.1-.6 1.8a4.5 4.5 0 0 0-3.7-3.4V7.5a3 3 0 0 0-3-3zM12 12a1 1 0 1 1 0 2 1 1 0 0 1 0-2z" />
-  </svg>
-);
-
-const CONNECTED_PLUGIN_APPS = [
-  { id: 'file', bg: '#e8f0fe', color: '#1a73e8', icon: FileText },
-  { id: 'table', bg: '#e6f4ea', color: '#137333', icon: Table },
-  { id: 'video', bg: '#fef7e0', color: '#b06000', icon: Play },
-  { id: 'code', bg: '#f1f3f4', color: '#5f6368', icon: Image },
-  { id: 'more', bg: '#fce8e6', color: '#c5221f', icon: TrafficDots },
-  { id: 'mcp', bg: '#f3e8fd', color: '#8430d9', icon: ClaudeSplashLogo },
-  { id: 'db', bg: '#e2f7f9', color: '#007b83', icon: Code2 },
-];
-
-const RECOMMENDED_PLUGINS = [
-  {
-    id: 'creative',
-    title: 'Creative Production',
-    description: 'Create marketing visuals from a brief or product image.',
-    bg: '#f3e8fd',
-    color: '#8430d9',
-    icon: Palette,
-  },
-  {
-    id: 'sales',
-    title: 'Sales',
-    description: 'Prepare sales work faster.',
-    bg: '#e8f0fe',
-    color: '#1a73e8',
-    icon: Compass,
-  },
-  {
-    id: 'banking',
-    title: 'Investment Banking',
-    description: 'M&A, capital markets, LevFin, valuation, diligence, and pitch workflows.',
-    bg: '#e6f4ea',
-    color: '#137333',
-    icon: Briefcase,
-  },
-  {
-    id: 'equity',
-    title: 'Public Equity Investing',
-    description: 'Public equity PM research, long/short, earnings, ETF/index diligence, and memos.',
-    bg: '#e4f7f8',
-    color: '#007b83',
-    icon: BarChart3,
-  },
-  {
-    id: 'slack',
-    title: 'Slack',
-    description: 'Read and manage Slack messages and channels.',
-    bg: '#fff5f5',
-    color: '#ef4444',
-    icon: Slack,
-  },
-];
-
 const DATA_SOURCE_ITEMS = [
   {
     id: 'knowledge',
@@ -1113,7 +1046,7 @@ function SkillsPage({ copy = APP_COPY.zh.skills, projectPath, refreshKey = 0, re
       </div>
       <div className="skills-tab-content">
         {subTab === 'plugins' ? (
-          <PluginsSquareView copy={copy} />
+          <PluginsSquareView copy={copy} projectPath={projectPath} />
         ) : subTab === 'datasource' ? (
           <DataSourceView copy={copy} />
         ) : (
@@ -1179,13 +1112,118 @@ function DataSourceView({ copy }) {
   );
 }
 
-function PluginsSquareView({ copy }) {
-  const [search, setSearch] = useState('');
+function mcpServersListQueryKey(projectPath) {
+  return ['mcpServer', 'list', optionalSettingsCwd(projectPath) || 'pending'];
+}
 
-  const filteredRecommended = RECOMMENDED_PLUGINS.filter(p =>
-    p.title.toLowerCase().includes(search.toLowerCase()) ||
-    p.description.toLowerCase().includes(search.toLowerCase())
-  );
+const MCP_TOOL_DEFINITIONS = [
+  {
+    id: 'sqlite',
+    title: 'SQLite MCP',
+    description: '使用 @bytebase/dbhub 暴露本地 Super-Dolphin SQLite 数据库。',
+    Icon: Database,
+    testId: 'sqlite-mcp-status',
+    start: startSQLiteMCPServer,
+    stop: stopSQLiteMCPServer,
+  },
+  {
+    id: 'playwright',
+    title: 'Playwright MCP',
+    description: '使用 @playwright/mcp@latest 提供浏览器自动化 MCP 工具。',
+    Icon: MousePointer2,
+    testId: 'playwright-mcp-status',
+    start: startPlaywrightMCPServer,
+    stop: stopPlaywrightMCPServer,
+  },
+];
+
+function mcpServerMap(response) {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) return {};
+  const servers = response.mcpServers || response.mcp_servers || {};
+  return servers && typeof servers === 'object' && !Array.isArray(servers) ? servers : {};
+}
+
+function mcpServerConfig(response, serverName) {
+  const servers = mcpServerMap(response);
+  const config = servers[serverName];
+  return config && typeof config === 'object' && !Array.isArray(config) ? config : null;
+}
+
+function mcpServerStatus(projectReady, query, serverName) {
+  if (!projectReady) return { label: '未选择项目', tone: 'missing' };
+  if (query.isLoading || (query.isFetching && !query.data)) return { label: '读取中', tone: 'loading' };
+  if (query.isError) return { label: '读取失败', tone: 'error' };
+  const config = mcpServerConfig(query.data, serverName);
+  if (!config) return { label: '未配置', tone: 'missing' };
+  return config.enabled === false
+    ? { label: '已关闭', tone: 'disabled' }
+    : { label: '已开启', tone: 'enabled' };
+}
+
+function mergeMCPServerEnabled(response, result, serverName, enabled) {
+  const current = response && typeof response === 'object' && !Array.isArray(response) ? response : {};
+  const servers = mcpServerMap(current);
+  const resultName = (result?.serverName || result?.server_name || serverName || '').toString().trim();
+  if (!resultName) return current;
+  const existingConfig = servers[resultName];
+  const existing = existingConfig && typeof existingConfig === 'object' && !Array.isArray(existingConfig) ? existingConfig : {};
+  const nextConfig = {
+    ...existing,
+    ...(result?.config && typeof result.config === 'object' && !Array.isArray(result.config) ? result.config : {}),
+    enabled,
+  };
+  return {
+    ...current,
+    mcpServers: {
+      ...servers,
+      [resultName]: nextConfig,
+    },
+  };
+}
+
+function PluginsSquareView({ copy, projectPath }) {
+  const projectReady = Boolean(optionalSettingsCwd(projectPath));
+  const queryClient = useQueryClient();
+  const [mcpActions, setMCPActions] = useState({});
+  const [mcpNotices, setMCPNotices] = useState({});
+  const [mcpErrors, setMCPErrors] = useState({});
+  const {
+    data: mcpServersData,
+    error: mcpServersError,
+    isError: mcpServersIsError,
+    isFetching: mcpServersIsFetching,
+    isLoading: mcpServersIsLoading,
+  } = useQuery({
+    queryKey: mcpServersListQueryKey(projectPath),
+    queryFn: () => listMCPServers(),
+    enabled: projectReady,
+  });
+  const mcpStatusQuery = useMemo(() => ({
+    data: mcpServersData,
+    isError: mcpServersIsError,
+    isFetching: mcpServersIsFetching,
+    isLoading: mcpServersIsLoading,
+  }), [mcpServersData, mcpServersIsError, mcpServersIsFetching, mcpServersIsLoading]);
+
+  // 本地状态只跟一次按钮操作绑定，真实开关状态仍以 mcpServer/list 的表数据为准。
+  const runMCPAction = useCallback(async (tool, action) => {
+    const label = action === 'start' ? '开启' : '关闭';
+    const enabled = action === 'start';
+    setMCPActions((current) => ({ ...current, [tool.id]: action }));
+    setMCPNotices((current) => ({ ...current, [tool.id]: '' }));
+    setMCPErrors((current) => ({ ...current, [tool.id]: '' }));
+    try {
+      normalizeSettingsCwd(projectPath);
+      const queryKey = mcpServersListQueryKey(projectPath);
+      const result = action === 'start' ? await tool.start() : await tool.stop();
+      queryClient.setQueryData(queryKey, (current) => mergeMCPServerEnabled(current, result, tool.id, enabled));
+      setMCPNotices((current) => ({ ...current, [tool.id]: `${tool.title} 已${label}` }));
+    } catch (error) {
+      setMCPErrors((current) => ({ ...current, [tool.id]: `${tool.title} ${label}失败：${errorMessage(error)}` }));
+    } finally {
+      setMCPActions((current) => ({ ...current, [tool.id]: '' }));
+    }
+  }, [projectPath, queryClient]);
 
   return (
     <div className="plugins-square-container">
@@ -1194,72 +1232,56 @@ function PluginsSquareView({ copy }) {
         <p className="plugins-square-subtitle">{copy.pluginsSubtitle}</p>
       </div>
 
-      <div className="plugins-search-bar-wrap">
-        <div className="plugins-search-input-container">
-          <Search className="search-icon" size={18} />
-          <input
-            type="text"
-            placeholder={copy.pluginsSearch}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            aria-label={copy.pluginsSearch}
-          />
-          <button type="button" className="filter-button" aria-label={copy.filter}>
-            <SlidersHorizontal size={18} />
-          </button>
-        </div>
-      </div>
-
-      <div className="plugins-connected-section">
-        <div className="connected-header">
-          <h2>{copy.connected}</h2>
-          <button type="button" className="manage-link">{copy.manage}</button>
-        </div>
-        <div className="connected-apps-list">
-          {CONNECTED_PLUGIN_APPS.map((app) => {
-            const IconComponent = app.icon;
-            return (
-              <div
-                key={app.id}
-                className="connected-app-circle"
-                style={{ backgroundColor: app.bg, color: app.color }}
-              >
-                <IconComponent size={20} />
+      <div className="mcp-tool-panel">
+        {MCP_TOOL_DEFINITIONS.map((tool) => {
+          const status = mcpServerStatus(projectReady, mcpStatusQuery, tool.id);
+          const action = mcpActions[tool.id] || '';
+          const notice = mcpNotices[tool.id] || '';
+          const error = mcpErrors[tool.id] || '';
+          const Icon = tool.Icon;
+          return (
+            <section className="mcp-tool-card" aria-label={`${tool.title} 控制`} key={tool.id}>
+              <div className={`mcp-tool-icon ${tool.id}`} aria-hidden="true">
+                <Icon size={24} />
               </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="plugins-recommended-section">
-        <h2>{copy.recommended}</h2>
-        <div className="recommended-list">
-          {filteredRecommended.map((plugin) => {
-            const IconComponent = plugin.icon;
-            return (
-              <div key={plugin.id} className="recommended-card">
-                <div
-                  className="recommended-icon-wrap"
-                  style={{ backgroundColor: plugin.bg, color: plugin.color }}
-                >
-                  <IconComponent size={22} />
+              <div className="mcp-tool-main">
+                <div className="mcp-tool-head">
+                  <div>
+                    <h2>{tool.title}</h2>
+                    <p>{tool.description}</p>
+                  </div>
+                  <div className="mcp-tool-badges">
+                    <span className="mcp-tool-badge">stdio</span>
+                    <span className={`mcp-tool-state ${status.tone}`} data-testid={tool.testId}>{status.label}</span>
+                  </div>
                 </div>
-                <div className="recommended-info">
-                  <h3>{plugin.title}</h3>
-                  <p>{plugin.description}</p>
+                <div className="mcp-tool-actions">
+                  <button
+                    type="button"
+                    onClick={() => { void runMCPAction(tool, 'start'); }}
+                    disabled={!projectReady || Boolean(action)}
+                  >
+                    <Power size={16} aria-hidden="true" />
+                    <span>{action === 'start' ? '开启中...' : `开启 ${tool.title}`}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => { void runMCPAction(tool, 'stop'); }}
+                    disabled={!projectReady || Boolean(action)}
+                  >
+                    <PowerOff size={16} aria-hidden="true" />
+                    <span>{action === 'stop' ? '关闭中...' : `关闭 ${tool.title}`}</span>
+                  </button>
                 </div>
-                <button type="button" className="add-button">{copy.add}</button>
+                {!projectReady ? <p className="mcp-tool-hint">请选择项目后再管理 MCP 工具。</p> : null}
+                {mcpServersIsError ? <p className="mcp-tool-error" role="alert">读取 {tool.title} 状态失败：{errorMessage(mcpServersError)}</p> : null}
+                {notice ? <p className="mcp-tool-status" role="status">{notice}</p> : null}
+                {error ? <p className="mcp-tool-error" role="alert">{error}</p> : null}
               </div>
-            );
-          })}
-        </div>
-
-        <div className="recommended-footer-link">
-          <button type="button" className="footer-link-btn">
-            <span>{copy.viewMore}</span>
-            <ChevronRight size={16} />
-          </button>
-        </div>
+            </section>
+          );
+        })}
       </div>
     </div>
   );

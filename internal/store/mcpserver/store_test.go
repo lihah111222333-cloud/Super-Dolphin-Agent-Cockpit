@@ -107,6 +107,40 @@ func TestConfigStoreDeleteRemovesServer(t *testing.T) {
 	}
 }
 
+func TestConfigStorePersistsEnabledState(t *testing.T) {
+	store, closeDB := newSQLiteConfigStore(t)
+	defer closeDB()
+	ctx := context.Background()
+	workspaceRoot := filepath.Join(t.TempDir(), "project")
+	if _, err := store.InsertServer(ctx, contract.StoreMCPServerConfigParams{
+		WorkspaceRoot: workspaceRoot,
+		Name:          "sqlite",
+		Config: contract.MCPServerConfig{
+			Transport: "stdio",
+			Command:   "npx",
+			Args:      []string{"-y", "@bytebase/dbhub", "--dsn=sqlite:///" + filepath.ToSlash(filepath.Join(workspaceRoot, "super-dolphin.db"))},
+		},
+	}); err != nil {
+		t.Fatalf("InsertServer() error = %v", err)
+	}
+	updated, err := store.SetServerEnabled(ctx, workspaceRoot, "sqlite", false)
+	if err != nil {
+		t.Fatalf("SetServerEnabled(false) error = %v", err)
+	}
+	if !updated {
+		t.Fatal("SetServerEnabled(false) updated = false, want true")
+	}
+
+	servers, err := store.ListServers(ctx, workspaceRoot)
+	if err != nil {
+		t.Fatalf("ListServers() error = %v", err)
+	}
+	sqlite := servers["sqlite"]
+	if sqlite.Enabled == nil || *sqlite.Enabled {
+		t.Fatalf("sqlite enabled = %#v, want false", sqlite.Enabled)
+	}
+}
+
 func newSQLiteConfigStore(t *testing.T) (*configStore, func()) {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")

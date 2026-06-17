@@ -459,8 +459,8 @@ const APP_COPY = Object.freeze({
     },
     skills: {
       tabs: { plugins: 'MCP工具', skills: 'Skill工具', datasource: '数据源' },
-      pluginsTitle: '插件',
-      pluginsSubtitle: `在你常用的工具中使用 ${APP_BRAND_NAME}`,
+      pluginsTitle: 'MCP工具',
+      pluginsSubtitle: '管理当前工作区可暴露给模型使用的本地 MCP 服务。',
       pluginsSearch: '搜索插件和技能',
       filter: '筛选',
       connected: '已连接',
@@ -995,8 +995,8 @@ const APP_COPY = Object.freeze({
     },
     skills: {
       tabs: { plugins: 'MCP Tools', skills: 'Skill Tools', datasource: 'Data Sources' },
-      pluginsTitle: 'Plugins',
-      pluginsSubtitle: `Use ${APP_BRAND_NAME} in your everyday tools`,
+      pluginsTitle: 'MCP Tools',
+      pluginsSubtitle: 'Manage local MCP services exposed to the model for the current workspace.',
       pluginsSearch: 'Search plugins and skills',
       filter: 'Filter',
       connected: 'Connected',
