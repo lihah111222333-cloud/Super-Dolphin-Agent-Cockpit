@@ -66,7 +66,7 @@ func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 		}
 		return &mapped, nil
 	}
-	abs, resolveErr := s.cfg.ResolveAbs(cleaned)
+	abs, resolveErr := s.cfg.ResolveReadAbs(cleaned)
 	if resolveErr != nil {
 		return nil, platformdb.WrapStoreError(resolveErr, "get", "shared_file")
 	}
@@ -122,7 +122,7 @@ func (s *store) Delete(ctx context.Context, path string) (int64, error) {
 		return 0, platformdb.WrapStoreError(err, "delete", "shared_file")
 	}
 	if s.cfg.Enabled() {
-		abs, resolveErr := s.cfg.ResolveAbs(cleaned)
+		abs, resolveErr := s.cfg.ResolveDeleteAbs(cleaned)
 		if resolveErr != nil {
 			return count, platformdb.WrapStoreError(resolveErr, "delete", "shared_file")
 		}
@@ -156,7 +156,7 @@ func writeDiskAndDecideInline(cfg sharedfilefs.Config, cleanedRel, content strin
 	if !cfg.Enabled() {
 		return content, nil
 	}
-	abs, resolveErr := cfg.ResolveAbs(cleanedRel)
+	abs, resolveErr := cfg.ResolveWriteAbs(cleanedRel)
 	if resolveErr != nil {
 		return "", resolveErr
 	}

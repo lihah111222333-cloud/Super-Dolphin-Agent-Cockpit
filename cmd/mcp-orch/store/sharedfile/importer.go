@@ -32,7 +32,7 @@ func (s *store) ImportLocalFile(ctx context.Context, params ImportLocalFileParam
 	if !s.cfg.Enabled() {
 		return nil, importInfrastructure("disk source not configured", nil)
 	}
-	targetAbs, err := s.cfg.ResolveAbs(cleanedTarget)
+	targetAbs, err := s.cfg.ResolveWriteAbs(cleanedTarget)
 	if err != nil {
 		return nil, importInfrastructure("resolve target", err)
 	}

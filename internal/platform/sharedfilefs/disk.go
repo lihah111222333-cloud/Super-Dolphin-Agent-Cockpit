@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -98,6 +99,191 @@ func (c Config) ResolveAbs(cleanedRel string) (string, error) {
 		return "", ErrSandboxEscape
 	}
 	return abs, nil
+}
+
+// ResolveReadAbs 返回可读磁盘路径，并拒绝任何符号链接或 junction 让路径跳出 sandbox。
+func (c Config) ResolveReadAbs(cleanedRel string) (string, error) {
+	abs, err := c.ResolveAbs(cleanedRel)
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Lstat(abs); err == nil {
+		if err := c.ensureExistingSandboxPath(abs); err != nil {
+			return "", err
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	}
+	return abs, nil
+}
+
+// ResolveWriteAbs 返回可写磁盘路径，并在写入前确认父目录没有被重解析到 sandbox 外。
+func (c Config) ResolveWriteAbs(cleanedRel string) (string, error) {
+	abs, err := c.ResolveAbs(cleanedRel)
+	if err != nil {
+		return "", err
+	}
+	if err := c.ensureWritableSandboxPath(abs); err != nil {
+		return "", err
+	}
+	return abs, nil
+}
+
+// ResolveDeleteAbs 返回删除路径；目标缺失时允许继续，但已存在目标不能穿过链接边界。
+func (c Config) ResolveDeleteAbs(cleanedRel string) (string, error) {
+	abs, err := c.ResolveAbs(cleanedRel)
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Lstat(abs); err == nil {
+		if err := c.ensureExistingSandboxPath(abs); err != nil {
+			return "", err
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	}
+	return abs, nil
+}
+
+func (c Config) ensureExistingSandboxPath(absPath string) error {
+	rootReal, rel, err := c.realSandboxRel(absPath, true)
+	if err != nil {
+		return err
+	}
+	info, err := os.Lstat(absPath)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return ErrSandboxEscape
+	}
+	realPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return err
+	}
+	if !sameFilesystemPath(realPath, filepath.Join(rootReal, rel)) {
+		return ErrSandboxEscape
+	}
+	return nil
+}
+
+func (c Config) ensureWritableSandboxPath(absPath string) error {
+	rootReal, rel, err := c.realSandboxRel(absPath, true)
+	if err != nil {
+		return err
+	}
+	dirRel := filepath.Dir(rel)
+	currentPath := c.SandboxRoot()
+	currentReal := rootReal
+	for _, part := range splitCleanRel(dirRel) {
+		currentPath = filepath.Join(currentPath, part)
+		currentReal = filepath.Join(currentReal, part)
+		if err := ensureRealDirectory(currentPath, currentReal); err != nil {
+			return err
+		}
+	}
+	if _, err := os.Lstat(absPath); err == nil {
+		if err := c.ensureExistingSandboxPath(absPath); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func (c Config) realSandboxRel(absPath string, createRoot bool) (string, string, error) {
+	if !c.Enabled() {
+		return "", "", ErrDiskDisabled
+	}
+	rel, err := filepath.Rel(filepath.Clean(c.SandboxRoot()), filepath.Clean(absPath))
+	if err != nil {
+		return "", "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", "", ErrSandboxEscape
+	}
+	rootReal, err := c.ensureSandboxRoot(createRoot)
+	if err != nil {
+		return "", "", err
+	}
+	return rootReal, rel, nil
+}
+
+func (c Config) ensureSandboxRoot(create bool) (string, error) {
+	cwd := filepath.Clean(c.CWD)
+	if create {
+		if err := os.MkdirAll(cwd, 0o755); err != nil {
+			return "", fmt.Errorf("sharedfilefs: mkdir %s: %w", cwd, err)
+		}
+	}
+	cwdReal, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return "", err
+	}
+	currentPath := cwd
+	currentReal := cwdReal
+	for _, part := range splitCleanRel(SandboxDir) {
+		currentPath = filepath.Join(currentPath, part)
+		currentReal = filepath.Join(currentReal, part)
+		if !create {
+			if _, err := os.Lstat(currentPath); err != nil {
+				return "", err
+			}
+		}
+		if err := ensureRealDirectory(currentPath, currentReal); err != nil {
+			return "", err
+		}
+	}
+	return currentReal, nil
+}
+
+func ensureRealDirectory(path, expectedReal string) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		if mkdirErr := os.Mkdir(path, 0o755); mkdirErr != nil && !errors.Is(mkdirErr, fs.ErrExist) {
+			return fmt.Errorf("sharedfilefs: mkdir %s: %w", path, mkdirErr)
+		}
+		info, err = os.Lstat(path)
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return ErrSandboxEscape
+	}
+	stat, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !stat.IsDir() {
+		return fmt.Errorf("sharedfilefs: %s is not a directory", path)
+	}
+	realPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return err
+	}
+	if !sameFilesystemPath(realPath, expectedReal) {
+		return ErrSandboxEscape
+	}
+	return nil
+}
+
+func splitCleanRel(rel string) []string {
+	cleaned := filepath.Clean(rel)
+	if cleaned == "." || cleaned == string(filepath.Separator) {
+		return nil
+	}
+	return strings.Split(cleaned, string(filepath.Separator))
+}
+
+func sameFilesystemPath(left, right string) bool {
+	left = filepath.Clean(left)
+	right = filepath.Clean(right)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
 }
 
 // WriteAtomic creates parent directories then writes data through a tmp file
