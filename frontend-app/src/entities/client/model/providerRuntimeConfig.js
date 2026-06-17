@@ -67,11 +67,13 @@ export function codexLaunchConfigFromPreferences({ codexHome, codexInstanceKey, 
   const modelProvider = normalizeCodexIdentityValue(codexModelProvider);
   if (!home && !instanceKey && !modelProvider) return null;
 
-  if (!home || !instanceKey || !modelProvider) {
+  if (!home || !instanceKey) {
     throw new Error('startThread: complete Codex identity requires codexHome, codexInstanceKey, and codexModelProvider');
   }
 
-  return { codexHome: home, codexInstanceKey: instanceKey, codexModelProvider: modelProvider };
+  const config = { codexHome: home, codexInstanceKey: instanceKey };
+  if (modelProvider) config.codexModelProvider = modelProvider;
+  return config;
 }
 
 export function providerDisplayDefaultConfig(provider) {

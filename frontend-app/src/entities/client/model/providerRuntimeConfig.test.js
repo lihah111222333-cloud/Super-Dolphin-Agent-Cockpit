@@ -65,6 +65,27 @@ describe('providerRuntimeConfig', () => {
     })).toThrow('complete Codex identity requires');
   });
 
+  it('allows Codex launch identity to omit model provider for config.toml resolution', () => {
+    expect(codexLaunchConfigFromPreferences({
+      codexHome: '~/.codex',
+      codexInstanceKey: 'default',
+      codexModelProvider: '',
+    })).toEqual({
+      codexHome: '~/.codex',
+      codexInstanceKey: 'default',
+    });
+    expect(() => codexLaunchConfigFromPreferences({
+      codexHome: '~/.codex',
+      codexInstanceKey: '',
+      codexModelProvider: '',
+    })).toThrow('complete Codex identity requires');
+    expect(() => codexLaunchConfigFromPreferences({
+      codexHome: '',
+      codexInstanceKey: 'default',
+      codexModelProvider: '',
+    })).toThrow('complete Codex identity requires');
+  });
+
   it('classifies preference tombstones and required values', () => {
     expect(isPreferenceTombstone({ cleared: true })).toBe(true);
     expect(isPreferenceTombstone({ cleared: false })).toBe(false);
