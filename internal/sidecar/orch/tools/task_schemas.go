@@ -67,7 +67,13 @@ func createDAGSchema() Schema {
 			"priority":    IntegerSchema("Flat execution shortcut; same as execution.priority."),
 			"retry":       IntegerSchema("Flat execution shortcut; same as execution.retry."),
 			"timeout_sec": IntegerSchema("Flat execution shortcut; same as execution.timeout_sec."),
-			"config":      RawObjectSchema("Optional full node config; executable agent nodes require config.exec.provider=claude or provider=codex with codex_home/codex_instance_key/codex_model_provider. For automation nodes use config.exec.command_ref."),
+			"config": RawObjectSchema(
+				"Optional full node config. Executable agent nodes require config.exec, non-empty config.first_turn, " +
+					"and provider=claude or provider=codex with codex_home/codex_instance_key/codex_model_provider. " +
+					"Use top-level config.outputs for output routing; do not use legacy config.input, " +
+					"config.input.task, config.input.outputs, config.output_file, config.prompt_key, " +
+					"config.provider, config.model, or config.cwd.",
+			),
 			"execution": ObjectSchema(map[string]Schema{
 				"on_failure":  StringSchema("Failure policy override."),
 				"pool":        StringSchema("Execution pool name."),
@@ -180,36 +186,130 @@ func validateRootAgentAssignees(nodes []contract.CreateDAGNodeRequest) error {
 	return nil
 }
 
-// validateAgentNodeLaunchConfigs 校验代理节点启动配置。
+// validateAgentNodeLaunchConfigs 校验创建阶段可自动拉起的 agent 配置。
+// agent 显式 config 先做 raw shape 校验；exec 身份和 first_turn 只约束真正可执行的 agent 节点。
+// hybrid verifier 仍沿用既有 exec 身份校验，避免扩大本次 create 入口返修范围。
 func validateAgentNodeLaunchConfigs(nodes []contract.CreateDAGNodeRequest) error {
 	for i, node := range nodes {
-		if !isAgentNodeType(node.NodeType) || !hasNodeExecConfig(node.Config) {
-			continue
-		}
-		cfg, err := nodeexec.ParseAgentConfig(node.Config)
-		if err != nil {
-			return fmt.Errorf("nodes[%d].config: %w", i, err)
-		}
-		provider := strings.ToLower(strings.TrimSpace(cfg.Exec.Provider))
-		switch provider {
-		case "":
-			return fmt.Errorf("nodes[%d].config.exec.provider required for agent node %q; set provider to claude or codex", i, node.NodeKey)
-		case "claude":
-			continue
-		case "codex":
-			if missing := missingCodexIdentityFields(cfg.Exec); len(missing) != 0 {
-				return fmt.Errorf("nodes[%d].config.exec provider=codex for agent node %q requires %s", i, node.NodeKey, strings.Join(missing, ", "))
+		switch strings.TrimSpace(node.NodeType) {
+		case "", "agent":
+			if hasExplicitRawJSON(node.Config) {
+				configLabel := fmt.Sprintf("nodes[%d].config", i)
+				if err := validateAgentConfigShape(node.Config, configLabel, node.NodeKey); err != nil {
+					return err
+				}
 			}
-		default:
-			return fmt.Errorf("nodes[%d].config.exec.provider invalid for agent node %q: must be claude or codex", i, node.NodeKey)
+			if !hasNodeExecConfig(node.Config) {
+				continue
+			}
+			if err := validateExecutableAgentNodeLaunchConfig(i, node); err != nil {
+				return err
+			}
+		case "hybrid":
+			if !hasNodeExecConfig(node.Config) {
+				continue
+			}
+			if err := validateHybridVerifierLaunchConfig(i, node); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-func isAgentNodeType(nodeType string) bool {
-	nodeType = strings.TrimSpace(nodeType)
-	return nodeType == "" || nodeType == "agent"
+// validateExecutableAgentNodeLaunchConfig 校验可执行 agent 节点的创建期配置。
+// raw shape 已在外层先查；这里只校验 typed exec 与 first_turn，避免非执行占位节点被误杀。
+func validateExecutableAgentNodeLaunchConfig(i int, node contract.CreateDAGNodeRequest) error {
+	configLabel := fmt.Sprintf("nodes[%d].config", i)
+	cfg, err := nodeexec.ParseAgentConfig(node.Config)
+	if err != nil {
+		return fmt.Errorf("nodes[%d].config: %w", i, err)
+	}
+	label := configLabel + ".exec"
+	if err := validateAgentExecLaunchConfig(cfg.Exec, label, node.NodeKey); err != nil {
+		return err
+	}
+	if strings.TrimSpace(cfg.FirstTurn) == "" {
+		return fmt.Errorf("%s.first_turn required for executable agent node %q", configLabel, node.NodeKey)
+	}
+	return nil
+}
+
+// validateHybridVerifierLaunchConfig 校验 hybrid verifier 的 agent 启动身份。
+// hybrid 没有独立 first_turn 契约，本修复只复用既有 verifier exec 校验。
+func validateHybridVerifierLaunchConfig(i int, node contract.CreateDAGNodeRequest) error {
+	cfg, err := nodeexec.ParseHybridConfig(node.Config)
+	if err != nil {
+		return fmt.Errorf("nodes[%d].config: %w", i, err)
+	}
+	if cfg.Exec.Verifier == nil {
+		return nil
+	}
+	label := fmt.Sprintf("nodes[%d].config.exec.verifier", i)
+	return validateAgentExecLaunchConfig(*cfg.Exec.Verifier, label, node.NodeKey)
+}
+
+// validateAgentConfigShape 拦截旧版或错位 agent config 字段。
+// 这些字段会被 typed JSON 解码静默丢弃，必须在创建阶段报错，避免坏 DAG 落库后空跑。
+func validateAgentConfigShape(raw json.RawMessage, label, nodeKey string) error {
+	var config map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return fmt.Errorf("%s must be an object for executable agent node %q: %w", label, nodeKey, err)
+	}
+	invalidPaths := legacyAgentConfigPaths(config, label)
+	if len(invalidPaths) == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"unsupported legacy agent config fields for node %q: %s; use %s.first_turn, %s.outputs, and %s.exec",
+		nodeKey, strings.Join(invalidPaths, ", "), label, label, label,
+	)
+}
+
+// legacyAgentConfigPaths 收集最常见的旧 schema 路径。
+// 返回字段路径而不是布尔值，方便错误直接指出模型应该修正的具体位置。
+func legacyAgentConfigPaths(config map[string]json.RawMessage, label string) []string {
+	var paths []string
+	if rawInput, ok := config["input"]; ok {
+		paths = append(paths, label+".input")
+		var input map[string]json.RawMessage
+		if err := json.Unmarshal(rawInput, &input); err == nil {
+			if _, ok := input["task"]; ok {
+				paths = append(paths, label+".input.task")
+			}
+			if _, ok := input["outputs"]; ok {
+				paths = append(paths, label+".input.outputs")
+			}
+		}
+	}
+	for _, field := range []string{"output_file", "prompt_key", "provider", "model", "cwd"} {
+		if _, ok := config[field]; ok {
+			paths = append(paths, label+"."+field)
+		}
+	}
+	return paths
+}
+
+// validateAgentExecLaunchConfig 校验子 agent 启动所需的执行模板和运行身份。
+// 创建入口必须 fail-fast，不在这里补默认 prompt；缺字段说明上游资源选择链路断开。
+func validateAgentExecLaunchConfig(exec nodeexec.AgentExecConfig, label, nodeKey string) error {
+	if strings.TrimSpace(exec.PromptKey) == "" && strings.TrimSpace(exec.AgentKey) == "" {
+		return fmt.Errorf("%s.prompt_key or %s.agent_key required for agent node %q", label, label, nodeKey)
+	}
+	provider := strings.ToLower(strings.TrimSpace(exec.Provider))
+	switch provider {
+	case "":
+		return fmt.Errorf("%s.provider required for agent node %q; set provider to claude or codex", label, nodeKey)
+	case "claude":
+		return nil
+	case "codex":
+		if missing := missingCodexIdentityFields(exec); len(missing) != 0 {
+			return fmt.Errorf("%s provider=codex for agent node %q requires %s", label, nodeKey, strings.Join(missing, ", "))
+		}
+		return nil
+	default:
+		return fmt.Errorf("%s.provider invalid for agent node %q: must be claude or codex", label, nodeKey)
+	}
 }
 
 func missingCodexIdentityFields(exec nodeexec.AgentExecConfig) []string {

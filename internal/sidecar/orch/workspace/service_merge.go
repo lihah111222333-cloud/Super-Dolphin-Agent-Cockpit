@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 
 	storeworkspace "github.com/anthropic-ai/super-agent-v3/internal/sidecar/orch/store/workspace"
 )
@@ -87,6 +89,9 @@ func writeMergedSourceFile(
 	item MergeFileResult,
 ) (storeworkspace.WorkspaceRunFile, MergeFileResult) {
 	workspacePath := filepath.Join(run.WorkspacePath, file.RelativePath)
+	if err := ensureWorkspaceMergeSource(run.WorkspacePath, workspacePath); err != nil {
+		return mergeFileError(file, fmt.Errorf("workspace file %q: %w", file.RelativePath, err).Error())
+	}
 	info, err := os.Stat(workspacePath)
 	if err != nil {
 		return mergeFileError(file, fmt.Errorf("stat workspace file %q: %w", file.RelativePath, err).Error())
@@ -102,6 +107,41 @@ func writeMergedSourceFile(
 	file.SourceSHA256After = sourceAfter
 	file.LastError = ""
 	return file, item
+}
+
+// ensureWorkspaceMergeSource 确认待合并文件的真实路径仍在 workspace 内，避免链接把外部文件合并进源码。
+func ensureWorkspaceMergeSource(workspaceRoot, workspacePath string) error {
+	root := filepath.Clean(workspaceRoot)
+	target := filepath.Clean(workspacePath)
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("path escapes workspace root")
+	}
+	rootReal, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return fmt.Errorf("resolve workspace root: %w", err)
+	}
+	targetReal, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		return fmt.Errorf("resolve workspace path: %w", err)
+	}
+	expectedReal := filepath.Join(rootReal, rel)
+	if !sameWorkspaceFilesystemPath(targetReal, expectedReal) {
+		return fmt.Errorf("path escapes workspace root")
+	}
+	return nil
+}
+
+func sameWorkspaceFilesystemPath(left, right string) bool {
+	left = filepath.Clean(left)
+	right = filepath.Clean(right)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
 }
 
 func removeMergedSourceFile(

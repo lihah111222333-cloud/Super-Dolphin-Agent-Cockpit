@@ -21,23 +21,19 @@ var blockedCommands = map[string]bool{
 	"userdel": true, "wget": true, "iptables": true,
 }
 
-var shellInterpreters = map[string]bool{
-	"bash": true, "cmd": true, "cmd.exe": true, "dash": true, "fish": true, "ksh": true,
-	"powershell": true, "powershell.exe": true, "pwsh": true, "pwsh.exe": true, "sh": true, "zsh": true,
-}
+var shellInterpreters = map[string]bool{"bash": true, "cmd": true, "cmd.exe": true, "dash": true, "fish": true, "ksh": true, "powershell": true, "powershell.exe": true, "pwsh": true, "pwsh.exe": true, "sh": true, "zsh": true}
 
-var readCommands = map[string]bool{
-	"ag": true, "awk": true, "bat": true, "cat": true, "fd": true, "find": true, "grep": true,
-	"head": true, "less": true, "more": true, "rg": true, "sed": true, "tail": true, "tree": true, "wc": true,
-}
+var codeExecutionCommands = map[string]bool{"bun": true, "bun.exe": true, "deno": true, "deno.exe": true, "dotnet": true, "dotnet.exe": true, "go": true, "go.exe": true, "java": true, "java.exe": true, "node": true, "node.exe": true, "npm": true, "npm.cmd": true, "npx": true, "npx.cmd": true, "perl": true, "perl.exe": true, "php": true, "php.exe": true, "py": true, "py.exe": true, "python": true, "python.exe": true, "python3": true, "python3.exe": true, "ruby": true, "ruby.exe": true}
+
+var readCommands = map[string]bool{"ag": true, "awk": true, "bat": true, "cat": true, "fd": true, "find": true, "grep": true, "head": true, "less": true, "more": true, "rg": true, "sed": true, "tail": true, "tree": true, "wc": true}
 
 var execBaseEnvKeys = []string{
 	"PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "TERM",
 }
 
-var execAllowedEnvPrefixes = []string{
-	"OPENAI_", "ANTHROPIC_", "CODEX_", "DYN_TOOL_", "MODEL", "LOG_LEVEL", "AGENT_", "MCP_", "APP_", "STRESS_TEST_", "TEST_E2E_",
-}
+var execAllowedEnvPrefixes = []string{"DYN_TOOL_", "STRESS_TEST_", "TEST_E2E_"}
+
+var execAllowedEnvKeys = map[string]bool{"LOG_LEVEL": true}
 
 const lspPreferenceHint = "[LSP提示] 优先用 LSP 工具读代码：file inspect xref grep structure edit completion。\n"
 
@@ -123,6 +119,8 @@ func validateExecCommand(command string, allowShell bool) (string, string, error
 		return "", "", errors.New("command is blocked for security")
 	case !allowShell && shellInterpreters[base]:
 		return "", "", errors.New("shell interpreters are not allowed")
+	case !allowShell && codeExecutionCommands[base]:
+		return "", "", errors.New("code execution runtimes are not allowed")
 	default:
 		return name, base, nil
 	}
@@ -254,6 +252,9 @@ func execEnvIndex(env []string) map[string]int {
 
 func isAllowedExecEnvKey(key string) bool {
 	upper := strings.ToUpper(strings.TrimSpace(key))
+	if execAllowedEnvKeys[upper] {
+		return true
+	}
 	for _, prefix := range execAllowedEnvPrefixes {
 		if strings.HasPrefix(upper, prefix) {
 			return true

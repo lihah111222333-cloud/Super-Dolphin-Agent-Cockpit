@@ -17,6 +17,7 @@ import {
   setPreference,
   writePrompt,
 } from '../../shared/api/backendApi.js';
+import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import './PromptPageView.css';
 
@@ -745,33 +746,33 @@ function usePromptDraftActions({ cwd, actioning, refreshPromptSurface, setters }
   };
 }
 
-function PromptStatusMessages({ isProjectPending, fallbackMode, syncError, error, loading, onRetry }) {
+function PromptStatusMessages({ copy, isProjectPending, fallbackMode, syncError, error, loading, onRetry }) {
   return (
     <>
-      {isProjectPending ? <div className="prompt-notice">正在连接本地项目...</div> : null}
-      {fallbackMode ? <div className="prompt-notice warn">prompt-assets/list 暂不可用，页面已切换为只读模式。</div> : null}
-      {syncError ? <PromptRetryNotice message={syncError} onRetry={onRetry} /> : null}
-      {error ? <PromptRetryNotice message={error} onRetry={onRetry} /> : null}
-      {loading ? <output className="prompt-loading" aria-live="polite">正在加载提示词...</output> : null}
+      {isProjectPending ? <div className="prompt-notice">{copy.connecting}</div> : null}
+      {fallbackMode ? <div className="prompt-notice warn">{copy.fallbackNotice}</div> : null}
+      {syncError ? <PromptRetryNotice copy={copy} message={syncError} onRetry={onRetry} /> : null}
+      {error ? <PromptRetryNotice copy={copy} message={error} onRetry={onRetry} /> : null}
+      {loading ? <output className="prompt-loading" aria-live="polite">{copy.loading}</output> : null}
     </>
   );
 }
 
-function PromptRetryNotice({ message, onRetry }) {
+function PromptRetryNotice({ copy = APP_COPY.zh.prompts, message, onRetry }) {
   return (
     <div className="prompt-notice error" role="alert">
       <span>{message}</span>
-      <button type="button" className="ghost" onClick={onRetry}>重试同步</button>
+      <button type="button" className="ghost" onClick={onRetry}>{copy.retrySync}</button>
     </div>
   );
 }
 
-function PromptEmptyState() {
+function PromptEmptyState({ copy }) {
   return (
     <div className="empty-state prompt-empty">
       <File size={30} />
-      <h3>暂无内容</h3>
-      <p>暂无可显示内容。</p>
+      <h3>{copy.emptyTitle}</h3>
+      <p>{copy.emptyText}</p>
     </div>
   );
 }
@@ -804,15 +805,16 @@ function PromptPageLayout(props) {
   const showCards = !props.isProjectPending && !props.loading && props.visibleItems.length > 0;
   return (
     <section className="console-page prompt-page">
-      <PageHeader title="个性化" subtitle="管理您的身份信息以及 Super-Dolphin 的记忆内容" projectPath={props.cwd || props.projectPath} />
+      <PageHeader copy={props.copy} title={props.copy.title} subtitle={props.copy.subtitle} projectPath={props.cwd || props.projectPath} />
       <PromptPersonalizationOverview
+        copy={props.copy}
         counts={props.counts}
         fallbackMode={props.fallbackMode}
         isProjectPending={props.isProjectPending}
         personalization={props.personalization}
       />
       <PromptStatusMessages {...props} onRetry={props.editorActions.retryPromptSync} />
-      {showEmpty ? <PromptEmptyState /> : null}
+      {showEmpty ? <PromptEmptyState copy={props.copy} /> : null}
       {showCards ? <PromptCardsGrid {...props} /> : null}
       {props.notice && !props.modals.editorOpen && !props.modals.wizardOpen ? <div className="prompt-notice">{props.notice}</div> : null}
       <PromptEditorHost {...props} />
@@ -893,7 +895,7 @@ function usePromptPageState(cwd) {
   };
 }
 
-export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPreferences }) {
+export function PromptPageView({ copy = APP_COPY.zh.prompts, projectPath, refreshKey = 0, resolveLaunchPreferences }) {
   const cwd = optionalPromptCwd(projectPath);
   const isProjectPending = !cwd;
   const queryClient = useQueryClient();
@@ -961,6 +963,7 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
     activePromptId,
     actioning,
     counts,
+    copy,
     cwd,
     draftActions,
     editorActions,
@@ -991,24 +994,24 @@ export function PromptPageView({ projectPath, refreshKey = 0, resolveLaunchPrefe
   return <PromptPageLayout {...layoutProps} />;
 }
 
-function PageHeader({ title, subtitle, projectPath }) {
+function PageHeader({ copy, title, subtitle, projectPath }) {
   return (
     <header className="prompt-header">
       <div>
         <h1><FileText size={25} /> {title}</h1>
         {subtitle ? <strong>{subtitle}</strong> : null}
-        <p title={projectPath}>当前项目：{projectPath || '未知'}</p>
+        <p title={projectPath}>{copy.currentProject}: {projectPath || copy.unknownProject}</p>
       </div>
     </header>
   );
 }
 
-function PromptPersonalizationOverview({ counts, isProjectPending, fallbackMode, personalization }) {
+function PromptPersonalizationOverview({ copy, counts, isProjectPending, fallbackMode, personalization }) {
   const metrics = [
-    ['定制角色', counts.expert || 0],
-    ['知识', counts.recall || 0],
-    ['默认规则', counts.default_rule || 0],
-    ['待确认', counts.pending || 0],
+    [copy.expert, counts.expert || 0],
+    [copy.recall, counts.recall || 0],
+    [copy.defaultRule, counts.default_rule || 0],
+    [copy.pending, counts.pending || 0],
   ];
   const profile = personalization?.profile || emptyPersonalizationProfile;
   const profileLoading = Boolean(personalization?.loading);
@@ -1018,22 +1021,22 @@ function PromptPersonalizationOverview({ counts, isProjectPending, fallbackMode,
     personalization?.onProfileChange?.({ ...profile, [key]: event.target.value });
   };
   const profileStatus = isProjectPending
-    ? '等待项目'
+    ? copy.waitingProject
     : personalization?.error
-      ? '加载失败'
+      ? copy.loadFailed
       : profileLoading
-        ? '加载中'
-        : '已接入';
+        ? copy.loadingShort
+        : copy.connected;
   const overviewText = isProjectPending
-    ? '正在连接本地项目。'
+    ? copy.overviewConnecting
     : fallbackMode
-      ? 'prompt-assets/list 暂不可用；当前仅显示只读的提示词与参考资料。'
-      : '已接入提示词、参考资料、个人资料和外部记忆导入入口。';
+      ? copy.overviewFallback
+      : copy.overviewReady;
   return (
-    <section className="personalization-overview" aria-label="个性化概览">
+    <section className="personalization-overview" aria-label={copy.overviewAria}>
       <div className="personalization-overview-copy">
-        <span>个人资料</span>
-        <h2>定制角色、知识和记忆</h2>
+        <span>{copy.profile}</span>
+        <h2>{copy.overviewTitle}</h2>
         <p>{overviewText}</p>
       </div>
       <dl>
@@ -1045,28 +1048,28 @@ function PromptPersonalizationOverview({ counts, isProjectPending, fallbackMode,
         ))}
       </dl>
       <div className="personalization-profile-grid">
-        <section className="personalization-profile-card" aria-label="个人资料">
+        <section className="personalization-profile-card" aria-label={copy.profile}>
           <header>
-            <h3>个人资料</h3>
+            <h3>{copy.profile}</h3>
             <span>{profileStatus}</span>
           </header>
           <div className="personalization-form-grid">
-            <label>昵称<input aria-label="昵称" type="text" value={profile.displayName} onChange={updateProfile('displayName')} disabled={profileDisabled} /></label>
-            <label>职业<input aria-label="职业" type="text" value={profile.role} onChange={updateProfile('role')} disabled={profileDisabled} /></label>
-            <label>更多关于您的信息<textarea aria-label="更多关于您的信息" rows={3} value={profile.background} onChange={updateProfile('background')} disabled={profileDisabled} /></label>
-            <label>自定义指令<textarea aria-label="自定义指令" rows={3} value={profile.customInstructions} onChange={updateProfile('customInstructions')} disabled={profileDisabled} /></label>
+            <label>{copy.displayName}<input aria-label={copy.displayName} type="text" value={profile.displayName} onChange={updateProfile('displayName')} disabled={profileDisabled} /></label>
+            <label>{copy.role}<input aria-label={copy.role} type="text" value={profile.role} onChange={updateProfile('role')} disabled={profileDisabled} /></label>
+            <label>{copy.background}<textarea aria-label={copy.background} rows={3} value={profile.background} onChange={updateProfile('background')} disabled={profileDisabled} /></label>
+            <label>{copy.customInstructions}<textarea aria-label={copy.customInstructions} rows={3} value={profile.customInstructions} onChange={updateProfile('customInstructions')} disabled={profileDisabled} /></label>
           </div>
           <button type="button" disabled={profileDisabled || profileSaving} onClick={personalization?.onSaveProfile}>
-            {profileSaving ? '保存中...' : '保存个人资料'}
+            {profileSaving ? copy.saving : copy.saveProfile}
           </button>
         </section>
-        <section className="personalization-profile-card" aria-label="从其他 AI 导入记忆">
+        <section className="personalization-profile-card" aria-label={copy.importMemoryTitle}>
           <header>
-            <h3>从其他 AI 导入记忆</h3>
-            <span>复用参考资料</span>
+            <h3>{copy.importMemoryTitle}</h3>
+            <span>{copy.reuseReferences}</span>
           </header>
-          <p>把其他 AI 的长期记忆粘贴为参考资料，保存后会进入现有知识目录。</p>
-          <button type="button" disabled={isProjectPending} onClick={personalization?.onImportMemory}>导入记忆</button>
+          <p>{copy.importMemoryText}</p>
+          <button type="button" disabled={isProjectPending} onClick={personalization?.onImportMemory}>{copy.importMemory}</button>
         </section>
       </div>
     </section>

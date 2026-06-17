@@ -63,6 +63,7 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   UI_CODE_LOCATE: contract('UI_CODE_LOCATE', 'locateCodeFile', 'P2', 'code', [TESTS.API], ['code navigation read']),
   UI_CODE_OPEN: contract('UI_CODE_OPEN', 'openCodeFile', 'P2', 'code', [TESTS.API], ['code file read/open']),
   UI_CODE_SAVE: contract('UI_CODE_SAVE', 'saveCodeFile', 'P0', 'code', [TESTS.API], ['writes code file']),
+  UI_PATH_OPEN: contract('UI_PATH_OPEN', 'openPath', 'P2', 'code', [TESTS.API], ['opens scoped project file or directory']),
 
   UI_PROJECTS_GET: contract('UI_PROJECTS_GET', 'getProjects', 'P1', 'projects', [TESTS.API, TESTS.APP], ['active workspace read']),
   UI_PROJECTS_SET_ACTIVE: contract('UI_PROJECTS_SET_ACTIVE', 'setActiveProject', 'P1', 'projects', [TESTS.API, TESTS.APP], ['active workspace switch']),

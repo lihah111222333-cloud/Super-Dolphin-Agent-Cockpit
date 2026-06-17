@@ -17,7 +17,9 @@ import (
 	common "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/runtime/bootstrap"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/kernel"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/kernel/builtinprompts"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/sidecar/orch/orchestration"
@@ -81,6 +83,23 @@ func newAgentBindingStore(db *sql.DB) orchestration.AgentBindingStore {
 	return agentstore.NewBindingStore(db)
 }
 
+type mcpOrchDBReadyProbe interface {
+	PingContext(context.Context) error
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+// verifyMCPOrchDatabaseReady 在 standalone 启动边界确认数据库和 schema 可用。
+// 这里必须 fail-fast，避免后续工具在半初始化数据库上继续运行。
+func verifyMCPOrchDatabaseReady(ctx context.Context, probe mcpOrchDBReadyProbe) error {
+	if err := probe.PingContext(ctx); err != nil {
+		return fmt.Errorf("mcp-orch database ping failed: %w", err)
+	}
+	if err := platformdb.VerifyMinSchemaVersion(ctx, probe); err != nil {
+		return fmt.Errorf("mcp-orch database schema check failed: %w", err)
+	}
+	return nil
+}
+
 // noopSessionCleaner satisfies contract.OrchestrationSessionCleaner in
 // standalone mode. P22 P4 S4b: RemoveSessionGeneration is now part of
 // the owner contract; the noop impl returns silently to preserve the
@@ -131,12 +150,13 @@ func newNoopTurnStarter() contract.OrchestrationTurnStarter {
 type newRegistryParams struct {
 	fx.In
 
-	Orchestration contract.OrchestrationService
-	WS            workspace.Service
-	Prompt        promptstore.Store
-	Command       commandcardstore.Store
-	SharedFile    sharedfilestore.Store
-	ModelRegistry modelregistry.Registry
+	Orchestration  contract.OrchestrationService
+	WS             workspace.Service
+	Prompt         promptstore.Store
+	BuiltinPrompts contract.BuiltinPromptRegistry
+	Command        commandcardstore.Store
+	SharedFile     sharedfilestore.Store
+	ModelRegistry  modelregistry.Registry
 }
 
 func newModelRegistry(logger *slog.Logger) (modelregistry.Registry, error) {
@@ -147,14 +167,19 @@ func newModelRegistry(logger *slog.Logger) (modelregistry.Registry, error) {
 	return nil, fmt.Errorf("model registry load failed for %s: %w", modelregistry.DefaultRegistryPath(), err)
 }
 
+func newBuiltinPromptRegistry() (contract.BuiltinPromptRegistry, error) {
+	return builtinprompts.NewDefaultRegistry()
+}
+
 func newRegistry(p newRegistryParams) tools.Registry {
 	return tools.NewRegistry(tools.Dependencies{
-		Orchestration: p.Orchestration,
-		Workspace:     p.WS,
-		Prompt:        p.Prompt,
-		CommandCard:   p.Command,
-		SharedFile:    p.SharedFile,
-		ModelRegistry: p.ModelRegistry,
+		Orchestration:  p.Orchestration,
+		Workspace:      p.WS,
+		Prompt:         p.Prompt,
+		BuiltinPrompts: p.BuiltinPrompts,
+		CommandCard:    p.Command,
+		SharedFile:     p.SharedFile,
+		ModelRegistry:  p.ModelRegistry,
 	})
 }
 
@@ -176,7 +201,7 @@ func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, server *
 	return bootstrapRunner{cfg: cfg, client: client, stdioReady: server.Ready()}
 }
 
-// 这里只转 registry，不解释 scope。
+// ListTools 只转 registry，不解释 scope。
 // scope 已经由上游放进 ctx，别在这里让 stdio/bootstrap 分叉。
 func (p registryToolProvider) ListTools(context.Context) ([]mcpdto.MCPTool, error) {
 	defs := p.registry.List()
@@ -222,7 +247,7 @@ func handleToolCall(ctx context.Context, registry tools.Registry, name string, a
 	return def.Handler(ctx, args)
 }
 
-// 只有 peer 模式才向主控注册，让 toolbridge 能代理 tools/list 和 tools/call。
+// Run 只有 peer 模式才向主控注册，让 toolbridge 能代理 tools/list 和 tools/call。
 // 普通 stdio sidecar 不能注册，否则可能被主控当独立 peer 清理掉。
 func (r bootstrapRunner) Run(ctx context.Context) error {
 	r.client.InstallLogRelay()

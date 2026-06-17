@@ -47,6 +47,13 @@ type codeOpenParams struct {
 	scopeParams
 }
 
+type pathOpenParams struct {
+	FilePath string `json:"filePath"`
+	Line     int    `json:"line,omitempty"`
+	Column   int    `json:"column,omitempty"`
+	scopeParams
+}
+
 type copyTextParams struct {
 	Text string `json:"text"`
 	clientMetaParams
@@ -102,6 +109,9 @@ func NewRPCHandlers(app *App, cfg *config.Config, uiState contract.UIProjectStat
 		}),
 		"ui/code/open": rpc.StrictHandler(func(ctx context.Context, p codeOpenParams) (any, error) {
 			return handleCodeOpen(ctx, cfg, uiState, p)
+		}),
+		"ui/path/open": rpc.StrictHandler(func(ctx context.Context, p pathOpenParams) (any, error) {
+			return handlePathOpen(ctx, cfg, uiState, p)
 		}),
 		"ui/copyText": rpc.StrictHandler(func(ctx context.Context, p copyTextParams) (any, error) {
 			return handleCopyText(app, strings.TrimSpace(p.Text))
@@ -199,6 +209,19 @@ func handleCodeOpen(
 		return codeOpenResult{}, err
 	}
 	return openScopedFile(ctx, p.FilePath, p.Line, p.Column, roots)
+}
+
+func handlePathOpen(
+	ctx context.Context,
+	cfg *config.Config,
+	uiState contract.UIProjectStateFacade,
+	p pathOpenParams,
+) (pathOpenResult, error) {
+	roots, err := requestScopeRoots(ctx, cfg, uiState, p.Project, p.Projects)
+	if err != nil {
+		return pathOpenResult{}, err
+	}
+	return openScopedPath(ctx, p.FilePath, p.Line, p.Column, roots)
 }
 
 func handleCopyText(app *App, text string) (map[string]any, error) {

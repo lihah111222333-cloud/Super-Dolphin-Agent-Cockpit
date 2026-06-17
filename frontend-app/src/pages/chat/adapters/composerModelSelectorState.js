@@ -26,29 +26,37 @@ function isClaudeOpusFamilyModel(model) {
   return normalized === 'best' || normalized.includes('opus');
 }
 
-function effortOptionFor(provider, value) {
-  const normalized = normalizeConfigText(value);
-  const options = EFFORT_OPTIONS_BY_PROVIDER[normalizeProviderKey(provider)] || EFFORT_OPTIONS_BY_PROVIDER.codex;
-  return options.find((item) => item.value === normalized) || (normalized ? { value: normalized, label: normalized } : null);
+function localizedEffortOption(option, copy) {
+  const label = copy?.modelEffortLabels?.[option.value];
+  return label ? { ...option, label } : option;
 }
 
-function appendCurrentEffortOption(provider, value, model = '') {
+function effortOptionFor(provider, value, copy) {
+  const normalized = normalizeConfigText(value);
+  const options = EFFORT_OPTIONS_BY_PROVIDER[normalizeProviderKey(provider)] || EFFORT_OPTIONS_BY_PROVIDER.codex;
+  const option = options.find((item) => item.value === normalized);
+  if (option) return localizedEffortOption(option, copy);
+  return normalized ? { value: normalized, label: normalized } : null;
+}
+
+function appendCurrentEffortOption(provider, value, model = '', copy) {
   const providerKey = normalizeProviderKey(provider);
   const baseOptions = EFFORT_OPTIONS_BY_PROVIDER[providerKey] || EFFORT_OPTIONS_BY_PROVIDER.codex;
   const options = providerKey === 'claude' && !isClaudeOpusFamilyModel(model)
     ? baseOptions.filter((item) => item.value !== 'max')
     : baseOptions;
-  const current = effortOptionFor(provider, value);
-  if (!current || options.some((item) => item.value === current.value)) return options;
-  return [...options, current];
+  const localizedOptions = options.map((item) => localizedEffortOption(item, copy));
+  const current = effortOptionFor(provider, value, copy);
+  if (!current || localizedOptions.some((item) => item.value === current.value)) return localizedOptions;
+  return [...localizedOptions, current];
 }
 
-function composerModelLabel(provider, model, effort) {
+function composerModelLabel(provider, model, effort, copy) {
   const providerKey = normalizeProviderKey(provider);
   const modelValue = normalizeConfigText(model) || MODEL_DEFAULTS_BY_PROVIDER[providerKey].model;
   const effortValue = normalizeConfigText(effort) || MODEL_DEFAULTS_BY_PROVIDER[providerKey].effort;
   const modelLabel = modelOptionFor(providerKey, modelValue)?.label || modelValue;
-  const effortLabel = effortOptionFor(providerKey, effortValue)?.label || effortValue;
+  const effortLabel = effortOptionFor(providerKey, effortValue, copy)?.label || effortValue;
   if (providerKey === 'codex') return `${modelLabel.replace(/^GPT-/i, '')} ${effortLabel}`.trim();
   return `${modelLabel} · ${effortLabel}`.trim();
 }
@@ -90,9 +98,16 @@ function modelSelectorSnapshot(store, activeThreadId) {
   };
 }
 
-function modelSelectorTitle(disabled, canOverrideThread) {
-  if (disabled) return '请先连接后端并选择项目';
-  return canOverrideThread ? '线程执行配置' : '全局模型配置';
+function modelSelectorTitle(disabled, canOverrideThread, copy) {
+  if (disabled) return copy?.projectActionBlocked || '请先连接后端并选择项目';
+  return canOverrideThread
+    ? copy?.threadModelConfig || '线程执行配置'
+    : copy?.globalModelConfig || '全局模型配置';
+}
+
+function inheritedConfigLabel(activeValue, activeLabel, copy) {
+  if (!activeValue) return copy?.inheritDefault || '默认';
+  return `${copy?.inheritCurrentPrefix || '默认（当前：'}${activeLabel}${copy?.inheritCurrentSuffix || '）'}`;
 }
 
 function nextModelDraft(providerKey, draft, patch, activeModel) {
@@ -112,25 +127,27 @@ function loadedModelDraft(loaded, activeModel, activeEffort) {
   };
 }
 
-function modelSelectorDerivedState({ activeEffort, activeModel, activeThreadConfig, canOverrideThread, disabled, draft, providerKey, store, activeThreadId }) {
+function modelSelectorDerivedState({ activeEffort, activeModel, activeThreadConfig, canOverrideThread, copy, disabled, draft, providerKey, store, activeThreadId }) {
   const selectedModel = canonicalizeModelValue(providerKey, draft.model || activeModel);
   const selectedEffort = draft.effort || activeEffort;
+  const activeEffortLabel = effortOptionFor(providerKey, activeEffort, copy)?.label || activeEffort;
+  const activeModelLabel = modelOptionFor(providerKey, activeModel)?.label || activeModel;
   return {
     canOverrideThread,
     disabled,
     providerKey,
-    effortOptions: appendCurrentEffortOption(providerKey, selectedEffort, selectedModel),
-    inheritEffortLabel: activeEffort ? `默认（当前：${effortOptionFor(providerKey, activeEffort)?.label || activeEffort}）` : '默认',
-    inheritModelLabel: activeModel ? `默认（当前：${modelOptionFor(providerKey, activeModel)?.label || activeModel}）` : '默认',
+    effortOptions: appendCurrentEffortOption(providerKey, selectedEffort, selectedModel, copy),
+    inheritEffortLabel: inheritedConfigLabel(activeEffort, activeEffortLabel, copy),
+    inheritModelLabel: inheritedConfigLabel(activeModel, activeModelLabel, copy),
     inherited: canOverrideThread && !activeThreadConfig?.override?.model && !activeThreadConfig?.override?.effort,
-    label: composerModelLabel(providerKey, activeModel, activeEffort),
+    label: composerModelLabel(providerKey, activeModel, activeEffort, copy),
     modelOptions: appendCurrentModelOption(providerKey, selectedModel),
     selectEffortValue: canOverrideThread ? draft.effort : draft.effort || activeEffort,
     selectModelValue: canOverrideThread
       ? canonicalizeModelValue(providerKey, draft.model)
       : canonicalizeModelValue(providerKey, draft.model || activeModel),
     selectorBusy: Boolean(store.threadConfigSaving || (activeThreadId && store.threadConfigLoadingByThread?.[activeThreadId])),
-    selectorTitle: modelSelectorTitle(disabled, canOverrideThread),
+    selectorTitle: modelSelectorTitle(disabled, canOverrideThread, copy),
   };
 }
 

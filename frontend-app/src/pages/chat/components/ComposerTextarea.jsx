@@ -1,6 +1,8 @@
 import React from 'react';
+import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 
 const ComposerTextarea = React.forwardRef(function ComposerTextarea({
+  copy = APP_COPY.zh.chat,
   draft,
   onChange,
   onCompositionEnd,
@@ -14,7 +16,7 @@ const ComposerTextarea = React.forwardRef(function ComposerTextarea({
       id="composer-input"
       data-testid="composer-input"
       data-file-drop-target=""
-      aria-label="输入给 Agent 的内容"
+      aria-label={copy.inputLabel}
       rows={3}
       value={draft}
       onChange={onChange}
@@ -22,7 +24,7 @@ const ComposerTextarea = React.forwardRef(function ComposerTextarea({
       onCompositionStart={onCompositionStart}
       onCompositionEnd={onCompositionEnd}
       onKeyDown={onKeyDown}
-      placeholder="随心输入"
+      placeholder={copy.inputPlaceholder}
     />
   );
 });

@@ -26,6 +26,54 @@ function markdownLinkUrl(parsed, protocol) {
   return allowed.has(protocol) ? parsed.href : '';
 }
 
+function isExternalMarkdownHref(value) {
+  return /^[a-z][a-z0-9+.-]*:/i.test(value) && !/^file:/i.test(value);
+}
+
+function isLikelyLocalMarkdownPath(value) {
+  if (!value || value.startsWith('#') || value.startsWith('//') || isExternalMarkdownHref(value)) return false;
+  if (/^file:/i.test(value)) return true;
+  if (/^[A-Za-z]:[\\/]/.test(value)) return true;
+  if (/^~?\//.test(value) || /^\.{1,2}[\\/]/.test(value)) return true;
+  return /[\\/]/.test(value) || /\.[A-Za-z0-9]{1,12}(?:$|[#?])/.test(value);
+}
+
+function fileUrlToLocalPath(value) {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol.toLowerCase() !== 'file:') return '';
+    const path = decodeURIComponent(parsed.pathname || '');
+    if (/^\/[A-Za-z]:[\\/]/.test(path)) return path.slice(1);
+    return path;
+  }
+  catch {
+    return '';
+  }
+}
+
+function decodeMarkdownFilePath(value) {
+  try {
+    return decodeURIComponent(value);
+  }
+  catch {
+    return '';
+  }
+}
+
+function markdownFileLinkRef(rawUrl) {
+  const value = (rawUrl || '').toString().trim();
+  if (!isLikelyLocalMarkdownPath(value)) return null;
+  const lineMatch = value.match(/#L(\d+)/i);
+  const cleanValue = value.split(/[?#]/, 1)[0];
+  const path = /^file:/i.test(cleanValue) ? fileUrlToLocalPath(cleanValue) : decodeMarkdownFilePath(cleanValue);
+  if (!path) return null;
+  return {
+    path,
+    line: lineMatch ? Number.parseInt(lineMatch[1], 10) : 1,
+    column: 0,
+  };
+}
+
 function safeMarkdownUrl(rawUrl, options = {}) {
   const value = (rawUrl || '').toString().trim();
   if (!value) return '';
@@ -103,6 +151,28 @@ function renderMarkdownLinkToken(token, key, actions = {}) {
   const citation = citationMarkdownLinkChipModel(token);
   if (citation) return <MarkdownCitationLinkChip key={key} chip={citation} actions={actions} />;
   const parsed = token.match(/^\[([^\]]+)]\(([^)]+)\)$/);
+  const fileRef = markdownFileLinkRef(parsed?.[2]);
+  const openFile = actions?.onOpenPath || actions?.onFileRef;
+  if (fileRef && openFile) {
+    const label = parsed?.[1] || fileRef.path;
+    const handleFileClick = (event) => {
+      event.preventDefault();
+      openFile({ ...fileRef, raw: label });
+    };
+    return (
+      <button
+        key={key}
+        type="button"
+        className="chat-md-file-ref chat-md-file-link"
+        aria-label={`\u6253\u5f00\u6587\u4ef6 ${label}`}
+        title={fileRef.path}
+        onClick={handleFileClick}
+      >
+        {label}
+      </button>
+    );
+  }
+  if (fileRef) return parsed?.[1] || fileRef.path;
   const href = safeMarkdownUrl(parsed?.[2]);
   if (!href) return parsed?.[1] || token;
   const handleClick = (event) => {

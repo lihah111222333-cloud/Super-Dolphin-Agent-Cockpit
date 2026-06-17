@@ -11,12 +11,13 @@ import (
 
 // Dependencies describes a tools API type.
 type Dependencies struct {
-	Orchestration contract.OrchestrationService
-	Workspace     workspace.Service
-	Prompt        promptstore.Store
-	CommandCard   commandcardstore.Store
-	SharedFile    sharedfilestore.Store
-	ModelRegistry modelregistry.Registry
+	Orchestration  contract.OrchestrationService
+	Workspace      workspace.Service
+	Prompt         promptstore.Store
+	BuiltinPrompts contract.BuiltinPromptRegistry
+	CommandCard    commandcardstore.Store
+	SharedFile     sharedfilestore.Store
+	ModelRegistry  modelregistry.Registry
 }
 
 // Registry describes a tools API type.
@@ -37,7 +38,7 @@ var legacyOrchestrationAliases = map[string]string{
 func NewRegistry(deps Dependencies) Registry {
 	tools := append(orchestrationToolDefinitions(deps.Orchestration), taskToolDefinitions(deps.Orchestration)...)
 	tools = append(tools, workspaceToolDefinitions(deps.Workspace)...)
-	tools = append(tools, promptToolDefinitions(deps.Prompt)...)
+	tools = append(tools, promptToolDefinitions(deps.Prompt, deps.BuiltinPrompts)...)
 	tools = append(tools, recallToolDefinitions(deps.Prompt)...)
 	tools = append(tools, commandToolDefinitions(deps.CommandCard)...)
 	tools = append(tools, sharedFileToolDefinitions(deps.SharedFile)...)
