@@ -12,6 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/workflowtemplate"
 	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
 )
 
@@ -50,6 +51,16 @@ func TestAppModuleGraphProvidesDatasourceV2Service(t *testing.T) {
 	opts := append(appGraphValidationOptions(), fx.Populate(&svc))
 	if err := fx.ValidateApp(opts...); err != nil {
 		t.Fatalf("fx.ValidateApp missing datasource_v2 service: %v", err)
+	}
+}
+
+func TestAppModuleGraphProvidesWorkflowTemplateService(t *testing.T) {
+	t.Parallel()
+
+	var svc workflowtemplate.Service
+	opts := append(appGraphValidationOptions(), fx.Populate(&svc))
+	if err := fx.ValidateApp(opts...); err != nil {
+		t.Fatalf("fx.ValidateApp missing workflow template service: %v", err)
 	}
 }
 

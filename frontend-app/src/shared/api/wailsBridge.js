@@ -84,6 +84,12 @@ const BRIDGE_LOG_FORBIDDEN_KEYS = new Set([
 const BRIDGE_ERROR_DATA_SAFE_KEYS = new Set(['message', 'code', 'name', 'type', 'status']);
 const BRIDGE_REDACTED_VALUE = '[redacted]';
 
+function nativeImportModule(modulePath) {
+  // public 目录里的 Wails runtime 只能由浏览器原生加载，避免 Vite 注入 ?import 后拦截。
+  if (import.meta.env.MODE === 'test') return import(/* @vite-ignore */ modulePath);
+  return Function('modulePath', 'return import(modulePath)')(modulePath);
+}
+
 // Track active log store to pipe warnings and errors
 let logStoreInstance = null;
 export function registerBridgeLogStore(store) {
@@ -201,7 +207,7 @@ function compactBridgeValuePreview(value) {
 function waitRuntime() {
   if (!runtimePromise) {
     writeBridgeLog('info', 'bridge.runtime.load.start', {});
-    runtimePromise = import(/* @vite-ignore */ WAILS_RUNTIME_MODULE)
+    runtimePromise = nativeImportModule(WAILS_RUNTIME_MODULE)
       .then((module) => {
         writeBridgeLog('info', 'bridge.runtime.load.done', {
           ready: Boolean(module?.Call?.ByID),

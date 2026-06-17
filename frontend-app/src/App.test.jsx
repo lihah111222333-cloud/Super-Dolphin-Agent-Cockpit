@@ -51,7 +51,7 @@ const backend = vi.hoisted(() => {
     deletePrompt draftPromptIntent commitPromptIntent discardPromptIntent dryRunPromptIntent getMemorySnapshot
     getMemoryEntry upsertMemoryEntry deleteMemoryEntry setMemoryAutoDreamIntent mergeMemoryEntries
     ignoreMemorySimilarity consolidateMemorySimilarities startConsolidateMemorySimilarities getMemoryConsolidationStatus
-    listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps deleteSkill
+    listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps listWorkflowTemplates getWorkflowTemplate renderWorkflowTemplateDraft deleteSkill
     listCronJobs getCronJob createCronJob updateCronJob deleteCronJob runCronJobOnce setCronJobEnabled listCronJobRuns
     readSkill listSkillFiles createSkill writeSkill importSkillDirectories suggestSkillSummary selectProjectDir selectProjectDirs
     listMCPServers startSQLiteMCPServer stopSQLiteMCPServer startPlaywrightMCPServer stopPlaywrightMCPServer
@@ -373,6 +373,9 @@ function mockWorkflowDefaults() {
   backend.terminateDagRun.mockResolvedValue({ ok: true });
   backend.deleteDag.mockResolvedValue({ ok: true });
   backend.applyDagOps.mockResolvedValue({ newVersion: 2 });
+  backend.listWorkflowTemplates.mockResolvedValue({ templates: [] });
+  backend.getWorkflowTemplate.mockResolvedValue({ template: null });
+  backend.renderWorkflowTemplateDraft.mockResolvedValue({ draft: null });
 }
 
 function mockCronDefaults() {
@@ -7392,6 +7395,9 @@ async function designWorkflowWithAi() {
     expect(designPayload.config.enabledTools).toContain('task_get_run');
     expect(designPayload.config.enabledTools).toContain('task_list_runs');
     expect(designPayload.config.enabledTools).toContain('task_dispatch_node');
+    expect(designPayload.config.enabledTools).toContain('workflow_template_list');
+    expect(designPayload.config.enabledTools).toContain('workflow_template_get');
+    expect(designPayload.config.enabledTools).toContain('workflow_template_render_dag');
     expect(designPayload.config.enabledTools).not.toContain('task_update_node');
   });
   expect((await screen.findAllByText('AI 设计流程')).length).toBeGreaterThanOrEqual(1);

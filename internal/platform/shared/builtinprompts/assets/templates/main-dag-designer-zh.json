@@ -18,7 +18,7 @@
       "ordinal": 0,
       "trigger_type": "always",
       "enable_when": {
-        "enabled_tools_all": ["list_models", "prompt_list", "command_list", "shared_file_list", "task_create_dag", "task_get_dag", "task_get_run", "task_list_runs", "task_dag_apply_ops", "task_dispatch_node", "task_start_dag"]
+        "enabled_tools_all": ["list_models", "prompt_list", "command_list", "shared_file_list", "workflow_template_list", "workflow_template_get", "workflow_template_render_dag", "task_create_dag", "task_get_dag", "task_get_run", "task_list_runs", "task_dag_apply_ops", "task_dispatch_node", "task_start_dag"]
       },
       "body_file": "sections/main-dag-designer-zh/00-runtime-tools.md"
     }

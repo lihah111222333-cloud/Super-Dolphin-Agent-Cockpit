@@ -12,8 +12,11 @@ const backend = vi.hoisted(() => ({
   getDagDetail: vi.fn(),
   getDagRun: vi.fn(),
   getDagRuns: vi.fn(),
+  getWorkflowTemplate: vi.fn(),
+  listWorkflowTemplates: vi.fn(),
   openSharedFile: vi.fn(),
   readSharedFile: vi.fn(),
+  renderWorkflowTemplateDraft: vi.fn(),
   startDag: vi.fn(),
   startTurn: vi.fn(),
   startThread: vi.fn(),
@@ -97,9 +100,161 @@ function workflowDesignStore() {
   };
 }
 
+const enterpriseTemplateDetails = {
+  'government-enterprise/promo-video': enterpriseTemplateDetail({
+    id: 'government-enterprise/promo-video',
+    title: '宣传视频',
+    description: '生成宣传脚本、审稿意见和 MP4 成片。',
+    outputTypes: ['video', 'markdown', 'json'],
+    finalNodeKey: 'final_video',
+  }),
+  'government-enterprise/daily-weekly-report': enterpriseTemplateDetail({
+    id: 'government-enterprise/daily-weekly-report',
+    title: '日报/周报',
+    description: '汇总周期工作并生成复核后报告。',
+    outputTypes: ['markdown', 'docx', 'pdf', 'json'],
+    finalNodeKey: 'final_report',
+    supportsSchedule: true,
+  }),
+  'government-enterprise/project-briefing': enterpriseTemplateDetail({
+    id: 'government-enterprise/project-briefing',
+    title: '项目汇报',
+    description: '生成项目汇报材料。',
+    outputTypes: ['pptx', 'pdf', 'markdown'],
+    finalNodeKey: 'final_briefing',
+  }),
+  'government-enterprise/meeting-minutes': enterpriseTemplateDetail({
+    id: 'government-enterprise/meeting-minutes',
+    title: '会议纪要',
+    description: '提取会议纪要和督办清单。',
+    outputTypes: ['docx', 'markdown', 'pdf', 'json'],
+    finalNodeKey: 'final_minutes',
+  }),
+  'government-enterprise/data-analysis-brief': enterpriseTemplateDetail({
+    id: 'government-enterprise/data-analysis-brief',
+    title: '数据分析简报',
+    description: '生成指标解释和数据简报。',
+    outputTypes: ['pptx', 'markdown', 'pdf', 'json'],
+    finalNodeKey: 'final_brief',
+    supportsSchedule: true,
+  }),
+  'government-enterprise/approval-material': enterpriseTemplateDetail({
+    id: 'government-enterprise/approval-material',
+    title: '审批材料',
+    description: '生成审批依据、风险提示和材料包。',
+    outputTypes: ['docx', 'pdf', 'markdown', 'json'],
+    finalNodeKey: 'final_pack',
+  }),
+};
+
+function enterpriseTemplateDetail({ id, title, description, outputTypes, finalNodeKey, supportsSchedule = false }) {
+  const outputSlug = id.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').toLowerCase();
+  return {
+    id,
+    version: 1,
+    title: { zh: title },
+    description: { zh: description },
+    category: 'government-enterprise',
+    business_flow: '政企流程',
+    output_types: outputTypes,
+    tags: ['政企'],
+    estimated_nodes: 5,
+    requires_review: true,
+    supports_schedule: supportsSchedule,
+    ui_schema: [
+      { key: 'title', type: 'text', required: true, label: { zh: '主题名称' }, placeholder: { zh: '请输入主题' }, help: { zh: '用于 DAG 标题。' } },
+      { key: 'source_materials', type: 'file_ref', required: true, label: { zh: '输入材料' }, placeholder: { zh: 'sharedfile 路径或材料说明' }, help: { zh: '必须提供材料来源。' } },
+      {
+        key: 'output_format',
+        type: 'select',
+        required: true,
+        label: { zh: '输出格式' },
+        help: { zh: '二进制格式必须发现可用工具。' },
+        options: outputTypes.map((format) => ({ value: format, label: { zh: format.toUpperCase() } })),
+      },
+      { key: 'reviewer', type: 'reviewer', required: true, label: { zh: '复核人' }, placeholder: { zh: '负责人' }, help: { zh: '复核后才进入最终节点。' } },
+      { key: 'output_path', type: 'path', required: true, label: { zh: '保存目录' }, placeholder: { zh: `reports/workflows/${outputSlug}/{{run_id}}/` }, help: { zh: '必须位于 reports/workflows/ 或 dag/。' } },
+    ],
+    dag_template: {
+      dag_key_template: `${id}_{{run_id}}`,
+      title_template: '{{title}} - ' + title,
+      description_template: `基于 {{source_materials}} 创建${title}工作流。`,
+      trigger: 'manual',
+      final_node_key: finalNodeKey,
+      nodes: [
+        {
+          node_key: 'intake',
+          title: '材料理解',
+          node_type: 'agent',
+          assigned_to: `${id}_intake_runner`,
+          depends_on: [],
+          config: {
+            ui: {
+              stage_key: 'intake',
+              stage_title: '材料理解',
+              execution_mode: 'sequential',
+              operation_summary: '读取材料并提取关键事实。',
+              model_action: '抽取事实',
+              skills: ['prompt_list'],
+              input_sources: ['{{source_materials}}'],
+              expected_outputs: [`reports/workflows/${outputSlug}/{{run_id}}/intake.md`],
+            },
+            outputs: { to_sharedfile: { path: `reports/workflows/${outputSlug}/{{run_id}}/intake.md` } },
+          },
+        },
+        {
+          node_key: 'review',
+          title: '复核意见',
+          node_type: 'agent',
+          assigned_to: `${id}_review_runner`,
+          depends_on: ['intake'],
+          config: { ui: { operation_summary: '生成复核清单。' }, outputs: { to_sharedfile: { path: `reports/workflows/${outputSlug}/{{run_id}}/review.md` } } },
+        },
+        {
+          node_key: finalNodeKey,
+          title: '最终交付',
+          node_type: 'agent',
+          assigned_to: `${id}_final_runner`,
+          depends_on: ['review'],
+          config: { ui: { operation_summary: '生成最终材料。' }, outputs: { to_sharedfile: { path: `reports/workflows/${outputSlug}/{{run_id}}/final.{{output_format}}` } } },
+        },
+      ],
+    },
+    validation: { sharedfile_prefixes: ['reports/workflows/', 'dag/'], require_review_before_final: true, require_final_node_key: true },
+    final_output: { node_key: finalNodeKey, kind: 'sharedfile', path_template: `reports/workflows/${outputSlug}/{{run_id}}/final.{{output_format}}` },
+  };
+}
+
+function mockEnterpriseTemplates() {
+  const templates = Object.values(enterpriseTemplateDetails).map((template) => ({
+    id: template.id,
+    version: template.version,
+    title: template.title,
+    description: template.description,
+    category: template.category,
+    business_flow: template.business_flow,
+    output_types: template.output_types,
+    estimated_nodes: template.estimated_nodes,
+    requires_review: template.requires_review,
+    supports_schedule: template.supports_schedule,
+    final_node_key: template.dag_template.final_node_key,
+  }));
+  backend.listWorkflowTemplates.mockResolvedValue({ templates });
+  backend.getWorkflowTemplate.mockImplementation(({ templateId }) => Promise.resolve({
+    template: enterpriseTemplateDetails[templateId],
+  }));
+}
+
+async function fillEnterpriseTemplateForm(title, sourceMaterials, reviewer) {
+  fireEvent.change(await screen.findByLabelText('主题名称'), { target: { value: title } });
+  fireEvent.change(screen.getByLabelText('输入材料'), { target: { value: sourceMaterials } });
+  fireEvent.change(screen.getByLabelText('复核人'), { target: { value: reviewer } });
+}
+
 describe('WorkflowPage module', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockEnterpriseTemplates();
   });
 
   afterEach(() => {
@@ -454,6 +609,88 @@ describe('WorkflowPage module', () => {
     expect(previewVideo).toBeInTheDocument();
     expect(previewVideo.querySelector('track[kind="captions"]')).toHaveAttribute('label', '无字幕');
 
+    fireEvent.click(screen.getByRole('button', { name: '系统打开' }));
+
+    await waitFor(() => expect(backend.openSharedFile).toHaveBeenCalledWith({ path: finalPath }));
+    expect(backend.readSharedFile).not.toHaveBeenCalled();
+  });
+
+  it('opens office and pdf final outputs through the system without reading binary files as text', async () => {
+    const dag = {
+      dag_key: 'enterprise-report',
+      title: 'Enterprise Report',
+      status: 'ready',
+      trigger: 'manual',
+      version: 1,
+    };
+    const finalPath = 'reports/workflows/data_report_release/run-1/final.pptx';
+    backend.getDashboardPage.mockResolvedValue({ dags: [dag] });
+    backend.getDagDetail.mockResolvedValue({ dag, nodes: [] });
+    backend.getDagRuns.mockImplementation((params = {}) => Promise.resolve({
+      runs: params.status === 'running'
+        ? []
+        : [{
+            id: 31,
+            run_key: 'run-report-31',
+            status: 'succeeded',
+            metadata: { final_output: { kind: 'file', path: finalPath } },
+          }],
+    }));
+    backend.getDagRun.mockResolvedValue({
+      run: {
+        id: 31,
+        run_key: 'run-report-31',
+        status: 'succeeded',
+        metadata: { final_output: { kind: 'file', path: finalPath } },
+      },
+      nodes: [],
+    });
+    backend.openSharedFile.mockResolvedValue({ opened: true });
+
+    renderWorkflowPage();
+
+    expect(await screen.findByText(finalPath)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '系统打开' }));
+
+    await waitFor(() => expect(backend.openSharedFile).toHaveBeenCalledWith({ path: finalPath }));
+    expect(backend.readSharedFile).not.toHaveBeenCalled();
+  });
+
+  it('opens xlsx final outputs through the system without reading binary files as text', async () => {
+    const dag = {
+      dag_key: 'enterprise-data',
+      title: 'Enterprise Data',
+      status: 'ready',
+      trigger: 'manual',
+      version: 1,
+    };
+    const finalPath = 'reports/workflows/data_analysis_brief/run-1/final.xlsx';
+    backend.getDashboardPage.mockResolvedValue({ dags: [dag] });
+    backend.getDagDetail.mockResolvedValue({ dag, nodes: [] });
+    backend.getDagRuns.mockImplementation((params = {}) => Promise.resolve({
+      runs: params.status === 'running'
+        ? []
+        : [{
+            id: 32,
+            run_key: 'run-data-32',
+            status: 'succeeded',
+            metadata: { final_output: { kind: 'file', path: finalPath } },
+          }],
+    }));
+    backend.getDagRun.mockResolvedValue({
+      run: {
+        id: 32,
+        run_key: 'run-data-32',
+        status: 'succeeded',
+        metadata: { final_output: { kind: 'file', path: finalPath } },
+      },
+      nodes: [],
+    });
+    backend.openSharedFile.mockResolvedValue({ opened: true });
+
+    renderWorkflowPage();
+
+    expect(await screen.findByText(finalPath)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '系统打开' }));
 
     await waitFor(() => expect(backend.openSharedFile).toHaveBeenCalledWith({ path: finalPath }));
@@ -837,24 +1074,32 @@ describe('WorkflowPage module', () => {
     });
   });
 
-  it('renders enterprise workflow template cards with DAG data', async () => {
+  it('renders the government enterprise workflow template catalog with DAG data', async () => {
     mockWorkflowDag();
 
     renderWorkflowPage();
 
-    expect(await screen.findByRole('heading', { name: '政企工作流模板' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '用文档审查归档模板设计' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '用数据报告发布模板设计' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '用会议纪要督办模板设计' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '政企工作流模板库' })).toBeInTheDocument();
+    expect(backend.listWorkflowTemplates).toHaveBeenCalledWith({ category: 'government-enterprise' });
+    expect(await screen.findByRole('button', { name: '选择宣传视频模板' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '选择日报/周报模板' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '选择项目汇报模板' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '选择会议纪要模板' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '选择数据分析简报模板' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '选择审批材料模板' })).toBeInTheDocument();
+    expect(screen.getByText('DAG 草案')).toBeInTheDocument();
+    expect(screen.getByText('目标输出格式')).toBeInTheDocument();
   });
 
-  it('renders enterprise workflow template cards in the empty state', async () => {
+  it('renders the template catalog in the empty state', async () => {
     backend.getDashboardPage.mockResolvedValue({ dags: [] });
 
     renderWorkflowPage();
 
-    expect(await screen.findByRole('heading', { name: '政企工作流模板' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '用文档审查归档模板设计' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '政企工作流模板库' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '选择日报/周报模板' })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: '选择审批材料模板' }));
+    expect(await screen.findByRole('heading', { name: '审批材料' })).toBeInTheDocument();
   });
 
   it('starts the generic AI designer flow without sending a template brief', async () => {
@@ -882,26 +1127,49 @@ describe('WorkflowPage module', () => {
     expect(store.setActivePage).toHaveBeenCalledWith('chat');
   });
 
+  it('selects a template before showing the parameter form and DAG preview', async () => {
+    mockWorkflowDag();
+
+    renderWorkflowPage();
+
+    expect(screen.queryByRole('heading', { name: 'DAG 草案预览' })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: '选择会议纪要模板' }));
+
+    expect(await screen.findByRole('heading', { name: '会议纪要' })).toBeInTheDocument();
+    expect(screen.getByLabelText('主题名称')).toBeInTheDocument();
+    expect(screen.getByLabelText('输入材料')).toBeInTheDocument();
+    expect(screen.getByLabelText('输出格式')).toHaveDisplayValue('DOCX');
+    expect(screen.getByLabelText('复核人')).toBeInTheDocument();
+    expect(screen.getByLabelText('保存目录')).toHaveValue('reports/workflows/government_enterprise_meeting_minutes/{{run_id}}/');
+    expect(screen.getByRole('heading', { name: 'DAG 草案预览' })).toBeInTheDocument();
+    expect(screen.getAllByText('复核').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('最终').length).toBeGreaterThan(0);
+    expect(backend.startThread).not.toHaveBeenCalled();
+  });
+
   it.each([
     {
-      button: '用文档审查归档模板设计',
-      key: 'document-review-archive',
-      outputPrefix: 'enterprise-workflows/document-review-archive/{{run_id}}/',
-      extra: '生成审批材料',
+      button: '选择宣传视频模板',
+      key: 'government-enterprise/promo-video',
+      outputPrefix: 'reports/workflows/government_enterprise_promo_video/{{run_id}}/',
+      extra: 'video_with_audio',
+      outputFormat: 'video',
     },
     {
-      button: '用数据报告发布模板设计',
-      key: 'data-report-release',
-      outputPrefix: 'enterprise-workflows/data-report-release/{{run_id}}/',
+      button: '选择日报/周报模板',
+      key: 'government-enterprise/daily-weekly-report',
+      outputPrefix: 'reports/workflows/government_enterprise_daily_weekly_report/{{run_id}}/',
       extra: 'CRON_TZ=Asia/Shanghai',
+      outputFormat: 'markdown',
     },
     {
-      button: '用会议纪要督办模板设计',
-      key: 'meeting-minutes-followup',
-      outputPrefix: 'enterprise-workflows/meeting-minutes-followup/{{run_id}}/',
-      extra: '督办清单',
+      button: '选择审批材料模板',
+      key: 'government-enterprise/approval-material',
+      outputPrefix: 'reports/workflows/government_enterprise_approval_material/{{run_id}}/',
+      extra: '审批材料',
+      outputFormat: 'docx',
     },
-  ])('starts the enterprise template designer flow for $key', async ({ button, key, outputPrefix, extra }) => {
+  ])('starts the enterprise workflow template designer flow for $key', async ({ button, key, outputPrefix, extra, outputFormat }) => {
     mockWorkflowDag();
     backend.startThread.mockResolvedValue({ thread_id: 'thread-template' });
     backend.startTurn.mockResolvedValue({ ok: true });
@@ -910,6 +1178,8 @@ describe('WorkflowPage module', () => {
     renderWorkflowPage(store);
 
     fireEvent.click(await screen.findByRole('button', { name: button }));
+    await fillEnterpriseTemplateForm('模板主题', 'materials/source.md', '复核负责人');
+    fireEvent.click(screen.getByRole('button', { name: '创建工作流' }));
 
     await waitFor(() => expect(backend.startTurn).toHaveBeenCalledWith(expect.objectContaining({
       cwd: '/repo/app',
@@ -921,19 +1191,42 @@ describe('WorkflowPage module', () => {
       agentKey: 'dag_designer',
       promptKey: 'main/dag_designer_zh',
       deferSpawn: true,
+      config: expect.objectContaining({
+        enabledTools: expect.arrayContaining(['workflow_template_list', 'workflow_template_get', 'workflow_template_render_dag']),
+      }),
     }));
     expect(backend.startThread.mock.invocationCallOrder[0]).toBeLessThan(backend.startTurn.mock.invocationCallOrder[0]);
     const brief = backend.startTurn.mock.calls[0][0].input;
-    expect(brief).toContain(`template_key: ${key}`);
+    expect(brief).toContain(`template_id: ${key}`);
+    expect(brief).toContain('template_version: 1');
     expect(brief).toContain(outputPrefix);
+    expect(brief).toContain(`目标输出格式: ${outputFormat}`);
+    expect(brief).toContain('ui_schema');
+    expect(brief).toContain('dag_template');
+    expect(brief).toContain('dag_preview');
+    expect(brief).toContain('workflow_template_list');
+    expect(brief).toContain('workflow_template_get');
+    expect(brief).toContain('workflow_template_render_dag');
+    expect(brief).toContain('review_node');
+    expect(brief).toContain('顺序/并行');
+    expect(brief).toContain('config.ui');
+    expect(brief).toContain('operation_summary');
+    expect(brief).toContain('skills');
     expect(brief).toContain('审批');
     expect(brief).toContain('command_card');
     expect(brief).toContain('outputs.to_sharedfile');
     expect(brief).toContain('final_node_key');
     expect(brief).toContain('node.config.exec');
     expect(brief).toContain(extra);
+    expect(await screen.findByRole('status')).toHaveTextContent('DAG 设计器已接收');
+    expect(screen.getByRole('button', { name: '查看设计对话' })).toBeInTheDocument();
+    expect(store.setActiveThread).not.toHaveBeenCalled();
+    expect(store.setActivePage).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '查看设计对话' }));
+
     expect(store.setActiveThread).toHaveBeenCalledWith('thread-template');
-    expect(store.setActivePage).toHaveBeenCalledWith('chat');
+    await waitFor(() => expect(store.setActivePage).toHaveBeenCalledWith('chat'));
   });
 
   it('does not send a template brief when the designer thread fails to start', async () => {
@@ -943,7 +1236,9 @@ describe('WorkflowPage module', () => {
 
     renderWorkflowPage(store);
 
-    fireEvent.click(await screen.findByRole('button', { name: '用文档审查归档模板设计' }));
+    fireEvent.click(await screen.findByRole('button', { name: '选择审批材料模板' }));
+    await fillEnterpriseTemplateForm('模板主题', 'materials/source.md', '复核负责人');
+    fireEvent.click(screen.getByRole('button', { name: '创建工作流' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('启动政企模板失败：thread offline');
     expect(backend.startTurn).not.toHaveBeenCalled();
@@ -958,11 +1253,87 @@ describe('WorkflowPage module', () => {
 
     renderWorkflowPage(store);
 
-    fireEvent.click(await screen.findByRole('button', { name: '用文档审查归档模板设计' }));
+    fireEvent.click(await screen.findByRole('button', { name: '选择审批材料模板' }));
+    await fillEnterpriseTemplateForm('模板主题', 'materials/source.md', '复核负责人');
+    fireEvent.click(screen.getByRole('button', { name: '创建工作流' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('发送政企模板需求失败：turn offline');
     expect(backend.startTurn).toHaveBeenCalled();
     expect(store.setActiveThread).not.toHaveBeenCalled();
+  });
+
+  it('renders workflow stages from node dependencies and shows planned model operations on hover', async () => {
+    const dag = {
+      dag_key: 'enterprise_doc_review',
+      title: '文档审查归档',
+      status: 'ready',
+      trigger: 'manual',
+      version: 1,
+    };
+    const nodes = [
+      {
+        node_key: 'risk_review',
+        title: '风险分析',
+        node_type: 'agent',
+        assigned_to: 'risk-runner',
+        depends_on: ['classify_docs'],
+        status: 'ready',
+        config: {
+          ui: {
+            stage_title: '风险分析',
+            execution_mode: 'parallel',
+            operation_summary: '大模型比对制度要求并标注风险等级。',
+            model_action: '读取分类结果，输出风险说明。',
+            skills: ['文档审查', '风险识别'],
+            input_sources: ['classify_docs'],
+            expected_outputs: [{ format: 'json', path: 'reports/workflows/document_review_archive/{{run_id}}/risks.json' }],
+          },
+          outputs: {
+            to_sharedfile: { path: 'reports/workflows/document_review_archive/{{run_id}}/risks.json' },
+          },
+        },
+      },
+      {
+        node_key: 'classify_docs',
+        title: '抽取要点与文档分类',
+        node_type: 'agent',
+        assigned_to: 'classify-runner',
+        depends_on: ['collect_materials'],
+        status: 'done',
+        config: {
+          ui: {
+            operation_summary: '大模型抽取文件主题、效力层级和关键词。',
+            skills: ['信息抽取'],
+          },
+        },
+      },
+      {
+        node_key: 'collect_materials',
+        title: '接收材料与审查要求',
+        node_type: 'agent',
+        assigned_to: 'collector',
+        depends_on: [],
+        status: 'done',
+      },
+    ];
+    backend.getDashboardPage.mockResolvedValue({ dags: [dag] });
+    backend.getDagDetail.mockResolvedValue({ dag, nodes });
+    backend.getDagRuns.mockResolvedValue({ runs: [] });
+    backend.getDagRun.mockResolvedValue({ run: null, nodes: [] });
+
+    renderWorkflowPage();
+
+    expect(await screen.findByRole('heading', { name: '阶段进度' })).toBeInTheDocument();
+    expect(screen.getByText('第 1 阶段')).toBeInTheDocument();
+    expect(screen.getAllByText('顺序执行').length).toBeGreaterThan(0);
+    expect(screen.getByText('并行执行')).toBeInTheDocument();
+    const riskStage = screen.getByRole('button', { name: /风险分析/ });
+
+    fireEvent.mouseEnter(riskStage);
+
+    expect(await screen.findByText('大模型比对制度要求并标注风险等级。')).toBeInTheDocument();
+    expect(screen.getByText('文档审查、风险识别')).toBeInTheDocument();
+    expect(screen.getAllByText('reports/workflows/document_review_archive/{{run_id}}/risks.json').length).toBeGreaterThan(0);
   });
 
   it('opens a DAG node child conversation through the explicit thread opener', async () => {

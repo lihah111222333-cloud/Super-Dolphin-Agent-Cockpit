@@ -1,0 +1,179 @@
+id: government-enterprise/approval-material
+version: 1
+title:
+  zh: 审批材料
+  en: Approval Material
+description:
+  zh: 整理申请背景、依据、风险和附件清单，生成复核后的审批材料包。
+  en: Prepare approval background, basis, risks, and attachment lists for manual review.
+category: government-enterprise
+business_flow: 审批流转
+output_types: [docx, pdf, markdown, json]
+tags: [政企, 审批, 材料, 归档]
+estimated_nodes: 5
+requires_review: true
+supports_schedule: false
+ui_schema:
+  - key: title
+    type: text
+    required: true
+    label: { zh: 审批事项 }
+    placeholder: { zh: 例如：数据共享申请审批 }
+    help: { zh: 用于审批材料标题。 }
+  - key: approval_basis
+    type: textarea
+    required: true
+    label: { zh: 审批依据 }
+    placeholder: { zh: 填写制度、政策或项目依据 }
+    help: { zh: 依据缺失时必须提醒补充。 }
+  - key: source_materials
+    type: file_ref
+    required: true
+    label: { zh: 输入材料 }
+    placeholder: { zh: 申请书、附件、制度依据或 sharedfile }
+    help: { zh: 只整理材料，不替代真实审批系统。 }
+  - key: output_format
+    type: select
+    required: true
+    label: { zh: 输出格式 }
+    placeholder: { zh: docx }
+    help: { zh: docx/pdf 需要可用生成能力。 }
+    options:
+      - value: docx
+        label: { zh: Word }
+      - value: pdf
+        label: { zh: PDF }
+      - value: markdown
+        label: { zh: Markdown }
+      - value: json
+        label: { zh: JSON }
+  - key: reviewer
+    type: reviewer
+    required: true
+    label: { zh: 复核人 }
+    placeholder: { zh: 例如：审批经办人 }
+    help: { zh: 复核节点只输出材料和确认项。 }
+  - key: output_path
+    type: path
+    required: true
+    label: { zh: 保存目录 }
+    placeholder:
+      zh: reports/workflows/government_enterprise_approval_material/{{run_id}}/
+    help: { zh: 审批材料包和附件清单写入该目录。 }
+dag_template:
+  dag_key_template: government_enterprise_approval_material_{{run_id}}
+  title_template: "{{title}} - 审批材料"
+  description_template: "整理 {{title}} 的审批依据、风险和材料包。"
+  trigger: manual
+  final_node_key: final_pack
+  nodes:
+    - node_key: intake
+      title: 材料接收
+      node_type: agent
+      assigned_to: government_enterprise_approval_material_intake_runner
+      depends_on: []
+      config:
+        ui:
+          stage_key: intake
+          stage_title: 材料接收
+          execution_mode: sequential
+          operation_summary: 校验申请材料、审批依据和附件清单是否齐备。
+          model_action: 生成缺失材料和补充说明。
+          skills: [prompt_list, shared_file_list]
+          input_sources: ["{{source_materials}}", "{{approval_basis}}"]
+          expected_outputs: ["{{output_path}}intake.md"]
+        outputs:
+          to_sharedfile:
+            path: "{{output_path}}intake.md"
+            lock_mode: exclusive
+          to_node_result: true
+    - node_key: risk
+      title: 合规风险审查
+      node_type: agent
+      assigned_to: government_enterprise_approval_material_risk_runner
+      depends_on: [intake]
+      config:
+        ui:
+          stage_key: risk
+          stage_title: 风险审查
+          execution_mode: sequential
+          operation_summary: 识别合规、信息安全、授权和归档风险。
+          model_action: 输出风险标签和需确认项。
+          skills: [prompt_list]
+          input_sources: [intake]
+          expected_outputs: ["{{output_path}}risk.md"]
+        outputs:
+          to_sharedfile:
+            path: "{{output_path}}risk.md"
+            lock_mode: exclusive
+          to_node_result: true
+    - node_key: draft
+      title: 审批材料草稿
+      node_type: agent
+      assigned_to: government_enterprise_approval_material_draft_runner
+      depends_on: [risk]
+      config:
+        ui:
+          stage_key: draft
+          stage_title: 材料草稿
+          execution_mode: sequential
+          operation_summary: 生成审批表、说明、附件目录和风险提示。
+          model_action: 合成审批材料包草稿。
+          skills: [prompt_list]
+          input_sources: [intake, risk]
+          expected_outputs: ["{{output_path}}draft.md"]
+        outputs:
+          to_sharedfile:
+            path: "{{output_path}}draft.md"
+            lock_mode: exclusive
+          to_node_result: true
+    - node_key: review
+      title: 审批复核
+      node_type: agent
+      assigned_to: government_enterprise_approval_material_review_runner
+      depends_on: [draft]
+      config:
+        ui:
+          stage_key: review
+          stage_title: 审批复核
+          execution_mode: sequential
+          operation_summary: 生成给 {{reviewer}} 的复核结论和待确认事项。
+          model_action: 检查审批依据、风险和附件完整性。
+          skills: [prompt_list]
+          input_sources: [draft]
+          expected_outputs: ["{{output_path}}review.md"]
+        outputs:
+          to_sharedfile:
+            path: "{{output_path}}review.md"
+            lock_mode: exclusive
+          to_node_result: true
+    - node_key: final_pack
+      title: 最终审批材料包
+      node_type: agent
+      assigned_to: government_enterprise_approval_material_final_runner
+      depends_on: [review]
+      config:
+        ui:
+          stage_key: final
+          stage_title: 最终交付
+          execution_mode: sequential
+          operation_summary: 生成复核后的审批材料包 sharedfile。
+          model_action: 输出最终材料路径和审批摘要。
+          skills: [prompt_list, command_list]
+          input_sources: [draft, review]
+          expected_outputs: ["{{output_path}}final.{{output_format}}"]
+        outputs:
+          to_sharedfile:
+            path: "{{output_path}}final.{{output_format}}"
+            lock_mode: exclusive
+          to_node_result: true
+validation:
+  sharedfile_prefixes:
+  - reports/workflows/
+  - dag/
+  require_review_before_final: true
+  require_final_node_key: true
+final_output:
+  node_key: final_pack
+  kind: sharedfile
+  path_template: "{{output_path}}final.{{output_format}}"
