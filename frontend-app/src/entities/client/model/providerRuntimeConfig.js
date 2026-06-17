@@ -68,7 +68,7 @@ export function codexLaunchConfigFromPreferences({ codexHome, codexInstanceKey, 
   if (!home && !instanceKey && !modelProvider) return null;
 
   if (!home || !instanceKey) {
-    throw new Error('startThread: complete Codex identity requires codexHome, codexInstanceKey, and codexModelProvider');
+    throw new Error('startThread: Codex identity requires codexHome and codexInstanceKey when configured');
   }
 
   const config = { codexHome: home, codexInstanceKey: instanceKey };
