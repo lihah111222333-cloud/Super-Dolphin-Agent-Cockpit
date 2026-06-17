@@ -811,6 +811,35 @@ async function showAllTraceDashboardEvents() {
     expect(projectNames()).toEqual(['app', 'other']);
   });
 
+  it('keeps cached chats visible when multiple sidebar projects are expanded', async () => {
+    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
+    backend.setActiveProject.mockImplementation(({ path }) => Promise.resolve({ projects: ['/repo/app', '/repo/other'], active: path }));
+    backend.getSidebarState.mockImplementation(({ cwd }) => Promise.resolve(cwd === '/repo/other' ? {
+      activeThreadId: '',
+      threads: [{ id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle' }],
+    } : {
+      activeThreadId: '',
+      threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle' }],
+    }));
+
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    const projectLists = () => Array.from(sidebar.querySelectorAll('.sidebar-project-thread-list'));
+    const projectButton = (name) => Array.from(sidebar.querySelectorAll('.sidebar-tree-folder'))
+      .find((button) => button.textContent === name);
+
+    fireEvent.click(projectButton('other'));
+    await waitFor(() => expect(within(projectLists()[1]).getByTitle('Other project chat')).toBeInTheDocument());
+    fireEvent.click(projectButton('app'));
+
+    await waitFor(() => {
+      expect(within(projectLists()[0]).getByTitle('App project chat')).toBeInTheDocument();
+      expect(within(projectLists()[1]).getByTitle('Other project chat')).toBeInTheDocument();
+    });
+    expect(within(projectLists()[1]).queryByText('暂无聊天记录')).not.toBeInTheDocument();
+  });
+
   it('moves automation threads from project chats into the sidebar task list', async () => {
     const threads = [
       { id: 'thread-project', name: '项目普通对话', provider: 'codex', status: 'idle', cwd: '/repo/app' },

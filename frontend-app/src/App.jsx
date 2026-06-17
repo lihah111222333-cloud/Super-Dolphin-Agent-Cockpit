@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tan
 import { Archive, Brain, Check, CircleUserRound, Folder, FolderOpen, Menu, Moon, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Puzzle, RefreshCw, Search, Settings as SettingsIcon, SquarePlus, Sun, Trash2, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useClientStore } from './entities/client/model/useClientStore.js';
-import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.js';
+import { checkAppUpdate, getSidebarState, installLatestAppUpdate } from './shared/api/backendApi.js';
 import { dashboardQueryKey, errorMessage, fetchMemoryDashboard, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, useDashboardFocusInvalidation, textValue } from './pages/shared/pageShared.js';
 import { ProjectSelector } from './pages/chat/components/ProjectSelector.jsx';
 import { runUIAction } from './shared/ui/runUIAction.js';
@@ -407,6 +407,7 @@ const WORKBENCH_SIDEBAR_MIN_WIDTH = 280;
 const WORKBENCH_SIDEBAR_DEFAULT_WIDTH = 340;
 const WORKBENCH_SIDEBAR_MAX_WIDTH = 460;
 const WORKBENCH_SIDEBAR_KEY_STEP = 16;
+const PROJECT_THREAD_CACHE_TTL_MS = 45_000;
 
 function clampWorkbenchSidebarWidth(value) {
   const numeric = Number(value);
@@ -660,6 +661,10 @@ function projectThreadLabel(thread = {}) {
   return label;
 }
 
+function sidebarSnapshotThreads(snapshot) {
+  return Array.isArray(snapshot?.threads) ? snapshot.threads : [];
+}
+
 function SidebarNavList({ copy, items, activePage, setActivePage, memoryBadgeCount = 0, testId, className }) {
   return (
     <nav className={`app-sidebar-nav ${className || ''}`} data-testid={testId}>
@@ -907,10 +912,70 @@ function SidebarThreadRow({
 
 function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActivePage, store }) {
   const [expandedProjects, setExpandedProjects] = useState({});
+  const [projectThreadCache, setProjectThreadCache] = useState({});
+  const projectThreadCacheRef = useRef({});
   const threadActions = useSidebarThreadActions(store);
   const actionOptions = uiActionOptions(store);
   const projectItems = projectDirectoryItems(projectPath, store?.projects, store?.activeProject);
   const activeProjectPath = textValue(store?.activeProject || projectPath);
+  useEffect(() => {
+    projectThreadCacheRef.current = projectThreadCache;
+  }, [projectThreadCache]);
+  const updateProjectThreadCache = useCallback((path, update) => {
+    const key = projectTreeKey(path);
+    if (!key) return;
+    setProjectThreadCache((current) => {
+      const previous = current[key] || { path, threads: [], loadedAt: 0, loading: false, error: '' };
+      const patch = typeof update === 'function' ? update(previous) : update;
+      return {
+        ...current,
+        [key]: {
+          ...previous,
+          path,
+          ...patch,
+        },
+      };
+    });
+  }, []);
+  const refreshProjectThreadCache = useCallback((path, options = {}) => {
+    const key = projectTreeKey(path);
+    if (!key) return;
+    const current = projectThreadCacheRef.current[key];
+    if (!options.force && current && !current.error && Date.now() - current.loadedAt < PROJECT_THREAD_CACHE_TTL_MS) return;
+    updateProjectThreadCache(path, (previous) => ({
+      threads: Array.isArray(previous.threads) ? previous.threads : [],
+      loading: true,
+      error: '',
+    }));
+    getSidebarState({ cwd: path })
+      .then((snapshot) => {
+        updateProjectThreadCache(path, {
+          threads: sidebarSnapshotThreads(snapshot),
+          loadedAt: Date.now(),
+          loading: false,
+          error: '',
+        });
+      })
+      .catch((error) => {
+        updateProjectThreadCache(path, (previous) => ({
+          threads: Array.isArray(previous.threads) ? previous.threads : [],
+          loading: false,
+          error: error?.message || String(error),
+        }));
+      });
+  }, [updateProjectThreadCache]);
+  useEffect(() => {
+    const activeKey = projectTreeKey(activeProjectPath);
+    if (!activeKey) return;
+    const loadingKey = projectTreeKey(store?.chatSurfaceLoadingCwd);
+    if (loadingKey && loadingKey === activeKey) return;
+    updateProjectThreadCache(activeProjectPath, {
+      threads: Array.isArray(store?.threads) ? store.threads : [],
+      loadedAt: Date.now(),
+      loading: false,
+      error: '',
+    });
+  }, [activeProjectPath, store?.chatSurfaceLoadingCwd, store?.threads, updateProjectThreadCache]);
   const addProject = () => runUIAction(async () => {
     const added = await store?.addProjectFromPicker?.();
     if (added) setActivePage('chat');
@@ -918,14 +983,16 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
   const selectProject = (path) => {
     if (!path) return;
     setActivePage('chat');
+    const hasExplicitState = Object.prototype.hasOwnProperty.call(expandedProjects, path);
+    const currentExpanded = hasExplicitState ? !!expandedProjects[path] : projectTreeKey(path) === projectTreeKey(activeProjectPath);
+    const nextExpanded = !currentExpanded;
     setExpandedProjects((current) => {
-      const hasExplicitState = Object.prototype.hasOwnProperty.call(current, path);
-      const currentExpanded = hasExplicitState ? !!current[path] : projectTreeKey(path) === projectTreeKey(activeProjectPath);
       return {
         ...current,
-        [path]: !currentExpanded,
+        [path]: nextExpanded,
       };
     });
+    if (nextExpanded) refreshProjectThreadCache(path);
     if (projectTreeKey(path) !== projectTreeKey(activeProjectPath)) {
       runUIAction(() => store?.setActiveProjectPath?.(path), actionOptions);
     }
@@ -953,10 +1020,13 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
       <div className="sidebar-tree-root">
         {projectItems.map((item) => {
           const isActiveProject = item.path && item.path === activeProjectPath;
-          const projectThreads = projectThreadItems(store?.threads, item.path, activeProjectPath);
+          const cacheEntry = projectThreadCache[projectTreeKey(item.path)];
+          const sourceThreads = cacheEntry ? cacheEntry.threads : (isActiveProject ? store?.threads : []);
+          const projectThreads = projectThreadItems(sourceThreads, item.path, cacheEntry ? item.path : activeProjectPath);
           const hasExplicitState = Object.prototype.hasOwnProperty.call(expandedProjects, item.path);
           const isExpanded = hasExplicitState ? !!expandedProjects[item.path] : isActiveProject;
           const visibleThreads = isExpanded ? projectThreads : [];
+          const showLoading = isExpanded && cacheEntry?.loading && visibleThreads.length === 0;
           return (
             <div className="sidebar-tree-project" key={item.path || item.name}>
               <button
@@ -1014,7 +1084,9 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
                       </button>
                     </li>
                   );
-                }) : (
+                }) : showLoading ? (
+                  <li className="sidebar-project-thread-empty">{copy.loadingThreads}</li>
+                ) : (
                   isExpanded ? <li className="sidebar-project-thread-empty">{copy.emptyThreads}</li> : null
                 )}
               </ul>
