@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"strings"
 	"sync"
@@ -397,7 +398,7 @@ func (d *driver) ResolveResumeSessionIdentity(_ context.Context, req dto.ResumeS
 }
 
 func resumeCodexIdentityConfig(req dto.ResumeSessionRequest) map[string]any {
-	config := cloneCodexConfigMap(req.Config)
+	config := maps.Clone(req.Config)
 	if config == nil {
 		config = make(map[string]any, 3)
 	}
