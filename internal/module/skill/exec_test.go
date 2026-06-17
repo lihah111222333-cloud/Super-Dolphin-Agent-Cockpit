@@ -37,6 +37,15 @@ func TestExecCommandRejectsShellInterpreter(t *testing.T) {
 	}
 }
 
+func TestExecCommandRejectsCodeExecutionRuntime(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{}
+	if _, err := svc.ExecCommand(context.Background(), "node", []string{"-e", "console.log(1)"}, "", nil); err == nil {
+		t.Fatal("ExecCommand expected code execution runtime validation error")
+	}
+}
+
 func TestExecCommandFallsBackToProjectRoot(t *testing.T) {
 	t.Parallel()
 
@@ -64,6 +73,27 @@ func normalizePWDOutput(output string) string {
 	return output
 }
 
+func TestBuildExecEnvDropsSensitiveProviderEnv(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "parent-secret")
+	t.Setenv("ANTHROPIC_API_KEY", "parent-secret")
+	t.Setenv("CODEX_HOME", "parent-home")
+	t.Setenv("MCP_TOKEN", "parent-secret")
+	t.Setenv("TEST_E2E_SKILL_ENV", "allowed")
+
+	env := buildExecEnv("", map[string]string{
+		"OPENAI_API_KEY":     "overlay-secret",
+		"TEST_E2E_SKILL_ENV": "overlay",
+	})
+	for _, key := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "CODEX_HOME", "MCP_TOKEN"} {
+		if value := execTestEnvValue(env, key); value != "" {
+			t.Fatalf("%s leaked into exec env as %q", key, value)
+		}
+	}
+	if got := execTestEnvValue(env, "TEST_E2E_SKILL_ENV"); got != "overlay" {
+		t.Fatalf("TEST_E2E_SKILL_ENV = %q, want overlay", got)
+	}
+}
+
 func TestExecCommandInjectsWhitelistedEnv(t *testing.T) {
 	t.Setenv("TEST_E2E_SKILL_ENV", "allowed")
 	t.Setenv("UNRELATED_SKILL_ENV", "blocked")
@@ -83,6 +113,16 @@ func TestExecCommandInjectsWhitelistedEnv(t *testing.T) {
 	if blocked.ExitCode == 0 || strings.TrimSpace(blocked.Stdout) != "" {
 		t.Fatalf("blocked env leaked: exit=%d stdout=%q", blocked.ExitCode, blocked.Stdout)
 	}
+}
+
+func execTestEnvValue(env []string, key string) string {
+	want := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, want) {
+			return strings.TrimPrefix(entry, want)
+		}
+	}
+	return ""
 }
 
 func TestExecCommandOverlaysAllowedEnv(t *testing.T) {

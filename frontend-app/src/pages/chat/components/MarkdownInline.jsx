@@ -172,6 +172,7 @@ function renderMarkdownLinkToken(token, key, actions = {}) {
       </button>
     );
   }
+  if (fileRef) return parsed?.[1] || fileRef.path;
   const href = safeMarkdownUrl(parsed?.[2]);
   if (!href) return parsed?.[1] || token;
   const handleClick = (event) => {

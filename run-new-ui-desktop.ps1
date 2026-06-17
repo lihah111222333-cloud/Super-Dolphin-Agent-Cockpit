@@ -477,6 +477,42 @@ function Test-PeerBinaryStale {
     return $false
 }
 
+function Test-PathTreeNewerThanFile {
+    param(
+        [Parameter(Mandatory)][string]$ReferencePath,
+        [Parameter(Mandatory)][string[]]$SourcePaths
+    )
+
+    if (-not (Test-Path -LiteralPath $ReferencePath -PathType Leaf)) {
+        return $true
+    }
+
+    $referenceWriteTime = (Get-Item -LiteralPath $ReferencePath).LastWriteTimeUtc
+    foreach ($relativeSourcePath in $SourcePaths) {
+        $sourcePath = Join-Path $ProjectDir $relativeSourcePath
+        if (-not (Test-Path -LiteralPath $sourcePath)) {
+            continue
+        }
+
+        $sourceItem = Get-Item -LiteralPath $sourcePath
+        if (-not $sourceItem.PSIsContainer) {
+            if ($sourceItem.LastWriteTimeUtc -gt $referenceWriteTime) {
+                return $true
+            }
+            continue
+        }
+
+        $newerSource = Get-ChildItem -LiteralPath $sourcePath -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.LastWriteTimeUtc -gt $referenceWriteTime } |
+            Select-Object -First 1
+        if ($newerSource) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 function Resolve-PeerBinDir {
     $rawPeerBinDir = [Environment]::GetEnvironmentVariable('GO_AGENT_PEER_BIN_DIR', 'Process')
     if ($null -eq $rawPeerBinDir -or $rawPeerBinDir.Trim() -eq '') {
@@ -543,6 +579,39 @@ function Ensure-PeerBinaries {
     if (-not $needsBuild) { return }
 
     Build-PeerBinaries -PeerBinDir $peerBinDir
+}
+
+function Ensure-EmbeddedFrontendDist {
+    $embeddedIndex = Join-Path $ProjectDir 'cmd\agent-terminal\frontend\dist\index.html'
+    $frontendSourcePaths = @(
+        'frontend-app\index.html',
+        'frontend-app\package.json',
+        'frontend-app\package-lock.json',
+        'frontend-app\vite.config.js',
+        'frontend-app\src',
+        'frontend-app\public',
+        'frontend-app\scripts\sync-frontend-dist.mjs'
+    )
+
+    if (-not (Test-PathTreeNewerThanFile -ReferencePath $embeddedIndex -SourcePaths $frontendSourcePaths)) {
+        return
+    }
+
+    Write-Host '  -> building embedded frontend dist'
+    $npm = Resolve-NpmCommand
+    Push-Location -LiteralPath $FrontendAppDir
+    try {
+        & $npm run build
+        if ($LASTEXITCODE -ne 0) { throw 'frontend-app build failed' }
+        & node (Join-Path $FrontendAppDir 'scripts\sync-frontend-dist.mjs')
+        if ($LASTEXITCODE -ne 0) { throw 'frontend-app dist sync failed' }
+    } finally {
+        Pop-Location
+    }
+
+    if (-not (Test-Path -LiteralPath $embeddedIndex -PathType Leaf)) {
+        throw "embedded frontend dist missing after sync: $embeddedIndex"
+    }
 }
 
 function Ensure-SqliteRuntime {
@@ -624,6 +693,7 @@ try {
     Assert-PortFree -Address $env:SUPER_DOLPHIN_HTTP_ADDR
     Assert-PortFree -Address $env:GO_AGENT_CTL_RPC_ADDR
     Ensure-NodeDeps -Dir $FrontendAppDir
+    Ensure-EmbeddedFrontendDist
     Ensure-PeerBinaries
 
     Write-Host '+-----------------------------------------+'

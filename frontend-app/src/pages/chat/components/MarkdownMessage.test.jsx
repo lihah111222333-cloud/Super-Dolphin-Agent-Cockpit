@@ -71,6 +71,13 @@ describe('MarkdownMessage', () => {
     expect(container.querySelector('.message-markdown .message-markdown')).toBeNull();
   });
 
+  it('does not open local file links without scoped actions', () => {
+    render(<CodePreviewMarkdown content="[secret](file:///C:/outside/secret.txt)" />);
+
+    expect(screen.queryByRole('link', { name: 'secret' })).toBeNull();
+    expect(screen.getByText('secret')).toBeInTheDocument();
+  });
+
   it('opens and closes local image previews in a lightbox', () => {
     render(<MarkdownImagePreview src="data:image/png;base64,AA==" label="sample.png" />);
 
