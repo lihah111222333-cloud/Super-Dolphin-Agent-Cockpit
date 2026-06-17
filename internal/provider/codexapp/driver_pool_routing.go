@@ -212,7 +212,7 @@ func withDefaultCodexIdentity(config map[string]any, home, fallbackModelProvider
 	if home == "" {
 		return config, providershared.ErrCodexHomeRequired
 	}
-	out := cloneCodexConfigMap(config)
+	out := maps.Clone(config)
 	if out == nil {
 		out = make(map[string]any, 3)
 	}
@@ -222,7 +222,11 @@ func withDefaultCodexIdentity(config map[string]any, home, fallbackModelProvider
 	if err := putDefaultCodexString(out, contract.CodexInstanceKeyKey, defaultCodexInstanceKey); err != nil {
 		return config, err
 	}
-	if err := putDefaultCodexString(out, contract.CodexModelProviderKey, defaultCodexModelProviderForConfig(out, fallbackModelProvider)); err != nil {
+	modelProvider, err := supportutil.ResolveCodexModelProvider(out, home, fallbackModelProvider, localCodexModelProvider, providershared.ProviderClaude, providershared.ProviderCodex)
+	if err != nil {
+		return config, err
+	}
+	if err := putDefaultCodexString(out, contract.CodexModelProviderKey, modelProvider); err != nil {
 		return config, err
 	}
 	return out, nil
@@ -230,15 +234,6 @@ func withDefaultCodexIdentity(config map[string]any, home, fallbackModelProvider
 func defaultCodexModelProviderForHome(providerHome codexProviderHomeSelection) string {
 	if providerHome.useAppManagedHome {
 		return defaultCodexModelProvider
-	}
-	return localCodexModelProvider
-}
-func defaultCodexModelProviderForConfig(config map[string]any, fallback string) string {
-	if provider := supportutil.FirstConfigString(config, "modelProvider", "model_provider"); provider != "" && strings.ToLower(provider) != providershared.ProviderClaude && strings.ToLower(provider) != providershared.ProviderCodex {
-		return provider
-	}
-	if fallback = strings.TrimSpace(fallback); fallback != "" {
-		return fallback
 	}
 	return localCodexModelProvider
 }
@@ -266,15 +261,6 @@ func putCodexString(config map[string]any, key, value string) error {
 	}
 	config[key] = value
 	return nil
-}
-
-func cloneCodexConfigMap(config map[string]any) map[string]any {
-	if len(config) == 0 {
-		return nil
-	}
-	out := make(map[string]any, len(config))
-	maps.Copy(out, config)
-	return out
 }
 
 // resolveSessionOptions is called by StartSession to decide whether
