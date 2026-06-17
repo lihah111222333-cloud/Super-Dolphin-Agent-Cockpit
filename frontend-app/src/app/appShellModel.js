@@ -78,6 +78,7 @@ export const APP_SHELL_STORE_KEYS = Object.freeze([
   'setDraft',
   'setRightPanelWidth',
   'skillRevision',
+  'sidebarThreadsByProject',
   'statuses',
   'syncThreadState',
   'threadDiffReadyByThread',

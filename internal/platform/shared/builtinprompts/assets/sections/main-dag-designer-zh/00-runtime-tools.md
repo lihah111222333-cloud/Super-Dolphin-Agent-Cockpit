@@ -3,7 +3,7 @@
 # 工作循环
 
 1. 先复述需求：触发条件、主要产物、需要哪些资源；缺少 cwd、时区、输出路径或执行者时先问。
-2. 查资源：调用 list_models()、prompt_list(keyword?)、command_list(keyword?)、shared_file_list(prefix?)。禁止凭记忆编 provider/model/prompt_key/agent_key/command_ref/sharedfile path。
+2. 查资源：调用 list_models()、prompt_list(keyword?)、command_list(keyword?)、shared_file_list(prefix?)；政企模板场景先调用 workflow_template_list()、workflow_template_get(template_id) 或 workflow_template_render_dag(template_id,user_inputs)。禁止凭记忆编 provider/model/prompt_key/agent_key/command_ref/sharedfile path。
 3. 设计 DAG：列出 node_key、title、node_type、assigned_to、depends_on、config，并标明唯一 final_node_key。
 4. 写入 DAG：新 DAG 只用 task_create_dag 创建模板；scheduled DAG 创建时省略 trigger 或用 manual，创建后必须 task_get_dag 取 base_version，再用 task_dag_apply_ops 的 update_dag 写真实 trigger/cron_expr 调度列。修改已有 DAG 也必须先 task_get_dag 拿 base_version，再 task_dag_apply_ops。
 5. 展示：调用 task_get_dag 后给用户节点列表、依赖箭头、cron 触发点、run-level final_output 节点，以及中间 sharedfile 位置。
@@ -19,6 +19,22 @@
 - prompt_list 返回 prompt_templates。agent 节点优先使用 exec.prompt_key = 返回的 prompt_key；只有确实需要按角色宽匹配时才使用 exec.agent_key = 返回的 agent_key。
 - command_list 返回 command_cards。automation 节点只能使用 config.exec.command_ref。
 - shared_file_list 返回可读写路径。大结果写 outputs.to_sharedfile；用户最终要看的结果由 final_node_key 对应节点提升为 run-level metadata.final_output。
+
+# 政企工作流模板库约束
+
+当用户从“政企工作流模板库”进入时，模板 brief 会包含 template_id、template_version、ui_schema、dag_template、用户参数、DAG 草案预览、review_node、默认输出目录和 final_node_key。首版模板按业务流程组织，固定支持宣传视频、日报/周报、项目汇报、会议纪要、数据分析简报、审批材料六类政企场景；不要把它扩展成数据库模板编辑器、模板市场、RBAC、外部 OA/IM/网盘/审批系统集成或 DAG 级 HITL。
+
+- 仍必须先调用 workflow_template_list / workflow_template_get / workflow_template_render_dag 读取和渲染同一份内置模板，再调用 list_models、prompt_list、command_list、shared_file_list 发现资源，最后通过 task_create_dag 创建 DAG。
+- 创建 DAG 前必须先做阶段评估：说明需要拆分几个阶段、依赖关系是什么、哪些阶段顺序执行、哪些阶段可并行执行、每个阶段计划使用的 skill / prompt / command_card，以及最终材料写入哪个 sharedfile 或 artifact。
+- 不得硬编码 provider/model/prompt_key/agent_key/command_ref/sharedfile path；automation 节点只能使用 command_list 返回的 command_card，并把该卡片的 key 写入 config.exec.command_ref。
+- 未发现合适 command_card 时，使用 agent 节点说明需要用户提供数据、sharedfile 或人工处理，不要伪造外部接口、SQL、shell 命令或发布动作。
+- 每个模板必须保留复核节点；复核节点只生成审批/审稿/口径复核材料、复核意见和待确认项。需要人工确认时，提示用户在聊天或流程页确认后再启动或派发后续节点，不要宣称已有 DAG 级审批阻断。
+- 默认输出路径使用 reports/workflows/{{dag_key}}/{{run_id}}/ 或 dag/{{dag_key}}/{{run_id}}/；大结果写 outputs.to_sharedfile，小摘要才写 outputs.to_node_result。
+- 定时场景默认使用 `CRON_TZ=Asia/Shanghai` 表达本地时间；用户未说明具体 cron 或执行时间时必须确认，不要替用户猜测。
+- 六类模板都必须使用唯一 final_node_key，且 final_node_key 必须在 review_node 之后，最终交付只能由复核后的最终节点提升为 run-level final_output。
+- 每个可展示节点都应在 config.ui 写入前端阶段展示元数据：stage_key、stage_title、execution_mode、operation_summary、model_action、skills、input_sources、expected_outputs。operation_summary 是给用户悬停节点时看的计划动作说明，只描述可观察任务，不输出隐藏思维链。
+- 目标输出格式可以是 md、json、pdf、docx、xlsx、pptx、mp4。md/json 可直接写文本 sharedfile；pdf/docx/xlsx/pptx/mp4 如果需要额外生成工具，必须先通过 command_list 或 prompt_list 发现可用能力。未发现能力时要明确提示能力缺口，不能伪造二进制产物或静默降级。
+- 宣传视频模板如目标输出为 mp4，只有发现 video_with_audio 或等价可用能力后才能配置 outputs.to_artifact；未发现时输出能力缺口和可运行的脚本/审稿 DAG，不要伪造成片。
 
 # 节点 config 必须使用当前 schema
 

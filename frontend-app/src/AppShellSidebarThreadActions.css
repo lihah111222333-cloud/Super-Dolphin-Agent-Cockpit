@@ -31,7 +31,7 @@
   gap: 8px;
   border: 0;
   border-radius: 6px;
-  padding: 0 76px 0 8px;
+  padding: 0 52px 0 8px;
   background: transparent;
   color: var(--text-sec);
   font-size: 13px;
@@ -59,9 +59,23 @@
 }
 
 .sidebar-thread-row:hover .thread-inline-actions,
-.sidebar-thread-row:focus-within .thread-inline-actions {
+.sidebar-thread-row:focus-within .thread-inline-actions,
+.thread-inline-actions.is-running {
   opacity: 1;
   pointer-events: auto;
+}
+
+.thread-inline-spinner {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.thread-inline-spinner svg {
+  animation: thread-action-spin 900ms linear infinite;
 }
 
 .thread-inline-action-btn {
@@ -145,33 +159,6 @@
   display: inline-flex;
   gap: 4px;
   flex-shrink: 0;
-}
-
-.thread-archive-btn {
-  position: absolute;
-  right: 6px;
-  opacity: 0;
-  transition: opacity var(--transition);
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 4px;
-}
-
-.thread-archive-btn:hover {
-  background: var(--surface-3);
-  color: var(--text-pri);
-}
-
-.sidebar-project-thread-list li:hover .thread-archive-btn,
-.sidebar-task-list li:hover .thread-archive-btn {
-  opacity: 1;
 }
 
 .sidebar-expand-trigger {

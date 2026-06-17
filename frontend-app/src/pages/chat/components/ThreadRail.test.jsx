@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { ThreadRail } from './ThreadRail.jsx';
 
 function createStore(overrides = {}) {
@@ -29,18 +30,20 @@ function createStore(overrides = {}) {
 describe('ThreadRail', () => {
   it('renders active threads and routes thread actions through the store', () => {
     const store = createStore();
+    const copy = { ...APP_COPY.zh.chat, threadRunning: 'Thread running' };
 
-    render(<ThreadRail store={store} />);
+    render(<ThreadRail copy={copy} store={store} />);
 
     fireEvent.click(screen.getByRole('button', { name: /Active thread/ }));
-    fireEvent.click(screen.getByRole('button', { name: '新建对话' }));
-    fireEvent.click(screen.getAllByRole('button', { name: '置顶对话' })[0]);
-    fireEvent.click(screen.getAllByRole('button', { name: '归档会话' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: copy.newThread }));
+    fireEvent.click(screen.getAllByRole('button', { name: copy.pinThread })[0]);
 
     expect(store.setActiveThread).toHaveBeenCalledWith('t1');
     expect(store.newThread).toHaveBeenCalledTimes(1);
     expect(store.toggleThreadPin).toHaveBeenCalledWith('t1');
-    expect(store.archiveThread).toHaveBeenCalledWith('t1', true);
+    expect(screen.getByLabelText('Thread running')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: copy.archiveThread })).not.toBeInTheDocument();
+    expect(store.archiveThread).not.toHaveBeenCalled();
   });
 
   it('switches to archived threads and confirms stale cleanup', () => {

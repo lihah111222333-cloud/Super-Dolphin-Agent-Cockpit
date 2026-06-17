@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { finalOutputKind, finalOutputPath } from '../adapters/workflowDisplayAdapter.js';
 import { Panel } from '../../shared/pageComponents.jsx';
 
+const EMPTY_VIDEO_CAPTIONS = 'data:text/vtt;charset=utf-8,WEBVTT%0A%0A';
+
 function formatWorkflowFileContent(content) {
   if (!content) return '';
   let trimmed = content.trim();
@@ -62,6 +64,7 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd, readF
   const outputPath = finalOutputPath(finalOutput);
   const isImage = useMemo(() => /\.(png|jpe?g|webp|gif|svg)$/i.test(outputPath || ''), [outputPath]);
   const isVideo = useMemo(() => /\.(mp4|webm|ogg|mov)$/i.test(outputPath || ''), [outputPath]);
+  const isSystemOpenOnly = useMemo(() => /\.(pdf|docx?|pptx?|xlsx?)$/i.test(outputPath || ''), [outputPath]);
   const isMedia = isImage || isVideo;
   const mediaKindLabel = isVideo ? '视频' : '图片';
   const formattedContent = useMemo(() => formatWorkflowFileContent(fileContent), [fileContent]);
@@ -113,6 +116,7 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd, readF
           formattedContent={formattedContent}
           isImage={isImage}
           isMedia={isMedia}
+          isSystemOpenOnly={isSystemOpenOnly}
           isVideo={isVideo}
           mediaKindLabel={mediaKindLabel}
           onOpen={openFinalOutput}
@@ -137,8 +141,14 @@ function WorkflowFinalOutputFile(props) {
         <span>{finalOutputKind(props.finalOutput) || '文件'}</span>
         <code>{props.outputPath}</code>
         <div className="workflow-output-actions" aria-label="最终结果操作">
-          <button type="button" className="workflow-output-action workflow-output-action-preview" disabled={props.reading} onClick={() => { void props.onRead(); }} title={props.isMedia ? `在当前页面内预览${props.mediaKindLabel}` : '读取最终结果内容'}>
-            {workflowPreviewButtonLabel(props)}
+          <button
+            type="button"
+            className={'workflow-output-action ' + (props.isSystemOpenOnly ? 'workflow-output-action-system' : 'workflow-output-action-preview')}
+            disabled={props.isSystemOpenOnly ? props.opening : props.reading}
+            onClick={() => { void (props.isSystemOpenOnly ? props.onOpen() : props.onRead()); }}
+            title={workflowPrimaryActionTitle(props)}
+          >
+            {workflowPrimaryActionLabel(props)}
           </button>
           {props.isMedia ? (
             <button type="button" className="workflow-output-action workflow-output-action-system" disabled={props.opening} onClick={() => { void props.onOpen(); }} title={`用系统默认应用打开${props.mediaKindLabel}`}>
@@ -155,6 +165,17 @@ function WorkflowFinalOutputFile(props) {
   );
 }
 
+function workflowPrimaryActionTitle(props) {
+  if (props.isSystemOpenOnly) return '用系统默认应用打开最终结果文件';
+  if (props.isMedia) return `在当前页面内预览${props.mediaKindLabel}`;
+  return '读取最终结果内容';
+}
+
+function workflowPrimaryActionLabel(props) {
+  if (props.isSystemOpenOnly) return props.opening ? '打开中...' : '系统打开';
+  return workflowPreviewButtonLabel(props);
+}
+
 function workflowPreviewButtonLabel({ fileContent, isImage, isMedia, isVideo, reading }) {
   if (reading) return '读取中...';
   if (fileContent) return isMedia ? '收起预览' : '收起最终结果';
@@ -167,7 +188,15 @@ function workflowPreviewBlock({ fileContent, fileUrl, formattedContent, isImage,
   if (!fileContent) return null;
   if (fileContent === '__MEDIA_PREVIEW__') {
     if (isImage) return <div className="workflow-media-preview"><img src={fileUrl} alt="最终结果图片" /></div>;
-    if (isVideo) return <div className="workflow-media-preview"><video src={fileUrl} controls /></div>;
+    if (isVideo) {
+      return (
+        <div className="workflow-media-preview">
+          <video src={fileUrl} controls aria-label="最终结果视频">
+            <track kind="captions" srcLang="zh" label="无字幕" src={EMPTY_VIDEO_CAPTIONS} default />
+          </video>
+        </div>
+      );
+    }
   }
   return <pre className="workflow-final-preview">{formattedContent}</pre>;
 }

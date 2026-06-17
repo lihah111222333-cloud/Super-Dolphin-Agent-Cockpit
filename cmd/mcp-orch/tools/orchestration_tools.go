@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -25,6 +26,8 @@ type LaunchAgentInput struct {
 	AgentID            string `json:"agent_id,omitempty"`
 	Name               string `json:"name"`
 	Prompt             string `json:"prompt,omitempty"`
+	ContextMode        string `json:"context_mode,omitempty"`
+	Context            string `json:"context,omitempty"`
 	ParentID           string `json:"parent_id,omitempty"`
 	AgentType          string `json:"agent_type,omitempty"`
 	AgentKey           string `json:"agent_key,omitempty"`
@@ -87,7 +90,15 @@ type agentArchiver interface {
 // builder and the handler-layer requireEnum fallback. The memory_scope
 // drift follow-up is tracked separately (see plans §10).
 var (
-	launchAgentProviderEnum = []string{"codex", "claude"}
+	launchAgentProviderEnum    = []string{"codex", "claude"}
+	launchAgentContextModeEnum = []string{"minimal", "focused"}
+)
+
+const subAgentDelegationDepthLimitMessage = "Sub-agents are not allowed to spawn further agents (delegation depth limit)."
+
+var (
+	launchAgentDefaultDisabledTools = []string{"launch_agent", "orchestration_launch_agent", "spawn_agent"}
+	launchAgentCodexNativeDenyTools = []string{contract.CodexNativeToolSpawnAgent}
 )
 
 // HandleLaunchAgent 处理启动代理。
@@ -98,11 +109,7 @@ func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
 // handleLaunchAgentWithExeFn 处理带exefn的启动代理。
 func handleLaunchAgentWithExeFn(svc contract.OrchestrationService, exeFn func() (string, error)) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in LaunchAgentInput) (map[string]any, error) {
-		exe, err := exeFn()
-		if err != nil {
-			return nil, err
-		}
-		req, err := launchRequestFromExecutable(in, exe)
+		req, err := launchRequestForHandler(ctx, svc, in, exeFn)
 		if err != nil {
 			return nil, err
 		}
@@ -159,6 +166,38 @@ func handleLaunchAgentWithExeFn(svc contract.OrchestrationService, exeFn func() 
 		}()
 		return successResult(map[string]any{"agent_id": req.AgentID, "status": "launching"}), nil
 	})
+}
+
+// launchRequestForHandler 先做调用者深度校验，再把 handler 输入转成启动请求。
+// 深度校验必须在 reserve/launch 前发生，避免子 agent 通过旧名或短名进入后续流程。
+func launchRequestForHandler(ctx context.Context, svc contract.OrchestrationService, in LaunchAgentInput, exeFn func() (string, error)) (contract.LaunchRequest, error) {
+	if err := rejectChildAgentDelegation(ctx, svc); err != nil {
+		return contract.LaunchRequest{}, err
+	}
+	exe, err := exeFn()
+	if err != nil {
+		return contract.LaunchRequest{}, err
+	}
+	return launchRequestFromExecutable(in, exe)
+}
+
+// rejectChildAgentDelegation 用可信工具作用域判断调用者深度。
+// 第一版只允许根 agent 派生直接子 agent；已有 parent_id 的子 agent 再委派会被工具层阻断。
+func rejectChildAgentDelegation(ctx context.Context, svc contract.OrchestrationService) error {
+	scope, ok := mcpcommon.ToolScopeFromContext(ctx)
+	if !ok || strings.TrimSpace(scope.AgentID) == "" {
+		return nil
+	}
+	snapshotCtx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.RPCRequestTimeout)
+	defer cancel()
+	snapshot, err := svc.Snapshot(snapshotCtx, scope.AgentID)
+	if err != nil {
+		return fmt.Errorf("verify launch_agent caller %q delegation depth: %w", scope.AgentID, err)
+	}
+	if strings.TrimSpace(snapshot.ParentID) == "" {
+		return nil
+	}
+	return fmt.Errorf("%s", subAgentDelegationDepthLimitMessage)
 }
 
 // matchingAgentID 处理matching代理ID。
@@ -463,14 +502,21 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 	if err != nil {
 		return contract.LaunchRequest{}, err
 	}
+	if err := rejectUnsupportedClaudeChildLaunch(provider, in.ParentID); err != nil {
+		return contract.LaunchRequest{}, err
+	}
 	memoryScope, err := validateMemoryScope(in.MemoryScope)
+	if err != nil {
+		return contract.LaunchRequest{}, err
+	}
+	prompt, err := launchPromptFromContextMode(in)
 	if err != nil {
 		return contract.LaunchRequest{}, err
 	}
 	req := contract.LaunchRequest{
 		AgentID:     agentID,
 		Name:        name,
-		Prompt:      strings.TrimSpace(in.Prompt),
+		Prompt:      prompt,
 		ParentID:    strings.TrimSpace(in.ParentID),
 		AgentType:   strings.TrimSpace(in.AgentType),
 		AgentKey:    strings.TrimSpace(in.AgentKey),
@@ -481,10 +527,65 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 		Env:         launchEnv(provider, strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort), strings.TrimSpace(in.CodexHome), strings.TrimSpace(in.CodexInstanceKey), strings.TrimSpace(in.CodexModelProvider)),
 		Language:    strings.TrimSpace(in.Language),
 	}
-	if dt := strings.TrimSpace(in.DisabledTools); dt != "" {
+	if dt := mergeLaunchDisabledTools(in.DisabledTools); dt != "" {
 		req.Env = append(req.Env, "AGENT_DISABLED_TOOLS="+dt)
 	}
+	if strings.EqualFold(provider, "codex") {
+		req.Env = append(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS="+strings.Join(launchAgentCodexNativeDenyTools, ","))
+	}
 	return req, nil
+}
+
+func mergeLaunchDisabledTools(userValue string) string {
+	return joinUniqueCSV(append([]string(nil), launchAgentDefaultDisabledTools...), userValue)
+}
+
+func joinUniqueCSV(defaults []string, extra string) string {
+	seen := make(map[string]struct{}, len(defaults))
+	out := make([]string, 0, len(defaults))
+	add := func(value string) {
+		for _, item := range strings.Split(value, ",") {
+			item = strings.TrimSpace(item)
+			if item == "" {
+				continue
+			}
+			if _, ok := seen[item]; ok {
+				continue
+			}
+			seen[item] = struct{}{}
+			out = append(out, item)
+		}
+	}
+	for _, item := range defaults {
+		add(item)
+	}
+	add(extra)
+	return strings.Join(out, ",")
+}
+
+// launchPromptFromContextMode 把 launch_agent 的上下文模式整理成首轮 prompt。
+// minimal 保持旧行为；focused 只拼接调用者显式筛选后的 context，不读取父线程历史。
+func launchPromptFromContextMode(in LaunchAgentInput) (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(in.ContextMode))
+	if mode == "" {
+		mode = "minimal"
+	}
+	prompt := strings.TrimSpace(in.Prompt)
+	contextText := strings.TrimSpace(in.Context)
+	switch mode {
+	case "minimal":
+		if contextText != "" {
+			return "", fmt.Errorf("context_mode=minimal does not accept context field, but got: %q", contextText)
+		}
+		return prompt, nil
+	case "focused":
+		if contextText == "" {
+			return "", fmt.Errorf("context_mode=focused requires non-empty context field")
+		}
+		return fmt.Sprintf("【相关上下文】\n%s\n\n【任务】\n%s", contextText, prompt), nil
+	default:
+		return "", fmt.Errorf("unsupported context_mode: %q, allowed values: minimal, focused", strings.TrimSpace(in.ContextMode))
+	}
 }
 
 func validateLaunchProvider(raw string) (string, error) {
@@ -499,6 +600,15 @@ func validateLaunchProvider(raw string) (string, error) {
 		return "codex", nil
 	}
 	return requireEnum(lower, "provider", launchAgentProviderEnum)
+}
+
+// rejectUnsupportedClaudeChildLaunch 阻断第一版暂不支持的 Claude 子 agent 编排。
+// 普通 Claude root launch 保持兼容；只要带 parent_id 就属于父子编排路径，必须 fail-fast。
+func rejectUnsupportedClaudeChildLaunch(provider, parentID string) error {
+	if strings.TrimSpace(parentID) == "" || !strings.EqualFold(strings.TrimSpace(provider), "claude") {
+		return nil
+	}
+	return fmt.Errorf("Claude sub-agent orchestration is not supported; launch_agent child agents currently support provider=codex only")
 }
 
 func validateMemoryScope(raw string) (string, error) {

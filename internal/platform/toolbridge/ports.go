@@ -32,6 +32,7 @@ type ToolCallBinding struct {
 	ProviderThreadID   string
 	CodexThreadID      string
 	CWD                string
+	ParentAgentID      string
 	CodexHome          string
 	CodexInstanceKey   string
 	CodexModelProvider string

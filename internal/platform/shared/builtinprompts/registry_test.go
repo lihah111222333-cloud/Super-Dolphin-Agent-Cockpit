@@ -65,30 +65,29 @@ func TestDefaultRegistryLoadsEmbeddedMainDefault(t *testing.T) {
 	require.Contains(t, template.Tags, "builtin:system")
 
 	sections := reg.SectionsByTemplateID(template.ID)
-	requireSectionKeys(t, sections,
-		"identity",
-		"engineering_principles",
-		"risky_actions",
-		"tone_style",
-		"orchestrator_launch_context",
-		"orchestrator_report_context",
-		"worktree_reminder",
-		"zh_courtesy",
-	)
-	require.Contains(t, sectionBodyByKey(sections, "identity"), "Super-Dolphin")
-	require.Contains(t, sectionBodyByKey(sections, "engineering_principles"), "完成前必须验证")
-	require.Contains(t, sectionBodyByKey(sections, "risky_actions"), "force push")
-	require.Contains(t, sectionBodyByKey(sections, "orchestrator_launch_context"), "orchestration_launch_agent")
-	require.NotContains(t, sectionBodyByKey(sections, "orchestrator_launch_context"), "orchestration_get_agent_report")
-	require.Contains(t, sectionBodyByKey(sections, "orchestrator_report_context"), "orchestration_get_agent_report")
-	require.NotContains(t, sectionBodyByKey(sections, "orchestrator_report_context"), "orchestration_launch_agent")
+	requireSectionKeys(t, sections, "identity", "engineering_principles", "risky_actions", "tone_style", "orchestrator_launch_context", "orchestrator_report_context", "worktree_reminder", "zh_courtesy")
+	for key, want := range map[string]string{"identity": "Super-Dolphin", "engineering_principles": "完成前必须验证", "risky_actions": "force push"} {
+		require.Contains(t, sectionBodyByKey(sections, key), want)
+	}
+	launchBody := sectionBodyByKey(sections, "orchestrator_launch_context")
+	reportBody := sectionBodyByKey(sections, "orchestrator_report_context")
+	for _, want := range []string{"launch_agent", `context_mode="minimal"`, `context_mode="focused"`, "leaf worker"} {
+		require.Contains(t, launchBody, want)
+	}
+	for _, want := range []string{"get_agent_report", "wait=true", "状态: success | blocked | failed"} {
+		require.Contains(t, reportBody, want)
+	}
+	for _, oldName := range []string{"orchestration_launch_agent", "orchestration_get_agent_report"} {
+		require.NotContains(t, launchBody, oldName)
+		require.NotContains(t, reportBody, oldName)
+	}
 
 	orchestratorLaunch := requireSection(t, sections, "orchestrator_launch_context")
 	require.Equal(t, "dynamic", orchestratorLaunch.Region)
-	require.JSONEq(t, `{"enabled_tools_has":"orchestration_launch_agent"}`, string(orchestratorLaunch.EnableWhen))
+	require.JSONEq(t, `{"enabled_tools_has":"launch_agent"}`, string(orchestratorLaunch.EnableWhen))
 	orchestratorReport := requireSection(t, sections, "orchestrator_report_context")
 	require.Equal(t, "dynamic", orchestratorReport.Region)
-	require.JSONEq(t, `{"enabled_tools_has":"orchestration_get_agent_report"}`, string(orchestratorReport.EnableWhen))
+	require.JSONEq(t, `{"enabled_tools_has":"get_agent_report"}`, string(orchestratorReport.EnableWhen))
 
 	for i, section := range sections {
 		require.NotEqual(t, template.ID, section.ID)
@@ -230,19 +229,14 @@ func TestRegistryLoadsDAGDesignerPrompts(t *testing.T) {
 	for _, want := range []string{
 		"list_models()",
 		"prompt_list(keyword?)",
-		"command_list(keyword?)",
-		"shared_file_list(prefix?)",
-		"task_create_dag",
-		"task_get_dag",
-		"node.config.exec",
-		"assigned_to",
-		"waiting_for_assignee",
-		"final_output",
+		"command_list(keyword?)", "shared_file_list(prefix?)",
+		"workflow_template_list", "workflow_template_get", "workflow_template_render_dag", "task_create_dag", "task_get_dag",
+		"node.config.exec", "assigned_to", "waiting_for_assignee", "final_output",
 		"provider-native Skill",
 	} {
 		require.Contains(t, body, want)
 	}
-	require.JSONEq(t, `{"enabled_tools_all":["list_models","prompt_list","command_list","shared_file_list","task_create_dag","task_get_dag","task_get_run","task_list_runs","task_dag_apply_ops","task_dispatch_node","task_start_dag"]}`, string(requireSection(t, sections, "dag_designer_runtime_tools").EnableWhen))
+	require.JSONEq(t, `{"enabled_tools_all":["list_models","prompt_list","command_list","shared_file_list","workflow_template_list","workflow_template_get","workflow_template_render_dag","task_create_dag","task_get_dag","task_get_run","task_list_runs","task_dag_apply_ops","task_dispatch_node","task_start_dag"]}`, string(requireSection(t, sections, "dag_designer_runtime_tools").EnableWhen))
 
 	enSections := reg.SectionsByTemplateID(en.ID)
 	enBody := sectionBodyByKey(enSections, "dag_designer_runtime_tools")

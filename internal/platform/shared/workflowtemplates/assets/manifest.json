@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "templates": [
+    "government-enterprise/promo-video.yaml",
+    "government-enterprise/daily-weekly-report.yaml",
+    "government-enterprise/project-briefing.yaml",
+    "government-enterprise/meeting-minutes.yaml",
+    "government-enterprise/data-analysis-brief.yaml",
+    "government-enterprise/approval-material.yaml"
+  ]
+}

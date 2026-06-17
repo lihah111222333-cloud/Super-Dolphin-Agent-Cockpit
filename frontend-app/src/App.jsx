@@ -1,14 +1,15 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, Brain, Check, CircleUserRound, Folder, FolderOpen, Menu, Moon, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Puzzle, RefreshCw, Search, Settings as SettingsIcon, SquarePlus, Sun, Trash2, X } from 'lucide-react';
+import { Brain, Check, CircleUserRound, Folder, FolderOpen, Menu, Moon, PanelLeftClose, PanelLeftOpen, Plus, Puzzle, RefreshCw, Search, Settings as SettingsIcon, SquarePlus, Sun, Trash2, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { checkAppUpdate, getSidebarState, installLatestAppUpdate } from './shared/api/backendApi.js';
 import { dashboardQueryKey, errorMessage, fetchMemoryDashboard, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, useDashboardFocusInvalidation, textValue } from './pages/shared/pageShared.js';
 import { ProjectSelector } from './pages/chat/components/ProjectSelector.jsx';
+import { threadStatusBusy } from './pages/chat/adapters/threadStateAdapter.js';
 import { runUIAction } from './shared/ui/runUIAction.js';
 import { APP_BRAND_NAME, APP_COPY, APP_LANGUAGE_STORAGE_KEY, initialAppLocale } from './shared/i18n/appI18n.js';
-import superDolphinLogo from './assets/super-dolphin-logo.png';
+import suiyuanBrandIcon from './assets/suiyuan-brand-icon.png';
 import './AppChrome.css';
 import './AppShell.css';
 import {
@@ -199,7 +200,7 @@ function useMemoryBadgeState(store, projectPath) {
     setMemoryPageSimilarState((current) => ({ ...current, count }));
   }, []);
   useDashboardFocusInvalidation(memoryCwd, 'memory');
-  const memoryBadgeQuery = useQuery({
+  const { data: memoryBadgeData } = useQuery({
     queryKey: dashboardQueryKey(memoryCwd, 'memory'),
     queryFn: async () => {
       try {
@@ -213,7 +214,7 @@ function useMemoryBadgeState(store, projectPath) {
     enabled: Boolean(memoryCwd),
     select: memorySimilarGroupCount,
   });
-  const memorySimilarCount = Math.max(0, Number(memoryBadgeQuery.data) || 0);
+  const memorySimilarCount = Math.max(0, Number(memoryBadgeData) || 0);
   const memoryPageSimilarCount = (
     memoryPageSimilarState.page === store.activePage && memoryPageSimilarState.cwd === memoryCwd
       ? memoryPageSimilarState.count
@@ -668,6 +669,27 @@ function projectThreadRuntimeCwd(thread = {}, runtimeById = {}) {
   return '';
 }
 
+function threadProjectPath(thread = {}) {
+  const direct = threadFieldValue(thread, [
+    'cwd',
+    'projectPath',
+    'project_path',
+    'workspacePath',
+    'workspace_path',
+    'rootPath',
+    'root_path',
+  ]);
+  if (direct) return direct;
+
+  for (const key of ['project', 'workspace', 'metadata', 'meta']) {
+    const value = thread[key];
+    if (!value || typeof value !== 'object') continue;
+    const nested = threadFieldValue(value, ['path', 'cwd', 'root', 'projectPath', 'project_path']);
+    if (nested) return nested;
+  }
+  return '';
+}
+
 function sidebarSnapshotThreads(snapshot) {
   const threads = Array.isArray(snapshot?.threads) ? snapshot.threads : [];
   const archiveMap = projectThreadArchiveMap(snapshot);
@@ -713,7 +735,7 @@ function projectThreadItems(threads = [], projectPath = '', activeProjectPath = 
   return (threads || []).filter((thread) => {
     if (!thread || isProjectThreadArchived(thread)) return false;
     if (isAutomationThread(thread)) return false;
-    const threadProjectKey = projectTreeKey(thread.cwd);
+    const threadProjectKey = projectTreeKey(threadProjectPath(thread));
     if (threadProjectKey) return threadProjectKey === targetProjectKey;
     if (!allowMissingCwdFallback) return false;
     return targetProjectKey === activeProjectKey;
@@ -861,10 +883,8 @@ function useSidebarThreadActions(store) {
 
 function SidebarThreadRow({
   active,
-  archiveLabel,
   copy = APP_COPY.zh.workbench,
   label,
-  onArchive,
   onSelect,
   openLabel,
   thread,
@@ -873,6 +893,8 @@ function SidebarThreadRow({
   const editing = threadActions.editingThreadId === thread.id;
   const deleting = threadActions.deletingThreadId === thread.id;
   const renaming = threadActions.renamingThreadId === thread.id;
+  const running = threadStatusBusy(thread.status);
+  const runningLabel = copy.threadRunning || '会话运行中';
 
   if (deleting) {
     return (
@@ -935,6 +957,7 @@ function SidebarThreadRow({
         type="button"
         className={`sidebar-thread-item${active ? ' active' : ''}`}
         onClick={onSelect}
+        onDoubleClick={(event) => threadActions.beginRename(thread, event)}
         aria-label={openLabel}
         title={label}
       >
@@ -943,25 +966,12 @@ function SidebarThreadRow({
           <span className="sidebar-thread-time" aria-hidden="true">{formatRelativeTime(thread.updatedAt, copy.relativeTime)}</span>
         )}
       </button>
-      <div className="thread-inline-actions" aria-label={copy.conversationActions}>
-        <button
-          type="button"
-          className="thread-inline-action-btn"
-          onClick={(event) => threadActions.beginRename(thread, event)}
-          aria-label={`${copy.renameConversation}：${label}`}
-          title={copy.renameConversation}
-        >
-          <Pencil size={13} aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className="thread-inline-action-btn"
-          onClick={onArchive}
-          aria-label={archiveLabel}
-          title={archiveLabel}
-        >
-          <Archive size={13} aria-hidden="true" />
-        </button>
+      <div className={`thread-inline-actions${running ? ' is-running' : ''}`} aria-label={copy.conversationActions}>
+        {running ? (
+          <span className="thread-inline-spinner" aria-label={runningLabel} title={runningLabel}>
+            <RefreshCw size={13} aria-hidden="true" />
+          </span>
+        ) : null}
         <button
           type="button"
           className="thread-inline-action-btn danger"
@@ -1068,11 +1078,6 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
     setActivePage('chat');
     runUIAction(() => store?.setActiveThread?.(threadId), actionOptions);
   };
-  const archiveThread = (threadId, event) => {
-    event.stopPropagation();
-    if (!threadId) return;
-    runUIAction(() => store?.archiveThread?.(threadId, true), actionOptions);
-  };
   return (
     <section className="sidebar-project-tree" aria-label={copy.projects}>
       <div className="sidebar-section-heading">
@@ -1116,10 +1121,8 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
                       <SidebarThreadRow
                         key={thread.id}
                         active={active}
-                        archiveLabel={copy.archiveProjectThread}
                         copy={copy}
                         label={label}
-                        onArchive={(event) => archiveThread(thread.id, event)}
                         onSelect={() => selectThread(thread.id)}
                         openLabel={`${copy.openProjectThread}：${label}`}
                         thread={thread}
@@ -1140,15 +1143,6 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
                         {thread.updatedAt && (
                           <span className="sidebar-thread-time" aria-hidden="true">{formatRelativeTime(thread.updatedAt, copy.workbench.relativeTime)}</span>
                         )}
-                      </button>
-                      <button
-                        type="button"
-                        className="thread-archive-btn"
-                        onClick={(e) => archiveThread(thread.id, e)}
-                        aria-label={copy.archiveProjectThread}
-                        title={copy.archiveProjectThread}
-                      >
-                        <Archive size={14} aria-hidden="true" />
                       </button>
                     </li>
                   );
@@ -1203,7 +1197,7 @@ function WorkbenchSidebar({
     >
       <div className="sidebar-brand-row">
         <div className="sidebar-brand">
-          <img src={superDolphinLogo} alt="" aria-hidden="true" />
+          <img src={suiyuanBrandIcon} alt="" aria-hidden="true" />
           <strong>{APP_BRAND_NAME}</strong>
         </div>
         <div className="sidebar-brand-actions" aria-label={copy.workbench.tools}>
@@ -1306,11 +1300,6 @@ function SidebarTaskSummary({ copy = APP_COPY.zh.workbench, store, setActivePage
     setActivePage('chat');
     runUIAction(() => store?.setActiveThread?.(threadId), actionOptions);
   };
-  const archiveThread = (threadId, event) => {
-    event.stopPropagation();
-    if (!threadId) return;
-    runUIAction(() => store?.archiveThread?.(threadId, true), actionOptions);
-  };
   return (
     <section className="sidebar-task-summary" aria-label={copy.task}>
       <h2>{copy.task}</h2>
@@ -1324,10 +1313,8 @@ function SidebarTaskSummary({ copy = APP_COPY.zh.workbench, store, setActivePage
                 <SidebarThreadRow
                   key={thread.id}
                   active={active}
-                  archiveLabel={copy.archiveTask}
                   copy={copy}
                   label={label}
-                  onArchive={(event) => archiveThread(thread.id, event)}
                   onSelect={() => selectThread(thread.id)}
                   openLabel={`${copy.openTask}：${label}`}
                   thread={thread}
@@ -1348,15 +1335,6 @@ function SidebarTaskSummary({ copy = APP_COPY.zh.workbench, store, setActivePage
                   {thread.updatedAt && (
                     <span className="sidebar-thread-time" aria-hidden="true">{formatRelativeTime(thread.updatedAt, copy.workbench.relativeTime)}</span>
                   )}
-                </button>
-                <button
-                  type="button"
-                  className="thread-archive-btn"
-                  onClick={(e) => archiveThread(thread.id, e)}
-                  aria-label={copy.archiveTask}
-                  title={copy.archiveTask}
-                >
-                  <Archive size={14} aria-hidden="true" />
                 </button>
               </li>
             );

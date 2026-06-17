@@ -560,21 +560,29 @@ function Conversation(props) {
     canUseProjectActions = true,
     sendMessage,
   } = props;
-  const [justSent, setJustSent] = useState(false);
-  useEffect(() => {
-    if (sending) {
-      setJustSent(true);
-    } else if (justSent) {
-      if (activeTurn) {
-        setJustSent(false);
-      } else {
-        const timer = setTimeout(() => {
-          setJustSent(false);
-        }, 5000);
-        return () => clearTimeout(timer);
-      }
+  const pendingReasoningTimerRef = useRef(null);
+  const [pendingReasoningHint, setPendingReasoningHint] = useState(false);
+  if (activeTurn && pendingReasoningHint) {
+    setPendingReasoningHint(false);
+  }
+  const justSent = !activeTurn && pendingReasoningHint;
+  const clearPendingReasoningHint = useCallback(() => {
+    if (pendingReasoningTimerRef.current !== null) {
+      clearTimeout(pendingReasoningTimerRef.current);
+      pendingReasoningTimerRef.current = null;
     }
-  }, [sending, activeTurn, justSent]);
+    setPendingReasoningHint(false);
+  }, []);
+  const startPendingReasoningHint = useCallback(() => {
+    if (pendingReasoningTimerRef.current !== null) {
+      clearTimeout(pendingReasoningTimerRef.current);
+    }
+    setPendingReasoningHint(true);
+    pendingReasoningTimerRef.current = setTimeout(() => {
+      pendingReasoningTimerRef.current = null;
+      setPendingReasoningHint(false);
+    }, 5000);
+  }, []);
 
   const threadStatus = workStatusForThread({
     sending,
@@ -622,10 +630,14 @@ function Conversation(props) {
   }, []);
   const sendMessageAndScrollToBottom = useCallback(() => {
     const result = sendMessage();
+    startPendingReasoningHint();
+    Promise.resolve(result).then((sent) => {
+      if (sent === false) clearPendingReasoningHint();
+    }).catch(() => clearPendingReasoningHint());
     shouldStickToBottomRef.current = true;
     requestTimelineBottomScroll(scrollTimelineToBottomSmooth);
     return result;
-  }, [scrollTimelineToBottomSmooth, sendMessage]);
+  }, [clearPendingReasoningHint, scrollTimelineToBottomSmooth, sendMessage, startPendingReasoningHint]);
   const autoScrollKey = timelineAutoScrollKey({
     activeThreadId,
     introMode,

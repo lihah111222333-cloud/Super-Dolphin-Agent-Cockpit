@@ -227,10 +227,30 @@ function normalizePath(value) {
   return path;
 }
 
-function projectScopePathKey(value) {
-  const path = normalizePath(value);
-  if (!path) return '';
-  return path.replace(/\\/g, '/').replace(/\/+$/g, '').toLowerCase();
+function sidebarProjectKey(value) {
+  return normalizePath(value).replace(/\\/g, '/').replace(/\/+$/g, '').toLowerCase();
+}
+
+function sidebarThreadsByProjectWith(state, projectPath, threads) {
+  const key = sidebarProjectKey(projectPath);
+  if (!key) return state.sidebarThreadsByProject || {};
+  return {
+    ...(state.sidebarThreadsByProject || {}),
+    [key]: Array.isArray(threads) ? threads : [],
+  };
+}
+
+function mapSidebarThreadCache(state, mapThreads) {
+  const current = objectRecord(state.sidebarThreadsByProject);
+  let changed = false;
+  const next = {};
+  for (const [projectKey, threads] of Object.entries(current)) {
+    const sourceThreads = Array.isArray(threads) ? threads : [];
+    const mappedThreads = mapThreads(sourceThreads);
+    next[projectKey] = mappedThreads;
+    if (mappedThreads !== threads) changed = true;
+  }
+  return changed ? next : current;
 }
 
 function normalizeTimestamp(value) {
@@ -624,6 +644,33 @@ function runtimeCwdForThread(rawThread, runtimeById = {}) {
   return '';
 }
 
+function snapshotThreadProjectPath(rawThread = {}) {
+  const sourceThread = rawThread?.thread && typeof rawThread.thread === 'object' ? rawThread.thread : {};
+  const direct = firstThreadCopyText(
+    rawThread?.projectPath,
+    rawThread?.project_path,
+    rawThread?.workspacePath,
+    rawThread?.workspace_path,
+    rawThread?.rootPath,
+    rawThread?.root_path,
+    sourceThread?.projectPath,
+    sourceThread?.project_path,
+    sourceThread?.workspacePath,
+    sourceThread?.workspace_path,
+    sourceThread?.rootPath,
+    sourceThread?.root_path,
+  );
+  if (direct) return direct;
+
+  for (const key of ['project', 'workspace', 'metadata', 'meta']) {
+    const nested = rawThread?.[key];
+    if (!nested || typeof nested !== 'object' || Array.isArray(nested)) continue;
+    const nestedPath = firstThreadCopyText(nested.path, nested.cwd, nested.root, nested.projectPath, nested.project_path);
+    if (nestedPath) return nestedPath;
+  }
+  return '';
+}
+
 function snapshotThreadCwd(rawThread, runtimeById = {}) {
   const sourceThread = rawThread?.thread && typeof rawThread.thread === 'object' ? rawThread.thread : {};
   return normalizePath(
@@ -637,14 +684,15 @@ function snapshotThreadCwd(rawThread, runtimeById = {}) {
     sourceThread?.workdir ||
     sourceThread?.workDir ||
     sourceThread?.work_dir ||
+    snapshotThreadProjectPath(rawThread) ||
     runtimeCwdForThread(rawThread, runtimeById),
   );
 }
 
 function threadMatchesCwdScope(rawThread, scopeCwd, runtimeById = {}) {
-  const scope = projectScopePathKey(scopeCwd);
+  const scope = sidebarProjectKey(scopeCwd);
   if (!scope || scope === '.') return true;
-  const threadCwd = projectScopePathKey(snapshotThreadCwd(rawThread, runtimeById));
+  const threadCwd = sidebarProjectKey(snapshotThreadCwd(rawThread, runtimeById));
   return !threadCwd || threadCwd === scope;
 }
 
@@ -1058,9 +1106,11 @@ function buildSnapshotState(state, payload = {}, options = {}) {
   const timelineState = snapshotTimelines(state, payload, nextThreads);
   const metrics = snapshotThreadMetrics(state, payload, nextThreads, activeThreadId);
   const diffState = snapshotDiffText(state, payload, nextThreads, activeThreadId);
+  const sidebarThreadsByProject = sidebarThreadsByProjectWith(state, maps.scopeCwd, nextThreads);
   return {
     activeThreadId,
     threads: nextThreads,
+    sidebarThreadsByProject,
     pinnedThreadAtById: maps.pinnedAtById,
     timelinesByThread: timelineState.timelinesByThread,
     threadTimelineReadyByThread: timelineState.threadTimelineReadyByThread,
@@ -1570,6 +1620,7 @@ const baseState = {
   memoryPageCacheByCwd: {},
   chatSurfaceLoadingCwd: '',
   threads: [],
+  sidebarThreadsByProject: {},
   pinnedThreadAtById: {},
   activityThreadAtById: {},
   statuses: {},
@@ -1768,9 +1819,10 @@ function attachScopeRuntime(runtime) {
     sequencesByThread.clear();
     threadMessageGenerations.clear();
     threadSyncGenerations.clear();
-    set({
+    set((state) => ({
       activeThreadId: '',
       threads: [],
+      sidebarThreadsByProject: sidebarThreadsByProjectWith(state, cwd, []),
       pinnedThreadAtById: {},
       statuses: {},
       activeTurnByThread: {},
@@ -1791,7 +1843,7 @@ function attachScopeRuntime(runtime) {
       draft: '',
       attachments: [],
       chatSurfaceLoadingCwd: cwd,
-    });
+    }));
   };
 
   const applyProjects = (payload, fallbackCwd) => {
@@ -2900,6 +2952,7 @@ function createThreadRenamePinActions(runtime) {
         await renameThreadRPC({ threadId: id, name: nextName });
         runtime.set((state) => ({
           threads: applyThreadRename(state.threads, id, nextName),
+          sidebarThreadsByProject: mapSidebarThreadCache(state, (threads) => applyThreadRename(threads, id, nextName)),
           actionNotice: actionNotice('线程已重命名', 'success'),
         }));
         return true;
@@ -2934,6 +2987,11 @@ function createThreadRenamePinActions(runtime) {
             pinned: !pinned,
             pinnedAt: nextMap[id] || 0,
           } : thread)),
+          sidebarThreadsByProject: mapSidebarThreadCache(state, (threads) => threads.map((thread) => (thread.id === id ? {
+            ...thread,
+            pinned: !pinned,
+            pinnedAt: nextMap[id] || 0,
+          } : thread))),
           actionNotice: actionNotice(pinned ? '会话已取消置顶' : '会话已置顶', 'success'),
         }));
         return true;
@@ -3061,6 +3119,7 @@ function createThreadDeleteActions(runtime) {
         runtime.set((state) => ({
           activeThreadId: deletedSet.has(state.activeThreadId) ? '' : state.activeThreadId,
           threads: state.threads.filter((thread) => !deletedSet.has(thread.id)),
+          sidebarThreadsByProject: mapSidebarThreadCache(state, (threads) => threads.filter((thread) => !deletedSet.has(thread.id))),
           actionNotice: actionNotice(
             failedIds.length > 0
               ? `已删除 ${deletedIds.length} 个无用会话，${failedIds.length} 个失败`

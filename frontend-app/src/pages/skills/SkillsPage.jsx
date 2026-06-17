@@ -1313,7 +1313,12 @@ function useSkillsPageModel({ projectPath, refreshKey, resolveLaunchPreferences 
 function useSkillsDashboard(projectCwd, refreshKey) {
   const queryClient = useQueryClient();
   const skillRefreshKey = Number(refreshKey || 0);
-  const skillsQuery = useQuery({
+  const {
+    data: skillsData,
+    error: skillsError,
+    isPending: skillsPending,
+    refetch: refetchSkills,
+  } = useQuery({
     queryKey: dashboardQueryKey(projectCwd, 'skills', `revision:${skillRefreshKey}`),
     queryFn: async () => {
       const data = await fetchSkillsDashboard(projectCwd);
@@ -1325,7 +1330,12 @@ function useSkillsDashboard(projectCwd, refreshKey) {
     initialDataUpdatedAt: 0,
     placeholderData: (previousData) => previousData,
   });
-  const resolutionsQuery = useQuery({
+  const {
+    data: resolutionsData,
+    error: resolutionsError,
+    isPending: resolutionsPending,
+    refetch: refetchResolutions,
+  } = useQuery({
     queryKey: dashboardQueryKey(projectCwd, 'skill-resolutions', `revision:${skillRefreshKey}`),
     queryFn: async () => {
       const data = await fetchSkillResolutionsDashboard(projectCwd);
@@ -1337,8 +1347,10 @@ function useSkillsDashboard(projectCwd, refreshKey) {
     initialDataUpdatedAt: 0,
     placeholderData: (previousData) => previousData,
   });
-  const items = useMemo(() => (Array.isArray(skillsQuery.data) ? skillsQuery.data : []), [skillsQuery.data]);
-  const resolutionConflicts = useMemo(() => (Array.isArray(resolutionsQuery.data) ? resolutionsQuery.data : []), [resolutionsQuery.data]);
+  const skillsQuery = { data: skillsData, error: skillsError, isPending: skillsPending };
+  const resolutionsQuery = { data: resolutionsData, error: resolutionsError, isPending: resolutionsPending };
+  const items = useMemo(() => (Array.isArray(skillsData) ? skillsData : []), [skillsData]);
+  const resolutionConflicts = useMemo(() => (Array.isArray(resolutionsData) ? resolutionsData : []), [resolutionsData]);
   const refreshSkillSurface = useCallback(async () => {
     if (!projectCwd) return;
     await Promise.all([
@@ -1348,8 +1360,8 @@ function useSkillsDashboard(projectCwd, refreshKey) {
   }, [projectCwd, queryClient]);
   const retrySkillSurface = useCallback(async () => {
     if (!projectCwd) return;
-    await Promise.all([skillsQuery.refetch(), resolutionsQuery.refetch()]);
-  }, [projectCwd, resolutionsQuery, skillsQuery]);
+    await Promise.all([refetchSkills(), refetchResolutions()]);
+  }, [projectCwd, refetchResolutions, refetchSkills]);
   useSkillSurfaceRefresh(projectCwd, refreshSkillSurface);
   return skillsDashboardState({ items, projectCwd, resolutionConflicts, resolutionsQuery, retrySkillSurface, refreshSkillSurface, skillsQuery });
 }
