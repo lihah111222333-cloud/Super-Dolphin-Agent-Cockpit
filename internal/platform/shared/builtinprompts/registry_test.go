@@ -65,30 +65,29 @@ func TestDefaultRegistryLoadsEmbeddedMainDefault(t *testing.T) {
 	require.Contains(t, template.Tags, "builtin:system")
 
 	sections := reg.SectionsByTemplateID(template.ID)
-	requireSectionKeys(t, sections,
-		"identity",
-		"engineering_principles",
-		"risky_actions",
-		"tone_style",
-		"orchestrator_launch_context",
-		"orchestrator_report_context",
-		"worktree_reminder",
-		"zh_courtesy",
-	)
-	require.Contains(t, sectionBodyByKey(sections, "identity"), "Super-Dolphin")
-	require.Contains(t, sectionBodyByKey(sections, "engineering_principles"), "完成前必须验证")
-	require.Contains(t, sectionBodyByKey(sections, "risky_actions"), "force push")
-	require.Contains(t, sectionBodyByKey(sections, "orchestrator_launch_context"), "orchestration_launch_agent")
-	require.NotContains(t, sectionBodyByKey(sections, "orchestrator_launch_context"), "orchestration_get_agent_report")
-	require.Contains(t, sectionBodyByKey(sections, "orchestrator_report_context"), "orchestration_get_agent_report")
-	require.NotContains(t, sectionBodyByKey(sections, "orchestrator_report_context"), "orchestration_launch_agent")
+	requireSectionKeys(t, sections, "identity", "engineering_principles", "risky_actions", "tone_style", "orchestrator_launch_context", "orchestrator_report_context", "worktree_reminder", "zh_courtesy")
+	for key, want := range map[string]string{"identity": "Super-Dolphin", "engineering_principles": "完成前必须验证", "risky_actions": "force push"} {
+		require.Contains(t, sectionBodyByKey(sections, key), want)
+	}
+	launchBody := sectionBodyByKey(sections, "orchestrator_launch_context")
+	reportBody := sectionBodyByKey(sections, "orchestrator_report_context")
+	for _, want := range []string{"launch_agent", `context_mode="minimal"`, `context_mode="focused"`, "leaf worker"} {
+		require.Contains(t, launchBody, want)
+	}
+	for _, want := range []string{"get_agent_report", "wait=true", "状态: success | blocked | failed"} {
+		require.Contains(t, reportBody, want)
+	}
+	for _, oldName := range []string{"orchestration_launch_agent", "orchestration_get_agent_report"} {
+		require.NotContains(t, launchBody, oldName)
+		require.NotContains(t, reportBody, oldName)
+	}
 
 	orchestratorLaunch := requireSection(t, sections, "orchestrator_launch_context")
 	require.Equal(t, "dynamic", orchestratorLaunch.Region)
-	require.JSONEq(t, `{"enabled_tools_has":"orchestration_launch_agent"}`, string(orchestratorLaunch.EnableWhen))
+	require.JSONEq(t, `{"enabled_tools_has":"launch_agent"}`, string(orchestratorLaunch.EnableWhen))
 	orchestratorReport := requireSection(t, sections, "orchestrator_report_context")
 	require.Equal(t, "dynamic", orchestratorReport.Region)
-	require.JSONEq(t, `{"enabled_tools_has":"orchestration_get_agent_report"}`, string(orchestratorReport.EnableWhen))
+	require.JSONEq(t, `{"enabled_tools_has":"get_agent_report"}`, string(orchestratorReport.EnableWhen))
 
 	for i, section := range sections {
 		require.NotEqual(t, template.ID, section.ID)

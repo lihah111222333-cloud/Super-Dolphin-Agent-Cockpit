@@ -45,7 +45,7 @@
       "region": "dynamic",
       "ordinal": 40,
       "trigger_type": "always",
-      "enable_when": {"enabled_tools_has": "orchestration_launch_agent"},
+      "enable_when": {"enabled_tools_has": "launch_agent"},
       "body_file": "sections/main-default/40-orchestrator-context.md"
     },
     {
@@ -53,7 +53,7 @@
       "region": "dynamic",
       "ordinal": 41,
       "trigger_type": "always",
-      "enable_when": {"enabled_tools_has": "orchestration_get_agent_report"},
+      "enable_when": {"enabled_tools_has": "get_agent_report"},
       "body_file": "sections/main-default/41-orchestrator-report-context.md"
     },
     {

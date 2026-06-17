@@ -39,7 +39,63 @@ func TestToolBridge_RejectsSpawnAgentWhenPersistentSubagentDefaultEnabled(t *tes
 	if err != nil {
 		t.Fatalf("routeToolCall() error = %v", err)
 	}
-	assertSingleTextItem(t, got, "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `orchestration_launch_agent` 创建持续化 UI 子 agent。", false)
+	assertSingleTextItem(t, got, "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `launch_agent` 创建持续化 UI 子 agent，并用 `get_agent_report(wait=true)` 等待结果。", false)
+	if len(registry.gotKinds) != 0 {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
+	}
+}
+
+func TestToolBridge_RejectsSpawnAgentWhenPersistentSubagentDefaultEnabledWithShortLaunchTool(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{"message": "create child agent"})
+	h, registry := newHandlerForTest(&mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(context.Context, string, any, any) error {
+		t.Fatal("Callback() should not be invoked when spawn_agent is blocked")
+		return nil
+	}}})
+	raw := mustRawJSON(t, map[string]any{
+		"runtime": map[string]any{
+			"enabledTools": []string{"spawn_agent", "launch_agent"},
+			"sessionFlags": map[string]any{"persistent_subagent_default": true},
+		},
+	})
+	h.threadStore = &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-short-launch", ConfigOverride: raw}}
+	h.cfg = &platformconfig.Config{Agent: platformconfig.AgentConfig{PersistentSubagentDefault: true}}
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "spawn_agent",
+		Arguments: args,
+		ThreadID:  "thread-short-launch",
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `launch_agent` 创建持续化 UI 子 agent，并用 `get_agent_report(wait=true)` 等待结果。", false)
+	if len(registry.gotKinds) != 0 {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
+	}
+}
+
+func TestToolBridge_RejectsSpawnAgentFromChildAgent(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{"message": "create child agent"})
+	h, registry := newHandlerForTest(&mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(context.Context, string, any, any) error {
+		t.Fatal("Callback() should not be invoked when child agent spawn_agent is blocked")
+		return nil
+	}}})
+	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
+		"agent-child": {
+			AgentID:       "agent-child",
+			ParentAgentID: "agent-root",
+		},
+	}}
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "spawn_agent",
+		Arguments: args,
+		AgentID:   "agent-child",
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "Sub-agents are not allowed to spawn further agents (delegation depth limit).", false)
 	if len(registry.gotKinds) != 0 {
 		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
 	}
@@ -125,7 +181,7 @@ func TestPersistentSubagentAllowsLegacyOptInFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("routeToolCall() error = %v", err)
 	}
-	assertSingleTextItem(t, got, "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `orchestration_launch_agent` 创建持续化 UI 子 agent。", false)
+	assertSingleTextItem(t, got, "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `launch_agent` 创建持续化 UI 子 agent，并用 `get_agent_report(wait=true)` 等待结果。", false)
 	if after := persistentSubagentDefaultFallbackCount(); after != before+1 {
 		t.Fatalf("persistentSubagentDefaultFallbackCount() = %d, want %d", after, before+1)
 	}
