@@ -120,6 +120,44 @@ func TestForceIdleAfterCompletionErrorKeepsDifferentActiveTurn(t *testing.T) {
 	}
 }
 
+func TestHandleTurnCompletedEventSettlesProviderTurnIDMismatch(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "agent-1"
+	agent.activeTurnID = "turn_1781685566961_2c3add7bb73076e1"
+	agent.reportRequesters = []string{"parent-1"}
+	svc.agents[agent.id] = agent
+
+	ev := completedEventAt(
+		"agent-1",
+		"agent-1",
+		"019ed4bc-3f5d-74e3-a0c9-8c252c550c46",
+		true,
+		"",
+		time.Unix(1781685693, 0).UTC(),
+	)
+	ev.Result = "B 已完成，父 agent 应该能读到这个 report"
+
+	handleTurnCompletedEvent(svc, silentLogger(), ev)
+
+	got, err := svc.GetReport(context.Background(), "agent-1")
+	if err != nil {
+		t.Fatalf("GetReport() error = %v", err)
+	}
+	if got.State != string(agentdto.StateIdle) {
+		t.Fatalf("GetReport().State = %q, want %q", got.State, agentdto.StateIdle)
+	}
+	if got.Report != "B 已完成，父 agent 应该能读到这个 report" {
+		t.Fatalf("GetReport().Report = %q, want completion result", got.Report)
+	}
+	if got.Metadata != nil && len(got.Metadata.RequesterIDs) != 0 {
+		t.Fatalf("GetReport().Metadata.RequesterIDs = %#v, want drained", got.Metadata.RequesterIDs)
+	}
+}
+
 func TestRegisterTurnLifecycleHandlesTurnInterrupted(t *testing.T) {
 	t.Parallel()
 

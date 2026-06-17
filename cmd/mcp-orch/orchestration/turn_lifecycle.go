@@ -26,32 +26,66 @@ func handleTurnCompletedEventWithCtx(svc *service, logger *slog.Logger, ev turnd
 	if svc == nil {
 		return
 	}
-	if parent == nil {
-		parent = context.Background()
-	}
-	if parent.Err() != nil {
+	ctx, logger, startedAt, ok := prepareTurnCompletedEvent(parent, logger, ev)
+	if !ok {
 		return
 	}
-	startedAt := time.Now()
-	ctx := withEventTime(parent, ev.Timestamp)
-	logger = userInputLogger(logger)
-	logTurnCompletedEventReceived(logger, ev)
 	err := svc.CompleteTurn(ctx, ev.AgentID, ev.TurnID, ev.Success, ev.Error)
-	if shouldIgnoreTurnLifecycleErr(svc, ev.AgentID, ev.TurnID, err) {
-		logTurnTerminalProgress(logger, "orchestration: turn completed event settled",
-			ev.AgentID, ev.ThreadID, ev.TurnID, startedAt, nil)
-		if detail := turnCompletedReportText(ev); !errors.Is(err, errAgentNotFound) && !ev.Success && detail != "" && launcherrors.Classify(errors.New(detail)) == launcherrors.ClassPermanent {
-			svc.stopAgentAfterPermanentTurnFailure(ev.AgentID, ev.ThreadID, "turn_completed_permanent")
-		}
+	if settleIgnoredTurnCompletion(svc, logger, ev, startedAt, err) {
 		return
 	}
 	if ctx.Err() != nil {
+		return
+	}
+	if settleProviderTurnCompletionMismatch(svc, logger, ev, startedAt, ctx) {
 		return
 	}
 	recovered, recoverErr := svc.forceIdleAfterCompletionError(ctx, ev.AgentID, ev.TurnID, ev.Success, ev.Error)
 	logTurnTerminalProgress(logger, "orchestration: turn completed event recovery attempted",
 		ev.AgentID, ev.ThreadID, ev.TurnID, startedAt, recoverErr)
 	logTurnCompletionFailure(logger, ev, err, recovered, recoverErr)
+}
+
+// prepareTurnCompletedEvent 统一 completion 事件的上下文、时间和日志入口。
+func prepareTurnCompletedEvent(parent context.Context, logger *slog.Logger, ev turndto.TurnCompleted) (context.Context, *slog.Logger, time.Time, bool) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	if parent.Err() != nil {
+		return nil, nil, time.Time{}, false
+	}
+	startedAt := time.Now()
+	ctx := withEventTime(parent, ev.Timestamp)
+	logger = userInputLogger(logger)
+	logTurnCompletedEventReceived(logger, ev)
+	return ctx, logger, startedAt, true
+}
+
+// settleIgnoredTurnCompletion 处理已经收口过的 completion，保持终态事件幂等。
+func settleIgnoredTurnCompletion(svc *service, logger *slog.Logger, ev turndto.TurnCompleted, startedAt time.Time, err error) bool {
+	if !shouldIgnoreTurnLifecycleErr(svc, ev.AgentID, ev.TurnID, err) {
+		return false
+	}
+	logTurnTerminalProgress(logger, "orchestration: turn completed event settled",
+		ev.AgentID, ev.ThreadID, ev.TurnID, startedAt, nil)
+	if detail := turnCompletedReportText(ev); !errors.Is(err, errAgentNotFound) && !ev.Success && detail != "" && launcherrors.Classify(errors.New(detail)) == launcherrors.ClassPermanent {
+		svc.stopAgentAfterPermanentTurnFailure(ev.AgentID, ev.ThreadID, "turn_completed_permanent")
+	}
+	return true
+}
+
+// settleProviderTurnCompletionMismatch 处理 provider turn id 与本地 active turn id 不一致但线程匹配的完成事件。
+func settleProviderTurnCompletionMismatch(svc *service, logger *slog.Logger, ev turndto.TurnCompleted, startedAt time.Time, ctx context.Context) bool {
+	recovered, recoverErr := svc.forceIdleAfterProviderTurnCompletion(ctx, ev)
+	if recoverErr != nil || !recovered {
+		return false
+	}
+	logTurnTerminalProgress(logger, "orchestration: turn completed event settled",
+		ev.AgentID, ev.ThreadID, ev.TurnID, startedAt, nil)
+	if detail := turnCompletedReportText(ev); !ev.Success && detail != "" && launcherrors.Classify(errors.New(detail)) == launcherrors.ClassPermanent {
+		svc.stopAgentAfterPermanentTurnFailure(ev.AgentID, ev.ThreadID, "turn_completed_permanent")
+	}
+	return true
 }
 
 func handleTurnInterruptedEvent(svc *service, logger *slog.Logger, ev turndto.TurnInterrupted) {
@@ -242,6 +276,36 @@ func (s *service) forceIdleAfterCompletionError(
 	return recovered, err
 }
 
+// forceIdleAfterProviderTurnCompletion 在确认 agent/thread 匹配后落 report 并强制收口当前 turn。
+func (s *service) forceIdleAfterProviderTurnCompletion(ctx context.Context, ev turndto.TurnCompleted) (bool, error) {
+	recovered := false
+	err := s.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
+		if !canRecoverProviderTurnCompletion(agent, ev) {
+			return errTurnNotActive
+		}
+		if _, err := s.applyReportEventLocked(
+			ctx,
+			agent,
+			"turn/completed",
+			mustMarshalHookReportEvent(ev),
+			turnCompletedReportText(ev),
+		); err != nil {
+			return err
+		}
+		var recoverErr error
+		recovered, recoverErr = s.forceIdleAfterTurnTerminalLocked(ctx, agent, "", activeTurnRecoveryKind{
+			recoveredTrigger: string(completionRecoveryTrigger(ev.Success)),
+			errorText:        ev.Error,
+			clearError:       ev.Success,
+			recover: func(ctx context.Context, svc *service, agent *agentRuntime) error {
+				return svc.recoverTurnCompletionStateLocked(ctx, agent, ev.Success)
+			},
+		})
+		return recoverErr
+	})
+	return recovered, err
+}
+
 func (s *service) forceIdleAfterInterruptionError(
 	ctx context.Context,
 	agentID string,
@@ -330,6 +394,35 @@ func canForceIdleAfterTurnTerminal(agent *agentRuntime, turnID string) bool {
 	default:
 		return false
 	}
+}
+
+// canRecoverProviderTurnCompletion 限定只恢复同一 agent/thread 的 provider turn id mismatch。
+func canRecoverProviderTurnCompletion(agent *agentRuntime, ev turndto.TurnCompleted) bool {
+	if agent == nil {
+		return false
+	}
+	eventTurnID := strings.TrimSpace(ev.TurnID)
+	activeTurnID := strings.TrimSpace(agent.activeTurnID)
+	if eventTurnID == "" || activeTurnID == "" || eventTurnID == activeTurnID {
+		return false
+	}
+	if !agentStateMatches(agent.state, agentdto.StateTurnStarting, agentdto.StateTurnRunning, agentdto.StateAwaitingUserInput) {
+		return false
+	}
+	return turnCompletedEventMatchesAgentThread(agent, ev.ThreadID)
+}
+
+func turnCompletedEventMatchesAgentThread(agent *agentRuntime, threadID string) bool {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return false
+	}
+	for _, candidate := range []string{agent.threadID, agent.remoteThreadID, agent.id} {
+		if strings.EqualFold(threadID, strings.TrimSpace(candidate)) {
+			return true
+		}
+	}
+	return false
 }
 
 func shouldIgnoreTurnLifecycleErr(svc *service, agentID, turnID string, err error) bool {

@@ -58,10 +58,84 @@ func TestLaunchHandlerAllowsMCPOrchExecutable(t *testing.T) {
 		require.Equal(t, "main/sql", got.PromptKey)
 		require.Equal(t, "project", got.MemoryScope)
 		require.Equal(t, []string{"/tmp/mcp-orch"}, got.Command)
-		require.Equal(t, []string{"AGENT_PROVIDER=codex"}, got.Env)
+		require.Equal(t, "codex", launchEnvValue(got.Env, "AGENT_PROVIDER"))
+		require.Equal(t, "launch_agent,orchestration_launch_agent,spawn_agent", launchEnvValue(got.Env, "AGENT_DISABLED_TOOLS"))
+		require.Equal(t, "spawn_agent", launchEnvValue(got.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"))
 	case <-time.After(5 * time.Second):
 		t.Fatal("async LaunchAgent was not called within 5s")
 	}
+}
+
+func TestLaunchHandlerAllowsRootAgentDelegation(t *testing.T) {
+	launched := false
+	handler := handleLaunchAgentWithExeFn(&golden.OrchestrationStub{
+		SnapshotFunc: func(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
+			require.Equal(t, "agent-root", agentID)
+			return contract.AgentSnapshot{ID: "agent-root", AgentID: "agent-root"}, nil
+		},
+		LaunchAgentSnapshotFunc: func(_ context.Context, req contract.LaunchRequest) (contract.AgentSnapshot, error) {
+			launched = true
+			return contract.AgentSnapshot{ID: req.AgentID, AgentID: req.AgentID, State: "idle"}, nil
+		},
+	}, mockExe())
+
+	ctx := mcpcommon.WithToolScope(context.Background(), mcpcommon.ToolScope{AgentID: "agent-root"})
+	_, err := handler(ctx, json.RawMessage(`{"name":"child","cwd":"/tmp/work","provider":"codex"}`))
+	require.NoError(t, err)
+	require.True(t, launched)
+}
+
+func TestLaunchHandlerRejectsChildAgentDelegation(t *testing.T) {
+	handler := handleLaunchAgentWithExeFn(&golden.OrchestrationStub{
+		SnapshotFunc: func(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
+			require.Equal(t, "agent-child", agentID)
+			return contract.AgentSnapshot{ID: "agent-child", AgentID: "agent-child", ParentID: "agent-root"}, nil
+		},
+		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
+			t.Fatal("ListAgents should not be called after child delegation is rejected")
+			return nil, nil
+		},
+		LaunchAgentSnapshotFunc: func(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error) {
+			t.Fatal("LaunchAgentSnapshot should not be called after child delegation is rejected")
+			return contract.AgentSnapshot{}, nil
+		},
+	}, mockExe())
+
+	ctx := mcpcommon.WithToolScope(context.Background(), mcpcommon.ToolScope{AgentID: "agent-child"})
+	_, err := handler(ctx, json.RawMessage(`{"name":"grandchild","cwd":"/tmp/work","provider":"codex"}`))
+	require.ErrorContains(t, err, "Sub-agents are not allowed to spawn further agents")
+}
+
+func TestRegistryLegacyLaunchAliasRejectsChildAgentDelegation(t *testing.T) {
+	registry := NewRegistry(Dependencies{Orchestration: &golden.OrchestrationStub{
+		SnapshotFunc: func(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
+			require.Equal(t, "agent-child", agentID)
+			return contract.AgentSnapshot{ID: "agent-child", AgentID: "agent-child", ParentID: "agent-root"}, nil
+		},
+		LaunchAgentSnapshotFunc: func(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error) {
+			t.Fatal("LaunchAgentSnapshot should not be called through legacy alias")
+			return contract.AgentSnapshot{}, nil
+		},
+	}})
+	tool, ok := registry.Lookup("orchestration_launch_agent")
+	require.True(t, ok)
+
+	ctx := mcpcommon.WithToolScope(context.Background(), mcpcommon.ToolScope{AgentID: "agent-child"})
+	_, err := tool.Handler(ctx, json.RawMessage(`{"name":"grandchild","cwd":"/tmp/work","provider":"codex"}`))
+	require.ErrorContains(t, err, "Sub-agents are not allowed to spawn further agents")
+}
+
+func TestLaunchHandlerRejectsClaudeChildAgent(t *testing.T) {
+	handler := handleLaunchAgentWithExeFn(&golden.OrchestrationStub{
+		LaunchAgentSnapshotFunc: func(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error) {
+			t.Fatal("LaunchAgentSnapshot should not be called for unsupported Claude child agent")
+			return contract.AgentSnapshot{}, nil
+		},
+	}, mockExe())
+
+	_, err := handler(context.Background(), json.RawMessage(`{"name":"child","parent_id":"agent-parent","provider":"claude"}`))
+	require.ErrorContains(t, err, "Claude sub-agent orchestration is not supported")
+	require.ErrorContains(t, err, "provider=codex")
 }
 
 func TestLaunchHandlerReturnsExistingDuplicateAgentID(t *testing.T) {

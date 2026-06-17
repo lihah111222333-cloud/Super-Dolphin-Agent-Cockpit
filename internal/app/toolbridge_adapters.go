@@ -84,6 +84,7 @@ func toolCallBindingFromStore(binding *bindingstore.Binding) toolbridge.ToolCall
 		ProviderThreadID:   strings.TrimSpace(binding.ProviderThreadID),
 		CodexThreadID:      strings.TrimSpace(binding.CodexThreadID),
 		CWD:                strings.TrimSpace(binding.Cwd),
+		ParentAgentID:      strings.TrimSpace(binding.ParentAgentID),
 		CodexHome:          strings.TrimSpace(binding.CodexHome),
 		CodexInstanceKey:   strings.TrimSpace(binding.CodexInstanceKey),
 		CodexModelProvider: strings.TrimSpace(binding.CodexModelProvider),
