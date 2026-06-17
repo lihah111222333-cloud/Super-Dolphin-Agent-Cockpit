@@ -161,7 +161,7 @@ func sessionGuidanceInteractiveCommandItem(flags map[string]bool) (string, bool)
 // sessionGuidanceAgentItems 生成会话引导里的代理说明项。
 func sessionGuidanceAgentItems(enabled map[string]struct{}, flags map[string]bool) []string {
 	hasSpawn := sessionGuidanceToolEnabled(enabled, "spawn_agent")
-	hasManaged := sessionGuidanceToolEnabled(enabled, "orchestration_launch_agent")
+	hasManaged := sessionGuidanceToolEnabled(enabled, "launch_agent", "orchestration_launch_agent")
 	if hasManaged && sessionGuidancePersistentSubagentDefault(flags) {
 		hasSpawn = false
 	}
@@ -181,16 +181,12 @@ func sessionGuidanceAgentItems(enabled map[string]struct{}, flags map[string]boo
 // sessionGuidanceAgentDelegationItem 生成委派子代理的引导说明。
 func sessionGuidanceAgentDelegationItem(enabled map[string]struct{}, flags map[string]bool) string {
 	hasSpawn := sessionGuidanceToolEnabled(enabled, "spawn_agent")
-	hasManaged := sessionGuidanceToolEnabled(enabled, "orchestration_launch_agent")
+	hasManaged := sessionGuidanceToolEnabled(enabled, "launch_agent", "orchestration_launch_agent")
 	if hasManaged && sessionGuidancePersistentSubagentDefault(flags) {
 		hasSpawn = false
 	}
 	if hasManaged && sessionGuidancePersistentSubagentDefault(flags) {
-		reportTool := sessionGuidanceToolEnabled(enabled, "orchestration_get_agent_report", "get_agent_report")
-		if reportTool {
-			return "When creating a child agent for the user, use `orchestration_launch_agent` so it appears as a persistent UI-visible agent. Give it a short, user-friendly task name rather than an internal slug or generic role label. After launch, wait on `orchestration_get_agent_report` before reporting that the child is finished."
-		}
-		return "When creating a child agent for the user, use `orchestration_launch_agent` so it appears as a persistent UI-visible agent. Give it a short, user-friendly task name rather than an internal slug or generic role label."
+		return sessionGuidanceManagedAgentDelegationItem(enabled)
 	}
 	if hasSpawn && sessionGuidanceForkMode(flags) {
 		return "This session is using fork-style delegation: use `spawn_agent` for longer background research or implementation that would otherwise flood the main context. If you are already the delegated worker, execute directly and do not bounce the same task into another fork."
@@ -198,7 +194,31 @@ func sessionGuidanceAgentDelegationItem(enabled map[string]struct{}, flags map[s
 	if hasSpawn {
 		return "Use `spawn_agent` only for well-scoped parallel subtasks. Keep urgent blocking work local, avoid duplicating delegated work, give each subagent clear ownership, and integrate its results before reporting completion."
 	}
-	return "Use `orchestration_launch_agent` for child agents that should remain available in the UI as persistent conversations, and give them short, user-friendly task names."
+	return "Use `launch_agent` for child agents that should remain available in the UI as persistent conversations, and give them short, user-friendly task names."
+}
+
+func sessionGuidanceManagedAgentDelegationItem(enabled map[string]struct{}) string {
+	parts := []string{
+		"When creating a child agent for the user, use `launch_agent` with provider `codex` and a short, user-friendly task name.",
+		"Choose `context_mode=\"minimal\"` for prompt-only work, or `context_mode=\"focused\"` when the child needs caller-selected constraints, files, decisions, or task details.",
+		"In focused mode, pass only necessary context and do not copy the parent conversation history.",
+		"The child agent is a leaf worker and must not delegate again.",
+		"Claude child-agent orchestration is not supported in this version; do not request it.",
+	}
+	if sessionGuidanceToolEnabled(enabled, "get_agent_report", "orchestration_get_agent_report") {
+		parts = append(parts,
+			"After launch, use `get_agent_report(wait=true)` with the returned agent_id before reporting that the child is finished.",
+			"Require the child report Markdown template: first line `状态: success | blocked | failed`, then `结论`, `证据`, `验证`, and `风险/待定`.",
+			"Verify key claims and integrate the report instead of copying it verbatim to the user.",
+		)
+	}
+	if sessionGuidanceToolEnabled(enabled, "send_message") {
+		parts = append(parts, "Use `send_message` only for targeted follow-up to a running child.")
+	}
+	if sessionGuidanceToolEnabled(enabled, "stop_agent") {
+		parts = append(parts, "Use `stop_agent` only when cancellation is needed.")
+	}
+	return strings.Join(parts, " ")
 }
 
 func sessionGuidanceExploreItem(enabled map[string]struct{}) string {

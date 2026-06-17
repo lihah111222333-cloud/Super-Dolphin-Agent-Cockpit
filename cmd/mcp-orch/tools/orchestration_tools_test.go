@@ -35,25 +35,79 @@ func TestLaunchRequestFromExecutableBuildsLaunchRequest(t *testing.T) {
 	require.Equal(t, "main/sql", req.PromptKey)
 	require.Equal(t, "local", req.MemoryScope)
 	require.Equal(t, []string{"/tmp/agent-terminal"}, req.Command)
-	require.Equal(t, []string{"AGENT_PROVIDER=codex"}, req.Env)
+	require.Equal(t, "codex", launchEnvValue(req.Env, "AGENT_PROVIDER"))
+	require.Equal(t, "launch_agent,orchestration_launch_agent,spawn_agent", launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
+	require.Equal(t, "spawn_agent", launchEnvValue(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"))
+}
+
+func TestLaunchRequestFromExecutableComposesFocusedContext(t *testing.T) {
+	req, err := launchRequestFromExecutable(LaunchAgentInput{
+		Name:        "agent-focused",
+		Prompt:      " inspect launch flow ",
+		ContextMode: " FoCuSeD ",
+		Context:     " background: use Codex only\nconstraint: do not fork history ",
+	}, "/tmp/agent-terminal")
+	require.NoError(t, err)
+	require.Equal(t, "【相关上下文】\nbackground: use Codex only\nconstraint: do not fork history\n\n【任务】\ninspect launch flow", req.Prompt)
+}
+
+func TestLaunchRequestFromExecutableContextModeValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   LaunchAgentInput
+		wantErr string
+	}{
+		{
+			name: "focused requires context",
+			input: LaunchAgentInput{
+				Name:        "agent-focused",
+				Prompt:      "inspect",
+				ContextMode: "focused",
+				Context:     " \t\n ",
+			},
+			wantErr: "context_mode=focused requires non-empty context field",
+		},
+		{
+			name: "minimal rejects context",
+			input: LaunchAgentInput{
+				Name:        "agent-minimal",
+				Prompt:      "inspect",
+				ContextMode: "minimal",
+				Context:     "background",
+			},
+			wantErr: "context_mode=minimal does not accept context field",
+		},
+		{
+			name: "default minimal rejects context",
+			input: LaunchAgentInput{
+				Name:    "agent-minimal-default",
+				Prompt:  "inspect",
+				Context: "background",
+			},
+			wantErr: "context_mode=minimal does not accept context field",
+		},
+		{
+			name: "unsupported mode",
+			input: LaunchAgentInput{
+				Name:        "agent-unknown",
+				Prompt:      "inspect",
+				ContextMode: "full-history",
+			},
+			wantErr: "unsupported context_mode",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := launchRequestFromExecutable(tt.input, "/tmp/agent-terminal")
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
 }
 
 func TestLaunchAgentSchemaDocumentsAssembledSections(t *testing.T) {
-	defs := orchestrationToolDefinitions(&golden.OrchestrationStub{})
-	var launchDef ToolDefinition
-	for _, def := range defs {
-		if def.Name == "launch_agent" {
-			launchDef = def
-			break
-		}
-	}
-	if launchDef.Name == "" {
-		t.Fatal("launch_agent definition not found")
-	}
-	props, ok := launchDef.InputSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("properties schema type = %T, want map[string]any", launchDef.InputSchema["properties"])
-	}
+	props := launchAgentSchemaProperties(t)
 	agentKey, ok := props["agent_key"].(map[string]any)
 	if !ok {
 		t.Fatalf("agent_key schema type = %T, want map[string]any", props["agent_key"])
@@ -73,6 +127,36 @@ func TestLaunchAgentSchemaDocumentsAssembledSections(t *testing.T) {
 	if !strings.Contains(promptKeyDescription, "exact prompt_template.prompt_key") {
 		t.Fatalf("prompt_key description = %q, want exact prompt_template.prompt_key semantics", promptKeyDescription)
 	}
+}
+
+func TestLaunchAgentSchemaDocumentsContextMode(t *testing.T) {
+	props := launchAgentSchemaProperties(t)
+	contextMode, ok := props["context_mode"].(map[string]any)
+	if !ok {
+		t.Fatalf("context_mode schema type = %T, want map[string]any", props["context_mode"])
+	}
+	require.ElementsMatch(t, []string{"minimal", "focused"}, EnumValues(Schema(contextMode)))
+	context, ok := props["context"].(map[string]any)
+	if !ok {
+		t.Fatalf("context schema type = %T, want map[string]any", props["context"])
+	}
+	contextDescription, _ := context["description"].(string)
+	require.Contains(t, contextDescription, "focused")
+}
+
+func launchAgentSchemaProperties(t *testing.T) map[string]any {
+	t.Helper()
+	defs := orchestrationToolDefinitions(&golden.OrchestrationStub{})
+	for _, def := range defs {
+		if def.Name != "launch_agent" {
+			continue
+		}
+		props, ok := def.InputSchema["properties"].(map[string]any)
+		require.Truef(t, ok, "properties schema type = %T, want map[string]any", def.InputSchema["properties"])
+		return props
+	}
+	t.Fatal("launch_agent definition not found")
+	return nil
 }
 
 func TestLaunchRequestFromExecutablePreservesCWDForContractValidation(t *testing.T) {
@@ -111,7 +195,20 @@ func TestLaunchRequestFromExecutableDefaultsProviderToCodex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("launchRequestFromExecutable() error = %v", err)
 	}
-	require.Equal(t, []string{"AGENT_PROVIDER=codex"}, req.Env)
+	require.Equal(t, "codex", launchEnvValue(req.Env, "AGENT_PROVIDER"))
+	require.Equal(t, "launch_agent,orchestration_launch_agent,spawn_agent", launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
+	require.Equal(t, "spawn_agent", launchEnvValue(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"))
+}
+
+func TestLaunchRequestFromExecutableMergesDefaultDisabledTools(t *testing.T) {
+	req, err := launchRequestFromExecutable(LaunchAgentInput{
+		Name:          "agent-default-deny",
+		CWD:           "/tmp/work",
+		DisabledTools: " shell , spawn_agent, browser , launch_agent ",
+	}, "/tmp/agent-terminal")
+	require.NoError(t, err)
+	require.Equal(t, "launch_agent,orchestration_launch_agent,spawn_agent,shell,browser", launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
+	require.Equal(t, "spawn_agent", launchEnvValue(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"))
 }
 
 func TestLaunchRequestFromExecutableForwardsModel(t *testing.T) {
@@ -128,6 +225,7 @@ func TestLaunchRequestFromExecutableForwardsModel(t *testing.T) {
 		"AGENT_PROVIDER=claude":           true,
 		"AGENT_MODEL=claude-opus-4-7[1m]": true,
 		"AGENT_EFFORT=max":                true,
+		"AGENT_DISABLED_TOOLS=launch_agent,orchestration_launch_agent,spawn_agent": true,
 	}
 	if len(req.Env) != len(want) {
 		t.Fatalf("launch request env = %#v, want %v", req.Env, want)
@@ -137,6 +235,28 @@ func TestLaunchRequestFromExecutableForwardsModel(t *testing.T) {
 			t.Fatalf("unexpected env entry %q; full env = %#v", entry, req.Env)
 		}
 	}
+}
+
+func TestLaunchRequestFromExecutableAllowsClaudeRootAgent(t *testing.T) {
+	req, err := launchRequestFromExecutable(LaunchAgentInput{
+		Name:     "agent-claude-root",
+		Provider: "claude",
+	}, "/tmp/agent-terminal")
+	require.NoError(t, err)
+	require.Equal(t, "claude", launchEnvValue(req.Env, "AGENT_PROVIDER"))
+	require.Equal(t, "launch_agent,orchestration_launch_agent,spawn_agent", launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
+	require.Empty(t, launchEnvValue(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"))
+}
+
+func TestLaunchRequestFromExecutableRejectsClaudeChildAgent(t *testing.T) {
+	_, err := launchRequestFromExecutable(LaunchAgentInput{
+		Name:     "agent-claude-child",
+		ParentID: "agent-parent",
+		Provider: "claude",
+	}, "/tmp/agent-terminal")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Claude sub-agent orchestration is not supported")
+	require.Contains(t, err.Error(), "provider=codex")
 }
 
 func TestLaunchRequestFromExecutableForwardsCodexIdentity(t *testing.T) {
@@ -175,8 +295,14 @@ func TestLaunchRequestFromExecutableOmitsEmptyModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("launchRequestFromExecutable() error = %v", err)
 	}
-	if len(req.Env) != 1 || req.Env[0] != "AGENT_PROVIDER=claude" {
-		t.Fatalf("launch request env = %#v, want only [AGENT_PROVIDER=claude]", req.Env)
+	if got := launchEnvValue(req.Env, "AGENT_PROVIDER"); got != "claude" {
+		t.Fatalf("AGENT_PROVIDER = %q, want claude; env=%#v", got, req.Env)
+	}
+	if got := launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"); got != "launch_agent,orchestration_launch_agent,spawn_agent" {
+		t.Fatalf("AGENT_DISABLED_TOOLS = %q, want default child delegation deny list; env=%#v", got, req.Env)
+	}
+	if got := launchEnvValue(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"); got != "" {
+		t.Fatalf("AGENT_CODEX_DISABLED_NATIVE_TOOLS = %q, want empty for non-codex provider; env=%#v", got, req.Env)
 	}
 }
 
