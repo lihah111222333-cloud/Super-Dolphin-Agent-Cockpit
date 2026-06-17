@@ -62,7 +62,28 @@ describe('providerRuntimeConfig', () => {
       codexHome: '~/.codex',
       codexInstanceKey: '',
       codexModelProvider: 'openai',
-    })).toThrow('complete Codex identity requires');
+    })).toThrow('codexHome and codexInstanceKey');
+  });
+
+  it('allows Codex launch identity to omit model provider for config.toml resolution', () => {
+    expect(codexLaunchConfigFromPreferences({
+      codexHome: '~/.codex',
+      codexInstanceKey: 'default',
+      codexModelProvider: '',
+    })).toEqual({
+      codexHome: '~/.codex',
+      codexInstanceKey: 'default',
+    });
+    expect(() => codexLaunchConfigFromPreferences({
+      codexHome: '~/.codex',
+      codexInstanceKey: '',
+      codexModelProvider: '',
+    })).toThrow('codexHome and codexInstanceKey');
+    expect(() => codexLaunchConfigFromPreferences({
+      codexHome: '',
+      codexInstanceKey: 'default',
+      codexModelProvider: '',
+    })).toThrow('codexHome and codexInstanceKey');
   });
 
   it('classifies preference tombstones and required values', () => {

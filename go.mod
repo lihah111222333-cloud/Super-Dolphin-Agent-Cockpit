@@ -3,6 +3,7 @@ module github.com/anthropic-ai/super-agent-v3
 go 1.25.7
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/creachadair/jrpc2 v1.3.5
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/uuid v1.6.0
