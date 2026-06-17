@@ -715,6 +715,42 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().activeThreadId).toBe('');
   });
 
+  it('keeps runtime cwd threads when Windows separators differ from the selected project path', async () => {
+    resetClientStoreForTests({
+      cwd: 'C:/Users/ai03/Desktop/Super-Dolphin',
+      projectScopeCwd: 'C:/Users/ai03/Desktop/Super-Dolphin',
+      activeProject: 'C:/Users/ai03/Desktop/Super-Dolphin',
+      projects: ['C:/Users/ai03/Desktop/Super-Dolphin'],
+    });
+    backend.setActiveProject.mockResolvedValue({
+      projects: ['C:/Users/ai03/Desktop/Super-Dolphin'],
+      active: 'C:/Users/ai03/Desktop/Super-Dolphin',
+    });
+    backend.getSidebarState.mockResolvedValue({
+      activeThreadId: 'agent-win',
+      threads: [
+        { id: 'agent-win', agent_id: 'agent-win', name: 'Windows cwd thread', provider: 'codex', status: 'idle' },
+      ],
+      agentRuntimeById: {
+        'agent-win': {
+          cwd: 'C:\\Users\\ai03\\Desktop\\Super-Dolphin',
+          provider: 'codex',
+          providerThreadId: 'session-win',
+        },
+      },
+    });
+
+    await expect(useClientStore.getState().setActiveProjectPath('C:/Users/ai03/Desktop/Super-Dolphin')).resolves.toBe(true);
+
+    expect(useClientStore.getState().threads).toEqual([
+      expect.objectContaining({
+        id: 'agent-win',
+        cwd: 'C:\\Users\\ai03\\Desktop\\Super-Dolphin',
+        name: 'Windows cwd thread',
+      }),
+    ]);
+  });
+
   it('keeps composer drafts isolated by selected thread and project cwd', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',

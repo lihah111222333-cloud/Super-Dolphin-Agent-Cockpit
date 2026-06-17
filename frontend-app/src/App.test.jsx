@@ -817,9 +817,11 @@ async function showAllTraceDashboardEvents() {
     backend.getSidebarState.mockImplementation(({ cwd }) => Promise.resolve(cwd === '/repo/other' ? {
       activeThreadId: '',
       threads: [{ id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle' }],
+      agentRuntimeById: { 'thread-other': { cwd: '/repo/other' } },
     } : {
       activeThreadId: '',
       threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle' }],
+      agentRuntimeById: { 'thread-app': { cwd: '/repo/app' } },
     }));
 
     render(<App />);
@@ -838,6 +840,160 @@ async function showAllTraceDashboardEvents() {
       expect(within(projectLists()[1]).getByTitle('Other project chat')).toBeInTheDocument();
     });
     expect(within(projectLists()[1]).queryByText('暂无聊天记录')).not.toBeInTheDocument();
+  });
+
+  it('hides raw archived threads when expanding a cached sidebar project', async () => {
+    let otherSidebarCalls = 0;
+    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
+    backend.setActiveProject.mockImplementation(() => new Promise(() => {}));
+    backend.getSidebarState.mockImplementation(({ cwd }) => {
+      if (cwd === '/repo/other') {
+        otherSidebarCalls += 1;
+        if (otherSidebarCalls > 1) return new Promise(() => {});
+        return Promise.resolve({
+          activeThreadId: '',
+          threads: [
+            { id: 'thread-other-live', name: 'Other live chat', provider: 'codex', status: 'idle' },
+            { id: 'thread-other-archived', name: 'Other archived chat', provider: 'codex', status: 'archived' },
+          ],
+          agentRuntimeById: {
+            'thread-other-live': { cwd: '/repo/other' },
+            'thread-other-archived': { cwd: '/repo/other' },
+          },
+        });
+      }
+      return Promise.resolve({
+        activeThreadId: '',
+        threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle' }],
+      });
+    });
+
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    const projectLists = () => Array.from(sidebar.querySelectorAll('.sidebar-project-thread-list'));
+    const projectButton = (name) => Array.from(sidebar.querySelectorAll('.sidebar-tree-folder'))
+      .find((button) => button.textContent === name);
+
+    fireEvent.click(projectButton('other'));
+
+    await waitFor(() => expect(within(projectLists()[1]).getByTitle('Other live chat')).toBeInTheDocument());
+    expect(within(projectLists()[1]).queryByTitle('Other archived chat')).not.toBeInTheDocument();
+  });
+
+  it('uses runtime cwd for cached sidebar project threads before showing them', async () => {
+    let otherSidebarCalls = 0;
+    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
+    backend.setActiveProject.mockImplementation(() => new Promise(() => {}));
+    backend.getSidebarState.mockImplementation(({ cwd }) => {
+      if (cwd === '/repo/other') {
+        otherSidebarCalls += 1;
+        if (otherSidebarCalls > 1) return new Promise(() => {});
+        return Promise.resolve({
+          activeThreadId: '',
+          threads: [
+            { id: 'thread-other-runtime', name: 'Runtime other chat', provider: 'codex', status: 'idle' },
+            { id: 'thread-app-runtime', name: 'Runtime app chat', provider: 'codex', status: 'idle' },
+          ],
+          agentRuntimeById: {
+            'thread-other-runtime': { cwd: '/repo/other' },
+            'thread-app-runtime': { cwd: '/repo/app' },
+          },
+        });
+      }
+      return Promise.resolve({
+        activeThreadId: '',
+        threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle' }],
+      });
+    });
+
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    const projectLists = () => Array.from(sidebar.querySelectorAll('.sidebar-project-thread-list'));
+    const projectButton = (name) => Array.from(sidebar.querySelectorAll('.sidebar-tree-folder'))
+      .find((button) => button.textContent === name);
+
+    fireEvent.click(projectButton('other'));
+
+    await waitFor(() => expect(within(projectLists()[1]).getByTitle('Runtime other chat')).toBeInTheDocument());
+    expect(within(projectLists()[1]).queryByTitle('Runtime app chat')).not.toBeInTheDocument();
+  });
+
+  it('keeps cached sidebar project threads that only have a recoverable session uuid', async () => {
+    let otherSidebarCalls = 0;
+    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
+    backend.setActiveProject.mockImplementation(() => new Promise(() => {}));
+    backend.getSidebarState.mockImplementation(({ cwd }) => {
+      if (cwd === '/repo/other') {
+        otherSidebarCalls += 1;
+        if (otherSidebarCalls > 1) return new Promise(() => {});
+        return Promise.resolve({
+          activeThreadId: '',
+          threads: [
+            {
+              id: 'agent-half-bound',
+              name: 'Recoverable half-bound chat',
+              provider: 'codex',
+              status: 'idle',
+              provider_thread_id: '',
+              rollout_path: '',
+              session_uuid: 'session-half-bound',
+            },
+          ],
+          agentRuntimeById: {
+            'session-half-bound': { cwd: '/repo/other' },
+          },
+        });
+      }
+      return Promise.resolve({
+        activeThreadId: '',
+        threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle' }],
+      });
+    });
+
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    const projectLists = () => Array.from(sidebar.querySelectorAll('.sidebar-project-thread-list'));
+    const projectButton = (name) => Array.from(sidebar.querySelectorAll('.sidebar-tree-folder'))
+      .find((button) => button.textContent === name);
+
+    fireEvent.click(projectButton('other'));
+
+    await waitFor(() => expect(within(projectLists()[1]).getByTitle('Recoverable half-bound chat')).toBeInTheDocument());
+  });
+
+  it('does not show cached sidebar project threads when cwd is unknown', async () => {
+    let otherSidebarCalls = 0;
+    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
+    backend.setActiveProject.mockImplementation(() => new Promise(() => {}));
+    backend.getSidebarState.mockImplementation(({ cwd }) => {
+      if (cwd === '/repo/other') {
+        otherSidebarCalls += 1;
+        if (otherSidebarCalls > 1) return new Promise(() => {});
+        return Promise.resolve({
+          activeThreadId: '',
+          threads: [{ id: 'thread-unknown-cwd', name: 'Unknown cwd chat', provider: 'codex', status: 'idle' }],
+        });
+      }
+      return Promise.resolve({
+        activeThreadId: '',
+        threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle' }],
+      });
+    });
+
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    const projectLists = () => Array.from(sidebar.querySelectorAll('.sidebar-project-thread-list'));
+    const projectButton = (name) => Array.from(sidebar.querySelectorAll('.sidebar-tree-folder'))
+      .find((button) => button.textContent === name);
+
+    fireEvent.click(projectButton('other'));
+
+    await waitFor(() => expect(within(projectLists()[1]).getByText('暂无聊天记录')).toBeInTheDocument());
+    expect(within(projectLists()[1]).queryByTitle('Unknown cwd chat')).not.toBeInTheDocument();
   });
 
   it('moves automation threads from project chats into the sidebar task list', async () => {
