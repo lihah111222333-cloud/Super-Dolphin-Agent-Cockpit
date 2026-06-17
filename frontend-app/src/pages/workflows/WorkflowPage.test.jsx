@@ -85,6 +85,18 @@ function mockWorkflowDag() {
   backend.dispatchDagNode.mockResolvedValue({ enqueued: true });
 }
 
+function workflowDesignStore() {
+  return {
+    resolveLaunchPreferences: vi.fn().mockResolvedValue({
+      modelProvider: 'codex',
+      model: 'gpt-5.5',
+      effort: 'high',
+    }),
+    setActiveThread: vi.fn(),
+    setActivePage: vi.fn(),
+  };
+}
+
 describe('WorkflowPage module', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -437,7 +449,11 @@ describe('WorkflowPage module', () => {
     renderWorkflowPage();
 
     expect(await screen.findByText(finalPath)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '页内播放' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '页内播放' }));
+    const previewVideo = document.querySelector('.workflow-media-preview video');
+    expect(previewVideo).toBeInTheDocument();
+    expect(previewVideo.querySelector('track[kind="captions"]')).toHaveAttribute('label', '无字幕');
+
     fireEvent.click(screen.getByRole('button', { name: '系统打开' }));
 
     await waitFor(() => expect(backend.openSharedFile).toHaveBeenCalledWith({ path: finalPath }));
@@ -821,18 +837,30 @@ describe('WorkflowPage module', () => {
     });
   });
 
-  it('starts the generic AI designer flow without the Douyin template action', async () => {
+  it('renders enterprise workflow template cards with DAG data', async () => {
+    mockWorkflowDag();
+
+    renderWorkflowPage();
+
+    expect(await screen.findByRole('heading', { name: '政企工作流模板' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '用文档审查归档模板设计' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '用数据报告发布模板设计' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '用会议纪要督办模板设计' })).toBeInTheDocument();
+  });
+
+  it('renders enterprise workflow template cards in the empty state', async () => {
+    backend.getDashboardPage.mockResolvedValue({ dags: [] });
+
+    renderWorkflowPage();
+
+    expect(await screen.findByRole('heading', { name: '政企工作流模板' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '用文档审查归档模板设计' })).toBeInTheDocument();
+  });
+
+  it('starts the generic AI designer flow without sending a template brief', async () => {
     mockWorkflowDag();
     backend.startThread.mockResolvedValue({ thread_id: 'thread-design' });
-    const store = {
-      resolveLaunchPreferences: vi.fn().mockResolvedValue({
-        modelProvider: 'codex',
-        model: 'gpt-5.5',
-        effort: 'high',
-      }),
-      setActiveThread: vi.fn(),
-      setActivePage: vi.fn(),
-    };
+    const store = workflowDesignStore();
 
     renderWorkflowPage(store);
 
@@ -852,6 +880,89 @@ describe('WorkflowPage module', () => {
     expect(backend.startTurn).not.toHaveBeenCalled();
     expect(store.setActiveThread).toHaveBeenCalledWith('thread-design');
     expect(store.setActivePage).toHaveBeenCalledWith('chat');
+  });
+
+  it.each([
+    {
+      button: '用文档审查归档模板设计',
+      key: 'document-review-archive',
+      outputPrefix: 'enterprise-workflows/document-review-archive/{{run_id}}/',
+      extra: '生成审批材料',
+    },
+    {
+      button: '用数据报告发布模板设计',
+      key: 'data-report-release',
+      outputPrefix: 'enterprise-workflows/data-report-release/{{run_id}}/',
+      extra: 'CRON_TZ=Asia/Shanghai',
+    },
+    {
+      button: '用会议纪要督办模板设计',
+      key: 'meeting-minutes-followup',
+      outputPrefix: 'enterprise-workflows/meeting-minutes-followup/{{run_id}}/',
+      extra: '督办清单',
+    },
+  ])('starts the enterprise template designer flow for $key', async ({ button, key, outputPrefix, extra }) => {
+    mockWorkflowDag();
+    backend.startThread.mockResolvedValue({ thread_id: 'thread-template' });
+    backend.startTurn.mockResolvedValue({ ok: true });
+    const store = workflowDesignStore();
+
+    renderWorkflowPage(store);
+
+    fireEvent.click(await screen.findByRole('button', { name: button }));
+
+    await waitFor(() => expect(backend.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/repo/app',
+      threadId: 'thread-template',
+    })));
+    expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/repo/app',
+      name: 'AI 设计流程',
+      agentKey: 'dag_designer',
+      promptKey: 'main/dag_designer_zh',
+      deferSpawn: true,
+    }));
+    expect(backend.startThread.mock.invocationCallOrder[0]).toBeLessThan(backend.startTurn.mock.invocationCallOrder[0]);
+    const brief = backend.startTurn.mock.calls[0][0].input;
+    expect(brief).toContain(`template_key: ${key}`);
+    expect(brief).toContain(outputPrefix);
+    expect(brief).toContain('审批');
+    expect(brief).toContain('command_card');
+    expect(brief).toContain('outputs.to_sharedfile');
+    expect(brief).toContain('final_node_key');
+    expect(brief).toContain('node.config.exec');
+    expect(brief).toContain(extra);
+    expect(store.setActiveThread).toHaveBeenCalledWith('thread-template');
+    expect(store.setActivePage).toHaveBeenCalledWith('chat');
+  });
+
+  it('does not send a template brief when the designer thread fails to start', async () => {
+    mockWorkflowDag();
+    backend.startThread.mockRejectedValue(new Error('thread offline'));
+    const store = workflowDesignStore();
+
+    renderWorkflowPage(store);
+
+    fireEvent.click(await screen.findByRole('button', { name: '用文档审查归档模板设计' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('启动政企模板失败：thread offline');
+    expect(backend.startTurn).not.toHaveBeenCalled();
+    expect(store.setActiveThread).not.toHaveBeenCalled();
+  });
+
+  it('shows an explicit error when sending the enterprise template brief fails', async () => {
+    mockWorkflowDag();
+    backend.startThread.mockResolvedValue({ thread_id: 'thread-template' });
+    backend.startTurn.mockRejectedValue(new Error('turn offline'));
+    const store = workflowDesignStore();
+
+    renderWorkflowPage(store);
+
+    fireEvent.click(await screen.findByRole('button', { name: '用文档审查归档模板设计' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('发送政企模板需求失败：turn offline');
+    expect(backend.startTurn).toHaveBeenCalled();
+    expect(store.setActiveThread).not.toHaveBeenCalled();
   });
 
   it('opens a DAG node child conversation through the explicit thread opener', async () => {

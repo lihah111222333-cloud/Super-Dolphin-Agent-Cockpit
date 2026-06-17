@@ -1,5 +1,5 @@
 import React from 'react';
-import { Archive, Pencil, Pin, Trash2 } from 'lucide-react';
+import { Archive, Pin, RefreshCw, Trash2 } from 'lucide-react';
 import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 
 function ThreadCardActions({
@@ -11,7 +11,8 @@ function ThreadCardActions({
   hoveredArchiveThreadId,
   hoveredPinThreadId,
   loading,
-  onBeginRename,
+  running = false,
+  runningLabel = '会话运行中',
   onSetHoveredArchiveThreadId,
   onSetHoveredPinThreadId,
   onToggleArchive,
@@ -22,44 +23,41 @@ function ThreadCardActions({
     <div className="thread-card-actions" aria-label={`${threadLabel} ${copy.threadActionsSuffix}`}>
       {!editing ? (
         <>
-          <button
-            type="button"
-            className="thread-rename-trigger"
-            aria-label={copy.renameThread}
-            title={`${copy.renameThread} ${threadLabel}`}
-            onClick={onBeginRename}
-          >
-            <Pencil size={13} aria-hidden="true" />
-          </button>
-          {thread.archived ? (
-            <button
-              type="button"
-              className="thread-delete-trigger"
-              aria-label={copy.deleteThread}
-              title={`${copy.deleteThread} ${threadLabel}`}
-              onClick={onBeginDelete}
-            >
-              <Trash2 size={13} aria-hidden="true" />
-            </button>
-          ) : (
-        <ThreadPinButton
-          copy={copy}
-          thread={thread}
+          {!thread.archived ? (
+            <ThreadPinButton
+              copy={copy}
+              thread={thread}
               hoveredPinThreadId={hoveredPinThreadId}
               onSetHoveredPinThreadId={onSetHoveredPinThreadId}
               onToggle={onTogglePin}
             />
-          )}
+          ) : null}
+          {running ? (
+            <span className="thread-running-spinner" aria-label={runningLabel} title={runningLabel}>
+              <RefreshCw size={13} aria-hidden="true" />
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className="thread-delete-trigger"
+            aria-label={copy.deleteThread}
+            title={`${copy.deleteThread} ${threadLabel}`}
+            onClick={onBeginDelete}
+          >
+            <Trash2 size={13} aria-hidden="true" />
+          </button>
+          {thread.archived ? (
+            <ThreadArchiveButton
+              thread={thread}
+              archiveLabel={archiveLabel}
+              hoveredArchiveThreadId={hoveredArchiveThreadId}
+              loading={loading}
+              onSetHoveredArchiveThreadId={onSetHoveredArchiveThreadId}
+              onToggle={onToggleArchive}
+            />
+          ) : null}
         </>
       ) : null}
-      <ThreadArchiveButton
-        thread={thread}
-        archiveLabel={archiveLabel}
-        hoveredArchiveThreadId={hoveredArchiveThreadId}
-        loading={loading}
-        onSetHoveredArchiveThreadId={onSetHoveredArchiveThreadId}
-        onToggle={onToggleArchive}
-      />
     </div>
   );
 }

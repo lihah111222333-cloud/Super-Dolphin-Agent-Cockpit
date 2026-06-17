@@ -7,10 +7,11 @@ function ThreadDisplayCardContent({
   statusDotTitle,
   statusLabel,
   staleReason,
+  onBeginRename,
   onSelect,
 }) {
   return (
-    <button type="button" className="thread-main" onClick={onSelect}>
+    <button type="button" className="thread-main" onClick={onSelect} onDoubleClick={onBeginRename}>
       <span className="thread-name" title={threadLabel}>
         {threadLabel}
       </span>

@@ -8,7 +8,7 @@ import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.
 import { finalOutputPath, workflowOrderedNodes } from './adapters/workflowDisplayAdapter.js';
 import { WorkflowDiagnostics } from './components/WorkflowDiagnostics.jsx';
 import { WorkflowFinalOutputPanel } from './components/WorkflowFinalOutputPanel.jsx';
-import { applyDagOps, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, openSharedFile, readSharedFile, startDag, startThread, terminateDagRun } from './services/workflowPageService.js';
+import { applyDagOps, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, openSharedFile, readSharedFile, startDag, startThread, startTurn, terminateDagRun } from './services/workflowPageService.js';
 import './WorkflowPage.css';
 
 const DAG_RECENT_RUN_LIMIT = 30;
@@ -34,6 +34,70 @@ const DAG_DESIGNER_ENABLED_TOOLS = Object.freeze([
   'task_dispatch_node',
   'task_start_dag',
 ]);
+
+const ENTERPRISE_WORKFLOW_TEMPLATES = Object.freeze([
+  {
+    key: 'document-review-archive',
+    title: '文档审查归档',
+    summary: '抽取材料要点、识别风险，并生成审批材料和归档清单。',
+    scenario: '政策文件、合同、制度、会议材料或外发材料在归档和发布前的分类、风险识别与复核。',
+    trigger: '默认手动触发',
+    outputPrefix: 'enterprise-workflows/document-review-archive/{{run_id}}/',
+    finalNodeKey: 'approval_pack',
+    icon: BookOpen,
+    nodes: ['接收材料与审查要求', '抽取要点与文档分类', '风险分析', '生成审批材料', '生成归档清单'],
+    approvalPolicy: '审批节点只生成审批材料、复核结论和人工确认项，不代表系统已完成 DAG 级审批。',
+    schedulePreference: '默认手动触发；如用户要求定时审查，必须先确认具体时间。',
+  },
+  {
+    key: 'data-report-release',
+    title: '数据报告发布',
+    summary: '确认数据口径、校验规则，生成报告草稿和发布复核包。',
+    scenario: '周报、月报、经营数据、项目台账、风险台账或政务统计材料的查询、校验、成稿与发布前复核。',
+    trigger: '默认手动触发，可改定时',
+    outputPrefix: 'enterprise-workflows/data-report-release/{{run_id}}/',
+    finalNodeKey: 'release_pack',
+    icon: BarChart3,
+    nodes: ['确认数据口径', '采集或读取数据', '规则校验', '生成报告草稿', '发布复核包'],
+    approvalPolicy: '发布复核只生成清单、风险提示和待确认项，不自动发布外部系统。',
+    schedulePreference: '默认手动触发；如需周期发布，使用 CRON_TZ=Asia/Shanghai，但用户未说明具体时间时必须确认。',
+  },
+  {
+    key: 'meeting-minutes-followup',
+    title: '会议纪要督办',
+    summary: '整理会议输入、拆解责任事项，并生成督办清单和复盘摘要。',
+    scenario: '会议录音转写稿、会议纪要、领导批示或项目例会材料的任务提取、责任拆解、督办清单生成和复盘。',
+    trigger: '默认手动触发，可改工作日定时',
+    outputPrefix: 'enterprise-workflows/meeting-minutes-followup/{{run_id}}/',
+    finalNodeKey: 'followup_list',
+    icon: Bell,
+    nodes: ['整理会议输入', '抽取议题与决议', '拆解责任事项', '生成督办清单', '生成复盘摘要'],
+    approvalPolicy: '督办节点只生成材料；除非发现明确 command_card 且用户确认，不自动发送通知或创建外部工单。',
+    schedulePreference: '默认手动触发；如需工作日催办，使用 CRON_TZ=Asia/Shanghai，但用户未说明具体时间时必须确认。',
+  },
+]);
+
+// 生成给 DAG 设计器的首轮模板需求，约束它先发现资源再创建可运行 DAG。
+function buildEnterpriseWorkflowTemplateBrief(template) {
+  return [
+    `请基于“${template.title}”政企工作流模板设计一个可运行 DAG。`,
+    `template_key: ${template.key}`,
+    `场景: ${template.scenario}`,
+    `建议节点草图: ${template.nodes.join(' -> ')}`,
+    `审批口径: ${template.approvalPolicy} 需要人工确认时，由用户在聊天或流程页确认后再启动或派发后续节点，不要宣称已有 DAG 级审批阻断。`,
+    `默认输出路径: ${template.outputPrefix}`,
+    `推荐 final_node_key: ${template.finalNodeKey}`,
+    `调度偏好: ${template.schedulePreference}`,
+    `DAG 设计器工具白名单: ${DAG_DESIGNER_ENABLED_TOOLS.join(', ')}。`,
+    '必须先调用 list_models、prompt_list、command_list、shared_file_list 发现当前资源，再通过 task_create_dag 落库。',
+    '不得硬编码 provider、model、prompt_key、agent_key、command_ref 或 sharedfile path。',
+    '所有可运行节点必须设置顶层 assigned_to，执行配置必须放在 node.config.exec。',
+    'automation 只允许使用 command_list 发现到的 command_card；未发现合适 command_card 时，改用 agent 节点说明需要用户提供数据或人工处理。',
+    '大结果必须写 outputs.to_sharedfile，小摘要才写 outputs.to_node_result。',
+    '最终交付必须使用唯一 final_node_key，并说明该节点如何提升为 run-level final_output。',
+    '如果用户要求现在执行，创建 DAG 后再调用 task_start_dag；否则只创建模板并说明如何启动。',
+  ].join('\n');
+}
 
 const DAG_CATEGORIES = Object.freeze([
   { key: 'running', label: '进行中' },
@@ -866,22 +930,28 @@ function useWorkflowListQuery(workflowCwd) {
    */
   const queryClient = useQueryClient();
   const refreshPromiseRef = useRef(null);
-  const [workflowSyncFailure, setWorkflowSyncFailure] = useState('');
-  const workflowSyncFailureDataUpdatedAtRef = useRef(0);
-  const dagsQuery = useQuery({
+  const [workflowSyncFailureState, setWorkflowSyncFailureState] = useState({ dataUpdatedAt: 0, message: '' });
+  const {
+    data: dagsData,
+    error: dagsError,
+    isPending: dagsPending,
+    dataUpdatedAt: dagsDataUpdatedAt,
+  } = useQuery({
     queryKey: dashboardQueryKey(workflowCwd, 'dags'),
     queryFn: () => fetchDagsDashboard(workflowCwd),
     enabled: Boolean(workflowCwd),
   });
+  const dagsQuery = { data: dagsData, error: dagsError, isPending: dagsPending };
   const hasSnapshot = queryHasSnapshot(dagsQuery);
-  const items = useMemo(() => (Array.isArray(dagsQuery.data) ? dagsQuery.data : []), [dagsQuery.data]);
+  const items = useMemo(() => (Array.isArray(dagsData) ? dagsData : []), [dagsData]);
   const loading = Boolean(workflowCwd) && dagsQuery.isPending && !hasSnapshot;
   const errorState = workflowDashboardQueryErrorState(dagsQuery, hasSnapshot);
-  useEffect(() => {
-    if (workflowSyncFailure && dagsQuery.dataUpdatedAt > workflowSyncFailureDataUpdatedAtRef.current) {
-      setWorkflowSyncFailure('');
-    }
-  }, [dagsQuery.dataUpdatedAt, workflowSyncFailure]);
+  if (workflowSyncFailureState.message && dagsDataUpdatedAt > workflowSyncFailureState.dataUpdatedAt) {
+    setWorkflowSyncFailureState({ dataUpdatedAt: dagsDataUpdatedAt, message: '' });
+  }
+  const workflowSyncFailure = workflowSyncFailureState.message && dagsDataUpdatedAt <= workflowSyncFailureState.dataUpdatedAt
+    ? workflowSyncFailureState.message
+    : '';
   const refreshDags = useCallback(async () => {
     if (!workflowCwd) return [];
     const key = dashboardQueryKey(workflowCwd, 'dags');
@@ -889,11 +959,13 @@ function useWorkflowListQuery(workflowCwd) {
     const refreshPromise = (async () => {
       try {
         await queryClient.invalidateQueries({ queryKey: key }, { throwOnError: true, cancelRefetch: false });
-        setWorkflowSyncFailure('');
+        setWorkflowSyncFailureState({ dataUpdatedAt: queryClient.getQueryState(key)?.dataUpdatedAt || 0, message: '' });
       } catch (err) {
         if (!isCancelledError(err)) {
-          workflowSyncFailureDataUpdatedAtRef.current = queryClient.getQueryState(key)?.dataUpdatedAt || 0;
-          setWorkflowSyncFailure('同步失败，显示的是上次成功的数据：' + errorMessage(err));
+          setWorkflowSyncFailureState({
+            dataUpdatedAt: queryClient.getQueryState(key)?.dataUpdatedAt || 0,
+            message: '同步失败，显示的是上次成功的数据：' + errorMessage(err),
+          });
         }
       }
       return queryClient.getQueryData(key) || [];
@@ -999,13 +1071,18 @@ function useWorkflowDetailQuery({ items, selectedDag, selectedDagKey, workflowCw
    * 详情加载中时先用列表项兜底。
    * 这样右侧标题和状态不会闪成空白。
    */
-  const dagDetailQuery = useQuery({
+  const {
+    data: dagDetailData,
+    error: dagDetailError,
+    isPending: dagDetailPending,
+  } = useQuery({
     queryKey: dashboardQueryKey(workflowCwd, 'dag-detail', selectedDagKey),
     queryFn: () => fetchWorkflowDagDetail(selectedDagKey, items),
     enabled: Boolean(workflowCwd && selectedDagKey),
   });
+  const dagDetailQuery = { data: dagDetailData, error: dagDetailError, isPending: dagDetailPending };
   const hasSnapshot = queryHasSnapshot(dagDetailQuery);
-  const detailData = dagDetailQuery.data || {};
+  const detailData = dagDetailData || {};
   const nodes = useMemo(() => (Array.isArray(detailData.nodes) ? detailData.nodes : []), [detailData.nodes]);
   const runs = useMemo(() => (Array.isArray(detailData.runs) ? detailData.runs : []), [detailData.runs]);
   return {
@@ -1033,7 +1110,7 @@ function useWorkflowRunDetail({ activeRun, runs, workflowCwd }) {
   if (effectiveSelectedRunKey !== selectedRunKey) {
     setSelectedRunKey(effectiveSelectedRunKey);
   }
-  const runDetailQuery = useQuery({
+  const { data: runDetailData } = useQuery({
     queryKey: dashboardQueryKey(workflowCwd, 'dag-run', effectiveSelectedRunKey),
     queryFn: () => fetchWorkflowRunDetail(effectiveSelectedRunKey),
     enabled: Boolean(workflowCwd && effectiveSelectedRunKey),
@@ -1045,7 +1122,7 @@ function useWorkflowRunDetail({ activeRun, runs, workflowCwd }) {
     const queryKey = dashboardQueryKey(workflowCwd, 'dag-run', key);
     return fetchWorkflowQuery(queryClient, queryKey, () => fetchWorkflowRunDetail(key));
   }, [queryClient, workflowCwd]);
-  return { loadRunDetail, selectedRun: runDetailQuery.data || null, selectedRunKey: effectiveSelectedRunKey, setSelectedRunKey };
+  return { loadRunDetail, selectedRun: runDetailData || null, selectedRunKey: effectiveSelectedRunKey, setSelectedRunKey };
 }
 
 function useWorkflowNotice(selectedDagKey) {
@@ -1363,7 +1440,7 @@ function useDispatchDagNodeAction({ actionState, derived, list, notices, refresh
 }
 
 function useStartDesignFlowAction({ actionState, notices, store, workflowCwd }) {
-  return useCallback(async () => {
+  return useCallback(async (template = null) => {
     if (!workflowCwd) return;
     actionState.setActioning('design');
     actionState.setError('');
@@ -1374,10 +1451,23 @@ function useStartDesignFlowAction({ actionState, notices, store, workflowCwd }) 
       const { config: launchConfig = {}, ...launchPayload } = launchPreferences || {};
       const response = await withWorkflowActionTimeout(startThread(workflowDesignThreadPayload(workflowCwd, launchConfig, launchPayload)));
       const threadId = threadIdFromStartResponse(response);
+      if (template) {
+        if (!threadId) throw new Error('thread/start 未返回可用 threadId，无法发送模板需求');
+        try {
+          await withWorkflowActionTimeout(startTurn({
+            cwd: workflowCwd,
+            threadId,
+            input: buildEnterpriseWorkflowTemplateBrief(template),
+          }));
+        } catch (err) {
+          actionState.setError('发送政企模板需求失败：' + errorMessage(err));
+          return;
+        }
+      }
       if (threadId && typeof store?.setActiveThread === 'function') await store.setActiveThread(threadId);
       if (typeof store?.setActivePage === 'function') store.setActivePage('chat');
     } catch (err) {
-      actionState.setError('启动 AI 设计流程失败：' + errorMessage(err));
+      actionState.setError((template ? '启动政企模板失败：' : '启动 AI 设计流程失败：') + errorMessage(err));
     } finally {
       actionState.setActioning('');
     }
@@ -1422,14 +1512,85 @@ function AutomationEmptyState({ copy, onStartChat }) {
   );
 }
 
+function EnterpriseWorkflowTemplates({ onStartTemplate, sectionRef, starting, templates }) {
+  return (
+    <section
+      ref={sectionRef}
+      className="enterprise-workflow-templates"
+      aria-labelledby="enterprise-workflow-templates-title"
+      tabIndex={-1}
+    >
+      <div className="enterprise-template-heading">
+        <h2 id="enterprise-workflow-templates-title">政企工作流模板</h2>
+        <p>围绕审查、发布、督办三类闭环工作，按当前环境资源生成可运行 DAG。</p>
+      </div>
+      <div className="enterprise-template-grid">
+        {templates.map((template) => {
+          const TemplateIcon = template.icon;
+          return (
+            <article key={template.key} className="enterprise-template-card">
+              <div className="enterprise-template-card-top">
+                <span className="enterprise-template-icon" aria-hidden="true">
+                  <TemplateIcon size={18} />
+                </span>
+                <div>
+                  <h3>{template.title}</h3>
+                  <p>{template.summary}</p>
+                </div>
+              </div>
+              <dl className="enterprise-template-meta">
+                <div>
+                  <dt>触发</dt>
+                  <dd>{template.trigger}</dd>
+                </div>
+                <div>
+                  <dt>输出</dt>
+                  <dd>{template.outputPrefix}</dd>
+                </div>
+              </dl>
+              <ul className="enterprise-template-nodes" aria-label={`${template.title}节点草图`}>
+                {template.nodes.slice(0, 4).map((node) => (
+                  <li key={node}>{node}</li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                className="btn-dark enterprise-template-action"
+                onClick={() => { void onStartTemplate(template); }}
+                disabled={starting}
+                aria-label={`用${template.title}模板设计`}
+              >
+                {starting ? '正在启动' : '用此模板设计'}
+              </button>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function WorkflowPageView({ copy, model }) {
-  const { derived, isProjectPending, list, actions } = model;
+  const { derived, isProjectPending, list, actions, actionState } = model;
   const isEmpty = !isProjectPending && !derived.blockingLoadError && !list.loading && derived.overviewStats.total === 0;
+  const templateSectionRef = useRef(null);
+  const handleViewTemplates = useCallback(() => {
+    const section = templateSectionRef.current;
+    if (!section) return;
+    if (typeof section.scrollIntoView === 'function') section.scrollIntoView({ block: 'start' });
+    section.focus();
+  }, []);
 
   return (
     <section className="workflow-page">
-      <WorkflowHeader copy={copy} model={model} />
+      <WorkflowHeader copy={copy} model={model} onViewTemplates={handleViewTemplates} />
       <WorkflowMessages copy={copy} model={model} />
+      <EnterpriseWorkflowTemplates
+        sectionRef={templateSectionRef}
+        templates={ENTERPRISE_WORKFLOW_TEMPLATES}
+        starting={actionState.actioning === 'design'}
+        onStartTemplate={(template) => actions.startDesignFlow(template)}
+      />
       {isEmpty ? (
         <AutomationEmptyState copy={copy} onStartChat={() => { void actions.startDesignFlow(); }} />
       ) : (
@@ -1440,7 +1601,7 @@ function WorkflowPageView({ copy, model }) {
   );
 }
 
-function WorkflowHeader({ copy, model }) {
+function WorkflowHeader({ copy, model, onViewTemplates }) {
   const { actionState, actions, isProjectPending } = model;
   return (
     <PageHeader
@@ -1455,7 +1616,7 @@ function WorkflowHeader({ copy, model }) {
       }
       actions={(
         <div className="automation-header-actions">
-          <button type="button" className="btn-outline">
+          <button type="button" className="btn-outline" onClick={onViewTemplates}>
             {copy.viewTemplates}
           </button>
           <button
@@ -1654,10 +1815,11 @@ function WorkflowStatGrid({ derived, selection }) {
 
 function WorkflowRunHistory({ model }) {
   const { detail, run, selection } = model;
-  const [expanded, setExpanded] = useState(false);
-  useEffect(() => {
-    setExpanded(false);
-  }, [selection.selectedDagKey]);
+  const [expandedState, setExpandedState] = useState({ expanded: false, selectedDagKey: selection.selectedDagKey });
+  if (expandedState.selectedDagKey !== selection.selectedDagKey) {
+    setExpandedState({ expanded: false, selectedDagKey: selection.selectedDagKey });
+  }
+  const expanded = expandedState.selectedDagKey === selection.selectedDagKey ? expandedState.expanded : false;
   const orderedRuns = useMemo(() => chronologicalWorkflowRuns(detail.runs), [detail.runs]);
   const hiddenCount = Math.max(orderedRuns.length - DAG_RUN_HISTORY_VISIBLE_LIMIT, 0);
   const visibleRuns = expanded || hiddenCount === 0 ? orderedRuns : orderedRuns.slice(hiddenCount);
@@ -1666,7 +1828,15 @@ function WorkflowRunHistory({ model }) {
       <div className="dag-run-list">
         {detail.runs.length === 0 ? <p>暂无运行记录</p> : null}
         {hiddenCount > 0 ? (
-          <button type="button" className="dag-run-list-toggle" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
+          <button
+            type="button"
+            className="dag-run-list-toggle"
+            aria-expanded={expanded}
+            onClick={() => setExpandedState((current) => ({
+              expanded: !(current.selectedDagKey === selection.selectedDagKey ? current.expanded : false),
+              selectedDagKey: selection.selectedDagKey,
+            }))}
+          >
             {expanded ? '收起较早运行记录' : `展开较早 ${hiddenCount} 次运行`}
           </button>
         ) : null}

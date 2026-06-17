@@ -14,12 +14,19 @@ function renderActions(overrides = {}) {
   const props = {
     thread: activeThread,
     threadLabel: 'AI 设计流程',
+    copy: {
+      threadActionsSuffix: 'actions',
+      pinThread: 'Pin thread',
+      unpinThread: 'Unpin thread',
+      deleteThread: 'Delete thread',
+    },
     editing: false,
-    archiveLabel: '归档会话',
+    archiveLabel: 'Archive thread',
     hoveredArchiveThreadId: '',
     hoveredPinThreadId: '',
     loading: false,
-    onBeginRename: vi.fn(),
+    running: false,
+    runningLabel: 'Thread running',
     onSetHoveredArchiveThreadId: vi.fn(),
     onSetHoveredPinThreadId: vi.fn(),
     onToggleArchive: vi.fn(),
@@ -35,40 +42,45 @@ describe('ThreadCardActions', () => {
   it('routes active thread card actions through props', () => {
     const props = renderActions();
 
-    fireEvent.click(screen.getByRole('button', { name: '重命名会话' }));
-    fireEvent.click(screen.getByRole('button', { name: '置顶对话' }));
-    fireEvent.click(screen.getByRole('button', { name: '归档会话' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pin thread' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete thread' }));
 
-    expect(props.onBeginRename).toHaveBeenCalledTimes(1);
     expect(props.onTogglePin).toHaveBeenCalledTimes(1);
-    expect(props.onToggleArchive).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('button', { name: '删除会话' })).not.toBeInTheDocument();
+    expect(props.onBeginDelete).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Archive thread' })).not.toBeInTheDocument();
   });
 
   it('renders archived thread delete and restore actions', () => {
     const props = renderActions({
       thread: { ...activeThread, archived: true },
-      archiveLabel: '恢复会话',
+      archiveLabel: 'Restore thread',
       hoveredArchiveThreadId: 'thread-1',
     });
 
-    fireEvent.click(screen.getByRole('button', { name: '删除会话' }));
-    fireEvent.click(screen.getByRole('button', { name: '恢复会话' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete thread' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Restore thread' }));
 
-    expect(screen.getByTestId('thread-archive-tooltip')).toHaveTextContent('恢复会话');
-    expect(screen.queryByRole('button', { name: '置顶对话' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('thread-archive-tooltip')).toHaveTextContent('Restore thread');
+    expect(screen.queryByRole('button', { name: 'Pin thread' })).not.toBeInTheDocument();
     expect(props.onBeginDelete).toHaveBeenCalledTimes(1);
     expect(props.onToggleArchive).toHaveBeenCalledTimes(1);
   });
 
-  it('hides action triggers while renaming and disables archive while loading', () => {
+  it('shows running state next to delete and hides actions while renaming', () => {
+    renderActions({ running: true });
+
+    expect(screen.getByLabelText('Thread running')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete thread' })).toBeInTheDocument();
+  });
+
+  it('hides action triggers while renaming', () => {
     renderActions({
       editing: true,
       loading: true,
     });
 
-    expect(screen.queryByRole('button', { name: '重命名会话' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '置顶对话' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '归档会话' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Pin thread' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete thread' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Archive thread' })).not.toBeInTheDocument();
   });
 });
