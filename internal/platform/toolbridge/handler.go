@@ -27,6 +27,7 @@ import (
 // module.go where platform → store imports are legitimate (assembly
 // seam).
 const allowDefaultPersistentSubagentEnv = "TOOLBRIDGE_ALLOW_DEFAULT_PERSISTENT_SUBAGENT"
+const subAgentDelegationDepthLimitMessage = "Sub-agents are not allowed to spawn further agents (delegation depth limit)."
 
 var persistentSubagentDefaultFallbackTotal atomic.Uint64
 
@@ -303,9 +304,14 @@ func lookupToolCallBindingByProviderThread(ctx context.Context, lookup toolCallB
 	return binding, strings.TrimSpace(binding.AgentID) != ""
 }
 
+// spawnAgentPolicyMessage 在工具转发前决定是否阻断原生 spawn_agent。
+// 这里同时覆盖子 agent 再委派和 persistent_subagent_default 的旧策略。
 func (h *Handler) spawnAgentPolicyMessage(ctx context.Context, req ToolCallRequest) (string, error) {
 	if strings.TrimSpace(req.Name) != "spawn_agent" {
 		return "", nil
+	}
+	if blocked, err := h.childAgentDelegationPolicyMessage(ctx, req); err != nil || blocked != "" {
+		return blocked, err
 	}
 	required, err := h.persistentSubagentRequired(ctx, req)
 	if err != nil {
@@ -314,7 +320,17 @@ func (h *Handler) spawnAgentPolicyMessage(ctx context.Context, req ToolCallReque
 	if !required {
 		return "", nil
 	}
-	return "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `orchestration_launch_agent` 创建持续化 UI 子 agent。", nil
+	return "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `launch_agent` 创建持续化 UI 子 agent，并用 `get_agent_report(wait=true)` 等待结果。", nil
+}
+
+// childAgentDelegationPolicyMessage 拦截子 agent 的原生 spawn_agent 再委派。
+// binding 里有 parent_agent_id 才说明当前调用者已经是子 agent；没有绑定投影时维持后续 runtime policy。
+func (h *Handler) childAgentDelegationPolicyMessage(ctx context.Context, req ToolCallRequest) (string, error) {
+	binding, ok := h.resolveCurrentToolCallBinding(ctx, req)
+	if !ok || strings.TrimSpace(binding.ParentAgentID) == "" {
+		return "", nil
+	}
+	return subAgentDelegationDepthLimitMessage, nil
 }
 
 // persistentSubagentRequired 处理persistentsubagent必需。
@@ -335,11 +351,20 @@ func (h *Handler) persistentSubagentRequired(ctx context.Context, req ToolCallRe
 	if !required {
 		return false, nil
 	}
-	managedAvailable, known := runtimeHasTool(runtime, "orchestration_launch_agent")
+	managedAvailable, known := runtimeHasManagedLaunchTool(runtime)
 	if known {
 		return managedAvailable, nil
 	}
 	return true, nil
+}
+
+func runtimeHasManagedLaunchTool(runtime map[string]any) (bool, bool) {
+	shortAvailable, shortKnown := runtimeHasTool(runtime, "launch_agent")
+	legacyAvailable, legacyKnown := runtimeHasTool(runtime, "orchestration_launch_agent")
+	if shortKnown || legacyKnown {
+		return shortAvailable || legacyAvailable, true
+	}
+	return false, false
 }
 
 func (h *Handler) requireToolCallRuntimeConfig(ctx context.Context, req ToolCallRequest) (map[string]any, error) {

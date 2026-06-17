@@ -159,6 +159,10 @@ func canonicalPromptToolName(name string) string {
 		return "edit"
 	case "lsp_completion":
 		return "completion"
+	case "orchestration_launch_agent":
+		return "launch_agent"
+	case "orchestration_get_agent_report":
+		return "get_agent_report"
 	default:
 		return strings.TrimSpace(name)
 	}

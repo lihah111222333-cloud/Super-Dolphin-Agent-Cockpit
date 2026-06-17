@@ -1,0 +1,159 @@
+id: government-enterprise/promo-video
+version: 1
+title:
+  zh: 宣传视频
+  en: Promotional Video
+description:
+  zh: 面向政企宣传、政策解读和成果展示，生成脚本、审稿意见和成片交付。
+  en: Create a reviewed video workflow for policy communication, results showcase, and public-sector promotion.
+category: government-enterprise
+business_flow: 内容宣传
+output_types: [video, markdown, json]
+tags: [政企, 宣传, 视频, 审稿]
+estimated_nodes: 6
+requires_review: true
+supports_schedule: false
+ui_schema:
+  - key: title
+    type: text
+    required: true
+    label: { zh: 主题名称 }
+    placeholder: { zh: 例如：数字政务服务成果宣传片 }
+    help: { zh: 用于生成 DAG 标题和最终材料标题。 }
+  - key: target_audience
+    type: text
+    required: true
+    label: { zh: 目标受众 }
+    placeholder: { zh: 例如：企业群众、主管单位、内部员工 }
+    help: { zh: 决定脚本语气和信息密度。 }
+  - key: source_materials
+    type: file_ref
+    required: true
+    label: { zh: 输入材料 }
+    placeholder: { zh: sharedfile 路径或材料清单 }
+    help: { zh: 可填写 sharedfile 路径、会议材料或政策说明。 }
+  - key: output_format
+    type: select
+    required: true
+    label: { zh: 输出格式 }
+    placeholder: { zh: mp4 }
+    help: { zh: mp4 需要发现 video_with_audio 能力，缺失时必须提示能力缺口。 }
+    options:
+      - value: mp4
+        label: { zh: MP4 成片 }
+      - value: markdown
+        label: { zh: 脚本 Markdown }
+  - key: reviewer
+    type: reviewer
+    required: true
+    label: { zh: 复核人 }
+    placeholder: { zh: 例如：宣传负责人 }
+    help: { zh: 复核节点只生成审稿材料，不自动发布。 }
+  - key: output_path
+    type: path
+    required: true
+    label: { zh: 保存目录 }
+    placeholder:
+      zh: reports/workflows/government_enterprise_promo_video/{{run_id}}/
+    help:
+      zh: 必须包含 {{run_id}} 或 {{run_key}}，用于 sharedfile/artifact 输出。
+dag_template:
+  dag_key_template: government_enterprise_promo_video_{{run_id}}
+  title_template: "{{title}} - 宣传视频"
+  description_template: "基于 {{source_materials}} 生成宣传视频脚本、复核意见和最终交付。"
+  trigger: manual
+  final_node_key: final_video
+  nodes:
+    - node_key: intake
+      title: 材料理解
+      node_type: agent
+      assigned_to: government_enterprise_promo_video_intake_runner
+      depends_on: []
+      config:
+        ui:
+          stage_key: intake
+          stage_title: 材料理解
+          execution_mode: sequential
+          operation_summary: 读取输入材料，归纳宣传主题、受众和核心事实。
+          model_action: 提取事实、限制口径和必须出现的信息点。
+          skills: [prompt_list, shared_file_list]
+          input_sources: ["{{source_materials}}"]
+          expected_outputs: ["{{output_path}}intake.md"]
+        outputs:
+          to_sharedfile:
+            path: "{{output_path}}intake.md"
+            lock_mode: exclusive
+          to_node_result: true
+    - node_key: script
+      title: 脚本生成
+      node_type: agent
+      assigned_to: government_enterprise_promo_video_script_runner
+      depends_on: [intake]
+      config:
+        ui:
+          stage_key: script
+          stage_title: 脚本生成
+          execution_mode: sequential
+          operation_summary: 生成分镜脚本、旁白和 video_with_audio 所需结构化 JSON。
+          model_action: 输出 prompt、negative_prompt、voice_text。
+          skills: [prompt_list]
+          input_sources: [intake]
+          expected_outputs: ["{{output_path}}video-script.json"]
+        outputs:
+          to_sharedfile:
+            path: "{{output_path}}video-script.json"
+            lock_mode: exclusive
+          to_node_result: true
+    - node_key: review
+      title: 人工复核材料
+      node_type: agent
+      assigned_to: government_enterprise_promo_video_review_runner
+      depends_on: [script]
+      config:
+        ui:
+          stage_key: review
+          stage_title: 审稿复核
+          execution_mode: sequential
+          operation_summary: 生成给 {{reviewer}} 的审稿清单和风险提示。
+          model_action: 标注事实、合规和表达风险。
+          skills: [prompt_list]
+          input_sources: [script]
+          expected_outputs: ["{{output_path}}review.md"]
+        outputs:
+          to_sharedfile:
+            path: "{{output_path}}review.md"
+            lock_mode: exclusive
+          to_node_result: true
+    - node_key: final_video
+      title: 最终视频交付
+      node_type: agent
+      assigned_to: government_enterprise_promo_video_final_runner
+      depends_on: [review]
+      config:
+        ui:
+          stage_key: final
+          stage_title: 最终交付
+          execution_mode: sequential
+          operation_summary: 在发现 video_with_audio 可用后生成 MP4；不可用时输出能力缺口。
+          model_action: 调用已发现的视频能力并返回结构化结果。
+          skills: [command_list, video_with_audio]
+          input_sources: [script, review]
+          expected_outputs: ["{{output_path}}final.mp4"]
+        outputs:
+          to_artifact:
+            source_tool: video_with_audio
+            source_path_field: output_path
+            path_template: "{{output_path}}final.mp4"
+            content_type: video/mp4
+            allowed_extensions: [.mp4]
+            overwrite: fail
+validation:
+  sharedfile_prefixes:
+  - reports/workflows/
+  - dag/
+  require_review_before_final: true
+  require_final_node_key: true
+final_output:
+  node_key: final_video
+  kind: artifact
+  path_template: "{{output_path}}final.mp4"

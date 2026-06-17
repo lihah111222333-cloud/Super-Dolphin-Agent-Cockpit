@@ -51,7 +51,7 @@ const backend = vi.hoisted(() => {
     deletePrompt draftPromptIntent commitPromptIntent discardPromptIntent dryRunPromptIntent getMemorySnapshot
     getMemoryEntry upsertMemoryEntry deleteMemoryEntry setMemoryAutoDreamIntent mergeMemoryEntries
     ignoreMemorySimilarity consolidateMemorySimilarities startConsolidateMemorySimilarities getMemoryConsolidationStatus
-    listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps deleteSkill
+    listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps listWorkflowTemplates getWorkflowTemplate renderWorkflowTemplateDraft deleteSkill
     listCronJobs getCronJob createCronJob updateCronJob deleteCronJob runCronJobOnce setCronJobEnabled listCronJobRuns
     readSkill listSkillFiles createSkill writeSkill importSkillDirectories suggestSkillSummary selectProjectDir selectProjectDirs
     listMCPServers startSQLiteMCPServer stopSQLiteMCPServer startPlaywrightMCPServer stopPlaywrightMCPServer
@@ -373,6 +373,9 @@ function mockWorkflowDefaults() {
   backend.terminateDagRun.mockResolvedValue({ ok: true });
   backend.deleteDag.mockResolvedValue({ ok: true });
   backend.applyDagOps.mockResolvedValue({ newVersion: 2 });
+  backend.listWorkflowTemplates.mockResolvedValue({ templates: [] });
+  backend.getWorkflowTemplate.mockResolvedValue({ template: null });
+  backend.renderWorkflowTemplateDraft.mockResolvedValue({ draft: null });
 }
 
 function mockCronDefaults() {
@@ -711,10 +714,19 @@ async function showAllTraceDashboardEvents() {
     expect(shell).not.toHaveClass('sidebar-open');
   });
 
+  it('uses the custom brand icon only in the sidebar brand area', async () => {
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    expect(sidebar.querySelector('.sidebar-brand img')?.getAttribute('src')).toContain('suiyuan-brand-icon.png');
+    expect(sidebar.querySelector('.sidebar-tree-folder img')).toBeNull();
+    expect(sidebar.querySelector('.sidebar-tree-folder svg')).toBeInTheDocument();
+  });
+
   it('wires the sidebar project directory to project and thread actions', async () => {
     backend.getSidebarState.mockImplementation(({ cwd }) => Promise.resolve(cwd === '/repo/other' ? {
       activeThreadId: 'thread-other',
-      threads: [{ id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle', cwd: '/repo/other' }],
+      threads: [{ id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle', projectPath: '/repo/other' }],
     } : {
       activeThreadId: 'thread-1',
       threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中', cwd: '/repo/app' }],
@@ -723,7 +735,7 @@ async function showAllTraceDashboardEvents() {
       activeThreadId: threadId,
       threads: [
         { id: 'thread-1', name: '后端线程', provider: 'codex', status: '工作中', cwd: '/repo/app' },
-        { id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle', cwd: '/repo/other' },
+        { id: 'thread-other', name: 'Other project chat', provider: 'codex', status: 'idle', projectPath: '/repo/other' },
       ],
       timelinesByThread: {
         [threadId]: [{ id: `message-${threadId}`, kind: 'assistant', text: `${threadId} message`, ts: '2026-05-30T00:00:00Z' }],
@@ -751,7 +763,7 @@ async function showAllTraceDashboardEvents() {
     await waitFor(() => expect(backend.setActiveProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/other' }));
     await waitFor(() => expect(within(otherChats).getByTitle('Other project chat')).toBeInTheDocument());
 
-    fireEvent.click(within(otherChats).getByTitle('重命名会话'));
+    fireEvent.doubleClick(within(otherChats).getByTitle('Other project chat'));
     fireEvent.change(within(otherChats).getByLabelText('会话名称'), { target: { value: 'Renamed sidebar chat' } });
     fireEvent.click(within(otherChats).getByLabelText('保存会话名称'));
     await waitFor(() => expect(backend.renameThread).toHaveBeenCalledWith({ threadId: 'thread-other', name: 'Renamed sidebar chat' }));
@@ -840,6 +852,42 @@ async function showAllTraceDashboardEvents() {
       expect(within(projectLists()[1]).getByTitle('Other project chat')).toBeInTheDocument();
     });
     expect(within(projectLists()[1]).queryByText('暂无聊天记录')).not.toBeInTheDocument();
+  });
+
+  it('keeps cached project chats available after selecting an empty project', async () => {
+    backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/empty'], active: '/repo/app' });
+    backend.getSidebarState.mockImplementation(({ cwd }) => Promise.resolve(cwd === '/repo/empty' ? {
+      activeThreadId: '',
+      threads: [],
+    } : {
+      activeThreadId: 'thread-app',
+      threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
+    }));
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-app',
+      timelinesByThread: {
+        'thread-app': [{ id: 'message-thread-app', kind: 'assistant', text: 'app message', ts: '2026-05-30T00:00:00Z' }],
+      },
+    });
+    backend.setActiveProject.mockImplementation(({ path }) => Promise.resolve({
+      projects: ['/repo/app', '/repo/empty'],
+      active: path,
+    }));
+
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    const appChats = await within(sidebar).findByRole('list', { name: /app/ });
+    const emptyChats = await within(sidebar).findByRole('list', { name: /empty/ });
+    expect(within(appChats).getByTitle('App project chat')).toBeInTheDocument();
+
+    fireEvent.click(within(sidebar).getByRole('button', { name: /empty/ }));
+
+    await waitFor(() => expect(backend.setActiveProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/empty' }));
+    await waitFor(() => expect(within(emptyChats).getByText('暂无聊天记录')).toBeInTheDocument());
+
+    fireEvent.click(within(sidebar).getByRole('button', { name: /app/ }));
+    await waitFor(() => expect(within(appChats).getByTitle('App project chat')).toBeInTheDocument());
   });
 
   it('hides raw archived threads when expanding a cached sidebar project', async () => {
@@ -1396,7 +1444,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     render(<App />);
 
     const card = await findThreadCardByName('静默会话');
-    expect(within(card).getByRole('button', { name: '重命名会话' })).toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: '重命名会话' })).not.toBeInTheDocument();
     expect(card).toHaveTextContent('codex');
     expect(card).not.toHaveTextContent('idle');
     expect(card.querySelector('em')).toBeNull();
@@ -3925,7 +3973,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(screen.getByLabelText('停止'));
     fireEvent.click(screen.getByLabelText('强制完成'));
     fireEvent.click(screen.getByLabelText('进程恢复'));
-    fireEvent.click(screen.getByLabelText('归档会话'));
+    expect(screen.queryByLabelText('归档会话')).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(backend.selectFiles).toHaveBeenCalled();
@@ -3937,11 +3985,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
       expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
       expect(backend.forceCompleteTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
       expect(backend.recoverThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
-      expect(backend.archiveThread).toHaveBeenCalledWith({ threadId: 'thread-1' });
-      expect(backend.setPreference).toHaveBeenCalledWith(expect.objectContaining({
-        cwd: '/repo/app',
-        key: 'archivedThreadAtById.thread-1',
-      }));
+      expect(backend.archiveThread).not.toHaveBeenCalled();
     });
   });
 
@@ -4633,35 +4677,14 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
   });
 
-  it('shows an archive option on each visible thread card', async () => {
+  it('shows delete and running indicators on each visible thread card without active archive', async () => {
     render(<App />);
     await waitForBackendThreadHeading();
 
-    fireEvent.click(screen.getByLabelText('归档会话'));
-
-    await waitFor(() => {
-      expect(backend.setPreference).toHaveBeenCalledWith(expect.objectContaining({
-        cwd: '/repo/app',
-        key: 'archivedThreadAtById.thread-1',
-        value: expect.any(Number),
-      }));
-      expect(queryBackendThreadText()).not.toBeInTheDocument();
-      expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('线程已归档');
-    });
-  });
-
-  it('keeps the thread visible and reports a readable error when archive RPC fails', async () => {
-    backend.archiveThread.mockRejectedValueOnce(new Error('orchestration: service not configured'));
-    render(<App />);
-    await waitForBackendThreadHeading();
-
-    fireEvent.click(screen.getByLabelText('归档会话'));
-
-    expect(await screen.findByText('归档会话失败：orchestration: service not configured')).toBeInTheDocument();
+    expect(screen.getAllByLabelText('会话运行中').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '删除会话' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('归档会话')).not.toBeInTheDocument();
     expect(getBackendThreadText()).toBeInTheDocument();
-    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
-      key: 'archivedThreadAtById.thread-1',
-    }));
   });
 
   it('shows the pin action tooltip when hovering the thread pin icon', async () => {
@@ -4679,26 +4702,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByTestId('thread-pin-tooltip')).not.toBeInTheDocument();
   });
 
-  it('shows the archive action tooltip without a native title tooltip', async () => {
-    render(<App />);
-    await waitForBackendThreadHeading();
-
-    const archiveButton = screen.getByLabelText('归档会话');
-    expect(archiveButton).not.toHaveAttribute('title');
-    fireEvent.mouseEnter(archiveButton);
-
-    expect(screen.getByTestId('thread-archive-tooltip')).toHaveTextContent('归档会话');
-
-    fireEvent.mouseLeave(archiveButton);
-
-    expect(screen.queryByTestId('thread-archive-tooltip')).not.toBeInTheDocument();
-  });
-
   it('renames a thread inline through the legacy backend name RPC', async () => {
     render(<App />);
     await waitForBackendThreadHeading();
 
-    fireEvent.click(screen.getByRole('button', { name: '重命名会话' }));
+    fireEvent.doubleClick(within(getThreadCardByName('后端线程')).getByRole('button', { name: /后端线程/ }));
     const input = screen.getByLabelText('会话别名');
     fireEvent.change(input, { target: { value: '重命名会话' } });
     fireEvent.click(screen.getByRole('button', { name: '保存别名' }));
@@ -7612,6 +7620,9 @@ async function designWorkflowWithAi() {
     expect(designPayload.config.enabledTools).toContain('task_get_run');
     expect(designPayload.config.enabledTools).toContain('task_list_runs');
     expect(designPayload.config.enabledTools).toContain('task_dispatch_node');
+    expect(designPayload.config.enabledTools).toContain('workflow_template_list');
+    expect(designPayload.config.enabledTools).toContain('workflow_template_get');
+    expect(designPayload.config.enabledTools).toContain('workflow_template_render_dag');
     expect(designPayload.config.enabledTools).not.toContain('task_update_node');
   });
   expect((await screen.findAllByText('AI 设计流程')).length).toBeGreaterThanOrEqual(1);

@@ -208,19 +208,7 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 		LauncherParamEffort:           effort,
 		LauncherParamLanguage:         strings.TrimSpace(req.Language),
 	}
-	config := map[string]any{}
-	if disabledTools := envValue(req.Env, "AGENT_DISABLED_TOOLS"); disabledTools != "" {
-		config["disallowed_tools"] = disabledTools
-	}
-	if codexHome := envValue(req.Env, "AGENT_CODEX_HOME"); codexHome != "" {
-		config["codexHome"] = codexHome
-	}
-	if codexInstanceKey := envValue(req.Env, "AGENT_CODEX_INSTANCE_KEY"); codexInstanceKey != "" {
-		config["codexInstanceKey"] = codexInstanceKey
-	}
-	if codexModelProvider := envValue(req.Env, "AGENT_CODEX_MODEL_PROVIDER"); codexModelProvider != "" {
-		config["codexModelProvider"] = codexModelProvider
-	}
+	config := launchStartConfig(req.Env)
 	if len(config) > 0 {
 		params[LauncherParamConfig] = config
 	}

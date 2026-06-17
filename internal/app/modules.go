@@ -26,6 +26,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	turnobservation "github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/workflowtemplate"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/cachekeepalive"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -84,6 +85,7 @@ var Module = fx.Options(
 	notify.Module,
 	insight.Module,
 	uistate.Module,
+	workflowtemplate.Module,
 	unified.Module,
 	promptIntentE2EFixtureModule(),
 	// claudecli.Module,

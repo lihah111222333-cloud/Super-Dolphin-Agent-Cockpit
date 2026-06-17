@@ -116,6 +116,9 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   DASHBOARD_DAG_TERMINATE: contract('DASHBOARD_DAG_TERMINATE', 'terminateDagRun', 'P0', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['DAG mutation']),
   DASHBOARD_DAG_DELETE: contract('DASHBOARD_DAG_DELETE', 'deleteDag', 'P0', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['DAG mutation']),
   DASHBOARD_DAG_APPLY_OPS: contract('DASHBOARD_DAG_APPLY_OPS', 'applyDagOps', 'P0', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['DAG mutation']),
+  WORKFLOW_TEMPLATES_LIST: contract('WORKFLOW_TEMPLATES_LIST', 'listWorkflowTemplates', 'P1', 'workflowTemplates', [TESTS.API, TESTS.WORKFLOWS], ['template catalog read']),
+  WORKFLOW_TEMPLATES_GET: contract('WORKFLOW_TEMPLATES_GET', 'getWorkflowTemplate', 'P1', 'workflowTemplates', [TESTS.API, TESTS.WORKFLOWS], ['template detail read']),
+  WORKFLOW_TEMPLATES_RENDER_DAG: contract('WORKFLOW_TEMPLATES_RENDER_DAG', 'renderWorkflowTemplateDraft', 'P1', 'workflowTemplates', [TESTS.API, TESTS.WORKFLOWS], ['template draft render']),
 
   CRONJOB_LIST: contract('CRONJOB_LIST', 'listCronJobs', 'P1', 'cronjob', [TESTS.API], ['schedule read']),
   CRONJOB_GET: contract('CRONJOB_GET', 'getCronJob', 'P1', 'cronjob', [TESTS.API], ['schedule read']),

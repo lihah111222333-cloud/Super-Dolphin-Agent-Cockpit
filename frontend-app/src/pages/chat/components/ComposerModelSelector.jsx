@@ -5,23 +5,34 @@ import { loadedModelDraft, modelSelectorDerivedState, modelSelectorSnapshot, nex
 import { runUIAction } from './chatUiActions.js';
 
 function useModelSelectorController({ copy, store, activeThreadId, disabled, wrapRef }) {
-  const [open, setOpen] = useState(false);
+  const [openState, setOpenState] = useState({ disabled, open: false });
+  if (openState.disabled !== disabled) {
+    setOpenState({ disabled, open: false });
+  }
+  const open = openState.disabled === disabled ? openState.open : false;
+  const setOpen = (value) => {
+    setOpenState((current) => ({
+      disabled,
+      open: typeof value === 'function' ? Boolean(value(current.open)) : Boolean(value),
+    }));
+  };
   const snapshot = modelSelectorSnapshot(store, activeThreadId);
   const { activeEffort, activeModel, activeThreadConfig, canOverrideThread, draftEffort, draftModel, providerKey } = snapshot;
   const [draft, setDraft] = useState({ model: draftModel, effort: draftEffort });
   const closedDraft = { model: draftModel, effort: draftEffort };
   const selectorOpen = open && !disabled;
-  useEffect(() => { if (disabled && open) setOpen(false); }, [disabled, open]);
   const selectorDraft = selectorOpen ? draft : closedDraft;
 
   useEffect(() => {
     if (!selectorOpen) return undefined;
     const onPointerDown = (event) => {
-      if (wrapRef.current && !wrapRef.current.contains(event.target)) setOpen(false);
+      if (wrapRef.current && !wrapRef.current.contains(event.target)) {
+        setOpenState({ disabled, open: false });
+      }
     };
     document.addEventListener('pointerdown', onPointerDown, true);
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
-  }, [selectorOpen, wrapRef]);
+  }, [disabled, selectorOpen, wrapRef]);
 
   const openSelector = async () => {
     if (disabled) return;
