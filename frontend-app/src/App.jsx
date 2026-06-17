@@ -610,6 +610,7 @@ function projectTreeKey(value) {
 }
 
 const AUTOMATION_THREAD_MARKERS = Object.freeze(['automation', 'workflow', 'dag', 'cron', 'task']);
+const ARCHIVED_THREAD_STATUS = 'archived';
 
 function threadFieldValue(thread = {}, keys = []) {
   for (const key of keys) {
@@ -617,6 +618,73 @@ function threadFieldValue(thread = {}, keys = []) {
     if (value) return value;
   }
   return '';
+}
+
+function projectThreadArchiveMap(snapshot = {}) {
+  return snapshot?.['threadArchives.chat'] ||
+    snapshot?.threadArchivesChat ||
+    snapshot?.archivedThreadAtById ||
+    snapshot?.threadArchives?.chat ||
+    snapshot?.thread_archives?.chat ||
+    {};
+}
+
+function archiveTimestamp(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function projectThreadArchiveTimestamp(thread = {}, archiveMap = {}) {
+  for (const key of ['id', 'threadId', 'thread_id', 'agentId', 'agent_id']) {
+    const id = textValue(thread[key]);
+    const timestamp = id ? archiveTimestamp(archiveMap[id]) : 0;
+    if (timestamp > 0) return timestamp;
+  }
+  return 0;
+}
+
+function projectThreadStatusArchived(thread = {}) {
+  return ['status', 'state', 'lifecycleStatus', 'lifecycle_status', 'threadStatus', 'thread_status']
+    .some((key) => textValue(thread[key]).toLowerCase() === ARCHIVED_THREAD_STATUS);
+}
+
+function isProjectThreadArchived(thread = {}) {
+  return Boolean(thread?.archived || thread?.isArchived || thread?.archivedAt || projectThreadStatusArchived(thread));
+}
+
+function projectThreadRuntimeMap(snapshot = {}) {
+  const runtime = snapshot?.agentRuntimeById || snapshot?.agent_runtime_by_id || {};
+  return runtime && typeof runtime === 'object' && !Array.isArray(runtime) ? runtime : {};
+}
+
+function projectThreadRuntimeCwd(thread = {}, runtimeById = {}) {
+  for (const key of ['id', 'threadId', 'thread_id', 'agentId', 'agent_id', 'providerThreadId', 'provider_thread_id', 'sessionId', 'session_id', 'sessionUuid', 'session_uuid']) {
+    const id = textValue(thread[key]);
+    const runtime = id ? runtimeById[id] : null;
+    if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime)) continue;
+    const cwd = textValue(runtime.cwd || runtime.CWD || runtime.workdir || runtime.workDir || runtime.work_dir);
+    if (cwd) return cwd;
+  }
+  return '';
+}
+
+function sidebarSnapshotThreads(snapshot) {
+  const threads = Array.isArray(snapshot?.threads) ? snapshot.threads : [];
+  const archiveMap = projectThreadArchiveMap(snapshot);
+  const runtimeById = projectThreadRuntimeMap(snapshot);
+  return threads.map((thread) => {
+    const archivedAt = projectThreadArchiveTimestamp(thread, archiveMap);
+    const runtimeCwd = projectThreadRuntimeCwd(thread, runtimeById);
+    if (!archivedAt && !runtimeCwd && !isProjectThreadArchived(thread)) return thread;
+    return {
+      ...thread,
+      ...(runtimeCwd && !textValue(thread?.cwd) ? { cwd: runtimeCwd } : {}),
+      ...(archivedAt || isProjectThreadArchived(thread) ? {
+        archived: true,
+        archivedAt: thread?.archivedAt || archivedAt || 1,
+      } : {}),
+    };
+  });
 }
 
 function isAutomationThread(thread = {}) {
@@ -637,15 +705,17 @@ function isAutomationThread(thread = {}) {
     /^\[AI\s*Workflow Designer\]/i.test(label);
 }
 
-function projectThreadItems(threads = [], projectPath = '', activeProjectPath = '') {
+function projectThreadItems(threads = [], projectPath = '', activeProjectPath = '', options = {}) {
   const targetProjectKey = projectTreeKey(projectPath);
   const activeProjectKey = projectTreeKey(activeProjectPath);
+  const allowMissingCwdFallback = options.allowMissingCwdFallback !== false;
   if (!targetProjectKey) return [];
   return (threads || []).filter((thread) => {
-    if (!thread || thread.archived || thread.archivedAt) return false;
+    if (!thread || isProjectThreadArchived(thread)) return false;
     if (isAutomationThread(thread)) return false;
     const threadProjectKey = projectTreeKey(thread.cwd);
     if (threadProjectKey) return threadProjectKey === targetProjectKey;
+    if (!allowMissingCwdFallback) return false;
     return targetProjectKey === activeProjectKey;
   });
 }
@@ -659,10 +729,6 @@ function projectThreadLabel(thread = {}) {
   const label = textValue(thread.name || thread.title);
   if (!label || (id && label === id)) return '新对话';
   return label;
-}
-
-function sidebarSnapshotThreads(snapshot) {
-  return Array.isArray(snapshot?.threads) ? snapshot.threads : [];
 }
 
 function SidebarNavList({ copy, items, activePage, setActivePage, memoryBadgeCount = 0, testId, className }) {
@@ -1022,7 +1088,9 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
           const isActiveProject = item.path && item.path === activeProjectPath;
           const cacheEntry = projectThreadCache[projectTreeKey(item.path)];
           const sourceThreads = cacheEntry ? cacheEntry.threads : (isActiveProject ? store?.threads : []);
-          const projectThreads = projectThreadItems(sourceThreads, item.path, cacheEntry ? item.path : activeProjectPath);
+          const projectThreads = projectThreadItems(sourceThreads, item.path, cacheEntry ? item.path : activeProjectPath, {
+            allowMissingCwdFallback: !cacheEntry,
+          });
           const hasExplicitState = Object.prototype.hasOwnProperty.call(expandedProjects, item.path);
           const isExpanded = hasExplicitState ? !!expandedProjects[item.path] : isActiveProject;
           const visibleThreads = isExpanded ? projectThreads : [];

@@ -227,6 +227,12 @@ function normalizePath(value) {
   return path;
 }
 
+function projectScopePathKey(value) {
+  const path = normalizePath(value);
+  if (!path) return '';
+  return path.replace(/\\/g, '/').replace(/\/+$/g, '').toLowerCase();
+}
+
 function normalizeTimestamp(value) {
   if (typeof value === 'boolean' || value === null || value === undefined) return 0;
   if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : 0;
@@ -636,9 +642,9 @@ function snapshotThreadCwd(rawThread, runtimeById = {}) {
 }
 
 function threadMatchesCwdScope(rawThread, scopeCwd, runtimeById = {}) {
-  const scope = normalizePath(scopeCwd);
+  const scope = projectScopePathKey(scopeCwd);
   if (!scope || scope === '.') return true;
-  const threadCwd = snapshotThreadCwd(rawThread, runtimeById);
+  const threadCwd = projectScopePathKey(snapshotThreadCwd(rawThread, runtimeById));
   return !threadCwd || threadCwd === scope;
 }
 
