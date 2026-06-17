@@ -42,3 +42,9 @@ describe('frontend vite watch config', () => {
     })).toThrow(/conflicting frontend watch config/);
   });
 });
+
+describe('frontend vite build budget', () => {
+  it('keeps the lazy mermaid parser bundle under the configured warning limit', () => {
+    expect(createFrontendViteConfig({}).build.chunkSizeWarningLimit).toBe(650);
+  });
+});

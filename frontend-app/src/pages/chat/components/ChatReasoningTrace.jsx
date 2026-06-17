@@ -92,19 +92,6 @@ function AssistantMessageActions({ copy = APP_COPY.zh.chat, text }) {
 
 function useElapsedLabel(startValue, endValue, active) {
   const [now, setNow] = useState(() => Date.now());
-  const [firstStart, setFirstStart] = useState(null);
-
-  useEffect(() => {
-    if (active) {
-      if (!firstStart && startValue) {
-        setFirstStart(timestampMs(startValue));
-      }
-    } else {
-      if (firstStart !== null) {
-        setFirstStart(null);
-      }
-    }
-  }, [active, startValue, firstStart]);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -112,7 +99,7 @@ function useElapsedLabel(startValue, endValue, active) {
     return () => window.clearInterval(timer);
   }, [active]);
 
-  const start = active ? (firstStart || timestampMs(startValue)) : timestampMs(startValue);
+  const start = timestampMs(startValue);
   if (!start) return '';
   const completed = timestampMs(endValue);
   if (!active && !completed) return '';

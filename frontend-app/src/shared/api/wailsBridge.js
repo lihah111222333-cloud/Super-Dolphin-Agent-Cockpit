@@ -198,20 +198,10 @@ function compactBridgeValuePreview(value) {
   return `${text.slice(0, RPC_RESULT_PREVIEW_LIMIT)}...`;
 }
 
-function resolveRuntimeModuleSpecifier() {
-  const origin = typeof window !== 'undefined' && window.location
-    ? window.location.origin || ''
-    : '';
-  if (/^https?:\/\//.test(origin)) {
-    return `${origin}${WAILS_RUNTIME_MODULE}`;
-  }
-  return WAILS_RUNTIME_MODULE;
-}
-
 function waitRuntime() {
   if (!runtimePromise) {
     writeBridgeLog('info', 'bridge.runtime.load.start', {});
-    runtimePromise = import(/* @vite-ignore */ resolveRuntimeModuleSpecifier())
+    runtimePromise = import(/* @vite-ignore */ WAILS_RUNTIME_MODULE)
       .then((module) => {
         writeBridgeLog('info', 'bridge.runtime.load.done', {
           ready: Boolean(module?.Call?.ByID),

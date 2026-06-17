@@ -624,38 +624,6 @@
   box-shadow: none;
 }
 
-.thread-rename-trigger {
-  position: relative;
-  right: auto;
-  top: auto;
-  z-index: 2;
-  width: 22px;
-  height: 22px;
-  display: inline-grid;
-  place-items: center;
-  transform: none;
-  border: 0;
-  border-color: transparent;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-muted);
-  padding: 0;
-  opacity: 0;
-  transition: opacity var(--transition), border-color var(--transition), background var(--transition), color var(--transition);
-  outline: 0;
-  box-shadow: none;
-}
-
-.thread-rename-trigger:hover,
-.thread-rename-trigger:focus-visible {
-  color: var(--text-pri);
-  border-color: transparent;
-  background: transparent;
-  outline: 0;
-  opacity: 1;
-  box-shadow: none;
-}
-
 .thread-archive:hover,
 .thread-archive:focus-visible {
   color: var(--text-pri);
@@ -713,6 +681,24 @@
   overflow: visible;
 }
 
+.thread-running-spinner {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--text-muted);
+}
+
+.thread-running-spinner svg {
+  animation: thread-action-spin 900ms linear infinite;
+}
+
+@keyframes thread-action-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @container (max-width: 260px) {
   .thread-card-actions {
     grid-column: 1 / -1;
@@ -725,12 +711,14 @@
 
 .thread-card:hover .thread-archive,
 .thread-card:hover .thread-pin,
-.thread-card:hover .thread-rename-trigger,
 .thread-card:hover .thread-delete-trigger,
 .thread-card:focus-within .thread-archive,
 .thread-card:focus-within .thread-pin,
-.thread-card:focus-within .thread-rename-trigger,
 .thread-card:focus-within .thread-delete-trigger {
+  opacity: 1;
+}
+
+.thread-running-spinner + .thread-delete-trigger {
   opacity: 1;
 }
 

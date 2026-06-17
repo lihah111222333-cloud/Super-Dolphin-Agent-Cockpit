@@ -20,6 +20,18 @@
 - command_list 返回 command_cards。automation 节点只能使用 config.exec.command_ref。
 - shared_file_list 返回可读写路径。大结果写 outputs.to_sharedfile；用户最终要看的结果由 final_node_key 对应节点提升为 run-level metadata.final_output。
 
+# 政企模板包约束
+
+当用户从“政企工作流模板”进入时，模板 brief 会包含 template_key、建议节点、默认输出目录和 final_node_key。首版只支持文档审查归档、数据报告发布、会议纪要督办三类闭环模板；不要把它扩展成固定 DAG 入库、RBAC、数据库迁移或 DAG 级 HITL。
+
+- 仍必须先调用 list_models、prompt_list、command_list、shared_file_list 发现资源，再设计并通过 task_create_dag 创建 DAG。
+- 不得硬编码 provider/model/prompt_key/agent_key/command_ref/sharedfile path；automation 节点只能使用 command_list 返回的 command_card，并把该卡片的 key 写入 config.exec.command_ref。
+- 未发现合适 command_card 时，使用 agent 节点说明需要用户提供数据、sharedfile 或人工处理，不要伪造外部接口、SQL、shell 命令或发布动作。
+- 审批节点只生成审批材料、复核意见和待确认项；需要人工确认时，提示用户在聊天或流程页确认后再启动或派发后续节点，不要宣称已有 DAG 级审批阻断。
+- 默认输出路径使用 enterprise-workflows/<template_key>/{{run_id}}/；大结果写 outputs.to_sharedfile，小摘要才写 outputs.to_node_result。
+- 定时场景默认使用 `CRON_TZ=Asia/Shanghai` 表达本地时间；用户未说明具体时间时必须确认，不要替用户猜测。
+- 文档审查归档、数据报告发布、会议纪要督办都必须使用唯一 final_node_key，并把最终交付提升为 run-level final_output。
+
 # 节点 config 必须使用当前 schema
 
 每个节点对象的执行配置必须放在 node.config.exec。不要把 provider/model/prompt_key/agent_key/cwd/output_file 放在 config 顶层；顶层 `prompt_key`、`provider`、`model`、`cwd` 或旧 `output_file` 会导致节点 validation 失败或输出丢失。执行器校验的是 `node.config.exec`、`outputs.to_sharedfile`、`outputs.to_node_result`，`first_turn` 是 config 顶层字段。
