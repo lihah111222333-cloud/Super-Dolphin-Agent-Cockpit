@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
+import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { archivedStaleReason, displayThreadName, threadSortTimestamp } from '../adapters/threadStateAdapter.js';
 import { ThreadCard } from './ThreadCard.jsx';
 import { ThreadRailTools } from './ThreadRailTools.jsx';
 import { runUIAction } from './chatUiActions.js';
 import './ThreadRail.css';
 
-function ThreadRail({ store }) {
+function ThreadRail({ copy = APP_COPY.zh.chat, store }) {
   const [showArchivedThreads, setShowArchivedThreads] = useState(false);
   const [confirmCleanMode, setConfirmCleanMode] = useState(false);
   const [deletingThreadId, setDeletingThreadId] = useState('');
@@ -23,12 +24,12 @@ function ThreadRail({ store }) {
       if (thread.staleReason) staleThreadIds.push(thread.id);
     }
   }
-  const toggleArchiveLabel = showArchivedThreads ? '返回会话列表' : '打开归档列表';
-  let emptyThreadText = '暂无会话，点击「新建对话」开始草稿';
+  const toggleArchiveLabel = showArchivedThreads ? copy.returnThreadList : copy.openArchiveList;
+  let emptyThreadText = copy.emptyThreads;
   if (chatListLoading && !showArchivedThreads) {
-    emptyThreadText = '正在加载会话列表…';
+    emptyThreadText = copy.loadingThreads;
   } else if (showArchivedThreads) {
-    emptyThreadText = '暂无归档会话';
+    emptyThreadText = copy.emptyArchive;
   }
   const toggleArchiveList = () => {
     setShowArchivedThreads((value) => {
@@ -41,8 +42,9 @@ function ThreadRail({ store }) {
     });
   };
   return (
-    <aside className="thread-rail" data-testid="thread-rail" aria-label={showArchivedThreads ? '归档列表' : '会话列表'}>
+    <aside className="thread-rail" data-testid="thread-rail" aria-label={showArchivedThreads ? copy.archiveList : copy.threadList}>
       <ThreadRailTools
+        copy={copy}
         count={visibleThreads.length}
         confirmCleanMode={confirmCleanMode}
         showArchivedThreads={showArchivedThreads}
@@ -65,6 +67,7 @@ function ThreadRail({ store }) {
         ) : null}
         {visibleThreads.map((thread) => (
           <ThreadCard
+            copy={copy}
             key={thread.id}
             thread={thread}
             store={store}

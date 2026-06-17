@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { textValue } from '../../shared/pageShared.js';
 import { AttachmentPreviewModal } from './AttachmentPreviewModal.jsx';
 import { ComposerAttachments } from './ComposerAttachments.jsx';
@@ -49,6 +50,7 @@ function useComposerSendKeyHandler({ canSend, composer, sendMessage }) {
 
 function ComposerDock({
   floating = false,
+  copy = APP_COPY.zh.chat,
   draft,
   setDraft,
   sendMessage,
@@ -68,7 +70,7 @@ function ComposerDock({
   const canInterrupt = canUseProjectActions && Boolean(store?.hasInterruptibleThreadAction?.(modelThreadId));
   const canSend = canUseProjectActions && !sending && !canInterrupt && hasComposerInput;
   const projectActionBlocked = !canUseProjectActions;
-  const projectActionBlockedTitle = '请先连接后端并选择项目';
+  const projectActionBlockedTitle = copy.projectActionBlocked;
   const dockRef = useRef(null);
   const textareaRef = useRef(null);
   useComposerDropTarget(dockRef, composer);
@@ -87,11 +89,12 @@ function ComposerDock({
       data-file-drop-target=""
     >
       <div className="composer-card">
-        {composer.dropActive ? <div className="composer-drop-hint" aria-live="polite">松开即可添加附件</div> : null}
+        {composer.dropActive ? <div className="composer-drop-hint" aria-live="polite">{copy.dropHint}</div> : null}
         <ForkDraftCard store={store} />
         <ComposerAttachments attachments={attachments} onPreview={composer.previewAttachmentItem} onRemove={composer.removeAttachmentItem} />
         <ComposerTextarea
           ref={textareaRef}
+          copy={copy}
           draft={draft}
           onChange={handleTextareaChange}
           onPaste={handleTextareaPaste}
@@ -100,6 +103,7 @@ function ComposerDock({
           onKeyDown={handleKeyDown}
         />
         <ComposerMeta
+          copy={copy}
           canInterrupt={canInterrupt}
           canSend={canSend}
           canUseProjectActions={canUseProjectActions}

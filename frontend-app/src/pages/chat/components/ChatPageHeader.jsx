@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle2, CircleStop, Copy, Filter, GitBranch, List, MoreHorizontal, PanelRight, PanelTopOpen, RefreshCw } from 'lucide-react';
+import { CheckCircle2, CircleStop, Copy, GitBranch, MoreHorizontal, PanelRight, PanelTopOpen, RefreshCw } from 'lucide-react';
+import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { activeThreadForStore, displayThreadName } from '../adapters/threadStateAdapter.js';
 import { ProjectSelector } from './ProjectSelector.jsx';
 import { runUIAction } from './chatUiActions.js';
 import { chatHeaderFeedbackForStore } from './chatHeaderModel.js';
 
-function ChatPageHeader({ store, projectPath, rightPanelOpen, setRightPanelOpen }) {
+function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPanelOpen, setRightPanelOpen }) {
   const [actionsOpen, setActionsOpen] = useState(false);
   const actionsButtonRef = useRef(null);
   const actionsMenuRef = useRef(null);
@@ -56,6 +57,7 @@ function ChatPageHeader({ store, projectPath, rightPanelOpen, setRightPanelOpen 
       </div>
       {actionsOpen ? (
         <ChatActionsMenu
+          copy={copy}
           canInterruptThread={canInterruptThread}
           canUseThreadActions={canUseThreadActions}
           menuRef={actionsMenuRef}
@@ -67,12 +69,6 @@ function ChatPageHeader({ store, projectPath, rightPanelOpen, setRightPanelOpen 
         />
       ) : null}
       <div className="chat-header-tools" aria-label="聊天视图工具">
-        <button type="button" className="chat-header-tool" aria-label="筛选消息" title="筛选消息" disabled>
-          <Filter size={22} aria-hidden="true" />
-        </button>
-        <button type="button" className="chat-header-tool" aria-label="消息列表" title="消息列表" disabled>
-          <List size={22} aria-hidden="true" />
-        </button>
         <button
           type="button"
           className="chat-header-tool"
@@ -153,6 +149,7 @@ function ChatPageHeader({ store, projectPath, rightPanelOpen, setRightPanelOpen 
 }
 
 function ChatActionsMenu({
+  copy = APP_COPY.zh.chat,
   canInterruptThread,
   canUseThreadActions,
   menuRef,
@@ -167,7 +164,7 @@ function ChatActionsMenu({
     <div ref={menuRef} className="chat-actions-menu" data-testid="chat-actions-menu" role="menu" aria-label="聊天操作">
       {store?.activeThreadId ? (
         <div className="chat-actions-project">
-          <ProjectSelector store={store} projectPath={projectPath} />
+          <ProjectSelector copy={copy} store={store} projectPath={projectPath} />
         </div>
       ) : null}
       <ChatActionMenuButton

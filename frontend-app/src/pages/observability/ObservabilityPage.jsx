@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useReducer, useRef, useState } from 'react';
 import { Copy } from 'lucide-react';
+import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { copyTextToClipboard, getObservabilityTrace, listObservabilityRecent as getObservabilityRecent } from '../../services/modules/observabilityService.js';
 import { errorMessage, textValue } from '../shared/pageShared.js';
 import './ObservabilityPage.css';
@@ -221,7 +222,7 @@ function expandedTraceErrorState(current, traceId, message, queryLimit) {
   };
 }
 
-function ObservabilityPage() {
+function ObservabilityPage({ copy = APP_COPY.zh.observability }) {
   const { buildRecentParams, filters, queryLimit, setFilter } = useObservabilityFilters();
   const [pageState, dispatchPageState] = useReducer(observabilityPageReducer, OBSERVABILITY_PAGE_INITIAL_STATE);
   const recentRequestSequenceRef = useRef(0);
@@ -268,9 +269,9 @@ function ObservabilityPage() {
 
   return (
     <section className="settings-page observability-page" data-testid="observability-page">
-      <ObservabilityHeader />
+      <ObservabilityHeader copy={copy} />
       {notice ? <div className="settings-alert error" role="alert">{notice}</div> : null}
-      <ObservabilitySearchForm filters={filters} loading={loading} onFilter={setFilter} onSubmit={runQuery} />
+      <ObservabilitySearchForm copy={copy} filters={filters} loading={loading} onFilter={setFilter} onSubmit={runQuery} />
       <ObservabilityRecentLogs
         result={recentResult}
         onOpenTrace={toggleTraceExpansion}
@@ -282,17 +283,17 @@ function ObservabilityPage() {
   );
 }
 
-function ObservabilityHeader() {
+function ObservabilityHeader({ copy }) {
   return (
     <div className="settings-header">
       <div>
-        <h1>链路追踪</h1>
+        <h1>{copy.title}</h1>
       </div>
     </div>
   );
 }
 
-function ObservabilitySearchForm({ filters, loading, onFilter, onSubmit }) {
+function ObservabilitySearchForm({ copy, filters, loading, onFilter, onSubmit }) {
   const submit = (event) => {
     event.preventDefault();
     void onSubmit();
@@ -303,14 +304,14 @@ function ObservabilitySearchForm({ filters, loading, onFilter, onSubmit }) {
         <ObservabilityTextFilter label="Trace ID" value={filters.traceId} placeholder="00-... 或 trace_id" onChange={(value) => onFilter('traceId', value)} />
         <ObservabilityTextFilter label="Thread ID" value={filters.threadId} placeholder="thread_..." onChange={(value) => onFilter('threadId', value)} />
         <ObservabilityTextFilter label="Agent ID" value={filters.agentId} placeholder="agent_..." onChange={(value) => onFilter('agentId', value)} />
-        <ObservabilityTextFilter label="组件" value={filters.component} placeholder="rpc / tool / wails" onChange={(value) => onFilter('component', value)} />
-        <ObservabilityStatusFilter value={filters.status} onChange={(value) => onFilter('status', value)} />
+        <ObservabilityTextFilter label={copy.component} value={filters.component} placeholder="rpc / tool / wails" onChange={(value) => onFilter('component', value)} />
+        <ObservabilityStatusFilter copy={copy} value={filters.status} onChange={(value) => onFilter('status', value)} />
         <ObservabilityTextFilter label="Method" value={filters.method} placeholder="thread/start" onChange={(value) => onFilter('method', value)} />
-        <ObservabilityTextFilter label="关键词" value={filters.keyword} placeholder="消息 / request id / method" onChange={(value) => onFilter('keyword', value)} />
+        <ObservabilityTextFilter label={copy.keyword} value={filters.keyword} placeholder={copy.statusPlaceholder} onChange={(value) => onFilter('keyword', value)} />
         <ObservabilityTextFilter label="Limit" value={filters.limit} inputMode="numeric" onChange={(value) => onFilter('limit', value)} />
       </div>
       <div className="settings-actions">
-        <button type="submit" className="btn primary" disabled={loading}>{loading ? '查询中...' : '查询最新日志'}</button>
+        <button type="submit" className="btn primary" disabled={loading}>{loading ? copy.querying : copy.queryLatest}</button>
       </div>
     </form>
   );
@@ -325,12 +326,12 @@ function ObservabilityTextFilter({ inputMode, label, placeholder = '', value, on
   );
 }
 
-function ObservabilityStatusFilter({ value, onChange }) {
+function ObservabilityStatusFilter({ copy, value, onChange }) {
   return (
     <label>
-      状态
+      {copy.status}
       <select value={value} onChange={(event) => onChange(event.target.value)}>
-        <option value="">全部</option>
+        <option value="">{copy.all}</option>
         <option value="ok">ok</option>
         <option value="slow">slow</option>
         <option value="error">error</option>

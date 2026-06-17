@@ -3,31 +3,32 @@ import { SettingsPromptNotice } from './SettingsPromptNotice.jsx';
 import './BuiltinToolsCard.css';
 import './SettingsPromptToggle.css';
 
-function BuiltinToolsCard({ builtins }) {
+function BuiltinToolsCard({ builtins, copy }) {
+  const builtinsCopy = copy.builtins;
   return (
     <>
-      <div className="section-header">模型内置能力</div>
+      <div className="section-header">{builtinsCopy.title}</div>
       <div className="data-card-vue" data-testid="settings-builtin-tools-card">
-        <BuiltinToolsSummary builtins={builtins} />
-        <BuiltinToolsContent builtins={builtins} />
+        <BuiltinToolsSummary builtins={builtins} builtinsCopy={builtinsCopy} />
+        <BuiltinToolsContent builtins={builtins} builtinsCopy={builtinsCopy} />
         {builtins.notice.message ? <SettingsPromptNotice notice={builtins.notice} testId="settings-builtin-tools-notice" /> : null}
       </div>
     </>
   );
 }
 
-function BuiltinToolsSummary({ builtins }) {
+function BuiltinToolsSummary({ builtins, builtinsCopy }) {
   return (
     <>
-      <div className="data-row-vue"><strong>内置能力开关</strong><span data-testid="settings-builtin-tools-summary">{builtins.loading ? '加载中...' : '已管控 ' + builtins.filteredCount + ' / ' + builtins.totalToolCount}</span></div>
-      <div className="settings-prompt-desc">默认管控与本项目文件、命令、编排、计划、权限、插件管理重复，或会绕过项目治理的能力。</div>
+      <div className="data-row-vue"><strong>{builtinsCopy.switchTitle}</strong><span data-testid="settings-builtin-tools-summary">{builtins.loading ? builtinsCopy.loading : builtinsCopy.controlled + ' ' + builtins.filteredCount + ' / ' + builtins.totalToolCount}</span></div>
+      <div className="settings-prompt-desc">{builtinsCopy.description}</div>
     </>
   );
 }
 
-function BuiltinToolsContent({ builtins }) {
+function BuiltinToolsContent({ builtins, builtinsCopy }) {
   if (builtins.tools.length === 0 && !builtins.loading) {
-    return <div className="settings-log-empty" data-testid="settings-builtin-tools-empty">暂无可配置的内置工具</div>;
+    return <div className="settings-log-empty" data-testid="settings-builtin-tools-empty">{builtinsCopy.empty}</div>;
   }
   return (
     <div className="settings-builtin-tool-groups" data-testid="settings-builtin-tools-groups">

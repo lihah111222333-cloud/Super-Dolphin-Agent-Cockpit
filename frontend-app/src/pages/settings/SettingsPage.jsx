@@ -9,6 +9,7 @@ import { AboutPanel, RuntimeSettingsPanels } from './components/SettingsSystemPa
 import { UILogCard } from './components/UILogCard.jsx';
 import { VideoSettingsCard } from './components/VideoSettingsCard.jsx';
 import { checkAppUpdate, copyTextToClipboard, getBuildInfo, getPreference, getVideoApiKey, installLatestAppUpdate, listDashboardLogs, readBuiltinTools, readConfig, readLspPromptHint, setPreference, setVideoApiKey, writeBuiltinTool, writeLspPromptHint } from './services/settingsPageService.js';
+import { APP_BRAND_NAME, APP_COPY } from '../../shared/i18n/appI18n.js';
 import './SettingsPage.css';
 
 const PROVIDER_LABELS = Object.freeze({
@@ -204,9 +205,9 @@ function normalizeContextThresholds(value) {
   ];
 }
 
-function requireSettingsCwd(cwd) {
+function requireSettingsCwd(cwd, copy = APP_COPY.zh.settings) {
   const value = (cwd || '').toString().trim();
-  if (!value) throw new Error(SETTINGS_PROJECT_CWD_REQUIRED);
+  if (!value) throw new Error(copy.projectCwdRequired || SETTINGS_PROJECT_CWD_REQUIRED);
   return value;
 }
 
@@ -277,11 +278,11 @@ function pathsFromTextarea(value) {
     });
 }
 
-function absolutePathsError(value) {
+function absolutePathsError(value, copy = APP_COPY.zh.settings) {
   const paths = pathsFromTextarea(value);
-  if (paths.length === 0) return '请至少填写一个绝对路径';
+  if (paths.length === 0) return copy.provider.missingRoot;
   const bad = paths.filter((root) => !isAbsoluteRootPath(root));
-  return bad.length > 0 ? `路径必须是绝对路径：${bad.join(', ')}` : '';
+  return bad.length > 0 ? copy.provider.absolutePathRequired + bad.join(', ') : '';
 }
 
 function isAbsoluteRootPath(value) {
@@ -323,21 +324,21 @@ function loadSettingsDashboardLogs() {
   return listDashboardLogs({ limit: 14 });
 }
 
-function parsePositiveInteger(label, value) {
+function parsePositiveInteger(label, value, copy = APP_COPY.zh.settings) {
   const parsed = Number.parseInt(value, 10);
-  if (!Number.isInteger(parsed)) throw new Error(`${label} 必须是整数`);
+  if (!Number.isInteger(parsed)) throw new Error(`${label} ${copy.runtime.integerSuffix}`);
   return parsed;
 }
 
-function validateRuntimeThresholds(form) {
-  const stallThresholdSec = parsePositiveInteger('统一超时阈值', form.stallThresholdSec);
-  if (stallThresholdSec < 30) throw new Error('统一超时阈值必须大于或等于 30 秒');
+function validateRuntimeThresholds(form, copy = APP_COPY.zh.settings) {
+  const stallThresholdSec = parsePositiveInteger(copy.runtime.stallThreshold, form.stallThresholdSec, copy);
+  if (stallThresholdSec < 30) throw new Error(copy.runtime.minTimeout);
 
-  const warn = parsePositiveInteger('Warn 阈值', form.contextWarn);
-  const danger = parsePositiveInteger('Danger 阈值', form.contextDanger);
-  const critical = parsePositiveInteger('Critical 阈值', form.contextCritical);
+  const warn = parsePositiveInteger(copy.runtime.warnThreshold, form.contextWarn, copy);
+  const danger = parsePositiveInteger(copy.runtime.dangerThreshold, form.contextDanger, copy);
+  const critical = parsePositiveInteger(copy.runtime.criticalThreshold, form.contextCritical, copy);
   if (!(warn > 0 && warn < danger && danger < critical && critical <= 100)) {
-    throw new Error('上下文阈值必须满足 0 < warn < danger < critical <= 100');
+    throw new Error(copy.runtime.invalidOrder);
   }
   return { stallThresholdSec, contextThresholds: [warn, danger, critical] };
 }
@@ -372,17 +373,17 @@ function normalizeSettingsCwd(value) {
   return text;
 }
 
-function SettingsPage({ projectPath }) {
+function SettingsPage({ copy = APP_COPY.zh.settings, projectPath }) {
   const store = useClientStore();
   const cwd = normalizeSettingsCwd(projectPath) || normalizeSettingsCwd(store.activeProject) || normalizeSettingsCwd(store.cwd);
-  const runtime = useSettingsRuntime(cwd);
-  const provider = useProviderPreferences(cwd, runtime.form.activeProvider);
-  const prompt = usePromptSettings(cwd);
-  const builtins = useBuiltinToolsSettings(cwd);
-  return <SettingsPageView builtins={builtins} cwd={cwd} prompt={prompt} provider={provider} runtime={runtime} store={store} />;
+  const runtime = useSettingsRuntime(cwd, copy);
+  const provider = useProviderPreferences(cwd, runtime.form.activeProvider, copy);
+  const prompt = usePromptSettings(cwd, copy);
+  const builtins = useBuiltinToolsSettings(cwd, copy);
+  return <SettingsPageView builtins={builtins} copy={copy} cwd={cwd} prompt={prompt} provider={provider} runtime={runtime} store={store} />;
 }
 
-function useSettingsRuntime(cwd) {
+function useSettingsRuntime(cwd, copy) {
   const [buildInfo, setBuildInfo] = useState(null);
   const [form, setForm] = useState(defaultSettingsForm);
   const [status, setStatus] = useState('');
@@ -403,55 +404,56 @@ function useSettingsRuntime(cwd) {
       const info = await getBuildInfo();
       if (!info || typeof info !== 'object') throw new Error('build info response must be an object');
       setBuildInfo(info);
-      setStatus('构建信息已刷新');
+      setStatus(copy.buildInfoRefreshed);
     } catch (err) {
       setError(err.message || String(err));
     }
-  }, []);
+  }, [copy]);
   const loadPreferences = useCallback(() => loadRuntimePreferences({ cwd, isCurrent: nextPreferenceRequest(), setError, setForm }), [cwd, nextPreferenceRequest]);
   const updateForm = useCallback((key) => (event) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
     setForm((current) => settingsFormWithUpdate(current, key, value));
   }, []);
-  const changeActiveProvider = useCallback((event) => changeActiveProviderPreference({ cwd, event, isCurrent: nextPreferenceRequest(), setError, setForm, setStatus }), [cwd, nextPreferenceRequest]);
-  const saveRuntimeSettings = useCallback(() => saveRuntimePreferences({ cwd, form, setError, setStatus }), [cwd, form]);
-  const saveProviderSettings = useCallback(() => saveProviderRuntimePreferences({ cwd, form, setError, setStatus }), [cwd, form]);
-  const checkForUpdate = useCallback(() => checkForAppUpdate({ setUpdateBusy, setUpdateInfo, setUpdateNotice, updateBusy, updateInstalling }), [updateBusy, updateInstalling]);
-  const installUpdate = useCallback(() => installAvailableAppUpdate({ setUpdateInfo, setUpdateInstalling, setUpdateNotice, updateInfo, updateInstalling }), [updateInfo, updateInstalling]);
+  const changeActiveProvider = useCallback((event) => changeActiveProviderPreference({ copy, cwd, event, isCurrent: nextPreferenceRequest(), setError, setForm, setStatus }), [copy, cwd, nextPreferenceRequest]);
+  const saveRuntimeSettings = useCallback(() => saveRuntimePreferences({ copy, cwd, form, setError, setStatus }), [copy, cwd, form]);
+  const saveProviderSettings = useCallback(() => saveProviderRuntimePreferences({ copy, cwd, form, setError, setStatus }), [copy, cwd, form]);
+  const checkForUpdate = useCallback(() => checkForAppUpdate({ copy, setUpdateBusy, setUpdateInfo, setUpdateNotice, updateBusy, updateInstalling }), [copy, updateBusy, updateInstalling]);
+  const installUpdate = useCallback(() => installAvailableAppUpdate({ copy, setUpdateInfo, setUpdateInstalling, setUpdateNotice, updateInfo, updateInstalling }), [copy, updateInfo, updateInstalling]);
   useEffect(() => { void refreshBuildInfo(); }, [refreshBuildInfo]);
   useEffect(() => { void loadPreferences(); }, [loadPreferences]);
   return { buildInfo, changeActiveProvider, checkForUpdate, error, form, installUpdate, refreshBuildInfo, saveProviderSettings, saveRuntimeSettings, status, updateBusy, updateInfo, updateInstalling, updateNotice, updateForm };
 }
 
-async function checkForAppUpdate({ setUpdateBusy, setUpdateInfo, setUpdateNotice, updateBusy, updateInstalling }) {
+async function checkForAppUpdate({ copy, setUpdateBusy, setUpdateInfo, setUpdateNotice, updateBusy, updateInstalling }) {
+  const updateCopy = copy.update;
   if (updateBusy || updateInstalling) return;
   setUpdateInfo(null);
   setUpdateBusy(true);
-  setUpdateNotice({ level: 'info', message: '检查中...' });
+  setUpdateNotice({ level: 'info', message: updateCopy.checking });
   try {
     const info = await checkAppUpdate();
     if (info?.enabled === false) {
       setUpdateInfo(null);
-      setUpdateNotice({ level: 'warning', message: '当前构建未启用应用更新' });
+      setUpdateNotice({ level: 'warning', message: updateCopy.disabled });
     } else if (info?.available) {
       setUpdateInfo(info);
-      setUpdateNotice({ level: 'info', message: '发现新版本 ' + appUpdateVersionLabel(info) });
+      setUpdateNotice({ level: 'info', message: updateCopy.found + ' ' + appUpdateVersionLabel(info, copy) });
     } else {
       setUpdateInfo(null);
-      setUpdateNotice({ level: 'info', message: '已是最新版本' });
+      setUpdateNotice({ level: 'info', message: updateCopy.latest });
     }
   } catch (error) {
     setUpdateInfo(null);
-    setUpdateNotice({ level: 'error', message: '检查更新失败：' + (error?.message || error) });
+    setUpdateNotice({ level: 'error', message: updateCopy.checkFailed + (error?.message || error) });
   } finally {
     setUpdateBusy(false);
   }
 }
 
-async function installAvailableAppUpdate({ setUpdateInfo, setUpdateInstalling, setUpdateNotice, updateInfo, updateInstalling }) {
+async function installAvailableAppUpdate({ copy, setUpdateInfo, setUpdateInstalling, setUpdateNotice, updateInfo, updateInstalling }) {
   if (!updateInfo?.available || updateInstalling) return;
   const pendingInfo = updateInfo;
-  const installingMessage = appUpdateInstallingMessage(pendingInfo);
+  const installingMessage = appUpdateInstallingMessage(pendingInfo, copy);
   setUpdateInstalling(true);
   setUpdateInfo(null);
   setUpdateNotice({ level: 'info', message: installingMessage });
@@ -461,21 +463,21 @@ async function installAvailableAppUpdate({ setUpdateInfo, setUpdateInstalling, s
   } catch (error) {
     setUpdateInfo(pendingInfo);
     setUpdateInstalling(false);
-    setUpdateNotice({ level: 'error', message: '安装更新失败：' + (error?.message || error) });
+    setUpdateNotice({ level: 'error', message: copy.update.installFailed + (error?.message || error) });
   }
 }
 
-function appUpdateVersionLabel(info) {
-  const version = appUpdateConcreteVersionLabel(info) || '可用更新';
+function appUpdateVersionLabel(info, copy = APP_COPY.zh.settings) {
+  const version = appUpdateConcreteVersionLabel(info) || copy.update.availableUpdate;
   const platform = (info?.platform || info?.artifact?.platform || '').toString().trim();
   return platform ? `${version} (${platform})` : version;
 }
 
-function appUpdateInstallingMessage(info) {
+function appUpdateInstallingMessage(info, copy = APP_COPY.zh.settings) {
   const version = appUpdateConcreteVersionLabel(info);
-  if (!version) return '正在安装更新';
+  if (!version) return copy.update.installing;
   const platform = (info?.platform || info?.artifact?.platform || '').toString().trim();
-  return '正在安装更新 ' + (platform ? `${version} (${platform})` : version);
+  return copy.update.installing + ' ' + (platform ? `${version} (${platform})` : version);
 }
 
 function appUpdateConcreteVersionLabel(info) {
@@ -611,19 +613,19 @@ function settingsFormFromPreferences({ activeProvider, contextValue, providerVal
   };
 }
 
-async function changeActiveProviderPreference({ cwd, event, isCurrent, setError, setForm, setStatus }) {
+async function changeActiveProviderPreference({ copy, cwd, event, isCurrent, setError, setForm, setStatus }) {
   const provider = normalizeProviderName(event.target.value);
   setError('');
   setStatus('');
   setForm((current) => settingsFormWithUpdate(current, 'activeProvider', provider));
   try {
-    const projectCwd = requireSettingsCwd(cwd);
+    const projectCwd = requireSettingsCwd(cwd, copy);
     if (!isCurrentPreferenceRequest(isCurrent)) return;
     await setPreference({ cwd: projectCwd, key: SETTINGS_KEYS.activeProvider, value: provider });
     const values = await readRuntimePreferenceValuesForProvider(projectCwd, provider);
     if (isCurrentPreferenceRequest(isCurrent)) {
       setForm(settingsFormFromPreferences(values));
-      setStatus('Active Provider 已切换为 ' + (PROVIDER_LABELS[provider] || provider));
+      setStatus(copy.provider.switchedTo + (PROVIDER_LABELS[provider] || provider));
     }
   } catch (err) {
     if (isCurrentPreferenceRequest(isCurrent)) {
@@ -632,30 +634,30 @@ async function changeActiveProviderPreference({ cwd, event, isCurrent, setError,
   }
 }
 
-async function saveRuntimePreferences({ cwd, form, setError, setStatus }) {
+async function saveRuntimePreferences({ copy, cwd, form, setError, setStatus }) {
   setError('');
   setStatus('');
   try {
-    const projectCwd = requireSettingsCwd(cwd);
-    const { stallThresholdSec, contextThresholds } = validateRuntimeThresholds(form);
+    const projectCwd = requireSettingsCwd(cwd, copy);
+    const { stallThresholdSec, contextThresholds } = validateRuntimeThresholds(form, copy);
     await setPreference({ cwd: projectCwd, key: SETTINGS_KEYS.stallThreshold, value: stallThresholdSec });
     await setPreference({ cwd: projectCwd, key: SETTINGS_KEYS.contextThresholds, value: contextThresholds });
-    setStatus('已保存超时与上下文使用率设置');
+    setStatus(copy.runtime.saved);
   } catch (err) {
     setError(err.message || String(err));
   }
 }
 
-async function saveProviderRuntimePreferences({ cwd, form, setError, setStatus }) {
+async function saveProviderRuntimePreferences({ copy, cwd, form, setError, setStatus }) {
   setError('');
   setStatus('');
   try {
-    const projectCwd = requireSettingsCwd(cwd);
-    const rootError = form.sandboxPolicy === 'workspaceWrite' ? absolutePathsError(form.writableRoots) : '';
+    const projectCwd = requireSettingsCwd(cwd, copy);
+    const rootError = form.sandboxPolicy === 'workspaceWrite' ? absolutePathsError(form.writableRoots, copy) : '';
     if (rootError) throw new Error(rootError);
     const provider = normalizeProviderName(form.activeProvider);
     await writeProviderRuntimePreferences(projectCwd, provider, form);
-    setStatus('Provider 设置已保存');
+    setStatus(copy.provider.settingsSaved);
   } catch (err) {
     setError(err.message || String(err));
   }
@@ -688,7 +690,7 @@ function codexIdentityPreferenceValue(value) {
   return text ? text : { cleared: true };
 }
 
-function useProviderPreferences(cwd, activeProvider) {
+function useProviderPreferences(cwd, activeProvider, copy) {
   const provider = normalizeProviderName(activeProvider);
   const [summaryMode, setSummaryMode] = useState('detailed');
   const [approvalMode, setApprovalMode] = useState('on-request');
@@ -717,31 +719,31 @@ function useProviderPreferences(cwd, activeProvider) {
       }
     } catch (error) {
       if (isCurrentPreferenceRequest(isCurrent)) {
-        setNotice({ level: 'error', message: '加载 Preferences 失败: ' + error.message });
+        setNotice({ level: 'error', message: copy.provider.loadPreferencesFailed + error.message });
       }
     }
-  }, [activeProvider, cwd, nextLoadRequest]);
-  const save = useCallback(() => saveProviderPreferenceValues({ approvalMode, cwd, provider, saving, setNotice, setSaving, summaryMode }), [approvalMode, cwd, provider, saving, summaryMode]);
+  }, [activeProvider, copy, cwd, nextLoadRequest]);
+  const save = useCallback(() => saveProviderPreferenceValues({ approvalMode, copy, cwd, provider, saving, setNotice, setSaving, summaryMode }), [approvalMode, copy, cwd, provider, saving, summaryMode]);
   useEffect(() => { void load(); }, [load]);
   return { approvalMode, load, notice, provider, save, saving, setApprovalMode, setSummaryMode, summaryMode };
 }
 
-async function saveProviderPreferenceValues({ approvalMode, cwd, provider, saving, setNotice, setSaving, summaryMode }) {
+async function saveProviderPreferenceValues({ approvalMode, copy, cwd, provider, saving, setNotice, setSaving, summaryMode }) {
   if (!cwd || saving) return;
   setSaving(true);
   try {
     const providerKey = normalizeProviderName(provider);
     await setPreference({ cwd, key: providerSettingKey(providerKey, 'summary'), value: summaryMode });
     await setPreference({ cwd, key: providerSettingKey(providerKey, 'approvalPolicy'), value: approvalMode });
-    setNotice({ level: 'info', message: '已保存：' + summaryMode + ' / ' + approvalMode });
+    setNotice({ level: 'info', message: copy.provider.savedPrefix + summaryMode + ' / ' + approvalMode });
   } catch (error) {
-    setNotice({ level: 'error', message: '保存失败: ' + error.message });
+    setNotice({ level: 'error', message: copy.provider.saveFailed + error.message });
   } finally {
     setSaving(false);
   }
 }
 
-function usePromptSettings(cwd) {
+function usePromptSettings(cwd, copy) {
   const [hint, setHint] = useState('');
   const [effectiveHint, setEffectiveHint] = useState('');
   const [defaultHint, setDefaultHint] = useState('');
@@ -752,31 +754,32 @@ function usePromptSettings(cwd) {
   const [showInjected, setShowInjected] = useState(false);
   const [showInjectedSaving, setShowInjectedSaving] = useState(false);
   const [currentScopeCwd, setCurrentScopeCwd] = useState('');
-  const loadPrompt = useCallback(() => loadLspPromptState({ cwd, setDefaultHint, setEffectiveHint, setHint, setLoading, setNotice, setUsingDefault }), [cwd]);
+  const loadPrompt = useCallback(() => loadLspPromptState({ copy, cwd, setDefaultHint, setEffectiveHint, setHint, setLoading, setNotice, setUsingDefault }), [copy, cwd]);
   const loadScope = useCallback(() => loadPromptScope(setCurrentScopeCwd), []);
-  const loadVisibility = useCallback(() => loadInjectedPromptVisibility({ cwd, setNotice, setShowInjected }), [cwd]);
-  const save = useCallback(() => saveLspPromptHintState({ cwd, defaultHint, hint, saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault }), [cwd, defaultHint, hint, saving]);
-  const reset = useCallback(() => saveLspPromptHintState({ cwd, defaultHint, hint: '', saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault }), [cwd, defaultHint, saving]);
-  const copy = useCallback(() => copyEffectivePromptHint(promptDisplayHint(effectiveHint, defaultHint), setNotice), [defaultHint, effectiveHint]);
-  const toggleVisibility = useCallback((event) => saveInjectedPromptVisibility({ cwd, event, loadVisibility, saving: showInjectedSaving, setNotice, setSaving: setShowInjectedSaving, setShowInjected }), [cwd, loadVisibility, showInjectedSaving]);
+  const loadVisibility = useCallback(() => loadInjectedPromptVisibility({ copy, cwd, setNotice, setShowInjected }), [copy, cwd]);
+  const save = useCallback(() => saveLspPromptHintState({ copy, cwd, defaultHint, hint, saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault }), [copy, cwd, defaultHint, hint, saving]);
+  const reset = useCallback(() => saveLspPromptHintState({ copy, cwd, defaultHint, hint: '', saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault }), [copy, cwd, defaultHint, saving]);
+  const copyPrompt = useCallback(() => copyEffectivePromptHint(promptDisplayHint(effectiveHint, defaultHint, copy), copy, setNotice), [copy, defaultHint, effectiveHint]);
+  const toggleVisibility = useCallback((event) => saveInjectedPromptVisibility({ copy, cwd, event, loadVisibility, saving: showInjectedSaving, setNotice, setSaving: setShowInjectedSaving, setShowInjected }), [copy, cwd, loadVisibility, showInjectedSaving]);
   useEffect(() => { void loadPrompt(); void loadScope(); void loadVisibility(); }, [loadPrompt, loadScope, loadVisibility]);
-  return promptSettingsModel({ copy, currentScopeCwd, defaultHint, effectiveHint, hint, loadPrompt, loading, notice, reset, save, saving, setHint, showInjected, showInjectedSaving, toggleVisibility, usingDefault });
+  return promptSettingsModel({ copy: copyPrompt, currentScopeCwd, defaultHint, effectiveHint, hint, loadPrompt, loading, notice, reset, save, saving, setHint, showInjected, showInjectedSaving, textCopy: copy, toggleVisibility, usingDefault });
 }
 
 function promptSettingsModel(model) {
-  const displayHint = promptDisplayHint(model.effectiveHint, model.defaultHint);
-  const lineCount = displayHint === '暂无可用提示词' ? 0 : displayHint.split('\n').length;
-  const charCount = displayHint === '暂无可用提示词' ? 0 : displayHint.length;
-  return { ...model, charCount, displayHint, lineCount, modeLabel: promptModeLabel(model.loading, model.usingDefault) };
+  const displayHint = promptDisplayHint(model.effectiveHint, model.defaultHint, model.textCopy);
+  const empty = model.textCopy.promptCard.empty;
+  const lineCount = displayHint === empty ? 0 : displayHint.split('\n').length;
+  const charCount = displayHint === empty ? 0 : displayHint.length;
+  return { ...model, charCount, displayHint, lineCount, modeLabel: promptModeLabel(model.loading, model.usingDefault, model.textCopy) };
 }
 
-function promptDisplayHint(effectiveHint, defaultHint) {
-  return (effectiveHint || defaultHint || '').trim() || '暂无可用提示词';
+function promptDisplayHint(effectiveHint, defaultHint, copy = APP_COPY.zh.settings) {
+  return (effectiveHint || defaultHint || '').trim() || copy.promptCard.empty;
 }
 
-function promptModeLabel(loading, usingDefault) {
-  if (loading) return '加载中...';
-  return usingDefault ? '默认注入' : '自定义覆盖';
+function promptModeLabel(loading, usingDefault, copy = APP_COPY.zh.settings) {
+  if (loading) return copy.promptCard.loading;
+  return usingDefault ? copy.promptCard.defaultMode : copy.promptCard.customMode;
 }
 
 async function loadLspPromptState(state) {
@@ -790,7 +793,7 @@ async function loadLspPromptState(state) {
     state.setUsingDefault(Boolean(res?.usingDefault) || (res?.overrideHint || '').toString().trim() === '');
     state.setNotice({ level: 'info', message: '' });
   } catch (error) {
-    state.setNotice({ level: 'error', message: '加载失败：' + (error?.message || error) });
+    state.setNotice({ level: 'error', message: state.copy.promptCard.loadFailed + (error?.message || error) });
   } finally {
     state.setLoading(false);
   }
@@ -805,13 +808,13 @@ async function loadPromptScope(setCurrentScopeCwd) {
   }
 }
 
-async function loadInjectedPromptVisibility({ cwd, setNotice, setShowInjected }) {
+async function loadInjectedPromptVisibility({ copy, cwd, setNotice, setShowInjected }) {
   if (!cwd) return;
   try {
     const value = await getPreference({ cwd, key: 'settings.showInjectedPromptInChat' });
     setShowInjected(parseBoolPreference(value));
   } catch (error) {
-    setNotice({ level: 'error', message: '加载聊天注入显示开关失败：' + (error?.message || error) });
+    setNotice({ level: 'error', message: copy.promptCard.loadToggleFailed + (error?.message || error) });
   }
 }
 
@@ -824,37 +827,37 @@ async function saveLspPromptHintState(state) {
     state.setDefaultHint((res?.defaultHint || state.defaultHint || '').toString());
     state.setHint((res?.overrideHint || '').toString());
     state.setUsingDefault(Boolean(res?.usingDefault));
-    state.setNotice({ level: 'info', message: res?.usingDefault ? '已恢复默认提示词' : '提示词已保存' });
+    state.setNotice({ level: 'info', message: res?.usingDefault ? state.copy.promptCard.restored : state.copy.promptCard.saved });
   } catch (error) {
-    state.setNotice({ level: 'error', message: '保存失败：' + (error?.message || error) });
+    state.setNotice({ level: 'error', message: state.copy.promptCard.saveFailed + (error?.message || error) });
   } finally {
     state.setSaving(false);
   }
 }
 
-async function copyEffectivePromptHint(text, setNotice) {
-  if (!text || text === '暂无可用提示词') {
-    setNotice({ level: 'error', message: '暂无可复制内容' });
+async function copyEffectivePromptHint(text, copy, setNotice) {
+  if (!text || text === copy.promptCard.empty) {
+    setNotice({ level: 'error', message: copy.promptCard.noCopy });
     return;
   }
   try {
     const ok = await copyTextToClipboard(text);
-    setNotice({ level: ok ? 'info' : 'error', message: ok ? '已复制生效提示词' : '复制失败' });
+    setNotice({ level: ok ? 'info' : 'error', message: ok ? copy.promptCard.copied : copy.promptCard.copyFailed });
   } catch (error) {
-    setNotice({ level: 'error', message: '复制失败：' + (error?.message || error) });
+    setNotice({ level: 'error', message: copy.promptCard.copyFailedPrefix + (error?.message || error) });
   }
 }
 
-async function saveInjectedPromptVisibility({ cwd, event, loadVisibility, saving, setNotice, setSaving, setShowInjected }) {
+async function saveInjectedPromptVisibility({ copy, cwd, event, loadVisibility, saving, setNotice, setSaving, setShowInjected }) {
   if (!cwd || saving) return;
   const next = event.target.checked;
   setShowInjected(next);
   setSaving(true);
   try {
     await setPreference({ cwd, key: 'settings.showInjectedPromptInChat', value: next });
-    setNotice({ level: 'info', message: next ? '聊天区已改为显示自动注入内容' : '聊天区已改为隐藏自动注入内容' });
+    setNotice({ level: 'info', message: next ? copy.promptCard.showInjectedSaved : copy.promptCard.hideInjectedSaved });
   } catch (error) {
-    setNotice({ level: 'error', message: '保存聊天注入显示开关失败：' + (error?.message || error) });
+    setNotice({ level: 'error', message: copy.promptCard.saveToggleFailed + (error?.message || error) });
     await loadVisibility();
   } finally {
     setSaving(false);
@@ -870,19 +873,35 @@ function parseBoolPreference(value) {
   return false;
 }
 
-function useBuiltinToolsSettings(cwd) {
+function useBuiltinToolsSettings(cwd, copy) {
+  const builtinsCopy = copy.builtins;
   const [tools, setTools] = useState([]);
   const [loading, setLoading] = useState(false);
   const [savingIds, setSavingIds] = useState({});
   const [expandedGroups, setExpandedGroups] = useState({});
   const [notice, setNotice] = useState({ level: 'info', message: '' });
   const applyPayload = useCallback((payload) => setTools(normalizeBuiltinTools(payload)), []);
-  const load = useCallback(() => loadBuiltinTools({ applyPayload, cwd, setLoading, setNotice }), [applyPayload, cwd]);
-  const toggleTool = useCallback((tool) => toggleBuiltinTool({ applyPayload, cwd, savingIds, setNotice, setSavingIds, setTools, tool }), [applyPayload, cwd, savingIds]);
+  const load = useCallback(() => loadBuiltinTools({ applyPayload, copy, cwd, setLoading, setNotice }), [applyPayload, copy, cwd]);
+  const toggleTool = useCallback((tool) => toggleBuiltinTool({ applyPayload, copy, cwd, savingIds, setNotice, setSavingIds, setTools, tool }), [applyPayload, copy, cwd, savingIds]);
   const toggleGroup = useCallback((key) => setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] })), []);
-  const groups = useMemo(() => builtinToolGroups(tools), [tools]);
+  const groups = useMemo(() => builtinToolGroups(tools, builtinsCopy), [builtinsCopy, tools]);
   useEffect(() => { void load(); }, [load]);
-  return { expandedGroups, filteredCount: tools.filter((tool) => tool.replacedBy || !tool.enabled).length, groups, groupSummary, isOpen: (key) => Boolean(expandedGroups[key]), load, loading, notice, savingIds, toggleGroup, toggleTool, toolMetaText, totalToolCount: tools.length, tools };
+  return {
+    expandedGroups,
+    filteredCount: tools.filter((tool) => tool.replacedBy || !tool.enabled).length,
+    groups,
+    groupSummary: (group) => groupSummary(group, builtinsCopy),
+    isOpen: (key) => Boolean(expandedGroups[key]),
+    load,
+    loading,
+    notice,
+    savingIds,
+    toggleGroup,
+    toggleTool,
+    toolMetaText: (tool) => toolMetaText(tool, builtinsCopy),
+    totalToolCount: tools.length,
+    tools,
+  };
 }
 
 function normalizeBuiltinTools(payload) {
@@ -912,54 +931,54 @@ function optionalTextValue(value) {
   return text || undefined;
 }
 
-async function loadBuiltinTools({ applyPayload, cwd, setLoading, setNotice }) {
+async function loadBuiltinTools({ applyPayload, copy, cwd, setLoading, setNotice }) {
   if (!cwd) return;
   setLoading(true);
   try {
     applyPayload(await readBuiltinTools({ cwd }));
     setNotice({ level: 'info', message: '' });
   } catch (error) {
-    setNotice({ level: 'error', message: '加载失败：' + (error?.message || error) });
+    setNotice({ level: 'error', message: copy.builtins.loadFailed + (error?.message || error) });
   } finally {
     setLoading(false);
   }
 }
 
-async function toggleBuiltinTool({ applyPayload, cwd, savingIds, setNotice, setSavingIds, setTools, tool }) {
+async function toggleBuiltinTool({ applyPayload, copy, cwd, savingIds, setNotice, setSavingIds, setTools, tool }) {
   if (!cwd || tool.replacedBy || !tool.id || savingIds[tool.id]) return;
   const nextEnabled = !tool.enabled;
   setSavingIds((prev) => ({ ...prev, [tool.id]: true }));
   setTools((prev) => prev.map((item) => (item.id === tool.id ? { ...item, enabled: nextEnabled } : item)));
   try {
     applyPayload(await writeBuiltinTool({ cwd, id: tool.id, enabled: nextEnabled }));
-    setNotice({ level: 'info', message: (tool.label || tool.id) + ' 已' + (nextEnabled ? '启用' : '禁用') });
+    setNotice({ level: 'info', message: (tool.label || tool.id) + ' ' + (nextEnabled ? copy.builtins.enabledSuffix : copy.builtins.disabledSuffix) });
   } catch (error) {
     setTools((prev) => prev.map((item) => (item.id === tool.id ? { ...item, enabled: !nextEnabled } : item)));
-    setNotice({ level: 'error', message: '保存失败：' + (error?.message || error) });
+    setNotice({ level: 'error', message: copy.builtins.saveFailed + (error?.message || error) });
   } finally {
     setSavingIds((prev) => ({ ...prev, [tool.id]: false }));
   }
 }
 
-function builtinToolGroups(tools) {
+function builtinToolGroups(tools, copy) {
   const disabled = tools.filter((tool) => !tool.enabled || tool.replacedBy);
   return [
-    builtinToolGroup('native-hard', '启动前已关闭', disabled.filter((tool) => builtinToolEnforcement(tool) === 'native-hard'), '模型启动前就看不到这些能力。'),
-    builtinToolGroup('effect-hard', '已限制为只读', disabled.filter((tool) => builtinToolEnforcement(tool) === 'effect-hard'), 'Codex 暂不支持单独关闭这类能力，已限制为只读，避免它直接改文件或执行命令。'),
-    builtinToolGroup('soft-audit', '仅提醒使用项目工具', disabled.filter((tool) => builtinToolEnforcement(tool) === 'soft-audit'), 'Codex 暂不支持可靠关闭这类能力，只能提示模型优先使用本项目工具；这不是强制拦截。'),
-    builtinUnfilteredGroup(tools),
+    builtinToolGroup('native-hard', copy.nativeHard, disabled.filter((tool) => builtinToolEnforcement(tool) === 'native-hard'), copy.nativeHardNote, copy),
+    builtinToolGroup('effect-hard', copy.effectHard, disabled.filter((tool) => builtinToolEnforcement(tool) === 'effect-hard'), copy.effectHardNote, copy),
+    builtinToolGroup('soft-audit', copy.softAudit, disabled.filter((tool) => builtinToolEnforcement(tool) === 'soft-audit'), copy.softAuditNote, copy),
+    builtinUnfilteredGroup(tools, copy),
   ].filter(Boolean);
 }
 
-function builtinToolGroup(key, label, tools, note) {
+function builtinToolGroup(key, label, tools, note, copy) {
   if (tools.length === 0) return null;
-  return { canToggle: true, disabledCount: tools.length, key, label: label + '（' + tools.length + '）', note, tools };
+  return { canToggle: true, disabledCount: tools.length, key, label: label + copy.countOpen + tools.length + copy.countClose, note, tools };
 }
 
-function builtinUnfilteredGroup(tools) {
+function builtinUnfilteredGroup(tools, copy) {
   const available = tools.filter((tool) => tool.enabled && !tool.replacedBy);
   if (!available.length) return null;
-  return { canToggle: true, disabledCount: 0, key: 'unfiltered', label: '保持可用（' + available.length + '）', tools: available };
+  return { canToggle: true, disabledCount: 0, key: 'unfiltered', label: copy.unfiltered + copy.countOpen + available.length + copy.countClose, tools: available };
 }
 
 function builtinToolEnforcement(tool) {
@@ -968,89 +987,89 @@ function builtinToolEnforcement(tool) {
   return tool.filterMode === 'hard' ? 'native-hard' : 'soft-audit';
 }
 
-function toolStatusLabel(tool) {
-  if (tool.replacedBy) return '已由项目工具接管';
-  if (tool.enabled) return '保持可用';
+function toolStatusLabel(tool, copy) {
+  if (tool.replacedBy) return copy.replaced;
+  if (tool.enabled) return copy.unfiltered;
   const enforcement = builtinToolEnforcement(tool);
-  if (enforcement === 'native-hard') return '启动前已关闭';
-  if (enforcement === 'effect-hard') return '已限制为只读';
-  return enforcement === 'soft-audit' ? '仅提醒使用项目工具' : '已管控';
+  if (enforcement === 'native-hard') return copy.nativeHard;
+  if (enforcement === 'effect-hard') return copy.effectHard;
+  return enforcement === 'soft-audit' ? copy.softAudit : copy.controlledStatus;
 }
 
-function toolMetaText(tool) {
+function toolMetaText(tool, copy) {
   const parts = [];
   const description = (tool.description || '').trim();
   if (description) parts.push(description);
   const provider = PROVIDER_LABELS[tool.provider] || tool.provider || '';
   if (provider) parts.push(provider);
-  parts.push(toolStatusLabel(tool));
+  parts.push(toolStatusLabel(tool, copy));
   return parts.join(' · ');
 }
 
-function groupSummary(group) {
-  if (group.key === 'unfiltered') return '可用 ' + group.tools.length + ' 项';
-  return '已管控 ' + group.disabledCount + ' 项';
+function groupSummary(group, copy) {
+  if (group.key === 'unfiltered') return copy.availableCount.replace('{count}', group.tools.length);
+  return copy.controlledCount.replace('{count}', group.disabledCount);
 }
 
-function mobileAccountName(cwd) {
+function mobileAccountName(cwd, fallback = '本地用户') {
   const parts = (cwd || '').toString().split(/[\\/]/).filter(Boolean);
-  return parts.at(-1) || '本地用户';
+  return parts.at(-1) || fallback;
 }
 
-function MobileAccountPanel({ cwd, runtime }) {
-  const accountName = mobileAccountName(cwd);
+function MobileAccountPanel({ copy = APP_COPY.zh.settings, cwd, runtime }) {
+  const accountName = mobileAccountName(cwd, copy.accountNameFallback);
   const provider = PROVIDER_LABELS[runtime.form.activeProvider] || runtime.form.activeProvider || 'Codex';
   return (
-    <section className="settings-mobile-account" data-testid="settings-mobile-account" aria-label="移动端账号设置">
+    <section className="settings-mobile-account" data-testid="settings-mobile-account" aria-label={copy.mobileAccount}>
       <header>
-        <button type="button" aria-label="菜单" disabled><Menu size={18} /></button>
-        <h2>Super-Dolphin</h2>
-        <div className="settings-mobile-avatar" aria-label="用户头像">SD</div>
+        <button type="button" aria-label={copy.menu} disabled><Menu size={18} /></button>
+        <h2>{APP_BRAND_NAME}</h2>
+        <div className="settings-mobile-avatar" aria-label={copy.avatar}>SY</div>
       </header>
       <div className="settings-mobile-card">
-        <span>用户名</span>
+        <span>{copy.username}</span>
         <strong>{accountName}</strong>
-        <small>{cwd || '未选择项目'}</small>
+        <small>{cwd || copy.noProject}</small>
       </div>
       <div className="settings-mobile-card">
-        <span>账号</span>
+        <span>{copy.account}</span>
         <strong>{provider}</strong>
-        <small>使用当前 Provider 与本地项目设置</small>
+        <small>{copy.accountDescription}</small>
       </div>
       <div className="settings-mobile-card">
-        <span>设置</span>
-        <strong>运行时配置</strong>
-        <small>下方设置卡片继续使用真实偏好接口</small>
+        <span>{copy.settings}</span>
+        <strong>{copy.runtimeConfig}</strong>
+        <small>{copy.runtimeDescription}</small>
       </div>
       <div className="settings-mobile-card is-disabled">
-        <span>退出登录</span>
-        <strong>待鉴权接入</strong>
-        <button type="button" data-testid="settings-mobile-logout-button" disabled>Log Out</button>
+        <span>{copy.logout}</span>
+        <strong>{copy.authPending}</strong>
+        <button type="button" data-testid="settings-mobile-logout-button" disabled>{copy.logoutTab}</button>
       </div>
-      <nav className="settings-mobile-tabs" aria-label="移动端设置入口">
-        <button type="button" disabled>Account</button>
-        <button type="button" disabled>Settings</button>
-        <button type="button" disabled>Log Out</button>
+      <nav className="settings-mobile-tabs" aria-label={copy.mobileAccount}>
+        <button type="button" disabled>{copy.accountTab}</button>
+        <button type="button" disabled>{copy.settingsTab}</button>
+        <button type="button" disabled>{copy.logoutTab}</button>
       </nav>
     </section>
   );
 }
 
-function SettingsPageView({ builtins, cwd, prompt, provider, runtime, store }) {
+function SettingsPageView({ builtins, copy = APP_COPY.zh.settings, cwd, prompt, provider, runtime, store }) {
   return (
     <section className="settings-page" data-testid="settings-page">
-      <PageHeader icon={Settings} title="设置" actions={<button className="btn btn-secondary" type="button" data-testid="settings-refresh-build-button" onClick={() => void runtime.refreshBuildInfo()}>刷新构建信息</button>} />
-      <MobileAccountPanel cwd={cwd} runtime={runtime} />
+      <PageHeader icon={Settings} title={copy.title} actions={<button className="btn btn-secondary" type="button" data-testid="settings-refresh-build-button" onClick={() => void runtime.refreshBuildInfo()}>{copy.refreshBuildInfo}</button>} />
+      <MobileAccountPanel copy={copy} cwd={cwd} runtime={runtime} />
       <SettingsNotices error={runtime.error} status={runtime.status} />
       <div className="panel-body" data-testid="settings-panel-body">
-        <AboutPanel buildInfo={runtime.buildInfo} cwd={cwd} runtime={runtime} updateCurrentVersion={appUpdateCurrentVersionLabel(runtime.buildInfo)} />
-        <RuntimeSettingsPanels runtime={runtime} />
-        <ProviderSettingsPanel runtime={runtime} viewConfig={providerSettingsViewConfig} />
-        <ProviderPropertiesCard provider={provider} />
-        <PromptSettingsCard prompt={prompt} />
-        <BuiltinToolsCard builtins={builtins} />
-        <VideoSettingsCard getApiKey={getVideoApiKey} setApiKey={setVideoApiKey} />
-        <UILogCard loadLogs={loadSettingsDashboardLogs} store={store} />
+        <AboutPanel buildInfo={runtime.buildInfo} copy={copy} cwd={cwd} runtime={runtime} updateCurrentVersion={appUpdateCurrentVersionLabel(runtime.buildInfo)} />
+        <RuntimeSettingsPanels copy={copy} runtime={runtime} />
+        <ProviderSettingsPanel copy={copy} runtime={runtime} viewConfig={providerSettingsViewConfig} />
+        <ProviderPropertiesCard copy={copy} provider={provider} />
+        <PromptSettingsCard copy={copy} prompt={prompt} />
+        <BuiltinToolsCard builtins={builtins} copy={copy} />
+        <VideoSettingsCard copy={copy} getApiKey={getVideoApiKey} setApiKey={setVideoApiKey} />
+        <UILogCard copy={copy} loadLogs={loadSettingsDashboardLogs} store={store} />
       </div>
     </section>
   );

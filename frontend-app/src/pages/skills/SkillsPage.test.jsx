@@ -95,7 +95,7 @@ describe('SkillsPage backend migration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'MCP工具' }));
 
     expect(await screen.findByRole('heading', { name: '插件' })).toBeInTheDocument();
-    expect(screen.getByText('在你常用的工具中使用 Super-Dolphin')).toBeInTheDocument();
+    expect(screen.getByText('在你常用的工具中使用 燧元')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '已连接' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '推荐' })).toBeInTheDocument();
     expect(screen.getByText('Creative Production')).toBeInTheDocument();

@@ -3,21 +3,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, Download, Eye, File, FolderOpen, MessageCircle, Search, Trash2, X } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { deleteSharedFile, listSharedFilesDashboard, openSharedFile, readSharedFile, saveTextFile } from '../../services/modules/fileService.js';
+import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { dashboardQueryErrorState, optionalSettingsCwd, queryHasSnapshot, sharedFileTimestamp, textValue, useDashboardQueryFocusInvalidation } from '../shared/pageShared.js';
 import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx';
 import './FilesPage.css';
 
-const SHARED_FILE_CATEGORIES = Object.freeze([
-  { key: 'all', label: '全部' },
-  { key: 'final', label: '最终产物' },
-  { key: 'work', label: '工作文件' },
-]);
-
-const SHARED_FILE_SORTS = Object.freeze([
-  { key: 'updated-desc', label: '最新更新' },
-  { key: 'updated-asc', label: '最早更新' },
-  { key: 'path-asc', label: '按文件名' },
-]);
+const SHARED_FILE_CATEGORY_KEYS = Object.freeze(['all', 'final', 'work']);
+const SHARED_FILE_SORT_KEYS = Object.freeze(['updated-desc', 'updated-asc', 'path-asc']);
 
 const SHARED_FILE_FORMAT_LABELS = Object.freeze({
   csv: 'CSV',
@@ -301,7 +293,7 @@ function useSharedFilesDashboard(store) {
   };
 }
 
-function useSharedFilesFilters(files, finalOutputRefs, retention) {
+function useSharedFilesFilters(files, finalOutputRefs, retention, copy) {
   const [searchText, setSearchText] = useState('');
   const [sortMode, setSortMode] = useState('updated-desc');
   const [category, setCategory] = useState('all');
@@ -331,7 +323,7 @@ function useSharedFilesFilters(files, finalOutputRefs, retention) {
     return null;
   }, [finalOutputByPath, retentionByPath]);
   return {
-    activeSortLabel: SHARED_FILE_SORTS.find((item) => item.key === sortMode)?.label || '最新更新',
+    activeSortLabel: copy.sorts[sortMode] || copy.sorts['updated-desc'],
     category,
     categoryCounts: { all: files.length, final: finalCount, work: workCount },
     finalCount,
@@ -471,65 +463,65 @@ function useSharedFileDelete({ deleteTarget, deletingPath, refreshFiles, selecte
   }, [deleteTarget, deletingPath, refreshFiles, selectedFile, setDeleteTarget, setDeletingPath, setNotice, setSelectedFile]);
 }
 
-function FilesPage({ projectPath, store }) {
+function FilesPage({ copy = APP_COPY.zh.files, projectPath, store }) {
   const exportDefaultPath = optionalSettingsCwd(projectPath);
   const dashboard = useSharedFilesDashboard(store);
-  const filters = useSharedFilesFilters(dashboard.files, dashboard.finalOutputRefs, dashboard.retention);
+  const filters = useSharedFilesFilters(dashboard.files, dashboard.finalOutputRefs, dashboard.retention, copy);
   const actions = useSharedFileActions({
     exportDefaultPath,
     refreshFiles: dashboard.refreshFiles,
     store,
     protectionFor: filters.protectionFor,
   });
-  return <SharedFilesPageView actions={actions} dashboard={dashboard} filters={filters} />;
+  return <SharedFilesPageView actions={actions} copy={copy} dashboard={dashboard} filters={filters} />;
 }
 
-function SharedFilesPageView({ actions, dashboard, filters }) {
+function SharedFilesPageView({ actions, copy, dashboard, filters }) {
   return (
     <section className="console-page shared-files-page">
-      <SharedFilesHeader dashboard={dashboard} filters={filters} />
-      <SharedFilesOverview dashboard={dashboard} filters={filters} />
-      <SharedFilesIntro />
-      <SharedFilesTabs category={filters.category} categoryCounts={filters.categoryCounts} onCategory={filters.setCategory} />
-      <SharedFilesStatus actions={actions} dashboard={dashboard} />
-      <SharedFilesContent actions={actions} dashboard={dashboard} filters={filters} />
+      <SharedFilesHeader copy={copy} dashboard={dashboard} filters={filters} />
+      <SharedFilesOverview copy={copy} dashboard={dashboard} filters={filters} />
+      <SharedFilesIntro copy={copy} />
+      <SharedFilesTabs category={filters.category} categoryCounts={filters.categoryCounts} copy={copy} onCategory={filters.setCategory} />
+      <SharedFilesStatus actions={actions} copy={copy} dashboard={dashboard} />
+      <SharedFilesContent actions={actions} copy={copy} dashboard={dashboard} filters={filters} />
       <SharedFilesModals actions={actions} />
     </section>
   );
 }
 
-function SharedFilesOverview({ dashboard, filters }) {
+function SharedFilesOverview({ copy, dashboard, filters }) {
   const cleanupCount = Number(dashboard.retention?.cleanupCandidateCount || 0);
   return (
-    <section className="shared-files-overview" aria-label="共享文件状态">
+    <section className="shared-files-overview" aria-label={copy.overviewAria}>
       <div className="shared-files-overview-copy">
-        <span>当前资产</span>
-        <h2>共享文件和最终产物</h2>
+        <span>{copy.currentAssets}</span>
+        <h2>{copy.overviewTitle}</h2>
       </div>
       <dl>
-        <div><dt>全部文件</dt><dd>{dashboard.files.length}</dd></div>
-        <div><dt>最终产物</dt><dd>{filters.finalCount}</dd></div>
-        <div><dt>工作文件</dt><dd>{filters.workCount}</dd></div>
-        <div><dt>可清理文件</dt><dd>{cleanupCount}</dd></div>
+        <div><dt>{copy.allFiles}</dt><dd>{dashboard.files.length}</dd></div>
+        <div><dt>{copy.finalOutputs}</dt><dd>{filters.finalCount}</dd></div>
+        <div><dt>{copy.workFiles}</dt><dd>{filters.workCount}</dd></div>
+        <div><dt>{copy.cleanupCandidates}</dt><dd>{cleanupCount}</dd></div>
       </dl>
     </section>
   );
 }
 
-function SharedFilesHeader({ dashboard, filters }) {
+function SharedFilesHeader({ copy, dashboard, filters }) {
   return (
     <PageHeader
       icon={FolderOpen}
-      title="文件产物"
-      subtitle={`${filters.activeSortLabel} · 全部${dashboard.files.length} 最终产物${filters.finalCount} 工作文件${filters.workCount}`}
+      title={copy.title}
+      subtitle={`${filters.activeSortLabel} · ${copy.allFiles} ${dashboard.files.length} · ${copy.finalOutputs} ${filters.finalCount} · ${copy.workFiles} ${filters.workCount}`}
       actions={(
         <>
           <label className="shared-files-search">
             <Search size={15} />
-            <input aria-label="搜索共享文件" placeholder="搜索文件名 / 内容" value={filters.searchText} onChange={(event) => filters.setSearchText(event.target.value)} />
+            <input aria-label={copy.search} placeholder={copy.searchPlaceholder} value={filters.searchText} onChange={(event) => filters.setSearchText(event.target.value)} />
           </label>
-          <select aria-label="共享文件排序" value={filters.sortMode} onChange={(event) => filters.setSortMode(event.target.value)}>
-            {SHARED_FILE_SORTS.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
+          <select aria-label={copy.sort} value={filters.sortMode} onChange={(event) => filters.setSortMode(event.target.value)}>
+            {SHARED_FILE_SORT_KEYS.map((key) => <option key={key} value={key}>{copy.sorts[key]}</option>)}
           </select>
         </>
       )}
@@ -537,36 +529,36 @@ function SharedFilesHeader({ dashboard, filters }) {
   );
 }
 
-function SharedFilesIntro() {
+function SharedFilesIntro({ copy }) {
   return (
     <div className="file-intro">
       <FolderOpen size={29} />
-      <h2>共享文件 · Agent 协作中转站</h2>
-      <p>Agent 在运行过程中产生的所有数据产物都保存在这里。</p>
+      <h2>{copy.introTitle}</h2>
+      <p>{copy.introText}</p>
     </div>
   );
 }
 
-function SharedFilesTabs({ category, categoryCounts, onCategory }) {
+function SharedFilesTabs({ category, categoryCounts, copy, onCategory }) {
   return (
-    <div className="shared-files-tabs" role="tablist" aria-label="文件产物分类">
-      {SHARED_FILE_CATEGORIES.map((item) => (
-        <button key={item.key} type="button" role="tab" aria-selected={category === item.key} className={category === item.key ? 'active' : ''} onClick={() => onCategory(item.key)}>
-          {item.label} {categoryCounts[item.key] || 0}
+    <div className="shared-files-tabs" role="tablist" aria-label={copy.categoryAria}>
+      {SHARED_FILE_CATEGORY_KEYS.map((key) => (
+        <button key={key} type="button" role="tab" aria-selected={category === key} className={category === key ? 'active' : ''} onClick={() => onCategory(key)}>
+          {copy.categories[key]} {categoryCounts[key] || 0}
         </button>
       ))}
     </div>
   );
 }
 
-function SharedFilesStatus({ actions, dashboard }) {
+function SharedFilesStatus({ actions, copy, dashboard }) {
   return (
     <>
       {actions.notice ? <p className={actions.notice.level === 'error' ? 'danger-text' : 'settings-status'}>{actions.notice.message}</p> : null}
       {dashboard.syncError ? (
         <div className="danger-text shared-files-sync-alert" role="alert">
           <span>{dashboard.syncError}</span>
-          <button type="button" className="ghost" onClick={() => { void dashboard.refreshFiles(); }}>重试同步</button>
+          <button type="button" className="ghost" onClick={() => { void dashboard.refreshFiles(); }}>{copy.retrySync}</button>
         </div>
       ) : null}
       <RetryableSyncError className="danger-text shared-files-sync-alert" message={dashboard.error} onRetry={dashboard.refreshFiles} />
@@ -574,26 +566,26 @@ function SharedFilesStatus({ actions, dashboard }) {
   );
 }
 
-function SharedFilesContent({ actions, dashboard, filters }) {
-  if (!dashboard.error && dashboard.loading && dashboard.files.length === 0) return <p className="console-message">正在加载共享文件...</p>;
-  if (!dashboard.error && !dashboard.loading && dashboard.files.length === 0) return <SharedFilesEmptyState kind="none" />;
-  if (!dashboard.error && dashboard.files.length > 0 && filters.visibleFiles.length === 0) return <SharedFilesEmptyState kind="search" />;
+function SharedFilesContent({ actions, copy, dashboard, filters }) {
+  if (!dashboard.error && dashboard.loading && dashboard.files.length === 0) return <p className="console-message">{copy.loading}</p>;
+  if (!dashboard.error && !dashboard.loading && dashboard.files.length === 0) return <SharedFilesEmptyState copy={copy} kind="none" />;
+  if (!dashboard.error && dashboard.files.length > 0 && filters.visibleFiles.length === 0) return <SharedFilesEmptyState copy={copy} kind="search" />;
   if (dashboard.error || filters.visibleFiles.length === 0) return null;
-  return <SharedFilesList actions={actions} filters={filters} />;
+  return <SharedFilesList actions={actions} copy={copy} filters={filters} />;
 }
 
-function SharedFilesEmptyState({ kind }) {
+function SharedFilesEmptyState({ copy, kind }) {
   const search = kind === 'search';
   return (
     <div className="empty-state">
       <span>{search ? <Search size={24} /> : <File size={24} />}</span>
-      <h2>{search ? '没有匹配的文件' : '还没有文件产物'}</h2>
-      <p>{search ? '清空搜索或切换分类后再试。' : 'Agent 生成报告、草稿或数据文件后，会显示在这里。'}</p>
+      <h2>{search ? copy.emptySearchTitle : copy.emptyTitle}</h2>
+      <p>{search ? copy.emptySearchText : copy.emptyText}</p>
     </div>
   );
 }
 
-function SharedFilesList({ actions, filters }) {
+function SharedFilesList({ actions, copy, filters }) {
   return (
     <div className="file-list" data-testid="shared-files-list">
       {filters.visibleFiles.map((file) => (
@@ -605,6 +597,7 @@ function SharedFilesList({ actions, filters }) {
           busy={actions.busyPath === file.path}
           exporting={actions.exportingPath === file.path}
           deleting={actions.deletingPath === file.path}
+          copy={copy}
           onOpen={actions.openFile}
           onExport={actions.exportFile}
           onDelete={actions.askDelete}
@@ -642,6 +635,7 @@ function SharedFilesModals({ actions }) {
 
 function SharedFileRow({
   file,
+  copy,
   finalOutputRef,
   protectedFile,
   busy,
@@ -653,12 +647,12 @@ function SharedFileRow({
   onContinue,
 }) {
   const path = splitSharedFilePath(file.path);
-  const role = finalOutputRef ? '最终产物' : '工作文件';
-  let deleteLabel = '删除';
+  const role = finalOutputRef ? copy.roleFinal : copy.roleWork;
+  let deleteLabel = copy.delete;
   if (protectedFile) {
-    deleteLabel = '不可删除';
+    deleteLabel = copy.protectedDelete;
   } else if (deleting) {
-    deleteLabel = '删除中...';
+    deleteLabel = copy.deleting;
   }
   return (
     <article className={`file-row${finalOutputRef ? ' is-final-output' : ''}`}>
@@ -676,21 +670,21 @@ function SharedFileRow({
       <pre className="shared-file-summary">{sharedFileSummary(file)}</pre>
       <footer>
         <button type="button" className="ghost continue-with-file" onClick={() => onContinue(file)}>
-          <MessageCircle size={14} /> 用此文件继续对话
+          <MessageCircle size={14} /> {copy.continueWithFile}
         </button>
         <div className="file-row-actions">
           <button type="button" onClick={() => { void onOpen(file); }} disabled={busy}>
-            <Eye size={14} /> {busy ? '加载中...' : '打开'}
+            <Eye size={14} /> {busy ? copy.loadingAction : copy.open}
           </button>
           <button type="button" onClick={() => { void onExport(file); }} disabled={busy || exporting}>
-            <Download size={14} /> {exporting ? '导出中...' : '导出'}
+            <Download size={14} /> {exporting ? copy.exporting : copy.export}
           </button>
           <button
             type="button"
             className={protectedFile ? 'ghost' : 'text-danger'}
             onClick={() => onDelete(file)}
             disabled={protectedFile || deleting}
-            title={protectedFile ? '最终产物由任务结果引用，不能直接删除。' : ''}
+            title={protectedFile ? copy.protectedDeleteTitle : ''}
           >
             <Trash2 size={14} /> {deleteLabel}
           </button>

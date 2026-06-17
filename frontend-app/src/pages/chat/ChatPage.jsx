@@ -28,6 +28,7 @@ import { PathChoiceDialog } from './components/PathChoiceDialog.jsx';
 import { RuntimePanelSlot } from './components/RuntimePanelSlot.jsx';
 import { TimelineLoadingPlaceholder, TimelineMessage } from './components/TimelineMessage.jsx';
 import { ThreadRail } from './components/ThreadRail.jsx';
+import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { runUIAction } from './components/chatUiActions.js';
 import {
   canUseProjectActionsForStore,
@@ -374,7 +375,7 @@ function useActiveChatThreadSync(store, activeThreadId) {
   }, [activeThreadId, loading, store, timelineReady]);
 }
 
-function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpen = () => {} }) {
+function ChatPage({ copy = APP_COPY.zh.chat, store, projectPath, rightPanelOpen = false, setRightPanelOpen = () => {} }) {
   const activeThreadId = store.activeThreadId;
   const modelThreadId = composerConfigThreadId(store, activeThreadId);
   const threadData = useChatThreadData(store, activeThreadId);
@@ -422,12 +423,13 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
   return (
     <section className={`chat-page${introMode ? ' chat-page--intro' : ''}`} data-testid="chat-page">
       {showHeader ? (
-        <ChatPageHeader store={store} projectPath={projectPath} rightPanelOpen={rightPanelOpen} setRightPanelOpen={setRightPanelOpen} />
+        <ChatPageHeader copy={copy} store={store} projectPath={projectPath} rightPanelOpen={rightPanelOpen} setRightPanelOpen={setRightPanelOpen} />
       ) : null}
       <div ref={chatLayoutRef} className="chat-layout" data-testid="chat-layout" style={{ gridTemplateColumns: layoutColumns }}>
-        <ThreadRail store={store} />
-        <ThreadRailResizer rail={rail} />
+        <ThreadRail copy={copy} store={store} />
+        <ThreadRailResizer copy={copy} rail={rail} />
         <Conversation
+          copy={copy}
           messages={threadData.messages}
           draft={store.draft}
           setDraft={store.setDraft}
@@ -478,23 +480,23 @@ function ChatPage({ store, projectPath, rightPanelOpen = false, setRightPanelOpe
   );
 }
 
-function ThreadRailResizer({ rail }) {
+function ThreadRailResizer({ copy = APP_COPY.zh.chat, rail }) {
   return (
     <button
       type="button"
       className="splitter splitter--left"
       role="separator"
-      aria-label="调整会话栏宽度"
+      aria-label={copy.resizeRail}
       aria-orientation="vertical"
       aria-valuemin={THREAD_RAIL_MIN_WIDTH}
       aria-valuemax={rail.maxWidth}
       aria-valuenow={rail.width}
-      title="调整会话栏宽度"
+      title={copy.resizeRail}
       data-testid="thread-rail-resizer"
       onKeyDown={rail.handleKeyDown}
       onPointerDown={rail.beginResize}
     >
-      <span className="sr-only">调整会话栏宽度，当前 {rail.width} 像素</span>
+      <span className="sr-only">{copy.resizeRailStatus} {rail.width} {copy.pixels}</span>
     </button>
   );
 }
@@ -536,6 +538,7 @@ function ProviderToggle({ store, canUseProjectActions = true }) {
 
 function Conversation(props) {
   const {
+    copy = APP_COPY.zh.chat,
     messages,
     sending,
     projectPath,
@@ -697,6 +700,7 @@ function Conversation(props) {
     <ConversationComposer
       {...props}
       composer={composerController}
+      copy={copy}
       floating={introMode}
       sendMessage={sendMessageAndScrollToBottom}
       showProviderToggle={!activeThreadId}
@@ -716,6 +720,7 @@ function Conversation(props) {
     >
       <ContextUsageBanner activeThreadId={activeThreadId} store={store} tokenUsage={tokenUsage} />
       <ConversationTimeline
+        copy={copy}
         composer={composer}
         smoothStreaming={store?.smoothStreaming ?? false}
         introMode={introMode}
@@ -757,6 +762,7 @@ function ContextUsageBanner({ activeThreadId, store, tokenUsage }) {
 }
 
 function ConversationComposer({
+  copy = APP_COPY.zh.chat,
   floating,
   draft,
   setDraft,
@@ -774,6 +780,7 @@ function ConversationComposer({
   return (
     <ComposerDock
       floating={floating}
+      copy={copy}
       draft={draft}
       setDraft={setDraft}
       sendMessage={sendMessage}
@@ -792,6 +799,7 @@ function ConversationComposer({
 }
 
 function ConversationTimeline({
+  copy = APP_COPY.zh.chat,
   composer,
   introMode,
   messages,
@@ -887,14 +895,14 @@ function ConversationTimeline({
   return (
     <div className="timeline-shell">
       <div key={activeThreadId || 'intro'} className="timeline" data-testid="chat-timeline" ref={timelineRef} onScroll={handleScroll}>
-        {introMode ? <IntroChatStage composer={composer} projectPath={projectPath} /> : null}
+        {introMode ? <IntroChatStage copy={copy} composer={composer} projectPath={projectPath} /> : null}
         {!introMode && !timelineContentBlocked && (hiddenOlderCount > 0 || hasBackendOlderPage) ? (
-          <TimelineOlderMessagesMarker hiddenCount={hiddenOlderCount} loading={olderPageLoading} onReveal={requestOlderMessages} />
+          <TimelineOlderMessagesMarker copy={copy} hiddenCount={hiddenOlderCount} loading={olderPageLoading} onReveal={requestOlderMessages} />
         ) : null}
         {!introMode && !timelineContentBlocked ? timelineMessages.map((message) => {
           const key = message.callId ? `tool-${message.callId}` : message.id;
           return (
-            <TimelineMessage key={key} message={message} actions={messageActions} activeThreadId={activeThreadId} smoothStreaming={smoothStreaming} onScrollIfSticky={onScrollIfSticky} formatTime={formatTime} />
+            <TimelineMessage key={key} message={message} actions={messageActions} activeThreadId={activeThreadId} copy={copy} smoothStreaming={smoothStreaming} onScrollIfSticky={onScrollIfSticky} formatTime={formatTime} />
           );
         }) : null}
         {!introMode && timelineContentBlocked ? <TimelineLoadingPlaceholder /> : null}
@@ -904,8 +912,8 @@ function ConversationTimeline({
         <button
           type="button"
           className="chat-scroll-bottom-btn"
-          title="滚动到底部"
-          aria-label="滚动到底部"
+          title={copy.scrollBottom}
+          aria-label={copy.scrollBottom}
           onClick={onScrollToBottom}
         >
           <ChevronDown size={15} aria-hidden="true" />
@@ -915,10 +923,10 @@ function ConversationTimeline({
   );
 }
 
-function TimelineOlderMessagesMarker({ hiddenCount, loading, onReveal }) {
+function TimelineOlderMessagesMarker({ copy = APP_COPY.zh.chat, hiddenCount, loading, onReveal }) {
   const label = hiddenCount > 0
-    ? `显示更早的消息（${hiddenCount} 条）`
-    : (loading ? '正在加载更早的消息' : '加载更早的消息');
+    ? `${copy.showOlder}（${hiddenCount} 条）`
+    : (loading ? copy.loadingOlder : copy.loadOlder);
   return (
     <div className="timeline-placeholder" data-testid="timeline-older-marker">
       <button type="button" className="ghost" disabled={hiddenCount <= 0 && loading} aria-busy={loading ? 'true' : 'false'} onClick={onReveal}>
@@ -928,11 +936,11 @@ function TimelineOlderMessagesMarker({ hiddenCount, loading, onReveal }) {
   );
 }
 
-function IntroChatStage({ composer, projectPath: _projectPath }) {
+function IntroChatStage({ copy = APP_COPY.zh.chat, composer, projectPath: _projectPath }) {
   return (
     <div className="intro-chat-stage">
       <div className="empty-chat">
-        <h2>我们应该在 Super-Dolphin 中构建什么？</h2>
+        <h2>{copy.introTitle}</h2>
       </div>
       {composer}
     </div>
