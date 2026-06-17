@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { finalOutputKind, finalOutputPath } from '../adapters/workflowDisplayAdapter.js';
 import { Panel } from '../../shared/pageComponents.jsx';
 
+const EMPTY_VIDEO_CAPTIONS = 'data:text/vtt;charset=utf-8,WEBVTT%0A%0A';
+
 function formatWorkflowFileContent(content) {
   if (!content) return '';
   let trimmed = content.trim();
@@ -167,7 +169,15 @@ function workflowPreviewBlock({ fileContent, fileUrl, formattedContent, isImage,
   if (!fileContent) return null;
   if (fileContent === '__MEDIA_PREVIEW__') {
     if (isImage) return <div className="workflow-media-preview"><img src={fileUrl} alt="最终结果图片" /></div>;
-    if (isVideo) return <div className="workflow-media-preview"><video src={fileUrl} controls /></div>;
+    if (isVideo) {
+      return (
+        <div className="workflow-media-preview">
+          <video src={fileUrl} controls aria-label="最终结果视频">
+            <track kind="captions" srcLang="zh" label="无字幕" src={EMPTY_VIDEO_CAPTIONS} default />
+          </video>
+        </div>
+      );
+    }
   }
   return <pre className="workflow-final-preview">{formattedContent}</pre>;
 }

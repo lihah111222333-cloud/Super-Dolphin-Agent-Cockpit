@@ -44,6 +44,7 @@ const baseProps = {
   draft: 'hello',
   floating: false,
   modelThreadId: 'thread1',
+  projectPath: '/repo/app',
   selectFiles: vi.fn(),
   sendMessage: vi.fn(),
   sending: false,
@@ -68,6 +69,7 @@ describe('ComposerDock', () => {
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer--docked');
     expect(screen.getByTestId('composer-dock')).not.toHaveClass('composer--floating');
     expect(addFileButton).toHaveClass('composer-icon-action', 'composer-attach');
+    expect(container.querySelector('.composer-context')).toHaveTextContent('app');
     expect(screen.queryByText('添加附件')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '继承当前对话' })).not.toBeInTheDocument();
     expect(container.querySelector('.project-select')).toBeNull();

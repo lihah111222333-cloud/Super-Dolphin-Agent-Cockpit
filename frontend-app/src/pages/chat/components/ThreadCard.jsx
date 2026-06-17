@@ -47,6 +47,7 @@ function ThreadCard({
       </div>
     );
   }
+  const running = threadStatusBusy(thread.status);
   return (
     <div className={`thread-card ${active ? 'active' : ''}`}>
       {editing ? (
@@ -61,18 +62,19 @@ function ThreadCard({
           onSubmitRename={onSubmitRename}
         />
       ) : (
-        <ThreadDisplayCardContent thread={thread} store={store} />
+        <ThreadDisplayCardContent thread={thread} store={store} onBeginRename={() => onBeginRename(thread)} />
       )}
       <ThreadCardActions
         thread={thread}
         threadLabel={threadLabel}
         copy={copy}
         editing={editing}
+        running={running}
+        runningLabel={copy.threadRunning || '会话运行中'}
         archiveLabel={archiveLabel}
         hoveredArchiveThreadId={hoveredArchiveThreadId}
         hoveredPinThreadId={hoveredPinThreadId}
         loading={Boolean(store.threadArchiveLoadingByThread?.[thread.id])}
-        onBeginRename={() => onBeginRename(thread)}
         onSetHoveredArchiveThreadId={onSetHoveredArchiveThreadId}
         onSetHoveredPinThreadId={onSetHoveredPinThreadId}
         onToggleArchive={() => runUIAction(() => store.archiveThread(thread.id, !thread.archived))}
@@ -133,7 +135,7 @@ function handleThreadRenameKeyDown(event, thread, onSubmitRename, onCancelRename
   }
 }
 
-function ThreadDisplayCardContent({ thread, store }) {
+function ThreadDisplayCardContent({ thread, store, onBeginRename }) {
   const running = threadStatusBusy(thread.status);
   const threadLabel = displayThreadName(thread);
   const statusLabel = threadCardStatusLabel(thread, running);
@@ -147,6 +149,7 @@ function ThreadDisplayCardContent({ thread, store }) {
       statusDotTitle={statusDotTitle}
       statusLabel={statusLabel}
       threadLabel={threadLabel}
+      onBeginRename={onBeginRename}
       onSelect={() => runUIAction(() => store.setActiveThread(thread.id))}
     />
   );

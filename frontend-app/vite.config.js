@@ -67,6 +67,7 @@ export function createFrontendViteConfig(env = process.env) {
     build: {
       outDir: 'dist',
       emptyOutDir: true,
+      chunkSizeWarningLimit: 650,
       rolldownOptions: {
         external: ['/wails/runtime.js'],
         output: {

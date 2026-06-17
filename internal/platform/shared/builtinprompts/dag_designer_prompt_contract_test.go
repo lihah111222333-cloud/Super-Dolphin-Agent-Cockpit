@@ -34,6 +34,14 @@ func TestDAGDesignerPromptContractCoversRuntimeRecoveryAndSchedule(t *testing.T)
 		"CRON_TZ=Asia/Shanghai",
 		"裸 cron 默认 UTC",
 		"runtime append",
+		"政企模板包",
+		"文档审查归档",
+		"数据报告发布",
+		"会议纪要督办",
+		"enterprise-workflows/<template_key>/{{run_id}}/",
+		"command_card",
+		"审批节点只生成审批材料",
+		"final_node_key",
 	} {
 		require.Contains(t, body, want)
 	}

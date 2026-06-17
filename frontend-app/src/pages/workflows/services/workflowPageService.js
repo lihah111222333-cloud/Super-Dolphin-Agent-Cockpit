@@ -10,6 +10,7 @@ import {
   readSharedFile as readSharedFileBackend,
   startDag as startDagBackend,
   startThread as startThreadBackend,
+  startTurn as startTurnBackend,
   terminateDagRun as terminateDagRunBackend,
 } from '../../../shared/api/backendApi.js';
 
@@ -60,6 +61,10 @@ export function startDag(payload) {
 
 export function startThread(payload) {
   return startThreadBackend(payload);
+}
+
+export function startTurn(payload) {
+  return startTurnBackend(payload);
 }
 
 export function terminateDagRun(payload) {

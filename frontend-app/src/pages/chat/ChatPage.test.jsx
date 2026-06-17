@@ -815,9 +815,10 @@ describe('ChatPage module', () => {
     const actions = card.querySelector('.thread-card-actions');
 
     expect(actions).not.toBeNull();
-    expect(within(actions).getByRole('button', { name: '重命名会话' })).toBeInTheDocument();
     expect(within(actions).getByRole('button', { name: '置顶对话' })).toBeInTheDocument();
-    expect(within(actions).getByRole('button', { name: '归档会话' })).toBeInTheDocument();
+    expect(within(actions).getByRole('button', { name: '删除会话' })).toBeInTheDocument();
+    expect(within(actions).queryByRole('button', { name: '重命名会话' })).not.toBeInTheDocument();
+    expect(within(actions).queryByRole('button', { name: '归档会话' })).not.toBeInTheDocument();
     expect(card.querySelector('.thread-main .thread-pin')).toBeNull();
     expect(card.querySelector('.thread-main .thread-rename-trigger')).toBeNull();
   });
