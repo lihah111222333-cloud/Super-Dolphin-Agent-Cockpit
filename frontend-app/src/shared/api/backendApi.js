@@ -126,6 +126,12 @@ export const RPC_METHODS = Object.freeze({
   SKILLS_RESOLUTION_PREVIEW: 'skills/resolution_preview',
   SKILLS_RESOLUTION_APPLY: 'skills/resolution_apply',
 
+  DATASOURCE_V2_CREATE: 'datasourceV2/create',
+  DATASOURCE_V2_LIST: 'datasourceV2/list',
+  DATASOURCE_V2_GET: 'datasourceV2/get',
+  DATASOURCE_V2_UPDATE: 'datasourceV2/update',
+  DATASOURCE_V2_DELETE: 'datasourceV2/delete',
+
   MCP_SERVER_LIST: 'mcpServer/list',
   MCP_SERVER_SQLITE_START: 'mcpServer/sqlite/start',
   MCP_SERVER_SQLITE_STOP: 'mcpServer/sqlite/stop',
@@ -916,6 +922,79 @@ function createObservabilityMemoryApi(callBackend) {
   };
 }
 
+function datasourceCreatePayload(method, params) {
+  const payload = assertPlainObject(method, params);
+  const sourcePath = normalizeString(payload.sourcePath || payload.source_path);
+  if (!sourcePath) throw new Error(`${method}: sourcePath is required`);
+  return { sourcePath };
+}
+
+function datasourceListPayload(params = {}) {
+  const method = RPC_METHODS.DATASOURCE_V2_LIST;
+  const payload = assertPlainObject(method, params);
+  const limit = normalizeOptionalLimit(method, payload);
+  if (!limit) throw new Error(`${method}: limit must be a positive integer`);
+  return cleanObject({ keyword: normalizeString(payload.keyword), limit });
+}
+
+function datasourceDocumentIDPayload(method, params) {
+  const payload = assertPlainObject(method, params);
+  const documentID = Number(payload.documentId ?? payload.document_id ?? payload.id);
+  if (!Number.isInteger(documentID) || documentID <= 0) {
+    throw new Error(`${method}: documentId is required`);
+  }
+  return { documentId: documentID };
+}
+
+function datasourceUpdatePayload(params) {
+  const method = RPC_METHODS.DATASOURCE_V2_UPDATE;
+  const payload = assertPlainObject(method, params);
+  const { documentId } = datasourceDocumentIDPayload(method, payload);
+  const sourcePath = normalizeString(payload.sourcePath || payload.source_path);
+  const fileName = normalizeString(payload.fileName || payload.file_name);
+  if (!sourcePath) throw new Error(`${method}: sourcePath is required`);
+  if (!fileName) throw new Error(`${method}: fileName is required`);
+  if (!hasOwn(payload, 'sizeBytes') && !hasOwn(payload, 'size_bytes')) {
+    throw new Error(`${method}: sizeBytes is required`);
+  }
+  const sizeBytes = Number(payload.sizeBytes ?? payload.size_bytes);
+  if (!Number.isInteger(sizeBytes) || sizeBytes < 0) {
+    throw new Error(`${method}: sizeBytes must be a non-negative integer`);
+  }
+  return cleanObject({
+    documentId,
+    sourcePath,
+    fileName,
+    extension: normalizeString(payload.extension),
+    sizeBytes,
+  });
+}
+
+function createDatasourceApi(callBackend) {
+  return {
+    createDatasourceDocument: (params) => callBackend(
+      RPC_METHODS.DATASOURCE_V2_CREATE,
+      datasourceCreatePayload(RPC_METHODS.DATASOURCE_V2_CREATE, params),
+    ),
+    listDatasourceDocuments: (params = {}) => callBackend(
+      RPC_METHODS.DATASOURCE_V2_LIST,
+      datasourceListPayload(params),
+    ),
+    getDatasourceDocument: (params) => callBackend(
+      RPC_METHODS.DATASOURCE_V2_GET,
+      datasourceDocumentIDPayload(RPC_METHODS.DATASOURCE_V2_GET, params),
+    ),
+    updateDatasourceDocument: (params) => callBackend(
+      RPC_METHODS.DATASOURCE_V2_UPDATE,
+      datasourceUpdatePayload(params),
+    ),
+    deleteDatasourceDocument: (params) => callBackend(
+      RPC_METHODS.DATASOURCE_V2_DELETE,
+      datasourceDocumentIDPayload(RPC_METHODS.DATASOURCE_V2_DELETE, params),
+    ),
+  };
+}
+
 function createObservabilityApi(callBackend) {
   return {
     getObservabilityTrace: (params) => callBackend(RPC_METHODS.OBSERVABILITY_TRACE_GET, observabilityTracePayload(RPC_METHODS.OBSERVABILITY_TRACE_GET, params)),
@@ -1354,6 +1433,7 @@ export function createBackendApi(deps = {}) {
     ...createCronApi(callBackend),
     ...createCodeApi(callBackend),
     ...createSkillApi(callBackend),
+    ...createDatasourceApi(callBackend),
     ...createMCPServerApi(callBackend),
     ...createThreadApi(callBackend),
     ...createNativeApi(resolveNativeDeps(deps)),
@@ -1455,6 +1535,11 @@ export const listSkillResolutions = backendApi.listSkillResolutions;
 export const previewSkillResolution = backendApi.previewSkillResolution;
 export const applySkillResolution = backendApi.applySkillResolution;
 export const deleteSkill = backendApi.deleteSkill;
+export const createDatasourceDocument = backendApi.createDatasourceDocument;
+export const listDatasourceDocuments = backendApi.listDatasourceDocuments;
+export const getDatasourceDocument = backendApi.getDatasourceDocument;
+export const updateDatasourceDocument = backendApi.updateDatasourceDocument;
+export const deleteDatasourceDocument = backendApi.deleteDatasourceDocument;
 export const listMCPServers = backendApi.listMCPServers;
 export const startSQLiteMCPServer = backendApi.startSQLiteMCPServer;
 export const stopSQLiteMCPServer = backendApi.stopSQLiteMCPServer;

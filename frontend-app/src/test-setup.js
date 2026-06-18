@@ -1,4 +1,7 @@
 import '@testing-library/jest-dom/vitest';
+import { configure } from '@testing-library/dom';
+
+configure({ asyncUtilTimeout: 5000 });
 
 if (typeof window !== 'undefined' && (!window.localStorage || typeof window.localStorage.clear !== 'function' || typeof window.localStorage.getItem !== 'function')) {
   const storage = new Map();

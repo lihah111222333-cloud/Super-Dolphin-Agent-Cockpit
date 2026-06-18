@@ -64,13 +64,12 @@ func normalizePromptMCPServerConfigs(input map[string]contract.MCPServerConfig) 
 	out := make(map[string]contract.MCPServerConfig, len(names))
 	enabledNames := make([]string, 0, len(names))
 	for _, name := range names {
-		rawConfig := input[rawNames[name]]
-		if !promptMCPServerConfigEnabled(rawConfig) {
-			continue
-		}
-		config, err := normalizePromptMCPServerConfig(name, rawConfig)
+		config, err := normalizePromptMCPServerConfig(name, input[rawNames[name]])
 		if err != nil {
 			return nil, nil, err
+		}
+		if config.Enabled != nil && !*config.Enabled {
+			continue
 		}
 		out[name] = config
 		enabledNames = append(enabledNames, name)
@@ -106,6 +105,7 @@ func normalizePromptHTTPMCPServerConfig(name string, config contract.MCPServerCo
 		Transport: "http",
 		URL:       rawURL,
 		Headers:   headers,
+		Enabled:   config.Enabled,
 	}, nil
 }
 
@@ -127,6 +127,7 @@ func normalizePromptStdioMCPServerConfig(name string, config contract.MCPServerC
 		Command:   command,
 		Args:      args,
 		Env:       env,
+		Enabled:   config.Enabled,
 	}, nil
 }
 
@@ -263,6 +264,7 @@ func copyMCPServerConfigs(out map[string]contract.MCPServerConfig, input map[str
 			Command:   strings.TrimSpace(config.Command),
 			Args:      clonePromptMCPStringList(config.Args),
 			Env:       clonePromptMCPStringMap(config.Env),
+			Enabled:   config.Enabled,
 		}
 	}
 }
@@ -281,10 +283,6 @@ func clonePromptMCPStringList(input []string) []string {
 		return nil
 	}
 	return out
-}
-
-func promptMCPServerConfigEnabled(config contract.MCPServerConfig) bool {
-	return config.Enabled == nil || *config.Enabled
 }
 
 // clonePromptMCPStringMap 复制并清理 prompt 快照里的 MCP 字符串 map。
