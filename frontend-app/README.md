@@ -20,13 +20,17 @@ instead, set either `SUPER_DOLPHIN_VITE_USE_POLLING=0` or
 `CHOKIDAR_USEPOLLING=0`. If both variables are set, they must resolve to the
 same strict boolean value (`1/0`, `true/false`, `yes/no`, or `on/off`).
 
-For the full local desktop setup, run this from the repository root:
+For the full local desktop setup, run one of these from the repository root:
 
 ```bash
+# macOS
 ./run-new-ui-desktop.sh
+
+# Windows PowerShell
+.\run-new-ui-desktop.ps1
 ```
 
-The script starts this app's Vite server, waits for it to become ready, then launches `cmd/agent-terminal`
+The selected root script starts this app's Vite server, waits for it to become ready, then launches `cmd/agent-terminal`
 with `FRONTEND_DEVSERVER_URL` so the Wails desktop host proxies to `frontend-app`.
 
 The design follows the provided dark macOS-style screenshots: title bar, narrow left navigation, dense black workspace, chat thread rail, runtime log panel, capability pages, workflow pages, skill cards, shared files, memory center, and settings.

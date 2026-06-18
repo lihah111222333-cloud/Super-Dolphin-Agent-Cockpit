@@ -16,7 +16,7 @@
 
 | 角色 | 目标 | 主要入口 |
 | --- | --- | --- |
-| 本地操作者 | 启动桌面应用、管理线程、运行 agent | `run-new-ui-desktop.sh`、`run-debug.ps1`、`frontend-app` |
+| 本地操作者 | 启动桌面应用、管理线程、运行 agent | `run-new-ui-desktop.sh`、`run-new-ui-desktop.ps1`、`frontend-app` |
 | Agent 使用者 | 发起任务、查看上下文、处理审批 | Chat、Workflow、Files、Observability 页面 |
 | Prompt/Skill 维护者 | 管理 prompt 模板、section、skill 文件和候选建议 | Prompt、Skills 页面和对应 RPC |
 | 编排维护者 | 创建 DAG、调度节点、处理 cron 和 agent lifecycle | `cmd/mcp-orch`、Workflow 页面 |
@@ -27,7 +27,7 @@
 
 | 流程 | 简述 | 关键模块 |
 | --- | --- | --- |
-| 本地启动 | 启动 Vite、新 UI、后端宿主、peer binaries、Postgres | `run-new-ui-desktop.sh`、`cmd/agent-terminal` |
+| 本地启动 | 启动 Vite、新 UI、后端宿主、peer binaries、SQLite | `run-new-ui-desktop.sh`、`run-new-ui-desktop.ps1`、`cmd/agent-terminal` |
 | 线程执行 | 用户选择项目和 provider，创建 thread，发起 turn，provider 执行并回传事件 | `frontend-app`、`internal/module/thread`、`internal/provider` |
 | DAG 编排 | 创建 DAG，启动节点，调度 agent，更新节点状态，记录运行 | `cmd/mcp-orch`、`internal/module/cron`、`internal/store` |
 | Prompt 管理 | 列表、读写、删除 prompt 和 section，提交 intent draft | `internal/module/prompt`、`frontend-app/src/pages/prompts` |

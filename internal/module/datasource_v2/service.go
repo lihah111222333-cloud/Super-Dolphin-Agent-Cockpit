@@ -16,6 +16,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	datasourcev2store "github.com/anthropic-ai/super-agent-v3/internal/store/datasourcev2"
 )
 
@@ -25,6 +26,7 @@ var (
 	errDatasourceV2StoreNotConfigured = errors.New("datasource v2 store is not configured")
 	errMissingSourcePath              = errors.New("datasource v2: sourcePath is required")
 	errSourcePathMustBeAbsolute       = errors.New("datasource v2: sourcePath must be absolute")
+	errSourcePathOutsideWorkspace     = errors.New("datasource v2: sourcePath outside workspace")
 	errSourcePathMustBeFile           = errors.New("datasource v2: sourcePath must be a file")
 	errUnsupportedFileExtension       = errors.New("datasource v2: unsupported file extension")
 	errDatasourceV2ContentEmpty       = errors.New("datasource v2: extracted content is empty")
@@ -347,7 +349,29 @@ func validateImportFileRequest(req ImportFileTextRequest) (string, error) {
 	if !filepath.IsAbs(sourcePath) {
 		return "", errSourcePathMustBeAbsolute
 	}
+	if err := ensureImportSourceInsideWorkspace(sourcePath); err != nil {
+		return "", err
+	}
 	return sourcePath, nil
+}
+
+func ensureImportSourceInsideWorkspace(sourcePath string) error {
+	workspaceRoot, err := currentDatasourceV2WorkspaceRoot()
+	if err != nil {
+		return err
+	}
+	if !platformshared.ContainsPath(workspaceRoot, sourcePath) {
+		return fmt.Errorf("%w: %s", errSourcePathOutsideWorkspace, sourcePath)
+	}
+	return nil
+}
+
+func currentDatasourceV2WorkspaceRoot() (string, error) {
+	baseDir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("get working directory: %w", err)
+	}
+	return filepath.Clean(baseDir), nil
 }
 
 func isSupportedDatasourceV2Extension(ext string) bool {

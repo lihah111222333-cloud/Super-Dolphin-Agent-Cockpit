@@ -41,6 +41,7 @@ type ManifestContext struct {
 	AutoApprove                  []string
 	ExtraBinaries                []MCPBinary
 	ProxyHTTPAddr                string
+	ProxyHTTPToken               string
 	PeerHTTPAddrs                map[ToolFamily]string // e.g. {FamilyOrch: "127.0.0.1:9091"}
 	PeerHTTPTokens               map[ToolFamily]string
 	TransportMode                ManifestTransportMode

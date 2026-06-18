@@ -90,6 +90,21 @@ func TestBuildManifest_UsesProxyHTTPAddr(t *testing.T) {
 	}
 }
 
+func TestBuildManifest_UsesProxyHTTPAuthHeader(t *testing.T) {
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{
+		AgentID:        "agent-1",
+		ProxyHTTPAddr:  "127.0.0.1:39001",
+		ProxyHTTPToken: "proxy-token",
+	})
+
+	for _, binary := range got.Binaries {
+		if binary.Type != "http" {
+			t.Fatalf("binary %q type = %q, want http", binary.Name, binary.Type)
+		}
+		require.Equal(t, map[string]string{"Authorization": "Bearer proxy-token"}, binary.Headers)
+	}
+}
+
 func TestBuildManifest_StdioOnlyIgnoresHTTPDiscovery(t *testing.T) {
 	binaryDir := filepath.Join(t.TempDir(), "bin")
 	got := manifestbuilder.BuildManifest(dto.ManifestContext{

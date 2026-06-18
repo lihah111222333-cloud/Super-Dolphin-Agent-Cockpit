@@ -11,6 +11,7 @@ import (
 	"time"
 
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/httpegress"
 )
 
 const (
@@ -113,7 +114,11 @@ func buildMCPHTTPJSONRPCRequest(
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSpace(config.URL), bytes.NewReader(payload))
+	targetURL, err := httpegress.ValidatePublicURL(config.URL)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", errMCPServerToolsRequestFailed, err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("%w: build %s request: %v", errMCPServerToolsRequestFailed, method, err)
 	}
@@ -126,6 +131,9 @@ func buildMCPHTTPJSONRPCRequest(
 }
 
 func applyMCPHTTPHeaders(req *http.Request, headers map[string]string) error {
+	if err := httpegress.ValidateHeaders(headers); err != nil {
+		return fmt.Errorf("%w: %v", errMCPServerToolsRequestFailed, err)
+	}
 	for name, value := range headers {
 		name = strings.TrimSpace(name)
 		value = strings.TrimSpace(value)
@@ -137,11 +145,11 @@ func applyMCPHTTPHeaders(req *http.Request, headers map[string]string) error {
 	return nil
 }
 
-func rejectMCPHTTPStatus(statusCode int, method string, raw []byte) error {
+func rejectMCPHTTPStatus(statusCode int, method string, _ []byte) error {
 	if statusCode >= http.StatusOK && statusCode < http.StatusMultipleChoices {
 		return nil
 	}
-	return fmt.Errorf("%w: %s returned HTTP %d%s", errMCPServerToolsRequestFailed, method, statusCode, httpErrorBodySuffix(raw))
+	return fmt.Errorf("%w: %s returned HTTP %d", errMCPServerToolsRequestFailed, method, statusCode)
 }
 
 func readMCPHTTPResponseBody(body io.Reader) ([]byte, error) {

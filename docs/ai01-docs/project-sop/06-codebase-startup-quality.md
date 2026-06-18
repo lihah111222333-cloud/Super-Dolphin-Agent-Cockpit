@@ -42,8 +42,16 @@
 
 从仓库根目录执行：
 
+macOS：
+
+```bash
+./run-new-ui-desktop.sh
+```
+
+Windows PowerShell：
+
 ```powershell
-bash ./run-new-ui-desktop.sh
+.\run-new-ui-desktop.ps1
 ```
 
 脚本读取到的关键行为：
@@ -52,24 +60,15 @@ bash ./run-new-ui-desktop.sh
 - 确保或生成 `GO_AGENT_CTL_SESSION_TOKEN`。
 - 检查 `frontend-app` 依赖。
 - 确保或构建 `mcp-orch` 和 `mcp-lsp`。
-- 在需要时启动本地 PostgreSQL。
 - 启动 Vite，默认 `127.0.0.1:5175`。
 - 启动后端 HTTP，默认 `127.0.0.1:4512`。
 - 设置控制 RPC，默认 `127.0.0.1:8092`。
+- 使用 SQLite，默认数据库位于 `SUPER_DOLPHIN_HOME/super-dolphin.db`。
 - 通过 `/metrics` 等待后端就绪。
 
-### Windows debug 路径
+### GoLand 手动启动路径
 
-```powershell
-.\run-debug.ps1
-```
-
-已读取到的菜单语义：
-
-- 选项 1：主分支调试。
-- 选项 1 下的 server mode 可使用浏览器访问 `http://localhost:4511`。
-- 脚本默认使用旧前端 Vite `cmd\agent-terminal\frontend`，端口 5173。
-- 若无 `DATABASE_URL`，脚本会尝试使用 `postgres://postgres:123@127.0.0.1:5432/go_agent_v2?sslmode=disable`。
+需要在 IDE 内手动启动时，按 `docs/ai01-docs/goland-manual-startup.md` 配置 Vite、`cmd/agent-terminal` 和 peer binary 环境变量。
 
 ### 启动验收清单
 

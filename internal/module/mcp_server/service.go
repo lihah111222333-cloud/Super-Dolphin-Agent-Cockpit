@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/httpegress"
 )
 
 var (
@@ -22,6 +23,7 @@ var (
 	errMissingServerURL            = errors.New("mcp_server: url is required")
 	errInvalidServerURL            = errors.New("mcp_server: invalid url")
 	errMissingServerCommand        = errors.New("mcp_server: command is required")
+	errUnsupportedStdioCommand     = errors.New("mcp_server: unsupported stdio command")
 	errMissingServerArg            = errors.New("mcp_server: arg is required")
 	errMissingServerEnvName        = errors.New("mcp_server: env name is required")
 	errMissingServerEnvValue       = errors.New("mcp_server: env value is required")
@@ -447,6 +449,9 @@ func normalizeStdioServerConfig(name string, config ServerConfig) (ServerConfig,
 	if err != nil {
 		return ServerConfig{}, err
 	}
+	if !allowedStdioServerCommand(command, args) {
+		return ServerConfig{}, fmt.Errorf("%w: %s", errUnsupportedStdioCommand, name)
+	}
 	env, err := normalizeStringMap(config.Env, errMissingServerEnvName, errMissingServerEnvValue, name)
 	if err != nil {
 		return ServerConfig{}, err
@@ -460,9 +465,31 @@ func normalizeStdioServerConfig(name string, config ServerConfig) (ServerConfig,
 	}, nil
 }
 
+func allowedStdioServerCommand(command string, args []string) bool {
+	base := strings.ToLower(strings.TrimSpace(filepath.Base(command)))
+	base = strings.TrimSuffix(strings.TrimSuffix(base, ".exe"), ".cmd")
+	if base == defaultPostgresCommand {
+		return true
+	}
+	if base != "npx" {
+		return false
+	}
+	for _, arg := range args {
+		switch strings.TrimSpace(arg) {
+		case defaultPostgresPackage, defaultSQLitePackage, defaultPlaywrightPackage,
+			legacyDefaultSQLitePackage, brokenSQLitePackage:
+			return true
+		}
+	}
+	return false
+}
+
 func normalizeHeaders(serverName string, input map[string]string) (map[string]string, error) {
 	if len(input) == 0 {
 		return nil, nil
+	}
+	if err := httpegress.ValidateHeaders(input); err != nil {
+		return nil, fmt.Errorf("mcp_server: %w", err)
 	}
 	return normalizeStringMap(input, errMissingHeaderName, errMissingHeaderValue, serverName)
 }
@@ -517,15 +544,8 @@ func boolPtr(value bool) *bool {
 }
 
 func validateHTTPURL(rawURL string) error {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return errInvalidServerURL
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return errInvalidServerURL
-	}
-	if parsed.Host == "" {
-		return errInvalidServerURL
+	if _, err := httpegress.ValidatePublicURL(rawURL); err != nil {
+		return fmt.Errorf("%w: %v", errInvalidServerURL, err)
 	}
 	return nil
 }

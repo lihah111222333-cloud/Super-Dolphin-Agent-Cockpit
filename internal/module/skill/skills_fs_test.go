@@ -3,6 +3,7 @@ package skill
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -589,26 +590,54 @@ func TestListSkillsIgnoresLegacySystemRoot(t *testing.T) {
 func TestReadRemoteHonorsContextCancellation(t *testing.T) {
 	t.Parallel()
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case <-r.Context().Done():
-			return
-		case <-time.After(200 * time.Millisecond):
-			_, _ = w.Write([]byte("# remote"))
-		}
-	}))
-	defer server.Close()
-
 	svc := newTestSkillService(t)
-	svc.http = &http.Client{Timeout: 15 * time.Second}
+	svc.http = &http.Client{Transport: skillRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		select {
+		case <-req.Context().Done():
+			return nil, req.Context().Err()
+		case <-time.After(200 * time.Millisecond):
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader("# remote")),
+				Header:     make(http.Header),
+				Request:    req,
+			}, nil
+		}
+	})}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 
-	_, err := svc.ReadRemote(ctx, server.URL)
+	_, err := svc.ReadRemote(ctx, "https://example.com/skill.md")
 	if err == nil {
 		t.Fatal("ReadRemote() error = nil, want context cancellation")
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("ReadRemote() error = %v, want context deadline exceeded", err)
+	}
+}
+
+type skillRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f skillRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestReadRemoteRejectsLoopbackURL(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		_, _ = w.Write([]byte("# private skill"))
+	}))
+	defer server.Close()
+
+	svc := newTestSkillService(t)
+	_, err := svc.ReadRemote(context.Background(), server.URL)
+	if err == nil || !strings.Contains(err.Error(), "private network") {
+		t.Fatalf("ReadRemote() error = %v, want private network rejection", err)
+	}
+	if called {
+		t.Fatal("ReadRemote() contacted loopback server before rejecting URL")
 	}
 }

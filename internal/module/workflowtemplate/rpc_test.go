@@ -3,14 +3,80 @@ package workflowtemplate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/creachadair/jrpc2"
 )
 
 func TestWorkflowTemplateHandlersListGetAndRender(t *testing.T) {
 	t.Parallel()
+
+	server := newWorkflowTemplateRPCServer(t)
+
+	assertWorkflowTemplateList(t, server)
+	assertWorkflowTemplateGet(t, server)
+	assertWorkflowTemplateRender(t, server)
+}
+
+func TestWorkflowTemplateHandlersMapErrorsToRPCCodes(t *testing.T) {
+	t.Parallel()
+
+	server := newWorkflowTemplateRPCServer(t)
+	tests := []struct {
+		name   string
+		method string
+		params string
+		code   int
+	}{
+		{
+			name:   "get missing template id",
+			method: "workflowTemplates/get",
+			params: `{}`,
+			code:   platformrpc.CodeInvalidParams,
+		},
+		{
+			name:   "get unknown template",
+			method: "workflowTemplates/get",
+			params: `{"templateId":"missing/template"}`,
+			code:   platformrpc.CodeNotFound,
+		},
+		{
+			name:   "get unknown version",
+			method: "workflowTemplates/get",
+			params: `{"templateId":"government-enterprise/approval-material","version":99}`,
+			code:   platformrpc.CodeNotFound,
+		},
+		{
+			name:   "render missing template id",
+			method: "workflowTemplates/renderDag",
+			params: `{}`,
+			code:   platformrpc.CodeInvalidParams,
+		},
+		{
+			name:   "render unknown template",
+			method: "workflowTemplates/renderDag",
+			params: `{"templateId":"missing/template"}`,
+			code:   platformrpc.CodeNotFound,
+		},
+		{
+			name:   "render missing required fields",
+			method: "workflowTemplates/renderDag",
+			params: `{"templateId":"government-enterprise/approval-material","version":1}`,
+			code:   platformrpc.CodeInvalidParams,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertWorkflowTemplateRPCCode(t, server, tt.method, json.RawMessage(tt.params), tt.code)
+		})
+	}
+}
+
+func newWorkflowTemplateRPCServer(t *testing.T) *platformrpc.Server {
+	t.Helper()
 
 	svc, err := NewService()
 	if err != nil {
@@ -18,10 +84,20 @@ func TestWorkflowTemplateHandlersListGetAndRender(t *testing.T) {
 	}
 	server := platformrpc.NewServer(platformrpc.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewHandlers(svc).Handlers)
+	return server
+}
 
-	assertWorkflowTemplateList(t, server)
-	assertWorkflowTemplateGet(t, server)
-	assertWorkflowTemplateRender(t, server)
+func assertWorkflowTemplateRPCCode(t *testing.T, server *platformrpc.Server, method string, params json.RawMessage, want int) {
+	t.Helper()
+
+	_, err := server.Dispatch(context.Background(), method, params)
+	var rpcErr *jrpc2.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("%s error = %T, want *jrpc2.Error", method, err)
+	}
+	if rpcErr.Code != jrpc2.Code(want) {
+		t.Fatalf("%s code = %v, want %v", method, rpcErr.Code, want)
+	}
 }
 
 func assertWorkflowTemplateList(t *testing.T, server *platformrpc.Server) {
