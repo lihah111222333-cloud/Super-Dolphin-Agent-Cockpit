@@ -2802,6 +2802,37 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
+  it('keeps opened sidebar threads in place when selecting an existing thread', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-a',
+      threads: [
+        { id: 'thread-a', name: 'Thread A', provider: 'codex', status: 'idle', cwd: '/repo/app' },
+        { id: 'thread-b', name: 'Thread B', provider: 'codex', status: 'idle', cwd: '/repo/app' },
+        { id: 'thread-c', name: 'Thread C', provider: 'codex', status: 'idle', cwd: '/repo/app' },
+      ],
+    });
+
+    useClientStore.getState().beginOpeningThread({
+      id: 'thread-b',
+      name: 'Thread B updated',
+      provider: 'codex',
+      status: 'running',
+      cwd: '/repo/app',
+    });
+
+    const state = useClientStore.getState();
+    expect(state.threads.map((thread) => thread.id)).toEqual(['thread-a', 'thread-b', 'thread-c']);
+    expect(state.threads[1]).toEqual(expect.objectContaining({
+      id: 'thread-b',
+      name: 'Thread B updated',
+      status: 'running',
+    }));
+    expect(state.activeThreadId).toBe('thread-b');
+    expect(state.pendingActiveThreadId).toBe('thread-b');
+  });
+
   it('starts a new thread instead of sending turns to an unknown active agent id', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',

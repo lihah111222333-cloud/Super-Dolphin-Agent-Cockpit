@@ -632,18 +632,39 @@ function sidebarActiveProjectPath(activeProject, projectPath) {
   return active && active !== '.' ? active : textValue(projectPath);
 }
 
+function projectThreadSourceId(thread) {
+  return textValue(thread?.id || thread?.threadId || thread?.thread_id || thread?.agentId || thread?.agent_id);
+}
+
 function mergeProjectThreadSources(...sources) {
-  const seen = new Set();
-  const threads = [];
-  for (const source of sources) {
+  const canonical = Array.isArray(sources[0]) ? sources[0] : [];
+  const canonicalIds = new Set();
+  const mergedById = new Map();
+  const ordered = [];
+
+  for (const thread of canonical) {
+    const id = projectThreadSourceId(thread);
+    if (!id || canonicalIds.has(id)) continue;
+    canonicalIds.add(id);
+    mergedById.set(id, thread);
+    ordered.push(id);
+  }
+
+  const newThreadIds = [];
+  for (const source of sources.slice(1)) {
     for (const thread of Array.isArray(source) ? source : []) {
-      const id = textValue(thread?.id || thread?.threadId || thread?.thread_id || thread?.agentId || thread?.agent_id);
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      threads.push(thread);
+      const id = projectThreadSourceId(thread);
+      if (!id) continue;
+      if (mergedById.has(id)) {
+        mergedById.set(id, { ...mergedById.get(id), ...thread });
+        continue;
+      }
+      mergedById.set(id, thread);
+      newThreadIds.push(id);
     }
   }
-  return threads;
+
+  return [...newThreadIds, ...ordered].map((id) => mergedById.get(id));
 }
 
 const AUTOMATION_THREAD_MARKERS = Object.freeze(['automation', 'workflow', 'dag', 'cron', 'task']);
@@ -1208,8 +1229,8 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
           const cacheEntry = projectThreadCache[projectKey];
           const sidebarThreads = store?.sidebarThreadsByProject?.[projectKey];
           const sourceThreads = cacheEntry
-            ? (isActiveProject ? mergeProjectThreadSources(store?.threads, cacheEntry.threads) : cacheEntry.threads)
-            : (isActiveProject ? mergeProjectThreadSources(store?.threads, sidebarThreads) : (Array.isArray(sidebarThreads) ? sidebarThreads : []));
+            ? (isActiveProject ? mergeProjectThreadSources(cacheEntry.threads, store?.threads) : cacheEntry.threads)
+            : (isActiveProject ? mergeProjectThreadSources(sidebarThreads, store?.threads) : (Array.isArray(sidebarThreads) ? sidebarThreads : []));
           const projectThreads = projectThreadItems(sourceThreads, item.path, cacheEntry ? item.path : activeProjectPath, {
             allowMissingCwdFallback: !cacheEntry,
           });

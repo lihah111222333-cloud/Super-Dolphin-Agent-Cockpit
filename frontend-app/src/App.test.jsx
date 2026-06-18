@@ -156,6 +156,10 @@ async function findThreadCardByName(name) {
   return getThreadCardByName(name);
 }
 
+function projectChatTitles(list) {
+  return [...list.querySelectorAll('.sidebar-thread-title')].map((node) => node.textContent);
+}
+
 function defaultSkillFixtures() {
   return [
     {
@@ -1214,18 +1218,13 @@ async function showAllTraceDashboardEvents() {
       { id: 'thread-a', name: 'Thread A', provider: 'codex', status: 'idle', cwd: '/repo/app' },
       { id: 'thread-b', name: 'Thread B', provider: 'codex', status: 'idle', cwd: '/repo/app' },
     ];
+    const threadState = deferred();
     backend.getProjects.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
     backend.getSidebarState.mockResolvedValue({
       activeThreadId: 'thread-a',
       threads,
     });
-    backend.getThreadState.mockResolvedValue({
-      activeThreadId: 'thread-b',
-      threads: [threads[1]],
-      timelinesByThread: {
-        'thread-b': [{ id: 'message-thread-b', kind: 'assistant', text: 'thread b message', ts: '2026-05-30T00:00:00Z' }],
-      },
-    });
+    backend.getThreadState.mockImplementation(() => threadState.promise);
     backend.getThreadMessages.mockResolvedValue({ messages: [] });
 
     render(<App />);
@@ -1234,6 +1233,7 @@ async function showAllTraceDashboardEvents() {
     const appChats = await within(sidebar).findByRole('list', { name: /app/ });
     expect(within(appChats).getByTitle('Thread A')).toBeInTheDocument();
     expect(within(appChats).getByTitle('Thread B')).toBeInTheDocument();
+    expect(projectChatTitles(appChats)).toEqual(['Thread A', 'Thread B']);
 
     fireEvent.click(within(appChats).getByTitle('Thread B'));
 
@@ -1242,8 +1242,20 @@ async function showAllTraceDashboardEvents() {
       threadId: 'thread-b',
       includeDiff: false,
     }));
-    expect(within(appChats).getByTitle('Thread A')).toBeInTheDocument();
-    expect(within(appChats).getByTitle('Thread B')).toBeInTheDocument();
+    expect(projectChatTitles(appChats)).toEqual(['Thread A', 'Thread B']);
+
+    await act(async () => {
+      threadState.resolve({
+        activeThreadId: 'thread-b',
+        threads: [threads[1]],
+        timelinesByThread: {
+          'thread-b': [{ id: 'message-thread-b', kind: 'assistant', text: 'thread b message', ts: '2026-05-30T00:00:00Z' }],
+        },
+      });
+      await threadState.promise;
+    });
+
+    await waitFor(() => expect(projectChatTitles(appChats)).toEqual(['Thread A', 'Thread B']));
   });
 
   it('hides raw archived threads when expanding a cached sidebar project', async () => {
