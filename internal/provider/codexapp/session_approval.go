@@ -366,6 +366,9 @@ func (s *session) sniffTurnOutput(method string, params json.RawMessage) json.Ra
 // the per-turn accumulator. No-op for malformed / empty payloads.
 func (s *session) absorbMessageDelta(params json.RawMessage) {
 	payload := decodeEventPayload(params)
+	if normalizedTurnOutputStream(payload, "message") != "message" {
+		return
+	}
 	turnID := payloadTurnID(payload)
 	delta := stringValue(payload, "delta", "content")
 	if turnID == "" || delta == "" {

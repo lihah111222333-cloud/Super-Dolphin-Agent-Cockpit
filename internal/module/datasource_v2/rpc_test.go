@@ -229,6 +229,37 @@ func TestImportTextRPCRejectsSourceOutsideWorkspace(t *testing.T) {
 	}
 }
 
+func TestImportLocalFileRPCStoresOutsideWorkspaceSource(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	source := filepath.Join(t.TempDir(), "fj.txt")
+	if err := os.WriteFile(source, []byte("outside workspace datasource"), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	store := newRecordingDatasourceV2Store()
+	server := newDatasourceV2TestServer(NewService(store))
+	payload, err := json.Marshal(ImportLocalFileRequest{SourcePath: source})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	raw, err := server.Dispatch(context.Background(), "datasourceV2/importLocalFile", payload)
+	if err != nil {
+		t.Fatalf("Dispatch datasourceV2/importLocalFile: %v", err)
+	}
+
+	var got ImportFileTextResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if got.SourcePath != source || got.FileName != "fj.txt" || got.ChunkCount != 1 {
+		t.Fatalf("import local file result = %+v", got)
+	}
+	if len(store.inserted) != 1 || store.inserted[0].Content != "outside workspace datasource" {
+		t.Fatalf("stored chunks = %+v", store.inserted)
+	}
+}
+
 func TestImportTextRPCPreservesWhitespaceOnlyContent(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)

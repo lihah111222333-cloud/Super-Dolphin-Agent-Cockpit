@@ -18,14 +18,10 @@ const METHOD_IDS = Object.freeze({
 
 const JSONRPC_VERSION = '2.0';
 const WS_PATH = '/wails/ws';
-const EVENT_RECONNECT_DELAY_MS = 500;
-const RPC_SEND_ATTEMPT = 1;
-const RUNTIME_TELEMETRY_EVENT = 'ao:wails-runtime-telemetry';
 
 let nextRequestId = 1;
 let socket = null;
 let connectPromise = null;
-let eventReconnectTimer = null;
 const pendingCalls = new Map();
 const eventListeners = new Map();
 
@@ -92,44 +88,13 @@ function closeError(event) {
   return new Error(`runtime shim: websocket closed${code ? ` (${code})` : ''}${reason ? `: ${reason}` : ''}`);
 }
 
-function rejectPending(error, failureCode = 'websocket_closed') {
+function rejectPending(error) {
   if (pendingCalls.size === 0) return;
   const normalized = toError(error, 'runtime shim: websocket closed');
-  for (const [callId, pending] of [...pendingCalls.entries()]) {
-    pendingCalls.delete(callId);
-    emitPendingTelemetry(pending, {
-      phase: 'runtime.rpc.failed',
-      status: 'error',
-      error: failureCode,
-      duration_ms: pendingSettleDuration(pending),
-    });
+  for (const pending of pendingCalls.values()) {
     pending.reject(normalized);
   }
-}
-
-function hasEventListeners() {
-  for (const callbacks of eventListeners.values()) {
-    if (callbacks?.size > 0) return true;
-  }
-  return false;
-}
-
-function clearEventReconnectIfIdle() {
-  if (hasEventListeners() || eventReconnectTimer == null) return;
-  clearTimeout(eventReconnectTimer);
-  eventReconnectTimer = null;
-}
-
-function scheduleEventReconnect(error) {
-  if (!hasEventListeners() || eventReconnectTimer != null) return;
-  eventReconnectTimer = setTimeout(() => {
-    eventReconnectTimer = null;
-    if (!hasEventListeners() || isSocketOpen(socket) || isSocketConnecting(socket)) return;
-    ensureSocket().catch((nextError) => {
-      console.warn('[wails-dev-shim] event bridge reconnect failed', nextError || error);
-      scheduleEventReconnect(nextError || error);
-    });
-  }, EVENT_RECONNECT_DELAY_MS);
+  pendingCalls.clear();
 }
 
 function ensureSocket() {
@@ -161,16 +126,10 @@ function ensureSocket() {
       resolve(nextSocket);
     };
 
-    nextSocket.onerror = (event) => {
+    nextSocket.onerror = () => {
       if (!settled) {
         failConnect(new Error(`runtime shim: failed to connect ${resolveWebSocketURL()}`));
-        return;
       }
-      const err = toError(event, 'runtime shim: websocket error');
-      if (socket === nextSocket) socket = null;
-      connectPromise = null;
-      rejectPending(err, 'websocket_error');
-      scheduleEventReconnect(err);
     };
 
     nextSocket.onclose = (event) => {
@@ -181,11 +140,10 @@ function ensureSocket() {
         return;
       }
       rejectPending(err);
-      scheduleEventReconnect(err);
     };
 
     nextSocket.onmessage = (event) => {
-      void Promise.resolve(readSocketText(event?.data))
+      readSocketText(event?.data)
         .then(handleSocketText)
         .catch((error) => {
           // A malformed push frame must not break the bridge; keep the error
@@ -198,7 +156,7 @@ function ensureSocket() {
   return connectPromise;
 }
 
-function readSocketText(data) {
+async function readSocketText(data) {
   if (typeof data === 'string') return data;
   if (data == null) return '';
   if (typeof data.text === 'function') return data.text();
@@ -231,20 +189,9 @@ function handleJSONRPCMessage(message) {
     if (!pending) return;
     pendingCalls.delete(key);
     if (message.error) {
-      emitPendingTelemetry(pending, {
-        phase: 'runtime.rpc.settled',
-        status: 'error',
-        error: 'rpc_error',
-        duration_ms: pendingSettleDuration(pending),
-      });
       pending.reject(toError(message.error, 'runtime shim: rpc call failed'));
       return;
     }
-    emitPendingTelemetry(pending, {
-      phase: 'runtime.rpc.settled',
-      status: 'ok',
-      duration_ms: pendingSettleDuration(pending),
-    });
     pending.resolve(message.result);
     return;
   }
@@ -275,8 +222,7 @@ function emitEvent(eventName, data) {
   for (const callback of [...callbacks]) {
     try {
       callback(envelope);
-    }
-    catch (error) {
+    } catch (error) {
       console.warn(`[wails-dev-shim] ${eventName} callback failed`, error);
     }
   }
@@ -303,11 +249,9 @@ function emitRPCNotification(method, params) {
 // a short one to surface disconnects quickly. Methods are matched by substring
 // so new endpoints don't silently inherit the short default.
 const DREAM_RPC_TIMEOUT_MS = 300_000;
-const UPDATE_RPC_TIMEOUT_MS = 900_000;
 const LONG_RPC_TIMEOUT_MS = 120_000;
 const SHORT_RPC_TIMEOUT_MS = 30_000;
 const DREAM_RPC_PATTERNS = ['prompt-intents/draft'];
-const UPDATE_RPC_PATTERNS = ['app/update/download', 'app/update/installlatest'];
 const LONG_RPC_PATTERNS = ['compact', 'summary', 'memory', 'dream', 'extract', 'state/get', 'fork', 'cron'];
 
 function rpcTimeoutMs(methodName) {
@@ -315,106 +259,13 @@ function rpcTimeoutMs(methodName) {
   for (const pattern of DREAM_RPC_PATTERNS) {
     if (lower.includes(pattern)) return DREAM_RPC_TIMEOUT_MS;
   }
-  for (const pattern of UPDATE_RPC_PATTERNS) {
-    if (lower.includes(pattern)) return UPDATE_RPC_TIMEOUT_MS;
-  }
   for (const pattern of LONG_RPC_PATTERNS) {
     if (lower.includes(pattern)) return LONG_RPC_TIMEOUT_MS;
   }
   return SHORT_RPC_TIMEOUT_MS;
 }
 
-function safeTelemetryString(value, limit = 160) {
-  const text = (value ?? '').toString().trim();
-  if (!text) return '';
-  return text.length > limit ? text.slice(0, limit) : text;
-}
-
-function safeTelemetryNumber(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number) || number < 0) return undefined;
-  return Math.round(number);
-}
-
-function extractTelemetryContext(params) {
-  if (!params || typeof params !== 'object' || Array.isArray(params)) return {};
-  return {
-    reqId: safeTelemetryNumber(params._aoRequestId),
-    traceId: safeTelemetryString(params._aoTraceId, 64),
-    spanId: safeTelemetryString(params._aoSpanId, 32),
-  };
-}
-
-function emitRuntimeTelemetry(event) {
-  const win = resolveWindow();
-  if (!win) return;
-  const detail = {};
-  for (const [target, source, limit] of [
-    ['phase', 'phase', 80],
-    ['method', 'method', 160],
-    ['trace_id', 'trace_id', 64],
-    ['span_id', 'span_id', 32],
-    ['call_id', 'call_id', 80],
-    ['status', 'status', 32],
-    ['error', 'error', 80],
-  ]) {
-    const value = safeTelemetryString(event[source], limit);
-    if (value) detail[target] = value;
-  }
-  for (const [target, source] of [
-    ['duration_ms', 'duration_ms'],
-    ['req_id', 'req_id'],
-    ['pending_count', 'pending_count'],
-    ['attempt', 'attempt'],
-  ]) {
-    const value = safeTelemetryNumber(event[source]);
-    if (value !== undefined) detail[target] = value;
-  }
-  if (!detail.phase) return;
-
-  const hook = win.__AO_WAILS_RUNTIME_TELEMETRY__;
-  if (typeof hook === 'function') {
-    try {
-      hook(detail);
-    }
-    catch (error) {
-      console.warn('[wails-dev-shim] runtime telemetry hook failed', error);
-    }
-  }
-  if (typeof win.dispatchEvent === 'function' && typeof win.CustomEvent === 'function') {
-    try {
-      win.dispatchEvent(new win.CustomEvent(RUNTIME_TELEMETRY_EVENT, { detail }));
-    }
-    catch (error) {
-      console.warn('[wails-dev-shim] runtime telemetry event dispatch failed', error);
-    }
-  }
-}
-
-function pendingTelemetryBase(pending) {
-  return {
-    method: pending.methodName,
-    trace_id: pending.traceId,
-    span_id: pending.spanId,
-    call_id: pending.callId,
-    req_id: pending.reqId,
-    pending_count: pendingCalls.size,
-  };
-}
-
-function pendingSettleDuration(pending) {
-  return Date.now() - (pending.sendAt || pending.pendingAt);
-}
-
-function emitPendingTelemetry(pending, fields) {
-  emitRuntimeTelemetry({
-    ...pendingTelemetryBase(pending),
-    ...fields,
-  });
-}
-
-async function rpcCall(method, params = {}, telemetryContext = {}) {
-  const callStartAt = Date.now();
+async function rpcCall(method, params = {}) {
   const methodName = (method || '').toString().trim();
   if (!methodName) throw new Error('runtime shim: rpc method is required');
 
@@ -434,76 +285,23 @@ async function rpcCall(method, params = {}, telemetryContext = {}) {
   const timeoutMs = rpcTimeoutMs(methodName);
   return new Promise((resolve, reject) => {
     const callId = String(id);
-    const pending = registerPendingCall(callId, methodName, timeoutMs, resolve, reject, {
-      ...telemetryContext,
-      callStartAt,
+    const timer = setTimeout(() => {
+      if (pendingCalls.has(callId)) {
+        pendingCalls.delete(callId);
+        reject(new Error(`runtime shim: rpc call timeout (${timeoutMs / 1000}s) for ${methodName}`));
+      }
+    }, timeoutMs);
+    pendingCalls.set(callId, {
+      resolve: (value) => { clearTimeout(timer); resolve(value); },
+      reject: (error) => { clearTimeout(timer); reject(error); },
     });
-    sendRPCRequest(activeSocket, request, pending);
-  });
-}
-
-function registerPendingCall(callId, methodName, timeoutMs, resolve, reject, telemetryContext = {}) {
-  const pendingAt = Date.now();
-  const pending = {
-    callId,
-    methodName,
-    timeoutMs,
-    reqId: telemetryContext.reqId,
-    traceId: telemetryContext.traceId || '',
-    spanId: telemetryContext.spanId || '',
-    callStartAt: telemetryContext.callStartAt || pendingAt,
-    pendingAt,
-    sendAt: 0,
-    timer: null,
-    resolve: null,
-    reject: null,
-  };
-  const timer = setTimeout(() => {
-    if (!pendingCalls.has(callId)) return;
-    pendingCalls.delete(callId);
-    emitPendingTelemetry(pending, {
-      phase: 'runtime.rpc.timeout',
-      status: 'error',
-      error: 'timeout',
-      duration_ms: pendingSettleDuration(pending),
-    });
-    pending.reject(new Error(`runtime shim: rpc call timeout (${timeoutMs / 1000}s) for ${methodName}`));
-  }, timeoutMs);
-  pending.timer = timer;
-  pending.resolve = (value) => { clearTimeout(timer); resolve(value); };
-  pending.reject = (error) => { clearTimeout(timer); reject(error); };
-  pendingCalls.set(callId, pending);
-  emitPendingTelemetry(pending, {
-    phase: 'runtime.rpc.pending',
-    status: 'ok',
-    duration_ms: pendingAt - pending.callStartAt,
-  });
-  return pending;
-}
-
-function sendRPCRequest(activeSocket, request, pending) {
-  const sendStart = Date.now();
-  try {
-    activeSocket.send(JSON.stringify(request));
-  }
-  catch (error) {
-    pendingCalls.delete(pending.callId);
-    emitPendingTelemetry(pending, {
-      phase: 'runtime.rpc.send.failed',
-      status: 'error',
-      error: 'send_failed',
-      duration_ms: Date.now() - sendStart,
-      attempt: RPC_SEND_ATTEMPT,
-    });
-    pending.reject(toError(error, 'runtime shim: websocket send failed'));
-    return;
-  }
-  pending.sendAt = Date.now();
-  emitPendingTelemetry(pending, {
-    phase: 'runtime.rpc.send.done',
-    status: 'ok',
-    duration_ms: pending.sendAt - sendStart,
-    attempt: RPC_SEND_ATTEMPT,
+    try {
+      activeSocket.send(JSON.stringify(request));
+    } catch (error) {
+      clearTimeout(timer);
+      pendingCalls.delete(callId);
+      reject(toError(error, 'runtime shim: websocket send failed'));
+    }
   });
 }
 
@@ -518,40 +316,13 @@ function stripFrontendMetaPayload(value) {
   let changed = false;
   const cleaned = {};
   for (const [key, item] of Object.entries(value)) {
-    if (key.startsWith('_ao') && !isFrontendTraceMetaKey(key)) {
+    if (key.startsWith('_ao')) {
       changed = true;
       continue;
     }
     cleaned[key] = item;
   }
   return changed ? cleaned : value;
-}
-
-function isFrontendTraceMetaKey(key) {
-  return key === '_aoTraceparent' || key === '_aoTraceId' || key === '_aoSpanId';
-}
-
-function stripFrontendTraceMetaPayload(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-  let changed = false;
-  const cleaned = {};
-  for (const [key, item] of Object.entries(value)) {
-    if (isFrontendTraceMetaKey(key)) {
-      changed = true;
-      continue;
-    }
-    cleaned[key] = item;
-  }
-  return changed ? cleaned : value;
-}
-
-function getBuildInfoFallback() {
-  const defaultBuildInfo = { version: 'dev' };
-  return (
-    rpcCall('ui/buildInfo', {})
-    .then((info) => (info && typeof info === 'object' ? info : {}))
-    .catch(() => defaultBuildInfo)
-  );
 }
 
 async function callByID(methodID, ...args) {
@@ -561,15 +332,16 @@ async function callByID(methodID, ...args) {
       const method = (args[0] || '').toString().trim();
       const params = args.length > 1 ? args[1] : {};
       const payload = params == null ? {} : params;
-      const telemetryContext = extractTelemetryContext(payload);
-      return rpcCall(
-        method,
-        method === 'ui/log' ? stripFrontendTraceMetaPayload(payload) : stripFrontendMetaPayload(payload),
-        telemetryContext,
-      );
+      return rpcCall(method, method === 'ui/log' ? payload : stripFrontendMetaPayload(payload));
     }
     case METHOD_IDS.GET_BUILD_INFO: {
-      return getBuildInfoFallback();
+      try {
+        const info = await rpcCall('ui/buildInfo', {});
+        return info && typeof info === 'object' ? info : {};
+      } catch (error) {
+        console.warn('[wails-dev-shim] ui/buildInfo failed', error);
+        return { version: 'dev' };
+      }
     }
     case METHOD_IDS.SAVE_CLIPBOARD_IMAGE: {
       const base64Payload = (args[0] || '').toString();
@@ -605,14 +377,12 @@ export const Events = {
     callbacks.add(callback);
     ensureSocket().catch((error) => {
       console.warn(`[wails-dev-shim] event bridge unavailable for ${name}`, error);
-      scheduleEventReconnect(error);
     });
     return () => {
       const current = eventListeners.get(name);
       if (!current) return;
       current.delete(callback);
       if (current.size === 0) eventListeners.delete(name);
-      clearEventReconnectIfIdle();
     };
   },
   Off(eventName) {

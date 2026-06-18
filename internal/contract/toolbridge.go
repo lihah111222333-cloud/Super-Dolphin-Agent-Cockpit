@@ -25,6 +25,30 @@ type DynamicToolSchema struct {
 	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
 }
 
+// SkillToolSurfaceTool 描述一个由 Skill 包装出来的动态工具。
+type SkillToolSurfaceTool struct {
+	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"`
+	InputSchema  json.RawMessage `json:"inputSchema,omitempty"`
+	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
+}
+
+// SkillToolCall 是模型调用 Skill 工具时传给 skill 模块的可信上下文。
+type SkillToolCall struct {
+	Name     string `json:"name"`
+	CWD      string `json:"cwd"`
+	AgentID  string `json:"agentId,omitempty"`
+	ThreadID string `json:"threadId,omitempty"`
+	TurnID   string `json:"turnId,omitempty"`
+	CallID   string `json:"callId,omitempty"`
+}
+
+// SkillToolProvider 提供项目级 Skill 工具列表，并在调用时返回 SKILL.md 全文。
+type SkillToolProvider interface {
+	ListSkillToolsForSurface(ctx context.Context, cwd string) ([]SkillToolSurfaceTool, error)
+	CallSkillTool(ctx context.Context, call SkillToolCall) (string, error)
+}
+
 const (
 	ToolSurfaceModeChat  = "chat"
 	ToolSurfaceModeAuto  = "auto"
