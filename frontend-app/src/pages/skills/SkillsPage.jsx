@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Database, FileText, Folder, MousePointer2, Power, PowerOff, Search, Sparkles } from 'lucide-react';
+import { Database, Eye, FileText, MousePointer2, Pencil, Power, PowerOff, RefreshCw, Search, Sparkles, Trash2, Upload } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
-import { applySkillResolution, createSkill, deleteSkill, getDashboardPage, importSkillDirectories, listMCPServers, listSkillFiles, listSkillResolutions, previewSkillResolution, readSkill, selectProjectDirs, startPlaywrightMCPServer, startSQLiteMCPServer, stopPlaywrightMCPServer, stopSQLiteMCPServer, suggestSkillSummary, writeSkill } from '../../shared/api/backendApi.js';
+import { applySkillResolution, createDatasourceDocument, createSkill, deleteDatasourceDocument, deleteSkill, getDashboardPage, getDatasourceDocument, importSkillDirectories, listDatasourceDocuments, listMCPServers, listSkillFiles, listSkillResolutions, previewSkillResolution, readSkill, selectFiles, selectProjectDirs, startPlaywrightMCPServer, startSQLiteMCPServer, stopPlaywrightMCPServer, stopSQLiteMCPServer, suggestSkillSummary, updateDatasourceDocument, writeSkill } from '../../shared/api/backendApi.js';
 import { cleanScalar, dashboardQueryKey, errorMessage, listToText, optionalSettingsCwd, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx';
 import './SkillsPage.css';
@@ -969,52 +969,45 @@ function importNotice(importedCount, drafts, failures, scope) {
   return parts.length > 0 ? parts.join('，') : '未导入任何技能目录';
 }
 
-const DATA_SOURCE_ITEMS = [
-  {
-    id: 'knowledge',
-    title: '本地知识库',
-    description: '包含已导入的文档、参考资料及个人笔记，用于增强 AI 的上下文检索能力。',
-    type: '文档向量库',
-    status: '已连接',
-    size: '1.2 GB',
-    icon: Folder,
-    bg: '#e8f0fe',
-    color: '#1a73e8',
-  },
-  {
-    id: 'postgres',
-    title: 'PostgreSQL 结构化数据',
-    description: '本地 PostgreSQL 数据库，存储系统核心元数据与分析表结构。',
-    type: '关系型数据库',
-    status: '运行中',
-    size: '124 表',
-    icon: Database,
-    bg: '#e2f7f9',
-    color: '#007b83',
-  },
-  {
-    id: 'shared_files',
-    title: '共享文件存储',
-    description: '保存项目共享的最终产物和工作文件目录，支持多项目隔离管理。',
-    type: '本地文件目录',
-    status: '已连接',
-    size: '2.4 GB',
-    icon: FileText,
-    bg: '#e6f4ea',
-    color: '#137333',
-  },
-  {
-    id: 'memory_store',
-    title: '记忆检索库',
-    description: '自动整合的长期记忆与事实提取结果，辅助生成更精准的对话提示词。',
-    type: '向量数据库',
-    status: '活跃中',
-    size: '482 条记忆',
-    icon: Sparkles,
-    bg: '#f3e8fd',
-    color: '#8430d9',
-  },
-];
+const DATASOURCE_LIST_LIMIT = 200;
+const DATASOURCE_IMPORT_FILTERS = Object.freeze([
+  Object.freeze({ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }),
+]);
+
+const DATASOURCE_UI = Object.freeze({
+  actions: '\u64cd\u4f5c',
+  cancel: '\u53d6\u6d88',
+  chunks: '\u5206\u5757',
+  close: '\u5173\u95ed',
+  confirmDelete: '\u786e\u8ba4\u5220\u9664',
+  content: '\u5206\u5757\u5185\u5bb9',
+  delete: '\u5220\u9664',
+  deletePrompt: '\u5220\u9664\u540e\u4f1a\u79fb\u9664\u8be5\u6570\u636e\u6e90\u548c\u5df2\u5bfc\u5165\u7684\u6587\u672c\u5206\u5757\u3002',
+  deleteSuccess: '\u5df2\u5220\u9664\u6570\u636e\u6e90\u3002',
+  deleteTitle: '\u5220\u9664\u6570\u636e\u6e90',
+  detailTitle: '\u6570\u636e\u6e90\u8be6\u60c5',
+  edit: '\u7f16\u8f91',
+  editTitle: '\u7f16\u8f91\u6570\u636e\u6e90',
+  empty: '\u6682\u65e0\u6570\u636e\u6e90',
+  errorPrefix: '\u64cd\u4f5c\u5931\u8d25\uff1a',
+  extension: '\u6269\u5c55\u540d',
+  fileName: '\u6587\u4ef6\u540d',
+  id: 'ID',
+  import: '\u5bfc\u5165',
+  importPlaceholder: '\u652f\u6301 PDF\u3001TXT \u548c TEXT \u6587\u4ef6',
+  importSuccess: '\u5df2\u5bfc\u5165\u6570\u636e\u6e90\u3002',
+  loading: '\u8bfb\u53d6\u4e2d...',
+  noChunks: '\u6682\u65e0\u5206\u5757\u3002',
+  path: '\u8def\u5f84',
+  refresh: '\u5237\u65b0',
+  save: '\u4fdd\u5b58',
+  size: '\u5927\u5c0f',
+  sourcePath: '\u672c\u5730\u6587\u4ef6\u8def\u5f84',
+  status: '\u72b6\u6001',
+  totalChars: '\u5b57\u7b26',
+  updateSuccess: '\u5df2\u66f4\u65b0\u6570\u636e\u6e90\u3002',
+  view: '\u67e5\u770b',
+});
 
 function SkillsPage({ copy = APP_COPY.zh.skills, projectPath, refreshKey = 0, resolveLaunchPreferences }) {
   const [subTab, setSubTab] = useState('plugins');
@@ -1057,19 +1050,238 @@ function SkillsPage({ copy = APP_COPY.zh.skills, projectPath, refreshKey = 0, re
   );
 }
 
-function DataSourceView({ copy }) {
-  const [search, setSearch] = useState('');
+function datasourceDocumentsQueryKey() {
+  return ['datasourceV2', 'documents'];
+}
 
-  const filtered = DATA_SOURCE_ITEMS.map((item) => ({ ...item, ...copy.datasourceItems[item.id] })).filter(s =>
-    s.title.toLowerCase().includes(search.toLowerCase()) ||
-    s.description.toLowerCase().includes(search.toLowerCase())
-  );
+function normalizeDatasourceDocument(raw, index = 0) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error(`datasource document ${index} must be an object`);
+  }
+  const documentId = Number(raw.documentId ?? raw.document_id ?? raw.id);
+  if (!Number.isInteger(documentId) || documentId <= 0) {
+    throw new Error(`datasource document ${index} is missing documentId`);
+  }
+  return {
+    documentId,
+    sourcePath: cleanScalar(raw.sourcePath ?? raw.source_path),
+    fileName: cleanScalar(raw.fileName ?? raw.file_name),
+    extension: cleanScalar(raw.extension),
+    sizeBytes: Number(raw.sizeBytes ?? raw.size_bytes ?? 0),
+    contentHash: cleanScalar(raw.contentHash ?? raw.content_hash),
+    chunkCount: Number(raw.chunkCount ?? raw.chunk_count ?? 0),
+    totalChars: Number(raw.totalChars ?? raw.total_chars ?? 0),
+    status: cleanScalar(raw.status),
+    errorMessage: cleanScalar(raw.errorMessage ?? raw.error_message),
+    createdAt: cleanScalar(raw.createdAt ?? raw.created_at),
+    updatedAt: cleanScalar(raw.updatedAt ?? raw.updated_at),
+  };
+}
+
+function normalizeDatasourceDocuments(response) {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    throw new Error('datasourceV2/list response must be an object');
+  }
+  if (!Array.isArray(response.documents)) {
+    throw new Error('datasourceV2/list response.documents must be an array');
+  }
+  return response.documents.map(normalizeDatasourceDocument);
+}
+
+function normalizeDatasourceDetail(response) {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    throw new Error('datasourceV2/get response must be an object');
+  }
+  const document = normalizeDatasourceDocument(response.document || {}, 0);
+  if (!Array.isArray(response.chunks)) {
+    throw new Error('datasourceV2/get response.chunks must be an array');
+  }
+  const chunks = response.chunks.map((raw, index) => ({
+    id: Number(raw?.id ?? index + 1),
+    documentId: Number(raw?.documentId ?? raw?.document_id ?? document.documentId),
+    chunkIndex: Number(raw?.chunkIndex ?? raw?.chunk_index ?? index),
+    content: (raw?.content || '').toString(),
+    charCount: Number(raw?.charCount ?? raw?.char_count ?? 0),
+    byteCount: Number(raw?.byteCount ?? raw?.byte_count ?? 0),
+  }));
+  return { document, chunks };
+}
+
+function datasourceMatches(doc, search) {
+  const keyword = search.trim().toLowerCase();
+  if (!keyword) return true;
+  return [doc.fileName, doc.sourcePath, doc.extension, doc.status]
+    .some((value) => value.toLowerCase().includes(keyword));
+}
+
+function formatDatasourceBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) return '-';
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let size = bytes / 1024;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  return `${size >= 10 ? size.toFixed(0) : size.toFixed(1)} ${units[unitIndex]}`;
+}
+
+function datasourceStatusTone(status) {
+  const value = status.toLowerCase();
+  if (value === 'ready') return 'ready';
+  if (value === 'failed') return 'failed';
+  return 'pending';
+}
+
+function datasourceEditForm(doc) {
+  return {
+    sourcePath: doc.sourcePath,
+    fileName: doc.fileName,
+    extension: doc.extension,
+    sizeBytes: String(Number.isFinite(doc.sizeBytes) ? doc.sizeBytes : 0),
+  };
+}
+
+function DataSourceView({ copy }) {
+  const queryClient = useQueryClient();
+  const [search, setSearch] = useState('');
+  const [sourcePath, setSourcePath] = useState('');
+  const [busyAction, setBusyAction] = useState('');
+  const [notice, setNotice] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [detailID, setDetailID] = useState(0);
+  const [editingDoc, setEditingDoc] = useState(null);
+  const [deletingDoc, setDeletingDoc] = useState(null);
+
+  const {
+    data: documents = [],
+    error: documentsError,
+    isError: documentsIsError,
+    isFetching: documentsIsFetching,
+    isLoading: documentsIsLoading,
+    refetch: refetchDocuments,
+  } = useQuery({
+    queryKey: datasourceDocumentsQueryKey(),
+    queryFn: async () => normalizeDatasourceDocuments(await listDatasourceDocuments({ limit: DATASOURCE_LIST_LIMIT })),
+  });
+  const {
+    data: detailData,
+    error: detailError,
+    isError: detailIsError,
+    isLoading: detailIsLoading,
+  } = useQuery({
+    queryKey: ['datasourceV2', 'document', detailID],
+    enabled: detailID > 0,
+    queryFn: async () => normalizeDatasourceDetail(await getDatasourceDocument({ documentId: detailID })),
+  });
+  const filtered = documents.filter((doc) => datasourceMatches(doc, search));
+
+  const invalidateDocuments = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: datasourceDocumentsQueryKey() });
+  }, [queryClient]);
+
+  const runAction = useCallback(async (action, successText) => {
+    setNotice('');
+    setActionError('');
+    try {
+      await action();
+      setNotice(successText);
+      await invalidateDocuments();
+    } catch (error) {
+      setActionError(`${DATASOURCE_UI.errorPrefix}${errorMessage(error)}`);
+    }
+  }, [invalidateDocuments]);
+
+  const handleImport = useCallback(async () => {
+    setBusyAction('import');
+    setNotice('');
+    setActionError('');
+    try {
+      const selected = await selectFiles({ filters: DATASOURCE_IMPORT_FILTERS });
+      const selectedPath = cleanScalar(selected[0]);
+      if (!selectedPath) return;
+      setSourcePath(selectedPath);
+      await runAction(async () => {
+        await createDatasourceDocument({ sourcePath: selectedPath });
+        setSourcePath('');
+      }, DATASOURCE_UI.importSuccess);
+    } catch (error) {
+      setActionError(`${DATASOURCE_UI.errorPrefix}${errorMessage(error)}`);
+    } finally {
+      setBusyAction('');
+    }
+  }, [runAction]);
+
+  const handleUpdate = useCallback(async (form) => {
+    if (!editingDoc) return;
+    setBusyAction('update');
+    await runAction(async () => {
+      const updated = await updateDatasourceDocument({
+        documentId: editingDoc.documentId,
+        sourcePath: form.sourcePath,
+        fileName: form.fileName,
+        extension: form.extension,
+        sizeBytes: form.sizeBytes,
+      });
+      setEditingDoc(null);
+      const normalized = normalizeDatasourceDocument(updated, 0);
+      if (detailID === normalized.documentId) {
+        queryClient.setQueryData(['datasourceV2', 'document', detailID], (current) => (
+          current ? { ...current, document: normalized } : current
+        ));
+      }
+    }, DATASOURCE_UI.updateSuccess);
+    setBusyAction('');
+  }, [detailID, editingDoc, queryClient, runAction]);
+
+  const handleDelete = useCallback(async () => {
+    if (!deletingDoc) return;
+    const documentID = deletingDoc.documentId;
+    setBusyAction('delete');
+    await runAction(async () => {
+      await deleteDatasourceDocument({ documentId: documentID });
+      setDeletingDoc(null);
+      if (detailID === documentID) setDetailID(0);
+      queryClient.removeQueries({ queryKey: ['datasourceV2', 'document', documentID] });
+    }, DATASOURCE_UI.deleteSuccess);
+    setBusyAction('');
+  }, [deletingDoc, detailID, queryClient, runAction]);
 
   return (
     <div className="datasource-container">
       <div className="datasource-header">
-        <h1>{copy.datasourceTitle}</h1>
-        <p className="datasource-subtitle">{copy.datasourceSubtitle}</p>
+        <div>
+          <h1>{copy.datasourceTitle}</h1>
+          <p className="datasource-subtitle">{copy.datasourceSubtitle}</p>
+        </div>
+        <button
+          type="button"
+          className="datasource-icon-button"
+          title={DATASOURCE_UI.refresh}
+          aria-label={DATASOURCE_UI.refresh}
+          disabled={documentsIsFetching}
+          onClick={() => { void refetchDocuments(); }}
+        >
+          <RefreshCw size={18} />
+        </button>
+      </div>
+
+      <div className="datasource-import-row">
+        <label className="datasource-path-field">
+          <span>{DATASOURCE_UI.sourcePath}</span>
+          <input
+            data-testid="datasource-source-path"
+            value={sourcePath}
+            readOnly
+            placeholder={DATASOURCE_UI.importPlaceholder}
+          />
+        </label>
+        <button type="button" data-testid="datasource-import-button" disabled={busyAction === 'import'} onClick={() => { void handleImport(); }}>
+          <Upload size={16} />
+          <span>{busyAction === 'import' ? DATASOURCE_UI.loading : DATASOURCE_UI.import}</span>
+        </button>
       </div>
 
       <div className="plugins-search-bar-wrap">
@@ -1085,30 +1297,150 @@ function DataSourceView({ copy }) {
         </div>
       </div>
 
-      <div className="datasource-grid">
-        {filtered.map((s) => {
-          const IconComponent = s.icon;
-          return (
-            <div key={s.id} className="datasource-card">
-              <div className="datasource-card-header">
-                <div className="datasource-icon-wrap" style={{ backgroundColor: s.bg, color: s.color }}>
-                  <IconComponent size={22} />
-                </div>
-                <span className="datasource-status-badge">{s.status}</span>
-              </div>
-              <div className="datasource-card-body">
-                <h3>{s.title}</h3>
-                <p>{s.description}</p>
-              </div>
-              <div className="datasource-card-footer">
-                <span className="datasource-meta-tag">{s.type}</span>
-                <span className="datasource-meta-size">{s.size}</span>
-              </div>
-            </div>
-          );
-        })}
+      {notice ? <p className="datasource-notice" role="status">{notice}</p> : null}
+      {actionError ? <p className="datasource-error" role="alert">{actionError}</p> : null}
+      {documentsIsError ? <p className="datasource-error" role="alert">{`${DATASOURCE_UI.errorPrefix}${errorMessage(documentsError)}`}</p> : null}
+
+      <div className="datasource-table-wrap">
+        <table className="datasource-table">
+          <thead>
+            <tr>
+              <th>{DATASOURCE_UI.fileName}</th>
+              <th>{DATASOURCE_UI.path}</th>
+              <th>{DATASOURCE_UI.size}</th>
+              <th>{DATASOURCE_UI.chunks}</th>
+              <th>{DATASOURCE_UI.status}</th>
+              <th>{DATASOURCE_UI.actions}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {documentsIsLoading ? (
+              <tr><td colSpan={6}>{DATASOURCE_UI.loading}</td></tr>
+            ) : filtered.length === 0 ? (
+              <tr><td colSpan={6}>{DATASOURCE_UI.empty}</td></tr>
+            ) : filtered.map((doc) => (
+              <tr key={doc.documentId}>
+                <td>
+                  <div className="datasource-file-cell">
+                    <FileText size={16} />
+                    <span>{doc.fileName || doc.sourcePath || `#${doc.documentId}`}</span>
+                  </div>
+                </td>
+                <td><span className="datasource-path-text">{doc.sourcePath || '-'}</span></td>
+                <td>{formatDatasourceBytes(doc.sizeBytes)}</td>
+                <td>{doc.chunkCount}</td>
+                <td><span className={`datasource-status datasource-status-${datasourceStatusTone(doc.status)}`}>{doc.status || '-'}</span></td>
+                <td>
+                  <div className="datasource-actions">
+                    <button type="button" data-testid={`datasource-view-${doc.documentId}`} title={DATASOURCE_UI.view} aria-label={`${DATASOURCE_UI.view} ${doc.fileName}`} onClick={() => setDetailID(doc.documentId)}><Eye size={16} /></button>
+                    <button type="button" data-testid={`datasource-edit-${doc.documentId}`} title={DATASOURCE_UI.edit} aria-label={`${DATASOURCE_UI.edit} ${doc.fileName}`} onClick={() => setEditingDoc(doc)}><Pencil size={16} /></button>
+                    <button type="button" data-testid={`datasource-delete-${doc.documentId}`} title={DATASOURCE_UI.delete} aria-label={`${DATASOURCE_UI.delete} ${doc.fileName}`} onClick={() => setDeletingDoc(doc)}><Trash2 size={16} /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
+
+      {detailID > 0 ? (
+        <DatasourceDetailModal
+          detail={detailData}
+          error={detailError}
+          isError={detailIsError}
+          isLoading={detailIsLoading}
+          onClose={() => setDetailID(0)}
+        />
+      ) : null}
+      {editingDoc ? (
+        <DatasourceEditModal
+          key={editingDoc.documentId}
+          doc={editingDoc}
+          saving={busyAction === 'update'}
+          onClose={() => setEditingDoc(null)}
+          onSave={handleUpdate}
+        />
+      ) : null}
+      {deletingDoc ? (
+        <DatasourceDeleteModal
+          doc={deletingDoc}
+          deleting={busyAction === 'delete'}
+          onClose={() => setDeletingDoc(null)}
+          onConfirm={handleDelete}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function DatasourceDetailModal({ detail, error, isError, isLoading, onClose }) {
+  return (
+    <FocusTrapDialog ariaLabel={DATASOURCE_UI.detailTitle} className="modal-box datasource-modal" closeDisabled={false} onClose={onClose}>
+      <header>
+        <h2>{DATASOURCE_UI.detailTitle}</h2>
+        <button type="button" className="ghost" onClick={onClose}>{DATASOURCE_UI.close}</button>
+      </header>
+      {isLoading ? <p>{DATASOURCE_UI.loading}</p> : null}
+      {isError ? <p className="datasource-error" role="alert">{`${DATASOURCE_UI.errorPrefix}${errorMessage(error)}`}</p> : null}
+      {detail ? (
+        <>
+          <dl className="datasource-detail-grid">
+            <div><dt>{DATASOURCE_UI.id}</dt><dd>{detail.document.documentId}</dd></div>
+            <div><dt>{DATASOURCE_UI.fileName}</dt><dd>{detail.document.fileName || '-'}</dd></div>
+            <div><dt>{DATASOURCE_UI.path}</dt><dd>{detail.document.sourcePath || '-'}</dd></div>
+            <div><dt>{DATASOURCE_UI.size}</dt><dd>{formatDatasourceBytes(detail.document.sizeBytes)}</dd></div>
+            <div><dt>{DATASOURCE_UI.totalChars}</dt><dd>{detail.document.totalChars}</dd></div>
+            <div><dt>{DATASOURCE_UI.status}</dt><dd>{detail.document.status || '-'}</dd></div>
+          </dl>
+          <div className="datasource-chunks">
+            <h3>{DATASOURCE_UI.content}</h3>
+            {detail.chunks.length === 0 ? <p>{DATASOURCE_UI.noChunks}</p> : detail.chunks.map((chunk) => (
+              <pre key={`${chunk.id}-${chunk.chunkIndex}`} data-testid="datasource-detail-chunk">{chunk.content}</pre>
+            ))}
+          </div>
+        </>
+      ) : null}
+    </FocusTrapDialog>
+  );
+}
+
+function DatasourceEditModal({ doc, saving, onClose, onSave }) {
+  const [form, setForm] = useState(() => datasourceEditForm(doc));
+  const update = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  return (
+    <FocusTrapDialog ariaLabel={DATASOURCE_UI.editTitle} className="modal-box datasource-modal" closeDisabled={saving} onClose={onClose}>
+      <header>
+        <h2>{DATASOURCE_UI.editTitle}</h2>
+        <button type="button" className="ghost" onClick={onClose} disabled={saving}>{DATASOURCE_UI.close}</button>
+      </header>
+      <div className="datasource-form-grid">
+        <label>{DATASOURCE_UI.sourcePath}<input data-testid="datasource-edit-source-path" value={form.sourcePath} onChange={update('sourcePath')} /></label>
+        <label>{DATASOURCE_UI.fileName}<input data-testid="datasource-edit-file-name" value={form.fileName} onChange={update('fileName')} /></label>
+        <label>{DATASOURCE_UI.extension}<input value={form.extension} onChange={update('extension')} /></label>
+        <label>{DATASOURCE_UI.size}<input type="number" min="0" value={form.sizeBytes} onChange={update('sizeBytes')} /></label>
+      </div>
+      <footer>
+        <button type="button" className="ghost" onClick={onClose} disabled={saving}>{DATASOURCE_UI.cancel}</button>
+        <button type="button" data-testid="datasource-edit-save" onClick={() => { void onSave(form); }} disabled={saving}>{saving ? DATASOURCE_UI.loading : DATASOURCE_UI.save}</button>
+      </footer>
+    </FocusTrapDialog>
+  );
+}
+
+function DatasourceDeleteModal({ doc, deleting, onClose, onConfirm }) {
+  return (
+    <FocusTrapDialog ariaLabel={DATASOURCE_UI.deleteTitle} className="modal-box datasource-modal" closeDisabled={deleting} onClose={onClose}>
+      <header>
+        <h2>{DATASOURCE_UI.deleteTitle}</h2>
+        <button type="button" className="ghost" onClick={onClose} disabled={deleting}>{DATASOURCE_UI.close}</button>
+      </header>
+      <p>{DATASOURCE_UI.deletePrompt}</p>
+      <p className="datasource-delete-target">{doc.fileName || doc.sourcePath || `#${doc.documentId}`}</p>
+      <footer>
+        <button type="button" className="ghost" onClick={onClose} disabled={deleting}>{DATASOURCE_UI.cancel}</button>
+        <button type="button" className="text-danger" data-testid="datasource-delete-confirm" onClick={() => { void onConfirm(); }} disabled={deleting}>{deleting ? DATASOURCE_UI.loading : DATASOURCE_UI.confirmDelete}</button>
+      </footer>
+    </FocusTrapDialog>
   );
 }
 

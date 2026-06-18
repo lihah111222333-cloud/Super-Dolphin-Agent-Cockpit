@@ -66,6 +66,18 @@ SET content_hash = sqlc.arg(content_hash),
 WHERE id = sqlc.arg(id)
 RETURNING id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at;
 
+-- name: ListDatasourceV2Documents :many
+SELECT id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at
+FROM datasource_v2_documents
+WHERE (
+    sqlc.arg(keyword) = ''
+    OR source_path LIKE '%' || sqlc.arg(keyword) || '%'
+    OR file_name LIKE '%' || sqlc.arg(keyword) || '%'
+    OR status LIKE '%' || sqlc.arg(keyword) || '%'
+)
+ORDER BY updated_at DESC, id DESC
+LIMIT sqlc.arg(limit);
+
 -- name: GetDatasourceV2Document :one
 SELECT id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at
 FROM datasource_v2_documents
@@ -76,3 +88,17 @@ SELECT id, document_id, chunk_index, content, char_count, byte_count, created_at
 FROM datasource_v2_text_chunks
 WHERE document_id = sqlc.arg(document_id)
 ORDER BY chunk_index ASC;
+
+-- name: UpdateDatasourceV2DocumentMetadata :one
+UPDATE datasource_v2_documents
+SET source_path = sqlc.arg(source_path),
+    file_name = sqlc.arg(file_name),
+    extension = sqlc.arg(extension),
+    size_bytes = sqlc.arg(size_bytes),
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE id = sqlc.arg(id)
+RETURNING id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at;
+
+-- name: DeleteDatasourceV2Document :execrows
+DELETE FROM datasource_v2_documents
+WHERE id = sqlc.arg(id);

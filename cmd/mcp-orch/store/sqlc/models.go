@@ -238,6 +238,31 @@ type CronJobRun struct {
 	UpdatedAt      int64  `db:"updated_at" json:"updated_at"`
 }
 
+type DatasourceV2Document struct {
+	ID           int64   `db:"id" json:"id"`
+	SourcePath   string  `db:"source_path" json:"source_path"`
+	FileName     string  `db:"file_name" json:"file_name"`
+	Extension    string  `db:"extension" json:"extension"`
+	SizeBytes    int64   `db:"size_bytes" json:"size_bytes"`
+	ContentHash  *string `db:"content_hash" json:"content_hash"`
+	ChunkCount   int64   `db:"chunk_count" json:"chunk_count"`
+	TotalChars   int64   `db:"total_chars" json:"total_chars"`
+	Status       string  `db:"status" json:"status"`
+	ErrorMessage *string `db:"error_message" json:"error_message"`
+	CreatedAt    int64   `db:"created_at" json:"created_at"`
+	UpdatedAt    int64   `db:"updated_at" json:"updated_at"`
+}
+
+type DatasourceV2TextChunk struct {
+	ID         int64  `db:"id" json:"id"`
+	DocumentID int64  `db:"document_id" json:"document_id"`
+	ChunkIndex int64  `db:"chunk_index" json:"chunk_index"`
+	Content    string `db:"content" json:"content"`
+	CharCount  int64  `db:"char_count" json:"char_count"`
+	ByteCount  int64  `db:"byte_count" json:"byte_count"`
+	CreatedAt  int64  `db:"created_at" json:"created_at"`
+}
+
 type HookPendingReview struct {
 	HookCallID      string `db:"hook_call_id" json:"hook_call_id"`
 	Topic           string `db:"topic" json:"topic"`
