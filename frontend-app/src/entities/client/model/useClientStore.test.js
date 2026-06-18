@@ -635,6 +635,78 @@ function registerBridgeEventHandlersForTest() {
     await expect(switchPromise).resolves.toBe(true);
   });
 
+  it('preserves a thread selected while project switch sidebar refresh is still in flight', async () => {
+    const sidebarRefresh = deferred();
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      projects: ['/repo/app', '/repo/other'],
+      activeThreadId: 'thread-old',
+      threads: [{ id: 'thread-old', name: 'Old project thread', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
+    });
+    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    backend.getSidebarState.mockReturnValue(sidebarRefresh.promise);
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-other',
+      threads: [{ id: 'thread-other', name: 'Other project thread', provider: 'codex', status: 'idle', cwd: '/repo/other' }],
+      timelinesByThread: {
+        'thread-other': [{ id: 'message-thread-other', role: 'assistant', text: 'other message', time: '2026-06-18T00:00:00Z' }],
+      },
+    });
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+
+    await expect(useClientStore.getState().setActiveProjectPath('/repo/other', {
+      preserveActiveThreadId: true,
+    })).resolves.toBe(true);
+    await expect(useClientStore.getState().setActiveThread('thread-other')).resolves.toBe(true);
+    expect(useClientStore.getState().activeThreadId).toBe('thread-other');
+
+    sidebarRefresh.resolve({
+      activeThreadId: '',
+      threads: [{ id: 'thread-other', name: 'Other project thread', provider: 'codex', status: 'idle', cwd: '/repo/other' }],
+    });
+    await flushPromises();
+
+    expect(useClientStore.getState().activeThreadId).toBe('thread-other');
+  });
+
+  it('does not shrink the sidebar project cache from a thread-scoped state sync', async () => {
+    const threads = [
+      { id: 'thread-a', name: 'Thread A', provider: 'codex', status: 'idle', cwd: '/repo/app' },
+      { id: 'thread-b', name: 'Thread B', provider: 'codex', status: 'idle', cwd: '/repo/app' },
+    ];
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      projects: ['/repo/app'],
+      activeThreadId: 'thread-a',
+      threads,
+      sidebarThreadsByProject: {
+        '/repo/app': threads,
+      },
+    });
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-b',
+      threads: [threads[1]],
+      timelinesByThread: {
+        'thread-b': [{ id: 'message-thread-b', role: 'assistant', text: 'thread b message', time: '2026-06-18T00:00:00Z' }],
+      },
+    });
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+
+    await expect(useClientStore.getState().setActiveThread('thread-b')).resolves.toBe(true);
+
+    expect(useClientStore.getState().threads).toEqual([
+      expect.objectContaining({ id: 'thread-b', name: 'Thread B' }),
+    ]);
+    expect(useClientStore.getState().sidebarThreadsByProject['/repo/app']).toEqual([
+      expect.objectContaining({ id: 'thread-a', name: 'Thread A' }),
+      expect.objectContaining({ id: 'thread-b', name: 'Thread B' }),
+    ]);
+  });
+
   it('starts a clear-surface sidebar refresh without waiting for a background refresh', async () => {
     const backgroundRefresh = deferred();
     const clearSurfaceRefresh = deferred();
@@ -713,6 +785,42 @@ function registerBridgeEventHandlersForTest() {
       expect.objectContaining({ id: 'thread-app', name: 'App thread', cwd: '/repo/app' }),
     ]);
     expect(useClientStore.getState().activeThreadId).toBe('');
+  });
+
+  it('keeps runtime cwd threads when Windows separators differ from the selected project path', async () => {
+    resetClientStoreForTests({
+      cwd: 'C:/Users/ai03/Desktop/Super-Dolphin',
+      projectScopeCwd: 'C:/Users/ai03/Desktop/Super-Dolphin',
+      activeProject: 'C:/Users/ai03/Desktop/Super-Dolphin',
+      projects: ['C:/Users/ai03/Desktop/Super-Dolphin'],
+    });
+    backend.setActiveProject.mockResolvedValue({
+      projects: ['C:/Users/ai03/Desktop/Super-Dolphin'],
+      active: 'C:/Users/ai03/Desktop/Super-Dolphin',
+    });
+    backend.getSidebarState.mockResolvedValue({
+      activeThreadId: 'agent-win',
+      threads: [
+        { id: 'agent-win', agent_id: 'agent-win', name: 'Windows cwd thread', provider: 'codex', status: 'idle' },
+      ],
+      agentRuntimeById: {
+        'agent-win': {
+          cwd: 'C:\\Users\\ai03\\Desktop\\Super-Dolphin',
+          provider: 'codex',
+          providerThreadId: 'session-win',
+        },
+      },
+    });
+
+    await expect(useClientStore.getState().setActiveProjectPath('C:/Users/ai03/Desktop/Super-Dolphin')).resolves.toBe(true);
+
+    expect(useClientStore.getState().threads).toEqual([
+      expect.objectContaining({
+        id: 'agent-win',
+        cwd: 'C:\\Users\\ai03\\Desktop\\Super-Dolphin',
+        name: 'Windows cwd thread',
+      }),
+    ]);
   });
 
   it('keeps composer drafts isolated by selected thread and project cwd', async () => {
@@ -2618,6 +2726,43 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({
       id: 'agent_1780163711518420000',
       agentId: 'agent_1780163711518420000',
+    }));
+  });
+
+  it('keeps opened sidebar threads with zero archivedAt visible', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      threads: [
+        {
+          id: 'thread-existing',
+          name: 'Existing chat',
+          provider: 'codex',
+          status: 'idle',
+          cwd: '/repo/app',
+          archived: false,
+          archivedAt: 0,
+        },
+      ],
+    });
+
+    useClientStore.getState().beginOpeningThread({
+      id: 'thread-existing',
+      agentId: 'thread-existing',
+      providerThreadId: '',
+      sessionId: '',
+      cwd: '/repo/app',
+      name: 'Existing chat',
+      provider: 'codex',
+      status: 'idle',
+      archived: false,
+      archivedAt: 0,
+    });
+
+    expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({
+      id: 'thread-existing',
+      archived: false,
+      archivedAt: 0,
     }));
   });
 

@@ -26,6 +26,23 @@ func (q *Queries) DeleteDatasourceV2ChunksByDocumentID(ctx context.Context, arg 
 	return result.RowsAffected()
 }
 
+const deleteDatasourceV2Document = `-- name: DeleteDatasourceV2Document :execrows
+DELETE FROM datasource_v2_documents
+WHERE id = ?1
+`
+
+type DeleteDatasourceV2DocumentParams struct {
+	ID int64 `db:"id" json:"id"`
+}
+
+func (q *Queries) DeleteDatasourceV2Document(ctx context.Context, arg DeleteDatasourceV2DocumentParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteDatasourceV2Document, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getDatasourceV2Document = `-- name: GetDatasourceV2Document :one
 SELECT id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at
 FROM datasource_v2_documents
@@ -134,6 +151,60 @@ func (q *Queries) ListDatasourceV2Chunks(ctx context.Context, arg ListDatasource
 	return items, nil
 }
 
+const listDatasourceV2Documents = `-- name: ListDatasourceV2Documents :many
+SELECT id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at
+FROM datasource_v2_documents
+WHERE (
+    ?1 = ''
+    OR source_path LIKE '%' || ?1 || '%'
+    OR file_name LIKE '%' || ?1 || '%'
+    OR status LIKE '%' || ?1 || '%'
+)
+ORDER BY updated_at DESC, id DESC
+LIMIT ?2
+`
+
+type ListDatasourceV2DocumentsParams struct {
+	Keyword interface{} `db:"keyword" json:"keyword"`
+	Limit   int64       `db:"limit" json:"limit"`
+}
+
+func (q *Queries) ListDatasourceV2Documents(ctx context.Context, arg ListDatasourceV2DocumentsParams) ([]DatasourceV2Document, error) {
+	rows, err := q.db.QueryContext(ctx, listDatasourceV2Documents, arg.Keyword, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DatasourceV2Document{}
+	for rows.Next() {
+		var i DatasourceV2Document
+		if err := rows.Scan(
+			&i.ID,
+			&i.SourcePath,
+			&i.FileName,
+			&i.Extension,
+			&i.SizeBytes,
+			&i.ContentHash,
+			&i.ChunkCount,
+			&i.TotalChars,
+			&i.Status,
+			&i.ErrorMessage,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markDatasourceV2DocumentReady = `-- name: MarkDatasourceV2DocumentReady :one
 UPDATE datasource_v2_documents
 SET content_hash = ?1,
@@ -158,6 +229,51 @@ func (q *Queries) MarkDatasourceV2DocumentReady(ctx context.Context, arg MarkDat
 		arg.ContentHash,
 		arg.ChunkCount,
 		arg.TotalChars,
+		arg.ID,
+	)
+	var i DatasourceV2Document
+	err := row.Scan(
+		&i.ID,
+		&i.SourcePath,
+		&i.FileName,
+		&i.Extension,
+		&i.SizeBytes,
+		&i.ContentHash,
+		&i.ChunkCount,
+		&i.TotalChars,
+		&i.Status,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateDatasourceV2DocumentMetadata = `-- name: UpdateDatasourceV2DocumentMetadata :one
+UPDATE datasource_v2_documents
+SET source_path = ?1,
+    file_name = ?2,
+    extension = ?3,
+    size_bytes = ?4,
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE id = ?5
+RETURNING id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at
+`
+
+type UpdateDatasourceV2DocumentMetadataParams struct {
+	SourcePath string `db:"source_path" json:"source_path"`
+	FileName   string `db:"file_name" json:"file_name"`
+	Extension  string `db:"extension" json:"extension"`
+	SizeBytes  int64  `db:"size_bytes" json:"size_bytes"`
+	ID         int64  `db:"id" json:"id"`
+}
+
+func (q *Queries) UpdateDatasourceV2DocumentMetadata(ctx context.Context, arg UpdateDatasourceV2DocumentMetadataParams) (DatasourceV2Document, error) {
+	row := q.db.QueryRowContext(ctx, updateDatasourceV2DocumentMetadata,
+		arg.SourcePath,
+		arg.FileName,
+		arg.Extension,
+		arg.SizeBytes,
 		arg.ID,
 	)
 	var i DatasourceV2Document

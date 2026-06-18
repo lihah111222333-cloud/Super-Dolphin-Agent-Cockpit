@@ -16,6 +16,8 @@ function loadMermaidModule() {
       return Promise.resolve(mermaid.initialize({
         startOnLoad: false,
         securityLevel: 'strict',
+        // Mermaid HTML labels emit non-XML <br>, so keep output compatible with SVG sanitizing.
+        htmlLabels: false,
         theme: 'base',
         themeVariables: {
           fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',

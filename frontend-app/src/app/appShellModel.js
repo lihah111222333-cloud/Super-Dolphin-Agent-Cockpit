@@ -44,6 +44,7 @@ export const APP_SHELL_STORE_KEYS = Object.freeze([
   'attachments',
   'bootstrap',
   'bootstrapStatus',
+  'beginOpeningThread',
   'copyActiveThreadInfo',
   'cwd',
   'deleteStaleThreads',

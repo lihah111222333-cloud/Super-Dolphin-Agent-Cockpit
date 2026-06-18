@@ -259,7 +259,7 @@ function normalizeTimestamp(value) {
   const text = normalizeString(value);
   if (!text) return 0;
   const asNumber = Number(text);
-  if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
+  if (Number.isFinite(asNumber)) return asNumber > 0 ? asNumber : 0;
   // 截断高精度时间戳中的多余小数秒，以兼容 JS Date.parse 的 3 位毫秒限制
   const sanitized = text.replace(/(\.\d{3})\d+/g, '$1');
   const parsed = Date.parse(sanitized);
@@ -644,6 +644,33 @@ function runtimeCwdForThread(rawThread, runtimeById = {}) {
   return '';
 }
 
+function snapshotThreadProjectPath(rawThread = {}) {
+  const sourceThread = rawThread?.thread && typeof rawThread.thread === 'object' ? rawThread.thread : {};
+  const direct = firstThreadCopyText(
+    rawThread?.projectPath,
+    rawThread?.project_path,
+    rawThread?.workspacePath,
+    rawThread?.workspace_path,
+    rawThread?.rootPath,
+    rawThread?.root_path,
+    sourceThread?.projectPath,
+    sourceThread?.project_path,
+    sourceThread?.workspacePath,
+    sourceThread?.workspace_path,
+    sourceThread?.rootPath,
+    sourceThread?.root_path,
+  );
+  if (direct) return direct;
+
+  for (const key of ['project', 'workspace', 'metadata', 'meta']) {
+    const nested = rawThread?.[key];
+    if (!nested || typeof nested !== 'object' || Array.isArray(nested)) continue;
+    const nestedPath = firstThreadCopyText(nested.path, nested.cwd, nested.root, nested.projectPath, nested.project_path);
+    if (nestedPath) return nestedPath;
+  }
+  return '';
+}
+
 function snapshotThreadCwd(rawThread, runtimeById = {}) {
   const sourceThread = rawThread?.thread && typeof rawThread.thread === 'object' ? rawThread.thread : {};
   return normalizePath(
@@ -657,14 +684,15 @@ function snapshotThreadCwd(rawThread, runtimeById = {}) {
     sourceThread?.workdir ||
     sourceThread?.workDir ||
     sourceThread?.work_dir ||
+    snapshotThreadProjectPath(rawThread) ||
     runtimeCwdForThread(rawThread, runtimeById),
   );
 }
 
 function threadMatchesCwdScope(rawThread, scopeCwd, runtimeById = {}) {
-  const scope = normalizePath(scopeCwd);
+  const scope = sidebarProjectKey(scopeCwd);
   if (!scope || scope === '.') return true;
-  const threadCwd = snapshotThreadCwd(rawThread, runtimeById);
+  const threadCwd = sidebarProjectKey(snapshotThreadCwd(rawThread, runtimeById));
   return !threadCwd || threadCwd === scope;
 }
 
@@ -718,6 +746,10 @@ function upsertExplicitThread(threads, thread, requestedId) {
     merged,
     ...threads.filter((candidate) => !ids.some((id) => threadMatchesIdentifier(candidate, id))),
   ];
+}
+
+function pickThreadScopedEntry(map = {}, threadId = '') {
+  return threadId && hasOwn(map, threadId) ? { [threadId]: map[threadId] } : {};
 }
 
 function providerForStateThread(state, value) {
@@ -1078,7 +1110,9 @@ function buildSnapshotState(state, payload = {}, options = {}) {
   const timelineState = snapshotTimelines(state, payload, nextThreads);
   const metrics = snapshotThreadMetrics(state, payload, nextThreads, activeThreadId);
   const diffState = snapshotDiffText(state, payload, nextThreads, activeThreadId);
-  const sidebarThreadsByProject = sidebarThreadsByProjectWith(state, maps.scopeCwd, nextThreads);
+  const sidebarThreadsByProject = options.cacheSidebarThreads === false
+    ? state.sidebarThreadsByProject
+    : sidebarThreadsByProjectWith(state, maps.scopeCwd, nextThreads);
   return {
     activeThreadId,
     threads: nextThreads,
@@ -1786,36 +1820,42 @@ function attachScopeRuntime(runtime) {
     return activeProject && activeProject !== '.' ? activeProject : normalizePath(get().cwd);
   };
 
-  const clearChatSurfaceForCwdSwitch = (cwdValue = '') => {
+  const clearChatSurfaceForCwdSwitch = (cwdValue = '', options = {}) => {
     const cwd = normalizePath(cwdValue);
+    const preserveActiveThreadId = options.preserveActiveThreadId === true;
     sequencesByThread.clear();
     threadMessageGenerations.clear();
     threadSyncGenerations.clear();
-    set((state) => ({
-      activeThreadId: '',
-      threads: [],
-      sidebarThreadsByProject: sidebarThreadsByProjectWith(state, cwd, []),
-      pinnedThreadAtById: {},
-      statuses: {},
-      activeTurnByThread: {},
-      threadConfigByThread: {},
-      threadConfigLoadingByThread: {},
-      threadConfigFailedByThread: {},
-      threadStateLoadingByThread: {},
-      threadArchiveLoadingByThread: {},
-      pendingActiveThreadId: '',
-      timelinesByThread: {},
-      threadTimelineReadyByThread: {},
-      threadMessagePaginationByThread: {},
-      tokenUsageByThread: {},
-      activityStatsByThread: {},
-      diffTextByThread: {},
-      threadDiffReadyByThread: {},
-      runtimeResultEntries: [],
-      draft: '',
-      attachments: [],
-      chatSurfaceLoadingCwd: cwd,
-    }));
+    set((state) => {
+      const activeThreadId = preserveActiveThreadId ? normalizeBackendThreadId(state.activeThreadId) : '';
+      const preservedThreads = activeThreadId
+        ? state.threads.filter((thread) => threadMatchesIdentifier(thread, activeThreadId))
+        : [];
+      return {
+        activeThreadId,
+        threads: preservedThreads,
+        pinnedThreadAtById: {},
+        statuses: pickThreadScopedEntry(state.statuses, activeThreadId),
+        activeTurnByThread: pickThreadScopedEntry(state.activeTurnByThread, activeThreadId),
+        threadConfigByThread: pickThreadScopedEntry(state.threadConfigByThread, activeThreadId),
+        threadConfigLoadingByThread: pickThreadScopedEntry(state.threadConfigLoadingByThread, activeThreadId),
+        threadConfigFailedByThread: pickThreadScopedEntry(state.threadConfigFailedByThread, activeThreadId),
+        threadStateLoadingByThread: activeThreadId ? { [activeThreadId]: true } : {},
+        threadArchiveLoadingByThread: pickThreadScopedEntry(state.threadArchiveLoadingByThread, activeThreadId),
+        pendingActiveThreadId: activeThreadId ? (state.pendingActiveThreadId || activeThreadId) : '',
+        timelinesByThread: pickThreadScopedEntry(state.timelinesByThread, activeThreadId),
+        threadTimelineReadyByThread: pickThreadScopedEntry(state.threadTimelineReadyByThread, activeThreadId),
+        threadMessagePaginationByThread: pickThreadScopedEntry(state.threadMessagePaginationByThread, activeThreadId),
+        tokenUsageByThread: pickThreadScopedEntry(state.tokenUsageByThread, activeThreadId),
+        activityStatsByThread: pickThreadScopedEntry(state.activityStatsByThread, activeThreadId),
+        diffTextByThread: pickThreadScopedEntry(state.diffTextByThread, activeThreadId),
+        threadDiffReadyByThread: pickThreadScopedEntry(state.threadDiffReadyByThread, activeThreadId),
+        runtimeResultEntries: [],
+        draft: activeThreadId ? state.draft : '',
+        attachments: activeThreadId ? state.attachments : [],
+        chatSurfaceLoadingCwd: cwd,
+      };
+    });
   };
 
   const applyProjects = (payload, fallbackCwd) => {
@@ -1878,9 +1918,13 @@ function attachSidebarRuntime(runtime) {
     const seq = ++runtime.sidebarRefreshSeq;
     if (options.clearSurface) {
       const cachedSidebar = sidebarSnapshotsByCwd.get(cwd);
-      clearChatSurfaceForCwdSwitch(cwd);
+      clearChatSurfaceForCwdSwitch(cwd, { preserveActiveThreadId: options.preserveActiveThreadId === true });
       if (cachedSidebar) {
-        applySnapshot(cachedSidebar, { autoSelectThread: false, scopeCwd: cwd });
+        applySnapshot(cachedSidebar, {
+          autoSelectThread: false,
+          scopeCwd: cwd,
+          preserveActiveThreadId: options.preserveActiveThreadId === true,
+        });
       }
     }
     return getSidebarState({ cwd })
@@ -1949,8 +1993,11 @@ function attachSidebarRuntime(runtime) {
     runSidebarRefreshEntry(cwd, refreshEntry, options);
   };
 
-  const refreshChatSurfaceForCwdInBackground = (cwdValue) => {
-    refreshSidebarSnapshotForCwdInBackground(cwdValue, { clearSurface: true });
+  const refreshChatSurfaceForCwdInBackground = (cwdValue, options = {}) => {
+    refreshSidebarSnapshotForCwdInBackground(cwdValue, {
+      clearSurface: true,
+      preserveActiveThreadId: options.preserveActiveThreadId === true,
+    });
   };
 
   const refreshActiveChatSidebarInBackground = () => {
@@ -2599,6 +2646,35 @@ function createProviderActions(runtime) {
 
 function createThreadSelectionActions(runtime) {
   return {
+    beginOpeningThread: (thread) => {
+      const rawThread = thread && typeof thread === 'object' ? thread : { id: thread };
+      const requestedId = normalizeBackendThreadId(
+        rawThread.id || rawThread.threadId || rawThread.thread_id || rawThread.agentId || rawThread.agent_id,
+      );
+      if (!requestedId) return false;
+      const current = runtime.get();
+      const openingThread = normalizeThread(rawThread, {
+        state: current,
+        fallbackProvider: current.provider,
+      });
+      const id = normalizeBackendThreadId(openingThread.id || requestedId);
+      if (!id) return false;
+      void runtime.saveActiveComposerDraft(current);
+      const restored = runtime.restoreComposerDraft(current, id);
+      runtime.set((state) => ({
+        activeThreadId: id,
+        pendingActiveThreadId: id,
+        threads: upsertExplicitThread(state.threads, { ...openingThread, id }, requestedId),
+        draft: restored.draft,
+        attachments: restored.attachments,
+        threadStateLoadingByThread: {
+          ...state.threadStateLoadingByThread,
+          [id]: true,
+        },
+      }));
+      return true;
+    },
+
     openThreadById: async (threadId, options = {}) => {
       const requestedId = normalizeBackendThreadId(threadId);
       if (!requestedId) return false;

@@ -6,21 +6,27 @@ import { SkillsPage } from './SkillsPage.jsx';
 
 const backend = vi.hoisted(() => ({
   applySkillResolution: vi.fn(),
+  createDatasourceDocument: vi.fn(),
   createSkill: vi.fn(),
+  deleteDatasourceDocument: vi.fn(),
   deleteSkill: vi.fn(),
   getDashboardPage: vi.fn(),
+  getDatasourceDocument: vi.fn(),
   importSkillDirectories: vi.fn(),
+  listDatasourceDocuments: vi.fn(),
   listMCPServers: vi.fn(),
   listSkillFiles: vi.fn(),
   listSkillResolutions: vi.fn(),
   previewSkillResolution: vi.fn(),
   readSkill: vi.fn(),
+  selectFiles: vi.fn(),
   selectProjectDirs: vi.fn(),
   startPlaywrightMCPServer: vi.fn(),
   startSQLiteMCPServer: vi.fn(),
   stopPlaywrightMCPServer: vi.fn(),
   stopSQLiteMCPServer: vi.fn(),
   suggestSkillSummary: vi.fn(),
+  updateDatasourceDocument: vi.fn(),
   writeSkill: vi.fn(),
 }));
 
@@ -90,6 +96,61 @@ beforeEach(() => {
   backend.stopSQLiteMCPServer.mockResolvedValue({ serverName: 'sqlite', enabled: false });
   backend.startPlaywrightMCPServer.mockResolvedValue({ serverName: 'playwright', enabled: true });
   backend.stopPlaywrightMCPServer.mockResolvedValue({ serverName: 'playwright', enabled: false });
+  backend.listDatasourceDocuments.mockResolvedValue({
+    documents: [{
+      documentId: 101,
+      sourcePath: 'C:\\data\\source.txt',
+      fileName: 'source.txt',
+      extension: '.txt',
+      sizeBytes: 7,
+      chunkCount: 1,
+      totalChars: 7,
+      status: 'ready',
+      contentHash: 'sha256:abc',
+    }],
+  });
+  backend.createDatasourceDocument.mockResolvedValue({
+    documentId: 102,
+    sourcePath: 'C:\\data\\new.txt',
+    fileName: 'new.txt',
+    extension: '.txt',
+    sizeBytes: 3,
+    chunkCount: 1,
+    totalChars: 3,
+    status: 'ready',
+  });
+  backend.getDatasourceDocument.mockResolvedValue({
+    document: {
+      documentId: 101,
+      sourcePath: 'C:\\data\\source.txt',
+      fileName: 'source.txt',
+      extension: '.txt',
+      sizeBytes: 7,
+      chunkCount: 1,
+      totalChars: 7,
+      status: 'ready',
+    },
+    chunks: [{
+      id: 501,
+      documentId: 101,
+      chunkIndex: 0,
+      content: 'content',
+      charCount: 7,
+      byteCount: 7,
+    }],
+  });
+  backend.updateDatasourceDocument.mockResolvedValue({
+    documentId: 101,
+    sourcePath: 'C:\\data\\source-renamed.txt',
+    fileName: 'source-renamed.txt',
+    extension: '.txt',
+    sizeBytes: 8,
+    chunkCount: 1,
+    totalChars: 7,
+    status: 'ready',
+  });
+  backend.deleteDatasourceDocument.mockResolvedValue({ documentId: 101, deleted: true });
+  backend.selectFiles.mockResolvedValue(['C:\\data\\new.pdf']);
 });
 
 describe('SkillsPage module', () => {
@@ -138,6 +199,55 @@ describe('SkillsPage backend migration', () => {
     await waitFor(() => expect(backend.stopPlaywrightMCPServer).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(within(playwrightControl).getByTestId('playwright-mcp-status')).toHaveTextContent('已关闭'));
     expect(within(playwrightControl).getByRole('status')).toHaveTextContent('Playwright MCP 已关闭');
+  });
+
+  it('renders datasource_v2 rows and sends create, read, update, and delete actions', async () => {
+    renderSkillsPage();
+
+    fireEvent.click(screen.getByRole('button', { name: /数据源|Data Sources/ }));
+
+    expect(await screen.findByText('source.txt')).toBeInTheDocument();
+    expect(backend.listDatasourceDocuments).toHaveBeenCalledWith({ limit: 200 });
+
+    fireEvent.click(screen.getByTestId('datasource-import-button'));
+    await waitFor(() => {
+      expect(backend.selectFiles).toHaveBeenCalledWith({
+        filters: [{ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }],
+      });
+      expect(backend.createDatasourceDocument).toHaveBeenCalledWith({ sourcePath: 'C:\\data\\new.pdf' });
+    });
+
+    fireEvent.click(screen.getByTestId('datasource-view-101'));
+    await waitFor(() => {
+      expect(backend.getDatasourceDocument).toHaveBeenCalledWith({ documentId: 101 });
+    });
+    const detailDialog = await screen.findByRole('dialog', { name: '数据源详情' });
+    expect(await within(detailDialog).findByTestId('datasource-detail-chunk')).toHaveTextContent('content');
+    fireEvent.click(within(detailDialog).getByRole('button', { name: '关闭' }));
+
+    fireEvent.click(screen.getByTestId('datasource-edit-101'));
+    const editDialog = await screen.findByRole('dialog', { name: '编辑数据源' });
+    fireEvent.change(within(editDialog).getByTestId('datasource-edit-source-path'), {
+      target: { value: 'C:\\data\\source-renamed.txt' },
+    });
+    fireEvent.change(within(editDialog).getByTestId('datasource-edit-file-name'), {
+      target: { value: 'source-renamed.txt' },
+    });
+    fireEvent.click(within(editDialog).getByTestId('datasource-edit-save'));
+    await waitFor(() => {
+      expect(backend.updateDatasourceDocument).toHaveBeenCalledWith(expect.objectContaining({
+        documentId: 101,
+        sourcePath: 'C:\\data\\source-renamed.txt',
+        fileName: 'source-renamed.txt',
+      }));
+    });
+
+    fireEvent.click(screen.getByTestId('datasource-delete-101'));
+    const deleteDialog = await screen.findByRole('dialog', { name: '删除数据源' });
+    fireEvent.click(within(deleteDialog).getByTestId('datasource-delete-confirm'));
+    await waitFor(() => {
+      expect(backend.deleteDatasourceDocument).toHaveBeenCalledWith({ documentId: 101 });
+    });
   });
 
   it('frames the plugin entry around the current local skills surface', async () => {

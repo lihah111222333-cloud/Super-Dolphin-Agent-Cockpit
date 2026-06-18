@@ -11,21 +11,39 @@ import (
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
-func TestPrepareCodexToolSurfaceFailsOnNonReservedDuplicateToolName(t *testing.T) {
-	first := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", Description: "first", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
-	second := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", Description: "second", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
-	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp-a": first, "lsp-b": second})}
+func TestPrepareCodexToolSurfaceNamespacesExternalDuplicateToolName(t *testing.T) {
+	postgres := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "query", Description: "postgres query", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
+	sqlite := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "query", Description: "sqlite query", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
+	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"postgres": postgres, "sqlite": sqlite})}
 
-	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
-		AgentID: "agent-1",
-		CWD:     "/repo",
+	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+		AgentID:          "agent-1",
+		ProviderThreadID: "provider-thread-1",
+		CWD:              "/repo",
 		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{
-			{Name: "lsp-a", Command: []string{"mcp-lsp-a"}},
-			{Name: "lsp-b", Command: []string{"mcp-lsp-b"}},
+			{Name: "postgres", Command: []string{"mcp-server-postgres"}},
+			{Name: "sqlite", Command: []string{"npx", "-y", "@bytebase/dbhub", "--dsn=sqlite:///tmp/app.db"}},
 		}},
 	})
-	if err == nil || !strings.Contains(err.Error(), `duplicate codex surface tool "grep"`) {
-		t.Fatalf("PrepareCodexToolSurface() error = %v, want duplicate grep failure", err)
+	if err != nil {
+		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
+	}
+	assertDynamicToolNames(t, tools, []string{"query", "mcp__sqlite__query"})
+
+	_, err = h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"query","arguments":{"sql":"select 1"},"_agentId":"agent-1","_threadId":"provider-thread-1","_callId":"call-1","_cwd":"/repo"}`)})
+	if err != nil {
+		t.Fatalf("HandleToolCall(query) error = %v", err)
+	}
+	if !postgres.calledWith("query") {
+		t.Fatalf("postgres calls = %#v, want query", postgres.calls)
+	}
+
+	_, err = h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"mcp__sqlite__query","arguments":{"sql":"select 1"},"_agentId":"agent-1","_threadId":"provider-thread-1","_callId":"call-2","_cwd":"/repo"}`)})
+	if err != nil {
+		t.Fatalf("HandleToolCall(mcp__sqlite__query) error = %v", err)
+	}
+	if !sqlite.calledWith("query") {
+		t.Fatalf("sqlite calls = %#v, want query", sqlite.calls)
 	}
 }
 
