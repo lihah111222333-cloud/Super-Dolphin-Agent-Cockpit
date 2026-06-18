@@ -28,6 +28,45 @@ func TestTerminalReportEventWithoutBodyWritesFallbackReport(t *testing.T) {
 	if got.Report == "" || !strings.Contains(got.Report, "without producing") {
 		t.Fatalf("GetReport().Report = %q, want explicit no-report fallback", got.Report)
 	}
+	if got.ReportSeq != 1 || got.UpdatedAt.IsZero() {
+		t.Fatalf("GetReport() seq/updated_at = %d/%v, want fallback write metadata", got.ReportSeq, got.UpdatedAt)
+	}
+}
+
+func TestReportEventIncrementsReportSeq(t *testing.T) {
+	firstAt := time.Date(2026, 6, 18, 9, 0, 0, 0, time.UTC)
+	secondAt := firstAt.Add(time.Minute)
+	svc := &service{agents: map[string]*agentRuntime{
+		"agent-1": {id: "agent-1", state: agentdto.StateTurnRunning},
+	}}
+
+	first, err := svc.HandleReportEvent(withEventTime(context.Background(), firstAt), ReportEvent{
+		AgentID:   "agent-1",
+		EventType: "turn/completed",
+		Report:    "first report",
+	})
+	if err != nil {
+		t.Fatalf("first HandleReportEvent() error = %v", err)
+	}
+	second, err := svc.HandleReportEvent(withEventTime(context.Background(), secondAt), ReportEvent{
+		AgentID:   "agent-1",
+		EventType: "turn/completed",
+		Report:    "second report",
+	})
+	if err != nil {
+		t.Fatalf("second HandleReportEvent() error = %v", err)
+	}
+
+	got, err := svc.GetReport(context.Background(), "agent-1")
+	if err != nil {
+		t.Fatalf("GetReport() error = %v", err)
+	}
+	if first.ReportSeq != 1 || second.ReportSeq != 2 || got.ReportSeq != 2 {
+		t.Fatalf("report seqs = first:%d second:%d get:%d, want 1/2/2", first.ReportSeq, second.ReportSeq, got.ReportSeq)
+	}
+	if !got.UpdatedAt.Equal(secondAt) {
+		t.Fatalf("GetReport().UpdatedAt = %s, want %s", got.UpdatedAt, secondAt)
+	}
 }
 
 func TestProcessExitFailureWithoutReportWritesFallbackReport(t *testing.T) {

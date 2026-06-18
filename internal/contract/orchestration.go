@@ -264,10 +264,12 @@ type AgentReportMetadata struct {
 }
 
 type AgentReportResult struct {
-	AgentID  string               `json:"agent_id"`
-	Report   string               `json:"report"`
-	State    string               `json:"state"`
-	Metadata *AgentReportMetadata `json:"metadata,omitempty"`
+	AgentID   string               `json:"agent_id"`
+	Report    string               `json:"report"`
+	ReportSeq int64                `json:"report_seq"`
+	UpdatedAt time.Time            `json:"updated_at,omitzero"`
+	State     string               `json:"state"`
+	Metadata  *AgentReportMetadata `json:"metadata,omitempty"`
 }
 
 type RememberReportRequest struct {
@@ -289,11 +291,13 @@ type ReportEvent struct {
 }
 
 type ReportEventResult struct {
-	Success              bool     `json:"success"`
-	AgentID              string   `json:"agent_id"`
-	EventType            string   `json:"event_type,omitempty"`
-	Report               string   `json:"report,omitempty"`
-	NotifiedRequesterIDs []string `json:"notified_requester_ids,omitempty"`
+	Success              bool      `json:"success"`
+	AgentID              string    `json:"agent_id"`
+	EventType            string    `json:"event_type,omitempty"`
+	Report               string    `json:"report,omitempty"`
+	ReportSeq            int64     `json:"report_seq,omitempty"`
+	UpdatedAt            time.Time `json:"updated_at,omitzero"`
+	NotifiedRequesterIDs []string  `json:"notified_requester_ids,omitempty"`
 }
 
 type CreateDAGRequest struct {

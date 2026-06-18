@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -269,6 +270,54 @@ func TestSubmitTurnRehydratesPersistedAgentRuntimeAfterPeerRestart(t *testing.T)
 	}
 }
 
+func TestSubmitTurnRehydratesPersistedReportSeq(t *testing.T) {
+	launcher := &persistedRuntimeTestLauncher{}
+	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	cwd := t.TempDir()
+	mustWriteVersionedPersistedAgentReportFile(t, cwd, "agent-1", "display one", 7, "old report")
+	svc.agentBindings = fakeAgentBindingStore{binding: &PersistedBinding{
+		AgentID:       "agent-1",
+		Provider:      "codex",
+		CodexThreadID: "provider-thread-1",
+		Cwd:           cwd,
+		CreatedAt:     1710000000,
+		UpdatedAt:     1710000100,
+	}}
+	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+		{
+			ThreadID:  "provider-thread-1",
+			AgentID:   "agent-1",
+			Name:      "display one",
+			Cwd:       cwd,
+			Status:    "created",
+			CreatedAt: 1710000000,
+			UpdatedAt: 1710000100,
+		},
+	}}
+
+	if err := svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: "agent-1"}); err != nil {
+		t.Fatalf("SubmitTurn() error = %v", err)
+	}
+	before, err := svc.GetReport(context.Background(), "agent-1")
+	if err != nil {
+		t.Fatalf("GetReport() before update error = %v", err)
+	}
+	if before.ReportSeq != 7 || before.Report != "old report" {
+		t.Fatalf("GetReport() before update = %#v, want persisted seq 7", before)
+	}
+	after, err := svc.HandleReportEvent(context.Background(), ReportEvent{
+		AgentID:   "agent-1",
+		EventType: "turn/completed",
+		Report:    "new report",
+	})
+	if err != nil {
+		t.Fatalf("HandleReportEvent() error = %v", err)
+	}
+	if after.ReportSeq != 8 {
+		t.Fatalf("HandleReportEvent().ReportSeq = %d, want 8 after rehydrate", after.ReportSeq)
+	}
+}
+
 func TestGetReportRejectsRemoteThreadID(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	svc.agents["agent-1"] = &agentRuntime{
@@ -351,6 +400,12 @@ func mustWritePersistedAgentReportFile(t *testing.T, cwd, agentID, name, report 
 	if err := os.WriteFile(path, []byte(report), 0o644); err != nil {
 		t.Fatalf("WriteFile(persisted report) error = %v", err)
 	}
+}
+
+func mustWriteVersionedPersistedAgentReportFile(t *testing.T, cwd, agentID, name string, seq int64, report string) {
+	t.Helper()
+	body := fmt.Sprintf("---\nreport_seq: %d\nupdated_at: \"2026-06-18T10:30:00Z\"\n---\n\n%s", seq, report)
+	mustWritePersistedAgentReportFile(t, cwd, agentID, name, body)
 }
 
 type fakeAgentBindingStore struct {
