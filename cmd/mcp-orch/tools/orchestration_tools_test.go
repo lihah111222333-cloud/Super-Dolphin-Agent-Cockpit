@@ -141,7 +141,34 @@ func TestLaunchAgentSchemaDocumentsContextMode(t *testing.T) {
 		t.Fatalf("context schema type = %T, want map[string]any", props["context"])
 	}
 	contextDescription, _ := context["description"].(string)
-	require.Contains(t, contextDescription, "focused")
+	contextModeDescription, _ := contextMode["description"].(string)
+	for _, want := range []string{
+		"minimal",
+		"focused",
+		"Do not copy the parent conversation history",
+	} {
+		require.Contains(t, contextModeDescription, want)
+	}
+	for _, want := range []string{
+		"focused",
+		"background",
+		"confirmed decisions",
+		"relevant file paths",
+		"forbidden actions",
+		"return format",
+		"known risks",
+		"file paths, function names, line numbers, and constraints",
+		"Do not paste large code blocks",
+		"fixed Markdown report template",
+		"must not delegate again",
+	} {
+		require.Contains(t, contextDescription, want)
+	}
+	for _, field := range []string{"files", "constraints", "return_format"} {
+		require.NotContains(t, props, field)
+		require.NotContains(t, contextDescription, "`"+field+"`")
+		require.NotContains(t, contextModeDescription, "`"+field+"`")
+	}
 }
 
 func launchAgentSchemaProperties(t *testing.T) map[string]any {

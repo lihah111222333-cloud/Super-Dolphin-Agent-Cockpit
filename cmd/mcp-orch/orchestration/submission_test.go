@@ -298,8 +298,9 @@ func TestHandleReportEventPersistsReportToAgentCWD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(persisted report) error = %v", err)
 	}
-	if string(raw) != "final body" {
-		t.Fatalf("persisted report = %q, want final body", string(raw))
+	text := string(raw)
+	if !strings.Contains(text, "report_seq: 1") || !strings.Contains(text, "final body") {
+		t.Fatalf("persisted report = %q, want front matter and final body", text)
 	}
 }
 

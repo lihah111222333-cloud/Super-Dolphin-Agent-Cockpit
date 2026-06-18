@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -45,9 +44,11 @@ type LaunchAgentInput struct {
 }
 
 type SendMessageInput struct {
-	AgentID string `json:"agent_id"`
-	Pos     string `json:"pos,omitempty"`
-	Message string `json:"message"`
+	AgentID    string `json:"agent_id"`
+	Pos        string `json:"pos,omitempty"`
+	Message    string `json:"message"`
+	WaitReport *bool  `json:"wait_report,omitempty"`
+	TimeoutMS  int    `json:"timeout_ms,omitempty"`
 }
 
 type AgentIDInput struct {
@@ -353,25 +354,16 @@ func releaseLaunchAgentID(agentID string) func() {
 // HandleSendMessage 处理send消息。
 func HandleSendMessage(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in SendMessageInput) (map[string]any, error) {
+		if sendMessageShouldWaitReport(in) {
+			return submitMessageAndWaitForReport(ctx, svc, in)
+		}
 		submission, err := submissionFromMessage(ctx, svc, in)
 		if err != nil {
 			return nil, err
 		}
-		pkglogger.Warn("orchestration_send_message: submit begin",
-			"agent_id", submission.AgentID,
-			"thread_id", submission.ThreadID,
-			"input_items", len(submission.Inputs),
-			"message_len", len([]rune(strings.TrimSpace(in.Message))))
-		if err := svc.SubmitTurn(ctx, submission); err != nil {
-			pkglogger.Warn("orchestration_send_message: submit failed",
-				"agent_id", submission.AgentID,
-				"thread_id", submission.ThreadID,
-				"error", err)
+		if err := submitSendMessageTurn(ctx, svc, submission, in.Message); err != nil {
 			return nil, err
 		}
-		pkglogger.Warn("orchestration_send_message: submit accepted",
-			"agent_id", submission.AgentID,
-			"thread_id", submission.ThreadID)
 		return successResult(map[string]any{"agent_id": submission.AgentID}), nil
 	})
 }
@@ -645,35 +637,4 @@ func launchEnv(provider, model, effort, codexHome, codexInstanceKey, codexModelP
 		env = append(env, "AGENT_CODEX_MODEL_PROVIDER="+codexModelProvider)
 	}
 	return env
-}
-
-func submissionFromMessage(
-	ctx context.Context,
-	svc contract.OrchestrationService,
-	in SendMessageInput,
-) (contract.TurnSubmission, error) {
-	agentID, err := resolveAgentIDInput(in.AgentID, in.Pos)
-	if err != nil {
-		return contract.TurnSubmission{}, err
-	}
-	message, err := requireTrimmed(in.Message, "message")
-	if err != nil {
-		return contract.TurnSubmission{}, err
-	}
-	return contract.TurnSubmission{
-		AgentID:  agentID,
-		ThreadID: submissionThreadID(ctx, svc, agentID),
-		Inputs: []shareddto.InputItem{{
-			Type:    "text",
-			Content: message,
-		}},
-	}, nil
-}
-
-func submissionThreadID(ctx context.Context, svc contract.OrchestrationService, agentID string) string {
-	snapshot, err := svc.Snapshot(ctx, agentID)
-	if err == nil && strings.TrimSpace(snapshot.ThreadID) != "" {
-		return strings.TrimSpace(snapshot.ThreadID)
-	}
-	return agentID
 }
