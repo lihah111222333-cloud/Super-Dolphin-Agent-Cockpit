@@ -803,7 +803,8 @@ function formatRelativeTime(dateString, copy = APP_COPY.zh.workbench.relativeTim
   return copy.month.replace('{count}', diffMonths);
 }
 
-function useSidebarThreadActions(store) {
+function useSidebarThreadActions(store, options = {}) {
+  const { onDeleteThreads, onRenameThread } = options;
   const [editingThreadId, setEditingThreadId] = useState('');
   const [editingName, setEditingName] = useState('');
   const [renamingThreadId, setRenamingThreadId] = useState('');
@@ -837,6 +838,7 @@ function useSidebarThreadActions(store) {
     try {
       const saved = await store?.renameThread?.(thread.id, nextName);
       if (saved) {
+        onRenameThread?.(thread.id, nextName);
         setEditingThreadId('');
         setEditingName('');
       }
@@ -844,7 +846,7 @@ function useSidebarThreadActions(store) {
     finally {
       setRenamingThreadId('');
     }
-  }, [cancelRename, editingName, renamingThreadId, store]);
+  }, [cancelRename, editingName, onRenameThread, renamingThreadId, store]);
 
   const beginDelete = useCallback((threadId, event) => {
     event?.stopPropagation?.();
@@ -863,8 +865,11 @@ function useSidebarThreadActions(store) {
     event?.stopPropagation?.();
     if (!threadId) return;
     setDeletingThreadId('');
-    runUIAction(() => store?.deleteStaleThreads?.([threadId]), uiActionOptions(store));
-  }, [store]);
+    runUIAction(async () => {
+      const result = await store?.deleteStaleThreads?.([threadId]);
+      if (!result || result.deleted > 0) onDeleteThreads?.([threadId]);
+    }, uiActionOptions(store));
+  }, [onDeleteThreads, store]);
 
   return {
     beginDelete,
@@ -990,7 +995,6 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
   const [expandedProjects, setExpandedProjects] = useState({});
   const [projectThreadCache, setProjectThreadCache] = useState({});
   const projectThreadCacheRef = useRef({});
-  const threadActions = useSidebarThreadActions(store);
   const actionOptions = uiActionOptions(store);
   const projectItems = projectDirectoryItems(projectPath, store?.projects, store?.activeProject);
   const activeProjectPath = textValue(store?.activeProject || projectPath);
@@ -1013,6 +1017,41 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
       };
     });
   }, []);
+  const renameCachedProjectThread = useCallback((threadId, name) => {
+    const id = textValue(threadId);
+    if (!id) return;
+    setProjectThreadCache((current) => {
+      let changed = false;
+      const next = Object.fromEntries(Object.entries(current).map(([key, entry]) => {
+        const threads = Array.isArray(entry?.threads) ? entry.threads : [];
+        const nextThreads = threads.map((thread) => {
+          if (thread?.id !== id) return thread;
+          changed = true;
+          return { ...thread, name, title: name };
+        });
+        return [key, { ...entry, threads: nextThreads }];
+      }));
+      return changed ? next : current;
+    });
+  }, []);
+  const removeCachedProjectThreads = useCallback((threadIds = []) => {
+    const ids = new Set((Array.isArray(threadIds) ? threadIds : [threadIds]).map(textValue).filter(Boolean));
+    if (ids.size === 0) return;
+    setProjectThreadCache((current) => {
+      let changed = false;
+      const next = Object.fromEntries(Object.entries(current).map(([key, entry]) => {
+        const threads = Array.isArray(entry?.threads) ? entry.threads : [];
+        const nextThreads = threads.filter((thread) => !ids.has(textValue(thread?.id)));
+        if (nextThreads.length !== threads.length) changed = true;
+        return [key, { ...entry, threads: nextThreads }];
+      }));
+      return changed ? next : current;
+    });
+  }, []);
+  const threadActions = useSidebarThreadActions(store, {
+    onDeleteThreads: removeCachedProjectThreads,
+    onRenameThread: renameCachedProjectThread,
+  });
   const refreshProjectThreadCache = useCallback((path, options = {}) => {
     const key = projectTreeKey(path);
     if (!key) return;
@@ -1058,7 +1097,6 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
   }, actionOptions);
   const selectProject = (path) => {
     if (!path) return;
-    setActivePage('chat');
     const hasExplicitState = Object.prototype.hasOwnProperty.call(expandedProjects, path);
     const currentExpanded = hasExplicitState ? !!expandedProjects[path] : projectTreeKey(path) === projectTreeKey(activeProjectPath);
     const nextExpanded = !currentExpanded;
@@ -1069,14 +1107,29 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
       };
     });
     if (nextExpanded) refreshProjectThreadCache(path);
-    if (projectTreeKey(path) !== projectTreeKey(activeProjectPath)) {
-      runUIAction(() => store?.setActiveProjectPath?.(path), actionOptions);
-    }
   };
-  const selectThread = (threadId) => {
+  const startProjectThread = (path, event) => {
+    event?.stopPropagation?.();
+    if (!path) return;
+    runUIAction(async () => {
+      if (projectTreeKey(path) !== projectTreeKey(activeProjectPath)) {
+        const switched = await store?.setActiveProjectPath?.(path);
+        if (switched === false) return;
+      }
+      store?.newThread?.();
+      setActivePage('chat');
+    }, actionOptions);
+  };
+  const selectThread = (threadId, path) => {
     if (!threadId) return;
     setActivePage('chat');
-    runUIAction(() => store?.setActiveThread?.(threadId), actionOptions);
+    runUIAction(async () => {
+      if (path && projectTreeKey(path) !== projectTreeKey(activeProjectPath)) {
+        const switched = await store?.setActiveProjectPath?.(path);
+        if (switched === false) return;
+      }
+      return store?.setActiveThread?.(threadId);
+    }, actionOptions);
   };
   return (
     <section className="sidebar-project-tree" aria-label={copy.projects}>
@@ -1100,18 +1153,30 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
           const isExpanded = hasExplicitState ? !!expandedProjects[item.path] : isActiveProject;
           const visibleThreads = isExpanded ? projectThreads : [];
           const showLoading = isExpanded && cacheEntry?.loading && visibleThreads.length === 0;
+          const newProjectThreadLabel = `${copy.newChat} ${item.name}`;
           return (
             <div className="sidebar-tree-project" key={item.path || item.name}>
-              <button
-                type="button"
-                className={`sidebar-tree-folder${isActiveProject ? ' active' : ''}`}
-                onClick={() => selectProject(item.path)}
-                aria-expanded={isExpanded}
-                aria-label={`${copy.selectProject} ${item.name}`}
-              >
-                <Folder size={18} aria-hidden="true" />
-                <span>{item.name}</span>
-              </button>
+              <div className="sidebar-project-header">
+                <button
+                  type="button"
+                  className={`sidebar-tree-folder${isActiveProject ? ' active' : ''}`}
+                  onClick={() => selectProject(item.path)}
+                  aria-expanded={isExpanded}
+                  aria-label={`${copy.selectProject} ${item.name}`}
+                >
+                  <Folder size={18} aria-hidden="true" />
+                  <span>{item.name}</span>
+                </button>
+                <button
+                  type="button"
+                  className="sidebar-icon-action sidebar-project-new-thread"
+                  onClick={(event) => startProjectThread(item.path, event)}
+                  aria-label={newProjectThreadLabel}
+                  title={newProjectThreadLabel}
+                >
+                  <SquarePlus size={16} aria-hidden="true" />
+                </button>
+              </div>
               <ul className="sidebar-project-thread-list" aria-label={`${item.name} ${copy.projectChatsSuffix}`}>
                 {visibleThreads.length > 0 ? visibleThreads.map((thread) => {
                   const label = projectThreadLabel(thread);
@@ -1123,7 +1188,7 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
                         active={active}
                         copy={copy}
                         label={label}
-                        onSelect={() => selectThread(thread.id)}
+                        onSelect={() => selectThread(thread.id, item.path)}
                         openLabel={`${copy.openProjectThread}：${label}`}
                         thread={thread}
                         threadActions={threadActions}
@@ -1135,7 +1200,7 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
                       <button
                         type="button"
                         className={`sidebar-project-thread${active ? ' active' : ''}`}
-                        onClick={() => selectThread(thread.id)}
+                        onClick={() => selectThread(thread.id, item.path)}
                         aria-label={`${copy.openProjectThread}：${label}`}
                         title={label}
                       >
